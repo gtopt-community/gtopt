@@ -21,7 +21,7 @@ struct GeneratorProfile
   Name name {};
   OptActive active {};
 
-  GeneratorVar generator {};
+  SingleId generator {};
   STBRealFieldSched profile {};
   OptTRealFieldSched scost {};
 };
