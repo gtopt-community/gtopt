@@ -40,9 +40,17 @@ def convert(output_path: Path | None = None) -> None:
     base_mva = 100.0  # IEEE 30-bus system base
 
     # ---- buses ---------------------------------------------------------------
+    # The ext_grid bus is the DC OPF reference bus (slack bus, theta = 0).
+    # Without a fixed reference the LP angle variables are underdetermined and
+    # may drift to their bounds, creating artificial congestion.
+    slack_bus = int(net.ext_grid.iloc[0]["bus"]) + 1  # 1-indexed
     bus_array = []
     for idx, row in net.bus.iterrows():
-        bus_array.append({"uid": int(idx) + 1, "name": f"b{int(idx) + 1}"})
+        bus_uid = int(idx) + 1
+        entry: dict = {"uid": bus_uid, "name": f"b{bus_uid}"}
+        if bus_uid == slack_bus:
+            entry["reference_theta"] = 0  # fix slack angle to 0 rad
+        bus_array.append(entry)
 
     # ---- generators ----------------------------------------------------------
     # ext_grid (slack/reference generator) + PV generators
@@ -142,6 +150,7 @@ def convert(output_path: Path | None = None) -> None:
             "bus_a": fb + 1,
             "bus_b": tb + 1,
             "reactance": round(x_pu, 6),
+            "voltage": 10,
             "tmax_ab": tmax,
             "tmax_ba": tmax,
         }
@@ -166,6 +175,7 @@ def convert(output_path: Path | None = None) -> None:
             "bus_a": hv + 1,
             "bus_b": lv + 1,
             "reactance": round(x_pu, 6),
+            "voltage": 10,
             "tmax_ab": 9999,
             "tmax_ba": 9999,
         }
