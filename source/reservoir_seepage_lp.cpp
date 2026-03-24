@@ -1,11 +1,11 @@
 /**
- * @file      filtration_lp.cpp
- * @brief     Implementation of FiltrationLP methods
+ * @file      reservoir_seepage_lp.cpp
+ * @brief     Implementation of ReservoirSeepageLP methods
  * @date      Thu Jul 31 23:33:04 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Implements the linear programming formulation for filtration systems.
+ * Implements the linear programming formulation for seepage systems.
  * Per-stage slope/constant schedules (from plpmanfi.dat Parquet files) are
  * read at construction time and applied directly as LP matrix coefficients
  * during add_to_lp() for each stage.  When piecewise-linear segments are
@@ -13,11 +13,11 @@
  * the reservoir volume via update_lp().
  */
 
-#include <gtopt/filtration_lp.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/reservoir_seepage_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
@@ -25,17 +25,18 @@
 namespace gtopt
 {
 
-FiltrationLP::FiltrationLP(const Filtration& pfiltration, InputContext& ic)
-    : ObjectLP<Filtration>(pfiltration)
-    , m_slope_sched_(ic, ClassName, id(), std::move(filtration().slope))
-    , m_constant_sched_(ic, ClassName, id(), std::move(filtration().constant))
+ReservoirSeepageLP::ReservoirSeepageLP(const ReservoirSeepage& pseepage,
+                                       InputContext& ic)
+    : ObjectLP<ReservoirSeepage>(pseepage)
+    , m_slope_sched_(ic, ClassName, id(), std::move(seepage().slope))
+    , m_constant_sched_(ic, ClassName, id(), std::move(seepage().constant))
 {
 }
 
-bool FiltrationLP::add_to_lp(const SystemContext& sc,
-                             const ScenarioLP& scenario,
-                             const StageLP& stage,
-                             LinearProblem& lp)
+bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
+                                   const ScenarioLP& scenario,
+                                   const StageLP& stage,
+                                   LinearProblem& lp)
 {
   static constexpr std::string_view cname = ClassName.short_name();
 
@@ -51,7 +52,7 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
   const auto efin_col = reservoir.efin_col_at(scenario, stage);
 
   // The volume columns are in LP (scaled) units: LP_vol = phys_vol /
-  // energy_scale.  The filtration slope is in physical units [m³/s / dam³].
+  // energy_scale.  The seepage slope is in physical units [m³/s / dam³].
   // Multiplying the slope by energy_scale converts it to [m³/s / LP_unit] so
   // the constraint
   //   filt_flow = slope_lp * V_avg_lp + constant
@@ -64,10 +65,9 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
   Real effective_slope = m_slope_sched_.at(stage.uid()).value_or(0.0);
   Real effective_rhs = m_constant_sched_.at(stage.uid()).value_or(0.0);
 
-  if (!filtration().segments.empty()) {
+  if (!seepage().segments.empty()) {
     const auto eini_vol = reservoir.reservoir().eini.value_or(0.0);
-    const auto coeffs =
-        select_filtration_coeffs(filtration().segments, eini_vol);
+    const auto coeffs = select_seepage_coeffs(seepage().segments, eini_vol);
     effective_slope = coeffs.slope;
     effective_rhs = coeffs.intercept;
   }
@@ -103,11 +103,11 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
 
   // storing the indices for this scenario and stage
   const auto st_key = std::pair {scenario.uid(), stage.uid()};
-  filtration_rows[st_key] = std::move(frows);
-  filtration_cols[st_key] = std::move(fcols);
+  seepage_rows[st_key] = std::move(frows);
+  seepage_cols[st_key] = std::move(fcols);
 
   // Store the coefficient state for later updates
-  m_states_[st_key] = FiltrationState {
+  m_states_[st_key] = ReservoirSeepageState {
       .eini_col = eini_col,
       .efin_col = efin_col,
       .energy_scale = energy_scale,
@@ -118,26 +118,26 @@ bool FiltrationLP::add_to_lp(const SystemContext& sc,
   return true;
 }
 
-bool FiltrationLP::add_to_output(OutputContext& out) const
+bool ReservoirSeepageLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = ClassName.full_name();
   const auto pid = id();
 
-  out.add_col_sol(cname, "filtration", pid, filtration_cols);
-  out.add_col_cost(cname, "filtration", pid, filtration_cols);
-  out.add_row_dual(cname, "filtration", pid, filtration_rows);
+  out.add_col_sol(cname, "seepage", pid, seepage_cols);
+  out.add_col_cost(cname, "seepage", pid, seepage_cols);
+  out.add_row_dual(cname, "seepage", pid, seepage_rows);
 
   return true;
 }
 
-int FiltrationLP::update_lp(SystemLP& sys,
-                            const ScenarioLP& scenario,
-                            const StageLP& stage,
-                            PhaseIndex phase,
-                            int iteration)
+int ReservoirSeepageLP::update_lp(SystemLP& sys,
+                                  const ScenarioLP& scenario,
+                                  const StageLP& stage,
+                                  PhaseIndex phase,
+                                  int iteration)
 {
   // Only update when piecewise segments are present
-  if (filtration().segments.empty()) {
+  if (seepage().segments.empty()) {
     return 0;
   }
 
@@ -167,7 +167,7 @@ int FiltrationLP::update_lp(SystemLP& sys,
   }
 
   // Select the active segment for the current volume (physical units)
-  const auto coeffs = select_filtration_coeffs(filtration().segments, volume);
+  const auto coeffs = select_seepage_coeffs(seepage().segments, volume);
 
   const auto new_slope = coeffs.slope;
   const auto new_rhs = coeffs.intercept;
@@ -180,7 +180,7 @@ int FiltrationLP::update_lp(SystemLP& sys,
   // Convert slope from physical to LP units.
   const auto new_lp_slope = new_slope * state.energy_scale;
 
-  const auto& frows = filtration_rows.at(st_key);
+  const auto& frows = seepage_rows.at(st_key);
   int count = 0;
 
   for (const auto& [buid, row] : frows) {
@@ -195,7 +195,7 @@ int FiltrationLP::update_lp(SystemLP& sys,
   }
 
   SPDLOG_TRACE(
-      "FiltrationLP uid={}: updated {} constraints "
+      "ReservoirSeepageLP uid={}: updated {} constraints "
       "(volume={:.1f}, slope={:.6f}, rhs={:.6f})",
       uid(),
       count,

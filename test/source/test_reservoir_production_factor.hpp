@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /**
- * @file      test_reservoir_efficiency.hpp
- * @brief     Unit tests for ReservoirEfficiency, evaluate_efficiency,
- *            and the LP coefficient update mechanism
+ * @file      test_reservoir_production_factor.hpp
+ * @brief     Unit tests for ReservoirProductionFactor,
+ * evaluate_production_factor, and the LP coefficient update mechanism
  * @date      2026-03-10
  * @copyright BSD-3-Clause
  */
@@ -11,36 +11,38 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
-#include <gtopt/reservoir_efficiency.hpp>
-#include <gtopt/reservoir_efficiency_lp.hpp>
+#include <gtopt/reservoir_production_factor.hpp>
+#include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
-// ─── evaluate_efficiency tests ──────────────────────────────────────────────
+// ─── evaluate_production_factor tests
+// ──────────────────────────────────────────────
 
-TEST_CASE("evaluate_efficiency with empty segments returns 1.0")
+TEST_CASE("evaluate_production_factor with empty segments returns 1.0")
 {
-  const std::vector<EfficiencySegment> segments {};
-  CHECK(evaluate_efficiency(segments, 0.0) == doctest::Approx(1.0));
-  CHECK(evaluate_efficiency(segments, 500.0) == doctest::Approx(1.0));
+  const std::vector<ProductionFactorSegment> segments {};
+  CHECK(evaluate_production_factor(segments, 0.0) == doctest::Approx(1.0));
+  CHECK(evaluate_production_factor(segments, 500.0) == doctest::Approx(1.0));
 }
 
-TEST_CASE("evaluate_efficiency with single segment")
+TEST_CASE("evaluate_production_factor with single segment")
 {
   // constant = 1.2, slope = 0.0002, volume breakpoint = 0
   // efficiency(V) = 1.2 + 0.0002 * (V - 0) = 1.2 + 0.0002 * V
-  const std::vector<EfficiencySegment> segments {
+  const std::vector<ProductionFactorSegment> segments {
       {.volume = 0.0, .slope = 0.0002, .constant = 1.2},
   };
 
-  CHECK(evaluate_efficiency(segments, 0.0) == doctest::Approx(1.2));
-  CHECK(evaluate_efficiency(segments, 500.0) == doctest::Approx(1.3));
-  CHECK(evaluate_efficiency(segments, 1000.0) == doctest::Approx(1.4));
+  CHECK(evaluate_production_factor(segments, 0.0) == doctest::Approx(1.2));
+  CHECK(evaluate_production_factor(segments, 500.0) == doctest::Approx(1.3));
+  CHECK(evaluate_production_factor(segments, 1000.0) == doctest::Approx(1.4));
 }
 
-TEST_CASE("evaluate_efficiency with multiple segments (concave envelope)")
+TEST_CASE(
+    "evaluate_production_factor with multiple segments (concave envelope)")
 {
   // Two segments creating a concave envelope (PLP FRendimientos style):
   // constant is the value AT the breakpoint (point-slope form).
@@ -51,76 +53,78 @@ TEST_CASE("evaluate_efficiency with multiple segments (concave envelope)")
   // At V=0:   seg1=2.0, seg2=2.8+0.0002*(-500)=2.7 → min=2.0
   // At V=500: seg1=2.5, seg2=2.8 → min=2.5
   // At V=1500: seg1=3.5, seg2=2.8+0.0002*1000=3.0 → min=3.0
-  const std::vector<EfficiencySegment> segments {
+  const std::vector<ProductionFactorSegment> segments {
       {.volume = 0.0, .slope = 0.001, .constant = 2.0},
       {.volume = 500.0, .slope = 0.0002, .constant = 2.8},
   };
 
-  CHECK(evaluate_efficiency(segments, 0.0) == doctest::Approx(2.0));
-  CHECK(evaluate_efficiency(segments, 500.0) == doctest::Approx(2.5));
-  CHECK(evaluate_efficiency(segments, 1500.0) == doctest::Approx(3.0));
+  CHECK(evaluate_production_factor(segments, 0.0) == doctest::Approx(2.0));
+  CHECK(evaluate_production_factor(segments, 500.0) == doctest::Approx(2.5));
+  CHECK(evaluate_production_factor(segments, 1500.0) == doctest::Approx(3.0));
 }
 
-TEST_CASE("evaluate_efficiency never returns negative")
+TEST_CASE("evaluate_production_factor never returns negative")
 {
   // slope = -0.01 → at large volume, result would go negative
-  const std::vector<EfficiencySegment> segments {
+  const std::vector<ProductionFactorSegment> segments {
       {.volume = 0.0, .slope = -0.01, .constant = 1.0},
   };
 
-  CHECK(evaluate_efficiency(segments, 0.0) == doctest::Approx(1.0));
-  CHECK(evaluate_efficiency(segments, 50.0) == doctest::Approx(0.5));
-  CHECK(evaluate_efficiency(segments, 200.0) == doctest::Approx(0.0));
+  CHECK(evaluate_production_factor(segments, 0.0) == doctest::Approx(1.0));
+  CHECK(evaluate_production_factor(segments, 50.0) == doctest::Approx(0.5));
+  CHECK(evaluate_production_factor(segments, 200.0) == doctest::Approx(0.0));
 }
 
-// ─── ReservoirEfficiency struct tests ───────────────────────────────────────
+// ─── ReservoirProductionFactor struct tests
+// ───────────────────────────────────────
 
-TEST_CASE("ReservoirEfficiency default construction")
+TEST_CASE("ReservoirProductionFactor default construction")
 {
-  const ReservoirEfficiency re;
+  const ReservoirProductionFactor re;
 
   CHECK(re.uid == Uid {unknown_uid});
   CHECK(re.name == Name {});
   CHECK_FALSE(re.active.has_value());
   CHECK(re.turbine == SingleId {unknown_uid});
   CHECK(re.reservoir == SingleId {unknown_uid});
-  CHECK(re.mean_efficiency == doctest::Approx(1.0));
+  CHECK(re.mean_production_factor == doctest::Approx(1.0));
   CHECK(re.segments.empty());
-  CHECK_FALSE(re.sddp_efficiency_update_skip.has_value());
+  CHECK_FALSE(re.sddp_production_factor_update_skip.has_value());
 }
 
-TEST_CASE("ReservoirEfficiency attribute assignment")
+TEST_CASE("ReservoirProductionFactor attribute assignment")
 {
-  ReservoirEfficiency re;
+  ReservoirProductionFactor re;
 
   re.uid = 9001;
   re.name = "eff_colbun";
   re.turbine = Uid {101};
   re.reservoir = Uid {201};
-  re.mean_efficiency = 1.53;
+  re.mean_production_factor = 1.53;
   re.segments = {
       {.volume = 0.0, .slope = 0.0002294, .constant = 1.2558},
       {.volume = 500.0, .slope = 0.0001, .constant = 1.53},
   };
-  re.sddp_efficiency_update_skip = 2;
+  re.sddp_production_factor_update_skip = 2;
 
   CHECK(re.uid == 9001);
   CHECK(re.name == "eff_colbun");
   CHECK(std::get<Uid>(re.turbine) == Uid {101});
   CHECK(std::get<Uid>(re.reservoir) == Uid {201});
-  CHECK(re.mean_efficiency == doctest::Approx(1.53));
+  CHECK(re.mean_production_factor == doctest::Approx(1.53));
   CHECK(re.segments.size() == 2);
   CHECK(re.segments[0].constant == doctest::Approx(1.2558));
   CHECK(re.segments[1].slope == doctest::Approx(0.0001));
-  REQUIRE(re.sddp_efficiency_update_skip.has_value());
-  CHECK(re.sddp_efficiency_update_skip.value() == 2);
+  REQUIRE(re.sddp_production_factor_update_skip.has_value());
+  CHECK(re.sddp_production_factor_update_skip.value() == 2);
 }
 
-// ─── EfficiencySegment tests ────────────────────────────────────────────────
+// ─── ProductionFactorSegment tests
+// ────────────────────────────────────────────────
 
-TEST_CASE("EfficiencySegment default values")
+TEST_CASE("ProductionFactorSegment default values")
 {
-  const EfficiencySegment seg;
+  const ProductionFactorSegment seg;
 
   CHECK(seg.volume == doctest::Approx(0.0));
   CHECK(seg.slope == doctest::Approx(0.0));
@@ -147,9 +151,10 @@ TEST_CASE("Turbine main_reservoir field")
   }
 }
 
-// ─── SystemLP with ReservoirEfficiency ──────────────────────────────────────
+// ─── SystemLP with ReservoirProductionFactor
+// ──────────────────────────────────────
 
-TEST_CASE("SystemLP with reservoir efficiency element")
+TEST_CASE("SystemLP with reservoir production factor element")
 {
   const Array<Bus> bus_array = {
       {
@@ -223,13 +228,13 @@ TEST_CASE("SystemLP with reservoir efficiency element")
       },
   };
 
-  const Array<ReservoirEfficiency> reservoir_efficiency_array = {
+  const Array<ReservoirProductionFactor> reservoir_production_factor_array = {
       {
           .uid = Uid {1},
           .name = "eff1",
           .turbine = Uid {1},
           .reservoir = Uid {1},
-          .mean_efficiency = 1.5,
+          .mean_production_factor = 1.5,
           .segments =
               {
                   {.volume = 0.0, .slope = 0.001, .constant = 1.0},
@@ -275,7 +280,7 @@ TEST_CASE("SystemLP with reservoir efficiency element")
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
       .turbine_array = turbine_array,
-      .reservoir_efficiency_array = reservoir_efficiency_array,
+      .reservoir_production_factor_array = reservoir_production_factor_array,
   };
 
   const OptionsLP options;
@@ -293,9 +298,9 @@ TEST_CASE("SystemLP with reservoir efficiency element")
     CHECK(result.value() == 0);
   }
 
-  SUBCASE("ReservoirEfficiencyLP stores coefficient indices")
+  SUBCASE("ReservoirProductionFactorLP stores coefficient indices")
   {
-    auto& effs = system_lp.elements<ReservoirEfficiencyLP>();
+    auto& effs = system_lp.elements<ReservoirProductionFactorLP>();
     REQUIRE(effs.size() == 1);
 
     auto& eff = effs.front();
@@ -320,12 +325,12 @@ TEST_CASE("SystemLP with reservoir efficiency element")
     CHECK(updated > 0);
 
     // Verify the coefficient was changed (original was -1.0)
-    auto& effs = system_lp.elements<ReservoirEfficiencyLP>();
+    auto& effs = system_lp.elements<ReservoirProductionFactorLP>();
     auto& eff = effs.front();
-    // evaluate_efficiency uses concave-envelope min (PLP FRendimientos):
+    // evaluate_production_factor uses concave-envelope min (PLP FRendimientos):
     // seg1: 1.0 + 0.001*(500-0)=1.5, seg2: 1.5+0.0001*(500-800)=1.47
     // min = 1.47
-    const auto expected_rate = eff.compute_efficiency(500.0);
+    const auto expected_rate = eff.compute_production_factor(500.0);
     CHECK(expected_rate > 0.0);
 
     // Check that the LP coefficient matches

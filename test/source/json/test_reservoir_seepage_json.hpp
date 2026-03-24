@@ -4,9 +4,9 @@
 #include <vector>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_filtration.hpp>
+#include <gtopt/json/json_reservoir_seepage.hpp>
 
-TEST_CASE("Filtration daw json test 1")
+TEST_CASE("ReservoirSeepage daw json test 1")
 {
   std::string_view json_data = R"({
     "uid":5,
@@ -17,7 +17,8 @@ TEST_CASE("Filtration daw json test 1")
     "constant":100.0
   })";
 
-  gtopt::Filtration filt = daw::json::from_json<gtopt::Filtration>(json_data);
+  gtopt::ReservoirSeepage filt =
+      daw::json::from_json<gtopt::ReservoirSeepage>(json_data);
 
   REQUIRE(filt.uid == 5);
   REQUIRE(filt.name == "FILTER_A");
@@ -29,7 +30,7 @@ TEST_CASE("Filtration daw json test 1")
           == doctest::Approx(100.0));
 }
 
-TEST_CASE("Filtration daw json test 2")
+TEST_CASE("ReservoirSeepage daw json test 2")
 {
   std::string_view json_data = R"({
     "uid":5,
@@ -38,7 +39,8 @@ TEST_CASE("Filtration daw json test 2")
     "reservoir":20
   })";
 
-  gtopt::Filtration filt = daw::json::from_json<gtopt::Filtration>(json_data);
+  gtopt::ReservoirSeepage filt =
+      daw::json::from_json<gtopt::ReservoirSeepage>(json_data);
 
   REQUIRE(filt.uid == 5);
   REQUIRE(filt.name == "FILTER_A");
@@ -49,7 +51,7 @@ TEST_CASE("Filtration daw json test 2")
   CHECK_FALSE(filt.constant.has_value());
 }
 
-TEST_CASE("Filtration array json test")
+TEST_CASE("ReservoirSeepage array json test")
 {
   std::string_view json_data = R"([{
     "uid":5,
@@ -65,8 +67,8 @@ TEST_CASE("Filtration array json test")
     "constant":200.0
   }])";
 
-  std::vector<gtopt::Filtration> filts =
-      daw::json::from_json_array<gtopt::Filtration>(json_data);
+  std::vector<gtopt::ReservoirSeepage> filts =
+      daw::json::from_json_array<gtopt::ReservoirSeepage>(json_data);
 
   REQUIRE(filts[0].uid == 5);
   REQUIRE(filts[0].name == "FILTER_A");
@@ -83,17 +85,18 @@ TEST_CASE("Filtration array json test")
           == doctest::Approx(200.0));
 }
 
-TEST_CASE("Filtration with active property serialization")
+TEST_CASE("ReservoirSeepage with active property serialization")
 {
   SUBCASE("With boolean active")
   {
-    Filtration filt;
+    ReservoirSeepage filt;
     filt.uid = 1;
     filt.name = "test_filt";
     filt.active = True;
 
     auto json = daw::json::to_json(filt);
-    const Filtration roundtrip = daw::json::from_json<Filtration>(json);
+    const ReservoirSeepage roundtrip =
+        daw::json::from_json<ReservoirSeepage>(json);
 
     CHECK(roundtrip.active.has_value());
     CHECK(std::get<IntBool>(roundtrip.active.value_or(False)) == True);
@@ -101,13 +104,13 @@ TEST_CASE("Filtration with active property serialization")
 
   SUBCASE("With schedule active")
   {
-    Filtration filt;
+    ReservoirSeepage filt;
     filt.uid = 1;
     filt.name = "test_filt";
     filt.active = std::vector<IntBool> {True, False, True, False};
 
     auto json = daw::json::to_json(filt);
-    Filtration roundtrip = daw::json::from_json<Filtration>(json);
+    ReservoirSeepage roundtrip = daw::json::from_json<ReservoirSeepage>(json);
 
     CHECK(roundtrip.active.has_value());
     if (roundtrip.active.has_value()) {
@@ -122,7 +125,7 @@ TEST_CASE("Filtration with active property serialization")
   }
 }
 
-TEST_CASE("Filtration with empty optional fields")
+TEST_CASE("ReservoirSeepage with empty optional fields")
 {
   std::string_view json_data = R"({
     "uid":5,
@@ -131,7 +134,8 @@ TEST_CASE("Filtration with empty optional fields")
     "reservoir":20
   })";
 
-  const Filtration filt = daw::json::from_json<Filtration>(json_data);
+  const ReservoirSeepage filt =
+      daw::json::from_json<ReservoirSeepage>(json_data);
 
   CHECK(filt.uid == 5);
   CHECK(filt.name == "FILTER_A");
@@ -142,7 +146,7 @@ TEST_CASE("Filtration with empty optional fields")
   CHECK(filt.segments.empty());  // null defaults to empty
 }
 
-TEST_CASE("Filtration with piecewise segments JSON")
+TEST_CASE("ReservoirSeepage with piecewise segments JSON")
 {
   std::string_view json_data = R"({
     "uid":10,
@@ -157,7 +161,8 @@ TEST_CASE("Filtration with piecewise segments JSON")
     ]
   })";
 
-  const Filtration filt = daw::json::from_json<Filtration>(json_data);
+  const ReservoirSeepage filt =
+      daw::json::from_json<ReservoirSeepage>(json_data);
 
   CHECK(filt.uid == 10);
   CHECK(filt.name == "FILTER_PWL");
@@ -174,9 +179,9 @@ TEST_CASE("Filtration with piecewise segments JSON")
   CHECK(filt.segments[1].constant == doctest::Approx(0.65));
 }
 
-TEST_CASE("Filtration with segments roundtrip")
+TEST_CASE("ReservoirSeepage with segments roundtrip")
 {
-  Filtration filt;
+  ReservoirSeepage filt;
   filt.uid = 42;
   filt.name = "roundtrip_test";
   filt.waterway = Uid {1};
@@ -189,7 +194,8 @@ TEST_CASE("Filtration with segments roundtrip")
   };
 
   auto json = daw::json::to_json(filt);
-  const Filtration roundtrip = daw::json::from_json<Filtration>(json);
+  const ReservoirSeepage roundtrip =
+      daw::json::from_json<ReservoirSeepage>(json);
 
   CHECK(roundtrip.uid == 42);
   CHECK(roundtrip.name == "roundtrip_test");
@@ -204,7 +210,7 @@ TEST_CASE("Filtration with segments roundtrip")
   CHECK(roundtrip.segments[1].constant == doctest::Approx(3.0));
 }
 
-TEST_CASE("Filtration with per-stage slope/constant array JSON")
+TEST_CASE("ReservoirSeepage with per-stage slope/constant array JSON")
 {
   // Verify that slope and constant can be per-stage arrays in JSON
   // (analogous to how pmax in Generator accepts stage arrays)
@@ -217,7 +223,8 @@ TEST_CASE("Filtration with per-stage slope/constant array JSON")
     "constant":[1.0, 1.5, 2.0]
   })";
 
-  const Filtration filt = daw::json::from_json<Filtration>(json_data);
+  const ReservoirSeepage filt =
+      daw::json::from_json<ReservoirSeepage>(json_data);
 
   CHECK(filt.uid == 7);
   REQUIRE(filt.slope.has_value());
@@ -238,7 +245,7 @@ TEST_CASE("Filtration with per-stage slope/constant array JSON")
   CHECK(const_vec[2] == doctest::Approx(2.0));
 }
 
-TEST_CASE("Filtration with filename slope/constant JSON")
+TEST_CASE("ReservoirSeepage with filename slope/constant JSON")
 {
   // Verify that slope and constant can be filename strings in JSON
   // (referencing Parquet files from plpmanfi.dat)
@@ -251,7 +258,8 @@ TEST_CASE("Filtration with filename slope/constant JSON")
     "constant":"constant"
   })";
 
-  const Filtration filt = daw::json::from_json<Filtration>(json_data);
+  const ReservoirSeepage filt =
+      daw::json::from_json<ReservoirSeepage>(json_data);
 
   CHECK(filt.uid == 8);
   REQUIRE(filt.slope.has_value());

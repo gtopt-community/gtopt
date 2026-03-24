@@ -1,10 +1,10 @@
-"""Inject ``"just_build_lp": true`` into a gtopt JSON case file.
+"""Inject ``"build_lp": true`` into a gtopt JSON case file.
 
 Usage::
 
-    python3 inject_just_build_lp.py <input_json> <output_json>
+    python3 inject_build_lp.py <input_json> <output_json>
 
-Reads ``<input_json>``, sets ``options.just_build_lp = true``, and
+Reads ``<input_json>``, sets ``options.build_lp = true``, and
 writes the result to ``<output_json>``.  The ``options`` key is created
 if it does not exist.  This helper is invoked at cmake configure time
 by ``profiling/CMakeLists.txt``.
@@ -30,7 +30,13 @@ def main() -> int:
         return 1
 
     data.setdefault("options", {})
-    data["options"]["just_build_lp"] = True
+    data["options"]["build_lp"] = True
+
+    # Override input_directory to the case directory so that external
+    # Parquet/CSV data files are found relative to the case location.
+    import os
+    case_dir = os.path.dirname(os.path.abspath(input_json))
+    data["options"]["input_directory"] = case_dir
 
     try:
         with open(output_json, "w", encoding="utf-8") as fh:
@@ -39,7 +45,7 @@ def main() -> int:
         print(f"Error writing '{output_json}': {exc}", file=sys.stderr)
         return 1
 
-    print(f"Injected just_build_lp=true into '{output_json}'")
+    print(f"Injected build_lp=true into '{output_json}'")
     return 0
 
 
