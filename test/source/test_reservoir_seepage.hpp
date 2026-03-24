@@ -1,67 +1,66 @@
 #include <doctest/doctest.h>
-#include <gtopt/filtration.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/reservoir_seepage.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
-TEST_CASE("Filtration construction and default values")
+TEST_CASE("ReservoirSeepage construction and default values")
 {
-  const Filtration filtration;
+  const ReservoirSeepage seepage;
 
-  CHECK(filtration.uid == Uid {unknown_uid});
-  CHECK(filtration.name == Name {});
-  CHECK_FALSE(filtration.active.has_value());
+  CHECK(seepage.uid == Uid {unknown_uid});
+  CHECK(seepage.name == Name {});
+  CHECK_FALSE(seepage.active.has_value());
 
-  CHECK(filtration.waterway == SingleId {unknown_uid});
-  CHECK(filtration.reservoir == SingleId {unknown_uid});
+  CHECK(seepage.waterway == SingleId {unknown_uid});
+  CHECK(seepage.reservoir == SingleId {unknown_uid});
   // slope and constant are OptTRealFieldSched — default is nullopt (→ 0.0)
-  CHECK_FALSE(filtration.slope.has_value());
-  CHECK_FALSE(filtration.constant.has_value());
+  CHECK_FALSE(seepage.slope.has_value());
+  CHECK_FALSE(seepage.constant.has_value());
 }
 
-TEST_CASE("Filtration attribute assignment")
+TEST_CASE("ReservoirSeepage attribute assignment")
 {
-  Filtration filtration;
+  ReservoirSeepage seepage;
 
-  filtration.uid = 8001;
-  filtration.name = "TestFiltration";
-  filtration.active = true;
+  seepage.uid = 8001;
+  seepage.name = "TestReservoirSeepage";
+  seepage.active = true;
 
-  filtration.waterway = Uid {6001};
-  filtration.reservoir = Uid {9001};
-  filtration.slope = 0.15;
-  filtration.constant = 2.5;
+  seepage.waterway = Uid {6001};
+  seepage.reservoir = Uid {9001};
+  seepage.slope = 0.15;
+  seepage.constant = 2.5;
 
-  CHECK(filtration.uid == 8001);
-  CHECK(filtration.name == "TestFiltration");
-  CHECK(std::get<IntBool>(filtration.active.value()) == 1);
+  CHECK(seepage.uid == 8001);
+  CHECK(seepage.name == "TestReservoirSeepage");
+  CHECK(std::get<IntBool>(seepage.active.value()) == 1);
 
-  CHECK(std::get<Uid>(filtration.waterway) == Uid {6001});
-  CHECK(std::get<Uid>(filtration.reservoir) == Uid {9001});
-  CHECK(std::get<Real>(filtration.slope.value_or(TRealFieldSched {0.0}))
+  CHECK(std::get<Uid>(seepage.waterway) == Uid {6001});
+  CHECK(std::get<Uid>(seepage.reservoir) == Uid {9001});
+  CHECK(std::get<Real>(seepage.slope.value_or(TRealFieldSched {0.0}))
         == doctest::Approx(0.15));
-  CHECK(std::get<Real>(filtration.constant.value_or(TRealFieldSched {0.0}))
+  CHECK(std::get<Real>(seepage.constant.value_or(TRealFieldSched {0.0}))
         == doctest::Approx(2.5));
 }
 
-TEST_CASE("Filtration with zero slope")
+TEST_CASE("ReservoirSeepage with zero slope")
 {
-  Filtration filtration;
+  ReservoirSeepage seepage;
 
-  filtration.uid = 8002;
-  filtration.name = "ConstantFiltration";
-  filtration.slope = 0.0;
-  filtration.constant = 5.0;
+  seepage.uid = 8002;
+  seepage.name = "ConstantReservoirSeepage";
+  seepage.slope = 0.0;
+  seepage.constant = 5.0;
 
-  CHECK(std::get<Real>(filtration.slope.value_or(TRealFieldSched {0.0}))
-        == 0.0);
-  CHECK(std::get<Real>(filtration.constant.value_or(TRealFieldSched {0.0}))
+  CHECK(std::get<Real>(seepage.slope.value_or(TRealFieldSched {0.0})) == 0.0);
+  CHECK(std::get<Real>(seepage.constant.value_or(TRealFieldSched {0.0}))
         == doctest::Approx(5.0));
 }
 
-TEST_CASE("FiltrationLP - basic filtration constraint")
+TEST_CASE("ReservoirSeepageLP - basic seepage constraint")
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
@@ -124,7 +123,7 @@ TEST_CASE("FiltrationLP - basic filtration constraint")
       },
   };
 
-  const Array<Filtration> filtration_array = {
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -142,14 +141,14 @@ TEST_CASE("FiltrationLP - basic filtration constraint")
   };
 
   const System system = {
-      .name = "FiltrationTest",
+      .name = "ReservoirSeepageTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 
@@ -166,7 +165,7 @@ TEST_CASE("FiltrationLP - basic filtration constraint")
   CHECK(result.value() == 0);
 }
 
-TEST_CASE("FiltrationLP - multi-block filtration")
+TEST_CASE("ReservoirSeepageLP - multi-block seepage")
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
@@ -229,7 +228,7 @@ TEST_CASE("FiltrationLP - multi-block filtration")
       },
   };
 
-  const Array<Filtration> filtration_array = {
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -256,14 +255,14 @@ TEST_CASE("FiltrationLP - multi-block filtration")
   };
 
   const System system = {
-      .name = "MultiFiltrationTest",
+      .name = "MultiReservoirSeepageTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 
@@ -277,41 +276,41 @@ TEST_CASE("FiltrationLP - multi-block filtration")
   CHECK(result.value() == 0);
 }
 
-TEST_CASE("FiltrationSegment construction")
+TEST_CASE("ReservoirSeepageSegment construction")
 {
-  const FiltrationSegment seg;
+  const ReservoirSeepageSegment seg;
 
   CHECK(seg.volume == 0.0);
   CHECK(seg.slope == 0.0);
   CHECK(seg.constant == 0.0);
 }
 
-TEST_CASE("evaluate_filtration with empty segments")
+TEST_CASE("evaluate_seepage with empty segments")
 {
-  const std::vector<FiltrationSegment> segments {};
-  CHECK(evaluate_filtration(segments, 100.0) == 0.0);
+  const std::vector<ReservoirSeepageSegment> segments {};
+  CHECK(evaluate_seepage(segments, 100.0) == 0.0);
 }
 
-TEST_CASE("evaluate_filtration with single segment")
+TEST_CASE("evaluate_seepage with single segment")
 {
-  const std::vector<FiltrationSegment> segments {
+  const std::vector<ReservoirSeepageSegment> segments {
       {.volume = 0.0, .slope = 0.001, .constant = 2.0},
   };
 
   // At V=0: constant + slope * V = 2.0 + 0.001 * 0 = 2.0
-  CHECK(evaluate_filtration(segments, 0.0) == doctest::Approx(2.0));
+  CHECK(evaluate_seepage(segments, 0.0) == doctest::Approx(2.0));
 
   // At V=500: 2.0 + 0.001 * 500 = 2.5
-  CHECK(evaluate_filtration(segments, 500.0) == doctest::Approx(2.5));
+  CHECK(evaluate_seepage(segments, 500.0) == doctest::Approx(2.5));
 }
 
-TEST_CASE("evaluate_filtration with two segments (piecewise linear)")
+TEST_CASE("evaluate_seepage with two segments (piecewise linear)")
 {
-  // Two segments modelling a piecewise-linear filtration curve:
+  // Two segments modelling a piecewise-linear seepage curve:
   //   seg1: constant=2.0 (y-intercept), slope=0.001, breakpoint=0.0
-  //         → filtration = 2.0 + 0.001 * V  (applies when V < 500)
+  //         → seepage = 2.0 + 0.001 * V  (applies when V < 500)
   //   seg2: constant=2.7 (y-intercept), slope=0.0002, breakpoint=500.0
-  //         → filtration = 2.7 + 0.0002 * V  (applies when V ≥ 500)
+  //         → seepage = 2.7 + 0.0002 * V  (applies when V ≥ 500)
   //
   // Note: constants are y-intercepts (PLP Fortran FiltConst), matching the
   // format stored by filemb_parser.py.  The function applies the segment whose
@@ -322,26 +321,26 @@ TEST_CASE("evaluate_filtration with two segments (piecewise linear)")
   //   V=0:    seg1 → 2.0 + 0.001*0   = 2.0
   //   V=500:  seg2 → 2.7 + 0.0002*500 = 2.8
   //   V=1500: seg2 → 2.7 + 0.0002*1500 = 3.0
-  const std::vector<FiltrationSegment> segments {
+  const std::vector<ReservoirSeepageSegment> segments {
       {.volume = 0.0, .slope = 0.001, .constant = 2.0},
       {.volume = 500.0, .slope = 0.0002, .constant = 2.7},
   };
 
-  CHECK(evaluate_filtration(segments, 0.0) == doctest::Approx(2.0));
-  CHECK(evaluate_filtration(segments, 500.0) == doctest::Approx(2.8));
-  CHECK(evaluate_filtration(segments, 1500.0) == doctest::Approx(3.0));
+  CHECK(evaluate_seepage(segments, 0.0) == doctest::Approx(2.0));
+  CHECK(evaluate_seepage(segments, 500.0) == doctest::Approx(2.8));
+  CHECK(evaluate_seepage(segments, 1500.0) == doctest::Approx(3.0));
 }
 
-TEST_CASE("select_filtration_coeffs with two segments")
+TEST_CASE("select_seepage_coeffs with two segments")
 {
-  // Constants are y-intercepts (PLP format: filtration = constant + slope * V).
+  // Constants are y-intercepts (PLP format: seepage = constant + slope * V).
   // seg1: y-intercept=2.0, slope=0.001, breakpoint=0.0
   // seg2: y-intercept=2.7, slope=0.0002, breakpoint=500.0
   //       (at V=500: 2.7 + 0.0002*500 = 2.8)
   //
   // Segment selection follows PLP range logic: pick segment whose breakpoint
   // is the largest ≤ current volume.
-  const std::vector<FiltrationSegment> segments {
+  const std::vector<ReservoirSeepageSegment> segments {
       {.volume = 0.0, .slope = 0.001, .constant = 2.0},
       {.volume = 500.0, .slope = 0.0002, .constant = 2.7},
   };
@@ -349,39 +348,39 @@ TEST_CASE("select_filtration_coeffs with two segments")
   // At V=0: seg1 selected (breakpoint 0 ≤ 0 < 500)
   // LP: filt - 0.001*0.5*eini - 0.001*0.5*efin = 2.0
   //     → filt = 2.0 + 0.001 * V_avg  (positive at any V_avg ≥ 0)
-  auto c0 = select_filtration_coeffs(segments, 0.0);
+  auto c0 = select_seepage_coeffs(segments, 0.0);
   CHECK(c0.slope == doctest::Approx(0.001));
   CHECK(c0.intercept == doctest::Approx(2.0));
 
   // At V=1500: seg2 selected (breakpoint 500 ≤ 1500)
   // LP: filt - 0.0002*0.5*eini - 0.0002*0.5*efin = 2.7
   //     → filt = 2.7 + 0.0002 * V_avg  (positive at any V_avg ≥ 0)
-  auto c1500 = select_filtration_coeffs(segments, 1500.0);
+  auto c1500 = select_seepage_coeffs(segments, 1500.0);
   CHECK(c1500.slope == doctest::Approx(0.0002));
   CHECK(c1500.intercept == doctest::Approx(2.7));
 }
 
-TEST_CASE("select_filtration_coeffs empty segments")
+TEST_CASE("select_seepage_coeffs empty segments")
 {
-  const std::vector<FiltrationSegment> segments {};
-  auto c = select_filtration_coeffs(segments, 100.0);
+  const std::vector<ReservoirSeepageSegment> segments {};
+  auto c = select_seepage_coeffs(segments, 100.0);
   CHECK(c.slope == 0.0);
   CHECK(c.intercept == 0.0);
 }
 
-TEST_CASE("Filtration with segments default")
+TEST_CASE("ReservoirSeepage with segments default")
 {
-  Filtration filtration;
-  CHECK(filtration.segments.empty());
+  ReservoirSeepage seepage;
+  CHECK(seepage.segments.empty());
 
-  filtration.segments = {
+  seepage.segments = {
       {.volume = 0.0, .slope = 0.001, .constant = 2.0},
       {.volume = 500.0, .slope = 0.0002, .constant = 2.8},
   };
-  CHECK(filtration.segments.size() == 2);
+  CHECK(seepage.segments.size() == 2);
 }
 
-TEST_CASE("FiltrationLP - piecewise segments LP constraint")
+TEST_CASE("ReservoirSeepageLP - piecewise segments LP constraint")
 {
   const Array<Bus> bus_array = {
       {
@@ -461,8 +460,8 @@ TEST_CASE("FiltrationLP - piecewise segments LP constraint")
       },
   };
 
-  // Filtration with piecewise-linear segments
-  const Array<Filtration> filtration_array = {
+  // ReservoirSeepage with piecewise-linear segments
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -503,14 +502,14 @@ TEST_CASE("FiltrationLP - piecewise segments LP constraint")
   };
 
   const System system = {
-      .name = "PiecewiseFiltrationTest",
+      .name = "PiecewiseReservoirSeepageTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 
@@ -527,7 +526,7 @@ TEST_CASE("FiltrationLP - piecewise segments LP constraint")
   CHECK(result.value() == 0);
 }
 
-TEST_CASE("FiltrationLP - per-stage slope/constant schedule")
+TEST_CASE("ReservoirSeepageLP - per-stage slope/constant schedule")
 {
   // Test that slope and constant can be provided as per-stage arrays
   // (simulating what plpmanfi.dat Parquet files would provide).
@@ -610,10 +609,10 @@ TEST_CASE("FiltrationLP - per-stage slope/constant schedule")
       },
   };
 
-  // Filtration with per-stage slope/constant (as inline vectors).
+  // ReservoirSeepage with per-stage slope/constant (as inline vectors).
   // Stage 1 (uid=1): slope=0.001, constant=1.0
   // Stage 2 (uid=2): slope=0.002, constant=2.0
-  const Array<Filtration> filtration_array = {
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -658,14 +657,14 @@ TEST_CASE("FiltrationLP - per-stage slope/constant schedule")
   };
 
   const System system = {
-      .name = "PerStageFiltrationTest",
+      .name = "PerStageReservoirSeepageTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 
@@ -682,11 +681,12 @@ TEST_CASE("FiltrationLP - per-stage slope/constant schedule")
   CHECK(result.value() == 0);
 }
 
-// ── Coverage tests for uncovered code paths in filtration_lp.cpp ────────────
+// ── Coverage tests for uncovered code paths in reservoir_seepage_lp.cpp
+// ────────────
 
-TEST_CASE("FiltrationLP - filtration_cols_at accessor")
+TEST_CASE("ReservoirSeepageLP - seepage_cols_at accessor")
 {
-  // Verify filtration_cols_at() returns valid per-block column indices.
+  // Verify seepage_cols_at() returns valid per-block column indices.
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -758,7 +758,7 @@ TEST_CASE("FiltrationLP - filtration_cols_at accessor")
       },
   };
 
-  const Array<Filtration> filtration_array = {
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -805,7 +805,7 @@ TEST_CASE("FiltrationLP - filtration_cols_at accessor")
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 
@@ -813,23 +813,24 @@ TEST_CASE("FiltrationLP - filtration_cols_at accessor")
   SimulationLP simulation_lp(simulation, opts);
   SystemLP system_lp(system, simulation_lp);
 
-  auto& filts = system_lp.elements<FiltrationLP>();
+  auto& filts = system_lp.elements<ReservoirSeepageLP>();
   REQUIRE(filts.size() == 1);
 
   auto& filt = filts.front();
   const auto& scenarios = simulation_lp.scenarios();
   const auto& stages = simulation_lp.stages();
 
-  // filtration_cols_at should return a map with 2 blocks
-  const auto& cols = filt.filtration_cols_at(scenarios.front(), stages.front());
+  // seepage_cols_at should return a map with 2 blocks
+  const auto& cols = filt.seepage_cols_at(scenarios.front(), stages.front());
   CHECK(cols.size() == 2);
 }
 
-TEST_CASE("FiltrationLP - add_to_output via write_out")
+TEST_CASE("ReservoirSeepageLP - add_to_output via write_out")
 {
-  // Solve then call write_out() which exercises FiltrationLP::add_to_output.
+  // Solve then call write_out() which exercises
+  // ReservoirSeepageLP::add_to_output.
   const auto tmpdir =
-      std::filesystem::temp_directory_path() / "test_filtration_output";
+      std::filesystem::temp_directory_path() / "test_reservoir_seepage_output";
   std::filesystem::remove_all(tmpdir);
   std::filesystem::create_directories(tmpdir);
 
@@ -911,7 +912,7 @@ TEST_CASE("FiltrationLP - add_to_output via write_out")
       },
   };
 
-  const Array<Filtration> filtration_array = {
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -958,7 +959,7 @@ TEST_CASE("FiltrationLP - add_to_output via write_out")
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 
@@ -971,16 +972,16 @@ TEST_CASE("FiltrationLP - add_to_output via write_out")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // write_out exercises add_to_output for all elements incl. FiltrationLP
+  // write_out exercises add_to_output for all elements incl. ReservoirSeepageLP
   system_lp.write_out();
 
-  // Verify Filtration output directory was created
-  CHECK(std::filesystem::exists(tmpdir / "Filtration"));
+  // Verify ReservoirSeepage output directory was created
+  CHECK(std::filesystem::exists(tmpdir / "ReservoirSeepage"));
 
   std::filesystem::remove_all(tmpdir);
 }
 
-TEST_CASE("FiltrationLP - update_lp with piecewise segments")
+TEST_CASE("ReservoirSeepageLP - update_lp with piecewise segments")
 {
   // Piecewise segments with eini=5000 -> seg2 at construction.
   // update_lp iter=0/phase=0 uses eini -> same segment -> no change.
@@ -1065,7 +1066,7 @@ TEST_CASE("FiltrationLP - update_lp with piecewise segments")
       },
   };
 
-  const Array<Filtration> filtration_array = {
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -1112,14 +1113,14 @@ TEST_CASE("FiltrationLP - update_lp with piecewise segments")
   };
 
   const System system = {
-      .name = "UpdateFiltrationTest",
+      .name = "UpdateReservoirSeepageTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 
@@ -1142,18 +1143,18 @@ TEST_CASE("FiltrationLP - update_lp with piecewise segments")
     CHECK(updated == 0);
   }
 
-  SUBCASE("filtration_cols_at with segments returns 1 block")
+  SUBCASE("seepage_cols_at with segments returns 1 block")
   {
-    auto& filts = system_lp.elements<FiltrationLP>();
+    auto& filts = system_lp.elements<ReservoirSeepageLP>();
     REQUIRE(filts.size() == 1);
     auto& filt = filts.front();
-    const auto& cols = filt.filtration_cols_at(
-        simulation_lp.scenarios().front(), simulation_lp.stages().front());
+    const auto& cols = filt.seepage_cols_at(simulation_lp.scenarios().front(),
+                                            simulation_lp.stages().front());
     CHECK(cols.size() == 1);
   }
 }
 
-TEST_CASE("FiltrationLP - update_lp with different eini segment")
+TEST_CASE("ReservoirSeepageLP - update_lp with different eini segment")
 {
   // eini=1000 -> seg1 (volume < 3000). update_lp iter=0/phase=0 uses eini.
   const Array<Bus> bus_array = {
@@ -1237,7 +1238,7 @@ TEST_CASE("FiltrationLP - update_lp with different eini segment")
       },
   };
 
-  const Array<Filtration> filtration_array = {
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -1291,7 +1292,7 @@ TEST_CASE("FiltrationLP - update_lp with different eini segment")
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 
@@ -1317,9 +1318,9 @@ TEST_CASE("FiltrationLP - update_lp with different eini segment")
   CHECK(result2.value() == 0);
 }
 
-TEST_CASE("FiltrationLP - zero-slope segment edge case")
+TEST_CASE("ReservoirSeepageLP - zero-slope segment edge case")
 {
-  // Single segment with zero slope -- pure constant filtration.
+  // Single segment with zero slope -- pure constant seepage.
   const Array<Bus> bus_array = {
       {
           .uid = Uid {1},
@@ -1401,7 +1402,7 @@ TEST_CASE("FiltrationLP - zero-slope segment edge case")
       },
   };
 
-  const Array<Filtration> filtration_array = {
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -1443,14 +1444,14 @@ TEST_CASE("FiltrationLP - zero-slope segment edge case")
   };
 
   const System system = {
-      .name = "ZeroSlopeFiltration",
+      .name = "ZeroSlopeReservoirSeepage",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 
@@ -1470,22 +1471,22 @@ TEST_CASE("FiltrationLP - zero-slope segment edge case")
       update_lp_coefficients(system_lp, options_lp, 0, PhaseIndex {0});
   CHECK(updated == 0);
 
-  // Verify the filtration flow equals the constant (3.0) with zero slope
+  // Verify the seepage flow equals the constant (3.0) with zero slope
   const auto col_sol = lp.get_col_sol();
-  auto& filts = system_lp.elements<FiltrationLP>();
+  auto& filts = system_lp.elements<ReservoirSeepageLP>();
   REQUIRE(filts.size() == 1);
   auto& filt = filts.front();
-  const auto& cols = filt.filtration_cols_at(simulation_lp.scenarios().front(),
-                                             simulation_lp.stages().front());
+  const auto& cols = filt.seepage_cols_at(simulation_lp.scenarios().front(),
+                                          simulation_lp.stages().front());
   for (const auto& [buid, col] : cols) {
     CHECK(col_sol[static_cast<size_t>(col)] == doctest::Approx(3.0));
   }
 }
 
-TEST_CASE("FiltrationLP - multi-stage segments with output")
+TEST_CASE("ReservoirSeepageLP - multi-stage segments with output")
 {
   // Two stages with piecewise segments -- exercises add_to_lp across stages,
-  // filtration_cols_at for multiple keys, and add_to_output.
+  // seepage_cols_at for multiple keys, and add_to_output.
   const auto tmpdir =
       std::filesystem::temp_directory_path() / "test_filt_multi_stage_out";
   std::filesystem::remove_all(tmpdir);
@@ -1569,7 +1570,7 @@ TEST_CASE("FiltrationLP - multi-stage segments with output")
       },
   };
 
-  const Array<Filtration> filtration_array = {
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
       {
           .uid = Uid {1},
           .name = "filt1",
@@ -1636,7 +1637,7 @@ TEST_CASE("FiltrationLP - multi-stage segments with output")
       .junction_array = junction_array,
       .waterway_array = waterway_array,
       .reservoir_array = reservoir_array,
-      .filtration_array = filtration_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
       .turbine_array = turbine_array,
   };
 
@@ -1649,21 +1650,21 @@ TEST_CASE("FiltrationLP - multi-stage segments with output")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // Verify filtration_cols_at works for both stages
-  auto& filts = system_lp.elements<FiltrationLP>();
+  // Verify seepage_cols_at works for both stages
+  auto& filts = system_lp.elements<ReservoirSeepageLP>();
   REQUIRE(filts.size() == 1);
   auto& filt = filts.front();
   const auto& scenarios = simulation_lp.scenarios();
   const auto& stages = simulation_lp.stages();
 
-  const auto& cols_s1 = filt.filtration_cols_at(scenarios.front(), stages[0]);
-  const auto& cols_s2 = filt.filtration_cols_at(scenarios.front(), stages[1]);
+  const auto& cols_s1 = filt.seepage_cols_at(scenarios.front(), stages[0]);
+  const auto& cols_s2 = filt.seepage_cols_at(scenarios.front(), stages[1]);
   CHECK(cols_s1.size() == 1);
   CHECK(cols_s2.size() == 1);
 
   // write_out exercises add_to_output
   system_lp.write_out();
-  CHECK(std::filesystem::exists(tmpdir / "Filtration"));
+  CHECK(std::filesystem::exists(tmpdir / "ReservoirSeepage"));
 
   std::filesystem::remove_all(tmpdir);
 }

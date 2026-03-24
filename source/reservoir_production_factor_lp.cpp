@@ -1,6 +1,7 @@
 /**
- * @file      reservoir_efficiency_lp.cpp
- * @brief     Implementation of ReservoirEfficiencyLP and coefficient updates
+ * @file      reservoir_production_factor_lp.cpp
+ * @brief     Implementation of ReservoirProductionFactorLP and coefficient
+ * updates
  * @date      Mon Mar 10 17:00:00 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -12,7 +13,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
-#include <gtopt/reservoir_efficiency_lp.hpp>
+#include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
@@ -22,10 +23,10 @@ namespace gtopt
 
 // ── add_to_lp ───────────────────────────────────────────────────────────────
 
-bool ReservoirEfficiencyLP::add_to_lp(const SystemContext& sc,
-                                      const ScenarioLP& scenario,
-                                      const StageLP& stage,
-                                      [[maybe_unused]] LinearProblem& lp)
+bool ReservoirProductionFactorLP::add_to_lp(const SystemContext& sc,
+                                            const ScenarioLP& scenario,
+                                            const StageLP& stage,
+                                            [[maybe_unused]] LinearProblem& lp)
 {
   if (!is_active(stage)) {
     return true;
@@ -37,7 +38,7 @@ bool ReservoirEfficiencyLP::add_to_lp(const SystemContext& sc,
     turbine_ptr = &sc.element<TurbineLP>(turbine_sid());
   } catch (const std::exception&) {
     SPDLOG_WARN(
-        "ReservoirEfficiency uid={}: turbine not found in LP; skipping.",
+        "ReservoirProductionFactor uid={}: turbine not found in LP; skipping.",
         uid());
     return true;
   }
@@ -48,7 +49,7 @@ bool ReservoirEfficiencyLP::add_to_lp(const SystemContext& sc,
     waterway_ptr = &sc.element<WaterwayLP>(turbine.waterway_sid());
   } catch (const std::exception&) {
     SPDLOG_WARN(
-        "ReservoirEfficiency uid={}: waterway not found in LP; skipping.",
+        "ReservoirProductionFactor uid={}: waterway not found in LP; skipping.",
         uid());
     return true;
   }
@@ -80,25 +81,27 @@ bool ReservoirEfficiencyLP::add_to_lp(const SystemContext& sc,
 
 // ── add_to_output ───────────────────────────────────────────────────────────
 
-bool ReservoirEfficiencyLP::add_to_output([[maybe_unused]] OutputContext& out)
+bool ReservoirProductionFactorLP::add_to_output(
+    [[maybe_unused]] OutputContext& out)
 {
-  // No direct output for efficiency elements — the updated conversion
+  // No direct output for production factor elements — the updated conversion
   // rate is reflected in the turbine's conversion dual output.
   return true;
 }
 
 // ── update_conversion_coeff ─────────────────────────────────────────────────
 
-auto ReservoirEfficiencyLP::update_conversion_coeff(LinearInterface& li,
-                                                    ScenarioUid suid,
-                                                    StageUid tuid,
-                                                    Real volume) const -> int
+auto ReservoirProductionFactorLP::update_conversion_coeff(LinearInterface& li,
+                                                          ScenarioUid suid,
+                                                          StageUid tuid,
+                                                          Real volume) const
+    -> int
 {
   if (!has_coeff_indices(suid, tuid)) {
     return 0;
   }
 
-  const auto new_rate = compute_efficiency(volume);
+  const auto new_rate = compute_production_factor(volume);
   const auto& bmap = coeff_indices_at(suid, tuid);
   int count = 0;
 
@@ -110,7 +113,7 @@ auto ReservoirEfficiencyLP::update_conversion_coeff(LinearInterface& li,
   }
 
   SPDLOG_TRACE(
-      "ReservoirEfficiency uid={}: updated {} coeffs "
+      "ReservoirProductionFactor uid={}: updated {} coeffs "
       "(volume={:.1f}, rate={:.6f})",
       uid(),
       count,
@@ -144,8 +147,8 @@ int update_lp_coefficients(SystemLP& system_lp,
   // Iterate over all (scenario, stage) pairs in this SystemLP and dispatch
   // update_lp() to every collection element that satisfies HasUpdateLP.
   // This uses visit_elements with a compile-time if constexpr dispatch, so
-  // only types implementing update_lp() (TurbineLP, FiltrationLP, ...) are
-  // called — no separate per-type loops needed.
+  // only types implementing update_lp() (TurbineLP, ReservoirSeepageLP, ...)
+  // are called — no separate per-type loops needed.
   for (auto&& stage : system_lp.phase().stages()) {
     for (auto&& scenario : system_lp.scene().scenarios()) {
       visit_elements(system_lp.collections(),

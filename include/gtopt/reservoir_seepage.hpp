@@ -1,11 +1,11 @@
 /**
- * @file      filtration.hpp
- * @brief     Piecewise-linear water filtration (seepage) from a reservoir
+ * @file      reservoir_seepage.hpp
+ * @brief     Piecewise-linear water seepage (seepage) from a reservoir
  * @date      Thu Jul 31 23:22:44 2025
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Defines the Filtration structure modeling water seepage from a waterway
+ * Defines the ReservoirSeepage structure modeling water seepage from a waterway
  * into an adjacent reservoir.  The seepage flow is modelled as a
  * piecewise-linear function of the reservoir's average volume:
  *
@@ -20,9 +20,9 @@
  * ### Piecewise-linear evaluation (PLP formula)
  * ```
  * Find segment i such that: segments[i].volume ≤ V < segments[i+1].volume
- * filtration(V) = constant_i + slope_i × V
+ * seepage(V) = constant_i + slope_i × V
  * ```
- * Here `constant_i` is the **y-intercept** (filtration at V = 0 for segment i's
+ * Here `constant_i` is the **y-intercept** (seepage at V = 0 for segment i's
  * linear equation), matching the PLP file format (plpfilemb.dat `Constante`
  * field and `FiltParam(PFiltConst)` in Fortran).  This is **not** the value
  * at the breakpoint — the conversion `constant_at_breakpoint = constant_y +
@@ -34,14 +34,14 @@
  * used by other schedule fields:
  * - **Scalar** – same value for all stages (legacy behaviour).
  * - **Array** – one value per stage index.
- * - **Filename** – Parquet/CSV table in `input_directory/Filtration/`.
+ * - **Filename** – Parquet/CSV table in `input_directory/ReservoirSeepage/`.
  *
  * When per-stage schedules are used, the LP matrix coefficients for each
  * stage are set to the stage-specific values directly in the LP (not via
- * LP bounds), analogous to how `ReservoirEfficiency` updates the turbine
+ * LP bounds), analogous to how `ReservoirProductionFactor` updates the turbine
  * conversion-rate coefficient.  If `segments` is also present, the
  * piecewise-linear volume-dependent update takes precedence (via
- * `FiltrationLP::update_lp`).
+ * `ReservoirSeepageLP::update_lp`).
  *
  * ### JSON Example
  * ```json
@@ -79,9 +79,9 @@ namespace gtopt
 {
 
 /**
- * @brief One segment of the piecewise-linear filtration curve
+ * @brief One segment of the piecewise-linear seepage curve
  *
- * Each segment defines a linear function `filtration = constant + slope × V`
+ * Each segment defines a linear function `seepage = constant + slope × V`
  * that is active when the reservoir volume is in range
  * `[volume, next_segment.volume)`.  `constant` is the **y-intercept** at
  * V = 0, matching the PLP file format (`plpfilemb.dat` `Constante` field /
@@ -89,7 +89,7 @@ namespace gtopt
  * constants are chosen so that adjacent segments agree at the breakpoint:
  * `constant_i = constant_{i-1} + slope_{i-1} × volume_i - slope_i × volume_i`.
  */
-struct FiltrationSegment
+struct ReservoirSeepageSegment
 {
   Real volume {
       0.0,
@@ -97,35 +97,35 @@ struct FiltrationSegment
   Real slope {0.0};  ///< Seepage slope [m³/s / dam³] (Fortran PFiltPend / 1000)
   Real constant {
       0.0,
-  };  ///< Y-intercept [m³/s]: filtration at V=0 for this segment
+  };  ///< Y-intercept [m³/s]: seepage at V=0 for this segment
 };
 
 /**
  * @brief Piecewise-linear seepage model between a waterway and a reservoir
  *
  * Models water seepage from a waterway into an adjacent reservoir.
- * The filtration flow per block is:
- *   `filtration_flow = slope × V_avg + constant`
+ * The seepage flow per block is:
+ *   `seepage_flow = slope × V_avg + constant`
  * where `V_avg = (eini + efin) / 2` is the average reservoir volume and
- * `constant` is the **y-intercept** (filtration at V = 0 for the active
+ * `constant` is the **y-intercept** (seepage at V = 0 for the active
  * segment's linear equation).  This matches the PLP Fortran formula
  * (`FiltConst + FiltPend × Vol`).
  *
  * `slope` and `constant` accept per-stage schedules (scalar, array, or
- * filename pointing to a Parquet/CSV table in `input_directory/Filtration/`).
- * This is the PLP plpmanfi.dat model: the LP matrix coefficients (slope on
- * eini/efin columns) and the RHS (constant y-intercept) are set directly in
- * the LP for each stage, not via LP bounds.
+ * filename pointing to a Parquet/CSV table in
+ * `input_directory/ReservoirSeepage/`). This is the PLP plpmanfi.dat model: the
+ * LP matrix coefficients (slope on eini/efin columns) and the RHS (constant
+ * y-intercept) are set directly in the LP for each stage, not via LP bounds.
  *
  * When `segments` is non-empty, the piecewise-linear volume-dependent update
- * (via FiltrationLP::update_lp) takes precedence and overrides any per-stage
- * schedule values for the active-segment coefficient.
+ * (via ReservoirSeepageLP::update_lp) takes precedence and overrides any
+ * per-stage schedule values for the active-segment coefficient.
  *
  * @see Waterway for the source channel
  * @see Reservoir for the receiving storage
- * @see FiltrationLP for the LP formulation
+ * @see ReservoirSeepageLP for the LP formulation
  */
-struct Filtration
+struct ReservoirSeepage
 {
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
@@ -141,18 +141,18 @@ struct Filtration
   OptTRealFieldSched slope {};
 
   /// Y-intercept seepage rate [m³/s] – scalar, per-stage array, or filename.
-  /// When `segments` is empty, this provides the LP RHS (filtration at V=0).
+  /// When `segments` is empty, this provides the LP RHS (seepage at V=0).
   /// Accepts the same "number | array | filename" syntax.  Default is 0.0.
   OptTRealFieldSched constant {};
 
-  /// Piecewise-linear segments for volume-dependent filtration rate.
+  /// Piecewise-linear segments for volume-dependent seepage rate.
   /// When non-empty, the active segment is selected per-phase based on the
   /// current reservoir volume (range selection: largest breakpoint ≤ V)
   /// and the LP coefficients are updated dynamically (via
-  /// FiltrationLP::update_lp).
+  /// ReservoirSeepageLP::update_lp).
   /// Each segment's `constant` is the y-intercept at V=0 (PLP
   /// `FiltParam(PFiltConst)` format, not the value at the breakpoint).
-  std::vector<FiltrationSegment> segments {};
+  std::vector<ReservoirSeepageSegment> segments {};
 };
 
 // ─── Piecewise-linear evaluation ────────────────────────────────────────────
@@ -169,16 +169,16 @@ struct Filtration
  *
  * @param segments The piecewise-linear segments (sorted by volume breakpoint)
  * @param volume Current reservoir volume [dam³]
- * @return Pointer to the active FiltrationSegment (never null)
+ * @return Pointer to the active ReservoirSeepageSegment (never null)
  */
 [[nodiscard]] inline auto find_active_segment(
-    const std::vector<FiltrationSegment>& segments, Real volume) noexcept
-    -> const FiltrationSegment*
+    const std::vector<ReservoirSeepageSegment>& segments, Real volume) noexcept
+    -> const ReservoirSeepageSegment*
 {
   // Invariant: segments is non-empty and sorted ascending by .volume.
   // Walk forward and keep advancing while the next breakpoint is still ≤
   // volume.
-  const FiltrationSegment* active = &segments.front();
+  const ReservoirSeepageSegment* active = &segments.front();
   for (const auto& seg : segments) {
     if (seg.volume <= volume) {
       active = &seg;
@@ -190,9 +190,9 @@ struct Filtration
 }
 
 /**
- * @brief Evaluate the piecewise-linear filtration function
+ * @brief Evaluate the piecewise-linear seepage function
  *
- * Implements the PLP filtration model (matches Fortran `FFiltracionesi`):
+ * Implements the PLP seepage model (matches Fortran `FFiltracionesi`):
  * ```
  * Find the segment i where volume_i ≤ volume < volume_{i+1},
  * then compute:  result = constant_i + slope_i × volume
@@ -200,30 +200,30 @@ struct Filtration
  * Here `constant_i` is the **y-intercept at V = 0** for segment i's linear
  * equation, matching the PLP file format (plpfilemb.dat `Constante` field).
  *
- * Returns at least 0.0 (filtration rate cannot be negative).
+ * Returns at least 0.0 (seepage rate cannot be negative).
  *
  * @param segments The piecewise-linear segments (sorted by volume breakpoint)
  * @param volume Current reservoir volume [dam³]
- * @return Filtration rate (non-negative) [m³/s]
+ * @return ReservoirSeepage rate (non-negative) [m³/s]
  */
-[[nodiscard]] inline auto evaluate_filtration(
-    const std::vector<FiltrationSegment>& segments, Real volume) noexcept
+[[nodiscard]] inline auto evaluate_seepage(
+    const std::vector<ReservoirSeepageSegment>& segments, Real volume) noexcept
     -> Real
 {
   if (segments.empty()) {
     return 0.0;
   }
   const auto* active = find_active_segment(segments, volume);
-  // PLP formula: filtration = constant + slope × V  (constant is y-intercept)
+  // PLP formula: seepage = constant + slope × V  (constant is y-intercept)
   const auto result = active->constant + (active->slope * volume);
   return std::max(result, 0.0);
 }
 
 /**
- * @brief LP constraint coefficients for volume-dependent filtration
+ * @brief LP constraint coefficients for volume-dependent seepage
  *
- * The filtration LP constraint is:
- *   `filtration_flow = slope × V_avg + constant`
+ * The seepage LP constraint is:
+ *   `seepage_flow = slope × V_avg + constant`
  * where `V_avg = (eini + efin) / 2` and `constant` is the **y-intercept**
  * (the PLP file `Constante` field, matching Fortran `FiltParam(PFiltConst)`).
  *
@@ -233,14 +233,14 @@ struct Filtration
  * raw `FiltConst` value and the volume column coefficient to `-pend *
  * ScaleVol`.
  */
-struct FiltrationCoeffs
+struct ReservoirSeepageCoeffs
 {
   Real slope {0.0};  ///< Coefficient on V_avg  [m³/s / dam³]
   Real intercept {0.0};  ///< RHS constant = y-intercept at V=0  [m³/s]
 };
 
 /**
- * @brief Select the active filtration segment and return LP coefficients
+ * @brief Select the active seepage segment and return LP coefficients
  *
  * Implements the PLP range-selection logic (matches Fortran `FFiltracionesi`):
  * finds the segment i where `segments[i].volume ≤ volume <
@@ -250,16 +250,16 @@ struct FiltrationCoeffs
  * The LP constraint becomes:
  *   `filt_flow - slope*0.5*eini - slope*0.5*efin = constant`
  * where `constant` is the y-intercept at V = 0 for the active segment's
- * linear equation:  `filtration = constant + slope × V`.
+ * linear equation:  `seepage = constant + slope × V`.
  *
  * @param segments The piecewise-linear segments (sorted by volume breakpoint)
  * @param volume Current reservoir volume [dam³]
- * @return FiltrationCoeffs with slope and intercept (y-intercept) for the
+ * @return ReservoirSeepageCoeffs with slope and intercept (y-intercept) for the
  *         active segment
  */
-[[nodiscard]] inline auto select_filtration_coeffs(
-    const std::vector<FiltrationSegment>& segments, Real volume) noexcept
-    -> FiltrationCoeffs
+[[nodiscard]] inline auto select_seepage_coeffs(
+    const std::vector<ReservoirSeepageSegment>& segments, Real volume) noexcept
+    -> ReservoirSeepageCoeffs
 {
   if (segments.empty()) {
     return {};
@@ -270,7 +270,7 @@ struct FiltrationCoeffs
   return {
       .slope = active->slope,
       .intercept =
-          active->constant,  // y-intercept: filtration = constant + slope*V
+          active->constant,  // y-intercept: seepage = constant + slope*V
   };
 }
 

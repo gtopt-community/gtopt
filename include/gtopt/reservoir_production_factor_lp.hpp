@@ -1,11 +1,11 @@
 /**
- * @file      reservoir_efficiency_lp.hpp
+ * @file      reservoir_production_factor_lp.hpp
  * @brief     LP representation of reservoir-dependent turbine efficiency
  * @date      Mon Mar 10 17:00:00 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Provides the `ReservoirEfficiencyLP` class which manages the LP
+ * Provides the `ReservoirProductionFactorLP` class which manages the LP
  * coefficient update for turbines whose conversion rate varies with
  * the hydraulic head (reservoir volume).
  *
@@ -22,8 +22,8 @@
 #pragma once
 
 #include <gtopt/options_lp.hpp>
-#include <gtopt/reservoir_efficiency.hpp>
 #include <gtopt/reservoir_lp.hpp>
+#include <gtopt/reservoir_production_factor.hpp>
 #include <gtopt/turbine_lp.hpp>
 
 namespace gtopt
@@ -32,61 +32,63 @@ namespace gtopt
 class LinearInterface;
 
 /**
- * @brief LP representation of a ReservoirEfficiency element
+ * @brief LP representation of a ReservoirProductionFactor element
  *
  * Stores per-(scenario,stage,block) row/column indices for the turbine
  * conversion-rate constraint so that the coefficient can be updated
  * when the reservoir volume changes during SDDP iterations.
  */
-class ReservoirEfficiencyLP : public ObjectLP<ReservoirEfficiency>
+class ReservoirProductionFactorLP : public ObjectLP<ReservoirProductionFactor>
 {
 public:
-  static constexpr LPClassName ClassName {"ReservoirEfficiency", "ref"};
+  static constexpr LPClassName ClassName {"ReservoirProductionFactor", "ref"};
 
-  explicit ReservoirEfficiencyLP(const ReservoirEfficiency& pre,
-                                 [[maybe_unused]] InputContext& ic) noexcept
-      : ObjectLP<ReservoirEfficiency>(pre)
+  explicit ReservoirProductionFactorLP(
+      const ReservoirProductionFactor& pre,
+      [[maybe_unused]] InputContext& ic) noexcept
+      : ObjectLP<ReservoirProductionFactor>(pre)
   {
   }
 
-  [[nodiscard]] constexpr auto&& efficiency(this auto&& self) noexcept
+  [[nodiscard]] constexpr auto&& production_factor(this auto&& self) noexcept
   {
     return self.object();
   }
 
   [[nodiscard]] constexpr auto turbine_sid() const noexcept
   {
-    return TurbineLPSId {efficiency().turbine};
+    return TurbineLPSId {production_factor().turbine};
   }
 
   [[nodiscard]] constexpr auto reservoir_sid() const noexcept
   {
-    return ReservoirLPSId {efficiency().reservoir};
+    return ReservoirLPSId {production_factor().reservoir};
   }
 
   /// Evaluate the piecewise-linear efficiency at the given volume
-  [[nodiscard]] auto compute_efficiency(Real volume) const noexcept -> Real
+  [[nodiscard]] auto compute_production_factor(Real volume) const noexcept
+      -> Real
   {
-    return evaluate_efficiency(efficiency().segments, volume);
+    return evaluate_production_factor(production_factor().segments, volume);
   }
 
   /// Return the mean (fallback) efficiency value
-  [[nodiscard]] constexpr auto mean_efficiency() const noexcept -> Real
+  [[nodiscard]] constexpr auto mean_production_factor() const noexcept -> Real
   {
-    return efficiency().mean_efficiency;
+    return production_factor().mean_production_factor;
   }
 
-  /// Get the effective efficiency update skip count for this element.
+  /// Get the effective production factor update skip count for this element.
   /// Per-element value takes priority; falls back to global SDDP option.
   [[nodiscard]] auto effective_update_skip(const OptionsLP& options) const
       -> Int
   {
-    return efficiency().sddp_efficiency_update_skip.value_or(
-        options.sddp_efficiency_update_skip());
+    return production_factor().sddp_production_factor_update_skip.value_or(
+        options.sddp_production_factor_update_skip());
   }
 
   /**
-   * @brief Register this efficiency element in the LP
+   * @brief Register this production factor element in the LP
    *
    * Locates the turbine's conversion rows and the waterway's flow columns,
    * stores their indices for later coefficient updates.  The initial
@@ -153,7 +155,8 @@ private:
  *
  * Used by `update_lp_coefficients()` to iterate over the LP element collection
  * with `visit_elements()` and dispatch `update_lp()` only to types that
- * implement it (currently `TurbineLP` and `FiltrationLP`).
+ * implement it (currently `TurbineLP`, `ReservoirSeepageLP`, and
+ * `ReservoirDischargeLimitLP`).
  */
 template<typename T>
 concept HasUpdateLP = requires(T& obj,
@@ -181,7 +184,7 @@ concept HasUpdateLP = requires(T& obj,
  * 1. **TurbineLP::update_lp()** — recomputes the turbine conversion rate from
  *    the current reservoir volume and updates the LP constraint coefficient.
  *
- * 2. **FiltrationLP::update_lp()** — selects the active piecewise-linear
+ * 2. **ReservoirSeepageLP::update_lp()** — selects the active piecewise-linear
  *    segment based on the current reservoir volume and updates the seepage
  *    constraint slope and RHS.
  *

@@ -1,30 +1,30 @@
 #pragma once
 
 #include <daw/json/daw_json_link.h>
-#include <gtopt/filtration.hpp>
 #include <gtopt/json/json_field_sched.hpp>
 #include <gtopt/json/json_single_id.hpp>
+#include <gtopt/reservoir_seepage.hpp>
 
 namespace daw::json
 {
-using gtopt::Filtration;
-using gtopt::FiltrationSegment;
+using gtopt::ReservoirSeepage;
+using gtopt::ReservoirSeepageSegment;
 
 template<>
-struct json_data_contract<FiltrationSegment>
+struct json_data_contract<ReservoirSeepageSegment>
 {
   using type = json_member_list<json_number<"volume", Real>,
                                 json_number<"slope", Real>,
                                 json_number<"constant", Real>>;
 
-  static constexpr auto to_json_data(FiltrationSegment const& seg)
+  static constexpr auto to_json_data(ReservoirSeepageSegment const& seg)
   {
     return std::forward_as_tuple(seg.volume, seg.slope, seg.constant);
   }
 };
 
 template<>
-struct json_data_contract<Filtration>
+struct json_data_contract<ReservoirSeepage>
 {
   using type = json_member_list<
       json_number<"uid", Uid>,
@@ -35,19 +35,19 @@ struct json_data_contract<Filtration>
       json_variant_null<"slope", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"constant", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_array_null<"segments",
-                      std::vector<FiltrationSegment>,
-                      FiltrationSegment>>;
+                      std::vector<ReservoirSeepageSegment>,
+                      ReservoirSeepageSegment>>;
 
-  static constexpr auto to_json_data(Filtration const& filtration)
+  static constexpr auto to_json_data(ReservoirSeepage const& seepage)
   {
-    return std::forward_as_tuple(filtration.uid,
-                                 filtration.name,
-                                 filtration.active,
-                                 filtration.waterway,
-                                 filtration.reservoir,
-                                 filtration.slope,
-                                 filtration.constant,
-                                 filtration.segments);
+    return std::forward_as_tuple(seepage.uid,
+                                 seepage.name,
+                                 seepage.active,
+                                 seepage.waterway,
+                                 seepage.reservoir,
+                                 seepage.slope,
+                                 seepage.constant,
+                                 seepage.segments);
   }
 };
 }  // namespace daw::json
