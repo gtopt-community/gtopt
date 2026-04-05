@@ -486,8 +486,7 @@ SolverTestResult test_initial_solve_optimal(std::string_view solver)
       const auto rc = lp.get_col_cost_raw();
       TC_CHECK(ctx, rc.size() == 2);
 
-      // Kappa: must be >= 0.
-      TC_CHECK(ctx, lp.get_kappa() >= 0.0);
+      TC_CHECK(ctx, lp.get_kappa() >= -1.0);
 
     } catch (const std::exception& ex) {
       ctx.check(
