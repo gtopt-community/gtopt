@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "status": "done",
+  "method": "monolithic",
+  "solver": "mindopt/2.3.0",
+  "total_scenes": 1,
+  "scenes_done": 1
+}
