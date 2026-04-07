@@ -27,16 +27,14 @@ TEST_CASE("LinearInterface - Constructor and basic operations")
 
   // Add some columns and rows
   const auto col1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 2.0,
   });
   const auto col2 = interface.add_col(SparseCol {
-      .name = "x2",
       .uppb = 5.0,
       .cost = 3.0,
   });
-  const auto col3 = interface.add_col(SparseCol {.name = "x3"}.free());
+  const auto col3 = interface.add_col(SparseCol {}.free());
 
   // Check dimensions
   REQUIRE(interface.get_numcols() == 3);
@@ -59,7 +57,7 @@ TEST_CASE("LinearInterface - Constructor and basic operations")
   REQUIRE(interface.get_obj_coeff()[col3] == doctest::Approx(0.0));
 
   // Test adding constraints
-  SparseRow row1("constraint1");
+  SparseRow row1;
   row1[col1] = 1.0;
   row1[col2] = 2.0;
   row1.lowb = 0.0;
@@ -92,18 +90,16 @@ TEST_CASE("LinearInterface - LP solution")
 
   // Add variables
   const auto x1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 4.0,
       .cost = -3.0,
   });
   const auto x2 = interface.add_col(SparseCol {
-      .name = "x2",
       .uppb = 3.0,
       .cost = -2.0,
   });
 
   // Add constraint: x1 + 2x2 <= 10
-  SparseRow row1("c1");
+  SparseRow row1;
   row1[x1] = 1.0;
   row1[x2] = 2.0;
   row1.uppb = 10.0;
@@ -135,15 +131,12 @@ TEST_CASE("LinearInterface - Variable types and bounds")
 
   // Add different types of variables
   const auto continuous_var = interface.add_col(SparseCol {
-      .name = "cont",
       .uppb = 10.0,
   });
   const auto integer_var = interface.add_col(SparseCol {
-      .name = "int",
       .uppb = 10.0,
   });
   const auto binary_var = interface.add_col(SparseCol {
-      .name = "bin",
       .uppb = 1.0,
   });
 
@@ -181,24 +174,20 @@ TEST_CASE("LinearInterface - LP file output")
   LinearInterface interface;
   interface.set_lp_names_level(1);
 
-  // Add variables
-  interface.add_col(SparseCol {
-      .name = "x1",
-      .uppb = 10.0,
-      .cost = 2.0,
-  });
-  interface.add_col(SparseCol {
-      .name = "x2",
-      .uppb = 10.0,
-      .cost = 3.0,
-  });
+  // Add variables using string overload so names are tracked for LP output
+  interface.add_col("x1", 0.0, 10.0);
+  interface.add_col("x2", 0.0, 10.0);
 
-  // Add constraint
+  // Add constraint using SparseRow API
   SparseRow row;
-  row.name = "c1";
   row[ColIndex {0}] = 1.0;
   row[ColIndex {1}] = 1.0;
+  row.lowb = 0.0;
   row.uppb = 15.0;
+  row.class_name = "C";
+  row.constraint_name = "1";
+  row.variable_uid = Uid {0};
+  row.context = make_stage_context(ScenarioUid {0}, StageUid {0});
   interface.add_row(row);
 
   // Set problem name
@@ -226,13 +215,11 @@ TEST_CASE("LinearInterface - Loading from FlatLinearProblem")
   LinearProblem lp("TestLP");
 
   // Add columns
-  const auto col1 =
-      lp.add_col({.name = "x1", .lowb = 0.0, .uppb = 10.0, .cost = 2.0});
-  const auto col2 =
-      lp.add_col({.name = "x2", .lowb = 0.0, .uppb = 10.0, .cost = 3.0});
+  const auto col1 = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 2.0});
+  const auto col2 = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 3.0});
 
   // Add row
-  const auto row1 = lp.add_row({.name = "c1", .uppb = 15.0});
+  const auto row1 = lp.add_row({.uppb = 15.0});
 
   // Set coefficients
   lp.set_coeff(row1, col1, 1.0);
@@ -286,7 +273,6 @@ TEST_CASE("LinearInterface - set_col and set_rhs")
   LinearInterface interface;
 
   const auto col1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
   });
   interface.set_col(col1, 5.0);
@@ -298,7 +284,7 @@ TEST_CASE("LinearInterface - set_col and set_rhs")
   CHECK(col_upp[col1] == doctest::Approx(5.0));
 
   // Add a row and test set_rhs
-  SparseRow row("c1");
+  SparseRow row;
   row[col1] = 1.0;
   row.lowb = 0.0;
   row.uppb = 10.0;
@@ -319,7 +305,7 @@ TEST_CASE("LinearInterface - add_col without bounds (default)")
 
   LinearInterface interface;
 
-  const auto col = interface.add_col(SparseCol {.name = "x_default"});
+  const auto col = interface.add_col(SparseCol {});
 
   auto col_low = interface.get_col_low();
   auto col_upp = interface.get_col_upp();
@@ -335,11 +321,10 @@ TEST_CASE("LinearInterface - row bounds modification")
   LinearInterface interface;
 
   const auto col = interface.add_col(SparseCol {
-      .name = "x",
       .uppb = 10.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[col] = 1.0;
   row.lowb = 0.0;
   row.uppb = 10.0;
@@ -361,7 +346,6 @@ TEST_CASE("LinearInterface - write LP to empty filename (no-op)")
 
   LinearInterface interface;
   interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
   });
 
@@ -376,17 +360,15 @@ TEST_CASE("LinearInterface - solve with solver options (dual algorithm)")
   LinearInterface interface;
 
   const auto x1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 2.0,
   });
   const auto x2 = interface.add_col(SparseCol {
-      .name = "x2",
       .uppb = 10.0,
       .cost = 3.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.uppb = 12.0;
@@ -408,12 +390,11 @@ TEST_CASE("LinearInterface - solve with primal algorithm")
   LinearInterface interface;
 
   const auto x1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
   interface.add_row(row);
@@ -433,12 +414,11 @@ TEST_CASE("LinearInterface - solver options with tolerances")
   LinearInterface interface;
 
   const auto x1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
   interface.add_row(row);
@@ -459,12 +439,11 @@ TEST_CASE("LinearInterface - get_status and status checks")
   LinearInterface interface;
 
   const auto x1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
   interface.add_row(row);
@@ -499,36 +478,33 @@ TEST_CASE("LinearInterface - get_kappa returns meaningful condition number")
   LinearInterface interface;
 
   const auto x1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 100.0,
       .cost = -1.0,
   });
   const auto x2 = interface.add_col(SparseCol {
-      .name = "x2",
       .uppb = 100.0,
       .cost = -2.0,
   });
   const auto x3 = interface.add_col(SparseCol {
-      .name = "x3",
       .uppb = 100.0,
       .cost = -1.0,
   });
 
-  SparseRow r1("c1");
+  SparseRow r1;
   r1[x1] = 1000.0;
   r1[x2] = 1.0;
   r1[x3] = 1.0;
   r1.uppb = 5000.0;
   interface.add_row(r1);
 
-  SparseRow r2("c2");
+  SparseRow r2;
   r2[x1] = 1.0;
   r2[x2] = 1000.0;
   r2[x3] = 1.0;
   r2.uppb = 5000.0;
   interface.add_row(r2);
 
-  SparseRow r3("c3");
+  SparseRow r3;
   r3[x1] = 1.0;
   r3[x2] = 1.0;
   r3[x3] = 1000.0;
@@ -565,36 +541,33 @@ TEST_CASE("LinearInterface - get_kappa with explicit solver")
       LinearInterface interface(solver);
 
       const auto x1 = interface.add_col(SparseCol {
-          .name = "x1",
           .uppb = 100.0,
           .cost = -1.0,
       });
       const auto x2 = interface.add_col(SparseCol {
-          .name = "x2",
           .uppb = 100.0,
           .cost = -2.0,
       });
       const auto x3 = interface.add_col(SparseCol {
-          .name = "x3",
           .uppb = 100.0,
           .cost = -1.0,
       });
 
-      SparseRow r1("c1");
+      SparseRow r1;
       r1[x1] = 1000.0;
       r1[x2] = 1.0;
       r1[x3] = 1.0;
       r1.uppb = 5000.0;
       interface.add_row(r1);
 
-      SparseRow r2("c2");
+      SparseRow r2;
       r2[x1] = 1.0;
       r2[x2] = 1000.0;
       r2[x3] = 1.0;
       r2.uppb = 5000.0;
       interface.add_row(r2);
 
-      SparseRow r3("c3");
+      SparseRow r3;
       r3[x1] = 1.0;
       r3[x2] = 1.0;
       r3[x3] = 1000.0;
@@ -623,17 +596,15 @@ TEST_CASE("LinearInterface - set_col_sol and set_row_dual")
   LinearInterface interface;
 
   const auto x1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
   const auto x2 = interface.add_col(SparseCol {
-      .name = "x2",
       .uppb = 10.0,
       .cost = 2.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.uppb = 8.0;
@@ -657,7 +628,6 @@ TEST_CASE("LinearInterface - set_col_sol with null span (no-op)")
 
   LinearInterface interface;
   interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
   });
 
@@ -675,7 +645,6 @@ TEST_CASE("LinearInterface - get_obj_value after solve")
   LinearInterface interface;
 
   [[maybe_unused]] const auto x1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 5.0,
   });
@@ -695,12 +664,11 @@ TEST_CASE("LinearInterface - log file handling")
   LinearInterface interface(std::string_view {}, log_file);
 
   const auto x1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
   interface.add_row(row);
@@ -724,12 +692,10 @@ TEST_CASE("LinearInterface - FlatLinearProblem constructor")
 
   LinearProblem lp("DirectLoad");
 
-  const auto col1 =
-      lp.add_col({.name = "x1", .lowb = 0.0, .uppb = 10.0, .cost = 1.0});
-  const auto col2 =
-      lp.add_col({.name = "x2", .lowb = 0.0, .uppb = 10.0, .cost = 2.0});
+  const auto col1 = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 1.0});
+  const auto col2 = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 2.0});
 
-  auto row1 = lp.add_row({.name = "c1", .uppb = 8.0});
+  auto row1 = lp.add_row({.uppb = 8.0});
   lp.set_coeff(row1, col1, 1.0);
   lp.set_coeff(row1, col2, 1.0);
 
@@ -757,7 +723,6 @@ TEST_CASE("LinearInterface - time limit")
   LinearInterface interface;
 
   [[maybe_unused]] const auto x1 = interface.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
@@ -776,14 +741,8 @@ TEST_CASE("LinearInterface - duplicate name detection level 0 (col only)")
   li.set_lp_names_level(0);
 
   // Duplicate col names are silently accepted at level 0
-  const auto c1 = li.add_col(SparseCol {
-      .name = "x",
-      .uppb = 1.0,
-  });
-  const auto c2 = li.add_col(SparseCol {
-      .name = "x",
-      .uppb = 1.0,
-  });
+  const auto c1 = li.add_col("x", 0.0, 1.0);
+  const auto c2 = li.add_col("x", 0.0, 1.0);
   CHECK(c1 != c2);
 
   // Col name map is populated at level 0 (first "x" wins)
@@ -801,21 +760,12 @@ TEST_CASE("LinearInterface - duplicate name detection level 1 (warn)")
   li.set_lp_names_level(1);
 
   // First insertions populate the name maps
-  const auto c1 = li.add_col(SparseCol {
-      .name = "x",
-      .uppb = 1.0,
-  });
-  const auto c2 = li.add_col(SparseCol {
-      .name = "y",
-      .uppb = 1.0,
-  });
+  const auto c1 = li.add_col("x", 0.0, 1.0);
+  const auto c2 = li.add_col("y", 0.0, 1.0);
   CHECK(li.col_name_map().size() == 2);
 
   // Duplicate column name: warns but still adds the column
-  const auto c3 = li.add_col(SparseCol {
-      .name = "x",
-      .uppb = 1.0,
-  });
+  const auto c3 = li.add_col("x", 0.0, 1.0);
   CHECK(li.get_numcols() == 3);
   // Map still has 2 entries (first "x" wins)
   CHECK(li.col_name_map().size() == 2);
@@ -826,29 +776,33 @@ TEST_CASE("LinearInterface - duplicate name detection level 1 (warn)")
   li.set_obj_coeff(c2, 1.0);
   li.set_obj_coeff(c3, 1.0);
 
-  SparseRow row_a {
-      .name = "cons_a",
-      .lowb = 0.0,
-      .uppb = 1.0,
-  };
+  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {0});
+
+  SparseRow row_a;
   row_a[c1] = 1.0;
+  row_a.uppb = 1.0;
+  row_a.class_name = "Cons";
+  row_a.constraint_name = "a";
+  row_a.variable_uid = Uid {0};
+  row_a.context = ctx;
   const auto r1 = li.add_row(row_a);
   // row_name_map is populated at level >= 1
   CHECK(li.row_name_map().size() == 1);
-  CHECK(li.row_name_map().at("cons_a") == static_cast<int32_t>(r1));
+  CHECK(li.row_name_map().at("cons_a_0_0_0") == static_cast<int32_t>(r1));
 
-  // Duplicate row name: warns but still adds the row (first "cons_a" wins)
-  SparseRow row_a2 {
-      .name = "cons_a",
-      .lowb = 0.0,
-      .uppb = 1.0,
-  };
+  // Duplicate row name: warns but still adds the row (first wins)
+  SparseRow row_a2;
   row_a2[c2] = 1.0;
+  row_a2.uppb = 1.0;
+  row_a2.class_name = "Cons";
+  row_a2.constraint_name = "a";
+  row_a2.variable_uid = Uid {0};
+  row_a2.context = ctx;
   const auto r2 = li.add_row(row_a2);
   CHECK(li.get_numrows() == 2);
-  // Map still has 1 entry (first "cons_a" wins)
+  // Map still has 1 entry (first "cons_a_0_0_0" wins)
   CHECK(li.row_name_map().size() == 1);
-  CHECK(li.row_name_map().at("cons_a") == static_cast<int32_t>(r1));
+  CHECK(li.row_name_map().at("cons_a_0_0_0") == static_cast<int32_t>(r1));
   CHECK(r1 != r2);
 }
 
@@ -859,39 +813,36 @@ TEST_CASE("LinearInterface - duplicate name detection level 2 (error)")
   LinearInterface li;
   li.set_lp_names_level(2);
 
-  li.add_col(SparseCol {
-      .name = "x",
-      .uppb = 1.0,
-  });
+  li.add_col("x", 0.0, 1.0);
   CHECK(li.col_name_map().size() == 1);
 
   // Duplicate column name at level 2 throws
-  CHECK_THROWS_AS(li.add_col(SparseCol {.name = "x", .uppb = 1.0}),
-                  std::runtime_error);
+  CHECK_THROWS_AS(li.add_col("x", 0.0, 1.0), std::runtime_error);
 
   // Different name is fine
-  li.add_col(SparseCol {
-      .name = "y",
-      .uppb = 1.0,
-  });
+  li.add_col("y", 0.0, 1.0);
   CHECK(li.col_name_map().size() == 2);
 
   // Same for rows
-  SparseRow row1 {
-      .name = "r1",
-      .lowb = 0.0,
-      .uppb = 1.0,
-  };
+  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {0});
+  SparseRow row1;
   row1[ColIndex {0}] = 1.0;
+  row1.uppb = 1.0;
+  row1.class_name = "R";
+  row1.constraint_name = "1";
+  row1.variable_uid = Uid {0};
+  row1.context = ctx;
   li.add_row(row1);
   CHECK(li.row_name_map().size() == 1);
 
-  SparseRow row1_dup {
-      .name = "r1",
-      .lowb = 0.0,
-      .uppb = 1.0,
-  };
+  // Duplicate row name at level 2 throws
+  SparseRow row1_dup;
   row1_dup[ColIndex {0}] = 1.0;
+  row1_dup.uppb = 1.0;
+  row1_dup.class_name = "R";
+  row1_dup.constraint_name = "1";
+  row1_dup.variable_uid = Uid {0};
+  row1_dup.context = ctx;
   CHECK_THROWS_AS(li.add_row(row1_dup), std::runtime_error);
 }
 
@@ -904,17 +855,15 @@ TEST_CASE("LinearInterface - clone preserves solution")  // NOLINT
   // Build a simple LP:  min 2x1 + 3x2  s.t.  x1 + x2 >= 5,  x1,x2 in [0,10]
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 2.0,
   });
   const auto x2 = li.add_col(SparseCol {
-      .name = "x2",
       .uppb = 10.0,
       .cost = 3.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.lowb = 5.0;
@@ -944,17 +893,15 @@ TEST_CASE("LinearInterface - warm-start clone resolves after bound change")
   // Optimal: x1=0, x2=10 → obj=10
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 20.0,
       .cost = 2.0,
   });
   const auto x2 = li.add_col(SparseCol {
-      .name = "x2",
       .uppb = 20.0,
       .cost = 1.0,
   });
 
-  SparseRow row("sum");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.lowb = 10.0;
@@ -993,17 +940,15 @@ TEST_CASE(
   // LP: min 3x1 + 2x2  s.t.  x1 + x2 >= 8,  x1 in [0,10], x2 in [0,10]
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 3.0,
   });
   const auto x2 = li.add_col(SparseCol {
-      .name = "x2",
       .uppb = 10.0,
       .cost = 2.0,
   });
 
-  SparseRow row("sum");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.lowb = 8.0;
@@ -1045,17 +990,15 @@ TEST_CASE("LinearInterface - set_warm_start_solution exact dimensions")
   // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 20.0,
       .cost = 2.0,
   });
   const auto x2 = li.add_col(SparseCol {
-      .name = "x2",
       .uppb = 20.0,
       .cost = 1.0,
   });
 
-  SparseRow row("sum");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.lowb = 10.0;
@@ -1096,17 +1039,15 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra rows")
   // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 20.0,
       .cost = 2.0,
   });
   const auto x2 = li.add_col(SparseCol {
-      .name = "x2",
       .uppb = 20.0,
       .cost = 1.0,
   });
 
-  SparseRow row("sum");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.lowb = 10.0;
@@ -1124,7 +1065,7 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra rows")
   CHECK(saved_dual.size() == 1);
 
   // Add a new row (simulating a Benders cut), then apply saved solution
-  SparseRow cut("cut");
+  SparseRow cut;
   cut[x1] = 1.0;
   cut.lowb = 2.0;
   cut.uppb = LinearProblem::DblMax;
@@ -1152,17 +1093,15 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra columns")
   // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 20.0,
       .cost = 2.0,
   });
   const auto x2 = li.add_col(SparseCol {
-      .name = "x2",
       .uppb = 20.0,
       .cost = 1.0,
   });
 
-  SparseRow row("sum");
+  SparseRow row;
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.lowb = 10.0;
@@ -1179,7 +1118,6 @@ TEST_CASE("LinearInterface - set_warm_start_solution pads extra columns")
 
   // Add a slack column (simulating elastic filter), then apply saved solution
   [[maybe_unused]] const auto slack = li.add_col(SparseCol {
-      .name = "slack",
       .uppb = 100.0,
       .cost = 1000.0,
   });
@@ -1206,12 +1144,11 @@ TEST_CASE("LinearInterface - set_warm_start_solution ignores stale snapshot")
   // LP: min x1  s.t.  x1 >= 5
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 20.0,
       .cost = 1.0,
   });
 
-  SparseRow row("lb");
+  SparseRow row;
   row[x1] = 1.0;
   row.lowb = 5.0;
   row.uppb = LinearProblem::DblMax;
@@ -1238,12 +1175,11 @@ TEST_CASE("LinearInterface - set_warm_start_solution with empty spans is no-op")
 
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
 
-  SparseRow row("lb");
+  SparseRow row;
   row[x1] = 1.0;
   row.lowb = 3.0;
   row.uppb = LinearProblem::DblMax;
@@ -1267,17 +1203,15 @@ TEST_CASE(  // NOLINT
 
   LinearProblem lp("IntLP");
 
-  const auto col1 =
-      lp.add_col({.name = "x1", .lowb = 0.0, .uppb = 10.0, .cost = 1.0});
+  const auto col1 = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 1.0});
   const auto col2 = lp.add_col({
-      .name = "x2",
       .lowb = 0.0,
       .uppb = 10.0,
       .cost = 2.0,
       .is_integer = true,
   });
 
-  auto row1 = lp.add_row({.name = "c1", .uppb = 8.0});
+  auto row1 = lp.add_row({.uppb = 8.0});
   lp.set_coeff(row1, col1, 1.0);
   lp.set_coeff(row1, col2, 1.0);
 
@@ -1295,13 +1229,9 @@ TEST_CASE(  // NOLINT
   CHECK(li.get_numcols() == 2);
   CHECK(li.get_numrows() == 1);
 
-  // Column name map populated at level >= 0
-  CHECK(li.col_name_map().size() == 2);
-  CHECK(li.col_name_map().count("x1") == 1);
-  CHECK(li.col_name_map().count("x2") == 1);
-  // Row name map populated at level >= 1
-  CHECK(li.row_name_map().size() == 1);
-  CHECK(li.row_name_map().count("c1") == 1);
+  // Without metadata on SparseCol/SparseRow, names are empty
+  CHECK(li.col_name_map().empty());
+  CHECK(li.row_name_map().empty());
 
   // Integer column should be marked
   CHECK(li.is_integer(col2));
@@ -1316,11 +1246,10 @@ TEST_CASE("LinearInterface - load_flat without names (level 0)")  // NOLINT
   using namespace gtopt;
 
   LinearProblem lp("NoNames");
-  const auto col =
-      lp.add_col({.name = "x1", .lowb = 0.0, .uppb = 5.0, .cost = 1.0});
+  const auto col = lp.add_col({.lowb = 0.0, .uppb = 5.0, .cost = 1.0});
 
   // Add a row so flatten() does not early-return (needs ncols>0 AND nrows>0).
-  auto row = SparseRow {.name = "r1", .uppb = 10.0};
+  auto row = SparseRow {.uppb = 10.0};
   row[col] = 1.0;
   [[maybe_unused]] const auto row_idx = lp.add_row(row);
 
@@ -1333,9 +1262,8 @@ TEST_CASE("LinearInterface - load_flat without names (level 0)")  // NOLINT
   li.set_lp_names_level(0);
   li.load_flat(flat_lp);
 
-  // Col name map populated at level 0 (state var names), row map stays empty
-  CHECK(li.col_name_map().size() == 1);
-  CHECK(li.col_name_map().count("x1") == 1);
+  // Without metadata on SparseCol/SparseRow, names are empty at any level
+  CHECK(li.col_name_map().empty());
   CHECK(li.row_name_map().empty());
 }
 
@@ -1347,12 +1275,11 @@ TEST_CASE("LinearInterface - initial_solve returns error on infeasible LP")
   // Create an infeasible LP: x >= 10 AND x <= 5
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 5.0,
       .cost = 1.0,
   });
 
-  SparseRow row("lb");
+  SparseRow row;
   row[x1] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
@@ -1379,12 +1306,11 @@ TEST_CASE("LinearInterface - resolve returns error on infeasible LP")  // NOLINT
   // Create an infeasible LP: x >= 10 AND x <= 5
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 5.0,
       .cost = 1.0,
   });
 
-  SparseRow row("lb");
+  SparseRow row;
   row[x1] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
@@ -1402,7 +1328,6 @@ TEST_CASE("LinearInterface - get_coeff on empty LP returns zero")  // NOLINT
 
   LinearInterface li;
   const auto col = li.add_col(SparseCol {
-      .name = "x",
       .uppb = 10.0,
   });
 
@@ -1416,16 +1341,14 @@ TEST_CASE("LinearInterface - set_coeff and get_coeff round trip")  // NOLINT
 
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
   const auto x2 = li.add_col(SparseCol {
-      .name = "x2",
       .uppb = 10.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 2.0;
   row[x2] = 3.0;
   row.uppb = 20.0;
@@ -1448,12 +1371,11 @@ TEST_CASE("LinearInterface - set_log_file direct call")  // NOLINT
   li.set_log_file("/tmp/test_direct_log");
 
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
   li.add_row(row);
@@ -1477,12 +1399,11 @@ TEST_CASE("LinearInterface - solve with time_limit option")  // NOLINT
 
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
   li.add_row(row);
@@ -1502,27 +1423,23 @@ TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
 
   LinearProblem lp("RowNames");
   const auto c1 = lp.add_col({
-      .name = "x1",
       .lowb = 0.0,
       .uppb = 10.0,
       .cost = 1.0,
   });
   const auto c2 = lp.add_col({
-      .name = "x2",
       .lowb = 0.0,
       .uppb = 5.0,
       .cost = 2.0,
   });
 
   auto r1 = lp.add_row({
-      .name = "cons_alpha",
       .uppb = 8.0,
   });
   lp.set_coeff(r1, c1, 1.0);
   lp.set_coeff(r1, c2, 1.0);
 
   auto r2 = lp.add_row({
-      .name = "cons_beta",
       .uppb = 4.0,
   });
   lp.set_coeff(r2, c1, 1.0);
@@ -1538,24 +1455,20 @@ TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
 
   REQUIRE(li.get_numrows() == 2);
 
-  SUBCASE("row_index_to_name has correct size and entries")
+  SUBCASE("row_index_to_name has correct size (empty strings without metadata)")
   {
     const auto& names = li.row_index_to_name();
+    // Without metadata, flatten() produces empty name strings, but
+    // row_index_to_name is still populated (one entry per row).
     REQUIRE(names.size() == 2);
-    CHECK(names[RowIndex {0}] == "cons_alpha");
-    CHECK(names[RowIndex {1}] == "cons_beta");
+    CHECK(names[RowIndex {0}].empty());
+    CHECK(names[RowIndex {1}].empty());
   }
 
-  SUBCASE("row_index_to_name is consistent with row_name_map")
+  SUBCASE("row_name_map is empty without metadata")
   {
-    const auto& names = li.row_index_to_name();
-    const auto& map = li.row_name_map();
-    for (size_t i = 0; i < names.size(); ++i) {
-      const auto ri = RowIndex {static_cast<int>(i)};
-      if (!names[ri].empty()) {
-        CHECK(map.at(names[ri]) == static_cast<int32_t>(i));
-      }
-    }
+    // Empty name strings are not inserted into the name map.
+    CHECK(li.row_name_map().empty());
   }
 }
 
@@ -1566,41 +1479,31 @@ TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
   LinearInterface li;
   li.set_lp_names_level(1);
 
-  const auto c1 = li.add_col(SparseCol {
-      .name = "x",
-      .uppb = 10.0,
-  });
+  const auto c1 = li.add_col("x", 0.0, 10.0);
+  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {0});
 
-  SparseRow row_a {
-      .name = "row_a",
-      .lowb = 0.0,
-      .uppb = 5.0,
+  auto make_row = [&](std::string_view cname, Uid uid, double uppb) -> SparseRow
+  {
+    SparseRow r;
+    r[c1] = 1.0;
+    r.uppb = uppb;
+    r.class_name = "Row";
+    r.constraint_name = cname;
+    r.variable_uid = uid;
+    r.context = ctx;
+    return r;
   };
-  row_a[c1] = 1.0;
-  li.add_row(row_a);
 
-  SparseRow row_b {
-      .name = "row_b",
-      .lowb = 0.0,
-      .uppb = 3.0,
-  };
-  row_b[c1] = 1.0;
-  li.add_row(row_b);
-
-  SparseRow row_c {
-      .name = "row_c",
-      .lowb = 0.0,
-      .uppb = 7.0,
-  };
-  row_c[c1] = 1.0;
-  li.add_row(row_c);
+  li.add_row(make_row("a", Uid {0}, 5.0));
+  li.add_row(make_row("b", Uid {1}, 3.0));
+  li.add_row(make_row("c", Uid {2}, 7.0));
 
   REQUIRE(li.get_numrows() == 3);
   const auto& names = li.row_index_to_name();
   REQUIRE(names.size() == 3);
-  CHECK(names[RowIndex {0}] == "row_a");
-  CHECK(names[RowIndex {1}] == "row_b");
-  CHECK(names[RowIndex {2}] == "row_c");
+  CHECK(names[RowIndex {0}] == "row_a_0_0_0");
+  CHECK(names[RowIndex {1}] == "row_b_1_0_0");
+  CHECK(names[RowIndex {2}] == "row_c_2_0_0");
 }
 
 TEST_CASE(
@@ -1611,27 +1514,31 @@ TEST_CASE(
   LinearInterface li;
   li.set_lp_names_level(2);
 
-  const auto c1 = li.add_col(SparseCol {
-      .name = "x",
-      .uppb = 10.0,
-      .cost = 1.0,
-  });
+  const auto c1 = li.add_col("x", 0.0, 10.0);
+  const auto ctx = make_stage_context(ScenarioUid {0}, StageUid {0});
 
-  // Add 4 rows
-  for (const auto* name : {"r0", "r1", "r2", "r3"}) {
-    SparseRow row {
-        .name = std::string(name),
-        .lowb = 0.0,
-        .uppb = 10.0,
-    };
-    row[c1] = 1.0;
-    li.add_row(row);
+  // Add 4 rows using SparseRow with metadata for name generation.
+  // Use different UIDs to produce unique names: r_x_<uid>_0_0
+  auto make_row = [&](Uid uid) -> SparseRow
+  {
+    SparseRow r;
+    r[c1] = 1.0;
+    r.uppb = 10.0;
+    r.class_name = "R";
+    r.constraint_name = "x";
+    r.variable_uid = uid;
+    r.context = ctx;
+    return r;
+  };
+
+  for (int i = 0; i < 4; ++i) {
+    li.add_row(make_row(Uid {i}));
   }
   REQUIRE(li.get_numrows() == 4);
 
   SUBCASE("delete middle row shifts indices")
   {
-    // Delete row 1 ("r1")
+    // Delete row 1 ("r_x_1_0_0")
     std::vector<int> to_delete {
         1,
     };
@@ -1640,15 +1547,15 @@ TEST_CASE(
     REQUIRE(li.get_numrows() == 3);
     const auto& names = li.row_index_to_name();
     REQUIRE(names.size() == 3);
-    CHECK(names[RowIndex {0}] == "r0");
-    CHECK(names[RowIndex {1}] == "r2");
-    CHECK(names[RowIndex {2}] == "r3");
+    CHECK(names[RowIndex {0}] == "r_x_0_0_0");
+    CHECK(names[RowIndex {1}] == "r_x_2_0_0");
+    CHECK(names[RowIndex {2}] == "r_x_3_0_0");
 
     // row_name_map must agree
-    CHECK(li.row_name_map().at("r0") == 0);
-    CHECK(li.row_name_map().at("r2") == 1);
-    CHECK(li.row_name_map().at("r3") == 2);
-    CHECK(li.row_name_map().count("r1") == 0);
+    CHECK(li.row_name_map().at("r_x_0_0_0") == 0);
+    CHECK(li.row_name_map().at("r_x_2_0_0") == 1);
+    CHECK(li.row_name_map().at("r_x_3_0_0") == 2);
+    CHECK(li.row_name_map().count("r_x_1_0_0") == 0);
   }
 
   SUBCASE("delete first and last rows")
@@ -1662,11 +1569,11 @@ TEST_CASE(
     REQUIRE(li.get_numrows() == 2);
     const auto& names = li.row_index_to_name();
     REQUIRE(names.size() == 2);
-    CHECK(names[RowIndex {0}] == "r1");
-    CHECK(names[RowIndex {1}] == "r2");
+    CHECK(names[RowIndex {0}] == "r_x_1_0_0");
+    CHECK(names[RowIndex {1}] == "r_x_2_0_0");
 
-    CHECK(li.row_name_map().at("r1") == 0);
-    CHECK(li.row_name_map().at("r2") == 1);
+    CHECK(li.row_name_map().at("r_x_1_0_0") == 0);
+    CHECK(li.row_name_map().at("r_x_2_0_0") == 1);
   }
 
   SUBCASE("delete all rows leaves empty maps")
@@ -1693,20 +1600,21 @@ TEST_CASE(
     li.delete_rows(to_delete);
     REQUIRE(li.get_numrows() == 2);
 
-    SparseRow new_row {
-        .name = "r_new",
-        .lowb = 0.0,
-        .uppb = 5.0,
-    };
-    new_row[c1] = 1.0;
-    li.add_row(new_row);
+    SparseRow r_new;
+    r_new[c1] = 1.0;
+    r_new.uppb = 5.0;
+    r_new.class_name = "R";
+    r_new.constraint_name = "new";
+    r_new.variable_uid = Uid {4};
+    r_new.context = ctx;
+    li.add_row(r_new);
 
     REQUIRE(li.get_numrows() == 3);
     const auto& names = li.row_index_to_name();
     REQUIRE(names.size() == 3);
-    CHECK(names[RowIndex {0}] == "r0");
-    CHECK(names[RowIndex {1}] == "r3");
-    CHECK(names[RowIndex {2}] == "r_new");
+    CHECK(names[RowIndex {0}] == "r_x_0_0_0");
+    CHECK(names[RowIndex {1}] == "r_x_3_0_0");
+    CHECK(names[RowIndex {2}] == "r_new_4_0_0");
   }
 }
 
@@ -1718,12 +1626,10 @@ TEST_CASE("LinearInterface - row_index_to_name empty at level 0")  // NOLINT
   li.set_lp_names_level(0);
 
   const auto c1 = li.add_col(SparseCol {
-      .name = "x",
       .uppb = 10.0,
   });
 
   SparseRow row {
-      .name = "named_row",
       .lowb = 0.0,
       .uppb = 5.0,
   };
@@ -1751,12 +1657,11 @@ TEST_CASE("LinearInterface - algorithm fallback on infeasible initial_solve")
   {
     LinearInterface li;
     const auto x1 = li.add_col(SparseCol {
-        .name = "x1",
         .uppb = 5.0,
         .cost = 1.0,
     });
 
-    SparseRow row("lb");
+    SparseRow row;
     row[x1] = 1.0;
     row.lowb = 10.0;
     row.uppb = LinearProblem::DblMax;
@@ -1786,12 +1691,11 @@ TEST_CASE("LinearInterface - algorithm fallback on infeasible resolve")
   {
     LinearInterface li;
     const auto x1 = li.add_col(SparseCol {
-        .name = "x1",
         .uppb = 5.0,
         .cost = 1.0,
     });
 
-    SparseRow row("lb");
+    SparseRow row;
     row[x1] = 1.0;
     row.lowb = 10.0;
     row.uppb = LinearProblem::DblMax;
@@ -1823,17 +1727,15 @@ TEST_CASE(
   {
     LinearInterface li;
     const auto x1 = li.add_col(SparseCol {
-        .name = "x1",
         .uppb = 100.0,
         .cost = 1.0,
     });
     const auto x2 = li.add_col(SparseCol {
-        .name = "x2",
         .uppb = 100.0,
         .cost = 1.0,
     });
 
-    SparseRow row("c1");
+    SparseRow row;
     row[x1] = 1.0;
     row[x2] = 1.0;
     row.lowb = 4.0;
@@ -1860,12 +1762,11 @@ TEST_CASE(
   // The fallback cycle should engage and ultimately fail.
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 10.0,
       .cost = 1.0,
   });
 
-  SparseRow row("c1");
+  SparseRow row;
   row[x1] = 1.0;
   row.lowb = 1.0;
   row.uppb = LinearProblem::DblMax;
@@ -1899,12 +1800,11 @@ TEST_CASE("LinearInterface - max_fallbacks=0 disables fallback")  // NOLINT
   // the "fallback" keyword in the error message.
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 5.0,
       .cost = 1.0,
   });
 
-  SparseRow row("lb");
+  SparseRow row;
   row[x1] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
@@ -1943,12 +1843,11 @@ TEST_CASE("LinearInterface - max_fallbacks=1 tries one alternative")  // NOLINT
   // fail, but the error should mention "fallback".
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
-      .name = "x1",
       .uppb = 5.0,
       .cost = 1.0,
   });
 
-  SparseRow row("lb");
+  SparseRow row;
   row[x1] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
