@@ -174,7 +174,7 @@ TEST_CASE("LinearInterface - LP file output")
 
   // Create simple LP with names so both col and row names are tracked.
   LinearInterface interface;
-  interface.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
+  interface.set_label_maker(LabelMaker {LpNamesLevel::all});
 
   // Add variables using SparseCol so names are tracked for LP output
   interface.add_col(SparseCol {
@@ -741,46 +741,12 @@ TEST_CASE("LinearInterface - time limit")
   REQUIRE(result.has_value());
 }
 
-TEST_CASE("LinearInterface - duplicate name detection at only_cols")
+TEST_CASE("LinearInterface - duplicate name detection throws")
 {
   using namespace gtopt;
 
   LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::only_cols});
-
-  const auto ctx =
-      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
-
-  // At only_cols, duplicate col names warn but are still accepted.
-  const auto c1 = li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 1.0,
-      .class_name = "X",
-      .variable_name = "v",
-      .variable_uid = Uid {1},
-      .context = ctx,
-  });
-  const auto c2 = li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 1.0,
-      .class_name = "X",
-      .variable_name = "v",
-      .variable_uid = Uid {1},
-      .context = ctx,
-  });
-  CHECK(c1 != c2);
-
-  // Col name map is populated (first "x_v_1_0_0" wins)
-  CHECK(li.col_name_map().size() == 1);
-  CHECK(li.col_name_map().at("x_v_1_0_0") == c1);
-}
-
-TEST_CASE("LinearInterface - duplicate name detection at cols_and_rows (error)")
-{
-  using namespace gtopt;
-
-  LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
+  li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
   const auto ctx =
       make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
@@ -795,7 +761,7 @@ TEST_CASE("LinearInterface - duplicate name detection at cols_and_rows (error)")
   });
   CHECK(li.col_name_map().size() == 1);
 
-  // Duplicate column name at cols_and_rows throws
+  // Duplicate column name throws
   CHECK_THROWS_AS(li.add_col(SparseCol {
                       .lowb = 0.0,
                       .uppb = 1.0,
@@ -1212,7 +1178,8 @@ TEST_CASE(  // NOLINT
   LpMatrixOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  flat_opts.lp_names_level = LpNamesLevel::cols_and_rows;
+  flat_opts.col_with_name_map = true;
+  flat_opts.row_with_name_map = true;
   auto flat_lp = lp.flatten(flat_opts);
 
   // Load with name tracking enabled (LabelMaker travels via flat_lp)
@@ -1249,7 +1216,7 @@ TEST_CASE("LinearInterface - load_flat without names (minimal)")  // NOLINT
   LpMatrixOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  flat_opts.lp_names_level = LpNamesLevel::only_cols;
+  flat_opts.col_with_name_map = true;
   auto flat_lp = lp.flatten(flat_opts);
 
   LinearInterface li;
@@ -1440,7 +1407,8 @@ TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
   LpMatrixOptions flat_opts;
   flat_opts.col_with_names = true;
   flat_opts.row_with_names = true;
-  flat_opts.lp_names_level = LpNamesLevel::cols_and_rows;
+  flat_opts.col_with_name_map = true;
+  flat_opts.row_with_name_map = true;
   auto flat_lp = lp.flatten(flat_opts);
 
   LinearInterface li;
@@ -1470,7 +1438,7 @@ TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
+  li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
   const auto c1 = li.add_col(SparseCol {
       .lowb = 0.0,
@@ -1509,7 +1477,7 @@ TEST_CASE(
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::cols_and_rows});
+  li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
   const auto c1 = li.add_col(SparseCol {
       .lowb = 0.0,
@@ -1619,12 +1587,12 @@ TEST_CASE(
   }
 }
 
-TEST_CASE("LinearInterface - row_index_to_name empty at only_cols")  // NOLINT
+TEST_CASE("LinearInterface - row_index_to_name populated at all")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
   LinearInterface li;
-  li.set_label_maker(LabelMaker {LpNamesLevel::only_cols});
+  li.set_label_maker(LabelMaker {LpNamesLevel::all});
 
   const auto c1 = li.add_col(SparseCol {
       .uppb = 10.0,
