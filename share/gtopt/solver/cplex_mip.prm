@@ -1,6 +1,6 @@
 CPLEX Parameter File Version 22.1.0.0
 # Optimised for the CEN PCP daily PLEXOS-derived MIP (~2.5M cols / 4M rows,
-# ~300K binaries for commitment).  Targets fast incumbent + 1% gap.
+# ~300K binaries for commitment).  Targets fast incumbent + 0.1% gap.
 # ---------------------------------------------------------------------
 # Parallel / threads
 CPX_PARAM_THREADS                                20
