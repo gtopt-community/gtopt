@@ -872,8 +872,10 @@ def compute_gtopt_per_unit_srmc(
     import pyarrow.parquet as pq
 
     bundle_path: Path | None = None
-    for cand in case_dir.glob("*.json"):
-        if cand.name == "planning.json":
+    for cand in sorted(case_dir.glob("*.json")):
+        # Skip the solved planning dump and the conversion-provenance
+        # sidecar (neither is the PLEXOS-source case bundle).
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
             continue
         bundle_path = cand
         break
@@ -1102,8 +1104,10 @@ def compute_gtopt_per_bus_lmp(
     import pyarrow.parquet as pq
 
     bundle_path: Path | None = None
-    for cand in case_dir.glob("*.json"):
-        if cand.name == "planning.json":
+    for cand in sorted(case_dir.glob("*.json")):
+        # Skip the solved planning dump and the conversion-provenance
+        # sidecar (neither is the PLEXOS-source case bundle).
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
             continue
         bundle_path = cand
         break
@@ -1379,8 +1383,10 @@ def compute_gtopt_per_line(
     import pyarrow.parquet as pq
 
     bundle_path: Path | None = None
-    for cand in case_dir.glob("*.json"):
-        if cand.name == "planning.json":
+    for cand in sorted(case_dir.glob("*.json")):
+        # Skip the solved planning dump and the conversion-provenance
+        # sidecar (neither is the PLEXOS-source case bundle).
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
             continue
         bundle_path = cand
         break
@@ -1863,8 +1869,10 @@ def compute_gtopt_generation_by_technology(
     import pyarrow.parquet as pq
 
     bundle_path: Path | None = None
-    for cand in case_dir.glob("*.json"):
-        if cand.name == "planning.json":
+    for cand in sorted(case_dir.glob("*.json")):
+        # Skip the solved planning dump and the conversion-provenance
+        # sidecar (neither is the PLEXOS-source case bundle).
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
             continue
         bundle_path = cand
         break
@@ -2074,8 +2082,10 @@ def compute_gtopt_reservoir_volumes(
     import pyarrow.parquet as pq
 
     bundle_path: Path | None = None
-    for cand in case_dir.glob("*.json"):
-        if cand.name == "planning.json":
+    for cand in sorted(case_dir.glob("*.json")):
+        # Skip the solved planning dump and the conversion-provenance
+        # sidecar (neither is the PLEXOS-source case bundle).
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
             continue
         bundle_path = cand
         break
@@ -2277,8 +2287,10 @@ def compute_gtopt_battery_operation(
     import pyarrow.parquet as pq
 
     bundle_path: Path | None = None
-    for cand in case_dir.glob("*.json"):
-        if cand.name == "planning.json":
+    for cand in sorted(case_dir.glob("*.json")):
+        # Skip the solved planning dump and the conversion-provenance
+        # sidecar (neither is the PLEXOS-source case bundle).
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
             continue
         bundle_path = cand
         break
@@ -2505,8 +2517,10 @@ def compute_gtopt_commitment(
     import pyarrow.parquet as pq
 
     bundle_path: Path | None = None
-    for cand in case_dir.glob("*.json"):
-        if cand.name == "planning.json":
+    for cand in sorted(case_dir.glob("*.json")):
+        # Skip the solved planning dump and the conversion-provenance
+        # sidecar (neither is the PLEXOS-source case bundle).
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
             continue
         bundle_path = cand
         break
@@ -3103,8 +3117,10 @@ def compute_uc_block_drilldown(
         return {}
 
     bundle_path: Path | None = None
-    for cand in case_dir.glob("*.json"):
-        if cand.name == "planning.json":
+    for cand in sorted(case_dir.glob("*.json")):
+        # Skip the solved planning dump and the conversion-provenance
+        # sidecar (neither is the PLEXOS-source case bundle).
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
             continue
         bundle_path = cand
         break
