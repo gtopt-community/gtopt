@@ -116,7 +116,6 @@ parser auto-discovers Line / Reserve / Constraint by walking
 | `Res_Requirement.csv` | reserve requirements (MW) | `ReserveZone.urreq` |
 | `Res_Timeslice.csv` | reserve time-slice mapping | per-day day-type selector for `Res_Requirement` → `ReserveZone.urreq`/`drreq` |
 | `SSCC_Activation_BESS.csv` | BESS in ancillary services | per-block `ur`/`dr_provision_factor` on each eligible `<battery>_gen` ReserveProvision |
-| `ReserveUsageTxCompensation.csv` | per-BESS reserve Tx-usage compensation fractions | not modelled — settlement/cost-allocation only (no dispatch-LP effect) |
 | `BESS_IniValue.csv` | battery initial SOC | `Battery.eini` |
 | `CFdata/CPF/*.csv` | per-unit ramp curves (MRU/MRD) | `Commitment.ramp_up`/`ramp_down` |
 
