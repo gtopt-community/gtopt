@@ -142,11 +142,15 @@ std::expected<void, Error> add_provision(
     // ``provision − urmin·u ≥ 0`` and resets ``lowb = 0`` (see
     // commitment_lp.cpp "PLEXOS Min Provision linkage"), so the floor
     // only binds when the unit is committed (``u = 1``) — matching
-    // PLEXOS's "Min Provision gated by Available Units" semantic.  The
-    // plexos2gtopt converter therefore emits ``urmin``/``drmin`` ONLY
-    // for committed generators; for a generator with no commitment the
-    // seed below would stay an always-on floor and could make the LP
-    // infeasible when the unit is off / at full output.
+    // PLEXOS's "Min Provision gated by Available Units" semantic.  This
+    // mechanism is exercised when ``urmin``/``drmin`` is set on the input.
+    // NOTE: the plexos2gtopt converter currently does NOT emit urmin/drmin
+    // — even gated on commitment and clamped to the per-block urmax cap, a
+    // flat PLEXOS Min Provision can exceed the *dynamic* generator headroom
+    // (a committed unit pinned near pmax by Fixed Load has no spare capacity
+    // for up-reserve), making the LP infeasible.  Faithfully reproducing
+    // PLEXOS's energy+reserve co-optimisation needs a soft (penalised-slack)
+    // reserve floor rather than this hard ``lowb`` — future work.
     const auto block_rmin = rp.min.optval(stage.uid(), buid).value_or(0.0);
 
     // LP-size: when both bounds collapse to zero the provision column is
@@ -297,6 +301,7 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     // ``generation_cols`` is absent.  ``generation_cols_at`` would
     // throw ``flat_map::at`` in that case (verified 2026-05-22 on the
     // CEN PCP daily bundle when ``--use-plexos-gen-cap`` forced
+    // hydro generators with zero PLEXOS dispatch to pmax_profile=0
     // every block).  ``lookup_generation_cols`` returns an empty
     // BIndexHolder via ``find_or_empty_inner``, so the per-block
     // ``generation_cols.find(buid)`` checks below safely iterate
