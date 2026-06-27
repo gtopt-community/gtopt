@@ -19,6 +19,7 @@
 
 #include "cplex_solver_backend.hpp"
 
+#include <gtopt/log_and_throw.hpp>
 #include <gtopt/solver_options.hpp>
 #include <ilcplex/cplex.h>
 #include <spdlog/spdlog.h>
@@ -346,7 +347,7 @@ CplexEnvLp::CplexEnvLp()
   int status = 0;
   m_env_ = CPXopenCPLEX(&status);
   if (m_env_ == nullptr) {
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("CPLEX: CPXopenCPLEX failed with status {}", status));
   }
   // Silent by default: no screen output, no log file.  Callers must
@@ -361,7 +362,7 @@ CplexEnvLp::CplexEnvLp()
   m_lp_ = CPXcreateprob(m_env_, &status, "gtopt");
   if (m_lp_ == nullptr) {
     CPXcloseCPLEX(&m_env_);
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("CPLEX: CPXcreateprob failed with status {}", status));
   }
 }
@@ -557,7 +558,7 @@ void CplexSolverBackend::load_problem(int ncols,
           (col + 1 < ncols) ? static_cast<size_t>(matbeg[col + 1]) : nnz;
       for (auto k = begin + 1; k < end; ++k) {
         if (matind[k] < matind[k - 1]) {
-          throw std::runtime_error(
+          gtopt::log_and_throw(
               std::format("CPLEX: matind not sorted within column {} "
                           "(matind[{}]={} < matind[{}]={})",
                           col,
@@ -636,7 +637,7 @@ void CplexSolverBackend::load_problem(int ncols,
                      range.data());
 
   if (status != 0) {
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("CPLEX: CPXcopylp failed with status {}", status));
   }
 }
@@ -702,7 +703,7 @@ void CplexSolverBackend::add_cols(int num_cols,
                                 colub,
                                 nullptr);
   if (status != 0) {
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("CPLEX: CPXaddcols failed with status {}", status));
   }
 }
@@ -833,7 +834,7 @@ void CplexSolverBackend::add_row(int num_elements,
                           nullptr,
                           nullptr);
   if (status != 0) {
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("CPLEX: CPXaddrows failed with status {}", status));
   }
 
@@ -876,7 +877,7 @@ void CplexSolverBackend::add_rows(int num_rows,
                           nullptr,
                           nullptr);
   if (status != 0) {
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("CPLEX: CPXaddrows failed with status {}", status));
   }
 
@@ -1086,7 +1087,7 @@ void CplexSolverBackend::add_sos2(std::span<const int> columns)
   if (rc != 0) {
     std::array<char, CPXMESSAGEBUFSIZE> err_buf {};
     CPXgeterrorstring(m_env_lp_.env(), rc, err_buf.data());
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("CplexSolverBackend::add_sos2 CPXaddsos failed "
                     "(rc={}, n={}): {}",
                     rc,
@@ -1502,7 +1503,7 @@ bool CplexSolverBackend::set_mip_start(std::span<const double> col_values,
   if (rc != 0) {
     std::array<char, CPXMESSAGEBUFSIZE> err_buf {};
     CPXgeterrorstring(m_env_lp_.env(), rc, err_buf.data());
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("CplexSolverBackend::set_mip_start CPXaddmipstarts "
                     "failed (rc={}, ncols={}): {}",
                     rc,
@@ -2033,7 +2034,7 @@ std::unique_ptr<SolverBackend> CplexSolverBackend::clone() const
   cpxlp* const cloned_lp =
       CPXcloneprob(cloned->m_env_lp_.env(), m_env_lp_.lp(), &status);
   if (cloned_lp == nullptr) {
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("CPLEX: CPXcloneprob failed with status {}", status));
   }
   cloned->m_env_lp_.reset_lp(cloned_lp);
