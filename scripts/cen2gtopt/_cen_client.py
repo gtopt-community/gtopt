@@ -35,6 +35,7 @@ downgrade.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -42,6 +43,29 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
+
+#: Environment variable holding the CEN API (SIP) ``user_key``.
+CEN_USER_KEY_ENV = "CEN_USER_KEY"
+
+#: How to obtain / configure a CEN API key (appended to auth errors).
+CEN_KEY_HELP = (
+    "CEN API calls need a personal user_key.  Register (free) at "
+    "https://portal.api.coordinador.cl/, subscribe to the API you need "
+    "(e.g. SIP), and export it: `export CEN_USER_KEY=<your-key>` "
+    "(per-service keys: CEN_OPERACION_KEY, CEN_MERCADOS_KEY, "
+    "CEN_PLANIFICACION_KEY)."
+)
+
+
+def env_user_key(var: str = CEN_USER_KEY_ENV) -> str:
+    """Return the CEN ``user_key`` stored in env var *var* ("" if unset).
+
+    No key is bundled with gtopt: the value must come from the
+    environment.  An empty result is accepted here so that clients can
+    be constructed offline (cache-only use, tests); the actual network
+    call raises :class:`CenAuthError` with :data:`CEN_KEY_HELP`.
+    """
+    return os.environ.get(var, "").strip()
 
 
 _LOG = logging.getLogger("cen2gtopt.client")
@@ -139,10 +163,9 @@ class CenApiClient:
                 f"unknown service {service!r}; "
                 f"expected one of {sorted(SERVICE_BASE_URLS.keys())}"
             )
-        if service not in self.config.user_keys:
+        if not self.config.user_keys.get(service):
             raise CenAuthError(
-                f"no user_key configured for service {service!r}; "
-                f"set CEN_USER_KEY for that service in the config"
+                f"no user_key configured for service {service!r}; {CEN_KEY_HELP}"
             )
 
         merged: dict[str, Any] = dict(params or {})

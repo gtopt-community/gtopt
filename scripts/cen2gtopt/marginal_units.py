@@ -82,10 +82,10 @@ from cen2gtopt._scvic_api import cv_rpt_for_date
 # locally after entry for back-compat.
 
 DATE = "2026-04-22"
-#: Public CEN SIP browse-key embedded in CEN's own Angular SPA;
-#: this is the documented anonymous-read key, NOT a per-user
-#: credential.  Override with $CEN_USER_KEY when CEN rotates it.
-SIP_KEY = os.environ.get("CEN_USER_KEY", "REDACTED_CEN_KEY")
+#: CEN SIP API ``user_key`` read from ``$CEN_USER_KEY`` (no default is
+#: bundled).  When unset, SIP calls raise ``CenAuthError`` explaining
+#: how to obtain and export a key; cached data keeps working offline.
+SIP_KEY = os.environ.get("CEN_USER_KEY", "").strip()
 #: Default workdir for the legacy ``main()`` CLI.  Created lazily
 #: inside ``main()`` — never at import time.
 WORK_DIR = Path("/tmp/cen_emission_factor_v3")

@@ -49,9 +49,8 @@ def _make_client() -> CenApiClient:
         ]
         if k in os.environ
     }
-    if "sip" not in keys:
-        # Hard-coded default for convenience (the user's known SIP key).
-        keys["sip"] = "REDACTED_CEN_KEY"
+    # No bundled default key: a missing CEN_USER_KEY surfaces as a
+    # CenAuthError (with instructions) on the first network call.
     cfg = CenApiConfig(user_keys=keys, verify_tls=False)
     return CenApiClient(cfg)
 

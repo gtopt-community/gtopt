@@ -49,7 +49,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import re
 import sys
 from pathlib import Path
@@ -66,11 +65,11 @@ from cen2gtopt._bus_catalogue import (
     merge_catalogues,
     save_catalogue,
 )
-from cen2gtopt._cen_client import CenApiClient, CenApiConfig
+from cen2gtopt._cen_client import CenApiClient, CenApiConfig, env_user_key
 
 
 def _make_client() -> CenApiClient:
-    keys = {"sip": os.environ.get("CEN_USER_KEY", "REDACTED_CEN_KEY")}
+    keys = {"sip": env_user_key()}
     cfg = CenApiConfig(user_keys=keys, verify_tls=False)
     return CenApiClient(cfg)
 

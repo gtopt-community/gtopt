@@ -119,6 +119,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import re
 import sys
 import time
@@ -129,12 +130,31 @@ import requests
 
 _LOG = logging.getLogger("cen2gtopt.pcp_archive")
 
-#: Public USERKEY embedded in the Angular SPA at programa.coordinador.cl
-#: (extracted from ``main-CP4OALKL.js`` rt.USERKEY).  This is the
-#: browse-only key — NOT a per-user credential.  CEN may rotate it; if
-#: requests start returning ``Authentication parameters missing``,
-#: re-extract by grepping ``USERKEY`` in the SPA bundle.
-DEFAULT_USERKEY = "REDACTED_CEN_KEY"
+#: Environment variable holding the ``user_key`` for the CEN
+#: "programa de operación" portal API (``administracion.api.coordinador.cl``).
+#: No key is bundled with gtopt.
+PORTAL_USER_KEY_ENV = "CEN_PORTAL_USER_KEY"
+
+PORTAL_KEY_HELP = (
+    "The CEN PCP archive index needs a portal user_key.  Set it with "
+    f"`export {PORTAL_USER_KEY_ENV}=<key>`.  The key is the USERKEY used "
+    "by the public web app at https://programa.coordinador.cl (look for "
+    "USERKEY in its JavaScript bundle), or a key issued to you at "
+    "https://portal.api.coordinador.cl/."
+)
+
+
+class MissingPortalKeyError(RuntimeError):
+    """Raised when a PCP-archive network call has no portal user_key."""
+
+
+def portal_user_key(user_key: str | None = None) -> str:
+    """Return *user_key* or ``$CEN_PORTAL_USER_KEY``; raise if neither is set."""
+    key = (user_key or os.environ.get(PORTAL_USER_KEY_ENV, "")).strip()
+    if not key:
+        raise MissingPortalKeyError(PORTAL_KEY_HELP)
+    return key
+
 
 LIST_URL = (
     "https://administracion.api.coordinador.cl/"
@@ -197,7 +217,7 @@ class PcpFile:
 
 def fetch_index(
     *,
-    user_key: str = DEFAULT_USERKEY,
+    user_key: str | None = None,
     cache_path: Path | None = None,
     force: bool = False,
     timeout: int = 60,
@@ -217,10 +237,11 @@ def fetch_index(
             data = json.loads(cache_path.read_text(encoding="utf-8"))
             return [PcpFile.from_dict(d) for d in data]
 
+    key = portal_user_key(user_key)
     _LOG.info("fetching CEN PCP index …")
     resp = requests.get(
         LIST_URL,
-        params={"user_key": user_key},
+        params={"user_key": key},
         headers={"Origin": "https://programa.coordinador.cl"},
         timeout=timeout,
         verify=True,
