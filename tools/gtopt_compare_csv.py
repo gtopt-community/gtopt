@@ -8,8 +8,20 @@ Designed for comparing gtopt solver output across different LP backends
 Handles:
   - Signed zero: ``-0`` and ``0`` are treated as equal.
   - Near-zero values: absolute differences below *tolerance* pass.
-  - The ``kappa`` and ``max_kappa`` columns in ``solution.csv`` are skipped
-    (solver metadata).
+  - Run-dependent solver telemetry columns (``kappa``, ``max_kappa``,
+    ``solve_ticks``, ``solve_time_s``, ``solve_calls``, ``infeasible_count``
+    and the ``scale_objective`` metadata in ``solution.csv``) are never
+    compared — see ``SKIP_COLUMNS``.
+  - Columns are matched **by name** and only the columns present in the
+    *expected* (golden) file are compared.  Extra columns appended to the
+    actual output (e.g. new telemetry in ``solution.csv``) are ignored, so
+    goldens do not break whenever the writer grows a column.  The one
+    exception is a per-element ``uid:N`` column: an extra element in the
+    actual output is a structural change and is reported as an error.
+    A golden column missing from the actual output is always an error.
+  - ``obj_value`` in ``solution.csv`` is compared in physical cost units,
+    using the ``scale_objective`` column to reconcile a golden written in
+    LP-raw (scaled) units with a physical output — see ``_ObjectiveColumns``.
   - Numeric differences within *tolerance* are accepted silently.
   - Larger numeric differences (degenerate LP solutions) are logged as
     warnings but accepted by default.  Use ``--strict`` to treat them
@@ -26,11 +38,28 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from dataclasses import dataclass
 
 _NUMERIC_RE = re.compile(r"^-?[0-9]+(\.[0-9]+(e[+-]?[0-9]+)?)?$", re.IGNORECASE)
 
-# Columns that are solver-internal metadata and should be skipped.
-_SKIP_COLUMNS = frozenset({"kappa", "max_kappa"})
+# Run-dependent solver metadata / effort telemetry that is never compared:
+# condition numbers vary across solvers and builds, and the effort counters
+# (deterministic ticks, wall-clock seconds, solve-call and infeasible-solve
+# counts) depend on timing, warm starts, thread scheduling and the backend.
+SKIP_COLUMNS = frozenset(
+    {
+        "kappa",
+        "max_kappa",
+        "solve_ticks",
+        "solve_time_s",
+        "solve_calls",
+        "infeasible_count",
+        # LP-scaling metadata, not a result: it only reconciles obj_value
+        # units (see _ObjectiveColumns) and legitimately differs between
+        # methods (SDDP/cascade default 1, monolithic 1000) and options.
+        "scale_objective",
+    }
+)
 
 
 def _is_numeric(value: str) -> bool:
@@ -307,6 +336,223 @@ def _compare_long_keyed(
     return errors, warnings
 
 
+OBJ_VALUE_COLUMN = "obj_value"
+SCALE_OBJECTIVE_COLUMN = "scale_objective"
+
+
+@dataclass(frozen=True)
+class _ObjectiveColumns:
+    """Scale-aware comparison of the ``solution.csv`` objective.
+
+    Convention (``include/gtopt/solution_csv.hpp``): ``obj_value`` is the
+    cell objective in PHYSICAL cost units (LP-raw objective ×
+    ``scale_objective``) for every planning method, and the
+    ``scale_objective`` column records the factor.  A file that carries
+    the ``scale_objective`` column is therefore unambiguous: its
+    ``obj_value`` is compared as-is.
+
+    Legacy goldens written before the column existed may hold either the
+    LP-raw objective (the pre-April-2026 convention, ``obj_value`` ÷
+    ``scale_objective``) or the physical one.  For such a file the
+    candidate physical values are ``{v, v × S}`` where ``S`` is the
+    ``scale_objective`` of the other side of the same row; the row
+    matches when any candidate pair agrees within tolerance.  This keeps
+    the objective under comparison (a real cost change is still caught)
+    while tolerating a golden written in the other scale.
+    """
+
+    a_obj: int
+    e_obj: int
+    a_scale: int | None
+    e_scale: int | None
+
+    @classmethod
+    def from_headers(
+        cls, a_header: list[str], e_header: list[str]
+    ) -> _ObjectiveColumns | None:
+        """Build the column map, or ``None`` when no objective is compared."""
+        if OBJ_VALUE_COLUMN not in e_header or OBJ_VALUE_COLUMN not in a_header:
+            return None
+
+        def _idx(header: list[str]) -> int | None:
+            if SCALE_OBJECTIVE_COLUMN in header:
+                return header.index(SCALE_OBJECTIVE_COLUMN)
+            return None
+
+        return cls(
+            a_obj=a_header.index(OBJ_VALUE_COLUMN),
+            e_obj=e_header.index(OBJ_VALUE_COLUMN),
+            a_scale=_idx(a_header),
+            e_scale=_idx(e_header),
+        )
+
+    @staticmethod
+    def _float_at(fields: list[str], idx: int | None) -> float | None:
+        if idx is None or idx >= len(fields) or not _is_numeric(fields[idx]):
+            return None
+        return _parse_float(fields[idx])
+
+    def compare(
+        self,
+        actual_line: str,
+        expected_line: str,
+        *,
+        line_num: int,
+        tolerance: float,
+        errors: list[str],
+    ) -> None:
+        """Compare the objective of one row in physical units.
+
+        The optimal objective is unique even when the primal solution is
+        degenerate, so — unlike per-element primal values — an objective
+        mismatch is always a hard error, also in non-strict mode.
+        """
+        a_fields = [f.strip() for f in actual_line.split(",")]
+        e_fields = [f.strip() for f in expected_line.split(",")]
+        a_val = self._float_at(a_fields, self.a_obj)
+        e_val = self._float_at(e_fields, self.e_obj)
+        if a_val is None or e_val is None:
+            errors.append(
+                f"Non-numeric or missing {OBJ_VALUE_COLUMN} at line {line_num}:\n"
+                f"  Actual:   {actual_line}\n"
+                f"  Expected: {expected_line}"
+            )
+            return
+        a_scale = self._float_at(a_fields, self.a_scale)
+        e_scale = self._float_at(e_fields, self.e_scale)
+
+        # Physical-value candidates per side (see class docstring).
+        a_cands = [a_val]
+        if self.a_scale is None and e_scale is not None:
+            a_cands.append(a_val * e_scale)
+        e_cands = [e_val]
+        if self.e_scale is None and a_scale is not None:
+            e_cands.append(e_val * a_scale)
+
+        if any(_close_enough(a, e, tolerance) for a in a_cands for e in e_cands):
+            return
+
+        diff = min(abs(a - e) for a in a_cands for e in e_cands)
+        msg = (
+            f"Objective mismatch at line {line_num} (physical units): "
+            f"actual {OBJ_VALUE_COLUMN}={a_val!r} "
+            f"(scale_objective={a_scale!r}), expected {OBJ_VALUE_COLUMN}="
+            f"{e_val!r} (scale_objective={e_scale!r}) (diff={diff:.6e})"
+        )
+        errors.append(msg)
+
+
+def _match_columns(
+    actual_header: list[str], expected_header: list[str]
+) -> tuple[list[tuple[str, int, int]], list[str]]:
+    """Pair golden columns with actual columns by name.
+
+    Returns ``(pairs, errors)`` where *pairs* is a list of
+    ``(name, actual_idx, expected_idx)`` for every golden column that is
+    compared (``SKIP_COLUMNS`` excluded).  Errors are reported for golden
+    columns missing from the actual header, for duplicated column names,
+    and for extra per-element ``uid:N`` columns in the actual header.
+    Other extra actual columns are ignored (forward compatibility).
+    """
+    errors: list[str] = []
+    for label, header in (("actual", actual_header), ("expected", expected_header)):
+        dups = sorted({h for h in header if header.count(h) > 1})
+        if dups:
+            errors.append(f"Duplicate column(s) in {label} header: {dups}")
+    if errors:
+        return [], errors
+
+    actual_pos = {name: idx for idx, name in enumerate(actual_header)}
+    # A never-compared (SKIP_COLUMNS) golden column may disappear freely.
+    missing = [
+        h for h in expected_header if h not in actual_pos and h not in SKIP_COLUMNS
+    ]
+    if missing:
+        errors.append(
+            f"Column(s) {missing} missing from actual output\n"
+            f"  Actual:   {','.join(actual_header)}\n"
+            f"  Expected: {','.join(expected_header)}"
+        )
+    expected_set = set(expected_header)
+    extra_uids = [
+        h for h in actual_header if h.startswith("uid:") and h not in expected_set
+    ]
+    if extra_uids:
+        errors.append(f"Unexpected element column(s) in actual output: {extra_uids}")
+    if errors:
+        return [], errors
+
+    pairs = [
+        (name, actual_pos[name], e_idx)
+        for e_idx, name in enumerate(expected_header)
+        if name not in SKIP_COLUMNS
+    ]
+    return pairs, errors
+
+
+def _compare_row(  # pylint: disable=too-many-arguments
+    actual_line: str,
+    expected_line: str,
+    *,
+    line_num: int,
+    col_pairs: list[tuple[str, int, int]],
+    tolerance: float,
+    strict: bool,
+    verbose: bool,
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    """Compare one data row on the matched columns, appending diagnostics."""
+    actual_fields = [f.strip() for f in actual_line.split(",")]
+    expected_fields = [f.strip() for f in expected_line.split(",")]
+
+    for name, a_idx, e_idx in col_pairs:
+        if a_idx >= len(actual_fields) or e_idx >= len(expected_fields):
+            errors.append(
+                f"Field count mismatch at line {line_num} (column '{name}'):\n"
+                f"  Actual:   {actual_line}\n"
+                f"  Expected: {expected_line}"
+            )
+            return
+        av = actual_fields[a_idx]
+        ev = expected_fields[e_idx]
+        if av == ev:
+            continue
+
+        # Normalize signed zero
+        if ("0" if av == "-0" else av) == ("0" if ev == "-0" else ev):
+            continue
+
+        if not (_is_numeric(av) and _is_numeric(ev)):
+            # Non-numeric: require exact match
+            errors.append(
+                f"Value mismatch at line {line_num}, column '{name}':\n"
+                f"  Actual:   '{av}'\n"
+                f"  Expected: '{ev}'"
+            )
+            continue
+
+        a_val = _parse_float(av)
+        e_val = _parse_float(ev)
+        if _close_enough(a_val, e_val, tolerance):
+            if verbose:
+                print(
+                    f"  Numeric diff at line {line_num}, column '{name}': "
+                    f"actual={av}, expected={ev}"
+                )
+            continue
+
+        # Beyond tolerance — warning or error depending on mode
+        msg = (
+            f"Numeric mismatch at line {line_num}, column '{name}': "
+            f"actual={av}, expected={ev} (diff={abs(a_val - e_val):.6e})"
+        )
+        if strict:
+            errors.append(msg)
+        else:
+            warnings.append(msg)
+
+
 def compare_csv(
     actual_path: str,
     expected_path: str,
@@ -383,96 +629,45 @@ def compare_csv(
             f"expected={len(expected_lines)}"
         )
         return errors, warnings
+    if not expected_lines:
+        return errors, warnings
 
-    skip_cols: set[int] = set()
+    # Map each compared golden column to its position in the actual header.
+    a_header = _parse_header(actual_lines[0])
+    e_header = _parse_header(expected_lines[0])
+    col_pairs, header_errors = _match_columns(a_header, e_header)
+    if header_errors:
+        errors.extend(header_errors)
+        return errors, warnings
 
-    for i, (actual_line, expected_line) in enumerate(zip(actual_lines, expected_lines)):
-        line_num = i + 1
+    # ``obj_value`` is compared in physical units (see _ObjectiveColumns),
+    # not by the generic per-column loop.
+    objective = _ObjectiveColumns.from_headers(a_header, e_header)
+    if objective is not None:
+        col_pairs = [p for p in col_pairs if p[0] != OBJ_VALUE_COLUMN]
 
-        # Detect header lines: first line, or lines containing quotes
-        is_header = i == 0 or '"' in expected_line
-        if is_header:
-            if actual_line != expected_line:
-                errors.append(
-                    f"Header mismatch at line {line_num}:\n"
-                    f"  Actual:   {actual_line}\n"
-                    f"  Expected: {expected_line}"
-                )
-            # Detect columns to skip (e.g. kappa)
-            headers = _parse_header(expected_line)
-            for col_idx, name in enumerate(headers):
-                if name in _SKIP_COLUMNS:
-                    skip_cols.add(col_idx)
-            continue
-
-        # Data lines
-        actual_fields = [f.strip() for f in actual_line.split(",")]
-        expected_fields = [f.strip() for f in expected_line.split(",")]
-
-        if len(actual_fields) != len(expected_fields):
-            errors.append(
-                f"Field count mismatch at line {line_num}:\n"
-                f"  Actual:   {actual_line}\n"
-                f"  Expected: {expected_line}"
+    for i, (actual_line, expected_line) in enumerate(
+        zip(actual_lines[1:], expected_lines[1:]), start=2
+    ):
+        if objective is not None:
+            objective.compare(
+                actual_line,
+                expected_line,
+                line_num=i,
+                tolerance=tolerance,
+                errors=errors,
             )
-            continue
-
-        for j, (av, ev) in enumerate(zip(actual_fields, expected_fields)):
-            if j in skip_cols:
-                continue
-
-            if av == ev:
-                continue
-
-            col_num = j + 1
-
-            # Normalize signed zero
-            av_norm = "0" if av == "-0" else av
-            ev_norm = "0" if ev == "-0" else ev
-            if av_norm == ev_norm:
-                continue
-
-            # Check if both are numeric
-            if _is_numeric(av) and _is_numeric(ev):
-                a_val = _parse_float(av)
-                e_val = _parse_float(ev)
-                diff = abs(a_val - e_val)
-
-                # Absolute tolerance for near-zero expected values
-                if abs(e_val) < tolerance and diff < tolerance:
-                    if verbose:
-                        print(
-                            f"  Near-zero at line {line_num}, col {col_num}: "
-                            f"actual={av}, expected={ev}"
-                        )
-                    continue
-
-                # Relative tolerance for larger values
-                scale = max(abs(a_val), abs(e_val))
-                if scale > 0 and diff / scale < tolerance:
-                    if verbose:
-                        print(
-                            f"  Numeric diff at line {line_num}, col {col_num}: "
-                            f"actual={av}, expected={ev}"
-                        )
-                    continue
-
-                # Beyond tolerance — warning or error depending on mode
-                msg = (
-                    f"Numeric mismatch at line {line_num}, col {col_num}: "
-                    f"actual={av}, expected={ev} (diff={diff:.6e})"
-                )
-                if strict:
-                    errors.append(msg)
-                else:
-                    warnings.append(msg)
-            else:
-                # Non-numeric: require exact match
-                errors.append(
-                    f"Value mismatch at line {line_num}, col {col_num}:\n"
-                    f"  Actual:   '{av}'\n"
-                    f"  Expected: '{ev}'"
-                )
+        _compare_row(
+            actual_line,
+            expected_line,
+            line_num=i,
+            col_pairs=col_pairs,
+            tolerance=tolerance,
+            strict=strict,
+            verbose=verbose,
+            errors=errors,
+            warnings=warnings,
+        )
 
     return errors, warnings
 
