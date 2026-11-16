@@ -472,16 +472,37 @@ On success, gtopt logs its progress and exits with code 0:
 The solver produces a `solution.csv` summary:
 
 ```text
-scene,phase,status,status_name,obj_value,kappa,gap,gap_change
-0,0,0,optimal,23.163424,1,0,1.0
+scene,phase,status,status_name,obj_value,kappa,max_kappa,gap,gap_change,solve_ticks,solve_time_s,solve_calls,infeasible_count,scale_objective
+0,0,0,optimal,23163.424133184093,284,-1,0,1,0.0016,0.0021,1,0,1000
 ```
 
-- **`obj_value`**: total optimized cost.
-- **`kappa`**: number of iterations.
-- **`status`**: `0` = optimal solution found.
+One row per solved `(scene, phase)` cell:
+
+- **`status`** / **`status_name`**: `0` / `optimal` when the cell solved;
+  `-1` / `unknown` for a cell that was never solved.
+- **`obj_value`**: cell objective in **physical cost units** — the LP
+  objective with `scale_objective` reversed (LP-raw × `scale_objective`)
+  and objective constants included.  The convention is the same for the
+  `monolithic`, `sddp` and `cascade` methods.  Changing `scale_objective`
+  does not change `obj_value`.
+- **`kappa`** / **`max_kappa`**: cell basis condition number and the run-wide
+  SDDP maximum (`-1` when unavailable).
 - **`gap`**: final SDDP convergence gap (0 for monolithic solver).
 - **`gap_change`**: relative gap change over the stationary window (1.0 if
   secondary criterion disabled or for monolithic solver).
+- **`solve_ticks`**, **`solve_time_s`**, **`solve_calls`**,
+  **`infeasible_count`**: cumulative solver effort on the cell
+  (deterministic ticks, wall seconds, solve calls, non-optimal solves).
+- **`scale_objective`**: objective scale factor the cell LP was built with
+  (`obj_value / scale_objective` is the LP-raw objective).  SDDP and
+  cascade default to 1; monolithic defaults to 1000.
+
+New columns are only ever appended.  The e2e golden comparison
+(`tools/gtopt_compare_csv.py`) compares only the columns present in the
+golden, never the run-dependent telemetry (`kappa`, `max_kappa`,
+`solve_*`, `infeasible_count`), and compares `obj_value` in physical units
+(it is a hard error even for the solver-agnostic `output/` goldens).
+Refresh the goldens with `tools/update_solution_goldens.py`.
 
 ## Output Files
 

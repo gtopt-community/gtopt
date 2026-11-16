@@ -416,7 +416,7 @@ transmission lines. DC power flow (Kirchhoff's voltage law) is enabled.
 ```bash
 cd cases/ieee_9b_ori
 gtopt ieee_9b_ori.json
-cat output/solution.csv          # status=0, obj_value=5.0
+cat output/solution.csv          # status=0, obj_value=7000
 cat output/Generator/generation_sol.csv
 ```
 
@@ -1244,9 +1244,12 @@ output/
 
 | Column | Description |
 |--------|-------------|
-| `obj_value` | Scaled total cost (divide by `scale_objective` for $/h) |
-| `kappa` | Solver iterations |
-| `status` | 0 = optimal; 1 = infeasible; 2 = unbounded; 5 = not solved |
+| `obj_value` | Total cost in physical units (`scale_objective` already reversed) |
+| `kappa` | Basis condition number (`-1` when unavailable) |
+| `status` | 0 = optimal; 1 = infeasible; 2 = unbounded; -1 = not solved |
+| `scale_objective` | Objective scale factor of the LP (`obj_value / scale_objective` = LP-raw objective) |
+
+See [usage.md](usage.md#solution-summary) for the full column list.
 
 ### Interpreting results
 

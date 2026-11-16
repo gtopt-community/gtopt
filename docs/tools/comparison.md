@@ -749,7 +749,7 @@ flowchart LR
 ```bash
 cd cases/ieee_4b_ori
 gtopt ieee_4b_ori
-cat output/solution.csv          # obj_value=5, status=0
+cat output/solution.csv          # obj_value=5000, status=0
 cat output/Generator/generation_sol.csv
 cat output/Bus/balance_dual.csv  # LMPs
 cat output/Line/flowp_sol.csv    # line flows

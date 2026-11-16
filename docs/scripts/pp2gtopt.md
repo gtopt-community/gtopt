@@ -246,7 +246,7 @@ gtopt ieee57b.json
 
 # Step 3: Check the solution
 cat output/solution.csv
-# → status=0 (optimal), obj_value=... (total cost / scale_objective)
+# → status=0 (optimal), obj_value=... (total cost, physical units)
 
 # Step 4: Inspect generator dispatch
 cat output/Generator/generation_sol.csv

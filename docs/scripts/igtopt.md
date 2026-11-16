@@ -483,7 +483,8 @@ Create a sheet named `options` with two columns:
   well above the most expensive generator cost ($40/MWh), preventing
   load shedding in feasible cases.
 - `scale_objective=1000` divides all objective coefficients by 1000 for
-  better solver numerics. The reported `obj_value` is in scaled units.
+  better solver numerics. The reported `obj_value` is in physical units
+  (the scaling is reversed before `solution.csv` is written).
 
 ### Step 2: Create the Simulation Structure
 
@@ -675,7 +676,7 @@ Solve the case with gtopt:
 ```bash
 gtopt ieee57b.json
 cat output/solution.csv
-# Expected: status=0 (optimal), obj_value ≈ 25.016 (scaled by 1000)
+# Expected: status=0 (optimal), obj_value ≈ 25016 (physical units)
 ```
 
 The unscaled total cost is approximately **25,016 $/h**. This is the
@@ -880,7 +881,7 @@ ls bat4b24/GeneratorProfile/profile.parquet
 # Solve
 gtopt bat4b24.json
 cat output/solution.csv
-# Expected: status=0, obj_value ≈ 44.862 (scaled)
+# Expected: status=0, obj_value ≈ 44862 (physical units)
 ```
 
 The battery charges during midday solar hours (cheap $0 solar energy) and
