@@ -3,7 +3,8 @@
  * @brief     LP wrapper for ``ThermalNode`` — carrier-side balance row
  * @date      Sat May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Peer of ``BusLP`` and ``JunctionLP`` for the thermal carrier
  * (MWh_th).  Creates one balance row per (scenario, stage, block);

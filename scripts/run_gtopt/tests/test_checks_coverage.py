@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Additional tests for run_gtopt._checks to improve coverage."""
 
 import json

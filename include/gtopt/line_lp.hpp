@@ -3,7 +3,8 @@
  * @brief     LP formulation for transmission lines
  * @date      Sat Mar 29 19:02:33 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the LineLP class which formulates transmission line
  * constraints for the LP model.  Loss modeling is delegated to the modular

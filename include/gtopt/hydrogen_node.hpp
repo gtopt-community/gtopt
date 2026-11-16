@@ -3,7 +3,8 @@
  * @brief     Hydrogen-carrier balance node (electrolyser / fuel cell)
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Concrete instantiation of the generic ``Node<>`` template for the
  * hydrogen carrier (MWh_LHV; 1 kg-H₂ ≈ 33.3 kWh-LHV).  Used to anchor

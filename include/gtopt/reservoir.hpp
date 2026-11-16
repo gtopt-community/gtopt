@@ -3,7 +3,8 @@
  * @brief     Defines the Reservoir structure representing a water reservoir
  * @date      Wed Jul 30 23:11:55 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This file defines the `gtopt::Reservoir` structure, which models a water
  * reservoir within a hydro-thermal power system. A reservoir stores water

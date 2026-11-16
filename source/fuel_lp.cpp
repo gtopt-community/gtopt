@@ -3,7 +3,8 @@
  * @brief     Implementation of FuelLP — parameter carrier + offtake cap/floor
  * @date      2026-05-16
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * FuelLP resolves the Fuel schedules (price, heat content, emission
  * factors, offtake bounds) at construction.  Generators consume the

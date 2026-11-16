@@ -3,7 +3,8 @@
  * @brief     LP formulation for Optimal Transmission Switching (issue #509)
  * @date      2026-06-01
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines ``LineCommitmentLP`` — the LP-build companion to the
  * ``LineCommitment`` JSON element.  For every block of every active

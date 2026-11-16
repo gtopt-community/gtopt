@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Integration tests for the AMPL resolver consulting the naming-dialects
 // registry.  Previous turn wired `canonicalize_json_keys` into

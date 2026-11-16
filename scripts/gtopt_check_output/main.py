@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """CLI entry point for gtopt_check_output."""
 
 from __future__ import annotations

@@ -3,7 +3,8 @@
  * @brief     Unit tests for the LinearParser class
  * @date      Wed Feb 19 01:30:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests for parsing linear constraint expressions
  */

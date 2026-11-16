@@ -4,7 +4,8 @@
  * `CapacityProfileLP`
  * @date      2026-05-17
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `CapacityProfileTraits<OwnerLP>` is the single point where a new profile-able
  * element type is registered.  Each specialization carries:

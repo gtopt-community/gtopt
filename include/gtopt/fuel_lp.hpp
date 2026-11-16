@@ -3,7 +3,8 @@
  * @brief     LP wrapper for the Fuel data struct
  * @date      2026-05-16
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `FuelLP` resolves the time-schedulable fuel price + emission factors
  * that `GeneratorLP` consumes via `system_context.element<FuelLP>`.

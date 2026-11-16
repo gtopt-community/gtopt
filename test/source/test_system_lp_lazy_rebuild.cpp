@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_system_lp_lazy_rebuild.cpp
  * @brief     Lock-in tests for the disposable-collection drop + two-flag
  *            rebuild gate added to SystemLP under LowMemoryMode::compress.
  * @date      2026-05-05
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Three groups of contracts pinned here:
  *

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      fixture_helpers.hpp
  * @brief     Small fixture builders for test helpers (Block / Stage / Phase)

@@ -3,7 +3,8 @@
  * @brief     Header of Simulation class
  * @date      Wed Mar 19 21:59:12 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the Simulation class which contains all time-structure
  * elements: blocks, stages, scenarios, phases, and scenes. Together these

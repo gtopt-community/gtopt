@@ -2,7 +2,8 @@
  * @file      test_irrigation_maule_laja_crosstalk.cpp
  * @brief     Tier 11 — Maule + Laja together (cross-talk regression)
  * @date      2026-04-10
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * End-to-end regression tests for running two independent irrigation
  * agreements (Maule-shaped and Laja-shaped) inside a single LP.  The

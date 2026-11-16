@@ -3,7 +3,8 @@
  * @brief     Free continuous Decision Variable referenced by UserConstraints
  * @date      Mon May 19 21:55:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the DecisionVariable structure — a per-(scenario, stage, block)
  * free continuous LP column that user constraints can reference via the

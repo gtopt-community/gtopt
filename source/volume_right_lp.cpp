@@ -3,7 +3,8 @@
  * @brief     Implementation of VolumeRightLP methods
  * @date      Tue Apr  1 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements LP formulation for volume-based water rights.
  * Uses StorageLP base class for the rights-volume balance and

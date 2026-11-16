@@ -1,11 +1,12 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_sddp_cut_tag.cpp
  * @brief     Unit tests for `CutTag`, `sddp_*_tag` constants, and the
  *            `sddp_*_row_prefix` consistency invariants in
  *            `gtopt/sddp_types.hpp`.
  * @date      2026-04-28
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The tag constants replaced ~10 sites that previously hand-set
  * `cut.class_name` and `cut.constraint_name` independently.  These

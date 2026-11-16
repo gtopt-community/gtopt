@@ -2,7 +2,8 @@
  * @file      test_monolithic_method.hpp
  * @brief     Unit tests for MonolithicMethod::solve() and related paths
  * @date      2026-03-30
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests:
  *  1. MonolithicMethod default construction and member defaults

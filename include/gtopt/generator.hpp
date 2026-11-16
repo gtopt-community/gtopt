@@ -3,7 +3,8 @@
  * @brief     Header for generator components in power system planning
  * @date      Sat Mar 29 11:52:29 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines data structures for representing generators (thermal,
  * renewable, hydro) in power system planning models. A generator injects

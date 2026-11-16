@@ -4,7 +4,8 @@
  * scenario elements
  * @date      Wed Mar 26 12:10:25 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides a logical view of a Scene combined with its associated
  * ScenarioLP elements, enabling efficient access and management of scene

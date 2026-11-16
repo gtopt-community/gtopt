@@ -3,7 +3,8 @@
  * @brief     LP integration tests for FlowRight/VolumeRight bound rules,
  *            rights depletion, economy saving, and cost/value parameters
  * @date      2026-04-05
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests verify that bound_rule correctly constrains irrigation rights based on
  * reservoir volumes, that rights depletion limits generation, that economy

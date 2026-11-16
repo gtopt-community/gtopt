@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_stage_month_guard.cpp
  * @brief     Unit tests for require_stage_month guard
  * @date      2026-04-23
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <stdexcept>

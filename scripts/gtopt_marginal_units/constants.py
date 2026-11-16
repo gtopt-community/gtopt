@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Constants and enums for gtopt_marginal_units.
 
 * Tolerances — every unit-bearing knob is named with its unit so a

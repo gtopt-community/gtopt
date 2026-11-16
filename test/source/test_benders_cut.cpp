@@ -2,7 +2,8 @@
  * @file      test_benders_cut.hpp
  * @brief     Unit tests for Benders cut construction and averaging functions
  * @date      2026-03-21
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <vector>

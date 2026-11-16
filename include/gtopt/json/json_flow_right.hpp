@@ -3,7 +3,8 @@
  * @brief     JSON serialization for FlowRight objects
  * @date      Tue Apr  1 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The JSON binding accepts the legacy `"discharge"` key as an alias for
  * the new `"target"` key.  Setting both is an error.  The legacy

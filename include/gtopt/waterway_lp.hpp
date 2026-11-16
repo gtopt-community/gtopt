@@ -3,7 +3,8 @@
  * @brief     LP formulation for waterways between junctions
  * @date      Wed Jul 30 11:48:26 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the WaterwayLP class, which builds LP variables and
  * constraints for water flow between hydro junctions.

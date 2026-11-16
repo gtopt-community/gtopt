@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Engine-side validation check — shells out to ``gtopt --lp-only`` and
 harvests the C++-side ``Validation: …`` warnings / errors as Findings.
 

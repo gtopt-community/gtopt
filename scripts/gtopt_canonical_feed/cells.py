@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Cells — the long-form per-cell data tables.
 
 Each table is keyed on the cell tuple plus the relevant entity uid

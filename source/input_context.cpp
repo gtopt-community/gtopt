@@ -3,7 +3,8 @@
  * @brief     Implementation of InputContext and element_index instantiations
  * @date      Fri Apr 25 14:17:18 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements the InputContext constructor and provides explicit
  * template instantiations of element_index for all LP element types.

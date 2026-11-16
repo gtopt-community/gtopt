@@ -3,7 +3,8 @@
  * @brief     JSON serialization for Phase objects
  * @date      Sun Mar 30 17:33:28 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides JSON serialization and deserialization for Phase objects
  * using the daw::json library.

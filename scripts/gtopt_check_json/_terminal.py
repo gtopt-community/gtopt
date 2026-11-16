@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Shared terminal formatting helpers for gtopt Python tools.
 
 Uses the ``rich`` library for terminal-ready tables, colours and

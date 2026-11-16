@@ -3,7 +3,8 @@
  * @brief     Global configuration parameters for power system optimization
  * @date      Sun Mar 23 21:39:24 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the PlanningOptions structure that contains configuration
  * parameters for power system optimization. PlanningOptions include

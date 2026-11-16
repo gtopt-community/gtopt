@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_strong_uid_index.hpp
  * @brief     Tests that Uid and Index strong types are never confused

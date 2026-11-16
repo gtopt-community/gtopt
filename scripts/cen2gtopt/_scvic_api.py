@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """SCVIC public REST API client (cv-rpt endpoint).
 
 The Coordinador's SCVIC platform (``costosvariables.coordinador.cl``)

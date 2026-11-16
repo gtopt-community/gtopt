@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Shared pytest fixtures for ``gtopt_marginal_units`` tests.
 
 These fixtures build a 2-bus / 2-generator / 1-line synthetic case and a

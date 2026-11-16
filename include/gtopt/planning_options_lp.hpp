@@ -3,7 +3,8 @@
  * @brief     Wrapper for PlanningOptions with default value handling
  * @date      Tue Apr 22 03:21:03 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the PlanningOptionsLP class, which wraps the
  * PlanningOptions structure and provides accessors with default values for

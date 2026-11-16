@@ -3,7 +3,8 @@
  * @brief     Generic carrier-tagged balance-node template
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines ``Node<Carrier>`` — a typed balance node for any energy
  * carrier.  Concrete instantiations (``HydrogenNode``,

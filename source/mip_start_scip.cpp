@@ -3,7 +3,8 @@
  * @brief     Optional SCIP repair STAGE of the MIP-start pipeline
  * @date      2026-06-28
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `scip_repair_candidate` is stage 4 of the MIP-start pipeline (round →
  * domain rules → **scip_repair** → solver repair + resolve).  It is OPTIONAL

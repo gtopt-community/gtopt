@@ -4,7 +4,8 @@
  * factors)
  * @date      2026-05-16
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A `Fuel` is a passive data carrier that bundles the time-schedulable
  * price, heat content and emission factors of a primary energy source

@@ -4,7 +4,8 @@
  * SystemLP.
  * @date      Tue Apr 22 22:52:04 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the ElementContext class, which serves as an interface
  * for managing and accessing elements in a linear programming model of a

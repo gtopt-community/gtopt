@@ -3,7 +3,8 @@
  * @brief     Data types for the SDDP iterative solver
  * @date      2026-04-03
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Contains the configuration, result, and state types used by the SDDP
  * solver.  Extracted from sddp_method.hpp to reduce header size and

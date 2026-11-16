@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Unit tests for `Line.in_service` — the per-(stage, block) IntBool
 // schedule that mirrors PLEXOS `Line.Units` (`Lin_Units.csv`).  A block

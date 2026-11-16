@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_user_constraint_compress_rebuild.cpp
  * @brief     User constraints resolve under the compress rebuild path
  *            (SDDP / cascade / write_out), not just monolithic.
  * @date      2026-06-28
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Regression for: a user constraint that references an element output
  * attribute — e.g. `generator('g1').generation` — resolved under

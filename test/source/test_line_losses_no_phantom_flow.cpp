@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_line_losses_no_phantom_flow.cpp — regression guard for the
 // "phantom bidirectional flow" bug fixed in commit bb80284e1.

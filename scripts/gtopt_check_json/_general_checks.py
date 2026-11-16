@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """General validation checks: uniqueness, SDDP options, boundary cuts, AI."""
 
 import csv

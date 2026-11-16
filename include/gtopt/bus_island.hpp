@@ -3,7 +3,8 @@
  * @brief     Connected-component (island) detection for bus networks
  * @date      Fri Mar 28 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a lightweight Union-Find (Disjoint Set Union) algorithm to
  * identify electrically connected islands in a bus network.  When

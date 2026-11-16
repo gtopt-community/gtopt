@@ -3,7 +3,8 @@
  * @brief     Linear programming representation of capacity-constrained objects
  * @date      Thu Mar 27 10:50:18 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * @details This module defines the CapacityObjectLP template class which
  * provides:

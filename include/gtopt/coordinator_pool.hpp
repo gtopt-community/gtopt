@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      coordinator_pool.hpp
  * @brief     Tier-1 scene/pass orchestration pool for the SDDP method.
  * @date      2026-06-08
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The coordinator tier runs one driver per scene per pass, each on its own
  * thread.  A driver executes that scene's forward (or backward) sweep and,

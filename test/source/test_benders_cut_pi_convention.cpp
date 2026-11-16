@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_benders_cut_pi_convention.cpp
  * @brief     Unit tests for the `pi` (col_scale-free) optimality cut convention

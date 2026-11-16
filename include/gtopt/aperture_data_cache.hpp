@@ -3,7 +3,8 @@
  * @brief     Pre-loaded aperture scenario data for SDDP backward pass
  * @date      Fri Mar 21 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Loads all parquet files from the aperture_directory at construction
  * time and provides fast lookup of flow/profile values by

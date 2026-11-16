@@ -3,7 +3,8 @@
  * @brief     Tri-state outcome of a solver invocation
  * @date      2026-05-21
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Distinguishes the three result bands the `gtopt_lp_runner` layer
  * has to act on differently:

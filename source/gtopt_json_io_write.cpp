@@ -3,7 +3,8 @@
  * @brief     JSON serialization of Planning (split from gtopt_json_io.cpp)
  * @date      2026-04-09
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Contains write_json_output() — instantiates to_json(Planning).
  * Splitting into its own TU lets it compile in parallel with parsing.

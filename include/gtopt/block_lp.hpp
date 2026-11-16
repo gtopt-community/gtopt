@@ -4,7 +4,8 @@
  * problems
  * @date      Wed May 28 22:19:22 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * @details
  * The BlockLP class provides a linear programming (LP) compatible

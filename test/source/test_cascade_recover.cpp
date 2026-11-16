@@ -2,7 +2,8 @@
  * @file      test_cascade_recover.cpp
  * @brief     End-to-end resume tests for cascade `--recover`.
  * @date      2026-05-20
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Pins the runtime resume behaviour added in commit
  * d90cf8f77 ("feat(cascade): --recover resumes at the correct level via
@@ -48,7 +49,7 @@
  * ──────────────────────────────────────────────────────────────────────
  */
 
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 
 #include <filesystem>
 #include <random>

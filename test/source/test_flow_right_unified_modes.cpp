@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Tests for FlowRight unified-mode cost pipeline, P0 substitution,
 // fail_sol_at / excess_sol_at reconstruction, JSON aliases, and

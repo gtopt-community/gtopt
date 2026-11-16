@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Aggregate inter-cluster lines after the busmap is fixed.
 
 For each cluster pair ``(u, v)`` enumerated in the original line set we

@@ -1,11 +1,12 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_work_pool_drain_and_slots.cpp
  * @brief     Tests for get_all_futures (drain-before-rethrow barrier) and
  *            the exact SlotReleaseGuard worker-thread check.
  * @date      2026-07-06
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <atomic>

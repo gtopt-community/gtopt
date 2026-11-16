@@ -2,7 +2,8 @@
  * @file      test_sddp_bcut_recovery.cpp
  * @brief     Unit tests for the SDDP aperture-backward bcut recovery path
  * @date      2026-04-20
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * SDDPMethod::install_aperture_backward_cut may delete a freshly-added
  * expected_cut row from src_li and rebuild a bcut using the cached

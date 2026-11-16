@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Bus catalogue — stable per-bus metadata for the Chilean SEN.
 
 A small persistent table indexed by ``bus_id`` (CEN's ``id_info``)

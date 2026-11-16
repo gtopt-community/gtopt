@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_sddp_ar_inflow.cpp
  * @brief     Opt-in AR(1) inflow states: parity, structure, and the

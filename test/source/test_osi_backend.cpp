@@ -2,7 +2,8 @@
  * @file      test_osi_backend.cpp
  * @brief     Unit tests for the OSI plugin's OsiPrep / reset_solver_ refactor
  * @date      2026-04-16
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Every TEST_CASE is gated on `reg.has_solver("clp")` and silently
  * skips when the OSI plugin is not available in the test environment.
@@ -30,7 +31,7 @@
  * OSI backend, so there is no corresponding test case here.
  */
 
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #include <array>
 #include <atomic>
 #include <barrier>

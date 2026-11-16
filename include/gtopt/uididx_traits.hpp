@@ -4,7 +4,8 @@
  * vectors
  * @date      Mon Jun  2 22:26:26 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides traits and utilities for building index mappings
  * from UID columns in Arrow tables and simulation vectors.

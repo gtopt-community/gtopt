@@ -3,7 +3,8 @@
  * @brief     JSON serialization support for Battery objects
  * @date      Wed Apr  2 01:54:12 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides JSON serialization and deserialization capabilities
  * for Battery objects using the DAW JSON Link library. It defines a JSON data

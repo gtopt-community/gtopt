@@ -3,7 +3,8 @@
  * @brief     Header for battery energy storage components
  * @date      Wed Apr  2 01:40:47 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines data structures for representing battery energy storage
  * systems (BESS) in power system planning models. A battery stores and

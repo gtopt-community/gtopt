@@ -2,7 +2,8 @@
  * @file      test_sddp_async.hpp
  * @brief     Tests for asynchronous scene execution in SDDP solver
  * @date      2026-04-04
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests:
  *  1. SceneIterationTracker unit tests (report, query, ring buffer)

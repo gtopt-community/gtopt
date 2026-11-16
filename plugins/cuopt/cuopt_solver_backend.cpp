@@ -3,7 +3,8 @@
  * @brief     NVIDIA cuOpt (GPU) solver backend implementation
  * @date      Tue Jun 10 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * See cuopt_solver_backend.hpp for the buffer-and-replay design rationale.
  * The mutator buffering, CSR lowering, GPU solve, and primal/dual/RC

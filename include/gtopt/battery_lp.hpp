@@ -3,7 +3,8 @@
  * @brief     Header for battery LP formulation
  * @date      Sun Apr 20 01:55:10 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the LP representation of batteries in power system
  * planning.

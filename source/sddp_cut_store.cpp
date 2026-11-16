@@ -3,7 +3,8 @@
  * @brief     Thread-safe storage for SDDP Benders cuts — implementation
  * @date      2026-03-30
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements SDDPCutManager methods extracted from sddp_method.cpp.
  */

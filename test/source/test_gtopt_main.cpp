@@ -3,7 +3,8 @@
  * @brief     Unit tests for the gtopt::gtopt_main() library entry point
  * @date      Thu Feb 19 00:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Covers source/gtopt_main.cpp:
  *   - error path when a planning file does not exist

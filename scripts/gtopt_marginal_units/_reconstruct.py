@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """§4.7 reconstruction algorithm — recover the bus LMP from realised
 operation when the LP duals are absent.
 

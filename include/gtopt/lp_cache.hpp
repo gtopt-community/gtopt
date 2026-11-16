@@ -3,7 +3,8 @@
  * @brief     LpCache — post-solve scalar + vector cache for LinearInterface
  * @date      2026-05-04
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `LpCache` owns the 9 post-solve cache fields that previously lived
  * directly on `LinearInterface` as `m_cached_*_`.  Extraction is

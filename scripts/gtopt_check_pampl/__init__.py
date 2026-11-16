@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """gtopt_check_pampl – validate gtopt PAMPL/TAMPL constraint files.
 
 Public API

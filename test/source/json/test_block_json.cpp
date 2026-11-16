@@ -2,7 +2,8 @@
  * @file      test_block_json.hpp
  * @brief     JSON serialization tests for Block
  * @date      2026-03-18
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <string_view>

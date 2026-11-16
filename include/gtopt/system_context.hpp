@@ -3,7 +3,8 @@
  * @brief     Central execution context for power system optimization
  * @date      Sun Mar 23 21:54:14 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * @class SystemContext
  * @brief Manages optimization state and provides core functionality for LP

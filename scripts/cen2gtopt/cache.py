@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """``python -m cen2gtopt.cache`` — pre-warm or inspect the on-disk cache.
 
 Examples

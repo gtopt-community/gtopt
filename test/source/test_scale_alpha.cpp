@@ -2,7 +2,8 @@
  * @file      test_scale_alpha.hpp
  * @brief     Unit tests for the scale_alpha SDDP option
  * @date      2026-03-30
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests:
  *  1. Default-constructed SddpOptions has no scale_alpha set

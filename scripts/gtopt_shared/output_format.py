@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Shared output-format helpers (issue #507 cross-converter sharing).
 
 Centralises the ``output_format == "parquet" / "csv"`` dispatch that

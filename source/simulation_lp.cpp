@@ -3,7 +3,8 @@
  * @brief     Implementation of linear programming simulation
  * @date      Sun Apr  6 22:05:37 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements power system planning through linear programming
  * techniques, supporting multi-phase, multi-scene scenarios. It handles the

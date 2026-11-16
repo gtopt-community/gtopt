@@ -3,7 +3,8 @@
  * @brief     Generator-class enums (CogenMode)
  * @date      2026-06-03
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Mirrors the ``line_enums.hpp`` / ``planning_enums.hpp`` pattern: the JSON-
  * facing field stays as ``OptName`` (a string) and the C++ side reaches the

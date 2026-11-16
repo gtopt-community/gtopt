@@ -3,7 +3,8 @@
  * @brief     Base class for profile-based LP objects
  * @date      Wed Apr 17 10:20:35 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the ProfileObjectLP base class which contains common functionality
  * for profile-based LP objects like DemandProfileLP and GeneratorProfileLP.

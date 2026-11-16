@@ -3,7 +3,8 @@
  * @brief     Volume-based water right (derechos de volumen)
  * @date      Tue Apr  1 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the VolumeRight structure representing a volume-based
  * water right.  This is an accounting entity — it tracks

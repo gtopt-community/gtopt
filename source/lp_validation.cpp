@@ -3,7 +3,8 @@
  * @brief     Implementation of build-time LP validation hooks
  * @date      2026-05-01
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <algorithm>

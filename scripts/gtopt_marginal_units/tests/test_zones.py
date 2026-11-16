@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Zone-partition tests — master §4.3 + §4.7 R1 PTDF builder.
 
 Covers:

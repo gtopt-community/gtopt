@@ -1,11 +1,12 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_lp_snapshot_holder.cpp
  * @brief     Unit tests for LpSnapshotHolder (Phase 2b of LinearInterface
  * split)
  * @date      2026-05-04
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Pins the S1–S5 invariants from
  * ``include/gtopt/lp_snapshot_holder.hpp`` — the contract that the

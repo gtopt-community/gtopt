@@ -3,7 +3,8 @@
  * @brief     Unit commitment data for generator on/off scheduling
  * @date      Tue Apr  8 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the Commitment structure which specifies unit commitment parameters
  * for a generator: startup/shutdown costs, no-load cost, minimum up/down

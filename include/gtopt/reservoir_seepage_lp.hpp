@@ -3,7 +3,8 @@
  * @brief     Linear Programming representation of a ReservoirSeepage system
  * @date      Thu Jul 31 01:49:05 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The ReservoirSeepageLP class provides a linear programming (LP) compatible
  * representation of a ReservoirSeepage system for optimization problems.

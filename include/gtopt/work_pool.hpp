@@ -3,7 +3,8 @@
  * @brief     Adaptive thread pool with CPU monitoring and priority scheduling
  * @date      Mon Jun 23 23:48:20 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements an adaptive work pool that:
  * - Dynamically adjusts task scheduling based on CPU load

@@ -3,7 +3,8 @@
  * @brief     Implementation of FlowLP methods
  * @date      Wed Jul 30 15:56:46 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Contains implementation of:
  * - FlowLP construction and initialization

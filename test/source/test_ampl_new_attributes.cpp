@@ -2,7 +2,8 @@
  * @file      test_ampl_new_attributes.cpp
  * @brief     User-constraint coverage for newly-exposed AMPL attributes
  * @date      2026-05-19
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The AMPL dispatch refactor exposed several `*LP::param_*` accessors
  * that the legacy if/else chain in `element_column_resolver.cpp` never

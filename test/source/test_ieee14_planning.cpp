@@ -2,7 +2,8 @@
  * @file      test_ieee14_planning.hpp
  * @brief     Integration test for IEEE 14-bus system
  * @date      2026-02-19
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Integration test for the IEEE 14-bus system case.  The system has:
  *   - 14 buses, 5 generators (G3 at bus 3 is a solar plant), 11 demand buses,

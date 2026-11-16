@@ -3,7 +3,8 @@
  * @brief     Name / label subsystem of an LP matrix
  * @date      2026-07-01
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Value aggregate holding the name-to-index maps and the structural
  * label metadata captured from a `FlatLinearProblem` after flatten,

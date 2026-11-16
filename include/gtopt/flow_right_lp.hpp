@@ -3,7 +3,8 @@
  * @brief     LP representation of flow-based water rights
  * @date      Tue Apr  1 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Each FlowRight installs a single LP column `flow_b` per (scenario,
  * stage, block) bounded by the hard physical band `[fmin_b, fmax_b]`.

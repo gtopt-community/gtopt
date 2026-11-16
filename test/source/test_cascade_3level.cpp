@@ -2,7 +2,8 @@
  * @file      test_cascade_3level.cpp
  * @brief     Tests for 3-level cascade: uninodal -> transport -> full network
  * @date      2026-04-13
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Validates the default 3-level cascade strategy that plp2gtopt emits:
  *   Level 0 (uninodal):  use_single_bus=true
@@ -10,7 +11,7 @@
  *   Level 2 (full):      full network (kirchhoff + losses)
  */
 
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>

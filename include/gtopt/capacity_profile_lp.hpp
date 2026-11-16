@@ -3,7 +3,8 @@
  * @brief     Unified LP wrapper for `CapacityProfile` (kind-dispatched)
  * @date      2026-05-17
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `CapacityProfileLP` is the kind-dispatched LP wrapper around the unified
  * `CapacityProfile` element.  At `add_to_lp` time it inspects

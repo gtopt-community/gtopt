@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Configuration file I/O for gtopt_check_pampl.
 
 Uses the centralized ``~/.gtopt.conf`` via the :mod:`gtopt_config` module.

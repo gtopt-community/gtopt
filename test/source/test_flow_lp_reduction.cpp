@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_flow_lp_reduction.cpp
  * @brief     Verify the fixed-Flow -> junction-balance-RHS fold under

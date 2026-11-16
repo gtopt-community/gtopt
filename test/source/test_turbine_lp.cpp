@@ -2,7 +2,8 @@
  * @file      test_turbine_lp.hpp
  * @brief     Unit tests for TurbineLP covering uncovered code paths
  * @date      2026-04-04
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests cover:
  *  - Flow-connected turbine (uses_flow() path)

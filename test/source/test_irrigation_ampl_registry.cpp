@@ -2,7 +2,8 @@
  * @file      test_irrigation_ampl_registry.cpp
  * @brief     Tier 6 — AMPL element-attribute registry post-refactor tests
  * @date      2026-04-10
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * After commit f02856d7 each LP element class registers its own
  * AMPL-visible variables in `SimulationLP::AmplVariableMap` (one cell

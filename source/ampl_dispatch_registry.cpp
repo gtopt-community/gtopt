@@ -3,7 +3,8 @@
  * @brief     AMPL parameter + iterator dispatch table population
  * @date      2026-05-19
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Every shim below is a thin
  * `sc.get_element(ObjectSingleId<LP>{uid}).param_X(s, b)`

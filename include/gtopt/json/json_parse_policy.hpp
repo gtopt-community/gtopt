@@ -3,7 +3,8 @@
  * @brief     Shared daw::json parse policies for gtopt
  * @date      2026-04-13
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Centralises the daw::json parse-flag combinations used across
  * production code and the unit-test suite.  All policies are strict

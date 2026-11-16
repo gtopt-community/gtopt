@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """SVG icon definitions, colour palettes, shape maps, and layout constants.
 
 This module consolidates all static visual configuration used by the diagram

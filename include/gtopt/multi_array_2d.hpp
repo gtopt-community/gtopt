@@ -3,7 +3,8 @@
  * @brief     Minimal 2D array wrapper around std::vector
  * @date      Sat Feb 08 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a minimal replacement for boost::multi_array with 2 dimensions.
  * This is a simple wrapper around std::vector that provides 2D array semantics.

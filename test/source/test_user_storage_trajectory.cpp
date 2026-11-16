@@ -1,11 +1,12 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_user_storage_trajectory.cpp
  * @brief     Per-(stage, block) SDDP storage-trajectory equivalence: an
  *            AMPL-text reservoir traces the SAME volume path as the native
  *            reservoir, with a realistic 4-blocks-per-stage model.
  * @date      2026-06-28
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The companion `test_user_storage_equivalence.cpp` matches the SDDP *bounds*
  * (the optimum cost) on the shipped flat-cost 2-reservoir fixture.  That

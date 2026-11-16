@@ -3,7 +3,8 @@
  * @brief     Simplified commitment data for generator min-output enforcement
  * @date      2026-04-13
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the SimpleCommitment structure which specifies a simplified
  * unit commitment constraint for a generator: if dispatched (u=1), the

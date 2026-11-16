@@ -4,7 +4,8 @@
  * run_check_json_info()
  * @date      2026-03-12
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Both public functions delegate to the private `spawn_tool()` helper, which
  * provides a single, reusable posix_spawn-based mechanism for launching

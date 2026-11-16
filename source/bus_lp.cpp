@@ -3,7 +3,8 @@
  * @brief     Implementation of BusLP class for bus linear programming
  * @date      Sat Feb  8 01:50:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements the BusLP class, providing the linear programming
  * representation of electrical buses in power system optimization. It handles

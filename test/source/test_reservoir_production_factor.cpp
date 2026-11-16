@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_reservoir_production_factor.hpp
  * @brief     Unit tests for ReservoirProductionFactor,
  * evaluate_production_factor, and the LP coefficient update mechanism
  * @date      2026-03-10
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <filesystem>

@@ -3,7 +3,8 @@
  * @brief     SCIP solver backend implementation (buffer-and-replay)
  * @date      2026-06-28
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * NOTE on logging: spdlog is now a shared library (libspdlog.so) that this
  * dlopen-loaded MODULE plugin links against (via gtopt::gtopt), sharing the

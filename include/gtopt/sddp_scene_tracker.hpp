@@ -3,7 +3,8 @@
  * @brief     Per-scene iteration tracker for asynchronous SDDP execution
  * @date      2026-04-04
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tracks per-scene iteration progress, bounds history, and completion
  * counts for the asynchronous SDDP execution mode.  All methods are

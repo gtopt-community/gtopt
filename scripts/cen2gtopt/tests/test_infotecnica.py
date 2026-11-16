@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Offline tests for the public infotecnica REST client.
 
 Mocks ``requests.Session.get`` against captured fixtures from

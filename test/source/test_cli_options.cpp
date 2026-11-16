@@ -4,7 +4,8 @@
  * (cli_options.hpp)
  * @date      Wed Feb 12 22:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests cover: variables_map, options_description, positional arguments,
  * command_line_parser, typed values, error handling, and edge cases.

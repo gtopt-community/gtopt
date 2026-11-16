@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 // Copyright (c) 2026, Marcelo Matus. All rights reserved.
 //
 // test_power_bound_threshold.cpp — exercises

@@ -4,7 +4,8 @@
  *            path and the post-build (cut) row-insertion path.
  * @date      2026-04-20
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The bulk `apply_row_max_equilibration` / `apply_ruiz_scaling` routines
  * in `linear_problem.cpp` scale the whole CSC matrix at once during

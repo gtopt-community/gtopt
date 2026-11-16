@@ -3,7 +3,8 @@
  * @brief     Process-global GPU admission (per-device token bucket)
  * @date      Mon Jul 06 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The work pool sizes CPU concurrency from cores; the governor adds the *GPU*
  * side.  It holds a per-device token bucket (a counting semaphore) sized from

@@ -2,7 +2,8 @@
  * @file      test_ieee4b_ori_planning.cpp
  * @brief     Unit and solution-correctness tests for IEEE 4-bus original case
  * @date      2026-02-22
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests for the IEEE 4-bus original base case.  The system has:
  *   - 4 buses, 2 simple thermal generators (no solar profile), 2 demand buses,

@@ -3,7 +3,8 @@
  * @brief     Output context for writing LP results to Parquet/CSV
  * @date      Mon Mar 24 20:39:03 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the OutputContext class and the probe_parquet_codec
  * utility for writing LP solution results to Parquet or CSV files.

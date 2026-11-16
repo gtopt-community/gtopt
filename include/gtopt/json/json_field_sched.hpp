@@ -3,7 +3,8 @@
  * @brief     JSON serialization for FieldSched variant types
  * @date      Sat Mar 22 06:53:09 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides daw::json variant type lists for FieldSched types,
  * enabling JSON serialization of scalar, array, or file-based schedules.

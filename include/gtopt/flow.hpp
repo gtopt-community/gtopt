@@ -3,7 +3,8 @@
  * @brief     Exogenous water flow (inflow/outflow) at a hydraulic junction
  * @date      Wed Jul 30 15:52:34 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the Flow structure representing an exogenous water inflow (natural
  * river runoff) or outflow (minimum environmental discharge) at a junction.

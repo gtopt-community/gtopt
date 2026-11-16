@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_line_losses_negative_lmp_reserve.cpp — mode × channel exposure
 // under mechanism M3: operational constraints (reserves).

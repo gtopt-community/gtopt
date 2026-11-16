@@ -3,7 +3,8 @@
  * @brief     String label generation utilities
  * @date      Fri May 16 20:16:01 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides compile-time string label generation functionality with:
  * - Efficient concatenation of multiple values

@@ -3,7 +3,8 @@
  * @brief     Modular Benders cut construction and handling – implementation
  * @date      2026-03-11
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements the cut-creation building blocks declared in benders_cut.hpp.
  * The free functions moved here were originally part of sddp_solver.cpp.

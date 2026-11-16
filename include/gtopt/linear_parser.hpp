@@ -2,7 +2,8 @@
  * @file      linear_parser.hpp
  * @brief     Parser for linear constraint expressions
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides a parser for linear constraint expressions such as
  * "3*x - 2*y <= 20" or "10 <= 3*x + 2*y <= 30", supporting single and

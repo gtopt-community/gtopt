@@ -3,7 +3,8 @@
  * @brief     Checkpoint file for cascade-method resume across runs.
  * @date      2026-05-20
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tracks which cascade levels have completed so that `--recover` can
  * restart at the first non-done level rather than always at L0.

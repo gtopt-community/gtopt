@@ -3,7 +3,8 @@
  * @brief     MindOpt C API solver backend implementation
  * @date      Fri Apr  4 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <algorithm>

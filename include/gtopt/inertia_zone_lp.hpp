@@ -3,7 +3,8 @@
  * @brief     LP formulation for inertia zones
  * @date      2026-04-13
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the InertiaZoneLP class, which builds LP variables
  * and constraints for system inertia zone requirements.  Mirrors the

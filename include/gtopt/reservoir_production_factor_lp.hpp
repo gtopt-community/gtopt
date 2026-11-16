@@ -3,7 +3,8 @@
  * @brief     LP representation of reservoir-dependent turbine production factor
  * @date      Mon Mar 10 17:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides the `ReservoirProductionFactorLP` class which manages the LP
  * coefficient update for turbines whose conversion rate varies with

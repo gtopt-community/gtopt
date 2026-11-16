@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /// @file test_work_pool_coverage.hpp
 /// @brief Additional WorkPool tests for coverage: double start, submit_lambda,
 ///        format_statistics, string-key pool, shutdown behavior, priority

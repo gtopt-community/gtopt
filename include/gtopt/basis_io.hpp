@@ -3,7 +3,8 @@
  * @brief     Binary (de)serialization of a solver-agnostic simplex `Basis`
  * @date      2026-07-12
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A `Basis` (`basis.hpp`) is two `uint8_t` status vectors (columns + rows);
  * these free functions round-trip it to a small binary file so a warm-start

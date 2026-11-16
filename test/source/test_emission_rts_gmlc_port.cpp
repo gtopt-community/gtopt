@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Port of the RTS-GMLC (GridMod 2019) test system into gtopt's emission-
 // framework integration test.  The Python converter

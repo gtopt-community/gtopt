@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Cross-converter CLI parity test (issue #507 Phase 2).
 
 For every converter that opts into ``gtopt_shared.cli_flags``, the

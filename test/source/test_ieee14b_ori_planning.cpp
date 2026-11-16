@@ -2,7 +2,8 @@
  * @file      test_ieee14b_ori_planning.cpp
  * @brief     Integration test for IEEE 14-bus original base case
  * @date      2026-02-22
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Integration test for the IEEE 14-bus original base case.  The system has:
  *   - 14 buses, 5 simple thermal generators (no solar profile), 11 demand

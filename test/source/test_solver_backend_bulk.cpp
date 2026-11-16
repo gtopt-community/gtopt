@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_solver_backend_bulk.cpp
  * @brief     Tests for SolverBackend::set_col_bounds_bulk (commit b85011e1)
  * @date      2026-05-11
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Pins the bulk-bound-update contract: `set_col_bounds_bulk(num, idx, lu,
  * vals)` must produce identical backend state to the per-element

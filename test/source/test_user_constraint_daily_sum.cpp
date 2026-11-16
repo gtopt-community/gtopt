@@ -2,7 +2,8 @@
  * @file      test_user_constraint_daily_sum.cpp
  * @brief     Contract tests for the daily-sum (per-day energy) UserConstraint
  * @date      2026-05-27
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * TDD contract for the pending daily-sum UserConstraint feature (GH #502):
  * a constraint that sums its (Δt-weighted) per-block terms over each 24 h

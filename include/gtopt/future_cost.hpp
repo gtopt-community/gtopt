@@ -3,7 +3,8 @@
  * @brief     Future Cost Function (FCF) element — the cost-to-go / α
  * @date      Sat Jun 21 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the FutureCost structure — a first-class element that owns the
  * end-of-horizon **cost-to-go** (the FCF, α / `varphi_s`) and the boundary

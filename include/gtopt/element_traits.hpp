@@ -4,7 +4,8 @@
  *            context.
  * @date      Thu Apr 24 22:11:20 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides a customization point `ElementTraits` that allows
  * different element types to be handled uniformly. It offers a default

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Lossless local graph simplifications: parallel-line merge + degree-2
 elimination, iterated to a fixed point.
 

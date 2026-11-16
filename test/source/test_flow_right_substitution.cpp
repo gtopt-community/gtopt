@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Tests for the FlowRight one-sided kink substitution shipped in
 // commit 4ec10d94 (2026-05-17).  Mirrors the algebra of DemandLP's

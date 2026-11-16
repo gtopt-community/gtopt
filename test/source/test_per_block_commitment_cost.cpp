@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_per_block_commitment_cost.cpp
  * @brief     Per-block Commitment.startup_cost / shutdown_cost read tests
  * @date      2026-06-20
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `Commitment.startup_cost` and `Commitment.shutdown_cost` were upgraded
  * from per-stage (`OptTRealFieldSched`) to per-(stage, block)

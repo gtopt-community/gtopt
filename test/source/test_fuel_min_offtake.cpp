@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Tests for the ``Fuel.min_offtake`` floor row (PLEXOS Min Offtake /
 // take-or-pay reproduction).  Validates:

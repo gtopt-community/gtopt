@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // P0 substitution dual invariance — proves that folding the
 // `fail_col` + coupling row into the served column's cost (via

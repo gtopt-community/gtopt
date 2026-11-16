@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file   test_user_constraint_diagnostics.cpp
  * @brief  Parse-time source-location diagnostics for unresolved AMPL

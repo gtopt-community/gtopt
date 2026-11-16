@@ -3,7 +3,8 @@
  * @brief     LP formulation for energy converters
  * @date      Wed Apr  2 02:10:10 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the ConverterLP class, which builds LP variables and
  * constraints linking a converter to its battery, demand, and generator.

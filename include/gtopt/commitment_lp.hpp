@@ -3,7 +3,8 @@
  * @brief     LP formulation for unit commitment (three-bin u/v/w model)
  * @date      Tue Apr  8 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines CommitmentLP which creates binary (or relaxed) status/startup/
  * shutdown variables for a generator and adds the three core UC constraints:

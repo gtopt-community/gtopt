@@ -3,7 +3,8 @@
  * @brief     Planning-period (stage) definition for power system optimization
  * @date      Wed Mar 26 12:11:10 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A Stage represents an investment period in the multi-stage planning
  * horizon.  Capacity decisions made in a stage persist into all subsequent

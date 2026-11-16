@@ -3,7 +3,8 @@
  * @brief     Internal helpers shared by sddp_cut_io split TUs.
  * @date      2026-04-26
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Not part of the public gtopt API — these helpers are shared between
  * the sibling translation units that implement the cut persistence

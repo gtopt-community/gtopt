@@ -3,7 +3,8 @@
  * @brief     Linear programming representation of network flows
  * @date      Wed Jul 30 15:54:03 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements the FlowLP class which provides methods to:
  * - Represent flows in linear programming problems

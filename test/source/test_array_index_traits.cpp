@@ -3,7 +3,8 @@
  * @brief     Unit tests for the refactored array_index_traits helpers
  * @date      Thu Feb 19 00:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Directly tests the now-public helper functions:
  *   gtopt::build_table_path   – pure path construction

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """validate_network_reduction.py — pandapower DC-OPF validation of the
 gtopt_reduce_network reduction.
 

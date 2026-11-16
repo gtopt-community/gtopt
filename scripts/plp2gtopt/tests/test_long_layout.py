@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for long-layout field output (``plp2gtopt --layout long``, the
 default) and the wide↔long reshape helpers in :mod:`plp2gtopt.base_writer`.
 

@@ -3,7 +3,8 @@
  * @brief     Defines the TurbineLP class for linear programming representation
  * @date      Thu Jul 31 01:50:54 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the TurbineLP class which provides the linear programming
  * representation of a hydroelectric turbine, including its constraints and

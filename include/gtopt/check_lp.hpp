@@ -3,7 +3,8 @@
  * @brief     Utility for running gtopt_check_lp diagnostics on error LP files
  * @date      2026-03-12
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides run_check_lp_diagnostic() which looks for the gtopt_check_lp
  * script on PATH and, if found, spawns it directly via @c posix_spawn (no

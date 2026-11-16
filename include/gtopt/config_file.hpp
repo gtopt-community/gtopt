@@ -3,7 +3,8 @@
  * @brief     Lightweight INI config file reader for .gtopt.conf
  * @date      2026-03-25
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Reads the standard `~/.gtopt.conf` INI file used by all gtopt scripts.
  * The `[gtopt]` section provides default values for the C++ binary's

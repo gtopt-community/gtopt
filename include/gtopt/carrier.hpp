@@ -3,7 +3,8 @@
  * @brief     Energy-carrier tag for ``Node<>`` templated balance nodes
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the ``Carrier`` enum used as the template parameter for the
  * generic ``Node<C>`` balance-node template (see ``node.hpp``).  The

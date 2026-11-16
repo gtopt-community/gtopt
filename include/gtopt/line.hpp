@@ -3,7 +3,8 @@
  * @brief     Header for transmission line components
  * @date      Sun Apr 20 02:12:30 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines data structures for representing AC transmission lines
  * in power system planning models. In DC power-flow (Kirchhoff) mode the

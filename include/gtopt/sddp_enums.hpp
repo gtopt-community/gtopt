@@ -3,7 +3,8 @@
  * @brief     Named enum types for SDDP and boundary-cut options
  * @date      2026-03-28
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines all enum types used by SddpOptions and MonolithicOptions
  * (boundary cuts).  Extracted from sddp_options.hpp so that the

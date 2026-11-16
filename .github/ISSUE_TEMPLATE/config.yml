@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/marcelomatus/gtopt/security/advisories/new
+    about: Please report vulnerabilities privately.
+  - name: Commercial licence, support and maintenance
+    url: https://github.com/marcelomatus/gtopt/blob/master/LICENSING.md
+    about: Commercial licensing (Marcelo Matus) and support contracts (Black Bear Engineering SpA).

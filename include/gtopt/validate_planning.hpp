@@ -3,7 +3,8 @@
  * @brief     Semantic validation of a parsed Planning object
  * @date      Wed Mar 19 00:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides `validate_planning()`, which checks referential integrity,
  * range constraints, and structural completeness of a Planning object

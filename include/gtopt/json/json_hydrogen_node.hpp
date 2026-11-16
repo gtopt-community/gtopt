@@ -3,7 +3,8 @@
  * @brief     JSON serialisation for ``HydrogenNode``
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Mirror of ``json_thermal_node.hpp`` for the hydrogen carrier.
  */

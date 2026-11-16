@@ -2,7 +2,8 @@
  * @file      test_annual_discount_rate.hpp
  * @brief     Tests for annual_discount_rate in Simulation and fallback chain
  * @date      2026-03-30
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <doctest/doctest.h>

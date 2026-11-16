@@ -2,7 +2,8 @@
  * @file      test_ampl_dispatch_registry.cpp
  * @brief     Unit tests for the AMPL param + iterator dispatch tables
  * @date      2026-05-19
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The two tables populated by `ampl_dispatch_registry.cpp` are the
  * single source of truth for which `(class, attribute)` pairs are

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """End-to-end integration test on IEEE-57 (a non-trivial-size case).
 
 The reducer reduces 57 → 20 buses; gtopt solves both the reduced and the

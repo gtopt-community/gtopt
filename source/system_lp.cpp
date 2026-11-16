@@ -3,7 +3,8 @@
  * @brief     Implementation of SystemLP class for power system LP formulation
  * @date      Tue Apr  8 01:20:31 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements the SystemLP class, which is responsible for creating
  * and managing the linear programming formulation of power system planning

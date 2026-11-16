@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file   test_constraint_directive.cpp
  * @brief  Unit tests for ConstraintDirective scaffold (P0 Step 1).

@@ -3,7 +3,8 @@
  * @brief     Implementation of the linear programming problem representation
  * @date      Fri Mar 28 22:18:17 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements the core data structures and operations for building
  * and manipulating linear programming problems. It handles the sparse matrix

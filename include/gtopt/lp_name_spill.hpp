@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      lp_name_spill.hpp
  * @brief     Async, Parquet-backed store for LP col/row label metadata.
  * @date      2026-06-28
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The label metadata (`SparseColLabel` / `SparseRowLabel` — class name,
  * variable / constraint name, uid, context) is needed ONLY to write a

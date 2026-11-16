@@ -2,7 +2,8 @@
  * @file      test_fuel_min_offtake_planning.cpp
  * @brief     Integration tests: Fuel.min_offtake in Planning JSON + LP solve
  * @date      2026-05-31
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Exercises the full pipeline: Planning JSON deserialization →
  * Planning merge → PlanningLP::resolve.  Pins the take-or-pay

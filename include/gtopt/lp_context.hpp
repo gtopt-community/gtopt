@@ -3,7 +3,8 @@
  * @brief     Typed LP context tuples and label generation utilities
  * @date      Sun Apr  6 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines typed context tuples that identify WHERE in the LP hierarchy
  * a column or row lives.  Each tuple alias names a specific granularity

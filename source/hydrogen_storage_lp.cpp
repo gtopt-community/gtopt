@@ -3,7 +3,8 @@
  * @brief     Implementation of HydrogenStorageLP — salt cavern / LH₂ / LOHC
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Mirror of ``source/thermal_storage_lp.cpp`` retargeted to the
  * hydrogen carrier (MWh_LHV).  All LP semantics flow through

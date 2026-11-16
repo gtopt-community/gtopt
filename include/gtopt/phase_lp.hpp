@@ -3,7 +3,8 @@
  * @brief     Linear programming phase representation
  * @date      Wed Apr  9 22:04:04 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the PhaseLP class which represents a time phase in linear programming
  * planning problems. A phase contains multiple stages and provides aggregate

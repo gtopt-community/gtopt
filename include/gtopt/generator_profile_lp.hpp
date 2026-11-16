@@ -3,7 +3,8 @@
  * @brief     Linear programming representation of generator profiles
  * @date      Tue Apr  1 22:01:16 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the GeneratorProfileLP class which:
  * - Wraps GeneratorProfile for LP problem formulation

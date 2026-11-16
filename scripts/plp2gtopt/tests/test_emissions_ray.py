@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for plp2gtopt._emissions_ray — synthetic emissions ray
 construction for the --only-emissions LP horizon (#520).
 """

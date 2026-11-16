@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_coordinator_pool.cpp
  * @brief     Unit tests for the Tier-1 CoordinatorPool.
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 #include <atomic>
 #include <chrono>

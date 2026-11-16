@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_decision_variable.cpp
  * @brief     Unit tests for the DecisionVariable element (2026-05-20 work)

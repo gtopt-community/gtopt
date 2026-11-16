@@ -3,7 +3,8 @@
  * @brief     Contract tests for UserConstraint `scope`
  * (block/stage/phase/global)
  * @date      2026-06-22
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Piece-4 step 1 of the FutureCost / UserModel refactor: the typed
  * `scope` JSON enum field (`block` default, `stage`, `phase`, `global`)

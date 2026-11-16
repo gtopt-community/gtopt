@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Boundary cuts must work with VolumeRight state variables directly — they
 // are Tilmant "dummy reservoir" SDDP couplers (default

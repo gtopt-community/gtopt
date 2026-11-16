@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      solver_tier.hpp
  * @brief     Tier-2 solver executor seam for the SDDP method.
  * @date      2026-06-08
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `SolverTier` is the single point through which SDDP LP solves reach an
  * execution backend.  In this first step it is a transparent wrapper around

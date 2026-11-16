@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_fix_integers_sos2_duals.cpp — the MIP dual-recovery pass must
 // preserve SOS2 feasibility in the PUBLISHED primal.

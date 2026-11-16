@@ -3,7 +3,8 @@
  * @brief     Pollutant constraint zone — balance row, optional cap / price
  * @date      2026-05-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `EmissionZone` is the LP-active constraint owner for one or more
  * pollutants within a regulatory / geographic scope.  Mirrors the

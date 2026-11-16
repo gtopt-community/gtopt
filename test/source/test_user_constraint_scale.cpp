@@ -3,7 +3,8 @@
  * @brief     Tests that user constraints work correctly with scaled LP
  * variables
  * @date      2026-04-05
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Verifies that user constraints produce correct LP solutions when variables
  * have non-unit col_scale:

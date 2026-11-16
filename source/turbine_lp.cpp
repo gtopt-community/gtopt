@@ -3,7 +3,8 @@
  * @brief     Implementation of TurbineLP class
  * @date      Thu Jul 31 02:05:38 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements the TurbineLP class which provides the linear
  * programming representation of hydroelectric turbines, including their

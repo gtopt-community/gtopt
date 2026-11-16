@@ -3,7 +3,8 @@
  * @brief     Unit tests for the initial-MIP-solution (warm-start) framework
  * @date      2026-06-23
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Covers the solver-independent surface of the MIP-start framework: the
  * staged `MipStartOptions` JSON contract, the option enums (`MipStartEffort`,

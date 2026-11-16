@@ -3,7 +3,8 @@
  * @brief     LP wrapper for ``AmmoniaNode`` — carrier-side balance row
  * @date      Sat May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Mirror of ``thermal_node_lp.hpp`` for the ammonia carrier (MWh_LHV).
  */

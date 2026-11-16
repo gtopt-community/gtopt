@@ -4,7 +4,8 @@
  * zone
  * @date      Thu Apr  3 10:30:07 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the ReserveProvision structure which specifies how a
  * generator contributes up/down spinning reserve to one or more reserve zones.

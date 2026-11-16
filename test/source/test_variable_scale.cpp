@@ -3,7 +3,8 @@
  * @brief     Tests for LP variable scaling architecture
  * @date      Mon Mar 17 04:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests for:
  * - SparseCol::scale field (physical = LP × scale)

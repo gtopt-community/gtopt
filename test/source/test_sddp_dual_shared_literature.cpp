@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_sddp_dual_shared_literature.cpp
  * @brief     Literature validation of the dual-shared aperture cut modes

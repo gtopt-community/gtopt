@@ -3,7 +3,8 @@
  * @brief     Header of System class methods
  * @date      Sun Mar 30 16:04:21 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements the methods of the System class, which represents the
  * core data.

@@ -3,7 +3,8 @@
  * @brief     LP wrapper for the ``ThermalStorage`` element
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Peer of ``BatteryLP`` and ``ReservoirLP`` on the ``StorageLP<>``
  * framework.  Identical LP shape to ``BatteryLP``: one ``finp``

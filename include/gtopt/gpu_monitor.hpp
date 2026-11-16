@@ -4,7 +4,8 @@
  * CPUMonitor/MemoryMonitor
  * @date      Mon Jul 06 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * GPU-side member of the work-pool monitor family.  Mirrors CPUMonitor /
  * MemoryMonitor: a background jthread on the same cadence with cheap cached

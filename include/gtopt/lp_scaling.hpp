@@ -3,7 +3,8 @@
  * @brief     LP-scaling subsystem of an LP matrix
  * @date      2026-07-01
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Groups the Ruiz / equilibration scaling state of a `LinearInterface`
  * into a behaviour-free value aggregate, plus the zero-copy `ScaledView`

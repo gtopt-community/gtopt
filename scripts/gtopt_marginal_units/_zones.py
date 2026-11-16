@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Zone partition + per-component PTDF.
 
 Master plan §4.3 (zone partition) and §4.7 R1 (PTDF estimate when

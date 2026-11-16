@@ -3,7 +3,8 @@
  * @brief     User-defined named parameters for constraint expressions
  * @date      Wed Apr  2 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the UserParam struct, which stores a named constant or
  * monthly-indexed parameter for use in pseudo-AMPL constraint scripts.

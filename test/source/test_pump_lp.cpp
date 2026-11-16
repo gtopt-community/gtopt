@@ -3,7 +3,8 @@
  * @brief     Unit tests for PumpLP covering conversion, capacity, and
  *            pumped-storage round-trip economics
  * @date      2026-04-13
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests cover:
  *  - Basic pump conversion constraint (pump_factor × flow − load ≤ 0)

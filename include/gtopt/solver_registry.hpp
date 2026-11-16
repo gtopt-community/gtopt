@@ -3,7 +3,8 @@
  * @brief     Dynamic solver plugin registry with dlopen support
  * @date      Sun Mar 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Manages discovery and loading of solver backend plugins at runtime.
  * Plugins are shared libraries (libgtopt_solver_*.so) that export a

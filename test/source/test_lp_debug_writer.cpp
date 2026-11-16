@@ -3,7 +3,8 @@
  * @brief     Unit tests for LpDebugWriter
  * @date      2026-03-12
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests:
  *  1. Default-constructed writer is inactive

@@ -3,7 +3,8 @@
  * @brief     LinearInterface solve dispatch — initial_solve / resolve.
  * @date      2026-04-26
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Extracted from `linear_interface.cpp`.  Holds the algorithm-fallback
  * helper (`next_fallback_algo`), the `initial_solve` and `resolve`

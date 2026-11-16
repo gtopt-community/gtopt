@@ -3,7 +3,8 @@
  * @brief     PLP-style feasibility-cut debug log (plpfact.log analogue)
  * @date      2026-07-11
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * PLP writes every feasibility-cut event to a dedicated `plpfact.log`
  * (gated by `FactDBL >= 1`): the infeasibility detection line, one

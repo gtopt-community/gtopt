@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Bus price recipe + bus emission-intensity recipe — the auditable
 formulas that let downstream consumers recompute λ_b and ε_b under
 alternative cost / emission catalogues.

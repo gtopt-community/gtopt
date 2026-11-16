@@ -3,7 +3,8 @@
  * @brief     VariableScale struct and VariableScaleMap for LP variable scaling
  * @date      Mon Mar 17 04:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a JSON-configurable mechanism for defining LP variable scale
  * factors per element class, variable name, and optional element UID.

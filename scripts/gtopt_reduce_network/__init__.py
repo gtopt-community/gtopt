@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """gtopt_reduce_network — bus/line reducer + solution projector for gtopt cases.
 
 Produces a smaller electrically-equivalent gtopt JSON case (reducer) plus the

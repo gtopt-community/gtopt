@@ -2,7 +2,8 @@
  * @file      test_parse_long_mantissa.cpp
  * @brief     Regression: JSON number literals with more significant digits
  *            than fit in a uint64_t must parse to the correct double.
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * daw-json-link's default (fast) real parser silently mis-parses a number
  * literal with > ~19 significant digits by orders of magnitude when the

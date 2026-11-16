@@ -3,7 +3,8 @@
  * @brief     NVML-backed GpuMonitor implementation (runtime dlopen)
  * @date      Mon Jul 06 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Loads NVML at runtime from ``libnvidia-ml.so.1`` (the versioned SONAME the
  * driver ships — some installs omit the bare ``libnvidia-ml.so`` symlink) and

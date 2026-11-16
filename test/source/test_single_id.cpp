@@ -3,7 +3,8 @@
  * @brief     Unit tests for SingleId utilities
  * @date      Sat Feb  8 07:37:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests for SingleId, ObjectSingleId, and related utilities
  */

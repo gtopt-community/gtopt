@@ -4,7 +4,8 @@
  *            conditioning diagnostics
  * @date      2026-03-16
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides ScenePhaseLPStats and log_lp_stats_summary() — a lightweight
  * reporting facility that logs min/max absolute coefficient, ratio, and

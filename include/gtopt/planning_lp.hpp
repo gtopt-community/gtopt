@@ -3,7 +3,8 @@
  * @brief     Linear programming planning for power system optimization
  * @author    marcelo
  * @date      Sun Apr  6 18:18:54 2025
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides functionality for creating, solving, and analyzing
  * linear programming models for power system planning.

@@ -3,7 +3,8 @@
  * @brief     Implementation of converter LP formulation
  * @date      Wed Apr  2 02:12:47 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements ConverterLP construction and add_to_lp, which
  * builds LP variables and constraints for energy conversion rate coupling.

@@ -3,7 +3,8 @@
  * @brief     User constraint loading (split from gtopt_json_io.cpp)
  * @date      2026-04-09
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Contains load_user_constraints() — uses from_json<vector<UserConstraint>>
  * and PamplParser.  Lighter than the other TUs since it doesn't need

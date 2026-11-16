@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_parse_policy.cpp
  * @brief     Tests for the StrictParsePolicy exact-mapping contract
  * @date      2026-04-15
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * StrictParsePolicy is the sole daw::json parse-flag set used across gtopt.
  * It carries UseExactMappingsByDefault::yes so that any JSON key outside the

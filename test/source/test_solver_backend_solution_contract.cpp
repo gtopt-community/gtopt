@@ -4,7 +4,8 @@
  *            contract — locks down current pointer-getter semantics
  *            across every loaded backend, in every low-memory mode.
  * @date      2026-05-04
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * These tests pin the post-Phase-1 (`522d4150`) behaviour of
  *   `SolverBackend::col_solution() / reduced_cost() / row_price()`

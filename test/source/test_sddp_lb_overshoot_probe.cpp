@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_sddp_lb_overshoot_probe.cpp
  * @brief     Probe for the large_case SDDP LB-overshoot regression at small scale

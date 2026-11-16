@@ -3,7 +3,8 @@
  * @brief     Interface to linear programming solvers
  * @date      Mon Mar 24 09:41:39 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides a unified interface to various linear programming
  * solvers through a pluggable SolverBackend abstraction.  It enables

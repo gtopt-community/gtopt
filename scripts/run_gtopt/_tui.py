@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Rich terminal UI for interactive gtopt solver monitoring.
 
 When gtopt runs in an interactive terminal, this module provides a

@@ -3,7 +3,8 @@
  * @brief     Unit tests for main command-line option utilities
  * @date      Wed Feb 12 22:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module contains unit tests for the functions in main_options.hpp:
  * get_opt, make_options_description, apply_cli_options, and

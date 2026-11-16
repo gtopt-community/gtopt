@@ -3,7 +3,8 @@
  * @brief     Stub — functions split into gtopt_json_io_{parse,write,set,uc}.cpp
  * @date      2026-04-09
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This file is intentionally empty.  The JSON I/O functions have been
  * split into four translation units for parallel compilation:

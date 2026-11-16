@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """CLI entry point for cen2gtopt.
 
 v1 is strictly an on-the-spot one-shot CLI per master plan §9.1.1.

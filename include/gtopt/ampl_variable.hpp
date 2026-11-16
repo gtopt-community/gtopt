@@ -3,7 +3,8 @@
  * @brief     Registry types for user-constraint (AMPL) variable resolution
  * @date      Wed Apr  9 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Each LP element registers its PAMPL-visible columns via
  * `SystemContext::add_ampl_variable` at `add_to_lp` time.  The

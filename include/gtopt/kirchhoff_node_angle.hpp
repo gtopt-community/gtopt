@@ -3,7 +3,8 @@
  * @brief     B–θ (node-angle) Kirchhoff Voltage Law row assembly
  * @date      2026-04-28
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * One of two strategies for emitting DC-OPF KVL constraints — selected
  * via `KirchhoffMode::node_angle`.  The global default is

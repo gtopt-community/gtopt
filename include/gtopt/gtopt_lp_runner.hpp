@@ -3,7 +3,8 @@
  * @brief     LP build, solve, stats, and output writing
  * @date      2026-04-08
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Separated from gtopt_main.cpp so that the heavy Arrow/Parquet headers
  * (pulled in via planning_lp.hpp) compile in their own translation unit.

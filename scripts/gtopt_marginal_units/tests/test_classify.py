@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Classifier rule-table tests — master §4.4 8-status table.
 
 Covers every row including hydro_marginal (row 4) and

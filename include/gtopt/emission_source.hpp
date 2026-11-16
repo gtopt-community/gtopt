@@ -4,7 +4,8 @@
  *            optional upstream (WTT) per-MWh rates.
  * @date      2026-05-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `EmissionSource` is the generator↔zone bridge for the emissions
  * model.  Each row says "this generator is an emission source for

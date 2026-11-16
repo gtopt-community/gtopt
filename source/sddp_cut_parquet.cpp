@@ -3,7 +3,8 @@
  * @brief     Apache Parquet save / load for SDDP cuts.
  * @date      2026-05-11
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The single canonical on-disk format for SDDP cuts.  Uses a typed
  * Arrow schema with a `list<struct<cls,var,uid,val>>` column for cut

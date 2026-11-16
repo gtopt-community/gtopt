@@ -3,7 +3,8 @@
  * @brief     NVIDIA cuOpt (GPU) solver backend — buffer-and-replay adapter
  * @date      Tue Jun 10 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * cuOpt exposes a **build-once / solve-once / destroy** C API
  * (``cuopt/mathematical_optimization/cuopt_c.h``): you assemble an immutable

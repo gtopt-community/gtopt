@@ -1,11 +1,12 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_fixedmilp_warmstart.cpp
  * @brief     CPLEX-only: the MIP->dual fixed pass warm-starts (primal
  *            simplex off the incumbent basis) instead of a cold barrier.
  * @date      2026-06-07
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <cstdint>

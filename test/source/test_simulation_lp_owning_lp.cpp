@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_simulation_lp_owning_lp.cpp
  * @brief     Tests for SimulationLP::scene_of / phase_of / owning_lp_of /

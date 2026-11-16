@@ -3,7 +3,8 @@
  * @brief     LP element implementation for user-defined constraints
  * @date      Thu Mar 12 00:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <algorithm>

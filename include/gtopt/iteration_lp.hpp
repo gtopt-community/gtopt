@@ -3,7 +3,8 @@
  * @brief     LP representation of an Iteration control entry
  * @date      Mon Mar 24 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides the IterationLP class, which wraps an Iteration entry and
  * exposes per-iteration solver flags (e.g. whether to dispatch update_lp).

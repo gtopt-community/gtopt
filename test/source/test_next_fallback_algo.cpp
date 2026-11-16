@@ -3,7 +3,8 @@
  * @brief     Direct unit test for the LP algorithm fallback cycle.
  * @date      2026-04-26
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `next_fallback_algo` is `constexpr` and lives in
  * @file include/gtopt/solver_enums.hpp.  Pinning it down here at

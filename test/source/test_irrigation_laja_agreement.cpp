@@ -2,7 +2,8 @@
  * @file      test_irrigation_laja_agreement.cpp
  * @brief     Tier 10 — scaled-down Laja full-agreement integration tests
  * @date      2026-04-10
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * End-to-end LP integration tests for an irrigation rights agreement
  * shaped after the Laja schedule, scaled down to a small but

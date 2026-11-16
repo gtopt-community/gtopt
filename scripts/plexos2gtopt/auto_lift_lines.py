@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Auto-detect lines that need ``enforce_level = 0``.
 
 Runs a pandapower DC OPF on the FIRST (scenario, block) of a gtopt

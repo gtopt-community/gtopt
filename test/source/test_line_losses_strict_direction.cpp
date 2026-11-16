@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_line_losses_strict_direction.cpp — pure-LP strict directional
 // flow via a tiny ε cost on the per-direction loss columns.

@@ -3,7 +3,8 @@
  * @brief     Aperture backward-pass logic for SDDP solver
  * @date      2026-03-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements the free functions declared in sddp_aperture.hpp.
  * Extracted from sddp_solver.cpp to reduce coupling and improve testability.

@@ -3,7 +3,8 @@
  * @brief     Abstract interface for planning methods and factory function
  * @date      2026-03-09
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a common interface for different solving strategies used by
  * PlanningLP::resolve().  The built-in implementations are:

@@ -2,7 +2,8 @@
  * @file      test_csv_helpers.hpp
  * @brief     Shared CSV output-reading helpers for integration tests
  * @date      2026-04-17
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides helpers to read single-row CSV output tables produced by
  * PlanningLP::write_out().  Arrow's CSV reader auto-detects column types,

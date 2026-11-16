@@ -2,7 +2,8 @@
  * @file      test_parse_planning_unknown_field.cpp
  * @brief     Regression: parse_planning_files must report unknown-field
  *            errors cleanly (no segfault).
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Reproduces the segfault triggered by a stale field in
  * `support/plp/2_years/.../bat_<something>.json` once the

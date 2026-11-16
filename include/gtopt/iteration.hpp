@@ -3,7 +3,8 @@
  * @brief     Defines the Iteration structure for per-iteration solver control
  * @date      Mon Mar 24 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * An Iteration allows per-iteration control of SDDP solver behaviour.
  * When an `iteration_array` is present in the Simulation JSON, the solver

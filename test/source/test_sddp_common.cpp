@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_sddp_common.cpp
  * @brief     Lock-in tests for FormatSI and SDDPLogTag (sddp_common.hpp)
  * @date      2026-05-05
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Pin the rendered output of the lazy SI-suffix formatter and the lazy
  * SDDP log-prefix tag against future regressions:

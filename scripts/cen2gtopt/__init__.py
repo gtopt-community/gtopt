@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """cen2gtopt — fetch CEN's published real-operation data on demand
 and write a canonical operation feed (gtopt_canonical_feed schema)
 that gtopt_marginal_units --input-kind feed-parquet can consume

@@ -3,7 +3,8 @@
  * @brief     Unit tests for the SolverOptions class
  * @date      Sun May  5 11:30:00 2025
  * @author    Claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module contains the unit tests for the SolverOptions class and related
  * functionality.

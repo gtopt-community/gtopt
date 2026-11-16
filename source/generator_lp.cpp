@@ -3,7 +3,8 @@
  * @brief     Implementation of GeneratorLP class for generator LP formulation
  * @date      Tue Apr  1 22:03:55 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements the GeneratorLP class, which handles the
  * representation of power generators in linear programming problems. It

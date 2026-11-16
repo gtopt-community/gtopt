@@ -4,7 +4,8 @@
  *            reservoir volume (hydraulic head)
  * @date      Mon Mar 10 17:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Models the PLP "rendimiento" concept: each reservoir may provide a
  * piecewise-linear concave function that maps current reservoir volume

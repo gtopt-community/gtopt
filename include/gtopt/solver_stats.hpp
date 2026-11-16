@@ -3,7 +3,8 @@
  * @brief     Aggregated solver-activity counters for end-of-run reporting.
  * @date      2026-04-15
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * One `SolverStats` lives inside every `LinearInterface`.  Counters are
  * single-writer (the thread that owns the LP), so plain integers suffice —

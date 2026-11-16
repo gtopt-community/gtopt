@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Cross-language sync gate for :mod:`gtopt_shared.options_meta`.
 
 The frozensets in ``options_meta.py`` mirror the C++ ``json_data_contract<...>``

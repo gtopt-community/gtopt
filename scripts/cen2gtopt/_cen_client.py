@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """``CenApiClient`` — unified HTTP client for CEN's 3scale-managed
 public APIs.
 

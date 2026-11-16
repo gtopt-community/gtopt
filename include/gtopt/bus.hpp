@@ -3,7 +3,8 @@
  * @brief     Busbar electrical model definition
  * @date      Tue Mar 18 13:31:45 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the Bus struct representing an electrical busbar (node) in a
  * power system network. Buses serve as connection points for generators,

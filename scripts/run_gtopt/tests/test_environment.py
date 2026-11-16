@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for runtime environment detection."""
 
 from run_gtopt._environment import detect_compression_codec, detect_cpu_count

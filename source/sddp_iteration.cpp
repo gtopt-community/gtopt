@@ -3,7 +3,8 @@
  * @brief     SDDP main iteration loop (solve method)
  * @date      2026-03-22
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Extracted from sddp_solver.cpp — implements the main solve() loop
  * that orchestrates forward/backward passes, convergence checks,

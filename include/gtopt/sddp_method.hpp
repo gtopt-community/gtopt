@@ -4,7 +4,8 @@
  *            planning problems with state variable coupling
  * @date      2026-03-08
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements a forward/backward iterative decomposition similar to the PLP
  * SDDP methodology.  Each gtopt-phase corresponds to a PLP-stage and is

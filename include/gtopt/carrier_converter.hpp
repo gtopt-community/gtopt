@@ -3,7 +3,8 @@
  * @brief     Multi-carrier energy converter (electrolyser, fuel cell, HB, …)
  * @date      Sat May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * ``CarrierConverter`` bridges any pair of carrier-typed balance nodes.
  * One input unit at the ``from`` node produces ``efficiency`` units at

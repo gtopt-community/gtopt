@@ -4,7 +4,8 @@
  *            status file for SDDP and Monolithic solvers
  * @date      2026-03-10
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a reusable `SolverMonitor` class that:
  *  - Samples CPU load and active worker-thread count from an

@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_user_model.cpp
  * @brief     Contract tests for the UserModel element (piece 3)
  * @date      2026-06-22
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `UserModel` is the generic AMPL-capture element: it bundles a set of user
  * variable declarations (`variable_array`, reusing `DecisionVariable`) and

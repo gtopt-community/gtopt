@@ -3,7 +3,8 @@
  * @brief     Tests that flatten() correctly applies col_scale to matrix
  *            coefficients and objective, and preserves infinity bounds.
  * @date      2026-04-05
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Verifies the core invariant introduced by the col_scale encapsulation:
  *   LP_coeff  = phys_coeff × col_scale / row_scale

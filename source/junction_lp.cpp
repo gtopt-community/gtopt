@@ -3,7 +3,8 @@
  * @brief     Implementation of junction LP formulation
  * @date      Tue Jul 29 23:08:29 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This file implements the linear programming formulation for power system
  * junctions, including flow balance constraints and drain effects.

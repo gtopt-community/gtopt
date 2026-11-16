@@ -2,7 +2,8 @@
  * @file      test_solver_benchmark.hpp
  * @brief     Benchmark solver backends with different algorithms and threads
  * @date      2026-03-27
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Builds a realistic power-system dispatch LP (multiple buses, generators,
  * lines, and demand constraints) and solves it with every available solver

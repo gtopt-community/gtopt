@@ -2,7 +2,8 @@
  * @file      test_demand_emin_planning.hpp
  * @brief     Tests for demand minimum energy (emin) LP paths
  * @date      2026-03-21
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Exercises demand_lp.cpp emin code paths (lines 65-88, 150-168)
  * that require a demand with emin/ecost set.

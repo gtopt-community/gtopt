@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Unit tests for the cycle-basis builder.  Pure graph algorithm, no
 // SystemContext / LineLP / LP coupling — these tests exercise the

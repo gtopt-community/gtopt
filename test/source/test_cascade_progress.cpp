@@ -1,10 +1,11 @@
 /**
  * @file      test_cascade_progress.cpp
  * @brief     Round-trip + atomic-write tests for cascade_progress.
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 
 #include <filesystem>
 #include <fstream>

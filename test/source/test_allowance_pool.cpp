@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Unit tests for the ``AllowancePool`` data struct (Phase 1).
 // LP integration tests land in subsequent phases — this commit

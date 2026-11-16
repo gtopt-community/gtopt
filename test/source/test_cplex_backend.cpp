@@ -2,7 +2,8 @@
  * @file      test_cplex_backend.cpp
  * @brief     Unit tests for the CPLEX plugin's CplexEnvLp RAII refactor
  * @date      2026-04-16
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Every TEST_CASE is gated on `reg.has_solver("cplex")` and silently
  * skips when the plugin is not available in the test environment.
@@ -22,7 +23,7 @@
  *     PLP's by-design one-env-per-LP ownership pattern).
  */
 
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #include <array>
 #include <atomic>
 #include <barrier>

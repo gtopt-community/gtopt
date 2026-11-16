@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Tests for the `Emission` pollutant tag (registry only — no LP
 // rows / columns).  Cap / price / slack moved to `EmissionZone` and

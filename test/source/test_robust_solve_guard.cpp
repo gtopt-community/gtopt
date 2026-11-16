@@ -4,7 +4,8 @@
  *            and the RobustSolveGuard RAII helper
  * @date      Sat Apr 25 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Validates:
  *   1. Construction of RobustSolveGuard calls engage_robust_solve().

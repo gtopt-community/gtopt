@@ -3,7 +3,8 @@
  * @brief     Tests for the MIP fix-integers dual-recovery pass
  * @date      2026-05-25
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A MIP solution has no LP duals (shadow prices / reduced costs).  The
  * fix-integers pass (`LinearInterface::fix_integers_and_resolve`) pins

@@ -3,7 +3,8 @@
  * @brief     Byte-level (de)serializer for LP column / row label metadata.
  * @date      2026-04-26
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Internal helpers used by the low-memory snapshot pipeline in
  * @ref gtopt::LinearInterface to compress/decompress the per-cell label

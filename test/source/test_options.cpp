@@ -3,7 +3,8 @@
  * @brief     Unit tests for Options class
  * @date      Fri May  3 10:15:00 2025
  * @author    Claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module contains unit tests for the Options class.
  */

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Read a canonical operation feed (gtopt_canonical_feed) into the
 in-memory shape the rest of the package expects.
 

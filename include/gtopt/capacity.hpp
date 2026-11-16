@@ -3,7 +3,8 @@
  * @brief     Defines capacity-related structures for planning models
  * @date      Thu Mar 27 10:45:31 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines structures representing capacity attributes and entities
  * in planning models, including current capacity, expansion capabilities,

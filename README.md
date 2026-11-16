@@ -341,5 +341,15 @@ several Latin American power systems.
 
 ## License
 
-This project is released into the public domain under the
-[Unlicense](LICENSE).
+gtopt is **dual-licensed**: GPL-3.0-or-later with the
+[solver plugin exception](LICENSE-EXCEPTION.md), or a
+[commercial license](LICENSE-COMMERCIAL.md). See
+[`LICENSING.md`](LICENSING.md).
+
+Copyright (c) 2024-2026 Marcelo Matus and [contributors](AUTHORS).
+
+## Support and maintenance
+
+Professional support, maintenance, training and PLP / PLEXOS → gtopt
+migration services are available from **Black Bear Engineering SpA**
+(<mmatus@blackbeareng.cl>). See [`PARTNERS.md`](PARTNERS.md).

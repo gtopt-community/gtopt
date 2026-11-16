@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_irrigation_reset_cross_phase.cpp
  * @brief     Tier 1.5b — VolumeRight reset_month skip_state_link end-to-end
  * @date      2026-04-11
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * These tests pin the cross-phase behaviour of
  * `VolumeRightLP::add_to_lp` when `reset_month` fires at a phase

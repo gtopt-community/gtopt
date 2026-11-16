@@ -2,7 +2,8 @@
  * @file      test_cuopt_backend.cpp
  * @brief     Unit tests for the cuOpt solver plugin / backend.
  * @date      2026-06-11
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Every TEST_CASE is gated on a working cuOpt backend via
  * `make_cuopt_or_skip()` and silently skips when the plugin is absent OR the
@@ -18,7 +19,7 @@
  *   - `set_log_level` / `get_log_level` round-trip.
  */
 
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #include <array>
 #include <filesystem>
 #include <fstream>

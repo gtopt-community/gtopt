@@ -3,7 +3,8 @@
  * @brief     Sparse column representation for linear programming variables
  * @date      Thu May 15 19:15:07 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides the SparseCol class which represents variables in a
  * linear program, including their bounds, objective coefficients, and

@@ -3,7 +3,8 @@
  * @brief     Core application entry point for the gtopt optimizer
  * @date      Thu Feb 19 00:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides the main optimization entry point that parses
  * planning JSON files, applies command-line options, builds and solves

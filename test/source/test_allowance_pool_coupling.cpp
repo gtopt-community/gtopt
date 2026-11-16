@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Phase 3 LP integration tests for the AllowancePool ↔ EmissionZone
 // coupling.  When an `EmissionZone` carries an `allowance_pool` FK, its

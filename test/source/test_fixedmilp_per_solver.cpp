@@ -1,11 +1,12 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_fixedmilp_per_solver.cpp
  * @brief     Per-solver tests for the warm MIP→dual fast path
  *            (SolverBackend::fix_mip_and_resolve_duals).
  * @date      2026-06-04
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `LinearInterface::fix_integers_and_resolve` delegates to the common
  * backend virtual `fix_mip_and_resolve_duals`, which fixes every integer

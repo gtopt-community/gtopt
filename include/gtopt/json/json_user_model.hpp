@@ -3,7 +3,8 @@
  * @brief     JSON serialization for UserModel (generic AMPL capture) elements
  * @date      Sun Jun 22 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `variable_array` / `constraint_array` reuse the existing
  * `DecisionVariable` / `UserConstraint` JSON contracts verbatim — no new AST.

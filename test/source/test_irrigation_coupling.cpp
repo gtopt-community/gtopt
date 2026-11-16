@@ -2,7 +2,8 @@
  * @file      test_irrigation_coupling.cpp
  * @brief     LP integration tests for FlowRight and VolumeRight hydro coupling
  * @date      2026-04-05
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests verify that irrigation rights couple correctly to the hydrological
  * topology: FlowRight subtracts from junction balances, VolumeRight subtracts

@@ -3,7 +3,8 @@
  * @brief     LP wrapper for the ``AmmoniaStorage`` element
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Peer of ``HydrogenStorageLP`` on the ``StorageLP<>`` framework.
  * Same LP shape; the only differences are class-name labels and the

@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      main.cpp
  * @brief     doctest entry point + a clean per-test spdlog default logger
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * We own `main()` (rather than DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN) so the
  * whole test binary runs against one known-good, **synchronous** spdlog

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Top-level ``reduce`` driver: orchestrates the load → simplify → cluster
 → aggregate → rewrite → save pipeline.
 

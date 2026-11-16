@@ -2,7 +2,8 @@
  * @file      object_lp.hpp
  * @brief     Linear programming wrapper for objects in the optimization model
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * @details
  * Provides a wrapper class that adds linear programming capabilities to objects

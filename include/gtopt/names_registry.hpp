@@ -3,7 +3,8 @@
  * @brief     Runtime-loadable dictionary of gtopt JSON key aliases
  * @date      2026-05-17
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Loads `share/gtopt/naming_dialects.json` (or an embedded fallback)
  * and exposes a flat `alias -> canonical` map used by

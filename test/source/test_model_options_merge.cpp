@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Pins ModelOptions::merge() semantics for the fields added in this
 // session — `naming_dialect` and `continuous_phases` — so cascade

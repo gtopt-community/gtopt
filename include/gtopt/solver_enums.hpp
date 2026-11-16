@@ -3,7 +3,8 @@
  * @brief     Named enum types for LP solver options
  * @date      2026-03-29
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines all enum types used by SolverOptions.  Extracted from
  * solver_options.hpp so that the struct definition stays focused on

@@ -2,7 +2,8 @@
  * @file      test_output_long_form.cpp
  * @brief     Unit tests for the long-form parquet output (2026-05-19 work)
  * @date      2026-05-19
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Pins the contracts of:
  *   * float32-vs-double value-column type selection based on

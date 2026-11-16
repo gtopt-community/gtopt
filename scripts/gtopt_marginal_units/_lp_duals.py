@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Optional LP-dual extras from a gtopt output directory.
 
 Holds per-(scene, stage, block, uid) frames that are produced *only* by

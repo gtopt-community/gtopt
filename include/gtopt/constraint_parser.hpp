@@ -3,7 +3,8 @@
  * @brief     Parser for user constraint expressions (AMPL-inspired syntax)
  * @date      Wed Mar 12 03:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides a recursive-descent parser that converts AMPL-inspired
  * constraint expression strings into ConstraintExpr AST objects.

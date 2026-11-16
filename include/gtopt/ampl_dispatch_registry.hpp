@@ -3,7 +3,8 @@
  * @brief     One-shot population of the AMPL param + iterator tables
  * @date      2026-05-19
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Each `*LP` class exposes its `param_*` accessors and its
  * `Collection<LP>` enumeration to user constraints through a pair of

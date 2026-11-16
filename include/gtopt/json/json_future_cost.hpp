@@ -3,7 +3,8 @@
  * @brief     JSON serialization for FutureCost (FCF / cost-to-go) elements
  * @date      Sun Jun 21 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The three scoping fields (`sharing`, `mode`, `valuation`) are authored as
  * JSON strings and converted to their typed enums via a custom constructor —

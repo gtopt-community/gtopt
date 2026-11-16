@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_sddp_bounds_sanity.cpp
  * @brief     SDDP UB/LB invariants across multi-scene multi-phase problems.

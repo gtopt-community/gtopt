@@ -2,7 +2,8 @@
  * @file      test_element_column_resolver.hpp
  * @brief     Unit tests for element_column_resolver functions
  * @date      Mon Mar 24 2026
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests that resolve_single_col() and collect_sum_cols() correctly resolve
  * LP columns for each supported element type.  Since these functions are

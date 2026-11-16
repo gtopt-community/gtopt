@@ -3,7 +3,8 @@
  * @brief     JSON serialisation for ``ThermalStorage`` objects
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Mirror of ``json_battery.hpp`` for the thermal-carrier storage
  * peer.  Two fields differ from Battery:

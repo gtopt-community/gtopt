@@ -2,7 +2,8 @@
  * @file      simulation.hpp
  * @brief     Linear programming simulation for power system planning
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  * @version   1.0.0
  * @date      Sun Apr  6 18:18:54 2025
  *

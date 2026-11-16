@@ -3,7 +3,8 @@
  * @brief     Implementation of the C++ solver plugin test suite
  * @date      2026-03-26
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Each test is a free function returning a SolverTestResult.  The driver
  * run_solver_tests() calls each one in order, catches any exception, and

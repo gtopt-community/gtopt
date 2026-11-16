@@ -3,7 +3,8 @@
  * @brief     Header of Planning class
  * @date      Wed Mar 19 21:59:12 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the Planning class, which contains all the
  * planning elements.

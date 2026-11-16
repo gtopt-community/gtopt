@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_sddp_cut_parquet.cpp
  * @brief     Unit tests for the Parquet variant of SDDP cut I/O.
  * @date      2026-05-11
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Mirrors the CSV tests in `test_sddp_cut_io.cpp` to validate the new
  * `save_cuts_parquet` / `load_cuts_parquet` code path added in

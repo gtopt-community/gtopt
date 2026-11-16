@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Build a synthetic emissions ray (Benders-cut equivalent) for the
 ``--only-emissions`` LP horizon (issue #520).
 

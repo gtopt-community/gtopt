@@ -3,7 +3,8 @@
  * @brief     Defines the Converter structure for battery-generator coupling
  * @date      Wed Apr  2 01:40:47 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the Converter structure which couples a Battery to a
  * Generator (discharge path) and a Demand (charge path), enabling energy

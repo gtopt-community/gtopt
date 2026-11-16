@@ -6,7 +6,8 @@
  *            across K blocks.
  * @date      2026-05-31
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Context: the commitment-layout MIP review (§A.1 / §A.4) claimed that
  * with a 2-block-per-period grouping, the per-block UC row builder

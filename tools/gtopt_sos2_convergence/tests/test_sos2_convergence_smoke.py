@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Integration smoke test for SOS2 L-secant convergence on
 IEEE 14-bus (Coffrin reference case, issue #504).
 

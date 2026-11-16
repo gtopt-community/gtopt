@@ -3,7 +3,8 @@
  * @brief     Piecewise-linear volume-dependent discharge limit for reservoirs
  * @date      Sun Mar 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the ReservoirDischargeLimit structure modelling a volume-dependent
  * maximum discharge rate for a reservoir.  This is a safety/environmental

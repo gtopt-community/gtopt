@@ -3,7 +3,8 @@
  * @brief     LP representation of a ReservoirDischargeLimit constraint
  * @date      Sun Mar 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The ReservoirDischargeLimitLP class provides the LP formulation for
  * volume-dependent peak-discharge limits.  For each (scenario, stage, block)

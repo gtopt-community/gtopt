@@ -3,7 +3,8 @@
  * @brief     CPU usage monitoring and statistics collection
  * @date      Wed Jun 25 21:33:13 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides real-time CPU usage monitoring capabilities:
  * - System-wide CPU utilization tracking

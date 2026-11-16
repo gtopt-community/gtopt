@@ -3,7 +3,8 @@
  * @brief     Unit tests for IntegerVariable registry (Phase-0 choke-point)
  * @date      2026-05-31
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests the IntegerVariable abstraction and the SimulationLP registry
  * plumbing introduced in Phase 0 of the commitment-layout rollout

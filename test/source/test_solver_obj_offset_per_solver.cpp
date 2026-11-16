@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_solver_obj_offset_per_solver.cpp
  * @brief     Per-solver tests for the native objective-offset channel
@@ -6,7 +6,8 @@
  * LinearInterface::add_obj_constant).
  * @date      2026-06-30
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `LinearInterface::add_obj_constant(c)` accumulates the constant in
  * `m_obj_constant_raw_` and pushes the running total to the backend's NATIVE

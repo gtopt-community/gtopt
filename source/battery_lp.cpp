@@ -3,7 +3,8 @@
  * @brief     Implementation of BatteryLP class for battery LP formulation
  * @date      Wed Apr  2 02:19:45 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements the BatteryLP class, which handles the representation
  * of battery energy storage systems in linear programming problems. It includes

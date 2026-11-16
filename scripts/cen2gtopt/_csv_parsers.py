@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Parsers for the four CEN public-website CSV exports.
 
 Each parser accepts a path to a downloaded CSV (or fixture) and

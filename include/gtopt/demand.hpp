@@ -4,7 +4,8 @@
  * planning
  * @date      Thu Mar 27 09:12:21 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides structures and types to represent and manipulate
  * electrical demand (load) entities within the planning framework. A demand

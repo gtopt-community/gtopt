@@ -3,7 +3,8 @@
  * @brief     Implementation of AllowancePoolLP (Phase 2 — banking only)
  * @date      Sun May 24 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Mirror of ``source/lng_terminal_lp.cpp``, retargeted to tCO₂
  * allowances.  Phase 2 wires only the free-allocation inflow + the

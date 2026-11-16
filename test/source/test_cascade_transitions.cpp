@@ -3,10 +3,11 @@
  * @brief     Unit tests for CascadePlanningMethod level aperture/transition
  * semantics
  * @date      2026-04-05
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>

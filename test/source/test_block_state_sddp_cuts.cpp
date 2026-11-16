@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_block_state_sddp_cuts.cpp
  * @brief     SDDP cut persistence and state-gradient (water-value) sign for the
  *            AMPL `block_state` reservoir.
  * @date      2026-06-29
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Two checks the forward-trajectory / bounds-equivalence tests don't cover:
  *

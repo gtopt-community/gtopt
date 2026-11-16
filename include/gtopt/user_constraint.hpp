@@ -3,7 +3,8 @@
  * @brief     User-defined constraint data structure for LP formulation
  * @date      Wed Mar 12 03:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the UserConstraint struct, which stores a user-defined
  * linear constraint expression. The expression string follows an AMPL-inspired

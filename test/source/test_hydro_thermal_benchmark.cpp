@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Integration-style hydro/thermal benchmark tests modelled on the
 // SDDP.jl example fixtures.  SDDP.jl is MIT-licensed and ships its

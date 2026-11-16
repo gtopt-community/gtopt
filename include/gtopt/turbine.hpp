@@ -3,7 +3,8 @@
  * @brief     Defines the Turbine structure representing a hydroelectric turbine
  * @date      Thu Jul 31 01:50:54 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the Turbine structure which couples a hydraulic
  * waterway to an electrical generator, converting water flow [m³/s] into

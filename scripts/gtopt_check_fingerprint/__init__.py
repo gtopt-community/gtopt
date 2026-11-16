@@ -1,2 +1,2 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """LP fingerprint: structural verification for gtopt LP formulations."""

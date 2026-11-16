@@ -2,7 +2,8 @@
  * @file      object.hpp
  * @brief     Core object types and utilities for the optimization framework
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * @details
  * Defines fundamental object types and identification utilities used throughout

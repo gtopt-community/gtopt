@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Shared data model and helpers for validation checks.
 
 This module contains the :class:`Finding` and :class:`Severity` data

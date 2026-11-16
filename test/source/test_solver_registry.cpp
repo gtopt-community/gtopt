@@ -2,7 +2,8 @@
  * @file      test_solver_registry.hpp
  * @brief     Unit tests for SolverRegistry and classify_error_exit_code
  * @date      2026-03-27
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <atomic>

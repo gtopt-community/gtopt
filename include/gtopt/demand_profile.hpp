@@ -3,7 +3,8 @@
  * @brief     Demand profile configuration and attributes
  * @date      Wed Apr  2 01:23:45 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the DemandProfile structure which provides a time-varying scaling
  * profile for a demand element. The actual maximum served load in each block

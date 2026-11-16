@@ -3,7 +3,8 @@
  * @brief     Solver monitoring API implementation
  * @date      2026-03-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements `write_solver_status()`: serialises solver iteration
  * history and real-time workpool statistics into a JSON status file

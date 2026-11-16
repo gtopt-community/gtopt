@@ -3,7 +3,8 @@
  * @brief     Implementation of waterway LP formulation
  * @date      Wed Jul 30 12:02:36 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements WaterwayLP construction and add_to_lp, which
  * builds LP flow variables and constraints between hydro junctions.

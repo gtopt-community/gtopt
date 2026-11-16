@@ -3,7 +3,8 @@
  * @brief     Header for efficient typed element collection container
  * @date      Fri Apr 25 00:33:47 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides a Collection container optimized for efficient
  * element lookup by UID, name, or index, with strong move semantics support.

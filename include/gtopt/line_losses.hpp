@@ -3,7 +3,8 @@
  * @brief     Modular transmission line losses engine
  * @date      2026-04-03
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a pluggable loss-model dispatch for transmission lines.
  * Each LineLossesMode has its own implementation function that adds

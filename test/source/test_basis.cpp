@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_basis.cpp
  * @brief     Tests for the simplex-basis warm-start primitive
  * @date      2026-06-24
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Covers the solver-agnostic `Basis` / `reconcile_basis` helper (no solver
  * needed) and a backend round-trip through `LinearInterface::get_basis` /

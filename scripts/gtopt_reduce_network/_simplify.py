@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Optional model-side simplifications applied to the reduced case.
 
 These do not change the bus/line topology — they only adjust gtopt's

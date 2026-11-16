@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_water_fail_cost_magnitude.cpp
  * @brief     Magnitude-claim tests for `--auto-water-fail-cost` thresholds.

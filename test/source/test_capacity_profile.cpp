@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Parity tests for the unified `CapacityProfile` / `CapacityProfileLP`
 // infrastructure (Commit 1 of the legacy →  unified migration).

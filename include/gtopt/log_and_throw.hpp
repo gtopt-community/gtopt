@@ -3,7 +3,8 @@
  * @brief     Log-then-throw helper codifying the gtopt error convention.
  * @date      2026-06-27
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The gtopt convention for an error that is both worth logging and fatal to
  * the current operation is to format the message ONCE, log it, and throw the

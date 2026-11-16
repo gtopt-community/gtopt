@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """gtopt2pbi — make gtopt Parquet field files Power BI ready.
 
 Reshapes the wide ``uid:N`` field Parquet/CSV files in a gtopt case **in

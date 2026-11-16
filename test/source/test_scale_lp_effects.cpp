@@ -4,7 +4,8 @@
  *            energy_scale produce detectable changes in the LP and improve
  *            numerical conditioning (kappa).
  * @date      2026-03-30
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * All scales follow the unified convention: physical = LP × scale.
  *   - scale_theta  = 1e-4  (1/ScaleAng) — theta is small, scaled UP in LP
@@ -329,6 +330,7 @@ TEST_CASE(  // NOLINT
   // Kappa values should differ — scale_theta has a measurable effect.
   // Some solver backends (e.g. CLP) use largestDualError() as a kappa
   // proxy, which may return near-zero (~1e-19) for well-conditioned LPs.
+  // Backends that don't support kappa return -1 (e.g. MindOpt); skip in
   // that case.  When both values are effectively zero the comparison is
   // meaningless, so only assert non-equality when at least one value is
   // above a small threshold.
@@ -359,6 +361,7 @@ TEST_CASE(  // NOLINT
   CHECK(obj_1 * 1.0 == doctest::Approx(physical_cost).epsilon(1e-3));
   CHECK(obj_10k * 10'000.0 == doctest::Approx(physical_cost).epsilon(1e-3));
 
+  // Backends without kappa support return -1 (e.g. MindOpt).
   if (kappa_10k >= 0.0) {
     CHECK(kappa_10k >= 0.0);
   }

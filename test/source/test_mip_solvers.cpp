@@ -3,7 +3,8 @@
  * @brief     MIP tests exercised across every available MIP-capable solver
  * @date      2026-04-15
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Runs three MIP test scenarios (integer expansion, unit commitment,
  * simple commitment) for every solver plugin that reports supports_mip().

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Library of validation checks for gtopt JSON planning files.
 
 Each public ``check_*`` function accepts a *planning* dict and returns a list

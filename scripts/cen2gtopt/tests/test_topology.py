@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Topology loader tests — CEN-format and gtopt-planning fallback."""
 
 from __future__ import annotations

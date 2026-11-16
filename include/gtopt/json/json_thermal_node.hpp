@@ -3,7 +3,8 @@
  * @brief     JSON serialisation for ``ThermalNode``
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * ``ThermalNode`` is a minimal carrier-tagged balance-node identifier
  * (uid + name + active).  The compile-time ``carrier`` tag and the

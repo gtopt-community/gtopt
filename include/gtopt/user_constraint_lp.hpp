@@ -3,7 +3,8 @@
  * @brief     LP element for user-defined constraints
  * @date      Thu Mar 12 00:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Declares `UserConstraintLP`, an LP element class (similar to `DemandLP`)
  * that wraps a single `UserConstraint` and participates in the standard

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Shared SIGINT / SIGTERM handler for converter CLIs.
 
 Three converters (plp2gtopt, plexos2gtopt, sddp2gtopt) carried

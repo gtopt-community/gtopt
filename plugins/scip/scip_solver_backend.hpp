@@ -3,7 +3,8 @@
  * @brief     SCIP (open-source MIP) solver backend — buffer-and-replay adapter
  * @date      2026-06-28
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * SCIP is a strong open-source constraint-integer-programming / MIP solver
  * (Apache-2.0 since v9) with a staged C API: you build an immutable original

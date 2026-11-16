@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Helpers shared between gtopt converters (plp2gtopt, plexos2gtopt, …).
 
 Single source of truth for converter primitives that must agree

@@ -3,7 +3,8 @@
  * @brief     LP build / output path for FutureCost (FCF / cost-to-go) elements
  * @date      Sun Jun 21 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `add_to_global_lp` is still inert plumbing (the α-column registration,
  * boundary-cut load and mean_shift rebase live in the SDDP method).

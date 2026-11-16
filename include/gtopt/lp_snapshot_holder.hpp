@@ -3,7 +3,8 @@
  * @brief     LpSnapshotHolder — snapshot + codec + compression facade
  * @date      2026-05-04
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Phase 2b of the LinearInterface split (B2) — see
  * ``docs/linear_interface_split_plan.md`` §2.2 for the broader plan.

@@ -2,7 +2,8 @@
  * @file      system_lp.hpp
  * @brief     SystemLP class for power system linear programming formulation
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  * @date      Sat Mar 29 19:16:40 2025
  *
  * Defines SystemLP class which coordinates the formulation of power system

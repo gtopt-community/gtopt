@@ -3,7 +3,8 @@
  * @brief     JSON serialisation for ``CarrierConverter``
  * @date      Sat May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Two enum fields (``from_carrier`` / ``to_carrier``) are parsed via
  * ``require_enum<Carrier>`` — fail-fast on typo with an

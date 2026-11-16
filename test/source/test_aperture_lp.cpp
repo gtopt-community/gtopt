@@ -3,7 +3,8 @@
  * @brief     Unit tests for aperture LP update process (FlowLP::
  *            update_aperture and aperture scenario file mechanism)
  * @date      2026-03-17
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests:
  *  1. Aperture struct construction, defaults, and is_active

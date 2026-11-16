@@ -3,7 +3,8 @@
  * @brief     Implementation of ThermalStorageLP — CSP / district-heat TES
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Mirror of ``source/battery_lp.cpp`` re-targeted to the thermal
  * carrier (MWh_th).  All LP semantics flow through ``StorageLP<>``

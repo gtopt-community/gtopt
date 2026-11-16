@@ -2,7 +2,8 @@
  * @file      test_irrigation_lp.hpp
  * @brief     LP integration tests for FlowRight and VolumeRight
  * @date      2026-04-01
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests verify that irrigation rights entities integrate correctly with
  * the SystemLP, creating the expected variables and constraints without

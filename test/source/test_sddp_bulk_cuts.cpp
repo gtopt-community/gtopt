@@ -1,7 +1,8 @@
 /**
  * @file      test_sddp_bulk_cuts.cpp
  * @brief     LP-semantic regression tests for the SDDP bulk-install path.
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Guards the migration of `SDDPMethod::forward_pass`'s multi-cut
  * feasibility-cut installer from a per-cut `add_cut_row` loop to a

@@ -2,7 +2,8 @@
  * @file      test_monolithic_options.hpp
  * @brief     Unit tests for MonolithicOptions struct
  * @date      2026-03-25
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <doctest/doctest.h>

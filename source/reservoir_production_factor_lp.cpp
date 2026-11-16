@@ -4,7 +4,8 @@
  * updates
  * @date      Mon Mar 10 17:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements the LP registration, per-element coefficient update, and the
  * generalized `update_lp()` hook used by the SDDP solver.

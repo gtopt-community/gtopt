@@ -3,7 +3,8 @@
  * @brief     Direct unit tests for the LP label-meta byte codec.
  * @date      2026-04-26
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Drives `serialize_labels_meta` / `deserialize_*_labels_meta` head-on,
  * with all `LpContext` variant arms.  These tests fire even when no

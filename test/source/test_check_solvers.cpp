@@ -3,7 +3,8 @@
  * @brief     Unit tests for the C++ solver plugin test suite (check_solvers)
  * @date      2026-03-26
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests the public API of check_solvers.hpp / check_solvers.cpp using
  * the default (auto-detected) solver.  Every SolverTestReport returned

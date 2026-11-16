@@ -3,7 +3,8 @@
  * @brief     Implementation of demand LP formulation
  * @date      Thu Mar 27 22:31:31 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements DemandLP construction and add_to_lp, which builds
  * LP variables and constraints for load, curtailment, and energy limits.

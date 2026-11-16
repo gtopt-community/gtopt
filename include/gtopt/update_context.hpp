@@ -3,7 +3,8 @@
  * @brief     Self-cached context for HasUpdateLP elements
  * @date      2026-05-05
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Each LP element that satisfies the `HasUpdateLP` concept (`update_lp()`
  * mutates LP coefficients per SDDP iteration) reads a small amount of

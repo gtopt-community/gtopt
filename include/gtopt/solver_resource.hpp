@@ -3,7 +3,8 @@
  * @brief     Resource class + descriptor a solver backend declares to the pool
  * @date      Mon Jul 06 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Small, dependency-free header shared by the plugin ABI (@ref
  * solver_backend.hpp), the registry, the work-pool admission layer (@ref

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """NEOS optimization server client for gtopt_check_lp.
 
 Submits infeasible LP files to the NEOS CPLEX LP solver via its XML-RPC API

@@ -3,7 +3,8 @@
  * @brief     Defines the Phase structure for multi-phase optimization problems
  * @date      Wed Mar 26 12:11:10 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A Phase groups a consecutive set of planning stages. Phases allow
  * modelling problems with distinct investment or operational windows,

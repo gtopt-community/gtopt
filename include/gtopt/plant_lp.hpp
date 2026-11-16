@@ -3,7 +3,8 @@
  * @brief     LP build path for Plant elements
  * @date      Sat May 30 12:55:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Builds Σ-capacity and Σ-commit / uniq rows for a `Plant` element.
  * No new LP columns are created — the rows reference already-built

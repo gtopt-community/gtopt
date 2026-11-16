@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_cascade_output_parquet.cpp
  * @brief     End-to-end: cascade.solve() → write_out() → parquet round-trip
  * @date      2026-05-16
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Regression guard for the 2026-05 bug where the cascade's last active
  * level was silently skipping its simulation pass under async aggregate

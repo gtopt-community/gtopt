@@ -3,7 +3,8 @@
  * @brief     Implementation of cost factor computation helpers
  * @date      Sun Jun 22 15:57:28 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements CostHelper methods that compute block-level
  * inverse cost factors and discount factors for the LP objective.

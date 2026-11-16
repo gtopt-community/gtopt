@@ -3,7 +3,8 @@
  * @brief     LP formulation for energy storage elements
  * @date      Wed Apr  2 01:47:11 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines StorageLP and StorageOptions, which build the LP
  * energy balance constraints and state-of-charge variables for storage.

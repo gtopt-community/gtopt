@@ -3,7 +3,8 @@
  * @brief     Multi-dimensional index map type aliases for LP lookups
  * @date      Sun Mar 23 22:02:12 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides IndexHolder type aliases that map strongly-typed
  * index tuples to LP column/row indices using flat_map containers.

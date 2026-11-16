@@ -3,7 +3,8 @@
  * @brief     Implementation of LabelMaker: the single LP label formatter.
  * @date      2026-04-10
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <string>

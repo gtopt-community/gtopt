@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """gtopt_diagram – network topology and planning-structure diagrams for gtopt."""
 
 from ._graph_model import Edge, FilterOptions, GraphModel, Node  # noqa: F401

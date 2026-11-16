@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Mode-agnostic line-loss validation: solve a single-line LP at five
 // flow points (0, tmax/4, tmax/2, 3·tmax/4, tmax) in BOTH directions

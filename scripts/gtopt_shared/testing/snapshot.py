@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """JSON snapshot helpers for converter regression tests (issue #507).
 
 Centralises the ``_canonicalise`` / ``_assert_snapshot`` /

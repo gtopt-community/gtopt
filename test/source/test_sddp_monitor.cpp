@@ -2,7 +2,8 @@
  * @file      test_solver_status.hpp
  * @brief     Unit tests for the SDDP monitoring API
  * @date      2026-03-18
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests:
  *  1. SolverStatusSnapshot default construction

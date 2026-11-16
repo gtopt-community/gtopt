@@ -3,7 +3,8 @@
  * @brief     LP build / output path for UserModel (generic AMPL capture)
  * @date      Sun Jun 22 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `UserModelLP` is an additive aggregation: it owns one internal
  * `DecisionVariableLP` per declared variable and one internal

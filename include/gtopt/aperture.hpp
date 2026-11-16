@@ -3,7 +3,8 @@
  * @brief     Aperture definition for SDDP backward-pass scenario sampling
  * @date      Thu Mar 13 17:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * An Aperture represents one hydrological (or stochastic) realisation used
  * in the SDDP backward pass.  Each aperture references a **source scenario**

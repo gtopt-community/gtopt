@@ -3,7 +3,8 @@
  * @brief     Solver tuning-file loader: INI `.cfg` with named enum values
  * @date      2026-07-08
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Backend plugins accept a per-solver tuning file next to gtopt's
  * solver-agnostic ``solver_options.param_file`` (cases typically pin that to

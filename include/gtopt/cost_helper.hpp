@@ -4,7 +4,8 @@
  * problems
  * @date      Thu May 15 10:56:25 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides the CostHelper class and supporting utilities for:
  * - Calculating time-discounted costs across scenarios, stages and blocks

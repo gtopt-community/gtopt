@@ -3,7 +3,8 @@
  * @brief     Fail-hard guards for Arrow tables loaded from Parquet / CSV
  * @date      2026-06-06
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * gtopt's LP build cannot tolerate ``NaN`` in input field values — a
  * ``NaN`` coefficient propagates into the matrix and every solver

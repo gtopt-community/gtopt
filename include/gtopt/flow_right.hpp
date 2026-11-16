@@ -3,7 +3,8 @@
  * @brief     Flow-based water right (derechos de caudal)
  * @date      Tue Apr  1 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the FlowRight structure representing a flow-based water right.
  * It tracks the required extraction rate (m³/s) that right holders are

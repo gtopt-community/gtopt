@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Unit tests for ``_resolve_loss_factor`` and ``_topology_aux``.
 
 These cover the loss-factor decision tree in isolation (one helper

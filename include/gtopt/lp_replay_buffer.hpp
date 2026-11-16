@@ -3,7 +3,8 @@
  * @brief     LpReplayBuffer — replay state for LowMemoryMode reconstruct
  * @date      2026-05-04
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `LpReplayBuffer` owns the 5 replay-on-reconstruct fields that
  * previously lived directly on `LinearInterface`:

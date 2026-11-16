@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Port of the MATPOWER `case5` (PJM 5-bus) benchmark into a gtopt
 // emission-framework integration test.

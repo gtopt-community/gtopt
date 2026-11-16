@@ -2,7 +2,8 @@
  * @file      test_irrigation_user_constraints.cpp
  * @brief     Tier 7-8 — UserConstraint resolution against irrigation rights
  * @date      2026-04-10
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Verifies that user-supplied constraint expressions referencing
  * `volume_right("...")` and `flow_right("...")` resolve through the

@@ -3,7 +3,8 @@
  * @brief     LP-active wrapper for the EmissionSource bridge entity
  * @date      2026-05-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Resolves the per-stage combustion and upstream emission rates at
  * construction and exposes them via `param_rate` / `param_upstream_rate`.

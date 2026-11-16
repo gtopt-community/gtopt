@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // End-to-end integration tests for the naming-dialects registry: prove
 // that `parse_planning_json` actually invokes the alias-canonicalize

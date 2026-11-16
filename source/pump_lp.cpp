@@ -3,7 +3,8 @@
  * @brief     Implementation of PumpLP class
  * @date      Sat Apr 12 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements the PumpLP class which provides the linear
  * programming representation of hydraulic pumps, including their

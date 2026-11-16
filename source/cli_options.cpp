@@ -3,7 +3,8 @@
  * @brief     Implementation of the modern C++ command-line option parser
  * @date      Wed Feb 12 22:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Contains non-template implementation details for the CLI options parser.
  * See cli_options.hpp for the public interface and template definitions.

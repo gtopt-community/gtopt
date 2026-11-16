@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Network-element builders for :class:`gtopt_diagram.TopologyBuilder`.
 
 Mixin extracted from :mod:`gtopt_diagram.gtopt_diagram`.  Holds the

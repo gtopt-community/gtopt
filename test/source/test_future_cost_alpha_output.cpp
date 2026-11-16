@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Piece-2 C/D: a FutureCost element saves the cost-to-go α (and, under
 // multicut, every per-source-scene varphi_s) to the SDDP solution.  The α / cut

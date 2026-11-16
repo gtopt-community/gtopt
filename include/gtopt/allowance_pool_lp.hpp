@@ -3,7 +3,8 @@
  * @brief     LP wrapper for ``AllowancePool`` (Phase 2 — banking only)
  * @date      Sun May 24 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Peer of ``LngTerminalLP`` on the ``StorageLP<>`` framework, with
  * a single difference: the inflow is **free allowance allocation**

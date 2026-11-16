@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """``cen2gtopt.pcp_validate`` — back-test the marginal-emission
 pipeline against CEN's PCP / PID solution.
 

@@ -2,7 +2,8 @@
  * @file      object_utils.hpp
  * @brief     Utility methods for objects in the optimization framework
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides common utility methods for objects, such as generating state
  * variable keys and labels.

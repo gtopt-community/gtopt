@@ -3,7 +3,8 @@
  * @brief     Common types and forward declarations for the SDDP subsystem
  * @date      2026-03-21
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Lightweight header with SDDP-specific strong types, forward declarations,
  * and small structures shared by sddp_solver, sddp_aperture, sddp_cut_io,

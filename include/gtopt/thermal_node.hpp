@@ -3,7 +3,8 @@
  * @brief     Thermal-carrier balance node (CSP / district heat)
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Concrete instantiation of the generic ``Node<>`` template for the
  * thermal carrier (MW_th).  Used to anchor:

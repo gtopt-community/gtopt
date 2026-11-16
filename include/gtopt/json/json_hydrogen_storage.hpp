@@ -3,7 +3,8 @@
  * @brief     JSON serialisation for ``HydrogenStorage`` objects
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Mirror of ``json_thermal_storage.hpp`` for hydrogen storage.  Only
  * difference is the carrier-side field name (``hydrogen_node`` vs

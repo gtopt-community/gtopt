@@ -3,7 +3,8 @@
  * @brief     Input data access implementation
  * @date      Mon Mar 24 00:00:36 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements input data access using Arrow and Parquet
  */

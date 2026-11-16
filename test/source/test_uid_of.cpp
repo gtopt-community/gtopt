@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_uid_of.cpp
  * @brief     Tests for passkey-gated `UidOf<Tag>` + `make_uid` factory

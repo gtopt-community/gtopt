@@ -3,7 +3,8 @@
  * @brief     JSON serialization for DecisionVariable objects
  * @date      Mon May 19 21:55:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides JSON serialization / deserialization for DecisionVariable
  * objects using DAW JSON.  Fields: uid, name, optional active,

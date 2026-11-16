@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Equivalence tests for the three emission_rate resolution paths.
 
 ``topology_from_planning`` resolves each generator's CO2eq factor in

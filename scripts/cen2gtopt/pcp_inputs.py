@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """``cen2gtopt.pcp_inputs`` — read CEN PCP LP-input CSV bundles.
 
 The ``DATOS{YYYYMMDD}.zip`` payload of every ``PLEXOS{date}.zip``

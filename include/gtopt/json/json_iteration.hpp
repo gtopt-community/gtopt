@@ -3,7 +3,8 @@
  * @brief     JSON serialization for Iteration objects
  * @date      Mon Mar 24 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides JSON serialization and deserialization for Iteration objects
  * using the daw::json library.

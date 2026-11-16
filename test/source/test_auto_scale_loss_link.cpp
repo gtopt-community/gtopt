@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Tests for `PlanningLP::auto_scale_loss_link` — a power-of-10 row scale
 // for the line-loss linking constraint computed from `median(R/V²)`.

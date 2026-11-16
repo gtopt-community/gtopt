@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Core unit tests for cen2gtopt marginal-unit pipeline.
 
 Locks in the five highest-leverage invariants identified during the

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Pins the tri-state classification that drives the gtopt_lp_runner
 // partial-write path (commit `9994ede4d`).  Every entry point of

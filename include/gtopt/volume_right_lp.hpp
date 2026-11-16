@@ -3,7 +3,8 @@
  * @brief     LP representation of volume-based water rights
  * @date      Tue Apr  1 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements the VolumeRightLP class which provides methods to:
  * - Represent volume-based water rights in LP problems as storage elements

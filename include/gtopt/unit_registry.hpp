@@ -3,7 +3,8 @@
  * @brief     Runtime-loadable dictionary of (class, canonical, dialect) → unit
  * @date      2026-05-21
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Companion to `names_registry.hpp`.  Loads
  * `share/gtopt/unit_dialects.json` (or an embedded fallback) and

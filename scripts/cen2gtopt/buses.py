@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """``cen_buses`` — Chilean SEN bus catalogue + operational-island viewer.
 
 Subcommands

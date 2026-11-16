@@ -3,7 +3,8 @@
  * @brief     Solver monitoring API: write iteration status to a JSON file
  * @date      2026-03-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides the `write_solver_status()` free function that serialises
  * solver iteration history and real-time workpool statistics into a JSON

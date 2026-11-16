@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use gtopt in your work, please cite it as below."
+title: "gtopt: Generation and Transmission Expansion Planning optimizer"
+type: software
+authors:
+  - family-names: Matus
+    given-names: Marcelo
+    email: marcelomatusacuna@gmail.com
+repository-code: "https://github.com/marcelomatus/gtopt"
+license: GPL-3.0-or-later
+keywords:
+  - power systems
+  - expansion planning
+  - SDDP
+  - unit commitment
+  - linear programming

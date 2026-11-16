@@ -3,7 +3,8 @@
  * @brief     Per-(generator, pollutant) capture & cost (CCS) declaration
  * @date      2026-05-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `EmissionCapture` is the data row that describes a Carbon Capture &
  * Storage (CCS) — or, more generally, any abatement-technology —

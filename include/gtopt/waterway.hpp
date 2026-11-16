@@ -3,7 +3,8 @@
  * @brief     Header for waterway components in hydro power systems
  * @date      Wed Jul 30 11:40:33 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the Waterway structure representing a water channel
  * connecting two hydraulic junctions. Waterways carry water flow between

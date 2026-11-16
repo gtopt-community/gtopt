@@ -3,7 +3,8 @@
  * @brief     flat_map type alias and map utility helpers
  * @date      Sun Mar 23 16:26:44 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the flat_map alias and two map utility helpers:
  *

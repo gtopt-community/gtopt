@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """ANSI colour helpers for gtopt_check_lp terminal output."""
 
 _BOLD = "\033[1m"

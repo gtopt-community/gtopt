@@ -3,7 +3,8 @@
  * @brief     End-to-end test of the MIP-start hook in SystemLP::resolve
  * @date      2026-06-24
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Exercises the one path the solver-independent unit tests in
  * `test_mip_start.cpp` cannot reach: the `SystemLP::resolve` hook that

@@ -3,7 +3,8 @@
  * @brief     General purpose utility functions and helpers
  * @date      Sat Mar 22 22:12:49 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides various utility functions for:
  * - Container operations (merging, filtering)

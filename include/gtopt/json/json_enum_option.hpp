@@ -3,7 +3,8 @@
  * @brief     Generic JSON serialization helper for NamedEnum types
  * @date      2026-03-28
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a single generic `enum_to_opt_name` template that replaces
  * per-enum overloads in JSON serialization files.

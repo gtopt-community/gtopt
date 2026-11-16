@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_user_constraint_strict_errors.cpp
  * @brief     Hardened AMPL / UserConstraint resolution: every genuinely
@@ -15,7 +15,8 @@
  *
  * @date      Tue May 27 00:00:00 2026
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <format>

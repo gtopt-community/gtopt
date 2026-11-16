@@ -3,7 +3,8 @@
  * @brief     Fundamental type definitions for power system planning
  * @date      Tue Mar 18 13:10:21 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides the basic types and type aliases used throughout the
  * gtopt codebase for power system planning modeling. It includes numeric

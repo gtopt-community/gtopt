@@ -3,7 +3,8 @@
  * @brief     Matrix-wide numerical statistics for an LP matrix
  * @date      2026-07-01
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Plain value aggregate holding the conditioning statistics captured from a
  * `FlatLinearProblem` after flatten (non-zero count, largest/smallest

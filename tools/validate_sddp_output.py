@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Validate an SDDP integration-test output directory.
 
 Replaces ``integration_test/cmake/validate_sddp_status.cmake``.  The old

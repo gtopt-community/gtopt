@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """IEEE 118-bus OTS validation against Fisher 2008's golden 25 % savings.
 
 Reads ``cases/ieee_118b/ieee_118b.json``, generates two OTS-compatible

@@ -2,7 +2,8 @@
  * @file      test_hot_uncovered.hpp
  * @brief     Tests for hot production paths with zero test coverage
  * @date      2026-04-04
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Targets specific uncovered lines identified by profiling/coverage analysis:
  *   - as_label.hpp:209     string_holder(std::string&&) rvalue constructor

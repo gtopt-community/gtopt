@@ -3,7 +3,8 @@
  * @brief     Unit tests for state variable loading and initialization in
  *            multi-phase SDDP contexts
  * @date      2026-04-01
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests:
  *  1. State variable registration: efin keys in state_variables map

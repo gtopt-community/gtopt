@@ -4,7 +4,8 @@
  *            terminal
  * @date      Sun Apr 13 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This file defines the `gtopt::LngTerminal` structure, which models a
  * Liquefied Natural Gas (LNG) storage terminal within a power system.

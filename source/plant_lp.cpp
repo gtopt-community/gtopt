@@ -3,7 +3,8 @@
  * @brief     LP build path for Plant elements
  * @date      Sat May 30 12:55:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Emits Σ-capacity (per-block), Σ-commit (per-stage), and Σ-status ≤ 1
  * (per-stage) rows for each `Plant` element.  Reuses already-built

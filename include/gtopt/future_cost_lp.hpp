@@ -3,7 +3,8 @@
  * @brief     LP representation of a FutureCost (FCF / cost-to-go) element
  * @date      Sun Jun 21 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Planning-level element: it owns the end-of-horizon cost-to-go α
  * (`varphi_s`) column(s) and the boundary cuts that linearise it.  Unlike the

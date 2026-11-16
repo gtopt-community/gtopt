@@ -3,7 +3,8 @@
  * @brief     Volume-dependent piecewise-linear bound rule for water rights
  * @date      Tue Apr  1 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the RightBoundRule structure for dynamically computing
  * FlowRight/VolumeRight upper bounds based on a referenced reservoir's

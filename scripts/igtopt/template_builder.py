@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Template builder for igtopt – generates the gtopt Excel template from C++ headers.
 
 The bulk of the static data (per-array field metadata, options metadata,

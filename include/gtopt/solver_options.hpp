@@ -3,7 +3,8 @@
  * @brief     Linear programming solver configuration options
  * @date      Mon Mar 24 10:24:13 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines options specific to controlling linear programming
  * solvers, including algorithm selection, solver parameters, and tolerances.

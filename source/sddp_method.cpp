@@ -3,7 +3,8 @@
  * @brief     SDDP (Stochastic Dual Dynamic Programming) method implementation
  * @date      2026-03-08
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements the forward/backward iterative decomposition with multi-scene
  * support, iterative feasibility backpropagation, and optimality cut sharing.

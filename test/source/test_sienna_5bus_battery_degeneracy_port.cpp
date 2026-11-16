@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Port of NREL-Sienna PowerSimulations.jl ``batt_test_case_{b,c,d,e,f}``
 // (Battery degeneracy / Storage Energy Target corner cases) to gtopt.

@@ -3,7 +3,8 @@
  * @brief     Declarative grouping of generator configuration variants
  * @date      Sat May 30 12:55:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A `Plant` groups two or more `Generator` configuration variants of the
  * same physical machine (e.g. combined-cycle plant with `_ConfTGA`,

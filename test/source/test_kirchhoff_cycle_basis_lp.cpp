@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // PR 2b LP-integration smoke tests for the cycle_basis Kirchhoff
 // formulation.  Builds small multi-bus LPs with `kirchhoff_mode =

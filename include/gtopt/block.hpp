@@ -3,7 +3,8 @@
  * @brief     Time block definition for power system optimization
  * @date      Wed Mar 26 12:12:08 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A Block is the smallest indivisible time unit in the planning horizon.
  * Energy quantities are obtained by multiplying power by duration:

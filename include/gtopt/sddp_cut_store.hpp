@@ -3,7 +3,8 @@
  * @brief     Per-scene + manager-level storage for SDDP Benders cuts
  * @date      2026-03-30
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides the per-scene `SceneCutStore` (owns one scene's cut vector
  * plus its `cuts_before` snapshot) and the cross-scene `SDDPCutManager`

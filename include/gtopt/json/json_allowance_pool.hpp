@@ -3,7 +3,8 @@
  * @brief     JSON serialisation for ``AllowancePool`` objects
  * @date      Sat May 24 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Mirror of ``json_thermal_storage.hpp`` retargeted to the tCO₂
  * allowance pool.  Field-name differences from the storage peers:

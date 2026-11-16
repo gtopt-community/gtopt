@@ -188,7 +188,15 @@ benchmark networks (4-bus, 9-bus, 14-bus).
 See `.github/copilot-instructions.md` §§ "Domain Knowledge" and "IEEE
 Benchmark Cases" for full details.
 
-## License
+## License and Contributor License Agreement
 
-By contributing to gtopt, you agree that your contributions will be released
-under the [Unlicense](LICENSE).
+gtopt is dual-licensed (GPL-3.0-or-later with a solver plugin exception, or
+a commercial license; see [`LICENSING.md`](LICENSING.md)). To keep both
+options available, every contributor must sign the
+[Contributor License Agreement](CLA.md) before a pull request can be
+merged. You keep the copyright of your contribution; the CLA Assistant bot
+asks you to sign on your first pull request.
+
+Also sign off each commit (`git commit -s`, Developer Certificate of
+Origin). All changes go through a pull request and are reviewed by the
+maintainer (see `.github/CODEOWNERS`).

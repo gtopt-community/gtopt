@@ -3,7 +3,8 @@
  * @brief     Sparse row representation for linear programming constraints
  * @date      Thu May 15 19:28:37 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides the SparseRow class which represents constraints in a
  * linear program, including their bounds and sparse coefficient storage.

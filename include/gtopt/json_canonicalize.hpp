@@ -3,7 +3,8 @@
  * @brief     Rewrite alias keys in JSON text to canonical gtopt names
  * @date      2026-05-17
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Sits in front of `daw::json::from_json<Planning>(...)` and rewrites
  * alternative input key names (PyPSA `p_nom`, pandapower `max_p_mw`,

@@ -3,7 +3,8 @@
  * @brief     Non-inline helpers for the SolverBackend plugin interface
  * @date      Mon Jul 13 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Home of the process-environment reads used by the backend interface
  * (env reads live in a .cpp, never in a header).

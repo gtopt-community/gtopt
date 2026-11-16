@@ -3,7 +3,8 @@
  * @brief     Unit tests for the electric-system commitment-repair rules
  * @date      2026-06-28
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Covers the isolated electric-system layer of the MIP-start pipeline: the
  * `DomainRule` interface, the `MinUpDownRule`, and the

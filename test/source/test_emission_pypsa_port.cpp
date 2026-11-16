@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Integration test — port of PyPSA's CO2 emission-constraint example
 // (the coal + gas slice from the "Myopic Pathway Planning" notebook

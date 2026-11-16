@@ -3,7 +3,8 @@
  * @brief     Hydraulic junction node for hydro cascade systems
  * @date      Wed Apr  2 01:40:47 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the Junction structure representing a hydraulic node
  * where one or more waterways and reservoirs meet. The water balance at each

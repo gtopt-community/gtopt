@@ -5,7 +5,8 @@
  *            master loop (deliverable 3 of the SDDiP campaign).
  * @date      2026-07-08
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * After an SDDP solve, the phase-0 optimality cuts bound the expected
  * cost-to-go as a function of EVERY phase-0 outgoing state variable —

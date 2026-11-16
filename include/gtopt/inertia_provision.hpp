@@ -4,7 +4,8 @@
  *            zone
  * @date      2026-04-13
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the InertiaProvision structure which specifies how a
  * synchronous generator contributes inertia to one or more inertia zones.

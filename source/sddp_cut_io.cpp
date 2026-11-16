@@ -3,7 +3,8 @@
  * @brief     Cut persistence (save/load) for SDDP solver
  * @date      2026-03-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements the cut save/load free functions declared in sddp_cut_io.hpp.
  * Extracted from sddp_solver.cpp to reduce file size and improve

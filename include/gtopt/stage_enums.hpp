@@ -3,7 +3,8 @@
  * @brief     Named enum types for stage configuration
  * @date      2026-04-01
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines enum types used by Stage: calendar month, etc.
  */

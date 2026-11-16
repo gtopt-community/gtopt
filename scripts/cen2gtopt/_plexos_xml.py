@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """``cen2gtopt._plexos_xml`` — minimal PLEXOS XML reader.
 
 Parses just the relations the marginal-emission pipeline cares about

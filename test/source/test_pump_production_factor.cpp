@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_pump_production_factor.cpp
  * @brief     Tests for pumped-storage with ReservoirProductionFactor
  * @date      2026-04-13
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests that a reversible pumped-storage unit (HB Maule model) works
  * correctly when the turbine-mode production factor depends on the

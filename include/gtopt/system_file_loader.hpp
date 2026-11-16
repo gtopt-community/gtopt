@@ -4,7 +4,8 @@
  *            Planning JSON file, with cascade-style path resolution.
  * @date      2026-05-27
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Shared by the cascade method (`CascadeLevel::system_file`) and the SDDP
  * aperture-system feature (`*::aperture_system_file`).  A referenced file is a

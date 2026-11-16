@@ -3,7 +3,8 @@
  * @brief     Traits for UID-based data access
  * @date      Mon Mar 24 01:48:02 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines traits for UID-based data access patterns
  */

@@ -3,7 +3,8 @@
  * @brief     LP-active wiring for EmissionZone — cap row only
  * @date      2026-05-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The per-block `production` column and `balance` row have been
  * substituted out: every emission contribution is wired directly on

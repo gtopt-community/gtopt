@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_line_flow_always_bounded.cpp — LOCK the "line flow column is
 // never free" invariant.

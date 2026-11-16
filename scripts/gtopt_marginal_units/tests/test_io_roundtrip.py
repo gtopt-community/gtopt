@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """End-to-end round trip — write a dataset via main.cli, then re-read
 via the consumer API and verify the marginal_gen_uids are preserved
 and recompute_lmp is internally consistent.

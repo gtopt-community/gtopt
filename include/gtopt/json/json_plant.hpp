@@ -3,7 +3,8 @@
  * @brief     JSON serialization for Plant objects
  * @date      Sat May 30 12:55:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides JSON serialization / deserialization for `Plant` objects
  * using DAW JSON.  Required fields: ``uid``, ``name``,

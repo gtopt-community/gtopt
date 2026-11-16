@@ -3,7 +3,8 @@
  * @brief     AST types for parsed user constraint expressions
  * @date      Wed Mar 12 03:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the Abstract Syntax Tree (AST) types used to represent
  * parsed user constraint expressions. The AST is produced by the

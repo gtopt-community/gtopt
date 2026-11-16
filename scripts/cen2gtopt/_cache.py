@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """On-disk cache for CEN CSV downloads.
 
 Layout: ``<cache>/<endpoint>/<date>.csv.zst`` keyed by endpoint name

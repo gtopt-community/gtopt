@@ -3,7 +3,8 @@
  * @brief     Tests for the LinearInterface class
  * @date      Sat Apr 19 12:45:00 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <cmath>

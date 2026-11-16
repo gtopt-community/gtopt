@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for ``plexos2gtopt.parsers._fuel_subtype_from_name``.
 
 The subtype helper is the parser-side bridge to the IPCC sub-grade

@@ -2,7 +2,8 @@
  * @file      test_sddp_cut_io.hpp
  * @brief     Unit tests for the SDDP cut I/O module (save/load round-trip)
  * @date      2026-03-18
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests:
  *  1. build_phase_uid_map produces correct mapping from phase UIDs

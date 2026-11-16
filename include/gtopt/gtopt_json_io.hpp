@@ -3,7 +3,8 @@
  * @brief     JSON parsing, serialization, and --set overlay for Planning
  * @date      2026-04-08
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Separated from gtopt_main.cpp so that the heavy DAW JSON headers
  * compile in their own translation unit.

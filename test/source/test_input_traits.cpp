@@ -2,7 +2,8 @@
  * @file      test_input_traits.hpp
  * @brief     Unit tests for InputTraits access_sched / at_sched / optval_sched
  * @date      2026-03-18
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Exercises the three visitor branches of InputTraits::access_sched:
  *   1. Scalar (value_type) — already tested elsewhere; light check here.

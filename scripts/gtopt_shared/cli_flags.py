@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Shared ``argparse`` flag registrars for gtopt converters.
 
 Single source of truth for the canonical CLI flags every gtopt

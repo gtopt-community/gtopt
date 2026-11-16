@@ -3,7 +3,8 @@
  * @brief     JSON Schema dump for the gtopt input data model (options)
  * @date      2026-06-08
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a single diagnostic entry point that renders a JSON Schema
  * (draft 2020-12) for the gtopt input data model directly from the

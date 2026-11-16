@@ -2,7 +2,8 @@
  * @file      test_ieee9b_equilibration.hpp
  * @brief     IEEE 9-bus integration test for LP equilibration modes
  * @date      2026-04-04
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Solves the IEEE 9-bus case with each LpEquilibrationMethod (none, row_max,
  * ruiz) and verifies:

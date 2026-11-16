@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Fill in missing per-fuel CO2 emission factors on a gtopt planning dict.
 
 Shared by ``plp2gtopt --emissions`` and ``plexos2gtopt --emissions``.

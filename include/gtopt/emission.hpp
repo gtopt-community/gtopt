@@ -3,7 +3,8 @@
  * @brief     Pollutant TYPE entity (registry; no constraints)
  * @date      2026-05-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `Emission` is the lightweight registry of pollutant KINDS modeled in
  * a run — CO₂, SO₂, NOₓ, CH₄(-eq), HFC, SF₆, …  It carries the

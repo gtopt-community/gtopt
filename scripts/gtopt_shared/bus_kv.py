@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Recover a bus's nominal voltage level [kV] from its name.
 
 CEN-style bundles (PLEXOS PCP daily, PLP) encode the real bus voltage

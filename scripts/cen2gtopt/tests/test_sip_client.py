@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Offline tests for the SIP-API client and CenApiClient.
 
 Mocks `requests.Session.get` via monkeypatch so the tests run without

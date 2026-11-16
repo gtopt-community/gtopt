@@ -2,7 +2,8 @@
  * @file      test_battery_cycle_limit.cpp
  * @brief     Tests for Battery.max_cycles_day daily energy-throughput limit
  * @date      2026-05-27
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Verifies the HARD daily-cycle constraint
  *   Σ_blocks (fcr / fout_eff_b) · duration · dc_stage_scale · fout[b]

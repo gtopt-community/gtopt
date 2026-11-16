@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_ampl_state.cpp
  * @brief     Contract tests for AMPL `state` variables (piece 5, step 1)
  * @date      2026-06-22
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Piece 5 step 1 of the FutureCost / UserModel refactor: the state-variable
  * BRIDGE.  A `DecisionVariable` (and thus a `UserModel`-bundled var) gains

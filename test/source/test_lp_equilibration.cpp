@@ -3,7 +3,8 @@
  * @brief     Unit tests for the per-row equilibration primitives that
  *            will feed the post-build cut insertion path.
  * @date      2026-04-20
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <cmath>

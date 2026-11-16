@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_lp_replay_buffer.cpp
  * @brief     Unit tests for LpReplayBuffer (Phase 2a of LinearInterface split)
  * @date      2026-05-04
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Pins the R1–R6 invariants from
  * ``include/gtopt/lp_replay_buffer.hpp`` — the contract that the

@@ -3,7 +3,8 @@
  * @brief     Defines the Pump structure representing a hydraulic pump unit
  * @date      Sat Apr 12 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the Pump structure which couples a hydraulic
  * waterway to an electrical demand, converting electrical power [MW] into

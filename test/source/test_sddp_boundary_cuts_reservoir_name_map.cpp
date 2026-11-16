@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Regression tests for the missing-`reservoir_array` entry in
 // `sddp_boundary_cuts.cpp`'s `name_to_class_uid` map.  The audit at

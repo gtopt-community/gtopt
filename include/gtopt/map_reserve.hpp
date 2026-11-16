@@ -3,10 +3,12 @@
  * @brief     Generic capacity-reservation helper for associative containers
  * @date      2026-04-09
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines a single free function `gtopt::map_reserve(map, n)` that reserves
  * capacity for @p n elements in any standard or boost associative container,
+ * dispatched via C++26 requires-expressions on the *actual* argument type
  * rather than on the flat_map backend macros in `fmap.hpp`.
  *
  * Behaviour by container:

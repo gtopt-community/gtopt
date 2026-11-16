@@ -3,7 +3,8 @@
  * @brief     LP representation of a UserModel (generic AMPL capture) element
  * @date      Sun Jun 22 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A `UserModel` bundles a set of user variable declarations (cols) + user
  * constraint declarations (rows) into ONE element and captures the named ones

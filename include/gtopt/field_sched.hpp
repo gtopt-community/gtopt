@@ -3,7 +3,8 @@
  * @brief     Header of FieldSched type
  * @date      Sat Mar 22 05:49:49 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides FieldSched types.
  */

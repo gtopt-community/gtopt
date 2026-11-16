@@ -3,7 +3,8 @@
  * @brief     Implementation of the JSON Schema dump for the Planning model
  * @date      2026-06-08
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The schema is generated at compile time from the daw_json_link
  * ``json_data_contract`` mappings via ``daw::json::to_json_schema<T>``.

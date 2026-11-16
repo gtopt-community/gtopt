@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_solver_tier.cpp
  * @brief     Unit tests for the Tier-2 SolverTier seam.
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * SolverTier routes pool-backed LP solves through one interface: a null pool
  * falls back to a direct resolve; a non-null pool submits and awaits.  Both

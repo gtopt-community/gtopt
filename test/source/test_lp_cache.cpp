@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_lp_cache.cpp
  * @brief     Unit tests for LpCache (Phase 1 of LinearInterface split)
  * @date      2026-05-04
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Pins the C1–C8 invariants from
  * ``docs/linear_interface_split_plan.md`` §3.2 — the contract that

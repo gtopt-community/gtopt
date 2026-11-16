@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Backward-compat re-export shim for :mod:`gtopt_shared.options_meta`.
 
 Lifted to ``gtopt_shared`` on 2026-06-06 as part of issue #507 Phase 1

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Configuration for plexos_compress_case.
 
 Uses the centralized ``~/.gtopt.conf`` via the :mod:`gtopt_config` module.

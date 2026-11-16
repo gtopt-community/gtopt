@@ -3,7 +3,8 @@
  * @brief     JSON serialization for Flow objects
  * @date      Wed Jul 30 21:56:08 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides JSON serialization/deserialization for Flow objects using DAW JSON.
  * Handles all Flow fields including:

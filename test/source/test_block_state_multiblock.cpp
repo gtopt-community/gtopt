@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_block_state_multiblock.cpp
  * @brief     Multi-block / multi-stage coverage for the `block_state`
  *            DecisionVariable + `prev(...)` lag (AMPL reservoir).
  * @date      2026-06-28
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The equivalence fixture (test_user_storage_equivalence.cpp) is 1 block /
  * stage and 1 stage / phase, so it never exercises the WITHIN-stage lag

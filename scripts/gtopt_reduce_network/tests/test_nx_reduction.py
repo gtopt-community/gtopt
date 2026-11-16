@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for DC-line modelling, reservoir anchors, and louvain-mincut."""
 
 from __future__ import annotations

@@ -3,7 +3,8 @@
  * @brief     Implementation of FlowRightLP methods
  * @date      Tue Apr  1 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Unified design:
  *   Each FlowRight installs a single LP column `flow_b` per

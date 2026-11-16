@@ -3,7 +3,8 @@
  * @brief     Type-safe strong index type for elements
  * @date      Fri Apr 25 00:33:47 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides a type-safe strongly typed index for elements
  * to prevent accidental access with incorrect index types.

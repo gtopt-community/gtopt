@@ -3,7 +3,8 @@
  * @brief     LP formulation for reserve provisions
  * @date      Mon Apr 21 22:23:43 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the ReserveProvisionLP class, which builds LP variables
  * and constraints for generator reserve provision commitments.

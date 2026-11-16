@@ -3,7 +3,8 @@
  * @brief     Implementation of output context for Parquet/CSV writing
  * @date      Wed Mar 26 01:05:05 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements the OutputContext class methods for writing LP
  * solution results to Parquet and CSV files using Arrow builders.

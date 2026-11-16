@@ -3,7 +3,8 @@
  * @brief     Multi-level cascade method with configurable LP formulations
  * @date      2026-03-22
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements a multi-level hybrid algorithm where each level can have a
  * different LP formulation (single bus, transport, full network) and solver

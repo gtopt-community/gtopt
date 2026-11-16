@@ -3,7 +3,8 @@
  * @brief     Defines the ReserveZone structure for spinning-reserve modeling
  * @date      Thu Apr  3 10:32:46 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the ReserveZone structure which represents a regional
  * spinning-reserve requirement in the LP formulation. Each zone specifies

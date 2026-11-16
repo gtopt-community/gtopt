@@ -3,7 +3,8 @@
  * @brief     LP formulation for simplified commitment
  * @date      2026-04-13
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements SimpleCommitmentLP: creates a binary status variable u per
  * block and adds two constraints per block:

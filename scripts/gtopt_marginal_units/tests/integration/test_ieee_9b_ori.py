@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Integration test against the prebuilt IEEE 9b_ori benchmark output.
 
 Skip-if-output-absent: we don't fail CI on a clean checkout, but

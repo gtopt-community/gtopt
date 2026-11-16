@@ -3,7 +3,8 @@
  * @brief     JSON serialization for LP solver options
  * @date      Fri May  3 12:30:00 2025
  * @author    Claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides JSON serialization/deserialization for the SolverOptions
  * structure, allowing LP solver options to be saved and loaded in JSON format.

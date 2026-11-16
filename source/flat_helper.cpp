@@ -3,7 +3,8 @@
  * @brief     Implementation of flat index helpers for scenario/stage/block
  * @date      Thu May 15 01:12:14 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module implements FlatHelper methods that produce flattened UID
  * vectors for scenario, stage, and block dimensions.

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """plexos2gtopt converter defaults — share-dir resolution.
 
 Helpers that locate bundled CEN-Chile-specific reference files under

@@ -3,7 +3,8 @@
  * @brief     JSON serialization/deserialization for the Simulation class
  * @date      Wed Mar 19 22:42:24 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides JSON data contract definitions for the Simulation class,
  * enabling serialization and deserialization of simulation objects with all

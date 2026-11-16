@@ -3,7 +3,8 @@
  * @brief     Resolve LP column indices for user-constraint element references
  * @date      Mon Mar 24 00:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides functions that map symbolic element references (from parsed
  * user-constraint expressions) to concrete LP column indices.  These

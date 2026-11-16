@@ -3,7 +3,8 @@
  * @brief     Hydrogen storage (steel cylinders, salt caverns, LH₂)
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the ``HydrogenStorage`` element: peer of ``Battery``,
  * ``Reservoir`` and ``ThermalStorage`` on the ``StorageLP<>`` framework.

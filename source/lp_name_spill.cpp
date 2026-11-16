@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      lp_name_spill.cpp
  * @brief     Async, Parquet-backed LP col/row label-metadata store (see
  * header).
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Persistence reuses gtopt's existing Apache Arrow / Parquet stack: each cell's
  * label metadata is written as a long-format table

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """pytest configuration for the ``tools/`` test suite.
 
 Caps xdist ``-n auto`` to a single worker when the ambient default solver is a

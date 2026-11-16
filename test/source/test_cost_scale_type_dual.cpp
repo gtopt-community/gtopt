@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /// @file test_cost_scale_type_dual.cpp
 /// @brief Pin the per-element `cost_scale_type` dual / reduced-cost
 ///        readback contract in OutputContext.

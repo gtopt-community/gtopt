@@ -3,7 +3,8 @@
  * @brief     State variables and dependencies for linear programming problems
  * @date      Mon Jun 23 11:56:29 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * @details
  * This module defines the StateVariable class which represents variables in a

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Golden-fixture regression test for plp2gtopt JSON output.
 
 Runs ``convert_plp_case`` on ``cases/plp_min_1bus`` and compares the

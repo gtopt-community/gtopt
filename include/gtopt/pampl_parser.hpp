@@ -3,7 +3,8 @@
  * @brief     Parser for pseudo-AMPL (.pampl) user constraint files
  * @date      Thu Mar 12 00:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides `PamplParser::parse_file()`, which reads a `.pampl`
  * file and converts it to a vector of `UserConstraint` objects ready to be

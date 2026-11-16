@@ -3,7 +3,8 @@
  * @brief     Connected-component (island) detection for bus networks
  * @date      Fri Mar 28 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <algorithm>

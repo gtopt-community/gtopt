@@ -2,7 +2,8 @@
  * @file      test_user_constraint_block_coeff.cpp
  * @brief     Tests for per-block (F9) coefficients on UserConstraint LHS terms
  * @date      2026-05-27
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A UserConstraint LHS term may carry a per-block coefficient *profile*
  * (`[v0, v1, ...] * element.attr`) instead of a single scalar.  At LP

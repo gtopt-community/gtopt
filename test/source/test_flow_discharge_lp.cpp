@@ -4,7 +4,8 @@
  *            the LP as fixed-variable column bounds and that aperture updates
  *            correctly switch per-scenario discharge data
  * @date      2026-03-19
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests:
  *  1. Scalar discharge is loaded as fixed LP column bounds (lowb == uppb)

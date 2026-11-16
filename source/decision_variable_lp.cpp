@@ -3,7 +3,8 @@
  * @brief     LP build path for DecisionVariable elements
  * @date      Mon May 19 21:55:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * One LP column per (scenario, stage, block) per DecisionVariable
  * object (the default `block` scope).  The column defaults to

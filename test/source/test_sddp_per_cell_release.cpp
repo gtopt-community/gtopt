@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Per-cell `release_backend()` regression tests for the SDDP backward
 // pass.  Pins the contract introduced by the

@@ -4,7 +4,8 @@
  *            independently using a parallel work pool
  * @date      2026-03-24
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * MonolithicMethod is the default solver.  Each scene's phases are solved
  * sequentially (propagating state variables), but different scenes are

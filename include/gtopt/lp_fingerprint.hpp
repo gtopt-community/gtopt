@@ -3,7 +3,8 @@
  * @brief     LP structural fingerprint for formulation integrity verification
  * @date      Mon Apr  7 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a structural "fingerprint" of an LP formulation that captures
  * which types of variables and constraints exist (class, name, context type)

@@ -3,7 +3,8 @@
  * @brief     SDDP-specialised work pool: SDDPTaskKey, SDDPWorkPool, and factory
  * @date      2026-03-14
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This header provides the work-pool specialisation used by the SDDP solver:
  *

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Coverage test for the `add_row` cut-scaling fix in
 // `LinearInterface::add_row` compose_physical path.

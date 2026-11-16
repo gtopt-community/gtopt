@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Overlay heat-rate / fuel data from a plexos2gtopt JSON onto a plp2gtopt case.
 
 Driven by ``plp2gtopt --plexos-overlay PATH``.  ``PATH`` is either the

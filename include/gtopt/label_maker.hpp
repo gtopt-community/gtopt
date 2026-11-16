@@ -3,7 +3,8 @@
  * @brief     Generates LP column/row name strings honoring LpNamesLevel.
  * @date      Sun Jun 22 15:59:11 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * LabelMaker is the single place in gtopt where LP column/row name strings
  * are produced.  It consumes `SparseCol` / `SparseRow` directly (their

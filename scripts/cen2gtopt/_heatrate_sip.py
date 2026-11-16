@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Inline heat-rate-curve parser for the SIP ``unidades_generadoras`` feed.
 
 The SIP exposes a free-text ``curva_consumo`` field per unit. For ~99 %

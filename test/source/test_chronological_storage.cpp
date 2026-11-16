@@ -3,7 +3,8 @@
  * @brief     Tests for battery and reservoir on chronological stages
  * @date      Tue Apr  8 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Verifies that battery SoC tracking and reservoir volume balance work
  * correctly with chronological hourly blocks, including:

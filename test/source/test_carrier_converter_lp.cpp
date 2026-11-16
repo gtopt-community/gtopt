@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Integration tests for ``CarrierConverterLP``:
 //   * Single electrolyser bridging Bus → HydrogenNode lets the

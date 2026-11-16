@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_irrigation_invernada_boundary.cpp
  * @brief     Tier 8.6b — boundary cases for the Maule La Invernada
  *            FlowRight + UserConstraint balance
  * @date      2026-04-11
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * These tests extend the Tier 8.6 "La Invernada P0 defender" with
  * defensive guards around both the HARD-constraint baseline and the

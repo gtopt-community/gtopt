@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """``cen2gtopt.prepopulate_cache`` — pre-populate the cmg-real cache
 for many CEN buses without touching cmg-online.
 

@@ -3,7 +3,8 @@
  * @brief     Implementation of the user constraint expression parser
  * @date      Wed Mar 12 03:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <algorithm>

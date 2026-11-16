@@ -1,7 +1,8 @@
 /**
  * @file      constraint_names.hpp
  * @brief     Canonical constexpr name constants used in LP row labels.
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Centralises the `class_name` and `constraint_name` string_view values
  * used by the structural-build LP layers so callers reference one

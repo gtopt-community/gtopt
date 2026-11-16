@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Tests for the LineLP soft (Normal) flow limit + overload penalty
 // feature.  Mirrors UC.jl's `Normal flow limit (MW)` + `Flow limit

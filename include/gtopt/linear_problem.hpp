@@ -4,7 +4,8 @@
  * problems
  * @date      Sun Mar 23 14:50:34 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides representations for sparse linear planning problems,
  * including data structures for rows, columns, and matrices, as well as

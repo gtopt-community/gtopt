@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 # pylint: disable=line-too-long  # docstring tables align CEN endpoint names
 """Cross-API name bridge to ``id_central`` (canonical join key).
 

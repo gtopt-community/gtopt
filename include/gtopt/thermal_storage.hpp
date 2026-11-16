@@ -3,7 +3,8 @@
  * @brief     Thermal Energy Storage (TES) — CSP / district-heat storage
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the ``ThermalStorage`` element: a peer of ``Battery`` and
  * ``Reservoir`` that sits directly on the ``StorageLP<>`` framework.

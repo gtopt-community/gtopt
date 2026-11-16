@@ -3,7 +3,8 @@
  * @brief     Header for error handling types and error codes
  * @date      Fri Jun 27 18:54:34 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides error codes and error structures for reporting
  * and handling errors throughout the gtopt library.

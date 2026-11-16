@@ -3,7 +3,8 @@
  * @brief     Authoritative compile-time registry of all LP element types
  * @date      Mon Mar  9 00:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides the canonical ordered list of all LP component types as a
  * `std::tuple` alias (`lp_element_types_t`), forward declarations for each

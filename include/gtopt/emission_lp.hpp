@@ -3,7 +3,8 @@
  * @brief     Parameter-carrier wrapper for the Emission pollutant tag
  * @date      2026-05-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `EmissionLP` is the LP-side wrapper for an `Emission` pollutant tag.
  * It is **passive** — no `add_to_lp` / `add_to_output` methods; the

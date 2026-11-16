@@ -2,7 +2,8 @@
  * @file      test_solver_cfg.cpp
  * @brief     Unit tests for the shared solver tuning-file loader
  * @date      2026-07-08
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Covers `include/gtopt/solver_cfg.hpp` without touching any solver
  * backend: value translation (numbers pass through, per-key EnumEntry
@@ -11,7 +12,7 @@
  * precedence over `.prm`).
  */
 
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #include <array>
 #include <filesystem>
 #include <fstream>

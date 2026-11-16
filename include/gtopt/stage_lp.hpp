@@ -4,7 +4,8 @@
  * stages
  * @date      Wed Mar 26 12:10:25 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides functionality for managing stages in linear programming
  * planning problems

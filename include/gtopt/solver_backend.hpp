@@ -3,7 +3,8 @@
  * @brief     Abstract solver backend interface for LP/MIP solvers
  * @date      Sun Mar 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the pure virtual interface that all solver plugins must implement.
  * This header has zero dependencies on any solver library (COIN-OR, HiGHS,

@@ -3,7 +3,8 @@
  * @brief     Implementation of generator profile LP operations
  * @date      Tue Apr  1 22:03:50 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implements the core LP operations for generator profiles including:
  * - Construction from input context

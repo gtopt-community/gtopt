@@ -3,7 +3,8 @@
  * @brief     Unit tests for mvector_traits template classes
  * @date      Mon Jun  2 21:30:23 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests for both mvector_traits and mvector_traits implementations
  */

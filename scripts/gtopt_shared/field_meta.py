@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Canonical per-array field metadata for the gtopt JSON contract.
 
 Pure data — no executable logic.  Each entry in ``FIELD_META`` is a list of

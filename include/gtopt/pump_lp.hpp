@@ -3,7 +3,8 @@
  * @brief     Defines the PumpLP class for linear programming representation
  * @date      Sat Apr 12 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the PumpLP class which provides the linear programming
  * representation of a hydraulic pump, including its constraints and

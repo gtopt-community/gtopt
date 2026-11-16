@@ -3,7 +3,8 @@
  * @brief     Typed metadata directive attached to a UserConstraint
  * @date      2026-05-30
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A ``ConstraintDirective`` is the typed-schema replacement for the legacy
  * name-regex / expression-substring classification that lived in the

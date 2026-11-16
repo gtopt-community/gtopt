@@ -3,7 +3,8 @@
  * @brief     Fail-fast guards for calendar-month dependent LP assembly
  * @date      Sat Apr 11 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Several LP primitives (`VolumeRightLP` reset, monthly user-constraint
  * parameters, stage-month bound rules) are only meaningful when the

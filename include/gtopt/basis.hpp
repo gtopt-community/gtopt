@@ -3,7 +3,8 @@
  * @brief     Solver-agnostic simplex basis (warm-start) primitive
  * @date      2026-06-24
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * A `Basis` is an *index vector*, not the constraint matrix: one status
  * tag per structural column and one per row (logical/slack).  Its size is

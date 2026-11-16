@@ -2,7 +2,8 @@
  * @file      sddp_common.cpp
  * @brief     Out-of-line implementations for SDDP common helpers
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Hosts non-template, non-inline-friendly bodies that would otherwise
  * inflate every translation unit including `sddp_common.hpp`

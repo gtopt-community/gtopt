@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Integration test against the prebuilt IEEE 14b benchmark — a
 deliberately-congested case (line saturations confirmed by the
 master plan §3.2 grep on flowp_cost)."""

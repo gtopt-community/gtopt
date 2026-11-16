@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Main entry point for run_gtopt — smart gtopt wrapper."""
 
 from __future__ import annotations

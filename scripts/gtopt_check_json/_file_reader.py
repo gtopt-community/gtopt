@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Utilities for reading gtopt FieldSched values from Parquet/CSV files.
 
 gtopt input files follow this schema:

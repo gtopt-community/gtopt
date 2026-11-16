@@ -3,7 +3,8 @@
  * @brief     Row model + formatting for the solver-diagnostics `solution.csv`.
  * @date      2026-07-12
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `PlanningLP::write_out()` emits one `solution.csv` per run summarising, for
  * every solved `(scene, phase)` cell, the terminal status and the accumulated

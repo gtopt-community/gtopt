@@ -3,7 +3,8 @@
  * @brief     LP-active wrapper for the EmissionZone bridge entity
  * @date      2026-05-18
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `EmissionZoneLP` owns only the LP artefacts that are actually
  * needed.  The per-block `production` column and the `balance` row

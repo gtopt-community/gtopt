@@ -3,7 +3,8 @@
  * @brief     Resolve planning file arguments and directory context
  * @date      2026-03-21
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a single free function that normalises the planning-file list
  * and directory options before any JSON parsing takes place.  Three

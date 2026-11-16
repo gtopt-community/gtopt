@@ -1,11 +1,12 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_mip_start_per_solver.cpp
  * @brief     Per-solver tests for the integer initial-solution injection
  *            (SolverBackend::set_mip_start).
  * @date      2026-06-27
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `LinearInterface::set_mip_start` delegates to the backend virtual
  * `set_mip_start`, which hands a dense raw-space column vector to the

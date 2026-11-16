@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """plp_compress_case — compress or decompress PLP case directories.
 
 Compresses all ``.dat``, ``.csv``, ``.prn``, and ``.png`` files in a

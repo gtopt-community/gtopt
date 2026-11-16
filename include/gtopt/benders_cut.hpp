@@ -3,7 +3,8 @@
  * @brief     Modular Benders cut construction and handling
  * @date      2026-03-11
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module extracts the cut-creation logic from the SDDP solver into
  * standalone, testable functions and a class-based interface.

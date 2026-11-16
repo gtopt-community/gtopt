@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Piecewise-linear MC lookup.
 
 A unit's effective marginal cost depends on which cost segment is

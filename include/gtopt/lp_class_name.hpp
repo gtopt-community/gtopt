@@ -3,7 +3,8 @@
  * @brief     Defines the LPClassName struct with modern C++23 features
  * @date      Wed Aug 06 15:10:00 2025
  * @author    ai-developer
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This header defines the LPClassName struct used to hold the full class
  * name for LP object types.  `short_name()` returns a `std::string_view`

@@ -3,7 +3,8 @@
  * @brief     LP representation of a free continuous Decision Variable
  * @date      Mon May 19 21:55:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * One LP column per (scenario, stage, block) with optional bounds and
  * an optional per-block cost coefficient.  Registered with the AMPL

@@ -3,7 +3,8 @@
  * @brief     JSON serialization for Scenario
  * @date      Sun Mar 30 17:33:28 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides the daw::json data contract specialization for
  * serializing and deserializing Scenario objects to and from JSON.

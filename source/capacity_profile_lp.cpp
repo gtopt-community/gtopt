@@ -3,7 +3,8 @@
  * @brief     Unified `CapacityProfileLP` implementation (kind-dispatched)
  * @date      2026-05-17
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <gtopt/capacity_profile_lp.hpp>

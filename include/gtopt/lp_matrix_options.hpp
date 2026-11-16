@@ -3,7 +3,8 @@
  * @brief     Configuration options for LP matrix assembly
  * @date      Mon Mar 24 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the LpMatrixOptions structure that controls how
  * LinearProblem instances are converted into the flat (column-major)

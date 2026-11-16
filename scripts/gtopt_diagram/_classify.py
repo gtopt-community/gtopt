@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Pure-logic helpers for generator classification, element naming, and scalar formatting.
 
 These functions are intentionally free of I/O, GUI, or Graphviz dependencies so

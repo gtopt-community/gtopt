@@ -3,7 +3,8 @@
  * @brief     C++ solver plugin test suite callable as a library
  * @date      2026-03-26
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides a self-contained test suite that exercises every method of
  * LinearInterface against every available solver plugin.  The results

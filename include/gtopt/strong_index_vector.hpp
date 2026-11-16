@@ -3,7 +3,8 @@
  * @brief     Header for type-safe vector access with strong typing
  * @date      Sun Mar 23 22:13:51 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides a type-safe vector implementation that requires
  * strongly-typed indices for element access, preventing accidental

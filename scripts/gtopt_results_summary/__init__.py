@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """gtopt_results_summary — KPI aggregator for gtopt output files.
 
 Provides a library and CLI for producing a compact JSON summary of the

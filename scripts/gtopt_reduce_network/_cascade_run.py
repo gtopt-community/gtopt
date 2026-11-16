@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Thin orchestration wrapper: reduce → run gtopt on the reduced case →
 project results back to the nodal grid.
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_mip_start_roundtrip.cpp
  * @brief     Per-solver round-trip tests for the MIP-start loading mechanism:
@@ -7,7 +7,8 @@
  *            re-solves to the same optimum.
  * @date      2026-07-13
  * @author    claude
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Invariant under test (docs/tasks/mipstart-roundtrip-prototype.md):
  * reloading a complete, consistent, OPTIMAL solution as a MIP start MUST be

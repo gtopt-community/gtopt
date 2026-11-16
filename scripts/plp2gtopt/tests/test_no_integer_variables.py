@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """PLP-fidelity invariant: plp2gtopt MUST NOT emit MIP / commitment artefacts.
 
 PLP itself is a pure linear program: no integer variables, no unit

@@ -3,7 +3,8 @@
  * @brief     Centralised INFO-log number formatting helpers.
  * @date      2026-05-13
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * One source of truth for how monetary magnitudes, durations,
  * percentages and counters render across every INFO-level log line.

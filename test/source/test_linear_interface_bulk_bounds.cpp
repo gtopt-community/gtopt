@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Coverage tests for `LinearInterface::set_col_bounds_raw` and
 // `LinearInterface::set_col_bounds` — the bulk col-bound counterparts

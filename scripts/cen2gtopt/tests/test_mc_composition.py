@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for the declared-MC composition helper.
 
 Verifies the join logic between costo-combustible (USD per fuel-unit)

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Unit tests for the gtopt-UC vs PLEXOS RHS-parity converter fixes.
 
 Each test pins one fix found by cross-validating the emitted UserConstraints

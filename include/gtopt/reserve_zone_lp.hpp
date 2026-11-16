@@ -3,7 +3,8 @@
  * @brief     LP formulation for reserve zones
  * @date      Mon Apr 21 22:23:18 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module defines the ReserveZoneLP class, which builds LP variables
  * and constraints for operating reserve zone requirements.

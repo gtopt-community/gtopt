@@ -3,7 +3,8 @@
  * @brief     Physical vs logical CPU core detection
  * @date      2026-04-13
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Provides physical core counting for accurate thread pool sizing.
  * On Linux, parses /sys/devices/system/cpu topology to distinguish

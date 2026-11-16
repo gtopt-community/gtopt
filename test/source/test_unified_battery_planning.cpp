@@ -2,7 +2,8 @@
  * @file      test_unified_battery_planning.hpp
  * @brief     LP solve tests for the unified battery definition
  * @date      2026-03-06
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Verifies that the unified battery definition (single Battery element
  * with `bus` field set) produces a valid LP solve.  The test uses a

@@ -3,7 +3,8 @@
  * @brief     Integration tests: user constraints in Planning JSON + LP solve
  * @date      Wed Mar 12 03:00:00 2026
  * @author    copilot
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Tests that user constraints survive JSON deserialization, merge, and that
  * the LP solves successfully with constraints present in the system.

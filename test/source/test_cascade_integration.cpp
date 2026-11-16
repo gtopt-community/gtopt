@@ -2,10 +2,11 @@
  * @file      test_cascade_integration.cpp
  * @brief     Integration/end-to-end tests for CascadePlanningMethod
  * @date      2026-04-05
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 
 #include <filesystem>
 #include <fstream>

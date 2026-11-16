@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Identify lines that must NOT be dropped/aggregated by the reduction.
 
 A line is *protected* when a constraint of the FULL model references it by

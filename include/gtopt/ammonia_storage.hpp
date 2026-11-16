@@ -3,7 +3,8 @@
  * @brief     Ammonia (NH₃) storage — long-term carrier of H₂
  * @date      Fri May 23 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the ``AmmoniaStorage`` element: peer of ``HydrogenStorage``
  * on the ``StorageLP<>`` framework.  Ammonia is the dominant carrier

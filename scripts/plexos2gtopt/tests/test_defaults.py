@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for plexos2gtopt._defaults share-file resolution (portability).
 
 Regression guard for the hardcoded ``~/git/gtopt/share/gtopt``

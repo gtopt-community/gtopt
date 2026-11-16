@@ -2,7 +2,8 @@
  * @file      test_irrigation_maule_agreement.cpp
  * @brief     Tier 9 — scaled-down Maule full-agreement integration tests
  * @date      2026-04-10
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * End-to-end LP integration tests for an irrigation rights agreement
  * shaped after the Maule cushion-zone schedule, scaled down to a small

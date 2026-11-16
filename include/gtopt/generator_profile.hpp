@@ -3,7 +3,8 @@
  * @brief     Generator profile configuration and attributes
  * @date      Tue Apr  1 21:20:35 2025
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Defines the GeneratorProfile structure which provides a time-varying
  * capacity-factor profile for a generator. The actual available capacity in

@@ -3,7 +3,8 @@
  * @brief     Thin orchestrator for the gtopt optimizer
  * @date      Thu Feb 19 00:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * Implementation of the gtopt_main() function, which ties together JSON
  * parsing, option application, LP construction, solving, and output writing.

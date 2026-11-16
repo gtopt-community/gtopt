@@ -3,7 +3,8 @@
  * @brief     Application command-line option parsing and configuration
  * @date      Wed Feb 12 22:00:00 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * This module provides utility functions for parsing command-line options
  * using a modern C++ command-line parser, applying parsed options to Planning

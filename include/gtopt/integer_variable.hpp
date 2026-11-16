@@ -3,7 +3,8 @@
  * @brief     Registry abstraction for every integer LP column in gtopt
  * @date      Sat May 31 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * `IntegerVariable` is the runtime counterpart of `StateVariable`: a
  * single registry entry that names one integer LP column shared across
