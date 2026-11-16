@@ -365,8 +365,9 @@ generators filtered out).
 
 ## Large Case Example: `gtopt_case_2y`
 
-The `cases/gtopt_case_2y/` case was converted from the PLP `plp_case_2y`
-directory using `plp2gtopt`.  It contains:
+The `gtopt_case_2y` case (not shipped with gtopt; the commands below assume
+it has been placed or symlinked under `cases/`) was converted from the PLP
+`plp_case_2y` directory using `plp2gtopt`.  It contains:
 
 | Element | Count |
 |---------|-------|

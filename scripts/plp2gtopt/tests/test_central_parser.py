@@ -242,7 +242,12 @@ def test_parse_large_real_file() -> None:
     """Test parsing of larger plpcnfce.dat file from 2-year case."""
     from plp2gtopt.compressed_open import resolve_compressed_path
 
-    base_path = Path(__file__).parent.parent.parent / "cases/plp_case_2y/plpcnfce.dat"
+    from gtopt_shared.testing.external_cases import external_case_dir
+
+    case_dir = external_case_dir("plp_case_2y")
+    if case_dir is None:
+        pytest.skip("Large test case plp_case_2y not found (set GTOPT_CASES_DIR)")
+    base_path = case_dir / "plpcnfce.dat"
     try:
         test_file = resolve_compressed_path(base_path)
     except FileNotFoundError:

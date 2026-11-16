@@ -14,12 +14,22 @@ import pytest
 
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.plp2gtopt import convert_plp_case
+from gtopt_shared.testing.external_cases import (
+    external_case_dir,
+    missing_case_reason,
+)
 
 # Path to the sample PLP cases shipped with the repository
 _CASES_DIR = Path(__file__).parent.parent.parent / "cases"
 
-# plp_case_2y — 2-year (51-stage) full PLP case with plpidsim/idap2/idape
-_PLPCase2Y = _CASES_DIR / "plp_case_2y"
+# plp_case_2y — 2-year (51-stage) full PLP case with plpidsim/idap2/idape.
+# Not shipped with gtopt: resolved through ``GTOPT_CASES_DIR`` (see
+# ``gtopt_shared.testing.external_cases``); tests skip when it is absent.
+_PLPCase2Y_FOUND = external_case_dir("plp_case_2y")
+_PLPCase2Y = _PLPCase2Y_FOUND or (_CASES_DIR / "plp_case_2y")
+_needs_case_2y = pytest.mark.skipif(
+    _PLPCase2Y_FOUND is None, reason=missing_case_reason("plp_case_2y")
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -295,6 +305,7 @@ def test_bat_4b_24_lmax_parquet(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_parse():
     """plp_case_2y: parsers including idsim, idap2, and idape load correctly."""
     parser = PLPParser({"input_dir": _PLPCase2Y})
@@ -337,6 +348,7 @@ def test_plp_case_2y_parse():
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
     """plp_case_2y: -y all -a all -s 1 produces 16 scenarios using hydros 51-68.
 
@@ -427,6 +439,7 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
     """plp_case_2y: all stages — apertures from stages 28+ include extra hydros.
 
@@ -496,6 +509,7 @@ def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_info(capsys):
     """plp_case_2y --info: displays simulation mapping and aperture structure."""
     from plp2gtopt.info_display import display_plp_info
@@ -743,6 +757,7 @@ def _check_2y_global_indicators(
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_global_indicators(tmp_path):
     """plp_case_2y: indicators match in default flow-turbine mode."""
     _check_2y_global_indicators(
@@ -751,12 +766,14 @@ def test_plp_case_2y_global_indicators(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_global_indicators_hydro_mode(tmp_path):
     """plp_case_2y: indicators match in full hydro topology mode."""
     _check_2y_global_indicators(tmp_path, "gtopt_case_2y_hydro", pasada_mode="hydro")
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_global_indicators_profile_mode(tmp_path):
     """plp_case_2y: indicators match in legacy pasada-profile mode."""
     _check_2y_global_indicators(
@@ -765,6 +782,7 @@ def test_plp_case_2y_global_indicators_profile_mode(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_4h_partial_hydrology(tmp_path):
     """plp_case_2y with 4 hydrologies: demand matches, flows positivity-checked.
 
@@ -838,6 +856,7 @@ def test_plp_case_2y_4h_partial_hydrology(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_4h_4s_partial_stages(tmp_path):
     """plp_case_2y with 4 hydrologies and 4 stages: energy and last block differ.
 
@@ -897,6 +916,7 @@ def test_plp_case_2y_4h_4s_partial_stages(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_2h_two_scenarios(tmp_path):
     """plp_case_2y with 2 explicit hydrologies (-y 55,60), max_iterations=2.
 
@@ -975,6 +995,7 @@ def test_plp_case_2y_2h_two_scenarios(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_2h_4s_two_scenarios_partial(tmp_path):
     """plp_case_2y with 2 hydrologies (-y 51,66), 4 stages, max_iterations=2.
 
@@ -1041,6 +1062,7 @@ def test_plp_case_2y_2h_4s_two_scenarios_partial(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_aperture_cache_loading(tmp_path):
     """plp_case_2y: convert with 1 scenario + apertures, build the gtopt LP.
 
@@ -1119,6 +1141,7 @@ def test_plp_case_2y_aperture_cache_loading(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_aperture_sddp_backward_pass(tmp_path):
     """plp_case_2y: multi-phase SDDP must run the aperture backward pass.
 
@@ -1161,6 +1184,7 @@ def test_plp_case_2y_aperture_sddp_backward_pass(tmp_path):
 
 
 @pytest.mark.integration
+@_needs_case_2y
 def test_plp_case_2y_boundary_cuts_loaded(tmp_path):
     """plp_case_2y: boundary cuts must always be loaded regardless of recovery_mode.
 

@@ -169,6 +169,13 @@ include(${CMAKE_SCRIPTS_DIR}/add_pandapower_comparison.cmake)
 # ---- Options ----
 option(GTOPT_SLOW_TESTS "Register slow integration tests (case_2y)" OFF)
 
+# External study cases (e.g. gtopt_case_2y / gtopt_case_2y_fs) are not
+# shipped with gtopt.  Point GTOPT_CASES_DIR (CMake cache variable or
+# environment variable at configure time) at the directory that holds
+# them; tests whose case is missing are simply not registered.
+set(GTOPT_CASES_DIR "$ENV{GTOPT_CASES_DIR}" CACHE PATH
+  "Directory with external study cases (gtopt_case_2y, ...); empty = skip")
+
 # ---- Register e2e test cases ----
 # To add a new case, place it under cases/<name>/ with a system JSON file and
 # an output/ directory containing the expected CSV results, then add a line:
@@ -346,10 +353,27 @@ set_tests_properties(e2e_sddp_hydro_3phase_hotstart_load_sddp_solve
   PROPERTIES DEPENDS e2e_sddp_hydro_3phase_hotstart_save_sddp_validate)
 
 if(GTOPT_SLOW_TESTS)
-  add_sddp_case(gtopt_case_2y gtopt_case_2y.json
-    MAX_ITERATIONS 1 TIMEOUT 600 LABELS slow)
-  add_sddp_case(gtopt_case_2y_fs gtopt_case_2y_fs.json
-    MAX_ITERATIONS 0 ALLOWED_EXIT_CODES "0;1" LABELS slow)
+  # add_sddp_case() resolves case directories under CASES_DIR; point it at
+  # the external cases directory for these registrations only.
+  set(_gtopt_saved_cases_dir "${CASES_DIR}")
+  set(CASES_DIR "${GTOPT_CASES_DIR}")
+  if(GTOPT_CASES_DIR
+     AND EXISTS "${GTOPT_CASES_DIR}/gtopt_case_2y/gtopt_case_2y.json")
+    add_sddp_case(gtopt_case_2y gtopt_case_2y.json
+      MAX_ITERATIONS 1 TIMEOUT 600 LABELS slow)
+  else()
+    message(STATUS "GTOPT_SLOW_TESTS: gtopt_case_2y not found under "
+                   "GTOPT_CASES_DIR='${GTOPT_CASES_DIR}' -- not registered")
+  endif()
+  if(GTOPT_CASES_DIR
+     AND EXISTS "${GTOPT_CASES_DIR}/gtopt_case_2y_fs/gtopt_case_2y_fs.json")
+    add_sddp_case(gtopt_case_2y_fs gtopt_case_2y_fs.json
+      MAX_ITERATIONS 0 ALLOWED_EXIT_CODES "0;1" LABELS slow)
+  else()
+    message(STATUS "GTOPT_SLOW_TESTS: gtopt_case_2y_fs not found under "
+                   "GTOPT_CASES_DIR='${GTOPT_CASES_DIR}' -- not registered")
+  endif()
+  set(CASES_DIR "${_gtopt_saved_cases_dir}")
 endif()
 
 # ---- Pandapower comparison tests ----

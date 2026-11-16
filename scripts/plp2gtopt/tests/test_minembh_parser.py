@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from gtopt_shared.testing.external_cases import external_case_dir
+
 from plp2gtopt.minembh_parser import MinembhParser
 
 
@@ -108,7 +110,9 @@ def test_parse_real_case():
     """Parse the plp_case_2y fixture (refreshed: 2 reservoirs)."""
     from plp2gtopt.compressed_open import resolve_compressed_path
 
-    path = CASES_DIR / "plp_case_2y" / "plpminembh.dat"
+    path = (
+        external_case_dir("plp_case_2y") or CASES_DIR / "plp_case_2y"
+    ) / "plpminembh.dat"
     try:
         path = resolve_compressed_path(path)
     except FileNotFoundError:

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
-"""End-to-end schedule-aggregation test on cases/gtopt_case_2y.
+"""End-to-end schedule-aggregation test on the external gtopt_case_2y case.
 
 The 2-year PLP-derived case carries the three Line schedules that
 real-world cases ship today, in long layout: ``active.parquet``
@@ -21,28 +21,37 @@ exercises the full pipeline:
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pyarrow.parquet as pq
 import pytest
 
 from gtopt_reduce_network import load_case
+from gtopt_shared.testing.external_cases import (
+    external_case_dir,
+    missing_case_reason,
+)
 from gtopt_reduce_network._reduce import ReduceConfig, reduce_case
 
 
-CASE_2Y = (
-    Path(__file__).resolve().parents[3]
-    / "cases"
-    / "gtopt_case_2y"
-    / "gtopt_case_2y.json"
-)
+_CASE_NAME = "gtopt_case_2y"
 
 
 @pytest.fixture
-def case_2y_dir() -> Path:
-    if not CASE_2Y.exists():
-        pytest.skip(f"missing case: {CASE_2Y}")
-    return CASE_2Y.parent
+def case_2y_dir(tmp_path: Path) -> Path:
+    """Private copy of the external ``gtopt_case_2y`` case.
+
+    The case is not shipped with gtopt; it is resolved through
+    ``GTOPT_CASES_DIR``.  The reducer writes new parquet files next to the
+    originals, so each test works on its own copy under ``tmp_path``.
+    """
+    src = external_case_dir(_CASE_NAME)
+    if src is None or not (src / f"{_CASE_NAME}.json").exists():
+        pytest.skip(missing_case_reason(_CASE_NAME))
+    dst = tmp_path / _CASE_NAME
+    shutil.copytree(src, dst)
+    return dst
 
 
 @pytest.fixture
@@ -61,7 +70,7 @@ def unique_tag(request: pytest.FixtureRequest, case_2y_dir: Path) -> str:
 
 def test_reduce_2y_emits_three_parquets(case_2y_dir: Path, unique_tag) -> None:
     """Reduce → 3 _{unique_tag} parquets exist with correct shape."""
-    case = load_case(CASE_2Y)
+    case = load_case(case_2y_dir / f"{_CASE_NAME}.json")
     cfg = ReduceConfig(
         target_buses=40,
         reduced_tag=unique_tag,
@@ -105,7 +114,7 @@ def test_reduce_2y_emits_three_parquets(case_2y_dir: Path, unique_tag) -> None:
 
 
 def test_reduce_2y_rewrites_json_to_new_stems(case_2y_dir: Path, unique_tag) -> None:
-    case = load_case(CASE_2Y)
+    case = load_case(case_2y_dir / f"{_CASE_NAME}.json")
     cfg = ReduceConfig(
         target_buses=40,
         reduced_tag=unique_tag,
@@ -124,7 +133,7 @@ def test_reduce_2y_invariants(case_2y_dir: Path, unique_tag) -> None:
     """Smoke physics: where ALL originals in a corridor are active at a
     given (stage, block), the corridor's tmax_ab should equal the sum
     of those originals' tmax_ab values at that tick."""
-    case = load_case(CASE_2Y)
+    case = load_case(case_2y_dir / f"{_CASE_NAME}.json")
     orig_line_array = list(case.array("line_array"))
     cfg = ReduceConfig(
         target_buses=40,
@@ -193,7 +202,7 @@ def test_reduce_2y_re_run_does_not_re_aggregate(case_2y_dir: Path, unique_tag) -
     """Re-running with the same tag overwrites without re-reading its own
     output parquets (sanity: no exponential growth, no recursive uid:N
     columns referencing the reduced uids)."""
-    case = load_case(CASE_2Y)
+    case = load_case(case_2y_dir / f"{_CASE_NAME}.json")
     cfg = ReduceConfig(
         target_buses=40,
         reduced_tag=unique_tag,
@@ -203,7 +212,7 @@ def test_reduce_2y_re_run_does_not_re_aggregate(case_2y_dir: Path, unique_tag) -
     )
     reduce_case(case, cfg)
     # Run a second time — must produce identical-shape outputs.
-    case2 = load_case(CASE_2Y)
+    case2 = load_case(case_2y_dir / f"{_CASE_NAME}.json")
     reduce_case(case2, cfg)
     line_dir = case_2y_dir / "Line"
     for field in ("active", "tmax_ab", "tmax_ba"):

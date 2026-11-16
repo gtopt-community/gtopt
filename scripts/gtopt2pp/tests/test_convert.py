@@ -7,6 +7,8 @@ from pathlib import Path
 import pandapower as pp
 import pytest
 
+from gtopt_shared.testing.external_cases import external_case_dir
+
 from gtopt2pp.convert import (
     _build_bus_ref_map,
     _build_demand_profile_map,
@@ -26,7 +28,7 @@ from gtopt2pp.convert import (
 # ── Paths ─────────────────────────────────────────────────────────────────
 
 _CASES_DIR = Path(__file__).parent.parent.parent / "cases"
-_PLP_CASE_2Y = _CASES_DIR / "plp_case_2y"
+_PLP_CASE_2Y = external_case_dir("plp_case_2y") or (_CASES_DIR / "plp_case_2y")
 
 # ── Minimal gtopt case (4 buses, 2 generators, 2 demands, 3 lines) ──────────
 

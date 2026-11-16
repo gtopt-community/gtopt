@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from gtopt_shared.testing.external_cases import external_case_dir
+
 from plp2gtopt.cenpmax_parser import CenpmaxParser
 
 CASES_DIR = Path(__file__).parent.parent.parent / "cases"
@@ -123,7 +125,9 @@ def test_parse_real_case():
     """Parse the plp_case_2y fixture (4 entries, raw units)."""
     from plp2gtopt.compressed_open import resolve_compressed_path
 
-    path = CASES_DIR / "plp_case_2y" / "plpcenpmax.dat"
+    path = (
+        external_case_dir("plp_case_2y") or CASES_DIR / "plp_case_2y"
+    ) / "plpcenpmax.dat"
     try:
         path = resolve_compressed_path(path)
     except FileNotFoundError:
@@ -149,7 +153,9 @@ def test_parse_real_case_converted():
     """Parse real fixture with convert_units=True."""
     from plp2gtopt.compressed_open import resolve_compressed_path
 
-    path = CASES_DIR / "plp_case_2y" / "plpcenpmax.dat"
+    path = (
+        external_case_dir("plp_case_2y") or CASES_DIR / "plp_case_2y"
+    ) / "plpcenpmax.dat"
     try:
         path = resolve_compressed_path(path)
     except FileNotFoundError:

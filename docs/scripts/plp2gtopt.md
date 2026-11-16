@@ -574,12 +574,16 @@ unit tests, the integration suite, and the smoke tests:
 | `plp_min_mance/` `_manli/`    | Maintenance schedules for centrals / lines                           |
 | `plp_hydro_4b/`               | 4-bus hydro benchmark                                                |
 | `plp_bat_4b_24/`              | 4-bus, 24-block battery scheduling                                   |
-| `plp_case_2y/`                | Realistic 2-year case (used by the slow integration tests)           |
 
 Each fixture is a self-contained directory of `.dat` files; running
 `plp2gtopt -i scripts/cases/<fixture> -o /tmp/gtopt_<fixture>` then
 `gtopt --lp-only -s /tmp/gtopt_<fixture>/<fixture>.json` is the
 canonical end-to-end smoke test.
+
+The realistic 2-year PLP case (`plp_case_2y`) and its converted gtopt
+counterparts (`gtopt_case_2y`, `gtopt_case_2y_fs`) are not shipped with
+gtopt; the tests that use them look them up under `$GTOPT_CASES_DIR`
+and skip when it is unset.
 
 ---
 

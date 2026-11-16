@@ -302,6 +302,9 @@ Shows the scenario → phase → stage → block hierarchy and the objective fun
 
 ### Large case — `gtopt_case_2y` (2 794 elements)
 
+This case is not shipped with gtopt; the commands assume it has been placed
+(or symlinked) under `cases/`.
+
 ```bash
 # Auto mode picks type + smart threshold (345 kV; 16 buses remain)
 gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json -o case2y_auto.svg
