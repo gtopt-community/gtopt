@@ -45,7 +45,6 @@ def _load_cen_cogen_reference() -> tuple[set[str], tuple[str, ...]]:
     names: set[str] = set()
     prefixes: list[str] = []
     candidates = [
-        Path("~/git/gtopt/share/gtopt/cogen/cen_chile_cogen.csv"),
         Path(__file__).resolve().parents[2]
         / "share"
         / "gtopt"

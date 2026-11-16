@@ -345,8 +345,7 @@ def _format_money(value: float) -> str:
 # ------------------------------------------------------------
 # Centralised so the comparison code self-documents and the
 # Region.Load vs Node.Load scoping risk is impossible to repeat.
-# Confirmed against CEN PCP DATOS20260422 (see
-# ~/.claude/.../memory/feedback_plexos_demand_scope.md).
+# Confirmed against CEN PCP DATOS20260422.
 #
 # Collection-2 (Generator class) primary props:
 PLEXOS_PROP_GENERATOR_GENERATION = 2  # MW per period
@@ -596,8 +595,7 @@ def compute_plexos_energy_totals(
     # under DC OPF).  Region.Load (prop 966) is the GROSS load
     # including battery charging + transmission losses — comparing
     # gtopt against that shows a phantom 7-8% deficit that is a
-    # definitional artifact, not a data error.  See
-    # ~/.claude/.../memory/feedback_plexos_demand_scope.md.
+    # definitional artifact, not a data error.
     # PLEXOS Node.Load (1373) is GROSS-of-battery-charging: it
     # includes the battery's charging draw at the node where the
     # battery sits.  gtopt's ``Demand/load_sol`` (filtered to
@@ -4353,8 +4351,8 @@ def _render_report(
 #
 #     python -m plexos2gtopt.compare_with_plexos \
 #         --date 20260422 \
-#         --gtopt-output ~/tmp/.../<run>_out \
-#         --gtopt-bundle ~/tmp/.../<run>
+#         --gtopt-output <workdir>/<run>_out \
+#         --gtopt-bundle <workdir>/<run>
 #
 # Resolution rules (see ``_resolve_inputs``):
 #   * ``--gtopt-output`` wins over ``--gtopt-case`` (one-line warning).

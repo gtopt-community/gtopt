@@ -12,6 +12,7 @@ exercise the end-to-end pipeline at scale.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -21,9 +22,18 @@ from gtopt_marginal_units.consumer import MarginalUnitDataset
 from gtopt_marginal_units.main import cli
 
 
-_OUTPUT_DIR = Path(
-    "~/git/gtopt-hygiene/build/integration_test/test_output/ieee_57b"
+# Prebuilt e2e outputs from the gtopt integration suite; override the
+# location with GTOPT_TEST_OUTPUT_DIR=<build>/integration_test/test_output.
+_OUTPUT_ROOT = Path(
+    os.environ.get(
+        "GTOPT_TEST_OUTPUT_DIR",
+        Path(__file__).resolve().parents[4]
+        / "build"
+        / "integration_test"
+        / "test_output",
+    )
 )
+_OUTPUT_DIR = _OUTPUT_ROOT / "ieee_57b"
 _PLANNING = _OUTPUT_DIR / "planning.json"
 
 

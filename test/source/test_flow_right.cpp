@@ -214,8 +214,7 @@ TEST_CASE("FlowRight with different purposes")  // NOLINT
 // fixed mode bounds, the asymmetric default for unset rights, the
 // `update_lp` lower-bound regression at flow_right_lp.cpp:381 (was :298),
 // the deficit (`fail`) variable creation gate, and qeh stage-average
-// construction.  Maps to ladder Tier 2 in
-// `~/.claude/projects/-home-marce-git-gtopt/memory/project_irrigation_test_ladder.md`.
+// construction.  Maps to Tier 2 of the irrigation test ladder.
 
 namespace
 {

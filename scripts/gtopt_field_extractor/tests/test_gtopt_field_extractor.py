@@ -620,7 +620,7 @@ class TestMain:
     def test_main_auto_detect_header_dir(self, capsys):
         """main() without header_dir auto-detects include/gtopt from repo."""
         # This test uses the real repo -- only run if the include dir exists.
-        repo_root = Path("~/git/gtopt")
+        repo_root = Path(__file__).resolve().parents[3]
         include_dir = repo_root / "include" / "gtopt"
         if not include_dir.is_dir():
             pytest.skip("Real repo include/gtopt not available")
@@ -643,7 +643,7 @@ class TestMain:
 
     def test_main_real_headers_html(self, capsys):
         """Integration: main() with real headers produces valid HTML."""
-        repo_root = Path("~/git/gtopt")
+        repo_root = Path(__file__).resolve().parents[3]
         include_dir = repo_root / "include" / "gtopt"
         if not include_dir.is_dir():
             pytest.skip("Real repo include/gtopt not available")

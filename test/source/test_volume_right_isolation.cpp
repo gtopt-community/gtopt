@@ -10,8 +10,7 @@
  * checks — they verify accessor wiring, sentinel handling, reset_month
  * re-provisioning, and the update_lp cache.
  *
- * Maps to the irrigation test ladder Tier 1 in
- * `~/.claude/projects/-home-marce-git-gtopt/memory/project_irrigation_test_ladder.md`.
+ * Maps to Tier 1 of the irrigation test ladder.
  */
 
 #include <doctest/doctest.h>

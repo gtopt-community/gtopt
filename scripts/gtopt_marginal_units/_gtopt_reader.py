@@ -631,12 +631,10 @@ def _load_cogen_reference() -> tuple[set[str], tuple[str, ...]]:
         return _COGEN_REFERENCE_NAMES, _COGEN_REFERENCE_PREFIXES
     names: set[str] = set()
     prefixes: list[str] = []
-    # Try the canonical bundled path first, then a couple of
-    # repo-root / pkg-relative fallbacks for source-tree runs.
+    # Resolve the bundled file relative to the source tree.
     from pathlib import Path  # noqa: PLC0415
 
     candidates = [
-        Path("~/git/gtopt/share/gtopt/cogen/cen_chile_cogen.csv"),
         Path(__file__).resolve().parents[3]
         / "share"
         / "gtopt"

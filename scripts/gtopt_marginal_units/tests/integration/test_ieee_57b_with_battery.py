@@ -33,6 +33,7 @@ with ``--input-kind feed-parquet --mode real-reconstruct``. The
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -64,7 +65,17 @@ from gtopt_marginal_units.consumer import MarginalUnitDataset
 from gtopt_marginal_units.main import cli
 
 
-_OUTPUT_ROOT = Path("~/git/gtopt-hygiene/build/integration_test/test_output")
+# Prebuilt e2e outputs from the gtopt integration suite; override the
+# location with GTOPT_TEST_OUTPUT_DIR=<build>/integration_test/test_output.
+_OUTPUT_ROOT = Path(
+    os.environ.get(
+        "GTOPT_TEST_OUTPUT_DIR",
+        Path(__file__).resolve().parents[4]
+        / "build"
+        / "integration_test"
+        / "test_output",
+    )
+)
 _IEEE57_PLANNING = _OUTPUT_ROOT / "ieee_57b" / "planning.json"
 _BAT_PLANNING = _OUTPUT_ROOT / "bat_4b_24" / "planning.json"
 

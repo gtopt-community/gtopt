@@ -1,7 +1,7 @@
 {
   "options": {
     "annual_discount_rate": 0,
-    "output_directory": "~/git/gtopt/cases/bat_4b_24/output_mindopt",
+    "output_directory": "/tmp/golden_check/bat_4b_24/mindopt",
     "output_format": "csv",
     "output_compression": "uncompressed",
     "model_options": {

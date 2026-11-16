@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for plexos2gtopt._defaults share-file resolution (portability).
 
-Regression guard for the hardcoded ``~/git/gtopt/share/gtopt``
+Regression guard for the hardcoded ``/home/<user>/.../share/gtopt``
 first candidate that used to live in ``_SHARE_CANDIDATES``: it resolved
 only on one developer machine and silently returned ``None`` (→ a
 downstream FileNotFoundError, or a fall back to the IPCC defaults) on

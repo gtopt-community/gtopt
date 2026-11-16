@@ -9,7 +9,7 @@
  * Sibling translation unit of ``sddp_method.cpp``; carries a
  * focused subset of ``SDDPMethod``'s member functions to keep
  * each TU under ~700 LoC.  Split landed in commit referenced by
- * Phase B of the gtopt-hygiene refactor.  See
+ * Phase B of the SDDP source-hygiene refactor.  See
  * ``include/gtopt/sddp_method.hpp`` for the class declaration
  * and ``source/sddp_method.cpp`` for the constructor / solver
  * lifecycle helpers.

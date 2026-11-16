@@ -58,7 +58,7 @@ gh api repos/NREL-Sienna/PowerSystemsTestData/contents/psy_data/data_5bus_pu.jl 
   --jq '.content' | base64 -d > data_5bus_pu.jl
 cd ..
 tar --zstd -cf sienna_5bus.tar.zst sienna_5bus/
-mv sienna_5bus.tar.zst ~/git/gtopt/integration_test/data/
+mv sienna_5bus.tar.zst <gtopt-checkout>/integration_test/data/
 ```
 
 And `sienna_14bus.tar.zst`:
@@ -68,7 +68,7 @@ mkdir sienna_14bus
 gh api repos/NREL-Sienna/PowerSystemsTestData/contents/psy_data/data_14bus_pu.jl \
   --jq '.content' | base64 -d > sienna_14bus/data_14bus_pu.jl
 tar --zstd -cf sienna_14bus.tar.zst sienna_14bus/
-mv sienna_14bus.tar.zst ~/git/gtopt/integration_test/data/
+mv sienna_14bus.tar.zst <gtopt-checkout>/integration_test/data/
 ```
 
 ## Why `zstd` and not gzip / xz

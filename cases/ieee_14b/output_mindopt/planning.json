@@ -1,7 +1,7 @@
 {
   "options": {
     "annual_discount_rate": 0,
-    "output_directory": "~/git/gtopt/cases/ieee_14b/output_mindopt",
+    "output_directory": "/tmp/golden_check/ieee_14b/mindopt",
     "output_format": "csv",
     "output_compression": "uncompressed",
     "model_options": {

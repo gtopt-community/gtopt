@@ -5,9 +5,7 @@ Produces a smaller electrically-equivalent gtopt JSON case (reducer) plus the
 metadata needed to project dispatch results and capacity-expansion outcomes
 back onto the original nodal grid (projector).
 
-See ``docs/network_reduction_proposal.md`` for the algorithm and
-``~/.claude/plans/fizzy-cuddling-llama.md`` for the implementation
-plan.
+See ``docs/network_reduction_proposal.md`` for the algorithm.
 """
 
 from __future__ import annotations
