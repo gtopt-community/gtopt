@@ -2248,6 +2248,7 @@ void PlanningLP::write_out()
           .solve_time_s = li.solver_stats().total_solve_time_s,
           .solve_calls = li.solver_stats().total_solve_calls(),
           .infeasible_count = li.solver_stats().infeasible_count,
+          .scale_objective = li.scale_objective(),
       });
     }
   }

@@ -38,6 +38,7 @@ SolutionRow make_row(int status)
       .solve_time_s = 0.25,
       .solve_calls = 4,
       .infeasible_count = 0,
+      .scale_objective = 1000.0,
   };
 }
 }  // namespace
@@ -49,7 +50,7 @@ TEST_CASE("solution.csv header and row field counts stay in sync")  // NOLINT
   const auto header_fields = count_csv_fields(solution_csv_header());
   const auto row_fields = count_csv_fields(solution_csv_line(make_row(0)));
 
-  CHECK(header_fields == 13);
+  CHECK(header_fields == 14);
   CHECK(row_fields == header_fields);
 }
 

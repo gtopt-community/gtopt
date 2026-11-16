@@ -419,7 +419,7 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
   // for at least half.
   CHECK(total_finite_duals >= expected_balanced_cells / 2);
 
-  // ── 4. solution.csv: 13-column header + row width via the extracted
+  // ── 4. solution.csv: 14-column header + row width via the extracted
   //       solution_csv.hpp formatter, exercised on the real write_out() path.
   const auto sol_csv = std::filesystem::path(tmpdir) / "solution.csv";
   REQUIRE(std::filesystem::exists(sol_csv));
@@ -445,11 +445,12 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
     std::string header;
     REQUIRE(std::getline(in, header));
     const auto hcols = split(header);
-    REQUIRE(hcols.size() == 13);
+    REQUIRE(hcols.size() == 14);
     CHECK(hcols[9] == "solve_ticks");
     CHECK(hcols[10] == "solve_time_s");
     CHECK(hcols[11] == "solve_calls");
     CHECK(hcols[12] == "infeasible_count");
+    CHECK(hcols[13] == "scale_objective");
 
     std::string data_row;
     REQUIRE(std::getline(in, data_row));
@@ -461,6 +462,9 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
     }
     CHECK(std::stod(rcols[10]) >= 0.0);  // solve_time_s parses, non-negative
     CHECK(std::stoul(rcols[12]) == 0);  // infeasible_count: feasible fixture
+    // Cascade runs the SDDP path, whose LP objective scale is 1.0 unless
+    // overridden — obj_value is physical either way.
+    CHECK(std::stod(rcols[13]) > 0.0);
   }
 
   std::filesystem::remove_all(tmpdir);

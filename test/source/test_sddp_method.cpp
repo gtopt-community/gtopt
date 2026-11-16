@@ -5,6 +5,8 @@
  * @date      2026-03-08
  */
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -12,7 +14,10 @@
 #include <map>
 #include <sstream>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <tuple>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
@@ -2255,10 +2260,10 @@ TEST_CASE(  // NOLINT
   run_once(LowMemoryMode::compress, cmp_dir);
 
   // solution.csv must match across low_memory modes on the deterministic
-  // solution+convergence columns.  The trailing solver-effort telemetry —
-  // solve_ticks/solve_time_s/solve_calls/infeasible_count, the last 4
-  // columns — is wall-time / backend-rebuild dependent, so it legitimately
-  // differs between modes and is stripped before the comparison.
+  // solution+convergence columns.  The solver-effort telemetry —
+  // solve_ticks/solve_time_s/solve_calls/infeasible_count — is wall-time /
+  // backend-rebuild dependent, so it legitimately differs between modes and
+  // is stripped (by column name) before the comparison.
   const auto off_sol = off_dir / "solution.csv";
   const auto cmp_sol = cmp_dir / "solution.csv";
   REQUIRE(fs::exists(off_sol));
@@ -2271,32 +2276,54 @@ TEST_CASE(  // NOLINT
             std::istreambuf_iterator<char>()};
   };
 
-  // Keep each line's deterministic prefix by dropping its last 4
-  // comma-separated fields (the solver-effort telemetry columns).
+  // Drop the run-dependent solver-effort telemetry columns BY NAME (the
+  // header is the first line), so appending new columns to solution.csv
+  // never silently shifts which fields the invariance check ignores.
   const auto strip_effort_cols = [](const std::string& txt)
   {
-    std::string out;
-    std::size_t pos = 0;
-    while (pos < txt.size()) {
-      const auto eol = txt.find('\n', pos);
-      const auto line_end = (eol == std::string::npos) ? txt.size() : eol;
-      const std::string_view line(txt.data() + pos, line_end - pos);
-      std::size_t cut = line.size();
-      for (int i = 0; i < 4; ++i) {
-        if (cut == 0) {
-          cut = std::string_view::npos;
-          break;
-        }
-        const auto c = line.rfind(',', cut - 1);
+    static constexpr std::array<std::string_view, 4> effort_cols {
+        "solve_ticks",
+        "solve_time_s",
+        "solve_calls",
+        "infeasible_count",
+    };
+    const auto split = [](std::string_view line)
+    {
+      std::vector<std::string_view> fields;
+      std::size_t start = 0;
+      for (;;) {
+        const auto c = line.find(',', start);
+        fields.push_back(line.substr(start, c - start));
         if (c == std::string_view::npos) {
-          cut = std::string_view::npos;
           break;
         }
-        cut = c;
+        start = c + 1;
       }
-      out.append(cut == std::string_view::npos ? line : line.substr(0, cut));
+      return fields;
+    };
+
+    std::string out;
+    std::vector<bool> keep;
+    std::istringstream in(txt);
+    for (std::string line; std::getline(in, line);) {
+      const auto fields = split(line);
+      if (keep.empty()) {
+        for (const auto f : fields) {
+          keep.push_back(!std::ranges::contains(effort_cols, f));
+        }
+      }
+      bool first = true;
+      for (std::size_t i = 0; i < fields.size(); ++i) {
+        if (i < keep.size() && !keep[i]) {
+          continue;
+        }
+        if (!first) {
+          out.push_back(',');
+        }
+        out.append(fields[i]);
+        first = false;
+      }
       out.push_back('\n');
-      pos = (eol == std::string::npos) ? txt.size() : eol + 1;
     }
     return out;
   };

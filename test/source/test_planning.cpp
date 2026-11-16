@@ -1,8 +1,13 @@
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/gtopt_json_io.hpp>
@@ -2609,4 +2614,112 @@ TEST_CASE("PlanningLP - write_out respects output_skipped")  // NOLINT
 
   std::error_code ec;
   std::filesystem::remove_all(fx.tmp_dir, ec);
+}
+
+namespace
+{
+/// Read `solution.csv` into (header, rows) with naive comma splitting —
+/// the file holds only numbers and bare identifiers.
+auto read_solution_csv(const std::filesystem::path& path)
+    -> std::pair<std::vector<std::string>,
+                 std::vector<std::vector<std::string>>>
+{
+  const auto split = [](const std::string& line)
+  {
+    std::vector<std::string> out;
+    std::size_t start = 0;
+    for (;;) {
+      const auto pos = line.find(',', start);
+      out.push_back(line.substr(start, pos - start));
+      if (pos == std::string::npos) {
+        break;
+      }
+      start = pos + 1;
+    }
+    return out;
+  };
+  std::ifstream in(path);
+  std::string line;
+  std::vector<std::string> header;
+  std::vector<std::vector<std::string>> rows;
+  if (std::getline(in, line)) {
+    header = split(line);
+  }
+  while (std::getline(in, line)) {
+    if (!line.empty()) {
+      rows.push_back(split(line));
+    }
+  }
+  return {std::move(header), std::move(rows)};
+}
+
+/// Solve the write-out dispatch fixture with @p scale_objective and return
+/// the parsed `solution.csv`.
+auto solve_and_read_solution_csv(double scale_objective)
+{
+  auto fx = make_write_out_dispatch_fixture();
+  const auto out_dir = std::filesystem::path(fx.tmp_dir)
+      / std::format("scale_{}", static_cast<int>(scale_objective));
+  std::filesystem::create_directories(out_dir);
+
+  PlanningOptions planning_options {};
+  planning_options.model_options.demand_fail_cost = 1000.0;
+  planning_options.model_options.scale_objective = scale_objective;
+  planning_options.output_directory = out_dir.string();
+
+  const Planning planning = {
+      .options = std::move(planning_options),
+      .simulation = std::move(fx.simulation),
+      .system = std::move(fx.system),
+  };
+
+  PlanningLP planning_lp(planning);
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  planning_lp.write_out();
+
+  auto csv = read_solution_csv(out_dir / "solution.csv");
+  std::error_code ec;
+  std::filesystem::remove_all(fx.tmp_dir, ec);
+  return csv;
+}
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "PlanningLP - solution.csv obj_value is physical for any scale_objective")
+{
+  // `obj_value` in solution.csv is documented as PHYSICAL cost units
+  // (`LinearInterface::get_obj_value()` = LP-raw × scale_objective), and the
+  // trailing `scale_objective` column carries the factor so consumers can
+  // recover the LP-raw value.  Changing `scale_objective` must therefore
+  // leave `obj_value` unchanged and only move the `scale_objective` column.
+  const auto [h1, rows1] = solve_and_read_solution_csv(1.0);
+  const auto [h1k, rows1k] = solve_and_read_solution_csv(1000.0);
+
+  REQUIRE(h1 == h1k);
+  const auto col = [&h1](std::string_view name) -> std::size_t
+  {
+    const auto it = std::ranges::find(h1, name);
+    REQUIRE(it != h1.end());
+    return static_cast<std::size_t>(std::distance(h1.begin(), it));
+  };
+  const auto i_obj = col("obj_value");
+  const auto i_scale = col("scale_objective");
+  const auto i_status = col("status");
+  CHECK(i_scale == h1.size() - 1);  // appended, never reorders older columns
+
+  REQUIRE(rows1.size() == 6);
+  REQUIRE(rows1.size() == rows1k.size());
+  for (std::size_t r = 0; r < rows1.size(); ++r) {
+    REQUIRE(rows1[r].size() == h1.size());
+    REQUIRE(rows1k[r].size() == h1.size());
+    CHECK(rows1[r][i_status] == "0");
+    CHECK(rows1k[r][i_status] == "0");
+    const auto obj1 = std::stod(rows1[r][i_obj]);
+    const auto obj1k = std::stod(rows1k[r][i_obj]);
+    CHECK(obj1 > 0.0);
+    CHECK(obj1k == doctest::Approx(obj1).epsilon(1e-9));
+    CHECK(std::stod(rows1[r][i_scale]) == doctest::Approx(1.0));
+    CHECK(std::stod(rows1k[r][i_scale]) == doctest::Approx(1000.0));
+  }
 }

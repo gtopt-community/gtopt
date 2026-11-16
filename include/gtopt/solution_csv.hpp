@@ -35,6 +35,10 @@ struct SolutionRow
   SceneUid scene_uid;
   PhaseUid phase_uid;
   int status;  ///< CLP status code, or -1 for a never-solved cell
+  /// Cell objective in PHYSICAL cost units (`LinearInterface::
+  /// get_obj_value()`: the LP-raw objective × `scale_objective`, constants
+  /// included).  Same convention for monolithic, SDDP and cascade — all
+  /// three go through `PlanningLP::write_out()`.
   double obj_value;
   double kappa;  ///< Cell condition number, or -1 when unavailable
   double max_kappa;  ///< Run-wide max kappa (SDDP summary; -1 for monolithic)
@@ -45,6 +49,11 @@ struct SolutionRow
   std::size_t solve_calls;  ///< initial_solve + resolve count on this cell
   std::size_t
       infeasible_count;  ///< Non-optimal solves (feasibility-cut hotspots)
+  /// Objective scale factor of the cell LP: `obj_value / scale_objective`
+  /// is the LP-raw objective the solver reported.  Emitted so consumers
+  /// (e.g. the golden comparator `tools/gtopt_compare_csv.py`) can convert
+  /// between raw and physical units without re-reading the case options.
+  double scale_objective;
 };
 
 /// CLP status-code → human name.  Values follow the CLP convention
@@ -77,14 +86,14 @@ struct SolutionRow
 {
   return "scene,phase,status,status_name,obj_value,kappa,max_kappa,"
          "gap,gap_change,solve_ticks,solve_time_s,solve_calls,"
-         "infeasible_count\n";
+         "infeasible_count,scale_objective\n";
 }
 
 /// Format one @p row as a CSV line (trailing newline included), matching the
 /// column order of `solution_csv_header`.
 [[nodiscard]] inline std::string solution_csv_line(const SolutionRow& row)
 {
-  return std::format("{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+  return std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
                      row.scene_uid,
                      row.phase_uid,
                      row.status,
@@ -97,7 +106,8 @@ struct SolutionRow
                      row.solve_ticks,
                      row.solve_time_s,
                      row.solve_calls,
-                     row.infeasible_count);
+                     row.infeasible_count,
+                     row.scale_objective);
 }
 
 }  // namespace gtopt
