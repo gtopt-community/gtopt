@@ -410,7 +410,7 @@ public:
   /// When @p pool is non-null, the per-scene cut-file writes are
   /// dispatched as parallel tasks (16 sequential writes → 16 in
   /// parallel on a saturated pool, ~0.5–1 s saved per iteration on
-  /// the large_case scale).  When @p pool is null, falls back
+  /// the large hydrothermal case scale).  When @p pool is null, falls back
   /// to a sequential loop — used by code paths that do not have a
   /// pool available (e.g. unit tests that exercise this method
   /// directly without going through `SDDPMethod::solve`).

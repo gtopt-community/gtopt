@@ -307,7 +307,7 @@ class LajaAgreement(_RightsAgreementBase):
         the retiro non-served base is replaced by
         ``resolver.fail_cost(cascade_pf)`` (units: ``$/(m³/s·h)``).
         Logs the substitution at INFO so the change is auditable in
-        large_case-style end-to-end runs.
+        PLP-converted-case style end-to-end runs.
 
         Falls through to the legacy PLP value otherwise.  (The former
         ``cost_elec_ns`` override is gone: PLP has no electric

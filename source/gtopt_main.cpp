@@ -178,7 +178,7 @@ constexpr std::string_view kAsyncLoggerName = "gtopt_async";
 /// scene-build emits LP-element log lines simultaneously) a
 /// ``block`` policy would freeze producer threads — including the
 /// main thread — when the queue fills, deadlocking the solve.
-/// Observed on large_case L1→L2 with the original 8192/1/block
+/// Observed on the large hydrothermal case L1→L2 with the original 8192/1/block
 /// config: main thread parked in ``hrtimer_nanosleep`` indefinitely
 /// while 71 worker threads waited on the queue futex.  Losing a
 /// few oldest log lines under sustained backpressure is strictly
@@ -225,7 +225,7 @@ void ensure_default_logger_async()
   // producer thread.  This trades occasional log-line loss under
   // sustained backpressure for guaranteed solver forward
   // progress — see the ``ensure_async_thread_pool`` docstring for
-  // the large_case deadlock that motivated the switch from
+  // the large hydrothermal case deadlock that motivated the switch from
   // ``block``.  The 65536-slot queue + 2 workers means the
   // overrun window only opens during truly sustained bursts
   // (level transitions × 16 scenes × many LP-element log lines);

@@ -279,8 +279,8 @@ int SDDPMethod::update_lp_for_phase(SceneIndex scene_index,
   // physical_eini then fell through to its JSON `eini` fallback (e.g.
   // 1731 Hm³ for ELTORO), pinning the seepage segment to the
   // construction-time volume regardless of the actual forward-pass
-  // trajectory.  Observed on large_case p38 where the resulting
-  // 15.09 m³/s seepage baseflow exceeded the scheduled affluent and
+  // trajectory.  Observed on the large hydrothermal case p38 where the
+  // resulting 15.09 m³/s seepage baseflow exceeded the scheduled affluent and
   // structurally broke the LP after the forward pass had drained the
   // reservoir to zero.
   if (phase_index) {
@@ -431,12 +431,12 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     // snapshot — they live only on the volatile backend that was
     // dropped at the previous `release_backend()`.  Without this call
     // the backward re-solve runs on stale construction-time matval
-    // (e.g. large_case `turbine_conversion_*_54_*` coefficient stayed
-    // pinned at 0.97522 vs the forward's 0.97612), producing cuts
-    // whose value-function geometry is inconsistent with the forward
-    // model.  Observed plateau: gap=133.78%, LB=-695M from iter 2.
-    // Under `LowMemoryMode::off` `update_lp_for_phase` is idempotent
-    // (same coefficient re-written), so this is a no-op cost.
+    // (e.g. the large hydrothermal case `turbine_conversion_*_54_*` coefficient
+    // stayed pinned at 0.97522 vs the forward's 0.97612), producing cuts whose
+    // value-function geometry is inconsistent with the forward model.  Observed
+    // plateau: gap=133.78%, LB=-695M from iter 2. Under `LowMemoryMode::off`
+    // `update_lp_for_phase` is idempotent (same coefficient re-written), so
+    // this is a no-op cost.
     update_lp_for_phase(scene_index, phase_index);
 
     // Forward-sampling consistency (`ForwardSamplingMode::resampled`):
@@ -1264,8 +1264,8 @@ auto SDDPMethod::run_forward_pass_all_scenes(
       // Demoted to DEBUG: the per-(scene, phase) elastic-filter WARN
       // already emitted by `forward_pass` carries the same message;
       // this outer wrapper used to repeat it once per failed scene
-      // for an extra 16 redundant lines per iteration on large_case.
-      // The aggregated rollback summary in `run_backward_pass_*`
+      // for an extra 16 redundant lines per iteration on the large hydrothermal
+      // case. The aggregated rollback summary in `run_backward_pass_*`
       // (`SDDP Forward [iN]: rolled back M cut row(s) across K
       // infeasible scene(s) [s1=8 s3=8 …]`) is the user-facing
       // signal; this DEBUG line preserves the per-scene tag for
@@ -1543,7 +1543,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
   // backward pass kick off (the non-synchronized path has the
   // matching log at line ~764).  Without this the log goes silent
   // between "Forward [i0] rolled back N cuts" and the next
-  // iteration summary, which on large_case-scale runs is several
+  // iteration summary, which on CEN-scale runs is several
   // minutes of aperture solves.
   SPDLOG_INFO(
       "SDDP Backward [i{}]: dispatching {}/{} feasible scene(s) × "
@@ -1773,10 +1773,10 @@ auto SDDPMethod::run_backward_pass_synchronized(
     }
 
     // Periodic INFO progress every 10 phases on long backward
-    // passes — large_case-scale runs have 50 phases × ~80 cells per
+    // passes — CEN-scale runs have 50 phases × ~80 cells per
     // phase × 2-3s per aperture solve, so the synchronized loop
     // can take many minutes silent.  10 phases ≈ once per minute
-    // on large_case, frequent enough for users to see progress without
+    // on the large case, frequent enough for users to see progress without
     // flooding the log on smaller fixtures.
     if (uid_of(phase_index) % 10 == 0) {
       const auto elapsed = std::chrono::duration<double>(
@@ -1941,7 +1941,7 @@ void SDDPMethod::compute_iteration_bounds(
   // ``get_obj_value_raw()`` here would put UB and LB in different
   // unit spaces, producing a gap = (UB − LB) / |UB| ≈
   // ``(scale_objective − 1) / scale_objective`` that never closes
-  // regardless of cut quality (large_case at
+  // regardless of cut quality (the large hydrothermal case at
   // ``scale_objective = 1000``: a permanent ≈ 0.999 gap).
   const auto num_scenes = planning_lp().simulation().scene_count();
   ir.scene_lower_bounds.resize(num_scenes, 0.0);

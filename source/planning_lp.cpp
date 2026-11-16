@@ -962,7 +962,7 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning,
   // value (1e30) rather than a real physical magnitude, so deriving
   // `flow_scale = scale_for(fmax)` produced absurd `col_scale = 1e30`
   // entries that broke Benders cut numerics
-  // (large_case regression).  Energy scales are still derived
+  // (the large hydrothermal case regression).  Energy scales are still derived
   // from `emax / 1000` because emax is a real reservoir capacity
   // (hm³) for which a power-of-ten LP rescale is meaningful.  Users
   // who genuinely want a non-unit flow scale must declare it
@@ -2021,7 +2021,7 @@ void PlanningLP::write_out_cell(SystemLP& system)
     // the cell's parquet output is written.  `PlanningLP::resolve()`
     // is the last LP-touching step in the run, so no future caller
     // will reconstruct this cell.  At ~3-5 MB compressed × 816 cells
-    // on large_case-scale this frees ~3-4 GB of RSS just before the writer
+    // on CEN-scale this frees ~3-4 GB of RSS just before the writer
     // thread exits.  Safe because the only remaining consumers
     // (status JSON, post-resolve aggregations) read cached scalars
     // from `m_cache_`, not the flat-LP snapshot.
@@ -2103,8 +2103,8 @@ void PlanningLP::write_out()
   // cpu_factor=1.0 (NOT the SDDP pool's 4.0) is deliberate.  Arrow's
   // default memory pool and parquet encoders are not lock-free; more
   // threads in flight cause pathological contention (observed on
-  // large_case: 80 threads → oc.write 60 s per cell; 40 threads was
-  // better, but 20 threads should reduce contention further while
+  // the large hydrothermal case: 80 threads → oc.write 60 s per cell; 40
+  // threads was better, but 20 threads should reduce contention further while
   // still using every physical core).
   // Forward `--memory-limit` through the same path as every other
   // pool so the 60 GB RSS cap is honoured during write_out.
@@ -2116,8 +2116,8 @@ void PlanningLP::write_out()
   //     SLOWER per cell despite avg per-task CPU climbing from 55 %
   //     → 95 %).  The extra concurrency hits the Arrow memory-pool /
   //     parquet encoder contention noted in the 2026-05-12 comment
-  //     above on large_case and dominates the marginal parallelism
-  //     gain.  Confirmed that 1.0 is the sweet spot for this code
+  //     above on the large hydrothermal case and dominates the marginal
+  //     parallelism gain.  Confirmed that 1.0 is the sweet spot for this code
   //     path: the per-task CPU "headroom" at 1.0 is I/O wait that
   //     the parquet encoder uses internally — adding more pool
   //     threads on top just queues them on Arrow's locks.

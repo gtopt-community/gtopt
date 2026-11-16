@@ -65,7 +65,7 @@ public:
    *  because for meshed grids it produces a strictly smaller LP than
    *  ``node_angle`` (no per-bus theta column, fewer KVL rows: one per
    *  fundamental cycle instead of one per line — typically
-   *  ``|L| − |B| + #islands`` rows vs ``|L|``).  On large_case-scale cases
+   *  ``|L| − |B| + #islands`` rows vs ``|L|``).  On CEN-scale cases
    *  this is ~40 % smaller per block.  Switch to ``node_angle``
    *  explicitly when the case needs per-stage topology changes or
    *  phase-shift transformers (which require the bus-angle form).
@@ -133,7 +133,8 @@ public:
    * (large) set of monolithic-MIP unit-test fixtures continue to read
    * obj values in LP-space units as historically.
    *
-   * Why SDDP defaults to 1.0: 2026-05 benchmark on large_case showed
+   * Why SDDP defaults to 1.0: 2026-05 benchmark on the large hydrothermal case
+   * showed
    * ``scale_objective=1000`` is the dominant numerical-conditioning
    * contributor to basis kappa.  Measured at iter 15 of a 16-scene,
    * 51-phase, 7,431-cut hot-start:
@@ -426,7 +427,8 @@ public:
   ///
   /// Default depends on planning method:
   ///   - SDDP / cascade : ``1.0``  (numerical-conditioning win per
-  ///     the large_case benchmark — see ``default_scale_objective`` doc).
+  ///     the large hydrothermal case benchmark — see
+  ///     ``default_scale_objective`` doc).
   ///   - Monolithic     : ``1000`` (legacy default; preserves existing
   ///     test fixtures and single-shot LP behaviour).
   ///
@@ -784,10 +786,10 @@ public:
   ///   - Multi-bus copper-plate → ``none`` (no Kirchhoff coupling).
   ///
   /// **Single-bus default changed to ``none`` in 2026-05** after the
-  /// large_case scaling benchmark (16-scene, 51-phase, 7,431-cut
-  /// hot-start; ``-b 1`` single-bus mode) showed equilibration on
-  /// top of ``scale_objective`` and per-element ``auto_scale``
-  /// widens basis kappa rather than improving it.  iter-15 kappa:
+  /// the large hydrothermal case scaling benchmark (16-scene, 51-phase,
+  /// 7,431-cut hot-start; ``-b 1`` single-bus mode) showed equilibration on top
+  /// of ``scale_objective`` and per-element ``auto_scale`` widens basis kappa
+  /// rather than improving it.  iter-15 kappa:
   ///
   ///   - ``row_max`` (old single-bus default) : 1.27e+08
   ///   - ``none``    (new single-bus default) : 8.10e+07 (1.6× lower)
@@ -925,15 +927,14 @@ private:
   /// wins as expected.
   ///
   /// **Default `threads = 1` (changed from 4 on 2026-05-15)**:
-  /// large_case empirically showed `threads = 1` is faster than
-  /// `threads = 4` for SDDP forward/backward passes — at the SDDP
-  /// scale the LPs are small enough that CPLEX's per-LP
-  /// thread-coordination overhead exceeds the parallel speedup,
-  /// and the work pool can fit more concurrent LP solves without
-  /// oversubscribing the host.  Observed wall-time speedup on
-  /// L0 warmup: ~2.6× per iter (15-17 s → 6-8 s).  L1 / L2 see a
-  /// similar 1.5-2× speedup.  CPU utilisation is healthier too
-  /// (more threads in R, fewer in `futex_wait_queue`).
+  /// the large hydrothermal case empirically showed `threads = 1` is faster
+  /// than `threads = 4` for SDDP forward/backward passes — at the SDDP scale
+  /// the LPs are small enough that CPLEX's per-LP thread-coordination overhead
+  /// exceeds the parallel speedup, and the work pool can fit more concurrent LP
+  /// solves without oversubscribing the host.  Observed wall-time speedup on L0
+  /// warmup: ~2.6× per iter (15-17 s → 6-8 s).  L1 / L2 see a similar 1.5-2×
+  /// speedup.  CPU utilisation is healthier too (more threads in R, fewer in
+  /// `futex_wait_queue`).
   static constexpr void apply_sddp_pass_defaults(SolverOptions& opts) noexcept
   {
     if (opts.algorithm == LPAlgo::default_algo) {
@@ -992,7 +993,7 @@ public:
    *         (manual route, no global mutex).
    *
    * @return ``true`` by default — measured ~2-3× speed-up on the
-   *         large_case aperture phase by escaping the global
+   *         the large hydrothermal case aperture phase by escaping the global
    *         ``s_global_clone_mutex`` that serialises ``CPXcloneprob``
    *         calls across the SDDP work pool.  Safe under all
    *         ``LowMemoryMode`` settings: the call site falls back to
@@ -1148,7 +1149,7 @@ public:
    * legitimately exit on their first qualifying iter — leaving the
    * default at 3 forced uninodal to grind two redundant iters past
    * the first time |gap| dropped inside the ceiling (observed on
-   * large_case, 2026-05-14). */
+   * the large hydrothermal case, 2026-05-14). */
   static constexpr Int default_sddp_min_iterations = 1;
   /** @brief Default relative convergence tolerance.
    *
@@ -1240,7 +1241,7 @@ public:
    *         `source_col {<=,>=} dep_val_phys` bound cuts whose RHS
    *         (`dep_val_phys` from the Chinneck Phase-1 LP) may exceed
    *         the source phase's physically reachable set, making the
-   *         master LP infeasible (observed on large_case:
+   *         master LP infeasible (observed on the large hydrothermal case:
    *         reservoir mcut required end-of-phase energy ≥ 330.33 with
    *         a physical cap of ~207.78 + limited inflow).  Raising the
    *         threshold defers the risky bound cuts until many
@@ -1261,7 +1262,7 @@ public:
    *
    * 0.0 (DISABLED) — the statistical CI test (PLP-style ``UB - LB <=
    * z·σ``) is opt-in.  Under heterogeneous-scene scatter (σ ≈ 50 % of
-   * mean on Maule/large_case) z·σ trivially exceeds the absolute gap at
+   * mean on Maule-type large cases) z·σ trivially exceeds the absolute gap at
    * 25 % relative, declaring premature convergence.  Set to 0.95 to
    * enable the standard 95 % CI test, or 0.50 for a tighter narrow-CI
    * variant. */
@@ -1273,7 +1274,7 @@ public:
    * relative gap is at or above 5 % — only the primary
    * ``convergence_tol`` test (1 %) can close the run at high gaps.
    *
-   * Defends against heterogeneous-scene σ explosion (large_case trace_28:
+   * Defends against heterogeneous-scene σ explosion (large-case trace_28:
    * gap = 25 % declared converged at iter 2 because σ ≈ 77 M
    * dominated the 38 M absolute gap) and frozen-LB pathologies (LB
    * stuck at 0, gap = 1 flat → gap_change = 0).  Set to 1.0 to
@@ -1312,7 +1313,7 @@ public:
 
   /// Per-scene rollback default — see `SDDPOptions::forward_infeas_rollback`
   /// in `sddp_types.hpp` for full semantics.  Flipped to `true`
-  /// 2026-04-30 (plan step 6) after one full large_case run
+  /// 2026-04-30 (plan step 6) after one full the large hydrothermal case run
   /// confirmed the feature does not regress legacy paths: every
   /// pre-existing test that doesn't produce a real
   /// `scene_feasible[s] == 0` outcome stays a no-op under the
@@ -1799,9 +1800,9 @@ public:
    *
    * Default **0** routes to the synchronous coordinator path instead:
    * one driver thread per scene per pass, lockstep across iterations.
-   * Benchmarking on large_case (2026-06) found the coordinator/lockstep
-   * path faster at every level (warmup −19 %, uninodal −35 %, transport
-   * −38 %, bounds identical) because the async path pays an
+   * Benchmarking on the large hydrothermal case (2026-06) found the
+   * coordinator/lockstep path faster at every level (warmup −19 %, uninodal −35
+   * %, transport −38 %, bounds identical) because the async path pays an
    * after-convergence overshoot — once a level converges every scene
    * computes and discards a full extra iteration — and funnels all
    * solves through the shared pool's burst-submit dispatch.  In the
@@ -1871,7 +1872,7 @@ public:
    *         statistical CI test (``ConvergenceMode::statistical``) is
    *         opt-in — it relies on ``convergence_confidence > 0`` and
    *         is too easily fooled by heterogeneous-scene σ scatter
-   *         (Maule/large_case).  Gap + stationary safety net is the
+   *         (Maule-type large cases).  Gap + stationary safety net is the
    *         right default for most users.
    */
   [[nodiscard]] constexpr auto sddp_convergence_mode() const

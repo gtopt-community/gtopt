@@ -18,8 +18,8 @@
  *     extensive-form oracle harness (`test_sddp_cut_oracle.cpp`).
  *
  * The test was originally written to expose the LB-overshoot regression
- * observed on large_case where iter 1+ produced LB ≫ UB by orders
- * of magnitude (compounding ~10× per iteration) under the legacy
+ * observed on the large hydrothermal case where iter 1+ produced LB ≫ UB by
+ * orders of magnitude (compounding ~10× per iteration) under the legacy
  * broadcast modes.  Those modes (`accumulate`, `broadcast_mean` /
  * `expected`, `max`) were REMOVED 2026-07-08 (verdicts in
  * `docs/formulation/sddp-cut-validity.md` §7); their regression guards
@@ -557,16 +557,15 @@ TEST_CASE(
 
 // ─── scale_alpha unit-bug probe ───────────────────────────────────────────
 //
-// large_case regresses with LB compounding ~10× per iteration in
-// reproducible runs (iter 0 LB=1.4M, iter 1 LB=1.1B, iter 2 LB=10.9B,
-// iter 3 LB=107.5B), all to the digit across multiple runs.  The 10×
-// per-iter compounding factor exactly matches large_case's auto
-// `scale_alpha = 10` (= max state var_scale, set in
-// `sddp_method.cpp:316-329`).  Probe: parameterize `SDDPOptions::scale_alpha`
-// at 1, 10, 100 on a fixture with state variables (reservoir) and
-// verify LB stays ≤ UB at every iter regardless of scale_alpha.  If
-// LB overshoots only when scale_alpha > 1, the bug is in the cut
-// construction's α-coefficient unit handling.
+// the large hydrothermal case regresses with LB compounding ~10× per iteration
+// in reproducible runs (iter 0 LB=1.4M, iter 1 LB=1.1B, iter 2 LB=10.9B, iter 3
+// LB=107.5B), all to the digit across multiple runs.  The 10× per-iter
+// compounding factor exactly matches the large case's auto `scale_alpha = 10`
+// (= max state var_scale, set in `sddp_method.cpp:316-329`).  Probe:
+// parameterize `SDDPOptions::scale_alpha` at 1, 10, 100 on a fixture with state
+// variables (reservoir) and verify LB stays ≤ UB at every iter regardless of
+// scale_alpha.  If LB overshoots only when scale_alpha > 1, the bug is in the
+// cut construction's α-coefficient unit handling.
 
 TEST_CASE("SDDP scale_alpha probe — LB <= UB across scale_alpha = 1, 10, 100")
 {
@@ -593,7 +592,7 @@ TEST_CASE("SDDP scale_alpha probe — LB <= UB across scale_alpha = 1, 10, 100")
 
       // Stronger check: LB monotone non-decreasing AND
       // LB[k] / max(1, LB[k-1]) < 2 for k >= 1 (no compounding > 2×).
-      // large_case's regression has LB[1] / LB[0] ≈ 786× — anything > 2×
+      // the large case's regression has LB[1] / LB[0] ≈ 786× — anything > 2×
       // is decisive evidence of a unit bug.
       for (std::size_t i = 1; i < results->size(); ++i) {
         const double prev_lb = (*results)[i - 1].lower_bound;
@@ -619,12 +618,12 @@ TEST_CASE("SDDP scale_alpha probe — LB <= UB across scale_alpha = 1, 10, 100")
 }
 
 // Probe scale_alpha × apertures on the synthetic 10-phase fixture.
-// large_case has 170k aperture entries loaded; the synthetic
+// the large hydrothermal case has 170k aperture entries loaded; the synthetic
 // 2s10p test uses synthetic-aperture fallback (apertures=nullopt)
 // which auto-derives apertures from the scenarios.  This is the
-// closest small-scale analogue of large_case's aperture-enabled run.
+// closest small-scale analogue of the large case's aperture-enabled run.
 // If LB compounds at scale_alpha=10, the bug is in the aperture
-// pass interacting with non-unit scale_alpha (predicted by large_case's
+// pass interacting with non-unit scale_alpha (predicted by the large case's
 // 10× per-iter compounding factor exactly matching its scale_alpha).
 
 TEST_CASE(
@@ -644,7 +643,8 @@ TEST_CASE(
       opts.convergence_tol = 1.0e-12;
       opts.cut_sharing = CutSharingMode::none;
       opts.scale_alpha = sa;
-      opts.apertures = std::nullopt;  // synthetic apertures (large_case's path)
+      opts.apertures =
+          std::nullopt;  // synthetic apertures (the large case's path)
       opts.enable_api = false;
 
       SDDPMethod sddp(plp, opts);
@@ -659,7 +659,7 @@ TEST_CASE(
 // reservoirs.  The auto-scale_alpha logic in `initialize_solver` sets
 // `scale_alpha = max state var_scale`, so a fixture with
 // `Reservoir.energy.scale = 10` triggers `scale_alpha = 10`
-// automatically — matching large_case's setup directly.
+// automatically — matching the large case's setup directly.
 
 TEST_CASE("SDDP scale_alpha probe — variable_scales force scale_alpha")
 {
@@ -670,7 +670,7 @@ TEST_CASE("SDDP scale_alpha probe — variable_scales force scale_alpha")
     SUBCASE(label.c_str())
     {
       auto planning = make_2scene_10phase_two_reservoir_planning();
-      // Apply explicit variable_scales just like large_case's JSON.
+      // Apply explicit variable_scales just like the large case's JSON.
       planning.options.variable_scales = std::vector<VariableScale> {
           VariableScale {
               .class_name = "Reservoir",

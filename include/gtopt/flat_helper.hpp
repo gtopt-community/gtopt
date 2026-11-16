@@ -129,7 +129,7 @@ public:
       // column-length mismatches at write time
       // (``Column 3 ... expected length 3570 but got length 8160`` —
       // ratio = N_total_scenarios / N_active_scenarios = 16/7 on
-      // large_case 2026-05-02 trace_34).  We walk the active
+      // the large hydrothermal case 2026-05-02 trace_34).  We walk the active
       // scene list and pick up each active scene's scenarios; this
       // produces the expected length consistently with the write
       // path's per-scene iteration.

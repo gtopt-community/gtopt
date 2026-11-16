@@ -108,14 +108,14 @@ TEST_CASE("SDDPMethod - scale invariance across variable_scales")  // NOLINT
     CHECK(lb == doctest::Approx(lb0).epsilon(kParityTol));
   }
 
-  SUBCASE("large_case-scale magnitudes: energy=10000 + flow=10000 (per-class)")
+  SUBCASE("CEN-scale magnitudes: energy=10000 + flow=10000 (per-class)")
   {
     // Matches what `auto_scale_reservoirs` would produce on LMAULE
-    // (large_case emax≈1453 hm³ → scale=10 000, fmax=10 000 m³/s →
-    // scale=10 000).  The previous transient `e848067a` revert broke
+    // (the large hydrothermal case emax≈1453 hm³ → scale=10 000, fmax=10 000
+    // m³/s → scale=10 000).  The previous transient `e848067a` revert broke
     // here: obj drifted by ~400× on a larger fixture, but the
     // scale=10 / 100 sub-cases above didn't trigger it.  This SUBCASE
-    // locks in the large_case-magnitude behaviour too.
+    // locks in the CEN-magnitude behaviour too.
     const auto [ub, lb] = run_with_scales({
         VariableScale {
             .class_name = "Reservoir",
@@ -139,7 +139,7 @@ TEST_CASE("SDDPMethod - scale invariance across variable_scales")  // NOLINT
 // `variable_scales` injection: it's invoked by `PlanningLP::ctor`
 // from `auto_scale_reservoirs(planning)` when no `variable_scales`
 // entries are supplied.  The lockstep test below builds a fixture with
-// large_case-style reservoir magnitudes (emax ≫ 1, fmax ≫ 1) and compares
+// CEN-scale reservoir magnitudes (emax ≫ 1, fmax ≫ 1) and compares
 // three runs:
 //
 //   1. auto-scale OFF (explicit empty `variable_scales` is kept empty
@@ -148,17 +148,17 @@ TEST_CASE("SDDPMethod - scale invariance across variable_scales")  // NOLINT
 //   2. auto-scale ON (reservoir emax/fmax drive the scale formula)
 //
 // Both must converge to the same PHYSICAL objective.  Regressions that
-// break SDDP cut numerics at large_case scale (obj jumping 400×) would be
+// break SDDP cut numerics at CEN-scale (obj jumping 400×) would be
 // caught by this test where the previous 150-capacity fixture couldn't
 // reproduce them.
 TEST_CASE(  // NOLINT
-    "SDDPMethod - auto_scale_reservoirs invariance at large_case-scale magnitudes")
+    "SDDPMethod - auto_scale_reservoirs invariance at CEN-scale magnitudes")
 {
   constexpr int kIters = 15;
   constexpr double kConvTol = 1e-5;
   constexpr double kParityTol = 1e-3;
 
-  // Mutate the 3-phase fixture to a large_case-style reservoir: emax/fmax
+  // Mutate the 3-phase fixture to a CEN-scale reservoir: emax/fmax
   // both ≫ 1000 so `auto_scale_reservoirs` actually fires.  The
   // physical problem stays solvable (dispatch costs change, but the
   // solver sees a bigger admissible volume range).
@@ -2045,11 +2045,11 @@ TEST_CASE(  // NOLINT
 // should the lower bound exceed the upper bound (modulo a small
 // floating-point epsilon).  Regressions where the backward pass solves
 // on stale matval (the bug fixed in commit 3e73f68c) violate this:
-// pre-fix large_case had iter 1 LB=-873M against UB=2.072G, gap=142.47%.
-// On a small fixture the violation pattern would be more subtle but
-// still detectable as transient inconsistencies between iter 0 (LB
-// computed with correct backward solve) and later iters (LB drifting
-// once cuts compound on stale-matval geometry).
+// pre-fix the large hydrothermal case had iter 1 LB=-873M against UB=2.072G,
+// gap=142.47%. On a small fixture the violation pattern would be more subtle
+// but still detectable as transient inconsistencies between iter 0 (LB computed
+// with correct backward solve) and later iters (LB drifting once cuts compound
+// on stale-matval geometry).
 //
 // The 3-phase hydro fixture is small enough that LB and UB should
 // converge cleanly within a handful of iterations under both `off`
@@ -2867,7 +2867,7 @@ TEST_CASE(  // NOLINT
 // elastic clone declares relaxed-infeasible before the cut emitter
 // gets a chance.  Skipping both recovery fixtures until they're
 // redesigned with per-phase slack magnitudes guaranteed above the
-// PLP-parity filter threshold — production cases (plp_large_case,
+// PLP-parity filter threshold — production cases (large PLP cases,
 // ieee_14b) exercise the real cascade flow.
 // Cascade-style backtracking recovery on the 1-reservoir 10-phase
 // fixture.  Now that ``forward_fail_stop = false`` is the default
@@ -2879,7 +2879,7 @@ TEST_CASE(  // NOLINT
 // 0 cuts (sddp_forward_pass.cpp:447 logs the symptom).  Both
 // multi_cut and chinneck hit this symmetrically — the chinneck IIS
 // filter is not at fault; the geometry itself is the limiter.
-// Production cascades on plp_large_case / ieee_14b have richer geometry
+// Production cascades on large PLP cases / ieee_14b have richer geometry
 // and exercise multi_cut + chinneck end-to-end through the
 // integration test suite.
 TEST_CASE(  // NOLINT
@@ -2923,7 +2923,7 @@ TEST_CASE(  // NOLINT
       // most of those degenerate cuts and leave the clone with a
       // slack budget too tight to relax this synthetic infeasibility.
       // Pin the old behaviour so the fixture still exercises the
-      // backtracking cascade — production cases (plp_large_case, ieee) keep
+      // backtracking cascade — production cases (large PLP cases, ieee) keep
       // the PLP-parity defaults.
       sddp_opts.cut_coeff_eps = 1e-6;
       sddp_opts.elastic_penalty = 1e2;
@@ -2961,7 +2961,7 @@ TEST_CASE(  // NOLINT
 
 // Re-enabled 2026-04-26.  The fixture now exercises the **terminal
 // `efin` row** cascade path (vini=0, efin=150, total inflow=200),
-// mirroring the large_case p51 LMAULE infeasibility that
+// mirroring the large hydrothermal case p51 LMAULE infeasibility that
 // originally surfaced the cut-row /scale_objective bug.  Without
 // future-cost cuts the iter-0 forward pass drains the reservoirs
 // greedily; phase 9's terminal `efin` row is infeasible; the
@@ -2992,7 +2992,7 @@ TEST_CASE(  // NOLINT
   // every relaxed link as non-essential because the pure-feasibility
   // clone optimum is at a degenerate origin where all links can be
   // re-pinned at zero cost).  Production cascades exercise chinneck
-  // through the plp_large_case / ieee_14b integration runs, so the
+  // through the large PLP cases / ieee_14b integration runs, so the
   // sub-fixture coverage gap here is acceptable.
   //
   // The multi_cut mode is similarly skipped on this 2-reservoir toy
@@ -3001,8 +3001,8 @@ TEST_CASE(  // NOLINT
   // state-variable-relaxed clone reports "relaxed clone infeasible"
   // at p7 on this geometry — the relaxation is no longer enough to
   // recover a Farkas dual ray on the toy hydraulic chain.  Production
-  // cascades on large_case / ieee_14b continue to exercise multi_cut
-  // through the integration tests; this single_cut sub-fixture pins
+  // cascades on the large hydrothermal case / ieee_14b continue to exercise
+  // multi_cut through the integration tests; this single_cut sub-fixture pins
   // the invariant for the simpler case.
   const std::array cases = {
       ModeCase {
@@ -4953,7 +4953,7 @@ TEST_CASE(  // NOLINT
 {
   // SDDP-theory guard: LB > UB (negative gap) violates the lower-
   // bound contract of valid Benders cuts, and the convergence test
-  // must NOT silently accept it as "converged".  Observed in large_case
+  // must NOT silently accept it as "converged".  Observed in the large case
   // before this guard was added: iter 1 hit gap=-6.59 with LB ≈
   // 1.16B vs UB ≈ 153M and the run wrote "[CONVERGED]" while the
   // LB was wildly off — a numerical scaling bug masquerading as a
@@ -5958,7 +5958,7 @@ TEST_CASE("SDDPMethod diagnose_kappa — runs after solve")  // NOLINT
 // `lp_debug_passes="backward"` so every backward re-solve dumps the
 // LP_t about to be solved.  Captures the per-iter cut row evolution
 // via the iteration callback so we can see *how the cuts go bad*
-// without re-running the 5-min large_case case.
+// without re-running the 5-min large hydrothermal case.
 
 // Helper for the efin-sweep below — same options as the main DIAG case,
 // just with the efin_cost parameter swept and the LP-dump path off.
@@ -6105,9 +6105,9 @@ TEST_CASE(  // NOLINT
 // ─── DIAG: explore mitigations for the efin_cost=500 LB-overshoot ─────────
 //
 // At `efin_cost=500` the small dual±1 fixture exhibits the same LB-
-// overshoot pattern as large_case: iter-1 LB drops below 0 before
-// recovering.  This sweep probes which SDDP / LP-solver knobs change
-// the picture, so we can answer "what mitigation actually helps".
+// overshoot pattern as the large hydrothermal case: iter-1 LB drops below 0
+// before recovering.  This sweep probes which SDDP / LP-solver knobs change the
+// picture, so we can answer "what mitigation actually helps".
 //
 // Each subcase reports `iters_to_close_gap` and `min_LB` across 30
 // iterations.  If a row shows `min_LB ≥ 0` with `gap < 1%` by iter
@@ -6465,7 +6465,7 @@ TEST_CASE(  // NOLINT
 
   auto planning = make_backtracking_recovery_two_reservoir_planning();
   for (auto& r : planning.system.reservoir_array) {
-    r.efin_cost = OptReal {100.0};  // soft, large_case-magnitude
+    r.efin_cost = OptReal {100.0};  // soft, CEN-magnitude
   }
   planning.options.lp_matrix_options.solver_name = pinned_solver;
   PlanningLP plp(std::move(planning));

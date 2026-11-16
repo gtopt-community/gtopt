@@ -327,9 +327,9 @@ TEST_CASE(  // NOLINT
 //     StateVariable channel — regression guard against the
 //     "simplification" that pinned ``physical_eini_from_cache`` to
 //     ``rc.default_volume`` (= JSON eini) whenever the current LP
-//     wasn't optimal yet.  Observed on large_case scen 51 phase 38:
-//     ELTORO ``eini = 1731 hm³`` (segment 2 ``constant = 15.09 m³/s``)
-//     but predecessor's actual trial drained it to 0; without
+//     wasn't optimal yet.  Observed on the large hydrothermal case scen 51
+//     phase 38: ELTORO ``eini = 1731 hm³`` (segment 2 ``constant = 15.09
+//     m³/s``) but predecessor's actual trial drained it to 0; without
 //     cross-phase routing the seepage row used segment 2's intercept
 //     at empty storage → 15.09 m³/s seepage > 12.18 m³/s afluent →
 //     cascade infeasibility through p38 → p1.
@@ -394,7 +394,7 @@ TEST_CASE(  // NOLINT
   const auto vini = physical_eini_from_cache(sys1, scenario1, stage1, cache);
   CHECK(vini == doctest::Approx(prev_solved_efin));
   // And critically NOT the default volume (the failure mode from
-  // large_case p38: defaulting to JSON eini).
+  // the large hydrothermal case p38: defaulting to JSON eini).
   CHECK(vini != doctest::Approx(cache.default_volume));
 
   // Reset for cleanup
@@ -462,7 +462,7 @@ TEST_CASE(  // NOLINT
     "physical_eini_from_cache: pinned eini-col bound wins over "
     "default_volume when StateVariable lookup misses (aperture path)")
 {
-  // Reproduces the large_case p51 production bug
+  // Reproduces the large hydrothermal case p51 production bug
   // (2026-05-12 INFEAS-PROBE confirmed via IIS):
   //
   //   * Forward pass drains a reservoir (ELTORO/COLBUN/CIPRESES) to 0.

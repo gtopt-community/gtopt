@@ -32,14 +32,14 @@
 > **Two motivating workloads**:
 > 1. **Cascade dispatch / SDDP** — insert a `reduced(K)` level between
 >    `uninodal` (1 bus) and `full_network` (every original bus) so per-iteration
->    cost grows gracefully instead of jumping ~50× (large_case: 25 s → 20 min).
+>    cost grows gracefully instead of jumping ~50× (large case: 25 s → 20 min).
 > 2. **Capacity-expansion studies** — invest at the cluster level, then
 >    disaggregate the investment back to physical buses for downstream
 >    operational simulation, dispatch reporting, and AC validation.
 
 ---
 
-## 1. Motivating example: the large_case case (Chilean SEN)
+## 1. Motivating example: a large Chilean SEN case
 
 Used here only as a sizing reference; the tool itself is case-agnostic.
 
@@ -66,10 +66,10 @@ treated as orthogonal axes:
 * **Axis A — fewer buses & lines** (this proposal's main subject). Reduces
   `N_bus`, `N_line`, `N_cycles` directly.
 * **Axis B — fewer rows/cols *per* bus/line** (LP-shape simplifications). The
-  LP-comparison agent (report at `/tmp/lp_comparison_large_case.md`) found three
+  LP-comparison agent found three
   zero-correctness-cost wins that **do not require any network reduction**:
 
-  | Lever | Knob | Per-stage saving (large_case) |
+  | Lever | Knob | Per-stage saving (large case) |
   |---|---|---|
   | Switch to cycle-basis KVL | `model_options.kirchhoff_mode: cycle_basis` | −2 360 theta cols, KVL 3 300 → 950 rows (−71%) |
   | Drop loss segments to 1 in the early cascade levels | `loss_segments: 1` | −660 cols/block (−6 600/stage) |
@@ -158,7 +158,7 @@ nameless or numerically-keyed datasets, and non-Chilean conventions all break
 them. The substation signal is **electrical, not lexical**.
 
 A transformer in any standard DC-OPF dataset is encoded as a line with
-**resistance ≈ 0**. Looking at large_case's `plpcnfli.dat`:
+**resistance ≈ 0**. Looking at the case's `plpcnfli.dat`:
 
 ```
 'Andes345->Andes220'         750  750  3  2  345  R=0      X=15.473  ...
@@ -369,7 +369,7 @@ Tests:
 
 ## 7. Expected runtime savings
 
-For large_case (236 → 50 buses, K=1 losses, cycle-basis KVL):
+For the large case (236 → 50 buses, K=1 losses, cycle-basis KVL):
 
 * per-block LP rows: 1 800 → ~600 (down ~3×)
 * per-block LP cols: 4 650 → ~1 600 (down ~3×)
@@ -405,7 +405,7 @@ Benchmark cases to run validation on, in order:
 
 * `ieee_14b` (K = 7) — sanity check, fast iteration;
 * `ieee_57b` (K = 20) — first non-trivial case;
-* `large_case` (K = 50) — the production target.
+* the large SEN case (K = 50) — the production target.
 
 ---
 
@@ -432,7 +432,7 @@ Benchmark cases to run validation on, in order:
 
 ## 10. Open questions for the human
 
-* **Anchor heuristic**: 345 kV gives the right backbone for large_case but is
+* **Anchor heuristic**: 345 kV gives the right backbone for the large case but is
   arbitrary for other systems. Should the default be a percentile of the
   voltage distribution (e.g. top-15 % of voltage levels) or absolute kV?
   (Default proposal: percentile, with absolute-kV override.)

@@ -105,11 +105,11 @@ TEST_CASE(
     "rescales the active subset to 1")  // NOLINT
 {
   // 16 scenarios at 0.0625 each = total 1.0, but 9 of 16 scenes are
-  // marked inactive (large_case pattern: only 7 hydrologies
+  // marked inactive (the large hydrothermal case pattern: only 7 hydrologies
   // feasible).  After rescale the 7 active scenarios should each have
   // 1/7 ≈ 0.1428…; the 9 inactive scenarios stay at 0.0625.
   std::vector<double> probs(16, 0.0625);
-  // Deactivate scenes 1, 3, 7, 10, 11, 12, 13, 15, 16 (matches large_case
+  // Deactivate scenes 1, 3, 7, 10, 11, 12, 13, 15, 16 (matches the large case
   // single-bus failure set).
   std::vector<int> inactive {1, 3, 7, 10, 11, 12, 13, 15, 16};
   Planning p = make_planning(probs, inactive);

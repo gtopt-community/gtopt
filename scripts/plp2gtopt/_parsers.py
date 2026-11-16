@@ -454,7 +454,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         metavar="METHOD",
         # Default `cascade` since 2026-05-15: the 4-level multi-fidelity
         # ladder (warmup/uninodal/transport/full_network) is the
-        # production-grade path on large_case-scale problems — plain
+        # production-grade path on CEN-scale problems — plain
         # `sddp` is retained as a CLI choice for diagnostic / one-level
         # runs but no longer the default.  `--plp-legacy` still pins
         # `sddp` to match the legacy PLP equivalence shim.
@@ -718,7 +718,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "is at or above G, neither stationary nor CI convergence will "
             "fire — only the primary `convergence_tol` test can declare "
             "convergence.  Defends against heterogeneous-scene σ explosion "
-            "(large_case run 2026-05-02 converged at iter 2 with gap=25%% via the "
+            "(large-case run 2026-05-02 converged at iter 2 with gap=25%% via the "
             "CI test because σ=77 M dominated the 38 M absolute gap).  "
             "Use 1.0 to disable the ceiling.  "
             "(default: emit 0.05 when not set; gtopt's own default is 0.5)"
@@ -962,7 +962,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # associated ``fcost`` disappears from the LP, which improves scaling
     # and removes a class of spurious binding-bound duals.
     #
-    # Default flipped to False after the large_case investigation
+    # Default flipped to False after the large-hydrothermal-case investigation
     # (2026-04-28): the suppress-mode topology was implicated in the
     # SDDP elastic-cut degeneracy chain at LMAULE / ELTORO that produced
     # ``no recoverable feasibility cut`` failures.  PLP-faithful spillway
@@ -1183,7 +1183,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # PILMAIQUEN / ABANICO / ANTUCO / PALMUCHO routed as FlowRight
     # discharge obligations to keep ``reservoir_efin >= eini`` rows
     # feasible at iter-0 of the SDDP cascade (same root cause as the
-    # plp_case_2y aperture regression and the support/large_case_uninodal
+    # plp_case_2y aperture regression and the large hydrothermal case
     # investigation).  Pass ``--no-soft-min-flows`` to opt out.
     #
     # The flag covers BOTH conversions:
@@ -1270,7 +1270,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "value is auto-resolved from plpmat.dat CCauFal.  Internally "
             "multiplied by FactTiempoH=3.6 to convert to gtopt's "
             "$/(m³/s·h) per-block coefficient.  Use this flag to tune the "
-            "FlowRight slack penalty empirically; for large_case the "
+            "FlowRight slack penalty empirically; for the large hydrothermal case the "
             "auto value is 7000 $/Hm³ → 25200 $/(m³/s·h) internal."
         ),
     )

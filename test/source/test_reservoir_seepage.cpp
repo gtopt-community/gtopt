@@ -1398,7 +1398,7 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;
 
-  // End-to-end regression guard for the large_case p51 root-cause
+  // End-to-end regression guard for the large hydrothermal case p51 root-cause
   // fix (commit e49c001a, 2026-05-12).
   //
   // Setup: 2-stage system with a piecewise-segment seepage element.

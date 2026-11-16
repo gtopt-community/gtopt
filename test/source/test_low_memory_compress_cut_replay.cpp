@@ -38,7 +38,8 @@
  *
  * 1. `compress` mode converges to the same gap as `off` mode within the same
  *    iteration budget.  Before the fix, compress would plateau at a large gap
- *    (observed: 54.13% on large_case) that off-mode never exhibited.
+ *    (observed: 54.13% on the large hydrothermal case) that off-mode never
+ * exhibited.
  * 2. The `m_dynamic_cols_` population invariant holds after the first
  *    `release_backend` + `ensure_backend` round-trip when α has been added
  *    (low-level SystemLP test, no full SDDP solve needed).

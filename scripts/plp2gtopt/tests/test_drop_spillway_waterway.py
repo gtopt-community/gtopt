@@ -16,7 +16,7 @@ JunctionWriter must:
 * mark the central's own junction as ``drain = True`` so excess water
   exits the system through the junction instead of the missing arc.
 
-The default-off flip (2026-04-28) followed the large_case investigation:
+The default-off flip (2026-04-28) followed the large-hydrothermal-case investigation:
 suppress-mode topology was implicated in the SDDP elastic-cut degeneracy
 chain at LMAULE / ELTORO.  PLP-faithful spillway topology is the safer
 default; opt into suppress mode only when LP scaling outweighs routing

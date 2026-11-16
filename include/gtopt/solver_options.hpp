@@ -52,7 +52,7 @@ struct SolverOptions
    *   - Several SDDP unit tests depend on the presolve-induced LP
    *     basis for their analytical-dual / KKT-prediction checks; these
    *     would need fixture-level opt-in if the default flipped.
-   * For large_case-style hot-start runs, set
+   * For PLP-converted-case style hot-start runs, set
    * `--set solver_options.presolve=false` explicitly.
    */
   bool presolve {true};
@@ -323,9 +323,9 @@ struct SolverOptions
       // (`sddp_iteration.cpp fwd_opts.crossover = CrossoverMode::none`) and
       // the elastic-filter clone solve.  Without this the user's
       // `crossover = none` was silently dropped during the overlay, leaving
-      // crossover ON on every forward solve — observed on large_case
-      // 2026-05-15 in every one of 4 K cplex_*.log files including pure
-      // forward passes.
+      // crossover ON on every forward solve — observed on the large
+      // hydrothermal case 2026-05-15 in every one of 4 K cplex_*.log files
+      // including pure forward passes.
       crossover = user.crossover;
     }
     // Cold-canonical flag (default false): only the explicit "user wants ON"

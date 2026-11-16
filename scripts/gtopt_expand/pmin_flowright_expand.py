@@ -7,7 +7,7 @@ not encode a true minimum power output — it actually encodes a downstream
 flow obligation (environmental / irrigation minimum flow).  When mapped
 naively to a Generator's ``pmin``, gtopt forces ``g >= pmin`` on every
 block, which can drain upstream reservoirs at low-inflow stages and cause
-SDDP cascade infeasibilities (large_case p27/p28 confirmed this).
+SDDP cascade infeasibilities (the large hydrothermal case p27/p28 confirmed this).
 
 This module mutates a planning JSON in place:
 

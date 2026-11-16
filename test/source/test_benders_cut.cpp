@@ -348,7 +348,7 @@ TEST_CASE(
   // `reduced_cost_physical` already absorbs the obj scale.  This
   // sweep pins that invariance and is the regression test for any
   // future change that re-introduces an extra scale_obj factor in
-  // the cut builder (the symptom of the large_case 1000×
+  // the cut builder (the symptom of the large hydrothermal case 1000×
   // per-phase compounding bug).
 
   const StateVariable::LPKey key0 {
@@ -627,7 +627,7 @@ TEST_CASE("propagate_trial_values sets bounds")  // NOLINT
 
 // ---------------------------------------------------------------------------
 // Regression test for the phase-N eini double-scale-divide bug diagnosed
-// on plp_2_years / large_case_large_case (2026-04-22).
+// on plp_2_years / the large hydrothermal case (2026-04-22).
 //
 // Bug symptom: RALCO phase-2 `reservoir_sini_65_51_2 = 73.82` LP when the
 // correct raw bound was 233.44 LP (= 73.82 × 3.162).  The 3.162 factor is
@@ -1368,7 +1368,7 @@ TEST_CASE("PLP parity — outward perturbation is zero (abs form)")  // NOLINT
   // and LP solver tolerance absorbs basis drift.  PLP's 1e-8 ×
   // rhs(≈500) = 5e-6 residual is just above CPLEX FeasibilityTol
   // when the cut sits at a state variable's upper bound (observed
-  // on large_case p11 where pi=210 amplifies the residual
+  // on the large hydrothermal case p11 where pi=210 amplifies the residual
   // to 2.5e-5).  See kFactEps in source/benders_cut.cpp.
   constexpr double rhs_base = 54.3e6;
   constexpr double kFactEps = 0.0;
@@ -2388,7 +2388,7 @@ TEST_CASE(  // NOLINT
 // predicate in isolation — no LP, no elastic clone, no solver
 // dependency — so a regression in the threshold (currently 10 % of
 // box width) shows up immediately rather than only as a behavioural
-// drift in large_case end-to-end runs.
+// drift in the large hydrothermal case end-to-end runs.
 
 namespace
 {
@@ -2436,7 +2436,7 @@ TEST_CASE("BoxEdgeStats — single upper-clamp is not degenerate")  // NOLINT
 
 TEST_CASE("BoxEdgeStats — top-10% band classifies as upper")  // NOLINT
 {
-  // Empirical observation on large_case: degenerate cuts
+  // Empirical observation on the large hydrothermal case: degenerate cuts
   // cluster at 95-100 % of emax (LMAULE/PEHUENCHE/RAPEL at ~95-98 %,
   // ELTORO/CIPRESES/RALCO exactly at 100 %).  The top-10 % band is
   // wide enough to capture all of them.
@@ -2582,18 +2582,16 @@ TEST_CASE("BoxEdgeStats — negative-range box (unusual but legal)")  // NOLINT
 // build_multi_cuts — per-cut saturation drop
 // ===========================================================================
 //
-// The cascade-infeasibility regression on large_case single-bus ran
-// elastic_mode = multi_cut and saw `reservoir_mcut_*` rows whose RHS
-// equalled the source column's `source_upp` exactly (e.g. ELTORO
-// `energy >= 1766.41 = emax_LP`).  These come from
-// `std::clamp(implied_bound, source_low, source_upp)` pulling an
-// out-of-box `implied_bound` to the upper edge — the cut becomes
-// `pi · state >= pi · source_upp` ⇔ `state >= source_upp`, which the
-// upstream forward pass cannot satisfy with one stage of inflows
-// after a low-storage trial from the predecessor.  The previous
-// guard `box_stats.all_upper_degenerate()` only fires when *every*
-// active link saturates; partial degeneracy (5/8 saturated, 3/8
-// inside-box) leaked through.
+// The cascade-infeasibility regression on the large hydrothermal case
+// single-bus ran elastic_mode = multi_cut and saw `reservoir_mcut_*` rows whose
+// RHS equalled the source column's `source_upp` exactly (e.g. ELTORO `energy >=
+// 1766.41 = emax_LP`).  These come from `std::clamp(implied_bound, source_low,
+// source_upp)` pulling an out-of-box `implied_bound` to the upper edge — the
+// cut becomes `pi · state >= pi · source_upp` ⇔ `state >= source_upp`, which
+// the upstream forward pass cannot satisfy with one stage of inflows after a
+// low-storage trial from the predecessor.  The previous guard
+// `box_stats.all_upper_degenerate()` only fires when *every* active link
+// saturates; partial degeneracy (5/8 saturated, 3/8 inside-box) leaked through.
 //
 // The fix at `build_multi_cuts` adds a per-cut filter: when the
 // pre-clamp `implied_bound` was outside the box (within a relative

@@ -766,14 +766,15 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "compute_auto_aperture_chunk_size — production large_case shape "
+    "compute_auto_aperture_chunk_size — production the large hydrothermal case "
+    "shape "
     "16 × 16 × 20-core → K=4")
 {
   using namespace gtopt;
-  // The large_case production case: 16 apertures per phase × 16 scenes,
-  // pf=2 on a 20-physical-core box.  K_raw = ⌈16·16 / (2·20)⌉ =
-  // ⌈6.4⌉ = 7 → bit_floor(7) = 4.  Empirically the fastest auto K
-  // on this workload (matches K=8 wall but with 2× fewer chunks).
+  // the large hydrothermal case production case: 16 apertures per phase × 16
+  // scenes, pf=2 on a 20-physical-core box.  K_raw = ⌈16·16 / (2·20)⌉ = ⌈6.4⌉ =
+  // 7 → bit_floor(7) = 4.  Empirically the fastest auto K on this workload
+  // (matches K=8 wall but with 2× fewer chunks).
   CHECK(compute_auto_aperture_chunk_size(16, 16, 20, 2.0) == 4);
 }
 

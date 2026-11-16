@@ -245,7 +245,8 @@ struct BoundaryCutCoeffStats
     /// would walk a store that doesn't know about the loaded cuts and
     /// would delete the wrong rows from the LP — root cause of the
     /// cascade ``forget_first_cuts`` + ``low_memory=compress`` crash
-    /// observed on large_case when ``inherit_optimality_cuts > 0``.
+    /// observed on the large hydrothermal case when ``inherit_optimality_cuts >
+    /// 0``.
     SDDPCutManager* cut_store = nullptr) -> std::expected<CutLoadResult, Error>;
 
 /// Load all per-scene Parquet cut files from a directory.

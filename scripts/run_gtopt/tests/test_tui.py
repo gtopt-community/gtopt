@@ -940,7 +940,7 @@ def test_grid_tracker_forward_pass_with_phase_total():
     grid tracker must (a) accept the suffix without dropping the line
     and (b) widen the grid to the declared total immediately, instead
     of waiting for the solver to actually reach the highest phase.
-    Pinned after the large_case run displayed ~40 of 51 phases because the
+    Pinned after the large hydrothermal run displayed ~40 of 51 phases because the
     high-numbered columns hadn't been visited yet."""
     tracker = SDDPGridTracker()
     tracker.process_line("SDDP Forward [i0 s0 p0/3]: opex=1.23M")
@@ -960,7 +960,7 @@ def test_grid_tracker_forward_pass_with_phase_total():
 def test_grid_tracker_phase_total_pre_expands_grid():
     """The /<total> suffix on the very first observed log line widens
     max_phase to the declared total, even when only the first phase
-    has been seen so far.  Regression for the large_case case where 51
+    has been seen so far.  Regression for the large hydrothermal case where 51
     phases existed but only ~40 columns rendered until the solver
     reached phase 50+."""
     tracker = SDDPGridTracker()

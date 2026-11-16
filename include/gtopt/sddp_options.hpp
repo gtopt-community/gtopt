@@ -368,8 +368,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *
    *   * absent / `nullopt` / `0` → **auto** — currently resolves to
    *     `1` (the legacy 1-task-per-aperture path).  Measured on the
-   *     large_case 16-scene × 16-aperture × 51-phase case under the
-   *     parallel-safe manual-clone route, K=1 is consistently fastest
+   *     the large hydrothermal case 16-scene × 16-aperture × 51-phase case
+   * under the parallel-safe manual-clone route, K=1 is consistently fastest
    *     because per-aperture solves are small (≪ 100 ms) and the
    *     work-pool fan-out wins over chunked warm-start reuse.  The
    *     `compute_auto_aperture_chunk_size` formula is retained for
@@ -694,7 +694,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * the statistical CI test can fire — only the primary
    * ``convergence_tol`` test is allowed to declare convergence.
    *
-   * Defends against heterogeneous-scene σ explosion (large_case run
+   * Defends against heterogeneous-scene σ explosion (large-case run
    * 2026-05-02 declared CI convergence at iter 2 with gap = 25 %
    * because σ ≈ 77 M dominated the 38 M absolute gap).  Tightening
    * this option to e.g. 0.05 forces the solver to keep iterating
@@ -786,8 +786,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *  ≈ T iterations to fully ripple to phase 1.
    *
    *  Cost: one extra LP resolve per (scene, phase) per backward pass.
-   *  On large_case scale (50 phases × 7 scenes ≈ 350 extra resolves
-   *  per iter, ≈75 ms each) this is +26 s per iter — typically
+   *  On the large hydrothermal case scale (50 phases × 7 scenes ≈ 350 extra
+   * resolves per iter, ≈75 ms each) this is +26 s per iter — typically
    *  recovered by needing 5-10× fewer iterations to converge. */
   OptBool backward_resolve_target {};
 

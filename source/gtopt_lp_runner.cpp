@@ -422,7 +422,7 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
     spdlog::info("  LP constraints  : {}", lp_if.get_numrows());
     // Render with SI suffix (`format_si` from sddp_common.hpp) so the
     // operator can compare the scaled and unscaled magnitudes at a
-    // glance — `{:.6g}` produced unhelpful `1.41448e+06` on large_case
+    // glance — `{:.6g}` produced unhelpful `1.41448e+06` on the large case
     // (trace_28).  Raw value is still recoverable from the planning
     // JSON if a pricing audit needs full precision.
     spdlog::info("  Obj (scaled)    : {}", format_si(obj_scaled));

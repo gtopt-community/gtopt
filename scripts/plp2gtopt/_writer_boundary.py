@@ -120,7 +120,7 @@ class BoundaryMixin:
         #
         # PLP applies its α-column with objective coefficient
         # `1/NVarPhi`, where `NVarPhi` is the **original PLP hydrology
-        # count** (28 on large_case).  gtopt's α-column under those modes
+        # count** (28 on the large hydrothermal case).  gtopt's α-column under those modes
         # uses coefficient 1.0 and aggregates per-scene contributions
         # via `prob_s × α_s`.  For the gtopt expected α to match PLP,
         # the cut gradients/RHS must be pre-divided by NVarPhi, so that:
@@ -131,7 +131,7 @@ class BoundaryMixin:
         # Up to 2026-05-13 this code divided by `len(scenario_array)`
         # (= the gtopt-side scene count, often a wet-subset of size 16)
         # which under-divided whenever the user filtered hydrologies
-        # via `--hydrologies` — observed on large_case_plain as a
+        # via `--hydrologies` — observed on the plain-variant hydrothermal case as a
         # +75 % LB overshoot vs UB (LB ≈ 4.6 G vs UB ≈ 2.9 G).
         #
         # `max(scene)` over the parsed cuts recovers PLP's NVarPhi
@@ -181,7 +181,7 @@ class BoundaryMixin:
             # already prepends ``input_directory`` to every relative
             # path, so emitting ``"{input_directory}/boundary_cuts.csv"``
             # produced a double-prefixed path like
-            # ``large_case_plain/large_case_plain/boundary_cuts.csv``
+            # ``my_case/my_case/boundary_cuts.csv``
             # which then silently fell back to "no boundary cuts"
             # (α pinned at 0, terminal value treated as zero, UB
             # shifted down by the missing future-cost envelope).

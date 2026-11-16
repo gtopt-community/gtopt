@@ -10,7 +10,7 @@
 //   the gate back-off `cv_.wait_for(scheduler_interval_, ...)` and
 //   the stats monitor needs to nudge `cv_.notify_all()` to wake them.
 //   Without the nudge, the pool stays wedged forever (observed on
-//   large_case after memory pressure subsided to 91% free).
+//   the large hydrothermal case after memory pressure subsided to 91% free).
 
 #include <atomic>
 #include <chrono>

@@ -456,7 +456,7 @@ public:
   /// infeasible) on multiple consecutive iterations.  These scenes
   /// have a structurally infeasible LP at some phase; re-running their
   /// forward pass produces bit-identical failures and wastes ~50 s per
-  /// iter per scene (large_case 2026-05-02 trace_29: 10 of 16
+  /// iter per scene (the large hydrothermal case 2026-05-02 trace_29: 10 of 16
   /// scenes wasted ~33 min before being skipped).  Once the counter
   /// crosses ``terminal_failure_threshold``, ``terminal = true`` is
   /// set and the dispatch loop skips the scene until *new* cuts

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_sddp_lb_overshoot_probe.cpp
- * @brief     Probe for the large_case SDDP LB-overshoot regression at small scale
+ * @brief     Probe for the large-case SDDP LB-overshoot regression at small
+ * scale
  * @date      2026-05-01
  *
  * Synthetic reproducer for the bug observed on
- * `support/large_case` where the SDDP lower bound compounds
+ * `the large hydrothermal case` where the SDDP lower bound compounds
  * ~10× per iteration (iter 0 LB=$1.4M → iter 1 LB=$1.1B vs UB=$153M)
  * — reported as "LB > UB violates SDDP theory; cuts likely overshoot
  * the optimum".
@@ -223,10 +224,11 @@ auto build_nphase_mscenario_planning(int n_phases,
   PlanningOptions options;
   options.model_options.demand_fail_cost = 1000.0;
   options.model_options.use_single_bus = OptBool {true};
-  options.model_options.scale_objective = OptReal {1000.0};  // large_case default
+  options.model_options.scale_objective =
+      OptReal {1000.0};  // large-case default
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
-  // Mimic large_case's per-Reservoir variable_scales=10 (the col_scale=10 +
+  // Mimic the large case's per-Reservoir variable_scales=10 (the col_scale=10 +
   // ruiz interaction the user fingered as the bug surface).
   options.variable_scales = std::vector<VariableScale> {
       VariableScale {
@@ -364,7 +366,7 @@ TEST_CASE("SDDPMethod - LB-overshoot probe @ tiny scales")  // NOLINT
     });
     CHECK_MESSAGE(worst <= 1.0 + 1e-6,
                   "LB-overshoot at 3 phases / 2 scenarios — bug "
-                  "appears earlier than large_case scale");
+                  "appears earlier than CEN-scale");
   }
 
   SUBCASE("5 phases × 2 scenarios")
@@ -379,7 +381,7 @@ TEST_CASE("SDDPMethod - LB-overshoot probe @ tiny scales")  // NOLINT
   }
 }
 
-// Multi-scene + cut_sharing probe.  large_case runs with 16
+// Multi-scene + cut_sharing probe.  the large hydrothermal case runs with 16
 // scenes (one per scenario family).  The invalid broadcast modes
 // (accumulate/broadcast_mean/max) were REMOVED 2026-07-08; what
 // remains to probe here is `multicut` under NON-uniform scene

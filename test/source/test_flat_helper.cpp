@@ -271,7 +271,7 @@ TEST_CASE("Flat Helper - Edge Cases")
 // non-empty — but it lacks the elided block uids.  Pre-2026-05-15
 // the flat() helper called `stiter->second.at(buid)` unconditionally,
 // which threw `std::out_of_range` on the elided blocks and caused
-// `write_out()` to crash on the large_case case during the SDDP
+// `write_out()` to crash on the large hydrothermal case case during the SDDP
 // simulation pass.  The fixed helper uses `find()` and falls through
 // to `valid[idx] = false` for missing blocks — same behaviour as the
 // outer-key-missing case.

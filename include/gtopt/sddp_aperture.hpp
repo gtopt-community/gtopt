@@ -182,9 +182,9 @@ struct ApertureEntry
 
 /// @note As of commit 8e08b1c4, `SDDPMethod::initialize_solver` resolves
 ///       the `auto` sentinel (requested == 0) directly to K=1 (the
-///       empirically-fastest setting on large_case), bypassing this
-///       formula entirely.  The function is RETAINED — and exercised
-///       by the six boundary-behaviour unit tests in
+///       empirically-fastest setting on the large hydrothermal case), bypassing
+///       this formula entirely.  The function is RETAINED — and exercised by
+///       the six boundary-behaviour unit tests in
 ///       `test_sddp_aperture_functions.cpp` — as a documented helper
 ///       for future workloads where the chunked path may win again,
 ///       e.g. very large per-aperture LPs (≫ 100 ms each) where the
@@ -275,11 +275,10 @@ struct ApertureEntry
   // benefits from balanced chunks AND from leaving slack pool capacity
   // for the cross-scene fan-out — biasing one step lower than the
   // exact `bit_floor` keeps the per-chunk queue depth healthy when
-  // many scenes contend for the same pool.  On large_case barrier +
-  // split-crossover the strict-previous rounding measured ≤145s
-  // (≈ raw `bit_floor` 142s); the LB stability win on cross-phase
-  // backward passes (cuts not bunched on a single chunk tail) made
-  // the trade worth it.
+  // many scenes contend for the same pool.  On the large hydrothermal case
+  // barrier + split-crossover the strict-previous rounding measured ≤145s (≈
+  // raw `bit_floor` 142s); the LB stability win on cross-phase backward passes
+  // (cuts not bunched on a single chunk tail) made the trade worth it.
   const auto u = static_cast<unsigned>(std::max(k, 1));
   k = (u > 1) ? static_cast<int>(std::bit_floor(u - 1U)) : 1;
   return std::min(std::max(k, 1), max_apertures_per_phase);

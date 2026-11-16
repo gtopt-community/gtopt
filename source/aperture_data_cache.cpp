@@ -316,7 +316,7 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
   // unordered_map keeps the over-allocated bucket array.  Calling
   // `rehash(0)` (== rehash to the minimum size that keeps the load
   // factor below `max_load_factor()`) drops the slack.  On the
-  // large_case cache (170 k entries across 167 elements) this
+  // the large hydrothermal case cache (170 k entries across 167 elements) this
   // saves ~5–10 MB at zero lookup cost — the rehash itself is one-
   // shot at startup, ~milliseconds, and is read-only thereafter.
   m_elements_.rehash(0);

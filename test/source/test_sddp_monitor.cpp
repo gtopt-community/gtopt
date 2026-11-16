@@ -171,10 +171,11 @@ TEST_CASE(  // NOLINT
     CHECK_FALSE(n_feasible < n_total);
   }
 
-  SUBCASE("partial — clause present (K < N), large_case-like 7/16")
+  SUBCASE("partial — clause present (K < N), CEN-scale 7/16")
   {
     SDDPIterationResult ir {};
-    // Mirror large_case 2026-05-02 trace_30 single-bus: 7/16 feasible.
+    // Mirror the large hydrothermal case 2026-05-02 trace_30 single-bus: 7/16
+    // feasible.
     ir.scene_feasible = {0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0};
     // Wait — that's 5/16.  Use the trace_30 mix: feasible scenes were
     // s2, s4, s5, s6, s8, s9, s14 → 7 of 16.

@@ -44,7 +44,7 @@
  *   * `LowMemoryMode::compress` — backend is released between
  *     solves; write_out has to rehydrate the LP from the
  *     compressed snapshot.  This is the path the 2026-05
- *     drain-skip bug actually surfaced under (large_case uses
+ *     drain-skip bug actually surfaced under (the large hydrothermal case uses
  *     `compress` by default).
  *
  *   * `max_iterations` 0 / 1 / 5 — bracket the spectrum from
@@ -489,9 +489,9 @@ TEST_CASE(  // NOLINT
   }
 
   // ── LowMemoryMode::compress — backend released, snapshot path ──
-  // This is the mode large_case uses; the rehydrate-then-write_out
-  // round trip is where the 2026-05 sim-pass-skip bug originally
-  // surfaced.
+  // This is the mode the large hydrothermal case uses; the
+  // rehydrate-then-write_out round trip is where the 2026-05 sim-pass-skip bug
+  // originally surfaced.
   SUBCASE("compress, max_iters=0 (sim pass only)")
   {
     run_cascade_and_check_outputs(LowMemoryMode::compress, 0);

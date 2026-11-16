@@ -956,9 +956,9 @@ public:
   /// History: a previous version of this function ran a shadow flatten
   /// to also populate ``m_collections_``, but that allocated hundreds
   /// of MB per cell — under compress it ballooned RSS by
-  /// ~40% on the large_case case (tens of thousands of flattens per run via
-  /// the per-phase solve hot path).  Collections are now rehydrated
-  /// only at the explicit call sites that need them
+  /// ~40% on the large hydrothermal case (tens of thousands of flattens per run
+  /// via the per-phase solve hot path).  Collections are now rehydrated only at
+  /// the explicit call sites that need them
   /// (``rebuild_collections_if_needed()``).
   ///
   /// Per-mode behavior:
@@ -1022,7 +1022,7 @@ public:
   ///
   ///   * The HasUpdateLP collections that `clear_disposable_collections()`
   ///     deliberately preserves for subsequent `update_lp_for_phase`
-  ///     calls (~30 MB / cell on large_case-scale).  Those calls will never
+  ///     calls (~30 MB / cell on CEN-scale).  Those calls will never
   ///     happen on the write_out path.
   ///   * The cut replay journal in `LinearInterface::m_replay_`.  On
   ///     recovery hot-starts that loaded tens of thousands of cuts

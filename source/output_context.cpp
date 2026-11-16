@@ -680,8 +680,8 @@ void OutputContext::write() const
   // ~20 cells in flight on a 20-core host) and ~55 shards per cell,
   // ~1100 jthreads piled into Arrow's default memory pool and
   // parquet encoders simultaneously, producing pathological lock
-  // contention (observed on large_case: 60s+ per-cell ``oc.write``
-  // wall time when the inner storm peaked).  A static
+  // contention (observed on the large hydrothermal case: 60s+ per-cell
+  // ``oc.write`` wall time when the inner storm peaked).  A static
   // ``std::counting_semaphore`` bounds total in-flight shard writes
   // ACROSS every cell currently running ``write()`` — independent
   // of how many cells the parent pool dispatched in parallel.
@@ -748,8 +748,8 @@ OutputContext::OutputContext(const SystemContext& psc,
     , t_prelude(make_prelude(psc.t_uids()))
 {
   // Pre-reserve buckets for field_vector_map: a typical cell emits
-  // ~150 unique (class, fname, sname) keys on large_case (20+ element
-  // classes × ~7 fields/class).  Reserving up-front avoids ~4-5
+  // ~150 unique (class, fname, sname) keys on the large hydrothermal case (20+
+  // element classes × ~7 fields/class).  Reserving up-front avoids ~4-5
   // incremental rehashes on the per-cell insertions.  Kept as
   // `unordered_map` (not flat_map) because downstream write_out
   // iterates keys in any order.

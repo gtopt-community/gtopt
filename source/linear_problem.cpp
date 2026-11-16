@@ -68,7 +68,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // where the FlatLinearProblem is discarded.  Returning empty
   // short-circuits the two CSC passes, the row/col bound scans, the
   // label-name materialisation, and the equilibration loop — typically
-  // 5–10× faster on large_case-scale rebuild slices.
+  // 5–10× faster on CEN-scale rebuild slices.
   if (opts.skip_matrix_build) [[unlikely]] {
     return {};
   }
@@ -375,7 +375,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // `OutputContext` col/row name lookup in `write_out` (or the SDDP
   // error-LP dump in `write_lp`).  Memory budget — see
   // `LinearInterface::drop_label_meta_buffers()`: ~1 MB compressed per
-  // cell, ~3 MB live; on a large_case-scale 816-cell run that is ~800 MB
+  // cell, ~3 MB live; on a CEN-scale 816-cell run that is ~800 MB
   // held until process exit (already freed by
   // `drop_label_meta_buffers()` post-`write_out`, but lazy
   // construction would also save the *peak* during planning, when all

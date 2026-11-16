@@ -743,7 +743,7 @@ def add_aperture_chunk_size_argument(
             "SDDP chunked aperture pass: K apertures solved serially per "
             "task on a shared LP clone (warm-start reuse). 0/unset = auto "
             "(currently resolves to 1, empirically fastest under the "
-            "parallel-safe manual-clone path on large_case-scale workloads), "
+            "parallel-safe manual-clone path on CEN-scale workloads), "
             "1 = legacy 1-task-per-aperture, > 1 = K per task, "
             "-1 = fully serial per scene. Emitted as "
             "options.sddp_options.aperture_chunk_size."

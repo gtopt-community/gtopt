@@ -243,7 +243,7 @@ def test_system_file_paths_derive_from_output_file_stem() -> None:
     w.process_options(
         {
             "output_dir": "/tmp/work",
-            "output_file": "/tmp/work/large_case.json",
+            "output_file": "/tmp/work/mycase.json",
             "method": "cascade-reduced",
         }
     )
@@ -251,8 +251,8 @@ def test_system_file_paths_derive_from_output_file_stem() -> None:
     l1 = next(lvl for lvl in levels if lvl["name"] == "reduced_transport")
     l2 = next(lvl for lvl in levels if lvl["name"] == "reduced_dcopf")
     # Relative basenames (cascade resolves them next to the parent JSON).
-    assert l1["system_file"] == "large_case.L1.json"
-    assert l2["system_file"] == "large_case.L2.json"
+    assert l1["system_file"] == "mycase.L1.json"
+    assert l2["system_file"] == "mycase.L2.json"
 
 
 # ─── Iteration budget ─────────────────────────────────────────────────────

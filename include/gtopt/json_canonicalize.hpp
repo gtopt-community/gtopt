@@ -45,7 +45,7 @@ class NamesRegistry;
 ///
 /// Performance: single linear pass over the input, O(N) in text size
 /// plus O(K) per key lookup where K is the longest registered alias.
-/// On the large_case large_case case (~12 MB JSON) the empirical overhead is
+/// On the large hydrothermal case (~12 MB JSON) the empirical overhead is
 /// well under 100 ms.
 ///
 /// Safety: only quoted strings that appear in object-key position

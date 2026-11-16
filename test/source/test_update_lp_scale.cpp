@@ -11,7 +11,7 @@
 // `Reservoir.energy` `var_scale = 10`, every update_lp() call (seepage,
 // discharge_limit, production_factor) wrote a coefficient ~100× too
 // small — the LP enforced a constraint two orders of magnitude weaker
-// than intended, which is the root cause of the large_case SDDP
+// than intended, which is the root cause of the large hydrothermal case SDDP
 // LB-overshoot regression.
 //
 // Why the existing test suite missed it
@@ -39,7 +39,7 @@
 //   • col_scale=1, scale_obj=1 ............... (sanity)
 //   • col_scale=10, scale_obj=1 ............... (the original bug regime)
 //   • col_scale=1, scale_obj=1000 ............ (scale_obj-only)
-//   • col_scale=10, scale_obj=1000 + ruiz .... (large_case-scale)
+//   • col_scale=10, scale_obj=1000 + ruiz .... (CEN-scale)
 //
 // Test 4 is a pure LinearInterface variant that mirrors
 // test_linear_interface_scale.cpp Test 7 in a 2-variable form, providing
@@ -198,7 +198,7 @@ TEST_CASE("update_lp_scale - ReservoirSeepageLP under var_scale")  // NOLINT
     };
 
     // Multi-segment seepage so `update_lp` is exercised via the same
-    // dynamic-coefficient code path as the large_case bug (segment 2 selected
+    // dynamic-coefficient code path as the large-case bug (segment 2 selected
     // at eini=5000).  q_filt = 2.0 + 0.0002 * efin at V >= 500.
     const Array<ReservoirSeepage> reservoir_seepage_array = {
         {
@@ -298,7 +298,7 @@ TEST_CASE("update_lp_scale - ReservoirSeepageLP under var_scale")  // NOLINT
     CHECK(baseline > 0.0);
   }
 
-  SUBCASE("col_scale=10, scale_obj=1 (the original large_case bug regime)")
+  SUBCASE("col_scale=10, scale_obj=1 (the original large-case bug regime)")
   {
     // PRE-FIX: the seepage row's efin coefficient was 100× too small,
     // so the LP-solver behaviour diverged from the col_scale=1 baseline.
@@ -330,7 +330,7 @@ TEST_CASE("update_lp_scale - ReservoirSeepageLP under var_scale")  // NOLINT
     CHECK(scaled == doctest::Approx(baseline).epsilon(1e-6));
   }
 
-  SUBCASE("col_scale=10, scale_obj=1000 + ruiz (large_case-scale)")
+  SUBCASE("col_scale=10, scale_obj=1000 + ruiz (CEN-scale)")
   {
     const auto baseline = build_and_solve({
         .energy_scale = 1.0,
@@ -557,7 +557,7 @@ TEST_CASE(
     CHECK(baseline > 0.0);
   }
 
-  SUBCASE("col_scale=10, scale_obj=1 (the original large_case bug regime)")
+  SUBCASE("col_scale=10, scale_obj=1 (the original large-case bug regime)")
   {
     const auto baseline = build_and_solve({
         .energy_scale = 1.0,
@@ -587,7 +587,7 @@ TEST_CASE(
     CHECK(scaled == doctest::Approx(baseline).epsilon(1e-6));
   }
 
-  SUBCASE("col_scale=10, scale_obj=1000 + ruiz (large_case-scale)")
+  SUBCASE("col_scale=10, scale_obj=1000 + ruiz (CEN-scale)")
   {
     const auto baseline = build_and_solve({
         .energy_scale = 1.0,
@@ -808,7 +808,7 @@ TEST_CASE(
     CHECK(baseline > 0.0);
   }
 
-  SUBCASE("col_scale=10, scale_obj=1 (the original large_case bug regime)")
+  SUBCASE("col_scale=10, scale_obj=1 (the original large-case bug regime)")
   {
     const auto baseline = build_and_solve({
         .energy_scale = 1.0,
@@ -838,7 +838,7 @@ TEST_CASE(
     CHECK(scaled == doctest::Approx(baseline).epsilon(1e-6));
   }
 
-  SUBCASE("col_scale=10, scale_obj=1000 + ruiz (large_case-scale)")
+  SUBCASE("col_scale=10, scale_obj=1000 + ruiz (CEN-scale)")
   {
     const auto baseline = build_and_solve({
         .energy_scale = 1.0,
@@ -860,7 +860,7 @@ TEST_CASE(
 // Pure LinearInterface test that mirrors test_linear_interface_scale.cpp
 // Test 7 in a 2-variable form on a **2-variable** constraint.  Provides
 // independent coverage of the round-trip-via-LP-solve invariant under
-// col_scale=10, scale_obj=1000 — the exact regime where the large_case bug
+// col_scale=10, scale_obj=1000 — the exact regime where the large-case bug
 // manifested.
 //
 // Setup:    min x + y  s.t.  a*x + b*y >= rhs,  0 <= x,y <= 50

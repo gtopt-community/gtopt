@@ -13,7 +13,7 @@
 // `CPX_STAT_UNBOUNDED` (logged as "infeasible (status 2)" by the
 // aperture pass) for every aperture at the terminal phase.  That
 // degeneracy is the precise pathology observed on
-// `support/large_case_plain` iter 20: gap collapsed from 90.5%
+// `the plain-variant hydrothermal case` iter 20: gap collapsed from 90.5%
 // back to 99.6% because the cuts on α_T disappeared inside aperture
 // clones at phase 51.
 //
@@ -376,7 +376,7 @@ TEST_CASE(  // NOLINT
   // boundary cuts from `m_replay_.active_cuts()`.  This test pins
   // the boundary-cut survival across that round-trip.
   //
-  // Before this regression guard, the large_case_plain large_case run
+  // Before this regression guard, the plain-variant large-case run
   // observed *every* aperture at the terminal phase coming back as
   // `CPX_STAT_UNBOUNDED` at iter 20+ because α_T was unconstrained
   // in the clone — the boundary cuts dropped out of the replay

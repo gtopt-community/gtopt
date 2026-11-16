@@ -8,7 +8,7 @@
  *
  * Two regressions discovered in this session:
  *
- *  1. The 5–22× LB divergence on `large_case` between
+ *  1. The 5–22× LB divergence on `the large hydrothermal case` between
  *     `low_memory_mode = off` and `low_memory_mode = compress` (resolved
  *     by PR #454 — `LinearInterface` lifecycle / `update_lp` short-
  *     circuit).
@@ -211,7 +211,7 @@ TEST_CASE(  // NOLINT
 // per-iteration test fails noisily (e.g. one iteration off by 2× the
 // epsilon due to solver determinism slack), this still pins the
 // converged value within 0.1% — which is what users actually care
-// about and what the large_case regression broke.
+// about and what the large hydrothermal case regression broke.
 TEST_CASE(  // NOLINT
     "SDDPMethod — off↔compress final-bound parity (regression guard)")
 {

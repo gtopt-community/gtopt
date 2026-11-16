@@ -260,7 +260,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   map_reserve(gcols, blocks.size());
   // `crows` is populated only on the expansion branch
   // (`if (capacity_col)` below).  For generators without
-  // expansion (the majority at large_case scale), the reserved buckets
+  // expansion (the majority at CEN-scale), the reserved buckets
   // would be allocated and discarded.
   if (capacity_col) {
     map_reserve(crows, blocks.size());

@@ -104,10 +104,10 @@ monolithic.lp
 /cuts/
 cases/*/out*/
 
-# PSR reference/solution data extracted from the shipped .rar archives
+# PSR reference/solution data extracted from local .rar archives
 # (comparison inputs, regenerable via unrar — not source, keep out of git).
-support/large_case/**/psr_ref/
-support/large_case/**/PDD_DIARIO/
+support/**/psr_ref/
+support/**/PDD_DIARIO/
 
 # Salidas de plp2gtopt sobre los casos CEN de largo plazo: se regeneran con el
 # plp2gtopt_state.json de cada carpeta (7-19 MB cada una, 168 MB en total).

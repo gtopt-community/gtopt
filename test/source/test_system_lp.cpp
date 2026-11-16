@@ -476,8 +476,8 @@ TEST_CASE(
 // non-`off` low_memory modes, forcing every subsequent
 // `update_lp_for_phase` to re-run the throw-away
 // `flatten_from_collections` inside `rebuild_collections_if_needed`.
-// On large_case this added ~30-40 s/iter of overhead and was the
-// dominant compress-mode runtime cost.
+// On the large hydrothermal case this added ~30-40 s/iter of overhead and was
+// the dominant compress-mode runtime cost.
 //
 // After P3, collections stay populated across release/reconstruct
 // cycles.  The test below verifies the invariant behaviorally:

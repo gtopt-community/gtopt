@@ -10,8 +10,8 @@
  *   The current aperture-clone path serialises every backend `clone()`
  *   call under `s_global_clone_mutex` (sddp_aperture.cpp:194) because
  *   `CPXcloneprob` has documented process-global side effects that
- *   crashed three threads at the same instruction pointer in large_case/
- *   large_case (commit 1d7a05c1).  An alternative is to bypass
+ *   crashed three threads at the same instruction pointer in a large
+ *   hydrothermal case (commit 1d7a05c1).  An alternative is to bypass
  *   `CPXcloneprob` entirely: keep the source's `FlatLinearProblem`
  *   snapshot and rebuild the clone via `CPXcreateprob` + `CPXaddrows`
  *   inside a freshly opened CPLEX env.  That path uses only env-local
@@ -989,7 +989,8 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;
   // Regression guard for the 2026-05-11 fix to the aperture-clone
-  // path on large_case: under `LowMemoryMode::off` the replay buffer
+  // path on the large hydrothermal case: under `LowMemoryMode::off` the replay
+  // buffer
   // (`m_replay_`) used to be gated off — `record_*_if_tracked` was
   // a no-op — so `clone_from_flat(with_replay=true)` produced a
   // snapshot-only clone (no α col, no cut rows, no pinned bounds)
@@ -997,7 +998,7 @@ TEST_CASE(  // NOLINT
   // which always took `clone_from_flat` because `aperture_use_manual_clone`
   // defaults to true AND `system_lp.cpp:560` always saves a snapshot
   // under off, then silently solved the construction-time LP at
-  // every iteration — LB stuck at 50 M for 30 iters on large_case.
+  // every iteration — LB stuck at 50 M for 30 iters on large hydrothermal.
   //
   // The fix: drop the `mode != off` gate in
   //   * `lp_replay_buffer.hpp:record_*_if_tracked` (cut + dynamic row/col)

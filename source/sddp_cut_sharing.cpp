@@ -176,7 +176,7 @@ void share_cuts_for_phase(
     // cheap no-op).  Backward-pass optimality cuts that demand α > 0
     // require this release; a raw `add_row + record_cut_row` pair
     // would skip it and leave α frozen at `lowb = uppb = 0`, observed
-    // on large_case iter i1 p1 as silent infeasibility.
+    // on the large hydrothermal case iter i1 p1 as silent infeasibility.
     for (const auto& cut : stamped_cuts) {
       bound_alpha_for_cut(planning, scene_index, phase_index, cut);
     }

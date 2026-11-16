@@ -993,7 +993,7 @@ struct CellCuts
             // for the stored copy, each cut would be persisted N× and
             // the cut file would explode by N_scenes at every level
             // transition (observed 6 400 → 104 800 → 1 679 560 across
-            // large_case's 3 transitions).
+            // the large hydrothermal case's 3 transitions).
             const auto scene_uid_val = make_uid<Scene>(scene_arr->Value(i));
             // Resolve scene_uid → scene_index.  Skip the cut when the
             // uid doesn't match any scene in the current simulation

@@ -184,7 +184,7 @@ TEST_CASE(
 // snapshot, the next `OutputContext` ctor read `get_col_sol()` →
 // `backend()` → `ensure_backend()` → silent-no-op (no snapshot to
 // rebuild from) → null `unique_ptr` deref crash.  Observed on
-// large_case iter i2 post-CONVERGED write_out for cells that
+// the large hydrothermal case iter i2 post-CONVERGED write_out for cells that
 // went optimal-→-non-optimal across iterations.
 TEST_CASE(  // NOLINT
     "LinearInterface — non-optimal release flips cached is_optimal flag")
@@ -1050,7 +1050,7 @@ TEST_CASE(  // NOLINT
     "LinearInterface — set_coeff_raw / set_rhs_raw survive release/reconstruct "
     "under compress")
 {
-  // Regression guard for the large_case p51 INFEAS-PROBE fix
+  // Regression guard for the large hydrothermal case p51 INFEAS-PROBE fix
   // (commit e49c001a, 2026-05-12).  Under `LowMemoryMode::compress`
   // every release+reconstruct cycle reloads the snapshot's
   // construction-time matval / RHS.  Post-snapshot mutations issued
@@ -1282,7 +1282,7 @@ TEST_CASE(
 // every `reconstruct_backend`.  The snapshot's flat_lp still carries
 // the construction-time matval (it is the structural baseline), but
 // the visible coefficient seen by the reconstructed backend reflects
-// the latest mutation — closing the large_case/p51 aperture-infeasibility
+// the latest mutation — closing the large-case p51 aperture-infeasibility
 // bug where seepage-row coefficients drifted between live backend and
 // snapshot (commit e49c001a).
 TEST_CASE(
@@ -1330,7 +1330,7 @@ TEST_CASE(
 // `propagate_trial_values` pinning dep_col bounds to the previous
 // phase's solved state to constrain the backward LP.  Without the
 // replay, iter-0-backward saw construction-time bounds and produced
-// wrong cuts → large_case compress-mode LB stalled at -454M.
+// wrong cuts → the large hydrothermal case compress-mode LB stalled at -454M.
 TEST_CASE(
     "LinearInterface — col-bound mutations replayed on reconstruct")  // NOLINT
 {
@@ -2946,7 +2946,7 @@ TEST_CASE("LinearInterface — fully-dropped label_meta falls back, no throw")
 // number of replayed cuts.  Any later `materialize_labels` /
 // `push_names_to_solver` / `write_lp` then threw
 // `std::logic_error("row N has no entry in m_labels_.row_labels_meta")` — the
-// failure mode observed on `support/large_case` SDDP runs.  This
+// failure mode observed on `the large hydrothermal case` SDDP runs.  This
 // test exercises a single labeled cut across a compress→reconstruct
 // cycle and asserts that label synthesis no longer throws.
 TEST_CASE(  // NOLINT

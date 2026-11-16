@@ -276,8 +276,8 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
         // in place.  But with NO ``.prm`` we must still set CPLEX's automatic
         // explicitly: this env is frequently REUSED / cloned across solves, so
         // an unconditional skip would let it inherit a residual LPMethod from a
-        // prior solve (a dual/barrier leftover), which shifted large_case's otherwise
-        // deterministic ticks and is non-reproducible.
+        // prior solve (a dual/barrier leftover), which shifted the large case's
+        // otherwise deterministic ticks and is non-reproducible.
         if (!opts.param_file.has_value() || opts.param_file->empty()) {
           CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_AUTOMATIC);
         }
@@ -572,10 +572,10 @@ void CplexSolverBackend::load_problem(int ncols,
   // `CPXcopylp` directly with NO copy, NO sort.  Saves on every
   // reconstruct under `LowMemoryMode::compress`:
   //   * 2 vector copies of the full matind/matval buffers
-  //     (32k × (4+8) bytes ≈ 380 KB on large_case).
+  //     (32k × (4+8) bytes ≈ 380 KB on the large hydrothermal case).
   //   * Per-column allocation of `perm` / `temp_ind` / `temp_val`
   //     (3 small vectors × ~half of all cols ≈ 38k allocs per
-  //     call on large_case), and the sort within each column.
+  //     call on the large hydrothermal case), and the sort within each column.
   //
   // Defensive path: a `GTOPT_CPLEX_VERIFY_MATIND_SORTED=1` env var
   // re-enables a debug-only verification pass that walks every

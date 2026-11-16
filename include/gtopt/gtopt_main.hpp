@@ -118,7 +118,7 @@ struct MainOptions
    * ``async_logger`` with bounded queue + ``overrun_oldest`` overflow
    * policy + 2 worker threads.  This isolates the solver's hot threads
    * from sink I/O and prevents the queue-full deadlock that previously
-   * fired during cascade level transitions on large_case.
+   * fired during cascade level transitions on the large hydrothermal case.
    *
    * Set to ``false`` (``--no-async-logger``) to keep the synchronous
    * default logger.  Useful as a debug fallback when a future workload
@@ -497,7 +497,7 @@ void flush_default_logger_best_effort() noexcept;
  *
  * `gtopt_main` uses this to gate the "no demand-shedding penalty"
  * warning so it does not fire on planning JSONs that set per-demand
- * `fcost`/`ecost` but leave the global default at 0 (large_case-style).
+ * `fcost`/`ecost` but leave the global default at 0 (PLP-converted-case style).
  */
 [[nodiscard]] bool has_no_shedding_penalty(const Planning& planning) noexcept;
 

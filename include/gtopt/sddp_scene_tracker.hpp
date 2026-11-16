@@ -135,8 +135,8 @@ public:
   /// Result: the outer ``while(!all_done)`` loop in ``solve_async``
   /// (sddp_iteration.cpp:1758) keeps spinning because some scenes are
   /// stuck in ``idle`` with no work scheduled — observed on
-  /// large_case hs8 where 6 wettest scenes converged at iter 51 and
-  /// the 9 dry scenes wedged at iter 54 against ``min=51 + 2 = 53``.
+  /// the large hydrothermal case hs8 where 6 wettest scenes converged at iter
+  /// 51 and the 9 dry scenes wedged at iter 54 against ``min=51 + 2 = 53``.
   ///
   /// Returns the same value as ``min_completed_iteration()`` when no
   /// scene has converged yet.  Returns ``IterationIndex::max()`` when

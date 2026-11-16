@@ -193,7 +193,7 @@ TEST_CASE(
   // Method-dependent default: `1000` for monolithic, `1.0` for SDDP /
   // cascade.  Pinning both branches because the comment on
   // `default_scale_objective` documents both as load-bearing for
-  // kappa conditioning (large_case-scale runs).
+  // kappa conditioning (CEN-scale runs).
   const PlanningOptions opts;
   const PlanningOptionsLP wrapper(opts);
   CHECK(wrapper.scale_objective() == doctest::Approx(1'000.0));

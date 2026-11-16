@@ -245,7 +245,7 @@ public:
  * headroom, the cell-task block silently caps aperture parallelism
  * at `(cpu_factor × physical_concurrency) − num_scenes` (typically
  * ~80 % of the nominal cap on a 16-scene problem — observed on
- * large_case as `Active 36-48/80, Pending 0`, where the gap
+ * the large hydrothermal case as `Active 36-48/80, Pending 0`, where the gap
  * between 80 and the active count is the cell-task block).
  *
  * The headroom workers are lazily spawned, so on iterations where the

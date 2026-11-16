@@ -188,11 +188,11 @@ def _resolve_log_dir_candidates(case_dir: Path) -> list[Path]:
     The C++ side resolves ``output_directory`` / ``log_directory``
     relative to gtopt's CWD, which is **not always** the JSON file's
     parent directory: when ``run_gtopt`` is invoked from a sibling
-    shell (``cd support/large_case && run_gtopt large_case_plain``), the
-    JSON ends up parsed from ``large_case_plain/`` while gtopt itself
-    runs with CWD=``support/large_case/``, so a JSON-relative
-    ``output_directory: "results"`` resolves to ``support/large_case/results``
-    on the C++ side but ``support/large_case_plain/results`` on
+    shell (``cd studies && run_gtopt my_case``), the
+    JSON ends up parsed from ``my_case/`` while gtopt itself
+    runs with CWD=``studies/``, so a JSON-relative
+    ``output_directory: "results"`` resolves to ``studies/results``
+    on the C++ side but ``studies/my_case/results`` on
     the Python side.  The two diverge silently and the TUI sits at
     "Waiting for solver output…" forever.
 

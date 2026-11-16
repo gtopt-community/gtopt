@@ -382,8 +382,8 @@ TEST_CASE(  // NOLINT
 // share_cuts_for_phase routes through `add_cut_row` so optimality cuts that
 // reference α release the bootstrap pin (bound_alpha_for_cut).
 //
-// Regression for large_case iter i1 p1 infeasibility (2026-04-30):
-// every scene declared "no predecessor phase to cut on" because
+// Regression for the large hydrothermal case iter i1 p1 infeasibility
+// (2026-04-30): every scene declared "no predecessor phase to cut on" because
 // `sddp_share_m1_*` cuts demanded α ≈ 1.16e8 against a pinned α = 0.
 // Root cause: `share_cuts_for_phase` used the raw `add_row + record_cut_row`
 // pair instead of the unified `add_cut_row` free function, so
@@ -424,7 +424,7 @@ auto alpha_bounds_raw(const PlanningLP& plp,
 /// Build an optimality-shaped Benders cut that references α at
 /// (scene, phase) with coefficient 1 and a single state-var coefficient
 /// on a structural reservoir column.  RHS is `>= rhs` (α + state·coeff
-/// >= rhs).  Mirrors the `sddp_share_m1_*` shape observed in large_case's
+/// >= rhs).  Mirrors the `sddp_share_m1_*` shape observed in the large case's
 /// error LPs.
 SparseRow make_alpha_referring_cut(const PlanningLP& plp,
                                    SceneIndex scene_index,

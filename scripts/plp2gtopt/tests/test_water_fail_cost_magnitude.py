@@ -9,18 +9,19 @@ own ``Rendi``.
 
 The new pipeline replaces both with a single principled formula
 (see ``plp2gtopt._water_value``) — these tests run plp2gtopt on the
-real large_case case (when present locally) and confirm that the
+real large hydrothermal PLP case (when present locally) and confirm that the
 emitted prices match the documented anchor × lost_pf reference table
 within a tight tolerance, and that the legacy path produces values
 *orders of magnitude smaller*.
 
-The large_case case is not always available in the sandbox; when
+The large hydrothermal PLP case is not always available in the sandbox; when
 absent the entire test class is skipped.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -29,7 +30,7 @@ import pytest
 
 from gtopt_shared.water_values import WaterValueResolver
 
-# Reference ``lost_pf`` values — these are intrinsic to the large_case
+# Reference ``lost_pf`` values — these are intrinsic to the large-case
 # topology (cascade walks, cenre lifts) and remain stable across
 # changes to the anchor formula.  The expected magnitudes are
 # computed at runtime as ``anchor × lost_pf`` (FR) or
@@ -85,10 +86,17 @@ _REFERENCE_RESERVOIRS_LOST_PF = {
 _TOL_REL = 1e-3
 
 
-def _large_case_large_case_dir() -> Path | None:
-    """Return the large_case support directory if it has the required files."""
-    repo_root = Path(__file__).resolve().parents[3]
-    case_dir = repo_root / "support" / "large_case" / "large_case"
+def _large_case_dir() -> Path | None:
+    """Return the external large PLP case directory if it has the required files.
+
+    The case is not distributed with gtopt; point the
+    ``GTOPT_LARGE_PLP_CASE`` environment variable at a local PLP case
+    directory to enable these tests.
+    """
+    env = os.environ.get("GTOPT_LARGE_PLP_CASE")
+    if not env:
+        return None
+    case_dir = Path(env)
     if not case_dir.is_dir():
         return None
     # plp2gtopt reads .dat or .dat.xz transparently; either is fine.
@@ -101,8 +109,10 @@ def _large_case_large_case_dir() -> Path | None:
     return case_dir
 
 
-def _convert_large_case(case_dir: Path, output_dir: Path, *, extra_flags: list[str]) -> dict:
-    """Run plp2gtopt on the large_case case and return parsed planning JSON.
+def _convert_large_case(
+    case_dir: Path, output_dir: Path, *, extra_flags: list[str]
+) -> dict:
+    """Run plp2gtopt on the large hydrothermal case and return parsed planning JSON.
 
     Always uses ``-F csv -t 1y --first-scenario --no-check`` to keep
     the run fast and avoid downstream consistency checks that depend
@@ -217,11 +227,11 @@ def _read_boundary_cut_values(output_dir: Path) -> dict[str, float]:
 
 @pytest.mark.integration
 @pytest.mark.skipif(
-    _large_case_large_case_dir() is None,
-    reason="support/large_case not available in this environment",
+    _large_case_dir() is None,
+    reason="GTOPT_LARGE_PLP_CASE not set or case not available",
 )
 class TestAutoWaterFailCostMagnitude:
-    """End-to-end magnitude tests on the real large_case case.
+    """End-to-end magnitude tests on the real large hydrothermal PLP case.
 
     Runs plp2gtopt twice — once with the legacy path, once with
     ``--auto-water-fail-cost`` — and verifies:
@@ -235,7 +245,7 @@ class TestAutoWaterFailCostMagnitude:
 
     @pytest.fixture(scope="class")
     def planning_auto(self, tmp_path_factory):
-        case_dir = _large_case_large_case_dir()
+        case_dir = _large_case_dir()
         assert case_dir is not None  # gated by skipif
         out = tmp_path_factory.mktemp("large_case_auto")
         return _convert_large_case(
@@ -246,7 +256,7 @@ class TestAutoWaterFailCostMagnitude:
 
     @pytest.fixture(scope="class")
     def planning_legacy(self, tmp_path_factory):
-        case_dir = _large_case_large_case_dir()
+        case_dir = _large_case_dir()
         assert case_dir is not None
         out = tmp_path_factory.mktemp("large_case_legacy")
         return _convert_large_case(
@@ -394,7 +404,7 @@ class TestAutoWaterFailCostMagnitude:
         )
         # The auto-pipeline magnitude is anchor × LMAULE.lost_pf × 1e6/3600.
         # Even with a conservative anchor of 100 $/MWh (well below any
-        # large_case electricity price), LMAULE's cascade_pf=10.05 gives
+        # large-case electricity price), LMAULE's cascade_pf=10.05 gives
         # an auto efin_cost of ~280 k $/hm³ — orders of magnitude above
         # the legacy cap.
         conservative_anchor = 100.0  # $/MWh — lower bound for any case
@@ -426,10 +436,10 @@ class _CP:  # pragma: no cover - tiny test helper
 
 
 def _large_case_like_resolver(*, anchor_override: float | None = None):
-    """Build a small resolver matching the large_case magnitudes.
+    """Build a small resolver matching the large-case magnitudes.
 
     Single embalse with cascade ending at one bus>0 turbine of rendi
-    10.0 — matches the design note's synthetic "LARGE_CASE_LIKE_CASE" with
+    10.0 — matches the design note's synthetic "LARGE_CASE_LIKE" with
     cascade_rendi = 10.0.
     """
     centrals = [

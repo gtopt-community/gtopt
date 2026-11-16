@@ -100,7 +100,7 @@ Simulation make_two_block_simulation()
 
 /// Common PlanningOptions for the magnitude tests.
 ///
-/// `demand_fail_cost = 568` matches the "large_case tier-4" magnitude that the
+/// `demand_fail_cost = 568` matches the "large-case tier-4" magnitude that the
 /// Python `_water_value` helper assumes.  `scale_objective = 1.0` so that
 /// LP cost coefficients aren't divided down (we only assert on slack
 /// primal values, not on the objective, but a 1.0 scale keeps things

@@ -1027,7 +1027,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     // mechanism for debug / physical-unit validation, and
     // intentionally OVERRIDES JSON values to ensure full coverage.
     // This is used as a diagnostic for cut-construction unit math
-    // (e.g. large_case's LB-compounding bug, where
+    // (e.g. the large hydrothermal case's LB-compounding bug, where
     // scale_objective=1000 in the JSON would otherwise leak through
     // and prevent isolation of scale-related defects).
     //

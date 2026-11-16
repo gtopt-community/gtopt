@@ -8,7 +8,7 @@
 // `flatten()` already applied to the OBJ row (`scale_objective`).
 // Pre-fix, only `col_scale` was applied; cuts ended up `scale_obj`
 // times too large vs the OBJ row, and SDDP's iter-N backward pass
-// compounded this factor across phases (large_case: LMAULE
+// compounded this factor across phases (the large hydrothermal case: LMAULE
 // coefficient 4.2e+5 → 4.2e+8 → 4.2e+11 with `scale_objective=1000`).
 //
 // The fix divides cut-row elements + bounds by `m_scale_objective_`
@@ -62,7 +62,7 @@ LinearInterface make_cut_phase_lp(double scale_obj, double col1_scale = 2.0)
   // max-abs pass would multiply elements + bounds back up by the
   // largest coefficient (and store the divisor as a row_scale), making
   // `get_row_low_raw()` return the unequilibrated value — equivalent
-  // by construction to the pre-fix value.  In production the large_case
+  // by construction to the pre-fix value.  In production the large-case
   // case uses `--no-scale` which disables equilibration globally; this
   // test reproduces that path so the assertions can pin the scale_obj
   // divisor without having to subtract row_scale composition.
@@ -85,9 +85,9 @@ TEST_CASE(
     // cut's stored RHS being `scale_obj` times larger than the
     // previous, even though the input was identical — observed as
     // 1000× per-phase coefficient growth in SDDP backward pass on
-    // large_case.  Three identical SparseRows must round-trip to
-    // three identical raw row-bound values, regardless of the actual
-    // scale factor.
+    // the large hydrothermal case.  Three identical SparseRows must round-trip
+    // to three identical raw row-bound values, regardless of the actual scale
+    // factor.
     auto li = make_cut_phase_lp(1000.0);
 
     SparseRow cut;
@@ -407,8 +407,8 @@ TEST_CASE(
 // The user's headline invariant: changing `scale_objective` must NOT
 // change the physical optimum.  Mathematically the OBJ is divided by
 // scale_objective at flatten time and physically equivalent (same
-// minimizer in physical units).  Empirically on large_case this
-// invariant breaks when SDDP adds cuts at scale_obj=1000 — but the
+// minimizer in physical units).  Empirically on the large hydrothermal case
+// this invariant breaks when SDDP adds cuts at scale_obj=1000 — but the
 // invariant should hold even on a TRIVIAL LP without SDDP, just from
 // the linear_interface layer alone.
 //

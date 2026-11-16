@@ -5,14 +5,14 @@
  *            machinery (inherit_optimality_cuts wiring).
  * @date      2026-05-13
  *
- * Background — observed regression on large_case (2026-05): a cascade run
- * with `inherit_optimality_cuts: -1` in each level's transition did NOT
- * emit the expected `Cascade [...]: serialized N cuts for next level` /
+ * Background — observed regression on the large hydrothermal case (2026-05): a
+ * cascade run with `inherit_optimality_cuts: -1` in each level's transition did
+ * NOT emit the expected `Cascade [...]: serialized N cuts for next level` /
  * `Cascade [...]: transferred N cuts from ...` log messages, and level 1
  * iter 0 LB landed back at the alpha-bootstrap floor.  These tests pin
  * the assumption "cuts inherit across cascade levels when
  * inherit_optimality_cuts != 0" in code form, with self-contained
- * fixtures (no large_case data dependency).
+ * fixtures (no the large hydrothermal case data dependency).
  *
  * Test layers (see test/source/CLAUDE.md style):
  *   - Layer 1: JSON parsing of CascadeTransition.inherit_optimality_cuts
@@ -92,7 +92,7 @@ TEST_CASE(
     "CascadeOptions JSON: inherit_optimality_cuts=-1 survives full "
     "level_array nesting")
 {
-  // The large_case regression manifested with the field inside
+  // the large hydrothermal case regression manifested with the field inside
   // level_array[N].transition — verify the nested deserialization
   // preserves the value.  Round-trip via to_json/from_json to catch
   // any asymmetry in the json_data_contract.
@@ -133,7 +133,7 @@ TEST_CASE(
 {
   // The cascade gate at cascade_method.cpp:732 reads
   //   if (want_opt_cuts && !stored_cuts.empty()) { ... save_cuts_parquet(...) }
-  // The "no serialized cuts" symptom on large_case implies either
+  // The "no serialized cuts" symptom on the large case implies either
   // `want_opt_cuts == false` (covered in Layer 1) or `stored_cuts.empty()`
   // (covered here).  This test fails if a backward pass produces no
   // cuts visible via the public stored_cuts() accessor.
@@ -298,7 +298,7 @@ TEST_CASE("save_cuts_parquet -> load_cuts round-trip preserves cut count")
     // catch the broadcast bug where each loaded cut was replicated
     // across all N_scenes and pushed into every scene's cut store —
     // the symptom that produced 6 400 → 104 800 → 1 679 560 cuts at
-    // each large_case cascade transition.  This stronger check
+    // each the large hydrothermal case cascade transition.  This stronger check
     // enforces the per-scene routing contract: 1 file row → 1 store
     // entry.
     const auto stored_after_load = sddp2.num_stored_cuts();
@@ -349,8 +349,8 @@ TEST_CASE(
     "Cascade level 0 -> level 1 transfers optimality cuts when "
     "inherit_optimality_cuts=-1")
 {
-  // This is the critical regression test that mirrors the large_case
-  // symptom: level 1 should START with cuts already loaded.
+  // This is the critical regression test that mirrors the large hydrothermal
+  // case symptom: level 1 should START with cuts already loaded.
   //
   // We assert via two channels:
   //  (a) level 0 produced at least one optimality cut
@@ -360,7 +360,7 @@ TEST_CASE(
   //      Without inheritance, level 1 would have to rebuild the value
   //      function from scratch in <= max_iterations.
   //
-  // If the cascade silently skips serialize/load (the large_case bug), level
+  // If the cascade silently skips serialize/load (the large-case bug), level
   // 1 either starts from the alpha floor LB (LB << level 0 LB) or runs
   // far more iterations than level 0 did.
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);

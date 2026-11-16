@@ -140,9 +140,9 @@ template<typename SystemLPT>
 ///     fallback to ``rc.default_volume`` (= JSON ``eini``) selected the
 ///     wrong piecewise segment for ReservoirSeepage/RDL/ProductionFactor
 ///     /FlowRight/VolumeRight whenever the predecessor's actual trial
-///     differed from the JSON ``eini``.  On large_case scen 51 phase 38
-///     ELTORO ``eini = 1731 hm³`` (segment 2 ``constant = 15.09 m³/s``)
-///     vs predecessor's drained-to-0 trial → row forced 15.09 m³/s
+///     differed from the JSON ``eini``.  On the large hydrothermal case scen 51
+///     phase 38 ELTORO ``eini = 1731 hm³`` (segment 2 ``constant = 15.09
+///     m³/s``) vs predecessor's drained-to-0 trial → row forced 15.09 m³/s
 ///     seepage at empty storage → cascade infeasibility through
 ///     p38→p1.
 ///   * ``StateVariable::col_sol_physical()`` is gtopt's canonical
@@ -183,7 +183,7 @@ template<typename SystemLPT>
   //       `release_backend()`) where `is_optimal()` is false even
   //       though the pinned bound carries the correct state →
   //       step 2 in-phase fallback misses → same wrong fallback.
-  //    The end-state observed on large_case p51 INFEAS-PROBE
+  //    The end-state observed on the large hydrothermal case p51 INFEAS-PROBE
   //    2026-05-12: ELTORO drained to 0 in the forward pass, but
   //    `physical_eini_from_cache` returned 1731 Hm³ (annual eini) →
   //    seepage segment 1 selected (`constant = 15.088 m³/s`) → forced

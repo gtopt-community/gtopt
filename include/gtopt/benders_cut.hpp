@@ -179,7 +179,7 @@ struct BoxEdgeStats
   /// True when EVERY active link clamps at the upper edge.  The threshold
   /// of ``≥ 2 active`` keeps the warning quiet for trivial single-link
   /// cuts on a small reservoir while still flaring on the multi-reservoir
-  /// degenerate cascade observed on large_case.
+  /// degenerate cascade observed on the large hydrothermal case.
   [[nodiscard]] constexpr bool all_upper_degenerate() const noexcept
   {
     return total() >= 2 && upper == total();
@@ -683,7 +683,7 @@ struct FeasibilityCutResult
 ///     reach emax on every reservoir simultaneously in one phase).
 ///     The function CLEARS its return vector in that case so the
 ///     caller sees "no cut produced" and declares infeasibility
-///     directly, skipping the wasted retry chain (large_case:
+///     directly, skipping the wasted retry chain (the large hydrothermal case:
 ///     28 backtracks → 0).  A WARN is emitted naming the reservoirs.
 ///
 /// @param elastic        Solved elastic clone + per-link slack info

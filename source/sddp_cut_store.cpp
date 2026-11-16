@@ -521,8 +521,8 @@ void SDDPCutManager::apply_cut_sharing_for_iteration(
   // unique LP-row name for the shared cut after it lands in the
   // destination scene's LP.  Without ``class_name`` /
   // ``constraint_name`` set the labeller throws
-  // ``"row N has metadata without a class_name (unlabelable)"`` (large_case/
-  // large_case iter-1 reproducer at row 5251).  ``variable_uid`` and
+  // ``"row N has metadata without a class_name (unlabelable)"`` (large
+  // hydrothermal case iter-1 reproducer at row 5251).  ``variable_uid`` and
   // ``context`` carry the originating cut's identity so two shared
   // cuts on the same destination phase but from different source
   // scenes do not collide on the duplicate-label check at
@@ -657,7 +657,7 @@ void SDDPCutManager::save_cuts_for_iteration(
 
   // ── Save per-scene cuts (parallelised when a pool is available) ──
   //
-  // Sequential cost on the large_case case: ~16 sequential CSV
+  // Sequential cost on the large hydrothermal case case: ~16 sequential CSV
   // writes, dominated by per-cut label formatting; profiled at
   // 0.5–1 s/iter.  Dispatching them via the SDDP work pool overlaps
   // formatting + I/O across workers (the pool is otherwise idle in
@@ -724,7 +724,7 @@ void SDDPCutManager::save_cuts_for_iteration(
   // reconstruct from the cuts, which ARE versioned).  The
   // versioned `sddp_state_<iter>.csv` had already been retired
   // earlier for the same reason plus the cumulative I/O cost
-  // (~8 GB/run on large_case); removing the latest-only write
+  // (~8 GB/run on the large case); removing the latest-only write
   // completes the cleanup.
 
   // ── Rename cut files for infeasible scenes ──

@@ -227,7 +227,7 @@ def test_resolve_log_dir_honours_output_directory(tmp_path: Path):
     """When the JSON sets output_directory='results' (the plp2gtopt
     convention) the runner must poll <case>/results/logs — not the
     hard-coded <case>/output/logs.  Regression for the "Waiting for
-    solver output…" hang seen on large_case's large_case case."""
+    solver output…" hang seen on a large PLP-converted case."""
     from run_gtopt._runner import _resolve_log_dir  # noqa: PLC0415
 
     case_dir = _write_case_json(tmp_path, {"output_directory": "results"})

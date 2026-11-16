@@ -33,7 +33,7 @@
  *     `clone_from_flat(with_replay=true)` to build the per-aperture
  *     clones.  That path needs the buffer as the SOLE source of
  *     post-snapshot cuts and dynamic cols (without it, aperture
- *     clones drop every Benders cut — large_case regression
+ *     clones drop every Benders cut — the large hydrothermal case regression
  *     2026-05-11).  Under `compress` (and the legacy `snapshot`
  *     alias) the buffer additionally feeds
  *     `LinearInterface::apply_post_load_replay()` when the backend
@@ -349,7 +349,7 @@ public:
   // ``clone_from_flat(with_replay=true)`` see only construction-time
   // matval / RHS, even though the live backend carries the latest
   // segment / factor selection.  Observed regression on
-  // large_case p51: seepage row inherited segment 1 (constant
+  // the large hydrothermal case p51: seepage row inherited segment 1 (constant
   // 15.088 m³/s) on aperture clones even after ``update_lp_for_phase``
   // had selected segment 0 (constant 0) on the live backend → forced
   // outflow vs pinned-zero state → genuinely infeasible apertures.

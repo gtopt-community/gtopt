@@ -602,7 +602,7 @@ constexpr auto create_linear_interface(auto& collections,
     // were not requested.  `col/row_labels_meta` exist only to synthesise
     // human-readable names for `write_lp` / failed-solve dumps; parquet
     // output uses the element-keyed collection index maps, NOT these labels.
-    // On the 2y / large_case-scale cases they are ~1.3 GiB resident.  When dropped,
+    // On the 2y / CEN-scale cases they are ~1.3 GiB resident.  When dropped,
     // `generate_labels_from_maps` falls back to generic `c{i}` / `r{i}` names.
     // Off mode is untouched (labels always kept) — no regression; pass
     // `--lp-file` / `--lp-debug` (→ col_with_names) to keep real names.
@@ -634,7 +634,7 @@ constexpr auto create_linear_interface(auto& collections,
     // this, every cell carries an uncompressed
     // ``FlatLinearProblem`` (matval / matind / collb / objval /
     // …) until the first iteration's ``release_backend`` fires —
-    // which under ``compress`` on a large_case-scale case is hundreds
+    // which under ``compress`` on a CEN-scale case is hundreds
     // of MB per cell × N cells = a multi-GB peak that the build
     // work pool's ``max_process_rss_mb`` cannot bound (the limit
     // throttles dispatch, not in-flight allocation).
@@ -1321,8 +1321,8 @@ void SystemLP::rebuild_collections_if_needed()
   //     emitted at solve time; re-firing them on rebuild spams the
   //     log and burns CPU.
   //
-  // Profile on large_case cascade: this slice was 30-50% of the
-  // per-cell write-out wall time under `low_memory=compress`.  The
+  // Profile on the large hydrothermal case cascade: this slice was 30-50% of
+  // the per-cell write-out wall time under `low_memory=compress`.  The
   // overrides below collapse it to little more than a tight
   // `add_to_lp` walk over the elements.
   flat_opts.equilibration_method = LpEquilibrationMethod::none;
@@ -1395,8 +1395,8 @@ void SystemLP::ensure_lp_built()
   // from `ensure_lp_built()` meant every forward/backward phase solve
   // under compress mode did one — tens of thousands of flattens per
   // run.  jemalloc retains that heap for reuse, keeping RSS elevated
-  // (~40% of system RAM on the large_case case) even though logically the
-  // memory is freed.
+  // (~40% of system RAM on the large hydrothermal case) even though logically
+  // the memory is freed.
   //
   // Collections are only needed by callers that read
   // `sys.collections()` — `SystemLP::write_out` and the backward-pass

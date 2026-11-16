@@ -625,11 +625,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // installed fcut (survivors of cut_coeff_eps filtering).  Used as
         // the compact `state(N)` suffix on the per-fcut log line — the
         // full `Class:name:col` list is identical iteration after
-        // iteration once the cell topology is fixed (large_case
-        // shows the same 8 reservoirs for 100s of fcut events) so
-        // emitting the names on every line produced a wall of repeated
-        // text without diagnostic value.  Operators who want the names
-        // can read the iteration-init log line that prints them once.
+        // iteration once the cell topology is fixed (the large hydrothermal
+        // case shows the same 8 reservoirs for 100s of fcut events) so emitting
+        // the names on every line produced a wall of repeated text without
+        // diagnostic value.  Operators who want the names can read the
+        // iteration-init log line that prints them once.
         int state_elem_count = 0;
         if (phase_index) {
           const auto prev_phase_index = previous(phase_index);

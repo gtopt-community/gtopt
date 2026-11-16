@@ -108,8 +108,8 @@ private:
   /// @p solver_infinity is queried from `SolverBackend::infinity()` so
   /// sentinel values like `fmax=1e30` (meaning "no bound") are not folded
   /// into col_scale; otherwise they would propagate into Benders cut
-  /// numerics and produce LB compounding (large_case regression
-  /// 2026-04-30).
+  /// numerics and produce LB compounding (the large hydrothermal case
+  /// regression 2026-04-30).
   static void auto_scale_reservoirs(Planning& planning, double solver_infinity);
 
   /// State variable I/O uses the StateVariable map (ColIndex-based)
@@ -272,8 +272,8 @@ public:
                 // `Reservoir.fmax = 1e30` meaning "no flow bound")
                 // that would otherwise be folded into `col_scale =
                 // 1e30` and break Benders cut numerics.  See
-                // large_case regression diagnosis 2026-04-30 (LB
-                // compounded ~10x per iter to 1.1B vs UB ~155M).
+                // the large hydrothermal case regression diagnosis 2026-04-30
+                // (LB compounded ~10x per iter to 1.1B vs UB ~155M).
                 auto& reg = SolverRegistry::instance();
                 const double solver_infinity = [&]
                 {
@@ -491,7 +491,7 @@ public:
    * cache and rebuilds XLP col indices via a flatten of the live
    * `System` element arrays — it does NOT need the snapshot.  Dropping
    * the snapshot here frees tens of MB of compressed LP matrix per
-   * cell (hundreds of MB per scene × N scenes), which on large_case-scale
+   * cell (hundreds of MB per scene × N scenes), which on CEN-scale
    * runs is a meaningful chunk of RAM headroom for the parallel
    * write_out pool.
    *

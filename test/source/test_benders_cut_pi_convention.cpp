@@ -19,7 +19,7 @@
  * factor in the installed cut after `add_row`'s `× col_scale[source]`
  * lift; under ruiz equilibration (each LP equilibrates independently)
  * that factor does not cancel and drifts iter-to-iter, producing the
- * large_case 8.86×-per-iter LB-overshoot bug.
+ * the large hydrothermal case 8.86×-per-iter LB-overshoot bug.
  */
 
 #include <cmath>
@@ -100,7 +100,7 @@ TEST_CASE(
 // (both source and dependent columns share the same `variable_scales`
 // entry).  The fix shouldn't change behavior here — this is the
 // regression guard.  The real ruiz-driven LB-overshoot fix needs a
-// large_case-scale fixture to reproduce, which is too heavy for a unit test.
+// CEN-scale fixture to reproduce, which is too heavy for a unit test.
 TEST_CASE(
     "SDDPMethod 2-phase pi convention - variable_scales no ruiz")  // NOLINT
 {
@@ -444,7 +444,7 @@ TEST_CASE(
 //   dual_LP[cut_row] >= 0           (cuts are ≥ rows ⇒ non-negative dual)
 //
 // And the unscaled (composite-row-scale-corrected) physical dual must
-// stay in a sane numeric range — the pre-fix large_case run had cut-row duals
+// stay in a sane numeric range — the pre-fix large-case run had cut-row duals
 // that drifted into the 1e6 – 1e9 range as the LB compounded; the fix
 // keeps duals well-conditioned.
 TEST_CASE("SDDPMethod 2-phase pi convention - cut row dual sanity")  // NOLINT
@@ -489,7 +489,7 @@ TEST_CASE("SDDPMethod 2-phase pi convention - cut row dual sanity")  // NOLINT
     // Benders optimality cuts are ≥ rows, so the LP dual is ≥ 0.
     // (Tiny negative noise allowed.)
     CHECK(dual >= -1e-9);
-    // Pre-fix large_case duals went to 1e9 range; with the fix on a tiny
+    // Pre-fix large-case duals went to 1e9 range; with the fix on a tiny
     // case the dual should remain moderate.
     CHECK(std::abs(dual) < 1e6);
     // Composite row scale must be finite and positive.
@@ -584,7 +584,7 @@ TEST_CASE("SDDPMethod 2-phase pi convention - var_scale invariance")  // NOLINT
 // ─── Test 7: ruiz equilibration consistency ────────────────────────────────
 //
 // The fix's primary claim: under ruiz equilibration (the production
-// configuration that triggered the large_case bug), the cut math
+// configuration that triggered the large hydrothermal case bug), the cut math
 // no longer compounds iter-to-iter.  The deterministic small-case
 // regression test:
 //
@@ -633,7 +633,7 @@ TEST_CASE("SDDPMethod 2-phase pi convention - ruiz consistency")  // NOLINT
   CHECK(last_ruiz.gap < 1e-3);
 
   // The LB-overshoot regression signature: SDDP theory says LB ≤ UB.
-  // Pre-fix large_case iter 1 violated this with LB ≈ 770× UB.  Walk every
+  // Pre-fix large-case iter 1 violated this with LB ≈ 770× UB.  Walk every
   // iteration of both runs and assert the underestimator property
   // (with a tiny float-noise tolerance — we want to catch the
   // 8.86×-per-iter compounding signature, not float drift).
@@ -820,7 +820,7 @@ TEST_CASE(
     // still runs below.
     if (!solver_test::default_is_first_order()) {
       // Benders cuts are ≥-rows: dual must be non-negative (modulo float
-      // noise).  Pre-fix large_case duals went to 1e9; post-fix they should
+      // noise).  Pre-fix large-case duals went to 1e9; post-fix they should
       // remain moderate.
       CHECK(dual_cut >= -1e-9);
       CHECK(dual_cut < 1e6);
@@ -895,7 +895,7 @@ TEST_CASE(
     CHECK(run_none.iters.back().gap < 1e-3);
     CHECK(run_ruiz.iters.back().gap < 1e-3);
 
-    // No LB-overshoot at any iteration.  Pre-fix large_case iter 1 violated
+    // No LB-overshoot at any iteration.  Pre-fix large-case iter 1 violated
     // this with LB ≈ 770× UB; the OLD convention preserves the SDDP
     // underestimator property iter-by-iter.
     for (const auto& ir : run_none.iters) {

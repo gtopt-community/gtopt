@@ -195,8 +195,8 @@ void LinearInterface::release_backend() noexcept
       // buffers are uninitialised (post-`load_flat`, pre-resolve) and
       // overwriting the cache with them silently corrupts the SDDP
       // forward/backward read surface — which is exactly the bug that
-      // caused large_case compress mode to diverge from `off` mode at
-      // iter ≥1 (zero-padded col_sol propagated via
+      // caused the large hydrothermal case compress mode to diverge from `off`
+      // mode at iter ≥1 (zero-padded col_sol propagated via
       // `propagate_trial_values`).  When `!backend_solution_fresh()`
       // the existing cache is the source of truth — leave it alone.
       if (m_cache_.backend_solution_fresh()) {
@@ -232,7 +232,7 @@ void LinearInterface::release_backend() noexcept
       // `if (!is_optimal()) return;` guard on a cell whose backend
       // had been reset, then `OutputContext`'s ctor called
       // `get_col_sol()` which fell through to `backend()` → null
-      // unique_ptr deref.  Observed on large_case iter i2
+      // unique_ptr deref.  Observed on the large hydrothermal case iter i2
       // post-CONVERGED write_out for cells that were optimal in iter
       // i0/i1 but went non-optimal in i2 (status 2 / no-recovery
       // forward failure → release_backend with `is_optimal()==false`).
@@ -298,8 +298,8 @@ void LinearInterface::release_backend() noexcept
 //     mid-iteration `add_row` (Benders cut), and downstream
 //     consumers would silently read a now-stale cached col_sol that
 //     doesn't satisfy the new cut.  The SDDP backward pass then
-//     produces inconsistent cuts vs off mode — exactly the large_case
-//     LB divergence (compress LB ≈ 5× off LB).
+//     produces inconsistent cuts vs off mode — exactly the large hydrothermal
+//     case LB divergence (compress LB ≈ 5× off LB).
 //
 // Skipped during `m_replaying_` (bulk replay restores recorded
 // state — not a new mutation) and under `LowMemoryMode::off` (off
@@ -584,12 +584,12 @@ void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
   //    Without this replay, iter-0-backward would solve with
   //    construction-time bounds while off mode (which never
   //    reloads) keeps the propagated pins — producing different
-  //    cuts and ultimately the large_case compress LB stall.
+  //    cuts and ultimately the large hydrothermal case compress LB stall.
   //    Uses the bulk `set_col_bounds_raw` API (one CPXchgbds call
   //    on CPLEX, one HighsLp update on HiGHS) instead of N pairs of
   //    `set_col_lower/upper` virtual dispatches — matters on cases
-  //    with many forward-pass dep_col pins (production large_case).
-  //    The `ReplayGuard` above already makes the bulk call skip the
+  //    with many forward-pass dep_col pins (production the large hydrothermal
+  //    case). The `ReplayGuard` above already makes the bulk call skip the
   //    per-element `set_pending_col_*` re-record path.
   if (const auto& pending = source.pending_col_bounds(); !pending.empty()) {
     const auto n = pending.size();
@@ -619,7 +619,7 @@ void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
   //    while the source's `update_lp` mutations stayed only on the
   //    pre-release backend → apertures saw construction-time
   //    seepage segment, producing structurally infeasible LPs
-  //    against the propagated forward state (large_case p51).
+  //    against the propagated forward state (the large hydrothermal case p51).
   //    Per-(row, col) raw writes — same cost as the original
   //    `set_coeff_raw` mutations they mirror, just re-issued.
   for (const auto& [rc, v] : source.pending_coeffs()) {
@@ -733,7 +733,7 @@ bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
 // the bulk `add_rows_raw` fast path instead.
 //
 // Earlier (commit pre-2026-05-01), `add_rows` was the bulk equivalent
-// of `add_row_raw` (no compose_physical), causing the large_case
+// of `add_row_raw` (no compose_physical), causing the large hydrothermal case
 // 8.86×/iter LB compounding bug under low_memory_mode=compress because
 // every reconstruct replayed wrongly-scaled cut rows.  Fixed by
 // teaching `add_rows` to dispatch through compose_physical (same gate
@@ -872,14 +872,14 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // production with concurrent calls and no mutex:
   //
   //   * Crashes — three SDDPWorkPool threads GPF'd at the same
-  //     instruction pointer inside CPLEX on large_case
+  //     instruction pointer inside CPLEX on the large hydrothermal case
   //     (commit `1d7a05c1` added a per-callsite mutex on the
   //     aperture path).
   //
   //   * Deadlocks — 10/122 SDDPWorkPool threads parked in
   //     `_M_futex_wait_until` two frames below
   //     `BendersCut::elastic_filter_solve`, the SDDP forward pass
-  //     wedged for >7 min (large_case thread dump, 2026-05-07).
+  //     wedged for >7 min (large-case thread dump, 2026-05-07).
   //
   // The aperture path's per-callsite mutex was insufficient: it
   // only serialised within one entry-point.  Concurrent elastic
@@ -1538,16 +1538,16 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   //
   // Caller doesn't need to remember a follow-up `record_dynamic_col`
   // — historically that was a hidden requirement that silently
-  // dropped post-init cols on the first reconstruct (large_case/cascade
+  // dropped post-init cols on the first reconstruct (the large cascade case
   // SIGSEGV).
   // 2026-05-11 fix — record unconditionally (no mode gate).  Under
   // `off`, `system_lp.cpp:560` still saves a snapshot, so the
   // aperture-path `clone_from_flat` consumes this buffer.  Without
   // recording α cols here, `apply_post_load_replay` re-installs cuts
   // that reference an α column index past the snapshot's numcols —
-  // silently corrupt at best, segfault at worst (large_case 2026-05-11).
-  // Throwaway clones (SDDP aperture chunk LP) skip recording — their
-  // replay buffer is never re-applied to any backend.
+  // silently corrupt at best, segfault at worst (the large hydrothermal case
+  // 2026-05-11). Throwaway clones (SDDP aperture chunk LP) skip recording —
+  // their replay buffer is never re-applied to any backend.
   if (!m_replay_.replaying() && !m_is_throwaway_clone_
       && m_snapshot_holder_.has_data())
   {
@@ -2045,9 +2045,9 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   //  OBJ itself is divided by `scale_objective` at `flatten()` time
   //  (linear_problem.cpp:725-729); cut rows added later via this path
   //  were previously left un-divided, leaving cuts and obj in
-  //  inconsistent scales by exactly `scale_objective` (large_case
-  //  LMAULE: 4.2e+5 → 4.2e+8 → 4.2e+11 across consecutive backward
-  //  phases at scale_obj=1000).
+  //  inconsistent scales by exactly `scale_objective` (the large hydrothermal
+  //  case LMAULE: 4.2e+5 → 4.2e+8 → 4.2e+11 across consecutive backward phases
+  //  at scale_obj=1000).
   //
   //  We divide elements + finite bounds by scale_objective AND record
   //  the divisor in `composite_scale` (which is later passed to
@@ -2093,7 +2093,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   //     handled by the basis structure rather than being amplified
   //     into κ when α enters the basis).  Without this, row-max
   //     normalization would pick a state link as the divisor,
-  //     pushing α down to O(10⁻⁹) on large_case-scale problems and
+  //     pushing α down to O(10⁻⁹) on CEN-scale problems and
   //     contributing κ ≈ 10⁹ per cut.
   //   - ROW-MAX normalization (default): divide by max-abs.  Right
   //     for structural rows where no single column carries the
@@ -2242,7 +2242,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   // collapses N CPXaddrows calls into one and N×3 element walks into
   // N×1 (the previous fallback was per-row `add_row`, which dominated
   // the cut-replay cost under `LowMemoryMode::compress` — see the
-  // 2026-05 LB-overshoot investigation in support/large_case/).
+  // 2026-05 LB-overshoot investigation on a large hydrothermal case).
   //
   // Composition contract (matches the singular `add_row(SparseRow)`
   // compose_physical body at :1929-2071):
@@ -2376,7 +2376,7 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   // cycle.  Re-running `note_coeff` / `note_filtered` per-element on
   // every replay dominates the cut-replay cost under
   // `LowMemoryMode::compress` (1.2M coefs/cell × ~1670 cells × ~10ns/
-  // call ≈ 20s/iter at high cut counts on large_case).
+  // call ≈ 20s/iter at high cut counts on the large hydrothermal case).
   const bool validate =
       !m_replay_.replaying() && m_validation_options_.effective_enable();
 
@@ -2631,8 +2631,8 @@ void LinearInterface::set_coeff_raw(const RowIndex row,
   // piecewise seepage / production-factor coefficients while the live
   // backend carried the segment-corrected values — producing apertures
   // that were structurally infeasible against the propagated forward
-  // state (large_case p51 INFEAS-PROBE 2026-05-12).  Mirrors the
-  // `set_col_bounds_raw` replay-record path.
+  // state (the large hydrothermal case p51 INFEAS-PROBE 2026-05-12).  Mirrors
+  // the `set_col_bounds_raw` replay-record path.
   if (!m_replay_.replaying() && !m_is_throwaway_clone_) {
     m_replay_.set_pending_coeff(row, column, value);
   }
@@ -2672,8 +2672,8 @@ double LinearInterface::get_coeff_raw(const RowIndex row,
 //            (only row-scale; col_scale never enters the RHS)
 //
 // Prior to 2026-05 these helpers had the col_scale direction inverted,
-// which left large_case cuts off by `col_scale × col_scale` per
-// SDDP iteration and produced LB > UB after iter 1.
+// which left the large hydrothermal case cuts off by `col_scale × col_scale`
+// per SDDP iteration and produced LB > UB after iter 1.
 
 void LinearInterface::set_coeff(const RowIndex row,
                                 const ColIndex column,
@@ -2816,7 +2816,7 @@ void LinearInterface::set_col_raw(const ColIndex index, const double value)
 // snap-to-existing-bound logic that e58add8f introduced, because the
 // aperture-backward pass calls these setters tens of thousands of
 // times per iteration and the extra virtual dispatches caused a ~20x
-// slowdown on large_case.  The propagation-noise problem that
+// slowdown on the large hydrothermal case.  The propagation-noise problem that
 // motivated the snap is already handled on the *read* side by
 // `get_col_sol()`'s optimal-only bound clamp.
 void LinearInterface::set_col_low(const ColIndex index,
@@ -3114,8 +3114,8 @@ Index LinearInterface::get_numcols() const
   // reader that observes a null `m_backend_` is guaranteed the cache
   // already carries the right value.  Without the null check this
   // function null-derefed at `m_backend_->get_num_cols()` and crashed
-  // the run on large_case at iter 4 with default `max_async_spread=2`
-  // (full stack trace + bisect: gdb session 2026-05-05).
+  // the run on the large hydrothermal case at iter 4 with default
+  // `max_async_spread=2` (full stack trace + bisect: gdb session 2026-05-05).
   if (m_backend_released_ || !m_backend_) {
     return m_cache_.numcols();
   }

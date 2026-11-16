@@ -164,8 +164,8 @@ public:
    *   - `clone(CloneKind)`        → calls `backend().clone()` (e.g.
    *     `CPXcloneprob`).  Some backends (CPLEX 22.1 in particular)
    *     have process-global side effects in this path that crashed
-   *     three threads at the same instruction pointer in large_case/
-   *     large_case (commit 1d7a05c1) — the call site in
+   *     three threads at the same instruction pointer in a large
+   *     hydrothermal case (commit 1d7a05c1) — the call site in
    *     `sddp_aperture.cpp` therefore serialises every `clone()`
    *     invocation under `s_global_clone_mutex`.
    *   - `clone_from_flat(kind)` → goes through `CPXcreateprob` +
@@ -206,7 +206,7 @@ public:
    * full current LP (with α + all cuts) and solve concurrently
    * across many SDDPWorkPool threads, which is exactly the
    * scenario where the native `clone()` mutex serialised 13+
-   * threads on large_case (2026-05-07 deadlock).
+   * threads on the large hydrothermal case (2026-05-07 deadlock).
    *
    * @return A new LinearInterface populated from the saved snapshot.
    */
@@ -343,7 +343,7 @@ public:
   ///     `update_stored_cut_duals` and `prune_inactive_cuts`
   ///     (`sddp_cut_store.cpp:177, 222`).
   ///
-  /// On a large_case run the col_sol + col_cost vectors carry
+  /// On the large hydrothermal case run the col_sol + col_cost vectors carry
   /// 0.7–2.5 GB across all `(scene, phase)` cells between iterations.
   /// Once the iteration's state CSV has been written and the backward
   /// pass has consumed the per-state-variable values via
@@ -369,7 +369,7 @@ public:
   /// production SDDP `write_lp` runs at most once per cell (debug
   /// `--lp-debug`, error-LP capture).  After the dump returns the
   /// caches are dead weight: ~50k strings × ~30 bytes per LP × N
-  /// cells is hundreds of MB on large_case-class cases, persisting until
+  /// cells is hundreds of MB on CEN-scale cases, persisting until
   /// process exit unless we drop them.
   ///
   /// Safe to call after every `write_lp` because:
@@ -661,7 +661,7 @@ public:
   /// Companion to ``active_cuts_size`` — count of post-snapshot raw
   /// LP coefficient overrides recorded via ``set_coeff_raw``.
   /// Surfaced for the ``LI release`` diagnostic trace and unit tests
-  /// that assert the replay channel is wired (large_case p51
+  /// that assert the replay channel is wired (the large hydrothermal case p51
   /// regression guard).
   [[nodiscard]] std::size_t pending_coeffs_size() const noexcept
   {

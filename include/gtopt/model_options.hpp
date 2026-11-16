@@ -181,7 +181,7 @@ struct ModelOptions
   /// physical meaning (resolved as `col + lmax`).
   ///
   /// Option C eliminates the ~$105 B obj_constant baseline visible
-  /// on large_case-scale runs — `get_obj_value()` matches
+  /// on CEN-scale runs — `get_obj_value()` matches
   /// `get_obj_value_raw() × scale_objective` exactly with no
   /// large-magnitude cancellation noise.  Currently opt-in because
   /// LP-side consumers that reference the demand column directly

@@ -1066,7 +1066,7 @@ TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
   //
   // This regression prevents the heuristic from silently reverting to the
   // old median(X) choice, which produced a global matrix ratio of 3.02e+07
-  // and κ > 1e11 on the CEN large_case case.
+  // and κ > 1e11 on a CEN-scale case.
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},

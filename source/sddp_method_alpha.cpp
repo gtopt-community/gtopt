@@ -449,7 +449,7 @@ void SDDPMethod::bound_alpha(SceneIndex scene_index, PhaseIndex phase_index)
 // PLP's planos data, but the cuts only cover the trial-state regions
 // they were generated at.  Aperture-perturbed trial states can land
 // outside the cuts' polyhedral approximation, leaving α effectively
-// unbounded below on those branches.  The large_case_plain
+// unbounded below on those branches.  the plain-variant hydrothermal case
 // iter-20 LB collapse (every aperture at p51 returning
 // `CPX_STAT_UNBOUNDED`) is the visible symptom.
 //
@@ -539,7 +539,7 @@ void bound_user_alpha(PlanningLP& planning_lp,
 // optimality cut whose α coefficient was filtered at save time (e.g.
 // by `cut_coeff_eps`) or a pure state-coupling cut from releasing
 // the bootstrap pin, which would let α drift negative under the
-// bidirectional α bootstrap (observed on large_case as LB=0).
+// bidirectional α bootstrap (observed on the large hydrothermal case as LB=0).
 void bound_alpha_for_cut(PlanningLP& planning_lp,
                          SceneIndex scene_index,
                          PhaseIndex phase_index,
@@ -585,8 +585,8 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
 // Derives a universal lower-bound floor on α at a given (scene, phase)
 // from the cuts already installed there and pins α's column lower
 // bound at it.  Closes the "aperture clone returns CPX_STAT_UNBOUNDED"
-// hole observed on large_case_plain at iter 20+: boundary cuts
-// cover only the trial-state regions they were generated at, and
+// hole observed on the plain-variant hydrothermal case at iter 20+: boundary
+// cuts cover only the trial-state regions they were generated at, and
 // aperture-perturbed states can fall outside that polyhedral
 // approximation.  The cut-derived floor is mathematically tighter
 // than a flat ``α ≥ seed`` because it folds in the per-cut RHS and

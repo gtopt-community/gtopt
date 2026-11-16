@@ -114,7 +114,7 @@ The output-dir inference rule mirrors plp2gtopt: `sddp_<name>` → `gtopt_<name>
    `scripts/sddp2gtopt/tests/data/` with a `LICENSE` note.
 3. Add a `plp2gtopt-run`-style integration test:
    `sddp2gtopt case0 -o /tmp/gtopt_case0 && gtopt --lp-only -p /tmp/gtopt_case0/case0.json`.
-4. Once that passes, ask large_case / CEN for a real Chilean SDDP case to
+4. Once that passes, look for a real Chilean SDDP case to
    stress-test multi-system + many hydro plants.
 
 ## 7. Phased delivery

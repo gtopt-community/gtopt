@@ -70,7 +70,7 @@ void BasicWorkPool<Key, KeyCompare>::log_periodic_stats()
     // as ``SystemLP::write_out [scene=N phase=M]`` lines).  The old
     // criterion ``has_work = pending > 0 || active > 0`` fired the
     // warning every 30 s × 2 intervals during that healthy 12 min
-    // window — false positives on large_case single-bus runs.
+    // window — false positives on the large hydrothermal case single-bus runs.
     //
     // Restricting the stall signal to ``pending > 0`` only flags the
     // case where work is *queued* but the scheduler isn't picking it
@@ -197,11 +197,10 @@ void BasicWorkPool<Key, KeyCompare>::log_periodic_stats()
       // workers parked on the back-off wait_for only wake on
       // `stop_requested` / `!running_`; they don't re-check memory
       // gates without a notify.  Once memory drops (the stats above
-      // confirm it has — e.g. large_case at 91% free), this nudge
-      // re-engages the pool.  Symmetric to the implicit nudge
-      // on each task completion at worker_loop's `cv_.notify_all()`,
-      // but fires from the monitor thread when no task has completed
-      // in the stall window.
+      // confirm it has — e.g. the large hydrothermal case at 91% free), this
+      // nudge re-engages the pool.  Symmetric to the implicit nudge on each
+      // task completion at worker_loop's `cv_.notify_all()`, but fires from the
+      // monitor thread when no task has completed in the stall window.
       std::size_t workers_before = 0;
       std::size_t workers_after = 0;
       {
@@ -260,7 +259,7 @@ void BasicWorkPool<Key, KeyCompare>::log_final_stats() const
         + stats.throttled_free_memory + stats.throttled_process_rss
         + stats.throttled_process_swap + stats.throttled_swap_io;
     if (total_throttle > 0) {
-      // Compact form: only emit gates that actually fired.  The large_case
+      // Compact form: only emit gates that actually fired.  The large-case
       // run had every counter at 0 except cpu, producing the noisy
       // ``cpu=35876 mem%=0 free_mem=0 rss=0 swap=0 swap_io=0`` line —
       // an operator only needs to see that it was the CPU gate.  When

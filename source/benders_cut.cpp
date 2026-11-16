@@ -75,8 +75,8 @@ void propagate_trial_values(std::span<StateVarLink> links,
   // Collapse the per-link `set_col_low_raw + set_col_upp_raw` pair into a
   // single bulk dispatch.  Same N → 1 backend-round-trip motivation as
   // `apply_post_load_replay` — matters on cases with many forward-pass
-  // dep_col pins (production large_case, RALCO/sini chains).  The bulk
-  // path applies the same validation, replay-buffer capture, and
+  // dep_col pins (production the large hydrothermal case, RALCO/sini chains).
+  // The bulk path applies the same validation, replay-buffer capture, and
   // cached-optimal invalidation as the per-element setters.
   const auto n = links.size();
   std::vector<ColIndex> idx;
@@ -104,7 +104,7 @@ void propagate_trial_values(std::span<StateVarLink> links,
   // straight to `set_col_low_raw(dep)` silently pins the dependent
   // column at `phys / var_scale_source × col_scale_dep` — off by a
   // factor of `col_scale_dep / var_scale_source` whenever those two
-  // scales disagree.  Diagnosed on plp_2_years/large_case_large_case: RALCO
+  // scales disagree.  Diagnosed on the large hydrothermal case: RALCO
   // phase-2 sini ended up at 73.82 LP (= 233 phys / 3.162²) when the
   // correct raw bound was 73.82 LP = 233 phys / 3.162.
   //
@@ -199,12 +199,12 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   };
   row[alpha_col] = 1.0;
 
-  // Hoist the trace-level check outside the link loop.  At large_case
-  // scale this loop iterates ~50 times per cut × ~8 apertures × ~50
-  // phases × 16 scenes per backward pass — emitting a TRACE line per
-  // link materialises ~320K `std::format` argument lists per iteration
-  // even when trace is OFF (the common case).  spdlog's runtime gate
-  // happens AFTER argument formatting, so guard explicitly.
+  // Hoist the trace-level check outside the link loop.  At the large
+  // hydrothermal case scale this loop iterates ~50 times per cut × ~8 apertures
+  // × ~50 phases × 16 scenes per backward pass — emitting a TRACE line per link
+  // materialises ~320K `std::format` argument lists per iteration even when
+  // trace is OFF (the common case).  spdlog's runtime gate happens AFTER
+  // argument formatting, so guard explicitly.
   const bool trace_on = spdlog::should_log(spdlog::level::trace);
   double max_abs_coeff = 0.0;
   for (const auto& link : links) {
@@ -272,7 +272,7 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   row[alpha_col] = 1.0;
 
   // Hoist trace gate outside the per-link loop — see ovld1 for the
-  // ~320K-line/iter rationale at large_case scale.
+  // ~320K-line/iter rationale at the large hydrothermal case scale.
   const bool trace_on = spdlog::should_log(spdlog::level::trace);
   double max_abs_coeff = 0.0;
   const auto rc_view = rc_source.get_col_cost();
@@ -454,7 +454,7 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
   // perturbation on the aggregated RHS.  PLP applies `rhs += FactEPS ·
   // |rhs|` unconditionally (same in multi-cut branch, :791).  The
   // niter-escalating form we used previously was a gtopt-local
-  // heuristic for large_case degeneracy; PLP achieves the same
+  // heuristic for the large hydrothermal case degeneracy; PLP achieves the same
   // via the dx filter above catching repeat degenerate activations.
   // niter parameter retained for signature stability; ignored here.
   (void)niter;
@@ -462,9 +462,9 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
   // (plp-agrespd.f:722, 791) is designed for PLP's unit ray magnitudes
   // where the resulting LP residual is ε·|rhs| = O(1e-6) — just within
   // typical solver tolerance.  gtopt's duals can be much larger (pi ≈
-  // 210 on RALCO at large_case p11 because dep is coupled through
-  // downstream constraints), so the same formula produces residuals
-  // ≈ ε·pi·|dep| that trip CPLEX's FeasibilityTol=1e-6.
+  // 210 on RALCO at the large hydrothermal case p11 because dep is coupled
+  // through downstream constraints), so the same formula produces residuals ≈
+  // ε·pi·|dep| that trip CPLEX's FeasibilityTol=1e-6.
   //
   // Set to 0 here: the per-link clamp below keeps `dep_clone_phys`
   // inside `[source_low, source_upp]`, so the cut sits AT the box edge
@@ -726,7 +726,7 @@ RelaxedVarInfo relax_fixed_state_variable(
   // 5000 in production cases) — NOT a Chinneck Phase-1 feasibility
   // price.  Using it here amplified the ray magnitude 5000× and
   // produced emax-pinning multi-cuts that violated LP tolerance by
-  // `1e-8 × pi × rhs ≈ 0.03` on large_case p27.  The pure
+  // `1e-8 × pi × rhs ≈ 0.03` on the large hydrothermal case p27.  The pure
   // `penalty` path matches PLP's AgrElastici call site
   // (plp-agrespd.f:673 passes `objs = 0` so every slack receives the
   // default 1.0).  `link.scost` retained on the struct for non-SDDP
@@ -811,7 +811,7 @@ RelaxedVarInfo relax_fixed_state_variable(
   // Symmetric slack cost — PLP convention (``osicallsc.cpp:658``):
   // both ``sup`` and ``sdn`` are priced at the same ``slack_cost``
   // (= 1.0 by default in PLP, ``penalty`` here).  Asymmetric biasing
-  // was tested on large_case (``kSdnUpwardBias = 1e-3`` aiming
+  // was tested on the large hydrothermal case (``kSdnUpwardBias = 1e-3`` aiming
   // to break the emax-pinning vertex) but did NOT change CPLEX's
   // vertex selection because the chosen optimum is structurally
   // determined by p28's tightness, not a tiebreak.  Reverted to
@@ -1076,7 +1076,7 @@ struct RelaxationSpec
 // Bulk equivalent of the per-link `relax_fixed_state_variable` loop:
 // pre-compute specs, then issue exactly one `add_cols_disposable`
 // (slacks) and one `add_rows_disposable` (fixing rows) call,
-// regardless of the number of relaxable links.  On large_case-scale
+// regardless of the number of relaxable links.  On CEN-scale
 // (~300 cuts × 8 links) this collapses 4800 backend round-trips per
 // elastic solve into 2.
 //
@@ -1288,7 +1288,7 @@ auto elastic_filter_solve(const LinearInterface& li,
   // Matches PLP `plp-bc.f`, Chinneck (2008) § 4, Ruszczyński (1997).
   // Keeping the original obj would leak state-dependent opex into
   // the Benders feasibility-cut RHS and drive α to diverge under
-  // SDDP iteration (observed on large_case).
+  // SDDP iteration (observed on the large hydrothermal case).
   //
   // Bulk dispatch via `set_obj_coeffs_raw`: a single backend call
   // replaces the per-column loop.  CPLEX / HiGHS / OSI / MindOpt /
@@ -1561,10 +1561,10 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
   // in the current iteration.  `kFactEps = 1e-10 · niter` starts at 0
   // on the first emission (raw RHS) and escalates on each repeat so
   // the master escapes a degenerate LP vertex that keeps regenerating
-  // the same cut.  Pathological cases (large_case) used to emit
-  // the same cut hundreds of times with a fixed small ε; the
-  // niter-scaled form lets the perturbation grow until the master
-  // moves.  Matches PLP's escalating retry strategy.
+  // the same cut.  Pathological cases (the large hydrothermal case) used to
+  // emit the same cut hundreds of times with a fixed small ε; the niter-scaled
+  // form lets the perturbation grow until the master moves.  Matches PLP's
+  // escalating retry strategy.
   //
   // A cut whose |π| falls below `cut_coeff_eps` is dropped — tiny
   // coefficients pollute the LP with near-zero rows.
@@ -1735,8 +1735,9 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
     // *effective* LP-to-physical scale, which includes any ruiz-added
     // factor on top of the user's `var_scale`.  Using `link.var_scale`
     // alone silently miscomputes the cut RHS under ruiz equilibration
-    // (observed on large_case: elastic clone declared infeasible
-    // because the lifted `dep_clone_phys` was off by the ruiz factor).
+    // (observed on the large hydrothermal case: elastic clone declared
+    // infeasible because the lifted `dep_clone_phys` was off by the ruiz
+    // factor).
     const double v_hat_phys =
         (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
     const double dep_scale_phys =
@@ -1791,9 +1792,9 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
     // ``box_stats.all_upper_degenerate()`` below remains as a
     // diagnostic + cleanup for the rare case where *every* link
     // saturates; this per-cut filter handles the *partial* degeneracy
-    // that currently leaks through (e.g. large_case single-bus run
-    // with multi_cut elastic mode: 5 of 8 links saturate at emax,
-    // 3 at inside-box, family kept, 5 emax-pins force infeasibility).
+    // that currently leaks through (e.g. the large hydrothermal case single-bus
+    // run with multi_cut elastic mode: 5 of 8 links saturate at emax, 3 at
+    // inside-box, family kept, 5 emax-pins force infeasibility).
     //
     // Tolerance is relative to the box width to absorb LP solver
     // ULP drift on the elastic side without false-dropping legitimate
@@ -1830,8 +1831,8 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
     // ``source_upp`` by ``eps_factor × source_upp ≈ 1e-7`` for
     // typical LP-space values (~1e3).  A 1e-9 relative tolerance was
     // too lax and missed those near-saturation cases — observed on
-    // large_case single-bus where the multi_cut path emitted 7/8 cuts
-    // pinning ELTORO/RAPEL/CIPRESES/PEHUENCHE/PANGUE/RALCO/COLBUN at
+    // the large hydrothermal case single-bus where the multi_cut path emitted
+    // 7/8 cuts pinning ELTORO/RAPEL/CIPRESES/PEHUENCHE/PANGUE/RALCO/COLBUN at
     // their LP-space ``source_upp`` exactly post-clamp, but pre-clamp
     // ``implied_bound`` only edged past the bound by 1e-7 — below
     // ``box_eps = 1.766e-6`` for a 1766-wide ELTORO box.  1e-12 keeps
@@ -1853,7 +1854,7 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
     // ``state = source_upp`` even though the elastic clone only said
     // "the LP would have liked state to grow further".  Strict ``>``
     // (not ``>=``) preserves the regression test while still cutting
-    // off saturated cuts on large_case single-bus.
+    // off saturated cuts on the large hydrothermal case single-bus.
     if ((upper_bounded && implied_bound > link.source_upp + box_eps)
         || (lower_bounded && implied_bound < link.source_low - box_eps))
     {
@@ -1895,7 +1896,7 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
     // the same emax-pinning shape, but in gtopt the downstream
     // multi-cut install + retry chain cascades through every
     // upstream phase before the forward-pass attempt budget
-    // exhausts (large_case: 28 backtracks p28→p1).  Clearing
+    // exhausts (the large hydrothermal case: 28 backtracks p28→p1).  Clearing
     // ``cuts`` lets the caller in
     // ``sddp_forward_pass.cpp::forward_pass`` see "no feasibility
     // cut produced" and declare the scene infeasible immediately,
@@ -2490,9 +2491,9 @@ auto BendersCut::elastic_filter_solve(
   // would block on `fut.get()` for a child the pool's memory-throttle
   // gate cannot dispatch, so all parent workers wedge on their nested
   // futures, no `tasks_active_` decrement ever happens, and the pool
-  // never recovers (large_case_plain hang fingerprint, gdb thread dump
-  // 2026-05-08: 13/96 workers parked in `__atomic_futex_wait_until` two
-  // frames below `BendersCut::elastic_filter_solve`).
+  // never recovers (the plain-variant hydrothermal case hang fingerprint, gdb
+  // thread dump 2026-05-08: 13/96 workers parked in `__atomic_futex_wait_until`
+  // two frames below `BendersCut::elastic_filter_solve`).
   //
   // Running the resolve in-thread costs nothing in parallelism — the
   // forward-pass worker would have been blocked on `fut.get()` for the

@@ -326,7 +326,7 @@ struct std::formatter<gtopt::SDDPLogTag, CharT>  // NOLINT(cert-dcl58-cpp)
 // Same lazy-formatter pattern as SDDPLogTag.  Materialises the
 // SI-suffix string only when spdlog's runtime level filter admits the
 // line — at INFO+ filter / `--quiet` mode every per-(iter, scene,
-// phase) `format_si` call site (~5/cell × ~24K cells on large_case-scale)
+// phase) `format_si` call site (~5/cell × ~24K cells on CEN-scale)
 // stops paying the alloc cost.
 template<class CharT>
 struct std::formatter<gtopt::FormatSI, CharT>  // NOLINT(cert-dcl58-cpp)

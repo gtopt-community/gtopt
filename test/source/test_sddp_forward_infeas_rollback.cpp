@@ -633,9 +633,9 @@ TEST_CASE(  // NOLINT
 // ═══════════════════════════════════════════════════════════════════════════
 // S2b — Under cut_sharing=none, peer-cut growth must NOT clear the marker.
 //       Regression for the TERMINAL ↔ un-terminal ping-pong observed on
-//       large_case 2026-05-03 trace_40, where 15 mark/unmark pairs fired
-//       in 30 iterations because the un-terminal trigger compared against
-//       the GLOBAL cut count even when cut_sharing=none made peer cuts
+//       the large hydrothermal case 2026-05-03 trace_40, where 15 mark/unmark
+//       pairs fired in 30 iterations because the un-terminal trigger compared
+//       against the GLOBAL cut count even when cut_sharing=none made peer cuts
 //       invisible to the failed scene's master.
 // ═══════════════════════════════════════════════════════════════════════════
 

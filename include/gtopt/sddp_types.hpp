@@ -521,12 +521,11 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   // converged.  Otherwise keep iterating up to ``max_iterations``.
   // The statistical CI test (``convergence_confidence``) is opt-in
   // (default 0) because it is too easily fooled by σ scatter when scene
-  // UBs are heterogeneous (e.g. Maule/large_case).  ``min_iterations`` = 1
-  // is the minimum that still lets the convergence check fire — set
-  // higher (e.g. 3) only at noisy bootstrap levels (cascade L0) where
-  // the very-first iter's gap is structurally meaningless; cascade L1+
-  // inherit a converged envelope and may legitimately exit on their
-  // first qualifying iter.
+  // UBs are heterogeneous (e.g. Maule-type large cases).  ``min_iterations`` =
+  // 1 is the minimum that still lets the convergence check fire — set higher
+  // (e.g. 3) only at noisy bootstrap levels (cascade L0) where the very-first
+  // iter's gap is structurally meaningless; cascade L1+ inherit a converged
+  // envelope and may legitimately exit on their first qualifying iter.
   //
   // Override individually only when you know what you're doing — the
   // defaults are deliberately consistent so most users never set them.
@@ -557,11 +556,11 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// REMOVED 2026-07-08: `accumulate`, `broadcast_mean` (alias
   /// `expected`), and `max` — KNOWN INVALID broadcasts onto the
   /// destination scene's own α that produced compounding LB > UB on
-  /// distinct sample paths (large_case regressed at 7225× before
-  /// this was diagnosed).  Their names now hard-error at ingestion.
-  /// See `test/source/test_sddp_bounds_sanity.cpp` for the regression
-  /// guards and `test/source/test_sddp_cut_oracle.cpp` for the
-  /// extensive-form certification harness.
+  /// distinct sample paths (the large hydrothermal case regressed at 7225×
+  /// before this was diagnosed).  Their names now hard-error at ingestion. See
+  /// `test/source/test_sddp_bounds_sanity.cpp` for the regression guards and
+  /// `test/source/test_sddp_cut_oracle.cpp` for the extensive-form
+  /// certification harness.
   CutSharingMode cut_sharing {CutSharingMode::none};
 
   /// Markov-chain configuration for `cut_sharing = markov` (scene →
@@ -694,7 +693,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Default: 100.  Raised from 10 because `build_multi_cuts` emits
   /// `source_col {<=,>=} dep_val_phys` bound cuts from the Chinneck
   /// Phase-1 LP, whose `dep_val_phys` may exceed the source phase's
-  /// physically reachable set (observed on large_case after ~3
+  /// physically reachable set (observed on the large hydrothermal case after ~3
   /// iterations: phase 0 gets `reservoir_energy_1 >= 330.33` while its
   /// physical cap is ~207.78 + small inflow).  Keeping the IIS-filtered
   /// fcut alone for longer avoids the structurally-infeasible cuts that
@@ -715,8 +714,8 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// default **5000**).  Prior gtopt default was 100 — too tight for
   /// pathological cases whose iter-0 forward pass needs to backtrack
   /// across many phases to build the initial cut set (observed on
-  /// large_case: every scene hits 100 before phase 1 master has
-  /// enough cuts to be feasible).  Default now matches PLP's 5000.
+  /// the large hydrothermal case: every scene hits 100 before phase 1 master
+  /// has enough cuts to be feasible).  Default now matches PLP's 5000.
   int forward_max_attempts {5000};
 
   /// Scene-level fail-stop forward pass (default: true).
@@ -797,7 +796,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// pass via `svar.col_sol_physical()`, and stored optimality cuts
   /// come from the training backward passes).  See
   /// `CascadePlanningMethod::solve` for the orchestration.  On
-  /// large_case-scale this saves the ~9 s/cell × 816 cells / 16-way
+  /// CEN-scale this saves the ~9 s/cell × 816 cells / 16-way
   /// parallel ≈ 7 min per intermediate level.
   bool skip_simulation_pass {false};
 
@@ -1162,8 +1161,8 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Convergence criterion mode.  Default: gap_stationary — the
   /// primary gap test plus the stationary safety net are enough for
   /// most users.  The statistical CI test (``ConvergenceMode::statistical``)
-  /// is opt-in because heterogeneous-scene σ scatter (Maule/large_case) can
-  /// trivially fire it at large %gap.
+  /// is opt-in because heterogeneous-scene σ scatter (Maule-type large cases)
+  /// can trivially fire it at large %gap.
   ConvergenceMode convergence_mode {ConvergenceMode::gap_stationary};
 
   /// Tolerance for "gap stopped moving" detection (gap_change < tol).
@@ -1186,7 +1185,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///  * Frozen-LB (LB stuck near 0, UB > 0 → gap = 1 flat) where
   ///    gap_change = 0 used to spuriously declare convergence at 100 %.
   ///  * Heterogeneous-scene σ explosion where the CI threshold z·σ
-  ///    swallows the absolute gap even at 25 % relative (large_case run
+  ///    swallows the absolute gap even at 25 % relative (large-case run
   ///    2026-05-02 trace_28 — see ``z_score_for_alpha`` doc).
   ///
   /// Default: 0.05 (5 %) — refuse to declare "converged via stationary
@@ -1201,7 +1200,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// gap stabilises above the CI threshold (non-zero-gap case).
   ///
   /// Default: 0.0 (DISABLED) — the CI test is opt-in because under
-  /// heterogeneous-scene scatter (σ ≈ 50 % of mean on large_case) z·σ
+  /// heterogeneous-scene scatter (σ ≈ 50 % of mean on the large case) z·σ
   /// trivially exceeds the absolute gap at 25 % relative, declaring
   /// premature convergence.  Set to 0.95 to enable the standard 95 %
   /// CI test, or 0.50 for a much tighter narrow-CI variant.
@@ -1216,7 +1215,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// one bad iteration may be transient (state still settling), but
   /// two identical structural failures in a row indicate an
   /// LP-level issue that more iterations of the same forward-pass
-  /// cannot resolve.  Observed on large_case 2026-05-02
+  /// cannot resolve.  Observed on the large hydrothermal case 2026-05-02
   /// trace_29: 10 of 16 scenes wasted ~33 min before this guard
   /// existed.
   int terminal_failure_threshold {2};
@@ -1705,7 +1704,7 @@ void register_alpha_variables(PlanningLP& planning_lp,
 /// on α_T implied by the cuts alone, independent of which trial state
 /// the master / aperture clones pick.
 ///
-/// The motivation is the large_case_plain pathology: boundary
+/// The motivation is the plain-variant hydrothermal case pathology: boundary
 /// cuts cover only the trial-state regions they were generated at,
 /// and aperture-perturbed trial states can fall outside that
 /// polyhedral approximation, leaving α_T effectively unbounded below

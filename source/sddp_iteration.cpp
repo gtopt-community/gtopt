@@ -158,7 +158,7 @@ inline constexpr std::array<ZScoreBucket, 4> kZScoreTable {
 ///      uninitialised iter cannot trigger.  **No window-fill guard**:
 ///      under the multi-cut overshoot regime UB stabilises long
 ///      before LB does, and waiting for a full window just wastes
-///      wall time at expensive levels (large_case/full_network ≈ 13 min
+///      wall time at expensive levels (the large full-network case ≈ 13 min
 ///      per iter).  Always ``false`` when ``convergence_mode ==
 ///      gap_only`` (the stationary path is intentionally inert there).
 ///
@@ -562,7 +562,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       //
       //  1. Used the *uniform* sample mean and variance over all
       //     ``scene_upper_bounds`` entries.  For heterogeneous-prob
-      //     runs (large_case: 16 hydrology scenarios with non-uniform
+      //     runs (large-case: 16 hydrology scenarios with non-uniform
       //     ``probability_factor``) this gives the wrong σ̂ — the
       //     correct estimator weights each scene by ``p_s``.
       //  2. Included infeasible scenes (whose UB stayed at the
@@ -575,7 +575,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       //     Birge & Louveaux §10.3).  At N=16 that's a 4× wider
       //     threshold than canonical.
       //
-      // Combined effect on large_case trace_28: declared
+      // Combined effect on the large hydrothermal case trace_28: declared
       // statistical CI convergence at iter 2 with gap = 25 % because
       // the inflated σ̂ ≈ 77 M and missing /√N let z·σ̂ ≈ 152 M
       // dominate the actual 38 M absolute gap.  After this fix,
@@ -653,7 +653,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         // land in the right bucket despite `1.0 - p` IEEE-754
         // round-off.  Without the slack the JSON setting
         // `convergence_confidence: 0.99` silently selected z = 1.960
-        // instead of 2.576 (large_case run 2026-05-02 trace_28).
+        // instead of 2.576 (large-case run 2026-05-02 trace_28).
         const auto z_score = z_score_for_alpha(alpha);
 
         const auto gap_abs = ir.upper_bound - ir.lower_bound;
@@ -798,9 +798,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // ── Post-iteration housekeeping (timed) ──
       // Single INFO line at the end summarises the breakdown so the
-      // inter-iteration gap visible in operator logs (e.g. large_case/
-      // large_case's ~10 s gap) can be attributed to its components
-      // — api status write, cut persistence, idempotent backend
+      // inter-iteration gap visible in operator logs (e.g. the
+      // large hydrothermal case's ~10 s gap) can be attributed to its
+      // components — api status write, cut persistence, idempotent backend
       // release safety net, and the user-supplied iteration
       // callback — without rebuilding with TRACE logs on.
       using PostClock = std::chrono::steady_clock;
@@ -837,9 +837,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // forced the read to fall through to the freshly reconstructed
       // backend whose `col_solution()` is zero/undefined → coefficients
       // pinned at construction-time default_volume → SDDP plateau at
-      // gap=133.78% on large_case.  The retained col_sol vector
-      // costs ~50 KB × num_cells (≈ 40 MB on large_case, 2.5 GB on the 816-
-      // cell support cases).  ensure_backend now restores cached
+      // gap=133.78% on the large hydrothermal case.  The retained col_sol
+      // vector costs ~50 KB × num_cells (≈ 40 MB on the large case, 2.5 GB on
+      // the 816- cell support cases).  ensure_backend now restores cached
       // primal/dual onto the live backend so the read path stays
       // valid across release_backend → ensure_backend cycles.
       const auto t_release = PostClock::now();
@@ -958,8 +958,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       //
       // This supersedes the earlier two-pass design where Pass 2 ran a
       // full forward traverse with `run_forward_pass_all_scenes`
-      // (needlessly re-solving 619/816 cells on large_case just to refresh
-      // their duals).
+      // (needlessly re-solving 619/816 cells on the large hydrothermal case
+      // just to refresh their duals).
       auto sim_opts = fwd_opts;
       sim_opts.crossover = CrossoverMode::primal;
 
@@ -1353,7 +1353,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // cost.  Without the lower-bound guard, ``scene_gap < tol``
       // evaluates to ``true`` for every negative gap (since
       // ``-11.84 < 1e-3``), silently declaring an unconverged
-      // scene "converged".  Observed on large_case hs9: 9 dry
+      // scene "converged".  Observed on the large hydrothermal case hs9: 9 dry
       // scenarios (s1, s3, s7, s10-13, s15-16) marked converged
       // at iter 54 with gaps in [-11.84, -0.077] while their
       // aggregate gap was 12.22 % — far above the 1e-3
@@ -1490,7 +1490,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
   // previous implementation captured at function start (= 0 cuts for
   // every scene) and the tail discard then resized every scene back
   // to 0, silently wiping every Optimality cut produced during
-  // training — observed on large_case_plain as
+  // training — observed on the plain-variant hydrothermal case as
   // `Cascade [...]: new_cuts=1600` followed by
   // `stored_cuts.size()=0 num_stored_cuts(direct)=0` at the cascade
   // transition.  Default `std::numeric_limits<std::size_t>::max()`
@@ -1597,9 +1597,9 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             // special need was to bypass the CPU-saturation gate: under
             // sustained 100 % CPU a gated sim task at the queue head parks
             // every worker on `cv_.wait`, blocking lower-priority chunk
-            // tasks underneath that *could* run (the large_case scene-12
-            // wedge, 2026-05-16, gtopt_142.log: 6 min stall at 0 % CPU).
-            // Historically that need was met with `TaskPriority::High`,
+            // tasks underneath that *could* run (the large hydrothermal case
+            // scene-12 wedge, 2026-05-16, gtopt_142.log: 6 min stall at 0 %
+            // CPU). Historically that need was met with `TaskPriority::High`,
             // which also reordered sim ahead of same-iteration training
             // peers (the overload trap).  We now express it with the
             // independent `gate_bypass` flag: Medium ordering + CPU-gate
@@ -1642,8 +1642,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           // is below the gate, so it never fires for those scenes.
           // The work pool drains to 0/0/Done=N, the main thread
           // parks in the 1 ms sleep at the bottom of the loop,
-          // ``all_done`` never flips.  Observed on large_case L1
-          // uninodal twice (2026-05-15 sessions).
+          // ``all_done`` never flips.  Observed on the large hydrothermal case
+          // L1 uninodal twice (2026-05-15 sessions).
           //
           // Moving the stop check first guarantees a stop signal
           // drains every idle scene to ``done`` in O(N_scenes) loop
@@ -1666,9 +1666,9 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           // ``min + max_spread`` (= 53 with default spread=2).  The
           // active scenes then ``break`` out of the dispatch loop
           // forever, leaving the outer ``while(!all_done)`` spinning
-          // with no work in flight.  Observed on large_case hs8: 6
-          // wettest scenes converged at iter 51, 9 dry scenes wedged
-          // at iter 54 against a frozen ``min=51``.
+          // with no work in flight.  Observed on the large hydrothermal case
+          // hs8: 6 wettest scenes converged at iter 51, 9 dry scenes wedged at
+          // iter 54 against a frozen ``min=51``.
           const auto min_iteration_index =
               tracker.min_completed_iteration_among_active();
           if (min_iteration_index >= m_iteration_offset_
@@ -1946,7 +1946,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // runs and (b) caused `CascadeLevelStats::cuts_added` to be 0
       // even when hundreds of optimality cuts had been installed in
       // the LP — confirmed by trace logs (`active_cuts ≥ 1`,
-      // `save_cuts_for_iteration` running each iter) on large_case-scale.
+      // `save_cuts_for_iteration` running each iter) on CEN-scale.
       {
         const auto rel = iteration_relative(next_converge_iteration_index,
                                             m_iteration_offset_);
@@ -2247,8 +2247,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     // `sddp_iteration.cpp:810-812`.  Without this signal-routing,
     // stationary convergence on the aggregate iter was invisible to
     // the async loop and the run silently burned its full iter budget
-    // (observed on large_case_plain: [CONVERGED] flagged at iter 15 of
-    // 30, level continued to iter 30 anyway).
+    // (observed on the plain-variant hydrothermal case: [CONVERGED] flagged at
+    // iter 15 of 30, level continued to iter 30 anyway).
     //
     // Fire the INFO log + stop request EXACTLY ONCE — the
     // `m_stop_requested_` load guard skips this branch on every

@@ -1340,8 +1340,9 @@ private:
       // a dead worker leaves an entry in `workers_` that
       // `maybe_spawn_worker_unlocked` counts but never replaces, and
       // the pool wedges with `Pending: N, Active: 0`.  Not strictly
-      // required for the observed large_case stall — no exception was
-      // logged there — but cheap insurance for future exception modes.
+      // required for the observed the large hydrothermal case stall — no
+      // exception was logged there — but cheap insurance for future exception
+      // modes.
       try {
         std::unique_lock<std::mutex> lock(queue_mutex_);
 
@@ -1744,14 +1745,14 @@ private:
   ///
   /// The fix: scan up to `PEEK_DEPTH` (= 8) elements from the front of
   /// the heap.  Eight is empirically deep enough to find a runnable
-  /// task on every large_case wedge witnessed to date while keeping
-  /// the per-tick scan O(1) (gates are O(1) calls).  If none of those
+  /// task on every the large hydrothermal case wedge witnessed to date while
+  /// keeping the per-tick scan O(1) (gates are O(1) calls).  If none of those
   /// K is dispatchable the worker parks, exactly as before.
   ///
   /// See the 2026-05-16 concurrency audit for the failure mode this
-  /// prevents (large_case scene-12 wedge: master backward task at
-  /// priority (28,1,lp) gate-throttled, sim tasks at priority
-  /// (29,0,lp) underneath it that could run but never dispatched).
+  /// prevents (the large hydrothermal case scene-12 wedge: master backward task
+  /// at priority (28,1,lp) gate-throttled, sim tasks at priority (29,0,lp)
+  /// underneath it that could run but never dispatched).
   static constexpr std::size_t PEEK_DEPTH = 8;
 
   [[nodiscard]] std::optional<std::size_t> find_dispatchable_index() const

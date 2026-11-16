@@ -70,12 +70,12 @@ struct LpMatrixOptions
   /// when the worst infinity-norm deviation from 1 drops below
   /// `ruiz_tolerance`.  Only consulted when `equilibration_method == ruiz`.
   ///
-  /// large_case LPs showed byte-identical kappa and deterministic ticks for
-  /// every cap in {1,5,10,15,20} — CPLEX's own scaling re-equilibrates the
-  /// matrix, so additional Ruiz iterations buy no conditioning or solve
-  /// speedup while costing build time linearly.  5 keeps a margin of
-  /// equilibration headroom for scaling-free backends (HiGHS / CLP) while
-  /// halving the per-build Ruiz cost vs the old 10.
+  /// the large hydrothermal case LPs showed byte-identical kappa and
+  /// deterministic ticks for every cap in {1,5,10,15,20} — CPLEX's own scaling
+  /// re-equilibrates the matrix, so additional Ruiz iterations buy no
+  /// conditioning or solve speedup while costing build time linearly.  5 keeps
+  /// a margin of equilibration headroom for scaling-free backends (HiGHS / CLP)
+  /// while halving the per-build Ruiz cost vs the old 10.
   int ruiz_max_iterations {5};
   double ruiz_tolerance {1e-3};
 
@@ -108,7 +108,7 @@ struct LpMatrixOptions
   /// side effects (XLP per-element col/row indices) are needed.
   /// Setting this kills the CSC build pass, the row-bound scan, the
   /// col-bound scan, the label-name pass and the equilibration pass
-  /// — typically 5–10× faster on the rebuild slice for large_case-scale
+  /// — typically 5–10× faster on the rebuild slice for CEN-scale
   /// cells.  Default false.
   bool skip_matrix_build {false};
 

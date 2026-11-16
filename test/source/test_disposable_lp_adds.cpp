@@ -298,7 +298,8 @@ TEST_CASE("write_lp on disposable cols emits gtopt-formatted labels")
 //   5. release_backend → reconstruct_backend should re-hydrate the snapshot
 //      and replay only the cuts that survived the deletion.
 //
-// Crash trigger reported on large_case cascade run (2026-05-13):
+// Crash trigger reported on the large hydrothermal case cascade run
+// (2026-05-13):
 //   "LinearInterface::ensure_backend: snapshot reconstruct returned without
 //    restoring the backend (m_backend_ is null or still marked released)."
 //

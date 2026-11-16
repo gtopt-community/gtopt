@@ -872,8 +872,8 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     } else if (requested == 0) {
       // Auto path: apply the work-pool-saturation formula then round
       // DOWN to the nearest power of two (1, 2, 4, 8, 16, …) so chunk
-      // shapes are balanced.  On large_case 16-scene × 16-aperture ×
-      // 51-phase under barrier + split crossover + the bulk-API
+      // shapes are balanced.  On the large hydrothermal case 16-scene ×
+      // 16-aperture × 51-phase under barrier + split crossover + the bulk-API
       // `set_col_bounds_bulk` path (b85011e1) the auto-selected K=4
       // matches K=8 = 142.6 s, both ahead of legacy K=1 = 147.3 s.
       // Users who want a specific K override via
@@ -1053,7 +1053,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // coefficient log shows clean numbers (e.g. ``scale_alpha = 1e9``
   // not ``2.6e9``) — easier to debug and compare across runs.
   //
-  // The previous heuristic (`max state var_scale`, e.g. large_case
+  // The previous heuristic (`max state var_scale`, e.g. large-case
   // reservoir 1453) tied scale_alpha to the wrong axis: state
   // variables drop out of cut-row LP coefficients (s_v cancels), so
   // their magnitude doesn't drive cut-row κ.  α's magnitude does.

@@ -887,8 +887,8 @@ TEST_CASE("--set demand_fail_cost override in full solve")
 
 // ── Probe: --set on cascade_options.level_array.N actually lands ──────
 //
-// Regression guards for the large_case_plain --set override path:
-// before this test the CLI logged "applied" but the in-memory Planning
+// Regression guards for the plain-variant hydrothermal case --set override
+// path: before this test the CLI logged "applied" but the in-memory Planning
 // still carried the JSON's level-0 max_iterations.  Three properties
 // must hold after `apply_set_options` returns:
 //   1. The level_array still has the **same number of elements** as the
@@ -978,7 +978,7 @@ TEST_CASE(
     "all stick")
 {
   // Three sequential overrides — each must land on its own level
-  // without clobbering the others.  This is the exact pattern large_case
+  // without clobbering the others.  This is the exact pattern the large case
   // uses: --set ...level_array.0... --set ...level_array.1... --set
   // ...level_array.2...
   Planning planning = daw::json::from_json<Planning>(

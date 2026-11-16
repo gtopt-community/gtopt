@@ -591,8 +591,9 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     //   * neither set                    → -1 (use full per-phase list)
     // Previously this only inspected `apertures.size()` and reported -1
     // for the entire new `num_apertures` mode emitted by plp2gtopt for
-    // cascade levels — making the log misleading on large_case_plain
-    // where every level has a meaningful per-phase aperture budget.
+    // cascade levels — making the log misleading on the plain-variant
+    // hydrothermal case where every level has a meaningful per-phase aperture
+    // budget.
     const int aperture_log_count = level_opts.apertures.has_value()
         ? static_cast<int>(level_opts.apertures->size())
         : level_opts.num_apertures.value_or(-1);
@@ -790,7 +791,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // produced at most one training iter so the off-by-one matters
     // little either way, and querying scene_count from the
     // owned/released level LP would be brittle).  Without this
-    // adjustment the async final level on large_case reports
+    // adjustment the async final level on the large hydrothermal case reports
     // `0 iters` even when training had been running for ~5 min
     // before convergence fired.
     //
@@ -954,12 +955,11 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       const auto& next_level = m_cascade_opts_.level_array[level_idx + 1];
       // [DIAG cut-transfer] Surface every decision point on the
       // intermediate→next cut serialization path.  Added 2026-05-13
-      // after large_case_plain showed `new_cuts=4000` at level 0 but
-      // ZERO `serialized N cuts` log lines AND α=0 throughout level 1
-      // (forward primal-only objective) — i.e. cuts were stored and
-      // counted but never made it into the parquet handed to
-      // transport.  Remove (or fold to TRACE) after the root cause
-      // is fixed.
+      // after the plain-variant hydrothermal case showed `new_cuts=4000` at
+      // level 0 but ZERO `serialized N cuts` log lines AND α=0 throughout level
+      // 1 (forward primal-only objective) — i.e. cuts were stored and counted
+      // but never made it into the parquet handed to transport.  Remove (or
+      // fold to TRACE) after the root cause is fixed.
       SPDLOG_INFO(
           "[DIAG] Cascade [{}]: transition decision: "
           "next_level.transition.has_value={}",

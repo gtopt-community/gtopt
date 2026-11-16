@@ -240,7 +240,7 @@ def build_aperture_array(
     # in this same change set: phase apertures that reference
     # aperture uids whose source_scenario isn't in scenario_array.
     #
-    # Observed on large_case: plpidap2.dat's late stages wrap to
+    # Observed on the large hydrothermal case: plpidap2.dat's late stages wrap to
     # PLP hydros 01 and 02 (1-based hydros 1 and 2).  Those hydros'
     # 0-based indices (0 and 1) are NOT in the forward scenario set
     # (which uses 0-based hydros 50..65 → scenario uids 51..66), so

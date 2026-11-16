@@ -287,7 +287,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     //
     // Both options preserve the algebraic obj value to within FP.
     // Option C eliminates ~$105 B obj_constant cancellation on
-    // large_case-scale runs but is currently incompatible with LP-side
+    // CEN-scale runs but is currently incompatible with LP-side
     // consumers that reference the demand column directly
     // (Converter, Battery) — they expect `load` semantics.
     //

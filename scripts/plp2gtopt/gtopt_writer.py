@@ -462,7 +462,7 @@ class GTOptWriter(
           - L3 ``full_network``: ``ΔUB < 1 %``     AND ``|gap| < 85 %``
         ``stationary_tol`` is LOOSENED deeper into the cascade because
         each level's iter is more expensive (L0 ~12 s/iter on
-        large_case, L3 ~9 min/iter) — we demand the strictest policy
+        the large hydrothermal case, L3 ~9 min/iter) — we demand the strictest policy
         stability where iters are cheap and accept progressively
         looser stability where each iter costs more.  L2/L3 were
         loosened a further ×5 / ×10 on 2026-05-27 (0.05 %→0.25 %,
@@ -470,7 +470,7 @@ class GTOptWriter(
         rather than chasing sub-noise Δgap.
         ``stationary_gap_ceiling`` is intentionally flat at 85 %
         across all levels — the multi-cut + aperture-mode overshoot
-        on production cases (large_case at uninodal) routinely
+        on production cases (the large hydrothermal case at uninodal) routinely
         produces transient |gap| around 5-10 % that the AND-mode check
         previously kept rejecting.  With the ceiling at 85 %,
         the policy-stability signal (ΔUB) is the binding constraint
@@ -549,7 +549,7 @@ class GTOptWriter(
         # ``stationary_tol`` ladder — 0.005 % (L0 warmup) →
         # 0.01 % (L1 uninodal) → 0.25 % (L2 transport) →
         # 1 % (L3 full_network).  The ladder is calibrated to the
-        # empirical Δgap noise floor at each level (large_case):
+        # empirical Δgap noise floor at each level (the large hydrothermal case):
         #   * L0 deterministic head aperture → solver-tolerance
         #     floor ~0.02-0.06 %, so 0.025 % is meaningful.
         #   * L1 4-aperture Monte-Carlo → 2× L0's floor.
@@ -604,7 +604,7 @@ class GTOptWriter(
             "min_iterations": 2,
             # stationary_window=2 across every cascade level (2026-06-02
             # ladder).  Two consecutive sub-tol iters are enough to
-            # call ΔUB stationary on the realised large_case noise
+            # call ΔUB stationary on the realised the large hydrothermal case noise
             # regime; the previous window=3 only delayed exits without
             # changing the converged policy.  L3 already used 2 (last
             # level optimisation); flattening the rest matches.
@@ -754,7 +754,7 @@ class GTOptWriter(
                         # strict-floor on `reservoir_sini` and last-block
                         # `efin`) kicks in and breaks SDDP convergence on
                         # cases with hard `efin >= eini` rows like
-                        # plp_case_2y / large_case_uninodal.
+                        # plp_case_2y / the large hydrothermal case.
                         "strict_storage_emin",
                     )
                 },
@@ -1011,7 +1011,7 @@ class GTOptWriter(
         #   - "single_cut" (gtopt C++ default): one aggregated π-weighted
         #     Benders cut touching every relaxed state variable.  Tight LP
         #     but any numeric drift at the box edge makes the cut
-        #     hard-infeasible (observed on large_case p2).
+        #     hard-infeasible (observed on the large hydrothermal case p2).
         #   - "multi_cut" (PLP convention, plp2gtopt default): one per-link
         #     Birge-Louveaux cut per relaxed state, each clamped to its own
         #     box — matches PLP's `plp-agrespd.f::AgrElastici` +

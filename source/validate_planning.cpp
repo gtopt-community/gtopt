@@ -1611,7 +1611,7 @@ void check_ranges(ValidationResult& result, const Planning& planning)
 /// `SDDP Aperture [...]: source_scenario X not found and no aperture
 /// cache, skipping` for each broken reference, then proceed with the
 /// remaining apertures.  Easy to misread as expected behaviour
-/// (see the original large_case configuration where 2 of 16
+/// (see the original the large hydrothermal case configuration where 2 of 16
 /// per-phase aperture UIDs referenced uids 1 and 2 but the global
 /// `aperture_array` defined uids 51..66 only).  Surfacing this as a
 /// validation error catches the input-data bug at parse time, before

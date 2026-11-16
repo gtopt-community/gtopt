@@ -13,8 +13,8 @@ Hive-partitioned ``*.parquet`` directories (gtopt's solve *output*) are skipped
 
 Examples::
 
-    gtopt2pbi support/large_case_rerun527
-    gtopt2pbi --dry-run support/large_case_rerun527/Generator
+    gtopt2pbi cases/my_case
+    gtopt2pbi --dry-run cases/my_case/Generator
     gtopt2pbi -c zstd --compression-level 9 mycase/
     python -m gtopt2pbi caseA caseB
 """

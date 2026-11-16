@@ -63,7 +63,7 @@ TEST_CASE(
   REQUIRE(li.get_col_scale(c0) == doctest::Approx(kRalcoEnergyScale));
   REQUIRE(li.get_col_scale(c1) == doctest::Approx(1.0));
 
-  // Write a raw LP value equal to the exact ratio at which the large_case
+  // Write a raw LP value equal to the exact ratio at which the large-case
   // bug was detected (233.44 / 3.162 ≈ 73.82).  If the raw setter
   // were silently descaling, the read-back would equal 73.82 / 3.162.
   constexpr double kRawVal = 73.82;
@@ -404,12 +404,12 @@ TEST_CASE("LinearInterface - raw and physical row bound setters")  // NOLINT
 // times larger than every structural column, dominating the
 // minimisation and pinning the column to its lower bound.
 //
-// Symptom on large_case at scale_obj=1000: SDDP α gets cost 1000
-// in LP-space (intended: 0.001) → α pinned to its bootstrap floor →
-// cuts cannot bind α from above → LB inflates to 1.5e+19 at iter 1,
-// max kappa 1.55e+34.  This test pins the dimensional contract
-// directly so any regression that re-introduces an unscaled add_col
-// path is caught at unit-test granularity.
+// Symptom on the large hydrothermal case at scale_obj=1000: SDDP α gets cost
+// 1000 in LP-space (intended: 0.001) → α pinned to its bootstrap floor → cuts
+// cannot bind α from above → LB inflates to 1.5e+19 at iter 1, max
+// kappa 1.55e+34.  This test pins the dimensional contract directly so any
+// regression that re-introduces an unscaled add_col path is caught at unit-test
+// granularity.
 // ────────────────────────────────────────────────────────────────────
 TEST_CASE(
     "LinearInterface - add_col post-flatten cost / scale_objective")  // NOLINT
@@ -526,8 +526,8 @@ TEST_CASE("LinearInterface - get_obj_value with scale_objective")  // NOLINT
 // returns `obj_physical - alpha`) and reads the lower bound from the
 // first-phase LP objective.  Both sides MUST be in the same units —
 // otherwise a non-unit `scale_objective` leaves a permanent
-// `(scale - 1) / scale` gap that prevents convergence (the large_case
-// large_case_uninodal symptom: gap pinned at ~0.999 with scale_obj=1000).
+// `(scale - 1) / scale` gap that prevents convergence (the large-case
+// uninodal large-case symptom: gap pinned at ~0.999 with scale_obj=1000).
 //
 // This test pins the unit-consistency contract:  for the same LP, the
 // "LB-side" reading via get_obj_value() (physical) must equal the
@@ -1008,7 +1008,7 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("all: col_scale=10, scale_obj=1000, eq=row_max")
   {
-    // Full large_case-like scaling.  row_max equilibration divides the row by
+    // Full CEN-scale scaling.  row_max equilibration divides the row by
     // max|raw_col_elem|; the physical x_opt must still be 10.
     run_subcase({
         .col_scale = 10.0,

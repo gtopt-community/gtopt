@@ -399,7 +399,7 @@ auto solve_apertures_for_phase(
   //     `s_global_clone_mutex` because the underlying solver has
   //     process-wide internal state (environment, allocator mutex,
   //     licence manager) that is not reentrant across threads during
-  //     `CPXcloneprob`.  On the large_case compress run we
+  //     `CPXcloneprob`.  On the large hydrothermal case compress run we
   //     observed 3 threads GPF'ing at the same IP inside the solver's
   //     shared lib, which is the fingerprint of concurrent cloneprob
   //     without a process-global lock (commit `1d7a05c1`).  The

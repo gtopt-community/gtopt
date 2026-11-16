@@ -2232,8 +2232,8 @@ inline auto make_backtracking_recovery_two_reservoir_planning(
   // Per-stage emin: zero throughout (no per-stage minimum).  The
   // cascade pressure now comes from the **terminal `efin` row**
   // (vfin >= 150) instead of a mid-horizon emin spike.  Mirrors the
-  // large_case p51 LMAULE infeasibility that originally surfaced
-  // the cut-row /scale_objective bug: a strict terminal volume target
+  // the large hydrothermal case p51 LMAULE infeasibility that originally
+  // surfaced the cut-row /scale_objective bug: a strict terminal volume target
   // that the iter-0 forward pass cannot meet without future-cost
   // cuts steering the trajectory.
   // ``Reservoir.emin`` is ``OptTBRealFieldSched`` (per-(stage, block))
