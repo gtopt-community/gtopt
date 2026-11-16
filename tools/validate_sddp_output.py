@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -250,6 +251,13 @@ def _long_form_values_for_uid(
     return sub["value"].dropna()
 
 
+def _scalar_bound(value: object, fallback: float) -> float:
+    """Return *value* as a float, or *fallback* when it is not a scalar."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return fallback
+    return float(value)
+
+
 def validate_reservoir_efin(
     output_dir: Path, reservoirs: list[dict[str, Any]]
 ) -> list[str]:
@@ -277,8 +285,10 @@ def validate_reservoir_efin(
     # Long-form: filter by `uid`.  Wide-form: walk uid:N / name:N columns.
     for rsv in reservoirs:
         uid = rsv.get("uid")
-        emin = float(rsv.get("emin", 0.0))
-        emax = float(rsv.get("emax", 0.0))
+        # emin/emax may be schedules (a file-reference string or an
+        # array) rather than scalars; only scalar bounds are checked.
+        emin = _scalar_bound(rsv.get("emin", 0.0), -math.inf)
+        emax = _scalar_bound(rsv.get("emax", 0.0), math.inf)
         if long_layout:
             series = _long_form_values_for_uid(df, uid, rsv.get("name"))
             if series is None or series.empty:
