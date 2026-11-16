@@ -156,7 +156,8 @@ runs clang-format on staged C/C++ files and re-stages them automatically.
   to verify no variables or constraints were accidentally added, removed, or
   renamed: `gtopt_check_fingerprint compare --actual actual.json --expected golden.json`
 
-See `.github/copilot-instructions.md` for the complete test template and rules.
+See the existing tests under `test/source/` for the test template and
+conventions.
 
 ## Project Structure
 
@@ -185,8 +186,8 @@ multi-scenario power system model. The solver uses DC power flow (Kirchhoff's
 voltage law) or a transport model, and is validated against standard IEEE
 benchmark networks (4-bus, 9-bus, 14-bus).
 
-See `.github/copilot-instructions.md` §§ "Domain Knowledge" and "IEEE
-Benchmark Cases" for full details.
+See [`docs/formulation/mathematical-formulation.md`](docs/formulation/mathematical-formulation.md)
+for the full formulation.
 
 ## License and Contributor License Agreement
 

@@ -12,9 +12,6 @@ Implemented in
 
 Cross-references:
 
-- Catalog / work order:
-  [`docs/analysis/investigations/sddp/sddp_literature_test_cases_2026-07.md`](../analysis/investigations/sddp/sddp_literature_test_cases_2026-07.md)
-  (§8 top-5 plan, §9 gaps).
 - Cut-validity theory:
   [`docs/formulation/sddp-cut-validity.md`](../formulation/sddp-cut-validity.md).
 - Markov pricing: [`docs/formulation/sddp-markov.md`](../formulation/sddp-markov.md).

@@ -2,9 +2,7 @@
 
 `sddp_options.integer_cuts_mode = "strengthened"` upgrades the SDDP
 backward pass on subproblems that carry integer columns.  This page
-is the user-facing companion to the
-[SDDiP investigation](../analysis/investigations/sddp/sddip_integer_expansion_2026-07.md)
-(theory, Theorems SB1/SB2) and documents how to enable the option,
+documents how to enable the option,
 what changes internally, what to expect from the bounds, and the
 current limitations.
 
@@ -185,12 +183,8 @@ designed but not yet implemented (investigation doc §7).
 
 ## Cross-references
 
-- [SDDiP investigation](../analysis/investigations/sddp/sddip_integer_expansion_2026-07.md)
-  — theory (SB1/SB2), fit analysis, OptGen design, effort ledger.
 - [SDDP cut-validity theorem doc](../formulation/sddp-cut-validity.md)
   — the LP cut family the strengthened cut extends.
-- [Cut-validity findings ledger](../analysis/investigations/sddp/sddp_cut_validity_findings_ledger_2026-07-08.md)
-  — F5 (aperture MIP relaxation).
 - [SDDP method guide](../methods/sddp.md) — `sddp_options` reference.
 - [SimpleCommitment example](sddp-simple-commitment.md) — the
   commitment use case these numbers come from.

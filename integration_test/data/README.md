@@ -73,9 +73,7 @@ mv sienna_14bus.tar.zst ~/git/gtopt/integration_test/data/
 
 ## Why `zstd` and not gzip / xz
 
-Per the project's compression policy
-([`feedback_use_zstd_lz4` memory + CLAUDE.md "Compression codecs"
-section](../../CLAUDE.md)): zstd is the canonical archival codec across
+Per the project's compression policy, zstd is the canonical archival codec across
 gtopt (Parquet output, in-memory LP snapshots use lz4 for hot paths,
 zstd for cold archive). Reusing `zstd` here keeps the dependency
 surface to one decompressor (`zstandard` Python package, already in

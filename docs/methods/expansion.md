@@ -100,9 +100,7 @@ convention (`row[K_j] = −g_j`, `rhs = V_s − Σ g_j·K̂_j`), matching
 `build_benders_cut_physical` in `source/benders_cut.cpp`.
 
 See `SceneCapSubgradients` in `source/sddp_investment_master.cpp` for
-the full derivation, and
-[`sddip_integer_expansion_2026-07.md`](../analysis/investigations/sddp/sddip_integer_expansion_2026-07.md)
-§7.4 for the campaign record.
+the full derivation.
 
 ## 4. Scope and caveats (v1)
 

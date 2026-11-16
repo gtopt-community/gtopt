@@ -82,7 +82,6 @@ cases/*/results/
 *.fls
 docs/**/*.out
 *.synctex.gz
-docs/white_paper/*.log
 cases/sddp_hydro_3phase/cuts/
 
 # Regenerated converter output (created on the fly by plexos2gtopt)

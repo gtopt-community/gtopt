@@ -31,7 +31,6 @@ This guide provides detailed instructions for building gtopt from source, includ
 | spdlog | 1.12+ | Logging | `libspdlog-dev` |
 | jemalloc | 5.0+ | Multi-thread malloc (eliminates glibc arena fragmentation; ~60% peak-RSS reduction on SDDP runs) | `libjemalloc-dev` |
 | lld | 14+ | Fast linker (auto-detected) | `lld` |
-| tectonic | 0.15+ | White paper PDF (optional) | `curl -fsSL https://drop-sh.fullyjustified.net \| sh` |
 
 **LP Solver Backends**: gtopt loads LP solver backends as dynamic plugins at
 runtime. The default is auto-detected by priority: CPLEX > HiGHS > CBC > CLP.
@@ -264,52 +263,6 @@ sudo dnf install gcc-c++ cmake boost-devel
 sudo pacman -S gcc cmake boost arrow coin-or-cbc
 ```
 
-## White Paper PDF (Optional)
-
-The white paper LaTeX sources are in `docs/white_paper/`.  Building the PDF
-requires a LaTeX engine.  **tectonic** is recommended — it is a single binary
-that auto-downloads all needed packages (IEEEtran class, fonts, BibTeX styles)
-on first run.  No TeX Live installation is required.
-
-### Installing tectonic (recommended)
-
-```bash
-curl -fsSL https://drop-sh.fullyjustified.net | sh -s -- --prefix ~/.local
-```
-
-Verify:
-
-```bash
-tectonic --version
-```
-
-### Installing TeX Live (alternative)
-
-If you prefer a full TeX distribution:
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install -y texlive-latex-base texlive-latex-recommended \
-  texlive-latex-extra texlive-publishers texlive-bibtex-extra \
-  texlive-science latexmk
-```
-
-### Building the PDF
-
-```bash
-# Direct (tectonic)
-cd docs/white_paper && tectonic main.tex
-
-# Or via CMake (auto-detects tectonic or latexmk)
-cmake -S docs/white_paper -B build-paper
-cmake --build build-paper
-# PDF at build-paper/main.pdf
-
-# Or via the all/ super-project
-cmake -S all -B build -DGTOPT_BUILD_WHITE_PAPER=ON
-cmake --build build --target white_paper
-```
-
 ## Build Performance
 
 gtopt uses three complementary techniques for fast builds:
@@ -394,7 +347,6 @@ network connection).  Disable individual components by passing `-D<OPTION>=OFF`:
 | `GTOPT_BUILD_WEBSERVICE` | `ON` | Node.js / npm (auto-skipped with warning if absent) |
 | `GTOPT_BUILD_GUISERVICE` | `ON` | Python ≥ 3.10 (auto-skipped with warning if absent) |
 | `GTOPT_BUILD_DOCS` | `OFF` | Doxygen + internet (m.css theme) |
-| `GTOPT_BUILD_WHITE_PAPER` | `OFF` | tectonic or latexmk + TeX Live |
 
 Example – build only the solver binary and Python scripts:
 

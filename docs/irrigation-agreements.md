@@ -1151,10 +1151,6 @@ and constraints can be inspected.
   FlowRight, VolumeRight, and UserConstraint fields
 - **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — LP/MIP formulation including water rights
-- **[PLP Implementation Analysis](analysis/irrigation_agreements/plp_implementation.md)**
-  — Detailed Fortran source analysis
 - **[PLP vs gtopt LP Comparison](lp-comparison.md)** — Full LP
   comparison covering generators, demands, lines, hydro, batteries,
   and SDDP structure (non-irrigation elements)
-- **[LP Column & Row Audit](analysis/irrigation_agreements/lp_column_row_audit.md)**
-  — Exhaustive PLP vs gtopt variable/constraint comparison

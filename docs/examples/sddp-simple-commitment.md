@@ -87,16 +87,14 @@ discriminates.
   dispatch and the UB estimate always honour the commitment logic.
 - **Backward pass, default (`integer_cuts_mode = "none"`)**:
   - with **apertures** enabled, the backward clones explicitly relax
-    integrality before reading duals (finding F5 of the
-    [cut-validity ledger](../analysis/investigations/sddp/sddp_cut_validity_findings_ledger_2026-07-08.md)).
+    integrality before reading duals.
     The resulting cuts support the *convexified* value function
     `V_LP ≤ V_MIP` — valid for the true recursion, but they
     systematically under-value the commitment cost (the LB carries
     the integrality gap as permanent looseness);
   - on the **pure-Benders** path (no apertures) the legacy code reads
     reduced costs off a MIP re-solve — an unsound path in general
-    (§1 of the
-    [SDDiP investigation](../analysis/investigations/sddp/sddip_integer_expansion_2026-07.md)).
+    (see the [integer cuts example](sddp-integer-cuts.md)).
     On this fixture `V` happens to be *constant* in the reservoir
     state (the dispatch is pinned at every level), so the flat cut at
     the MIP incumbent is accidentally exact — do not rely on this in
@@ -155,8 +153,6 @@ persistent-process UB, which is not ordered in general (see
   (`sddp_options` table) and algorithm walk-through.
 - [SDDP cut-validity theorem doc](../formulation/sddp-cut-validity.md)
   — what each cut certifies.
-- [SDDiP investigation](../analysis/investigations/sddp/sddip_integer_expansion_2026-07.md)
-  — integer recourse analysis, strengthened-cut theory (SB1/SB2).
 - [Integer cuts example](sddp-integer-cuts.md) — enabling and tuning
   `integer_cuts_mode = "strengthened"`.
 - Tests: `test/source/test_sddp_simple_commitment.cpp`,

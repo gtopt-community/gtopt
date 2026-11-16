@@ -58,12 +58,6 @@ current reservoir volume via the `bound_rule`.
 
 - [Irrigation Agreements — Modeling Guide](../../../docs/irrigation-agreements.md) —
   Architecture overview, LP formulation, and PLP comparison
-- [Laja Agreement Research](../../../docs/analysis/irrigation_agreements/laja_agreement_research.md) —
-  Historical and legal context
-- [Right Junctions Analysis](../../../docs/analysis/irrigation_agreements/right_junctions_analysis.md) —
-  Flow partition and district allocation details
-- [Seepage and Colchones Analysis](../../../docs/analysis/irrigation_agreements/seepage_and_colchones_analysis.md) —
-  Volume zone model and filtration curves
 
 ### PLP Fortran Sources (authoritative)
 

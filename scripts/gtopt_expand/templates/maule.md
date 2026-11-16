@@ -51,12 +51,6 @@ proportional allocation among 7 irrigation districts.
 
 - [Irrigation Agreements — Modeling Guide](../../../docs/irrigation-agreements.md) —
   Architecture overview, LP formulation, and PLP comparison
-- [Maule Agreement Research](../../../docs/analysis/irrigation_agreements/maule_agreement_research.md) —
-  Historical and legal context
-- [Right Junctions Analysis](../../../docs/analysis/irrigation_agreements/right_junctions_analysis.md) —
-  Armerillo balance point and district allocation details
-- [Seepage and Colchones Analysis](../../../docs/analysis/irrigation_agreements/seepage_and_colchones_analysis.md) —
-  Volume zone model and filtration curves
 
 ### PLP Fortran Sources (authoritative)
 
