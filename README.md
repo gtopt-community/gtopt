@@ -187,7 +187,7 @@ together with Parquet time-series files:
 plp2gtopt -i plp_case_dir -o gtopt_case_dir
 
 # Create a ZIP archive ready to upload to gtopt_guisrv / gtopt_websrv
-plp2gtopt -z -i plp_case_2y -o gtopt_case_2y
+plp2gtopt -z -i plp_case -o my_case
 
 # Two hydrology scenarios with 60/40 probability split
 plp2gtopt -i input/ -y 1,2 -p 0.6,0.4

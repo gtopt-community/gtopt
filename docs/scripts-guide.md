@@ -400,16 +400,16 @@ full output directory structure.  This archive is directly compatible with
 REST API):
 
 ```bash
-plp2gtopt -z -i plp_case_2y -o gtopt_case_2y
-# Produces: gtopt_case_2y.zip
+plp2gtopt -z -i plp_case -o my_case
+# Produces: my_case.zip
 ```
 
 The ZIP layout is:
 
 ```text
-gtopt_case_2y.zip
-├── gtopt_case_2y.json          ← main system/simulation/options config
-└── gtopt_case_2y/              ← input_directory (data files)
+my_case.zip
+├── my_case.json          ← main system/simulation/options config
+└── my_case/              ← input_directory (data files)
     ├── Demand/
     │   └── lmax.parquet
     ├── Generator/
@@ -451,7 +451,7 @@ similar to the pre-solve statistics printed by the `gtopt` solver:
   use_single_bus  : False
   scale_objective : 1000
   demand_fail_cost: 1000
-  input_directory : gtopt_case_2y
+  input_directory : my_case
   annual_discount : 0.1
 === Conversion time ===
   Elapsed         : 1.234s
@@ -1043,7 +1043,7 @@ automatically.
 run_gtopt
 
 # PLP case: auto-convert to gtopt and solve
-run_gtopt plp_case_2y
+run_gtopt plp_case
 
 # gtopt case directory: solve directly
 run_gtopt cases/ieee_9b
@@ -1632,7 +1632,7 @@ Submit a ZIP directly to the REST API:
 
 ```bash
 curl -X POST http://localhost:3000/api/solve \
-  -F "file=@gtopt_case_2y.zip"
+  -F "file=@my_case.zip"
 ```
 
 The server runs the `gtopt` solver and returns a results ZIP containing the

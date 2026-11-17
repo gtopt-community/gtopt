@@ -83,7 +83,7 @@ plp2gtopt -i input/ -y 1,2 -p 0.6,0.4
 plp2gtopt -i input/ -d 0.10
 
 # Create a ZIP archive ready for gtopt_guisrv / gtopt_websrv
-plp2gtopt -z -i plp_case_2y -o gtopt_case_2y
+plp2gtopt -z -i plp_case -o my_case
 
 # Verbose debug output
 plp2gtopt -i input/ -l DEBUG
@@ -388,8 +388,8 @@ instead of hard constraints, matching PLP's per-stage rebalse cost.
 A typical conversion produces:
 
 ```
-gtopt_case_2y.json              ← main system / simulation / options config
-gtopt_case_2y/                  ← input_directory (referenced in the JSON)
+my_case.json              ← main system / simulation / options config
+my_case/                  ← input_directory (referenced in the JSON)
 ├── Demand/
 │   └── lmax.parquet            ← demand time-series
 ├── Generator/
@@ -416,16 +416,16 @@ The `-z` flag creates a single **ZIP archive** that bundles the JSON and all
 data files together, preserving the full directory structure:
 
 ```bash
-plp2gtopt -z -i plp_case_2y -o gtopt_case_2y
-# Produces: gtopt_case_2y.zip
+plp2gtopt -z -i plp_case -o my_case
+# Produces: my_case.zip
 ```
 
 ZIP layout:
 
 ```
-gtopt_case_2y.zip
-├── gtopt_case_2y.json
-└── gtopt_case_2y/
+my_case.zip
+├── my_case.json
+└── my_case/
     ├── Demand/
     │   └── lmax.parquet
     ├── Generator/
@@ -468,7 +468,7 @@ similar to the pre-solve statistics printed by the `gtopt` solver:
   use_single_bus  : False
   scale_objective : 1000
   demand_fail_cost: 1000
-  input_directory : gtopt_case_2y
+  input_directory : my_case
   annual_discount : 0.1
 === Conversion time ===
   Elapsed         : 1.234s
@@ -518,16 +518,16 @@ solution files.
 
 ## Example: Converting a 2-Year Hydro Case with 2 Scenarios
 
-Suppose you have a PLP case directory `plp_case_2y/` containing 24 monthly
+Suppose you have a PLP case directory `plp_case/` containing 24 monthly
 stages (2 years) with hydro plants, thermal generators, and two hydrology
 scenarios (dry and wet).
 
 ```bash
 # Convert with 2 hydrology scenarios, 10% discount rate, Kirchhoff mode
 plp2gtopt \
-  -i plp_case_2y \
-  -o gtopt_case_2y \
-  -n gtopt_case_2y \
+  -i plp_case \
+  -o my_case \
+  -n my_case \
   -s 24 \
   -y 1,2 \
   -p 0.6,0.4 \
@@ -536,15 +536,15 @@ plp2gtopt \
   -z
 
 # This produces:
-#   gtopt_case_2y.json   — main planning configuration
-#   gtopt_case_2y/       — Parquet time-series data
-#   gtopt_case_2y.zip    — bundled archive
+#   my_case.json   — main planning configuration
+#   my_case/       — Parquet time-series data
+#   my_case.zip    — bundled archive
 
 # Solve with gtopt
-gtopt gtopt_case_2y.json
+gtopt my_case.json
 
 # Or upload the ZIP to the GUI service
-gtopt_guisrv  # then upload gtopt_case_2y.zip in the browser
+gtopt_guisrv  # then upload my_case.zip in the browser
 ```
 
 The conversion statistics will show the full system inventory — buses, thermal

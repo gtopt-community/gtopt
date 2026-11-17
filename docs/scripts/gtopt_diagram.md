@@ -300,53 +300,6 @@ gtopt_diagram cases/c0/system_c0.json --diagram-type planning -o c0_planning.svg
 
 Shows the scenario → phase → stage → block hierarchy and the objective function.
 
-### Large case — `gtopt_case_2y` (2 794 elements)
-
-This case is not shipped with GTOpt; the commands assume it has been placed
-(or symlinked) under `cases/`.
-
-```bash
-# Auto mode picks type + smart threshold (345 kV; 16 buses remain)
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json -o case2y_auto.svg
-
-# Network topology only (no generators)
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --no-generators -o case2y_topo.svg
-
-# HV backbone ≥ 220 kV, no generators
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --no-generators --voltage-threshold 220 -o case2y_hv_topo.svg
-
-# Global summary — fastest overview
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --aggregate global --subsystem electrical --compact -o case2y_global.svg
-
-# Hydro cascade only
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --subsystem hydro -o case2y_hydro.svg
-
-# Interactive HTML for exploration
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --aggregate type --voltage-threshold 100 --compact \
-    --format html -o case2y_interactive.html
-
-# Focus on a local area (3 hops from a specific bus)
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --focus-bus "AltaRapel" --focus-hops 3 --aggregate type \
-    --format html -o case2y_focus.html
-```
-
-### Generating the large case from PLP sources
-
-```bash
-plp2gtopt \
-    -i scripts/cases/plp_case_2y \
-    -o cases/gtopt_case_2y \
-    -f cases/gtopt_case_2y/gtopt_case_2y.json \
-    -n gtopt_case_2y \
-    -s 24
-```
-
 ---
 
 ## Guiservice Integration

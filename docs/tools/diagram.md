@@ -36,16 +36,16 @@ gtopt_diagram --help
 ```bash
 # Auto mode (DEFAULT) — the tool picks the right strategy for the case size
 gtopt_diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg        # small: all individual
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # large: type+smart threshold (e.g. 345 kV for 2y)
+gtopt_diagram my_case/my_case.json -o big.svg  # large: type+smart voltage threshold
 
 # Interactive HTML for the battery 4-bus case
 gtopt_diagram cases/bat_4b/bat_4b.json --format html -o bat4b.html
 
 # Network topology only — no generators (clean bus/line view)
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
+gtopt_diagram my_case/my_case.json --no-generators -o topo.svg
 
 # Hydro cascade only
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json --subsystem hydro -o hydro.svg
+gtopt_diagram my_case/my_case.json --subsystem hydro -o hydro.svg
 
 # Planning time structure
 gtopt_diagram cases/c0/system_c0.json --diagram-type planning -o c0_planning.svg
@@ -247,11 +247,11 @@ hydro cascade) without the clutter of generator nodes.  Use `--no-generators`:
 
 ```bash
 # Network structure only — no generators
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+gtopt_diagram my_case/my_case.json \
     --no-generators -o topo.svg
 
 # Combine with voltage threshold for the HV backbone
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
+gtopt_diagram my_case/my_case.json \
     --no-generators --voltage-threshold 220 -o topo_hv220.svg
 ```
 
@@ -292,7 +292,6 @@ the same HV bus pair are de-duplicated.
 
 > **Auto mode applies this automatically** with a threshold chosen so that ≤ 64
 > representative buses remain when the case has ≥ 1000 elements.
-> For the `gtopt_case_2y` case this resolves to 345 kV (16 buses remain).
 
 ```bash
 # Keep only buses ≥ 220 kV; fold everything below into the HV network
@@ -360,89 +359,6 @@ gtopt_diagram case.json --aggregate type --compact -o case_compact.svg
 
 Remove nodes that have no connections (e.g., buses that ended up with all their
 generators filtered out).
-
----
-
-## Large Case Example: `gtopt_case_2y`
-
-The `gtopt_case_2y` case (not shipped with GTOpt; the commands below assume
-it has been placed or symlinked under `cases/`) was converted from the PLP
-`plp_case_2y` directory using `plp2gtopt`.  It contains:
-
-| Element | Count |
-|---------|-------|
-| Buses | 236 (voltages: 1–1220 kV) |
-| Generators | 1 740 (thermal, hydro, solar) |
-| Demands | 163 |
-| Lines | 330 |
-| Batteries | 25 |
-| Junctions (hydro) | 85 |
-| Reservoirs | 10 |
-| Turbines | 31 |
-| Waterways | 113 |
-| Stages | 24 |
-
-With 2 794 total elements the auto mode selects `type` + smart voltage threshold
-(345 kV, keeping 16 buses) automatically — no flags needed:
-
-```bash
-# Auto mode picks type + smart threshold (345 kV here; ≤ 64 buses remain)
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json -o case2y_auto.svg
-```
-
-### Recommended workflows
-
-```bash
-# 0. Auto mode (default — no options needed)
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json -o case2y_auto.svg
-
-# 1. Network topology only — no generators
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --no-generators -o case2y_topo.svg
-
-# 2. HV backbone only (≥ 220 kV), no generators
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --no-generators --voltage-threshold 220 -o case2y_hv_topo.svg
-
-# 3. Global summary — best overview, very fast
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --aggregate global --subsystem electrical \
-    --compact --format svg -o case2y_global.svg
-
-# 4. High-voltage network (≥ 220 kV) with type aggregation
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --aggregate type --voltage-threshold 220 \
-    --compact --format svg -o case2y_hv220.svg
-
-# 5. Hydro cascade
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --subsystem hydro --format svg -o case2y_hydro.svg
-
-# 6. Interactive HTML — explore all 236 buses with physics simulation
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --aggregate type --voltage-threshold 100 --compact \
-    --format html -o case2y_interactive.html
-
-# 7. Planning structure (24 stages, 1 scenario)
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --diagram-type planning -o case2y_planning.svg
-
-# 8. Focus on a local area (2 hops from a specific bus)
-gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \
-    --focus-bus "AltaRapel" --focus-hops 3 --aggregate type \
-    --format html -o case2y_focus.html
-```
-
-### Generating the case from PLP sources
-
-```bash
-plp2gtopt \
-    -i scripts/cases/plp_case_2y \
-    -o cases/gtopt_case_2y \
-    -f cases/gtopt_case_2y/gtopt_case_2y.json \
-    -n gtopt_case_2y \
-    -s 24          # first 24 stages
-```
 
 ---
 
