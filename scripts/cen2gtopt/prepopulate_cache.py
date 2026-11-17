@@ -52,7 +52,6 @@ import sys
 import time
 from pathlib import Path
 
-
 from cen2gtopt._bus_catalogue import (
     DEFAULT_CATALOGUE_PATH,
     discover_buses_from_cache,
@@ -61,7 +60,12 @@ from cen2gtopt._bus_catalogue import (
     save_catalogue,
 )
 from cen2gtopt._cached_extractor import fetch_by_name
-from cen2gtopt._cen_client import CenApiClient, CenApiConfig
+from cen2gtopt._cen_client import (
+    CenApiClient,
+    CenApiConfig,
+    add_insecure_tls_argument,
+    apply_insecure_tls_argument,
+)
 from cen2gtopt.marginal_units import SIP_KEY
 
 _LOG = logging.getLogger("cen2gtopt.prepopulate_cache")
@@ -190,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_insecure_tls_argument(p)
     p.add_argument("--date", required=True, help="YYYY-MM-DD")
     p.add_argument(
         "--xml",
@@ -218,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
+    apply_insecure_tls_argument(args)
 
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
@@ -265,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
     # sequential pass is slower but deterministic and observable;
     # the inter-request delay backs off on 429 / 5xx and decays back
     # toward ``--delay-ms`` after sustained successes.
-    cfg = CenApiConfig(user_keys={"sip": SIP_KEY}, verify_tls=False)
+    cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
     n_ok = n_empty = 0
     rows_total = 0
     failed: list[str] = []

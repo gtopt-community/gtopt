@@ -25,12 +25,13 @@ display name).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import pandas as pd
 import requests
 
+from cen2gtopt._cen_client import tls_verify_default
 
 _LOG = logging.getLogger("cen2gtopt.infotecnica")
 
@@ -41,7 +42,7 @@ INFOTECNICA_BASE_URL = "https://api-infotecnica.coordinador.cl/v1"
 class InfotecnicaConfig:
     base_url: str = INFOTECNICA_BASE_URL
     timeout: float = 60.0
-    verify_tls: bool = True
+    verify_tls: bool = field(default_factory=tls_verify_default)
     user_agent: str = "cen2gtopt/1.0 (+https://github.com/gtopt-community/gtopt)"
 
 

@@ -65,12 +65,18 @@ from cen2gtopt._bus_catalogue import (
     merge_catalogues,
     save_catalogue,
 )
-from cen2gtopt._cen_client import CenApiClient, CenApiConfig, env_user_key
+from cen2gtopt._cen_client import (
+    CenApiClient,
+    CenApiConfig,
+    add_insecure_tls_argument,
+    apply_insecure_tls_argument,
+    env_user_key,
+)
 
 
 def _make_client() -> CenApiClient:
     keys = {"sip": env_user_key()}
-    cfg = CenApiConfig(user_keys=keys, verify_tls=False)
+    cfg = CenApiConfig(user_keys=keys)
     return CenApiClient(cfg)
 
 
@@ -369,6 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_insecure_tls_argument(p)
     p.add_argument(
         "--catalogue",
         type=Path,
@@ -439,6 +446,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    apply_insecure_tls_argument(args)
     if getattr(args, "quiet", False):
         log_level = logging.WARNING
     elif getattr(args, "verbose", False):

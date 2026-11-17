@@ -63,7 +63,12 @@ from pathlib import Path
 import pandas as pd
 
 from cen2gtopt._cached_extractor import fetch_by_name
-from cen2gtopt._cen_client import CenApiClient, CenApiConfig
+from cen2gtopt._cen_client import (
+    CenApiClient,
+    CenApiConfig,
+    add_insecure_tls_argument,
+    apply_insecure_tls_argument,
+)
 from cen2gtopt.marginal_units import (
     REF_BUSES,
     SIP_KEY,
@@ -269,7 +274,7 @@ def validate_one_day(
     pipeline was actually accurate.  See the 2026-04-22 analysis in
     docs/scripts/cen_marginal_emissions_review.md.
     """
-    sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY}, verify_tls=False)
+    sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
     with CenApiClient(sip_cfg) as client:
         _LOG.info("[%s] running pipeline …", date_iso)
         pipe = compute_marginal_units_for_day(
@@ -484,6 +489,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_insecure_tls_argument(p)
     g = p.add_argument_group("date selection (pick one)")
     g.add_argument("--date", help="YYYY-MM-DD")
     g.add_argument("--start-date", help="YYYY-MM-DD (inclusive, with --end-date)")
@@ -517,6 +523,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    apply_insecure_tls_argument(args)
     if not (args.date or (args.start_date and args.end_date)):
         print("error: must specify --date OR --start-date+--end-date")
         return 2

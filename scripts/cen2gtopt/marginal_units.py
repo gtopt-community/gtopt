@@ -71,6 +71,8 @@ from cen2gtopt._emission_factors import UpstreamBasis, lookup_scvic
 from cen2gtopt._id_bridge import (
     build_alias_index,
     index_stats,
+)
+from cen2gtopt._id_bridge import (
     resolve as bridge_resolve,
 )
 from cen2gtopt._scvic_api import cv_rpt_for_date
@@ -2336,7 +2338,7 @@ def main() -> int:
     print(f"  Emission-factor identifier v3 — date={DATE}")
     print("=" * 80)
 
-    sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY}, verify_tls=False)
+    sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
     with CenApiClient(sip_cfg) as client:
         print("\n[1] CMG real (15-min, 2 reference buses)")
         cmg = fetch_cmg_real(client)

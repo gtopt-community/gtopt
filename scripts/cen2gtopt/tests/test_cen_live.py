@@ -16,7 +16,6 @@ import os
 
 import pytest
 
-
 _GATE = os.environ.get("GTOPT_RUN_CEN_BACKTEST") == "1"
 _HAS_KEY = bool(os.environ.get("CEN_USER_KEY"))
 
@@ -43,7 +42,6 @@ def test_live_costo_marginal_real_one_page(tmp_path):
 
     config = CenApiConfig(
         user_keys={"sip": os.environ["CEN_USER_KEY"]},
-        verify_tls=False,
     )
     with CenApiClient(config) as client:
         body = client.get(
@@ -78,7 +76,6 @@ def test_live_centrales_catalogue():
 
     config = CenApiConfig(
         user_keys={"sip": os.environ["CEN_USER_KEY"]},
-        verify_tls=False,
         max_retries=1,  # don't waste 8s on a known-flaky upstream
         backoff_base=0.1,
     )

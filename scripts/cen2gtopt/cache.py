@@ -24,6 +24,10 @@ import logging
 import os
 import sys
 
+from cen2gtopt._cen_client import (
+    add_insecure_tls_argument,
+    apply_insecure_tls_argument,
+)
 from cen2gtopt._cached_extractor import (
     ENDPOINTS,
     cache_root_default,
@@ -51,7 +55,7 @@ def _make_client() -> CenApiClient:
     }
     # No bundled default key: a missing CEN_USER_KEY surfaces as a
     # CenAuthError (with instructions) on the first network call.
-    cfg = CenApiConfig(user_keys=keys, verify_tls=False)
+    cfg = CenApiConfig(user_keys=keys)
     return CenApiClient(cfg)
 
 
@@ -131,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
+    add_insecure_tls_argument(p)
     sub = p.add_subparsers(dest="cmd")
     sub.required = True
 
@@ -231,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
     d.set_defaults(func=_cmd_daily_update)
 
     args = p.parse_args(argv)
+    apply_insecure_tls_argument(args)
     return args.func(args)
 
 

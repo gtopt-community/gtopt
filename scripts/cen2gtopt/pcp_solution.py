@@ -80,6 +80,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from cen2gtopt._cen_client import (
+    add_insecure_tls_argument,
+    apply_insecure_tls_argument,
+)
 from cen2gtopt.pcp_archive import (
     DEFAULT_DOWNLOAD_ROOT,
     download_one,
@@ -526,6 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_insecure_tls_argument(p)
     p.add_argument("-v", "--verbose", action="store_true")
     p.add_argument("-q", "--quiet", action="store_true")
     p.add_argument(
@@ -563,6 +568,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    apply_insecure_tls_argument(args)
     if args.quiet:
         log_level = logging.WARNING
     elif args.verbose:

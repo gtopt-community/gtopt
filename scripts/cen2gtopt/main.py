@@ -18,6 +18,7 @@ from datetime import date as date_cls
 from pathlib import Path
 from typing import Optional
 
+from cen2gtopt._cen_client import add_insecure_tls_argument, apply_insecure_tls_argument
 
 # Exit codes per master §9.5.2
 EXIT_OK = 0
@@ -38,6 +39,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "v1 is an on-the-spot one-shot CLI; see master plan §9."
         ),
     )
+    add_insecure_tls_argument(p)
     p.add_argument("--start", required=True, help="Start date (YYYY-MM-DD).")
     p.add_argument("--end", required=True, help="End date (YYYY-MM-DD).")
     p.add_argument(
@@ -102,6 +104,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def cli(argv: Optional[list[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    apply_insecure_tls_argument(args)
     _setup_logging(args.verbose, args.quiet)
     try:
         return _run(args)
@@ -253,7 +256,6 @@ def _run_sip(args: argparse.Namespace, api_key: str | None) -> int:
     includes = set(args.include or ()) or {"dispatch", "demand", "lmp"}
     config = CenApiConfig(
         user_keys={"sip": api_key},
-        verify_tls=False,  # CEN gateway uses non-system cert chain
     )
 
     out = args.out

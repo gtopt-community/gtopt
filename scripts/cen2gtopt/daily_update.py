@@ -64,7 +64,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -74,7 +74,7 @@ from cen2gtopt._cached_extractor import (
     cache_root_default,
     fetch_by_name,
 )
-from cen2gtopt._cen_client import CenApiClient
+from cen2gtopt._cen_client import CenApiClient, redact_secrets
 from cen2gtopt._scvic_api import cv_rpt_for_date
 
 _LOG = logging.getLogger("cen2gtopt.daily_update")
@@ -293,8 +293,8 @@ def _fetch_one(
         res.status = "fetched"
     except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
         res.status = "error"
-        res.error = f"{type(exc).__name__}: {exc}"
-        _LOG.error("fetch %s [%s] failed: %s", name, target_date, exc)
+        res.error = f"{type(exc).__name__}: {redact_secrets(exc)}"
+        _LOG.error("fetch %s [%s] failed: %s", name, target_date, redact_secrets(exc))
     res.duration_s = round(time.monotonic() - t0, 2)
     return res
 
@@ -392,7 +392,7 @@ def refresh_pcp_archive(
             download_one(f, output_dir=DEFAULT_DOWNLOAD_ROOT, skip_existing=not force)
             counts["downloaded"] += 1
         except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
-            _LOG.error("pcp/pid download %s failed: %s", f.nombre, exc)
+            _LOG.error("pcp/pid download %s failed: %s", f.nombre, redact_secrets(exc))
             counts["error"] += 1
     return counts
 

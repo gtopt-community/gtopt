@@ -115,6 +115,10 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from cen2gtopt._cen_client import (
+    add_insecure_tls_argument,
+    apply_insecure_tls_argument,
+)
 from cen2gtopt._bus_catalogue import (
     discover_buses_from_api,
     discover_buses_from_cache,
@@ -306,10 +310,7 @@ def _maybe_refresh_catalogue(
     else:  # api
         if not date:
             raise SystemExit("--refresh-buses=api requires --refresh-date")
-        sip_cfg = CenApiConfig(
-            user_keys={"sip": SIP_KEY},
-            verify_tls=False,
-        )
+        sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
         with CenApiClient(sip_cfg) as client:
             new = discover_buses_from_api(client, date=date)
     merged = merge_catalogues(existing, new)
@@ -348,10 +349,7 @@ def _process_one_day(
     res = DayResult(date_iso=date_iso, status="?", n_buses=len(ref_buses))
     t0 = time.monotonic()
     try:
-        sip_cfg = CenApiConfig(
-            user_keys={"sip": SIP_KEY},
-            verify_tls=False,
-        )
+        sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
         with CenApiClient(sip_cfg) as client:
             df = compute_marginal_units_for_day(
                 client,
@@ -425,6 +423,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_insecure_tls_argument(p)
     g = p.add_argument_group("period (pick one)")
     g.add_argument("--start-date", help="YYYY-MM-DD (inclusive)")
     g.add_argument("--end-date", help="YYYY-MM-DD (inclusive)")
@@ -539,6 +538,7 @@ _BUDGET_THRESHOLD = 100_000
 def main(argv: list[str] | None = None) -> int:
     p = build_parser()
     args = p.parse_args(argv)
+    apply_insecure_tls_argument(args)
 
     if args.quiet:
         log_level = logging.WARNING

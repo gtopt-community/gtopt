@@ -40,6 +40,8 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from cen2gtopt._cen_client import tls_verify_default
+
 _LOG = logging.getLogger("cen2gtopt.scvic_api")
 
 CV_RPT_BASE = "https://costosvariables.coordinador.cl:8080/v1"
@@ -104,7 +106,7 @@ def fetch_cv_rpt(
     resp = requests.get(
         url,
         params=params,
-        verify=False,
+        verify=tls_verify_default(),
         headers={"Accept": "application/json", "User-Agent": "cen2gtopt/0.1"},
         timeout=timeout,
     )

@@ -128,6 +128,13 @@ from pathlib import Path
 
 import requests
 
+from cen2gtopt._cen_client import (
+    add_insecure_tls_argument,
+    apply_insecure_tls_argument,
+    redact_secrets,
+    tls_verify_default,
+)
+
 _LOG = logging.getLogger("cen2gtopt.pcp_archive")
 
 #: Environment variable holding the ``user_key`` for the CEN
@@ -146,6 +153,10 @@ PORTAL_KEY_HELP = (
 
 class MissingPortalKeyError(RuntimeError):
     """Raised when a PCP-archive network call has no portal user_key."""
+
+
+class PcpArchiveError(requests.RequestException):
+    """A PCP-archive HTTP call failed (message has secrets redacted)."""
 
 
 def portal_user_key(user_key: str | None = None) -> str:
@@ -239,14 +250,21 @@ def fetch_index(
 
     key = portal_user_key(user_key)
     _LOG.info("fetching CEN PCP index …")
-    resp = requests.get(
-        LIST_URL,
-        params={"user_key": key},
-        headers={"Origin": "https://programa.coordinador.cl"},
-        timeout=timeout,
-        verify=True,
-    )
-    resp.raise_for_status()
+    try:
+        resp = requests.get(
+            LIST_URL,
+            params={"user_key": key},
+            headers={"Origin": "https://programa.coordinador.cl"},
+            timeout=timeout,
+            verify=tls_verify_default(),
+        )
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        # ``requests`` embeds the full URL (``?user_key=<KEY>``) in the
+        # message; re-raise with the secret redacted and no chaining.
+        raise PcpArchiveError(
+            f"CEN PCP index fetch failed: {redact_secrets(exc)}"
+        ) from None
     rows = resp.json()
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(rows), encoding="utf-8")
@@ -313,9 +331,15 @@ def download_one(
         f.enlace_descarga,
         stream=True,
         timeout=timeout,
-        verify=True,
+        verify=tls_verify_default(),
     ) as r:
-        r.raise_for_status()
+        try:
+            r.raise_for_status()
+        except requests.HTTPError as exc:
+            # Presigned S3 URLs carry signature/credential params.
+            raise PcpArchiveError(
+                f"download of {f.nombre} failed: {redact_secrets(exc)}"
+            ) from None
         tmp = out.with_suffix(out.suffix + ".part")
         with tmp.open("wb") as fp:
             for chunk in r.iter_content(chunk_size=1 << 20):
@@ -411,7 +435,7 @@ def _cmd_download(args: argparse.Namespace) -> int:
             )
         except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
             failures += 1
-            _LOG.error("failed %s: %s", f.nombre, exc)
+            _LOG.error("failed %s: %s", f.nombre, redact_secrets(exc))
     print(f"  done: {len(files) - failures} ok, {failures} failed")
     return 1 if failures else 0
 
@@ -428,6 +452,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    add_insecure_tls_argument(p)
     p.add_argument("-v", "--verbose", action="store_true")
     p.add_argument("-q", "--quiet", action="store_true")
     p.add_argument(
@@ -487,6 +512,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    apply_insecure_tls_argument(args)
     if args.quiet:
         log_level = logging.WARNING
     elif args.verbose:

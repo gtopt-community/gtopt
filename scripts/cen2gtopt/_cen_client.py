@@ -25,20 +25,27 @@ exist — operación uses ``content`` instead of ``data``). The
 client's ``paginate(...)`` helper concatenates pages transparently
 and stops at ``page >= totalPages``.
 
-TLS: the gateway certs are not in standard system bundles in the
-sandbox we develop in. Production use should ship a CEN-issued CA
-bundle and set ``verify_tls=True`` (the default). For local probes,
-set ``verify_tls=False`` — a one-time INFO log records the
-downgrade.
+TLS: certificate verification is ON by default.  If the gateway
+chain is not trusted by your system bundle, point ``REQUESTS_CA_BUNDLE``
+at a bundle that contains it.  As a last resort for local probes,
+verification can be disabled explicitly with the ``--insecure`` CLI
+flag or ``CEN2GTOPT_INSECURE_TLS=1`` — a WARNING is logged whenever
+that happens.
+
+Secrets: the ``user_key`` travels as a query parameter, so every URL
+or exception text that could reach a log is passed through
+:func:`redact_secrets` first.
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
+import re
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -69,6 +76,79 @@ def env_user_key(var: str = CEN_USER_KEY_ENV) -> str:
 
 
 _LOG = logging.getLogger("cen2gtopt.client")
+
+#: Environment variable that, when truthy, disables TLS certificate
+#: verification for every cen2gtopt HTTP call (explicit opt-out only).
+INSECURE_TLS_ENV = "CEN2GTOPT_INSECURE_TLS"
+
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+_insecure_warned = False  # pylint: disable=invalid-name
+
+
+def insecure_tls_requested() -> bool:
+    """Return True iff ``$CEN2GTOPT_INSECURE_TLS`` is set to a truthy value."""
+    return os.environ.get(INSECURE_TLS_ENV, "").strip().lower() in _TRUTHY
+
+
+def tls_verify_default() -> bool:
+    """Return the ``verify=`` value to use for outgoing HTTPS requests.
+
+    Verification is ON unless the user explicitly opted out through
+    ``--insecure`` / ``$CEN2GTOPT_INSECURE_TLS``; the opt-out is logged
+    once as a WARNING.
+    """
+    global _insecure_warned  # pylint: disable=global-statement
+    if not insecure_tls_requested():
+        return True
+    if not _insecure_warned:
+        _LOG.warning(
+            "TLS certificate verification DISABLED (%s is set / --insecure) — "
+            "connections are vulnerable to interception; prefer pointing "
+            "REQUESTS_CA_BUNDLE at a bundle that trusts the CEN gateways",
+            INSECURE_TLS_ENV,
+        )
+        _insecure_warned = True
+    return False
+
+
+def add_insecure_tls_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the ``--insecure`` opt-out flag to a cen2gtopt CLI parser."""
+    parser.add_argument(
+        "--insecure",
+        action="store_true",
+        help=(
+            "Disable TLS certificate verification for CEN HTTPS calls "
+            f"(not recommended; equivalent to {INSECURE_TLS_ENV}=1)."
+        ),
+    )
+
+
+def apply_insecure_tls_argument(args: argparse.Namespace) -> None:
+    """Honour ``--insecure`` by exporting ``$CEN2GTOPT_INSECURE_TLS``.
+
+    Exporting the variable (rather than threading a flag through every
+    call) also reaches worker processes spawned afterwards.
+    """
+    if getattr(args, "insecure", False):
+        os.environ[INSECURE_TLS_ENV] = "1"
+
+
+#: Query-string / header-like parameters whose values must never be logged.
+_SECRET_PARAM_RE = re.compile(
+    r"(?i)\b(user_key|api_key|apikey|access_token|token|"
+    r"x-amz-signature|x-amz-credential|x-amz-security-token)=([^&\s'\"<>]+)"
+)
+
+
+def redact_secrets(text: object) -> str:
+    """Return ``str(text)`` with secret query-parameter values replaced by ``***``.
+
+    Applied to every URL / exception message that may end up in a log
+    or a raised error (``requests`` errors embed the full request URL,
+    including ``?user_key=<KEY>``).
+    """
+    return _SECRET_PARAM_RE.sub(r"\1=***", str(text))
 
 
 # Gateway hostnames per master plan §9.2.2 + the live-probe findings
@@ -107,7 +187,7 @@ class CenApiConfig:
     timeout: float = 30.0
     max_retries: int = 3
     backoff_base: float = 0.5  # seconds; doubles each retry
-    verify_tls: bool = True
+    verify_tls: bool = field(default_factory=tls_verify_default)
     user_agent: str = "cen2gtopt/1.0 (+https://github.com/gtopt-community/gtopt)"
 
 
@@ -120,11 +200,12 @@ class CenApiClient:
         self._session.headers["Accept"] = "application/json"
         self._session.headers["User-Agent"] = config.user_agent
         if not config.verify_tls:
-            _LOG.info(
-                "TLS verification DISABLED — production deployments should ship "
-                "a CEN-issued CA bundle and set verify_tls=True"
+            _LOG.warning(
+                "TLS certificate verification DISABLED for CEN API calls — "
+                "only use this for local probes"
             )
-            # Suppress the urllib3 InsecureRequestWarning when verify=False.
+            # The WARNING above replaces urllib3's per-request
+            # InsecureRequestWarning spam.
             try:
                 import urllib3  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
 
@@ -189,7 +270,7 @@ class CenApiClient:
                     path,
                     attempt + 1,
                     self.config.max_retries + 1,
-                    exc,
+                    redact_secrets(exc),
                     wait,
                 )
                 time.sleep(wait)
@@ -201,17 +282,19 @@ class CenApiClient:
                     return resp.json()
                 except ValueError as exc:
                     raise CenApiError(
-                        f"expected JSON body from {url}, got "
+                        f"expected JSON body from {service}{path}, got "
                         f"{resp.headers.get('content-type')}"
                     ) from exc
             if resp.status_code == 403:
                 # 3scale "Authentication failed" — typically 21 bytes body.
                 raise CenAuthError(
                     f"403 from {service}{path}: "
-                    f"{resp.text[:120]} (key probably not subscribed to {service})"
+                    f"{redact_secrets(resp.text[:120])} (key probably not subscribed to {service})"
                 )
             if resp.status_code == 404:
-                raise CenNotFoundError(f"404 from {service}{path}: {resp.text[:120]}")
+                raise CenNotFoundError(
+                    f"404 from {service}{path}: {redact_secrets(resp.text[:120])}"
+                )
             if resp.status_code in (429, 500, 502, 503, 504):
                 wait = self.config.backoff_base * (2**attempt)
                 _LOG.warning(
@@ -221,7 +304,7 @@ class CenApiClient:
                     path,
                     attempt + 1,
                     self.config.max_retries + 1,
-                    resp.text[:80],
+                    redact_secrets(resp.text[:80]),
                     wait,
                 )
                 time.sleep(wait)
@@ -229,12 +312,12 @@ class CenApiClient:
             # Other 4xx/5xx — give up.
             raise CenApiError(
                 f"unexpected HTTP {resp.status_code} from {service}{path}: "
-                f"{resp.text[:200]}"
+                f"{redact_secrets(resp.text[:200])}"
             )
 
         raise CenServerError(
             f"{self.config.max_retries + 1} attempts exhausted for "
-            f"{service}{path}; last error: {last_exc}"
+            f"{service}{path}; last error: {redact_secrets(last_exc)}"
         )
 
     # ------------------------------------------------------------------
