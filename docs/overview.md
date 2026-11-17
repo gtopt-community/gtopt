@@ -1,12 +1,12 @@
-# Understanding gtopt: A Global Overview
+# Understanding GTOpt: A Global Overview
 
-> **New to gtopt?** Start here. This page explains what gtopt is, how the
+> **New to GTOpt?** Start here. This page explains what GTOpt is, how the
 > codebase is structured, the key technologies used, and how the different
 > pieces fit together — all in one place.
 
 ## Table of Contents
 
-1. [What gtopt Does](#what-gtopt-does)
+1. [What GTOpt Does](#what-gtopt-does)
 2. [Repository Layout](#repository-layout)
 3. [Core Library Architecture](#core-library-architecture)
    - [Domain Model](#1-domain-model)
@@ -27,14 +27,18 @@
 
 ---
 
-## What gtopt Does
+## What GTOpt Does
 
-**gtopt** (**G**eneration and **T**ransmission **O**ptimal **P**lanning
-**T**ool) is a high-performance C++ solver for
-**Generation and Transmission Expansion Planning (GTEP)**.
+**GTOpt** (**G**eneration, **T**ransmission and storage **Opt**imization;
+pronounced *G-top*) is a high-performance, open-source C++ solver for the
+**optimization and analysis of power-system generation, transmission and
+storage**: generation and transmission expansion planning (GTEP),
+hydrothermal scheduling (SDDP and cascade decomposition), unit commitment
+and economic dispatch. The acronym carries only the G and the T, but
+storage — batteries, pumped hydro and reservoirs — is part of the scope.
 
 Given a description of an electrical power system — its generators, demands,
-transmission lines, storage, and hydro cascades — gtopt finds the **minimum-cost
+transmission lines, storage, and hydro cascades — GTOpt finds the **minimum-cost
 combination of operational decisions and capacity investments** over a
 multi-stage planning horizon under uncertainty.
 
@@ -309,19 +313,19 @@ Scenario  (probability weight)
 
 The `scripts/` directory is a **self-contained Python package** (`pip install
 ./scripts`) with its own `pyproject.toml`. It provides CLI tools for
-converting data from other power-system formats into gtopt's JSON + Parquet
+converting data from other power-system formats into GTOpt's JSON + Parquet
 format, plus validation and visualization utilities:
 
 | Tool | Purpose |
 |------|---------|
-| `plp2gtopt` | Convert PLP Fortran `.dat` files → gtopt JSON + Parquet |
-| `igtopt` | Convert Excel workbook (one sheet per component) → gtopt JSON |
-| `pp2gtopt` | Convert pandapower network → gtopt JSON |
-| `gtopt2pp` | Convert gtopt JSON → pandapower (with optional DC OPF) |
+| `plp2gtopt` | Convert PLP Fortran `.dat` files → GTOpt JSON + Parquet |
+| `igtopt` | Convert Excel workbook (one sheet per component) → GTOpt JSON |
+| `pp2gtopt` | Convert pandapower network → GTOpt JSON |
+| `gtopt2pp` | Convert GTOpt JSON → pandapower (with optional DC OPF) |
 | `cvs2parquet` | Convert CSV time-series → Parquet |
-| `ts2gtopt` | Project hourly time-series onto a gtopt planning horizon |
+| `ts2gtopt` | Project hourly time-series onto a GTOpt planning horizon |
 | `gtopt_diagram` | Generate network topology and planning diagrams |
-| `gtopt_compare` | Validate gtopt results against pandapower DC OPF |
+| `gtopt_compare` | Validate GTOpt results against pandapower DC OPF |
 | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
 | `gtopt_monitor` | Live solver convergence monitoring dashboard |
 | `gtopt_check_json` | Validate JSON planning files |
@@ -336,7 +340,7 @@ For full details see the [Scripts Guide](scripts-guide.md).
 
 **Web Service** (`webservice/`) — a **Next.js / TypeScript** application:
 
-- REST API: upload a case ZIP, trigger the gtopt solver, poll status, download results.
+- REST API: upload a case ZIP, trigger the GTOpt solver, poll status, download results.
 - Browser UI: interactive tables and charts for submitting and reviewing
   optimization results.
 - Can run as a standalone daemon (`gtopt_websrv`) or be integrated into the
@@ -344,7 +348,7 @@ For full details see the [Scripts Guide](scripts-guide.md).
 
 **GUI Service** (`guiservice/`) — a **Flask / Python** application:
 
-- Web-based editor for creating and modifying gtopt cases
+- Web-based editor for creating and modifying GTOpt cases
   (buses, generators, storage, demands).
 - Connects to the web service for remote solving.
 - `gtopt_gui` command opens the browser and auto-starts both services.
@@ -386,7 +390,7 @@ Located in `.github/workflows/`:
 
 | Goal | Document |
 |------|---------|
-| Build gtopt from source | [BUILDING.md](../BUILDING.md) |
+| Build GTOpt from source | [BUILDING.md](../BUILDING.md) |
 | Run your first case | [Planning Guide → Quickstart](planning-guide.md#quickstart-your-first-solve) |
 | Understand the LP formulation | [Mathematical Formulation](formulation/mathematical-formulation.md) |
 | Full CLI reference | [Usage Guide](usage.md) |

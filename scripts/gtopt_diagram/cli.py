@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901,PLR0912,PLR0915
         prog="gtopt_diagram",
         description=(
             "Generate electrical, hydro, and planning-structure diagrams "
-            "from a gtopt JSON planning file."
+            "from a GTOpt JSON planning file."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\

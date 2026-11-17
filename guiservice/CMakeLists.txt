@@ -2,7 +2,7 @@
 GuiService
 ----------
 
-CMake configuration for building and installing the gtopt GUI service.
+CMake configuration for building and installing the GTOpt GUI service.
 
 The GUI service is a Flask web application that provides a browser-based
 interface for creating, editing, and visualizing gtopt optimization cases.
@@ -324,7 +324,7 @@ install(CODE "
     message(STATUS \"Python dependencies installed successfully\")
   endif()
 
-  message(STATUS \"To run the gtopt GUI service:\")
+  message(STATUS \"To run the GTOpt GUI service:\")
   message(STATUS \"  \${CMAKE_INSTALL_PREFIX}/bin/gtopt_gui      # Interactive kiosk mode\")
   message(STATUS \"  \${CMAKE_INSTALL_PREFIX}/bin/gtopt_guisrv   # Web server mode\")
   message(STATUS \"Or run the service directly:\")

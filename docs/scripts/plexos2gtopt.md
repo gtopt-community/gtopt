@@ -1,21 +1,21 @@
-# plexos2gtopt — PLEXOS to gtopt Converter
+# plexos2gtopt — PLEXOS to GTOpt Converter
 
 Converts a **CEN PCP daily PLEXOS bundle**
-(`PLEXOS{YYYYMMDD}.zip` / `DATOS{YYYYMMDD}.zip[.xz]`) into a gtopt
+(`PLEXOS{YYYYMMDD}.zip` / `DATOS{YYYYMMDD}.zip[.xz]`) into a GTOpt
 planning JSON + Parquet schedule tree, so a PLEXOS-modelled power
-system can be solved with the gtopt LP/MIP backend (CPLEX, HiGHS,
+system can be solved with the GTOpt LP/MIP backend (CPLEX, HiGHS,
 CBC, CLP) and compared end-to-end against the PLEXOS reference
 solution.
 
 It is the PLEXOS sibling of [`plp2gtopt`](plp2gtopt.md) (PLP Fortran
 dialect) and [`sddp2gtopt`](sddp2gtopt.md) (PSR-SDDP dialect), and
-reuses gtopt's native LP element catalogue + AMPL-style
+reuses GTOpt's native LP element catalogue + AMPL-style
 `UserConstraint` framework rather than emitting a parallel modelling
 surface.
 
 > **Audience.** This document is the critical-review reference for
 > `plexos2gtopt`: it specifies how it works, what files it depends
-> on, every gtopt element it emits, every constraint family, the
+> on, every GTOpt element it emits, every constraint family, the
 > validation passes that confirm the conversion, and the operational
 > picture against PLEXOS on the canonical CEN PCP 2026-04-22 weekly
 > bundle (both MIP and LP-relax). See `scripts/plexos2gtopt/DESIGN.md`
@@ -31,7 +31,7 @@ bundle (zip / zip.xz / extracted directory), walks the XML object
 graph (objects, classes, memberships, properties), reads every
 per-class CSV at the chosen horizon, builds an in-memory
 `PlexosCase` of frozen typed dataclasses (one per converted entity
-class), then runs the gtopt writer which emits:
+class), then runs the GTOpt writer which emits:
 
 * a self-contained planning JSON (`<bundle>.json`),
 * a per-class Parquet schedule tree (`Generator/pmax.parquet`,
@@ -129,11 +129,11 @@ Every CSV is in one of two layouts:
 * **Wide** — `YEAR, MONTH, DAY, PERIOD, <obj1>, <obj2>, …`. One
   column per object, one row per hour. Read by `plexos_csv.read_wide`.
 
-Each file feeds at least one gtopt field; the converter's input ledger
+Each file feeds at least one GTOpt field; the converter's input ledger
 (displayed in the post-check report under "PLEXOS Input Files →
 Indicators") makes this auditable in every run:
 
-| CSV | Carries | Drives gtopt field |
+| CSV | Carries | Drives GTOpt field |
 |---|---|---|
 | `Gen_Rating.csv` | per-(unit, hour) pmax (MW) + DLR profile | `Generator.pmax` (scalar + per-block) |
 | `Gen_UnitsOut.csv` | forced-outage schedule | `Generator.pmax_factor` (derate by units-out) |
@@ -290,19 +290,19 @@ every UserConstraint that references them.
 
 ---
 
-## 6. The gtopt element catalogue: every class plexos2gtopt emits
+## 6. The GTOpt element catalogue: every class plexos2gtopt emits
 
 `plexos2gtopt` does **not** introduce a parallel modelling surface —
 every PLEXOS object lands on a gtopt-native LP class. The full set
 (observed on the CEN PCP 2026-04-22 weekly bundle):
 
-| gtopt class | Count on PCP weekly | PLEXOS source | LP role |
+| GTOpt class | Count on PCP weekly | PLEXOS source | LP role |
 |---|---|---|---|
 | `Bus` | 247 | `t_class[Node]` (class_id 22) | Power-balance node |
 | `Generator` | 1 732 | `t_class[Generator]` (class_id 2) | Thermal (with `fuel`), renewable (Gen_Rating-driven), and hydro turbine (with `Storage` membership) |
 | `Fuel` | 221 | `t_class[Fuel]` (class_id 4) + virtual unit-price fuel | `Generator.fuel` reference, drives `gcost = HR · price + VOM + transport` |
 | `Emission` | (when present) | `Fuel.CO2 Production Rate` or `Emission→Fuel` Production Rate | Per-fuel CO₂ factor |
-| `Battery` | 36 | `t_class[Battery]` (class_id 7) | Energy storage; gtopt auto-instantiates `<bat>_gen` discharge + `<bat>_load` charge |
+| `Battery` | 36 | `t_class[Battery]` (class_id 7) | Energy storage; GTOpt auto-instantiates `<bat>_gen` discharge + `<bat>_load` charge |
 | `Line` | 317 | `t_class[Line]` + Node-from/to memberships | Transmission with PWL losses; soft/hard cap pair (`tmax_normal_ab` / `tmax_ab`) drives the overload band |
 | `Demand` | 127 | synthesised one per non-zero column of `Nod_Load.csv` | Hourly load curtailable at `Region.VoLL` ($/MWh) |
 | `Reservoir` | 12 | `t_class[Storage]` (class_id 8), after pondage demotion | Hydraulic storage state; carries `emin`/`emax`/`eini`/`efin`/`spillway_cost` |
@@ -319,7 +319,7 @@ every PLEXOS object lands on a gtopt-native LP class. The full set
 | `UserConstraint` | 3 595 (across 8 families, see §7) | `t_class[Constraint]` + synthesised hydro / plant / FCF rows | Generic AMPL-style LP row binding any combination of LP variables |
 | `BoundaryCut` | 1 | `Hydro_StoWaterValues.csv` | End-of-horizon FCF terminal-value cut on reservoir end volumes |
 
-### Concepts that do not have a direct gtopt match
+### Concepts that do not have a direct GTOpt match
 
 * PLEXOS **`Region` / `Zone` / `Area`** — folded into informational
   `bus.area` tags; the per-region `Region.VoLL` is collapsed to
@@ -328,15 +328,15 @@ every PLEXOS object lands on a gtopt-native LP class. The full set
 * PLEXOS **`Horizon` / `Chronology`** — collapsed to the static block
   layout described in §5.
 * PLEXOS **`Variable` / `Definition`** symbolic scenarios — replaced
-  by gtopt's explicit `scenario_array` (single scenario in CEN PCP).
+  by GTOpt's explicit `scenario_array` (single scenario in CEN PCP).
 * PLEXOS **wheeling / contract / charge / tariff** classes — skipped
-  with a debug log (no current gtopt equivalent).
+  with a debug log (no current GTOpt equivalent).
 
 ---
 
 ## 7. UserConstraint family taxonomy and PAMPL emission
 
-Every PLEXOS `Constraint` object lands on the gtopt **AMPL-style
+Every PLEXOS `Constraint` object lands on the GTOpt **AMPL-style
 `UserConstraint`** primitive, which `gtopt`'s
 `include/gtopt/constraint_parser.hpp` parses into a single LP row of
 the form `Σ_i c_i · element(name).accessor [op] rhs` per
@@ -357,7 +357,7 @@ exposes:
 
 `parsers._DIRECT_COEFFS` is the routing table from a PLEXOS property
 kind (`Generation Coefficient`, `Flow Coefficient`, …) to the
-(`element_class`, `accessor`, `name_template`) tuple gtopt resolves
+(`element_class`, `accessor`, `name_template`) tuple GTOpt resolves
 at LP-build time. `Fuel.Offtake Coefficient` and
 `Reserve.Provision Coefficient` use *expansion* rules — the LHS
 expands to a sum over every Generator the Fuel feeds (or the Reserve
@@ -375,7 +375,7 @@ wins, default = `operational`):
 | `commitment` | ends in `_starting` or `== NorthSecurity` | Unit-commitment scheduling rows |
 | `reserve` | matches `CTF`/`CSF`/`CPF`/`RegRange`/`Provision`/`MinUnits`/`MAXCSF`/`SSCC` or starts with `Special` | Ancillary-services / reserve products |
 | `security` | starts with `SD_`, contains `Security`, or matches `^\d` | N-1 / contingency security rows (mostly inactive) |
-| `comparison` | contains `Comparison` | PLEXOS↔gtopt validation rows (diagnostic, inactive) |
+| `comparison` | contains `Comparison` | PLEXOS↔GTOpt validation rows (diagnostic, inactive) |
 | `terminal_value` | starts with `FCF` or `alpha` | End-of-horizon future-cost (FCF) rows |
 | `operational` | default | Genuine generation/flow floors, ramps, caps |
 
@@ -384,7 +384,7 @@ wins, default = `operational`):
 into the planning JSON via `system.user_constraint_files = [...]`.
 Constraints carrying a per-block `rhs` profile (e.g. PLEXOS
 `RHS Day` overrides) stay inline in `system.user_constraint_array`
-because gtopt only consumes per-block RHS via the JSON schedule
+because GTOpt only consumes per-block RHS via the JSON schedule
 field.
 
 ### Family counts on CEN PCP weekly 2026-04-22 (after MIP-mode CLI defaults)
@@ -392,7 +392,7 @@ field.
 The post-conversion comparison classifies the converted UCs by
 family (see §10), and is shown here for the canonical PCP weekly:
 
-| Family | gtopt JSON | PLEXOS source | Δ |
+| Family | GTOpt JSON | PLEXOS source | Δ |
 |---|---:|---:|---:|
 | `config_exclusivity` | 129 | 129 | 0 |
 | `gas_offtake` | 520 | 520 | 0 |
@@ -440,7 +440,7 @@ Two centrally-computed penalties drive every soft surface:
 
 `extract_reservoirs` + `extract_waterways` + `extract_junctions` +
 `extract_turbines` together reconstruct PLEXOS's `Storage` /
-`Waterway` cascade into gtopt's three-class topology
+`Waterway` cascade into GTOpt's three-class topology
 (`Junction` + `Reservoir` + `Waterway`/`Turbine`). The key
 transformations:
 
@@ -476,7 +476,7 @@ transformations:
 The converter materialises **two parallel encodings** of the same
 cut so both SDDP and the monolithic LP value terminal storage:
 
-1. `boundary_cuts.csv` — gtopt's native SDDP cut file
+1. `boundary_cuts.csv` — GTOpt's native SDDP cut file
    (`scene,rhs,<reservoirs>` rows, coefficients = `-water_value`),
    wired via `simulation.boundary_cuts_file` and
    `options.monolithic_options.boundary_cuts_file`.
@@ -595,7 +595,7 @@ raw → empty_lhs_dropped → base_emitted → hydro_synthesized → plant_cap_s
 
 ### Table 4 — Global Indicators
 
-PLEXOS vs gtopt aggregates: installed capacity (hydro / thermal /
+PLEXOS vs GTOpt aggregates: installed capacity (hydro / thermal /
 renewable), peak/average/total demand, total energy, total water
 (hm³), reservoir storage (Σ), initial volume, FCF intercept,
 reserve requirement (up/dn), gen-cost statistics (avg/min/max).
@@ -612,7 +612,7 @@ zero in the linked indicator flags an unread file.
 
 ### Table 6 — JSON structural validation
 
-`gtopt_check_json._checks.run_all_checks` runs the gtopt JSON
+`gtopt_check_json._checks.run_all_checks` runs the GTOpt JSON
 validator over the produced planning: schema sanity, dangling-
 reference detection, every emitted UC term resolvable through
 `add_ampl_variable`, every Junction/Waterway endpoint present,
@@ -625,7 +625,7 @@ By default any UC term that references an element name not in the
 emitted-name set raises `UnresolvedConstraintReferenceError` with
 the **full list** of offending references + closest-match hints —
 the converter refuses to ship a JSON with dangling refs (matches
-gtopt's strict JSON parser). `--lax-uc-refs` downgrades this to a
+GTOpt's strict JSON parser). `--lax-uc-refs` downgrades this to a
 warning + silent per-term drop for diagnostic / iterative parser
 work.
 
@@ -657,7 +657,7 @@ plexos2gtopt --compare gtopt_PLEXOS20260422/PLEXOS20260422.json \
 The conversion of CEN PCP weekly 2026-04-22 emits (from the post-
 conversion comparison and the resulting JSON):
 
-| gtopt array | Count |
+| GTOpt array | Count |
 |---|---:|
 | `bus_array` | 247 |
 | `generator_array` | 1 732 |
@@ -703,7 +703,7 @@ moving `NUEVA_RENCA-TG+TV_GN_A` from 19 GWh/week (LP) to 33
 
 `scripts/plexos2gtopt/compare_with_plexos.py` is the heavier
 side-by-side comparator (it reads back both the PLEXOS `.accdb`
-solution and the gtopt Parquet output). Its rendered tables
+solution and the GTOpt Parquet output). Its rendered tables
 include:
 
 * **Solution totals** — block count, hours covered, consumer
@@ -722,7 +722,7 @@ include:
   block breakdowns for diagnosing which UCs the LP paid to violate.
 
 A typical PCP weekly run prints all of these as Rich tables; the
-single-line summary "PLEXOS objective $X vs gtopt $Y; Δ $Z (Δ%)"
+single-line summary "PLEXOS objective $X vs GTOpt $Y; Δ $Z (Δ%)"
 is the at-a-glance gate.
 
 ---
@@ -860,9 +860,9 @@ X come from?" without re-reading the converter source.
 
 * **Single scenario, single stage.** CEN PCP is by design one
   operating week; multi-scenario / multi-stage stitching is left to
-  upstream tooling (the gtopt SDDP / cascade solvers stitch the
+  upstream tooling (the GTOpt SDDP / cascade solvers stitch the
   per-week planning files themselves).
-* **Round-trip is one-way.** gtopt → PLEXOS export is not supported
+* **Round-trip is one-way.** GTOpt → PLEXOS export is not supported
   (out of scope).
 * **Wheeling / contract / charge / tariff** classes are skipped.
 * **Multi-band cost.** PLEXOS's `t_band` piecewise costs are
@@ -892,13 +892,13 @@ X come from?" without re-reading the converter source.
   contract.
 * `docs/scripts/sddp2gtopt.md` — sibling PSR-SDDP converter; the
   PLEXOS layout was modelled after it (XML + per-class CSV).
-* `docs/formulation/mathematical-formulation.md` — gtopt LP/MIP
+* `docs/formulation/mathematical-formulation.md` — GTOpt LP/MIP
   formulation; the canonical reference for what every emitted
   element does at LP-build time.
 * `include/gtopt/constraint_parser.hpp` — the AMPL-style
   expression parser that consumes `UserConstraint.expression`.
 * `include/gtopt/{generator,line,battery,reservoir,turbine,waterway,reserve_provision,decision_variable,commitment}.hpp`
-  + matching `_lp.cpp` — the gtopt LP class catalogue (types,
+  + matching `_lp.cpp` — the GTOpt LP class catalogue (types,
   accessors registered via `add_ampl_variable`, schedule fields).
 * `support/plexos/pcp_2026-04-22/` — the canonical reference
   bundle the converter is exercised against in every release.

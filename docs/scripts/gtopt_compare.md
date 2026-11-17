@@ -1,21 +1,21 @@
 # gtopt_compare — DC OPF Validation Tool
 
-Validates gtopt solver results by comparing them against **pandapower's DC
+Validates GTOpt solver results by comparing them against **pandapower's DC
 Optimal Power Flow** reference implementation.
 
 ---
 
 ## Overview
 
-After solving a case with gtopt, it is important to verify that the solution is
+After solving a case with GTOpt, it is important to verify that the solution is
 correct.  `gtopt_compare` rebuilds the same network in pandapower, runs
-its DC OPF solver, and compares the results against gtopt's output CSV files.
+its DC OPF solver, and compares the results against GTOpt's output CSV files.
 
 This tool is primarily used for:
 
-- **Regression testing**: ensuring that code changes in gtopt do not alter
+- **Regression testing**: ensuring that code changes in GTOpt do not alter
   dispatch results for known benchmark cases.
-- **Cross-validation**: confirming that gtopt's LP formulation and solver
+- **Cross-validation**: confirming that GTOpt's LP formulation and solver
   produce results consistent with an independent reference implementation.
 - **Debugging**: pinpointing which buses or generators differ when a test
   fails.
@@ -28,7 +28,7 @@ blocks.
 
 ## Installation
 
-Install as part of the gtopt scripts package:
+Install as part of the GTOpt scripts package:
 
 ```bash
 # Standard install
@@ -71,7 +71,7 @@ gtopt_compare --case case57 --pandapower-file case57_pp.json --gtopt-output outp
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--case NAME` | — | Test case name (required); see supported cases below |
-| `--gtopt-output DIR` | — | Directory containing gtopt CSV output files |
+| `--gtopt-output DIR` | — | Directory containing GTOpt CSV output files |
 | `--pandapower-file FILE` | — | Load the pandapower network from this JSON file instead of rebuilding |
 | `--save-pandapower-file FILE` | — | Save the built pandapower network to this JSON file and exit |
 | `--tol MW` | `1.0` | Generation / total-power tolerance in MW |
@@ -95,7 +95,7 @@ gtopt_compare --case case57 --pandapower-file case57_pp.json --gtopt-output outp
 
 ### 1. Generator dispatch (MW)
 
-For each generator, compares the active power output from gtopt
+For each generator, compares the active power output from GTOpt
 (`Generator/generation_sol.csv`) against the pandapower DC OPF result.
 Differences exceeding `--tol` MW are flagged.
 
@@ -103,11 +103,11 @@ Differences exceeding `--tol` MW are flagged.
 
 Compares the total generation cost from `solution.csv` against the sum of
 `gcost × generation` from pandapower.  The comparison accounts for
-`scale_objective` (gtopt divides its objective by this factor).
+`scale_objective` (GTOpt divides its objective by this factor).
 
 ### 3. Bus LMPs ($/MWh)
 
-Compares the Locational Marginal Prices from gtopt (`Bus/balance_dual.csv`)
+Compares the Locational Marginal Prices from GTOpt (`Bus/balance_dual.csv`)
 against the bus shadow prices from pandapower's DC OPF.  Differences
 exceeding `--tol-lmp` $/MWh are flagged.
 
@@ -146,7 +146,7 @@ cases where small numerical differences in the LP solver accumulate.
 
 ---
 
-## Files Read from gtopt Output
+## Files Read from GTOpt Output
 
 | File path | Contents used |
 |-----------|--------------|
@@ -180,7 +180,7 @@ gtopt_compare --case ieee30b --pandapower-file ieee30b_pp.json --gtopt-output ou
 
 ## See Also
 
-- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
-- [pp2gtopt](pp2gtopt.md) — Convert pandapower networks to gtopt JSON
-- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts
-- [USAGE.md](../usage.md) — Running gtopt and interpreting output files
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all GTOpt Python scripts
+- [pp2gtopt](pp2gtopt.md) — Convert pandapower networks to GTOpt JSON
+- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to GTOpt planning concepts
+- [USAGE.md](../usage.md) — Running GTOpt and interpreting output files

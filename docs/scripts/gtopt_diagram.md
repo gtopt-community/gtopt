@@ -1,7 +1,7 @@
 # gtopt_diagram — Network & Planning Diagram Tool
 
 Generates **electrical network topology, hydro cascade, and planning
-time-structure diagrams** from any gtopt JSON planning file.  Supports multiple
+time-structure diagrams** from any GTOpt JSON planning file.  Supports multiple
 output formats and automatic simplification of large cases via aggregation
 modes.
 
@@ -10,7 +10,7 @@ modes.
 ## Overview
 
 Visualising a power system case is essential for debugging, presentation, and
-validation.  `gtopt_diagram` reads a standard gtopt JSON planning file and
+validation.  `gtopt_diagram` reads a standard GTOpt JSON planning file and
 produces publication-quality diagrams showing:
 
 - **Topology diagrams**: buses, generators (with type-specific icons), demands,
@@ -27,7 +27,7 @@ thresholds to keep diagrams readable.
 
 ## Installation
 
-The tool is part of the gtopt scripts package:
+The tool is part of the GTOpt scripts package:
 
 ```bash
 # Basic install (registers gtopt_diagram on PATH)
@@ -302,7 +302,7 @@ Shows the scenario → phase → stage → block hierarchy and the objective fun
 
 ### Large case — `gtopt_case_2y` (2 794 elements)
 
-This case is not shipped with gtopt; the commands assume it has been placed
+This case is not shipped with GTOpt; the commands assume it has been placed
 (or symlinked) under `cases/`.
 
 ```bash
@@ -381,9 +381,9 @@ vis.js diagram.  Users can:
 
 ## See Also
 
-- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all GTOpt Python scripts
 - [DIAGRAM\_TOOL.md](../tools/diagram.md) — Original diagram tool documentation
   with sample images
-- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts
+- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to GTOpt planning concepts
 - [plp2gtopt](plp2gtopt.md) — Convert PLP cases (source of the large-case example)
 - [pp2gtopt](pp2gtopt.md) — Convert pandapower networks (source of IEEE test cases)

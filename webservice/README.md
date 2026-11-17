@@ -1,6 +1,6 @@
-# gtopt Web Service
+# GTOpt Web Service
 
-A web service for uploading, running, and downloading results from gtopt
+A web service for uploading, running, and downloading results from GTOpt
 optimization cases. Built with [Next.js](https://nextjs.org/) (React +
 Node.js full-stack framework).
 
@@ -56,7 +56,7 @@ npm run dev
 
 The service starts at `http://localhost:3000`.
 
-Set the `GTOPT_BIN` environment variable to point to your gtopt binary:
+Set the `GTOPT_BIN` environment variable to point to your GTOpt binary:
 
 ```bash
 GTOPT_BIN=/path/to/gtopt npm run dev
@@ -153,14 +153,14 @@ Download job results as a zip file.
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `GTOPT_BIN` | `../build/gtopt` | Path to the gtopt binary |
+| `GTOPT_BIN` | `../build/gtopt` | Path to the GTOpt binary |
 | `GTOPT_DATA_DIR` | `./data` | Directory for job data storage |
 | `GTOPT_LOG_DIR` | *(console only)* | Directory for log files |
 | `PORT` | `3000` | HTTP port |
 
 ## Testing
 
-An integration test script validates the full workflow using a mock gtopt
+An integration test script validates the full workflow using a mock GTOpt
 binary. It starts the server, submits a case, waits for completion, downloads
 and verifies results, and tests error handling.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launcher for the gtopt GUI Plus Next.js frontend.
+# Launcher for the GTOpt GUI Plus Next.js frontend.
 #
 # Environment variables:
 #   GTOPT_GUISERVICE_URL   – Flask guiservice base URL (default: http://localhost:5000)

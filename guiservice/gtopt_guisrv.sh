@@ -1,5 +1,5 @@
 #!/bin/bash
-# gtopt_guisrv - Web server launcher for the gtopt GUI service
+# gtopt_guisrv - Web server launcher for the GTOpt GUI service
 #
 # This script starts the Flask guiservice as a web server (without opening
 # a browser), similar to how gtopt_websrv runs the web service.

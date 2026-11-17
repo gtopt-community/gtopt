@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-gtopt_guisrv - Web server launcher for the gtopt GUI service.
+gtopt_guisrv - Web server launcher for the GTOpt GUI service.
 
 This script starts the Flask guiservice as a web server (without opening
 a browser), similar to how gtopt_websrv runs the web service.
@@ -65,7 +65,7 @@ def show_help():
 def main():
     """Main entry point for gtopt_guisrv."""
     parser = argparse.ArgumentParser(
-        description="Launch the gtopt GUI service as a web server.",
+        description="Launch the GTOpt GUI service as a web server.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -122,10 +122,10 @@ For interactive kiosk mode, use 'gtopt_gui' instead.
     if args.debug:
         env["FLASK_DEBUG"] = "1"
 
-    print(f"Starting gtopt GUI service on {args.host}:{args.port}...")
+    print(f"Starting GTOpt GUI service on {args.host}:{args.port}...")
     print("")
     print("=" * 60)
-    print("gtopt GUI service is running")
+    print("GTOpt GUI service is running")
     host_display = "localhost" if args.host == "0.0.0.0" else args.host
     print(f"URL: http://{host_display}:{args.port}")
     print("Press Ctrl+C to stop")

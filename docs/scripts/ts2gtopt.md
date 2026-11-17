@@ -1,8 +1,8 @@
 # ts2gtopt — Time-Series Projector
 
-Projects **hourly (or finer) time-series data** onto a gtopt planning horizon,
+Projects **hourly (or finer) time-series data** onto a GTOpt planning horizon,
 producing block-aggregated schedule files (Parquet or CSV) ready for use as
-gtopt input.  Also embeds an `hour_block_map` in the output planning JSON so
+GTOpt input.  Also embeds an `hour_block_map` in the output planning JSON so
 that block-level solver results can be reconstructed back into a full hourly
 time-series.
 
@@ -12,7 +12,7 @@ time-series.
 
 Real-world time-series data (solar irradiance, wind speed, demand profiles)
 is typically recorded at hourly resolution for an entire calendar year (8 760
-data points).  gtopt, however, operates on a coarser time structure: blocks
+data points).  GTOpt, however, operates on a coarser time structure: blocks
 grouped into stages, with each block representing a set of similar hours.
 
 `ts2gtopt` bridges this gap by:
@@ -23,7 +23,7 @@ grouped into stages, with each block representing a set of similar hours.
    energy).
 3. **Computing** the effective `duration` of each block (number of hours it
    represents).
-4. **Writing** block-schedule Parquet/CSV files compatible with gtopt's input
+4. **Writing** block-schedule Parquet/CSV files compatible with GTOpt's input
    format.
 5. **Embedding** an `hour_block_map` in the planning JSON for post-solve
    hourly reconstruction.
@@ -33,7 +33,7 @@ grouped into stages, with each block representing a set of similar hours.
 | Term | Meaning |
 |------|---------|
 | **Horizon** | A JSON definition of scenarios, stages (investment periods), and blocks (representative operating hours) |
-| **Block schedule** | A Parquet/CSV file with `scenario, stage, block, uid:X` columns consumed directly by gtopt as an input schedule (e.g. `Generator/pmax.parquet`) |
+| **Block schedule** | A Parquet/CSV file with `scenario, stage, block, uid:X` columns consumed directly by GTOpt as an input schedule (e.g. `Generator/pmax.parquet`) |
 | **`hour_block_map`** | An array of `{"hour": i, "stage": s, "block": b}` entries embedded in the planning JSON that maps each calendar hour back to its `(stage, block)` |
 | **`output_hour/`** | Post-processing output directory with `scenario, hour, uid:X` files reconstructed from block-level solver results |
 
@@ -41,7 +41,7 @@ grouped into stages, with each block representing a set of similar hours.
 
 ## Installation
 
-Install as part of the gtopt scripts package:
+Install as part of the GTOpt scripts package:
 
 ```bash
 # Standard install
@@ -106,7 +106,7 @@ ts2gtopt demand.csv -y 2023 --verify -o input/
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-H, --horizon FILE` | — | Load planning horizon from a JSON file |
-| `-P, --planning FILE` | — | Load horizon from an existing gtopt planning JSON (requires `-y`) |
+| `-P, --planning FILE` | — | Load horizon from an existing GTOpt planning JSON (requires `-y`) |
 
 If neither is given, an auto-generated horizon is created from `-y`, `-s`, and
 `-b` parameters.
@@ -217,7 +217,7 @@ A ratio of `1.0000` confirms perfect conservation.
 
 ## Reconstructing Hourly Output from Solver Results
 
-After solving a projected case with gtopt, the solver produces block-level
+After solving a projected case with GTOpt, the solver produces block-level
 output (e.g. `output/Generator/generation_sol.csv`).  The `hour_block_map`
 embedded in the planning JSON allows expanding these back to hourly resolution.
 
@@ -324,9 +324,9 @@ gtopt my_case.json
 
 ## See Also
 
-- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
-- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all GTOpt Python scripts
+- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to GTOpt planning concepts
   (stages, blocks, scenarios)
-- [INPUT\_DATA.md](../input-data.md) — gtopt input file format reference
+- [INPUT\_DATA.md](../input-data.md) — GTOpt input file format reference
 - [cvs2parquet](cvs2parquet.md) — Convert existing CSV files to Parquet
 - [plp2gtopt](plp2gtopt.md) — Convert PLP cases (includes time-series data)

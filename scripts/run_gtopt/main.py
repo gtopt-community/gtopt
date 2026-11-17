@@ -85,7 +85,7 @@ def make_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="CASE",
         help=(
-            "PLP directory, gtopt directory, or JSON file. "
+            "PLP directory, GTOpt directory, or JSON file. "
             "When omitted, auto-detects from the current directory."
         ),
     )
@@ -111,7 +111,7 @@ def make_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="DIR",
         help=(
-            "override gtopt output directory for PLP conversion "
+            "override GTOpt output directory for PLP conversion "
             "(default: gtopt_NAME for plp_NAME)"
         ),
     )
@@ -183,7 +183,7 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "list live gtopt runs (PID, case, status, gap, elapsed) and exit. "
+            "list live GTOpt runs (PID, case, status, gap, elapsed) and exit. "
             "Reads $XDG_CACHE_HOME/gtopt/runs/."
         ),
     )

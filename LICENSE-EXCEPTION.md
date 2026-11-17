@@ -1,4 +1,4 @@
-# gtopt Solver Plugin Exception
+# GTOpt Solver Plugin Exception
 
 *Additional permission under section 7 of the GNU General Public License,
 version 3 ("GPLv3"). Draft pending legal review.*

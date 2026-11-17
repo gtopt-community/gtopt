@@ -2,7 +2,7 @@
 
 ## Today
 
-gtopt is hosted by the **La comunidad GTOpt** GitHub organization
+GTOpt is hosted by the **La comunidad GTOpt** GitHub organization
 (`github.com/gtopt-community`) and led by its author and copyright holder,
 **Marcelo Matus**, who acts as lead maintainer:
 
@@ -23,7 +23,7 @@ The project is structured so that stewardship can move to a non-profit
 foundation (a Chilean foundation, or an umbrella such as LF Energy or
 NumFOCUS) without disruption:
 
-- the CLA licences and the gtopt trademark can be assigned to the
+- the CLA licences and the GTOpt trademark can be assigned to the
   successor steward, which then takes over the commitment to keep every
   contribution available under an OSI-approved licence;
 - the GitHub organization, domain and CI accounts are project-owned, not

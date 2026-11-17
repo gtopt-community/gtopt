@@ -11,7 +11,7 @@
 
 NEWAVE / PSR-SDDP model hydro inflows as a periodic autoregressive
 process so that the future-cost function learns the *hydrological
-memory*: a dry month predicts a dry next month.  gtopt's scenes are
+memory*: a dry month predicts a dry next month.  GTOpt's scenes are
 persistent sample paths — cuts built without an inflow state value
 water as if next phase's inflow were independent of this phase's.
 
@@ -24,7 +24,7 @@ $$
 
 where $q_t$ is the inflow of the `Flow` element at stage $t$, $\mu_t$
 is the *mean* series, $\phi \in (-1, 1)$ the lag-1 coefficient, and
-$\varepsilon_t$ the residual.  **In gtopt, reservoir inflows enter the
+$\varepsilon_t$ the residual.  **In GTOpt, reservoir inflows enter the
 LP exclusively through `Flow` elements** (a fixed $Q_f$ term in the
 junction balance of §5.10), so the feature lives on `Flow`; reservoirs
 gain AR inflows by attaching the model to their inflow `Flow`.

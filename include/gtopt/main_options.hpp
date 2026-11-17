@@ -189,7 +189,7 @@ template<typename T>
  */
 [[nodiscard]] inline po::options_description make_options_description()
 {
-  po::options_description desc("Gtopt options");
+  po::options_description desc("GTOpt options");
   desc.add_options()("help,h", "print this help message and exit")  //
       ("solvers", "list available LP solver backends and exit")  //
       ("check-solvers",

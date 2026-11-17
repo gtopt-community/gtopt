@@ -1,9 +1,9 @@
 # SDDP Literature Benchmarks — Published-Value Certification
 
 This page documents the external, published, CI-enforced reference
-values that gtopt's stochastic SDDP framework is validated against, maps
-each published model onto gtopt's element vocabulary, records the exact
-tolerances, and states — honestly, per case — what gtopt reproduces
+values that GTOpt's stochastic SDDP framework is validated against, maps
+each published model onto GTOpt's element vocabulary, records the exact
+tolerances, and states — honestly, per case — what GTOpt reproduces
 end-to-end versus what remains oracle-pinned or doc-tier because of a
 modeling gap.
 
@@ -28,7 +28,7 @@ Cross-references:
 All fixtures use `flow_conversion_rate = 1.0` and
 `production_factor = 1.0`, so **one dam³/h of turbined water equals one
 MWh of energy** — the SDDP.jl convention where the reservoir volume is
-denominated directly in MWh. This deliberately departs from gtopt's
+denominated directly in MWh. This deliberately departs from GTOpt's
 default `flow_conversion_rate = 3.6` (m³/s → per-hour depletion)
 documented in
 [`cases/hydro_thermal_sddpjl/README.md`](../../cases/hydro_thermal_sddpjl/README.md);
@@ -37,7 +37,7 @@ that factor matters only when the source data is in m³/s. `scale_objective
 
 ## Achieved-versus-published summary
 
-| Case | Source | Published value | gtopt tier | Tolerance |
+| Case | Source | Published value | GTOpt tier | Tolerance |
 |------|--------|-----------------|------------|-----------|
 | A1 | SDDP.jl first_steps | LB **8333.33** | end-to-end SDDP | rel 1e-4 |
 | A2 | SDDP.jl markov_uncertainty | LB **8072.917** | oracle-pin (gap) | rel 1e-5 |
@@ -70,7 +70,7 @@ in-repo with a 27-leaf scenario-tree LP (scipy.linprog / HiGHS):
 extensive-form optimum = 8333.3333…
 ```
 
-**gtopt mapping.** Inflow noise → 3 apertures (one `Flow.discharge`
+**GTOpt mapping.** Inflow noise → 3 apertures (one `Flow.discharge`
 per source scenario), each `probability_factor = 1/3`, referenced by
 every phase; deterministic per-stage fuel cost →
 `Generator.gcost = [[50…],[100…],[150…]]` (stage × block); demand 150 →
@@ -78,20 +78,20 @@ every phase; deterministic per-stage fuel cost →
 `hydro_spill` → a parallel high-`fmax` spill waterway. Because inflow is
 the ONLY random element and the stage cost is deterministic, the backward
 pass builds the exact stagewise-resampled expected-cost cut the LB
-certifies — so gtopt runs this case end-to-end.
+certifies — so GTOpt runs this case end-to-end.
 
 **Assertions.** (a) LB ≤ published + tol at every iteration (validity,
 Theorem N1); (b) LB monotone nondecreasing (cut accumulation); (c)
-converged LB pinned to gtopt's own value with a WARN on the published
+converged LB pinned to GTOpt's own value with a WARN on the published
 target — see the gap below.
 
-**Documented gap (honest, like A2/E2).** gtopt's aperture-based backward
+**Documented gap (honest, like A2/E2).** GTOpt's aperture-based backward
 pass approximates the stagewise-independent tail by *resampling* the
 three inflow openings rather than enumerating the exact recursion, so it
 converges to **≈ 8055.6**, about 3.3 % below SDDP.jl's exact-tree LB of
 8333.33. This is a **valid lower bound** (8055.6 ≤ 8333.33) — just
 looser. The test therefore keeps the LB-validity and monotonicity
-checks strict, regression-pins gtopt's 8055.6, and `WARN`s on the exact
+checks strict, regression-pins GTOpt's 8055.6, and `WARN`s on the exact
 8333.33. Closing the gap needs an exact-expectation backward pass (no
 aperture resampling of the tail) — future work. The dual-shared
 certification (#4) is unaffected: cold ≡ dual_shared ≡ screened parity
@@ -124,9 +124,9 @@ extensive-form optimum = 8072.9167   (with the fuel_multiplier coupling)
 (Omitting the `fuel_multiplier` gives 6692.71 — the coupling is essential
 to the published number.)
 
-**gtopt status — oracle-pin only.** The `fuel_multiplier` makes the
+**GTOpt status — oracle-pin only.** The `fuel_multiplier` makes the
 **stage objective coefficient depend on the inflow realization**, i.e. a
-per-scene `gcost`. gtopt's `Generator.gcost` is per-(stage, block) with
+per-scene `gcost`. GTOpt's `Generator.gcost` is per-(stage, block) with
 **no scene axis** (catalog §9 gap 4 / A4 caveat), so the case cannot run
 end-to-end. The test therefore pins **8072.917** as an external oracle
 anchor (guarded so a doc de-sync trips CI) and documents the gap. The
@@ -154,10 +154,10 @@ symmetry-breaking `invested[j] ≤ invested[j+1]`.
 `@test SDDP.calculate_bound(model) ≈ 2.078860e6 atol = 1e3`. Upstream
 reaches it with BOTH `ContinuousConicDuality` (LP-relaxation cuts) AND
 `LagrangianDuality`, so **strengthened-only cuts suffice** — exactly
-gtopt's regime.
+GTOpt's regime.
 
-**gtopt status — reduced MIP certification + doc-tier full LB.** The
-noise is on **demand**, which gtopt cannot vary per-scene
+**GTOpt status — reduced MIP certification + doc-tier full LB.** The
+noise is on **demand**, which GTOpt cannot vary per-scene
 (`Demand.lmax`/`capacity` are per-(stage, block), no scene axis), so the
 full 2.078860e6 pin is **doc-tier**. What the test certifies (MIP-gated
 on `first_mip_solver()`, wrapped in `run_or_skip_license`) is the
@@ -222,11 +222,11 @@ carried as **cited** facts.
 | T=6 | SDDiP-SB LB (2.22% gap) | 4,946,515 |
 | T=120 | Table 3 policy-value band | 177–189 $M |
 
-**gtopt status — doc-tier / research-tier only.** Two blockers, both
+**GTOpt status — doc-tier / research-tier only.** Two blockers, both
 flagged in the catalog:
 
 1. msppy's inflows are **VAR(1) with cross-region spatial correlation**
-   (catalog §9 gap 2); gtopt's AR(1) is a per-Flow scalar, so the modeled
+   (catalog §9 gap 2); GTOpt's AR(1) is a per-Flow scalar, so the modeled
    process differs and the LB shifts — the E2 caveat is to *document, not
    pin* the shift.
 2. The full 4-reservoir thermal-security MIP (per-region deficit tiers +
@@ -236,7 +236,7 @@ flagged in the catalog:
 The test anchors the T=2 exact value and the T=3 extensive bracket as
 constants (so a doc de-sync trips CI) and checks the published SDDiP-SB
 gap is a positive < 3% (the "strengthened does NOT close the MIP gap"
-expectation gtopt tests must respect, catalog C2). No gtopt solve is run.
+expectation GTOpt tests must respect, catalog C2). No GTOpt solve is run.
 The build plan for the AR(1)-coverable single-region subset lives in the
 catalog §8 #5.
 

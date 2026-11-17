@@ -7,8 +7,9 @@ import { AppShell } from '@/components/layout/app-shell';
 import { AutoSaveWatcher } from '@/components/layout/auto-save-watcher';
 
 export const metadata: Metadata = {
-  title: 'gtopt – GUI Plus',
-  description: 'Modern planning workbench for the gtopt LP/MIP solver',
+  title: 'GTOpt – GUI Plus',
+  description:
+    'Planning workbench for GTOpt — optimization and analysis of generation, transmission and storage',
 };
 
 export default function RootLayout({

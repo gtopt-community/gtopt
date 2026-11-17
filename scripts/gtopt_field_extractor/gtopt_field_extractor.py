@@ -461,7 +461,7 @@ def _find_repo_root(start: Path) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Extract gtopt field metadata from C++ headers and generate docs."
+        description="Extract GTOpt field metadata from C++ headers and generate docs."
     )
     parser.add_argument(
         "header_dir",

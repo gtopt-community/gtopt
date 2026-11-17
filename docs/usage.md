@@ -1,8 +1,8 @@
-# gtopt Usage Guide
+# GTOpt Usage Guide
 
-Detailed usage instructions, examples, and reference for the gtopt solver.
+Detailed usage instructions, examples, and reference for the GTOpt solver.
 
-> **Note**: This guide assumes gtopt is already installed. If you need build instructions, see [Building Guide](../BUILDING.md). For detailed input data structure specifications, see [Input Data Reference](input-data.md).
+> **Note**: This guide assumes GTOpt is already installed. If you need build instructions, see [Building Guide](../BUILDING.md). For detailed input data structure specifications, see [Input Data Reference](input-data.md).
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ Detailed usage instructions, examples, and reference for the gtopt solver.
 
 ## Basic Usage
 
-The simplest way to run gtopt is to pass a system JSON file:
+The simplest way to run GTOpt is to pass a system JSON file:
 
 ```bash
 gtopt system_config.json
@@ -191,7 +191,7 @@ Values are resolved in this order (highest priority first):
 
 ## System Configuration File
 
-The system JSON file is the main input to gtopt. It has three top-level
+The system JSON file is the main input to GTOpt. It has three top-level
 sections:
 
 ```json
@@ -241,7 +241,7 @@ Solver and I/O settings:
 
 #### `lp_debug` — LP debug file output
 
-When `lp_debug` is set to `true`, gtopt saves the LP model as a `.lp` text
+When `lp_debug` is set to `true`, GTOpt saves the LP model as a `.lp` text
 file to the `log_directory` before solving.  This is useful for diagnosing
 unexpected solver behaviour (infeasibility, unboundedness, suspicious
 objective values).
@@ -271,7 +271,7 @@ gtopt mycase --set lp_debug=true --set log_directory=logs \
 
 By default, the flat LP representation is assembled **without** column or row
 name metadata — names cost memory and are not needed to solve the problem.
-When you ask for an LP dump (via `--lp-file` or `--lp-debug`), gtopt sets all
+When you ask for an LP dump (via `--lp-file` or `--lp-debug`), GTOpt sets all
 four naming fields in `LpMatrixOptions` so the resulting `.lp` file is
 readable:
 
@@ -408,7 +408,7 @@ system_c0/
     └── lmax.parquet      # Load profile for demand "d1"
 ```
 
-When a field like `"lmax": "lmax"` appears in the system JSON, gtopt looks for
+When a field like `"lmax": "lmax"` appears in the system JSON, GTOpt looks for
 a file named `lmax.parquet` (or `lmax.csv`) in the
 `<input_directory>/<ComponentType>/` subdirectory.
 
@@ -458,7 +458,7 @@ gtopt system_c0.json --set output_directory=/tmp/c0_results
 
 ### Expected output
 
-On success, gtopt logs its progress and exits with code 0:
+On success, GTOpt logs its progress and exits with code 0:
 
 ```text
 [info] starting gtopt 1.0
@@ -620,7 +620,7 @@ gtopt system_c0.json --set use_kirchhoff=true
 ### cuOpt tuning file (`cuopt.cfg`)
 
 When the cuOpt (GPU) backend is selected and the planning option
-`solver_options.param_file` points into a `solvers/` directory (gtopt
+`solver_options.param_file` points into a `solvers/` directory (GTOpt
 cases typically pin it to the CPLEX `solvers/cplex.prm`), the cuOpt
 plugin also reads a **sibling** tuning file from that same directory:
 `cuopt.cfg` (preferred) or, when no `.cfg` exists, the legacy
@@ -744,7 +744,7 @@ steps.
 
 ### Exit codes
 
-gtopt uses the following exit codes:
+GTOpt uses the following exit codes:
 
 | Exit code | Meaning |
 |-----------|---------|
@@ -878,7 +878,7 @@ When the LP is too large to fit in memory:
   named after the component type (e.g., `Demand/lmax.parquet`,
   `Generator/pmax.parquet`).
 - **Format mismatch**: if `input_format: "parquet"` but only CSV files exist
-  (or vice versa), the solver will fail to find the data.  gtopt tries the
+  (or vice versa), the solver will fail to find the data.  GTOpt tries the
   preferred format first, then falls back to the other format.
 - **Case sensitivity**: file names and component type subdirectories are
   case-sensitive on Linux (e.g., `Demand/` not `demand/`).

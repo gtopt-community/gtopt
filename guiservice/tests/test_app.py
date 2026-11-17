@@ -1,4 +1,4 @@
-"""Tests for the gtopt GUI Service application."""
+"""Tests for the GTOpt GUI Service application."""
 
 import io
 import json
@@ -345,7 +345,7 @@ class TestRoutes:
     def test_index(self, client):
         resp = client.get("/")
         assert resp.status_code == 200
-        assert b"gtopt Case Editor" in resp.data
+        assert b"GTOpt Case Editor" in resp.data
         assert b'id="mainNav"' in resp.data
         assert b"/static/js/app.js" in resp.data
         assert b"Quick Assistant" in resp.data

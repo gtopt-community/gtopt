@@ -1,7 +1,7 @@
 {
   "name": "gtopt-webservice",
   "version": "1.0.0",
-  "description": "Web service for running gtopt optimization cases",
+  "description": "Web service for running GTOpt (Generation, Transmission and storage Optimization) cases",
   "private": true,
   "scripts": {
     "dev": "next dev",

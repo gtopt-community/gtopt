@@ -343,7 +343,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Expand canonical intermediate JSON files (laja.json,"
             " maule.json, lng.json, pumped_storage configs) into"
-            " gtopt entities."
+            " GTOpt entities."
         ),
         epilog=(
             "Subcommands: laja, maule (irrigation agreements →"
@@ -364,7 +364,7 @@ def _build_parser() -> argparse.ArgumentParser:
     for name in ("laja", "maule"):
         sp = sub.add_parser(
             name,
-            help=f"emit gtopt entities for the {name.capitalize()} agreement",
+            help=f"emit GTOpt entities for the {name.capitalize()} agreement",
         )
         sp.add_argument(
             "--input",
@@ -472,7 +472,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # ── LNG terminal subcommand ──────────────────────────────────────────
     lng_sp = sub.add_parser(
         "lng",
-        help="emit gtopt LngTerminal entities from lng.json",
+        help="emit GTOpt LngTerminal entities from lng.json",
     )
     lng_sp.add_argument(
         "--input",
@@ -522,7 +522,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--planning",
         dest="planning_path",
         required=True,
-        help="path to the gtopt planning JSON (for central discovery)",
+        help="path to the GTOpt planning JSON (for central discovery)",
     )
     ror_sp.add_argument(
         "--output",
@@ -585,7 +585,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ps_sp = sub.add_parser(
         "pumped_storage",
         help=(
-            "emit gtopt entities for a reversible pumped-storage unit "
+            "emit GTOpt entities for a reversible pumped-storage unit "
             "from a canonical config file (name/vmin/vmax/PFs/pump_factor)"
         ),
     )
@@ -605,7 +605,7 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="planning_path",
         required=True,
         help=(
-            "path to the gtopt planning JSON — used to verify the lower "
+            "path to the GTOpt planning JSON — used to verify the lower "
             "reservoir exists and, when the config's vmin/vmax are 0 or "
             "absent, to read the upper reservoir's emin/emax"
         ),

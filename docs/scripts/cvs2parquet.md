@@ -7,27 +7,27 @@ column type enforcement.
 
 ## Overview
 
-gtopt accepts time-series input data in both CSV and Parquet formats, but
+GTOpt accepts time-series input data in both CSV and Parquet formats, but
 Parquet is preferred for production use due to its compression, type safety,
 and faster I/O.  `cvs2parquet` provides a simple batch conversion tool that
 reads one or more CSV files and writes Parquet equivalents with consistent
 column types.
 
-The tool enforces gtopt's column conventions:
+The tool enforces GTOpt's column conventions:
 
 - Index columns (`stage`, `block`, `scenario`) are stored as **int32**.
 - All data columns (generation values, demand limits, costs, etc.) are stored
   as **float64**.
 
 This ensures that Parquet files produced by `cvs2parquet` are directly
-compatible with gtopt's Arrow-based table reader without any type-casting
+compatible with GTOpt's Arrow-based table reader without any type-casting
 issues at solve time.
 
 ---
 
 ## Installation
 
-Install as part of the gtopt scripts package:
+Install as part of the GTOpt scripts package:
 
 ```bash
 # Standard install
@@ -99,7 +99,7 @@ cvs2parquet -v input.csv
 | `scenario` | `int32` | Scenario index (integer) |
 | All other columns | `float64` | Numeric data values (MW, $/MWh, etc.) |
 
-These rules match the expectations of gtopt's `csv_read_table` and
+These rules match the expectations of GTOpt's `csv_read_table` and
 `parquet_read_table` functions in `array_index_traits.hpp`, which cast
 index columns to `int32` and data columns to `double` when reading Arrow
 tables.
@@ -182,7 +182,7 @@ cvs2parquet input/Demand/*.csv input/Generator/*.csv input/Line/*.csv -v
 
 ## See Also
 
-- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
-- [INPUT\_DATA.md](../input-data.md) — gtopt input file format reference
-- [ts2gtopt](ts2gtopt.md) — Project hourly time-series onto gtopt horizons
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all GTOpt Python scripts
+- [INPUT\_DATA.md](../input-data.md) — GTOpt input file format reference
+- [ts2gtopt](ts2gtopt.md) — Project hourly time-series onto GTOpt horizons
 - [plp2gtopt](plp2gtopt.md) — Convert PLP cases (produces Parquet directly)

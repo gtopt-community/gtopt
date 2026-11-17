@@ -1,6 +1,6 @@
-# Building gtopt from Source
+# Building GTOpt from Source
 
-This guide provides detailed instructions for building gtopt from source, including dependency installation, build configuration, and verification steps.
+This guide provides detailed instructions for building GTOpt from source, including dependency installation, build configuration, and verification steps.
 
 ## Table of Contents
 
@@ -32,7 +32,7 @@ This guide provides detailed instructions for building gtopt from source, includ
 | jemalloc | 5.0+ | Multi-thread malloc (eliminates glibc arena fragmentation; ~60% peak-RSS reduction on SDDP runs) | `libjemalloc-dev` |
 | lld | 14+ | Fast linker (auto-detected) | `lld` |
 
-**LP Solver Backends**: gtopt loads LP solver backends as dynamic plugins at
+**LP Solver Backends**: GTOpt loads LP solver backends as dynamic plugins at
 runtime. The default is auto-detected by priority: CPLEX > HiGHS > CBC > CLP.
 Installing `coinor-libcbc-dev` provides CLP/CBC. HiGHS must be built from
 source on Ubuntu 24.04 (it is available via apt starting with Ubuntu 25.04).
@@ -265,7 +265,7 @@ sudo pacman -S gcc cmake boost arrow coin-or-cbc
 
 ## Build Performance
 
-gtopt uses three complementary techniques for fast builds:
+GTOpt uses three complementary techniques for fast builds:
 
 ### Ninja build system (recommended)
 
@@ -308,7 +308,7 @@ reducing compile times by ~30%.
 ## Building Everything (Unified)
 
 The `all/` sub-project is the single entry point that configures and installs
-every gtopt component in one pass: the solver binary, Python conversion scripts,
+every GTOpt component in one pass: the solver binary, Python conversion scripts,
 web service, and GUI service.  It is the recommended starting point for a
 complete installation.
 
@@ -562,7 +562,7 @@ Run a specific test by name (doctest filter syntax):
 
 ### End-to-End Integration Tests
 
-The standalone build includes end-to-end tests that run gtopt against the sample case in `cases/c0/` and validate output against reference results:
+The standalone build includes end-to-end tests that run GTOpt against the sample case in `cases/c0/` and validate output against reference results:
 
 ```bash
 CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
@@ -700,7 +700,7 @@ chmod u+x coinbrew
 sudo ./coinbrew install Cbc --prefix=/opt/coinor
 ```
 
-Then configure gtopt with:
+Then configure GTOpt with:
 
 ```bash
 cmake -S all -B build -DCOIN_ROOT_DIR=/opt/coinor ...
@@ -761,7 +761,7 @@ sudo cmake --install build
 
 ## Next Steps
 
-After successfully building and installing gtopt:
+After successfully building and installing GTOpt:
 
 - Read the [Usage Guide](docs/usage.md) for detailed usage instructions
 - Try the [sample case](cases/c0/) to verify your installation

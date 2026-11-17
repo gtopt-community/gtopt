@@ -884,7 +884,7 @@ def main(argv: list[str] | None = None) -> None:
             dest="filenames",
             nargs="*",  # changed from "+" to allow --make-template with no XLSX
             metavar="XLSX",
-            help="Excel workbook(s) to convert to gtopt input data",
+            help="Excel workbook(s) to convert to GTOpt input data",
         )
         parser.add_argument(
             "-j",
@@ -1019,7 +1019,7 @@ def main(argv: list[str] | None = None) -> None:
             action="store_true",
             default=False,
             help=(
-                "generate the gtopt igtopt Excel template from C++ JSON headers "
+                "generate the GTOpt igtopt Excel template from C++ JSON headers "
                 "instead of converting a workbook; see also --header-dir, --list-sheets"
             ),
         )

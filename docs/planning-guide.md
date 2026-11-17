@@ -1,6 +1,6 @@
-# gtopt Planning Guide
+# GTOpt Planning Guide
 
-A step-by-step guide to building, running, and understanding gtopt optimization
+A step-by-step guide to building, running, and understanding GTOpt optimization
 cases. This guide walks through progressively more complex examples: from a
 simple single-bus dispatch to a multi-bus DC power-flow case with batteries and
 external time-series data.
@@ -13,7 +13,7 @@ external time-series data.
    - [Time structure: Blocks, Stages, Scenarios](#11-time-structure-blocks-stages-scenarios)
    - [Phases and Scenes](#12-phases-and-scenes)
    - [System elements](#13-system-elements)
-2. [Anatomy of a gtopt JSON file](#2-anatomy-of-a-gtopt-json-file)
+2. [Anatomy of a GTOpt JSON file](#2-anatomy-of-a-gtopt-json-file)
 3. [Example 1 – Single-bus dispatch (one block)](#3-example-1--single-bus-dispatch-one-block)
 4. [Example 2 – Multi-bus DC power flow (IEEE 9-bus)](#4-example-2--multi-bus-dc-power-flow-ieee-9-bus)
 5. [Example 3 – Multi-stage capacity expansion](#5-example-3--multi-stage-capacity-expansion)
@@ -58,7 +58,7 @@ external time-series data.
 
 The **planning data model** defines how time and uncertainty are represented:
 
-![gtopt Planning Data Model](diagrams/planning_structure.svg)
+![GTOpt Planning Data Model](diagrams/planning_structure.svg)
 
 > 💾 Regenerate: `python3 scripts/gtopt_diagram.py --diagram-type planning -o docs/diagrams/planning_structure.svg`
 
@@ -125,7 +125,7 @@ more blocks per stage for seasonal detail):
 }
 ```
 
-> **Tip**: set `annual_discount_rate` in `simulation` and let gtopt
+> **Tip**: set `annual_discount_rate` in `simulation` and let GTOpt
 > compute discount factors automatically instead of providing them
 > explicitly.  For backward compatibility, `options` is also accepted.
 
@@ -142,7 +142,7 @@ Common use cases:
 | **Construction vs. operation** | 2 phases (build, operate) | Variable |
 | **Single-period study** | 1 phase (default) | All stages |
 
-When no `phase_array` is provided in the JSON, gtopt automatically creates a
+When no `phase_array` is provided in the JSON, GTOpt automatically creates a
 single default phase that covers all stages.
 
 **JSON example – 4 seasonal phases (12 monthly stages)**:
@@ -223,7 +223,7 @@ apply to which phase.
 
 #### Time hierarchy diagram
 
-The complete time hierarchy in gtopt is:
+The complete time hierarchy in GTOpt is:
 
 ```text
 Planning
@@ -244,9 +244,9 @@ scenes.
 #### PLP equivalence
 
 When there is **one stage per phase** and **one scenario per scene**, the
-gtopt formulation is equivalent to the PLP formulation:
+GTOpt formulation is equivalent to the PLP formulation:
 
-| gtopt concept | PLP equivalent | Role |
+| GTOpt concept | PLP equivalent | Role |
 |---------------|---------------|------|
 | **Block** | PLP block | Smallest operating time unit |
 | **Stage** | — (within LP) | Generalized horizon time analysis within a single LP |
@@ -292,9 +292,9 @@ PLP shares cuts between its scenarios.
 
 ---
 
-## 2. Anatomy of a gtopt JSON file
+## 2. Anatomy of a GTOpt JSON file
 
-A gtopt case is defined by **one or more JSON files** passed on the command
+A GTOpt case is defined by **one or more JSON files** passed on the command
 line. Multiple files are merged in order, so you can split options, simulation,
 and system across files.
 
@@ -450,7 +450,7 @@ g2 (most expensive at $35/MWh) is at or near minimum.
 
 > **Note on reactance units**: line reactance values in the bundled IEEE cases
 > are in **per-unit (p.u.)** on a common system base (typically 100 MVA).
-> When `use_kirchhoff = true`, gtopt uses the p.u. reactance to compute the
+> When `use_kirchhoff = true`, GTOpt uses the p.u. reactance to compute the
 > voltage-angle difference: `flow [MW] = (θ_a − θ_b) / reactance [p.u.]`.
 
 ---
@@ -840,6 +840,7 @@ For batteries, the same principle applies.  A battery with
     ]
   }
 }
+```
 
 ---
 
@@ -915,7 +916,7 @@ or zero depending on context.
 }
 ```
 
-When `lmax = "lmax"`, gtopt reads
+When `lmax = "lmax"`, GTOpt reads
 `<input_directory>/Demand/lmax.csv` (or `lmax.parquet`) and uses the
 `uid:1` column for this demand.
 
@@ -1019,7 +1020,7 @@ my_case/
 }
 ```
 
-This tells gtopt: read `input/Demand/lmax.parquet`, column `uid:1`.
+This tells GTOpt: read `input/Demand/lmax.parquet`, column `uid:1`.
 
 **JSON linking a generator to multiple external fields**:
 
@@ -1047,7 +1048,7 @@ This tells gtopt: read `input/Demand/lmax.parquet`, column `uid:1`.
 
 → `input/GeneratorProfile/profile.parquet`, column `uid:1`.
 
-> **Tip**: When `input_format = "parquet"`, gtopt first looks for the
+> **Tip**: When `input_format = "parquet"`, GTOpt first looks for the
 > `.parquet` file.  If it is absent it falls back to the `.csv` file.
 
 ---
@@ -1214,7 +1215,7 @@ The generated HTML includes:
 
 ## 12. Output files
 
-After a successful run, gtopt writes result files in `output_directory`
+After a successful run, GTOpt writes result files in `output_directory`
 (default: `output/`) using the same tabular format as input files.
 
 ```text
@@ -1340,7 +1341,7 @@ MW there, accounting for transmission constraints.
 
 ## 13. Working with Stochastic Scenarios
 
-gtopt supports **stochastic optimization** where uncertain inputs vary across
+GTOpt supports **stochastic optimization** where uncertain inputs vary across
 scenarios. Each scenario represents one realization of the uncertainty (e.g., a
 hydrological year, a weather pattern, or a demand forecast). The solver
 minimizes expected cost across all scenarios, weighted by their
@@ -1447,7 +1448,7 @@ This example models a 100 MW solar generator with three weather scenarios over
 }
 ```
 
-The `"solar_profile"` string tells gtopt to read
+The `"solar_profile"` string tells GTOpt to read
 `input/GeneratorProfile/solar_profile.parquet` (or `.csv`).
 
 **Step 3 -- Create the profile data file:**
@@ -1588,7 +1589,7 @@ Run-of-river (pasada) hydro plants can be modelled in two ways:
 
 ### 13.4 SDDP apertures
 
-In **SDDP** (Stochastic Dual Dynamic Programming) mode, gtopt uses
+In **SDDP** (Stochastic Dual Dynamic Programming) mode, GTOpt uses
 **apertures** to sample additional hydrology and scenario combinations during
 the backward pass. Apertures provide a richer sampling of uncertainty when
 building Benders optimality cuts, improving the quality of the value function
@@ -1926,7 +1927,7 @@ present.
 ### External verification from LP files
 
 The Python tool can also compute a fingerprint directly from a solver-generated
-LP file, verifying that what gtopt assembles is exactly what the solver sees:
+LP file, verifying that what GTOpt assembles is exactly what the solver sees:
 
 ```bash
 python -m gtopt_check_fingerprint verify \

@@ -1,4 +1,4 @@
-# Gtopt
+# GTOpt
 
 [![Ubuntu](https://github.com/gtopt-community/gtopt/actions/workflows/ubuntu.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/ubuntu.yml)
 [![Webservice](https://github.com/gtopt-community/gtopt/actions/workflows/webservice.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/webservice.yml)
@@ -6,7 +6,18 @@
 [![Style](https://github.com/gtopt-community/gtopt/actions/workflows/style.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/style.yml)
 [![Docs](https://github.com/gtopt-community/gtopt/actions/workflows/docs.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/docs.yml)
 
-A high-performance C++ tool for **Generation and Transmission Expansion Planning (GTEP)**. It minimizes the total expected cost of operation and expansion of electrical power systems.
+**GTOpt — Generation, Transmission and storage Optimization**: an open-source
+solver for the **optimization and analysis of power-system generation,
+transmission and storage** (expansion planning, hydrothermal scheduling, unit
+commitment and dispatch). The acronym carries only the G and the T, but
+storage — batteries, pumped hydro and reservoirs — is a first-class part of the
+scope. GTOpt is a high-performance C++ library and solver that minimizes the
+total expected discounted cost of operation and expansion (CAPEX + OPEX) of
+electrical power systems: generation and transmission expansion planning
+(GTEP), multi-stage hydrothermal scheduling via SDDP and cascade
+decomposition, and unit commitment / economic dispatch.
+
+GTOpt is pronounced *G-top* (/ˈdʒiː tɒp/). The command-line binary is `gtopt`.
 
 > **[📖 API Documentation](https://marcelomatus.github.io/gtopt/)** — Doxygen-generated C++ API reference, deployed automatically via GitHub Pages.
 
@@ -15,7 +26,7 @@ A high-performance C++ tool for **Generation and Transmission Expansion Planning
 This project includes comprehensive documentation for different use cases:
 
 - **[README.md](README.md)** (this file) - Project overview, quick installation, and basic usage
-- **[Understanding gtopt](docs/overview.md)** - Global overview: repository layout, architecture layers, data flow, and technology stack
+- **[Understanding GTOpt](docs/overview.md)** - Global overview: repository layout, architecture layers, data flow, and technology stack
 - **[Planning Guide](docs/planning-guide.md)** - Complete planning guide: time structure, system elements, JSON format, and worked examples
 - **[Unit Commitment Guide](docs/unit-commitment.md)** - Three-bin UC formulation, startup tiers, piecewise heat rate, emission framework, and worked examples
 - **[Mathematical Formulation](docs/formulation/mathematical-formulation.md)** - Full LP/MIP optimization formulation with LaTeX notation
@@ -24,7 +35,7 @@ This project includes comprehensive documentation for different use cases:
 - **[Input Data Reference](docs/input-data.md)** - Input data structure and file format reference
 - **[User Constraints](docs/user-constraints.md)** - User-defined LP constraints: AMPL-inspired syntax, domain specs, external files
 - **[Scripts Guide](docs/scripts-guide.md)** - Python utilities: conversion ([plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [igtopt](docs/scripts/igtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt2pp](#gtopt2pp)), visualization ([gtopt_diagram](docs/scripts/gtopt_diagram.md)), validation ([gtopt_check_json](#gtopt_check_json), [gtopt_check_lp](#gtopt_check_lp), [gtopt_check_output](#gtopt_check_output)), and solver management ([run_gtopt](#run_gtopt), [gtopt_monitor](#gtopt_monitor))
-- **[Tool Comparison](docs/tools/comparison.md)** - Detailed comparison of gtopt vs PLP, pandapower, and other tools (elements, parameters, units, methodology)
+- **[Tool Comparison](docs/tools/comparison.md)** - Detailed comparison of GTOpt vs PLP, pandapower, and other tools (elements, parameters, units, methodology)
 - **[SDDP Method](docs/methods/sddp.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
 - **[Cascade Method](docs/methods/cascade.md)** - Cascade solver: multi-level hybrid SDDP with warm-start
 - **[Monolithic Method](docs/methods/monolithic.md)** - Default monolithic solver, boundary cuts, and sequential mode
@@ -87,7 +98,7 @@ For detailed build instructions, alternative platforms, troubleshooting, and bui
 
 ## Usage
 
-Run gtopt on a system configuration file:
+Run GTOpt on a system configuration file:
 
 ```bash
 gtopt system_config.json
@@ -127,19 +138,19 @@ file format, and advanced examples, see **[Usage Guide](docs/usage.md#running-th
 ## Python Scripts
 
 The `scripts/` directory contains Python utilities for preparing, converting,
-validating, and post-processing data for use with gtopt:
+validating, and post-processing data for use with GTOpt:
 
 | Command | Purpose |
 |---------|---------|
 | **Data Preparation & Conversion** | |
-| `plp2gtopt` | Convert a PLP case to gtopt JSON + Parquet |
-| `pp2gtopt` | Convert a pandapower network to gtopt JSON |
-| `gtopt2pp` | Convert gtopt JSON back to pandapower |
-| `igtopt` | Convert an Excel workbook to a gtopt JSON case |
+| `plp2gtopt` | Convert a PLP case to GTOpt JSON + Parquet |
+| `pp2gtopt` | Convert a pandapower network to GTOpt JSON |
+| `gtopt2pp` | Convert GTOpt JSON back to pandapower |
+| `igtopt` | Convert an Excel workbook to a GTOpt JSON case |
 | `cvs2parquet` | Convert CSV time-series files to Parquet format |
-| `ts2gtopt` | Project hourly time-series onto a gtopt planning horizon |
+| `ts2gtopt` | Project hourly time-series onto a GTOpt planning horizon |
 | `gtopt_diagram` | Generate network topology and planning diagrams |
-| `gtopt_compare` | Compare gtopt results against pandapower DC OPF |
+| `gtopt_compare` | Compare GTOpt results against pandapower DC OPF |
 | **Running & Monitoring** | |
 | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
 | `gtopt_monitor` | Live solver convergence monitoring dashboard |
@@ -156,9 +167,9 @@ validating, and post-processing data for use with gtopt:
 pip install ./scripts
 ```
 
-### plp2gtopt — PLP to gtopt converter
+### plp2gtopt — PLP to GTOpt converter
 
-Reads the standard PLP data files and writes a self-contained gtopt JSON file
+Reads the standard PLP data files and writes a self-contained GTOpt JSON file
 together with Parquet time-series files:
 
 ```bash
@@ -183,8 +194,8 @@ For the full reference, see **[Scripts Guide](docs/scripts-guide.md)**.
 
 ## GUI Service
 
-A web-based graphical interface for creating, editing, and visualizing gtopt
-cases. The GUI service also connects to the gtopt webservice for remote
+A web-based graphical interface for creating, editing, and visualizing GTOpt
+cases. The GUI service also connects to the GTOpt webservice for remote
 solving.
 
 ### Quick Start with gtopt_gui
@@ -210,7 +221,7 @@ gtopt_gui system_c0.json
 **Fully Integrated Workflow:**
 - Opens a web browser with a standalone GUI interface
 - Automatically starts local webservice (if installed) for solving cases
-- Automatically detects gtopt binary
+- Automatically detects GTOpt binary
 - Complete workflow: Edit → Submit for Solving → Monitor → View Results
 - Zero configuration required
 
@@ -274,7 +285,7 @@ For detailed installation and deployment instructions, see
 
 ## Web Service
 
-gtopt includes a web service that lets you upload optimization cases, run the
+GTOpt includes a web service that lets you upload optimization cases, run the
 solver, and download results — all through a browser or REST API.
 
 ### Quick Start with gtopt_websrv
@@ -303,27 +314,27 @@ For detailed installation and deployment instructions, see [webservice/INSTALL.m
 
 ## Related Tools
 
-gtopt integrates with and compares against several established power system
+GTOpt integrates with and compares against several established power system
 tools. The Python scripts in `scripts/` provide converters and validators
 for interoperability:
 
-| Tool | Language | Role with gtopt |
+| Tool | Language | Role with GTOpt |
 |------|----------|-----------------|
-| **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt_compare` validates gtopt results against pandapower on standard IEEE test cases |
-| **[PLP](https://github.com/marcelomatus/plp_storage)** | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to gtopt JSON + Parquet |
-| **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as gtopt (see [Mathematical Formulation](docs/formulation/mathematical-formulation.md)) |
-| **[GenX](https://genxproject.github.io/GenX/)** | Julia | Capacity expansion model; similar modular investment + storage SoC formulation to gtopt |
+| **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt_compare` validates GTOpt results against pandapower on standard IEEE test cases |
+| **[PLP](https://github.com/marcelomatus/plp_storage)** | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to GTOpt JSON + Parquet |
+| **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as GTOpt (see [Mathematical Formulation](docs/formulation/mathematical-formulation.md)) |
+| **[GenX](https://genxproject.github.io/GenX/)** | Julia | Capacity expansion model; similar modular investment + storage SoC formulation to GTOpt |
 
 ### pandapower
 
 [pandapower](https://www.pandapower.org/) is an open-source Python tool for
 power system analysis, including AC/DC power flow and DC optimal power flow.
 
-- **`pp2gtopt`**: converts a pandapower network (JSON) to a gtopt case,
-  enabling direct use of any pandapower network in gtopt.
-- **`gtopt2pp`**: converts a gtopt case back to pandapower, optionally
+- **`pp2gtopt`**: converts a pandapower network (JSON) to a GTOpt case,
+  enabling direct use of any pandapower network in GTOpt.
+- **`gtopt2pp`**: converts a GTOpt case back to pandapower, optionally
   running DC OPF and topology diagnostics.
-- **`gtopt_compare`**: validates gtopt dispatch results against pandapower
+- **`gtopt_compare`**: validates GTOpt dispatch results against pandapower
   DC OPF on the built-in IEEE test cases (`ieee_4b_ori`, `ieee30b`, `ieee_57b`,
   `bat_4b_24`).
 
@@ -334,14 +345,14 @@ Fortran-based hydrothermal unit commitment and economic dispatch tool used in
 several Latin American power systems.
 
 - **`plp2gtopt`**: reads the full set of PLP `.dat` files and produces a
-  self-contained gtopt JSON + Parquet case, preserving multi-scenario
+  self-contained GTOpt JSON + Parquet case, preserving multi-scenario
   hydrology, block/stage structure, battery storage, and maintenance schedules.
 - Sample PLP cases are in `scripts/cases/` (e.g., `plp_dat_ex`, `plp_min_bess`,
   `plp_bat_4b_24`).
 
 ## License
 
-gtopt is **dual-licensed**: GPL-3.0-or-later with the
+GTOpt is **dual-licensed**: GPL-3.0-or-later with the
 [solver plugin exception](LICENSE-EXCEPTION.md), or a
 [commercial license](LICENSE-COMMERCIAL.md). See
 [`LICENSING.md`](LICENSING.md).
@@ -350,6 +361,6 @@ Copyright (c) 2024-2026 Marcelo Matus and [contributors](AUTHORS).
 
 ## Support and maintenance
 
-Professional support, maintenance, training and PLP / PLEXOS → gtopt
+Professional support, maintenance, training and PLP / PLEXOS → GTOpt
 migration services are available from **Black Bear Engineering SpA**
 (<mmatus@blackbeareng.cl>). See [`PARTNERS.md`](PARTNERS.md).

@@ -15,7 +15,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="gtopt_timeseries_export",
         description=(
-            "Export a gtopt output directory or results ZIP to a single "
+            "Export a GTOpt output directory or results ZIP to a single "
             "Excel (.xlsx) workbook with an Overview sheet and one sheet "
             "per output table."
         ),

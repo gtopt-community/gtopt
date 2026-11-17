@@ -57,7 +57,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gtopt_check_topology",
         description=(
-            "Preflight network-topology analysis on a gtopt planning JSON: "
+            "Preflight network-topology analysis on a GTOpt planning JSON: "
             "islands, fundamental cycles with per-cycle danger score, "
             "bridges, DC links, negative R/X, voltage-mixing."
         ),
@@ -65,7 +65,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "planning_json",
         type=Path,
-        help="Path to the gtopt planning JSON (e.g. PLEXOS20260407.json).",
+        help="Path to the GTOpt planning JSON (e.g. PLEXOS20260407.json).",
     )
     parser.add_argument(
         "--json-out",

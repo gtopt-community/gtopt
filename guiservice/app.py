@@ -1,6 +1,6 @@
 """
-gtopt GUI Service - Web application for creating, editing, and visualizing
-gtopt optimization cases.
+GTOpt GUI Service - Web application for creating, editing, and visualizing
+GTOpt optimization cases.
 
 This module provides the Flask application with REST API endpoints for
 case management and a browser-based GUI for interactive case creation.

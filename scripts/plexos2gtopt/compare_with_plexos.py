@@ -4561,7 +4561,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="compare_with_plexos",
         description=(
-            "PLEXOS vs gtopt comparison scout (Step 1 cost totals + "
+            "PLEXOS vs GTOpt comparison scout (Step 1 cost totals + "
             "Step 2 user-constraint penalty breakdown) for the CEN PCP "
             "daily case."
         ),
@@ -4652,7 +4652,7 @@ def make_parser() -> argparse.ArgumentParser:
         type=float,
         default=10000.0,
         help=(
-            "per-unit slack penalty applied by gtopt to soft user "
+            "per-unit slack penalty applied by GTOpt to soft user "
             "constraints (must match the `--default-uc-penalty` "
             "passed to plexos2gtopt; default: 10000)"
         ),

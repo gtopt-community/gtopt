@@ -1,10 +1,19 @@
-/** @page about About gtopt
+/** @page about About GTOpt
 
 @section overview Overview
 
-**gtopt** is a high-performance C++ library and solver for **Generation and
-Transmission Expansion Planning (GTEP)**. It minimizes the total expected cost
-of operation and expansion of electrical power systems (CAPEX + OPEX).
+**GTOpt** — *Generation, Transmission and storage Optimization* — is an
+open-source C++ library and solver for the **optimization and analysis of
+power-system generation, transmission and storage**: generation and
+transmission expansion planning (GTEP), hydrothermal scheduling (SDDP and
+cascade decomposition), unit commitment and economic dispatch. The acronym
+carries only the G and the T, but storage (batteries, pumped hydro and
+reservoirs) is modelled as a first-class part of the scope. GTOpt minimizes
+the total expected discounted cost of operation and expansion of electrical
+power systems (CAPEX + OPEX).
+
+GTOpt is pronounced *G-top* (/ˈdʒiː tɒp/). The command-line binary is
+`gtopt`.
 
 @section features Key Features
 

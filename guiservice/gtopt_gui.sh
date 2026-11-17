@@ -1,5 +1,5 @@
 #!/bin/bash
-# gtopt_gui - Launcher script for the gtopt GUI service
+# gtopt_gui - Launcher script for the GTOpt GUI service
 #
 # This script is installed alongside the gtopt binary and provides
 # a convenient way to launch the web-based GUI.

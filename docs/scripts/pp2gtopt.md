@@ -1,6 +1,6 @@
-# pp2gtopt — pandapower to gtopt Converter
+# pp2gtopt — pandapower to GTOpt Converter
 
-Converts a **pandapower** network to a self-contained gtopt JSON file, ready
+Converts a **pandapower** network to a self-contained GTOpt JSON file, ready
 to be solved directly with the `gtopt` binary or submitted to
 **gtopt\_guisrv** / **gtopt\_websrv**.
 
@@ -13,8 +13,8 @@ library for power system modelling and analysis.  It provides a rich collection
 of standard IEEE test networks and supports importing from MATPOWER and other
 formats.
 
-`pp2gtopt` bridges pandapower and gtopt by converting any pandapower network —
-either a built-in test case or a file saved to disk — into the gtopt JSON
+`pp2gtopt` bridges pandapower and GTOpt by converting any pandapower network —
+either a built-in test case or a file saved to disk — into the GTOpt JSON
 format.  The conversion handles:
 
 - Bus definitions with voltage levels.
@@ -23,7 +23,7 @@ format.  The conversion handles:
 - Transformer modelling as lossless lines.
 - Demand extraction from pandapower load tables.
 
-The output JSON is a complete, single-file gtopt case with inline data (no
+The output JSON is a complete, single-file GTOpt case with inline data (no
 external Parquet files needed), suitable for single-snapshot dispatch or
 DC OPF studies.
 
@@ -31,7 +31,7 @@ DC OPF studies.
 
 ## Installation
 
-Install as part of the gtopt scripts package:
+Install as part of the GTOpt scripts package:
 
 ```bash
 # Standard install
@@ -135,7 +135,7 @@ The output JSON system `name` is derived from the file stem (e.g. `case39.m`
 
 ### 1. Bus mapping
 
-Each pandapower bus is mapped to a gtopt `Bus` with:
+Each pandapower bus is mapped to a GTOpt `Bus` with:
 - `uid` from the pandapower bus index.
 - `name` from `bus.name` (or generated if absent).
 - `kv` (voltage level in kV) from `bus.vn_kv`.
@@ -151,14 +151,14 @@ x_pu = x_ohm / Z_base
 Z_base = (vn_kv)² / sn_mva
 ```
 
-The resulting reactance is written to the gtopt `Line.reactance` field,
+The resulting reactance is written to the GTOpt `Line.reactance` field,
 which is what the DC OPF (Kirchhoff mode) requires.
 
 ### 3. Generator cost linearisation
 
 pandapower supports polynomial cost functions (quadratic: `cp0 + cp1·P + cp2·P²`).
-Since gtopt uses a linear cost model, the converter extracts the **linear
-coefficient `cp1`** ($/MWh) as the gtopt `gcost`.  Quadratic and constant
+Since GTOpt uses a linear cost model, the converter extracts the **linear
+coefficient `cp1`** ($/MWh) as the GTOpt `gcost`.  Quadratic and constant
 terms are dropped — this is appropriate for DC OPF where the linear
 approximation is standard.
 
@@ -166,10 +166,10 @@ If no cost data is available, `gcost` defaults to `0.0`.
 
 ### 4. Transformer modelling
 
-pandapower transformers (`net.trafo`) are converted to gtopt `Line` entries
+pandapower transformers (`net.trafo`) are converted to GTOpt `Line` entries
 with `"type": "transformer"` and the following field mapping:
 
-| pandapower field | gtopt field | Notes |
+| pandapower field | GTOpt field | Notes |
 |---|---|---|
 | `hv_bus` / `lv_bus` | `bus_a` / `bus_b` | Bus indices (after remapping) |
 | `vk_percent` / `sn_mva` | `reactance` | Short-circuit reactance in p.u.: `(vk_percent/100) × (base_mva/sn_mva)` |
@@ -178,7 +178,7 @@ with `"type": "transformer"` and the following field mapping:
 | `shift_degree` | `phase_shift_deg` | Phase-shift angle in degrees; omitted when 0 |
 
 **Tap ratio**: the `tap_ratio` field is emitted only when the tap position
-differs from the neutral position (τ ≠ 1.0).  In gtopt the tap ratio scales
+differs from the neutral position (τ ≠ 1.0).  In GTOpt the tap ratio scales
 the effective susceptance: $B_{\text{eff}} = B / \tau$, so a transformer with
 τ > 1 has a lower effective susceptance (harder to drive power through).
 
@@ -198,7 +198,7 @@ networks (CAISO, XM, PJM, CEN Chile).
 
 ### 5. Load / demand extraction
 
-Each pandapower load entry becomes a gtopt `Demand` with:
+Each pandapower load entry becomes a GTOpt `Demand` with:
 - `bus` referencing the pandapower bus index.
 - `lmax` set to the load's active power `p_mw`.
 
@@ -206,7 +206,7 @@ Each pandapower load entry becomes a gtopt `Demand` with:
 
 ## Output JSON Structure
 
-The output is a standard gtopt JSON file with inline arrays:
+The output is a standard GTOpt JSON file with inline arrays:
 
 ```json
 {
@@ -235,7 +235,7 @@ for static DC OPF dispatch.
 
 ---
 
-## Example: Converting IEEE 57-Bus and Verifying with gtopt
+## Example: Converting IEEE 57-Bus and Verifying with GTOpt
 
 ```bash
 # Step 1: Convert the IEEE 57-bus network
@@ -264,8 +264,8 @@ gtopt_compare --case ieee_57b --gtopt-output output/
 
 ## See Also
 
-- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
-- [gtopt_compare](gtopt_compare.md) — Validate gtopt results against
+- [SCRIPTS.md](../scripts-guide.md) — Overview of all GTOpt Python scripts
+- [gtopt_compare](gtopt_compare.md) — Validate GTOpt results against
   pandapower DC OPF
-- [plp2gtopt](plp2gtopt.md) — Convert PLP cases to gtopt
-- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts
+- [plp2gtopt](plp2gtopt.md) — Convert PLP cases to GTOpt
+- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to GTOpt planning concepts

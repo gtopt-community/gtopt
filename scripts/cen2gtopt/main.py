@@ -92,7 +92,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--topology",
         type=Path,
-        help="Topology JSON (CEN-format or gtopt planning JSON).",
+        help="Topology JSON (CEN-format or GTOpt planning JSON).",
     )
     p.add_argument("-v", "--verbose", action="count", default=0)
     p.add_argument("-q", "--quiet", action="store_true")

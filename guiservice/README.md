@@ -1,8 +1,8 @@
-# gtopt GUI Service
+# GTOpt GUI Service
 
 A web-based graphical user interface for creating, editing, and visualizing
-**gtopt** optimization cases, with integrated connectivity to the
-[gtopt webservice](../webservice/README.md) for remote solving.
+**GTOpt** optimization cases, with integrated connectivity to the
+[GTOpt webservice](../webservice/README.md) for remote solving.
 
 ## Features
 
@@ -14,9 +14,9 @@ A web-based graphical user interface for creating, editing, and visualizing
   interactive table editor.
 - **JSON Preview** – Inspect the generated JSON configuration before downloading.
 - **ZIP Download** – Download the complete case as a ZIP file ready for use with
-  the gtopt solver or the gtopt webservice.
+  the GTOpt solver or the GTOpt webservice.
 - **Case Upload** – Upload an existing case ZIP file for further editing.
-- **Webservice Integration** – Submit cases directly to the gtopt webservice for
+- **Webservice Integration** – Submit cases directly to the GTOpt webservice for
   solving, monitor job progress in real-time, and retrieve results automatically
   when the solver finishes.
 - **Results Visualization** – View optimization results in spreadsheet tables
@@ -27,7 +27,7 @@ A web-based graphical user interface for creating, editing, and visualizing
 
 - Python 3.10+
 - Dependencies listed in `requirements.txt`
-- (Optional) A running [gtopt webservice](../webservice/README.md) instance for
+- (Optional) A running [GTOpt webservice](../webservice/README.md) instance for
   remote solving
 
 For detailed installation, deployment, and production setup instructions, see
@@ -60,7 +60,7 @@ gtopt_gui
 gtopt_guisrv
 ```
 
-The guiservice can be installed independently of the gtopt binary.
+The guiservice can be installed independently of the GTOpt binary.
 
 ### Using gtopt_gui (Interactive Mode)
 
@@ -108,7 +108,7 @@ The GUI will be available at `http://localhost:5001`.
 
 ### Connecting to the Webservice
 
-1. Start the gtopt webservice (default: `http://localhost:3000`)
+1. Start the GTOpt webservice (default: `http://localhost:3000`)
 2. Open the GUI and navigate to the **Solver → Webservice** panel
 3. Enter the webservice URL and click **Test** to verify the connection
 4. Use the **⚡ Solve** button in the header to submit cases
@@ -138,5 +138,5 @@ GTOPT_WEBSERVICE_URL=http://my-server:3000 python app.py
 
 ## Input Data Documentation
 
-See [INPUT_DATA.md](../docs/input-data.md) for a comprehensive description of the gtopt
+See [INPUT_DATA.md](../docs/input-data.md) for a comprehensive description of the GTOpt
 input data structure, including all element types and their fields.

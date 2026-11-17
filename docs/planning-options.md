@@ -1,6 +1,6 @@
 # Planning Options Reference
 
-Comprehensive reference for the gtopt option hierarchy, JSON interface,
+Comprehensive reference for the GTOpt option hierarchy, JSON interface,
 merge semantics, and solver configuration.
 
 ## Option Class Hierarchy
@@ -201,7 +201,7 @@ flags (`col_with_names`, `row_with_names`, `col_with_name_map`,
 | `lp_coeff_ratio_threshold` | float | `1e7` | When global max/min coefficient ratio exceeds this, print a per-scene/phase breakdown |
 
 > **LP naming**: There is **no** `names_level` field or `--lp-names-level`
-> flag.  Pass `--lp-file <path>` or `--lp-debug` to have gtopt enable all
+> flag.  Pass `--lp-file <path>` or `--lp-debug` to have GTOpt enable all
 > four naming fields on `LpMatrixOptions` so the generated `.lp` dump is
 > human-readable.
 
@@ -360,7 +360,7 @@ Variable scaling factors are resolved in this order (highest priority first):
 
 ## Merge Semantics
 
-When multiple JSON files are passed to gtopt, their `"options"` sections are
+When multiple JSON files are passed to GTOpt, their `"options"` sections are
 merged left to right.  For each field:
 
 - **Scalars**: the first file's value wins (later files fill in missing fields)

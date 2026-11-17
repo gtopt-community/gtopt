@@ -87,7 +87,7 @@ def make_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help=(
             "explicit path to the planning file (planning.json). "
-            "By default, uses results/planning.json (saved by gtopt) "
+            "By default, uses results/planning.json (saved by GTOpt) "
             "or case_dir/case_name.json"
         ),
     )

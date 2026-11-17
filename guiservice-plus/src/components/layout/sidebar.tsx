@@ -29,7 +29,7 @@ export function Sidebar() {
           <Workflow className="h-4 w-4 text-primary-foreground" />
         </div>
         <div>
-          <div className="text-sm font-semibold text-white">gtopt</div>
+          <div className="text-sm font-semibold text-white">GTOpt</div>
           <div className="text-xs text-sidebar-foreground/60">GUI Plus</div>
         </div>
       </div>

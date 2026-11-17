@@ -109,8 +109,8 @@ export default function Home() {
   return (
     <div className="container">
       <header>
-        <h1>⚡ gtopt Web Service</h1>
-        <p>Upload optimization cases, run gtopt, and download results</p>
+        <h1>⚡ GTOpt Web Service</h1>
+        <p>Upload optimization cases, run GTOpt, and download results</p>
       </header>
 
       {/* Submit Job */}
@@ -274,7 +274,7 @@ export default function Home() {
       </div>
 
       <footer>
-        <p>gtopt Web Service — Generation &amp; Transmission Optimization</p>
+        <p>GTOpt Web Service — Generation, Transmission and storage Optimization</p>
       </footer>
     </div>
   );

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-gtopt_gui - Standalone launcher for the gtopt GUI service.
+gtopt_gui - Standalone launcher for the GTOpt GUI service.
 
 This script starts the Flask guiservice and opens a web browser to interact
 with gtopt configuration files in a kiosk-like experience.
@@ -506,7 +506,7 @@ def launch_ui_plus(port, guiservice_url, dev_mode, log_dir):
 def main():
     """Main entry point for gtopt_gui."""
     parser = argparse.ArgumentParser(
-        description="Launch the gtopt GUI service and open a web browser.",
+        description="Launch the GTOpt GUI service and open a web browser.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -531,7 +531,7 @@ an external webservice.
     parser.add_argument(
         "config_file",
         nargs="?",
-        help="Path to gtopt configuration JSON file (optional)",
+        help="Path to GTOpt configuration JSON file (optional)",
     )
 
     parser.add_argument(
@@ -730,7 +730,7 @@ an external webservice.
     port = args.port if args.port else find_free_port()
 
     # Start Flask server
-    print(f"Starting gtopt GUI service on port {port}...")
+    print(f"Starting GTOpt GUI service on port {port}...")
 
     env = os.environ.copy()
     env["FLASK_DEBUG"] = "1" if args.debug else "0"
@@ -780,7 +780,7 @@ an external webservice.
 
     def cleanup():
         """Terminate Flask server and webservice on exit."""
-        _kill_process_group(flask_process, "gtopt GUI service")
+        _kill_process_group(flask_process, "GTOpt GUI service")
         if webservice_process:
             _kill_process_group(webservice_process, "webservice")
         flask_log_handle.close()
@@ -843,7 +843,7 @@ an external webservice.
 
     # Show status summary
     print("\n" + "=" * 60)
-    print("gtopt GUI is running. Press Ctrl+C to stop.")
+    print("GTOpt GUI is running. Press Ctrl+C to stop.")
     print(f"GUI service logs: {guiservice_log_file}")
     if webservice_url:
         print(f"Webservice available at: {webservice_url}")

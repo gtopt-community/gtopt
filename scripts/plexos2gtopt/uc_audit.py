@@ -3046,7 +3046,7 @@ def _print_summary(result: AuditResult) -> None:
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="plexos2gtopt.uc_audit",
-        description="Audit gtopt user-constraints against the PLEXOS sol .accdb",
+        description="Audit GTOpt user-constraints against the PLEXOS sol .accdb",
     )
     parser.add_argument(
         "--plexos-cache",
@@ -3072,7 +3072,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--gtopt-lp",
         type=Path,
         default=None,
-        help="explicit path to the gtopt .lp enabling the B11 native-RHS check "
+        help="explicit path to the GTOpt .lp enabling the B11 native-RHS check "
         "(defaults to the first *.lp in --gtopt-dir; the check is skipped "
         "gracefully when no .lp is available)",
     )

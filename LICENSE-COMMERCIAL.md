@@ -1,11 +1,11 @@
-# gtopt Commercial License — summary
+# GTOpt Commercial License — summary
 
 The full agreement is provided on request; this page summarises its terms.
 Licensor: **Marcelo Matus** (copyright holder), or a successor steward
-(company or foundation) to which he assigns the gtopt copyrights; existing
+(company or foundation) to which he assigns the GTOpt copyrights; existing
 commercial licences remain valid after such an assignment.
 
-- **Grant:** use, modify, embed and redistribute gtopt — including in
+- **Grant:** use, modify, embed and redistribute GTOpt — including in
   closed-source products and hosted services — **without** the copyleft
   obligations of the GPL, for the product or service named in the order.
 - **Models:** annual subscription per organization (internal use and
@@ -18,7 +18,7 @@ commercial licences remain valid after such an assignment.
 - **Governing law:** Chile; arbitration at CAM Santiago. English and
   Spanish versions available.
 - Universities and public agencies do not need a commercial licence unless
-  they redistribute gtopt in closed form.
+  they redistribute GTOpt in closed form.
 
 Licensing contact: <marcelomatusacuna@gmail.com>.
 Reseller, support and maintenance partner: **Black Bear Engineering SpA**

@@ -29,7 +29,7 @@ endif()
 # ---- Doxygen variables ----
 
 # set Doxyfile variables
-set(DOXYGEN_PROJECT_NAME Gtopt)
+set(DOXYGEN_PROJECT_NAME GTOpt)
 set(DOXYGEN_PROJECT_VERSION ${gtopt_VERSION})
 set(DOXYGEN_PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 set(DOXYGEN_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/doxygen")

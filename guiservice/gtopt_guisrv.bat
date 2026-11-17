@@ -1,5 +1,5 @@
 @echo off
-REM gtopt_guisrv.bat - Windows launcher for gtopt GUI service (web server mode)
+REM gtopt_guisrv.bat - Windows launcher for GTOpt GUI service (web server mode)
 REM
 REM This script starts the Flask guiservice as a web server.
 

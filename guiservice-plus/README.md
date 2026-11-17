@@ -1,6 +1,6 @@
-# gtopt GUI Plus
+# GTOpt GUI Plus
 
-A modern Next.js 15 + React 19 + Tailwind v4 frontend for the gtopt planning
+A modern Next.js 15 + React 19 + Tailwind v4 frontend for the GTOpt planning
 workbench.  Sits on top of the existing Flask `guiservice` — all API calls
 are proxied via the Next.js rewrite `/flask/*` → `$GTOPT_GUISERVICE_URL/*`.
 

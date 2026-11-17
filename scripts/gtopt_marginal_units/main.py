@@ -221,7 +221,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=True,
         help=(
-            "Require gtopt reduced-cost output (Generator/generation_cost) "
+            "Require GTOpt reduced-cost output (Generator/generation_cost) "
             "under --output. Recommended source-run flag: "
             "`gtopt --write-out 'sol,dual,rc:Generator,Line'` — emits only "
             "the streams this tool consumes. Default: on."

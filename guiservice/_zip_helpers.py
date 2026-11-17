@@ -1,4 +1,4 @@
-"""ZIP / case JSON build + parse helpers for the gtopt GUI service.
+"""ZIP / case JSON build + parse helpers for the GTOpt GUI service.
 
 Exports:
 

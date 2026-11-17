@@ -1,13 +1,13 @@
-# igtopt — Excel to gtopt JSON + Parquet Converter
+# igtopt — Excel to GTOpt JSON + Parquet Converter
 
 ## Overview
 
-**igtopt** converts Excel workbooks (`.xlsx`) into the gtopt JSON planning
+**igtopt** converts Excel workbooks (`.xlsx`) into the GTOpt JSON planning
 format plus optional time-series Parquet (or CSV) files. It is the recommended
-way to prepare gtopt input data for users who prefer spreadsheets over editing
+way to prepare GTOpt input data for users who prefer spreadsheets over editing
 raw JSON.
 
-**Who needs it?** Any user building a gtopt case from scratch. The Excel
+**Who needs it?** Any user building a GTOpt case from scratch. The Excel
 format provides a structured, auditable way to define buses, generators,
 demands, lines, batteries, and time-series profiles — all in a single
 workbook.
@@ -17,7 +17,7 @@ workbook.
 - Reads one or more `.xlsx` workbooks and merges them into a single JSON file
 - Writes time-series data (demand profiles, generator profiles, etc.) as
   Parquet or CSV files via `@`-named sheets
-- Supports all gtopt planning elements: buses, generators, demands, lines,
+- Supports all GTOpt planning elements: buses, generators, demands, lines,
   batteries, converters, reservoirs, junctions, and more
 - Produces ZIP bundles compatible with `gtopt_guisrv` and `gtopt_websrv`
 - Logs conversion statistics (element counts, key options, elapsed time)
@@ -229,7 +229,7 @@ For deterministic problems, use a single scenario with `probability_factor=1`.
 #### `phase_array` and `scene_array` — Advanced Multi-Phase / Multi-Scene Support
 
 Optional sheets for SDDP multi-phase simulations. Most deterministic OPF
-cases do not need them — gtopt auto-creates a single default phase and scene
+cases do not need them — GTOpt auto-creates a single default phase and scene
 when these sheets are absent.
 
 **`phase_array`** groups consecutive planning stages into investment / operational
@@ -444,7 +444,7 @@ contains the **file stem** (without extension) as a string:
 {"uid": 1, "name": "d1", "bus": "b1", "lmax": "lmax"}
 ```
 
-The gtopt solver resolves `"lmax"` → `<input_directory>/Demand/lmax.parquet`
+The GTOpt solver resolves `"lmax"` → `<input_directory>/Demand/lmax.parquet`
 and reads the column named `"d1"`.
 
 ---
@@ -456,7 +456,7 @@ This tutorial walks through creating an Excel workbook for the standard IEEE
 57-bus test network. The result is a single-snapshot DC Optimal Power Flow
 with 57 buses, 7 generators, 42 demands, and 80 transmission lines.
 
-> **Reference topology:** For a visual example of a gtopt network topology,
+> **Reference topology:** For a visual example of a GTOpt network topology,
 > see the [IEEE 9-bus diagram](../diagrams/ieee9b_electrical.svg). The IEEE
 > 57-bus network follows the same principles at larger scale.
 
@@ -671,7 +671,7 @@ print(f'Lines:      {len(s[\"line_array\"])}')      # 80
 "
 ```
 
-Solve the case with gtopt:
+Solve the case with GTOpt:
 
 ```bash
 gtopt ieee57b.json
@@ -780,7 +780,7 @@ time-series `@` sheets using the `bat4b24` test case — a 4-bus network with a
 | 1 | d3 | 3 | lmax |
 | 2 | d4 | 4 | lmax |
 
-Note that `lmax` is set to the string `"lmax"` — this tells gtopt to read
+Note that `lmax` is set to the string `"lmax"` — this tells GTOpt to read
 the demand profile from the file `Demand/lmax.parquet` (produced by the
 `Demand@lmax` sheet).
 
@@ -792,7 +792,7 @@ the demand profile from the file `Demand/lmax.parquet` (produced by the
 
 This uses the **unified battery definition** — charge and discharge are
 defined directly on the battery without separate converter/generator/demand
-entries. gtopt creates the internal converter, charge demand, and discharge
+entries. GTOpt creates the internal converter, charge demand, and discharge
 generator automatically.
 
 **`generator_profile_array`:**
@@ -892,8 +892,8 @@ expensive g2 ($35/MWh).
 
 ## Downloadable Template
 
-The [gtopt Excel template](../templates/gtopt_template.xlsx) provides a
-ready-to-use workbook with pre-configured sheets for all gtopt planning
+The [GTOpt Excel template](../templates/gtopt_template.xlsx) provides a
+ready-to-use workbook with pre-configured sheets for all GTOpt planning
 elements. It includes:
 
 - A `.introduction` sheet with an overview of the tool, a directory of all
@@ -910,7 +910,7 @@ Start from this template and fill in your data to build a complete case.
 
 ### Regenerating the Template
 
-The template is generated automatically from the gtopt C++ JSON headers by
+The template is generated automatically from the GTOpt C++ JSON headers by
 `scripts/make_igtopt_template.py`.  Run this tool after adding new JSON elements
 to the C++ source to produce an up-to-date workbook:
 
@@ -1040,15 +1040,15 @@ python -m pytest igtopt/tests/ -m integration -q
 - [SCRIPTS.md](../scripts-guide.md) — Overview of all Python scripts including
   igtopt usage examples and the full sheet reference
 - [PLANNING_GUIDE.md](../planning-guide.md) — How to structure planning
-  problems for gtopt
-- [INPUT_DATA.md](../input-data.md) — Complete reference for gtopt JSON
+  problems for GTOpt
+- [INPUT_DATA.md](../input-data.md) — Complete reference for GTOpt JSON
   input format and all available options
 - [MATHEMATICAL_FORMULATION.md](../formulation/mathematical-formulation.md) — The LP/MIP
-  formulation that gtopt assembles from igtopt's output
-- [pp2gtopt.md](pp2gtopt.md) — Converting pandapower cases to gtopt (an
+  formulation that GTOpt assembles from igtopt's output
+- [pp2gtopt.md](pp2gtopt.md) — Converting pandapower cases to GTOpt (an
   alternative input path)
-- [gtopt_compare.md](gtopt_compare.md) — Validating gtopt results
+- [gtopt_compare.md](gtopt_compare.md) — Validating GTOpt results
   against pandapower DC OPF
-- [plp2gtopt.md](plp2gtopt.md) — Converting PLP cases to gtopt format
+- [plp2gtopt.md](plp2gtopt.md) — Converting PLP cases to GTOpt format
 - [`scripts/make_igtopt_template.py`](../../scripts/make_igtopt_template.py) —
   Tool that reads C++ JSON headers and regenerates the Excel template

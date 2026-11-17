@@ -124,7 +124,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gtopt2pbi",
         description=(
-            "Make gtopt field Parquet/CSV trees Power BI ready: reshape wide "
+            "Make GTOpt field Parquet/CSV trees Power BI ready: reshape wide "
             "uid:N tables to long [<index>, uid, value] and re-encode Parquet "
             "with a single readable codec (default zstd), in place."
         ),

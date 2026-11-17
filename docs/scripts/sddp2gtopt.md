@@ -1,7 +1,7 @@
-# sddp2gtopt — PSR SDDP to gtopt Converter
+# sddp2gtopt — PSR SDDP to GTOpt Converter
 
 Converts a **PSR SDDP** (*Stochastic Dual Dynamic Programming*, by PSR
-Inc.) case directory into a gtopt JSON planning, mirroring the role
+Inc.) case directory into a GTOpt JSON planning, mirroring the role
 [`plp2gtopt`](plp2gtopt.md) plays for PLP cases.
 
 ---
@@ -31,7 +31,7 @@ the input directory), both feeding the same entity IR + writer:
    `gtopt_shared.base_parser.BaseTextParser`) and orchestrated by
    [`dat_loader.py`](../../scripts/sddp2gtopt/dat_loader.py).
 
-Both produce a single-bus gtopt planning that `gtopt --lp-only` ingests
+Both produce a single-bus GTOpt planning that `gtopt --lp-only` ingests
 directly.  See [the `.dat` front-end](#the-dat-front-end-psr-sddp--ncp)
 below.
 
@@ -42,7 +42,7 @@ below.
 
 ### Who needs this tool?
 
-- Engineers migrating PSR SDDP archives to gtopt.
+- Engineers migrating PSR SDDP archives to GTOpt.
 - Teams running PLP and SDDP in parallel (e.g. CEN-Chile) who want a
   single solver to cross-validate both dialects.
 - Automation pipelines that already produce SDDP cases.
@@ -51,7 +51,7 @@ below.
 
 ## Installation
 
-Installs as part of the gtopt scripts package:
+Installs as part of the GTOpt scripts package:
 
 ```bash
 pip install ./scripts        # registers sddp2gtopt on PATH
@@ -169,7 +169,7 @@ and currently carry no data we need; v0 ignores them.
 
 ---
 
-## Mapping PSR SDDP elements → gtopt
+## Mapping PSR SDDP elements → GTOpt
 
 The conversion is a per-collection transformation.  Each PSR entity
 type is parsed by a function in
@@ -178,11 +178,11 @@ typed dataclass from
 [`sddp2gtopt/entities.py`](../../scripts/sddp2gtopt/entities.py); the
 writer in
 [`sddp2gtopt/gtopt_writer.py`](../../scripts/sddp2gtopt/gtopt_writer.py)
-then assembles the gtopt JSON.
+then assembles the GTOpt JSON.
 
 ### High-level table
 
-| PSR collection / field           | gtopt target                       | v0 status         |
+| PSR collection / field           | GTOpt target                       | v0 status         |
 |----------------------------------|------------------------------------|-------------------|
 | `PSRStudy`                       | top-level `options` + `simulation` | ✅ full            |
 | `PSRSystem`                      | `system.bus_array` (synthesised)   | ✅ single-system   |
@@ -198,7 +198,7 @@ then assembles the gtopt JSON.
 
 ### `PSRStudy` → `options` + `simulation`
 
-| PSR field             | gtopt target / formula                        |
+| PSR field             | GTOpt target / formula                        |
 |-----------------------|-----------------------------------------------|
 | `Ano_inicial`         | reference year (logged, not in JSON)          |
 | `Etapa_inicial`       | 1-based stage index (logged)                  |
@@ -230,7 +230,7 @@ named `sys_<code>_bus`.  The bus carries every generator and demand
 in that system.  Multi-bus topology (from `ccombus*.dat`) is the v3
 deliverable.
 
-| PSR field         | gtopt target                                                  |
+| PSR field         | GTOpt target                                                  |
 |-------------------|---------------------------------------------------------------|
 | `code`            | derives the synthetic bus name (`sys_{code}_bus`)             |
 | `name`            | logged, not in JSON                                           |
@@ -241,7 +241,7 @@ deliverable.
 
 ### `PSRFuel` → thermal cost component
 
-Fuels are not standalone gtopt entities; they only serve to compute
+Fuels are not standalone GTOpt entities; they only serve to compute
 each thermal plant's `gcost`.
 
 | PSR field      | Used as                                          |
@@ -255,10 +255,10 @@ each thermal plant's `gcost`.
 
 Each thermal plant becomes one entry in `system.generator_array`.
 
-| PSR field       | gtopt field      | Notes                                                                |
+| PSR field       | GTOpt field      | Notes                                                                |
 |-----------------|------------------|----------------------------------------------------------------------|
 | `name`          | `name`           | Falls back to `thermal_<code>` when blank                            |
-| `code`          | `uid` (offset)   | gtopt uids are sequential within the array, not direct copies        |
+| `code`          | `uid` (offset)   | GTOpt uids are sequential within the array, not direct copies        |
 | `GerMin[0]`     | `pmin`           |                                                                      |
 | `GerMax[0]`     | `pmax`           |                                                                      |
 | `PotInst[0]`    | `capacity`       | Same as `pmax` for v0                                                |
@@ -325,7 +325,7 @@ profile comes from the matching `PSRDemandSegment` (linked via
 `demand` reference_id).  v0 emits the profile inline as
 `lmax[stage][block]`, no Parquet file.
 
-| PSR source                          | gtopt field   | Conversion                    |
+| PSR source                          | GTOpt field   | Conversion                    |
 |-------------------------------------|---------------|-------------------------------|
 | `PSRDemand.name`                    | `name`        |                               |
 | `PSRDemand.system`                  | `bus`         | bus picked from `PSRSystem`   |
@@ -354,7 +354,7 @@ Worked example from `case0` (Tipo_Etapa = 2 → 730 h, 1 block):
 
 ## Stages, blocks, scenarios
 
-| gtopt concept    | PSR source                              |
+| GTOpt concept    | PSR source                              |
 |------------------|-----------------------------------------|
 | `stage_array`    | one entry per `NumeroEtapas`            |
 | `block_array`    | `NumeroBlocosDemanda` blocks per stage  |
@@ -445,7 +445,7 @@ same shared base `plp2gtopt`'s parsers use.
 ### Cost model (the key win over the PSS/E network export)
 
 PSR `.dat` carries the economics a PSS/E `.raw` lacks.  Each thermal
-unit's gtopt `gcost` is computed per segment as
+unit's GTOpt `gcost` is computed per segment as
 `CEsp(i) × fuel.Custo + CVaria`, where `Comb` selects the fuel and
 `G(i)` are the segment capacity percentages — so the converted DC
 dispatch follows the real PSR merit order.
@@ -455,7 +455,7 @@ dispatch follows the real PSR merit order.
 When both `dbus.dat` and `dcirc.dat` are present, the converter emits a
 **multi-bus DC OPF** (`use_kirchhoff = true`):
 
-- **buses** from `dbus.dat` (one gtopt `Bus` per node);
+- **buses** from `dbus.dat` (one GTOpt `Bus` per node);
 - **generator → bus** routing from the `dbus.dat` plant columns (matched
   by name — 100 % of the Guatemalan thermal+hydro plants map);
 - **circuits** from the fixed-width `dcirc.dat` (lines + transformers),

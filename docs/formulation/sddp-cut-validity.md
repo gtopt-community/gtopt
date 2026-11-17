@@ -2,7 +2,7 @@
 
 > **Status**: deliverable 1 of the cut-validity certification campaign
 > (2026-07-07/08).  States and proves the underestimator property for
-> every Benders-cut path in gtopt's SDDP/cascade machinery, and makes
+> every Benders-cut path in GTOpt's SDDP/cascade machinery, and makes
 > every tolerance and assumption explicit.  Companion artifacts: the
 > findings ledger
 > (`docs/analysis/investigations/sddp/sddp_cut_validity_findings_ledger_2026-07-08.md`)
@@ -35,7 +35,7 @@
 
 ## 1. Setting and Notation
 
-gtopt's SDDP decomposes the planning horizon into **phases**
+GTOpt's SDDP decomposes the planning horizon into **phases**
 $t = 0, \dots, T$ and the uncertainty into **scenes**
 $s = 1, \dots, N$ with probabilities $p_s$ ($\sum_s p_s = 1$ assumed;
 see A7).  Each (scene, phase) cell owns an LP.  Scene $s$ is a single
@@ -391,7 +391,7 @@ LP, so re-pinning to $x$ perturbs the shared dual point's objective by
 $\sum_i rc_i (x_i - \hat v_i)$ on every aperture alike.
 $\qquad\blacksquare$
 
-**Units (gtopt readback).**  $d_j$ is read from the representative
+**Units (GTOpt readback).**  $d_j$ is read from the representative
 clone's `get_col_cost()[j]` (physical view,
 $rc_{LP} \cdot \sigma / \text{col\_scale}_j$) and the bound deltas
 from `get_col_low()` / `get_col_upp()` (physical,
@@ -531,9 +531,9 @@ Architecture (verified against
   own $p_S \sum_r \varphi_r$ term) lands on $\varphi_S$ at phase $t$
   and is broadcast to $\varphi_S$ in *every* scene-LP;
 - PLP parity: `plp-agrespd.f:94` source indexing, `defprbpd.f:812-818`
-  pricing `(ScalePhi/ScaleObj)/NVarPhi` — identical to gtopt under
+  pricing `(ScalePhi/ScaleObj)/NVarPhi` — identical to GTOpt under
   uniform probabilities.  (PLP leaves $\varphi$ free, $\pm\infty$;
-  gtopt adds the §10 floors.)
+  GTOpt adds the §10 floors.)
 
 The scene-LP recursion is therefore, with cuts converging to their
 envelopes,
@@ -734,9 +734,9 @@ cuts of ITS hydrology only.  The terminal FCF is therefore the
 **expectation over plane hydrologies of per-hydrology maxima**,
 $\Phi(x) = \frac{1}{\text{NVarPhi}} \sum_j \max_{c \in j}
 (\rho_c + \langle \gamma_c, x\rangle)$ — independent of the run's
-scene count.  gtopt replicates this verbatim:
+scene count.  GTOpt replicates this verbatim:
 
-- the CSV `scene` column is read as the plane index $j$ (NOT a gtopt
+- the CSV `scene` column is read as the plane index $j$ (NOT a GTOpt
   scene UID); `register_alpha_variables` lays down NVarPhi terminal
   $\varphi_j$ columns in EVERY scene-LP
   (uid $= \texttt{sddp\_alpha\_uid} + \text{rank}(j)$, ranks from the

@@ -84,7 +84,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=None,
-        help="output directory for the gtopt planning JSON",
+        help="output directory for the GTOpt planning JSON",
     )
     parser.add_argument(
         "--hydro-cost",
@@ -105,7 +105,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--blocks-per-stage",
         type=int,
         default=0,
-        help="hourly blocks grouped into each gtopt stage on the multi-bus .dat "
+        help="hourly blocks grouped into each GTOpt stage on the multi-bus .dat "
         "path.  Default 0 = single stage: a one-week NCP dispatch is "
         "deterministic and solves monolithic (like the plexos cases).  A "
         "positive divisor of the horizon (e.g. 24 = daily) splits it into ≥ 2 "

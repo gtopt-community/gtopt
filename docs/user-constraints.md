@@ -1,6 +1,6 @@
 # User-Defined Constraints — Syntax Reference
 
-gtopt supports **user-defined linear constraints** that are added directly
+GTOpt supports **user-defined linear constraints** that are added directly
 to the LP formulation. Constraints are expressed in an AMPL-inspired syntax
 that references power system elements and their LP variables, with optional
 domain restrictions over scenarios, stages, and blocks.
@@ -228,7 +228,7 @@ generator('g').generation * block.duration   -- MWh drawn over the block
 ```
 
 > **Duration trap.** A per-block term is a *rate*, not an energy: `generator('g').generation`
-> is power (MW), and gtopt does **not** auto-multiply it by Δt. A storage
+> is power (MW), and GTOpt does **not** auto-multiply it by Δt. A storage
 > balance written without `* block.duration` is only correct when every block
 > is exactly 1 hour long. For multi-hour blocks you **must** write the explicit
 > `* block.duration` factor — this mirrors the native reservoir, whose energy
@@ -423,7 +423,7 @@ parses and lowers to a single-predicate filter.
 
 ### AMPL comparison
 
-| gtopt | AMPL equivalent |
+| GTOpt | AMPL equivalent |
 |-------|-----------------|
 | `sum(generator('G1','G2').generation)` | `sum{g in {"G1","G2"}} generation[g]` |
 | `sum(generator(all).generation)` | `sum{g in GENERATORS} generation[g]` |
@@ -909,7 +909,7 @@ simultaneously. Constraints from all sources are accumulated:
 
 ### Multi-file merge
 
-When loading from multiple JSON files (the standard gtopt pattern),
+When loading from multiple JSON files (the standard GTOpt pattern),
 constraints from all files are accumulated via `System::merge()`:
 
 ```bash
@@ -1314,7 +1314,7 @@ subject to weighted_cap {s in STAGES, b in BLOCKS: s in {4,5,6} and b >= 1 and b
 
 ### Key differences from AMPL
 
-| Aspect | AMPL | gtopt |
+| Aspect | AMPL | GTOpt |
 |--------|------|-------|
 | Element access | `generation["G1",s,b]` | `generator('G1').generation` |
 | Element by UID | Not applicable | `generator(3).generation` |
@@ -1328,7 +1328,7 @@ subject to weighted_cap {s in STAGES, b in BLOCKS: s in {4,5,6} and b >= 1 and b
 
 ### Design philosophy
 
-The gtopt constraint language is intentionally **narrower** than AMPL:
+The GTOpt constraint language is intentionally **narrower** than AMPL:
 
 - **No set definitions needed**: Element sets are implicit from the system
   model. `sum(generator(all).generation)` automatically sums over all

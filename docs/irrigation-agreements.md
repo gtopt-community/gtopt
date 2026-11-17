@@ -1,6 +1,6 @@
 # Irrigation Agreements — Modeling Guide
 
-gtopt models Chilean irrigation agreements (Convenios de Riego) through
+GTOpt models Chilean irrigation agreements (Convenios de Riego) through
 three generic, data-driven entity types — **FlowRight**, **VolumeRight**,
 and **UserConstraint** — that form a **rights-domain layer** parallel to
 the physical hydro topology.  This document describes the legal context,
@@ -18,7 +18,7 @@ the LP formulation, the entity mapping, and the PLP-to-gtopt comparison.
 6. [Laja Agreement (Convenio del Laja)](#6-laja-agreement-convenio-del-laja)
 7. [Maule Agreement (Convenio del Maule)](#7-maule-agreement-convenio-del-maule)
 8. [PLP-to-gtopt Name Mapping](#8-plp-to-gtopt-name-mapping)
-9. [PLP vs gtopt LP Comparison](#9-plp-vs-gtopt-lp-comparison)
+9. [PLP vs GTOpt LP Comparison](#9-plp-vs-gtopt-lp-comparison)
    - [LP Variable Naming Conventions](#90-lp-variable-naming-conventions)
    - [Coefficient Scaling](#90b-coefficient-scaling)
    - [Reservoir Balance Comparison](#97-reservoir-balance-comparison-stage-1-block-1-dur7h)
@@ -40,7 +40,7 @@ modern electricity market.  These agreements constrain how much water a
 hydro operator can turbine, divert, or store, depending on reservoir
 volume, season, and accumulated rights usage.
 
-gtopt currently models two agreements:
+GTOpt currently models two agreements:
 
 | Feature | Laja Agreement | Maule Agreement |
 |---------|----------------|-----------------|
@@ -146,7 +146,7 @@ elements (reservoirs, junctions) through explicit references:
 
 ### 2.2 Entity Summary
 
-| gtopt Entity | Purpose | PLP Equivalent |
+| GTOpt Entity | Purpose | PLP Equivalent |
 |---|---|---|
 | **FlowRight** | Flow-based right (m³/s) per block | IQ* variables (IQDR, IQDE, IQMNE, etc.) |
 | **VolumeRight** | Volume-based right (hm³) across stages | IV* variables (IVDRF, IVDEF, VMGEMF, etc.) |
@@ -405,7 +405,7 @@ complete constraint expression syntax.
 > PLP has **no** non-served costs on the main rights flows — its only
 > deficit penalties are the per-retiro slacks (`CRiegoNSEta ×
 > FRiegoCost`).  The rights flows instead carry positive *usage* costs
-> (`CQVar(IQDR..IQGA)`, `genpdlajam.f:163-165`), which gtopt expresses
+> (`CQVar(IQDR..IQGA)`, `genpdlajam.f:163-165`), which GTOpt expresses
 > as negative `uvalue` on a target-0 kink.
 
 ### 6.3 VolumeRight Entities
@@ -522,7 +522,7 @@ complete constraint expression syntax.
 
 ### 8.1 Laja Agreement
 
-| PLP Variable | PLP Name | gtopt FlowRight | gtopt VolumeRight |
+| PLP Variable | PLP Name | GTOpt FlowRight | GTOpt VolumeRight |
 |---|---|---|---|
 | IQGT | Gasto Turbinado | `laja_q_turbinado` | — |
 | IQDR | Derecho de Riego | `laja_der_riego` | `laja_vol_der_riego` |
@@ -536,7 +536,7 @@ complete constraint expression syntax.
 
 ### 8.2 Maule Agreement
 
-| PLP Variable | PLP Name | gtopt FlowRight | gtopt VolumeRight |
+| PLP Variable | PLP Name | GTOpt FlowRight | GTOpt VolumeRight |
 |---|---|---|---|
 | IQMNE | Gasto Normal Eléctrico | `maule_gasto_normal_elec` | `maule_vol_gasto_elec_mensual` |
 | IQMNR | Gasto Normal Riego | `maule_gasto_normal_riego` | `maule_vol_gasto_riego_temp` |
@@ -554,7 +554,7 @@ complete constraint expression syntax.
 
 ### 8.3 Maule UserConstraints
 
-| PLP Origin | gtopt Name |
+| PLP Origin | GTOpt Name |
 |---|---|
 | `genpdmaulen.f` balance | `invernada_balance` |
 | `genpdmaulen.f` % ordinario eléctrico | `maule_pct_ordinario_elec` |
@@ -563,7 +563,7 @@ complete constraint expression syntax.
 
 ---
 
-## 9. PLP vs gtopt LP Comparison
+## 9. PLP vs GTOpt LP Comparison
 
 ### 9.0 LP Variable Naming Conventions
 
@@ -601,9 +601,9 @@ Constraint rows use generic indices (`c1`, `c2`, ...) — not named.
 | — | — | `m_vmgemf`..`m_vmdeif` (volume accumulators) |
 | — | — | `m_qr105`/`m_qa105` (Res 105), `m_qhinv`/`m_qhnein` |
 
-#### gtopt LP Names (with `--lp-file` or `--lp-debug`)
+#### GTOpt LP Names (with `--lp-file` or `--lp-debug`)
 
-gtopt uses structured names with entity-type prefix and UID suffix:
+GTOpt uses structured names with entity-type prefix and UID suffix:
 
 ```
 {entity_prefix}_{uid}_{scenario}_{stage}_{block}
@@ -629,13 +629,13 @@ PAMPL constraints use their defined name with suffixes:
 Both systems convert flow (m³/s) to volume using duration, but with
 different unit scaling:
 
-| Factor | PLP | gtopt |
+| Factor | PLP | GTOpt |
 |--------|-----|-------|
 | Flow → volume coefficient | `dur_hours × 3.6` (units: 1000 m³) | `dur_hours × 3.6e-3 × flow_scale / energy_scale` (units: scaled hm³) |
 | Objective scaling | None (raw $/hm³) | Divided by `scale_objective` (default 1e7) |
 | Volume storage units | 1000 m³ | hm³ / `energy_scale` |
 
-**Per-reservoir `variable_scales`** in gtopt provide numerical
+**Per-reservoir `variable_scales`** in GTOpt provide numerical
 conditioning without changing the mathematical formulation:
 
 | Reservoir | energy_scale | flow_scale | Purpose |
@@ -667,25 +667,25 @@ native m³/s without per-reservoir scaling.
 
 **Verified for block 1 (duration = 7 hours):**
 - PLP: `25.2 = 7 × 3.6` (uniform for all flow terms)
-- gtopt CIPRESES: `2.52e-05 = 7 × 3.6e-3 × 0.1 / 100`
-- gtopt COLBUN: `2.52e-05 = 7 × 3.6e-3 × 1.0 / 1000`
-- gtopt EL TORO: `2.52e-05 = 7 × 3.6e-3 × 10.0 / 10000`
+- GTOpt CIPRESES: `2.52e-05 = 7 × 3.6e-3 × 0.1 / 100`
+- GTOpt COLBUN: `2.52e-05 = 7 × 3.6e-3 × 1.0 / 1000`
+- GTOpt EL TORO: `2.52e-05 = 7 × 3.6e-3 × 10.0 / 10000`
 
 ### 9.0c Filtration Coefficient Verification
 
 **PLP** (CIPRESES rsv 6): `qf6 = 12.103 + 1.9689e-05 × vf6`
 (where vf6 in 1000 m³, so slope per hm³ = 0.019689)
 
-**gtopt**: `wwy_flow_134 = 12.103 + 0.9845 × (eini + vf_last)`
+**GTOpt**: `wwy_flow_134 = 12.103 + 0.9845 × (eini + vf_last)`
 (in scaled units, energy_scale=100, so slope per hm³ =
 2 × 0.9845 / 100 = 0.019689)
 
-**Exact match** — gtopt uses average of initial and final volume; the
+**Exact match** — GTOpt uses average of initial and final volume; the
 coefficients are algebraically equivalent.
 
 ### 9.1 Laja — Column (Variable) Comparison
 
-| PLP Index | PLP LP Name | Unit | gtopt LP Column | Status |
+| PLP Index | PLP LP Name | Unit | GTOpt LP Column | Status |
 |---|---|---|---|---|
 | IQGT (per block) | `l_qgt_j` | m³/s | `frt_flow_{laja_q_turbinado}` | **Match** |
 | IQDR (per block) | `l_qdr_j` | m³/s | `frt_flow_{laja_der_riego}` | **Match** |
@@ -717,7 +717,7 @@ coefficients are algebraically equivalent.
 
 **Notes:**
 1. PLP decomposes irrigation rights into sub-categories (primary 80%,
-   new 20%, emergency, saltos) via a separate balance node.  In gtopt,
+   new 20%, emergency, saltos) via a separate balance node.  In GTOpt,
    districts withdraw directly — the allocation is preserved through
    fixed discharge schedules.
 2. Total Laja discharge is implicitly satisfied by the reservoir balance
@@ -727,7 +727,7 @@ coefficients are algebraically equivalent.
 
 ### 9.2 Laja — Row (Constraint) Comparison
 
-| PLP Constraint | Equation | gtopt Equivalent | Status |
+| PLP Constraint | Equation | GTOpt Equivalent | Status |
 |---|---|---|---|
 | Flow partition (per block) | `qgt = qdr + qde + qdm + qga` | UserConstraint `laja_particion_derechos` | **Match** |
 | Hourly accumulation (×5) | `qeh = Σ dur_ratio × flow` | FlowRight `use_average=True` | **Match** |
@@ -740,7 +740,7 @@ coefficients are algebraically equivalent.
 
 ### 9.3 Maule — Column (Variable) Comparison
 
-| PLP Index | PLP LP Name | Unit | gtopt LP Column | Status |
+| PLP Index | PLP LP Name | Unit | GTOpt LP Column | Status |
 |---|---|---|---|---|
 | IQMNE (per block) | `m_qmne_j` | m³/s | `frt_flow_{maule_gasto_normal_elec}` | **Match** |
 | IQMNR (per block) | `m_qmnr_j` | m³/s | `frt_flow_{maule_gasto_normal_riego}` | **Match** |
@@ -771,13 +771,13 @@ coefficients are algebraically equivalent.
 4. Extraordinary zone block-level flow (IQMEI) is not explicitly modeled.
    Only active when reservoir is in the extraordinary zone (rare).
 5. Total irrigation delivery is implicit (sum of district flows).
-6. PLP tracks ordinary reserve extraction as state variables; gtopt
+6. PLP tracks ordinary reserve extraction as state variables; GTOpt
    enforces the percentage constraint per-block (tighter enforcement).
 7. Auxiliary volume accounting variables handled by `bound_rule`.
 
 ### 9.4 Maule — Row (Constraint) Comparison
 
-| PLP Constraint | Equation | gtopt Equivalent | Status |
+| PLP Constraint | Equation | GTOpt Equivalent | Status |
 |---|---|---|---|
 | Invernada balance | `deficit + no_deficit + natural = storage + bypass` | UserConstraint `invernada_balance` | **Match** |
 | % ordinary electric | `elec_ord <= pct × total_ord` | UserConstraint `maule_pct_ordinario_elec` | **Match** |
@@ -792,14 +792,14 @@ coefficients are algebraically equivalent.
 
 **Notes:**
 8. PLP partitions each central's turbine flow into rights categories.
-   gtopt uses aggregated FlowRights across all centrals — the
+   GTOpt uses aggregated FlowRights across all centrals — the
    optimization allocates extraction optimally anyway.
 9. Armerillo flow reconstruction is an accounting identity for
    reporting, not an optimization constraint.
 
 ### 9.5 Coverage Summary
 
-| Category | PLP Vars | gtopt Vars | Coverage |
+| Category | PLP Vars | GTOpt Vars | Coverage |
 |---|---|---|---|
 | Laja block flows | 4 types | 4 FlowRights | 100% |
 | Laja stage accumulators | 4 rights + 3 economy | 4 + 3 VolumeRights | 100% |
@@ -821,7 +821,7 @@ coefficients are algebraically equivalent.
    (constraints emitted by `gtopt_expand` when `plp2gtopt` resolves
    the arc names; PLP: `genpdlajam.f:70-76`, `genpdmaule.f:75-103`).
    **Deliberate deviation**: PLP includes the vertimiento column
-   (`qv`) in the Maule partition; gtopt anchors to the generation arc
+   (`qv`) in the Maule partition; GTOpt anchors to the generation arc
    ONLY, so spilled water can never be charged to — or rewarded
    through — a rights category (charging spills would let the LP
    monetise them, producing unphysical spills contrary to the
@@ -832,15 +832,15 @@ coefficients are algebraically equivalent.
    accounting; the physical water leaves through the anchored arc).
 
 2. **Irrigation supply decomposition (Laja)**: PLP has an explicit
-   80%/20% split between primary and new irrigators.  gtopt districts
+   80%/20% split between primary and new irrigators.  GTOpt districts
    have fixed demand schedules that implicitly enforce the same split.
 
 3. **Ordinary reserve accumulation (Maule)**: PLP tracks accumulated
-   ordinary reserve extraction as state variables.  gtopt enforces the
+   ordinary reserve extraction as state variables.  GTOpt enforces the
    percentage constraint per-block (tighter, no temporal smoothing).
 
 4. **Dynamic min turbine bounds**: PLP computes minimum generation
-   bounds from irrigation demand and economics.  gtopt relies on
+   bounds from irrigation demand and economics.  GTOpt relies on
    demand satisfaction penalties (fail_cost) to incentivize generation.
 
 ### 9.7 Reservoir Balance Comparison (Stage 1, Block 1, dur=7h)
@@ -857,7 +857,7 @@ c238: 25.2 qg6_1 + 25.2 qv6_1 - 25.2 qaf6_1 + 25.2 qe6_1 + 25.2 qf6 = 861.84
 ```
 All flow terms: `25.2 = 7 × 3.6` (uniform).
 
-**gtopt:**
+**GTOpt:**
 ```
 rsv_volumen_6: +2.52e-05 rsv_extraction_6 + 2.52e-05 rsv_drain_6
                + 0.000252 vrt_extraction_1012 - rsv_sini_6 + rsv_volumen_6 = 0
@@ -873,7 +873,7 @@ rsv_volumen_6: +2.52e-05 rsv_extraction_6 + 2.52e-05 rsv_drain_6
 c241: 25.2 qg37_1 + 25.2 qv37_1 - 25.2 qaf37_1 + 25.2 qe37_1 = 1400.544
 ```
 
-**gtopt:**
+**GTOpt:**
 ```
 rsv_volumen_37: +2.52e-05 rsv_extraction_37 + 2.52e-05 rsv_drain_37
                 + 2.52e-06 vrt_extraction_2005 (laja_vol_irr)
@@ -899,7 +899,7 @@ c240: 25.2 qg28_1 + 25.2 qv28_1 - 25.2 qv25_1 - 25.2 qaf28_1
 PLP uses 2 aggregate extraction vars: `qx28@1` (0–24 m³/s),
 `qx28@2` (0–50 m³/s).
 
-**gtopt:**
+**GTOpt:**
 ```
 rsv_volumen_28: +2.52e-05 rsv_extraction_28 + 2.52e-05 rsv_drain_28
                 + 2.52e-05 vrt_extraction_1006 (maule_vol_elec_mensual)
@@ -911,7 +911,7 @@ rsv_volumen_28: +2.52e-05 rsv_extraction_28 + 2.52e-05 rsv_drain_28
                 - rsv_sini_28 + rsv_volumen_28 = 0
 ```
 - All coefficients: `7 × 3.6e-3 × 1.0 / 1000 = 2.52e-05` (uniform) ✓
-- PLP's 2 aggregate vars → gtopt's 6 granular vars (finer tracking)
+- PLP's 2 aggregate vars → GTOpt's 6 granular vars (finer tracking)
 
 ### 9.8 Objective Coefficient Comparison (Laja, March)
 
@@ -920,7 +920,7 @@ rsv_volumen_28: +2.52e-05 rsv_extraction_28 + 2.52e-05 rsv_drain_28
 > usage values).  The corrected mapping, per `leelajam.f:202-207` and
 > annex 13.2 of the CEN informe, is:
 
-| PLP coefficient | PLP variable | gtopt encoding |
+| PLP coefficient | PLP variable | GTOpt encoding |
 |---|---|---|
 | `+CRiegoNS × FactMen × FRiegoCost_k` | retiro deficit `l_qrhrK` | district `fcost` schedule |
 | `+CQVar(IQDR) × FactMen` (0.0) | `l_qdr` flow | `uvalue = -cost_irr_uso × monthly` |
@@ -950,7 +950,7 @@ penalized only at the district withdrawals.
 
 ### 10.1 Economy Reset/Cap Rules (Laja)
 
-| Economy | PLP Behavior | gtopt Behavior | Impact |
+| Economy | PLP Behavior | GTOpt Behavior | Impact |
 |---------|-------------|----------------|--------|
 | ENDESA (IVESF) | Caps new provisions on reservoir overflow | Simple accumulator (no cap) | Minor — overflow is rare |
 | Reserve (IVERF) | Resets to zero when exiting lower cushion | Simple accumulator (no reset) | Low — reserve economies are emergency-only |
@@ -959,20 +959,20 @@ penalized only at the district withdrawals.
 ### 10.2 La Invernada Economy (Maule)
 
 PLP has conditional reset rules and seasonal usage windows for La
-Invernada economy that are not modeled in gtopt.  The current
+Invernada economy that are not modeled in GTOpt.  The current
 implementation is a simple accumulator.
 
 ### 10.3 Multi-Year Data Overrides
 
 PLP supports annual tables for irrigation percentages (`pct_riego_manual`)
 and Resolution 105 flows (`caudal_res105_manual`) that change year by
-year.  These multi-year override tables are not consumed by the gtopt
+year.  These multi-year override tables are not consumed by the GTOpt
 converter.
 
 ### 10.4 Colbun 425 Extraction Limit
 
 PLP imposes additional extraction limits when Colbun volume falls below
-elevation 425.  This volume-conditional bound is not modeled in gtopt.
+elevation 425.  This volume-conditional bound is not modeled in GTOpt.
 
 ### 10.5 Data Coverage
 
@@ -986,7 +986,7 @@ auto-modulation logic, PLP-specific flags, and accumulated volume caps.
 
 ## 11. Configuration and Usage
 
-Irrigation cases reach gtopt through a three-stage pipeline:
+Irrigation cases reach GTOpt through a three-stage pipeline:
 
 ```text
 Stage 1 ── PLP .dat files ─────────────▶ canonical JSON
@@ -1028,7 +1028,7 @@ entity and PAMPL files directly.
 
 The `gtopt_expand` package (`scripts/gtopt_expand/`) is the
 canonical Stage-2 transform.  It consumes a canonical JSON agreement
-description and emits the corresponding gtopt entity arrays plus the
+description and emits the corresponding GTOpt entity arrays plus the
 companion PAMPL file.
 
 ```bash
@@ -1151,6 +1151,6 @@ and constraints can be inspected.
   FlowRight, VolumeRight, and UserConstraint fields
 - **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — LP/MIP formulation including water rights
-- **[PLP vs gtopt LP Comparison](lp-comparison.md)** — Full LP
+- **[PLP vs GTOpt LP Comparison](lp-comparison.md)** — Full LP
   comparison covering generators, demands, lines, hydro, batteries,
   and SDDP structure (non-irrigation elements)

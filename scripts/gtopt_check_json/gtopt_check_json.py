@@ -241,12 +241,12 @@ def _parse_args(
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         prog="gtopt_check_json",
-        description=("Validate gtopt JSON planning files and report potential issues."),
+        description=("Validate GTOpt JSON planning files and report potential issues."),
     )
     parser.add_argument(
         "json_files",
         nargs="*",
-        help="Path(s) to the gtopt JSON case file(s).",
+        help="Path(s) to the GTOpt JSON case file(s).",
     )
     parser.add_argument(
         "--info",

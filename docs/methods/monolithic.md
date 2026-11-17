@@ -2,7 +2,7 @@
 
 ## 1. Introduction
 
-The **monolithic solver** is the default solver in gtopt.  It assembles the
+The **monolithic solver** is the default solver in GTOpt.  It assembles the
 full LP formulation for each scene (across all phases and stages) and solves
 it in a single call to the LP solver.  Different scenes are solved in
 parallel using the adaptive work pool.

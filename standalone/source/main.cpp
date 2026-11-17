@@ -96,6 +96,12 @@ int main(int argc, char** argv)
     }
 
     if (vm.contains("help")) {
+      std::cout << "GTOpt " << GTOPT_VERSION
+                << " - Generation, Transmission and storage Optimization\n"
+                   "Optimization and analysis of power-system generation, "
+                   "transmission and storage\n"
+                   "(expansion planning, hydrothermal scheduling, unit "
+                   "commitment and dispatch).\n\n";
       std::cout << desc << '\n';
       std::cout << R"(Examples
 ========

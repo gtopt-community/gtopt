@@ -14,7 +14,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="gtopt_results_summary",
         description=(
-            "Produce a KPI summary (JSON) of a gtopt optimization "
+            "Produce a KPI summary (JSON) of a GTOpt optimization "
             "result directory or ZIP."
         ),
     )

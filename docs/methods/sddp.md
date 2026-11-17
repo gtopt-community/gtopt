@@ -1,8 +1,8 @@
-# SDDP Solver — Stochastic Dual Dynamic Programming in gtopt
+# SDDP Solver — Stochastic Dual Dynamic Programming in GTOpt
 
 ## 1. Introduction
 
-The **SDDP solver** in gtopt implements a **Nested Benders Decomposition**
+The **SDDP solver** in GTOpt implements a **Nested Benders Decomposition**
 (NBD) algorithm — also known as **Stochastic Dual Dynamic Programming**
 (SDDP) — to decompose the multi-phase power system planning problem into
 smaller, per-phase LP subproblems.  This enables the solver to handle
@@ -94,7 +94,7 @@ This is the classic **SDDP algorithm** introduced by Pereira and Pinto
 
 ### 2.3 Optimality Cut Formula
 
-In gtopt's SDDP solver, the optimality cut added to phase $t-1$ from phase
+In GTOpt's SDDP solver, the optimality cut added to phase $t-1$ from phase
 $t$ is:
 
 $$
@@ -168,9 +168,9 @@ primary from secondary convergence.
 
 ---
 
-## 3. Mapping to gtopt's Time Structure
+## 3. Mapping to GTOpt's Time Structure
 
-gtopt's simulation has a hierarchical time structure:
+GTOpt's simulation has a hierarchical time structure:
 
 ```
 Scenario (probability weight)
@@ -190,7 +190,7 @@ because:
 - Within a phase, the monolithic LP handles all stages and blocks together
 - Between phases, Benders cuts approximate the future cost function
 
-| gtopt concept | SDDP role |
+| GTOpt concept | SDDP role |
 |--------------|-----------|
 | Phase | SDDP stage (decomposition unit) |
 | Stage | Time period within a phase (handled monolithically) |
@@ -448,7 +448,7 @@ solves) whenever any `Flow.inflow_model` is present.
 **PLP correspondence**: In PLP (`CEN65/src/osicallsc.cpp`), apertures are
 called "aberturas hidrologicas" (hydrological openings).  PLP iterates over
 all hydrological realizations for each stage, solves each one, and computes
-the expected cut weighted by scenario probabilities.  The gtopt implementation
+the expected cut weighted by scenario probabilities.  The GTOpt implementation
 follows the same pattern: clone the LP, update scenario-dependent bounds,
 solve, collect cuts, and compute the probability-weighted average.
 
@@ -1014,7 +1014,7 @@ penalised slack variables.  Five modes are available:
 | Mode | Origin | Cut shape | When to use |
 |------|--------|-----------|-------------|
 | `single_cut` (alias `cut`) | classical NBD / Birge–Louveaux | 1 aggregated π-weighted fcut | small problems, classical behaviour |
-| `multi_cut` | gtopt (PLP-inspired) | 1 signed bound cut per activated slack | persistent per-reservoir infeasibility |
+| `multi_cut` | GTOpt (PLP-inspired) | 1 signed bound cut per activated slack | persistent per-reservoir infeasibility |
 | `chinneck` (alias `iis`) | Chinneck 1991/2008 §3.5 | multi_cut restricted to the IIS | general default; never worse than multi_cut |
 | `state_repair` (alias `plp`) | PLP-CEN (`plp-agrespd.f::AgrElastici`) | N single-variable minimal-repair cuts | PLP parity runs; bound-consistent by construction |
 | `farkas_recursive` | Füllner & Rebennack, SIAM Review 2023, §17.2–17.3 | 1 aggregated recursive cut (installed fcut rows relaxed with `+z`) | runs where installed fcuts themselves become infeasible (the "relaxed clone infeasible" kill chain) |
@@ -1034,7 +1034,7 @@ ray API).
 
 Setting `sddp_options.fcut_log = true` (CLI shorthand `--fcut-log`)
 writes a dedicated feasibility-cut debug file, `gtopt_fcut.log`, to
-the resolved `log_directory` (sibling of `gtopt_<N>.log`) — the gtopt
+the resolved `log_directory` (sibling of `gtopt_<N>.log`) — the GTOpt
 analogue of PLP's `plpfact.log` (gated there by `FactDBL ≥ 1`), so
 cuts can be diffed across the two tools line-by-line.  Every mode in
 the taxonomy above is covered: each forward-pass infeasibility event
@@ -1116,7 +1116,7 @@ osi_lp_get_feasible_cut`, default `FOneFeasRay=FALSE`).  The elastic
 Phase-1 clone prices the slack pair at **unit-per-physical-unit** cost
 (`(1 ± tilt) × col_scale(dep)` — PLP's LP is unscaled, so its flat
 unit costs are physical prices; the `col_scale` fold keeps parity
-under gtopt's auto `scale_reservoir`) tilted by
+under GTOpt's auto `scale_reservoir`) tilted by
 `0.01 × rc(source col, previous basis)` toward the cheapest reservoir,
 with slack caps equal to the previous phase's state box — the repaired
 state is therefore bound-consistent BY CONSTRUCTION.  One
@@ -1137,7 +1137,7 @@ maintenance floor `emin = 596.152` (‰, = 635.13 hm³) was unreachable
 from the trial `vini = 528.705` (‰).  PLP's elastic clone found the
 minimal repair `+3.842` and emitted the mid-box single-variable cut
 `vf64(t−1) ≥ 532.547` — NOT a clamp to the box top (sim 17's
-coefficient 1.292 shows the `0.01·rc` tilt).  gtopt's legacy
+coefficient 1.292 shows the `0.01·rc` tilt).  GTOpt's legacy
 `multi_cut` path on the same family of events instead produced
 all-at-`source_upp` degenerate families that the drop guard cleared,
 then the aggregated fallback re-installed the degenerate cut — the
@@ -1579,11 +1579,11 @@ mitigate this:
 
 ## 8. Relationship to PLP
 
-The gtopt SDDP solver draws on concepts from the PLP (Programación Lineal
+The GTOpt SDDP solver draws on concepts from the PLP (Programación Lineal
 de la Planificación) hydrothermal scheduler [[5]](#ref5)[[6]](#ref6)
 maintained in the `marcelomatus/plp_storage` repository:
 
-| PLP concept | gtopt equivalent |
+| PLP concept | GTOpt equivalent |
 |-------------|-----------------|
 | SDDP forward/backward iteration | `SDDPMethod::forward_pass()` / `backward_pass()` |
 | Elastic filter (`osi_lp_get_feasible_cut`) | `SDDPMethod::elastic_solve()` via `clone()` |
@@ -1596,12 +1596,12 @@ maintained in the `marcelomatus/plp_storage` repository:
 The PLP code (`CEN65/src/osicallsc.cpp`) uses `OsiSolverInterface::clone()`
 in `osi_lp_get_feasible_cut` to create a temporary LP copy, zero the
 original objective, add elastic slack variables, solve for feasibility,
-extract the dual ray, and discard the clone.  gtopt's `elastic_solve()`
+extract the dual ray, and discard the clone.  GTOpt's `elastic_solve()`
 follows the same pattern.
 
 The `BackpropagateBounds` elastic filter mode (PLP-style direct bound
 update from the elastic-clone solution values) was supported in early
-versions of gtopt but the implementation was deleted during the
+versions of GTOpt but the implementation was deleted during the
 forward-pass-installs-fcuts refactor.  The enum value was subsequently
 removed; legacy `--set sddp_options.elastic_mode=backpropagate` calls
 now silently fall back to the default mode (`chinneck`).  See §5.4
@@ -1667,7 +1667,7 @@ Benders-cut coefficients at the end of a backward solve:
 - **PLP cut-file interoperability is preserved.**  The
   `boundary_cuts.csv` format generated by PLP stores only the final
   numeric coefficients `(πᵢ, α₀)` — it has no field identifying how they
-  were computed.  By strong duality, PLP's `πᵢ` and gtopt's `rcᵢ` are
+  were computed.  By strong duality, PLP's `πᵢ` and GTOpt's `rcᵢ` are
   the same number at optimum, so the existing name-based loader in
   `source/sddp_cut_io.cpp` handles PLP-generated cut files unchanged.
 
@@ -2040,7 +2040,7 @@ reports non-convergence.
 - [Monolithic Method](monolithic.md) --- monolithic solver
   documentation (default solver, boundary cuts, solve timeout)
 - [Mathematical Formulation](../formulation/mathematical-formulation.md) ---
-  full LP/MIP formulation for gtopt
+  full LP/MIP formulation for GTOpt
 - [Planning Guide](../planning-guide.md) --- worked examples and time
   structure concepts
 - [Input Data Reference](../input-data.md) --- JSON/Parquet input format

@@ -215,7 +215,7 @@ def _parse_args(
     parser = argparse.ArgumentParser(
         prog="gtopt_check_pampl",
         description=(
-            "Validate gtopt PAMPL (.pampl) and TAMPL (.tampl) user constraint files "
+            "Validate GTOpt PAMPL (.pampl) and TAMPL (.tampl) user constraint files "
             "and report potential issues."
         ),
     )

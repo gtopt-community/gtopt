@@ -1,13 +1,13 @@
 # gtopt_websrv - Web Service Launcher
 
-A command-line launcher for the gtopt web service that provides a REST API for
+A command-line launcher for the GTOpt web service that provides a REST API for
 submitting optimization cases and downloading results.
 
 ## Installation
 
 ### Option 1: Install webservice only (Recommended)
 
-Install just the web service without the gtopt binary:
+Install just the web service without the GTOpt binary:
 
 ```bash
 # Build and install webservice
@@ -24,9 +24,9 @@ npm run build
 **Note**: We use `npm install` (not `--production`) because TypeScript and other
 devDependencies are required for the build step (`npm run build`).
 
-### Option 2: Install with standalone gtopt binary
+### Option 2: Install with standalone GTOpt binary
 
-If you've already built the standalone gtopt binary, you can install it first,
+If you've already built the standalone GTOpt binary, you can install it first,
 then install webservice separately:
 
 ```bash
@@ -48,14 +48,14 @@ npm run build
 After installation:
 - The `gtopt_websrv` launcher is installed to `/usr/local/bin/gtopt_websrv`
 - The web service files are installed to `/usr/local/share/gtopt/webservice`
-- The webservice installation is completely independent of the gtopt binary
+- The webservice installation is completely independent of the GTOpt binary
 - A systemd service file template is provided for production deployments
 
 ## Requirements
 
 - Node.js 18 or later
 - npm 9 or later
-- gtopt binary (required to actually run cases)
+- GTOpt binary (required to actually run cases)
 
 ## Usage
 
@@ -156,7 +156,7 @@ sudo systemctl status gtopt-webservice
 
 The default service file uses these settings:
 - Port: 3000
-- User: gtopt (create this user first)
+- User: GTOpt (create this user first)
 - Working directory: /usr/local/share/gtopt/webservice
 - GTOPT_BIN: /usr/local/bin/gtopt
 
@@ -165,7 +165,7 @@ Edit `/etc/systemd/system/gtopt-webservice.service` to customize these settings.
 ## Features
 
 The web service provides:
-- **Case Upload**: Upload gtopt cases as ZIP files
+- **Case Upload**: Upload GTOpt cases as ZIP files
 - **Job Submission**: Submit cases for solving with unique job tokens
 - **Status Polling**: Check the status of running jobs
 - **Result Download**: Download solver results as ZIP files
@@ -225,9 +225,9 @@ sudo systemctl stop gtopt-webservice
 
 ## Troubleshooting
 
-### "Error: gtopt binary not found"
+### "Error: GTOpt binary not found"
 
-The launcher tries to find the gtopt binary automatically. If it fails:
+The launcher tries to find the GTOpt binary automatically. If it fails:
 
 ```bash
 # Specify the binary location explicitly
@@ -332,4 +332,4 @@ grep localhost /etc/hosts
 
 - [README.md](README.md) - Full web service documentation
 - [INSTALL.md](INSTALL.md) - Detailed installation guide
-- [../README.md](../README.md) - gtopt main documentation
+- [../README.md](../README.md) - GTOpt main documentation

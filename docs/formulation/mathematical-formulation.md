@@ -1,6 +1,6 @@
 # Mathematical Formulation of the GTEP Optimization Problem
 
-> **gtopt** solves a multi-stage, multi-scenario **Generation and Transmission
+> **GTOpt** solves a multi-stage, multi-scenario **Generation and Transmission
 > Expansion Planning (GTEP)** problem formulated as a sparse linear program
 > (LP/MIP). This document describes the complete mathematical formulation in
 > detail.
@@ -70,7 +70,7 @@ The GTEP problem finds the minimum-cost combination of:
   planning stages.
 
 This is a classical problem in power system planning, extensively studied in
-the literature [[1]](#ref1) [[2]](#ref2) [[3]](#ref3) [[16]](#ref16). The gtopt formulation
+the literature [[1]](#ref1) [[2]](#ref2) [[3]](#ref3) [[16]](#ref16). The GTOpt formulation
 builds on the FESOP (Fabulous Energy System Optimizer) framework
 [[4]](#ref4), which extended traditional long-term operational planning
 (as implemented in PLP-type hydrothermal coordination tools [[5]](#ref5)
@@ -937,7 +937,7 @@ serving as the write-back target for the v1 iterative-tightening
 pre-solve [[Pineda2024]](https://doi.org/10.1016/j.epsr.2024.110720).
 
 **Cycle-basis disjunction (v1).**  In `kirchhoff_mode = cycle_basis`
-(the gtopt default) KVL is enforced as one equality per fundamental
+(the GTOpt default) KVL is enforced as one equality per fundamental
 cycle $C$ (see `source/kirchhoff_cycle_basis.cpp`), so a single
 switched-off line $l \in C$ invalidates every cycle through it.
 `add_kvl_rows` checks each cycle row for switchable lines and, when
@@ -1055,7 +1055,7 @@ where $W$ is a window defined by `starts_scope`:
 `"hour"` ⇒ 1 row per block, `"day"` ⇒ 24-hour cumulative-duration
 window, `"week"` ⇒ 168-hour window, `"horizon"` (default) ⇒ one row
 per stage, or an explicit integer hour count.  Aliases `"month"` and
-`"year"` collapse to `"horizon"` since a typical gtopt stage is
+`"year"` collapse to `"horizon"` since a typical GTOpt stage is
 shorter than a calendar month.  Both bounds share the same window
 LHS; either side is omitted when its bound is unset.  Mirrors
 PLEXOS's `Max Starts {Hour|Day|Week|...}` properties on the
@@ -1561,7 +1561,7 @@ By default, $m_{g,t}$ is a **continuous** variable (LP relaxation). When
 
 ### 5.12 User Constraints
 
-In addition to the built-in constraints above, gtopt supports
+In addition to the built-in constraints above, GTOpt supports
 **user-defined linear constraints** that allow arbitrary linear
 relationships between LP variables. User constraints are specified via
 the `user_constraint_array` (inline) or `user_constraint_file`
@@ -1604,7 +1604,7 @@ etc.).
 
 Hydro-dominated systems often operate under legally-binding irrigation
 agreements that partition turbine discharge into distinct rights
-categories with volume-dependent allocations. gtopt implements this via
+categories with volume-dependent allocations. GTOpt implements this via
 two generic LP elements that live **in parallel** to the physical hydro
 topology: `FlowRight` ($i \in \mathcal{FR}$) and `VolumeRight`
 ($o \in \mathcal{VR}$). They are optionally *consumptive* (coupled to
@@ -2068,7 +2068,7 @@ generator's own $\underline{P}_g$ when unset.
 
 ### 5.17 Inertia Zone and Provision
 
-Mirroring the reserve-zone formulation (§5.9), gtopt models
+Mirroring the reserve-zone formulation (§5.9), GTOpt models
 **synchronous inertia** as two coupled elements: `InertiaZone`
 ($z \in \mathcal{IZ}$) defines a per-block inertia requirement
 $\overline{R}_{z,t,b}^{H}$ in MWs, and `InertiaProvision`
@@ -2175,7 +2175,7 @@ well-conditioned range.
 
 ### 6.3 Variable Scaling
 
-Beyond the global objective and angle scaling factors, gtopt supports
+Beyond the global objective and angle scaling factors, GTOpt supports
 **per-variable scale factors** that improve LP solver numerics when
 physical quantities span very different magnitudes (e.g., reservoir
 volumes in dam$^3$ vs. power flows in MW).
@@ -2306,7 +2306,7 @@ power systems literature [[11]](#ref11) [[12]](#ref12):
 
 ### 6.6 Stochastic Dual Dynamic Programming (SDDP)
 
-When solving multi-stage problems with many scenarios, gtopt supports the
+When solving multi-stage problems with many scenarios, GTOpt supports the
 **Stochastic Dual Dynamic Programming (SDDP)** algorithm
 [[4]](#ref4) [[5]](#ref5) [[6]](#ref6). SDDP decomposes the full problem
 into a series of smaller LP sub-problems linked by **Benders cuts** that
@@ -2572,7 +2572,7 @@ to obtain dual information. The resulting **feasibility cut** has the
 same algebraic form as an optimality cut but is derived from the
 elastic-clone's dual solution rather than the original LP.
 
-In gtopt, the `CutType` enum distinguishes the two:
+In GTOpt, the `CutType` enum distinguishes the two:
 
 | `CutType` | Origin | Shared across scenes? |
 |-----------|--------|----------------------|
@@ -3088,7 +3088,7 @@ mathematical symbols used in this formulation.
 
 ## 9. References
 
-### FESOP and gtopt Publications
+### FESOP and GTOpt Publications
 
 <a id="ref4"></a>
 **[4]** Buitrago Villada, M.P., García Bujanda, C.E., Baeza, E., and
@@ -3097,7 +3097,7 @@ Integration in Long-Term Planning Using FESOP." *2022 IEEE Kansas Power
 and Energy Conference (KPEC)*, pp. 1–6.
 DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781).
 
-> The foundational paper for the FESOP framework on which gtopt is based.
+> The foundational paper for the FESOP framework on which GTOpt is based.
 > Presents results of applying FESOP to analyze optimal expansion of the
 > Aysén electric system over a 30-year horizon with four demand growth
 > scenarios, demonstrating renewable energy integration with spinning
@@ -3125,7 +3125,7 @@ DOI: [10.1063/1.5117671](https://doi.org/10.1063/1.5117671).
 > Quantifies the value of solar energy in the Chilean National Electric
 > System using long-term planning, hydrothermal coordination, and short-
 > term operation models — demonstrating the multi-model planning workflow
-> that motivated gtopt's unified approach.
+> that motivated GTOpt's unified approach.
 
 <a id="ref7"></a>
 **[7]** Benavides, C., Alvarez, R., Torres, R., Moreno, R., Matus, M.,
@@ -3135,7 +3135,7 @@ high shares of renewable energies." *E3S Web of Conferences*, 140, 11008.
 DOI: [10.1051/e3sconf/201914011008](https://doi.org/10.1051/e3sconf/201914011008).
 
 > Proposes a capacity valuation framework for variable renewable generation
-> in hydrothermal systems, relevant to gtopt's reserve and capacity
+> in hydrothermal systems, relevant to GTOpt's reserve and capacity
 > expansion modeling.
 
 <a id="ref8"></a>
@@ -3146,7 +3146,7 @@ DOI: [10.1109/PESGM.2015.7286570](https://doi.org/10.1109/PESGM.2015.7286570).
 
 > Introduces a continuous-time representation for power system operations
 > using Chebyshev polynomials, addressing the time-discretization
-> challenges that gtopt handles via its block/stage/scenario hierarchy.
+> challenges that GTOpt handles via its block/stage/scenario hierarchy.
 
 <a id="ref9"></a>
 **[9]** Matus, M., Sáez, D., Favley, M., Suazo-Martinez, C., Moya, J.,
@@ -3158,7 +3158,7 @@ DOI: [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254).
 
 > Addresses dynamic thermal rating of transmission lines — the real-time
 > capacity assessment problem complementary to the long-term transmission
-> expansion planning solved by gtopt.
+> expansion planning solved by GTOpt.
 
 ### Transmission Expansion Planning
 
@@ -3171,7 +3171,7 @@ DOI: [10.1049/ip-gtd:20020026](https://doi.org/10.1049/ip-gtd:20020026).
 
 > Defines the standard test systems and LP/MIP mathematical models for
 > transmission expansion planning. The DC power flow and transport models
-> in gtopt follow the formulations described in this seminal reference.
+> in GTOpt follow the formulations described in this seminal reference.
 
 <a id="ref2"></a>
 **[2]** Romero, R. and Monticelli, A. (1994). "A hierarchical
@@ -3180,7 +3180,7 @@ decomposition approach for transmission network expansion planning."
 DOI: [10.1109/59.317588](https://doi.org/10.1109/59.317588).
 
 > Introduces hierarchical decomposition for large-scale transmission
-> expansion, which influenced the multi-stage structure used in gtopt.
+> expansion, which influenced the multi-stage structure used in GTOpt.
 
 <a id="ref3"></a>
 **[3]** Lumbreras, S. and Ramos, A. (2016). "The new challenges to
@@ -3190,7 +3190,7 @@ DOI: [10.1016/j.epsr.2015.10.013](https://doi.org/10.1016/j.epsr.2015.10.013).
 
 > Comprehensive survey of TEP methods covering DC models, transport models,
 > multi-stage formulations, and uncertainty representation — all approaches
-> implemented in gtopt.
+> implemented in GTOpt.
 
 <a id="ref10"></a>
 **[10]** Gonzalez-Romero, I.C., Wogrin, S., and Román, T. (2020).
@@ -3200,7 +3200,7 @@ a market environment." *IET Generation, Transmission & Distribution*,
 DOI: [10.1049/iet-gtd.2019.0123](https://doi.org/10.1049/iet-gtd.2019.0123).
 
 > Reviews co-optimization of generation and transmission expansion (the
-> core GTEP problem solved by gtopt), covering LP/MIP formulations,
+> core GTEP problem solved by GTOpt), covering LP/MIP formulations,
 > decomposition methods, and renewable integration.
 
 ### DC Optimal Power Flow
@@ -3211,7 +3211,7 @@ Revisited." *IEEE Transactions on Power Systems*, 24(3), pp. 1290–1300.
 DOI: [10.1109/TPWRS.2009.2021235](https://doi.org/10.1109/TPWRS.2009.2021235).
 
 > The definitive reference on the DC power flow approximation. The
-> linearized power flow equations in gtopt's Kirchhoff constraints
+> linearized power flow equations in GTOpt's Kirchhoff constraints
 > (§5.6) follow the standard DC model: $f_l = B_l (\theta_a - \theta_b)$
 > where $B_l = V^2 / X_l$ is the line susceptance ($V$ and $X_l$ must
 > share a consistent unit system — see §5.6).
@@ -3221,7 +3221,7 @@ DOI: [10.1109/TPWRS.2009.2021235](https://doi.org/10.1109/TPWRS.2009.2021235).
 and Stability*. 2nd ed. Wiley-IEEE Press. ISBN: 978-0471238621.
 
 > Standard textbook for power system dynamics and stability. The IEEE
-> 9-bus and 14-bus test systems used in gtopt's benchmark cases originate
+> 9-bus and 14-bus test systems used in GTOpt's benchmark cases originate
 > from this reference.
 
 ### Similar Tools and Comparable Formulations
@@ -3233,9 +3233,9 @@ Python for Power System Analysis." *Journal of Open Research Software*,
 DOI: [10.5334/jors.188](https://doi.org/10.5334/jors.188).
 
 > PyPSA implements a similar LOPF (linear optimal power flow) formulation
-> with multi-period investment planning. gtopt's bus balance, Kirchhoff,
+> with multi-period investment planning. GTOpt's bus balance, Kirchhoff,
 > and storage constraints follow the same mathematical structure, with
-> gtopt additionally supporting hydro cascades and multi-scenario
+> GTOpt additionally supporting hydro cascades and multi-scenario
 > stochastic optimization.
 
 <a id="ref14"></a>
@@ -3245,8 +3245,8 @@ Electricity Resource Capacity Expansion Model." MIT Energy Initiative
 Working Paper.
 
 > GenX implements a similar capacity expansion formulation in Julia/JuMP.
-> Both GenX and gtopt use LP/MIP with modular capacity additions,
-> storage SoC tracking, and representative time periods, though gtopt
+> Both GenX and GTOpt use LP/MIP with modular capacity additions,
+> storage SoC tracking, and representative time periods, though GTOpt
 > uses a C++ sparse-matrix assembly for performance.
 
 <a id="ref17"></a>
@@ -3259,9 +3259,9 @@ DOI: [10.1109/TPWRS.2018.2829021](https://doi.org/10.1109/TPWRS.2018.2829021).
 
 > pandapower is a Python-based power system analysis tool supporting AC and
 > DC power flow, optimal power flow (OPF), and short-circuit analysis. It
-> is used by gtopt's `pp2gtopt` converter to import pandapower network
-> models into gtopt format, and by the `gtopt_compare` validation script to
-> provide a reference DC OPF solution for benchmarking gtopt results on
+> is used by GTOpt's `pp2gtopt` converter to import pandapower network
+> models into GTOpt format, and by the `gtopt_compare` validation script to
+> provide a reference DC OPF solution for benchmarking GTOpt results on
 > standard IEEE test cases (4-bus, 9-bus, 14-bus, 30-bus, 57-bus).
 
 ### Solvers
@@ -3272,7 +3272,7 @@ In *Emerging Theory, Methods, and Applications*, INFORMS, pp. 257–277.
 DOI: [10.1287/educ.1053.0020](https://doi.org/10.1287/educ.1053.0020).
 
 > Documents the COIN-OR CBC (Coin-or Branch and Cut) solver used as
-> gtopt's default MIP solver. CLP (COIN-OR Linear Programming) is used
+> GTOpt's default MIP solver. CLP (COIN-OR Linear Programming) is used
 > for pure LP problems.
 
 ### Classification and Surveys
@@ -3285,7 +3285,7 @@ DOI: [10.1109/JSYST.2018.2871793](https://doi.org/10.1109/JSYST.2018.2871793).
 
 > Systematic classification of TEP literature covering mathematical
 > models, solution methods, and uncertainty handling — provides context
-> for gtopt's position in the GTEP landscape.
+> for GTOpt's position in the GTEP landscape.
 
 ---
 
@@ -3319,6 +3319,6 @@ The LP is assembled in compressed sparse column (CSC) format via the
 
 ---
 
-*Document generated from the gtopt source code. See the C++ implementation
+*Document generated from the GTOpt source code. See the C++ implementation
 in `source/*_lp.cpp` and `include/gtopt/*_lp.hpp` for the canonical
 formulation. For the theoretical background, see [Section 9: References](#9-references).*

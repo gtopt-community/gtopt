@@ -1,4 +1,4 @@
-"""Schema dictionaries that drive the gtopt GUI.
+"""Schema dictionaries that drive the GTOpt GUI.
 
 Three exports:
 

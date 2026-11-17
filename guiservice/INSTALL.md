@@ -1,10 +1,10 @@
-# Installing and Running the gtopt GUI Service
+# Installing and Running the GTOpt GUI Service
 
-This guide covers setting up a server, installing the gtopt GUI service, and
+This guide covers setting up a server, installing the GTOpt GUI service, and
 running it in development or production. The GUI service provides a web-based
-graphical interface for creating, editing, and visualizing gtopt optimization
+graphical interface for creating, editing, and visualizing GTOpt optimization
 cases, with integrated connectivity to the
-[gtopt webservice](../webservice/INSTALL.md) for remote solving.
+[GTOpt webservice](../webservice/INSTALL.md) for remote solving.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ cases, with integrated connectivity to the
 - [5. Run the GUI Service](#5-run-the-gui-service)
 - [6. Run as a System Service](#6-run-as-a-system-service)
 - [7. Reverse Proxy (nginx)](#7-reverse-proxy-nginx)
-- [8. Connecting to the gtopt Webservice](#8-connecting-to-the-gtopt-webservice)
+- [8. Connecting to the GTOpt Webservice](#8-connecting-to-the-gtopt-webservice)
 - [9. Testing](#9-testing)
 - [10. API Reference](#10-api-reference)
 - [11. Troubleshooting](#11-troubleshooting)
@@ -30,7 +30,7 @@ cases, with integrated connectivity to the
 | Ubuntu | 22.04 LTS | Server OS (other Linux distros work with adjustments) |
 | Python | 3.10 | Runtime for the Flask application |
 | pip | 22 | Python package manager |
-| (Optional) gtopt webservice | — | Remote solver (see [webservice/INSTALL.md](../webservice/INSTALL.md)) |
+| (Optional) GTOpt webservice | — | Remote solver (see [webservice/INSTALL.md](../webservice/INSTALL.md)) |
 
 ## 1. Server Setup
 
@@ -125,7 +125,7 @@ The GUI service is configured through environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GTOPT_WEBSERVICE_URL` | `http://localhost:3000` | URL of the gtopt webservice for remote solving |
+| `GTOPT_WEBSERVICE_URL` | `http://localhost:3000` | URL of the GTOpt webservice for remote solving |
 | `FLASK_DEBUG` | `0` | Set to `1` for debug mode with auto-reload |
 
 Create a configuration file for persistent settings:
@@ -170,7 +170,7 @@ gunicorn -w 4 -b 0.0.0.0:5001 app:app
 ### Quick start (no webservice required)
 
 The GUI service works standalone for case creation, editing, and download.
-No gtopt webservice is required for these features:
+No GTOpt webservice is required for these features:
 
 ```bash
 cd guiservice
@@ -188,7 +188,7 @@ service that starts on boot.
 ```bash
 sudo tee /etc/systemd/system/gtopt-guiservice.service << 'EOF'
 [Unit]
-Description=gtopt GUI Service
+Description=GTOpt GUI Service
 After=network.target
 
 [Service]
@@ -271,15 +271,15 @@ sudo apt-get install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com
 ```
 
-## 8. Connecting to the gtopt Webservice
+## 8. Connecting to the GTOpt Webservice
 
-The GUI service can submit cases to the gtopt webservice for solving. This
+The GUI service can submit cases to the GTOpt webservice for solving. This
 requires a running webservice instance (see
 [webservice/INSTALL.md](../webservice/INSTALL.md)).
 
 ### From the GUI
 
-1. Start the gtopt webservice (default: `http://localhost:3000`)
+1. Start the GTOpt webservice (default: `http://localhost:3000`)
 2. Open the GUI at `http://localhost:5001`
 3. Navigate to **Solver → Webservice** in the left panel
 4. Enter the webservice URL and click **Test** to verify the connection
@@ -384,7 +384,7 @@ pip install -r guiservice/requirements.txt
 
 ### "Cannot connect to webservice"
 
-Ensure the gtopt webservice is running and accessible:
+Ensure the GTOpt webservice is running and accessible:
 
 ```bash
 curl http://localhost:3000/api/jobs

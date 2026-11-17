@@ -1,4 +1,4 @@
-# Investment Master — OptGen-style Expansion Planning in gtopt
+# Investment Master — OptGen-style Expansion Planning in GTOpt
 
 ## 1. Introduction
 
@@ -7,7 +7,7 @@ The **investment master** (`solve_investment_master`,
 integer investment** from **multistage continuous operation**, in the
 style of PSR's OptGen paired with SDDP.  Integer build decisions live
 ONLY in a small MIP master; the operational recourse is a convex LP
-oracle (the gtopt SDDP method run on a copy of the planning with
+oracle (the GTOpt SDDP method run on a copy of the planning with
 expansion integrality relaxed).  The two exchange **capacity-space
 Benders cuts** until the master lower bound meets the operational
 upper bound.

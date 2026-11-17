@@ -1,13 +1,13 @@
 # gtopt_gui - Standalone GUI Launcher
 
-A command-line launcher for the gtopt GUI service that provides a kiosk-like
-web interface for editing gtopt configuration files.
+A command-line launcher for the GTOpt GUI service that provides a kiosk-like
+web interface for editing GTOpt configuration files.
 
 ## Installation
 
 ### Option 1: Install guiservice only (Recommended)
 
-Install just the GUI service without the gtopt binary:
+Install just the GUI service without the GTOpt binary:
 
 ```bash
 # Build and install guiservice
@@ -19,9 +19,9 @@ sudo cmake --install build-gui
 pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
 ```
 
-### Option 2: Install with standalone gtopt binary
+### Option 2: Install with standalone GTOpt binary
 
-If you've already built the standalone gtopt binary, you can install it first,
+If you've already built the standalone GTOpt binary, you can install it first,
 then install guiservice separately:
 
 ```bash
@@ -42,7 +42,7 @@ After installation:
 - The `gtopt_gui` launcher is installed to `/usr/local/bin/gtopt_gui`
 - The GUI service files are installed to `/usr/local/share/gtopt/guiservice`
 - No modification to your shell or Python environment is required
-- The guiservice installation is completely independent of the gtopt binary
+- The guiservice installation is completely independent of the GTOpt binary
 
 ## Requirements
 
@@ -50,7 +50,7 @@ After installation:
 - Python packages: Flask, pandas, pyarrow, requests (see `guiservice/requirements.txt`)
 - A web browser (Chrome/Chromium recommended for app mode)
 - (Optional) Webservice for running optimizations - auto-started if installed
-- (Optional) gtopt binary for solving cases - automatically detected if installed
+- (Optional) GTOpt binary for solving cases - automatically detected if installed
 
 ## Usage
 
@@ -72,7 +72,7 @@ This opens your web browser to the GUI interface where you can:
 
 **Zero Configuration Required**: If you have installed both guiservice and webservice:
 - The webservice is automatically started in the background
-- The gtopt binary is automatically detected
+- The GTOpt binary is automatically detected
 - All components work together seamlessly
 - Clean shutdown when you press Ctrl+C
 
@@ -151,7 +151,7 @@ Options:
 ## Features
 
 - **Fully Integrated**: Auto-starts webservice for solving optimization cases
-- **Zero Configuration**: Automatically detects gtopt binary and webservice
+- **Zero Configuration**: Automatically detects GTOpt binary and webservice
 - **Standalone operation**: Runs entirely in user space, no root required
 - **Auto port selection**: Automatically finds available ports if not specified
 - **Browser compatibility first**: Opens in regular browser mode by default; `--app-mode` is available for kiosk-style launch
@@ -298,12 +298,12 @@ This message appears when the webservice is not installed or failed to start.
    gtopt_gui --webservice-url http://localhost:3000
    ```
 
-### "Warning: gtopt binary not found"
+### "Warning: GTOpt binary not found"
 
-The webservice will start but solving will fail without the gtopt binary.
+The webservice will start but solving will fail without the GTOpt binary.
 
 **Solutions:**
-1. Install gtopt standalone:
+1. Install GTOpt standalone:
    ```bash
    cmake -S standalone -B build
    cmake --build build
@@ -355,7 +355,7 @@ The integrated `gtopt_gui` consists of three components:
    - Auto-started by gtopt_gui (unless `--no-webservice`)
    - Located in webservice/
 
-3. **gtopt Binary**: The optimization solver
+3. **GTOpt Binary**: The optimization solver
    - Auto-detected in PATH or common locations
    - Called by webservice to solve cases
 
@@ -396,7 +396,7 @@ Use the `--no-browser` flag and manually open the URL shown in the terminal.
 
 The `gtopt_gui` command:
 
-1. Locates the guiservice directory (installed alongside the gtopt binary)
+1. Locates the guiservice directory (installed alongside the GTOpt binary)
 2. Finds an available TCP port (or uses the one specified with `--port`)
 3. Starts the Flask application on that port
 4. Opens your default web browser to the GUI interface
@@ -420,7 +420,7 @@ gtopt_gui.bat system_c0.json
 ```
 
 The batch script (`gtopt_gui.bat`) provides the same functionality as the Unix
-shell script and is installed alongside the gtopt binary on Windows.
+shell script and is installed alongside the GTOpt binary on Windows.
 
 **Note**: On Windows, make sure Python is installed and available in your PATH.
 Download Python from [python.org](https://www.python.org/) if needed.
@@ -436,4 +436,4 @@ Download Python from [python.org](https://www.python.org/) if needed.
 
 - [README.md](README.md) - Full GUI service documentation
 - [INSTALL.md](INSTALL.md) - Detailed installation guide
-- [../USAGE.md](../docs/usage.md) - gtopt command-line usage
+- [../USAGE.md](../docs/usage.md) - GTOpt command-line usage

@@ -171,14 +171,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="gtopt2pp",
         description=(
-            "Convert a gtopt JSON case to a pandapower network and "
+            "Convert a GTOpt JSON case to a pandapower network and "
             "optionally run DC OPF."
         ),
     )
     parser.add_argument(
         "case_file",
         type=Path,
-        help="Path to the gtopt JSON case file.",
+        help="Path to the GTOpt JSON case file.",
     )
     parser.add_argument(
         "-o",
@@ -231,7 +231,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "validate the source gtopt JSON via gtopt_check_json before "
+            "validate the source GTOpt JSON via gtopt_check_json before "
             "conversion: prints element counts and basic consistency "
             "checks. Use --no-check to disable. (default: enabled)"
         ),

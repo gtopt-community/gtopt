@@ -86,7 +86,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=None,
-        help="output directory for the gtopt planning JSON",
+        help="output directory for the GTOpt planning JSON",
     )
     parser.add_argument(
         "--name",

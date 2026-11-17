@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="nrel118_to_gtopt",
         description=(
-            "Convert the NREL-118 (Pena 2017) test system to a gtopt JSON "
+            "Convert the NREL-118 (Pena 2017) test system to a GTOpt JSON "
             "single-week dispatch fixture with IPCC AR6 emission factors."
         ),
     )
@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         "--output",
         type=Path,
         default=Path("nrel118.json"),
-        help="Output gtopt JSON path.",
+        help="Output GTOpt JSON path.",
     )
     parser.add_argument(
         "--cache-dir",

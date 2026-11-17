@@ -1,14 +1,14 @@
-# Tool Comparison: gtopt vs PLP vs pandapower
+# Tool Comparison: GTOpt vs PLP vs pandapower
 
-This document provides a detailed comparison between **gtopt** and two widely
+This document provides a detailed comparison between **GTOpt** and two widely
 used power system tools: **PLP** (a hydrothermal scheduling tool used
 extensively in Latin America) and **pandapower** (an open-source Python
 framework for power system analysis). It covers element-by-element parameter
 mapping, unit conventions, methodology differences, and guidance on when
 results should be directly comparable.
 
-> **Conversion tools**: The gtopt repository includes `plp2gtopt` (PLP →
-> gtopt), `pp2gtopt` (pandapower → gtopt), and `gtopt_compare`
+> **Conversion tools**: The GTOpt repository includes `plp2gtopt` (PLP →
+> GTOpt), `pp2gtopt` (pandapower → GTOpt), and `gtopt_compare`
 > (validation against pandapower DC OPF). See [Scripts Guide](../scripts-guide.md)
 > for installation and usage.
 
@@ -45,9 +45,9 @@ results should be directly comparable.
 - [14. Unit Convention Summary](#14-unit-convention-summary)
 - [15. Conversion Tools Reference](#15-conversion-tools-reference)
 - [16. Worked Examples](#16-worked-examples)
-  - [16.1 Single-Bus Dispatch: gtopt vs pandapower](#161-single-bus-dispatch-gtopt-vs-pandapower)
-  - [16.2 4-Bus DC OPF: gtopt vs pandapower](#162-4-bus-dc-opf-gtopt-vs-pandapower)
-  - [16.3 PLP Conversion Workflow: plp2gtopt → gtopt](#163-plp-conversion-workflow-plp2gtopt--gtopt)
+  - [16.1 Single-Bus Dispatch: GTOpt vs pandapower](#161-single-bus-dispatch-gtopt-vs-pandapower)
+  - [16.2 4-Bus DC OPF: GTOpt vs pandapower](#162-4-bus-dc-opf-gtopt-vs-pandapower)
+  - [16.3 PLP Conversion Workflow: plp2gtopt → GTOpt](#163-plp-conversion-workflow-plp2gtopt--gtopt)
 - [17. Broader Tool Landscape](#17-broader-tool-landscape)
 - [See Also](#see-also)
 
@@ -55,7 +55,7 @@ results should be directly comparable.
 
 ## 1. Overview
 
-| Feature | **gtopt** | **PLP** | **pandapower** |
+| Feature | **GTOpt** | **PLP** | **pandapower** |
 |---------|-----------|---------|----------------|
 | **Language** | C++26 | Fortran | Python |
 | **Primary use** | Generation & Transmission Expansion Planning (GTEP) | Hydrothermal scheduling | Power flow, OPF, state estimation |
@@ -76,14 +76,14 @@ results should be directly comparable.
 Buses represent electrical network nodes where generation, demand, and
 transmission lines connect.
 
-| Parameter | **gtopt** `Bus` | **PLP** `plpbar.dat` | **pandapower** `bus` | Notes |
+| Parameter | **GTOpt** `Bus` | **PLP** `plpbar.dat` | **pandapower** `bus` | Notes |
 |-----------|----------------|---------------------|---------------------|-------|
 | Identifier | `uid` (int) | `number` (int) | `index` (0-based int) | PLP/gtopt are 1-indexed; pp is 0-indexed. `pp2gtopt` adds 1. |
 | Name | `name` (string) | `name` (string, 8 char) | `name` (string) | PLP names are fixed-width Fortran strings. |
 | Active | `active` (optional bool) | — | `in_service` (bool) | PLP has no per-bus active flag. |
-| Type | `type` (optional string) | — | `type` ("b", "n") | gtopt uses free-form tags; pp has fixed types. |
+| Type | `type` (optional string) | — | `type` ("b", "n") | GTOpt uses free-form tags; pp has fixed types. |
 | Voltage | `voltage` (optional, kV) | `voltage` (kV) | `vn_kv` (kV) | **Same unit (kV).** One-to-one mapping. |
-| Reference angle | `reference_theta` (rad) | — (implicit slack) | — (ext_grid bus) | gtopt: explicit field; PLP: implicit from slack central; pp: implicit from ext_grid. |
+| Reference angle | `reference_theta` (rad) | — (implicit slack) | — (ext_grid bus) | GTOpt: explicit field; PLP: implicit from slack central; pp: implicit from ext_grid. |
 | Kirchhoff override | `use_kirchhoff` (optional bool) | — | — | gtopt-only; overrides global Kirchhoff setting per bus. |
 
 **Conversion notes:**
@@ -96,12 +96,12 @@ transmission lines connect.
 ## 3. Generator / Central
 
 PLP uses "centrals" to represent all types of generation (thermal, hydro,
-battery). gtopt and pandapower use separate elements for generators, batteries,
+battery). GTOpt and pandapower use separate elements for generators, batteries,
 and hydro components.
 
 ### 3.1 Thermal Generator
 
-| Parameter | **gtopt** `Generator` | **PLP** Central (type=termica) | **pandapower** `gen` / `ext_grid` | Notes |
+| Parameter | **GTOpt** `Generator` | **PLP** Central (type=termica) | **pandapower** `gen` / `ext_grid` | Notes |
 |-----------|----------------------|-------------------------------|----------------------------------|-------|
 | Identifier | `uid` (int) | `number` (int) | `index` (0-based) | |
 | Name | `name` | `name` (8 char) | `name` | |
@@ -109,15 +109,15 @@ and hydro components.
 | Min power | `pmin` (MW) | `pmin` (MW, from `plpcosce.dat`) | `min_p_mw` (MW) | **Same unit.** PLP reads pmin from cost file. |
 | Max power | `pmax` (MW) | `pmax` (MW, from `plpcosce.dat`) | `max_p_mw` (MW) | **Same unit.** |
 | Generation cost | `gcost` ($/MWh) | Cost curve from `plpcosce.dat` | `poly_cost.cp1_eur_per_mw` ($/MWh) | PLP has piecewise-linear cost curves; `plp2gtopt` linearizes. pp has polynomial costs; `pp2gtopt` uses only `cp1` (linear). |
-| Loss factor | `lossfactor` (p.u.) | `lossfactor` (p.u.) | — | PLP and gtopt: reduces effective injection. pp: not modeled in DC OPF. |
+| Loss factor | `lossfactor` (p.u.) | `lossfactor` (p.u.) | — | PLP and GTOpt: reduces effective injection. pp: not modeled in DC OPF. |
 | Active | `active` (bool) | — | `in_service` (bool) | |
-| Type tag | `type` (string) | Central type code | — | gtopt: free-form; PLP: termica/embalse/serie/pasada/bateria/falla. |
+| Type tag | `type` (string) | Central type code | — | GTOpt: free-form; PLP: termica/embalse/serie/pasada/bateria/falla. |
 
-### 3.2 PLP Central Type → gtopt Element Mapping
+### 3.2 PLP Central Type → GTOpt Element Mapping
 
-PLP has six central types, each mapping to different gtopt elements:
+PLP has six central types, each mapping to different GTOpt elements:
 
-| PLP Central Type | gtopt Elements Created | Description |
+| PLP Central Type | GTOpt Elements Created | Description |
 |-----------------|----------------------|-------------|
 | **termica** | `Generator` | Thermal/fossil unit. Direct 1:1 mapping. |
 | **embalse** | `Generator` + `Junction` + `Reservoir` + `Waterway` + `Turbine` | Reservoir hydro. The central becomes a generator; the reservoir storage becomes Junction + Reservoir + Waterway + Turbine topology. |
@@ -128,7 +128,7 @@ PLP has six central types, each mapping to different gtopt elements:
 
 ### 3.3 Generation Cost Curves
 
-| Aspect | **gtopt** | **PLP** | **pandapower** |
+| Aspect | **GTOpt** | **PLP** | **pandapower** |
 |--------|-----------|---------|----------------|
 | Cost model | Linear `gcost` ($/MWh) | Piecewise-linear from `plpcosce.dat` (up to N segments) | Polynomial: `cp0 + cp1·P + cp2·P²` |
 | Segments | Single marginal cost | Multiple (pmin₁,pmax₁,cost₁), …, (pminₙ,pmaxₙ,costₙ) | Single polynomial |
@@ -143,13 +143,13 @@ PLP has six central types, each mapping to different gtopt elements:
 
 ## 4. Demand / Load
 
-| Parameter | **gtopt** `Demand` | **PLP** `plpdem.dat` | **pandapower** `load` | Notes |
+| Parameter | **GTOpt** `Demand` | **PLP** `plpdem.dat` | **pandapower** `load` | Notes |
 |-----------|-------------------|---------------------|----------------------|-------|
 | Identifier | `uid` (int) | Demand index | `index` (0-based) | |
 | Name | `name` | `name` | `name` | |
 | Bus | `bus` (uid/name) | `bus` (number) | `bus` (index) | |
 | Max load | `lmax` (MW, schedule) | Demand profile (MW, per block) | `p_mw` (MW, scalar) | PLP: time-series in `plpdem.dat`; pp: single value. |
-| Curtailment cost | `fcost` ($/MWh) | `demand_fail_cost` (global) | — | gtopt: per-demand; PLP: global option; pp: no load shedding in standard DC OPF. |
+| Curtailment cost | `fcost` ($/MWh) | `demand_fail_cost` (global) | — | GTOpt: per-demand; PLP: global option; pp: no load shedding in standard DC OPF. |
 | Loss factor | `lossfactor` (p.u.) | — | — | gtopt-only; increases effective load. |
 | Energy min | `emin` (MWh) | — | — | gtopt-only; minimum energy served per stage. |
 | Energy cost | `ecost` ($/MWh) | — | — | gtopt-only; penalty for energy shortfall. |
@@ -157,19 +157,19 @@ PLP has six central types, each mapping to different gtopt elements:
 **Conversion notes:**
 - `plp2gtopt`: Reads `plpdem.dat` with per-block demand profiles. Writes `Demand/lmax.parquet` with time-series data indexed by `(scenario, stage, block, uid)`.
 - `pp2gtopt`: Maps `load.p_mw` → `lmax = [[p_mw]]` (single block, wrapped in 2D list). Loads with `p_mw ≤ 0` are skipped.
-- **Key difference**: PLP and gtopt support time-varying demand profiles; pandapower is a single snapshot.
+- **Key difference**: PLP and GTOpt support time-varying demand profiles; pandapower is a single snapshot.
 
 ---
 
 ## 5. Transmission Line
 
-| Parameter | **gtopt** `Line` | **PLP** `plpcnfli.dat` | **pandapower** `line` | Notes |
+| Parameter | **GTOpt** `Line` | **PLP** `plpcnfli.dat` | **pandapower** `line` | Notes |
 |-----------|-----------------|----------------------|----------------------|-------|
 | Identifier | `uid` (int) | Line index | `index` (0-based) | |
 | Name | `name` | `name` (8 char) | `name` | |
 | From bus | `bus_a` (uid) | `bus_a` (number) | `from_bus` (index) | |
 | To bus | `bus_b` (uid) | `bus_b` (number) | `to_bus` (index) | |
-| Reactance | `reactance` (p.u.) | `reactance` (p.u.) | `x_ohm_per_km` (Ω/km) | **PLP and gtopt use p.u.; pp uses physical Ohms.** Conversion required. |
+| Reactance | `reactance` (p.u.) | `reactance` (p.u.) | `x_ohm_per_km` (Ω/km) | **PLP and GTOpt use p.u.; pp uses physical Ohms.** Conversion required. |
 | Resistance | `resistance` (p.u.) | `resistance` (p.u.) | `r_ohm_per_km` (Ω/km) | Used for loss modeling; ignored in lossless DC OPF. |
 | Max flow A→B | `tmax_ab` (MW) | `tmax_ab` (MW) | Computed from `max_i_ka` | PLP/gtopt: direct MW; pp: `tmax = max_i_ka × vn_kv × √3`. |
 | Max flow B→A | `tmax_ba` (MW) | `tmax_ba` (MW) | Same as A→B | PLP/gtopt: asymmetric limits; pp: symmetric. |
@@ -179,7 +179,7 @@ PLP has six central types, each mapping to different gtopt elements:
 | Voltage | `voltage` (kV) | `voltage` (kV) | `bus.vn_kv` (kV) | pp: voltage from connected bus. |
 | Transfer cost | `tcost` ($/MWh) | — | — | gtopt-only; variable cost for line usage. |
 
-### Reactance Conversion (pandapower → gtopt)
+### Reactance Conversion (pandapower → GTOpt)
 
 pandapower stores line parameters in physical units (Ω/km). Conversion to
 per-unit (p.u.) requires:
@@ -193,14 +193,14 @@ x_pu = (x_ohm_per_km × length_km) / Z_base
 reactance (`x_pu < 1e-6`) are filtered out.
 
 **Conversion notes:**
-- `plp2gtopt`: Direct mapping; PLP already uses per-unit reactance matching gtopt.
+- `plp2gtopt`: Direct mapping; PLP already uses per-unit reactance matching GTOpt.
 - `pp2gtopt`: Converts Ω to p.u. using `x_pu = x_ohm / (vn_kv² / 100)`. Sets `tmax = max_i_ka × vn_kv × √3` or 9999 if unconstrained.
 
 ---
 
 ## 6. Battery / Energy Storage
 
-| Parameter | **gtopt** `Battery` | **PLP** ESS (`plpess.dat`) | **PLP** Battery (`plpcenbat.dat`) | **pandapower** `storage` | Notes |
+| Parameter | **GTOpt** `Battery` | **PLP** ESS (`plpess.dat`) | **PLP** Battery (`plpcenbat.dat`) | **pandapower** `storage` | Notes |
 |-----------|--------------------|--------------------------|---------------------------------|-------------------------|-------|
 | Identifier | `uid` | Central number | BatInd | `index` | |
 | Charge efficiency | `input_efficiency` (p.u.) | `nc` (p.u.) | — | `efficiency_percent/100` | PLP ESS: read from `plpess.dat`. |
@@ -232,13 +232,13 @@ In `plp2gtopt`, when both ESS and Battery parsers provide data, **ESS takes prio
 
 ## 7. Hydro System
 
-gtopt models cascaded hydro systems with a graph-based topology. PLP uses a
+GTOpt models cascaded hydro systems with a graph-based topology. PLP uses a
 similar but differently structured representation.
 pandapower does not natively support hydro modeling.
 
 ### 7.1 Junction / Reservoir Node
 
-| Parameter | **gtopt** `Junction` | **PLP** (implicit) | **pandapower** | Notes |
+| Parameter | **GTOpt** `Junction` | **PLP** (implicit) | **pandapower** | Notes |
 |-----------|---------------------|--------------------|----------------|-------|
 | Identifier | `uid` (int) | Derived from central | — | Not a separate PLP element. |
 | Name | `name` | Central name | — | |
@@ -249,14 +249,14 @@ per downstream node in the hydro cascade.
 
 ### 7.2 Reservoir / Embalse
 
-| Parameter | **gtopt** `Reservoir` | **PLP** Embalse Central (`plpcnfce.dat`) | Notes |
+| Parameter | **GTOpt** `Reservoir` | **PLP** Embalse Central (`plpcnfce.dat`) | Notes |
 |-----------|----------------------|----------------------------------------|-------|
-| Junction | `junction` (uid) | Implicit from central | gtopt links reservoir to a junction node. |
+| Junction | `junction` (uid) | Implicit from central | GTOpt links reservoir to a junction node. |
 | Min volume | `emin` (dam³) | `vol_min` (Mm³) | **Unit conversion**: 1 Mm³ = 1000 dam³. `plp2gtopt` multiplies by 1000. |
 | Max volume | `emax` (dam³) | `vol_max` (Mm³) | Same conversion. |
 | Initial volume | `eini` (dam³) | `vol_ini` (Mm³) | Same conversion. |
 | Final volume | `efin` (dam³) | `vol_fin` (Mm³) | Same conversion. |
-| Spillway capacity | `spillway_capacity` (m³/s) | — (implicit large) | gtopt default: 6000 m³/s. |
+| Spillway capacity | `spillway_capacity` (m³/s) | — (implicit large) | GTOpt default: 6000 m³/s. |
 | Spillway cost | `spillway_cost` ($/dam³) | — | gtopt-only penalty for spilling. |
 | Storage capacity | `capacity` (dam³) | `vol_max` (Mm³) | Same as emax in basic cases. |
 | Volume scale | `variable_scales` (energy) | — | LP scaling via `options.variable_scales`: converts dam³ to Mm³ for numerics. |
@@ -267,13 +267,13 @@ per downstream node in the hydro cascade.
 
 **Volume unit convention:**
 - **PLP**: Mm³ (millions of cubic meters)
-- **gtopt**: dam³ (decacubic meters; 1 dam³ = 1000 m³)
+- **GTOpt**: dam³ (decacubic meters; 1 dam³ = 1000 m³)
 - **Conversion**: `volume_dam³ = volume_Mm³ × 1000`
 - **Physical**: 1 Mm³ = 1,000,000 m³ = 1,000 dam³
 
 ### 7.3 Waterway / Water Channel
 
-| Parameter | **gtopt** `Waterway` | **PLP** (implicit from central topology) | Notes |
+| Parameter | **GTOpt** `Waterway` | **PLP** (implicit from central topology) | Notes |
 |-----------|---------------------|----------------------------------------|-------|
 | Junction A | `junction_a` (uid) | Upstream central/junction | |
 | Junction B | `junction_b` (uid) | Downstream central/junction | |
@@ -287,7 +287,7 @@ connecting reservoir → series → pasada centrals.
 
 ### 7.4 Turbine
 
-| Parameter | **gtopt** `Turbine` | **PLP** Central (hydro types) | Notes |
+| Parameter | **GTOpt** `Turbine` | **PLP** Central (hydro types) | Notes |
 |-----------|--------------------|-----------------------------|-------|
 | Waterway | `waterway` (uid) | Implicit from central position | |
 | Generator | `generator` (uid) | Central number | Links turbine to electrical generator. |
@@ -301,10 +301,10 @@ where head is derived from the reservoir geometry.
 
 ### 7.5 Flow / Inflow
 
-| Parameter | **gtopt** `Flow` | **PLP** `plpaflce.dat` | Notes |
+| Parameter | **GTOpt** `Flow` | **PLP** `plpaflce.dat` | Notes |
 |-----------|-----------------|----------------------|-------|
 | Junction | `junction` (uid) | Central number | |
-| Direction | `direction` (+1 inflow, −1 outflow) | Always inflow | gtopt supports outflows too. |
+| Direction | `direction` (+1 inflow, −1 outflow) | Always inflow | GTOpt supports outflows too. |
 | Discharge | `discharge` (m³/s, schedule) | Inflow series (m³/s, per block per scenario) | **Same unit.** PLP has multi-hydrology stochastic inflows. |
 
 **Conversion**: `plp2gtopt` reads `plpaflce.dat` for each hydrology scenario and
@@ -312,7 +312,7 @@ writes `Flow/discharge.parquet` with `(scenario, stage, block, uid)` indices.
 
 ### 7.6 Filtration
 
-| Parameter | **gtopt** `Filtration` | **PLP** `plpfilemb.dat` | Notes |
+| Parameter | **GTOpt** `Filtration` | **PLP** `plpfilemb.dat` | Notes |
 |-----------|----------------------|------------------------|-------|
 | Waterway | `waterway` (uid) | Source reservoir name | |
 | Reservoir | `reservoir` (uid) | Receiving central name | |
@@ -329,9 +329,9 @@ writes `Flow/discharge.parquet` with `(scenario, stage, block, uid)` indices.
 
 ## 8. Transformer
 
-| Parameter | **gtopt** `Line` | **PLP** | **pandapower** `trafo` | Notes |
+| Parameter | **GTOpt** `Line` | **PLP** | **pandapower** `trafo` | Notes |
 |-----------|-----------------|---------|----------------------|-------|
-| Reactance | `reactance` (p.u.) | Not separate element | `vk_percent` (%) | pp transformer modeled as lossless line in gtopt. |
+| Reactance | `reactance` (p.u.) | Not separate element | `vk_percent` (%) | pp transformer modeled as lossless line in GTOpt. |
 | Tap ratio | — | — | `tap_pos`, `tap_neutral` | Not modeled in DC approximation. |
 
 **Conversion**: `pp2gtopt` converts transformers to equivalent lines:
@@ -347,7 +347,7 @@ the network topology.
 
 ## 9. Reserves
 
-| Parameter | **gtopt** `ReserveZone` / `ReserveProvision` | **PLP** | **pandapower** | Notes |
+| Parameter | **GTOpt** `ReserveZone` / `ReserveProvision` | **PLP** | **pandapower** | Notes |
 |-----------|---------------------------------------------|---------|----------------|-------|
 | Up-reserve requirement | `urreq` (MW) | — | — | gtopt-only. |
 | Down-reserve requirement | `drreq` (MW) | — | — | gtopt-only. |
@@ -362,7 +362,7 @@ framework. This is a gtopt-specific feature for spinning reserve requirements.
 
 ## 10. Time Structure
 
-| Aspect | **gtopt** | **PLP** | **pandapower** |
+| Aspect | **GTOpt** | **PLP** | **pandapower** |
 |--------|-----------|---------|----------------|
 | Block (time step) | `block_array`: uid, duration (hours) | `plpblo.dat`: block definitions, durations | Single snapshot (no time) |
 | Stage (period) | `stage_array`: uid, first_block, count_block, discount_factor | `plpeta.dat`: stage start/end months, annual discount | Single snapshot |
@@ -371,14 +371,14 @@ framework. This is a gtopt-specific feature for spinning reserve requirements.
 | Scene | `scene_array`: uid, scenarios (for SDDP decomposition) | Not separate | Not applicable |
 
 **Conversion notes:**
-- `plp2gtopt`: Maps PLP blocks → gtopt blocks with duration in hours; PLP stages → gtopt stages with first_block/count_block computed from month boundaries; hydrologies → scenarios with configurable probability_factors.
+- `plp2gtopt`: Maps PLP blocks → GTOpt blocks with duration in hours; PLP stages → GTOpt stages with first_block/count_block computed from month boundaries; hydrologies → scenarios with configurable probability_factors.
 - `pp2gtopt`: Creates minimal time structure: 1 block, 1 stage, 1 scenario (static dispatch).
 
 ---
 
 ## 11. Capacity Expansion
 
-| Parameter | **gtopt** (all expandable elements) | **PLP** (limited) | **pandapower** |
+| Parameter | **GTOpt** (all expandable elements) | **PLP** (limited) | **pandapower** |
 |-----------|-------------------------------------|-------------------|----------------|
 | Initial capacity | `capacity` | — | — |
 | Expansion capacity/module | `expcap` (MW or MWh) | `FPC` (for batteries) | Not supported |
@@ -387,7 +387,7 @@ framework. This is a gtopt-specific feature for spinning reserve requirements.
 | Annual derating | `annual_derating` (p.u./year) | — | Not supported |
 | Max capacity | `capmax` (MW or MWh) | — | Not supported |
 
-gtopt supports capacity expansion for **all** major elements: generators,
+GTOpt supports capacity expansion for **all** major elements: generators,
 demands, lines, batteries, and converters. PLP has limited expansion support
 only for batteries (via `plpcenbat.dat`). pandapower does not support expansion
 planning.
@@ -400,7 +400,7 @@ planning.
 
 All three tools minimize total cost, but with different scopes:
 
-**gtopt:**
+**GTOpt:**
 ```
 min Σ_s Σ_t Σ_b  prob_s × discount_t × duration_b ×
       [ Σ_g gcost_g × generation_g + Σ_d fcost × curtailment_d + Σ_l tcost_l × flow_l ]
@@ -419,7 +419,7 @@ min Σ_h Σ_t Σ_b  prob_h × discount_t × duration_b ×
 min Σ_g cost_g(p_g)    [polynomial: cp0 + cp1·p + cp2·p²]
 ```
 
-| Aspect | gtopt | PLP | pandapower |
+| Aspect | GTOpt | PLP | pandapower |
 |--------|-------|-----|------------|
 | Cost function type | Linear (per generator) | Piecewise-linear | Polynomial (up to quadratic) |
 | Demand curtailment | Per-demand penalty (`fcost`) | Global penalty (`demand_fail_cost`) | Not modeled |
@@ -435,7 +435,7 @@ All three tools support the DC power flow approximation (linearized AC power flo
 f_l = B_l × (θ_a − θ_b)    where B_l = V² / X_l (susceptance)
 ```
 
-| Aspect | gtopt | PLP | pandapower |
+| Aspect | GTOpt | PLP | pandapower |
 |--------|-------|-----|------------|
 | Angle variable | `θ` (radians, scaled by `scale_theta`) | `θ` (radians) | `θ` (degrees internally, radians in model) |
 | Susceptance | `V²/X` with per-unit X | `V²/X` with per-unit X | Computed from physical Ω | |
@@ -445,7 +445,7 @@ f_l = B_l × (θ_a − θ_b)    where B_l = V² / X_l (susceptance)
 
 ### 12.3 Solver and Formulation
 
-| Aspect | gtopt | PLP | pandapower |
+| Aspect | GTOpt | PLP | pandapower |
 |--------|-------|-----|------------|
 | Solver | COIN-OR CBC/CLP (LP/MIP) | Custom LP solver / SDDP | PYPOWER (Python) |
 | Problem type | Sparse LP/MIP | Sparse LP | Dense LP/QP |
@@ -455,7 +455,7 @@ f_l = B_l × (θ_a − θ_b)    where B_l = V² / X_l (susceptance)
 
 ### 12.4 Stochastic Optimization
 
-| Aspect | gtopt | PLP | pandapower |
+| Aspect | GTOpt | PLP | pandapower |
 |--------|-------|-----|------------|
 | Method | Multi-scenario LP or SDDP | SDDP (native) | Not supported |
 | Scenarios | `scenario_array` with probability weights | Hydrology scenarios | — |
@@ -473,7 +473,7 @@ Results should be **identical** (within solver tolerance) when:
 
 1. **Single-bus dispatch** (`use_single_bus=true`):
    - Same generators, same linear costs, same demand
-   - gtopt and pandapower DC OPF produce identical merit-order dispatch
+   - GTOpt and pandapower DC OPF produce identical merit-order dispatch
    - Validated by `gtopt_compare` for `s1b` case
 
 2. **Multi-bus DC OPF with identical network**:
@@ -485,7 +485,7 @@ Results should be **identical** (within solver tolerance) when:
 3. **PLP thermal-only cases**:
    - No hydro, no storage, single scenario
    - Same block structure and demand profiles
-   - `plp2gtopt` → gtopt should match PLP marginal costs exactly
+   - `plp2gtopt` → GTOpt should match PLP marginal costs exactly
 
 **Tolerance**: `gtopt_compare` uses ±0.1 MW for generation, ±max(1.0, cost×1e-3) for cost.
 
@@ -501,16 +501,16 @@ Results will be **close but not exact** when:
 2. **Piecewise-linear vs single-segment costs**:
    - PLP cost curves with multiple segments → `plp2gtopt` uses first segment
    - Generators operating in higher-cost segments will show cost differences
-   - Improvement: use gtopt's `pmin`/`pmax` schedule to approximate segments
+   - Improvement: use GTOpt's `pmin`/`pmax` schedule to approximate segments
 
 3. **Line losses included**:
-   - gtopt `use_line_losses=true` adds loss terms; pandapower DC OPF is lossless
+   - GTOpt `use_line_losses=true` adds loss terms; pandapower DC OPF is lossless
    - Difference: proportional to line resistance and loading (typically 1–3%)
 
 4. **Battery/ESS round-trip**:
-   - Different efficiency models between PLP ESS and gtopt Battery
+   - Different efficiency models between PLP ESS and GTOpt Battery
    - PLP ESS: separate `nd` (discharge) and `nc` (charge) efficiencies
-   - gtopt: `input_efficiency` (charge) and `output_efficiency` (discharge)
+   - GTOpt: `input_efficiency` (charge) and `output_efficiency` (discharge)
    - Mapping: `input_efficiency ≈ nc`, `output_efficiency ≈ nd`
 
 ### 13.3 Cases with Structural Differences
@@ -525,12 +525,12 @@ Results will **differ significantly** when:
 
 2. **SDDP decomposition**:
    - PLP SDDP has specific convergence criteria and cut generation logic
-   - gtopt SDDP supports different cut-sharing modes (None/Expected/Max)
+   - GTOpt SDDP supports different cut-sharing modes (None/Expected/Max)
    - Convergence speed and final bounds may differ; optimal policies
      should be equivalent in expectation
 
 3. **Multi-stage expansion planning**:
-   - PLP has limited expansion support; gtopt has full CAPEX optimization
+   - PLP has limited expansion support; GTOpt has full CAPEX optimization
    - No direct comparison possible for expansion variables
 
 4. **Reserve requirements**:
@@ -541,7 +541,7 @@ Results will **differ significantly** when:
 
 ## 14. Unit Convention Summary
 
-| Physical Quantity | **gtopt** | **PLP** | **pandapower** | Conversion |
+| Physical Quantity | **GTOpt** | **PLP** | **pandapower** | Conversion |
 |-------------------|-----------|---------|----------------|------------|
 | Active power | MW | MW | MW | 1:1 |
 | Energy | MWh | MWh | MWh | 1:1 |
@@ -562,9 +562,9 @@ Results will **differ significantly** when:
 
 ## 15. Conversion Tools Reference
 
-### plp2gtopt (PLP → gtopt)
+### plp2gtopt (PLP → GTOpt)
 
-Converts PLP `.dat` files to gtopt JSON + Parquet format.
+Converts PLP `.dat` files to GTOpt JSON + Parquet format.
 
 ```bash
 plp2gtopt -i plp_case_dir/ -o gtopt_case/
@@ -572,7 +572,7 @@ plp2gtopt -i plp_case_dir/ --excel -E output.xlsx   # Excel output
 ```
 
 **Key conversions performed:**
-- Central type classification → appropriate gtopt elements
+- Central type classification → appropriate GTOpt elements
 - Cost curve linearization (first segment)
 - Volume units: Mm³ → dam³ (×1000)
 - Filtration slope: Mm³ → dam³ (÷1000)
@@ -582,9 +582,9 @@ plp2gtopt -i plp_case_dir/ --excel -E output.xlsx   # Excel output
 
 See [plp2gtopt documentation](../scripts/plp2gtopt.md) for full usage.
 
-### pp2gtopt (pandapower → gtopt)
+### pp2gtopt (pandapower → GTOpt)
 
-Converts pandapower networks to gtopt JSON format.
+Converts pandapower networks to GTOpt JSON format.
 
 ```bash
 pp2gtopt -o output.json                          # IEEE 30-bus default
@@ -603,9 +603,9 @@ pp2gtopt --network ieee_57b -o output.json       # built-in network
 
 See [pp2gtopt documentation](../scripts/pp2gtopt.md) for full usage.
 
-### igtopt (Excel → gtopt)
+### igtopt (Excel → GTOpt)
 
-Converts Excel workbooks to gtopt JSON + Parquet format.
+Converts Excel workbooks to GTOpt JSON + Parquet format.
 
 ```bash
 igtopt system.xlsx -j output.json               # Excel to JSON
@@ -613,13 +613,13 @@ igtopt --make-template -j template.xlsx          # Generate template
 ```
 
 The Excel format is the same produced by `plp2gtopt --excel`, enabling the
-workflow: **PLP → plp2gtopt (Excel) → manual editing → igtopt → gtopt**.
+workflow: **PLP → plp2gtopt (Excel) → manual editing → igtopt → GTOpt**.
 
 See [igtopt documentation](../scripts/igtopt.md) for full usage.
 
 ### gtopt_compare (Validation against pandapower)
 
-Validates gtopt solver output against pandapower DC OPF reference solutions.
+Validates GTOpt solver output against pandapower DC OPF reference solutions.
 
 ```bash
 gtopt_compare ieee_4b_ori                        # built-in case
@@ -636,10 +636,10 @@ The following examples demonstrate end-to-end workflows using the conversion
 tools and solver. Each example includes the network diagram, the commands to
 run, and a side-by-side comparison of results.
 
-### 16.1 Single-Bus Dispatch: gtopt vs pandapower
+### 16.1 Single-Bus Dispatch: GTOpt vs pandapower
 
 The simplest possible power system: one bus, two generators, one load.
-This case (`s1b`) verifies that the merit-order dispatch logic in gtopt
+This case (`s1b`) verifies that the merit-order dispatch logic in GTOpt
 produces identical results to pandapower's DC OPF.
 
 **Network diagram** (generated with `gtopt_diagram`):
@@ -665,7 +665,7 @@ flowchart LR
 - g1: 200 MW capacity, $20/MWh — g2: 300 MW capacity, $40/MWh
 - Single block, single stage, single scenario
 
-#### Running gtopt
+#### Running GTOpt
 
 ```bash
 cd cases/s1b
@@ -690,7 +690,7 @@ pp.rundcopp(net, verbose=False)
 
 #### Result Comparison
 
-| Metric | **gtopt** | **pandapower** | Match |
+| Metric | **GTOpt** | **pandapower** | Match |
 |--------|-----------|----------------|-------|
 | g1 dispatch | 200 MW | 200 MW | ✅ Exact |
 | g2 dispatch | 50 MW | 50 MW | ✅ Exact |
@@ -705,7 +705,7 @@ this is a pure merit-order dispatch with no network constraints.
 
 ---
 
-### 16.2 4-Bus DC OPF: gtopt vs pandapower
+### 16.2 4-Bus DC OPF: GTOpt vs pandapower
 
 The `ieee_4b_ori` case is a 4-bus network with 2 generators, 2 loads,
 and 5 transmission lines. It tests DC power flow (Kirchhoff's voltage
@@ -744,7 +744,7 @@ flowchart LR
 - 5 transmission lines with per-unit reactances
 - Kirchhoff DC OPF enabled (`use_kirchhoff: true`)
 
-#### Running gtopt
+#### Running GTOpt
 
 ```bash
 cd cases/ieee_4b_ori
@@ -790,7 +790,7 @@ pp.create_line_from_parameters(net, 2, 3, length_km=1,
 pp.rundcopp(net, verbose=False)
 ```
 
-> **Reactance conversion**: gtopt uses per-unit reactance directly.
+> **Reactance conversion**: GTOpt uses per-unit reactance directly.
 > In pandapower, `x_ohm = x_pu × Z_base` where
 > `Z_base = vn_kv² / sn_mva`. With `vn_kv=10` and `sn_mva=100`,
 > `Z_base = 1.0 Ω`, so the numeric values are identical.
@@ -799,14 +799,14 @@ pp.rundcopp(net, verbose=False)
 
 **Generator dispatch:**
 
-| Generator | Bus | Cost | **gtopt** | **pandapower** | Match |
+| Generator | Bus | Cost | **GTOpt** | **pandapower** | Match |
 |-----------|-----|------|-----------|----------------|-------|
 | g1 | b1 | $20/MWh | 250 MW | 250 MW | ✅ Exact |
 | g2 | b2 | $35/MWh | 0 MW | 0 MW | ✅ Exact |
 
 **Bus marginal prices (LMP):**
 
-| Bus | **gtopt** | **pandapower** | Match |
+| Bus | **GTOpt** | **pandapower** | Match |
 |-----|-----------|----------------|-------|
 | b1 | $20.00/MWh | $20.00/MWh | ✅ Exact |
 | b2 | $20.00/MWh | $20.00/MWh | ✅ Exact |
@@ -815,7 +815,7 @@ pp.rundcopp(net, verbose=False)
 
 **Line flows (MW):**
 
-| Line | **gtopt** | **pandapower** | Match |
+| Line | **GTOpt** | **pandapower** | Match |
 |------|-----------|----------------|-------|
 | l1_2 | 104.26 | 104.26 | ✅ Exact |
 | l1_3 | 145.74 | 145.74 | ✅ Exact |
@@ -825,7 +825,7 @@ pp.rundcopp(net, verbose=False)
 
 **Total cost:**
 
-| Metric | **gtopt** | **pandapower** | Match |
+| Metric | **GTOpt** | **pandapower** | Match |
 |--------|-----------|----------------|-------|
 | Objective | 5000 $/h | 5000 $/h | ✅ Exact |
 
@@ -843,9 +843,9 @@ the same per-unit reactance values are used.
 
 ---
 
-### 16.3 PLP Conversion Workflow: plp2gtopt → gtopt
+### 16.3 PLP Conversion Workflow: plp2gtopt → GTOpt
 
-This example demonstrates converting a PLP case to gtopt format and
+This example demonstrates converting a PLP case to GTOpt format and
 solving it. The `plp_min_1bus` case is a minimal 1-bus system from the
 PLP `.dat` file format.
 
@@ -876,7 +876,7 @@ flowchart LR
 | `plpblo.dat` | 1 block (1 hour) |
 | `plpeta.dat` | 1 stage |
 
-#### Step 1: Convert PLP → gtopt
+#### Step 1: Convert PLP → GTOpt
 
 ```bash
 plp2gtopt \
@@ -890,7 +890,7 @@ plp2gtopt \
 > suitable for small deterministic cases. For stochastic multi-stage
 > problems, use the default `-S sddp`.
 
-#### Step 2: Solve with gtopt
+#### Step 2: Solve with GTOpt
 
 ```bash
 cd /tmp/plp_min_1bus
@@ -925,11 +925,11 @@ occurs. The bus marginal price equals the generator's marginal cost
 
 Beyond the primary comparison tools (PLP and pandapower), the GTEP and
 power system optimization ecosystem includes several other notable tools.
-This section places gtopt in the broader context.
+This section places GTOpt in the broader context.
 
 ### 17.1 Comparison Table
 
-| Feature | **gtopt** | **PyPSA** | **GenX** | **IDAES-GTEP** | **QuESt** | **SDDP.jl** | **PLP** |
+| Feature | **GTOpt** | **PyPSA** | **GenX** | **IDAES-GTEP** | **QuESt** | **SDDP.jl** | **PLP** |
 |---------|-----------|-----------|----------|----------------|-----------|-------------|---------|
 | Language | C++26 | Python | Julia | Python | Python | Julia | Fortran |
 | License | BSD-3 | MIT | GPL-2 | BSD-3 | BSD-3 | MPL-2 | Proprietary |
@@ -955,10 +955,10 @@ transport sectors through a unified network representation.  PyPSA uses
 `linopy` for LP/MIP construction and can call Gurobi, CPLEX, HiGHS, or
 GLPK as solver backends.
 
-**Strengths vs gtopt**: Multi-sector coupling, large user community,
+**Strengths vs GTOpt**: Multi-sector coupling, large user community,
 AC power flow support.
 
-**Weaknesses vs gtopt**: Python LP assembly can be slow for very large
+**Weaknesses vs GTOpt**: Python LP assembly can be slow for very large
 problems; no SDDP; limited hydro cascade modeling; no native Parquet I/O.
 
 ### 17.3 GenX
@@ -968,10 +968,10 @@ configurable electricity resource capacity expansion model developed at
 MIT \[Jenkins & Sepulveda, 2017\].  It supports temporal resolution up to
 hourly, unit commitment constraints, and endogenous retirement.
 
-**Strengths vs gtopt**: Mature unit commitment constraints, Julia/JuMP
+**Strengths vs GTOpt**: Mature unit commitment constraints, Julia/JuMP
 performance for LP assembly.
 
-**Weaknesses vs gtopt**: No DC OPF (transport model only), no hydro
+**Weaknesses vs GTOpt**: No DC OPF (transport model only), no hydro
 cascade modeling, no SDDP, GPL license limits commercial embedding.
 
 ### 17.4 IDAES-GTEP
@@ -980,10 +980,10 @@ cascade modeling, no SDDP, GPL license limits commercial embedding.
 framework developed by the IDAES Consortium for flexible GTEP formulations.
 It supports custom constraint sets and multi-period investment planning.
 
-**Strengths vs gtopt**: Highly modular Pyomo formulation, well-suited
+**Strengths vs GTOpt**: Highly modular Pyomo formulation, well-suited
 for custom research formulations.
 
-**Weaknesses vs gtopt**: Limited hydro modeling, no SDDP, Python
+**Weaknesses vs GTOpt**: Limited hydro modeling, no SDDP, Python
 performance limitations, less mature than established tools.
 
 ### 17.5 QuESt Planning
@@ -993,9 +993,9 @@ Laboratories focuses on energy storage sizing and siting within capacity
 expansion planning.  It includes a web-based GUI and multiple storage
 technology models.
 
-**Strengths vs gtopt**: Detailed storage technology models, web GUI.
+**Strengths vs GTOpt**: Detailed storage technology models, web GUI.
 
-**Weaknesses vs gtopt**: No DC OPF, no hydro cascades, no SDDP, limited
+**Weaknesses vs GTOpt**: No DC OPF, no hydro cascades, no SDDP, limited
 transmission modeling.
 
 ### 17.6 SDDP.jl
@@ -1005,13 +1005,13 @@ multi-stage stochastic optimization using SDDP \[Dowson & Kapelevich,
 2021\].  It provides a general-purpose SDDP implementation that can be
 applied to power system scheduling.
 
-**Strengths vs gtopt**: General-purpose SDDP with risk measures,
+**Strengths vs GTOpt**: General-purpose SDDP with risk measures,
 Markov chains, and parallel cuts.
 
-**Weaknesses vs gtopt**: Domain-agnostic (no built-in power system
+**Weaknesses vs GTOpt**: Domain-agnostic (no built-in power system
 components), no integrated DC OPF or expansion planning.
 
-### 17.7 Key Differentiators of gtopt
+### 17.7 Key Differentiators of GTOpt
 
 1. **C++ performance**: LP assembly in compiled C++ with `flat_map`-based
    sparse matrices is 10–27× faster than equivalent Python code.
@@ -1048,7 +1048,7 @@ components), no integrated DC OPF or expansion planning.
 ## See Also
 
 - [Scripts Guide](../scripts-guide.md) — Python tools overview
-- [Input Data Reference](../input-data.md) — gtopt input format specification
+- [Input Data Reference](../input-data.md) — GTOpt input format specification
 - [Usage Guide](../usage.md) — CLI reference and output interpretation
 - [Planning Guide](../planning-guide.md) — Worked examples and concepts
 - [Mathematical Formulation](../formulation/mathematical-formulation.md) — LP/MIP formulation

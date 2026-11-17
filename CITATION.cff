@@ -1,6 +1,15 @@
 cff-version: 1.2.0
-message: "If you use gtopt in your work, please cite it as below."
-title: "gtopt: Generation and Transmission Expansion Planning optimizer"
+message: "If you use GTOpt in your work, please cite it as below."
+title: "GTOpt: Generation, Transmission and storage Optimization"
+abstract: >-
+  GTOpt (Generation, Transmission and storage Optimization; pronounced
+  G-top, /ˈdʒiː tɒp/) is an open-source solver for the optimization and
+  analysis of power-system generation, transmission and storage. It builds
+  sparse LP/MIP formulations of multi-stage power systems for generation and
+  transmission expansion planning, hydrothermal scheduling (SDDP and cascade
+  decomposition), unit commitment and economic dispatch, with batteries,
+  pumped hydro and reservoirs modelled as first-class storage. The acronym
+  carries only the G and the T, but storage is part of the scope.
 type: software
 authors:
   - family-names: Matus
@@ -11,6 +20,8 @@ license: GPL-3.0-or-later
 keywords:
   - power systems
   - expansion planning
+  - energy storage
+  - hydrothermal scheduling
   - SDDP
   - unit commitment
   - linear programming

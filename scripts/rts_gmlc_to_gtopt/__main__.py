@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="rts_gmlc_to_gtopt",
         description=(
-            "Convert the RTS-GMLC (GridMod 2019) test system to a gtopt JSON "
+            "Convert the RTS-GMLC (GridMod 2019) test system to a GTOpt JSON "
             "single-day dispatch fixture with per-generator multi-pollutant "
             "emission accounting."
         ),
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         "--output",
         type=Path,
         default=Path("rts_gmlc.json"),
-        help="Output gtopt JSON path.",
+        help="Output GTOpt JSON path.",
     )
     parser.add_argument(
         "--cache-dir",

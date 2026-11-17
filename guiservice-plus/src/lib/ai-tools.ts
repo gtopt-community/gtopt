@@ -543,7 +543,7 @@ export function buildSystemPrompt(
     ? `Results are loaded (status=${(results.solution as Record<string, unknown>)?.status ?? '?'}).`
     : 'No results loaded yet.';
 
-  return `You are an expert AI assistant integrated into **gtopt GUI Plus** — a power systems Generation and Transmission Expansion Planning (GTEP) workbench.
+  return `You are an expert AI assistant integrated into **GTOpt GUI Plus** — a workbench for the optimization and analysis of power-system generation, transmission and storage (expansion planning, hydrothermal scheduling, unit commitment and dispatch).
 
 **Current case:** "${caseData.case_name ?? 'unnamed'}"
 **System:** ${counts || 'empty'}

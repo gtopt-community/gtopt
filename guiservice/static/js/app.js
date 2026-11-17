@@ -1,4 +1,4 @@
-/* gtopt GUI Service – Main Application Logic */
+/* GTOpt GUI Service – Main Application Logic */
 
 // ---------------------------------------------------------------------------
 // State
@@ -1892,7 +1892,7 @@ async function checkServer() {
 // ---------------------------------------------------------------------------
 
 async function shutdownService() {
-  if (!confirm("Are you sure you want to shut down the gtopt GUI and all services?")) {
+  if (!confirm("Are you sure you want to shut down the GTOpt GUI and all services?")) {
     return;
   }
   try {
@@ -1900,7 +1900,7 @@ async function shutdownService() {
   } catch (e) {
     // Connection will likely be lost immediately – that's expected.
   }
-  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#64748b"><h2>gtopt GUI has been shut down.</h2></div>';
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;color:#64748b"><h2>GTOpt GUI has been shut down.</h2></div>';
 }
 
 // ---------------------------------------------------------------------------

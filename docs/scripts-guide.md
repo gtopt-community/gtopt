@@ -1,7 +1,7 @@
-# gtopt Python Scripts
+# GTOpt Python Scripts
 
 The `scripts/` directory contains Python command-line utilities for
-preparing, converting, visualizing, and post-processing data for use with gtopt.
+preparing, converting, visualizing, and post-processing data for use with GTOpt.
 
 > **Detailed documentation** for each script is available in the
 > [`docs/scripts/`](scripts/) directory. This page provides a summary
@@ -16,7 +16,7 @@ preparing, converting, visualizing, and post-processing data for use with gtopt.
   - [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
   - [psse2gtopt](#psse2gtopt) · [full docs](scripts/psse2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
-  - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
+  - [gtopt2pp](#gtopt2pp) — convert GTOpt JSON back to pandapower
   - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel template](templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
   - [cvs2parquet](#cvs2parquet) · [full docs](scripts/cvs2parquet.md)
   - [ts2gtopt](#ts2gtopt) · [full docs](scripts/ts2gtopt.md)
@@ -36,7 +36,7 @@ preparing, converting, visualizing, and post-processing data for use with gtopt.
 - **Utilities**
   - [gtopt_config](#gtopt_config) — unified configuration for all tools
   - [gtopt_field_extractor](#gtopt_field_extractor)
-- [Tool Comparison (gtopt vs PLP vs pandapower)](tools/comparison.md)
+- [Tool Comparison (GTOpt vs PLP vs pandapower)](tools/comparison.md)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
 
 ---
@@ -77,16 +77,16 @@ Each command-line tool lives in its own Python package directory under
 
 | Package directory | Command | Description |
 |-------------------|---------|-------------|
-| `gtopt_compare/` | `gtopt_compare` | pandapower ↔ gtopt comparison |
+| `gtopt_compare/` | `gtopt_compare` | pandapower ↔ GTOpt comparison |
 | `cvs2parquet/` | `cvs2parquet` | CSV → Parquet converter |
 | `gtopt_diagram/` | `gtopt_diagram` | Network topology / planning diagrams |
 | `gtopt_field_extractor/` | `gtopt_field_extractor` | C++ header field metadata extractor |
-| `igtopt/` | `igtopt` | Excel → gtopt JSON converter |
-| `plp2gtopt/` | `plp2gtopt` | PLP → gtopt JSON converter |
-| `sddp2gtopt/` | `sddp2gtopt` | PSR SDDP/NCP → gtopt JSON converter (json + `.dat`) |
-| `psse2gtopt/` | `psse2gtopt` | PSS®E RAW → gtopt multi-bus DC OPF converter |
-| `pp2gtopt/` | `pp2gtopt` | pandapower → gtopt JSON converter |
-| `gtopt2pp/` | `gtopt2pp` | gtopt JSON → pandapower converter |
+| `igtopt/` | `igtopt` | Excel → GTOpt JSON converter |
+| `plp2gtopt/` | `plp2gtopt` | PLP → GTOpt JSON converter |
+| `sddp2gtopt/` | `sddp2gtopt` | PSR SDDP/NCP → GTOpt JSON converter (json + `.dat`) |
+| `psse2gtopt/` | `psse2gtopt` | PSS®E RAW → GTOpt multi-bus DC OPF converter |
+| `pp2gtopt/` | `pp2gtopt` | pandapower → GTOpt JSON converter |
+| `gtopt2pp/` | `gtopt2pp` | GTOpt JSON → pandapower converter |
 | `run_gtopt/` | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
 | `gtopt_check_json/` | `gtopt_check_json` | JSON planning file validator |
 | `gtopt_check_lp/` | `gtopt_check_lp` | Infeasible LP file diagnostic tool |
@@ -98,7 +98,7 @@ Each command-line tool lives in its own Python package directory under
 | `plp_compress_case/` | `plp_compress_case` | PLP case file compressor |
 | `gtopt_config/` | *(library)* | Unified configuration management |
 | `gtopt_monitor/` | `gtopt_monitor` | Live solver monitoring dashboard |
-| `ts2gtopt/` | `ts2gtopt` | Time-series → gtopt block schedule converter |
+| `ts2gtopt/` | `ts2gtopt` | Time-series → GTOpt block schedule converter |
 | `gtopt_expand/` | `gtopt_expand` | Expansion transforms: LNG terminal, ROR promotion, pumped storage, irrigation agreements (`gtopt_irrigation` is a deprecated alias) |
 | `cen_demanda/` | `cen_demanda` | Coordinador Eléctrico Nacional SIPUB hourly demand downloader |
 
@@ -123,7 +123,7 @@ Each command-line tool lives in its own Python package directory under
 
 > **[→ Full documentation](scripts/gtopt_diagram.md)**
 
-Generates **network topology and planning-structure diagrams** from a gtopt
+Generates **network topology and planning-structure diagrams** from a GTOpt
 JSON planning file.  Supports multiple output formats (SVG, PNG, PDF, DOT,
 Mermaid, interactive HTML) and automatic simplification of large cases via
 aggregation modes.
@@ -247,12 +247,12 @@ reduction options:
 
 > **[→ Full documentation](scripts/plp2gtopt.md)**
 
-Converts a **PLP** (*Programación de Largo Plazo*) case directory to the gtopt JSON + Parquet
+Converts a **PLP** (*Programación de Largo Plazo*) case directory to the GTOpt JSON + Parquet
 format.  Reads the standard PLP data files (`plpblo.dat`, `plpbar.dat`,
 `plpcosce.dat`, `plpcnfce.dat`, `plpcnfli.dat`, `plpdem.dat`, `plpeta.dat`,
 and others) and writes:
 
-- A **gtopt JSON file** (`<output-dir>.json`) with the complete system,
+- A **GTOpt JSON file** (`<output-dir>.json`) with the complete system,
   simulation, and options configuration.
 - **Parquet time-series files** organised in subdirectories under
   `<output-dir>/` (e.g. `Demand/lmax.parquet`, `Generator/pmin.parquet`,
@@ -261,10 +261,10 @@ and others) and writes:
 ### Hydro system conversion
 
 When `plpcnfce.dat` contains reservoir (*embalse*) or series (*serie*)
-centrals, `plp2gtopt` converts the cascaded hydro system into gtopt arrays.
+centrals, `plp2gtopt` converts the cascaded hydro system into GTOpt arrays.
 Two additional **optional** PLP files extend the hydro model:
 
-| PLP file | gtopt array | Description |
+| PLP file | GTOpt array | Description |
 |----------|-------------|-------------|
 | `plpcnfce.dat` | `junction_array`, `waterway_array`, `turbine_array`, `reservoir_array`, `flow_array` | Main hydro topology (required when hydro centrals exist) |
 | `plpcenre.dat` | `reservoir_production_factor_array` | Volume-dependent turbine production factor (PLP *rendimiento*): piecewise-linear conversion rate as a function of reservoir storage |
@@ -372,7 +372,7 @@ plp2gtopt -i input/ --stages-phase '1:12,13:24'
 ### Pasada (run-of-river) hydro modeling (`--pasada-hydro`)
 
 By default (`--pasada-hydro`, enabled), PLP *pasada* (run-of-river) centrals
-are converted into the full gtopt hydro topology: a junction, waterway,
+are converted into the full GTOpt hydro topology: a junction, waterway,
 turbine, and flow element for each central.  This preserves hydrological
 connectivity and allows the solver to model water balance constraints.
 
@@ -507,13 +507,13 @@ centrals by name so the user can verify that they are genuinely unused.
 > **[→ Full documentation](scripts/sddp2gtopt.md)**
 
 Converts a **PSR SDDP** (*Stochastic Dual Dynamic Programming*, by
-PSR Inc.) case directory to a gtopt JSON planning, mirroring the
+PSR Inc.) case directory to a GTOpt JSON planning, mirroring the
 role `plp2gtopt` plays for PLP cases.  v0 is JSON-first: it reads
 the typed `psrclasses.json` snapshot the SDDP GUI saves alongside
 the Fortran-style `.dat` files, parses the standard PSR collections
 (`PSRStudy`, `PSRSystem`, `PSRDemand`, `PSRDemandSegment`, `PSRFuel`,
 `PSRThermalPlant`, `PSRHydroPlant`, `PSRGaugingStation`), and writes
-a single-bus monolithic gtopt planning that `gtopt --lp-only`
+a single-bus monolithic GTOpt planning that `gtopt --lp-only`
 ingests directly.
 
 > ⚠️  Targets the **PSR Inc. commercial** SDDP format only — *not*
@@ -537,7 +537,7 @@ sddp2gtopt -i /path/to/sddp_case -o gtopt_case
 
 ### What gets mapped
 
-| PSR collection                   | gtopt target                       | Status        |
+| PSR collection                   | GTOpt target                       | Status        |
 |----------------------------------|------------------------------------|---------------|
 | `PSRStudy`                       | `options` + `simulation`           | ✅            |
 | `PSRSystem`                      | synthesised single bus per system  | ✅ (single)   |
@@ -567,7 +567,7 @@ and an interconnection import cap (`--import-limit`).
 > **[→ Full documentation](scripts/psse2gtopt.md)**
 
 Converts a **PSS®E** `.raw` power-flow case (revisions 32/33) into a
-single-snapshot **multi-bus DC OPF** gtopt planning — the sister tool to
+single-snapshot **multi-bus DC OPF** GTOpt planning — the sister tool to
 `plp2gtopt` / `sddp2gtopt` for the Siemens PSS/E dialect.  Buses → `Bus`,
 branches + transformers → `Line` (per-unit reactance; 3-winding → star
 bus), generators → `Generator` (uniform `--gcost`, since RAW has no
@@ -586,9 +586,9 @@ gtopt -s gtopt_case/gtopt_case.json -d out  # solve DC OPF
 
 > **[→ Full documentation](scripts/pp2gtopt.md)**
 
-Converts a **pandapower** network to gtopt JSON format.  Accepts either a
+Converts a **pandapower** network to GTOpt JSON format.  Accepts either a
 built-in IEEE test network (via `-n`) or any pandapower network file saved to
-disk (via `-f`).  Writes a self-contained gtopt JSON file ready to be solved
+disk (via `-f`).  Writes a self-contained GTOpt JSON file ready to be solved
 directly with the `gtopt` binary or submitted via `gtopt_guisrv` / `gtopt_websrv`.
 
 ### Basic usage
@@ -658,10 +658,10 @@ The output JSON system `name` is derived from the file stem (e.g. `case39.m`
 > **[→ Full documentation](scripts/igtopt.md)** ·
 > **[Excel template](templates/gtopt_template.xlsx)**
 
-Converts an **Excel workbook** to a gtopt JSON case.  Reads all named sheets
+Converts an **Excel workbook** to a GTOpt JSON case.  Reads all named sheets
 from the workbook and writes:
 
-- A **gtopt JSON file** with the complete system, simulation, and options
+- A **GTOpt JSON file** with the complete system, simulation, and options
   configuration.
 - **Parquet (or CSV) time-series files** written to the `input_directory` for
   any sheet whose name contains `@` (e.g. `Demand@lmax` →
@@ -700,7 +700,7 @@ igtopt system.xlsx -l DEBUG
 
 ### Template generation (`-T` / `--make-template`)
 
-The `--make-template` flag reads the gtopt C++ JSON header files
+The `--make-template` flag reads the GTOpt C++ JSON header files
 (`include/gtopt/json/`) and generates a ready-to-use Excel template.
 Re-running after adding a new JSON element to the C++ source automatically
 produces an up-to-date workbook.
@@ -884,9 +884,9 @@ columns are cast to `float64`.
 
 > **[→ Full documentation](scripts/ts2gtopt.md)**
 
-Projects **hourly (or finer) time-series data** onto a gtopt planning horizon
+Projects **hourly (or finer) time-series data** onto a GTOpt planning horizon
 and produces block-aggregated schedule files (Parquet or CSV) ready for use as
-gtopt input schedules.  It also embeds an `hour_block_map` in the output
+GTOpt input schedules.  It also embeds an `hour_block_map` in the output
 planning JSON so that block-level solver results can be reconstructed back into
 a full hourly time-series.
 
@@ -895,7 +895,7 @@ a full hourly time-series.
 | Term | Meaning |
 |------|---------|
 | **Horizon** | A JSON definition of scenarios, stages (investment periods), and blocks (representative operating hours) |
-| **Block schedule** | A Parquet/CSV file with `scenario, stage, block, uid:X` columns consumed directly by gtopt as an input schedule (e.g. `Generator/pmax.parquet`) |
+| **Block schedule** | A Parquet/CSV file with `scenario, stage, block, uid:X` columns consumed directly by GTOpt as an input schedule (e.g. `Generator/pmax.parquet`) |
 | **`hour_block_map`** | An array of `{"hour": i, "stage": s, "block": b}` entries embedded in the planning JSON that maps each processed calendar hour back to the `(stage, block)` it was projected into |
 | **`output_hour/`** | Post-processing output directory with `scenario, hour, uid:X` files reconstructed from block-level solver output |
 
@@ -972,7 +972,7 @@ Options:
 
 ## gtopt2pp
 
-Converts a **gtopt JSON case** back to a **pandapower** network file,
+Converts a **GTOpt JSON case** back to a **pandapower** network file,
 optionally solving a DC OPF and/or running topology diagnostics.  This is
 the reverse direction of `pp2gtopt`.
 
@@ -1010,7 +1010,7 @@ gtopt2pp cases/ieee_9b/ieee_9b.json --all-blocks
 
 ### Elements skipped during conversion
 
-The following gtopt elements have no pandapower equivalent and are silently
+The following GTOpt elements have no pandapower equivalent and are silently
 skipped: batteries, converters, junctions, waterways, reservoirs, turbines,
 filtrations, flows.  A summary of skipped elements is logged.
 
@@ -1018,7 +1018,7 @@ filtrations, flows.  A summary of skipped elements is logged.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `case_file` (positional) | — | Path to gtopt JSON case file |
+| `case_file` (positional) | — | Path to GTOpt JSON case file |
 | `-o, --output PATH` | `<stem>_pp.json` | Output pandapower JSON file path |
 | `-s, --scenario UID` | first | Scenario UID to convert |
 | `-b, --block SPEC` | first | Block UID spec: single (`1`), list (`1,2,4`), range (`1-5`), or mix (`1,3-5,8`) |
@@ -1031,7 +1031,7 @@ filtrations, flows.  A summary of skipped elements is logged.
 
 ## run_gtopt
 
-Smart **solver wrapper** that detects case types (PLP, gtopt directory, or
+Smart **solver wrapper** that detects case types (PLP, GTOpt directory, or
 JSON file), runs conversions when needed, and invokes the `gtopt` binary with
 appropriate runtime options.  Integrates pre-flight and post-flight checks
 automatically.
@@ -1080,7 +1080,7 @@ After the solver completes, `run_gtopt` automatically:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `CASE` (positional) | CWD | PLP directory, gtopt directory, or JSON file |
+| `CASE` (positional) | CWD | PLP directory, GTOpt directory, or JSON file |
 | `-t, --threads N` | auto | Number of LP solver threads |
 | `-C, --compression CODEC` | `zstd` | Output compression codec |
 | `-o, --output-dir DIR` | — | Override output directory |
@@ -1095,13 +1095,13 @@ After the solver completes, `run_gtopt` automatically:
 | `--dry-run` | off | Print commands without executing |
 | `-l, --log-level LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `-V, --version` | — | Print version and exit |
-| `-- [ARGS]` | — | Pass remaining arguments to gtopt binary |
+| `-- [ARGS]` | — | Pass remaining arguments to GTOpt binary |
 
 ---
 
 ## gtopt_check_json
 
-Validates **gtopt JSON planning files** and reports potential issues.  Also
+Validates **GTOpt JSON planning files** and reports potential issues.  Also
 serves as a quick system/simulation statistics tool (similar to
 `gtopt --stats`).
 
@@ -1148,7 +1148,7 @@ configuration file (`~/.gtopt.conf`).
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `json_files` (positional) | — | Path(s) to gtopt JSON case files |
+| `json_files` (positional) | — | Path(s) to GTOpt JSON case files |
 | `--info` | off | Print system/simulation statistics and exit |
 | `--show-simulation` | off | Print detailed simulation structure |
 | `--config PATH` | `~/.gtopt.conf` | Path to configuration file |
@@ -1159,7 +1159,7 @@ configuration file (`~/.gtopt.conf`).
 
 ## gtopt_check_lp
 
-Diagnoses **infeasible LP files** generated by the gtopt solver.  Combines
+Diagnoses **infeasible LP files** generated by the GTOpt solver.  Combines
 static analysis, local IIS (Irreducible Infeasible Subsystem) solvers, and
 optional NEOS remote analysis to pinpoint the root cause of infeasibility.
 
@@ -1232,7 +1232,7 @@ input, and handles all errors gracefully with warnings.
 
 ## gtopt_check_output
 
-Validates and analyzes **gtopt solver output** for completeness and
+Validates and analyzes **GTOpt solver output** for completeness and
 correctness.  Auto-discovers results and JSON files in a case directory.
 
 ### Basic usage
@@ -1279,7 +1279,7 @@ gtopt_check_output --init-config
 
 ## gtopt_check_solvers
 
-Discovers and validates **gtopt LP solver plugins** by running a built-in
+Discovers and validates **GTOpt LP solver plugins** by running a built-in
 test suite against each available solver.  Useful for quickly verifying that
 solver backends (CLP, CBC, HiGHS, CPLEX, …) are correctly installed and
 produce correct results.
@@ -1318,7 +1318,7 @@ gtopt_check_solvers --verbose
 | `feasibility_lp` | Feasibility check: demand exactly at generator capacity | 0 (optimal) |
 
 For each test the tool:
-1. Writes the problem as a temporary gtopt JSON file
+1. Writes the problem as a temporary GTOpt JSON file
 2. Calls `gtopt <file> --solver <name>` with a per-test timeout
 3. Reads `output/solution.csv` and validates `status` and `obj_value`
 
@@ -1328,7 +1328,7 @@ For each test the tool:
 |------|---------|
 | 0 | All solvers and all tests passed |
 | 1 | At least one test failed (or no solvers found) |
-| 2 | Error: gtopt binary not found or invalid path |
+| 2 | Error: GTOpt binary not found or invalid path |
 
 ### All options
 
@@ -1355,7 +1355,7 @@ The tool searches for the `gtopt` binary in this order:
 
 ## gtopt_compress_lp
 
-Compresses **LP debug files** generated by the gtopt solver (when
+Compresses **LP debug files** generated by the GTOpt solver (when
 `lp_debug=true` or `lp_only=true`, i.e. CLI `--lp-debug` / `--lp-only`).  Supports multiple compression
 formats and integrates seamlessly with the solver's post-solve workflow.
 
@@ -1469,7 +1469,7 @@ are compared.
 
 ## gtopt_config
 
-Unified **configuration management** library used by all gtopt Python scripts.
+Unified **configuration management** library used by all GTOpt Python scripts.
 Reads and writes a single INI-format configuration file shared across tools.
 
 > `gtopt_config` is a library module, not a standalone command.  It is used by
@@ -1527,8 +1527,8 @@ run_gtopt --init-config     # via run_gtopt --list-checks / --init-config
 
 ## gtopt_monitor
 
-Interactive **solver monitoring dashboard** for gtopt.  Polls the JSON status file
-written by the gtopt solver (SDDP or monolithic) and displays live charts in two
+Interactive **solver monitoring dashboard** for GTOpt.  Polls the JSON status file
+written by the GTOpt solver (SDDP or monolithic) and displays live charts in two
 figure windows:
 
 - **Figure 1** – Real-time charts: CPU load (%) and active worker threads vs wall-clock seconds.
@@ -1575,7 +1575,7 @@ In headless mode (`--no-gui`), the tool prints a summary table to stdout:
 
 ## gtopt_field_extractor
 
-Extracts **field metadata** from gtopt C++ headers and generates Markdown or
+Extracts **field metadata** from GTOpt C++ headers and generates Markdown or
 HTML documentation tables.  Parses `///< Description [units]` comments on
 struct member declarations and produces a table with columns:
 `Field`, `C++ Type`, `JSON Type`, `Units`, `Required`, `Description`.
@@ -1634,7 +1634,7 @@ For full API reference and deployment instructions, see
 
 ## gtopt_check_pampl
 
-Validates PAMPL (gtopt constraint expression language) syntax and verifies
+Validates PAMPL (GTOpt constraint expression language) syntax and verifies
 that all LP column references resolve correctly for a given JSON planning file.
 
 ```bash

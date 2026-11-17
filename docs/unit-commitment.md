@@ -1,4 +1,4 @@
-# Unit Commitment in gtopt
+# Unit Commitment in GTOpt
 
 > **Status**: Implemented (Phases 1–3).  
 > **Since**: v0.9 (April 2025)  
@@ -51,7 +51,7 @@ technical constraints such as minimum up/down times, ramp rates, and startup
 costs.  It is a fundamental problem in power system operations, sitting between
 long-term capacity expansion planning and real-time economic dispatch.
 
-gtopt implements a **tight-and-compact three-bin (u, v, w) mixed-integer
+GTOpt implements a **tight-and-compact three-bin (u, v, w) mixed-integer
 programming (MIP) formulation** based on the work of Morales-España, Latorre,
 and Ramos (2013).  This formulation is widely recognized as producing the
 tightest LP relaxation among compact UC formulations, which translates to
@@ -105,7 +105,7 @@ be turned on and off instantaneously at zero cost — a poor approximation for
 thermal-dominated systems and increasingly important for systems with high
 renewable penetration where thermal units must cycle frequently.
 
-### When to Use Unit Commitment in gtopt
+### When to Use Unit Commitment in GTOpt
 
 Use UC when your system includes:
 
@@ -196,7 +196,7 @@ gtopt my_case.json --set model_options.continuous_phases=all
 
 ### What happens
 
-1. gtopt detects the `commitment_array` and the `chronological: true` stage
+1. GTOpt detects the `commitment_array` and the `chronological: true` stage
 2. For each committed generator, it creates binary variables $u_t$, $v_t$,
    $w_t$ at every block (or commitment period)
 3. Core constraints (logic, generation bounds, exclusion) are added
@@ -376,7 +376,7 @@ offline duration to determine which tier window is active.
 ## 5. Piecewise Heat Rate Curves
 
 Real thermal generators have nonlinear fuel consumption: the marginal
-heat rate increases at higher output levels.  gtopt models this with
+heat rate increases at higher output levels.  GTOpt models this with
 **piecewise linear segments**.
 
 ### Segment Definition
@@ -440,7 +440,7 @@ generator:
 
 ## 6. Emission Cost and Cap
 
-gtopt supports two complementary mechanisms for internalizing carbon costs:
+GTOpt supports two complementary mechanisms for internalizing carbon costs:
 
 ### 6.1 Emission Cost (Carbon Price)
 
@@ -768,7 +768,7 @@ the `output/Commitment/` directory:
 | `hot_start_dual.{csv,parquet}` | Dual of C9 hot window constraint |
 | `warm_start_dual.{csv,parquet}` | Dual of C10 warm window constraint |
 
-All files follow the standard gtopt output format:
+All files follow the standard GTOpt output format:
 `scenario, stage, block, uid:<commitment_uid>`.
 
 ---
@@ -1028,7 +1028,7 @@ use chronological blocks with full UC.
 
 ## 15. Comparison with Other Tools
 
-| Feature | gtopt | PyPSA | GenX | PLEXOS |
+| Feature | GTOpt | PyPSA | GenX | PLEXOS |
 |---------|-------|-------|------|--------|
 | **UC formulation** | 3-bin tight (Morales-España) | 1-bin UC (basic) | 1-bin UC | 3-bin tight |
 | **Startup tiers** | Hot/warm/cold ✓ | No | No | Hot/warm/cold ✓ |
@@ -1064,7 +1064,7 @@ MILP Formulation for the Thermal Unit Commitment Problem," *IEEE Transactions
 on Power Systems*, vol. 28, no. 4, pp. 4897–4908, Nov. 2013.
 [DOI: 10.1109/TPWRS.2013.2251373](https://doi.org/10.1109/TPWRS.2013.2251373)
 
-> The foundational paper for the three-bin (u, v, w) formulation used in gtopt.
+> The foundational paper for the three-bin (u, v, w) formulation used in GTOpt.
 > Demonstrates that this compact formulation produces the tightest LP relaxation.
 
 <a id="ref2"></a>

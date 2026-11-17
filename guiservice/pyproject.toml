@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gtopt-guiservice"
 version = "1.0.0"
-description = "gtopt GUI service (Flask web app for case management)"
+description = "GTOpt GUI service (Flask web app for case management)"
 requires-python = ">=3.10"
 dependencies = [
     "flask>=3.1",

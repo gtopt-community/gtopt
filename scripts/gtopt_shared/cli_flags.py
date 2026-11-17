@@ -188,7 +188,7 @@ def add_emissions_arguments(
         help=(
             "Configure the LP for pure-emissions objective mode (issue "
             "#519).  Implies --emissions.  Emits "
-            "``model_options.objective_mode = 'emissions'`` (gtopt swaps "
+            "``model_options.objective_mode = 'emissions'`` (GTOpt swaps "
             "the LP objective from $-dispatch-cost to tCO2eq dispatch) "
             "AND stamps the synthesised EmissionZone with "
             "``price = 35.0 USD/tCO2eq`` (Chile's social cost of carbon, "
@@ -420,7 +420,7 @@ def add_line_losses_mode_argument(
         choices=list(LINE_LOSSES_MODE_CHOICES),
         help=(
             "transmission-line loss model emitted as "
-            "model_options.line_losses_mode. 'adaptive' (gtopt default) "
+            "model_options.line_losses_mode. 'adaptive' (GTOpt default) "
             "picks the smallest-LP PWL model — `piecewise` for fixed-"
             "capacity lines, `bidirectional` for expandable ones. "
             "'piecewise_direct' mirrors PLP `genpdlin.f` (per-segment "
@@ -430,7 +430,7 @@ def add_line_losses_mode_argument(
             "single signed-flow column + K outer-approximation tangents "
             "and a |f|-aux chord upper bound — strongest LP relaxation, "
             "no bidirectional-flow degeneracy. "
-            "(default: not set — gtopt picks 'adaptive')"
+            "(default: not set — GTOpt picks 'adaptive')"
         ),
     )
 
@@ -472,7 +472,7 @@ def add_loss_cost_eps_argument(
                 "essentially zero objective impact yet eliminates the "
                 "residual phantom bidirectional flow. Emitted as "
                 "options.model_options.loss_cost_eps. "
-                "(default: not set — gtopt picks 0.0, legacy behaviour)"
+                "(default: not set — GTOpt picks 0.0, legacy behaviour)"
             ),
         )
     elif dialect == "plexos":
@@ -638,7 +638,7 @@ def add_lift_line_caps_argument(
                 "``--el0-lines strict``) and the demoted EL=1 corridors.  "
                 "Used for PLEXOS lines whose dispatched flow exceeds the "
                 "published rating (radial / load-pocket feeders with no "
-                "alternative path) — hard-capping them in gtopt would create "
+                "alternative path) — hard-capping them in GTOpt would create "
                 "unserved demand.\n"
                 "\n"
                 "Default ships the 34 EL=0 lines that the PLEXOS solution "

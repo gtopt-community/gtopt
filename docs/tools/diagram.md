@@ -1,7 +1,7 @@
 # gtopt_diagram — Network & Planning Diagram Tool
 
 `gtopt_diagram` generates electrical network, hydro cascade, and
-planning-time-structure diagrams from any **gtopt JSON planning file**.
+planning-time-structure diagrams from any **GTOpt JSON planning file**.
 
 ---
 
@@ -365,7 +365,7 @@ generators filtered out).
 
 ## Large Case Example: `gtopt_case_2y`
 
-The `gtopt_case_2y` case (not shipped with gtopt; the commands below assume
+The `gtopt_case_2y` case (not shipped with GTOpt; the commands below assume
 it has been placed or symlinked under `cases/`) was converted from the PLP
 `plp_case_2y` directory using `plp2gtopt`.  It contains:
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=gtopt GUI Service (Web Server)
+Description=GTOpt GUI Service (Web Server)
 Documentation=https://github.com/gtopt-community/gtopt
 After=network.target
 

@@ -1,4 +1,4 @@
-# Automatic Network Reduction & Disaggregation for gtopt
+# Automatic Network Reduction & Disaggregation for GTOpt
 
 > **v1 implementation landed**: see `scripts/gtopt_reduce_network/`.
 > CLI: `gtopt-net reduce | project-results | project-investment | cascade-run`.
@@ -24,7 +24,7 @@
 > The rest of this document remains the design reference.
 
 > **Status**: design proposal, v1 implemented.
-> **Scope**: a *generic*, case-agnostic preprocessing tool that takes any gtopt
+> **Scope**: a *generic*, case-agnostic preprocessing tool that takes any GTOpt
 > JSON case, produces an electrically-equivalent reduced case at a target bus
 > count K, and provides the inverse mapping needed to project capacity-expansion
 > investments and dispatch results back onto the original nodal grid.
@@ -144,7 +144,7 @@ and the disaggregation step (§5) is correct**.
 
 ## 4. Proposed reducer: a generic, case-agnostic algorithm
 
-Input: any gtopt JSON case with a `bus_array` and `line_array` (and optionally
+Input: any GTOpt JSON case with a `bus_array` and `line_array` (and optionally
 voltage tags / substation labels). Output: a reduced JSON case + a `busmap`
 (original_bus → cluster_bus) + a `linemap` (original_line → reduced_line or
 *intra-cluster*) + an `aggregator_table` describing how every component was
@@ -330,13 +330,13 @@ This is the same contract PyPSA-Eur exposes via `network.busmap` and
 
 ## 6. Where to implement in this repo
 
-The reduction belongs in **preprocessing**, not in gtopt's LP assembly.
+The reduction belongs in **preprocessing**, not in GTOpt's LP assembly.
 Concretely:
 
 * New script package `scripts/gtopt_reduce_network/` (Python; same layout as
   `scripts/plp2gtopt/`):
   * CLI: `gtopt-reduce <case.json> --target-buses K -o <case_K.json>`.
-  * Inputs: a gtopt JSON case + reduction config.
+  * Inputs: a GTOpt JSON case + reduction config.
   * Outputs: reduced JSON + `busmap.csv` + `linemap.csv` +
     `aggregator_table.csv` + `reducer_config.json`.
 * Companion CLI in the same package:
@@ -350,7 +350,7 @@ Concretely:
   cascade level loads the reduced JSON; cuts are projected up to `full_network`
   by the same busmap (the cut coefficients on cluster-state variables are
   expanded to per-bus state via the share matrix).
-* No gtopt C++ changes are required for the MVP — the reducer emits a
+* No GTOpt C++ changes are required for the MVP — the reducer emits a
   standalone JSON case the existing solver consumes unchanged.
 * A second iteration can push the busmap into `cascade_method.cpp` so the
   same case JSON is loaded once and projected at solve time, but that's an

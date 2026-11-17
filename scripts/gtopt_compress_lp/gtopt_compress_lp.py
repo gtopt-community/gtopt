@@ -243,7 +243,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gtopt_compress_lp",
         description=(
-            "Compress LP debug files produced by gtopt.\n\n"
+            "Compress LP debug files produced by GTOpt.\n\n"
             "On the first run (without --quiet) the tool shows available "
             "compression tools and prompts for preferences."
         ),

@@ -1534,7 +1534,7 @@ examples:
         type=Path,
         metavar="DIR",
         help=(
-            "Directory containing gtopt CSV output files.  "
+            "Directory containing GTOpt CSV output files.  "
             "Required unless --save-pandapower-file is the only action."
         ),
     )
@@ -1570,7 +1570,7 @@ examples:
         default=None,
         help=(
             "Save the built pandapower network to this JSON file and exit "
-            "(no gtopt comparison is performed).  "
+            "(no GTOpt comparison is performed).  "
             "Not supported for bat_4b_24, plp, or plp_bat_4b_24."
         ),
     )

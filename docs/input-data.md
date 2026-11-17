@@ -1,8 +1,9 @@
-# gtopt Input Data Structure Documentation
+# GTOpt Input Data Structure Documentation
 
 This document describes the input data structure required to define and run
-optimization cases with **gtopt** (Generation and Transmission Optimization
-Planning Tool).
+optimization cases with **GTOpt** (Generation, Transmission and storage Optimization), the
+open-source solver for the optimization and analysis of power-system
+generation, transmission and storage.
 
 > For a step-by-step tutorial with worked examples and time-series workflow,
 > see **[Planning Guide](planning-guide.md)**.
@@ -13,7 +14,7 @@ Planning Tool).
 
 ## Overview
 
-A gtopt case is defined by one or more **JSON configuration files** that
+A GTOpt case is defined by one or more **JSON configuration files** that
 contain three top-level sections:
 
 | Section        | Description |
@@ -1390,7 +1391,7 @@ External data files (CSV or Parquet) follow a tabular format with columns:
 
 ## 5. Output Structure
 
-After running gtopt, results are written to the `output_directory`:
+After running GTOpt, results are written to the `output_directory`:
 
 ```text
 output/
@@ -1414,7 +1415,7 @@ Output files use the same tabular format as input files, with
 
 ## 6. Planning (Root Container)
 
-The `Planning` object is the root of the gtopt input data model.
+The `Planning` object is the root of the GTOpt input data model.
 A JSON configuration file represents a single `Planning` instance
 with three top-level sections:
 

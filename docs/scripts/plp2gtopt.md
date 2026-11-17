@@ -1,7 +1,7 @@
-# plp2gtopt — PLP to gtopt Converter
+# plp2gtopt — PLP to GTOpt Converter
 
-Converts a **PLP** (*Programación de Largo Plazo*) case directory into the gtopt JSON + Parquet
-format, enabling legacy PLP hydro-thermal cases to be solved with the gtopt
+Converts a **PLP** (*Programación de Largo Plazo*) case directory into the GTOpt JSON + Parquet
+format, enabling legacy PLP hydro-thermal cases to be solved with the GTOpt
 solver.
 
 ---
@@ -16,7 +16,7 @@ parameters, demand curves, hydrology, and maintenance schedules.
 `plp2gtopt` reads all standard PLP data files from a case directory and
 produces:
 
-- A **gtopt JSON file** (`<output-dir>.json`) containing the complete system
+- A **GTOpt JSON file** (`<output-dir>.json`) containing the complete system
   definition, simulation parameters, and solver options.
 - **Parquet (or CSV) time-series files** organised in subdirectories under
   `<output-dir>/` (e.g. `Demand/lmax.parquet`, `Generator/pmin.parquet`,
@@ -27,9 +27,9 @@ The output is ready to be solved directly with the `gtopt` binary, uploaded to
 
 ### Who needs this tool?
 
-- Engineers migrating existing PLP study cases to gtopt.
+- Engineers migrating existing PLP study cases to GTOpt.
 - Teams that maintain PLP-format archives and want to benchmark or cross-validate
-  results with gtopt's LP/MIP solver.
+  results with GTOpt's LP/MIP solver.
 - Automation pipelines that generate PLP `.dat` files and need a gtopt-compatible
   output.
 
@@ -37,7 +37,7 @@ The output is ready to be solved directly with the `gtopt` binary, uploaded to
 
 ## Installation
 
-Install as part of the gtopt scripts package from the repository root:
+Install as part of the GTOpt scripts package from the repository root:
 
 ```bash
 # Standard install (registers plp2gtopt on PATH)
@@ -105,13 +105,13 @@ plp2gtopt -i input/ -l DEBUG
 | `-m, --management-factor F` | `0.0` | Demand management factor |
 | `-t, --last-time T` | all | Stop at time T |
 | `-F, --output-format {parquet,csv}` | `parquet` | Output file format for time-series data |
-| `--input-format {parquet,csv}` | same as `-F` | Input format hint written to gtopt options |
+| `--input-format {parquet,csv}` | same as `-F` | Input format hint written to GTOpt options |
 | `-c, --compression ALG` | `gzip` | Parquet compression codec (`gzip`, `snappy`, `brotli`, `none`) |
 | `-y, --hydrologies H1[,H2,…]` | `0` | Comma-separated hydrology scenario indices |
 | `-p, --probability-factors P1[,P2,…]` | equal | Probability weights per hydrology scenario |
 | `-k, --use-kirchhoff` | off | Enable Kirchhoff voltage-law (DC OPF) constraints |
 | `-b, --use-single-bus` | off | Use single-bus (copper-plate) mode |
-| `--use-line-losses` | gtopt default | Model transmission line losses |
+| `--use-line-losses` | GTOpt default | Model transmission line losses |
 | `--demand-fail-cost COST` | `1000.0` | Cost penalty for demand curtailment ($/MWh) |
 | `--reserve-fail-cost COST` | not set | Cost penalty for reserve shortfall ($/MWh) |
 | `--scale-objective FACTOR` | `1000.0` | Objective function scaling factor |
@@ -185,7 +185,7 @@ or embalse), the ESS entry represents a **regulation tank** (Embalse de
 Regulación Diaria — ERD), not a real battery.  These entries typically have
 `nc = nd = 1.0` (perfect efficiency — water storage, no electrical losses).
 
-`plp2gtopt` maps DCMod=2 entries to gtopt **Reservoir** elements instead of
+`plp2gtopt` maps DCMod=2 entries to GTOpt **Reservoir** elements instead of
 Battery elements:
 
 - The ESS entry is **excluded** from `battery_array`.
@@ -196,7 +196,7 @@ Battery elements:
   - `daily_cycle = true`
 
 The paired hydro generator already has a junction with river inflow and a
-turbine in the gtopt hydro topology.  The regulation reservoir attaches to
+turbine in the GTOpt hydro topology.  The regulation reservoir attaches to
 that junction, and the water balance naturally models charging (storing
 water) and discharging (releasing water through the turbine):
 
@@ -235,15 +235,15 @@ and river inflow.  `plp2gtopt` creates a Reservoir named `ANGOSTURA_ERD`
 
 ---
 
-## Mapping PLP elements → gtopt
+## Mapping PLP elements → GTOpt
 
 Conversion is one parser per `.dat` file (see
 [`scripts/plp2gtopt/`](../../scripts/plp2gtopt/)) feeding a writer
-that assembles the gtopt JSON + Parquet bundle.
+that assembles the GTOpt JSON + Parquet bundle.
 
 ### High-level table
 
-| PLP source                       | gtopt target                                                | Status |
+| PLP source                       | GTOpt target                                                | Status |
 |----------------------------------|-------------------------------------------------------------|:------:|
 | `plpblo.dat` (Bloques)           | `simulation.block_array`                                    | ✅      |
 | `plpeta.dat` (Etapas)            | `simulation.stage_array`                                    | ✅      |
@@ -275,7 +275,7 @@ that assembles the gtopt JSON + Parquet bundle.
 
 ### Stages, blocks and scenarios
 
-| gtopt concept    | PLP source                                                                                              |
+| GTOpt concept    | PLP source                                                                                              |
 |------------------|---------------------------------------------------------------------------------------------------------|
 | `block_array`    | `plpblo.dat` — one entry per block, `duration` is the block hour budget                                 |
 | `stage_array`    | `plpeta.dat` — one entry per planning period (monthly by default)                                       |
@@ -287,7 +287,7 @@ uniform split; override with `-p`.
 
 ### Bus and network (`plpbar.dat`, `plpcnfli.dat`)
 
-| PLP field                         | gtopt field            | Notes                                          |
+| PLP field                         | GTOpt field            | Notes                                          |
 |-----------------------------------|------------------------|------------------------------------------------|
 | `IBar` (1-based row)              | `Bus.uid`              | Stable through conversion                      |
 | `Nombre` (`'…'`)                  | `Bus.name`             | Quotes stripped                                |
@@ -300,9 +300,9 @@ uniform split; override with `-p`.
 ### Centrales (`plpcnfce.dat`) — the heaviest mapping
 
 PLP groups generating units into five categories.  Each maps to a
-distinct gtopt structure:
+distinct GTOpt structure:
 
-| PLP central type    | gtopt structure                                                            |
+| PLP central type    | GTOpt structure                                                            |
 |---------------------|----------------------------------------------------------------------------|
 | **Térmica**         | `Generator` only                                                           |
 | **Embalse** (reservoir) | `Reservoir` + `Turbine` + intake `Junction` + spillway `Waterway`     |
@@ -316,7 +316,7 @@ distinct gtopt structure:
 `--drop-spillway-waterway` for cases that prefer junction-level drain
 to absorb spills.
 
-**Pasada classification**: gtopt has tech-detection that may divert
+**Pasada classification**: GTOpt has tech-detection that may divert
 some "pasada" centrals into the renewable-profile path (solar/wind
 look-alikes).  Use `--pasada-mode {hydro,flow-turbine,profile}` to
 override; `--plp-legacy` forces `flow-turbine` for byte-faithful PLP
@@ -324,7 +324,7 @@ parity.
 
 ### Demand (`plpdem.dat`, `plpcosce.dat`)
 
-| PLP source                 | gtopt target                          | Conversion                          |
+| PLP source                 | GTOpt target                          | Conversion                          |
 |----------------------------|---------------------------------------|-------------------------------------|
 | `plpdem.dat` MW values     | `Demand.lmax[stage][block]`           | direct (no GWh→MW step needed)      |
 | `plpcosce.dat` `Falla`     | `options.demand_fail_cost`            | average of first-tier FALLA gcost   |
@@ -337,7 +337,7 @@ that auto-detection (see `_parsers.py`).
 
 ### Hydrology (`plpaflce.dat`, `plpfilemb.dat`, `plpvrebemb.dat`)
 
-| PLP source                 | gtopt target                                     |
+| PLP source                 | GTOpt target                                     |
 |----------------------------|--------------------------------------------------|
 | `plpaflce.dat`             | `Afluent/afluent.parquet`, m³/s per stage/scen   |
 | Hydro `FP` (MW per m³/s)   | `Turbine.conversion_rate`                        |
@@ -368,7 +368,7 @@ case (mapped to `Reservoir`, not `Battery`).
 
 ### Soft constraints and slack costs
 
-| PLP feature                          | gtopt expression                              |
+| PLP feature                          | GTOpt expression                              |
 |--------------------------------------|-----------------------------------------------|
 | First-tier `falla` cost              | `options.demand_fail_cost`                    |
 | `vrebemb` (spillage cost)            | `Reservoir.efin_cost` per stage               |
@@ -406,7 +406,7 @@ gtopt_case_2y/                  ← input_directory (referenced in the JSON)
 ```
 
 The `input_directory` field in the JSON options object matches the subdirectory
-name, so gtopt can locate the data files without any extra configuration.
+name, so GTOpt can locate the data files without any extra configuration.
 
 ---
 
@@ -511,7 +511,7 @@ curl -X POST http://localhost:3000/api/solve \
   -F "file=@gtopt_case.zip"
 ```
 
-The server runs the gtopt solver and returns a results ZIP containing the
+The server runs the GTOpt solver and returns a results ZIP containing the
 solution files.
 
 ---
@@ -580,9 +580,9 @@ Each fixture is a self-contained directory of `.dat` files; running
 `gtopt --lp-only -s /tmp/gtopt_<fixture>/<fixture>.json` is the
 canonical end-to-end smoke test.
 
-The realistic 2-year PLP case (`plp_case_2y`) and its converted gtopt
+The realistic 2-year PLP case (`plp_case_2y`) and its converted GTOpt
 counterparts (`gtopt_case_2y`, `gtopt_case_2y_fs`) are not shipped with
-gtopt; the tests that use them look them up under `$GTOPT_CASES_DIR`
+GTOpt; the tests that use them look them up under `$GTOPT_CASES_DIR`
 and skip when it is unset.
 
 ---
@@ -593,7 +593,7 @@ and skip when it is unset.
 |-------------------------------|-----------------------------------------------------------------------|
 | Multi-segment thermal bid     | Cost segments collapsed to a per-stage scalar `gcost`                 |
 | Forced-outage stochasticity   | `FFalla` flag honoured for capacity, not for stochastic failure draws |
-| AR-P inflow draws             | gtopt's own SDDP engine generates samples; PLP `plpaflemb.dat` is read but not directly passed through |
+| AR-P inflow draws             | GTOpt's own SDDP engine generates samples; PLP `plpaflemb.dat` is read but not directly passed through |
 | Multi-currency studies        | Single `currency` per planning; PSR-style multi-currency cases collapse to the reference currency |
 | Calendar-aware stage hours    | `plpblo.dat` durations honoured; per-month nominal mapping when blocks are missing |
 
@@ -601,12 +601,12 @@ and skip when it is unset.
 
 ## See Also
 
-- [SCRIPTS.md](../scripts-guide.md) — overview of all gtopt Python scripts
-- [PLANNING\_GUIDE.md](../planning-guide.md) — gtopt planning concepts
+- [SCRIPTS.md](../scripts-guide.md) — overview of all GTOpt Python scripts
+- [PLANNING\_GUIDE.md](../planning-guide.md) — GTOpt planning concepts
   (stages, blocks, scenarios, expansion)
-- [INPUT\_DATA.md](../input-data.md) — gtopt input file format reference
+- [INPUT\_DATA.md](../input-data.md) — GTOpt input file format reference
 - [sddp2gtopt](sddp2gtopt.md) — sister tool for PSR SDDP cases
-- [pp2gtopt](pp2gtopt.md) — convert pandapower networks to gtopt
-- [ts2gtopt](ts2gtopt.md) — project hourly time-series onto gtopt horizons
+- [pp2gtopt](pp2gtopt.md) — convert pandapower networks to GTOpt
+- [ts2gtopt](ts2gtopt.md) — project hourly time-series onto GTOpt horizons
 - [PLP source code](https://github.com/marcelomatus/plp_storage/tree/main/CEN65/src)
   — authoritative Fortran readers (`lee*.f`) for every `.dat` file

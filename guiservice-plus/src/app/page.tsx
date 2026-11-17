@@ -88,7 +88,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">
-            Quick situational awareness for your gtopt planning workspace.
+            Quick situational awareness for your GTOpt planning workspace.
           </p>
         </div>
         <div className="flex gap-2">
@@ -128,7 +128,7 @@ export default function DashboardPage() {
         />
         <KpiCard
           label="Solver"
-          value="gtopt"
+          value="GTOpt"
           sub="C++26 LP/MIP engine"
           icon={<Zap className="h-5 w-5" />}
           accent="bg-indigo-500/10 text-indigo-500"

@@ -1,8 +1,8 @@
 # Dual-Shared Aperture Cuts — Literature Provenance and Worked Examples
 
-This page documents the literature basis of gtopt's
+This page documents the literature basis of GTOpt's
 `aperture_solve_mode = dual_shared` / `screened` backward-pass modes,
-maps the published methodology onto gtopt's implementation, and
+maps the published methodology onto GTOpt's implementation, and
 describes the reconstructed test instances validated in
 [`test/source/test_sddp_dual_shared_literature.cpp`](../../test/source/test_sddp_dual_shared_literature.cpp).
 
@@ -46,7 +46,7 @@ From SOL 93-6 (page numbers are the report's):
   vectors for the descendant subproblems generate a **valid cut** for
   the ancestor — for two-stage and, with valid cuts present in the
   descendants, for the general multistage nested case.  This is the
-  weak-duality backbone; gtopt's Theorem O1 (theorem doc §3) is the
+  weak-duality backbone; GTOpt's Theorem O1 (theorem doc §3) is the
   same statement for the pinned-state column form.
 - **The dual sharing formula** (§2.2, p. 26): having solved one
   stage-*t* subproblem to optimal duals `(π̄, ᾱ, μ̄)` (structural
@@ -103,9 +103,9 @@ timings).  **No optimal objective values and no inflow/cost data
 tables were published** — the instances themselves are therefore *not
 recoverable*, only their structure.
 
-## 2. Mapping onto gtopt (what is the same, what is narrower)
+## 2. Mapping onto GTOpt (what is the same, what is narrower)
 
-gtopt's `dual_shared` mode is the bound-parameterized specialization
+GTOpt's `dual_shared` mode is the bound-parameterized specialization
 of the dual sharing formula:
 
 - The backward pass solves **one representative aperture** per
@@ -138,7 +138,7 @@ of the dual sharing formula:
 **Narrower than the paper.**  Infanger–Morton's headline result is cut
 sharing under *interstage-dependent row-RHS* processes (the
 `b_t = R b_{t−1} + η_t` recursion with the `D_t` intercept recursion
-above).  gtopt's adaptation prices **column-bound deltas only**; row
+above).  GTOpt's adaptation prices **column-bound deltas only**; row
 RHS deltas (`y·Δb`) are *not* priced.  In particular, AR inflow models
 (`inflow_model`) move hydrology into row RHS, which `dual_shared`
 does not see — **do not combine `dual_shared` with `inflow_model`**
@@ -241,13 +241,13 @@ effect.
    and any added experiments) were not independently verified.
 3. **The interstage-dependency generalization.**  Theorem 3.1 /
    Corollary 3.2 share cuts across *histories* of an additive-lag
-   row-RHS process via the `D_t` recursion.  gtopt's `dual_shared`
+   row-RHS process via the `D_t` recursion.  GTOpt's `dual_shared`
    covers only bound-parameterized (aperture) randomness within one
    backward transition; reproducing the dependency examples requires
    the row-RHS `y·Δb` intercept extension flagged as future work in
    the theorem doc — and the AR `inflow_model` path must *not* be used
    with `dual_shared` until then.
 4. **The cost-difference branch** of the dual sharing formula (the
-   `[·]⁺` repair when subproblems differ in `c`) has no gtopt
+   `[·]⁺` repair when subproblems differ in `c`) has no GTOpt
    counterpart: apertures never rewrite costs, so it is intentionally
    out of scope.

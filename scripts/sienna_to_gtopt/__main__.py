@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sienna_to_gtopt",
         description=(
-            "Port a NREL-Sienna PowerSimulations.jl test case to a gtopt planning JSON."
+            "Port a NREL-Sienna PowerSimulations.jl test case to a GTOpt planning JSON."
         ),
     )
     parser.add_argument(

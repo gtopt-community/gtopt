@@ -117,7 +117,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=None,
-        help="output directory for the gtopt planning",
+        help="output directory for the GTOpt planning",
     )
     parser.add_argument(
         "-l",
@@ -160,7 +160,7 @@ def make_parser() -> argparse.ArgumentParser:
         metavar="GTOPT_JSON",
         help=(
             "standalone re-comparison: parse the PLEXOS bundle and compare it "
-            "against an already-converted gtopt planning JSON (element counts, "
+            "against an already-converted GTOpt planning JSON (element counts, "
             "user-constraint families, global indicators), then exit. No "
             "conversion is performed."
         ),
@@ -170,7 +170,7 @@ def make_parser() -> argparse.ArgumentParser:
         dest="run_check",
         action="store_false",
         help=(
-            "skip the post-conversion PLEXOS↔gtopt comparison and structural "
+            "skip the post-conversion PLEXOS↔GTOpt comparison and structural "
             "validation (on by default, mirroring plp2gtopt)"
         ),
     )
@@ -181,7 +181,7 @@ def make_parser() -> argparse.ArgumentParser:
         help=(
             "disable the topology-driven reservoir extraction-flow estimate "
             "(on by default): without it, reservoirs ship with no fmin/fmax "
-            "and gtopt falls back to the generic -9000/6000 m³/s extraction "
+            "and GTOpt falls back to the generic -9000/6000 m³/s extraction "
             "defaults"
         ),
     )
@@ -260,7 +260,7 @@ def make_parser() -> argparse.ArgumentParser:
             "EMIT PLEXOS-FAITHFUL FORMULATIONS even when they're not the "
             "physically / economically right choice.  Use for PLEXOS-"
             "comparison testing (closer LMP/dual reproduction); leave OFF "
-            "for normal gtopt use (cleaner LP, no artifact negative duals).\n"
+            "for normal GTOpt use (cleaner LP, no artifact negative duals).\n"
             "\n"
             "Mirrors plp2gtopt's ``--plp-legacy`` (single switch gating a "
             "growing list of source-reproduction quirks).\n"
@@ -354,7 +354,7 @@ def make_parser() -> argparse.ArgumentParser:
             "modular per-family .pampl files (system.user_constraint_files); "
             "'inline' keeps them in system.user_constraint_array in the JSON "
             "(the legacy path).  Diagnostic: generate the case both ways and "
-            "diff the LPs to check whether gtopt's PAMPL parser and JSON "
+            "diff the LPs to check whether GTOpt's PAMPL parser and JSON "
             "parser produce the same matrix."
         ),
     )
@@ -792,7 +792,7 @@ def make_parser() -> argparse.ArgumentParser:
             "given block can't satisfy it.  PLEXOS itself solves these "
             "as HARD constraints, BUT gates them internally on the "
             "unit's commit status (when PLEXOS keeps the unit OFF the "
-            "min/max row is auto-relaxed).  gtopt does NOT have a "
+            "min/max row is auto-relaxed).  GTOpt does NOT have a "
             "native commit-gated UC primitive yet, so hardening them "
             "without the gate makes the LP primal-infeasible at "
             "blocks where the hydro is fractionally / fully off "
@@ -831,7 +831,7 @@ def make_parser() -> argparse.ArgumentParser:
             "override per-period generator pmax with PLEXOS-solved "
             "Units Generating (pid 7) from the solution .accdb cache. "
             "Pins gen=0 at hours PLEXOS left the unit OFF.  Used to "
-            "validate that gtopt's hydro over-dispatch is driven by "
+            "validate that GTOpt's hydro over-dispatch is driven by "
             "the missing MIP commitment decisions: applying this "
             "forces dispatch into the PLEXOS-chosen ON windows only, "
             "and downstream cascade hydro should snap to PLEXOS's "
@@ -873,7 +873,7 @@ def make_parser() -> argparse.ArgumentParser:
             "boundary-cut coefficient by the given factor (unlisted reservoirs "
             "keep 1.0).  A factor <1 makes hoarding inflow less rewarding so the "
             "LP turbines it (releases the over-conservation); >1 does the "
-            "reverse.  Use to calibrate gtopt's single flat terminal cut toward "
+            "reverse.  Use to calibrate GTOpt's single flat terminal cut toward "
             "the observed PLEXOS dispatch on heads that over-bank (e.g. "
             "RALCO/COLBUN)."
         ),
@@ -909,9 +909,9 @@ def make_parser() -> argparse.ArgumentParser:
         help=(
             "hard-cap per-period generator pmax to PLEXOS-solved "
             "Generation (pid 2) from the solution .accdb cache. "
-            "TIGHTEST curve-fit: every block, gtopt's LP can dispatch "
+            "TIGHTEST curve-fit: every block, GTOpt's LP can dispatch "
             "at most what PLEXOS dispatched in that block.  Useful for "
-            "validating that gtopt's overshoot is purely from missing "
+            "validating that GTOpt's overshoot is purely from missing "
             "per-block dispatch envelopes vs structural differences. "
             "Restricted to HYDRO TURBINE generators to avoid the "
             "ReserveProvisionLP::flat_map::at defect at zero-pmax "
@@ -925,7 +925,7 @@ def make_parser() -> argparse.ArgumentParser:
         help=(
             "DEBUG: pin Reservoir.efin to the PLEXOS-SOLVED End Volume "
             "(prop 646, last period) from the solution .accdb cache, "
-            "curve-fitting gtopt's terminal storage to PLEXOS's answer. "
+            "curve-fitting GTOpt's terminal storage to PLEXOS's answer. "
             "DEFAULT (flag off) is fully input-driven: the end-of-horizon "
             "target is the last-day floor from Hydro_MinVolume.csv (the "
             "operational target PLEXOS encodes by raising the min-volume "
@@ -942,7 +942,7 @@ def make_parser() -> argparse.ArgumentParser:
             "generation to the bus, modelling station-service "
             "self-consumption.  DEFAULT (flag off) IGNORES it: PLEXOS ships "
             "the file but does NOT apply it (solution prop 81 = 0, no aux "
-            "fuel in its cost), so applying it makes gtopt burn ~54 GWh of "
+            "fuel in its cost), so applying it makes GTOpt burn ~54 GWh of "
             # ``%%`` because argparse runs the help string through Python
             # ``%``-formatting to expand ``%(default)s`` / ``%(prog)s``;
             # a bare ``%`` triggers a TypeError on --help.
@@ -1047,7 +1047,7 @@ def make_parser() -> argparse.ArgumentParser:
             "emit ``Commitment.relax = true`` on every commitment so "
             "gtopt LP-relaxes the binary status / startup / shutdown "
             "variables.  Default (since 2026-05-23) is MIP — commitments "
-            "ship without ``relax`` so gtopt enforces integrality.  "
+            "ship without ``relax`` so GTOpt enforces integrality.  "
             "Empirically: dropping the LP-relax closed ~7 pp of the "
             "PLEXOS-vs-gtopt dispatch-cost gap on CEN PCP, moving "
             "NUEVA_RENCA-TG+TV_GN_A from 19 GWh/week (LP) to 33 GWh/week "

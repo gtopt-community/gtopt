@@ -118,7 +118,7 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
         metavar="DIR",
         default=None,
         help=(
-            "directory for gtopt output files "
+            "directory for GTOpt output files "
             "(default: output, or gtopt_NAME if input is plp_NAME)"
         ),
     )
@@ -147,7 +147,7 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
         default=conf.get("input_format"),
         choices=["parquet", "csv"],
         help=(
-            "input format for gtopt to read time-series files "
+            "input format for GTOpt to read time-series files "
             "(default: same as output-format)"
         ),
     )
@@ -167,7 +167,7 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
         help=(
             "on-disk layout for per-element field Parquet files: 'long' "
             "(default) emits tidy [<index cols>, uid, value] tables (read "
-            "natively by gtopt, ideal for Power BI); 'wide' emits the "
+            "natively by GTOpt, ideal for Power BI); 'wide' emits the "
             "legacy one-column-per-uid (uid:N) shape (default: %(default)s)"
         ),
     )
@@ -308,7 +308,7 @@ def add_stage_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) 
         metavar="SPEC",
         default=None,
         help=(
-            "Map PLP stages to gtopt phases using 1-based stage indices. "
+            "Map PLP stages to GTOpt phases using 1-based stage indices. "
             "Format: comma-separated tokens where each token is a single stage N "
             "or a range N:M, and the trailing token '...' auto-expands one stage "
             "per phase until all stages are covered. "
@@ -409,7 +409,7 @@ def add_scenario_arguments(
             "'ar1' fits phi as the pooled lag-1 autocorrelation of the "
             "stage-mean residuals and sigma as the residual std-dev "
             "(see docs/formulation/sddp-ar-inflows.md).  The discharge "
-            "schedule itself is unchanged; a gtopt build with AR-inflow "
+            "schedule itself is unchanged; a GTOpt build with AR-inflow "
             "support then prices hydrological memory in the SDDP cuts "
             "(default: off)"
         ),
@@ -513,7 +513,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "planning JSON's sddp_options, which this tool does not "
             "emit (see docs/formulation/sddp-markov.md). "
             "The legacy broadcast_mean/expected/accumulate/max modes were "
-            "REMOVED from gtopt on 2026-07-08 (invalid broadcasts; see "
+            "REMOVED from GTOpt on 2026-07-08 (invalid broadcasts; see "
             "docs/formulation/sddp-cut-validity.md section 7). "
             "(default: multicut for sddp/cascade)"
         ),
@@ -537,7 +537,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "the same stagewise-resampled process the "
             "cut_sharing_mode=multicut lower bound certifies (see "
             "docs/formulation/sddp-cut-validity.md section 8). "
-            "(default: not set; gtopt uses persistent)"
+            "(default: not set; GTOpt uses persistent)"
         ),
     )
     parser.add_argument(
@@ -561,7 +561,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "weak duality, never looser than the LP cut).  Requires a "
             "MIP-capable solver.  See docs/analysis/investigations/"
             "sddp/sddip_integer_expansion_2026-07.md. "
-            "(default: not set; gtopt uses none)"
+            "(default: not set; GTOpt uses none)"
         ),
     )
     parser.add_argument(
@@ -594,7 +594,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "(the most-converged ones); 0 means keep all.  Bounding this "
             "limits a large tail of stale / foreign-system boundary cuts "
             "(which over-tighten the terminal alpha and drive LB > UB). "
-            "(default: not set; gtopt uses 0 = all)"
+            "(default: not set; GTOpt uses 0 = all)"
         ),
     )
     parser.add_argument(
@@ -622,9 +622,9 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         help=(
             "Disable boundary-cut export entirely: skip writing "
             "boundary_cuts.csv AND force boundary_cuts_mode=noload "
-            "in the gtopt JSON.  Strictly stronger than "
+            "in the GTOpt JSON.  Strictly stronger than "
             "--boundary-cuts-mode=noload, which still emits the CSV "
-            "but tells gtopt to ignore it on load."
+            "but tells GTOpt to ignore it on load."
         ),
     )
     # ``--hot-start-cuts`` / ``--no-hot-start-cuts`` retired 2026-05
@@ -641,7 +641,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "Path to a JSON file containing a flat {old_name: new_name} map "
             "of state-variable renames applied when writing the "
             "boundary_cuts.csv header.  Use this to reconcile PLP "
-            "reservoir/junction names with gtopt names without editing data "
+            "reservoir/junction names with GTOpt names without editing data "
             "files.  Unknown keys are ignored; missing keys pass through "
             'unchanged.  Example: {"CANUTILLAR": "CHAPO"}.'
         ),
@@ -673,7 +673,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         help=(
             "Number of iterations to look back when checking gap stationarity "
             "(secondary convergence criterion). "
-            "(default: not set; gtopt uses 4)"
+            "(default: not set; GTOpt uses 4)"
         ),
     )
     parser.add_argument(
@@ -686,7 +686,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "Minimum SDDP iterations before any convergence test fires.  "
             "Forces the solver to train at least N iterations regardless of "
             "gap / CI / stationary criteria.  "
-            "(default: emit 3 when not set; gtopt's own default differs)"
+            "(default: emit 3 when not set; GTOpt's own default differs)"
         ),
     )
     parser.add_argument(
@@ -721,7 +721,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "(large-case run 2026-05-02 converged at iter 2 with gap=25%% via the "
             "CI test because σ=77 M dominated the 38 M absolute gap).  "
             "Use 1.0 to disable the ceiling.  "
-            "(default: emit 0.05 when not set; gtopt's own default is 0.5)"
+            "(default: emit 0.05 when not set; GTOpt's own default is 0.5)"
         ),
     )
 
@@ -1070,7 +1070,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         ),
         help=(
             "estimate per-reservoir extraction-flow bounds (fmin/fmax) from "
-            "the hydraulic network topology instead of the generic gtopt "
+            "the hydraulic network topology instead of the generic GTOpt "
             "-9000/6000 m³/s defaults (default: %(default)s)"
         ),
     )
@@ -1117,7 +1117,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         default=None,
         help=(
             "model transmission line losses; pass --no-use-line-losses to "
-            "explicitly disable (omit to inherit the gtopt default: true)"
+            "explicitly disable (omit to inherit the GTOpt default: true)"
         ),
     )
     # plp2gtopt defaults to ``tangent_signed_flow`` (Coffrin-Van Hentenryck
@@ -1151,7 +1151,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         action="store_true",
         default=False,
         help=(
-            "bundle PLP-compatibility defaults that make gtopt outputs "
+            "bundle PLP-compatibility defaults that make GTOpt outputs "
             "closer to PLP even when that is not the highest-quality "
             "or smallest-LP choice. Adjusts the defaults of: "
             "--line-losses-mode (→piecewise_direct; PLP `genpdlin.f`), "
@@ -1172,8 +1172,8 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "ReservoirDischargeLimit constraint should NOT be emitted. "
             "Example: 'RALCO,RAPEL'. The discharge-limit row is currently a "
             "hard inequality with no slack; for cases where PLP relies on "
-            "the soft `vrbp/vrbn` slacks on this row (which gtopt does not "
-            "yet model) the gtopt LP can become spuriously infeasible at "
+            "the soft `vrbp/vrbn` slacks on this row (which GTOpt does not "
+            "yet model) the GTOpt LP can become spuriously infeasible at "
             "iter-0 of the SDDP cascade. Use this flag to skip the row for "
             "the offending reservoirs. (default: emit all)"
         ),
@@ -1268,7 +1268,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "Override the FlowRight fail_cost in $/Hm³ (PLP convention; "
             "matches plpmat.dat CCauFal value).  When unset (default), the "
             "value is auto-resolved from plpmat.dat CCauFal.  Internally "
-            "multiplied by FactTiempoH=3.6 to convert to gtopt's "
+            "multiplied by FactTiempoH=3.6 to convert to GTOpt's "
             "$/(m³/s·h) per-block coefficient.  Use this flag to tune the "
             "FlowRight slack penalty empirically; for the large hydrothermal case the "
             "auto value is 7000 $/Hm³ → 25200 $/(m³/s·h) internal."
@@ -1310,7 +1310,7 @@ def add_reservoir_battery_arguments(
             "Example: --reservoir-energy-scale 'RAPEL:500,COLBUN:15000'. "
             "These explicit values override auto-calculated scales. "
             "Emitted as variable_scales entries in the options section. "
-            "(default: not set — gtopt auto-scales from emax)"
+            "(default: not set — GTOpt auto-scales from emax)"
         ),
     )
     parser.add_argument(
@@ -1321,7 +1321,7 @@ def add_reservoir_battery_arguments(
         help=(
             "Emit reservoir energy_scale as variable_scales entries computed "
             "from PLP FEscala / Escala fields. "
-            "OFF by default — gtopt auto-scales reservoirs from emax. "
+            "OFF by default — GTOpt auto-scales reservoirs from emax. "
             "(default: %(default)s)"
         ),
     )
@@ -1336,7 +1336,7 @@ def add_reservoir_battery_arguments(
             "Example: --battery-energy-scale 'BESS1:0.01,BESS2:100'. "
             "These explicit values override auto-calculated scales. "
             "Emitted as variable_scales entries in the options section. "
-            "(default: not set — gtopt auto-scales from emax)"
+            "(default: not set — GTOpt auto-scales from emax)"
         ),
     )
     parser.add_argument(
@@ -1346,7 +1346,7 @@ def add_reservoir_battery_arguments(
         default=False,
         help=(
             "Emit battery energy_scale=0.01 as variable_scales entries. "
-            "OFF by default — gtopt auto-scales from emax. "
+            "OFF by default — GTOpt auto-scales from emax. "
             "(default: %(default)s)"
         ),
     )

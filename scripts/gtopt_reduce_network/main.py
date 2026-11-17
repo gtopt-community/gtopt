@@ -44,7 +44,7 @@ _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="gtopt-net",
-        description="Bus/line reducer and solution projector for gtopt cases.",
+        description="Bus/line reducer and solution projector for GTOpt cases.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     sub = parser.add_subparsers(dest="cmd", required=True)
-    _add_reduce_parser(sub.add_parser("reduce", help="reduce a gtopt JSON case"))
+    _add_reduce_parser(sub.add_parser("reduce", help="reduce a GTOpt JSON case"))
     _add_project_results_parser(
         sub.add_parser(
             "project-results",
@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
-    p.add_argument("input", type=Path, help="input gtopt JSON case")
+    p.add_argument("input", type=Path, help="input GTOpt JSON case")
     p.add_argument(
         "-o",
         "--output",
@@ -177,7 +177,7 @@ def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
             "lines with per-unit reactance <= X are treated as DC (no KVL, "
             "transport capacity only): near-jumper lines whose huge 1/X "
             "susceptance would wreck KVL conditioning.  Default 1e-4 = "
-            "PSS/E THRSHZ closed-switch standard.  gtopt analogue: "
+            "PSS/E THRSHZ closed-switch standard.  GTOpt analogue: "
             "model_options.dc_line_reactance_threshold"
         ),
     )
@@ -501,7 +501,7 @@ def _cmd_project_investment(args: argparse.Namespace) -> None:
 
 
 def _add_cascade_run_parser(p: argparse.ArgumentParser) -> None:
-    p.add_argument("input", type=Path, help="input gtopt JSON case")
+    p.add_argument("input", type=Path, help="input GTOpt JSON case")
     p.add_argument("-K", "--target-buses", type=int, required=True)
     p.add_argument("-o", "--output-dir", type=Path, required=True)
     p.add_argument("--gtopt-bin", type=Path, default=None)

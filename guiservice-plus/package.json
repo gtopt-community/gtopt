@@ -1,7 +1,7 @@
 {
   "name": "gtopt-guiservice-plus",
   "version": "0.1.0",
-  "description": "Modern Next.js 15 + React 19 frontend for gtopt (GUI Plus)",
+  "description": "Modern Next.js 15 + React 19 frontend for GTOpt (GUI Plus)",
   "private": true,
   "scripts": {
     "dev": "next dev -p 5002",

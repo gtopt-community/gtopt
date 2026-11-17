@@ -1,6 +1,6 @@
 /**
  * @defgroup core Core Types
- * @brief Fundamental types, identifiers, and utilities used throughout gtopt.
+ * @brief Fundamental types, identifiers, and utilities used throughout GTOpt.
  *
  * Includes basic types (Uid, Name, Real), strong type wrappers, field
  * schedules, and common utility functions.

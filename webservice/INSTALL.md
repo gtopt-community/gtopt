@@ -1,14 +1,14 @@
-# Installing and Running the gtopt Web Service
+# Installing and Running the GTOpt Web Service
 
-This guide covers setting up a server, installing the gtopt solver, deploying
+This guide covers setting up a server, installing the GTOpt solver, deploying
 the web service, and running it in production.
 
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
 - [1. Server Setup](#1-server-setup)
-- [2. Install gtopt Dependencies](#2-install-gtopt-dependencies)
-- [3. Build and Install gtopt](#3-build-and-install-gtopt)
+- [2. Install GTOpt Dependencies](#2-install-gtopt-dependencies)
+- [3. Build and Install GTOpt](#3-build-and-install-gtopt)
 - [4. Install the Web Service](#4-install-the-web-service)
 - [5. Configure the Web Service](#5-configure-the-web-service)
 - [6. Run the Web Service](#6-run-the-web-service)
@@ -25,7 +25,7 @@ the web service, and running it in production.
 | Component | Minimum Version | Purpose |
 |-----------|----------------|---------|
 | Ubuntu | 22.04 LTS | Server OS (other Linux distros work with adjustments) |
-| GCC | 14 | C++26 compiler for building gtopt |
+| GCC | 14 | C++26 compiler for building GTOpt |
 | CMake | 3.31 | Build system |
 | Node.js | 18 | Web service runtime |
 | npm | 9 | Node.js package manager |
@@ -68,7 +68,7 @@ node --version   # should be v20.x
 npm --version
 ```
 
-## 2. Install gtopt Dependencies
+## 2. Install GTOpt Dependencies
 
 ### GCC 14
 
@@ -102,7 +102,7 @@ sudo apt-get install -y -V coinor-libcbc-dev
 sudo apt-get install -y -V libboost-container-dev
 ```
 
-## 3. Build and Install gtopt
+## 3. Build and Install GTOpt
 
 Clone the repository, build, and install:
 
@@ -167,7 +167,7 @@ variables:
 | Option / Variable | Default | Description |
 |-------------------|---------|-------------|
 | `--port` / `PORT` | `3000` | HTTP port the web service listens on |
-| `--gtopt-bin` / `GTOPT_BIN` | auto-detect | Absolute path to the gtopt binary |
+| `--gtopt-bin` / `GTOPT_BIN` | auto-detect | Absolute path to the GTOpt binary |
 | `--data-dir` / `GTOPT_DATA_DIR` | `./data` | Directory for uploaded cases and results |
 | `--log-dir` / `GTOPT_LOG_DIR` | *(console only)* | Directory for log files |
 
@@ -305,7 +305,7 @@ sudo certbot --nginx -d your-domain.com
 
 ## 9. Testing
 
-### Mock integration tests (no gtopt binary needed)
+### Mock integration tests (no GTOpt binary needed)
 
 These tests use a mock solver to validate the web service API:
 
@@ -314,9 +314,9 @@ cd /usr/local/share/gtopt/webservice
 npm test
 ```
 
-### End-to-end tests (requires built gtopt)
+### End-to-end tests (requires built GTOpt)
 
-These tests use the real gtopt binary and validate solver output against
+These tests use the real GTOpt binary and validate solver output against
 reference results from `cases/c0`:
 
 ```bash
@@ -395,7 +395,7 @@ Returns a binary `.zip` file containing:
 
 ## 11. Troubleshooting
 
-### "gtopt binary not found"
+### "GTOpt binary not found"
 
 Ensure `GTOPT_BIN` points to the correct path or is installed in `/usr/local/bin`:
 

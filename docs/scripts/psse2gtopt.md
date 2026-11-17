@@ -1,8 +1,8 @@
-# psse2gtopt — PSS®E RAW to gtopt Converter
+# psse2gtopt — PSS®E RAW to GTOpt Converter
 
 Converts a **PSS®E** (Siemens *Power System Simulator for
 Engineering*) `.raw` power-flow file into a single-snapshot
-**multi-bus DC OPF** gtopt JSON planning, mirroring the role
+**multi-bus DC OPF** GTOpt JSON planning, mirroring the role
 [`plp2gtopt`](plp2gtopt.md) and [`sddp2gtopt`](sddp2gtopt.md) play for
 the PLP and PSR SDDP dialects.
 
@@ -16,9 +16,9 @@ network as a `.raw` file: a fixed-order, comma-separated text file
 describing buses, loads, generators, branches and transformers.
 
 `psse2gtopt` reads the **classic RAW format (revisions 32 and 33)** and
-emits a gtopt planning that `gtopt --lp-only` ingests directly:
+emits a GTOpt planning that `gtopt --lp-only` ingests directly:
 
-- every in-service bus → a gtopt `Bus` (referenced as `b<number>`);
+- every in-service bus → a GTOpt `Bus` (referenced as `b<number>`);
 - branches and transformers → `Line` entries carrying the per-unit
   reactance (three-winding transformers expand to a synthetic star bus
   plus three lines);
@@ -26,7 +26,7 @@ emits a gtopt planning that `gtopt --lp-only` ingests directly:
   configurable `--gcost` is applied);
 - loads → `Demand` entries with the active power `PL` as inline `lmax`.
 
-`use_kirchhoff = true` makes this a proper DC OPF; gtopt auto-pins one
+`use_kirchhoff = true` makes this a proper DC OPF; GTOpt auto-pins one
 reference bus per electrical island, so no slack handling is required.
 
 > ⚠️  **Format scope**: this targets the classic **rev 32/33** layout.
@@ -39,8 +39,8 @@ reference bus per electrical island, so no slack handling is required.
 ### Who needs this tool?
 
 - Engineers with a PSS/E network model who want to run a DC OPF /
-  curtailment study in gtopt.
-- Teams cross-validating a PSS/E grid against gtopt's network LP.
+  curtailment study in GTOpt.
+- Teams cross-validating a PSS/E grid against GTOpt's network LP.
 - Anyone delivered a planning study as PSS/E `.raw` snapshots (e.g. the
   Guatemalan *Programación de Largo Plazo* AMM database) rather than as
   an optimisation case.
@@ -49,7 +49,7 @@ reference bus per electrical island, so no slack handling is required.
 
 ## Installation
 
-Installs as part of the gtopt scripts package:
+Installs as part of the GTOpt scripts package:
 
 ```bash
 pip install ./scripts        # registers psse2gtopt on PATH
@@ -160,7 +160,7 @@ references it).
 
 ---
 
-## Mapping PSS/E elements → gtopt
+## Mapping PSS/E elements → GTOpt
 
 ### Case-id → `options` + `simulation`
 
@@ -188,7 +188,7 @@ Each in-service load with `PL > 0` becomes a `Demand` with
 
 ### Branches + transformers → `line_array`
 
-| Source                | gtopt line                                                                 |
+| Source                | GTOpt line                                                                 |
 |-----------------------|----------------------------------------------------------------------------|
 | Branch                | `reactance = X` (p.u.), `tmax_ab = tmax_ba = RATEA` (MW, 0 → large cap)     |
 | 2-winding transformer | `reactance = X1-2` resolved to system base via `CZ`, `tmax = RATA1`         |

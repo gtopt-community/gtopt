@@ -1,4 +1,4 @@
-# Cascade Solver -- Multi-Level Hybrid SDDP in gtopt
+# Cascade Solver -- Multi-Level Hybrid SDDP in GTOpt
 
 ## 1. Introduction
 

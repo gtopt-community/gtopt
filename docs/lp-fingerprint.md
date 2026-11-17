@@ -9,7 +9,7 @@ This enables:
 
 - **Regression detection**: verify that code changes do not accidentally add,
   remove, or rename LP variables or constraints.
-- **Solver verification**: confirm that what gtopt assembles internally matches
+- **Solver verification**: confirm that what GTOpt assembles internally matches
   what the LP solver actually sees in the generated LP file.
 - **Golden reference comparison**: compare a new run against a known-good
   baseline to detect formulation drift.
@@ -252,7 +252,7 @@ flowchart TB
     style ERR fill:#f8d7da,stroke:#dc3545
 ```
 
-### 1. Internal Fingerprint (inside gtopt)
+### 1. Internal Fingerprint (inside GTOpt)
 
 Computed during LP assembly from the structured metadata in `SparseCol` and
 `SparseRow` objects — before the LP is flattened for the solver.  This is the
@@ -277,7 +277,7 @@ python -m gtopt_check_fingerprint verify --lp-file problem.lp --golden golden.js
 python -m gtopt_check_fingerprint compare --actual actual.json --expected golden.json
 ```
 
-This verifies that what gtopt models is exactly what the LP solver sees.
+This verifies that what GTOpt models is exactly what the LP solver sees.
 
 ---
 

@@ -1,5 +1,5 @@
 @echo off
-REM gtopt_gui.bat - Windows launcher for gtopt GUI service
+REM gtopt_gui.bat - Windows launcher for GTOpt GUI service
 REM
 REM This script is intended for use on Windows (not WSL).
 REM For WSL, use the gtopt_gui shell script instead.

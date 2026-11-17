@@ -1,6 +1,6 @@
-# Contributing to gtopt
+# Contributing to GTOpt
 
-Thank you for your interest in contributing to gtopt! This document provides
+Thank you for your interest in contributing to GTOpt! This document provides
 guidelines and instructions for contributing.
 
 ## Getting Started
@@ -180,8 +180,11 @@ gtopt/
 
 ## Domain Context
 
-**gtopt** solves **Generation and Transmission Expansion Planning (GTEP)**
-problems — minimizing total discounted OPEX + CAPEX for a multi-stage,
+**GTOpt** (Generation, Transmission and storage Optimization) optimizes and
+analyses power-system generation, transmission and storage. Its core problem
+is **Generation and Transmission Expansion Planning (GTEP)** with storage,
+plus hydrothermal scheduling (SDDP/cascade) and unit commitment / dispatch —
+minimizing total discounted OPEX + CAPEX for a multi-stage,
 multi-scenario power system model. The solver uses DC power flow (Kirchhoff's
 voltage law) or a transport model, and is validated against standard IEEE
 benchmark networks (4-bus, 9-bus, 14-bus).
@@ -191,7 +194,7 @@ for the full formulation.
 
 ## License and Contributor License Agreement
 
-gtopt is dual-licensed (GPL-3.0-or-later with a solver plugin exception, or
+GTOpt is dual-licensed (GPL-3.0-or-later with a solver plugin exception, or
 a commercial license; see [`LICENSING.md`](LICENSING.md)). To keep both
 options available, every contributor must sign the
 [Contributor License Agreement](CLA.md) before a pull request can be

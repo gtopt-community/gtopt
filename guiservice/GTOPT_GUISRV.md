@@ -1,6 +1,6 @@
 # gtopt_guisrv - GUI Service Web Server Launcher
 
-A command-line launcher for the gtopt GUI service that runs it as a web server
+A command-line launcher for the GTOpt GUI service that runs it as a web server
 (without automatically opening a browser), similar to how `gtopt_websrv` runs
 the webservice.
 
@@ -113,7 +113,7 @@ sudo systemctl status gtopt-guiservice
 
 The default service file uses these settings:
 - Port: 5001
-- User: gtopt (create this user first)
+- User: GTOpt (create this user first)
 - Working directory: /usr/local/share/gtopt/guiservice
 
 Edit `/etc/systemd/system/gtopt-guiservice.service` to customize these settings.
@@ -121,12 +121,12 @@ Edit `/etc/systemd/system/gtopt-guiservice.service` to customize these settings.
 ## Features
 
 The GUI service provides:
-- **Case Editor**: Create and edit gtopt cases through a web interface
+- **Case Editor**: Create and edit GTOpt cases through a web interface
 - **File Upload**: Upload existing cases as ZIP files
 - **Data Management**: Edit system elements, simulation parameters, and options
 - **Visualization**: View input data and configuration
 - **Results Viewing**: Upload and visualize optimization results
-- **Webservice Integration**: Connect to remote gtopt webservice for solving
+- **Webservice Integration**: Connect to remote GTOpt webservice for solving
 
 ## Comparison with gtopt_gui
 
@@ -213,7 +213,7 @@ sudo journalctl -u gtopt-guiservice -n 50
 ```
 
 Common issues:
-- User 'gtopt' doesn't exist (create it first)
+- User 'GTOpt' doesn't exist (create it first)
 - Python dependencies not installed
 - Port already in use
 
