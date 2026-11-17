@@ -6,7 +6,7 @@
 # (test/CMakeLists.txt), so every test_*.cpp is #included into a
 # unity_N_cxx.cxx TU and clang-tidy classifies its contents as "header"
 # code.  That falsely triggers the in-header hygiene checks on two
-# sanctioned test idioms (see CLAUDE.md "Writing New Tests"):
+# sanctioned test idioms (see CONTRIBUTING.md):
 #
 #   using namespace gtopt;      – file-scope using in every test file
 #     google-global-names-in-headers
