@@ -3,7 +3,7 @@
 This directory holds the PSS®E `.raw` fixtures used by the
 `psse2gtopt` test-suite.
 
-## `synthetic.raw` — hand-crafted (BSD-3-Clause, this repo)
+## `synthetic.raw` — hand-crafted for this project (GTOpt licence)
 
 A minimal, fully synthetic PSS®E revision-33 case authored for this
 project.  It deliberately exercises every record type and edge case the

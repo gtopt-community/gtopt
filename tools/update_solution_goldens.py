@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Regenerate the ``solution.csv`` goldens of the e2e integration cases.
 
 The ``e2e_<case>_compare_solution`` tests (``integration_test/CMakeLists.txt``

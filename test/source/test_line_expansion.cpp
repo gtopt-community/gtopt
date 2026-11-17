@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
-// Copyright (c) 2024, Marcelo Matus. All rights reserved.
+// Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed, see LICENSING.md
 //
 // test_line_expansion.cpp — LineLP transformer and capacity expansion tests:
 //   transformer (tap_ratio + phase_shift_deg), capacity expansion,
