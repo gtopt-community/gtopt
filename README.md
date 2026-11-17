@@ -1,379 +1,136 @@
 # GTOpt
 
 [![Ubuntu](https://github.com/gtopt-community/gtopt/actions/workflows/ubuntu.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/ubuntu.yml)
-[![Webservice](https://github.com/gtopt-community/gtopt/actions/workflows/webservice.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/webservice.yml)
-[![Guiservice](https://github.com/gtopt-community/gtopt/actions/workflows/guiservice.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/guiservice.yml)
 [![Style](https://github.com/gtopt-community/gtopt/actions/workflows/style.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/style.yml)
 [![Docs](https://github.com/gtopt-community/gtopt/actions/workflows/docs.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/docs.yml)
+[![License: AGPL-3.0 / commercial](https://img.shields.io/badge/license-AGPL--3.0%20%7C%20commercial-blue)](LICENSING.md)
 
-**GTOpt — Generation, Transmission and storage Optimization**: an open-source
-solver for the **optimization and analysis of power-system generation,
-transmission and storage** (expansion planning, hydrothermal scheduling, unit
-commitment and dispatch). The acronym carries only the G and the T, but
-storage — batteries, pumped hydro and reservoirs — is a first-class part of the
-scope. GTOpt is a high-performance C++ library and solver that minimizes the
-total expected discounted cost of operation and expansion (CAPEX + OPEX) of
-electrical power systems: generation and transmission expansion planning
-(GTEP), multi-stage hydrothermal scheduling via SDDP and cascade
-decomposition, and unit commitment / economic dispatch.
+**GTOpt — Generation, Transmission and storage Optimization** — is an
+open-source solver for planning and operating power systems. It builds sparse
+LP/MIP models of multi-stage systems and minimizes the expected discounted
+cost of investment and operation (CAPEX + OPEX):
 
-GTOpt is pronounced *G-top* (/ˈdʒiː tɒp/). The command-line binary is `gtopt`.
+- **Expansion planning** of generation, transmission and storage (GTEP).
+- **Hydrothermal scheduling** with SDDP and cascade decomposition.
+- **Unit commitment and economic dispatch**, single-bus or DC OPF with
+  losses.
 
-> **[📖 API Documentation](https://gtopt-community.github.io/gtopt/)** — Doxygen-generated C++ API reference, deployed automatically via GitHub Pages.
-
-## Documentation Guide
-
-This project includes comprehensive documentation for different use cases:
-
-- **[README.md](README.md)** (this file) - Project overview, quick installation, and basic usage
-- **[Understanding GTOpt](docs/overview.md)** - Global overview: repository layout, architecture layers, data flow, and technology stack
-- **[Planning Guide](docs/planning-guide.md)** - Complete planning guide: time structure, system elements, JSON format, and worked examples
-- **[Unit Commitment Guide](docs/unit-commitment.md)** - Three-bin UC formulation, startup tiers, piecewise heat rate, emission framework, and worked examples
-- **[Mathematical Formulation](docs/formulation/mathematical-formulation.md)** - Full LP/MIP optimization formulation with LaTeX notation
-- **[Building Guide](BUILDING.md)** - Detailed build instructions for all platforms, dependencies, and troubleshooting
-- **[Usage Guide](docs/usage.md)** - Complete command-line reference, examples, and advanced usage patterns
-- **[Input Data Reference](docs/input-data.md)** - Input data structure and file format reference
-- **[User Constraints](docs/user-constraints.md)** - User-defined LP constraints: AMPL-inspired syntax, domain specs, external files
-- **[Scripts Guide](docs/scripts-guide.md)** - Python utilities: conversion ([plp2gtopt](docs/scripts/plp2gtopt.md), [pp2gtopt](docs/scripts/pp2gtopt.md), [igtopt](docs/scripts/igtopt.md), [ts2gtopt](docs/scripts/ts2gtopt.md), [cvs2parquet](docs/scripts/cvs2parquet.md), [gtopt2pp](#gtopt2pp)), visualization ([gtopt_diagram](docs/scripts/gtopt_diagram.md)), validation ([gtopt_check_json](#gtopt_check_json), [gtopt_check_lp](#gtopt_check_lp), [gtopt_check_output](#gtopt_check_output)), and solver management ([run_gtopt](#run_gtopt), [gtopt_monitor](#gtopt_monitor))
-- **[Tool Comparison](docs/tools/comparison.md)** - Detailed comparison of GTOpt vs PLP, pandapower, and other tools (elements, parameters, units, methodology)
-- **[SDDP Method](docs/methods/sddp.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
-- **[Cascade Method](docs/methods/cascade.md)** - Cascade solver: multi-level hybrid SDDP with warm-start
-- **[Monolithic Method](docs/methods/monolithic.md)** - Default monolithic solver, boundary cuts, and sequential mode
-- **[LP Fingerprint](docs/lp-fingerprint.md)** - LP structural fingerprint: formulation integrity verification, regression detection, and CI golden-reference comparison
-- **[Changelog](CHANGELOG.md)** - Release history and notable changes
-- **[Publications](PUBLICATIONS.md)** - Papers on GTOpt and FESOP (IEEE KPEC 2022), related work and how to cite
-- **[Contributing Guide](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
-- **[webservice/INSTALL.md](webservice/INSTALL.md)** - Web service installation, deployment, and API reference
-- **[guiservice/INSTALL.md](guiservice/INSTALL.md)** - GUI service installation, deployment, and usage guide
-- **[Diagram Tool](docs/tools/diagram.md)** - Network and planning diagram tool with aggregation and large-case support
-
-## Table of Contents
-
-- [Features](#features)
-- [Quick Install (Ubuntu)](#quick-install-ubuntu)
-- [Usage](#usage)
-- [Running the Sample Case](#running-the-sample-case)
-- [Python Scripts](#python-scripts)
-- [GUI Service](#gui-service)
-- [Web Service](#web-service)
-- [Related Tools](#related-tools)
-- [License](#license)
+GTOpt is pronounced *G-top* (/ˈdʒiː tɒp/). The command-line binary is
+`gtopt`.
 
 ## Features
 
-* **Cost Optimization**: minimizes investment (CAPEX) and operational (OPEX) costs.
-* **System Modeling**: supports single-bus or multi-bus DC power flow (Kirchhoff laws).
-* **Unit Commitment**: tight three-bin (u,v,w) MIP formulation with startup tiers, piecewise heat rate, ramp constraints, min up/down time, and emission pricing.
-* **Multiple Solvers**: monolithic LP, SDDP decomposition, and cascade multi-level hybrid SDDP with progressive LP refinement.
-* **Flexible I/O**: high-speed parsing and export to Parquet, CSV, and JSON.
-* **Scalability**: designed for large-scale grids with sparse matrix assembly.
-* **Web Service**: browser-based UI and REST API for submitting and retrieving optimization results.
+- **Network**: single bus or DC power flow (Kirchhoff), line losses with
+  several piecewise formulations, transmission expansion.
+- **Storage and hydro**: batteries, pumped hydro, reservoirs and cascades,
+  irrigation rights, water values.
+- **Unit commitment**: tight three-bin MIP formulation, start-up tiers,
+  ramps, minimum up/down times, piecewise heat rates, emissions.
+- **Methods**: monolithic LP/MIP, SDDP and multi-level cascade SDDP, with
+  an OptGen-style investment master.
+- **Solvers as plugins**: HiGHS, CPLEX, Gurobi, MindOpt, SCIP, CBC/CLP and
+  cuOpt, loaded at run time.
+- **Data**: JSON cases with Parquet/CSV time series; converters from PLP,
+  PLEXOS, PSS/E, SDDP, pandapower and Excel.
+- **Interfaces**: command line, Python tools, a browser GUI and a REST web
+  service.
 
-## Quick Install (Ubuntu)
+## Install
 
-Install all dependencies, build, and install `gtopt` system-wide:
+On Ubuntu 24.04+ or Debian 13+:
 
 ```bash
-# 1. Install dependencies (Ubuntu 24.04+; CMake >= 3.31.6 is required --
-#    install it from https://cmake.org or `pip install cmake` if your
-#    distribution ships an older one)
-sudo apt-get update
-sudo apt-get install -y git gcc-14 g++-14 lld ninja-build pkg-config \
-  libboost-container-dev zlib1g-dev libzstd-dev liblz4-dev libsnappy-dev \
-  coinor-libcbc-dev ca-certificates lsb-release wget
-wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release  --codename --short).deb
-sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release  --codename --short).deb
-sudo apt-get update
-sudo apt-get install -y -V libarrow-dev libparquet-dev
+curl -fsSL https://raw.githubusercontent.com/gtopt-community/gtopt/master/install.sh | bash
+```
 
-# 2. Clone and build
+The script installs the system packages, builds GTOpt from source and
+installs it in `/usr/local` (it asks for `sudo`). Useful options:
+
+```bash
+# Install in your home directory, plus the Python tools (plp2gtopt, plexos2gtopt, ...)
+curl -fsSL https://raw.githubusercontent.com/gtopt-community/gtopt/master/install.sh \
+  | bash -s -- --prefix "$HOME/.local" --python
+```
+
+Run `install.sh --help` for all options. For other platforms, manual builds
+and build options, see the **[Building Guide](BUILDING.md)**.
+
+At least one solver backend must be available at run time; the installer
+brings the open-source CBC/CLP. `gtopt --solvers` lists what was found.
+
+## Quick start
+
+```bash
 git clone https://github.com/gtopt-community/gtopt.git
-cd gtopt
-CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-
-# 3. Install system-wide
-sudo cmake --install build
-
-# 4. Verify
-gtopt --version
+cd gtopt/cases/c0
+gtopt system_c0.json
 ```
 
-`coinor-libcbc-dev` provides the open-source CBC/CLP solver plugin; at
-least one solver backend (COIN-OR, HiGHS, CPLEX, ...) must be available at
-run time (`gtopt --solvers` lists them). The C++ dependencies spdlog,
-DAW JSON Link and strong_type are downloaded automatically by CMake, so
-the first configure needs network access.
-
-For detailed build instructions, alternative platforms, troubleshooting, and build options, see **[Building Guide](BUILDING.md)**.
-
-## Usage
-
-Run GTOpt on a system configuration file:
-
-```bash
-gtopt system_config.json
-```
+`cases/c0` is a single-bus system with one generator and one demand and
+capacity expansion over 5 stages. Results are written to `output/`, one
+file per component; status `0` in `solution.csv` means the optimum was
+found.
 
 Common options:
 
 ```bash
-# Output results to a specific directory
-gtopt system_c0.json --set output_directory=results/
-
-# Single-bus mode (ignore network topology)
-gtopt system_c0.json --set use_single_bus=true
-
-# Enable DC power flow (Kirchhoff's laws)
-gtopt system_c0.json --set use_kirchhoff=true
+gtopt case.json --set output_directory=results/   # where to write results
+gtopt case.json --set use_single_bus=true         # ignore the network
+gtopt case.json --solver highs                    # pick a solver backend
 ```
 
-For complete command-line reference, advanced examples, and detailed usage instructions, see **[Usage Guide](docs/usage.md)**.
+Next steps: the **[first-solve walkthrough](docs/planning-guide.md#quickstart-your-first-solve)**
+and the **[Usage Guide](docs/usage.md)**.
 
-## Running the Sample Case
+## Tools and interfaces
 
-The repository includes a sample case in `cases/c0/` — a single-bus system with one generator and one demand with capacity expansion over 5 stages.
+| | What it is | Docs |
+|---|---|---|
+| **Python tools** | Converters (`plp2gtopt`, `plexos2gtopt`, `psse2gtopt`, `sddp2gtopt`, `pp2gtopt`, `igtopt`), diagrams, `run_gtopt` and checkers | [Scripts Guide](docs/scripts-guide.md) |
+| **GUI** | Browser interface to build, solve and inspect cases (`gtopt_gui`) | [GUI and web service](docs/interfaces.md) |
+| **Web service** | REST API to submit cases and fetch results (`gtopt_websrv`) | [GUI and web service](docs/interfaces.md) |
+| **C++ library** | The solver as a library, plus the Apache-2.0 Extension SDK for solver plugins | [API reference](https://gtopt-community.github.io/gtopt/) |
 
-```bash
-cd cases/c0
-gtopt system_c0.json
-```
+## Documentation
 
-The solver produces output files organized by component type in the `output/` directory. A status of `0` in `solution.csv` indicates an optimal solution was found.
+All documentation is indexed in **[docs/README.md](docs/README.md)**. The
+main entry points:
 
-For a step-by-step walkthrough of running and interpreting the simplest case
-(`ieee_4b_ori`), see the **[Quickstart: Your First Solve](docs/planning-guide.md#quickstart-your-first-solve)**
-section in the Planning Guide. For detailed output file descriptions, system
-file format, and advanced examples, see **[Usage Guide](docs/usage.md#running-the-sample-case)**.
+- [Understanding GTOpt](docs/overview.md): architecture, data flow and
+  repository layout.
+- [Planning Guide](docs/planning-guide.md): time structure, system elements,
+  JSON format and worked examples.
+- [Mathematical Formulation](docs/formulation/mathematical-formulation.md):
+  the full LP/MIP model.
+- [SDDP](docs/methods/sddp.md) and [Cascade](docs/methods/cascade.md)
+  methods.
+- [Comparison with other tools](docs/tools/comparison.md): PLP, pandapower,
+  PyPSA and GenX.
 
-## Python Scripts
+## Citing GTOpt
 
-The `scripts/` directory contains Python utilities for preparing, converting,
-validating, and post-processing data for use with GTOpt:
+If you use GTOpt in your work, please cite it as described in
+[`CITATION.cff`](CITATION.cff) (the "Cite this repository" button on
+GitHub). Papers about GTOpt and its predecessor FESOP are listed in
+[`PUBLICATIONS.md`](PUBLICATIONS.md).
 
-| Command | Purpose |
-|---------|---------|
-| **Data Preparation & Conversion** | |
-| `plp2gtopt` | Convert a PLP case to GTOpt JSON + Parquet |
-| `pp2gtopt` | Convert a pandapower network to GTOpt JSON |
-| `gtopt2pp` | Convert GTOpt JSON back to pandapower |
-| `igtopt` | Convert an Excel workbook to a GTOpt JSON case |
-| `cvs2parquet` | Convert CSV time-series files to Parquet format |
-| `ts2gtopt` | Project hourly time-series onto a GTOpt planning horizon |
-| `gtopt_diagram` | Generate network topology and planning diagrams |
-| `gtopt_compare` | Compare GTOpt results against pandapower DC OPF |
-| **Running & Monitoring** | |
-| `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
-| `gtopt_monitor` | Live solver convergence monitoring dashboard |
-| **Validation & Diagnostics** | |
-| `gtopt_check_json` | Validate JSON planning files and report issues |
-| `gtopt_check_lp` | Diagnose infeasible LP files (static + solver + AI) |
-| `gtopt_check_output` | Analyze solver output completeness and correctness |
-| `gtopt_compress_lp` | Compress LP debug files |
-| `gtopt_check_fingerprint` | Compute, verify, and compare LP structural fingerprints |
+## Contributing
 
-### Install
-
-```bash
-pip install ./scripts
-```
-
-### plp2gtopt — PLP to GTOpt converter
-
-Reads the standard PLP data files and writes a self-contained GTOpt JSON file
-together with Parquet time-series files:
-
-```bash
-# Basic conversion
-plp2gtopt -i plp_case_dir -o gtopt_case_dir
-
-# Create a ZIP archive ready to upload to gtopt_guisrv / gtopt_websrv
-plp2gtopt -z -i plp_case -o my_case
-
-# Two hydrology scenarios with 60/40 probability split
-plp2gtopt -i input/ -y 1,2 -p 0.6,0.4
-
-# Apply a 10% annual discount rate
-plp2gtopt -i input/ -d 0.10
-```
-
-After conversion, `plp2gtopt` prints statistics covering the number of buses,
-generators, demands, lines, blocks, stages, and scenarios — similar to the
-stats printed by the `gtopt` solver itself.
-
-For the full reference, see **[Scripts Guide](docs/scripts-guide.md)**.
-
-## GUI Service
-
-A web-based graphical interface for creating, editing, and visualizing GTOpt
-cases. The GUI service also connects to the GTOpt webservice for remote
-solving.
-
-### Quick Start with gtopt_gui
-
-The easiest way to launch the GUI is with the `gtopt_gui` command, which provides
-a complete integrated environment for editing, solving, and viewing optimization cases:
-
-```bash
-# Install guiservice (independent of gtopt binary)
-cmake -S guiservice -B build-gui
-sudo cmake --install build-gui
-
-# Install Python dependencies
-pip3 install -r /usr/local/share/gtopt/guiservice/requirements.txt
-
-# Launch interactively (opens browser, auto-starts webservice)
-gtopt_gui
-
-# Or with a specific configuration file
-gtopt_gui system_c0.json
-```
-
-**Fully Integrated Workflow:**
-- Opens a web browser with a standalone GUI interface
-- Automatically starts local webservice (if installed) for solving cases
-- Automatically detects GTOpt binary
-- Complete workflow: Edit → Submit for Solving → Monitor → View Results
-- Zero configuration required
-
-**In the browser:**
-1. Upload or create a case
-2. Edit system elements (buses, generators, storage, demands)
-3. Click "Submit for Solving" - runs on auto-started local webservice
-4. Monitor job progress in real-time
-5. View results with interactive charts and tables
-
-For detailed usage and options, see [guiservice/GTOPT_GUI.md](guiservice/GTOPT_GUI.md).
-
-### GUI Plus (Next.js / React front-end)
-
-An alternative modern front-end — **GUI Plus** — is available under
-[`guiservice-plus/`](guiservice-plus/). It is a Next.js 15 + React 19 +
-Tailwind v4 + shadcn/ui single-page app that sits on top of the existing
-Flask `guiservice` and offers an interactive topology editor (ReactFlow),
-technology-coloured dispatch stack charts, SDDP convergence views, a merit
-order table, and a KPI dashboard.
-
-```bash
-# Launch both the Flask guiservice and GUI Plus together
-gtopt_gui --ui-plus --ui-plus-port 5002
-
-# Or run it standalone against an existing Flask guiservice
-cd guiservice-plus && npm install
-GTOPT_GUISERVICE_URL=http://localhost:5001 npm run dev -- -p 5002
-```
-
-See [guiservice-plus/README.md](guiservice-plus/README.md) for details.
-
-### Quick Start with gtopt_guisrv
-
-For running the GUI service as a web server (without opening a browser):
-
-```bash
-# Start GUI service on default port 5001
-gtopt_guisrv
-
-# Or with custom options
-gtopt_guisrv --port 8080
-```
-
-The service binds to `127.0.0.1` by default. `--debug` is for local
-development only and is refused on non-loopback addresses.
-
-For detailed usage and systemd service setup, see [guiservice/GTOPT_GUISRV.md](guiservice/GTOPT_GUISRV.md).
-
-### Manual Start
-
-You can also run the GUI service directly:
-
-```bash
-pip install -r guiservice/requirements.txt
-cd guiservice
-python app.py
-# Open http://localhost:5001 in your browser
-```
-
-For detailed installation and deployment instructions, see
-[guiservice/INSTALL.md](guiservice/INSTALL.md).
-
-## Web Service
-
-GTOpt includes a web service that lets you upload optimization cases, run the
-solver, and download results — all through a browser or REST API.
-
-### Quick Start with gtopt_websrv
-
-Install and run the web service using the `gtopt_websrv` command:
-
-```bash
-# Install webservice (independent of gtopt binary)
-cmake -S webservice -B build-web
-sudo cmake --install build-web
-
-# Install Node.js dependencies (including build dependencies)
-cd /usr/local/share/gtopt/webservice
-npm install
-npm run build
-
-# Launch the web service
-gtopt_websrv
-
-# Or with options
-gtopt_websrv --port 8080
-gtopt_websrv --gtopt-bin /path/to/gtopt
-```
-
-For detailed installation and deployment instructions, see [webservice/INSTALL.md](webservice/INSTALL.md).
-
-## Related Tools
-
-GTOpt integrates with and compares against several established power system
-tools. The Python scripts in `scripts/` provide converters and validators
-for interoperability:
-
-| Tool | Language | Role with GTOpt |
-|------|----------|-----------------|
-| **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt_compare` validates GTOpt results against pandapower on standard IEEE test cases |
-| **PLP** (source not public) | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to GTOpt JSON + Parquet |
-| **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as GTOpt (see [Mathematical Formulation](docs/formulation/mathematical-formulation.md)) |
-| **[GenX](https://genxproject.github.io/GenX/)** | Julia | Capacity expansion model; similar modular investment + storage SoC formulation to GTOpt |
-
-### pandapower
-
-[pandapower](https://www.pandapower.org/) is an open-source Python tool for
-power system analysis, including AC/DC power flow and DC optimal power flow.
-
-- **`pp2gtopt`**: converts a pandapower network (JSON) to a GTOpt case,
-  enabling direct use of any pandapower network in GTOpt.
-- **`gtopt2pp`**: converts a GTOpt case back to pandapower, optionally
-  running DC OPF and topology diagnostics.
-- **`gtopt_compare`**: validates GTOpt dispatch results against pandapower
-  DC OPF on the built-in IEEE test cases (`ieee_4b_ori`, `ieee30b`, `ieee_57b`,
-  `bat_4b_24`).
-
-### PLP
-
-PLP (*Programación de Largo Plazo*) is a
-Fortran-based hydrothermal unit commitment and economic dispatch tool used in
-several Latin American power systems. Its Fortran source code is not
-public; `plp2gtopt` works from the documented `.dat` input formats.
-
-- **`plp2gtopt`**: reads the full set of PLP `.dat` files and produces a
-  self-contained GTOpt JSON + Parquet case, preserving multi-scenario
-  hydrology, block/stage structure, battery storage, and maintenance schedules.
-- Sample PLP cases are in `scripts/cases/` (e.g., `plp_dat_ex`, `plp_min_bess`,
-  `plp_bat_4b_24`).
+Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md). Pull
+requests need a one-time [Contributor License Agreement](CLA.md), which the
+CLA bot requests on your first PR. Questions and ideas go to
+[Discussions](https://github.com/gtopt-community/gtopt/discussions);
+security issues to [`SECURITY.md`](SECURITY.md).
 
 ## License
 
 The GTOpt core is **dual-licensed**: AGPL-3.0-or-later with the
 [solver plugin exception](LICENSE-EXCEPTION.md), or a
 [commercial license](LICENSE-COMMERCIAL.md). The Extension SDK (the
-solver-plugin interface headers) is Apache-2.0, so plugins and apps may
-use any licence. See
-[`LICENSING.md`](LICENSING.md). Third-party components and data shipped
-in this repository keep their own licences; see
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+solver-plugin interface headers) is Apache-2.0, so plugins and apps may use
+any licence. See [`LICENSING.md`](LICENSING.md) and
+[`TRADEMARKS.md`](TRADEMARKS.md). Third-party components keep their own
+licences; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 Copyright (c) 2024-2026 Marcelo Matus and [contributors](AUTHORS).
 

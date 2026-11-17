@@ -14,8 +14,48 @@ results should be directly comparable.
 
 ---
 
+## Related tools
+
+GTOpt integrates with and compares against several established power system
+tools. The Python scripts in `scripts/` provide converters and validators
+for interoperability:
+
+| Tool | Language | Role with GTOpt |
+|------|----------|-----------------|
+| **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt_compare` validates GTOpt results against pandapower on standard IEEE test cases |
+| **PLP** (source not public) | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to GTOpt JSON + Parquet |
+| **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as GTOpt (see [Mathematical Formulation](../formulation/mathematical-formulation.md)) |
+| **[GenX](https://genxproject.github.io/GenX/)** | Julia | Capacity expansion model; similar modular investment + storage SoC formulation to GTOpt |
+
+### pandapower
+
+[pandapower](https://www.pandapower.org/) is an open-source Python tool for
+power system analysis, including AC/DC power flow and DC optimal power flow.
+
+- **`pp2gtopt`**: converts a pandapower network (JSON) to a GTOpt case,
+  enabling direct use of any pandapower network in GTOpt.
+- **`gtopt2pp`**: converts a GTOpt case back to pandapower, optionally
+  running DC OPF and topology diagnostics.
+- **`gtopt_compare`**: validates GTOpt dispatch results against pandapower
+  DC OPF on the built-in IEEE test cases (`ieee_4b_ori`, `ieee30b`, `ieee_57b`,
+  `bat_4b_24`).
+
+### PLP
+
+PLP (*Programación de Largo Plazo*) is a
+Fortran-based hydrothermal unit commitment and economic dispatch tool used in
+several Latin American power systems. Its Fortran source code is not
+public; `plp2gtopt` works from the documented `.dat` input formats.
+
+- **`plp2gtopt`**: reads the full set of PLP `.dat` files and produces a
+  self-contained GTOpt JSON + Parquet case, preserving multi-scenario
+  hydrology, block/stage structure, battery storage, and maintenance schedules.
+- Sample PLP cases are in `scripts/cases/` (e.g., `plp_dat_ex`, `plp_min_bess`,
+  `plp_bat_4b_24`).
+
 ## Table of Contents
 
+- [Related tools](#related-tools)
 - [1. Overview](#1-overview)
 - [2. Bus / Bar](#2-bus--bar)
 - [3. Generator / Central](#3-generator--central)
@@ -644,7 +684,7 @@ produces identical results to pandapower's DC OPF.
 
 **Network diagram** (generated with `gtopt_diagram`):
 
-![s1b network](diagrams/s1b_example.svg)
+![s1b network](../diagrams/s1b_example.svg)
 
 ```mermaid
 ---
@@ -713,7 +753,7 @@ law) constraints.
 
 **Network diagram** (generated with `gtopt_diagram`):
 
-![ieee_4b_ori network](diagrams/ieee4b_ori_example.svg)
+![ieee_4b_ori network](../diagrams/ieee4b_ori_example.svg)
 
 ```mermaid
 ---
@@ -851,7 +891,7 @@ PLP `.dat` file format.
 
 **Network diagram** (generated with `gtopt_diagram`):
 
-![plp_min_1bus network](diagrams/plp_min_1bus_example.svg)
+![plp_min_1bus network](../diagrams/plp_min_1bus_example.svg)
 
 ```mermaid
 ---
