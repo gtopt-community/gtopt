@@ -1581,7 +1581,7 @@ mitigate this:
 
 The GTOpt SDDP solver draws on concepts from the PLP (Programación Lineal
 de la Planificación) hydrothermal scheduler [[5]](#ref5)[[6]](#ref6)
-maintained in the `marcelomatus/plp_storage` repository:
+(its Fortran source is not public):
 
 | PLP concept | GTOpt equivalent |
 |-------------|-----------------|

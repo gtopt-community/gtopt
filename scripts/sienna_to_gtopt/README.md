@@ -148,7 +148,7 @@ here so future ports avoid the same potholes:
   multi-pollutant CO₂) cover the emissions axis.
 - The pre-staged bundles live at `integration_test/data/` — see that
   directory's README for the inventory + regen commands.
-- Issue [#510](https://github.com/marcelomatus/gtopt/issues/510) covers
+- Issue #510 covers
   the multi-fuel / TB-schedule-fuel C++ work that would unlock
   piecewise-emission ports without the scalar-collapse workaround the
   emission ports use today (not relevant to these three non-emission

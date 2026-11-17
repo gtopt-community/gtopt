@@ -118,7 +118,7 @@ per-fueled-generator count. Both tests in this port account for this.
 - The piecewise→scalar fallback (this port's `collapse_piecewise_hr`)
   is a converter-side workaround pending gtopt-side multi-fuel /
   per-fuel HR support tracked in
-  [issue #510](https://github.com/marcelomatus/gtopt/issues/510).
+  issue #510.
 - Sister ports for cross-validation:
   `scripts/rts_gmlc_to_gtopt/` (GridMod RTS-GMLC, per-gen native CO₂
   multi-pollutant), `scripts/sienna_to_gtopt/` (5-bus non-emission

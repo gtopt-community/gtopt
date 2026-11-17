@@ -1065,7 +1065,7 @@ Open defects / follow-ups (all documented, none fixed here by design):
    semantics.
 3. J. W. Chinneck, "Feasibility and Infeasibility in Optimization",
    Springer (2008) — elastic filter (Phase-1) background.
-4. PLP sources: `plp_storage/CEN65/src/defprbpd.f` (φ pricing),
+4. PLP Fortran sources (not public): `defprbpd.f` (φ pricing),
    `plp-agrespd.f` (`AgrElastici`, per-link sensitivity cuts).
 5. In-repo prior art:
    `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`;

@@ -608,5 +608,5 @@ and skip when it is unset.
 - [sddp2gtopt](sddp2gtopt.md) — sister tool for PSR SDDP cases
 - [pp2gtopt](pp2gtopt.md) — convert pandapower networks to GTOpt
 - [ts2gtopt](ts2gtopt.md) — project hourly time-series onto GTOpt horizons
-- [PLP source code](https://github.com/marcelomatus/plp_storage/tree/main/CEN65/src)
-  — authoritative Fortran readers (`lee*.f`) for every `.dat` file
+- The PLP Fortran source (with its `lee*.f` readers for every `.dat`
+  file) is not public; the formats documented here were derived from it.

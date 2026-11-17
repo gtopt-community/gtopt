@@ -19,7 +19,7 @@ decomposition, and unit commitment / economic dispatch.
 
 GTOpt is pronounced *G-top* (/ˈdʒiː tɒp/). The command-line binary is `gtopt`.
 
-> **[📖 API Documentation](https://marcelomatus.github.io/gtopt/)** — Doxygen-generated C++ API reference, deployed automatically via GitHub Pages.
+> **[📖 API Documentation](https://gtopt-community.github.io/gtopt/)** — Doxygen-generated C++ API reference, deployed automatically via GitHub Pages.
 
 ## Documentation Guide
 
@@ -321,7 +321,7 @@ for interoperability:
 | Tool | Language | Role with GTOpt |
 |------|----------|-----------------|
 | **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt_compare` validates GTOpt results against pandapower on standard IEEE test cases |
-| **[PLP](https://github.com/marcelomatus/plp_storage)** | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to GTOpt JSON + Parquet |
+| **PLP** (source not public) | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to GTOpt JSON + Parquet |
 | **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as GTOpt (see [Mathematical Formulation](docs/formulation/mathematical-formulation.md)) |
 | **[GenX](https://genxproject.github.io/GenX/)** | Julia | Capacity expansion model; similar modular investment + storage SoC formulation to GTOpt |
 
@@ -340,9 +340,10 @@ power system analysis, including AC/DC power flow and DC optimal power flow.
 
 ### PLP
 
-[PLP](https://github.com/marcelomatus/plp_storage) (*Programación de Largo Plazo*) is a
+PLP (*Programación de Largo Plazo*) is a
 Fortran-based hydrothermal unit commitment and economic dispatch tool used in
-several Latin American power systems.
+several Latin American power systems. Its Fortran source code is not
+public; `plp2gtopt` works from the documented `.dat` input formats.
 
 - **`plp2gtopt`**: reads the full set of PLP `.dat` files and produces a
   self-contained GTOpt JSON + Parquet case, preserving multi-scenario

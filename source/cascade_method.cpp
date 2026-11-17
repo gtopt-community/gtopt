@@ -507,8 +507,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // output paths are shared across levels).  The last active level
     // keeps `skip_simulation_pass = false` so its simulation runs end-
     // to-end and its outputs land on disk under the configured
-    // `output_directory`.  Filed as
-    // https://github.com/marcelomatus/gtopt/issues/479 for the
+    // `output_directory`.  Filed as issue #479 for the
     // accompanying feature flag that routes per-level output to
     // separate subdirectories — opting back in to the previous
     // behaviour will then require a config flip rather than a code

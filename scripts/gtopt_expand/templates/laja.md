@@ -59,7 +59,7 @@ current reservoir volume via the `bound_rule`.
 - [Irrigation Agreements — Modeling Guide](../../../docs/irrigation-agreements.md) —
   Architecture overview, LP formulation, and PLP comparison
 
-### PLP Fortran Sources (authoritative)
+### PLP Fortran Sources (authoritative; not public)
 
 | File             | Purpose                                    |
 |------------------|--------------------------------------------|
