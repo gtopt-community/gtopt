@@ -308,17 +308,18 @@ def run_interactive_setup(config_path: Path, use_color: bool = True) -> dict[str
     print()
     print(_c(col._BOLD, "AI diagnostics (shared across all gtopt tools):"))  # noqa: SLF001
     print(
-        "\n  When an API key is available, gtopt tools can send reports"
-        "\n  to an AI provider for expert diagnosis."
+        "\n  gtopt tools can send reports to an AI provider for expert"
+        "\n  diagnosis (gtopt_check_lp only does so when run with --ai)."
         "\n  Supported providers: " + ", ".join(_AI_PROVIDERS)
     )
 
-    current_ai_enabled = cfg.get("ai_enabled", "true")
+    current_ai_enabled = cfg.get("ai_enabled", "false")
     ai_enabled_str = _prompt(
-        "  Enable AI diagnostics by default ('true' or 'false')", current_ai_enabled
+        "  Enable AI by default in gtopt_check_json ('true' or 'false')",
+        current_ai_enabled,
     )
     if ai_enabled_str.lower() not in ("true", "false", "1", "0", "yes", "no"):
-        ai_enabled_str = "true"
+        ai_enabled_str = "false"
     cfg["ai_enabled"] = ai_enabled_str
 
     current_ai_provider = cfg.get("ai_provider", _AI_DEFAULT_PROVIDER)

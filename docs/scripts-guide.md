@@ -1203,8 +1203,12 @@ gtopt_check_lp --init-config
 3. **NEOS remote analysis** — submits to https://neos-server.org via XML-RPC
    using CPLEX (requires email)
 
-4. **AI diagnostics** *(optional)* — expert infeasibility diagnosis from
-   Claude, OpenAI, DeepSeek, or GitHub AI
+4. **AI diagnostics** *(opt-in, `--ai`)* — expert infeasibility diagnosis
+   from Claude, OpenAI, DeepSeek, GitHub Models, or a local server.  Off by
+   default: it runs only when `--ai` is passed explicitly.  Having an API
+   key in the environment (or `ai_enabled = true` in `~/.gtopt.conf`) never
+   enables it.  When enabled, the analysis report — including constraint
+   and variable names from your model — is sent to the selected provider.
 
 ### Quiet mode
 
@@ -1224,6 +1228,11 @@ input, and handles all errors gracefully with warnings.
 | `--no-neos` | off | Skip NEOS submissions |
 | `--email EMAIL` | — | Email for NEOS submissions |
 | `--output FILE` | — | Write report to file |
+| `--ai` | off | Opt in to AI diagnostics (sends the report to the provider) |
+| `--no-ai` | on | Disable AI diagnostics (default; kept for compatibility) |
+| `--ai-provider P` | `claude` | `claude`, `openai`, `deepseek`, `github`, `local` |
+| `--ai-model M` | provider default | Model name override |
+| `--ai-key KEY` | env var | API key override (else the provider's env var) |
 | `-v, --verbose` | off | Verbose logging |
 | `--config FILE` | `~/.gtopt.conf` | Config file path |
 | `--init-config` | off | Interactive config wizard |

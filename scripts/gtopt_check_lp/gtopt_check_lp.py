@@ -300,7 +300,7 @@ def check_lp(  # pylint: disable=too-many-arguments
         If set, write the full report to this file (ANSI codes stripped).
     ai:
         :class:`AiOptions` controlling the optional AI diagnostics step.
-        ``None`` is equivalent to ``AiOptions()`` (enabled, Claude).
+        ``None`` is equivalent to ``AiOptions()`` (AI disabled).
     quiet:
         When True, the function **never fails**: it always returns 0.
         In quiet mode:
@@ -586,14 +586,21 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
 
     # -- AI settings -----------------------------------------------------------
-    cfg_ai_enabled = cfg.get("ai_enabled", "true").lower() not in (
-        "false",
-        "0",
-        "no",
-    )
-    effective_ai_enabled = (
-        args.ai_enabled if args.ai_enabled is not None else cfg_ai_enabled
-    )
+    # AI diagnostics send the LP report to a third-party service, so they
+    # run ONLY when ``--ai`` is given on the command line.  Neither an API
+    # key in the environment nor ``ai_enabled`` in the config file turns
+    # them on.
+    effective_ai_enabled = bool(args.ai_enabled)
+    if (
+        not effective_ai_enabled
+        and not args.quiet
+        and cfg.get("ai_enabled", "false").strip().lower() in ("true", "1", "yes")
+    ):
+        print(
+            "Note: 'ai_enabled' in the config file is ignored by gtopt_check_lp;"
+            " pass --ai to send the report to an AI provider.",
+            file=sys.stderr,
+        )
     effective_ai_provider = (
         args.ai_provider
         if args.ai_provider is not None

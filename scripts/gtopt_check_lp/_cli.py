@@ -28,7 +28,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "[global] (shared with other GTOpt tools); tool-specific settings\n"
             "go in [gtopt_check_lp].  Run --init-config to create or update.\n\n"
             "[global] keys:\n"
-            "  ai_enabled   Enable AI diagnostics: true/false (default: true)\n"
+            "  ai_enabled   Ignored by gtopt_check_lp (AI needs --ai)\n"
             "  ai_provider  AI provider: claude, openai, deepseek, github, local\n"
             "  ai_model     Model name override (default: provider-specific)\n"
             "  color        Terminal color: auto, always, never (default: auto)\n\n"
@@ -271,21 +271,26 @@ def _build_parser() -> argparse.ArgumentParser:
     ai_group = parser.add_argument_group(
         "AI diagnostics",
         "Send the analysis report to an AI provider for an expert diagnosis.\n"
-        "Supported providers: " + ", ".join(_AI_PROVIDERS) + ".\n"
-        "Requires the corresponding API key in the environment.",
+        "OFF by default: runs only when --ai is given (an API key in the\n"
+        "environment never enables it).  The report, which contains\n"
+        "constraint/variable names from your model, is sent to the provider.\n"
+        "Supported providers: " + ", ".join(_AI_PROVIDERS) + ".",
     )
     ai_group.add_argument(
         "--ai",
         dest="ai_enabled",
         action="store_true",
-        default=None,
-        help="Enable AI diagnostics (default: on when an API key is available).",
+        default=False,
+        help=(
+            "Opt in to AI diagnostics (default: off).  Requires the API key "
+            "of the selected provider (environment or --ai-key)."
+        ),
     )
     ai_group.add_argument(
         "--no-ai",
         dest="ai_enabled",
         action="store_false",
-        help="Disable AI diagnostics.",
+        help="Disable AI diagnostics (the default; kept for compatibility).",
     )
     ai_group.add_argument(
         "--ai-provider",

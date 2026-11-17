@@ -275,11 +275,15 @@ class TestCLIParser:
         args = parser.parse_args(["dummy.lp", "--no-ai"])
         assert args.ai_enabled is False
 
-    def test_ai_enabled_default_is_none(self):
-        """AI enabled defaults to None (resolved at runtime from config)."""
+    def test_ai_enabled_default_is_off(self):
+        """AI diagnostics are opt-in: off unless --ai is given."""
         parser = _build_parser()
         args = parser.parse_args(["dummy.lp"])
-        assert args.ai_enabled is None
+        assert args.ai_enabled is False
+
+    def test_ai_options_default_disabled(self):
+        """The library-level AiOptions default is also disabled."""
+        assert AiOptions().enabled is False
 
     def test_ai_provider_choices(self):
         """--ai-provider accepts valid providers (claude, openai, deepseek, github)."""
@@ -626,6 +630,35 @@ class TestMain:
             rc = main([str(_FEASIBLE_SMALL), "--analyze-only", "--no-ai"])
         assert rc == 0
         mock_ai.assert_not_called()
+
+    def test_main_api_key_and_config_do_not_enable_ai(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """An API key in the env plus ai_enabled=true in the config must NOT
+        trigger AI diagnostics without an explicit --ai."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        cfg = tmp_path / "gtopt.conf"
+        cfg.write_text("[global]\nai_enabled = true\n", encoding="utf-8")
+        with patch(
+            "gtopt_check_lp.gtopt_check_lp.check_lp", return_value=0
+        ) as mock_check:
+            rc = main([str(_BAD_BOUNDS), "--no-color", "--config", str(cfg)])
+        assert rc == 0
+        assert mock_check.call_args.kwargs["ai"].enabled is False
+        assert "pass --ai" in capsys.readouterr().err
+
+    def test_main_explicit_ai_flag_runs_ai(self, tmp_path, monkeypatch):
+        """--ai is the only switch that runs the AI step."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        cfg = tmp_path / "gtopt.conf"
+        cfg.write_text("[global]\nai_enabled = false\n", encoding="utf-8")
+        with patch(
+            "gtopt_check_lp.gtopt_check_lp.check_lp", return_value=0
+        ) as mock_check:
+            rc = main([str(_BAD_BOUNDS), "--no-color", "--config", str(cfg), "--ai"])
+        assert rc == 0
+        assert mock_check.call_args.kwargs["ai"].enabled is True
 
     def test_main_ai_provider_override(self):
         """--ai-provider is accepted and forwarded to check_lp."""

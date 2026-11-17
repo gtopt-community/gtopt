@@ -57,8 +57,10 @@ class AiOptions:
     Attributes
     ----------
     enabled:
-        When ``True`` (default), send the combined report to *provider* for
-        an expert diagnosis.
+        When ``True``, send the combined report to *provider* for an expert
+        diagnosis.  Defaults to ``False``: the report (constraint and
+        variable names from the user's model) only ever leaves the machine
+        when the caller opts in explicitly (``--ai`` on the CLI).
     provider:
         AI backend: ``"claude"``, ``"openai"``, ``"deepseek"``, or
         ``"github"``.
@@ -73,7 +75,7 @@ class AiOptions:
         HTTP timeout for the AI API call in seconds.
     """
 
-    enabled: bool = True
+    enabled: bool = False
     provider: str = _AI_DEFAULT_PROVIDER
     model: str = ""
     prompt: str = ""
