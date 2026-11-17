@@ -194,7 +194,6 @@ function toAnthropicMessages(
         content: [
           {
             // Anthropic's tool_result content block
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             ...(({ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content ?? '' } as any)),
           },
         ],

@@ -2,6 +2,9 @@
 REM gtopt_guisrv.bat - Windows launcher for GTOpt GUI service (web server mode)
 REM
 REM This script starts the Flask guiservice as a web server.
+REM
+REM Security: binds to 127.0.0.1 by default (--host / GTOPT_GUI_HOST).
+REM --debug is for local development only and refused on non-loopback hosts.
 
 setlocal enabledelayedexpansion
 

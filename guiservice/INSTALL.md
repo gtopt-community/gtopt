@@ -126,7 +126,11 @@ The GUI service is configured through environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GTOPT_WEBSERVICE_URL` | `http://localhost:3000` | URL of the GTOpt webservice for remote solving |
-| `FLASK_DEBUG` | `0` | Set to `1` for debug mode with auto-reload |
+| `GTOPT_GUI_HOST` | `127.0.0.1` | Bind address of `app.py` / `gtopt_guisrv` |
+| `GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS` | *(empty)* | Extra non-loopback webservice hosts (`host` or `host:port`, comma-separated) accepted by `POST /api/solve/config` |
+| `GTOPT_WEBSERVICE_API_TOKEN` | *(unset)* | Token forwarded to the webservice as `Authorization: Bearer` |
+| `GTOPT_GUI_SHUTDOWN_TOKEN` | *(unset)* | Secret that authorises `POST /api/shutdown` from non-loopback clients |
+| `FLASK_DEBUG` | `0` | `1` enables the Werkzeug debugger — local development only, refused on non-loopback hosts |
 
 Create a configuration file for persistent settings:
 
@@ -138,9 +142,11 @@ EOF
 ```
 
 The webservice URL can also be changed at runtime through the GUI (Solver →
-Webservice panel) or via the API:
+Webservice panel) or via the API.  Non-loopback hosts must be listed in
+`GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS` (SSRF guard):
 
 ```bash
+GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS=my-server python app.py &
 curl -X POST http://localhost:5001/api/solve/config \
   -H "Content-Type: application/json" \
   -d '{"webservice_url": "http://my-server:3000"}'
@@ -148,12 +154,16 @@ curl -X POST http://localhost:5001/api/solve/config \
 
 ## 5. Run the GUI Service
 
-### Development mode (with hot reload)
+### Local development (with hot reload)
 
 ```bash
 cd guiservice
-FLASK_DEBUG=1 python app.py
+python app.py          # binds 127.0.0.1:5001
 ```
+
+`FLASK_DEBUG=1` enables the Werkzeug debugger and auto-reload.  It is for local
+development on your own machine only (it allows code execution) and is refused
+when `GTOPT_GUI_HOST` is not a loopback address.
 
 The GUI will be available at `http://localhost:5001`.
 
@@ -164,8 +174,12 @@ For production deployments, use a WSGI server like gunicorn:
 ```bash
 pip install gunicorn
 cd guiservice
-gunicorn -w 4 -b 0.0.0.0:5001 app:app
+gunicorn -w 4 -b 127.0.0.1:5001 app:app
 ```
+
+Keep gunicorn on `127.0.0.1` and put an authenticating TLS reverse proxy in
+front of it if remote users need access — the GUI has no authentication (see
+[Security](#security)).
 
 ### Quick start (no webservice required)
 
@@ -197,7 +211,7 @@ User=gtopt
 Group=gtopt
 WorkingDirectory=/home/gtopt/gtopt/guiservice
 Environment=GTOPT_WEBSERVICE_URL=http://localhost:3000
-ExecStart=/opt/guiservice/venv/bin/gunicorn -w 4 -b 0.0.0.0:5001 app:app
+ExecStart=/opt/guiservice/venv/bin/gunicorn -w 4 -b 127.0.0.1:5001 app:app
 Restart=on-failure
 RestartSec=10
 
@@ -410,7 +424,7 @@ To use a different port, modify the `app.run()` call in `app.py` or set it
 via gunicorn:
 
 ```bash
-gunicorn -w 4 -b 0.0.0.0:8080 app:app
+gunicorn -w 4 -b 127.0.0.1:8080 app:app
 ```
 
 ### Tests fail with import errors
@@ -421,3 +435,29 @@ Make sure you run tests from the repository root:
 cd /path/to/gtopt
 python -m pytest guiservice/tests/test_app.py -v
 ```
+
+## Security
+
+The GUI service has **no user authentication**; treat it as a local,
+single-user tool.
+
+- **Loopback by default.** `app.py`, `gtopt_guisrv` and `gtopt_gui` bind to
+  `127.0.0.1` (override with `--host` / `GTOPT_GUI_HOST`).  To use the GUI from
+  another machine prefer an SSH tunnel
+  (`ssh -L 5001:127.0.0.1:5001 server`) or an authenticating TLS reverse
+  proxy; binding `0.0.0.0` exposes every endpoint to the network.
+- **Debug mode is for local development only.** The Werkzeug debugger allows
+  arbitrary code execution, so `--debug` / `FLASK_DEBUG=1` is refused unless
+  the service is bound to a loopback address.  Never enable it on a server.
+- **Webservice URL (SSRF guard).** `POST /api/solve/config` only accepts
+  `http`/`https` URLs without credentials, query or fragment whose host is
+  loopback, the host of `GTOPT_WEBSERVICE_URL`, or listed in
+  `GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS` (comma-separated `host` or
+  `host:port` entries, e.g. `solver.lan,10.0.0.7:3000`).
+- **Webservice API token.** When `GTOPT_WEBSERVICE_API_TOKEN` is set, the GUI
+  forwards it to the webservice as `Authorization: Bearer <token>`.
+- **`POST /api/shutdown`** is accepted either with the secret configured in
+  `GTOPT_GUI_SHUTDOWN_TOKEN` (`X-GTOpt-Shutdown-Token: <token>` or
+  `Authorization: Bearer <token>`, compared in constant time), or from a
+  direct loopback client (no `X-Forwarded-For`/`Forwarded` header) that sends
+  the `X-GTOpt-GUI` header used by the bundled UI (CSRF guard).

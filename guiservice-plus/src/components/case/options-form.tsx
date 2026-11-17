@@ -17,10 +17,10 @@ type OptionsForm = {
   reserve_fail_cost?: number;
   input_directory?: string;
   output_directory?: string;
-  input_format?: string;
-  output_format?: string;
-  output_compression?: string;
-  method?: string;
+  input_format?: 'parquet' | 'csv';
+  output_format?: 'parquet' | 'csv';
+  output_compression?: 'zstd' | 'gzip' | 'lzo' | 'uncompressed';
+  method?: 'monolithic' | 'sddp' | 'cascade';
 };
 
 export function OptionsForm() {

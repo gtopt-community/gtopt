@@ -118,15 +118,19 @@ gtopt_gui --no-browser
 ```
 
 This starts the service but doesn't open a browser. Useful if you want to
-manually open the browser or connect from a different machine.
+manually open the browser, or reach it from another machine through an SSH
+tunnel (`ssh -L PORT:127.0.0.1:PORT host`) — the service only listens on
+`127.0.0.1`.
 
-### Debug mode
+### Debug mode (local development only — not for normal use)
 
 ```bash
 gtopt_gui --debug
 ```
 
-Runs Flask in debug mode with auto-reload for development.
+Runs Flask in debug mode with auto-reload.  **Local development only** — the
+Werkzeug debugger allows arbitrary code execution.  `gtopt_gui` always binds the
+GUI service to `127.0.0.1`; never use debug mode on a shared or exposed host.
 
 ## Options
 
@@ -144,7 +148,7 @@ Options:
   --app-mode               Try to open browser in app/kiosk mode
   --no-webservice          Don't auto-start the webservice
   --webservice-url URL     Use external webservice at this URL
-  --debug                  Run Flask in debug mode with auto-reload
+  --debug                  Run Flask in debug mode (local development only)
   -h, --help               Show help message
 ```
 
@@ -425,12 +429,31 @@ shell script and is installed alongside the GTOpt binary on Windows.
 **Note**: On Windows, make sure Python is installed and available in your PATH.
 Download Python from [python.org](https://www.python.org/) if needed.
 
-## Security Notes
+## Security
 
-- The service binds to `0.0.0.0` (all interfaces) by default
-- For remote access, consider using SSH port forwarding or a reverse proxy
-- No authentication is provided by default
-- Suitable for local development and trusted networks only
+The GUI service has **no user authentication**; treat it as a local,
+single-user tool.
+
+- **Loopback by default.** `app.py`, `gtopt_guisrv` and `gtopt_gui` bind to
+  `127.0.0.1` (override with `--host` / `GTOPT_GUI_HOST`).  To use the GUI from
+  another machine prefer an SSH tunnel
+  (`ssh -L 5001:127.0.0.1:5001 server`) or an authenticating TLS reverse
+  proxy; binding `0.0.0.0` exposes every endpoint to the network.
+- **Debug mode is for local development only.** The Werkzeug debugger allows
+  arbitrary code execution, so `--debug` / `FLASK_DEBUG=1` is refused unless
+  the service is bound to a loopback address.  Never enable it on a server.
+- **Webservice URL (SSRF guard).** `POST /api/solve/config` only accepts
+  `http`/`https` URLs without credentials, query or fragment whose host is
+  loopback, the host of `GTOPT_WEBSERVICE_URL`, or listed in
+  `GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS` (comma-separated `host` or
+  `host:port` entries, e.g. `solver.lan,10.0.0.7:3000`).
+- **Webservice API token.** When `GTOPT_WEBSERVICE_API_TOKEN` is set, the GUI
+  forwards it to the webservice as `Authorization: Bearer <token>`.
+- **`POST /api/shutdown`** is accepted either with the secret configured in
+  `GTOPT_GUI_SHUTDOWN_TOKEN` (`X-GTOpt-Shutdown-Token: <token>` or
+  `Authorization: Bearer <token>`, compared in constant time), or from a
+  direct loopback client (no `X-Forwarded-For`/`Forwarded` header) that sends
+  the `X-GTOpt-GUI` header used by the bundled UI (CSRF guard).
 
 ## See Also
 

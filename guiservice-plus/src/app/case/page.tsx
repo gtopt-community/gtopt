@@ -30,7 +30,17 @@ import { ElementKind } from '@/lib/schemas';
 
 const SECTIONS: ElementKind[] = ['bus', 'generator', 'demand', 'line', 'battery'];
 
+// useSearchParams() opts the page out of static prerendering; Next.js
+// requires such client components to sit inside a <Suspense> boundary.
 export default function CaseEditorPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <CaseEditor />
+    </React.Suspense>
+  );
+}
+
+function CaseEditor() {
   const search = useSearchParams();
   const templateSlug = search.get('template');
   const caseData = useStore((s) => s.caseData);

@@ -1896,7 +1896,8 @@ async function shutdownService() {
     return;
   }
   try {
-    await fetch("/api/shutdown", { method: "POST" });
+    // The X-GTOpt-GUI header is required by the server (CSRF guard).
+    await fetch("/api/shutdown", { method: "POST", headers: { "X-GTOpt-GUI": "1" } });
   } catch (e) {
     // Connection will likely be lost immediately – that's expected.
   }

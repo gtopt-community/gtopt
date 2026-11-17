@@ -50,11 +50,8 @@ The service will be available at `http://localhost:5001`.
 # Use custom port
 gtopt_guisrv --port 8080
 
-# Bind to specific host
+# Bind to a specific host (default: 127.0.0.1, loopback only)
 gtopt_guisrv --host 127.0.0.1
-
-# Run in debug mode (with auto-reload)
-gtopt_guisrv --debug
 ```
 
 ### Environment Variables
@@ -65,8 +62,8 @@ You can also use environment variables:
 # Set port
 GTOPT_GUI_PORT=8080 gtopt_guisrv
 
-# Enable debug mode
-FLASK_DEBUG=1 gtopt_guisrv
+# Bind address (default: 127.0.0.1)
+GTOPT_GUI_HOST=127.0.0.1 gtopt_guisrv
 ```
 
 ## Options
@@ -76,8 +73,9 @@ gtopt_guisrv [options]
 
 Options:
   --port PORT          Port for the GUI service (default: 5001)
-  --host HOST          Host to bind to (default: 0.0.0.0)
-  --debug              Run Flask in debug mode with auto-reload
+  --host HOST          Host to bind to (default: 127.0.0.1)
+  --debug              Flask debug mode — LOCAL DEVELOPMENT ONLY; refused on
+                       non-loopback hosts (the debugger allows code execution)
   --help               Show help message
 ```
 
@@ -173,11 +171,13 @@ sudo systemctl stop gtopt-guiservice
 ### Remote access
 
 ```bash
-# Start on custom port accessible from network
-gtopt_guisrv --port 8080 --host 0.0.0.0
+# The GUI service has no authentication: keep it on loopback and tunnel
+# through SSH from your workstation
+ssh -L 5001:127.0.0.1:5001 your-server
+# then open http://localhost:5001 locally
 
-# Access from another machine
-# http://your-server-ip:8080
+# Exposing it directly (--host 0.0.0.0) is only acceptable behind an
+# authenticating TLS reverse proxy — see "Security" below.
 ```
 
 ## Troubleshooting
@@ -230,3 +230,29 @@ Common issues:
 - [README.md](README.md) - Full GUI service documentation
 - [INSTALL.md](INSTALL.md) - Detailed installation guide
 - [../webservice/GTOPT_WEBSRV.md](../webservice/GTOPT_WEBSRV.md) - Similar launcher for webservice
+
+## Security
+
+The GUI service has **no user authentication**; treat it as a local,
+single-user tool.
+
+- **Loopback by default.** `app.py`, `gtopt_guisrv` and `gtopt_gui` bind to
+  `127.0.0.1` (override with `--host` / `GTOPT_GUI_HOST`).  To use the GUI from
+  another machine prefer an SSH tunnel
+  (`ssh -L 5001:127.0.0.1:5001 server`) or an authenticating TLS reverse
+  proxy; binding `0.0.0.0` exposes every endpoint to the network.
+- **Debug mode is for local development only.** The Werkzeug debugger allows
+  arbitrary code execution, so `--debug` / `FLASK_DEBUG=1` is refused unless
+  the service is bound to a loopback address.  Never enable it on a server.
+- **Webservice URL (SSRF guard).** `POST /api/solve/config` only accepts
+  `http`/`https` URLs without credentials, query or fragment whose host is
+  loopback, the host of `GTOPT_WEBSERVICE_URL`, or listed in
+  `GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS` (comma-separated `host` or
+  `host:port` entries, e.g. `solver.lan,10.0.0.7:3000`).
+- **Webservice API token.** When `GTOPT_WEBSERVICE_API_TOKEN` is set, the GUI
+  forwards it to the webservice as `Authorization: Bearer <token>`.
+- **`POST /api/shutdown`** is accepted either with the secret configured in
+  `GTOPT_GUI_SHUTDOWN_TOKEN` (`X-GTOpt-Shutdown-Token: <token>` or
+  `Authorization: Bearer <token>`, compared in constant time), or from a
+  direct loopback client (no `X-Forwarded-For`/`Forwarded` header) that sends
+  the `X-GTOpt-GUI` header used by the bundled UI (CSRF guard).

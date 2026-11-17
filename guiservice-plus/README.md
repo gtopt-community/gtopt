@@ -1,6 +1,6 @@
 # GTOpt GUI Plus
 
-A modern Next.js 15 + React 19 + Tailwind v4 frontend for the GTOpt planning
+A modern Next.js 16 + React 19 + Tailwind v4 frontend for the GTOpt planning
 workbench.  Sits on top of the existing Flask `guiservice` — all API calls
 are proxied via the Next.js rewrite `/flask/*` → `$GTOPT_GUISERVICE_URL/*`.
 
@@ -8,7 +8,7 @@ are proxied via the Next.js rewrite `/flask/*` → `$GTOPT_GUISERVICE_URL/*`.
 
 | Concern | Technology |
 |---|---|
-| Framework | **Next.js 15 (App Router) + React 19 + TypeScript** |
+| Framework | **Next.js 16 (App Router) + React 19 + TypeScript** |
 | UI library | **shadcn-style** components on Radix primitives |
 | Styling | **Tailwind CSS v3/v4 compatible** with HSL CSS custom properties |
 | Charts | **Recharts** |
@@ -27,7 +27,8 @@ npm install
 GTOPT_GUISERVICE_URL=http://localhost:5000 npm run dev -- -p 5002
 ```
 
-Then open <http://localhost:5002>.
+Then open <http://localhost:5002>.  `npm run dev` / `npm run start` bind to
+`127.0.0.1` only (see [Security](#security)).
 
 Alternatively, launch both the Flask `guiservice` and GUI Plus together via:
 
@@ -48,12 +49,24 @@ Or use the helper script:
 ./guiservice_plus.sh start
 ```
 
+## Security
+
+- GUI Plus binds to `127.0.0.1` by default (`HOST` in `guiservice_plus.sh`,
+  `-H` for `npm run dev|start -- …`).  It proxies `/flask/*` to the Flask
+  guiservice, which has no user authentication, so do not expose it on a
+  network interface without an authenticating TLS reverse proxy; prefer an
+  SSH tunnel (`ssh -L 5002:127.0.0.1:5002 server`).
+- Never run `next dev` (development mode) on a shared or exposed host.
+- See the guiservice [Security section](../guiservice/README.md#security) for
+  the webservice-URL allowlist, shutdown protection and debug-mode policy.
+
 ## Architecture
 
 ```
 guiservice-plus/
 ├── package.json            Next.js + deps declaration
 ├── next.config.mjs         /flask/* → GTOPT_GUISERVICE_URL rewrite
+├── eslint.config.mjs       ESLint flat config (eslint-config-next)
 ├── tailwind.config.ts      Design tokens (colours, typography)
 ├── tsconfig.json           @/ → src/ path mapping
 ├── src/

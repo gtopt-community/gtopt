@@ -104,7 +104,8 @@ pip install -r requirements.txt
 python app.py
 ```
 
-The GUI will be available at `http://localhost:5001`.
+The GUI will be available at `http://localhost:5001` (bound to `127.0.0.1`
+only; see [Security](#security)).
 
 ### Connecting to the Webservice
 
@@ -119,6 +120,31 @@ The webservice URL can also be set via environment variable:
 GTOPT_WEBSERVICE_URL=http://my-server:3000 python app.py
 ```
 
+URLs entered in the GUI must point at a loopback host, the host of
+`GTOPT_WEBSERVICE_URL`, or a host listed in `GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS`.
+
+## Security
+
+The GUI service has **no user authentication**; it is a local, single-user
+tool.
+
+- It binds to `127.0.0.1` by default (`--host` / `GTOPT_GUI_HOST` to
+  override).  For remote use, tunnel over SSH
+  (`ssh -L 5001:127.0.0.1:5001 server`) or use an authenticating TLS reverse
+  proxy.
+- Flask debug mode (`--debug`, `FLASK_DEBUG=1`) is for local development only:
+  the Werkzeug debugger allows code execution, and the service refuses to run
+  in debug mode on a non-loopback host.
+- `POST /api/solve/config` rejects non-`http(s)` URLs and hosts that are not
+  loopback or allowlisted in `GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS` (SSRF guard).
+- `POST /api/shutdown` requires a direct loopback client sending the
+  `X-GTOpt-GUI` header (as the bundled UI does), or the secret configured in
+  `GTOPT_GUI_SHUTDOWN_TOKEN`.
+- `GTOPT_WEBSERVICE_API_TOKEN` is forwarded to the webservice as a bearer
+  token.
+
+See [GTOPT_GUISRV.md](GTOPT_GUISRV.md#security) for details.
+
 ## API Endpoints
 
 | Method | Path                         | Description |
@@ -130,11 +156,12 @@ GTOPT_WEBSERVICE_URL=http://my-server:3000 python app.py
 | POST   | `/api/case/preview`          | Preview the generated JSON |
 | POST   | `/api/results/upload`        | Upload results ZIP for viewing |
 | GET    | `/api/solve/config`          | Get webservice URL configuration |
-| POST   | `/api/solve/config`          | Set webservice URL |
+| POST   | `/api/solve/config`          | Set webservice URL (loopback / allowlisted hosts only) |
 | POST   | `/api/solve/submit`          | Submit case to webservice for solving |
 | GET    | `/api/solve/status/<token>`  | Poll job status from webservice |
 | GET    | `/api/solve/results/<token>` | Retrieve and parse results from webservice |
 | GET    | `/api/solve/jobs`            | List all jobs from webservice |
+| POST   | `/api/shutdown`              | Stop the service (loopback + `X-GTOpt-GUI`, or shutdown token) |
 
 ## Input Data Documentation
 

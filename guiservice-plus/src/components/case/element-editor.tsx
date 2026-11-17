@@ -102,7 +102,7 @@ export function ElementEditor({ kind }: { kind: ElementKind }) {
             {items.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={cols.length + 1} className="text-center text-muted-foreground">
-                  No {kind} yet — click "Add {kind}".
+                  No {kind} yet — click &ldquo;Add {kind}&rdquo;.
                 </TableCell>
               </TableRow>
             ) : (

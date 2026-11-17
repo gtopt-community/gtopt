@@ -6,15 +6,20 @@ This module provides the Flask application with REST API endpoints for
 case management and a browser-based GUI for interactive case creation.
 """
 
+import hmac
 import io
+import ipaddress
 import json
 import logging
 import os
+import re
 import signal
+import sys
 import tempfile
 from base64 import b64decode
 from collections import deque
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urlsplit
 
 import pandas as pd
 import requests as http_requests
@@ -31,11 +36,9 @@ from flask import (
 # The module-level import with try/except is preferred over deferred imports
 # so that the optional dependency is resolved once at startup.
 try:
-    import sys as _sys
-
     _scripts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scripts")
-    if _scripts_dir not in _sys.path:
-        _sys.path.insert(0, _scripts_dir)
+    if _scripts_dir not in sys.path:
+        sys.path.insert(0, _scripts_dir)
     from gtopt_diagram import FilterOptions as _FilterOptions
     from gtopt_diagram import TopologyBuilder as _TopologyBuilder
     from gtopt_diagram import model_to_reactflow as _model_to_reactflow
@@ -156,6 +159,156 @@ _configure_logging()
 # Default webservice URL (can be overridden via env or API)
 _webservice_url = os.environ.get("GTOPT_WEBSERVICE_URL", "http://localhost:3000")
 
+# ---------------------------------------------------------------------------
+# Security helpers
+# ---------------------------------------------------------------------------
+
+#: Default bind address of the GUI service (loopback only).
+DEFAULT_HOST = "127.0.0.1"
+
+#: Comma-separated extra hosts (``host`` or ``host:port``) that
+#: ``POST /api/solve/config`` may point the webservice URL at.
+ALLOWED_WEBSERVICE_HOSTS_ENV = "GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS"
+
+#: Shared secret that authorises ``POST /api/shutdown`` from any client.
+SHUTDOWN_TOKEN_ENV = "GTOPT_GUI_SHUTDOWN_TOKEN"
+
+#: Header the bundled UI sends with state-changing requests.  Browsers
+#: cannot add it cross-origin without a CORS preflight (which this service
+#: never grants), so it doubles as a CSRF guard.
+GUI_REQUEST_HEADER = "X-GTOpt-GUI"
+
+#: Token forwarded to the webservice (``Authorization: Bearer``).
+WEBSERVICE_API_TOKEN_ENV = "GTOPT_WEBSERVICE_API_TOKEN"
+
+# Job tokens are opaque path segments: never allow '/', '..', '?', '#', '%'.
+_JOB_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def is_loopback_host(host: str | None) -> bool:
+    """Return True when *host* (a hostname or IP literal) is loopback."""
+    if not host:
+        return False
+    h = host.strip().lower()
+    if h.startswith("[") and h.endswith("]"):
+        h = h[1:-1]
+    if h == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def _allowed_webservice_hosts() -> set[str]:
+    """Hosts (``host`` / ``host:port``, lower-case) allowed besides loopback.
+
+    Includes the host of the operator-provided ``GTOPT_WEBSERVICE_URL`` so
+    the UI can always switch back to the configured default.
+    """
+    allowed = {
+        item.strip().lower()
+        for item in os.environ.get(ALLOWED_WEBSERVICE_HOSTS_ENV, "").split(",")
+        if item.strip()
+    }
+    env_url = os.environ.get("GTOPT_WEBSERVICE_URL", "")
+    if env_url:
+        try:
+            parts = urlsplit(env_url)
+            if parts.hostname:
+                allowed.add(parts.hostname.lower())
+        except ValueError:
+            pass
+    return allowed
+
+
+def validate_webservice_url(raw: Any) -> tuple[str | None, str | None]:  # pylint: disable=too-many-return-statements
+    """Validate a client-supplied webservice URL (SSRF guard).
+
+    Only ``http``/``https`` URLs without credentials, query or fragment are
+    accepted, and the host must be loopback or listed in
+    ``GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS`` (as ``host`` or ``host:port``).
+
+    Returns ``(normalized_url, None)`` on success or ``(None, error)``.
+    """
+    if not isinstance(raw, str):
+        return None, "webservice_url must be a string"
+    url = raw.strip().rstrip("/")
+    if not url:
+        return None, "webservice_url cannot be empty"
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None, "webservice_url is not a valid URL"
+    if parts.scheme not in ("http", "https"):
+        return None, "webservice_url must use http or https"
+    if not parts.hostname:
+        return None, "webservice_url must include a host"
+    if parts.username is not None or parts.password is not None:
+        return None, "webservice_url must not include credentials"
+    if parts.query or parts.fragment:
+        return None, "webservice_url must not include a query or fragment"
+    host = parts.hostname.lower()
+    if not is_loopback_host(host):
+        allowed = _allowed_webservice_hosts()
+        host_port = f"{host}:{port}" if port is not None else host
+        if host not in allowed and host_port not in allowed:
+            return None, (
+                f"webservice host '{host}' is not allowed; only loopback hosts "
+                f"or hosts listed in {ALLOWED_WEBSERVICE_HOSTS_ENV} are accepted"
+            )
+    return f"{parts.scheme}://{parts.netloc}{parts.path}".rstrip("/"), None
+
+
+def _ws_headers() -> dict[str, str]:
+    """Headers for requests to the webservice (API token when configured)."""
+    token = os.environ.get(WEBSERVICE_API_TOKEN_ENV, "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _bad_job_token(token: str):
+    """Return a 400 response when *token* is not a safe path segment."""
+    if _JOB_TOKEN_RE.fullmatch(token):
+        return None
+    return jsonify({"error": "Invalid job token"}), 400
+
+
+def _presented_shutdown_token() -> str:
+    token = request.headers.get("X-GTOpt-Shutdown-Token", "")
+    if token:
+        return token
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+def shutdown_allowed() -> tuple[bool, str]:
+    """Decide whether the current request may shut the service down.
+
+    Allowed when either:
+
+    * it carries the token configured in ``GTOPT_GUI_SHUTDOWN_TOKEN``
+      (``X-GTOpt-Shutdown-Token`` or ``Authorization: Bearer``), compared
+      in constant time; or
+    * it comes straight from a loopback client (no ``X-Forwarded-For`` /
+      ``Forwarded`` header, i.e. not relayed by a reverse proxy) and carries
+      the ``X-GTOpt-GUI`` header the bundled UI sends (CSRF guard).
+    """
+    expected = os.environ.get(SHUTDOWN_TOKEN_ENV, "")
+    presented = _presented_shutdown_token()
+    if expected and presented:
+        if hmac.compare_digest(presented.encode(), expected.encode()):
+            return True, "token"
+        return False, "invalid shutdown token"
+    proxied = "X-Forwarded-For" in request.headers or "Forwarded" in request.headers
+    if not is_loopback_host(request.remote_addr) or proxied:
+        return False, "shutdown is only allowed from loopback clients or with a token"
+    if not request.headers.get(GUI_REQUEST_HEADER):
+        return False, f"missing {GUI_REQUEST_HEADER} header"
+    return True, "loopback"
+
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -264,12 +417,13 @@ def get_solve_config():
 def set_solve_config():
     """Update the webservice URL at runtime."""
     global _webservice_url
-    data = request.get_json()
-    if not data or "webservice_url" not in data:
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or "webservice_url" not in data:
         return jsonify({"error": "webservice_url is required"}), 400
-    url = data["webservice_url"].rstrip("/")
-    if not url:
-        return jsonify({"error": "webservice_url cannot be empty"}), 400
+    url, error = validate_webservice_url(data["webservice_url"])
+    if error is not None or url is None:
+        app.logger.warning("Rejected webservice_url %r: %s", data["webservice_url"], error)
+        return jsonify({"error": error}), 400
     _webservice_url = url
     return jsonify({"webservice_url": _webservice_url})
 
@@ -306,6 +460,7 @@ def submit_solve():
     try:
         resp = http_requests.post(
             f"{_webservice_url}/api/jobs",
+            headers=_ws_headers(),
             files={"file": (f"{case_name}.zip", zip_buf, "application/zip")},
             data={"systemFile": system_file},
             timeout=60,
@@ -350,9 +505,13 @@ def get_solve_status(token):
     {"token", "status", "createdAt", "completedAt", "systemFile", "error"}
     where status is one of: pending, running, completed, failed.
     """
+    bad = _bad_job_token(token)
+    if bad is not None:
+        return bad
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs/{token}",
+            headers=_ws_headers(),
             timeout=30,
         )
         resp.raise_for_status()
@@ -387,9 +546,13 @@ def get_solve_results(token):
       - output/  (solver output CSV/Parquet files)
       - stdout.log, stderr.log, job.json
     """
+    bad = _bad_job_token(token)
+    if bad is not None:
+        return bad
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs/{token}/download",
+            headers=_ws_headers(),
             timeout=120,
         )
         resp.raise_for_status()
@@ -428,6 +591,7 @@ def list_solve_jobs():
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs",
+            headers=_ws_headers(),
             timeout=30,
         )
         resp.raise_for_status()
@@ -463,6 +627,7 @@ def ping_webservice():
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/ping",
+            headers=_ws_headers(),
             timeout=10,
         )
         resp.raise_for_status()
@@ -499,6 +664,7 @@ def get_webservice_logs():
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/logs",
+            headers=_ws_headers(),
             params={"lines": lines},
             timeout=10,
         )
@@ -532,9 +698,13 @@ def get_job_logs(token):
 
     Proxies to GET /api/jobs/:token/logs on the webservice.
     """
+    bad = _bad_job_token(token)
+    if bad is not None:
+        return bad
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs/{token}/logs",
+            headers=_ws_headers(),
             timeout=30,
         )
         resp.raise_for_status()
@@ -570,9 +740,13 @@ def get_solve_monitor(token):
     written by the gtopt binary.
     Returns the parsed JSON or {"available": false} if not yet written.
     """
+    bad = _bad_job_token(token)
+    if bad is not None:
+        return bad
     try:
         resp = http_requests.get(
             f"{_webservice_url}/api/jobs/{token}/monitor",
+            headers=_ws_headers(),
             timeout=10,
         )
         resp.raise_for_status()
@@ -611,10 +785,14 @@ def stop_solve(token):
                   current iteration and saves cuts before stopping gracefully.
       mode=force — Send SIGTERM to the process immediately (hard stop).
     """
+    bad = _bad_job_token(token)
+    if bad is not None:
+        return bad
     mode = request.args.get("mode", "soft")
     try:
         resp = http_requests.post(
             f"{_webservice_url}/api/jobs/{token}/stop",
+            headers=_ws_headers(),
             params={"mode": mode},
             timeout=10,
         )
@@ -649,7 +827,11 @@ def shutdown_service():
     Sends SIGTERM to the current process so that the gtopt_gui cleanup handler
     can terminate both the guiservice and the webservice.
     """
-    app.logger.info("Shutdown requested via /api/shutdown")
+    allowed, reason = shutdown_allowed()
+    if not allowed:
+        app.logger.warning("Rejected /api/shutdown from %s: %s", request.remote_addr, reason)
+        return jsonify({"error": f"Forbidden: {reason}"}), 403
+    app.logger.info("Shutdown requested via /api/shutdown (%s)", reason)
     func = request.environ.get("werkzeug.server.shutdown")
     if func is not None:
         func()
@@ -675,7 +857,7 @@ def check_server():
 
     # --- Ping ---
     try:
-        resp = http_requests.get(f"{_webservice_url}/api/ping", timeout=10)
+        resp = http_requests.get(f"{_webservice_url}/api/ping", headers=_ws_headers(), timeout=10)
         resp.raise_for_status()
         results["ping"] = {"status": "ok", "data": resp.json()}
     except Exception as e:
@@ -683,7 +865,9 @@ def check_server():
 
     # --- Logs ---
     try:
-        resp = http_requests.get(f"{_webservice_url}/api/logs", params={"lines": 20}, timeout=10)
+        resp = http_requests.get(
+            f"{_webservice_url}/api/logs", headers=_ws_headers(), params={"lines": 20}, timeout=10
+        )
         resp.raise_for_status()
         results["logs"] = {"status": "ok", "data": resp.json()}
     except Exception as e:
@@ -691,7 +875,7 @@ def check_server():
 
     # --- Jobs ---
     try:
-        resp = http_requests.get(f"{_webservice_url}/api/jobs", timeout=10)
+        resp = http_requests.get(f"{_webservice_url}/api/jobs", headers=_ws_headers(), timeout=10)
         resp.raise_for_status()
         results["jobs"] = {"status": "ok", "data": resp.json()}
     except Exception as e:
@@ -1257,11 +1441,31 @@ def api_results_export_excel():
     )
 
 
+def check_debug_host(host: str, debug: bool) -> str | None:
+    """Return an error message when debug mode is requested on a non-loopback host.
+
+    The Werkzeug debugger allows arbitrary code execution; it is strictly a
+    local-development tool and must never be reachable from the network.
+    """
+    if debug and not is_loopback_host(host):
+        return (
+            f"Refusing to run in debug mode on non-loopback host '{host}': the "
+            "Werkzeug debugger allows remote code execution.  Debug mode is for "
+            f"local development only (bind to {DEFAULT_HOST})."
+        )
+    return None
+
+
 def main():
-    """Run the guiservice development server."""
+    """Run the guiservice development server (loopback by default)."""
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     port = int(os.environ.get("GTOPT_GUI_PORT", "5001"))
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    host = os.environ.get("GTOPT_GUI_HOST", DEFAULT_HOST)
+    error = check_debug_host(host, debug)
+    if error:
+        print(f"Error: {error}", file=sys.stderr)
+        sys.exit(2)
+    app.run(host=host, port=port, debug=debug)
 
 
 if __name__ == "__main__":

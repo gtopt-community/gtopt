@@ -31,6 +31,12 @@ def client():
         yield c
 
 
+@pytest.fixture
+def allow_test_hosts(monkeypatch):
+    """Allow the non-loopback hosts used by the webservice-URL tests."""
+    monkeypatch.setenv("GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS", "example.com, testserver:3000,myhost")
+
+
 # ---------------------------------------------------------------------------
 # Unit tests – helper functions
 # ---------------------------------------------------------------------------
@@ -581,6 +587,7 @@ class TestSolveConfig:
         data = resp.get_json()
         assert "webservice_url" in data
 
+    @pytest.mark.usefixtures("allow_test_hosts")
     def test_set_config(self, client):
         resp = client.post(
             "/api/solve/config",
@@ -591,6 +598,7 @@ class TestSolveConfig:
         data = resp.get_json()
         assert data["webservice_url"] == "http://example.com:3000"
 
+    @pytest.mark.usefixtures("allow_test_hosts")
     def test_set_config_strips_trailing_slash(self, client):
         resp = client.post(
             "/api/solve/config",
@@ -785,6 +793,7 @@ class TestWebserviceEndToEnd:
     """Test the full connection and functionality of sending/receiving cases
     and simulation results to/from the webservice."""
 
+    @pytest.mark.usefixtures("allow_test_hosts")
     @patch("guiservice.app.http_requests.get")
     @patch("guiservice.app.http_requests.post")
     def test_full_solve_workflow(self, mock_post, mock_get, client):
@@ -917,7 +926,7 @@ class TestWebserviceEndToEnd:
         """Verify the ZIP sent to the webservice contains the correct files."""
         captured_files = {}
 
-        def capture_post(url, files=None, data=None, timeout=None):  # pylint: disable=unused-argument
+        def capture_post(url, files=None, data=None, timeout=None, headers=None):  # pylint: disable=unused-argument
             # Capture the ZIP file content sent to the webservice
             if files and "file" in files:
                 fname, fobj, ftype = files["file"]
@@ -1020,7 +1029,7 @@ class TestWebserviceEndToEnd:
         """Verify cases with CSV data files are correctly transmitted."""
         captured_content = {}
 
-        def capture_post(url, files=None, data=None, timeout=None):  # pylint: disable=unused-argument
+        def capture_post(url, files=None, data=None, timeout=None, headers=None):  # pylint: disable=unused-argument
             if files and "file" in files:
                 _, fobj, _ = files["file"]
                 fobj.seek(0)
@@ -1506,9 +1515,10 @@ class TestShutdownEndpoint:
     """Tests for the /api/shutdown endpoint."""
 
     @patch("os.kill")
-    def test_shutdown_returns_status(self, mock_kill, client):
+    def test_shutdown_returns_status(self, mock_kill, client, monkeypatch):
         """Shutdown endpoint should return shutting_down status."""
-        resp = client.post("/api/shutdown")
+        monkeypatch.delenv("GTOPT_GUI_SHUTDOWN_TOKEN", raising=False)
+        resp = client.post("/api/shutdown", headers={"X-GTOpt-GUI": "1"})
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["status"] == "shutting_down"
@@ -1523,6 +1533,7 @@ class TestShutdownEndpoint:
 class TestPingWebserviceSavesConfig:
     """Verify that ping and logs proxy correctly through the guiservice."""
 
+    @pytest.mark.usefixtures("allow_test_hosts")
     @patch("guiservice.app.http_requests.get")
     def test_ping_uses_configured_url(self, mock_get, client):
         """Ping should use the configured webservice URL."""
@@ -1545,6 +1556,7 @@ class TestPingWebserviceSavesConfig:
         assert "myhost:4000" in call_url
         assert "/api/ping" in call_url
 
+    @pytest.mark.usefixtures("allow_test_hosts")
     @patch("guiservice.app.http_requests.get")
     def test_logs_uses_configured_url(self, mock_get, client):
         """Webservice logs should use the configured webservice URL."""

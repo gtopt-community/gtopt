@@ -10,20 +10,41 @@ Usage:
 
 Options:
     --port PORT          Port for the GUI service (default: 5001)
-    --host HOST          Host to bind to (default: 0.0.0.0)
-    --debug              Run Flask in debug mode
+    --host HOST          Host to bind to (default: 127.0.0.1)
+    --debug              Run Flask in debug mode (LOCAL DEVELOPMENT ONLY;
+                         refused on non-loopback hosts)
     --help               Show this help message
 
 Environment Variables:
     GTOPT_GUI_PORT       GUI service port (default: 5001)
-    FLASK_DEBUG          Run in debug mode if set to 1
+    GTOPT_GUI_HOST       Host to bind to (default: 127.0.0.1)
+
+Security:
+    The GUI service has no user authentication.  Keep it on 127.0.0.1;
+    to reach it from another machine use an SSH tunnel or an authenticating
+    TLS reverse proxy.  Never enable --debug outside local development: the
+    Werkzeug debugger allows remote code execution.
 """
 
 import argparse
 import importlib.util
+import ipaddress
 import os
 import sys
 from pathlib import Path
+
+DEFAULT_HOST = "127.0.0.1"
+
+
+def is_loopback_host(host):
+    """Return True when *host* (hostname or IP literal) is loopback."""
+    h = (host or "").strip().lower().strip("[]")
+    if h == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
 
 
 def get_guiservice_dir():
@@ -71,8 +92,7 @@ def main():
 Examples:
   gtopt_guisrv                    # Start on default port 5001
   gtopt_guisrv --port 8080        # Use custom port
-  gtopt_guisrv --debug            # Run in debug mode
-  gtopt_guisrv --host 127.0.0.1   # Bind to localhost only
+  gtopt_guisrv --debug            # Local development only (loopback)
 
 The GUI service will be available at http://HOST:PORT/
 For interactive kiosk mode, use 'gtopt_gui' instead.
@@ -88,17 +108,37 @@ For interactive kiosk mode, use 'gtopt_gui' instead.
 
     parser.add_argument(
         "--host",
-        default="0.0.0.0",
-        help="Host to bind to (default: 0.0.0.0)",
+        default=os.environ.get("GTOPT_GUI_HOST", DEFAULT_HOST),
+        help=(
+            "Host to bind to (default: 127.0.0.1).  The service has no "
+            "authentication: do not expose it without an authenticating "
+            "reverse proxy."
+        ),
     )
 
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Run Flask in debug mode with auto-reload",
+        help=(
+            "Run Flask in debug mode with auto-reload.  LOCAL DEVELOPMENT "
+            "ONLY: refused on non-loopback hosts (remote code execution)."
+        ),
     )
 
     args = parser.parse_args()
+
+    if args.debug and not is_loopback_host(args.host):
+        parser.error(
+            f"--debug is refused on non-loopback host '{args.host}': the Werkzeug "
+            "debugger allows remote code execution (local development only)"
+        )
+    if not is_loopback_host(args.host):
+        print(
+            f"Warning: binding to non-loopback host '{args.host}'.  The GUI "
+            "service has no authentication; put it behind an authenticating "
+            "TLS reverse proxy.",
+            file=sys.stderr,
+        )
 
     # Find guiservice directory
     guiservice_dir = get_guiservice_dir()
@@ -119,6 +159,8 @@ For interactive kiosk mode, use 'gtopt_gui' instead.
     env = os.environ.copy()
     env["GTOPT_GUI_PORT"] = str(args.port)
 
+    env["GTOPT_GUI_HOST"] = args.host
+
     if args.debug:
         env["FLASK_DEBUG"] = "1"
 
@@ -126,7 +168,7 @@ For interactive kiosk mode, use 'gtopt_gui' instead.
     print("")
     print("=" * 60)
     print("GTOpt GUI service is running")
-    host_display = "localhost" if args.host == "0.0.0.0" else args.host
+    host_display = "localhost" if args.host in ("0.0.0.0", "::") else args.host
     print(f"URL: http://{host_display}:{args.port}")
     print("Press Ctrl+C to stop")
     print("=" * 60)

@@ -11,6 +11,10 @@ WorkingDirectory=/usr/local/share/gtopt/guiservice
 
 # Environment variables
 Environment="GTOPT_GUI_PORT=5001"
+# Loopback only (default).  The GUI has no authentication: reach it through
+# an SSH tunnel or an authenticating TLS reverse proxy.  Never set
+# FLASK_DEBUG=1 here (the debugger allows remote code execution).
+Environment="GTOPT_GUI_HOST=127.0.0.1"
 Environment="FLASK_ENV=production"
 
 # Start the service using the installed launcher

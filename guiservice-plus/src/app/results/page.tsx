@@ -111,7 +111,7 @@ export default function ResultsPage() {
               <MeritOrderTable results={results} />
             </TabsContent>
             <TabsContent value="emissions">
-              <EmissionsPanel />
+              <EmissionsPanel results={results} />
             </TabsContent>
             <TabsContent value="reserve">
               <ReserveMarginChart results={results} />

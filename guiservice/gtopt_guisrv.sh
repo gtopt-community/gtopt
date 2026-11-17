@@ -3,6 +3,10 @@
 #
 # This script starts the Flask guiservice as a web server (without opening
 # a browser), similar to how gtopt_websrv runs the web service.
+#
+# Security: binds to 127.0.0.1 by default (--host / GTOPT_GUI_HOST).  The
+# GUI has no authentication; --debug is for local development only and is
+# refused on non-loopback hosts.
 
 # Get the directory where this script is installed
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -476,15 +476,15 @@ def launch_ui_plus(port, guiservice_url, dev_mode, log_dir):
     env["PORT"] = str(port)
 
     if dev_mode:
-        cmd = [npm, "run", "dev", "--", "-p", str(port)]
+        cmd = [npm, "run", "dev", "--", "-p", str(port), "-H", "127.0.0.1"]
     else:
         # `next start` needs a prebuilt `.next/` directory; fall back to dev
         # if no build artefacts are present.
         next_dir = ui_dir / ".next"
         if not next_dir.exists():
-            cmd = [npm, "run", "dev", "--", "-p", str(port)]
+            cmd = [npm, "run", "dev", "--", "-p", str(port), "-H", "127.0.0.1"]
         else:
-            cmd = [npm, "run", "start", "--", "-p", str(port)]
+            cmd = [npm, "run", "start", "--", "-p", str(port), "-H", "127.0.0.1"]
 
     log_file = log_dir / "ui_plus.log"
     handle = open(log_file, "a", encoding="utf-8")  # pylint: disable=consider-using-with
@@ -582,7 +582,11 @@ an external webservice.
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Run Flask in debug mode with auto-reload",
+        help=(
+            "Run Flask in debug mode with auto-reload.  LOCAL DEVELOPMENT "
+            "ONLY: the Werkzeug debugger allows code execution; the service "
+            "always binds to 127.0.0.1"
+        ),
     )
 
     parser.add_argument(
@@ -734,6 +738,8 @@ an external webservice.
 
     env = os.environ.copy()
     env["FLASK_DEBUG"] = "1" if args.debug else "0"
+    # The desktop launcher always serves on loopback only.
+    env["GTOPT_GUI_HOST"] = "127.0.0.1"
     env["GTOPT_GUI_PORT"] = str(port)
     env["GTOPT_GUI_LOG_FILE"] = str(guiservice_log_file)
 
