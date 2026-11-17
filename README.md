@@ -73,9 +73,13 @@ This project includes comprehensive documentation for different use cases:
 Install all dependencies, build, and install `gtopt` system-wide:
 
 ```bash
-# 1. Install dependencies
+# 1. Install dependencies (Ubuntu 24.04+; CMake >= 3.31.6 is required --
+#    install it from https://cmake.org or `pip install cmake` if your
+#    distribution ships an older one)
 sudo apt-get update
-sudo apt-get install -y gcc-14 g++-14 lld libboost-container-dev coinor-libcbc-dev ca-certificates lsb-release wget
+sudo apt-get install -y git gcc-14 g++-14 lld ninja-build pkg-config \
+  libboost-container-dev zlib1g-dev libzstd-dev liblz4-dev libsnappy-dev \
+  coinor-libcbc-dev ca-certificates lsb-release wget
 wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release  --codename --short).deb
 sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release  --codename --short).deb
 sudo apt-get update
@@ -84,7 +88,7 @@ sudo apt-get install -y -V libarrow-dev libparquet-dev
 # 2. Clone and build
 git clone https://github.com/gtopt-community/gtopt.git
 cd gtopt
-CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
+CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 
 # 3. Install system-wide
@@ -93,6 +97,12 @@ sudo cmake --install build
 # 4. Verify
 gtopt --version
 ```
+
+`coinor-libcbc-dev` provides the open-source CBC/CLP solver plugin; at
+least one solver backend (COIN-OR, HiGHS, CPLEX, ...) must be available at
+run time (`gtopt --solvers` lists them). The C++ dependencies spdlog,
+DAW JSON Link and strong_type are downloaded automatically by CMake, so
+the first configure needs network access.
 
 For detailed build instructions, alternative platforms, troubleshooting, and build options, see **[Building Guide](BUILDING.md)**.
 

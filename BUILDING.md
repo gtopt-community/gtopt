@@ -118,6 +118,15 @@ Verify:
 dpkg -l | grep libboost-container
 ```
 
+#### Compression libraries and pkg-config
+
+GTOpt links zlib, zstd, LZ4 and Snappy directly (the Arrow build it links
+against must also have been built with Snappy support):
+
+```bash
+sudo apt-get install -y pkg-config zlib1g-dev libzstd-dev liblz4-dev libsnappy-dev
+```
+
 #### Apache Arrow / Parquet
 
 Apache Arrow provides high-performance Parquet I/O. **Two installation routes
