@@ -72,7 +72,7 @@ cd build && ctest
 - **Compiler flags**: `-Wall -Wpedantic -Wextra -Werror` — all warnings are
   errors.
 - **Formatting**: Enforced by `.clang-format` (80-char column limit, 2-space
-  indent). The CI auto-formats on every non-main push and commits a fixup.
+  indent). The CI reports formatting differences on every pull request.
 - **Linting**: Configured via `.clang-tidy` with extensive checks enabled.
 - **Naming conventions**:
   - Classes/Structs: `PascalCase` (e.g. `LinearProblem`, `SimulationLP`)
@@ -126,10 +126,9 @@ Pylint, ShellCheck, yamllint, markdownlint, and clang-format (v21).
 A separate git hook (`.githooks/pre-commit`, auto-installed by CMake) also
 runs clang-format on staged C/C++ files and re-stages them automatically.
 
-> **CI auto-format**: The `autoformat.yml` workflow runs `clang-format` and
-> `ruff format` on every push to non-main branches and commits a fixup
-> automatically. Local violations are therefore non-blocking, but running
-> pre-commit checks before pushing keeps the history clean.
+> **CI format check**: the `style.yml` workflow reports `clang-format` and
+> `ruff format` differences as warnings on every pull request.  Please run
+> the formatters locally before pushing.
 
 ## Pull Request Process
 

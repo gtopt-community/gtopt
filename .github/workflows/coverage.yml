@@ -5,7 +5,7 @@ name: Coverage
 # Produces:
 #   - cpp-coverage-report : HTML coverage report (lcov/genhtml)
 #   - python-coverage-report : Python HTML coverage report (pytest-cov)
-#   - reports/coverage/coverage-summary.md committed back to the repo
+#   - reports/coverage/coverage-summary.md in the job summary
 #
 # The coverage/ CMake sub-project orchestrates the full pipeline:
 #   cmake -S coverage -B build-coverage && cmake --build build-coverage
@@ -39,7 +39,7 @@ env:
   # do NOT set CCACHE_SLOPPINESS here (env var would override the conf).
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   coverage:
@@ -156,13 +156,3 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "📥 Download the full HTML report from the **cpp-coverage-report** artifact." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit coverage reports back to repo
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # -f is required because .gitignore blocks the "reports" directory
-          git add -f reports/coverage/
-          git commit --allow-empty \
-            -m "chore: update coverage report (${{ inputs.compiler || 'gcc' }}) [skip ci]" \
-            || echo "Nothing to commit"
-          git push || echo "Push failed (OK for PRs from forks)"

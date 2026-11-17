@@ -52,7 +52,7 @@ env:
   # do NOT set CCACHE_SLOPPINESS here (env var would override the conf).
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   profile:
@@ -152,12 +152,3 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "📥 Download full callgrind data from the **cpp-profile** artifact." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit profiling reports back to repo
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add reports/profiling/
-          git commit --allow-empty \
-            -m "chore: update profiling report (${{ inputs.case || 'cases/ieee_9b_ori' }}) [skip ci]" \
-            || echo "Nothing to commit"
-          git push || echo "Push failed (OK for PRs from forks)"

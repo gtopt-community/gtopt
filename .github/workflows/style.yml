@@ -48,10 +48,9 @@ jobs:
 
       - name: check C++ format
         # Format violations are reported as warnings and annotations but do NOT
-        # fail the workflow — the Auto-format job will push a fixup commit on
-        # the next push.  Keeping this non-blocking means a Copilot or
-        # automated commit that used a different clang-format version never
-        # stalls an otherwise-green CI run.
+        # fail the workflow, so a commit formatted with a different
+        # clang-format version never stalls an otherwise-green CI run.
+        # Run clang-format / ruff format locally (see CONTRIBUTING.md).
         run: |
           set +e
           VIOLATIONS=$(git ls-files -z \

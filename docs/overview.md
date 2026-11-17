@@ -377,12 +377,14 @@ Located in `.github/workflows/`:
 |----------|---------|---------|
 | `ubuntu.yml` | push / PR | Build (Clang 21), unit + integration tests; uploads `gtopt-binary-debug` artifact |
 | `style.yml` | every push | clang-format + ruff format checks (warning only) |
-| `autoformat.yml` | push (non-main) | Auto-applies clang-format + ruff, commits a fixup |
 | `scripts.yml` | `scripts/**` changes | Python lint (ruff + pylint + mypy), unit tests, integration tests |
 | `guiservice.yml` | `guiservice/**` changes | Flask lint + tests |
 | `webservice.yml` | push / PR to main | Next.js build + e2e tests |
-| `docs.yml` | push to master | Doxygen + m.css docs → GitHub Pages |
-| `coverage.yml` | manual / push | C++ and Python coverage reports |
+| `docs.yml` | manual | Doxygen + m.css docs → GitHub Pages |
+| `coverage.yml` | manual / weekly | C++ and Python coverage reports (artifacts) |
+| `profile.yml` | manual | Callgrind profiling report (artifact) |
+| `codeql.yml` | PR / push / weekly | CodeQL security analysis |
+| `cla.yml` | PR | Contributor License Agreement check |
 
 ---
 
