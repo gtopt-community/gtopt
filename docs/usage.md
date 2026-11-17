@@ -15,6 +15,7 @@ Detailed usage instructions, examples, and reference for the GTOpt solver.
 - [Output Files](#output-files)
 - [Advanced Usage](#advanced-usage)
 - [Troubleshooting Solver Issues](#troubleshooting-solver-issues)
+  - [Known solver issues](#known-solver-issues)
 - [Batch Execution](#batch-execution)
 
 ## Basic Usage
@@ -929,6 +930,50 @@ You can:
   the threshold to detect numerical conditioning issues.
 
 ---
+
+### Known solver issues
+
+#### MindOpt 2.3.0: wrong objective value (constant offset)
+
+With the MindOpt backend (`--solver mindopt` / `GTOPT_SOLVER=mindopt`,
+MindOpt 2.3.0) the reported objective — `obj_value` in `solution.csv`,
+the log's `Obj` lines and every SDDP bound derived from it — is too
+large by a constant, while the primal dispatch is the same as with the
+other solvers:
+
+| Case | MindOpt `obj_value` | Expected (CPLEX/HiGHS/CLP) | Offset |
+|------|--------------------:|---------------------------:|-------:|
+| `s1b` | 256000 | 6000 | 250000 |
+| `ieee_4b_ori` | 255000 | 5000 | 250000 |
+| `ieee_9b_ori` | 322000 | 7000 | 315000 |
+| `ieee_9b` | 12709996 | 794196 | 11915800 |
+
+The offset equals the LP objective constant (for these cases
+`demand_fail_cost × Σ demand × duration`, introduced by the
+`fail = lmax − load` substitution), i.e. it is counted twice. The
+suspected cause is `MindOptSolverBackend::obj_value()` in
+`plugins/mindopt/mindopt_solver_backend.cpp`, which adds the stored
+offset to `MDO_DBL_ATTR_PRIMAL_OBJ_VAL` on the assumption that MindOpt
+does not fold in `MDO_DBL_ATTR_OBJ_CON` (set by `set_obj_offset`).
+
+Consequences until the driver is fixed:
+
+- Under `GTOPT_SOLVER=mindopt`, 78 e2e integration tests fail
+  (every `e2e_*_compare_solution` — the objective is compared as a hard
+  error — plus per-element comparisons against the stale
+  `output_mindopt/` goldens).  This is expected; the `output_mindopt/`
+  goldens are intentionally not regenerated.
+- Do not trust MindOpt objective values or SDDP bounds.
+
+Reproduce:
+
+```bash
+export MINDOPT_HOME=$HOME/mindopt/2.3.0
+cd cases/s1b
+gtopt s1b.json --solver mindopt --output-directory /tmp/s1b_mindopt
+gtopt s1b.json --solver highs   --output-directory /tmp/s1b_highs
+cut -d, -f5 /tmp/s1b_mindopt/solution.csv /tmp/s1b_highs/solution.csv
+```
 
 ## Batch Execution
 
