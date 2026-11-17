@@ -167,7 +167,6 @@ import subprocess
 import sys
 import urllib.request
 import zipfile
-from typing import Optional
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent  # tools/../ = repo root
 _GITHUB_REPO = "gtopt-community/gtopt"
@@ -182,7 +181,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def find_gtopt_binary() -> Optional[str]:
+def find_gtopt_binary() -> str | None:
     """Locate an existing ``gtopt`` binary without downloading or building.
 
     Search order:
@@ -312,7 +311,7 @@ def download_gtopt_from_ci(
 
 
 def _resolve_artifact_id(
-    gh: Optional[str], token: str, repo: str, artifact_name: str
+    gh: str | None, token: str, repo: str, artifact_name: str
 ) -> str:
     """Return the id of the latest non-expired artifact (as a string)."""
     if gh:
@@ -365,7 +364,7 @@ def _resolve_artifact_id(
 
 
 def _download_artifact_zip(
-    gh: Optional[str],
+    gh: str | None,
     token: str,
     repo: str,
     artifact_id: str,
@@ -400,9 +399,10 @@ def _download_artifact_zip(
                 "Accept": "application/vnd.github+json",
             },
         )
-        with urllib.request.urlopen(req, timeout=120) as resp, open(
-            zip_path, "wb"
-        ) as fh:
+        with (
+            urllib.request.urlopen(req, timeout=120) as resp,
+            open(zip_path, "wb") as fh,
+        ):
             fh.write(resp.read())
 
 
@@ -492,9 +492,7 @@ def _run_cmd(cmd: list, description: str, check: bool = True) -> int:
     log.debug("  $ %s", " ".join(str(c) for c in cmd))
     result = subprocess.run(cmd, check=False, stdout=sys.stderr)
     if check and result.returncode != 0:
-        raise RuntimeError(
-            f"{description} failed (exit {result.returncode})."
-        )
+        raise RuntimeError(f"{description} failed (exit {result.returncode}).")
     return result.returncode
 
 
@@ -512,7 +510,7 @@ def _apt_install(packages: list, description: str = "") -> None:
     )
 
 
-def _conda_prefix() -> Optional[str]:
+def _conda_prefix() -> str | None:
     """Return the active conda base prefix, or None if conda is not available."""
     conda = shutil.which("conda")
     if not conda:
@@ -582,7 +580,7 @@ def install_apt_build_deps() -> None:
     )
 
 
-def install_arrow_conda() -> Optional[str]:
+def install_arrow_conda() -> str | None:
     """Install Arrow and Parquet via conda-forge.
 
     The Apache Arrow APT source (``packages.apache.org/artifactory``) is
@@ -707,13 +705,17 @@ def _setup_arrow_apt_source() -> bool:
             timeout=5,
             check=True,
         ).stdout.strip()
-        distro = subprocess.run(
-            [lsb, "--id", "--short"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=True,
-        ).stdout.strip().lower()
+        distro = (
+            subprocess.run(
+                [lsb, "--id", "--short"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+            )
+            .stdout.strip()
+            .lower()
+        )
     except subprocess.CalledProcessError:
         log.warning("lsb_release failed – cannot set up Apache Arrow APT source")
         return False
@@ -758,7 +760,7 @@ def _setup_arrow_apt_source() -> bool:
                     "update",
                     "-q",
                     "--fix-missing",
-                    f"-o Dir::Etc::sourcelist={str(arrow_src)}",
+                    f"-o Dir::Etc::sourcelist={arrow_src!s}",
                     "-o Dir::Etc::sourcelistdir=/dev/null",
                 ],
                 "apt-get update (Apache Arrow source only)",
@@ -1000,7 +1002,7 @@ def install_clang21() -> bool:
 def install_build_deps(
     install_clang: bool = True,
     install_arrow: bool = True,
-) -> Optional[str]:
+) -> str | None:
     """Install all build dependencies needed to compile gtopt on Ubuntu 24.04.
 
     This function mirrors the bootstrap sequence from
@@ -1055,10 +1057,10 @@ def install_build_deps(
 
 
 def build_gtopt_from_source(
-    repo_root: Optional[pathlib.Path] = None,
-    build_dir: Optional[pathlib.Path] = None,
+    repo_root: pathlib.Path | None = None,
+    build_dir: pathlib.Path | None = None,
     build_type: str = "Debug",
-    jobs: Optional[int] = None,
+    jobs: int | None = None,
     with_deps: bool = True,
     install_clang: bool = True,
     install_arrow: bool = True,
@@ -1113,7 +1115,7 @@ def build_gtopt_from_source(
         jobs = multiprocessing.cpu_count()
 
     # ---- Step 1: install dependencies (ccache BEFORE cmake configure) ------
-    conda_prefix: Optional[str]
+    conda_prefix: str | None
     if with_deps:
         conda_prefix = install_build_deps(
             install_clang=install_clang,

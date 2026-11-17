@@ -21,7 +21,7 @@ import tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 # pylint: disable=wrong-import-position
-import lint_strong_types  # noqa: E402
+import lint_strong_types
 
 
 def _scan_uid_arithmetic(src: str) -> list[lint_strong_types.Hit]:

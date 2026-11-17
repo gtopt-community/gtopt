@@ -33,7 +33,6 @@ import re
 import sys
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Patterns
 # ---------------------------------------------------------------------------
@@ -120,9 +119,7 @@ def _find_display_blocks(
                     before_close = s2[:-2].strip() if s2 != "$$" else ""
                     if before_close:
                         content_lines.append(before_close)
-                    blocks.append(
-                        (start, i, content_lines, has_content_on_opener)
-                    )
+                    blocks.append((start, i, content_lines, has_content_on_opener))
                     i += 1
                     break
                 content_lines.append(s2)

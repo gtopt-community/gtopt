@@ -46,7 +46,6 @@ from pathlib import Path
 
 import pytest
 
-
 _TOOLS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOLS_DIR.parent
 _CONVERTER = _TOOLS_DIR / "ucjl2gtopt.py"

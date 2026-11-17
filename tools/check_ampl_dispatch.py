@@ -58,7 +58,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import NamedTuple
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_FILE = REPO_ROOT / "source" / "ampl_dispatch_registry.cpp"
 CHECKS_FILE = REPO_ROOT / "scripts" / "gtopt_check_pampl" / "_checks.py"
@@ -159,7 +158,7 @@ def parse_cpp_registry(
         # _RE_CLS_ALIAS captures the alias root (e.g. "generator"),
         # _RE_REGISTER_PARAM captures the full token "<root>_cls".
         # Strip the suffix to look up the PascalCase class name.
-        root = cls_alias[:-4] if cls_alias.endswith("_cls") else cls_alias
+        root = cls_alias.removesuffix("_cls")
         pascal = alias_to_pascal.get(root)
         if pascal is None:
             continue  # unknown alias — surfaces as a separate finding

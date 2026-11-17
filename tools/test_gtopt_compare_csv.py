@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 # pylint: disable=wrong-import-position
-import gtopt_compare_csv  # noqa: E402
+import gtopt_compare_csv
 
 _GOLDEN = (
     "scene,phase,status,status_name,obj_value,kappa,max_kappa,gap,gap_change\n"

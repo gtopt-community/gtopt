@@ -70,8 +70,9 @@ import copy
 import json
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, NamedTuple
+from typing import NamedTuple
 
 # ── Constants ──────────────────────────────────────────────────────────────
 

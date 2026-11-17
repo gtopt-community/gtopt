@@ -39,7 +39,6 @@ from typing import Any
 
 import pytest
 
-
 _TOOLS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOLS_DIR.parent
 _GOLDENS_DIR = _TOOLS_DIR / "sienna_goldens"

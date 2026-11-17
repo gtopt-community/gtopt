@@ -20,7 +20,7 @@ import os
 _FIRST_ORDER_SOLVERS = frozenset({"cuopt"})
 
 
-def pytest_xdist_auto_num_workers(config) -> int | None:  # noqa: ARG001
+def pytest_xdist_auto_num_workers(config) -> int | None:
     """xdist hook: resolve ``-n auto`` to 1 worker under a first-order solver."""
     if os.environ.get("GTOPT_SOLVER", "") in _FIRST_ORDER_SOLVERS:
         return 1

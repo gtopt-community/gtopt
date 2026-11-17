@@ -34,7 +34,6 @@ from pathlib import Path
 
 import pytest
 
-
 _HERE = Path(__file__).resolve().parent
 _SCRIPT = _HERE.parent / "gtopt_sos2_convergence.py"
 

@@ -604,133 +604,171 @@ def scan_redundant_size_t_subscript(rule: Rule, files: list[Path]) -> None:
 RULES: list[tuple[str, str, str, callable]] = [
     (
         "redundant static_cast<Uid>(...)",
-        "UidOf<Tag> ships with a `std::formatter` specialisation, so the "
-        "cast is never needed when feeding a strong Uid into `std::format` / "
-        "spdlog / logs.",
+        (
+            "UidOf<Tag> ships with a `std::formatter` specialisation, so the "
+            "cast is never needed when feeding a strong Uid into `std::format` / "
+            "spdlog / logs."
+        ),
         "drop the cast — std::format, spdlog, etc. handle UidOf<Tag> directly.",
         scan_redundant_uid_cast,
     ),
     (
         "StrongIndex{static_cast<Index>(container.size())}",
-        "Use the sized-range factories (`col_index_size`, `row_index_size`) "
-        "or the typed accessors (`LinearInterface::numcols_as_index()` / "
-        "`numrows_as_index()`) instead.",
-        "use col_index_size(...) / row_index_size(...) from sparse_col.hpp / "
-        "sparse_row.hpp, or li.numcols_as_index() / li.numrows_as_index() "
-        "from linear_interface.hpp.",
+        (
+            "Use the sized-range factories (`col_index_size`, `row_index_size`) "
+            "or the typed accessors (`LinearInterface::numcols_as_index()` / "
+            "`numrows_as_index()`) instead."
+        ),
+        (
+            "use col_index_size(...) / row_index_size(...) from sparse_col.hpp / "
+            "sparse_row.hpp, or li.numcols_as_index() / li.numrows_as_index() "
+            "from linear_interface.hpp."
+        ),
         scan_strong_index_size_ctor,
     ),
     (
         "raw ±1 arithmetic on a positional strong index",
-        "Positional indices (scene, phase, stage, scenario, block, "
-        "iteration) step through `next()` / `previous()` helpers so the "
-        "strong type stays visible and the arithmetic is concept-checked.",
+        (
+            "Positional indices (scene, phase, stage, scenario, block, "
+            "iteration) step through `next()` / `previous()` helpers so the "
+            "strong type stays visible and the arithmetic is concept-checked."
+        ),
         "use next(idx) / previous(idx) from the corresponding header.",
         scan_positional_arith,
     ),
     (
         "redundant static_cast<Index>(strong_index)",
-        "StrongIndexType<Tag> and StrongPositionIndexType<Tag> ship with "
-        "`strong::implicitly_convertible_to<Index>` AND `strong::formattable`, "
-        "so the cast is noise in every context that accepts `Index`.",
-        "drop the cast — StrongIndexType / StrongPositionIndexType are "
-        "implicitly_convertible_to<Index> AND formattable.",
+        (
+            "StrongIndexType<Tag> and StrongPositionIndexType<Tag> ship with "
+            "`strong::implicitly_convertible_to<Index>` AND `strong::formattable`, "
+            "so the cast is noise in every context that accepts `Index`."
+        ),
+        (
+            "drop the cast — StrongIndexType / StrongPositionIndexType are "
+            "implicitly_convertible_to<Index> AND formattable."
+        ),
         scan_redundant_index_cast,
     ),
     (
         "misplaced widening cast static_cast<size_t>(int_expr ± int_lit)",
-        "The arithmetic happens in the narrow type first, then widens — so "
-        "the cast does nothing to prevent overflow.",
+        (
+            "The arithmetic happens in the narrow type first, then widens — so "
+            "the cast does nothing to prevent overflow."
+        ),
         "cast first, arithmetic second — static_cast<size_t>(i) + 1.",
         scan_misplaced_widening,
     ),
     (
         "sim.scenes()[idx].uid() / sim.phases()[idx].uid() chain",
-        "`SimulationLP::uid_of(SceneIndex)` / `uid_of(PhaseIndex)` accessors "
-        "exist and centralise the uid-extraction convention.",
-        "use sim.uid_of(idx) (SceneIndex or PhaseIndex overload) from "
-        "<gtopt/simulation_lp.hpp>.",
+        (
+            "`SimulationLP::uid_of(SceneIndex)` / `uid_of(PhaseIndex)` accessors "
+            "exist and centralise the uid-extraction convention."
+        ),
+        (
+            "use sim.uid_of(idx) (SceneIndex or PhaseIndex overload) from "
+            "<gtopt/simulation_lp.hpp>."
+        ),
         scan_sim_uid_chain,
     ),
     (
         "raw loop counter cast to strong index",
-        "A `for (size_t X = 0; …; ++X)` (or single-line cast) using `X` to "
-        "reconstruct a strong index defeats the strong-type guarantee.  "
-        "Maintain a `StrongIndex` that advances with `++idx` alongside (or "
-        "instead of) the size_t/int counter — the strong type stays "
-        "visible in the arithmetic.",
+        (
+            "A `for (size_t X = 0; …; ++X)` (or single-line cast) using `X` to "
+            "reconstruct a strong index defeats the strong-type guarantee.  "
+            "Maintain a `StrongIndex` that advances with `++idx` alongside (or "
+            "instead of) the size_t/int counter — the strong type stays "
+            "visible in the arithmetic."
+        ),
         "auto idx = first;  for (const auto& x : range) { …; ++idx; }",
         scan_raw_strong_loop,
     ),
     (
         "redundant static_cast<int>(strong_index)",
-        "ColIndex / RowIndex (and other StrongIndexType<Tag> aliases) ship "
-        "with `strong::implicitly_convertible_to<int>`, so `static_cast<int>` "
-        "is noise when the destination already takes `int` (backend setters, "
-        "`vector<int>::push_back`, …).  Also flags `static_cast<int>(*."
-        "get_numrows())` / `get_numcols()` since both already return `Index`.",
+        (
+            "ColIndex / RowIndex (and other StrongIndexType<Tag> aliases) ship "
+            "with `strong::implicitly_convertible_to<int>`, so `static_cast<int>` "
+            "is noise when the destination already takes `int` (backend setters, "
+            "`vector<int>::push_back`, …).  Also flags `static_cast<int>(*."
+            "get_numrows())` / `get_numcols()` since both already return `Index`."
+        ),
         "drop the cast — strong indices convert to int implicitly.",
         scan_redundant_int_cast,
     ),
     (
         "std::format(..., static_cast<int>(strong_index))",
-        "`std::format` accepts any formattable argument: ColIndex, RowIndex, "
-        "SceneIndex, PhaseIndex, UidOf<Tag>, and primitive ints all work "
-        "with `{}` placeholders directly.  The cast hides the strong type "
-        "and makes the formatted output a bare integer instead of the "
-        "strong-typed rendering.",
+        (
+            "`std::format` accepts any formattable argument: ColIndex, RowIndex, "
+            "SceneIndex, PhaseIndex, UidOf<Tag>, and primitive ints all work "
+            "with `{}` placeholders directly.  The cast hides the strong type "
+            "and makes the formatted output a bare integer instead of the "
+            "strong-typed rendering."
+        ),
         'drop the cast — std::format("{}", X) works for formattable X.',
         scan_format_cast,
     ),
     (
         "spdlog::level(std::format(...))",
-        "spdlog formats lazily — it routes the format pattern + args "
-        "through fmt::format ONLY after the level check passes.  Wrapping "
-        "the message in `std::format` materialises the string before the "
-        "level check, paying for the allocation even when the line is "
-        "filtered out.  Pass the format pattern + args directly.",
+        (
+            "spdlog formats lazily — it routes the format pattern + args "
+            "through fmt::format ONLY after the level check passes.  Wrapping "
+            "the message in `std::format` materialises the string before the "
+            "level check, paying for the allocation even when the line is "
+            "filtered out.  Pass the format pattern + args directly."
+        ),
         'spdlog::warn("...{}", x);  // not spdlog::warn(std::format("...{}", x))',
         scan_spdlog_eager_format,
     ),
     (
         "redundant static_cast<int64_t>(*.use_count())",
-        "`std::shared_ptr::use_count()` returns `long`.  `long → int64_t` "
-        "widens implicitly on every supported platform — the cast is "
-        "portability theatre.  Use `auto` or drop the cast.",
+        (
+            "`std::shared_ptr::use_count()` returns `long`.  `long → int64_t` "
+            "widens implicitly on every supported platform — the cast is "
+            "portability theatre.  Use `auto` or drop the cast."
+        ),
         "return ptr.use_count();  // returns long; widens to int64_t implicitly.",
         scan_redundant_use_count_cast,
     ),
     (
         "redundant static_cast<size_t>(container.size())",
-        "`size()` already returns `size_type = size_t` for every standard "
-        "container and view.  The cast is noise.",
+        (
+            "`size()` already returns `size_type = size_t` for every standard "
+            "container and view.  The cast is noise."
+        ),
         "drop the cast — container.size() is already size_t.",
         scan_redundant_size_t_cast,
     ),
     (
         "UID arithmetic (value_of(*_uid) ± literal)",
-        "UidOf<Tag> is an opaque identifier, never an index.  Adding or "
-        "subtracting a literal from `value_of(some_uid)` (or "
-        "`static_cast<int>(some_uid)`) is a category error: it conflates "
-        "identity with position and silently breaks for any UID layout "
-        "other than the accidental 1-based-contiguous default.  Use the "
-        "UID directly as a key (e.g. `std::map<PhaseUid, T>`) or convert "
-        "to the corresponding strong index via the simulation's uid-to-"
-        "index helper.",
-        "use uid as map key, or convert via simulation's uid-to-index "
-        "helper — never `value_of(uid) ± N`.",
+        (
+            "UidOf<Tag> is an opaque identifier, never an index.  Adding or "
+            "subtracting a literal from `value_of(some_uid)` (or "
+            "`static_cast<int>(some_uid)`) is a category error: it conflates "
+            "identity with position and silently breaks for any UID layout "
+            "other than the accidental 1-based-contiguous default.  Use the "
+            "UID directly as a key (e.g. `std::map<PhaseUid, T>`) or convert "
+            "to the corresponding strong index via the simulation's uid-to-"
+            "index helper."
+        ),
+        (
+            "use uid as map key, or convert via simulation's uid-to-index "
+            "helper — never `value_of(uid) ± N`."
+        ),
         scan_uid_arithmetic,
     ),
     (
         "redundant [static_cast<size_t>(strong_index)] subscript",
-        "Strong indices (ColIndex / RowIndex / SceneIndex / …) ship with "
-        "`strong::implicitly_convertible_to<Index>` (int32_t), and int32_t "
-        "widens implicitly to size_t for `std::vector::operator[]` / "
-        "`std::span::operator[]`.  The cast inside `[...]` is therefore "
-        "noise — see `linear_interface.cpp:1766` (`rin[row_idx] = name;`) "
-        "for the canonical pattern.",
-        "drop the cast — vec[idx] / span[idx] works directly for strong "
-        "indices via the implicit Index→size_t conversion chain.",
+        (
+            "Strong indices (ColIndex / RowIndex / SceneIndex / …) ship with "
+            "`strong::implicitly_convertible_to<Index>` (int32_t), and int32_t "
+            "widens implicitly to size_t for `std::vector::operator[]` / "
+            "`std::span::operator[]`.  The cast inside `[...]` is therefore "
+            "noise — see `linear_interface.cpp:1766` (`rin[row_idx] = name;`) "
+            "for the canonical pattern."
+        ),
+        (
+            "drop the cast — vec[idx] / span[idx] works directly for strong "
+            "indices via the implicit Index→size_t conversion chain."
+        ),
         scan_redundant_size_t_subscript,
     ),
 ]
@@ -750,7 +788,7 @@ def main() -> int:
                 print(f"  {h}", file=sys.stderr)
             print(f"   why: {rule.description}", file=sys.stderr)
             print(f"   fix: {rule.fix}", file=sys.stderr)
-            print("", file=sys.stderr)
+            print(file=sys.stderr)
 
     if failed:
         print(

@@ -68,14 +68,11 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 try:
     import pandapower as pp
 except ImportError as exc:  # pragma: no cover
-    sys.exit(
-        f"pandapower required; install with `pip install pandapower>=2.13`: {exc}"
-    )
+    sys.exit(f"pandapower required; install with `pip install pandapower>=2.13`: {exc}")
 
-from gtopt2pp.convert import convert, load_gtopt_case  # noqa: E402
-from gtopt_reduce_network import load_case, save_case  # noqa: E402
-from gtopt_reduce_network._reduce import ReduceConfig, reduce_case  # noqa: E402
-
+from gtopt2pp.convert import convert, load_gtopt_case
+from gtopt_reduce_network import load_case, save_case
+from gtopt_reduce_network._reduce import ReduceConfig, reduce_case
 
 # ─── pandapower wrappers ────────────────────────────────────────────────────
 
@@ -87,7 +84,7 @@ def solve_dc_opf(case_dict: dict) -> pp.pandapowerNet | None:
         net.load["controllable"] = False
     try:
         pp.rundcopp(net)
-    except Exception:
+    except Exception:  # noqa: BLE001  # pandapower raises many unrelated types
         return None
     return net if net.OPF_converged else None
 
@@ -173,9 +170,7 @@ def compute_indices(
         inter_mags.append(abs(agg_orig))
     inter_mae = float(np.mean(np.abs(inter_diffs))) if inter_diffs else 0.0
     denom = float(np.sum(inter_mags))
-    inter_mape = (
-        100 * float(np.sum(np.abs(inter_diffs))) / denom if denom > 0 else 0.0
-    )
+    inter_mape = 100 * float(np.sum(np.abs(inter_diffs))) / denom if denom > 0 else 0.0
     return Indices(
         n_buses=len(red.case.array("bus_array")),
         n_lines=len(red.case.array("line_array")),
@@ -222,9 +217,7 @@ def run_sweep(
     total_flow_mag = sum(abs(v) for v in orig_flow.values())
     n_b = len(orig_dict["system"]["bus_array"])
     n_l = len(orig_dict["system"]["line_array"])
-    print(
-        f"\nCASE: {case_path.name}{(' — ' + extra_label) if extra_label else ''}"
-    )
+    print(f"\nCASE: {case_path.name}{(' — ' + extra_label) if extra_label else ''}")
     print("=" * 78)
     print(
         f"  original: {n_b} buses, {n_l} lines  "

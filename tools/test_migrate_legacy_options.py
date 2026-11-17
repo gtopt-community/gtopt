@@ -19,8 +19,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 # pylint: disable=wrong-import-position
-import migrate_legacy_options_to_model_options as M  # noqa: E402
-
+import migrate_legacy_options_to_model_options as M
 
 # ── fmt_body_to_json ────────────────────────────────────────────────────
 

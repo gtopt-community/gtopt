@@ -114,7 +114,6 @@ import math
 import os
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -543,7 +542,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     # ``duration = step_min / 60`` hours.
     step_min = float(params.get("Time step (min)", 60))
     block_duration_h = step_min / 60.0
-    T = int(round(float(t_h) * 60.0 / step_min))
+    T = round(float(t_h) * 60.0 / step_min)
     power_balance_penalty = float(params.get("Power balance penalty ($/MW)", 1000.0))
 
     # 1 scenario × 1 chronological stage × T 1-hour blocks.

@@ -108,7 +108,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 # Fisher–O'Neill–Ferris 2008 golden value (MIP-optimal, 38 lines opened).
 FISHER_2008_GOLDEN_SAVINGS = 0.25
 # Tabulated partial-opening savings from Fisher 2008 Table III.

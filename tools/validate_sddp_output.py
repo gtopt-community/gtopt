@@ -165,8 +165,10 @@ def validate_solver_status(output_dir: Path, max_iterations: int) -> list[str]:
         if max_iterations == 0:
             return []
         return [
-            f"no solver_status.json / sddp_status.json / monolithic_status.json "
-            f"under {output_dir}"
+            (
+                f"no solver_status.json / sddp_status.json / monolithic_status.json "
+                f"under {output_dir}"
+            )
         ]
 
     with status_file.open() as fh:
@@ -681,25 +683,23 @@ def validate_against_golden(output_dir: Path, golden_path: Path) -> list[str]:
                     )
                     continue
                 row = match.iloc[0]
-                if "status" in erow:
-                    if int(row["status"]) != int(erow["status"]):
-                        errors.append(
-                            f"golden solution.csv[scene={sc}, phase={ph}].status: "
-                            f"got {int(row['status'])}, expected {int(erow['status'])}"
-                        )
-                if "obj_value" in erow:
-                    if not _close(
-                        float(row["obj_value"]),
-                        float(erow["obj_value"]),
-                        abs_tol=abs_tol,
-                        rel_tol=rel_tol,
-                    ):
-                        errors.append(
-                            f"golden solution.csv[scene={sc}, phase={ph}].obj_value: "
-                            f"got {float(row['obj_value']):.6g}, "
-                            f"expected {float(erow['obj_value']):.6g} "
-                            f"(abs_tol={abs_tol}, rel_tol={rel_tol})"
-                        )
+                if "status" in erow and int(row["status"]) != int(erow["status"]):
+                    errors.append(
+                        f"golden solution.csv[scene={sc}, phase={ph}].status: "
+                        f"got {int(row['status'])}, expected {int(erow['status'])}"
+                    )
+                if "obj_value" in erow and not _close(
+                    float(row["obj_value"]),
+                    float(erow["obj_value"]),
+                    abs_tol=abs_tol,
+                    rel_tol=rel_tol,
+                ):
+                    errors.append(
+                        f"golden solution.csv[scene={sc}, phase={ph}].obj_value: "
+                        f"got {float(row['obj_value']):.6g}, "
+                        f"expected {float(erow['obj_value']):.6g} "
+                        f"(abs_tol={abs_tol}, rel_tol={rel_tol})"
+                    )
     return errors
 
 
@@ -716,10 +716,8 @@ def _matches_uid(col_name: str, target: int | str | None) -> bool:
     if target is None:
         return False
     if isinstance(target, int):
-        return (
-            col_name == f"uid:{target}"
-            or col_name.endswith(f":{target}")
-            or col_name.endswith(f":uid:{target}")
+        return col_name == f"uid:{target}" or col_name.endswith(
+            (f":{target}", f":uid:{target}")
         )
     if isinstance(target, str):
         return col_name.startswith(target + ":") or col_name == target

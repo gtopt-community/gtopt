@@ -818,7 +818,7 @@ def render_table(
             if r.upper_bound is not None:
                 prev_ub = r.upper_bound
 
-            new_cuts += r.cuts_added or 0 if (r.cuts_added or 0) > 0 else 0
+            new_cuts += max(0, r.cuts_added or 0)
             note = "[CONVERGED]" if r.converged else ""
 
             out.append(

@@ -59,7 +59,6 @@ import sys
 from pathlib import Path
 from typing import NoReturn
 
-
 REQUIRED_COLUMNS = ("status", "obj_value")
 
 

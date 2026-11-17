@@ -47,8 +47,9 @@ import json
 import re
 import sys
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, NamedTuple
+from typing import NamedTuple
 
 # ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -456,7 +457,7 @@ def main() -> int:
     else:
         n_classes = len(contract_fields_by_class)
         n_fields = sum(len(s) for s in contract_fields_by_class.values())
-        print(f"naming-dialects coverage report")
+        print("naming-dialects coverage report")
         print(
             f"  scanned     : {n_classes} element classes, {n_fields} contract fields"
         )
