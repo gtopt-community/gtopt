@@ -2,7 +2,7 @@
  * @file      test_fix_integers_duals.cpp
  * @brief     Tests for the MIP fix-integers dual-recovery pass
  * @date      2026-05-25
- * @author    claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

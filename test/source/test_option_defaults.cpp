@@ -225,7 +225,7 @@ TEST_CASE("PlanningOptions defaults: demand_fail_cost has no compiled default")
 {
   // *** FINDING ***
   //
-  // `CLAUDE.md` and `.github/copilot-instructions.md` both document
+  // Older developer notes documented
   // the default as `1000`, but the actual code carries NO compiled-in
   // default.  `ModelOptions::demand_fail_cost` is an `OptReal{}` and
   // `PlanningOptionsLP::demand_fail_cost()` simply returns the raw

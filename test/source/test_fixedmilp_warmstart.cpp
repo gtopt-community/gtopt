@@ -4,7 +4,7 @@
  * @brief     CPLEX-only: the MIP->dual fixed pass warm-starts (primal
  *            simplex off the incumbent basis) instead of a cold barrier.
  * @date      2026-06-07
- * @author    claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  */

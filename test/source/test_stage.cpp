@@ -3,7 +3,7 @@
  * @file      test_stage.cpp
  * @brief     Unit tests for the Stage struct and StageIndex helpers
  * @date      2026-04-23
- * @author    copilot
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  */

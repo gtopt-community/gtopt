@@ -2,7 +2,7 @@
  * @file      log_and_throw.hpp
  * @brief     Log-then-throw helper codifying the gtopt error convention.
  * @date      2026-06-27
- * @author    claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

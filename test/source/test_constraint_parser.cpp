@@ -2,7 +2,7 @@
  * @file      test_constraint_parser.hpp
  * @brief     Unit tests for the ConstraintParser class
  * @date      Wed Mar 12 03:00:00 2026
- * @author    copilot
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

@@ -1069,8 +1069,8 @@ TEST_CASE("LinearInterface - get_kappa with explicit solver")
   }
 }
 
-// Regression test for the sentinel-mismatch bug (see CLAUDE.md feedback
-// "no-nan-values"): when CPXgetdblquality / Highs::getKappa / CLP's proxy
+// Regression test for the sentinel-mismatch bug (no NaN / sentinel
+// values): when CPXgetdblquality / Highs::getKappa / CLP's proxy
 // fail, the backend must propagate std::nullopt and NEVER return a literal
 // 1.0 that would silently poison std::max-based aggregation across the
 // (scene, phase) grid.  The stat aggregator in LinearInterface must also

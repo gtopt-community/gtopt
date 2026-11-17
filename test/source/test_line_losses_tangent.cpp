@@ -48,8 +48,7 @@ namespace
 
 // kEps_tangent avoids the Unity-build collision with the same name
 // in the sibling ``test_line_losses_seg_geom.cpp`` (anonymous
-// namespaces merge under unity builds).  Per CLAUDE.md memory note
-// `unity-anon-namespace`.
+// namespaces merge under unity builds).
 constexpr double kEps_tangent = 1e-12;
 
 /// Apply tangent_k(f) = R/V² · (2·t_k·f − t_k²) using the public

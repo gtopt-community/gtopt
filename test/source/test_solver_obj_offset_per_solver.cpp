@@ -5,7 +5,7 @@
  *            (SolverBackend::set_obj_offset via
  * LinearInterface::add_obj_constant).
  * @date      2026-06-30
- * @author    claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

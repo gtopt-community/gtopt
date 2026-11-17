@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Centralised CSV writer for files that gtopt will consume.
 
-Policy (``CLAUDE.md`` / project memory): every CSV that gtopt's C++
+Policy: every CSV that gtopt's C++
 parser will read MUST be produced by the Arrow CSV writer, not pandas'
 ``DataFrame.to_csv`` or Python's stdlib ``csv`` module.  Arrow's writer
 formats numerics in a way that round-trips losslessly through Arrow's

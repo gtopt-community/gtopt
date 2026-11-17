@@ -53,7 +53,7 @@ using namespace gtopt;
 // Wrap the entire file body in a uniquely-named non-anonymous outer
 // namespace so the Unity-build (CMake batches many test cpp files into
 // a single TU) cannot collide with same-named helpers in sibling test
-// files — see CLAUDE.md `unity-anon-namespace` memory note.
+// files.
 namespace test_line_losses_tangent_signed_flow_ns
 {
 

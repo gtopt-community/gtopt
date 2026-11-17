@@ -3,7 +3,7 @@
  * @file      test_stage_month_guard.cpp
  * @brief     Unit tests for require_stage_month guard
  * @date      2026-04-23
- * @author    copilot
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  */

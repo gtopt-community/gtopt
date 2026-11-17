@@ -3,7 +3,7 @@
  * @file      test_field_sched.cpp
  * @brief     Unit tests for FieldSched variant and related aliases
  * @date      2026-04-23
- * @author    copilot
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  */

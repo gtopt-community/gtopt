@@ -6,7 +6,7 @@
  *            reload it as a MIP start, and verify it is accepted and
  *            re-solves to the same optimum.
  * @date      2026-07-13
- * @author    claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

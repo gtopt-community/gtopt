@@ -2,7 +2,7 @@
  * @file      test_variable_scale.hpp
  * @brief     Tests for LP variable scaling architecture
  * @date      Mon Mar 17 04:00:00 2026
- * @author    copilot
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

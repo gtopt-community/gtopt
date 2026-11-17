@@ -14,7 +14,7 @@
  *            one legitimate exception and is pinned here too.
  *
  * @date      Tue May 27 00:00:00 2026
- * @author    claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  */

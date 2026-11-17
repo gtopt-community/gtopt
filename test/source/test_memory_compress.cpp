@@ -3,7 +3,7 @@
  * @file      test_memory_compress.cpp
  * @brief     Unit tests for in-memory compress/decompress round-trips
  * @date      2026-04-23
- * @author    copilot
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  */

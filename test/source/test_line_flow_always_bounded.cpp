@@ -40,7 +40,7 @@ using namespace gtopt;
 
 // Wrap the file body in a uniquely-named non-anonymous outer namespace
 // so the Unity build cannot collide with same-named helpers in sibling
-// test files (see CLAUDE.md ``unity-anon-namespace`` note).
+// test files (anonymous namespaces merge under unity builds).
 namespace test_line_flow_always_bounded_ns
 {
 

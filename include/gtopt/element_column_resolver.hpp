@@ -2,7 +2,7 @@
  * @file      element_column_resolver.hpp
  * @brief     Resolve LP column indices for user-constraint element references
  * @date      Mon Mar 24 00:00:00 2026
- * @author    copilot
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

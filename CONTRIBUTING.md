@@ -79,14 +79,16 @@ cd build && ctest
   - Free functions and methods: `snake_case` (e.g. `add_col`, `get_optvalue`,
     `resolve`, `annual_discount_factor`)
   - Local variables and public data members: `snake_case`
-  - Private class members: `m_` prefix + `_` suffix (e.g. `m_simulation_`, `m_options_`)
-    (e.g. `m_simulation_`, `m_options_`)
+  - Private class members: `m_` prefix + `_` suffix (e.g. `m_simulation_`,
+    `m_options_`)
   - Macros: `UPPER_CASE`
 - **Include guards**: Use `#pragma once`
 - **File headers**: Doxygen-style (`@file`, `@brief`, `@date`, `@author`,
   `@copyright`)
 - **Includes**: Three sorted groups — `<std>`, external `<pkg/header>`,
   project `<gtopt/...>`
+- **Trailing commas**: always on the last element of a brace-initializer
+  list (`Size first_block {0,};`)
 - **Error handling**: Prefer `std::optional` and return values over exceptions
 - **Modern C++**: Use concepts (`requires`), ranges, `std::format`, structured
   bindings, designated initializers, `[[nodiscard]]`, `noexcept` where

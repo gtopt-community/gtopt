@@ -4,7 +4,7 @@
  * @brief     Per-solver tests for the integer initial-solution injection
  *            (SolverBackend::set_mip_start).
  * @date      2026-06-27
- * @author    claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

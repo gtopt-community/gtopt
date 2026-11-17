@@ -32,8 +32,7 @@
 // is PROFITABLE for every loss model whose loss is not tied to |f|
 // from above.  All other line pair-sums are positive.
 //
-// Channels exercised (see .claude/agents/lp-numerics-expert.md,
-// "Line-loss arbitrage defects"):
+// Channels exercised (line-loss arbitrage defects):
 //   (A) phantom circulation  — linear, piecewise(=bidirectional),
 //       piecewise_direct: KVL does NOT block fp = fn = X (the ±x_tau
 //       stamps cancel exactly).  Activation: pi_a + pi_b < −2ε.

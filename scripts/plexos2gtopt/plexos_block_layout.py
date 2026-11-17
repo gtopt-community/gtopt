@@ -443,7 +443,7 @@ def cache_plexos_tables(
             continue
         # zstd-compress the CSV bytes via subprocess to avoid a hard
         # Python-side zstandard dep (the project already ships zstd
-        # binaries through apt — see CLAUDE.md ``apt install zstd``).
+        # CLI as a system dependency — ``apt install zstd``).
         # Level 3 (fast), NOT 19: this is a transient re-run cache, and
         # ``-19`` on the multi-hundred-MB ``t_data_0`` solution table took
         # >120 s and timed out into a half-written, undecompressable file.

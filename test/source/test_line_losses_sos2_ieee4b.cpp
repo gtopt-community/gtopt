@@ -38,7 +38,7 @@ using namespace gtopt;
 
 // Wrap the entire file body in a uniquely-named outer namespace so the
 // Unity-build cannot collide with same-named helpers in sibling test
-// files — see CLAUDE.md ``unity-anon-namespace`` memory note.
+// files.
 namespace test_line_losses_sos2_ieee4b_ns
 {
 

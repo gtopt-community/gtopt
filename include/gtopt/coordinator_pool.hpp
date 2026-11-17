@@ -3,7 +3,7 @@
  * @file      coordinator_pool.hpp
  * @brief     Tier-1 scene/pass orchestration pool for the SDDP method.
  * @date      2026-06-08
- * @author    claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

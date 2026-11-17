@@ -51,7 +51,7 @@ _CELL_FRAMES = (
     ("ens", "cells/ens.parquet", False),
 )
 
-# Compression: zstd by default per CLAUDE.md guidance for file I/O.
+# Compression: zstd for these archival feed datasets.
 _PARQUET_COMPRESSION = "zstd"
 
 

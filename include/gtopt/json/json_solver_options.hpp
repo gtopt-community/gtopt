@@ -2,7 +2,7 @@
  * @file      json_solver_options.hpp
  * @brief     JSON serialization for LP solver options
  * @date      Fri May  3 12:30:00 2025
- * @author    Claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

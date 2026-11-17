@@ -2,7 +2,7 @@
  * @file      test_options.hpp
  * @brief     Unit tests for Options class
  * @date      Fri May  3 10:15:00 2025
- * @author    Claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

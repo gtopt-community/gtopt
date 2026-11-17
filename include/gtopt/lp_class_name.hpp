@@ -2,7 +2,7 @@
  * @file      lp_class_name.hpp
  * @brief     Defines the LPClassName struct with modern C++23 features
  * @date      Wed Aug 06 15:10:00 2025
- * @author    ai-developer
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

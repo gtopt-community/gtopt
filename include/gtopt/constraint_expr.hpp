@@ -2,7 +2,7 @@
  * @file      constraint_expr.hpp
  * @brief     AST types for parsed user constraint expressions
  * @date      Wed Mar 12 03:00:00 2026
- * @author    copilot
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

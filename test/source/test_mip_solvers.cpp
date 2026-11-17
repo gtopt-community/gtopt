@@ -2,7 +2,7 @@
  * @file      test_mip_solvers.cpp
  * @brief     MIP tests exercised across every available MIP-capable solver
  * @date      2026-04-15
- * @author    copilot
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

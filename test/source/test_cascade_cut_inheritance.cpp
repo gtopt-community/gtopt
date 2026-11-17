@@ -14,7 +14,7 @@
  * inherit_optimality_cuts != 0" in code form, with self-contained
  * fixtures (no the large hydrothermal case data dependency).
  *
- * Test layers (see test/source/CLAUDE.md style):
+ * Test layers:
  *   - Layer 1: JSON parsing of CascadeTransition.inherit_optimality_cuts
  *   - Layer 2: SDDPMethod::stored_cuts() invariants after a backward pass
  *   - Layer 3: save_cuts_parquet + load_cuts round-trip on a fresh LP

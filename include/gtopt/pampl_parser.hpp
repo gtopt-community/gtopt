@@ -2,7 +2,7 @@
  * @file      pampl_parser.hpp
  * @brief     Parser for pseudo-AMPL (.pampl) user constraint files
  * @date      Thu Mar 12 00:00:00 2026
- * @author    copilot
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *

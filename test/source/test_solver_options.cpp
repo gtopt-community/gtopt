@@ -2,7 +2,7 @@
  * @file      test_solver_options.hpp
  * @brief     Unit tests for the SolverOptions class
  * @date      Sun May  5 11:30:00 2025
- * @author    Claude
+ * @author    Marcelo Matus
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *
