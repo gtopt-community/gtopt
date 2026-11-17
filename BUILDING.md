@@ -33,7 +33,7 @@ This guide provides detailed instructions for building GTOpt from source, includ
 | lld | 14+ | Fast linker (auto-detected) | `lld` |
 
 **LP Solver Backends**: GTOpt loads LP solver backends as dynamic plugins at
-runtime. The default is auto-detected by priority: CPLEX > HiGHS > CBC > CLP.
+runtime. The default is auto-detected by priority: CPLEX > HiGHS > MindOpt > CBC > CLP (Gurobi, SCIP and cuOpt are opt-in via `--solver`).
 Installing `coinor-libcbc-dev` provides CLP/CBC. HiGHS must be built from
 source on Ubuntu 24.04 (it is available via apt starting with Ubuntu 25.04).
 Use `--lp-solvers` to list available backends, or

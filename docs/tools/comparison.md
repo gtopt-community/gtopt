@@ -1014,7 +1014,7 @@ components), no integrated DC OPF or expansion planning.
 ### 17.7 Key Differentiators of GTOpt
 
 1. **C++ performance**: LP assembly in compiled C++ with `flat_map`-based
-   sparse matrices is 10–27× faster than equivalent Python code.
+   sparse matrices, with no modelling-language layer in between.
 2. **Complete hydro cascade**: Reservoirs, junctions, waterways, turbines,
    flows, seepage, and discharge limits — matching PLP's capability.
 3. **Three solution methods**: Monolithic + SDDP + cascade decomposition

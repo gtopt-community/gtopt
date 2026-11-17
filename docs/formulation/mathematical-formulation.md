@@ -3272,9 +3272,11 @@ DOI: [10.1109/TPWRS.2018.2829021](https://doi.org/10.1109/TPWRS.2018.2829021).
 In *Emerging Theory, Methods, and Applications*, INFORMS, pp. 257–277.
 DOI: [10.1287/educ.1053.0020](https://doi.org/10.1287/educ.1053.0020).
 
-> Documents the COIN-OR CBC (Coin-or Branch and Cut) solver used as
-> GTOpt's default MIP solver. CLP (COIN-OR Linear Programming) is used
-> for pure LP problems.
+> Documents the COIN-OR CBC (Coin-or Branch and Cut) solver, one of
+> GTOpt's open-source MIP backends; CLP (COIN-OR Linear Programming) is
+> its LP-only counterpart. When no solver is requested GTOpt picks the
+> first available backend in the order CPLEX > HiGHS > MindOpt > CBC >
+> CLP.
 
 ### Classification and Surveys
 

@@ -157,8 +157,8 @@ component's physical model into LP variables and constraints:
 | **`PlanningLP`** | Top-level orchestrator; wires stages/scenarios/components into the full LP |
 
 The sparse LP matrix is built using `SparseCol` and `SparseRow` value types,
-stored in `boost::container::flat_map` for 10–27× faster iteration compared
-to `std::map`.
+stored in `boost::container::flat_map` for cache-friendly iteration
+(contiguous storage instead of the node-based `std::map`).
 
 ### 3. Solver Interface and Plugins
 
@@ -173,7 +173,7 @@ to `std::map`.
   (direct C Callable Library), and **HiGHS**.
 
 This design means the solver can be swapped without recompiling the core
-library. Priority order if multiple plugins are present: CPLEX > HiGHS > CBC > CLP.
+library. Priority order if multiple plugins are present: CPLEX > HiGHS > MindOpt > CBC > CLP (Gurobi, SCIP and cuOpt are opt-in via `--solver`).
 
 ### 4. Solution Methods
 
@@ -245,7 +245,7 @@ See [SDDP Method](methods/sddp.md), [Cascade Method](methods/cascade.md), and
 | **C++26** | Clang 21 (CI) | Core language — concepts, `std::format`, `std::ranges`, `std::expected`, `std::flat_map`, designated initializers |
 | **CMake** | ≥ 3.31 | Build system; CPM for dependency management |
 | **Apache Arrow / Parquet** | 12.0+ | Default I/O format for large time-series |
-| **COIN-OR CLP/CBC** | via OSI plugin | Default LP/MIP solver |
+| **COIN-OR CLP/CBC** | via OSI plugin | Open-source LP/MIP fallback (auto-detect priority: CPLEX > HiGHS > MindOpt > CBC > CLP) |
 | **CPLEX / HiGHS** | optional plugins | Alternative solver backends |
 | **DAW JSON Link** | header-only | Zero-overhead compile-time JSON deserialisation |
 | **spdlog** | std::format backend | Structured logging |
