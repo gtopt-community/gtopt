@@ -252,10 +252,10 @@ struct Fuel
   /// PSR SDDP's per-period TOP minima (without the SDDP make-up bank
   /// — that is a future state-column extension).
   ///
-  /// Canonical reference: Guerra, O.J. et al. "Analysis of a
-  /// Multiple Year Gas Sales Agreement with Make-up, Carry-Forward
-  /// and Indexation", Energy Economics 73 (2018), 358-374
-  /// (DOI 10.1016/j.eneco.2018.03.013).
+  /// Canonical reference: Dong, W. and Kang, B. "Analysis of a
+  /// multiple year gas sales agreement with make-up, carry-forward
+  /// and indexation", Energy Economics 79 (2019), 76-96
+  /// (DOI 10.1016/j.eneco.2018.04.001).
   ///
   /// Stage = the natural fuel-contract period.  Unit-flexibility
   /// contract applies: `<fuel_unit>` must match `price`, `heat_rate`,

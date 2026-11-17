@@ -52,8 +52,9 @@
  *
  * [1] Fisher, O'Neill, Ferris (2008).  *Optimal Transmission
  *     Switching*.  IEEE T-PWRS 23(3):1346-1355.
- * [2] Aguilar-Moreno, Pineda, Morales (2025).  *On the computational
- *     complexity of OTS*.  arXiv:2502.10333.
+ * [2] Aguilar-Moreno, Pineda, Morales (2025).  *A Graph-Based
+ *     Iterative Strategy for Solving the All-Line Transmission
+ *     Switching Problem*.  arXiv:2502.10333.
  */
 
 #pragma once
@@ -107,8 +108,10 @@ namespace gtopt
  *
  * ### References
  *
- * [3] Pineda, Morales, Porras, Domínguez (2024).  *Iterative tightening
- *     of big-M for OTS*.  arXiv:2306.02784.
+ * [3] Pineda, Morales, Porras, Domínguez (2024).  *Tight big-Ms for
+ *     Optimal Transmission Switching*.  Electric Power Systems
+ *     Research 234:110620.  doi:10.1016/j.epsr.2024.110620
+ *     (arXiv:2306.02784).
  */
 struct LineCommitment
 {

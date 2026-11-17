@@ -601,9 +601,8 @@ Only the last level uses the base `save_per_iteration` setting.
 <a id="cref1"></a>
 **[1]** R. Romero and A. Monticelli, "A hierarchical decomposition
 approach for transmission network expansion planning,"
-*IEE Proceedings --- Generation, Transmission and Distribution*,
-vol. 141, no. 5, pp. 465--473, 1994.
-DOI: [10.1049/ip-gtd:19941354](https://doi.org/10.1049/ip-gtd:19941354)
+*IEEE Transactions on Power Systems*, vol. 9, no. 1, pp. 373–380, 1994.
+DOI: [10.1109/59.317588](https://doi.org/10.1109/59.317588)
 
 <a id="cref2"></a>
 **[2]** A. M. Geoffrion, "Generalized Benders decomposition," *Journal
@@ -655,10 +654,11 @@ expansion planning. Survey of recent practice and literature review,"
 DOI: [10.1016/j.epsr.2015.10.013](https://doi.org/10.1016/j.epsr.2015.10.013)
 
 <a id="cref10"></a>
-**[10]** L. Buitrago Villada, M. Pereira-Bonvallet, M. Matus, et al.,
-"FESOP: A framework for electricity system optimization and planning,"
-*IEEE Kansas Power and Energy Conference (KPEC)*, 2022.
-DOI: [10.1109/KPEC54747.2022.9814758](https://doi.org/10.1109/KPEC54747.2022.9814758)
+**[10]** M. P. Buitrago Villada, C. E. García Bujanda, E. Sierra Baeza, and
+A. M. Matus, "Optimal expansion and reliable renewable energy integration
+in long-term planning using FESOP," *2022 IEEE Kansas Power and Energy
+Conference (KPEC)*, pp. 1–5, 2022.
+DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781)
 
 ---
 

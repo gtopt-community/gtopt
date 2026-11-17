@@ -71,7 +71,8 @@ The GTEP problem finds the minimum-cost combination of:
 
 This is a classical problem in power system planning, extensively studied in
 the literature [[1]](#ref1) [[2]](#ref2) [[3]](#ref3) [[16]](#ref16). The GTOpt formulation
-builds on the FESOP (Fabulous Energy System Optimizer) framework
+builds on the FESOP framework, presented in "Optimal Expansion and
+Reliable Renewable Energy Integration in Long-Term Planning Using FESOP"
 [[4]](#ref4), which extended traditional long-term operational planning
 (as implemented in PLP-type hydrothermal coordination tools [[5]](#ref5)
 [[6]](#ref6)) to include capacity expansion, variable renewable energy
@@ -856,7 +857,7 @@ When a `LineCommitment` row references a line, the line becomes a
 **switching candidate**: an additional binary
 $u_{l,s,t,b} \in \{0, 1\}$ is introduced that opens (0) or closes
 (1) the breaker dynamically at solve time
-[[Fisher2008]](https://doi.org/10.1109/TPWRS.2008.926411).
+[[Fisher2008]](https://doi.org/10.1109/TPWRS.2008.922256).
 
 **Capacity gating** (always emitted, both Kirchhoff and transport
 modes; v0):
@@ -934,7 +935,7 @@ $$
 (Fisher 2008 baseline refined for the phase-shift offset).  This
 is loose by design — `LineCommitment.kvl_big_m` overrides per line,
 serving as the write-back target for the v1 iterative-tightening
-pre-solve [[Pineda2024]](https://doi.org/10.1016/j.epsr.2024.110720).
+pre-solve [[Pineda2024]](https://doi.org/10.1016/j.epsr.2024.110620).
 
 **Cycle-basis disjunction (v1).**  In `kirchhoff_mode = cycle_basis`
 (the GTOpt default) KVL is enforced as one equality per fundamental
@@ -3091,10 +3092,10 @@ mathematical symbols used in this formulation.
 ### FESOP and GTOpt Publications
 
 <a id="ref4"></a>
-**[4]** Buitrago Villada, M.P., García Bujanda, C.E., Baeza, E., and
-Matus, A.M. (2022). "Optimal Expansion and Reliable Renewable Energy
+**[4]** Buitrago Villada, M.P., García Bujanda, C.E., Sierra Baeza, E.,
+and Matus, A.M. (2022). "Optimal Expansion and Reliable Renewable Energy
 Integration in Long-Term Planning Using FESOP." *2022 IEEE Kansas Power
-and Energy Conference (KPEC)*, pp. 1–6.
+and Energy Conference (KPEC)*, pp. 1–5.
 DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781).
 
 > The foundational paper for the FESOP framework on which GTOpt is based.

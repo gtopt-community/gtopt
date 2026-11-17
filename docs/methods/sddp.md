@@ -1719,10 +1719,11 @@ DOI: [10.1007/BF01582895](https://doi.org/10.1007/BF01582895)
 2011. DOI: [10.1016/j.ejor.2010.08.007](https://doi.org/10.1016/j.ejor.2010.08.007)
 
 <a id="ref5"></a>
-**[5]** M. Pereira-Bonvallet, M. Matus, et al., "Stochastic hydrothermal
-scheduling under CO2 emissions constraints," *Energy Procedia*, vol. 87,
-pp. 63–72, 2016.
-DOI: [10.1016/j.egypro.2015.12.359](https://doi.org/10.1016/j.egypro.2015.12.359)
+**[5]** E. Pereira-Bonvallet, S. Püschel-Løvengreen, M. Matus, and
+R. Moreno, "Optimizing hydrothermal scheduling with non-convex irrigation
+constraints: Case on the Chilean electricity system," *Energy Procedia*,
+vol. 87, pp. 132–138, 2016.
+DOI: [10.1016/j.egypro.2015.12.342](https://doi.org/10.1016/j.egypro.2015.12.342)
 
 <a id="ref6"></a>
 **[6]** M. V. F. Pereira, "Optimal stochastic operations scheduling of
@@ -1756,9 +1757,8 @@ DOI: [10.1109/TPWRS.2009.2021235](https://doi.org/10.1109/TPWRS.2009.2021235)
 
 <a id="ref11"></a>
 **[11]** R. Romero and A. Monticelli, "A hierarchical decomposition approach
-for transmission network expansion planning," *IEE Proceedings — Generation,
-Transmission and Distribution*, vol. 141, no. 5, pp. 465–473, 1994.
-DOI: [10.1049/ip-gtd:19941354](https://doi.org/10.1049/ip-gtd:19941354)
+for transmission network expansion planning," *IEEE Transactions on Power Systems*, vol. 9, no. 1, pp. 373–380, 1994.
+DOI: [10.1109/59.317588](https://doi.org/10.1109/59.317588)
 
 <a id="ref12"></a>
 **[12]** S. Lumbreras and A. Ramos, "The new challenges to transmission
@@ -1772,10 +1772,11 @@ DOI: [10.1016/j.epsr.2015.10.013](https://doi.org/10.1016/j.epsr.2015.10.013)
 DOI: [10.1287/educ.1053.0020](https://doi.org/10.1287/educ.1053.0020)
 
 <a id="ref14"></a>
-**[14]** L. Buitrago Villada, M. Pereira-Bonvallet, M. Matus, et al.,
-"FESOP: A framework for electricity system optimization and planning,"
-*IEEE Kansas Power and Energy Conference (KPEC)*, 2022.
-DOI: [10.1109/KPEC54747.2022.9814758](https://doi.org/10.1109/KPEC54747.2022.9814758)
+**[14]** M. P. Buitrago Villada, C. E. García Bujanda, E. Sierra Baeza, and
+A. M. Matus, "Optimal expansion and reliable renewable energy integration
+in long-term planning using FESOP," *2022 IEEE Kansas Power and Energy
+Conference (KPEC)*, pp. 1–5, 2022.
+DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781)
 
 <a id="ref15"></a>
 **[15]** O. Dowson and L. Kapelevich, "SDDP.jl: a Julia package for
