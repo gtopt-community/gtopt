@@ -151,8 +151,11 @@ endif()
 CPMAddPackage(
   NAME daw_header_libraries
   GITHUB_REPOSITORY beached/header_libraries
-  # Pinned: upstream master moves and broke the GCC build on 2026-11-02.
-  GIT_TAG 9c79bfcb3545cbe51f8bf0c0d9ef7ea76196a502
+  # Pin a release tag, never master: upstream master moved the _u64/_u32
+  # literals into daw::UIntLiterals (unreleased, 2026-10/11), which
+  # daw_json_link 3.31-3.38 cannot find.
+  GIT_TAG v2.136.0
+  GIT_SHALLOW ON
   DOWNLOAD_ONLY YES
 )
 CPMAddPackage(

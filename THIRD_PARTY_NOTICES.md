@@ -55,7 +55,7 @@ build, GTOpt binaries and documentation:
 | Component | Licence |
 |---|---|
 | [spdlog](https://github.com/gabime/spdlog) | MIT |
-| [DAW JSON Link](https://github.com/beached/daw_json_link), [header_libraries](https://github.com/beached/header_libraries), [utf_range](https://github.com/beached/utf_range) | Boost Software License 1.0 |
+| [DAW JSON Link](https://github.com/beached/daw_json_link) 3.31.0, [header_libraries](https://github.com/beached/header_libraries) 2.136.0, [utf_range](https://github.com/beached/utf_range) 2.2.6 | Boost Software License 1.0 |
 | [strong_type](https://github.com/rollbear/strong_type) | Boost Software License 1.0 |
 | [doctest](https://github.com/doctest/doctest) (tests only) | MIT |
 | [StableCoder cmake-scripts](https://github.com/StableCoder/cmake-scripts) (optional sanitizer/coverage tooling) | Apache-2.0 |
@@ -72,3 +72,33 @@ The Node.js (`webservice/`, `guiservice-plus/`) and Python (`scripts/`,
 `package-lock.json`, `pyproject.toml` and `requirements*.txt`; those
 packages are downloaded by the respective package managers under their
 own licences.
+
+Python dependencies are mostly BSD, MIT or Apache-2.0 (NumPy, pandas,
+PyArrow, pandapower, NetworkX, Flask, Rich, Jinja2, requests); `certifi`
+and `tqdm` are MPL-2.0 and the optional `cairosvg` is LGPL-3.0-or-later.
+The Node.js packages are mostly MIT, ISC, BSD and Apache-2.0; Next.js
+optionally uses `sharp`, which loads libvips (LGPL-3.0-or-later).
+
+## 3. Licence compatibility
+
+GTOpt is offered under `AGPL-3.0-or-later` (with the solver plugin
+exception) or under the GTOpt commercial licence. The third-party
+licences above fit both:
+
+| Licence family | Components | AGPL-3.0 | Commercial licence |
+|---|---|---|---|
+| Permissive: MIT, ISC, BSD-2/3-Clause, BSL-1.0, Apache-2.0, zlib, Unlicense, CC0, 0BSD, BlueOak, PSF | Most C++, Python and JavaScript dependencies; HiGHS, Arrow, Boost, SCIP, cuOpt | Compatible (Apache-2.0 is compatible with GPLv3/AGPLv3) | Compatible; keep the copyright and licence notices |
+| MPL-2.0 (file-level copyleft) | SDDP.jl and PSRClassesInterface.jl test data, `certifi`, `tqdm` | Compatible (MPL-2.0 §3.3, GPL as secondary licence) | Compatible; MPL files stay under MPL and their source must remain available |
+| LGPL-3.0-or-later | `cairosvg` (optional), libvips via `sharp` (optional) | Compatible | Compatible when used as separate, replaceable libraries, as here |
+| EPL-2.0 | COIN-OR CLP, CBC, Osi, CoinUtils | Not GPL-compatible by itself; allowed by clause (a) of the [solver plugin exception](LICENSE-EXCEPTION.md) | Compatible; the solver is a separate library under its own licence |
+| Proprietary | CPLEX, Gurobi, MindOpt, CUDA | Allowed by clause (b) of the solver plugin exception; not distributed with GTOpt | Each user needs a licence from the vendor |
+
+No library that GTOpt links or imports is under GPL, AGPL, SSPL or a
+non-commercial licence, so neither the open-source nor the commercial
+distribution of GTOpt is restricted by them. The only GPL tool involved,
+[mdbtools](https://github.com/mdbtools/mdbtools) (GPL-2.0, used by
+`plexos2gtopt` and `cen2gtopt` to read PLEXOS `.accdb` solutions), is run
+as a separate program and not distributed with GTOpt, which does not
+affect GTOpt's licence. When a dependency is added, check its licence against
+this table.
+

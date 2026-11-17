@@ -37,12 +37,15 @@ else()
 endif()
 
 # ---- HiGHS plugin ----
-# HiGHS cmake config installs as lowercase "highs"; try both names.
-# Also try pkg-config as a fallback.
+# Look for the header and library directly first (FindHiGHS.cmake).  The
+# Debian/Ubuntu libhighs-dev package ships a CMake config and a highs.pc
+# with wrong paths (prefix "/", "/usr/usr/include"), and the config even
+# aborts the configure when the separate `highs` binary package is
+# missing, so the config and pkg-config are only fallbacks.
 
-find_package(highs QUIET)
-if(NOT highs_FOUND)
-  find_package(HiGHS QUIET)
+find_package(HiGHS MODULE QUIET)
+if(NOT HIGHS_FOUND)
+  find_package(highs CONFIG QUIET)
 endif()
 if(NOT highs_FOUND AND NOT HIGHS_FOUND)
   find_package(PkgConfig QUIET)

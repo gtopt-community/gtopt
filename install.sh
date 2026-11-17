@@ -184,7 +184,8 @@ install_highs() {
   local sudo=$1 cmake=$2 prefix=$3 jobs=$4 tag=v1.12.0
   if apt-cache show libhighs-dev >/dev/null 2>&1; then
     say "Installing HiGHS (apt)"
-    run $sudo apt-get install -y -q --no-install-recommends libhighs-dev
+    # `highs` provides the binary that the libhighs-dev CMake config requires.
+    run $sudo apt-get install -y -q --no-install-recommends libhighs-dev highs
     return
   fi
   if [[ -e $prefix/include/highs/Highs.h ]]; then

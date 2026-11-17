@@ -153,6 +153,43 @@ CLA bot requests on your first PR. Questions and ideas go to
 [Discussions](https://github.com/gtopt-community/gtopt/discussions);
 security issues to [`SECURITY.md`](SECURITY.md).
 
+## Acknowledgements
+
+GTOpt is built on the work of many open-source projects, and we are very
+grateful to their authors and communities, in particular:
+
+- **Solvers**: [HiGHS](https://github.com/ERGO-Code/HiGHS),
+  [COIN-OR CLP/CBC](https://github.com/coin-or),
+  [SCIP](https://github.com/scipopt/scip) and
+  [NVIDIA cuOpt](https://github.com/NVIDIA/cuopt).
+- **C++ libraries**: [Apache Arrow / Parquet](https://github.com/apache/arrow),
+  [Boost](https://github.com/boostorg/boost),
+  [DAW JSON Link](https://github.com/beached/daw_json_link),
+  [spdlog](https://github.com/gabime/spdlog),
+  [strong_type](https://github.com/rollbear/strong_type),
+  [doctest](https://github.com/doctest/doctest) and
+  [CPM.cmake](https://github.com/cpm-cmake/CPM.cmake).
+- **Python**: [NumPy](https://github.com/numpy/numpy),
+  [pandas](https://github.com/pandas-dev/pandas),
+  [PyArrow](https://github.com/apache/arrow),
+  [pandapower](https://github.com/e2nIEE/pandapower),
+  [NetworkX](https://github.com/networkx/networkx),
+  [Flask](https://github.com/pallets/flask) and
+  [Rich](https://github.com/Textualize/rich).
+- **Web**: [Next.js](https://github.com/vercel/next.js),
+  [React](https://github.com/facebook/react),
+  [Chart.js](https://github.com/chartjs/Chart.js) and
+  [Jspreadsheet CE](https://github.com/jspreadsheet/ce).
+- **Models and test data**: [SDDP.jl](https://github.com/odow/SDDP.jl),
+  [UnitCommitment.jl](https://github.com/ANL-CEEESA/UnitCommitment.jl),
+  [MATPOWER](https://github.com/MATPOWER/matpower),
+  [NREL Sienna](https://github.com/NREL-Sienna) and
+  [PSRClassesInterface.jl](https://github.com/psrenergy/PSRClassesInterface.jl).
+
+All of them are used under their own licences, which are compatible with
+GTOpt's; the full list, with versions and the compatibility analysis, is in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 ## License
 
 The GTOpt core is **dual-licensed**: AGPL-3.0-or-later with the

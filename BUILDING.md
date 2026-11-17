@@ -204,7 +204,7 @@ packaged** in Ubuntu 24.04 (Noble); apt packages (`libhighs-dev`,
 On Ubuntu 25.04+:
 
 ```bash
-sudo apt-get install -y libhighs-dev
+sudo apt-get install -y libhighs-dev highs   # `highs` is needed by the package's CMake config
 ```
 
 On Ubuntu 24.04, build from source:
