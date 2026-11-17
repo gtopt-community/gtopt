@@ -49,7 +49,7 @@ that factor matters only when the source data is in m³/s. `scale_objective
 
 ## A1 — SDDP.jl first_steps (3-stage hydro-thermal, stagewise independent)
 
-Source: <https://sddp.dev/stable/tutorial/first_steps/> (MIT,
+Source: <https://sddp.dev/stable/tutorial/first_steps/> (MPL-2.0,
 [odow/SDDP.jl](https://github.com/odow/SDDP.jl)). Verified 2026-07-09.
 
 **Published model.**

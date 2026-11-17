@@ -3,7 +3,7 @@
 End-to-end integration fixture for gtopt's cascade reservoir + waterway +
 turbine + thermal modelling, adapted from the canonical
 [SDDP.jl Hydro Valleys example](https://sddp.dev/stable/examples/hydro_valley/)
-(MIT-licensed, [odow/SDDP.jl](https://github.com/odow/SDDP.jl)).
+(MPL-2.0-licensed, [odow/SDDP.jl](https://github.com/odow/SDDP.jl)).
 
 ## Source
 

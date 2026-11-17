@@ -8,7 +8,7 @@ which is itself a re-implementation of the
 
 ## Source
 
-The reference is SDDP.jl's `FAST_hydro_thermal.jl` (MIT-licensed,
+The reference is SDDP.jl's `FAST_hydro_thermal.jl` (MPL-2.0-licensed,
 [odow/SDDP.jl](https://github.com/odow/SDDP.jl)):
 
 ```julia

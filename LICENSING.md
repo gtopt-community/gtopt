@@ -40,6 +40,10 @@ offering both licenses.
 Licences for proprietary solvers (CPLEX, Gurobi, MindOpt, ...) are **not**
 included in either option; obtain them from their vendors.
 
+Third-party files and data included in this repository (vendored
+JavaScript, test datasets, build scripts) keep their own licences; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 ## Commercial licensing
 
 Contact: Marcelo Matus — <marcelomatusacuna@gmail.com>

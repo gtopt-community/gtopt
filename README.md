@@ -356,7 +356,9 @@ public; `plp2gtopt` works from the documented `.dat` input formats.
 GTOpt is **dual-licensed**: GPL-3.0-or-later with the
 [solver plugin exception](LICENSE-EXCEPTION.md), or a
 [commercial license](LICENSE-COMMERCIAL.md). See
-[`LICENSING.md`](LICENSING.md).
+[`LICENSING.md`](LICENSING.md). Third-party components and data shipped
+in this repository keep their own licences; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 Copyright (c) 2024-2026 Marcelo Matus and [contributors](AUTHORS).
 

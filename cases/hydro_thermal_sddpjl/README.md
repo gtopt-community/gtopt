@@ -3,7 +3,7 @@
 End-to-end integration fixture for gtopt's single-reservoir + thermal
 modelling, adapted from the canonical
 [SDDP.jl Hydro_thermal example](https://sddp.dev/stable/examples/Hydro_thermal/)
-(MIT-licensed, [odow/SDDP.jl](https://github.com/odow/SDDP.jl)).
+(MPL-2.0-licensed, [odow/SDDP.jl](https://github.com/odow/SDDP.jl)).
 
 ## Source
 
