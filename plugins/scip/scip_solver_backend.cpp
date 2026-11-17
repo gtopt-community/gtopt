@@ -504,7 +504,12 @@ void ScipSolverBackend::load_problem(int ncols,
                                      const double* rowlb,
                                      const double* rowub)
 {
+  // The objective offset is backend state set via set_obj_offset(), not part
+  // of the loaded matrix: keep it across the model reset so an offset stored
+  // before load_problem() is still applied exactly once.
+  const double obj_offset = m_model_.obj_offset;
   m_model_ = {};
+  m_model_.obj_offset = obj_offset;
   m_sol_ = {};
   m_mip_start_.clear();
   if (ncols == 0 && nrows == 0) {
@@ -597,9 +602,8 @@ void ScipSolverBackend::set_obj_offset(double raw_offset) noexcept
 {
   // ABSOLUTE set.  The host model carries the constant into the fresh SCIP
   // instance via SCIPaddOrigObjoffset in scip_build_problem at solve time, and
-  // clone() deep-copies m_model_ — so storing it here is sufficient.  The
-  // LinearInterface re-calls this after every load_problem (which resets
-  // m_model_), keeping the offset current across reconstructs.
+  // clone() deep-copies m_model_ — so storing it here is sufficient.
+  // load_problem() resets m_model_ but preserves this offset.
   m_model_.obj_offset = raw_offset;
 }
 
