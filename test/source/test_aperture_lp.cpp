@@ -1641,6 +1641,8 @@ TEST_CASE(
 
   SUBCASE("apertures=[] disables apertures")
   {
+    // Each SUBCASE re-runs the test body, so the fixture is fresh here.
+    // NOLINTNEXTLINE(bugprone-use-after-move,hicpp-invalid-access-moved)
     PlanningLP plp(std::move(planning_explicit));
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 10;

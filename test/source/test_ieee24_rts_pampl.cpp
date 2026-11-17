@@ -258,7 +258,7 @@ TEST_CASE(
 
   const double obj = solve_dcopf_obj(src);
   // 200 @ 4.4231 + 100 @ 12.3883 = 884.62 + 1238.83 = 2123.45.
-  CHECK(obj == doctest::Approx(200.0 * 4.4231 + 100.0 * 12.3883));
+  CHECK(obj == doctest::Approx((200.0 * 4.4231) + (100.0 * 12.3883)));
   CHECK(obj > kBaseObj + 1.0);
 }
 
@@ -273,7 +273,7 @@ TEST_CASE("RTS-24 PAMPL - sum() element aggregation cap is binding")
 
   const double obj = solve_dcopf_obj(src);
   // 250 cheap @ 4.4231 + 50 peaker @ 48.5804 = 1105.78 + 2429.02 = 3534.79.
-  CHECK(obj == doctest::Approx(250.0 * 4.4231 + 50.0 * 48.5804));
+  CHECK(obj == doctest::Approx((250.0 * 4.4231) + (50.0 * 48.5804)));
   CHECK(obj > kBaseObj + 1.0);
 }
 
@@ -306,7 +306,7 @@ TEST_CASE("RTS-24 PAMPL - soft spinning-reserve floor (penalty + named slack)")
 
   const double obj = solve_dcopf_obj(src);
   // 250 @ 4.4231 + 50 @ 12.3883 = 1105.78 + 619.42 = 1725.19 (no penalty).
-  CHECK(obj == doctest::Approx(250.0 * 4.4231 + 50.0 * 12.3883));
+  CHECK(obj == doctest::Approx((250.0 * 4.4231) + (50.0 * 12.3883)));
   CHECK(obj > kBaseObj + 1.0);
 }
 
@@ -332,7 +332,7 @@ TEST_CASE("RTS-24 PAMPL - dur-weighted energy budget (sum{} time aggregation)")
   // `sum{b in stage} dur[b] * generation` caps ENERGY (MWh).  Demand is
   // 2400 MWh; a 1200 MWh budget forces 1200 MWh of curtailment at
   // $1000/MWh, dwarfing the $5/MWh generation cost.
-  constexpr std::string_view unbudgeted = "";
+  constexpr std::string_view unbudgeted;
   const double base_energy = solve_energy_obj(unbudgeted);
   CHECK(base_energy == doctest::Approx(5.0 * 100.0 * 24.0));  // 12000
 
@@ -342,7 +342,7 @@ TEST_CASE("RTS-24 PAMPL - dur-weighted energy budget (sum{} time aggregation)")
   const double obj = solve_energy_obj(src);
   CHECK(obj > base_energy + 1.0);
   // 1200 MWh served @ 5 + 1200 MWh failed @ 1000 = 6000 + 1.2e6.
-  CHECK(obj == doctest::Approx(5.0 * 1200.0 + 1000.0 * 1200.0));
+  CHECK(obj == doctest::Approx((5.0 * 1200.0) + (1000.0 * 1200.0)));
 }
 
 TEST_CASE("RTS-24 PAMPL - unweighted sum{} caps per-block MW, not energy")
@@ -355,7 +355,8 @@ TEST_CASE("RTS-24 PAMPL - unweighted sum{} caps per-block MW, not energy")
       "constraint mw_count_cap:\n"
       "  sum{b in stage} generator('g1').generation <= 90;";
   const double obj = solve_energy_obj(src);
-  CHECK(obj > 5.0 * 100.0 * 24.0 + 1.0);  // strictly above the unbudgeted cost
+  CHECK(obj
+        > (5.0 * 100.0 * 24.0) + 1.0);  // strictly above the unbudgeted cost
 }
 
 TEST_CASE("RTS-24 PAMPL - per-block scheduled RHS overrides the inline tail")
@@ -370,7 +371,7 @@ TEST_CASE("RTS-24 PAMPL - per-block scheduled RHS overrides the inline tail")
 
   const double obj = solve_dcopf_obj(src);
   // g_base capped at 200 -> 100 MW from g_mid (same as base_load_cap).
-  CHECK(obj == doctest::Approx(200.0 * 4.4231 + 100.0 * 12.3883));
+  CHECK(obj == doctest::Approx((200.0 * 4.4231) + (100.0 * 12.3883)));
   CHECK(obj > kBaseObj + 1.0);
 }
 
@@ -389,7 +390,7 @@ TEST_CASE("RTS-24 PAMPL - for(...) domain scoping and inactive keyword")
 
   const double obj = solve_dcopf_obj(src);
   // Only the active 200 MW cap applies.
-  CHECK(obj == doctest::Approx(200.0 * 4.4231 + 100.0 * 12.3883));
+  CHECK(obj == doctest::Approx((200.0 * 4.4231) + (100.0 * 12.3883)));
 }
 
 TEST_CASE("RTS-24 PAMPL - multiple feature families compose in one file")
@@ -497,7 +498,7 @@ TEST_CASE("RTS-24 PAMPL - .pampl file round-trips through parse_file()")
   const double obj =
       systems.front().front().linear_interface().get_obj_value_raw();
   // base_load_cap forces the same 200/100 redispatch as the inline test.
-  CHECK(obj == doctest::Approx(200.0 * 4.4231 + 100.0 * 12.3883));
+  CHECK(obj == doctest::Approx((200.0 * 4.4231) + (100.0 * 12.3883)));
 
   std::filesystem::remove_all(tmpdir);
 }

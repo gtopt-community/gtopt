@@ -240,7 +240,9 @@ struct SolveResult
   REQUIRE(!systems.front().empty());
   const auto& li = systems.front().front().linear_interface();
 
-  return {li.get_obj_value_raw(), li.get_numcols(), 0};
+  return {.obj = li.get_obj_value_raw(),
+          .n_cols = li.get_numcols(),
+          .n_theta_cols = 0};
 }
 
 }  // namespace

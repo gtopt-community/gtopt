@@ -144,7 +144,8 @@ constexpr Real kHrDiesel = 10.0;
 // ── Per-MWh combustion CO₂ rates ───────────────────────────────────────
 constexpr Real kRateCoal = kHrCoal * kEfCoal;  // 0.9933  tCO₂/MWh
 constexpr Real kRateGas = kHrGas * kEfGas;  //  0.42075 tCO₂/MWh
-constexpr Real kRateDiesel = kHrDiesel * kEfDiesel;  // 0.7410  tCO₂/MWh
+[[maybe_unused]] constexpr Real kRateDiesel =
+    kHrDiesel * kEfDiesel;  // 0.7410  tCO₂/MWh
 
 // ── Single-block stage ─────────────────────────────────────────────────
 constexpr Real kBlockDur = 1.0;
@@ -403,10 +404,10 @@ TEST_CASE(
         == doctest::Approx(0.0).epsilon(1e-5));
 
   // Objective = Σ gen_i · gcost_i.
-  constexpr Real kObjective = kCapG5 * kCostG5  //  6 000
-      + kCapG1 * kCostG1  //    560
-      + kCapG2 * kCostG2  //  2 550
-      + kG3Disp * kCostG3;  //  5 700  → 14 810
+  constexpr Real kObjective = (kCapG5 * kCostG5)  //  6 000
+      + (kCapG1 * kCostG1)  //    560
+      + (kCapG2 * kCostG2)  //  2 550
+      + (kG3Disp * kCostG3);  //  5 700  → 14 810
   CHECK(lp.get_obj_value() == doctest::Approx(kObjective).epsilon(1e-5));
 }
 
@@ -444,7 +445,7 @@ TEST_CASE(
   constexpr Real kUncappedCoal = kCapG1 + kCapG2;  // 210 MW
   constexpr Real kUncappedGas = kDemand - kCapG5 - kUncappedCoal;  // 190 MW
   constexpr Real kUncappedCo2 =
-      kUncappedCoal * kRateCoal + kUncappedGas * kRateGas;
+      (kUncappedCoal * kRateCoal) + (kUncappedGas * kRateGas);
   constexpr Real kDeltaCo2 = kUncappedCo2 - kCap;
   constexpr Real kSwapMw = kDeltaCo2 / (kRateCoal - kRateGas);
   constexpr Real kG2New = kCapG2 - kSwapMw;
@@ -462,14 +463,14 @@ TEST_CASE(
         == doctest::Approx(0.0).epsilon(1e-5));
 
   // Cap-binding spot check — total CO₂ equals the cap.
-  const Real total_co2 = (kCapG1 + kG2New) * kRateCoal + kG3New * kRateGas;
+  const Real total_co2 = ((kCapG1 + kG2New) * kRateCoal) + (kG3New * kRateGas);
   CHECK(total_co2 == doctest::Approx(kCap).epsilon(1e-5));
 
   // Objective = base merit-order cost + swap penalty
   //           = 14 810 + kSwapMw · ($30 − $15).
-  constexpr Real kBaseObjective = kCapG5 * kCostG5 + kCapG1 * kCostG1
-      + kCapG2 * kCostG2
-      + (kDemand - kCapG5 - kCapG1 - kCapG2) * kCostG3;  // 14 810
+  constexpr Real kBaseObjective = (kCapG5 * kCostG5) + (kCapG1 * kCostG1)
+      + (kCapG2 * kCostG2)
+      + ((kDemand - kCapG5 - kCapG1 - kCapG2) * kCostG3);  // 14 810
   constexpr Real kSwapPenalty = kSwapMw * (kCostG3 - kCostG2);
   CHECK(lp.get_obj_value()
         == doctest::Approx(kBaseObjective + kSwapPenalty).epsilon(1e-5));

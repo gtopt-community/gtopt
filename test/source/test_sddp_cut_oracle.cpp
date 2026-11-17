@@ -121,8 +121,8 @@ constexpr double kOracleSolverFeasTol = 1.0e-6;
 
 [[nodiscard]] double oracle_tol(double box_diam, double v_abs)
 {
-  return kOracleCutCoeffEps * box_diam
-      + kOracleSolverFeasTol * std::max(1.0, v_abs);
+  return (kOracleCutCoeffEps * box_diam)
+      + (kOracleSolverFeasTol * std::max(1.0, v_abs));
 }
 
 // ─── State grid ─────────────────────────────────────────────────────────────
@@ -160,8 +160,8 @@ void oracle_set_scenario_inflows(Planning& planning, double q0, double q1)
     std::vector<std::vector<double>> per_stage;
     per_stage.reserve(static_cast<std::size_t>(kOracleNumPhases));
     for (int st = 0; st < kOracleNumPhases; ++st) {
-      per_stage.push_back(std::vector<double>(
-          static_cast<std::size_t>(kOracleBlocksPerStage), q));
+      per_stage.emplace_back(static_cast<std::size_t>(kOracleBlocksPerStage),
+                             q);
     }
     sched.push_back(std::move(per_stage));
   }
@@ -181,8 +181,10 @@ void oracle_set_scenario_inflows(Planning& planning, double q0, double q1)
                                                  double inflow,
                                                  double eini)
 {
-  auto block_array = make_uniform_blocks(
-      static_cast<std::size_t>(num_stages * kOracleBlocksPerStage), 1.0);
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(num_stages)
+                              * static_cast<std::size_t>(kOracleBlocksPerStage),
+                          1.0);
   auto stage_array =
       make_uniform_stages(static_cast<std::size_t>(num_stages),
                           static_cast<std::size_t>(kOracleBlocksPerStage));
@@ -447,7 +449,7 @@ struct OracleCutView
 /// Cut bound at state x:  α ≥ rhs − coeff·x  (row is α + coeff·x ≥ rhs).
 [[nodiscard]] double oracle_cut_value_at(const OracleCutView& view, double x)
 {
-  return view.rhs - view.state_coeff * x;
+  return view.rhs - (view.state_coeff * x);
 }
 
 // ─── The oracle audit ───────────────────────────────────────────────────────

@@ -5,6 +5,7 @@
 // `classify_solve_outcome` is exercised so a future refactor of the
 // Optimal / Partial / Failed bands cannot regress without surfacing.
 
+#include <array>
 #include <expected>
 
 #include <doctest/doctest.h>

@@ -108,7 +108,7 @@ constexpr Real kDemandFailCost = 1000.0;
 // Helper — SRMC (short-run marginal cost) = fuel $/MWh + gcost.
 [[nodiscard]] constexpr Real srmc(const ThermalParams& p) noexcept
 {
-  return p.price * p.heat_rate + p.gcost;
+  return (p.price * p.heat_rate) + p.gcost;
 }
 // Helper — per-MWh combustion + upstream CO₂ rate.
 [[nodiscard]] constexpr Real co2_rate(const ThermalParams& p) noexcept
@@ -389,7 +389,7 @@ TEST_CASE(
         == doctest::Approx(0.0).epsilon(1e-5));
 
   // Spot-check: total CO₂ produced equals the cap (binding).
-  const Real co2_total = coal_expected * co2_coal + gas_expected * co2_gas;
+  const Real co2_total = (coal_expected * co2_coal) + (gas_expected * co2_gas);
   CHECK(co2_total == doctest::Approx(kCap).epsilon(1e-5));
 }
 
@@ -668,7 +668,8 @@ TEST_CASE(
 
   const auto coal_mwh = sum_gen("coal_pc");
   const auto gas_mwh = sum_gen("gas_ccgt");
-  const Real total_co2 = coal_mwh * co2_rate(kCoal) + gas_mwh * co2_rate(kGas);
+  const Real total_co2 =
+      (coal_mwh * co2_rate(kCoal)) + (gas_mwh * co2_rate(kGas));
   CHECK(total_co2 == doctest::Approx(kCap).epsilon(1e-4));
   // Diesel is too expensive — should stay off.
   CHECK(sum_gen("diesel_peaker") == doctest::Approx(0.0).epsilon(1e-5));

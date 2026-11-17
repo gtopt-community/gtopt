@@ -265,7 +265,7 @@ TEST_CASE(
       0.0,  // max_process_rss_mb (off)
       std::chrono::milliseconds(5),  // scheduler_interval
       "test-gpu-gate",
-      false,  // enable_periodic_stats
+      /*enable_periodic_stats_=*/false,  // enable_periodic_stats
   });
   pool.start();
 

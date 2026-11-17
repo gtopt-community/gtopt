@@ -670,7 +670,8 @@ TEST_CASE("FlowRight stage_average LP shape")  // NOLINT
     // The fixture stores fmin/fmax block-major: row 0 = stage 0, with
     // block 0 → 10 and block 1 → 20.  Verify the band+zero-cost shape
     // without depending on the per-block ordering of the map.
-    std::vector<double> lows, ups;
+    std::vector<double> lows;
+    std::vector<double> ups;
     for (const auto& [buid, col] : fcols) {
       lows.push_back(col_low[col]);
       ups.push_back(col_upp[col]);

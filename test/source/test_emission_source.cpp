@@ -553,7 +553,8 @@ TEST_CASE(
   constexpr double kGenAllowed = kCap / kRate;  // 25
   constexpr double kUnserved = kDemand - kGenAllowed;  // 25
   constexpr double kGcost = 10.0;
-  constexpr double kExpectedObj = kGenAllowed * kGcost + kUnserved * kFailCost;
+  constexpr double kExpectedObj =
+      (kGenAllowed * kGcost) + (kUnserved * kFailCost);
 
   const System system = {
       .name = "EmissionSourcePamplUC",

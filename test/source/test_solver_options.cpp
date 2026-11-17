@@ -681,8 +681,7 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
     flat_lp.rowub = {1e30};
     flat_lp.colnm = {"x", "y"};
     flat_lp.rownm = {"sum_row"};
-    return LinearInterface(SolverRegistry::instance().default_solver(),
-                           flat_lp);
+    return {SolverRegistry::instance().default_solver(), flat_lp};
   };
 
   SUBCASE("default algorithm")

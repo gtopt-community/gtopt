@@ -523,14 +523,13 @@ TEST_CASE("validate_planning - turbine refs")  // NOLINT
     p.system.turbine_array.push_back(turb);
     auto result = validate_planning(p);
     CHECK_FALSE(result.ok());
-    const auto found =
-        std::ranges::any_of(result.errors,
-                            [](const auto& msg)
-                            {
-                              return msg.find("t_orphan") != std::string::npos
-                                  && msg.find("waterway") != std::string::npos
-                                  && msg.find("flow") != std::string::npos;
-                            });
+    const auto found = std::ranges::any_of(result.errors,
+                                           [](const auto& msg)
+                                           {
+                                             return msg.contains("t_orphan")
+                                                 && msg.contains("waterway")
+                                                 && msg.contains("flow");
+                                           });
     CHECK(found);
   }
 
@@ -1915,9 +1914,9 @@ TEST_CASE("validate_planning - Generator fuel/heat_rate pairing")  // NOLINT
         r.warnings,
         [](const auto& w)
         {
-          return w.find("Generator 'g1'") != std::string::npos
-              && (w.find("fuel will be ignored") != std::string::npos
-                  || w.find("heat_rate will be ignored") != std::string::npos);
+          return w.contains("Generator 'g1'")
+              && (w.contains("fuel will be ignored")
+                  || w.contains("heat_rate will be ignored"));
         });
     CHECK(pair_warns == 0);
   }
@@ -1934,13 +1933,13 @@ TEST_CASE("validate_planning - Generator fuel/heat_rate pairing")  // NOLINT
     p.system.generator_array.push_back(gen);
     auto r = validate_planning(p);
     CHECK(r.ok());  // warnings don't fail validation
-    const auto found = std::ranges::any_of(
-        r.warnings,
-        [](const auto& w)
-        {
-          return w.find("Generator 'g1'") != std::string::npos
-              && w.find("fuel price will be ignored") != std::string::npos;
-        });
+    const auto found =
+        std::ranges::any_of(r.warnings,
+                            [](const auto& w)
+                            {
+                              return w.contains("Generator 'g1'")
+                                  && w.contains("fuel price will be ignored");
+                            });
     CHECK(found);
   }
   SUBCASE("heat_rate set + no fuel → warning about ignored heat_rate")
@@ -1955,13 +1954,13 @@ TEST_CASE("validate_planning - Generator fuel/heat_rate pairing")  // NOLINT
     p.system.generator_array.push_back(gen);
     auto r = validate_planning(p);
     CHECK(r.ok());
-    const auto found = std::ranges::any_of(
-        r.warnings,
-        [](const auto& w)
-        {
-          return w.find("Generator 'g1'") != std::string::npos
-              && w.find("heat_rate will be ignored") != std::string::npos;
-        });
+    const auto found =
+        std::ranges::any_of(r.warnings,
+                            [](const auto& w)
+                            {
+                              return w.contains("Generator 'g1'")
+                                  && w.contains("heat_rate will be ignored");
+                            });
     CHECK(found);
   }
   SUBCASE(
@@ -1980,9 +1979,9 @@ TEST_CASE("validate_planning - Generator fuel/heat_rate pairing")  // NOLINT
         r.warnings,
         [](const auto& w)
         {
-          return w.find("Generator 'g1'") != std::string::npos
-              && (w.find("fuel will be ignored") != std::string::npos
-                  || w.find("heat_rate will be ignored") != std::string::npos);
+          return w.contains("Generator 'g1'")
+              && (w.contains("fuel will be ignored")
+                  || w.contains("heat_rate will be ignored"));
         });
     CHECK(pair_warns == 0);
   }

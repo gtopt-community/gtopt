@@ -43,8 +43,6 @@
 #include "fixture_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-argument-comment)
-
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
@@ -201,7 +199,7 @@ inline auto make_two_phase_reservoir_planning(double eini_value = 100.0)
 TEST_CASE(  // NOLINT
     "make_reservoir_ref_cache: populates eini/efin/default/scale from rsv")
 {
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/250.0);
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/250.0);
   PlanningLP planning_lp(std::move(planning));
 
   auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
@@ -223,7 +221,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "physical_eini_from_cache: first stage of first phase returns default")
 {
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/333.0);
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/333.0);
   PlanningLP planning_lp(std::move(planning));
 
   auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
@@ -243,7 +241,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "physical_efin_from_cache: equals li.get_col_sol()[efin_col] after solve")
 {
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/250.0);
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/250.0);
   PlanningLP planning_lp(std::move(planning));
 
   auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
@@ -276,7 +274,7 @@ TEST_CASE(  // NOLINT
   // phase 1's update_lp time, the helper reads phase 1's own
   // `eini_col` from its current LinearInterface — NOT phase 0's
   // efin via prev_sys.  This is the contract: read eini directly.
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/250.0);
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/250.0);
   PlanningLP planning_lp(std::move(planning));
 
   auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
@@ -303,7 +301,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "average_volume_from_cache: averages physical_eini and physical_efin")
 {
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/200.0);
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/200.0);
   PlanningLP planning_lp(std::move(planning));
 
   auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
@@ -345,7 +343,7 @@ TEST_CASE(  // NOLINT
     "physical_eini_from_cache: reads predecessor's efin StateVariable "
     "via prev_phase_sys (cross-phase channel)")
 {
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/100.0);
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/100.0);
   PlanningLP planning_lp(std::move(planning));
 
   // Solve phase 0 first so we have a non-default solved efin to hand
@@ -411,7 +409,7 @@ TEST_CASE(  // NOLINT
   // forward-pass ``update_lp`` behaviour where the predecessor IS
   // solved (so the StateVariable channel can supply the value) but
   // the current phase isn't.
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/100.0);
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/100.0);
   PlanningLP planning_lp(std::move(planning));
 
   auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
@@ -484,7 +482,7 @@ TEST_CASE(  // NOLINT
   // was propagated into this phase".  This test fails on pre-fix
   // (returns default_volume) and passes on post-fix (returns the
   // pinned bound).
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/100.0);
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/100.0);
   PlanningLP planning_lp(std::move(planning));
 
   auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
@@ -538,7 +536,7 @@ TEST_CASE(  // NOLINT
   // it reflects the most recent propagate_trial_values call.  Pins
   // the precedence order (step 0 before step 1) so a future refactor
   // that swaps them is caught at unit-test time.
-  auto planning = make_two_phase_reservoir_planning(/*eini=*/100.0);
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/100.0);
   PlanningLP planning_lp(std::move(planning));
 
   auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
@@ -723,7 +721,7 @@ TEST_CASE(  // NOLINT
   // same `li.get_col_sol()[eini_col]` read.  For daily_cycle, the
   // in-phase `efin == eini` close constraint guarantees that value
   // equals `efin_col` post-solve.
-  auto planning = make_two_phase_daily_cycle_planning(/*eini=*/200.0);
+  auto planning = make_two_phase_daily_cycle_planning(/*eini_value=*/200.0);
   PlanningLP planning_lp(std::move(planning));
 
   auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
@@ -962,6 +960,4 @@ TEST_CASE(  // NOLINT
         == doctest::Approx(222.0));
 }
 
-// NOLINTEND(bugprone-argument-comment)
-
-// NOLINTEND(bugprone-argument-comment)
+// NOLINTEND(bugprone-unchecked-optional-access)

@@ -2922,9 +2922,9 @@ TEST_CASE(  // NOLINT
   };
   const std::array cases = {
       ModeCase {
-          ElasticFilterMode::single_cut,
-          -1,
-          "single_cut (PLP aggregate)",
+          .mode = ElasticFilterMode::single_cut,
+          .multi_cut_threshold = -1,
+          .label = "single_cut (PLP aggregate)",
       },
   };
 
@@ -3266,14 +3266,15 @@ inline auto read_efin_row_dual(PlanningLP& planning_lp,
   // at the last phase are identical across solvers (they typically are NOT —
   // the forward-pass state propagation lands at solver-specific vertices at
   // earlier phases, producing different RHS values at the last phase).
-  if (std::getenv("GTOPT_DUMP_EFIN_LP")) {
+  if (std::getenv("GTOPT_DUMP_EFIN_LP") != nullptr) {
     static std::atomic<int> dump_idx {0};
     const int my_idx = dump_idx.fetch_add(1);
     if (my_idx < 4 && reservoir_index == 0) {
       const char* solver = std::getenv("GTOPT_SOLVER");
       const std::string fname =
           (std::filesystem::temp_directory_path()
-           / std::format("efin_lp_{}_{}", solver ? solver : "default", my_idx))
+           / std::format(
+               "efin_lp_{}_{}", solver != nullptr ? solver : "default", my_idx))
               .string();
       [[maybe_unused]] auto write_result = li.write_lp(fname);
       spdlog::info(
@@ -5794,7 +5795,7 @@ namespace
 
 /// Equal probability assigned to each scene in the 2-scene 10-phase
 /// 2-reservoir fixture (0.5 + 0.5 = 1.0).
-constexpr double k2scene10phaseProb = 0.5;
+[[maybe_unused]] constexpr double k2scene10phaseProb = 0.5;
 
 /// Shared SDDP options for all 2-scene 10-phase 2-reservoir cut-sharing tests.
 inline auto make_2scene_10phase_2rsv_sddp_opts() -> SDDPOptions
@@ -5909,14 +5910,14 @@ TEST_CASE(  // NOLINT
 
   struct ModeResult
   {
-    CutSharingMode mode;
-    const char* label;
+    CutSharingMode mode {};
+    const char* label {nullptr};
     double ub {0.0};
   };
 
   std::array<ModeResult, 2> mode_results = {{
-      {CutSharingMode::none, "none", 0.0},
-      {CutSharingMode::multicut, "multicut", 0.0},
+      {.mode = CutSharingMode::none, .label = "none", .ub = 0.0},
+      {.mode = CutSharingMode::multicut, .label = "multicut", .ub = 0.0},
   }};
 
   for (auto& mr : mode_results) {
@@ -6005,7 +6006,7 @@ namespace
     r.efin_cost = OptReal {efin_cost};
   }
   if (demand_fail_cost) {
-    planning.options.model_options.demand_fail_cost = *demand_fail_cost;
+    planning.options.model_options.demand_fail_cost = demand_fail_cost;
   }
   if (thermal_gcost) {
     // The fixture's thermal generator is at index 1 (uid 2), see
@@ -6125,7 +6126,7 @@ TEST_CASE(  // NOLINT
   const auto [safe_min_rhs, _, safe_lb] = sweep_efin_cost_for_flip(50.0);
   CHECK(safe_min_rhs > 0.0);
   CHECK(safe_lb > 0.0);
-  const auto [__, ___, big_lb] = sweep_efin_cost_for_flip(500.0);
+  const auto [_, _, big_lb] = sweep_efin_cost_for_flip(500.0);
   CHECK(big_lb > 0.0);  // α_T floor prevents LB overshoot
 }
 
@@ -6261,7 +6262,7 @@ TEST_CASE(  // NOLINT
                            const std::vector<double>& test_costs) -> double
   {
     for (const double ec : test_costs) {
-      const auto [_, __, min_lb] = sweep_efin_cost_for_flip(ec, dfc, tgc, pf);
+      const auto [_, _, min_lb] = sweep_efin_cost_for_flip(ec, dfc, tgc, pf);
       if (min_lb < 0.0) {
         return ec;  // first overshoot value
       }
@@ -6334,68 +6335,68 @@ TEST_CASE(  // NOLINT
 
   const std::vector<ConfigResult> results = {
       run_efin500_config("baseline (resolve=true, default)",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
                          std::nullopt),
       run_efin500_config("resolve=false (forward-cached cuts)",
-                         false,
+                         /*backward_resolve_target=*/false,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
                          std::nullopt),
       run_efin500_config("resolve=true + equilibration=none",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::none,
                          std::nullopt,
                          std::nullopt,
                          std::nullopt),
       run_efin500_config("resolve=true + equilibration=ruiz",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::ruiz,
                          std::nullopt,
                          std::nullopt,
                          std::nullopt),
       run_efin500_config("resolve=true + cut_sharing=multicut (2 scenes)",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          CutSharingMode::multicut,
                          std::nullopt,
                          std::nullopt),
       run_efin500_config("resolve=true + scale_alpha=1.0",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          1.0,
                          std::nullopt),
       run_efin500_config("resolve=true + scale_alpha=100",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          100.0,
                          std::nullopt),
       run_efin500_config("resolve=true + bwd algo=primal",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
                          ExtraSolver {.algo = LPAlgo::primal}),
       run_efin500_config("resolve=true + bwd algo=dual",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
                          ExtraSolver {.algo = LPAlgo::dual}),
       run_efin500_config("resolve=true + bwd algo=barrier (crossover on)",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
                          ExtraSolver {.algo = LPAlgo::barrier,
                                       .crossover = CrossoverMode::primal}),
       run_efin500_config("resolve=true + bwd algo=barrier (crossover off)",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
@@ -6403,40 +6404,40 @@ TEST_CASE(  // NOLINT
                                       .crossover = CrossoverMode::none}),
       run_efin500_config(
           "resolve=true + bwd presolve=true",
-          true,
+          /*backward_resolve_target=*/true,
           LpEquilibrationMethod::row_max,
           std::nullopt,
           std::nullopt,
           ExtraSolver {.algo = LPAlgo::default_algo, .presolve = true}),
       run_efin500_config(
           "resolve=true + bwd presolve=false",
-          true,
+          /*backward_resolve_target=*/true,
           LpEquilibrationMethod::row_max,
           std::nullopt,
           std::nullopt,
           ExtraSolver {.algo = LPAlgo::default_algo, .presolve = false}),
       run_efin500_config("resolve=true + bwd algo=dual + presolve=false",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
                          ExtraSolver {.algo = LPAlgo::dual, .presolve = false}),
       run_efin500_config("resolve=true + bwd algo=primal + crossover=true",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
                          ExtraSolver {.algo = LPAlgo::primal,
                                       .crossover = CrossoverMode::primal}),
       run_efin500_config("resolve=true + bwd algo=primal + crossover=false",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
                          ExtraSolver {.algo = LPAlgo::primal,
                                       .crossover = CrossoverMode::none}),
       run_efin500_config("resolve=true + bwd algo=dual + crossover=true",
-                         true,
+                         /*backward_resolve_target=*/true,
                          LpEquilibrationMethod::row_max,
                          std::nullopt,
                          std::nullopt,
@@ -6444,7 +6445,7 @@ TEST_CASE(  // NOLINT
                                       .crossover = CrossoverMode::primal}),
       run_efin500_config(
           "resolve=true + bwd algo=dual + crossover=false",
-          true,
+          /*backward_resolve_target=*/true,
           LpEquilibrationMethod::row_max,
           std::nullopt,
           std::nullopt,

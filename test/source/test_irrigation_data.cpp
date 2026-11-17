@@ -375,22 +375,22 @@ TEST_CASE("evaluate_bound_rule - Laja 4-zone cushion model")
   {
     // V=1200: 90 + 0.40*1200 = 90 + 480 = 570 (continuous)
     CHECK(evaluate_bound_rule(rule, 1201.0)
-          == doctest::Approx(90.0 + 0.40 * 1201.0));
+          == doctest::Approx(90.0 + (0.40 * 1201.0)));
     CHECK(evaluate_bound_rule(rule, 1500.0)
-          == doctest::Approx(90.0 + 0.40 * 1500.0));
+          == doctest::Approx(90.0 + (0.40 * 1500.0)));
     CHECK(evaluate_bound_rule(rule, 1900.0)
-          == doctest::Approx(90.0 + 0.40 * 1900.0));
+          == doctest::Approx(90.0 + (0.40 * 1900.0)));
   }
 
   SUBCASE("zone 3: 375 + 0.25 * V")
   {
     // V=1900: 375 + 0.25*1900 = 375 + 475 = 850 (continuous with zone 2)
     CHECK(evaluate_bound_rule(rule, 1901.0)
-          == doctest::Approx(375.0 + 0.25 * 1901.0));
+          == doctest::Approx(375.0 + (0.25 * 1901.0)));
     CHECK(evaluate_bound_rule(rule, 3000.0)
-          == doctest::Approx(375.0 + 0.25 * 3000.0));
+          == doctest::Approx(375.0 + (0.25 * 3000.0)));
     CHECK(evaluate_bound_rule(rule, 5000.0)
-          == doctest::Approx(375.0 + 0.25 * 5000.0));
+          == doctest::Approx(375.0 + (0.25 * 5000.0)));
   }
 
   SUBCASE("cap applied")

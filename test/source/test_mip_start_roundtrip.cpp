@@ -46,6 +46,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -468,7 +469,7 @@ TEST_CASE(  // NOLINT
       LinearInterface dst(name);
       (void)build_tiny_uc(dst);
       std::vector<int> int_cols;
-      for (int i = 0; i < static_cast<int>(kNumCols); ++i) {
+      for (int i = 0; std::cmp_less(i, kNumCols); ++i) {
         if (dst.is_integer(ColIndex {i})) {
           int_cols.push_back(i);
         }

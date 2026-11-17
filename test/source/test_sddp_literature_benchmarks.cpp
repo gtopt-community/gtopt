@@ -371,7 +371,7 @@ TEST_CASE(  // NOLINT
 
   // Absolute tolerance: solver feasibility noise scaled by the objective
   // magnitude (≈ 8e-3 at |V| ≈ 8333) plus a small floor.
-  const double valid_tol = 1.0e-6 * kA1PublishedLB + 1.0e-3;
+  const double valid_tol = (1.0e-6 * kA1PublishedLB) + 1.0e-3;
 
   // (a) validity + (b) monotonicity across the trajectory.
   double prev_lb = -std::numeric_limits<double>::infinity();
@@ -617,7 +617,7 @@ TEST_CASE(  // NOLINT
         CHECK(std::isfinite(last.lower_bound));
         CHECK(last.lower_bound > 0.0);
         const double bracket_tol =
-            1.0e-6 * std::max(1.0, std::abs(last.upper_bound)) + 1.0;
+            (1.0e-6 * std::max(1.0, std::abs(last.upper_bound))) + 1.0;
         CHECK(last.lower_bound <= last.upper_bound + bracket_tol);
       });
   if (!ran) {

@@ -48,7 +48,7 @@ TEST_CASE(
                                  0.0,
                                  std::chrono::milliseconds {10},
                                  "test-stall",
-                                 false,
+                                 /*enable_periodic_stats_=*/false,
                                  0.0,
                                  0.0}};
   pool.start();
@@ -101,7 +101,7 @@ TEST_CASE(
                                  0.0,
                                  std::chrono::milliseconds {10},
                                  "test-mutable-cv",
-                                 false,
+                                 /*enable_periodic_stats_=*/false,
                                  0.0,
                                  0.0}};
   pool.start();
@@ -127,7 +127,7 @@ TEST_CASE(
                                  0.0,
                                  std::chrono::milliseconds {10},
                                  "test-drain",
-                                 false,
+                                 /*enable_periodic_stats_=*/false,
                                  0.0,
                                  0.0}};
   pool.start();

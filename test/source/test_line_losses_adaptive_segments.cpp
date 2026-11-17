@@ -335,7 +335,7 @@ namespace
       continue;
     }
     const double L = R[i] * fmax[i] * fmax[i];
-    const double kk = static_cast<double>(asgn[i].K * asgn[i].K);
+    const auto kk = static_cast<double>(asgn[i].K * asgn[i].K);
     if (asgn[i].layout == LinePwlLayout::midpoint) {
       total -= L / (12.0 * kk);
     } else {
@@ -404,7 +404,7 @@ TEST_CASE("compute_dynamic_loss_layout — reaches local optimum")  // NOLINT
       continue;
     }
     const double L = R[i] * fmax[i] * fmax[i];
-    const double kk = static_cast<double>(asgn[i].K * asgn[i].K);
+    const auto kk = static_cast<double>(asgn[i].K * asgn[i].K);
     const double delta = L / (4.0 * kk);
     const double after_flip = final_err - delta;
     // Flipping this uniform line should NOT strictly improve abs.

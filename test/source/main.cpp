@@ -54,28 +54,30 @@ void install_test_logger()
 /// the async logger installed by `gtopt_main()`).
 struct LoggerResetListener : doctest::IReporter
 {
-  explicit LoggerResetListener(const doctest::ContextOptions&) {}
+  explicit LoggerResetListener(const doctest::ContextOptions& /*opts*/) {}
 
-  void test_case_start(const doctest::TestCaseData&) override
+  void test_case_start(const doctest::TestCaseData& /*data*/) override
   {
     install_test_logger();
   }
-  void test_case_reenter(const doctest::TestCaseData&) override
+  void test_case_reenter(const doctest::TestCaseData& /*data*/) override
   {
     install_test_logger();
   }
 
   // Remaining IReporter hooks are unused.
-  void report_query(const doctest::QueryData&) override {}
+  void report_query(const doctest::QueryData& /*data*/) override {}
   void test_run_start() override {}
-  void test_run_end(const doctest::TestRunStats&) override {}
-  void test_case_end(const doctest::CurrentTestCaseStats&) override {}
-  void test_case_exception(const doctest::TestCaseException&) override {}
-  void subcase_start(const doctest::SubcaseSignature&) override {}
+  void test_run_end(const doctest::TestRunStats& /*stats*/) override {}
+  void test_case_end(const doctest::CurrentTestCaseStats& /*stats*/) override {}
+  void test_case_exception(const doctest::TestCaseException& /*exc*/) override
+  {
+  }
+  void subcase_start(const doctest::SubcaseSignature& /*sig*/) override {}
   void subcase_end() override {}
-  void log_assert(const doctest::AssertData&) override {}
-  void log_message(const doctest::MessageData&) override {}
-  void test_case_skipped(const doctest::TestCaseData&) override {}
+  void log_assert(const doctest::AssertData& /*data*/) override {}
+  void log_message(const doctest::MessageData& /*data*/) override {}
+  void test_case_skipped(const doctest::TestCaseData& /*data*/) override {}
 };
 
 }  // namespace

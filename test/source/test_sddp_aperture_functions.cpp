@@ -707,7 +707,10 @@ TEST_CASE(  // NOLINT
   // 14 apertures × 1 scene = 14 work units; pool target = 2 × 16 = 32.
   // Under-saturated → chunk_size 1 (no warm-start chunking needed).
   CHECK(compute_auto_aperture_chunk_size(
-            /*n_aps=*/14, /*n_scenes=*/1, /*n_cores=*/16, /*pf=*/2.0)
+            /*max_apertures_per_phase=*/14,
+            /*n_active_scenes=*/1,
+            /*n_physical_cores=*/16,
+            /*parallel_factor=*/2.0)
         == 1);
 }
 

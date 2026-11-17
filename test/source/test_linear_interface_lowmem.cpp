@@ -3230,7 +3230,7 @@ TEST_CASE(  // NOLINT
 
   // Same cut-replay round-trip behaviour: add a labelled cut and
   // verify both LIs reach identical post-replay state.
-  for (auto& li : {std::ref(legacy_li), std::ref(frozen_li)}) {
+  for (const auto& li : {std::ref(legacy_li), std::ref(frozen_li)}) {
     SparseRow cut;
     cut[ColIndex {0}] = 1.0;
     cut.lowb = -LinearProblem::DblMax;
@@ -4884,5 +4884,5 @@ TEST_CASE(
   CHECK(li.get_col_upp_raw()[cx] >= inf * 0.5);  // still unbounded above
 }
 
-// NOLINTEND(readability-qualified-auto)
 // NOLINTEND(readability-trailing-comma)
+// NOLINTEND(readability-qualified-auto)

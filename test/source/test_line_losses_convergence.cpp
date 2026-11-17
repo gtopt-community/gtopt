@@ -211,7 +211,7 @@ constexpr std::array<LineFix, 4> kSystemLines = {{
   for (std::size_t i = 0; i < kSystemLines.size(); ++i) {
     const auto& ln = kSystemLines[i];
     const double L = ln.R * ln.fmax * ln.fmax;
-    const double k = static_cast<double>(K[i]);
+    const auto k = static_cast<double>(K[i]);
     total += L / (4.0 * k * k);
   }
   return total;
@@ -278,7 +278,7 @@ TEST_CASE(
 
     errors.push_back(err);
     total_K_per_pct.push_back(total_K);
-    K_per_pct.push_back(std::vector<int> {K.begin(), K.end()});
+    K_per_pct.emplace_back(K.begin(), K.end());
   }
 
   SUBCASE("error decreases monotonically with err_pct (until ceiling clamps)")
@@ -319,8 +319,8 @@ TEST_CASE(
         if (total_K_per_pct[a] == total_K_per_pct[b]) {
           continue;  // saturated regime — no decay to compare
         }
-        const double ka = static_cast<double>(total_K_per_pct[a]);
-        const double kb = static_cast<double>(total_K_per_pct[b]);
+        const auto ka = static_cast<double>(total_K_per_pct[a]);
+        const auto kb = static_cast<double>(total_K_per_pct[b]);
         const double ratio_K = kb / ka;  // > 1 (b is tighter)
         const double ratio_err = errors[a] / errors[b];  // > 1
         const double expected = ratio_K * ratio_K;  // O(1/K²) ⇒ err ∝ 1/K²

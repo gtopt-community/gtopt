@@ -620,7 +620,7 @@ TEST_CASE(  // NOLINT
   std::vector<Real> per_block_emax;
   per_block_emax.reserve(num_blocks);
   for (std::size_t b = 0; b < num_blocks; ++b) {
-    per_block_emax.push_back(100.0 - static_cast<Real>(b) * 10.0);
+    per_block_emax.push_back(100.0 - (static_cast<Real>(b) * 10.0));
   }
   std::vector<std::vector<Real>> emax_matrix = {per_block_emax};
 
@@ -651,7 +651,7 @@ TEST_CASE(  // NOLINT
   const auto& blocks = stage.blocks();
   for (std::size_t b = 0; b < blocks.size(); ++b) {
     const auto buid = blocks[b].uid();
-    const double expected = 100.0 - static_cast<Real>(b) * 10.0;
+    const double expected = 100.0 - (static_cast<Real>(b) * 10.0);
     CHECK(bat_lp.param_emax(stage_uid, buid).value_or(-1.0)
           == doctest::Approx(expected));
   }
@@ -1212,14 +1212,14 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("strict=true keeps every block at or above emin")
   {
-    const double min_e = min_block_energy_with_strict(true);
+    const double min_e = min_block_energy_with_strict(/*strict=*/true);
     // emin=30 must hold on EVERY block, not just the efin handoff.
     CHECK(min_e >= doctest::Approx(30.0).epsilon(1e-6));
   }
 
   SUBCASE("strict=false allows a block to dip below emin")
   {
-    const double min_e = min_block_energy_with_strict(false);
+    const double min_e = min_block_energy_with_strict(/*strict=*/false);
     // With the lax (PLP / SDDP iter-0) default the energy column has lowb=0,
     // so the expensive generator + demand pull the battery below its emin.
     CHECK(min_e < doctest::Approx(30.0));

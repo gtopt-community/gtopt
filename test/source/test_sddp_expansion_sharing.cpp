@@ -111,8 +111,8 @@ void ex_set_scenario_inflows(Planning& planning, double q_wet, double q_dry)
     per_stage.reserve(static_cast<std::size_t>(kExNumPhases));
     for (int st = 0; st < kExNumPhases; ++st) {
       const double value = (st == 0) ? kExPhase0Inflow : q;
-      per_stage.push_back(std::vector<double>(
-          static_cast<std::size_t>(kExBlocksPerStage), value));
+      per_stage.emplace_back(static_cast<std::size_t>(kExBlocksPerStage),
+                             value);
     }
     sched.push_back(std::move(per_stage));
   }
@@ -168,8 +168,10 @@ void ex_set_scenario_inflows(Planning& planning, double q_wet, double q_dry)
                                                   bool integer_module,
                                                   const std::string& solver)
 {
-  auto block_array = make_uniform_blocks(
-      static_cast<std::size_t>(kExNumPhases * kExBlocksPerStage), 1.0);
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(kExNumPhases)
+                              * static_cast<std::size_t>(kExBlocksPerStage),
+                          1.0);
   auto stage_array =
       make_uniform_stages(static_cast<std::size_t>(kExNumPhases),
                           static_cast<std::size_t>(kExBlocksPerStage));
@@ -557,7 +559,7 @@ TEST_CASE(  // NOLINT
   const double ws_lb = none_results->back().lower_bound;
   const double mc_ub = mc_results->back().upper_bound;
   INFO("wait-and-see LB=", ws_lb, " multicut UB=", mc_ub);
-  CHECK(ws_lb <= mc_ub + 2.0 * ex_tol(std::abs(mc_ub)));
+  CHECK(ws_lb <= mc_ub + (2.0 * ex_tol(std::abs(mc_ub))));
 }
 
 // ═════════════════════════════════════════════════════════════════════════

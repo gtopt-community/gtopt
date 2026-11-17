@@ -191,7 +191,7 @@ constexpr GenXThermal kME_NGCC = {
   // SRMC = price_per_GJ × heat_rate_GJ + var_OM
   //      = (fuel_price_MMBtu / 1.05506) × (heat_rate_MMBtu × 1.05506) + VOM
   //      = fuel_price_MMBtu × heat_rate_MMBtu + VOM  — kMMBtuPerGJ cancels.
-  return t.fuel_price_mmbtu * t.heat_rate_mmbtu + t.var_om;
+  return (t.fuel_price_mmbtu * t.heat_rate_mmbtu) + t.var_om;
 }
 [[nodiscard]] constexpr Real co2_rate(const GenXThermal& t) noexcept
 {
@@ -444,9 +444,9 @@ TEST_CASE(
         == doctest::Approx(0.0).epsilon(1e-5));
 
   // Objective: wind VOM (0.10 $/MWh) + CT + MA dispatch costs.
-  const Real obj_expected = kCapWind * 0.10  // 8.0
-      + ct_expected * srmc(kCT_NGCC)  // 100 × 42.374  = 4237.40
-      + ma_expected * srmc(kMA_NGCC);  //  40 × 42.781  = 1711.24
+  const Real obj_expected = (kCapWind * 0.10)  // 8.0
+      + (ct_expected * srmc(kCT_NGCC))  // 100 × 42.374  = 4237.40
+      + (ma_expected * srmc(kMA_NGCC));  //  40 × 42.781  = 1711.24
   CHECK(lp.get_obj_value() == doctest::Approx(obj_expected).epsilon(1e-5));
 }
 
@@ -492,7 +492,7 @@ TEST_CASE(
 
   // Cap is binding: total CO2 = cap.
   const Real total_co2 =
-      ct_expected * co2_rate(kCT_NGCC) + ma_expected * co2_rate(kMA_NGCC);
+      (ct_expected * co2_rate(kCT_NGCC)) + (ma_expected * co2_rate(kMA_NGCC));
   CHECK(total_co2 == doctest::Approx(kCap).epsilon(1e-5));
 }
 

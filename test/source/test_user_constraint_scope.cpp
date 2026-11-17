@@ -659,7 +659,7 @@ namespace
     Planning base;
     base.merge(parse_planning_json(make_2day_json(uc)));
     PlanningLP planning_lp(std::move(base));
-    (void)planning_lp.resolve();
+    [[maybe_unused]] const auto result = planning_lp.resolve();
   } catch (const std::runtime_error&) {
     return true;
   }

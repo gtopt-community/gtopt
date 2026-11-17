@@ -1069,7 +1069,7 @@ TEST_CASE("Hydro thermal benchmark — Hydro_thermal loaded from JSON literal")
   const auto& li = systems.front().front().linear_interface();
   // Literature expected value: 22.5 − 5/3.6.  See the struct-built
   // variant above for the analytical derivation.
-  const auto expected = 22.5 - 5.0 / 3.6;
+  const auto expected = 22.5 - (5.0 / 3.6);
   CHECK(li.get_obj_value() == doctest::Approx(expected).epsilon(1e-6));
 }
 

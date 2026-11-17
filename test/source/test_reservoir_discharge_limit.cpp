@@ -79,19 +79,19 @@ TEST_CASE("find_active_rdl_segment")
   SUBCASE("volume below first breakpoint uses first segment")
   {
     const auto* active = find_active_rdl_segment(segments, -100.0);
-    CHECK(active == &segments[0]);
+    CHECK(active == segments.data());
   }
 
   SUBCASE("volume at first breakpoint uses first segment")
   {
     const auto* active = find_active_rdl_segment(segments, 0.0);
-    CHECK(active == &segments[0]);
+    CHECK(active == segments.data());
   }
 
   SUBCASE("volume between breakpoints uses first segment")
   {
     const auto* active = find_active_rdl_segment(segments, 500000.0);
-    CHECK(active == &segments[0]);
+    CHECK(active == segments.data());
   }
 
   SUBCASE("volume at second breakpoint uses second segment")

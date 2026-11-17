@@ -240,8 +240,8 @@ TEST_CASE(  // NOLINT
   using namespace amplfcf_test;
 
   // ── Baseline: plain monolithic single-phase solve (to size the cut RHS) ──
-  const double baseline_obj =
-      solve_monolithic_obj(make_monolithic_planning(), /*boundary=*/"");
+  const double baseline_obj = solve_monolithic_obj(make_monolithic_planning(),
+                                                   /*boundary_cuts_file=*/"");
   REQUIRE(std::isfinite(baseline_obj));
 
   // A clearly-binding constant cost-to-go floor.
@@ -266,8 +266,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(std::isfinite(bdr_obj));
 
   // ── (B) user-authored α + cut + use_user_alpha ──
-  const double usr_obj =
-      solve_monolithic_obj(make_user_alpha_planning(rhs), /*boundary=*/"");
+  const double usr_obj = solve_monolithic_obj(make_user_alpha_planning(rhs),
+                                              /*boundary_cuts_file=*/"");
   REQUIRE(std::isfinite(usr_obj));
 
   // ── Equivalence: both add `rhs` once to the baseline objective. ──
@@ -563,7 +563,7 @@ struct SddpBounds
       .mode = std::optional<BoundaryCutsMode> {BoundaryCutsMode::combined},
   };
   if (single_cut_eq.has_value()) {
-    fc.single_cut_equality = OptBool {*single_cut_eq};
+    fc.single_cut_equality = single_cut_eq;
   }
   planning.system.future_cost_array.push_back(fc);
   PlanningLP planning_lp(std::move(planning));
@@ -580,7 +580,7 @@ struct SddpBounds
   const auto results = sddp.solve();
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
-  return {results->back().lower_bound, results->back().upper_bound};
+  return {.lb = results->back().lower_bound, .ub = results->back().upper_bound};
 }
 }  // namespace
 }  // namespace amplfcf_test
@@ -1034,8 +1034,8 @@ TEST_CASE(  // NOLINT
 {
   using namespace amplfcf_test;
 
-  const double baseline =
-      solve_monolithic_obj(make_monolithic_planning(), /*boundary=*/"");
+  const double baseline = solve_monolithic_obj(make_monolithic_planning(),
+                                               /*boundary_cuts_file=*/"");
   REQUIRE(std::isfinite(baseline));
 
   auto planning = make_monolithic_planning();
@@ -1058,7 +1058,8 @@ TEST_CASE(  // NOLINT
       .scope = OptName {"global"},
   });
 
-  const double obj = solve_monolithic_obj(std::move(planning), /*boundary=*/"");
+  const double obj =
+      solve_monolithic_obj(std::move(planning), /*boundary_cuts_file=*/"");
   REQUIRE(std::isfinite(obj));
   CAPTURE(baseline);
   CAPTURE(obj);
@@ -1089,7 +1090,7 @@ TEST_CASE(  // NOLINT
   };
 
   const double baseline =
-      solve_monolithic_obj(make_discounted(), /*boundary=*/"");
+      solve_monolithic_obj(make_discounted(), /*boundary_cuts_file=*/"");
   REQUIRE(std::isfinite(baseline));
 
   // power column: cost 10.0, cost_type "power" → col_cost = 10.0 × 0.5 = 5.0.
@@ -1108,7 +1109,8 @@ TEST_CASE(  // NOLINT
       .constraint_type = OptName {"raw"},
       .scope = OptName {"global"},
   });
-  const double obj = solve_monolithic_obj(std::move(planning), /*boundary=*/"");
+  const double obj =
+      solve_monolithic_obj(std::move(planning), /*boundary_cuts_file=*/"");
   REQUIRE(std::isfinite(obj));
 
   // raw column (same cost, same RHS): col_cost = 10.0 verbatim, NO discount
@@ -1129,7 +1131,7 @@ TEST_CASE(  // NOLINT
       .scope = OptName {"global"},
   });
   const double raw_obj =
-      solve_monolithic_obj(std::move(raw_planning), /*boundary=*/"");
+      solve_monolithic_obj(std::move(raw_planning), /*boundary_cuts_file=*/"");
   REQUIRE(std::isfinite(raw_obj));
 
   CAPTURE(baseline);

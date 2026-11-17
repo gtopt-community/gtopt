@@ -238,7 +238,7 @@ TEST_CASE("UserModel — bundled constraint resolves a bundled var")  // NOLINT
                          .front()
                          .linear_interface()
                          .get_obj_value_raw();
-  CHECK(obj == doctest::Approx(12000.0 + 3.0 * 7.0 * 3.0));
+  CHECK(obj == doctest::Approx(12000.0 + (3.0 * 7.0 * 3.0)));
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -318,14 +318,14 @@ TEST_CASE(
     {
       const auto fn = e.path().filename().string();
       const auto parent = e.path().parent_path().filename().string();
-      if (fn.find("x_sol") != std::string::npos) {
+      if (fn.contains("x_sol")) {
         has_x_sol = true;
       }
-      if (fn.find("cap_dual") != std::string::npos) {
+      if (fn.contains("cap_dual")) {
         has_cap_dual = true;
       }
       // slack files live under .../mytag/cap/slack_sol_...
-      if (parent == "cap" && fn.find("slack_sol") != std::string::npos) {
+      if (parent == "cap" && fn.contains("slack_sol")) {
         has_slack_sol = true;
       }
     }
@@ -410,7 +410,7 @@ TEST_CASE(  // NOLINT
     for (const auto& e :
          std::filesystem::recursive_directory_iterator(tmpdir / "UserModel"))
     {
-      if (e.path().filename().string().find("x_sol") != std::string::npos) {
+      if (e.path().filename().string().contains("x_sol")) {
         has_x_sol = true;
       }
     }
@@ -584,7 +584,7 @@ TEST_CASE(  // NOLINT
     for (const auto& e :
          std::filesystem::recursive_directory_iterator(tmpdir / "UserModel"))
     {
-      if (e.path().filename().string().find("x_sol") != std::string::npos) {
+      if (e.path().filename().string().contains("x_sol")) {
         has_x_sol = true;
       }
     }

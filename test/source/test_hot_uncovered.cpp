@@ -56,7 +56,8 @@ TEST_CASE("string_holder rvalue string takes ownership")  // NOLINT
   CHECK(original.empty());
 
   // The holder should own the buffer (same pointer as original had).
-  CHECK(holder.view().data() == data_ptr);
+  const bool same_buffer = holder.view().data() == data_ptr;
+  CHECK(same_buffer);
 }
 
 TEST_CASE("as_label with rvalue string exercises owned path")  // NOLINT
@@ -615,7 +616,7 @@ TEST_CASE("Wide bare-UID Parquet schedule is rejected")  // NOLINT
       [&]
       {
         PlanningLP planning_lp(std::move(planning));
-        (void)planning_lp.resolve();
+        [[maybe_unused]] const auto result = planning_lp.resolve();
       }(),
       std::runtime_error);
 

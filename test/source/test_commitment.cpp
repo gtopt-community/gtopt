@@ -339,7 +339,7 @@ TEST_CASE("Commitment JSON round-trip with max_starts fields")  // NOLINT
 
 TEST_CASE("CommitmentLP basic UC dispatch with LP relaxation")
 {
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
 
   // Add commitment for g1 only: startup_cost=100, noload=5, relaxed
   tc.system.commitment_array = {
@@ -378,7 +378,7 @@ TEST_CASE("CommitmentLP basic UC dispatch with LP relaxation")
 
 TEST_CASE("CommitmentLP non-chronological stage skip")
 {
-  auto tc = TestCase::make_basic(false);  // non-chronological
+  auto tc = TestCase::make_basic(/*chronological=*/false);  // non-chronological
 
   tc.system.commitment_array = {
       {
@@ -416,7 +416,7 @@ TEST_CASE("CommitmentLP non-chronological stage skip")
 
 TEST_CASE("CommitmentLP must-run forces u=1")
 {
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
 
   tc.system.commitment_array = {
       {
@@ -611,7 +611,7 @@ TEST_CASE("Reserve-UC integration: headroom conditional on u")
 
 TEST_CASE("CommitmentLP ramp constraints limit dispatch change")
 {
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
 
   // g1: pmin=0, pmax=100, with ramp_up=30 MW/hr, ramp_down=30 MW/hr
   // Demand pattern: block0=80, block1=80, block2=20, block3=20
@@ -1141,7 +1141,7 @@ TEST_CASE("Startup tiers: cold_time < hot_time is gracefully skipped")
   // startup tier creation, falling back to flat startup_cost on v[t].
   // Verify: no tier columns/rows are added, LP still solves.
 
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
   tc.system.generator_array[1].pmin = 0.0;
 
   tc.system.commitment_array = {
@@ -1196,7 +1196,7 @@ TEST_CASE("Min up/down time: single-block coverage is correctly trivial")
   // so every block covers the min_up_time alone → ut_blocks=1 → no rows.
   // Same for min_down_time=2h.
 
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
   tc.system.generator_array[0].pmin = 0.0;
   tc.system.generator_array[1].pmin = 0.0;
 
@@ -1261,7 +1261,7 @@ TEST_CASE("Relaxed UC allows p=0 when u=0 despite pmin>0")
   // If g1 (committed, pmin=20) is more expensive than g2, the optimizer
   // should set u=0, p=0 for g1 and dispatch g2 fully.
 
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
 
   // g1: committed, expensive (gcost=50).  Commitment.pmin=20 is the
   // when-committed floor; Generator.pmin stays 0 so u=0 ⇒ p=0 is feasible.
@@ -1449,7 +1449,7 @@ TEST_CASE("Initial min-up obligation prevents early shutdown")
   // g1 (expensive) CAN shut down immediately despite
   // initial_hours < min_up_time.
 
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
 
   // g1: expensive, committed with initial_status=1, initial_hours=1.
   // pmin moves onto Commitment (when-committed floor); Generator.pmin
@@ -1620,7 +1620,7 @@ TEST_CASE("Noload cost accumulates for committed blocks")
   // Dispatch cost = 5 × 100 × 4 = 2000.
   // Total = 2400, scaled = 2.4.
 
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
 
   // g1: cheap, committed with noload_cost
   tc.system.generator_array[0].gcost = 5.0;
@@ -2047,7 +2047,7 @@ TEST_CASE("Exclusion constraint prevents simultaneous startup and shutdown")
   // costs, the solver has no cost incentive to avoid fractional
   // v=w values, but the constraint must still hold.
 
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
   tc.system.generator_array[0].pmin = 0.0;
   tc.system.generator_array[1].pmin = 0.0;
 
@@ -2197,7 +2197,7 @@ TEST_CASE("Must-run forces minimum pmin generation")
   // g1 dispatches exactly 30 MW, g2 dispatches 70 MW.
   // Cost = 50×30×4 + 5×70×4 = 6000+1400 = 7400, scaled = 7.4.
 
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
 
   tc.system.generator_array[0].gcost = 50.0;
   tc.system.generator_array[0].pmin = 30.0;
@@ -2858,7 +2858,7 @@ TEST_CASE("PhaseRangeSet parsing")  // NOLINT
 
 TEST_CASE("continuous_phases via model_options relaxes UC binaries")  // NOLINT
 {
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
 
   // Add commitment on g1 (NOT per-element relax)
   tc.system.commitment_array = {
@@ -2903,7 +2903,7 @@ TEST_CASE("continuous_phases via model_options relaxes UC binaries")  // NOLINT
 
 TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
 {
-  auto tc = TestCase::make_basic(true);
+  auto tc = TestCase::make_basic(/*chronological=*/true);
 
   tc.system.commitment_array = {
       {

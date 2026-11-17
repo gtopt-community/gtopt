@@ -302,7 +302,7 @@ TEST_CASE("Line JSON — loss_secant_segments + loss_use_sos2 round-trip")
 TEST_CASE(
     "tangent_signed_flow L=1: single flow_abs col, no SOS2 (pre-#504 parity)")
 {
-  TwoBusSos2Fixture fix(/*L=*/1, /*use_sos2=*/false);
+  TwoBusSos2Fixture fix(/*loss_secant_segments=*/1, /*loss_use_sos2=*/false);
   auto& li = fix.lp();
 
   // One ``line_flow_abs_`` column — the legacy single-v aux.
@@ -317,7 +317,7 @@ TEST_CASE(
 
 TEST_CASE("tangent_signed_flow L=4: 4 flow_abs cols bounded [0, envelope/L]")
 {
-  TwoBusSos2Fixture fix(/*L=*/4, /*use_sos2=*/false);
+  TwoBusSos2Fixture fix(/*loss_secant_segments=*/4, /*loss_use_sos2=*/false);
   auto& li = fix.lp();
 
   // 4 segment columns — the new L-secant geometry.
@@ -344,7 +344,7 @@ TEST_CASE("tangent_signed_flow L=4: 4 flow_abs cols bounded [0, envelope/L]")
 
 TEST_CASE("tangent_signed_flow L=4: two abs rows (Σ v_l ± f ≥ 0)")
 {
-  TwoBusSos2Fixture fix(/*L=*/4, /*use_sos2=*/false);
+  TwoBusSos2Fixture fix(/*loss_secant_segments=*/4, /*loss_use_sos2=*/false);
   auto& li = fix.lp();
 
   // Even with L segments the abs constraint stays as 2 rows: one for
@@ -359,7 +359,7 @@ TEST_CASE(
     "tangent_signed_flow L=4: piecewise chord row exists exactly once "
     "in loss_link")
 {
-  TwoBusSos2Fixture fix(/*L=*/4, /*use_sos2=*/false);
+  TwoBusSos2Fixture fix(/*loss_secant_segments=*/4, /*loss_use_sos2=*/false);
   auto& li = fix.lp();
 
   // Loss-link rows include the K = 5 tangent lower bounds (one drops
@@ -377,7 +377,7 @@ TEST_CASE("tangent_signed_flow L=4 + use_sos2: 1 SOS2 set per (line, block)")
     MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
     return;
   }
-  TwoBusSos2Fixture fix(/*L=*/4, /*use_sos2=*/true);
+  TwoBusSos2Fixture fix(/*loss_secant_segments=*/4, /*loss_use_sos2=*/true);
   auto& li = fix.lp();
 
   // One block × one line = one SOS2 declaration.
@@ -386,7 +386,7 @@ TEST_CASE("tangent_signed_flow L=4 + use_sos2: 1 SOS2 set per (line, block)")
 
 TEST_CASE("tangent_signed_flow L=4 without use_sos2: no SOS2 emitted")
 {
-  TwoBusSos2Fixture fix(/*L=*/4, /*use_sos2=*/false);
+  TwoBusSos2Fixture fix(/*loss_secant_segments=*/4, /*loss_use_sos2=*/false);
   auto& li = fix.lp();
   CHECK(li.sos2_set_count() == 0);
 }
@@ -399,7 +399,7 @@ TEST_CASE("tangent_signed_flow L=1 with use_sos2=true: SOS2 dropped (vacuous)")
   // (SOS2 over a single column is vacuous; load_flat also silently
   // skips size < 2 sets, but the LP-build-side filter is the
   // single source of truth).
-  TwoBusSos2Fixture fix(/*L=*/1, /*use_sos2=*/true);
+  TwoBusSos2Fixture fix(/*loss_secant_segments=*/1, /*loss_use_sos2=*/true);
   auto& li = fix.lp();
   CHECK(li.sos2_set_count() == 0);
   CHECK(count_cols_containing(li, "line_flow_abs_") == 1);
@@ -419,9 +419,9 @@ TEST_CASE(
   // L = 4 + use_sos2 = true.  The per-line override must win.
   // Lambda-form SOS2 emits 2L+1 = 9 ``line_flow_lambda_`` cols and
   // 0 ``line_flow_abs_`` cols (segment-form rows are dropped).
-  TwoBusSos2Fixture fix(/*L=*/4,
-                        /*use_sos2=*/true,
-                        /*K=*/5,
+  TwoBusSos2Fixture fix(/*loss_secant_segments=*/4,
+                        /*loss_use_sos2=*/true,
+                        /*loss_segments_K=*/5,
                         /*per_line_override=*/true,
                         /*global_secant_segments=*/1,
                         /*global_use_sos2=*/false);
@@ -441,9 +441,9 @@ TEST_CASE(
   // No per-line override; global says L = 3 + SOS2 on.  Line should
   // inherit those values via the planning-options resolver and emit
   // 2L+1 = 7 lambda cols.
-  TwoBusSos2Fixture fix(/*L=*/0,
-                        /*use_sos2=*/false,
-                        /*K=*/5,
+  TwoBusSos2Fixture fix(/*loss_secant_segments=*/0,
+                        /*loss_use_sos2=*/false,
+                        /*loss_segments_K=*/5,
                         /*per_line_override=*/false,
                         /*global_secant_segments=*/3,
                         /*global_use_sos2=*/true);
@@ -744,7 +744,7 @@ TEST_CASE(
     }
     const auto seg_str = name.substr(last_underscore + 1);
     int seg_idx {};
-    auto first = seg_str.data();
+    const auto* first = seg_str.data();
     auto last = first + seg_str.size();  // NOLINT
     if (std::from_chars(first, last, seg_idx).ec != std::errc {}) {
       continue;
@@ -1000,7 +1000,7 @@ TEST_CASE(
   // loop; the ``v_ctx_for`` lambda must still return ``block_ctx``
   // (3-tuple) at L=1 so write_lp emits the historical
   // ``…flow_abs_<scen>_<stage>_<block>`` label — no trailing ``_l1``.
-  TwoBusSos2Fixture fix(/*L=*/1, /*use_sos2=*/false);
+  TwoBusSos2Fixture fix(/*loss_secant_segments=*/1, /*loss_use_sos2=*/false);
   auto& li = fix.lp();
   // Find the unique line_flow_abs_ col and inspect its name.
   std::string col_name;
@@ -1202,7 +1202,7 @@ TEST_CASE(
     }
     const auto seg_str = name.substr(last_underscore + 1);
     int seg_idx {};
-    auto first = seg_str.data();
+    const auto* first = seg_str.data();
     auto last = first + seg_str.size();  // NOLINT
     if (std::from_chars(first, last, seg_idx).ec != std::errc {}) {
       continue;
@@ -1297,7 +1297,7 @@ TEST_CASE(
     }
     const auto seg_str = name.substr(last_underscore + 1);
     int seg_idx {};
-    auto first = seg_str.data();
+    const auto* first = seg_str.data();
     auto last = first + seg_str.size();  // NOLINT
     if (std::from_chars(first, last, seg_idx).ec != std::errc {}) {
       continue;
@@ -1386,7 +1386,7 @@ TEST_CASE(
     }
     const auto seg_str = name.substr(last_underscore + 1);
     int seg_idx {};
-    auto first = seg_str.data();
+    const auto* first = seg_str.data();
     auto last = first + seg_str.size();  // NOLINT
     if (std::from_chars(first, last, seg_idx).ec != std::errc {}) {
       continue;

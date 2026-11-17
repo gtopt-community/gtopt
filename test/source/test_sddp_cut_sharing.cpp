@@ -399,7 +399,7 @@ namespace
 /// infinity representation on read-back (CPLEX -1e20, HiGHS -1e30, CBC
 /// -1e30); any raw value past ±1e15 confirms α is unbounded in that
 /// direction.
-constexpr double kEffectivelyMinusInf = -1e15;
+[[maybe_unused]] constexpr double kEffectivelyMinusInf = -1e15;
 constexpr double kEffectivelyPlusInf = 1e15;
 
 /// Read α's raw LP bounds at (scene, phase) — `std::nullopt` if α is

@@ -64,8 +64,10 @@ namespace
   constexpr int num_stages = 2;
   constexpr int blocks_per_stage = 1;
 
-  auto block_array = make_uniform_blocks(
-      static_cast<std::size_t>(num_stages * blocks_per_stage), 1.0);
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(num_stages)
+                              * static_cast<std::size_t>(blocks_per_stage),
+                          1.0);
   auto stage_array =
       make_uniform_stages(static_cast<std::size_t>(num_stages),
                           static_cast<std::size_t>(blocks_per_stage));

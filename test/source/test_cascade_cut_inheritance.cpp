@@ -425,7 +425,7 @@ TEST_CASE(
   // Easier proxy: level 1's final LB should match level 0's final LB
   // (same problem, same cuts → same fixed point).  Use a generous
   // tolerance because Benders converge tolerance is not bit-identical.
-  CHECK(s1.lower_bound >= s0.lower_bound * 0.999 - 1e-3);
+  CHECK(s1.lower_bound >= (s0.lower_bound * 0.999) - 1e-3);
 
   // (c) With inheritance, level 1 must NOT need more training
   // iterations than level 0 did to reach the same bound.  This is the
@@ -511,7 +511,7 @@ TEST_CASE("Cuts survive system_file swap across cascade levels")
   REQUIRE(s0.cuts_added > 0);
   // Cuts survived the system_file swap → level 1's final LB matches
   // level 0's (same problem, same cuts → same fixed point).
-  CHECK(s1.lower_bound >= s0.lower_bound * 0.999 - 1e-3);
+  CHECK(s1.lower_bound >= (s0.lower_bound * 0.999) - 1e-3);
   // And level 1 converges in ≤ level 0's iters — the cuts gave it a
   // head start.
   CHECK(s1.iterations <= s0.iterations);
@@ -859,8 +859,8 @@ TEST_CASE(  // NOLINT
   // phase-1 was actually appended (size collapsed to baseline-2)
   // because the regression set ``forget_threshold=0`` and the test
   // saw "exactly baseline" as success.
-  const auto baseline =
-      static_cast<size_t>(s0.iterations + 1 + s1.iterations + 1);
+  const auto baseline = static_cast<size_t>(s0.iterations) + 1
+      + static_cast<size_t>(s1.iterations) + 1;
   CHECK(solver.all_results().size() == baseline);
 }
 
@@ -1236,7 +1236,7 @@ TEST_CASE(  // NOLINT
     // cuts → identical value function).  In particular, far above the
     // alpha-bootstrap floor of 0 (or 1e-9) — for this fixture the
     // converged LB is several hundred at minimum.
-    CHECK(s1.lower_bound >= s0.lower_bound * 0.999 - 1e-3);
+    CHECK(s1.lower_bound >= (s0.lower_bound * 0.999) - 1e-3);
   };
 
   SUBCASE("low_memory_mode = off")
@@ -1506,7 +1506,7 @@ TEST_CASE(  // NOLINT
   // (c) With inherited cuts L1 cannot have a WORSE LB than L0 by more
   // than solver tolerance — the inherited cuts are valid lower bounds
   // on the value function, and L1 only adds more cuts on top.
-  CHECK(s1.lower_bound >= s0.lower_bound * 0.999 - 1e-3);
+  CHECK(s1.lower_bound >= (s0.lower_bound * 0.999) - 1e-3);
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)

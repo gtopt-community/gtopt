@@ -2672,7 +2672,7 @@ TEST_CASE(  // NOLINT
 
   ElasticSolveResult elastic;
   elastic.clone = std::move(li);
-  elastic.link_infos.push_back(std::move(info));
+  elastic.link_infos.push_back(info);
 
   const std::vector<StateVarLink> links = {
       link,

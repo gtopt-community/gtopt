@@ -1153,7 +1153,7 @@ TEST_CASE("tangent_signed_flow: chord UB never exceeds loose constant bound")
   // contract — whether v lands at |f| or at fmax depends on whether
   // arbitrage pressure on ℓ exceeds the ε cost on v.  Either way the
   // chord cannot violate this row.
-  CHECK(loss <= k_loss * tmax * v + 1e-6);
+  CHECK(loss <= (k_loss * tmax * v) + 1e-6);
 
   // ℓ is bounded above by the loose constant UB ``R·fmax²/V²`` (the
   // chord row degenerates to this when ``v = fmax``).  The new

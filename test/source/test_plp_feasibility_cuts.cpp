@@ -340,7 +340,7 @@ TEST_CASE("plp fcut: RHS carries the exact FactEPS margin")  // NOLINT
 
   // rhs = rhsi + fact_eps·|rhsi| — PLP plp-agrespd.f:791, verbatim.
   CHECK(cut.lowb
-        == doctest::Approx(rhsi + kFactEps * std::abs(rhsi)).epsilon(1e-12));
+        == doctest::Approx(rhsi + (kFactEps * std::abs(rhsi))).epsilon(1e-12));
 }
 
 TEST_CASE("plp fcut: all-at-upper family is emitted, not dropped")  // NOLINT
@@ -575,7 +575,7 @@ TEST_CASE("plp fcut: mixed col_scale links repair in physical units")  // NOLINT
     // Box consistency in physical units: RHS never exceeds
     // ray × source_upp.
     const double upp = (col == src_a) ? 1000.0 : 350.0;
-    CHECK(cut.lowb <= ray * upp + 1e-9);
+    CHECK(cut.lowb <= (ray * upp) + 1e-9);
   }
   // The joint repaired point restores the physical demand.
   CHECK(implied_sum >= 700.0 - 1e-6);

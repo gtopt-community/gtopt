@@ -104,9 +104,12 @@ constexpr Real kHrBiomass = 12.787;
 
 // ── Per-MWh combustion CO₂ rates ───────────────────────────────────────
 constexpr Real kRateCoal = kHrCoal * kEfCoal;  // 1.01563  t / MWh
-constexpr Real kRateCCGas = kHrCCGas * kEfGas;  // 0.45132  t / MWh
-constexpr Real kRateCTGas = kHrCTGas * kEfGas;  // 0.53177  t / MWh
-constexpr Real kRateCTOil = kHrCTOil * kEfOil;  // 0.78005  t / MWh
+[[maybe_unused]] constexpr Real kRateCCGas =
+    kHrCCGas * kEfGas;  // 0.45132  t / MWh
+[[maybe_unused]] constexpr Real kRateCTGas =
+    kHrCTGas * kEfGas;  // 0.53177  t / MWh
+[[maybe_unused]] constexpr Real kRateCTOil =
+    kHrCTOil * kEfOil;  // 0.78005  t / MWh
 
 // ── Capacities (MW) — sized so the dispatch is non-degenerate ──────────
 constexpr Real kCapNuclear = 500.0;  // baseload, gcost cheapest
@@ -430,8 +433,7 @@ TEST_CASE(  // NOLINT
   // heat_rate × combustion (heat_content = 1 default).
   const auto& coal_src = *std::ranges::find_if(
       sys.emission_source_array,
-      [](const auto& s)
-      { return s.name.find("ST_Coal_01") != std::string::npos; });
+      [](const auto& s) { return s.name.contains("ST_Coal_01"); });
   CHECK(std::get<Real>(coal_src.rate.value_or(Real {0.0}))
         == doctest::Approx(kRateCoal).epsilon(1e-6));
 }

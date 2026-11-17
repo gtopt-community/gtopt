@@ -40,6 +40,8 @@
  *               LP fails FR (slack > 0), turbine runs, demand served.
  */
 
+#include <array>
+
 #include <doctest/doctest.h>
 #include <gtopt/bus.hpp>
 #include <gtopt/demand.hpp>
@@ -174,18 +176,20 @@ TEST_CASE(  // NOLINT
   // ±$1 around the exact demand-fail price — the LP's optimum should
   // flip between these two cases despite their underlying $/MWh
   // anchor differing by only $2.
-  const Subcase subcases[] = {
+  const std::array<Subcase, 2> subcases = {{
       {
-          "anchor +$1 (= 569) -> ABOVE threshold, eos = eini, slack = 0",
-          kDemandFailCost + 1.0,
-          /*below_threshold=*/false,
+          .name =
+              "anchor +$1 (= 569) -> ABOVE threshold, eos = eini, slack = 0",
+          .water_fail_cost = kDemandFailCost + 1.0,
+          .below_threshold = false,
       },
       {
-          "anchor -$1 (= 567) -> BELOW threshold, eos = emin, slack = eini",
-          kDemandFailCost - 1.0,
-          /*below_threshold=*/true,
+          .name =
+              "anchor -$1 (= 567) -> BELOW threshold, eos = emin, slack = eini",
+          .water_fail_cost = kDemandFailCost - 1.0,
+          .below_threshold = true,
       },
-  };
+  }};
 
   for (const auto& sc_param : subcases) {
     SUBCASE(sc_param.name)
@@ -371,18 +375,20 @@ TEST_CASE(  // NOLINT
   // ±$1 around max(falla.gcost) — fail_cost = water_fail_cost × PF, so the
   // threshold of 5,680 $/(m³/s·h) is bracketed by 5,690 (above) and
   // 5,670 (below) — a $20-wide window around the LP's tipping point.
-  const Subcase subcases[] = {
+  const std::array<Subcase, 2> subcases = {{
       {
-          "anchor +$1 (= 569) -> fail_cost 5690 ABOVE -> FR honored, slack = 0",
-          kDemandFailCost + 1.0,
-          /*below_threshold=*/false,
+          .name = "anchor +$1 (= 569) -> fail_cost 5690 ABOVE -> FR honored, "
+                  "slack = 0",
+          .water_fail_cost = kDemandFailCost + 1.0,
+          .below_threshold = false,
       },
       {
-          "anchor -$1 (= 567) -> fail_cost 5670 BELOW -> FR fails, slack > 0",
-          kDemandFailCost - 1.0,
-          /*below_threshold=*/true,
+          .name = "anchor -$1 (= 567) -> fail_cost 5670 BELOW -> FR fails, "
+                  "slack > 0",
+          .water_fail_cost = kDemandFailCost - 1.0,
+          .below_threshold = true,
       },
-  };
+  }};
 
   for (const auto& sc_param : subcases) {
     SUBCASE(sc_param.name)

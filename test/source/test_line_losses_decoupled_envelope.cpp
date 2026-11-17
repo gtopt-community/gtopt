@@ -31,6 +31,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <numeric>
 #include <span>
 #include <string>
@@ -57,10 +58,11 @@ constexpr double kV = 100.0;  // kV → V² = 10,000
 constexpr double kFmax = 1000.0;  // MW; both line cap AND envelope
 constexpr double kGcost = 10.0;
 constexpr double kScale = 1000.0;
-constexpr double kLambda = kR * kFmax / (kV * kV);  // auto-linear λ
+[[maybe_unused]] constexpr double kLambda =
+    kR * kFmax / (kV * kV);  // auto-linear λ
 constexpr double kLossCoeff = kR / (kV * kV);  // 1e-6 MW per MW²
 
-enum class Direction
+enum class Direction : std::uint8_t
 {
   AtoB,  // gen on bus_a, demand on bus_b → flowp populated
   BtoA,  // gen on bus_b, demand on bus_a → flown populated
@@ -566,7 +568,7 @@ TEST_CASE(
         // K rounding + LP scaling noise.  The (fmax/(2K))² formula is a
         // TIGHT envelope on the uniform PWL — actual error is normally
         // 30-70 % of it.
-        CHECK(realised_err <= 1.5 * predicted_bound + 1e-6);
+        CHECK(realised_err <= (1.5 * predicted_bound) + 1e-6);
 
         max_realised = std::max(max_realised, realised_err);
       }
@@ -607,10 +609,10 @@ TEST_CASE(
     CAPTURE(system_realised);
     CAPTURE(system_predicted);
     // (1) Realised LP error ≤ predicted analytic bound (×1.5 slack).
-    CHECK(system_realised <= 1.5 * system_predicted + 1e-6);
+    CHECK(system_realised <= (1.5 * system_predicted) + 1e-6);
     // (2) Predicted bound sits in the rule's envelope.  Loose ×1.05 on
     // top because the rule rounds K_i UP and may pick a smaller-than-
     // optimal K when raw KKT lands just above an integer.
-    CHECK(system_predicted <= effective_upper * 1.05 + 1e-6);
+    CHECK(system_predicted <= (effective_upper * 1.05) + 1e-6);
   }
 }

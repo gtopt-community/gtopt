@@ -49,6 +49,7 @@
 #include <string_view>
 #include <system_error>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <arrow/api.h>
@@ -323,7 +324,7 @@ private:
 void check_sos2_adjacency(std::span<const double> lam)
 {
   std::vector<int> nonzero;
-  for (int l = 0; l < static_cast<int>(lam.size()); ++l) {
+  for (int l = 0; std::cmp_less(l, lam.size()); ++l) {
     if (lam[static_cast<std::size_t>(l)] > 1e-6) {
       nonzero.push_back(l);
     }

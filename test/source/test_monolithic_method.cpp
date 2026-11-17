@@ -62,10 +62,10 @@ auto make_monolithic_test_planning(
   };
 
   if (kappa_mode.has_value()) {
-    simulation.kappa_warning = *kappa_mode;
+    simulation.kappa_warning = kappa_mode;
   }
   if (kappa_threshold.has_value()) {
-    simulation.kappa_threshold = *kappa_threshold;
+    simulation.kappa_threshold = kappa_threshold;
   }
 
   const System system = {
@@ -230,6 +230,7 @@ TEST_CASE(  // NOLINT
   CHECK(result.value_or(0) >= 1);
 
   const auto& summary = planning_lp.sddp_summary();
+  // max_kappa is -1 when the backend doesn't support kappa (e.g. MindOpt)
   CHECK(summary.max_kappa >= -1.0);
 }
 
@@ -276,6 +277,7 @@ TEST_CASE(  // NOLINT
   CHECK(result.value_or(0) >= 1);
 
   const auto& summary = planning_lp.sddp_summary();
+  // max_kappa is -1 when the backend doesn't support kappa (e.g. MindOpt)
   CHECK(summary.max_kappa >= -1.0);
 
   std::filesystem::remove_all(lp_dir);
@@ -380,6 +382,7 @@ TEST_CASE(  // NOLINT
   CHECK(result.value_or(0) >= 1);
 
   const auto& summary = planning_lp.sddp_summary();
+  // max_kappa is -1 when the backend doesn't support kappa (e.g. MindOpt)
   CHECK(summary.max_kappa >= -1.0);
 }
 

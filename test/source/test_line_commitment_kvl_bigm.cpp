@@ -147,8 +147,8 @@ TEST_CASE(
   // per block.
   {
     Planning planning;
-    planning.merge(
-        parse_planning_json(make_2bus_kirchhoff_json(/*with_lc=*/false)));
+    planning.merge(parse_planning_json(
+        make_2bus_kirchhoff_json(/*with_line_commitment=*/false)));
     LpMatrixOptions flat_opts;
     flat_opts.row_with_names = true;
     flat_opts.row_with_name_map = true;
@@ -168,8 +168,8 @@ TEST_CASE(
   // ``≥`` half.
   {
     Planning planning;
-    planning.merge(
-        parse_planning_json(make_2bus_kirchhoff_json(/*with_lc=*/true)));
+    planning.merge(parse_planning_json(
+        make_2bus_kirchhoff_json(/*with_line_commitment=*/true)));
     LpMatrixOptions flat_opts;
     flat_opts.row_with_names = true;
     flat_opts.row_with_name_map = true;
@@ -194,7 +194,8 @@ TEST_CASE(
   }
 
   Planning base;
-  base.merge(parse_planning_json(make_2bus_kirchhoff_json(/*with_lc=*/false)));
+  base.merge(parse_planning_json(
+      make_2bus_kirchhoff_json(/*with_line_commitment=*/false)));
   PlanningLP planning_baseline(std::move(base));
   REQUIRE(planning_baseline.resolve().has_value());
   const auto obj_baseline = planning_baseline.systems()
@@ -205,7 +206,7 @@ TEST_CASE(
 
   Planning ots;
   ots.merge(parse_planning_json(
-      make_2bus_kirchhoff_json(/*with_lc=*/true, /*relax=*/true)));
+      make_2bus_kirchhoff_json(/*with_line_commitment=*/true, /*relax=*/true)));
   PlanningLP planning_ots(std::move(ots));
   REQUIRE(planning_ots.resolve().has_value());
   const auto obj_ots =
@@ -346,8 +347,8 @@ TEST_CASE("LineCommitmentLP KVL big-M: IEEE 9b + must_run reproduces baseline")
                                 .get_obj_value();
 
   Planning ots;
-  ots.merge(parse_planning_json(
-      make_ieee9b_with_ots_json(/*with_lc=*/true, /*must_run=*/true)));
+  ots.merge(parse_planning_json(make_ieee9b_with_ots_json(
+      /*with_lc=*/true, /*must_run=*/true)));
   PlanningLP planning_ots(std::move(ots));
   REQUIRE(planning_ots.resolve().has_value());
   const auto obj_ots =
@@ -492,8 +493,8 @@ TEST_CASE(
                                 .get_obj_value();
 
   Planning ots;
-  ots.merge(parse_planning_json(
-      make_3bus_triangle_cycle_json(/*with_lc=*/true, /*relax=*/true)));
+  ots.merge(parse_planning_json(make_3bus_triangle_cycle_json(
+      /*with_lc=*/true, /*relax=*/true)));
   PlanningLP planning_ots(std::move(ots));
   REQUIRE(planning_ots.resolve().has_value());
   const auto obj_ots =
@@ -663,8 +664,8 @@ TEST_CASE(
   // swapping the kirchhoff_mode literal in the existing fixture.
   auto swap_mode = [](std::string s) -> std::string
   {
-    constexpr std::string_view from {"\"kirchhoff_mode\": \"node_angle\""};
-    constexpr std::string_view to {"\"kirchhoff_mode\": \"cycle_basis\""};
+    constexpr std::string_view from {R"("kirchhoff_mode": "node_angle")"};
+    constexpr std::string_view to {R"("kirchhoff_mode": "cycle_basis")"};
     const auto pos = s.find(from);
     if (pos != std::string::npos) {
       s.replace(pos, from.size(), to);
@@ -743,8 +744,8 @@ TEST_CASE(
 
   auto swap_mode = [](std::string s) -> std::string
   {
-    constexpr std::string_view from {"\"kirchhoff_mode\": \"node_angle\""};
-    constexpr std::string_view to {"\"kirchhoff_mode\": \"cycle_basis\""};
+    constexpr std::string_view from {R"("kirchhoff_mode": "node_angle")"};
+    constexpr std::string_view to {R"("kirchhoff_mode": "cycle_basis")"};
     const auto pos = s.find(from);
     if (pos != std::string::npos) {
       s.replace(pos, from.size(), to);
@@ -766,8 +767,8 @@ TEST_CASE(
 
   // cycle_basis + must_run OTS.
   Planning ots;
-  ots.merge(parse_planning_json(swap_mode(
-      make_ieee9b_with_ots_json(/*with_lc=*/true, /*must_run=*/true))));
+  ots.merge(parse_planning_json(swap_mode(make_ieee9b_with_ots_json(
+      /*with_lc=*/true, /*must_run=*/true))));
   PlanningLP planning_ots(std::move(ots));
   REQUIRE(planning_ots.resolve().has_value());
   const auto obj_ots =

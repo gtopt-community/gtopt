@@ -297,7 +297,7 @@ TEST_CASE("validate_enum_options returns empty for valid defaults")  // NOLINT
   using namespace gtopt;
 
   const PlanningOptionsLP opts;
-  const auto warnings = opts.validate_enum_options();
+  const auto warnings = PlanningOptionsLP::validate_enum_options();
   CHECK(warnings.empty());
 }
 
@@ -319,7 +319,7 @@ TEST_CASE("validate_enum_options returns empty for valid explicit values")
   raw.monolithic_options.boundary_cuts_mode = BoundaryCutsMode::noload;
 
   const PlanningOptionsLP opts(std::move(raw));
-  const auto warnings = opts.validate_enum_options();
+  const auto warnings = PlanningOptionsLP::validate_enum_options();
   CHECK(warnings.empty());
 }
 
@@ -334,7 +334,7 @@ TEST_CASE(
   PlanningOptions raw;
   raw.method = MethodType::sddp;
   const PlanningOptionsLP opts(std::move(raw));
-  const auto warnings = opts.validate_enum_options();
+  const auto warnings = PlanningOptionsLP::validate_enum_options();
   CHECK(warnings.empty());
 }
 
@@ -351,7 +351,7 @@ TEST_CASE(
   raw.input_format = DataFormat::csv;
   raw.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
   const PlanningOptionsLP opts(std::move(raw));
-  const auto warnings = opts.validate_enum_options();
+  const auto warnings = PlanningOptionsLP::validate_enum_options();
   CHECK(warnings.empty());
 }
 

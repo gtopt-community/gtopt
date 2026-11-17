@@ -131,8 +131,8 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  constexpr Real kExpectedObj = kCheapGcost * kCheapCap
-      + kExpensiveGcost * (kMandatoryLoad + kIlLoad - kCheapCap);
+  constexpr Real kExpectedObj = (kCheapGcost * kCheapCap)
+      + (kExpensiveGcost * (kMandatoryLoad + kIlLoad - kCheapCap));
   CHECK(lp.get_obj_value_raw() == doctest::Approx(kExpectedObj).epsilon(1e-4));
 }
 
@@ -165,7 +165,7 @@ TEST_CASE(
   constexpr Real kCheapServed = kCheapCap;  // cheap fully dispatched
   constexpr Real kIlCurtailed = kMandatoryLoad + kIlLoad - kCheapServed;
   constexpr Real kExpectedObj =
-      kCheapGcost * kCheapServed + kIlFcost * kIlCurtailed;
+      (kCheapGcost * kCheapServed) + (kIlFcost * kIlCurtailed);
   CHECK(lp.get_obj_value_raw() == doctest::Approx(kExpectedObj).epsilon(1e-4));
 }
 

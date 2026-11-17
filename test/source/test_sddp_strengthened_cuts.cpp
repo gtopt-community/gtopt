@@ -79,8 +79,8 @@ constexpr int kBlocksPerStage = 4;
 constexpr double kEmax = 200.0;  // reservoir state box is [0, emax]
 constexpr double kEini = 100.0;
 constexpr double kBaseInflow = 8.0;
-constexpr double kWetInflow = 11.0;
-constexpr double kDryInflow = 5.0;
+[[maybe_unused]] constexpr double kWetInflow = 11.0;
+[[maybe_unused]] constexpr double kDryInflow = 5.0;
 
 // Binary thermal commitment (dispatch_pmin, relax = false).  Two
 // geometries are used below:
@@ -169,8 +169,7 @@ void set_scenario_inflows(Planning& planning, double q0, double q1)
     std::vector<std::vector<double>> per_stage;
     per_stage.reserve(static_cast<std::size_t>(kNumPhases));
     for (int st = 0; st < kNumPhases; ++st) {
-      per_stage.push_back(
-          std::vector<double>(static_cast<std::size_t>(kBlocksPerStage), q));
+      per_stage.emplace_back(static_cast<std::size_t>(kBlocksPerStage), q);
     }
     sched.push_back(std::move(per_stage));
   }
@@ -189,8 +188,10 @@ void set_scenario_inflows(Planning& planning, double q0, double q1)
                                           double demand,
                                           bool relax)
 {
-  auto block_array = make_uniform_blocks(
-      static_cast<std::size_t>(num_stages * kBlocksPerStage), 1.0);
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(num_stages)
+                              * static_cast<std::size_t>(kBlocksPerStage),
+                          1.0);
   auto stage_array =
       make_uniform_stages(static_cast<std::size_t>(num_stages),
                           static_cast<std::size_t>(kBlocksPerStage));
@@ -449,7 +450,7 @@ struct CutView
 /// Cut bound at state x:  α ≥ rhs − coeff·x  (row is α + coeff·x ≥ rhs).
 [[nodiscard]] double cut_value_at(const CutView& view, double x)
 {
-  return view.rhs - view.state_coeff * x;
+  return view.rhs - (view.state_coeff * x);
 }
 
 }  // namespace
@@ -586,7 +587,7 @@ TEST_CASE(  // NOLINT
         // the cut asserts α ≥ 5 − 3x ≤ V_MIP(x) for all x ∈ [0, 0.5].
         for (const double x : {0.0, 0.1, 0.25, 0.4, 0.5}) {
           const double cut_val =
-              result->row.lowb - result->row.cmap.at(source_col) * x;
+              result->row.lowb - (result->row.cmap.at(source_col) * x);
           const double v_mip = 5.0 - x;
           CHECK(cut_val <= v_mip + 1e-6);
         }
@@ -1005,7 +1006,8 @@ TEST_CASE(  // NOLINT
         set_scenario_inflows(planning, kWitnessWetInflow, kWitnessDryInflow);
         PlanningLP plp(std::move(planning));
         SDDPMethod sddp(
-            plp, sddp_opts(IntegerCutsMode::strengthened, /*max_iter=*/3));
+            plp,
+            sddp_opts(IntegerCutsMode::strengthened, /*max_iterations=*/3));
         auto results = sddp.solve();
         REQUIRE(results.has_value());
         const auto orig = sddp.stored_cuts();
@@ -1036,7 +1038,8 @@ TEST_CASE(  // NOLINT
         set_scenario_inflows(planning2, kWitnessWetInflow, kWitnessDryInflow);
         PlanningLP plp2(std::move(planning2));
         SDDPMethod sddp2(
-            plp2, sddp_opts(IntegerCutsMode::strengthened, /*max_iter=*/1));
+            plp2,
+            sddp_opts(IntegerCutsMode::strengthened, /*max_iterations=*/1));
         REQUIRE(sddp2.ensure_initialized().has_value());
         const auto loaded = sddp2.load_cuts(cuts_file);
         REQUIRE(loaded.has_value());

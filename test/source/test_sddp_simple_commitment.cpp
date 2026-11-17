@@ -121,8 +121,7 @@ void sc_set_scenario_inflows(Planning& planning, double q0, double q1)
     std::vector<std::vector<double>> per_stage;
     per_stage.reserve(static_cast<std::size_t>(kScNumPhases));
     for (int st = 0; st < kScNumPhases; ++st) {
-      per_stage.push_back(
-          std::vector<double>(static_cast<std::size_t>(kScBlocksPerStage), q));
+      per_stage.emplace_back(static_cast<std::size_t>(kScBlocksPerStage), q);
     }
     sched.push_back(std::move(per_stage));
   }
@@ -141,8 +140,10 @@ void sc_set_scenario_inflows(Planning& planning, double q0, double q1)
                                              double demand,
                                              bool relax)
 {
-  auto block_array = make_uniform_blocks(
-      static_cast<std::size_t>(num_stages * kScBlocksPerStage), 1.0);
+  auto block_array =
+      make_uniform_blocks(static_cast<std::size_t>(num_stages)
+                              * static_cast<std::size_t>(kScBlocksPerStage),
+                          1.0);
   auto stage_array =
       make_uniform_stages(static_cast<std::size_t>(num_stages),
                           static_cast<std::size_t>(kScBlocksPerStage));
@@ -755,21 +756,21 @@ TEST_CASE(  // NOLINT
           bool strict_bounds;
         };
         const std::array<ModeCase, 3> cases = {{
-            {"none heterogeneous",
-             CutSharingMode::none,
-             kScWetInflow,
-             kScDryInflow,
-             true},
-            {"multicut heterogeneous (WARN bounds)",
-             CutSharingMode::multicut,
-             kScWetInflow,
-             kScDryInflow,
-             false},
-            {"multicut identical scenes",
-             CutSharingMode::multicut,
-             kScDryInflow,
-             kScDryInflow,
-             true},
+            {.label = "none heterogeneous",
+             .mode = CutSharingMode::none,
+             .wet = kScWetInflow,
+             .dry = kScDryInflow,
+             .strict_bounds = true},
+            {.label = "multicut heterogeneous (WARN bounds)",
+             .mode = CutSharingMode::multicut,
+             .wet = kScWetInflow,
+             .dry = kScDryInflow,
+             .strict_bounds = false},
+            {.label = "multicut identical scenes",
+             .mode = CutSharingMode::multicut,
+             .wet = kScDryInflow,
+             .dry = kScDryInflow,
+             .strict_bounds = true},
         }};
 
         for (const auto& mc : cases) {

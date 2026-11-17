@@ -2281,7 +2281,7 @@ TEST_CASE("PlanningLP - write_out_cell skips output_skipped cells")  // NOLINT
   CHECK_FALSE(system_lp.output_written());
 
   // Mark as skipped then call write_out_cell — must be a no-op.
-  system_lp.set_output_skipped(true);
+  system_lp.set_output_skipped(/*v=*/true);
   PlanningLP::write_out_cell(system_lp);
   CHECK_FALSE(system_lp.output_written());
 
@@ -2579,10 +2579,12 @@ TEST_CASE("PlanningLP - write_out respects output_skipped")  // NOLINT
   const auto num_phases = planning_lp.systems()[SceneIndex {0}].size();
   REQUIRE(num_phases >= 2);
 
-  planning_lp.system(SceneIndex {0}, PhaseIndex {0}).set_output_skipped(true);
+  planning_lp.system(SceneIndex {0}, PhaseIndex {0})
+      .set_output_skipped(/*v=*/true);
   const auto last_phase_idx =
       PhaseIndex {static_cast<std::ptrdiff_t>(num_phases - 1)};
-  planning_lp.system(SceneIndex {1}, last_phase_idx).set_output_skipped(true);
+  planning_lp.system(SceneIndex {1}, last_phase_idx)
+      .set_output_skipped(/*v=*/true);
 
   planning_lp.write_out();
 

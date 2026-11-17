@@ -312,8 +312,8 @@ TEST_CASE(
   //   obj  = 4000·30 + 1000·60 = 180 000 €
   constexpr Real kCoalExpected = 4000.0;
   constexpr Real kGasExpected = kLoadMW - kCoalExpected;
-  constexpr Real kObjExpected =
-      kCoalExpected * kCoal.marginal_cost + kGasExpected * kGas.marginal_cost;
+  constexpr Real kObjExpected = (kCoalExpected * kCoal.marginal_cost)
+      + (kGasExpected * kGas.marginal_cost);
 
   auto sys = make_pypsa_port_system(/*co2_cap=*/std::nullopt);
   // `PlanningLP::create_systems` calls fold-then-expand; replicate
@@ -353,8 +353,8 @@ TEST_CASE(
   const Real gas_co2 = co2_per_el(kGas);  // 0.396
   const Real coal_expected = (kCap - gas_co2 * kLoadMW) / (coal_co2 - gas_co2);
   const Real gas_expected = kLoadMW - coal_expected;
-  const Real obj_expected =
-      coal_expected * kCoal.marginal_cost + gas_expected * kGas.marginal_cost;
+  const Real obj_expected = (coal_expected * kCoal.marginal_cost)
+      + (gas_expected * kGas.marginal_cost);
 
   auto sys = make_pypsa_port_system(kCap);
   sys.fold_legacy_fuel_emission_factors();
@@ -376,7 +376,7 @@ TEST_CASE(
   CHECK(lp.get_obj_value() == doctest::Approx(obj_expected).epsilon(1e-5));
 
   // CO₂ produced must equal the cap (it binds by construction).
-  const Real co2_total = coal_dispatch * coal_co2 + gas_dispatch * gas_co2;
+  const Real co2_total = (coal_dispatch * coal_co2) + (gas_dispatch * gas_co2);
   CHECK(co2_total == doctest::Approx(kCap).epsilon(1e-5));
 }
 
@@ -420,8 +420,8 @@ TEST_CASE(
   // Objective = dispatch cost + tax revenue (the carbon price enters
   // the objective as `price · production_b` per block, so the LP's
   // reported objective includes it).
-  const Real obj_expected = kGasExpected * kGas.marginal_cost
-      + kGasExpected * co2_per_el(kGas) * kPrice;
+  const Real obj_expected = (kGasExpected * kGas.marginal_cost)
+      + (kGasExpected * co2_per_el(kGas) * kPrice);
   CHECK(lp.get_obj_value() == doctest::Approx(obj_expected).epsilon(1e-5));
 }
 

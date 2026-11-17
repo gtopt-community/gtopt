@@ -804,9 +804,9 @@ TEST_CASE(  // NOLINT
     // the constraint's coefficient on `line.flow` (= 1 here).
     for (const auto& [name, col] : lp.col_name_map()) {
       const auto coef = lp.get_coeff(uc_row, col);
-      if (name.find("line_flowp_seg_") != std::string_view::npos) {
+      if (name.contains("line_flowp_seg_")) {
         CHECK(coef == doctest::Approx(+1.0));
-      } else if (name.find("line_flown_seg_") != std::string_view::npos) {
+      } else if (name.contains("line_flown_seg_")) {
         CHECK(coef == doctest::Approx(-1.0));
       }
     }
@@ -822,9 +822,9 @@ TEST_CASE(  // NOLINT
     double sum_n = 0.0;
     for (const auto& [cname_i, col] : lp.col_name_map()) {
       const auto sol = lp.get_col_sol()[col];
-      if (cname_i.find("line_flowp_seg_") != std::string_view::npos) {
+      if (cname_i.contains("line_flowp_seg_")) {
         sum_p += sol;
-      } else if (cname_i.find("line_flown_seg_") != std::string_view::npos) {
+      } else if (cname_i.contains("line_flown_seg_")) {
         sum_n += sol;
       }
     }
@@ -999,10 +999,10 @@ TEST_CASE(  // NOLINT
     int seen_n = 0;
     for (const auto& [name, col] : lp.col_name_map()) {
       const auto coef = lp.get_coeff(cycle_row, col);
-      if (name.find("line_flowp_seg_") != std::string_view::npos) {
+      if (name.contains("line_flowp_seg_")) {
         CHECK(std::abs(coef) == doctest::Approx(0.10).epsilon(1e-9));
         ++seen_p;
-      } else if (name.find("line_flown_seg_") != std::string_view::npos) {
+      } else if (name.contains("line_flown_seg_")) {
         CHECK(std::abs(coef) == doctest::Approx(0.10).epsilon(1e-9));
         ++seen_n;
       }
@@ -1046,7 +1046,7 @@ TEST_CASE(  // NOLINT
   // Line carries 50 MW A→B.
   double sum_p = 0.0;
   for (const auto& [name, col] : lp.col_name_map()) {
-    if (name.find("line_flowp_seg_") != std::string_view::npos) {
+    if (name.contains("line_flowp_seg_")) {
       sum_p += lp.get_col_sol()[col];
     }
   }

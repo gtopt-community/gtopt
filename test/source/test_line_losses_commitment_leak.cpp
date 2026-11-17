@@ -112,7 +112,8 @@ constexpr double kX = 10.0;  ///< x_tau = X/V² = 1e-3 (node_angle)
 constexpr double kTmax = 1000.0;
 constexpr double kTmaxLimited = 30.0;  ///< l43 binding limit
 constexpr double kCLoss = kR / (kV * kV);  ///< 5e-5
-constexpr double kSinkCap = kCLoss * kTmax * kTmax;  ///< c·env² = 50 MW
+[[maybe_unused]] constexpr double kSinkCap =
+    kCLoss * kTmax * kTmax;  ///< c·env² = 50 MW
 
 /// Loss-model + topology knobs for one fixture build.
 struct LeakKnobs

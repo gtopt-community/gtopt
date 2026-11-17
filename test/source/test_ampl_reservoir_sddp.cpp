@@ -115,7 +115,7 @@ TEST_CASE(
   CHECK(std::isfinite(lb));
   CHECK(std::isfinite(ub));
   // cut_sharing=none ⇒ the lower bound is a valid under-estimate.
-  CHECK(lb <= ub + 1.0e-4 * (1.0 + std::abs(ub)));
+  CHECK(lb <= ub + (1.0e-4 * (1.0 + std::abs(ub))));
 }
 
 TEST_CASE(
@@ -178,7 +178,7 @@ TEST_CASE(
   const auto [lb, ub] = solve_with_uc(
       Uid {110}, "gen_cap", "sum(generator(all).generation) <= 30");
   CHECK(lb > lb0 + 1000.0);
-  CHECK(lb <= ub + 1.0e-4 * (1.0 + std::abs(ub)));  // still a valid solve
+  CHECK(lb <= ub + (1.0e-4 * (1.0 + std::abs(ub))));  // still a valid solve
 }
 
 TEST_CASE(
@@ -237,6 +237,6 @@ TEST_CASE(
     const auto [lb, ub] = solve_sddp_bounds(make_with_state());
     CHECK(std::isfinite(lb));
     CHECK(std::isfinite(ub));
-    CHECK(lb <= ub + 1.0e-4 * (1.0 + std::abs(ub)));
+    CHECK(lb <= ub + (1.0e-4 * (1.0 + std::abs(ub))));
   }
 }

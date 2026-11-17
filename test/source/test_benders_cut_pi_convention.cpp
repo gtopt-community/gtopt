@@ -146,7 +146,7 @@ TEST_CASE(
   // objectives.  The invariant under test is "no LB overshoot", not exact
   // convergence.
   CHECK(last.lower_bound
-        <= last.upper_bound + 1e-6 * (1.0 + std::abs(last.upper_bound)));
+        <= last.upper_bound + (1e-6 * (1.0 + std::abs(last.upper_bound))));
   // Eventual convergence (loose tolerance — primary check is that
   // the LB does not overshoot the UB, not exact convergence).
   CHECK(last.gap < 1e-2);
@@ -576,9 +576,9 @@ TEST_CASE("SDDPMethod 2-phase pi convention - var_scale invariance")  // NOLINT
   // Sanity: both runs must respect the SDDP underestimator property
   // (scale-relative tol for first-order solvers — see note in Test 1).
   CHECK(last_a.lower_bound
-        <= last_a.upper_bound + 1e-6 * (1.0 + std::abs(last_a.upper_bound)));
+        <= last_a.upper_bound + (1e-6 * (1.0 + std::abs(last_a.upper_bound))));
   CHECK(last_b.lower_bound
-        <= last_b.upper_bound + 1e-6 * (1.0 + std::abs(last_b.upper_bound)));
+        <= last_b.upper_bound + (1e-6 * (1.0 + std::abs(last_b.upper_bound))));
 }
 
 // ─── Test 7: ruiz equilibration consistency ────────────────────────────────
@@ -846,7 +846,7 @@ TEST_CASE(
 
     // SDDP underestimator must hold at convergence (scale-relative tol).
     CHECK(baseline.iters.back().lower_bound <= baseline.iters.back().upper_bound
-              + 1e-6 * (1.0 + std::abs(baseline.iters.back().upper_bound)));
+              + (1e-6 * (1.0 + std::abs(baseline.iters.back().upper_bound))));
   }
 
   // --- Step 7: var_scale invariance subcase ---

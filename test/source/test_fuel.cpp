@@ -370,8 +370,8 @@ TEST_CASE(
   REQUIRE(result.has_value());
 
   const auto obj = lp.get_obj_value();
-  const auto expected = 100.0 * (5.0 * 7.0 + 1.0) + 50.0 * (5.0 * 8.5 + 1.0)
-      + 20.0 * (5.0 * 10.0 + 1.0);
+  const auto expected = (100.0 * (5.0 * 7.0 + 1.0)) + (50.0 * (5.0 * 8.5 + 1.0))
+      + (20.0 * (5.0 * 10.0 + 1.0));
   CHECK(obj == doctest::Approx(expected).epsilon(1e-6));
 
   // Verify the LP picked segments in convex order: s_1 = 70, s_2 = 20.
@@ -1519,27 +1519,48 @@ TEST_CASE(
   // Use Approx(...) on every check, so the table can be read as
   // "literature value × heat-rate ≈ expected".
   const std::array benchmarks {
-      Bench {"coal_subcrit",
-             Uid {1},
-             0.0946,
-             "coal_pc_subcrit",
-             Uid {1},
-             10.5,
-             0.99330},
-      Bench {"coal_supercrit",
-             Uid {2},
-             0.0946,
-             "coal_pc_supercrit",
-             Uid {2},
-             9.0,
-             0.85140},
-      Bench {"natural_gas", Uid {3}, 0.0561, "ccgt", Uid {3}, 7.5, 0.42075},
-      Bench {
-          "natural_gas_ocgt", Uid {4}, 0.0561, "ocgt", Uid {4}, 10.0, 0.56100},
-      Bench {
-          "diesel", Uid {5}, 0.0741, "diesel_peaker", Uid {5}, 10.5, 0.77805},
-      Bench {
-          "residual_oil", Uid {6}, 0.0774, "oil_steam", Uid {6}, 11.0, 0.85140},
+      Bench {.fuel_name = "coal_subcrit",
+             .fuel_uid = Uid {1},
+             .combustion = 0.0946,
+             .plant_name = "coal_pc_subcrit",
+             .plant_uid = Uid {1},
+             .heat_rate = 10.5,
+             .expected_rate = 0.99330},
+      Bench {.fuel_name = "coal_supercrit",
+             .fuel_uid = Uid {2},
+             .combustion = 0.0946,
+             .plant_name = "coal_pc_supercrit",
+             .plant_uid = Uid {2},
+             .heat_rate = 9.0,
+             .expected_rate = 0.85140},
+      Bench {.fuel_name = "natural_gas",
+             .fuel_uid = Uid {3},
+             .combustion = 0.0561,
+             .plant_name = "ccgt",
+             .plant_uid = Uid {3},
+             .heat_rate = 7.5,
+             .expected_rate = 0.42075},
+      Bench {.fuel_name = "natural_gas_ocgt",
+             .fuel_uid = Uid {4},
+             .combustion = 0.0561,
+             .plant_name = "ocgt",
+             .plant_uid = Uid {4},
+             .heat_rate = 10.0,
+             .expected_rate = 0.56100},
+      Bench {.fuel_name = "diesel",
+             .fuel_uid = Uid {5},
+             .combustion = 0.0741,
+             .plant_name = "diesel_peaker",
+             .plant_uid = Uid {5},
+             .heat_rate = 10.5,
+             .expected_rate = 0.77805},
+      Bench {.fuel_name = "residual_oil",
+             .fuel_uid = Uid {6},
+             .combustion = 0.0774,
+             .plant_name = "oil_steam",
+             .plant_uid = Uid {6},
+             .heat_rate = 11.0,
+             .expected_rate = 0.85140},
   };
 
   System sys;
@@ -1570,9 +1591,13 @@ TEST_CASE(
         sys.emission_source_array,
         [&](const auto& es)
         {
+          // Analyzer false positive: it assumes the 6-element benchmarks
+          // array is empty and REQUIRE() does not terminate.
+          // NOLINTBEGIN(clang-analyzer-core.UndefinedBinaryOperatorResult)
           return es.generator.has_value()
               && std::get<Uid>(es.generator.value_or(SingleId {Uid {0}}))
               == b.plant_uid;
+          // NOLINTEND(clang-analyzer-core.UndefinedBinaryOperatorResult)
         });
     REQUIRE(it != sys.emission_source_array.end());
     REQUIRE(it->rate.has_value());

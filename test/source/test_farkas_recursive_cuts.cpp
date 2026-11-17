@@ -378,9 +378,9 @@ TEST_CASE(
   CHECK(cb == doctest::Approx(1.0).epsilon(1e-6));
 
   // (i) the infeasible trial point is cut off: 30 + 30 = 60 < rhs.
-  CHECK(ca * 30.0 + cb * 30.0 < cut.lowb - 1e-6);
+  CHECK((ca * 30.0) + (cb * 30.0) < cut.lowb - 1e-6);
   // (ii) a known-feasible state point is NOT cut off: (50, 40).
-  CHECK(ca * 50.0 + cb * 40.0 >= cut.lowb - 1e-9);
+  CHECK((ca * 50.0) + (cb * 40.0) >= cut.lowb - 1e-9);
   // (iii) the cut is exactly the joint requirement (+ margin).
   CHECK(cut.lowb == doctest::Approx(70.0 * (1.0 + kFrkFactEps)).epsilon(1e-9));
 }

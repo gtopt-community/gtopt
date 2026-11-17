@@ -56,12 +56,12 @@ constexpr int kNLine = 80;
 
 [[nodiscard]] Real gcost_for_gen(int idx)
 {
-  return 10.0 + 50.0 * static_cast<Real>((idx * 7) % 100) / 100.0;
+  return 10.0 + (50.0 * static_cast<Real>((idx * 7) % 100) / 100.0);
 }
 
 [[nodiscard]] Real capacity_for_gen(int idx)
 {
-  return 50.0 + 500.0 * static_cast<Real>((idx * 13) % 100) / 100.0;
+  return 50.0 + (500.0 * static_cast<Real>((idx * 13) % 100) / 100.0);
 }
 
 [[nodiscard]] System make_system()
@@ -126,10 +126,10 @@ constexpr int kNLine = 80;
   }
   // Cross-chords (remaining kNLine - kNBus lines).
   for (int ci = 0; ci < kNLine - kNBus; ++ci) {
-    int bus_a = (ci * 31) % kNBus + 1;
+    int bus_a = ((ci * 31) % kNBus) + 1;
     int bus_b = ((ci * 31 + kNBus / 3) % kNBus) + 1;
     if (bus_a == bus_b) {
-      bus_b = bus_b % kNBus + 1;
+      bus_b = (bus_b % kNBus) + 1;
     }
     lines.push_back({
         .uid = Uid {kNBus + ci + 1},

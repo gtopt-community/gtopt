@@ -268,7 +268,8 @@ TEST_CASE("LineCommitment JSON round-trip — all v0 fields")
 
 TEST_CASE("LineCommitment validation — unresolved line FK rejected")
 {
-  auto planning = parse_planning_json(make_2bus_json(false));
+  auto planning =
+      parse_planning_json(make_2bus_json(/*with_line_commitment=*/false));
   // Inject a LineCommitment referencing a non-existent line.
   planning.system.line_commitment_array.push_back(LineCommitment {
       .uid = Uid {1},
@@ -292,7 +293,8 @@ TEST_CASE("LineCommitment validation — unresolved line FK rejected")
 
 TEST_CASE("LineCommitment validation — non-positive kvl_big_m rejected")
 {
-  auto planning = parse_planning_json(make_2bus_json(false));
+  auto planning =
+      parse_planning_json(make_2bus_json(/*with_line_commitment=*/false));
   planning.system.line_commitment_array.push_back(LineCommitment {
       .uid = Uid {1},
       .name = "bad_bigm",
@@ -316,10 +318,11 @@ TEST_CASE("LineCommitment validation — non-positive kvl_big_m rejected")
 
 TEST_CASE("LineCommitment validation — SDDP method rejected")
 {
-  auto planning = parse_planning_json(make_2bus_json(true,
-                                                     /*relax=*/false,
-                                                     /*must_run=*/false,
-                                                     /*method=*/"sddp"));
+  auto planning =
+      parse_planning_json(make_2bus_json(/*with_line_commitment=*/true,
+                                         /*relax=*/false,
+                                         /*must_run=*/false,
+                                         /*method=*/"sddp"));
   const auto result = validate_planning(planning);
   CHECK_FALSE(result.ok());
   bool found = false;
@@ -335,10 +338,11 @@ TEST_CASE("LineCommitment validation — SDDP method rejected")
 
 TEST_CASE("LineCommitment validation — cascade method rejected")
 {
-  auto planning = parse_planning_json(make_2bus_json(true,
-                                                     /*relax=*/false,
-                                                     /*must_run=*/false,
-                                                     /*method=*/"cascade"));
+  auto planning =
+      parse_planning_json(make_2bus_json(/*with_line_commitment=*/true,
+                                         /*relax=*/false,
+                                         /*must_run=*/false,
+                                         /*method=*/"cascade"));
   const auto result = validate_planning(planning);
   CHECK_FALSE(result.ok());
   bool found = false;
@@ -355,10 +359,11 @@ TEST_CASE("LineCommitment validation — cascade method rejected")
 
 TEST_CASE("LineCommitment validation — monolithic method accepted")
 {
-  auto planning = parse_planning_json(make_2bus_json(true,
-                                                     /*relax=*/false,
-                                                     /*must_run=*/false,
-                                                     /*method=*/"monolithic"));
+  auto planning =
+      parse_planning_json(make_2bus_json(/*with_line_commitment=*/true,
+                                         /*relax=*/false,
+                                         /*must_run=*/false,
+                                         /*method=*/"monolithic"));
   const auto result = validate_planning(planning);
   CHECK(result.ok());
 }

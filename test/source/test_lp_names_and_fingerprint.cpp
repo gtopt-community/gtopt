@@ -79,7 +79,7 @@ TEST_CASE("LpNamesLevel::none produces no names in flatten")  // NOLINT
 TEST_CASE("LpNamesLevel::none produces no col or row names")  // NOLINT
 {
   auto lp = make_simple_lp();
-  auto opts = make_lp_matrix_options(false, std::nullopt);
+  auto opts = make_lp_matrix_options(/*enable_names=*/false, std::nullopt);
   const auto flat = lp.flatten(opts);
 
   // At none, no dense name vectors are built.
@@ -92,7 +92,7 @@ TEST_CASE("LpNamesLevel::none produces no col or row names")  // NOLINT
 TEST_CASE("LpNamesLevel::all produces col and row names")  // NOLINT
 {
   auto lp = make_simple_lp();
-  auto opts = make_lp_matrix_options(true, std::nullopt);
+  auto opts = make_lp_matrix_options(/*enable_names=*/true, std::nullopt);
   const auto flat = lp.flatten(opts);
 
   CHECK(flat.colnm.size() == 2);
@@ -104,7 +104,7 @@ TEST_CASE("LpNamesLevel::all produces col and row names")  // NOLINT
 TEST_CASE(
     "make_lp_matrix_options - disabled level disables all names")  // NOLINT
 {
-  auto opts = make_lp_matrix_options(false, std::nullopt);
+  auto opts = make_lp_matrix_options(/*enable_names=*/false, std::nullopt);
 
   CHECK(opts.col_with_names == false);
   CHECK(opts.row_with_names == false);
@@ -114,7 +114,7 @@ TEST_CASE(
 
 TEST_CASE("make_lp_matrix_options - disabled defaults to none")  // NOLINT
 {
-  auto opts = make_lp_matrix_options(false, std::nullopt);
+  auto opts = make_lp_matrix_options(/*enable_names=*/false, std::nullopt);
 
   CHECK(opts.col_with_names == false);
 }
@@ -123,7 +123,7 @@ TEST_CASE(  // NOLINT
     "User can override default with enabled names")
 {
   // Simulate user setting names enabled in JSON/CLI
-  auto opts = make_lp_matrix_options(true, std::nullopt);
+  auto opts = make_lp_matrix_options(/*enable_names=*/true, std::nullopt);
 
   CHECK(opts.col_with_names == true);
   CHECK(opts.row_with_names == true);
@@ -147,7 +147,7 @@ TEST_CASE(  // NOLINT
   // always succeeds.  Real gtopt names still require names enabled
   // at flatten time.
   auto lp = make_simple_lp();
-  auto opts = make_lp_matrix_options(false, std::nullopt);
+  auto opts = make_lp_matrix_options(/*enable_names=*/false, std::nullopt);
   auto flat = lp.flatten(opts);
 
   LinearInterface li;
@@ -174,7 +174,7 @@ TEST_CASE(  // NOLINT
     "write_lp does not return error when row names available")
 {
   auto lp = make_simple_lp();
-  auto opts = make_lp_matrix_options(true, std::nullopt);
+  auto opts = make_lp_matrix_options(/*enable_names=*/true, std::nullopt);
   auto flat = lp.flatten(opts);
 
   LinearInterface li;
@@ -754,8 +754,7 @@ TEST_CASE(  // NOLINT
   const auto& rnames = li.row_index_to_name();
   REQUIRE_FALSE(rnames.empty());
   const bool any_real = std::ranges::any_of(
-      rnames,
-      [](const std::string& n) { return n.find('_') != std::string::npos; });
+      rnames, [](const std::string& n) { return n.contains('_'); });
   CHECK(any_real);
 
   // The real `write_lp` path also succeeds end-to-end (reload served from the

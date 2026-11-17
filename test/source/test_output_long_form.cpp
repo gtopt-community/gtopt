@@ -21,7 +21,9 @@
  */
 
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
+#include <set>
 
 #include <arrow/api.h>
 #include <doctest/doctest.h>

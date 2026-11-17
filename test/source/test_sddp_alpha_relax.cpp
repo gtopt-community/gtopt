@@ -51,7 +51,7 @@ namespace
 /// HiGHS `-1e30`, CBC `-1e30`.  Any raw value below `-1e15` is
 /// comfortably past any realistic scale_alpha * physical_cost
 /// product and confirms α is unbounded below.
-constexpr double kEffectivelyMinusInf = -1e15;
+[[maybe_unused]] constexpr double kEffectivelyMinusInf = -1e15;
 constexpr double kEffectivelyPlusInf = 1e15;
 
 /// Read α's current raw LP bounds at (scene, phase).  Returns
