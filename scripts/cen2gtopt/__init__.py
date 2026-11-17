@@ -5,8 +5,7 @@ that gtopt_marginal_units --input-kind feed-parquet can consume
 unchanged.
 
 v1 is strictly an on-demand, single-shot CLI: no background loop,
-no recurring runner, no streaming-append. See
-docs/scripts/gtopt_marginal_units_plan.md §9.1.1.
+no recurring runner, no streaming-append.
 """
 
 from __future__ import annotations

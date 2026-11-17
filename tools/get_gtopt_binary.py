@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""get_gtopt_binary.py – Standalone helper for Copilot/Claude agents.
+"""get_gtopt_binary.py – Standalone helper for developer and CI sessions.
 
 This script lives in ``tools/`` (not ``scripts/``) because it is a
 **developer/agent tool**, NOT an end-user utility.  It must **not** be
@@ -10,14 +10,14 @@ test fixtures, or test modules).  Tests must locate the binary only through
 the ``GTOPT_BIN`` environment variable or standard build paths and call
 ``pytest.skip()`` when not found.  This tool is exclusively for:
 
-* **Copilot / Claude agent sessions** that need a binary from scratch.
+* **Developer sessions** (local, codespaces) that need a binary quickly.
 * **CI setup steps** (e.g. the ``scripts.yml`` "Download gtopt binary" step)
   that run *before* tests to fetch and place the binary.
 
 Purpose
 -------
 Obtain a working ``gtopt`` binary with the minimum possible effort inside a
-Copilot / codespace / CI agent session where building from scratch would take
+developer / codespace / CI session where building from scratch would take
 5-10 minutes.
 
 Workflow vs. agent context
@@ -1006,8 +1006,7 @@ def install_build_deps(
     """Install all build dependencies needed to compile gtopt on Ubuntu 24.04.
 
     This function mirrors the bootstrap sequence from
-    ``.github/workflows/ubuntu.yml`` and the documentation in ``CLAUDE.md``
-    and ``.github/copilot-instructions.md``.
+    ``.github/workflows/ubuntu.yml`` and the instructions in ``BUILDING.md``.
 
     Step order (important – ccache MUST be installed first):
 
@@ -1245,7 +1244,7 @@ def get_gtopt_binary(
       binary via ``GTOPT_BIN`` and return immediately without repeating the
       library installation.
 
-    When called from a **Copilot / developer agent workspace** (no
+    When called from a **developer workspace** (no
     ``GITHUB_ACTIONS`` env var, no local binary):
 
     * The function downloads the ``gtopt-binary-debug`` artifact from the
@@ -1304,7 +1303,7 @@ def get_gtopt_binary(
             # check and return immediately without any installation attempt.
             if os.environ.get("GITHUB_ACTIONS") == "true":
                 return binary
-            # Outside of GitHub Actions (Copilot / developer workspace):
+            # Outside of GitHub Actions (developer workspace):
             # verify that all shared libraries can be resolved and install
             # any that are absent before returning the binary path.
             if ensure_libs:

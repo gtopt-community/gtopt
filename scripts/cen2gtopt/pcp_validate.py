@@ -271,8 +271,7 @@ def validate_one_day(
 
     The **per-bus per-hour** granularity is critical: prior versions
     medianed across buses, manufacturing aggregation noise where the
-    pipeline was actually accurate.  See the 2026-04-22 analysis in
-    docs/scripts/cen_marginal_emissions_review.md.
+    pipeline was actually accurate.
     """
     sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
     with CenApiClient(sip_cfg) as client:

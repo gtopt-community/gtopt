@@ -37,7 +37,7 @@
 #
 # ### Related files
 #
-# - CLAUDE.md § "Pre-Commit Checks" — documents the parallel
+# - CONTRIBUTING.md — documents the parallel
 #   `run-clang-tidy` invocation this wrapper encourages.
 # - `.github/workflows/ubuntu.yml` — CI uses the same `run-clang-tidy`
 #   invocation.

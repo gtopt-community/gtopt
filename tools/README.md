@@ -89,7 +89,7 @@ command -v clang-tidy     # must print the wrapper path
 
 ### `get_gtopt_binary.py`
 
-Standalone helper for Copilot / Claude agents that need the compiled `gtopt`
+Standalone helper for developer and CI sessions that need the compiled `gtopt`
 binary without waiting for a full 5–10 minute build from source.
 
 **Quick start (from repo root):**
