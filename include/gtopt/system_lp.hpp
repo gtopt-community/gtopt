@@ -128,7 +128,7 @@ concept AddToLP = HasAddToLp<T> && HasAddToOutput<T>;
 // terminal FutureCost α cut + annual caps.  Rather than fake these with
 // per-block AMPL special cases, an element advertises a planning capability
 // and is dispatched by the planning pass (`add_to_planning_lp`, run after the
-// stage loop).  See docs/design/future_cost_and_user_model.md (pieces 2, 5).
+// stage loop).
 //
 // Both signatures take the cell's (scene, phase) and the LP; "phase" vs
 // "global" differ by ORDERING and intent, not arguments — the phase sweep

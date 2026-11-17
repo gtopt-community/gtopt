@@ -7,8 +7,7 @@
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *
- * Pins the C1–C8 invariants from
- * ``docs/linear_interface_split_plan.md`` §3.2 — the contract that
+ * Pins the C1–C8 invariants — the contract that
  * ``LpCache`` must enforce so the LinearInterface facade can rely on
  * it as a pure encapsulation of the post-solve cache state.
  */

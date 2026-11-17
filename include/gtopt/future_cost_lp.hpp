@@ -11,8 +11,6 @@
  * operational elements it has NO per-(scenario, stage) `add_to_lp`; it
  * participates only in the GLOBAL planning pass (`add_to_global_lp`, run once
  * per (scene, phase) cell after the operational build) and the output pass.
- *
- * See docs/design/future_cost_and_user_model.md (piece 2).
  */
 
 #pragma once

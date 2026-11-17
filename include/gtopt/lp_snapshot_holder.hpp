@@ -6,8 +6,7 @@
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *
- * Phase 2b of the LinearInterface split (B2) — see
- * ``docs/linear_interface_split_plan.md`` §2.2 for the broader plan.
+ * Phase 2b of the LinearInterface split.
  *
  * `LpSnapshotHolder` owns the 2 fields that previously lived directly
  * on `LinearInterface`:

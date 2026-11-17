@@ -22,8 +22,7 @@
  * the delegates' own `DecisionVariable/` / `UserConstraint/` directories.
  *
  * `UserConstraint` / `DecisionVariable` are UNCHANGED — irrigation keeps using
- * them as standalone elements.  See docs/design/future_cost_and_user_model.md
- * (piece 3).
+ * them as standalone elements.
  */
 
 #pragma once

@@ -69,8 +69,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="gtopt-marginal-units",
         description=(
             "Identify marginal generating units and attribute the bus LMP "
-            "and emission intensity. See "
-            "docs/scripts/gtopt_marginal_units_plan.md for the full design.\n"
+            "and emission intensity.\n"
             "\n"
             "Recommended `gtopt` write_out for the source run:\n"
             "    --write-out 'sol,dual,rc:Generator,Line'\n"

@@ -257,7 +257,6 @@ public:
   // `SystemContext::add_integer_variable` so cut audits, integer-
   // feasibility checks, and the future commitment-layout binding stack
   // can iterate the set without grepping for `is_integer = true`.
-  // See `docs/design/commitment-layout.md §5`.
   using integer_variable_key_t = IntegerVariable::Key;
   using integer_variable_map_t =
       flat_map<integer_variable_key_t, IntegerVariable>;

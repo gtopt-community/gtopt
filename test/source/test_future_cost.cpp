@@ -3,7 +3,7 @@
 // Piece-2 step A: FutureCost (FCF / cost-to-go) element JSON binding.  Verifies
 // the element parses end-to-end and the three scoping strings convert to their
 // typed enums (BoundaryCutSharingMode / BoundaryCutsMode / BoundaryCutSoftCost)
-// via FutureCostConstructor.  See docs/design/future_cost_and_user_model.md.
+// via FutureCostConstructor.
 
 #include <daw/json/daw_json_link.h>
 #include <doctest/doctest.h>

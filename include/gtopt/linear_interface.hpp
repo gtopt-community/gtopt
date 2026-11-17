@@ -3116,8 +3116,7 @@ private:
   void populate_solution_cache_post_solve() noexcept;
 
   /// Replay-on-reconstruct buffer (Phase 2a of the LinearInterface
-  /// split — see ``docs/linear_interface_split_plan.md`` §4 and
-  /// ``include/gtopt/lp_replay_buffer.hpp``).
+  /// split — see ``include/gtopt/lp_replay_buffer.hpp``).
   ///
   /// Owns the dynamic-cols / dynamic-rows / active-cuts vectors, the
   /// pending-col-bounds map, and the in-replay flag.  Empty under
@@ -3180,8 +3179,7 @@ private:
 
   // ── Post-solve cache (valid when backend is released) ──────────────────
   //
-  // Phase 1 of the LinearInterface split (B2 in
-  // ``docs/improvement_recommendations.md``): the 9 ``m_cached_*_`` and
+  // Phase 1 of the LinearInterface split: the 9 ``m_cached_*_`` and
   // ``m_backend_solution_fresh_`` fields previously declared inline here
   // now live behind ``LpCache``.  See ``include/gtopt/lp_cache.hpp`` for
   // the C1–C8 invariants the cache enforces.

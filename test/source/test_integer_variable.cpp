@@ -7,8 +7,8 @@
  *            see LICENSING.md
  *
  * Tests the IntegerVariable abstraction and the SimulationLP registry
- * plumbing introduced in Phase 0 of the commitment-layout rollout
- * (docs/design/commitment-layout.md §11).  Phase 0 is a NO-OP for LP
+ * plumbing introduced in Phase 0 of the commitment-layout rollout.
+ * Phase 0 is a NO-OP for LP
  * outputs — these tests validate the new registry, not new LP behaviour.
  *
  * Tier T0 — IntegerVariable direct-object tests (no SystemLP required).

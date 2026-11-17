@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Canonical operation feed schema — the contract joining gtopt_marginal_units
-(analysis) and cen2gtopt (CEN data fetcher). See
-docs/scripts/gtopt_marginal_units_plan.md §3.3.3.
+(analysis) and cen2gtopt (CEN data fetcher).
 
 Producers (gtopt simulated runs, cen2gtopt) write a parquet dataset
 conforming to this schema. Consumers (gtopt_marginal_units --input-kind

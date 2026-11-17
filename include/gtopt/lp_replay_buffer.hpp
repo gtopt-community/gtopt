@@ -22,8 +22,7 @@
  *                            the auto-record path on `add_col`/`add_row`
  *                            short-circuits.
  *
- * Extraction is Phase 2a of the `LinearInterface` split (B2) — see
- * `docs/linear_interface_split_plan.md` §4 for the broader plan.
+ * Extraction is Phase 2a of the `LinearInterface` split.
  *
  * Lifecycle:
  *   * Default-constructed: all empty / false.

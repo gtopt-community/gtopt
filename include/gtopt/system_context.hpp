@@ -435,8 +435,8 @@ public:
 
   // ── Integer-variable choke-point ────────────────────────────────────────
   //
-  // The "no integer column without `IntegerVariable`" invariant from
-  // `docs/design/commitment-layout.md §5` is enforced here: every
+  // The "no integer column without `IntegerVariable`" invariant of the
+  // commitment layout is enforced here: every
   // producer of an integer LP column (`Commitment`, `SimpleCommitment`,
   // `Converter`, `CapacityObject`, future `Battery` / `Pump` /
   // `ReserveProvision`) routes through `add_integer_col` so cut

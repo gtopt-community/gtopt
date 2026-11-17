@@ -8,8 +8,7 @@
  *
  * `LpCache` owns the 9 post-solve cache fields that previously lived
  * directly on `LinearInterface` as `m_cached_*_`.  Extraction is
- * Phase 1 of the `LinearInterface` split (B2) — see
- * `docs/linear_interface_split_plan.md` §3 for the contract.
+ * Phase 1 of the `LinearInterface` split.
  *
  * Lifecycle:
  *   * Default-constructed: all empty / zero / nullopt / false.

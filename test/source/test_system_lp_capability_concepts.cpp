@@ -6,8 +6,7 @@
 // pass does this element participate in".  This test pins their classification
 // with mock element shapes (declarations only — concepts check expression
 // validity in an unevaluated context, so no definitions / linkage needed) plus
-// a couple of real engine types.  See
-// docs/design/future_cost_and_user_model.md.
+// a couple of real engine types.
 
 #include <doctest/doctest.h>
 #include <gtopt/system_lp.hpp>

@@ -18,7 +18,7 @@
  * `add_integer_col`).
  *
  * The "no integer column without `IntegerVariable`" invariant is the
- * design contract from `docs/design/commitment-layout.md §5`.  This
+ * core design contract of the commitment layout.  This
  * header defines the registry types; the choke-point function lives on
  * `SystemContext`.
  *
@@ -211,8 +211,7 @@ public:
   /// - `Phase`  → **`std::nullopt`** — callers must check the optional
   ///              before iterating.  Returning an empty span instead of
   ///              `nullopt` was rejected at design time because it turns
-  ///              a forgotten scope check into a silent no-op
-  ///              (`docs/design/commitment-layout.md §5.2`).
+  ///              a forgotten scope check into a silent no-op.
   [[nodiscard]] constexpr auto blocks() const noexcept
       -> std::optional<std::span<const BlockUid>>
   {

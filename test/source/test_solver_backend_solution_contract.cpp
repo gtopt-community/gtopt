@@ -10,8 +10,7 @@
  * These tests pin the post-Phase-1 (`522d4150`) behaviour of
  *   `SolverBackend::col_solution() / reduced_cost() / row_price()`
  * so that the upcoming Phase-2 span-out API
- * (`fill_col_sol / fill_col_cost / fill_row_dual` — see
- * docs/solver_backend_span_out_plan.md) cannot regress the
+ * (`fill_col_sol / fill_col_cost / fill_row_dual`) cannot regress the
  * pointer-getter path silently.  The same cases will be re-used after
  * Phase 2 lands to confirm the new fills produce identical values
  * (T5–T10 in the plan).

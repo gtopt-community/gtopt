@@ -5,8 +5,6 @@ LMP and emission intensity to those units via a deterministic
 recipe table, and emit a parquet dataset that supports downstream
 recomputation under alternative cost / emission catalogues.
 
-See docs/scripts/gtopt_marginal_units_plan.md for the full design.
-
 Public API:
     cli                          — argparse entry point
     MarginalUnitDataset          — read-only consumer of the output dataset
