@@ -274,8 +274,10 @@ gtopt_guisrv
 
 # Or with custom options
 gtopt_guisrv --port 8080
-gtopt_guisrv --debug
 ```
+
+The service binds to `127.0.0.1` by default. `--debug` is for local
+development only and is refused on non-loopback addresses.
 
 For detailed usage and systemd service setup, see [guiservice/GTOPT_GUISRV.md](guiservice/GTOPT_GUISRV.md).
 
