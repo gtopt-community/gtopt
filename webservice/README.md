@@ -87,6 +87,10 @@ cmake --build build --target webservice-start
 
 ## API Reference
 
+When `GTOPT_WEBSERVICE_API_TOKEN` is set, add
+`-H "Authorization: Bearer $GTOPT_WEBSERVICE_API_TOKEN"` to every request
+below (see [Security](#security)).
+
 ### POST /api/jobs
 
 Upload a case archive and submit a new optimization job.
@@ -157,6 +161,40 @@ Download job results as a zip file.
 | `GTOPT_DATA_DIR` | `./data` | Directory for job data storage |
 | `GTOPT_LOG_DIR` | *(console only)* | Directory for log files |
 | `PORT` | `3000` | HTTP port |
+| `GTOPT_WEBSERVICE_HOST` | `127.0.0.1` | Bind address used by `gtopt_websrv` (legacy alias `GTOPT_HOSTNAME`) |
+| `GTOPT_WEBSERVICE_API_TOKEN` | *(unset)* | Shared API token; required to bind a non-loopback address |
+
+## Security
+
+The web service runs the GTOpt solver on uploaded archives, so it must not be
+reachable by untrusted clients.
+
+- **Loopback by default.** `gtopt_websrv`, `npm run start` and `npm run dev`
+  bind to `127.0.0.1`.  Without an API token the API also rejects any request
+  whose `Host` header is not `localhost` / `127.0.0.1` / `::1` (this blocks
+  DNS-rebinding attacks from a browser).
+- **Exposing the service** on any other interface (`--hostname 0.0.0.0`,
+  `GTOPT_WEBSERVICE_HOST=...`) requires an API token; the launcher refuses to
+  start otherwise.  Generate a long random secret and keep it out of
+  world-readable files:
+
+  ```bash
+  export GTOPT_WEBSERVICE_API_TOKEN=$(openssl rand -hex 32)
+  gtopt_websrv --hostname 0.0.0.0
+  ```
+
+  Every `/api/*` request (except the bare `GET /api` liveness probe) must then
+  send `Authorization: Bearer <token>` (or `X-GTOpt-Api-Token: <token>`); the
+  token is compared in constant time.  The GUI service forwards the same
+  `GTOPT_WEBSERVICE_API_TOKEN` environment variable automatically.
+- **Use a TLS reverse proxy** (nginx, Caddy, …) in front of any non-loopback
+  deployment so the token is never sent in clear text, and keep the Node.js
+  port itself bound to `127.0.0.1`.
+- **Input validation.** `systemFile` must be a relative path made of
+  `[A-Za-z0-9_.+-]` segments separated by `/` (no `..`, no leading `-` or `.`,
+  no absolute paths); it is resolved with `realpath` and must stay inside the
+  job's input directory.  Uploaded archives are extracted with symlinks,
+  absolute paths and `..` entries rejected.  Job tokens must be UUIDs.
 
 ## Testing
 

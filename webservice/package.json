@@ -4,9 +4,9 @@
   "description": "Web service for running GTOpt (Generation, Transmission and storage Optimization) cases",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --hostname 127.0.0.1",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "test": "bash test/integration_test.sh",
@@ -17,11 +17,11 @@
   },
   "dependencies": {
     "archiver": "^7.0.1",
-    "extract-zip": "^2.0.1",
-    "next": "^16.2.4",
+    "next": "^16.4.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "uuid": "^14.0.0"
+    "uuid": "^14.0.0",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",
@@ -30,15 +30,19 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@types/uuid": "^10.0.0",
+    "@types/yauzl": "^3.4.0",
     "eslint": "^9.39.0",
-    "eslint-config-next": "^16.2.4",
+    "eslint-config-next": "^16.4.6",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.9",
     "typescript": "^5.8.0"
   },
   "overrides": {
-    "glob": "^13.0.0",
-    "test-exclude": "^8.0.0",
+    "glob": "^14.0.6",
+    "test-exclude": {
+      ".": "^8.0.0",
+      "minimatch": "^11.0.9"
+    },
     "eslint-plugin-react-hooks": "7.0.1"
   }
 }

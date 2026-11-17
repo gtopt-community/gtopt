@@ -75,8 +75,9 @@ The service will be available at `http://localhost:3000`.
 # Use custom port
 gtopt_websrv --port 8080
 
-# Bind to a specific interface (default: 0.0.0.0)
-gtopt_websrv --hostname 127.0.0.1
+# Bind to a specific interface (default: 127.0.0.1).  A non-loopback
+# address requires an API token (see "Security" below).
+GTOPT_WEBSERVICE_API_TOKEN=$(openssl rand -hex 32) gtopt_websrv --hostname 0.0.0.0
 
 # Specify gtopt binary location
 gtopt_websrv --gtopt-bin /usr/local/bin/gtopt
@@ -96,8 +97,11 @@ You can also use environment variables:
 # Set port
 PORT=8080 gtopt_websrv
 
-# Set hostname/interface to bind to
-GTOPT_HOSTNAME=127.0.0.1 gtopt_websrv
+# Set hostname/interface to bind to (legacy alias: GTOPT_HOSTNAME)
+GTOPT_WEBSERVICE_HOST=127.0.0.1 gtopt_websrv
+
+# Shared API token (required for non-loopback binds)
+GTOPT_WEBSERVICE_API_TOKEN=<long random secret> gtopt_websrv
 
 # Set gtopt binary
 GTOPT_BIN=/usr/local/bin/gtopt gtopt_websrv
@@ -116,7 +120,8 @@ gtopt_websrv [options]
 
 Options:
   --port PORT          Port for the web service (default: 3000)
-  --hostname HOST      Hostname/IP to bind to (default: 0.0.0.0)
+  --hostname HOST      Hostname/IP to bind to (default: 127.0.0.1; a
+                       non-loopback address requires GTOPT_WEBSERVICE_API_TOKEN)
   --gtopt-bin PATH     Path to gtopt binary (default: auto-detect)
   --data-dir PATH      Directory for job data storage (default: ./data)
   --log-dir PATH       Directory for log files (default: console only)
@@ -279,8 +284,8 @@ affected by IPv6 resolution, Windows-side port forwarding, or firewall policy.
 In particular, `localhost` may resolve to `::1` (IPv6 loopback) rather than
 `127.0.0.1`, causing connection failures when the server only listens on IPv4.
 
-The launcher now binds to `0.0.0.0` by default (all IPv4 interfaces), which
-works on most WSL configurations.
+The launcher binds to `127.0.0.1` by default (IPv4 loopback) and its API check
+tries both `127.0.0.1` and `localhost`, which works on most WSL configurations.
 
 Recommended checks:
 
@@ -316,10 +321,42 @@ connection errors, try:
 grep localhost /etc/hosts
 
 # If ::1 is mapped to localhost, you can either:
-# 1. Use --hostname 0.0.0.0 (the default, binds all IPv4)
-# 2. Use --hostname :: to also bind IPv6
+# 1. Use http://127.0.0.1:3000 instead of http://localhost:3000
+# 2. Use --hostname ::1 to bind the IPv6 loopback instead
 # 3. Edit /etc/hosts to ensure 127.0.0.1 is mapped to localhost
 ```
+
+## Security
+
+The web service runs the GTOpt solver on uploaded archives, so it must not be
+reachable by untrusted clients.
+
+- **Loopback by default.** `gtopt_websrv`, `npm run start` and `npm run dev`
+  bind to `127.0.0.1`.  Without an API token the API also rejects any request
+  whose `Host` header is not `localhost` / `127.0.0.1` / `::1` (this blocks
+  DNS-rebinding attacks from a browser).
+- **Exposing the service** on any other interface (`--hostname 0.0.0.0`,
+  `GTOPT_WEBSERVICE_HOST=...`) requires an API token; the launcher refuses to
+  start otherwise.  Generate a long random secret and keep it out of
+  world-readable files:
+
+  ```bash
+  export GTOPT_WEBSERVICE_API_TOKEN=$(openssl rand -hex 32)
+  gtopt_websrv --hostname 0.0.0.0
+  ```
+
+  Every `/api/*` request (except the bare `GET /api` liveness probe) must then
+  send `Authorization: Bearer <token>` (or `X-GTOpt-Api-Token: <token>`); the
+  token is compared in constant time.  The GUI service forwards the same
+  `GTOPT_WEBSERVICE_API_TOKEN` environment variable automatically.
+- **Use a TLS reverse proxy** (nginx, Caddy, …) in front of any non-loopback
+  deployment so the token is never sent in clear text, and keep the Node.js
+  port itself bound to `127.0.0.1`.
+- **Input validation.** `systemFile` must be a relative path made of
+  `[A-Za-z0-9_.+-]` segments separated by `/` (no `..`, no leading `-` or `.`,
+  no absolute paths); it is resolved with `realpath` and must stay inside the
+  job's input directory.  Uploaded archives are extracted with symlinks,
+  absolute paths and `..` entries rejected.  Job tokens must be UUIDs.
 
 ## Platform Support
 

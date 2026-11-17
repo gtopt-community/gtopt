@@ -10,7 +10,7 @@
  * 
  * Options:
  *     --port PORT          Port for the web service (default: 3000)
- *     --hostname HOST      Hostname/IP to bind to (default: 0.0.0.0)
+ *     --hostname HOST      Hostname/IP to bind to (default: 127.0.0.1)
  *     --gtopt-bin PATH     Path to gtopt binary (default: auto-detect)
  *     --data-dir PATH      Directory for job data storage (default: ./data)
  *     --log-dir PATH       Directory for log files (default: logs to console only)
@@ -18,7 +18,11 @@
  * 
  * Environment Variables:
  *     PORT                 Web service port (default: 3000)
- *     GTOPT_HOSTNAME       Hostname/IP to bind to (default: 0.0.0.0)
+ *     GTOPT_WEBSERVICE_HOST  Hostname/IP to bind to (default: 127.0.0.1;
+ *                            legacy alias: GTOPT_HOSTNAME)
+ *     GTOPT_WEBSERVICE_API_TOKEN  Shared API token.  REQUIRED to bind a
+ *                            non-loopback address; clients must send
+ *                            "Authorization: Bearer <token>".
  *     GTOPT_BIN            Path to gtopt binary
  *     GTOPT_DATA_DIR       Directory for job data storage
  *     GTOPT_LOG_DIR        Directory for log files
@@ -30,6 +34,35 @@ const http = require('http');
 const { spawn } = require('child_process');
 
 const STARTUP_TIMEOUT_MS = 30000;
+const DEFAULT_HOSTNAME = '127.0.0.1';
+const API_TOKEN_ENV = 'GTOPT_WEBSERVICE_API_TOKEN';
+
+/** True when `host` names the loopback interface. */
+function isLoopbackHost(host) {
+  const h = String(host || '').trim().toLowerCase();
+  return h === 'localhost' || h === '::1' || h === '[::1]' ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+}
+
+/**
+ * Refuse to expose the API on a non-loopback interface without an API
+ * token.  Returns an error message, or null when the configuration is safe.
+ */
+function checkBindPolicy(hostname, env) {
+  if (isLoopbackHost(hostname)) return null;
+  if ((env[API_TOKEN_ENV] || '').length > 0) return null;
+  return `Refusing to bind the gtopt webservice to non-loopback address '${hostname}' ` +
+    `without an API token.\n` +
+    `  Set ${API_TOKEN_ENV} to a long random secret (e.g. 'openssl rand -hex 32') ` +
+    `and send it as 'Authorization: Bearer <token>',\n` +
+    `  ideally behind a TLS reverse proxy — or bind to 127.0.0.1 (the default).`;
+}
+
+/** Headers to authenticate the launcher's own health checks. */
+function authHeaders() {
+  const token = process.env[API_TOKEN_ENV] || '';
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 function showHelp() {
   console.log(`
@@ -40,7 +73,8 @@ Usage:
 
 Options:
   --port PORT          Port for the web service (default: 3000)
-  --hostname HOST      Hostname/IP to bind to (default: 0.0.0.0)
+  --hostname HOST      Hostname/IP to bind to (default: 127.0.0.1).  Binding
+                       a non-loopback address requires GTOPT_WEBSERVICE_API_TOKEN
   --gtopt-bin PATH     Path to gtopt binary (default: auto-detect)
   --data-dir PATH      Directory for job data storage (default: ./data)
   --log-dir PATH       Directory for log files (default: console only)
@@ -50,7 +84,14 @@ Options:
 
 Environment Variables:
   PORT                 Web service port (default: 3000)
-  GTOPT_HOSTNAME       Hostname/IP to bind to (default: 0.0.0.0)
+  GTOPT_WEBSERVICE_HOST  Hostname/IP to bind to (default: 127.0.0.1;
+                       legacy alias: GTOPT_HOSTNAME)
+  GTOPT_WEBSERVICE_API_TOKEN
+                       Shared API token.  When set, every /api/* request
+                       (except the GET /api liveness probe) must send
+                       "Authorization: Bearer <token>".  Required when
+                       binding a non-loopback address; prefer a TLS reverse
+                       proxy in front of the service in that case.
   GTOPT_BIN            Path to gtopt binary
   GTOPT_DATA_DIR       Directory for job data storage
   GTOPT_LOG_DIR        Directory for log files
@@ -58,7 +99,8 @@ Environment Variables:
 Examples:
   gtopt_websrv                           # Start on default port 3000
   gtopt_websrv --port 8080               # Start on port 8080
-  gtopt_websrv --hostname 127.0.0.1      # Bind to localhost only
+  GTOPT_WEBSERVICE_API_TOKEN=$(openssl rand -hex 32) \
+    gtopt_websrv --hostname 0.0.0.0      # Expose on all interfaces (token required)
   gtopt_websrv --gtopt-bin /usr/bin/gtopt  # Use specific gtopt binary
   gtopt_websrv --log-dir /var/log/gtopt  # Write logs to directory
   gtopt_websrv --dev                     # Run in development mode
@@ -132,7 +174,8 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
     port: process.env.PORT || '3000',
-    hostname: process.env.GTOPT_HOSTNAME || '0.0.0.0',
+    hostname:
+      process.env.GTOPT_WEBSERVICE_HOST || process.env.GTOPT_HOSTNAME || DEFAULT_HOSTNAME,
     gtoptBin: process.env.GTOPT_BIN || null,
     dataDir: process.env.GTOPT_DATA_DIR || null,
     logDir: process.env.GTOPT_LOG_DIR || null,
@@ -194,7 +237,7 @@ function httpGet(url, timeout) {
   return new Promise((resolve) => {
     // Force IPv4 for 'localhost' to avoid IPv6 ECONNREFUSED on systems where
     // localhost resolves to ::1 but the server only listens on 0.0.0.0 (IPv4).
-    const opts = { timeout };
+    const opts = { timeout, headers: authHeaders() };
     try {
       if (new URL(url).hostname === 'localhost') {
         opts.family = 4;
@@ -325,6 +368,12 @@ function main() {
     return;
   }
   
+  const bindError = checkBindPolicy(config.hostname, process.env);
+  if (bindError) {
+    console.error(`Error: ${bindError}`);
+    process.exit(1);
+  }
+
   // Find webservice directory
   const webserviceDir = getWebserviceDir();
   console.log(`Using webservice from: ${webserviceDir}`);
@@ -359,6 +408,9 @@ function main() {
     PORT: config.port,
   };
   delete env.HOSTNAME;
+  // Let the request proxy know which interface we bound (see
+  // src/lib/security.ts — authorizeRequest()).
+  env.GTOPT_WEBSERVICE_HOST = config.hostname;
   
   if (gtoptBin) {
     env.GTOPT_BIN = gtoptBin;
@@ -526,3 +578,5 @@ function main() {
 if (require.main === module) {
   main();
 }
+
+module.exports = { isLoopbackHost, checkBindPolicy, parseArgs, DEFAULT_HOSTNAME };

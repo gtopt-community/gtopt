@@ -9,6 +9,10 @@
 #
 # The --check-api flag verifies whether the API is responding on the
 # given port (default 3000) and exits with 0 on success or 1 on failure.
+#
+# Security: the service binds to 127.0.0.1 by default.  Binding another
+# address (--hostname / GTOPT_WEBSERVICE_HOST) requires an API token in
+# GTOPT_WEBSERVICE_API_TOKEN; put a TLS reverse proxy in front of it.
 
 # Get the directory where this script is installed
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,7 +34,11 @@ fi
 gtopt_websrv_check_endpoint() {
     local url="$1"
     local body
-    body=$(curl -s --max-time 5 "$url" 2>/dev/null) || return 1
+    local auth=()
+    if [ -n "${GTOPT_WEBSERVICE_API_TOKEN:-}" ]; then
+        auth=(-H "Authorization: Bearer ${GTOPT_WEBSERVICE_API_TOKEN}")
+    fi
+    body=$(curl -s --max-time 5 "${auth[@]}" "$url" 2>/dev/null) || return 1
     echo "$body" | python3 -c "
 import sys, json
 try:
@@ -80,7 +88,11 @@ gtopt_websrv_verify_api() {
     local ping_url="${working_url:-${base_urls[0]}}"
     if gtopt_websrv_check_endpoint "${ping_url}/api/ping"; then
         local ping_body
-        ping_body=$(curl -s --max-time 5 "${ping_url}/api/ping" 2>/dev/null)
+        local ping_auth=()
+        if [ -n "${GTOPT_WEBSERVICE_API_TOKEN:-}" ]; then
+            ping_auth=(-H "Authorization: Bearer ${GTOPT_WEBSERVICE_API_TOKEN}")
+        fi
+        ping_body=$(curl -s --max-time 5 "${ping_auth[@]}" "${ping_url}/api/ping" 2>/dev/null)
         local service
         service=$(echo "$ping_body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('service',''))" 2>/dev/null || true)
         local version

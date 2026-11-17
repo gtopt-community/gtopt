@@ -49,11 +49,13 @@ sudo apt-get install -y build-essential curl git zip unzip wget
 
 ### Configure the firewall (optional)
 
-If using `ufw`, allow SSH and the web service port:
+If using `ufw`, allow SSH and HTTPS for the reverse proxy (section 8).  Do
+**not** open the Node.js port (3000) itself: the service binds to
+`127.0.0.1` and should only be reached through the TLS reverse proxy.
 
 ```bash
 sudo ufw allow ssh
-sudo ufw allow 3000/tcp   # or your chosen port
+sudo ufw allow 443/tcp    # nginx (TLS)
 sudo ufw enable
 ```
 
@@ -170,6 +172,10 @@ variables:
 | `--gtopt-bin` / `GTOPT_BIN` | auto-detect | Absolute path to the GTOpt binary |
 | `--data-dir` / `GTOPT_DATA_DIR` | `./data` | Directory for uploaded cases and results |
 | `--log-dir` / `GTOPT_LOG_DIR` | *(console only)* | Directory for log files |
+| `--hostname` / `GTOPT_WEBSERVICE_HOST` | `127.0.0.1` | Bind address (a non-loopback address requires an API token) |
+| `GTOPT_WEBSERVICE_API_TOKEN` | *(unset)* | Shared API token sent as `Authorization: Bearer <token>` |
+
+See [Security](#security) before exposing the service beyond `localhost`.
 
 Ensure the data directory exists and is writable:
 
@@ -214,7 +220,7 @@ GTOPT_BIN=/usr/local/bin/gtopt npm run start
 ```
 
 The service will be available at `http://localhost:3000` (or whatever port you
-configured).
+configured).  `npm run start` / `npm run dev` bind to `127.0.0.1`.
 
 ## 7. Run as a System Service
 
@@ -259,7 +265,11 @@ sudo journalctl -u gtopt-webservice -f
 ## 8. Reverse Proxy (nginx)
 
 For production, place nginx in front of the Node.js service to handle TLS,
-caching, and standard HTTP port mapping.
+caching, and standard HTTP port mapping.  Keep the Node.js service bound to
+`127.0.0.1` and set `GTOPT_WEBSERVICE_API_TOKEN` (e.g. through an
+`EnvironmentFile=` with mode `0600` in the systemd unit): the proxy forwards
+the public `Host` header, so without a token the API rejects proxied
+requests.  Clients then send `Authorization: Bearer <token>` over TLS.
 
 ### Install nginx
 
@@ -348,6 +358,11 @@ unzip -l results.zip
 
 ## 10. API Reference
 
+When `GTOPT_WEBSERVICE_API_TOKEN` is set, every endpoint except `GET /api`
+requires `Authorization: Bearer <token>` (or `X-GTOpt-Api-Token: <token>`);
+missing tokens get `401`, wrong tokens `403`.  `systemFile` must be a relative
+path inside the archive (no `..`, no absolute paths, no leading `-`).
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/api/jobs` | Upload a `.zip` case archive and start an optimization job |
@@ -392,6 +407,38 @@ Returns a binary `.zip` file containing:
 - `stdout.log` — solver standard output
 - `stderr.log` — solver standard error
 - `job.json` — job metadata
+
+### Security
+
+The web service runs the GTOpt solver on uploaded archives, so it must not be
+reachable by untrusted clients.
+
+- **Loopback by default.** `gtopt_websrv`, `npm run start` and `npm run dev`
+  bind to `127.0.0.1`.  Without an API token the API also rejects any request
+  whose `Host` header is not `localhost` / `127.0.0.1` / `::1` (this blocks
+  DNS-rebinding attacks from a browser).
+- **Exposing the service** on any other interface (`--hostname 0.0.0.0`,
+  `GTOPT_WEBSERVICE_HOST=...`) requires an API token; the launcher refuses to
+  start otherwise.  Generate a long random secret and keep it out of
+  world-readable files:
+
+  ```bash
+  export GTOPT_WEBSERVICE_API_TOKEN=$(openssl rand -hex 32)
+  gtopt_websrv --hostname 0.0.0.0
+  ```
+
+  Every `/api/*` request (except the bare `GET /api` liveness probe) must then
+  send `Authorization: Bearer <token>` (or `X-GTOpt-Api-Token: <token>`); the
+  token is compared in constant time.  The GUI service forwards the same
+  `GTOPT_WEBSERVICE_API_TOKEN` environment variable automatically.
+- **Use a TLS reverse proxy** (nginx, Caddy, …) in front of any non-loopback
+  deployment so the token is never sent in clear text, and keep the Node.js
+  port itself bound to `127.0.0.1`.
+- **Input validation.** `systemFile` must be a relative path made of
+  `[A-Za-z0-9_.+-]` segments separated by `/` (no `..`, no leading `-` or `.`,
+  no absolute paths); it is resolved with `realpath` and must stay inside the
+  job's input directory.  Uploaded archives are extracted with symlinks,
+  absolute paths and `..` entries rejected.  Job tokens must be UUIDs.
 
 ## 11. Troubleshooting
 

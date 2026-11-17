@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { spawn, execFile, ChildProcess } from "child_process";
 import { createLogger } from "./logger";
 import { listDirRecursive } from "./files";
+import { isValidJobToken, resolveInside, validateSystemFile } from "./security";
 
 const log = createLogger("jobs");
 
@@ -71,6 +72,11 @@ export async function createJob(systemFile: string): Promise<JobInfo> {
   if (!systemFile || systemFile.trim() === "") {
     throw new Error("systemFile parameter must not be empty");
   }
+  const check = validateSystemFile(systemFile);
+  if (!check.ok) {
+    throw new Error(`Invalid systemFile: ${check.error}`);
+  }
+  systemFile = check.value;
   const token = uuidv4();
   const job: JobInfo = {
     token,
@@ -93,6 +99,12 @@ export async function createJob(systemFile: string): Promise<JobInfo> {
 }
 
 export async function getJob(token: string): Promise<JobInfo | null> {
+  // Tokens are server-generated UUIDs; reject anything else before it is
+  // used to build a filesystem path (e.g. "../../etc").
+  if (!isValidJobToken(token)) {
+    return null;
+  }
+
   // Check in-memory first
   if (jobs.has(token)) {
     return jobs.get(token)!;
@@ -131,6 +143,24 @@ export async function runGtopt(token: string): Promise<void> {
 
   await fs.mkdir(outputDir, { recursive: true });
 
+  // Re-validate the system file right before it reaches the command line
+  // (job.json may have been loaded from disk) and confine it — following
+  // symlinks — to the job input directory.
+  const check = validateSystemFile(job.systemFile);
+  const resolvedSystemFile = check.ok
+    ? await resolveInside(inputDir, check.value)
+    : null;
+  if (!check.ok || resolvedSystemFile === null) {
+    job.status = "failed";
+    job.error = check.ok
+      ? `System file '${job.systemFile}' is outside the job input directory or missing`
+      : `Invalid systemFile: ${check.error}`;
+    log.error(`Job ${token}: refusing to run gtopt: ${job.error}`);
+    await updateJob(job);
+    return;
+  }
+  const systemFileArg = check.value;
+
   const gtoptBin = await resolveGtoptBinary();
   log.info(`Job ${token}: starting gtopt binary=${gtoptBin} systemFile=${job.systemFile}`);
   log.info(`Job ${token}: working directory (cwd)=${inputDir}`);
@@ -158,9 +188,11 @@ export async function runGtopt(token: string): Promise<void> {
     .filter((s) => s.length > 0);
 
   return new Promise<void>((resolve) => {
+    // Arguments are passed as an array (no shell).  `systemFileArg` was
+    // validated above: relative, inside inputDir, never starting with '-'.
     const proc = spawn(
-      gtoptBin,
-      [job.systemFile, "--set", `output_directory=${outputDir}`, ...extraArgs],
+      /*turbopackIgnore: true*/ gtoptBin,
+      [systemFileArg, "--set", `output_directory=${outputDir}`, ...extraArgs],
       {
         cwd: inputDir,
         stdio: ["ignore", "pipe", "pipe"],
@@ -361,7 +393,7 @@ export async function getJobMonitorData(
   ];
   for (const candidate of candidates) {
     try {
-      const raw = await fs.readFile(candidate, "utf-8");
+      const raw = await fs.readFile(/*turbopackIgnore: true*/ candidate, "utf-8");
       const data = JSON.parse(raw) as Record<string, unknown>;
       // Annotate with the solver type derived from the filename
       data._solver_type = path.basename(candidate).startsWith("sddp")
@@ -465,7 +497,7 @@ export async function getJobLogs(
 export async function getGtoptVersion(): Promise<string> {
   const gtoptBin = await resolveGtoptBinary();
   return new Promise<string>((resolve) => {
-    execFile(gtoptBin, ["--version"], { timeout: 5000 }, (err, stdout, stderr) => {
+    execFile(/*turbopackIgnore: true*/ gtoptBin, ["--version"], { timeout: 5000 }, (err, stdout, stderr) => {
       if (err) {
         log.warn(`Failed to get gtopt version: ${err.message}`);
         resolve("");

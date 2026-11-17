@@ -109,7 +109,7 @@ cd "$WEBSERVICE_DIR"
 # golden cost fixtures keep matching the gtopt lean default.
 GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" GTOPT_LOG_DIR="$LOG_DIR" \
   GTOPT_EXTRA_ARGS="--write-out all" \
-  node_modules/.bin/next start -p "$PORT" --hostname 0.0.0.0 \
+  node_modules/.bin/next start -p "$PORT" --hostname 127.0.0.1 \
   >"$TEST_TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
 

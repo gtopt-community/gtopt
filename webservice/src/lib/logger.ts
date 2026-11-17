@@ -93,7 +93,7 @@ try {
 
     // Log config file type to help diagnose config loading issues
     const configFiles = ["next.config.mjs", "next.config.js", "next.config.ts", "next.config.cjs"];
-    const found = configFiles.filter((f) => existsSync(path.join(process.cwd(), f)));
+    const found = configFiles.filter((f) => existsSync(/*turbopackIgnore: true*/ path.join(/*turbopackIgnore: true*/ process.cwd(), f)));
     startupLog.info(`  next config file(s): ${found.length > 0 ? found.join(", ") : "(none found)"}`);
   } else {
     startupLog.warn(`  .next directory NOT FOUND in ${process.cwd()} — run 'npm run build' first`);

@@ -4,13 +4,15 @@ import path from "path";
 import {
   createJob,
   ensureDataDir,
+  getJobDir,
   getJobInputDir,
   runGtopt,
   listJobs,
 } from "@/lib/jobs";
 import { createLogger } from "@/lib/logger";
 import { listDirRecursive } from "@/lib/files";
-import extractZip from "extract-zip";
+import { resolveInside, validateSystemFile } from "@/lib/security";
+import { safeExtractZip } from "@/lib/unzip";
 
 const log = createLogger("api/jobs");
 
@@ -24,7 +26,9 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
-    const systemFile = formData.get("systemFile") as string | null;
+    const systemFileField = formData.get("systemFile");
+    const systemFile =
+      typeof systemFileField === "string" ? systemFileField : null;
 
     if (!file) {
       log.warn("POST /api/jobs: no file uploaded");
@@ -59,25 +63,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    log.info(`POST /api/jobs: received file=${file.name} (${file.size} bytes) systemFile=${systemFile}`);
+    // Allowlist validation: no traversal, no absolute path, never an option.
+    const check = validateSystemFile(systemFile);
+    if (!check.ok) {
+      log.warn(`POST /api/jobs: rejected systemFile: ${check.error}`);
+      return NextResponse.json(
+        { error: `Invalid systemFile: ${check.error}` },
+        { status: 400 }
+      );
+    }
+
+    log.info(`POST /api/jobs: received file=${file.name} (${file.size} bytes) systemFile=${check.value}`);
 
     // Create job
-    const job = await createJob(systemFile);
+    const job = await createJob(check.value);
     const inputDir = getJobInputDir(job.token);
     await fs.mkdir(inputDir, { recursive: true });
     log.info(`Job ${job.token}: created dedicated job directory inputDir=${inputDir}`);
 
-    // Save uploaded file
+    // Save uploaded file next to (not inside) the extraction directory
     const buffer = Buffer.from(await file.arrayBuffer());
-    const zipPath = path.join(inputDir, "upload.zip");
+    const zipPath = path.join(getJobDir(job.token), "upload.zip");
     await fs.writeFile(zipPath, buffer);
     log.info(`Job ${job.token}: saved uploaded zip (${buffer.length} bytes) to ${zipPath}`);
 
     // Extract zip into the dedicated job input directory
     try {
-      await extractZip(zipPath, { dir: inputDir });
+      await safeExtractZip(zipPath, inputDir);
       log.info(`Job ${job.token}: zip extracted successfully to ${inputDir}`);
     } catch (err) {
+      await fs.unlink(zipPath).catch(() => {});
       log.error(`Job ${job.token}: zip extraction failed in ${inputDir}: ${err instanceof Error ? err.message : String(err)}`);
       return NextResponse.json(
         {
@@ -101,20 +116,19 @@ export async function POST(request: NextRequest) {
       log.warn(`Job ${job.token}: could not list extracted files: ${err}`);
     }
 
-    // Verify system file exists
-    const systemFilePath = path.join(inputDir, systemFile);
-    try {
-      await fs.access(systemFilePath);
-      log.info(`Job ${job.token}: system file '${systemFile}' found at ${systemFilePath}`);
-    } catch {
-      log.error(`Job ${job.token}: system file '${systemFile}' not found in archive at ${systemFilePath}`);
+    // Verify the system file exists and (following symlinks) stays inside
+    // the job input directory.
+    const systemFilePath = await resolveInside(inputDir, check.value);
+    if (systemFilePath === null) {
+      log.error(`Job ${job.token}: system file '${check.value}' not found in archive under ${inputDir}`);
       return NextResponse.json(
         {
-          error: `System file '${systemFile}' not found in uploaded archive.`,
+          error: `System file '${check.value}' not found in uploaded archive.`,
         },
         { status: 400 }
       );
     }
+    log.info(`Job ${job.token}: system file '${check.value}' found at ${systemFilePath}`);
 
     // Start the job asynchronously
     log.info(`Job ${job.token}: starting gtopt asynchronously, cwd=${inputDir}`);

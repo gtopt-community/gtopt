@@ -121,7 +121,7 @@ cd "$WEBSERVICE_DIR"
 LOG_DIR="$TEST_TMPDIR/logs"
 mkdir -p "$LOG_DIR"
 GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" GTOPT_LOG_DIR="$LOG_DIR" \
-  node_modules/.bin/next start -p "$PORT" --hostname 0.0.0.0 \
+  node_modules/.bin/next start -p "$PORT" --hostname 127.0.0.1 \
   >"$TEST_TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
 
@@ -287,6 +287,44 @@ if node "$WEBSERVICE_DIR/gtopt_websrv.js" --check-api --port "$PORT" >/dev/null 
   pass "gtopt_websrv.js --check-api succeeds against running server"
 else
   fail "gtopt_websrv.js --check-api failed against running server"
+fi
+
+# ---- Security tests ----
+# systemFile path traversal / option injection must be rejected with 400
+for BAD in "../../etc/passwd" "/etc/passwd" "--help" "-h" "a/../../x.json" "--set=output_directory=/tmp"; do
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/jobs" \
+    -F "file=@$TEST_ZIP" --form-string "systemFile=$BAD")
+  if [ "$HTTP_CODE" = "400" ]; then
+    pass "POST /api/jobs rejects systemFile '$BAD' (400)"
+  else
+    fail "POST /api/jobs accepted systemFile '$BAD' (HTTP $HTTP_CODE, expected 400)"
+  fi
+done
+
+# Job tokens are UUIDs — traversal-looking tokens must 404
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/jobs/..%2F..%2Fetc")
+if [ "$HTTP_CODE" = "404" ]; then
+  pass "GET /api/jobs/<traversal token> returns 404"
+else
+  fail "GET /api/jobs/<traversal token> returned $HTTP_CODE (expected 404)"
+fi
+
+# Without an API token the API only serves loopback Host headers
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: evil.example.com" "$BASE_URL/api/jobs")
+if [ "$HTTP_CODE" = "403" ]; then
+  pass "GET /api/jobs with non-loopback Host header is rejected (403)"
+else
+  fail "GET /api/jobs with non-loopback Host header returned $HTTP_CODE (expected 403)"
+fi
+
+# The launcher refuses a non-loopback bind without an API token
+if env -u GTOPT_WEBSERVICE_API_TOKEN node "$WEBSERVICE_DIR/gtopt_websrv.js" \
+     --hostname 0.0.0.0 --port 1 >"$TEST_TMPDIR/bind.log" 2>&1; then
+  fail "gtopt_websrv.js --hostname 0.0.0.0 without token did not fail"
+elif grep -q "GTOPT_WEBSERVICE_API_TOKEN" "$TEST_TMPDIR/bind.log"; then
+  pass "gtopt_websrv.js refuses non-loopback bind without an API token"
+else
+  fail "gtopt_websrv.js non-loopback bind failed for an unexpected reason: $(cat "$TEST_TMPDIR/bind.log")"
 fi
 
 # ---- Test 13: Log file exists and contains expected entries ----

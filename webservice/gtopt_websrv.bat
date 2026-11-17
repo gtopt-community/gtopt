@@ -3,6 +3,9 @@ REM gtopt_websrv.bat - Windows launcher for gtopt web service
 REM
 REM This script is intended for use on Windows.
 REM For WSL, use the gtopt_websrv shell script instead.
+REM
+REM Security: binds to 127.0.0.1 by default.  Binding another address
+REM (--hostname / GTOPT_WEBSERVICE_HOST) requires GTOPT_WEBSERVICE_API_TOKEN.
 
 setlocal enabledelayedexpansion
 
