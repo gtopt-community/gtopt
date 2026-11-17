@@ -25,3 +25,27 @@ keywords:
   - SDDP
   - unit commitment
   - linear programming
+references:
+  - type: conference-paper
+    title: >-
+      Optimal Expansion and Reliable Renewable Energy Integration in
+      Long-Term Planning Using FESOP
+    authors:
+      - family-names: Buitrago Villada
+        given-names: María del Pilar
+      - family-names: García Bujanda
+        given-names: Carlos Enrique
+      - family-names: Sierra Baeza
+        given-names: Erick
+      - family-names: Matus
+        given-names: Marcelo
+    collection-title: 2022 IEEE Kansas Power and Energy Conference (KPEC)
+    conference:
+      name: 2022 IEEE Kansas Power and Energy Conference (KPEC)
+      city: Manhattan
+      region: KS
+      country: US
+    start: 1
+    end: 5
+    year: 2022
+    doi: 10.1109/KPEC54747.2022.9814781

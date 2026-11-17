@@ -3093,7 +3093,7 @@ mathematical symbols used in this formulation.
 
 <a id="ref4"></a>
 **[4]** Buitrago Villada, M.P., García Bujanda, C.E., Sierra Baeza, E.,
-and Matus, A.M. (2022). "Optimal Expansion and Reliable Renewable Energy
+and Matus, M. (2022). "Optimal Expansion and Reliable Renewable Energy
 Integration in Long-Term Planning Using FESOP." *2022 IEEE Kansas Power
 and Energy Conference (KPEC)*, pp. 1–5.
 DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781).

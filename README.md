@@ -41,6 +41,7 @@ This project includes comprehensive documentation for different use cases:
 - **[Monolithic Method](docs/methods/monolithic.md)** - Default monolithic solver, boundary cuts, and sequential mode
 - **[LP Fingerprint](docs/lp-fingerprint.md)** - LP structural fingerprint: formulation integrity verification, regression detection, and CI golden-reference comparison
 - **[Changelog](CHANGELOG.md)** - Release history and notable changes
+- **[Publications](PUBLICATIONS.md)** - Papers on GTOpt and FESOP (IEEE KPEC 2022), related work and how to cite
 - **[Contributing Guide](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
 - **[webservice/INSTALL.md](webservice/INSTALL.md)** - Web service installation, deployment, and API reference
 - **[guiservice/INSTALL.md](guiservice/INSTALL.md)** - GUI service installation, deployment, and usage guide
