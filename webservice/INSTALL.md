@@ -107,7 +107,7 @@ sudo apt-get install -y -V libboost-container-dev
 Clone the repository, build, and install:
 
 ```bash
-git clone https://github.com/marcelomatus/gtopt.git /tmp/gtopt-build
+git clone https://github.com/gtopt-community/gtopt.git /tmp/gtopt-build
 cd /tmp/gtopt-build
 
 # Configure

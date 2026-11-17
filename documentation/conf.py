@@ -11,5 +11,5 @@ LINKS_NAVBAR1 = [
 
 LINKS_NAVBAR2 = [
     (None, "files", []),
-    ('<a href="https://github.com/marcelomatus/gtopt">GitHub</a>', []),
+    ('<a href="https://github.com/gtopt-community/gtopt">GitHub</a>', []),
 ]

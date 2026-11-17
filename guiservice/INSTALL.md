@@ -90,7 +90,7 @@ source /opt/guiservice/venv/bin/activate
 ### Clone the repository
 
 ```bash
-git clone https://github.com/marcelomatus/gtopt.git
+git clone https://github.com/gtopt-community/gtopt.git
 cd gtopt
 ```
 

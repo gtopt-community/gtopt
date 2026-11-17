@@ -1,10 +1,10 @@
 # Gtopt
 
-[![Ubuntu](https://github.com/marcelomatus/gtopt/actions/workflows/ubuntu.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/ubuntu.yml)
-[![Webservice](https://github.com/marcelomatus/gtopt/actions/workflows/webservice.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/webservice.yml)
-[![Guiservice](https://github.com/marcelomatus/gtopt/actions/workflows/guiservice.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/guiservice.yml)
-[![Style](https://github.com/marcelomatus/gtopt/actions/workflows/style.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/style.yml)
-[![Docs](https://github.com/marcelomatus/gtopt/actions/workflows/docs.yml/badge.svg)](https://github.com/marcelomatus/gtopt/actions/workflows/docs.yml)
+[![Ubuntu](https://github.com/gtopt-community/gtopt/actions/workflows/ubuntu.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/ubuntu.yml)
+[![Webservice](https://github.com/gtopt-community/gtopt/actions/workflows/webservice.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/webservice.yml)
+[![Guiservice](https://github.com/gtopt-community/gtopt/actions/workflows/guiservice.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/guiservice.yml)
+[![Style](https://github.com/gtopt-community/gtopt/actions/workflows/style.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/style.yml)
+[![Docs](https://github.com/gtopt-community/gtopt/actions/workflows/docs.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/docs.yml)
 
 A high-performance C++ tool for **Generation and Transmission Expansion Planning (GTEP)**. It minimizes the total expected cost of operation and expansion of electrical power systems.
 
@@ -71,7 +71,7 @@ sudo apt-get update
 sudo apt-get install -y -V libarrow-dev libparquet-dev
 
 # 2. Clone and build
-git clone https://github.com/marcelomatus/gtopt.git
+git clone https://github.com/gtopt-community/gtopt.git
 cd gtopt
 CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)

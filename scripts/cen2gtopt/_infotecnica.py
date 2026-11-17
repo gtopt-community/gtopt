@@ -42,7 +42,7 @@ class InfotecnicaConfig:
     base_url: str = INFOTECNICA_BASE_URL
     timeout: float = 60.0
     verify_tls: bool = True
-    user_agent: str = "cen2gtopt/1.0 (+https://github.com/marcelomatus/gtopt)"
+    user_agent: str = "cen2gtopt/1.0 (+https://github.com/gtopt-community/gtopt)"
 
 
 class InfotecnicaClient:

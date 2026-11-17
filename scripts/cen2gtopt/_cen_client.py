@@ -108,7 +108,7 @@ class CenApiConfig:
     max_retries: int = 3
     backoff_base: float = 0.5  # seconds; doubles each retry
     verify_tls: bool = True
-    user_agent: str = "cen2gtopt/1.0 (+https://github.com/marcelomatus/gtopt)"
+    user_agent: str = "cen2gtopt/1.0 (+https://github.com/gtopt-community/gtopt)"
 
 
 class CenApiClient:

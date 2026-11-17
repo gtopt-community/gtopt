@@ -6,7 +6,7 @@ authors:
   - family-names: Matus
     given-names: Marcelo
     email: marcelomatusacuna@gmail.com
-repository-code: "https://github.com/marcelomatus/gtopt"
+repository-code: "https://github.com/gtopt-community/gtopt"
 license: GPL-3.0-or-later
 keywords:
   - power systems

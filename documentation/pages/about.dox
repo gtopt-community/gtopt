@@ -53,11 +53,11 @@ The optimization uses a three-level time hierarchy:
 
 @section links Further Documentation
 
-- <a href="https://github.com/marcelomatus/gtopt">GitHub Repository</a>
-- <a href="https://github.com/marcelomatus/gtopt/blob/master/docs/planning-guide.md">Planning Guide</a>
-- <a href="https://github.com/marcelomatus/gtopt/blob/master/docs/formulation/mathematical-formulation.md">Mathematical Formulation</a>
-- <a href="https://github.com/marcelomatus/gtopt/blob/master/docs/usage.md">Usage Guide</a>
-- <a href="https://github.com/marcelomatus/gtopt/blob/master/docs/input-data.md">Input Data Reference</a>
-- <a href="https://github.com/marcelomatus/gtopt/blob/master/BUILDING.md">Building Guide</a>
+- <a href="https://github.com/gtopt-community/gtopt">GitHub Repository</a>
+- <a href="https://github.com/gtopt-community/gtopt/blob/master/docs/planning-guide.md">Planning Guide</a>
+- <a href="https://github.com/gtopt-community/gtopt/blob/master/docs/formulation/mathematical-formulation.md">Mathematical Formulation</a>
+- <a href="https://github.com/gtopt-community/gtopt/blob/master/docs/usage.md">Usage Guide</a>
+- <a href="https://github.com/gtopt-community/gtopt/blob/master/docs/input-data.md">Input Data Reference</a>
+- <a href="https://github.com/gtopt-community/gtopt/blob/master/BUILDING.md">Building Guide</a>
 
 */

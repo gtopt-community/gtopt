@@ -369,7 +369,7 @@ Once all dependencies are installed:
 
 ```bash
 # Clone the repository
-git clone https://github.com/marcelomatus/gtopt.git
+git clone https://github.com/gtopt-community/gtopt.git
 cd gtopt
 
 # Configure the build (add -G Ninja for faster builds)

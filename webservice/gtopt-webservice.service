@@ -1,6 +1,6 @@
 [Unit]
 Description=gtopt Web Service
-Documentation=https://github.com/marcelomatus/gtopt
+Documentation=https://github.com/gtopt-community/gtopt
 After=network.target
 
 [Service]

@@ -1,7 +1,9 @@
 # gtopt Commercial License — summary
 
 The full agreement is provided on request; this page summarises its terms.
-Licensor: **Marcelo Matus** (copyright holder).
+Licensor: **Marcelo Matus** (copyright holder), or a successor steward
+(company or foundation) to which he assigns the gtopt copyrights; existing
+commercial licences remain valid after such an assignment.
 
 - **Grant:** use, modify, embed and redistribute gtopt — including in
   closed-source products and hosted services — **without** the copyleft

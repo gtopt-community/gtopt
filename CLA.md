@@ -7,7 +7,10 @@ employer.*
 By signing (via the CLA Assistant check on your first pull request, or by
 e-mail to <marcelomatusacuna@gmail.com>) you ("You") accept these terms for
 your present and future Contributions to gtopt, whose copyright holder is
-Marcelo Matus (the "Maintainer").
+Marcelo Matus (the "Maintainer"). References to the Maintainer include
+his successors and assigns, in particular any foundation, association or
+other legal entity to which stewardship of gtopt or its copyrights is
+later transferred.
 
 1. **Definitions.** "Contribution" means any original work of authorship,
    including modifications or additions to existing work, that You
@@ -39,7 +42,12 @@ Marcelo Matus (the "Maintainer").
    of any kind. You are not expected to provide support.
 7. **Notification.** You will notify the Maintainer if any representation
    above becomes inaccurate.
-8. **Law.** This agreement is governed by the laws of Chile.
+8. **Transfer.** The Maintainer may assign this agreement and the licences
+   granted under it, in whole, to a successor steward of gtopt (for example
+   a non-profit foundation), which then assumes the outbound commitment of
+   section 4. You will be notified of such an assignment through the
+   project repository.
+9. **Law.** This agreement is governed by the laws of Chile.
 
 Commits must also carry a `Signed-off-by:` line (Developer Certificate of
 Origin, `git commit -s`).

@@ -82,12 +82,12 @@ agents running inside CI don't need any extra configuration.
 
     # Find the latest non-expired artifact id
     ART_ID=$(gh api \\
-        "repos/marcelomatus/gtopt/actions/artifacts?name=gtopt-binary-debug" \\
+        "repos/gtopt-community/gtopt/actions/artifacts?name=gtopt-binary-debug" \\
         --jq '.artifacts | map(select(.expired|not)) | .[0].id')
 
     # Download and unzip to /tmp/gtopt-ci-bin/
     mkdir -p /tmp/gtopt-ci-bin
-    gh api repos/marcelomatus/gtopt/actions/artifacts/${ART_ID}/zip \\
+    gh api repos/gtopt-community/gtopt/actions/artifacts/${ART_ID}/zip \\
         --header "Accept: application/vnd.github+json" > /tmp/gtopt.zip
     unzip -o /tmp/gtopt.zip -d /tmp/gtopt-ci-bin
     chmod +x /tmp/gtopt-ci-bin/gtopt
@@ -170,7 +170,7 @@ import zipfile
 from typing import Optional
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent  # tools/../ = repo root
-_GITHUB_REPO = "marcelomatus/gtopt"
+_GITHUB_REPO = "gtopt-community/gtopt"
 _ARTIFACT_NAME = "gtopt-binary-debug"
 _DEFAULT_CI_BIN_DIR = pathlib.Path("/tmp/gtopt-ci-bin")
 
