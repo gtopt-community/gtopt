@@ -22,6 +22,7 @@ import json
 import logging
 import math
 import os
+import re
 import zipfile
 from base64 import b64decode, b64encode
 from typing import TYPE_CHECKING, Any
@@ -266,83 +267,183 @@ def _parse_solution_rows(rows: list[list[str]]) -> dict[str, str]:
     return {r[0].strip(): r[1].strip() for r in rows if len(r) >= 2}
 
 
+# ---------------------------------------------------------------------------
+# Results parsing
+# ---------------------------------------------------------------------------
+
+# gtopt writes one CSV shard per (scene, phase): ``<stem>_s<N>_p<M>.csv``.
+_SHARD_SUFFIX_RE = re.compile(r"_s\d+_p\d+$")
+_CSV_EXTS = (".csv.gz", ".csv.zst", ".csv")
+_LOG_FILES = ("gtopt_terminal.log", "stdout.log", "stderr.log")
+# Hive partition columns pandas/pyarrow may materialise when a whole
+# ``<stem>.parquet/`` dataset is read; they duplicate scenario/stage.
+_PARTITION_COLS = ("scene", "phase")
+_INDEX_ORDER = ("scenario", "stage", "block")
+
+
+def _natural_key(text: str) -> list[Any]:
+    """Sort key ordering ``_s2_p0`` before ``_s10_p0``."""
+    return [int(tok) if tok.isdigit() else tok for tok in re.split(r"(\d+)", text)]
+
+
+def _output_key(name: str) -> str | None:
+    """Map a ZIP member path to its ``<Class>/<stem>`` output key.
+
+    Handles the three layouts gtopt has produced:
+
+    * legacy single file:  ``<Class>/<stem>.{csv,csv.gz,parquet}``
+    * CSV shards:          ``<Class>/<stem>_s<N>_p<M>.{csv,csv.gz,csv.zst}``
+    * hive Parquet:        ``<Class>/<stem>.parquet/scene=N/phase=M/part.parquet``
+
+    Returns ``None`` for members that are not output tables.
+    """
+    parts = [p for p in name.split("/") if p]
+    if not parts:
+        return None
+    # Hive-partitioned dataset: a *directory* component ends in .parquet.
+    for i, part in enumerate(parts[:-1]):
+        if part.endswith(".parquet"):
+            stem = part[: -len(".parquet")]
+            parent = parts[i - 1] if i > 0 else ""
+            return f"{parent}/{stem}" if parent else stem
+    base = parts[-1]
+    for ext in (*_CSV_EXTS, ".parquet"):
+        if base.endswith(ext):
+            stem = _SHARD_SUFFIX_RE.sub("", base[: -len(ext)])
+            parent = parts[-2] if len(parts) > 1 else ""
+            return f"{parent}/{stem}" if parent else stem
+    return None
+
+
+def _decode_csv_member(name: str, raw: bytes) -> list[list[str]] | None:
+    """Decompress (if needed) and parse a CSV member into rows."""
+    if name.endswith(".csv.gz"):
+        raw = gzip.decompress(raw)
+    elif name.endswith(".csv.zst"):
+        try:
+            import zstandard  # pylint: disable=import-outside-toplevel
+        except ImportError:
+            logger.warning("Skipping %s: the 'zstandard' module is not installed", name)
+            return None
+        raw = zstandard.ZstdDecompressor().stream_reader(io.BytesIO(raw)).read()
+    return list(csv.reader(io.StringIO(raw.decode("utf-8"))))
+
+
+def _is_long_columns(columns: list[Any]) -> bool:
+    """True for gtopt's long output layout (``uid`` + ``value`` columns,
+    no per-element ``uid:N`` columns)."""
+    names = {str(c) for c in columns}
+    return "uid" in names and "value" in names and not any(c.startswith("uid:") for c in names)
+
+
+def _uid_label(uid: Any) -> str:
+    if isinstance(uid, float) and uid.is_integer():
+        uid = int(uid)
+    return f"uid:{uid}"
+
+
+def _pivot_long(df: pd.DataFrame) -> pd.DataFrame | None:
+    """Pivot a long ``[<index cols>, uid, value]`` table to wide ``uid:N``.
+
+    gtopt omits zero-valued rows in the long layout, so (index, uid) cells
+    that are absent are filled with ``0``; explicit nulls in ``value``
+    stay null.  Returns ``None`` when there is no index column to pivot on.
+    """
+    df = df.drop(columns=[c for c in _PARTITION_COLS if c in df.columns])
+    idx = [c for c in _INDEX_ORDER if c in df.columns]
+    idx += [c for c in df.columns if c not in idx and c not in ("uid", "value")]
+    if not idx:
+        return None
+    for col in (*idx, "uid", "value"):
+        converted = pd.to_numeric(df[col], errors="coerce")
+        # Keep non-numeric index labels as-is; empty CSV cells → NaN.
+        if col == "value" or converted.notna().sum() == df[col].notna().sum():
+            df[col] = converted
+    df = df.dropna(subset=["uid"])
+    df = df.drop_duplicates(subset=[*idx, "uid"], keep="first")
+    wide = df.set_index([*idx, "uid"])["value"].unstack("uid", fill_value=0)
+    wide.columns = [_uid_label(c) for c in wide.columns]
+    return wide.reset_index()
+
+
+def _merge_output_entries(entries: list[tuple[list[Any], list[list[Any]]]]) -> dict[str, Any]:
+    """Combine the (columns, rows) tables collected for one output key.
+
+    * one legacy wide table → returned untouched;
+    * long tables (any number of scene/phase shards) → concatenated and
+      pivoted to the wide ``uid:N`` layout the plotting code expects;
+    * several wide shards → concatenated (union of columns).
+    """
+    if len(entries) == 1 and not _is_long_columns(entries[0][0]):
+        cols, data = entries[0]
+        return {"columns": list(cols), "data": data}
+
+    frames = [pd.DataFrame(data, columns=cols) for cols, data in entries]
+    df = pd.concat(frames, ignore_index=True, sort=False)
+    if all(_is_long_columns(cols) for cols, _ in entries):
+        wide = _pivot_long(df)
+        if wide is not None:
+            return {"columns": list(wide.columns), "data": _df_to_rows(wide)}
+    df = df.astype(object).where(df.notna(), None)
+    return {"columns": list(df.columns), "data": _df_to_rows(df)}
+
+
 def _parse_results_zip(zip_bytes):
-    """Parse a results ZIP or directory structure into viewable data."""
+    """Parse a results ZIP into viewable data.
+
+    Output tables are keyed ``<Class>/<stem>`` (e.g.
+    ``Generator/generation_sol``).  Both the legacy wide layout (one
+    ``uid:N`` column per element) and the current long layout
+    (``scenario,stage,block,uid,value``, split into per-(scene, phase)
+    CSV shards or a hive-partitioned Parquet dataset) are accepted; long
+    tables are returned pivoted to the wide layout.
+    """
     results: dict[str, Any] = {"solution": {}, "outputs": {}, "terminal_output": ""}
+    collected: dict[str, list[tuple[str, list[Any], list[list[Any]]]]] = {}
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
         for name in zf.namelist():
+            if name.endswith("/"):
+                continue
             # Collect terminal / log files so they can be shown in the GUI
             base = os.path.basename(name)
-            if base in ("gtopt_terminal.log", "stdout.log", "stderr.log"):
+            if base in _LOG_FILES:
                 try:
                     content = zf.read(name).decode("utf-8", errors="replace")
                     if content.strip():
                         if results["terminal_output"]:
                             results["terminal_output"] += "\n"
                         results["terminal_output"] += content
-                except Exception:
+                except Exception:  # pylint: disable=broad-exception-caught
                     pass
                 continue
 
-            if name.endswith(".csv"):
-                try:
-                    content = zf.read(name).decode("utf-8")
-                    reader = csv.reader(io.StringIO(content))
-                    rows = list(reader)
-                    parent = os.path.basename(os.path.dirname(name))
-
-                    if base == "solution.csv":
+            key = _output_key(name)
+            if key is None:
+                continue
+            try:
+                if name.endswith(".parquet"):
+                    df = pd.read_parquet(io.BytesIO(zf.read(name)))
+                    cols: list[Any] = list(df.columns)
+                    data: list[list[Any]] = _df_to_rows(df)
+                else:
+                    rows = _decode_csv_member(name, zf.read(name))
+                    if not rows:
+                        continue
+                    cols, data = rows[0], rows[1:]
+                    if base in ("solution.csv", "solution.csv.gz"):
                         results["solution"] = _parse_solution_rows(rows)
-                    else:
-                        # Strip the ``.csv`` suffix to match the lookup key
-                        # convention used by ``gtopt_results_summary``
-                        # (parent/basename, no extension) — mirrors the
-                        # ``.csv.gz`` and ``.parquet`` branches below.
-                        base_no_ext = base[: -len(".csv")]
-                        key = f"{parent}/{base_no_ext}" if parent else base_no_ext
-                        if rows:
-                            results["outputs"][key] = {
-                                "columns": rows[0],
-                                "data": rows[1:],
-                            }
-                except Exception:
-                    pass
+                        continue
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.warning("Failed to parse results file %s: %s", name, exc)
+                continue
+            collected.setdefault(key, []).append((name, cols, data))
 
-            elif name.endswith(".csv.gz"):
-                try:
-                    raw = zf.read(name)
-                    content = gzip.decompress(raw).decode("utf-8")
-                    reader = csv.reader(io.StringIO(content))
-                    rows = list(reader)
-                    # Strip the .csv.gz suffix for display key
-                    base_no_ext = base[: -len(".csv.gz")]
-                    parent = os.path.basename(os.path.dirname(name))
-
-                    if base_no_ext == "solution":
-                        results["solution"] = _parse_solution_rows(rows)
-                    else:
-                        key = f"{parent}/{base_no_ext}" if parent else base_no_ext
-                        if rows:
-                            results["outputs"][key] = {
-                                "columns": rows[0],
-                                "data": rows[1:],
-                            }
-                except Exception:
-                    pass
-
-            elif name.endswith(".parquet"):
-                try:
-                    raw = zf.read(name)
-                    df = pd.read_parquet(io.BytesIO(raw))
-                    base_no_ext = os.path.splitext(os.path.basename(name))[0]
-                    parent = os.path.basename(os.path.dirname(name))
-                    key = f"{parent}/{base_no_ext}" if parent else base_no_ext
-                    results["outputs"][key] = {
-                        "columns": list(df.columns),
-                        "data": _df_to_rows(df),
-                    }
-                except Exception:
-                    pass
+    for key, entries in collected.items():
+        entries.sort(key=lambda e: _natural_key(e[0]))
+        try:
+            results["outputs"][key] = _merge_output_entries([(c, d) for _, c, d in entries])
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning("Failed to merge results for %s: %s", key, exc)
 
     return results

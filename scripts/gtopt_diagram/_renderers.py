@@ -8,8 +8,11 @@ the results.
 
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import os
+import re
 import tempfile
 import textwrap
 import webbrowser
@@ -46,6 +49,44 @@ _GRAPHVIZ_INSTALL_MSG = (
     "  brew install graphviz            # macOS\n"
     "  winget install graphviz          # Windows"
 )
+
+
+# ``<image ... xlink:href="/abs/path.png">`` / ``href="..."`` as emitted by
+# Graphviz for ``<IMG SRC=...>`` HTML-label cells.
+_SVG_IMAGE_HREF_RE = re.compile(r'(<image\b[^>]*?\s(?:xlink:)?href=)(["\'])([^"\']*)\2')
+
+
+def _file_to_data_uri(path: str) -> Optional[str]:
+    """Return a ``data:`` URI with the contents of local file *path*."""
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return None
+    mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+def embed_svg_images(svg_text: str) -> str:
+    """Inline every local-file ``<image>`` reference in *svg_text*.
+
+    Graphviz copies the ``<IMG SRC>`` path of HTML-label icons verbatim
+    into the SVG, i.e. an absolute path into the local icon cache (under
+    the temp dir).  Such an SVG breaks on any other machine and leaks a
+    local path, so each local reference is replaced by a ``data:`` URI.
+    References that already are ``data:`` / ``http(s):`` URIs are kept.
+    """
+
+    def _sub(match: re.Match[str]) -> str:
+        prefix, quote, href = match.group(1), match.group(2), match.group(3)
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", href) and not href.startswith(
+            "file:"
+        ):
+            return match.group(0)
+        path = href[len("file://") :] if href.startswith("file://") else href
+        uri = _file_to_data_uri(path)
+        return f"{prefix}{quote}{uri}{quote}" if uri else match.group(0)
+
+    return _SVG_IMAGE_HREF_RE.sub(_sub, svg_text)
 
 
 def _gv_node_attrs(node: Node, icon_path: Optional[str]) -> dict[str, str]:
@@ -126,7 +167,10 @@ def render_graphviz(
     has_both = bool(elec_nodes) and bool(hydro_nodes)
 
     def add_node(d, node: Node) -> None:
-        icon = _icon_png_path(node.kind)
+        # DOT source is meant to be portable; an ``<IMG SRC>`` pointing at
+        # this machine's icon cache would be both broken elsewhere and a
+        # leaked local path, so icons are only used for rendered formats.
+        icon = _icon_png_path(node.kind) if fmt != "dot" else None
         attrs = _gv_node_attrs(node, icon)
         attrs["tooltip"] = node.tooltip or node.label
         # N1: articulation-point buses get a red border + thicker pen.
@@ -378,11 +422,18 @@ def render_graphviz(
             )
         except FileNotFoundError as err:
             raise SystemExit(_GRAPHVIZ_INSTALL_MSG) from err
+        if fmt == "svg":
+            rendered_path = Path(rendered)
+            rendered_path.write_text(
+                embed_svg_images(rendered_path.read_text(encoding="utf-8")),
+                encoding="utf-8",
+            )
         return rendered
     try:
-        return dot.pipe(format=fmt).decode("utf-8", errors="replace")
+        piped = dot.pipe(format=fmt).decode("utf-8", errors="replace")
     except FileNotFoundError as err:
         raise SystemExit(_GRAPHVIZ_INSTALL_MSG) from err
+    return embed_svg_images(piped) if fmt == "svg" else piped
 
 
 # ---------------------------------------------------------------------------
