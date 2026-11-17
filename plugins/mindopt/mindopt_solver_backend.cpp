@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <format>
 #include <mutex>
+#include <numeric>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -530,6 +531,7 @@ void MindOptSolverBackend::load_problem(int ncols,
 
   // Re-establish the native objective offset (MDOnewmodel starts it at 0) so a
   // reload keeps it.  The LinearInterface also calls set_obj_offset after load.
+  // Only MindOpt's MIP gap sees it: obj_value() adds m_obj_offset_ itself.
   if (m_obj_offset_ != 0.0) {
     MDOsetdblattr(m_model_, MDO_DBL_ATTR_OBJ_CON, m_obj_offset_);
   }
@@ -537,8 +539,9 @@ void MindOptSolverBackend::load_problem(int ncols,
 
 void MindOptSolverBackend::set_obj_offset(double raw_offset) noexcept
 {
-  // ABSOLUTE set.  Store for the next load_problem / clone, and push to the
-  // live model (MDO_DBL_ATTR_OBJ_CON is the objective constant term).
+  // ABSOLUTE set.  m_obj_offset_ is the single source of the constant for
+  // obj_value(); the live model's MDO_DBL_ATTR_OBJ_CON mirrors it only so
+  // MindOpt's MIP relative gap is computed against the true objective.
   m_obj_offset_ = raw_offset;
   if (m_model_ != nullptr) {
     MDOsetdblattr(m_model_, MDO_DBL_ATTR_OBJ_CON, raw_offset);
@@ -944,13 +947,36 @@ void MindOptSolverBackend::fill_row_dual(std::span<double> out) const
 
 double MindOptSolverBackend::obj_value() const
 {
-  double val = 0.0;
-  MDOgetdblattr(m_model_, MDO_DBL_ATTR_PRIMAL_OBJ_VAL, &val);
-  // MindOpt's PRIMAL_OBJ_VAL does NOT fold in MDO_DBL_ATTR_OBJ_CON (unlike
-  // CPLEX's CPXgetobjval), so add the stored offset here to keep the reported
-  // objective offset-inclusive.  The native OBJ_CON is still set on the model
-  // (set_obj_offset) in case MindOpt's relative MIP-gap consults it internally.
-  return val + m_obj_offset_;
+  // Reported objective = c·x* + m_obj_offset_, composed from MindOpt's own
+  // primal point (MDO_DBL_ATTR_X) and objective coefficients.  m_obj_offset_
+  // is the SINGLE source of the constant; MDO_DBL_ATTR_PRIMAL_OBJ_VAL is
+  // deliberately not used because, on MindOpt 2.3.0, it is unreliable as a
+  // carrier of the constant:
+  //   - it DOES include MDO_DBL_ATTR_OBJ_CON (min 2x+3y, ObjCon=100 →
+  //     PrimalObjVal = 109), so `PrimalObjVal + m_obj_offset_` counted the
+  //     constant twice whenever the offset was set before the solve (the
+  //     load_flat path every gtopt run takes);
+  //   - but it bakes in the ObjCon of the last EFFECTIVE optimize: a change
+  //     to ObjCon alone does not invalidate the solution, so the next
+  //     MDOoptimize is a no-op and PrimalObjVal keeps the stale constant
+  //     (ObjCon 100 → 200, re-solve → still 109; a clone reports 109 too).
+  //     So neither `PrimalObjVal` nor `PrimalObjVal - ObjCon` is correct in
+  //     every path.
+  // The native ObjCon is still pushed to the model (set_obj_offset) so that
+  // MindOpt's MIP relative gap is measured against the true objective.
+  const int ncols = get_num_cols();
+  if (ncols <= 0) {
+    return m_obj_offset_;
+  }
+  std::vector<double> x(static_cast<size_t>(ncols));
+  if (MDOgetdblattrarray(m_model_, MDO_DBL_ATTR_X, 0, ncols, x.data())
+      != MDO_OKAY)
+  {
+    return m_obj_offset_;  // no primal point available (not solved)
+  }
+  fill_obj_if_needed();
+  return std::inner_product(x.begin(), x.end(), m_obj_.begin(), 0.0)
+      + m_obj_offset_;
 }
 
 // ── solution hints ───────────────────────────────────────────────────────

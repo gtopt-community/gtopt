@@ -278,8 +278,9 @@ private:
   bool m_presolve_ {true};
   int m_log_level_ {0};
   /// Native objective offset (raw/scaled units).  Absolute value set via
-  /// `set_obj_offset` → `MDO_DBL_ATTR_OBJ_CON`; re-applied in load_problem and
-  /// carried by `MDOcopymodel` in clone().
+  /// `set_obj_offset`; the single source of the constant in obj_value()
+  /// (= c·x* + m_obj_offset_).  Mirrored to `MDO_DBL_ATTR_OBJ_CON` only for
+  /// MindOpt's MIP gap; re-applied in load_problem and copied in clone().
   double m_obj_offset_ {0.0};
 
   /// Snapshot of MindOpt tolerances captured by engage_robust_solve().

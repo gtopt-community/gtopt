@@ -933,47 +933,31 @@ You can:
 
 ### Known solver issues
 
-#### MindOpt 2.3.0: wrong objective value (constant offset)
+#### MindOpt 2.3.0: objective counted the offset twice (fixed)
 
-With the MindOpt backend (`--solver mindopt` / `GTOPT_SOLVER=mindopt`,
-MindOpt 2.3.0) the reported objective — `obj_value` in `solution.csv`,
-the log's `Obj` lines and every SDDP bound derived from it — is too
-large by a constant, while the primal dispatch is the same as with the
-other solvers:
+Status: **fixed**. Affected gtopt builds from the native objective
+offset (`e75db122`) up to this fix, with MindOpt 2.3.0.
 
-| Case | MindOpt `obj_value` | Expected (CPLEX/HiGHS/CLP) | Offset |
-|------|--------------------:|---------------------------:|-------:|
-| `s1b` | 256000 | 6000 | 250000 |
-| `ieee_4b_ori` | 255000 | 5000 | 250000 |
-| `ieee_9b_ori` | 322000 | 7000 | 315000 |
-| `ieee_9b` | 12709996 | 794196 | 11915800 |
+Before the fix, the MindOpt backend (`--solver mindopt` /
+`GTOPT_SOLVER=mindopt`) reported an objective that was too large by the
+LP objective constant: `obj_value` in `solution.csv`, the log's `Obj`
+lines and every SDDP bound derived from them. The primal dispatch was
+correct. For example, `s1b` reported 256000 instead of 6000, and
+`ieee_9b` reported 12709996 instead of 794196. The constant is
+`demand_fail_cost × Σ demand × duration` from the `fail = lmax − load`
+substitution.
 
-The offset equals the LP objective constant (for these cases
-`demand_fail_cost × Σ demand × duration`, introduced by the
-`fail = lmax − load` substitution), i.e. it is counted twice. The
-suspected cause is `MindOptSolverBackend::obj_value()` in
-`plugins/mindopt/mindopt_solver_backend.cpp`, which adds the stored
-offset to `MDO_DBL_ATTR_PRIMAL_OBJ_VAL` on the assumption that MindOpt
-does not fold in `MDO_DBL_ATTR_OBJ_CON` (set by `set_obj_offset`).
-
-Consequences until the driver is fixed:
-
-- Under `GTOPT_SOLVER=mindopt`, 78 e2e integration tests fail
-  (every `e2e_*_compare_solution` — the objective is compared as a hard
-  error — plus per-element comparisons against the stale
-  `output_mindopt/` goldens).  This is expected; the `output_mindopt/`
-  goldens are intentionally not regenerated.
-- Do not trust MindOpt objective values or SDDP bounds.
-
-Reproduce:
-
-```bash
-export MINDOPT_HOME=$HOME/mindopt/2.3.0
-cd cases/s1b
-gtopt s1b.json --solver mindopt --output-directory /tmp/s1b_mindopt
-gtopt s1b.json --solver highs   --output-directory /tmp/s1b_highs
-cut -d, -f5 /tmp/s1b_mindopt/solution.csv /tmp/s1b_highs/solution.csv
-```
+Cause: on MindOpt 2.3.0, `MDO_DBL_ATTR_PRIMAL_OBJ_VAL` already includes
+`MDO_DBL_ATTR_OBJ_CON`, and `MindOptSolverBackend::obj_value()` added
+the stored offset to it a second time. Earlier probes missed this
+because they set `OBJ_CON` only after a first solve. A change to
+`OBJ_CON` on its own does not invalidate the solution, so the next
+`MDOoptimize` does nothing and `PrimalObjVal` keeps the old constant.
+The backend now computes the objective as `c·x* + offset` from
+MindOpt's primal point and the stored offset. `OBJ_CON` is still set,
+but only so that MindOpt's MIP relative gap is measured against the
+true objective. Cross-backend regression tests are in
+`test/source/test_solver_obj_offset_per_solver.cpp`.
 
 ## Batch Execution
 
