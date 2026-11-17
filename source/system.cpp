@@ -508,13 +508,14 @@ void System::fold_legacy_fuel_emission_factors()
       continue;
     }
 
-    auto fef_it =
-        std::ranges::find_if(f.emission_factors,
-                             [co2_uid](const FuelEmissionFactor& fef)
-                             {
-                               return std::holds_alternative<Uid>(fef.emission)
-                                   && std::get<Uid>(fef.emission) == co2_uid;
-                             });
+    // Name-or-uid match: an existing row may write `"emission": "co2"`.
+    auto fef_it = std::ranges::find_if(
+        f.emission_factors,
+        [this, co2_uid](const FuelEmissionFactor& fef)
+        {
+          return same_emission(
+              fef.emission, SingleId {co2_uid}, emission_array);
+        });
 
     if (fef_it == f.emission_factors.end()) {
       f.emission_factors.push_back(FuelEmissionFactor {
@@ -578,6 +579,26 @@ void System::expand_fuel_emission_sources()
       continue;
     }
 
+    // Piecewise heat rate: fuel burn is the convex PWL function
+    //   h₁·p + Σₖ (hₖ − hₖ₋₁)·max(0, p − P̄ₖ₋₁)
+    // carried by the generation column PLUS the per-segment heat-rate
+    // slack columns.  An `EmissionSource` is linear in the generation
+    // column only, so no single representative rate is exact (h₁
+    // under-states, h_K over-states, any average is wrong at some
+    // load).  Skip — loudly — instead of guessing.
+    if (!gen.heat_rate_segments.empty() && !gen.heat_rate.has_value()) {
+      SPDLOG_WARN(
+          "Generator '{}' uid={}: heat_rate_segments (piecewise heat "
+          "rate) is not supported by fuel-derived emissions — fuel "
+          "'{}' emission factors are NOT applied to this generator.  "
+          "Declare explicit EmissionSource entries (e.g. with a "
+          "representative per-MWh rate) to account for its emissions.",
+          gen.name,
+          gen.uid,
+          fuel->name);
+      continue;
+    }
+
     // Scalar heat_rate only — time-varying schedules can't be folded
     // lossless into the per-stage `EmissionSource.rate` field.
     const auto hr_opt = scalar_or(gen.heat_rate);
@@ -632,10 +653,14 @@ void System::expand_fuel_emission_sources()
       // Stacked-cap users (e.g. one global CO₂ zone plus a regional
       // basket) naturally pick up one source per zone they belong to.
       for (const auto& zone : emission_zone_array) {
-        const bool covers =
-            std::ranges::any_of(zone.emissions,
-                                [&](const EmissionZoneFactor& zef)
-                                { return zef.emission == fef.emission; });
+        // Name-or-uid match: the zone and the fuel row may refer to
+        // the same pollutant by different SingleId alternatives.
+        const bool covers = std::ranges::any_of(
+            zone.emissions,
+            [&](const EmissionZoneFactor& zef)
+            {
+              return same_emission(zef.emission, fef.emission, emission_array);
+            });
         if (!covers) {
           continue;
         }
@@ -699,17 +724,20 @@ void System::fold_legacy_emission_rate()
   const auto co2_uid = co2_it->uid;
 
   // ── Ensure a CO₂-covering EmissionZone exists ──────────────────────
+  // Name-or-uid match: a zone listing `"emission": "co2"` by name must
+  // be reused (and its price / cap applied), not shadowed by a fresh
+  // unpriced `default_co2` zone.
   auto zone_it = std::ranges::find_if(
       emission_zone_array,
-      [co2_uid](const EmissionZone& z)
+      [this, co2_uid](const EmissionZone& z)
       {
-        return std::ranges::any_of(
-            z.emissions,
-            [co2_uid](const EmissionZoneFactor& f)
-            {
-              return std::holds_alternative<Uid>(f.emission)
-                  && std::get<Uid>(f.emission) == co2_uid;
-            });
+        return std::ranges::any_of(z.emissions,
+                                   [this, co2_uid](const EmissionZoneFactor& f)
+                                   {
+                                     return same_emission(f.emission,
+                                                          SingleId {co2_uid},
+                                                          emission_array);
+                                   });
       });
   if (zone_it == emission_zone_array.end()) {
     auto next = next_uid(emission_zone_array);

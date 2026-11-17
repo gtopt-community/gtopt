@@ -38,12 +38,14 @@
 
 #include <gtopt/allowance_pool_lp.hpp>
 #include <gtopt/cost_helper.hpp>
+#include <gtopt/emission_lp.hpp>
 #include <gtopt/emission_source_lp.hpp>
 #include <gtopt/emission_zone_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -123,12 +125,19 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   // out-of-scope pollutant — log and skip).  Weight defaults to 1.0
   // when the zone-factor row has no explicit `weight` (single-
   // pollutant zone, or CO₂-only basket).
+  //
+  // Pollutant references are matched name-or-uid (resolved against the
+  // Emission registry): the zone may list `"co2"` while the source
+  // carries `Uid{1}` (e.g. a row synthesized by a legacy fold).
+  const auto& emissions = sc.elements<EmissionLP>();
+  const auto as_emission = [](const EmissionLP& e) -> const Emission&
+  { return e.emission(); };
   const auto& zone_emissions = zone.emission_zone().emissions;
   const auto& src_emission = src.emission;
   double weight = 0.0;
   bool emission_in_zone = false;
   for (const auto& zef : zone_emissions) {
-    if (zef.emission == src_emission) {
+    if (same_emission(zef.emission, src_emission, emissions, as_emission)) {
       weight = zef.weight.value_or(1.0);
       emission_in_zone = true;
       break;
@@ -157,7 +166,7 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   double capture_cost = 0.0;
   const auto stage_index = static_cast<std::size_t>(stage.index());
   for (const auto& cap : gen.generator().emission_captures) {
-    if (cap.emission == src.emission) {
+    if (same_emission(cap.emission, src.emission, emissions, as_emission)) {
       capture_rate = resolve_stage_scalar(cap.rate, stage_index);
       capture_cost = resolve_stage_scalar(cap.cost, stage_index);
       break;

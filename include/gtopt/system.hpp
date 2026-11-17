@@ -345,9 +345,12 @@ struct System
    * row to `emission_source_array`.  The synthesized row name is
    * `<gen>_<pollutant>_via_fuel`.
    *
-   * Time-varying heat_rate (vector / FileSched) or time-varying
-   * fuel factors emit a one-shot WARN and skip the row — manual
-   * migration to explicit `EmissionSource` rows is required.
+   * Time-varying heat_rate (vector / FileSched) and piecewise
+   * `heat_rate_segments` emit a WARN naming the generator and skip
+   * the row — explicit `EmissionSource` rows are required (a single
+   * linear rate on the generation column cannot represent the convex
+   * piecewise fuel burn exactly).  Time-varying fuel factors and
+   * `heat_content` collapse to their scalar arm (0 when non-scalar).
    * Idempotent on the scalar path: a re-run produces the same rows
    * with the same auto-generated names, so duplicates would collide
    * and skip.
