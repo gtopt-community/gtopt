@@ -2,7 +2,7 @@
 
 ## Today
 
-gtopt is hosted by the **gtopt community** GitHub organization
+gtopt is hosted by the **La comunidad GTOpt** GitHub organization
 (`github.com/gtopt-community`) and led by its author and copyright holder,
 **Marcelo Matus**, who acts as lead maintainer:
 
