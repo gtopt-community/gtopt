@@ -12,6 +12,8 @@ import threading
 import time
 from pathlib import Path
 
+from gtopt_shared.solution_csv import default_scale_objective, resolve_objective
+
 log = logging.getLogger(__name__)
 
 
@@ -644,11 +646,14 @@ def run_check_lp(lp_files: list[Path]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def check_solution(results_dir: Path) -> dict:
+def check_solution(results_dir: Path, fallback_scale: float | None = None) -> dict:
     """Parse solution.csv (or solution.parquet) from the results directory.
 
-    Returns a dict with keys: ``status``, ``objective`` (or empty if
-    the file is not found / unparseable).  Both the CSV and Parquet
+    Returns a dict with keys: ``status``, ``objective`` and
+    ``scale_objective`` (or empty if the file is not found / unparseable).
+    ``objective`` is the first cell's ``obj_value`` in physical cost units
+    (see :mod:`gtopt_shared.solution_csv`); *fallback_scale* is only used
+    for legacy outputs that do not record their ``scale_objective``.  Both the CSV and Parquet
     paths now route through PyArrow so quoted CSV fields and
     Arrow-written headers are handled uniformly — the previous
     manual ``str.split(",")`` parser would mishandle quoted values.
@@ -677,8 +682,11 @@ def check_solution(results_dir: Path) -> dict:
 
         df = table.to_pandas()
         result: dict = {"status": int(df["status"].iloc[0])}
-        if "objective" in df.columns:
-            result["objective"] = float(df["objective"].iloc[0])
+        first_row = {str(c): str(df[c].iloc[0]) for c in df.columns}
+        objective = resolve_objective(first_row, fallback_scale=fallback_scale)
+        if objective is not None:
+            result["objective"] = objective.value
+            result["scale_objective"] = objective.scale_objective
         return result
     except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         log.warning("failed to parse %s: %s", src, exc)
@@ -936,7 +944,7 @@ def _compute_energy_indicators(
                 for bi in range(first, min(end, len(block_uids))):
                     block_to_stage[block_uids[bi]] = st["uid"]
 
-            scale_obj = opts.get("scale_objective", 1000.0) or 1000.0
+            scale_obj = default_scale_objective(opts) or 1000.0
         indicators["scale_objective"] = scale_obj
 
         def _block_weight(blk: int, discounted: bool) -> float:
@@ -1257,23 +1265,19 @@ def report_solution(
         _report_solution_plain(results_dir, gtopt_dir)
         return
 
+    # ── Energy indicators (fast) ──
+    indicators = _compute_energy_indicators(results_dir, planning_json)
+
     # ── Solution status ──
-    sol = check_solution(results_dir)
+    # ``objective`` is already in physical units ($); the planning JSON's
+    # scale_objective is only a fallback for legacy solution.csv files.
+    sol = check_solution(results_dir, fallback_scale=indicators.get("scale_objective"))
     status: int | None = sol.get("status")
-    obj: float | None = sol.get("objective")
+    true_obj: float | None = sol.get("objective")
     status_map = {0: "OPTIMAL", 1: "NON-OPTIMAL / INFEASIBLE"}
     status_str = status_map.get(
         status if status is not None else -1, f"UNKNOWN ({status})"
     )
-
-    # ── Energy indicators (fast) ──
-    indicators = _compute_energy_indicators(results_dir, planning_json)
-    scale_obj = indicators.get("scale_objective", 1000.0)
-
-    # Scale objective back to real $
-    true_obj: float | None = None
-    if obj is not None:
-        true_obj = obj * scale_obj
 
     # ── Build rows ──
     rows: list[tuple[str, str]] = []

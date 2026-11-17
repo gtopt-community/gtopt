@@ -470,6 +470,31 @@ class TestRoutes:
         assert data["solution"]["obj_value"] == "123.45"
         assert "Generator/generation_sol" in data["outputs"]
 
+    def test_results_upload_current_solution_layout(self, client):
+        """Columnar solution.csv: the first (scene, phase) row is flattened."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(
+                "output/solution.csv",
+                "scene,phase,status,status_name,obj_value,kappa,max_kappa,"
+                "gap,gap_change,solve_ticks,solve_time_s,solve_calls,"
+                "infeasible_count,scale_objective\n"
+                "0,0,0,optimal,23163.42,284,284,0,1,0.01,0.002,1,0,1000\n"
+                "0,1,0,optimal,99.0,284,284,0,1,0.01,0.002,1,0,1000\n",
+            )
+        buf.seek(0)
+
+        resp = client.post(
+            "/api/results/upload",
+            data={"file": (buf, "results.zip")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200
+        sol = resp.get_json()["solution"]
+        assert sol["status"] == "0"
+        assert sol["obj_value"] == "23163.42"
+        assert sol["scale_objective"] == "1000"
+
 
 class TestRoundTrip:
     """Test that a case can be downloaded and re-uploaded without data loss."""

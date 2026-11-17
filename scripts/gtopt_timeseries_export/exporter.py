@@ -61,7 +61,7 @@ def _autofit(worksheet) -> None:
 def export_from_dict(
     results: dict[str, Any],
     destination: str | os.PathLike[str],
-    scale_objective: float = 1.0,
+    scale_objective: float | None = None,
     tech_map: dict[str, str] | None = None,
 ) -> Path:
     """Export a parsed results dict to an Excel workbook.
@@ -70,8 +70,10 @@ def export_from_dict(
         results: Parsed results dict (shape matches
             :func:`guiservice.app._parse_results_zip`).
         destination: Output ``.xlsx`` path.
-        scale_objective: Value of ``options.scale_objective`` used to unscale
-            the objective value in the Overview sheet.
+        scale_objective: Optional objective-scale override for legacy outputs
+            (validated against ``solution.csv``'s own ``scale_objective``
+            column when present; see
+            :func:`gtopt_results_summary.summary.summarize_output_dict`).
         tech_map: Optional per-UID technology mapping used in the Overview.
 
     Returns:
@@ -111,8 +113,9 @@ def export_from_dict(
         c.fill = header_fill
         c.alignment = Alignment(horizontal="left")
     ws.append(["Status", summary.get("status")])
-    ws.append(["Objective (scaled)", summary.get("obj_value")])
-    ws.append(["Objective (raw)", summary.get("obj_value_raw")])
+    ws.append(["Objective (physical units)", summary.get("obj_value")])
+    ws.append(["Objective (LP raw)", summary.get("obj_value_raw")])
+    ws.append(["Objective scale factor", summary.get("scale_objective")])
     ws.append(["Total generation (MWh)", summary.get("total_generation")])
     ws.append(["Total load (MWh)", summary.get("total_load")])
     ws.append(["Total unserved (MWh)", summary.get("total_unserved")])
@@ -161,7 +164,7 @@ def export_from_dict(
 def export_to_excel(
     source: str | os.PathLike[str],
     destination: str | os.PathLike[str],
-    scale_objective: float = 1.0,
+    scale_objective: float | None = None,
     tech_map: dict[str, str] | None = None,
 ) -> Path:
     """Export a results directory or ZIP to a single Excel workbook.
@@ -169,8 +172,8 @@ def export_to_excel(
     Args:
         source: Path to a directory of gtopt output files or a results ZIP.
         destination: Output ``.xlsx`` path.
-        scale_objective: Value of ``options.scale_objective`` used to unscale
-            the objective.
+        scale_objective: Optional objective-scale override for legacy outputs
+            (see :func:`export_from_dict`).
         tech_map: Optional per-UID technology mapping.
 
     Returns:

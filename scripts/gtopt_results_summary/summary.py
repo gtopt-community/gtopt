@@ -10,7 +10,6 @@ The public entry points are:
 
 from __future__ import annotations
 
-import csv as _csv
 import io
 import os
 import zipfile
@@ -18,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+from gtopt_shared.solution_csv import parse_solution_csv, resolve_objective
 
 
 # Known output file patterns (relative to the output directory) that the
@@ -133,7 +134,7 @@ def _rows_to_df(entry: dict[str, Any]) -> pd.DataFrame:
 def summarize_output_dict(
     results: dict[str, Any],
     tech_map: dict[str, str] | None = None,
-    scale_objective: float = 1.0,
+    scale_objective: float | None = None,
 ) -> dict[str, Any]:
     """Compute KPI summary from a parsed results dict.
 
@@ -148,16 +149,25 @@ def summarize_output_dict(
         tech_map: Optional dict mapping generator UIDs (as strings) to a
             technology label.  When provided, generation is broken down by
             technology; otherwise, everything falls under ``other``.
-        scale_objective: The ``options.scale_objective`` from the case JSON.
-            The raw solver objective is multiplied by this value to produce a
-            cost in the same units as the individual generator costs.
+        scale_objective: Optional override / check of the objective scale
+            factor.  ``solution.csv`` already reports ``obj_value`` in
+            physical units and records ``scale_objective`` in its own column,
+            so this is only needed for legacy outputs written before that
+            column existed (see :mod:`gtopt_shared.solution_csv`).  When it
+            disagrees with the column a
+            :class:`~gtopt_shared.solution_csv.ScaleObjectiveMismatchError`
+            is raised.
 
     Returns:
         A dict with the following keys (all values are plain Python types):
 
         - ``status`` (int | str | None) — solver status from ``solution.csv``
-        - ``obj_value`` (float | None) — total cost (scaled)
-        - ``obj_value_raw`` (float | None) — raw solver objective
+        - ``obj_value`` (float | None) — objective in physical cost units
+        - ``obj_value_raw`` (float | None) — LP-raw objective
+          (``obj_value / scale_objective``; ``None`` if the factor is unknown)
+        - ``scale_objective`` (float | None) — objective scale factor
+        - ``obj_convention`` (str | None) — how ``obj_value`` was read
+          (``column`` / ``physical`` / ``legacy-raw``)
         - ``total_generation`` (float) — sum of Generator/generation_sol
         - ``generation_by_tech`` (dict[str, float])
         - ``total_cost_generation`` (float) — sum of Generator/generation_cost
@@ -177,6 +187,8 @@ def summarize_output_dict(
         "status": solution.get("status"),
         "obj_value": None,
         "obj_value_raw": None,
+        "scale_objective": None,
+        "obj_convention": None,
         "total_generation": 0.0,
         "generation_by_tech": {},
         "total_cost_generation": 0.0,
@@ -192,13 +204,12 @@ def summarize_output_dict(
         "n_blocks": 0,
     }
 
-    try:
-        raw_obj = solution.get("obj_value")
-        if raw_obj is not None:
-            summary["obj_value_raw"] = float(raw_obj)
-            summary["obj_value"] = float(raw_obj) * float(scale_objective)
-    except (TypeError, ValueError):
-        pass
+    objective = resolve_objective(solution, scale_objective=scale_objective)
+    if objective is not None:
+        summary["obj_value"] = objective.value
+        summary["obj_value_raw"] = objective.raw
+        summary["scale_objective"] = objective.scale_objective
+        summary["obj_convention"] = objective.convention
 
     # Indexing columns present in every per-block CSV.
     skip_cols = {"scenario", "stage", "block", "phase", "scene"}
@@ -297,10 +308,9 @@ def _read_output_dir(path: Path) -> dict[str, Any]:
             name = fname.lower()
             try:
                 if name == "solution.csv":
-                    with open(full, "r", encoding="utf-8") as fh:
-                        for row in _csv.reader(fh):
-                            if len(row) >= 2:
-                                results["solution"][row[0]] = row[1]
+                    results["solution"] = parse_solution_csv(
+                        full.read_text(encoding="utf-8")
+                    )
                 elif name.endswith(".parquet"):
                     df = pd.read_parquet(full)
                     base = fname[: -len(".parquet")]
@@ -343,10 +353,9 @@ def _read_zip(path: Path) -> dict[str, Any]:
             parent = os.path.basename(os.path.dirname(name))
             try:
                 if base == "solution.csv":
-                    content = zf.read(name).decode("utf-8")
-                    for row in _csv.reader(io.StringIO(content)):
-                        if len(row) >= 2:
-                            results["solution"][row[0]] = row[1]
+                    results["solution"] = parse_solution_csv(
+                        zf.read(name).decode("utf-8")
+                    )
                 elif name.endswith(".csv"):
                     df = pd.read_csv(io.BytesIO(zf.read(name)))
                     no_ext = base[: -len(".csv")]
@@ -371,7 +380,7 @@ def _read_zip(path: Path) -> dict[str, Any]:
 def summarize_results(
     source: str | os.PathLike[str],
     tech_map: dict[str, str] | None = None,
-    scale_objective: float = 1.0,
+    scale_objective: float | None = None,
 ) -> dict[str, Any]:
     """Summarize results from a directory or ZIP file path.
 
@@ -379,8 +388,8 @@ def summarize_results(
         source: Path to a directory or ZIP file containing gtopt output files.
         tech_map: Optional per-UID technology mapping (see
             :func:`summarize_output_dict`).
-        scale_objective: The ``options.scale_objective`` value used to unscale
-            the objective value.
+        scale_objective: Optional objective-scale override for legacy
+            outputs / consistency check (see :func:`summarize_output_dict`).
 
     Returns:
         A KPI summary dict (see :func:`summarize_output_dict`).

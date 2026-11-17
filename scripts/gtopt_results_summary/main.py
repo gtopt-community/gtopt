@@ -7,6 +7,8 @@ import argparse
 import json
 import sys
 
+from gtopt_shared.solution_csv import ScaleObjectiveMismatchError
+
 from .summary import summarize_results
 
 
@@ -25,10 +27,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--scale-objective",
         type=float,
-        default=1.0,
+        default=None,
         help=(
-            "Value of options.scale_objective used when the case was solved. "
-            "The raw objective is multiplied by this to produce total cost."
+            "Legacy outputs only. solution.csv reports obj_value in physical "
+            "units and records scale_objective in its own column; for such "
+            "outputs this value is only checked against the column (a "
+            "mismatch is an error). For old outputs without the column it is "
+            "the factor used to convert the LP-raw obj_value to physical "
+            "units (default: 1000, the monolithic default)."
         ),
     )
     parser.add_argument(
@@ -51,11 +57,15 @@ def main(argv: list[str] | None = None) -> int:
         with open(args.tech_map, "r", encoding="utf-8") as fh:
             tech_map = json.load(fh)
 
-    summary = summarize_results(
-        args.source,
-        tech_map=tech_map,
-        scale_objective=args.scale_objective,
-    )
+    try:
+        summary = summarize_results(
+            args.source,
+            tech_map=tech_map,
+            scale_objective=args.scale_objective,
+        )
+    except ScaleObjectiveMismatchError as exc:
+        print(f"gtopt_results_summary: error: {exc}", file=sys.stderr)
+        return 2
     indent = 2 if args.pretty else None
     json.dump(summary, sys.stdout, indent=indent, default=str)
     sys.stdout.write("\n")

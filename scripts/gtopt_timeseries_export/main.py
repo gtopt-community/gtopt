@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+from gtopt_shared.solution_csv import ScaleObjectiveMismatchError
+
 from .exporter import export_to_excel
 
 
@@ -33,8 +35,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--scale-objective",
         type=float,
-        default=1.0,
-        help="Value of options.scale_objective used when the case was solved.",
+        default=None,
+        help=(
+            "Legacy outputs only: objective scale factor for solution.csv "
+            "files written before the scale_objective column existed. For "
+            "current outputs obj_value is already physical and this value "
+            "is only checked against the column (a mismatch is an error)."
+        ),
     )
     parser.add_argument(
         "--tech-map",
@@ -57,9 +64,13 @@ def main(argv: list[str] | None = None) -> int:
         else src.parent / f"{src.name}.xlsx"
     )
 
-    result = export_to_excel(
-        src, dest, scale_objective=args.scale_objective, tech_map=tech_map
-    )
+    try:
+        result = export_to_excel(
+            src, dest, scale_objective=args.scale_objective, tech_map=tech_map
+        )
+    except ScaleObjectiveMismatchError as exc:
+        sys.stderr.write(f"gtopt_timeseries_export: error: {exc}\n")
+        return 2
     sys.stdout.write(f"Wrote: {result}\n")
     return 0
 

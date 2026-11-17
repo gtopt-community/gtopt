@@ -15,12 +15,32 @@ from run_gtopt._runner import (
 )
 
 
+_SOLUTION_HEADER = (
+    "scene,phase,status,status_name,obj_value,kappa,max_kappa,gap,gap_change,"
+    "solve_ticks,solve_time_s,solve_calls,infeasible_count,scale_objective\n"
+)
+
+
 def test_check_solution_csv(tmp_path: Path):
-    """Parse a minimal solution.csv."""
+    """Parse the current solution.csv: obj_value is physical, not rescaled."""
     sol = tmp_path / "solution.csv"
-    sol.write_text("status,objective\n0,12345.6\n")
+    sol.write_text(
+        _SOLUTION_HEADER + "0,0,0,optimal,12345.6,3,3,0,1,0.1,0.01,1,0,1000\n"
+    )
     result = check_solution(tmp_path)
     assert result["status"] == 0
+    assert abs(result["objective"] - 12345.6) < 1e-6
+    assert result["scale_objective"] == 1000
+
+
+def test_check_solution_legacy_csv(tmp_path: Path):
+    """Legacy solution.csv (no telemetry/scale columns): obj_value is LP-raw."""
+    sol = tmp_path / "solution.csv"
+    sol.write_text(
+        "scene,phase,status,status_name,obj_value,kappa,gap,gap_change\n"
+        "0,0,0,optimal,12.3456,1,0,1\n"
+    )
+    result = check_solution(tmp_path, fallback_scale=1000.0)
     assert abs(result["objective"] - 12345.6) < 1e-6
 
 
@@ -41,7 +61,9 @@ def test_check_solution_malformed(tmp_path: Path):
 def test_check_solution_non_optimal(tmp_path: Path):
     """Parse solution with non-optimal status."""
     sol = tmp_path / "solution.csv"
-    sol.write_text("status,objective\n1,0.0\n")
+    sol.write_text(
+        _SOLUTION_HEADER + "0,0,1,infeasible,0.0,-1,-1,0,1,0.1,0.01,1,1,1000\n"
+    )
     result = check_solution(tmp_path)
     assert result["status"] == 1
 
@@ -57,12 +79,14 @@ def test_report_solution_empty_dir(tmp_path: Path, capsys):
 def test_report_solution_optimal(tmp_path: Path, capsys):
     """report_solution shows OPTIMAL for status 0."""
     sol = tmp_path / "solution.csv"
-    sol.write_text("status,objective\n0,500.0\n")
+    sol.write_text(_SOLUTION_HEADER + "0,0,0,optimal,500.0,3,3,0,1,0.1,0.01,1,0,1000\n")
     report_solution(tmp_path)
     captured = capsys.readouterr()
     output = captured.out + captured.err
     assert "OPTIMAL" in output
     assert "500" in output
+    # The physical obj_value must not be multiplied by scale_objective again.
+    assert "500,000" not in output
 
 
 def test_run_gtopt_builds_command(tmp_path: Path):

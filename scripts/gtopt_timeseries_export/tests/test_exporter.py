@@ -10,10 +10,34 @@ import pytest
 from gtopt_timeseries_export import export_from_dict, export_to_excel
 from gtopt_timeseries_export.main import main as cli_main
 
+_SOLUTION_HEADER = (
+    "scene,phase,status,status_name,obj_value,kappa,max_kappa,gap,gap_change,"
+    "solve_ticks,solve_time_s,solve_calls,infeasible_count,scale_objective"
+)
+
+
+def _solution_csv(obj: float, scale: float = 1000.0) -> str:
+    """Current solution.csv layout (physical obj_value + scale column)."""
+    return f"{_SOLUTION_HEADER}\n0,0,0,optimal,{obj},12,12,0,1,0.01,0.002,1,0,{scale}\n"
+
+
+def _overview(path) -> dict:
+    wb = openpyxl.load_workbook(path)
+    return {
+        row[0].value: row[1].value
+        for row in wb["Overview"].iter_rows(min_row=2)
+        if row[0].value
+    }
+
 
 def _sample_results() -> dict:
     return {
-        "solution": {"obj_value": "2.5", "status": "0"},
+        "solution": {
+            "obj_value": "2500.0",
+            "status": "0",
+            "solve_ticks": "0.01",
+            "scale_objective": "1000",
+        },
         "outputs": {
             "Generator/generation_sol": {
                 "columns": ["scenario", "stage", "block", "uid:1"],
@@ -35,7 +59,7 @@ def _sample_results() -> dict:
 
 def test_export_from_dict(tmp_path):
     out = tmp_path / "result.xlsx"
-    path = export_from_dict(_sample_results(), out, scale_objective=1000.0)
+    path = export_from_dict(_sample_results(), out)
     assert path == out
     assert out.exists()
 
@@ -48,9 +72,12 @@ def test_export_from_dict(tmp_path):
     ]
     metrics = {k: v for (k, v) in overview_cells if k}
     assert "Status" in metrics
-    assert "Objective (scaled)" in metrics
+    assert "Objective (physical units)" in metrics
     assert "Total generation (MWh)" in metrics
-    assert metrics["Objective (scaled)"] == pytest.approx(2500.0)
+    # obj_value is already physical: reported as-is, never re-multiplied.
+    assert metrics["Objective (physical units)"] == pytest.approx(2500.0)
+    assert metrics["Objective (LP raw)"] == pytest.approx(2.5)
+    assert metrics["Objective scale factor"] == pytest.approx(1000.0)
 
     # Per-output sheets are present
     sheet_names = [s.lower() for s in wb.sheetnames]
@@ -62,7 +89,7 @@ def test_export_to_excel_dir(tmp_path):
     # Create a minimal output directory
     outdir = tmp_path / "out"
     outdir.mkdir()
-    (outdir / "solution.csv").write_text("obj_value,1.5\nstatus,0\n")
+    (outdir / "solution.csv").write_text(_solution_csv(1500.0))
     gen_dir = outdir / "Generator"
     gen_dir.mkdir()
     (gen_dir / "generation_sol.csv").write_text(
@@ -89,7 +116,7 @@ def test_export_wrong_suffix(tmp_path):
 def test_cli(tmp_path, capsys):
     outdir = tmp_path / "out"
     outdir.mkdir()
-    (outdir / "solution.csv").write_text("obj_value,1.0\nstatus,0\n")
+    (outdir / "solution.csv").write_text(_solution_csv(1000.0))
     dest = tmp_path / "cli.xlsx"
     code = cli_main([str(outdir), "-o", str(dest)])
     assert code == 0
@@ -219,35 +246,37 @@ def test_autofit_does_not_crash_empty_sheet(tmp_path):
     assert dest.exists()
 
 
-def test_scale_objective_reflected_in_overview(tmp_path):
+def test_legacy_scale_objective_reflected_in_overview(tmp_path):
+    # Legacy key,value solution (no scale column): obj_value is LP-raw and
+    # --scale-objective converts it to physical units.
     results = {
         "solution": {"obj_value": "3.0", "status": "0"},
         "outputs": {},
     }
     dest = tmp_path / "scaled.xlsx"
     export_from_dict(results, dest, scale_objective=500.0)
-    wb = openpyxl.load_workbook(dest)
-    rows = {
-        row[0].value: row[1].value
-        for row in wb["Overview"].iter_rows(min_row=2)
-        if row[0].value
-    }
+    rows = _overview(dest)
     # 3.0 * 500 = 1500
-    assert rows.get("Objective (scaled)") == pytest.approx(1500.0)
+    assert rows.get("Objective (physical units)") == pytest.approx(1500.0)
+    assert rows.get("Objective (LP raw)") == pytest.approx(3.0)
 
 
-def test_cli_with_scale_objective(tmp_path):
+def test_cli_with_matching_scale_objective(tmp_path):
     outdir = tmp_path / "out"
     outdir.mkdir()
-    (outdir / "solution.csv").write_text("obj_value,2.0\nstatus,0\n")
+    (outdir / "solution.csv").write_text(_solution_csv(2000.0))
     dest = tmp_path / "scaled.xlsx"
     code = cli_main([str(outdir), "-o", str(dest), "--scale-objective", "1000"])
     assert code == 0
     assert dest.exists()
-    wb = openpyxl.load_workbook(dest)
-    rows = {
-        row[0].value: row[1].value
-        for row in wb["Overview"].iter_rows(min_row=2)
-        if row[0].value
-    }
-    assert rows.get("Objective (scaled)") == pytest.approx(2000.0)
+    assert _overview(dest).get("Objective (physical units)") == pytest.approx(2000.0)
+
+
+def test_cli_scale_objective_mismatch_is_error(tmp_path, capsys):
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    (outdir / "solution.csv").write_text(_solution_csv(2000.0, scale=1.0))
+    dest = tmp_path / "scaled.xlsx"
+    code = cli_main([str(outdir), "-o", str(dest), "--scale-objective", "1000"])
+    assert code == 2
+    assert "scale_objective" in capsys.readouterr().err

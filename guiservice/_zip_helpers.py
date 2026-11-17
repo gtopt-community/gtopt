@@ -247,6 +247,25 @@ def _parse_uploaded_zip(zip_bytes):
     return case_data
 
 
+def _parse_solution_rows(rows: list[list[str]]) -> dict[str, str]:
+    """Flatten ``solution.csv`` records into ``{column: value}``.
+
+    Mirrors :func:`gtopt_shared.solution_csv.parse_solution_rows` (kept
+    inline so the GUI service does not require the scripts package): the
+    current columnar layout (header + one row per ``(scene, phase)`` cell;
+    the first data row is returned) and the legacy ``key,value`` layout.
+    """
+    rows = [r for r in rows if r and any(f.strip() for f in r)]
+    if not rows:
+        return {}
+    header = [f.strip() for f in rows[0]]
+    if "obj_value" in header and len(header) > 2:
+        if len(rows) < 2:
+            return {}
+        return {name: value.strip() for name, value in zip(header, rows[1], strict=False) if name}
+    return {r[0].strip(): r[1].strip() for r in rows if len(r) >= 2}
+
+
 def _parse_results_zip(zip_bytes):
     """Parse a results ZIP or directory structure into viewable data."""
     results: dict[str, Any] = {"solution": {}, "outputs": {}, "terminal_output": ""}
@@ -274,9 +293,7 @@ def _parse_results_zip(zip_bytes):
                     parent = os.path.basename(os.path.dirname(name))
 
                     if base == "solution.csv":
-                        for row in rows:
-                            if len(row) >= 2:
-                                results["solution"][row[0]] = row[1]
+                        results["solution"] = _parse_solution_rows(rows)
                     else:
                         # Strip the ``.csv`` suffix to match the lookup key
                         # convention used by ``gtopt_results_summary``
@@ -303,9 +320,7 @@ def _parse_results_zip(zip_bytes):
                     parent = os.path.basename(os.path.dirname(name))
 
                     if base_no_ext == "solution":
-                        for row in rows:
-                            if len(row) >= 2:
-                                results["solution"][row[0]] = row[1]
+                        results["solution"] = _parse_solution_rows(rows)
                     else:
                         key = f"{parent}/{base_no_ext}" if parent else base_no_ext
                         if rows:

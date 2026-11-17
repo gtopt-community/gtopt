@@ -32,7 +32,7 @@ _MAX_ERROR_DETAIL_LENGTH = 600
 # Minimal single-bus LP:
 #   1 generator  g1  pmax=300  gcost=20
 #   1 demand     d1  lmax=250
-#   Expected: status=0, obj_value ≈ 5.0  (250*20/1000)
+#   Expected: status=0, obj_value ≈ 5000  (250 MW × $20/MWh; physical units)
 _SINGLE_BUS_JSON: dict[str, Any] = {
     "options": {
         "use_single_bus": True,
@@ -68,7 +68,7 @@ _SINGLE_BUS_JSON: dict[str, Any] = {
 #   2 generators  g1@b1 (300 MW, $20)  g2@b2 (200 MW, $35)
 #   2 demands     d3@b3 (150 MW)  d4@b4 (100 MW)
 #   5 transmission lines
-#   Expected: status=0, obj_value ≈ 5.0  (g1 dispatches 250 MW @ $20/MWh / 1000)
+#   Expected: status=0, obj_value ≈ 5000  (g1 dispatches 250 MW @ $20/MWh)
 _KIRCHHOFF_JSON: dict[str, Any] = {
     "options": {
         "use_single_bus": False,

@@ -189,6 +189,32 @@ def test_results_summary(client):
     assert body["obj_value"] == pytest.approx(2000.0)
 
 
+def test_results_summary_current_layout_is_physical(client):
+    """obj_value from a current solution.csv is reported as-is."""
+    results = {
+        "solution": {
+            "obj_value": "2000.0",
+            "status": "0",
+            "solve_ticks": "0.1",
+            "scale_objective": "1000",
+        },
+        "outputs": {},
+    }
+    resp = client.post("/api/results/summary", json={"results": results})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["obj_value"] == pytest.approx(2000.0)
+    assert body["obj_value_raw"] == pytest.approx(2.0)
+
+    # A scale_objective that disagrees with the output is a client error.
+    resp = client.post(
+        "/api/results/summary",
+        json={"results": results, "scale_objective": 1},
+    )
+    assert resp.status_code == 400
+    assert "scale_objective" in resp.get_json()["error"]
+
+
 def test_results_summary_empty(client):
     resp = client.post("/api/results/summary", json={"results": {}})
     assert resp.status_code == 200

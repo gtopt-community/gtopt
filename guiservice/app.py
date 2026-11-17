@@ -1100,18 +1100,31 @@ def api_check_refs():
     )
 
 
+def _is_scale_objective_mismatch(exc: BaseException) -> bool:
+    """True for ``gtopt_shared.solution_csv.ScaleObjectiveMismatchError``.
+
+    Matched by name so the GUI service does not import the scripts package
+    eagerly; the error is a client mistake (wrong ``scale_objective`` for
+    the uploaded results) and is reported as HTTP 400.
+    """
+    return type(exc).__name__ == "ScaleObjectiveMismatchError"
+
+
 @app.route("/api/results/summary", methods=["POST"])
 def api_results_summary():
     """Compute KPI summary from a parsed results dict.
 
     Body JSON:
       results          — parsed results dict (same shape as /api/results/upload)
-      scale_objective  — optional float (default 1.0)
+      scale_objective  — optional float; legacy outputs only (solution.csv
+                         reports obj_value in physical units and records
+                         its own scale_objective, which this must match)
       tech_map         — optional dict[uid_str, tech_str]
     """
     body = request.get_json(silent=True) or {}
     results = body.get("results") or {}
-    scale_obj = float(body.get("scale_objective", 1.0))
+    scale_obj_raw = body.get("scale_objective")
+    scale_obj = None if scale_obj_raw is None else float(scale_obj_raw)
     tech_map = body.get("tech_map")
 
     try:
@@ -1125,7 +1138,9 @@ def api_results_summary():
             jsonify({"error": "gtopt_results_summary is not installed"}),
             503,
         )
-    except Exception:  # pylint: disable=broad-exception-caught
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        if _is_scale_objective_mismatch(exc):
+            return jsonify({"error": str(exc)}), 400
         app.logger.exception("Results summary error")
         return jsonify({"error": "Results summary failed"}), 500
     return jsonify(summary)
@@ -1192,13 +1207,16 @@ def api_results_export_excel():
 
     Body JSON:
       results          — parsed results dict
-      scale_objective  — optional float (default 1.0)
+      scale_objective  — optional float; legacy outputs only (solution.csv
+                         reports obj_value in physical units and records
+                         its own scale_objective, which this must match)
       tech_map         — optional per-uid technology mapping
       case_name        — optional download filename stem (default "results")
     """
     body = request.get_json(silent=True) or {}
     results = body.get("results") or {}
-    scale_obj = float(body.get("scale_objective", 1.0))
+    scale_obj_raw = body.get("scale_objective")
+    scale_obj = None if scale_obj_raw is None else float(scale_obj_raw)
     tech_map = body.get("tech_map")
     case_name = body.get("case_name") or "results"
 
@@ -1220,13 +1238,15 @@ def api_results_export_excel():
             scale_objective=scale_obj,
             tech_map=tech_map,
         )
-    except Exception:  # pylint: disable=broad-exception-caught
-        app.logger.exception("Excel export error")
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         # Best-effort cleanup
         try:
             os.unlink(dest)
         except OSError:
             pass
+        if _is_scale_objective_mismatch(exc):
+            return jsonify({"error": str(exc)}), 400
+        app.logger.exception("Excel export error")
         return jsonify({"error": "Excel export failed"}), 500
 
     return send_file(

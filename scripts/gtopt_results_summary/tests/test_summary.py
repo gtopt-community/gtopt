@@ -9,12 +9,32 @@ import pytest
 
 from gtopt_results_summary import summarize_output_dict, summarize_results
 from gtopt_results_summary.main import main as cli_main
+from gtopt_shared.solution_csv import ScaleObjectiveMismatchError
+
+# Current solution.csv layout: one row per (scene, phase); obj_value is in
+# physical units and the factor is recorded in the trailing column.
+_SOLUTION_HEADER = (
+    "scene,phase,status,status_name,obj_value,kappa,max_kappa,gap,gap_change,"
+    "solve_ticks,solve_time_s,solve_calls,infeasible_count,scale_objective"
+)
+
+
+def _solution_csv(obj: float, scale: float = 1000.0) -> str:
+    return f"{_SOLUTION_HEADER}\n0,0,0,optimal,{obj},12,12,0,1,0.01,0.002,1,0,{scale}\n"
 
 
 def _sample_results() -> dict:
     """Build a minimal gtopt-style results dict."""
     return {
-        "solution": {"obj_value": "5.0", "status": "0"},
+        "solution": {
+            "scene": "0",
+            "phase": "0",
+            "status": "0",
+            "status_name": "optimal",
+            "obj_value": "5000.0",
+            "solve_ticks": "0.01",
+            "scale_objective": "1000",
+        },
         "outputs": {
             "Generator/generation_sol": {
                 "columns": ["scenario", "stage", "block", "uid:1", "uid:2"],
@@ -63,10 +83,13 @@ def _sample_results() -> dict:
 
 
 def test_summarize_basic():
-    s = summarize_output_dict(_sample_results(), scale_objective=1000.0)
+    s = summarize_output_dict(_sample_results())
     assert s["status"] == "0"
-    assert s["obj_value_raw"] == pytest.approx(5.0)
+    # obj_value is already physical: it is NOT multiplied again.
     assert s["obj_value"] == pytest.approx(5000.0)
+    assert s["obj_value_raw"] == pytest.approx(5.0)
+    assert s["scale_objective"] == pytest.approx(1000.0)
+    assert s["obj_convention"] == "column"
     assert s["total_generation"] == pytest.approx(300.0)
     assert s["total_load"] == pytest.approx(300.0)
     assert s["total_unserved"] == pytest.approx(1.5)
@@ -78,6 +101,41 @@ def test_summarize_basic():
     assert s["lmp_min"] == pytest.approx(20.0)
     assert s["lmp_max"] == pytest.approx(30.0)
     assert s["lmp_mean"] == pytest.approx(24.25)
+
+
+def test_scale_objective_override_must_match_column():
+    # A matching override is accepted (pure validation) ...
+    s = summarize_output_dict(_sample_results(), scale_objective=1000.0)
+    assert s["obj_value"] == pytest.approx(5000.0)
+    # ... a disagreeing one is an error, not a silent rescale.
+    with pytest.raises(ScaleObjectiveMismatchError, match="scale_objective"):
+        summarize_output_dict(_sample_results(), scale_objective=1.0)
+
+
+def test_physical_era_without_scale_column():
+    # 2026-07..2026-11 writer: telemetry columns, no scale_objective column.
+    r = {
+        "solution": {"obj_value": "7000", "status": "0", "solve_ticks": "1"},
+        "outputs": {},
+    }
+    s = summarize_output_dict(r, scale_objective=1000.0)
+    assert s["obj_value"] == pytest.approx(7000.0)
+    assert s["obj_value_raw"] == pytest.approx(7.0)
+    assert s["obj_convention"] == "physical"
+
+
+def test_legacy_key_value_layout_is_lp_raw(tmp_path):
+    # Legacy two-column key,value solution.csv: obj_value was LP-raw.
+    outdir = tmp_path / "legacy"
+    outdir.mkdir()
+    (outdir / "solution.csv").write_text("obj_value,3.0\nstatus,0\n")
+    s = summarize_results(outdir, scale_objective=1000.0)
+    assert s["status"] == "0"
+    assert s["obj_value"] == pytest.approx(3000.0)
+    assert s["obj_value_raw"] == pytest.approx(3.0)
+    assert s["obj_convention"] == "legacy-raw"
+    # Without an explicit factor the monolithic default (1000) applies.
+    assert summarize_results(outdir)["obj_value"] == pytest.approx(3000.0)
 
 
 def test_summarize_with_tech_map():
@@ -111,32 +169,44 @@ def test_summarize_results_dir(tmp_path):
     outdir = tmp_path / "output"
     outdir.mkdir()
     # Write a trivial solution.csv and a single parquet/csv file
-    (outdir / "solution.csv").write_text("obj_value,3.0\nstatus,0\n")
+    (outdir / "solution.csv").write_text(_solution_csv(3000.0))
     gen_dir = outdir / "Generator"
     gen_dir.mkdir()
     (gen_dir / "generation_sol.csv").write_text(
         "scenario,stage,block,uid:1\n1,1,1,100.0\n1,1,2,200.0\n"
     )
-    s = summarize_results(outdir, scale_objective=1.0)
+    s = summarize_results(outdir)
     assert s["total_generation"] == pytest.approx(300.0)
-    assert s["obj_value"] == pytest.approx(3.0)
+    assert s["status"] == "0"
+    assert s["obj_value"] == pytest.approx(3000.0)
+    assert s["obj_value_raw"] == pytest.approx(3.0)
 
 
 def test_cli_pretty(tmp_path, capsys):
     outdir = tmp_path / "out"
     outdir.mkdir()
-    (outdir / "solution.csv").write_text("obj_value,1.0\nstatus,0\n")
+    (outdir / "solution.csv").write_text(_solution_csv(1000.0))
     code = cli_main([str(outdir), "--pretty"])
     assert code == 0
     captured = capsys.readouterr()
     summary = json.loads(captured.out)
+    assert summary["obj_value"] == pytest.approx(1000.0)
     assert summary["obj_value_raw"] == pytest.approx(1.0)
+
+
+def test_cli_scale_objective_mismatch_exits_2(tmp_path, capsys):
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    (outdir / "solution.csv").write_text(_solution_csv(1000.0, scale=1.0))
+    code = cli_main([str(outdir), "--scale-objective", "1000"])
+    assert code == 2
+    assert "scale_objective" in capsys.readouterr().err
 
 
 def test_cli_with_tech_map(tmp_path, capsys):
     outdir = tmp_path / "out"
     outdir.mkdir()
-    (outdir / "solution.csv").write_text("obj_value,1.0\nstatus,0\n")
+    (outdir / "solution.csv").write_text(_solution_csv(1.0))
     gen_dir = outdir / "Generator"
     gen_dir.mkdir()
     (gen_dir / "generation_sol.csv").write_text(
@@ -163,7 +233,7 @@ def test_summarize_results_zip(tmp_path):
 
     zip_path = tmp_path / "output.zip"
     with zf.ZipFile(zip_path, "w") as z:
-        z.writestr("solution.csv", "obj_value,2.0\nstatus,0\n")
+        z.writestr("solution.csv", _solution_csv(2.0, scale=1.0))
         z.writestr(
             "Generator/generation_sol.csv",
             "scenario,stage,block,uid:1\n1,1,1,80.0\n1,1,2,40.0\n",
@@ -197,7 +267,7 @@ def test_summarize_results_zip_with_parquet(tmp_path):
 
     zip_path = tmp_path / "output.zip"
     with zf.ZipFile(zip_path, "w") as z:
-        z.writestr("solution.csv", "obj_value,1.0\nstatus,0\n")
+        z.writestr("solution.csv", _solution_csv(1.0))
         z.writestr("Generator/generation_sol.parquet", buf.read())
 
     s = summarize_results(zip_path)
@@ -310,11 +380,12 @@ def test_cli_output_stdout(tmp_path, capsys):
     """CLI writes JSON summary to stdout; --pretty makes it human-readable."""
     outdir = tmp_path / "out"
     outdir.mkdir()
-    (outdir / "solution.csv").write_text("obj_value,2.5\nstatus,0\n")
+    (outdir / "solution.csv").write_text(_solution_csv(2500.0))
     code = cli_main([str(outdir), "--pretty"])
     assert code == 0
     captured = capsys.readouterr()
     d = json.loads(captured.out)
+    assert d["obj_value"] == pytest.approx(2500.0)
     assert d["obj_value_raw"] == pytest.approx(2.5)
 
 
