@@ -53,6 +53,7 @@ namespace
   }
   // Try integer
   {
+    // NOLINTNEXTLINE(misc-const-correctness) -- strtoll/strtod take char**
     char* end = nullptr;
     (void)std::strtoll(v.c_str(), &end, /*base=*/10);
     if (end != v.c_str() && *end == '\0') {
@@ -61,6 +62,7 @@ namespace
   }
   // Try floating-point
   {
+    // NOLINTNEXTLINE(misc-const-correctness) -- strtoll/strtod take char**
     char* end = nullptr;
     (void)std::strtod(v.c_str(), &end);
     if (end != v.c_str() && *end == '\0') {

@@ -41,7 +41,7 @@ using namespace gtopt;
 // than the symbol), so operators can tune further at runtime.
 // extern "C" gives the exact unmangled name jemalloc looks up in the dynamic
 // symbol table; [[gnu::used, gnu::retain]] keeps it under --gc-sections.
-#if defined(GTOPT_HAVE_JEMALLOC)
+#ifdef GTOPT_HAVE_JEMALLOC
 extern "C"
 {
 extern const char* malloc_conf;

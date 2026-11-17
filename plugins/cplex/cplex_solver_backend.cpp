@@ -1965,6 +1965,7 @@ CplexSolverBackend::diagnose_infeasibility(int max_items)
   const auto row_name = [&](int i) -> std::string
   {
     std::array<char, 256> store {};
+    // NOLINTNEXTLINE(misc-const-correctness) -- CPXgetrowname takes char**
     char* nameptr = nullptr;
     int surplus = 0;
     const int rc = CPXgetrowname(env,

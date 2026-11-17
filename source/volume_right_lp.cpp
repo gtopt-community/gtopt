@@ -323,8 +323,10 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     // build-time config states here; update_lp refreshes it each
     // iteration from the solved/propagated states.
     Real provision = 0.0;
-    if (volume_right().reset_value.has_value()) {
-      provision = *volume_right().reset_value;
+    if (const auto& reset_value = volume_right().reset_value;
+        reset_value.has_value())
+    {
+      provision = *reset_value;
     } else if (const auto& credit_ref = volume_right().reset_credit_right;
                credit_ref.has_value())
     {

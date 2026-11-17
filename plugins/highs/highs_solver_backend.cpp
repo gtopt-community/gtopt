@@ -423,7 +423,7 @@ void HighsSolverBackend::set_col_bounds_bulk(int num,
 
   for (int i = 0; i < num; ++i) {
     const int col = indices[i];
-    if (col < 0 || static_cast<size_t>(col) >= ncols) {
+    if (col < 0 || std::cmp_greater_equal(col, ncols)) {
       // Skip out-of-range indices: the per-element fallback would
       // call `set_col_lower(col, ...)` which is undefined for such
       // inputs.  Dispatching garbage bounds to HiGHS is strictly

@@ -1174,7 +1174,7 @@ void OsiSolverBackend::write_lp(const char* filename)
 std::unique_ptr<SolverBackend> OsiSolverBackend::clone() const
 {
   auto* raw = m_solver_->clone(true);
-  auto* concrete = dynamic_cast<OsiSolverInterface*>(raw);
+  auto* concrete = raw;
   if (concrete == nullptr) {
     delete raw;  // NOLINT(cppcoreguidelines-owning-memory)
     return std::make_unique<OsiSolverBackend>(m_type_);

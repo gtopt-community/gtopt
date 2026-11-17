@@ -418,6 +418,7 @@ void MindOptSolverBackend::set_prob_name(const std::string& name)
 
 std::string MindOptSolverBackend::get_prob_name() const
 {
+  // NOLINTNEXTLINE(misc-const-correctness) -- MDOgetstrattr takes char**
   char* name = nullptr;
   if (MDOgetstrattr(m_model_, MDO_STR_ATTR_MODEL_NAME, &name) == MDO_OKAY
       && name != nullptr)

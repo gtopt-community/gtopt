@@ -376,8 +376,7 @@ void DecisionVariableLP::register_block_state(SystemContext& sc,
   for (auto&& b : blocks) {
     icols[b.uid()] = incoming_col;
   }
-  sc.add_ampl_variable(
-      ampl_name, uid(), IncomingName, scenario, stage, std::move(icols));
+  sc.add_ampl_variable(ampl_name, uid(), IncomingName, scenario, stage, icols);
 
   // Register the last block's `value` column as the cross-phase state
   // (efin-equivalent) so the SDDP forward/backward passes propagate it.
