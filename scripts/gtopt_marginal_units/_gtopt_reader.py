@@ -142,7 +142,7 @@ def topology_from_planning(
                 # per-block dimension to a single representative value.
                 grouped = rate_df.groupby("uid")["value"].mean()
                 parq_rate = {int(u): float(v) for u, v in grouped.items()}
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
                 # Parquet read failed — fall back to static per-source
                 # ``rate`` field on emission_source_array.  Don't swallow
                 # silently: emission attribution will use a different
@@ -632,8 +632,6 @@ def _load_cogen_reference() -> tuple[set[str], tuple[str, ...]]:
     names: set[str] = set()
     prefixes: list[str] = []
     # Resolve the bundled file relative to the source tree.
-    from pathlib import Path  # noqa: PLC0415
-
     candidates = [
         Path(__file__).resolve().parents[3]
         / "share"

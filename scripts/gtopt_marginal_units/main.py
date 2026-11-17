@@ -1116,7 +1116,7 @@ def _zone_results_from_lp_duals(
                 gens_by_bus.setdefault(g.bus_uid, []).append(g)
             all_phantom = bool(zone_bus_uids) and all(
                 is_phantom_bus(
-                    str(bus_by_uid.get(b).name if bus_by_uid.get(b) else ""),
+                    str(bb.name if (bb := bus_by_uid.get(b)) is not None else ""),
                     gens_by_bus.get(b, []),
                 )
                 for b in zone_bus_uids

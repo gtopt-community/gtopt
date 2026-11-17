@@ -112,7 +112,7 @@ class ManliWriter(BaseWriter):
                     )
                     df = pd.concat([df, stage_s], axis=1)
                 dfs.append(df)
-            df_tmax_ab, df_tmax_ba, df_active = dfs
+            df_tmax_ab, df_tmax_ba, df_active = dfs[0], dfs[1], dfs[2]
 
         df_active = self.block_to_stage_df(df_active)
 

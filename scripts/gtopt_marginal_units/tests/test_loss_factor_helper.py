@@ -328,19 +328,19 @@ def test_negative_raw_skips_scaling():
 
 def test_warn_radial_vs_warn_meshed():
     """Same raw value, different topology → different status, same scale."""
-    common = dict(
-        bus_uid=20,
-        marginal_uid=1,
-        g0=_coal_gen(bus_uid=10),
-        bus_name="DownstreamReal",
-        gens_on_bus=[],
-        lmp_by_bus={10: 35.0, 20: 105.0},  # raw = 3.0
-        srmc_by_uid={1: 35.0},
-        zone_of={10: 0, 20: 0},
-        tol=Tolerances.default(),
-    )
+    common = {
+        "bus_uid": 20,
+        "marginal_uid": 1,
+        "g0": _coal_gen(bus_uid=10),
+        "bus_name": "DownstreamReal",
+        "gens_on_bus": [],
+        "lmp_by_bus": {10: 35.0, 20: 105.0},  # raw = 3.0
+        "srmc_by_uid": {1: 35.0},
+        "zone_of": {10: 0, 20: 0},
+        "tol": Tolerances.default(),
+    }
     sc_r, raw_r, st_r = _resolve_loss_factor(radial_buses=frozenset({20}), **common)
-    sc_m, raw_m, st_m = _resolve_loss_factor(radial_buses=frozenset(), **common)
+    sc_m, _raw_m, st_m = _resolve_loss_factor(radial_buses=frozenset(), **common)
     assert st_r == "warn_radial"
     assert st_m == "warn_meshed"
     # Both apply the raw scaling — only the audit status differs.
@@ -351,17 +351,17 @@ def test_warn_radial_vs_warn_meshed():
 
 def test_critical_radial_vs_critical_meshed():
     """raw > error → critical_*; still applied (no abort)."""
-    common = dict(
-        bus_uid=20,
-        marginal_uid=1,
-        g0=_coal_gen(bus_uid=10),
-        bus_name="DownstreamReal",
-        gens_on_bus=[],
-        lmp_by_bus={10: 35.0, 20: 350.0},  # raw = 10.0
-        srmc_by_uid={1: 35.0},
-        zone_of={10: 0, 20: 0},
-        tol=Tolerances.default(),  # default error=5.0
-    )
+    common = {
+        "bus_uid": 20,
+        "marginal_uid": 1,
+        "g0": _coal_gen(bus_uid=10),
+        "bus_name": "DownstreamReal",
+        "gens_on_bus": [],
+        "lmp_by_bus": {10: 35.0, 20: 350.0},  # raw = 10.0
+        "srmc_by_uid": {1: 35.0},
+        "zone_of": {10: 0, 20: 0},
+        "tol": Tolerances.default(),  # default error=5.0
+    }
     sc_r, _raw, st_r = _resolve_loss_factor(radial_buses=frozenset({20}), **common)
     sc_m, _raw, st_m = _resolve_loss_factor(radial_buses=frozenset(), **common)
     assert st_r == "critical_radial"

@@ -19,7 +19,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional
 
-from gtopt_canonical_feed import Topology
+from gtopt_canonical_feed import Generator, Topology
 from gtopt_marginal_units._reconstruct import ZoneR3Result
 from gtopt_marginal_units._zones import is_phantom_bus
 from gtopt_marginal_units.constants import FormulaKind, GeneratorKind, Tolerances
@@ -136,7 +136,7 @@ class _TopologyAux:
     even when ``build_recipes_for_cell`` is called millions of times.
     """
 
-    gen_by_uid: dict[int, object]
+    gen_by_uid: dict[int, Generator]
     bus_name_by_uid: dict[int, str]
     gens_by_bus_uid: dict[int, list]
     radial_buses: frozenset[int]
@@ -511,8 +511,8 @@ def build_recipes_for_cell(
             if z is None:
                 continue
             gens_by_zone.setdefault(z, []).append(g)
-        for zid, zres in zone_results.items():
-            marginal_set = set(int(u) for u in zres.marginal_gen_uids)
+        for zid, zone_res in zone_results.items():
+            marginal_set = set(int(u) for u in zone_res.marginal_gen_uids)
             consequential_by_zone[zid] = _compute_consequential_moer(
                 gens_by_zone.get(zid, []),
                 dispatch_by_uid,
@@ -809,7 +809,7 @@ def build_recipes_for_cell(
             FormulaKind.TIED_UNITS.value,
             FormulaKind.FORCED_PMIN_MARGINAL.value,
         }
-        if (
+        if (  # pylint: disable=too-many-boolean-expressions
             kind_str
             in {
                 FormulaKind.SINGLE_UNIT.value,

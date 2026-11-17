@@ -7,10 +7,12 @@ import math
 
 import pytest
 
-from gtopt_canonical_feed import Generator, Topology
+from gtopt_canonical_feed import Bus, Generator, Line, Topology
 from gtopt_marginal_units._reconstruct import ZoneR3Result
 from gtopt_marginal_units._recipes import build_recipes_for_cell
-from gtopt_marginal_units.constants import Confidence, FormulaKind
+from gtopt_marginal_units._zones import is_phantom_bus
+from gtopt_marginal_units.constants import Confidence, FormulaKind, Tolerances
+from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
 
 _CELL = (1, 1, 1, None, None, "simulated")
@@ -192,11 +194,9 @@ def test_missing_emission_rate_yields_nan():
 # ---------------------------------------------------------------------------
 # Issue #525 — phantom-bus / storage-marginal classification
 # ---------------------------------------------------------------------------
-from gtopt_marginal_units._zones import is_phantom_bus  # noqa: E402
 
 
 def _make_gen(uid: int, name: str, bus_uid: int = 0, kind: str = "thermal"):
-    from gtopt_canonical_feed import Generator
 
     return Generator(
         uid=uid,
@@ -243,15 +243,11 @@ def test_525_phantom_classifier_returns_hydro_marginal():
     """End-to-end: a synthetic phantom-bus zone goes through
     _zone_results_from_lp_duals and ends up as hydro_marginal.
     Smoke test via a minimal topology fixture."""
-    from gtopt_canonical_feed import Bus, Topology
-
-    from gtopt_marginal_units.constants import Tolerances
-    from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
     bus = Bus(uid=10, name="BAT_TEST_int_bus")
     gen = _make_gen(100, "BAT_TEST_LOAD", bus_uid=10, kind="thermal")
     topo = Topology(buses=[bus], generators=[gen], lines=[])
-    bus_to_zone, zone_results = _zone_results_from_lp_duals(
+    _bus_to_zone, zone_results = _zone_results_from_lp_duals(
         topology=topo,
         lmp_by_bus={10: 47.5},
         dispatch_by_uid={},
@@ -273,10 +269,6 @@ def test_525_phantom_classifier_returns_hydro_marginal():
 def test_525_real_bus_still_unattributed_when_no_match():
     """Real bus (not phantom) with no matching marginal still
     classifies as unattributed."""
-    from gtopt_canonical_feed import Bus, Topology
-
-    from gtopt_marginal_units.constants import Tolerances
-    from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
     # A bus with a positive-pmax thermal but NO LP dispatch (e.g. the
     # LP put the load somewhere else, gen sits idle) and LMP far above
@@ -306,10 +298,6 @@ def test_525_real_bus_still_unattributed_when_no_match():
 
 def test_526_renewable_curtailment_classified_when_lmp_zero_and_profile_marginal():
     """LMP ≈ 0 + only profile gens dispatching → renewable_curtailment."""
-    from gtopt_canonical_feed import Bus, Topology
-
-    from gtopt_marginal_units.constants import Tolerances
-    from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
     bus = Bus(uid=30, name="SolarBus220")
     # One solar gen dispatching, no other candidates
@@ -334,10 +322,6 @@ def test_526_renewable_curtailment_classified_when_lmp_zero_and_profile_marginal
 
 def test_526_no_curtailment_when_lmp_positive():
     """LMP > tol → tied/single regardless of profile-only marginal."""
-    from gtopt_canonical_feed import Bus, Topology
-
-    from gtopt_marginal_units.constants import Tolerances
-    from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
     bus = Bus(uid=31, name="MixedBus")
     solar = _make_gen(201, "X_FV", bus_uid=31, kind="profile")
@@ -358,10 +342,6 @@ def test_526_no_curtailment_when_lmp_positive():
 
 def test_526_thermal_marginal_at_zero_lmp_still_tied():
     """LMP=0 + thermal marginal → tied_units (not renewable_curtailment)."""
-    from gtopt_canonical_feed import Bus, Topology
-
-    from gtopt_marginal_units.constants import Tolerances
-    from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
     bus = Bus(uid=32, name="ThermalBus")
     thermal = _make_gen(202, "CHEAP_THERMAL", bus_uid=32, kind="thermal")
@@ -390,14 +370,6 @@ def test_526_thermal_marginal_at_zero_lmp_still_tied():
 
 def test_523_scaling_one_when_bus_lmp_equals_srmc():
     """At the marginal's own bus (no losses), scaling = 1.0 → emission unchanged."""
-    from gtopt_canonical_feed import Bus, Generator, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     coal = Generator(
         uid=1,
@@ -439,14 +411,6 @@ def test_523_scaling_one_when_bus_lmp_equals_srmc():
 
 def test_523_scaling_above_one_for_lossy_downstream_bus():
     """Downstream bus with LMP > SRMC → emission scaled up by loss factor."""
-    from gtopt_canonical_feed import Bus, Generator, Line, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     coal = Generator(
         uid=1,
@@ -507,7 +471,6 @@ def _coal_two_bus_topology():
     clamp / error-raise tests use ``_coal_meshed_topology()`` instead
     so bus 20 sits in a 2-edge-connected component.
     """
-    from gtopt_canonical_feed import Bus, Generator, Line, Topology
 
     coal = Generator(
         uid=1,
@@ -538,7 +501,6 @@ def _coal_meshed_topology():
     warn-clamp / error-raise tests where a meshed topology is needed
     to exercise the non-radial branch of the loss-factor scaling.
     Bus 20 is reported as the downstream bus."""
-    from gtopt_canonical_feed import Bus, Generator, Line, Topology
 
     coal = Generator(
         uid=1,
@@ -586,10 +548,6 @@ def _coal_meshed_topology():
 
 
 def _coal_zone_result():
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
 
     return ZoneR3Result(
         zone_id=0,
@@ -608,8 +566,6 @@ def test_523_warn_band_meshed_applies_raw_with_warn_meshed_status():
     status 'warn_meshed' so the end-of-run summary can warn about
     suspicious meshed-network ratios.  (Radial gets the same raw
     scaling but status 'warn_radial' — see the radial test.)"""
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units.constants import Tolerances
 
     # raw = 105/35 = 3.0 (between warn=2.0 and error=5.0).
     _, em_rows = build_recipes_for_cell(
@@ -638,8 +594,6 @@ def test_523_above_error_threshold_meshed_is_critical_not_raises():
     ratio (we have no principled way to say it's wrong) and apply raw,
     but flag it as ``critical_meshed`` so the end-of-run summary
     surfaces it loudly."""
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units.constants import Tolerances
 
     # raw = 350 / 35 = 10 → above default error threshold (5.0)
     _, em_rows = build_recipes_for_cell(
@@ -663,8 +617,6 @@ def test_523_error_threshold_pure_warning_boundary():
     """``--loss-factor-error`` is now a warning-bucket boundary, not
     an abort condition.  Raising it changes a 'critical' to a 'warn'
     bucket but doesn't change the applied scale."""
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units.constants import Tolerances
 
     tol_wide = Tolerances(loss_factor_warn=2.0, loss_factor_error=20.0)
     _, em_rows = build_recipes_for_cell(
@@ -687,8 +639,6 @@ def test_523_error_threshold_pure_warning_boundary():
 
 def test_523_negative_raw_skips_scaling():
     """Negative bus_LMP (oversupply) → scale=1.0, status='negative'."""
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units.constants import Tolerances
 
     _, em_rows = build_recipes_for_cell(
         cell_key=(1, 1, 1, None, None, None),
@@ -714,8 +664,6 @@ def test_523_cross_island_marks_status_does_not_scale():
     saturated lines), the loss-factor concept is undefined.  The
     recipe should record ``loss_factor_status='cross_island'`` and
     leave the emission factor unscaled."""
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units.constants import Tolerances
 
     # Coal at bus 10, but caller passes a zone_of where bus 10 is in
     # zone 0 and bus 20 is in zone 1 (saturated tie ⇒ separate
@@ -748,14 +696,6 @@ def test_523_radial_bus_applies_full_scale_no_clamp():
     bridges), the LP-derived bus_LMP / SRMC ratio IS the legitimate
     R-driven loss factor.  Apply the full raw scale — do NOT clamp to
     loss_factor_warn — even when raw > warn.  Status 'radial'."""
-    from gtopt_canonical_feed import Bus, Generator, Line, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     # 3-bus radial chain:  bus_a (coal) ──── bus_b ──── bus_c
     # Every edge is a bridge → bus_b and bus_c are radial (their
@@ -830,14 +770,6 @@ def test_523_radial_bus_applies_full_scale_no_clamp():
 def test_523_meshed_bus_still_clamps_on_warn():
     """On a meshed network (multiple paths between buses), high raw is
     suspicious and gets clamped to loss_factor_warn — NOT applied as raw."""
-    from gtopt_canonical_feed import Bus, Generator, Line, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     # 3-bus ring:  bus_a (coal) ────── bus_b
     #                  ╲           ╱
@@ -926,14 +858,6 @@ def test_523_phantom_bus_skips_loss_factor():
     scale=1.0) even if the same-island + same-zone check would
     otherwise pass.
     """
-    from gtopt_canonical_feed import Bus, Generator, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     # Phantom BESS wrap: BAT_SANTA_MARTA_int_bus + a single thermal
     # wrapper SANTA_MARTA at it.  Real PLEXOS pattern.
@@ -985,14 +909,6 @@ def test_effective_emission_intensity_uses_direct_when_thermal_marginal():
     derived 'effective' column equals the direct EF — not the
     consequential walked-up value (which would be a different
     second-up gen).  Pins the column contract."""
-    from gtopt_canonical_feed import Bus, Generator, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     coal = Generator(
         uid=1,
@@ -1041,14 +957,6 @@ def test_effective_emission_intensity_uses_consequential_when_hydro_marginal():
     the consequential value.  This is the Issue #1 light fix:
     downstream tools get the economically-meaningful marginal CO2
     without needing a conditional join on loss_factor_status."""
-    from gtopt_canonical_feed import Bus, Generator, Line, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     hydro = Generator(
         uid=1,
@@ -1121,14 +1029,6 @@ def test_523_consequential_uses_walked_up_gen_lossfactor():
     thermal, the consequential scaling MUST use the walked-up gen's
     static ``lossfactor`` — NOT the LP-derived bus_LMP / SRMC ratio
     (which is meaningless for a unit that isn't generating)."""
-    from gtopt_canonical_feed import Bus, Generator, Line, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     # Battery sets the marginal at bus 10 (em=0).  A non-dispatching
     # thermal sits at bus 30 with emission_rate=0.92 and
@@ -1223,14 +1123,6 @@ def test_523_consequential_shortcut_uses_lp_scale_when_marginal_emits():
     'shortcut' kicks in: cons_rate = direct_em.  In that case the
     LP-derived ``scale`` IS valid for the marginal (it actually
     dispatches) — we should NOT switch to its lossfactor."""
-    from gtopt_canonical_feed import Bus, Generator, Line, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     # Single dispatching coal marginal with emission_rate=0.92 and a
     # lossfactor=0.04.  raw = 35/35 = 1.0 → no scaling.
@@ -1291,14 +1183,6 @@ def test_523_consequential_shortcut_uses_lp_scale_when_marginal_emits():
 def test_523_storage_marginal_uses_lmp_at_storage_bus():
     """When the marginal is a storage element (battery/hydro), the
     scaling denominator is LMP at the storage's bus — not SRMC."""
-    from gtopt_canonical_feed import Bus, Generator, Line, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     bat = Generator(
         uid=1,
@@ -1357,14 +1241,6 @@ def test_523_storage_marginal_uses_lmp_at_storage_bus():
 
 def test_523_no_scaling_for_storage_marginal():
     """Storage marginal (kind=battery) keeps scaling=1 by LP duality."""
-    from gtopt_canonical_feed import Bus, Generator, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     bat = Generator(
         uid=1,
@@ -1405,14 +1281,6 @@ def test_523_no_scaling_for_storage_marginal():
 
 def test_523_no_scaling_when_srmc_unavailable():
     """Without srmc_by_uid, scaling = 1 (fall back to no correction)."""
-    from gtopt_canonical_feed import Bus, Generator, Topology
-
-    from gtopt_marginal_units._recipes import build_recipes_for_cell
-    from gtopt_marginal_units._reconstruct import (
-        Confidence,
-        ZoneR3Result,
-    )
-    from gtopt_marginal_units.constants import Tolerances
 
     coal = Generator(
         uid=1,
@@ -1458,10 +1326,6 @@ def test_523_no_scaling_when_srmc_unavailable():
 
 def test_43_empty_island_single_bus_no_gens():
     """Real single-bus island with NO generators at all + LMP=0 → empty_island."""
-    from gtopt_canonical_feed import Bus, Topology
-
-    from gtopt_marginal_units.constants import Tolerances
-    from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
     bus = Bus(uid=40, name="Cardones220")
     topo = Topology(buses=[bus], generators=[], lines=[])
@@ -1487,10 +1351,6 @@ def test_43_empty_island_single_bus_decommissioned_gens():
     The Ralco220 pattern: RALCO + PALMUCHO present but unavailable
     this stage (pmax=0).
     """
-    from gtopt_canonical_feed import Bus, Generator, Topology
-
-    from gtopt_marginal_units.constants import Tolerances
-    from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
     bus = Bus(uid=175, name="Ralco220")
     ralco = Generator(
@@ -1532,10 +1392,6 @@ def test_43_empty_island_single_bus_decommissioned_gens():
 def test_43_empty_island_multi_bus():
     """Multi-bus disconnected sub-network with no demand or active
     generation → all classified as one empty_island zone."""
-    from gtopt_canonical_feed import Bus, Topology
-
-    from gtopt_marginal_units.constants import Tolerances
-    from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
     b1 = Bus(uid=41, name="DeadBus1")
     b2 = Bus(uid=42, name="DeadBus2")
@@ -1559,10 +1415,6 @@ def test_43_not_empty_when_gen_has_capacity_but_idle():
     """Bus with a positive-pmax gen that's NOT dispatching + LMP=0
     → NOT empty_island (capacity is there; LP just didn't pick it).
     Falls through to unattributed."""
-    from gtopt_canonical_feed import Bus, Generator, Topology
-
-    from gtopt_marginal_units.constants import Tolerances
-    from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
     bus = Bus(uid=44, name="X")
     gen = Generator(
@@ -1599,10 +1451,6 @@ def test_43_not_empty_when_lmp_nonzero():
     elevated (something upstream is forcing flow); the bus might
     have no LOCAL gen but inherits the zone via tie lines.
     """
-    from gtopt_canonical_feed import Bus, Topology
-
-    from gtopt_marginal_units.constants import Tolerances
-    from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
     bus = Bus(uid=45, name="X")
     topo = Topology(buses=[bus], generators=[], lines=[])
