@@ -1,6 +1,6 @@
 # GTOpt Individual Contributor License Agreement (v1.0)
 
-*Adapted from the Apache Individual CLA. Draft pending legal review. A
+*Adapted from the Apache Individual CLA. A
 Corporate CLA (CCLA) is available for contributions made on behalf of an
 employer.*
 

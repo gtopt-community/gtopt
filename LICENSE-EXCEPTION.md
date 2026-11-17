@@ -1,7 +1,7 @@
 # GTOpt Solver Plugin Exception
 
 *Additional permission under section 7 of the GNU General Public License,
-version 3 ("GPLv3"). Draft pending legal review.*
+version 3 ("GPLv3").*
 
 SPDX: `AdditionRef-gtopt-solver-exception` (`LicenseRef-gtopt-solver-exception`
 for SPDX 2.x tooling).
