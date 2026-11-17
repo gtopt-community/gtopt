@@ -44,6 +44,7 @@
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/main_options.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/resolve_planning_args.hpp>
 #include <gtopt/validate_planning.hpp>
 #include <spdlog/async.h>
@@ -92,18 +93,11 @@ bool enable_jemalloc_background_thread() noexcept
   return false;
 }
 
-/// Resolve the directory used for log/trace files.
-///
-/// Prefers `opts.log_directory` when set; otherwise falls back to
-/// `<output_directory>/logs` (with `output_directory` itself defaulting
-/// to "output").  Does *not* create the directory — callers do that.
+/// Resolve the directory used for log/trace files — see
+/// `resolve_log_directory` (public, declared in gtopt_main.hpp).
 [[nodiscard]] std::filesystem::path resolve_log_dir(const MainOptions& opts)
 {
-  if (opts.log_directory.has_value()) {
-    return {opts.log_directory.value()};
-  }
-  return std::filesystem::path(opts.output_directory.value_or("output"))
-      / "logs";
+  return resolve_log_directory(opts);
 }
 
 /// Pick the run number `N` shared by every log file produced this run.
@@ -496,6 +490,53 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
   } catch (const spdlog::spdlog_ex& ex) {
     spdlog::warn("could not open log file '{}': {}", log_path, ex.what());
   }
+}
+
+[[nodiscard]] std::filesystem::path resolve_log_directory(
+    const MainOptions& opts)
+{
+  namespace fs = std::filesystem;
+
+  // 1. CLI `--log-directory` (applied last in configure_planning).
+  if (opts.log_directory.has_value() && !opts.log_directory->empty()) {
+    return {*opts.log_directory};
+  }
+
+  // 2. `--set log_directory=...`, else `options.log_directory` from the
+  //    planning JSON.  Taken verbatim (relative to the CWD), exactly as
+  //    `PlanningOptionsLP::log_directory()` hands it to the SDDP / LP
+  //    debug writers.
+  const auto peek =
+      peek_planning_directories(opts.planning_files, opts.input_directory);
+  if (auto set_log = find_set_option(opts.set_options, "log_directory");
+      set_log && !set_log->empty())
+  {
+    return {*set_log};
+  }
+  if (peek.log_directory && !peek.log_directory->empty()) {
+    return {*peek.log_directory};
+  }
+
+  // 3. Default: `<output_directory>/logs`, with output_directory
+  //    resolved by the same precedence as the solver output
+  //    (CLI > --set > JSON > "output").  A non-CLI relative
+  //    output_directory is anchored at the first planning file's
+  //    parent directory, mirroring the resolution in gtopt_main().
+  if (opts.output_directory.has_value()) {
+    return fs::path(*opts.output_directory) / "logs";
+  }
+  fs::path out_dir {
+      find_set_option(opts.set_options, "output_directory")
+          .or_else([&peek] { return peek.output_directory; })
+          .value_or(std::string {PlanningOptionsLP::default_output_directory}),
+  };
+  if (!opts.planning_files.empty() && out_dir.is_relative()) {
+    const auto json_dir = fs::path(opts.planning_files.front()).parent_path();
+    if (!json_dir.empty() && json_dir != ".") {
+      out_dir = json_dir / out_dir;
+    }
+  }
+  return out_dir / "logs";
 }
 
 [[nodiscard]] std::expected<int, std::string> gtopt_main(

@@ -9,6 +9,10 @@
 
 #include <filesystem>
 #include <format>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include <gtopt/resolve_planning_args.hpp>
 #include <spdlog/spdlog.h>
@@ -47,16 +51,25 @@ namespace gtopt
         // relative to CWD, so we prefix it with the dir path.
         // Mark as auto-resolved so apply_cli_options skips deprecation
         // warnings.
-        if (!opts.input_directory) {
+        //
+        // A directory the user already chose via `--set <key>=...` is
+        // left alone: the auto-resolved value would otherwise be applied
+        // as a CLI flag, which overrides `--set` in `configure_planning`.
+        //
+        // `log_directory` is deliberately NOT auto-resolved: its default
+        // is `<output_directory>/logs` (see `PlanningOptionsLP::
+        // log_directory`), which already yields `dir/results/logs`, and
+        // pinning it here would shadow a `log_directory` given in the
+        // JSON options or via `--set`.
+        const auto user_set = [&opts](std::string_view key)
+        { return find_set_option(opts.set_options, key).has_value(); };
+        if (!opts.input_directory && !user_set("input_directory")) {
           opts.input_directory = path.string();
         }
-        if (!opts.output_directory) {
+        if (!opts.output_directory && !user_set("output_directory")) {
           opts.output_directory = (path / "results").string();
         }
-        if (!opts.log_directory) {
-          opts.log_directory = (path / "results" / "logs").string();
-        }
-        if (!opts.cut_directory) {
+        if (!opts.cut_directory && !user_set("sddp_options.cut_directory")) {
           opts.cut_directory = (path / "cuts").string();
         }
         opts.dirs_auto_resolved = true;
@@ -110,6 +123,25 @@ namespace gtopt
   }
 
   return opts;
+}
+
+[[nodiscard]] std::optional<std::string> find_set_option(
+    const std::vector<std::string>& set_options, std::string_view key)
+{
+  std::optional<std::string> found;
+  for (const auto& opt : set_options) {
+    const auto eq_pos = opt.find('=');
+    if (eq_pos == std::string::npos
+        || std::string_view {opt}.substr(0, eq_pos) != key)
+    {
+      continue;
+    }
+    auto value = opt.substr(eq_pos + 1);
+    if (value != "null") {
+      found = std::move(value);
+    }
+  }
+  return found;
 }
 
 }  // namespace gtopt

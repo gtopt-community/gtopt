@@ -19,7 +19,10 @@
 #pragma once
 
 #include <expected>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <gtopt/gtopt_main.hpp>
 
@@ -36,5 +39,15 @@ namespace gtopt
  */
 [[nodiscard]] std::expected<MainOptions, std::string> resolve_planning_args(
     MainOptions opts);
+
+/**
+ * @brief Value of the last `--set <key>=<value>` entry for @p key.
+ *
+ * Only exact top-level keys match (e.g. `"log_directory"`).  A literal
+ * `null` value is treated as "not set", mirroring `apply_set_options`,
+ * where a JSON `null` overlay leaves the option untouched.
+ */
+[[nodiscard]] std::optional<std::string> find_set_option(
+    const std::vector<std::string>& set_options, std::string_view key);
 
 }  // namespace gtopt

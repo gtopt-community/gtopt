@@ -14,6 +14,7 @@
 #pragma once
 
 #include <expected>
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <string>
@@ -431,10 +432,32 @@ struct MainOptions
     const MainOptions& raw_opts);
 
 /**
- * @brief Add a `<log_dir>/gtopt.log` file sink to spdlog's default logger.
+ * @brief Resolve the directory that receives `gtopt_N.log` /
+ *        `trace_N.log`, before the planning JSON is fully parsed.
  *
- * Resolves the log directory using @c opts.log_directory if set, else
- * `<output_directory>/logs`.  Creates the directory if needed and
+ * Precedence (same as the solver-side `PlanningOptionsLP::log_directory`
+ * after `configure_planning`):
+ *   1. CLI `--log-directory` (@c opts.log_directory);
+ *   2. `--set log_directory=<dir>`;
+ *   3. `options.log_directory` in the planning JSON (later files win);
+ *   4. `<output_directory>/logs`, where output_directory is CLI
+ *      `--output-directory` > `--set output_directory` > JSON >
+ *      `"output"`; a non-CLI relative output_directory is anchored at
+ *      the first planning file's parent directory.
+ *
+ * Explicit log directories (1–3) are used verbatim (CWD-relative).
+ * Does not create the directory.  Expects @p opts to have gone through
+ * `resolve_planning_args` (directory arguments expanded).
+ */
+[[nodiscard]] std::filesystem::path resolve_log_directory(
+    const MainOptions& opts);
+
+/**
+ * @brief Add a `<log_dir>/gtopt_N.log` file sink to spdlog's default logger.
+ *
+ * The log directory comes from `resolve_log_directory(opts)` (so
+ * `--set log_directory` / JSON `options.log_directory` are honoured).
+ * Creates the directory if needed and
  * attaches a `basic_file_sink_mt` (truncating) at the current default
  * level so all subsequent `spdlog::info/warn/error` go to the file.
  *

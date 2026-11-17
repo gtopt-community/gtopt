@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <daw/daw_read_file.h>
+#include <daw/json/daw_json_link.h>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
@@ -26,6 +27,39 @@
 
 namespace gtopt
 {
+
+namespace
+{
+
+/// Map a planning-file argument to the JSON path that is actually read:
+/// force the `.json` extension and, when the file is not found relative
+/// to the CWD, fall back to `<input_directory>/<filename>`.  The returned
+/// path may not exist — callers check before calling `daw::read_file`,
+/// which is noexcept and would `std::terminate` on a missing file.
+[[nodiscard]] std::filesystem::path locate_planning_file(
+    const std::string& planning_file,
+    const std::optional<std::string>& input_directory,
+    bool verbose)
+{
+  std::filesystem::path fpath(planning_file);
+  fpath.replace_extension(".json");
+
+  if (!std::filesystem::exists(fpath) && input_directory.has_value()) {
+    auto alt =
+        std::filesystem::path(input_directory.value()) / fpath.filename();
+    if (std::filesystem::exists(alt)) {
+      if (verbose) {
+        spdlog::info("  Found '{}' in input_directory '{}'",
+                     fpath.filename().string(),
+                     input_directory.value());
+      }
+      fpath = std::move(alt);
+    }
+  }
+  return fpath;
+}
+
+}  // namespace
 
 Planning parse_planning_json(std::string_view json_content)
 {
@@ -48,23 +82,8 @@ std::expected<Planning, std::string> parse_planning_files(
 
   for (const auto& planning_file : planning_files) {
     try {
-      std::filesystem::path fpath(planning_file);
-      fpath.replace_extension(".json");
-
-      // Check existence before calling daw::read_file, which is noexcept
-      // and would call std::terminate via std::filesystem::file_size if
-      // the file is missing.  If the file is not found in the current
-      // directory, try the input_directory as a fallback.
-      if (!std::filesystem::exists(fpath) && input_directory.has_value()) {
-        auto alt =
-            std::filesystem::path(input_directory.value()) / fpath.filename();
-        if (std::filesystem::exists(alt)) {
-          spdlog::info("  Found '{}' in input_directory '{}'",
-                       fpath.filename().string(),
-                       input_directory.value());
-          fpath = std::move(alt);
-        }
-      }
+      const auto fpath = locate_planning_file(
+          planning_file, input_directory, /*verbose=*/true);
       if (!std::filesystem::exists(fpath)) {
         return std::unexpected(
             std::format("Input file '{}' does not exist", fpath.string()));
@@ -109,6 +128,57 @@ std::expected<Planning, std::string> parse_planning_files(
 
   spdlog::info("  Parse all input files time {:.3f}s", sw.elapsed().count());
   return my_planning;
+}
+
+PlanningDirectoryPeek peek_planning_directories(
+    const std::vector<std::string>& planning_files,
+    const std::optional<std::string>& input_directory)
+{
+  PlanningDirectoryPeek peek;
+
+  for (const auto& planning_file : planning_files) {
+    try {
+      const auto fpath = locate_planning_file(
+          planning_file, input_directory, /*verbose=*/false);
+      if (!std::filesystem::exists(fpath)) {
+        continue;  // parse_planning_files reports the missing file later
+      }
+      const auto json_result = daw::read_file(fpath.string());
+      if (!json_result) {
+        continue;
+      }
+      // Canonicalise so aliased option keys resolve exactly as in the
+      // full parse.  `json_value` is lazy: only the `options` member is
+      // walked; the (possibly large) `system` / `simulation` payloads
+      // are skipped without being deserialised.
+      const auto canonical = canonicalize_json_keys(json_result.value());
+      const daw::json::json_value doc {daw::string_view {canonical}};
+      const auto read_string =
+          [&doc](std::string_view path) -> std::optional<std::string>
+      {
+        const auto member =
+            doc.find_member(daw::string_view {path.data(), path.size()});
+        if (!member || !member.is_string()) {
+          return std::nullopt;
+        }
+        return member.as<std::string>();
+      };
+      // Later files override earlier ones, matching Planning::merge.
+      if (auto v = read_string("options.output_directory")) {
+        peek.output_directory = std::move(v);
+      }
+      if (auto v = read_string("options.log_directory")) {
+        peek.log_directory = std::move(v);
+      }
+    } catch (const std::exception& ex) {
+      // Best effort: a malformed file is reported by the full parse.
+      spdlog::debug("peek_planning_directories: skipping '{}': {}",
+                    planning_file,
+                    ex.what());
+    }
+  }
+
+  return peek;
 }
 
 }  // namespace gtopt

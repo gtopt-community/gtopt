@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #include <filesystem>
+#include <format>
 #include <fstream>
+#include <string_view>
 
 #include <doctest/doctest.h>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/resolve_planning_args.hpp>
 
 using namespace gtopt;
@@ -28,6 +31,14 @@ struct TmpDir
   TmpDir(TmpDir&&) = delete;
   TmpDir& operator=(TmpDir&&) = delete;
 };
+
+/// Write @p content to the file at @p p (creating parent directories).
+void write_file(const std::filesystem::path& p, std::string_view content)
+{
+  std::filesystem::create_directories(p.parent_path());
+  std::ofstream ofs(p);
+  ofs << content;
+}
 
 /// Create a minimal JSON file at the given path.
 void touch_json(const std::filesystem::path& p)
@@ -73,11 +84,11 @@ TEST_CASE("resolve_planning_args — directory argument")  // NOLINT
           == (case_dir / "results").string());
   }
 
-  SUBCASE("log_directory is set to dir/results/logs")
+  SUBCASE("log_directory is not pinned; it derives to dir/results/logs")
   {
-    REQUIRE(resolved.log_directory.has_value());
-    CHECK(resolved.log_directory.value_or("")
-          == (case_dir / "results" / "logs").string());
+    // Pinning it would shadow `--set log_directory` / JSON options.
+    CHECK_FALSE(resolved.log_directory.has_value());
+    CHECK(resolve_log_directory(resolved) == case_dir / "results" / "logs");
   }
 
   SUBCASE("cut_directory is set relative to dir")
@@ -310,4 +321,121 @@ TEST_CASE(
   CHECK(result->planning_files[0] == "my_case.json");
   CHECK_FALSE(result->input_directory.has_value());
   CHECK_FALSE(result->output_directory.has_value());
+}
+
+TEST_CASE("find_set_option — last matching key wins, null ignored")  // NOLINT
+{
+  const std::vector<std::string> set_opts {
+      "output_directory=a",
+      "log_directory=first",
+      "sddp_options.log_directory=nested",
+      "log_directory=second",
+      "log_directory=null",
+  };
+  CHECK(find_set_option(set_opts, "log_directory").value_or("") == "second");
+  CHECK(find_set_option(set_opts, "output_directory").value_or("") == "a");
+  CHECK_FALSE(find_set_option(set_opts, "input_directory").has_value());
+}
+
+TEST_CASE("resolve_log_directory — precedence")  // NOLINT
+{
+  // Regression: `--set log_directory=<dir>` and JSON
+  // `options.log_directory` used to be ignored for gtopt_N.log /
+  // trace_N.log, which always went to `./output/logs` (CWD-relative).
+  const TmpDir tmp("test_resolve_log_directory");
+  const auto case_dir = tmp.path / "case_x";
+  const auto json_path = case_dir / "case_x.json";
+
+  SUBCASE("default is <json_dir>/output/logs")
+  {
+    write_file(json_path, R"({"options": {}})");
+    const MainOptions opts {.planning_files = {json_path.string()}};
+    CHECK(resolve_log_directory(opts) == case_dir / "output" / "logs");
+  }
+
+  SUBCASE("JSON output_directory moves the default")
+  {
+    write_file(json_path, R"({"options": {"output_directory": "res"}})");
+    const MainOptions opts {.planning_files = {json_path.string()}};
+    CHECK(resolve_log_directory(opts) == case_dir / "res" / "logs");
+  }
+
+  SUBCASE("--set output_directory overrides JSON output_directory")
+  {
+    write_file(json_path, R"({"options": {"output_directory": "res"}})");
+    const MainOptions opts {
+        .planning_files = {json_path.string()},
+        .set_options = {"output_directory=other"},
+    };
+    CHECK(resolve_log_directory(opts) == case_dir / "other" / "logs");
+  }
+
+  SUBCASE("JSON log_directory is honoured")
+  {
+    const auto logs = (tmp.path / "json_logs").string();
+    write_file(json_path,
+               std::format(R"({{"options": {{"output_directory": "res",
+                               "log_directory": "{}"}},
+                               "system": {{"bus_array": [{{"uid": 1}}]}}}})",
+                           logs));
+    const MainOptions opts {.planning_files = {json_path.string()}};
+    CHECK(resolve_log_directory(opts) == std::filesystem::path(logs));
+  }
+
+  SUBCASE("--set log_directory overrides JSON log_directory")
+  {
+    write_file(json_path, R"({"options": {"log_directory": "json_logs"}})");
+    const auto logs = (tmp.path / "set_logs").string();
+    const MainOptions opts {
+        .planning_files = {json_path.string()},
+        .set_options = {"log_directory=" + logs},
+    };
+    CHECK(resolve_log_directory(opts) == std::filesystem::path(logs));
+  }
+
+  SUBCASE("--set log_directory beats a directory argument's auto dirs")
+  {
+    write_file(json_path, R"({"options": {}})");
+    const auto logs = (tmp.path / "set_logs").string();
+    const MainOptions raw {
+        .planning_files = {case_dir.string()},
+        .set_options = {"log_directory=" + logs},
+    };
+    const auto resolved = resolve_planning_args(raw);
+    REQUIRE(resolved.has_value());
+    CHECK(resolve_log_directory(*resolved) == std::filesystem::path(logs));
+  }
+
+  SUBCASE("CLI --log-directory wins over everything")
+  {
+    write_file(json_path, R"({"options": {"log_directory": "json_logs"}})");
+    const MainOptions opts {
+        .planning_files = {json_path.string()},
+        .log_directory = "cli_logs",
+        .set_options = {"log_directory=set_logs"},
+    };
+    CHECK(resolve_log_directory(opts) == std::filesystem::path("cli_logs"));
+  }
+}
+
+TEST_CASE("peek_planning_directories — later files override")  // NOLINT
+{
+  const TmpDir tmp("test_peek_planning_directories");
+  const auto a = tmp.path / "a.json";
+  const auto b = tmp.path / "b.json";
+  write_file(
+      a, R"({"options": {"output_directory": "oa", "log_directory": "la"}})");
+  write_file(b, R"({"options": {"log_directory": "lb"}})");
+
+  const auto peek = peek_planning_directories({a.string(), b.string()});
+  CHECK(peek.output_directory.value_or("") == "oa");
+  CHECK(peek.log_directory.value_or("") == "lb");
+
+  // Missing / malformed files are skipped (the full parse reports them).
+  const auto bad = tmp.path / "bad.json";
+  write_file(bad, "{not json");
+  const auto peek2 = peek_planning_directories(
+      {bad.string(), (tmp.path / "missing.json").string()});
+  CHECK_FALSE(peek2.output_directory.has_value());
+  CHECK_FALSE(peek2.log_directory.has_value());
 }

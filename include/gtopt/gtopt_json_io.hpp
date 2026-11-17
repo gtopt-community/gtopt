@@ -43,6 +43,25 @@ namespace gtopt
     const std::optional<std::string>& input_directory = {},
     std::string_view enforce_dialect = {});
 
+/// Directory options read from the `options` block of planning files.
+struct PlanningDirectoryPeek
+{
+  std::optional<std::string> output_directory {};
+  std::optional<std::string> log_directory {};
+};
+
+/// Cheaply read `options.output_directory` / `options.log_directory`
+/// from @p planning_files without deserialising the whole Planning.
+///
+/// Used to place the log files *before* the full parse runs (the file
+/// sink must exist before the first log line).  Files are located the
+/// same way as in `parse_planning_files`; later files override earlier
+/// ones (same as `Planning::merge`).  Missing / malformed files are
+/// skipped silently — the full parse reports them.
+[[nodiscard]] PlanningDirectoryPeek peek_planning_directories(
+    const std::vector<std::string>& planning_files,
+    const std::optional<std::string>& input_directory = {});
+
 /// Write the merged Planning to a JSON file.
 [[nodiscard]] std::expected<void, std::string> write_json_output(
     const Planning& planning, const std::string& json_file);

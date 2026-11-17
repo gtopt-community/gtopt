@@ -194,6 +194,10 @@ is:
                         /error_*.lp[.zst] LP debug files when a
                                           solve goes infeasible
 
+The log directory can be moved with --set log_directory=<dir> (or
+options.log_directory in the planning JSON); an explicit value is
+used as given (relative to the current directory).
+
 The 'N' suffix is shared between gtopt_N.log and trace_N.log of the
 same run (next free integer not present in the directory), so you
 can pair the two by suffix when investigating an issue across runs.
@@ -426,7 +430,8 @@ record — `--quiet` further silences the log file too.
     //
     // Non-interactive stdout (run via run_gtopt, CI, redirection, …):
     // suppress every spdlog message on stdout and route them only to
-    // <output_directory>/logs/gtopt.log.  The calling process gets a
+    // <log_directory>/gtopt_N.log (default <output_directory>/logs, see
+    // gtopt::resolve_log_directory).  The calling process gets a
     // clean stdout and a single canonical log file — no duplicate
     // tee-ing required on the Python side.
     //
