@@ -2035,29 +2035,26 @@ void SDDPMethod::finalize_iteration_result(
     }
   }
 
-  // Convergence semantics (after 2026-05-14 rewrite):
+  // Convergence semantics: this function only computes ``ir.gap`` and
+  // ``ir.gap_change``.  The decision is taken downstream in
+  // ``evaluate_convergence_check`` / ``ConvergenceCheck``
+  // (sddp_iteration.cpp) once ``min_iterations`` is cleared, using
+  // exactly one signal selected by ``SDDPOptions::stationarity_enabled``:
   //
-  //   The signed-gap (|UB-LB|/max(1,|UB|)) is **not** a convergence
-  //   trigger.  Under the multi-cut + aperture regime the LB
-  //   routinely overshoots the optimum and the signed gap zero-
-  //   crosses well before the policy has stabilised — declaring
-  //   converged at gap < 1 % then would either fire prematurely on
-  //   the descent or be unreachable once gap goes negative.
-  //
-  //   UB is the unbiased Monte-Carlo estimate of the realised policy
-  //   cost — the quantity we are optimising — so the convergence
-  //   signal is ΔUB stationarity: the relative change of UB over the
-  //   stationary look-back window drops below ``stationary_tol``.
-  //   That decision is taken downstream in ``evaluate_stationary_check``
-  //   /``StationaryCheck`` (sddp_iteration.cpp).
+  //   * stationarity enabled (default) — ΔUB stationarity
+  //     ``gap_change < stationary_tol`` is the SOLE signal: UB is the
+  //     unbiased Monte-Carlo estimate of the realised policy cost, and
+  //     under multi-cut / aperture overshoot the signed gap zero-crosses
+  //     before the policy stabilises, so the gap never stops the run.
+  //   * stationarity disabled (``stationary_tol <= 0``,
+  //     ``stationary_window <= 0`` or ``gap_only``) — primary gap test
+  //     ``sddp_gap_converged(gap, convergence_tol)``, i.e.
+  //     ``-kSddpGapFpEpsilon < gap < convergence_tol``.  The 2026-05-14
+  //     rewrite had dropped this exit everywhere, so such runs had no
+  //     exit at all (UB == LB yet iterating to ``max_iterations``).
   //
   //   The negative-gap WARN below still fires on pathological |gap|
-  //   so post-mortem readers see the LB-overshoot in the trace, and
-  //   the ``|gap| < stationary_gap_ceiling`` (default 0.5) safety net
-  //   in ``evaluate_stationary_check`` refuses to declare converged
-  //   on a wild bound asymmetry.  Pre-2026-05-14 this site also set
-  //   ``ir.converged = (ir.gap < convergence_tol && past_min_iter)``;
-  //   that exit has been removed.
+  //   so post-mortem readers see the LB-overshoot in the trace.
   const auto tol = m_options_.convergence_tol;
 
   // WARN threshold is more lenient than the convergence-decision
@@ -2095,9 +2092,9 @@ void SDDPMethod::finalize_iteration_result(
         neg_gap_warn_threshold);
   }
   // ``ir.converged`` is intentionally left at its default ``false``
-  // here.  The sole convergence path is the stationary check applied
-  // downstream by the caller (``SDDPMethod::iterate()`` and
-  // ``solve_async()``) via ``evaluate_stationary_check`` —
+  // here.  The convergence decision is applied downstream by the
+  // caller (``SDDPMethod::iterate()`` and ``solve_async()``) via
+  // ``evaluate_convergence_check`` —
   // ``past_min_iter`` is recomputed inside that helper.
 
   publish_live_metrics_(LiveMetrics {

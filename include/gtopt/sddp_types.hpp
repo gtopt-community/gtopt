@@ -386,6 +386,21 @@ constexpr double sddp_alpha_bootstrap_min = 0.0;
 /// values up to ~1e9 stays comfortably below `1e-9`.
 constexpr double kSddpGapFpEpsilon = 1.0e-9;
 
+/// Primary gap convergence predicate: `gap` lies inside the converged
+/// band `(-kSddpGapFpEpsilon, convergence_tol)`.
+///
+/// The band is one-sided on purpose: a gap at or below
+/// `-kSddpGapFpEpsilon` means `LB > UB` beyond rounding noise, i.e. the
+/// cuts overshoot the optimum, and must not be read as "converged"
+/// (otherwise every large negative gap, e.g. `-11.84`, would satisfy
+/// `gap < convergence_tol`).  A negative `convergence_tol` empties the
+/// band and so disables the gap test.
+[[nodiscard]] constexpr bool sddp_gap_converged(double gap,
+                                                double convergence_tol) noexcept
+{
+  return gap < convergence_tol && gap > -kSddpGapFpEpsilon;
+}
+
 // ─── Elastic filter mode ────────────────────────────────────────────────────
 // ElasticFilterMode is now defined in <gtopt/sddp_enums.hpp>.
 // The generic enum_from_name<ElasticFilterMode>() replaces the old
@@ -515,10 +530,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 {
   // ── Convergence policy (single coherent story) ────────────────────────
   //
-  // Aim for a 1 % relative gap (``convergence_tol``).  If the gap stops
-  // moving (gap_change < ``stationary_tol`` = 0.5 %) AND the gap is
-  // already inside ``stationary_gap_ceiling`` (5 %), accept it as
-  // converged.  Otherwise keep iterating up to ``max_iterations``.
+  // Default: converge when UB stops moving (ΔUB over
+  // ``stationary_window`` iters < ``stationary_tol`` = 0.5 %) — the
+  // sole signal while stationarity is enabled.  When stationarity is
+  // disabled (``stationary_tol <= 0``, ``stationary_window <= 0`` or
+  // ``convergence_mode = gap_only``) the run instead stops once the gap
+  // enters ``(-kSddpGapFpEpsilon, convergence_tol)``.  Otherwise keep
+  // iterating up to ``max_iterations``.
   // The statistical CI test (``convergence_confidence``) is opt-in
   // (default 0) because it is too easily fooled by σ scatter when scene
   // UBs are heterogeneous (e.g. Maule-type large cases).  ``min_iterations`` =
@@ -531,7 +549,9 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   // defaults are deliberately consistent so most users never set them.
   int max_iterations {100};  ///< Maximum forward/backward iterations
   int min_iterations {1};  ///< Minimum iterations before convergence
-  double convergence_tol {0.01};  ///< Relative gap tolerance for convergence
+  /// Relative gap tolerance; the stop criterion only when ΔUB
+  /// stationarity is disabled (see `stationarity_enabled()`).
+  double convergence_tol {0.01};
   double elastic_penalty {1e3};  ///< Penalty for elastic slack variables
   /// Scale for α (0 = auto: max state var_scale).  α itself is a free
   /// variable (no explicit bounds): per-row row-max equilibration on
@@ -1143,37 +1163,45 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 
   // ── Secondary (stationary gap) convergence ────────────────────────────
 
-  /// Tolerance for the secondary stationary-gap convergence criterion.
+  /// Convergence rule (see docs/methods/sddp.md §4.5):
   ///
-  /// When the relative change in the convergence gap over the last
-  /// `stationary_window` iterations falls below this value, the solver
-  /// declares convergence even if the gap is above `convergence_tol`.
-  /// This handles problems where the SDDP gap converges to a non-zero
-  /// stationary value due to stochastic noise or problem structure
-  /// (a known theoretical limitation of SDDP/Benders on certain
-  /// programs).
+  ///  * ΔUB stationarity ENABLED (``stationarity_enabled()``: mode is
+  ///    not ``gap_only``, ``stationary_tol > 0`` and
+  ///    ``stationary_window > 0``) — stationarity is the SOLE
+  ///    convergence signal (plus the opt-in statistical CI test); the
+  ///    gap is reported but never stops the run, because under
+  ///    multi-cut / aperture overshoot the signed gap zero-crosses
+  ///    before the policy has stabilised:
+  ///      gap_change = |UB[i] - UB[i - window]| / max(1e-10, |UB[i - window]|)
+  ///      gap_change < stationary_tol -> converged
+  ///  * stationarity DISABLED — the primary gap test
+  ///    ``sddp_gap_converged(gap, convergence_tol)`` (band
+  ///    ``(-kSddpGapFpEpsilon, convergence_tol)``) is the stop signal.
   ///
-  /// Criterion (after min_iterations and stationary_window iters done):
-  ///   gap_change = |gap[i] - gap[i - window]|
-  ///              / max(1e-10, gap[i - window])
-  ///   gap_change < stationary_tol -> declare convergence
-  ///
-  /// Convergence criterion mode.  Default: gap_stationary — the
-  /// primary gap test plus the stationary safety net are enough for
-  /// most users.  The statistical CI test (``ConvergenceMode::statistical``)
-  /// is opt-in because heterogeneous-scene σ scatter (Maule-type large cases)
-  /// can trivially fire it at large %gap.
+  /// Default: gap_stationary.  The statistical CI test
+  /// (``ConvergenceMode::statistical``) is opt-in because
+  /// heterogeneous-scene σ scatter (Maule-type large cases) can trivially fire it
+  /// at large %gap.
   ConvergenceMode convergence_mode {ConvergenceMode::gap_stationary};
 
-  /// Tolerance for "gap stopped moving" detection (gap_change < tol).
-  /// Tighter than ``convergence_tol`` so the safety net only fires when
-  /// the gap has *clearly* stalled, not while it is still trending.
-  /// Default: 0.005 (0.5%).  Set to 0.0 to disable.
+  /// Tolerance for "UB stopped moving" detection (gap_change < tol).
+  /// Default: 0.005 (0.5%).  Set to 0.0 to disable stationarity, which
+  /// makes ``convergence_tol`` the stop criterion.
   double stationary_tol {0.005};
 
-  /// Number of iterations to look back when checking gap stationarity.
+  /// Number of iterations to look back when checking UB stationarity.
   /// Only used when stationary_tol > 0.0.  Default: 4 (one season).
+  /// ``<= 0`` disables stationarity like ``stationary_tol = 0``.
   int stationary_window {4};
+
+  /// True when ΔUB stationarity is the active convergence signal.
+  /// When false the primary gap test (``convergence_tol``) is used
+  /// instead.
+  [[nodiscard]] constexpr bool stationarity_enabled() const noexcept
+  {
+    return convergence_mode != ConvergenceMode::gap_only && stationary_tol > 0.0
+        && stationary_window > 0;
+  }
 
   /// Absolute gap ceiling above which the secondary tests (stationary +
   /// statistical CI) are SUPPRESSED.  Even when ``gap_change <
@@ -1290,7 +1318,11 @@ struct SDDPIterationResult
   /// applicable"), so the convergence test naturally skips early
   /// iters that do not yet have a usable look-back window.
   double gap_change {1.0};
-  bool converged {};  ///< True if gap < convergence tolerance
+  /// True once a convergence criterion fired: ΔUB stationarity (when
+  /// enabled), the primary gap test (only when stationarity is
+  /// disabled — see `SDDPOptions::stationarity_enabled`), or the
+  /// statistical CI test.
+  bool converged {};
   /// True when convergence was declared by the stationary-gap criterion
   /// (gap_change < stationary_tol) rather than the primary criterion.
   bool stationary_converged {};

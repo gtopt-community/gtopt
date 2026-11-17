@@ -155,16 +155,19 @@ problems, statistical convergence criteria apply [[4]](#ref4).
 Some problems converge to a **non-zero stationary gap** due to stochastic
 noise, problem structure, or numerical conditioning.  The gap stops
 improving but never reaches the primary tolerance $\varepsilon$.  The
-**stationary-gap criterion** detects this plateau:
+**stationarity criterion** detects this plateau on the upper bound
+(the policy-cost estimate) — see §4.5:
 
 ```
-gap_change = |gap[k] − gap[k − window]| / max(1e-10, gap[k − window])
+gap_change = |UB[k] − UB[k − window]| / max(1e-10, |UB[k − window]|)
 if gap_change < stationary_tol → declare convergence
 ```
 
 When triggered, the solver sets `converged = true` and
-`stationary_converged = true`, allowing downstream tools to distinguish
-primary from secondary convergence.
+`stationary_converged = true`.  In gtopt this stationarity test is the
+**default and sole** stopping criterion; the gap tolerance
+$\varepsilon$ (`convergence_tol`) is used only when stationarity is
+disabled (§4.5).
 
 #### Example
 
@@ -471,20 +474,29 @@ solve, collect cuts, and compute the probability-weighted average.
 
 ### 4.5 Convergence Check
 
-Two convergence criteria are evaluated at the end of each **training
-iteration** (a paired forward + backward pass that generates cuts).
-The simulation pass (see S4.5.1) does **not** determine convergence
-on its own — it inherits the convergence status from the last training
-iteration.  When `max_iterations = 0` (e.g. `simulation_mode`), no
-training iterations run, so `converged` is always `false`.
+Convergence is evaluated at the end of each **training iteration** (a
+paired forward + backward pass that generates cuts).  The simulation
+pass (see S4.5.1) does **not** determine convergence on its own — it
+inherits the convergence status from the last training iteration.  When
+`max_iterations = 0` (e.g. `simulation_mode`), no training iterations
+run, so `converged` is always `false`.
 
-#### Primary criterion
+Exactly **one** stopping criterion is live per run, chosen by whether
+ΔUB stationarity is enabled:
+
+| Stationarity | Condition | Stop criterion |
+|--------------|-----------|----------------|
+| enabled (default) | `convergence_mode` ≠ `gap_only` **and** `stationary_tol > 0` **and** `stationary_window > 0` | ΔUB stationarity only; `convergence_tol` does **not** stop the run |
+| disabled | `stationary_tol <= 0` **or** `stationary_window <= 0` **or** `convergence_mode = gap_only` | gap test with `convergence_tol` |
+
+Both require `iter >= min_iterations`.  `convergence_mode = statistical`
+additionally runs the statistical CI test on top of whichever
+criterion is live.
 
 ```
 LB = sum of phase-0 objectives across feasible scenes
 UB = sum of total forward-pass costs across feasible scenes
 gap = (UB - LB) / max(1, |UB|)
-converged = (gap < convergence_tol) AND (iter >= min_iterations)
 ```
 
 Both bounds are plain **sums**, not averages: every LP cost
@@ -498,30 +510,67 @@ probability (pre-2026-05-02 bug; see
 contribute 0 to both bounds; the missing probability mass is
 reported separately as `scene_probability_lost`.
 
-#### Secondary criterion — stationary gap
+#### ΔUB stationarity (default)
 
-When `stationary_tol > 0` and at least `stationary_window` iterations
-have completed, the solver checks whether the gap has stopped improving:
+The solver checks whether the **upper bound** (the Monte-Carlo
+estimate of the policy cost) has stopped moving over the look-back
+window:
 
 ```
-gap_change = |gap[iter] - gap[iter - window]| / max(1e-10, gap[iter - window])
+gap_change = |UB[iter] - UB[iter - window]| / max(1e-10, |UB[iter - window]|)
 if gap_change < stationary_tol AND iter >= min_iterations:
     converged = true
     stationary_converged = true
 ```
 
-This criterion fires **only** when the primary criterion has not been met.
-It handles SDDP problems where the gap converges to a non-zero stationary
-value — a known theoretical limitation of Benders/SDDP on certain
-stochastic programs.
+The window shrinks to the available history in the first iterations
+(no window-fill wait).  While stationarity is enabled this is the
+**sole** signal: the gap is reported but never stops the run, because
+under multi-cut / aperture overshoot the signed gap zero-crosses (LB
+can settle above UB) before the policy has stabilised.  Consequently a
+run whose gap already reached zero keeps iterating until UB is stable
+over the window — with the defaults (`stationary_tol = 0.005`,
+`stationary_window = 4`) typically a few more iterations.  The
+per-iteration log prints `gap_change` as `Δgap`.
+
+#### Gap test (stationarity disabled)
+
+```
+gap_ok    = (-1e-9 < gap) AND (gap < convergence_tol)
+converged = gap_ok AND (iter >= min_iterations)
+```
+
+The band is **one-sided**: a gap below `-1e-9` (`kSddpGapFpEpsilon`)
+means `LB > UB` beyond rounding noise — the cuts overshoot the optimum —
+and is never read as converged.  A gap printed as `-0.0000%` is usually
+pure rounding (e.g. `-2e-16`) and lies inside the band.  Set
+`convergence_tol` to a negative value to disable the test.  To stop on
+`convergence_tol`, disable stationarity, e.g.
+`--set sddp_options.stationary_tol=0`.
+
+> **History.** The 2026-05-14 rewrite made ΔUB stationarity the only
+> trigger and dropped the gap exit everywhere, so a run with
+> stationarity disabled had no exit at all: bounds met exactly
+> (`gap = ±0.0000%` from iteration 2) yet it iterated to
+> `max_iterations`.  Since 2026-11-18 the gap test applies when (and
+> only when) stationarity is disabled.  The asynchronous path
+> (`max_async_spread > 0`) additionally marks individual scenes
+> converged when their own gap is in the band.
+
+If no criterion fires, the run ends with a warning naming the live
+criterion and its value, e.g.
+`SDDP: max_iterations reached without convergence (ΔUB=… not <
+stationary_tol=… over stationary_window=…; gap=… is not a stop criterion
+while stationarity is enabled …)` or `(gap=… not in (-1e-09,
+convergence_tol=…); ΔUB stationarity disabled)`.
 
 #### Iteration result fields
 
 | Field | Description |
 |-------|-------------|
 | `gap` | Relative optimality gap: $(UB - LB) / \max(1, \lvert UB \rvert)$ |
-| `gap_change` | Relative change in gap over the look-back window (1.0 if not yet checked) |
-| `converged` | `true` if either criterion was met |
+| `gap_change` | Relative change in UB over the look-back window (1.0 if not yet checked) |
+| `converged` | `true` if the live criterion (or the statistical CI test) was met |
 | `stationary_converged` | `true` if convergence was declared by the stationary criterion |
 
 ### 4.5.1 Simulation Pass
@@ -867,7 +916,7 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 |-------|------|---------|-------------|
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
-| `convergence_tol` | double | 1e-4 | Relative gap tolerance |
+| `convergence_tol` | double | 0.01 | Relative gap tolerance; stops the run only when ΔUB stationarity is disabled (§4.5) |
 | `elastic_penalty` | double | 1e6 | Penalty cost for elastic slack variables |
 | `elastic_filter_mode` | ElasticFilterMode | single_cut | Elastic filter strategy (see S5.4) |
 | `multi_cut_threshold` | int | 10 | Infeasibility count before auto-switching to multi_cut (0 = always multi_cut, <0 = disabled) |
@@ -899,8 +948,8 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `single_cut_storage` | bool | false | Store cuts per-scene only (halves memory) |
 | `max_stored_cuts` | int | 0 | Max stored cuts per scene (0 = unlimited) |
 | `simulation_mode` | bool | false | Skip training (force `max_iterations=0`), run simulation pass only, disable cut saving |
-| `stationary_tol` | double | 0.0 | Secondary convergence: relative gap-change tolerance (0 = disabled; e.g. 0.01 = 1%) |
-| `stationary_window` | int | 10 | Look-back window for stationary gap check (only used when `stationary_tol > 0`) |
+| `stationary_tol` | double | 0.005 | ΔUB stationarity tolerance — the sole stop criterion while > 0; `0` disables it and makes `convergence_tol` the stop criterion (§4.5) |
+| `stationary_window` | int | 4 | Look-back window (iterations) for ΔUB stationarity; `<= 0` disables stationarity |
 | `save_simulation_cuts` | bool | false | Persist feasibility cuts from the simulation pass (see S4.5.1) |
 
 ### 5.2 Options (JSON)
@@ -953,7 +1002,7 @@ prefix, since the section name already provides the namespace).
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
-| `convergence_tol` | double | 1e-4 | Relative gap convergence tolerance |
+| `convergence_tol` | double | 0.01 | Relative gap tolerance; stops the run only when ΔUB stationarity is disabled (§4.5) |
 | `elastic_penalty` | double | 1e6 | Penalty for elastic slack variables |
 | `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), `"multi_cut"`, `"state_repair"` (alias `"plp"`), or `"farkas_recursive"` |
 | `fact_eps` | double | 1e-8 | PLP FactEPS tolerance (`state_repair` / `farkas_recursive` only) |
@@ -981,8 +1030,8 @@ prefix, since the section name already provides the namespace).
 | `named_cuts_file` | string | `""` | CSV file with named multi-phase cuts (S4.15) |
 | `simulation_mode` | bool | `false` | Skip training, run simulation pass only (S4.5.1) |
 | `save_simulation_cuts` | bool | `false` | Save feasibility cuts from simulation pass |
-| `stationary_tol` | double | 0.0 | Secondary convergence: relative gap-change tolerance (0 = disabled) |
-| `stationary_window` | int | 10 | Look-back window for stationary gap detection |
+| `stationary_tol` | double | 0.005 | ΔUB stationarity tolerance — the sole stop criterion while > 0; `0` disables it and makes `convergence_tol` the stop criterion (§4.5) |
+| `stationary_window` | int | 4 | Look-back window (iterations) for ΔUB stationarity; `<= 0` disables stationarity |
 
 > **Note**: `boundary_cuts_file` has moved to the `simulation`
 > section.  For backward compatibility, it is still accepted in
@@ -1008,7 +1057,7 @@ gtopt my_case.json \
 | `--set sddp_options.cut_directory=<dir>` | Directory for Benders cut files (default: `cuts`) |
 | `--set log_directory=<dir>` | Directory for log and trace files (default: `logs`) |
 | `--set sddp_options.max_iterations=<n>` | Maximum SDDP iterations (default: 100) |
-| `--set sddp_options.convergence_tol=<tol>` | Relative gap convergence tolerance (default: 1e-4) |
+| `--set sddp_options.convergence_tol=<tol>` | Relative gap tolerance (default: 0.01); stops the run only with stationarity disabled (`stationary_tol=0`) |
 | `--set sddp_options.elastic_penalty=<p>` | Elastic slack penalty coefficient (default: 1e2) |
 | `--set sddp_options.elastic_mode=<mode>` | Elastic filter mode: `chinneck` (default), `single_cut`, `multi_cut`, `state_repair` (alias `plp`), `farkas_recursive` |
 

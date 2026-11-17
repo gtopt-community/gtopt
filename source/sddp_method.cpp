@@ -1616,10 +1616,29 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
     if (last.converged) {
       SPDLOG_INFO("SDDP: converged (gap={:.2f}%)", 100.0 * last.gap);
     } else {
-      SPDLOG_WARN(
-          "SDDP: max_iterations reached without convergence "
-          "(gap={:.2f}%), returning best solution",
-          100.0 * last.gap);
+      // Name the criterion that was live and its value so the operator
+      // sees WHY the run did not stop.  Only one criterion is active:
+      // ΔUB stationarity when enabled, else the primary gap test.
+      if (m_sddp_opts_.stationarity_enabled()) {
+        SPDLOG_WARN(
+            "SDDP: max_iterations reached without convergence "
+            "(ΔUB={:.3e} not < stationary_tol={:.3e} over "
+            "stationary_window={}; gap={:.3e} is not a stop criterion "
+            "while stationarity is enabled — set stationary_tol=0 to "
+            "stop on convergence_tol), returning best solution",
+            last.gap_change,
+            m_sddp_opts_.stationary_tol,
+            m_sddp_opts_.stationary_window,
+            last.gap);
+      } else {
+        SPDLOG_WARN(
+            "SDDP: max_iterations reached without convergence "
+            "(gap={:.3e} not in (-{:.0e}, convergence_tol={:.3e}); "
+            "ΔUB stationarity disabled), returning best solution",
+            last.gap,
+            kSddpGapFpEpsilon,
+            m_sddp_opts_.convergence_tol);
+      }
     }
     return 0;
   }

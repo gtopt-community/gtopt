@@ -1597,22 +1597,22 @@ TEST_CASE(  // NOLINT
 // ─── Convergence criteria unit tests ────────────────────────────────────────
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod primary convergence path is gone — with stationary disabled, "
-    "loop runs to max_iterations (post-2026-05-14)")
+    "SDDPMethod primary gap convergence fires with stationary disabled")
 {
-  // Pre-rewrite, ``gap < convergence_tol`` set ``ir.converged`` and
-  // broke the loop.  Post-rewrite, the ΔUB stationary check is the
-  // sole convergence path; disabling it (``stationary_tol = 0``)
-  // leaves the loop running to ``max_iterations`` regardless of how
-  // tight the gap gets.  This pins the new contract.
+  // The 2026-05-14 rewrite dropped the ``gap < convergence_tol`` exit
+  // and this test used to pin that: with ``stationary_tol = 0`` the
+  // loop ran to ``max_iterations`` even at gap = 0, making
+  // ``convergence_tol`` a dead option.  The exit is restored
+  // (see test_sddp_gap_convergence.cpp); a negative
+  // ``convergence_tol`` is the way to disable it.
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
   SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 5;  // small — we expect the full budget to run
+  sddp_opts.max_iterations = 20;
   sddp_opts.min_iterations = 1;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.stationary_tol = 0.0;  // disable the only remaining exit path
+  sddp_opts.stationary_tol = 0.0;  // ΔUB stationarity disabled
   sddp_opts.stationary_window = 0;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
@@ -1621,16 +1621,15 @@ TEST_CASE(  // NOLINT
   REQUIRE_FALSE(results->empty());
 
   const auto& last = results->back();
-
-  // No convergence — primary gap exit is gone, stationary is disabled.
-  CHECK_FALSE(last.converged);
+  CHECK(last.converged);
   CHECK_FALSE(last.stationary_converged);
+  CHECK(sddp_gap_converged(last.gap, sddp_opts.convergence_tol));
 
   // gap_change is 1.0 (default / "not checked") when stationary is disabled.
   CHECK(last.gap_change == doctest::Approx(1.0));
 
-  // The loop ran the full budget (training iters + one sim pass).
-  CHECK(static_cast<int>(results->size()) >= sddp_opts.max_iterations);
+  // Stopped well before the budget (training iters + one sim pass).
+  CHECK(static_cast<int>(results->size()) < sddp_opts.max_iterations);
 }
 
 TEST_CASE(  // NOLINT
