@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for :mod:`gtopt_shared.hydro_epf` — cascade EPF walker.
 
 The EPF of a reservoir is the total MW generated per m³/s of water

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Unit tests for the long-direct index builders
 // `UidToArrowIdx<...>::make_arrow_uids_idx_long`, which group long-layout

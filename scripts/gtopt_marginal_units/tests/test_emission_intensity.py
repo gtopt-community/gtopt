@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Emission-intensity recipe tests — master §4.12.
 
 CI invariant: the price recipe and emission-intensity recipe must

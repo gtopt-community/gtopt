@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for ``cen2gtopt._emission_factors`` — TTW + WTT factor table."""
 
 from __future__ import annotations

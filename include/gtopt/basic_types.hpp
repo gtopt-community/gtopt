@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @file      basic_types.hpp
  * @brief     Fundamental type definitions for power system planning
  * @date      Tue Mar 18 13:10:21 2025
  * @author    marcelo
- * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
- *            see LICENSING.md
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Licensed under the
+ *            Apache License 2.0 (GTOpt Extension SDK), see LICENSING.md
  *
  * This module provides the basic types and type aliases used throughout the
  * gtopt codebase for power system planning modeling. It includes numeric

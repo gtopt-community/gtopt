@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_line_losses_tangent_signed_flow.cpp — pin the LP structure +
 // behaviour of the Coffrin-style outer-approximation mode introduced

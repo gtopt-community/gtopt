@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Port of the GenX "1_three_zones" example to gtopt's emission framework.
 //

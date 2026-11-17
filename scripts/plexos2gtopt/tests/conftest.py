@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """pytest configuration for the plexos2gtopt test suite.
 
 Isolate ``os.environ`` around every test.  ``ConversionOptions.install_env``

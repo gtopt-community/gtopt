@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @file      solver_resource.hpp
  * @brief     Resource class + descriptor a solver backend declares to the pool
  * @date      Mon Jul 06 2026
  * @author    marcelo
- * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
- *            see LICENSING.md
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Licensed under the
+ *            Apache License 2.0 (GTOpt Extension SDK), see LICENSING.md
  *
  * Small, dependency-free header shared by the plugin ABI (@ref
  * solver_backend.hpp), the registry, the work-pool admission layer (@ref

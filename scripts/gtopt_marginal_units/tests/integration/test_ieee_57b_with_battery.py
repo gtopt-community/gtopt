@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Composite stress test — IEEE 57-bus topology + battery + solar +
 24 hourly cells with realistic demand variation.
 

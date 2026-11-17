@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Unit tests for the index_holder utilities.  Currently focused on
 // `find_or_empty_inner` — the lookup helper that the conditional-

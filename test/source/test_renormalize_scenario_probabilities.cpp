@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_renormalize_scenario_probabilities.cpp
  * @brief     Unit tests for ``PlanningLP::renormalize_scenario_probabilities``

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """``cen2gtopt.pcp_solution`` — read CEN PLEXOS .accdb solution files.
 
 Inspects and extracts data from the

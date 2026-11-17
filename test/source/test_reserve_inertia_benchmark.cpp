@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Integration-style benchmark tests for ReserveProvision /
 // InertiaProvision, modeled on publicly-available IEEE benchmark

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Read gtopt ``solution.csv`` and report its objective in physical units.
 
 Single source of truth for every Python consumer of ``solution.csv``

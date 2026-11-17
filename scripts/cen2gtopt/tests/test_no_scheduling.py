@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """CI guard — assert the cen2gtopt package imports no scheduling libraries.
 
 Per master plan §11 P2.F acceptance criterion 3, ``cen2gtopt`` is a

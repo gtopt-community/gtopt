@@ -365,9 +365,11 @@ public; `plp2gtopt` works from the documented `.dat` input formats.
 
 ## License
 
-GTOpt is **dual-licensed**: GPL-3.0-or-later with the
+The GTOpt core is **dual-licensed**: AGPL-3.0-or-later with the
 [solver plugin exception](LICENSE-EXCEPTION.md), or a
-[commercial license](LICENSE-COMMERCIAL.md). See
+[commercial license](LICENSE-COMMERCIAL.md). The Extension SDK (the
+solver-plugin interface headers) is Apache-2.0, so plugins and apps may
+use any licence. See
 [`LICENSING.md`](LICENSING.md). Third-party components and data shipped
 in this repository keep their own licences; see
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

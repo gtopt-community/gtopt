@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Excel workbook exporter for gtopt results.
 
 The exporter produces a single ``.xlsx`` file using ``openpyxl``.  Each

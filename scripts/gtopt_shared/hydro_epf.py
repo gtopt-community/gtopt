@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Hydro Energy Production Factor (EPF) per Reservoir.
 
 The EPF of a reservoir R is the total MW generated per m³/s of water

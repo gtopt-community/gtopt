@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Synthetic 4-bus + battery test — force special operating regimes
 that the larger composite IEEE 57b case cannot guarantee.
 

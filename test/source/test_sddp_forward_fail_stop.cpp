@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_sddp_forward_fail_stop.cpp
  * @brief     Unit tests for SDDPOptions::forward_fail_stop control flow.

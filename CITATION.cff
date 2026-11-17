@@ -16,7 +16,7 @@ authors:
     given-names: Marcelo
     email: marcelomatusacuna@gmail.com
 repository-code: "https://github.com/gtopt-community/gtopt"
-license: GPL-3.0-or-later
+license: AGPL-3.0-or-later
 keywords:
   - power systems
   - expansion planning

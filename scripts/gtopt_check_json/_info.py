@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """System / simulation statistics and global indicators for gtopt_check_json.
 
 Replicates the C++ ``log_pre_solve_stats`` output so the gtopt binary can

@@ -275,6 +275,11 @@ export default function Home() {
 
       <footer>
         <p>GTOpt Web Service — Generation, Transmission and storage Optimization</p>
+        <p>
+          <a href="https://github.com/gtopt-community/gtopt">Source code</a>{" "}
+          (AGPL-3.0-or-later; deployments of modified versions must link to
+          their own source)
+        </p>
       </footer>
     </div>
   );

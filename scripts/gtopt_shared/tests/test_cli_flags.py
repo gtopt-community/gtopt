@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for :mod:`gtopt_shared.cli_flags`.
 
 The shared helpers exist to keep the eight canonical gtopt

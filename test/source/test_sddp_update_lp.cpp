@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_sddp_update_lp.cpp
  * @brief     Unit tests for update_lp, SystemLP dispatch, and

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Piece-1 capability-concept discriminators (system_lp.hpp).  The visitors in
 // system_lp.cpp dispatch each build/output pass via `if constexpr

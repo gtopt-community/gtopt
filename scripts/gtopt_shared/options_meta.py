@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Canonical options metadata for the gtopt JSON contract.
 
 Pure data — partitions the flat ``options`` keys into the JSON

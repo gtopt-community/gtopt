@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Port of the NREL-118 (Pena, Martinez-Anido, Hodge 2017) test system into
 // gtopt's emission-framework integration test.  The Python converter

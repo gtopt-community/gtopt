@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Aggregate per-line parquet schedules under the corridor reduction.
 
 When a case schedules a Line field over time (e.g. ``Line/tmax_ab.parquet``

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Voltage-level bus reduction utilities for gtopt diagrams.
 
 Provides functions for reducing large power system diagrams by aggregating

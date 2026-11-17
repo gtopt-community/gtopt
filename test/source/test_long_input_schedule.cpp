@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // End-to-end oracle for LONG-layout input resolved through the full
 // read_arrow_table -> get_arrow_index -> Schedule::at machinery.

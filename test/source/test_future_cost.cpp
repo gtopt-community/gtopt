@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Piece-2 step A: FutureCost (FCF / cost-to-go) element JSON binding.  Verifies
 // the element parses end-to-end and the three scoping strings convert to their

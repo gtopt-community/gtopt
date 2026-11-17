@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Build a sanitized planning JSON with runtime fixes and validations.
 
 The sanitized JSON incorporates adjustments detected at launch time

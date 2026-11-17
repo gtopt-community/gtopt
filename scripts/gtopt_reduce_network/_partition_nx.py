@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """NetworkX partition backend: Louvain seed + iterative min-cut refinement.
 
 Alternative to the HAC/electrical-distance clustering in ``_cluster.py``,

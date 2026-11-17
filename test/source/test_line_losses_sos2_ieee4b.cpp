@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_line_losses_sos2_ieee4b.cpp — IEEE 4-bus integration test for
 // the L-secant chord + SOS2 enforcement introduced by issue #504.
@@ -334,6 +334,7 @@ TEST_CASE(
 
   Planning base;
   base.merge(parse_planning_json(selective_json));
+  // Pin to CPLEX — see the 5×SOS2 test above (MindOpt 2.3.0 upstream
   // defect on this meshed fixture).
   base.options.lp_matrix_options.solver_name = "cplex";
 

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Pytest gate for AMPL/PAMPL dispatch consistency.
 
 Wraps ``tools/check_ampl_dispatch.py`` — which scrapes

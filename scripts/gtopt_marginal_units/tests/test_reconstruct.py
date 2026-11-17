@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """§4.7 R3 reconstruction tests — five regimes, with the all-pmax
 corner asserting the lp-numerics P0.4 fix."""
 

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """The FCF end-of-horizon cost-to-go is provided SOLELY by gtopt's native
 boundary-cut loader (``boundary_cuts.csv`` + ``monolithic_options.
 boundary_cuts_file``).  plexos2gtopt must therefore NEVER emit either:

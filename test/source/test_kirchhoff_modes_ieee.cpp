@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Cross-mode equivalence tests for the Kirchhoff Voltage Law strategies
 // on the IEEE benchmark cases (4-bus, 9-bus, 14-bus original).  Each

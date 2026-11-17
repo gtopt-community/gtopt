@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Per-entity snapshot tests for plexos2gtopt builders (issue #507 Phase 0).
 
 Pins the JSON shape emitted by each ``build_*_array`` entity builder

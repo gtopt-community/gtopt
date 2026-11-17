@@ -12,6 +12,11 @@ export async function GET() {
   const response = NextResponse.json({
     status: "ok",
     service: "gtopt-webservice",
+    // AGPL-3.0 section 13: offer the corresponding source to network users.
+    // Deployments of a modified version must point this at their own source.
+    license: "AGPL-3.0-or-later OR LicenseRef-gtopt-commercial",
+    source:
+      process.env.GTOPT_SOURCE_URL ?? "https://github.com/gtopt-community/gtopt",
     endpoints: [
       "GET  /api          - Service info and endpoint list",
       "GET  /api/ping     - Health check with version info",

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Phase 2 LP integration tests for ``AllowancePoolLP``.  Phase 2
 // builds only the free-allocation inflow + StorageLP banking carry

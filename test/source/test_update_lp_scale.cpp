@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // LP-semantic regression tests for the update_lp() callers that suffered
 // from the inverted col_scale direction in `set_coeff` (commit ae85477a,

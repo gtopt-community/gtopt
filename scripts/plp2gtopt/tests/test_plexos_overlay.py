@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Unit tests for ``plp2gtopt._plexos_overlay``.
 
 Coverage targets:
@@ -93,6 +93,7 @@ def test_normalize(raw: str, expected: str) -> None:
 
 
 def test_normalize_handles_mixed_spaces_and_dashes() -> None:
+    # PLEXOS-style "Coal-Plant 1" vs PLP-style "coal_plant_1" both
     # collapse to a single canonical key.
     assert _normalize("Coal-Plant 1") == _normalize("coal_plant_1")
 

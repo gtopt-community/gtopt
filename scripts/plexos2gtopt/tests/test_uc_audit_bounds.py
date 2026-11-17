@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Unit tests for the B12 parameter-bounds consistency check in
 :mod:`plexos2gtopt.uc_audit`.
 

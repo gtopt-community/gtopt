@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """MarginalUnitDataset — read-only consumer of the parquet dataset
 produced by gtopt_marginal_units. Master plan §4.10.
 

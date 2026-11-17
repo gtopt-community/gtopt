@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @file      solver_backend.hpp
  * @brief     Abstract solver backend interface for LP/MIP solvers
  * @date      Sun Mar 23 2026
  * @author    marcelo
- * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
- *            see LICENSING.md
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Licensed under the
+ *            Apache License 2.0 (GTOpt Extension SDK), see LICENSING.md
  *
  * Defines the pure virtual interface that all solver plugins must implement.
  * This header has zero dependencies on any solver library (COIN-OR, HiGHS,

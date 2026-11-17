@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_line_commitment_kvl_bigm.cpp — pin the v0.5 Kirchhoff KVL
 // big-M disjunction added to ``LineCommitmentLP`` for issue #509.

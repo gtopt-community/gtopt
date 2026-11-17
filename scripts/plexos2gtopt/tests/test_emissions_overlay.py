@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for plexos2gtopt's --emissions integration with gtopt_shared.
 
 The shared engine itself is exercised by ``plp2gtopt/tests/test_emissions.py``.

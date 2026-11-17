@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """SIP API endpoint catalogue — pinned from
 ``portal.api.coordinador.cl/swagger/spec/sip.json`` (95 GET endpoints).
 

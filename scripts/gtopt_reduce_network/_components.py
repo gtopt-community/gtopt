@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Rewrite element bus references after the busmap is fixed.
 
 For each Generator / Demand / Battery / Turbine the ``bus`` reference

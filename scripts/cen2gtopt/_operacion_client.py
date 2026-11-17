@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Typed wrappers for the operación API (master plan §11 P2.B).
 
 Live-confirmed endpoints used by the marginal-units pipeline:

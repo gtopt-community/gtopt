@@ -31,7 +31,8 @@ later transferred.
    Contribution infringes a patent.
 4. **Outbound commitment.** The Maintainer will keep every accepted
    Contribution available under an OSI-approved open-source licence
-   (currently GPL-3.0-or-later with the GTOpt Solver Plugin Exception)
+   (currently AGPL-3.0-or-later with the GTOpt Solver Plugin Exception,
+   and Apache-2.0 for the GTOpt Extension SDK)
    for as long as GTOpt is distributed.
 5. **Your representations.** Each Contribution is Your original creation
    and You are legally entitled to grant this licence. If Your employer or

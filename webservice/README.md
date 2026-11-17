@@ -235,3 +235,12 @@ webservice/
 │   └── integration_test.sh # End-to-end integration test
 └── README.md
 ```
+
+## Licence and source offer (AGPL)
+
+The web service is part of the GTOpt core, licensed
+`AGPL-3.0-or-later OR LicenseRef-gtopt-commercial` (see
+[`LICENSING.md`](../LICENSING.md)). The UI footer and `GET /api` (`source`
+field) link to the corresponding source. If you deploy a **modified**
+version for users over a network, set `GTOPT_SOURCE_URL` to the source of
+your version and update the footer link, or obtain a commercial licence.

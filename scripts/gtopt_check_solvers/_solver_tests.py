@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """LP solver test-suite definitions and runner for gtopt_check_solvers.
 
 Each test case is a self-contained gtopt JSON problem written to a

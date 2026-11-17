@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Coverage test for the `add_row` cut-scaling fix in
 // `LinearInterface::add_row` compose_physical path.
@@ -756,6 +756,7 @@ TEST_CASE(
 // the compose_physical regime: cut-phase + col_scale ≠ 1 + row-max
 // equilibration.  The 2026-05 refactor changed `add_rows` from a
 // per-row `add_row` fallback to a batched compose-then-`add_rows_raw`
+// dispatch (collapsing N CPXaddrows calls into 1); this test catches
 // any future regression of the bulk path that would silently break
 // the singular invariants pinned by the SUBCASEs above.
 

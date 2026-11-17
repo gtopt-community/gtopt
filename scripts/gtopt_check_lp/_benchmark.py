@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Solver benchmark: solve an LP file with every available solver/algo/thread combination."""
 
 from __future__ import annotations
@@ -52,6 +52,7 @@ class BenchmarkReport:
 
 def _parse_time(output: str) -> float:
     """Extract solve time (seconds) from solver output, or return -1."""
+    # CPLEX: "Solution time =    0.12 sec."
     m = re.search(r"Solution time\s*=\s*([\d.]+)\s*sec", output)
     if m:
         return float(m.group(1))

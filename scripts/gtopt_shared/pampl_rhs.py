@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Shared helpers for the PAMPL ``rhs`` encoding.
 
 A :class:`UserConstraint`'s ``rhs`` field accepts several JSON shapes —

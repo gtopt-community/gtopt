@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @file      solver_options.hpp
  * @brief     Linear programming solver configuration options
  * @date      Mon Mar 24 10:24:13 2025
  * @author    marcelo
- * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
- *            see LICENSING.md
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Licensed under the
+ *            Apache License 2.0 (GTOpt Extension SDK), see LICENSING.md
  *
  * This module defines options specific to controlling linear programming
  * solvers, including algorithm selection, solver parameters, and tolerances.

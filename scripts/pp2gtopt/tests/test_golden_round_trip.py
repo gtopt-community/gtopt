@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Golden-fixture regression test for pp2gtopt JSON output (issue #507 Phase 0).
 
 Runs ``convert`` on pandapower's built-in ``case_ieee30`` and compares

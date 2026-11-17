@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Topology helpers: admittance matrix, line graph, parallel-line dedup.
 
 Operates on numpy arrays / dicts derived from a Case to keep the topology

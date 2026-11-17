@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """``cen2gtopt.pcp_archive`` — download CEN PLEXOS PCP base / solution files.
 
 The Coordinador's "Programa de Operación" portal at

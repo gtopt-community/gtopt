@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /// @file test_storage_lp.hpp
 /// @brief Tests for StorageLP coverage: daily_cycle, soft_emin, drain,
 ///        efin constraint, cross-phase boundary, physical accessors.

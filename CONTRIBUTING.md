@@ -196,8 +196,9 @@ for the full formulation.
 
 ## License and Contributor License Agreement
 
-GTOpt is dual-licensed (GPL-3.0-or-later with a solver plugin exception, or
-a commercial license; see [`LICENSING.md`](LICENSING.md)). To keep both
+The GTOpt core is dual-licensed (AGPL-3.0-or-later with a solver plugin
+exception, or a commercial license), and the Extension SDK headers are
+Apache-2.0; see [`LICENSING.md`](LICENSING.md). To keep all these
 options available, every contributor must sign the
 [Contributor License Agreement](CLA.md) before a pull request can be
 merged. You keep the copyright of your contribution; the CLA Assistant bot

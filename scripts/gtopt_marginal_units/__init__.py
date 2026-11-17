@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """gtopt_marginal_units — identify marginal generating units per
 (scenario, stage, block) or (date, hour) cell, attribute the bus
 LMP and emission intensity to those units via a deterministic

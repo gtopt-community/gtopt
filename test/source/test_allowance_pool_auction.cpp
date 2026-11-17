@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Phase 4 LP integration tests for AllowancePool auction purchases.
 // When `AllowancePool.auction_price` is set, the bank may buy

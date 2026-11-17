@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /// @file test_converter_commitment.cpp
 /// @brief LP-level tests for ``Converter.commitment`` — the per-block
 ///        integer binary gating of the synthetic charge demand and

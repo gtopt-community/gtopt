@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @file      as_label.hpp
  * @brief     String label generation utilities
  * @date      Fri May 16 20:16:01 2025
  * @author    marcelo
- * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
- *            see LICENSING.md
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Licensed under the
+ *            Apache License 2.0 (GTOpt Extension SDK), see LICENSING.md
  *
  * This module provides compile-time string label generation functionality with:
  * - Efficient concatenation of multiple values

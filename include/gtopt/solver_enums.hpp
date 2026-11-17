@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @file      solver_enums.hpp
  * @brief     Named enum types for LP solver options
  * @date      2026-03-29
  * @author    marcelo
- * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
- *            see LICENSING.md
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Licensed under the
+ *            Apache License 2.0 (GTOpt Extension SDK), see LICENSING.md
  *
  * Defines all enum types used by SolverOptions.  Extracted from
  * solver_options.hpp so that the struct definition stays focused on

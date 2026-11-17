@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Multi-day orchestrator for the CEN marginal-unit identifier (v3).
 
 Runs ``compute_marginal_units_for_day`` (from

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #
 # pylint: disable=non-ascii-name
 #   Greek symbols (λ, ε, Δ) are intentional in dict-construction kwargs

@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * @file      enum_option.hpp
  * @brief     Generic compile-time enum-to-string and string-to-enum framework
  * @date      2026-03-18
  * @author    marcelo
- * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
- *            see LICENSING.md
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Licensed under the
+ *            Apache License 2.0 (GTOpt Extension SDK), see LICENSING.md
  *
  * Provides a reusable pattern for mapping enum values to string names and
  * back.  Each enum defines a `std::to_array<EnumEntry<E>>` table and an

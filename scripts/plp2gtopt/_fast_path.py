@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Iterative SDDP fast-path defaults for the plp2gtopt pipeline.
 
 Single home for the benchmarked PLP-faithful SDDP config so the two entry

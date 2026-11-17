@@ -7,7 +7,7 @@ commercial licences remain valid after such an assignment.
 
 - **Grant:** use, modify, embed and redistribute GTOpt — including in
   closed-source products and hosted services — **without** the copyleft
-  obligations of the GPL, for the product or service named in the order.
+  obligations of the AGPL, for the product or service named in the order.
 - **Models:** annual subscription per organization (internal use and
   SaaS); OEM / redistribution per product or volume; project licence for a
   specific client engagement.

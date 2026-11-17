@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_line_commitment.cpp — pin the v0 LP structure + behaviour of
 // Optimal Transmission Switching (OTS) introduced by issue #509:

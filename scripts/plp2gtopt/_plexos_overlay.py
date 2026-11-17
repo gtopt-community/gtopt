@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Overlay heat-rate / fuel data from a plexos2gtopt JSON onto a plp2gtopt case.
 
 Driven by ``plp2gtopt --plexos-overlay PATH``.  ``PATH`` is either the
@@ -585,6 +585,7 @@ class PlexosOverlay:
 
         # ``cogen_mode`` — first-class C++ field (Generator.cogen_mode in
         # include/gtopt/generator.hpp; see generator_enums.hpp for the
+        # valid values "dispatched" | "must_run").  The plexos2gtopt
         # converter stamps it on cogen units (and can be overridden via
         # --cogen-must-run); plp2gtopt re-emits the same tag so the
         # downstream cogen treatment stays consistent across both

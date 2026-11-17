@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Integration test against the prebuilt IEEE 57-bus benchmark — the
 largest IEEE case in the integration suite (57 buses, 80 lines, 7
 generators). The case is pandapower-derived (per the dependencies

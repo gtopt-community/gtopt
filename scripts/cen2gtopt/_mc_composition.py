@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Compose declared MC (USD/MWh) and emission factor (kg CO₂/MWh)
 per unit per day from CEN data.
 

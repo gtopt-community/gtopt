@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /// @file test_storage_dual_sign.cpp
 /// @brief Pin the sign convention and Parquet field name for the
 ///        per-block storage-balance dual.

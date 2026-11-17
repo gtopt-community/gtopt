@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Typed SIP-API wrappers built on top of :class:`CenApiClient`.
 
 These return long-form pandas frames in the canonical-feed shape

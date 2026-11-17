@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Planning structure diagram — pure SVG / Mermaid / HTML generators.
 
 Generates visual representations of the gtopt planning time hierarchy:

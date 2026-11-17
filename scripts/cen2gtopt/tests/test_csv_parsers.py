@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """CSV-parser tests against synthetic CEN-shaped fixtures.
 
 Covers tz handling (date_utc passthrough), Spanish accents (Charrúa,

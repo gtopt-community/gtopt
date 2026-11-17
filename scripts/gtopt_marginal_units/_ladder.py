@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """§4.9 merit-ladder construction.
 
 For each zone in each cell, emit ±K rungs around the rank-0 anchor

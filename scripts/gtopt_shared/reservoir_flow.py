@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Topology-driven reservoir extraction-flow estimator (issue #5xx).
 
 gtopt reservoirs that ship without concrete ``fmin`` / ``fmax`` fall back
@@ -1204,6 +1204,7 @@ def estimate_reservoir_flow_bounds(  # noqa: PLR0914,PLR0913  pylint: disable=to
         # filtration/seepage), NOT affluent (inflow) data.  It must NOT
         # depend on how much water arrives, otherwise the same physical
         # reservoir gets wildly different bounds between dialects whose
+        # inflow series differ (e.g. ELTORO: plp 352 vs PLEXOS 18.6 m³/s).
         # The spillway/drain is a SEPARATE LP column (bounded by
         # ``spillway_capacity`` in C++), so it is deliberately excluded here.
         max_release = conduit  # turbines + downstream waterways + seepage
@@ -1370,6 +1371,7 @@ def apply_reservoir_flow_estimates(
     *generator_capacities* optionally overrides each generator's dispatch
     ``pmax`` with its physical NAMEPLATE (all units) for the turbine-maxflow
     used to size the reservoir bound — see :func:`compute_turbine_maxflow`.
+    plexos2gtopt passes this so a maintenance-offline unit (dispatch
     ``pmax = 0``) still contributes its nameplate to the structural bound.
     """
     system = planning.get("system")

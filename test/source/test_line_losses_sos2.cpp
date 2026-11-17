@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_line_losses_sos2.cpp — pin the L-secant chord + SOS2
 // emission introduced in issue #504 for the ``tangent_signed_flow``

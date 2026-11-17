@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // test_line_losses_negative_lmp_m1.cpp — channel-activation calibration
 // under mechanism M1 (negative-cost injection), the deterministic

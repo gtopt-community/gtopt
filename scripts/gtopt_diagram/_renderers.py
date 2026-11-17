@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Rendering backends: Graphviz, Mermaid, vis.js/pyvis HTML, image viewer.
 
 This module provides functions to convert a :class:`GraphModel` into various

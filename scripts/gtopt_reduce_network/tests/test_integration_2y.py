@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """End-to-end schedule-aggregation test on the external gtopt_case_2y case.
 
 The 2-year PLP-derived case carries the three Line schedules that

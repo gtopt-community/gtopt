@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Round-trip tests for SparseRow's row-sense setters
 // (`.equal()` / `.less_equal()` / `.greater_equal()`) through the

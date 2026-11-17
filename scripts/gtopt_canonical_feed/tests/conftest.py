@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Gold-fixture builder for the canonical-feed round-trip tests.
 
 The fixture is a synthetic 3-bus / 3-unit / 24-hour case with

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """CSV (de)serialisation for the three audit artefacts:
 
 * ``busmap.csv`` — original_bus_uid → cluster_bus_uid

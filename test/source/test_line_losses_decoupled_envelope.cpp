@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Mode-agnostic line-loss validation: solve a single-line LP at five
 // flow points (0, tmax/4, tmax/2, 3·tmax/4, tmax) in BOTH directions
@@ -215,6 +215,7 @@ struct ModelSpec
 ///   * K ≥ 2 PWL: per-segment chord gap = (env/(2K))²·R/V², worst
 ///     relative error ≈ (env/(2K·f_min))² which falls as 1/K².  Add
 ///     a 10 % headroom so K = 2 at the breakpoint (theoretical
+///     25 % error) still has comfortable slack vs CPLEX noise.
 double tolerance_for(std::string_view mode, int K)
 {
   if (mode == "none" || mode == "linear" || K <= 1) {

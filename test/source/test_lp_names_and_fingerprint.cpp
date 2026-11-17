@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /// @file test_lp_names_and_fingerprint.cpp
 /// @brief Tests for LP names level behavior, write_lp boundary cases,
 ///        enforce_names_for_method, WorkPool memory gating, and fingerprint

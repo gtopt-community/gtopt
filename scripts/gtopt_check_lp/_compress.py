@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Compression utilities for LP files used by gtopt_check_lp.
 
 Supports reading and decompressing gzip-compressed LP files

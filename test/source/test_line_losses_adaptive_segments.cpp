@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /// @file
 /// @brief Unit tests for the converter-agnostic adaptive-K rule
 ///        (``gtopt::line_losses::compute_adaptive_loss_segments``).

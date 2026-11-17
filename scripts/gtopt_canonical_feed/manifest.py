@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Manifest — the JSON sidecar that records producer metadata,
 schema version, and sha256 of every parquet file in the dataset.
 

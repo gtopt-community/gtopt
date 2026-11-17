@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // End-to-end integration test: a loaded boundary cut must produce
 // a clean, finite SDDP solve and propagate to the policy estimate.

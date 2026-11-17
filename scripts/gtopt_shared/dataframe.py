@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Shared DataFrame layout helpers (issue #507 cross-converter sharing).
 
 gtopt's input reader auto-detects layout (a bare ``uid`` + ``value``

@@ -1,7 +1,8 @@
 # Third-Party Notices
 
 GTOpt is Copyright (c) Marcelo Matus and is licensed under
-`GPL-3.0-or-later OR LicenseRef-gtopt-commercial` (see
+`AGPL-3.0-or-later OR LicenseRef-gtopt-commercial`, with the Extension
+SDK headers under `Apache-2.0` (see
 [`LICENSING.md`](LICENSING.md)). This repository also contains, or
 downloads at build time, material written by third parties. That
 material stays under its own licence, listed below. The GTOpt licences

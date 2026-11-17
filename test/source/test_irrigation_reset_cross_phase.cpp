@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_irrigation_reset_cross_phase.cpp
  * @brief     Tier 1.5b — VolumeRight reset_month skip_state_link end-to-end

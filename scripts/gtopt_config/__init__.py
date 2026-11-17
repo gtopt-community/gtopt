@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Shared configuration and CLI helpers for all gtopt scripts.
 
 Reads a unified ``~/.gtopt.conf`` INI file with a ``[global]`` section

@@ -167,3 +167,12 @@ See [GTOPT_GUISRV.md](GTOPT_GUISRV.md#security) for details.
 
 See [INPUT_DATA.md](../docs/input-data.md) for a comprehensive description of the GTOpt
 input data structure, including all element types and their fields.
+
+## Licence and source offer (AGPL)
+
+The GUI service is part of the GTOpt core, licensed
+`AGPL-3.0-or-later OR LicenseRef-gtopt-commercial` (see
+[`LICENSING.md`](../LICENSING.md)). The "Source" link in the page header
+points to the corresponding source. If you deploy a **modified** version
+for users over a network, point that link at the source of your version,
+or obtain a commercial licence.

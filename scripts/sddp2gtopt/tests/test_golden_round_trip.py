@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Golden-fixture regression test for sddp2gtopt JSON output (issue #507 Phase 0).
 
 Runs ``convert_sddp_case`` on ``tests/data/case0`` and compares the

@@ -1,7 +1,7 @@
 # GTOpt Solver Plugin Exception
 
-*Additional permission under section 7 of the GNU General Public License,
-version 3 ("GPLv3").*
+*Additional permission under section 7 of the GNU Affero General Public
+License, version 3 ("AGPLv3").*
 
 SPDX: `AdditionRef-gtopt-solver-exception` (`LicenseRef-gtopt-solver-exception`
 for SPDX 2.x tooling).
@@ -25,7 +25,7 @@ with
 additional permission to convey the resulting work. Corresponding Source
 for a non-source form of such a combination shall not include the source
 code for the parts of the Solver Libraries that are not covered by the
-GPLv3, but shall include the source code for the parts of the Program and
+AGPLv3, but shall include the source code for the parts of the Program and
 any covered work that are used in the combination.
 
 This exception does not relieve you of the obligations of the Solver

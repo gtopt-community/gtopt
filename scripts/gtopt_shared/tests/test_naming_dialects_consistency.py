@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Pytest gate for ``share/gtopt/naming_dialects.json`` consistency.
 
 Wraps the standalone CLI checker ``tools/check_naming_dialects.py`` so

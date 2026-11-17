@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Client for the **public** infotecnica REST API.
 
 Base URL: ``https://api-infotecnica.coordinador.cl/v1/``

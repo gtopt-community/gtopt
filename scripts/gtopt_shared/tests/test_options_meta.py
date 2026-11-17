@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Structural + provenance tests for :mod:`gtopt_shared.options_meta`.
 
 These tests pin the public surface of the lifted ``options_meta``

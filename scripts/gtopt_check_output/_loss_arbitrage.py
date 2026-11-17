@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Loss-arbitrage detector for gtopt solution outputs.
 
 Flags per-(line, block) symptoms of fictitious transmission losses —

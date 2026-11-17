@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Smoke-tests for every CLI script's ``--help`` output.
 
 These tests exist to catch a specific class of bug that's silent until

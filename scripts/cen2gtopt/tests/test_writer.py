@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Writer round-trip — write a CEN-flavoured feed, then re-read it
 through the canonical-feed reader (the same one Phase-1 uses)."""
 

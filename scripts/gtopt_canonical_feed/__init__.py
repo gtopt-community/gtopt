@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Canonical operation feed schema — the contract joining gtopt_marginal_units
 (analysis) and cen2gtopt (CEN data fetcher).
 

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Hydro + reserve-zone builders for :class:`gtopt_diagram.TopologyBuilder`.
 
 Mixin extracted from :mod:`gtopt_diagram.gtopt_diagram`.  Holds the

@@ -19,7 +19,7 @@
  *   - `set_log_level` / `get_log_level` round-trip.
  */
 
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #include <array>
 #include <filesystem>
 #include <fstream>

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Surface-pin test for :class:`gtopt_diagram.TopologyBuilder`.
 
 Refactor safety net for the upcoming split into mixin modules

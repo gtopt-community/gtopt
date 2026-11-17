@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """State snapshot + output-dir README helpers shared by plexos2gtopt and plp2gtopt.
 
 Each converter writes a self-describing pair of files into its output

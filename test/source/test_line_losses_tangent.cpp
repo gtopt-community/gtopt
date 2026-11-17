@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /// @file test_line_losses_tangent.cpp
 /// @brief Pin the math of the tangent (outer-approximation) PWL
 ///        line-loss formulation (``loss_tangent_geometry`` +

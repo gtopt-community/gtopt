@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Topology loader — accepts either a CEN-format JSON snapshot or a
 gtopt planning JSON (fallback for users who have one).
 """

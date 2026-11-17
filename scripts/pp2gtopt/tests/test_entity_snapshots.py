@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Per-entity snapshot tests for pp2gtopt builders (issue #507 Phase 0).
 
 Pins the JSON shape emitted by each module-private ``_build_*``

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Backward-compat re-export shim for :mod:`gtopt_shared.field_meta`.
 
 Lifted to ``gtopt_shared`` on 2026-06-06 as part of issue #507 Phase 1.

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Writer-side invariant tests — master §4.6.4 invariant 1.
 
 The writer asserts |recomputed_lmp − zone_lmp| ≤ tol_price BEFORE

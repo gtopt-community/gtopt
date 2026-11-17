@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Tests for the shared `RuleBoundState` struct hosted in
 // `gtopt/update_context.hpp` and aliased as `BoundState` inside

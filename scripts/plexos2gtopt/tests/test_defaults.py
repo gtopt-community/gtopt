@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-gtopt-commercial
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for plexos2gtopt._defaults share-file resolution (portability).
 
 Regression guard for the hardcoded ``/home/<user>/.../share/gtopt``
