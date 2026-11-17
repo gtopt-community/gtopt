@@ -43,8 +43,9 @@ On Ubuntu 24.04+ or Debian 13+:
 curl -fsSL https://raw.githubusercontent.com/gtopt-community/gtopt/master/install.sh | bash
 ```
 
-The script installs the system packages, builds GTOpt from source and
-installs it in `/usr/local` (it asks for `sudo`). Useful options:
+The script installs the system packages and the open-source solvers HiGHS
+and CBC/CLP, builds GTOpt from source and installs it in `/usr/local` (it
+asks for `sudo`). Useful options:
 
 ```bash
 # Install in your home directory, plus the Python tools (plp2gtopt, plexos2gtopt, ...)
@@ -55,8 +56,38 @@ curl -fsSL https://raw.githubusercontent.com/gtopt-community/gtopt/master/instal
 Run `install.sh --help` for all options. For other platforms, manual builds
 and build options, see the **[Building Guide](BUILDING.md)**.
 
-At least one solver backend must be available at run time; the installer
-brings the open-source CBC/CLP. `gtopt --solvers` lists what was found.
+## Solvers
+
+GTOpt needs at least one LP/MIP solver. Solvers are plugins
+(`libgtopt_solver_*.so`) built for every solver found when GTOpt is
+compiled, and chosen at run time with `--solver`; `gtopt --solvers` lists
+the ones available.
+
+| Solver | Licence | How to get it | Notes |
+|---|---|---|---|
+| [HiGHS](https://highs.dev) | MIT, free | Installed by `install.sh` (apt `libhighs-dev` on Ubuntu 25.04+, otherwise built from source) | Recommended open-source choice |
+| [CBC / CLP](https://github.com/coin-or/Cbc) | EPL, free | Installed by `install.sh` (apt `coinor-libcbc-dev`) | Always available |
+| [SCIP](https://scipopt.org) | Apache-2.0, free | [scipopt.org](https://scipopt.org); set `SCIP_ROOT_DIR` | Opt-in: `--solver scip` |
+| [CPLEX](https://www.ibm.com/products/ilog-cplex-optimization-studio) | Commercial (free academic) | IBM ILOG CPLEX Optimization Studio; set `CPLEX_ROOT_DIR` | Preferred when present |
+| [Gurobi](https://www.gurobi.com) | Commercial (free academic) | gurobi.com; set `GUROBI_HOME` | Opt-in: `--solver gurobi` |
+| [MindOpt](https://opt.alibabacloud.com) | Commercial | Alibaba Cloud; set `MINDOPT_HOME` | |
+| [cuOpt](https://github.com/NVIDIA/cuopt) | Apache-2.0, free | `pip install libcuopt-cu12`, or set `CUOPT_HOME`; needs an NVIDIA GPU | Opt-in: `--solver cuopt` |
+
+Without `--solver`, GTOpt picks the first available of CPLEX, HiGHS,
+MindOpt, CBC and CLP.
+
+To build GTOpt with a commercial solver, install the solver first and pass
+its location to the installer (to `bash`, not to `curl`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gtopt-community/gtopt/master/install.sh \
+  | CPLEX_ROOT_DIR=/opt/ibm/ILOG/CPLEX_Studio2211/cplex bash
+curl -fsSL https://raw.githubusercontent.com/gtopt-community/gtopt/master/install.sh \
+  | GUROBI_HOME=/opt/gurobi1203/linux64 bash
+```
+
+Running the installer again rebuilds GTOpt with the solvers it now finds.
+Solver details and manual builds: [Building Guide](BUILDING.md).
 
 ## Quick start
 

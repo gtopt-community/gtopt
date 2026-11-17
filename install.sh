@@ -18,19 +18,30 @@
 #   --python       also install the Python tools (plp2gtopt, plexos2gtopt,
 #                  gtopt_diagram, run_gtopt, ...) in ~/.local/share/gtopt/venv
 #                  and link them into ~/.local/bin
-#   --no-deps      do not install system packages (you install them yourself)
+#   --no-highs     do not install the HiGHS solver (CBC/CLP is always installed)
+#   --no-deps      do not install system packages or HiGHS (you install them)
 #   --jobs N       parallel build jobs (default: number of CPUs)
 #   --dry-run      print what would be done, change nothing
 #   -h, --help     show this help
 #
 # Supported: Ubuntu 24.04 or newer and Debian 13 or newer (x86_64, arm64).
 # Other platforms: see BUILDING.md.
+#
+# Solvers: the open-source CBC/CLP and HiGHS are installed by default.
+# Commercial solvers are built in when they are already installed and
+# visible to the build; pass their location to bash, not to curl:
+#
+#   curl -fsSL .../install.sh | CPLEX_ROOT_DIR=/opt/ibm/ILOG/CPLEX_Studio2211/cplex bash
+#   curl -fsSL .../install.sh | GUROBI_HOME=/opt/gurobi1203/linux64 bash
+#   curl -fsSL .../install.sh | MINDOPT_HOME=/opt/mindopt/2.3.0/linux64-x86 bash
+#
+# SCIP (SCIP_ROOT_DIR) and NVIDIA cuOpt (CUOPT_HOME) work the same way.
 
 set -euo pipefail
 
 # Everything runs inside main() so a partially downloaded script does nothing.
 main() {
-  local prefix=/usr/local ref=master python=0 deps=1 dry=0
+  local prefix=/usr/local ref=master python=0 deps=1 dry=0 highs=1
   local src="${XDG_CACHE_HOME:-$HOME/.cache}/gtopt/src"
   local repo=https://github.com/gtopt-community/gtopt.git
   local jobs
@@ -44,9 +55,10 @@ main() {
       --repo) repo=$2; shift 2 ;;
       --python) python=1; shift ;;
       --no-deps) deps=0; shift ;;
+      --no-highs) highs=0; shift ;;
       --jobs) jobs=$2; shift 2 ;;
       --dry-run) dry=1; shift ;;
-      -h | --help) sed -n '3,26p' "${BASH_SOURCE[0]:-/dev/stdin}" 2>/dev/null |
+      -h | --help) sed -n '3,38p' "${BASH_SOURCE[0]:-/dev/stdin}" 2>/dev/null |
           sed 's/^# \{0,1\}//' || true; return 0 ;;
       *) die "unknown option: $1 (use --help)" ;;
     esac
@@ -66,13 +78,19 @@ main() {
   local cmake
   cmake=$(find_cmake)
 
+  ((deps && highs)) && install_highs "$sudo" "$cmake" "$prefix" "$jobs"
+
   fetch_source "$repo" "$ref" "$src"
 
   local build="$src/build-install"
   say "Configuring (Release)"
+  local -a solver_args=()
+  [[ -n ${CPLEX_ROOT_DIR:-} ]] && solver_args+=("-DCPLEX_ROOT_DIR=$CPLEX_ROOT_DIR")
+  [[ -n ${SCIP_ROOT_DIR:-} ]] && solver_args+=("-DSCIP_ROOT_DIR=$SCIP_ROOT_DIR")
   run env CC="$(pick_cc gcc)" CXX="$(pick_cc g++)" \
     "$cmake" -S "$src/standalone" -B "$build" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix"
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
+    -DCMAKE_PREFIX_PATH="$prefix" "${solver_args[@]}"
   say "Building with $jobs jobs (this takes a while the first time)"
   run "$cmake" --build "$build" -j "$jobs"
 
@@ -89,7 +107,10 @@ main() {
   if ((DRY == 0)); then
     local bin="$prefix/bin/gtopt"
     say "Installed: $("$bin" --version 2>/dev/null | head -1)"
+    say "Solver backends:"
     "$bin" --solvers 2>/dev/null | sed 's/^/  /' || true
+    echo "  Commercial solvers (CPLEX, Gurobi, MindOpt) and SCIP/cuOpt are added by"
+    echo "  re-running this installer with their location set; see --help."
     case ":$PATH:" in *":$prefix/bin:"*) ;; *)
       warn "$prefix/bin is not in your PATH; add it to use 'gtopt'." ;;
     esac
@@ -155,6 +176,35 @@ find_cmake() {
   run python3 -m venv "$venv" >&2
   run "$venv/bin/pip" install -q --upgrade "cmake>=$need" >&2
   echo "$venv/bin/cmake"
+}
+
+# HiGHS: apt package where available (Ubuntu 25.04+, Debian 13+),
+# otherwise build the release from source into the install prefix.
+install_highs() {
+  local sudo=$1 cmake=$2 prefix=$3 jobs=$4 tag=v1.12.0
+  if apt-cache show libhighs-dev >/dev/null 2>&1; then
+    say "Installing HiGHS (apt)"
+    run $sudo apt-get install -y -q --no-install-recommends libhighs-dev
+    return
+  fi
+  if [[ -e $prefix/include/highs/Highs.h ]]; then
+    say "HiGHS already installed in $prefix"
+    return
+  fi
+  local tmp
+  tmp=$(mktemp -d)
+  say "Building HiGHS $tag from source (not packaged for this release)"
+  run git clone -q --depth 1 --branch "$tag" https://github.com/ERGO-Code/HiGHS.git "$tmp/HiGHS"
+  run "$cmake" -S "$tmp/HiGHS" -B "$tmp/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON -DFAST_BUILD=ON -DBUILD_TESTING=OFF \
+    -DCMAKE_INSTALL_PREFIX="$prefix"
+  run "$cmake" --build "$tmp/build" -j "$jobs"
+  if ((DRY)) || [[ -w $prefix ]]; then
+    run "$cmake" --install "$tmp/build"
+  else
+    run $sudo "$cmake" --install "$tmp/build"
+  fi
+  rm -rf "$tmp"
 }
 
 pick_cc() {
