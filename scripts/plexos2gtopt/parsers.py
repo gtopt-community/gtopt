@@ -1744,8 +1744,8 @@ def _recover_csv_only_thermals(
 #: through the existing ``pmax == 0`` machinery (commitment dropped, safe
 #: ``[0, 0]`` column).  The CEN pmax distribution has a clean gap — nothing
 #: between ``3.45e-10`` MW (SANTA_ROSA) and ``0.01`` MW (smallest real
-#: plant) — so this floor (1e-3 MW = 1 kW) catches only garbage ratings.
-#: Empirically observed CEN garbage values: MUCHI = 4.03e-8 MW (40 nW —
+#: plant) — so this floor (1e-3 MW = 1 kW) catches only degenerate ratings.
+#: Empirically observed degenerate values in the CEN data: MUCHI = 4.03e-8 MW (40 nW —
 #: arbitrary precision residual on an OFF unit), EL_MIRADOR = 3.31e-4 MW
 #: (0.33 kW).  The previous 1e-4 floor caught MUCHI but missed
 #: EL_MIRADOR; 1e-3 catches both without risking any real CEN unit
@@ -1894,7 +1894,7 @@ def extract_generators(
     # 0.0005`` — disabling the unit entirely.  See issue tracker.
     #
     # Fix: divide by 100 to get the p.u. fraction; clamp at a
-    # physically-reasonable upper bound (50%) and skip clearly-garbage
+    # physically-reasonable upper bound (50%) and skip clearly-invalid
     # rows (negative, NaN, or above the cap) with a per-row warning.
     AUX_USE_MAX_PERCENT = 50.0  # physical aux-use upper bound
     aux_use_map: dict[str, float] = {}

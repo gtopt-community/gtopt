@@ -7,7 +7,7 @@ Test System With High Renewable Penetration* into gtopt's emission framework.
 This directory captures the numerical regression targets we could recover
 from public sources for the CO₂ / NOₓ / SO₂ reduction headline. It also
 records every source we tried and what each did or didn't yield, so the
-next agent doesn't have to redo the hunt.
+search does not have to be repeated.
 
 ## TL;DR
 

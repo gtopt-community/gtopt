@@ -1176,7 +1176,7 @@ class JunctionWriter(BaseWriter):
                 vert_fcost = cvert_global
 
         # PLP "no limit" sentinel applies to vert_min too — sentinel-encoded
-        # minimum-spillage caps are nonsense and would over-constrain the
+        # minimum-spillage caps are not real limits and would over-constrain the
         # ``_ver`` arc.  Drop them to 0 (no forced minimum spill).
         vert_min_raw = float(central.get("vert_min", 0.0) or 0.0)
         if _is_plp_no_limit(vert_min_raw):

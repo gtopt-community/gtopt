@@ -49,7 +49,7 @@ CPLEX Parameter File Version 22.1.1.0
 #      gap closes fast.  A 2 h-per-trial `tools tune` on 2025-10-19 (started
 #      from this prm, 2026-06-23) picked `CutPasses = 1` (`less_cuts`) as the
 #      single best knob: 595 s vs 738 s default (−19 %).  Every trial that
-#      dropped cuts/Gomory/heuristics entirely fell into the +1.71 M garbage
+#      dropped cuts/Gomory/heuristics entirely fell into the +1.71 M poor-quality
 #      incumbent and timed out — confirming cuts+heuristics are the only
 #      escape from the cliff, so we keep one cut pass, not zero.  Pure
 #      search-strategy params — NO LP coefficient or scaling change ⇒ LMPs,
