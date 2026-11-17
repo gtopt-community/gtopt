@@ -37,8 +37,8 @@
 #
 # ### Related files
 #
-# - CONTRIBUTING.md — documents the parallel
-#   `run-clang-tidy` invocation this wrapper encourages.
+# - `run-clang-tidy -p <build> -j "$(nproc)"` — the parallel
+#   invocation this wrapper encourages.
 # - `.github/workflows/ubuntu.yml` — CI uses the same `run-clang-tidy`
 #   invocation.
 #
