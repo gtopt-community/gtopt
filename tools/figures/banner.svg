@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a1330"/>
+      <stop offset="1" stop-color="#16285a"/>
+    </linearGradient>
+    <linearGradient id="scale" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="0.5" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="logo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.82" cy="0.35" r="0.55">
+      <stop offset="0" stop-color="#3b82f6" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#ffffff" opacity="0.06"/>
+    </pattern>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <style>
+    text { font-family: Inter, "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+    .c { font-size: 15px; font-weight: 600; fill: #e2e8f0; }
+  </style>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#dots)"/>
+  <rect width="1280" height="640" fill="url(#halo)"/>
+
+  <!-- network motif, right side -->
+  <g opacity="0.55">
+    <g stroke="#60a5fa" stroke-width="2.5" stroke-opacity="0.55" fill="none">
+      <path d="M940 120 L1050 190 L1180 150"/>
+      <path d="M1050 190 L1010 300 L1130 330 L1180 150"/>
+      <path d="M1010 300 L930 380"/>
+      <path d="M1130 330 L1210 420"/>
+    </g>
+    <g filter="url(#glow)">
+      <circle cx="940" cy="120" r="9" fill="#facc15"/>
+      <circle cx="1050" cy="190" r="8" fill="#60a5fa"/>
+      <circle cx="1180" cy="150" r="9" fill="#38bdf8"/>
+      <circle cx="1010" cy="300" r="8" fill="#60a5fa"/>
+      <circle cx="1130" cy="330" r="8" fill="#60a5fa"/>
+      <circle cx="930" cy="380" r="9" fill="#a3e635"/>
+      <circle cx="1210" cy="420" r="9" fill="#fb923c"/>
+    </g>
+  </g>
+
+  <!-- logo mark -->
+  <rect x="72" y="92" width="112" height="112" rx="26" fill="url(#logo)"/>
+  <g stroke="#ffffff" stroke-width="5" stroke-linecap="round" fill="none">
+    <path d="M104 124 L152 116 L158 168 L110 174 Z"/>
+    <path d="M104 124 L128 146 L158 168"/>
+  </g>
+  <g fill="#ffffff">
+    <circle cx="104" cy="124" r="9"/><circle cx="152" cy="116" r="9"/>
+    <circle cx="158" cy="168" r="9"/><circle cx="110" cy="174" r="9"/>
+  </g>
+  <circle cx="128" cy="146" r="10" fill="#f97316"/>
+
+  <!-- wordmark -->
+  <text x="212" y="180" font-size="92" font-weight="800" fill="#f8fafc" letter-spacing="-2">GT<tspan fill="#60a5fa">Opt</tspan></text>
+  <text x="508" y="180" font-size="40" font-weight="700" fill="#cbd5e1">Community</text>
+
+  <!-- taglines -->
+  <text x="72" y="262" font-size="34" font-weight="700" fill="#f8fafc">Open-source energy-system optimization</text>
+  <text x="72" y="304" font-size="25" fill="#9fb3d9">Optimización abierta de sistemas energéticos</text>
+
+  <!-- carriers -->
+  <g>
+    <rect x="72" y="342" width="132" height="40" rx="20" fill="#facc15" fill-opacity="0.12" stroke="#facc15" stroke-opacity="0.6"/>
+    <path d="M100 351 L91 364 L97 364 L95 374 L105 360 L99 360 Z" fill="#facc15"/>
+    <text x="114" y="368" class="c">Electricity</text>
+
+    <rect x="214" y="342" width="104" height="40" rx="20" fill="#38bdf8" fill-opacity="0.12" stroke="#38bdf8" stroke-opacity="0.6"/>
+    <path d="M240 351 C 234 359, 233 363, 233 366 A 7 7 0 0 0 247 366 C 247 363, 246 359, 240 351 Z" fill="#38bdf8"/>
+    <text x="256" y="368" class="c">Water</text>
+
+    <rect x="328" y="342" width="134" height="40" rx="20" fill="#fb923c" fill-opacity="0.12" stroke="#fb923c" stroke-opacity="0.6"/>
+    <path d="M354 351 C 358 357, 362 360, 361 366 A 7 7 0 0 1 347 366 C 347 362, 350 360, 351 357 C 353 360, 354 361, 355 360 C 356 357, 355 354, 354 351 Z" fill="#fb923c"/>
+    <text x="370" y="368" class="c">Fuels · LNG</text>
+
+    <rect x="472" y="342" width="76" height="40" rx="20" fill="#a3e635" fill-opacity="0.12" stroke="#a3e635" stroke-opacity="0.6"/>
+    <text x="510" y="368" text-anchor="middle" font-size="16" font-weight="800" fill="#a3e635">H₂</text>
+
+    <rect x="558" y="342" width="86" height="40" rx="20" fill="#f472b6" fill-opacity="0.12" stroke="#f472b6" stroke-opacity="0.6"/>
+    <text x="601" y="368" text-anchor="middle" font-size="16" font-weight="800" fill="#f472b6">NH₃</text>
+
+    <rect x="654" y="342" width="86" height="40" rx="20" fill="#f87171" fill-opacity="0.12" stroke="#f87171" stroke-opacity="0.6"/>
+    <text x="697" y="368" text-anchor="middle" class="c" fill="#fecaca">Heat</text>
+  </g>
+
+  <!-- time scale -->
+  <rect x="72" y="434" width="668" height="12" rx="6" fill="url(#scale)"/>
+  <g fill="#0a1330" stroke="#ffffff" stroke-width="2">
+    <circle cx="78" cy="440" r="5"/><circle cx="300" cy="440" r="5"/>
+    <circle cx="520" cy="440" r="5"/><circle cx="734" cy="440" r="5"/>
+  </g>
+  <g font-size="15" fill="#cbd5e1">
+    <text x="72" y="474">15 min</text>
+    <text x="734" y="474" text-anchor="end">30 years</text>
+  </g>
+  <g font-size="17" font-weight="700" text-anchor="middle">
+    <text x="189" y="420" fill="#5eead4">Operation</text>
+    <text x="410" y="420" fill="#93c5fd">Medium term</text>
+    <text x="627" y="420" fill="#c4b5fd">Planning</text>
+  </g>
+  <text x="406" y="500" text-anchor="middle" font-size="15" font-style="italic" fill="#9fb3d9">one model, coupled by SDDP optimality and feasibility cuts</text>
+
+  <!-- footer -->
+  <text x="72" y="584" font-size="19" fill="#cbd5e1">Expansion planning · SDDP · Unit commitment · OPF · Emissions</text>
+  <text x="1208" y="584" text-anchor="end" font-size="19" font-weight="600" fill="#93c5fd">github.com/gtopt-community</text>
+</svg>

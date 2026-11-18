@@ -62,7 +62,12 @@ optimise_png() {
 }
 
 step_brand() {
-  "$PY" "$FIG/make_brand.py" --out "$IMG" ${ORG_BANNER:+--banner "$ORG_BANNER"}
+  "$PY" "$FIG/make_brand.py" --out "$IMG"
+  cp "$FIG/social-preview.svg" "$IMG/social-preview.svg"
+  "$PY" "$FIG/render_svg.py" "$FIG/social-preview.svg" "$IMG/social-preview.png" --scale 1
+  if [ -n "${ORG_BANNER:-}" ]; then
+    "$PY" "$FIG/render_svg.py" "$FIG/banner.svg" "$ORG_BANNER" --scale 1
+  fi
 }
 
 step_architecture() {

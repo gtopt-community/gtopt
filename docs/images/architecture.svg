@@ -36,6 +36,15 @@
     <marker id="ahb" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" fill="#93c5fd"/>
     </marker>
+    <marker id="ah-teal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5eead4"/>
+    </marker>
+    <marker id="ah-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#fcd34d"/>
+    </marker>
+    <marker id="ah-violet" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c4b5fd"/>
+    </marker>
   </defs>
 
   <style>
@@ -77,11 +86,11 @@
   </g>
 
   <!-- inputs -> core -->
-  <g fill="none" stroke="url(#inflow)" stroke-width="2.5" stroke-linecap="round" opacity="0.9">
-    <path d="M290 171 C 312 171, 308 300, 330 300"/>
-    <path d="M290 272 C 312 272, 308 300, 330 300"/>
-    <path d="M290 373 C 312 373, 308 300, 330 300"/>
-    <path d="M290 465 C 312 465, 308 300, 330 300" marker-end="url(#ah)"/>
+  <g stroke="#5eead4" stroke-width="2.5" stroke-linecap="round" marker-end="url(#ah-teal)">
+    <path d="M292 171 H 326"/>
+    <path d="M292 272 H 326"/>
+    <path d="M292 373 H 326"/>
+    <path d="M292 465 H 326"/>
   </g>
 
   <!-- ===== CORE ===== -->
@@ -150,9 +159,9 @@
 
   <!-- time scales -->
   <text x="352" y="362" class="h" fill="#7f93ba" font-size="10.5">TIME SCALES</text>
-  <g fill="none" stroke="#c4b5fd" stroke-width="1.6" stroke-dasharray="4 4" marker-end="url(#ah)" opacity="0.9">
-    <path d="M846 384 C 806 350, 696 350, 656 384"/>
-    <path d="M636 384 C 596 350, 486 350, 446 384"/>
+  <g fill="none" stroke="#c4b5fd" stroke-width="1.6" stroke-dasharray="4 4" marker-end="url(#ah-violet)" opacity="0.9">
+    <path d="M840 384 C 800 352, 690 352, 646 384"/>
+    <path d="M634 384 C 590 352, 474 352, 430 384"/>
   </g>
   <rect x="352" y="388" width="560" height="12" rx="6" fill="url(#scale)"/>
   <g fill="#e2e8f0" font-size="11" text-anchor="middle">
@@ -200,11 +209,11 @@
   </g>
 
   <!-- core -> results -->
-  <g fill="none" stroke="url(#outflow)" stroke-width="2.5" stroke-linecap="round" opacity="0.9">
-    <path d="M934 300 C 956 300, 952 162, 974 162" marker-end="url(#ah)"/>
-    <path d="M934 300 C 956 300, 952 230, 974 230" marker-end="url(#ah)"/>
-    <path d="M934 300 C 956 300, 952 298, 974 298" marker-end="url(#ah)"/>
-    <path d="M934 300 C 956 300, 952 366, 974 366" marker-end="url(#ah)"/>
+  <g stroke="#fcd34d" stroke-width="2.5" stroke-linecap="round" marker-end="url(#ah-amber)">
+    <path d="M936 162 H 974"/>
+    <path d="M936 230 H 974"/>
+    <path d="M936 298 H 974"/>
+    <path d="M936 366 H 974"/>
   </g>
 
   <!-- ===== RESULTS ===== -->
@@ -227,7 +236,7 @@
     <text x="996" y="382" class="s">marginal CO₂ per bus and hour</text>
   </g>
   <text x="1109" y="420" text-anchor="middle" font-size="11.5" fill="#9fb3d9">Parquet · CSV</text>
-  <path d="M1109 428 L 1109 446" stroke="#c7d2fe" stroke-width="2" marker-end="url(#ah)"/>
+  <path d="M1109 428 L 1109 446" stroke="#fcd34d" stroke-width="2" marker-end="url(#ah-amber)"/>
 
   <!-- ===== INTERFACES ===== -->
   <text x="978" y="470" class="h" fill="#a78bfa">INTERFACES</text>

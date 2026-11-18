@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
-"""Generate the GTOpt logo, the repository social preview and the org banner.
+"""Generate the GTOpt logo.
 
 The logo is a provisional placeholder: a small network mark (four buses,
 one generator node) next to the wordmark "GTOpt".  The wordmark is drawn
@@ -13,12 +13,10 @@ Outputs (under ``--out``, default ``docs/images``)::
     logo/gtopt-logo-dark.svg   wordmark + mark, for dark backgrounds
     logo/gtopt-mark.svg        mark only (favicon, avatar source)
     logo/gtopt-mark-512.png    512x512 avatar
-    social-preview.svg/.png    1280x640 repository social preview
 
-and, with ``--banner PATH``, a bilingual 1280x640 organisation banner.
-
-The social preview and banner are filled from the
-``tools/figures/social-preview.svg`` template and rasterised with cairosvg.
+The repository social preview and the organisation banner are hand-drawn
+SVGs (``tools/figures/social-preview.svg``, ``tools/figures/banner.svg``),
+rasterised by ``make_figures.sh brand`` with ``render_svg.py``.
 """
 
 from __future__ import annotations
@@ -32,7 +30,6 @@ from matplotlib.path import Path as MplPath
 from matplotlib.textpath import TextPath
 
 HERE = Path(__file__).resolve().parent
-TEMPLATE = HERE / "social-preview.svg"
 
 BLUE = "#2a78d6"
 BLUE_LIGHT = "#5a9de9"
@@ -128,27 +125,6 @@ def mark_svg() -> str:
     )
 
 
-def social_svg(
-    title: str, suffix: str, tagline: str, subtitle: str, footer: str
-) -> str:
-    template = TEMPLATE.read_text(encoding="utf-8")
-    wordmark, right = _wordmark(212.0, 300.0, 128.0, INK)
-    if suffix:
-        path, _ = _text_path(suffix, 64.0)
-        wordmark += (
-            f'<path transform="translate({right + 24:.2f} 300)" d="{path}" '
-            f'fill="{INK}"/>'
-        )
-    return (
-        template.replace("{{MARK}}", _mark(64.0, 196.0, 128.0))
-        .replace("{{WORDMARK}}", wordmark)
-        .replace("{{TITLE}}", title)
-        .replace("{{TAGLINE}}", tagline)
-        .replace("{{SUBTITLE}}", subtitle)
-        .replace("{{FOOTER}}", footer)
-    )
-
-
 def _write_png(svg: str, dst: Path, width: int, height: int) -> None:
     cairosvg.svg2png(
         bytestring=svg.encode("utf-8"),
@@ -161,7 +137,6 @@ def _write_png(svg: str, dst: Path, width: int, height: int) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=Path("docs/images"))
-    parser.add_argument("--banner", type=Path, help="org banner PNG to write")
     args = parser.parse_args()
 
     logo_dir = args.out / "logo"
@@ -172,27 +147,6 @@ def main() -> None:
     )
     (logo_dir / "gtopt-mark.svg").write_text(mark_svg(), encoding="utf-8")
     _write_png(mark_svg(), logo_dir / "gtopt-mark-512.png", 512, 512)
-
-    social = social_svg(
-        "GTOpt",
-        "",
-        "Generation, Transmission &amp; storage Optimization",
-        "Expansion planning · SDDP · UC / OPF",
-        "github.com/gtopt-community/gtopt · open source (AGPL-3.0)",
-    )
-    (args.out / "social-preview.svg").write_text(social, encoding="utf-8")
-    _write_png(social, args.out / "social-preview.png", 1280, 640)
-
-    if args.banner is not None:
-        banner = social_svg(
-            "GTOpt Community",
-            "Community",
-            "Open-source power-system planning",
-            "Planificación abierta de sistemas eléctricos",
-            "Expansion planning · SDDP · UC / OPF  ·  github.com/gtopt-community",
-        )
-        args.banner.parent.mkdir(parents=True, exist_ok=True)
-        _write_png(banner, args.banner, 1280, 640)
 
 
 if __name__ == "__main__":
