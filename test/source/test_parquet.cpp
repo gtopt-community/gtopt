@@ -4,6 +4,7 @@
 
 #include <arrow/api.h>
 #include <arrow/io/api.h>
+#include <arrow/util/config.h>
 #include <doctest/doctest.h>
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
@@ -106,11 +107,17 @@ TEST_CASE("Parquet file write and read test")
 
     // Crear reader de Parquet
 
-    auto parquet_reader = parquet::ParquetFileReader::Open(input_stream);
     std::unique_ptr<parquet::arrow::FileReader> arrow_reader;
-    auto reader_status = parquet::arrow::FileReader::Make(
-        arrow::default_memory_pool(), std::move(parquet_reader), &arrow_reader);
+#if ARROW_VERSION_MAJOR >= 19
+    auto reader_result =
+        parquet::arrow::OpenFile(input_stream, arrow::default_memory_pool());
+    REQUIRE(reader_result.ok());
+    arrow_reader = std::move(reader_result).ValueUnsafe();
+#else
+    auto reader_status = parquet::arrow::OpenFile(
+        input_stream, arrow::default_memory_pool(), &arrow_reader);
     REQUIRE(reader_status.ok());
+#endif
     REQUIRE(arrow_reader != nullptr);
 
     // Leer tabla completa
@@ -449,11 +456,17 @@ TEST_CASE("Parquet file write and read test 2")
     const auto& input_stream = input_stream_result.ValueOrDie();
 
     // Create Parquet reader
-    auto parquet_reader = parquet::ParquetFileReader::Open(input_stream);
     std::unique_ptr<parquet::arrow::FileReader> arrow_reader;
-    auto reader_status = parquet::arrow::FileReader::Make(
-        arrow::default_memory_pool(), std::move(parquet_reader), &arrow_reader);
+#if ARROW_VERSION_MAJOR >= 19
+    auto reader_result =
+        parquet::arrow::OpenFile(input_stream, arrow::default_memory_pool());
+    REQUIRE(reader_result.ok());
+    arrow_reader = std::move(reader_result).ValueUnsafe();
+#else
+    auto reader_status = parquet::arrow::OpenFile(
+        input_stream, arrow::default_memory_pool(), &arrow_reader);
     REQUIRE(reader_status.ok());
+#endif
     REQUIRE(arrow_reader != nullptr);
 
     // Read complete table
