@@ -1396,9 +1396,10 @@ pollutant link.  Can also be written inline as `Generator.emissions[]`.
 
 `Fuel.emission_factors[]` (`{emission, combustion, upstream}` in t per
 fuel unit) builds one source per covering zone for every generator with
-that `fuel` and a scalar `heat_rate`.  Refer to each pollutant the same
-way (by name or by uid) in zones, sources and fuels: references are
-matched as written.
+that `fuel` and a scalar `heat_rate` (a generator with
+`heat_rate_segments` is skipped with a warning).  Pollutants can be
+referenced by name or by uid in zones, sources and fuels; both resolve
+against `emission_array`.
 
 Example: a 30 $/t CO₂ price on the whole system and a soft cap of
 1500 t per stage:

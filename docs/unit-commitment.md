@@ -566,10 +566,10 @@ A system-wide CO₂ price of 30 \$/t plus a soft cap of 1500 t per stage:
 ```
 
 Drop `price` for a pure cap, drop `cap_cost` for a hard cap, or drop
-`cap` and `cap_cost` for a pure carbon tax.  Refer to the pollutant the
-same way everywhere (all by name, or all by uid): a source whose
-`emission` reference does not match an entry of the zone's
-`emissions[]` contributes nothing.
+`cap` and `cap_cost` for a pure carbon tax.  A pollutant can be
+referenced by name or by uid in zones, sources and fuels; both forms
+are resolved against `emission_array`.  A source whose pollutant is not
+listed in the zone's `emissions[]` contributes nothing to that zone.
 
 ### 6.4 Migrating from `emission_cost` / `emission_cap`
 
@@ -588,13 +588,14 @@ zone:
 
 `Generator.emission_rate` is still accepted: at load time it is folded
 into an `EmissionSource` for pollutant `co2`.  The source goes to the
-first zone whose `emissions[]` lists `co2` **by uid**
-(`{"emission": 1}`); if there is none, a separate zone `default_co2` is
+first zone whose `emissions[]` lists `co2` (by name or uid); if there
+is none, a separate zone `default_co2` is
 created, without price or cap, so the emissions are reported but not
 priced.  Explicit `emission_source_array` entries avoid this ambiguity.
 Likewise, the legacy `Fuel.combustion_emission_factor` /
 `upstream_emission_factor` are folded into `Fuel.emission_factors[]`
-for `co2` by uid.
+for `co2`.  A generator with `heat_rate_segments` gets no fuel-derived
+emissions (a warning names it); give it an explicit `EmissionSource`.
 
 ---
 
