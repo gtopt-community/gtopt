@@ -70,6 +70,7 @@
 
 #include <arrow/io/file.h>
 #include <arrow/table.h>
+#include <arrow/util/config.h>
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/json/json_planning.hpp>
@@ -105,13 +106,22 @@ namespace
   if (!input_stream_result.ok()) {
     return nullptr;
   }
-  auto parquet_reader = parquet::ParquetFileReader::Open(*input_stream_result);
+  const std::shared_ptr<arrow::io::RandomAccessFile> input =
+      *input_stream_result;
   std::unique_ptr<parquet::arrow::FileReader> arrow_reader;
-  const auto reader_status = parquet::arrow::FileReader::Make(
-      arrow::default_memory_pool(), std::move(parquet_reader), &arrow_reader);
+#if ARROW_VERSION_MAJOR >= 19
+  auto ofile = parquet::arrow::OpenFile(input, arrow::default_memory_pool());
+  if (!ofile.ok()) {
+    return nullptr;
+  }
+  arrow_reader = std::move(ofile).ValueUnsafe();
+#else
+  const auto reader_status = parquet::arrow::OpenFile(
+      input, arrow::default_memory_pool(), &arrow_reader);
   if (!reader_status.ok()) {
     return nullptr;
   }
+#endif
   std::shared_ptr<arrow::Table> table;
   const auto read_status = arrow_reader->ReadTable(&table);
   if (!read_status.ok()) {
