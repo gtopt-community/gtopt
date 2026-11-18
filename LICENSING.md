@@ -108,7 +108,7 @@ offering all of the licences above.
 
 ## Commercial licensing
 
-Contact: Marcelo Matus — <marcelomatusacuna@gmail.com>
+Contact: Marcelo Matus — <mmatus@blackbeareng.cl>
 
 ## Support, maintenance and services
 
