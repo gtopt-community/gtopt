@@ -116,8 +116,8 @@ calls open-source or commercial solver plugins and writes Parquet/CSV
 results read by run_gtopt, the GUI, the web service and the comparison
 tools](images/architecture.svg)
 
-*Source: [`tools/figures/architecture.mmd`](../tools/figures/architecture.mmd);
-regenerate with `bash tools/figures/make_figures.sh architecture`.*
+*The diagram is a hand-drawn SVG; edit
+[`docs/images/architecture.svg`](images/architecture.svg) directly.*
 
 The C++ library (`libgtopt`) is organized in five conceptual layers, each
 built on top of the previous one.

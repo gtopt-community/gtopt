@@ -52,8 +52,8 @@ GTOpt is pronounced *G-top* (/ˈdʒiː tɒp/). The command-line binary is
 
 <p align="center">
   <a href="docs/overview.md">
-    <img src="docs/images/architecture.svg" width="720"
-         alt="GTOpt architecture: JSON cases with Parquet/CSV time series (or converters from PLP, PLEXOS, PSS/E, SDDP, pandapower and Excel) feed the C++ core, which builds the system model, assembles the LP/MIP and solves it with the monolithic, SDDP or cascade method through open-source or commercial solver plugins; results are written as Parquet/CSV and read by run_gtopt, the browser GUI, the REST web service and the comparison and diagram tools.">
+    <img src="docs/images/architecture.svg" width="860"
+         alt="GTOpt architecture: inputs (JSON and Parquet cases, converters from PLP, PLEXOS, PSR SDDP, PSS/E and pandapower, PAMPL constraints, Excel) feed the C++ core, which models electricity, water, fuels and LNG, hydrogen, ammonia and heat, assembles the LP/MIP and solves it with the monolithic, SDDP or cascade method across time scales from 15 minutes to 30 years, coupled by SDDP optimality and feasibility cuts, through open-source or commercial solver plugins; results (dispatch and prices, water values, expansion plan, emissions) feed the terminal dashboard, browser GUI, REST API and data tools.">
   </a>
 </p>
 
@@ -257,7 +257,7 @@ left unserved and the price at the load buses jumps to the 1000 $/MWh
 failure cost.
 
 <p align="center">
-  <a href="docs/planning-guide.md"><img src="docs/images/dispatch_ieee9b.svg" width="720"
+  <a href="docs/planning-guide.md"><img src="docs/images/dispatch_ieee9b.svg" width="860"
      alt="Stacked hourly generation of units g1, g2 and the solar unit g3 in the IEEE 9-bus case, with unserved energy in the evening peak; below, the nodal prices at buses b1 and b5 on a log scale, with b5 jumping from 35 to 1000 $/MWh at hour 18."></a>
 </p>
 

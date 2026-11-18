@@ -17,7 +17,7 @@
 #                     pip install -r guiservice/requirements.txt
 #   - Chrome/Chromium for Playwright (system Chrome is used when present,
 #     otherwise run `playwright install chromium`)
-#   - Graphviz `dot` (gtopt_diagram), Node.js `npx` (mermaid-cli)
+#   - Graphviz `dot` (gtopt_diagram)
 #   - optional: pngquant (PNG size optimisation)
 #
 # Environment:
@@ -66,14 +66,9 @@ step_brand() {
 }
 
 step_architecture() {
-  local puppeteer=()
-  if [ -x /usr/bin/google-chrome ]; then
-    printf '{"executablePath": "/usr/bin/google-chrome", "args": ["--no-sandbox"]}\n' \
-      > "$WORK/puppeteer.json"
-    puppeteer=(-p "$WORK/puppeteer.json")
-  fi
-  npx -y @mermaid-js/mermaid-cli@11 -i "$FIG/architecture.mmd" \
-    -o "$IMG/architecture.svg" -b white -c "$FIG/mermaid.json" "${puppeteer[@]}"
+  # docs/images/architecture.svg is a hand-drawn static SVG (no generator);
+  # edit it directly.  Nothing to do here.
+  :
 }
 
 step_topology() {
