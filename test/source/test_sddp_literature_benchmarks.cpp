@@ -406,7 +406,13 @@ TEST_CASE(  // NOLINT
   CAPTURE(last.upper_bound);
   CHECK(last.lower_bound <= kA1PublishedLB + valid_tol);  // valid LB
   WARN(last.lower_bound == doctest::Approx(kA1PublishedLB).epsilon(1.0e-4));
-  CHECK(last.lower_bound == doctest::Approx(kA1GtoptLB).epsilon(1.0e-3));
+  // The converged aperture LB depends on the dual vertex the LP solver
+  // returns: most backends stop at ~8055.6, while CLP 1.17.10 (Ubuntu
+  // 26.04) reaches the exact published value.  Accept either; anything
+  // else is a behavioural change.
+  CHECK(
+      (last.lower_bound == doctest::Approx(kA1GtoptLB).epsilon(1.0e-3)
+       || last.lower_bound == doctest::Approx(kA1PublishedLB).epsilon(1.0e-4)));
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -682,7 +688,10 @@ TEST_CASE(  // NOLINT
   CHECK(shared <= kA1PublishedLB + lb_tol);
   CHECK(screened <= kA1PublishedLB + lb_tol);
   // cold pins gtopt's aperture-SDDP A1 value (regression guard).
-  CHECK(cold == doctest::Approx(8055.5556).epsilon(1.0e-3));
+  // (8055.6 on most backends; CLP 1.17.10 reaches the exact 8333.33 —
+  // see the A1 test above.)
+  CHECK((cold == doctest::Approx(8055.5556).epsilon(1.0e-3)
+         || cold == doctest::Approx(kA1PublishedLB).epsilon(1.0e-4)));
   // Documented divergence: cut-for-cut parity is NOT expected here (it is
   // certified in test_sddp_dual_shared_literature.cpp + the degenerate
   // case #3601).  WARN keeps the observed spread visible.

@@ -3881,8 +3881,17 @@ TEST_CASE(  // NOLINT
   CAPTURE(*dual_1);
   const double dual_max = std::max(*dual_0, *dual_1);
   CAPTURE(dual_max);
-  // Margin of 1e-3 above zero rules out solver-tolerance noise.
-  CHECK(dual_max > 1e-3);
+  // Margin of 1e-3 above zero rules out solver-tolerance noise.  The
+  // primal optimum is unique but the dual is not: CLP (1.17.x) picks
+  // the zero-dual vertex, so only ``>= 0`` is solver-invariant.  Keep
+  // the economic claim visible as a WARN, as the degenerate fixture
+  // does.
+  WARN_MESSAGE(dual_max > 1e-3,
+               "Binding-row dual expected > 0; got "
+                   << dual_max
+                   << " — solver-specific (CLP at a dual-degenerate "
+                      "optimum)");
+  CHECK(dual_max >= 0.0);
 
   // Convergence invariant: the converged UB and LB must match (the
   // degenerate complement test cannot pin this either — its
@@ -4339,14 +4348,16 @@ TEST_CASE(  // NOLINT
       CHECK(std::abs(hard.efin_col_costs[1]) <= rc_tol);
 
       CHECK(hard.ub == doctest::Approx(off_hard.ub).epsilon(kParityRel));
-      CHECK(dual_max == doctest::Approx(off_dual_max).epsilon(kParityRel));
 
       // See the analogous skip in the earlier efin_cost TEST_CASE:
       // when CLP/CBC reports dual_max=0 at a degenerate optimum the
-      // below/above bracket loses its economic meaning.
-      if (dual_max == 0.0) {
+      // below/above bracket loses its economic meaning, and the dual
+      // parity against the ``off`` run is not solver-invariant either
+      // (each run may land on a different optimal dual vertex).
+      if (dual_max == 0.0 || off_dual_max == 0.0) {
         continue;
       }
+      CHECK(dual_max == doctest::Approx(off_dual_max).epsilon(kParityRel));
 
       const double below = dual_max - 1.0;
       CAPTURE(below);
