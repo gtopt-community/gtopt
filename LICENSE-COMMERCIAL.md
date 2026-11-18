@@ -22,4 +22,4 @@ commercial licences remain valid after such an assignment.
 
 Licensing contact: <mmatus@blackbeareng.cl>.
 Reseller, support and maintenance partner: **Black Bear Engineering SpA**
-(<contactos@blackbeareng.cl>) — see [`PARTNERS.md`](PARTNERS.md).
+(<contacto@blackbeareng.cl>) — see [`PARTNERS.md`](PARTNERS.md).

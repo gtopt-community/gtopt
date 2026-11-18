@@ -423,4 +423,4 @@ Copyright (c) 2024-2026 Marcelo Matus and [contributors](AUTHORS).
 
 Professional support, maintenance, training and PLP / PLEXOS → GTOpt
 migration services are available from **Black Bear Engineering SpA**
-(<contactos@blackbeareng.cl>). See [`PARTNERS.md`](PARTNERS.md).
+(<contacto@blackbeareng.cl>). See [`PARTNERS.md`](PARTNERS.md).
