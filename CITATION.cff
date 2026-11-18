@@ -14,7 +14,7 @@ type: software
 authors:
   - family-names: Matus
     given-names: Marcelo
-    email: marcelomatusacuna@gmail.com
+    email: mmatus@blackbeareng.cl
 repository-code: "https://github.com/gtopt-community/gtopt"
 license: AGPL-3.0-or-later
 keywords:
