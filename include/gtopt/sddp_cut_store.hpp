@@ -236,6 +236,8 @@ public:
   /// store live on `(scene_index, *)` cells by ownership invariant).
   /// The caller already has it in scope.
   ///
+  /// @param planning_lp PlanningLP whose cells hold the cut rows.
+  /// @param scene_index Scene that owns this store's cuts.
   /// @param keep_feasibility When true (`elastic_filter_mode =
   ///   state_repair` / `farkas_recursive`),
   ///   `CutType::Feasibility` rows are EXEMPT from the rollback: PLP's
@@ -373,6 +375,8 @@ public:
   /// the next iteration's stall check distinguish "made no progress"
   /// from "received peer cuts and can retry".
   ///
+  /// @param scene_index Scene whose accumulated cuts are discarded.
+  /// @param planning_lp PlanningLP whose cells hold the cut rows.
   /// @param keep_feasibility Exempt `CutType::Feasibility` rows from
   ///   the rollback (PLP elastic mode) — see
   ///   `SceneCutStore::clear_with_lp`.

@@ -1,5 +1,5 @@
 /**
- * @file      simulation.cpp
+ * @file      simulation_lp.cpp
  * @brief     Implementation of linear programming simulation
  * @date      Sun Apr  6 22:05:37 2025
  * @author    marcelo

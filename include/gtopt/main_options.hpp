@@ -638,6 +638,8 @@ template<typename T>
  * @param sddp_elastic_mode Optional elastic filter mode string
  * @param sddp_num_apertures Optional number of SDDP apertures
  * @param lp_debug Optional flag to enable LP debug output
+ * @param lp_error Optional flag to write an error LP file for infeasible
+ *        cells (independent of lp_debug)
  * @param lp_compression Optional LP output compression codec string
  * @param lp_coeff_ratio_threshold Optional threshold for LP coefficient ratio
  */

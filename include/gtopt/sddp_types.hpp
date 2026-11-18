@@ -1414,6 +1414,9 @@ struct SDDPIterationResult
 /// which is populated by `capture_state_variable_values` after every
 /// successful solve.  This replaces the former `PhaseStateInfo::alpha_col`
 /// cache, which could become stale on low_memory reconstruct/clone paths.
+/// @param sim          SimulationLP holding the state-variable registry.
+/// @param scene_index  Scene of the (scene, phase) cell.
+/// @param phase_index  Phase of the (scene, phase) cell.
 /// @param kind  Which registry to look in — `forward` (default) for the
 ///              regular system's α, `aperture` for the backward-pass
 ///              aperture system's α (registered in parallel).
@@ -1684,6 +1687,15 @@ void record_col_bounds_dynamic(PlanningLP& planning_lp,
 /// exposed here so isolated callers (tests, direct cut-loader
 /// harnesses) can establish the same precondition without standing
 /// up a full `SDDPMethod`.
+/// @param planning_lp  PlanningLP whose cells receive the α columns.
+/// @param scene_index  Scene whose (scene, phase) cells are processed.
+/// @param scale_alpha  Column scale of every α column (physical α in $
+///        = LP value × scale_alpha).
+/// @param cut_sharing  Cut-sharing mode; under `multicut` (or `markov`)
+///        non-terminal phases carry one α column per source scene (or
+///        Markov state) instead of a single α.
+/// @param boundary_cut_sharing  Terminal-phase α layout; `multicut`
+///        gives one terminal α column per scene.
 /// @param register_as_state_variable  When `true` (default) each α column is
 ///        registered in the simulation `StateVariable` map (the byte-for-byte
 ///        legacy behaviour, drives cut routing + the forward-pass UB
@@ -1799,9 +1811,8 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp,
 /// @param scene_index Target scene cell.
 /// @param phase_index Target phase cell.  No-op when α is not
 ///                    registered on (scene_index, phase_index).
-/// @param seed_phys   Weak universal floor used to seed the
-///                    cut-driven max.  Defaults to ``0`` (valid under
-///                    non-negative stage costs).
+/// @param kind        Which system's α to floor — `forward` (default)
+///                    or the backward-pass `aperture` system.
 /// @param bound_above When true, ALSO clamp α's column UPPER bound to the
 ///                    cut-derived ceiling
 ///                    ``ceil = rhs − Σⱼ min(coefⱼ·vⱼ_max, coefⱼ·vⱼ_min)``

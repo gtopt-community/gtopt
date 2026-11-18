@@ -220,7 +220,7 @@ carried as **cited** facts.
 | T=3 | extensive LB / UB (0.19%) | **3,078,162 / 3,084,143** |
 | T=3 | SDDiP-SB LB (2.53% gap) | **2,998,418** |
 | T=6 | SDDiP-SB LB (2.22% gap) | 4,946,515 |
-| T=120 | Table 3 policy-value band | 177–189 $M |
+| T=120 | Table 3 policy-value band | 177–189 \$M |
 
 **GTOpt status — doc-tier / research-tier only.** Two blockers, both
 flagged in the catalog:

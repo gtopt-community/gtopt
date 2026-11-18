@@ -1,5 +1,5 @@
 /**
- * @file      json_profile.hpp
+ * @file      json_capacity_profile.hpp
  * @brief     JSON serialization for the unified `CapacityProfile` element
  * @date      2026-05-17
  * @author    marcelo

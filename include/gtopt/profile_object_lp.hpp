@@ -60,8 +60,8 @@ public:
   /**
    * @brief Add profile constraints to LP
    *
-   * @param cname Class name prefix for labeling
-   * @param sc System context
+   * @param full_class_name Full class name used to label the profile
+   *        columns/rows
    * @param scenario Scenario
    * @param stage Stage
    * @param lp Linear problem

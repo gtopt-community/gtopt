@@ -53,9 +53,13 @@ GENERATE_LATEX = NO
 XML_PROGRAMLISTING = NO
 CREATE_SUBDIRS = NO
 
-# Include all directories, files and namespaces in the documentation
-# Disable to include only explicitly documented objects
-M_SHOW_UNDOCUMENTED = YES
+# Undocumented members are shown by m.css via SHOW_UNDOCUMENTED in
+# conf.py (M_SHOW_UNDOCUMENTED is not a Doxygen tag; doxygen warns).
+
+# Include graphs of widely-included headers (basic_types.hpp,
+# linear_problem.hpp, system_lp.hpp, ...) exceed the default 50-node
+# cap; raise it so the graphs are generated instead of warned about.
+DOT_GRAPH_MAX_NODES = 150
 
 # Suppress warnings for unresolved Markdown links (GitHub-flavored links
 # in README.md are not Doxygen \ref targets) and parameter mismatches.
@@ -84,6 +88,15 @@ EXPAND_ONLY_PREDEF = NO
 
 # Exclude test code and build directories from API docs
 EXCLUDE_PATTERNS = */test/* */build/* */cpm_modules/*
+
+# The include/gtopt/json/ headers specialise daw::json::json_data_contract
+# after `using gtopt::X;` declarations.  Doxygen turns each using-
+# declaration into a daw::json::X compound that clones gtopt::X's
+# documentation — including the anchors of its Markdown subsections —
+# which m.css rejects ("ID `structgtopt_1_1X_1autotoc_mdN` does not
+# start with `structdaw_1_1json_1_1X`").  The daw_json_link glue is
+# not public gtopt API, so keep it out of the docs.
+EXCLUDE_SYMBOLS = daw daw::*
 
 # Image search path — diagrams referenced from docs/ markdown files
 IMAGE_PATH = @DOXYGEN_PROJECT_ROOT@/docs

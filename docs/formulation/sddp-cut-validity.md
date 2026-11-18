@@ -121,8 +121,8 @@ composition, in order:
 
 **Lemma S1 (scale invariance).**  *Steps 1–4 multiply the inequality
 $\alpha + \sum (-g_i) x_i \ge b$ by a positive scalar and apply a
-positive diagonal change of variables ($x^{LP}_i = x_i /
-\text{col\_scale}_i$).  Both operations preserve the feasible set
+positive diagonal change of variables
+($x^{LP}_i = x_i / \text{col\_scale}_i$).  Both operations preserve the feasible set
 exactly; hence a cut valid in physical space is valid in LP space and
 vice versa.*
 
@@ -279,8 +279,9 @@ for any weights $w_k \ge 0$, $\sum w_k = 1$, the combined cut
 $\alpha \ge \sum_k w_k b_k + \langle \sum_k w_k g_k,\, x\rangle$ is
 valid for $F$.*
 
-*Proof.*  $\sum_k w_k (b_k + \langle g_k, x\rangle) \le
-\sum_k w_k F(x) = F(x)$. $\qquad\blacksquare$
+*Proof.*
+$\sum_k w_k (b_k + \langle g_k, x\rangle) \le \sum_k w_k F(x) = F(x)$.
+$\qquad\blacksquare$
 
 - `average_benders_cut` ($w_k = 1/K$) and
   `weighted_average_benders_cut` (weights normalized internally) are
@@ -369,20 +370,25 @@ $a$ and* **any** *state pin $\hat v$ shared by the cell:*
 
 $$
 Q_a(x) \;\ge\; L_a + \sum_i rc_i\,(x_i - \hat v_i), \qquad
-L_a = z^\* + \sum_j \max(d_j, 0)\,\Delta l_j
-          + \sum_j \min(d_j, 0)\,\Delta u_j,
+L_a = z^\* + \sum_j \max(d_j, 0)\,\Delta l_j +
+          \sum_j \min(d_j, 0)\,\Delta u_j,
 $$
 
-*where $\Delta l_j = l_j^a - l_j^{rep}$, $\Delta u_j = u_j^a -
-u_j^{rep}$ range over the changed (flow) columns and $rc_i$ are the
+*where $\Delta l_j = l_j^a - l_j^{rep}$,
+$\Delta u_j = u_j^a - u_j^{rep}$ range over the changed (flow) columns and $rc_i$ are the
 representative's state-column reduced costs — i.e. the representative's
 cut with its slope unchanged and its intercept moved by the
 bound-delta correction.*
 
 *Proof.*  The dual objective of aperture $a$'s LP at the shared dual
-point is $y^\top b + \lambda^\top l^a - \mu^\top u^a
-= (y^\top b + \lambda^\top l^{rep} - \mu^\top u^{rep})
-+ \lambda^\top \Delta l - \mu^\top \Delta u = z^\* + \text{corr}_a$
+point is
+
+$$
+y^\top b + \lambda^\top l^a - \mu^\top u^a
+= (y^\top b + \lambda^\top l^{rep} - \mu^\top u^{rep}) +
+\lambda^\top \Delta l - \mu^\top \Delta u = z^\* + \text{corr}_a
+$$
+
 (strong duality on the representative, then the delta terms).  Weak
 duality bounds $Q_a(\hat v) \ge z^\* + \text{corr}_a = L_a$.  The
 state-column slope argument of Theorem O1 applies verbatim — the state
@@ -484,8 +490,8 @@ persistent-scene process.*
 subproblems, so by Theorem O2 (induction over phases within the fixed
 scene) the master value $V_s^{(0)} \le p_s C_s^{\text{opt}}$, the
 folded optimal cost of scene $s$'s deterministic path problem.  Sum
-over feasible scenes; infeasible scenes contribute $0 \le p_s
-C_s^{\text{opt}}$ under A2 (non-negative costs) — with A2 relaxed, the
+over feasible scenes; infeasible scenes contribute
+$0 \le p_s C_s^{\text{opt}}$ under A2 (non-negative costs) — with A2 relaxed, the
 statement holds over the feasible subset only (the bounds are
 $E[\text{cost} \cdot 1_{\text{feasible}}]$; ledger U6).
 $\qquad\blacksquare$
@@ -552,8 +558,8 @@ Prop. M4 states the pricing now implemented.
 $s$.  Substitute $\tilde V_s := V_s / p_s = N V_s$.  Then*
 
 $$
-\tilde V_s^{(t)}(x) \;=\; \min_u\Big[\, c_s(u)
-  + \tfrac1N \textstyle\sum_r \tilde V_r^{(t+1)}(x') \Big]
+\tilde V_s^{(t)}(x) \;=\; \min_u\Big[\, c_s(u) +
+  \tfrac1N \textstyle\sum_r \tilde V_r^{(t+1)}(x') \Big]
   \;=\; \min_u\Big[\, c_s(u) + \mathbb E_{r \sim \mathrm{Unif}}
   \tilde V_r^{(t+1)}(x') \Big],
 $$
@@ -608,13 +614,13 @@ pricing — unsound; superseded by M4).**  *For general $p_s$, with every
 $\varphi_r$ priced $1/N$, the substitution gives*
 
 $$
-\tilde V_s^{(t)}(x) = \min_u\Big[\, c_s(u)
-  + \tfrac{1}{N p_s} \textstyle\sum_r p_r\, \tilde V_r^{(t+1)}(x')
+\tilde V_s^{(t)}(x) = \min_u\Big[\, c_s(u) +
+  \tfrac{1}{N p_s} \textstyle\sum_r p_r\, \tilde V_r^{(t+1)}(x')
   \Big].
 $$
 
-*The future term carries weight $\frac{1}{Np_s}\sum_r p_r = \frac{1}
-{N p_s}$, which exceeds 1 whenever $p_s < 1/N$.  The recursion is then
+*The future term carries weight
+$\frac{1}{Np_s}\sum_r p_r = \frac{1}{N p_s}$, which exceeds 1 whenever $p_s < 1/N$.  The recursion is then
 the Bellman operator of no proper stochastic process (transition
 weights fail to sum to 1), and the fixed point can exceed every
 process value; the resulting LB can overshoot the true optimum of both
@@ -632,8 +638,8 @@ normalized probability of the scene owning the LP, uniform across the
 $N$ columns).  Then*
 
 $$
-\tilde V_s^{(t)}(x) = \min_u\Big[\, c_s(u)
-  + \textstyle\sum_r p_r\, \tilde V_r^{(t+1)}(x') \Big],
+\tilde V_s^{(t)}(x) = \min_u\Big[\, c_s(u) +
+  \textstyle\sum_r p_r\, \tilde V_r^{(t+1)}(x') \Big],
 $$
 
 *the Bellman recursion of the process resampled with measure
@@ -642,8 +648,8 @@ is valid for that process with the phase-0 scene drawn from $p$.
 Under uniform probabilities $w_r = p_s = 1/N$ reproduces the current
 pricing.*
 
-*Derivation.*  With pricing $w_r$ and $\varphi_r \approx V_r^{(t+1)} =
-p_r \tilde V_r^{(t+1)}$, the future term is
+*Derivation.*  With pricing $w_r$ and
+$\varphi_r \approx V_r^{(t+1)} = p_r \tilde V_r^{(t+1)}$, the future term is
 $\sum_r w_r p_r \tilde V_r^{(t+1)}$; dividing the LP by $p_s$ requires
 $w_r p_r / p_s = q_r$.  Choosing $q_r = p_r$ forces $w_r = p_s$.
 $\qquad\blacksquare$
@@ -714,8 +720,8 @@ encode the supplied terminal FCF's supports, scaled by the boundary
 discount.  Their validity is **assumption A5**: the CSV rows are
 supports of a convex terminal value function (they originate from
 PLP's `planos` data, which is such an FCF by construction).  Scaling
-both $\rho$ and $\gamma$ by $d$ encodes the discounted FCF $d \cdot
-\Phi(x)$ — consistent as long as the same discounting convention is
+both $\rho$ and $\gamma$ by $d$ encodes the discounted FCF
+$d \cdot \Phi(x)$ — consistent as long as the same discounting convention is
 used in the UB accounting (it is: under every mode except
 `phi_expectation` below, the UB never adds a terminal term and the LB
 carries it through α; under `phi_expectation` **both** bounds carry
@@ -732,8 +738,8 @@ per *plane hydrology* $j$ of `plpplem2.dat` (`leeplaem.f`), each priced
 $1/\text{NVarPhi}$ (`PlaCFFO`, `defprbpd.f`), each bounded below by the
 cuts of ITS hydrology only.  The terminal FCF is therefore the
 **expectation over plane hydrologies of per-hydrology maxima**,
-$\Phi(x) = \frac{1}{\text{NVarPhi}} \sum_j \max_{c \in j}
-(\rho_c + \langle \gamma_c, x\rangle)$ — independent of the run's
+$\Phi(x) = \frac{1}{\text{NVarPhi}} \sum_j \max_{c \in j} (\rho_c + \langle \gamma_c, x\rangle)$
+— independent of the run's
 scene count.  GTOpt replicates this verbatim:
 
 - the CSV `scene` column is read as the plane index $j$ (NOT a GTOpt
@@ -862,9 +868,12 @@ bound there never cuts the optimum.*
 
 *Proof.*  At a minimum with positive α price, α sits on its highest
 binding cut $k^\*$:
-$\alpha^\* = b_{k^\*} + \sum_j g_j x_j^\* \le b_{k^\*} - \sum_j \min
+
+$$
+\alpha^\* = b_{k^\*} + \sum_j g_j x_j^\* \le b_{k^\*} - \sum_j \min
 (g_j x_j^{\min}, g_j x_j^{\max}) = \text{ceil}_{k^\*} \le \max_k
-\text{ceil}_k$. $\qquad\blacksquare$
+\text{ceil}_k. \qquad\blacksquare
+$$
 
 Floors are recomputed per-$\varphi$ from that column's own cuts
 (`:485-496`) — a scenario-$s$ cut never floors $\varphi_d$, matching
@@ -902,8 +911,9 @@ with $\hat v_i + \delta_i > x_i^{\max}$; symmetric for $\pi_i < 0$),
 preserving validity.*
 
 *Proof sketch.*  Convexity of $\mu$ and the subgradient property of
-row duals give $0 = \mu(x) \ge \mu(\hat v) + \sum_i
-\text{dual}_i (x_i - \hat v_i)$ for feasible $x$, which rearranges to
+row duals give
+$0 = \mu(x) \ge \mu(\hat v) + \sum_i \text{dual}_i (x_i - \hat v_i)$
+for feasible $x$, which rearranges to
 the exact cut.  At a vertex optimum with active slacks nonbasic at
 bound, $\mu(\hat v) = \sum_i \pi_i \delta_i$ by complementary
 slackness.  Clamping moves each RHS contribution toward the box, i.e.
@@ -915,17 +925,17 @@ requires the clone to have *lowered* dep while its dual asks for more
 belongs to the oracle harness's randomized checks.
 $\qquad\blacksquare$
 
-Filters on this path: non-finite duals skipped; $|\pi| <
-\varepsilon$ dropped (Theorem-O3-style bound); the PLP-parity $|
-\delta|$-relative drop (`:392-394`); RHS bump **disabled**
+Filters on this path: non-finite duals skipped;
+$|\pi| < \varepsilon$ dropped (Theorem-O3-style bound); the PLP-parity
+$|\delta|$-relative drop (`:392-394`); RHS bump **disabled**
 (`kFactEps = 0.0`, `:467`) — the aggregated cut is *not* deliberately
 over-tightened.
 
 ### 11.2 Per-link form (`build_multi_cuts`)
 
 `benders_cut.cpp:1170-1578` mirrors PLP `plp-agrespd.f::AgrElastici`:
-one single-variable cut $\pi_i\, x_i \ge \pi_i\,
-(\text{clone dep value})_i$ per relaxed link.
+one single-variable cut
+$\pi_i\, x_i \ge \pi_i\, (\text{clone dep value})_i$ per relaxed link.
 
 **Example FC2 (over-cut by substitution).**  Two reservoirs $A, B$
 feed one deficit; the subproblem is feasible iff $x_A + x_B \ge R$.

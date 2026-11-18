@@ -20,9 +20,9 @@ Every storage element has an energy (or volume) balance per block. Its
 
 | Output | Meaning | Unit |
 |---|---|---|
-| `Reservoir/water_value_dual` | **Water value**: marginal value of stored water per block, the price at which the reservoir is indifferent between turbining now and keeping the water | $ per unit of volume |
-| `Battery/energy_dual` | **Opportunity cost of stored energy**: marginal value of one more MWh in the battery per block | $/MWh |
-| `FutureCost` outputs | The cost-to-go α at the end of the horizon and its components | $ |
+| `Reservoir/water_value_dual` | **Water value**: marginal value of stored water per block, the price at which the reservoir is indifferent between turbining now and keeping the water | \$ per unit of volume |
+| `Battery/energy_dual` | **Opportunity cost of stored energy**: marginal value of one more MWh in the battery per block | \$/MWh |
+| `FutureCost` outputs | The cost-to-go α at the end of the horizon and its components | \$ |
 
 The optimal dispatch follows directly from these values: a hydro plant
 generates when the bus price exceeds the water value times its

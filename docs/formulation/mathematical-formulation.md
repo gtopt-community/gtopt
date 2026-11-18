@@ -706,8 +706,8 @@ lossy line, so iterate until no new flags.
 
 When `loss_secant_segments = L > 1` AND `loss_use_sos2 = true` the
 single $v_l \in [0, \overline{F}_l]$ auxiliary is replaced by **$L$
-segment columns** $v_{l,\ell} \in [0, w_l]$ with $w_l = \overline{F}_l /
-L$, tied to $|f_l|$ by sum-of-segments rows
+segment columns** $v_{l,\ell} \in [0, w_l]$ with
+$w_l = \overline{F}_l / L$, tied to $|f_l|$ by sum-of-segments rows
 
 $$ \sum_{\ell = 1}^{L} v_{l,\ell,s,t,b} \;\geq\; +f_{l,s,t,b},
    \qquad
@@ -867,8 +867,7 @@ $u_{l,s,t,b} \in \{0, 1\}$ is introduced that opens (0) or closes
 **Capacity gating** (always emitted, both Kirchhoff and transport
 modes; v0):
 
-$$
--\overline{F}_l^{ba} \, u_{l,s,t,b}
+$$ -\overline{F}_l^{ba} \, u_{l,s,t,b}
 \;\leq\; f_{l,s,t,b} \;\leq\;
 \overline{F}_l^{ab} \, u_{l,s,t,b}
 \qquad \forall \; s, t, b
@@ -913,15 +912,13 @@ vestigial (lossless) or unbounded are skipped.
 $f = b^{\text{eff}}_l (\theta_a - \theta_b - \varphi_l)$ is
 rewritten in place as the upper-side inequality
 
-$$
--\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} + M_l \, u_{l,s,t,b}
+$$ -\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} + M_l \, u_{l,s,t,b}
 \;\leq\; M_l - \varphi_l
 $$
 
 and a new row is added for the lower-side:
 
-$$
--\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} - M_l \, u_{l,s,t,b}
+$$ -\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} - M_l \, u_{l,s,t,b}
 \;\geq\; -M_l - \varphi_l.
 $$
 
@@ -949,8 +946,7 @@ switched-off line $l \in C$ invalidates every cycle through it.
 `add_kvl_rows` checks each cycle row for switchable lines and, when
 any are present, replaces the equality with the disjunctive form
 
-$$
--\!\!\sum_{l \in C \cap \text{switchable}}\!\!
+$$ -\!\!\sum_{l \in C \cap \text{switchable}}\!\!
 \bigl(1 - u_l\bigr) \, M_C
 \;\leq\;
 \sum_{e \in C} \text{sign}_e \,
@@ -967,8 +963,8 @@ M_C \;=\; 2 \theta_{\max} \, |C| \, \text{row\_scale}
 \;+\; \sum_{e \in C} |\varphi_e| \, \text{row\_scale}.
 $$
 
-When every switchable line in the cycle is closed ($u_l = 1\;\forall
-\, l \in C \cap \text{switchable}$) the slack collapses to zero and
+When every switchable line in the cycle is closed
+($u_l = 1\;\forall\, l \in C \cap \text{switchable}$) the slack collapses to zero and
 both inequalities reduce to the original equality.  Any open line
 ($u_l = 0$) widens the slack by exactly $M_C$, decoupling the
 cycle through that branch.  Validation now accepts every combination
@@ -991,8 +987,8 @@ silently skipped.
 closing / opening costs, in \$), `LineCommitmentLP` switches from
 the single-`u_l` form to the Knueven–Ostrowski–Watson 2020 /
 Morales-España et al. 2013 three-binary decomposition.  A startup
-indicator $v_{l,t} \in [0,1]$ and a shutdown indicator $w_{l,t}
-\in [0,1]$ are added (continuous but implied-binary at the optimum)
+indicator $v_{l,t} \in [0,1]$ and a shutdown indicator
+$w_{l,t} \in [0,1]$ are added (continuous but implied-binary at the optimum)
 joined by the logic transition
 
 $$

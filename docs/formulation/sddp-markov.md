@@ -51,8 +51,8 @@ data, then transition to $m' \sim P_{m\cdot}$.  Define the post-draw
 value $U_r^{(t)}$ and the pre-draw state value $W_m^{(t)}$:
 
 $$
-U_r^{(t)}(x) = \min_u \Big[ c_r(u)
-  + \sum_{m'} P_{m(r)\,m'}\, W_{m'}^{(t+1)}(x') \Big],
+U_r^{(t)}(x) = \min_u \Big[ c_r(u) +
+  \sum_{m'} P_{m(r)\,m'}\, W_{m'}^{(t+1)}(x') \Big],
 \qquad
 W_m^{(t)}(x) = \sum_{r : m(r)=m} p_{r|m}\, U_r^{(t)}(x).
 $$
@@ -72,8 +72,8 @@ Bellman recursion above, folded by $p_s$ on scene-$s$'s LP, is
 
 $$
 V_s^{(t)}(x) = p_s U_s^{(t)}(x)
-  = \min_u \Big[ p_s c_s(u)
-  + \sum_{m'} \frac{p_s\, P_{m(s)\,m'}}{\pi_{m'}}\,
+  = \min_u \Big[ p_s c_s(u) +
+  \sum_{m'} \frac{p_s\, P_{m(s)\,m'}}{\pi_{m'}}\,
     \Phi_{m'}^{(t+1)}(x') \Big],
 $$
 
@@ -105,12 +105,12 @@ terminal $\varphi$ is pinned at $0$ (the model's definition of zero
 post-horizon cost) or bounded by boundary cuts (A5).  Step (LP side):
 with all cuts underestimating $\Phi_{m'}^{(t+1)}$ and $w_{s,m'} > 0$,
 relaxing the future term only lowers the LP optimum, so
-$\widehat V_s^{(t)} \le \min_u [ p_s c_s + \sum_{m'} w_{s,m'}
-\Phi_{m'}^{(t+1)} ] = p_s U_s^{(t)}$.  Step (cut side): the fresh cut
+$\widehat V_s^{(t)} \le \min_u [ p_s c_s + \sum_{m'} w_{s,m'} \Phi_{m'}^{(t+1)} ] = p_s U_s^{(t)}$.
+Step (cut side): the fresh cut
 from scene $r$'s phase-$(t{+}1)$ solve supports
 $\widehat V_r^{(t+1)} \le p_r U_r^{(t+1)}$; under A2,
-$p_r U_r^{(t+1)} \le \sum_{r' \in m(r)} p_{r'} U_{r'}^{(t+1)} =
-\Phi_{m(r)}^{(t+1)}$ (equality for a singleton state — A2 not needed
+$p_r U_r^{(t+1)} \le \sum_{r' \in m(r)} p_{r'} U_{r'}^{(t+1)} = \Phi_{m(r)}^{(t+1)}$
+(equality for a singleton state — A2 not needed
 there), and the cut lands on $\varphi_{m(r)}$. $\qquad\blacksquare$
 
 ## 3. Within-state multiplicity — the v1 decision
@@ -126,8 +126,8 @@ expectation.  Consequences (do not hand-wave these):
   but only **under A2**.  With negative stage costs (or a rebased FCF
   making $U < 0$) the within-state domination step fails and the mode
   is uncertified for multi-scene states.
-- **Exactness is lost**: $\max_r p_r \tilde V_r < \sum_r p_r \tilde
-  V_r$ whenever $k > 1$ scenes carry positive folded value, so the
+- **Exactness is lost**:
+  $\max_r p_r \tilde V_r < \sum_r p_r \tilde V_r$ whenever $k > 1$ scenes carry positive folded value, so the
   recursion is systematically loose (the future term is under-counted
   by up to the multiplicity factor) and the gap cannot close to zero.
   Treating within-state scenes as the within-state expectation would
@@ -199,8 +199,8 @@ setup).  A Markov-aware conditional draw is future work (§7).
   (`Sddp:alpha:` uid $= \texttt{sddp\_alpha\_uid} + m(S)$) resolves the
   scene→state routing at load time.
 - **Forward UB strip**: the realized-opex strip removes the full
-  priced future term $\sum_{m} w_{s,m}\, \varphi_m \cdot
-  \text{scale\_alpha}$ (same shape as the multicut
+  priced future term
+  $\sum_{m} w_{s,m}\, \varphi_m \cdot \text{scale\_alpha}$ (same shape as the multicut
   $\sum_r w_r \varphi_r$ strip).  Both the strip and the column
   pricing read the weights from the single mode-aware accessor
   `alpha_col_weights` (which delegates to `markov_alpha_weights` for

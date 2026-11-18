@@ -144,9 +144,18 @@ struct ResolveColResult
  * the appropriate scaled coefficient.  Ordinary single-column
  * attributes resolve to exactly one entry.
  *
+ * @param sc         System context holding the AMPL element registry.
+ * @param scenario   Scenario of the (scenario, stage, block) cell.
+ * @param stage      Stage of the cell.
+ * @param block      Block of the cell.
+ * @param ref        Element reference (type, id, attribute) to resolve.
  * @param base_coeff The outer coefficient of the constraint term; each
  *                   emitted entry contributes `base_coeff * leg_coeff`.
- * @return `{emitted, offset_shift}` — see `ResolveColResult`.
+ * @param row        Row that receives the resolved column entries.
+ * @param lp         Linear problem the resolved columns belong to.
+ * @param resolve_cache Optional per-build lookup cache (may be null).
+ * @return `{emitted, offset_shift, element_known}` — see
+ *         `ResolveColResult`.
  */
 [[nodiscard]] ResolveColResult resolve_col_to_row(
     const SystemContext& sc,

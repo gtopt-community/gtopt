@@ -246,6 +246,9 @@ public:
    * @brief Constructs a PlanningLP instance from planning data
    * @param planning The power system planning data
    * @param flat_opts Configuration options (default empty)
+   * @param shared_index_cache Optional Arrow input-index cache shared
+   *        with other builds of the same inputs; a fresh one is created
+   *        by SimulationLP when empty
    */
   template<typename PlanningT>
     requires std::same_as<std::remove_cvref_t<PlanningT>, gtopt::Planning>

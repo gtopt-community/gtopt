@@ -67,6 +67,8 @@ GeneratorLP::GeneratorLP(const Generator& generator, const InputContext& ic)
 /**
  * @brief Adds generator variables and constraints to the linear problem
  * @param sc System context containing current state
+ * @param scenario Scenario being built
+ * @param stage Stage being built
  * @param lp Linear problem to add variables and constraints to
  * @return True if successful, false otherwise
  *

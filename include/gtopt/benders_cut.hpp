@@ -430,6 +430,9 @@ struct StrengthenedCutResult
 ///                                returns a valid vertex dual.
 /// @param cut_coeff_eps           Drop state-var coefficients below
 ///                                this absolute threshold (default 0).
+/// @param niter                   Unused; retained for signature
+///                                stability (the former niter-scaled
+///                                RHS bump is disabled, PLP parity).
 [[nodiscard]] auto build_feasibility_cut_physical(
     std::span<const StateVarLink> links,
     std::span<const RelaxedVarInfo> link_infos,
@@ -646,6 +649,9 @@ struct FeasibilityCutResult
 /// @param links       Outgoing state-variable links from the source phase
 /// @param penalty     Elastic penalty coefficient
 /// @param opts        Solver options
+/// @param scale_alpha     Unused; retained for source compatibility (the
+///                        physical builder folds column scales itself).
+/// @param scale_objective Unused; retained for source compatibility.
 /// @return A feasibility cut (SparseRow) and the ElasticSolveResult,
 ///         or nullopt if the elastic solve fails.
 [[nodiscard]] auto build_feasibility_cut(const LinearInterface& li,
@@ -978,6 +984,10 @@ public:
   ///
   /// Increments the infeasible-cut counter on each successful solve.
   ///
+  /// @param li          The LP to clone (not modified).
+  /// @param links       Outgoing state-variable links to relax.
+  /// @param penalty     Elastic penalty coefficient on the slacks.
+  /// @param opts        Solver options for the clone solve.
   /// @param cost_policy Slack pricing model — see the free function.
   /// @param elastic_fcut_rows Installed feasibility-cut rows to relax
   ///        with a `+z_r` slack in the clone — see the free function.

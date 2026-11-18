@@ -433,13 +433,39 @@ public:
     return physical_efin(sys.linear_interface(), scenario, stage, default_efin);
   }
 
+  /// Add the storage energy-balance columns and rows of one (scenario,
+  /// stage) to @p lp.
+  ///
+  /// @param cname       Class name used for column/row labels.
+  /// @param ampl_class  AMPL class name under which the storage
+  ///        attributes are registered for user constraints (empty to
+  ///        skip the registration).
+  /// @param sc          System context (schedules, state variables).
+  /// @param scenario    Scenario being built.
+  /// @param stage       Stage being built.
+  /// @param lp          Linear problem that receives the columns/rows.
+  /// @param flow_conversion_rate  Flow-to-energy factor applied to the
+  ///        inflow / outflow / drain terms of the energy balance.
+  /// @param finp_cols   Per-block inflow (charge) columns.
   /// @param finp_efficiency_at  Callable ``(BlockUid) -> double`` returning
   ///        the per-block charge / inflow efficiency.  Pass a lambda
   ///        sampling an ``OptTBRealSched`` for per-block schedules
   ///        (e.g. Battery's input_efficiency since PR-E), or
   ///        ``[](BlockUid){ return 1.0; }`` for elements with no
   ///        efficiency loss (Reservoir / LngTerminal / VolumeRight).
+  /// @param fout_cols   Per-block outflow (discharge) columns.
   /// @param fout_efficiency_at  Same shape, for discharge / outflow.
+  /// @param stage_capacity  Installed capacity of the stage, used to
+  ///        resolve the per-block energy bounds.
+  /// @param capacity_col  Optional expansion capacity column; when set,
+  ///        each block's energy is bounded by it.
+  /// @param drain_cost  Optional cost of the drain (spill) column; no
+  ///        drain column is added when unset.
+  /// @param drain_capacity  Optional upper bound of the drain column
+  ///        (unbounded when unset; a value <= 0 disables the drain).
+  /// @param opts        Storage options (state variables, daily cycle,
+  ///        scaling, ...).
+  /// @return true on success.
   template<typename SystemContextT, typename FinpEffFn, typename FoutEffFn>
   bool add_to_lp(const LPClassName& cname,
                  std::string_view ampl_class,

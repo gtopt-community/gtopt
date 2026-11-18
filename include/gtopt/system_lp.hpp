@@ -339,6 +339,8 @@ public:
    * @param phase      Phase LP to associate with this system
    * @param scene      Scene LP to associate with this system
    * @param flat_opts  Additional LP build options (default empty)
+   * @param kind       Which system this is: `forward` (default) or the
+   *                   backward-pass `aperture` system
    */
   explicit SystemLP(const System& system,
                     SimulationLP& simulation,

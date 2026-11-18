@@ -704,7 +704,7 @@ include:
 * **Solution totals** — block count, hours covered, consumer
   demand [MWh], BESS charge / discharge / round-trip loss,
   line losses (analytic vs LP-internal vs bus-residual),
-  generation [MWh], unserved [MWh], operational $ broken into
+  generation [MWh], unserved [MWh], operational \$ broken into
   dispatch + start/shutdown cost.
 * **Per-unit SRMC** vs PLEXOS pid-137 (per-unit short-run
   marginal cost weighted by dispatch).
@@ -718,7 +718,7 @@ include:
   block breakdowns for diagnosing which UCs the LP paid to violate.
 
 A typical PCP weekly run prints all of these as Rich tables; the
-single-line summary "PLEXOS objective $X vs GTOpt $Y; Δ $Z (Δ%)"
+single-line summary "PLEXOS objective \$X vs GTOpt \$Y; Δ \$Z (Δ%)"
 is the at-a-glance gate.
 
 ---

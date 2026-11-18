@@ -1,5 +1,5 @@
 /**
- * @file      profile_traits.hpp
+ * @file      capacity_profile_traits.hpp
  * @brief     Per-owner-kind dispatch table for `CapacityProfile` /
  * `CapacityProfileLP`
  * @date      2026-05-17

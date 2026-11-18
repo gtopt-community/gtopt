@@ -77,6 +77,11 @@ namespace gtopt
  *                    for I/O-bound workloads (e.g. parquet encode) where
  *                    the formula's thread-count-driven cap is too
  *                    conservative.
+ * @param scheduler_interval  Period of the pool's scheduler loop
+ *                    (dispatch / monitoring tick).  Default 50 ms.
+ * @param memory_limit_mb  Process RSS limit in MB enforced by the
+ *                    dispatch gate; 0 (default) disables the limit.
+ * @param pool_label  Pool name used in logs and statistics.
  * @return A started AdaptiveWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<AdaptiveWorkPool> make_solver_work_pool(

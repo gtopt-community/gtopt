@@ -230,6 +230,25 @@ struct BoundaryCutCoeffStats
 /// Load cuts from a Parquet file (plus any sibling `*.append-*.parquet`
 /// files) and add to all scenes' phase LPs.  Coefficient keys must be
 /// structured `class:var:uid`.
+///
+/// @param planning_lp         PlanningLP whose phase LPs receive the cuts
+/// @param filepath            Input Parquet file path (base stem)
+/// @param scale_alpha         α column scale (unused; kept for API parity
+///                            with the CSV loader)
+/// @param label_maker         Label maker for LP row names (unused; kept
+///                            for API parity with the CSV loader)
+/// @param scene_phase_states  Per-scene phase state (unused; kept for API
+///                            parity with the CSV loader)
+/// @param cut_store           When non-null, every loaded cut is also
+///        pushed into this SDDPCutManager via ``store_cut`` so the
+///        manager's per-scene vectors stay authoritative for inherited +
+///        generated cuts.  Without this,
+///        ``SDDPCutManager::forget_first_cuts(N)`` would walk a store
+///        that doesn't know about the loaded cuts and would delete the
+///        wrong rows from the LP — root cause of the cascade
+///        ``forget_first_cuts`` + ``low_memory=compress`` crash observed
+///        on the large hydrothermal case when ``inherit_optimality_cuts > 0``.
+/// @return CutLoadResult with count and max iteration, or an error
 [[nodiscard]] auto load_cuts_parquet(
     PlanningLP& planning_lp,
     const std::string& filepath,
@@ -238,15 +257,6 @@ struct BoundaryCutCoeffStats
     const StrongIndexVector<SceneIndex,
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
         scene_phase_states = nullptr,
-    /// When non-null, every loaded cut is also pushed into this
-    /// :class:`SDDPCutManager` via ``store_cut`` so the manager's
-    /// per-scene vectors stay authoritative for inherited + generated
-    /// cuts.  Without this, ``SDDPCutManager::forget_first_cuts(N)``
-    /// would walk a store that doesn't know about the loaded cuts and
-    /// would delete the wrong rows from the LP — root cause of the
-    /// cascade ``forget_first_cuts`` + ``low_memory=compress`` crash
-    /// observed on the large hydrothermal case when ``inherit_optimality_cuts >
-    /// 0``.
     SDDPCutManager* cut_store = nullptr) -> std::expected<CutLoadResult, Error>;
 
 /// Load all per-scene Parquet cut files from a directory.

@@ -711,6 +711,9 @@ private:
    *
    * Uses the work pool for parallel aperture solves when available.
    */
+  /// @param scene_index      Scene whose backward pass is run.
+  /// @param opts             Solver options for the aperture solves.
+  /// @param iteration_index  Current SDDP iteration index.
   /// @param exec_pool  Pool that runs aperture chunks + owns the slot
   /// release.  `nullptr` (default) runs apertures inline on the calling
   /// thread — used by the coordinator-driven training backward (one driver
@@ -871,8 +874,11 @@ private:
   /// to the pool for concurrent execution across available threads.
   /// When the pool is unavailable, tasks run synchronously in the caller.
   ///
-  /// @param phase      Phase index (for pool priority ordering)
-  /// @param iteration  SDDP iteration index (for pool priority ordering)
+  /// @param phase_index      Phase index (for pool priority ordering)
+  /// @param iteration_index  SDDP iteration index (for pool priority
+  ///                         ordering)
+  /// @param pool             Work pool that receives the tasks; `nullptr`
+  ///                         runs them synchronously in the caller
   [[nodiscard]] auto make_aperture_submit_fn(PhaseIndex phase_index,
                                              IterationIndex iteration_index,
                                              SDDPWorkPool* pool)
@@ -964,6 +970,12 @@ private:
 
   /// Process a single backward-pass phase step (pi → pi-1) with apertures.
   /// @return Number of optimality cuts added during this step.
+  /// @param scene_index      Scene being processed.
+  /// @param phase_index      Phase whose cut is built (installed on the
+  ///                         previous phase).
+  /// @param cut_offset       Running cut count (for label uniqueness).
+  /// @param opts             Solver options for the aperture solves.
+  /// @param iteration_index  Current SDDP iteration index.
   /// @param exec_pool  when non-null, aperture chunks are submitted to this
   ///   pool (Tier-2 parallelism) instead of running inline on the caller
   ///   thread.  Used by the synchronized backward pass when num_scenes <
@@ -1054,7 +1066,7 @@ public:
 
   /// Apply cut-sharing across scenes for all phases generated in this
   /// iteration.
-  /// @param iteration    Current SDDP iteration index.
+  /// @param iteration_index  Current SDDP iteration index.
   ///
   /// New cuts are identified by comparing each scene's current
   /// `m_scene_cuts_` vector size against `m_scene_cuts_before_` —

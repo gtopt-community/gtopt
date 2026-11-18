@@ -71,6 +71,9 @@ public:
    * @brief Constructs a SimulationLP from a Simulation
    * @param simulation Reference to the base simulation model
    * @param options Reference to LP solver options
+   * @param shared_index_cache Optional Arrow input-index cache to share
+   *        with other SimulationLP instances over the same inputs; when
+   *        empty the instance keeps its own private cache
    * @throws std::runtime_error If component validation fails
    * @throws std::bad_alloc If memory allocation fails
    */

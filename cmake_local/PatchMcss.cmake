@@ -299,6 +299,32 @@ else()
   message(STATUS "PatchMcss: template param name patch already applied")
 endif()
 
+# ---------- Patch 7: Section titles that start with inline markup ----------
+# A Markdown heading such as ``### `lp_debug` option`` becomes
+# ``<title><computeroutput>lp_debug</computeroutput> option</title>``.
+# The title element then has no leading text (``.text is None``) and
+# m.css crashes in ``html.escape(i.text)`` with AttributeError.
+# Fix: build the title from all of its text content (itertext), which
+# also keeps the code span's text instead of dropping it.
+set(_old_sect_title [==[                id = extract_id_hash(state, element)
+                title = html.escape(i.text)]==])
+set(_new_sect_title [==[                id = extract_id_hash(state, element)
+                title = html.escape(''.join(i.itertext()))]==])
+
+string(FIND "${_mcss_src}" "${_new_sect_title}" _already_patched_title)
+if(_already_patched_title EQUAL -1)
+  string(FIND "${_mcss_src}" "${_old_sect_title}" _found_title)
+  if(NOT _found_title EQUAL -1)
+    string(REPLACE "${_old_sect_title}" "${_new_sect_title}" _mcss_src "${_mcss_src}")
+    set(_mcss_changed TRUE)
+    message(STATUS "PatchMcss: applied section-title markup patch")
+  else()
+    message(WARNING "PatchMcss: section-title patch target not found")
+  endif()
+else()
+  message(STATUS "PatchMcss: section-title patch already applied")
+endif()
+
 # ---------- Write patched file ----------
 if(_mcss_changed)
   file(WRITE "${_mcss_doxygen_py}" "${_mcss_src}")

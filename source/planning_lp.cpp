@@ -1,5 +1,5 @@
 /**
- * @file      planning.cpp
+ * @file      planning_lp.cpp
  * @brief     Implementation of linear programming planning
  * @date      Sun Apr  6 22:05:37 2025
  * @author    marcelo

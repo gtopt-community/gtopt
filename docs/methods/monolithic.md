@@ -85,7 +85,7 @@ A_t x_t + B_t x_{t-1} \ge b_t \; \forall t$$
 The SDDP decomposition solves this via iterative forward/backward
 passes.  At convergence, the SDDP cuts exactly represent the
 recourse function $Q_t(x_{t-1})$ for each phase, and the SDDP
-solution matches the monolithic optimum [[1]](#ref1).
+solution matches the monolithic optimum [[1]](#monolithic-ref1).
 
 For stochastic problems with multiple scenarios, equivalence holds
 when the backward pass evaluates all scenarios (no aperture sampling)
@@ -272,7 +272,7 @@ informational log message.  This prevents the SDDP "requires at least
 
 ## 6. References
 
-<a id="ref1"></a>
+<a id="monolithic-ref1"></a>
 [1] J. F. Benders, "Partitioning procedures for solving mixed-variables
 programming problems," *Numerische Mathematik*, vol. 4, pp. 238--252,
 1962. DOI: [10.1007/BF01386316](https://doi.org/10.1007/BF01386316)

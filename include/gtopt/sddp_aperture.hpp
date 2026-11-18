@@ -310,10 +310,14 @@ struct ApertureEntry
 ///
 /// @param rep_reduced_costs Representative's physical reduced costs
 ///        (materialized `get_col_cost()` view, post-solve).
-/// @param rep_low / rep_upp Representative's physical column bounds at
-///        its solve (materialized `get_col_low()` / `get_col_upp()`).
-/// @param ap_low / ap_upp   Aperture `a`'s physical column bounds (same
-///        views read after `update_aperture` rewrote the clone).
+/// @param rep_low Representative's physical column lower bounds at its
+///        solve (materialized `get_col_low()`).
+/// @param rep_upp Representative's physical column upper bounds at its
+///        solve (materialized `get_col_upp()`).
+/// @param ap_low  Aperture `a`'s physical column lower bounds (same view
+///        read after `update_aperture` rewrote the clone).
+/// @param ap_upp  Aperture `a`'s physical column upper bounds (same view
+///        read after `update_aperture` rewrote the clone).
 /// @return The correction `corr_a`, or `std::nullopt` when it cannot be
 ///         computed soundly:
 ///           * span sizes disagree,
@@ -422,7 +426,9 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
 /// @param scene_index      Scene index (for logging/labelling)
 /// @param phase_index      Target phase being solved
 /// @param src_state        Phase state of the source (previous) phase
-/// @param base_scenario    The scene's base scenario (for flow bound update)
+/// @param src_alpha_col    α (future-cost) column of the source phase LP
+///                         that each aperture cut is built on
+/// @param base_scenario   The scene's base scenario (for flow bound update)
 /// @param all_scenarios    All simulation scenarios (for aperture lookup)
 /// @param aperture_defs    Aperture definitions to use
 /// @param phase_apertures  Per-phase aperture UID set (may be empty)
@@ -440,7 +446,7 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
 ///                         treated as infeasible and skipped.
 /// @param save_aperture_lp If true, save each aperture LP to the log directory
 /// @param aperture_cache   Cache of pre-built aperture LP data
-/// @param iteration        Current SDDP iteration index
+/// @param iteration_index  Current SDDP iteration index
 /// @param cut_coeff_eps    Epsilon below which cut coefficients are zeroed
 /// @param lp_debug_writer  Optional writer.  When non-null, each aperture
 ///                         clone's LP is dumped to disk (pre-solve) under
@@ -481,6 +487,77 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
 ///                         task path (each chunk is a 1-element
 ///                         vector); the call site sees identical
 ///                         externally-observable behaviour.
+/// @param pool_for_slot_release  Optional work-pool reference used to
+///                         grab a `SlotReleaseGuard` around the
+///                         chunk-future gather loop.  When non-null AND
+///                         the caller is itself running on a worker
+///                         thread of this pool, the guard temporarily
+///                         releases the calling task's slot for the
+///                         duration of the blocking wait, so the pool's
+///                         CPU/thread gate sees one fewer active task and
+///                         can dispatch the chunk tasks the caller is
+///                         about to wait on.  Without this, the cell-task
+///                         block + CPU-gate combo wedges the pool — see
+///                         the 2026-05-16 concurrency audit and
+///                         `work_pool.hpp:732-797` for the rationale.
+///                         Defaults to `nullptr` (no slot release) for
+///                         the in-tree unit-test callers that drive
+///                         `solve_apertures_for_phase` without a live
+///                         pool.
+/// @param cut_links        Optional override for the state-variable links
+///                         used to BUILD each aperture cut.  When
+///                         non-empty it replaces `src_state.outgoing_links`
+///                         in `build_benders_cut_physical`.  The
+///                         aperture-system path passes "hybrid" links:
+///                         `source_col`/`state_var` from the forward
+///                         source phase (so the cut installs onto the
+///                         forward LP) but `dependent_col` pointing into
+///                         the aperture clone (so the reduced cost is read
+///                         from the matching column).  Empty = use
+///                         `src_state.outgoing_links` (the regular
+///                         single-system path).  Referenced storage must
+///                         outlive the call (the caller's vector) — the
+///                         chunk tasks read it while solving.
+/// @param aperture_solve_mode  Aperture solve / cut-recovery mode.
+///                         `cold`: cold barrier + crossover per aperture.
+///                         `warm`: first aperture in a chunk seeds a basis
+///                         and subsequent apertures warm-start off it with
+///                         a simplex re-solve
+///                         (`SolverOptions::advanced_basis`; chunk_size > 1
+///                         only).  `reduced_cost` (default): cold barrier
+///                         without crossover, cut from interior-point
+///                         reduced costs.  `dual_shared`: solve the
+///                         highest-weight representative aperture only and
+///                         synthesize every other aperture's cut from its
+///                         vertex duals (bound-delta intercept correction,
+///                         `dual_shared_bound_correction`); forces a
+///                         single chunk.  `screened`: `dual_shared` + exact
+///                         re-solve of the top `aperture_screen_count`
+///                         synthesized cuts by |correction|.  See
+///                         `ApertureSolveMode`.
+/// @param seed_basis       Cross-iteration first-aperture warm-start seed
+///                         (in): the previous iteration's first-aperture
+///                         basis for this cell, or `nullptr`/empty to
+///                         disable seeding.  Each chunk's first solve is
+///                         dual-warm-started from it (reconciled to the
+///                         current dimensions).  Read-only during parallel
+///                         execution.  Honoured for every basis-capable
+///                         (vertex) mode — all modes except
+///                         `reduced_cost`, which has no basis to capture.
+/// @param captured_basis_out  (out) When non-null, the basis of THIS
+///                         iteration's first aperture (first chunk) is
+///                         written here after the chunk futures join, for
+///                         the caller to persist into the cell slot.  Same
+///                         mode restriction as @p seed_basis; both default
+///                         off (legacy cold first solve).
+/// @param aperture_screen_count  Number of dual-shared cuts re-solved
+///                         exactly under `aperture_solve_mode = screened`
+///                         (largest |intercept correction| first).
+///                         Ignored by every other mode.  Both production
+///                         call sites pass the resolved option; the
+///                         default is the shared
+///                         `default_sddp_aperture_screen_count` constant
+///                         (sddp_enums.hpp).
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene_index,
     PhaseIndex phase_index,
@@ -507,60 +584,11 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
     LpDebugWriter* lp_debug_writer = nullptr,
     bool use_manual_clone = false,
     int chunk_size = 1,
-    /// Optional work-pool reference used to grab a `SlotReleaseGuard`
-    /// around the chunk-future gather loop.  When non-null AND the
-    /// caller is itself running on a worker thread of this pool, the
-    /// guard temporarily releases the calling task's slot for the
-    /// duration of the blocking wait, so the pool's CPU/thread gate
-    /// sees one fewer active task and can dispatch the chunk tasks
-    /// the caller is about to wait on.  Without this, the cell-task
-    /// block + CPU-gate combo wedges the pool — see the 2026-05-16
-    /// concurrency audit and `work_pool.hpp:732-797` for the
-    /// rationale.  Defaults to `nullptr` (no slot release) for the
-    /// in-tree unit-test callers that drive `solve_apertures_for_phase`
-    /// without a live pool.
     class SDDPWorkPool* pool_for_slot_release = nullptr,
-    /// Optional override for the state-variable links used to BUILD each
-    /// aperture cut.  When non-empty it replaces `src_state.outgoing_links`
-    /// in `build_benders_cut_physical`.  The aperture-system path passes
-    /// "hybrid" links: `source_col`/`state_var` from the forward source
-    /// phase (so the cut installs onto the forward LP) but `dependent_col`
-    /// pointing into the aperture clone (so the reduced cost is read from
-    /// the matching column).  Empty = use `src_state.outgoing_links` (the
-    /// regular single-system path).  Referenced storage must outlive the
-    /// call (the caller's vector) — the chunk tasks read it while solving.
     std::span<const StateVarLink> cut_links = {},
-    /// Aperture solve / cut-recovery mode.  `cold` (default): cold barrier
-    /// + crossover per aperture.  `warm`: first aperture in a chunk seeds a
-    /// basis and subsequent apertures warm-start off it with a simplex
-    /// re-solve (`SolverOptions::advanced_basis`; chunk_size > 1 only).
-    /// `reduced_cost`: cold barrier without crossover, cut from
-    /// interior-point reduced costs.  `dual_shared`: solve the
-    /// highest-weight representative aperture only and synthesize every
-    /// other aperture's cut from its vertex duals (bound-delta intercept
-    /// correction, `dual_shared_bound_correction`); forces a single chunk.
-    /// `screened`: `dual_shared` + exact re-solve of the top
-    /// `aperture_screen_count` synthesized cuts by |correction|.
-    /// See `ApertureSolveMode`.
     ApertureSolveMode aperture_solve_mode = ApertureSolveMode::reduced_cost,
-    /// Cross-iteration first-aperture warm-start seed (optional).
-    ///   - `seed_basis` (in): the previous iteration's first-aperture basis
-    ///     for this cell, or `nullptr`/empty to disable seeding.  Each
-    ///     chunk's first solve is dual-warm-started from it (reconciled to
-    ///     the current dimensions).  Read-only during parallel execution.
-    ///   - `captured_basis_out` (out): when non-null, the basis of THIS
-    ///     iteration's first aperture (first chunk) is written here after the
-    ///     chunk futures join, for the caller to persist into the cell slot.
-    /// Honoured for every basis-capable (vertex) mode — all modes except
-    /// `reduced_cost`, which has no basis to capture.  Both default off
-    /// (legacy cold first solve).
     const Basis* seed_basis = nullptr,
     Basis* captured_basis_out = nullptr,
-    /// Number of dual-shared cuts re-solved exactly under
-    /// `aperture_solve_mode = screened` (largest |intercept correction|
-    /// first).  Ignored by every other mode.  Both production call
-    /// sites pass the resolved option; the default is the shared
-    /// `default_sddp_aperture_screen_count` constant (sddp_enums.hpp).
     int aperture_screen_count = default_sddp_aperture_screen_count)
     -> std::optional<SparseRow>;
 

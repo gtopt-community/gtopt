@@ -1,5 +1,5 @@
 /**
- * @file      profile.hpp
+ * @file      capacity_profile.hpp
  * @brief     Generic time-varying availability profile (kind-tagged)
  * @date      2026-05-17
  * @author    marcelo
