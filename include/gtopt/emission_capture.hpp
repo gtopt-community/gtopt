@@ -21,7 +21,8 @@
  * upstream rate `r_u`, the matching capture row `cap` with rate
  * `c ∈ [0, 1]` causes:
  *
- *   - **net emission into zone balance**:
+ *   - **net emission counted by the zone** (cap-row / allowance-pool
+ *     coefficient and per-tonne price adder):
  *       (1 − c) · (r + r_u) · gen · dur          [tons of pollutant]
  *
  *   - **capture cost adder** on the generator dispatch column:
@@ -68,7 +69,8 @@ struct EmissionCapture
   SingleId emission {unknown_uid};
 
   /// Capture fraction `[p.u., 0..1]`, stage-schedulable.
-  /// Effective contribution to the zone balance row is
+  /// Effective (net) contribution counted by the zone — cap-row /
+  /// allowance-pool coefficient and price adder — is
   /// `(1 − rate) · (combustion + upstream) · gen · dur`.
   /// Values outside `[0, 1]` are accepted but should be reserved
   /// for future negative-emission technologies (DAC / BECCS), where

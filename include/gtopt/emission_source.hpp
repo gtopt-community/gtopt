@@ -21,7 +21,7 @@
  *
  * The IPCC and GHG-Protocol distinguish two emission scopes for fuel-
  * burning units, both expressed in the same per-MWh unit and both
- * counted toward the zone's balance row:
+ * counted by the zone (cap row, allowance pool and price adder):
  *
  *   - `rate`           — **combustion / tank-to-stack (TTW)** factor.
  *                        The CO₂ released at the burner per MWh
@@ -36,8 +36,9 @@
  *
  * Total (well-to-burner-tip / well-to-wheel / lifecycle) is the sum.
  * Set both, only `rate`, or only `upstream_rate` depending on which
- * scope(s) the zone is supposed to cap or price.  The LP balance row
- * sums both — there is no need to merge them on the user side.
+ * scope(s) the zone is supposed to cap or price.  The LP sums both
+ * into one per-MWh coefficient — no need to merge them on the user
+ * side.
  *
  * @see EmissionZone for the constraint owner and the GHG-basket weights
  * @see Generator.emissions[] for the inline form (parsed into this
@@ -81,15 +82,15 @@ struct EmissionSource
 
   /// Combustion / tank-to-stack (TTW) emission rate `[t/MWh]`,
   /// stage-schedulable.  The CO₂ released at the burner per MWh of
-  /// gross generation.  Adds `weight · rate · dur · gen` to the
-  /// zone's balance row.
+  /// gross generation.  Contributes `weight · rate · dur · gen`
+  /// tonnes to the zone (cap row / allowance pool / price adder).
   OptTRealFieldSched rate {};
 
   /// Upstream / well-to-tank (WTT) emission rate `[t/MWh]`,
   /// stage-schedulable.  Emissions from extracting, processing and
   /// transporting the fuel per MWh of generation.  Adds
-  /// `weight · upstream_rate · dur · gen` to the zone's balance row
-  /// in addition to `rate`.  Set this when you want a full
+  /// `weight · upstream_rate · dur · gen` tonnes to the zone in
+  /// addition to `rate`.  Set this when you want a full
   /// lifecycle (well-to-burner-tip) cap or tax; leave unset for
   /// stack-only (Scope 1) accounting.
   OptTRealFieldSched upstream_rate {};

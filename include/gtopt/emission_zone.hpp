@@ -1,6 +1,6 @@
 /**
  * @file      emission_zone.hpp
- * @brief     Pollutant constraint zone — balance row, optional cap / price
+ * @brief     Pollutant constraint zone — optional cap / price / pool
  * @date      2026-05-18
  * @author    marcelo
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
@@ -8,17 +8,20 @@
  *
  * `EmissionZone` is the LP-active constraint owner for one or more
  * pollutants within a regulatory / geographic scope.  Mirrors the
- * `InertiaZone` / `ReserveZone` pattern: the zone owns the
- * per-(scenario, stage, block) **balance row** plus the optional
- * **cap row** (hard or soft) and per-ton **price coefficient**.
+ * `InertiaZone` / `ReserveZone` pattern, but builds no per-block
+ * balance row or production column: the zone owns only the optional
+ * per-(scenario, stage) **cap row** (hard or soft) and the per-ton
+ * **price**, which `EmissionSourceLP` applies directly to each
+ * generator dispatch column (cap-row coefficient, allowance-pool
+ * drawdown, and price adder).
  *
  * ## Multi-pollutant aggregation (GHG basket / CO₂-equivalent)
  *
  * A zone may cover several pollutants by listing them in
  * `emissions[]`, each with a `weight` (GWP — Global Warming
- * Potential, per IPCC AR6 100-year convention).  The zone's
- * production column carries CO₂-equivalent tonnage; the balance row
- * sums `weight_p · rate_{s,p} · gen_s · dur_b` across every
+ * Potential, per IPCC AR6 100-year convention).  The zone's cap /
+ * price act on CO₂-equivalent tonnage
+ * `Σ weight_p · rate_{s,p} · gen_s · dur_b` across every
  * `EmissionSource` pointing at this zone.
  *
  * Common GWP-100 (IPCC AR6, AR5 in parentheses):
@@ -36,10 +39,10 @@
  *
  * | Configuration                  | Effect                            |
  * |--------------------------------|-----------------------------------|
- * | `cap` unset, `price` unset     | Pure reporting — balance row only |
+ * | `cap` unset, `price` unset     | Pure reporting — no LP rows       |
  * | `cap` set, `cap_cost` unset    | Hard cap (no slack)               |
  * | `cap` set, `cap_cost` set      | Soft cap (slack with penalty)     |
- * | `price` set                    | Per-ton tax on the production col |
+ * | `price` set                    | Per-ton tax on dispatch columns   |
  *
  * Cap and price may both be set; they wire independently.  In a
  * multi-pollutant zone the cap and tax are both expressed in the
@@ -77,14 +80,15 @@ struct EmissionZoneFactor
   SingleId emission {unknown_uid};
 
   /// CO₂-equivalent weight (GWP-100 per IPCC).  Defaults to 1.0.
-  /// Multiplied into the zone's balance row coefficient on every
-  /// `EmissionSource` pointing at this zone for this pollutant.
+  /// Multiplied into the cap-row / pool coefficient and price adder
+  /// of every `EmissionSource` pointing at this zone for this
+  /// pollutant.  The pollutant may be referenced by uid or name.
   OptReal weight {};
 };
 
 /**
  * @struct EmissionZone
- * @brief A pollutant balance / cap / price constraint scope, possibly
+ * @brief A pollutant cap / price constraint scope, possibly
  *        covering multiple pollutants (GHG basket).
  */
 struct EmissionZone
@@ -98,9 +102,9 @@ struct EmissionZone
   OptActive active {};  ///< Activation status
 
   /// List of pollutants covered by this zone, each with a GWP weight.
-  /// One pollutant per `EmissionZoneFactor` row.  The balance row
-  /// aggregates `Σ_p weight_p · production_p` into the (CO₂-eq)
-  /// production column.  Legacy JSON `"emission": "<name>"`
+  /// One pollutant per `EmissionZoneFactor` row; the cap / price
+  /// act on the weighted (CO₂-eq) sum `Σ_p weight_p · tonnes_p`.
+  /// Legacy JSON `"emission": "<name>"`
   /// (singular) is auto-folded into a single-element list with
   /// weight 1.0 by the JSON constructor.
   Array<EmissionZoneFactor> emissions {};

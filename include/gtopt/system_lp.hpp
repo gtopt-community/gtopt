@@ -196,9 +196,10 @@ static_assert(AddToLP<ReserveProvisionLP>);
 // (verified by its position in `lp_element_types_t`).  `EmissionLP`
 // remains a passive parameter carrier.
 static_assert(AddToLP<FuelLP>);
-// `EmissionZoneLP` (Commit 3) owns the production col + balance row +
-// optional cap row; `EmissionSourceLP` (same commit) injects its
-// `-rate · dur` coefficient into the matching balance row.
+// `EmissionZoneLP` owns only the optional per-stage cap row (+ soft
+// slack); `EmissionSourceLP` stamps its `weight · rate · dur`
+// coefficient into that cap row / the allowance-pool row and adds the
+// zone's price adder onto the generator dispatch column.
 static_assert(AddToLP<EmissionZoneLP>);
 static_assert(AddToLP<EmissionSourceLP>);
 static_assert(AddToLP<CommitmentLP>);

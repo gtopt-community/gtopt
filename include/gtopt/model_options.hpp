@@ -225,8 +225,17 @@ struct ModelOptions
   ///   * ``"cost"`` (default, or unset) — minimize the standard
   ///     dispatch cost: Σ (generator gcost + fuel·heat_rate·gen +
   ///     demand_fail·fail + line_overload·slack + … etc.).
-  ///   * ``"emissions"`` — minimize Σ (emission_rate × generation),
-  ///     with every other cost coefficient zeroed.  By LP duality,
+  ///   * ``"emissions"`` — minimize weighted emissions.  Only the
+  ///     generator dispatch slope (``gcost`` + fuel·heat_rate on the
+  ///     ``generation`` column) is zeroed; each ``EmissionSource``
+  ///     then adds ``price × weight × (1 − capture) × rate`` onto
+  ///     that column, with ``price`` = the zone's ``price`` when set,
+  ///     else 1.0 (tCO2eq).  Every other cost term is KEPT: piecewise
+  ///     heat-rate segment slack costs (``heat_rate_segments``),
+  ///     CCS ``capture_cost`` adders, demand-fail / reserve /
+  ///     line-overload / soft-pmin / emission-cap slack penalties,
+  ///     commitment costs and CAPEX — so the objective is emissions
+  ///     plus those residual terms, not pure tonnage.  By LP duality,
   ///     the resulting ``Reservoir/water_value_dual`` and
   ///     ``Battery/energy_dual`` parquets then carry the carbon
   ///     opportunity cost of stored water / energy (tCO2eq per
@@ -238,11 +247,11 @@ struct ModelOptions
   ///     ``scripts/gtopt_emission_dual/`` (see issue #519).
   ///
   /// LP shape is identical between modes; only objective
-  /// coefficients change.  See ``GeneratorLP::add_to_lp`` for the
-  /// per-mode coefficient swap.
+  /// coefficients change.  See ``GeneratorLP::add_to_lp`` (slope
+  /// zeroing) and ``EmissionSourceLP::add_to_lp`` (per-tonne adder).
   ///
-  /// Settable via ``--objective-mode <name>`` or
-  /// ``--set model_options.objective_mode=<name>``.
+  /// Settable via ``--set model_options.objective_mode=<name>``
+  /// (there is no dedicated CLI flag).
   OptName objective_mode {};
 
   /// Whether to enforce the per-stage `emin` floor as a HARD lower bound

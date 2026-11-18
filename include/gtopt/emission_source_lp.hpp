@@ -8,10 +8,12 @@
  *
  * Resolves the per-stage combustion and upstream emission rates at
  * construction and exposes them via `param_rate` / `param_upstream_rate`.
- * In `add_to_lp` injects `weight · (1 − capture) · (rate + upstream) ·
- * dur` into every generator-dispatch column of its zone's balance row,
- * and adds a `capture · (rate + upstream) · capture_cost` adder when
- * CCS is configured for the matching (generator, pollutant) pair.
+ * In `add_to_lp` stamps `α = weight · (1 − capture) · (rate + upstream)
+ * · dur` on the generator-dispatch column of every block into the
+ * zone's cap row and/or allowance-pool row, adds the per-tonne price
+ * adder `price · α` to that column's cost, and adds a `capture · (rate +
+ * upstream) · capture_cost` adder when CCS is configured for the matching
+ * (generator, pollutant) pair.
  */
 
 #pragma once
@@ -44,10 +46,11 @@ public:
     return self.object();
   }
 
-  /// Inject `−weight · (1 − capture) · (rate + upstream) · dur` into
-  /// the zone's balance row at every generator-dispatch column of this
-  /// (scenario, stage, block), and add a per-MWh CCS opex adder when
-  /// `Generator.emission_captures[]` carries a row for this pollutant.
+  /// Stamp `α = weight · (1 − capture) · (rate + upstream) · dur` on
+  /// every generator-dispatch column of this (scenario, stage) into
+  /// the zone's cap row and/or allowance-pool row, add the zone's
+  /// per-tonne price adder to the column cost, and add a per-MWh CCS opex adder
+  /// when `Generator.emission_captures[]` carries a row for this pollutant.
   /// `EmissionZoneLP::add_to_lp` must run BEFORE this — guaranteed by
   /// the `lp_element_types_t` visitor ordering (same dependency
   /// `InertiaProvisionLP` has on `InertiaZoneLP`).

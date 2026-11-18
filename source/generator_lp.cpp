@@ -225,12 +225,14 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   // ``model_options.objective_mode = "emissions"``, the LP minimizes
   // Σ (emission_rate × generation) instead of dispatch cost.  Zero
   // out the dispatch-cost slope here; the per-MWh emission cost is
-  // injected via the existing ``EmissionSource``/``EmissionZone``
-  // coupling (emission_source adds ``-rate × weight`` to the zone
-  // balance row, and EmissionZone production carries the cost-per-
-  // tCO2eq, set to 1.0 in emissions mode — see
-  // ``EmissionZoneLP::add_to_lp``).  Net effect: the LP minimizes
-  // total CO2eq, and ``Reservoir/water_value_dual`` /
+  // injected by ``EmissionSourceLP::add_to_lp``, which adds
+  // ``price × weight × (1 − capture) × rate`` straight onto this
+  // generation column (price = the zone's ``price`` when set, else
+  // 1.0 in emissions mode).  Only this primary slope is zeroed — the
+  // piecewise heat-rate slack costs below and every other penalty
+  // (demand fail, soft pmin, cap slack, …) stay in the objective.
+  // Net effect: the LP minimizes CO2eq (plus those residual terms),
+  // and ``Reservoir/water_value_dual`` /
   // ``Battery/energy_dual`` carry the carbon shadow price of stored
   // water / energy directly.
   const bool emissions_mode = sc.options().is_emissions_objective();

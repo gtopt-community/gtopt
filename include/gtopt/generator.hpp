@@ -331,7 +331,7 @@ struct Generator
 
   /// Inline CCS / abatement rows for THIS generator, one per pollutant
   /// kind captured.  Each entry's `(1 − rate)` factor scales the
-  /// matching `EmissionSource` contribution to its zone's balance row
+  /// matching `EmissionSource` contribution to its zone (cap / pool / price)
   /// AND adds `rate × (combustion + upstream) × cost` to the
   /// generator's dispatch-column cost (paid per MWh generated).
   Array<EmissionCapture> emission_captures {};

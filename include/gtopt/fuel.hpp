@@ -177,9 +177,11 @@ struct Fuel
 
   /// Multi-pollutant per-fuel emission factors.  One row per
   /// `Emission` kind, with optional combustion + upstream factors.
-  /// Combines with `Generator.heat_rate` at LP-build to inject
-  /// per-block coefficients into the matching pollutant's
-  /// `EmissionZone/balance` row.
+  /// Combined with scalar `Generator.heat_rate` (× `heat_content`)
+  /// by `System::expand_fuel_emission_sources` into synthesized
+  /// `EmissionSource` rows — one per covering `EmissionZone` — which
+  /// then feed that zone's cap row / allowance pool / price adder.
+  /// Generators with `heat_rate_segments` are skipped with a warning.
   Array<FuelEmissionFactor> emission_factors {};
 
   /// Maximum fuel consumption per stage `[<fuel_unit>/stage]`,

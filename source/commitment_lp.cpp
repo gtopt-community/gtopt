@@ -8,7 +8,10 @@
  *
  * Implements CommitmentLP: creates binary status/startup/shutdown variables,
  * adds the three core UC constraints (logic, gen limits, exclusion),
- * emission cost adder on generation variables, and emission cap constraint.
+ * ramp / startup-shutdown envelopes and startup costs, and retro-fits the
+ * piecewise heat-rate kink rows with the `u` gating term.  Emission
+ * pricing and caps are NOT handled here — see `EmissionSourceLP` /
+ * `EmissionZoneLP`.
  */
 
 #include <gtopt/commitment_lp.hpp>
@@ -149,11 +152,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // *DOES NOT* read those fields anymore — they were removed from
   // the Commitment struct on 2026-05-20 (commitment.hpp).
 
-  // Emission cost is no longer wired here — the per-pollutant tax
-  // and cap live on `EmissionZone` (see `emission_zone_lp.cpp`),
-  // which adds its `price · production` term to the objective via
-  // a dedicated bridge column.  Generator dispatch + segment cost
-  // accounting here is fuel-only.
+  // Emission cost is no longer wired here — `EmissionSourceLP` adds
+  // the zone's `price · weight · rate` adder directly onto the
+  // generator dispatch column and stamps the cap-row / allowance-pool
+  // coefficients; `EmissionZoneLP` only owns the cap row (+ slack).
+  // Generator dispatch + segment cost accounting here is fuel-only.
 
   // Resolve startup cost tiers
   const auto opt_hot_cost = commitment().hot_start_cost;
