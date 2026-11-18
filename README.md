@@ -250,15 +250,19 @@ gtopt case.json --set use_single_bus=true         # ignore the network
 gtopt case.json --solver highs                    # pick a solver backend
 ```
 
-`cases/ieee_9b` adds a 9-bus network and a 24-hour solar profile. Solved
-with HiGHS, it gives the hourly dispatch and nodal prices below: after
-sunset the remaining units cannot cover the evening peak, some demand is
-left unserved and the price at the load buses jumps to the 1000 $/MWh
-failure cost.
+A battery example: `cases/bat_4b_24` is a 4-bus network with solar, a
+60 MW / 200 MWh battery and 24 hourly blocks. In the variant built by
+`tools/figures/make_battery_demo_case.py` (more solar, a smaller baseload
+unit and a 90 $/MWh peaker) the price swings over the day. The battery
+charges on the midday solar surplus, when the marginal cost is zero, and
+discharges into the evening peak, so the peaker is never needed. Its
+**opportunity cost of stored energy** (the dual of its energy balance)
+explains the dispatch: it charges while the marginal cost is below that
+value and discharges when it is above.
 
 <p align="center">
-  <a href="docs/planning-guide.md"><img src="docs/images/dispatch_ieee9b.svg" width="860"
-     alt="Stacked hourly generation of units g1, g2 and the solar unit g3 in the IEEE 9-bus case, with unserved energy in the evening peak; below, the nodal prices at buses b1 and b5 on a log scale, with b5 jumping from 35 to 1000 $/MWh at hour 18."></a>
+  <a href="docs/storage-and-water-values.md"><img src="docs/images/battery_arbitrage.svg" width="860"
+     alt="Battery arbitrage over 24 hours: stacked generation of solar, baseload, mid-merit and battery discharge against demand, with battery charging below zero from hour 12 to 16; the state of charge rising to 200 MWh by hour 16 and emptying by hour 22; and the marginal cost at the battery bus (0 $/MWh at midday, 40 $/MWh in the evening) against the battery's opportunity cost of stored energy (0 while charging, 38 $/MWh while discharging)."></a>
 </p>
 
 Next steps: the **[first-solve walkthrough](docs/planning-guide.md#quickstart-your-first-solve)**

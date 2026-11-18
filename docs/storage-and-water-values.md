@@ -66,6 +66,18 @@ the state variables with penalized slacks, and its duals give a
 Water values can also be given as inputs (`Reservoir.ecost`, the value of
 stored water) when an external study already provides them.
 
+![Battery arbitrage: dispatch, state of charge, and the marginal cost at
+the battery bus against the battery's opportunity cost of stored
+energy](images/battery_arbitrage.svg)
+
+The figure comes from a variant of `cases/bat_4b_24` with a midday solar
+surplus and an evening peak (`tools/figures/make_battery_demo_case.py`,
+plotted by `tools/figures/plot_battery.py`). The dashed line is
+`Battery/energy_dual`. The battery charges while the marginal cost (0) is
+below its energy value times the charge efficiency, and discharges while
+the marginal cost (40 $/MWh) is above its energy value divided by the
+discharge efficiency (38 / 0.95).
+
 ## Examples
 
 | Case | What it shows |

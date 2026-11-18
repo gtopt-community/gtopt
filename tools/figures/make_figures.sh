@@ -5,7 +5,7 @@
 #
 #   bash tools/figures/make_figures.sh [STEP ...]
 #
-# Steps (default: all): brand architecture topology dispatch sddp gui webservice
+# Steps (default: all): brand architecture topology dispatch battery sddp gui webservice
 #
 # Every solve uses an open-source solver (SOLVER=highs by default; clp/cbc
 # are also accepted) and writes only under $FIGS_WORK, never into cases/.
@@ -53,7 +53,7 @@ mkdir -p "$WORK" "$IMG" "$SHOTS" "$DIAG"
 echo "work directory: $WORK"
 
 steps=("$@")
-[ ${#steps[@]} -eq 0 ] && steps=(brand architecture topology dispatch sddp gui webservice)
+[ ${#steps[@]} -eq 0 ] && steps=(brand architecture topology dispatch battery sddp gui webservice)
 
 optimise_png() {
   if command -v pngquant > /dev/null; then
@@ -68,6 +68,17 @@ step_brand() {
   if [ -n "${ORG_BANNER:-}" ]; then
     "$PY" "$FIG/render_svg.py" "$FIG/banner.svg" "$ORG_BANNER" --scale 1
   fi
+}
+
+step_battery() {
+  mkdir -p "$WORK/battery"
+  "$PY" "$FIG/make_battery_demo_case.py" "$ROOT/cases/bat_4b_24/bat_4b_24.json" \
+    "$WORK/battery/battery_demo.json"
+  (cd "$WORK/battery" && "$GTOPT" "$WORK/battery/battery_demo.json" \
+    --solver "$SOLVER" --set output_directory="$WORK/battery/output" \
+    --set output_format=csv > run.log 2>&1)
+  "$PY" "$FIG/plot_battery.py" "$WORK/battery/battery_demo.json" \
+    "$WORK/battery/output" "$IMG/battery_arbitrage.svg"
 }
 
 step_architecture() {
