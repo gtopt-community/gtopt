@@ -9,4 +9,4 @@ around GTOpt.
 
 Partners act under a written agreement with the copyright holder. Being
 listed here does not transfer any copyright or trademark rights in GTOpt.
-Interested in becoming a partner? Write to <marcelomatusacuna@gmail.com>.
+Interested in becoming a partner? Write to <mmatus@blackbeareng.cl>.

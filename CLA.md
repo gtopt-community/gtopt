@@ -5,7 +5,7 @@ Corporate CLA (CCLA) is available for contributions made on behalf of an
 employer.*
 
 By signing (via the CLA Assistant check on your first pull request, or by
-e-mail to <marcelomatusacuna@gmail.com>) you ("You") accept these terms for
+e-mail to <mmatus@blackbeareng.cl>) you ("You") accept these terms for
 your present and future Contributions to GTOpt, whose copyright holder is
 Marcelo Matus (the "Maintainer"). References to the Maintainer include
 his successors and assigns, in particular any foundation, association or

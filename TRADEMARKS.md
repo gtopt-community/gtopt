@@ -29,7 +29,7 @@ licensed operators: **GTOpt Store**, **GTOpt Marketplace**, **GTOpt
 Certified**, **GTOpt Cloud**, **GTOpt Extension SDK** and **GTOpt
 Partner**.
 
-Requests: Marcelo Matus — <marcelomatusacuna@gmail.com>.
+Requests: Marcelo Matus — <mmatus@blackbeareng.cl>.
 
 ## Other trademarks
 
