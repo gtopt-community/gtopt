@@ -354,12 +354,18 @@ main entry points:
   methods.
 - [Comparison with other tools](docs/tools/comparison.md): PLP, pandapower,
   PyPSA and GenX.
+- [White paper](docs/white_paper/main.pdf) ([LaTeX source](docs/white_paper/)):
+  the reference paper, covering the formulation, solution methods,
+  multi-scale coupling, architecture, validation and the comparison with
+  the Chilean daily schedule.
 
 ## Citing GTOpt
 
 If you use GTOpt in your work, please cite it as described in
 [`CITATION.cff`](CITATION.cff) (the "Cite this repository" button on
-GitHub). Papers about GTOpt and its predecessor FESOP are listed in
+GitHub). The reference paper is the GTOpt
+[white paper](docs/white_paper/main.pdf) (preprint, arXiv submission in
+preparation). Papers about GTOpt and its predecessor FESOP are listed in
 [`PUBLICATIONS.md`](PUBLICATIONS.md).
 
 ## Contributing

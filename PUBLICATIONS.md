@@ -15,13 +15,32 @@ Marcelo Matus A., María del Pilar Buitrago Villada, Erick Sierra Baeza,
 Carlos Enrique García Bujanda, Catalina López, Marcos Falcone Salazar and
 Gonzalo Bustos Turu.
 Preprint, 2026 (arXiv submission in preparation).
-Source and build instructions: [`docs/white_paper/`](docs/white_paper/).
+PDF: [`docs/white_paper/main.pdf`](docs/white_paper/main.pdf) ·
+LaTeX source and build instructions: [`docs/white_paper/`](docs/white_paper/) ·
+Licence: CC BY 4.0.
 
 > The reference paper for this repository: the complete formulation, the
 > monolithic, SDDP and cascade methods and their coupling across time
 > scales, the software architecture, validation on public test systems,
 > and a comparison with the Chilean daily schedule computed by the system
 > operator with PLEXOS.
+
+```bibtex
+@misc{matus2026gtopt,
+  author       = {Matus A., Marcelo and
+                  Buitrago Villada, Mar{\'i}a del Pilar and
+                  Sierra Baeza, Erick and
+                  Garc{\'i}a Bujanda, Carlos Enrique and
+                  L{\'o}pez, Catalina and
+                  Falcone Salazar, Marcos and
+                  Bustos Turu, Gonzalo},
+  title        = {{GTOpt}: Open-Source Energy-System Optimization,
+                  Consistent from Minutes to Decades},
+  year         = {2026},
+  note         = {Preprint},
+  howpublished = {\url{https://github.com/gtopt-community/gtopt/tree/master/docs/white_paper}},
+}
+```
 
 GTOpt is the open-source successor of **FESOP**, the expansion and
 operation planning framework developed at Black Bear Engineering.
