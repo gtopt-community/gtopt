@@ -6,56 +6,24 @@ solution methods, multi-scale coupling, software architecture,
 validation, and the comparison with the Chilean daily schedule (CEN /
 PLEXOS).
 
-- **Preprint**: arXiv (primary category `eess.SY`, cross-list
-  `math.OC`).  Once published, cite the arXiv identifier (see
-  `CITATION.cff` in the repository root).
-- **Journal target** (later): IEEE Transactions on Power Systems
-  (`IEEEtran`, journal mode); alternatives: Applied Energy, SoftwareX.
+- **Status**: preprint; the publication venue will be announced in
+  `PUBLICATIONS.md` in the repository root.
 
 ## Licence
 
 The text and figures of the paper (`main.tex`, `sections/`,
-`references.bib`, `abstract.txt`, `figures/`, `diagrams/`, `tables/`
+`references.bib`, `figures/`, `diagrams/`, `tables/`
 and the compiled `main.pdf`) are licensed under the
 [Creative Commons Attribution 4.0 International licence](https://creativecommons.org/licenses/by/4.0/)
 (CC BY 4.0): they may be shared and adapted for any purpose, provided
-the paper is cited.  The build scripts (`make_arxiv.sh`,
-`CMakeLists.txt`) follow the licence of the GTOpt core
+the paper is cited.  The build script (`CMakeLists.txt`)
+follows the licence of the GTOpt core
 (AGPL-3.0-or-later or the GTOpt Commercial License, see
 `LICENSING.md` in the repository root).
 
 If the paper is later published in a journal, the version in this
 directory remains the authors' preprint; the journal's typeset version
 is not distributed here.
-
-## Submitting to arXiv
-
-arXiv compiles the TeX source itself with `pdflatex` and does **not** run
-BibTeX, so the submission must include the generated `main.bbl`.  The
-script below builds the package and checks it the way arXiv does:
-
-```bash
-cd docs/white_paper
-bash make_arxiv.sh            # -> gtopt-arxiv.tar.gz + gtopt-arxiv.pdf
-```
-
-It runs a full build (with BibTeX), packs `main.tex`, `sections/*.tex`
-and `main.bbl` (no PDF of the paper, no auxiliary or hidden files),
-then recompiles the package with three `pdflatex` passes and no BibTeX,
-and fails on unresolved references.  `main.tex` starts with
-`\pdfoutput=1`, as arXiv requires for pdflatex.
-
-Upload `gtopt-arxiv.tar.gz` at <https://arxiv.org/submit>.  On the
-metadata page use:
-
-- **Title**: GTOpt: Open-Source Energy-System Optimization, Consistent
-  from Minutes to Decades
-- **Abstract**: paste `abstract.txt` (plain text of the `abstract`
-  environment, under the 1,920-character limit; regenerate it if the
-  abstract changes)
-- **Licence**: CC BY 4.0 (Creative Commons Attribution)
-- **Comments**: "17 pages. Source code:
-  https://github.com/gtopt-community/gtopt"
 
 The author biographies are only for the journal version: set
 `\journalversiontrue` in `main.tex` to include

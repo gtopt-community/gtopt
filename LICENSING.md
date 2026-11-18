@@ -64,13 +64,12 @@ ecosystem develops; every SDK file is marked with that identifier.
 ## White paper: CC BY 4.0
 
 The text and figures of the GTOpt white paper in
-[`docs/white_paper/`](docs/white_paper/) (LaTeX sources, bibliography,
-abstract and compiled PDF) are licensed under the
-[Creative Commons Attribution 4.0 International licence](https://creativecommons.org/licenses/by/4.0/),
-the same licence as its arXiv preprint: they may be shared and adapted
-for any purpose, provided the paper is cited (see
-[`PUBLICATIONS.md`](PUBLICATIONS.md)).  The build scripts in that
-directory follow the licence of the GTOpt core.
+[`docs/white_paper/`](docs/white_paper/) (LaTeX sources, bibliography
+and compiled PDF) are licensed under the
+[Creative Commons Attribution 4.0 International licence](https://creativecommons.org/licenses/by/4.0/):
+they may be shared and adapted for any purpose, provided the paper is
+cited (see [`PUBLICATIONS.md`](PUBLICATIONS.md)).  The build script in
+that directory follows the licence of the GTOpt core.
 
 ## Extensions and apps
 

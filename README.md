@@ -364,8 +364,8 @@ main entry points:
 If you use GTOpt in your work, please cite it as described in
 [`CITATION.cff`](CITATION.cff) (the "Cite this repository" button on
 GitHub). The reference paper is the GTOpt
-[white paper](docs/white_paper/main.pdf) (preprint, arXiv submission in
-preparation). Papers about GTOpt and its predecessor FESOP are listed in
+[white paper](docs/white_paper/main.pdf) (preprint). Papers about GTOpt
+and its predecessor FESOP are listed in
 [`PUBLICATIONS.md`](PUBLICATIONS.md).
 
 ## Contributing

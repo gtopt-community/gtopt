@@ -66,6 +66,6 @@ project, then the **[Planning Guide](planning-guide.md)**.
 |---|---|
 | [Contributing](../CONTRIBUTING.md) | How to contribute, code style, tests, CLA |
 | [Licensing](../LICENSING.md) | AGPL-3.0 core, commercial licence, Apache-2.0 Extension SDK |
-| [White paper](white_paper/) | Reference paper: formulation, methods, validation (LaTeX source, arXiv package) |
+| [White paper](white_paper/) | Reference paper: formulation, methods, validation (PDF and LaTeX source) |
 | [Publications](../PUBLICATIONS.md) | Papers on GTOpt and FESOP, and how to cite |
 | [Changelog](../CHANGELOG.md) | Release history |
