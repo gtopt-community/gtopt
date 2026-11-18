@@ -12,8 +12,8 @@ please open a pull request adding it to the last section.
 **GTOpt: Open-Source Energy-System Optimization, Consistent from Minutes
 to Decades.**
 Marcelo Matus A., María del Pilar Buitrago Villada, Erick Sierra Baeza,
-Carlos Enrique García Bujanda, Marcos Falcone Salazar and Gonzalo Bustos
-Turu.
+Carlos Enrique García Bujanda, Catalina López, Marcos Falcone Salazar and
+Gonzalo Bustos Turu.
 Preprint, 2026 (arXiv submission in preparation).
 Source and build instructions: [`docs/white_paper/`](docs/white_paper/).
 
