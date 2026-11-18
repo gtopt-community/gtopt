@@ -20,6 +20,6 @@ commercial licences remain valid after such an assignment.
 - Universities and public agencies do not need a commercial licence unless
   they redistribute GTOpt in closed form.
 
-Licensing contact: <mmatus@blackbeareng.cl>.
+Licensing contact: <marcelomatusacuna@gmail.com>.
 Reseller, support and maintenance partner: **Black Bear Engineering SpA**
 (<contacto@blackbeareng.cl>) — see [`PARTNERS.md`](PARTNERS.md).
