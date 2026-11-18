@@ -41,7 +41,7 @@ research centres can contribute in several ways:
 
 To discuss any of these privately, write to
 **Marcelo Matus** at
-[mmatus@blackbeareng.cl](mailto:mmatus@blackbeareng.cl).
+[marcelomatusacuna@gmail.com](mailto:marcelomatusacuna@gmail.com).
 
 ## Getting Started
 
