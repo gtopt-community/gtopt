@@ -114,5 +114,5 @@ Contact: Marcelo Matus — <mmatus@blackbeareng.cl>
 
 Professional support, maintenance, training, case migration
 (PLP / PLEXOS → GTOpt) and custom development are available from
-**Black Bear Engineering SpA** — <mmatus@blackbeareng.cl>.
+**Black Bear Engineering SpA** — <contactos@blackbeareng.cl>.
 See [`PARTNERS.md`](PARTNERS.md).
