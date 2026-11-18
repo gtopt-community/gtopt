@@ -12,6 +12,22 @@ PLEXOS).
 - **Journal target** (later): IEEE Transactions on Power Systems
   (`IEEEtran`, journal mode); alternatives: Applied Energy, SoftwareX.
 
+## Licence
+
+The text and figures of the paper (`main.tex`, `sections/`,
+`references.bib`, `abstract.txt`, `figures/`, `diagrams/`, `tables/`
+and the compiled `main.pdf`) are licensed under the
+[Creative Commons Attribution 4.0 International licence](https://creativecommons.org/licenses/by/4.0/)
+(CC BY 4.0): they may be shared and adapted for any purpose, provided
+the paper is cited.  The build scripts (`make_arxiv.sh`,
+`CMakeLists.txt`) follow the licence of the GTOpt core
+(AGPL-3.0-or-later or the GTOpt Commercial License, see
+`LICENSING.md` in the repository root).
+
+If the paper is later published in a journal, the version in this
+directory remains the authors' preprint; the journal's typeset version
+is not distributed here.
+
 ## Submitting to arXiv
 
 arXiv compiles the TeX source itself with `pdflatex` and does **not** run
@@ -37,9 +53,8 @@ metadata page use:
 - **Abstract**: paste `abstract.txt` (plain text of the `abstract`
   environment, under the 1,920-character limit; regenerate it if the
   abstract changes)
-- **Licence**: CC BY 4.0 (recommended) or the arXiv non-exclusive
-  licence
-- **Comments**: "18 pages. Source code:
+- **Licence**: CC BY 4.0 (Creative Commons Attribution)
+- **Comments**: "17 pages. Source code:
   https://github.com/gtopt-community/gtopt"
 
 The author biographies are only for the journal version: set

@@ -10,6 +10,7 @@ GTOpt uses three licences, each for a clearly delimited part:
 |---|---|
 | **GTOpt core**: solver library, `gtopt` binary, solver plugins, Python tools, web and GUI services | **AGPL-3.0-or-later** + Solver Plugin Exception, **or** the GTOpt Commercial License |
 | **GTOpt Extension SDK**: the public plugin interface headers listed below | **Apache-2.0** |
+| **White paper**: text and figures in [`docs/white_paper/`](docs/white_paper/) (LaTeX sources and compiled PDF) | **CC BY 4.0** |
 | Third-party files and data shipped in this repository | Their own licences, see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) |
 
 ## GTOpt core: dual licence
@@ -59,6 +60,17 @@ ones, can be built against them without any copyleft obligation:
 These files carry `SPDX-License-Identifier: Apache-2.0`. The SDK will grow
 (Python client, case-format schemas, app manifest) as the extension
 ecosystem develops; every SDK file is marked with that identifier.
+
+## White paper: CC BY 4.0
+
+The text and figures of the GTOpt white paper in
+[`docs/white_paper/`](docs/white_paper/) (LaTeX sources, bibliography,
+abstract and compiled PDF) are licensed under the
+[Creative Commons Attribution 4.0 International licence](https://creativecommons.org/licenses/by/4.0/),
+the same licence as its arXiv preprint: they may be shared and adapted
+for any purpose, provided the paper is cited (see
+[`PUBLICATIONS.md`](PUBLICATIONS.md)).  The build scripts in that
+directory follow the licence of the GTOpt core.
 
 ## Extensions and apps
 
