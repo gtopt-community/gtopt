@@ -303,7 +303,10 @@ class MauleParser(BaseParser):
             "TRUE",
         )
         self._config["econ_inver_costo"] = float(parts[2])
-        idx = self._next_idx(idx, lines)
+        # No advance here: the optional line below advances inside its
+        # ``try`` so a file that ends at the Economias line falls back to
+        # the defaults instead of raising IndexError (and a present cost
+        # line is read instead of being skipped).
 
         # Costo de embalsar / "Penalizadores Convenio" (optional)
         # PLP (genpdmaule.f:1797): CostoEmbalsar applied to IQHINV
