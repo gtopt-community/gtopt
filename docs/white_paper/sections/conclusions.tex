@@ -1,0 +1,80 @@
+% ============================================================================
+% Section VIII: Conclusions and Future Work
+% ============================================================================
+
+\section{Conclusions}
+\label{sec:conclusions}
+
+This paper has presented GTOpt, an open-source optimizer for planning
+and operating energy systems.  The main conclusions are:
+
+\begin{enumerate}
+  \item \textbf{One model across time scales.}  A single formulation of
+    electricity, water, fuels and LNG, hydrogen, ammonia and heat is
+    used from 15-minute operation to 30-year planning.  The scales are
+    coupled through SDDP optimality cuts (water values and storage
+    opportunity costs) and feasibility cuts (reservoir and water-right
+    limits), so that the results of the different horizons are
+    consistent by construction.
+
+  \item \textbf{A broad formulation.}  The model covers the network
+    with Kirchhoff constraints, switching and line losses, storage and
+    hydro cascades with water rights, unit commitment, reserves and
+    inertia, multi-carrier chains, emissions with caps and banking, and
+    expansion of generation, transmission, storage and demand.  Operating
+    rules beyond the element library are added through PAMPL.
+
+  \item \textbf{Methods for large systems.}  The monolithic LP/MIP, SDDP
+    with apertures, multi-cut and feasibility cuts, the multi-level
+    cascade and the investment master, together with parallel
+    subproblems, compressed snapshots and solver-neutral warm starts,
+    make national-scale studies tractable on a single server.
+
+  \item \textbf{Validated and auditable.}  GTOpt reproduces IEEE
+    benchmarks and pandapower DC OPF to solver tolerance and produces
+    valid bounds on published SDDP benchmarks.  On the Chilean daily
+    schedule, the comparison with the CEN's PLEXOS solutions shows that
+    the line-loss model drives the largest differences, and that a
+    tangent loss model with a small loss price removes fictitious
+    losses.  Exportable LP files, structural fingerprints and a
+    published formulation make each result traceable.
+\end{enumerate}
+
+\subsection{Future Work}
+
+GTOpt is the core of a larger set of modules being developed with the
+user community under the GTOpt Community organization:
+
+\begin{itemize}
+  \item \textbf{Bid-based markets} (\texttt{gtopt-bidmark}): clearing
+    offers instead of audited costs, in line with the transition of the
+    Chilean power system.  The goal is one dispatch chain from
+    medium-term water values to day-ahead and intraday scheduling, with
+    co-optimized energy and ancillary services, nodal prices, capacity
+    and long-term energy products, financial transmission rights, and a
+    market simulator to test designs and bidding behaviour.
+  \item \textbf{An observatory of the Chilean market}
+    (\texttt{gtopt-obs-cl}): tools to observe, reproduce and analyse
+    the daily dispatch of the national system, building on the
+    comparison of Section~\ref{sec:cases}.
+  \item \textbf{Regional cases} (\texttt{gtopt-latam}): short- and
+    long-term cases of the power systems of Latin America, as open
+    reference data for validation and studies.
+  \item \textbf{Closing the remaining gaps with the official schedule}:
+    a systematic attribution of the marginal-cost differences of
+    Section~\ref{sec:cases} to network, conversion and degeneracy
+    effects, and recommendations on loss modeling under surplus.
+  \item \textbf{Exact-expectation SDDP}: a backward pass that evaluates
+    the exact expectation over the uncertainty tree, alongside the
+    aperture approximation, and stronger cuts for integer decisions.
+  \item \textbf{AC power flow}: second-order cone and linear
+    approximations of reactive power and voltage for operation studies.
+  \item \textbf{GPU and machine learning}: wider use of GPU solvers,
+    and learned warm starts, scenario reduction and cut selection for
+    SDDP.
+\end{itemize}
+
+GTOpt is intended to support reproducible research and transparent
+studies of power systems.  Its source code, formulation and test cases
+are public, and contributions of networks, case studies and code are
+welcome.

@@ -1,0 +1,208 @@
+\pdfoutput=1
+% ============================================================================
+% GTOpt: open-source energy-system optimization, from minutes to decades
+%
+% Preprint (arXiv, eess.SY / math.OC); later target: IEEE Transactions on
+% Power Systems.  Template: IEEEtran (journal mode).
+%
+% Overleaf-compatible: upload this entire directory as a project.
+% To compile locally: latexmk -pdf main.tex
+% ============================================================================
+
+\documentclass[journal]{IEEEtran}
+
+% ---- Encoding ----
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+
+% ---- Math ----
+\usepackage{amsmath,amssymb,amsfonts}
+
+% ---- Graphics and tables ----
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tabularx}
+
+% ---- Typography ----
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{siunitx}
+
+% ---- Code listings ----
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  captionpos=b,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  xleftmargin=2em,
+  framexleftmargin=1.5em,
+}
+
+% ---- Hyperlinks (load last among standard packages) ----
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue,hypertexnames=false]{hyperref}
+\usepackage{cite}
+
+% ---- TikZ ----
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,fit,calc,patterns,decorations.pathreplacing}
+
+% ---- Algorithms ----
+\usepackage{algorithmic}
+\usepackage{algorithm}
+
+% ---- Custom commands ----
+\newcommand{\gtopt}{GTOpt}
+\newif\ifjournalversion
+\journalversionfalse
+\newcommand{\fesop}{FESOP}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\setS}{\mathcal{S}}
+\newcommand{\setT}{\mathcal{T}}
+\newcommand{\setB}{\mathcal{B}}
+\newcommand{\setN}{\mathcal{N}}
+\newcommand{\setG}{\mathcal{G}}
+\newcommand{\setD}{\mathcal{D}}
+\newcommand{\setL}{\mathcal{L}}
+\newcommand{\setE}{\mathcal{E}}
+\newcommand{\setJ}{\mathcal{J}}
+\newcommand{\setR}{\mathcal{R}}
+\newcommand{\setW}{\mathcal{W}}
+\newcommand{\setH}{\mathcal{H}}
+\newcommand{\setZ}{\mathcal{Z}}
+\newcommand{\setFR}{\mathcal{F\!R}} % flow rights
+\newcommand{\setVR}{\mathcal{V\!R}} % volume rights
+\newcommand{\setHP}{\mathcal{H}_P}   % hydraulic pumps
+\newcommand{\setLNG}{\mathcal{LNG}}  % LNG terminals
+\newcommand{\setUC}{\mathcal{UC}}    % UC generators
+\newcommand{\setIZ}{\mathcal{IZ}}    % inertia zones
+\newcommand{\setIP}{\mathcal{IP}}    % inertia provisions
+
+% ---- Graphics path ----
+\graphicspath{{figures/}{diagrams/}}
+
+% ============================================================================
+\begin{document}
+
+\title{%
+  GTOpt: Open-Source Energy-System Optimization,\\
+  Consistent from Minutes to Decades%
+}
+
+\author{%
+  Marcelo~Matus~A.,~\IEEEmembership{Member,~IEEE,}
+  Mar\'ia~del~Pilar~Buitrago~Villada,
+  Erick~Sierra~Baeza,
+  Carlos~Enrique~Garc\'ia~Bujanda,
+  Marcos~Falcone~Salazar,
+  and~Gonzalo~Bustos~Turu%
+  \thanks{Preprint, November 2026.  Source code, data and documentation:
+    \url{https://github.com/gtopt-community/gtopt}.}%
+  \thanks{M.~Matus~A. is with Black Bear Engineering SpA, Santiago,
+    Chile, and the Centro Nacional de Inteligencia Artificial
+    (CENIA, FB210017), Santiago, Chile
+    (e-mail: marcelo.matus@blackbear.cl).}%
+  \thanks{M.~P.~Buitrago~Villada is with the Department of Electrical
+    Energy and Automation, Universidad Nacional de Colombia,
+    Medell\'in, Colombia.}%
+  \thanks{E.~Sierra~Baeza is with Black Bear Engineering SpA, Santiago,
+    Chile, and CENIA.}%
+  \thanks{C.~E.~Garc\'ia~Bujanda is with Black Bear Engineering SpA,
+    Santiago, Chile.}%
+  \thanks{M.~Falcone~Salazar is with the School of Engineering,
+    Universidad Adolfo Ib\'a\~nez, Santiago, Chile, and formerly with
+    Colb\'un~S.A., Santiago, Chile.}%
+  \thanks{G.~Bustos~Turu is with the Department of Chemical Engineering,
+    Imperial College London, London, UK, and the Centre for Energy,
+    Universidad de Chile, Santiago, Chile.}%
+  % \thanks{Digital Object Identifier: 10.1109/TPWRS.20XX.XXXXXXX}%
+}
+
+% --- Create title and author block ---
+\markboth{Preprint}%
+  {Matus~A. \MakeLowercase{\textit{et al.}}: \gtopt{} for GTEP}
+
+\maketitle
+
+% ========== Abstract ==========
+\begin{abstract}
+Planning and operating energy systems with high shares of variable
+renewables, storage and hydro requires models that remain consistent
+from daily dispatch to multi-decade expansion.  This paper presents
+GTOpt, an open-source optimizer written in C++26 for the expansion
+planning of generation, transmission, storage and demand, hydrothermal
+scheduling, and unit commitment and dispatch.  The same formulation is
+used at every time scale, from 15-minute blocks to 30-year horizons.  It
+covers DC power flow with Kirchhoff constraints and line losses, hydro
+cascades with water rights, batteries, unit commitment, reserves and
+inertia, multi-carrier chains (fuels, LNG, hydrogen, ammonia, heat)
+and multi-pollutant emission zones with caps and allowance
+banking.  The time scales are coupled through optimality cuts, which
+carry water values and storage opportunity costs, and through
+feasibility cuts, which enforce reservoir and water-right limits.  Three
+methods are provided: a monolithic LP/MIP; stochastic dual
+dynamic programming (SDDP) with backward-pass apertures, multi-cut and
+elastic-filter feasibility cuts; and a multi-level cascade that refines
+a coarse model into a detailed one while inheriting its cuts.  Operating
+rules such as the Chilean irrigation agreements are added without code
+through PAMPL, an AMPL-like constraint language, and LP/MIP solvers are
+loaded at run time as plugins.  GTOpt is validated against IEEE
+benchmark networks, pandapower and published SDDP benchmarks.  It is
+also compared with the official daily schedule of the Chilean national
+system on 14 days, using the system operator's PLEXOS inputs and
+results.  The comparison shows that the line-loss model drives most of
+the differences: a piecewise-linear loss model with free losses
+inflates them to 2.5 times their physical value, whereas a tangent
+outer approximation with a small loss price stays within 5\%.
+\end{abstract}
+
+% ========== Keywords ==========
+\begin{IEEEkeywords}
+Energy system optimization, generation and transmission expansion
+planning, hydrothermal scheduling, stochastic dual dynamic programming,
+multi-scale consistency, DC optimal power flow, line losses, energy
+storage, water values, irrigation agreements, emissions, open-source
+software.
+\end{IEEEkeywords}
+
+% ========== Sections ==========
+\input{sections/introduction}
+\input{sections/literature_review}
+\input{sections/formulation}
+\input{sections/solution_methods}
+\input{sections/architecture}
+\input{sections/validation}
+\input{sections/case_studies}
+\input{sections/conclusions}
+
+% ========== Code availability ==========
+\section*{Code and Data Availability}
+GTOpt is developed by the GTOpt Community at
+\url{https://github.com/gtopt-community/gtopt} and is released under
+the GNU Affero General Public License v3.0 or later, with an exception
+for solver plugins; a commercial licence is also available.  The
+repository contains the source code, the complete LP/MIP formulation,
+the test cases used in Section~\ref{sec:validation} and the tools to
+convert and compare the cases of Section~\ref{sec:cases}.
+
+% ========== Acknowledgments ==========
+\section*{Acknowledgments}
+The authors thank the Coordinador El\'ectrico Nacional (CEN) for
+publishing the input data and solutions of the daily schedule used in
+Section~\ref{sec:cases}.
+
+% ========== References ==========
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+% ========== Biographies (journal version) ==========
+% Set \journalversiontrue to include the IEEE author biographies.
+\ifjournalversion
+  \input{sections/biographies}
+\fi
+
+\end{document}

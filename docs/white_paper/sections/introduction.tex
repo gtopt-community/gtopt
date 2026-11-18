@@ -1,0 +1,107 @@
+% ============================================================================
+% Section I: Introduction
+% ============================================================================
+
+\section{Introduction}
+\label{sec:introduction}
+
+The transition toward low-carbon energy systems requires planning tools
+that co-optimize generation, transmission and storage investments while
+capturing the operational detail of variable renewables, storage and
+hydro cascades~\cite{lumbreras2016progressive}.  Generation and
+Transmission Expansion Planning (GTEP) determines the minimum-cost
+combination of investments (CAPEX) and operating decisions (OPEX) over
+long horizons under
+uncertainty~\cite{hemmati2013comprehensive, mahdavi2019tep_survey}.
+In hydro-dominated systems the same questions extend to the medium term
+(months to years), where reservoir management under inflow uncertainty
+is solved with stochastic dual dynamic programming
+(SDDP)~\cite{pereira1991sddp}, and to daily operation, where unit
+commitment and network constraints set the dispatch and the marginal
+prices.
+
+In practice these three horizons are usually served by different
+models, with different data formats, element definitions and
+simplifications.  A long-term expansion model, a medium-term
+hydrothermal model and a short-term scheduling model can therefore
+disagree on the value of water, the opportunity cost of storage or the
+feasibility of operating rules, and the policy handed from one horizon
+to the next is only approximately consistent.  The commercial tools used
+by system operators and utilities (e.g.\ PLEXOS, PSR SDDP, and in Chile
+the PLP model maintained by the system operator) are closed or tied to
+specific data formats, which limits the auditability of their results.
+Open-source tools such as PyPSA~\cite{brown2018pypsa},
+GenX~\cite{jenkins2017genx}, IDAES-GTEP~\cite{idaes_gtep2024} and
+SDDP.jl~\cite{dowson2020sddp_jl} have broadened access to planning and
+stochastic optimization.  None of them, however, combines in
+one model a detailed hydro and water-rights representation, a network
+with losses, SDDP and capacity expansion.
+
+This paper presents GTOpt, an open-source optimizer for planning and
+operating energy systems, written in C++26.  GTOpt descends from the
+FESOP (Fabulous Energy System Optimizer)
+framework~\cite{buitrago2022fesop}, which extended long-term
+hydrothermal scheduling~\cite{pereira2016hydrothermal} with capacity
+expansion, variable renewables and modern flexibility mechanisms.  Its
+central design decision is to use \emph{one} formulation of the energy
+system---electricity, water, fuels and LNG, hydrogen, ammonia and
+heat---at every time scale, and to change only the time structure and
+the solution method between scales.
+
+The main contributions of this work are:
+
+\begin{enumerate}
+  \item A complete LP/MIP formulation of the energy system
+    (Section~\ref{sec:formulation}).  It includes:
+    \begin{itemize}
+      \item DC optimal power flow with Kirchhoff constraints,
+        transmission switching, and several line-loss models with a
+        guard against loss arbitrage under negative prices;
+      \item batteries, and hydro cascades with reservoirs, turbines,
+        pumps, seepage and head-dependent efficiency;
+      \item a generic water-rights layer for irrigation agreements;
+      \item unit commitment (three-binary formulation) with piecewise
+        heat rates, reserves and synchronous inertia;
+      \item LNG terminals and hydrogen, ammonia and heat chains;
+      \item multi-pollutant emission zones with caps, banking and
+        carbon capture;
+      \item multi-stage capacity expansion of generation, transmission,
+        storage and demand.
+    \end{itemize}
+
+  \item A multi-scale design in which the same element definitions are
+    used from 15-minute operation to 30-year planning, with the scales
+    coupled through SDDP optimality and feasibility cuts
+    (Section~\ref{sec:multiscale}).
+
+  \item Three solution methods---monolithic LP/MIP; SDDP with
+    apertures, multi-cut and elastic-filter feasibility cuts; and a
+    multi-level cascade---plus an investment master over SDDP operation
+    (Section~\ref{sec:methods}).
+
+  \item An open software architecture (Section~\ref{sec:architecture}):
+    \begin{itemize}
+      \item JSON and Apache Parquet data, and PAMPL user constraints;
+      \item run-time solver plugins and solver-neutral warm starts;
+      \item exportable LP files with structural fingerprints;
+      \item converters from PLP, PLEXOS, PSR SDDP, PSS/E and
+        pandapower;
+      \item command-line, browser and web-service interfaces.
+    \end{itemize}
+
+  \item Validation on IEEE benchmark networks, pandapower and published
+    SDDP benchmarks (Section~\ref{sec:validation}), and a comparison of
+    GTOpt with the official daily schedule of the Chilean national
+    system on 14 days, computed by the system operator with PLEXOS
+    (Section~\ref{sec:cases}).
+\end{enumerate}
+
+The remainder of this paper is organized as follows.
+Section~\ref{sec:literature} reviews the state of the art.
+Section~\ref{sec:formulation} presents the formulation.
+Section~\ref{sec:methods} describes the solution methods and the
+multi-scale coupling.  Section~\ref{sec:architecture} details the
+software architecture.  Section~\ref{sec:validation} presents the
+validation on benchmarks, and Section~\ref{sec:cases} the comparison
+with the Chilean daily schedule.  Section~\ref{sec:conclusions}
+concludes and outlines future work.

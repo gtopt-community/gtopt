@@ -9,6 +9,20 @@ please open a pull request adding it to the last section.
 
 ## GTOpt and FESOP
 
+**GTOpt: Open-Source Energy-System Optimization, Consistent from Minutes
+to Decades.**
+Marcelo Matus A., María del Pilar Buitrago Villada, Erick Sierra Baeza,
+Carlos Enrique García Bujanda, Marcos Falcone Salazar and Gonzalo Bustos
+Turu.
+Preprint, 2026 (arXiv submission in preparation).
+Source and build instructions: [`docs/white_paper/`](docs/white_paper/).
+
+> The reference paper for this repository: the complete formulation, the
+> monolithic, SDDP and cascade methods and their coupling across time
+> scales, the software architecture, validation on public test systems,
+> and a comparison with the Chilean daily schedule computed by the system
+> operator with PLEXOS.
+
 GTOpt is the open-source successor of **FESOP**, the expansion and
 operation planning framework developed at Black Bear Engineering.
 

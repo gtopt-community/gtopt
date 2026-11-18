@@ -1,0 +1,142 @@
+% ============================================================================
+% Section VII: Comparison with the Chilean daily schedule (CEN / PLEXOS)
+% ============================================================================
+
+\section{Comparison with the Chilean Daily Schedule}
+\label{sec:cases}
+
+The Chilean system operator, the Coordinador El\'ectrico Nacional (CEN),
+computes the daily operation schedule of the national system (SEN) with
+PLEXOS.  For each schedule, the input data and the solution (dispatch,
+line flows, losses and marginal costs per bus and hour) are available.
+This makes it possible to compare an independent model against the
+official one on the full national network.
+
+\subsection{Setup}
+
+The comparison uses the CEN schedules of 14 days between October~2025
+and May~2026,
+plus additional days for specific checks.  Each case has a horizon of
+seven days at hourly resolution, with about 250 buses and 315 lines,
+hydro cascades, batteries, unit commitment and reserves.  The PLEXOS
+inputs are converted with \texttt{plexos2gtopt} in a mode that follows
+the PLEXOS conventions as closely as possible, and solved by \gtopt{}
+with the monolithic method (MIP gap 0.5\%).  The first day
+of each horizon, which is the day actually scheduled, is compared bus
+by bus and hour by hour.  The comparison covers results only, not computing times.
+
+The CEN has used two loss models: a piecewise-linear model (in 2021) and
+a generalized, single-pass loss model in the recent schedules.  \gtopt{}
+is run with two of the models of Section~\ref{sec:losses}:
+\begin{itemize}
+  \item \textbf{piecewise}: the traditional piecewise model with free
+    losses ($\varepsilon_\ell = 0$);
+  \item \textbf{tangent}: the tangent outer approximation with a loss
+    price $\varepsilon_\ell = 1$~\$/MWh.
+\end{itemize}
+
+\subsection{Losses}
+
+Table~\ref{tab:cen_losses} compares the losses of the LP with the
+physical losses $R_\ell f_\ell^2/V_\ell^2$ evaluated at the LP flows,
+over the seven-day horizon of the 14 cases.  With free piecewise losses,
+the LP losses are 2.5 times the physical value in the median case.  The
+excess comes from the fictitious-sink mechanism of
+Section~\ref{sec:losses}: filling expensive segments first and
+circulating flow in both directions when the sum of the two end-bus
+duals is negative.  On the week of 7~April~2026, for example, the
+piecewise model loses 91~GWh more than the physical losses, 65~GWh of
+them in hours with $\pi_{a_\ell}+\pi_{b_\ell}<0$; the tangent model
+loses 6~GWh more, and spills the surplus renewable energy instead.
+
+\begin{table}[t]
+  \centering
+  \caption{LP losses versus physical losses over the horizon
+    (median and range over 14 cases)}
+  \label{tab:cen_losses}
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    & Piecewise, free & Tangent, $\varepsilon{=}1$ \\
+    \midrule
+    LP / physical losses & 2.50 (1.05--3.78) & 1.03 (1.00--1.19) \\
+    Excess over physical & 152\% & 5\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The CEN's own solutions show the same trade-off.  In the two 2021
+schedules solved with the piecewise model, the PLEXOS losses during the
+hours with zero marginal cost are five times the secant approximation.
+The fictitious losses amount to 8.7 and 16.1~GWh, i.e.\ 4.9\% and 8.6\%
+of the daily demand, and the prices stay at exactly zero, never
+negative.  In the recent schedules, solved with the generalized loss
+model, the fictitious losses disappear but the surplus has no sink
+left.  Marginal costs then become negative: in most of these schedules,
+slightly negative across the whole system during solar hours, and on
+one day down to $-132$~\$/MWh in a congested pocket of the northern
+grid.  Under surplus, a loss model therefore faces a dilemma: either
+fictitious losses with zero prices, or physical losses with negative
+prices.  The tangent model with a small loss price chooses the latter,
+consistently with the CEN's current practice.
+
+\subsection{Marginal Costs}
+
+The first comparison of marginal costs showed a moderate agreement
+(median correlation 0.39 and mean absolute error 21~\$/MWh over all
+buses, 11~\$/MWh at the reference bus, Polpaico~220~kV).  Its largest
+deviations were deeply negative prices at a small load bus in the north,
+down to $-891$~\$/MWh, where PLEXOS never goes below
+$-1.3$~\$/MWh.  Inspecting the LP traced them to the conversion of 173
+lines whose limits PLEXOS does not enforce: PLEXOS operates some of
+them well above their rating (e.g.\ 190~MW on a 100~MW transformer),
+whereas the converter had kept the rating as a hard limit.  The
+congested chain created an isolated pocket with negative prices.
+Converting these lines as PLEXOS treats them (free up to three times the
+rating, penalized up to six times) removes the artifact
+(Table~\ref{tab:cen_cmg}).
+
+\begin{table}[t]
+  \centering
+  \caption{Hourly marginal costs of day~1, \gtopt{} vs.\ PLEXOS (CEN),
+    piecewise losses: correlation and mean absolute error [\$/MWh] over
+    all buses, with unenforced lines as hard limits (strict) and as
+    PLEXOS treats them (extended)}
+  \label{tab:cen_cmg}
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    & \multicolumn{2}{c}{Strict} & \multicolumn{2}{c}{Extended} \\
+    Day & Corr. & MAE & Corr. & MAE \\
+    \midrule
+    2026-04-07 & 0.33 & 20.9 & 0.69 & 11.3 \\
+    2026-04-22 & 0.18 & 37.1 & 0.69 & 19.0 \\
+    2026-05-25 & 0.32 & 45.9 & 0.49 & 43.3 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+With the tangent loss model and the extended lines, the correlation on
+7~April reaches 0.72 and the mean absolute error 9.6~\$/MWh; the lowest
+price in the north is $-8.1$~\$/MWh against $-13.9$~\$/MWh in PLEXOS.
+The remaining differences come mainly from three sources:
+\begin{itemize}
+  \item \textbf{Constraints not yet converted.}  The $-132$~\$/MWh
+    pocket of 25~May is not reproduced by any configuration (\gtopt{}
+    gives 0 to $+9$~\$/MWh at those buses).  It is probably set by an
+    operator-defined constraint or flowgate of the PLEXOS model that is
+    not yet active in the conversion.
+  \item \textbf{Conversion of model features.}  Several PLEXOS
+    constructs (e.g.\ inflexible gas contracts, storage end conditions,
+    reserve provisions of new batteries) have no one-to-one equivalent,
+    and each conversion choice can move the marginal unit.
+  \item \textbf{Degeneracy.}  With many units at equal cost and
+    abundant zero-cost energy, the optimal dispatch and duals are not
+    unique, and two exact solvers can legitimately report different
+    marginal costs.
+\end{itemize}
+
+This comparison is ongoing work.  Its value is less in the agreement
+figures than in making the differences explainable.  With an open model
+whose formulation and LP can be inspected, each discrepancy can be
+traced to a modeling choice in the converter, in \gtopt{} or in the
+official model.  The artifact above, for instance, was found and
+removed by reading the duals of a few saturated lines in the LP.
