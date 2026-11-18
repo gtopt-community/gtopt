@@ -3,6 +3,31 @@
 Thank you for your interest in contributing to GTOpt! This document provides
 guidelines and instructions for contributing.
 
+## The best way to contribute: join the community
+
+You do not need to write C++ to help GTOpt. The most valuable
+contributions come from people who use it:
+
+- **Join the community.** Ask questions, share results and propose ideas
+  in [Discussions](https://github.com/gtopt-community/gtopt/discussions),
+  in English or Spanish, and follow the
+  [GTOpt Community](https://github.com/gtopt-community) organization for
+  new modules.
+- **Use GTOpt and its modules** in your own studies (the `gtopt` core
+  today, and the observatory, market and regional modules as they are
+  published) and tell us what worked, what was missing and what broke.
+  Bug reports with a small case attached are the fastest way to get
+  something fixed.
+- **Contribute networks for validation**, ideally networks of real
+  power systems, with their published results when available. Every
+  real system we can reproduce makes GTOpt more reliable for everyone.
+- **Share case studies.** Expansion plans, hydrothermal studies,
+  storage, emissions or market questions are always welcome, as examples
+  in `cases/` or as write-ups in Discussions.
+
+Code, documentation and tool contributions are of course welcome too;
+the rest of this guide explains how to make them.
+
 ## Getting Started
 
 1. Fork the repository and clone your fork
