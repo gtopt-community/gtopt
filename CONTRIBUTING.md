@@ -28,6 +28,21 @@ contributions come from people who use it:
 Code, documentation and tool contributions are of course welcome too;
 the rest of this guide explains how to make them.
 
+### Companies and institutions
+
+Utilities, system operators, regulators, consultancies, universities and
+research centres can contribute in several ways:
+
+- sharing network models and historical results for validation
+  (confidential data can be handled under a non-disclosure agreement);
+- co-developing modules, models or features for their own needs;
+- funding development, studies, theses or training;
+- piloting GTOpt in their planning or operation processes.
+
+To discuss any of these privately, write to
+**Marcelo Matus** at
+[marcelomatusacuna@gmail.com](mailto:marcelomatusacuna@gmail.com).
+
 ## Getting Started
 
 1. Fork the repository and clone your fork
