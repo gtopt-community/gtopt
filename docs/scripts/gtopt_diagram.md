@@ -23,6 +23,23 @@ For large cases (hundreds of buses, thousands of generators) the tool
 automatically applies aggregation, voltage-level reduction, and smart
 thresholds to keep diagrams readable.
 
+<p>
+  <img src="../diagrams/ieee14b_topology.svg" width="49%"
+       alt="Electrical topology of the IEEE 14-bus case: 14 buses, 20 lines with their ratings, 5 generators and 11 demands">
+  <img src="../diagrams/hydro_valley_topology.svg" width="49%"
+       alt="Full topology of the hydro_valley_sddpjl case: two reservoirs in cascade with their junctions, turbines, spillways and inflows, the hydro and thermal generators, the bus and the demand">
+</p>
+
+```bash
+gtopt_diagram cases/ieee_14b/ieee_14b.json -t topology -s electrical \
+  -L sfdp -f svg -o ieee14b_topology.svg --palette colorblind
+gtopt_diagram cases/hydro_valley_sddpjl/system_hydro_valley_sddpjl.json \
+  -L dot -f svg -o hydro_valley_topology.svg --palette colorblind
+```
+
+The SVG output links its node icons by absolute path; to publish an SVG,
+embed the icons with `python tools/figures/inline_svg_images.py FILE.svg`.
+
 ---
 
 ## Installation

@@ -204,9 +204,7 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   }
 
   // Force opportunistic parallel mode (-1, ``CPX_PARALLEL_OPPORTUNISTIC``)
-  // by default.  Per the GTEP LP benchmark
-  // (``docs/analysis/cplex-benchmark-results.md``) this is "the single
-  // best option: 733ms median, tightest range (718-805ms), lowest ticks
+  // by default.  CPLEX's own default is deterministic
   // (``+1``) which serialises some internal phases for run-to-run
   // reproducibility — opportunistic relaxes that and can produce
   // slightly different floating-point results between runs but
@@ -2261,8 +2259,8 @@ void CplexSolverBackend::push_names(const std::vector<std::string>& col_names,
 {
   // CPXchgcolname / CPXchgrowname walk an internal CPLEX name table on
   // every call, so the previous per-column / per-row loop became O(N^2)
-  // and on 7-day CEN PCP cases (~330k cols) spent multiple minutes
-  // entirely inside CPLEX before `write_lp` could even open the file.
+  // and dominated `write_lp` on large cases before the file was even
+  // opened.
   // Fix: pack non-empty (index, name) pairs into a single bulk-array
   // call.  Empty entries are skipped to preserve the previous "leave
   // unnamed columns blank" behaviour.

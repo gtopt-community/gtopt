@@ -228,7 +228,7 @@ add_e2e_case(psri_case3_via_sddp2gtopt system_psri_case3_via_sddp2gtopt.json)
 add_e2e_case(ieee_24b_rts ieee_24b_rts.json)
 
 # Polish 3375-bus transmission grid (MATPOWER `case3375wp`, BSD).
-# Largest network in the e2e suite — solves a ~3375-bus DC OPF in
+# Largest network in the e2e suite — solves a ~3375-bus DC OPF.  Acts as a publicly-available substitute for
 # the Chinese provincial 3266-bus dataset (IEEE DataPort, paywalled
 # — see cases/cn_3266b/README.md).  No exact `obj_value` golden:
 # heterogeneous linear costs + KVL constraints make the optimum

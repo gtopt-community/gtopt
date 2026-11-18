@@ -456,8 +456,7 @@ def test_extract_fuels_max_offtake_week_time_weighted_horizon(
     2026-04-16 → 2.1 TJ and 2026-04-23 → 4.6 TJ.  The 7-day horizon
     Apr 22-28 has 1 day in week 04-16 (Apr 22) and 6 days in week
     04-23 (Apr 23-28).  Time-weighted budget = 2100 × 1/7 + 4600 ×
-    6/7 = 4242.857 GJ — matches PLEXOS's ``Σ_period duration ×
-    RHS_period`` from the solution .accdb to the cent.
+    6/7 = 4242.857 GJ = ``Σ_period duration × RHS_period``.
 
     Regression: legacy ``n_days=1`` reader returned 2100 GJ (too
     tight by 50 %) and starved NEHUENCO_1-TG+TV / NUEVA_RENCA in the
@@ -770,6 +769,7 @@ def test_extract_generators(tmp_path: Path) -> None:
     assert by_name["thermal_a"].bus_name == "bus_north"
     assert by_name["thermal_a"].pmax == 100.0
     # GeneratorSpec.pmin is the always-on hard floor and stays 0
+    # post-2026-05-20.  PLEXOS Min Stable Level (20 MW for thermal_a)
     # is per-docs commitment-conditional and now travels via
     # CommitmentSpec.pmin instead (verified by test_extract_commitments).
     assert by_name["thermal_a"].pmin == 0.0
@@ -1392,6 +1392,7 @@ def test_extract_generators_nameplate_capture_offline_unit(tmp_path: Path) -> No
     nameplates: dict[str, float] = {}
     gens = extract_generators(db, bundle, nameplates_out=nameplates)
     by_name = {g.name: g for g in gens}
+    # Dispatch pmax stays 0 — the offline unit is PLEXOS-faithful.
     assert by_name["COLBUN_U2"].pmax == 0.0
     # The physical nameplate is captured for the estimator regardless.
     assert nameplates["COLBUN_U2"] == 240.0

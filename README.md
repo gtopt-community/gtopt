@@ -1,4 +1,9 @@
-# GTOpt
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo/gtopt-logo-dark.svg">
+    <img src="docs/images/logo/gtopt-logo.svg" alt="GTOpt" height="64">
+  </picture>
+</h1>
 
 [![Ubuntu](https://github.com/gtopt-community/gtopt/actions/workflows/ubuntu.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/ubuntu.yml)
 [![Style](https://github.com/gtopt-community/gtopt/actions/workflows/style.yml/badge.svg)](https://github.com/gtopt-community/gtopt/actions/workflows/style.yml)
@@ -10,30 +15,164 @@ open-source solver for planning and operating power systems. It builds sparse
 LP/MIP models of multi-stage systems and minimizes the expected discounted
 cost of investment and operation (CAPEX + OPEX):
 
-- **Expansion planning** of generation, transmission and storage (GTEP).
+- **Expansion planning** of generation, transmission, storage and demand (GTEP).
 - **Hydrothermal scheduling** with SDDP and cascade decomposition.
 - **Unit commitment and economic dispatch**, single-bus or DC OPF with
   losses.
 
+**One consistent model, from minutes to decades.** The same element
+definitions and the same formulation of the energy system — electricity,
+water (reservoirs, cascades, irrigation rights), fuels and LNG,
+hydrogen, ammonia and heat — are used at every time scale:
+
+| Scale | Horizon | Resolution | Typical use |
+|---|---|---|---|
+| Operation | hours to days | 15-minute to hourly blocks | unit commitment, daily and weekly dispatch |
+| Medium term | months to years | hourly or load-curve blocks | hydrothermal scheduling with SDDP |
+| Planning | up to decades (30+ years) | representative blocks per stage | expansion of generation, transmission, storage and demand |
+
+Only the time structure (`Stage` → `Block`, any block duration) and the
+method change. The scales are coupled through **SDDP cuts**:
+
+- **Optimality cuts** carry the water values and storage opportunity
+  costs: the future-cost function of a longer study becomes the
+  end-of-horizon valuation of a shorter one (`boundary_cuts`,
+  `FutureCost`, SDDP hot start), and the cascade method refines a coarse
+  model into a detailed one, inheriting its cuts.
+- **Feasibility cuts**, from the elastic filter, enforce the hard limits
+  — reservoir levels, irrigation and water rights — at each scale, so
+  the policy handed from one scale to the next is also feasible.
+
+The operation, medium-term and planning results are therefore
+consistent and converge across scales, instead of coming from separate
+models with different assumptions.
+
 GTOpt is pronounced *G-top* (/ˈdʒiː tɒp/). The command-line binary is
 `gtopt`.
 
+<p align="center">
+  <a href="docs/overview.md">
+    <img src="docs/images/architecture.svg" width="720"
+         alt="GTOpt architecture: JSON cases with Parquet/CSV time series (or converters from PLP, PLEXOS, PSS/E, SDDP, pandapower and Excel) feed the C++ core, which builds the system model, assembles the LP/MIP and solves it with the monolithic, SDDP or cascade method through open-source or commercial solver plugins; results are written as Parquet/CSV and read by run_gtopt, the browser GUI, the REST web service and the comparison and diagram tools.">
+  </a>
+</p>
+
 ## Features
 
-- **Network**: single bus or DC power flow (Kirchhoff), line losses with
-  several piecewise formulations, transmission expansion.
-- **Storage and hydro**: batteries, pumped hydro, reservoirs and cascades,
-  irrigation rights, water values.
+- **Expansion planning**: co-optimized investment in **generation,
+  transmission lines, storage** (battery energy and power separately) and
+  **demand**, in modules with annualized costs, multi-stage and with
+  capacity limits and derating. Expandable demand models loads that grow
+  where and when the observed prices make them worthwhile (e.g.
+  electrolysers, data centres, desalination, electrified industry): a
+  demand module is added when the value of serving it exceeds its cost.
+  Large problems use the OptGen-style investment master over SDDP
+  operation ([Investment Master](docs/methods/expansion.md)).
+- **Network**: single bus or DC power flow, with angle-based or
+  loop-flow (cycle-basis) Kirchhoff formulations, line losses with
+  several piecewise formulations, transmission expansion and optional
+  optimal transmission switching.
+- **Reduce, solve, project back**: networks can be reduced automatically
+  for long-term studies (`gtopt-net`), with dispatch and investment
+  decisions mapped back onto the full network.
+- **Storage and hydro**: optimal management of reservoirs, hydro
+  cascades, pumped hydro and batteries, with **water values** and the
+  **opportunity cost of stored energy** per block, future-cost functions
+  for the end of the horizon, and irrigation rights
+  ([Storage and water values](docs/storage-and-water-values.md)).
+- **Numerically curated**: per-element variable scaling, objective
+  scaling and matrix equilibration (row-max, Ruiz), with the condition
+  number reported for every solve, so one model can hold kWh-scale
+  batteries next to TWh-scale reservoirs (Lake Laja stores about
+  5,600 hm³, roughly 10 TWh through the El Toro–Antuco cascade) and still
+  give stable dispatch, water values and opportunity costs in
+  multi-node, multi-reservoir systems. Hard volume bounds and water-right
+  limits are kept feasible in SDDP with an elastic filter and
+  **feasibility cuts** ([SDDP §2.4](docs/methods/sddp.md#24-elastic-filter-for-feasibility)).
 - **Unit commitment**: tight three-bin MIP formulation, start-up tiers,
-  ramps, minimum up/down times, piecewise heat rates, emissions.
+  ramps, minimum up/down times, piecewise heat rates.
+- **Reserves and inertia**: zonal up/down reserve requirements and
+  minimum-inertia constraints co-optimized with energy, with shortage
+  prices.
+- **Plant-level detail**: combined-cycle configurations, pumps, reservoir
+  seepage, head-dependent production factors and discharge limits, and
+  free decision variables for custom rules.
+- **Beyond electricity**: hydrogen and ammonia chains (electrolysers,
+  fuel cells, storage), thermal storage and LNG terminals, in the same LP
+  as the power system.
+- **Emissions**: CO₂ and other greenhouse gases (CO₂-eq) and local
+  pollutants (NOₓ, SO₂, particulate matter) per unit or fuel, with prices
+  and caps by system-wide or regional zone (the cap's dual is the
+  endogenous price), cap-and-trade allowance banking, carbon capture
+  (CCS) per unit, and **marginal emission factors per bus and hour**,
+  including the CO₂ impact of storage operation
+  ([Emissions](docs/emissions.md)).
+- **Constraints on demand, without code**: PAMPL, an AMPL-like language,
+  adds user constraints, parameters, sums over elements, scenario/stage/
+  block domains and cross-phase state terms to the LP from a text file.
+  Complex operating rules are modelled this way — e.g. the **Chilean
+  irrigation agreements** (Maule, Laja), built from water-right elements
+  plus PAMPL constraints ([User Constraints](docs/user-constraints.md),
+  [Irrigation Agreements](docs/irrigation-agreements.md)).
 - **Methods**: monolithic LP/MIP, SDDP and multi-level cascade SDDP, with
   an OptGen-style investment master.
+- **Uncertainty**: SDDP handles the stochasticity of **hydro inflows,
+  solar and wind** (and demand) through scenarios and backward-pass
+  apertures that vary inflows and renewable capacity factors, with
+  multi-cut and (experimental) Markov-chain variants and AR(1) inflow
+  models; the resulting cuts give the expected-cost water values and
+  storage policies under that uncertainty
+  ([SDDP](docs/methods/sddp.md)).
 - **Solvers as plugins**: HiGHS, CPLEX, Gurobi, MindOpt, SCIP, CBC/CLP and
   cuOpt, loaded at run time.
-- **Data**: JSON cases with Parquet/CSV time series; converters from PLP,
-  PLEXOS, PSS/E, SDDP, pandapower and Excel.
+- **National scale**: built for real power systems — the full Chilean
+  national system (SEN), with its transmission network, hydro cascades,
+  storage and multi-year horizons, is solved routinely; SDDP and cascade
+  decomposition, parallel per-scenario LPs and network reduction
+  (`gtopt_reduce_network`) keep large cases tractable.
+- **From laptop to server and GPU**: the same binary runs on a laptop or
+  a many-core server; scenes, phases and apertures are solved in
+  parallel by an adaptive work pool, and NVIDIA cuOpt adds GPU solving.
+- **Careful memory use**: LPs are kept compressed (lz4) between solves in
+  low-memory mode, cuts can be capped and shared, and the work pool
+  throttles dispatch on free memory, so large cases fit on modest
+  machines.
+- **Policies you keep**: SDDP cuts are saved as plain CSV after every
+  iteration, so runs can be stopped, resumed (hot start), extended or
+  reused as end-of-horizon future-cost functions, including cuts imported
+  from PLP; `gtopt_monitor` follows a run live.
+- **Warm starts that survive a solver change**: simplex bases and MIP
+  starts are stored in solver-neutral form and reused across runs and
+  backends.
+- **Open, inspectable models**: every LP/MIP can be written to a standard
+  LP file with readable names (`--lp-file`, `--lp-only`) and solved or
+  checked with any solver; infeasible runs dump the LP, and
+  `gtopt_check_lp` finds the conflicting constraints (IIS).
+- **Auditable formulation**: the complete LP/MIP formulation, the SDDP
+  cut-validity conditions and the inflow models are published with the
+  source ([Formulation](docs/formulation/mathematical-formulation.md)),
+  and an LP fingerprint records the structure of the model actually
+  solved, so auditors and CI can check that a run uses the intended
+  formulation ([LP fingerprint](docs/lp-fingerprint.md)).
+- **Schema-first input**: `gtopt --json-schema` prints the JSON Schema of
+  the input model, generated from the C++ code, for editor completion
+  and validation before a run.
+- **Open data end to end**: JSON cases and Apache Parquet/CSV inputs and
+  results, readable by pandas, DuckDB, Spark or Power BI (`gtopt2pbi`),
+  with no proprietary database or viewer. Converters from PLP, PLEXOS,
+  PSR SDDP, PSS/E, pandapower, NREL Sienna, RTS-GMLC, NREL-118 and Excel,
+  and export back to pandapower.
 - **Interfaces**: command line, Python tools, a browser GUI and a REST web
   service.
+- **Engineering**: unit, integration and Python test suites, static
+  analysis (CodeQL, clang-tidy) and coverage run on every change.
+
+<p>
+  <a href="docs/interfaces.md"><img src="docs/images/screenshots/gui_topology.png" width="49%"
+     alt="The GTOpt browser GUI showing the network topology of the IEEE 9-bus case: buses, lines with their ratings, generators, a solar profile and demands."></a>
+  <a href="docs/scripts-guide.md#run_gtopt"><img src="docs/images/screenshots/run_gtopt_tui.png" width="49%"
+     alt="The run_gtopt terminal dashboard after an SDDP run solved with HiGHS: lower and upper bounds, gap per iteration, cut counts, resource use and the solver log."></a>
+</p>
 
 ## Install
 
@@ -94,13 +233,14 @@ Solver details and manual builds: [Building Guide](BUILDING.md).
 ```bash
 git clone https://github.com/gtopt-community/gtopt.git
 cd gtopt/cases/c0
-gtopt system_c0.json
+gtopt system_c0.json --set output_directory=/tmp/c0-out
 ```
 
 `cases/c0` is a single-bus system with one generator and one demand and
-capacity expansion over 5 stages. Results are written to `output/`, one
-file per component; status `0` in `solution.csv` means the optimum was
-found.
+capacity expansion over 5 stages. Results are written to `/tmp/c0-out`
+(without `--set`, to the case's `output/`, which holds the reference
+results used by the tests), one file per component; status `0` in
+`solution.csv` means the optimum was found.
 
 Common options:
 
@@ -110,14 +250,87 @@ gtopt case.json --set use_single_bus=true         # ignore the network
 gtopt case.json --solver highs                    # pick a solver backend
 ```
 
+`cases/ieee_9b` adds a 9-bus network and a 24-hour solar profile. Solved
+with HiGHS, it gives the hourly dispatch and nodal prices below: after
+sunset the remaining units cannot cover the evening peak, some demand is
+left unserved and the price at the load buses jumps to the 1000 $/MWh
+failure cost.
+
+<p align="center">
+  <a href="docs/planning-guide.md"><img src="docs/images/dispatch_ieee9b.svg" width="720"
+     alt="Stacked hourly generation of units g1, g2 and the solar unit g3 in the IEEE 9-bus case, with unserved energy in the evening peak; below, the nodal prices at buses b1 and b5 on a log scale, with b5 jumping from 35 to 1000 $/MWh at hour 18."></a>
+</p>
+
 Next steps: the **[first-solve walkthrough](docs/planning-guide.md#quickstart-your-first-solve)**
 and the **[Usage Guide](docs/usage.md)**.
+
+## How GTOpt compares
+
+GTOpt works alongside the models used in the region and reads their
+inputs. A qualitative overview:
+
+| | **GTOpt** | **PLP** | **PLEXOS** | **PSR SDDP** |
+|---|---|---|---|---|
+| Maintained by | GTOpt Community | [CEN](https://www.coordinador.cl/operacion/documentos/modelacion-del-sen/modelos-para-la-planificacion-y-programacion-de-la-operacion/) | Energy Exemplar | PSR |
+| Licence | AGPL-3.0 or commercial | see CEN | commercial | commercial |
+| Formulation documentation | full LP/MIP formulation published with the code | CEN documentation | vendor documentation | vendor documentation and papers |
+| LP solver | your choice: HiGHS, CBC/CLP, SCIP, cuOpt, CPLEX, Gurobi, MindOpt | CLP (via OSI) | see vendor | see vendor |
+| Data formats | JSON + Parquet/CSV | text `.dat` files | vendor database/XML | vendor formats |
+| Read by GTOpt | — | `plp2gtopt` | `plexos2gtopt` (published inputs) | `sddp2gtopt` |
+
+Details, element by element, in
+[Comparison with other tools](docs/tools/comparison.md).
+
+## Roadmap: bid-based markets
+
+GTOpt is being extended toward **offer-based electricity markets**, in
+line with the transition of the Chilean power system from audited-cost
+dispatch to a market with bids:
+
+- a single, consistent dispatch chain — from medium-term water values to
+  day-ahead and intraday scheduling — clearing **offers instead of
+  audited costs**;
+- co-optimization of **energy and ancillary services**, with nodal
+  prices;
+- market layers for **capacity/sufficiency**, long-term energy
+  (reservoirs, LNG take-or-pay) and **financial transmission rights**;
+- a market simulator to test designs and bidding behaviour on the full
+  system before they are applied.
+
+This work is in development; feedback and collaboration are welcome in
+[Discussions](https://github.com/gtopt-community/gtopt/discussions).
+
+## Validation
+
+GTOpt is validated at three levels. **The Chilean national electric
+system (SEN)**: full-scale long-term hydrothermal planning cases built
+from PLP data with `plp2gtopt` and solved with SDDP and cascade SDDP,
+with the generated LPs compared element by element against PLP's
+([PLP vs GTOpt](docs/lp-comparison.md)), and daily/weekly operation
+cases built with `plexos2gtopt` from the PLEXOS input bundles that the
+system operator (CEN) publishes for its daily programming, with the
+GTOpt dispatch, prices and losses compared against the PLEXOS solutions
+the CEN publishes alongside them (we do not run PLEXOS; only the
+published inputs and outputs are used; the comparison is in
+`scripts/plexos2gtopt/compare_with_plexos.py`).
+**External reference systems and models**: IEEE 4/9/14/30/57/118-bus
+and RTS-24 networks, MATPOWER `case3375wp`, DC OPF results from
+pandapower, the SDDP.jl hydro-valley and hydro-thermal examples and
+published SDDP benchmarks
+([literature benchmarks](docs/examples/sddp-literature-benchmarks.md)),
+PSR SDDP sample cases via `sddp2gtopt`, UnitCommitment.jl and NREL
+Sienna unit-commitment cases, the NREL-118 and RTS-GMLC systems, and
+ports of GenX and PyPSA emission models. **Continuous integration**:
+more than 4,600 C++ unit and integration tests and several thousand
+Python tests, with reference results for the cases in
+[`cases/`](cases/) checked on every change. See also [Comparison with other
+tools](docs/tools/comparison.md).
 
 ## Tools and interfaces
 
 | | What it is | Docs |
 |---|---|---|
-| **Python tools** | Converters (`plp2gtopt`, `plexos2gtopt`, `psse2gtopt`, `sddp2gtopt`, `pp2gtopt`, `igtopt`), diagrams, `run_gtopt` and checkers | [Scripts Guide](docs/scripts-guide.md) |
+| **Python tools** | Converters (`plp2gtopt`, `plexos2gtopt`, `psse2gtopt`, `sddp2gtopt`, `pp2gtopt`, `igtopt`), diagrams, marginal units and emissions (`gtopt-marginal-units`), `run_gtopt` and checkers | [Scripts Guide](docs/scripts-guide.md) |
 | **GUI** | Browser interface to build, solve and inspect cases (`gtopt_gui`) | [GUI and web service](docs/interfaces.md) |
 | **Web service** | REST API to submit cases and fetch results (`gtopt_websrv`) | [GUI and web service](docs/interfaces.md) |
 | **C++ library** | The solver as a library, plus the Apache-2.0 Extension SDK for solver plugins | [API reference](https://gtopt-community.github.io/gtopt/) |

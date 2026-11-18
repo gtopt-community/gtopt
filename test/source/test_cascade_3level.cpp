@@ -131,8 +131,7 @@ TEST_CASE("Cascade 3-level uninodal-transport-full on 2-bus hydro")  // NOLINT
     for (const auto& ls : solver.level_stats()) {
       // Tolerance is scaled by the objective magnitude so the
       // invariant `LB <= UB` survives solver-specific numerical
-      // noise (observed: CPLEX ~1e-13 abs, MindOpt ~2e-10 abs on
-      // a 39150-magnitude objective).
+      // noise.
       const auto scale =
           std::max({std::abs(ls.lower_bound), std::abs(ls.upper_bound), 1.0});
       CHECK(ls.lower_bound <= ls.upper_bound + (1e-8 * scale));

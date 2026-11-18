@@ -855,20 +855,14 @@ def _extract_fuel_co2_membership_rates(
 #:
 #: 1. **Units**: ``Fuel_MaxOfftakeWeek.csv`` ships the cap in
 #:    **TJ/week**, while ``Gen_HeatRate.csv`` ships heat rates in
-#:    **GJ/MWh**.  Verified against the PLEXOS solution ``.accdb``:
-#:    the constraint's t_data RHS = CSV × 1000 = total weekly cap
-#:    in GJ (for ``FueMaxOffWeek_Gas_NuevaRenca_GN_A``: CSV 9.8 TJ
-#:    matches the per-period RHS 58.33 GJ × 168 hours = 9800 GJ).
+#:    **GJ/MWh**.  The constraint's effective weekly cap in GJ is
+#:    therefore CSV × 1000.
 #:    → we multiply the CSV value by ``_TJ_TO_GJ`` (1000) when
 #:    emitting to gtopt so the cap units match the LHS basis.
 #:
 #: 2. **Semantics**: PLEXOS enforces the cap **per period** (the
 #:    weekly cap distributed as a uniform per-hour rate, then
-#:    multiplied by each period's duration).  Evidence: the
-#:    constraint's RHS in t_data ships uniformly as 58.33 across
-#:    all 111 periods, and Activity_p values per period vary but
-#:    never exceed RHS_p — consistent with `Activity_p ≤ RHS_p`
-#:    per-period enforcement.
+#:    multiplied by each period's duration).
 #:    → we set ``Fuel.max_offtake_per_block = True`` so gtopt's
 #:    ``FuelLP`` builds one cap row per (scenario, stage, block),
 #:    pro-rating the weekly cap by block duration share.  Matches
@@ -886,12 +880,9 @@ def _extract_fuel_max_offtake_week(
     ``(YEAR, MONTH, DAY)`` triple is the **week-start date** (PLEXOS
     convention) and ``VALUE`` is the cap for that week in **TJ/week**.
     CEN PCP daily bundles typically ship 1-2 weekly rows per fuel band;
-    PLEXOS itself enforces the weekly cap **per period**, switching the
-    per-hour rate at the calendar week boundary inside the 7-day
-    horizon (verified on RES20260422.accdb: ``Gas_Colbun_GN_B`` per-
-    period RHS = 12.5 GJ/h for the 24 day-1 hourly periods (week
-    04-16's 2.1 TJ / 168 h) and 27.38 GJ/h for the 87 day-2-to-7
-    aggregated periods (week 04-23's 4.6 TJ / 168 h)).
+    the weekly cap is enforced **per period**, switching the
+    per-hour rate (weekly cap / 168 h) at the calendar week boundary
+    inside the 7-day horizon.
 
     gtopt's ``Fuel.max_offtake`` is a **single horizon-wide budget**
     (gtopt pro-rates per block by duration share — see
@@ -905,9 +896,9 @@ def _extract_fuel_max_offtake_week(
     ``Gas_Colbun_GN_B`` rows ``[2026-04-16: 2.1 TJ, 2026-04-23: 4.6 TJ]``):
     week 04-16 covers Apr 16-22 (1 horizon day = Apr 22) → 2100 × 1/7
     = 300 GJ; week 04-23 covers Apr 23-29 (6 horizon days) → 4600 × 6/7
-    = 3943 GJ; total = **4243 GJ** — matches PLEXOS's ``Σ_period
-    duration × RHS_period`` to the cent (vs the legacy first-row bug
-    which returned 2100 GJ, starving NEHUENCO_1-TG+TV in the gtopt MIP).
+    = 3943 GJ; total = **4243 GJ** = ``Σ_period duration × RHS_period``
+    (vs the legacy first-row bug which returned 2100 GJ, starving
+    NEHUENCO_1-TG+TV in the gtopt MIP).
 
     When ``horizon_start`` is ``None`` (or the bundle's horizon length is
     unknown), fall back to the legacy first-row behaviour.
@@ -1739,8 +1730,8 @@ def _recover_csv_only_thermals(
 #: (MW) is a degenerate stale-rating artifact, not a real plant — e.g.
 #: ``SANTA_ROSA`` ships ``3.45e-10`` MW from PLEXOS.  Such a tiny pmax lands
 #: as the ``commitment_gen_upper`` coefficient (``gen <= pmax*status``),
-#: injecting a ~1e-10 matrix entry that blows the LP condition number
-#: (kappa) to ~1e14.  Collapsing it to exactly ``0.0`` routes the unit
+#: injecting a ~1e-10 matrix entry that blows up the LP condition number
+#: (kappa).  Collapsing it to exactly ``0.0`` routes the unit
 #: through the existing ``pmax == 0`` machinery (commitment dropped, safe
 #: ``[0, 0]`` column).  The CEN pmax distribution has a clean gap — nothing
 #: between ``3.45e-10`` MW (SANTA_ROSA) and ``0.01`` MW (smallest real
@@ -1898,13 +1889,10 @@ def extract_generators(
     # rows (negative, NaN, or above the cap) with a per-row warning.
     AUX_USE_MAX_PERCENT = 50.0  # physical aux-use upper bound
     aux_use_map: dict[str, float] = {}
-    # PLEXOS ships Gen_AuxUse.csv in the bundle but does NOT apply it: the
-    # solution's Auxiliary Use (prop 81) is 0 and its Total Generation Cost
-    # carries no aux fuel.  Applying it makes gtopt burn ~54 GWh of
-    # station-service fuel PLEXOS never spends — ≈ the entire +13% op-cost
-    # gap on CEN PCP cases (and the raw values, e.g. COCHRANE 30.058, are
-    # implausibly high for real station service).  Default to IGNORING it so
-    # gtopt matches PLEXOS; opt in with --apply-generation-aux-use
+    # The bundle ships Gen_AuxUse.csv, but the reference model does not
+    # apply it (and the raw values, e.g. COCHRANE 30.058, are implausibly
+    # high for real station service); applying it makes gtopt burn extra
+    # station-service fuel.  Default to IGNORING it; opt in with --apply-generation-aux-use
     # (GTOPT_APPLY_GENERATION_AUX_USE=1) to model the generators'
     # station-service self-consumption.
     import os as _os
@@ -2039,7 +2027,7 @@ def extract_generators(
     # possible curve-fit: every block, the LP can dispatch at most what
     # PLEXOS dispatched.  Useful for validating that the LP would match
     # PLEXOS dispatch exactly if every per-period cap were correctly
-    # propagated, and for diagnosing whether the +71 % hydro overshoot
+    # propagated, and for diagnosing whether a hydro overshoot
     # is purely from missing per-block caps vs structural differences.
     #
     # Same restriction as ``--use-plexos-commit``: applied only to
@@ -2066,9 +2054,8 @@ def extract_generators(
             # Includes the 'zombie' hydros (PEHUENCHE_U1, COLBUN_U1,
             # PANGUE_U1, ANTUCO_U2, ALFALFAL_2, ...) that exist in the
             # JSON but lack a Head Storage membership — without the
-            # broader cap they dispatch at nameplate freely and account
-            # for ~250 GWh of the +71 % hydro overshoot (verified
-            # 2026-05-22).  PLEXOS classification uses the
+            # broader cap they dispatch at nameplate freely and
+            # overshoot hydro generation.  PLEXOS classification uses the
             # ``Hydro Gen Group A/B/C`` categories in t_category.
             from .plexos_block_layout import _read_cached_csv
 
@@ -2240,6 +2227,7 @@ def extract_generators(
         # will multiply by pmax_factor when we emit the profile).
         # Skip the Max Capacity fallback when:
         #   * An EXPLICIT cap profile is active (``--use-plexos-gen-cap``)
+        #     — we WANT pmax=0 if PLEXOS dispatched the unit at 0
         #     every period.  Without this guard the fallback overrides
         #     the cap and the LP free-runs at full nameplate.
         #   * Gen_Rating.csv ships an explicit zero profile for the
@@ -2616,10 +2604,8 @@ def extract_lines(
             min_rating_static = 0.0
         wheeling = db.static_property("Line", line.object_id, "Wheeling Charge")
         # PLEXOS Enforce Limits: 0=Never, 1=Post-solve check only, 2=Always.
-        # PLEXOS's INTERNAL default for unset is 0 (verified empirically
-        # on CEN PCP 2026-04-07: 2 of 8 unset-EL lines — Tamaya110→
-        # S-AA100_3B and Tamaya110→Salar110_4B — dispatched ABOVE their
-        # signature of EL=0).  Match that default rather than the
+        # The default for an unset value is taken as 0 (lines with an
+        # unset EL behave as unenforced).  Match that default rather than the
         # over-cautious EL=2 (which over-constrains lines PLEXOS itself
         # leaves unenforced).  The downstream EL=0 → soft-cap path
         # (``extended`` mode below) then applies the standard 2× free
@@ -2633,7 +2619,7 @@ def extract_lines(
         # LP route huge (often circulating) flows — e.g. 54,720 MW on the
         # 62 MW ``S-Km6100->Salar110`` 110 kV line.  But a plain HARD cap
         # at the rating over-constrains the radial pockets PLEXOS itself
-        # runs above rating (``Capricornio110->LaNegra110`` at 2.7×, no
+        # runs above rating (``Capricornio110->LaNegra110``, no
         # parallel route).  So model EL=0 lines as a SOFT cap instead:
         # free up to the rating, penalised between the rating and
         # ``headroom × rating``, hard at ``headroom × rating`` (the writer
@@ -2673,6 +2659,7 @@ def extract_lines(
         # list — names PINNED to a plain HARD cap at their rating, overriding
         # the EL=0 soft-cap free band.  For genuine physical limits PLEXOS
         # never overloads despite EL=0 (the Chacao cable
+        # ``PMontt220->Chiloe110``: 90 MW rating into the bounded
         # Chiloé island pocket).  The keep-vs-lift decision is internal to
         # PLEXOS's LP/relaxation and is not derivable from the input rating
         # attributes, so the pin list is hand-curated (default ships the
@@ -2681,10 +2668,10 @@ def extract_lines(
         _no_lift_set = {n.strip() for n in _no_lift_raw.split(",") if n.strip()}
         # EL=0 ("Never enforce") handling mode (CLI ``--el0-lines``):
         #   "strict" (DEFAULT) — treat EL=0 like EL=2: a plain hard cap at the
-        #       nominal rating (no free band, no headroom).  Matches the PLEXOS
-        #       solution, where only ~34/188 EL=0 lines are ever run above
-        #       rating; those exceptions are LIFTED back to a soft cap via the
-        #       ``--lift-line-caps`` default list.
+        #       nominal rating (no free band, no headroom).  Only a minority
+        #       of EL=0 lines are meant to run above rating; those exceptions
+        #       are LIFTED back to a soft cap via the ``--lift-line-caps``
+        #       default list.
         #   "extended" — relax: soft cap with a free over-rating band + penalty
         #       for EVERY EL=0 line (the behaviour described above).
         _el0_mode = _os_lift.environ.get("GTOPT_EL0_LINES", "strict").strip().lower()
@@ -2805,8 +2792,7 @@ def extract_lines(
     # total absolute error ``Σ_i L_max,i / (4 K_i²) ≤ B`` (the budget,
     # ``loss_error_pct × Σ L_max``) gives a Lagrangian KKT solution where
     # the optimum allocates K segments with ``K_i ∝ L_max,i^(1/3)`` — see
-    # docs/analysis/no-scale-reservoir-effective and the
-    # ``project_loss_model_midpoint_envelope`` memory.  Lines with bigger
+    # docs/analysis/no-scale-reservoir-effective.  Lines with bigger
     # peak loss get more segments; tiny stubs collapse to the floor.
     # ``loss_error_pct = 0`` disables adaptation (legacy: every lossy
     # line gets the ceiling K).
@@ -3478,6 +3464,7 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # BESS_IniValue has no BAND column — long format with NAME, YEAR,
         # MONTH, DAY, PERIOD, VALUE. Period 1 = day-start SOC (percent).
         ini_soc_pct = read_long(bundle.csv("BESS_IniValue.csv"))
+    # PLEXOS Battery.Max Power is a placeholder (2.0 MW on every CEN
     # PCP battery) — the real per-period MW rating lives in
     # ``Gen_Rating.csv`` against the ``BAT_<name>`` Generator object
     # that PLEXOS uses to model the storage's electrical port.
@@ -3507,8 +3494,8 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # ``Capacity = 99,999 MWh`` and ``Max Power = 1000 MW`` (vs
         # the real CEN BESS units at 100-1300 MWh / 2 MW).  Left in
         # the converted JSON they get freely dispatched (gcost=0) and
-        # produced ~30 GWh of fake generation on day 1, pushing the
-        # LP objective $1-2M below PLEXOS.  Drop them entirely; if a
+        # produce spurious free generation that distorts the LP
+        # objective.  Drop them entirely; if a
         # future bundle needs them, re-enable via a CLI flag.
         if batt.name.endswith("_AUX"):
             skipped_aux += 1
@@ -3603,9 +3590,8 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # across the horizon (an off-spec terminal value that drives
         # BESS net-charge by ~12 GWh on the CEN PCP weekly bundle);
         # pinning ``efin=eini`` forces the LP to return the battery
-        # to its initial state.  PLEXOS's actual MIP allows a small
-        # net-discharge across the horizon (≈568 MWh / −0.6% of total
-        # cycling on CEN PCP weekly 2026-04-22) — when calibrating
+        # to its initial state.  The reference model allows a small
+        # net-discharge across the horizon — when calibrating
         # against PLEXOS, set ``GTOPT_BATTERY_PIN_EFIN=0`` (or the
         # ``--no-battery-efin-pin`` CLI flag) to drop the pin and let
         # gtopt's LP match PLEXOS's flexible terminal SoC.  The
@@ -3779,7 +3765,7 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         # end-of-day target binds only the block that contains it.  The
         # end-of-horizon floor is also honoured as a SOFT ``efin`` slack below.
         # ``emax`` takes the binding (min) CSV value so operational caps are
-        # respected at every block (verified to tie out 1:1 with PLEXOS).
+        # respected at every block.
         emax = min(emax_series) if emax_series else static_emax
         emin = static_emin
         eini = eini_series[0] if eini_series else 0.0
@@ -3794,8 +3780,7 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         # ``emax = min(emax_series)``), SILENTLY losing the time variation:
         #   * CANUTILLAR Max Volume steps 12,330.8 (h1-23) → 10,569.6
         #     (h24+) — the early high cap was discarded, so gtopt could
-        #     never fill above the constant 10,570 even though PLEXOS holds
-        #     ~10,690 in the first day.
+        #     never fill above the constant 10,570 during the first day.
         #   * ELTORO / L_Maule Min Volume step from 0 to an operational
         #     end-of-day floor (18,346 at h24; 9,007 at h94) which the
         #     scalar floor (static_emin) never enforced.
@@ -3855,10 +3840,10 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 _emin_blk = max(emin_hours) if emin_hours else static_emin
                 # Soft-emin clamp (2026-06-21): a per-block Min-Volume floor
                 # ABOVE the reservoir's initial volume would FORCE refill, but
-                # PLEXOS treats Min Volume as soft/aspirational and ends BELOW
-                # it (EL_TORO efin 18,258 < the h24 floor spike 18,346, while
-                # eini = 18,299).  Under ``strict_storage_emin=true`` that hard
-                # spike held back ~30 GWh of cheap hydro on 2026-10-19,
+                # PLEXOS treats Min Volume as soft/aspirational (e.g. EL_TORO:
+                # h24 floor spike 18,346 above eini = 18,299).  Under
+                # ``strict_storage_emin=true`` that hard spike held back
+                # ~30 GWh of cheap hydro on 2026-10-19,
                 # replaced by gas (+$2.6 M).  Clamp the floor at ``eini`` so it
                 # can never force net accumulation above the start; floors
                 # at/below ``eini`` still bind (preserving the per-block
@@ -4332,13 +4317,12 @@ def extract_waterways(
             #
             # **The strange PLEXOS behaviour we are trying to reproduce:**
             #
-            # On the CEN PCP weekly bundle PLEXOS spills 7,479 m³/s·h
-            # of water at MID-CASCADE Vert arcs (Vert_LAJA_I = 2,316;
-            # Vert_RUCUE = 1,059; Vert_B_C_Isla = 2,858; Vert_B_M_Isla
-            # = 910; Vert_ANTUCO = 175; Vert_SANIGNACIO = 160) — water
-            # that, if it kept flowing through the cascade, could be
-            # turbined by 1–8 downstream stations and produce ~78 GWh
-            # of "free" hydro generation.  PLEXOS chooses to spill
+            # On the CEN PCP weekly bundle the reference solution spills
+            # water at MID-CASCADE Vert arcs (Vert_LAJA_I, Vert_RUCUE,
+            # Vert_B_C_Isla, Vert_B_M_Isla, Vert_ANTUCO, Vert_SANIGNACIO)
+            # — water that, if it kept flowing through the cascade,
+            # could be turbined by downstream stations as "free" hydro
+            # generation.  PLEXOS chooses to spill
             # this water mid-cascade despite zero direct cost.
             #
             # From a pure-LP perspective this is ANOMALOUS: hydro has
@@ -4354,11 +4338,7 @@ def extract_waterways(
             # spillage.
             #
             # This routing toggle is therefore a DIAGNOSTIC SWITCH —
-            # not a physically motivated modelling choice.  We pick
-            # whichever wiring produces dispatch CLOSER to PLEXOS on
-            # the reference bundle, accepting that "closer to PLEXOS"
-            # may mean "less physically accurate" until the missing
-            # pricing signals land.
+            # not a physically motivated modelling choice.
             #
             # **What this option does:**
             #
@@ -4370,12 +4350,9 @@ def extract_waterways(
             #            drain.  Spillage LEAVES the topology
             #            entirely; the LP loses the water
             #            permanently.  Matches the legacy
-            #            plexos2gtopt behaviour and is closer to
-            #            PLEXOS dispatch on the CEN PCP weekly
-            #            overdispatch hydro, but ocean is the
-            #            tighter of the two: with cascade routing
-            #            the LP would extract even more MWh from
-            #            recycled spillage).
+            #            plexos2gtopt behaviour and is the tighter
+            #            of the two: with cascade routing the LP
+            #            extracts more MWh from recycled spillage.
             #
             #   cascade  — keep the PLEXOS-published downstream
             #            target (Tail Storage) so spillage feeds the
@@ -4386,8 +4363,7 @@ def extract_waterways(
             #            is the topologically correct PLEXOS shape.
             #            BUT in our LP it produces MORE hydro
             #            generation than ocean mode (every cumec
-            #            spilled gets turbined again downstream),
-            #            making the gap to PLEXOS worse, not better.
+            #            spilled gets turbined again downstream).
             #            Useful for diagnostics and for the day we
             #            wire in per-block pmax / water values that
             #            would naturally suppress the unwanted
@@ -4537,18 +4513,15 @@ def extract_waterways(
         # ELTORO/COLBUN couldn't physically afford the obligation over
         # the operational floor.  With ``Reservoir.efin`` now pinned to
         # the PLEXOS-solution End Volume (``solution_efin`` lookup
-        # above), reservoirs match PLEXOS's trajectory exactly, so
-        # the obligation IS feasible and the hard pin is the right
-        # choice.  Without it ~28 000 m³/s·h that PLEXOS routes to
-        # irrigation / ecology gets free-routed through penstocks in
-        # gtopt, inflating hydro generation by ~60 % on the CEN PCP
-        # weekly bundle (2026-05-21 measurement: 459 GWh gtopt vs
+        # above), the obligation IS feasible and the hard pin is the
+        # right choice.  Without it the water assigned to irrigation /
+        # ecology gets free-routed through penstocks in gtopt,
+        # inflating hydro generation.
         forced_target = max(forced) if has_forced else 0.0
         forced_profile: tuple[float, ...] = ()
-        # Bypass waterways (``B_<reservoir>``): PLEXOS routes water
-        # ABOVE the published Min Flow when surplus is available
-        # (verified 2026-05-22 on the CEN PCP weekly bundle:
-        # pinned to ``Hydro_WaterFlows.csv``).  Emit the CSV value as
+        # Bypass waterways (``B_<reservoir>``): the published Min Flow
+        # is a floor — water may be routed ABOVE it when surplus is
+        # available.  Emit the CSV value as
         # ``fmin`` only — leave ``fmax`` unbounded so the LP can route
         # the extra flow.  Other forced-flow waterways
         # (Riego_/Caudal_Eco_/Filt_/Ext_) ARE pinned to fmin = fmax =
@@ -5250,7 +5223,7 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
         # provided reserve, distinct from the time-varying CSV profile.
         # CPF zones and most BESS zones carry only this static floor —
         # without folding it into the requirement RHS those zones get
-        # zero reserve and PLEXOS's $0.65M reserve cost is unreproducible.
+        # zero reserve and the reserve cost cannot be reproduced.
         min_provision = (
             db.static_property("Reserve", rsv.object_id, "Min Provision") or 0.0
         )
@@ -5377,10 +5350,11 @@ def extract_reserve_provisions(
     (gen, type)) was investigated as Option B but discarded for CEN
     PCP because the user_constraint coefficient references don't
     carry a type — only a gen — and the LP economic difference was
-    ~$1M / $212M.  Type-aware splitting would need a coordinated
+    negligible.  Type-aware splitting would need a coordinated
     refactor of _DIRECT_COEFFS + Reserve.Provision Coefficient
     expansion in extract_user_constraints to emit per-type refs.
 
+    Per-PLEXOS-type Min Provision floors (5 MW Regulation vs 10 MW
     Spinning/Replacement) are aggregated via MAX, giving the strictest
     floor across all types the gen participates in.  This is
     conservative compared to the per-type SUM that PLEXOS would
@@ -5495,8 +5469,7 @@ def extract_reserve_provisions(
                         target[gen_obj.name] = pair_min
     # Per-(gen, direction) hourly MAX RESERVE caps from CFdata/.  This
     # is the AUTHORITATIVE upper bound on ``reserve_provision.up`` /
-    # ``.dn`` columns — PLEXOS sol max == CFdata cap EXACTLY across
-    # every binding pair (verified on the reference solution 2026-05-31).  Without
+    # ``.dn`` columns.  Without
     # this, ``urmax = drmax = pmax`` leaves the LP DV 2-16000× too
     # loose, the PLEXOS-binding reserve UCs
     # (``CPF_Up5Calculation``, ``CPF_UpMinProvision``,
@@ -5718,8 +5691,7 @@ def _cf_maxresp_series(
 
     These files are the **authoritative per-(gen, reserve-type, hour) MAX
     RESERVE CAPABILITY** PLEXOS uses to bound Reserve.Provision LP
-    variables.  Verified 2026-05-31 on the reference case PLEXOS sol: the per-(gen,
-    reserve) cap == PLEXOS sol max EXACTLY for every binding pair (e.g.
+    variables.  The XML
     linkage is `t_membership(coll 159 Reserve→Generators) → t_data
     (property_id 1400 "Max Response") → t_text (Data File) → CSV
     filename`.
@@ -6039,8 +6011,8 @@ def extract_commitments(
         # legacy commit-floor) — this combined with ``Gen_Commit = 1``
         # (must commit) produces an LP-infeasible row
         # ``19·u_commit − gen ≤ 0`` since ``gen`` is bounded by 8.
-        # for the whole week without violating Min Stable Level —
-        # i.e. PLEXOS implicitly demotes ``pmin`` to ``min(pmin,
+        # The reference model treats this as feasible — i.e. it
+        # implicitly demotes ``pmin`` to ``min(pmin,
         # max_pmax)`` when Fixed Load binds below it.  Mirror that.
         if gen_spec is not None:
             # PLEXOS treats Fixed Load as a hard equality
@@ -6131,9 +6103,9 @@ def extract_commitments(
         # PLEXOS effectively skips the ramp_down constraint on the
         # initial-power → block-0 transition: a unit whose
         # ``Gen_IniGeneration`` exceeds ``Gen_Rating[0] + Max Ramp Down``
-        # still lands feasibly at ``Gen_Rating[0]`` in PLEXOS's hour-1
-        # dispatch (verified on CEN-PCP 2026-05-17 GUACOLDA_1:
-        # initial=120.9118 MW, pmax[0]=63.9118 MW, ramp_down=45 MW/h
+        # still lands feasibly at ``Gen_Rating[0]`` in hour 1 (e.g.
+        # GUACOLDA_1 input data: initial=120.9118 MW,
+        # pmax[0]=63.9118 MW, ramp_down=45 MW/h — a 57 MW drop > 45).
         # gtopt's CommitmentLP enforces
         # ``initial_power − p[0] ≤ rd·u_init + sd·(1 − u_init)`` as
         # HARD (source/commitment_lp.cpp:537-563); without alignment
@@ -6177,6 +6149,7 @@ def extract_commitments(
         # clearly intended as zero but each residual lands as the
         # ``Commitment[i].status × gen_upper`` coefficient over 168
         # blocks, dragging the LP coefficient ratio to 2.49e+07 and
+        # degrading the LP condition number.  A 1 kW (1e-3 MW) threshold —
         # below the physical minimum tech of every CEN unit — zeros
         # these out without touching any real dispatch level.
         _MIN_INITIAL_POWER_MW = 1.0e-3
@@ -6248,17 +6221,11 @@ def extract_commitments(
         #
         # Earlier we skipped any generator with ``Gen_Commit = -1``
         # across the whole horizon on the theory that "-1 means no
-        # commitment".  Validated against the PLEXOS solution
-        # (.accdb prop 7 Units Generating) on CEN PCP 2026-04-22:
-        # CAMPICHE (Gen_Commit = -1 always, $102k startup, 62.9 MW
-        # MSL) actually cycles 1→0 mid-week in PLEXOS.  Same story
-        # for 10/16 coal plants (ANGAMOS_1/2, NUEVA_VENTANAS,
-        # HORNITOS, ANDINA, GUACOLDA_1/2/3/5, COCHRANE_2), 900+
-        # thermals total.  Skipping their CommitmentSpec lets the
+        # commitment".  That is wrong: such units (e.g. CAMPICHE,
+        # Gen_Commit = -1 always, with a startup cost and MSL) do
+        # cycle on/off.  Skipping their CommitmentSpec lets the
         # gtopt LP dispatch them freely with no startup cost,
-        # producing the +$20 GWh CAMPICHE over-dispatch / +$25 GWh
-        # SANTA_MARIA over-dispatch / etc. observed in the 2026-
-        # 05-24 K=6 uniform run.
+        # producing thermal over-dispatch.
         #
         # Correct interpretation: ``Gen_Commit = -1`` = "MIP
         # decides" — emit the CommitmentSpec exactly as if any
@@ -6278,10 +6245,9 @@ def extract_commitments(
         # $3.80 < $5.40) to satisfy ``Σ status ≤ 1`` — but that
         # variant has ``pmax = 0`` so it can't actually dispatch.
         # The actually-dispatchable variant (``*_GN_A`` with
-        # ``pmax > 0``) is then locked OFF.  Verified 2026-05-29 on
-        # CEN PCP MIP K=4: QUINTERO_1A/B_GN_A reported 0 MWh vs
-        # QUINTERO_1A_GNL_F (pmax=0, gcost=$3.80, on 158/168 h) and
-        # the Uniq constraint forced QUINTERO_1A_GN_A's status to 0.
+        # ``pmax > 0``) is then locked OFF (e.g. the LP committed
+        # QUINTERO_1A_GNL_F (pmax=0) and the Uniq constraint forced
+        # QUINTERO_1A_GN_A's status to 0, so it dispatched nothing).
         #
         # Fix: PIN ``status = 0`` for the CommitmentSpec when the
         # generator's effective pmax is zero across the horizon (no
@@ -6299,7 +6265,7 @@ def extract_commitments(
         # Instead, emit the CommitmentSpec with
         # ``commit_status_profile = (0,) * horizon_hours`` — the
         # writer translates an all-zero profile into per-block
-        # ``fixed_status = 0`` (CPLEX presolve immediately fixes
+        # ``fixed_status = 0`` (presolve immediately fixes
         # ``u = 0``, zero LP cost) — preserving the variable for
         # PAMPL UC references and naturally giving the SSCC sums the
         # ``0`` contribution that PLEXOS itself reports for these
@@ -6371,8 +6337,8 @@ def extract_hydro_discharge_user_constraints(
     operator chosen by the ``min`` / ``max`` suffix.
 
     Without these constraints in the LP, multi-unit hydro plants are
-    free to dispatch beyond their combined penstock capacity — that's
-    why our previous LP cost was ~$5 M lower than the PLEXOS MIP.
+    free to dispatch beyond their combined penstock capacity, which
+    artificially lowers the LP cost.
     """
 
     if not bundle.has("Hydro_AntucoBounds.csv"):
@@ -7023,7 +6989,7 @@ def _build_rhs_date_overlay_profile(
 # something like ``Σ_units generation ≥ <floor>`` or ``Σ ≤ <cap>`` or a
 # ramp delta inequality on a single hydro plant's units.
 #
-# Shadow=large e.g. $7,999/MWh for ``ANTUCOmin``).  But PLEXOS gates
+# **PLEXOS treats these constraints as HARD.**  But PLEXOS gates
 # them INTERNALLY on the unit's commit status: when PLEXOS keeps the
 # plant OFF for a block, the min/max row is auto-relaxed (the LP isn't
 # asked to satisfy ``gen ≥ floor`` when the unit is OFF — that would be
@@ -7032,11 +6998,11 @@ def _build_rhs_date_overlay_profile(
 #
 # **gtopt does NOT have a native commit-gated UC primitive yet**, so
 # hardening these names without the gate makes the LP primal-infeasible
-# at blocks where the hydro is fractionally / fully off (verified on
-# CEN PCP 2026-04-22: ``antucomin_constraint_1263_1_1_40`` reported
-# infeasible by CPLEX presolve when added to the PLEXOS-HARD-promote
-# list; the LP-relax can't satisfy ``Σ_ANTUCO_Ui gen ≥ 137`` at block
-# 40 because OTHER constraints force the units to a lower aggregate).
+# at blocks where the hydro is fractionally / fully off (e.g.
+# ``antucomin_constraint_1263_1_1_40`` is reported infeasible by
+# presolve when added to the PLEXOS-HARD-promote list; the LP-relax
+# can't satisfy ``Σ_ANTUCO_Ui gen ≥ 137`` at block 40 because OTHER
+# constraints force the units to a lower aggregate).
 #
 # **Workarounds in place:**
 #   * **Plan 2** (commit ``7d2c9bcd0``): auto-promote ``<NAME>min/max``
@@ -7054,7 +7020,7 @@ def _build_rhs_date_overlay_profile(
 #     to the normal soft-tier classification.
 #   * ``hard``: names are kept in the PLEXOS-HARD list, promoted to
 #     penalty=0.  WILL FAIL on most CEN PCP weekly cases at LP-relax
-#     time (matching PLEXOS sol Activity = RHS exactly requires the
+#     time (satisfying Activity = RHS exactly requires the
 #     commit-gating PLEXOS provides internally and gtopt does not).
 #     Available for debug / validation against a horizon where the
 #     hydro commitment pattern happens to align between gtopt and
@@ -7257,9 +7223,8 @@ def _horizon_value(
     value plus narrow single-day windows that record historical binding
     events from past real-time runs.  ``_first_value`` (lowest data_id)
     ignores the windows entirely and frequently picks a stale historical
-    override, which is wrong: validated against the RES20260422 solution,
-    the lowest-data_id RHS matches PLEXOS in only 30 % of the 336
-    ambiguous constraints, whereas this date-aware rule matches 99 %.
+    override, which is wrong: the RHS in effect is the one whose date
+    window covers the run date.
 
     Selection:
       1. Keep rows active at ``horizon_start``: undated base rows (priority
@@ -7645,8 +7610,7 @@ _SD_NOLIMIT_RHS_SENTINEL = 10000.0
 #: Anything BETWEEN these two values (e.g. ``CFRS_PEHUENCHE = 51515.1``)
 #: is a *real* MW cap a CEN aggregate may bind on at peak, NOT a
 #: sentinel — flagging it inactive silently disables a constraint
-#: PLEXOS actively binds (verified 2026-06-03 against PCP_RES_20260118:
-#: CFRS_PEHUENCHE bound 126.5 GWh at $38.38/MWh on hour 1).  Match
+#: that can actually bind.  Match
 #: with a tight relative tolerance instead of the open-ended
 #: ``>= _SD_NOLIMIT_RHS_SENTINEL`` threshold so legitimate large caps
 #: stay active.
@@ -7724,10 +7688,7 @@ def _consolidate_gas_maxopday_groups(
     single 24h window — NOT as a per-block uniform cap.  The current
     per-block emission instead enforces ``Σ_g hr·gen ≤ RHS_Custom × 1000
     / horizon_hours`` at EVERY block of the horizon, which over-tightens
-    pid-3069 Activity audit on RES20260422.accdb: Day0_Enel reports a
-    single non-zero Activity = 22 at block 2, RHS displayed 0.131 per
-    block, Σ slack = 0; Day1_Enel reports per-block Activity over
-    blocks 7-24 with daily-cap = 1100 GJ).
+    by ~168× vs the intended daily scope.
 
     Consolidation: each PLEXOS (fuel, owner) group has 8 Day_X variants
     (Day0..Day7) sharing the same LHS (same fuel → same generators).
@@ -7882,9 +7843,8 @@ def _consolidate_gas_maxopday_groups(
                     f"  Days mapped: GTOpt day d ← PLEXOS Day_{{d+1}}; "
                     f"PLEXOS Day0 partial-start cap is dropped (LP's "
                     f"first 24h uses the wider Day1 cap).  Soft at "
-                    f"${soft_penalty:g}/unit since PLEXOS itself takes "
-                    f"slack on these (Day1/Day4/Day6 have non-zero pid-"
-                    f"3070 Slack in RES20260422.accdb).  "
+                    f"${soft_penalty:g}/unit since the source model "
+                    f"treats these daily caps as soft.  "
                     f"File: DBSEN_PRGDIARIO.xml"
                 ),
             )
@@ -8083,11 +8043,8 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
     # the run horizon).  Used by the daily gas-offtake constraints
     # (``Gas_MaxOpDay*``, 272 on CEN PCP) which carry NO plain ``RHS``,
     # so without this they were dropped → gas plants over-dispatched.
-    # PLEXOS reports the constraint dimensionless and evaluates the
-    # effective RHS as ``RHS_Custom × 1000 / horizon_hours`` — verified
-    # against the RES solution (ratio = 1000/168 = 5.952, EXACTLY
-    # constant across all 124 binding Gas_MaxOpDay constraints / every
-    # fuel).  The result is a per-period (per-hour) cap, so the
+    # The constraint is dimensionless and the effective RHS is
+    # ``RHS_Custom × 1000 / horizon_hours``.  The result is a per-period (per-hour) cap, so the
     # fuel-offtake per-block daily split below is bypassed for it.
     prop_rhs_custom = db.property_by_name(sys_coll.collection_id, "RHS Custom")
     # PLEXOS ``RHS Day`` — the right-hand side of a per-DAY budget,
@@ -8102,8 +8059,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
     # divisor must be the real horizon length (168 h on CEN PCP), NOT
     # ``bundle.n_days × 24``: ``n_days`` is the input-CSV day count (== 1
     # here), so the old expression collapsed to 24 h and inflated every
-    # ``Gas_MaxOpDay`` RHS by ``168 / 24 = 7×`` (confirmed against the RES
-    # solution: gtopt = PLEXOS × 7 across all 124 constraints).  Take the
+    # ``Gas_MaxOpDay`` RHS by ``168 / 24 = 7×``.  Take the
     # horizon-day count from the XML ``Horizon`` object name (the
     # authoritative CEN signal, e.g. ``Coordinador_diario_1H_7d`` → 7);
     # fall back to ``n_days or 7`` only when the name is unparseable.
@@ -8492,9 +8448,9 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         #
         # Verified on CEN PCP DATOS20251005 ``Reg_SouthZone``: base
         # RHS=320 + untagged H11-17→230 win, while tagged H9-10→196.6 and
-        # H18-20→187.42 (inactive scenario 4157) are suppressed —
-        # PLEXOS's solution RHS is exactly {320, 230}, NOT the 4-level
-        # profile gtopt emitted before this filter.  Conversely
+        # H18-20→187.42 (inactive scenario 4157) are suppressed — the
+        # effective RHS is {320, 230}, NOT the 4-level profile gtopt
+        # emitted before this filter.  Conversely
         # ``CTF_DownMinProvision`` carries a SINGLE tier-2 row (293, tag
         # 4114): PLEXOS still applies it, so it is kept.
         _kept = [r for r in rhs_rows if _row_tier(r) < 2]
@@ -8534,8 +8490,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         # Polpaico500_*`` with RHS=1600 active 06:00-10:00 on Apr 22,
         # ``SD_2026036857_LVilos_*`` with RHS=896 active 23:00-06:00)
         # silently fall back to their undated RHS=10000 sentinel and get
-        # stubbed as inactive — yet PLEXOS pays $4.15M of soft slack on
-        # these four constraints alone, proving they bind on the in-window
+        # stubbed as inactive — yet they do bind on the in-window
         # blocks.  Build a per-block profile that applies the dated value
         # exactly on the blocks it covers and the undated base on the rest.
         # When the resulting profile already has a (lower-precedence)
@@ -8970,8 +8925,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
                     # each ``coeff=1``) shift the RHS from 3 to ``3-11=-8``,
                     # making the residual ``Σ status(committable) ≥ -8``
                     # which is trivially satisfied by the remaining
-                    # commitments — matching PLEXOS exactly (Slack=0..24.6,
-                    # Marginal=0 in PLEXOS solution).
+                    # commitments.
                     #
                     # ``startup`` / ``shutdown`` terms on always-on gens
                     # contribute 0 (the unit never transitions), so we
@@ -9209,13 +9163,10 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
             # GWh→MWh fuel-unit scale: when the RHS comes from PLEXOS's
             # ``RHS Day`` property (input-CSV units = GWh of fuel-energy)
             # but the LHS coefficients are emitted in MWh-equivalent
-            # units, the cap must be scaled by 1000 to align the
-            # per-block RHS with PLEXOS sol's reported per-block bound.
-            # Verified on CEN PCP RES20260422 (``Diesel_OffTakeDay``):
+            # units, the cap must be scaled by 1000:
             #
-            #   raw RHS Day  = 9.277   (PLEXOS XML)
-            #   gtopt before = 0.386   (= 9.277 / 24, missing scale)
-            #   ratio        = 1000   → apply ``_DAILY_ENERGY_RHS_SCALE``
+            #   per-block RHS = RHS Day × 1000 / blocks_per_day
+            #   → apply ``_DAILY_ENERGY_RHS_SCALE``
             #
             # Applied here (NOT via the ``is_daily_energy`` branch at
             # line ~7440, which is explicitly excluded for fuel-offtake
@@ -9310,8 +9261,8 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         #     battery are members of this constraint.  Without this loop
         #     the term silently dropped (the constraint emitted a
         #     degenerate ``-1 * battery(...).discharge = 0`` row, marked
-        #     inactive) — leaving ~$48k of PLEXOS-binding reserve cost
-        #     unenforced on CEN PCP 2026-04-22 (10 BAT_*_CF_*_COMP rows).
+        #     inactive) — leaving the BAT_*_CF_*_COMP reserve coupling
+        #     unenforced.
         #     The SSCC emitter names each BESS provision
         #     ``provision_<bat>_gen__<rsv>``; redirect via the AUX→main
         #     mapping (BAT_*_AUX → BAT_* / BAT_*_FV_AUX → BAT_*_FV) so
@@ -9599,8 +9550,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         # scale inside the ``is_fuel_offtake`` per-block split above (see the
         # ``rhs_val *= _DAILY_ENERGY_RHS_SCALE`` block).  Excluding them from
         # ``is_daily_energy`` prevents a double-application: if both branches
-        # fired, Diesel_OffTakeDay would inflate to 9.27e6 instead of the
-        # correct 9277 (= PLEXOS 386.54/h × 24).  Keep the exclusion strictly
+        # fired, a daily RHS would be scaled by 1000 twice.  Keep the exclusion strictly
         # for the ×1000 placement, NOT to skip the scale entirely.
         is_daily_energy = (
             (rhs_from_day or ramp_day_present)
@@ -9697,14 +9647,11 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         # Load Coefficient = 1) with Sense=None (default equality) and
         # RHS=0 — i.e. ``battery.discharge = 0`` / ``battery.charge =
         # 0``.  Taken literally these would force the battery entirely
-        # off, but PLEXOS itself DROPS THE WHOLE FAMILY from the ST
-        # schedule (verified against RES20260422 solution: none of the
-        # 70 source UCs appear in t_object, while the batteries
-        # themselves dispatch — e.g. BAT_VICTOR_JARA_FV charges 8.9 GWh
-        # and discharges 9.3 GWh).  Previously gtopt emitted these as
-        # SOFT equalities at $10/MWh penalty, burning $182K of soft
-        # slack on BAT_VICTOR_JARA_FV alone ($91,919 LOAD + $90,090
-        # GEN) and corresponding amounts on the other 33 batteries.
+        # off, but these rows are modelling artifacts that are not
+        # part of the ST schedule (the batteries themselves do
+        # dispatch).  Previously gtopt emitted these as SOFT
+        # equalities at $10/MWh penalty, burning soft slack on every
+        # affected battery.
         # Detect the exact pattern at the *LHS* level (single term,
         # ``battery(...).charge`` or ``battery(...).discharge``,
         # coef=1, RHS=0, sense=None) and emit inactive to mirror
@@ -9722,13 +9669,12 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         # Same modeling-artifact pattern but on the generator side —
         # ``PEHUENCHE_GENT7def`` ships TWO Generation Coefficient
         # memberships (PEHUENCHE_U1 + U2, both coef=-1) with Sense=None
-        # (default equality) and RHS=0.  PLEXOS DROPS the constraint
-        # from the ST schedule (verified against RES20260422 solution:
-        # not in t_object), letting both PEHUENCHE units dispatch
+        # (default equality) and RHS=0.  The constraint is not part of
+        # the ST schedule, so both PEHUENCHE units may dispatch
         # freely.  Until this fix gtopt's silent-zero-drop pruned U1
         # (offline at pmax=0) and emitted ``-PEHUENCHE_U2.generation
-        # = 0`` as a SOFT equality, forcing U2 to dispatch zero — that
-        # constraint is what drove the −11,576 MWh / −68.8% PEHUENCHE_U2
+        # = 0`` as a SOFT equality, wrongly forcing U2 to dispatch
+        # zero.
         # Emit inactive when the surviving LHS is a single
         # ``generator(...).generation`` term with coef=1 (i.e. the
         # post-drop residual literally says "this gen must equal 0").
@@ -9791,9 +9737,8 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
             rhs_profile_tuple = tuple(v for v in day_rhs for _ in range(24))
         # PLEXOS timeslice-tagged RHS rows (``H16-20``, ``W2-6,H8-21``):
         # apply LAST since they encode the live PLEXOS evaluation
-        # (verified against the RES20260422 solution-RHS pid=3073 for
-        # ``Campiche_starting``, ``Commit_*``, ``IL_2024000947_*``).
-        # Wins over the curtailment-shift and ramp-day overlays
+        # (e.g. ``Campiche_starting``, ``Commit_*``,
+        # ``IL_2024000947_*``).  Wins over the curtailment-shift and ramp-day overlays
         # because the tag mechanism is what PLEXOS itself applies last
         # at solver setup.  Skip when both no tags fired and no other
         # overlay is present (preserves the scalar emit path).
@@ -9802,8 +9747,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         elif rhs_date_overlay_profile:
             # PLEXOS partial-horizon date-window overlay (e.g. the four
             # SD_2026030813 / SD_2026036857 contingency rows with
-            # RHS=1600/896 active 4-6 blocks of the week — $4.15M of
-            # PLEXOS solver slack proves they bind).  Applied only when
+            # RHS=1600/896 active 4-6 blocks of the week).  Applied only when
             # no timeslice overlay won (timeslice has higher precedence
             # because PLEXOS evaluates tags after date windows).
             rhs_profile_tuple = rhs_date_overlay_profile
@@ -9814,12 +9758,9 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
             # evaluates the effective per-block RHS as
             # ``max(static_RHS, Σ_reserve coef × Reserve.requirement[t])``
             # using the per-hour profiles parsed from
-            # ``Res_Requirement.csv`` (verified on RES20260422: CSF_RS
-            # TR_2 day-type carries hour profiles 154,154,158×5,215×3,
-            # solver-applied RHS for CSF_UpMinProvision exactly).
-            # Without this, gtopt emits a flat RHS=130 floor that the
-            # reserve provision during peak hours — driving ~$268K of
-            # gtopt soft slack on CSF_Up/Down MinProvision.
+            # ``Res_Requirement.csv``.  Without this, gtopt emits a flat
+            # RHS=130 floor that the LP satisfies cheaply, instead of
+            # the higher hourly requirement during peak hours.
             rsv_terms = reserve_provision_index.get(constr.object_id) or ()
             if rsv_terms and reserves and rhs_val is not None:
                 reserves_by_name = {r.name: r for r in reserves}
@@ -9894,8 +9835,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         # No-limit-sentinel line-security constraints (SD_* etc.) — a
         # PURE line-flow constraint at the 100000 "contingency off" sentinel
         # is inert.  Emit as an inactive stub instead of silently dropping,
-        # so the PLEXOS-sol → gtopt audit lines them up (PLEXOS exercises
-        # them in its solution DB even though they're no-ops today).  See
+        # so the PLEXOS-sol → gtopt audit lines them up.  See
         # ``_is_nolimit_line_sentinel`` for the detection logic.  When the
         # contingency flips active in a future run, plexos2gtopt re-reads
         # the t_data and an effective RHS below the sentinel emits the
@@ -9906,8 +9846,9 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         ):
             # Skip the no-op stub when this constraint is in the
             # PLEXOS-HARD audit list — even with the contingency-off
-            # so we must emit the real constraint (active, hard) and
-            # let CPLEX bind it.  The 8 CTFOFF_* contingency-flow
+            # sentinel RHS, the constraint is known to bind, so we must
+            # emit the real constraint (active, hard) and let the
+            # solver bind it.  The 8 CTFOFF_* contingency-flow
             # constraints reach this branch and were being silently
             # demoted to ``0 ≤ 0 (inactive)`` before this guard fired.
             sd_sentinel_dropped += 1
@@ -10104,8 +10045,7 @@ def _build_fuel_offtake_caps_ucs(
     ``Σ_g heat_rate(g) × generation(g)`` over a week or a day per fuel
     name.  Without them, gtopt's LP exploits multi-band fuel contracts
     (e.g. ``Gas_Kelar_GN_A/B/C/D``) as if every band were unlimited,
-    closing ~$15 M of the operational-cost gap on the CEN PCP daily
-    week.
+    routing cheap thermal energy that the fuel caps should block.
 
     Approach:
       1. Read the per-fuel weekly / daily cap totals from the
@@ -10151,8 +10091,8 @@ def _build_fuel_offtake_caps_ucs(
         # variants).  The earlier code skipped them to avoid gtopt's
         # strict-mode UC resolver throwing "missing or inactive" on
         # zero-pmax blocks — but that under-counted the FueMaxOff
-        # cap LHS by entire generators, producing a +229% LNG over-
-        # dispatch on CEN PCP weekly (NEHUENCO_2-TG+TV_GNL_C alone
+        # cap LHS by entire generators, producing LNG over-dispatch
+        # (e.g. on NEHUENCO_2-TG+TV_GNL_C).
         #
         # gtopt's resolver was made lenient on the specific case
         # "element registered for SOME block of the stage but not
@@ -10245,16 +10185,11 @@ def _build_fuel_offtake_caps_ucs(
         # an extra separator.  Using ``" + ".join(terms)`` would
         # produce ``X +  + Y`` (double-plus) and break the parser.
         expression = "".join(terms) + f" <= {scalar_rhs:.6f}"
-        # PLEXOS treats FueMaxOff_* caps as genuinely SOFT constraints
-        # and violates them substantially: the solved model dispatches
-        # gas/LNG well above these per-period fuel-offtake limits (the
-        # RES20260422 analysis found over-runs up to ~175 fuel-units,
-        # not the tiny ~0.25 originally assumed).  Emitting them with a
-        # near-hard penalty (the old 10000) made gtopt RESPECT a cap
-        # PLEXOS ignores, throttling the central/north LNG combined-
-        # cycles (NUEVA_RENCA, NEHUENCO, SAN_ISIDRO, QUINTERO, ATA) to
-        # coal to fill the gap.  A controlled experiment (penalty
-        # 10000 → 10) swung 100 GWh from coal back to gas, snapping the
+        # FueMaxOff_* caps are genuinely SOFT constraints in the source
+        # model.  Emitting them with a near-hard penalty (the old 10000)
+        # made gtopt treat them as a hard availability wall, throttling
+        # the central/north LNG combined-cycles (NUEVA_RENCA, NEHUENCO,
+        # SAN_ISIDRO, QUINTERO, ATA) and forcing coal to fill the gap.
         # Use the standard soft-UC penalty so the cap behaves as the
         # economic "buy incremental LNG" signal PLEXOS models, not a
         # hard availability wall.
@@ -10506,8 +10441,8 @@ def _build_plant_cap_ucs(
         ``ATA_CC_1_Uniq`` (TG1A+0.5TV1C + TG1B+0.5TV1C only) leaves
         unguarded.  Without this row the LP commits every (config ×
         fuel-band) variant simultaneously and runs each at a fraction
-        of its pmax, producing the +1986 % ATA-TG1A+TG1B+TV1C_GNL_E
-        over-dispatch observed against PLEXOS.  Emitted with the same
+        of its pmax, producing over-dispatch of
+        ATA-TG1A+TG1B+TV1C_GNL_E.  Emitted with the same
         $10,000/unit penalty tier as ``PlantCap`` so it can't make the
         LP infeasible on a stray data anomaly.
         """
@@ -11135,6 +11070,7 @@ def extract_case(
     # PLEXOS-classified hydro generators with NO Storage attachment
     # (no Head Storage / Tail Storage membership) — small ROR plants
     # like LA_HIGUERA, LA_CONFLUENCIA, ALFALFAL, PEUCHEN, SAUZAL, ...
+    # (~99 on CEN PCP) — are LEFT AS-IS.  PLEXOS dispatches them
     # purely from ``Gen_Rating.csv`` per-block availability, which we
     # already read into ``GeneratorSpec.pmax_profile``.  The
     # per-block ``pmax`` bound IS the water-driven dispatch envelope,
@@ -11543,6 +11479,7 @@ def extract_case(
     )
     # Tighten oversized decision-variable big-M availability gates
     # (``output - 100000*dv <= 0``) down to the gated entity's real max
+    # power, so the 1e5 PLEXOS Value Coefficient stops inflating kappa.
     base_ucs = _tighten_decision_variable_bigm(
         base_ucs,
         {g.name: (g.pmax or 0.0) for g in case.generators},

@@ -71,6 +71,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "Identify marginal generating units and attribute the bus LMP "
             "and emission intensity.\n"
             "\n"
+            "Subcommand: `gtopt-marginal-units storage-impact --help` values "
+            "storage dispatch at the marginal emission rate (CO2 impact).\n"
+            "\n"
             "Recommended `gtopt` write_out for the source run:\n"
             "    --write-out 'sol,dual,rc:Generator,Line'\n"
             "Emits exactly the streams this tool consumes "
@@ -247,6 +250,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def cli(argv: Optional[list[str]] = None) -> int:
     """Console-script entry. Returns process exit code."""
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "storage-impact":
+        # pylint: disable=import-outside-toplevel
+        from gtopt_marginal_units.storage_impact import main as storage_main
+
+        return storage_main(argv[1:])
     parser = _build_parser()
     args = parser.parse_args(argv)
     _setup_logging(args.verbose, args.quiet)
@@ -1197,6 +1207,7 @@ def _is_synthetic_gen(g) -> bool:
 
     1. **``pmax < SYNTHETIC_GEN_PMAX_MW``** — CCGT alternative-dispatch
        entries that PLEXOS ships with ``Gen_Rating = (missing)``;
+       plexos2gtopt clamps them at ``0.01 MW`` so they always carry a
        defined ``pmax`` but never participate meaningfully in dispatch.
        ~50 such gens in jan18 (``ATA_CC1_TGA_DIE``, ``KELAR-TG1_GNL_X``,
        ``MEJILLONES_3-TG+TV_GNL_X``, …).

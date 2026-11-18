@@ -71,8 +71,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
 | `scale_objective`      | number  | `1000`    | dimensionless | Divisor applied to all objective coefficients for numerical stability |
 | `scale_theta`          | number  | `1000`    | dimensionless | Scaling factor for voltage-angle variables |
-| `emission_cost`        | number or schedule | *(none)* | $/tCO₂ | System-wide CO₂ emission price. Generators with non-zero `emission_rate` incur an extra cost of `emission_cost × emission_rate` per MWh |
-| `emission_cap`         | number or schedule | *(none)* | tCO₂/year | Per-stage CO₂ emission cap. The dual of the cap constraint is the endogenous carbon price |
+| `objective_mode`       | string  | `"cost"`  | --            | `"emissions"` minimises emissions instead of cost (see [Emissions](#325-emissions)). Emission prices and caps are set on `EmissionZone`, not here |
 | `continuous_phases`    | string  | `"none"`  | --            | Phase range where all integer/binary variables relax to continuous. Syntax: `"all"`, `"none"`, `"0"`, `"1,3:5,8:"`, `":3"` |
 
 > **Note**: `annual_discount_rate` has moved to the `simulation`
@@ -737,7 +736,9 @@ A generation unit connected to a bus.
 | `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
-| `emission_rate`  | number\|array\|string| tCO₂/MWh   | No       | CO₂ emission rate. Used with `model_options.emission_cost` and `emission_cap`. See [Unit Commitment — Emission](unit-commitment.md#6-emission-cost-and-cap) |
+| `emission_rate`  | number\|array\|string| tCO₂/MWh   | No       | **Legacy** CO₂ emission rate (scalar only), folded into a `co2` `EmissionSource`. Prefer `emissions` or `emission_source_array`; see [Emissions](#325-emissions) |
+| `emissions`      | array                | —            | No       | Inline `EmissionSource` rows (`zone`, `emission`, `rate`, `upstream_rate`) for this generator |
+| `emission_captures` | array             | —            | No       | CCS per pollutant: `emission`, capture fraction `rate` [p.u.], `cost` [$/t captured] |
 
 > **Note:** Fields that accept `number|array|string` can be a numeric constant,
 > an inline array (indexed by `[stage][block]`), or a filename referencing an
@@ -1320,15 +1321,18 @@ to have `chronological: true`.
 | `relax` | boolean | — | No | LP relaxation: u,v,w ∈ [0,1] instead of {0,1} |
 | `must_run` | boolean | — | No | Force u = 1 at all times |
 | `commitment_period` | number | hours | No | Coarser binary variable resolution |
-| `pmax_segments` | array\<number\> | MW | No | Cumulative power breakpoints for piecewise heat rate |
-| `heat_rate_segments` | array\<number\> | GJ/MWh | No | Heat rate per segment |
-| `fuel_cost` | number\|array\|string | $/GJ | No | Fuel cost |
-| `fuel_emission_factor` | number\|array\|string | tCO₂/GJ | No | Fuel CO₂ emission intensity |
 | `hot_start_cost` | number | $/start | No | Startup cost for hot start |
 | `warm_start_cost` | number | $/start | No | Startup cost for warm start |
 | `cold_start_cost` | number | $/start | No | Startup cost for cold start |
 | `hot_start_time` | number | hours | No | Max offline hours for hot start |
 | `cold_start_time` | number | hours | No | Min offline hours for cold start |
+
+> **Removed fields**: `pmax_segments`, `heat_rate_segments`, `fuel_cost`
+> and `fuel_emission_factor` are no longer `Commitment` fields.  The
+> piecewise heat rate is set on the `Generator` (`fuel`, `pmax_segments`,
+> `heat_rate_segments`) with the fuel price on `Fuel.price`; emissions are
+> set with `Fuel.emission_factors[]` or an `EmissionSource` (see
+> [Unit Commitment §5](unit-commitment.md#5-piecewise-heat-rate-curves)).
 
 > **Startup tiers** require all five fields (`hot_start_cost`, `warm_start_cost`,
 > `cold_start_cost`, `hot_start_time`, `cold_start_time`) to be present.
@@ -1337,15 +1341,94 @@ to have `chronological: true`.
 
 ### 3.24 Model Options
 
-System-wide modeling options that control emission pricing and LP relaxation.
+System-wide modeling options that control the objective and LP relaxation.
+The full list is in [Section 1](#1-options).
 
 **JSON path:** `options.model_options`
 
 | Field | Type | Units | Required | Description |
 |-------|------|-------|----------|-------------|
-| `emission_cost` | number\|array\|string | $/tCO₂ | No | System-wide carbon price. Generators with `emission_rate` incur an additional objective cost. See [Emission Cost](unit-commitment.md#6-emission-cost-and-cap) |
-| `emission_cap` | number\|array\|string | tCO₂ | No | Annual CO₂ cap per stage. Creates a constraint limiting total emissions from all generators with `emission_rate` |
+| `objective_mode` | string | — | No | `"cost"` (default) or `"emissions"`: minimise emissions, charging each emission source at its zone `price` (1 $/t when unset). See [Emissions](#325-emissions) |
 | `continuous_phases` | string | — | No | Phase range expression for LP relaxation of UC binaries: `"all"`, `"none"`, `"1,3:5"`, etc. Default: `"none"`. See [Relaxation Control](unit-commitment.md#9-relaxation-control) |
+
+### 3.25 Emissions
+
+Emissions are modelled with three arrays in `system` plus generator and
+fuel fields.  See [Emissions](emissions.md) for the full guide (global
+and local pollutants, marginal emissions) and
+[Unit Commitment §6](unit-commitment.md#6-emission-cost-and-cap) for the
+LP rows.
+
+**`emission_array`** (`Emission`) — pollutant registry.
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `uid` | integer | — | Yes | Unique identifier |
+| `name` | string | — | Yes | Pollutant name (`co2`, `ch4`, `n2o`, `nox`, `so2`, `pm10`, …) |
+
+**`emission_zone_array`** (`EmissionZone`) — system-wide or regional scope
+of a price and/or cap.
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `uid` | integer | — | Yes | Unique identifier |
+| `name` | string | — | Yes | Zone name |
+| `emissions` | array | — | Yes¹ | Covered pollutants: `{emission, weight}`; `weight` is the CO₂-eq factor (GWP-100), default 1.0. |
+| `price` | number\|array\|string | $/t | No | Per-tonne price (tax) on every source in the zone |
+| `cap` | number\|array\|string | t/stage | No | Cap on total weighted emissions per (scenario, stage). Hard unless `cap_cost` is set |
+| `cap_cost` | number\|array\|string | $/t | No | Penalty on emissions above `cap` (soft cap) |
+| `allowance_pool` | integer\|string | — | No | FK to an `AllowancePool` (cap-and-trade with banking); replaces the per-stage `cap` row |
+
+¹ Or the single-pollutant shortcut `"emission": "co2"` (weight 1.0).
+
+**`emission_source_array`** (`EmissionSource`) — generator → zone →
+pollutant link.  Can also be written inline as `Generator.emissions[]`.
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `uid` | integer | — | Yes | Unique identifier (optional inline) |
+| `name` | string | — | Yes | Source name (optional inline) |
+| `generator` | integer\|string | — | Yes | FK to Generator (omitted inline) |
+| `zone` | integer\|string | — | Yes | FK to EmissionZone |
+| `emission` | integer\|string | — | Yes | FK to Emission; must match an entry of the zone's `emissions` |
+| `rate` | number\|array\|string | t/MWh | No | Combustion (stack) rate |
+| `upstream_rate` | number\|array\|string | t/MWh | No | Upstream (well-to-tank) rate |
+
+`Fuel.emission_factors[]` (`{emission, combustion, upstream}` in t per
+fuel unit) builds one source per covering zone for every generator with
+that `fuel` and a scalar `heat_rate`.  Refer to each pollutant the same
+way (by name or by uid) in zones, sources and fuels: references are
+matched as written.
+
+Example: a 30 $/t CO₂ price on the whole system and a soft cap of
+1500 t per stage:
+
+```json
+"emission_array": [{"uid": 1, "name": "co2"}],
+"emission_zone_array": [
+  {"uid": 1, "name": "system_co2",
+   "emissions": [{"emission": "co2", "weight": 1.0}],
+   "price": 30.0, "cap": 1500.0, "cap_cost": 200.0}
+],
+"emission_source_array": [
+  {"uid": 1, "name": "g1_co2", "generator": "g1",
+   "zone": "system_co2", "emission": "co2", "rate": 0.9}
+]
+```
+
+Outputs: `EmissionSource/emissions_sol`, `combustion_sol`, `rate_sol`
+(and `upstream_sol`, `captured_sol` when used); `EmissionZone/cap_dual`
+(the endogenous price of a cap) and `cap_slack_sol` for a soft cap.
+
+**Migrating from `emission_cost` / `emission_cap`.**  The options
+`model_options.emission_cost` and `model_options.emission_cap` were
+removed and are rejected as unknown.  Use a system-wide zone instead:
+`emission_cost: X` becomes `"price": X`, and `emission_cap: Y` becomes
+`"cap": Y` (hard) or `"cap": Y, "cap_cost": Z` (soft).
+`Generator.emission_rate` still works but is folded into a `co2` source
+that goes to the first zone listing `co2` by **uid**, or else to an
+automatic unpriced `default_co2` zone; write an explicit
+`EmissionSource` to attach it to a priced or capped zone.
 
 ---
 

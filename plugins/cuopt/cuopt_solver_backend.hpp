@@ -40,8 +40,7 @@
  *     cut-row case).  Measured on this repo's CEN LPs 2026-07-07:
  *     5-7x at the unchanged optimum, ~1.7x after an aperture-like RHS
  *     perturbation.  NOTE this is distinct from the *basis* warm start
- *     that CPLEX/HiGHS use (`get_basis`/`set_basis`, which cuOpt lacks) —
- *     the `no-warm-start` project memory refers to that basis path.
+ *     that CPLEX/HiGHS use (`get_basis`/`set_basis`, which cuOpt lacks).
  *     Presolve is forced OFF whenever a start is seeded (warm starts are
  *     empirically wasted under any presolver).  Control precedence:
  *     built-in default (on) < `warmstart 0|1` in `<solvers>/cuopt.prm`

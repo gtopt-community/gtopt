@@ -4,7 +4,7 @@
 ///        (scenario, stage, block) but not this one" tolerance.
 ///
 /// Regression guard for the user-constraint resolver fix landed
-/// while diagnosing CEN PCP weekly LNG +229% over-dispatch
+/// while diagnosing CEN PCP weekly LNG over-dispatch
 /// (plexos2gtopt's ``FueMaxOff_<fuel>`` expressions include
 /// generators whose per-block ``pmax`` profile drops to 0 in some
 /// blocks — startup-staged or alternate-fuel-mode variants).

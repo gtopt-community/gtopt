@@ -568,8 +568,8 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // levels.  Removed: under CPLEX barrier without crossover the
     // per-iter LP solve never refreshes the value, so the seed
     // propagated a stale snapshot from the warmup LP into every later
-    // level (uninodal, transport, full_network all showed exactly the
-    // same 6.29e+05 — physically meaningless).  Leaving the kappa
+    // level (every level showed exactly the same value — physically
+    // meaningless).  Leaving the kappa
     // column empty when there is no fresh observation is more honest
     // than displaying a misleading carry-forward.
     (void)carry_kappa;

@@ -604,7 +604,7 @@ endif() # ENABLE_SCRIPTS_STATIC_ANALYSIS
 # 60+ pytest cases that convert UC.jl benchmark fixtures
 # (``tools/test_data/UnitCommitmentJl_*.json[.gz]``) via
 # ``tools/ucjl2gtopt.py``, solve them with gtopt, and compare against
-# UC.jl's CPLEX-solved golden files (``*_ucjl_golden.json``).  Lives
+# UC.jl-solved golden files (``*_ucjl_golden.json``).  Lives
 # outside ``scripts/`` because the converter is a single-file tool,
 # not a package, but the test infrastructure is identical to the
 # scripts/ pytest tests.

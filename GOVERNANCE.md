@@ -2,13 +2,13 @@
 
 ## Today
 
-GTOpt is hosted by the **La comunidad GTOpt** GitHub organization
-(`github.com/gtopt-community`) and led by its author and copyright holder,
+GTOpt is hosted by the **GTOpt Community** GitHub organization
+([`github.com/gtopt-community`](https://github.com/gtopt-community)) and led by its author and copyright holder,
 **Marcelo Matus**, who acts as lead maintainer:
 
 - every change goes through a pull request reviewed by a maintainer
   (`.github/CODEOWNERS`);
-- contributors sign the [CLA](CLA.md) and sign off their commits (DCO);
+- contributors sign the [CLA](CLA.md) once, on their first pull request;
 - the lead maintainer decides the roadmap, releases and licensing
   ([`LICENSING.md`](LICENSING.md));
 - regular contributors can be invited as maintainers of specific areas.

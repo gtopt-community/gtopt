@@ -49,6 +49,3 @@ later transferred.
    section 4. You will be notified of such an assignment through the
    project repository.
 9. **Law.** This agreement is governed by the laws of Chile.
-
-Commits must also carry a `Signed-off-by:` line (Developer Certificate of
-Origin, `git commit -s`).

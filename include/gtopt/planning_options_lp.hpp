@@ -405,8 +405,8 @@ public:
 
   /// @brief Whether SOURCE elements eliminate their provably-zero LP
   /// columns/rows.  Default `false` — the un-reduced LP is the honest
-  /// model, and modern solver presolve (CPLEX/Gurobi) reduces it to the
-  /// same core (often marginally faster).  Enable with `--lp-reduction`
+  /// model, and a strong solver presolve reduces it to the same core.
+  /// Enable with `--lp-reduction`
   /// (or `model_options.lp_reduction = true`) for weak-presolve backends
   /// (CLP / CBC / HiGHS) that benefit from the smaller LP up front.
   /// See `ModelOptions::lp_reduction`.
@@ -927,14 +927,10 @@ private:
   /// wins as expected.
   ///
   /// **Default `threads = 1` (changed from 4 on 2026-05-15)**:
-  /// the large hydrothermal case empirically showed `threads = 1` is faster
-  /// than `threads = 4` for SDDP forward/backward passes — at the SDDP scale
-  /// the LPs are small enough that CPLEX's per-LP thread-coordination overhead
-  /// exceeds the parallel speedup, and the work pool can fit more concurrent LP
-  /// solves without oversubscribing the host.  Observed wall-time speedup on L0
-  /// warmup: ~2.6× per iter (15-17 s → 6-8 s).  L1 / L2 see a similar 1.5-2×
-  /// speedup.  CPU utilisation is healthier too (more threads in R, fewer in
-  /// `futex_wait_queue`).
+  /// at the SDDP scale the LPs are small enough that a solver's per-LP
+  /// thread-coordination overhead outweighs intra-LP parallelism, and the
+  /// work pool can fit more concurrent LP solves without oversubscribing the
+  /// host (parallelism comes from the pool, not from each LP).
   static constexpr void apply_sddp_pass_defaults(SolverOptions& opts) noexcept
   {
     if (opts.algorithm == LPAlgo::default_algo) {

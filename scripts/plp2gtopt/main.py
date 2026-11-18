@@ -553,8 +553,8 @@ def build_options(args: argparse.Namespace) -> dict:
         # Default to the node-angle (B–θ) KVL formulation: it mirrors PLP's
         # voltage-angle model and, although the LP is slightly larger (one θ
         # per bus + one KVL row per line vs one per fundamental cycle), its
-        # sparse per-line rows solve faster under CPLEX than the dense
-        # per-cycle loop rows of cycle_basis (see --kirchhoff-mode help).
+        # sparse per-line rows are preferable to the dense per-cycle loop
+        # rows of cycle_basis (see --kirchhoff-mode help).
         "kirchhoff_mode": args.kirchhoff_mode,
     }
     if args.scale_theta is not None:
@@ -565,6 +565,7 @@ def build_options(args: argparse.Namespace) -> dict:
         # the angle columns ~3700×, which skews the matrix and forces ruiz
         # equilibration to compensate — net slower.  The raw per-line KVL
         # matrix is already well-conditioned (X/V² ~ 1e-4…1e-2), so leaving θ
+        # unscaled avoids the extra skew.
         model_opts["scale_theta"] = 1.0
     if args.reserve_fail_cost is not None:
         # §11.10 rename: gtopt canonical is `reserve_shortage_cost`;

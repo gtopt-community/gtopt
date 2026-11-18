@@ -1173,9 +1173,9 @@ TEST_CASE("tangent_signed_flow: chord UB never exceeds loose constant bound")
 // (10.485 MW) at ``|f| ≈ 2`` MW — a λ ladder with NON-ADJACENT mass
 // (weight near ``b = 0`` to satisfy the flow row at small ``|f|`` AND near
 // ``b = ±env`` to lift the chord to ``c·env²``).  That vertex satisfies
-// every LP row yet violates the SOS2 branching constraint; CPLEX presolve
-// (176 k substitutions on the production LP) reconstructs it in original
-// space, and the fix-integers dual-recovery pass preserves it faithfully.
+// every LP row yet violates the SOS2 branching constraint; the solver's
+// presolve reconstructs it in original space, and the fix-integers
+// dual-recovery pass preserves it faithfully.
 //
 // This test pins the two-sided contract on a SMALL directly-solved LP
 // (where the backend DOES honour SOS2 adjacency — so it is the positive

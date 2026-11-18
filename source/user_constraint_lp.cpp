@@ -502,7 +502,7 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
         //      underlying variable is implicitly 0, so the term
         //      contributes 0 and the constraint stays well-formed
         //      without per-block expressions.  This was the root cause
-        //      of the CEN PCP weekly LNG +229% over-dispatch fix (per-
+        //      of the CEN PCP weekly LNG over-dispatch fix (per-
         //      block case) and the strict-resolver throw on PANGUE_U1
         //      reservoir constraints (all-horizon case).
         //

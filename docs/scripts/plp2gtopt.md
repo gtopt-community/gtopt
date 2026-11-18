@@ -608,5 +608,7 @@ and skip when it is unset.
 - [sddp2gtopt](sddp2gtopt.md) — sister tool for PSR SDDP cases
 - [pp2gtopt](pp2gtopt.md) — convert pandapower networks to GTOpt
 - [ts2gtopt](ts2gtopt.md) — project hourly time-series onto GTOpt horizons
-- The PLP Fortran source (with its `lee*.f` readers for every `.dat`
-  file) is not public; the formats documented here were derived from it.
+- PLP is maintained by the Chilean system operator; its model page,
+  documentation and releases are at the
+  [CEN](https://www.coordinador.cl/operacion/documentos/modelacion-del-sen/modelos-para-la-planificacion-y-programacion-de-la-operacion/). The formats
+  documented here were derived from the PLP `lee*.f` readers.

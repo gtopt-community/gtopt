@@ -448,6 +448,29 @@ g2 (most expensive at $35/MWh) is at or near minimum.
 }
 ```
 
+### 24-hour dispatch with solar (`cases/ieee_9b`)
+
+`cases/ieee_9b` is the same network with a 24-hour load curve and a solar
+profile on g3. Solving it with HiGHS and CSV output:
+
+```bash
+gtopt cases/ieee_9b/ieee_9b.json --solver highs \
+  --set output_directory=/tmp/ieee9b --set output_format=csv
+python tools/figures/plot_dispatch.py cases/ieee_9b/ieee_9b.json \
+  /tmp/ieee9b dispatch.svg
+```
+
+![Stacked hourly generation of g1, g2 and the solar unit g3 in the IEEE
+9-bus case, with unserved energy in the evening peak, and the nodal prices
+at buses b1 and b5 on a log scale](images/dispatch_ieee9b.svg)
+
+g1 (20 $/MWh) runs at its 250 MW limit all day and g2 (35 $/MWh) follows
+the load. The solar unit displaces g2 around noon. After sunset g1 and g2
+cannot cover the evening peak, part of the demand is left unserved, and
+the price at the load buses rises to the 1000 $/MWh `demand_fail_cost`;
+the price at b1 stays at g1's cost because the line out of b1 is at its
+limit.
+
 > **Note on reactance units**: line reactance values in the bundled IEEE cases
 > are in **per-unit (p.u.)** on a common system base (typically 100 MVA).
 > When `use_kirchhoff = true`, GTOpt uses the p.u. reactance to compute the

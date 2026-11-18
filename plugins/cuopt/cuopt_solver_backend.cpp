@@ -1263,7 +1263,7 @@ std::unique_ptr<SolverBackend> CuOptSolverBackend::clone() const
 //      mostly-static matrix) this is the dominant cost.  Optimization:
 //      cache the lowered CSR (row_offsets/col_indices/coeff_values) and only
 //      patch changed entries; track a dirty flag per mutator.  Functionally
-//      correct without this; needed for it to be FASTER than CPU CPLEX.
+//      correct without this; needed for GPU re-solves to pay off.
 //
 //  S6. delete_rows + cut indices.  gtopt's SDDP cut store calls delete_rows
 //      with absolute row indices; our compact-erase keeps row order, which

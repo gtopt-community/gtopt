@@ -41,7 +41,7 @@ def tiny_planning(tmp_path: Path) -> Path:
                     "pmin": 0,
                     "pmax": 100,
                     "gcost": 10.0,
-                    "emission_rate": 400.0,
+                    "emission_rate": 0.4,
                     "type": "thermal",
                 },
                 {
@@ -51,7 +51,7 @@ def tiny_planning(tmp_path: Path) -> Path:
                     "pmin": 0,
                     "pmax": 100,
                     "gcost": 80.0,
-                    "emission_rate": 700.0,
+                    "emission_rate": 0.7,
                     "type": "thermal",
                 },
             ],

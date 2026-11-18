@@ -7,7 +7,7 @@ guidelines and instructions for contributing.
 
 1. Fork the repository and clone your fork
 2. Follow the build instructions in [BUILDING.md](BUILDING.md)
-3. Create a feature branch from `main`
+3. Create a feature branch from `master`
 
 ## Development Setup
 
@@ -22,12 +22,12 @@ guidelines and instructions for contributing.
 
 ### Building and Testing
 
-The **primary build target** is the `test/` sub-project (not the root
-`CMakeLists.txt`):
+The **primary build target** is the `all/` super-project (library,
+`gtopt` binary and tests; not the root `CMakeLists.txt`):
 
 ```bash
 # Configure and build tests (Clang 21 preferred)
-cmake -S test -B build \
+cmake -S all -B build \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++
@@ -37,7 +37,7 @@ cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 
 # Run a specific test (doctest filter syntax)
-./build/gtoptTests -tc="test name pattern"
+./build/test/gtoptTests -tc="test name pattern"
 
 # Check code formatting
 cmake --build build --target check-format
@@ -49,14 +49,14 @@ cmake --build build --target format
 Alternative with GCC 14:
 
 ```bash
-CC=gcc-14 CXX=g++-14 cmake -S test -B build -DCMAKE_BUILD_TYPE=Debug
+CC=gcc-14 CXX=g++-14 cmake -S all -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j$(nproc)
 ```
 
 ### Code Coverage
 
 ```bash
-cmake -S test -B build \
+cmake -S all -B build \
   -DENABLE_TEST_COVERAGE=ON \
   -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j$(nproc)
@@ -96,7 +96,7 @@ cd build && ctest
 
 ### Python
 
-- **Version**: Python ≥ 3.12 (CI uses 3.12)
+- **Version**: Python ≥ 3.10 (CI uses 3.12)
 - **Formatting**: `ruff format` (88-char line length, configured in
   `pyproject.toml`)
 - **Linting**: `ruff check` + `pylint`; see `.pylintrc`
@@ -106,8 +106,8 @@ cd build && ctest
 cd scripts
 pip install -e ".[dev]"   # install dev dependencies
 ruff format . && ruff check .
-pylint --jobs=0 cvs2parquet igtopt plp2gtopt pp2gtopt ts2gtopt
-mypy cvs2parquet igtopt plp2gtopt pp2gtopt ts2gtopt --ignore-missing-imports
+pylint --jobs=0 <package> ...   # the packages you changed; CI's full list
+mypy <package> ... --ignore-missing-imports   # is in .github/workflows/scripts.yml
 pytest -n auto
 ```
 
@@ -137,7 +137,7 @@ runs clang-format on staged C/C++ files and re-stages them automatically.
 3. Add tests for new functionality in `test/source/test_<topic>.cpp`
 4. Update documentation if your changes affect user-facing behavior
 5. Write clear, descriptive commit messages
-6. Open a pull request against `main` with a description of your changes
+6. Open a pull request against `master` with a description of your changes
 
 ## Testing Guidelines
 
@@ -203,6 +203,5 @@ options available, every contributor must sign the
 merged. You keep the copyright of your contribution; the CLA Assistant bot
 asks you to sign on your first pull request.
 
-Also sign off each commit (`git commit -s`, Developer Certificate of
-Origin). All changes go through a pull request and are reviewed by the
+All changes go through a pull request and are reviewed by the
 maintainer (see `.github/CODEOWNERS`).

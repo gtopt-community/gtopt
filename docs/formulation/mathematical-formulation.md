@@ -34,6 +34,7 @@
    - [5.12 User Constraints](#512-user-constraints)
    - [5.13 Water Rights (FlowRight and VolumeRight)](#513-water-rights-flowright-and-volumeright)
    - [5.14 LNG Terminal](#514-lng-terminal)
+   - [5.14 bis Emission Zone, Cap, and Allowance-Pool Banking](#514-bis-emission-zone-cap-and-allowance-pool-banking)
    - [5.15 Unit Commitment (3-bin)](#515-unit-commitment-3-bin)
    - [5.16 Simple Commitment](#516-simple-commitment)
    - [5.17 Inertia Zone and Provision](#517-inertia-zone-and-provision)
@@ -130,6 +131,9 @@ scenarios, stages, and blocks.
 | $\mathcal{SC}$ | Set of generators with simple commitment, indexed by $g$ |
 | $\mathcal{IZ}$ | Set of inertia zones, indexed by $z$ |
 | $\mathcal{IP}$ | Set of inertia provisions, indexed by $p$ |
+| $\mathcal{EM}$ | Set of pollutants (`Emission`), indexed by $\epsilon$ |
+| $\mathcal{EZ}$ | Set of emission zones, indexed by $z$ |
+| $\mathcal{ES}$ | Set of emission sources (generator → zone → pollutant), indexed by $\nu$ |
 | $\mathcal{G}_n$ | Generators connected to bus $n$ |
 | $\mathcal{D}_n$ | Demands connected to bus $n$ |
 | $\mathcal{L}_n^+$ | Lines where bus $n$ is the receiving end |
@@ -356,6 +360,7 @@ Additional OPEX terms may include:
 - **Reserve failure cost**: $\sum_{z} c_z^{\text{rfail}} (q_{z,s,t,b}^{\text{up}} + q_{z,s,t,b}^{\text{dn}})$
 - **Reserve provision cost**: $\sum_{p} \bigl( c_{p,t}^{\text{ur}} \; r_{p,s,t,b}^{\text{up}} + c_{p,t}^{\text{dr}} \; r_{p,s,t,b}^{\text{dn}} \bigr)$
 - **Spillway cost**: $\sum_{r} c_{r,t}^{\text{spill}} \; \text{spill}_{r,s,t,b}$
+- **Emission price and CCS cost**: $\sum_{\nu} c^{\text{em}}_{z(\nu),t} \, (\alpha^{\text{em}}_{\nu,t,b} / \Delta_b) \, p_{g(\nu),s,t,b}$ plus capture cost (§5.14 bis); soft emission-cap slack $c^{\text{cap}}_{z,t} \, s^{\text{cap}}_{z,s,t}$ is weighted by $\pi_s \delta_t / \sigma$ only
 - **Generator profile spillover cost**: $\sum_{g} c_{g,t}^{\text{spill}} \; \text{spill}_{g,s,t,b}$
 
 ### 4.3 Investment Costs (CAPEX)
@@ -1811,44 +1816,95 @@ and initial/final conditions follow the generic storage template (§5.7).
 
 ### 5.14 bis Emission Zone, Cap, and Allowance-Pool Banking
 
-An `EmissionZone` $z \in \mathcal{Z}$ is the constraint owner for one or
-more pollutants within a regulatory scope. Each `EmissionSource`
-$\sigma$ links a generator $g(\sigma)$ to a zone $z(\sigma)$ and a
-pollutant with a combustion-plus-upstream rate
-$r_\sigma$ [t/MWh]; the zone weights each pollutant by its GWP
-$w_p$ (CO₂-equivalent). The zone owns a per-block **production**
-column $q_{z,s,t,b}$ [tCO₂-eq] pinned by a balance row:
+Emissions are modelled with three element types (user guide:
+[Emissions](../emissions.md)):
+
+- `Emission` $\epsilon \in \mathcal{EM}$ — pollutant registry
+  (`co2`, `ch4`, `nox`, …);
+- `EmissionZone` $z \in \mathcal{EZ}$ — a system-wide or regional scope
+  covering pollutants $\epsilon$ with weights $\mu_{z,\epsilon}$
+  (`emissions[].weight`, GWP-100 for a CO₂-eq basket, default 1), and an
+  optional cap, cap cost and price;
+- `EmissionSource` $\nu \in \mathcal{ES}$ — links generator $g(\nu)$ to
+  zone $z(\nu)$ and pollutant $\epsilon(\nu)$ with a combustion rate
+  $f_{\nu,t}$ and an upstream rate $f^{\text{up}}_{\nu,t}$ [t/MWh].
+  Sources are also synthesised from `Generator.emissions[]`, from
+  `Fuel.emission_factors[]` × scalar `heat_rate` (one per covering zone),
+  and from the legacy `Generator.emission_rate` (pollutant `co2`).
+
+There is **no** emission variable and no balance row: every contribution
+is substituted onto the generator dispatch column $p_{g,s,t,b}$ with the
+per-block coefficient
 
 $$
-\begin{aligned}
-q_{z,s,t,b} \;-\; \sum_{\sigma:\,z(\sigma)=z}
-  w_{p(\sigma)}\,(1-\chi_\sigma)\,r_\sigma\,\Delta_b\,p_{g(\sigma),s,t,b}
-  \;=\; 0
-\qquad \forall \; z,\; s,t,b
-\end{aligned}
+\alpha^{\text{em}}_{\nu,t,b} \;=\; \mu_{z(\nu),\epsilon(\nu)}\,
+  \bigl(1 - \eta^{\text{cap}}_{g(\nu),\epsilon(\nu),t}\bigr)\,
+  \bigl(f_{\nu,t} + f^{\text{up}}_{\nu,t}\bigr)\,\Delta_b
+\qquad [\text{t/MW}]
 $$
-<!-- source: source/emission_zone_lp.cpp:90-98 ; source/emission_source_lp.cpp:177-194 -->
+<!-- source: source/emission_source_lp.cpp:166-169,236 -->
 
-where $\chi_\sigma$ is the CCS capture fraction. Note $q_{z,s,t,b}$ is
-an absolute per-block tonnage (the duration $\Delta_b$ is folded in by
-the source injection), **not** a rate.
+where $\eta^{\text{cap}}_{g,\epsilon,t}$ is the CCS capture fraction
+(`Generator.emission_captures[].rate`, 0 when absent). A source whose
+pollutant is not listed in its zone's `emissions[]` contributes nothing.
+The emissions of a source in block $b$ are
+$\alpha^{\text{em}}_{\nu,t,b}\,p_{g(\nu),s,t,b}$; they are reported
+post-solve (`EmissionSource/emissions_sol`, net of capture and
+unweighted).
 
-When a per-ton price $\pi_{z,t}$ is set, each production column carries
-an objective coefficient $\pi_{z,t}\,\Delta_b$ (a carbon tax).
-
-**Standalone cap (no pool).** When `cap` $C_{z,t}$ is set and the zone
-is *not* coupled to an allowance pool, a per-stage cap row aggregates the
-block tonnages:
+**Price (emission tax).** When the zone sets `price`
+$c^{\text{em}}_{z,t}$ [\$/t], every source adds to its generator's
+objective coefficient
 
 $$
-\sum_b q_{z,s,t,b} \;\;(-\;\xi_{z,s,t})\; \leq \; C_{z,t}
-\qquad \forall \; z,\; s,t
+\omega_{s,t,b}\; c^{\text{em}}_{z(\nu),t}\;
+  \frac{\alpha^{\text{em}}_{\nu,t,b}}{\Delta_b}
+\qquad \forall \; \nu,\; s,t,b
 $$
-<!-- source: source/emission_zone_lp.cpp:106-145 -->
+<!-- source: source/emission_source_lp.cpp:195-202,247-252 -->
 
-The slack $\xi_{z,s,t} \geq 0$ exists only when `cap_cost` is set
-(soft cap, penalised at $\kappa_{z,t}$ per ton); otherwise the cap is
-hard.
+No row is created. Under `model_options.objective_mode = "emissions"`
+the generator dispatch slopes (`gcost`, fuel) are zeroed and
+$c^{\text{em}}_{z,t}$ defaults to 1 \$/t for zones without `price`, so
+the objective becomes total weighted emissions.
+
+**CCS cost.** A capture row with cost $c^{\text{ccs}}_{g,\epsilon,t}$
+[\$/t captured] adds to the generator's objective coefficient
+
+$$
+\omega_{s,t,b}\;\eta^{\text{cap}}_{g,\epsilon,t}\;
+  \bigl(f_{\nu,t} + f^{\text{up}}_{\nu,t}\bigr)\;
+  c^{\text{ccs}}_{g,\epsilon,t}
+\qquad \forall \; \nu,\; s,t,b
+$$
+<!-- source: source/emission_source_lp.cpp:269-273 -->
+
+**Standalone cap (no pool).** When `cap` $\overline{E}_{z,t}$
+[t per stage] is set and the zone is *not* coupled to an allowance
+pool, one row per (scenario, stage) sums the block tonnages:
+
+$$
+\sum_{b \in \mathcal{B}_t} \sum_{\nu:\,z(\nu)=z}
+  \alpha^{\text{em}}_{\nu,t,b}\; p_{g(\nu),s,t,b}
+  \;-\; s^{\text{cap}}_{z,s,t}
+  \;\leq\; \overline{E}_{z,t}
+\qquad \forall \; z \in \mathcal{EZ},\; s,t
+$$
+<!-- source: source/emission_zone_lp.cpp:80-122 ; source/emission_source_lp.cpp:238-242 -->
+
+The slack $s^{\text{cap}}_{z,s,t} \geq 0$ (`EmissionZone/cap_slack`)
+exists only when `cap_cost` $c^{\text{cap}}_{z,t}$ is set (soft cap);
+its objective coefficient is $\pi_s\,\delta_t\,c^{\text{cap}}_{z,t}/\sigma$,
+with no duration factor because the slack is an absolute tonnage.
+Without `cap_cost` the cap is hard.
+
+**Endogenous price.** The dual $\lambda^{\text{cap}}_{z,s,t} \leq 0$
+of the cap row (`EmissionZone/cap_dual`, reported in \$/t after
+removing $\pi_s\,\delta_t/\sigma$) is the scarcity price of the
+pollutant: zero when the cap is slack, and with a soft cap
+$|\lambda^{\text{cap}}_{z,s,t}| \leq c^{\text{cap}}_{z,t}$. When `price`
+and `cap` are both set, the marginal tonne costs
+$c^{\text{em}}_{z,t} + |\lambda^{\text{cap}}_{z,s,t}|$.
 
 **Allowance-pool coupling (cap-and-trade with banking).** An
 `AllowancePool` $a \in \mathcal{A}$ reuses the `StorageLP` balance
@@ -1857,21 +1913,22 @@ the free-allocation column $\phi_{a,s,t,b}$ (fixed-rate
 $F_{a,t}/T_t$, the grandfathering entitlement) and its state
 $e_{a,s,t,b}$ [tCO₂] carries forward with annual decay $\lambda_a$.
 
-When `EmissionZone.allowance_pool` references pool $a$, each zone
-production column is injected as a **drawdown** (coefficient $+1$,
-absolute tonnage) into that pool's energy-balance row, and the zone's
-own standalone cap row is **skipped**:
+When `EmissionZone.allowance_pool` references pool $a$, each source's
+block tonnage $\alpha^{\text{em}}_{\nu,t,b}\,p_{g(\nu),s,t,b}$ is
+injected as a **drawdown** into that pool's energy-balance row, and the
+zone's own standalone cap row is **skipped**:
 
 $$
 \begin{aligned}
 e_{a,s,t,b} \;=\;& e_{a,s,t,b-1}\,(1 - \lambda_a^h\,\Delta_b)
   \;+\; \Delta_b\,\phi_{a,s,t,b}
   \;+\; \beta_{a,s,t,b}
-  \;-\; \sum_{z:\,a(z)=a} q_{z,s,t,b}
+  \;-\; \sum_{z:\,a(z)=a}\; \sum_{\nu:\,z(\nu)=z}
+    \alpha^{\text{em}}_{\nu,t,b}\; p_{g(\nu),s,t,b}
 \qquad \forall \; a,\; s,t,b
 \end{aligned}
 $$
-<!-- source: source/emission_zone_lp.cpp:106-126 ; source/allowance_pool_lp.cpp -->
+<!-- source: source/emission_source_lp.cpp:254-261 ; source/allowance_pool_lp.cpp -->
 
 **Auction purchases (cap-and-trade market).** When `auction_price`
 $\rho_{a,t,b}$ is set, an `auction` column $\beta_{a,s,t,b}$ [tCO₂]
@@ -1899,8 +1956,8 @@ $E_a^{\text{fin,cost}}$ set), the cumulative emission cap becomes a
 multi-stage budget with banking: unused allowances roll forward and
 the marginal value of an allowance is the dual of the bank balance,
 not a fixed per-stage price. `AllowancePoolLP` is assembled before
-`EmissionZoneLP` (collections ordering), so the energy rows exist when
-the zone injects its drawdown.
+`EmissionSourceLP` (collections ordering), so the energy rows exist when
+the sources inject their drawdown.
 
 ### 5.15 Unit Commitment (3-bin)
 
@@ -2866,8 +2923,7 @@ mathematical symbols used in this formulation.
 | `options.use_line_losses` | — | Enable line losses |
 | `options.demand_fail_cost` | $c^{\text{fail}}_d$ | Curtailment penalty |
 | `options.reserve_fail_cost` | $c^{\text{rfail}}$ | Reserve penalty |
-| `options.model_options.emission_cost` | $c^{\text{em}}$ | CO₂ emission price (\$/tCO₂); adds $c^{\text{em}} \times f_g$ to each generator's cost |
-| `options.model_options.emission_cap` | — | Per-stage CO₂ emission cap (tCO₂/year); dual = endogenous carbon price |
+| `options.model_options.objective_mode` | — | `"cost"` (default) or `"emissions"` (§5.14 bis). Emission price and cap are `EmissionZone` fields (see Emissions below) |
 | `options.method` | — | Solver: `"monolithic"` or `"sddp"` |
 | `options.variable_scales` | $\sigma_x$ | Per-variable scale factors (Section 6.3) |
 | `simulation.boundary_cuts_file` | — | CSV with boundary cuts for last phase (Section 6.9) |
@@ -2898,7 +2954,10 @@ mathematical symbols used in this formulation.
 | `generator_array[].pmax` | $\overline{P}_g$ | Max output (MW) |
 | `generator_array[].capacity` | $\bar{C}_g^0$ | Installed capacity (MW) |
 | `generator_array[].lossfactor` | $\lambda_g$ | Injection loss |
-| `generator_array[].emission_rate` | $f_g$ | CO₂ emission intensity (tCO₂/MWh) |
+| `generator_array[].emission_rate` | $f_{\nu,t}$ | Legacy CO₂ rate (tCO₂/MWh), folded into a `co2` `EmissionSource` |
+| `generator_array[].fuel` | — | FK to `Fuel` (price, emission factors) |
+| `generator_array[].pmax_segments` | $\overline{P}_{g,k}$ | Piecewise heat-rate power breakpoints (MW) |
+| `generator_array[].heat_rate_segments` | $h_{g,k}$ | Heat rate per segment (fuel unit/MWh) |
 | `generator_array[].expcap` | $M_g$ | MW per module |
 | `generator_array[].expmod` | $\overline{m}_g$ | Max modules |
 | `generator_array[].annual_capcost` | $K_g^{\text{cap}}$ | \$/year per module |
@@ -3030,10 +3089,6 @@ mathematical symbols used in this formulation.
 | `commitment_array[].relax` | — | LP relaxation: binary → continuous in [0,1] |
 | `commitment_array[].must_run` | — | Force committed: $u = 1$ always |
 | `commitment_array[].commitment_period` | — | Binary variable resolution (hours) |
-| `commitment_array[].pmax_segments` | $\overline{P}_{g,k}$ | Piecewise heat-rate power breakpoints (MW) |
-| `commitment_array[].heat_rate_segments` | $h_{g,k}$ | Heat rate per segment (GJ/MWh) |
-| `commitment_array[].fuel_cost` | — | Fuel cost (\$/GJ) |
-| `commitment_array[].fuel_emission_factor` | — | Emission factor for piecewise fuel (tCO₂/GJ) |
 | `commitment_array[].hot_start_cost` | — | Startup cost when recently offline (\$/start) |
 | `commitment_array[].warm_start_cost` | — | Startup cost at medium offline (\$/start) |
 | `commitment_array[].cold_start_cost` | — | Startup cost when long offline (\$/start) |
@@ -3061,6 +3116,26 @@ mathematical symbols used in this formulation.
 | `inertia_provision_array[].provision_max` | $\overline{R}_{p,t,b}^{H}$ | Max inertia provision (MW) |
 | `inertia_provision_array[].provision_factor` | $\Phi_{p,t}$ | Effectiveness factor (MWs/MW) |
 | `inertia_provision_array[].cost` | — | Provision cost (\$/MW) |
+
+### Emissions
+
+| JSON Path | Symbol | Description |
+|-----------|--------|-------------|
+| `emission_array[]` | $\epsilon$ | Pollutant (`co2`, `ch4`, `nox`, …) |
+| `emission_zone_array[].emissions[].weight` | $\mu_{z,\epsilon}$ | CO₂-eq weight (GWP), default 1 |
+| `emission_zone_array[].price` | $c^{\text{em}}_{z,t}$ | Emission price (\$/t) |
+| `emission_zone_array[].cap` | $\overline{E}_{z,t}$ | Cap per (scenario, stage) (t) |
+| `emission_zone_array[].cap_cost` | $c^{\text{cap}}_{z,t}$ | Soft-cap penalty (\$/t); hard cap when unset |
+| `emission_zone_array[].allowance_pool` | $a(z)$ | FK to `AllowancePool`; replaces the cap row |
+| `emission_source_array[].rate` | $f_{\nu,t}$ | Combustion rate (t/MWh) |
+| `emission_source_array[].upstream_rate` | $f^{\text{up}}_{\nu,t}$ | Upstream (well-to-tank) rate (t/MWh) |
+| `generator_array[].emission_captures[].rate` | $\eta^{\text{cap}}_{g,\epsilon,t}$ | CCS capture fraction |
+| `generator_array[].emission_captures[].cost` | $c^{\text{ccs}}_{g,\epsilon,t}$ | Capture cost (\$/t captured) |
+| `fuel_array[].emission_factors[]` | — | Per-fuel-unit factors; with scalar `heat_rate` they generate sources |
+
+The former `options.model_options.emission_cost` and `emission_cap`
+were removed; their role is taken by a system-wide zone `price` and
+`cap`.
 
 ---
 

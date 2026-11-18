@@ -28,14 +28,13 @@ using namespace gtopt;
 // When jemalloc is linked (GTOPT_HAVE_JEMALLOC, set by CMake), bake a good
 // default into the binary via jemalloc's `malloc_conf` symbol.
 // `background_thread:true` runs a dedicated purge thread so freed pages are
-// returned to the OS OFF the allocating hot path.  Measured on the 2-year
-// Maule/Laja SDDP parity case (CPLEX, one iteration): peak RSS 35.6 -> 25.5 GB
-// (-28%) and wall 19:47 -> 16:43 (-15%).  Without it, jemalloc's stock default
-// (background_thread:false, dirty_decay_ms:10000) purges inline and bloats RSS
-// to glibc-like levels — i.e. merely *linking* jemalloc buys little; the
-// background thread is what delivers the win.  Reducing narenas / percpu_arena
-// / shorter decay added nothing (or hurt wall) in the sweep, so we ship only
-// this one knob.
+// returned to the OS OFF the allocating hot path, which substantially lowers
+// peak RSS on large multi-threaded SDDP runs.  Without it, jemalloc's stock
+// default (background_thread:false, dirty_decay_ms:10000) purges inline and
+// bloats RSS to glibc-like levels — i.e. merely *linking* jemalloc buys little;
+// the background thread is what delivers the win.  Reducing narenas /
+// percpu_arena / shorter decay added nothing (or hurt wall) in the sweep, so we
+// ship only this one knob.
 //
 // The `MALLOC_CONF` environment variable still overrides this (higher priority
 // than the symbol), so operators can tune further at runtime.

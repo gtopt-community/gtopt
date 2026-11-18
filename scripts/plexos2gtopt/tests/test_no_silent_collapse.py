@@ -188,8 +188,8 @@ def test_per_block_emin_clamped_at_initial_volume(tmp_path: Path) -> None:
     """CLASS GUARD: a per-block Min-Volume floor ABOVE the reservoir's initial
     volume is clamped at ``eini`` — it must never force refill above the start.
 
-    PLEXOS treats Min Volume as soft/aspirational and ends BELOW it (EL_TORO
-    efin 18,258 < the h24 floor spike 18,346, eini 18,299); under
+    Min Volume is soft/aspirational in the source model (e.g. EL_TORO: h24
+    floor spike 18,346 above eini 18,299); under
     ``strict_storage_emin=true`` that hard spike held back ~30 GWh of cheap
     hydro on 2026-10-19 (+$2.6 M gas).  Floors at/below ``eini`` still bind.
     """

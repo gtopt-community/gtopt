@@ -166,6 +166,23 @@ When triggered, the solver sets `converged = true` and
 `stationary_converged = true`, allowing downstream tools to distinguish
 primary from secondary convergence.
 
+#### Example
+
+![SDDP lower and upper bounds per iteration, and the relative gap on a log
+scale, for a two-reservoir hydro cascade with 24 phases and 8 inflow
+scenarios; the bounds meet after 8 iterations](../images/sddp_convergence.svg)
+
+The figure shows a typical run: the upper bound (expected cost of the
+forward-pass policy) falls and the lower bound (phase-0 objective with
+the cuts collected so far) rises until they meet. The case is a 24-phase,
+8-scenario variant of [`cases/hydro_valley_sddpjl`](../../cases/hydro_valley_sddpjl/),
+built by [`tools/figures/make_sddp_demo_case.py`](../../tools/figures/make_sddp_demo_case.py)
+and solved with HiGHS and all scenarios as backward-pass apertures
+(`--sddp-num-apertures -1`). The bounds and gap come from the `history`
+array of `solver_status.json`; `gtopt_monitor` plots the same data live,
+and [`tools/figures/plot_sddp_convergence.py`](../../tools/figures/plot_sddp_convergence.py)
+draws this figure.
+
 ---
 
 ## 3. Mapping to GTOpt's Time Structure
@@ -1579,9 +1596,9 @@ mitigate this:
 
 ## 8. Relationship to PLP
 
-The GTOpt SDDP solver draws on concepts from the PLP (Programación Lineal
-de la Planificación) hydrothermal scheduler [[5]](#ref5)[[6]](#ref6)
-(its Fortran source is not public):
+The GTOpt SDDP solver draws on concepts from the PLP hydrothermal
+scheduler [[5]](#ref5)[[6]](#ref6), the model now maintained by the
+Chilean system operator ([CEN](https://www.coordinador.cl/operacion/documentos/modelacion-del-sen/modelos-para-la-planificacion-y-programacion-de-la-operacion/)):
 
 | PLP concept | GTOpt equivalent |
 |-------------|-----------------|

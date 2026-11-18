@@ -98,17 +98,14 @@ _BATTERY_EFIN_COST = 100.0
 # Soft-cap parameters for ex-PLEXOS-EL=0 lines (see ``build_line_array``).
 # Each soft-capped line gets a FREE band up to ``normal × rating`` and the
 # ``_LINE_OVERLOAD_PENALTY`` $/MWh only on flow between ``normal × rating``
-# and the hard cap ``hard × rating``.  The free threshold is 3×, calibrated
-# to the observed PLEXOS-solution envelope on EL=0 ("Never enforce") lines:
-# on CEN PCP 2025-11-09 the 15 EL=0 corridors PLEXOS ran above their
-# ``Lin_MaxRating`` peaked at 1.05–2.89× rated (S-Km6100->Salar110 the
-# extreme at 2.89×), so a 3× free band lets every flow PLEXOS itself makes
-# pass with no penalty and no LMP inflation, while a hard cap at 6× still
-# blocks the DC-OPF teleport (gtopt's DC-OPF, unlike PLEXOS's AC physics,
-# would otherwise route tens of GW across a nominally uncapped line).  This
-# uniform 3× envelope reproduces PLEXOS for ALL EL=0 lines — including the
-# radial corridors (e.g. Capricornio110->LaNegra110 at 2.7×) that the
-# legacy hand-curated ``--lift-line-caps`` list singled out.  The lift's
+# and the hard cap ``hard × rating``.  The free threshold is 3×: on EL=0
+# ("Never enforce") lines the input ``Lin_MaxRating`` is not an operating
+# limit, so a generous free band lets physically plausible flows above the
+# nominal rating pass with no penalty and no LMP inflation, while a hard cap
+# at 6× still blocks the DC-OPF teleport (a lossless DC-OPF would otherwise
+# route tens of GW across a nominally uncapped line).  This uniform 3×
+# envelope applies to ALL EL=0 lines — including the radial corridors that
+# the legacy hand-curated ``--lift-line-caps`` list singled out.  The lift's
 # only legitimate role is to RECLASSIFY an EL=1/EL=2 line as EL=0 (so it is
 # soft-capped instead of hard-capped); a lifted line then gets the SAME
 # calibrated 3×/6× band as any other EL=0 line — NOT a wider hand-tuned
@@ -128,8 +125,7 @@ _LINE_LIFTED_HARD_FACTOR = 6.0
 _LINE_OVERLOAD_DIVISOR = 4.0
 
 # Fallback productibility used when ``Hydro_EfficiencyIncr.csv`` lacks
-# a value for a given Storage; matches the global irrigation default
-# (see feedback_irrigation_design).
+# a value for a given Storage; matches the global irrigation default.
 DEFAULT_FP_MED = 1.0  # MW per m³/s
 
 
@@ -150,6 +146,7 @@ def build_options(
     nested object carrying the LP-shape flags (``use_single_bus``,
     ``use_kirchhoff``, ``scale_objective``, ``demand_fail_cost``).
 
+    ``demand_fail_cost`` defaults to 1000 $/MWh.  When PLEXOS
     Region.VoLL is set on every region with a consistent value, the
     converter overrides this default with the PLEXOS VoLL — matching
     the system-wide Value of Lost Load that PLEXOS uses for demand
@@ -264,6 +261,7 @@ def build_options(
             # ``<input_directory>/solvers/<solver_name>.prm`` lookup at
             # ``source/gtopt_lp_runner.cpp:587``).  With this set the
             # curated overrides — ``MIP Cuts Gomory = 2`` and
+            # ``MIP Tolerances MIPGap = 0.01`` — reach CPLEX regardless
             # of whether the user typed ``--solver cplex``.  Path is
             # relative to ``input_directory`` (``.`` above) so it
             # resolves to ``<case-dir>/solvers/cplex.prm``.
@@ -695,12 +693,12 @@ def build_generator_array(
         # ``fixed_load[t] > 0``; a zero-valued FixedLoad row means "no
         # forced-dispatch constraint at this period" (= free dispatch
         # within ``[Commitment.pmin, Gen_Rating[t]]``), NOT "force
-        # dispatch to 0".  Verified on CEN PCP COCHRANE_1: 168/168
+        # dispatch to 0".  E.g. CEN PCP COCHRANE_1: 168/168
         # FixedLoad rows present, only hours 1-3 have positive values
-        # (the start-up trajectory PLEXOS uses to mirror commitment state
-        # from the prior week); hours 4-168 are FixedLoad=0 and the unit
-        # dispatches actively (13.6 GWh / week, peaking at 244.86 MW) —
-        # interpreting the zero rows as ``pmax=0`` zeros out a 244 MW
+        # (a start-up trajectory mirroring commitment state from the
+        # prior week); hours 4-168 are FixedLoad=0 and the unit must stay
+        # freely dispatchable — interpreting the zero rows as ``pmax=0``
+        # zeros out a large
         # thermal unit for 165h and yields a primal-infeasible LP.
         #
         # The forced value is mapped tech-dependently:
@@ -1113,9 +1111,9 @@ def _resolve_loss_layout(line: Any) -> tuple[str, int]:
 
     The legacy R·P² percentile RANKING (``--loss-tangent-top-pct`` +
     ``_loss_proxy`` / ``_tangent_loss_cutoff``) was REMOVED: the
-    ``midpoint`` de-bias + the per-line ``loss_envelope`` decoupling match
-    PLEXOS losses to within ~2% at K=4 without the MIP-heavy hybrid tangent
-    tier (CEN PCP daily case), so the loading-classified ranking is no
+    ``midpoint`` de-bias + the per-line ``loss_envelope`` decoupling give
+    adequate loss accuracy at K=4 without the MIP-heavy hybrid tangent
+    tier, so the loading-classified ranking is no
     longer needed.  The explicit ``--loss-tangent-lines`` escape hatch
     remains for callers who want tangent on specific named lines.
     """
@@ -1407,7 +1405,8 @@ def build_line_array(
             # northern corridor Capricornio110->LaNegra110:
             #   R = 0.0554 p.u., f_max ≈ 175 MW
             #   P_loss = 0.0554 × 175² / 100 ≈ 17 MW at max flow
-            #    on that line)
+            #   (~10% loss at max flow — a physically plausible
+            #    magnitude for that corridor)
             entry["voltage"] = 10.0  # √S_base, S_base = 100 MVA
             # Loss mode: piecewise with 3 segments ONLY for lines
             # with an enforced capacity (EL=2 → tmax_ab present).
@@ -1468,11 +1467,10 @@ def build_line_array(
                 # loading band → each segment under-resolves I²R losses
                 # near the rated point → the LP picks a flow pattern
                 # that over-counts losses on every high-capacity 500 kV
-                # backbone line.  Regression history: the
-                # ``project_loss_model_midpoint_envelope`` memory recorded
-                # the K-sweep shows +19-29 % once this envelope is
-                # missing on the 119 non-soft-capped lines (the entire
-                # 500 kV mesh + key 220 kV transformers).
+                # backbone line.  A K-sweep showed a systematic loss
+                # over-count once this envelope is missing on the
+                # non-soft-capped lines (the entire 500 kV mesh + key
+                # 220 kV transformers).
                 if "loss_envelope" not in entry:
 
                     def _peak_tmax(v: Any) -> float:
@@ -2020,9 +2018,8 @@ def build_fuel_array(
             # the LP free to pick WHEN to burn the fuel, matching
             # PLEXOS's weekly-budget semantics.
             #
-            # On CEN PCP weekly 2026-04-22, switching from per-block
-            # to per-stage SUM was part of fixing the LNG +229%
-            # over-dispatch (with the missing-gens fix in
+            # Switching from per-block to per-stage SUM was part of
+            # fixing an LNG over-dispatch (with the missing-gens fix in
             # parsers.py).
             # Leave ``max_offtake_per_block`` unset → gtopt FuelLP
             # defaults to per-stage SUM.
@@ -3011,6 +3008,7 @@ def build_user_constraint_array(
         # every block whose ``max(intervals) > len(profile)``.  Verified on
         # CEN PCP 2026-04-07 ``Gas_MaxOpDay_NuevaRenca``: 33 trailing
         # blocks (intervals 113..168) were silently zeroed, causing the
+        # LP to slack NuevaRenca gas dispatch that the source constraint
         # never restricts.
         if len(hourly) == target_len:
             return hourly
@@ -3234,12 +3232,11 @@ def build_commitment_array(
     ``relax`` field so gtopt enforces binary integrality on the
     status / startup / shutdown variables.
 
-    The default flipped from LP-relax to MIP on 2026-05-23 after
-    diagnosing the CEN PCP PLEXOS reproduction: with LP-relax the
-    ``<plant>_Uniq`` constraints (``Σ status ≤ 1`` over band
-    variants) collapsed to fractional commitments, letting the LP
-    on operational cost.  MIP enforcement closed ~7 pp of that gap
-    and moved NUEVA_RENCA-TG+TV_GN_A dispatch from 19 GWh/week (LP)
+    The default flipped from LP-relax to MIP because with LP-relax
+    the ``<plant>_Uniq`` constraints (``Σ status ≤ 1`` over band
+    variants) collapse to fractional commitments, letting the LP
+    spread dispatch across band variants and understate operational
+    cost.  MIP enforcement keeps the configuration mutex exact.
 
     Pass ``--lp-relax`` for the legacy LP-only behaviour (faster
     solve, less accurate dispatch) or for solvers without MIP
@@ -3448,13 +3445,10 @@ def build_reserve_provision_array(
         # MRU/MRD files (the AUTHORITATIVE per-(gen, reserve, hour) MAX
         # RESERVE CAPABILITY in MW).  When populated, takes precedence
         # over the scalar ``urmax = pmax`` fallback because the CFdata
-        # cap is 2-16000× tighter than ``pmax`` — verified 2026-05-31
-        # on the reference case PLEXOS sol: the per-hour cap == PLEXOS sol binding
-        # provision exactly for every (gen, reserve) pair.  Without
-        # this, gtopt's ``reserve_provision.up / .dn`` columns sit
-        # unbounded above and the PLEXOS reserve UCs
-        # (CPF_Up5Calculation -$84, CSF_UpMinProvision -$43) never
-        # bind; also triggers the UPStorageBound_BAT_* -inf dual
+        # cap is 2-16000× tighter than ``pmax`` (both input values).
+        # Without this, gtopt's ``reserve_provision.up / .dn`` columns sit
+        # unbounded above and the reserve UCs (CPF_Up5Calculation,
+        # CSF_UpMinProvision) never bind; also triggers the UPStorageBound_BAT_* -inf dual
         # cascade.  Aggregator: SUM of MRU across CPF/CSF/CTF (CTFON
         # tertiary on-line) per direction — the conservative upper
         # envelope for the single-column reserve_provision LP variable.
@@ -3474,8 +3468,8 @@ def build_reserve_provision_array(
         # STILL exceed the *dynamic* generator headroom: a committed unit pinned
         # near pmax (Fixed Load / must-take) has no spare capacity for up-reserve,
         # so ``provision >= urmin`` collides with ``provision <= pmax - gen`` and
-        # the --no-mip LP is infeasible (verified on pcp_2025-11-09).  PLEXOS
-        # co-optimises energy+reserve and simply does not bind Min Provision
+        # the --no-mip LP is infeasible (verified on pcp_2025-11-09).  A
+        # co-optimised energy+reserve model must not bind Min Provision
         # where capability is exhausted; reproducing that needs a soft-slack
         # reserve-provision floor (future C++ work).  Until then, reserve
         # provision stays in ``[0, urmax]`` — the safe, feasible model the

@@ -253,8 +253,8 @@ def detect_overloaded_lines_via_gtopt(
     lifted_path.write_text(json.dumps(lifted, indent=2))
 
     # Force LP-relaxation via ``--no-mip`` so commitments / segment
-    # PWL stay continuous and the solve is fast (~30 s on CEN PCP
-    # weekly vs ~10 min for the full MIP).
+    # PWL stay continuous and the solve is much faster than the full
+    # MIP.
     out_dir = Path(tempfile.mkdtemp(prefix="plexos2gtopt_autolift_"))
     cmd = [
         str(gtopt_binary),

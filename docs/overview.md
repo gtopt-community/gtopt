@@ -109,6 +109,16 @@ gtopt/
 
 ## Core Library Architecture
 
+![GTOpt architecture: inputs (JSON and Parquet/CSV cases, converters from
+PLP, PLEXOS, PSS/E, SDDP and pandapower, Excel workbooks) feed the C++ core
+(system model, LP/MIP assembly, monolithic/SDDP/cascade methods), which
+calls open-source or commercial solver plugins and writes Parquet/CSV
+results read by run_gtopt, the GUI, the web service and the comparison
+tools](images/architecture.svg)
+
+*Source: [`tools/figures/architecture.mmd`](../tools/figures/architecture.mmd);
+regenerate with `bash tools/figures/make_figures.sh architecture`.*
+
 The C++ library (`libgtopt`) is organized in five conceptual layers, each
 built on top of the previous one.
 
@@ -275,6 +285,9 @@ Scenario  (probability weight)
 - A **Scenario** is one realisation of uncertain inputs (hydrology, demand).
   Its `probability_factor` weights it in the expected-cost objective.
 
+![Planning time structure: scenarios contain stages, stages contain
+blocks, and phases group stages for the SDDP decomposition](diagrams/planning_structure.svg)
+
 ### System Components
 
 | Component | Role |
@@ -345,6 +358,13 @@ For full details see the [Scripts Guide](scripts-guide.md).
   optimization results.
 - Can run as a standalone daemon (`gtopt_websrv`) or be integrated into the
   GUI workflow.
+
+<p>
+  <img src="images/screenshots/gui_topology.png" width="49%"
+       alt="GUI case editor showing the IEEE 9-bus network topology">
+  <img src="images/screenshots/webservice_jobs.png" width="49%"
+       alt="Web service page with the upload form and a completed job">
+</p>
 
 **GUI Service** (`guiservice/`) — a **Flask / Python** application:
 

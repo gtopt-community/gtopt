@@ -49,8 +49,7 @@ using namespace gtopt;
 /// each TEST_CASE invokes ONLY the named test — the prior form called
 /// `run_solver_tests` (full per-solver suite) and discarded all but one
 /// result, which on mindopt re-ran the full algorithm-fallback cycle
-/// for every `add_rows` / `add_cols` invocation and inflated wall time
-/// to ~34 s per case.
+/// for every `add_rows` / `add_cols` invocation and inflated wall time.
 void run_named_test_on_solver(const std::string& solver,
                               const std::string& test_name)
 {

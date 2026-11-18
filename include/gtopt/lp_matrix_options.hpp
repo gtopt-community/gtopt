@@ -70,10 +70,9 @@ struct LpMatrixOptions
   /// when the worst infinity-norm deviation from 1 drops below
   /// `ruiz_tolerance`.  Only consulted when `equilibration_method == ruiz`.
   ///
-  /// the large hydrothermal case LPs showed byte-identical kappa and
-  /// deterministic ticks for every cap in {1,5,10,15,20} — CPLEX's own scaling
-  /// re-equilibrates the matrix, so additional Ruiz iterations buy no
-  /// conditioning or solve speedup while costing build time linearly.  5 keeps
+  /// Default cap is 5 (was 10).  Solvers with their own internal scaling
+  /// re-equilibrate the matrix anyway, so additional Ruiz iterations add
+  /// little conditioning while costing build time linearly.  5 keeps
   /// a margin of equilibration headroom for scaling-free backends (HiGHS / CLP)
   /// while halving the per-build Ruiz cost vs the old 10.
   int ruiz_max_iterations {5};

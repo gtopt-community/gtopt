@@ -4,6 +4,7 @@ These complement the per-extractor / per-builder tests by exercising
 the seams that aren't covered by the topology pipeline:
 
 * :mod:`plexos2gtopt.info_display` (``--info`` rendering)
+* :mod:`plexos2gtopt.main` (CLI flow, signal handler, dispatch paths)
 * :mod:`plexos2gtopt.plexos_loader` (outer-wrapper unwrap, .zip.xz
   decompression, unknown-suffix rejection)
 * :mod:`plexos2gtopt.plexos_csv` (malformed rows, BOM stripping)
@@ -252,7 +253,7 @@ def test_locate_bundle_inner_datos_zip(tmp_path: Path) -> None:
         # ``locate_bundle`` uses ``tempfile.mkdtemp()``, which honours
         # ``$TMPDIR``.  Assert against ``$TMPDIR`` rather than a hard-coded
         # ``/tmp/`` — this environment sets ``TMPDIR=~/tmp`` (never use
-        # ``/tmp`` directly; see CLAUDE/memory convention).
+        # ``/tmp`` directly).
         tmp_root = Path(os.environ.get("TMPDIR") or tempfile.gettempdir()).resolve()
         assert bundle.root.resolve().is_relative_to(tmp_root)
 

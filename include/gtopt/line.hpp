@@ -199,15 +199,13 @@ struct Line
   ///     ("Never enforce") and for selectively-lifted EL=1 lines
   ///     whose flow physically exceeds the rating (e.g.
   ///     Capricornio110→LaNegra110 on the CEN PCP weekly bundle,
-  ///     where AC voltage support requires ~200 MW vs the 76 MW
-  ///     steady-state cap).
+  ///     where AC voltage support requires flows well above the
+  ///     steady-state rating).
   ///   * ``1`` — voltage-conditional (PLEXOS).  In our LP we treat
   ///     this identically to level ``2`` (hard cap), because we have
-  ///     no AC voltage-feasibility iteration to consult.  PLEXOS
-  ///     empirically enforces EL=1 caps in its economic dispatch on
-  ///     the CEN PCP weekly bundle (88 of 89 EL=1 lines with flow
-  ///     stay at or below cap; the one outlier — Capricornio — is
-  ///     the line we lift to ``0`` explicitly).
+  ///     no AC voltage-feasibility iteration to consult.  Lines that
+  ///     must exceed their rating (e.g. Capricornio) are lifted to
+  ///     ``0`` explicitly.
   ///   * ``2`` — always enforce (the historical hard-cap behaviour
   ///     and the schema default).
   ///

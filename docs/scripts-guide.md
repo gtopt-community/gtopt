@@ -128,6 +128,9 @@ JSON planning file.  Supports multiple output formats (SVG, PNG, PDF, DOT,
 Mermaid, interactive HTML) and automatic simplification of large cases via
 aggregation modes.
 
+![IEEE 14-bus network drawn by gtopt_diagram: buses, lines with their
+ratings, generators and demands](diagrams/ieee14b_topology.svg)
+
 ### Basic usage
 
 ```bash
@@ -1035,6 +1038,22 @@ Smart **solver wrapper** that detects case types (PLP, GTOpt directory, or
 JSON file), runs conversions when needed, and invokes the `gtopt` binary with
 appropriate runtime options.  Integrates pre-flight and post-flight checks
 automatically.
+
+In an interactive terminal it shows a live dashboard: run status, bounds
+and gap, iteration history, CPU and memory use and the solver log.  Keys
+`1`/`2`/`3` (or Tab) switch between the dashboard, the SDDP phase grid and
+the per-scene convergence view; `s` requests a graceful stop, `q` quits.
+
+<p>
+  <img src="images/screenshots/run_gtopt_tui.png" width="49%"
+       alt="run_gtopt dashboard view at the end of an SDDP run solved with HiGHS: header with lower and upper bound and gap, progress phases, solver statistics, iteration history table, CPU and memory bars and the solver log">
+  <img src="images/screenshots/run_gtopt_tui_convergence.png" width="49%"
+       alt="run_gtopt convergence view: sparklines of the lower bound, upper bound and gap, a per-scene cost heatmap by iteration and per-scene cost trends">
+</p>
+
+*Frames from an 8-scenario, 24-phase SDDP hydro-cascade run (built from
+`cases/hydro_valley_sddpjl`) solved with HiGHS; captured with
+[`tools/figures/capture_tui.py`](../tools/figures/capture_tui.py).*
 
 ### Basic usage
 

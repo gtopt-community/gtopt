@@ -381,12 +381,12 @@ public:
   /// LP columns (commitment ``status`` / ``startup`` / ``shutdown``).
   /// The MIP solver returns these within a small feasibility tolerance
   /// (~1e-6) of 0 or 1, but in practice the float32 grid + per-column
-  /// decimal rounding leaves a sub-percent tail of fractional reports
-  /// (verified 2026-05-29 on CEN PCP MIP K=4: 1,657 / 103,523
-  /// status_sol entries were fractional, e.g. 0.058, 0.629, despite
-  /// after the standard ``add_field`` collection so the output parquet
-  /// carries clean 0/1 integers, matching the LP variable's declared
-  /// type.  Calling site for ``SimpleCommitmentLP`` / ``CommitmentLP``.
+  /// decimal rounding leaves a small tail of fractional reports
+  /// (e.g. 0.058, 0.629) even on a MIP solved to a zero gap.  Snap each value
+  /// to ``int(round(v))`` after the standard ``add_field`` collection so the
+  /// output parquet carries clean 0/1 integers, matching the LP variable's
+  /// declared type.  Calling site for ``SimpleCommitmentLP`` /
+  /// ``CommitmentLP``.
   ///
   /// LP-relax gate: when the phase is solved as a continuous LP (via
   /// ``model_options.continuous_phases`` or per-phase ``continuous:

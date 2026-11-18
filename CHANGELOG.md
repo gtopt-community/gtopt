@@ -68,6 +68,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Emission options replaced by `EmissionZone`**: `model_options.emission_cost`
+  and `model_options.emission_cap` were removed (and are now rejected as
+  unknown options).  A carbon price is now a zone `price` and a cap a zone
+  `cap` (hard) or `cap` + `cap_cost` (soft); generators are linked through
+  `emission_source_array` (or `Generator.emissions[]` /
+  `Fuel.emission_factors[]`).  `Commitment.fuel_emission_factor` (with
+  `pmax_segments`, `heat_rate_segments`, `fuel_cost`) was removed from
+  `Commitment`; the piecewise curve lives on `Generator`.  Migration:
+
+  ```json
+  "emission_array": [{"uid": 1, "name": "co2"}],
+  "emission_zone_array": [
+    {"uid": 1, "name": "system_co2",
+     "emissions": [{"emission": "co2", "weight": 1.0}],
+     "price": 30.0, "cap": 500000.0}
+  ],
+  "emission_source_array": [
+    {"uid": 1, "name": "coal_co2", "generator": "coal",
+     "zone": "system_co2", "emission": "co2", "rate": 0.95}
+  ]
+  ```
+
+  replaces `"model_options": {"emission_cost": 30, "emission_cap": 500000}`
+  with `"emission_rate": 0.95` on `coal`.  See `docs/emissions.md`.
+
 - **Shared arrow input-index cache**: the long-format input reader's
   `(Stage, Block)` row index is built once and shared — across every
   per-(scene, phase) LP cell within a run, and across cascade levels

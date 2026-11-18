@@ -12,8 +12,9 @@
  * - C2 (generation limits): Pmin·u ≤ p ≤ Pmax·u
  * - C3 (exclusion): v[t] + w[t] ≤ 1
  *
- * Also handles emission cost adder on the generation variable when the
- * generator has an emission_rate and the system defines emission_cost.
+ * Also u-gates the generator's piecewise heat-rate kink rows.  Emission
+ * prices and caps are not handled here: they are wired by
+ * EmissionSourceLP / EmissionZoneLP (see emission_source_lp.cpp).
  */
 
 #pragma once

@@ -728,12 +728,41 @@ gtopt uc_case.json --set model_options.continuous_phases=all
 # Run with full MIP (integer binaries)
 gtopt uc_case.json --set model_options.continuous_phases=none
 
-# Add a carbon price
-gtopt uc_case.json --set model_options.emission_cost=30
-
-# Set an emission cap
-gtopt uc_case.json --set model_options.emission_cap=500000
+# Minimise emissions instead of cost
+gtopt uc_case.json --set model_options.objective_mode=emissions
 ```
+
+Carbon prices and emission caps are not command-line options: they are
+set on an `EmissionZone` (`price`, `cap`, `cap_cost`).  To try them
+without editing the case, put the emission elements in a second planning
+file; gtopt merges the files given on the command line:
+
+```bash
+gtopt uc_case.json carbon_price.json
+```
+
+```json
+{
+  "system": {
+    "emission_array": [{"uid": 1, "name": "co2"}],
+    "emission_zone_array": [
+      {"uid": 1, "name": "system_co2",
+       "emissions": [{"emission": "co2", "weight": 1.0}],
+       "price": 30.0}
+    ],
+    "emission_source_array": [
+      {"uid": 1, "name": "g1_co2", "generator": "g1",
+       "zone": "system_co2", "emission": "co2", "rate": 0.9}
+    ]
+  }
+}
+```
+
+Replace `"price": 30.0` with `"cap": 500000.0` for a hard cap per stage,
+or add `"cap_cost"` for a soft one.  The former
+`model_options.emission_cost` / `emission_cap` options were removed; see
+[Emissions](emissions.md) and
+[Unit Commitment §6](unit-commitment.md#6-emission-cost-and-cap).
 
 > See [Unit Commitment Guide](unit-commitment.md) for the full formulation,
 > JSON schema, and worked examples.

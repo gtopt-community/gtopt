@@ -634,9 +634,9 @@ std::unique_ptr<SolverBackend> SolverRegistry::create(
   // can take several milliseconds per invocation, and the
   // `PlanningLP::create_systems` parallel build fires one
   // `LinearInterface(...)` per (scene, phase) cell (`linear_interface.
-  // the old hold-lock-across-create_fn pattern serialized 5–8 s of
-  // wall time onto a single mutex, capping pool efficiency around
-  // 78 %.
+  // cpp:75-80`).  With hundreds of cells and a non-trivial per-create
+  // cost, the old hold-lock-across-create_fn pattern serialized the
+  // whole build onto a single mutex and capped pool efficiency.
   //
   // Lookup runs under the lock — `m_plugins_` is a vector and would
   // be UB to read unlocked if a concurrent `ensure_solver_loaded`

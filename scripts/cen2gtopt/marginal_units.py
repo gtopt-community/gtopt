@@ -1838,8 +1838,7 @@ def compute_marginal_units_for_day_all_buses(
         use_plexos_overlay: opt-in v3 picker (default **False**).  When
             True, prefers PLEXOS-published Min Stable Level / Max
             Capacity from the PID XML over the CEN unidades_generadoras
-            heuristic.  Currently produces a regression in λ-pipe
-            accuracy on 2026-04-22 ($0.170 → $0.204/MWh) because the
+            heuristic.  Currently degrades λ-pipe accuracy because the
             alias bridge over-attributes capacity for plants with
             multiple PLEXOS fuel-mode variants per physical block
             (e.g. NEHUENCO_1-FA_GN_A, NEHUENCO_1-TG_GN_A, ...

@@ -436,8 +436,7 @@ def load_dat_case(
 
     # ── max generation caps (cprmxhgu / cprmxtgu) → generator pmax ───────
     # PSR's per-plant, per-hour maximum-generation limit (operational
-    # derating / availability) holds plants below installed capacity — the
-    # reason PSR's hydro dispatch (~498 MW) is far under installed.  Applied
+    # derating / availability) holds plants below installed capacity.  Applied
     # to ``pmax`` (NOT ``capacity`` — a distinct expansion concept).
     mxh_path = find_compressed_path(case_dir / "cprmxhgu_u.dat")
     if mxh_path is not None:

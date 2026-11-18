@@ -3853,19 +3853,19 @@ TEST_CASE(  // NOLINT
   // The gcost asymmetry breaks **primal** degeneracy (every solver
   // converges to the same UB=LB=18.33K), but DUAL degeneracy still
   // bites at multi-binding-constraint optima: the same primal
-  // optimum has multiple dual-extreme vertices, and CPLEX vs
-  // HiGHS/CLP land on different ones.  Concretely on this fixture:
+  // optimum has multiple dual-extreme vertices, and different
+  // solvers land on different ones.  Concretely on this fixture:
   //
-  //   solver  (dual_0, dual_1)   interpretation
-  //   ----    ----------------   --------------
-  //   cplex   (99, 98)           extra water displaces thermal
-  //                              (savings = $100 − hydro_gcost)
-  //   highs   (1, 0)             extra water in rsv1 displaces hydro2
-  //                              (savings = $2 − $1 = $1); rsv2 dual
-  //                              degenerate because tur2 binds at cap
-  //   clp     (1, 0)             same vertex as HiGHS
+  //   (dual_0, dual_1)   interpretation
+  //   ----------------   --------------
+  //   (99, 98)           extra water displaces thermal
+  //                      (savings = $100 − hydro_gcost)
+  //   (1, 0)             extra water in rsv1 displaces hydro2
+  //                      (savings = $2 − $1 = $1); rsv2 dual
+  //                      degenerate because tur2 binds at cap
+  //                      (the vertex HiGHS and CLP return)
   //
-  // All three vertices satisfy `max(dual_0, dual_1) > 0` — at
+  // Both vertices satisfy `max(dual_0, dual_1) > 0` — at
   // converged policy at least one terminal constraint has a
   // strictly positive shadow price.  That is the load-bearing
   // assertion this test pins (which the degenerate fixture's

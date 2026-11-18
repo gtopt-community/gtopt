@@ -109,14 +109,17 @@ def topology_from_planning(
     # ``emission_source_array`` (one entry per (generator, emission,
     # zone) triple, each carrying a per-MWh rate).  Weight each rate
     # by the zone's emission weight so the final per-gen factor is
-    # CO2-equivalent in the same units the zone uses (typically
-    # kg CO2eq / MWh on the jan18 CEN bundle).  Falls back to the
+    # CO2-equivalent in the case's unit: tCO2eq / MWh, the gtopt
+    # convention of ``EmissionSource.rate`` and ``Generator.emission_rate``.  Falls back to the
     # per-gen ``emission_rate`` JSON field when no sources exist
     # (legacy plexos2gtopt / nrel118_to_gtopt converters that bake
     # the factor into the generator directly).
     zone_weights: dict[int, dict[str, float]] = {
         int(z["uid"]): {
-            e["emission"]: float(e["weight"]) for e in z.get("emissions", [])
+            # str(): the FK may be a uid (int) or a name; the source
+            # side below is looked up with str(src["emission"]).
+            str(e["emission"]): float(e.get("weight", 1.0))
+            for e in z.get("emissions", [])
         }
         for z in system.get("emission_zone_array", [])
     }

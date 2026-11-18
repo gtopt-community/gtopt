@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 name = "gtopt-scripts"
 version = "1.0.0"
 description = "GTOpt (Generation, Transmission and storage Optimization) conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, gtopt_check_json, gtopt_check_fingerprint, gtopt2pp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "cairosvg>=2.7",
     "graphviz>=0.20",

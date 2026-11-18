@@ -173,18 +173,18 @@ def test_bus_lmp_with_carbon_emits_adder_column(
 
 
 def test_bus_lmp_carbon_price_arithmetic(tmp_path, tiny_planning, tiny_output_dir):
-    """ε of the marginal generator (g10, 400 kg/MWh) at p=100 USD/ton
-    must add 0.1 * 400 = 40 USD/MWh."""
+    """ε of the marginal generator (g10, 0.4 t/MWh) at p=100 USD/ton
+    must add 100 * 0.4 = 40 USD/MWh."""
     out = tmp_path / "marginals.parquet"
     _run_cli(planning=tiny_planning, output=tiny_output_dir, out=out)
     ds = MarginalUnitDataset.open(out)
     df = ds.bus_lmp(carbon_price=100.0)
-    # Bus 1 (where g10 is interior) — λ=10, ε=400 → adder=40, total=50.
+    # Bus 1 (where g10 is interior) — λ=10, ε=0.4 → adder=40, total=50.
     bus1 = df[df["bus_uid"] == 1]
     assert not bus1.empty
     row = bus1.iloc[0]
     assert row["zone_lmp"] == pytest.approx(10.0)
-    assert row["emission_intensity_kg_per_mwh"] == pytest.approx(400.0)
+    assert row["emission_intensity_t_per_mwh"] == pytest.approx(0.4)
     assert row["carbon_adder_usd_per_mwh"] == pytest.approx(40.0)
     assert row["lmp_with_carbon"] == pytest.approx(50.0)
 
@@ -255,7 +255,7 @@ def test_recompute_lmp_with_carbon_uses_unit_emissions_override(
     doubled = ds.recompute_lmp(
         unit_costs={10: 10.0, 20: 80.0},
         carbon_price=100.0,
-        unit_emissions={10: 800.0, 20: 1400.0},
+        unit_emissions={10: 0.8, 20: 1.4},
     )
     bus1_base = base[base["bus_uid"] == 1].iloc[0]
     bus1_doubled = doubled[doubled["bus_uid"] == 1].iloc[0]
@@ -284,5 +284,5 @@ def test_bus_lmp_and_emission_carbon_columns(tmp_path, tiny_planning, tiny_outpu
     assert "carbon_adder_usd_per_mwh" in df.columns
     assert (df["carbon_price_usd_per_ton"] == 50.0).all()
     # Adder consistency.
-    expected = (50.0 / 1000.0) * df["emission_intensity_kg_per_mwh"].fillna(0.0)
+    expected = 50.0 * df["emission_intensity_t_per_mwh"].fillna(0.0)
     assert (df["carbon_adder_usd_per_mwh"] - expected).abs().max() < 1e-9

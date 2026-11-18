@@ -1,6 +1,6 @@
 """Unit tests for ``Hydro_AntucoBounds.csv`` → discharge UC extraction.
 
-Validates the fix for bug C2 from the deep PLEXOS audit (task #97):
+Validates the fix for bug C2:
 ``Hydro_AntucoBounds.csv`` ships RHS for the multi-unit hydro discharge
 constraints ``ANTUCOmin`` / ``ANTUCOmax`` / ``ELTOROmax``, and the
 Generator → Constraint memberships in the PLEXOS XML list every member

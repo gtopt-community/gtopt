@@ -13,7 +13,8 @@ per-generator dispatch, storage SoC, etc.  This Python test layer then:
      the per-block thermal totals to the Sienna golden.
 
 Tolerances are intentionally loose (5 % relative or 1 MWh absolute,
-whichever is larger).  Sienna runs on HiGHS, gtopt on CPLEX, and
+whichever is larger).  Sienna and gtopt may run on different LP
+solvers, and
 several Sienna fixtures are degenerate at the LP optimum — multiple
 equally-optimal corners exist and the two solvers can pick different
 vertices that still respect the energy balance.  Pinning each-(gen,

@@ -614,7 +614,7 @@ def test_build_commitment_array_default_mip() -> None:
     Changed 2026-05-23: previously emitted ``relax: True`` on every
     commitment, which collapsed gtopt's ``<plant>_Uniq`` constraints
     (``Σ status ≤ 1`` over band variants) to fractional commitments
-    MIP enforcement closed ~7 pp of that gap.  Pass ``lp_relax=True``
+    and understated operational cost.  Pass ``lp_relax=True``
     for the legacy LP-only behaviour.
     """
     commits = (

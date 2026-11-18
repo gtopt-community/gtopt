@@ -19,11 +19,12 @@
 // must-dispatch surplus into a fictitious loss variable that had no
 // objective cost.
 //
-// Empirical scope on a large national test case LP-relax (midpoint K=5, original
-// piecewise mode):
+// Empirical scope on a large national test case LP-relax (midpoint K=5,
+// original piecewise mode):
 //   * 78 of 79 dispatched lines (99 %) carried both directions > 0.5 MW
 //     in > 50 % of their active blocks
 //   * 220 GWh of fictitious bidirectional "waste" energy system-wide
+//   * Reported ``loss_sol`` several times the analytic R·f² losses
 //
 // The fix folds ``piecewise`` into ``bidirectional`` for every
 // non-``tangent`` layout: per-direction PWL ladders where the convex

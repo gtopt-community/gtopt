@@ -102,7 +102,7 @@ def _write_wide_volume_csv(path: Path, col: str, per_hour: list[float]) -> None:
 
 def test_b14_flags_emax_cap_below_input(tmp_path: Path) -> None:
     """B14 flags a reservoir whose gtopt emax caps BELOW the PLEXOS Max Volume
-    peak (the CANUTILLAR 12,331 -> 10,570 silent collapse)."""
+    peak (an input 12,331 -> emitted 10,570 silent collapse)."""
     gtopt_json = tmp_path / "DATOS.json"
     gtopt_json.write_text(
         json.dumps(
@@ -479,6 +479,7 @@ def test_b12_genuine_pmax_mismatch_still_flagged(tmp_path: Path) -> None:
 def test_b12_wired_into_run_audit(tmp_path: Path) -> None:
     """``run_audit`` populates the B12 bucket + summary count when an
     input dir is supplied; the Chacao mismatch surfaces end-to-end."""
+    # Minimal PLEXOS sol cache (empty UC side — B12 is independent of it).
     cache = tmp_path / "cache"
     cache.mkdir()
     (cache / "t_object.csv").write_text("object_id,name,class_id\n")
@@ -530,6 +531,7 @@ def test_b12_wired_into_run_audit(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# B14 (sol-based): reservoir emin/emax vs the PLEXOS SOLUTION Storage series
 # ---------------------------------------------------------------------------
 def test_b14_sol_flags_emax_profile_collapsed(tmp_path: Path) -> None:
     """PLEXOS Max Volume VARIES but gtopt emitted a scalar emax → collapse."""
@@ -654,15 +656,15 @@ def test_b14_sol_emax_profile_spurious(tmp_path: Path) -> None:
 
 def test_b14_sol_bound_violated_in_sol(tmp_path: Path) -> None:
     """PLEXOS End Volume drops BELOW gtopt's hard emin → bound_violated_in_sol
-    (gtopt's floor is inconsistent with PLEXOS's own trajectory — the real
-    POLCURA finding: gtopt emin 3.998 vs PLEXOS End drawing to 3.093)."""
+    (gtopt's floor is inconsistent with the reference trajectory — synthetic
+    regression values: gtopt emin 3.998 vs End Volume drawing to 3.093)."""
     gtopt_json = tmp_path / "DATOS.json"
-    _res_json(gtopt_json, [{"name": "POLCURA", "emin": 3.998, "emax": 12.5}])
+    _res_json(gtopt_json, [{"name": "RES_FLOOR", "emin": 3.998, "emax": 12.5}])
     cache = tmp_path / "cache"
     _write_storage_cache(
         cache,
         {
-            "POLCURA": {
+            "RES_FLOOR": {
                 STORAGE_PROP_MAX_VOLUME: [12.5, 12.5, 12.5],
                 STORAGE_PROP_MIN_VOLUME: [3.093, 3.093, 3.093],
                 STORAGE_PROP_END_VOLUME: [7.8, 3.093, 10.0],
@@ -678,7 +680,7 @@ def test_b14_sol_bound_violated_in_sol(tmp_path: Path) -> None:
     items = build_b14_reservoir_bounds_sol(gtopt_json, storages)
     bv = [it for it in items if it["kind"] == "bound_violated_in_sol"]
     assert len(bv) == 1
-    assert bv[0]["name"] == "POLCURA"
+    assert bv[0]["name"] == "RES_FLOOR"
     assert bv[0]["below_block"] == 1
     assert round(bv[0]["below_emin_by"], 3) == round(3.998 - 3.093, 3)
 
@@ -721,19 +723,20 @@ def test_b14_sol_emin_efin_design_not_over_constrained(tmp_path: Path) -> None:
     assert info[0]["direction"] == "gtopt_emin_below_plexos_min"
 
 
-def test_b14_sol_emin_over_constrained_polcura(tmp_path: Path) -> None:
-    """POLCURA case: gtopt emits a CONSTANT emin floor (3.998) taken from the
-    PLEXOS static Min Volume property, but the PLEXOS matrix per-period Min
-    Volume is a lower 3.093 — gtopt's hard floor forbids levels PLEXOS uses.
+def test_b14_sol_emin_over_constrained_constant_floor(tmp_path: Path) -> None:
+    """Constant-floor case: gtopt emits a CONSTANT emin floor (3.998) taken
+    from the static Min Volume property, but the per-period Min Volume series
+    is a lower 3.093 (synthetic regression values) — gtopt's hard floor
+    forbids levels the reference trajectory uses.
     Must be flagged HIGH ``emin_over_constrained`` (gtopt above PLEXOS) even
     though the PLEXOS Min series is constant (no profile_collapsed)."""
     gtopt_json = tmp_path / "DATOS.json"
-    _res_json(gtopt_json, [{"name": "POLCURA", "emin": 3.998, "emax": 12.5}])
+    _res_json(gtopt_json, [{"name": "RES_FLOOR", "emin": 3.998, "emax": 12.5}])
     cache = tmp_path / "cache"
     _write_storage_cache(
         cache,
         {
-            "POLCURA": {
+            "RES_FLOOR": {
                 STORAGE_PROP_MAX_VOLUME: [12.5, 12.5, 12.5, 12.5],
                 STORAGE_PROP_MIN_VOLUME: [3.093, 3.093, 3.093, 3.093],
                 # End Volume stays inside gtopt's [emin, emax] here so the ONLY
@@ -751,7 +754,7 @@ def test_b14_sol_emin_over_constrained_polcura(tmp_path: Path) -> None:
     items = build_b14_reservoir_bounds_sol(gtopt_json, storages)
     oc = [it for it in items if it["kind"] == "emin_over_constrained"]
     assert len(oc) == 1
-    assert oc[0]["name"] == "POLCURA"
+    assert oc[0]["name"] == "RES_FLOOR"
     assert oc[0]["field"] == "reservoir.emin"
     assert oc[0]["priority"] == "HIGH"
     assert oc[0]["direction"] == "gtopt_emin_above_plexos_min"

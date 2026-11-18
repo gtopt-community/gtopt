@@ -1539,10 +1539,9 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
     # cost from CommitmentLP's u-gated segment cols to GeneratorLP's
     # heat-rate slack cols.  CommitmentLP retro-fits the u term onto
     # the kink rows so the LP is algebraically equivalent at integer
-    # ``u``, but the LP-relax basis and B&B search path differ — CPLEX
-    # picks equally-optimal integer corners that float within ~0.01 %
-    # of the original-formulation incumbent (≈ $31 on the
-    # base-with-storage ~$359 K objective).  See the matching comment
+    # ``u``, but the LP-relax basis and B&B search path differ — the MIP
+    # solver can pick equally-optimal integer corners that float slightly
+    # around the original-formulation incumbent.  See the matching comment
     # on ``test_real_case14_flex_mip_full_network``.
     assert obj == pytest.approx(-358_715.18, rel=1e-3)
 
@@ -2686,7 +2685,7 @@ def test_ucjl_golden_case14_base(tmp_path: Path) -> None:
     ``[1, 1, 1, 1]`` — both solvers agree.  ``g2`` is at a
     degenerate integer corner after the case14/congested
     noload + piecewise activation (UC.jl pins g2=1 in its
-    golden but gtopt's CPLEX MIP picks g2=0 at the same
+    golden but gtopt's MIP may pick g2=0 at the same
     objective).  ``g4`` vs ``g5`` is another classic degenerate
     MIP corner.  ``g6`` is off in both (forbidden).  Block 0
     aggregate diverges ~25 MW because UC.jl + gtopt picked
@@ -2980,9 +2979,7 @@ def test_ucjl_golden_ucjl_0_3(tmp_path: Path) -> None:
     horizon, no storage, no contingencies.  Exercises the converter's
     handling of UC.jl's pre-modern schema (no Reserves block, no
     ``Type`` field on gens, ``Initial status`` in plain h units).  gtopt
-    matches UC.jl's CPLEX MIP per-block thermal aggregate
-    bit-for-bit (objective $27,090 — same value reported by the
-    older test_real_case14_base_lprelax test docstring).
+    matches the UC.jl golden per-block thermal aggregate.
     """
     _run_ucjl_cross_check(
         tmp_path,
@@ -3088,8 +3085,8 @@ def test_ucjl_golden_aelmp_simple(tmp_path: Path) -> None:
 #
 # UC.jl ships ``market_da_*`` (day-ahead) and ``market_rt*`` (real-time)
 # fixtures testing its market_test.jl harness.  All are tiny (1 bus,
-# 4 gens, 1-2 blocks, schema v0.4) and gtopt matches UC.jl's CPLEX MIP
-# bit-for-bit on every per-gen MW.  These fixtures stress the
+# 4 gens, 1-2 blocks, schema v0.4) and gtopt matches the UC.jl golden
+# on every per-gen MW.  These fixtures stress the
 # converter's handling of:
 #   - sub-hourly time steps (``Time step (min) = 30`` for rt*)
 #   - mixed ``Time horizon (h)`` / ``Time horizon (min)`` parameters

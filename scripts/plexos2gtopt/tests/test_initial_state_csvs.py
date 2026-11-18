@@ -185,7 +185,7 @@ def test_commitment_ini_hours_explicit_zeroes_round_trip(tmp_path: Path) -> None
     assert entries[0]["ini_hours_down"] == 0.0
 
 
-# ─── initial_hours sign collapse (bug C1, task #97) ──────────────────────
+# ─── initial_hours sign collapse (bug C1) ───────────────────────────────
 
 
 def test_initial_hours_off_unit_picks_negative_when_both_csvs_set(
@@ -333,14 +333,12 @@ def test_initial_power_capped_when_above_pmax0_plus_ramp_down(
     ``Max Ramp Down`` can bridge to ``Gen_Rating[0]``, the converter caps
     ``Commitment.initial_power`` to ``pmax[0]``.
 
-    Mirrors PLEXOS's effective first-block dispatch: on the CEN-PCP
-    2026-05-17 bundle, GUACOLDA_1 carried initial=120.9118 MW into a
-    derated pmax[0]=63.9118 MW with ramp_down=45 MW/h.  PLEXOS dispatches
-    the unit at 63.9118 MW in hour 1 (a 57 MW drop > 45 MW), implicitly
-    skipping the ramp_down on the initial→block-0 transition.  gtopt's
-    CommitmentLP enforces this transition as HARD, so without the cap
-    the LP goes infeasible by ``initial − pmax[0] − ramp_down`` (12 MW
-    here, verified against CPLEX feasopt relaxation).
+    Example input: a unit carrying initial=120.9118 MW into a derated
+    pmax[0]=63.9118 MW with ramp_down=45 MW/h (a 57 MW drop > 45 MW) can
+    only be honoured by skipping the ramp_down on the initial→block-0
+    transition.  gtopt's CommitmentLP enforces this transition as HARD,
+    so without the cap the LP goes infeasible by
+    ``initial − pmax[0] − ramp_down`` (12 MW here).
     """
     bundle, xml_path = _write_xml(tmp_path)
     # pmax = 63.9118 (constant), ramp_down = 45 MW/h, initial = 120.9118
@@ -349,6 +347,7 @@ def test_initial_power_capped_when_above_pmax0_plus_ramp_down(
     _write_ini_units(tmp_path / "Gen_IniGeneration.csv", ("GEN_A", 120.9118))
     _write_ini_units(tmp_path / "Gen_IniUnits.csv", ("GEN_A", 1))  # was ON
     _write_ini_units(tmp_path / "Gen_StartCost.csv", ("GEN_A", 60000))
+    # Max Ramp Down is in MW/min in PLEXOS — 45 MW/h = 0.75 MW/min.
     _write_ini_units(tmp_path / "Gen_StartCost.csv", ("GEN_A", 60000))
     db = load_xml(xml_path)
     # Patch the XML static property "Max Ramp Down" via t_data isn't trivial
@@ -397,5 +396,6 @@ def test_initial_power_cap_synthetic_unit_test() -> None:
     assert initial_power > pmax_block0 + ramp_down
     capped = pmax_block0 if initial_power > pmax_block0 + ramp_down else initial_power
     assert capped == pmax_block0
+    # The infeasibility gap the cap removes (input-derived).
     gap = initial_power - pmax_block0 - ramp_down
     assert gap == 12.0

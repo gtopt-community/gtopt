@@ -26,8 +26,8 @@
 10. [JSON Input Reference](#10-json-input-reference)
     - 10.1 [Commitment Object](#101-commitment-object)
     - 10.2 [Stage — Chronological Flag](#102-stage--chronological-flag)
-    - 10.3 [Generator — Emission Factor](#103-generator--emission-factor)
-    - 10.4 [Model Options — Emission and Relaxation](#104-model-options--emission-and-relaxation)
+    - 10.3 [Generator — Emissions](#103-generator--emissions)
+    - 10.4 [Model Options — Relaxation and Objective](#104-model-options--relaxation-and-objective)
 11. [Output Files](#11-output-files)
 12. [Worked Examples](#12-worked-examples)
     - 12.1 [Example 1: Basic UC with Two Generators](#121-example-1-basic-uc-with-two-generators)
@@ -67,9 +67,10 @@ faster solution times and smaller integrality gaps in practice.
 - **Hot/warm/cold startup tiers**: time-dependent startup costs based on
   offline duration
 - **Piecewise linear heat rate curves**: multi-segment fuel cost modeling
-  with per-segment emission accounting
-- **Emission cost and cap**: system-wide carbon price and/or annual CO₂ cap
-  with endogenous carbon pricing via dual variables
+  (defined on the `Generator`, tightened by the commitment status)
+- **Emission price and cap**: per-zone carbon (or local-pollutant) price
+  and/or per-stage cap through `EmissionZone`, with the endogenous price
+  given by the cap dual (see [Emissions](emissions.md))
 - **Reserve integration**: spinning reserve headroom conditional on commitment
   status
 - **Commitment periods**: optional coarser time resolution for binary variables
@@ -379,111 +380,221 @@ Real thermal generators have nonlinear fuel consumption: the marginal
 heat rate increases at higher output levels.  GTOpt models this with
 **piecewise linear segments**.
 
+The piecewise curve is a property of the **`Generator`**, not of the
+`Commitment`: set `fuel`, `pmax_segments` and `heat_rate_segments` on the
+generator.  (`Commitment.pmax_segments`, `heat_rate_segments`, `fuel_cost`
+and `fuel_emission_factor` were removed; see the
+[migration note](#migrating-commitment-piecewise-fields).)  The curve
+works with or without a commitment; when a `Commitment` exists, its
+status $u$ tightens the segment breakpoints.
+
 ### Segment Definition
 
-The generation range $[P_\min, P_\max]$ is decomposed into $K$ segments:
+`pmax_segments` $= [\bar{P}_1, \ldots, \bar{P}_K]$ are the cumulative MW
+breakpoints ($\bar{P}_K = P_\max$) and `heat_rate_segments`
+$= [h_1, \ldots, h_K]$ the heat rate of each segment (fuel units per MWh,
+strictly increasing).  Segment 1 rides on the generation variable
+$p_{g,t}$ itself; each higher segment $k = 2, \ldots, K$ adds a slack
+$s_{g,k,t} \geq 0$ (`Generator/heat_rate_slack`) and a kink row
+(`Generator/heat_rate_kink`):
 
-$$p_{g,t} = P_\min \cdot u_{g,t} + \sum_{k=1}^{K} \delta_{g,k,t}$$
+$$p_{g,t} - s_{g,k,t} \leq \bar{P}_{k-1}$$
 
-where $\delta_{g,k,t}$ is the power dispatched in segment $k$:
+When the generator has a `Commitment`, the kink row is retro-fitted to
 
-$$0 \leq \delta_{g,k,t} \leq (\bar{P}_k - \bar{P}_{k-1}) \cdot u_{g,t}$$
+$$p_{g,t} - s_{g,k,t} - \bar{P}_{k-1} \, u_{g,t} \leq 0$$
 
-Here $\bar{P}_0 = P_\min$ and `pmax_segments` $= [\bar{P}_1, \ldots, \bar{P}_K]$
-gives the cumulative breakpoints.
+so that a fractional $u$ in the LP relaxation also shrinks the cheap
+segments.  Convexity ($h_1 < h_2 < \cdots < h_K$) lets the LP fill the
+segments in order without binaries or SOS2.
 
 ### Cost Calculation
 
-The cost per segment is:
+With fuel price $c^{\text{fuel}}$ (`Fuel.price`) and variable O&M
+$c^{\text{gen}}$ (`Generator.gcost`), the per-MWh costs are:
 
-$$c_k = \text{fuel\_cost} \times \text{heat\_rate\_segments}[k] \quad [\$/\text{MWh}]$$
+$$c_{g,1} = c^{\text{fuel}} \, h_1 + c^{\text{gen}}, \qquad
+  c_{g,k}^{\text{slack}} = c^{\text{fuel}} \, (h_k - h_{k-1}),
+  \quad k = 2, \ldots, K$$
 
-When `fuel_emission_factor` and `emission_cost` are both set, emission
-costs are added per segment:
+so dispatch above $\bar{P}_{k-1}$ pays the marginal heat rate $h_k$.
 
-$$c_k^{\text{total}} = c_k + \text{emission\_cost} \times \text{fuel\_emission\_factor} \times \text{heat\_rate\_segments}[k]$$
-
-### Linking Constraint
-
-$$p_{g,t} - P_\min \cdot u_{g,t} - \sum_{k=1}^{K} \delta_{g,k,t} = 0$$
-
-### Segment Bound (Status-Dependent)
-
-$$\delta_{g,k,t} \leq (\bar{P}_k - \bar{P}_{k-1}) \cdot u_{g,t}$$
-
-When the unit is offline ($u = 0$), all segment variables are forced to zero.
+**Emissions.**  Fuel-derived emission sources
+(`Fuel.emission_factors[]` × heat rate) are built only for a **scalar**
+`heat_rate`.  A generator that uses `heat_rate_segments` gets no
+fuel-derived emissions; declare an explicit `EmissionSource` with a
+representative per-MWh `rate` (see [§6](#6-emission-cost-and-cap)).
+The emission rate is flat per MWh, not per segment.
 
 ### JSON Example
 
 ```json
 {
-  "uid": 1,
-  "name": "coal1_uc",
-  "generator": 1,
-  "initial_status": 1,
-  "relax": true,
-  "must_run": true,
-  "pmax_segments": [200, 400, 600],
-  "heat_rate_segments": [8.5, 9.2, 11.0],
-  "fuel_cost": 3.5,
-  "fuel_emission_factor": 0.09
+  "fuel_array": [
+    {"uid": 1, "name": "coal", "price": 3.5}
+  ],
+  "generator_array": [
+    {"uid": 1, "name": "coal1", "bus": "b1", "pmin": 0, "pmax": 250,
+     "capacity": 250, "fuel": "coal",
+     "pmax_segments": [100, 200, 250],
+     "heat_rate_segments": [8.5, 9.2, 11.0]}
+  ],
+  "commitment_array": [
+    {"uid": 1, "name": "coal1_uc", "generator": "coal1",
+     "initial_status": 1, "relax": true, "must_run": true}
+  ]
 }
 ```
 
-This defines three segments for a 600 MW coal unit with $P_\min$ from the
-generator:
-- Segment 1: $[P_\min, 200]$ MW at 8.5 GJ/MWh → $29.75/MWh
-- Segment 2: $[200, 400]$ MW at 9.2 GJ/MWh → $32.20/MWh
-- Segment 3: $[400, 600]$ MW at 11.0 GJ/MWh → $38.50/MWh
+This defines three segments for a 250 MW coal unit (fuel price 3.5 $/GJ):
+- Segment 1: $[0, 100]$ MW at 8.5 GJ/MWh → \$29.75/MWh
+- Segment 2: $[100, 200]$ MW at 9.2 GJ/MWh → \$32.20/MWh
+- Segment 3: $[200, 250]$ MW at 11.0 GJ/MWh → \$38.50/MWh
+
+<a id="migrating-commitment-piecewise-fields"></a>
+**Migrating from `Commitment` piecewise fields.**  Move
+`pmax_segments` and `heat_rate_segments` from the `commitment_array`
+entry to its generator; replace `fuel_cost` with a `Fuel` element
+(`price`) referenced by `Generator.fuel`; replace `fuel_emission_factor`
+with `Fuel.emission_factors[]` (scalar `heat_rate`) or an explicit
+`EmissionSource` (piecewise heat rate).
 
 ---
 
 ## 6. Emission Cost and Cap
 
-GTOpt supports two complementary mechanisms for internalizing carbon costs:
+Carbon pricing and emission caps are configured with emission
+**zones**, not with model options.  This section summarises the parts
+that matter for unit commitment; the full model (multi-pollutant
+baskets, regional zones, local pollutants, marginal emissions) is in
+[Emissions](emissions.md).
 
-### 6.1 Emission Cost (Carbon Price)
+| Element | Role |
+|---------|------|
+| `emission_array` (`Emission`) | Pollutant registry: `co2`, `ch4`, `nox`, … |
+| `emission_zone_array` (`EmissionZone`) | Scope (system-wide or regional) with `emissions[]` (`{emission, weight}`), optional `cap`, `cap_cost` and `price` |
+| `emission_source_array` (`EmissionSource`) | Generator → zone → pollutant link with `rate` and optional `upstream_rate` [t/MWh] |
+| `Fuel.emission_factors[]` | Builds sources automatically from a scalar `heat_rate` for every zone covering the pollutant |
+| `Generator.emission_captures[]` | CCS: capture fraction `rate` and `cost` (\$/t captured) |
+| `allowance_pool_array` (`AllowancePool`) | Cap-and-trade with banking, linked from `EmissionZone.allowance_pool` |
 
-Set `model_options.emission_cost` ($/tCO₂) to add a carbon price to dispatch
-costs.  For committed generators with `emission_rate` (tCO₂/MWh):
+For source $\nu$ (generator $g$, zone $z$, pollutant $\epsilon$), the
+emission per MW of dispatch in block $b$ is
 
-$$c_{g,t}^{\text{effective}} = c_{g,t}^{\text{gen}} + \tau_s \times e_g$$
+$$\alpha^{\text{em}}_{\nu,t,b} = \mu_{z,\epsilon} \,
+  (1 - \eta^{\text{cap}}_{g,\epsilon}) \,
+  (f_{\nu,t} + f^{\text{up}}_{\nu,t}) \, \Delta_b
+  \quad [\text{t/MW}]$$
 
-where $\tau_s$ is the emission cost (can be stage-indexed) and $e_g$ is the
-generator's emission factor.
+where $\mu_{z,\epsilon}$ is the zone weight (GWP; 1 for a
+single-pollutant zone), $\eta^{\text{cap}}_{g,\epsilon}$ the capture
+fraction, $f$ the combustion `rate` and $f^{\text{up}}$ the
+`upstream_rate` (notation of the
+[formulation, §5.14 bis](formulation/mathematical-formulation.md#514-bis-emission-zone-cap-and-allowance-pool-banking)).
 
-For piecewise segments with `fuel_emission_factor` (tCO₂/GJ):
+### 6.1 Emission Price (Carbon Tax)
 
-$$c_{g,k,t}^{\text{effective}} = c_{g,k} + \tau_s \times \text{fuel\_ef} \times h_k$$
+Set `price` $c^{\text{em}}_{z,t}$ (\$/t) on a zone.  Every source in the
+zone adds $c^{\text{em}}_{z,t} \, \alpha^{\text{em}}_{\nu,t,b} / \Delta_b$
+(\$/MWh) to the cost of its generator's dispatch, weighted by duration,
+probability and discount like any other energy cost.  For a
+single-pollutant CO₂ zone this is
+
+$$c_{g,t}^{\text{effective}} = c_{g,t}^{\text{gen}} + c^{\text{em}}_{z,t} \, f_{g,t}$$
+
+No row is added; the price applies to every block of the stage.
 
 ### 6.2 Emission Cap
 
-Set `model_options.emission_cap` (tCO₂/year) to add a hard constraint per stage:
+Set `cap` $\overline{E}_{z,t}$ (t per stage) on a zone.  One row per
+(scenario, stage) sums the emissions of all its sources over the blocks
+of the stage:
 
-$$\sum_g \sum_b \left( e_g \cdot p_{g,b} \cdot \Delta_b \right) \leq E^{\text{cap}}_s$$
+$$\sum_{b} \sum_{\nu \in z} \alpha^{\text{em}}_{\nu,t,b} \, p_{g(\nu),b}
+  \;-\; s^{\text{cap}}_{z,t} \leq \overline{E}_{z,t}$$
 
-The dual variable of this constraint gives the **endogenous carbon price** —
-the marginal cost of the CO₂ budget at optimality.
+- **Hard cap**: `cap` only; the slack $s^{\text{cap}}$ does not exist.
+- **Soft cap**: `cap` + `cap_cost` $c^{\text{cap}}_{z,t}$ (\$/t); the
+  slack $s^{\text{cap}} \geq 0$ is penalised at $c^{\text{cap}}_{z,t}$
+  per tonne (no duration factor), and the cap's price can never exceed
+  $c^{\text{cap}}_{z,t}$.
+
+The cap dual (`EmissionZone/cap_dual`) is the **endogenous price** of
+the pollutant (\$/t) at optimality: zero when the cap is slack, non-zero
+when it binds (reported with a negative sign for this $\leq$ row in a
+minimisation).  The cap is per stage, so a 24-block daily stage takes a
+daily budget and an annual stage an annual budget.
+
+When the zone sets `allowance_pool`, the per-stage cap row is not built;
+the emissions are drawn from the pool's banked allowances instead (see
+[Emissions](emissions.md)).
 
 ### 6.3 Combined Use
 
-Both can be used simultaneously:
-- `emission_cost` acts as a **floor** carbon price that all emitters pay
-- `emission_cap` imposes an absolute limit; when binding, the effective
-  carbon price is `emission_cost` + the cap's dual variable
+`price` and `cap` can be set on the same zone and act independently:
+the price is a floor that every tonne pays, and when the cap binds the
+marginal tonne costs `price` plus the absolute value of the cap dual.
+Separate zones can price CO₂ system-wide and cap a local pollutant
+(NOx, SO₂, PM) in one region at the same time, and a generator can feed
+several zones.
+
+`model_options.objective_mode = "emissions"` (set with
+`--set model_options.objective_mode=emissions`) zeroes the generator
+dispatch cost coefficients (`gcost`, fuel) and charges every zone source
+at its `price`, or at 1 \$/t when the zone has no `price`, so the LP
+minimises emissions.
 
 ### JSON Example
 
+A system-wide CO₂ price of 30 \$/t plus a soft cap of 1500 t per stage:
+
 ```json
 {
-  "options": {
-    "model_options": {
-      "emission_cost": 30.0,
-      "emission_cap": 500000.0
-    }
+  "system": {
+    "emission_array": [{"uid": 1, "name": "co2"}],
+    "emission_zone_array": [
+      {"uid": 1, "name": "system_co2",
+       "emissions": [{"emission": "co2", "weight": 1.0}],
+       "price": 30.0, "cap": 1500.0, "cap_cost": 200.0}
+    ],
+    "emission_source_array": [
+      {"uid": 1, "name": "coal1_co2", "generator": "coal1",
+       "zone": "system_co2", "emission": "co2", "rate": 0.9}
+    ]
   }
 }
 ```
+
+Drop `price` for a pure cap, drop `cap_cost` for a hard cap, or drop
+`cap` and `cap_cost` for a pure carbon tax.  Refer to the pollutant the
+same way everywhere (all by name, or all by uid): a source whose
+`emission` reference does not match an entry of the zone's
+`emissions[]` contributes nothing.
+
+### 6.4 Migrating from `emission_cost` / `emission_cap`
+
+`model_options.emission_cost` and `model_options.emission_cap` were
+removed; `--set model_options.emission_cost=...` now fails with
+"unknown option or invalid value".  Replace them with a system-wide
+zone:
+
+| Before | After |
+|--------|-------|
+| `model_options.emission_cost: 30` | zone `"price": 30` |
+| `model_options.emission_cap: 500000` | zone `"cap": 500000` (hard) |
+| — | zone `"cap": 500000, "cap_cost": 200` (soft) |
+| `Generator.emission_rate: 0.9` | `EmissionSource` with `"rate": 0.9` (recommended) |
+| `Commitment.fuel_emission_factor` | `Fuel.emission_factors[]` or an `EmissionSource` |
+
+`Generator.emission_rate` is still accepted: at load time it is folded
+into an `EmissionSource` for pollutant `co2`.  The source goes to the
+first zone whose `emissions[]` lists `co2` **by uid**
+(`{"emission": 1}`); if there is none, a separate zone `default_co2` is
+created, without price or cap, so the emissions are reported but not
+priced.  Explicit `emission_source_array` entries avoid this ambiguity.
+Likewise, the legacy `Fuel.combustion_emission_factor` /
+`upstream_emission_factor` are folded into `Fuel.emission_factors[]`
+for `co2` by uid.
 
 ---
 
@@ -653,10 +764,6 @@ to exactly one generator via a foreign key.
 | `relax` | boolean | no | `false` | — | LP relaxation: $u, v, w \in [0, 1]$ |
 | `must_run` | boolean | no | `false` | — | Force $u = 1$ at all times |
 | `commitment_period` | real | no | — | hours | Coarser binary variable resolution |
-| `pmax_segments` | array\<real\> | no | `[]` | MW | Cumulative power breakpoints |
-| `heat_rate_segments` | array\<real\> | no | `[]` | GJ/MWh | Heat rate per segment |
-| `fuel_cost` | real / array | no | — | $/GJ | Fuel cost (stage-schedulable) |
-| `fuel_emission_factor` | real / array | no | — | tCO₂/GJ | Fuel emission factor (stage-schedulable) |
 | `hot_start_cost` | real | no | — | $/start | Startup cost for hot start |
 | `warm_start_cost` | real | no | — | $/start | Startup cost for warm start |
 | `cold_start_cost` | real | no | — | $/start | Startup cost for cold start |
@@ -666,8 +773,13 @@ to exactly one generator via a foreign key.
 **Notes**:
 - All fields except `generator` are optional.  Omitting a field disables the
   corresponding constraint (e.g., no `min_up_time` → no C6 constraint).
-- `startup_cost`, `shutdown_cost`, `fuel_cost`, and `fuel_emission_factor`
-  accept either a scalar (applies to all stages) or an array (per-stage values).
+- `startup_cost` and `shutdown_cost` accept either a scalar (applies to all
+  stages) or an array (per-stage values).
+- `pmax_segments`, `heat_rate_segments`, `fuel_cost` and
+  `fuel_emission_factor` are no longer `Commitment` fields: the piecewise
+  curve is set on the `Generator` ([§5](#5-piecewise-heat-rate-curves))
+  and emissions through emission zones and sources
+  ([§6](#6-emission-cost-and-cap)).
 - Startup tiers require **all five** fields (`hot_start_cost`, `warm_start_cost`,
   `cold_start_cost`, `hot_start_time`, `cold_start_time`) to be present.
   Partial specification is silently ignored.
@@ -692,7 +804,7 @@ When `chronological = true`, blocks in this stage represent sequential hours
 blocks may represent duration-weighted representative periods (load-duration
 curves) where temporal ordering is meaningless — UC is skipped silently.
 
-### 10.3 Generator — Emission Factor
+### 10.3 Generator — Emissions
 
 ```json
 {
@@ -701,25 +813,28 @@ curves) where temporal ordering is meaningless — UC is skipped silently.
   "bus": 1,
   "gcost": 25,
   "capacity": 600,
-  "emission_rate": 0.95
+  "emissions": [
+    {"zone": "system_co2", "emission": "co2", "rate": 0.95}
+  ]
 }
 ```
 
 | Field | Type | Default | Unit | Description |
 |-------|------|---------|------|-------------|
-| `emission_rate` | real / array | — | tCO₂/MWh | CO₂ emission rate (stage-schedulable) |
+| `emissions` | array | `[]` | — | Inline `EmissionSource` rows (`zone`, `emission`, `rate`, `upstream_rate`); `generator` is filled in automatically |
+| `emission_captures` | array | `[]` | — | CCS per pollutant: `{emission, rate, cost}` (capture fraction, $/t captured) |
+| `fuel` + `heat_rate` | FK + real | — | — | With `Fuel.emission_factors[]`, builds one source per covering zone |
+| `emission_rate` | real | — | tCO₂/MWh | Legacy: folded into a `co2` `EmissionSource` ([§6.4](#64-migrating-from-emission_cost--emission_cap)) |
 
-Used with `emission_cost` to add a carbon price adder, and with `emission_cap`
-to constrain total emissions.
+The sources only report emissions until a zone they point to has a
+`price` or `cap` ([§6](#6-emission-cost-and-cap)).
 
-### 10.4 Model Options — Emission and Relaxation
+### 10.4 Model Options — Relaxation and Objective
 
 ```json
 {
   "options": {
     "model_options": {
-      "emission_cost": 30.0,
-      "emission_cap": 500000.0,
       "continuous_phases": "none"
     }
   }
@@ -728,9 +843,11 @@ to constrain total emissions.
 
 | Field | Type | Default | Unit | Description |
 |-------|------|---------|------|-------------|
-| `emission_cost` | real / array | — | $/tCO₂ | System-wide carbon price |
-| `emission_cap` | real / array | — | tCO₂ | Annual CO₂ cap per stage |
 | `continuous_phases` | string | `"none"` | — | Phase range expression for LP relaxation |
+| `objective_mode` | string | `"cost"` | — | `"emissions"` minimises emissions instead of cost ([§6.3](#63-combined-use)) |
+
+Emission prices and caps are not model options; they live on
+`EmissionZone` ([§6](#6-emission-cost-and-cap)).
 
 ---
 
@@ -753,9 +870,6 @@ the `output/Commitment/` directory:
 | `exclusion_dual.{csv,parquet}` | Dual of C3 exclusion constraint |
 | `ramp_up_dual.{csv,parquet}` | Dual of C4 ramp-up constraint |
 | `ramp_down_dual.{csv,parquet}` | Dual of C5 ramp-down constraint |
-| `segment_sol.{csv,parquet}` | Piecewise segment dispatch (when segments active) |
-| `segment_cost.{csv,parquet}` | Per-segment fuel cost |
-| `segment_dual.{csv,parquet}` | Dual of segment linking constraint |
 | `min_up_time_dual.{csv,parquet}` | Dual of C6 min-up-time constraint |
 | `min_down_time_dual.{csv,parquet}` | Dual of C7 min-down-time constraint |
 | `hot_start_sol.{csv,parquet}` | Hot start tier selection |
@@ -770,6 +884,14 @@ the `output/Commitment/` directory:
 
 All files follow the standard GTOpt output format:
 `scenario, stage, block, uid:<commitment_uid>`.
+
+Piecewise heat-rate results are written by the generator
+(`Generator/srmc_sol` with the active-segment cost; the per-segment
+`heat_rate_slack` columns with `--write-out ...,extras:Generator`).
+Emission results are in `EmissionSource/` (`emissions_sol`,
+`combustion_sol`, `rate_sol`, and `upstream_sol` / `captured_sol` when
+used) and `EmissionZone/` (`cap_dual`, plus `cap_slack_sol` for a soft
+cap).
 
 ---
 
@@ -837,19 +959,21 @@ against a flat-cost generator.
 ```json
 {
   "system": {
+    "fuel_array": [
+      {"uid": 1, "name": "fuel1", "price": 5.0}
+    ],
     "generator_array": [
       {"uid": 1, "name": "g1", "bus": 1, "pmin": 0, "pmax": 100,
-       "gcost": 0, "capacity": 100},
+       "gcost": 0, "capacity": 100, "fuel": "fuel1",
+       "pmax_segments": [50, 100],
+       "heat_rate_segments": [8.0, 12.0]},
       {"uid": 2, "name": "g2", "bus": 1, "pmin": 0, "pmax": 100,
        "gcost": 50, "capacity": 100}
     ],
     "commitment_array": [
       {
         "uid": 1, "name": "g1_uc", "generator": 1,
-        "initial_status": 1, "relax": true, "must_run": true,
-        "pmax_segments": [50, 100],
-        "heat_rate_segments": [8.0, 12.0],
-        "fuel_cost": 5.0
+        "initial_status": 1, "relax": true, "must_run": true
       }
     ]
   }
@@ -903,44 +1027,57 @@ clean.  Adding a carbon price reverses the merit order.
 {
   "system": {
     "generator_array": [
-      {"uid": 1, "name": "coal", "bus": 1, "gcost": 10, "capacity": 100,
-       "emission_rate": 1.0},
+      {"uid": 1, "name": "coal", "bus": 1, "gcost": 10, "capacity": 100},
       {"uid": 2, "name": "gas", "bus": 1, "gcost": 30, "capacity": 100}
     ],
     "commitment_array": [
-      {"uid": 1, "generator": 1, "initial_status": 1, "relax": true}
+      {"uid": 1, "name": "coal_uc", "generator": 1, "initial_status": 1,
+       "relax": true}
+    ],
+    "emission_array": [{"uid": 1, "name": "co2"}],
+    "emission_zone_array": [
+      {"uid": 1, "name": "system_co2",
+       "emissions": [{"emission": "co2", "weight": 1.0}],
+       "price": 25.0}
+    ],
+    "emission_source_array": [
+      {"uid": 1, "name": "coal_co2", "generator": "coal",
+       "zone": "system_co2", "emission": "co2", "rate": 1.0}
     ]
-  },
-  "options": {
-    "model_options": {
-      "emission_cost": 25.0
-    }
   }
 }
 ```
 
-- Without carbon price: g1 effective cost = $10/MWh → dispatches first
-- With $25/tCO₂: g1 effective cost = $10 + $25 × 1.0 = $35/MWh > g2 at $30
-  → g2 dispatches first
+- Without carbon price (no zone `price`): coal effective cost = $10/MWh →
+  dispatches first
+- With $25/tCO₂: coal effective cost = $10 + $25 × 1.0 = $35/MWh > gas at
+  $30 → gas dispatches first
 
 ### 12.5 Example 5: Emission Cap
 
 **Scenario**: An emission cap limits dirty generation, forcing a cost-optimal
 split between generators.
 
+Same system as Example 4, with the zone `price` replaced by a `cap`
+(tCO₂ per stage):
+
 ```json
 {
-  "options": {
-    "model_options": {
-      "emission_cap": 30.0
-    }
-  }
+  "emission_zone_array": [
+    {"uid": 1, "name": "system_co2",
+     "emissions": [{"emission": "co2", "weight": 1.0}],
+     "cap": 30.0}
+  ]
 }
 ```
 
-With g1 (`emission_rate = 1.0 tCO₂/MWh`) and demand = 80 MW over 1 hour:
-- Cap = 30 tCO₂ → g1 can produce at most 30 MWh (30 / 1.0 / 1h)
-- g2 (clean) must produce the remaining 50 MW
+With coal (`rate = 1.0 tCO₂/MWh`) and demand = 80 MW over a one-hour stage:
+- Cap = 30 tCO₂ → coal can produce at most 30 MWh (30 / 1.0 / 1 h)
+- gas (clean) must produce the remaining 50 MW
+- `EmissionZone/cap_dual` = −20 $/tCO₂: the gas − coal cost gap
+  ($30 − $10) divided by the coal emission rate, i.e. the carbon price
+  that would give the same dispatch.  Add `"cap_cost"` to make the cap
+  soft.
 
 ---
 
@@ -1002,11 +1139,11 @@ use chronological blocks with full UC.
    obligations.  *Workaround*: set `must_run = true` for the initial period
    or extend the horizon.
 
-2. **Emission cap uses flat emission factor**: When piecewise segments are
-   active with `fuel_emission_factor`, the emission cap constraint still uses
-   the flat `generator.emission_rate` on the total generation variable $p$,
-   rather than per-segment emission rates.  This is conservative but
-   approximate.
+2. **Flat emission rate with piecewise heat rate**: an `EmissionSource`
+   rate is per MWh of total generation $p$, not per heat-rate segment.
+   Fuel-derived sources (`Fuel.emission_factors[]`) are only built for a
+   scalar `heat_rate`; a generator with `heat_rate_segments` needs an
+   explicit `EmissionSource` with a representative rate.
 
 3. **Cross-stage state persistence**: Commitment state ($u$, $v$, $w$) does
    not persist across stages.  Each stage starts fresh with `initial_status`.
@@ -1035,8 +1172,8 @@ use chronological blocks with full UC.
 | **Piecewise heat rate** | ✓ Per-segment | ✓ Marginal cost | ✓ Piecewise | ✓ Piecewise |
 | **Min up/down time** | Aggregated ✓ | Basic ✓ | Linked ✓ | Multiple forms ✓ |
 | **Ramp constraints** | Tight (state-dependent) ✓ | Basic ✓ | Basic ✓ | Tight ✓ |
-| **Emission cost** | ✓ Per-generator + per-segment | ✓ Global | ✓ Per-zone | ✓ Detailed |
-| **Emission cap** | ✓ With endogenous pricing | ✓ | ✓ | ✓ |
+| **Emission cost** | ✓ Per-zone price, multi-pollutant | ✓ Global | ✓ Per-zone | ✓ Detailed |
+| **Emission cap** | ✓ Per-zone, hard or soft, endogenous price | ✓ | ✓ | ✓ |
 | **Reserve-UC** | ✓ Conditional headroom | ✓ | ✓ | ✓ |
 | **Commitment periods** | ✓ Variable resolution | No | No | ✓ |
 | **Phase relaxation** | ✓ Per-phase | No | No | ✓ |

@@ -116,6 +116,7 @@ parser auto-discovers Line / Reserve / Constraint by walking
 | `Res_Requirement.csv` | reserve requirements (MW) | `ReserveZone.urreq` |
 | `Res_Timeslice.csv` | reserve time-slice mapping | per-day day-type selector for `Res_Requirement` → `ReserveZone.urreq`/`drreq` |
 | `SSCC_Activation_BESS.csv` | BESS in ancillary services | per-block `ur`/`dr_provision_factor` on each eligible `<battery>_gen` ReserveProvision |
+| `ReserveUsageTxCompensation.csv` | per-(BESS, reserve, direction, 2h-pattern) provision coefficient | partially modelled — these are real per-block dispatch-LP coefficients on `BAT_*_CF_GEN_COMP` / `CF_LOAD_COMP` constraints (NOT settlement-only as previously noted). Today: converter uses XML default `Provision Coefficient` and emits the LHS as `charge + discharge` activity-flow. Per-block 12-pattern overrides from the CSV are a follow-up tuning. |
 | `BESS_IniValue.csv` | battery initial SOC | `Battery.eini` |
 | `CFdata/CPF/*.csv` | per-unit ramp curves (MRU/MRD) | `Commitment.ramp_up`/`ramp_down` |
 
@@ -165,6 +166,7 @@ scope for v0.
   fold these into `bus.area` tags (informational only).
 - **PLEXOS `Horizon` / `Chronology`** — gtopt's stage/block layout is
   emitted statically by the writer (1 stage, 24 blocks for PCP).
+- **PLEXOS `Production` / `Power2X`** — disabled in CEN PCP, ignored.
 - **PLEXOS `Variable` / `Definition`** — symbolic scenarios; gtopt
   uses scenario_array directly. PCP single-scenario so no conversion.
 - **Multi-band tariff (`t_band`)** — collapsed to first-band scalar
@@ -269,8 +271,7 @@ spillway_cost [$/(m³/s)/h]  =  Spill Penalty [$/MWh]  ×  fp_med [MW/(m³/s)]
 ```
 
 When `fp_med` is missing, the writer falls back to the global
-default 10 $/(m³/s)/h (matches Laja/Maule decision in
-`feedback_irrigation_design`).
+default 10 $/(m³/s)/h (matches the Laja/Maule irrigation default).
 
 ## 7. CLI
 

@@ -532,8 +532,7 @@ TEST_CASE(  // NOLINT
   // `run_forward_pass_all_scenes` call must succeed structurally
   // (modulo the actual LP outcome).  Drive a single forward pass
   // using a no-op work pool spec — the existing fixtures use a
-  // small in-memory LP so plain CPLEX/HiGHS solves complete in
-  // milliseconds.
+  // small in-memory LP so plain LP solves are cheap.
   //
   // We invoke the public `solve()` with max_iterations=0 to confirm
   // the guard never fires when no failure has been recorded.

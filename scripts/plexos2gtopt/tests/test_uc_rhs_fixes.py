@@ -2,7 +2,7 @@
 """Unit tests for the gtopt-UC vs PLEXOS RHS-parity converter fixes.
 
 Each test pins one fix found by cross-validating the emitted UserConstraints
-against the PLEXOS solution DB (see ``project_uc_plexos_parity``):
+against the PLEXOS input semantics:
 
 * ``_has_active_rhs_row`` — PANGUE: an expired-only RHS must not mask an
   active ``RHS Day``.
@@ -302,8 +302,8 @@ def test_fuel_offtake_daily_cap_gwh_scale(tmp_path: Path) -> None:
     DOES get the ×1000 GWh→MWh scale applied inside the
     ``is_fuel_offtake and rhs_from_day`` branch — it just doesn't go via
     the ``is_daily_energy`` path (which is excluded to avoid double-
-    scaling).  Verified against PLEXOS sol for ``Diesel_OffTakeDay`` on
-    CEN PCP RES20260422 (raw RHS Day = 9.277 → per-block = 386.54).
+    scaling).  Conversion rule: per-block RHS = ``RHS Day`` × 1000 / 24
+    (e.g. a raw RHS Day of 9.277 becomes 386.54 per block).
 
     The constraint is NOT classified as a daily-ENERGY (Δt-weighted)
     type — it stays a per-block fuel-cap (``constraint_type=""``).
@@ -316,6 +316,7 @@ def test_fuel_offtake_daily_cap_gwh_scale(tmp_path: Path) -> None:
     )
     uc = {c.name: c for c in out}["Diesel_OffTakeDay"]
     assert 'generator("G1").generation' in uc.expression
+    # ×1000 GWh→MWh applied: raw RHS Day=2.0 → expression scalar=2000.
     assert "2000" in uc.expression
     rhs_vals = (
         [
@@ -339,7 +340,7 @@ def test_fuel_offtake_daily_cap_gwh_scale(tmp_path: Path) -> None:
 #   * ANTUCOmax/min, CTF_DownMinProvision — input is a single SCALAR; PLEXOS
 #     runtime-derives a time-varying value NOT present in the input.
 #   * Reg_SouthZone — several UNDATED, untagged RHS values; prefer_min picks
-#     the tightest. See memory `project_uc_plexos_parity`.
+#     the tightest.
 # --------------------------------------------------------------------------- #
 def _rhs_row(value: float, data_id: int) -> SimpleNamespace:
     """A minimal undated PlexosDataRow stand-in for `_horizon_value`."""
@@ -349,8 +350,8 @@ def _rhs_row(value: float, data_id: int) -> SimpleNamespace:
 def test_horizon_value_multivalue_untagged_picks_min() -> None:
     """`Reg_SouthZone` residual: several UNDATED, untagged RHS rows →
     `_horizon_value(prefer_min=True)` returns the MINIMUM.  Known-suboptimal
-    for `<=` caps (input `[187,196,232,320]`; PLEXOS uses ≥232 but gtopt picks
-    187) — the per-block mapping isn't in the input, so this pins the current
+    for `<=` caps (input `[187,196,232,320]`; gtopt picks 187) — the
+    per-block mapping isn't in the input, so this pins the current
     pick so any future change to it is intentional."""
     rows = [
         _rhs_row(232.0, 1),
@@ -366,9 +367,8 @@ def test_horizon_value_multivalue_untagged_picks_min() -> None:
 def test_horizon_value_single_scalar_faithful() -> None:
     """`ANTUCOmax/min` (137), `CTF_DownMinProvision` (293) residual: the input
     ships a single SCALAR RHS and `_horizon_value` returns it verbatim — gtopt
-    is faithful to the input.  PLEXOS runtime-derives a different time-varying
-    value (60-70 / 141-603) that is NOT in the input, so gtopt neither can nor
-    should fabricate it."""
+    is faithful to the input.  A time-varying value derived at solve time is
+    NOT in the input, so gtopt neither can nor should fabricate it."""
     rows = [_rhs_row(137.0, 1)]
     assert _horizon_value(rows, None, prefer_min=True) == 137.0
     assert _horizon_value(rows, None) == 137.0
@@ -595,11 +595,11 @@ def test_st_schedule_scenario_tag_active_overrides_default(tmp_path: Path) -> No
 # but a constraint whose ONLY RHS row is inactive-tagged keeps that value
 # (PLEXOS still applies it as the effective RHS).
 #
-# Verified on CEN PCP DATOS20251005 ``Reg_SouthZone``: base RHS=320 + an
-# untagged H11-17→230 timeslice row are applied, while H9-10→196.6 and
-# H18-20→187.42 carry an inactive Scenario tag → PLEXOS's solution RHS is
-# {320, 230} only.  ``CTF_DownMinProvision`` (single inactive-tagged
-# RHS=293) is still applied → never dropped.
+# Input shape (``Reg_SouthZone``): base RHS=320 + an untagged H11-17→230
+# timeslice row are applied, while H9-10→196.6 and H18-20→187.42 carry an
+# inactive Scenario tag → the effective RHS is {320, 230} only.
+# ``CTF_DownMinProvision`` (single inactive-tagged RHS=293) is still
+# applied → never dropped.
 # --------------------------------------------------------------------------- #
 _RHS_SCENARIO_TAG_XML = f"""<?xml version="1.0" standalone="yes"?>
 <MasterDataSet xmlns="{NS[1:-1]}">
@@ -732,7 +732,7 @@ def test_rhs_lone_inactive_scenario_tag_kept(tmp_path: Path) -> None:
 # where BOTH are members of the same constraint.  Without the cross-product
 # expansion the term silently dropped, leaving a degenerate
 # ``-α × battery.discharge = 0`` row that the parser marked inactive →
-# 10 PLEXOS-binding constraints (~$48k of shadow cost) unenforced.
+# binding constraints left unenforced.
 # --------------------------------------------------------------------------- #
 _BAT_CF_COMP_XML = f"""<?xml version="1.0" standalone="yes"?>
 <MasterDataSet xmlns="{NS[1:-1]}">
@@ -810,7 +810,7 @@ def test_bat_cf_comp_emits_reserve_battery_cross_product(tmp_path: Path) -> None
     """A ``BAT_*_CF_GEN_COMP`` constraint with a Reserve→Constraint
     Provision Coefficient must emit BOTH the battery generation term
     AND the (battery, reserve) provision cross-product term.  Pins the
-    fix that closes 10 PLEXOS-binding gaps (~$48k of reserve cost).
+    fix that re-enforces those binding constraints.
     """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
     xml_path.write_text(_BAT_CF_COMP_XML)
@@ -902,9 +902,8 @@ def test_expand_timeslice_rejects_bad_tag() -> None:
 def test_build_rhs_profile_campiche_shape() -> None:
     """Campiche_starting: base RHS=0 + tagged row RHS=1 with `H16-20`.
 
-    Verified against the PLEXOS solution's pid-3073 RHS output for the
-    week of 2026-04-22: blocks 16-20 carry RHS=1, every other block
-    carries RHS=0.  This is THE shape that motivated timeslice support.
+    Expected effective RHS for the week of 2026-04-22: blocks 16-20 carry
+    RHS=1, every other block carries RHS=0.  This is THE shape that motivated timeslice support.
     """
     rows = [
         _ts_row(value=0.0, data_id=28308, timeslice=None),
@@ -920,10 +919,9 @@ def test_build_rhs_profile_campiche_shape() -> None:
 def test_build_rhs_profile_skips_expired_tagged_rows() -> None:
     """A timeslice-tagged row whose date window is expired is IGNORED.
 
-    Verified against Commit_AtaTV2C: PLEXOS XML has H1-8 + H20-24 rows
-    both dated 2025-03-04 (expired by run date 2026-04-22); PLEXOS's
-    own solver pid-3073 reports RHS=0 every block, matching the
-    untouched base.  We must not overlay expired rows.
+    Commit_AtaTV2C shape: the XML has H1-8 + H20-24 rows both dated
+    2025-03-04 (expired by run date 2026-04-22), so the effective RHS is 0
+    every block, matching the untouched base.  We must not overlay expired rows.
     """
     rows = [
         _ts_row(value=0.0, data_id=28406, timeslice=None),
@@ -973,8 +971,7 @@ def test_build_rhs_profile_untagged_row_wins_outside_overlay() -> None:
     pass it as ``base_value`` — that would set 402.3 EVERYWHERE, hiding the
     tagged overlay.  ``_build_rhs_timeslice_profile`` must use the UNTAGGED
     active row's value (430) as the base for blocks outside the tag mask,
-    so blocks 9-18 carry 402.3 and the rest carry 430 — matching PLEXOS's
-    solver-applied RHS (pid 3073).
+    so blocks 9-18 carry 402.3 and the rest carry 430.
     """
     rows = [
         _ts_row(value=402.3, data_id=30332, timeslice="H9-18"),
@@ -992,9 +989,8 @@ def test_build_rhs_profile_untagged_row_wins_outside_overlay() -> None:
 def test_build_rhs_profile_pangueramp_three_ranges() -> None:
     """PANGUEramp: H10-15 (RHS=0), H16-24 (RHS=60), H1-9 (RHS=60).
 
-    Verified against PLEXOS pid-3073 output: blocks 10-15 = 0,
-    blocks 1-9 and 16-24 = 60.  The active ramp window is 60 MW/h
-    everywhere except the midday off-window 10:00-15:00.
+    Expected effective RHS: blocks 10-15 = 0, blocks 1-9 and 16-24 = 60.
+    The active ramp window is 60 MW/h everywhere except the midday off-window 10:00-15:00.
     """
     rows = [
         _ts_row(value=180.0, data_id=30502, timeslice=None),  # undated base
@@ -1166,12 +1162,11 @@ def test_build_rhs_date_overlay_sd_2026030813_shape() -> None:
     """SD_2026030813_NvaPAzucar_Polpaico500_neg: undated RHS=10000 base +
     dated RHS=1600 covering 2026-04-22T06:00 .. 10:00 (4 blocks).
 
-    Verified against PLEXOS solution pid-3073 RHS output: blocks 6-9 of the
-    week (run starts 2026-04-22) carry RHS=1600; all other 164 blocks
-    carry RHS=10000.  Earlier gtopt collapsed the dated row through
-    ``_horizon_value`` (horizon_start ∉ window → fallback to undated
-    10000 sentinel) and stubbed the whole UC inactive, missing $1.0-1.1M
-    of PLEXOS slack per such constraint.
+    Expected effective RHS: blocks 6-9 of the week (run starts 2026-04-22)
+    carry RHS=1600; all other 164 blocks carry RHS=10000.  Earlier gtopt
+    collapsed the dated row through ``_horizon_value`` (horizon_start ∉
+    window → fallback to undated 10000 sentinel) and stubbed the whole UC
+    inactive.
     """
     rows = [
         _dated_row(10000.0, 76824),
@@ -1195,7 +1190,7 @@ def test_build_rhs_date_overlay_sd_2026030813_shape() -> None:
 def test_build_rhs_date_overlay_sd_2026036857_shape() -> None:
     """SD_2026036857_LVilos_*: dated window spans Apr 21 23:00 .. Apr 22
     06:00 — only the LAST 1 h of Apr 21 + the FIRST 5 h of Apr 22 are
-    inside the horizon.  Verified against PLEXOS pid-3073: blocks 0-5 of
+    inside the horizon.  Expected effective RHS: blocks 0-5 of
     the week carry RHS=896, all others carry the undated 10000.
     """
     rows = [
@@ -1360,7 +1355,7 @@ def test_coefficient_amendments_filter_expired_rows(tmp_path: Path) -> None:
     → 36.83 — verified to produce the spurious ``CPF5mUp_Requirement +
     36.83·Generation_SEN ... = 4.125`` row carrying $913K of gtopt soft
     slack.  After the fix only the active row's value (10.75) appears
-    in the emitted UserConstraint, matching PLEXOS pid-3073 exactly.
+    in the emitted UserConstraint.
     """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
     xml_path.write_text(_COEF_AMENDMENT_XML)
@@ -1476,8 +1471,8 @@ def test_gen_bat_load_bat_shutoff_artifact_emits_inactive(tmp_path: Path) -> Non
     (``Generation Coefficient = 1`` or ``Load Coefficient = 1``).
     Literally these force ``battery.discharge = 0`` / ``battery.charge =
     0`` — i.e. the battery off.  PLEXOS itself drops the whole family from
-    the ST schedule (verified against the RES20260422 solution: none of
-    the 70 appear in t_object, while the batteries do dispatch).  Before
+    the ST schedule (none of the 70 appear in the solution's t_object,
+    while the batteries do dispatch).  Before
     this fix gtopt emitted them as SOFT equalities at $10/MWh penalty,
     burning ~$182K of slack on BAT_VICTOR_JARA_FV alone and similar on
     the other 33 batteries with ``Include in ST Schedule = -1`` (the
@@ -1557,8 +1552,9 @@ def test_generator_shutoff_artifact_emits_inactive(tmp_path: Path) -> None:
 
     On the CEN PCP run date PEHUENCHE_U1 has pmax=0 (offline), so gtopt's
     silent-zero-drop pruned its term and emitted ``-PEHUENCHE_U2.generation
-    = 0`` as a SOFT equality — pinning U2 to zero output.  That drove the
-    drops the whole UC from the ST schedule and lets both units run).
+    = 0`` as a SOFT equality — pinning U2 to zero output.  That drove a
+    PEHUENCHE_U2 under-dispatch, whereas the source model drops the whole UC
+    from the ST schedule and lets both units run.
 
     This fixture replicates the post-drop residual (single −1*gen=0 with
     Sense=None default equality) and asserts the new detector flips the

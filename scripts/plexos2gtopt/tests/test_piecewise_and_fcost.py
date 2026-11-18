@@ -229,9 +229,10 @@ def test_118_bus_piecewise_end_to_end(tmp_path: Path) -> None:
         import pytest
 
         pytest.skip(f"fixture not vendored: {src}")
-    with lzma.open(src, "rb") as fin, (bundle_dir / "DBSEN_PRGDIARIO.xml").open(
-        "wb"
-    ) as fout:
+    with (
+        lzma.open(src, "rb") as fin,
+        (bundle_dir / "DBSEN_PRGDIARIO.xml").open("wb") as fout,
+    ):
         shutil.copyfileobj(fin, fout)
     out_dir = tmp_path / "out"
     out_file = out_dir / "118.json"

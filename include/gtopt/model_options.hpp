@@ -270,12 +270,11 @@ struct ModelOptions
   /// reserve/inertia provisions skip a zero-ceiling column; the inertia
   /// zone skips a zero-requirement row).  Default `false`.
   ///
-  /// DEFAULT OFF — the un-reduced LP is the honest model and a modern
-  /// solver's presolve (CPLEX / Gurobi) reduces it to the same core, often
-  /// ~555k×820k; the un-reduced solve is ~12 s faster).  Enable with
+  /// DEFAULT OFF — the un-reduced LP is the honest model and a strong
+  /// presolve reduces it to the same core.  Enable with
   /// `--lp-reduction` (or `model_options.lp_reduction = true`) for the
   /// weak-presolve backends (CLP / CBC / HiGHS) that benefit from the
-  /// smaller LP up front — they will not otherwise strip ~575k provably
+  /// smaller LP up front — they will not otherwise strip the provably
   /// zero columns, and a serial-barrier solver (HiGHS IPM) factorizes the
   /// bigger matrix on one core.
   ///

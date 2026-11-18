@@ -402,16 +402,14 @@ def make_parser() -> argparse.ArgumentParser:
             "``--loss-error-pct`` budget that drives adaptive K.  Heaviest-"
             "error contributors get ``midpoint`` (negative mean bias); the "
             "rest get ``uniform`` (positive mean bias, but presolve eliminates "
-            "the loss column for ~2× faster solve).  The system-wide signed "
+            "the loss column for a faster solve).  The system-wide signed "
             "mean error stays within the budget by construction — uniform "
             "lines' positive bias cancels midpoint lines' negative bias.  "
             "Same single ``--loss-error-pct`` knob controls everything; no "
-            "magic thresholds.  Verified on CEN PCP weekly (2026-04-22): "
-            "vs all-midpoint baseline, dynamic cuts total LP segments by "
-            "30%% (1200 → 839), drops LP solve time by 74%% (688 s → 182 s), "
-            "improves LP conditioning (kappa 2.8e8 → 1.1e8), and tightens "
-            "the LP-internal-vs-analytic loss gap from 5.1%% to 2.1%%.  "
-            "Operational cost vs PLEXOS goes from -3.32%% to -2.84%%.  "
+            "magic thresholds.  Compared with an all-midpoint baseline, "
+            "dynamic reduces the number of loss segments, improves LP "
+            "conditioning, and tightens the LP-internal-vs-analytic loss "
+            "gap.  "
             "``midpoint``: uniform-K de-biased secant (the previous default — "
             "chord shifted DOWN to mid-point tangent so the PWL is unbiased).  "
             "``uniform``: equal-width secant chords (strict UPPER bound; max "
@@ -427,8 +425,8 @@ def make_parser() -> argparse.ArgumentParser:
     # bidirectional-flow degeneracy AND acts as the internal v-pin the
     # tangent_signed_flow L-secant bracket needs when
     # loss_secant_segments > 1 without SOS2.  (The former 0.1 already
-    # removed the lossp/lossn kappa contributions — ratio 5.77e+05 on
-    # jan18 LP-relax — vs the legacy 0.0.)
+    # removed the lossp/lossn conditioning contributions vs the legacy
+    # 0.0.)
     add_loss_cost_eps_argument(parser, dialect="plexos", default=1.0)
     # ``loss_secant_segments`` default: UNSET (gtopt resolves S=1, the
     # single-secant chord).  Extra secants are inert in pure LP (the
@@ -490,9 +488,7 @@ def make_parser() -> argparse.ArgumentParser:
             "BESS net-charge by ~12 GWh on the CEN PCP weekly "
             "bundle.  Pass ``--no-battery-efin-pin`` to drop the "
             "pin and let the LP set ``efin`` freely (matches "
-            "PLEXOS's flexible terminal-SoC convention; on CEN PCP "
-            "weekly 2026-04-22 PLEXOS net-discharges batteries by "
-            "≈568 MWh over the horizon)."
+            "PLEXOS's flexible terminal-SoC convention)."
         ),
     )
     parser.add_argument(
@@ -664,7 +660,7 @@ def make_parser() -> argparse.ArgumentParser:
     # NOTE: ``--loss-tangent-top-pct`` (the loading-classified R·P²
     # percentile RANKING that put the top-P% lossiest lines on the tangent
     # layout) was REMOVED.  The ``midpoint`` de-bias + per-line
-    # ``loss_envelope`` decoupling match PLEXOS losses to ~2% at K=4 without
+    # ``loss_envelope`` decoupling give adequate loss accuracy at K=4 without
     # the MIP-heavy hybrid tangent tier, so the ranking is obsolete.  The
     # explicit ``--loss-tangent-lines`` escape hatch remains below.
     parser.add_argument(
@@ -697,9 +693,8 @@ def make_parser() -> argparse.ArgumentParser:
             "Segment count for the base (``uniform``/``midpoint``) layout "
             "lines — i.e. ALL lines except those in ``--loss-tangent-lines`` "
             "(the default).  DEFAULT 4: with the ``midpoint`` de-bias + "
-            "envelope decoupling, K=4 already matches PLEXOS losses to "
-            "~-1.6%% (the loss-accuracy sweet spot); more segments drift "
-            "slightly under and add LP rows for no benefit.  These layouts "
+            "envelope decoupling, K=4 is the loss-accuracy sweet spot; "
+            "more segments add LP rows for little benefit.  These layouts "
             "use segment-variable rows that presolve handles cheaply."
         ),
     )
@@ -750,8 +745,8 @@ def make_parser() -> argparse.ArgumentParser:
             "(default 1.0 = strictly above rated).  OPF engine selected "
             "via ``--auto-lift-engine``.  Mirrors PLEXOS's voltage-"
             "conditional cap treatment on radial step-down lines (e.g. "
-            "``Capricornio110->LaNegra110`` on CEN PCP, 76 MW rated, "
-            "~204 MW PLEXOS dispatch).  Composes with "
+            "``Capricornio110->LaNegra110`` on CEN PCP, 76 MW rated).  "
+            "Composes with "
             "``--lift-line-caps``: the auto-detected set is the UNION "
             "with the comma-separated names there.  Falls back to a "
             "logged warning + empty patch when the engine is "
@@ -797,7 +792,7 @@ def make_parser() -> argparse.ArgumentParser:
             "without the gate makes the LP primal-infeasible at "
             "blocks where the hydro is fractionally / fully off "
             "(verified on CEN PCP 2026-04-22: ``antucomin_constraint_"
-            "1263_1_1_40`` reported infeasible by CPLEX presolve when "
+            "1263_1_1_40`` reported infeasible by presolve when "
             "added to the hard list).  ``hard`` mode is available for "
             "debug / validation runs against a known-feasible "
             "horizon, BUT WILL FAIL on most CEN PCP weekly cases until "
@@ -847,11 +842,10 @@ def make_parser() -> argparse.ArgumentParser:
         help=(
             "How to model PLEXOS EL=0 ('Never enforce') transmission lines:\n"
             "  'strict' (DEFAULT): treat EL=0 like EL=2 — a plain hard cap at "
-            "the nominal rating (no free band, no headroom).  This matches the "
-            "PLEXOS solution: a 14-case sweep (2025-10 → 2026-05) found only "
-            "~34 of 188 EL=0 lines are EVER run above their rating, so the "
-            "faithful default is to enforce the rating and LIFT only the known "
-            "exceptions via --lift-line-caps (whose default ships that set).\n"
+            "the nominal rating (no free band, no headroom).  Only a minority of "
+            "EL=0 lines ever need to run above their rating, so the default "
+            "enforces the rating and LIFTs only the known exceptions via "
+            "--lift-line-caps (whose default ships that set).\n"
             "  'extended' (a.k.a. relaxed): soft cap — flow is free up to the "
             "rating, penalised between the rating and a headroom multiple, "
             "hard-capped at that multiple.  Lets EVERY EL=0 line run over "
@@ -940,13 +934,10 @@ def make_parser() -> argparse.ArgumentParser:
             "Apply Gen_AuxUse.csv (PLEXOS generation Auxiliary Use) as "
             "Generator.lossfactor — the LP injects (1 - lossfactor) x "
             "generation to the bus, modelling station-service "
-            "self-consumption.  DEFAULT (flag off) IGNORES it: PLEXOS ships "
-            "the file but does NOT apply it (solution prop 81 = 0, no aux "
-            "fuel in its cost), so applying it makes GTOpt burn ~54 GWh of "
-            # ``%%`` because argparse runs the help string through Python
-            # ``%``-formatting to expand ``%(default)s`` / ``%(prog)s``;
-            # a bare ``%`` triggers a TypeError on --help.
-            "fuel PLEXOS never spends (~+13%% op cost on CEN PCP)."
+            "self-consumption.  DEFAULT (flag off) IGNORES it: the CEN PCP "
+            "bundle ships the file but the source model does not apply it, "
+            "so applying it adds station-service fuel burn the source "
+            "model does not carry."
         ),
     )
     parser.add_argument(
@@ -1048,10 +1039,8 @@ def make_parser() -> argparse.ArgumentParser:
             "gtopt LP-relaxes the binary status / startup / shutdown "
             "variables.  Default (since 2026-05-23) is MIP — commitments "
             "ship without ``relax`` so GTOpt enforces integrality.  "
-            "Empirically: dropping the LP-relax closed ~7 pp of the "
-            "PLEXOS-vs-gtopt dispatch-cost gap on CEN PCP, moving "
-            "NUEVA_RENCA-TG+TV_GN_A from 19 GWh/week (LP) to 33 GWh/week "
-            "(MIP, vs PLEXOS 40 GWh).  Pass ``--lp-relax`` for the "
+            "LP-relaxing lets the ``<plant>_Uniq`` mutexes go fractional "
+            "and understates operational cost.  Pass ``--lp-relax`` for the "
             "legacy LP-only behaviour (faster solve, looser dispatch) "
             "or for solvers without MIP support."
         ),

@@ -109,25 +109,25 @@ _BATTERY_NAME = "bat_57b_synthetic"
 #   declared_MC[battery]    = LMP_at_charge / η + degradation_cost
 #   emission_rate[battery] = EF_at_charge / η
 # Charging assumption: the battery charges off-peak when the cheap
-# thermals (MC=20, EF=400 kg CO₂/MWh in our synthetic catalogue) are
+# thermals (MC=20, EF=0.4 tCO₂/MWh in our synthetic catalogue) are
 # marginal. v1 uses constants — a v1.1 multi-segment cost-curve model
 # would resolve the cost per actual charging window.
 # ----------------------------------------------------------------------
 BATTERY_ROUND_TRIP_EFF = 0.85
 BATTERY_LMP_AT_CHARGE = 20.0  # USD/MWh — cheap-thermal hours
 BATTERY_DEGRADATION_COST = 5.0  # USD/MWh-discharged
-BATTERY_EF_AT_CHARGE = 400.0  # kgCO₂/MWh — cheap-thermal EF
+BATTERY_EF_AT_CHARGE = 0.4  # tCO₂/MWh — cheap-thermal EF
 BATTERY_DECLARED_MC = (
     BATTERY_LMP_AT_CHARGE / BATTERY_ROUND_TRIP_EFF + BATTERY_DEGRADATION_COST
 )  # ≈ 28.53 USD/MWh
 BATTERY_EMISSION_FACTOR = BATTERY_EF_AT_CHARGE / BATTERY_ROUND_TRIP_EFF
-# ≈ 470.59 kgCO₂/MWh (charges from cheap thermals; energy losses
+# ≈ 0.47059 tCO₂/MWh (charges from cheap thermals; energy losses
 # proportionally inflate the per-discharged-MWh emission intensity)
 
 # IEEE 57b emission factors (synthetic — IEEE benchmarks don't ship
 # emission_rate values). MC=20 thermals modelled as gas combined-cycle
-# (≈400 kg CO₂/MWh), MC=40 thermals as oil/diesel peakers (≈700).
-_IEEE57B_EF_BY_MC = {20.0: 400.0, 40.0: 700.0}
+# (≈0.4 tCO₂/MWh), MC=40 thermals as oil/diesel peakers (≈0.7).
+_IEEE57B_EF_BY_MC = {20.0: 0.4, 40.0: 0.7}
 
 
 # ----------------------------------------------------------------------
@@ -251,7 +251,7 @@ def composite_feed(tmp_path: Path) -> Path:
         pmax=float(bat_params["pmax_discharge"]),  # 60 MW from bat_4b_24
         declared_MC=BATTERY_DECLARED_MC,  # ≈ 28.53 USD/MWh
         kind="battery",
-        emission_rate=BATTERY_EMISSION_FACTOR,  # ≈ 470.59 kgCO₂/MWh
+        emission_rate=BATTERY_EMISSION_FACTOR,  # ≈ 0.47059 tCO₂/MWh
     )
 
     # Three solar-profile generators distributed across the network.

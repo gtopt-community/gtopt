@@ -521,11 +521,10 @@ The multi-bus **topology + economics are reproduced**: the network builds
 and congests, the **interconnection import cap** (`--import-limit 200`,
 the EOR GUA↔MEX tie limit) stops the $0 Mexico import fuels (~1.8 GW)
 flooding the dispatch, and the system marginal cost lands in a sensible
-band (generation-weighted SRMC ≈ mid-$50s, peak > $400). PSR's `cmgbuscp`
-time-mean is ~141 (peak 165); AMM 2025 spot ~80–95. The residual gap is
-the **seasonal water-value floor**: PSR never prices below ~$93 even
-off-peak (water saved now serves later weeks), which a single-week
-horizon cannot impose unless the water value prices *every* hydro release.
+band. The main modelling difference left is the **seasonal water-value
+floor**: a multi-week model keeps hydro priced even off-peak (water saved
+now serves later weeks), which a single-week horizon cannot impose unless
+the water value prices *every* hydro release.
 
 ### Example
 

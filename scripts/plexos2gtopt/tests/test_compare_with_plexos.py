@@ -495,8 +495,7 @@ def test_compute_gtopt_energy_totals_splits_synthetic_battery_gen(
     ``generator_array`` are the synthetic ``<bat>_gen`` companions that
     gtopt's ``expand_batteries`` injects at LP-build time.  The energy-
     totals helper must split them out so the bus residual is expressible
-    in real-bus terms.  Regression for the 2026-05-28 losses audit
-    (``losses_audit.md``): without the split, ``gen_total`` doubles-up
+    in real-bus terms.  Regression: without the split, ``gen_total`` doubles-up
     battery discharge against ``Battery/fout_sol`` and the loss residual
     drifts.
     """

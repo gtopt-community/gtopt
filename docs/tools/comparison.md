@@ -23,7 +23,7 @@ for interoperability:
 | Tool | Language | Role with GTOpt |
 |------|----------|-----------------|
 | **[pandapower](https://www.pandapower.org/)** | Python | DC OPF reference solver; `pp2gtopt` imports pandapower networks; `gtopt_compare` validates GTOpt results against pandapower on standard IEEE test cases |
-| **PLP** (source not public) | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to GTOpt JSON + Parquet |
+| **[PLP](https://www.coordinador.cl/operacion/documentos/modelacion-del-sen/modelos-para-la-planificacion-y-programacion-de-la-operacion/)** (CEN) | Fortran | Hydrothermal scheduling tool widely used in Latin America; `plp2gtopt` converts PLP `.dat` input files to GTOpt JSON + Parquet |
 | **[PyPSA](https://pypsa.org/)** | Python | Linear optimal power flow with multi-period investment planning; shares the same LP/MIP mathematical structure as GTOpt (see [Mathematical Formulation](../formulation/mathematical-formulation.md)) |
 | **[GenX](https://genxproject.github.io/GenX/)** | Julia | Capacity expansion model; similar modular investment + storage SoC formulation to GTOpt |
 
@@ -487,11 +487,10 @@ f_l = B_l × (θ_a − θ_b)    where B_l = V² / X_l (susceptance)
 
 | Aspect | GTOpt | PLP | pandapower |
 |--------|-------|-----|------------|
-| Solver | COIN-OR CBC/CLP (LP/MIP) | Custom LP solver / SDDP | PYPOWER (Python) |
+| Solver | Plugins: HiGHS, CBC/CLP, CPLEX, Gurobi, … | CLP via OSI | PYPOWER (Python) |
 | Problem type | Sparse LP/MIP | Sparse LP | Dense LP/QP |
-| Matrix format | CSC sparse (`SparseCol`/`SparseRow`) | Dense/banded | Dense |
+| Matrix format | CSC sparse (`SparseCol`/`SparseRow`) | Sparse (OSI) | Dense |
 | Integer variables | Optional (expansion modules) | Not standard | Not supported in DC OPF |
-| Performance | High (C++26, flat_map, parallel) | Moderate (Fortran) | Low-moderate (Python) |
 
 ### 12.4 Stochastic Optimization
 

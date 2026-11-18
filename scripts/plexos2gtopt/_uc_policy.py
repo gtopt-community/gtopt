@@ -193,9 +193,9 @@ def _is_def_equation(constraint_name: str, expression: str, op: str) -> bool:
 def _is_bat_complementarity(constraint_name: str) -> bool:
     """Battery-mode complementarity (BAT_*_CF_GEN_COMP / BAT_*_CF_LOAD_COMP).
 
-    PLEXOS audit shows 99-111/168 h binding with shadow $3,993-$5,388 —
-    softening lets the LP cheat at the catch-all tier while PLEXOS pays
-    the true ~$5,000/MWh marginal cost.
+    These rows bind for most of the horizon with a high shadow price —
+    softening them lets the LP cheat at the catch-all tier instead of
+    paying the true marginal cost of the battery-mode coupling.
     """
     return constraint_name.endswith("_CF_GEN_COMP") or constraint_name.endswith(
         "_CF_LOAD_COMP"
@@ -205,9 +205,8 @@ def _is_bat_complementarity(constraint_name: str) -> bool:
 def _is_maxcsf_placeholder(constraint_name: str) -> bool:
     """``MAXCSF_*`` — N-1 secondary-frequency-control reserve sharing.
 
-    PLEXOS audit: slack 43,000+ MWh with shadow $0 across the horizon
-    (treated as free slack — N-1 placeholders that never bind in
-    practice).  Demoted to the operational tier so the LP can slack
+    N-1 placeholders that never bind in practice (treated as free
+    slack).  Demoted to the operational tier so the LP can slack
     them freely instead of accumulating phantom $48K/plant cost at the
     high-soft tier.
     """
@@ -217,9 +216,8 @@ def _is_maxcsf_placeholder(constraint_name: str) -> bool:
 def _is_fuel_offtake_or_limited_generation(constraint_name: str) -> bool:
     """``Gas_MaxOpDay*`` / ``limited_generation_calculation`` name override.
 
-    RES20260422.accdb reports zero slack on these (binding 111/111,
-    price $78-83/h), so PLEXOS solves them HARD — but promoting to
-    ``penalty=0`` produces a CPLEX presolve infeasibility (implied
+    These are meant to be solved HARD — but promoting to
+    ``penalty=0`` produces a presolve infeasibility (implied
     bounds make the row infeasible on the v3 LP-relax, 2026-05-29).
     Compromise: high-soft tier so the LP almost never elects to violate
     yet the row can absorb the rare per-block contradiction.
@@ -270,6 +268,7 @@ def classify(
        no directive (PLEXOS already chose a soft tier).
     3. **Gas_MaxOpDay* / limited_generation_calculation** override (not
        in hard_set) → high-soft tier, ``reserve_prov_sum`` directive.
+    4. **plexos_penalty == 0** dispatch by LHS shape + name:
        a. ``_Def`` definitional equation → HARD, no directive.
        b. Battery complementarity / PLEXOS-hard-singleton → HARD, no
           directive (singleton: matched against ``hard_set``).

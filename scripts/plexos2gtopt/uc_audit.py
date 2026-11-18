@@ -174,6 +174,7 @@ NATIVE_PRIMITIVE_FAMILIES: dict[str, str] = {
     # status (the unit's row is auto-relaxed when commit=0).  gtopt has
     # no commit-gated UC primitive yet, so hardening them would cause
     # primal infeasibility whenever PLEXOS would have OFF'd the unit.
+    # The RHS mismatch in B2 (gtopt pmax vs the solution-reported max)
     # is the natural consequence of this soft-tier choice — NOT a parser
     # extraction bug.  See ``parsers.py`` lines 5500-5560 for the full
     # design comment ("hydro per-plant min/max/ramp — special handling").
@@ -185,9 +186,9 @@ NATIVE_PRIMITIVE_FAMILIES: dict[str, str] = {
     # encodes the system inertia balance as a UC with a synthetic
     # ``decision_variable("Inertia_SEN")`` term:
     #   −1000·Inertia_SEN + Σ (inertia_const·commit.status) ≥ rhs_raw
-    # The raw RHS from PLEXOS XML (here −622.54) reads correctly; PLEXOS
-    # at solve time reports ``rhs_max = 0`` because its internal
-    # encoding cancels the Inertia_SEN contribution at the binding point.
+    # The raw RHS from the PLEXOS XML reads correctly; the solve-time RHS
+    # reported in the solution file differs because that formulation
+    # cancels the Inertia_SEN contribution at the binding point.
     # gtopt's raw-DB value is the right input — the discrepancy is the
     # different LP formulation, not a parser bug.
     "inertia_calc": "decision_variable Inertia_SEN + Σ inertia·commit.status",
@@ -382,6 +383,7 @@ def parse_json_ucs(planning_json: Path) -> list[dict]:
 # folds in the ``ReserveZone.urmin`` / ``drmin`` Min-Provision FLOOR, so gtopt
 # correctly enforces ``max(requirement, MinProvision)`` while PLEXOS REPORTS
 # the bare requirement and enforces the floor separately.  Comparing the
+# enforced row false-positives (the gtopt floor exceeds the reported bare
 # requirement).  The ``.lp`` is still used to ENUMERATE which reserve-zone
 # elements exist; the COMPARED values come from the JSON requirement.
 _LP_RESERVEZONE_RE = re.compile(
@@ -541,6 +543,7 @@ def discover_gtopt_lp(gtopt_dir: Path) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
+# B12: parameter-bounds consistency (gtopt JSON vs PLEXOS input CSV)
 # ---------------------------------------------------------------------------
 # This bucket is INDEPENDENT of the UC-name audit above: it compares the
 # converted gtopt element bounds against the RAW PLEXOS input time-series
@@ -870,6 +873,7 @@ def build_b12_bounds(planning_json: Path, input_dir: Path) -> list[dict]:
     # --- Reserve provision caps (gtopt urmax/drmax vs PLEXOS CFdata MRU/MRD) ---
     # The converter sets ``reserve_provision.urmax``/``drmax`` to the per-(gen,
     # hour) MAX RESERVE CAPABILITY aggregated from CFdata/{CPF,CSF,CTF} MRU/MRD
+    # files (the AUTHORITATIVE PLEXOS cap — sol max == CFdata cap exactly).  B12
     # never covered these (only Gen/Lin bounds), so a wrong provision cap was
     # invisible to the LP-level audit.  Compare the emitted peak against the
     # CFdata peak; skip provisions with no CFdata data (their urmax falls back
@@ -1210,6 +1214,7 @@ def build_plexos_solution(cache_dir: Path) -> dict[str, dict]:
 
 
 # ---------------------------------------------------------------------------
+# PLEXOS sol Storage / per-period property loader (B14/B15 sol path)
 # ---------------------------------------------------------------------------
 # Storages are ``collection_id`` 93, child ``class_id`` 8.  The per-period
 # solution columns (verified against ``t_property`` in the 02-15 sol cache):
@@ -1233,11 +1238,11 @@ FUEL_COLLECTION_ID = 40
 _FUEL_PRICE_PROP_NAMES = ("Price",)
 
 # ---------------------------------------------------------------------------
+# PLEXOS sol Reserve property loader (B17 soft-slack coverage)
 # ---------------------------------------------------------------------------
 # Reserve objects are ``class_id`` 14, exposed through the
 # ``System → Reserves`` collection_id 156.  The properties that prove the
-# reserve requirement is modelled SOFT in PLEXOS (validated against the CEN
-# PCP 2026-02-15 sol cache):
+# reserve requirement is modelled SOFT in PLEXOS:
 #   851 Provision   854 Shortage   857 (Risk/CleanProvision)   860 Price
 #   862 (Marginal/ShadowPrice)
 # The PRESENCE of the ``Shortage`` property (854) on the reserve membership is
@@ -1610,6 +1615,7 @@ def build_b14_reservoir_bounds_sol(
     Unlike the input-CSV variant (:func:`build_b14_reservoir_bounds`, which
     needs ``Hydro_Min/MaxVolume.csv`` — usually absent inside CEN
     ``DATOS*.zip.xz`` bundles), this reads the per-period Storage
+    Min Volume (644) / Max Volume (643) / End Volume (646) that the PLEXOS sol
     ALWAYS carries, so the check actually runs on a CEN bundle.
 
     For every reservoir present in BOTH the JSON and the sol it emits, with a
@@ -1625,7 +1631,7 @@ def build_b14_reservoir_bounds_sol(
       * ``emin_over_constrained`` (HIGH) — gtopt's emitted ``emin`` floor lies
         ABOVE PLEXOS's per-period Min Volume at one or more blocks: gtopt's
         hard floor forbids reservoir levels PLEXOS itself uses, so gtopt could
-        never reproduce the PLEXOS trajectory.  Always a real converter bug
+        never reproduce the PLEXOS trajectory.  Always a real converter bug.
       * ``emin_value_mismatch`` (INFO) — gtopt's ``emin`` differs from PLEXOS's
         Min Volume but sits BELOW it: gtopt may intentionally relax to a
         physical floor + soft ``efin``, so this is informational.
@@ -1730,6 +1736,7 @@ def build_b14_reservoir_bounds_sol(
             # forbids reservoir levels PLEXOS itself uses (over-constraint).
             # The converter sometimes takes emin from PLEXOS's *static* Min
             # Volume property while PLEXOS's matrix carries a lower per-period
+            # Min.
             #   * emin_over_constrained (HIGH): gtopt_emin > PLEXOS_min beyond
             #     tol at any block — always a real bug (gtopt could never
             #     reproduce the PLEXOS trajectory).
@@ -2675,29 +2682,30 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         }
 
         # B2: RHS SCALE mismatch — a gross unit / sign / magnitude error
-        # (e.g. ANTUCO 137 MW vs 83.3 m³/s), NOT a per-block profile
+        # (e.g. MW vs m³/s), NOT a per-block profile
         # wiggle.  Both gtopt and PLEXOS carry block-varying RHS, so the
         # only sound scalar test is whether the two value RANGES OVERLAP.
         # Comparing a single aggregate (max-vs-max OR min-vs-min) is unsafe
-        # because the extrema occur in different blocks: the old max-vs-max
-        # silently matched ``Reg_SouthZone`` (both peak at 320) while
-        # min-vs-min would falsely flag its 187.42 floor against PLEXOS's
-        # 207 floor — two non-aligned blocks.  Range overlap also dissolves
-        # ``SD_*_Guacolda_Maitencillo`` no longer false-positives.
+        # because the extrema occur in different blocks: max-vs-max can
+        # match while min-vs-min compares two non-aligned blocks.  Range
+        # overlap also dissolves PLEXOS's "contingency-off" no-limit
+        # sentinels (10000 / 100000 MW): a real gtopt cap sitting inside the
+        # reported [cap, 10000] band no longer false-positives.
         #
         # We also gate on PLEXOS having ACTUALLY bound the row (non-zero
         # shadow price AND binding hours): when PLEXOS never pays for the
         # constraint its RHS value cannot change the solution, so a
         # mismatch is immaterial — the same guard the B6 bucket uses below
         # and the audit's stated goal of silencing never-binding noise.
-        # This drops the date-windowed ``PANGUEpriority`` (gtopt picks a
-        # relaxed ``>= -10000`` floor row on the Oct horizon while PLEXOS
-        # holds it at 20, but never binds it: price = 0, hours_binding = 0).
+        # This drops date-windowed rows where gtopt picks a relaxed
+        # ``>= -10000`` floor row that the reference never binds
+        # (price = 0, hours_binding = 0).
         # B2: RHS mismatch — DIRECT distinct-value comparison (no ranges).
         # PLEXOS and gtopt must carry the SAME set of distinct RHS values up to
         # numerical error.  We cluster each side's values (merging only entries
         # within numerical tolerance) and compare the sorted distinct lists:
         #   * a different COUNT catches a per-day/per-block profile FLATTENED to
+        #     a scalar (gtopt 1 distinct value vs PLEXOS K) — the profile→scalar
         #     bug class (Hydro_AntucoBounds day-to-day bounds, FlowRight
         #     targets, fuel-price/battery series read with ``[0]`` / ``max()``).
         #     The old range-OVERLAP test silently passed these: a flattened
@@ -2716,7 +2724,8 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
             # gtopt correctly emits as ``rhs [0,0,…]``; PLEXOS echoes the
             # battery's moving ACTIVITY back as the row "RHS" (solution pid
             # 3073 ≡ activity pid 3069), so a direct compare spuriously reads
-            # already does (see project_bat_cf_comp_activity_flow).
+            # gtopt-fixed-0 vs PLEXOS-varying.  Skip them here exactly as B9
+            # already does.
             and not name.startswith(("GEN_BAT_", "LOAD_BAT_"))
         ):
             g_raw = list(g["rhs_profile"]) if g["rhs_profile"] else [g["rhs_scalar"]]
@@ -2808,8 +2817,7 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         # reduced-cost reporting includes the dual on the natural
         # ``battery.charge >= 0`` / ``battery.discharge >= 0`` bound,
         # but the row carries no real constraint — gtopt correctly
-        # marks it inactive (commit ``bfa2f817e``, see memory
-        # ``project_bat_cf_comp_activity_flow``).
+        # marks it inactive.
         if name.startswith(("GEN_BAT_", "LOAD_BAT_")):
             per_row.append(row)
             continue
@@ -2903,6 +2911,7 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         for item in b11_items:
             buckets["B11_native_rhs_mismatch"].append(item)
 
+    # B12: parameter-bounds consistency (gtopt JSON vs PLEXOS input CSV).
     # Independent of the UC audit: compares converted generator pmin/pmax and
     # line tmax/tmin against the raw PLEXOS input time-series, catching
     # converter extraction bugs (e.g. the Chacao cable over-rated 2x because
@@ -2924,6 +2933,7 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         ):
             buckets["B14_reservoir_bounds_mismatch"].append(item)
 
+    # B14 (sol-based): reservoir emin/emax vs the PLEXOS SOLUTION Storage
     # Min/Max/End Volume series — ALWAYS available from the constraint cache
     # (unlike the input CSVs).  Detects the silent scalar-collapse of a
     # time-varying PLEXOS bound and any End-Volume that lies outside gtopt's
@@ -2958,6 +2968,7 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
     # cost VALUES, and emits the HIGH cross-check
     # ``reserve_requirement_hard_but_plexos_soft`` when PLEXOS exposes the
     # reserve ``Shortage`` property (soft) but gtopt's reserve_shortage_cost is
+    # unset/0 (hard).  The reserve softness is read from the same PLEXOS sol
     # cache the rest of the audit uses.
     reserve_softness = load_plexos_reserve_softness(inputs.plexos_cache_dir)
     reserve_vors = load_plexos_reserve_vors(inputs.plexos_xml)

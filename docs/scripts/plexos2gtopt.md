@@ -16,9 +16,8 @@ surface.
 > **Audience.** This document is the critical-review reference for
 > `plexos2gtopt`: it specifies how it works, what files it depends
 > on, every GTOpt element it emits, every constraint family, the
-> validation passes that confirm the conversion, and the operational
-> picture against PLEXOS on the canonical CEN PCP 2026-04-22 weekly
-> bundle (both MIP and LP-relax). See `scripts/plexos2gtopt/DESIGN.md`
+> validation passes that confirm the conversion, and how to run the
+> converted case (both MIP and LP-relax). See `scripts/plexos2gtopt/DESIGN.md`
 > for the original v0 design proposal (most of which is implemented).
 
 ---
@@ -27,6 +26,7 @@ surface.
 
 PLEXOS keeps the model schema in a single MasterDataSet XML
 (`DBSEN_PRGDIARIO.xml`, ~36 MB) and ships time-series data in
+~50 sibling CSVs (one per object class). `plexos2gtopt` opens the
 bundle (zip / zip.xz / extracted directory), walks the XML object
 graph (objects, classes, memberships, properties), reads every
 per-class CSV at the chosen horizon, builds an in-memory
@@ -280,6 +280,7 @@ deterministic stage with a chronological block grid:
 | Mode | Selector | Block grid | Used when |
 |---|---|---|---|
 | `plexos` (default) | `--horizon-mode plexos` | The exact `t_phase_3` variable-duration grouping PLEXOS solved over (111 blocks across 7 days for CEN PCP weekly, `[24, 20, 13, 14, 12, 15, 13]` per day) | A sibling `RES<DATE>.zip[.xz]` (or explicit `--plexos-solution-accdb`) provides the layout |
+| `plexos` fallback / `hourly` | `--horizon-mode hourly`, or `plexos` with no solution available | Uniform 1-hour blocks (`24 × n_days`, e.g. 168 for a week) | No solution available — runs the same wall-clock horizon at finer block granularity. `--block-layout` can override either with an inline `{uid:dur,…}` / `d1,d2,…` spec or a CSV `duration` column. |
 
 The simulation block emits one `scenario`, one `scene` (implicit),
 one `phase` (implicit), one `stage` with `chronological: True`, and
@@ -511,8 +512,8 @@ budget knob `--loss-error-pct` (default `0.01` = 1%):
   adaptive mode, 4 in uniform mode).
 * `--loss-pwl-layout dynamic` (default) gives heavy lines `midpoint`
   (negative bias secant chords, accuracy-first) and the rest
-  `uniform` (positive-bias secant chords, presolve-eliminable for
-  ~2× faster solve). The two bias directions cancel system-wide.
+  `uniform` (positive-bias secant chords, presolve-eliminable, so
+  cheaper to solve). The two bias directions cancel system-wide.
 * `--loss-extend-overload` (default OFF) extends each soft-cap
   line's PWL envelope from `[0, tmax_normal]` to
   `[0, headroom × tmax_normal]`. The trade-off (4× worse PWL
@@ -520,11 +521,9 @@ budget knob `--loss-error-pct` (default `0.01` = 1%):
   reaches) is documented inline in `main.py` and remains OFF for
   routine runs.
 
-On CEN PCP weekly (measured against an all-midpoint baseline): the
-dynamic layout cuts total LP loss segments by 30 % (1 200 → 839),
-LP solve time by 74 % (688 s → 182 s), kappa from 2.8 × 10⁸ to
-1.1 × 10⁸, and the LP-internal-vs-analytic loss gap from 5.1 % to
-2.1 %; operational cost vs PLEXOS goes from −3.32 % to −2.84 %.
+Compared with an all-midpoint layout, the dynamic layout reduces the
+number of loss segments, improves LP conditioning and tightens the
+gap between the LP-internal and the analytic line losses.
 
 A complementary line-cap policy ships out of the box:
 
@@ -567,6 +566,7 @@ reservoirs, junctions, waterways, turbines, flows, reserve
 zones/provisions, commitments, decision variables, plants, plus
 the per-family UC counts.
 
+### Table 2 — Element Comparison (PLEXOS vs GTOpt vs Δ)
 
 For every emitted entity class, the parsed PLEXOS count, the
 gtopt-JSON count (read back by
@@ -687,17 +687,12 @@ stage_array : 1 (chronological)
 scenario_array : 1
 ```
 
-### Solve statistics (CEN PCP weekly, observed)
+### MIP vs LP-relax
 
-| Mode | Variables | Rows | Solver | Wall time | Status | Obj (unscaled) |
-|---|---:|---:|---|---:|---|---:|
-
-The MIP-vs-LP-relax gap is intentionally small because the same
-soft slacks make the LP-relax already feasible; what MIP recovers
-is the cycling / startup cost that the LP-relaxed commitment
-misses. Empirically (see feedback memory): dropping the LP-relax
-closed ~7 pp of the PLEXOS-vs-gtopt dispatch-cost gap on CEN PCP,
-moving `NUEVA_RENCA-TG+TV_GN_A` from 19 GWh/week (LP) to 33
+Both modes carry the same soft slacks, so the LP-relax is already
+feasible; what the MIP recovers is the cycling / startup cost that
+the LP-relaxed commitment misses. MIP is the default; pass
+`--lp-relax` for the relaxed run.
 
 ### Step-3 (`compare_with_plexos`) comparison surface
 
@@ -711,6 +706,7 @@ include:
   line losses (analytic vs LP-internal vs bus-residual),
   generation [MWh], unserved [MWh], operational $ broken into
   dispatch + start/shutdown cost.
+* **Per-unit SRMC** vs PLEXOS pid-137 (per-unit short-run
   marginal cost weighted by dispatch).
 * **Per-bus LMP** vs PLEXOS price.
 * **Per-line** flow / loss / utilisation diffs.
@@ -777,7 +773,7 @@ plexos2gtopt --compare GTOPT_JSON INPUT
 | `--vert-routing {ocean,cascade}` | `ocean` | Vert_* spillway destinations. |
 | `--reservoir-spillway {basic,strict}` | unset | `basic`: set `Reservoir.spillway_cost = 0`. `strict`: also disable every duplicate spillway path. |
 | `--soft-efin-reservoirs A,B,…` | `L_Maule` | Emit efin as a soft slack at the reservoir's water value for the listed reservoirs; HARD `vol_end >= efin` for all others. |
-| `--emin-eod-day1` / `--no-emin-eod-day1` | OFF | Hard hour-24 emin clamp (operational floor from `Hydro_MinVolume.csv`). Default OFF — disabling brings PLEXOS-vs-gtopt water-value duals in line. |
+| `--emin-eod-day1` / `--no-emin-eod-day1` | OFF | Hard hour-24 emin clamp (operational floor from `Hydro_MinVolume.csv`). Default OFF. |
 | `--battery-efin-pin` / `--no-battery-efin-pin` | ON | Pin every battery's end-of-horizon SoC to its initial SoC. |
 | `--fcf-scale-alpha F` | 1000 (= `scale_objective`) | Column scale for `alpha_fcf` LP variable. |
 
@@ -870,15 +866,13 @@ X come from?" without re-reading the converter source.
   multi-segment forms (e.g. 118-Bus benchmark) are honoured via
   `pmax_segments` + `heat_rate_segments` + virtual unit-price fuel.
 * **Region.Load vs Node.Load.** The PLEXOS comparison uses `Node.Load`
-  (the LP's actual demand at each bus) — using `Region.Load` would
-  inflate the comparison by 7–8 % because the latter folds in
-  battery charging and losses (see
-  `feedback_plexos_demand_scope` memory).
-* **FCF obj_constant.** CPLEX adds the ~$931 M FCF intercept
-  post-solve as a constant — PLEXOS never sees it, so it must not
-  be used to "explain away" PLEXOS-vs-gtopt cost gaps; that
-  rationale belongs only to CPLEX's rebased bound / incumbent
-  (`feedback_fcf_obj_constant_not_a_gap_explanation`).
+  (the LP's actual demand at each bus); `Region.Load` also folds in
+  battery charging and losses, so it is not comparable with gtopt's
+  consumer demand.
+* **FCF obj_constant.** The FCF intercept is added to the gtopt
+  objective post-solve as a constant (it does not enter the LP), so
+  it must not be used to explain differences in the operational
+  cost.
 
 ---
 

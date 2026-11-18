@@ -1104,9 +1104,8 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "'cycle_basis' = loop-flow form (one KVL per fundamental cycle, "
             "no θ, no theta-scale tuning).  Default: %(default)s — the B–θ "
             "form mirrors PLP's voltage-angle model and, despite a slightly "
-            "larger LP, solves faster under CPLEX (sparse per-line KVL rows "
-            "vs dense per-cycle loop rows; ~3x faster dual simplex on the "
-            "CEN65 full-network case)."
+            "larger LP, has sparse per-line KVL rows instead of dense "
+            "per-cycle loop rows."
         ),
     )
     parser.add_argument(

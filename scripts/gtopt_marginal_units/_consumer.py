@@ -33,8 +33,6 @@ from typing import Optional
 
 import pandas as pd
 
-from gtopt_marginal_units.constants import KG_PER_T
-
 
 _CELL_KEY_COLS = ("scenario", "stage", "block", "date_utc", "hour", "data_source")
 
@@ -120,7 +118,7 @@ class MarginalUnitDataset:
 
         When ``carbon_price`` (or the manifest value) is positive, also
         emits a per-bus ``lmp_with_carbon`` column equal to
-        ``zone_lmp + carbon_price/1000 * emission_intensity_kg_per_mwh``.
+        ``zone_lmp + carbon_price * emission_intensity_t_per_mwh``.
         The ``carbon_price`` parameter is in USD per metric ton CO2eq.
         """
         cp = self._resolve_carbon_price(carbon_price)
@@ -133,8 +131,8 @@ class MarginalUnitDataset:
             em = self.bus_emission_intensity(stage=stage)
             if not em.empty:
                 em = em.copy()
-                em["carbon_adder_usd_per_mwh"] = (cp / KG_PER_T) * em[
-                    "emission_intensity_kg_per_mwh"
+                em["carbon_adder_usd_per_mwh"] = cp * em[
+                    "emission_intensity_t_per_mwh"
                 ].fillna(0.0)
                 join_cols = [
                     c for c in _CELL_KEY_COLS if c in out.columns and c in em.columns
@@ -237,9 +235,7 @@ class MarginalUnitDataset:
             join_cols.append("bus_uid")
         em_slim = em_df[join_cols + [em_col]].copy()
         merged = out.merge(em_slim, on=join_cols, how="left")
-        merged["carbon_adder_usd_per_mwh"] = (cp / KG_PER_T) * merged[em_col].fillna(
-            0.0
-        )
+        merged["carbon_adder_usd_per_mwh"] = cp * merged[em_col].fillna(0.0)
         merged["lmp_with_carbon"] = (
             merged["zone_lmp_recomputed"] + merged["carbon_adder_usd_per_mwh"]
         )
@@ -318,7 +314,7 @@ class MarginalUnitDataset:
             "recomputed_emission_intensity",
         ]
         df = df[cols].rename(
-            columns={"recomputed_emission_intensity": "emission_intensity_kg_per_mwh"}
+            columns={"recomputed_emission_intensity": "emission_intensity_t_per_mwh"}
         )
         if stage is not None and "stage" in df.columns:
             df = df[df["stage"] == stage]
@@ -353,9 +349,9 @@ class MarginalUnitDataset:
         ]
         join_cols.append("bus_uid")
         out = lmp_df.merge(em_df, on=join_cols, how="inner").reset_index(drop=True)
-        if cp > 0.0 and "emission_intensity_kg_per_mwh" in out.columns:
-            out["carbon_adder_usd_per_mwh"] = (cp / KG_PER_T) * out[
-                "emission_intensity_kg_per_mwh"
+        if cp > 0.0 and "emission_intensity_t_per_mwh" in out.columns:
+            out["carbon_adder_usd_per_mwh"] = cp * out[
+                "emission_intensity_t_per_mwh"
             ].fillna(0.0)
             out["lmp_with_carbon"] = out["zone_lmp"] + out["carbon_adder_usd_per_mwh"]
             out["carbon_price_usd_per_ton"] = cp

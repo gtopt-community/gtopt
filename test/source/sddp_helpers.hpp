@@ -29,9 +29,8 @@ using gtopt::test_fixtures::make_uniform_stages;
 /// is available.
 ///
 /// The dual±1 fixtures (deliberately degenerate ±1 state duals at the
-/// elastic feasibility boundary) wedge the MindOpt simplex: observed
-/// 2026-07-04 spinning >35 min at 100% CPU on solves that take seconds
-/// under CPLEX/HiGHS/CLP.  Tests built on those fixtures pin to a
+/// elastic feasibility boundary) can wedge the MindOpt simplex (it
+/// fails to terminate on them).  Tests built on those fixtures pin to a
 /// non-MindOpt backend via `planning.options.lp_matrix_options.solver_name`
 /// and skip when none is available — mirroring the CPLEX ElasticFilterMode
 /// pin (ee73972a).

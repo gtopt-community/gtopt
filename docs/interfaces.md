@@ -16,6 +16,20 @@ A web-based graphical interface for creating, editing, and visualizing GTOpt
 cases. The GUI service also connects to the GTOpt webservice for remote
 solving.
 
+![GUI case editor, Topology view: the IEEE 9-bus case (cases/ieee_9b) with
+its buses, lines and ratings, three generators, the solar profile of g3 and
+the three demands](images/screenshots/gui_topology.png)
+
+![GUI case editor, spreadsheet view of the nine lines of the IEEE 9-bus case
+with their buses, reactances and ratings](images/screenshots/gui_case_editor.png)
+
+![GUI results viewer: the generation of g1, g2 and the solar unit g3 over
+24 hours for the IEEE 9-bus case, as a table and a chart; solved with
+HiGHS](images/screenshots/gui_results.png)
+
+*Screenshots: `cases/ieee_9b` solved with HiGHS, captured with
+[`tools/figures/capture_gui.py`](../tools/figures/capture_gui.py).*
+
 ### Quick Start with gtopt_gui
 
 The easiest way to launch the GUI is with the `gtopt_gui` command, which provides
@@ -108,6 +122,11 @@ For detailed installation and deployment instructions, see
 GTOpt includes a web service that lets you upload optimization cases, run the
 solver, and download results — all through a browser or REST API.
 
+<p align="center">
+  <img src="images/screenshots/webservice_jobs.png" width="560"
+       alt="Web service page: the case upload form, the job token returned after submitting cases/c0, and the job list with the job completed and ready to download">
+</p>
+
 ### Quick Start with gtopt_websrv
 
 Install and run the web service using the `gtopt_websrv` command:
@@ -129,5 +148,28 @@ gtopt_websrv
 gtopt_websrv --port 8080
 gtopt_websrv --gtopt-bin /path/to/gtopt
 ```
+
+### REST API example
+
+The same workflow from the command line, with `curl` (the job token is
+returned by the first call):
+
+```bash
+# Zip a case and submit it
+(cd cases/c0 && zip -r /tmp/c0.zip system_c0.json system_c0)
+curl -F file=@/tmp/c0.zip -F systemFile=system_c0.json \
+  http://localhost:3000/api/jobs
+# {"token":"<TOKEN>","status":"pending","message":"Job submitted successfully. ..."}
+
+# Poll the job status (pending → running → completed / failed)
+curl http://localhost:3000/api/jobs/<TOKEN>
+
+# Download the results as a zip
+curl -o c0-results.zip http://localhost:3000/api/jobs/<TOKEN>/download
+```
+
+Other endpoints: `GET /api/jobs` (list jobs), `GET /api/jobs/<TOKEN>/logs`,
+`GET /api/jobs/<TOKEN>/monitor`, `POST /api/jobs/<TOKEN>/stop` and
+`GET /api/ping`.
 
 For detailed installation and deployment instructions, see [webservice/INSTALL.md](../webservice/INSTALL.md).

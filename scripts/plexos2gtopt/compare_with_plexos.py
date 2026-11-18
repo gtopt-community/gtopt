@@ -142,7 +142,7 @@ def _compute_plexos_all(accdb_path: Path) -> dict:
 
 
 # Matches PLEXOS log lines like
-#   ``    Best Integer Solution:.....         2.8130634809e+007``
+#   ``    Best Integer Solution:.....         1.2345678901e+007``
 # and the matching ``Best Bound`` / ``Linear Relaxation`` lines.  The
 # cost value is the last whitespace-separated token on the line.
 # PLEXOS indents these report lines by 4 spaces, so we match anywhere
@@ -177,8 +177,8 @@ def compute_plexos_problem_stats(log_path: Path) -> dict[str, float]:
 
     Parses the matrix-size banner and the model-completion wall time, e.g.::
 
-        Tasks: 1   Cols 3,289,156   Ints 256,158   Rows 4,956,106   Nzs 14,023,279
-        <-- Model "PRGdia_Full_Definitivo" Completed. Time: 01:57:14.9
+        Tasks: 1   Cols 1,000,000   Ints 100,000   Rows 2,000,000   Nzs 5,000,000
+        <-- Model "MyModel" Completed. Time: 00:12:34.5
 
     Returns ``{rows, cols, int_vars, run_s}``.  ``run_s`` is the TOTAL
     PLEXOS run wall time (``Model ... Completed. Time: HH:MM:SS.s`` =
@@ -327,8 +327,8 @@ def _format_money(value: float) -> str:
 # energy in MWh = sum_{block}(MW_block × duration_block_h).  Without
 # duration weighting any comparison is off by the factor (avg-block-
 # duration).  This is the calculation the Step 1 cost-totals
-# section pointedly does NOT do, and the user-frustrating root cause
-# of the apparent 40-50% demand-and-gen mismatch.
+# section pointedly does NOT do, and the root cause of an apparent
+# demand-and-gen mismatch.
 #
 # PLEXOS bookkeeping (verified via t_unit + t_property on
 # CEN PCP DATOS20260422):
@@ -594,7 +594,7 @@ def compute_plexos_energy_totals(
     # batteries live in a separate Battery object, losses are zero
     # under DC OPF).  Region.Load (prop 966) is the GROSS load
     # including battery charging + transmission losses — comparing
-    # gtopt against that shows a phantom 7-8% deficit that is a
+    # gtopt against that shows a phantom deficit that is a
     # definitional artifact, not a data error.
     # PLEXOS Node.Load (1373) is GROSS-of-battery-charging: it
     # includes the battery's charging draw at the node where the
@@ -712,8 +712,7 @@ def _compute_line_losses_analytic_mwh(
     line PWL loss).  Root cause is a mix of LP slack accounting in
     the over-envelope PWL bands, float-rounding accumulated across
     176 k (gen, block) cells, and any synthetic-element drift not
-    captured by the consumer / battery filters.  See
-    ``losses_audit.md`` (2026-05-28 task ``a7a0db94…``).
+    captured by the consumer / battery filters.
 
     This helper sidesteps the bus residual entirely by re-deriving
     losses from the physical line definitions: each line carries a
@@ -721,10 +720,8 @@ def _compute_line_losses_analytic_mwh(
     per-block dispatch is split into positive / negative direction
     flow MW in ``Line/{flowp,flown}_sol.parquet``.  The disjoint
     sum ``|f| = flowp + flown`` is the absolute MW carried, and the
-    energy dissipated in that block is ``R/V² · |f|² · dur_h``.
-    Matches PLEXOS Line.Loss within ±13 % across the 281 lossy
-    lines of the reference case (vs +79 % for the bus-residual approach), and matches
-    PLEXOS's own analytic ``Σ R·I²·dt`` derivation to the cent.
+    energy dissipated in that block is ``R/V² · |f|² · dur_h`` — the
+    same analytic ``Σ R·I²·dt`` quantity a loss report is based on.
 
     Returns the system-wide line-loss total in MWh.  When no flow
     parquets exist (e.g. an LP-only or write-out-restricted run)
@@ -897,6 +894,7 @@ def compute_gtopt_problem_stats(case_dir: Path) -> dict[str, float | str]:
             stats["int_vars"] = float(int(m.group(1)) + int(m.group(2)))
         # Final MIP gap = the last "X.XX%" in the CPLEX B&C node table's Gap
         # column (the last incumbent/node line before the run summary).  gtopt
+        # typically reaches ~0; PLEXOS stops at its configured gap tolerance.
         gap_hits = re.findall(r"(\d+(?:\.\d+)?)\s*%\s*$", text, re.MULTILINE)
         if gap_hits:
             stats["gap_pct"] = float(gap_hits[-1])
@@ -1119,8 +1117,7 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     #    parquets that ARE emitted on every run.  Both gtopt's PWL and
     #    PLEXOS's PWL approximate this same underlying convex quadratic,
     #    so the analytic is the apples-to-apples truth both sides
-    #    target.  Matches PLEXOS Line.Loss to within ±13 % on the
-    #    reference case.  ``losses_mwh`` aliases this when available.
+    #    target.  ``losses_mwh`` aliases this when available.
     #
     # 2. ``losses_line_extras_mwh`` (LP-INTERNAL DIAGNOSTIC, OPT-IN) —
     #    direct sum of gtopt's per-(line, block)
@@ -1142,8 +1139,7 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     # 3. ``losses_bus_residual_mwh`` (LEGACY, LAST RESORT) — old
     #    energy-balance formula: ``gen_total - load_total - batt_charge
     #    - bes_round_trip``.  Reported so the user can spot residual
-    #    drift but no longer the primary loss metric — the audit
-    #    (``losses_audit.md`` 2026-05-28 task ``a7a0db94…``) showed
+    #    drift but no longer the primary loss metric — an audit showed
     #    it overstates real line losses by ~75 % on MIP runs of the
     #    reference case due to PWL slack accounting in over-envelope bands
     #    plus float rounding accumulated across 176 k cells.
@@ -1442,7 +1438,9 @@ def _render_srmc_compare(
 
     Three sub-tables:
       1. Units dispatched in BOTH, sorted by |SRMC delta|.
+      2. Top PLEXOS-dispatched units that gtopt skips (dispatch
          mis-selection, not cost error).
+      3. Top gtopt-dispatched units that PLEXOS skips (the
          "fake cheap" / under-constrained pickups).
     """
     all_names = set(plexos_unit) | set(gtopt_unit)
@@ -1746,7 +1744,8 @@ def compute_plexos_per_line(
         ``max_flow`` to flag lines whose dispatch peaks above the
         published rating (= candidate for ``Enforce Limits = 0``
         lift on the gtopt side; see Step 6c cap-violation table).
-        Capricornio110->LaNegra110 is the canonical example: cap
+        A line whose solved peak runs well above its input rating is
+        the canonical example.
       * ``max_flow`` / ``min_flow`` = time-weighted average of
         prop 709 / 710 (PLEXOS MW limits).
       * ``active`` = 1.0 if the line has any flow data on prop 708
@@ -1845,11 +1844,10 @@ def compute_plexos_per_line(
         # Without this filter, PLEXOS publishes phantom Flow values on
         # outage periods (the unconstrained DC-OPF pre-limit angle-
         # difference solution, NOT physical flow) that inflate
-        # ``energy_mwh`` by orders of magnitude.  Verified on CEN PCP
-        # 2026-04-07 ``Duqueco220→Temuco220``: PLEXOS reports peak
-        # 10,457 MW on 96 outage blocks where Export/Import Limit are
-        # both 0 — fictitious 1.5 TWh of "transferred" energy that
-        # actually never flowed (Loss = 0 on those same blocks).
+        # ``energy_mwh`` by orders of magnitude: large peaks on outage
+        # blocks where Export/Import Limit are both 0 — fictitious
+        # "transferred" energy that never flowed (Loss = 0 on those
+        # same blocks).
         # gtopt's converter HONOURS the PLEXOS Lin_Units derate via
         # per-block ``in_service`` so the gtopt side correctly reports
         # 0 — the divergence is entirely on PLEXOS's reporting side.
@@ -2202,7 +2200,8 @@ def _render_line_compare(
     # EITHER side (PLEXOS or gtopt).  These are the lines running
     # under ``Enforce Limits = 0`` (lifted) or — if the gtopt
     # ``enforce_level`` is still 2 — candidates for a manual lift.
-    # The canonical example is Capricornio110->LaNegra110:
+    # The canonical example is a line whose solved peak runs well
+    # above its input rating.
     # The gtopt side ``--lift-line-caps`` machinery encodes this as
     # ``enforce_level = 0``; this table surfaces both the encoded
     # lifts (cross-check) and any unencoded violations (action item).
@@ -3587,7 +3586,7 @@ def _render_solution_compare(
         "{:>14,.0f}",
     )
     # Consumer demand (Node.Load on PLEXOS side, demand_array on gtopt
-    # side).  See feedback_plexos_demand_scope.md for why this is
+    # side).  See compute_plexos_energy_totals for why this is
     # Node.Load not Region.Load.
     _row(
         "Consumer demand [MWh]",
@@ -3622,8 +3621,7 @@ def _render_solution_compare(
     )
     # Line losses — three independent measures on the gtopt side.
     # See compute_gtopt_energy_totals (line ~870) for the trade-offs.
-    # ``losses_mwh`` headline aliases analytic (matches PLEXOS Line.Loss
-    # to ±13 %); ``losses_line_extras_mwh`` is the LP-internal value
+    # ``losses_mwh`` headline aliases analytic; ``losses_line_extras_mwh`` is the LP-internal value
     # the LP charged itself for losses (extras-gated, opt-in via
     # ``--write-out all,extras:Line``); ``losses_bus_residual_mwh`` is
     # the energy-balance residual gen − load − batt_charge (overstates
@@ -4836,6 +4834,7 @@ def main(argv: list[str] | None = None) -> int:
                         gtopt_res, _water_coef, _res_emax
                     )
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
+                # Step 3b — problem size + total run time, PLEXOS vs gtopt.
                 if case_dir is not None:
                     gtopt_ps = compute_gtopt_problem_stats(case_dir)
                     plexos_ps = {
@@ -4915,6 +4914,7 @@ def main(argv: list[str] | None = None) -> int:
             console.print(f"[yellow]UC drilldown unavailable: {exc}[/yellow]")
         else:
             _render_uc_drilldown(breakdown, args.uc_penalty, args.top_uc, console)
+            # Step 2b — per-block PLEXOS vs gtopt LHS for the top-N
             # slacking UCs.  Requires the accdb (extracted as a
             # side-effect of Step 3) so we can pull each referenced
             # generator's per-period MW.  Skipped when the accdb isn't

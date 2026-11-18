@@ -1349,11 +1349,9 @@ def test_extract_user_constraints_aggregate_cpf_down_min_provision(
 
     # As of the data-driven HARD-promote work, ``CPF_DownMinProvision``
     # is one of the 90 names listed in
-    # ``data/cen_pcp_hard_ucs.txt`` (PLEXOS-HARD per RES20260422 audit:
-    # Slack=0, HrsBind=30, Shadow=$232).  The HARD-promote branch fires
+    # ``data/cen_pcp_hard_ucs.txt``.  The HARD-promote branch fires
     # BEFORE ``is_reserve_provision_sum`` so the spec ends up with
-    # penalty=0 and no directive stamped.  This matches PLEXOS's
-    # solving behaviour (binds tight at zero slack).  When the
+    # penalty=0 and no directive stamped.  When the
     # constraint is REMOVED from the hard-list (or the list cannot be
     # loaded), it falls through to the ``reserve_prov_sum`` $1000 soft
     # default — covered by other tests in this file.
@@ -1652,9 +1650,9 @@ def test_extract_user_constraints_rhs_custom_transform(tmp_path: Path) -> None:
     assert "consolidated" in desc.lower()
     assert "(File: DBSEN_PRGDIARIO.xml)" in desc or "PLEXOS" in desc
     # Soft at $1000/MWh — same tier as reserve_provision_sum.  PLEXOS
-    # itself takes slack on these caps (Day1/Day4/Day6 in RES20260422)
-    # so going genuinely hard would risk presolve infeasibility from the
-    # internal-Big-M PLEXOS uses but we cannot reproduce.
+    # treats these caps as soft, so going genuinely hard would risk
+    # presolve infeasibility from the internal-Big-M PLEXOS uses but we
+    # cannot reproduce.
     assert spec.penalty == 1000.0
     # Step 4b (#54): typed ``daily_budget`` directive carries the
     # constraint-family classification + the PLEXOS fuel-owner scope.
@@ -2104,7 +2102,7 @@ def test_extract_user_constraints_aux_battery_redirect(tmp_path: Path) -> None:
     # constraint is trivially zero at solar peak when the battery is
     # charging (discharge=0), which broke the PLEXOS-LMP reproduction
     # at the BESS buses — see
-    # the parsers.py docstring near the AUX redirect for the
+    # the parsers.py docstring near the AUX redirect.
     assert 'battery("BAT_TEST").charge' in expr, (
         f"BAT_*_CF_GEN_COMP must also emit the complementary "
         f".charge leg (L1 of net dispatch); got {expr!r}"
@@ -2140,8 +2138,8 @@ def test_extract_user_constraints_cf_gen_comp_emits_activity_flow(
     """``BAT_*_CF_GEN_COMP`` must emit BOTH ``.charge`` AND ``.discharge``
     legs (the L1 of net dispatch / activity-flow).
 
-    Empirical PLEXOS sol audit (2026-05-31): at solar peak, BESS plants are CHARGING — ``main.discharge = 0``, ``main.load >
-    0``.  A constraint emitted as ``-1 * battery.discharge + ... >= 0``
+    At solar peak, BESS plants are typically CHARGING — ``main.discharge = 0``,
+    ``main.load > 0``.  A constraint emitted as ``-1 * battery.discharge + ... >= 0``
     is then trivially zero on the LHS and never binds, letting the LP
     free-ride on the battery's downward reserve provision without any
     operational coupling.

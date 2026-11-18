@@ -212,7 +212,8 @@ def test_rhs_day_commitment_count_daily_sum_count(tmp_path: Path) -> None:
     e.g. ``Guacolda_Crew``) is a per-DAY count cap: emitted with
     ``daily_sum=True`` and ``constraint_type=""`` (an UNWEIGHTED per-day
     count, NOT a Δt-weighted energy budget) with the RHS at face value (NOT
-    RHS 2/24 = 0.083); gtopt sums the per-block counts per day instead."""
+    ×1000 GWh→MWh scaled).  PLEXOS spreads the daily cap evenly across the
+    24 h; gtopt sums the per-block counts per day instead."""
     xml_path = _build_bundle(tmp_path)
     db = load_xml(xml_path)
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)

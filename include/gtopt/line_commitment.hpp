@@ -16,8 +16,7 @@
  * the referenced Line a switching candidate, absence keeps it pure
  * LP.  This sparsity discipline is critical — Fisher 2008 shows that
  * most savings come from a handful of lines [1], and even single-
- * stage 118-bus all-line OTS exceeds Gurobi's 1 h limit on ~half the
- * test instances at 0.01 % gap [2].
+ * stage 118-bus all-line OTS is computationally hard [2].
  *
  * LineCommitment constraints are only enforced on stages marked as
  * chronological.  On non-chronological stages (e.g. duration-weighted

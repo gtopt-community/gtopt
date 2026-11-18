@@ -298,7 +298,8 @@ def _run_b2(
 
 
 def test_b2_flags_true_scale_mismatch(tmp_path: Path) -> None:
-    # binding constraint → the distinct-value comparison flags it.
+    # Synthetic fixture: gtopt floor 137 vs reference floor 83.3 — a unit/scale
+    # error on a binding constraint → the distinct-value comparison flags it.
     items = _run_b2(
         tmp_path,
         name="ScaleBug",
@@ -329,7 +330,7 @@ def test_b2_flags_flattened_profile(tmp_path: Path) -> None:
 
 
 def test_b2_suppresses_le_nolimit_sentinel(tmp_path: Path) -> None:
-    # gtopt cap 400 sits INSIDE PLEXOS's [400, 10000] band (10000 is the
+    # gtopt cap 400 sits INSIDE the reference [400, 10000] band (10000 is the
     # contingency-off no-limit sentinel) → ranges overlap → no flag, even
     # though PLEXOS binds the row.
     items = _run_b2(
@@ -342,7 +343,7 @@ def test_b2_suppresses_le_nolimit_sentinel(tmp_path: Path) -> None:
 
 
 def test_b2_flags_distinct_rhs_level(tmp_path: Path) -> None:
-    # gtopt's lowest RHS level (187.42) differs from PLEXOS's (207) by ~9% —
+    # gtopt's lowest RHS level (187.42) differs from the reference (207) —
     # a genuine value difference, not numerical error.  The DIRECT
     # distinct-value comparison flags it (the old range-overlap test silently
     # passed it because the two bands [187.42, 320] / [207, 320] overlapped).
@@ -360,7 +361,8 @@ def test_b2_flags_distinct_rhs_level(tmp_path: Path) -> None:
 
 
 def test_b2_suppresses_never_binding(tmp_path: Path) -> None:
-    # (price = 0, binding = 0) → immaterial, suppressed (PANGUEpriority).
+    # Disjoint ranges (gtopt -10000 vs reference 20) but the reference never
+    # binds (price = 0, binding = 0) → immaterial, suppressed.
     items = _run_b2(
         tmp_path,
         name="PANGUEpriority",
@@ -376,6 +378,7 @@ def test_b2_skips_battery_shutoff_activity_echo(tmp_path: Path) -> None:
     # GEN_BAT_*/LOAD_BAT_* are charge/discharge shut-off rows gtopt correctly
     # emits as rhs 0.  PLEXOS echoes the battery's moving ACTIVITY back as the
     # row "RHS" (pid 3073 == activity), so a naive compare reads gtopt-fixed-0
+    # vs PLEXOS-varying.  B2 must skip the family (same as B9).
     items = _run_b2(
         tmp_path,
         name="GEN_BAT_BOLERO_FV",
@@ -389,6 +392,7 @@ def test_b2_skips_gtopt_date_window_sentinel(tmp_path: Path) -> None:
     # gtopt's date-window overlay emits the real limit on active blocks and a
     # no-limit sentinel (100000) on inactive ones; PLEXOS reports only the
     # active value.  The sentinel must be filtered from BOTH sides, else
+    # gtopt's [450, 100000] vs the reference [450] is a spurious mismatch.
     items = _run_b2(
         tmp_path,
         name="SDCF_Rx1_norte_a_sur",
@@ -574,7 +578,7 @@ def test_b11_flags_flattened_reserve_zone(tmp_path: Path) -> None:
 
 def test_b11_no_flag_reserve_zone_when_requirement_matches(tmp_path: Path) -> None:
     # The urreq/drreq refinement: gtopt's enforced .lp row shows the urmin
-    # FLOOR (183) but the JSON drreq REQUIREMENT exactly matches the PLEXOS
+    # FLOOR (183) but the JSON drreq REQUIREMENT exactly matches the fixture
     # source profile [94, 232, 571].  B11 must NOT flag (it compares the
     # requirement, not the enforced floor) -- the CTF/CSF/CPF clear case.
     lp = tmp_path / "DATOS.lp"
@@ -650,7 +654,7 @@ def test_b11_flags_flattened_commitment(tmp_path: Path) -> None:
 
 def test_b11_no_flag_when_rhs_matches(tmp_path: Path) -> None:
     # gtopt PMAX exactly equals the source RHS (single level both sides) -> no
-    # B11 flag (the antuco-matches-ANTUCO_PMax real-data case).
+    # B11 flag (single-level parity case).
     lp = tmp_path / "DATOS.lp"
     lp.write_text("Subject To\n antuco_pmax_constraint_1_1_1_1: g_1 <= 292.074\nEnd\n")
     plan = tmp_path / "DATOS.json"

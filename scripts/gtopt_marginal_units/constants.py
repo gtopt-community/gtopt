@@ -187,6 +187,7 @@ PRICE_SETTER_KINDS: frozenset[GeneratorKind] = frozenset({GeneratorKind.THERMAL}
 #: these can never physically set the LMP at grid scale but the LP's
 #: tie-break corners do elect them at the basis.  0.5 MW is the natural
 #: cutoff: every real CEN dispatchable unit is at least 5 MW (small
+#: diesels) and the synthetic ones are all at the 0.01 MW PLEXOS default.
 #: Gens below this are pre-filtered from the dispatched pool with a
 #: graceful fallback (if every dispatched gen in the zone is synthetic,
 #: the cascade proceeds on the unfiltered set so the recipe still returns
@@ -220,10 +221,10 @@ DEFAULT_MERIT_LADDER_DEPTH: int = 3
 # ---------------------------------------------------------------------------
 
 
-#: Kilograms per metric ton.  Used to convert ``carbon_price_usd_per_ton``
-#: ($/tCO2eq) into the ``carbon_adder_usd_per_mwh`` arithmetic when the
-#: emission-intensity column is in kg / MWh.  Named to prevent the
-#: ``cp / 1000.0`` idiom from drifting into a "$/kg" vs "$/t" bug.
+#: Kilograms per metric ton.  Emission rates and intensities follow the
+#: gtopt convention of tCO2eq/MWh (``Generator.emission_rate``,
+#: ``EmissionSource.rate``), so ``carbon_price ($/t) * intensity (t/MWh)``
+#: is already $/MWh; use this only to report values in kg.
 KG_PER_T: float = 1000.0
 
 
