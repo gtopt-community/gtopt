@@ -171,10 +171,16 @@ target_include_directories(daw::daw-json-link SYSTEM INTERFACE
   "${daw_header_libraries_SOURCE_DIR}/include"
   "${daw_utf_range_SOURCE_DIR}/include"
 )
+# DAW_JSON_NO_SSE42: daw_json_link enables its experimental SIMD parser
+# whenever __SSE4_2__/__AVX__ is defined, and that path calls the PCLMUL
+# intrinsic without enabling -mpclmul, which breaks GCC builds on hosts
+# that report SSE4.2 but not PCLMUL (e.g. GitHub runners).  gtopt never
+# selects the SIMD exec mode, so the path is disabled outright.
 target_compile_definitions(daw::daw-json-link INTERFACE
   DAW_USE_EXCEPTIONS=true
   DAW_NO_FLATTEN
   DAW_NO_FORCED_INLINE
+  DAW_JSON_NO_SSE42
 )
 
 CPMAddPackage(

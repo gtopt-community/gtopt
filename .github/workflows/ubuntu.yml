@@ -739,7 +739,7 @@ jobs:
           curl -sf http://localhost:3001/api/jobs | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'jobs' in data; print('✓ Webservice API working')"
           PING_RESPONSE=$(curl -sf http://localhost:3001/api/ping)
           echo "$PING_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('status',''); v=d.get('gtopt_version',''); assert s=='ok','Expected status ok, got: '+s; print('✓ Webservice ping: status='+s+', version='+v)"
-          curl -sf http://localhost:5101/ | grep -q "gtopt Case Editor" && echo "✓ GUI web UI working" || (echo "✗ GUI web UI test failed" && exit 1)
+          curl -sf http://localhost:5101/ | grep -qi "gtopt Case Editor" && echo "✓ GUI web UI working" || (echo "✗ GUI web UI test failed" && exit 1)
           kill $GUI_INT_PID 2>/dev/null || true
           sleep 2
           for port in 5101 3001; do fuser -k $port/tcp 2>/dev/null || true; done

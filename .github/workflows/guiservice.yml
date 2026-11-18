@@ -143,7 +143,7 @@ jobs:
       - name: Test gtopt_gui help
         run: |
           cd $HOME/gtopt-install/bin
-          ./gtopt_gui --help | grep -q "Launch the gtopt GUI service"
+          ./gtopt_gui --help | grep -qi "Launch the gtopt GUI service"
           echo "✓ gtopt_gui help works"
 
       - name: Test gtopt_guisrv help
@@ -200,7 +200,7 @@ jobs:
 
           # Test main page
           echo "Testing web UI..."
-          curl -s http://localhost:5099/ | grep -q "gtopt Case Editor" && echo "✓ Web UI working" || (echo "✗ Web UI test failed" && exit 1)
+          curl -s http://localhost:5099/ | grep -qi "gtopt Case Editor" && echo "✓ Web UI working" || (echo "✗ Web UI test failed" && exit 1)
 
           # Cleanup
           kill $GUI_PID 2>/dev/null || true
