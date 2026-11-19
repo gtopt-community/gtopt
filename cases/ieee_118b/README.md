@@ -88,3 +88,9 @@ cp -r /tmp/ieee_118b_out/* cases/ieee_118b/output_highs/
 
 Then register with `add_e2e_case(ieee_118b ieee_118b.json)` in
 `integration_test/CMakeLists.txt`.
+
+## Checking
+
+There are no reference results (see above), so the case is not a test.
+Pass `--write-out all` to also write the costs and duals.  General instructions for running and checking the cases
+are in [`../README.md`](../README.md).

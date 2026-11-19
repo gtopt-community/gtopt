@@ -7,13 +7,6 @@
 {# time from values parsed from plplajam.dat and pre-computed by     #}
 {# laja_writer.py (bound_rule segments, schedules, costs).           #}
 {#                                                                   #}
-{# PLP Fortran sources (authoritative):                              #}
-{#   parlajam.f    — PAR_LAJAM parameter structure                   #}
-{#   leelajam.f    — plplajam.dat reader                             #}
-{#   genpdlajam.f  — LP constraint matrix assembly                   #}
-{#   plp-laja1.f   — per-stage bound modification (FijaLajaMBloA)    #}
-{#   plp-laja2.f   — post-solve state update (economics tracking)    #}
-{#                                                                   #}
 {# Key design difference PLP vs gtopt:                               #}
 {#   PLP: monolithic Fortran module with procedural bound setting    #}
 {#        (FijaLajaMBloA) that modifies LP column bounds each stage  #}

@@ -110,3 +110,21 @@ add_e2e_case(case3375wp case3375wp.json)
 
 Two CTest entries per the empty-`output/` shape: `_solve` and
 `_validate_solution`.  No `_compare_solution`.
+
+## Running and checking
+
+```bash
+cd cases/case3375wp
+gtopt case3375wp.json --output-directory results
+```
+
+The objective is about 7 648 639 $; there is no golden file (see
+above).
+With a build configured with `-DGTOPT_BUILD_INTEGRATION_TESTS=ON` (see
+[`../README.md`](../README.md)):
+
+```bash
+ctest --test-dir build -R '^e2e_case3375wp_'
+```
+
+runs the solve and the structural validation of the solution.

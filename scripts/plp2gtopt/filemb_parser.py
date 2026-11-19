@@ -60,7 +60,6 @@ Equivalent gtopt JSON fields:
 
 See also:
   plpcenre.dat / CenreParser  – analogous model for turbine efficiency
-  leefilemb.f  in PLP CEN65/src/ – authoritative Fortran parser
 """
 
 from typing import Any, Dict, List, Optional

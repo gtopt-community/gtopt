@@ -101,3 +101,41 @@ The validation chain for this case is therefore:
 A true cross-tool reference would need a multi-block LP solver such
 as JuMP or SDDP.jl running the same deterministic worst-case LP;
 not currently implemented.
+
+## Running
+
+```bash
+cd cases/fast_hydro_thermal
+gtopt system_fast_hydro_thermal.json --output-directory results --write-out all
+```
+
+Always pass `--output-directory` (or `--set output_directory=…`): by
+default GTOpt writes to `output/`, which here holds the reference
+results.  `--write-out all` writes every result (costs and duals
+included), as the tests do; without it GTOpt writes the main ones.
+The objective value is in `results/solution.csv` (`obj_value`), and the
+per-element results in `results/<Element>/<field>_s0_p0.csv` (scene 0,
+phase 0), which correspond to `output/<Element>/<field>.csv`.
+
+## Checking against the reference
+
+Expected objective: **20**.
+
+The case is an end-to-end test.  With a build configured with
+`-DGTOPT_BUILD_INTEGRATION_TESTS=ON` (see [`../README.md`](../README.md)):
+
+```bash
+ctest --test-dir build -R '^e2e_fast_hydro_thermal_'
+```
+
+This runs `e2e_fast_hydro_thermal_solve`, `e2e_fast_hydro_thermal_validate_solution` and one
+`e2e_fast_hydro_thermal_compare_<Element>_<file>` test per reference CSV in
+`output/` (tolerance 1e-6).  To compare a manual run by hand:
+
+```bash
+python3 tools/gtopt_compare_csv.py \
+  cases/fast_hydro_thermal/results/solution.csv cases/fast_hydro_thermal/output/solution.csv
+python3 tools/gtopt_compare_csv.py \
+  cases/fast_hydro_thermal/results/Bus/balance_dual_s0_p0.csv \
+  cases/fast_hydro_thermal/output/Bus/balance_dual.csv
+```

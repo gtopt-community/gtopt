@@ -37,7 +37,7 @@ class StageParser(BaseParser):
 
             # `Mes` in plpeta.dat is a HYDROLOGICAL month (1 = April ..
             # 12 = March; the calendar year rolls at month 10 = January
-            # — see the PLP source assumption in genpdmaule.f:1860-1862
+            # — see the PLP convention in genpdmaule.f:1860-1862
             # and leelajam.f, plus the February=672h discriminator in
             # the production files).  Convert to the calendar month
             # (1 = January .. 12 = December) that every downstream

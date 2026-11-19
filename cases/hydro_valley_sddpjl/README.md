@@ -92,3 +92,41 @@ A true cross-tool reference would require a JuMP / SDDP.jl helper
 that runs the same deterministic LP under a different solver
 (planned but not implemented; see the project-level discussion
 captured under conversation date 2026-05-16).
+
+## Running
+
+```bash
+cd cases/hydro_valley_sddpjl
+gtopt system_hydro_valley_sddpjl.json --output-directory results --write-out all
+```
+
+Always pass `--output-directory` (or `--set output_directory=…`): by
+default GTOpt writes to `output/`, which here holds the reference
+results.  `--write-out all` writes every result (costs and duals
+included), as the tests do; without it GTOpt writes the main ones.
+The objective value is in `results/solution.csv` (`obj_value`), and the
+per-element results in `results/<Element>/<field>_s0_p0.csv` (scene 0,
+phase 0), which correspond to `output/<Element>/<field>.csv`.
+
+## Checking against the reference
+
+Expected objective: **0**.
+
+The case is an end-to-end test.  With a build configured with
+`-DGTOPT_BUILD_INTEGRATION_TESTS=ON` (see [`../README.md`](../README.md)):
+
+```bash
+ctest --test-dir build -R '^e2e_hydro_valley_sddpjl_'
+```
+
+This runs `e2e_hydro_valley_sddpjl_solve`, `e2e_hydro_valley_sddpjl_validate_solution` and one
+`e2e_hydro_valley_sddpjl_compare_<Element>_<file>` test per reference CSV in
+`output/` (tolerance 1e-6).  To compare a manual run by hand:
+
+```bash
+python3 tools/gtopt_compare_csv.py \
+  cases/hydro_valley_sddpjl/results/solution.csv cases/hydro_valley_sddpjl/output/solution.csv
+python3 tools/gtopt_compare_csv.py \
+  cases/hydro_valley_sddpjl/results/Bus/balance_dual_s0_p0.csv \
+  cases/hydro_valley_sddpjl/output/Bus/balance_dual.csv
+```

@@ -45,8 +45,6 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str) -> dict:
 
 # ---------------------------------------------------------------------------
 # plp_min_hydro – hydro pasada pura with 2-hydrology stochastic flow
-# (dat files grounded in Fortran leeaflcen.f / leecnfce.f formats from
-# the PLP Fortran sources, which are not public)
 # ---------------------------------------------------------------------------
 
 _PLPMinHydro = _CASES_DIR / "plp_min_hydro"
@@ -165,8 +163,6 @@ def test_min_hydro_afluent_parquet(tmp_path):
 
 # ---------------------------------------------------------------------------
 # plp_min_mance – 1-bus thermal with generator maintenance
-# (dat files grounded in Fortran leemance.f / leecnfce.f formats from
-# the PLP Fortran sources, which are not public)
 # ---------------------------------------------------------------------------
 
 _PLPMinMance = _CASES_DIR / "plp_min_mance"
@@ -243,8 +239,6 @@ def test_min_mance_pmin_pmax_parquet(tmp_path):
 
 # ---------------------------------------------------------------------------
 # plp_min_manli – 2-bus case with line maintenance
-# (dat files grounded in Fortran leemanli.f / leecnfli.f formats from
-# the PLP Fortran sources, which are not public)
 # ---------------------------------------------------------------------------
 
 _PLPMinManli = _CASES_DIR / "plp_min_manli"

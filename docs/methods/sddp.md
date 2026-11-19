@@ -465,7 +465,7 @@ price (Lemma AP2's `yᵀΔb` term — ledger F12).  SDDP setup WARNs and
 downgrades `dual_shared`/`screened` to `warm` (exact per-aperture
 solves) whenever any `Flow.inflow_model` is present.
 
-**PLP correspondence**: In PLP (`CEN65/src/osicallsc.cpp`), apertures are
+**PLP correspondence**: In PLP, apertures are
 called "aberturas hidrologicas" (hydrological openings).  PLP iterates over
 all hydrological realizations for each stage, solves each one, and computes
 the expected cut weighted by scenario probabilities.  The GTOpt implementation
@@ -1659,11 +1659,10 @@ Chilean system operator ([CEN](https://www.coordinador.cl/operacion/documentos/m
 | `scloning` mode | Always-clone approach for elastic filter |
 | Bound backpropagation from elastic filter | (REMOVED — see note below) |
 
-The PLP code (`CEN65/src/osicallsc.cpp`) uses `OsiSolverInterface::clone()`
-in `osi_lp_get_feasible_cut` to create a temporary LP copy, zero the
-original objective, add elastic slack variables, solve for feasibility,
-extract the dual ray, and discard the clone.  GTOpt's `elastic_solve()`
-follows the same pattern.
+PLP builds the feasibility cut on a temporary copy of the LP: it zeroes
+the original objective, adds elastic slack variables, solves for
+feasibility, extracts the dual ray and discards the copy.  GTOpt's
+`elastic_solve()` follows the same pattern.
 
 The `BackpropagateBounds` elastic filter mode (PLP-style direct bound
 update from the elastic-clone solution values) was supported in early
@@ -1688,7 +1687,7 @@ Benders-cut coefficients at the end of a backward solve:
 2. **`row_dual` (removed)** — explicitly add one coupling row per state
    variable to the phase LP (`xᵢ − dependentᵢ = 0`), solve, and read the
    row duals `πᵢ` to build `α ≥ z* + Σ πᵢ·(xᵢ − v̂ᵢ)`.  This mirrors the
-   PLP Fortran implementation (`CEN65/src/plpsddp.f`) and the broader
+   PLP implementation and the broader
    CEPEL family (PSR SDDP, NEWAVE, DECOMP, SUISHI).
 
 **Why `row_dual` was removed.**

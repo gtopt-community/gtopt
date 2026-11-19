@@ -44,8 +44,8 @@ power system analysis, including AC/DC power flow and DC optimal power flow.
 
 PLP (*Programación de Largo Plazo*) is a
 Fortran-based hydrothermal unit commitment and economic dispatch tool used in
-several Latin American power systems. Its Fortran source code is not
-public; `plp2gtopt` works from the documented `.dat` input formats.
+several Latin American power systems. `plp2gtopt` works from the
+documented `.dat` input formats.
 
 - **`plp2gtopt`**: reads the full set of PLP `.dat` files and produces a
   self-contained GTOpt JSON + Parquet case, preserving multi-scenario

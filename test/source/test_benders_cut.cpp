@@ -1628,7 +1628,7 @@ TEST_CASE(  // NOLINT
 //
 // Audit of gtopt's `build_multi_cuts` (source/benders_cut.cpp:534-659)
 // and `elastic_filter_solve` (source/benders_cut.cpp:316-386) against
-// PLP's equivalent machinery (PLP Fortran source, not public),
+// PLP's equivalent machinery,
 // specifically:
 //   - plp-agrespd.f::AgrElastici         (feasibility-cut builder)
 //   - osicallsc.cpp::osi_lp_get_feasible_cut

@@ -25,8 +25,6 @@ with different allocation factors for irrigation, electric, and mixed
 rights.  Monthly factors modulate costs and maximum usage.
 
 See also:
-  parlajam.f  in PLP CEN65/src/ -- Fortran data structure
-  genpdlajam.f  in PLP CEN65/src/ -- LP assembly
   plp_implementation.md -- detailed field documentation
 """
 

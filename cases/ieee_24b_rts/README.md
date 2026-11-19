@@ -88,3 +88,62 @@ obj is dominated by demand-fail" above — pp silently masks the
 imbalance, so a cross-tool match would be misleading.  Once a future
 `pp2gtopt` (or pglib-opf importer) lands cost data **and** balanced
 capacity, the case can be re-baselined against pp's DC OPF.
+
+## Running
+
+```bash
+cd cases/ieee_24b_rts
+gtopt ieee_24b_rts.json --output-directory results --write-out all
+```
+
+Always pass `--output-directory` (or `--set output_directory=…`): by
+default GTOpt writes to `output/`, which here holds the reference
+results.  `--write-out all` writes every result (costs and duals
+included), as the tests do; without it GTOpt writes the main ones.
+The objective value is in `results/solution.csv` (`obj_value`), and the
+per-element results in `results/<Element>/<field>_s0_p0.csv` (scene 0,
+phase 0), which correspond to `output/<Element>/<field>.csv`.
+
+## Checking against the reference
+
+Expected objective: **1 368 194.16**.
+
+The case is an end-to-end test.  With a build configured with
+`-DGTOPT_BUILD_INTEGRATION_TESTS=ON` (see [`../README.md`](../README.md)):
+
+```bash
+ctest --test-dir build -R '^e2e_ieee_24b_rts_'
+```
+
+This runs `e2e_ieee_24b_rts_solve`, `e2e_ieee_24b_rts_validate_solution` and one
+`e2e_ieee_24b_rts_compare_<Element>_<file>` test per reference CSV in
+`output/` (tolerance 1e-6).  To compare a manual run by hand:
+
+```bash
+python3 tools/gtopt_compare_csv.py \
+  cases/ieee_24b_rts/results/solution.csv cases/ieee_24b_rts/output/solution.csv
+python3 tools/gtopt_compare_csv.py \
+  cases/ieee_24b_rts/results/Bus/balance_dual_s0_p0.csv \
+  cases/ieee_24b_rts/output/Bus/balance_dual.csv
+```
+
+### With the PAMPL operating limits
+
+`uc_opf_limits.pampl` adds operating policies written as user
+constraints (group caps, corridor limits, a soft spinning-reserve
+floor, an energy budget and a dispatch schedule).  It is attached
+through the JSON, so make a copy of the case that references it and
+run it from this directory:
+
+```bash
+cd cases/ieee_24b_rts
+python3 -c "import json; p = json.load(open('ieee_24b_rts.json')); \
+p['system']['user_constraint_file'] = 'uc_opf_limits.pampl'; \
+json.dump(p, open('ieee_24b_rts_pampl.json', 'w'), indent=1)"
+gtopt ieee_24b_rts_pampl.json --output-directory results_pampl
+```
+
+The objective rises to about 1 493 489 $.  This variant has no
+reference results; the unit test
+[`test/source/test_ieee24_rts_pampl.cpp`](../../test/source/test_ieee24_rts_pampl.cpp)
+checks the same constraint families on a compact network.
