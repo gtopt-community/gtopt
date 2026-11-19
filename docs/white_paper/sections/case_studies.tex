@@ -45,14 +45,14 @@ excess comes from the fictitious-sink mechanism of
 Section~\ref{sec:losses}: filling expensive segments first and
 circulating flow in both directions when the sum of the two end-bus
 duals is negative.  On the week of 7~April~2026, for example, the
-piecewise model loses 91~GWh more than the physical losses, 65~GWh of
-them in hours with $\pi_{a_\ell}+\pi_{b_\ell}<0$; the tangent model
-loses 6~GWh more, and spills the surplus renewable energy instead.
+piecewise model loses 98~GWh more than the physical losses; the
+tangent model loses 5~GWh more, and spills the surplus renewable energy instead.
 
 \begin{table}[t]
   \centering
   \caption{LP losses versus physical losses over the horizon
-    (median and range over 14 cases)}
+    (median and range over 14 cases, initial conversion of the
+    unenforced lines)}
   \label{tab:cen_losses}
   \begin{tabular}{@{}lcc@{}}
     \toprule
@@ -83,47 +83,83 @@ consistently with the CEN's current practice.
 
 The first comparison of marginal costs showed a moderate agreement
 (median correlation 0.39 and mean absolute error 21~\$/MWh over all
-buses, 11~\$/MWh at the reference bus, Polpaico~220~kV).  Its largest
-deviations were deeply negative prices at a small load bus in the north,
-down to $-891$~\$/MWh, where PLEXOS never goes below
-$-1.3$~\$/MWh.  Inspecting the LP traced them to the conversion of 173
-lines whose limits PLEXOS does not enforce: PLEXOS operates some of
-them well above their rating (e.g.\ 190~MW on a 100~MW transformer),
-whereas the converter had kept the rating as a hard limit.  The
-congested chain created an isolated pocket with negative prices.
-Converting these lines as PLEXOS treats them (free up to three times the
-rating, penalized up to six times) removes the artifact
-(Table~\ref{tab:cen_cmg}).
+buses and the 14 days).  Its largest deviations were deeply negative
+prices at small load buses in the north, down to $-891$~\$/MWh, where
+PLEXOS never goes below $-1.3$~\$/MWh.  Inspecting the LP traced them to
+the lines whose limits PLEXOS does not enforce (\emph{Enforce
+Limits}~$=0$): the converter had kept the rating of all 174 such lines
+as a hard limit, whereas PLEXOS operates some of them at 1.5 to 1.9
+times their rating (e.g.\ the transformers S-Km6100--Salar110,
+Capricorn~220/110 and PAlmonte~220/110).  The congested chain created
+an isolated pocket with negative prices.
+
+Two conversions of these lines are compared:
+\begin{itemize}
+  \item \textbf{strict} (the default): the rating is kept as a hard
+    limit, except on a list of lines that PLEXOS is known to operate
+    above it, which get a soft limit.  In the cases of April--May~2026,
+    33 to 35 of the 174 lines are lifted and 139 to 141 keep the hard
+    limit;
+  \item \textbf{extended}: every such line is free up to three times
+    its rating and penalized up to six times, which approximates
+    PLEXOS's treatment of all of them.
+\end{itemize}
+Both remove the artifact (Table~\ref{tab:cen_cmg}).  With the strict
+conversion the lowest price of day~1 is $-6.9$, $+1.4$ and
+$+7.5$~\$/MWh on the three days, and the error at the reference bus
+(Polpaico~220~kV) is 7 to 11~\$/MWh on 7 and 22~April.  The extended
+conversion gives similar prices, but its wide envelope lets the
+piecewise model place more fictitious losses on the lifted lines
+(22~GWh over the week of 25~May, against 4~GWh with the strict
+conversion).  The strict conversion is therefore the reference, and the
+extended one a sensitivity.
 
 \begin{table}[t]
   \centering
   \caption{Hourly marginal costs of day~1, \gtopt{} vs.\ PLEXOS (CEN),
     piecewise losses: correlation and mean absolute error [\$/MWh] over
-    all buses, with unenforced lines as hard limits (strict) and as
-    PLEXOS treats them (extended)}
+    all buses, with the initial conversion of the unenforced lines (all
+    as hard limits) and with the strict and extended conversions}
   \label{tab:cen_cmg}
-  \begin{tabular}{@{}lcccc@{}}
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{@{}lcccccc@{}}
     \toprule
-    & \multicolumn{2}{c}{Strict} & \multicolumn{2}{c}{Extended} \\
-    Day & Corr. & MAE & Corr. & MAE \\
+    & \multicolumn{2}{c}{Initial} & \multicolumn{2}{c}{Strict}
+    & \multicolumn{2}{c}{Extended} \\
+    Day & Corr. & MAE & Corr. & MAE & Corr. & MAE \\
     \midrule
-    2026-04-07 & 0.33 & 20.9 & 0.69 & 11.3 \\
-    2026-04-22 & 0.18 & 37.1 & 0.69 & 19.0 \\
-    2026-05-25 & 0.32 & 45.9 & 0.49 & 43.3 \\
+    2026-04-07 & 0.33 & 20.9 & 0.67 & 10.1 & 0.69 & 11.3 \\
+    2026-04-22 & 0.18 & 37.1 & 0.72 & 16.5 & 0.69 & 18.9 \\
+    2026-05-25 & 0.32 & 45.9 & 0.45 & 44.7 & 0.49 & 43.3 \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-With the tangent loss model and the extended lines, the correlation on
-7~April reaches 0.72 and the mean absolute error 9.6~\$/MWh; the lowest
-price in the north is $-8.1$~\$/MWh against $-13.9$~\$/MWh in PLEXOS.
+With the tangent loss model and the strict conversion, the correlation
+on 7~April reaches 0.74 and the mean absolute error 9.2~\$/MWh
+(6.1~\$/MWh at the reference bus).  Over the 14 days, solved with the
+extended conversion, the median correlation rises from 0.39 to 0.73 and
+the median error falls from 21 to 14~\$/MWh with piecewise losses; at
+the reference bus the correlation is 0.95.  The tangent model gives a
+similar agreement (median correlation 0.72, error 13~\$/MWh, 0.97 at the
+reference bus) on the 11 days for which it reached a usable solution,
+and it reproduces how often prices are negative: 38\% of the bus-hours
+of day~1 in the median day, against 39\% in PLEXOS and almost none with
+free piecewise losses.  The lowest price of day~1 now lies between
+$-8.1$ and 0~\$/MWh on every day, against $-113$ to $-891$~\$/MWh with
+the initial conversion.
+
 The remaining differences come mainly from three sources:
 \begin{itemize}
-  \item \textbf{Constraints not yet converted.}  The $-132$~\$/MWh
-    pocket of 25~May is not reproduced by any configuration (\gtopt{}
-    gives 0 to $+9$~\$/MWh at those buses).  It is probably set by an
-    operator-defined constraint or flowgate of the PLEXOS model that is
-    not yet active in the conversion.
+  \item \textbf{Constraints not yet converted.}  On 25~May PLEXOS
+    prices a pocket of the northern grid (Pan de Az\'ucar, Don~Goyo,
+    Talinay) at $-132$~\$/MWh; \gtopt{} gives 0 to $+9$~\$/MWh there.
+    Removing the Kirchhoff constraints in that zone does not reproduce
+    it: without angle coupling the pocket simply spills renewable energy
+    at a price near zero.  The negative price therefore requires a
+    constraint that forces injection in the pocket, or a spillage price
+    or must-run condition on those plants, in the PLEXOS model, which is
+    not yet in the conversion.
   \item \textbf{Conversion of model features.}  Several PLEXOS
     constructs (e.g.\ inflexible gas contracts, storage end conditions,
     reserve provisions of new batteries) have no one-to-one equivalent,
