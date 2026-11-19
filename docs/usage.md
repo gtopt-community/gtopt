@@ -64,6 +64,7 @@ Multiple system files can be provided and will be merged.
 | `-S` | `--stats` | | Print pre-solve system statistics and post-solve results summary |
 | `-s` | `--system-file` | `arg` | System JSON file(s) to process (also accepted as positional args) |
 | `-l` | `--lp-file` | `arg` | Save the LP model to a file |
+| | `--lp-metadata` | `[=arg]` | Also write a JSON sidecar `<lp-file>.meta.json` describing every LP column/row (see [LP metadata](lp-metadata.md)) |
 | `-j` | `--json-file` | `arg` | Save the merged system configuration to a JSON file |
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity (coefficients below this are zero) |
 | `-c` | `--lp-only` | `[=arg]` | Build the LP model and exit without solving |
@@ -601,6 +602,10 @@ Create the LP and exit (useful for validation or LP export):
 ```bash
 gtopt system_c0.json --lp-file model.lp --lp-only
 ```
+
+Add `--lp-metadata` to also write `model.meta.json`, a machine-readable
+description of every column and row (names, classes, contexts, integrality,
+scale factors, block weights); see [LP metadata](lp-metadata.md).
 
 ### Single-bus mode
 
