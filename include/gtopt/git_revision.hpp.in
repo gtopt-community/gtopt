@@ -1,0 +1,4 @@
+#pragma once
+
+// Generated at build time by cmake_local/GitRevision.cmake.
+#define GTOPT_GIT_REVISION "@GTOPT_GIT_REVISION@"

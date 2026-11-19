@@ -33,6 +33,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/low_memory_snapshot.hpp>
 #include <gtopt/lp_cache.hpp>
+#include <gtopt/lp_file_format.hpp>
 #include <gtopt/lp_label_store.hpp>
 #include <gtopt/lp_replay_buffer.hpp>
 #include <gtopt/lp_scaling.hpp>
@@ -1545,12 +1546,23 @@ public:
   }
 
   /**
-   * @brief Writes the problem to an LP format file
-   * @param filename Name of the file to write (without extension)
-   * @return Success, or an error if row names are not available
+   * @brief Writes the model to `<filename>.lp` or `<filename>.mps`
+   * @param filename Path stem of the file to write (without extension)
+   * @param format   Requested format: `LpFileFormat::lp` (default) or
+   *                 `LpFileFormat::mps`.
+   * @param fallback What to do when the backend cannot write `format`:
+   *                 `other_format` (default, for diagnostic dumps) writes
+   *                 the other format and logs a warning; `strict` (for
+   *                 an explicit user request) returns an error naming the
+   *                 backend.
+   * @return The path of the file written (stem plus extension), or an
+   *         error when no file could be written.  An empty `filename`
+   *         writes nothing and returns an empty path.
    */
-  [[nodiscard]] std::expected<void, Error> write_lp(
-      const std::string& filename) const;
+  [[nodiscard]] std::expected<std::string, Error> write_lp(
+      const std::string& filename,
+      LpFileFormat format = LpFileFormat::lp,
+      LpFormatFallback fallback = LpFormatFallback::other_format) const;
 
   /**
    * @brief Produce `(col_names, row_names)` for the current LP by

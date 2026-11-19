@@ -80,14 +80,17 @@ struct MainOptions
   // ---- LP options ----
   /** @brief Path stem for writing the LP model file */
   std::optional<std::string> lp_file {};
+  /** @brief Format of the `lp_file` dump: "lp" (default) or "mps".  A
+   * `.mps` extension on `lp_file` also selects MPS. */
+  std::optional<std::string> lp_format {};
   /** @brief Epsilon tolerance for LP matrix coefficients */
   std::optional<double> matrix_eps {};
   /** @brief Build all scene/phase LP matrices but skip solving entirely */
   std::optional<bool> lp_only {};
-  /** @brief Also write `<lp-file stem>.meta.json`, a JSON sidecar with the
-   * column/row names, classes, contexts, scale factors and block weights of
-   * every written LP file (see docs/lp-metadata.md) */
-  std::optional<bool> lp_metadata {};
+  /** @brief Also write `<lp-file stem>.scales.json`, a JSON sidecar with the
+   * objective scale, block weights and scaled columns/rows of every written
+   * LP file (see docs/lp-scales.md) */
+  std::optional<bool> lp_scales {};
   /** @brief Save debug LP files to the log directory (monolithic: one per
    * scene/phase; SDDP: one per iteration/scene/phase) */
   std::optional<bool> lp_debug {};

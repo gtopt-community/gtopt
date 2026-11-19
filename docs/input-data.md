@@ -107,7 +107,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `lp_debug`                  | boolean | `false`  | Save LP debug files to `log_directory` before solving. Monolithic: one file per `(scene, phase)` named `gtopt_lp_<scene>_<phase>.lp`. SDDP: one file per `(iteration, scene, phase)` named `gtopt_iter_<iter>_<scene>_<phase>.lp` |
 | `lp_compression`            | string  | `""`     | Compression codec for LP debug files: `""` (inherit from output), `"none"` (no compression), or a codec name (`"zstd"`, `"gzip"`, `"lz4"`, `"bzip2"`, `"xz"`) |
 | `lp_only`                   | boolean | `false`  | Build all LP matrices but skip solving entirely (CLI: `--lp-only` / `-c`). Combine with `lp_debug: true` to export every scene/phase LP |
-| `lp_metadata`               | boolean | `false`  | Write a `<lp-file>.meta.json` sidecar describing every LP column/row, scales and block weights (CLI: `--lp-metadata`; see [LP metadata](lp-metadata.md)) |
+| `lp_scales`               | boolean | `false`  | Write a `<lp-file>.scales.json` sidecar with the objective scale, block weights and scaled columns/rows (CLI: `--lp-scales`; see [LP scales](lp-scales.md)) |
 | `lp_coeff_ratio_threshold`  | number  | `1e7`    | When the global max/min coefficient ratio exceeds this value, per-scene/phase breakdown is printed |
 | `lp_debug_scene_min`        | integer | —        | Minimum scene UID (inclusive) for LP debug file saving |
 | `lp_debug_scene_max`        | integer | —        | Maximum scene UID (inclusive) for LP debug file saving |

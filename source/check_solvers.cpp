@@ -26,6 +26,7 @@
 #include <gtopt/check_solvers.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_file_format.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <spdlog/spdlog.h>
@@ -966,7 +967,7 @@ SolverTestResult test_base_numrows_reset(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
-// 15. write_lp — creates a temp .lp file and verifies its existence
+// 15. write_lp — writes the model as .lp and .mps and checks the files
 // ---------------------------------------------------------------------------
 SolverTestResult test_write_lp(std::string_view solver)
 {
@@ -983,17 +984,24 @@ SolverTestResult test_write_lp(std::string_view solver)
     const auto tmp_stem = (std::filesystem::temp_directory_path()
                            / as_label("gtopt_check_solvers", solver))
                               .string();
-    const auto result = lp.write_lp(tmp_stem);
-
-    if (result.has_value()) {
-      const std::filesystem::path lp_file = tmp_stem + ".lp";
-      TC_CHECK(ctx, std::filesystem::exists(lp_file));
-      if (std::filesystem::exists(lp_file)) {
-        std::filesystem::remove(lp_file);
+    // Every backend must write at least one of the two formats natively
+    // (cuOpt only writes MPS), and a reported success must leave the file
+    // on disk with the extension of the format asked for.
+    int written = 0;
+    for (const auto format : {LpFileFormat::lp, LpFileFormat::mps}) {
+      const auto result =
+          lp.write_lp(tmp_stem, format, LpFormatFallback::strict);
+      if (!result.has_value()) {
+        continue;
       }
+      ++written;
+      const std::filesystem::path file = *result;
+      TC_CHECK(ctx, file.extension() == lp_file_extension(format));
+      TC_CHECK(ctx, std::filesystem::exists(file));
+      std::error_code ec;
+      std::filesystem::remove(file, ec);
     }
-    // write_lp may return an error if row names are not available; that's
-    // allowed — we only care that it doesn't crash.
+    TC_CHECK(ctx, written > 0);
 
   } catch (const std::exception& ex) {
     return make_result("write_lp", /*test_passed=*/false, ex.what());

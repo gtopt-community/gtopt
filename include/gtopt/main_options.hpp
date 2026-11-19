@@ -235,15 +235,19 @@ template<typename T>
       // ---- LP options ----
       ("lp-file,l",
        po::value<std::string>(),
-       "write the assembled LP model to this file (stem; .lp extension added)")
+       "write the assembled LP model to this file (stem; .lp or .mps "
+       "extension added; a trailing .mps selects MPS output)")  //
+      ("lp-format",
+       po::value<std::string>(),
+       "format of the --lp-file dump: lp (default) | mps")
       //
-      ("lp-metadata",
+      ("lp-scales",
        po::value<bool>().implicit_value(/*v=*/true),
-       "also write a JSON sidecar <lp-file stem>.meta.json next to each LP "
-       "file written by --lp-file, listing every column/row (name, class, "
-       "variable, uid, context, integrality, scale factors) plus the "
-       "objective scale and block weights; shorthand for --set "
-       "lp_metadata=<bool>")  //
+       "also write a JSON sidecar <lp-file stem>.scales.json next to each LP "
+       "file written by --lp-file, with the objective scale, the block "
+       "weights and the columns/rows whose scale is not 1, to read the "
+       "model in physical units; shorthand for --set "
+       "lp_scales=<bool>")  //
       ("matrix-eps,e",
        po::value<double>(),
        "epsilon threshold for treating LP matrix coefficients as zero")  //
@@ -554,8 +558,9 @@ template<typename T>
        "given without value: true)")  //
       ("lp-compression",
        po::value<std::string>(),
-       "compression codec for LP debug files: gzip | zstd | none "
-       "(default: zstd); shorthand for --set lp_compression=<codec>")  //
+       "compression codec for LP debug files (default: zstd) and, when "
+       "given, for the --lp-file dump: gzip | zstd | none; shorthand for "
+       "--set lp_compression=<codec>")  //
       ("lp-coeff-ratio",
        po::value<double>(),
        "warn when the LP max/min |coefficient| ratio exceeds this threshold "
@@ -1222,9 +1227,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .use_single_bus = get_opt<bool>(vm, "use-single-bus"),
       .use_kirchhoff = get_opt<bool>(vm, "use-kirchhoff"),
       .lp_file = get_opt<std::string>(vm, "lp-file"),
+      .lp_format = get_opt<std::string>(vm, "lp-format"),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .lp_only = get_opt<bool>(vm, "lp-only"),
-      .lp_metadata = get_opt<bool>(vm, "lp-metadata"),
+      .lp_scales = get_opt<bool>(vm, "lp-scales"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
       .lp_error = get_opt<bool>(vm, "lp-error"),
       .lp_compression = get_opt<std::string>(vm, "lp-compression"),
@@ -1387,9 +1393,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   // LP options
   opts.lp_file = get_str("lp-file");
+  opts.lp_format = get_str("lp-format");
   opts.matrix_eps = get_dbl("matrix-eps");
   opts.lp_only = get_bool("lp-only");
-  opts.lp_metadata = get_bool("lp-metadata");
+  opts.lp_scales = get_bool("lp-scales");
   opts.lp_debug = get_bool("lp-debug");
   opts.lp_error = get_bool("lp-error");
   opts.lp_compression = get_str("lp-compression");
@@ -1559,9 +1566,10 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.use_single_bus, defaults.use_single_bus);
   merge(opts.use_kirchhoff, defaults.use_kirchhoff);
   merge(opts.lp_file, defaults.lp_file);
+  merge(opts.lp_format, defaults.lp_format);
   merge(opts.matrix_eps, defaults.matrix_eps);
   merge(opts.lp_only, defaults.lp_only);
-  merge(opts.lp_metadata, defaults.lp_metadata);
+  merge(opts.lp_scales, defaults.lp_scales);
   merge(opts.lp_debug, defaults.lp_debug);
   merge(opts.lp_error, defaults.lp_error);
   merge(opts.lp_compression, defaults.lp_compression);

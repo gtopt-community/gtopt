@@ -9,13 +9,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **LP metadata sidecar** (`--lp-metadata`, option `lp_metadata`): when an LP
-  file is written with `--lp-file`, also write `<stem>.meta.json`
-  (`gtopt-lp-metadata/1`) listing every column and row in LP order (name,
-  class, variable/constraint, uid, structured context, integrality, scale
-  factors), the objective scale and the per-block duration / probability /
-  discount weights, so external solvers and auditors need not reverse-engineer
-  names or scaling.  Opt-in; the LP file is unchanged.  See `docs/lp-metadata.md`.
+- **MPS output for `--lp-file`**: new `--lp-format lp|mps` option (default
+  `lp`, unchanged); a `--lp-file` ending in `.mps` also selects MPS.  Names and
+  integer columns are preserved (`MARKER` sections; `BV` bounds for binaries
+  on OSI/CBC) by every backend (cuOpt writes only MPS).  An explicit request
+  the backend cannot honour is an error; the diagnostic dumps fall back to
+  the other format.  `--lp-compression` also compresses the `--lp-file`
+  dump.  `SolverBackend::write_lp(filename, LpFileFormat)` now takes the
+  format and returns `bool`, and `k_solver_abi_version` is bumped to 16, so
+  out-of-tree solver plugins must implement it for both formats and be
+  rebuilt.
+
+- **LP scales sidecar** (`--lp-scales`, option `lp_scales`): when an LP
+  file is written with `--lp-file`, also write `<stem>.scales.json`
+  (`gtopt-lp-scales/1`, serialised with daw::json) with what the
+  `.lp`/`.mps` cannot carry: the objective scale, the per-block and
+  per-stage `cost_factor` weights, the columns whose scale is not 1 (with
+  their gtopt element and physical unit) and the row scales.  A solution
+  read back from an external solver can then be mapped to physical units.
+  It also records the gtopt build (version and git revision) and the
+  model's numerical ranges (matrix, objective, bounds, RHS, scale factors,
+  per constraint family).  Opt-in; the model file is unchanged.  See
+  `docs/lp-scales.md`.
+- **`gtopt::build_info()`**: version and `git describe` revision of the
+  running build, refreshed at build time, for audit trails in generated
+  files.
+
 - **Unit commitment (three-bin formulation)**: full implementation of the
   Morales-España tight-and-compact UC model with status ($u$), startup ($v$),
   and shutdown ($w$) binary variables per committed generator.

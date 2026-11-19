@@ -1407,11 +1407,12 @@ void GurobiSolverBackend::push_names(const std::vector<std::string>& col_names,
   m_dirty_ = true;
 }
 
-void GurobiSolverBackend::write_lp(const char* filename)
+bool GurobiSolverBackend::write_lp(const char* filename, LpFileFormat format)
 {
   ensure_updated_();
-  const auto file = std::format("{}.lp", filename);
-  GRBwrite(m_model_, file.c_str());
+  // GRBwrite picks the format from the extension (.lp / .mps).
+  const auto file = std::format("{}{}", filename, lp_file_extension(format));
+  return GRBwrite(m_model_, file.c_str()) == 0;
 }
 
 // ── deep copy ────────────────────────────────────────────────────────────

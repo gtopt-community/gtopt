@@ -29,6 +29,7 @@
 #include <vector>
 
 #include <gtopt/basis.hpp>
+#include <gtopt/lp_file_format.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_resource.hpp>
 
@@ -43,7 +44,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 15;
+inline constexpr int k_solver_abi_version = 16;
 
 /// TEST-ONLY hook: true when the environment variable
 /// `GTOPT_TEST_FORCE_SOS_BAIL=1` is set.  Forces the dual-recovery pass
@@ -899,7 +900,24 @@ public:
 
   virtual void push_names(const std::vector<std::string>& col_names,
                           const std::vector<std::string>& row_names) = 0;
-  virtual void write_lp(const char* filename) = 0;
+  /** @brief Write the model to `<filename>.lp` or `<filename>.mps`.
+   *
+   * `filename` is the path stem (without extension); the backend appends
+   * the extension of `format` (lp_file_extension()).  The row/column names
+   * pushed through push_names() and the integrality of the columns are
+   * kept.
+   *
+   * Every backend handles both formats explicitly: when its native library
+   * cannot write `format` it returns `false` without touching the
+   * filesystem.  `false` is also returned when the native writer reports
+   * an error.  The caller (LinearInterface::write_lp) checks the file,
+   * and decides whether to report an error or fall back to the other
+   * format.
+   *
+   * @return true when the file was written.
+   */
+  [[nodiscard]] virtual bool write_lp(const char* filename,
+                                      LpFileFormat format) = 0;
 
   // ---- deep copy ----
 

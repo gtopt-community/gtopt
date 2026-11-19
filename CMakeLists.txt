@@ -319,9 +319,33 @@ set(_priority_src "${CMAKE_CURRENT_SOURCE_DIR}/source/gtopt_main.cpp")
 list(REMOVE_ITEM sources "${_priority_src}")
 list(PREPEND sources "${_priority_src}")
 
+# ---- Build revision ----
+# `git describe` of the source tree, refreshed on every build (the header
+# is rewritten only when the revision changes).  Only build_info.cpp
+# includes it, and it is kept out of the unity batches, so a new commit
+# recompiles a single small file.
+set(GTOPT_GIT_REVISION_HEADER
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/git_revision.hpp")
+add_custom_target(
+  gtopt_git_revision
+  COMMAND
+    ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+    -DTEMPLATE=${CMAKE_CURRENT_SOURCE_DIR}/include/gtopt/git_revision.hpp.in
+    -DOUTPUT=${GTOPT_GIT_REVISION_HEADER} -P
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake_local/GitRevision.cmake
+  BYPRODUCTS "${GTOPT_GIT_REVISION_HEADER}"
+  COMMENT "Refreshing gtopt git revision"
+  VERBATIM
+)
+set_source_files_properties(
+  "${CMAKE_CURRENT_SOURCE_DIR}/source/build_info.cpp"
+  PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
+)
+
 # ---- Create library ----
 
 add_library(${PROJECT_NAME} ${headers} ${sources})
+add_dependencies(${PROJECT_NAME} gtopt_git_revision)
 
 # PIC is required because the static libgtopt.a is linked into shared
 # library solver plugins (libgtopt_solver_*.so).  Without PIC, linkers

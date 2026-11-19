@@ -63,8 +63,9 @@ Multiple system files can be provided and will be merged.
 | `-q` | `--quiet` | `[=arg]` | Suppress all log output to stdout |
 | `-S` | `--stats` | | Print pre-solve system statistics and post-solve results summary |
 | `-s` | `--system-file` | `arg` | System JSON file(s) to process (also accepted as positional args) |
-| `-l` | `--lp-file` | `arg` | Save the LP model to a file |
-| | `--lp-metadata` | `[=arg]` | Also write a JSON sidecar `<lp-file>.meta.json` describing every LP column/row (see [LP metadata](lp-metadata.md)) |
+| `-l` | `--lp-file` | `arg` | Save the LP model to a file (stem; `.lp` or `.mps` added; a trailing `.mps` selects MPS) |
+| | `--lp-format` | `arg` | Format of the `--lp-file` dump: `lp` (default) or `mps` |
+| | `--lp-scales` | `[=arg]` | Also write a JSON sidecar `<lp-file>.scales.json` with the scale factors of the dumped model (see [LP scales](lp-scales.md)) |
 | `-j` | `--json-file` | `arg` | Save the merged system configuration to a JSON file |
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity (coefficients below this are zero) |
 | `-c` | `--lp-only` | `[=arg]` | Build the LP model and exit without solving |
@@ -595,6 +596,43 @@ Save the linear programming formulation for debugging or external solvers:
 gtopt system_c0.json --lp-file model.lp
 ```
 
+### MPS output for external solvers
+
+`--lp-file` writes CPLEX LP by default.  Use `--lp-format mps` (or give a
+`--lp-file` ending in `.mps`) to write the model as an MPS file instead, with
+the same row/column names and `MARKER` sections for integer columns, so
+external solvers can read it directly without an `.lp` → `.mps` conversion:
+
+```bash
+gtopt system_c0.json --lp-file model.mps --lp-only
+gtopt system_c0.json --lp-file model --lp-format mps --lp-only
+```
+
+Every backend writes both formats with its own library, keeping the same
+row and column names in the `.lp` and the `.mps` file, except cuOpt, which
+only writes MPS:
+
+| Backend | `.lp` | `.mps` |
+|---------|-------|--------|
+| CPLEX, Gurobi, MindOpt, HiGHS, SCIP | yes | yes |
+| CBC / CLP (OSI) | yes | yes (binary columns as `BV` bounds) |
+| cuOpt | no | yes |
+
+Without an explicit format (`--lp-file model`), gtopt writes LP when the
+backend can, and otherwise the format the backend supports (MPS for cuOpt),
+logging a warning that names the file written.  A format named explicitly,
+with `--lp-format` or a `.lp` / `.mps` extension on `--lp-file`, is strict:
+when the backend cannot write it, gtopt reports an error naming the backend
+and suggesting the other format, and does not switch format.  With
+`--lp-only` that error ends the run with a non-zero status; otherwise the
+solve continues without the dump.  The diagnostic dumps (`--lp-debug`, error
+and high-kappa LPs) always fall back to the format the backend supports.
+
+`--lp-compression gzip|zstd|...` also compresses the `--lp-file` dump (`.lp`
+or `.mps`), which is replaced by `model.mps.gz`, `model.lp.zst`, etc.
+Without the option the `--lp-file` dump stays uncompressed; the
+`--lp-debug` / SDDP dumps use `zstd` by default.
+
 ### Build without solving
 
 Create the LP and exit (useful for validation or LP export):
@@ -603,9 +641,9 @@ Create the LP and exit (useful for validation or LP export):
 gtopt system_c0.json --lp-file model.lp --lp-only
 ```
 
-Add `--lp-metadata` to also write `model.meta.json`, a machine-readable
-description of every column and row (names, classes, contexts, integrality,
-scale factors, block weights); see [LP metadata](lp-metadata.md).
+Add `--lp-scales` to also write `model.scales.json`, the scale
+factors needed to read the dumped model in physical units (objective scale,
+block weights, scaled columns and rows); see [LP scales](lp-scales.md).
 
 ### Single-bus mode
 

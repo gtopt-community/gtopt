@@ -30,6 +30,7 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/gtopt_lp_runner.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/lp_file_format.hpp>
 #include <gtopt/lp_stats.hpp>
 #include <gtopt/main_options.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -860,7 +861,33 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
         && !opts.lp_file.has_value();
 
     if (opts.lp_file) {
-      planning_lp.write_lp(opts.lp_file.value());
+      auto lp_format = LpFileFormat::lp;
+      if (opts.lp_format) {
+        const auto parsed = parse_lp_file_format(*opts.lp_format);
+        if (!parsed) {
+          spdlog::error("invalid --lp-format '{}': expected 'lp' or 'mps'",
+                        *opts.lp_format);
+          return 1;
+        }
+        lp_format = *parsed;
+      }
+      // A format the user named (--lp-format, or a .lp / .mps extension)
+      // is strict: error if the solver cannot write it.  Otherwise LP is
+      // only the preference, and a solver without an LP writer (cuOpt)
+      // writes its own format (MPS) with a warning.
+      const auto& lp_file = opts.lp_file.value();
+      const bool explicit_format = opts.lp_format.has_value()
+          || lp_file.ends_with(".lp") || lp_file.ends_with(".mps");
+      const auto fallback = explicit_format ? LpFormatFallback::strict
+                                            : LpFormatFallback::other_format;
+      if (!planning_lp.write_lp(lp_file, lp_format, fallback)) {
+        // The error is already logged.  With --lp-only the file is the
+        // only product, so fail; otherwise keep going and solve.
+        if (want_lp_only) {
+          return 1;
+        }
+        spdlog::warn("continuing with the solve without the --lp-file dump");
+      }
     } else if (monolithic_lp_only_debug) {
       const auto log_dir = planning_lp.options().log_directory();
       std::error_code ec;
@@ -869,7 +896,11 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
           (std::filesystem::path(log_dir) / "monolithic.lp").string();
       spdlog::info("lp_debug (monolithic --lp-only): writing LP to {}",
                    lp_path);
-      planning_lp.write_lp(lp_path);
+      if (!planning_lp.write_lp(
+              lp_path, LpFileFormat::lp, LpFormatFallback::other_format))
+      {
+        spdlog::warn("lp_debug: the monolithic LP could not be written");
+      }
     }
 
     if (do_stats) {

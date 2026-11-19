@@ -204,7 +204,8 @@ std::string gzip_lp_file_inline(const std::string& src_path)
 
   if (!ok) {
     spdlog::warn("LpDebugWriter: gzip write error for {}", gz_path);
-    std::filesystem::remove(gz_path);
+    std::error_code rm_ec;
+    std::filesystem::remove(gz_path, rm_ec);
     return {};
   }
 
@@ -368,7 +369,15 @@ bool LpDebugWriter::is_active() const noexcept
 void LpDebugWriter::ensure_directory()
 {
   if (!m_dir_created_) {
-    std::filesystem::create_directories(m_directory_);
+    // Never throw from a diagnostic dump: an unwritable directory only
+    // makes the following write fail with a warning.
+    std::error_code ec;
+    std::filesystem::create_directories(m_directory_, ec);
+    if (ec) {
+      spdlog::warn("LpDebugWriter: cannot create directory {}: {}",
+                   m_directory_,
+                   ec.message());
+    }
     m_dir_created_ = true;
   }
 }
@@ -385,7 +394,7 @@ void LpDebugWriter::write(const LinearInterface& li,
     spdlog::warn("{}", result.error().message);
     return;
   }
-  const auto lp_path = filepath_stem + ".lp";
+  const auto& lp_path = *result;
   spdlog::debug("LpDebugWriter: saved LP to {}", lp_path);
   compress_async(lp_path);
 }

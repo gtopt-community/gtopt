@@ -752,17 +752,17 @@ public:
   }
 
   /**
-   * @brief Gets the lp_metadata flag, using default if not set.
+   * @brief Gets the lp_scales flag, using default if not set.
    *
    * When true, every LP file written via `--lp-file` is accompanied by a
-   * JSON sidecar (`<stem>.meta.json`) describing its columns, rows,
-   * scale factors and per-block weights.
+   * JSON sidecar (`<stem>.scales.json`) with its objective scale, block
+   * weights and scaled columns/rows.
    *
-   * @return Whether to write LP metadata sidecars
+   * @return Whether to write LP scales sidecars
    */
-  [[nodiscard]] constexpr auto lp_metadata() const
+  [[nodiscard]] constexpr auto lp_scales() const
   {
-    return m_options_.lp_metadata.value_or(false);
+    return m_options_.lp_scales.value_or(false);
   }
 
   /// Solver backend pinned at the planning level via

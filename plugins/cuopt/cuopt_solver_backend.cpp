@@ -16,8 +16,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
 #include <format>
+#include <fstream>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -1172,46 +1172,188 @@ void CuOptSolverBackend::clear_log_filename()
 
 // ---- names & LP output ----------------------------------------------------
 
-void CuOptSolverBackend::push_names(
-    const std::vector<std::string>& /*col_names*/,
-    const std::vector<std::string>& /*row_names*/)
+void CuOptSolverBackend::push_names(const std::vector<std::string>& col_names,
+                                    const std::vector<std::string>& row_names)
 {
-  // cuOpt's C API problem object carries no column/row names; the MPS
-  // writer auto-generates positional names.  No-op (names are a debug aid).
+  // cuOpt's C API problem object carries no names and cuOptWriteProblem
+  // writes positional ones, so keep them here for write_mps_file_.
+  m_col_names_ = col_names;
+  m_row_names_ = row_names;
 }
 
-void CuOptSolverBackend::write_lp(const char* filename)
+namespace
 {
-  // cuOpt only writes MPS (CUOPT_FILE_FORMAT_MPS): build a throwaway
-  // problem object from the current host model and dump it.  Debug-only
-  // path — a failure logs a warning instead of aborting the run.
-  if (filename == nullptr || m_model_.num_cols <= 0) {
-    return;
+
+[[nodiscard]] bool is_neg_inf(double v) noexcept
+{
+  return v <= -k_gtopt_inf || std::isinf(v);
+}
+
+[[nodiscard]] bool is_pos_inf(double v) noexcept
+{
+  return v >= k_gtopt_inf || std::isinf(v);
+}
+
+}  // namespace
+
+bool CuOptSolverBackend::write_mps_file_(const char* filename)
+{
+  // Written by hand from the host model instead of cuOptWriteProblem,
+  // which has no way to receive names (it writes C0../R0..) and emits
+  // MARKER sections even for a pure LP.  Free MPS: names are
+  // whitespace-delimited, so gtopt's long labels are kept verbatim.
+  if (filename == nullptr) {
+    return false;
   }
-  const auto lowered = lower_model(m_model_);
-  const std::scoped_lock cuopt_guard(g_cuopt_global_mutex);
-  cuOptOptimizationProblem problem = nullptr;
-  try {
-    problem = create_ranged_problem(m_model_, lowered);
-  } catch (const std::exception& e) {
-    spdlog::warn("cuOpt: write_lp('{}') failed to build problem: {}",
-                 filename,
-                 e.what());
-    return;
-  }
-  // gtopt callers pass an extensionless stem or a ".lp" path; cuOpt's
-  // writer emits MPS regardless, so normalise to a ".mps" suffix to keep
-  // the on-disk format honest.
-  std::filesystem::path out {filename};
-  if (out.extension() != ".mps") {
-    out.replace_extension(".mps");
-  }
-  if (cuOptWriteProblem(problem, out.string().c_str(), CUOPT_FILE_FORMAT_MPS)
-      != CUOPT_SUCCESS)
+  const auto& m = m_model_;
+  const auto ncols = static_cast<size_t>(m.num_cols);
+  const auto nrows = static_cast<size_t>(m.num_rows);
+  const auto col_name = [&](size_t j)
   {
-    spdlog::warn("cuOpt: cuOptWriteProblem('{}') failed", out.string());
+    return j < m_col_names_.size() && !m_col_names_[j].empty()
+        ? m_col_names_[j]
+        : std::format("c{}", j);
+  };
+  const auto row_name = [&](size_t i)
+  {
+    return i < m_row_names_.size() && !m_row_names_[i].empty()
+        ? m_row_names_[i]
+        : std::format("r{}", i);
+  };
+  constexpr std::string_view obj_name = "obj";
+
+  // Column-major view of the row-wise matrix.
+  std::vector<std::vector<std::pair<size_t, double>>> by_col(ncols);
+  for (size_t i = 0; i < nrows; ++i) {
+    for (const auto& [j, v] : m.row_entries[i]) {
+      by_col[static_cast<size_t>(j)].emplace_back(i, v);
+    }
   }
-  cuOptDestroyProblem(&problem);
+
+  const auto file = std::format("{}.mps", filename);
+  std::ofstream out(file);
+  if (!out) {
+    return false;
+  }
+  out << "NAME " << m_prob_name_ << "\n";
+  out << "ROWS\n";
+  out << " N  " << obj_name << "\n";
+  for (size_t i = 0; i < nrows; ++i) {
+    const auto lo = m.row_lb[i];
+    const auto up = m.row_ub[i];
+    const char* type = "E";
+    if (lo != up) {
+      if (is_neg_inf(lo) && is_pos_inf(up)) {
+        type = "N";  // free row
+      } else if (is_neg_inf(lo)) {
+        type = "L";
+      } else {
+        type = "G";  // G, or ranged [lo, up] via RANGES
+      }
+    }
+    out << " " << type << "  " << row_name(i) << "\n";
+  }
+
+  out << "COLUMNS\n";
+  bool in_int = false;
+  for (size_t j = 0; j < ncols; ++j) {
+    const bool is_int = m.col_type[j] == 'I';
+    if (is_int != in_int) {
+      out << "    MARKER  'MARKER'  " << (is_int ? "'INTORG'" : "'INTEND'")
+          << "\n";
+      in_int = is_int;
+    }
+    const auto name = col_name(j);
+    // Always list the column, even when it has no entries, so that it is
+    // not lost.
+    out << "    " << name << "  " << obj_name << "  "
+        << std::format("{}", m.col_obj[j]) << "\n";
+    for (const auto& [i, v] : by_col[j]) {
+      out << "    " << name << "  " << row_name(i) << "  "
+          << std::format("{}", v) << "\n";
+    }
+  }
+  if (in_int) {
+    out << "    MARKER  'MARKER'  'INTEND'\n";
+  }
+
+  out << "RHS\n";
+  if (m.obj_offset != 0.0) {
+    // Objective constant: RHS of the objective row is minus the constant.
+    out << "    RHS  " << obj_name << "  " << std::format("{}", -m.obj_offset)
+        << "\n";
+  }
+  bool any_range = false;
+  for (size_t i = 0; i < nrows; ++i) {
+    const auto lo = m.row_lb[i];
+    const auto up = m.row_ub[i];
+    double rhs = 0.0;
+    if (lo == up || (!is_neg_inf(lo))) {
+      rhs = lo;  // E or G
+    } else if (!is_pos_inf(up)) {
+      rhs = up;  // L
+    }
+    if (is_neg_inf(lo) && is_pos_inf(up)) {
+      continue;  // N row
+    }
+    any_range = any_range || (lo != up && !is_neg_inf(lo) && !is_pos_inf(up));
+    if (rhs != 0.0) {
+      out << "    RHS  " << row_name(i) << "  " << std::format("{}", rhs)
+          << "\n";
+    }
+  }
+  if (any_range) {
+    out << "RANGES\n";
+    for (size_t i = 0; i < nrows; ++i) {
+      const auto lo = m.row_lb[i];
+      const auto up = m.row_ub[i];
+      if (lo != up && !is_neg_inf(lo) && !is_pos_inf(up)) {
+        out << "    RNG  " << row_name(i) << "  " << std::format("{}", up - lo)
+            << "\n";
+      }
+    }
+  }
+
+  out << "BOUNDS\n";
+  for (size_t j = 0; j < ncols; ++j) {
+    const auto lo = m.col_lb[j];
+    const auto up = m.col_ub[j];
+    const auto name = col_name(j);
+    const bool is_int = m.col_type[j] == 'I';
+    if (lo == up) {
+      out << " FX BND  " << name << "  " << std::format("{}", lo) << "\n";
+      continue;
+    }
+    if (is_neg_inf(lo) && is_pos_inf(up)) {
+      out << " FR BND  " << name << "\n";
+      continue;
+    }
+    if (is_neg_inf(lo)) {
+      out << " MI BND  " << name << "\n";
+    } else if (lo != 0.0 || is_int) {
+      out << " LO BND  " << name << "  " << std::format("{}", lo) << "\n";
+    }
+    if (!is_pos_inf(up)) {
+      out << " UP BND  " << name << "  " << std::format("{}", up) << "\n";
+    } else if (is_int) {
+      // Some readers default integer columns to [0, 1]; say +inf.
+      out << " PL BND  " << name << "\n";
+    }
+  }
+  out << "ENDATA\n";
+  out.close();
+  return !out.fail();
+}
+
+bool CuOptSolverBackend::write_lp(const char* filename, LpFileFormat format)
+{
+  // cuOpt has no LP-format writer (only CUOPT_FILE_FORMAT_MPS).
+  // LinearInterface::write_lp falls back to MPS for the diagnostic dumps
+  // and reports an error for an explicit `--lp-format lp`.
+  if (format != LpFileFormat::mps) {
+    return false;
+  }
+  return write_mps_file_(filename);
 }
 
 // ---- clone ----------------------------------------------------------------
@@ -1227,6 +1369,8 @@ std::unique_ptr<SolverBackend> CuOptSolverBackend::clone() const
   copy->m_warm_dual_ = m_warm_dual_;
   copy->m_options_ = m_options_;
   copy->m_prob_name_ = m_prob_name_;
+  copy->m_col_names_ = m_col_names_;
+  copy->m_row_names_ = m_row_names_;
   return copy;
 }
 
@@ -1238,7 +1382,7 @@ std::unique_ptr<SolverBackend> CuOptSolverBackend::clone() const
 // g_cuopt_global_mutex.  Shipped 2026-07-08 after empirical GPU validation:
 // vector warm start incl. auto-seed + clone inheritance, presolve
 // PAPILO→PSLP retirement of the stale infeasibility-hang workaround, and
-// write_lp via cuOptWriteProblem.)
+// MPS dump (now written from the host model with names).)
 //
 //  S1. Objective offset wiring.  gtopt feeds the FCF/scale offset through
 //      set_obj_coeff on a dedicated constant column today, not a problem
