@@ -13,9 +13,9 @@ GTOpt is hosted by the **GTOpt Community** GitHub organization
   ([`LICENSING.md`](LICENSING.md));
 - regular contributors can be invited as maintainers of specific areas.
 
-Commercial support and services are offered by partners
-([`PARTNERS.md`](PARTNERS.md)); partners have no special rights over the
-code or the project's decisions.
+Commercial support and services are offered by service providers
+([`PROVIDERS.md`](PROVIDERS.md)); providers have no special rights over
+the code or the project's decisions.
 
 ## Future: a foundation
 

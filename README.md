@@ -377,7 +377,10 @@ CLA bot requests on your first PR. Questions and ideas go to
 security issues to [`SECURITY.md`](SECURITY.md).
 
 Using GTOpt? Add your organization or group to
-[`USERS.md`](USERS.md).
+[`USERS.md`](USERS.md). The people and organizations who helped build
+GTOpt are in [`FRIENDS.md`](FRIENDS.md), and the companies offering
+maintenance, development and consulting services in
+[`PROVIDERS.md`](PROVIDERS.md).
 
 ## Acknowledgements
 
@@ -428,8 +431,9 @@ licences; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 Copyright (c) 2024-2026 Marcelo Matus and [contributors](AUTHORS).
 
-## Support and maintenance
+## Support and services
 
-Professional support, maintenance, training and PLP / PLEXOS → GTOpt
-migration services are available from **Black Bear Engineering SpA**
-(<contacto@blackbeareng.cl>). See [`PARTNERS.md`](PARTNERS.md).
+Maintenance and support contracts, custom development, consulting and
+studies, training and PLP / PLEXOS → GTOpt migration are available
+from **Black Bear Engineering SpA**
+(<contacto@blackbeareng.cl>). See [`PROVIDERS.md`](PROVIDERS.md).

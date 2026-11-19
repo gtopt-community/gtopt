@@ -1,12 +1,19 @@
-# Partners
+# Service providers
 
-Companies authorised by the GTOpt copyright holder to provide services
-around GTOpt.
+Companies that provide professional services around GTOpt, under a
+written agreement with the GTOpt copyright holder.
 
-| Partner | Country | Services | Contact |
+| Provider | Country | Services | Contact |
 |---|---|---|---|
-| **Black Bear Engineering SpA** | Chile | Support and maintenance contracts, training, PLP / PLEXOS → GTOpt case migration, custom development, commercial-licence resale | <contacto@blackbeareng.cl> |
+| **[Black Bear Engineering SpA](https://www.blackbeareng.cl)** | Chile | **Maintenance and support** contracts; **development** of custom models, features and modules; **consulting** and studies with GTOpt (expansion planning, hydrothermal scheduling, dispatch, markets); training; PLP / PLEXOS → GTOpt case migration; commercial-licence resale | <contacto@blackbeareng.cl> |
 
-Partners act under a written agreement with the copyright holder. Being
-listed here does not transfer any copyright or trademark rights in GTOpt.
-Interested in becoming a partner? Write to <marcelomatusacuna@gmail.com>.
+Providers have no special rights over the code or the project's
+decisions, and being listed here does not transfer any copyright or
+trademark rights in GTOpt.
+
+GTOpt is free software: you do not need a provider to use it. Questions
+are welcome in
+[Discussions](https://github.com/gtopt-community/gtopt/discussions).
+
+Would your company like to offer GTOpt services? Write to
+<marcelomatusacuna@gmail.com>.

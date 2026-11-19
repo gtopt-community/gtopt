@@ -111,7 +111,8 @@ Contact: Marcelo Matus — <marcelomatusacuna@gmail.com>
 
 ## Support, maintenance and services
 
-Professional support, maintenance, training, case migration
-(PLP / PLEXOS → GTOpt) and custom development are available from
+Maintenance and support contracts, custom development, consulting and
+studies, training and case migration (PLP / PLEXOS → GTOpt) are
+available from
 **Black Bear Engineering SpA** — <contacto@blackbeareng.cl>.
-See [`PARTNERS.md`](PARTNERS.md).
+See [`PROVIDERS.md`](PROVIDERS.md).

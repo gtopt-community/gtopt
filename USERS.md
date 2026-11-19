@@ -38,7 +38,8 @@ removed at any time.
 
 - [`PUBLICATIONS.md`](PUBLICATIONS.md): papers and studies that use
   GTOpt.
-- [`PARTNERS.md`](PARTNERS.md): companies offering services around
+- [`PROVIDERS.md`](PROVIDERS.md): companies offering services around
   GTOpt.
+- [`FRIENDS.md`](FRIENDS.md): friends and collaborators of the project.
 - [Discussions](https://github.com/gtopt-community/gtopt/discussions):
   share your case or ask the community.
