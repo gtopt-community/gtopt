@@ -9,8 +9,6 @@ please open a pull request adding it to the last section.
 
 ## White paper
 
-The reference paper for GTOpt:
-
 **GTOpt: Open-Source Energy-System Optimization, Consistent from Minutes
 to Decades.**
 Marcelo Matus A., María del Pilar Buitrago Villada, Erick Sierra Baeza,
