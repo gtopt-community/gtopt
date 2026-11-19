@@ -16,6 +16,7 @@
 
 #include <coin/ClpConfig.h>
 #include <coin/CoinMessageHandler.hpp>
+#include <coin/CoinMpsIO.hpp>
 #include <coin/CoinPackedMatrix.hpp>
 #include <coin/CoinPackedVector.hpp>
 #include <coin/CoinWarmStartBasis.hpp>
@@ -1169,6 +1170,58 @@ void OsiSolverBackend::write_lp(const char* filename)
     writer->setObjName("obj");
   }
   writer->writeLp(filename);
+}
+
+bool OsiSolverBackend::write_mps(const char* filename)
+{
+  // Same rationale as write_lp: go through the concrete Clp interface when
+  // available so the names held by the ClpModel are used; integer columns get
+  // MARKER lines.
+  OsiSolverInterface* writer = as_clp(m_solver_.get(), m_type_);
+  if (writer == nullptr) {
+    writer = m_solver_.get();
+  }
+  if (writer->getObjName().empty()) {
+    writer->setObjName("obj");
+  }
+  // OsiClpSolverInterface::writeMps / writeMpsNative both end in
+  // `CoinMpsIO::writeMps(.., compression = 1, ..)`, which silently emits
+  // `<name>.gz`.  Build the CoinMpsIO ourselves and write the exact,
+  // uncompressed path.  Names come from the interface accessors (Clp
+  // returns the ClpModel names pushed by push_names()); integer columns
+  // get MARKER INTORG/INTEND lines from the integrality array.
+  const int ncols = writer->getNumCols();
+  const int nrows = writer->getNumRows();
+  std::vector<std::string> col_names(static_cast<size_t>(ncols));
+  std::vector<std::string> row_names(static_cast<size_t>(nrows) + 1);
+  std::vector<char> integrality(static_cast<size_t>(ncols), 0);
+  for (int j = 0; j < ncols; ++j) {
+    col_names[static_cast<size_t>(j)] = writer->getColName(j);
+    integrality[static_cast<size_t>(j)] = writer->isInteger(j) ? 1 : 0;
+  }
+  for (int i = 0; i < nrows; ++i) {
+    row_names[static_cast<size_t>(i)] = writer->getRowName(i);
+  }
+  row_names[static_cast<size_t>(nrows)] = writer->getObjName();  // objective
+
+  CoinMpsIO mps;
+  mps.setMpsData(*writer->getMatrixByCol(),
+                 writer->getInfinity(),
+                 writer->getColLower(),
+                 writer->getColUpper(),
+                 writer->getObjCoefficients(),
+                 integrality.data(),
+                 writer->getRowLower(),
+                 writer->getRowUpper(),
+                 col_names,
+                 row_names);
+  double offset = 0.0;
+  writer->getDblParam(OsiObjOffset, offset);
+  mps.setObjectiveOffset(offset);
+  mps.setProblemName("gtopt");
+
+  const auto file = std::format("{}.mps", filename);
+  return mps.writeMps(file.c_str(), /*compression=*/0) == 0;
 }
 
 std::unique_ptr<SolverBackend> OsiSolverBackend::clone() const

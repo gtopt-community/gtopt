@@ -1757,15 +1757,14 @@ auto PlanningLP::create_systems(System& system,
   return all_systems;
 }
 
-void PlanningLP::write_lp(const std::string& filename) const
+bool PlanningLP::write_lp(const std::string& filename,
+                          LpFileFormat format) const
 {
-  // Strip a trailing ".lp" so the filename we hand to the backend
-  // (which always appends ".lp") never produces "name.lp_scene_0_phase_0.lp"
-  // when callers — and the gtopt CLI doc — naturally write the extension.
-  auto stem = filename;
-  if (stem.ends_with(".lp")) {
-    stem.erase(stem.size() - 3);
-  }
+  // Strip a trailing ".lp" / ".mps" so the filename we hand to the backend
+  // (which always appends the extension) never produces
+  // "name.lp_scene_0_phase_0.lp" when callers — and the gtopt CLI doc —
+  // naturally write the extension.  A ".mps" extension selects MPS.
+  const auto [stem, effective_format] = split_lp_file_target(filename, format);
 
   // Count cells: monolithic has exactly one (scene, phase), in which
   // case the `_scene_0_phase_0` decoration is noise.  SDDP needs it
@@ -1781,16 +1780,17 @@ void PlanningLP::write_lp(const std::string& filename) const
   for (auto&& phase_systems : m_systems_) {
     for (auto&& system : phase_systems) {
       const auto result = n_cells == 1
-          ? system.linear_interface().write_lp(stem)
-          : system.write_lp(stem)
+          ? system.linear_interface().write_lp(stem, effective_format)
+          : system.write_lp(stem, effective_format)
                 .transform([](auto&&) {})
                 .transform_error([](auto&& e) { return e; });
       if (!result) {
-        spdlog::warn("{}", result.error().message);
-        return;
+        spdlog::error("{}", result.error().message);
+        return false;
       }
     }
   }
+  return true;
 }
 
 void PlanningLP::release_cells()

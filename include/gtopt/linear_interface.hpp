@@ -30,6 +30,7 @@
 
 #include <gtopt/error.hpp>
 #include <gtopt/fmap.hpp>
+#include <gtopt/lp_file_format.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/low_memory_snapshot.hpp>
 #include <gtopt/lp_cache.hpp>
@@ -1547,10 +1548,14 @@ public:
   /**
    * @brief Writes the problem to an LP format file
    * @param filename Name of the file to write (without extension)
-   * @return Success, or an error if row names are not available
+   * @param format   `LpFileFormat::lp` (default) appends `.lp`;
+   *                 `LpFileFormat::mps` appends `.mps` and returns an error
+   *                 naming the solver when the backend cannot write MPS.
+   * @return Success, or an error if the backend cannot write the format
    */
   [[nodiscard]] std::expected<void, Error> write_lp(
-      const std::string& filename) const;
+      const std::string& filename,
+      LpFileFormat format = LpFileFormat::lp) const;
 
   /**
    * @brief Produce `(col_names, row_names)` for the current LP by

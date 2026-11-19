@@ -30,6 +30,7 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/gtopt_lp_runner.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/lp_file_format.hpp>
 #include <gtopt/lp_stats.hpp>
 #include <gtopt/main_options.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -860,7 +861,19 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
         && !opts.lp_file.has_value();
 
     if (opts.lp_file) {
-      planning_lp.write_lp(opts.lp_file.value());
+      auto lp_format = LpFileFormat::lp;
+      if (opts.lp_format) {
+        const auto parsed = parse_lp_file_format(*opts.lp_format);
+        if (!parsed) {
+          spdlog::error("invalid --lp-format '{}': expected 'lp' or 'mps'",
+                        *opts.lp_format);
+          return 1;
+        }
+        lp_format = *parsed;
+      }
+      if (!planning_lp.write_lp(opts.lp_file.value(), lp_format)) {
+        return 1;
+      }
     } else if (monolithic_lp_only_debug) {
       const auto log_dir = planning_lp.options().log_directory();
       std::error_code ec;

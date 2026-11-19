@@ -43,7 +43,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 15;
+inline constexpr int k_solver_abi_version = 16;
 
 /// TEST-ONLY hook: true when the environment variable
 /// `GTOPT_TEST_FORCE_SOS_BAIL=1` is set.  Forces the dual-recovery pass
@@ -900,6 +900,19 @@ public:
   virtual void push_names(const std::vector<std::string>& col_names,
                           const std::vector<std::string>& row_names) = 0;
   virtual void write_lp(const char* filename) = 0;
+
+  /** @brief Write the model in MPS format to `<filename>.mps`.
+   *
+   * Row/column names pushed through push_names() and integer MARKER
+   * sections are preserved.  Default: unsupported, returns false without
+   * touching the filesystem (callers report the backend by solver_name()).
+   *
+   * @return true when the file was written.
+   */
+  [[nodiscard]] virtual bool write_mps(const char* /*filename*/)
+  {
+    return false;
+  }
 
   // ---- deep copy ----
 

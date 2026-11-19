@@ -80,6 +80,9 @@ struct MainOptions
   // ---- LP options ----
   /** @brief Path stem for writing the LP model file */
   std::optional<std::string> lp_file {};
+  /** @brief Format of the `lp_file` dump: "lp" (default) or "mps".  A
+   * `.mps` extension on `lp_file` also selects MPS. */
+  std::optional<std::string> lp_format {};
   /** @brief Epsilon tolerance for LP matrix coefficients */
   std::optional<double> matrix_eps {};
   /** @brief Build all scene/phase LP matrices but skip solving entirely */

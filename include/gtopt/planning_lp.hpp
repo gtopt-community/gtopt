@@ -372,9 +372,13 @@ public:
 
   /**
    * @brief Writes the LP formulation to file
-   * @param filename Output file path
+   * @param filename Output file path; a trailing `.lp` / `.mps` is stripped
+   *                 (a `.mps` extension selects MPS regardless of `format`)
+   * @param format   Requested format (default LP)
+   * @return false (after logging an error) when the file could not be written
    */
-  void write_lp(const std::string& filename) const;
+  bool write_lp(const std::string& filename,
+                LpFileFormat format = LpFileFormat::lp) const;
 
   /**
    * @brief Eagerly build every (scene, phase) LP matrix in parallel.

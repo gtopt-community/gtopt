@@ -1044,6 +1044,14 @@ void HighsSolverBackend::write_lp(const char* filename)
   m_highs_->writeModel(file);
 }
 
+bool HighsSolverBackend::write_mps(const char* filename)
+{
+  // HiGHS picks the writer from the extension; names set through
+  // passColName/passRowName and integrality (MARKER sections) are kept.
+  const auto file = std::format("{}.mps", filename);
+  return m_highs_->writeModel(file) != HighsStatus::kError;
+}
+
 std::unique_ptr<SolverBackend> HighsSolverBackend::clone() const
 {
   auto cloned = std::make_unique<HighsSolverBackend>();

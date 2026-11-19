@@ -303,7 +303,8 @@ void LinearInterface::push_names_to_solver() const
   m_backend_->push_names(col_names, row_names);
 }
 
-auto LinearInterface::write_lp(const std::string& filename) const
+auto LinearInterface::write_lp(const std::string& filename,
+                               LpFileFormat format) const
     -> std::expected<void, Error>
 {
   if (filename.empty()) {
@@ -322,7 +323,23 @@ auto LinearInterface::write_lp(const std::string& filename) const
   // on a well-formed backend, which is a hard requirement for the
   // SDDP error-LP dump path.
   push_names_to_solver();
-  m_backend_->write_lp(filename.c_str());
+  if (format == LpFileFormat::mps) {
+    if (!m_backend_->write_mps(filename.c_str())) {
+      drop_formatted_label_caches();
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message = std::format(
+              "cannot write '{}.mps': solver backend '{}' either does not "
+              "support MPS output (backends with MPS: highs, cbc/clp; use "
+              "--lp-format lp otherwise) or the file could not be created "
+              "(check that the directory exists and is writable)",
+              filename,
+              solver_name()),
+      });
+    }
+  } else {
+    m_backend_->write_lp(filename.c_str());
+  }
 
   // Drop the formatted-label caches now that write_lp has consumed
   // them.  Memoization is unhelpful here: in production SDDP

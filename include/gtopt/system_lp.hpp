@@ -639,10 +639,12 @@ public:
    * @brief Writes the LP problem to a file.
    * @param filename Base file name (phase/scene labels and .lp extension
    *                 are appended automatically).
-   * @return The full path of the written file (with .lp extension).
+   * @param format   File format (extension `.lp` or `.mps`).
+   * @return The full path of the written file (with extension).
    */
   [[nodiscard]] std::expected<std::string, Error> write_lp(
-      const std::string& filename) const;
+      const std::string& filename,
+      LpFileFormat format = LpFileFormat::lp) const;
 
   /**
    * @brief Resolves the linear programming problem
