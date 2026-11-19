@@ -1,3 +1,12 @@
 {
-   "signedContributors": []
+  "signedContributors": [
+    {
+      "name": "scepeda78",
+      "id": 18468792,
+      "comment_id": 7021869805,
+      "created_at": "2026-11-19T20:50:36Z",
+      "repoId": 1462018919,
+      "pullRequestNo": 1
+    }
+  ]
 }
