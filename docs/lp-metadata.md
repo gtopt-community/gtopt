@@ -25,6 +25,10 @@ Output file naming follows the LP file:
 |--------------------------------------|------------------------------------------|
 | `model.lp` (single scene/phase)      | `model.meta.json`                        |
 | `model_scene_S_phase_P.lp` (several) | `model_scene_S_phase_P.meta.json`        |
+| `model.mps` (MPS output)             | `model.meta.json`                        |
+
+A failure to open or write the sidecar is logged as a warning; it never
+aborts the LP write.
 
 The sidecar is only written for LP files produced by `--lp-file`
 (`PlanningLP::write_lp`); `--lp-debug` / error-LP dumps are not affected.

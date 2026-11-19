@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -151,6 +152,27 @@ TEST_CASE("lp_metadata_path replaces .lp with .meta.json")  // NOLINT
 {
   CHECK(lp_metadata_path("/a/b/model.lp") == "/a/b/model.meta.json");
   CHECK(lp_metadata_path("model") == "model.meta.json");
+  CHECK(lp_metadata_path("/a/b/model.mps") == "/a/b/model.meta.json");
+}
+
+TEST_CASE(
+    "write_lp_metadata throws when the sidecar cannot be created")  // NOLINT
+{
+  auto planning = make_single_phase_planning();
+  const auto flat_opts = make_lp_matrix_options(
+      true, std::nullopt, false, std::nullopt, std::nullopt);
+  PlanningLP plp(std::move(planning), flat_opts);
+
+  const auto dir = make_tmp_dir("gtopt_test_lp_metadata_fail");
+  const auto blocker = dir / "blocker";
+  std::ofstream(blocker) << "x";  // a regular file used as a parent directory
+
+  const auto stem = (blocker / "model").string();
+  const auto& sys = plp.systems().front().front();
+  CHECK_THROWS_AS(write_lp_metadata(sys, stem + ".lp"), std::runtime_error);
+  CHECK_FALSE(std::filesystem::exists(stem + ".meta.json"));
+
+  std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("lp_metadata sidecar matches the LP (commitment case)")  // NOLINT

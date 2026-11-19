@@ -25,8 +25,8 @@ class SystemLP;
 /// Schema identifier written in the `"schema"` field of every sidecar.
 inline constexpr const char* lp_metadata_schema = "gtopt-lp-metadata/1";
 
-/// Returns the sidecar path for an LP file path: a trailing ".lp" is
-/// replaced by ".meta.json" (otherwise ".meta.json" is appended).
+/// Returns the sidecar path for an LP file path: a trailing ".lp" or ".mps"
+/// is replaced by ".meta.json" (otherwise ".meta.json" is appended).
 [[nodiscard]] std::string lp_metadata_path(const std::string& lp_path);
 
 /**
@@ -39,6 +39,7 @@ inline constexpr const char* lp_metadata_schema = "gtopt-lp-metadata/1";
  * @param system   The cell whose LP was written.
  * @param lp_path  Path of the `.lp` file that was written for it.
  * @return Path of the written sidecar.
+ * @throws std::runtime_error if the sidecar cannot be opened or written.
  */
 std::string write_lp_metadata(const SystemLP& system,
                               const std::string& lp_path);

@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -143,9 +144,12 @@ void put_context(std::ostream& out, const LpContext& context)
 
 std::string lp_metadata_path(const std::string& lp_path)
 {
-  constexpr std::string_view ext {".lp"};
-  if (lp_path.size() >= ext.size() && lp_path.ends_with(ext)) {
-    return lp_path.substr(0, lp_path.size() - ext.size()) + ".meta.json";
+  for (const std::string_view ext :
+       {std::string_view {".lp"}, std::string_view {".mps"}})
+  {
+    if (lp_path.ends_with(ext)) {
+      return lp_path.substr(0, lp_path.size() - ext.size()) + ".meta.json";
+    }
   }
   return lp_path + ".meta.json";
 }
@@ -168,6 +172,10 @@ std::string write_lp_metadata(const SystemLP& system,
   li.generate_labels_from_maps(col_names, row_names);
 
   std::ofstream out(path);
+  if (!out) {
+    throw std::runtime_error(
+        std::format("lp_metadata: cannot open '{}' for writing", path));
+  }
   out << "{\n";
   out << "\"schema\":\"" << lp_metadata_schema << "\",\n";
   out << "\"lp_file\":";
@@ -255,6 +263,12 @@ std::string write_lp_metadata(const SystemLP& system,
     out << '}';
   }
   out << "\n]\n}\n";
+
+  out.close();
+  if (!out) {
+    throw std::runtime_error(
+        std::format("lp_metadata: write to '{}' failed", path));
+  }
 
   return path;
 }
