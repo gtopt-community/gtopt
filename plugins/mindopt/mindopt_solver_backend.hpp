@@ -211,7 +211,8 @@ public:
   // ---- names & LP output ----
   void push_names(const std::vector<std::string>& col_names,
                   const std::vector<std::string>& row_names) override;
-  void write_lp(const char* filename) override;
+  [[nodiscard]] bool write_lp(const char* filename,
+                              LpFileFormat format) override;
 
   // ---- deep copy ----
   [[nodiscard]] std::unique_ptr<SolverBackend> clone() const override;

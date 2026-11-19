@@ -31,6 +31,33 @@ enum class LpFileFormat : uint8_t
   return format == LpFileFormat::mps ? ".mps" : ".lp";
 }
 
+/// The other format (used for the fallback of diagnostic dumps).
+[[nodiscard]] constexpr LpFileFormat other_lp_file_format(
+    LpFileFormat format) noexcept
+{
+  return format == LpFileFormat::mps ? LpFileFormat::lp : LpFileFormat::mps;
+}
+
+/// Name of the format as accepted by `--lp-format` ("lp" / "mps").
+[[nodiscard]] constexpr std::string_view lp_file_format_name(
+    LpFileFormat format) noexcept
+{
+  return format == LpFileFormat::mps ? "mps" : "lp";
+}
+
+/// What LinearInterface::write_lp does when the backend cannot write the
+/// requested format.
+enum class LpFormatFallback : uint8_t
+{
+  /// Fail with an error naming the backend.  Used when the user asked for
+  /// the format explicitly (`--lp-file`, `--lp-format`).
+  strict = 0,
+  /// Write the other format instead and log a warning.  Used by the
+  /// diagnostic dumps (`--lp-debug`, error / kappa LPs), where having a
+  /// file matters more than its format.
+  other_format = 1,
+};
+
 /// Parse "lp" / "mps" (case-sensitive); nullopt on anything else.
 [[nodiscard]] constexpr std::optional<LpFileFormat> parse_lp_file_format(
     std::string_view name) noexcept

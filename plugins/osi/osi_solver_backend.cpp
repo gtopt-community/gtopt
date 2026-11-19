@@ -7,6 +7,7 @@
  *            see LICENSING.md
  */
 
+#include <cmath>
 #include <format>
 #include <stdexcept>
 #include <type_traits>
@@ -15,6 +16,8 @@
 #include "osi_solver_backend.hpp"
 
 #include <coin/ClpConfig.h>
+#include <coin/CoinError.hpp>
+#include <coin/CoinLpIO.hpp>
 #include <coin/CoinMessageHandler.hpp>
 #include <coin/CoinMpsIO.hpp>
 #include <coin/CoinPackedMatrix.hpp>
@@ -1139,7 +1142,7 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
   }
 }
 
-void OsiSolverBackend::write_lp(const char* filename)
+bool OsiSolverBackend::write_lp_file_(const char* filename)
 {
   // Prefer writing through the concrete OsiClpSolverInterface.
   //
@@ -1169,10 +1172,91 @@ void OsiSolverBackend::write_lp(const char* filename)
   if (writer->getObjName().empty()) {
     writer->setObjName("obj");
   }
-  writer->writeLp(filename);
+  // Build the CoinLpIO ourselves (as write_mps_file_ does with CoinMpsIO)
+  // instead of OsiSolverInterface::writeLp, which drops the objective
+  // offset: re-reading such a file gives a different objective value
+  // (gtopt stores constants such as the demand-curtailment baseline
+  // there).
+  const int ncols = writer->getNumCols();
+  const int nrows = writer->getNumRows();
+  std::vector<std::string> col_store(static_cast<size_t>(ncols));
+  std::vector<std::string> row_store(static_cast<size_t>(nrows) + 1);
+  std::vector<char> integrality(static_cast<size_t>(ncols), 0);
+  for (int j = 0; j < ncols; ++j) {
+    col_store[static_cast<size_t>(j)] = writer->getColName(j);
+    integrality[static_cast<size_t>(j)] = writer->isInteger(j) ? 1 : 0;
+  }
+  for (int i = 0; i < nrows; ++i) {
+    row_store[static_cast<size_t>(i)] = writer->getRowName(i);
+  }
+  row_store[static_cast<size_t>(nrows)] = writer->getObjName();
+  std::vector<const char*> col_ptrs;
+  std::vector<const char*> row_ptrs;
+  col_ptrs.reserve(col_store.size());
+  row_ptrs.reserve(row_store.size());
+  for (const auto& n : col_store) {
+    col_ptrs.push_back(n.c_str());
+  }
+  for (const auto& n : row_store) {
+    row_ptrs.push_back(n.c_str());
+  }
+
+  const auto file = std::format("{}.lp", filename);
+  try {
+    CoinLpIO lpio;
+    lpio.setInfinity(writer->getInfinity());
+    lpio.setLpDataWithoutRowAndColNames(*writer->getMatrixByRow(),
+                                        writer->getColLower(),
+                                        writer->getColUpper(),
+                                        writer->getObjCoefficients(),
+                                        integrality.data(),
+                                        writer->getRowLower(),
+                                        writer->getRowUpper());
+    lpio.setLpDataRowAndColNames(row_ptrs.data(), col_ptrs.data());
+    // OSI's OsiObjOffset is subtracted from c·x; CoinLpIO writes its
+    // offset as a constant term of the objective, so flip the sign.
+    double offset = 0.0;
+    writer->getDblParam(OsiObjOffset, offset);
+    lpio.setObjectiveOffset(-offset);
+    lpio.setProblemName("gtopt");
+
+    // CoinLpIO 2.11 quirks:
+    //  * a row is written as an equality only when `up - low < epsilon`
+    //    (strict), so epsilon must be > 0 or every equality becomes a
+    //    `<=` row plus a `_low` `>=` row;  1e-12 only affects values that
+    //    are integers to 12 digits (written as integers);
+    //  * after the objective constant it omits the newline when the term
+    //    count is a multiple of numberAcross, gluing "Subject To" to the
+    //    objective.  Pick a line width that avoids that count.
+    constexpr double k_lp_eps = 1e-12;
+    const auto* obj = writer->getObjCoefficients();
+    int terms = 0;
+    for (int j = 0; j < ncols; ++j) {
+      if (std::abs(obj[j]) > k_lp_eps) {
+        ++terms;
+      }
+    }
+    if (std::abs(offset) > k_lp_eps) {
+      ++terms;
+    }
+    int across = 10;
+    while (terms % across == 0) {
+      ++across;
+    }
+    return lpio.writeLp(file.c_str(),
+                        k_lp_eps,
+                        across,
+                        /*decimals=*/15,
+                        /*useRowNames=*/true)
+        == 0;
+  } catch (const CoinError& e) {
+    // CoinLpIO throws when it cannot open the file.
+    spdlog::warn("OSI: writeLp('{}') failed: {}", file, e.message());
+    return false;
+  }
 }
 
-bool OsiSolverBackend::write_mps(const char* filename)
+bool OsiSolverBackend::write_mps_file_(const char* filename)
 {
   // Same rationale as write_lp: go through the concrete Clp interface when
   // available so the names held by the ClpModel are used; integer columns get
@@ -1221,7 +1305,24 @@ bool OsiSolverBackend::write_mps(const char* filename)
   mps.setProblemName("gtopt");
 
   const auto file = std::format("{}.mps", filename);
-  return mps.writeMps(file.c_str(), /*compression=*/0) == 0;
+  try {
+    // formatType 1: extra-accuracy numbers (the default 12-character
+    // fields round coefficients, e.g. 794.196 re-solves as 794.19600247).
+    return mps.writeMps(file.c_str(),
+                        /*compression=*/0,
+                        /*formatType=*/1)
+        == 0;
+  } catch (const CoinError& e) {
+    // CoinFileOutput throws when it cannot open the file.
+    spdlog::warn("OSI: writeMps('{}') failed: {}", file, e.message());
+    return false;
+  }
+}
+
+bool OsiSolverBackend::write_lp(const char* filename, LpFileFormat format)
+{
+  return format == LpFileFormat::mps ? write_mps_file_(filename)
+                                     : write_lp_file_(filename);
 }
 
 std::unique_ptr<SolverBackend> OsiSolverBackend::clone() const

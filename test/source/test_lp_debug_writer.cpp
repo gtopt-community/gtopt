@@ -23,7 +23,10 @@
 #include <string>
 
 #include <doctest/doctest.h>
+#include <gtopt/linear_interface.hpp>
+#include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_debug_writer.hpp>
+#include <gtopt/lp_matrix_options.hpp>
 
 using namespace gtopt;
 
@@ -649,4 +652,71 @@ TEST_CASE("lp_debug_passes_includes — pass-list selector")  // NOLINT
     CHECK(lp_debug_passes_includes("Backward", LpDebugPass::backward));
     CHECK(lp_debug_passes_includes("APERTURE", LpDebugPass::aperture));
   }
+}
+
+TEST_CASE("compress_lp_file compresses an .mps file like an .lp")  // NOLINT
+{
+  using namespace gtopt;
+
+  for (const auto* codec : {"gzip", "zstd"}) {
+    CAPTURE(codec);
+    const TmpFile tmp("test_compress_model.mps");
+    const auto result = compress_lp_file(tmp.path.string(), codec);
+    CHECK(result.starts_with(tmp.path.string()));
+    CHECK((result.ends_with(".mps.gz") || result.ends_with(".mps.zst")));
+    CHECK(std::filesystem::exists(result));
+    CHECK_FALSE(std::filesystem::exists(tmp.path));
+  }
+}
+
+TEST_CASE("LpDebugWriter never throws on an uncreatable directory")  // NOLINT
+{
+  using namespace gtopt;
+
+  // A directory below a regular file can never be created.
+  const TmpFile blocker("lp_debug_blocker.lp");
+  LpDebugWriter writer((blocker.path / "sub").string(), "gzip", nullptr);
+  REQUIRE(writer.is_active());
+
+  SUBCASE("labelled model")
+  {
+    LinearProblem lp("tiny");
+    const auto c = lp.add_col(SparseCol {
+        .cost = 1.0,
+        .class_name = "Generator",
+        .variable_name = "gen",
+        .variable_uid = Uid {1},
+    });
+    const auto r = lp.add_row(SparseRow {
+        .lowb = 1.0,
+        .class_name = "Bus",
+        .constraint_name = "balance",
+        .variable_uid = Uid {1},
+    });
+    lp.set_coeff(r, c, 1.0);
+    LpMatrixOptions opts;
+    opts.col_with_names = true;
+    opts.row_with_names = true;
+    LinearInterface li;
+    li.load_flat(lp.flatten(opts));
+    CHECK_NOTHROW(writer.write(li, (blocker.path / "sub" / "x").string()));
+  }
+  SUBCASE("unlabelable model: names cannot be generated")
+  {
+    LinearProblem lp("tiny");
+    const auto c = lp.add_col(SparseCol {
+        .cost = 1.0,
+    });
+    const auto r = lp.add_row(SparseRow {
+        .lowb = 1.0,
+    });
+    lp.set_coeff(r, c, 1.0);
+    LinearInterface li;
+    li.load_flat(lp.flatten(LpMatrixOptions {}));
+    const auto dir = std::filesystem::temp_directory_path();
+    CHECK_NOTHROW(writer.write(li, (dir / "lp_debug_unlabelable").string()));
+    CHECK_FALSE(
+        li.write_lp((dir / "lp_debug_unlabelable").string()).has_value());
+  }
+  CHECK_NOTHROW(writer.drain());
 }

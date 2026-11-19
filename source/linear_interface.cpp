@@ -3131,6 +3131,19 @@ void LinearInterface::set_continuous(const ColIndex index)
 void LinearInterface::set_integer(const ColIndex index)
 {
   ensure_backend();
+  // Same rule as load_flat(): an LP-only backend (CLP) would keep the flag
+  // but solve the column as continuous, silently relaxing the model.
+  // Fail when the integer column is declared, not after the solve.
+  if (!m_backend_->supports_mip()) {
+    const auto msg = std::format(
+        "Solver '{}' is LP-only and cannot make column {} integer.  Pick a "
+        "MIP-capable solver (--solver cbc/highs/cplex or the solver_name "
+        "option), or relax the integrality.",
+        m_solver_name_,
+        index.value_of());
+    SPDLOG_CRITICAL(msg);
+    throw std::runtime_error(msg);
+  }
   m_backend_->set_integer(index);
 }
 

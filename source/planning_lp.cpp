@@ -30,6 +30,7 @@
 #include <gtopt/generator.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/lng_terminal.hpp>
+#include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/lp_name_spill.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/memory_monitor.hpp>
@@ -1758,7 +1759,8 @@ auto PlanningLP::create_systems(System& system,
 }
 
 bool PlanningLP::write_lp(const std::string& filename,
-                          LpFileFormat format) const
+                          LpFileFormat format,
+                          LpFormatFallback fallback) const
 {
   // Strip a trailing ".lp" / ".mps" so the filename we hand to the backend
   // (which always appends the extension) never produces
@@ -1780,13 +1782,27 @@ bool PlanningLP::write_lp(const std::string& filename,
   for (auto&& phase_systems : m_systems_) {
     for (auto&& system : phase_systems) {
       const auto result = n_cells == 1
-          ? system.linear_interface().write_lp(stem, effective_format)
-          : system.write_lp(stem, effective_format)
-                .transform([](auto&&) {})
-                .transform_error([](auto&& e) { return e; });
+          ? system.linear_interface().write_lp(stem, effective_format, fallback)
+          : system.write_lp(stem, effective_format, fallback);
       if (!result) {
         spdlog::error("{}", result.error().message);
         return false;
+      }
+      // Compress only when a codec was asked for (`--lp-compression`,
+      // `lp_compression` in the JSON or `--set`); the default keeps the
+      // plain file, as before.  The same applies to `.lp` and `.mps`.
+      const auto codec = std::string(options().lp_compression());
+      if (!codec.empty() && codec != "none" && codec != "uncompressed") {
+        std::string compressed;
+        try {
+          compressed = compress_lp_file(*result, codec);
+        } catch (const std::exception& e) {
+          spdlog::warn("cannot compress {}: {}", *result, e.what());
+        }
+        spdlog::info("LP model written to {}",
+                     compressed.empty() ? *result : compressed);
+      } else {
+        spdlog::info("LP model written to {}", *result);
       }
     }
   }
@@ -2310,7 +2326,8 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
                  system_sp.linear_interface().get_numrows());
 
     if (log_mode == SolverLogMode::detailed && !log_dir.empty()) {
-      std::filesystem::create_directories(log_dir);
+      std::error_code dir_ec;  // a solver log is best effort
+      std::filesystem::create_directories(log_dir, dir_ec);
       auto& li = system_sp.linear_interface();
       li.set_log_file(
           (std::filesystem::path(log_dir)
@@ -2338,7 +2355,8 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
       // lp_error turns it on by itself.  Mirrors the SDDP forward-pass gate.
       if (m_options_.lp_error() || m_options_.lp_debug()) {
         const auto log_dir = m_options_.log_directory();
-        std::filesystem::create_directories(log_dir);
+        std::error_code dir_ec;  // failure → write_lp warning below
+        std::filesystem::create_directories(log_dir, dir_ec);
         const auto filename = (std::filesystem::path(log_dir)
                                / as_label("error", scene_index, phase_index))
                                   .string();

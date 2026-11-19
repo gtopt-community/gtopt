@@ -12,10 +12,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **MPS output for `--lp-file`**: new `--lp-format lp|mps` option (default
   `lp`, unchanged); a `--lp-file` ending in `.mps` also selects MPS.  Names and
   integer columns are preserved (`MARKER` sections; `BV` bounds for binaries
-  on OSI/CBC) for the HiGHS and OSI backends; other
-  backends report an explicit error.  `SolverBackend` gains a non-pure
-  `write_mps()` virtual (default: unsupported) and `k_solver_abi_version` is
-  bumped to 16, so out-of-tree solver plugins must be rebuilt.
+  on OSI/CBC) by every backend (cuOpt writes only MPS).  An explicit request
+  the backend cannot honour is an error; the diagnostic dumps fall back to
+  the other format.  `--lp-compression` also compresses the `--lp-file`
+  dump.  `SolverBackend::write_lp(filename, LpFileFormat)` now takes the
+  format and returns `bool`, and `k_solver_abi_version` is bumped to 16, so
+  out-of-tree solver plugins must implement it for both formats and be
+  rebuilt.
 
 - **Unit commitment (three-bin formulation)**: full implementation of the
   Morales-España tight-and-compact UC model with status ($u$), startup ($v$),

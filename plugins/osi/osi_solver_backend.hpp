@@ -203,13 +203,18 @@ public:
   // ---- names ----
   void push_names(const std::vector<std::string>& col_names,
                   const std::vector<std::string>& row_names) override;
-  void write_lp(const char* filename) override;
-  [[nodiscard]] bool write_mps(const char* filename) override;
+  [[nodiscard]] bool write_lp(const char* filename,
+                              LpFileFormat format) override;
 
   // ---- clone ----
   [[nodiscard]] std::unique_ptr<SolverBackend> clone() const override;
 
 private:
+  /// write_lp() helpers: `<filename>.lp` through the Clp interface, and
+  /// `<filename>.mps` through CoinMpsIO (uncompressed).
+  [[nodiscard]] bool write_lp_file_(const char* filename);
+  [[nodiscard]] bool write_mps_file_(const char* filename);
+
   /// Recreate m_solver_ + m_handler_ from m_prep_.  Used by load_problem()
   /// so every bulk load starts with a clean solver instance, guaranteeing
   /// no leftover per-LP state (basis, factorization, work arrays).

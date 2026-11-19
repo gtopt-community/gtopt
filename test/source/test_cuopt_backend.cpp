@@ -429,7 +429,7 @@ TEST_CASE("cuOpt tuning file: cfg named values and legacy prm")  // NOLINT
   fs::remove_all(dir);
 }
 
-TEST_CASE("cuOpt write_lp dumps a readable MPS file")  // NOLINT
+TEST_CASE("cuOpt write_lp writes MPS and refuses LP")  // NOLINT
 {
   auto backend = make_cuopt_or_skip();
   if (!backend) {
@@ -437,17 +437,24 @@ TEST_CASE("cuOpt write_lp dumps a readable MPS file")  // NOLINT
   }
   namespace fs = std::filesystem;
   const auto stem = cuopt_scratch_log_base("write_lp");
-  const auto file = fs::path {stem.string() + ".mps"};
-  fs::remove(file);
+  const auto mps = fs::path {stem.string() + ".mps"};
+  const auto lp_file = fs::path {stem.string() + ".lp"};
+  fs::remove(mps);
+  fs::remove(lp_file);
 
   const CuoptTrivialLP2 lp {backend->infinity()};
   lp.load_into(*backend);
-  // gtopt callers pass an extensionless stem; the backend normalises to
-  // ".mps" (cuOpt's writer emits MPS regardless of the requested name).
-  backend->write_lp(stem.string().c_str());
-  REQUIRE(fs::exists(file));
-  CHECK(fs::file_size(file) > 0);
-  fs::remove(file);
+
+  // cuOpt only has an MPS writer: LP is refused without touching the
+  // filesystem (LinearInterface then falls back or reports the error).
+  CHECK_FALSE(backend->write_lp(stem.string().c_str(), LpFileFormat::lp));
+  CHECK_FALSE(fs::exists(lp_file));
+  CHECK_FALSE(fs::exists(mps));
+
+  REQUIRE(backend->write_lp(stem.string().c_str(), LpFileFormat::mps));
+  REQUIRE(fs::exists(mps));
+  CHECK(fs::file_size(mps) > 0);
+  fs::remove(mps);
 }
 
 }  // namespace

@@ -1038,17 +1038,11 @@ void HighsSolverBackend::push_names(const std::vector<std::string>& col_names,
   }
 }
 
-void HighsSolverBackend::write_lp(const char* filename)
-{
-  const auto file = std::format("{}.lp", filename);
-  m_highs_->writeModel(file);
-}
-
-bool HighsSolverBackend::write_mps(const char* filename)
+bool HighsSolverBackend::write_lp(const char* filename, LpFileFormat format)
 {
   // HiGHS picks the writer from the extension; names set through
   // passColName/passRowName and integrality (MARKER sections) are kept.
-  const auto file = std::format("{}.mps", filename);
+  const auto file = std::format("{}{}", filename, lp_file_extension(format));
   return m_highs_->writeModel(file) != HighsStatus::kError;
 }
 

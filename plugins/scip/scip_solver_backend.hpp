@@ -243,12 +243,17 @@ public:
   // ---- names & LP output ----
   void push_names(const std::vector<std::string>& col_names,
                   const std::vector<std::string>& row_names) override;
-  void write_lp(const char* filename) override;
+  [[nodiscard]] bool write_lp(const char* filename,
+                              LpFileFormat format) override;
 
   // ---- clone ----
   [[nodiscard]] std::unique_ptr<SolverBackend> clone() const override;
 
 private:
+  /// Build a throwaway SCIP problem from the host model and write it to
+  /// `<filename>.<ext>` with SCIP's reader for `ext` ("lp" or "mps").
+  [[nodiscard]] bool write_orig_problem_(const char* filename, const char* ext);
+
   /// Lower `m_model_` to a fresh SCIP instance, solve, and snapshot the
   /// primal/dual/obj/status into `m_sol_`.  Shared by `initial_solve` and
   /// `resolve` (both rebuild from scratch — SCIP has no warm path here).

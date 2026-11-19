@@ -607,13 +607,30 @@ gtopt system_c0.json --lp-file model.mps --lp-only
 gtopt system_c0.json --lp-file model --lp-format mps --lp-only
 ```
 
-MPS output is implemented by the HiGHS and OSI (CLP/CBC) backends.  With any
-other backend (CPLEX, Gurobi, MindOpt, SCIP, cuOpt) gtopt reports an error
-naming the backend and exits non-zero; it never falls back to `.lp` silently.
-The OSI/CBC writer encodes binary columns as `BV` bounds (general integers use
-`MARKER` sections); HiGHS always writes `MARKER` sections.
-`--lp-compression` applies only to the `--lp-debug` / SDDP dumps, not to the
-`--lp-file` dump.
+Every backend writes both formats with its own library, keeping the same
+row and column names in the `.lp` and the `.mps` file, except cuOpt, which
+only writes MPS:
+
+| Backend | `.lp` | `.mps` |
+|---------|-------|--------|
+| CPLEX, Gurobi, MindOpt, HiGHS, SCIP | yes | yes |
+| CBC / CLP (OSI) | yes | yes (binary columns as `BV` bounds) |
+| cuOpt | no | yes |
+
+Without an explicit format (`--lp-file model`), gtopt writes LP when the
+backend can, and otherwise the format the backend supports (MPS for cuOpt),
+logging a warning that names the file written.  A format named explicitly,
+with `--lp-format` or a `.lp` / `.mps` extension on `--lp-file`, is strict:
+when the backend cannot write it, gtopt reports an error naming the backend
+and suggesting the other format, and does not switch format.  With
+`--lp-only` that error ends the run with a non-zero status; otherwise the
+solve continues without the dump.  The diagnostic dumps (`--lp-debug`, error
+and high-kappa LPs) always fall back to the format the backend supports.
+
+`--lp-compression gzip|zstd|...` also compresses the `--lp-file` dump (`.lp`
+or `.mps`), which is replaced by `model.mps.gz`, `model.lp.zst`, etc.
+Without the option the `--lp-file` dump stays uncompressed; the
+`--lp-debug` / SDDP dumps use `zstd` by default.
 
 ### Build without solving
 

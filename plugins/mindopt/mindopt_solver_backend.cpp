@@ -1333,10 +1333,14 @@ void MindOptSolverBackend::push_names(const std::vector<std::string>& col_names,
   }
 }
 
-void MindOptSolverBackend::write_lp(const char* filename)
+bool MindOptSolverBackend::write_lp(const char* filename, LpFileFormat format)
 {
-  const auto file = std::format("{}.lp", filename);
-  MDOwrite(m_model_, file.c_str());
+  // MDOwrite picks the format from the extension (.lp / .mps).  It must
+  // only be given a path that can be created: MindOpt 2.3 aborts the
+  // process (double free) when the open fails.  LinearInterface::write_lp
+  // checks the path before calling the backend.
+  const auto file = std::format("{}{}", filename, lp_file_extension(format));
+  return MDOwrite(m_model_, file.c_str()) == MDO_OKAY;
 }
 
 // ── deep copy ────────────────────────────────────────────────────────────

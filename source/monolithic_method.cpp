@@ -261,7 +261,8 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
                             lp_debug_compression,
                             pool.get());
     if (lp_writer.is_active()) {
-      std::filesystem::create_directories(lp_debug_directory);
+      std::error_code dir_ec;  // a failure surfaces as a write warning
+      std::filesystem::create_directories(lp_debug_directory, dir_ec);
       const auto lp_stem =
           (std::filesystem::path(lp_debug_directory) / "gtopt_lp").string();
       for (const auto& phase_systems : planning_lp.systems()) {
@@ -390,14 +391,17 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
               if (kappa_mode == KappaWarningMode::save_lp
                   && !lp_debug_directory.empty())
               {
-                std::filesystem::create_directories(lp_debug_directory);
+                std::error_code dir_ec;  // failure → write warning below
+                std::filesystem::create_directories(lp_debug_directory, dir_ec);
                 const auto stem =
                     (std::filesystem::path(lp_debug_directory)
                      / as_label(
                          "kappa", system.scene().uid(), system.phase().uid()))
                         .string();
                 if (auto r = li.write_lp(stem)) {
-                  spdlog::warn("Saved high-kappa LP to {}.lp", stem);
+                  spdlog::warn("Saved high-kappa LP to {}", *r);
+                } else {
+                  spdlog::warn("{}", r.error().message);
                 }
               }
             }

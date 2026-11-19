@@ -29,6 +29,7 @@
 #include <vector>
 
 #include <gtopt/basis.hpp>
+#include <gtopt/lp_file_format.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_resource.hpp>
 
@@ -899,20 +900,24 @@ public:
 
   virtual void push_names(const std::vector<std::string>& col_names,
                           const std::vector<std::string>& row_names) = 0;
-  virtual void write_lp(const char* filename) = 0;
-
-  /** @brief Write the model in MPS format to `<filename>.mps`.
+  /** @brief Write the model to `<filename>.lp` or `<filename>.mps`.
    *
-   * Row/column names pushed through push_names() and integer MARKER
-   * sections are preserved.  Default: unsupported, returns false without
-   * touching the filesystem (callers report the backend by solver_name()).
+   * `filename` is the path stem (without extension); the backend appends
+   * the extension of `format` (lp_file_extension()).  The row/column names
+   * pushed through push_names() and the integrality of the columns are
+   * kept.
+   *
+   * Every backend handles both formats explicitly: when its native library
+   * cannot write `format` it returns `false` without touching the
+   * filesystem.  `false` is also returned when the native writer reports
+   * an error.  The caller (LinearInterface::write_lp) checks the file,
+   * and decides whether to report an error or fall back to the other
+   * format.
    *
    * @return true when the file was written.
    */
-  [[nodiscard]] virtual bool write_mps(const char* /*filename*/)
-  {
-    return false;
-  }
+  [[nodiscard]] virtual bool write_lp(const char* filename,
+                                      LpFileFormat format) = 0;
 
   // ---- deep copy ----
 

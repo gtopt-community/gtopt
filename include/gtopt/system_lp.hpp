@@ -640,11 +640,13 @@ public:
    * @param filename Base file name (phase/scene labels and .lp extension
    *                 are appended automatically).
    * @param format   File format (extension `.lp` or `.mps`).
+   * @param fallback See LinearInterface::write_lp.
    * @return The full path of the written file (with extension).
    */
   [[nodiscard]] std::expected<std::string, Error> write_lp(
       const std::string& filename,
-      LpFileFormat format = LpFileFormat::lp) const;
+      LpFileFormat format = LpFileFormat::lp,
+      LpFormatFallback fallback = LpFormatFallback::other_format) const;
 
   /**
    * @brief Resolves the linear programming problem

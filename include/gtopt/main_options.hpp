@@ -551,8 +551,9 @@ template<typename T>
        "given without value: true)")  //
       ("lp-compression",
        po::value<std::string>(),
-       "compression codec for LP debug files: gzip | zstd | none "
-       "(default: zstd); shorthand for --set lp_compression=<codec>")  //
+       "compression codec for LP debug files (default: zstd) and, when "
+       "given, for the --lp-file dump: gzip | zstd | none; shorthand for "
+       "--set lp_compression=<codec>")  //
       ("lp-coeff-ratio",
        po::value<double>(),
        "warn when the LP max/min |coefficient| ratio exceeds this threshold "

@@ -1784,7 +1784,9 @@ void SystemLP::accumulate_convergence_indicators(SceneIndex scene_index,
       stats.efin_deficit);
 }
 
-auto SystemLP::write_lp(const std::string& filename, LpFileFormat format) const
+auto SystemLP::write_lp(const std::string& filename,
+                        LpFileFormat format,
+                        LpFormatFallback fallback) const
     -> std::expected<std::string, Error>
 {
   // Use UIDs (always valid: default Phase/Scene are assigned uid=0 in
@@ -1793,11 +1795,7 @@ auto SystemLP::write_lp(const std::string& filename, LpFileFormat format) const
   const auto fname =
       as_label(filename, "scene", scene().uid(), "phase", phase().uid());
 
-  auto result = linear_interface().write_lp(fname, format);
-  if (!result) {
-    return std::unexpected(std::move(result.error()));
-  }
-  return fname + std::string(lp_file_extension(format));
+  return linear_interface().write_lp(fname, format, fallback);
 }
 
 std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)

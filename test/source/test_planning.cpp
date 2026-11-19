@@ -272,7 +272,7 @@ TEST_CASE("PlanningLP - Write LP file")
   const auto stem = tmpdir / "test_planning";
 
   // Test writing LP file
-  planning_lp.write_lp(stem.string());
+  CHECK(planning_lp.write_lp(stem.string()));
 
   // `write_lp` uses one of two naming conventions depending on the
   // cell count:
@@ -510,7 +510,7 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   std::filesystem::create_directories(tmpdir);
   const auto stem = tmpdir / "test_planning_lp_write_only";
 
-  planning_lp.write_lp(stem.string());
+  CHECK(planning_lp.write_lp(stem.string()));
   // Run the LP (should only create LP model, not solve)
 
   auto result = planning_lp.resolve();

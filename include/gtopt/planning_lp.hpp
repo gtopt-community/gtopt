@@ -375,10 +375,14 @@ public:
    * @param filename Output file path; a trailing `.lp` / `.mps` is stripped
    *                 (a `.mps` extension selects MPS regardless of `format`)
    * @param format   Requested format (default LP)
+   * @param fallback `strict` (default): fail when the backend cannot write
+   *                 `format`; `other_format`: write the other format.
    * @return false (after logging an error) when the file could not be written
    */
-  bool write_lp(const std::string& filename,
-                LpFileFormat format = LpFileFormat::lp) const;
+  [[nodiscard]] bool write_lp(
+      const std::string& filename,
+      LpFileFormat format = LpFileFormat::lp,
+      LpFormatFallback fallback = LpFormatFallback::strict) const;
 
   /**
    * @brief Eagerly build every (scene, phase) LP matrix in parallel.
