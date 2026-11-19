@@ -13,28 +13,40 @@ external solver cannot be mapped to MW, hm³ or $/MWh without:
 - the scale factor of every column and row that gtopt scaled (reservoir
   volumes, voltage angles, equilibrated rows, ...).
 
-`--lp-scales` writes those as a small JSON sidecar next to each model file.
-The option is **opt-in** and costs nothing when off; the model file itself
-is unchanged.
+`--lp-scales` writes those next to each model file: a small JSON sidecar
+and, at the `full` level, two Parquet tables with the per-column and
+per-row scale factors.  The option is **opt-in** and costs nothing when
+off; the model file itself is unchanged.
 
 ## Enabling
 
 ```bash
-gtopt system.json --lp-file model --lp-only --lp-scales
+gtopt system.json --lp-file model --lp-only --lp-scales           # full
+gtopt system.json --lp-file model --lp-only --lp-scales summary
 # or, equivalently
-gtopt system.json --lp-file model --lp-only --set lp_scales=true
+gtopt system.json --lp-file model --lp-only --set lp_scales=full
 ```
 
-or in the planning JSON `options`: `"lp_scales": true`.
+or in the planning JSON `options`: `"lp_scales": "full"`.
 
-The sidecar follows the model file name; model (`.lp`, `.mps`) and
+| Level | Writes |
+|-------|--------|
+| `none` (default; also `false`) | Nothing. |
+| `summary` | The JSON only: build, objective scale and constant, block and stage weights, numerics.  A few kB per cell. |
+| `full` (also `true`, and `--lp-scales` without a value) | The JSON plus the two Parquet tables with every column and row whose scale is not 1. |
+
+The files follow the model file name; model (`.lp`, `.mps`) and
 compression (`.gz`, `.zst`, ...) extensions are replaced:
 
-| Model file                           | Sidecar                                 |
-|--------------------------------------|-----------------------------------------|
-| `model.lp` (single scene/phase)      | `model.scales.json`                     |
-| `model.mps.gz` (`--lp-compression`)  | `model.scales.json`                     |
-| `model_scene_S_phase_P.lp` (several) | `model_scene_S_phase_P.scales.json`     |
+| Model file                           | JSON sidecar                        | Parquet tables (`full`) |
+|--------------------------------------|-------------------------------------|-------------------------|
+| `model.lp` (single scene/phase)      | `model.scales.json`                 | `model.scales_cols.parquet`, `model.scales_rows.parquet` |
+| `model.mps.gz` (`--lp-compression gzip`) | `model.scales.json.gz`          | `model.scales_cols.parquet`, `model.scales_rows.parquet` |
+| `model_scene_S_phase_P.lp` (several) | `model_scene_S_phase_P.scales.json` | `model_scene_S_phase_P.scales_cols.parquet`, ... |
+
+With `--lp-compression` the JSON is compressed with the same codec as the
+model file.  The Parquet tables are always zstd-compressed internally and
+keep their name.
 
 A failure to write the sidecar is logged as a warning; it never aborts the
 model dump.  Only `--lp-file` writes a sidecar; the `--lp-debug` and
@@ -45,6 +57,7 @@ error-LP dumps do not.
 ```json
 {
   "schema": "gtopt-lp-scales/1",
+  "level": "full",
   "gtopt": {"version": "1.0", "git_revision": "v1.0-412-g4eec3995b573"},
   "lp_file": "model.lp",
   "scene_uid": 1,
@@ -60,13 +73,9 @@ error-LP dumps do not.
     {"scenario": 1, "stage": 1, "duration": 24,
      "probability": 1, "discount": 1, "cost_factor": 24}
   ],
-  "scaled_columns": [
-    {"index": 12, "name": "reservoir_energy_1_1_1_1", "class": "Reservoir",
-     "variable": "energy", "uid": 1,
-     "context": {"type": "block", "scenario": 1, "stage": 1, "block": 1},
-     "scale": 1000, "unit": "Mm3"}
-  ],
-  "row_scales": [1, 0.5, 0.25],
+  "tables": {"columns": "model.scales_cols.parquet",
+             "rows": "model.scales_rows.parquet",
+             "num_scaled_columns": 12, "num_scaled_rows": 86},
   "numerics": {
     "equilibration_method": "row_max",
     "nnz": 240,
@@ -89,6 +98,7 @@ error-LP dumps do not.
 
 | Field | Meaning |
 |-------|---------|
+| `level` | `summary` or `full`. |
 | `gtopt.version`, `gtopt.git_revision` | The gtopt build that wrote the file (`git describe --always --dirty` of its source tree, or `unknown`). |
 | `lp_file` | Name of the model file this sidecar describes, as written (`.lp`/`.mps`, possibly compressed). |
 | `num_cols`, `num_rows` | Size of the LP, to check the sidecar against the model file. |
@@ -101,11 +111,44 @@ error-LP dumps do not.
 | `objective.constant` | Objective constant in **physical** units.  Redundant with the model file (where it appears divided by σ), kept for convenience. |
 | `blocks[]` | One entry per (scenario, stage, block): `cost_factor = probability * discount * duration` is folded into every per-MWh cost of that block. |
 | `stages[]` | One entry per (scenario, stage), for stage-level entries (investment, capacity, stage constraints): `cost_factor = probability * discount * duration` with the stage duration. |
-| `scaled_columns[]` | Only the columns whose scale is not 1: `x_physical = scale * x_LP`, in `unit` when known.  `name` is the name in the model file; `class`, `variable`, `uid` and `context` identify the gtopt element (`context.type` is one of `stage`, `block`, `block_ex`, `scene_phase`, `phase`, `iteration`, `aperture`, with only the members that apply to it). |
-| `row_scales` | Scale of every row, in LP order (empty when all are 1): `dual_physical = dual_LP * scale_objective / row_scales[i]`.  Divide a block row's physical dual by that block's `cost_factor` (a stage row's by the stage's) to get the price per unit, as gtopt's own outputs do. |
+| `tables` | `full` only: file names (next to the JSON) of the two Parquet tables below, and how many entries they hold. |
 
-Columns not listed have scale 1: their LP values are already in physical
-units.
+### Parquet tables (`full`)
+
+On a real system a cell has hundreds of thousands of columns and rows, and
+with row equilibration nearly every row is scaled, so the per-entry scale
+factors go to Parquet instead of the JSON.  Both tables carry `scene_uid`
+and `phase_uid`, so the tables of every cell of a run (one per phase in
+SDDP) can be read as one dataset, e.g.
+`pandas.read_parquet(glob("model_*.scales_cols.parquet"))`.
+
+`<stem>.scales_cols.parquet`, one row per column whose scale is not 1,
+with `x_physical = scale * x_LP`:
+
+| Column | Type | Meaning |
+|--------|------|---------|
+| `scene_uid`, `phase_uid` | int32 | The cell. |
+| `index` | int32 | Column index in the LP. |
+| `name` | string | Column name in the model file. |
+| `class`, `variable`, `uid` | string, string, int32 | The gtopt element and LP variable. |
+| `context` | string | `stage`, `block`, `block_ex`, `scene_phase`, `phase`, `iteration` or `aperture` (null without context). |
+| `scenario`, `stage`, `block`, `scene`, `phase`, `element`, `iteration`, `aperture`, `extra` | int32 | The context members that apply to `context`; null otherwise. |
+| `scale` | double | Column scale. |
+| `unit` | string | Physical unit of `x_physical`, when known. |
+
+`<stem>.scales_rows.parquet`, one row per row whose scale is not 1:
+
+| Column | Type | Meaning |
+|--------|------|---------|
+| `scene_uid`, `phase_uid` | int32 | The cell. |
+| `index` | int32 | Row index in the LP. |
+| `name` | string | Row name in the model file. |
+| `scale` | double | Row scale: `dual_physical = dual_LP * scale_objective / scale`. |
+
+Divide a block row's physical dual by that block's `cost_factor` (a stage
+row's by the stage's) to get the price per unit, as gtopt's own outputs do.
+Columns and rows not listed have scale 1: their LP values are already in
+physical units.
 
 ### Numerics
 

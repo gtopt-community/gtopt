@@ -24,12 +24,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   file is written with `--lp-file`, also write `<stem>.scales.json`
   (`gtopt-lp-scales/1`, serialised with daw::json) with what the
   `.lp`/`.mps` cannot carry: the objective scale, the per-block and
-  per-stage `cost_factor` weights, the columns whose scale is not 1 (with
-  their gtopt element and physical unit) and the row scales.  A solution
-  read back from an external solver can then be mapped to physical units.
-  It also records the gtopt build (version and git revision) and the
-  model's numerical ranges (matrix, objective, bounds, RHS, scale factors,
-  per constraint family).  Opt-in; the model file is unchanged.  See
+  per-stage `cost_factor` weights and, at the `full` level, the columns
+  and rows whose scale is not 1 (columns with their gtopt element and
+  physical unit) in two zstd Parquet tables, `<stem>.scales_cols.parquet`
+  and `<stem>.scales_rows.parquet`.  A solution read back from an external
+  solver can then be mapped to physical units.  The JSON also records the
+  gtopt build (version and git revision) and the model's numerical ranges
+  (matrix, objective, bounds, RHS, scale factors, per constraint family).
+  Levels `none` (default), `summary` (JSON only) and `full` (`true`); the
+  JSON follows `--lp-compression`.  The model file is unchanged.  See
   `docs/lp-scales.md`.
 - **`gtopt::build_info()`**: version and `git describe` revision of the
   running build, refreshed at build time, for audit trails in generated

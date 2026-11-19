@@ -1809,8 +1809,10 @@ bool PlanningLP::write_lp(const std::string& filename,
 
       // Optional sidecar describing the file just written (`.lp`/`.mps`,
       // possibly compressed).  A failure is reported, never fatal.
-      if (m_options_.lp_scales()) {
-        if (auto meta = write_lp_scales(system, written)) {
+      if (const auto level = m_options_.lp_scales();
+          level != LpScalesLevel::none)
+      {
+        if (auto meta = write_lp_scales(system, written, level, codec)) {
           spdlog::info("LP scales written to {}", *meta);
         } else {
           spdlog::warn("{}", meta.error().message);

@@ -65,7 +65,7 @@ Multiple system files can be provided and will be merged.
 | `-s` | `--system-file` | `arg` | System JSON file(s) to process (also accepted as positional args) |
 | `-l` | `--lp-file` | `arg` | Save the LP model to a file (stem; `.lp` or `.mps` added; a trailing `.mps` selects MPS) |
 | | `--lp-format` | `arg` | Format of the `--lp-file` dump: `lp` (default) or `mps` |
-| | `--lp-scales` | `[=arg]` | Also write a JSON sidecar `<lp-file>.scales.json` with the scale factors of the dumped model (see [LP scales](lp-scales.md)) |
+| | `--lp-scales` | `[=arg]` | Also write the scale factors of the dumped model: `summary` (JSON `<lp-file>.scales.json` only) or `full` (the default without a value: JSON plus Parquet tables of the scaled columns and rows); see [LP scales](lp-scales.md) |
 | `-j` | `--json-file` | `arg` | Save the merged system configuration to a JSON file |
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity (coefficients below this are zero) |
 | `-c` | `--lp-only` | `[=arg]` | Build the LP model and exit without solving |
@@ -641,9 +641,11 @@ Create the LP and exit (useful for validation or LP export):
 gtopt system_c0.json --lp-file model.lp --lp-only
 ```
 
-Add `--lp-scales` to also write `model.scales.json`, the scale
-factors needed to read the dumped model in physical units (objective scale,
-block weights, scaled columns and rows); see [LP scales](lp-scales.md).
+Add `--lp-scales` to also write `model.scales.json` (objective scale,
+block weights, numerics) and `model.scales_{cols,rows}.parquet` (scaled
+columns and rows), what is needed to read the dumped model in physical
+units; `--lp-scales summary` writes the JSON only.  See
+[LP scales](lp-scales.md).
 
 ### Single-bus mode
 

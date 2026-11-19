@@ -176,8 +176,10 @@ struct PlanningOptions
    * It holds what the model file cannot: the objective scale, the
    * per-block duration / probability / discount / cost_factor weights and
    * the columns and rows whose scale factor is not 1.  See
-   * `docs/lp-scales.md`.  Default: off (no sidecar, no extra cost). */
-  OptBool lp_scales {};
+   * `docs/lp-scales.md`.  `summary` keeps only the header, weights and
+   * numerics (a few KB); `full` adds the scaled columns and row scales.
+   * Default: none (no sidecar, no extra cost). */
+  std::optional<LpScalesLevel> lp_scales {};
 
   /** @brief Minimum scene UID for selective LP debug saving (inclusive).
    *  When set together with lp_debug=true, only scenes with

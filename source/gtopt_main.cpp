@@ -326,7 +326,8 @@ void setup_trace_log(const MainOptions& opts)
 
   // `--lp-scales`: ask PlanningLP::write_lp for the JSON sidecar.
   if (opts.lp_scales) {
-    planning.options.lp_scales = opts.lp_scales;
+    planning.options.lp_scales =
+        require_enum<LpScalesLevel>("lp-scales", *opts.lp_scales);
   }
 
   // Load user constraints from external file(s)

@@ -752,17 +752,17 @@ public:
   }
 
   /**
-   * @brief Gets the lp_scales flag, using default if not set.
+   * @brief Gets the lp_scales level, using default (none) if not set.
    *
    * When true, every LP file written via `--lp-file` is accompanied by a
    * JSON sidecar (`<stem>.scales.json`) with its objective scale, block
    * weights and scaled columns/rows.
    *
-   * @return Whether to write LP scales sidecars
+   * @return Content of the LP scales sidecars (none = not written)
    */
   [[nodiscard]] constexpr auto lp_scales() const
   {
-    return m_options_.lp_scales.value_or(false);
+    return m_options_.lp_scales.value_or(LpScalesLevel::none);
   }
 
   /// Solver backend pinned at the planning level via

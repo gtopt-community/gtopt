@@ -91,59 +91,18 @@ struct json_data_contract<gtopt::LpScalesStage>
 };
 
 template<>
-struct json_data_contract<gtopt::LpScalesContext>
+struct json_data_contract<gtopt::LpScalesTables>
 {
-  using type = json_member_list<json_string<"type", std::string>,
-                                json_number_null<"scenario", gtopt::OptUid>,
-                                json_number_null<"stage", gtopt::OptUid>,
-                                json_number_null<"block", gtopt::OptUid>,
-                                json_number_null<"scene", gtopt::OptUid>,
-                                json_number_null<"phase", gtopt::OptUid>,
-                                json_number_null<"element", gtopt::OptUid>,
-                                json_number_null<"iteration", gtopt::OptUid>,
-                                json_number_null<"aperture", gtopt::OptUid>,
-                                json_number_null<"extra", gtopt::OptInt>>;
+  using type = json_member_list<json_string<"columns", std::string>,
+                                json_string<"rows", std::string>,
+                                json_number<"num_scaled_columns", gtopt::Size>,
+                                json_number<"num_scaled_rows", gtopt::Size>>;
 
   [[nodiscard]] constexpr static auto to_json_data(
-      gtopt::LpScalesContext const& c)
+      gtopt::LpScalesTables const& t)
   {
-    return std::forward_as_tuple(c.type,
-                                 c.scenario,
-                                 c.stage,
-                                 c.block,
-                                 c.scene,
-                                 c.phase,
-                                 c.element,
-                                 c.iteration,
-                                 c.aperture,
-                                 c.extra);
-  }
-};
-
-template<>
-struct json_data_contract<gtopt::LpScaledColumn>
-{
-  using type = json_member_list<
-      json_number<"index", gtopt::Index>,
-      json_string<"name", std::string>,
-      json_string<"class", std::string>,
-      json_string<"variable", std::string>,
-      json_number<"uid", gtopt::Uid>,
-      json_class_null<"context", std::optional<gtopt::LpScalesContext>>,
-      json_number<"scale", double>,
-      json_string_null<"unit", gtopt::OptName>>;
-
-  [[nodiscard]] constexpr static auto to_json_data(
-      gtopt::LpScaledColumn const& c)
-  {
-    return std::forward_as_tuple(c.index,
-                                 c.name,
-                                 c.class_name,
-                                 c.variable,
-                                 c.uid,
-                                 c.context,
-                                 c.scale,
-                                 c.unit);
+    return std::forward_as_tuple(
+        t.columns, t.rows, t.num_scaled_columns, t.num_scaled_rows);
   }
 };
 
@@ -216,30 +175,29 @@ struct json_data_contract<gtopt::LpScalesNumerics>
 template<>
 struct json_data_contract<gtopt::LpScales>
 {
-  using type =
-      json_member_list<json_string<"schema", std::string>,
-                       json_class<"gtopt", gtopt::LpScalesBuild>,
-                       json_string<"lp_file", std::string>,
-                       json_number<"scene_uid", gtopt::Uid>,
-                       json_number<"phase_uid", gtopt::Uid>,
-                       json_number<"num_cols", gtopt::Index>,
-                       json_number<"num_rows", gtopt::Index>,
-                       json_class<"objective", gtopt::LpScalesObjective>,
-                       json_array<"blocks",
-                                  gtopt::LpScalesBlock,
-                                  std::vector<gtopt::LpScalesBlock>>,
-                       json_array<"stages",
-                                  gtopt::LpScalesStage,
-                                  std::vector<gtopt::LpScalesStage>>,
-                       json_array<"scaled_columns",
-                                  gtopt::LpScaledColumn,
-                                  std::vector<gtopt::LpScaledColumn>>,
-                       json_array<"row_scales", double, std::vector<double>>,
-                       json_class<"numerics", gtopt::LpScalesNumerics>>;
+  using type = json_member_list<
+      json_string<"schema", std::string>,
+      json_string<"level", std::string>,
+      json_class<"gtopt", gtopt::LpScalesBuild>,
+      json_string<"lp_file", std::string>,
+      json_number<"scene_uid", gtopt::Uid>,
+      json_number<"phase_uid", gtopt::Uid>,
+      json_number<"num_cols", gtopt::Index>,
+      json_number<"num_rows", gtopt::Index>,
+      json_class<"objective", gtopt::LpScalesObjective>,
+      json_array<"blocks",
+                 gtopt::LpScalesBlock,
+                 std::vector<gtopt::LpScalesBlock>>,
+      json_array<"stages",
+                 gtopt::LpScalesStage,
+                 std::vector<gtopt::LpScalesStage>>,
+      json_class_null<"tables", std::optional<gtopt::LpScalesTables>>,
+      json_class<"numerics", gtopt::LpScalesNumerics>>;
 
   [[nodiscard]] constexpr static auto to_json_data(gtopt::LpScales const& m)
   {
     return std::forward_as_tuple(m.schema,
+                                 m.level,
                                  m.gtopt,
                                  m.lp_file,
                                  m.scene_uid,
@@ -249,8 +207,7 @@ struct json_data_contract<gtopt::LpScales>
                                  m.objective,
                                  m.blocks,
                                  m.stages,
-                                 m.scaled_columns,
-                                 m.row_scales,
+                                 m.tables,
                                  m.numerics);
   }
 };

@@ -197,6 +197,38 @@ inline constexpr auto compression_codec_entries =
   return std::span {compression_codec_entries};
 }
 
+// --- LpScalesLevel -----------------------------------------------------------
+
+/// Content of the `--lp-scales` sidecar written next to `--lp-file`.
+enum class LpScalesLevel : std::uint8_t
+{
+  none = 0,  ///< No sidecar (default)
+  summary = 1,  ///< Header, objective, block/stage weights, numerics
+  full = 2,  ///< summary + scaled columns and row scales
+};
+
+inline constexpr auto lp_scales_level_entries =
+    std::to_array<EnumEntry<LpScalesLevel>>({
+        {.name = "none", .value = LpScalesLevel::none},
+        {.name = "summary", .value = LpScalesLevel::summary},
+        {.name = "full", .value = LpScalesLevel::full},
+        {
+            .name = "false",
+            .value = LpScalesLevel::none,
+            .is_alias = true,
+        },
+        {
+            .name = "true",
+            .value = LpScalesLevel::full,
+            .is_alias = true,
+        },
+    });
+
+[[nodiscard]] constexpr auto enum_entries(LpScalesLevel /*tag*/) noexcept
+{
+  return std::span {lp_scales_level_entries};
+}
+
 // --- BoundaryCutsValuation ---------------------------------------------------
 
 /**
