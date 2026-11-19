@@ -376,6 +376,9 @@ CLA bot requests on your first PR. Questions and ideas go to
 [Discussions](https://github.com/gtopt-community/gtopt/discussions);
 security issues to [`SECURITY.md`](SECURITY.md).
 
+Using GTOpt? Add your organization or group to
+[`USERS.md`](USERS.md).
+
 ## Acknowledgements
 
 GTOpt is built on the work of many open-source projects, and we are very

@@ -25,6 +25,9 @@ contributions come from people who use it:
   storage, emissions or market questions are always welcome, as examples
   in `cases/` or as write-ups in Discussions.
 
+- **Tell us you use it.** Add your organization, group or yourself to
+  [`USERS.md`](USERS.md).
+
 Code, documentation and tool contributions are of course welcome too;
 the rest of this guide explains how to make them.
 

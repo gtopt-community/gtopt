@@ -1,0 +1,53 @@
+name: Add me to USERS.md
+description: List your organization, group or yourself as a GTOpt user
+title: "USERS.md: add <name>"
+labels: ["users"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for using GTOpt! Fill in the fields below and we will add
+        you to [USERS.md](https://github.com/gtopt-community/gtopt/blob/master/USERS.md).
+        Everything you write here is public; do not include confidential
+        information.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Category
+      options:
+        - Company, system operator or public agency
+        - University or research centre
+        - Individual researcher or student
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Name
+      description: Organization, group or person, as it should appear.
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Website (optional)
+  - type: input
+    id: country
+    attributes:
+      label: Country or affiliation
+    validations:
+      required: true
+  - type: textarea
+    id: use
+    attributes:
+      label: What do you use GTOpt for?
+      description: One or two sentences, e.g. "expansion planning studies of the Peruvian system" or "teaching hydrothermal scheduling".
+    validations:
+      required: true
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Consent
+      options:
+        - label: I am authorized to list this organization or group publicly.
+          required: true
