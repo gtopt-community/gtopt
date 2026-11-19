@@ -63,7 +63,8 @@ Multiple system files can be provided and will be merged.
 | `-q` | `--quiet` | `[=arg]` | Suppress all log output to stdout |
 | `-S` | `--stats` | | Print pre-solve system statistics and post-solve results summary |
 | `-s` | `--system-file` | `arg` | System JSON file(s) to process (also accepted as positional args) |
-| `-l` | `--lp-file` | `arg` | Save the LP model to a file |
+| `-l` | `--lp-file` | `arg` | Save the LP model to a file (stem; `.lp` or `.mps` added; a trailing `.mps` selects MPS) |
+| | `--lp-format` | `arg` | Format of the `--lp-file` dump: `lp` (default) or `mps` |
 | `-j` | `--json-file` | `arg` | Save the merged system configuration to a JSON file |
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity (coefficients below this are zero) |
 | `-c` | `--lp-only` | `[=arg]` | Build the LP model and exit without solving |
@@ -593,6 +594,26 @@ Save the linear programming formulation for debugging or external solvers:
 ```bash
 gtopt system_c0.json --lp-file model.lp
 ```
+
+### MPS output for external solvers
+
+`--lp-file` writes CPLEX LP by default.  Use `--lp-format mps` (or give a
+`--lp-file` ending in `.mps`) to write the model as an MPS file instead, with
+the same row/column names and `MARKER` sections for integer columns, so
+external solvers can read it directly without an `.lp` → `.mps` conversion:
+
+```bash
+gtopt system_c0.json --lp-file model.mps --lp-only
+gtopt system_c0.json --lp-file model --lp-format mps --lp-only
+```
+
+MPS output is implemented by the HiGHS and OSI (CLP/CBC) backends.  With any
+other backend (CPLEX, Gurobi, MindOpt, SCIP, cuOpt) gtopt reports an error
+naming the backend and exits non-zero; it never falls back to `.lp` silently.
+The OSI/CBC writer encodes binary columns as `BV` bounds (general integers use
+`MARKER` sections); HiGHS always writes `MARKER` sections.
+`--lp-compression` applies only to the `--lp-debug` / SDDP dumps, not to the
+`--lp-file` dump.
 
 ### Build without solving
 

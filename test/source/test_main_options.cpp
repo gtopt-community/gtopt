@@ -176,6 +176,18 @@ TEST_CASE("make_options_description - string options")
   CHECK(get_opt<std::string>(vm, "json-file").value_or("") == "model.json");
 }
 
+TEST_CASE("make_options_description - lp-format option")
+{
+  auto desc = make_options_description();
+  auto vm = parse_args({"--lp-file", "m", "--lp-format", "mps"}, desc);
+  CHECK(get_opt<std::string>(vm, "lp-file").value_or("") == "m");
+  CHECK(get_opt<std::string>(vm, "lp-format").value_or("") == "mps");
+
+  auto vm2 = parse_args({"--lp-file", "m.mps"}, desc);
+  CHECK(get_opt<std::string>(vm2, "lp-file").value_or("") == "m.mps");
+  CHECK_FALSE(get_opt<std::string>(vm2, "lp-format").has_value());
+}
+
 // ---- Tests for apply_cli_options ----
 
 TEST_CASE("apply_cli_options - no options applied")
