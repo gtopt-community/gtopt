@@ -7,7 +7,9 @@ To cite the software itself, use [`CITATION.cff`](CITATION.cff) (GitHub's
 "Cite this repository" button).  If you publish work that uses GTOpt,
 please open a pull request adding it to the last section.
 
-## GTOpt and FESOP
+## White paper
+
+The reference paper for GTOpt:
 
 **GTOpt: Open-Source Energy-System Optimization, Consistent from Minutes
 to Decades.**
@@ -41,6 +43,8 @@ Licence: CC BY 4.0.
   howpublished = {\url{https://github.com/gtopt-community/gtopt/tree/master/docs/white_paper}},
 }
 ```
+
+## FESOP
 
 GTOpt is the open-source successor of **FESOP**, the expansion and
 operation planning framework developed at Black Bear Engineering.
