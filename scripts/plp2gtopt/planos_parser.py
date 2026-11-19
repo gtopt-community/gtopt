@@ -45,8 +45,8 @@ The resulting ``varphi`` (φ) variable satisfies the PLP-canonical cut::
     φ ≥ +LDPhiPrv + Σ_i GradX_i · Vol_i
 
 where ``LDPhiPrv = E[Z(v_trial)]`` is the **positive** expected future
-operating cost from the next stage onwards.  Per PLP source
-``plp-espercnd.f:43-54``, ``LDPhiPrv = PromedioZ / NApert`` — averaged
+operating cost from the next stage onwards.  In PLP
+(``plp-espercnd.f:43-54``), ``LDPhiPrv = PromedioZ / NApert`` — averaged
 over **apertures** (intra-stage uncertainty branching), NOT over
 scenarios.  So it is the per-scenario expectation given apertures,
 which maps to gtopt's per-SCENE expected α-cost.
@@ -276,7 +276,7 @@ class PlanosParser(BaseParser):
                 # `rc.rhs` directly as `lowb`, so the CSV must carry
                 # the positive intercept.  An earlier version negated
                 # this on emit, producing α ≈ -LDPhiPrv at the last
-                # phase — verified against PLP source 2026-05-05 and
+                # phase — checked against PLP 2026-05-05 and
                 # corrected.
                 "rhs": ld_phi_prv,
                 "coefficients": coefficients,

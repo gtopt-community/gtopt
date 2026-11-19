@@ -37,10 +37,6 @@ is constant across all reservoirs, derived from the PLP unit chain:
   dam³ = raw_value × FEscala / 1E3
   gtopt_physical = raw_value × FEscala / 1E6
   ⇒ gtopt_physical = dam³ / 1E3
-
-See also:
-  parralco.f  in PLP CEN65/src/ – Fortran data structure
-  genpdralco.f  in PLP CEN65/src/ – LP assembly
 """
 
 import re

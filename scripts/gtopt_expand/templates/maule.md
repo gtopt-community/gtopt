@@ -52,16 +52,6 @@ proportional allocation among 7 irrigation districts.
 - [Irrigation Agreements — Modeling Guide](../../../docs/irrigation-agreements.md) —
   Architecture overview, LP formulation, and PLP comparison
 
-### PLP Fortran Sources (authoritative)
-
-| File             | Purpose                                    |
-|------------------|--------------------------------------------|
-| `parmaule.f`     | PAR_MAULE parameter structure              |
-| `plp-maule0.f`   | Initialization, config parsing             |
-| `genpdmaule.f`   | LP constraint matrix assembly, FijaMaule   |
-| `plp-maule1.f`   | Per-stage constraints, conditional bounds   |
-| `plp-maule2.f`   | Post-solve state update (economics)        |
-
 ### Key Design Difference: PLP vs gtopt
 
 PLP uses a monolithic Fortran callback (`FijaMaule`) with if/else logic to

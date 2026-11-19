@@ -1934,7 +1934,7 @@ auto build_plp_feasibility_cuts(ElasticSolveResult& elastic,
   // PLP `plp-agrespd.f::AgrElastici` (FOneFeasRay = FALSE branch, the
   // production default) reproduced step-for-step.  See the header
   // docstring for the formula; the numbered comments below cite the
-  // matching PLP source lines.
+  // matching PLP routines.
   PlpFeasibilityCuts out;
 
   // (0) plp-fasedual.f:698-780 / plp-faseprim.f:656-714: a clone not

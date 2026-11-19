@@ -59,16 +59,6 @@ current reservoir volume via the `bound_rule`.
 - [Irrigation Agreements — Modeling Guide](../../../docs/irrigation-agreements.md) —
   Architecture overview, LP formulation, and PLP comparison
 
-### PLP Fortran Sources (authoritative)
-
-| File             | Purpose                                    |
-|------------------|--------------------------------------------|
-| `parlajam.f`     | PAR_LAJAM parameter structure              |
-| `leelajam.f`     | plplajam.dat reader                        |
-| `genpdlajam.f`   | LP constraint matrix assembly              |
-| `plp-laja1.f`    | Per-stage bound modification (FijaLajaMBloA)|
-| `plp-laja2.f`    | Post-solve state update (economics tracking)|
-
 ### Key Design Difference: PLP vs gtopt
 
 PLP uses a monolithic Fortran module with procedural bound setting

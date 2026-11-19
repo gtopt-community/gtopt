@@ -59,14 +59,6 @@
 {# through junction, retiros implicit-at-Colbun) see                 #}
 {# `maule.tson` / `maule.tampl` (the default PLP variant).           #}
 {#                                                                   #}
-{# PLP Fortran sources (authoritative for the underlying convention #}
-{# even though this variant diverges from PLP's physical topology): #}
-{#   parmaule.f    — PAR_MAULE parameter structure                   #}
-{#   plp-maule0.f  — initialization, config parsing                  #}
-{#   genpdmaule.f  — LP constraint matrix assembly, FijaMaule        #}
-{#   plp-maule1.f  — per-stage constraints, conditional bound flip   #}
-{#   plp-maule2.f  — post-solve state update (economics tracking)    #}
-{#                                                                   #}
 {# Key design difference PLP vs gtopt:                               #}
 {#   PLP: FijaMaule callback uses if/else logic to activate one      #}
 {#        zone at a time based on Colbun reservoir volume             #}

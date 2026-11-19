@@ -1399,8 +1399,7 @@ To minimise overhead, `set_coeff` / `set_rhs` calls are dispatched only when
 the new values differ from the previously applied ones.  This mechanism is
 analogous to the piecewise-linear efficiency update for turbines (§5.10).
 
-The primary PLP source for this model is `plpfilemb.dat` (Fortran subroutine
-`LeeFilEmb` in `leefilemb.f`), parsed by `FilembParser` in
+The PLP input for this model is `plpfilemb.dat`, parsed by `FilembParser` in
 `scripts/plp2gtopt/filemb_parser.py`.  Volume breakpoints are stored in dam³
 (convert from PLP Mm³ by multiplying by 1000); slopes are in m³/s per dam³
 (convert from PLP /Mm³ by dividing by 1000); constants are in m³/s (no

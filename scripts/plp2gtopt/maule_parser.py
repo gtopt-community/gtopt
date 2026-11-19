@@ -26,8 +26,6 @@ File format (plpmaulen.dat)::
   (see inline comments for remaining fields)
 
 See also:
-  parmaule.f  in PLP CEN65/src/ -- Fortran data structure
-  genpdmaule.f  in PLP CEN65/src/ -- LP assembly
   plp_implementation.md -- detailed field documentation
 """
 

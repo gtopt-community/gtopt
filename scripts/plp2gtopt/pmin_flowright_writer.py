@@ -65,7 +65,7 @@ _DEFAULT_FAIL_COST: float = 10000.0
 _TRUTHY: frozenset[str] = frozenset({"1", "true", "t", "yes", "y", "on"})
 
 #: PLP-to-gtopt fail-cost unit conversion factor.  PLP's ``CCaudFalla`` is
-#: scaled internally by ``FactTiempoH = 3.6`` (CEN65/src ``leemat.f:118``)
+#: scaled internally by ``FactTiempoH = 3.6`` (``leemat.f:118``)
 #: before the objective coefficient is built in ``genpdago.f:101`` as
 #: ``CCaudFalla_scaled × BloDur / FPhi``.  gtopt's ``FlowRight.fail_cost`` is
 #: $/(m³/s·h), so the equivalent gtopt value for any PLP-native $/Hm³
@@ -339,7 +339,7 @@ class PminFlowRightWriter(BaseWriter):
 
         1. ``plpmat.dat`` ``CCauFal`` (= flow-failure cost, parsed as
            ``plpmat_parser.flow_fail_cost``, native unit $/Hm³).
-           Verified against PLP source (``CEN65/src/genpdago.f:101``):
+           In PLP (``genpdago.f:101``):
               ``FO(qaf) = CCaudFalla_scaled × BloDur / FPhi``
            where ``CCaudFalla_scaled = CCauFal × FactTiempoH`` (set in
            ``leemat.f:118``).  Returned as ``CCauFal × 3.6``.  E.g.

@@ -24,9 +24,8 @@
  * (point-slope form).  This matches the PLP Fortran function
  * `FRendimientos` in `plp-frendim.f`:
  *
- * ```fortran
- * ValFRendimientos = MIN(ValFRendimientos,
- *     Constantes(i) + Pendientes(i) * (Vol - Bordes(i)))
+ * ```text
+ * f(V) = min_i ( constant_i + slope_i * (V - volume_i) )
  * ```
  *
  * **Note**: This differs from `ReservoirSeepageSegment` where `constant` is
@@ -140,9 +139,8 @@ struct ReservoirProductionFactor
  * Here `constant_i` is the production factor **at** breakpoint_i (point-slope
  * form).  This is the concave-envelope minimum, matching the Fortran:
  *
- * ```fortran
- * ValFRendimientos = MIN(ValFRendimientos,
- *     Constantes(i) + Pendientes(i) * (Vol - Bordes(i)))
+ * ```text
+ * f(V) = min_i ( constant_i + slope_i * (V - volume_i) )
  * ```
  *
  * **Difference from seepage**: `ReservoirSeepageSegment.constant` is the
