@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **LP metadata sidecar** (`--lp-metadata`, option `lp_metadata`): when an LP
+  file is written with `--lp-file`, also write `<stem>.meta.json`
+  (`gtopt-lp-metadata/1`) listing every column and row in LP order (name,
+  class, variable/constraint, uid, structured context, integrality, scale
+  factors), the objective scale and the per-block duration / probability /
+  discount weights, so external solvers and auditors need not reverse-engineer
+  names or scaling.  Opt-in; the LP file is unchanged.  See `docs/lp-metadata.md`.
 - **Unit commitment (three-bin formulation)**: full implementation of the
   Morales-España tight-and-compact UC model with status ($u$), startup ($v$),
   and shutdown ($w$) binary variables per committed generator.

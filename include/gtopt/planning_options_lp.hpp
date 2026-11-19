@@ -751,6 +751,20 @@ public:
     return m_options_.lp_fingerprint.value_or(false);
   }
 
+  /**
+   * @brief Gets the lp_metadata flag, using default if not set.
+   *
+   * When true, every LP file written via `--lp-file` is accompanied by a
+   * JSON sidecar (`<stem>.meta.json`) describing its columns, rows,
+   * scale factors and per-block weights.
+   *
+   * @return Whether to write LP metadata sidecars
+   */
+  [[nodiscard]] constexpr auto lp_metadata() const
+  {
+    return m_options_.lp_metadata.value_or(false);
+  }
+
   /// Solver backend pinned at the planning level via
   /// ``options.lp_matrix_options.solver_name`` (programmatic API — the
   /// field is not JSON-mapped).  Empty = no pin; callers fall through to

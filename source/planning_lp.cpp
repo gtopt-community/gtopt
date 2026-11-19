@@ -30,6 +30,7 @@
 #include <gtopt/generator.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/lng_terminal.hpp>
+#include <gtopt/lp_metadata.hpp>
 #include <gtopt/lp_name_spill.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/memory_monitor.hpp>
@@ -1788,6 +1789,23 @@ void PlanningLP::write_lp(const std::string& filename) const
       if (!result) {
         spdlog::warn("{}", result.error().message);
         return;
+      }
+
+      // Optional machine-readable sidecar describing this LP file.
+      if (m_options_.lp_metadata()) {
+        const auto lp_path = n_cells == 1 ? stem + ".lp"
+                                          : as_label(stem,
+                                                     "scene",
+                                                     system.scene().uid(),
+                                                     "phase",
+                                                     system.phase().uid())
+                + ".lp";
+        try {
+          const auto meta_path = write_lp_metadata(system, lp_path);
+          spdlog::info("lp_metadata: wrote {}", meta_path);
+        } catch (const std::exception& e) {
+          spdlog::warn("lp_metadata: failed for {}: {}", lp_path, e.what());
+        }
       }
     }
   }

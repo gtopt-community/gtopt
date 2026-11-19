@@ -170,6 +170,15 @@ struct PlanningOptions
    * Output file: `lp_fingerprint_scene_{S}_phase_{P}.json`. */
   OptBool lp_fingerprint {};
 
+  /** @brief When true, write a machine-readable JSON metadata sidecar next to
+   * every LP file written by `--lp-file` (`<stem>.meta.json`, or
+   * `<stem>_scene_S_phase_P.meta.json` when several cells are written).
+   * It lists every column and row (name, class, variable, uid, structured
+   * context, integrality, scale factors) plus the objective scale and the
+   * per-block duration / probability / discount weights.  See
+   * `docs/lp-metadata.md`.  Default: off (no sidecar, no extra cost). */
+  OptBool lp_metadata {};
+
   /** @brief Minimum scene UID for selective LP debug saving (inclusive).
    *  When set together with lp_debug=true, only scenes with
    *  uid >= lp_debug_scene_min are saved.  Default: save all. */
@@ -317,6 +326,7 @@ struct PlanningOptions
     merge_opt(lp_compression, opts.lp_compression);
     merge_opt(lp_only, opts.lp_only);
     merge_opt(lp_fingerprint, opts.lp_fingerprint);
+    merge_opt(lp_metadata, opts.lp_metadata);
     merge_opt(lp_debug_scene_min, opts.lp_debug_scene_min);
     merge_opt(lp_debug_scene_max, opts.lp_debug_scene_max);
     merge_opt(lp_debug_phase_min, opts.lp_debug_phase_min);

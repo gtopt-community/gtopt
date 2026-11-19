@@ -237,6 +237,13 @@ template<typename T>
        po::value<std::string>(),
        "write the assembled LP model to this file (stem; .lp extension added)")
       //
+      ("lp-metadata",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "also write a JSON sidecar <lp-file stem>.meta.json next to each LP "
+       "file written by --lp-file, listing every column/row (name, class, "
+       "variable, uid, context, integrality, scale factors) plus the "
+       "objective scale and block weights; shorthand for --set "
+       "lp_metadata=<bool>")  //
       ("matrix-eps,e",
        po::value<double>(),
        "epsilon threshold for treating LP matrix coefficients as zero")  //
@@ -1217,6 +1224,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .lp_file = get_opt<std::string>(vm, "lp-file"),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .lp_only = get_opt<bool>(vm, "lp-only"),
+      .lp_metadata = get_opt<bool>(vm, "lp-metadata"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
       .lp_error = get_opt<bool>(vm, "lp-error"),
       .lp_compression = get_opt<std::string>(vm, "lp-compression"),
@@ -1381,6 +1389,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.lp_file = get_str("lp-file");
   opts.matrix_eps = get_dbl("matrix-eps");
   opts.lp_only = get_bool("lp-only");
+  opts.lp_metadata = get_bool("lp-metadata");
   opts.lp_debug = get_bool("lp-debug");
   opts.lp_error = get_bool("lp-error");
   opts.lp_compression = get_str("lp-compression");
@@ -1552,6 +1561,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.lp_file, defaults.lp_file);
   merge(opts.matrix_eps, defaults.matrix_eps);
   merge(opts.lp_only, defaults.lp_only);
+  merge(opts.lp_metadata, defaults.lp_metadata);
   merge(opts.lp_debug, defaults.lp_debug);
   merge(opts.lp_error, defaults.lp_error);
   merge(opts.lp_compression, defaults.lp_compression);

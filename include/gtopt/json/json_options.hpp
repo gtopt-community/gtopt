@@ -63,6 +63,7 @@ struct PlanningOptionsConstructor
       OptName lp_compression_str,
       OptBool lp_only,
       OptBool lp_fingerprint,
+      OptBool lp_metadata,
       OptInt lp_debug_scene_min,
       OptInt lp_debug_scene_max,
       OptInt lp_debug_phase_min,
@@ -122,6 +123,7 @@ struct PlanningOptionsConstructor
     }
     opts.lp_only = lp_only;
     opts.lp_fingerprint = lp_fingerprint;
+    opts.lp_metadata = lp_metadata;
     opts.lp_debug_scene_min = lp_debug_scene_min;
     opts.lp_debug_scene_max = lp_debug_scene_max;
     opts.lp_debug_phase_min = lp_debug_phase_min;
@@ -174,6 +176,7 @@ struct json_data_contract<PlanningOptions>
                        json_string_null<"lp_compression", OptName>,
                        json_bool_null<"lp_only", OptBool>,
                        json_bool_null<"lp_fingerprint", OptBool>,
+                       json_bool_null<"lp_metadata", OptBool>,
                        json_number_null<"lp_debug_scene_min", OptInt>,
                        json_number_null<"lp_debug_scene_max", OptInt>,
                        json_number_null<"lp_debug_phase_min", OptInt>,
@@ -212,6 +215,7 @@ struct json_data_contract<PlanningOptions>
         detail::enum_to_opt_name(opt.lp_compression),
         opt.lp_only,
         opt.lp_fingerprint,
+        opt.lp_metadata,
         opt.lp_debug_scene_min,
         opt.lp_debug_scene_max,
         opt.lp_debug_phase_min,

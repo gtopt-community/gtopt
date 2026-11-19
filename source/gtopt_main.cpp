@@ -324,6 +324,11 @@ void setup_trace_log(const MainOptions& opts)
     planning.options.lp_only = opts.lp_only;
   }
 
+  // `--lp-metadata`: ask PlanningLP::write_lp for the JSON sidecar.
+  if (opts.lp_metadata) {
+    planning.options.lp_metadata = opts.lp_metadata;
+  }
+
   // Load user constraints from external file(s)
   if (auto uc_result = load_user_constraints(planning); !uc_result) {
     return std::unexpected(std::move(uc_result.error()));
