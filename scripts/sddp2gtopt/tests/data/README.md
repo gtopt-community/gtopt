@@ -64,3 +64,17 @@ entity each (see `case_min/`). Use the loader's
 `PsrClassesLoader.from_case_dir(...)` to read the JSON; downstream
 parsers handle missing fields by falling back to dataclass
 defaults (see `entities.py`).
+
+## Running the tests
+
+```bash
+cd scripts
+pip install -e ".[dev]"
+python -m pytest sddp2gtopt/tests -q
+```
+
+Two of these cases are also converted, solved and compared with
+reference results as end-to-end tests:
+[`cases/psri_case2_via_sddp2gtopt`](../../../../cases/psri_case2_via_sddp2gtopt/README.md)
+and
+[`cases/psri_case3_via_sddp2gtopt`](../../../../cases/psri_case3_via_sddp2gtopt/README.md).

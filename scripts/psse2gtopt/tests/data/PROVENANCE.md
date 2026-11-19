@@ -41,3 +41,11 @@ They provide real-world coverage that the synthetic fixture cannot:
 both PSS/E format revisions, real per-unit impedances and MVA ratings,
 and a non-trivial mesh topology that gtopt solves to optimality with
 zero unserved load.
+
+## Running the tests
+
+```bash
+cd scripts
+pip install -e ".[dev]"
+python -m pytest psse2gtopt/tests -q
+```

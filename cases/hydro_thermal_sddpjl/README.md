@@ -107,3 +107,41 @@ gtopt's specific reservoir-flow conversion + emin/eini bounds (so
 neither SDDP.jl nor pandapower works directly).  The closest
 deterministic LP comparison would be a hand-rolled JuMP model
 with the same conversion factor; not currently implemented.
+
+## Running
+
+```bash
+cd cases/hydro_thermal_sddpjl
+gtopt system_hydro_thermal_sddpjl.json --output-directory results --write-out all
+```
+
+Always pass `--output-directory` (or `--set output_directory=…`): by
+default GTOpt writes to `output/`, which here holds the reference
+results.  `--write-out all` writes every result (costs and duals
+included), as the tests do; without it GTOpt writes the main ones.
+The objective value is in `results/solution.csv` (`obj_value`), and the
+per-element results in `results/<Element>/<field>_s0_p0.csv` (scene 0,
+phase 0), which correspond to `output/<Element>/<field>.csv`.
+
+## Checking against the reference
+
+Expected objective: **21.11**.
+
+The case is an end-to-end test.  With a build configured with
+`-DGTOPT_BUILD_INTEGRATION_TESTS=ON` (see [`../README.md`](../README.md)):
+
+```bash
+ctest --test-dir build -R '^e2e_hydro_thermal_sddpjl_'
+```
+
+This runs `e2e_hydro_thermal_sddpjl_solve`, `e2e_hydro_thermal_sddpjl_validate_solution` and one
+`e2e_hydro_thermal_sddpjl_compare_<Element>_<file>` test per reference CSV in
+`output/` (tolerance 1e-6).  To compare a manual run by hand:
+
+```bash
+python3 tools/gtopt_compare_csv.py \
+  cases/hydro_thermal_sddpjl/results/solution.csv cases/hydro_thermal_sddpjl/output/solution.csv
+python3 tools/gtopt_compare_csv.py \
+  cases/hydro_thermal_sddpjl/results/Bus/balance_dual_s0_p0.csv \
+  cases/hydro_thermal_sddpjl/output/Bus/balance_dual.csv
+```
