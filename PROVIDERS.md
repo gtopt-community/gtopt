@@ -5,7 +5,7 @@ written agreement with the GTOpt copyright holder.
 
 | Provider | Country | Services | Contact |
 |---|---|---|---|
-| **[Black Bear Engineering SpA](https://www.blackbeareng.cl)** | Chile | **Maintenance and support** contracts; **development** of custom models, features and modules; **consulting** and studies with GTOpt (expansion planning, hydrothermal scheduling, dispatch, markets); training; PLP / PLEXOS → GTOpt case migration; commercial-licence resale | <contacto@blackbeareng.cl> |
+| **[Black Bear Engineering SpA](https://www.blackbeareng.cl)** | Chile | **Maintenance and development of GTOpt**: support and maintenance contracts, custom models, features and modules, training, PLP / PLEXOS → GTOpt case migration, commercial-licence resale. **Energy studies and consulting**: expansion planning, hydrothermal scheduling and dispatch, markets and regulation, storage and renewables | <contacto@blackbeareng.cl> |
 
 Providers have no special rights over the code or the project's
 decisions, and being listed here does not transfer any copyright or

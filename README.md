@@ -379,7 +379,8 @@ security issues to [`SECURITY.md`](SECURITY.md).
 Using GTOpt? Add your organization or group to
 [`USERS.md`](USERS.md). The people and organizations who helped build
 GTOpt are in [`FRIENDS.md`](FRIENDS.md), and the companies offering
-maintenance, development and consulting services in
+maintenance and development of GTOpt, and energy studies and
+consulting, in
 [`PROVIDERS.md`](PROVIDERS.md).
 
 ## Acknowledgements
@@ -433,7 +434,7 @@ Copyright (c) 2024-2026 Marcelo Matus and [contributors](AUTHORS).
 
 ## Support and services
 
-Maintenance and support contracts, custom development, consulting and
-studies, training and PLP / PLEXOS → GTOpt migration are available
-from **Black Bear Engineering SpA**
+Maintenance and development of GTOpt (support contracts, custom
+features, training, PLP / PLEXOS → GTOpt migration), and energy studies
+and consulting, are available from **Black Bear Engineering SpA**
 (<contacto@blackbeareng.cl>). See [`PROVIDERS.md`](PROVIDERS.md).
