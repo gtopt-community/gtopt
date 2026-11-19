@@ -1240,7 +1240,7 @@ bool OsiSolverBackend::write_lp_file_(const char* filename)
       ++terms;
     }
     int across = 10;
-    while (terms % across == 0) {
+    while (terms > 0 && terms % across == 0) {
       ++across;
     }
     return lpio.writeLp(file.c_str(),

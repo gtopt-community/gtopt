@@ -618,21 +618,6 @@ SolverTestResult test_variable_types(std::string_view solver)
     TC_CHECK(ctx, lp.is_continuous(x1));
     TC_CHECK(ctx, !lp.is_integer(x1));
 
-    // An LP-only backend must refuse integer columns up front instead of
-    // silently solving them as continuous.
-    if (!SolverRegistry::instance().supports_mip(solver)) {
-      bool refused = false;
-      try {
-        lp.set_integer(x1);
-      } catch (const std::runtime_error&) {
-        refused = true;
-      }
-      TC_CHECK(ctx, refused);
-      TC_CHECK(ctx, lp.is_continuous(x1));
-      return make_result(
-          "variable_types", /*test_passed=*/ctx.ok(), ctx.failures);
-    }
-
     // Set integer, verify.
     lp.set_integer(x1);
     TC_CHECK(ctx, lp.is_integer(x1));

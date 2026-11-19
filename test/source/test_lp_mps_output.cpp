@@ -503,10 +503,17 @@ TEST_CASE("parse_lp_file_format")  // NOLINT
 
 TEST_CASE("write_lp default format still writes .lp")  // NOLINT
 {
+  // make_uc_lp() has integer columns: use a MIP-capable solver (the
+  // default backend may be the LP-only CLP).
+  const auto solvers = mip_solvers();
+  if (solvers.empty()) {
+    MESSAGE("no MIP-capable solver available; skipping");
+    return;
+  }
   const auto dir = scratch_dir("default");
   const auto stem = (dir / "model").string();
   auto lp = make_uc_lp();
-  auto li = make_interface(lp);
+  auto li = make_interface(lp, solvers.front());
 
   REQUIRE(li.write_lp(stem).has_value());
   CHECK(std::filesystem::exists(stem + ".lp"));
