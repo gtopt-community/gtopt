@@ -67,7 +67,25 @@ std::string ConstraintParser::strip_comments(std::string_view input)
   std::string result;
   result.reserve(input.size());
 
+  // Quote character of the string literal being copied ('\0' outside a
+  // literal).  Comment markers inside a literal are part of the string —
+  // element names such as "TARONG#2" are legal.
+  char quote = '\0';
   for (std::size_t i = 0; i < input.size(); ++i) {
+    if (quote != '\0') {
+      result += input[i];
+      if (input[i] == '\\' && i + 1 < input.size()) {
+        result += input[++i];  // escaped character stays verbatim
+      } else if (input[i] == quote) {
+        quote = '\0';
+      }
+      continue;
+    }
+    if (input[i] == '"' || input[i] == '\'') {
+      quote = input[i];
+      result += input[i];
+      continue;
+    }
     // Line comment: # or //
     if (input[i] == '#') {
       // Skip to end of line
@@ -516,7 +534,12 @@ bool ConstraintParser::Parser::is_element_type(const std::string& name)
       || name == "flow_right" || name == "volume_right"
       || name == "lng_terminal" || name == "fuel" || name == "emission_zone"
       || name == "emission_source" || name == "commitment"
-      || name == "simple_commitment" || name == "decision_variable";
+      || name == "simple_commitment"
+      || name == "decision_variable"
+      // Multi-carrier family (hydrogen economy): electrolyser input,
+      // hydrogen storage flows and hydrogen offtake columns.
+      || name == "carrier_converter" || name == "hydrogen_storage"
+      || name == "hydrogen_demand";
 }
 
 bool ConstraintParser::Parser::is_singleton_class(const std::string& name)

@@ -38,6 +38,7 @@
    - [5.15 Unit Commitment (3-bin)](#515-unit-commitment-3-bin)
    - [5.16 Simple Commitment](#516-simple-commitment)
    - [5.17 Inertia Zone and Provision](#517-inertia-zone-and-provision)
+   - [5.18 Hydrogen Carrier (Electrolyser, Node, Offtake)](#518-hydrogen-carrier-electrolyser-node-offtake)
 6. [Scaling and Solver Options](#6-scaling-and-solver-options)
    - [6.1 Objective Scaling](#61-objective-scaling)
    - [6.2 Voltage Angle Scaling](#62-voltage-angle-scaling)
@@ -2197,6 +2198,58 @@ $$
 is injected as the coefficient on $r_{p,s,t,b}^{H}$ in every linked
 zone's requirement row.
 <!-- source: source/inertia_provision_lp.cpp:127-138,175-191 -->
+
+### 5.18 Hydrogen Carrier (Electrolyser, Node, Offtake)
+
+The hydrogen economy is a separate energy carrier measured in
+MWh$_{\text{LHV}}$.  A `HydrogenNode` $n$ has one equality balance row
+per block; a `CarrierConverter` $c$ (electrolyser) withdraws electric
+power $x_{c,s,t,b}$ [MW$_e$] from its bus and injects
+$\eta_{c,t,b}\, x_{c,s,t,b}$ into the node; a `HydrogenStorage`
+behaves like a battery on the node; a `HydrogenDemand` $h$ withdraws
+$q_{h,s,t,b}$ [MW$_{\text{LHV}}$].
+
+#### Node Balance
+
+$$
+\sum_{c \to n} \eta_{c,t,b}\, x_{c,s,t,b}
+\;+\; \sum_{k \in n} \left(d^{out}_{k,s,t,b} - d^{in}_{k,s,t,b}\right)
+\;-\; \sum_{h \in n} q_{h,s,t,b} \;=\; 0
+\qquad \forall n, s, t, b
+$$
+
+The electrolyser input $x_{c,s,t,b} \in [0, \bar{X}_c]$ enters the bus
+balance (§5.1) with coefficient $-1$ and carries the operating cost
+$\pi_s \delta_t \Delta_b\, o_{c,t,b}$ (a negative `ocost` represents a
+bid that values the load).
+<!-- source: source/carrier_converter_lp.cpp, source/hydrogen_node_lp.cpp -->
+
+#### Hydrogen Offtake (`HydrogenDemand`)
+
+$$
+\underline{q}_{h,t,b} \le q_{h,s,t,b} \le \bar{q}_{h,t,b}
+$$
+
+with objective contribution
+$-\pi_s \delta_t \Delta_b\, p_{h,t,b}\, q_{h,s,t,b}$ (`price`, default
+0).  Optional per-stage energy requirement (production target over
+the stage, e.g. the AEMO ISP weekly/monthly hydrogen targets):
+
+$$
+\sum_{b \in t} \Delta_b\, q_{h,s,t,b} + \sigma_{h,s,t} \;\ge\; E^{min}_{h,t},
+\qquad
+\sum_{b \in t} \Delta_b\, q_{h,s,t,b} \;\le\; E^{max}_{h,t}
+$$
+
+where $\sigma_{h,s,t} \ge 0$ exists only when `min_energy_cost`
+$\kappa_{h,t} > 0$ and is priced at $\pi_s \delta_t \kappa_{h,t}$
+[\$/MWh$_{\text{LHV}}$]; otherwise the minimum is hard.  Because the
+offtake may fall in any block of the stage, the stage target implicitly
+assumes free intra-stage hydrogen storage; use a `HydrogenStorage` plus
+a per-block `lmin`/`lmax` profile to model storage explicitly.  The
+dual of the $E^{min}$ row is the stage marginal cost of hydrogen
+[\$/MWh$_{\text{LHV}}$].
+<!-- source: source/hydrogen_demand_lp.cpp -->
 
 > **Note on renumbering.** Capacity Expansion (§5.11) and User
 > Constraints (§5.12) retain their numbering even though §5.13–§5.17

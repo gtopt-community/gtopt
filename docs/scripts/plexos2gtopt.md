@@ -1007,11 +1007,53 @@ tagged with an active `Timeslice` override untagged rows; the latest
 Timeslices come from `M1`..`M12` names, month patterns on `Include`
 (`M4-10`) and the `timeslice_RefYear5000.csv` state-change file.
 
+### Constraints, purchasers, hydrogen, emissions, gas offtake
+
+By default the converter also translates the PLEXOS `Constraint` objects
+that apply to a fixed fleet over one week.  The module is
+`aemo_isp_constraints.py`; the hydrogen design is in
+`scripts/plexos2gtopt/AEMO_ISP_H2.md`.
+
+| PLEXOS | gtopt |
+|---|---|
+| REZ export / import limit on the REZ's own injections | REZ bus + radial line (`tmax_ab` = export, `tmax_ba` = import) |
+| other operational / operational + capacity constraint, `RHS` | per-block `UserConstraint` (capacity terms folded into the RHS) |
+| `RHS Day` (e.g. gas-zone daily offtake, TJ) | `daily_sum` `UserConstraint` (`fuel("X").offtake`, GJ) |
+| `RHS Month` / `Year` / `Custom` | window-sum `UserConstraint`, RHS pro-rated by hours |
+| flexible `Purchaser` (electrolyser) | `CarrierConverter` → `HydrogenNode` |
+| H2 consumption constraint (monthly GWh_e) | `HydrogenDemand` `min/max_energy` (MWh_LHV) |
+| fixed-load `Purchaser` | `Demand` (fixed `lmax`) |
+| `Emission` budgets + generator / fuel `Production Rate` | `EmissionZone` (pro-rated cap) + `EmissionSource` |
+
+Sense −1 / 0 / 1 → `<=` / `=` / `>=`.  A Penalty Price of −1 or none
+means hard; a positive one becomes a soft `penalty`.
+
+Skipped, with the reason counted in `<name>.stats.json` →
+`constraint_groups`:
+
+- capacity / build conditions;
+- disabled constraints (`Include in LT Plan` = 0);
+- constraints with no coefficients;
+- constraints whose terms are all absent from the case;
+- budgets that do not overlap the window;
+- constraints whose RHS Data File trace is missing.
+
+**Approximations** (also listed in `stats.json` → `approximations`):
+
+- Period RHS are pro-rated to the window.
+- Period values are taken as GWh (TJ for fuel), and period penalties
+  as $/GWh.
+- Emission budgets are hard and pro-rated.
+- The electrolyser efficiency comes from the IASR workbook.
+
+`--legacy` (or the individual `--no-isp-constraints`, `--no-purchasers`,
+`--no-emissions`, `--no-fuel-offtake`, `--no-rez-buses` flags)
+reproduces the earlier output.  `--h2-model demand` models
+electrolysers as curtailable demands with window-sum constraints.
+
 Not converted: capacity expansion (`Max Units Built`, `Build Cost`,
-`WACC`), retirements beyond the start-day `Units`, the PLEXOS
-`Constraint` objects (REZ and transmission groups, policy targets),
-line losses and marginal loss factors, outages, pumping, purchasers
-(electrolyser loads) and reserves.
+`WACC`), retirements beyond the start-day `Units`, line losses and
+marginal loss factors, outages, pumping and reserves.
 
 ## 16. Related references
 

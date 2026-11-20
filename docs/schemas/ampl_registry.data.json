@@ -58,6 +58,7 @@
     "flow_right",
     "fuel",
     "generator",
+    "hydrogen_demand",
     "hydrogen_node",
     "hydrogen_storage",
     "inertia_provision",
@@ -158,6 +159,13 @@
       "lossfactor",
       "pmax",
       "pmin"
+    ],
+    "hydrogen_demand": [
+      "lmax",
+      "lmin",
+      "max_energy",
+      "min_energy",
+      "price"
     ],
     "hydrogen_storage": [
       "ecost",
@@ -293,6 +301,14 @@
       "lossfactor",
       "pmax",
       "pmin"
+    ],
+    "hydrogen_demand": [
+      "lmax",
+      "lmin",
+      "load",
+      "max_energy",
+      "min_energy",
+      "price"
     ],
     "hydrogen_storage": [
       "ecost",

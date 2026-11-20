@@ -39,6 +39,7 @@
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
+#include <gtopt/hydrogen_demand_lp.hpp>
 #include <gtopt/hydrogen_node_lp.hpp>
 #include <gtopt/hydrogen_storage_lp.hpp>
 #include <gtopt/inertia_provision_lp.hpp>
@@ -690,6 +691,48 @@ std::optional<double> cc_param_ocost(const SystemContext& sc,
       .param_ocost(s, b);
 }
 
+// HydrogenDemand — hydrogen offtake with per-stage energy targets.
+std::optional<double> hd_param_lmax(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<HydrogenDemandLP> {uid})
+      .param_lmax(s, b);
+}
+std::optional<double> hd_param_lmin(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<HydrogenDemandLP> {uid})
+      .param_lmin(s, b);
+}
+std::optional<double> hd_param_price(const SystemContext& sc,
+                                     Uid uid,
+                                     StageUid s,
+                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<HydrogenDemandLP> {uid})
+      .param_price(s, b);
+}
+std::optional<double> hd_param_min_energy(const SystemContext& sc,
+                                          Uid uid,
+                                          StageUid s,
+                                          BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<HydrogenDemandLP> {uid})
+      .param_min_energy(s);
+}
+std::optional<double> hd_param_max_energy(const SystemContext& sc,
+                                          Uid uid,
+                                          StageUid s,
+                                          BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<HydrogenDemandLP> {uid})
+      .param_max_energy(s);
+}
+
 // AllowancePool — CO₂ cap-and-trade pool (PR #495 / #496).
 // Inherits emin/emax/ecost from StorageLP base; exposes delivery
 // (free allocation per stage) on its own accessor.
@@ -887,6 +930,16 @@ void register_ampl_param_dispatchers(SimulationLP& sim)
       carrier_converter_cls, "efficiency", &cc_param_efficiency);
   sim.register_ampl_param(carrier_converter_cls, "ocost", &cc_param_ocost);
 
+  // HydrogenDemand — hydrogen offtake with per-stage energy targets.
+  constexpr auto hydrogen_demand_cls = HydrogenDemand::class_name.snake_case();
+  sim.register_ampl_param(hydrogen_demand_cls, "lmax", &hd_param_lmax);
+  sim.register_ampl_param(hydrogen_demand_cls, "lmin", &hd_param_lmin);
+  sim.register_ampl_param(hydrogen_demand_cls, "price", &hd_param_price);
+  sim.register_ampl_param(
+      hydrogen_demand_cls, "min_energy", &hd_param_min_energy);
+  sim.register_ampl_param(
+      hydrogen_demand_cls, "max_energy", &hd_param_max_energy);
+
   // AllowancePool — CO₂ cap-and-trade pool (PR #495 / #496).
   constexpr auto allowance_pool_cls = AllowancePool::class_name.snake_case();
   sim.register_ampl_param(allowance_pool_cls, "emin", &ap_param_emin);
@@ -971,6 +1024,8 @@ void register_ampl_iterator_dispatchers(SimulationLP& sim)
                          &iter_class<HydrogenNodeLP>);
   sim.register_ampl_iter(HydrogenStorage::class_name.snake_case(),
                          &iter_class<HydrogenStorageLP>);
+  sim.register_ampl_iter(HydrogenDemand::class_name.snake_case(),
+                         &iter_class<HydrogenDemandLP>);
   sim.register_ampl_iter(AmmoniaNode::class_name.snake_case(),
                          &iter_class<AmmoniaNodeLP>);
   sim.register_ampl_iter(AmmoniaStorage::class_name.snake_case(),

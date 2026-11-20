@@ -883,6 +883,19 @@ void System::merge(System&& sys)
   gtopt::merge(emission_array, std::move(sys.emission_array));
   gtopt::merge(emission_zone_array, std::move(sys.emission_zone_array));
   gtopt::merge(emission_source_array, std::move(sys.emission_source_array));
+  // Multi-carrier family (thermal / hydrogen / ammonia nodes, storages,
+  // offtakes, converters) and allowance pools.  Omitting any of these
+  // silently drops the elements from every case loaded through the
+  // planning-file merge path (standalone binary).
+  gtopt::merge(thermal_node_array, std::move(sys.thermal_node_array));
+  gtopt::merge(thermal_storage_array, std::move(sys.thermal_storage_array));
+  gtopt::merge(hydrogen_node_array, std::move(sys.hydrogen_node_array));
+  gtopt::merge(hydrogen_storage_array, std::move(sys.hydrogen_storage_array));
+  gtopt::merge(hydrogen_demand_array, std::move(sys.hydrogen_demand_array));
+  gtopt::merge(ammonia_node_array, std::move(sys.ammonia_node_array));
+  gtopt::merge(ammonia_storage_array, std::move(sys.ammonia_storage_array));
+  gtopt::merge(carrier_converter_array, std::move(sys.carrier_converter_array));
+  gtopt::merge(allowance_pool_array, std::move(sys.allowance_pool_array));
   gtopt::merge(commitment_array, std::move(sys.commitment_array));
   gtopt::merge(simple_commitment_array, std::move(sys.simple_commitment_array));
   gtopt::merge(line_commitment_array, std::move(sys.line_commitment_array));

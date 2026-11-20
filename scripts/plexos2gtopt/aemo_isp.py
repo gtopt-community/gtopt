@@ -13,8 +13,8 @@ of the window:
 * Generators: every ``Generator`` with ``Units > 0`` on the start day;
   hourly ``pmax = Units × Rating (trace or timesliced value, else Max
   Capacity) × (1 − Aux Incr)``; ``gcost = Heat Rate × Fuel Price +
-  VO&M``.  Load-subtracter pseudo generators (used only for PLEXOS LDC
-  fitting) are skipped.
+  VO&M`` (legacy) or VO&M + ``fuel`` / ``heat_rate``.  Load-subtracter
+  pseudo generators (used only for PLEXOS LDC fitting) are skipped.
 * Batteries: every ``Battery`` with ``Units > 0`` (utility BESS,
   coordinated CER storage, V2G); SoC pinned to 50 % at both ends.
 * Hydro: ``Storage`` → Reservoir + Junction, ``Waterway`` → Waterway,
@@ -26,10 +26,16 @@ of the window:
 * Daily energy limits: ``Max Energy Day`` (DSP) and ``Max Energy
   Year`` (non-storage hydro) as ``daily_sum`` user constraints.
 
+* PLEXOS ``Constraint`` objects, purchasers (electrolysers → hydrogen),
+  emissions, gas-zone offtake and REZ buses: see
+  :mod:`plexos2gtopt.aemo_isp_constraints` (``--legacy`` turns them all
+  off and reproduces the earlier output).  With fuel offtake on (the
+  default), thermal units carry ``fuel`` + ``heat_rate`` and ``gcost``
+  is the VO&M only; the fuel cost comes from ``Fuel.price``.
+
 What it does **not** do (see the scoping report): capacity expansion
-(``Max Units Built``/``Build Cost``), the 590 PLEXOS constraints (REZ,
-transmission groups, policy), line losses / MLFs, unit outages,
-purchasers (electrolysers), reserves.
+(``Max Units Built``/``Build Cost``), capacity / build constraints,
+line losses / MLFs, unit outages, reserves.
 
 Run as ``python -m plexos2gtopt.aemo_isp --help``.
 """
@@ -50,6 +56,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from . import aemo_isp_constraints as isp_c
 from .isp_traces import (
     TimesliceCalendar,
     TraceLocator,
@@ -78,6 +85,9 @@ class _Row:
     timeslices: tuple[str, ...]
     data_file: str | None  # Data File object name
     other_tag: bool
+    #: object ids of the non-Timeslice / non-Data-File tags (e.g. a
+    #: ``Variable`` multiplying a constraint coefficient)
+    others: tuple[int, ...] = ()
 
 
 class IspResolver:
@@ -145,6 +155,8 @@ class IspResolver:
             if text and mem is not None:
                 self.filename[self.obj[mem.child_object_id].name] = text
         self.missing_traces: set[str] = set()
+        #: number of trace() calls answered with zeros (file missing)
+        self.missing_hits = 0
         #: PLEXOS ``Filename`` texts actually read (for provenance)
         self.used_files: set[str] = set()
         self.calendar = calendar or self.build_calendar()
@@ -154,7 +166,7 @@ class IspResolver:
     ) -> _Row:
         timeslices: list[str] = []
         data_file = None
-        other = False
+        others: list[int] = []
         for oid in self.db.tag_for_data.get(d.data_id, []):
             o = self.obj.get(oid)
             if o is None:
@@ -164,14 +176,15 @@ class IspResolver:
             elif o.class_id == df_cid:
                 data_file = o.name
             else:
-                other = True
+                others.append(oid)
         return _Row(
             value=d.value,
             date_from=d.date_from,
             date_to=d.date_to,
             timeslices=tuple(timeslices),
             data_file=data_file,
-            other_tag=other,
+            other_tag=bool(others),
+            others=tuple(others),
         )
 
     # -- object helpers ------------------------------------------------------
@@ -251,6 +264,10 @@ class IspResolver:
             key=lambda r: (r.date_from or datetime.min, r.data_file is not None),
         )
 
+    def select_row(self, rows: list[_Row], day: date) -> _Row | None:
+        """Public form of the row-selection rule (see the class docstring)."""
+        return self._select(rows, day)
+
     def has(self, oid: int, prop: str) -> bool:
         return bool(self.rows.get((oid, prop)))
 
@@ -296,6 +313,7 @@ class IspResolver:
         fname = self.filename.get(data_file)
         path = self.locator.resolve(fname) if fname else None
         if path is None:
+            self.missing_hits += 1
             if data_file not in self.missing_traces:
                 logger.warning(
                     "trace for Data File %r not found (%s)", data_file, fname
@@ -333,6 +351,9 @@ class IspCaseOptions:
     include_hydro: bool = True
     include_batteries: bool = True
     demand_fail_cost: float | None = None
+    #: PLEXOS constraints / purchasers / H2 / emissions / fuel offtake /
+    #: REZ buses (see :mod:`plexos2gtopt.aemo_isp_constraints`)
+    isp: isp_c.ConstraintOptions = field(default_factory=isp_c.ConstraintOptions)
 
 
 @dataclass
@@ -390,6 +411,9 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
 
     # ---- generators -------------------------------------------------------
     generator_array: list[dict[str, Any]] = []
+    gen_info: dict[str, isp_c.GenInfo] = {}
+    fuel_array: list[dict[str, Any]] = []
+    fuel_price: dict[str, float] = {}
     turbine_gens: list[tuple[str, int, int | None, float]] = []
     user_constraints: list[dict[str, Any]] = []
     for o in sorted(res.objects("Generator"), key=lambda o: o.name):
@@ -427,6 +451,7 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
         hr = res.scalar(o.object_id, "Heat Rate", day0)
         fuel_cost = 0.0
         fuel_oid = gen_fuel.get(o.object_id)
+        price = 0.0
         if hr is not None and fuel_oid is not None:
             price = res.scalar(fuel_oid, "Price", day0, default=0.0) or 0.0
             fuel_cost = hr * price
@@ -441,6 +466,24 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
             "pmax": "pmax",
             "capacity": float(np.max(pmax)) if pmax.size else 0.0,
         }
+        fname = res.obj[fuel_oid].name if fuel_oid is not None else None
+        if opts.isp.fuels and hr is not None and hr > 0 and fname is not None:
+            # native fuel form: gcost = VO&M, fuel cost = heat_rate × price
+            item["gcost"] = round(vom, 6)
+            item["fuel"] = fname
+            item["heat_rate"] = hr
+            if fname not in fuel_price:
+                fuel_price[fname] = price
+                fuel_array.append(
+                    {"uid": len(fuel_array) + 1, "name": fname, "price": price}
+                )
+        gen_info[o.name] = isp_c.GenInfo(
+            name=o.name,
+            bus=bus,
+            aux=aux,
+            heat_rate=hr if hr is not None and hr > 0 else None,
+            fuel=fname,
+        )
         generator_array.append(item)
         sched[("Generator", "pmax")][uid] = pmax
         stats[f"gen_{gtype}"] += 1
@@ -565,12 +608,33 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
     }
     if battery_array:
         system["battery_array"] = battery_array
+    if fuel_array:
+        system["fuel_array"] = fuel_array
     for key, arr in hydro.items():
         if arr:
             system[key] = arr
+    isp = opts.isp
+    if isp.constraints or isp.purchasers or isp.emissions or isp.fuels:
+        view = isp_c.CaseView(
+            res=res,
+            day0=day0,
+            days=days,
+            gens=gen_info,
+            batteries={b["name"]: b["bus"] for b in battery_array},
+            lines={ln["name"] for ln in line_array},
+            node_load={
+                d["bus"]: sched[("Demand", "lmax")][d["uid"]] for d in demand_array
+            },
+            system=system,
+            sched=sched,
+        )
+        user_constraints.extend(isp_c.apply(view, isp, stats))
     if user_constraints:
         for i, uc in enumerate(user_constraints, start=1):
             uc["uid"] = i
+            rhs = uc.pop("_rhs", None)
+            if rhs is not None:
+                sched[("UserConstraint", "rhs")][i] = np.asarray(rhs, dtype=float)
         system["user_constraint_array"] = user_constraints
 
     planning = {
@@ -598,11 +662,11 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
             "start": day0.isoformat(),
             "days": days,
             "blocks": nb,
-            "buses": len(bus_array),
+            "buses": len(system["bus_array"]),
             "generators": len(generator_array),
             "batteries": len(battery_array),
-            "lines": len(line_array),
-            "demands": len(demand_array),
+            "lines": len(system["line_array"]),
+            "demands": len(system["demand_array"]),
             "user_constraints": len(user_constraints),
             "missing_traces": sorted(res.missing_traces),
             "trace_files": sorted(res.used_files),
@@ -825,6 +889,55 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     p.add_argument("--no-batteries", action="store_true")
     p.add_argument("--demand-fail-cost", type=float, default=None)
+    g = p.add_argument_group(
+        "PLEXOS constraints, purchasers, hydrogen, emissions (default: all on)"
+    )
+    g.add_argument(
+        "--no-isp-constraints",
+        action="store_true",
+        help="do not convert PLEXOS Constraint objects (REZ / group / special "
+        "limits); H2 consumption is still governed by --no-purchasers",
+    )
+    g.add_argument(
+        "--no-purchasers",
+        action="store_true",
+        help="no PLEXOS purchasers (electrolysers, fixed industrial loads) and "
+        "no H2 consumption constraints",
+    )
+    g.add_argument(
+        "--no-emissions", action="store_true", help="no emission accounting / budgets"
+    )
+    g.add_argument(
+        "--no-fuel-offtake",
+        action="store_true",
+        help="keep fuel cost folded into gcost; no gas-zone offtake limits",
+    )
+    g.add_argument(
+        "--no-rez-buses",
+        action="store_true",
+        help="keep REZ export/import limits as user constraints instead of "
+        "REZ buses with radial lines",
+    )
+    g.add_argument(
+        "--legacy",
+        action="store_true",
+        help="all of the above off: reproduces the pre-constraint converter output",
+    )
+    g.add_argument(
+        "--h2-model",
+        choices=("native", "demand"),
+        default="native",
+        help="native: electrolyser CarrierConverter -> HydrogenNode -> "
+        "HydrogenDemand (needs a gtopt with HydrogenDemand); demand: "
+        "electrolysers as Demand + window-sum user constraint (PLEXOS form)",
+    )
+    g.add_argument(
+        "--electrolyser-kwh-per-kg",
+        type=float,
+        default=isp_c.DEFAULT_ELECTROLYSER_KWH_PER_KG,
+        help="electrolyser specific consumption [kWh_e/kg H2] used for the H2 "
+        "efficiency (default: IASR 2026 PEM 2026-27, %(default)s)",
+    )
     p.add_argument("-l", "--log-level", default="INFO")
     return p.parse_args(argv)
 
@@ -845,6 +958,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_hydro=not args.no_hydro,
         include_batteries=not args.no_batteries,
         demand_fail_cost=args.demand_fail_cost,
+        isp=isp_c.ConstraintOptions(
+            constraints=not (args.no_isp_constraints or args.legacy),
+            purchasers=not (args.no_purchasers or args.legacy),
+            emissions=not (args.no_emissions or args.legacy),
+            fuels=not (args.no_fuel_offtake or args.legacy),
+            rez_buses=not (args.no_rez_buses or args.legacy),
+            h2_model=args.h2_model,
+            electrolyser_kwh_per_kg=args.electrolyser_kwh_per_kg,
+        ),
     )
     case = build_dispatch_case(opts)
     path = write_case(case, args.output_dir, name)

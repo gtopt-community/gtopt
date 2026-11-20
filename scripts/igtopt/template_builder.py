@@ -82,6 +82,7 @@ _TEMPLATE_SYSTEM_SHEETS = [
     "thermal_storage_array",
     "hydrogen_node_array",
     "hydrogen_storage_array",
+    "hydrogen_demand_array",
     "ammonia_node_array",
     "ammonia_storage_array",
     "carrier_converter_array",

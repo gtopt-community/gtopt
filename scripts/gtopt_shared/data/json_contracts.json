@@ -1404,6 +1404,36 @@
    },
    "nested": {}
   },
+  "HydrogenDemand": {
+   "fields": [
+    "uid",
+    "name",
+    "active",
+    "type",
+    "hydrogen_node",
+    "lmax",
+    "lmin",
+    "min_energy",
+    "max_energy",
+    "min_energy_cost",
+    "price"
+   ],
+   "header": "json_hydrogen_demand.hpp",
+   "kinds": {
+    "active": "variant",
+    "hydrogen_node": "variant",
+    "lmax": "variant",
+    "lmin": "variant",
+    "max_energy": "variant",
+    "min_energy": "variant",
+    "min_energy_cost": "variant",
+    "name": "string",
+    "price": "variant",
+    "type": "string",
+    "uid": "number"
+   },
+   "nested": {}
+  },
   "HydrogenNode": {
    "fields": [
     "uid",
@@ -3028,6 +3058,7 @@
     "thermal_storage_array",
     "hydrogen_node_array",
     "hydrogen_storage_array",
+    "hydrogen_demand_array",
     "ammonia_node_array",
     "ammonia_storage_array",
     "carrier_converter_array",
@@ -3087,6 +3118,7 @@
     "future_cost_array": "array",
     "generator_array": "array",
     "generator_profile_array": "array",
+    "hydrogen_demand_array": "array",
     "hydrogen_node_array": "array",
     "hydrogen_storage_array": "array",
     "inertia_provision_array": "array",
@@ -3139,6 +3171,7 @@
     "future_cost_array": "FutureCost",
     "generator_array": "Generator",
     "generator_profile_array": "GeneratorProfile",
+    "hydrogen_demand_array": "HydrogenDemand",
     "hydrogen_node_array": "HydrogenNode",
     "hydrogen_storage_array": "HydrogenStorage",
     "inertia_provision_array": "InertiaProvision",

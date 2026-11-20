@@ -1090,6 +1090,37 @@ TEST_SUITE("ConstraintParser")
     REQUIRE(expr.terms.size() == 2);
   }
 
+  TEST_CASE("Comment markers inside quoted element names are kept")
+  {
+    using namespace gtopt;
+
+    // AEMO ISP unit names such as "TARONG#2" contain '#'.
+    auto expr = ConstraintParser::parse(
+        "generator(\"TARONG#2\").generation"
+        " + generator('A//B').generation <= 100 # trailing comment");
+
+    CHECK(expr.rhs == doctest::Approx(100.0));
+    REQUIRE(expr.terms.size() == 2);
+    CHECK(expr.terms[0].element.value_or(ElementRef {}).element_id
+          == "TARONG#2");
+    CHECK(expr.terms[1].element.value_or(ElementRef {}).element_id == "A//B");
+  }
+
+  TEST_CASE("Parse hydrogen_demand and carrier_converter references")
+  {
+    using namespace gtopt;
+
+    auto expr = ConstraintParser::parse(
+        "hydrogen_demand('h2').load"
+        " - 0.5 * carrier_converter('ely').input <= 0");
+    REQUIRE(expr.terms.size() == 2);
+    CHECK(expr.terms[0].element.value_or(ElementRef {}).element_type
+          == "hydrogen_demand");
+    CHECK(expr.terms[1].element.value_or(ElementRef {}).element_type
+          == "carrier_converter");
+    CHECK(expr.terms[1].element.value_or(ElementRef {}).attribute == "input");
+  }
+
   // ── Cross-element constraints with new types ──────────────────────────
 
   TEST_CASE("Parse cross-element constraint with converter and battery")

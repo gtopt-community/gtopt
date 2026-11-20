@@ -35,6 +35,7 @@ class BatteryLP;
 class BusLP;
 class CarrierConverterLP;
 class HydrogenNodeLP;
+class HydrogenDemandLP;
 class HydrogenStorageLP;
 class ThermalNodeLP;
 class ThermalStorageLP;
@@ -114,6 +115,7 @@ using lp_element_types_t = std::tuple<BusLP,
                                       ThermalStorageLP,
                                       HydrogenNodeLP,
                                       HydrogenStorageLP,
+                                      HydrogenDemandLP,
                                       AmmoniaNodeLP,
                                       AmmoniaStorageLP,
                                       CarrierConverterLP,

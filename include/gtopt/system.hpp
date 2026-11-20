@@ -45,6 +45,7 @@
 #include <gtopt/future_cost.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
+#include <gtopt/hydrogen_demand.hpp>
 #include <gtopt/hydrogen_node.hpp>
 #include <gtopt/hydrogen_storage.hpp>
 #include <gtopt/inertia_provision.hpp>
@@ -121,6 +122,9 @@ struct System
   Array<HydrogenStorage>
       hydrogen_storage_array {};  ///< Salt cavern / LH₂ / LOHC peers of
                                   ///< ``Battery`` on ``StorageLP<>``.
+  Array<HydrogenDemand>
+      hydrogen_demand_array {};  ///< Hydrogen offtakes (sinks) with
+                                 ///< optional per-stage energy targets.
 
   // ── Ammonia carrier (long-term H₂ via Haber-Bosch / cracker) ─────────────
   Array<AmmoniaNode>

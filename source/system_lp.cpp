@@ -699,6 +699,8 @@ void create_collections(const auto& system_context,
       make_collection<HydrogenNodeLP>(ic, sys.hydrogen_node_array);
   std::get<Collection<HydrogenStorageLP>>(colls) =
       make_collection<HydrogenStorageLP>(ic, sys.hydrogen_storage_array);
+  std::get<Collection<HydrogenDemandLP>>(colls) =
+      make_collection<HydrogenDemandLP>(ic, sys.hydrogen_demand_array);
   std::get<Collection<AmmoniaNodeLP>>(colls) =
       make_collection<AmmoniaNodeLP>(ic, sys.ammonia_node_array);
   std::get<Collection<AmmoniaStorageLP>>(colls) =
@@ -843,6 +845,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<ThermalStorageLP>(sim, sys.thermal_storage_array);
   register_element_names<HydrogenNodeLP>(sim, sys.hydrogen_node_array);
   register_element_names<HydrogenStorageLP>(sim, sys.hydrogen_storage_array);
+  register_element_names<HydrogenDemandLP>(sim, sys.hydrogen_demand_array);
   register_element_names<AmmoniaNodeLP>(sim, sys.ammonia_node_array);
   register_element_names<AmmoniaStorageLP>(sim, sys.ammonia_storage_array);
   register_element_names<CarrierConverterLP>(sim, sys.carrier_converter_array);

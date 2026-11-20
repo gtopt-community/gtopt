@@ -39,6 +39,7 @@
 #include <gtopt/future_cost_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
+#include <gtopt/hydrogen_demand_lp.hpp>
 #include <gtopt/hydrogen_node_lp.hpp>
 #include <gtopt/hydrogen_storage_lp.hpp>
 #include <gtopt/inertia_provision_lp.hpp>
@@ -180,6 +181,7 @@ static_assert(AddToLP<ThermalNodeLP>);
 static_assert(AddToLP<ThermalStorageLP>);
 static_assert(AddToLP<HydrogenNodeLP>);
 static_assert(AddToLP<HydrogenStorageLP>);
+static_assert(AddToLP<HydrogenDemandLP>);
 static_assert(AddToLP<AmmoniaNodeLP>);
 static_assert(AddToLP<AmmoniaStorageLP>);
 static_assert(AddToLP<CarrierConverterLP>);
@@ -410,6 +412,7 @@ public:
                                    Collection<ThermalStorageLP>,
                                    Collection<HydrogenNodeLP>,
                                    Collection<HydrogenStorageLP>,
+                                   Collection<HydrogenDemandLP>,
                                    Collection<AmmoniaNodeLP>,
                                    Collection<AmmoniaStorageLP>,
                                    Collection<CarrierConverterLP>,

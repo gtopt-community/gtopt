@@ -34,6 +34,7 @@
 #include <gtopt/json/json_future_cost.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
+#include <gtopt/json/json_hydrogen_demand.hpp>
 #include <gtopt/json/json_hydrogen_node.hpp>
 #include <gtopt/json/json_hydrogen_storage.hpp>
 #include <gtopt/json/json_inertia_provision.hpp>
@@ -96,6 +97,9 @@ struct json_data_contract<System>
       json_array_null<"hydrogen_storage_array",
                       Array<HydrogenStorage>,
                       HydrogenStorage>,
+      json_array_null<"hydrogen_demand_array",
+                      Array<HydrogenDemand>,
+                      HydrogenDemand>,
       json_array_null<"ammonia_node_array", Array<AmmoniaNode>, AmmoniaNode>,
       json_array_null<"ammonia_storage_array",
                       Array<AmmoniaStorage>,
@@ -175,6 +179,7 @@ struct json_data_contract<System>
                                  system.thermal_storage_array,
                                  system.hydrogen_node_array,
                                  system.hydrogen_storage_array,
+                                 system.hydrogen_demand_array,
                                  system.ammonia_node_array,
                                  system.ammonia_storage_array,
                                  system.carrier_converter_array,
