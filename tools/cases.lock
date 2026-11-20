@@ -2,4 +2,4 @@
 # need large external cases (see tools/get_cases.sh and GTOPT_CASES_DIR).
 # Bump `commit` when gtopt starts depending on newer case data.
 url=https://github.com/gtopt-community/gtopt-cases.git
-commit=900fdd06b40b53cfe3c909eb02325f251ab866c0
+commit=d6e502a8f233e84e77c07bf6558434363dcd5c30
