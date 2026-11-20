@@ -2,104 +2,117 @@
 
 These tests validate the **magnitude claim** at the heart of the
 unified water-shortfall pricing helper: under the legacy paths
-``Reservoir.efin_cost`` is ~5,000× too cheap relative to the energy-
-equivalent value of stored water, and ``FlowRight.fail_cost`` is a
-single hard-coded number for every FR irrespective of the central's
-own ``Rendi``.
+``Reservoir.efin_cost`` is orders of magnitude too cheap relative to
+the energy-equivalent value of stored water, and ``FlowRight.fail_cost``
+is a single hard-coded number for every FR irrespective of the
+central's own ``Rendi``.
 
 The new pipeline replaces both with a single principled formula
-(see ``plp2gtopt._water_value``) — these tests run plp2gtopt on the
-real large hydrothermal PLP case (when present locally) and confirm that the
-emitted prices match the documented anchor × lost_pf reference table
-within a tight tolerance, and that the legacy path produces values
-*orders of magnitude smaller*.
+(see :mod:`gtopt_shared.water_values`) — these tests run plp2gtopt on
+the published CEN 2-year PLP case ``plp_2y`` (external case repository,
+``GTOPT_CASES_DIR``; see ``tools/get_cases.sh``) and confirm that
 
-The large hydrothermal PLP case is not always available in the sandbox; when
-absent the entire test class is skipped.
+* the cascade lost production factor (``lost_pf``) of every reservoir
+  matches the reference table below, end to end through ``efin_cost``
+  (``anchor × lost_pf × 1e6/3600``) on a copy of the case WITHOUT the
+  boundary-cut planos;
+* with the planos present, ``efin_cost`` is the boundary-cut lower-bound
+  water value read back from the emitted ``boundary_cuts.csv`` (the
+  2026-06-16 OVERWRITE rule), in the same ``$/hm³`` unit gtopt loads;
+* the legacy path produces values *orders of magnitude smaller*.
+
+The case is skipped when ``GTOPT_CASES_DIR`` does not provide it.
+
+``efin_cost`` is only emitted for a SOFT terminal floor, so every
+conversion here passes ``--soft-storage-bounds --no-cuts-govern-terminal``
+(the defaults since 2026-07 are PLP's hard ``vol_end >= efin`` bound and
+cut-governed terminal volumes, both of which emit no ``efin_cost``).
 """
 
 from __future__ import annotations
 
+import csv
 import json
-import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from gtopt_shared.water_values import WaterValueResolver
+from gtopt_shared.testing.external_cases import (
+    external_case_path,
+    missing_case_reason,
+)
+from gtopt_shared.water_values import WaterValueResolver, cut_lower_bound
 
-# Reference ``lost_pf`` values — these are intrinsic to the large-case
-# topology (cascade walks, cenre lifts) and remain stable across
-# changes to the anchor formula.  The expected magnitudes are
-# computed at runtime as ``anchor × lost_pf`` (FR) or
-# ``anchor × lost_pf × 1e6/3600`` (reservoir efin), where ``anchor``
-# is whatever the resolver returns from the case data.
+# Reference cascade ``lost_pf`` per reservoir on plp_2y, in MW/(m³/s).
 #
-# Under the current ``ANCHOR = (max_unit_gcost + min_falla_gcost) / 2``
-# formula the absolute magnitudes are smaller than under the prior
-# ``max(falla.gcost) + 1`` formula by the ratio of the two anchors,
-# but the *proportionality* between reservoirs is unchanged because
-# every cost surface scales linearly in the anchor.
+# ``WaterValueResolver.cascade_lost_pf`` walks ``ser_hid`` (plpcnfce.dat)
+# from the reservoir's own central, summing ``max_rendi`` of every
+# ``embalse`` (start only) / ``serie`` unit with ``bus > 0``; it skips
+# ``pasada`` units and bus-0 transit nodes (``B_*``, irrigation ``Rie*``
+# withdrawals) and stops at the next downstream ``embalse``.
+# ``max_rendi = max(plpcnfce Rendi, plpcenre.dat efficiency @ vmax)``;
+# a "cenre lift" marks a reservoir whose plpcenre curve at full volume
+# exceeds its static Rendi.  Derivation (Rendi values from plpcnfce.dat):
 #
-# Re-baselined 2026-05-11 after switching:
+#   reservoir  | lost_pf  | chain (contributing units)
+#   -----------|---------:|----------------------------------------------
+#   LMAULE     | 8.770    | LMAULE bus=0 (skip) → LOS_CONDORES 6.50 →
+#              |          | ISLA 0.81 → CURILLINQUE 1.01 → LOMA_ALTA 0.45
+#              |          | → stop at PEHUENCHE (embalse)
+#   CIPRESES   | 5.054    | CIPRESES 2.784 → ISLA 0.81 → CURILLINQUE 1.01
+#              |          | → LOMA_ALTA 0.45 → stop at PEHUENCHE
+#   ELTORO     | 6.627930 | ELTORO 5.027930 (cenre lift of Rendi 4.80) →
+#              |          | ANTUCO 1.60
+#   COLBUN     | 1.942115 | COLBUN 1.612115 (cenre lift of 1.53) →
+#              |          | MACHICURA 0.33
+#   CANUTILLAR | 2.074676 | CANUTILLAR 2.074676 (cenre lift of 2.00)
+#   RALCO      | 1.745756 | RALCO 1.745756 (cenre lift of 1.575) → stop at
+#              |          | PANGUE (embalse)
+#   PEHUENCHE  | 1.780    | PEHUENCHE 1.78 (downstream nodes all bus=0)
+#   PANGUE     | 1.230    | PANGUE 0.80 → ANGOSTURA 0.43
+#   PILMAIQUEN | 0.905    | PILMAIQUEN 0.27 → RUCATAYO 0.315 → LOS_LAGOS 0.32
+#   RAPEL      | 0.640    | RAPEL 0.64 (no downstream unit)
 #
-#   * cascade walk to **stop at the next reservoir** (instead of
-#     walking to the ocean) — affects LMAULE / CIPRESES / RALCO
-#     whose downstream chains hit a `type=embalse` central in
-#     real PLP topology, AND
-#   * cascade walk to **exclude pasada** centrals from the PF sum
-#     (only embalse / serie contribute), AND
-#   * anchor to ``avg(termica.gcost)`` (instead of ``max(non-falla.gcost)``).
-#
-# Per-reservoir change vs. the old cascade-to-ocean rule:
-#
-#   reservoir   | old   | new    | diff   reason
-#   ------------|------:|-------:|------|-----------------------
-#   LMAULE      | 10.050| 8.270  | -1.78 stops at PEHUENCHE (embalse)
-#   CIPRESES    | 6.914 | 5.134  | -1.78 stops at next embalse
-#   RALCO       | 2.976 | 1.746  | -1.23 stops at next embalse
-#   (all others unchanged — their cascade already terminated at
-#   the ocean without crossing an intermediate embalse)
-#
-# FR (junction_lost_pf) values are unchanged because that path
-# uses only the FR-bound central's own ``max_rendi`` and was not
-# modified by the cascade rules.
+# The expected ``efin_cost`` is ``anchor × lost_pf × 1e6/3600`` $/hm³ with
+# ``anchor = 0.75·avg(termica gcost) + 0.25·min(falla gcost)`` read back
+# from the emitted JSON (≈ 215.11 $/MWh on plp_2y), so the table pins the
+# cascade / cenre-lift logic independently of the anchor formula.
 _REFERENCE_RESERVOIRS_LOST_PF = {
-    "LMAULE": 8.270,
-    "CIPRESES": 5.134,
-    "ELTORO": 6.627930,  # cenre lift
-    "RALCO": 1.745756,  # cenre lift
-    "CANUTILLAR": 2.074676,  # cenre lift
-    "COLBUN": 1.942115,  # cenre lift
+    "LMAULE": 8.770,
+    "CIPRESES": 5.054,
+    "ELTORO": 6.627930,
+    "COLBUN": 1.942115,
+    "CANUTILLAR": 2.074676,
+    "RALCO": 1.745756,
     "PEHUENCHE": 1.780,
     "PANGUE": 1.230,
     "PILMAIQUEN": 0.905,
     "RAPEL": 0.640,
 }
 
-# Relative tolerance — set to 1e-3 to absorb the 2-d.p. round
-# applied by `fail_cost` / `efin_cost`.  Tight enough to catch
-# material logic regressions in the cascade / cenre-lift logic
-# while accepting the rounding noise on small-magnitude outputs.
+# Relative tolerance — absorbs the 2-d.p. round applied by
+# ``fail_cost`` / ``efin_cost`` and the 6-d.p. table above.  Tight enough
+# to catch material logic regressions in the cascade / cenre-lift logic.
 _TOL_REL = 1e-3
 
+_PLP_2Y_REL = "chile/medium_long_term/plp_2y/source"
 
-def _large_case_dir() -> Path | None:
-    """Return the external large PLP case directory if it has the required files.
+# The boundary-cut planos files; dropped from the case copy used to
+# exercise the no-cut (``anchor × lost_pf``) path end to end.
+_PLANOS_STEMS = ("plpplem1.dat", "plpplem2.dat", "plpplaem1.dat", "plpplaem2.dat")
 
-    The case is not distributed with gtopt; point the
-    ``GTOPT_LARGE_PLP_CASE`` environment variable at a local PLP case
-    directory to enable these tests.
+
+def _plp_2y_dir() -> Path | None:
+    """Return the plp_2y PLP source directory if it has the required files.
+
+    plp2gtopt reads ``.dat`` or ``.dat.xz`` transparently; either is fine.
     """
-    env = os.environ.get("GTOPT_LARGE_PLP_CASE")
-    if not env:
+    case_dir = external_case_path(_PLP_2Y_REL)
+    if case_dir is None or not case_dir.is_dir():
         return None
-    case_dir = Path(env)
-    if not case_dir.is_dir():
-        return None
-    # plp2gtopt reads .dat or .dat.xz transparently; either is fine.
     for required in ("plpcnfce.dat", "plpcenre.dat", "plpblo.dat"):
         if (
             not (case_dir / required).exists()
@@ -109,14 +122,26 @@ def _large_case_dir() -> Path | None:
     return case_dir
 
 
-def _convert_large_case(
-    case_dir: Path, output_dir: Path, *, extra_flags: list[str]
-) -> dict:
-    """Run plp2gtopt on the large hydrothermal case and return parsed planning JSON.
+def _copy_without_planos(case_dir: Path, dest: Path) -> Path:
+    """Copy *case_dir* to *dest* minus the boundary-cut planos files."""
+    dest.mkdir(parents=True, exist_ok=True)
+    for src in case_dir.iterdir():
+        if not src.is_file():
+            continue
+        if any(src.name in (stem, f"{stem}.xz") for stem in _PLANOS_STEMS):
+            continue
+        shutil.copy2(src, dest / src.name)
+    return dest
 
-    Always uses ``-F csv -t 1y --first-scenario --no-check`` to keep
-    the run fast and avoid downstream consistency checks that depend
-    on solver plugins.
+
+def _convert(case_dir: Path, output_dir: Path, *, extra_flags: list[str]) -> dict:
+    """Run plp2gtopt on a PLP case and return the parsed planning JSON.
+
+    Always uses ``-F csv -t 1y --first-scenario --no-check`` to keep the
+    run fast and avoid downstream checks that depend on solver plugins,
+    plus ``--soft-storage-bounds --no-cuts-govern-terminal`` so the soft,
+    priced terminal slack (``efin_cost``) these tests pin is emitted (see
+    the module docstring).
 
     The returned dict carries a ``_output_dir`` key pointing at the
     conversion's output directory so callers can inspect side
@@ -135,6 +160,8 @@ def _convert_large_case(
         "1y",
         "--first-scenario",
         "--no-check",
+        "--soft-storage-bounds",
+        "--no-cuts-govern-terminal",
         *extra_flags,
     ]
     result = subprocess.run(
@@ -147,7 +174,6 @@ def _convert_large_case(
     assert result.returncode == 0, (
         f"plp2gtopt failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
-    json_files = list(output_dir.glob("*.json"))
     # Filter out auxiliary fragments that share the .json extension.
     _aux = {
         "laja_water_rights.json",
@@ -157,47 +183,37 @@ def _convert_large_case(
         # of the converter's planning artefact set.
         "plp2gtopt_state.json",
     }
-    json_files = [p for p in json_files if p.name not in _aux]
+    json_files = [p for p in output_dir.glob("*.json") if p.name not in _aux]
     assert len(json_files) == 1, f"Expected 1 main JSON file, got {json_files}"
     with open(json_files[0], encoding="utf-8") as f:
         planning = json.load(f)
-    # Stash the output dir so cap-aware tests can re-read boundary_cuts.csv.
     planning["_output_dir"] = str(output_dir)
     return planning
 
 
-def _read_boundary_cut_values(output_dir: Path) -> dict[str, float]:
+def _read_boundary_cut_values(output_dir: Path, *, pre_divided: bool) -> dict:
     """Compute per-reservoir cut **lower-bound** water value from the CSV.
 
     Mirrors :meth:`PlanosParser.lower_bound_water_value_by_reservoir`
-    (with ``num_scenarios=None``) at test time so the test does not
-    depend on the parser's internal dict.  The lower bound is
-    ``-max(signed coeff)`` positive-floored (see
-    :func:`gtopt_shared.water_values.cut_lower_bound`).
+    (with ``num_scenarios=None``) from the emitted ``boundary_cuts.csv``
+    — the file gtopt actually loads — so the test pins that the
+    ``efin_cost`` overwrite and the loaded cuts share one ``$/hm³``
+    unit.  The lower bound is ``-max(signed coeff)`` positive-floored
+    (see :func:`gtopt_shared.water_values.cut_lower_bound`).
 
-    The CSV gradients on disk are scaled by ``1/NVarPhi`` (see
-    :func:`planos_writer.write_boundary_cuts_csv`); the writer's
-    ``_build_cut_water_values`` consumes the **raw** (un-scaled)
-    value instead.  To recover that raw value we multiply by
-    ``NVarPhi`` — inferred as ``max(scene)`` across rows so the test
-    stays self-contained.
+    Under the legacy ``combined`` / ``separated`` modes the CSV
+    gradients are pre-divided by ``NVarPhi`` (``pre_divided=True``) and
+    are multiplied back by ``NVarPhi`` = ``max(scene)``.  The default
+    ``phi_expectation`` mode writes the CSV raw (``pre_divided=False``).
     """
-    import csv as _csv
-
-    from gtopt_shared.water_values import cut_lower_bound  # noqa: PLC0415
-
     csv_path = output_dir / "boundary_cuts.csv"
     if not csv_path.exists():
         return {}
     signed: dict[str, list[float]] = {}
     max_scene = 1
     with open(csv_path, encoding="utf-8") as f:
-        reader = _csv.DictReader(f)
-        # Reservoir columns are everything after the fixed 3 header
-        # fields (``iteration``, ``scene``, ``rhs``).  The legacy
-        # leading ``name`` column was retired in 2026-05; the filter
-        # still names it defensively in case an older boundary_cuts.csv
-        # is read from disk.
+        reader = csv.DictReader(f)
+        # Reservoir columns are everything after the fixed header fields.
         cols = [
             c
             for c in reader.fieldnames or []
@@ -213,10 +229,9 @@ def _read_boundary_cut_values(output_dir: Path) -> dict[str, float]:
                     v = float(row[c])
                 except (TypeError, ValueError, KeyError):
                     continue
-                if v == 0.0:
-                    continue
-                signed.setdefault(c, []).append(v)
-    nvarphi = float(max_scene if max_scene > 0 else 1)
+                if v != 0.0:
+                    signed.setdefault(c, []).append(v)
+    nvarphi = float(max_scene if pre_divided else 1)
     out: dict[str, float] = {}
     for c, vals in signed.items():
         lb = cut_lower_bound([v * nvarphi for v in vals])
@@ -225,124 +240,108 @@ def _read_boundary_cut_values(output_dir: Path) -> dict[str, float]:
     return out
 
 
+def _resolved_anchor(planning: dict) -> float:
+    """Recover the anchor (in ``$/MWh``) from the emitted JSON.
+
+    Every turbine-linked generator with ``pmin > 0`` keeps its ``pmin``
+    as a soft floor priced at ``pmin_fcost == anchor`` exactly, so the
+    anchor is read directly off the first positive ``pmin_fcost``.
+    """
+    for gen in planning.get("system", {}).get("generator_array", []):
+        pmin_fcost = gen.get("pmin_fcost")
+        if isinstance(pmin_fcost, (int, float)) and pmin_fcost > 0:
+            return float(pmin_fcost)
+    raise AssertionError("No generator carries a positive pmin_fcost (anchor)")
+
+
+def _reservoir(planning: dict, name: str) -> dict:
+    reservoirs = planning.get("system", {}).get("reservoir_array", [])
+    match = next((r for r in reservoirs if r.get("name") == name), None)
+    assert match is not None, f"Reservoir {name} not found in planning"
+    return match
+
+
 @pytest.mark.integration
-@pytest.mark.skipif(
-    _large_case_dir() is None,
-    reason="GTOPT_LARGE_PLP_CASE not set or case not available",
-)
+@pytest.mark.skipif(_plp_2y_dir() is None, reason=missing_case_reason(_PLP_2Y_REL))
 class TestAutoWaterFailCostMagnitude:
-    """End-to-end magnitude tests on the real large hydrothermal PLP case.
+    """End-to-end magnitude tests on the plp_2y case.
 
-    Runs plp2gtopt twice — once with the legacy path, once with
-    ``--auto-water-fail-cost`` — and verifies:
-
-    * The auto values match the documented reference table exactly
-      (±1 in PLP units).
-    * The legacy values are at least three orders of magnitude smaller
-      (the original design issue: vrebemb cost capped at 500 $/hm³ vs.
-      the 10⁵–10⁶ $/hm³ the energy-equivalent argument requires).
+    Runs plp2gtopt three times — ``--auto-water-fail-cost`` with and
+    without the boundary-cut planos, and the legacy path — and verifies
+    the reference table, the cut overwrite and the legacy magnitude gap.
     """
 
     @pytest.fixture(scope="class")
     def planning_auto(self, tmp_path_factory):
-        case_dir = _large_case_dir()
+        case_dir = _plp_2y_dir()
         assert case_dir is not None  # gated by skipif
-        out = tmp_path_factory.mktemp("large_case_auto")
-        return _convert_large_case(
-            case_dir,
-            out,
-            extra_flags=["--auto-water-fail-cost"],
-        )
+        out = tmp_path_factory.mktemp("plp2y_auto")
+        return _convert(case_dir, out, extra_flags=["--auto-water-fail-cost"])
+
+    @pytest.fixture(scope="class")
+    def planning_auto_nocuts(self, tmp_path_factory):
+        case_dir = _plp_2y_dir()
+        assert case_dir is not None
+        src = _copy_without_planos(case_dir, tmp_path_factory.mktemp("plp2y_src"))
+        out = tmp_path_factory.mktemp("plp2y_auto_nocuts")
+        return _convert(src, out, extra_flags=["--auto-water-fail-cost"])
 
     @pytest.fixture(scope="class")
     def planning_legacy(self, tmp_path_factory):
-        case_dir = _large_case_dir()
+        case_dir = _plp_2y_dir()
         assert case_dir is not None
-        out = tmp_path_factory.mktemp("large_case_legacy")
-        return _convert_large_case(
-            case_dir,
-            out,
-            extra_flags=["--no-auto-water-fail-cost"],
-        )
-
-    @staticmethod
-    def _resolved_anchor(planning_auto) -> float:
-        """Recover the anchor (in ``$/MWh``) from the emitted JSON.
-
-        Hydro generator ``pmin`` is no longer converted into a
-        ``FlowRight``; instead every turbine-linked generator with
-        ``pmin > 0`` keeps its ``pmin`` (soft floor) and carries
-        ``pmin_fcost == anchor`` exactly (the water-value anchor in
-        ``$/MWh``).  We therefore read the anchor directly off the
-        first generator that exposes a positive ``pmin_fcost``.
-
-        This is exact (no back-solving) and immune to the
-        boundary-cut ``efin_cost`` cap that distorts the
-        reservoir-derived calibration used as a last-resort fallback.
-        """
-        gens = planning_auto.get("system", {}).get("generator_array", [])
-        for gen in gens:
-            pmin_fcost = gen.get("pmin_fcost")
-            if isinstance(pmin_fcost, (int, float)) and pmin_fcost > 0:
-                return float(pmin_fcost)
-        # Fallback (legacy path / no priced generators in case): assume
-        # LMAULE is not capped — best-effort calibration.
-        reservoirs = planning_auto.get("system", {}).get("reservoir_array", [])
-        lmaule = next((r for r in reservoirs if r.get("name") == "LMAULE"), None)
-        assert lmaule is not None and lmaule.get("efin_cost") is not None
-        lost_pf = _REFERENCE_RESERVOIRS_LOST_PF["LMAULE"]
-        return lmaule["efin_cost"] / lost_pf * 3600.0 / 1e6
+        out = tmp_path_factory.mktemp("plp2y_legacy")
+        return _convert(case_dir, out, extra_flags=["--no-auto-water-fail-cost"])
 
     # ------------------------------------------------------------------
-    # Auto pipeline — proportionality across reservoirs
+    # Auto pipeline without cuts — cascade lost_pf reference table
     # ------------------------------------------------------------------
-    # Writer and test now read ``last_df`` from the SAME source — the
-    # emitted simulation's ``stage_array[-1].discount_factor`` (the
-    # value gtopt actually uses at solve time).  The 2026-05-16 fix
-    # to ``_build_cut_water_values`` aligned them; this test now passes.
     @pytest.mark.parametrize(
         "name,lost_pf",
         list(_REFERENCE_RESERVOIRS_LOST_PF.items()),
     )
-    def test_reservoir_efin_cost_matches_reference(self, planning_auto, name, lost_pf):
-        """``efin_cost`` = cut lower bound when cuts exist, else the formula.
-
-        Semantics changed (2026-06-16): the boundary-cut value now
-        **OVERWRITES** the anchor-derived formula rather than capping it
-        via ``min(...)``.  Reservoirs with a boundary cut take the cut
-        lower-bound water value (``-max(signed coeff)`` positive-floored,
-        un-discounted by the last stage's ``discount_factor``); reservoirs
-        without a cut keep the ``anchor × lost_pf`` formula.  This test
-        still exercises the cascade / cenre-lift chain that produces
-        ``lost_pf`` (used for the no-cut fallback).
-        """
-        anchor = self._resolved_anchor(planning_auto)
-        formula_efin = anchor * lost_pf * 1e6 / 3600.0
-        # Read the boundary-cut CSV emitted by this same conversion and
-        # compute the per-reservoir cut lower-bound water value.  The
-        # writer additionally un-discounts each value by the last stage's
-        # ``discount_factor`` (= 1/FactTasa from plpeta.dat) — mirror that.
-        out_dir = Path(planning_auto["_output_dir"])
-        cut_values = _read_boundary_cut_values(out_dir)
-        stages = planning_auto.get("simulation", {}).get("stage_array", [])
-        last_df = 1.0
-        if stages:
-            last_df = float(stages[-1].get("discount_factor", 1.0)) or 1.0
-        cut = cut_values.get(name)
-        if cut is not None and last_df > 0.0 and last_df != 1.0:
-            cut = cut / last_df
-        # OVERWRITE: a present cut value replaces the formula entirely.
-        expected_efin = cut if cut is not None else formula_efin
-
-        reservoirs = planning_auto.get("system", {}).get("reservoir_array", [])
-        match = next((r for r in reservoirs if r.get("name") == name), None)
-        assert match is not None, f"Reservoir {name} not found in planning"
-        actual = match.get("efin_cost")
+    def test_reservoir_efin_cost_matches_reference(
+        self, planning_auto_nocuts, name, lost_pf
+    ):
+        """No boundary cuts ⇒ ``efin_cost = anchor × lost_pf × 1e6/3600``."""
+        assert not (
+            Path(planning_auto_nocuts["_output_dir"]) / "boundary_cuts.csv"
+        ).exists()
+        anchor = _resolved_anchor(planning_auto_nocuts)
+        expected = anchor * lost_pf * 1e6 / 3600.0
+        actual = _reservoir(planning_auto_nocuts, name).get("efin_cost")
         assert actual is not None, f"Reservoir {name} has no efin_cost"
-        assert actual == pytest.approx(expected_efin, rel=_TOL_REL), (
-            f"{name}: efin_cost={actual} vs expected={expected_efin} "
-            f"(cut={cut}, formula={formula_efin}, anchor={anchor:.2f}, "
-            f"lost_pf={lost_pf})"
+        assert actual == pytest.approx(expected, rel=_TOL_REL), (
+            f"{name}: efin_cost={actual} vs anchor×lost_pf={expected} "
+            f"(anchor={anchor:.2f}, lost_pf={lost_pf})"
+        )
+
+    # ------------------------------------------------------------------
+    # Auto pipeline with cuts — boundary-cut overwrite
+    # ------------------------------------------------------------------
+    @pytest.mark.parametrize("name", list(_REFERENCE_RESERVOIRS_LOST_PF))
+    def test_reservoir_efin_cost_from_boundary_cuts(self, planning_auto, name):
+        """Cut-covered reservoir ⇒ ``efin_cost`` is the cut lower bound.
+
+        Semantics (2026-06-16): the boundary-cut value **OVERWRITES** the
+        anchor-derived formula.  It is the cut lower-bound water value of
+        the emitted ``boundary_cuts.csv`` (``$/hm³``, the unit gtopt
+        loads), un-discounted by the last stage's ``discount_factor``.
+        """
+        fcf = (planning_auto["system"].get("future_cost_array") or [{}])[0]
+        cut_values = _read_boundary_cut_values(
+            Path(planning_auto["_output_dir"]),
+            pre_divided=fcf.get("mode") in ("combined", "separated"),
+        )
+        assert name in cut_values, f"{name} not covered by the plp_2y cuts"
+        stages = planning_auto["simulation"]["stage_array"]
+        last_df = float(stages[-1].get("discount_factor", 1.0)) or 1.0
+        expected = cut_values[name] / last_df
+        actual = _reservoir(planning_auto, name).get("efin_cost")
+        assert actual is not None, f"Reservoir {name} has no efin_cost"
+        assert actual == pytest.approx(expected, rel=_TOL_REL), (
+            f"{name}: efin_cost={actual} vs boundary-cut value {expected} "
+            f"(csv lower bound {cut_values[name]} / discount {last_df})"
         )
 
     def test_hydro_pmin_kept_as_soft_floor(self, planning_auto):
@@ -351,14 +350,11 @@ class TestAutoWaterFailCostMagnitude:
         The legacy path converted generator ``pmin`` into a
         ``*_pmin_as_flow_right`` FlowRight; the current pipeline keeps
         ``pmin`` on the generator and adds ``pmin_fcost == anchor``
-        ($/MWh) so the floor is soft (unserved-energy slack priced at
-        the water value).  Assert:
-
-        * at least one generator carries ``pmin_fcost == anchor``
-          while keeping a positive ``pmin``, and
-        * no ``*_pmin_as_flow_right`` FlowRight survives anywhere.
+        ($/MWh) so the floor is soft.  Assert every priced generator
+        carries the same anchor and no ``*_pmin_as_flow_right`` FlowRight
+        survives anywhere.
         """
-        anchor = self._resolved_anchor(planning_auto)
+        anchor = _resolved_anchor(planning_auto)
         gens = planning_auto.get("system", {}).get("generator_array", [])
         priced = [
             g
@@ -380,41 +376,57 @@ class TestAutoWaterFailCostMagnitude:
     # ------------------------------------------------------------------
     # Legacy path — magnitude justification
     # ------------------------------------------------------------------
-    def test_legacy_efin_cost_is_orders_of_magnitude_smaller(self, planning_legacy):
-        """Legacy ``efin_cost`` is in the 0.0005-500 $/hm³ band — far below
-        the 1.7M $/hm³ that the cascade-energy-equivalent argument
-        produces for LMAULE.
+    def test_legacy_efin_cost_is_orders_of_magnitude_smaller(
+        self, planning_legacy, planning_auto_nocuts
+    ):
+        """Legacy ``efin_cost`` (vrebemb / CVert, capped at 500 $/hm³ by
+        ``--vert-cost-cap``) sits far below the energy-equivalent value of
+        stored water that the auto pipeline produces.
 
-        This is the regression the new helper closes: under the legacy
-        cascade, an LP can manufacture fictitious water through the
-        slack at ~5,000× discount relative to the demand-fail penalty.
+        This is the regression the helper closes: under the legacy
+        cascade an LP can manufacture fictitious water through the slack
+        at a deep discount relative to the demand-fail penalty.
         """
         reservoirs = planning_legacy.get("system", {}).get("reservoir_array", [])
-        # Legacy must produce *some* finite efin_cost on at least one
-        # reservoir (otherwise the test fixture is broken).
         any_legacy = [r.get("efin_cost") for r in reservoirs if r.get("efin_cost")]
         assert any_legacy, "Legacy run produced no efin_cost values"
         max_legacy = max(any_legacy)
-        # Reference auto value for LMAULE is 1.7M $/hm³.  Legacy is
-        # capped at 500 $/hm³ (default --vert-cost-cap), so even the
-        # largest legacy value is at least 1000× smaller.
         assert max_legacy < 10_000.0, (
             f"Legacy max efin_cost {max_legacy} unexpectedly large; "
             "auto-pipeline magnitude justification may be invalid"
         )
-        # The auto-pipeline magnitude is anchor × LMAULE.lost_pf × 1e6/3600.
-        # Even with a conservative anchor of 100 $/MWh (well below any
-        # large-case electricity price), LMAULE's cascade_pf=10.05 gives
-        # an auto efin_cost of ~280 k $/hm³ — orders of magnitude above
-        # the legacy cap.
-        conservative_anchor = 100.0  # $/MWh — lower bound for any case
-        auto_lower_bound = (
-            conservative_anchor * _REFERENCE_RESERVOIRS_LOST_PF["LMAULE"] * 1e6 / 3600.0
-        )
-        ratio = auto_lower_bound / max(max_legacy, 1e-9)
+        # LMAULE's auto value: anchor (≈215 $/MWh) × lost_pf 8.77 × 1e6/3600
+        # ≈ 524 k $/hm³ — three orders of magnitude above the legacy cap.
+        lmaule_auto = _reservoir(planning_auto_nocuts, "LMAULE").get("efin_cost")
+        assert isinstance(lmaule_auto, (int, float))
+        ratio = lmaule_auto / max(max_legacy, 1e-9)
         assert ratio > 100.0, (
             f"auto/legacy ratio = {ratio:.1f}× — expected >100× discount"
         )
+
+
+@pytest.mark.integration
+def test_reference_table_matches_resolver_on_plp_2y():
+    """The reference ``lost_pf`` table is what the resolver computes on
+    the parsed plp_2y data (keeps the derivation table honest)."""
+    case_dir = _plp_2y_dir()
+    if case_dir is None:
+        pytest.skip(missing_case_reason(_PLP_2Y_REL))
+    from plp2gtopt.plp_parser import PLPParser  # noqa: PLC0415
+
+    parser = PLPParser({"input_dir": case_dir})
+    parser.parse_all()
+    centrals = parser.parsed_data["central_parser"]
+    resolver = WaterValueResolver(
+        central_parser=centrals,
+        cenre_parser=parser.parsed_data.get("cenre_parser"),
+        options={"auto_water_fail_cost": True},
+    )
+    numbers = {c["name"]: c["number"] for c in centrals.centrals}
+    for name, lost_pf in _REFERENCE_RESERVOIRS_LOST_PF.items():
+        assert resolver.cascade_lost_pf(numbers[name]) == pytest.approx(
+            lost_pf, rel=1e-6
+        ), name
 
 
 # ---------------------------------------------------------------------------
@@ -435,11 +447,11 @@ class _CP:  # pragma: no cover - tiny test helper
         self.centrals = list(centrals)
 
 
-def _large_case_like_resolver(*, anchor_override: float | None = None):
-    """Build a small resolver matching the large-case magnitudes.
+def _cascade10_resolver(*, anchor_override: float | None = None):
+    """Build a small resolver with a production-scale cascade.
 
     Single embalse with cascade ending at one bus>0 turbine of rendi
-    10.0 — matches the design note's synthetic "LARGE_CASE_LIKE" with
+    10.0 — matches the design note's synthetic cascade case with
     cascade_rendi = 10.0.
     """
     centrals = [
@@ -513,7 +525,7 @@ def test_efin_cost_threshold_formula(anchor_override, expected_efin):
     and checked end-to-end by the magnitude class above when the PLP
     case is on disk.
     """
-    resolver = _large_case_like_resolver(anchor_override=anchor_override)
+    resolver = _cascade10_resolver(anchor_override=anchor_override)
     assert resolver.water_fail_cost == pytest.approx(anchor_override, abs=0.01)
     cost = resolver.efin_cost(10.0)
     assert cost == pytest.approx(expected_efin, abs=200.0)
@@ -531,6 +543,6 @@ def test_efin_cost_threshold_formula(anchor_override, expected_efin):
 )
 def test_fail_cost_threshold_formula(anchor_override, expected_fail_cost):
     """Symmetric sweep for ``FlowRight.fail_cost = anchor × own_rendi``."""
-    resolver = _large_case_like_resolver(anchor_override=anchor_override)
+    resolver = _cascade10_resolver(anchor_override=anchor_override)
     cost = resolver.fail_cost(10.0)  # rendi = 10 to mirror the cascade test
     assert cost == pytest.approx(expected_fail_cost, abs=1.0)

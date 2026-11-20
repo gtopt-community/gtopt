@@ -153,7 +153,14 @@ FutureCost element: it never reads `sddp_options`.  The
 `monolithic_options.boundary_*` keys and `simulation.boundary_cuts_file` /
 `boundary_cuts_valuation` are deprecated aliases translated into the
 element at load time (with a warning); `sddp_options.boundary_*` keys are
-ignored under `method = monolithic`.  A relative `cuts_file` resolves
+ignored under `method = monolithic`.  A case converted for SDDP
+(`plp2gtopt`, `plexos2gtopt`, `sddp2gtopt` and `igtopt` all write the
+method-neutral FutureCost element) therefore keeps its boundary cuts when
+re-run with `--set method=monolithic`; no fallback to `sddp_options` is
+needed.  An older JSON that still carries `sddp_options.boundary_cuts_file`
+logs an "ignored under method=monolithic" warning — migrate it with
+`tools/migrate_future_cost.py` (or move the key to
+`future_cost_array[].cuts_file`).  A relative `cuts_file` resolves
 against `options.input_directory`, exactly as under SDDP.  The α scale is
 `future_cost_array[].scale_alpha` (auto-derived when unset), and cuts are
 loaded with the default `cut_coeff_eps = 1e-8`.

@@ -438,7 +438,7 @@ def check_boundary_cuts(
     # unquoted properly.  A naive ``split(",")`` would leave the
     # quote characters attached, breaking the ``col.lower() in
     # fixed_cols`` membership test below — symptom observed on a fresh
-    # the large hydrothermal case conversion as a spurious "13 unknown state variable(s)"
+    # CEN-IPLP conversion as a spurious "13 unknown state variable(s)"
     # warning that named the fixed columns themselves
     # (``"iteration"``, ``"scene"``, ``"rhs"``) as unknowns.
     try:

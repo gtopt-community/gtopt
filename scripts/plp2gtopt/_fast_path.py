@@ -103,7 +103,7 @@ def apply_iterative_fast_path(
         # former -1 (all apertures/phase in one serial chunk) amortized clone
         # reconstruction + warm-started within the chain, but capped backward
         # parallelism at num_scenes — leaving cores idle when num_scenes <
-        # cores.  Auto is the documented CEN-scale fastest.
+        # cores.  Auto is the documented CEN-IPLP-scale fastest.
         sddp_opts["aperture_chunk_size"] = 0 if acs is None else acs
 
     # Memory mode default.  The fast dual+warm config is correct only under

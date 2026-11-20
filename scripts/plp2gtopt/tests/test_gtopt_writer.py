@@ -252,7 +252,7 @@ class TestGTOptWriterProcessMethods:
         # ``stationary_tol`` = [1 %, 1 %, 1 %, 1 %] on L0..L3;
         # ``stationary_window`` = 2 on every level;
         # ``stationary_gap_ceiling`` = 85 % on every level.
-        # Rationale: the realised Δgap on the large hydrothermal case plateaus once
+        # Rationale: the realised Δgap on production CEN IPLP runs plateaus once
         # cuts saturate, and heterogeneous-aperture transitions
         # re-tighten the bound regardless of the within-level exit
         # criterion — so any sub-1 % per-iter floor only burned
@@ -295,7 +295,7 @@ class TestGTOptWriterProcessMethods:
         # scenario).  ``num_apertures`` and ``aperture_selection_mode``
         # must be ABSENT so the C++ side iterates the full
         # ``Phase.apertures`` list (vs hardcoding a fixed count that
-        # only matches the large hydrothermal case).
+        # only matches one production case).
         assert levels[3]["name"] == "full_network"
         assert "num_apertures" not in levels[3]["sddp_options"]
         assert "aperture_selection_mode" not in levels[3]["sddp_options"]
@@ -471,7 +471,7 @@ class TestGTOptWriterProcessMethods:
 
         The C++ default is 0.005 (0.5%) which is too tight relative to
         the cuts' approximation floor on PLP-derived runs — the gap
-        plateau on CEN-scale cases sits well above 0.5 %, so the
+        plateau on production-scale cases sits well above 0.5 %, so the
         level would never trip the stationary early-exit gate at the
         default.  1 % is a more useful default for these cases.
         """

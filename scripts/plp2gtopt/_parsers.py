@@ -449,7 +449,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         metavar="METHOD",
         # Default `cascade` since 2026-05-15: the 4-level multi-fidelity
         # ladder (warmup/uninodal/transport/full_network) is the
-        # production-grade path on CEN-scale problems — plain
+        # production-grade path on CEN-IPLP-scale problems — plain
         # `sddp` is retained as a CLI choice for diagnostic / one-level
         # runs but no longer the default.  `--plp-legacy` still pins
         # `sddp` to match the legacy PLP equivalence shim.
@@ -1179,7 +1179,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # PILMAIQUEN / ABANICO / ANTUCO / PALMUCHO routed as FlowRight
     # discharge obligations to keep ``reservoir_efin >= eini`` rows
     # feasible at iter-0 of the SDDP cascade (same root cause as the
-    # plp_case_2y aperture regression and the large hydrothermal case
+    # plp_case_2y aperture regression and the CEN-IPLP (uninodal)
     # investigation).  Pass ``--no-soft-min-flows`` to opt out.
     #
     # The flag covers BOTH conversions:
@@ -1266,7 +1266,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "value is auto-resolved from plpmat.dat CCauFal.  Internally "
             "multiplied by FactTiempoH=3.6 to convert to GTOpt's "
             "$/(m³/s·h) per-block coefficient.  Use this flag to tune the "
-            "FlowRight slack penalty empirically; for the large hydrothermal case the "
+            "FlowRight slack penalty empirically; for CEN-IPLP the "
             "auto value is 7000 $/Hm³ → 25200 $/(m³/s·h) internal."
         ),
     )
