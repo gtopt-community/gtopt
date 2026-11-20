@@ -16,6 +16,7 @@ import re
 import signal
 import sys
 import tempfile
+import uuid
 from base64 import b64decode
 from collections import deque
 from typing import TYPE_CHECKING, Any, cast
@@ -129,10 +130,20 @@ _recent_logs: deque[str] = deque(maxlen=MAX_LOG_ENTRIES)
 
 
 class _RecentLogHandler(logging.Handler):
-    """Keep recent logs in memory for GUI log viewer."""
+    """Keep recent logs in memory for GUI log viewer.
+
+    Tracebacks are deliberately left out: ``/api/logs`` serves these lines
+    to the browser, so exception details stay in the server-side log file
+    (correlated through the ``error_id`` included in the message).
+    """
 
     def emit(self, record):
-        _recent_logs.append(self.format(record))
+        saved = (record.exc_info, record.exc_text, record.stack_info)
+        record.exc_info, record.exc_text, record.stack_info = None, None, None
+        try:
+            _recent_logs.append(self.format(record))
+        finally:
+            record.exc_info, record.exc_text, record.stack_info = saved
 
 
 def _configure_logging():
@@ -158,6 +169,51 @@ def _configure_logging():
 
 
 _configure_logging()
+
+
+def _new_error_id() -> str:
+    """Return a short random id correlating a client error with the server log."""
+    return uuid.uuid4().hex[:12]
+
+
+def _internal_error_response(
+    log_message: str,
+    *log_args: Any,
+    public_message: str = "Unexpected internal error",
+    status: int = 500,
+):
+    """Log the active exception server-side and return a generic JSON error.
+
+    Must be called from inside an ``except`` block.  The client only gets
+    ``public_message`` plus an ``error_id``; the exception text and the
+    traceback go to the server log (never to the HTTP response), so internal
+    details such as paths, hosts or stack traces are not exposed.
+    """
+    error_id = _new_error_id()
+    app.logger.exception(log_message + " [error_id=%s]", *log_args, error_id)
+    return (
+        jsonify(
+            {
+                "error": f"{public_message} (error id: {error_id}; see server log)",
+                "error_id": error_id,
+            }
+        ),
+        status,
+    )
+
+
+def _check_failure(check: str) -> dict[str, str]:
+    """Log a failed ``/api/check_server`` sub-check and return a generic entry."""
+    error_id = _new_error_id()
+    app.logger.warning(
+        "check_server: %s check failed [error_id=%s]", check, error_id, exc_info=True
+    )
+    return {
+        "status": "error",
+        "error": f"{check} check failed (error id: {error_id}; see server log)",
+        "error_id": error_id,
+    }
+
 
 # Default webservice URL (can be overridden via env or API)
 _webservice_url = os.environ.get("GTOPT_WEBSERVICE_URL", "http://localhost:3000")
@@ -495,9 +551,8 @@ def submit_solve():
             jsonify({"error": f"Webservice error ({e.response.status_code}): {body}"}),
             502,
         )
-    except Exception as e:
-        app.logger.exception("Unexpected error on submit")
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+    except Exception:
+        return _internal_error_response("Unexpected error on submit")
 
 
 @app.route("/api/solve/status/<token>", methods=["GET"])
@@ -536,9 +591,8 @@ def get_solve_status(token):
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on status token=%s status=%s", token, status)
         return jsonify({"error": f"Webservice error: {status}"}), 502
-    except Exception as e:
-        app.logger.exception("Unexpected error on status token=%s", token)
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+    except Exception:
+        return _internal_error_response("Unexpected error on status token=%s", token)
 
 
 @app.route("/api/solve/results/<token>", methods=["GET"])
@@ -580,9 +634,8 @@ def get_solve_results(token):
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on results token=%s status=%s", token, status)
         return jsonify({"error": f"Webservice error: {status}"}), 502
-    except Exception as e:
-        app.logger.exception("Unexpected error on results token=%s", token)
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+    except Exception:
+        return _internal_error_response("Unexpected error on results token=%s", token)
 
 
 @app.route("/api/solve/jobs", methods=["GET"])
@@ -616,9 +669,8 @@ def list_solve_jobs():
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on jobs list status=%s", status)
         return jsonify({"error": f"Webservice error: {status}"}), 502
-    except Exception as e:
-        app.logger.exception("Unexpected error on jobs list")
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+    except Exception:
+        return _internal_error_response("Unexpected error on jobs list")
 
 
 @app.route("/api/solve/ping", methods=["GET"])
@@ -652,9 +704,8 @@ def ping_webservice():
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on ping status=%s", status)
         return jsonify({"error": f"Webservice error: {status}"}), 502
-    except Exception as e:
-        app.logger.exception("Unexpected error on ping")
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+    except Exception:
+        return _internal_error_response("Unexpected error on ping")
 
 
 @app.route("/api/solve/logs", methods=["GET"])
@@ -690,9 +741,8 @@ def get_webservice_logs():
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on logs status=%s", status)
         return jsonify({"error": f"Webservice error: {status}"}), 502
-    except Exception as e:
-        app.logger.exception("Unexpected error on logs")
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+    except Exception:
+        return _internal_error_response("Unexpected error on logs")
 
 
 @app.route("/api/solve/job_logs/<token>", methods=["GET"])
@@ -729,9 +779,8 @@ def get_job_logs(token):
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on job_logs token=%s status=%s", token, status)
         return jsonify({"error": f"Webservice error: {status}"}), 502
-    except Exception as e:
-        app.logger.exception("Unexpected error on job_logs token=%s", token)
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+    except Exception:
+        return _internal_error_response("Unexpected error on job_logs token=%s", token)
 
 
 @app.route("/api/solve/monitor/<token>", methods=["GET"])
@@ -771,9 +820,8 @@ def get_solve_monitor(token):
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on monitor token=%s status=%s", token, status)
         return jsonify({"error": f"Webservice error: {status}"}), 502
-    except Exception as e:
-        app.logger.exception("Unexpected error on monitor token=%s", token)
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+    except Exception:
+        return _internal_error_response("Unexpected error on monitor token=%s", token)
 
 
 @app.route("/api/solve/stop/<token>", methods=["POST"])
@@ -818,9 +866,8 @@ def stop_solve(token):
         status = e.response.status_code if e.response is not None else 502
         app.logger.warning("Webservice HTTP error on stop token=%s status=%s", token, status)
         return jsonify({"error": f"Webservice error: {status}"}), status
-    except Exception as e:
-        app.logger.exception("Unexpected error on stop token=%s", token)
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
+    except Exception:
+        return _internal_error_response("Unexpected error on stop token=%s", token)
 
 
 @app.route("/api/shutdown", methods=["POST"])
@@ -863,8 +910,8 @@ def check_server():
         resp = http_requests.get(f"{_webservice_url}/api/ping", headers=_ws_headers(), timeout=10)
         resp.raise_for_status()
         results["ping"] = {"status": "ok", "data": resp.json()}
-    except Exception as e:
-        results["ping"] = {"status": "error", "error": str(e)}
+    except Exception:
+        results["ping"] = _check_failure("ping")
 
     # --- Logs ---
     try:
@@ -873,16 +920,16 @@ def check_server():
         )
         resp.raise_for_status()
         results["logs"] = {"status": "ok", "data": resp.json()}
-    except Exception as e:
-        results["logs"] = {"status": "error", "error": str(e)}
+    except Exception:
+        results["logs"] = _check_failure("logs")
 
     # --- Jobs ---
     try:
         resp = http_requests.get(f"{_webservice_url}/api/jobs", headers=_ws_headers(), timeout=10)
         resp.raise_for_status()
         results["jobs"] = {"status": "ok", "data": resp.json()}
-    except Exception as e:
-        results["jobs"] = {"status": "error", "error": str(e)}
+    except Exception:
+        results["jobs"] = _check_failure("jobs")
 
     return jsonify(results)
 
@@ -926,8 +973,12 @@ def diagram_topology():
     # Build the gtopt planning JSON from GUI case data
     try:
         planning = _build_case_json(case_data)
-    except Exception as exc:
-        return jsonify({"error": f"Failed to build case JSON: {exc}"}), 400
+    except Exception:
+        return _internal_error_response(
+            "Failed to build case JSON for topology",
+            public_message="Failed to build case JSON from the case data",
+            status=400,
+        )
 
     opts = _FilterOptions(
         aggregate=aggregate,
@@ -938,9 +989,10 @@ def diagram_topology():
     try:
         builder = _TopologyBuilder(planning, subsystem=subsystem, opts=opts)
         model = builder.build()
-    except Exception as exc:
-        app.logger.exception("Topology builder error")
-        return jsonify({"error": str(exc)}), 500
+    except Exception:
+        return _internal_error_response(
+            "Topology builder error", public_message="Topology builder failed"
+        )
 
     if fmt == "reactflow":
         graph = _model_to_reactflow(model)
@@ -1300,6 +1352,21 @@ def _is_scale_objective_mismatch(exc: BaseException) -> bool:
     return type(exc).__name__ == "ScaleObjectiveMismatchError"
 
 
+#: Fixed client message for ``ScaleObjectiveMismatchError`` (the exception
+#: text itself is only logged).
+_SCALE_OBJECTIVE_MISMATCH_MESSAGE = (
+    "The given scale_objective does not match the one recorded in the "
+    "results (solution.csv). Its obj_value is already in physical units; "
+    "drop the scale_objective override (it is only needed for legacy outputs)."
+)
+
+
+def _scale_objective_mismatch_response(exc: BaseException):
+    """Return the HTTP 400 response for a ``scale_objective`` mismatch."""
+    app.logger.warning("scale_objective mismatch", exc_info=exc)
+    return jsonify({"error": _SCALE_OBJECTIVE_MISMATCH_MESSAGE}), 400
+
+
 @app.route("/api/results/summary", methods=["POST"])
 def api_results_summary():
     """Compute KPI summary from a parsed results dict.
@@ -1330,7 +1397,7 @@ def api_results_summary():
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught
         if _is_scale_objective_mismatch(exc):
-            return jsonify({"error": str(exc)}), 400
+            return _scale_objective_mismatch_response(exc)
         app.logger.exception("Results summary error")
         return jsonify({"error": "Results summary failed"}), 500
     return jsonify(summary)
@@ -1435,7 +1502,7 @@ def api_results_export_excel():
         except OSError:
             pass
         if _is_scale_objective_mismatch(exc):
-            return jsonify({"error": str(exc)}), 400
+            return _scale_objective_mismatch_response(exc)
         app.logger.exception("Excel export error")
         return jsonify({"error": "Excel export failed"}), 500
 

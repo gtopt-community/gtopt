@@ -19,6 +19,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { AiConfig } from '@/lib/ai-config';
 import { AI_TOOL_DEFINITIONS } from '@/lib/ai-tools';
+import {
+  AiEndpointError,
+  FIXED_PROVIDER_BASES,
+  chatCompletionsUrl,
+  resolveOpenAIBaseUrl,
+} from '@/lib/ai-endpoint';
 
 // ---------------------------------------------------------------------------
 // Types mirrored from the frontend
@@ -47,78 +53,14 @@ type RequestBody = {
 // OpenAI / compatible (ollama, custom)
 // ---------------------------------------------------------------------------
 
-function isPrivateOrLocalHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (h === 'localhost' || h === '::1') return true;
-
-  // Basic IPv4 checks
-  const ipv4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4) {
-    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
-    if (a === 10) return true;
-    if (a === 127) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-  }
-
-  // Common local/private IPv6 patterns
-  if (h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80:')) return true;
-
-  return false;
-}
-
-/** Known-safe provider base URLs; skip private-host check for these. */
-const KNOWN_PROVIDER_BASES: Record<string, string> = {
-  openai: 'https://api.openai.com/v1',
-  anthropic: 'https://api.anthropic.com/v1',
-} as const;
-
-function getValidatedOpenAIBaseUrl(config: AiConfig): URL {
-  // For known providers, use the hard-coded base URL unconditionally.
-  if (config.provider in KNOWN_PROVIDER_BASES) {
-    return new URL(KNOWN_PROVIDER_BASES[config.provider as keyof typeof KNOWN_PROVIDER_BASES]);
-  }
-
-  const rawBase = config.baseUrl ?? '';
-  if (!rawBase) {
-    throw new Error('No base URL configured for custom AI provider.');
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(rawBase);
-  } catch {
-    throw new Error('Invalid AI base URL.');
-  }
-
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new Error('AI base URL must use http or https.');
-  }
-
-  if (parsed.username || parsed.password) {
-    throw new Error('AI base URL must not include credentials.');
-  }
-
-  if (isPrivateOrLocalHost(parsed.hostname)) {
-    throw new Error('AI base URL points to a disallowed host.');
-  }
-
-  // Return a new URL built from only the validated components (scheme + host + port + path)
-  // to prevent injection from query strings or hash fragments in the user input.
-  const safe = new URL(`${parsed.protocol}//${parsed.host}${parsed.pathname}`);
-  return safe;
-}
-
 async function callOpenAI(
   config: AiConfig,
   messages: OAIMessage[],
   useTools: boolean,
 ): Promise<OAIMessage> {
-  const base = getValidatedOpenAIBaseUrl(config);
-  // Build the completions endpoint URL from the validated base URL object.
-  const basePath = base.pathname.replace(/\/$/, '');
-  const url = new URL(`${basePath}/chat/completions`, base.origin);
+  // SSRF guard: the fetched URL is built only from a fixed provider base or
+  // an operator allow-list entry, never from the client-supplied string.
+  const url = chatCompletionsUrl(resolveOpenAIBaseUrl(config));
 
   const body: Record<string, unknown> = {
     model: config.model,
@@ -223,7 +165,7 @@ function toAnthropicMessages(
 
 async function callAnthropic(config: AiConfig, messages: OAIMessage[]): Promise<OAIMessage> {
   const { system, messages: anthropicMessages } = toAnthropicMessages(messages);
-  const url = 'https://api.anthropic.com/v1/messages';
+  const url = `${FIXED_PROVIDER_BASES.anthropic}/messages`;
 
   const body: Record<string, unknown> = {
     model: config.model,
@@ -320,6 +262,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ message });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: msg }, { status: 502 });
+    const status = err instanceof AiEndpointError ? 400 : 502;
+    return NextResponse.json({ error: msg }, { status });
   }
 }

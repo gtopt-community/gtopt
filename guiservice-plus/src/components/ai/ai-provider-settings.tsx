@@ -171,6 +171,9 @@ export function AiProviderSettings({
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                Must be allow-listed on the server via GTOPT_AI_ALLOWED_BASE_URLS.
+              </p>
             </div>
           )}
 

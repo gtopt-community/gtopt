@@ -44,7 +44,7 @@ their vendors; see [`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md).
 | Path | Component | Version | Licence | Copyright |
 |---|---|---|---|---|
 | `guiservice/static/vendor/jspreadsheet-ce/` | [Jspreadsheet CE](https://github.com/jspreadsheet/ce) | 4.15.0 | MIT | Paul Hodel and Jspreadsheet contributors |
-| `guiservice/static/vendor/jsuites/` | [jSuites](https://github.com/jsuites/jsuites) | 5.13.3 (bundled with Jspreadsheet CE 4.x) | MIT | Paul Hodel and jSuites contributors |
+| `guiservice/static/vendor/jsuites/` | [jSuites](https://github.com/jsuites/jsuites) | 5.13.5 (npm `jsuites@5.13.5` `dist/`, byte-identical; its internal version string still reads 5.13.3; latest 5.x, as required by Jspreadsheet CE 4.x) | MIT | Paul Hodel and jSuites contributors |
 | `guiservice/static/vendor/chartjs/chart.umd.min.js` | [Chart.js](https://www.chartjs.org) | 4.4.8 | MIT | Chart.js Contributors |
 | `guiservice/static/vendor/chartjs/chartjs-plugin-zoom.min.js` | [chartjs-plugin-zoom](https://github.com/chartjs/chartjs-plugin-zoom) | 2.2.0 | MIT | chartjs-plugin-zoom Contributors |
 | `guiservice/static/vendor/chartjs/hammer.min.js` | [Hammer.JS](https://hammerjs.github.io) | 2.0.7 | MIT | Jorik Tangelder |

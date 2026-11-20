@@ -57,6 +57,12 @@ Or use the helper script:
   network interface without an authenticating TLS reverse proxy; prefer an
   SSH tunnel (`ssh -L 5002:127.0.0.1:5002 server`).
 - Never run `next dev` (development mode) on a shared or exposed host.
+- The AI chat proxy (`/api/ai/chat`) only calls the fixed OpenAI and
+  Anthropic endpoints.  Ollama / custom OpenAI-compatible endpoints must be
+  allow-listed by the operator, e.g.
+  `GTOPT_AI_ALLOWED_BASE_URLS=http://localhost:11434/v1,https://llm.example.com/v1`;
+  the base URL entered in the browser only selects one of those entries
+  (server-side request forgery protection).
 - See the guiservice [Security section](../guiservice/README.md#security) for
   the webservice-URL allowlist, shutdown protection and debug-mode policy.
 
