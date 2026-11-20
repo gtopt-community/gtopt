@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from sienna_to_gtopt._bundle import extract_bundle
 from sienna_to_gtopt._reader import (
     SiennaBranch,
@@ -14,6 +16,9 @@ from sienna_to_gtopt._reader import (
     parse_hydro_upstream,
     parse_user_descriptors,
 )
+
+# Every test reads the (fetched-on-demand) Sienna 5-bus data.
+pytestmark = pytest.mark.usefixtures("require_sienna_5bus")
 
 
 def test_parse_buses_yields_five_buses():

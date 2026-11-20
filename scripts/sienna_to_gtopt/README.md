@@ -13,18 +13,25 @@ implementation.
   — Julia-based modeling and simulation library for grid operations,
   ~228 named test cases in companion
   [PowerSystemCaseBuilder.jl](https://github.com/NREL-Sienna/PowerSystemCaseBuilder.jl).
-* **Datasets**: NREL-Sienna [`PowerSystemsTestData`](https://github.com/NREL-Sienna/PowerSystemsTestData)
-  — directories `5-Bus/` and `psy_data/`.
-* **Pre-staged bundles** (compressed, shipped in-repo for offline /
-  air-gapped CI):
-  * `integration_test/data/sienna_5bus.tar.zst` (10.7 KB compressed,
-    ~70 KB extracted) — base 5-bus topology + cascade adjacency
-    + reserves + storage + time-series pointers
-  * `integration_test/data/sienna_14bus.tar.zst` (2.9 KB compressed,
-    ~20 KB extracted) — 14-bus per-unit data
-  The converter extracts these on-the-fly to a process-local tempdir
-  via `_bundle.py::_extract_bundle()` (the OS reclaims the tempdir at
-  process exit; one extraction per process is cached).
+* **Datasets**: Sienna [`PowerSystemsTestData`](https://github.com/Sienna-Platform/PowerSystemsTestData)
+  (formerly `NREL-Sienna/PowerSystemsTestData`) — directories `5-Bus/`
+  and `psy_data/`.
+* **Fetched on demand, not redistributed.**  `PowerSystemsTestData` has
+  no licence, so gtopt does not ship it.  `_bundle.py` holds a manifest
+  (`MANIFEST`: upstream repo, pinned commit `UPSTREAM_COMMIT`, file
+  list and SHA-256 of every file).  On first use `fetch_bundle()`
+  downloads the files from that commit, verifies them and packs them
+  into `~/.cache/gtopt/sienna/sienna_<size>.tar.zst`; `extract_bundle()`
+  then extracts the archive to a process-local tempdir.
+  * `sienna_5bus` — 13 files: base 5-bus topology + cascade adjacency
+    + reserves + storage + time-series pointers + `data_5bus_pu.jl`
+  * `sienna_14bus` — `psy_data/data_14bus_pu.jl`
+* **Offline / air-gapped**: set `GTOPT_SIENNA_DATA_DIR` to a directory
+  holding pre-built `sienna_<size>.tar.zst` archives, or prime the
+  default cache once with
+  `python -c "from sienna_to_gtopt import fetch_bundle; fetch_bundle('5bus')"`.
+  `GTOPT_OFFLINE=1` forbids downloads; the tests that need the data
+  then skip.
 
 ## Why these three particular cases
 
@@ -146,8 +153,8 @@ here so future ports avoid the same potholes:
 - Sister ports `scripts/nrel118_to_gtopt/` (NREL-118 with IPCC factors)
   and `scripts/rts_gmlc_to_gtopt/` (RTS-GMLC with per-gen native
   multi-pollutant CO₂) cover the emissions axis.
-- The pre-staged bundles live at `integration_test/data/` — see that
-  directory's README for the inventory + regen commands.
+- `integration_test/data/README.md` documents the data provenance and
+  how the cached archives are built.
 - Issue #510 covers
   the multi-fuel / TB-schedule-fuel C++ work that would unlock
   piecewise-emission ports without the scalar-collapse workaround the

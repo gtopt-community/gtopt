@@ -25,7 +25,7 @@ most directly are credited first, in section 1.
 | [SDDP.jl](https://github.com/odow/SDDP.jl) | MPL-2.0 | Oscar Dowson and SDDP.jl contributors | Hydro-thermal and hydro-valley examples adapted as cases and tests; reference values of the SDDP literature benchmarks |
 | [PSRClassesInterface.jl](https://github.com/psrenergy/PSRClassesInterface.jl) | MPL-2.0 | PSR | Sample PSR SDDP cases used to test `sddp2gtopt` |
 | [UnitCommitment.jl](https://github.com/ANL-CEEESA/UnitCommitment.jl) | BSD-3-Clause style (UChicago Argonne open-source licence) | UChicago Argonne, LLC | Unit-commitment benchmark instances and reference solutions (`tools/test_data/`) |
-| [NREL Sienna](https://github.com/NREL-Sienna): PowerSimulations.jl, PowerSystemCaseBuilder.jl, PowerSystemsTestData | BSD-3-Clause (PowerSimulations.jl, PowerSystemCaseBuilder.jl); PowerSystemsTestData has no licence file, see section 2 | Alliance for Sustainable Energy, LLC | Reference results and test systems of the Sienna ports (`tools/sienna_goldens/`, `integration_test/data/`, `scripts/sienna_to_gtopt`) |
+| [NREL Sienna](https://github.com/NREL-Sienna): PowerSimulations.jl, PowerSystemCaseBuilder.jl, PowerSystemsTestData | BSD-3-Clause (PowerSimulations.jl, PowerSystemCaseBuilder.jl); PowerSystemsTestData has no licence file and is therefore **not redistributed**: `scripts/sienna_to_gtopt` fetches it from upstream at a pinned commit at test/run time (see section 2) | Alliance for Sustainable Energy, LLC | Reference results (`tools/sienna_goldens/`, produced by our own PowerSimulations.jl runs) and the test systems read by `scripts/sienna_to_gtopt` |
 | [plexos-coad](https://github.com/Computational-Energy/plexos-coad) | BSD-3-Clause | National Renewable Energy Laboratory | Public PLEXOS test models for `plexos2gtopt` |
 | [PyPSA](https://github.com/PyPSA/PyPSA) | MIT | PyPSA developers | Reference for the cycle-basis Kirchhoff formulation (Hörsch et al., 2018) and the CO2-constraint example restated in `test/source/test_emission_pypsa_port.cpp`. No PyPSA code is included. |
 | [GenX](https://github.com/GenXProject/GenX) | GPL-2.0 | GenX contributors | Its documented `1_three_zones` example was used only as a cross-check for `test/source/test_emission_three_zone_ngcc.cpp`, an independent test built from public factual parameters (EPA natural-gas CO2 factor, EIA / NREL ATB heat rates, O&M and fuel prices; cited in the file). No GenX code, data files or tables are included. |
@@ -64,7 +64,6 @@ their vendors; see [`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md).
 | `scripts/sddp2gtopt/tests/data/psri_*` and `cases/psri_case*_via_sddp2gtopt/` | [psrenergy/PSRClassesInterface.jl](https://github.com/psrenergy/PSRClassesInterface.jl) sample cases | MPL-2.0 (full text in `scripts/sddp2gtopt/tests/data/LICENSE-PSRClassesInterface`) |
 | `tools/test_data/UnitCommitmentJl_*` | Benchmark instances from [UnitCommitment.jl](https://github.com/ANL-CEEESA/UnitCommitment.jl) (and their converted goldens); `rts_gmlc` and `case118_initcond` are that project's conversions of RTS-GMLC and MATPOWER data | UnitCommitment.jl licence (BSD-3-Clause style), Copyright (c) 2020-2022 UChicago Argonne, LLC |
 | `tools/sienna_goldens/` | Reference results produced with [PowerSimulations.jl](https://github.com/NREL-Sienna/PowerSimulations.jl) on [PowerSystemCaseBuilder.jl](https://github.com/NREL-Sienna/PowerSystemCaseBuilder.jl) test systems | BSD-3-Clause, Copyright (c) Alliance for Sustainable Energy, LLC |
-| `integration_test/data/sienna_5bus.tar.zst`, `integration_test/data/sienna_14bus.tar.zst` | Files from [NREL-Sienna/PowerSystemsTestData](https://github.com/NREL-Sienna/PowerSystemsTestData) (`5-Bus/`, `psy_data/data_14bus_pu.jl`); the 5-bus system is the PJM 5-bus case of F. Li and R. Bo (2010) | Public test data of the NREL Sienna project. That repository has no licence file; the Sienna packages that distribute it are BSD-3-Clause, Alliance for Sustainable Energy, LLC |
 | `tools/gtopt_sos2_convergence/data/case14.m`, `cases/case3375wp/` | [MATPOWER](https://github.com/MATPOWER/matpower) case files | MATPOWER case files are not covered by MATPOWER's BSD licence; they are publicly available test data or included with the authors' permission (see the MATPOWER `LICENSE`). `case3375wp`: Roman Korab, Silesian University of Technology. |
 | `cases/ieee_*`, `cases/ieee30b`, IEEE test systems used in tests | IEEE test systems from the University of Washington Power Systems Test Case Archive and IEEE RTS-96, through their [pandapower](https://github.com/e2nIEE/pandapower) and MATPOWER conversions | Publicly available benchmark data; pandapower is BSD-3-Clause |
 | `cases/ieee_118b/` | Linear cost coefficients from [pglib-opf](https://github.com/power-grid-lib/pglib-opf) | CC BY 4.0, A Library of IEEE PES Power Grid Benchmarks; attribution as given in the pglib-opf data files |
@@ -81,6 +80,17 @@ and `scripts/plexos2gtopt` read third-party datasets that are **not**
 included in this repository (for example
 [RTS-GMLC](https://github.com/GridMod/RTS-GMLC) and the NREL-118 data);
 obtain them from their upstream projects under their own terms.
+
+The Sienna
+[PowerSystemsTestData](https://github.com/Sienna-Platform/PowerSystemsTestData)
+files used by `scripts/sienna_to_gtopt` (`5-Bus/`,
+`psy_data/data_5bus_pu.jl`, `psy_data/data_14bus_pu.jl`; the 5-bus
+system is the PJM 5-bus case of F. Li and R. Bo, 2010) are **fetched
+from upstream at build/test time and not redistributed**: that
+repository has no licence. `scripts/sienna_to_gtopt/_bundle.py` records
+the upstream repository, the pinned commit and the SHA-256 of every
+file, and caches the downloaded files under `~/.cache/gtopt/sienna/`
+(see `integration_test/data/README.md`).
 
 ## 3. Dependencies fetched at build time (not vendored)
 

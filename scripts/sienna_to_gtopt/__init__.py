@@ -1,8 +1,11 @@
 """sienna_to_gtopt — port NREL-Sienna 5-bus PowerSimulations.jl cases to gtopt.
 
-This converter reads three NREL-Sienna test-data variants packaged as
-``integration_test/data/sienna_5bus.tar.zst`` and emits a gtopt
-planning JSON capturing the matching topology + dispatch fixture.
+This converter reads the NREL-Sienna 5-bus test data -- fetched on
+demand from the pinned upstream ``PowerSystemsTestData`` commit and
+cached as ``~/.cache/gtopt/sienna/sienna_5bus.tar.zst`` (see
+:mod:`sienna_to_gtopt._bundle`; the data is not redistributed with
+gtopt) -- and emits a gtopt planning JSON capturing the matching
+topology + dispatch fixture.
 
 The three variants intentionally exercise **NON-EMISSION** features
 that don't have peer-reviewed integration-test coverage today:
@@ -28,7 +31,13 @@ Use as a module:
 from typing import Any, Callable
 
 from sienna_to_gtopt._battery_degeneracy import build_battery_degeneracy
-from sienna_to_gtopt._bundle import BUNDLES, available_bundles, extract_bundle
+from sienna_to_gtopt._bundle import (
+    MANIFEST,
+    BundleUnavailableError,
+    available_bundles,
+    extract_bundle,
+    fetch_bundle,
+)
 from sienna_to_gtopt._cascading_hydro import build_cascading_hydro
 from sienna_to_gtopt._fuel_cost_ts import build_fuel_cost_ts
 from sienna_to_gtopt._hvdc import build_hvdc
@@ -61,7 +70,8 @@ VARIANTS: dict[str, VariantBuilder] = {
 }
 
 __all__ = [
-    "BUNDLES",
+    "BundleUnavailableError",
+    "MANIFEST",
     "SiennaBranch",
     "SiennaBus",
     "SiennaCase",
@@ -78,6 +88,7 @@ __all__ = [
     "build_pumped_storage",
     "build_wecc_240",
     "extract_bundle",
+    "fetch_bundle",
     "parse_branches",
     "parse_buses",
     "parse_generators",

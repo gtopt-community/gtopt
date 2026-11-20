@@ -47,7 +47,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--bundle",
         default="5bus",
-        help="Which packaged bundle to extract (default: 5bus).",
+        help=(
+            "Which Sienna data bundle to use (default: 5bus).  It is "
+            "downloaded from the pinned upstream commit on first use and "
+            "cached; set GTOPT_OFFLINE=1 to forbid downloads."
+        ),
     )
     parser.add_argument(
         "--subcase",

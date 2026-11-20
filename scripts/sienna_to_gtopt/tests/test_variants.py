@@ -40,6 +40,10 @@ from sienna_to_gtopt._wecc_240 import (
     build_wecc_240,
 )
 
+# Every test but the registry check reads the (fetched-on-demand)
+# Sienna 5-bus data; the registry check is cheap, so skip it too offline.
+pytestmark = pytest.mark.usefixtures("require_sienna_5bus")
+
 
 def _case():
     case_dir = extract_bundle("5bus")
