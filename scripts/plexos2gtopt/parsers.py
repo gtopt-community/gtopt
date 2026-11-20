@@ -335,6 +335,20 @@ _DIRECT_COEFFS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "status",
         "uc_{name}",
     ),
+    # PLEXOS ``Hours of Operation Coefficient`` counts the HOURS the unit is
+    # generating (units on x interval length).  It maps to the commitment
+    # status; over a multi-block window (RHS Day / Week / Month / Year) the
+    # term is Δt-weighted (``dur[b] * status``) so the LHS is in hours —
+    # see ``_HOURS_OF_OPERATION_KIND`` and the period-RHS emission in
+    # :func:`extract_user_constraints`.
+    (
+        "Generator",
+        "Constraints",
+        "Hours of Operation Coefficient",
+        "commitment",
+        "status",
+        "uc_{name}",
+    ),
     # Battery commitment-unit coefficients.  gtopt's ``expand_batteries``
     # creates a ``uc_<bat>_gen`` Commitment UNCONDITIONALLY for every
     # battery (relaxed continuous ``u`` when the battery carries no
@@ -870,6 +884,10 @@ _FUEL_CO2_UPSTREAM_DIRECT_PROPS: tuple[str, ...] = (
 )
 
 
+#: PLEXOS emission production rates are in kg; gtopt emission factors in t.
+_KG_PER_TONNE = 1000.0
+
+
 def _is_co2_emission(name: str) -> bool:
     """True when ``name`` identifies a CO₂ Emission object.
 
@@ -907,6 +925,12 @@ def _extract_fuel_co2_membership_rates(
       * Emission objects whose name contains ``upstream`` /
         ``pre-combustion`` / ``WTT`` / ``well-to-tank`` route their
         ``Production Rate`` into the upstream component instead.
+
+    Units: PLEXOS ships the Emission→Fuel ``Production Rate`` in
+    **kg per fuel unit** (``kg/GJ`` in a metric database — e.g. the SEM
+    PLEXOS model: natural gas 55.82 kg/GJ, coal 93.65 kg/GJ), while gtopt's
+    ``FuelEmissionFactor`` is in **t per fuel unit**.  The rate is divided
+    by :data:`_KG_PER_TONNE` here (55.82 kg/GJ → 0.05582 t/GJ).
     """
     coll = db.collection_for_named("Emission", "Fuel", "Fuels")
     if coll is None:
@@ -930,6 +954,7 @@ def _extract_fuel_co2_membership_rates(
             continue
         if rate == 0.0:
             continue
+        rate /= _KG_PER_TONNE  # PLEXOS kg/fuel-unit → gtopt t/fuel-unit
         comb, up = out.get(mem.child_object_id, (0.0, 0.0))
         lo = emission.name.lower()
         is_upstream = (
@@ -7638,6 +7663,7 @@ def _describe_user_constraint(
     n_terms: int = 0,
     n_filtered: int = 0,
     tautology: bool = False,
+    period: tuple[str, float, float, float] | None = None,
 ) -> str:
     """Build a human-readable ``description`` for a UserConstraint.
 
@@ -7721,6 +7747,19 @@ def _describe_user_constraint(
             "(offline gens, shadow lines, always-on renewables, or "
             "fuel without consuming gens)"
         )
+    if period is not None:
+        # (period name, raw PLEXOS RHS, period hours, LP horizon hours)
+        p_name, p_raw, p_hours, horizon_hours = period
+        desc += (
+            f" — sum over the stage of a PLEXOS 'RHS {p_name.capitalize()}' "
+            f"= {p_raw:g} budget"
+        )
+        if p_hours != horizon_hours:
+            desc += (
+                f", pro-rated x {horizon_hours:g} h / {p_hours:g} h "
+                "(APPROXIMATION: the PLEXOS budget covers the whole "
+                f"{p_name}; --plexos-period-rhs drop disables it)"
+            )
     if tautology:
         desc += (
             " — tautology under binary [0,1] domain (LP-redundant, "
@@ -7804,6 +7843,116 @@ def _parse_hydro_maxrampday_csv(path: Path) -> dict[str, list[float]]:
 #: gtopt's ``daily_sum`` + ``constraint_type=energy`` row sums ``gen·Δt``
 #: in MWh, so the LP RHS must be ``RHS_Day × 1000``.
 _DAILY_ENERGY_RHS_SCALE = 1000.0
+
+
+#: PLEXOS long-period RHS properties on the System→Constraints membership,
+#: in precedence order (shortest period first).  Each one defines the
+#: constraint over a calendar WEEK / MONTH / YEAR: ``Σ_period LHS <op> RHS``.
+#: gtopt cases built by plexos2gtopt span one stage (the horizon, normally
+#: a week or shorter), so the period sum is emitted as ONE stage-scope row
+#: ``Σ_{b in stage} … <op> RHS × horizon_hours / period_hours`` — exact when
+#: the horizon equals the period, a pro-rata APPROXIMATION otherwise (e.g. a
+#: yearly hours-of-operation budget applied to one week).  Controlled by
+#: ``--plexos-period-rhs`` (``prorate`` default / ``drop``).
+_PERIOD_RHS_PROPS: tuple[tuple[str, str], ...] = (
+    ("RHS Week", "week"),
+    ("RHS Month", "month"),
+    ("RHS Year", "year"),
+)
+
+#: Valid values of ``--plexos-period-rhs``.
+PERIOD_RHS_MODES: tuple[str, ...] = ("prorate", "drop")
+
+#: Accessors of RATE variables in MW: summed over a period they are an
+#: ENERGY (``dur[b] *`` weighting) and PLEXOS reports that energy in GWh.
+_PERIOD_MW_ACCESSORS = frozenset({"generation", "flow", "charge", "discharge"})
+#: Accessors whose period sum is a duration in HOURS (commitment status ×
+#: Δt — PLEXOS ``Hours of Operation`` / ``Units Generating``): Δt-weighted,
+#: no unit scale.
+_PERIOD_HOUR_ACCESSORS = frozenset({"status"})
+#: Accessors of per-block EVENTS (start-ups / shut-downs): plain count sum.
+_PERIOD_COUNT_ACCESSORS = frozenset({"startup", "shutdown"})
+
+_UC_TERM_RE = re.compile(
+    r"^\s*(?P<sign>[+-])?\s*(?P<coef>\d[\d.]*(?:e[+-]?\d+)?) \* "
+    r"(?P<ref>\w+\(\".*\"\))\.(?P<attr>\w+)\s*$"
+)
+
+
+def period_hours(period: str, start: datetime | None) -> float:
+    """Length in hours of the PLEXOS calendar ``period`` containing ``start``.
+
+    ``week`` = 168 h; ``month`` = days of the start's calendar month × 24;
+    ``year`` = 8760 h (8784 h in a leap year).  Without a start date the
+    month / year fall back to 730 h / 8760 h.
+    """
+    if period == "week":
+        return 168.0
+    if period == "month":
+        if start is None:
+            return 730.0
+        nxt = date(start.year + (start.month == 12), start.month % 12 + 1, 1)
+        return float((nxt - date(start.year, start.month, 1)).days * 24)
+    if period == "year":
+        if start is None:
+            return 8760.0
+        leap = start.year % 4 == 0 and (start.year % 100 != 0 or start.year % 400 == 0)
+        return 8784.0 if leap else 8760.0
+    raise ValueError(f"unknown PLEXOS RHS period {period!r}")
+
+
+def build_period_sum_expression(
+    terms: list[str], op: str, rhs: float
+) -> tuple[str, str] | None:
+    """Rewrite per-block UC ``terms`` as one stage-window sum.
+
+    Returns ``(expression, unit)`` where ``expression`` is
+    ``sum{b in stage} [dur[b] *] c * ref.attr … <op> rhs`` and ``unit`` is
+    ``"energy"`` (MW terms only: the caller scales a GWh RHS to MWh),
+    ``"hours"`` / ``"count"`` / ``"mixed"``.  In a ``mixed`` row the MW
+    terms are converted to GWh (coefficient × 1e-3) so every term is in the
+    PLEXOS constraint unit and the RHS is used as is.  Returns ``None`` when
+    a term references an accessor whose period sum has no defined unit
+    (reserve provision, storage state, decision variable …).
+    """
+    parsed: list[tuple[float, str, str]] = []
+    for term in terms:
+        m = _UC_TERM_RE.match(term)
+        if m is None:
+            return None
+        attr = m.group("attr")
+        if attr not in (
+            _PERIOD_MW_ACCESSORS | _PERIOD_HOUR_ACCESSORS | _PERIOD_COUNT_ACCESSORS
+        ):
+            return None
+        coef = float(m.group("coef")) * (-1.0 if m.group("sign") == "-" else 1.0)
+        parsed.append((coef, m.group("ref"), attr))
+    if not parsed:
+        return None
+    has_mw = any(a in _PERIOD_MW_ACCESSORS for _c, _r, a in parsed)
+    has_other = any(a not in _PERIOD_MW_ACCESSORS for _c, _r, a in parsed)
+    if has_mw and not has_other:
+        unit = "energy"
+    elif has_mw:
+        unit = "mixed"
+    elif all(a in _PERIOD_HOUR_ACCESSORS for _c, _r, a in parsed):
+        unit = "hours"
+    elif all(a in _PERIOD_COUNT_ACCESSORS for _c, _r, a in parsed):
+        unit = "count"
+    else:
+        unit = "mixed"
+    parts: list[str] = []
+    for coef, ref, attr in parsed:
+        if unit == "mixed" and attr in _PERIOD_MW_ACCESSORS:
+            coef /= _DAILY_ENERGY_RHS_SCALE
+        weight = "" if attr in _PERIOD_COUNT_ACCESSORS else "dur[b] * "
+        sign = "-" if coef < 0 else "+"
+        body = f"sum{{b in stage}} {weight}{abs(coef):g} * {ref}.{attr}"
+        if not parts:
+            parts.append(body if sign == "+" else f"-1 * {body}")
+        else:
+            parts.append(f" {sign} {body}")
+    return "".join(parts) + f" {op} {rhs:g}", unit
 
 
 #: PLEXOS encodes "this SD_* line-security contingency is INACTIVE today" as an
@@ -8239,6 +8388,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
     reserves: tuple[ReserveSpec, ...] = (),
     plexos_legacy: bool = False,
     drop_batteries: bool = False,
+    period_rhs_mode: str = "prorate",
 ) -> tuple[UserConstraintSpec, ...]:
     """Translate PLEXOS ``Constraint`` objects into gtopt UserConstraints.
 
@@ -8316,6 +8466,23 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
     # ``Σ_day gen·Δt ≤ RHS_Day × 1000`` [MWh].  The ×1000 GWh→MWh scale
     # is applied once below (``_DAILY_ENERGY_RHS_SCALE``).
     prop_rhs_day = db.property_by_name(sys_coll.collection_id, "RHS Day")
+    # PLEXOS ``RHS Hour`` — a per-HOUR right-hand side (e.g. the SEM
+    # ``Data Hub`` cap: Σ generation ≤ 50 MW in every hour).  Same units
+    # as the plain ``RHS`` of a per-interval constraint, so it seeds the
+    # scalar RHS of the default one-row-per-block expansion.
+    prop_rhs_hour = db.property_by_name(sys_coll.collection_id, "RHS Hour")
+    # PLEXOS ``RHS Week`` / ``RHS Month`` / ``RHS Year`` — period budgets,
+    # emitted as one stage-scope time-sum row (see ``_PERIOD_RHS_PROPS``).
+    prop_rhs_periods = [
+        (pid, period)
+        for name, period in _PERIOD_RHS_PROPS
+        if (pid := db.property_by_name(sys_coll.collection_id, name)) is not None
+    ]
+    if period_rhs_mode not in PERIOD_RHS_MODES:
+        raise ValueError(
+            f"period_rhs_mode must be one of {PERIOD_RHS_MODES}, got "
+            f"{period_rhs_mode!r}"
+        )
     # PLEXOS evaluates ``RHS Custom`` over the full RUN HORIZON, so the
     # divisor must be the real horizon length (168 h on CEN PCP), NOT
     # ``bundle.n_days × 24``: ``n_days`` is the input-CSV day count (== 1
@@ -8332,6 +8499,16 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         infer_horizon_days_from_input(_xml_path) if _xml_path is not None else None
     ) or (_bundle.n_days or 7)
     horizon_hours = float(_horizon_days * 24)
+    # Length of the LP horizon the stage-scope period rows sum over: the
+    # PLEXOS-native block layout when present, else the hourly grid of
+    # ``bundle.n_days`` (``--horizon-days``).  Used to pro-rate RHS Week /
+    # Month / Year budgets (see ``_PERIOD_RHS_PROPS``).
+    _layout = getattr(_bundle, "block_layout", ()) or ()
+    lp_horizon_hours = (
+        float(sum(len(iv) for iv in _layout))
+        if _layout
+        else float((_bundle.n_days or _horizon_days) * 24)
+    )
     rhs_custom_factor = 1000.0 / horizon_hours if horizon_hours > 0.0 else 0.0
     # Source file for the ``description`` provenance tag (PLEXOS XML DB).
     _uc_source_file = getattr(getattr(_bundle, "xml_path", None), "name", None) or (
@@ -8663,6 +8840,8 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
     # coefficients).  Reported via ``stats_out`` for the conversion report.
     lhs_dropped = 0
     sd_sentinel_dropped = 0  # no-limit line-security sentinels (see helper)
+    period_rhs_dropped = 0  # RHS Week/Month/Year rows under ``drop`` mode
+    period_rhs_converted = 0  # … converted as pro-rated stage-scope rows
     # Unresolvable UserConstraint references collected across ALL
     # constraints.  Each entry is ``(constraint_name, "class(\"name\").attr",
     # gtopt_key)`` for a direct-coefficient term whose referenced element is
@@ -8857,6 +9036,51 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         ramp_day_present = bool(ramp_day_rhs.get(constr.name))
         if rhs_val is None and ramp_day_present:
             rhs_val = ramp_day_rhs[constr.name][0]
+        # PLEXOS ``RHS Hour``: a per-hour bound — one row per block with the
+        # value as is (hourly blocks; a multi-hour block bounds its average).
+        if rhs_val is None and prop_rhs_hour is not None:
+            rhs_val = _horizon_value(
+                db.data_for(mid, prop_rhs_hour), horizon_start, prefer_min=True
+            )
+        # PLEXOS ``RHS Week`` / ``RHS Month`` / ``RHS Year``: a budget over the
+        # calendar period, pro-rated to the horizon (one stage-scope row).
+        # ``rhs_period = (period, raw RHS, period hours)``; the scalar
+        # ``rhs_val`` holds the pro-rated value (unit scaling — GWh→MWh for
+        # energy rows — is applied with the LHS classification below).
+        rhs_period: tuple[str, float, float] | None = None
+        if rhs_val is None and prop_rhs_periods:
+            found = [
+                (period, v)
+                for pid, period in prop_rhs_periods
+                if (
+                    v := _horizon_value(
+                        db.data_for(mid, pid), horizon_start, prefer_min=True
+                    )
+                )
+                is not None
+            ]
+            if found:
+                if len(found) > 1:
+                    logger.warning(
+                        "constraint %s carries several period RHS (%s); only "
+                        "the shortest (%s) is converted",
+                        constr.name,
+                        ", ".join(p for p, _v in found),
+                        found[0][0],
+                    )
+                period, raw = found[0]
+                if period_rhs_mode == "drop":
+                    logger.info(
+                        "constraint %s: RHS %s not converted "
+                        "(--plexos-period-rhs drop)",
+                        constr.name,
+                        period.capitalize(),
+                    )
+                    period_rhs_dropped += 1
+                    continue
+                p_hours = period_hours(period, horizon_start)
+                rhs_period = (period, raw, p_hours)
+                rhs_val = raw * lp_horizon_hours / p_hours
         # PLEXOS default for unset ``Sense`` (verified on CEN PCP
         # 2026-04-22): 62 constraints carry ``RHS=0`` with no explicit
         # Sense — PLEXOS evaluates these as equality (``=``).  Affected
@@ -9945,6 +10169,16 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
             and not references_generation
             and not is_fuel_offtake
         )
+        # Daily HOURS budgets (PLEXOS ``Hours of Operation`` / ``Units
+        # Generating`` coefficient with ``RHS Day``): Σ_day status·Δt ≤ RHS
+        # [h].  Same ``daily_sum`` + Δt-weighted (``energy``) row as the
+        # energy budgets but WITHOUT the GWh→MWh scale.
+        is_daily_hours = (
+            rhs_from_day
+            and bool(terms)
+            and all(t.rstrip().endswith(".status") for t in terms)
+            and not is_fuel_offtake
+        )
         # Daily-RHS constraints with neither a generation-energy nor a
         # commitment-count LHS (pure fuel / other) stay DEFERRED — different
         # units/semantics.
@@ -9952,6 +10186,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
             (rhs_from_day or ramp_day_present)
             and not references_generation
             and not is_daily_count
+            and not is_daily_hours
         ):
             logger.debug(
                 "constraint %s carries a daily RHS but no generation / "
@@ -9978,6 +10213,42 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
                 # ×1000 daily-energy scale so the tail equals the LP RHS.
                 _expr_rhs = _day_rhs_tail[0] * _DAILY_ENERGY_RHS_SCALE
         expression = "".join(terms) + f" {op} {_expr_rhs:g}"
+        # PLEXOS ``RHS Week`` / ``Month`` / ``Year``: ONE stage-scope row
+        # summing every term over the stage's blocks, RHS pro-rated to the
+        # horizon (``rhs_val`` above).  Energy rows (MW terms only) take the
+        # GWh→MWh scale like the daily budgets.
+        uc_scope = ""
+        if rhs_period is not None:
+            period_expr = build_period_sum_expression(terms, op, rhs_val)
+            if period_expr is None:
+                logger.warning(
+                    "constraint %s: RHS %s over a LHS term with no period "
+                    "unit (only generation / flow / battery / commitment "
+                    "terms are supported) — not converted",
+                    constr.name,
+                    rhs_period[0].capitalize(),
+                )
+                lhs_dropped += 1
+                continue
+            if period_expr[1] == "energy":
+                rhs_val *= _DAILY_ENERGY_RHS_SCALE
+                period_expr = build_period_sum_expression(terms, op, rhs_val)
+                assert period_expr is not None
+            expression = period_expr[0]
+            uc_scope = "stage"
+            period_rhs_converted += 1
+            if rhs_period[2] != lp_horizon_hours:
+                logger.info(
+                    "constraint %s: RHS %s = %g pro-rated to the %g h horizon "
+                    "(x %g / %g h) — approximation of a %s budget",
+                    constr.name,
+                    rhs_period[0].capitalize(),
+                    rhs_period[1],
+                    lp_horizon_hours,
+                    lp_horizon_hours,
+                    rhs_period[2],
+                    rhs_period[0],
+                )
         # PLEXOS-authoritative activation flag.  Two recognisers:
         #   (a) ``Include in ST Schedule`` ∈ {-1, 0} ⇒ PLEXOS itself
         #       excludes this constraint from the daily PCP run.
@@ -10220,7 +10491,8 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         # the t_data and an effective RHS below the sentinel emits the
         # real constraint.
         if (
-            _is_nolimit_line_sentinel(expression, rhs_val)
+            rhs_period is None
+            and _is_nolimit_line_sentinel(expression, rhs_val)
             and constr.name not in _load_plexos_hard_uc_list()
         ):
             # Skip the no-op stub when this constraint is in the
@@ -10266,7 +10538,13 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         # — they sit in the model as audit guards, never bind.  Downgrade
         # to ``active=False`` so CPLEX presolve doesn't bother allocating
         # row state.
-        is_tautology = _is_tautology_single_term(terms, op, rhs_val)
+        # A period (stage-sum) row bounds a SUM over blocks, so the per-block
+        # binary-domain tautology test does not apply to it.
+        is_tautology = rhs_period is None and _is_tautology_single_term(
+            terms, op, rhs_val
+        )
+        if rhs_period is not None:
+            rhs_profile_tuple = ()
         out.append(
             UserConstraintSpec(
                 name=constr.name,
@@ -10274,9 +10552,12 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
                 penalty=emitted_penalty,
                 active=False if (is_inactive or is_tautology) else None,
                 rhs_profile=rhs_profile_tuple,
-                daily_sum=is_daily_energy or is_daily_count,
-                constraint_type="energy" if is_daily_energy else "",
+                daily_sum=is_daily_energy or is_daily_count or is_daily_hours,
+                constraint_type=(
+                    "energy" if (is_daily_energy or is_daily_hours) else ""
+                ),
                 directive=directive_to_emit,
+                scope=uc_scope,
                 description=_describe_user_constraint(
                     constr.name,
                     expression,
@@ -10289,6 +10570,11 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
                     n_terms=len(terms),
                     n_filtered=silent_zero_drops,
                     tautology=is_tautology,
+                    period=(
+                        (*rhs_period, lp_horizon_hours)
+                        if rhs_period is not None
+                        else None
+                    ),
                 ),
             )
         )
@@ -10296,6 +10582,8 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         stats_out["raw_total"] = len(constraints)
         stats_out["lhs_dropped"] = lhs_dropped
         stats_out["sd_sentinel_dropped"] = sd_sentinel_dropped
+        stats_out["period_rhs_dropped"] = period_rhs_dropped
+        stats_out["period_rhs_converted"] = period_rhs_converted
         stats_out["unresolved_refs"] = len(unresolved_refs)
         stats_out["emitted_base"] = len(out)
         stats_out["battery_zero_provision_terms"] = len(battery_zero_provision_terms)
@@ -11256,6 +11544,7 @@ def extract_case(
     *,
     lax_uc_refs: bool = False,
     plexos_legacy: bool = False,
+    period_rhs_mode: str = "prorate",
 ) -> PlexosCase:
     """Run every extractor and return the assembled :class:`PlexosCase`.
 
@@ -11271,6 +11560,10 @@ def extract_case(
         even when they're not the physically / economically right
         choice.  See ``--plexos-legacy`` on the CLI for the running
         list of toggles.  Mirrors plp2gtopt's ``--plp-legacy``.
+    :param period_rhs_mode: ``"prorate"`` (default) converts PLEXOS
+        ``RHS Week`` / ``Month`` / ``Year`` constraints as one stage-sum row
+        with the RHS pro-rated to the horizon; ``"drop"`` skips them.  See
+        ``--plexos-period-rhs``.
     """
     db = load_xml(bundle.xml_path)
     reservoirs = extract_reservoirs(db, bundle)
@@ -11865,6 +12158,7 @@ def extract_case(
         reserves=reserves,
         plexos_legacy=plexos_legacy,
         drop_batteries=drop_batteries,
+        period_rhs_mode=period_rhs_mode,
     )
     # Tighten oversized decision-variable big-M availability gates
     # (``output - 100000*dv <= 0``) down to the gated entity's real max

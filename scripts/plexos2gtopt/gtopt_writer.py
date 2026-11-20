@@ -3051,6 +3051,11 @@ def build_user_constraint_array(
             if c.directive.window_hours is not None:
                 directive_entry["window_hours"] = c.directive.window_hours
             entry["directive"] = directive_entry
+        # Row granularity (``stage`` for PLEXOS period budgets).  After
+        # ``directive`` and before ``slack_name`` — the C++ JSON contract
+        # order (``json_user_constraint.hpp``).
+        if c.scope:
+            entry["scope"] = c.scope
         # Visible-slack column label: when this UC is soft, set
         # ``slack_name`` so the gtopt-side ``UserConstraintLP`` uses
         # the per-UC label (``slack_<sanitised>``) for the auto-created
@@ -4565,7 +4570,7 @@ def write_user_constraint_pampl(
         # ``daily_sum`` / ``constraint_type`` flag that the ``.pampl`` grammar
         # (``pampl_parser.cpp``: only ``penalty`` + ``rhs`` clauses) cannot
         # express, so they stay inline in the JSON ``user_constraint_array``.
-        if uc.get("daily_sum"):
+        if uc.get("daily_sum") or uc.get("scope"):
             json_remaining.append(uc)
             continue
         # A per-block RHS profile in TB-matrix form (``[[v0, v1, ...]]`` — the

@@ -808,6 +808,7 @@ CEN-style bundle (static XML plus `Nod_Load`, `Gen_Rating`,
 | `--plexos-start-date YYYY-MM-DD` | Horizon `Date From` | First day; the horizon length is `--horizon-days`. |
 | `--plexos-sample N` | `1` | Data File column (stochastic sample) used for Variables. |
 | `--plexos-data-dir DIR` | input dir | Where the Data File CSVs are searched (repeatable; recursive, case-insensitive, `.xz` accepted). |
+| `--plexos-period-rhs {prorate,drop}` | `prorate` | Constraints with an `RHS Week` / `RHS Month` / `RHS Year` budget: one row summing the LHS over the horizon with the RHS pro-rated (`RHS × horizon h / period h`), or not converted. |
 
 Conversion rules: active-scenario rows override base rows at the
 same hour; among dated rows the latest `Date From` wins; fuel prices
@@ -825,6 +826,22 @@ Price` stay hard (PLEXOS semantics; the CEN soft tiers of
 the horizon but have no schedule are frozen at the start value, and
 every property with active data that is not converted is listed in
 the log and in `<stem>.plexos_model.json`.
+
+Constraint right-hand sides by period (any PLEXOS database, not only
+`--plexos-model`):
+
+| PLEXOS property | gtopt UserConstraint |
+|---|---|
+| `RHS` / `RHS Hour` | one row per block (`RHS Hour`: hourly blocks; a longer block bounds its average) |
+| `RHS Day` | `daily_sum` row per day; generation terms Δt-weighted with the GWh RHS × 1000 (MWh), start/shutdown counts unweighted, `Hours of Operation` / status terms Δt-weighted in hours |
+| `RHS Week` / `RHS Month` / `RHS Year` | one `scope: "stage"` row `sum{b in stage} dur[b] * … <op> RHS × horizon h / period h` (exact when the horizon is the period; a pro-rata **approximation** otherwise, flagged in the row `description`); generation / flow / battery terms in MWh (GWh RHS × 1000), status in hours, start/shutdown counts unweighted; `--plexos-period-rhs drop` skips them |
+
+`Hours of Operation Coefficient` maps to `commitment("uc_<gen>").status`
+(the hours the unit is on), e.g. the SEM yearly running-hours limits
+(`KGT1 ≤ 500 h/year` becomes `Σ_week status·Δt ≤ 500 × 168 / 8760 =
+9.59 h` on a one-week case).  Emission→Fuel `Production Rate` is read
+in kg per fuel unit and written to `Fuel.emission_factors` in t per
+fuel unit.
 
 ### User constraints (PAMPL emission)
 

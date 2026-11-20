@@ -208,7 +208,8 @@ def test_extract_fuels_with_co2_membership(tmp_path: Path) -> None:
     targeting one Fuel ``diesel`` via the canonical PLEXOS
     ``Emission → Fuels`` collection (parent_class=10, child_class=4).
     The membership carries one t_data row for ``Production Rate``
-    with value 0.0742 tCO₂/GJ (IPCC-default diesel combustion).
+    with value 74.2 kg/GJ (PLEXOS unit; IPCC-default diesel combustion),
+    converted to gtopt's 0.0742 tCO₂/GJ.
     """
     xml = f"""<?xml version="1.0" standalone="yes"?>
 <MasterDataSet xmlns="{NS[1:-1]}">
@@ -241,7 +242,7 @@ def test_extract_fuels_with_co2_membership(tmp_path: Path) -> None:
     <data_id>1</data_id>
     <membership_id>9000</membership_id>
     <property_id>1219</property_id>
-    <value>0.0742</value>
+    <value>74.2</value>
   </t_data>
 </MasterDataSet>
 """
@@ -251,7 +252,7 @@ def test_extract_fuels_with_co2_membership(tmp_path: Path) -> None:
     db = load_xml(xml_path)
     fuels = extract_fuels(db, bundle)
     assert [f.name for f in fuels] == ["diesel"]
-    assert fuels[0].co2_rate == 0.0742
+    assert fuels[0].co2_rate == pytest.approx(0.0742)
     assert fuels[0].co2_upstream_rate == 0.0
 
 
@@ -358,7 +359,7 @@ def test_extract_fuels_co2_upstream_membership(tmp_path: Path) -> None:
     <data_id>1</data_id>
     <membership_id>9001</membership_id>
     <property_id>1219</property_id>
-    <value>0.008</value>
+    <value>8.0</value>
   </t_data>
 </MasterDataSet>
 """
@@ -368,7 +369,7 @@ def test_extract_fuels_co2_upstream_membership(tmp_path: Path) -> None:
     db = load_xml(xml_path)
     fuels = extract_fuels(db, bundle)
     assert fuels[0].co2_rate == 0.0
-    assert fuels[0].co2_upstream_rate == 0.008
+    assert fuels[0].co2_upstream_rate == pytest.approx(0.008)
 
 
 def test_extract_fuels_skips_non_co2_emission(tmp_path: Path) -> None:

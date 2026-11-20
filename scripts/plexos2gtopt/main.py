@@ -34,7 +34,7 @@ from gtopt_shared.state_snapshot import (
 
 from .auto_lift_lines import DEFAULT_THRESHOLD
 from .info_display import display_plexos_info
-from .parsers import UnresolvedConstraintReferenceError
+from .parsers import PERIOD_RHS_MODES, UnresolvedConstraintReferenceError
 from .plexos2gtopt import (
     _resolve_output_paths,
     compare_plexos_bundle,
@@ -1076,6 +1076,19 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--plexos-period-rhs",
+        choices=PERIOD_RHS_MODES,
+        default="prorate",
+        help=(
+            "PLEXOS Constraints with an 'RHS Week' / 'RHS Month' / 'RHS "
+            "Year' budget (e.g. yearly hours-of-operation limits): "
+            "'prorate' (default) emits one row summing the LHS over the "
+            "horizon with RHS x horizon hours / period hours (exact when "
+            "the horizon is the period, an approximation otherwise); "
+            "'drop' does not convert them"
+        ),
+    )
+    parser.add_argument(
         "--lp-relax",
         action="store_true",
         default=False,
@@ -1205,6 +1218,7 @@ def main(argv: list[str] | None = None) -> None:
         "plexos_model": getattr(args, "plexos_model", None),
         "plexos_start_date": getattr(args, "plexos_start_date", None),
         "plexos_sample": getattr(args, "plexos_sample", 1),
+        "plexos_period_rhs": getattr(args, "plexos_period_rhs", "prorate"),
         "plexos_data_dirs": tuple(getattr(args, "plexos_data_dir", None) or ()),
         "run_check": args.run_check,
         "reservoir_flow_estimate": args.reservoir_flow_estimate,

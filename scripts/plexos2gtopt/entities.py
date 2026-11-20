@@ -848,6 +848,12 @@ class UserConstraintSpec:
     # the migration rationale.  Default ``None`` = legacy emission
     # (scalar ``penalty`` only, behaviour unchanged).
     directive: ConstraintDirective | None = None
+    # gtopt ``UserConstraint.scope`` — row granularity.  Empty ⇒ ``block``
+    # (one row per block).  ``"stage"`` ⇒ ONE row per stage; the expression
+    # then reaches the per-block columns through ``sum{b in stage} …``
+    # time aggregation.  Used for PLEXOS ``RHS Week`` / ``Month`` / ``Year``
+    # budgets.
+    scope: str = ""
 
 
 @dataclass(frozen=True)

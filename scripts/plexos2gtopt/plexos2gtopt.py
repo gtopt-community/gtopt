@@ -439,6 +439,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             bundle,
             lax_uc_refs=bool(options.get("lax_uc_refs")),
             plexos_legacy=bool(options.get("plexos_legacy")),
+            period_rhs_mode=str(options.get("plexos_period_rhs") or "prorate"),
         )
         # Cross-reference PLP's ``embalses.csv`` to patch any reservoir
         # the PLEXOS XML omits but a water-value slope still references
