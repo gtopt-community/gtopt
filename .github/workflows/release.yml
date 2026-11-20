@@ -8,6 +8,9 @@ name: Release
 #   push of a tag vX.Y.Z  -> build, test, create the draft release
 #   workflow_dispatch     -> dry run: build, test and upload everything as
 #                            a workflow artifact; no release is created
+#   push to release/vX.Y.Z -> the same dry run, labelled vX.Y.Z (lets a
+#                            release branch be tested before the workflow
+#                            exists on the default branch)
 #
 # Third-party actions are pinned by commit SHA (version in the comment).
 
@@ -15,6 +18,8 @@ on:
   push:
     tags:
       - 'v*.*.*'
+    branches:
+      - 'release/v*.*.*'
   workflow_dispatch:
     inputs:
       tag:
@@ -54,10 +59,17 @@ jobs:
         id: v
         env:
           EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [ "$EVENT" = "push" ]; then tag="$REF_NAME"; else tag="$INPUT_TAG"; fi
+          if [ "$EVENT" = "push" ] && [ "$REF_TYPE" = "tag" ]; then
+            tag="$REF_NAME"
+          elif [ "$EVENT" = "push" ]; then
+            tag="${REF_NAME#release/}"
+          else
+            tag="$INPUT_TAG"
+          fi
           if ! [[ $tag =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             echo "::error::tag '$tag' is not of the form vX.Y.Z"
             exit 1
@@ -283,7 +295,7 @@ jobs:
           cat notes.md
 
       - name: upload dry-run bundle
-        if: github.event_name == 'workflow_dispatch'
+        if: github.ref_type != 'tag'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-dry-run-${{ needs.prepare.outputs.tag }}
@@ -294,7 +306,7 @@ jobs:
           compression-level: 0
 
       - name: create draft release
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

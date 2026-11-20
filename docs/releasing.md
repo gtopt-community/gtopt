@@ -62,8 +62,10 @@ The body of the `## [X.Y.Z]` section becomes the release notes.
 
 ### 3. Dry run (optional, recommended)
 
-Push the branch, then run the workflow by hand.  This builds, smoke-tests
-and uploads everything as a workflow artifact
+Push a branch named `release/vX.Y.Z`: the push itself starts a dry run
+labelled `vX.Y.Z`.  Any other branch can be dry-run by hand once the
+workflow is on the default branch.  Either way the workflow builds,
+smoke-tests and uploads everything as a workflow artifact
 (`release-dry-run-vX.Y.Z`).  Nothing is published.
 
 ```bash
