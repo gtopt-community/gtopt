@@ -87,6 +87,10 @@ struct MainOptions
   std::optional<double> matrix_eps {};
   /** @brief Build all scene/phase LP matrices but skip solving entirely */
   std::optional<bool> lp_only {};
+  /** @brief Also write `<lp-file stem>.scales.json`, a JSON sidecar with the
+   * objective scale, block weights and scaled columns/rows of every written
+   * LP file (see docs/lp-scales.md) */
+  std::optional<std::string> lp_scales {};
   /** @brief Save debug LP files to the log directory (monolithic: one per
    * scene/phase; SDDP: one per iteration/scene/phase) */
   std::optional<bool> lp_debug {};

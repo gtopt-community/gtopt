@@ -241,6 +241,13 @@ template<typename T>
        po::value<std::string>(),
        "format of the --lp-file dump: lp (default) | mps")
       //
+      ("lp-scales",
+       po::value<std::string>().implicit_value("full"),
+       "also write a JSON sidecar <lp-file stem>.scales.json next to each LP "
+       "file written by --lp-file: 'summary' (objective scale, block and "
+       "stage weights, numerical ranges; a few KB) or 'full' (default; adds "
+       "the scaled columns and row scales needed to read the model in "
+       "physical units); shorthand for --set lp_scales=<level>")  //
       ("matrix-eps,e",
        po::value<double>(),
        "epsilon threshold for treating LP matrix coefficients as zero")  //
@@ -1223,6 +1230,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .lp_format = get_opt<std::string>(vm, "lp-format"),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .lp_only = get_opt<bool>(vm, "lp-only"),
+      .lp_scales = get_opt<std::string>(vm, "lp-scales"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
       .lp_error = get_opt<bool>(vm, "lp-error"),
       .lp_compression = get_opt<std::string>(vm, "lp-compression"),
@@ -1388,6 +1396,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.lp_format = get_str("lp-format");
   opts.matrix_eps = get_dbl("matrix-eps");
   opts.lp_only = get_bool("lp-only");
+  opts.lp_scales = get_str("lp-scales");
   opts.lp_debug = get_bool("lp-debug");
   opts.lp_error = get_bool("lp-error");
   opts.lp_compression = get_str("lp-compression");
@@ -1560,6 +1569,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.lp_format, defaults.lp_format);
   merge(opts.matrix_eps, defaults.matrix_eps);
   merge(opts.lp_only, defaults.lp_only);
+  merge(opts.lp_scales, defaults.lp_scales);
   merge(opts.lp_debug, defaults.lp_debug);
   merge(opts.lp_error, defaults.lp_error);
   merge(opts.lp_compression, defaults.lp_compression);

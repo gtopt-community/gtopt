@@ -95,6 +95,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `lp_debug` | bool | `false` | Save LP debug files before solving |
 | `lp_compression` | string | -- | Compression codec for LP files |
 | `lp_only` | bool | `false` | Build LP matrices without solving (CLI: `--lp-only` / `-c`) |
+| `lp_scales` | string | `none` | Write the [LP scales](lp-scales.md) next to each LP file written by `--lp-file`: `summary` (JSON) or `full` (JSON plus Parquet tables); `true`/`false` mean `full`/`none` (CLI: `--lp-scales`) |
 | `lp_fingerprint` | bool | `false` | Write [LP fingerprint](lp-fingerprint.md) JSON for formulation audit |
 | `lp_debug_scene_min` | int | -- | Minimum scene UID (inclusive) for LP debug file saving |
 | `lp_debug_scene_max` | int | -- | Maximum scene UID (inclusive) for LP debug file saving |

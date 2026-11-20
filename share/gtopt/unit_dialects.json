@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "doc": "gtopt unit registry. Each entry annotates the canonical attribute of a class with the physical unit expected by a given dialect. Used for diagnostics (--list-dialects --units), input-warn under --naming-dialect when an alias's unit differs from the canonical unit, and (eventually) auto-conversion at parse time. Composite units use the standard slash + caret notation: 'USD/MWh', 'MW/h', 'm3/s', 'kV', 'Mm3' (= 1e6 m3 = hm3), 'tCO2/MWh'. Unitless entries use the empty string ''.",
+  "doc": "gtopt unit registry. Each entry annotates the canonical attribute of a class with the physical unit expected by a given dialect. Used for diagnostics (--list-dialects --units), the LP scales sidecar (dialect 'lp': physical unit of an LP column, keyed by the snake_case LP class and the LP variable name), input-warn under --naming-dialect when an alias's unit differs from the canonical unit, and (eventually) auto-conversion at parse time. Composite units use the standard slash + caret notation: 'USD/MWh', 'MW/h', 'm3/s', 'kV', 'Mm3' (= 1e6 m3 = hm3), 'tCO2/MWh'. Unitless entries use the empty string ''.",
 
   "units": [
     {"class": "generator", "canonical": "pmin",           "dialect": "gtopt",  "unit": "MW"},
@@ -151,6 +151,30 @@
 
     {"class": "reservoir", "canonical": "efin",           "dialect": "gtopt",  "unit": "Mm3"},
     {"class": "reservoir", "canonical": "efin",           "dialect": "plp",    "unit": "hm3"},
-    {"class": "reservoir", "canonical": "efin",           "dialect": "sddp",   "unit": "hm3"}
+    {"class": "reservoir", "canonical": "efin",           "dialect": "sddp",   "unit": "hm3"},
+
+    {"class": "generator",     "canonical": "generation",  "dialect": "lp",     "unit": "MW"},
+    {"class": "demand",        "canonical": "load",        "dialect": "lp",     "unit": "MW"},
+    {"class": "demand",        "canonical": "fail",        "dialect": "lp",     "unit": "MW"},
+    {"class": "line",          "canonical": "flowp",       "dialect": "lp",     "unit": "MW"},
+    {"class": "line",          "canonical": "flown",       "dialect": "lp",     "unit": "MW"},
+    {"class": "line",          "canonical": "lossp",       "dialect": "lp",     "unit": "MW"},
+    {"class": "line",          "canonical": "lossn",       "dialect": "lp",     "unit": "MW"},
+    {"class": "bus",           "canonical": "theta",       "dialect": "lp",     "unit": "rad"},
+    {"class": "battery",       "canonical": "energy",      "dialect": "lp",     "unit": "MWh"},
+    {"class": "battery",       "canonical": "eini",        "dialect": "lp",     "unit": "MWh"},
+    {"class": "battery",       "canonical": "finp",        "dialect": "lp",     "unit": "MW"},
+    {"class": "battery",       "canonical": "fout",        "dialect": "lp",     "unit": "MW"},
+    {"class": "reservoir",     "canonical": "energy",      "dialect": "lp",     "unit": "Mm3"},
+    {"class": "reservoir",     "canonical": "eini",        "dialect": "lp",     "unit": "Mm3"},
+    {"class": "reservoir",     "canonical": "extraction",  "dialect": "lp",     "unit": "m3/s"},
+    {"class": "waterway",      "canonical": "flow",        "dialect": "lp",     "unit": "m3/s"},
+    {"class": "flow_right",    "canonical": "flow",        "dialect": "lp",     "unit": "m3/s"},
+    {"class": "flow_right",    "canonical": "fail",        "dialect": "lp",     "unit": "m3/s"},
+    {"class": "volume_right",  "canonical": "energy",      "dialect": "lp",     "unit": "Mm3"},
+    {"class": "volume_right",  "canonical": "eini",        "dialect": "lp",     "unit": "Mm3"},
+    {"class": "volume_right",  "canonical": "extraction",  "dialect": "lp",     "unit": "m3/s"},
+    {"class": "volume_right",  "canonical": "fail",        "dialect": "lp",     "unit": "Mm3"},
+    {"class": "sddp",          "canonical": "alpha",       "dialect": "lp",     "unit": "USD"}
   ]
 }

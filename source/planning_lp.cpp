@@ -32,6 +32,7 @@
 #include <gtopt/lng_terminal.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/lp_name_spill.hpp>
+#include <gtopt/lp_scales.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/memory_monitor.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -1791,18 +1792,31 @@ bool PlanningLP::write_lp(const std::string& filename,
       // Compress only when a codec was asked for (`--lp-compression`,
       // `lp_compression` in the JSON or `--set`); the default keeps the
       // plain file, as before.  The same applies to `.lp` and `.mps`.
+      std::string written = *result;
       const auto codec = std::string(options().lp_compression());
       if (!codec.empty() && codec != "none" && codec != "uncompressed") {
-        std::string compressed;
         try {
-          compressed = compress_lp_file(*result, codec);
+          if (auto compressed = compress_lp_file(*result, codec);
+              !compressed.empty())
+          {
+            written = std::move(compressed);
+          }
         } catch (const std::exception& e) {
           spdlog::warn("cannot compress {}: {}", *result, e.what());
         }
-        spdlog::info("LP model written to {}",
-                     compressed.empty() ? *result : compressed);
-      } else {
-        spdlog::info("LP model written to {}", *result);
+      }
+      spdlog::info("LP model written to {}", written);
+
+      // Optional sidecar describing the file just written (`.lp`/`.mps`,
+      // possibly compressed).  A failure is reported, never fatal.
+      if (const auto level = m_options_.lp_scales();
+          level != LpScalesLevel::none)
+      {
+        if (auto meta = write_lp_scales(system, written, level, codec)) {
+          spdlog::info("LP scales written to {}", *meta);
+        } else {
+          spdlog::warn("{}", meta.error().message);
+        }
       }
     }
   }
