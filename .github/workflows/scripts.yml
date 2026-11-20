@@ -318,7 +318,7 @@ jobs:
           assert d["system"]["name"] == "ieee30b"
           assert len(d["system"]["bus_array"]) == 30
           assert len(d["system"]["generator_array"]) == 6
-          assert d["options"]["use_kirchhoff"] is True
+          assert d["options"]["model_options"]["use_kirchhoff"] is True
           print("✓ pp2gtopt ieee30b JSON validated")
           EOF
 
