@@ -251,6 +251,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`plp2gtopt`: boundary-cut `efin_cost` used the wrong volume unit.**
+  `PlanosParser.lower_bound_water_value_by_reservoir` (the cut water value
+  that overwrites `Reservoir.efin_cost` under `--soft-storage-bounds`)
+  still scaled plpplem2 gradients by the per-reservoir `10^(FEscala-6)`,
+  the FEscala mis-reading the `boundary_cuts.csv` writer dropped on
+  2026-07-12.  `efin_cost` was off from the cuts gtopt loads by
+  `10^(9-FEscala)` (×10 low for FEscala=8, ×10 high for FEscala=10).
+  Both now use the shared uniform `PLANOS_GRAD_SCALE` (`$/dam³ → $/hm³`,
+  ×1000); the `apply_fescala` keyword became `grad_scale`.
+
 - **Python tools: runtime data files missing from non-editable installs.**
   `pip install ./scripts` (wheel) did not ship
   `plexos2gtopt/data/cen_pcp_hard_ucs.txt`, the `plexos2gtopt`/`plp2gtopt`
@@ -301,6 +311,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   in `sddp_cut_io` to ensure compatibility across compilers.
 
 ### Testing
+
+- **`test_water_fail_cost_magnitude.py` runs on the published `plp_2y`
+  case** (was the private `iplp_juan`, now retired).  The `lost_pf`
+  reference table was recomputed from plp_2y data with its derivation
+  documented, and is now checked end to end on a planos-free copy of the
+  case (`efin_cost = anchor × lost_pf × 1e6/3600`); the boundary-cut
+  overwrite is checked separately against the emitted `boundary_cuts.csv`.
+  The juan-based tests (and `test_plp_gtopt_comparison.py::
+  test_efin_cost_from_boundary_cuts`) had been silently skipped since
+  2026-05 and asserted obsolete defaults: `efin_cost` is only emitted with
+  `--soft-storage-bounds` (hard bounds by default since 2026-07) and
+  `--no-cuts-govern-terminal`, and the default `phi_expectation` CSV is
+  no longer pre-divided by `NVarPhi`.
+- **Monolithic keeps the boundary cuts of an SDDP-converted case**: new
+  doctest pins that a FutureCost element (what the converters emit)
+  loads under `method = monolithic`.
 
 - **+160 unit tests**: coverage increased from 71.5% to 77.3%, with new
   tests for `sddp_cut_io`, `sddp_monitor`, battery expansion, reservoir

@@ -391,6 +391,22 @@ TEST_CASE(  // NOLINT
     CHECK(run_monolithic(std::move(planning)) == 3);
   }
 
+  SUBCASE("an SDDP-converted case re-run with method=monolithic keeps cuts")
+  {
+    // What plp2gtopt / plexos2gtopt write for an SDDP case: the cuts on
+    // the method-neutral FutureCost element, no sddp_options.boundary_*
+    // key.  `--set method=monolithic` must still load them — no fallback
+    // to sddp_options is needed for that.
+    auto planning = make_3phase_hydro_planning();
+    planning.options.method = MethodType::monolithic;
+    planning.system.future_cost_array = {make_fcf(cuts_file)};
+    REQUIRE(resolve_future_cost_aliases(planning).has_value());
+    REQUIRE(planning.system.future_cost_array.size() == 1);
+    CHECK(planning.system.future_cost_array.front().cuts_file.value_or("")
+          == cuts_file);
+    CHECK(run_monolithic(std::move(planning)) == 3);
+  }
+
   SUBCASE("sddp_options.boundary_cuts_file is ignored by monolithic")
   {
     auto planning = make_3phase_hydro_planning();
