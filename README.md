@@ -304,6 +304,29 @@ dispatch to a market with bids:
 This work is in development; feedback and collaboration are welcome in
 [Discussions](https://github.com/gtopt-community/gtopt/discussions).
 
+## Real cases: gtopt-cases
+
+[**gtopt-cases**](https://github.com/gtopt-community/gtopt-cases) holds
+real power-system cases ready to run with GTOpt, built with its
+converters from data published by system operators and research groups
+(inputs only, provided AS IS):
+
+| Country | Cases |
+|---|---|
+| <img src="https://flagcdn.com/w40/cl.png" width="28" align="absmiddle" alt="Chile"> [Chile](https://github.com/gtopt-community/gtopt-cases/tree/main/chile) | 14 daily unit commitments from the CEN PLEXOS bases; SDDP of 2, 5 and 23 years from PLP, with the Laja and Maule irrigation agreements |
+| <img src="https://flagcdn.com/w40/gt.png" width="28" align="absmiddle" alt="Guatemala"> [Guatemala](https://github.com/gtopt-community/gtopt-cases/tree/main/guatemala) | NCP daily/weekly dispatch, PSS®E network snapshots and six annual SDDP programmes (AMM/EOR) |
+| <img src="https://flagcdn.com/w40/pe.png" width="28" align="absmiddle" alt="Peru"> [Peru](https://github.com/gtopt-community/gtopt-cases/tree/main/peru) | Four annual SDDP cases of the COES 2026-2029 reserve-margin study |
+| <img src="https://flagcdn.com/w40/pl.png" width="28" align="absmiddle" alt="Poland"> [Poland](https://github.com/gtopt-community/gtopt-cases/tree/main/poland) | 3,374-bus DC OPF (MATPOWER `case3375wp`) |
+
+```bash
+git clone --depth 1 https://github.com/gtopt-community/gtopt-cases.git
+```
+
+Each case README gives the exact `gtopt` command.  From a GTOpt checkout,
+`eval "$(bash tools/get_cases.sh)"` fetches the revision pinned in
+`tools/cases.lock` and sets `GTOPT_CASES_DIR` for the tests that use
+these cases.
+
 ## Validation
 
 GTOpt is validated at three levels. **The Chilean national electric
