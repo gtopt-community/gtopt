@@ -157,6 +157,14 @@ class PlexosDb:
     #: decoded).  ``None`` when the bundle carries no Horizon date.  Used to
     #: resolve dated property overrides (see :class:`PlexosDataRow`).
     horizon_start: datetime | None = None
+    #: ``t_band`` index — ``{data_id -> band_id}``.  Rows without a band
+    #: entry are band 1.  Multi-band properties (e.g. DSP bid quantities)
+    #: carry one ``t_data`` row per band.
+    band_for_data: dict[int, int] = field(default_factory=dict)
+    #: Non-timeslice ``t_text`` companions — ``{data_id -> text}``.  Holds
+    #: the ``Data File.Filename`` paths (``Traces\\solar\\X.csv``) and the
+    #: month-pattern text of ``Timeslice.Include`` rows (``M4-10``).
+    text_for_data: dict[int, str] = field(default_factory=dict)
 
     # ----- precomputed lookup indexes ---------------------------------------
     #
@@ -681,6 +689,21 @@ def _parse_band_map(root: ET.Element) -> dict[int, int]:
     return out
 
 
+def _parse_texts(root: ET.Element) -> dict[int, str]:
+    """Index every ``t_text`` row as ``{data_id -> value}``.
+
+    Unlike :func:`_parse_timeslice_map` this keeps all text classes:
+    ``Data File`` filenames and ``Timeslice`` month patterns included.
+    """
+    out: dict[int, str] = {}
+    for elem in root.findall(f"{NS}t_text"):
+        did = _findtext_int(elem, "data_id")
+        raw = elem.findtext(f"{NS}value")
+        if did is not None and raw is not None and raw.strip():
+            out[did] = raw.strip()
+    return out
+
+
 def _parse_data(root: ET.Element) -> list[PlexosDataRow]:
     bands = _parse_band_map(root)
     dfrom = _parse_date_map(root, "t_date_from")
@@ -756,6 +779,8 @@ def load_xml(path: Path | str) -> PlexosDb:
         # the 36 MB PCP bundle, ~250 ms parse.
         data_rows=_parse_data(root),
         tag_for_data=_parse_tags(root),
+        band_for_data=_parse_band_map(root),
+        text_for_data=_parse_texts(root),
         horizon_start=_parse_horizon_start(root),
     )
 

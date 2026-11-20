@@ -956,7 +956,47 @@ X come from?" without re-reading the converter source.
 
 ---
 
-## 15. Related references
+## 15. AEMO ISP dispatch window (prototype)
+
+`python -m plexos2gtopt.aemo_isp` builds an hourly gtopt **dispatch**
+case for a short window of one scenario of AEMO's Integrated System Plan
+(ISP) PLEXOS model (the capacity-outlook "DLT" database, one XML per
+scenario, with half-hourly traces shipped as separate archives).  It
+reuses the MasterDataSet reader (`plexos_xml`) but not the CEN PCP
+extractors: the ISP database keeps its time series in `Data File`
+objects (`Traces\<kind>\<file>.csv`) and scopes most properties with
+seasonal timeslices and dated rows.
+
+```bash
+python -m plexos2gtopt.aemo_isp "2026 ISP Step Change Model.xml" \
+  -t "<extracted>/2026 ISP Solar traces" -t "<extracted>/2026 ISP Wind traces" \
+  -t "<extracted>" -t "<extracted>/2026 ISP Timeslice traces" \
+  -s 2027-01-18 -d 7 -o case -n isp2026_sc_2027w03
+```
+
+| ISP / PLEXOS | gtopt |
+|---|---|
+| `Node` (sub-region) | `Bus` |
+| `Node.Load` → demand trace (MW, half-hourly → hourly mean) | `Demand.lmax` |
+| `Generator` with `Units > 0` on the start day | `Generator`, `pmax = Units × Rating(trace / timeslice) or Max Capacity × (1 − Aux Incr)`, `gcost = Heat Rate × Fuel.Price + VO&M` |
+| `Battery` with `Units > 0` | `Battery` (`Capacity`, `Max Power`, SoC limits, efficiencies; SoC 50 % at both ends) |
+| `Line` Max/Min Flow (timesliced, dated) | `Line.tmax_ab` / `tmax_ba`, transport model, lossless |
+| `Storage` (ML), `Waterway`, `Head/Tail Storage`, `Efficiency Incr`, `Natural Inflow` (m³/s) | `Reservoir` (hm³, end ≥ start), `Junction`, `Waterway`, `Turbine`, `Flow` |
+| `Max Energy Day` (DSP), `Max Energy Year` (hydro without storage) | daily `UserConstraint` (`daily_sum`) |
+
+Value selection per day: band-1 rows inside their date window; rows
+tagged with an active `Timeslice` override untagged rows; the latest
+`date_from` wins and a `Data File` reference wins over a plain number.
+Timeslices come from `M1`..`M12` names, month patterns on `Include`
+(`M4-10`) and the `timeslice_RefYear5000.csv` state-change file.
+
+Not converted: capacity expansion (`Max Units Built`, `Build Cost`,
+`WACC`), retirements beyond the start-day `Units`, the PLEXOS
+`Constraint` objects (REZ and transmission groups, policy targets),
+line losses and marginal loss factors, outages, pumping, purchasers
+(electrolyser loads) and reserves.
+
+## 16. Related references
 
 * `scripts/plexos2gtopt/DESIGN.md` — the original v0 design (CSV
   inventory, entity mapping, time model). Most P0/P1/P2/P3 items
