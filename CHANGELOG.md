@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-20
+
 ### Added
 
 - **`pp2gtopt` monthly stages with representative blocks**:
@@ -303,3 +305,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **+160 unit tests**: coverage increased from 71.5% to 77.3%, with new
   tests for `sddp_cut_io`, `sddp_monitor`, battery expansion, reservoir
   efficiency, variable scaling, and enum options.
+
+[Unreleased]: https://github.com/gtopt-community/gtopt/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/gtopt-community/gtopt/releases/tag/v1.1.0

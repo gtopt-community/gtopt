@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gtopt-scripts"
-version = "1.0.0"
+version = "1.1.0"
 description = "GTOpt (Generation, Transmission and storage Optimization) conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, gtopt_check_json, gtopt_check_fingerprint, gtopt2pp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
 requires-python = ">=3.10"
 # Runtime dependencies.  This list is AUTHORITATIVE; requirements.txt

@@ -466,7 +466,7 @@ gtopt system_c0.json --set output_directory=/tmp/c0_results
 On success, GTOpt logs its progress and exits with code 0:
 
 ```text
-[info] starting gtopt 1.0
+[info] starting gtopt 1.1.0
 [info] parsing input file system_c0.json
 [info] parsing all json files 0.001s
 [info] creating lp 0.002s
