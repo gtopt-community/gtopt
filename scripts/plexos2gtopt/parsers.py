@@ -1885,6 +1885,45 @@ def _warn_if_series_varies(
         )
 
 
+def _load_point_heat_rate_segments(
+    db: PlexosDb, gen_object_id: int, pmax: float
+) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Piecewise heat rate from banded ``Load Point`` / ``Heat Rate Incr``.
+
+    PLEXOS fuel use is ``Heat Rate Base + sum_k Incr_k x (segment k)``
+    where band ``k`` of ``Heat Rate Incr`` applies between ``Load Point``
+    ``k-1`` and ``k`` (MW, band 0 = 0).  Returns ``(pmax_segments,
+    heat_rate_segments)`` — cumulative MW breakpoints clipped to
+    ``pmax`` (the last one is ``pmax``) and the incremental heat rates —
+    or two empty tuples when the generator has fewer than two bands.
+    The no-load ``Heat Rate Base`` travels separately (commitment
+    ``noload_cost``).
+    """
+    points = db.band_values("Generator", gen_object_id, "Load Point")
+    incrs = dict(db.band_values("Generator", gen_object_id, "Heat Rate Incr"))
+    if len(points) < 2 or not incrs:
+        return (), ()
+    bps: list[float] = []
+    slopes: list[float] = []
+    last_incr = incrs.get(points[0][0], next(iter(incrs.values())))
+    for band, point in points:
+        last_incr = incrs.get(band, last_incr)
+        upper = min(point, pmax)
+        if bps and upper <= bps[-1] + 1e-9:
+            break
+        bps.append(upper)
+        slopes.append(last_incr)
+        if upper >= pmax - 1e-9:
+            break
+    if bps and bps[-1] < pmax - 1e-9:
+        # Load points end below pmax: the last slope continues to pmax.
+        bps.append(pmax)
+        slopes.append(slopes[-1])
+    if len(bps) < 2:
+        return (), ()
+    return tuple(bps), tuple(slopes)
+
+
 def extract_generators(
     db: PlexosDb,
     bundle: PlexosBundle,
@@ -2197,8 +2236,14 @@ def extract_generators(
         else {}
     )
     # Cost inputs — long-format CSVs without a BAND column.
+    # A materialised PLEXOS model (``--plexos-model``) ships the full
+    # per-hour heat rate (hour-of-day bid curves); CEN PCP bundles keep
+    # the legacy period-1 collapse.
     heat_rate_csv: dict[str, list[float]] = (
-        read_long(bundle.csv("Gen_HeatRate.csv"))
+        read_long(
+            bundle.csv("Gen_HeatRate.csv"),
+            n_days=bundle.n_days if bundle.materialised_model else 1,
+        )
         if bundle.has("Gen_HeatRate.csv")
         else {}
     )
@@ -2380,9 +2425,14 @@ def extract_generators(
         # fallback — see fuel-price comment above.  CEN PCP ships
         # explicit heat_rate=0 for ~6 renewable generators (geothermal,
         # solar thermal) where fuel consumption truly is zero.
+        heat_rate_profile: tuple[float, ...] = ()
         if gen.name in heat_rate_csv:
-            _warn_if_series_varies("heat rate", gen.name, heat_rate_csv[gen.name])
-            heat_rate = heat_rate_csv[gen.name][0]
+            hr_series = heat_rate_csv[gen.name]
+            if bundle.materialised_model:
+                heat_rate_profile = tuple(hr_series)
+            else:
+                _warn_if_series_varies("heat rate", gen.name, hr_series)
+            heat_rate = hr_series[0]
         else:
             # PLEXOS heat-rate conventions, in order of preference:
             #  1. ``Heat Rate``       — single scalar (RTS-96, CEN PCP)
@@ -2448,7 +2498,12 @@ def extract_generators(
         hr_incr2 = db.static_property("Generator", gen.object_id, "Heat Rate Incr2")
         pmax_segments: tuple[float, ...] = ()
         hr_segments: tuple[float, ...] = ()
-        if hr_incr2 > 0.0 and pmax > 0.0 and hr_incr > 0.0:
+        if gen.name not in heat_rate_csv and pmax > 0.0:
+            # Banded Load Point / Heat Rate Incr curve (SEM-style).
+            pmax_segments, hr_segments = _load_point_heat_rate_segments(
+                db, gen.object_id, pmax
+            )
+        if not hr_segments and hr_incr2 > 0.0 and pmax > 0.0 and hr_incr > 0.0:
             p_mid = pmin + (pmax - pmin) * 0.5
             seg1_mid = pmin + (p_mid - pmin) * 0.5
             seg2_mid = p_mid + (pmax - p_mid) * 0.5
@@ -2511,6 +2566,7 @@ def extract_generators(
                 pmax=pmax,
                 aux_use=aux_use_map.get(gen.name, 0.0),
                 heat_rate=heat_rate,
+                heat_rate_profile=heat_rate_profile,
                 vom_charge=vom,
                 fuel_transport=fuel_transport,
                 fuel_names=gen_fuel_names,
@@ -3614,6 +3670,9 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # separate Max Power Charge / Discharge properties).
         capacity = db.static_property("Battery", batt.object_id, "Capacity")
         max_power = db.static_property("Battery", batt.object_id, "Max Power")
+        # PLEXOS ``Max Load`` = maximum charging power; CEN PCP leaves it
+        # unset (symmetric ``Max Power``).
+        max_load = db.static_property("Battery", batt.object_id, "Max Load")
         # Override the placeholder Max Power with the Gen_Rating peak
         # for the matching ``BAT_<name>`` Generator (the canonical
         # location for the battery's actual per-period MW rating).
@@ -3719,7 +3778,7 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
                 emax=emax_mwh,
                 eini=eini,
                 efin=eini if pin_efin else 0.0,
-                pmax_charge=max_power,
+                pmax_charge=max_load if max_load > 0.0 else max_power,
                 pmax_discharge=max_power,
                 power_profile=battery_power_profile,
                 pmin_charge=pmin_charge,
@@ -8225,6 +8284,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
     from .plexos_block_layout import infer_horizon_days_from_input
 
     _xml_path = getattr(_bundle, "xml_path", None)
+    plexos_semantics_hard = bool(getattr(_bundle, "materialised_model", None))
     _horizon_days = (
         infer_horizon_days_from_input(_xml_path) if _xml_path is not None else None
     ) or (_bundle.n_days or 7)
@@ -10092,13 +10152,19 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         # ``_uc_policy.py`` for the per-branch rationale that used to be
         # inline here.
         plexos_penalty = penalty_val if penalty_val and penalty_val > 0 else 0.0
+        # A materialised general PLEXOS model (``--plexos-model``) keeps
+        # PLEXOS semantics: a constraint without a positive Penalty Price
+        # is HARD.  The CEN-calibrated soft tiers only apply to CEN PCP.
+        uc_hard_set = _load_plexos_hard_uc_list()
+        if plexos_semantics_hard:
+            uc_hard_set = uc_hard_set | {constr.name}
         _outcome = _uc_policy.classify(
             constraint_name=constr.name,
             expression=expression,
             op=op,
             plexos_penalty=plexos_penalty,
             is_inactive=is_inactive,
-            hard_set=_load_plexos_hard_uc_list(),
+            hard_set=uc_hard_set,
         )
         emitted_penalty = _outcome.penalty
         directive_to_emit: ConstraintDirective | None = _outcome.directive

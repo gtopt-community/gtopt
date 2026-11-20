@@ -157,6 +157,46 @@ def _maybe_patch_with_plp_embalses(
     return patch_case_with_plp_embalses(case, embalses_path)
 
 
+def _materialise_plexos_model(bundle: Any, options: dict[str, Any]) -> None:
+    """Swap ``bundle`` to a materialised copy of ``options['plexos_model']``.
+
+    See :mod:`plexos2gtopt.plexos_model`.  The start date defaults to
+    the ``Date From`` of the database's Horizon; the day count is the
+    bundle's (``--horizon-days``).
+    """
+    from .plexos_model import (  # pylint: disable=import-outside-toplevel
+        MaterialiseOptions,
+        materialise_bundle_dir,
+        parse_start_date,
+    )
+    from .plexos_xml import load_xml  # pylint: disable=import-outside-toplevel
+
+    start_raw = options.get("plexos_start_date")
+    if start_raw:
+        start = parse_start_date(str(start_raw))
+    else:
+        start_dt = load_xml(bundle.xml_path).horizon_start
+        if start_dt is None:
+            raise ValueError(
+                "--plexos-model needs --plexos-start-date: the database "
+                "has no Horizon 'Date From'"
+            )
+        start = start_dt
+    data_dirs = tuple(Path(p) for p in (options.get("plexos_data_dirs") or ()))
+    mopts = MaterialiseOptions(
+        model=str(options["plexos_model"]),
+        start=start,
+        n_days=int(bundle.n_days or 1),
+        sample=int(options.get("plexos_sample") or 1),
+        data_dirs=(*data_dirs, Path(bundle.source).parent),
+    )
+    tmp, report = materialise_bundle_dir(bundle.xml_path, mopts)
+    bundle._extra_cleanup.append(tmp)  # pylint: disable=protected-access
+    bundle.root = Path(tmp.name)
+    bundle.materialised_model = mopts.model
+    options["_plexos_model_report"] = report.as_dict()
+
+
 def _resolve_output_paths(
     input_path: Path,
     output_dir: Path | None,
@@ -393,6 +433,8 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             bundle.accdb_path = resolved_accdb
             bundle.accdb_cache_dir = cache_dir
 
+        if options.get("plexos_model"):
+            _materialise_plexos_model(bundle, options)
         case = extract_case(
             bundle,
             lax_uc_refs=bool(options.get("lax_uc_refs")),
@@ -690,6 +732,16 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             build_provenance(planning, source_bundle=input_path.name),
             output_file.with_suffix(".provenance.json"),
         )
+        model_report = options.get("_plexos_model_report")
+        if model_report:
+            import json  # pylint: disable=import-outside-toplevel
+
+            model_path = output_file.with_suffix(".plexos_model.json")
+            model_path.write_text(
+                json.dumps(model_report, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            logger.info("wrote PLEXOS model resolution report: %s", model_path)
 
         # Record this successful run in the cache registry so
         # downstream tools (``plp2gtopt --plexos-overlay latest``,

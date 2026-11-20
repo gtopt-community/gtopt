@@ -221,6 +221,11 @@ class GeneratorSpec:
     # injected MW matches PLEXOS's net-of-auxiliary output.  0 ⇒ none.
     aux_use: float = 0.0
     heat_rate: float = 0.0
+    # Per-hour heat rate when it genuinely varies over the horizon
+    # (``Gen_HeatRate.csv`` of a materialised PLEXOS model, e.g. the
+    # hour-of-day bid curves of the SEM interconnector bid units).  The
+    # writer emits a per-block ``heat_rate``; empty = scalar ``heat_rate``.
+    heat_rate_profile: tuple[float, ...] = field(default_factory=tuple)
     vom_charge: float = 0.0
     fuel_transport: float = 0.0
     start_cost: float = 0.0

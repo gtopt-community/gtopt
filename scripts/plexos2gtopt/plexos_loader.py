@@ -27,7 +27,7 @@ import logging
 import re
 import tempfile
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -87,6 +87,13 @@ class PlexosBundle:
     # zstd-compressed CSV mirrors of the .accdb tables directly,
     # avoiding repeat ``mdb-export`` calls.
     accdb_cache_dir: Path | None = None
+    #: Name of the PLEXOS Model materialised into this bundle by
+    #: :func:`plexos2gtopt.plexos_model.materialise_model` (``None`` for
+    #: CEN PCP bundles and plain XML inputs).  Extractors use it to
+    #: honour per-hour schedules that CEN bundles never vary
+    #: (e.g. ``Gen_HeatRate.csv``).
+    materialised_model: str | None = None
+    _extra_cleanup: list[tempfile.TemporaryDirectory[str]] = field(default_factory=list)
 
     @property
     def xml_path(self) -> Path:
@@ -130,6 +137,8 @@ class PlexosBundle:
         if self._cleanup is not None:
             self._cleanup.cleanup()
             self._cleanup = None
+        while self._extra_cleanup:
+            self._extra_cleanup.pop().cleanup()
 
     def __enter__(self) -> PlexosBundle:
         return self

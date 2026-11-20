@@ -1031,6 +1031,51 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--plexos-model",
+        default=None,
+        metavar="NAME",
+        help=(
+            "materialise this PLEXOS Model of a multi-model database "
+            "(e.g. the SEM PLEXOS Forecast Model) before converting: keep "
+            "only data of the Model's Scenarios, resolve dated rows, "
+            "timeslice patterns, Variables and Data Files at the horizon "
+            "and emit per-hour schedules.  Use with --horizon-mode hourly "
+            "--horizon-days N and --plexos-start-date."
+        ),
+    )
+    parser.add_argument(
+        "--plexos-start-date",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help=(
+            "first day of the horizon for --plexos-model (default: the "
+            "database Horizon's 'Date From')"
+        ),
+    )
+    parser.add_argument(
+        "--plexos-sample",
+        type=int,
+        default=1,
+        metavar="K",
+        help=(
+            "sample column (1-based) read from multi-sample PLEXOS Data "
+            "Files, e.g. the weather year of a stochastic demand/wind "
+            "profile (default 1)"
+        ),
+    )
+    parser.add_argument(
+        "--plexos-data-dir",
+        action="append",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "directory searched (recursively) for the CSV Data Files a "
+            "--plexos-model refers to; repeatable.  The input's own "
+            "directory is always searched; files may be xz-compressed."
+        ),
+    )
+    parser.add_argument(
         "--lp-relax",
         action="store_true",
         default=False,
@@ -1157,6 +1202,10 @@ def main(argv: list[str] | None = None) -> None:
         "block_layout": args.block_layout,
         "plexos_solution_accdb": args.plexos_solution_accdb,
         "lp_relax": args.lp_relax,
+        "plexos_model": getattr(args, "plexos_model", None),
+        "plexos_start_date": getattr(args, "plexos_start_date", None),
+        "plexos_sample": getattr(args, "plexos_sample", 1),
+        "plexos_data_dirs": tuple(getattr(args, "plexos_data_dir", None) or ()),
         "run_check": args.run_check,
         "reservoir_flow_estimate": args.reservoir_flow_estimate,
         "compare_json": args.compare_json,

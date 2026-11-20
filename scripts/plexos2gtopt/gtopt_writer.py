@@ -563,7 +563,7 @@ def build_generator_array(
             # double-counting risk.
             entry["fuel"] = primary_fuel
             if gen.heat_rate > 0.0:
-                entry["heat_rate"] = gen.heat_rate
+                entry["heat_rate"] = _heat_rate_field(gen, block_layout)
             entry["gcost"] = gen.vom_charge + gen.fuel_transport
         else:
             # Legacy baked-gcost path: ``primary_fuel is None`` —
@@ -1480,6 +1480,23 @@ def _fill_forward_defined(series: list[float] | tuple[float, ...]) -> list[float
             else:
                 break
     return out
+
+
+def _heat_rate_field(
+    gen: GeneratorSpec, block_layout: tuple[tuple[int, ...], ...]
+) -> Any:
+    """Scalar ``heat_rate`` or a per-block ``[[...]]`` schedule.
+
+    A varying ``heat_rate_profile`` (materialised PLEXOS model) is
+    aggregated to ``block_layout`` or, in hourly mode (no layout), kept
+    hour by hour like the ``pmax`` profile.
+    """
+    profile = gen.heat_rate_profile
+    if not profile or (max(profile) - min(profile)) <= 1.0e-9:
+        return gen.heat_rate
+    if not block_layout:
+        return [list(profile)]
+    return _per_block_field_value(gen.heat_rate, profile, block_layout, reducer="mean")
 
 
 def _per_block_field_value(

@@ -261,6 +261,22 @@ def test_extract_user_constraints_corridor_le(tmp_path: Path) -> None:
     assert by_name["CORRIDOR_LE"].penalty == 10.0
 
 
+def test_extract_user_constraints_materialised_model_is_hard(
+    tmp_path: Path,
+) -> None:
+    """``--plexos-model``: no Penalty Price => HARD (PLEXOS semantics).
+
+    The CEN-calibrated soft tier ($10/MWh) is not applied to a general
+    PLEXOS model; an explicit positive Penalty Price still softens.
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    bundle.materialised_model = "M"
+    db = load_xml(xml_path)
+    by_name = {c.name: c for c in extract_user_constraints(db, bundle)}
+    assert by_name["CORRIDOR_LE"].penalty == 0.0
+    assert by_name["HARD_EQ"].penalty == 100.0
+
+
 def test_extract_user_constraints_eq_with_penalty(tmp_path: Path) -> None:
     """Sense=0 with Penalty Price > 0 → soft equality."""
     bundle, xml_path = _build_bundle(tmp_path)

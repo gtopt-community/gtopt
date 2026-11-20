@@ -115,6 +115,11 @@ class PlexosDataRow:
     #: table and the constraint RHS overlay path in
     #: :func:`parsers.extract_user_constraints`.
     timeslice: str | None = None
+    #: PLEXOS band index (``t_band.band_id``; 1 when the row has no
+    #: ``t_band`` companion).  Multi-band properties (``Load Point`` /
+    #: ``Heat Rate Incr`` piecewise curves, bid bands) ship one row per
+    #: band.
+    band: int = 1
 
 
 @dataclass
@@ -277,6 +282,28 @@ class PlexosDb:
                 idx.setdefault((d.membership_id, d.property_id), []).append(d)
             self._data_index = idx
         return self._data_index.get((membership_id, property_id), [])
+
+    def band_values(
+        self, child_class: str, child_object_id: int, property_name: str
+    ) -> list[tuple[int, float]]:
+        """``[(band, value), ...]`` of a System-collection property, by band.
+
+        One value per band (lowest ``data_id`` when a band repeats);
+        empty when the property is undefined for the object.
+        """
+        coll = self.collection_for("System", child_class)
+        if coll is None:
+            return []
+        prop_id = self.property_by_name(coll.collection_id, property_name)
+        mid = self.system_membership_id(child_class, child_object_id)
+        if prop_id is None or mid is None:
+            return []
+        by_band: dict[int, PlexosDataRow] = {}
+        for row in self.data_for(mid, prop_id):
+            cur = by_band.get(row.band)
+            if cur is None or row.data_id < cur.data_id:
+                by_band[row.band] = row
+        return [(b, by_band[b].value) for b in sorted(by_band)]
 
     def active_scenario_ids(self, model_name: str | None = None) -> set[int]:
         """Return the set of Scenario ``object_id``s enabled by a Model.
@@ -643,7 +670,19 @@ def _parse_tags(root: ET.Element) -> dict[int, list[int]]:
     return out
 
 
+def _parse_band_map(root: ET.Element) -> dict[int, int]:
+    """Index ``t_band`` as ``{data_id -> band_id}``."""
+    out: dict[int, int] = {}
+    for elem in root.findall(f"{NS}t_band"):
+        did = _findtext_int(elem, "data_id")
+        band = _findtext_int(elem, "band_id")
+        if did is not None and band is not None:
+            out[did] = band
+    return out
+
+
 def _parse_data(root: ET.Element) -> list[PlexosDataRow]:
+    bands = _parse_band_map(root)
     dfrom = _parse_date_map(root, "t_date_from")
     dto = _parse_date_map(root, "t_date_to")
     timeslice = _parse_timeslice_map(root)
@@ -666,6 +705,7 @@ def _parse_data(root: ET.Element) -> list[PlexosDataRow]:
                 date_from=dfrom.get(did),
                 date_to=dto.get(did),
                 timeslice=timeslice.get(did),
+                band=bands.get(did, 1),
             )
         )
     return out

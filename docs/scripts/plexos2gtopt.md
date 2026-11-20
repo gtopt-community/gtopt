@@ -791,6 +791,41 @@ plexos2gtopt --compare GTOPT_JSON INPUT
 | `--plexos-solution-accdb PATH` | auto-discovered | Override of the .accdb path (block layout + optional table cache). |
 | `--block-layout CSV-OR-SPEC` | unset | User-defined layout for `plexos` mode when no .accdb is available. CSV (`duration` column) or inline `{uid:dur,…}` / `d1,d2,…`. |
 
+### General PLEXOS databases (one Model of a multi-model XML)
+
+A general PLEXOS database (for example the public SEM PLEXOS Forecast
+Model 2024-2032 of the SEM Committee) holds several Models whose data
+rows depend on Scenarios, dates, timeslice patterns (`M04-09`,
+`H18-20`, `!H18-19`), Variables and Data Files.  `--plexos-model`
+resolves one Model for one horizon (`plexos_model.py`) into a
+CEN-style bundle (static XML plus `Nod_Load`, `Gen_Rating`,
+`Gen_HeatRate`, `Fuel_Price`, `Gen_StartCost`, `Lin_*Rating`,
+`Lin_Units`, `BESS_IniValue` CSVs) before the normal extraction.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--plexos-model NAME` | unset | Model to materialise (its Scenarios are the active ones). |
+| `--plexos-start-date YYYY-MM-DD` | Horizon `Date From` | First day; the horizon length is `--horizon-days`. |
+| `--plexos-sample N` | `1` | Data File column (stochastic sample) used for Variables. |
+| `--plexos-data-dir DIR` | input dir | Where the Data File CSVs are searched (repeatable; recursive, case-insensitive, `.xz` accepted). |
+
+Conversion rules: active-scenario rows override base rows at the
+same hour; among dated rows the latest `Date From` wins; fuel prices
+include the emission price times the fuel's production rate;
+generator ratings are `Max Capacity` (times `Rating Factor`, capped by
+`Rating` / `Outage Rating`) times `Units - Units Out`; a single-node
+region's `Fixed Load` is added to the node load; an energy-model
+pumped-storage plant (head/tail Storage in GWh plus generators with
+`Pump Load`) becomes one Battery; region `DSP Bid Quantity` / `Price`
+bands become price-bid generators; banded `Load Point` / `Heat Rate
+Incr` become `heat_rate_segments`; batteries are scaled by `Units`
+(zero units: dropped).  User constraints without a positive `Penalty
+Price` stay hard (PLEXOS semantics; the CEN soft tiers of
+[§7](#soft-penalty-policy) are not applied).  Properties that vary in
+the horizon but have no schedule are frozen at the start value, and
+every property with active data that is not converted is listed in
+the log and in `<stem>.plexos_model.json`.
+
 ### User constraints (PAMPL emission)
 
 | Flag | Default | Effect |
