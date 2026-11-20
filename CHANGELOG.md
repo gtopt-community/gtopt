@@ -11,6 +11,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`plexos2gtopt` general PLEXOS databases**: `--plexos-model`,
+  `--plexos-start-date`, `--plexos-sample` and `--plexos-data-dir` pick one
+  Model of a multi-model PLEXOS XML (scenarios, dated rows, time-of-day
+  patterns, wind/demand Data Files) for a dispatch window; pumped storage
+  becomes a battery, demand-side bids become price-bid generators, banded
+  heat-rate curves are made convex, and constraints without a penalty stay
+  hard.  Missing Data Files are fatal only when a converted property needs
+  them.  A bare `*.xml` / `*.xml.xz` is accepted as input.
+- **`plexos2gtopt.aemo_isp`** (prototype): builds an hourly dispatch case for
+  a short window of one scenario of AEMO's 2026 ISP PLEXOS model (buses,
+  demand traces, generators, batteries, flow paths, hydro storages with
+  inflows, daily energy limits); expansion and the PLEXOS constraint set are
+  not converted yet.
+- **`psse2gtopt` overlays**: `--gen-costs` (`bus,id[,pmax],mw1,cost1,…`) and
+  `--line-limits` (`from,to,ckt,tmax`) CSV files.
+
 - **Real cases in gtopt-cases**: the public case repository
   [gtopt-community/gtopt-cases](https://github.com/gtopt-community/gtopt-cases)
   (Chile, Guatemala, Peru, Poland); `tools/get_cases.sh` and
@@ -256,6 +272,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   decomposition of the SDDP algorithm.
 
 ### Fixed
+
+- **Security (code scanning)**: the guiservice-plus AI chat route no longer
+  fetches a browser-supplied URL (Ollama/custom endpoints must be
+  allow-listed in `GTOPT_AI_ALLOWED_BASE_URLS`); guiservice error responses
+  return an error id instead of exception text, and `/api/logs` omits
+  tracebacks.
+- **`psse2gtopt` loads**: constant-current and constant-impedance load
+  components are evaluated at the solved bus voltage
+  (`PL + IP·VM + YP·VM²`); negative loads become fixed injections instead
+  of being dropped.
 
 - **`plp2gtopt`: boundary-cut `efin_cost` used the wrong volume unit.**
   `PlanosParser.lower_bound_water_value_by_reservoir` (the cut water value
