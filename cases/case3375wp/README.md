@@ -20,10 +20,10 @@ solve time, memory, and feasibility on a real-world-sized problem.
 ## Why this case stands in for `cn_3266b`
 
 The original goal was the Chinese provincial 3266-bus dataset from
-IEEE DataPort (DOI 10.21227/vma9-wk20).  That dataset is behind a
-paid IEEE DataPort subscription, so it can't be vendored or fetched
-in CI.  `case3375wp` is the closest *publicly-available* substitute
-of comparable scale (3375 vs 3266 buses, BSD-licensed) and is what
+IEEE DataPort (DOI 10.21227/vma9-wk20).  The dataset is licensed
+CC BY 4.0, but downloading it requires an IEEE DataPort subscription,
+so CI cannot fetch it.  `case3375wp` is the closest freely downloadable
+substitute of comparable scale (3375 vs 3266 buses) and is what
 the e2e test under this name actually drives.  `cases/cn_3266b/`
 remains as a stub README describing the manual fetch path if you
 have access to the original data.
