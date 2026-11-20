@@ -1,0 +1,105 @@
+GTOpt @VERSION@ - binary release for Linux x86_64
+==================================================
+
+GTOpt (Generation, Transmission and storage Optimization) builds sparse
+LP/MIP formulations of multi-stage power systems (expansion planning,
+hydrothermal scheduling with SDDP, unit commitment, economic dispatch)
+and solves them with pluggable solver backends.
+
+Source revision: @GIT_REVISION@
+Project page:    https://github.com/gtopt-community/gtopt
+Documentation:   https://github.com/gtopt-community/gtopt/tree/v@VERSION@/docs
+
+
+Requirements
+------------
+
+* Linux x86_64 with glibc >= @GLIBC@ and libstdc++ providing
+  GLIBCXX_@GLIBCXX@.  Tested on Ubuntu 24.04 LTS and
+  newer; Debian 13 and other distributions with the same or newer glibc
+  and GCC runtime should work.  Ubuntu 22.04 and older are NOT supported
+  by this binary (build from source instead, see BUILDING.md).
+* Apache Arrow/Parquet, HiGHS, COIN-OR CBC/CLP, spdlog, jemalloc and
+  their dependencies are bundled in lib/.  The only system libraries
+  used are glibc (libc, libm, ...), libstdc++6, libgcc-s1 and OpenSSL 3
+  (libssl.so.3), which every supported system has installed.  On a
+  minimal container image install them with:
+      apt-get install libstdc++6 libgcc-s1 libssl3t64   # Ubuntu 24.04+, Debian 13
+
+
+Install
+-------
+
+    tar --zstd -xf gtopt-@VERSION@-linux-x86_64.tar.zst   # or: tar -xzf ...tar.gz
+    sudo mv gtopt-@VERSION@-linux-x86_64 /opt/gtopt-@VERSION@
+    sudo ln -sf /opt/gtopt-@VERSION@/bin/gtopt /usr/local/bin/gtopt
+
+Or without root:
+
+    mkdir -p ~/.local/opt ~/.local/bin
+    tar --zstd -xf gtopt-@VERSION@-linux-x86_64.tar.zst -C ~/.local/opt
+    ln -sf ~/.local/opt/gtopt-@VERSION@-linux-x86_64/bin/gtopt ~/.local/bin/gtopt
+
+The tree is relocatable: bin/gtopt finds its libraries in ../lib and its
+solver plugins in ../lib/gtopt/plugins wherever the directory is placed.
+Keep the layout intact (do not copy bin/gtopt alone).
+
+Verify the download first:
+
+    sha256sum -c SHA256SUMS --ignore-missing
+
+
+Run
+---
+
+    gtopt --version
+    gtopt --solvers              # lists the available LP/MIP backends
+
+    cp -r share/gtopt/examples/c0 /tmp/c0 && cd /tmp/c0
+    gtopt system_c0.json --solver highs --set output_directory=out
+    cat out/solution.csv         # status "optimal", obj_value ~ 23163.42
+
+See docs/usage.md in the source tree for all options.
+
+
+Solvers
+-------
+
+Included (open source):  HiGHS (libgtopt_solver_highs.so) and COIN-OR
+CLP/CBC (libgtopt_solver_osi.so).  The default backend is chosen
+automatically; select one with `--solver highs|clp|cbc`.
+
+Commercial solvers (CPLEX, Gurobi, MindOpt) and the GPU solver cuOpt are
+NOT included.  Their plugins must be built from source against your own
+licensed installation (see BUILDING.md) and placed in
+lib/gtopt/plugins/, or in a directory named by $GTOPT_PLUGIN_DIR.
+
+
+Python tools
+------------
+
+The converters and utilities (plp2gtopt, plexos2gtopt, pp2gtopt,
+gtopt_diagram, run_gtopt, ...) are released as the `gtopt-scripts`
+wheel attached to the same GitHub Release:
+
+    python3 -m venv ~/.local/share/gtopt/venv
+    ~/.local/share/gtopt/venv/bin/pip install gtopt_scripts-@VERSION@-py3-none-any.whl
+
+
+Debugging
+---------
+
+bin/gtopt and the plugins are stripped.  Their debug information (line
+tables) is in gtopt-@VERSION@-linux-x86_64-debug.tar.zst; extract it on
+top of this directory and gdb picks it up through .gnu_debuglink.
+
+
+Licence
+-------
+
+GTOpt is licensed under the GNU Affero General Public License v3.0 or
+later (LICENSE), with the solver-plugin exception in
+LICENSE-EXCEPTION.md; see LICENSING.md for the full picture and
+LICENSE-COMMERCIAL.md for the commercial option.  Third-party components
+are listed in THIRD_PARTY_NOTICES.md; the copyright and licence files of
+the bundled shared libraries are in share/doc/gtopt/third_party/.

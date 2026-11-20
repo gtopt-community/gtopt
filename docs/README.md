@@ -70,3 +70,4 @@ project, then the **[Planning Guide](planning-guide.md)**.
 | [White paper](white_paper/) | Reference paper: formulation, methods, validation (PDF and LaTeX source) |
 | [Publications](../PUBLICATIONS.md) | Papers on GTOpt and FESOP, and how to cite |
 | [Changelog](../CHANGELOG.md) | Release history |
+| [Releasing](releasing.md) | How a version is bumped, tagged, built and published |

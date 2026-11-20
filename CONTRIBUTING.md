@@ -181,6 +181,9 @@ runs clang-format on staged C/C++ files and re-stages them automatically.
 4. Update documentation if your changes affect user-facing behavior
 5. Write clear, descriptive commit messages
 6. Open a pull request against `master` with a description of your changes
+7. User-visible changes get a bullet under `## [Unreleased]` in
+   `CHANGELOG.md`; maintainers cut releases as described in
+   [docs/releasing.md](docs/releasing.md)
 
 ## Testing Guidelines
 

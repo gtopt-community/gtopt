@@ -1,0 +1,306 @@
+name: Release
+
+# Builds the GTOpt binary release (Linux x86_64) and the Python tools
+# (sdist + wheel), smoke-tests the packaged binary, and creates a DRAFT
+# GitHub Release with notes taken from CHANGELOG.md.  A maintainer reviews
+# the draft and publishes it by hand.  See docs/releasing.md.
+#
+#   push of a tag vX.Y.Z  -> build, test, create the draft release
+#   workflow_dispatch     -> dry run: build, test and upload everything as
+#                            a workflow artifact; no release is created
+#
+# Third-party actions are pinned by commit SHA (version in the comment).
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Version tag to label the dry run with (e.g. v1.1.0).  Must match
+          the version in CMakeLists.txt and scripts/pyproject.toml of the
+          selected branch.  Nothing is published.
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  HIGHS_VERSION: v1.12.0
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+  CCACHE_BASEDIR: ${{ github.workspace }}
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Resolve the version and make sure the tag, CMake and Python agree.
+  # -------------------------------------------------------------------------
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: resolve and check version
+        id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$EVENT" = "push" ]; then tag="$REF_NAME"; else tag="$INPUT_TAG"; fi
+          if ! [[ $tag =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::tag '$tag' is not of the form vX.Y.Z"
+            exit 1
+          fi
+          version=${BASH_REMATCH[1]}
+          cmake_version=$(sed -n '/^project(/,/^)/s/^ *VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt)
+          py_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' scripts/pyproject.toml | head -1)
+          echo "tag=$tag cmake=$cmake_version scripts=$py_version"
+          if [ "$cmake_version" != "$version" ] || [ "$py_version" != "$version" ]; then
+            echo "::error::version mismatch: tag $version, CMakeLists.txt $cmake_version, scripts/pyproject.toml $py_version"
+            exit 1
+          fi
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [$version]' section"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  # -------------------------------------------------------------------------
+  # Linux x86_64 binary.
+  #
+  # Built on ubuntu-24.04 with GCC 14, so the binary needs glibc >= 2.39
+  # and the GCC 14 libstdc++ (GLIBCXX_3.4.33): Ubuntu 24.04+, Debian 13+.
+  # Ubuntu 22.04 is not built: C++26 needs GCC 14, whose libstdc++ is
+  # newer than 22.04's, so a 22.04 binary would have to bundle libstdc++
+  # (fragile next to dlopen'd vendor solver libraries) for a platform
+  # install.sh does not support either.
+  # -------------------------------------------------------------------------
+  linux-x86_64:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      CC: gcc-14
+      CXX: g++-14
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: setup ccache
+        uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+        with:
+          key: gtopt-release-linux-x86_64-gcc14
+          restore-keys: |
+            gtopt-release-linux-x86_64-gcc14-
+          max-size: 2G
+
+      - name: cache CPM sources
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: cpm_modules
+          key: release-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
+          restore-keys: |
+            release-cpm-modules-
+
+      - name: install dependencies
+        uses: ./.github/actions/install-apt-deps
+        with:
+          extra-packages: ninja-build patchelf binutils
+
+      - name: setup gcc
+        uses: ./.github/actions/install-gcc
+        with:
+          version: 14
+
+      # HiGHS is not packaged for Ubuntu 24.04: build the same release
+      # install.sh uses, as a shared library, and cache it.
+      - name: cache HiGHS
+        id: highs-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/highs
+          key: highs-${{ env.HIGHS_VERSION }}-ubuntu-24.04-gcc14
+
+      - name: build HiGHS
+        if: steps.highs-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone -q --depth 1 --branch "$HIGHS_VERSION" \
+            https://github.com/ERGO-Code/HiGHS.git "$RUNNER_TEMP/HiGHS-src"
+          cmake -S "$RUNNER_TEMP/HiGHS-src" -B "$RUNNER_TEMP/HiGHS-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DFAST_BUILD=ON \
+            -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/highs"
+          cmake --build "$RUNNER_TEMP/HiGHS-build" -j"$(nproc)"
+          cmake --install "$RUNNER_TEMP/HiGHS-build"
+          cp "$RUNNER_TEMP/HiGHS-src/LICENSE.txt" "$RUNNER_TEMP/highs/LICENSE.txt"
+
+      - name: configure
+        run: |
+          # Release at -O2 (not CMake's default -O3) with line tables only;
+          # the debug info is split into a separate archive when packaging.
+          # Commercial and optional solvers are disabled explicitly: only
+          # HiGHS and COIN-OR CBC/CLP plugins are redistributed.
+          cmake -S standalone -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O2 -g1 -DNDEBUG" \
+            -DCMAKE_C_FLAGS_RELEASE="-O2 -g1 -DNDEBUG" \
+            -DCMAKE_INSTALL_PREFIX=/opt/gtopt \
+            -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/highs" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_DISABLE_FIND_PACKAGE_CPLEX=ON \
+            -DCMAKE_DISABLE_FIND_PACKAGE_Gurobi=ON \
+            -DCMAKE_DISABLE_FIND_PACKAGE_MindOpt=ON \
+            -DCMAKE_DISABLE_FIND_PACKAGE_CuOpt=ON \
+            -DGTOPT_DISABLE_SCIP=ON -DGTOPT_DISABLE_CUOPT=ON
+
+      - name: build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: package
+        run: |
+          tools/release/package_linux.sh --build-dir build --version "$VERSION" \
+            --out-dir dist --highs-license "$RUNNER_TEMP/highs/LICENSE.txt"
+
+      - name: smoke test (tar.zst)
+        run: tools/release/smoke_test.sh "dist/gtopt-$VERSION-linux-x86_64.tar.zst" "$VERSION"
+
+      - name: smoke test (tar.gz)
+        run: tools/release/smoke_test.sh "dist/gtopt-$VERSION-linux-x86_64.tar.gz" "$VERSION"
+
+      - name: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-linux-x86_64
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 0
+
+  # -------------------------------------------------------------------------
+  # Python tools: gtopt-scripts sdist + wheel.
+  # -------------------------------------------------------------------------
+  python:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: build sdist and wheel
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build scripts --outdir dist
+          # No --strict: scripts/ has no README, so twine warns about the
+          # missing long_description.
+          python -m twine check dist/*
+          ls -l dist
+
+      - name: check wheel installs and reports the version
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q dist/gtopt_scripts-"$VERSION"-py3-none-any.whl
+          "$RUNNER_TEMP/venv/bin/plp2gtopt" --help >/dev/null
+          "$RUNNER_TEMP/venv/bin/run_gtopt" --version | tee version.txt
+          grep -q "$VERSION" version.txt
+
+      - name: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-python
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------
+  # Collect assets, checksum, and create the DRAFT release (tag pushes only).
+  # -------------------------------------------------------------------------
+  release:
+    needs: [prepare, linux-x86_64, python]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: checksums
+        run: |
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: release notes from CHANGELOG.md
+        run: |
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on && /^\[[^]]+\]: / { next }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::empty CHANGELOG section for $VERSION"
+            exit 1
+          fi
+          {
+            echo
+            echo "## Downloads"
+            echo
+            echo "- \`gtopt-$VERSION-linux-x86_64.tar.zst\` / \`.tar.gz\`: gtopt binary"
+            echo "  with the HiGHS and COIN-OR CBC/CLP solver plugins (x86_64, glibc >= 2.39:"
+            echo "  Ubuntu 24.04+, Debian 13+).  See \`README-binary.txt\` inside."
+            echo "- \`gtopt-$VERSION-linux-x86_64-debug.tar.zst\`: separate debug info."
+            echo "- \`gtopt_scripts-$VERSION-py3-none-any.whl\` / \`.tar.gz\`: Python tools"
+            echo "  (plp2gtopt, plexos2gtopt, pp2gtopt, gtopt_diagram, run_gtopt, ...)."
+            echo "- \`SHA256SUMS\`: verify with \`sha256sum -c SHA256SUMS\`."
+          } >> notes.md
+          cat notes.md
+
+      - name: upload dry-run bundle
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dry-run-${{ needs.prepare.outputs.tag }}
+          path: |
+            dist/
+            notes.md
+          retention-days: 14
+          compression-level: 0
+
+      - name: create draft release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft --verify-tag \
+            --title "GTOpt $VERSION" \
+            --notes-file notes.md
+          echo "Draft release $TAG created; review and publish it on GitHub." >> "$GITHUB_STEP_SUMMARY"
