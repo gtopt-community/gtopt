@@ -72,6 +72,50 @@ results that are checked in continuous integration.
     SDDP.jl examples (first steps, hydro valleys, FAST) & 1--2 reservoirs & SDDP vs.\ published bounds & \cite{dowson2020sddp_jl, cambier_fast} \\
     PSR SDDP sample cases & multi-system & \texttt{sddp2gtopt} hydrothermal & \cite{psrclasses} \\
     CEN daily schedules (PLEXOS) & $\sim$250 buses & vs.\ official schedule & Section~\ref{sec:cases} \\
+    Real systems of six countries & 3--3\,374 buses & UC, SDDP, OPF & Section~\ref{sec:gtopt_cases} \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+\subsection{Public Real-System Cases}
+\label{sec:gtopt_cases}
+
+Beyond the benchmark networks of Table~\ref{tab:test_systems}, GTOpt
+is exercised on real power systems through the public companion
+repository \texttt{gtopt-cases}~\cite{gtoptcases2026}.  Each case is
+built with the GTOpt converters from data published by a system
+operator, market operator or regulator, and is distributed with its
+source data, the converted case, the exact command to run and rebuild
+it, and the provenance (converter revision, flags and file hashes).
+Only inputs are published, so that results can be reproduced and
+compared independently; the cases are provided as is and are not
+validated by the publishing institutions, which keep all rights over
+the data.  Table~\ref{tab:gtopt_cases} lists the six countries
+covered.  The Irish data may not be redistributed, so that case is
+published as a recipe that downloads the public files and converts
+them locally.  The 23-year Chilean cases are committed for their first
+year to limit the repository size; the full horizon is built from the
+same sources with one converter command.
+
+\begin{table*}[t]
+  \centering
+  \caption{Real-system cases in \texttt{gtopt-cases}}
+  \label{tab:gtopt_cases}
+  \small
+  \begin{tabular}{@{}lllll@{}}
+    \toprule
+    \textbf{Country} & \textbf{System · publisher} & \textbf{Cases} & \textbf{Horizon} & \textbf{Converter} \\
+    \midrule
+    Australia & NEM · AEMO & 1 dispatch, 2026 ISP model (Step Change) & 1 week, hourly & \texttt{plexos2gtopt} \\
+    Chile & SEN · CEN & 14 daily operation programmes (unit commitment) & 1 week each & \texttt{plexos2gtopt} \\
+          &            & 3 hydrothermal SDDP (PLP), irrigation agreements & 2, 4.5 and 23 years & \texttt{plp2gtopt} \\
+          &            & 3 PET 2027 transmission planning bases (PLP) & 23 years & \texttt{plp2gtopt} \\
+    Guatemala & SNI · AMM, EOR & 2 NCP daily/weekly dispatches & 1 week & \texttt{sddp2gtopt} \\
+              &                & 6 PSS\textregistered E network snapshots & 1 hour & \texttt{psse2gtopt} \\
+              &                & 6 annual SDDP programmes & 1 year & \texttt{sddp2gtopt} \\
+    Ireland & SEM · SEM Committee (CRU, UR) & 1 unit commitment (recipe only) & 1 week, hourly & \texttt{plexos2gtopt} \\
+    Peru & SEIN · COES & 4 SDDP cases, 2026--2029 reserve-margin study & 1 year each & \texttt{sddp2gtopt} \\
+    Poland & MATPOWER \texttt{case3375wp} & 1 DC OPF, 3\,374 buses & 1 hour & \texttt{pp2gtopt} \\
     \bottomrule
   \end{tabular}
 \end{table*}
