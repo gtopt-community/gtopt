@@ -304,31 +304,6 @@ dispatch to a market with bids:
 This work is in development; feedback and collaboration are welcome in
 [Discussions](https://github.com/gtopt-community/gtopt/discussions).
 
-## Real cases: gtopt-cases
-
-[**gtopt-cases**](https://github.com/gtopt-community/gtopt-cases) holds
-real power-system cases ready to run with GTOpt, built with its
-converters from data published by system operators and research groups
-(inputs only, provided AS IS):
-
-| Country | Cases |
-|---|---|
-| <img src="https://flagcdn.com/w40/au.png" width="28" align="absmiddle" alt="Australia"> [Australia](https://github.com/gtopt-community/gtopt-cases/tree/main/australia) | One week of NEM dispatch from the AEMO 2026 ISP PLEXOS model (Step Change) |
-| <img src="https://flagcdn.com/w40/cl.png" width="28" align="absmiddle" alt="Chile"> [Chile](https://github.com/gtopt-community/gtopt-cases/tree/main/chile) | 14 daily unit commitments from the CEN PLEXOS bases; SDDP of 2, 5 and 23 years from PLP, with the Laja and Maule irrigation agreements; the PLP bases of the CEN 2027 transmission planning process (PET 2027) |
-| <img src="https://flagcdn.com/w40/gt.png" width="28" align="absmiddle" alt="Guatemala"> [Guatemala](https://github.com/gtopt-community/gtopt-cases/tree/main/guatemala) | NCP daily/weekly dispatch, PSS®E network snapshots and six annual SDDP programmes (AMM/EOR) |
-| <img src="https://flagcdn.com/w40/ie.png" width="28" align="absmiddle" alt="Ireland"> [Ireland](https://github.com/gtopt-community/gtopt-cases/tree/main/ireland) | One week of SEM unit commitment from the SEM Committee PLEXOS model (downloaded and converted on demand) |
-| <img src="https://flagcdn.com/w40/pe.png" width="28" align="absmiddle" alt="Peru"> [Peru](https://github.com/gtopt-community/gtopt-cases/tree/main/peru) | Four annual SDDP cases of the COES 2026-2029 reserve-margin study |
-| <img src="https://flagcdn.com/w40/pl.png" width="28" align="absmiddle" alt="Poland"> [Poland](https://github.com/gtopt-community/gtopt-cases/tree/main/poland) | 3,374-bus DC OPF (MATPOWER `case3375wp`) |
-
-```bash
-git clone --depth 1 https://github.com/gtopt-community/gtopt-cases.git
-```
-
-Each case README gives the exact `gtopt` command.  From a GTOpt checkout,
-`eval "$(bash tools/get_cases.sh)"` fetches the revision pinned in
-`tools/cases.lock` and sets `GTOPT_CASES_DIR` for the tests that use
-these cases.
-
 ## Validation
 
 GTOpt is validated at three levels. **The Chilean national electric
@@ -342,6 +317,8 @@ GTOpt dispatch, prices and losses compared against the PLEXOS solutions
 the CEN publishes alongside them (we do not run PLEXOS; only the
 published inputs and outputs are used; the comparison is in
 `scripts/plexos2gtopt/compare_with_plexos.py`).
+The same cases, and others from Australia, Guatemala, Ireland, Peru and
+Poland, are published in [gtopt-cases](#real-cases-gtopt-cases).
 **External reference systems and models**: IEEE 4/9/14/30/57/118-bus
 and RTS-24 networks, MATPOWER `case3375wp`, DC OPF results from
 pandapower, the SDDP.jl hydro-valley and hydro-thermal examples and
@@ -354,6 +331,28 @@ more than 4,600 C++ unit and integration tests and several thousand
 Python tests, with reference results for the cases in
 [`cases/`](cases/) checked on every change. See also [Comparison with other
 tools](docs/tools/comparison.md).
+
+### Real cases: gtopt-cases
+
+The public companion repository
+[**gtopt-cases**](https://github.com/gtopt-community/gtopt-cases) holds
+real power-system cases, ready to run with GTOpt 1.1.0 or later and
+built with its converters from data published by system operators and
+regulators (inputs only, provided AS IS):
+
+| Country | System · publisher | Cases |
+|---|---|---|
+| <img src="https://flagcdn.com/w40/au.png" width="20" align="absmiddle" alt="Australia"> [Australia](https://github.com/gtopt-community/gtopt-cases/tree/main/australia) | NEM · AEMO | 1 weekly dispatch (2026 ISP PLEXOS model) |
+| <img src="https://flagcdn.com/w40/cl.png" width="20" align="absmiddle" alt="Chile"> [Chile](https://github.com/gtopt-community/gtopt-cases/tree/main/chile) | SEN · CEN | 14 daily operation programmes (one week each, PLEXOS); SDDP of 2, 5 and 23 years (PLP); PET 2027 transmission planning bases (PLP) |
+| <img src="https://flagcdn.com/w40/gt.png" width="20" align="absmiddle" alt="Guatemala"> [Guatemala](https://github.com/gtopt-community/gtopt-cases/tree/main/guatemala) | SNI · AMM, EOR | NCP daily/weekly dispatch; 6 PSS®E snapshots; 6 annual SDDP programmes |
+| <img src="https://flagcdn.com/w40/ie.png" width="20" align="absmiddle" alt="Ireland"> [Ireland](https://github.com/gtopt-community/gtopt-cases/tree/main/ireland) | SEM · SEM Committee | 1 weekly unit commitment (PLEXOS), downloaded and converted on demand |
+| <img src="https://flagcdn.com/w40/pe.png" width="20" align="absmiddle" alt="Peru"> [Peru](https://github.com/gtopt-community/gtopt-cases/tree/main/peru) | SEIN · COES | 4 annual SDDP cases (2026-2029) |
+| <img src="https://flagcdn.com/w40/pl.png" width="20" align="absmiddle" alt="Poland"> [Poland](https://github.com/gtopt-community/gtopt-cases/tree/main/poland) | MATPOWER `case3375wp` | 3,374-bus DC OPF |
+
+Each case README gives the exact `gtopt` command.  From a GTOpt
+checkout, `eval "$(bash tools/get_cases.sh)"` fetches the revision
+pinned in `tools/cases.lock` and sets `GTOPT_CASES_DIR` for the tests
+that use these cases.
 
 ## Tools and interfaces
 
