@@ -22,7 +22,10 @@ import pytest
 
 from plexos2gtopt.entities import FuelSpec, GeneratorSpec
 from plexos2gtopt.gtopt_writer import build_generator_array
-from plexos2gtopt.parsers import _load_point_heat_rate_segments
+from plexos2gtopt.parsers import (
+    _convexify_segments,
+    _load_point_heat_rate_segments,
+)
 from plexos2gtopt.plexos_model import (
     MaterialiseOptions,
     find_data_file,
@@ -603,14 +606,15 @@ def test_band_values_and_load_point_segments(tmp_path: Path) -> None:
     bps, slopes = _load_point_heat_rate_segments(db, ccgt.object_id, 200.0)
     assert bps == (100.0, 200.0)
     assert slopes == (7.0, 8.0)
-    # Load points beyond pmax are clipped; below pmax the last slope extends.
+    # Load points beyond pmax are clipped; below pmax the last slope
+    # extends (and merges with the equal last band).
     assert _load_point_heat_rate_segments(db, ccgt.object_id, 150.0) == (
         (100.0, 150.0),
         (7.0, 8.0),
     )
     assert _load_point_heat_rate_segments(db, ccgt.object_id, 300.0) == (
-        (100.0, 200.0, 300.0),
-        (7.0, 8.0, 8.0),
+        (100.0, 300.0),
+        (7.0, 8.0),
     )
     wind = next(o for o in db.objects_of_class("Generator") if o.name == "Wind")
     assert _load_point_heat_rate_segments(db, wind.object_id, 50.0) == ((), ())
@@ -644,3 +648,21 @@ def test_writer_emits_per_block_heat_rate() -> None:
         fuel_names=("Gas",),
     )
     assert build_generator_array((flat,), fuel)[0]["heat_rate"] == 9.0
+
+
+def test_convexify_segments_merges_equal_and_decreasing_slopes() -> None:
+    # Equal slopes merge exactly.
+    assert _convexify_segments([10.0, 20.0, 30.0], [5.0, 5.0, 6.0]) == (
+        [20.0, 30.0],
+        [5.0, 6.0],
+    )
+    # Rounding noise (9.2356 vs 9.235583) merges too.
+    bps, sl = _convexify_segments([12.82, 41.61, 42.0], [9.2356, 9.235583, 9.235583])
+    assert bps == [42.0]
+    assert sl[0] == pytest.approx(9.2356, rel=1e-5)
+    # A genuine decrease is replaced by the length-weighted average.
+    bps, sl = _convexify_segments([10.0, 30.0, 40.0], [8.0, 6.0, 9.0])
+    assert bps == [30.0, 40.0]
+    assert sl == pytest.approx([(8.0 * 10 + 6.0 * 20) / 30, 9.0])
+    # Already convex: unchanged.
+    assert _convexify_segments([1.0, 2.0], [1.0, 2.0]) == ([1.0, 2.0], [1.0, 2.0])

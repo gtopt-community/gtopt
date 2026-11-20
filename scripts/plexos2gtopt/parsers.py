@@ -1919,9 +1919,52 @@ def _load_point_heat_rate_segments(
         # Load points end below pmax: the last slope continues to pmax.
         bps.append(pmax)
         slopes.append(slopes[-1])
+    bps, slopes = _convexify_segments(bps, slopes)
     if len(bps) < 2:
         return (), ()
     return tuple(bps), tuple(slopes)
+
+
+def _convexify_segments(
+    bps: list[float], slopes: list[float], rel_tol: float = 1e-6
+) -> tuple[list[float], list[float]]:
+    """Merge adjacent segments until the slopes strictly increase.
+
+    gtopt needs strictly increasing ``heat_rate_segments`` (convex
+    cost).  Equal slopes (common in PLEXOS bands) merge exactly; a
+    decreasing pair is replaced by its length-weighted average slope
+    (pool-adjacent-violators), i.e. the convex hull of the curve.
+    """
+    out_bp: list[float] = []
+    out_sl: list[float] = []
+    out_len: list[float] = []
+    prev = 0.0
+    for bp, sl in zip(bps, slopes):
+        length = bp - prev
+        prev = bp
+        out_bp.append(bp)
+        out_sl.append(sl)
+        out_len.append(length)
+        while len(out_sl) > 1 and out_sl[-1] <= out_sl[-2] * (1.0 + rel_tol):
+            l1, l2 = out_len[-2], out_len[-1]
+            total = l1 + l2
+            avg = (
+                (out_sl[-2] * l1 + out_sl[-1] * l2) / total
+                if total > 0.0
+                else out_sl[-2]
+            )
+            if out_sl[-1] < out_sl[-2] * (1.0 - rel_tol):
+                logger.info(
+                    "non-convex Load Point heat-rate curve: slopes %.6g > %.6g "
+                    "averaged to %.6g",
+                    out_sl[-2],
+                    out_sl[-1],
+                    avg,
+                )
+            out_bp[-2:] = [out_bp[-1]]
+            out_sl[-2:] = [avg]
+            out_len[-2:] = [total]
+    return out_bp, out_sl
 
 
 def extract_generators(
