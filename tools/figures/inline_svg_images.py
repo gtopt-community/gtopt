@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Embed the raster icons referenced by a Graphviz SVG as data URIs.
 
 ``gtopt_diagram -f svg`` lets Graphviz reference its node icons by absolute

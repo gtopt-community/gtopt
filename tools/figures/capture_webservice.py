@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Capture a screenshot of the GTOpt web service job page with Playwright.
 
 Expects a running ``gtopt_websrv`` (default ``http://127.0.0.1:3000``)

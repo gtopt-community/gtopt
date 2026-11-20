@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Build the stochastic SDDP demo case used by the documentation figures.
 
 The case is derived from ``cases/hydro_valley_sddpjl`` (a two-reservoir

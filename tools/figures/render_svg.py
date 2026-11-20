@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Rasterise SVG files to PNG with headless Chrome (Playwright).
 
 Chrome renders web fonts, emoji and box-drawing characters the same way

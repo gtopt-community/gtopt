@@ -3,7 +3,8 @@
  * @file      test_sddp_gap_convergence.cpp
  * @brief     Regression tests for the primary SDDP gap convergence test
  * @date      2026-11-18
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The 2026-05-14 convergence rewrite made ΔUB stationarity the only
  * stop signal and dropped the ``gap < convergence_tol`` exit.  A run

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Plot hourly dispatch and nodal prices from a gtopt CSV output directory.
 
 Top panel: generation stacked by unit, unserved energy, and total demand.

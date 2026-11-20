@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Shared matplotlib style for the documentation figures.
 
 Figures use an opaque light surface so they stay legible on GitHub in both

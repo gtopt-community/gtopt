@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Render frames of the ``run_gtopt`` terminal dashboard to SVG.
 
 ``run_gtopt`` draws a Rich live dashboard while gtopt runs.  This helper

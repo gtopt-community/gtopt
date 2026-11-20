@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Plot SDDP lower/upper bounds and gap per iteration.
 
 Reads the ``history`` array of a ``solver_status.json`` written by an SDDP
