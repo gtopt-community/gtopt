@@ -20,7 +20,7 @@ most directly are credited first, in section 1.
 | [pandapower](https://github.com/e2nIEE/pandapower) | BSD-3-Clause | University of Kassel, Fraunhofer Institute for Energy Economics and Energy System Technology (IEE) Kassel, and individual contributors | Python runtime dependency. `pp2gtopt` converts pandapower networks to GTOpt and `gtopt2pp` converts back; `gtopt_compare`, `tools/generate_golden.py` and `tools/validate_network_reduction.py` cross-check GTOpt's DC OPF against pandapower's `rundcopp`; `plexos2gtopt --auto-lift-lines` runs a pandapower DC OPF to choose which line limits to lift; `gtopt_check_json` builds a pandapower network for its checks. The IEEE networks in `pandapower.networks` (MATPOWER conversions) are the source of several cases in `cases/`. pandapower's OPF code is partly derived from PYPOWER (BSD-3-Clause, Richard Lincoln and PSERC). |
 | [NetworkX](https://networkx.org) | BSD-3-Clause | NetworkX Developers | Graph algorithms (connected components, bridges, cycle bases) in `gtopt_check_topology`, `gtopt_diagram`, `gtopt_reduce_network` (`gtopt-net`), `gtopt_marginal_units` and the hydro helpers of `gtopt_shared` |
 | [SciPy](https://scipy.org) | BSD-3-Clause | SciPy Developers, Enthought | Sparse graph algorithms and hierarchical clustering in `gtopt_reduce_network` (`gtopt-net`) |
-| [MATPOWER](https://matpower.org) | BSD-3-Clause (code); case files have their own terms, see section 2 | Power Systems Engineering Research Center (PSERC) and contributors | Source of the `case5`, `case9`, `case14` and `case3375wp` test systems and of reference values in several C++ tests |
+| [MATPOWER](https://matpower.org) | BSD-3-Clause (code); case files have their own terms, see section 2 | Power Systems Engineering Research Center (PSERC) and contributors | Source of the `case5`, `case9`, `case14`, `case39` and `case3375wp` test systems and of reference values in several C++ tests |
 | [pglib-opf](https://github.com/power-grid-lib/pglib-opf) | Data: CC BY 4.0; software: MIT | A Library of IEEE PES Power Grid Benchmarks, and the holders named in each data file | Linear cost coefficients for `cases/ieee_118b` |
 | [SDDP.jl](https://github.com/odow/SDDP.jl) | MPL-2.0 | Oscar Dowson and SDDP.jl contributors | Hydro-thermal and hydro-valley examples adapted as cases and tests; reference values of the SDDP literature benchmarks |
 | [PSRClassesInterface.jl](https://github.com/psrenergy/PSRClassesInterface.jl) | MPL-2.0 | PSR | Sample PSR SDDP cases used to test `sddp2gtopt` |
@@ -29,7 +29,6 @@ most directly are credited first, in section 1.
 | [plexos-coad](https://github.com/Computational-Energy/plexos-coad) | BSD-3-Clause | National Renewable Energy Laboratory | Public PLEXOS test models for `plexos2gtopt` |
 | [PyPSA](https://github.com/PyPSA/PyPSA) | MIT | PyPSA developers | Reference for the cycle-basis Kirchhoff formulation (Hörsch et al., 2018) and the CO2-constraint example restated in `test/source/test_emission_pypsa_port.cpp`. No PyPSA code is included. |
 | [GenX](https://github.com/GenXProject/GenX) | GPL-2.0 | GenX contributors | A few plant and fuel parameters of the `1_three_zones` example are restated in `test/source/test_emission_genx_port.cpp` to check the emission model. No GenX code or data files are included. |
-| [ANDES](https://github.com/cuihantao/andes) | GPL-3.0-or-later (software) | Hantao Cui | Origin of the PSS/E `.raw` renderings of the public IEEE 14-bus and 39-bus systems in `scripts/psse2gtopt/tests/data/`. No ANDES code is included. |
 | [HiGHS](https://highs.dev) | MIT | HiGHS developers | LP/MIP solver plugin; the optional `highspy` Python package is used by `gtopt_check_lp` |
 | [COIN-OR](https://www.coin-or.org) CLP, CBC, Osi, CoinUtils | EPL-2.0 | COIN-OR Foundation and contributors | LP/MIP solver plugins (`plugins/osi`) |
 | [SCIP Optimization Suite](https://scipopt.org) | Apache-2.0 (SCIP 9 and later) | Zuse Institute Berlin and contributors | Optional MIP solver plugin (`plugins/scip`) |
@@ -69,7 +68,7 @@ their vendors; see [`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md).
 | `tools/gtopt_sos2_convergence/data/case14.m`, `cases/case3375wp/` | [MATPOWER](https://github.com/MATPOWER/matpower) case files | MATPOWER case files are not covered by MATPOWER's BSD licence; they are publicly available test data or included with the authors' permission (see the MATPOWER `LICENSE`). `case3375wp`: Roman Korab, Silesian University of Technology. |
 | `cases/ieee_*`, `cases/ieee30b`, IEEE test systems used in tests | IEEE test systems from the University of Washington Power Systems Test Case Archive and IEEE RTS-96, through their [pandapower](https://github.com/e2nIEE/pandapower) and MATPOWER conversions | Publicly available benchmark data; pandapower is BSD-3-Clause |
 | `cases/ieee_118b/` | Linear cost coefficients from [pglib-opf](https://github.com/power-grid-lib/pglib-opf) | CC BY 4.0, A Library of IEEE PES Power Grid Benchmarks; attribution as given in the pglib-opf data files |
-| `scripts/psse2gtopt/tests/data/ieee14.raw`, `ieee39.raw` | Public IEEE 14-bus and New England 39-bus systems in PSS/E RAW format, as distributed in the [ANDES](https://github.com/cuihantao/andes) case library (see `PROVENANCE.md` in that directory) | Publicly available benchmark data; ANDES itself is GPL-3.0-or-later |
+| `scripts/psse2gtopt/tests/data/ieee14.raw`, `ieee39.raw` | Generated by `make_matpower_raw.py` in that directory from the MATPOWER `case14` (IEEE 14-bus) and `case39` (New England 39-bus) cases as shipped by [pandapower](https://github.com/e2nIEE/pandapower) (`pandapower.networks`); see `PROVENANCE.md` there | Publicly available IEEE benchmark data (see the MATPOWER row above); pandapower is BSD-3-Clause |
 | `cases/hydro_thermal_sddpjl/`, `cases/hydro_valley_sddpjl/`, `cases/fast_hydro_thermal/` | Models adapted from the [SDDP.jl](https://github.com/odow/SDDP.jl) examples | SDDP.jl is MPL-2.0, Copyright (c) 2017- Oscar Dowson and SDDP.jl contributors |
 | `integration_test/cases/nrel118_reference/` | Figures quoted from Peña, Martinez-Anido and Hodge (2018), *An Extended IEEE 118-Bus Test System With High Renewable Penetration*, IEEE TPWRS, doi:10.1109/TPWRS.2017.2695963 | Short factual excerpts for regression testing |
 | `test/source/test_emission_*_port.cpp`, `test/source/test_sienna_5bus_*_port.cpp`, `test/source/test_reserve_inertia_benchmark.cpp`, `test/source/test_hydro_thermal_benchmark.cpp`, `test/source/test_sddp_literature_benchmarks.cpp` | A small number of parameters restated from MATPOWER `case5`, RTS-GMLC, NREL-118, PyPSA, GenX, NREL Sienna and SDDP.jl examples (each file names its source) | Factual parameters, cited in each file; no third-party code or data files are included |
@@ -214,10 +213,8 @@ in these forms, none of which affects GTOpt's licence:
 
 - separate programs that GTOpt runs but does not distribute (mdbtools,
   gzip; section 5);
-- projects from which only public benchmark data or a few factual
-  parameters are taken, with no code or data files included (GenX,
-  GPL-2.0; the ANDES renderings of the IEEE 14-bus and 39-bus systems,
-  GPL-3.0-or-later).
+- a project from which only a few factual parameters are taken, with
+  no code or data files included (GenX, GPL-2.0).
 
 When a dependency or a data set is added, check its licence against
 this table and list it in this file.

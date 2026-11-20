@@ -201,16 +201,20 @@ def test_ieee14_rev32(ieee14_raw: Path) -> None:
     assert case.case.rev == 32
     assert len(case.buses) == 14
     assert len(case.gens) == 5
-    assert len(case.branches) == 16
-    assert len(case.transformers) == 4
+    assert len(case.branches) == 15
+    assert len(case.transformers) == 5
+    # MATPOWER case14 total demand: 259 MW.
     total_pl = sum(load.pl for load in case.loads if load.status == 1)
-    assert total_pl == pytest.approx(223.7, abs=0.1)
+    assert total_pl == pytest.approx(259.0, abs=0.1)
 
 
 def test_ieee39_rev33(ieee39_raw: Path) -> None:
     case = parse_raw(ieee39_raw)
     assert case.case.rev == 33
     assert len(case.buses) == 39
-    assert len(case.gens) == 14
+    assert len(case.gens) == 10
+    assert len(case.branches) == 35
+    assert len(case.transformers) == 11
+    # MATPOWER case39 total demand: 6254.23 MW.
     total_pl = sum(load.pl for load in case.loads if load.status == 1)
-    assert total_pl == pytest.approx(5856.8, abs=0.1)
+    assert total_pl == pytest.approx(6254.23, abs=0.1)

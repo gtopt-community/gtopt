@@ -22,7 +22,7 @@ def _raw_fixture(name: str) -> Path:
 
 @pytest.fixture(scope="session")
 def data_dir() -> Path:
-    """The directory holding the vendored + synthetic ``.raw`` fixtures."""
+    """The directory holding the generated + synthetic ``.raw`` fixtures."""
     return _DATA_DIR
 
 
@@ -41,13 +41,13 @@ def synthetic_raw() -> Path:
 
 @pytest.fixture(scope="session")
 def ieee14_raw() -> Path:
-    """Vendored IEEE 14-bus case (PSS/E revision 32)."""
+    """IEEE 14-bus case from MATPOWER ``case14`` (PSS/E revision 32)."""
     return _raw_fixture("ieee14.raw")
 
 
 @pytest.fixture(scope="session")
 def ieee39_raw() -> Path:
-    """Vendored New England 39-bus case (PSS/E revision 33)."""
+    """New England 39-bus case from MATPOWER ``case39`` (PSS/E rev 33)."""
     return _raw_fixture("ieee39.raw")
 
 

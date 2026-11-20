@@ -22,20 +22,38 @@ parser/writer must handle:
 All expected values are asserted exactly in `test_raw_parser.py` /
 `test_gtopt_writer.py`.
 
-## `ieee14.raw`, `ieee39.raw` — standard public IEEE benchmark systems
+## `ieee14.raw`, `ieee39.raw` — generated from MATPOWER `case14` / `case39`
 
 These are the classic **IEEE 14-bus** and **New England 39-bus** test
-systems, rendered in the PSS®E RAW format (rev 32 and rev 33
-respectively).  They are long-standing, publicly distributed power-system
-benchmark networks (factual network parameters, originally prepared by
-José Conto / ERCOT) that are redistributed across many open-source power
-tools.
+systems, written in PSS®E RAW format (revision 32 and revision 33
+respectively) by the generator script
+[`make_matpower_raw.py`](make_matpower_raw.py) in this directory.  They
+are not copies of any third-party `.raw` file.
 
-- Retrieved from the ANDES project case library
-  (<https://github.com/cuihantao/andes>, `andes/cases/ieee14/ieee14.raw`
-  and `andes/cases/ieee39/ieee39.raw`).
-- Used here **read-only**, purely as parser/converter validation
-  fixtures — no ANDES source code is vendored or derived.
+- **Data source:** the MATPOWER `case14` and `case39` cases
+  (R. D. Zimmerman, C. E. Murillo-Sánchez et al., <https://matpower.org>)
+  as shipped by pandapower (`pandapower.networks.case14()` /
+  `case39()`, BSD-3-Clause, <https://github.com/e2nIEE/pandapower>).
+  The underlying network data are public IEEE benchmark systems: the
+  IEEE 14-bus system from the University of Washington Power Systems
+  Test Case Archive, and the New England 39-bus system (Athay, Podmore
+  and Virmani, 1979; Pai, 1989).
+- **Conversion:** pandapower's `to_ppc` produces MATPOWER-style
+  per-unit bus / generator / branch arrays; the script writes them as
+  BUS, LOAD, FIXED SHUNT, GENERATOR, BRANCH and two-winding
+  TRANSFORMER records.  See the script's docstring for the field
+  mapping.
+- **Regenerate** (from `scripts/`, deterministic for a given pandapower
+  version):
+
+  ```bash
+  python psse2gtopt/tests/data/make_matpower_raw.py
+  ```
+
+  The expected counts and demand totals in `test_raw_parser.py` /
+  `test_real_cases.py` are those of the MATPOWER cases (IEEE 14:
+  14 buses, 5 generators, 11 loads, 259 MW; New England 39: 39 buses,
+  10 generators, 21 loads, 6254.23 MW).
 
 They provide real-world coverage that the synthetic fixture cannot:
 both PSS/E format revisions, real per-unit impedances and MVA ratings,
