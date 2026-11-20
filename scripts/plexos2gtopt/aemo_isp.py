@@ -932,6 +932,14 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "electrolysers as Demand + window-sum user constraint (PLEXOS form)",
     )
     g.add_argument(
+        "--long-periods",
+        choices=("skip", "prorate"),
+        default="skip",
+        help="period RHS longer than one month (RHS Year / RHS Custom policy "
+        "targets, emission budgets): skip = not enforced (budgets tracked "
+        "without cap), prorate = enforce the share pro-rated to the window",
+    )
+    g.add_argument(
         "--electrolyser-kwh-per-kg",
         type=float,
         default=isp_c.DEFAULT_ELECTROLYSER_KWH_PER_KG,
@@ -965,6 +973,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             fuels=not (args.no_fuel_offtake or args.legacy),
             rez_buses=not (args.no_rez_buses or args.legacy),
             h2_model=args.h2_model,
+            long_periods=args.long_periods,
             electrolyser_kwh_per_kg=args.electrolyser_kwh_per_kg,
         ),
     )

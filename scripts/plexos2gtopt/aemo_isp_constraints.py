@@ -120,6 +120,19 @@ H2_LHV_KWH_PER_KG = 33.33
 
 _EPS = 1e-9
 
+#: Period RHS longer than this many days are "long" (see
+#: :attr:`ConstraintOptions.long_periods`).
+LONG_PERIOD_DAYS = 31
+
+
+def period_span_days(periods: list[dict[str, Any]]) -> int:
+    """Longest period (inclusive days) of a :func:`prorated_rhs` result."""
+    return max(
+        (date.fromisoformat(str(p["to"])) - date.fromisoformat(str(p["from"]))).days + 1
+        for p in periods
+    )
+
+
 #: Modelling approximations reported in the case stats.
 APPROXIMATIONS = [
     "RHS Month / RHS Year / RHS Custom (and emission budgets) are pro-rated "
@@ -132,6 +145,10 @@ APPROXIMATIONS = [
     "storage",
     "capacity terms (Installed Capacity, Generation Capacity) are folded with "
     "the start-day Units; build terms are zero (fixed fleet)",
+    "period targets longer than one month (RHS Year / RHS Custom policy "
+    "targets and emission budgets) are not enforced by default: emission "
+    "budgets become EmissionZones without cap (--long-periods prorate "
+    "enforces the pro-rated share)",
     "emission rates use gross-to-sent-out (1 − Aux Incr); fuel offtake uses "
     "the unadjusted Heat Rate",
 ]
@@ -149,6 +166,12 @@ class ConstraintOptions:
     #: ``"native"`` (CarrierConverter → HydrogenNode → HydrogenDemand) or
     #: ``"demand"`` (electrolyser = Demand + window-sum UserConstraint).
     h2_model: str = "native"
+    #: Period RHS longer than ``LONG_PERIOD_DAYS`` (RHS Year / RHS Custom
+    #: policy targets, emission budgets): ``"skip"`` does not enforce them
+    #: (emission budgets stay as tracking zones without cap) because a
+    #: uniform weekly share of a seasonal annual / multi-year target is not
+    #: a valid weekly limit; ``"prorate"`` enforces the pro-rated share.
+    long_periods: str = "skip"
     electrolyser_kwh_per_kg: float = DEFAULT_ELECTROLYSER_KWH_PER_KG
 
     @property
@@ -837,7 +860,7 @@ def apply(  # pylint: disable=too-many-locals,too-many-branches,too-many-stateme
     if opts.purchasers:
         build_purchasers(view, index, opts, stats)
     if opts.emissions:
-        build_emissions(view, index, stats, groups, notes)
+        build_emissions(view, index, opts, stats, groups, notes)
 
     evaluated: list[EvalConstraint] = []
     for o in sorted(res.objects("Constraint"), key=lambda o: o.name):
@@ -898,7 +921,7 @@ def apply(  # pylint: disable=too-many-locals,too-many-branches,too-many-stateme
             if item is not None:
                 h2_rows.append(item)
             continue
-        uc = _to_user_constraint(view, ev, groups, notes)
+        uc = _to_user_constraint(view, opts, ev, groups, notes)
         if uc is not None:
             ucs.append(uc)
 
@@ -932,8 +955,9 @@ def _constraint_oid(view: CaseView, name: str) -> int:
     raise KeyError(name)
 
 
-def _to_user_constraint(  # pylint: disable=too-many-return-statements,too-many-branches
+def _to_user_constraint(  # pylint: disable=too-many-return-statements,too-many-branches,too-many-arguments,too-many-positional-arguments
     view: CaseView,
+    opts: ConstraintOptions,
     ev: EvalConstraint,
     groups: dict[str, Counter[str]],
     notes: list[str],
@@ -951,6 +975,17 @@ def _to_user_constraint(  # pylint: disable=too-many-return-statements,too-many-
         total, periods = prorated_rhs(view.res, oid, ev.rhs_kind, view.day0, view.days)
         if total is None:
             groups[ev.group]["skipped: RHS period does not overlap the window"] += 1
+            return None
+        if opts.long_periods == "skip" and period_span_days(periods) > LONG_PERIOD_DAYS:
+            groups[ev.group][
+                "skipped: long-period target (> 1 month) not enforced in a week"
+            ] += 1
+            notes.append(
+                f"{ev.name}: {ev.rhs_kind} over "
+                + "; ".join(f"{p['from']}..{p['to']}" for p in periods)
+                + " not enforced (--long-periods prorate to enforce the "
+                f"pro-rated share {total * 1000.0:,.1f})"
+            )
             return None
         rhs = total * 1000.0  # GWh (TJ) → MWh (GJ)
         if not ev.terms:
@@ -1111,9 +1146,10 @@ def _h2_demand(
 # ---------------------------------------------------------------------------
 
 
-def build_emissions(  # pylint: disable=too-many-locals
+def build_emissions(  # pylint: disable=too-many-locals,too-many-arguments,too-many-positional-arguments
     view: CaseView,
     index: ConstraintIndex,
+    opts: ConstraintOptions,
     stats: dict[str, Any],
     groups: dict[str, Counter[str]],
     notes: list[str],
@@ -1217,14 +1253,24 @@ def build_emissions(  # pylint: disable=too-many-locals
             "emissions": [
                 {"emission": n, "weight": round(w * k, 12)} for n, w in weights.items()
             ],
-            "cap": round(total * k, 3),
         }
-        if pen is not None and pen > 0:
-            zone["cap_cost"] = pen / k
+        capped = (
+            opts.long_periods == "prorate"
+            or period_span_days(periods) <= LONG_PERIOD_DAYS
+        )
+        if capped:
+            zone["cap"] = round(total * k, 3)
+            if pen is not None and pen > 0:
+                zone["cap_cost"] = pen / k
+            groups["emissions"]["converted: EmissionZone cap (pro-rated budget)"] += 1
+        else:
+            groups["emissions"][
+                "converted: EmissionZone tracking only (long-period budget, no cap)"
+            ] += 1
         zones.append(zone)
-        groups["emissions"]["converted: EmissionZone cap (pro-rated budget)"] += 1
         notes.append(
-            f"{o.name}: {kind} pro-rated → cap {total * k:,.0f} t for the window ("
+            f"{o.name}: {kind} pro-rated → {'cap' if capped else 'reference (not enforced)'}"
+            f" {total * k:,.0f} t for the window ("
             + "; ".join(
                 f"{p['value']:g} × {1 / k:g} t over {p['from']}..{p['to']} × "
                 f"{p['share']:.5f}"

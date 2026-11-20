@@ -1019,11 +1019,12 @@ that apply to a fixed fleet over one week.  The module is
 | REZ export / import limit on the REZ's own injections | REZ bus + radial line (`tmax_ab` = export, `tmax_ba` = import) |
 | other operational / operational + capacity constraint, `RHS` | per-block `UserConstraint` (capacity terms folded into the RHS) |
 | `RHS Day` (e.g. gas-zone daily offtake, TJ) | `daily_sum` `UserConstraint` (`fuel("X").offtake`, GJ) |
-| `RHS Month` / `Year` / `Custom` | window-sum `UserConstraint`, RHS pro-rated by hours |
+| `RHS Month` (period ≤ 1 month) | window-sum `UserConstraint`, RHS pro-rated by hours |
+| `RHS Year` / `Custom` (period > 1 month) | not enforced by default; `--long-periods prorate` enforces the pro-rated share |
 | flexible `Purchaser` (electrolyser) | `CarrierConverter` → `HydrogenNode` |
 | H2 consumption constraint (monthly GWh_e) | `HydrogenDemand` `min/max_energy` (MWh_LHV) |
 | fixed-load `Purchaser` | `Demand` (fixed `lmax`) |
-| `Emission` budgets + generator / fuel `Production Rate` | `EmissionZone` (pro-rated cap) + `EmissionSource` |
+| `Emission` budgets + generator / fuel `Production Rate` | `EmissionZone` (tracking; pro-rated cap with `--long-periods prorate`) + `EmissionSource` |
 
 Sense −1 / 0 / 1 → `<=` / `=` / `>=`.  A Penalty Price of −1 or none
 means hard; a positive one becomes a soft `penalty`.
@@ -1043,7 +1044,10 @@ Skipped, with the reason counted in `<name>.stats.json` →
 - Period RHS are pro-rated to the window.
 - Period values are taken as GWh (TJ for fuel), and period penalties
   as $/GWh.
-- Emission budgets are hard and pro-rated.
+- Targets over more than one month (annual policy targets such as the
+  SA renewable target, multi-year emission budgets) are not enforced by
+  default.  A uniform weekly share of a seasonal target forced load
+  shedding in the July and October weeks.
 - The electrolyser efficiency comes from the IASR workbook.
 
 `--legacy` (or the individual `--no-isp-constraints`, `--no-purchasers`,

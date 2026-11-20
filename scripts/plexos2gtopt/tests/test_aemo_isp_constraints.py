@@ -52,6 +52,44 @@ class _CXml(_Xml):
         self.sysmem[oid] = self.member("System", cls, cls + "s", self.system, oid)
         return oid
 
+    def data(
+        self,
+        cls: str,
+        oid: int,
+        prop: str,
+        value: float,
+        *,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        tags: tuple[int, ...] = (),
+        text: str | None = None,
+    ) -> int:
+        did = super().data(
+            cls, oid, prop, value, date_from=date_from, tags=tags, text=text
+        )
+        if date_to:
+            self._row("t_date_to", data_id=did, date=date_to)
+        return did
+
+    def mdata(self, pcls: str, coll: str, mid: int, prop: str, value: float) -> None:
+        """Data row on membership ``mid`` of collection ``pcls.coll``."""
+        cid = self.colls[(pcls, coll)]
+        key = (cid, prop)
+        if key not in self.cprops:
+            pid = self.next["prop"]
+            self.next["prop"] += 1
+            self.cprops[key] = pid
+            self._row("t_property", property_id=pid, collection_id=cid, name=prop)
+        did = self.next["data"]
+        self.next["data"] += 1
+        self._row(
+            "t_data",
+            data_id=did,
+            membership_id=mid,
+            property_id=self.cprops[key],
+            value=value,
+        )
+
     def coef(self, pcls: str, parent: int, con: int, prop: str, value: float) -> None:
         """Coefficient ``prop`` of ``parent`` in constraint ``con``."""
         mid = self.member(pcls, "Constraint", "Constraints", parent, con)
@@ -171,11 +209,32 @@ def _ccase(tmp_path: Path) -> tuple[Path, Path]:
         RHS_Month=0.744,
     )
     x.coef("Purchaser", ely, h2, "Load Coefficient", 1.0)
+    # yearly policy target (fiscal year), ≥
+    yr = _constraint(x, "Year1", "Policies", sense=1, RHS_Year=365)
+    x.coef("Generator", wind, yr, "Generation Coefficient", 1.0)
     # forward-flow limit (convex) and a ≥ use of back flow (non-convex)
     fwd = _constraint(x, "FwdLim1", "Group Constraints", sense=-1, RHS=200)
     x.coef("Line", line, fwd, "Flow Forward Coefficient", 1.0)
     bad = _constraint(x, "BackMin1", "Group Constraints", sense=1, RHS=5)
     x.coef("Line", line, bad, "Flow Back Coefficient", 1.0)
+    # emissions: GT1 0.5 t/MWh; a one-year and a multi-year budget (kt)
+    co2 = x.obj("Emission", "CO2")
+    mid = x.member("Emission", "Generator", "Generators", co2, gt)
+    x.mdata("Emission", "Generators", mid, "Production Rate", 500.0)
+    for cname, value, d_to in (
+        ("Budget 1y", 365.0, "2027-06-30T00:00:00"),
+        ("Budget 4y", 1461.0, "2030-06-30T00:00:00"),
+    ):
+        b = x.cobj("Constraint", cname, "Emissions Budget")
+        x.data(
+            "Constraint",
+            b,
+            "RHS Custom",
+            value,
+            date_from="2026-07-01T00:00:00",
+            date_to=d_to,
+        )
+        x.coef("Emission", co2, b, "Production Coefficient", 0.001)
     # capacity-only (build) constraint → skipped
     bld = _constraint(x, "Build1", "Resource Limits", RHS=1000)
     x.coef("Generator", wind, bld, "Capacity Built Coefficient", 1.0)
@@ -383,3 +442,34 @@ def test_directional_flow_decision_variable(ccase: tuple[Path, Path]) -> None:
         ]
         == 1
     )
+
+
+def test_emission_sources_and_budgets(ccase: tuple[Path, Path]) -> None:
+    sys_ = _build(*ccase).planning["system"]
+    src = sys_["emission_source_array"]
+    gt = [x for x in src if x["generator"] == "GT1"]
+    assert gt and all(x["rate"] == pytest.approx(0.5) for x in gt)
+    zones = {z["name"]: z for z in sys_["emission_zone_array"]}
+    # long-period budgets are tracked only by default (no cap)
+    assert "cap" not in zones["isp_Budget_1y"]
+    assert "cap" not in zones["isp_Budget_4y"]
+    assert "cap" not in zones["isp_co2_total"]
+    prorated = _build(*ccase, long_periods="prorate").planning["system"]
+    zp = {z["name"]: z for z in prorated["emission_zone_array"]}
+    # 365 kt over 365 days → 3 kt for 3 days (t)
+    assert zp["isp_Budget_1y"]["cap"] == pytest.approx(3000.0)
+    assert zp["isp_Budget_4y"]["cap"] == pytest.approx(1461.0e3 * 3 / 1461)
+
+
+def test_long_period_target_skipped(ccase: tuple[Path, Path]) -> None:
+    case = _build(*ccase)
+    assert "isp_Year1" not in _ucs(case)
+    assert (
+        case.stats["constraint_groups"]["operational"][
+            "skipped: long-period target (> 1 month) not enforced in a week"
+        ]
+        == 1
+    )
+    uc = _ucs(_build(*ccase, long_periods="prorate"))["isp_Year1"]
+    # 365 GWh over the fiscal year → 3 000 MWh for 3 days
+    assert uc["expression"].endswith(">= 3000")
