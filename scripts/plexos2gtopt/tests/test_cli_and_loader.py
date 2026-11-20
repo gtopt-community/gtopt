@@ -28,6 +28,7 @@ from plexos2gtopt.main import (
     make_parser,
 )
 from plexos2gtopt.plexos2gtopt import (
+    _resolve_output_paths,
     convert_plexos_bundle,
     validate_plexos_bundle,
 )
@@ -256,6 +257,42 @@ def test_locate_bundle_inner_datos_zip(tmp_path: Path) -> None:
         # ``/tmp`` directly).
         tmp_root = Path(os.environ.get("TMPDIR") or tempfile.gettempdir()).resolve()
         assert bundle.root.resolve().is_relative_to(tmp_root)
+
+
+def test_locate_bundle_bare_xml(tmp_path: Path) -> None:
+    """A bare ``*.xml`` of any name is used in place, no CSVs, no cleanup."""
+    xml = tmp_path / "Some-Model.xml"
+    xml.write_text(_TINY_XML)
+    with locate_bundle(xml) as bundle:
+        assert bundle.xml_path == xml
+        assert bundle.xml_name == "Some-Model.xml"
+        assert bundle._cleanup is None  # noqa: SLF001 — internal lifecycle check
+        assert bundle.csv_paths() == []
+    assert xml.is_file(), "closing an in-place XML bundle must not delete it"
+
+
+def test_locate_bundle_xml_xz(tmp_path: Path) -> None:
+    """A ``*.xml.xz`` decompresses into a tempdir released on close."""
+    xz_path = tmp_path / "Some-Model.xml.xz"
+    with lzma.open(xz_path, "wb") as dst:
+        dst.write(_TINY_XML.encode())
+    with locate_bundle(xz_path) as bundle:
+        assert bundle.xml_name == "Some-Model.xml"
+        assert bundle.xml_path.read_text() == _TINY_XML
+        root = bundle.root
+        assert root != tmp_path
+    assert not root.exists()
+
+
+def test_resolve_output_paths_strips_xml_suffixes(tmp_path: Path) -> None:
+    """``foo.xml`` / ``foo.xml.xz`` inputs slug to ``foo``."""
+    for name in ("118-Bus.xml", "118-Bus.xml.xz"):
+        out_dir, out_file, plan_name = _resolve_output_paths(
+            tmp_path / name, None, None, None
+        )
+        assert out_dir == tmp_path / "gtopt_118-Bus"
+        assert out_file == out_dir / "118-Bus.json"
+        assert plan_name == "118-Bus"
 
 
 def test_locate_bundle_outer_wrapper(tmp_path: Path) -> None:

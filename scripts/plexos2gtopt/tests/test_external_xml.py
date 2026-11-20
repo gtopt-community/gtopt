@@ -8,7 +8,9 @@ as LZMA-compressed XML, so the test starts by decompressing into a
 
 P3.5 added ``t_data`` fallbacks (Pmax/Pmin/Load/HeatRate/Reactance)
 so the ``118-Bus.xml`` benchmark — which has no companion CSVs —
-solves end-to-end through ``gtopt --lp-only``. RTS-96 is partially
+solves end-to-end through ``gtopt --lp-only``.  The bundle locator
+also accepts the bare ``118-Bus.xml[.xz]`` file directly (no rename to
+``DBSEN_PRGDIARIO.xml``). RTS-96 is partially
 supported: it uses ``Load Participation Factor`` for demand, which
 requires denormalising against a system-level Load that v0 doesn't
 synthesise yet.
@@ -22,6 +24,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -161,6 +164,62 @@ def test_118_bus_full_convert(tmp_path: Path) -> None:
     )
     # Reactance is populated for every line (DC OPF gate).
     assert all(line.get("reactance", 0) > 0 for line in system["line_array"])
+
+
+def _convert_snapshot(tmp_path: Path) -> dict[str, Any]:
+    """Convert ``118-Bus.xml.xz`` directly (no rename) to a 1-hour snapshot."""
+    out_dir = tmp_path / "out"
+    options: dict[str, Any] = {
+        "input_bundle": _FIXTURES / "118-Bus.xml.xz",
+        "output_dir": out_dir,
+        # One 1-hour block: an hourly DC OPF snapshot.
+        "horizon_mode": "plexos",
+        "block_layout": "1",
+        "line_losses_mode": "none",
+        "run_check": False,
+    }
+    assert convert_plexos_bundle(options) == 0
+    return json.loads((out_dir / "118-Bus.json").read_text())
+
+
+def test_118_bus_xml_xz_direct_snapshot_matches_t_data(tmp_path: Path) -> None:
+    """XML-only input: every LP number traces back to an XML t_data row.
+
+    The coad 118-Bus database is the IEEE 118-bus system (MATPOWER
+    ``case118``): Node ``Load`` sums to 4242 MW (= Region ``Reference
+    Load``), Generator ``Max Capacity`` to 9966.2 MW, Line ``Max Flow``
+    is the 9900 MW MATPOWER placeholder rating, and the quadratic cost
+    ``Heat Rate Incr`` + ``Heat Rate Incr2`` x P (fuel price 1 $/unit)
+    becomes a two-segment secant curve.
+    """
+    planning = _convert_snapshot(tmp_path)
+    sim = planning["simulation"]
+    assert sim["block_array"] == [{"uid": 1, "duration": 1.0}]
+    system = planning["system"]
+    assert system["name"] == "118-Bus"
+    assert len(system["bus_array"]) == 118
+    assert len(system["generator_array"]) == 54
+    assert len(system["line_array"]) == 186
+    assert planning["options"]["model_options"]["line_losses_mode"] == "none"
+    assert "commitment_array" not in system  # no start costs → pure dispatch
+
+    total_load = sum(d["lmax"][0][0] for d in system["demand_array"])
+    assert total_load == pytest.approx(4242.0)
+    assert len(system["demand_array"]) == 99  # 19 nodes carry Load = 0
+    assert sum(g["pmax"] for g in system["generator_array"]) == pytest.approx(9966.2)
+    assert all(g.get("pmin", 0.0) == 0.0 for g in system["generator_array"])
+    assert {line["tmax_ab"] for line in system["line_array"]} == {9900.0}
+    assert {line["tmax_ba"] for line in system["line_array"]} == {9900.0}
+
+    # Generator 001: Max Capacity 100, Heat Rate Incr 40, Incr2 0.01.
+    # Marginal cost 40 + 2·0.01·P → secant slopes over [0,50], [50,100]
+    # are 40.5 and 41.5 $/MWh at the virtual unit fuel price.
+    gen = next(g for g in system["generator_array"] if g["name"] == "001")
+    assert gen["pmax"] == pytest.approx(100.0)
+    assert gen["pmax_segments"] == pytest.approx([50.0, 100.0])
+    assert gen["heat_rate_segments"] == pytest.approx([40.5, 41.5])
+    fuel = next(f for f in system["fuel_array"] if f["name"] == gen["fuel"])
+    assert fuel["price"] == pytest.approx(1.0)
 
 
 @_skip_if_no_gtopt

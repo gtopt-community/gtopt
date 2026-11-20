@@ -171,7 +171,7 @@ def _resolve_output_paths(
     """
     stem = input_path.name
     # Strip recognised compression / archive suffixes for the slug.
-    for suffix in (".zip.xz", ".zip"):
+    for suffix in (".zip.xz", ".zip", ".xml.xz", ".xml"):
         if stem.lower().endswith(suffix):
             stem = stem[: -len(suffix)]
             break
@@ -218,6 +218,13 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
     conversion_opts.install_env()
 
     with locate_bundle(input_path) as bundle:
+        if not bundle.csv_paths():
+            logger.info(
+                "XML-only PLEXOS input %s: no per-class CSV schedules; "
+                "Pmax/Load/ratings/costs come from the XML t_data "
+                "static properties",
+                bundle.xml_name,
+            )
         # Resolve horizon mode + day count + block layout.
         horizon_mode = options.get("horizon_mode") or "plexos"
         horizon_days_opt = options.get("horizon_days")

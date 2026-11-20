@@ -7,7 +7,11 @@ A CEN PCP "bundle" can arrive in any of these shapes:
 * a ``DATOS{date}.zip.xz`` (the on-disk form vendored under
   ``$GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/``);
 * a ``PLEXOS{date}.zip`` outer wrapper (auto-unwrapped to its two
-  inner zips).
+  inner zips);
+* a bare PLEXOS MasterDataSet ``*.xml`` file of any name, or its
+  ``*.xml.xz`` form (e.g. the NREL plexos-coad test databases).  Such
+  XML-only inputs ship no per-class CSV schedules, so every extractor
+  falls back to the static ``t_data`` properties in the XML.
 
 This loader normalises all of them to an extracted directory and
 exposes a :class:`PlexosBundle` view with stable accessor methods.
@@ -58,6 +62,10 @@ class PlexosBundle:
     root: Path
     source: Path
     _cleanup: tempfile.TemporaryDirectory[str] | None = None
+    #: Basename of the MasterDataSet XML under :attr:`root`.  CEN PCP
+    #: bundles always use ``DBSEN_PRGDIARIO.xml``; a bare ``*.xml`` /
+    #: ``*.xml.xz`` input keeps its own name.
+    xml_name: str = DBSEN_FILENAME
     # Horizon length in days for the converted simulation.  ``1``
     # (default) keeps the legacy day-1 PCP behaviour; ``7``
     # reconstructs the full CEN PCP forward-look week as 168 hourly
@@ -82,8 +90,12 @@ class PlexosBundle:
 
     @property
     def xml_path(self) -> Path:
-        """Path to ``DBSEN_PRGDIARIO.xml`` inside this bundle."""
-        return self.root / DBSEN_FILENAME
+        """Path to the MasterDataSet XML inside this bundle.
+
+        ``DBSEN_PRGDIARIO.xml`` for CEN PCP bundles; the input file's own
+        name for a bare ``*.xml`` / ``*.xml.xz`` input.
+        """
+        return self.root / self.xml_name
 
     @property
     def param_xml_path(self) -> Path:
@@ -156,6 +168,44 @@ def _extract_xz_zip(xz_path: Path, dest_dir: Path) -> Path:
     return out_zip
 
 
+def _is_xml_input(path: Path) -> bool:
+    """True for a bare ``*.xml`` or ``*.xml.xz`` file (case-insensitive)."""
+    lower = path.name.lower()
+    return path.is_file() and (lower.endswith(".xml") or lower.endswith(".xml.xz"))
+
+
+def _locate_xml_file(xml_input: Path) -> PlexosBundle:
+    """Wrap a bare ``*.xml`` / ``*.xml.xz`` MasterDataSet as a bundle.
+
+    A plain ``*.xml`` is used in place (``root`` = its directory, no
+    cleanup); an ``*.xml.xz`` is decompressed into a private tempdir
+    owned by the returned bundle.  Either way the bundle carries no
+    per-class CSVs unless they happen to sit next to a plain ``*.xml``.
+    """
+    if xml_input.name.lower().endswith(".xml"):
+        return PlexosBundle(
+            root=xml_input.parent, source=xml_input, xml_name=xml_input.name
+        )
+    import lzma  # pylint: disable=import-outside-toplevel
+
+    # Lifetime owned by the returned bundle (see ``locate_bundle``).
+    # pylint: disable-next=consider-using-with
+    tmp = tempfile.TemporaryDirectory(prefix="plexos2gtopt-")
+    xml_name = xml_input.name[: -len(".xz")]
+    try:
+        out_xml = Path(tmp.name) / xml_name
+        with lzma.open(xml_input, "rb") as src, out_xml.open("wb") as dst:
+            while chunk := src.read(1 << 20):
+                dst.write(chunk)
+    except (OSError, lzma.LZMAError):
+        tmp.cleanup()
+        raise
+    logger.info("decompressed PLEXOS XML %s -> %s", xml_input, tmp.name)
+    return PlexosBundle(
+        root=Path(tmp.name), source=xml_input, _cleanup=tmp, xml_name=xml_name
+    )
+
+
 def _extract_zip(zip_path: Path, dest_dir: Path) -> Path:
     """Extract a ``DATOS*.zip`` into ``dest_dir`` and return its path."""
     with zipfile.ZipFile(zip_path) as zf:
@@ -170,7 +220,9 @@ def locate_bundle(input_path: Path) -> PlexosBundle:
       * a directory already containing ``DBSEN_PRGDIARIO.xml``;
       * a ``DATOS{date}.zip`` archive;
       * a ``DATOS{date}.zip.xz`` archive (auto-decompressed);
-      * a ``PLEXOS{date}.zip`` outer wrapper (auto-unwrapped).
+      * a ``PLEXOS{date}.zip`` outer wrapper (auto-unwrapped);
+      * a bare MasterDataSet ``*.xml`` / ``*.xml.xz`` file of any name
+        (XML-only input: extractors use the ``t_data`` fallbacks).
 
     Raises:
         FileNotFoundError: If ``input_path`` does not exist or does not
@@ -180,6 +232,9 @@ def locate_bundle(input_path: Path) -> PlexosBundle:
     """
     if not input_path.exists():
         raise FileNotFoundError(f"PLEXOS bundle path not found: {input_path}")
+
+    if _is_xml_input(input_path):
+        return _locate_xml_file(input_path)
 
     if input_path.is_dir():
         if (input_path / DBSEN_FILENAME).is_file():
@@ -230,7 +285,8 @@ def locate_bundle(input_path: Path) -> PlexosBundle:
     else:
         tmp.cleanup()
         raise ValueError(
-            f"{input_path}: unsupported archive type (expected .zip or .zip.xz)"
+            f"{input_path}: unsupported archive type "
+            "(expected .zip, .zip.xz, .xml or .xml.xz)"
         )
 
     # Unwrap PLEXOS outer wrapper to its DATOS inner zip when applicable.

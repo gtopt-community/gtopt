@@ -18,15 +18,29 @@ into a tempdir on demand. The original `coad/test/` directory also
 ships much larger fixtures (`Solar33P.xml` 34 MB, `WFIP-MISO.xml`
 81 MB) which are out of scope for the unit-test suite.
 
-## Why not full-LP integration tests yet?
+## XML-only conversion (`t_data` fallback)
 
 The CEN PCP daily bundle pairs `DBSEN_PRGDIARIO.xml` with per-class
 CSV schedules (`Gen_Rating.csv`, `Nod_Load.csv`, …) that carry the
 per-hour dispatch envelope. These plexos-coad cases ship the XML
-database alone — Pmax/Pmin/Load live inside the XML `t_data` table.
-Adding a t_data fallback to the per-class extractors is on the P3
-roadmap; once that lands, `118-Bus.xml.xz` becomes a full `gtopt
---lp-only` integration fixture.
+database alone — Pmax/Pmin/Load/ratings/costs live inside the XML
+`t_data` table. When a CSV is absent the extractors fall back to the
+static `t_data` properties (`Max Capacity`, `Min Stable Level`, Node
+`Load`, `Max Flow`/`Min Flow`, `Reactance`, `Heat Rate Incr[2]`,
+`Fuel Price`, …), and the bundle locator accepts the bare file:
+
+```bash
+python -m plexos2gtopt plexos2gtopt/tests/data/plexos_coad/118-Bus.xml.xz \
+  -o /path/to/out --horizon-mode plexos --block-layout 1 \
+  --line-losses-mode none          # one-hour lossless DC OPF snapshot
+```
+
+`118-Bus.xml` is the IEEE 118-bus system (MATPOWER `case118` data:
+54 generators, 186 branches, 4242 MW load, 9900 MW placeholder
+ratings, quadratic costs) — not the NREL-118 test system. RTS-96
+still converts with zero demand: its Node `Load Participation Factor`
+multiplies a Region `Load` that lives in external CSVs
+(`Data\HourlyLoad_2020_RTS96.csv`) not shipped with the XML.
 
 ## Regenerating from source
 
