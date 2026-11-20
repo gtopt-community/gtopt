@@ -60,11 +60,21 @@ function(add_case_lp_only_tests prefix cases_root)
     set(_test "${prefix}_${_case}_${_stem}")
     set(_out "${CMAKE_CURRENT_BINARY_DIR}/test_output/${_test}")
 
+    # Unit-commitment cases carry integer columns, which an LP-only
+    # backend refuses even under --lp-only (CI exports GTOPT_SOLVER=clp):
+    # load them into a MIP-capable solver.
+    set(_solver_args "")
+    string(FIND "${_content}" "\"commitment_array\"" _has_uc)
+    if(NOT _has_uc EQUAL -1)
+      set(_solver_args --solver cbc)
+    endif()
+
     add_test(
       NAME "${_test}"
       COMMAND "${GTOPT_EXECUTABLE_FILE}" "${_name}"
         --lp-only
         --quiet
+        ${_solver_args}
         --output-directory "${_out}"
       WORKING_DIRECTORY "${_case_dir}"
     )
