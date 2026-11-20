@@ -608,7 +608,7 @@ class TestPhysicalAnchors:
 #     large enough to expose every dispatch-mode interaction.
 #
 # Adjacent literature / open-source examples worth porting later:
-#   * GenX `example_systems/small_new_england` (MIT) — multi-zone CO2
+#   * GenX `example_systems/small_new_england` (GPL-2.0) — multi-zone CO2
 #     cap fixture; would exercise EmissionZone.cap_cost in addition
 #     to .price.  https://github.com/GenXProject/GenX
 #   * PyPSA-Eur `test/test_emissions.py` — Snakemake fixtures with

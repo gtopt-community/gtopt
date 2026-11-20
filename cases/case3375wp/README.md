@@ -10,7 +10,8 @@ solve time, memory, and feasibility on a real-world-sized problem.
 
 * **Original**: Roman Korab (Silesian University of Technology), 2007-08.
 * **Vendored via**: [MATPOWER `case3375wp.m`](https://github.com/MATPOWER/matpower/blob/master/data/case3375wp.m)
-  (3-clause BSD per the MATPOWER LICENSE).
+  (MATPOWER case files are not covered by MATPOWER's BSD licence; see
+  the MATPOWER `LICENSE` and [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md)).
 * **Converter**: a Python one-shot that reads the MATPOWER `.m` via
   [`matpowercaseframes`](https://pypi.org/project/matpowercaseframes/)
   and writes the gtopt JSON directly.  See "Regenerating the JSON"

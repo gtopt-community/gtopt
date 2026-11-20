@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // Integration-style hydro/thermal benchmark tests modelled on the
-// SDDP.jl example fixtures.  SDDP.jl is MIT-licensed and ships its
+// SDDP.jl example fixtures.  SDDP.jl is MPL-2.0-licensed and ships its
 // canonical hydro-thermal example data inline in the documentation
 // source — these tests adapt that data to gtopt's element schema so a
 // regression in gtopt's hydro modelling (reservoir balance, cascade
@@ -11,7 +11,7 @@
 //
 //   * SDDP.jl Hydro Valleys example
 //     https://sddp.dev/stable/examples/hydro_valley/
-//     https://github.com/odow/SDDP.jl  (MIT)
+//     https://github.com/odow/SDDP.jl  (MPL-2.0)
 //     Two cascade reservoirs with piecewise-linear turbine curves,
 //     deterministic inflows, spill at cost.  We use the first linear
 //     segment of the piecewise curve (50 m³/h → 55 MW → production_
@@ -296,7 +296,7 @@ TEST_CASE(
 //   FAST hydro-thermal (deterministic worst-case branch)
 // ═════════════════════════════════════════════════════════════════════════
 //
-// SDDP.jl `FAST_hydro_thermal.jl` (MIT-licensed, port of the original
+// SDDP.jl `FAST_hydro_thermal.jl` (MPL-2.0-licensed, port of the original
 // Cambier "FAST" hydro-thermal example).  Single reservoir x ∈ [0, 8],
 // initial 0; demand p + y ≥ 6; reservoir balance x.out ≤ x.in − y + ξ;
 // thermal cost 5 $/MWh; objective max −5p ≡ min 5p.
@@ -868,7 +868,7 @@ TEST_CASE(
 //   SDDP.jl Hydro_thermal — canonical 1-reservoir + 1-thermal example
 // ═════════════════════════════════════════════════════════════════════════
 //
-// SDDP.jl `Hydro_thermal.jl` (MIT-licensed,
+// SDDP.jl `Hydro_thermal.jl` (MPL-2.0-licensed,
 // https://sddp.dev/stable/examples/Hydro_thermal/):
 //
 //   @variable(sp, 5 <= x <= 15, SDDP.State, initial_value = 10)
