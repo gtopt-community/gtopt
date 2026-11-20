@@ -102,6 +102,8 @@ gtopt --lp-only -s gtopt_case/gtopt_case.json
 | `--rating-set A\|B\|C`        | `A`      | Line/transformer rating: A=normal, B/C=emergency (fallback→A) |
 | `--nomenclatura PATH`         | —        | Nomenclatura `.xls/.xlsx` for human-readable bus names        |
 | `--ldm PATH`                  | —        | LDM (Lista de Mérito) `.xlsx` → rank-based merit-order gcost   |
+| `--gen-costs CSV`             | —        | Per-unit cost overlay (`bus,id[,pmax],mw1,cost1,…`), see below |
+| `--line-limits CSV`           | —        | Per-branch rating overlay (`from,to,ckt,tmax`), see below      |
 | `--demand-fail-cost $/MWh`    | `1000`   | Unserved-energy penalty                                       |
 | `--scale-objective N`         | `1000`   | Objective scaling divisor for numerics                        |
 | `--single-bus`                | off      | Copper-plate single-bus planning (no lines)                   |
@@ -240,6 +242,36 @@ gap; both are optional:
 > so the match is partial — the converter **logs how many generators
 > matched** (e.g. `matched 56 of 115`).  Unmatched units keep the
 > fallback cost; inspect the log before trusting the merit ranking.
+
+## Cost and rating overlays (`--gen-costs`, `--line-limits`)
+
+Many PSS/E cases ship without economic data or branch ratings, while a
+companion data set of the same network (e.g. a production-cost model)
+has them.  Two plain CSV overlays bring them into the conversion:
+
+- **`--gen-costs costs.csv`** — one row per generator keyed by PSS/E bus
+  number and machine ID:
+
+  ```csv
+  bus,id,pmax,mw1,cost1,mw2,cost2,mw3,cost3
+  1032,G,,352.94,54.64,705.88,56.81,1050,71.27
+  1032,S,520,638,0,,,,
+  ```
+
+  `pmax` (optional; blank keeps `PT`) overrides the unit's maximum
+  output, and `pmax ≤ 0` drops the unit.  `mwK`/`costK` is a piecewise
+  marginal cost: segment *K* runs from the previous cumulative breakpoint
+  (0 for the first) to `mwK` MW at `costK` $/MWh; the last segment is
+  stretched or clipped to `pmax`.  A multi-segment unit becomes one
+  generator per segment on the same bus (`g<bus>_<id>`,
+  `g<bus>_<id>_s2`, …), which is exact for a convex (non-decreasing)
+  curve.  Units not listed keep `--gcost`.
+- **`--line-limits limits.csv`** — one row per branch or two-winding
+  transformer, keyed by `from`, `to` (either orientation) and `ckt`;
+  `tmax` [MW] replaces the RAW rating, blank or `≤ 0` = unlimited.
+
+Extra columns are ignored, so an overlay may carry annotations (e.g. a
+source type column).
 
 ## Limitations
 

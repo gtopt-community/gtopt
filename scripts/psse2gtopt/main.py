@@ -124,6 +124,20 @@ def make_parser() -> argparse.ArgumentParser:
         help="LDM (Lista de Mérito) .xlsx to drive rank-based merit-order gcost",
     )
     parser.add_argument(
+        "--gen-costs",
+        type=Path,
+        default=None,
+        help="CSV overlay of per-unit costs: bus,id[,pmax],mw1,cost1,... "
+        "(piecewise marginal cost; overrides --gcost for the listed units)",
+    )
+    parser.add_argument(
+        "--line-limits",
+        type=Path,
+        default=None,
+        help="CSV overlay of branch ratings: from,to,ckt,tmax (MW; replaces "
+        "the RAW rating; blank/0 = unlimited)",
+    )
+    parser.add_argument(
         "--demand-fail-cost",
         type=float,
         default=1000.0,
@@ -206,6 +220,8 @@ def main(argv: list[str] | None = None) -> None:
         "rating_set": args.rating_set,
         "nomenclatura": args.nomenclatura,
         "ldm": args.ldm,
+        "gen_costs": args.gen_costs,
+        "line_limits": args.line_limits,
     }
 
     if args.show_info:

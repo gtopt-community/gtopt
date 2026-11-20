@@ -158,6 +158,8 @@ def convert_psse_case(options: dict[str, Any]) -> int:
     * ``gcost`` / ``demand_fail_cost`` / ``scale_objective`` — economic
       knobs (PSS/E carries no costs; see :mod:`psse2gtopt.gtopt_writer`).
     * ``single_bus`` — emit a copper-plate single-bus planning.
+    * ``gen_costs`` / ``line_limits`` — optional CSV overlays with
+      per-unit costs and per-branch ratings (see :mod:`psse2gtopt.overlay`).
 
     Returns:
         ``0`` on success.
@@ -194,6 +196,18 @@ def convert_psse_case(options: dict[str, Any]) -> int:
 
         ldm_order = parse_ldm_merit_order(Path(ldm_path))
 
+    gen_costs = None
+    if options.get("gen_costs"):
+        from .overlay import parse_gen_costs  # pylint: disable=import-outside-toplevel
+
+        gen_costs = parse_gen_costs(Path(options["gen_costs"]))
+
+    line_limits = None
+    if options.get("line_limits"):
+        from .overlay import parse_line_limits  # pylint: disable=import-outside-toplevel
+
+        line_limits = parse_line_limits(Path(options["line_limits"]))
+
     planning = build_planning(
         case,
         name=name,
@@ -205,6 +219,8 @@ def convert_psse_case(options: dict[str, Any]) -> int:
         rating_set=options.get("rating_set", "A"),
         nomenclatura=nomenclatura,
         ldm_order=ldm_order,
+        gen_costs=gen_costs,
+        line_limits=line_limits,
     )
 
     write_planning(planning, output_file)

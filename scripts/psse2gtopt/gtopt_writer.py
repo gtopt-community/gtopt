@@ -34,6 +34,7 @@ from gtopt_shared.json_planning import (  # noqa: F401  pylint: disable=unused-i
 )
 
 from .entities import BusSpec, PsseCase
+from .overlay import GenCost, GenKey, LineKey, split_segments
 from .raw_parser import floor_reactance, rating_to_tmax
 
 
@@ -143,6 +144,7 @@ def build_generators(
     pss_names: dict[int, str] | None = None,
     merit_rank: dict[str, int] | None = None,
     gcost_step: float = 1.0,
+    gen_costs: dict[GenKey, GenCost] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Map in-service generators to gtopt ``generator_array`` entries.
 
@@ -156,9 +158,16 @@ def build_generators(
     (``gcost + len(merit) * gcost_step``).  Without a merit order every
     generator gets the uniform ``gcost``.
 
+    A ``gen_costs`` overlay (see :mod:`psse2gtopt.overlay`) overrides the
+    cost and, optionally, ``pmax`` of the listed units.  A unit with a
+    multi-segment curve is split into one generator per segment on the
+    same bus (``g<bus>_<id>``, ``g<bus>_<id>_s2``, ...), which represents a
+    convex piecewise-linear cost exactly in the LP.
+
     Returns ``(generator_array, n_merit_matched, n_total)``.
     """
     merit_rank = merit_rank or {}
+    gen_costs = gen_costs or {}
     pss_names = pss_names or {}
     unmatched_cost = gcost + len(merit_rank) * gcost_step
 
@@ -177,19 +186,34 @@ def build_generators(
                 matched += 1
         else:
             g_cost = gcost
-        pmin = max(0.0, min(gen.pmin, gen.pmax))
-        out.append(
-            {
-                "uid": uid,
-                "name": f"g{gen.bus}_{gen.ident}".strip(),
-                "bus": _ref(names, gen.bus),
-                "pmin": pmin,
-                "pmax": gen.pmax,
-                "gcost": g_cost,
-                "capacity": gen.pmax,
-            }
-        )
-        uid += 1
+        pmax = gen.pmax
+        blocks: list[tuple[float, float]] = [(pmax, g_cost)]
+        overlay = gen_costs.get((gen.bus, gen.ident.strip()))
+        if overlay is not None:
+            if overlay.pmax is not None:
+                pmax = overlay.pmax
+            if pmax <= 0.0:
+                continue
+            blocks = (
+                split_segments(overlay.segments, pmax)
+                if overlay.segments
+                else [(pmax, g_cost)]
+            )
+        pmin = max(0.0, min(gen.pmin, pmax))
+        base = f"g{gen.bus}_{gen.ident}".strip()
+        for k, (width, cost) in enumerate(blocks):
+            out.append(
+                {
+                    "uid": uid,
+                    "name": base if k == 0 else f"{base}_s{k + 1}",
+                    "bus": _ref(names, gen.bus),
+                    "pmin": min(pmin, width) if k == 0 else 0.0,
+                    "pmax": width,
+                    "gcost": cost,
+                    "capacity": width,
+                }
+            )
+            uid += 1
     return out, matched, len(out)
 
 
@@ -286,7 +310,12 @@ def _line(
 
 
 def build_lines(
-    case: PsseCase, live: set[int], names: dict[int, str], *, rating_set: str = "A"
+    case: PsseCase,
+    live: set[int],
+    names: dict[int, str],
+    *,
+    rating_set: str = "A",
+    line_limits: dict[LineKey, float] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Map branches + transformers to gtopt ``line_array`` entries.
 
@@ -294,9 +323,17 @@ def build_lines(
     lines using the star-equivalent reactances
     ``Z1 = ½(X12 + X31 − X23)`` etc.
 
+    A ``line_limits`` overlay keyed by ``(from, to, ckt)`` replaces the
+    RAW rating of the listed branches and two-winding transformers.
+
     Returns ``(line_array, extra_bus_array)`` — ``extra_bus_array``
     holds the synthetic star buses created for 3-winding transformers.
     """
+    limits = line_limits or {}
+
+    def _rate(a: int, b: int, ckt: str, raw_rating: float) -> float:
+        return rating_to_tmax(limits.get((a, b, ckt.strip()), raw_rating))
+
     lines: list[dict[str, Any]] = []
     extra_buses: list[dict[str, Any]] = []
     uid = 1
@@ -311,7 +348,7 @@ def build_lines(
                 br.from_bus,
                 br.to_bus,
                 br.x,
-                rating_to_tmax(br.rating(rating_set)),
+                _rate(br.from_bus, br.to_bus, br.ckt, br.rating(rating_set)),
                 names,
             )
         )
@@ -331,7 +368,7 @@ def build_lines(
                     tr.bus_i,
                     tr.bus_j,
                     tr.x12,
-                    rating_to_tmax(tr.winding_rating(1, rating_set)),
+                    _rate(tr.bus_i, tr.bus_j, tr.ckt, tr.winding_rating(1, rating_set)),
                     names,
                 )
             )
@@ -380,6 +417,8 @@ def build_planning(
     rating_set: str = "A",
     nomenclatura: dict[str, str] | None = None,
     ldm_order: list[str] | None = None,
+    gen_costs: dict[GenKey, GenCost] | None = None,
+    line_limits: dict[LineKey, float] | None = None,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning dict from a parsed PSS/E case.
 
@@ -399,6 +438,10 @@ def build_planning(
             human-readable bus names.
         ldm_order: Optional merit-ordered list of PSS/E unit codes (bus
             names) driving rank-based generation costs.
+        gen_costs: Optional per-unit cost / ``pmax`` overlay
+            (:func:`psse2gtopt.overlay.parse_gen_costs`).
+        line_limits: Optional per-branch ``tmax`` overlay
+            (:func:`psse2gtopt.overlay.parse_line_limits`).
 
     Returns:
         The planning dict ready for :func:`write_planning`.
@@ -416,6 +459,7 @@ def build_planning(
         pss_names=pss_names,
         merit_rank=merit_rank,
         gcost_step=gcost_step,
+        gen_costs=gen_costs,
     )
     demand_array = build_demands(case, live, names)
     injections = build_load_injections(case, live, names, first_uid=len(gen_array) + 1)
@@ -442,7 +486,9 @@ def build_planning(
     }
 
     if not single_bus:
-        line_array, extra_buses = build_lines(case, live, names, rating_set=rating_set)
+        line_array, extra_buses = build_lines(
+            case, live, names, rating_set=rating_set, line_limits=line_limits
+        )
         bus_array.extend(extra_buses)
         system["line_array"] = line_array
 
