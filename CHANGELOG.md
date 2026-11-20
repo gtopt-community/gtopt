@@ -9,6 +9,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.1.0] - 2026-11-20
 
+GTOpt 1.1.0 is the first release with packaged binaries, and it widens
+the set of real systems GTOpt can read.  Highlights:
+
+- **Ready-to-run binaries**: a Linux x86_64 build (Ubuntu 24.04+,
+  Debian 13+) with the HiGHS and COIN-OR CBC/CLP solver plugins, its
+  debug symbols, and the Python tools as a wheel (`gtopt_scripts`), all
+  with SHA-256 checksums.
+- **More PLEXOS models**: `plexos2gtopt --plexos-model` converts general
+  multi-model PLEXOS databases for a chosen window (used for the Irish
+  SEM model), and `plexos2gtopt.aemo_isp` builds dispatch weeks from the
+  AEMO 2026 ISP model of the Australian NEM (prototype).
+- **Transmission planning inputs**: `plp2gtopt` reads the CEN works plan
+  (`mantlin.csv`), so the PET 2027 transmission planning bases convert
+  with lines entering service and changing ratings as planned.
+- **Other converters**: `psse2gtopt` cost and line-limit overlays and
+  voltage-dependent loads; `pp2gtopt` time series and representative
+  blocks; `sddp2gtopt` multi-file PSR SDDP cases.
+- **Real cases**: the companion repository
+  [gtopt-cases](https://github.com/gtopt-community/gtopt-cases) with
+  cases from Australia, Chile, Guatemala, Ireland, Peru and Poland.
+- **One home for end-of-horizon cuts**: `FutureCost` is now the single
+  source of the boundary cuts and every converter emits it; the old
+  boundary-cut option keys still work as deprecated aliases
+  (`tools/migrate_future_cost.py` rewrites them).
+- **Inspection**: LP files can also be written as MPS, with an optional
+  scaling sidecar; `gtopt --version` reports the exact build revision.
+- **Fixes**: code-scanning security findings in the GUI service, the
+  water-value unit of PLP boundary cuts, and Python data files missing
+  from wheel installs.
+
+Upgrading from 1.0.0: cases keep working; run
+`tools/migrate_future_cost.py` to move deprecated boundary-cut keys to
+`FutureCost`, and see *Deprecated* below.
+
+The detailed list of changes follows.
+
 ### Added
 
 - **`plexos2gtopt` general PLEXOS databases**: `--plexos-model`,
@@ -239,7 +275,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.0.0] - 2026-11-18
 
-First public release of GTOpt.
+First public release of GTOpt, the open-source optimizer for planning
+and operating energy systems, under AGPL-3.0-or-later with the GTOpt
+Solver Plugin Exception.  It includes:
+
+- **One model from minutes to decades**: expansion planning of
+  generation, transmission, storage and demand; hydrothermal scheduling
+  with SDDP and multi-level cascade SDDP; unit commitment (three-bin
+  MIP) and economic dispatch with DC power flow and line losses.
+- **Storage and hydro**: reservoirs, cascades, pumped hydro and
+  batteries with water values and storage opportunity costs, and
+  irrigation agreements written as PAMPL user constraints.
+- **Emissions, reserves and other energy carriers**: emission prices and
+  caps by zone, reserves and inertia, hydrogen, ammonia, thermal storage
+  and LNG in the same LP.
+- **Solvers as plugins**: HiGHS, CBC/CLP, CPLEX, Gurobi, MindOpt, SCIP
+  and cuOpt, loaded at run time.
+- **Converters** from PLP, PLEXOS, PSR SDDP, PSS/E, pandapower and other
+  formats, with open JSON/Parquet inputs and outputs.
+- **Interfaces**: command line, Python tools, a browser GUI and a REST
+  web service.
+- **Documentation**: the full LP/MIP formulation and the white paper,
+  with validation on IEEE networks, pandapower, published SDDP
+  benchmarks and the Chilean daily schedule.
+
+1.0.0 is a source release: build from source, or use 1.1.0 or later
+for packaged binaries.  The changes made just before the release are
+listed below.
 
 
 ### Added
