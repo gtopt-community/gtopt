@@ -1848,14 +1848,17 @@ class TestSolveErrorPaths:
 
     @patch("guiservice.app.http_requests.post")
     def test_submit_generic_exception(self, mock_post, client):
-        mock_post.side_effect = RuntimeError("unexpected")
+        mock_post.side_effect = RuntimeError("internal-detail-xyz")
         resp = client.post(
             "/api/solve/submit",
             data=json.dumps(_sample_case_data()),
             content_type="application/json",
         )
         assert resp.status_code == 500
-        assert "unexpected" in resp.get_json()["error"].lower()
+        body = resp.get_json()
+        assert "unexpected" in body["error"].lower()
+        assert "internal-detail-xyz" not in body["error"]
+        assert body["error_id"] in body["error"]
 
     # ---- get_solve_status ----
 

@@ -142,6 +142,9 @@ tool.
   `GTOPT_GUI_SHUTDOWN_TOKEN`.
 - `GTOPT_WEBSERVICE_API_TOKEN` is forwarded to the webservice as a bearer
   token.
+- Unexpected internal errors return a generic message with an `error_id`;
+  the exception text and traceback are written only to the server log file
+  (`GTOPT_GUI_LOG_FILE`), never to the HTTP response or to `/api/logs`.
 
 See [GTOPT_GUISRV.md](GTOPT_GUISRV.md#security) for details.
 

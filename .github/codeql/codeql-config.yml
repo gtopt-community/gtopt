@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
+#
+# CodeQL configuration (used by .github/workflows/codeql.yml).
+#
+# paths-ignore: guiservice/static/vendor/** holds unmodified third-party
+# browser bundles (Jspreadsheet CE, jSuites, Chart.js, ...; versions and
+# licences in THIRD_PARTY_NOTICES.md).  We do not patch vendored code, so
+# CodeQL findings there are not actionable in this repository and only bury
+# real findings in first-party code.  Security issues in those libraries
+# are handled by upgrading the vendored release (report upstream if no
+# fixed release exists).  As of 2026-11 the vendored jSuites is 5.13.5, the
+# latest 5.x release -- the newest line Jspreadsheet CE 4.15.0 supports
+# (jsuites ^5); jSuites 6.x still contains most of the flagged patterns.
+name: gtopt CodeQL config
+
+paths-ignore:
+  - guiservice/static/vendor/**

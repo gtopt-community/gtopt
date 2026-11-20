@@ -62,6 +62,7 @@ jobs:
         run: |
           python -m pytest guiservice/tests/test_app.py guiservice/tests/test_gtopt_gui.py \
             guiservice/tests/test_gtopt_guisrv.py guiservice/tests/test_security.py \
+            guiservice/tests/test_error_exposure.py \
             guiservice/tests/test_schema_contract.py \
             -n auto -q --tb=short --cov=guiservice --cov-report=term-missing \
             --cov-report=html:coverage-guiservice \
