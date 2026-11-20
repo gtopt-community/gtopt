@@ -9,6 +9,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **MPS output for `--lp-file`**: new `--lp-format lp|mps` option (default
+  `lp`, unchanged); a `--lp-file` ending in `.mps` also selects MPS.  Names and
+  integer columns are preserved (`MARKER` sections; `BV` bounds for binaries
+  on OSI/CBC) by every backend (cuOpt writes only MPS).  An explicit request
+  the backend cannot honour is an error; the diagnostic dumps fall back to
+  the other format.  `--lp-compression` also compresses the `--lp-file`
+  dump.  `SolverBackend::write_lp(filename, LpFileFormat)` now takes the
+  format and returns `bool`, and `k_solver_abi_version` is bumped to 16, so
+  out-of-tree solver plugins must implement it for both formats and be
+  rebuilt.
+
 - **Unit commitment (three-bin formulation)**: full implementation of the
   Morales-España tight-and-compact UC model with status ($u$), startup ($v$),
   and shutdown ($w$) binary variables per committed generator.

@@ -105,7 +105,8 @@ void SDDPMethod::update_max_kappa(SceneIndex scene_index,
   const bool should_save_lp =
       (mode == KappaWarningMode::save_lp || mode == KappaWarningMode::diagnose);
   if (should_save_lp && !m_options_.log_directory.empty()) {
-    std::filesystem::create_directories(m_options_.log_directory);
+    std::error_code dir_ec;  // failure → write_lp reports it below
+    std::filesystem::create_directories(m_options_.log_directory, dir_ec);
     const auto stem = (std::filesystem::path(m_options_.log_directory)
                        / as_label("kappa",
                                   uid_of(scene_index),
@@ -113,7 +114,9 @@ void SDDPMethod::update_max_kappa(SceneIndex scene_index,
                                   iteration_index))
                           .string();
     if (auto r = li.write_lp(stem)) {
-      spdlog::warn("Saved high-kappa LP to {}.lp", stem);
+      spdlog::warn("Saved high-kappa LP to {}", *r);
+    } else {
+      spdlog::warn("{}", r.error().message);
     }
   }
 

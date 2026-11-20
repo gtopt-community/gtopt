@@ -18,6 +18,7 @@
  *   - unreadable file path (daw::read_file failure)
  */
 
+#include <expected>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -398,6 +399,111 @@ TEST_CASE("gtopt_main - lp_file with invalid path silently fails (no throw)")
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
+}
+
+TEST_CASE("gtopt_main - lp_file in MPS format")  // NOLINT
+{
+  const auto stem = write_tmp_json("gtopt_main_lp_file_mps", minimal_json);
+  const auto dir = std::filesystem::temp_directory_path() / "gtopt_main_mps";
+  std::filesystem::remove_all(dir);
+  std::filesystem::create_directories(dir);
+
+  SUBCASE("a .mps extension selects MPS")
+  {
+    auto result = gtopt_main(MainOptions {
+        .planning_files = {stem.string()},
+        .lp_file = (dir / "model.mps").string(),
+        .lp_only = true,
+    });
+    REQUIRE(result.has_value());
+    CHECK(*result == 0);
+    CHECK(std::filesystem::exists(dir / "model.mps"));
+    CHECK_FALSE(std::filesystem::exists(dir / "model.lp"));
+  }
+  SUBCASE("lp_format = mps on a bare stem")
+  {
+    auto result = gtopt_main(MainOptions {
+        .planning_files = {stem.string()},
+        .lp_file = (dir / "model").string(),
+        .lp_format = "mps",
+        .lp_only = true,
+    });
+    REQUIRE(result.has_value());
+    CHECK(*result == 0);
+    CHECK(std::filesystem::exists(dir / "model.mps"));
+  }
+  SUBCASE("lp_format = lp keeps the .lp default")
+  {
+    auto result = gtopt_main(MainOptions {
+        .planning_files = {stem.string()},
+        .lp_file = (dir / "model").string(),
+        .lp_format = "lp",
+        .lp_only = true,
+    });
+    REQUIRE(result.has_value());
+    // cuOpt only writes MPS: an explicit `lp` request fails cleanly
+    // instead of writing the other format.
+    if (SolverRegistry::instance().default_solver() == "cuopt") {
+      CHECK(*result != 0);
+      CHECK_FALSE(std::filesystem::exists(dir / "model.lp"));
+    } else {
+      CHECK(*result == 0);
+      CHECK(std::filesystem::exists(dir / "model.lp"));
+    }
+  }
+  SUBCASE("an unknown lp_format is rejected")
+  {
+    auto result = gtopt_main(MainOptions {
+        .planning_files = {stem.string()},
+        .lp_file = (dir / "model").string(),
+        .lp_format = "xml",
+        .lp_only = true,
+    });
+    REQUIRE(result.has_value());
+    CHECK(*result == 1);
+    CHECK_FALSE(std::filesystem::exists(dir / "model.lp"));
+    CHECK_FALSE(std::filesystem::exists(dir / "model.mps"));
+  }
+  SUBCASE("lp_compression compresses the .mps dump")
+  {
+    auto result = gtopt_main(MainOptions {
+        .planning_files = {stem.string()},
+        .lp_file = (dir / "model.mps").string(),
+        .lp_only = true,
+        .lp_compression = "gzip",
+    });
+    REQUIRE(result.has_value());
+    CHECK(*result == 0);
+    CHECK(std::filesystem::exists(dir / "model.mps.gz"));
+    CHECK_FALSE(std::filesystem::exists(dir / "model.mps"));
+  }
+  SUBCASE("an unwritable lp_file without lp_only still solves")
+  {
+    for (const auto* name : {"model.lp", "model.mps"}) {
+      CAPTURE(name);
+      std::expected<int, std::string> result;
+      CHECK_NOTHROW(result = gtopt_main(MainOptions {
+                        .planning_files = {stem.string()},
+                        .lp_file = (dir / "no_such_dir" / name).string(),
+                    }));
+      REQUIRE(result.has_value());
+      CHECK(*result == 0);
+    }
+  }
+  SUBCASE("an unwritable lp_file with lp_only fails with status 1")
+  {
+    for (const auto* name : {"model.lp", "model.mps"}) {
+      CAPTURE(name);
+      auto result = gtopt_main(MainOptions {
+          .planning_files = {stem.string()},
+          .lp_file = (dir / "no_such_dir" / name).string(),
+          .lp_only = true,
+      });
+      REQUIRE(result.has_value());
+      CHECK(*result == 1);
+    }
+  }
+  std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("gtopt_main - solver non-optimal for infeasible LP (pmin > pmax)")

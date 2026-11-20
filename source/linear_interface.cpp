@@ -3131,6 +3131,24 @@ void LinearInterface::set_continuous(const ColIndex index)
 void LinearInterface::set_integer(const ColIndex index)
 {
   ensure_backend();
+  // An LP-only backend (CLP) keeps the integrality flag but solves the
+  // column as continuous.  Callers may legitimately mark integers and relax
+  // them later (relax_integers / MIP-start relaxations), so warn instead of
+  // failing; load_flat() still rejects integer columns on such backends.
+  if (!m_backend_->supports_mip()) {
+    static std::once_flag warned;
+    std::call_once(
+        warned,
+        [this]
+        {
+          spdlog::warn(
+              "Solver '{}' is LP-only: integer columns are solved as "
+              "continuous (the MIP is relaxed).  Pick a MIP-capable solver "
+              "(--solver cbc/highs/cplex or the solver_name option) to keep "
+              "the integrality.",
+              m_solver_name_);
+        });
+  }
   m_backend_->set_integer(index);
 }
 

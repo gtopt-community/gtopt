@@ -235,7 +235,11 @@ template<typename T>
       // ---- LP options ----
       ("lp-file,l",
        po::value<std::string>(),
-       "write the assembled LP model to this file (stem; .lp extension added)")
+       "write the assembled LP model to this file (stem; .lp or .mps "
+       "extension added; a trailing .mps selects MPS output)")  //
+      ("lp-format",
+       po::value<std::string>(),
+       "format of the --lp-file dump: lp (default) | mps")
       //
       ("matrix-eps,e",
        po::value<double>(),
@@ -547,8 +551,9 @@ template<typename T>
        "given without value: true)")  //
       ("lp-compression",
        po::value<std::string>(),
-       "compression codec for LP debug files: gzip | zstd | none "
-       "(default: zstd); shorthand for --set lp_compression=<codec>")  //
+       "compression codec for LP debug files (default: zstd) and, when "
+       "given, for the --lp-file dump: gzip | zstd | none; shorthand for "
+       "--set lp_compression=<codec>")  //
       ("lp-coeff-ratio",
        po::value<double>(),
        "warn when the LP max/min |coefficient| ratio exceeds this threshold "
@@ -1215,6 +1220,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .use_single_bus = get_opt<bool>(vm, "use-single-bus"),
       .use_kirchhoff = get_opt<bool>(vm, "use-kirchhoff"),
       .lp_file = get_opt<std::string>(vm, "lp-file"),
+      .lp_format = get_opt<std::string>(vm, "lp-format"),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .lp_only = get_opt<bool>(vm, "lp-only"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
@@ -1379,6 +1385,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   // LP options
   opts.lp_file = get_str("lp-file");
+  opts.lp_format = get_str("lp-format");
   opts.matrix_eps = get_dbl("matrix-eps");
   opts.lp_only = get_bool("lp-only");
   opts.lp_debug = get_bool("lp-debug");
@@ -1550,6 +1557,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.use_single_bus, defaults.use_single_bus);
   merge(opts.use_kirchhoff, defaults.use_kirchhoff);
   merge(opts.lp_file, defaults.lp_file);
+  merge(opts.lp_format, defaults.lp_format);
   merge(opts.matrix_eps, defaults.matrix_eps);
   merge(opts.lp_only, defaults.lp_only);
   merge(opts.lp_debug, defaults.lp_debug);

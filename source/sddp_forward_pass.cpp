@@ -354,7 +354,8 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
             == SolverLogMode::detailed
         && !m_options_.log_directory.empty())
     {
-      std::filesystem::create_directories(m_options_.log_directory);
+      std::error_code dir_ec;  // a solver log is best effort
+      std::filesystem::create_directories(m_options_.log_directory, dir_ec);
       li.set_log_file(
           (std::filesystem::path(m_options_.log_directory)
            / as_label(
@@ -1072,7 +1073,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // tack on `_scene_X_phase_Y`, duplicating the UIDs already
           // baked into our stem — so we bypass it.
           if (auto wr = system.linear_interface().write_lp(stem); wr) {
-            saved_error_lp = stem + ".lp";
+            saved_error_lp = *wr;
           } else {
             spdlog::warn(
                 "SDDP Forward [i{} s{} p{}]: failed to save error LP "
@@ -1093,7 +1094,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           if (elastic_result.has_value()) {
             const auto elastic_stem = stem + "_elastic";
             if (auto wr = elastic_result->clone.write_lp(elastic_stem); wr) {
-              saved_elastic_lp = elastic_stem + ".lp";
+              saved_elastic_lp = *wr;
             } else {
               spdlog::warn(
                   "SDDP Forward [i{} s{} p{}]: failed to save elastic "

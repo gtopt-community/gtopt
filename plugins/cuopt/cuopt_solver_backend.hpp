@@ -271,12 +271,17 @@ public:
   // ---- names & LP output ----
   void push_names(const std::vector<std::string>& col_names,
                   const std::vector<std::string>& row_names) override;
-  void write_lp(const char* filename) override;
+  [[nodiscard]] bool write_lp(const char* filename,
+                              LpFileFormat format) override;
 
   // ---- clone ----
   [[nodiscard]] std::unique_ptr<SolverBackend> clone() const override;
 
 private:
+  /// write_lp() helper: `<filename>.mps` in free MPS format, written from
+  /// `m_model_` with the names from push_names().
+  [[nodiscard]] bool write_mps_file_(const char* filename);
+
   /// Lower `m_model_` to cuOpt's CSR arrays, solve on the GPU, and snapshot
   /// primal/dual/reduced-cost/obj into `m_sol_`.  Shared by `initial_solve`
   /// and `resolve` (both rebuild from scratch — cuOpt has no warm path).
@@ -294,6 +299,10 @@ private:
   MipStartEffort m_mip_start_effort_ {
       MipStartEffort::check_feasibility};  ///< effort for the buffered start
   std::string m_prob_name_ {"gtopt_cuopt"};
+  /// Names from push_names(), used by write_mps_file_ (cuOpt's own C API
+  /// problem object carries no names).
+  std::vector<std::string> m_col_names_ {};
+  std::vector<std::string> m_row_names_ {};
   std::string m_log_filename_ {};  ///< CUOPT_LOG_FILE path (set_log_filename)
 
   // Scratch buffers reused across getters so the const pointer-getters can

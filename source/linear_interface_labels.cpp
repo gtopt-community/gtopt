@@ -14,18 +14,24 @@
  * entry point.
  */
 
+#include <cerrno>
 #include <expected>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_interface_labels_codec.hpp>
+#include <gtopt/lp_file_format.hpp>
 #include <gtopt/lp_name_spill.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/utils.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -303,11 +309,62 @@ void LinearInterface::push_names_to_solver() const
   m_backend_->push_names(col_names, row_names);
 }
 
-auto LinearInterface::write_lp(const std::string& filename) const
-    -> std::expected<void, Error>
+namespace
+{
+
+/// Dispatch to the backend writer for `format`.  Never throws: a native
+/// writer that throws (CoinUtils throws `CoinError`, which is not a
+/// `std::exception`, when it cannot open the file) counts as a failed
+/// write.  On failure, a partial file left behind (disk full, I/O error)
+/// is removed so that no truncated model is mistaken for a good one.
+[[nodiscard]] bool backend_write(SolverBackend& backend,
+                                 const std::string& stem,
+                                 LpFileFormat format)
+{
+  const auto path = lp_file_path(stem, format);
+  // Open the target ourselves first.  Native writers handle an fopen
+  // failure badly (MindOpt 2.3's MDOwrite double-frees and aborts the
+  // process), so a path that cannot be created never reaches them.
+  {
+    const std::ofstream probe(path, std::ios::out | std::ios::trunc);
+    if (!probe.is_open()) {
+      spdlog::warn("cannot create {}: {}",
+                   path,
+                   std::error_code(errno, std::generic_category()).message());
+      return false;
+    }
+  }
+  bool ok = false;
+  try {
+    ok = backend.write_lp(stem.c_str(), format);
+  } catch (const std::exception& e) {
+    spdlog::warn("writing {} failed: {}", path, e.what());
+  } catch (...) {
+    spdlog::warn("writing {} failed with an unknown exception", path);
+  }
+  std::error_code ec;
+  if (ok) {
+    // Trust the file, not the return code: some native writers report
+    // success without checking fopen/fwrite.  A missing or empty file is
+    // never a valid model.
+    const auto size = std::filesystem::file_size(path, ec);
+    ok = !ec && size > 0;
+  }
+  if (!ok) {
+    std::filesystem::remove(path, ec);
+  }
+  return ok;
+}
+
+}  // namespace
+
+auto LinearInterface::write_lp(const std::string& filename,
+                               LpFileFormat format,
+                               LpFormatFallback fallback) const
+    -> std::expected<std::string, Error>
 {
   if (filename.empty()) {
-    return {};
+    return std::string {};
   }
 
   // Names may be missing entirely (flatten ran without
@@ -321,8 +378,39 @@ auto LinearInterface::write_lp(const std::string& filename) const
   // those.  The generic fallback guarantees `write_lp` never fails
   // on a well-formed backend, which is a hard requirement for the
   // SDDP error-LP dump path.
-  push_names_to_solver();
-  m_backend_->write_lp(filename.c_str());
+  //
+  // Label generation throws on malformed metadata (a column without a
+  // class name); a model file is a by-product, so report it as an error
+  // instead of letting the exception escape (the SDDP / lp_debug dump
+  // callers do not catch).
+  try {
+    push_names_to_solver();
+  } catch (const std::exception& e) {
+    drop_formatted_label_caches();
+    return std::unexpected(Error {
+        .code = ErrorCode::SolverError,
+        .message =
+            std::format("cannot write '{}': names for the model file: {}",
+                        filename,
+                        e.what()),
+    });
+  }
+
+  auto written = format;
+  bool ok = backend_write(*m_backend_, filename, format);
+  if (!ok && fallback == LpFormatFallback::other_format) {
+    written = other_lp_file_format(format);
+    ok = backend_write(*m_backend_, filename, written);
+    if (ok) {
+      spdlog::warn(
+          "solver backend '{}' could not write '{}{}'; wrote '{}{}' instead",
+          solver_name(),
+          filename,
+          lp_file_extension(format),
+          filename,
+          lp_file_extension(written));
+    }
+  }
 
   // Drop the formatted-label caches now that write_lp has consumed
   // them.  Memoization is unhelpful here: in production SDDP
@@ -332,7 +420,25 @@ auto LinearInterface::write_lp(const std::string& filename) const
   // from the still-compressed label metadata — ~milliseconds per
   // cell, paid only when actually requested.
   drop_formatted_label_caches();
-  return {};
+
+  if (!ok) {
+    return std::unexpected(Error {
+        .code = ErrorCode::SolverError,
+        .message = std::format(
+            "cannot write '{}{}': solver backend '{}' does not support the "
+            "'{}' format or the file could not be created (check that the "
+            "directory exists and is writable){}",
+            filename,
+            lp_file_extension(format),
+            solver_name(),
+            lp_file_format_name(format),
+            fallback == LpFormatFallback::strict
+                ? std::format("; try --lp-format {}",
+                              lp_file_format_name(other_lp_file_format(format)))
+                : std::string {}),
+    });
+  }
+  return lp_file_path(filename, written);
 }
 
 }  // namespace gtopt
