@@ -167,10 +167,23 @@ GTOpt is pronounced *G-top* (/ˈdʒiː tɒp/). The command-line binary is
 - **Engineering**: unit, integration and Python test suites, static
   analysis (CodeQL, clang-tidy) and coverage run on every change.
 
-<p>
-  <a href="docs/interfaces.md"><img src="docs/images/screenshots/gui_topology.png" width="49%"
+The browser GUI ([interfaces](docs/interfaces.md)) builds and edits a
+case, shows its network and runs it on the web service.  Here, the IEEE
+9-bus case with its buses, line ratings, generators, a solar profile and
+the demands:
+
+<p align="center">
+  <a href="docs/interfaces.md"><img src="docs/images/screenshots/gui_topology.png" width="860"
      alt="The GTOpt browser GUI showing the network topology of the IEEE 9-bus case: buses, lines with their ratings, generators, a solar profile and demands."></a>
-  <a href="docs/scripts-guide.md#run_gtopt"><img src="docs/images/screenshots/run_gtopt_tui.png" width="49%"
+</p>
+
+From the terminal, [`run_gtopt`](docs/scripts-guide.md#run_gtopt) runs a
+case and follows it live.  Here, an SDDP run solved with HiGHS: lower
+and upper bounds and gap per iteration, cut counts, resource use and the
+solver log:
+
+<p align="center">
+  <a href="docs/scripts-guide.md#run_gtopt"><img src="docs/images/screenshots/run_gtopt_tui.png" width="640"
      alt="The run_gtopt terminal dashboard after an SDDP run solved with HiGHS: lower and upper bounds, gap per iteration, cut counts, resource use and the solver log."></a>
 </p>
 
