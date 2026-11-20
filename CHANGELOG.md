@@ -24,6 +24,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   demand traces, generators, batteries, flow paths, hydro storages with
   inflows, daily energy limits); expansion and the PLEXOS constraint set are
   not converted yet.
+- **`plp2gtopt` reads `mantlin.csv`**: the transmission works plan of CEN
+  PLP cases (e.g. the PET 2027 transmission-planning bases) is merged after
+  `plpmanli.dat` block by block; lines now enter/leave service and change
+  rating, R and X as planned (per-stage voltage/resistance/reactance
+  schedules).
 - **`psse2gtopt` overlays**: `--gen-costs` (`bus,id[,pmax],mw1,cost1,…`) and
   `--line-limits` (`from,to,ckt,tmax`) CSV files.
 
