@@ -193,6 +193,7 @@ class TestReadAndResolve:
 
 class TestSpec:
     def test_yaml_spec(self, tmp_path: Path) -> None:
+        pytest.importorskip("yaml")
         spec_path = tmp_path / "spec.yaml"
         spec_path.write_text(
             "default: {element: load, by: bus}\n"

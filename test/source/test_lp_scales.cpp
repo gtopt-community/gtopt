@@ -19,6 +19,7 @@
 #include <gtopt/lp_file_format.hpp>
 #include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/lp_scales.hpp>
+#include <gtopt/main_options.hpp>
 #include <gtopt/planning_lp.hpp>
 
 #include "sddp_helpers.hpp"
