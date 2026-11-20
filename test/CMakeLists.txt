@@ -117,13 +117,28 @@ target_link_libraries(
 # the list(PREPEND) above makes it the first file in the source list and
 # therefore the first #include in its unity batch, so the macro is defined
 # before <doctest/doctest.h> is first processed.
-set(GTOPT_UNITY_BUILD ON)
-include(UnityBuild)
-# BATCH_SIZE 11 targets ~19 unity batches = ~19 compile jobs, scaled for
-# a 20-core build host.  Distribution per UNITY_GROUP:
-#   source/      (~163 files) → ceil(163/11) = 15 batches
-#   source/json/ (~ 39 files) → ceil( 39/11) =  4 batches
-target_enable_unity_build(${PROJECT_NAME} BATCH_SIZE 11)
+#
+# GTOPT_TEST_UNITY_BATCH_SIZE = number of test .cpp files per unity batch.
+# The default (11) suits a local 20+-core host and a cold build: with
+# ~416 files in source/ and ~46 in source/json/ it gives 42 batches
+# (4 -> 116 batches).  Larger batches
+# re-parse the gtopt headers fewer times, so a cold build is cheapest,
+# but a change to one test file (or to a header it includes) recompiles
+# its whole batch.  CI on a 4-core runner with a warm ccache passes a
+# smaller value (see .github/workflows/ubuntu.yml) so a PR recompiles
+# only the batches it actually touches.  0 disables unity for the tests
+# (one object per test file).
+set(GTOPT_TEST_UNITY_BATCH_SIZE 11 CACHE STRING
+    "Test files per gtoptTests unity batch (0 = no unity build)")
+if(GTOPT_TEST_UNITY_BATCH_SIZE GREATER 0)
+  set(GTOPT_UNITY_BUILD ON)
+  include(UnityBuild)
+  target_enable_unity_build(${PROJECT_NAME}
+                            BATCH_SIZE ${GTOPT_TEST_UNITY_BATCH_SIZE})
+else()
+  message(STATUS "Unity build disabled for ${PROJECT_NAME} "
+                 "(GTOPT_TEST_UNITY_BATCH_SIZE=0)")
+endif()
 
 # ---- Precompiled headers ----
 include(PrecompiledHeaders)
