@@ -24,7 +24,7 @@ from typing import Any
 
 # Keys that belong inside the ``sddp_options`` JSON sub-object.
 # Must match the fields in ``json_data_contract<SddpOptions>`` in
-# ``include/gtopt/json/json_options.hpp``.
+# ``include/gtopt/json/json_sddp_options.hpp``.
 SDDP_OPTION_KEYS: frozenset[str] = frozenset(
     {
         "cut_sharing_mode",
@@ -32,7 +32,6 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "markov_transition",
         "cut_directory",
         "api_enabled",
-        "production_factor_update_skip",
         "max_iterations",
         "min_iterations",
         "convergence_tol",
@@ -75,7 +74,6 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "max_stored_cuts",
         "simulation_mode",
         "state_variable_lookup_mode",
-        "warm_start",
         "stationary_tol",
         "stationary_window",
         "stationary_gap_ceiling",
@@ -110,8 +108,11 @@ CASCADE_OPTION_KEYS: frozenset[str] = frozenset()
 # Keys that belong inside the ``monolithic_options`` JSON sub-object.
 # Must match the fields in ``json_data_contract<MonolithicOptions>``.
 # In the flat Excel sheet these are prefixed with ``monolithic_`` to
-# distinguish them from the identically-named SDDP fields (e.g.
-# ``monolithic_boundary_cuts_file`` → ``boundary_cuts_file``).
+# distinguish them from the identically-named SDDP fields.  The
+# ``boundary_*`` keys here (and in ``SDDP_OPTION_KEYS``) are DEPRECATED
+# aliases of the FutureCost element fields (see
+# :mod:`gtopt_shared.future_cost`); they are kept only because the C++
+# contract still parses them for the alias translation.
 MONOLITHIC_OPTION_KEYS: frozenset[str] = frozenset(
     {
         "solve_mode",
@@ -120,6 +121,7 @@ MONOLITHIC_OPTION_KEYS: frozenset[str] = frozenset(
         "boundary_cut_sharing_mode",
         "boundary_max_iterations",
         "solver_options",
+        "mip_start",
     }
 )
 
@@ -140,11 +142,14 @@ SOLVER_OPTION_KEYS: frozenset[str] = frozenset(
         "mip_gap",
         "log_level",
         "time_limit",
-        "reuse_basis",
         "scaling",
         "log_mode",
         "max_fallbacks",
         "crossover",
+        "mip_gap_abs",
+        "memory_emphasis",
+        "param_file",
+        "advanced_basis",
     }
 )
 
@@ -167,8 +172,42 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "hydro_use_value",
         "continuous_phases",
         "naming_dialect",
+        "kirchhoff_mode",
+        "line_losses_mode",
+        "dc_line_reactance_threshold",
+        "dc_line_resistance_threshold",
+        "scale_loss_link",
+        "loss_cost_eps",
+        "loss_secant_segments",
+        "loss_use_sos2",
+        "theta_max",
+        "auto_scale",
+        "state_violation_cost",
+        "demand_fail_rhs_shift",
+        "objective_mode",
+        "strict_storage_emin",
+        "lp_reduction",
+        "allow_oversupply",
     }
 )
+
+# Keys that belong inside the ``lp_matrix_options`` JSON sub-object.
+# Must match ``json_data_contract<LpMatrixOptions>`` (the nested
+# ``validation`` block is JSON-only and not part of the flat sheet).
+LP_MATRIX_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "lp_coeff_ratio_threshold",
+        "equilibration_method",
+        "fast_sqrt_method",
+        "ruiz_max_iterations",
+        "ruiz_tolerance",
+        "compute_stats",
+    }
+)
+
+# Flat-sheet prefix for FutureCost fields (``future_cost_cuts_file`` →
+# ``system.future_cost_array[0].cuts_file``).
+FUTURE_COST_OPTION_PREFIX = "future_cost_"
 
 # Keys that belong in the ``simulation`` JSON section rather than ``options``.
 # ``annual_discount_rate`` is the canonical simulation-level field; its
@@ -180,10 +219,9 @@ SIMULATION_OPTION_KEYS: frozenset[str] = frozenset(
 )
 
 # Keys that LEGITIMATELY appear in more than one sub-object partition.
-# SDDP / monolithic both expose the same boundary-cuts knobs under the
-# same JSON name; the igtopt Excel sheet uses prefixed names
-# (``monolithic_boundary_cuts_file``) to disambiguate on input but the
-# JSON keys themselves are shared by design.  Consumers that need to
+# SDDP / monolithic both still parse the same (deprecated) boundary-cuts
+# alias keys under the same JSON name; the canonical home of those
+# settings is the FutureCost element (``system.future_cost_array``).  Consumers that need to
 # verify partition disjointness must subtract this set first.
 INTENTIONAL_OPTION_KEY_OVERLAPS: frozenset[str] = frozenset(
     {
@@ -224,7 +262,11 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     # Model options (nested into "model_options" in JSON output)
     # ------------------------------------------------------------------
     ("demand_fail_cost", "[model] Penalty for unserved load [$/MWh]", 1000),
-    ("reserve_fail_cost", "[model] Penalty for unserved spinning reserve [$/MW]", 5000),
+    (
+        "reserve_shortage_cost",
+        "[model] Penalty for unserved spinning reserve [$/MW]",
+        5000,
+    ),
     ("use_line_losses", "[model] Enable line loss modelling (true/false)", True),
     (
         "loss_segments",
@@ -287,11 +329,6 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "gzip",
     ),
     (
-        "use_lp_names",
-        "LP naming level: 0=none, 1=names+warn, 2=names+error",
-        None,
-    ),
-    (
         "use_uid_fname",
         "Use uid-based filenames for output (true/false)",
         None,
@@ -320,7 +357,7 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ("lp_only", "Build LP without solving (true/false)", None),
     (
         "lp_coeff_ratio_threshold",
-        "Warn when LP coefficient ratio exceeds this value",
+        "[lp_matrix] Warn when LP coefficient ratio exceeds this value",
         None,
     ),
     # ------------------------------------------------------------------
@@ -378,11 +415,6 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "[solver] Solver output verbosity (0 = none, default: 0)",
         0,
     ),
-    (
-        "solver_reuse_basis",
-        "[solver] Enable basis-reuse for resolves (true/false, default: false)",
-        None,
-    ),
     # ------------------------------------------------------------------
     # SDDP options (nested into "sddp_options" in JSON output)
     # ------------------------------------------------------------------
@@ -402,8 +434,9 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         None,
     ),
     (
-        "production_factor_update_skip",
-        "[sddp] SDDP iterations between reservoir efficiency updates",
+        "update_lp_skip",
+        "[sddp] SDDP iterations between LP coefficient updates (e.g. "
+        "volume-dependent production factors)",
         None,
     ),
     ("max_iterations", "[sddp] Maximum SDDP outer iterations", None),
@@ -426,11 +459,6 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     (
         "recovery_mode",
         "[sddp] Recovery mode: 'none' (0), 'cuts' (1), or 'full' (2, default)",
-        None,
-    ),
-    (
-        "warm_start",
-        "[sddp] Enable warm-start for SDDP resolves (true/false, default: true)",
         None,
     ),
     (
@@ -479,24 +507,28 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "[sddp] Save LP files for infeasible apertures (true/false)",
         None,
     ),
+    # ------------------------------------------------------------------
+    # FutureCost (FCF boundary cuts) — written to
+    # ``system.future_cost_array[0]`` for EVERY method.  In the flat Excel
+    # sheet these use a ``future_cost_`` prefix that is stripped when the
+    # field is placed on the element.  (The legacy ``boundary_*`` /
+    # ``monolithic_boundary_*`` option keys are deprecated aliases.)
+    # ------------------------------------------------------------------
     (
-        "boundary_cuts_file",
-        "[sddp] Path to boundary (future-cost) cuts CSV for last stage",
+        "future_cost_cuts_file",
+        "[future_cost] Path to the boundary (future-cost) cuts CSV "
+        "(relative to input_directory)",
         None,
     ),
     (
-        "boundary_cuts_mode",
-        "[sddp] Boundary cuts load mode: 'noload', 'separated', 'combined'",
-        "separated",
+        "future_cost_mode",
+        "[future_cost] Boundary cuts load mode: 'noload', 'separated', "
+        "'combined', 'phi_expectation'",
+        None,
     ),
     (
-        "boundary_max_iterations",
-        "[sddp] Max SDDP iterations to load from boundary cuts (0=all)",
-        0,
-    ),
-    (
-        "named_cuts_file",
-        "[sddp] Path to named cuts file for warm-starting SDDP",
+        "future_cost_iteration_limit",
+        "[future_cost] Keep only the cuts of the last N source iterations (0=all)",
         None,
     ),
     (
@@ -560,21 +592,6 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     (
         "monolithic_solve_mode",
         "[monolithic] Solve mode: 'monolithic' or 'relaxed'",
-        None,
-    ),
-    (
-        "monolithic_boundary_cuts_file",
-        "[monolithic] Path to boundary cuts CSV for monolithic solver",
-        None,
-    ),
-    (
-        "monolithic_boundary_cuts_mode",
-        "[monolithic] Boundary cuts mode: 'noload', 'separated', 'combined'",
-        None,
-    ),
-    (
-        "monolithic_boundary_max_iterations",
-        "[monolithic] Max iterations to load from boundary cuts (0=all)",
         None,
     ),
 ]

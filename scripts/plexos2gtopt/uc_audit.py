@@ -53,6 +53,9 @@ from pathlib import Path
 from typing import Any
 
 from gtopt_shared.pampl_ident import pampl_ident as _pampl_ident
+from gtopt_shared.resources import package_data_path
+
+from ._uc_policy import read_uc_name_list
 
 logger = logging.getLogger(__name__)
 
@@ -2297,18 +2300,14 @@ def build_b17_soft_slack(
 # Hard-list loader
 # ---------------------------------------------------------------------------
 def load_hard_list(path: Path) -> set[str]:
-    """Read ``cen_pcp_hard_ucs.txt`` → set of constraint names."""
+    """Read ``cen_pcp_hard_ucs.txt`` → set of constraint names.
+
+    Raises ``FileNotFoundError`` when ``path`` is missing (a missing list
+    would make every audited UC look "not PLEXOS-HARD").
+    """
     if not path.is_file():
-        return set()
-    names: set[str] = set()
-    for ln in path.read_text().splitlines():
-        ln = ln.strip()
-        if not ln or ln.startswith("#"):
-            continue
-        name = ln.split("#", 1)[0].strip()
-        if name:
-            names.add(name)
-    return names
+        raise FileNotFoundError(f"PLEXOS-HARD UC list not found: {path}")
+    return set(read_uc_name_list(path))
 
 
 # ---------------------------------------------------------------------------
@@ -3105,7 +3104,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--hard-list",
         type=Path,
-        default=Path(__file__).parent / "data" / "cen_pcp_hard_ucs.txt",
+        default=package_data_path("plexos2gtopt", "data", "cen_pcp_hard_ucs.txt"),
         help="PLEXOS-HARD audit list (default: bundled cen_pcp_hard_ucs.txt)",
     )
     parser.add_argument(

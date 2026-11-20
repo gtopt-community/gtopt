@@ -39,6 +39,8 @@ from pathlib import Path
 
 import pytest
 
+from gtopt_shared.resources import package_data_file
+
 from gtopt_shared.cost_defaults import (
     COST_DEFAULTS,
     DEFAULT_SCC,
@@ -468,13 +470,7 @@ class TestCommitmentFuelChain:
 class TestEndToEndOverlay:
     @pytest.fixture
     def cen_chile_path(self) -> Path:
-        return (
-            Path(__file__).resolve().parents[3]
-            / "share"
-            / "gtopt"
-            / "emissions"
-            / "cen_chile.json"
-        )
+        return package_data_file("gtopt_shared", "data", "emissions", "cen_chile.json")
 
     def test_objective_mode_set(self, cen_chile_path: Path) -> None:
         pl = _make_planning()
@@ -680,13 +676,7 @@ class TestNREL118OnlyEmissionsInversion:
 
     @pytest.fixture(scope="class")
     def cen_chile_path(self) -> Path:
-        return (
-            Path(__file__).resolve().parents[3]
-            / "share"
-            / "gtopt"
-            / "emissions"
-            / "cen_chile.json"
-        )
+        return package_data_file("gtopt_shared", "data", "emissions", "cen_chile.json")
 
     def test_baseline_has_emission_infrastructure(self, nrel118_planning: dict) -> None:
         """Sanity-check the cost-mode fixture before we invert it."""
@@ -996,13 +986,7 @@ class TestMultiPollutantThroughOverlay:
 
     @pytest.fixture
     def cen_chile_path(self) -> Path:
-        return (
-            Path(__file__).resolve().parents[3]
-            / "share"
-            / "gtopt"
-            / "emissions"
-            / "cen_chile.json"
-        )
+        return package_data_file("gtopt_shared", "data", "emissions", "cen_chile.json")
 
     def test_full_overlay_with_multi_pollutant_zones(
         self, cen_chile_path: Path
@@ -1152,3 +1136,24 @@ class TestIssue521GeneratorFuelPriceOverride:
         assert pl["system"]["generator_array"][0]["fuel_price_override"] == 0.0
         assert pl["system"]["generator_array"][1]["fuel_price_override"] == 0.0
         assert "fuel_price_override" not in pl["system"]["generator_array"][2]
+
+
+def test_drop_boundary_cuts_refs_clears_future_cost_cuts_file() -> None:
+    """Pure-emissions mode drops the $-FCF from the FutureCost element too."""
+    from gtopt_shared.emissions import (  # pylint: disable=import-outside-toplevel
+        _drop_boundary_cuts_refs,
+    )
+
+    pl = {
+        "options": {"sddp_options": {"boundary_cuts_file": "legacy.csv"}},
+        "system": {
+            "future_cost_array": [
+                {"uid": 1, "name": "fcf", "cuts_file": "bc.csv", "mode": "combined"}
+            ]
+        },
+    }
+    assert _drop_boundary_cuts_refs(pl) == 2
+    assert pl["system"]["future_cost_array"] == [
+        {"uid": 1, "name": "fcf", "mode": "combined"}
+    ]
+    assert "boundary_cuts_file" not in pl["options"]["sddp_options"]

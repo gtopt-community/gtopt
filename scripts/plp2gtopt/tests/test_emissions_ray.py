@@ -166,23 +166,47 @@ class TestWriteEmissionsRayCsv:
 
 
 class TestStampBoundaryCutsFileRef:
+    """The ray is wired through the FutureCost element, never options."""
+
+    @staticmethod
+    def _fcf(pl: dict) -> dict:
+        return pl["system"]["future_cost_array"][0]
+
     def test_stamps_when_missing(self) -> None:
         pl: dict = {"options": {}}
         stamp_boundary_cuts_file_ref(pl)
-        assert pl["options"]["boundary_cuts_file"] == "boundary_cuts.csv"
+        assert self._fcf(pl)["cuts_file"] == "boundary_cuts.csv"
+        assert "boundary_cuts_file" not in pl["options"]
 
     def test_preserves_user_value(self) -> None:
-        """User-set boundary_cuts_file path wins (idempotent)."""
-        pl = {"options": {"boundary_cuts_file": "custom_cuts.csv"}}
+        """User-set FutureCost cuts_file wins (idempotent)."""
+        pl = {
+            "system": {
+                "future_cost_array": [
+                    {"uid": 1, "name": "fcf", "cuts_file": "custom_cuts.csv"}
+                ]
+            }
+        }
         stamp_boundary_cuts_file_ref(pl)
-        assert pl["options"]["boundary_cuts_file"] == "custom_cuts.csv"
+        assert self._fcf(pl)["cuts_file"] == "custom_cuts.csv"
+        assert len(pl["system"]["future_cost_array"]) == 1
 
-    def test_creates_options_dict_if_missing(self) -> None:
+    def test_creates_element_if_missing(self) -> None:
         pl: dict = {}
         stamp_boundary_cuts_file_ref(pl)
-        assert pl["options"]["boundary_cuts_file"] == "boundary_cuts.csv"
+        assert self._fcf(pl) == {
+            "uid": 1,
+            "name": "fcf",
+            "cuts_file": "boundary_cuts.csv",
+        }
+
+    def test_reuses_existing_bare_element(self) -> None:
+        pl: dict = {"system": {"future_cost_array": [{"uid": 1, "name": "fcf"}]}}
+        stamp_boundary_cuts_file_ref(pl)
+        assert len(pl["system"]["future_cost_array"]) == 1
+        assert self._fcf(pl)["cuts_file"] == "boundary_cuts.csv"
 
     def test_custom_relative_path(self) -> None:
         pl: dict = {}
         stamp_boundary_cuts_file_ref(pl, "emissions/cuts.csv")
-        assert pl["options"]["boundary_cuts_file"] == "emissions/cuts.csv"
+        assert self._fcf(pl)["cuts_file"] == "emissions/cuts.csv"

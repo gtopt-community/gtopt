@@ -7,14 +7,20 @@ from pathlib import Path
 
 import pytest
 
+from gtopt_shared.testing.external_cases import (
+    external_case_path,
+    missing_case_reason,
+)
+
 from plp2gtopt.compressed_open import find_compressed_path
 from plp2gtopt.laja_parser import LajaParser
 from plp2gtopt.laja_writer import LajaWriter, _zones_to_bound_rule_segments
 
 
-# Path to actual PLP test data (compressed)
-_SUPPORT_DIR = Path(__file__).parent.parent.parent.parent / "support"
-_PLP_2Y = _SUPPORT_DIR / "plp" / "2_years"
+# Path to actual PLP test data (compressed), from the external case
+# repository (GTOPT_CASES_DIR, see tools/get_cases.sh).
+_PLP_2Y_REL = "chile/medium_long_term/plp_2y/source"
+_PLP_2Y = external_case_path(_PLP_2Y_REL) or Path("/nonexistent/plp_2y")
 
 
 @pytest.fixture()
@@ -22,7 +28,7 @@ def laja_parser():
     """Parse the 2-year PLP Laja convention file."""
     resolved = find_compressed_path(_PLP_2Y / "plplajam.dat")
     if resolved is None:
-        pytest.skip("plplajam.dat not found in support/plp/2_years")
+        pytest.skip(missing_case_reason(f"{_PLP_2Y_REL}/plplajam.dat"))
     parser = LajaParser(resolved)
     parser.parse()
     return parser
@@ -246,7 +252,7 @@ class TestLajaParser:
         assert usage[0] == pytest.approx(0.0)  # Apr
 
     def test_initial_rights(self, laja_config):
-        # Fixture support/plp/2_years/plplajam.dat.xz updated in 4a3264cc6
+        # Fixture plp_2y source/plplajam.dat.xz updated in 4a3264cc6
         # (PLP 2-year case). The "Derechos iniciales" line in that file is
         # `234 145 0 0`, so ini_irr=234 / ini_elec=145.
         assert laja_config["ini_irr"] == pytest.approx(234)
@@ -518,7 +524,7 @@ class TestLajaWriter:
         writer = LajaWriter(laja_config)
 
         # Initial values come from `Derechos iniciales` line in
-        # support/plp/2_years/plplajam.dat (234 / 145 / 0 / 0).
+        # plp_2y source/plplajam.dat (234 / 145 / 0 / 0).
         vol_irr = next(
             vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_riego"
         )

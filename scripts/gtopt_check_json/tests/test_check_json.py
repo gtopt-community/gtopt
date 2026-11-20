@@ -19,6 +19,7 @@ from gtopt_check_json._checks import (
     check_cascade_solver_type,
     check_demand_lmax_nonneg,
     check_element_references,
+    check_future_cost_aliases,
     check_name_uniqueness,
     check_sddp_options,
     check_simulation_mode,
@@ -44,10 +45,12 @@ from gtopt_check_json.gtopt_check_json import check_json, main
 
 _VALID_CASE: dict = {
     "options": {
-        "use_kirchhoff": True,
-        "use_single_bus": False,
-        "demand_fail_cost": 1000,
-        "scale_objective": 1000,
+        "model_options": {
+            "use_kirchhoff": True,
+            "use_single_bus": False,
+            "demand_fail_cost": 1000,
+            "scale_objective": 1000,
+        },
         "input_directory": "input",
     },
     "simulation": {
@@ -677,10 +680,12 @@ class TestCLI:
 # A multi-block case with two generators and two demands for indicator tests.
 _INDICATOR_CASE: dict = {
     "options": {
-        "use_kirchhoff": True,
-        "use_single_bus": False,
-        "demand_fail_cost": 1000,
-        "scale_objective": 1000,
+        "model_options": {
+            "use_kirchhoff": True,
+            "use_single_bus": False,
+            "demand_fail_cost": 1000,
+            "scale_objective": 1000,
+        },
     },
     "simulation": {
         "block_array": [
@@ -1532,6 +1537,75 @@ class TestCascadeSolverType:
         assert not findings
 
 
+class TestFutureCostAliases:
+    """check_future_cost_aliases: deprecated keys warn, conflicts are critical."""
+
+    def test_clean_case_no_findings(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["future_cost_array"] = [
+            {"uid": 1, "name": "fcf", "cuts_file": "bc.csv", "iteration_limit": 3},
+        ]
+        assert not check_future_cost_aliases(case)
+
+    def test_sddp_alias_warns_under_sddp(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["method"] = "sddp"
+        case["options"]["sddp_options"] = {
+            "boundary_cuts_file": "bc.csv",
+            "boundary_max_iterations": 4,
+        }
+        findings = check_future_cost_aliases(case)
+        assert len(findings) == 2
+        assert all(f.severity == Severity.WARNING for f in findings)
+        msgs = " ".join(f.message for f in findings)
+        assert "sddp_options.boundary_cuts_file" in msgs
+        assert "cuts_file" in msgs
+        assert "iteration_limit" in msgs
+        # Non-mutating: the input planning keeps its keys.
+        assert case["options"]["sddp_options"]["boundary_cuts_file"] == "bc.csv"
+
+    def test_sddp_alias_ignored_under_monolithic(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["method"] = "monolithic"
+        case["options"]["sddp_options"] = {"boundary_cuts_file": "bc.csv"}
+        findings = check_future_cost_aliases(case)
+        assert len(findings) == 1
+        assert "ignored under method=monolithic" in findings[0].message
+
+    def test_monolithic_and_simulation_aliases(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["monolithic_options"] = {"boundary_cuts_mode": "combined"}
+        case.setdefault("simulation", {})["boundary_cuts_valuation"] = "present_value"
+        findings = check_future_cost_aliases(case)
+        msgs = " ".join(f.message for f in findings)
+        assert "monolithic_options.boundary_cuts_mode" in msgs
+        assert "simulation.boundary_cuts_valuation" in msgs
+        assert all(f.severity == Severity.WARNING for f in findings)
+
+    def test_conflict_is_critical(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["method"] = "sddp"
+        case["system"]["future_cost_array"] = [
+            {"uid": 1, "name": "fcf", "cuts_file": "a.csv"},
+        ]
+        case["options"]["sddp_options"] = {"boundary_cuts_file": "b.csv"}
+        findings = check_future_cost_aliases(case)
+        critical = [f for f in findings if f.severity == Severity.CRITICAL]
+        assert len(critical) == 1
+        assert "conflicting" in critical[0].message
+        assert "sddp_options.boundary_cuts_file" in critical[0].message
+
+    def test_equal_values_are_not_a_conflict(self) -> None:
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["method"] = "sddp"
+        case["system"]["future_cost_array"] = [
+            {"uid": 1, "name": "fcf", "cuts_file": "a.csv"},
+        ]
+        case["options"]["sddp_options"] = {"boundary_cuts_file": "a.csv"}
+        findings = check_future_cost_aliases(case)
+        assert all(f.severity == Severity.WARNING for f in findings)
+
+
 class TestBoundaryCuts:
     """Test check_boundary_cuts."""
 
@@ -1545,9 +1619,9 @@ class TestBoundaryCuts:
 
     def test_missing_file_warning(self, tmp_path: Path) -> None:
         case = json.loads(json.dumps(_VALID_CASE))
-        case["options"]["sddp_options"] = {
-            "boundary_cuts_file": "nonexistent.csv",
-        }
+        case["system"]["future_cost_array"] = [
+            {"uid": 1, "name": "fcf", "cuts_file": "nonexistent.csv"},
+        ]
         findings = check_boundary_cuts(case, base_dir=str(tmp_path))
         assert len(findings) == 1
         assert findings[0].severity == Severity.WARNING
@@ -1558,9 +1632,9 @@ class TestBoundaryCuts:
         cuts_csv.write_text("name,iteration,scene,rhs,RES_A,RES_B\n")
 
         case = json.loads(json.dumps(_VALID_CASE))
-        case["options"]["sddp_options"] = {
-            "boundary_cuts_file": "boundary.csv",
-        }
+        case["system"]["future_cost_array"] = [
+            {"uid": 1, "name": "fcf", "cuts_file": "boundary.csv"},
+        ]
         case["system"]["junction_array"] = [
             {"uid": 1, "name": "RES_A"},
             {"uid": 2, "name": "RES_B"},
@@ -1577,9 +1651,9 @@ class TestBoundaryCuts:
         cuts_csv.write_text("name,iteration,scene,rhs,RES_A,UNKNOWN\n")
 
         case = json.loads(json.dumps(_VALID_CASE))
-        case["options"]["sddp_options"] = {
-            "boundary_cuts_file": "boundary.csv",
-        }
+        case["system"]["future_cost_array"] = [
+            {"uid": 1, "name": "fcf", "cuts_file": "boundary.csv"},
+        ]
         case["system"]["junction_array"] = [
             {"uid": 1, "name": "RES_A"},
         ]
@@ -1597,9 +1671,9 @@ class TestBoundaryCuts:
         cuts_csv.write_text("name,iteration,scene,rhs,RES_A,RES_B\n")
 
         case = json.loads(json.dumps(_VALID_CASE))
-        case["options"]["sddp_options"] = {
-            "boundary_cuts_file": "boundary.csv",
-        }
+        case["system"]["future_cost_array"] = [
+            {"uid": 1, "name": "fcf", "cuts_file": "boundary.csv"},
+        ]
         case["system"]["junction_array"] = [
             {"uid": 1, "name": "RES_A"},
             {"uid": 2, "name": "RES_B"},
@@ -1623,14 +1697,42 @@ class TestBoundaryCuts:
         cuts_csv.write_text("name,iteration,scene,rhs,BAT1\n")
 
         case = json.loads(json.dumps(_VALID_CASE))
-        case["options"]["sddp_options"] = {
-            "boundary_cuts_file": "boundary.csv",
-        }
+        case["system"]["future_cost_array"] = [
+            {"uid": 1, "name": "fcf", "cuts_file": "boundary.csv"},
+        ]
         case["system"]["battery_array"] = [
             {"uid": 1, "name": "BAT1", "bus": 1},
         ]
         findings = check_boundary_cuts(case, base_dir=str(tmp_path))
         assert not findings
+
+    def test_legacy_sddp_alias_still_checked(self, tmp_path: Path) -> None:
+        """A legacy sddp_options.boundary_cuts_file is honoured for sddp."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["method"] = "sddp"
+        case["options"]["sddp_options"] = {"boundary_cuts_file": "missing.csv"}
+        findings = check_boundary_cuts(case, base_dir=str(tmp_path))
+        assert len(findings) == 1
+        assert "not found" in findings[0].message
+
+    def test_legacy_sddp_alias_ignored_for_monolithic(self, tmp_path: Path) -> None:
+        """Monolithic never reads sddp_options — nothing to check."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["method"] = "monolithic"
+        case["options"]["sddp_options"] = {"boundary_cuts_file": "missing.csv"}
+        assert not check_boundary_cuts(case, base_dir=str(tmp_path))
+
+    def test_cuts_file_under_input_directory(self, tmp_path: Path) -> None:
+        """A relative cuts_file resolves against options.input_directory."""
+        (tmp_path / "data").mkdir()
+        (tmp_path / "data" / "bc.csv").write_text("iteration,scene,rhs,BAT1\n")
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["options"]["input_directory"] = "data"
+        case["system"]["future_cost_array"] = [
+            {"uid": 1, "name": "fcf", "cuts_file": "bc.csv"},
+        ]
+        case["system"]["battery_array"] = [{"uid": 1, "name": "BAT1", "bus": 1}]
+        assert not check_boundary_cuts(case, base_dir=str(tmp_path))
 
     def test_no_state_vars_in_model(self, tmp_path: Path) -> None:
         """CSV has state var columns but model has none."""
@@ -1638,9 +1740,9 @@ class TestBoundaryCuts:
         cuts_csv.write_text("name,iteration,scene,rhs,GHOST\n")
 
         case = json.loads(json.dumps(_VALID_CASE))
-        case["options"]["sddp_options"] = {
-            "boundary_cuts_file": "boundary.csv",
-        }
+        case["system"]["future_cost_array"] = [
+            {"uid": 1, "name": "fcf", "cuts_file": "boundary.csv"},
+        ]
         findings = check_boundary_cuts(case, base_dir=str(tmp_path))
         assert len(findings) == 1
         assert "no state variables" in findings[0].message

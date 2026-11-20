@@ -6,7 +6,7 @@
  *            see LICENSING.md
  *
  * Reproduces the segfault triggered by a stale field in
- * `support/plp/2_years/.../bat_<something>.json` once the
+ * `plp_2y/.../bat_<something>.json` (gtopt-cases) once the
  * `StrictParsePolicy` rejected the unknown key.  The crash was in
  * `daw::json::to_formatted_string` when it tried to render the source
  * context: the catch in `parse_planning_files` passed it the

@@ -1099,6 +1099,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Default: auto_select (picks best available: lz4 > snappy > zstd > gzip).
   CompressionCodec memory_codec {CompressionCodec::auto_select};
 
+  // ── Resolved FutureCost (boundary-cut) settings ──────────────────────
+  // The `boundary_*` / `missing_cut_var_mode` fields below are the RESOLVED
+  // form of the active `FutureCost` element (see `apply_future_cost_config`
+  // in `future_cost_lp.hpp`), the internal carrier both methods hand to
+  // `load_boundary_cuts_csv`.  They are NOT populated from `sddp_options`:
+  // the planning layer's single source is `system.future_cost_array`.
+
   /// CSV file with boundary (future-cost) cuts for the last phase.
   ///
   /// These cuts approximate the expected future cost beyond the planning
@@ -1131,13 +1138,19 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Default: "separated".
   BoundaryCutsMode boundary_cuts_mode {BoundaryCutsMode::separated};
 
-  /// Maximum number of SDDP iterations to load from the boundary cuts
-  /// file.  Only cuts from the last N distinct iterations (by the
-  /// `iteration` column / PLP IPDNumIte) are retained.  0 = load all.
+  /// `FutureCost::iteration_limit`: keep only the cuts of the last N
+  /// distinct iterations of the source run (by the `iteration` column /
+  /// PLP IPDNumIte).  0 = load all.
   int boundary_max_iterations {0};
 
   /// How to handle cut rows referencing state variables not in the model.
   MissingCutVarMode missing_cut_var_mode {MissingCutVarMode::skip_coeff};
+
+  /// Valuation basis of the boundary cuts (`FutureCost::valuation`):
+  /// `present_value` applies the last stage's effective discount factor to
+  /// the cut RHS and coefficients on load.
+  BoundaryCutsValuation boundary_cuts_valuation {
+      BoundaryCutsValuation::end_of_horizon};
 
   /// Apply an α-rebase (mean-shift) to boundary cuts on load.
   ///
@@ -1147,9 +1160,8 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// algebraically equivalent to the unshifted formulation.
   /// Mathematically exact (α' = α − c̄); LP-side α is centred near
   /// zero so equilibration sees comparable RHS magnitudes for
-  /// boundary vs. runtime cuts.  See `SddpOptions::boundary_cuts_mean_shift`
-  /// (input-side option, defaulted to true via
-  /// `planning_options_lp.hpp::sddp_boundary_cuts_mean_shift`) and
+  /// boundary vs. runtime cuts.  See `FutureCost::mean_shift` (input-side
+  /// option, default true) and
   /// `source/sddp_boundary_cuts.cpp` for the implementation.  Plain-bool
   /// storage default is `true` so callers that construct an
   /// `SddpOptions` directly (test fixtures, etc.) inherit the same
@@ -1180,8 +1192,8 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///
   /// Default: gap_stationary.  The statistical CI test
   /// (``ConvergenceMode::statistical``) is opt-in because
-  /// heterogeneous-scene σ scatter (Maule-type large cases) can trivially fire it
-  /// at large %gap.
+  /// heterogeneous-scene σ scatter (Maule-type large cases) can trivially fire
+  /// it at large %gap.
   ConvergenceMode convergence_mode {ConvergenceMode::gap_stationary};
 
   /// Tolerance for "UB stopped moving" detection (gap_change < tol).

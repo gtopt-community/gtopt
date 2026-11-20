@@ -499,6 +499,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * lower-bound constraint on the future cost variable α.
    * If empty, no boundary cuts are loaded.
    */
+  /// DEPRECATED alias of `FutureCost::cuts_file` (honoured only for method =
+  /// sddp / cascade); folded into the FutureCost element by
+  /// `resolve_future_cost_aliases` and then cleared.
   OptName boundary_cuts_file {};
 
   /** @brief How boundary cuts are loaded: noload, separated (default),
@@ -508,6 +511,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * - separated — load cuts per scene (scene UID matching; default).
    * - combined — load all cuts into all scenes (broadcast).
    */
+  /// DEPRECATED alias of `FutureCost::mode` (honoured only for method = sddp /
+  /// cascade); folded into the FutureCost element by
+  /// `resolve_future_cost_aliases` and then cleared.
   std::optional<BoundaryCutsMode> boundary_cuts_mode {};
 
   /** @brief How terminal/boundary cuts are shared across scenes on the
@@ -522,12 +528,18 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * When unset, derived from the legacy `boundary_cuts_mode` scope:
    * separated→per_scene, combined→shared; else per_scene.
    */
+  /// DEPRECATED alias of `FutureCost::sharing` (honoured only for method = sddp
+  /// / cascade); folded into the FutureCost element by
+  /// `resolve_future_cost_aliases` and then cleared.
   std::optional<BoundaryCutSharingMode> boundary_cut_sharing_mode {};
 
   /** @brief Maximum number of SDDP iterations to load from the boundary
    * cuts file.  Only cuts from the last N iterations (by `iteration`
    * column, i.e. PLP's IPDNumIte) are loaded.  0 = load all (default).
    */
+  /// DEPRECATED alias of `FutureCost::iteration_limit` (honoured only for
+  /// method = sddp / cascade); folded into the FutureCost element by
+  /// `resolve_future_cost_aliases` and then cleared.
   OptInt boundary_max_iterations {};
 
   /** @brief How to handle cuts referencing state variables not in the model.
@@ -536,6 +548,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * - `skip_cut`: skip the entire cut if any missing variable has a
    *   non-zero coefficient.
    */
+  /// DEPRECATED alias of `FutureCost::missing_cut_var_mode` (honoured only for
+  /// method = sddp / cascade); folded into the FutureCost element by
+  /// `resolve_future_cost_aliases` and then cleared.
   std::optional<MissingCutVarMode> missing_cut_var_mode {};
 
   /** @brief Apply an α-rebase (mean-shift) to boundary cuts on load.
@@ -559,6 +574,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * intercepts dominate runtime cut intercepts by orders of
    * magnitude).
    */
+  /// DEPRECATED alias of `FutureCost::mean_shift` (honoured only for method =
+  /// sddp / cascade); folded into the FutureCost element by
+  /// `resolve_future_cost_aliases` and then cleared.
   OptBool boundary_cuts_mean_shift {};
 
   // ``named_cuts_file`` (the CSV-based "named hot-start cuts" option)

@@ -169,12 +169,44 @@ include(${CMAKE_SCRIPTS_DIR}/add_pandapower_comparison.cmake)
 # ---- Options ----
 option(GTOPT_SLOW_TESTS "Register slow integration tests (case_2y)" OFF)
 
-# External study cases (e.g. gtopt_case_2y / gtopt_case_2y_fs) are not
-# shipped with gtopt.  Point GTOPT_CASES_DIR (CMake cache variable or
-# environment variable at configure time) at the directory that holds
-# them; tests whose case is missing are simply not registered.
+# ---- Committed cases still build with the current gtopt ----
+# One `gtopt --lp-only` test per planning JSON under cases/ and
+# scripts/cases/ (label `cases`), so a case left in a stale schema fails
+# CI instead of rotting.  Regenerate a failing case with its converter
+# (see the case README / <tool>_state.json) rather than hand-editing it.
+include(${CMAKE_SCRIPTS_DIR}/add_case_lp_only.cmake)
+add_case_lp_only_tests(case_lp_only "${CASES_DIR}")
+add_case_lp_only_tests(script_case_lp_only
+  "${CMAKE_CURRENT_LIST_DIR}/../scripts/cases")
+
+# Large study cases (gtopt_case_2y*, cen_long_term_1y, the CEN PLP/PCP
+# sources, ...) are not shipped with gtopt; they live in the case
+# repository gtopt-cases (<country>/<application>/<case>/).  Point
+# GTOPT_CASES_DIR (CMake cache variable, or environment variable at
+# configure time) at a checkout of it -- tools/get_cases.sh clones it at
+# the commit pinned in tools/cases.lock.  Tests whose case is missing are
+# not registered.
 set(GTOPT_CASES_DIR "$ENV{GTOPT_CASES_DIR}" CACHE PATH
-  "Directory with external study cases (gtopt_case_2y, ...); empty = skip")
+    "Checkout of the gtopt-cases case repository; empty = skip")
+
+# gtopt_find_external_case(<out_var> <relpath>)
+#   Sets <out_var> to ${GTOPT_CASES_DIR}/<relpath> when it exists.  For
+#   checkouts where GTOPT_CASES_DIR points at an application folder
+#   (e.g. <repo>/chile/medium_long_term) the last path component is also
+#   tried directly below it.  Empty when not found.
+function(gtopt_find_external_case out_var relpath)
+  set(_found "")
+  if(GTOPT_CASES_DIR)
+    get_filename_component(_leaf "${relpath}" NAME)
+    foreach(_c "${GTOPT_CASES_DIR}/${relpath}" "${GTOPT_CASES_DIR}/${_leaf}")
+      if(IS_DIRECTORY "${_c}")
+        set(_found "${_c}")
+        break()
+      endif()
+    endforeach()
+  endif()
+  set(${out_var} "${_found}" PARENT_SCOPE)
+endfunction()
 
 # ---- Register e2e test cases ----
 # To add a new case, place it under cases/<name>/ with a system JSON file and
@@ -353,27 +385,104 @@ set_tests_properties(e2e_sddp_hydro_3phase_hotstart_load_sddp_solve
   PROPERTIES DEPENDS e2e_sddp_hydro_3phase_hotstart_save_sddp_validate)
 
 if(GTOPT_SLOW_TESTS)
-  # add_sddp_case() resolves case directories under CASES_DIR; point it at
-  # the external cases directory for these registrations only.
-  set(_gtopt_saved_cases_dir "${CASES_DIR}")
-  set(CASES_DIR "${GTOPT_CASES_DIR}")
-  if(GTOPT_CASES_DIR
-     AND EXISTS "${GTOPT_CASES_DIR}/gtopt_case_2y/gtopt_case_2y.json")
+  # The 2-year SEN cases come from the external case repository.
+  gtopt_find_external_case(_case_2y "chile/medium_long_term/gtopt_case_2y")
+  if(_case_2y)
     add_sddp_case(gtopt_case_2y gtopt_case_2y.json
+      CASE_DIR "${_case_2y}"
       MAX_ITERATIONS 1 TIMEOUT 600 LABELS slow)
   else()
     message(STATUS "GTOPT_SLOW_TESTS: gtopt_case_2y not found under "
                    "GTOPT_CASES_DIR='${GTOPT_CASES_DIR}' -- not registered")
   endif()
-  if(GTOPT_CASES_DIR
-     AND EXISTS "${GTOPT_CASES_DIR}/gtopt_case_2y_fs/gtopt_case_2y_fs.json")
+  gtopt_find_external_case(_case_2y_fs
+    "chile/medium_long_term/gtopt_case_2y_fs")
+  if(_case_2y_fs)
     add_sddp_case(gtopt_case_2y_fs gtopt_case_2y_fs.json
+      CASE_DIR "${_case_2y_fs}"
       MAX_ITERATIONS 0 ALLOWED_EXIT_CODES "0;1" LABELS slow)
   else()
     message(STATUS "GTOPT_SLOW_TESTS: gtopt_case_2y_fs not found under "
                    "GTOPT_CASES_DIR='${GTOPT_CASES_DIR}' -- not registered")
   endif()
-  set(CASES_DIR "${_gtopt_saved_cases_dir}")
+endif()
+
+# ---- LP conditioning (kappa) on a real, badly conditioned case ----
+# Off by default: each variant builds and solves a ~42k x 57k LP of the
+# CEN 1-year case.  The case is not committed (it lives in the case
+# repository at chile/medium_long_term/cen_long_term_1y), so set
+# GTOPT_CASES_DIR or point GTOPT_NUMERICS_CASES_DIR at a directory holding
+# cen_long_term_1y/; the tests skip (exit 77) when it or the CPLEX/HiGHS
+# plugin is missing.  Run with
+#   cmake ... -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DGTOPT_NUMERICS_TESTS=ON
+#   ctest -L numerics
+option(GTOPT_NUMERICS_TESTS
+       "Register heavy LP-conditioning (kappa) tests on large cases" OFF)
+# Default: the medium/long-term folder of the external case repository
+# (GTOPT_CASES_DIR) when it is set, else the in-tree cases/ directory.
+set(_numerics_default "${CASES_DIR}")
+if(GTOPT_CASES_DIR)
+  gtopt_find_external_case(_cen1y "chile/medium_long_term/cen_long_term_1y")
+  if(_cen1y)
+    get_filename_component(_numerics_default "${_cen1y}" DIRECTORY)
+  endif()
+endif()
+set(GTOPT_NUMERICS_CASES_DIR "${_numerics_default}" CACHE PATH
+    "Directory holding the large cases used by the numerics tests")
+
+if(GTOPT_NUMERICS_TESTS)
+  set(CHECK_CONDITIONING_PY
+      "${CMAKE_CURRENT_LIST_DIR}/../tools/check_case_conditioning.py")
+  include(${CMAKE_SCRIPTS_DIR}/add_conditioning_case.cmake)
+
+  # cen_long_term_1y, monolithic, tangent_signed_flow losses + Kirchhoff,
+  # 339 buses.  Raw matrix range 10.8 decades (loss rows up to 1e5, theta
+  # rows down to 1.6e-6), 5.9 decades after the case's ruiz equilibration.
+  # Only phase 1 (April, 10 blocks) is solved (PHASES 1 deactivates the
+  # other phases and their stages).  It matches phase 1 of the 12-phase
+  # run (kappa within 1e-6, objective within 3e-8), and it is the only
+  # phase whose objective is solver-independent: later phases inherit the
+  # end state of a degenerate earlier optimum (HiGHS and CPLEX differ by
+  # 5e-3 in phase 3 of the full run), so (d) would not hold for HiGHS on
+  # the full horizon.
+  #
+  # Measured kappa (this test, phase 1 | max over the 12-phase run):
+  #   cplex_case        case options               9.9e7  | 1.68e9
+  #   highs_case        case options               2.9e8  | 1.63e9
+  #   highs_eqnone      equilibration_method=none  3.2e16 | 9.8e16
+  #   cplex_aggressive  solver scaling=aggressive  2.2e5  | 4.7e6
+  # kappa(highs_eqnone) / kappa(highs_case) = 1.1e8.
+  # Objective: 1.5540931657e8 in every variant (rel. diff <= 3e-14).
+  set(_cen1y_common
+      CASE_DIR "${GTOPT_NUMERICS_CASES_DIR}/cen_long_term_1y"
+      CASE_JSON cen_long_term_1y.json
+      PHASES 1
+      LABELS "numerics;heavy")
+  set(_cen1y_set method=monolithic solver_options.threads=4)
+
+  add_conditioning_variant(numerics_cen_1y cplex_case ${_cen1y_common}
+    SOLVER cplex SET ${_cen1y_set})
+  add_conditioning_variant(numerics_cen_1y highs_case ${_cen1y_common}
+    SOLVER highs SET ${_cen1y_set})
+  add_conditioning_variant(numerics_cen_1y highs_eqnone ${_cen1y_common}
+    SOLVER highs
+    SET ${_cen1y_set} lp_matrix_options.equilibration_method=none)
+  add_conditioning_variant(numerics_cen_1y cplex_aggressive ${_cen1y_common}
+    SOLVER cplex SET ${_cen1y_set} solver_options.scaling=aggressive)
+
+  add_conditioning_check(numerics_cen_1y
+    VARIANTS cplex_case highs_case highs_eqnone cplex_aggressive
+    LABELS "numerics;heavy"
+    ARGS
+      # (a) badly conditioned with the case's own options (9.9e7 measured)
+      --kappa-above cplex_case:1e7
+      # (b) dropping gtopt equilibration costs >= 1e2 in kappa (1.1e8 measured)
+      --kappa-ratio-at-least highs_eqnone:highs_case:100
+      # (c) CPLEX aggressive scaling brings it under 1e7 (2.2e5 measured)
+      --kappa-below cplex_aggressive:1e7
+      # (d) same optimum in every variant
+      --objective-reference cplex_case
+      --objective-reltol 1e-5)
 endif()
 
 # ---- Pandapower comparison tests ----

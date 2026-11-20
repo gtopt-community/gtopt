@@ -16,6 +16,14 @@ import numpy as np
 import pandas as pd
 
 from gtopt_shared.csv_io import write_csv
+from gtopt_shared.future_cost import (
+    resolve_legacy_future_cost_keys,
+    set_future_cost_fields,
+)
+from gtopt_shared.options_meta import (
+    FUTURE_COST_OPTION_PREFIX,
+    LP_MATRIX_OPTION_KEYS,
+)
 
 from igtopt.template_builder import (
     _find_repo_root,
@@ -45,7 +53,9 @@ from gtopt_shared.parquet import (  # noqa: E402,F401  pylint: disable=wrong-imp
 )
 
 # Sheets that belong to the ``simulation`` section of the gtopt JSON schema.
-# These must match the fields declared in ``json_simulation.hpp``.
+# Must match the ``*_array`` members of ``json_data_contract<Simulation>``
+# (``include/gtopt/json/json_simulation.hpp``) — enforced by
+# ``gtopt_shared/tests/test_json_contracts_sync.py``.
 _SIMULATION_SHEETS = frozenset(
     {
         "block_array",
@@ -54,11 +64,13 @@ _SIMULATION_SHEETS = frozenset(
         "phase_array",
         "scene_array",
         "aperture_array",
+        "iteration_array",
     }
 )
 
 # Sheets that belong to the ``system`` section of the gtopt JSON schema.
-# These must match the fields declared in ``json_system.hpp``.
+# Must match the ``*_array`` members of ``json_data_contract<System>``
+# (``include/gtopt/json/json_system.hpp``) — same sync test.
 _SYSTEM_SHEETS = frozenset(
     {
         "bus_array",
@@ -67,11 +79,29 @@ _SYSTEM_SHEETS = frozenset(
         "line_array",
         "generator_profile_array",
         "demand_profile_array",
+        "capacity_profile_array",
         "battery_array",
         "converter_array",
+        "thermal_node_array",
+        "thermal_storage_array",
+        "hydrogen_node_array",
+        "hydrogen_storage_array",
+        "ammonia_node_array",
+        "ammonia_storage_array",
+        "carrier_converter_array",
+        "allowance_pool_array",
         "lng_terminal_array",
         "reserve_zone_array",
         "reserve_provision_array",
+        "fuel_array",
+        "emission_array",
+        "emission_zone_array",
+        "emission_source_array",
+        "commitment_array",
+        "simple_commitment_array",
+        "line_commitment_array",
+        "inertia_zone_array",
+        "inertia_provision_array",
         "junction_array",
         "waterway_array",
         "flow_array",
@@ -79,8 +109,16 @@ _SYSTEM_SHEETS = frozenset(
         "reservoir_seepage_array",
         "reservoir_discharge_limit_array",
         "turbine_array",
+        "pump_array",
         "reservoir_production_factor_array",
+        "flow_right_array",
+        "volume_right_array",
+        "user_param_array",
+        "decision_variable_array",
+        "future_cost_array",
+        "plant_array",
         "user_constraint_array",
+        "user_model_array",
     }
 )
 
@@ -288,8 +326,9 @@ def _write_boundary_cuts_csv(df, input_path):
     name).
 
     The CSV is written to ``<input_path>/boundary_cuts.csv`` and the
-    returned path should be stored in the ``boundary_cuts_file``
-    option so the C++ solver can load it.
+    returned path should be stored in the FutureCost element's
+    ``cuts_file`` (``system.future_cost_array[0]``) so the C++ solver
+    loads it for every method.
     """
     out_dir = pathlib.Path(input_path)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -573,7 +612,9 @@ def _nest_sub_options(
 
     Keys listed in :data:`SDDP_OPTION_KEYS` are moved into a nested
     ``sddp_options`` dict.  Keys listed in :data:`MODEL_OPTION_KEYS` are
-    moved into a nested ``model_options`` dict.  Keys whose name starts
+    moved into a nested ``model_options`` dict and keys listed in
+    :data:`LP_MATRIX_OPTION_KEYS` into ``lp_matrix_options``.  Keys whose
+    name starts
     with ``monolithic_`` are moved into a nested ``monolithic_options``
     dict with the prefix stripped.  Keys whose name starts with
     ``solver_`` are moved into a nested ``solver_options`` dict with the
@@ -596,6 +637,7 @@ def _nest_sub_options(
     mono: dict[str, Any] = {}
     solver: dict[str, Any] = {}
     model: dict[str, Any] = {}
+    lp_matrix: dict[str, Any] = {}
 
     for key, value in flat.items():
         if key == "sddp_options" and isinstance(value, dict):
@@ -610,6 +652,8 @@ def _nest_sub_options(
             solver.update(value)
         elif key == "model_options" and isinstance(value, dict):
             model.update(value)
+        elif key == "lp_matrix_options" and isinstance(value, dict):
+            lp_matrix.update(value)
         elif key in SIMULATION_OPTION_KEYS:
             # Move to simulation section (canonical location).
             if simulation is not None:
@@ -618,6 +662,8 @@ def _nest_sub_options(
             sddp[key] = value
         elif key in MODEL_OPTION_KEYS:
             model[key] = value
+        elif key in LP_MATRIX_OPTION_KEYS:
+            lp_matrix[key] = value
         elif key.startswith(_MONOLITHIC_PREFIX) and key != _MONOLITHIC_PREFIX:
             # Strip the ``monolithic_`` prefix for the nested key name.
             inner_key = key[len(_MONOLITHIC_PREFIX) :]
@@ -642,7 +688,49 @@ def _nest_sub_options(
         top["solver_options"] = solver
     if model:
         top["model_options"] = model
+    if lp_matrix:
+        top["lp_matrix_options"] = lp_matrix
     return top
+
+
+def _pop_future_cost_options(flat: dict[str, Any]) -> dict[str, Any]:
+    """Extract the ``future_cost_<field>`` flat options (prefix stripped)."""
+    fc: dict[str, Any] = {}
+    for key in [k for k in flat if k.startswith(FUTURE_COST_OPTION_PREFIX)]:
+        value = flat.pop(key)
+        if value is not None:
+            fc[key[len(FUTURE_COST_OPTION_PREFIX) :]] = value
+    return fc
+
+
+def _apply_future_cost(
+    planning: dict[str, Any],
+    flat_fields: dict[str, Any],
+    boundary_cuts_csv: str | None,
+) -> None:
+    """Write the FCF boundary-cut settings onto the FutureCost element.
+
+    ``future_cost_<field>`` options and the ``boundary_cuts`` sheet land on
+    ``system.future_cost_array[0]`` (created when absent).  Deprecated
+    ``boundary_*`` / ``monolithic_boundary_*`` option keys are folded in by
+    :func:`gtopt_shared.future_cost.resolve_legacy_future_cost_keys` with the
+    same per-method rules gtopt applies, so the emitted JSON never carries
+    the legacy keys.  Conflicting values raise ``ValueError``.
+    """
+    fields = dict(flat_fields)
+    if boundary_cuts_csv is not None:
+        fields.setdefault("cuts_file", boundary_cuts_csv)
+    if fields:
+        set_future_cost_fields(planning, fields, overwrite=False)
+    report = resolve_legacy_future_cost_keys(planning)
+    for msg in report.warnings:
+        logging.warning("%s", msg)
+    if report.errors:
+        raise ValueError("; ".join(report.errors))
+    opts = planning.get("options", {})
+    for section in ("sddp_options", "monolithic_options"):
+        if section in opts and not opts[section]:
+            del opts[section]
 
 
 # ---------------------------------------------------------------------------
@@ -673,6 +761,7 @@ def _run(args) -> int:
     # Pre-initialise with zeros so log_conversion_stats always has every key.
     counts: dict[str, int] = {s: 0 for s in expected_sheets if s != "options"}
     errors: list[str] = []
+    boundary_cuts_csv: str | None = None
     for filename in filenames:
         filepath = pathlib.Path(filename)
         if filepath.is_dir() or not filepath.exists():
@@ -777,13 +866,10 @@ def _run(args) -> int:
             if sheet_name == "boundary_cuts":
                 try:
                     csv_path = _write_boundary_cuts_csv(df, args.input_directory)
-                    # Place inside sddp_options so the C++ parser maps it
-                    # to Options::sddp_options::boundary_cuts_file.
-                    # setdefault always returns a dict here; the explicit
-                    # type guard is only for safety if options["sddp_options"]
-                    # was pre-populated with a non-dict value by the user.
-                    sddp_opts = options.setdefault("sddp_options", {})
-                    sddp_opts["boundary_cuts_file"] = str(csv_path)
+                    # The FutureCost element is the single source of the
+                    # boundary cuts for every method; applied after the
+                    # system is assembled (see ``_apply_future_cost``).
+                    boundary_cuts_csv = str(csv_path)
                     logging.info(
                         "boundary_cuts sheet → %s (%d cuts)", csv_path, len(df)
                     )
@@ -841,10 +927,16 @@ def _run(args) -> int:
     has_data = len(simulation) > 0 or len(system) > 1  # system always has "name"
     if has_data:
         planning: dict[str, Any] = {}
+        future_cost_flat = _pop_future_cost_options(options)
         planning["options"] = _nest_sub_options(options, simulation)
         if simulation:
             planning["simulation"] = simulation
         planning["system"] = system
+        try:
+            _apply_future_cost(planning, future_cost_flat, boundary_cuts_csv)
+        except ValueError as exc:
+            logging.error("%s", exc)
+            return 1
 
         with json_path.open("w") as json_file:
             json.dump(

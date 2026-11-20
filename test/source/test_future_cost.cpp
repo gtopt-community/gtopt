@@ -2,8 +2,8 @@
 //
 // Piece-2 step A: FutureCost (FCF / cost-to-go) element JSON binding.  Verifies
 // the element parses end-to-end and the three scoping strings convert to their
-// typed enums (BoundaryCutSharingMode / BoundaryCutsMode / BoundaryCutSoftCost)
-// via FutureCostConstructor.
+// typed enums (BoundaryCutSharingMode / BoundaryCutsMode /
+// BoundaryCutsValuation) via FutureCostConstructor.
 
 #include <daw/json/daw_json_link.h>
 #include <doctest/doctest.h>
@@ -26,7 +26,9 @@ TEST_CASE("FutureCost JSON binding + enum conversion")  // NOLINT
       "mean_shift": true,
       "sharing": "multicut",
       "mode": "separated",
-      "valuation": "max"
+      "iteration_limit": 7,
+      "missing_cut_var_mode": "skip_cut",
+      "valuation": "present_value"
     })";
     const auto fc = daw::json::from_json<FutureCost>(js);
     CHECK(fc.uid == Uid {1});
@@ -36,7 +38,11 @@ TEST_CASE("FutureCost JSON binding + enum conversion")  // NOLINT
     CHECK(fc.mean_shift.value_or(false));
     CHECK((fc.sharing && *fc.sharing == BoundaryCutSharingMode::multicut));
     CHECK((fc.mode && *fc.mode == BoundaryCutsMode::separated));
-    CHECK((fc.valuation && *fc.valuation == BoundaryCutSoftCost::max));
+    CHECK(fc.iteration_limit.value_or(-1) == 7);
+    CHECK((fc.missing_cut_var_mode
+           && *fc.missing_cut_var_mode == MissingCutVarMode::skip_cut));
+    CHECK((fc.valuation
+           && *fc.valuation == BoundaryCutsValuation::present_value));
   }
 
   SUBCASE("omitted optional fields stay nullopt")
@@ -50,17 +56,25 @@ TEST_CASE("FutureCost JSON binding + enum conversion")  // NOLINT
     CHECK_FALSE(fc.sharing.has_value());
     CHECK_FALSE(fc.mode.has_value());
     CHECK_FALSE(fc.valuation.has_value());
+    CHECK_FALSE(fc.iteration_limit.has_value());
+    CHECK_FALSE(fc.missing_cut_var_mode.has_value());
   }
 
   SUBCASE("enums round-trip through to_json")
   {
     FutureCost fc {.uid = Uid {3}, .name = "fcf3"};
     fc.sharing = BoundaryCutSharingMode::per_scene;
-    fc.valuation = BoundaryCutSoftCost::avg;
+    fc.valuation = BoundaryCutsValuation::present_value;
+    fc.iteration_limit = 3;
+    fc.missing_cut_var_mode = MissingCutVarMode::skip_coeff;
     const auto round = daw::json::from_json<FutureCost>(daw::json::to_json(fc));
     CHECK(
         (round.sharing && *round.sharing == BoundaryCutSharingMode::per_scene));
-    CHECK((round.valuation && *round.valuation == BoundaryCutSoftCost::avg));
+    CHECK((round.valuation
+           && *round.valuation == BoundaryCutsValuation::present_value));
+    CHECK(round.iteration_limit.value_or(-1) == 3);
+    CHECK((round.missing_cut_var_mode
+           && *round.missing_cut_var_mode == MissingCutVarMode::skip_coeff));
     CHECK_FALSE(round.mode.has_value());
   }
 

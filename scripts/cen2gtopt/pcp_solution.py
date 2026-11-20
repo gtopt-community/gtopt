@@ -60,12 +60,17 @@ Examples
 
     # Headline triangulation: PLEXOS LMPs vs cmg-real
     python -m cen2gtopt.pcp_solution lmp --date 2026-04-07
+
+    # Compact summary (region costs, day-1 CMg per bus) of a RES bundle
+    python -m cen2gtopt.pcp_solution summary --res RES20251019.zip.xz \\
+        --output ~/out/plexos
 """
 
 from __future__ import annotations
 
 import argparse
 import io
+import json
 import logging
 import re
 import shutil
@@ -523,6 +528,28 @@ def _cmd_lmp(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_summary(args: argparse.Namespace) -> int:
+    """Write plexos_summary.json + plexos_cmg_by_bus.csv for one solution."""
+    from cen2gtopt import _res_summary as rs
+
+    _require_mdbtools()
+    with tempfile.TemporaryDirectory(dir=args.tmpdir) as tmp:
+        if args.res is not None:
+            accdb = rs.extract_accdb(args.res, Path(tmp))
+        elif args.date:
+            accdb = resolve_solution(args.date, source="pcp").accdb_path
+        else:
+            print("give --res or --date", file=sys.stderr)
+            return EXIT_USAGE
+        summary, cmg = rs.summarize(
+            lambda t: _cached_export_table(str(accdb), t), args.ref_bus
+        )
+        clear_table_cache()
+    rs.write_summary(summary, cmg, args.output, args.res)
+    print(json.dumps({"costs": summary["costs"], "cmg_day1": summary["cmg_day1"]}))
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="cen2gtopt.pcp_solution",
@@ -561,6 +588,19 @@ def build_parser() -> argparse.ArgumentParser:
     _common(pl)
     pl.add_argument("--output", type=Path, help="Write parquet")
     pl.set_defaults(func=_cmd_lmp)
+
+    ps = sub.add_parser(
+        "summary",
+        help="Region costs + day-1 CMg per bus of a PCP solution (RES bundle)",
+    )
+    ps.add_argument("--res", type=Path, help="RES<date>.zip[.xz] bundle")
+    ps.add_argument("--date", help="YYYY-MM-DD (resolve the PCP solution instead)")
+    ps.add_argument(
+        "--output", type=Path, required=True, help="Directory for the two files"
+    )
+    ps.add_argument("--ref-bus", default="Polpaico220", help="Reference bus name")
+    ps.add_argument("--tmpdir", help="Scratch directory for the .accdb")
+    ps.set_defaults(func=_cmd_summary)
 
     return p
 

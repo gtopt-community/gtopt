@@ -163,7 +163,6 @@ configures the LP backend.
 | `presolve` | bool | `true` | Apply LP presolve before solving |
 | `log_level` | int | `0` | Solver output verbosity (0 = none) |
 | `log_mode` | string | `"nolog"` | Solver log-file policy: `"nolog"` or `"detailed"` (per-scene/phase/aperture file) |
-| `reuse_basis` | bool | `false` | Reuse basis from a previous solve (warm-start). Forces dual simplex and disables presolve |
 | `optimal_eps` | float | -- | Optimality tolerance (nullopt = solver default) |
 | `feasible_eps` | float | -- | Feasibility tolerance (nullopt = solver default) |
 | `barrier_eps` | float | -- | Barrier convergence tolerance (nullopt = solver default) |
@@ -174,15 +173,21 @@ configures the LP backend.
 
 ## MonolithicOptions Fields
 
-> **Note**: `boundary_cuts_file` has moved to the `simulation`
-> section.  For backward compatibility, it is still accepted here.
+> **Boundary cuts**: configure them on the FutureCost element
+> (`system.future_cost_array`, see
+> [Input Data — Future Cost](input-data.md#326-future-cost)).  The
+> `boundary_*` keys below are deprecated aliases, honoured only when
+> `method` is `monolithic`.  The monolithic solver never reads
+> `sddp_options`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `solve_mode` | string | `"monolithic"` | Solve mode: `"monolithic"` or `"sequential"` |
-| `boundary_cuts_mode` | string | `"separated"` | How to load boundary cuts: `"noload"`, `"separated"`, `"combined"`, `"phi_expectation"` (PLP-literal: NVarPhi per-plane-hydrology terminal φ columns priced `p_s/NVarPhi`, raw cuts) |
-| `boundary_max_iterations` | int | `0` | Max iterations to load from boundary cuts (0 = all) |
 | `solver_options` | `SolverOptions` | -- | Per-method LP solver configuration |
+| `boundary_cuts_file` | string | -- | Deprecated alias → `future_cost_array[].cuts_file` |
+| `boundary_cuts_mode` | string | -- | Deprecated alias → `future_cost_array[].mode` |
+| `boundary_cut_sharing_mode` | string | -- | Deprecated alias → `future_cost_array[].sharing` |
+| `boundary_max_iterations` | int | -- | Deprecated alias → `future_cost_array[].iteration_limit` |
 
 ## LpMatrixOptions Fields
 
@@ -241,10 +246,16 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 | `cut_recovery_mode` | string | `"none"` | Cut persistence: `"none"`, `"keep"`, `"append"`, `"replace"` |
 | `recovery_mode` | string | `"none"` | Recovery from previous run: `"none"`, `"cuts"`, `"full"` |
 | `cuts_input_file` | string | -- | CSV file for hot-start cuts |
-| `named_cuts_file` | string | -- | CSV file with named-variable cuts spanning all phases |
-| `boundary_cuts_mode` | string | `"separated"` | How to load boundary cuts: `"noload"`, `"separated"`, `"combined"`, `"phi_expectation"` (PLP-literal: NVarPhi per-plane-hydrology terminal φ columns priced `p_s/NVarPhi`, raw cuts) |
-| `boundary_max_iterations` | int | `0` | Max iterations to load from boundary cuts (0 = all) |
-| `missing_cut_var_mode` | string | `"skip_coeff"` | Action when cut references unknown state variable: `"skip_coeff"` or `"skip_cut"` |
+| `boundary_cuts_file` | string | -- | Deprecated alias → `future_cost_array[].cuts_file` (sddp/cascade only) |
+| `boundary_cuts_mode` | string | -- | Deprecated alias → `future_cost_array[].mode` (sddp/cascade only) |
+| `boundary_cut_sharing_mode` | string | -- | Deprecated alias → `future_cost_array[].sharing` (sddp/cascade only) |
+| `boundary_cuts_mean_shift` | bool | -- | Deprecated alias → `future_cost_array[].mean_shift` (sddp/cascade only) |
+| `boundary_max_iterations` | int | -- | Deprecated alias → `future_cost_array[].iteration_limit` (sddp/cascade only) |
+| `missing_cut_var_mode` | string | -- | Deprecated alias → `future_cost_array[].missing_cut_var_mode` (sddp/cascade only) |
+
+The FCF boundary cuts are configured on the FutureCost element
+(`system.future_cost_array`, see
+[Input Data — Future Cost](input-data.md#326-future-cost)).
 
 ### Feasibility and Elastic Filter
 
@@ -272,7 +283,6 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 |-------|------|---------|-------------|
 | `update_lp_skip` | int | `0` | Iterations to skip between LP coefficient updates (0 = every iteration) |
 | `state_variable_lookup_mode` | string | `"warm_start"` | Volume lookup for LP updates: `"warm_start"` or `"cross_phase"` |
-| `warm_start` | bool | `true` | Reuse previous solutions as warm-start for clone LP solves |
 | `low_memory_mode` | string | `"compress"` (SDDP/cascade) / `"off"` (monolithic) | One of `off` or `compress` (`snapshot` and `rebuild` are back-compat aliases for `compress`; see SDDP docs §7.6) |
 | `memory_codec` | string | `"auto"` | Compression codec for `compress` mode (`auto`, `lz4`, `snappy`, `zstd`, `gzip`, `none`) |
 
@@ -283,8 +293,6 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 | `api_enabled` | bool | `true` | Write JSON status file each iteration (for monitoring tools) |
 | `sentinel_file` | string | -- | File path; if it exists, solver stops gracefully after current iteration |
 | `simulation_mode` | bool | `false` | Skip training (max_iterations=0), run forward-only policy evaluation |
-| `alpha_min` | float | `0.0` | Lower bound for future cost variable α |
-| `alpha_max` | float | `1e12` | Upper bound for future cost variable α |
 
 ### Per-Pass Solver Options
 
@@ -442,9 +450,17 @@ files.
     ]
   },
   "simulation": {
-    "annual_discount_rate": 0.1,
-    "boundary_cuts_file": "boundary_cuts.csv",
-    "boundary_cuts_valuation": "end_of_horizon"
+    "annual_discount_rate": 0.1
+  },
+  "system": {
+    "future_cost_array": [
+      {
+        "uid": 1,
+        "name": "fcf",
+        "cuts_file": "boundary_cuts.csv",
+        "valuation": "end_of_horizon"
+      }
+    ]
   }
 }
 ```

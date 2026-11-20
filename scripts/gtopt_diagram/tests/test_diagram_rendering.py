@@ -192,7 +192,9 @@ class TestElemName:
         the tooltip (``Generator <NAME> (uid=N) — type=…``).
         """
         _IEEE9_JSON = {
-            "options": {"use_kirchhoff": True, "scale_objective": 1000},
+            "options": {
+                "model_options": {"use_kirchhoff": True, "scale_objective": 1000}
+            },
             "system": {
                 "name": "ieee9b",
                 "bus_array": [

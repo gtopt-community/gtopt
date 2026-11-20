@@ -23,6 +23,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.json_utils import strip_internal_keys
+
 from .entities import PlexosCase, generator_has_fuel_cost
 from .uc_families import UC_FAMILY_ORDER, uc_family
 
@@ -1600,8 +1602,12 @@ def run_post_check(
         logger.debug("gtopt_check_json not available; skipping JSON validation")
         return 0
 
+    # Check what gtopt will read (``_``-prefixed metadata is not written).
     findings = run_all_checks(
-        planning, enabled_checks=None, ai_options=None, base_dir=base_dir
+        strip_internal_keys(planning),
+        enabled_checks=None,
+        ai_options=None,
+        base_dir=base_dir,
     )
     if not findings:
         print_status("All checks passed — no issues found.", ok=True)

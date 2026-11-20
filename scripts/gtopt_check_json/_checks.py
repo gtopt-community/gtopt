@@ -40,7 +40,9 @@ from gtopt_check_json._general_checks import (
     check_boundary_cuts,
     check_cascade_solver_type,
     check_demand_lmax_nonneg,
+    check_future_cost_aliases,
     check_name_uniqueness,
+    check_schema_keys,
     check_sddp_options,
     check_simulation_mode,
     check_uid_uniqueness,
@@ -81,6 +83,7 @@ from gtopt_check_json._topology_checks import (
 
 # Registry of all checks: (check_id, function, needs_ai)
 _CHECK_REGISTRY: list[tuple[str, Any, bool]] = [
+    ("schema_keys", check_schema_keys, False),
     ("uid_uniqueness", check_uid_uniqueness, False),
     ("name_uniqueness", check_name_uniqueness, False),
     ("demand_lmax_nonneg", check_demand_lmax_nonneg, False),
@@ -95,6 +98,7 @@ _CHECK_REGISTRY: list[tuple[str, Any, bool]] = [
     ("simulation_mode", check_simulation_mode, False),
     ("sddp_options", check_sddp_options, False),
     ("cascade_solver_type", check_cascade_solver_type, False),
+    ("future_cost_aliases", check_future_cost_aliases, False),
     ("boundary_cuts", check_boundary_cuts, False),
     ("engine_validate", check_engine_validate, False),
     ("ai_system_analysis", check_ai_system_analysis, True),
@@ -178,7 +182,9 @@ __all__ = [
     "check_demand_lmax_nonneg",
     "check_element_references",
     "check_engine_validate",
+    "check_future_cost_aliases",
     "check_name_uniqueness",
+    "check_schema_keys",
     "check_sddp_options",
     "check_seepage_at_vmin",
     "check_simulation_mode",

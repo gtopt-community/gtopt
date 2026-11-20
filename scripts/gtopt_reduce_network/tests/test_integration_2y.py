@@ -22,6 +22,7 @@ exercises the full pipeline:
 from __future__ import annotations
 
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -29,12 +30,15 @@ import pytest
 
 from gtopt_reduce_network import load_case
 from gtopt_shared.testing.external_cases import (
-    external_case_dir,
     missing_case_reason,
 )
 from gtopt_reduce_network._reduce import ReduceConfig, reduce_case
+from gtopt_shared.testing.external_cases import (
+    external_case_path,
+)
 
 
+_CASE_REL = "chile/medium_long_term/gtopt_case_2y"
 _CASE_NAME = "gtopt_case_2y"
 
 
@@ -42,20 +46,20 @@ _CASE_NAME = "gtopt_case_2y"
 def case_2y_dir(tmp_path: Path) -> Path:
     """Private copy of the external ``gtopt_case_2y`` case.
 
-    The case is not shipped with gtopt; it is resolved through
-    ``GTOPT_CASES_DIR``.  The reducer writes new parquet files next to the
-    originals, so each test works on its own copy under ``tmp_path``.
+    The case lives in the external case repository (``GTOPT_CASES_DIR``,
+    see ``tools/get_cases.sh``).  The reducer writes new parquet files
+    next to the originals, so each test works on its own copy.
     """
-    src = external_case_dir(_CASE_NAME)
-    if src is None or not (src / f"{_CASE_NAME}.json").exists():
-        pytest.skip(missing_case_reason(_CASE_NAME))
+    src = external_case_path(_CASE_REL)
+    if src is None or not (src / f"{_CASE_NAME}.json").is_file():
+        pytest.skip(missing_case_reason(_CASE_REL))
     dst = tmp_path / _CASE_NAME
     shutil.copytree(src, dst)
     return dst
 
 
 @pytest.fixture
-def unique_tag(request: pytest.FixtureRequest, case_2y_dir: Path) -> str:
+def unique_tag(request: pytest.FixtureRequest, case_2y_dir: Path) -> Iterator[str]:
     """Give each test its own ``reduced_tag`` so parallel pytest workers
     don't trample each other's parquet outputs.  Cleans up after."""
     tag = f"red40_{request.node.name.replace('test_', '')[:24]}"

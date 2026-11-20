@@ -106,9 +106,11 @@ def _make_planning_json(tmp_path: Path) -> Path:
         },
         "options": {
             "method": "sddp",
-            "scale_objective": 1000,
-            "use_kirchhoff": True,
-            "use_single_bus": False,
+            "model_options": {
+                "scale_objective": 1000,
+                "use_kirchhoff": True,
+                "use_single_bus": False,
+            },
         },
     }
     case_dir = tmp_path / "test_case"

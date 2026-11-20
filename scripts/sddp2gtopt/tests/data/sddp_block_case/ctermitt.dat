@@ -1,0 +1,5 @@
+$version=1
+!Num ...Nombre... #Uni Tipo .PotIns .GerMin .GerMax ..Teif. ..Ih... .CVaria .MR. Comb ...G1.. .CEsp.1
+9001 TERMO_A         1    0    100.     20.    100.      0.      0.     1.0    0    7    100.     10.
+9002 TERMO_B         1    1     80.      0.     80.      0.      0.     1.0    0    7    100.      8.
+9003 DIESEL_C        1    1     60.      0.     60.      0.      0.     5.0    0    9    100.     10.

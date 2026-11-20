@@ -130,19 +130,30 @@ def test_install_solver_param_files_copies_bundled_prm(tmp_path: Path) -> None:
 
 
 def test_install_solver_param_files_no_bundle(tmp_path: Path) -> None:
-    """When the bundled directory is absent the helper is a no-op."""
+    """A missing bundled directory (broken install) is a hard error."""
+    from gtopt_shared.resources import MissingDataFileError
     from plexos2gtopt import gtopt_writer as gw
 
     target = tmp_path / "case"
     original = gw._BUNDLED_SOLVERS_DIR
     gw._BUNDLED_SOLVERS_DIR = tmp_path / "does_not_exist"  # type: ignore[attr-defined]
     try:
-        installed = gw.install_solver_param_files(target)
+        with pytest.raises(MissingDataFileError, match="solver parameter"):
+            gw.install_solver_param_files(target)
     finally:
         gw._BUNDLED_SOLVERS_DIR = original  # type: ignore[attr-defined]
 
-    assert not installed
     assert not (target / "solvers").exists()
+
+
+def test_install_solver_param_files_bundled_dir_is_populated(
+    tmp_path: Path,
+) -> None:
+    """The real bundled directory ships the curated param files."""
+    from plexos2gtopt import gtopt_writer as gw
+
+    names = {p.name for p in gw.install_solver_param_files(tmp_path)}
+    assert {"cplex.prm", "highs_warmstart.opts"} <= names
 
 
 def test_write_planning_invokes_solver_install(tmp_path: Path) -> None:

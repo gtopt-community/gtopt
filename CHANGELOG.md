@@ -9,6 +9,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`pp2gtopt` monthly stages with representative blocks**:
+  `--stage-period month|week|day` (calendar dates from a date column,
+  `--start-date`, or a non-leap 2023 default) and `--block-method
+  ldc|hour-of-day` with `--blocks-per-stage X` build non-chronological
+  blocks (net-load-duration-curve groups, `--ldc-key`, `--ldc-split
+  hours|energy`; or typical-day hour groups) with every element averaged
+  over the same hours, preserving each element's energy per stage.
+  `BlockHourMap/block_hour_map.parquet` (+ `simulation.block_hour_map`)
+  records which hours form each block.  `net.storage` now converts to
+  gtopt batteries in time-series mode (`--storage`, `--storage-efficiency`).
+  `--method sddp` (alias of `--solver`) emits one phase per stage with
+  `sddp_options` = 100 iterations / 0.01 tolerance when the case has
+  storage and `max_iterations = 0` (forward pass only, same result as
+  `monolithic`) when it has none (`--sddp-max-iterations`,
+  `--sddp-convergence-tol`).  `gtopt_shared.time_grid` gains `BlockGrid`,
+  `calendar_stage_of_hour`, `ldc_groups`, `hour_of_day_groups`,
+  `chronological_groups` and `TimeGrid.block_durations` /
+  `to_block_grid` (existing signatures unchanged).
+
+- **`pp2gtopt` time-series mode**: `--profiles FILE` (CSV/Parquet, wide or
+  long) turns a pandapower / MATPOWER network plus hourly load and
+  renewable series into ONE multi-block, multi-stage case covering the
+  whole profile horizon (or the `--hours A:B` / `A+N` sub-window):
+  `--block-hours N` averages N hours per block, `--stage-hours H`
+  (`--stage-length`) sets stage length with one phase per stage
+  (`--single-phase` to disable).  Writes `<out>.json` + `<out>/Demand/lmax.parquet`
+  and `<out>/GeneratorProfile/profile.parquet` (`capacity_profile_array`),
+  plus `<out>/pp2gtopt_state.json` (paths relative to it) replayable with
+  `--from-state`.  Columns map to elements via `load:<ref>`,
+  `sgen:<ref>`, `gen:<ref>`, `load@bus:<b>`, `load@zone:<z>`, `load@all`,
+  bare names, or a JSON/YAML `--profiles-spec` (selectors, MW / p.u. /
+  auto units, scale).  `--profiles-from-net` reads pandapower
+  `ConstControl` profiles.  Also: `--matpower` / `.mat` input
+  (`--mpc-var`), `net.sgen` converted as generators, `--solver
+  monolithic` (default with profiles), `--output-format`.  Shared
+  `gtopt_shared.time_grid` (`TimeGrid`, `parse_hour_range`,
+  `write_block_schedule`) for other hourly converters.
+
+- **`sddp2gtopt` multi-file PSR SDDP block cases**: converts classic
+  `.dat` SDDP studies (COES Peru, AMM Guatemala; SDDP 17.0–18.0 layouts).
+  The converted case covers demand by block and bus, thermal and hydro
+  plants with maintenance and limits, renewables with block profiles, the
+  hydro cascade with reservoirs and historical inflows (one scenario per
+  series), and the DC network with losses and dated circuit changes.  It
+  is written as a gtopt SDDP planning with one phase per monthly stage
+  (Parquet schedules).  New CLI options: `--num-scenarios` and
+  `--method`.
+
+- **`FutureCost.iteration_limit`**: keeps only the boundary cuts of the
+  last N iterations of the source run (`0`/unset = all), honoured by every
+  method; replaces `{sddp,monolithic}_options.boundary_max_iterations`.
+  `FutureCost.missing_cut_var_mode` is also new, and `FutureCost.valuation`
+  is now typed `BoundaryCutsValuation` (`end_of_horizon` /
+  `present_value`), the type the cut loader actually uses.
+- **`tools/migrate_future_cost.py`**: rewrites the deprecated boundary-cut
+  keys of planning JSON files onto `system.future_cost_array`, preserving
+  formatting (`--method-rules`, `--dry-run`).
+- **`gtopt_check_json` check `future_cost_aliases`**: warns on each
+  deprecated boundary-cut key and reports conflicting values as critical.
+
 - **MPS output for `--lp-file`**: new `--lp-format lp|mps` option (default
   `lp`, unchanged); a `--lp-file` ending in `.mps` also selects MPS.  Names and
   integer columns are preserved (`MARKER` sections; `BV` bounds for binaries
@@ -97,6 +157,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **FutureCost is the single source of the FCF boundary cuts**: the
+  `system.future_cost_array` element configures the boundary cuts for every
+  method (monolithic, SDDP, cascade); a method never reads another
+  method's options.  The monolithic solver no longer honours
+  `sddp_options.boundary_cuts_mean_shift`, `missing_cut_var_mode`,
+  `scale_alpha` or `cut_coeff_eps` (it uses `FutureCost.scale_alpha` and
+  the default `cut_coeff_eps`).  A relative `cuts_file` now resolves
+  against `options.input_directory` under monolithic too, and a
+  single-phase SDDP run falling back to monolithic now loads the cuts.
+  `use_user_alpha` together with `cuts_file` is an error under monolithic
+  as under SDDP.  Generic extra linear constraints belong in
+  `UserConstraint`.
+- **Converters emit FutureCost**: `plp2gtopt`, `plexos2gtopt`,
+  `sddp2gtopt` and `igtopt` write `system.future_cost_array` and never the
+  legacy keys; `plp2gtopt`'s emissions ray no longer overwrites a user
+  `cuts_file`.
+
+### Deprecated
+
+- **Boundary-cut option keys** are now aliases of FutureCost fields,
+  translated once at planning load (after `--set`) with a warning:
+  `sddp_options.boundary_cuts_file`, `boundary_cuts_mode`,
+  `boundary_cut_sharing_mode`, `boundary_cuts_mean_shift`,
+  `boundary_max_iterations`, `missing_cut_var_mode` (honoured only for
+  `sddp` / `cascade`); `monolithic_options.boundary_cuts_file`,
+  `boundary_cuts_mode`, `boundary_cut_sharing_mode`,
+  `boundary_max_iterations` (only for `monolithic`);
+  `simulation.boundary_cuts_file`, `boundary_cuts_valuation` (any method).
+  A key of the other method is ignored with a warning; different values
+  for the same field are a hard error.
+
+### Removed
+
+- **`BoundaryCutSoftCost` enum**: the former type of `FutureCost.valuation`
+  was never read by the cut loader.
+
 - **Emission options replaced by `EmissionZone`**: `model_options.emission_cost`
   and `model_options.emission_cap` were removed (and are now rejected as
   unknown options).  A carbon price is now a zone `price` and a cap a zone
@@ -153,6 +249,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Python tools: runtime data files missing from non-editable installs.**
+  `pip install ./scripts` (wheel) did not ship
+  `plexos2gtopt/data/cen_pcp_hard_ucs.txt`, the `plexos2gtopt`/`plp2gtopt`
+  `solvers/*.prm|*.opts` files, the `gtopt_expand` whitelist CSVs, nor the
+  repo-root `share/gtopt/{emissions,cogen}` tables, and every loader
+  silently fell back: `plexos2gtopt` demoted ~90–110 CEN user constraints
+  per case from HARD to SOFT, used the bare IPCC emission factors instead
+  of `cen_chile.json`, tagged no cogen units and wrote no `solvers/`
+  directory.  All files are now package data; `cen_chile.json` and
+  `cen_chile_cogen.csv` moved from `share/gtopt/` to
+  `scripts/gtopt_shared/data/{emissions,cogen}/` (single copy; the C++
+  side only reads `share/gtopt/{naming,unit}_dialects.json`), and the
+  duplicate `plp2gtopt/templates/ror_equivalence.csv` was dropped in
+  favour of `gtopt_expand/templates/`.  A missing required file now raises
+  `gtopt_shared.resources.MissingDataFileError` with a reinstall hint.
+  The three copies of the cogen loader were merged into
+  `gtopt_shared.cen_cogen` (the `gtopt_marginal_units` copy looked one
+  directory above the repo root and never found the CSV).  A new
+  `pytest -m wheel` test builds and installs the wheel and checks every
+  file; the Scripts CI workflow runs it.  Cases converted with an
+  affected install must be reconverted.
+
+- **`future_cost_array` dropped on planning merge**: `System::merge` did
+  not merge `future_cost_array`, so a FutureCost element read from a
+  planning file was silently ignored.
 - **Solver registry crash on failed plugin validation**: requesting a
   solver whose plugin fails subprocess validation (e.g. a transient
   license error) crashed with SIGSEGV instead of falling back to the

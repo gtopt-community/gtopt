@@ -6,7 +6,8 @@
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *
- * The three scoping fields (`sharing`, `mode`, `valuation`) are authored as
+ * The enum fields (`sharing`, `mode`, `missing_cut_var_mode`, `valuation`)
+ * are authored as
  * JSON strings and converted to their typed enums via a custom constructor —
  * the same pattern MonolithicOptions uses.
  */
@@ -25,8 +26,9 @@ namespace daw::json
 {
 using gtopt::BoundaryCutSharingMode;
 using gtopt::BoundaryCutsMode;
-using gtopt::BoundaryCutSoftCost;
+using gtopt::BoundaryCutsValuation;
 using gtopt::FutureCost;
+using gtopt::MissingCutVarMode;
 
 /// Custom constructor: converts the JSON enum strings → typed enums.
 struct FutureCostConstructor
@@ -41,6 +43,8 @@ struct FutureCostConstructor
                                       OptBool single_cut_equality,
                                       OptName sharing_str,
                                       OptName mode_str,
+                                      OptInt iteration_limit,
+                                      OptName missing_cut_var_mode_str,
                                       OptName valuation_str,
                                       OptBool use_user_alpha,
                                       OptUid user_alpha_uid) const
@@ -54,6 +58,7 @@ struct FutureCostConstructor
         .scale_alpha = scale_alpha,
         .mean_shift = mean_shift,
         .single_cut_equality = single_cut_equality,
+        .iteration_limit = iteration_limit,
         .use_user_alpha = use_user_alpha,
         .user_alpha_uid = user_alpha_uid,
     };
@@ -64,9 +69,13 @@ struct FutureCostConstructor
     if (mode_str) {
       fc.mode = gtopt::require_enum<BoundaryCutsMode>("mode", *mode_str);
     }
+    if (missing_cut_var_mode_str) {
+      fc.missing_cut_var_mode = gtopt::require_enum<MissingCutVarMode>(
+          "missing_cut_var_mode", *missing_cut_var_mode_str);
+    }
     if (valuation_str) {
-      fc.valuation =
-          gtopt::require_enum<BoundaryCutSoftCost>("valuation", *valuation_str);
+      fc.valuation = gtopt::require_enum<BoundaryCutsValuation>("valuation",
+                                                                *valuation_str);
     }
     return fc;
   }
@@ -88,6 +97,8 @@ struct json_data_contract<FutureCost>
                        json_bool_null<"single_cut_equality", OptBool>,
                        json_string_null<"sharing", OptName>,
                        json_string_null<"mode", OptName>,
+                       json_number_null<"iteration_limit", OptInt>,
+                       json_string_null<"missing_cut_var_mode", OptName>,
                        json_string_null<"valuation", OptName>,
                        json_bool_null<"use_user_alpha", OptBool>,
                        json_number_null<"user_alpha_uid", OptUid>>;
@@ -104,6 +115,8 @@ struct json_data_contract<FutureCost>
                            fc.single_cut_equality,
                            detail::enum_to_opt_name(fc.sharing),
                            detail::enum_to_opt_name(fc.mode),
+                           fc.iteration_limit,
+                           detail::enum_to_opt_name(fc.missing_cut_var_mode),
                            detail::enum_to_opt_name(fc.valuation),
                            fc.use_user_alpha,
                            fc.user_alpha_uid);

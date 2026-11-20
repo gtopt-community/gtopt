@@ -179,6 +179,9 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
 
   std::vector<double> rowlb(nrows);
   std::vector<double> rowub(nrows);
+  // Finite-bound limit: solver infinity capped at DblMax, so a true-IEEE
+  // `+inf` solver infinity cannot let the DblMax sentinel be rescaled.
+  const double inf_lim = std::min(m_infinity_, DblMax);
 
   // `enumerate<RowIndex>` makes the loop counter a strong `RowIndex` so
   // assignment into `stats_max_row_idx` is direct (no static_cast at the
@@ -188,12 +191,10 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
         i.value_of();  // Index (int32_t) for legacy std::vector indexing
     const auto rs = row.scale;
     const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
-    rowlb[i_sz] =
-        (rs != 1.0 && row.lowb > -m_infinity_ && row.lowb < m_infinity_)
+    rowlb[i_sz] = (rs != 1.0 && row.lowb > -inf_lim && row.lowb < inf_lim)
         ? row.lowb * inv_rs
         : row.lowb;
-    rowub[i_sz] =
-        (rs != 1.0 && row.uppb > -m_infinity_ && row.uppb < m_infinity_)
+    rowub[i_sz] = (rs != 1.0 && row.uppb > -inf_lim && row.uppb < inf_lim)
         ? row.uppb * inv_rs
         : row.uppb;
 

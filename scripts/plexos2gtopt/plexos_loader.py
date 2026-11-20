@@ -5,7 +5,7 @@ A CEN PCP "bundle" can arrive in any of these shapes:
 * a directory already containing ``DBSEN_PRGDIARIO.xml`` + ``*.csv``;
 * a ``DATOS{date}.zip`` archive (inner zip of the outer wrapper);
 * a ``DATOS{date}.zip.xz`` (the on-disk form vendored under
-  ``support/plexos/pcp_2026-04-22/``);
+  ``$GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/``);
 * a ``PLEXOS{date}.zip`` outer wrapper (auto-unwrapped to its two
   inner zips).
 

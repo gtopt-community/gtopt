@@ -1480,12 +1480,33 @@ def test_extract_user_constraints_storagebound_not_sscc_eligible_fails_hard(
     is genuinely unmappable → FAIL HARD (no silent drop).
 
     Same UP StorageBound, but ``emitted_names['ReserveProvision']`` is
-    empty (battery not SSCC-eligible).  ``_bess_matching_provisions``
+    empty although the battery IS a member of ``CPF_RS_BESS`` (so PLEXOS
+    has a real provision variable for it).  ``_bess_matching_provisions``
     returns nothing, so the reserve term cannot resolve and the converter
-    must raise ``UnresolvedConstraintReferenceError``.
+    must raise ``UnresolvedConstraintReferenceError``.  (A battery that is
+    a member of NO targeted reserve is the provably-zero case instead —
+    see ``test_battery_reserve_membership.py``.)
     """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
-    xml_path.write_text(_BATT_STORAGEBOUND_XML)
+    member_xml = _BATT_STORAGEBOUND_XML.replace(
+        "</MasterDataSet>",
+        """  <t_class><class_id>9</class_id><name>Reserve</name></t_class>
+  <t_object><object_id>200</object_id><class_id>9</class_id><name>CPF_RS_BESS</name></t_object>
+  <t_collection>
+    <collection_id>720</collection_id>
+    <parent_class_id>9</parent_class_id>
+    <child_class_id>7</child_class_id>
+    <name>Batteries</name>
+  </t_collection>
+  <t_membership>
+    <membership_id>720001</membership_id>
+    <collection_id>720</collection_id>
+    <parent_object_id>200</parent_object_id>
+    <child_object_id>40</child_object_id>
+  </t_membership>
+</MasterDataSet>""",
+    )
+    xml_path.write_text(member_xml)
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)
     db = load_xml(xml_path)
     allow = {

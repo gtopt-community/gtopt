@@ -194,6 +194,13 @@ class TimeMixin:
                 num_hydro = 1
             return list(range(1, num_hydro + 1))
 
+        def _num_inflow_hydrologies() -> int:
+            """Number of hydrology columns (NClase) in ``plpaflce.dat``."""
+            aflce = self.parser.parsed_data.get("aflce_parser")
+            if aflce and aflce.items:
+                return int(aflce.items[0].get("num_hydrologies", 0) or 0)
+            return 0
+
         if spec in ("all", "first"):
             all_hydros = _all_hydro_indices()
             if spec == "first":
@@ -209,15 +216,23 @@ class TimeMixin:
             # data columns (PLP rotates one hydrological year per January).
             hydro_indices_1based = parse_index_range(hydro_spec)
 
-            # Validate requested indices against available hydrologies
+            # Validate requested indices against the hydrologies present
+            # in the source: every plpaflce.dat column (1..NClase) is a
+            # valid choice, not only the stage-1 columns of the simulated
+            # set in plpidsim.dat (e.g. 51-68 of a 68-column record).
             all_hydros = _all_hydro_indices()
-            available_set = set(all_hydros)
+            num_inflow = _num_inflow_hydrologies()
+            available_set = set(all_hydros) | set(range(1, num_inflow + 1))
             invalid = sorted(set(hydro_indices_1based) - available_set)
             if invalid:
+                avail_desc = (
+                    f"1-{num_inflow} (plpaflce.dat columns)"
+                    if num_inflow > 0
+                    else ", ".join(str(h) for h in all_hydros)
+                )
                 raise ValueError(
                     f"Invalid hydrology indices: {invalid}. "
-                    f"Available (1-based): "
-                    f"{', '.join(str(h) for h in all_hydros)}"
+                    f"Available (1-based): {avail_desc}"
                 )
 
         num_scenarios = len(hydro_indices_1based)
@@ -256,6 +271,19 @@ class TimeMixin:
                     hydrology_stage_maps[hydro_1based] = {
                         stage: h - 1 for stage, h in stage_row.items()
                     }
+            elif idsim_parser is not None and stage1_to_sim:
+                # Hydrology present in plpaflce.dat but not the stage-1
+                # column of any simulation: follow the same per-stage
+                # rotation as the simulated set (one historical year per
+                # January), wrapping over the NClase columns.
+                shifted = self._shifted_stage_map(
+                    idsim_parser,
+                    min(stage1_to_sim.values()),
+                    hydro_1based,
+                    _num_inflow_hydrologies(),
+                )
+                if shifted:
+                    hydrology_stage_maps[hydro_1based] = shifted
         self.planning["simulation"]["scenario_array"] = scenarios
         if options is not None:
             options["_hydrology_stage_maps"] = hydrology_stage_maps
@@ -280,6 +308,28 @@ class TimeMixin:
                 for i in range(num_scenarios)
             ]
         self.planning["simulation"]["scene_array"] = scenes
+
+    @staticmethod
+    def _shifted_stage_map(
+        idsim_parser, ref_sim: int, hydro_1based: int, num_hydrologies: int
+    ) -> dict[int, int]:
+        """Per-stage 0-based aflce columns for a non-simulated hydrology.
+
+        Applies the stage-by-stage column offset of simulation ``ref_sim``
+        (``SimulInd(ref, s) - SimulInd(ref, 1)``) to ``hydro_1based``,
+        wrapping modulo ``num_hydrologies`` exactly like PLP wraps the
+        last historical year back to the first (68 -> 1).  Returns an
+        empty dict when the reference row or ``num_hydrologies`` is
+        unavailable, which keeps the static-column behaviour.
+        """
+        ref_row = idsim_parser.get_stage_map(ref_sim)
+        if not ref_row or num_hydrologies <= 0:
+            return {}
+        base = ref_row[min(ref_row)]
+        return {
+            stage: (hydro_1based - 1 + (h - base)) % num_hydrologies
+            for stage, h in ref_row.items()
+        }
 
     def process_apertures(self, options):
         """Build aperture_array from parsed PLP aperture index files.

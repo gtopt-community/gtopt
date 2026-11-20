@@ -7,6 +7,7 @@
 #     [TIMEOUT <seconds>]
 #     [ALLOWED_EXIT_CODES <list>] [LABELS <list>]
 #     [EXTRA_SET <list>]
+#     [CASE_DIR <dir>]       # relative to CASES_DIR, or absolute (external)
 #     [GOLDEN <file_relative_to_case_dir>])  # optional golden ref
 #
 # Registers two CTest tests:
@@ -52,7 +53,10 @@ function(add_sddp_case case_name system_json)
     set(ARG_ALLOWED_EXIT_CODES "0")
   endif()
 
-  if(ARG_CASE_DIR)
+  if(ARG_CASE_DIR AND IS_ABSOLUTE "${ARG_CASE_DIR}")
+    # Absolute CASE_DIR: an external case (e.g. from GTOPT_CASES_DIR).
+    set(case_dir "${ARG_CASE_DIR}")
+  elseif(ARG_CASE_DIR)
     set(case_dir "${CASES_DIR}/${ARG_CASE_DIR}")
   else()
     set(case_dir "${CASES_DIR}/${case_name}")

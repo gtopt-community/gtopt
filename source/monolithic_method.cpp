@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/future_cost_lp.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/monolithic_method.hpp>
@@ -41,28 +42,50 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
 
   SPDLOG_INFO("MonolithicMethod: starting {} scene(s)", num_scenes);
 
-  // ── Boundary cuts ──
-  if (!boundary_cuts_file.empty()
-      && boundary_cuts_mode != BoundaryCutsMode::noload)
+  // ── Boundary cuts (FutureCost element) ──
+  // The active FutureCost element is the ONLY source of the monolithic
+  // boundary-cut configuration — `sddp_options` is never read here.  The
+  // legacy `monolithic_options.boundary_*` keys were translated into the
+  // element at planning load (`resolve_future_cost_aliases`).  The element's
+  // fields are mapped onto a fresh `SDDPOptions` (the loader's carrier) by
+  // `apply_future_cost_config`, the same mapping SDDPMethod uses.
+  const auto* future_cost = active_future_cost(planning_lp);
+  SDDPOptions bc_opts;
+  if (future_cost != nullptr) {
+    apply_future_cost_config(*future_cost, bc_opts);
+  }
+  if (future_cost != nullptr && future_cost->use_user_alpha.value_or(false)) {
+    // User-overridable FCF: the modeller's α DecisionVariable + UserConstraint
+    // rows already carry the recourse; the boundary-cut FCF must be absent.
+    if (!bc_opts.boundary_cuts_file.empty()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "FutureCost '{}': use_user_alpha and cuts_file are mutually "
+              "exclusive — the user-authored α + cuts replace the "
+              "boundary-cut FCF, so supplying both is ambiguous",
+              future_cost->name),
+      });
+    }
+    SPDLOG_INFO(
+        "MonolithicMethod: FutureCost '{}' use_user_alpha — no boundary cuts "
+        "loaded (the user α + UserConstraint rows are the FCF)",
+        future_cost->name);
+  } else if (!bc_opts.boundary_cuts_file.empty()
+             && bc_opts.boundary_cuts_mode != BoundaryCutsMode::noload)
   {
-    SPDLOG_INFO("MonolithicMethod: loading boundary cuts from '{}'",
-                boundary_cuts_file);
-
-    // Build temporary SDDPOptions with boundary cut settings.
-    SDDPOptions bc_opts;
-    bc_opts.boundary_cuts_file = boundary_cuts_file;
-    bc_opts.boundary_cuts_mode = boundary_cuts_mode;
-    bc_opts.boundary_cut_sharing = boundary_cut_sharing;
-    bc_opts.boundary_max_iterations = boundary_max_iterations;
-    // Mirror the SDDP α-rebase opt-in / scale onto the monolithic path so
-    // the efin-based offset `c` is computed identically (see TASK 2).  The
-    // planning-level SDDP options are the single source of truth for both
-    // methods.
-    bc_opts.boundary_cuts_mean_shift =
-        planning_lp.options().sddp_boundary_cuts_mean_shift();
-    bc_opts.missing_cut_var_mode =
-        planning_lp.options().sddp_missing_cut_var_mode();
-    bc_opts.cut_coeff_eps = planning_lp.options().sddp_cut_coeff_eps();
+    // Relative paths resolve against `input_directory`, exactly as SDDP.
+    const auto boundary_cuts_file =
+        resolve_future_cost_path(planning_lp, bc_opts.boundary_cuts_file);
+    const auto boundary_cuts_mode = bc_opts.boundary_cuts_mode;
+    const auto boundary_cut_sharing = bc_opts.boundary_cut_sharing;
+    SPDLOG_INFO(
+        "MonolithicMethod: loading boundary cuts from FutureCost '{}' ({})",
+        bc_opts.boundary_cuts_file,
+        boundary_cuts_file);
+    // Drop-tolerance on tiny cut coefficients: the method-neutral default
+    // (not `sddp_options.cut_coeff_eps` — monolithic never reads SDDP keys).
+    bc_opts.cut_coeff_eps = PlanningOptionsLP::default_sddp_cut_coeff_eps;
 
     // ── Register α (future-cost) state variables ──
     // The boundary-cut loader installs each cut as `α + Σ wvᵣ·efinᵣ ≥ FCF`
@@ -79,10 +102,8 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     // state column over all cut rows and round the max magnitude up to the
     // next power of ten.  Keeping a single entry point means α is scaled
     // identically regardless of solver method.
-    const double scale_alpha =
-        boundary_cut_scale_alpha(planning_lp,
-                                 boundary_cuts_file,
-                                 planning_lp.options().sddp_scale_alpha());
+    const double scale_alpha = boundary_cut_scale_alpha(
+        planning_lp, boundary_cuts_file, bc_opts.scale_alpha);
     bc_opts.scale_alpha = scale_alpha;
     SPDLOG_INFO("MonolithicMethod: boundary-cut scale_alpha {}", scale_alpha);
     // `phi_expectation` pre-scan (mirrors `SDDPMethod::initialize_solver`):
@@ -165,8 +186,10 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
                                             scene_phase_states);
     if (bc_result) {
       SPDLOG_INFO(
-          "MonolithicMethod: loaded {} boundary cuts (max iteration {})",
+          "MonolithicMethod: loaded {} boundary cuts from FutureCost '{}' "
+          "(max iteration {})",
           bc_result->count,
+          bc_opts.boundary_cuts_file,
           bc_result->max_iteration);
 
       // ── α-rebase restitution (mean-shift) ──

@@ -35,6 +35,7 @@ typed path.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from .entities import ConstraintDirective
 
@@ -84,6 +85,23 @@ class _Outcome:
 
 
 # ── LHS-shape predicates (single source of truth) ──────────────────────────
+def read_uc_name_list(path: Path) -> frozenset[str]:
+    """Parse a one-name-per-line UC list (``# ...`` comments stripped).
+
+    Raises:
+        OSError: when ``path`` cannot be read (including a missing file).
+        ValueError: when the file holds no constraint names.
+    """
+    names: set[str] = set()
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if line:
+            names.add(line)
+    if not names:
+        raise ValueError(f"UC name list {path} contains no constraint names")
+    return frozenset(names)
+
+
 def _is_pure_line_flow(expression: str) -> bool:
     """LHS references only ``line(...).flow`` terms."""
     return (

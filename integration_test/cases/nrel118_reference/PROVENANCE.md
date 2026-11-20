@@ -24,9 +24,11 @@ search does not have to be repeated.
   `118-Bus/`) ships **no** Solution.csv / Results.csv / baseline.csv —
   it is inputs-only (CSV generator / bus / line + time-series Parquet).
 * The published dataset **does** ship per-fuel prices (in the
-  `data_118bus.jl` Sienna loader) that the gtopt converter currently
-  ignores (`Fuel.price = 0`); they are captured here in
-  `pena_2018_table_fuel_prices.json` as a future-work hook.
+  `data_118bus.jl` Sienna loader), captured here in
+  `pena_2018_table_fuel_prices.json`.  Since the full-network converter
+  rewrite the gtopt converter uses them by default
+  (`--fuel-prices sienna`), folded into `Generator.gcost` as
+  `VO&M + heat_rate × price` (`Fuel.price` stays 0).
 * Regression-test window in `test_emission_nrel118_port.cpp` tightened
   from **[15 %, 50 %]** to **[20 %, 45 %]** — see "Test-assertion update"
   below.
@@ -73,7 +75,8 @@ the paper PDF.
 * `pena_2018_table_fuel_prices.json` — per-fuel-family input prices in
   $/MMBTU as defined in the NREL-Sienna Julia loader script
   `118-Bus/data_118bus.jl`. NOT a paper-table, but it IS a piece of
-  official input data the converter currently does not consume.
+  official input data; the converter's default `--fuel-prices sienna`
+  table mirrors it.
 * `pena_2018_table_generator_inventory.json` — generator counts by
   technology, extracted from `118-Bus/Generators.csv` (the 339-row
   master inventory).

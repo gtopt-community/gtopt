@@ -34,10 +34,12 @@ _PLP_CASE_2Y = external_case_dir("plp_case_2y") or (_CASES_DIR / "plp_case_2y")
 
 _MINIMAL_CASE: dict = {
     "options": {
-        "use_kirchhoff": True,
-        "use_single_bus": False,
-        "demand_fail_cost": 1000,
-        "scale_objective": 1000,
+        "model_options": {
+            "use_kirchhoff": True,
+            "use_single_bus": False,
+            "demand_fail_cost": 1000,
+            "scale_objective": 1000,
+        },
     },
     "simulation": {
         "block_array": [
@@ -457,10 +459,12 @@ class TestDemandFieldFallback:
 
     _CASE_CAPACITY_DEMAND: dict = {
         "options": {
-            "use_kirchhoff": False,
-            "use_single_bus": True,
-            "demand_fail_cost": 1000,
-            "scale_objective": 1,
+            "model_options": {
+                "use_kirchhoff": False,
+                "use_single_bus": True,
+                "demand_fail_cost": 1000,
+                "scale_objective": 1,
+            },
         },
         "simulation": {
             "block_array": [{"uid": 1, "duration": 1}],

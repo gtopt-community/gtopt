@@ -49,6 +49,20 @@ namespace
   return std::min(solver_infinity, LinearProblem::DblMax) * 0.999;
 }
 
+/// True when @p v is a genuine finite bound that may be rescaled.
+/// Both the solver infinity (1e20 CPLEX, 1e30 CLP, true IEEE `+inf` on
+/// HiGHS >= 1.7) AND the in-memory `DblMax` "no bound" sentinel are
+/// treated as infinite.  Testing against the solver infinity alone is
+/// wrong on solvers whose infinity is `+inf`: `DblMax < +inf`, so the
+/// sentinel got multiplied by `1/row_scale` into a huge-but-finite
+/// ~1e303 value that `normalize_bound` (which only maps `>= DblMax`)
+/// could no longer recognise as infinite.
+[[nodiscard]] constexpr bool is_finite_bound(double v, double solver_infinity)
+{
+  const double lim = std::min(solver_infinity, LinearProblem::DblMax);
+  return v > -lim && v < lim;
+}
+
 }  // namespace
 
 // ── Constructors ──
@@ -2030,10 +2044,10 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
     for (auto& v : elements) {
       v *= inv_rs;
     }
-    if (lb > -infy && lb < infy) {
+    if (is_finite_bound(lb, infy)) {
       lb *= inv_rs;
     }
-    if (ub > -infy && ub < infy) {
+    if (is_finite_bound(ub, infy)) {
       ub *= inv_rs;
     }
   }
@@ -2070,10 +2084,10 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
     for (auto& v : elements) {
       v *= inv_so;
     }
-    if (lb > -infy && lb < infy) {
+    if (is_finite_bound(lb, infy)) {
       lb *= inv_so;
     }
-    if (ub > -infy && ub < infy) {
+    if (is_finite_bound(ub, infy)) {
       ub *= inv_so;
     }
     composite_scale *= m_scale_objective_;
@@ -2123,10 +2137,10 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
       for (auto& v : elements) {
         v *= inv;
       }
-      if (lb > -infy && lb < infy) {
+      if (is_finite_bound(lb, infy)) {
         lb *= inv;
       }
-      if (ub > -infy && ub < infy) {
+      if (is_finite_bound(ub, infy)) {
         ub *= inv;
       }
       composite_scale *= norm;
@@ -2179,9 +2193,9 @@ RowIndex LinearInterface::emit_row_to_backend(const SparseRow& row,
     }
 
     const double lb =
-        (row.lowb > -infy && row.lowb < infy) ? row.lowb * inv_rs : row.lowb;
+        (is_finite_bound(row.lowb, infy)) ? row.lowb * inv_rs : row.lowb;
     const double ub =
-        (row.uppb > -infy && row.uppb < infy) ? row.uppb * inv_rs : row.uppb;
+        (is_finite_bound(row.uppb, infy)) ? row.uppb * inv_rs : row.uppb;
 
     return add_row(name, columns.size(), columns, elements, lb, ub);
   }
@@ -2409,10 +2423,10 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
     auto lb = row.lowb;
     auto ub = row.uppb;
     if (rs != 1.0) {
-      if (lb > -infy && lb < infy) {
+      if (is_finite_bound(lb, infy)) {
         lb *= inv_rs;
       }
-      if (ub > -infy && ub < infy) {
+      if (is_finite_bound(ub, infy)) {
         ub *= inv_rs;
       }
     }

@@ -61,24 +61,11 @@ _PARTITION_TO_HEADER: tuple[tuple[str, str], ...] = (
 # the Python entry, or extend the matcher.  As entries are resolved,
 # delete them from this dict.
 #
-# Issue #507 follow-up: surfaced by the new C++ sync gate landed today.
-_KNOWN_DRIFT: dict[str, frozenset[str]] = {
-    "SDDP_OPTION_KEYS": frozenset(
-        {
-            # Inspected json_sddp_options.hpp on master — neither
-            # name appears in any json_*<"..."> contract member.
-            # Either renamed without Python update or removed.
-            "production_factor_update_skip",
-            "warm_start",
-        }
-    ),
-    "SOLVER_OPTION_KEYS": frozenset(
-        {
-            # Not in json_solver_options.hpp on master.
-            "reuse_basis",
-        }
-    ),
-}
+# Emptied by the 2026-11 schema sync (warm_start /
+# production_factor_update_skip → update_lp_skip / reuse_basis removed
+# from the Python side).  Two-way equality of every partition is now
+# enforced by ``test_json_contracts_sync.py``.
+_KNOWN_DRIFT: dict[str, frozenset[str]] = {}
 
 
 @pytest.mark.parametrize(

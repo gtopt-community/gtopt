@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <deque>
+#include <filesystem>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -34,6 +35,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -159,18 +161,52 @@ bool FutureCostLP::add_to_output(OutputContext& out) const
   return true;
 }
 
-SDDPBoundaryConfig boundary_config(const FutureCost& fc)
+void apply_future_cost_config(const FutureCost& fc, SDDPOptions& opts)
 {
-  // The element fields are already `std::optional` of the same value types as
-  // the config, so copy the optionals directly (an unset element field stays
-  // `nullopt` → the caller leaves the corresponding `m_options_` field).
-  return SDDPBoundaryConfig {
-      .cuts_file = fc.cuts_file,
-      .scale_alpha = fc.scale_alpha,
-      .mean_shift = fc.mean_shift,
-      .sharing = fc.sharing,
-      .mode = fc.mode,
-  };
+  if (fc.cuts_file.has_value()) {
+    opts.boundary_cuts_file = *fc.cuts_file;
+  }
+  if (fc.scale_alpha.has_value()) {
+    opts.scale_alpha = *fc.scale_alpha;
+  }
+  if (fc.mean_shift.has_value()) {
+    opts.boundary_cuts_mean_shift = *fc.mean_shift;
+  }
+  if (fc.mode.has_value()) {
+    opts.boundary_cuts_mode = *fc.mode;
+  }
+  if (fc.sharing.has_value()) {
+    opts.boundary_cut_sharing = *fc.sharing;
+  } else if (fc.mode.has_value()) {
+    // Legacy scope rule: an explicit sharing wins; otherwise `combined`
+    // broadcasts (shared) and every other mode keeps per-scene α.
+    opts.boundary_cut_sharing = (*fc.mode == BoundaryCutsMode::combined)
+        ? BoundaryCutSharingMode::shared
+        : BoundaryCutSharingMode::per_scene;
+  }
+  if (fc.iteration_limit.has_value()) {
+    opts.boundary_max_iterations = *fc.iteration_limit;
+  }
+  if (fc.missing_cut_var_mode.has_value()) {
+    opts.missing_cut_var_mode = *fc.missing_cut_var_mode;
+  }
+  if (fc.valuation.has_value()) {
+    opts.boundary_cuts_valuation = *fc.valuation;
+  }
+}
+
+std::string resolve_future_cost_path(const PlanningLP& planning_lp,
+                                     const std::string& path)
+{
+  if (path.empty()) {
+    return path;
+  }
+  const std::filesystem::path p {path};
+  if (p.is_absolute()) {
+    return path;
+  }
+  return (std::filesystem::path {planning_lp.options().input_directory()} / p)
+      .string();
 }
 
 const FutureCost* active_future_cost(const PlanningLP& planning_lp)

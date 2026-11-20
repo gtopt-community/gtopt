@@ -7,8 +7,7 @@
     "tap_ratio": 0.978,
     "tmax_ab": 100.0,
     "tmax_ba": 100.0,
-    "type": "transformer",
-    "voltage": 10
+    "type": "transformer"
   },
   {
     "bus_a": 6,
@@ -18,8 +17,7 @@
     "tap_ratio": 0.969,
     "tmax_ab": 100.0,
     "tmax_ba": 100.0,
-    "type": "transformer",
-    "voltage": 10
+    "type": "transformer"
   },
   {
     "bus_a": 11,
@@ -28,8 +26,7 @@
     "reactance": 0.208,
     "tmax_ab": 100.0,
     "tmax_ba": 100.0,
-    "type": "transformer",
-    "voltage": 10
+    "type": "transformer"
   },
   {
     "bus_a": 10,
@@ -38,8 +35,7 @@
     "reactance": 0.11,
     "tmax_ab": 100.0,
     "tmax_ba": 100.0,
-    "type": "transformer",
-    "voltage": 10
+    "type": "transformer"
   },
   {
     "bus_a": 4,
@@ -49,8 +45,7 @@
     "tap_ratio": 0.932,
     "tmax_ab": 100.0,
     "tmax_ba": 100.0,
-    "type": "transformer",
-    "voltage": 10
+    "type": "transformer"
   },
   {
     "bus_a": 12,
@@ -59,8 +54,7 @@
     "reactance": 0.14,
     "tmax_ab": 100.0,
     "tmax_ba": 100.0,
-    "type": "transformer",
-    "voltage": 10
+    "type": "transformer"
   },
   {
     "bus_a": 28,
@@ -70,7 +64,6 @@
     "tap_ratio": 0.968,
     "tmax_ab": 100.0,
     "tmax_ba": 100.0,
-    "type": "transformer",
-    "voltage": 10
+    "type": "transformer"
   }
 ]

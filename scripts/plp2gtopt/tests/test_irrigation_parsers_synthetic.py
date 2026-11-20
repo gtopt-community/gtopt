@@ -3,8 +3,8 @@
 """Self-contained tests for the Maule and Laja convention parsers.
 
 The data-driven tests in ``test_maule.py`` / ``test_laja.py`` read the
-``support/plp/2_years`` case, which is not shipped everywhere (e.g. the
-public mirror), so they skip there.  These tests build small synthetic
+``plp_2y`` case of the external case repository (``GTOPT_CASES_DIR``),
+which is not available everywhere, so they skip without it.  These tests build small synthetic
 ``plpmaulen.dat`` / ``plplajam.dat`` files that follow the PLP layout
 field by field, so the parsers are exercised in every checkout.  All
 numbers are made up; only the file structure mirrors PLP.

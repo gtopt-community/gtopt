@@ -139,10 +139,9 @@ The transfer process:
 4. Cuts whose names do not resolve (e.g. a theta column that does not
    exist in a single-bus LP) are skipped.
 
-**Dual threshold filtering**: the `optimality_dual_threshold` field
-filters out inactive cuts.  Cuts with `|dual| < threshold` are skipped
-during transfer.  This reduces noise from cuts that are no longer
-binding.
+**Dual threshold filtering** (the former `optimality_dual_threshold`
+transition field) was removed: the main cell's row duals are stale for
+cuts added after its last solve, so every inherited cut is transferred.
 
 **Example: 6-phase system with cut inheritance**
 
@@ -247,7 +246,6 @@ plain SDDP solver.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `inherit_optimality_cuts` | int | `0` | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
-| `optimality_dual_threshold` | real | 0.0 | Min abs(dual) for cut transfer (0 = all) |
 
 #### Cut Forgetting Semantics
 

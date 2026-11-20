@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gtopt_shared.resources import MissingDataFileError
+
 from plp2gtopt.block_parser import BlockParser
 from plp2gtopt.bus_parser import BusParser
 from plp2gtopt.central_parser import CentralParser
@@ -254,17 +256,18 @@ def test_gtopt_writer_to_json_returns_planning(tmp_path):
     """GTOptWriter.to_json() returns a dict with options/system/simulation keys."""
     mock_parser = _make_mock_parser()
 
-    with patch("plp2gtopt._writer_time.BlockWriter") as mock_bw, patch(
-        "plp2gtopt._writer_time.StageWriter"
-    ) as mock_sw, patch("plp2gtopt._writer_network.BusWriter") as mock_busw, patch(
-        "plp2gtopt._writer_generation.CentralWriter"
-    ) as mock_cw, patch("plp2gtopt._writer_network.LineWriter") as mock_lw, patch(
-        "plp2gtopt._writer_network.DemandWriter"
-    ) as mock_dw, patch(
-        "plp2gtopt._writer_generation.GeneratorProfileWriter"
-    ) as mock_gpw, patch("plp2gtopt._writer_hydro.AflceWriter") as mock_aw, patch(
-        "plp2gtopt._writer_hydro.JunctionWriter"
-    ) as mock_jw, patch("plp2gtopt._writer_network.BatteryWriter") as mock_battery:
+    with (
+        patch("plp2gtopt._writer_time.BlockWriter") as mock_bw,
+        patch("plp2gtopt._writer_time.StageWriter") as mock_sw,
+        patch("plp2gtopt._writer_network.BusWriter") as mock_busw,
+        patch("plp2gtopt._writer_generation.CentralWriter") as mock_cw,
+        patch("plp2gtopt._writer_network.LineWriter") as mock_lw,
+        patch("plp2gtopt._writer_network.DemandWriter") as mock_dw,
+        patch("plp2gtopt._writer_generation.GeneratorProfileWriter") as mock_gpw,
+        patch("plp2gtopt._writer_hydro.AflceWriter") as mock_aw,
+        patch("plp2gtopt._writer_hydro.JunctionWriter") as mock_jw,
+        patch("plp2gtopt._writer_network.BatteryWriter") as mock_battery,
+    ):
         # All writers return empty arrays
         for m in [mock_bw, mock_sw, mock_busw, mock_cw, mock_lw, mock_dw]:
             m.return_value.to_json_array.return_value = []
@@ -1009,16 +1012,21 @@ def test_run_post_check_with_findings(tmp_path):
     finding_note.message = "A note"
     finding_note.action = ""
 
-    with patch(
-        "gtopt_check_json._checks.run_all_checks",
-        return_value=[finding_crit, finding_warn, finding_note],
-    ), patch(
-        "gtopt_check_json._terminal.print_finding",
-    ), patch(
-        "gtopt_check_json._terminal.print_status",
-    ), patch(
-        "gtopt_check_json._terminal.print_summary",
-    ) as mock_summary:
+    with (
+        patch(
+            "gtopt_check_json._checks.run_all_checks",
+            return_value=[finding_crit, finding_warn, finding_note],
+        ),
+        patch(
+            "gtopt_check_json._terminal.print_finding",
+        ),
+        patch(
+            "gtopt_check_json._terminal.print_status",
+        ),
+        patch(
+            "gtopt_check_json._terminal.print_summary",
+        ) as mock_summary,
+    ):
         run_post_check(planning, parser, output_dir=opts["output_dir"])
         mock_summary.assert_called_once_with(1, 1, 1)
 
@@ -1115,9 +1123,10 @@ def test_generate_variable_scales_template_with_reservoirs(tmp_path):
         "central_parser": mock_central_parser,
     }
 
-    with patch("plp2gtopt.plp2gtopt.PLPParser") as mock_cls, patch(
-        "plp2gtopt.plp2gtopt.GTOptWriter"
-    ) as mock_writer_cls:
+    with (
+        patch("plp2gtopt.plp2gtopt.PLPParser") as mock_cls,
+        patch("plp2gtopt.plp2gtopt.GTOptWriter") as mock_writer_cls,
+    ):
         mock_cls.return_value = mock_parser
         mock_writer_inst = MagicMock()
         mock_writer_inst.to_json.return_value = mock_planning
@@ -1176,9 +1185,10 @@ def test_generate_variable_scales_template_no_fescala(tmp_path):
         "central_parser": None,
     }
 
-    with patch("plp2gtopt.plp2gtopt.PLPParser") as mock_cls, patch(
-        "plp2gtopt.plp2gtopt.GTOptWriter"
-    ) as mock_writer_cls:
+    with (
+        patch("plp2gtopt.plp2gtopt.PLPParser") as mock_cls,
+        patch("plp2gtopt.plp2gtopt.GTOptWriter") as mock_writer_cls,
+    ):
         mock_cls.return_value = mock_parser
         mock_writer_inst = MagicMock()
         mock_writer_inst.to_json.return_value = mock_planning
@@ -1267,17 +1277,30 @@ def test_install_solver_param_files_copies_bundled(tmp_path):
 
 
 def test_install_solver_param_files_no_bundle(tmp_path):
-    """install_solver_param_files is a no-op when the bundle is missing."""
+    """A missing bundled directory (broken install) is a hard error."""
     target = tmp_path / "case"
     original = _plp2gtopt_mod._BUNDLED_SOLVERS_DIR
     _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = tmp_path / "does_not_exist"
     try:
-        installed = install_solver_param_files(target)
+        with pytest.raises(MissingDataFileError, match="solver parameter"):
+            install_solver_param_files(target)
     finally:
         _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = original
 
-    assert not installed
     assert not (target / "solvers").exists()
+
+
+def test_install_solver_param_files_empty_bundle(tmp_path):
+    """An empty bundled directory is a hard error too."""
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    original = _plp2gtopt_mod._BUNDLED_SOLVERS_DIR
+    _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = bundle
+    try:
+        with pytest.raises(MissingDataFileError, match="no \\*.prm"):
+            install_solver_param_files(tmp_path / "case")
+    finally:
+        _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = original
 
 
 def test_install_solver_param_files_iterative_retunes_cplex(tmp_path):

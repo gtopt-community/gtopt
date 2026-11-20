@@ -248,11 +248,6 @@ TEST_CASE("PlanningOptionsLP enum accessors return correct defaults")  // NOLINT
     CHECK(opts.method_type_enum() == MethodType::monolithic);
   }
 
-  SUBCASE("sddp_boundary_cuts_mode_enum defaults to separated")
-  {
-    CHECK(opts.sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::separated);
-  }
-
   SUBCASE("sddp_cut_recovery_mode_enum defaults to none")
   {
     CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::none);
@@ -262,12 +257,6 @@ TEST_CASE("PlanningOptionsLP enum accessors return correct defaults")  // NOLINT
   {
     CHECK(opts.monolithic_solve_mode_enum() == SolveMode::monolithic);
   }
-
-  SUBCASE("monolithic_boundary_cuts_mode_enum defaults to separated")
-  {
-    CHECK(opts.monolithic_boundary_cuts_mode_enum()
-          == BoundaryCutsMode::separated);
-  }
 }
 
 TEST_CASE("PlanningOptionsLP enum accessors parse explicit values")  // NOLINT
@@ -276,18 +265,14 @@ TEST_CASE("PlanningOptionsLP enum accessors parse explicit values")  // NOLINT
 
   PlanningOptions raw;
   raw.method = MethodType::sddp;
-  raw.sddp_options.boundary_cuts_mode = BoundaryCutsMode::combined;
   raw.sddp_options.cut_recovery_mode = HotStartMode::append;
   raw.monolithic_options.solve_mode = SolveMode::sequential;
-  raw.monolithic_options.boundary_cuts_mode = BoundaryCutsMode::noload;
 
   const PlanningOptionsLP opts(std::move(raw));
 
   CHECK(opts.method_type_enum() == MethodType::sddp);
-  CHECK(opts.sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::combined);
   CHECK(opts.sddp_cut_recovery_mode_enum() == HotStartMode::append);
   CHECK(opts.monolithic_solve_mode_enum() == SolveMode::sequential);
-  CHECK(opts.monolithic_boundary_cuts_mode_enum() == BoundaryCutsMode::noload);
 }
 
 // ─── validate_enum_options ──────────────────────────────────────────────────

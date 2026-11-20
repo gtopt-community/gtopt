@@ -17,6 +17,8 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.json_utils import strip_internal_keys
+from gtopt_shared.resources import REINSTALL_HINT, MissingDataFileError
 from plp2gtopt._progress import ConversionProgress, setup_file_logging
 from plp2gtopt.excel_writer import build_plp_excel
 from plp2gtopt.gtopt_writer import GTOptWriter
@@ -472,8 +474,13 @@ def run_post_check(
         return 0
 
     # Run validation checks (all non-AI checks)
+    # Check what gtopt will read: the written JSON drops the Python-side
+    # ``_``-prefixed metadata (``strip_internal_keys``), so must the check.
     findings = run_all_checks(
-        planning, enabled_checks=None, ai_options=None, base_dir=base_dir
+        strip_internal_keys(planning),
+        enabled_checks=None,
+        ai_options=None,
+        base_dir=base_dir,
     )
 
     # Inject conversion-time battery efficiency warnings (the values were
@@ -621,17 +628,31 @@ def install_solver_param_files(
     ``cplex.prm`` is retuned to dual simplex + no presolve via
     ``_retune_cplex_prm_for_iterative`` — see that helper for the rationale.
 
-    Returns the list of installed file paths (empty when no bundled files).
+    Returns the list of installed file paths.
+
+    Raises:
+        MissingDataFileError: when the bundled ``plp2gtopt/solvers/`` directory
+            is missing or empty (broken install — the case would otherwise
+            silently run with untuned solver defaults).
     """
     if not _BUNDLED_SOLVERS_DIR.is_dir():
-        return []
+        raise MissingDataFileError(
+            f"bundled solver parameter directory not found: "
+            f"{_BUNDLED_SOLVERS_DIR}.  {REINSTALL_HINT}"
+        )
+    sources = sorted(
+        [*_BUNDLED_SOLVERS_DIR.glob("*.prm"), *_BUNDLED_SOLVERS_DIR.glob("*.opts")]
+    )
+    if not sources:
+        raise MissingDataFileError(
+            f"no *.prm / *.opts solver parameter files in "
+            f"{_BUNDLED_SOLVERS_DIR}.  {REINSTALL_HINT}"
+        )
     target_dir = output_dir / "solvers"
     target_dir.mkdir(parents=True, exist_ok=True)
     installed: list[Path] = []
     logger = logging.getLogger(__name__)
-    for src in sorted(
-        [*_BUNDLED_SOLVERS_DIR.glob("*.prm"), *_BUNDLED_SOLVERS_DIR.glob("*.opts")]
-    ):
+    for src in sources:
         dst = target_dir / src.name
         shutil.copyfile(src, dst)
         if iterative and src.name == "cplex.prm":

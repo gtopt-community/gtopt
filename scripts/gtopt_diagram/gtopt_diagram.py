@@ -61,32 +61,34 @@ Dependencies
 
 Usage examples
 --------------
+(``gtopt_case_2y`` is in ``$GTOPT_CASES_DIR/chile/medium_long_term``.)
+
     # Auto mode (default) — picks right strategy automatically
     gtopt_diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg       # <100 → none
-    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # ≥1000 → type+smart threshold
+    gtopt_diagram gtopt_case_2y/gtopt_case_2y.json -o c2y.svg  # ≥1000 → type+smart threshold
 
     # Topology-only (no generators) — clean network view
-    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
+    gtopt_diagram gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
 
     # Force explicit aggregation
-    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+    gtopt_diagram gtopt_case_2y/gtopt_case_2y.json \\
         --aggregate type --voltage-threshold 220 --compact -o case2y_hv.svg
 
     # Global summary (one node per generator type)
-    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+    gtopt_diagram gtopt_case_2y/gtopt_case_2y.json \\
         --aggregate global --compact -o case2y_global.svg
 
     # Hydro cascade only
-    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+    gtopt_diagram gtopt_case_2y/gtopt_case_2y.json \\
         --subsystem hydro -o case2y_hydro.svg
 
     # Interactive HTML for exploration
-    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+    gtopt_diagram gtopt_case_2y/gtopt_case_2y.json \\
         --aggregate type --voltage-threshold 100 --compact \\
         --format html -o case2y.html
 
     # Planning structure
-    gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+    gtopt_diagram gtopt_case_2y/gtopt_case_2y.json \\
         --diagram-type planning -o case2y_planning.svg
 
     # Mermaid snippet for GitHub Markdown

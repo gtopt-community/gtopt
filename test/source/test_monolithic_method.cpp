@@ -207,9 +207,6 @@ TEST_CASE("MonolithicMethod - default member values")  // NOLINT
   CHECK(method.lp_debug_directory.empty());
   CHECK(method.lp_debug_compression.empty());
   CHECK(method.solve_mode == SolveMode::monolithic);
-  CHECK(method.boundary_cuts_file.empty());
-  CHECK(method.boundary_cuts_mode == BoundaryCutsMode::separated);
-  CHECK(method.boundary_max_iterations == 0);
 }
 
 // ---------------------------------------------------------------

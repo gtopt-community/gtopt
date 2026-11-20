@@ -1761,3 +1761,120 @@ def test_unexpected_sheet_warning_message(tmp_path, caplog):
     ), (
         "Expected a warning message that names the unexpected sheet and lists known sheets"
     )
+
+
+# ---------------------------------------------------------------------------
+# FutureCost (FCF boundary cuts) — the single, method-neutral source
+# ---------------------------------------------------------------------------
+
+
+def _c0_with_future_cost(tmp_path, option_rows, *, with_cut_sheet=True):
+    """Copy the c0 workbook adding option rows and a boundary_cuts sheet."""
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.load_workbook(_C0_XLSX)
+    ws = wb["options"]
+    last = ws.max_row
+    while last > 1 and ws.cell(row=last, column=1).value is None:
+        last -= 1
+    for i, (key, value) in enumerate(option_rows, start=last + 1):
+        ws.cell(row=i, column=1, value=key)
+        ws.cell(row=i, column=2, value=value)
+    if with_cut_sheet:
+        bc = wb.create_sheet("boundary_cuts")
+        for col, val in enumerate(["iteration", "scene", "rhs", "b1"], start=1):
+            bc.cell(row=1, column=col, value=val)
+        for col, val in enumerate([1, 1, 100.0, -2.0], start=1):
+            bc.cell(row=2, column=col, value=val)
+    out = tmp_path / "system_c0_fcf.xlsx"
+    wb.save(out)
+    return out
+
+
+def _legacy_keys_in(options: dict) -> list[str]:
+    found = []
+    for section in ("sddp_options", "monolithic_options"):
+        for key in options.get(section, {}) or {}:
+            if key.startswith("boundary_") or key == "missing_cut_var_mode":
+                found.append(f"{section}.{key}")
+    found.extend(k for k in options if k.startswith("boundary_"))
+    return found
+
+
+def test_igtopt_boundary_cuts_sheet_goes_to_future_cost(tmp_path):
+    """The boundary_cuts sheet is wired via FutureCost.cuts_file."""
+    xlsx = _c0_with_future_cost(tmp_path, [("future_cost_iteration_limit", 3)])
+    data = _run_igtopt(xlsx, tmp_path)
+    fcf = data["system"]["future_cost_array"]
+    assert len(fcf) == 1
+    assert fcf[0]["uid"] == 1
+    assert fcf[0]["cuts_file"].endswith("boundary_cuts.csv")
+    assert fcf[0]["iteration_limit"] == 3
+    assert not _legacy_keys_in(data["options"])
+    assert not [k for k in data["options"] if k.startswith("future_cost_")]
+
+
+def test_igtopt_legacy_boundary_options_are_migrated(tmp_path, caplog):
+    """Legacy monolithic_boundary_* flat options land on FutureCost for the
+    (default) monolithic method; legacy sddp keys are dropped there."""
+    xlsx = _c0_with_future_cost(
+        tmp_path,
+        [
+            ("monolithic_boundary_cuts_mode", "combined"),
+            ("monolithic_boundary_max_iterations", 2),
+            ("boundary_cuts_mean_shift", False),
+        ],
+    )
+    with caplog.at_level(logging.WARNING):
+        data = _run_igtopt(xlsx, tmp_path)
+    fcf = data["system"]["future_cost_array"][0]
+    assert fcf["mode"] == "combined"
+    assert fcf["iteration_limit"] == 2
+    assert "mean_shift" not in fcf  # sddp-only alias, ignored for monolithic
+    assert not _legacy_keys_in(data["options"])
+    assert "Deprecated option 'monolithic_options.boundary_cuts_mode'" in caplog.text
+    assert "ignored under method=monolithic" in caplog.text
+
+
+def test_igtopt_conflicting_future_cost_values_fail(tmp_path):
+    """The same FCF field with two different values is rejected."""
+    xlsx = _c0_with_future_cost(
+        tmp_path,
+        [
+            ("future_cost_iteration_limit", 3),
+            ("monolithic_boundary_max_iterations", 5),
+        ],
+        with_cut_sheet=False,
+    )
+    args = argparse.Namespace(
+        filenames=[str(xlsx)],
+        json_file=tmp_path / "out.json",
+        input_directory=tmp_path / "in",
+        input_format="parquet",
+        name="c0",
+        compression="gzip",
+        skip_nulls=True,
+        parse_unexpected_sheets=False,
+        pretty=False,
+        zip=False,
+    )
+    assert _igtopt_run(args) == 1
+
+
+def test_apply_future_cost_helpers():
+    """_pop_future_cost_options strips the prefix; _apply_future_cost
+    never overwrites an element value with a sheet path."""
+    flat = {"future_cost_mode": "separated", "future_cost_cuts_file": None, "x": 1}
+    fc_fields = _igtopt_mod._pop_future_cost_options(flat)
+    assert fc_fields == {"mode": "separated"}
+    assert flat == {"x": 1}
+
+    planning = {
+        "options": {},
+        "system": {
+            "future_cost_array": [{"uid": 4, "name": "mine", "cuts_file": "keep.csv"}]
+        },
+    }
+    _igtopt_mod._apply_future_cost(planning, fc_fields, "sheet.csv")
+    assert planning["system"]["future_cost_array"] == [
+        {"uid": 4, "name": "mine", "cuts_file": "keep.csv", "mode": "separated"}
+    ]

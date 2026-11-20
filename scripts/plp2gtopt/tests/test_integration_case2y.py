@@ -12,23 +12,23 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from plp2gtopt.plp_parser import PLPParser
-from plp2gtopt.plp2gtopt import convert_plp_case
 from gtopt_shared.testing.external_cases import (
-    external_case_dir,
+    external_case_path,
     missing_case_reason,
 )
+from plp2gtopt.plp_parser import PLPParser
+from plp2gtopt.plp2gtopt import convert_plp_case
 
 # Path to the sample PLP cases shipped with the repository
 _CASES_DIR = Path(__file__).parent.parent.parent / "cases"
 
 # plp_case_2y — 2-year (51-stage) full PLP case with plpidsim/idap2/idape.
-# Not shipped with gtopt: resolved through ``GTOPT_CASES_DIR`` (see
-# ``gtopt_shared.testing.external_cases``); tests skip when it is absent.
-_PLPCase2Y_FOUND = external_case_dir("plp_case_2y")
-_PLPCase2Y = _PLPCase2Y_FOUND or (_CASES_DIR / "plp_case_2y")
-_needs_case_2y = pytest.mark.skipif(
-    _PLPCase2Y_FOUND is None, reason=missing_case_reason("plp_case_2y")
+# It lives in the external case repository (tools/get_cases.sh); the
+# tests that need it skip when $GTOPT_CASES_DIR does not provide it.
+_PLP_2Y_REL = "chile/medium_long_term/plp_2y/source"
+_PLPCase2Y = external_case_path(_PLP_2Y_REL) or (_CASES_DIR / "plp_case_2y")
+_needs_2y = pytest.mark.skipif(
+    not _PLPCase2Y.is_dir(), reason=missing_case_reason(_PLP_2Y_REL)
 )
 
 # ---------------------------------------------------------------------------
@@ -158,9 +158,10 @@ def _run_gtopt(
         timeout=timeout,
         check=False,
     )
-    return result.returncode, result.stdout + result.stderr + _gather_gtopt_logs(
-        case_dir
-    )
+    # plp2gtopt writes ``<name>.json`` next to the ``<name>/`` data folder,
+    # whose ``output_directory`` holds the logs: look in both places.
+    logs = _gather_gtopt_logs(case_dir) + _gather_gtopt_logs(case_dir / json_stem)
+    return result.returncode, result.stdout + result.stderr + logs
 
 
 # ---------------------------------------------------------------------------
@@ -304,8 +305,8 @@ def test_bat_4b_24_lmax_parquet(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_parse():
     """plp_case_2y: parsers including idsim, idap2, and idape load correctly."""
     parser = PLPParser({"input_dir": _PLPCase2Y})
@@ -347,8 +348,8 @@ def test_plp_case_2y_parse():
     assert len(aflce.items) == 171
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
     """plp_case_2y: -y all -a all -s 1 produces 16 scenarios using hydros 51-68.
 
@@ -438,8 +439,8 @@ def test_plp_case_2y_single_stage_all_scenarios(tmp_path):
     assert "num_apertures" not in sddp
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
     """plp_case_2y: all stages — apertures from stages 28+ include extra hydros.
 
@@ -508,8 +509,8 @@ def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
     assert len(fwd_files) > 0
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_info(capsys):
     """plp_case_2y --info: displays simulation mapping and aperture structure."""
     from plp2gtopt.info_display import display_plp_info
@@ -756,8 +757,8 @@ def _check_2y_global_indicators(
     ), "Total water volume too far apart (>10%)"
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_global_indicators(tmp_path):
     """plp_case_2y: indicators match in default flow-turbine mode."""
     _check_2y_global_indicators(
@@ -765,15 +766,15 @@ def test_plp_case_2y_global_indicators(tmp_path):
     )
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_global_indicators_hydro_mode(tmp_path):
     """plp_case_2y: indicators match in full hydro topology mode."""
     _check_2y_global_indicators(tmp_path, "gtopt_case_2y_hydro", pasada_mode="hydro")
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_global_indicators_profile_mode(tmp_path):
     """plp_case_2y: indicators match in legacy pasada-profile mode."""
     _check_2y_global_indicators(
@@ -781,8 +782,8 @@ def test_plp_case_2y_global_indicators_profile_mode(tmp_path):
     )
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_4h_partial_hydrology(tmp_path):
     """plp_case_2y with 4 hydrologies: demand matches, flows positivity-checked.
 
@@ -855,8 +856,8 @@ def test_plp_case_2y_4h_partial_hydrology(tmp_path):
     ), "Total water volume too far apart (>15%)"
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_4h_4s_partial_stages(tmp_path):
     """plp_case_2y with 4 hydrologies and 4 stages: energy and last block differ.
 
@@ -915,8 +916,8 @@ def test_plp_case_2y_4h_4s_partial_stages(tmp_path):
     ), "Last block demand should differ with truncated stages"
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_2h_two_scenarios(tmp_path):
     """plp_case_2y with 2 explicit hydrologies (-y 55,60), max_iterations=2.
 
@@ -994,8 +995,8 @@ def test_plp_case_2y_2h_two_scenarios(tmp_path):
     assert sorted(df["scenario"].unique()) == [55, 60]
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_2h_4s_two_scenarios_partial(tmp_path):
     """plp_case_2y with 2 hydrologies (-y 51,66), 4 stages, max_iterations=2.
 
@@ -1061,8 +1062,8 @@ def test_plp_case_2y_2h_4s_two_scenarios_partial(tmp_path):
     assert sorted(df["scenario"].unique()) == [51, 66]
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_aperture_cache_loading(tmp_path):
     """plp_case_2y: convert with 1 scenario + apertures, build the gtopt LP.
 
@@ -1140,8 +1141,8 @@ def test_plp_case_2y_aperture_cache_loading(tmp_path):
     assert rc == 0, f"gtopt failed loading aperture data (rc={rc}):\n{stderr}"
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_aperture_sddp_backward_pass(tmp_path):
     """plp_case_2y: multi-phase SDDP must run the aperture backward pass.
 
@@ -1183,8 +1184,8 @@ def test_plp_case_2y_aperture_sddp_backward_pass(tmp_path):
     assert "optimal" in output.lower(), f"SDDP did not reach optimal:\n{output}"
 
 
+@_needs_2y
 @pytest.mark.integration
-@_needs_case_2y
 def test_plp_case_2y_boundary_cuts_loaded(tmp_path):
     """plp_case_2y: boundary cuts must always be loaded regardless of recovery_mode.
 
@@ -1220,8 +1221,10 @@ def test_plp_case_2y_boundary_cuts_loaded(tmp_path):
 
     # Verify JSON references the boundary cuts file
     data = json.loads(Path(opts["output_file"]).read_text(encoding="utf-8"))
-    sddp = data["options"].get("sddp_options", {})
-    assert sddp.get("boundary_cuts_file"), "boundary_cuts_file not set in JSON"
+    future_cost = data["system"].get("future_cost_array", [])
+    assert any(fc.get("cuts_file") for fc in future_cost), (
+        "FutureCost cuts_file not set in JSON"
+    )
 
     # 2. Run gtopt — boundary cuts must be loaded
     json_file = Path(opts["output_file"])

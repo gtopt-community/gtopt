@@ -145,6 +145,30 @@ Then convert back to pandapower, solve, and extract golden files.
 | `exp_bat_4b` | 4 | 1 | 4 | Battery expansion |
 | `exp_bat_4b_24` | 4 | 1 | 4 | 24h battery expansion |
 
+## LP conditioning tests (`numerics` label)
+
+`GTOPT_NUMERICS_TESTS=ON` registers tests that solve a large, badly
+conditioned case under several solver variants and check the condition
+number (`kappa` in `solution.csv`) and the objective, using
+`tools/check_case_conditioning.py`.  They are off by default because each
+variant builds a ~42k-column LP.  The case (`cen_long_term_1y`) is not
+committed: it is taken from the case repository gtopt-cases
+(`chile/medium_long_term/cen_long_term_1y`) when `GTOPT_CASES_DIR` points
+at a checkout of it (`tools/get_cases.sh`), or from
+`GTOPT_NUMERICS_CASES_DIR` (a directory that holds `cen_long_term_1y/`).
+The tests skip when the case or the CPLEX or HiGHS plugin is missing.
+
+```bash
+eval "$(bash tools/get_cases.sh)"        # export GTOPT_CASES_DIR=...
+cmake -S all -B build -DGTOPT_BUILD_INTEGRATION_TESTS=ON \
+  -DGTOPT_NUMERICS_TESTS=ON
+cmake --build build -j$(nproc)
+cd build && ctest -L numerics --output-on-failure
+```
+
+The checks and the measured values are documented next to the
+registration in `integration_test/CMakeLists.txt`.
+
 ## IEEE test case sources
 
 Standard IEEE test cases are widely available in MATPOWER format:

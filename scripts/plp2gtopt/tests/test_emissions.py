@@ -24,6 +24,8 @@ from typing import Any
 
 import pytest
 
+from gtopt_shared.resources import package_data_file
+
 from gtopt_shared.emissions import (
     DEFAULT_EMISSIONS_FILE,
     EmissionDefaults,
@@ -823,21 +825,13 @@ def test_empty_subtype_ignored() -> None:
 
 
 def test_cen_chile_override_file_loads_and_overrides_coal() -> None:
-    """The shipped ``share/gtopt/emissions/cen_chile.json`` override
+    """The shipped ``gtopt_shared/data/emissions/cen_chile.json`` override
     file resolves the ``coal``/``carbon`` aliases to
     ``coal_sub_bituminous`` (0.0961) — the Chilean-fleet reality —
     instead of the IPCC default ``coal_bituminous`` (0.0946).
     """
-    # Repo-relative path (resolves from any cwd via __file__ anchor).
-    overlay = (
-        Path(__file__).resolve().parents[3]
-        / "share"
-        / "gtopt"
-        / "emissions"
-        / "cen_chile.json"
-    )
-    if not overlay.exists():
-        pytest.skip(f"CEN-Chile overlay not present at {overlay}")
+    # Bundled package data (required — no skip when missing).
+    overlay = package_data_file("gtopt_shared", "data", "emissions", "cen_chile.json")
     d = load_emission_defaults(overlay)
     # The "carbon" alias points at coal_sub_bituminous in this file.
     coal_hit = d.lookup("Carbon_Andina")

@@ -61,23 +61,33 @@ entry point in `scripts/pyproject.toml`, so a `pip install -e .` (or
 the in-tree alias) exposes `plexos2gtopt` on `PATH`. The same module
 can always be run as `python -m plexos2gtopt`.
 
+The converter needs its bundled data files — notably the PLEXOS-HARD
+user-constraint list `plexos2gtopt/data/cen_pcp_hard_ucs.txt` and the
+`solvers/*.prm` files.  A missing file is a hard error
+(`MissingDataFileError`).  Installs made before 2026-11 with a regular
+(non-editable) `pip install ./scripts` lacked them and silently turned
+~100 CEN user constraints soft; reinstall with
+`pip install --force-reinstall --no-deps ./scripts` and reconvert.  The
+log line `PLEXOS-HARD UC list: N names loaded from …` confirms the list
+was applied.  See [Bundled data files](../scripts-guide.md#bundled-data-files).
+
 ### Minimum run
 
 ```bash
 # Sanity check + summary (no conversion):
-plexos2gtopt --info support/plexos/pcp_2026-04-22/PLEXOS20260422.zip
+plexos2gtopt --info $GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/PLEXOS20260422.zip
 
 # Schema-light validation (no conversion):
-plexos2gtopt --validate support/plexos/pcp_2026-04-22
+plexos2gtopt --validate $GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/
 
 # Default conversion (writes to gtopt_PLEXOS20260422/ next to the input).
 # Auto-discovers RES<DATE>.zip[.xz] sibling for the PLEXOS block layout.
-plexos2gtopt support/plexos/pcp_2026-04-22/PLEXOS20260422.zip \
+plexos2gtopt $GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/PLEXOS20260422.zip \
   -o gtopt_PLEXOS20260422
 
 # Standalone re-comparison: parse the bundle vs an existing JSON.
 plexos2gtopt --compare gtopt_PLEXOS20260422/PLEXOS20260422.json \
-  support/plexos/pcp_2026-04-22/PLEXOS20260422.zip
+  $GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/PLEXOS20260422.zip
 
 # Solve the resulting case (MIP by default; --solver picks the backend):
 gtopt gtopt_PLEXOS20260422/PLEXOS20260422.json --solver cplex
@@ -91,7 +101,7 @@ gtopt gtopt_PLEXOS20260422/PLEXOS20260422.json --solver cplex
   CSVs (extracted by hand).
 * A `DATOS{YYYYMMDD}.zip` archive (the input dataset).
 * A `DATOS{YYYYMMDD}.zip.xz` (the on-disk form vendored under
-  `support/plexos/pcp_2026-04-22/`).
+  `$GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/`).
 * A `PLEXOS{YYYYMMDD}.zip` outer wrapper (auto-unwrapped to its
   DATOS inner zip).
 * A directory containing a single `DATOS*.zip[.xz]` inside (auto-
@@ -479,8 +489,8 @@ cut so both SDDP and the monolithic LP value terminal storage:
 
 1. `boundary_cuts.csv` — GTOpt's native SDDP cut file
    (`scene,rhs,<reservoirs>` rows, coefficients = `-water_value`),
-   wired via `simulation.boundary_cuts_file` and
-   `options.monolithic_options.boundary_cuts_file`.
+   wired via the FutureCost element
+   (`system.future_cost_array[].cuts_file`), which every method reads.
 2. `alpha_fcf` — a single `DecisionVariable` at the last block
    (`block` scope, `cost_type = energy`, cost = 1) + a
    `FCF_future_cost` UserConstraint
@@ -547,6 +557,12 @@ A complementary line-cap policy ships out of the box:
   `enforce_level = 0` onto every line whose unlifted-OPF flow
   exceeds rating by ≥ THRESHOLD. Useful when the lift list isn't
   curated for a new bundle.
+
+  After a solve, `plexos2gtopt-line-lifts <case.json> <gtopt output>
+  [--lifted FILE|NAMES [--lifted-key KEY]] --suggest` ranks the lines by
+  the |reduced cost| of their flow column, reports utilisation, blocks at
+  cap and soft-band overload energy, and prints a `--lift-line-caps` value
+  (current list + binding candidates above `--min-dual`).
 
 ---
 
@@ -629,6 +645,35 @@ GTOpt's strict JSON parser). `--lax-uc-refs` downgrades this to a
 warning + silent per-term drop for diagnostic / iterative parser
 work.
 
+A few term families are instead dropped because they are **provably
+zero** in PLEXOS (shadow lines with `Lin_Units = 0`, fully-offline
+generators, zone-less generator provisions, …).  One of them concerns
+battery reserve terms: PLEXOS creates a battery reserve-provision
+variable only for each `Reserve → Battery` membership, so a battery
+`Raise` / `Lower` / `Regulation Raise` / `Regulation Lower` /
+`Reserve Provision Coefficient` term on a battery that is **not a
+member of any reserve the term can target** multiplies an
+identically-zero quantity.  Such terms are dropped and listed in one
+`WARNING` (`N Battery reserve term(s) dropped as identically zero …`,
+also counted in the `battery_zero_provision_terms` UC statistic).  A
+battery `Reserve Units Coefficient` in the same constraint is dropped
+with it (the battery has no units providing that reserve).  The
+targeted reserves are:
+
+| Battery coefficient kind | Targeted reserves |
+|---|---|
+| `Regulation Raise/Lower`, generic `Reserve Provision` | `<CPF\|CSF>_<RS\|LW>_BESS` (type from the constraint name, direction from the kind or name) |
+| `Raise` / `Lower` | member reserves of that direction whose PLEXOS `Type` is not Regulation (3/4) |
+
+If the battery **is** a member of a targeted reserve but its
+zone-suffixed provision was not emitted, the strict hard-fail above
+still applies.  Recent CEN PCP bundles (2026-07 onward) hit this on
+`Gx_SSCC_Jadresic`, `SD_*_Kallpa_Taltal`, `*_Gx_Cochrane1_Arenales`,
+`SD_*_Gx_BESS_Sol_De_Los_Andes` and the `CSF_*_MIN_BAT_ANDES_4_FV`
+rows.  Separately, any `<Class> → Constraint` coefficient kind
+present in the bundle that the converter does not map is reported in
+a `WARNING` rather than ignored without trace.
+
 ---
 
 ## 11. End-to-end example: CEN PCP 2026-04-22 weekly
@@ -639,7 +684,7 @@ This is the canonical reference bundle. The complete pipeline:
 # 1. Convert (default == PLEXOS-native 111-block layout, MIP commitments,
 #              auto soft EL=1 caps, default --loss-pwl-layout dynamic):
 plexos2gtopt \
-  -i support/plexos/pcp_2026-04-22/PLEXOS20260422.zip \
+  -i $GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/PLEXOS20260422.zip \
   -o gtopt_PLEXOS20260422
 
 # 2. Solve with CPLEX MIP, write full Parquet output stream:
@@ -649,7 +694,7 @@ gtopt gtopt_PLEXOS20260422/PLEXOS20260422.json \
 # 3. Compare against the PLEXOS reference solution
 #    (auto-discovers RES{date}.zip[.xz] sibling):
 plexos2gtopt --compare gtopt_PLEXOS20260422/PLEXOS20260422.json \
-  support/plexos/pcp_2026-04-22/PLEXOS20260422.zip
+  $GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/PLEXOS20260422.zip
 ```
 
 ### What the converter produces (observed)
@@ -676,7 +721,7 @@ conversion comparison and the resulting JSON):
 | `decision_variable_array` | 44 (including `alpha_fcf`) |
 | `user_constraint_array` | 6 (per-block-RHS only) |
 | `user_constraint_files` | 8 (`uc_<family>.pampl`) |
-| `boundary_cuts_file` | `boundary_cuts.csv` (1 cut, 8 reservoir slopes) |
+| `future_cost_array` | 1 (`cuts_file = boundary_cuts.csv`: 1 cut, 8 reservoir slopes) |
 
 ### Simulation block
 
@@ -894,5 +939,5 @@ X come from?" without re-reading the converter source.
 * `include/gtopt/{generator,line,battery,reservoir,turbine,waterway,reserve_provision,decision_variable,commitment}.hpp`
   + matching `_lp.cpp` — the GTOpt LP class catalogue (types,
   accessors registered via `add_ampl_variable`, schedule fields).
-* `support/plexos/pcp_2026-04-22/` — the canonical reference
+* `$GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/` — the canonical reference
   bundle the converter is exercised against in every release.

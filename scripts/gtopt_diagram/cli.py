@@ -89,23 +89,23 @@ Other reduction options:
   --hide-isolated     Remove nodes with no connections
   --compact           Omit detail labels (show only names / counts)
 
-Examples:
+Examples (gtopt_case_2y is in $GTOPT_CASES_DIR/chile/medium_long_term):
   # Auto mode (default) — picks the right aggregation for case size
   gtopt_diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg          # <100: none
-  gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json -o c2y.svg # ≥1000: type+smart threshold
+  gtopt_diagram gtopt_case_2y/gtopt_case_2y.json -o c2y.svg # ≥1000: type+smart threshold
 
   # Topology-only (no generators) — clean network diagram
-  gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
+  gtopt_diagram gtopt_case_2y/gtopt_case_2y.json --no-generators -o topo.svg
 
   # Interactive HTML — explore with physics simulation
   gtopt_diagram cases/ieee_9b/ieee_9b.json --format html -o ieee9b.html
 
   # Force explicit mode
-  gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+  gtopt_diagram gtopt_case_2y/gtopt_case_2y.json \\
       --aggregate type --voltage-threshold 220 --format html -o case2y.html
 
   # Show only hydro generators in 2-hop neighbourhood of a bus
-  gtopt_diagram cases/gtopt_case_2y/gtopt_case_2y.json \\
+  gtopt_diagram gtopt_case_2y/gtopt_case_2y.json \\
       --filter-type hydro --focus-bus Chapo220 --focus-hops 3 --format svg
 
   # Planning structure from a real case

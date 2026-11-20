@@ -137,13 +137,34 @@ function showPanel(id) {
 // Options
 // ---------------------------------------------------------------------------
 
+// ModelOptions fields of the flat options form: written to
+// options.model_options (gtopt rejects them at the top level of options).
+const MODEL_OPTION_FIELDS = new Set([
+  "demand_fail_cost",
+  "reserve_shortage_cost",
+  "hydro_spill_cost",
+  "hydro_use_value",
+  "scale_objective",
+  "scale_theta",
+  "kirchhoff_threshold",
+  "loss_segments",
+  "use_line_losses",
+  "use_kirchhoff",
+  "use_single_bus",
+]);
+
+// Legacy flat keys still found in older GUI cases.
+const LEGACY_MODEL_OPTION_KEYS = {
+  reserve_fail_cost: "reserve_shortage_cost",
+  hydro_fail_cost: "hydro_spill_cost",
+};
+
 function gatherOptions() {
-  const opts = {};
   const fields = [
     "annual_discount_rate",
     "demand_fail_cost",
-    "reserve_fail_cost",
-    "hydro_fail_cost",
+    "reserve_shortage_cost",
+    "hydro_spill_cost",
     "hydro_use_value",
     "scale_objective",
     "scale_theta",
@@ -172,25 +193,49 @@ function gatherOptions() {
     "lp_only",
   ];
 
+  // Start from the loaded options so blocks the form does not edit
+  // (sddp_options, monolithic_options, solver_options, …) survive a save.
+  const opts = JSON.parse(JSON.stringify(caseData.options || {}));
+  const model = opts.model_options || {};
+  for (const legacy of Object.keys(LEGACY_MODEL_OPTION_KEYS)) {
+    delete opts[legacy];
+    delete model[legacy];
+  }
+  for (const f of fields.concat(boolFields)) {
+    delete opts[f];
+    delete model[f];
+  }
+
+  const put = (key, value) => {
+    if (MODEL_OPTION_FIELDS.has(key)) model[key] = value;
+    else opts[key] = value;
+  };
   for (const f of fields) {
     const el = document.getElementById("opt-" + f);
     if (!el) continue;
     const v = el.value.trim();
     if (v === "") continue;
     const num = Number(v);
-    opts[f] = isNaN(num) ? v : num;
+    put(f, isNaN(num) ? v : num);
   }
   for (const f of boolFields) {
     const el = document.getElementById("opt-" + f);
     if (!el || el.value === "") continue;
-    opts[f] = el.value === "true";
+    put(f, el.value === "true");
   }
+  if (Object.keys(model).length > 0) opts.model_options = model;
+  else delete opts.model_options;
   return opts;
 }
 
 function loadOptions(opts) {
   if (!opts) return;
-  for (const [k, v] of Object.entries(opts)) {
+  const flat = Object.assign({}, opts, opts.model_options || {});
+  for (const [legacy, canon] of Object.entries(LEGACY_MODEL_OPTION_KEYS)) {
+    if (legacy in flat && !(canon in flat)) flat[canon] = flat[legacy];
+  }
+  for (const [k, v] of Object.entries(flat)) {
+    if (v !== null && typeof v === "object") continue;
     const el = document.getElementById("opt-" + k);
     if (!el) continue;
     if (typeof v === "boolean") {
@@ -638,6 +683,7 @@ function newCase() {
   caseData.options = {};
   caseData.simulation = { block_array: [], stage_array: [], scenario_array: [] };
   caseData.system = {};
+  caseData.system_extra = {};
   caseData.data_files = {};
 
   // Reset options form
@@ -700,7 +746,9 @@ async function uploadCase(input) {
     caseData.case_name = data.case_name;
     caseData.simulation = data.simulation || { block_array: [], stage_array: [], scenario_array: [] };
     caseData.system = data.system || {};
+    caseData.system_extra = data.system_extra || {};
     caseData.data_files = data.data_files || {};
+    caseData.options = data.options || {};
 
     loadOptions(data.options);
     updateBadges();

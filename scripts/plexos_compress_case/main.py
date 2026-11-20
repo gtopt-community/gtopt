@@ -19,8 +19,9 @@ All operations use a temporary directory so an interruption leaves the
 original files intact.
 
 The companion to ``plp_compress_case`` for ``.dat``/``.csv`` PLP cases —
-see ``support/plp_*/`` for examples of that format.  This tool targets
-the PLEXOS PCP bundles in ``support/plexos/pcp_2026-04-22/`` (CEN Programa de
+see the ``plp_*/source/`` folders of gtopt-cases for that format.
+This tool targets the PLEXOS PCP bundles of gtopt-cases, e.g.
+``chile/daily_scheduling/pcp_2026-04-22/source/`` (CEN Programa de
 Coordinación de Predespacho).
 
 Configuration
@@ -30,11 +31,11 @@ User preferences are stored in ``~/.gtopt.conf`` under
 
 Examples::
 
-    plexos_compress_case support/plexos/pcp_2026-04-22
-    plexos_compress_case support/plexos/pcp_2026-04-22 --no-unwrap
-    plexos_compress_case --decompress support/plexos/pcp_2026-04-22
-    plexos_compress_case --decompress support/plexos/pcp_2026-04-22 --rewrap
-    plexos_compress_case support/plexos/pcp_2026-04-22 --codec zstd --codec-args "-19"
+    plexos_compress_case pcp_2026-04-22/source/
+    plexos_compress_case pcp_2026-04-22/source/ --no-unwrap
+    plexos_compress_case --decompress pcp_2026-04-22/source/
+    plexos_compress_case --decompress pcp_2026-04-22/source/ --rewrap
+    plexos_compress_case pcp_2026-04-22/source/ --codec zstd --codec-args "-19"
 """
 
 from __future__ import annotations
@@ -88,11 +89,11 @@ With --decompress, restores original .zip files (and with --rewrap,
 rebuilds the PLEXOS{date}.zip outer wrappers).
 
 Examples:
-  plexos_compress_case support/plexos/pcp_2026-04-22
-  plexos_compress_case support/plexos/pcp_2026-04-22 --no-unwrap
-  plexos_compress_case --decompress support/plexos/pcp_2026-04-22
-  plexos_compress_case --decompress support/plexos/pcp_2026-04-22 --rewrap
-  plexos_compress_case support/plexos/pcp_2026-04-22 --codec zstd --codec-args "-19"
+  plexos_compress_case pcp_2026-04-22/source/
+  plexos_compress_case pcp_2026-04-22/source/ --no-unwrap
+  plexos_compress_case --decompress pcp_2026-04-22/source/
+  plexos_compress_case --decompress pcp_2026-04-22/source/ --rewrap
+  plexos_compress_case pcp_2026-04-22/source/ --codec zstd --codec-args "-19"
 """
 
 

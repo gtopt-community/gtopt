@@ -463,7 +463,7 @@ using namespace gtopt::detail;
           raw_cuts.size());
     }
 
-    // ── Filter by max_iterations ────────────────────────────────
+    // ── Filter by FutureCost.iteration_limit ────────────────────
     const auto max_iters = options.boundary_max_iterations;
     if (max_iters > 0 && has_iteration_col) {
       std::set<int> distinct_iters;
@@ -481,9 +481,10 @@ using namespace gtopt::detail;
                       [&keep_iters](const RawBoundaryCut& rc)
                       { return !keep_iters.contains(rc.iteration_index); });
         SPDLOG_INFO(
-            "SDDP: boundary cuts filtered to last {} "
-            "iterations ({} cuts)",
+            "Boundary cuts: iteration_limit={} keeps the cuts of the "
+            "last {} source iterations ({} cuts)",
             max_iters,
+            keep_iters.size(),
             raw_cuts.size());
       }
     }
@@ -504,12 +505,11 @@ using namespace gtopt::detail;
     // assembly below emits pure physical-space rows and the locals
     // are no longer needed.
 
-    // When boundary_cuts_valuation == present_value, apply the
+    // When FutureCost.valuation == present_value, apply the
     // effective discount factor of the last phase's last stage to
     // the cut RHS and coefficients.  This brings present-value cuts
     // into the same basis as the LP objective.
-    const auto valuation = sim.simulation().boundary_cuts_valuation.value_or(
-        BoundaryCutsValuation::end_of_horizon);
+    const auto valuation = options.boundary_cuts_valuation;
     double bc_discount = 1.0;
     if (valuation == BoundaryCutsValuation::present_value) {
       const auto& last_phase_lp = sim.phases()[last_phase];

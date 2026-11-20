@@ -141,15 +141,25 @@ Two columns: **option** and **value**. Each row sets one planning option.
 | `demand_fail_cost` | `1000` |
 | `scale_objective` | `1000` |
 | `annual_discount_rate` | `0.1` |
-| `boundary_cuts_file` | `boundary_cuts.csv` |
-| `boundary_cuts_valuation` | `end_of_horizon` |
+| `future_cost_cuts_file` | `boundary_cuts.csv` |
+| `future_cost_mode` | `separated` |
 | `input_directory` | `ieee57b` |
 | `input_format` | `parquet` |
 | `output_format` | `csv` |
 
-`annual_discount_rate`, `boundary_cuts_file`, and
-`boundary_cuts_valuation` are placed in the `simulation` section of the
-generated JSON.  All other options go into `options`.
+`annual_discount_rate` is placed in the `simulation` section of the
+generated JSON.  Rows named `future_cost_<field>` (e.g.
+`future_cost_cuts_file`, `future_cost_mode`, `future_cost_iteration_limit`,
+`future_cost_valuation`) set that field on the FutureCost element
+(`system.future_cost_array`), the single source of the boundary cuts; a
+`future_cost_array` sheet may define the element directly, and a
+`boundary_cuts` sheet is written to `boundary_cuts.csv` and wired as its
+`cuts_file`.  The deprecated rows `boundary_cuts_file`,
+`boundary_cuts_valuation`, `boundary_*` and `monolithic_boundary_*` are
+still accepted and folded into the FutureCost element with a warning,
+following gtopt's per-method rules; conflicting values are an error.  The
+generated JSON never carries the legacy keys.  All other options go into
+`options`.
 
 Boolean values are written as `True` / `False`. Numeric values are parsed
 automatically. See [INPUT_DATA.md](../input-data.md) for the full list of
@@ -165,9 +175,14 @@ Set `method` to choose the planning solver:
 | `sddp`        | SDDP decomposition with Benders cuts |
 | `cascade`     | Multi-level hybrid solver with progressive LP refinement |
 
-SDDP options go under the `sddp_*` prefix in the options sheet
-(e.g. `max_iterations`, `num_apertures`).  These are nested into the
-`sddp_options` sub-object in the output JSON automatically.
+SDDP options (e.g. `max_iterations`, `num_apertures`) are nested into the
+`sddp_options` sub-object in the output JSON automatically.  Likewise,
+model options (`use_single_bus`, `use_kirchhoff`, `scale_objective`,
+`demand_fail_cost`, `line_losses_mode`, …) are written to
+`options.model_options`, LP-matrix options (`lp_coeff_ratio_threshold`,
+`equilibration_method`, …) to `options.lp_matrix_options`, and
+`solver_<key>` rows to `options.solver_options` — gtopt rejects these keys
+at the top level of `options`.
 
 #### Cascade-specific options
 
@@ -278,8 +293,12 @@ specifies which scenarios participate in the forward or backward pass.
 
 ### 5.3 System Sheets
 
-Each sheet becomes a JSON array under the `system` key. The 20 recognized
-system sheets are:
+Each sheet becomes a JSON array under the `system` key.  Every `*_array`
+member of gtopt's `System` contract is a recognized sheet (the list is
+pinned to `include/gtopt/json/json_system.hpp` by
+`scripts/gtopt_shared/tests/test_json_contracts_sync.py`, which also
+checks every template column against the C++ contract).  The most common
+ones are:
 
 | Sheet name | Key columns | Description |
 |------------|-------------|-------------|
@@ -302,6 +321,7 @@ system sheets are:
 | `reservoir_discharge_limit_array` | uid, name, reservoir | Volume-dependent discharge limits |
 | `reservoir_production_factor_array` | uid, name, reservoir | Volume-dependent turbine efficiency adjustments |
 | `user_constraint_array` | uid, name, ... | User-defined custom LP constraints |
+| `future_cost_array` | uid, name, cuts_file, mode, sharing, iteration_limit | Future-cost function (boundary cuts) — see [input-data](../input-data.md) |
 
 
 #### `reservoir_seepage_array` — Piecewise-Linear Seepage Model

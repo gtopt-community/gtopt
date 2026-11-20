@@ -10,6 +10,7 @@ import pytest
 from psse2gtopt.main import main
 from psse2gtopt.psse2gtopt import (
     convert_psse_case,
+    raw_stem,
     resolve_raw_file,
     validate_psse_case,
 )
@@ -66,6 +67,19 @@ def test_convert_default_output(synthetic_raw: Path, tmp_path: Path) -> None:
     planning_file = out / "out.json"
     assert planning_file.is_file()
     data = json.loads(planning_file.read_text(encoding="utf-8"))
+    assert data["system"]["name"] == "synthetic"
+
+
+def test_convert_compressed_raw_name(synthetic_raw: Path, tmp_path: Path) -> None:
+    """``case.raw.xz`` is named ``case`` (not ``case.raw``)."""
+    import lzma  # pylint: disable=import-outside-toplevel
+
+    xz = tmp_path / "synthetic.raw.xz"
+    xz.write_bytes(lzma.compress(synthetic_raw.read_bytes()))
+    assert raw_stem(xz) == "synthetic" and raw_stem(synthetic_raw) == "synthetic"
+    out = tmp_path / "out"
+    assert convert_psse_case({"input": xz, "output_dir": out}) == 0
+    data = json.loads((out / "out.json").read_text(encoding="utf-8"))
     assert data["system"]["name"] == "synthetic"
 
 

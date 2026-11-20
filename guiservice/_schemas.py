@@ -5,6 +5,8 @@ Three exports:
 * ``OPTIONS_SCHEMA``      — global solver / I/O options metadata.
 * ``ELEMENT_SCHEMAS``     — per-element-type field metadata.
 * ``ELEMENT_TO_ARRAY_KEY``— maps GUI element type → JSON ``*_array`` key.
+* ``MODEL_OPTION_KEYS`` / ``nest_model_options`` — flat form keys that
+  belong under ``options.model_options``.
 
 Pure data — no executable logic.  Imported by :mod:`guiservice.app` and
 re-exported for back-compat with existing call sites:
@@ -18,7 +20,10 @@ from __future__ import annotations
 # Schema definitions – mirrors the C++ JSON interfaces in include/gtopt/json/
 # ---------------------------------------------------------------------------
 
-# Options schema – mirrors PlanningOptions in include/gtopt/planning_options.hpp
+# Options schema – mirrors PlanningOptions (json_options.hpp).  Keys listed
+# in ``MODEL_OPTION_KEYS`` are ModelOptions fields: the GUI shows them in
+# the same flat form, but they are written to ``options.model_options``
+# (gtopt rejects them at the top level of ``options``).
 OPTIONS_SCHEMA = {
     # ── Input/Output ──────────────────────────────────────────────────────────
     "input_directory": {"type": "string", "label": "Input Directory"},
@@ -48,8 +53,11 @@ OPTIONS_SCHEMA = {
     # ── Model parameters ──────────────────────────────────────────────────────
     "annual_discount_rate": {"type": "number", "label": "Annual Discount Rate"},
     "demand_fail_cost": {"type": "number", "label": "Demand Fail Cost [$/MWh]"},
-    "reserve_fail_cost": {"type": "number", "label": "Reserve Fail Cost [$/MWh]"},
-    "hydro_fail_cost": {"type": "number", "label": "Hydro Fail Cost [$/m³]"},
+    "reserve_shortage_cost": {
+        "type": "number",
+        "label": "Reserve Shortage Cost [$/MWh]",
+    },
+    "hydro_spill_cost": {"type": "number", "label": "Hydro Spill Cost [$/m³]"},
     "hydro_use_value": {"type": "number", "label": "Hydro Use Value [$/m³]"},
     "scale_objective": {"type": "number", "label": "Scale Objective"},
     "scale_theta": {"type": "number", "label": "Scale Theta"},
@@ -78,6 +86,44 @@ OPTIONS_SCHEMA = {
         "options": ["", "strict", "normal"],
     },
 }
+
+# ModelOptions fields shown in the flat options form (json_model_options.hpp).
+MODEL_OPTION_KEYS = frozenset(
+    {
+        "demand_fail_cost",
+        "reserve_shortage_cost",
+        "hydro_spill_cost",
+        "hydro_use_value",
+        "scale_objective",
+        "scale_theta",
+        "kirchhoff_threshold",
+        "use_line_losses",
+        "use_kirchhoff",
+        "use_single_bus",
+        "loss_segments",
+    }
+)
+
+# Legacy GUI option keys → canonical ModelOptions keys.
+LEGACY_OPTION_KEYS = {
+    "reserve_fail_cost": "reserve_shortage_cost",
+    "hydro_fail_cost": "hydro_spill_cost",
+}
+
+
+def nest_model_options(options: dict) -> dict:
+    """Return *options* with flat model-option keys moved under
+    ``model_options`` (legacy names renamed); other keys untouched."""
+    out = {k: v for k, v in options.items() if k != "model_options"}
+    model = dict(options.get("model_options") or {})
+    for key in list(out):
+        canon = LEGACY_OPTION_KEYS.get(key, key)
+        if canon in MODEL_OPTION_KEYS:
+            model.setdefault(canon, out.pop(key))
+    if model:
+        out["model_options"] = model
+    return out
+
 
 ELEMENT_SCHEMAS = {
     "bus": {
@@ -162,11 +208,11 @@ ELEMENT_SCHEMAS = {
             {"name": "input_efficiency", "type": "number_or_file", "required": False},
             {"name": "output_efficiency", "type": "number_or_file", "required": False},
             {"name": "annual_loss", "type": "number_or_file", "required": False},
-            {"name": "vmin", "type": "number_or_file", "required": False},
-            {"name": "vmax", "type": "number_or_file", "required": False},
+            {"name": "emin", "type": "number_or_file", "required": False},
+            {"name": "emax", "type": "number_or_file", "required": False},
             {"name": "ecost", "type": "number_or_file", "required": False},
-            {"name": "vini", "type": "number", "required": False},
-            {"name": "vfin", "type": "number", "required": False},
+            {"name": "eini", "type": "number", "required": False},
+            {"name": "efin", "type": "number", "required": False},
             {"name": "capacity", "type": "number_or_file", "required": False},
             {"name": "expcap", "type": "number_or_file", "required": False},
             {"name": "expmod", "type": "number_or_file", "required": False},
@@ -242,14 +288,13 @@ ELEMENT_SCHEMAS = {
             {"name": "spillway_cost", "type": "number", "required": False},
             {"name": "capacity", "type": "number_or_file", "required": False},
             {"name": "annual_loss", "type": "number_or_file", "required": False},
-            {"name": "vmin", "type": "number_or_file", "required": False},
-            {"name": "vmax", "type": "number_or_file", "required": False},
+            {"name": "emin", "type": "number_or_file", "required": False},
+            {"name": "emax", "type": "number_or_file", "required": False},
             {"name": "ecost", "type": "number_or_file", "required": False},
-            {"name": "vini", "type": "number", "required": False},
-            {"name": "vfin", "type": "number", "required": False},
+            {"name": "eini", "type": "number", "required": False},
+            {"name": "efin", "type": "number", "required": False},
             {"name": "fmin", "type": "number", "required": False},
             {"name": "fmax", "type": "number", "required": False},
-            {"name": "energy_scale", "type": "number", "required": False},
             {"name": "flow_conversion_rate", "type": "number", "required": False},
         ],
     },
@@ -259,7 +304,7 @@ ELEMENT_SCHEMAS = {
             {"name": "uid", "type": "integer", "required": True},
             {"name": "name", "type": "string", "required": True},
             {"name": "active", "type": "boolean", "required": False},
-            {"name": "waterway", "type": "string", "required": True, "ref": "waterway"},
+            {"name": "waterway", "type": "string", "required": False, "ref": "waterway"},
             {
                 "name": "generator",
                 "type": "string",
@@ -267,7 +312,7 @@ ELEMENT_SCHEMAS = {
                 "ref": "generator",
             },
             {"name": "drain", "type": "boolean", "required": False},
-            {"name": "conversion_rate", "type": "number_or_file", "required": False},
+            {"name": "production_factor", "type": "number_or_file", "required": False},
             {"name": "capacity", "type": "number_or_file", "required": False},
         ],
     },
@@ -278,8 +323,8 @@ ELEMENT_SCHEMAS = {
             {"name": "name", "type": "string", "required": True},
             {"name": "active", "type": "boolean", "required": False},
             {"name": "direction", "type": "integer", "required": False},
-            {"name": "junction", "type": "string", "required": True, "ref": "junction"},
-            {"name": "discharge", "type": "number_or_file", "required": True},
+            {"name": "junction", "type": "string", "required": False, "ref": "junction"},
+            {"name": "discharge", "type": "number_or_file", "required": False},
         ],
     },
     "seepage": {
@@ -418,7 +463,13 @@ ELEMENT_SCHEMAS = {
             {"name": "active", "type": "boolean", "required": False},
             {"name": "purpose", "type": "string", "required": False},
             {
-                "name": "junction",
+                "name": "junction_a",
+                "type": "string",
+                "required": False,
+                "ref": "junction",
+            },
+            {
+                "name": "junction_b",
                 "type": "string",
                 "required": False,
                 "ref": "junction",
@@ -428,8 +479,8 @@ ELEMENT_SCHEMAS = {
             {"name": "fmax", "type": "number_or_file", "required": False},
             {"name": "consumptive", "type": "boolean", "required": False},
             {"name": "use_average", "type": "boolean", "required": False},
-            {"name": "fail_cost", "type": "number_or_file", "required": False},
-            {"name": "use_value", "type": "number_or_file", "required": False},
+            {"name": "fcost", "type": "number_or_file", "required": False},
+            {"name": "uvalue", "type": "number_or_file", "required": False},
             {"name": "priority", "type": "number", "required": False},
         ],
     },
@@ -456,8 +507,6 @@ ELEMENT_SCHEMAS = {
             {"name": "fail_cost", "type": "number", "required": False},
             {"name": "priority", "type": "number", "required": False},
             {"name": "flow_conversion_rate", "type": "number", "required": False},
-            {"name": "energy_scale", "type": "number", "required": False},
-            {"name": "consumptive", "type": "boolean", "required": False},
             {"name": "use_state_variable", "type": "boolean", "required": False},
         ],
     },
@@ -479,6 +528,39 @@ ELEMENT_SCHEMAS = {
             {"name": "constraint_type", "type": "string", "required": False},
         ],
     },
+}
+
+ELEMENT_SCHEMAS["future_cost"] = {
+    "label": "Future Cost",
+    "fields": [
+        {"name": "uid", "type": "integer", "required": True},
+        {"name": "name", "type": "string", "required": True},
+        {"name": "active", "type": "boolean", "required": False},
+        {"name": "description", "type": "string", "required": False},
+        {"name": "cuts_file", "type": "string", "required": False},
+        {
+            "name": "mode",
+            "type": "string",
+            "required": False,
+        },  # noload | separated | combined | phi_expectation
+        {"name": "sharing", "type": "string", "required": False},  # per_scene | shared | multicut
+        {"name": "iteration_limit", "type": "integer", "required": False},
+        {"name": "mean_shift", "type": "boolean", "required": False},
+        {"name": "single_cut_equality", "type": "boolean", "required": False},
+        {"name": "scale_alpha", "type": "number", "required": False},
+        {
+            "name": "missing_cut_var_mode",
+            "type": "string",
+            "required": False,
+        },  # skip_coeff | skip_cut
+        {
+            "name": "valuation",
+            "type": "string",
+            "required": False,
+        },  # end_of_horizon | present_value
+        {"name": "use_user_alpha", "type": "boolean", "required": False},
+        {"name": "user_alpha_uid", "type": "integer", "required": False},
+    ],
 }
 
 # Map element type → JSON array key in the system section
@@ -505,4 +587,5 @@ ELEMENT_TO_ARRAY_KEY = {
     "volume_right": "volume_right_array",
     "user_param": "user_param_array",
     "user_constraint": "user_constraint_array",
+    "future_cost": "future_cost_array",
 }

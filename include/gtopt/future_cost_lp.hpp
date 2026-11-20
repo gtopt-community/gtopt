@@ -30,6 +30,7 @@ class PhaseLP;
 class LinearProblem;
 class OutputContext;
 class PlanningLP;
+struct SDDPOptions;
 
 using FutureCostLPSId = ObjectSingleId<class FutureCostLP>;
 
@@ -77,34 +78,36 @@ public:
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 };
 
-/// Consolidated boundary-cut / FCF configuration sourced from a `FutureCost`
-/// element (piece 5 step 2b).  Each field is an `std::optional`: SET only when
-/// the element explicitly authors it, so the SDDP/monolithic method can
-/// OVERRIDE the corresponding `SDDPOptions` field iff present (element wins)
-/// and otherwise leave `m_options_` untouched (backward-compatible — zero
-/// numerical change when there is no FutureCost element or it leaves a field
-/// unset).
-struct SDDPBoundaryConfig
-{
-  std::optional<std::string> cuts_file {};
-  std::optional<double> scale_alpha {};
-  std::optional<bool> mean_shift {};
-  std::optional<BoundaryCutSharingMode> sharing {};
-  std::optional<BoundaryCutsMode> mode {};
-};
+/// Apply the boundary-cut / FCF fields of a `FutureCost` element onto the
+/// internal `SDDPOptions` carrier that `load_boundary_cuts_csv` consumes —
+/// the ONE read-site mapping used by BOTH `MonolithicMethod` (onto a fresh,
+/// default-constructed `SDDPOptions`) and `SDDPMethod` (onto its runtime
+/// options).  Only fields the element explicitly authors overwrite the
+/// target, so a programmatic `SDDPOptions` (test fixtures) without an element
+/// is left unchanged.  When the element sets `mode` but not `sharing`, the
+/// terminal sharing is derived from `mode` (`combined` → `shared`, otherwise
+/// `per_scene`), the legacy scope rule.
+///
+/// Mapping: `cuts_file` → `boundary_cuts_file`, `mode` → `boundary_cuts_mode`,
+/// `sharing` → `boundary_cut_sharing`, `mean_shift` →
+/// `boundary_cuts_mean_shift`, `iteration_limit` → `boundary_max_iterations`,
+/// `missing_cut_var_mode` → `missing_cut_var_mode`, `valuation` →
+/// `boundary_cuts_valuation`, `scale_alpha` → `scale_alpha`.
+/// `single_cut_equality` / `use_user_alpha` are read off the element itself.
+void apply_future_cost_config(const FutureCost& fc, SDDPOptions& opts);
 
-/// Build the consolidated boundary config from a `FutureCost` element — the
-/// single read-site mapping from the element's authored fields onto the
-/// resolved `SDDPOptions` boundary fields.  Unset element fields stay `nullopt`
-/// so the caller leaves the option untouched.
-[[nodiscard]] SDDPBoundaryConfig boundary_config(const FutureCost& fc);
+/// Resolve a boundary-cut file path the same way for every method: an
+/// absolute path is returned unchanged; a relative one is joined onto
+/// `options.input_directory`.  Empty stays empty.
+[[nodiscard]] std::string resolve_future_cost_path(
+    const PlanningLP& planning_lp, const std::string& path);
 
 /// Pointer to the first ACTIVE `FutureCost` element in @p planning_lp, or
 /// `nullptr` when there is none.  Reads the element straight from the System
 /// INPUT data (`future_cost_array`) of the representative `(scene 0, phase 0)`
 /// cell — NOT the LP collection, which the SDDP default `low_memory = compress`
-/// drops for planning-only elements.  Used by the SDDP method to source the
-/// user-α uid + the consolidated boundary config (steps 2a/2b).
+/// drops for planning-only elements.  Used by both methods to source the
+/// user-α uid + the boundary-cut configuration.
 [[nodiscard]] const FutureCost* active_future_cost(
     const PlanningLP& planning_lp);
 

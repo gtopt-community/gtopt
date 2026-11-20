@@ -750,8 +750,16 @@ class TestAllElements:
         assert len(ALL_ELEMENTS) > 0
 
     def test_all_elements_contains_key_types(self):
-        for name in ["Bus", "Generator", "Demand", "Line", "Battery", "Options"]:
+        for name in [
+            "Bus",
+            "Generator",
+            "Demand",
+            "Line",
+            "Battery",
+            "FutureCost",
+            "PlanningOptions",
+        ]:
             assert name in ALL_ELEMENTS
 
     def test_all_elements_starts_with_options(self):
-        assert ALL_ELEMENTS[0] == "Options"
+        assert ALL_ELEMENTS[0] == "PlanningOptions"

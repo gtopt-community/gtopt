@@ -15,6 +15,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.future_cost import set_future_cost_fields
+
 from ._comparison import compare_plexos_bundle
 from ._defaults import resolve_default_emissions_file
 from .gtopt_writer import (
@@ -457,8 +459,9 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         # End-of-horizon future-cost (boundary) cut from
         # ``Hydro_StoWaterValues.csv`` (FCF intercept + per-reservoir
         # water-value slopes).  Emitted as ``boundary_cuts.csv`` and
-        # wired via ``simulation.boundary_cuts_file`` so the monolithic
-        # method values terminal storage exactly like PLEXOS's FCF.
+        # wired via the FutureCost element
+        # (``system.future_cost_array[0].cuts_file``) so every method
+        # values terminal storage exactly like PLEXOS's FCF.
         if case.boundary_cut is not None:
             reservoir_names = frozenset(
                 r["name"] for r in planning["system"].get("reservoir_array", [])
@@ -473,15 +476,10 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 ),
             )
             if cut_file is not None:
-                # The monolithic method reads the cut file from
-                # ``options.monolithic_options.boundary_cuts_file`` (the
-                # ``simulation`` field of the same name feeds the SDDP /
-                # cascade paths).  Default mode is ``separated`` (loads),
-                # so the filename alone enables it.
-                mono = planning.setdefault("options", {}).setdefault(
-                    "monolithic_options", {}
-                )
-                mono["boundary_cuts_file"] = cut_file
+                # The FutureCost element is the single source of the
+                # boundary cuts for every method.  Default mode is
+                # ``separated`` (loads), so the filename alone enables it.
+                set_future_cost_fields(planning, {"cuts_file": cut_file})
 
         # Seed the monolithic UC solve with a domain-rule-guided starting
         # commitment (the MIP warm-start pipeline: relax -> round ->
@@ -614,13 +612,14 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             # plexos2gtopt is CEN-Chile-shaped by construction (PLEXOS
             # DBs in this codebase come from CEN's PCP archive).  When
             # the user doesn't pass an explicit ``--emissions-file``,
-            # default to ``share/gtopt/emissions/cen_chile.json``
-            # instead of the bare IPCC defaults — that file is a
-            # superset (full IPCC + ``sulfur_cogen`` extra + 6 per-gen
+            # default to the bundled
+            # ``gtopt_shared/data/emissions/cen_chile.json`` instead of
+            # the bare IPCC defaults — that file is a superset (full
+            # IPCC + ``sulfur_cogen`` extra + 6 per-gen
             # ``generator_overrides`` for CERRO_PABELLON_U1/U2/U3,
             # CERRO_DOMINADOR_CS, CMPC_BUCALEMU_2, PAS_MEJILLONES).
-            # Falls back to the IPCC default when the CEN file is
-            # missing (sandboxed installs without ``share/``).
+            # A missing bundled file raises MissingDataFileError (broken
+            # install) rather than silently using the IPCC defaults.
             if emissions_src is None:
                 emissions_src = resolve_default_emissions_file()
             apply_emission_defaults_from_file(

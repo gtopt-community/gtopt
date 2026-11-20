@@ -289,9 +289,15 @@ struct MonolithicOptions
    * file before solving.  The cuts approximate the expected future cost
    * beyond the planning horizon (analogous to SDDP boundary cuts).
    */
+  /// DEPRECATED alias of `FutureCost::cuts_file` (honoured only for method =
+  /// monolithic); folded into the FutureCost element by
+  /// `resolve_future_cost_aliases` and then cleared.
   OptName boundary_cuts_file {};
   /** @brief Boundary cuts load mode: noload, separated (default),
    * or combined */
+  /// DEPRECATED alias of `FutureCost::mode` (honoured only for method =
+  /// monolithic); folded into the FutureCost element by
+  /// `resolve_future_cost_aliases` and then cleared.
   std::optional<BoundaryCutsMode> boundary_cuts_mode {};
   /** @brief Terminal-α sharing for boundary cuts: per_scene (default),
    * shared, or multicut.
@@ -299,8 +305,14 @@ struct MonolithicOptions
    * Mirrors `SddpOptions::boundary_cut_sharing_mode`.  Under `multicut` the
    * terminal phase carries N α columns (varphi_0..N-1) and each scenario's
    * boundary cut is routed to its own varphi_s in every scene-LP. */
+  /// DEPRECATED alias of `FutureCost::sharing` (honoured only for method =
+  /// monolithic); folded into the FutureCost element by
+  /// `resolve_future_cost_aliases` and then cleared.
   std::optional<BoundaryCutSharingMode> boundary_cut_sharing_mode {};
   /** @brief Maximum iterations to load from boundary cuts file (0 = all) */
+  /// DEPRECATED alias of `FutureCost::iteration_limit` (honoured only for
+  /// method = monolithic); folded into the FutureCost element by
+  /// `resolve_future_cost_aliases` and then cleared.
   OptInt boundary_max_iterations {};
 
   // ── LP solver options (per-method override) ────────────────────────────────

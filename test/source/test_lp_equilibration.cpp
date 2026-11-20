@@ -514,3 +514,54 @@ TEST_CASE("apply_ruiz_scaling leaves colpin columns unscaled")
   CHECK(col_scales[1] == doctest::Approx(1.0));  // pin keeps scale at 1
   CHECK(objval[1] == doctest::Approx(1.0));  // and objective untouched
 }
+
+// ─── "no bound" sentinels must never be rescaled into huge finite RHS ────
+// Regression: on a solver whose infinity is a true IEEE `+inf` (HiGHS),
+// the in-memory `DblMax` sentinel passed the `< infinity` test and was
+// multiplied by 1/scale, yielding a ~1e303 RHS (LP_VALIDATION "huge RHS").
+
+TEST_CASE("equilibrate_row_in_place keeps the DblMax sentinel infinite")
+{
+  constexpr double kDblMax = std::numeric_limits<double>::max();
+  std::vector<double> elements {100.0, -50.0};
+  double lb = -kDblMax;
+  double ub = kDblMax;
+
+  (void)equilibrate_row_in_place(elements, lb, ub, kInfinity);
+
+  CHECK(lb == -kDblMax);
+  CHECK(ub == kDblMax);
+}
+
+TEST_CASE("apply_row_max_equilibration keeps the DblMax sentinel")
+{
+  constexpr double kDblMax = std::numeric_limits<double>::max();
+  const std::vector<std::int32_t> matind {0, 0};  // row index per nonzero
+  std::vector<double> matval {100.0, -50.0};
+  std::vector<double> rowlb {-kDblMax};
+  std::vector<double> rowub {kDblMax};
+
+  (void)apply_row_max_equilibration(matind, matval, rowlb, rowub, kInfinity);
+
+  CHECK(rowlb[0] == -kDblMax);
+  CHECK(rowub[0] == kDblMax);
+}
+
+TEST_CASE("add_row with row.scale keeps a DblMax upper bound infinite")
+{
+  LinearInterface li;
+  const auto c0 = li.add_col(SparseCol {
+      .uppb = 10.0,
+  });
+
+  SparseRow row;
+  row[c0] = 1.0;
+  row.lowb = 1.0;
+  row.uppb = SparseRow::DblMax;  // "no upper bound" sentinel
+  row.scale = 1.85e5;
+
+  const auto idx = li.add_row(row);
+
+  const auto upp = li.get_row_upp_raw();
+  CHECK(li.is_pos_inf(upp[static_cast<std::size_t>(idx)]));
+}

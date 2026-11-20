@@ -16,7 +16,8 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
   - [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
   - [psse2gtopt](#psse2gtopt) · [full docs](scripts/psse2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
-  - [gtopt2pp](#gtopt2pp) — convert GTOpt JSON back to pandapower
+  - [nrel118_to_gtopt](#nrel118_to_gtopt) · [full docs](scripts/nrel118_to_gtopt.md)
+  - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
   - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel template](templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
   - [cvs2parquet](#cvs2parquet) · [full docs](scripts/cvs2parquet.md)
   - [ts2gtopt](#ts2gtopt) · [full docs](scripts/ts2gtopt.md)
@@ -32,6 +33,7 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
   - [gtopt_compress_lp](#gtopt_compress_lp) — compress LP debug files
   - [gtopt_check_fingerprint](#gtopt_check_fingerprint) — LP structural fingerprint verification · [full docs](lp-fingerprint.md)
   - [gtopt_check_pampl](#gtopt_check_pampl) — validate PAMPL expression syntax and LP resolution
+  - [gtopt_check_cases](#gtopt_check_cases) — check a case collection (`gtopt-cases`) against its catalog
   - [plp_compress_case](#plp_compress_case) — compress PLP case files
 - **Utilities**
   - [gtopt_config](#gtopt_config) — unified configuration for all tools
@@ -63,6 +65,42 @@ development:
 pip install -e "./scripts[dev]"
 ```
 
+#### Bundled data files
+
+Several tools read non-Python data files at runtime.  They ship inside
+the Python packages (declared in `[tool.setuptools.package-data]` of
+`scripts/pyproject.toml`), so a regular `pip install ./scripts` and an
+editable install see exactly the same files:
+
+| File | Used by |
+|------|---------|
+| `plexos2gtopt/data/cen_pcp_hard_ucs.txt` | PLEXOS-HARD user-constraint list (`plexos2gtopt`, `python -m plexos2gtopt.uc_audit`) |
+| `gtopt_shared/data/emissions/cen_chile.json` | default `--emissions-file` of `plexos2gtopt` |
+| `gtopt_shared/data/ipcc_emission_factors.json` | IPCC-2006 emission defaults |
+| `gtopt_shared/data/cogen/cen_chile_cogen.csv` | CEN cogen list (`plexos2gtopt`, `plp2gtopt`, `gtopt_marginal_units`) |
+| `{plexos2gtopt,plp2gtopt}/solvers/*.prm`, `*.opts` | solver parameter files copied into each converted case |
+| `gtopt_expand/templates/*` | PAMPL/TSON templates, RoR and pmin-as-flowright whitelists |
+
+A missing data file is a hard error (`MissingDataFileError`, a
+`FileNotFoundError`) — the tools never silently fall back to a default
+that changes the model.  Wheels built before 2026-11 lacked most of
+these files: `plexos2gtopt` then demoted ~100 CEN user constraints from
+hard to soft, used the bare IPCC emission factors, tagged no cogen
+units and wrote no `solvers/` directory.  Reinstall with:
+
+```bash
+pip install --force-reinstall --no-deps ./scripts   # regular install
+# or, for development:
+pip install -e "./scripts[dev]"
+```
+
+`pytest -m wheel gtopt_shared/tests/test_wheel_package_data.py` builds a
+wheel, installs it into a throwaway venv and checks every bundled file
+(see `gtopt_shared.resources.REQUIRED_DATA_FILES`).  New runtime data
+files go under `<package>/data/`, `solvers/` or `templates/`, must be
+added to the package-data globs and to `REQUIRED_DATA_FILES`, and should
+be located via `gtopt_shared.resources.package_data_file()`.
+
 Optional extras unlock additional output formats:
 
 ```bash
@@ -81,12 +119,13 @@ Each command-line tool lives in its own Python package directory under
 | `cvs2parquet/` | `cvs2parquet` | CSV → Parquet converter |
 | `gtopt_diagram/` | `gtopt_diagram` | Network topology / planning diagrams |
 | `gtopt_field_extractor/` | `gtopt_field_extractor` | C++ header field metadata extractor |
-| `igtopt/` | `igtopt` | Excel → GTOpt JSON converter |
-| `plp2gtopt/` | `plp2gtopt` | PLP → GTOpt JSON converter |
-| `sddp2gtopt/` | `sddp2gtopt` | PSR SDDP/NCP → GTOpt JSON converter (json + `.dat`) |
-| `psse2gtopt/` | `psse2gtopt` | PSS®E RAW → GTOpt multi-bus DC OPF converter |
-| `pp2gtopt/` | `pp2gtopt` | pandapower → GTOpt JSON converter |
-| `gtopt2pp/` | `gtopt2pp` | GTOpt JSON → pandapower converter |
+| `igtopt/` | `igtopt` | Excel → gtopt JSON converter |
+| `plp2gtopt/` | `plp2gtopt` | PLP → gtopt JSON converter |
+| `sddp2gtopt/` | `sddp2gtopt` | PSR SDDP/NCP → gtopt JSON converter (json + `.dat`) |
+| `psse2gtopt/` | `psse2gtopt` | PSS®E RAW → gtopt multi-bus DC OPF converter |
+| `pp2gtopt/` | `pp2gtopt` | pandapower → gtopt JSON converter |
+| `nrel118_to_gtopt/` | `nrel118_to_gtopt` | NREL-118 test system → full-network multi-stage gtopt case |
+| `gtopt2pp/` | `gtopt2pp` | gtopt JSON → pandapower converter |
 | `run_gtopt/` | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
 | `gtopt_check_json/` | `gtopt_check_json` | JSON planning file validator |
 | `gtopt_check_lp/` | `gtopt_check_lp` | Infeasible LP file diagnostic tool |
@@ -95,6 +134,7 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_compress_lp/` | `gtopt_compress_lp` | LP debug file compressor |
 | `gtopt_check_fingerprint/` | `gtopt_check_fingerprint` | LP structural fingerprint verification & comparison |
 | `gtopt_check_pampl/` | `gtopt_check_pampl` | PAMPL expression syntax and LP resolution validator |
+| `gtopt_check_cases/` | `gtopt_check_cases` | LP-size (and optional solve) check of a case collection against its `catalog.json` |
 | `plp_compress_case/` | `plp_compress_case` | PLP case file compressor |
 | `gtopt_config/` | *(library)* | Unified configuration management |
 | `gtopt_monitor/` | `gtopt_monitor` | Live solver monitoring dashboard |
@@ -581,6 +621,26 @@ costs), loads → `Demand`.  Optional AMM side-car inputs: `--nomenclatura`
 psse2gtopt --info case.raw                 # case summary
 psse2gtopt -i case.raw -o gtopt_case        # convert
 gtopt -s gtopt_case/gtopt_case.json -d out  # solve DC OPF
+```
+
+---
+
+## nrel118_to_gtopt
+
+> **[→ Full documentation](scripts/nrel118_to_gtopt.md)**
+
+Builds the **NREL-118** extended IEEE 118-bus test system (Peña et al.
+2018) as a full-network gtopt case: 118 buses, 186 lines, 327 generators
+at their buses, hourly regional load distributed by bus participation
+factors (`Demand/lmax.parquet`), hourly wind / solar / hydro
+availability (`GeneratorProfile/profile.parquet`) and IPCC AR6 CO₂
+factors.  Source CSVs are downloaded on demand (pinned commit) into
+`~/.cache/gtopt/nrel118/` and never vendored.
+
+```bash
+nrel118_to_gtopt -o nrel118/nrel118.json               # 366 daily stages x 24 h
+nrel118_to_gtopt --hours 168+168 -o week2/nrel118.json  # one week
+nrel118_to_gtopt --block-hours 4 --stage-hours 168 -o y/nrel118.json
 ```
 
 ---
@@ -1156,6 +1216,23 @@ The tool runs configurable checks organized by severity:
 Individual checks can be enabled/disabled via `--init-config` or the
 configuration file (`~/.gtopt.conf`).
 
+The `schema_keys` check walks the case against a snapshot of gtopt's C++
+JSON contract (`scripts/gtopt_shared/data/json_contracts.json`, generated
+from `include/gtopt/json` by `python -m gtopt_shared.json_contracts
+--update`).  Every key gtopt's strict parser would reject — a typo, a
+removed field such as `Battery.gcost`, or a model option written directly
+under `options` instead of `options.model_options` — is **CRITICAL**;
+naming-dialect aliases (accepted by gtopt) are reported as a **NOTE**.
+
+The `future_cost_aliases` check validates the FutureCost element
+(`system.future_cost_array`): every deprecated boundary-cut key
+(`sddp_options.boundary_*`, `monolithic_options.boundary_*`,
+`simulation.boundary_cuts_file` / `boundary_cuts_valuation`) is reported
+as a **WARNING** naming its FutureCost replacement (or noting that the
+declared method ignores it), and the same field given with different
+values is **CRITICAL** — gtopt rejects such a case at load.  Rewrite old
+cases with `python tools/migrate_future_cost.py FILE...`.
+
 ### Exit codes
 
 | Code | Meaning |
@@ -1681,6 +1758,29 @@ gtopt_check_pampl --constraint-file constraints.json cases/mycase/mycase.json
 - Verify new user constraints before running the solver
 - Diagnose resolution errors (unknown elements, bad expression syntax)
 - Confirm LP column names in constraint expressions match the actual LP
+
+## gtopt_check_cases
+
+Checks every case of a case collection — a directory with a
+`catalog.json`, such as a checkout of the public `gtopt-cases`
+repository — against the catalog.  Each case is built with
+`gtopt --lp-only` (case JSON + its application profile, run from a work
+directory outside the collection with `input_directory` pinned to the
+case) and its rows / cols / nnz are compared with `size.lp`.  A match
+confirms that the gtopt build reads the inputs as intended.
+
+```bash
+gtopt_check_cases --repo ~/gtopt-cases -j 2 --threads 8
+gtopt_check_cases --repo ~/gtopt-cases --only pcp_2025-10-19 --solve \
+    --out ~/gtopt-cases-out                  # never inside the collection
+gtopt_check_cases --repo ~/gtopt-cases --update   # refresh size.lp
+```
+
+`--solve` also solves the selected cases (output under
+`--out/<case id>/output`) and, with `--results FILE`
+(`{"cases": [{"id": ..., "reference": {"objective": ...}}]}`), compares
+the objective with relative tolerance `--rtol`.  `--cpus`/`--cpus-base`
+pin jobs with `taskset`; core dumps are enabled for every gtopt run.
 
 ## plp_compress_case
 

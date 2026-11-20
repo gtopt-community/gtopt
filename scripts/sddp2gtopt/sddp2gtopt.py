@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from .dat_loader import is_dat_case, load_dat_case
+from .sddp_case import is_sddp_block_case, load_sddp_block_case
+from .sddp_case_writer import write_sddp_case
 from .gtopt_writer import build_planning, write_planning
 from .parsers import (
     parse_demands,
@@ -51,6 +53,19 @@ def validate_sddp_case(options: dict[str, Any]) -> bool:
     if input_dir is None:
         logger.error("validate_sddp_case: 'input_dir' option is required")
         return False
+
+    # PSR SDDP block study (deme*.dat): validate via the block-case loader.
+    if is_dat_case(input_dir) and is_sddp_block_case(input_dir):
+        try:
+            block = load_sddp_block_case(input_dir, num_scenarios=1)
+        except (FileNotFoundError, ValueError) as exc:
+            logger.error("validate failed: %s", exc)
+            return False
+        if not block.stages or not block.demands:
+            logger.error("validate failed: no stages/demand in SDDP block case")
+            return False
+        logger.info("validation OK (SDDP .dat block case): %s", Path(input_dir))
+        return True
 
     # Raw PSR `.dat` case (no psrclasses.json): validate via the .dat loader.
     if is_dat_case(input_dir):
@@ -108,6 +123,38 @@ def _resolve_output_paths(
     return output_dir, output_file, planning_name
 
 
+def _convert_sddp_block_case(input_dir: Path, options: dict[str, Any]) -> int:
+    """Convert a PSR SDDP block study (see :mod:`sddp2gtopt.sddp_case`)."""
+    num_scn = options.get("num_scenarios")
+    case = load_sddp_block_case(
+        input_dir, num_scenarios=int(num_scn) if num_scn else None
+    )
+    output_dir, output_file, planning_name = _resolve_output_paths(
+        input_dir,
+        options.get("output_dir"),
+        options.get("output_file"),
+        options.get("name"),
+    )
+    write_sddp_case(
+        case,
+        Path(output_dir),
+        Path(output_file),
+        name=planning_name,
+        method=str(options.get("method") or "sddp"),
+    )
+    for note in case.skipped:
+        logger.info("simplified: %s", note)
+    logger.info(
+        "converted SDDP block case %s → %s (stages=%d, blocks=%d, scenarios=%d)",
+        input_dir,
+        output_file,
+        len(case.stages),
+        case.num_blocks,
+        len(case.scenarios),
+    )
+    return 0
+
+
 def convert_sddp_case(options: dict[str, Any]) -> int:
     """Convert an SDDP case directory to gtopt JSON.
 
@@ -133,6 +180,11 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
     if raw_input is None:
         raise ValueError("convert_sddp_case: 'input_dir' option is required")
     input_dir = Path(raw_input)
+
+    # PSR SDDP block study (monthly/weekly blocks, ``deme*.dat`` demand,
+    # historical inflow series) → multi-scenario SDDP planning + Parquet.
+    if is_dat_case(input_dir) and is_sddp_block_case(input_dir):
+        return _convert_sddp_block_case(input_dir, options)
 
     # Front-end selection: raw PSR `.dat` collection vs psrclasses.json.
     buses = None
@@ -185,19 +237,17 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
 
     # A boundary cut (full hydro topology) ships as a sibling CSV; rewrite the
     # reference to its absolute path so gtopt resolves it regardless of the run
-    # directory (``resolve_input`` passes absolute paths through unchanged).
+    # directory (gtopt passes absolute paths through unchanged).
     cut_csv = planning.pop("_boundary_cuts", None)
     if cut_csv is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         cut_path = (output_dir / "boundary_cuts.csv").resolve()
         cut_path.write_text(cut_csv, encoding="utf-8")
-        # Rewrite the relative placeholder to an absolute path in whichever
-        # method options block the writer wired it into (monolithic for a
-        # single-week dispatch, sddp for a staged horizon).
-        for block in ("monolithic_options", "sddp_options"):
-            opts = planning["options"].get(block)
-            if isinstance(opts, dict) and "boundary_cuts_file" in opts:
-                opts["boundary_cuts_file"] = str(cut_path)
+        # Rewrite the relative placeholder on the FutureCost element (the
+        # single source of the boundary cuts for every method).
+        for element in planning.get("system", {}).get("future_cost_array", []):
+            if isinstance(element, dict) and "cuts_file" in element:
+                element["cuts_file"] = str(cut_path)
         logger.info("wrote boundary cut: %s", cut_path)
 
     write_planning(planning, output_file)

@@ -8,10 +8,13 @@ the gtopt binary receives a single, self-consistent input file.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from pathlib import Path
 from typing import Any
+
+from gtopt_shared.future_cost import resolve_legacy_future_cost_keys
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +58,7 @@ _VALID_ELASTIC_MODES = {
     "plp",  # legacy alias for state_repair
     "farkas_recursive",
 }
-_VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
+_VALID_BOUNDARY_MODES = {"noload", "separated", "combined", "phi_expectation"}
 
 
 def _get_model_opt(opts: dict, key: str, default: Any = None) -> Any:
@@ -232,7 +235,6 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
         ("integer_cuts_mode", _VALID_INTEGER_CUTS_MODES),
         ("aperture_solve_mode", _VALID_APERTURE_SOLVE_MODES),
         ("elastic_mode", _VALID_ELASTIC_MODES),
-        ("boundary_cuts_mode", _VALID_BOUNDARY_MODES),
     ]:
         val = sddp.get(mode_key)
         if val and val not in valid:
@@ -287,6 +289,30 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
             f"FIX: sddp simulation_mode must be a boolean, setting to {bool(sim_mode)}"
         )
         sddp["simulation_mode"] = bool(sim_mode)
+
+
+def _validate_future_cost(data: dict, messages: list[str]) -> None:
+    """Validate the FutureCost (FCF boundary-cut) configuration.
+
+    The FutureCost element (``system.future_cost_array``) is the single
+    source of the boundary cuts.  Deprecated ``sddp_options.boundary_*`` /
+    ``monolithic_options.boundary_*`` / ``simulation.boundary_cuts_*`` keys
+    are reported (gtopt still translates them for their own method) and the
+    effective load ``mode`` is checked.  Read-only: never rewrites the JSON.
+    """
+    work = copy.deepcopy(data)
+    report = resolve_legacy_future_cost_keys(work)
+    for msg in report.warnings:
+        messages.append(f"WARN: {msg}")
+    for msg in report.errors:
+        messages.append(f"WARN: {msg} — gtopt will refuse this input")
+    element = report.element or {}
+    mode = element.get("mode")
+    if mode and mode not in _VALID_BOUNDARY_MODES:
+        messages.append(
+            f"WARN: future_cost_array mode='{mode}' not in "
+            f"{sorted(_VALID_BOUNDARY_MODES)}"
+        )
 
 
 def _validate_cascade_options(cascade: dict, messages: list[str]) -> None:
@@ -428,6 +454,7 @@ def sanitize_json(
 
     # ── Validate and auto-fix options ──
     messages = _validate_options(opts)
+    _validate_future_cost(data, messages)
     for msg in messages:
         if msg.startswith("FIX:"):
             log.warning("  %s", msg)

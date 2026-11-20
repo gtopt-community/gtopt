@@ -332,8 +332,13 @@ All three sections are **optional** — omitted sections use defaults.
 | Field | Units | Description |
 |-------|-------|-------------|
 | `annual_discount_rate` | p.u./year | Compute stage discount factors automatically |
-| `boundary_cuts_file` | — | CSV file with boundary (future-cost) cuts |
-| `boundary_cuts_valuation` | — | `"end_of_horizon"` (default) or `"present_value"` |
+
+Boundary (future-cost) cuts are configured on the FutureCost element
+(`system.future_cost_array`: `cuts_file`, `mode`, `iteration_limit`,
+`valuation`, ...), the single source read by every method.  The former
+`simulation.boundary_cuts_file` / `boundary_cuts_valuation` keys are
+deprecated aliases; see
+[Input Data — Future Cost](input-data.md#326-future-cost).
 
 ---
 
@@ -730,7 +735,7 @@ flowchart LR
         "uid": 1, "name": "tur1",
         "waterway": 1,
         "generator": 1,
-        "conversion_rate": 1.0
+        "production_factor": 1.0
       }
     ]
   }
@@ -757,7 +762,7 @@ The **hydro cascade** elements interact as follows:
    every block (e.g., river inflow).
 
 5. **Turbine** (`tur1`) converts water flowing through the waterway into
-   electricity via `gen_hydro`. The `conversion_rate` (MW per m3/s)
+   electricity via `gen_hydro`. The `production_factor` (MW per m3/s)
    determines how much power is generated per unit of water flow.
 
 ### Expected dispatch
@@ -1173,7 +1178,7 @@ charge Demand, and Converter automatically.
 | **Flow** | `uid`✱, `name`✱, `junction`✱, `discharge`✱ (m³/s) | Exogenous inflow/outflow |
 | **Reservoir** | `uid`✱, `name`✱, `junction`✱, `emin`, `emax` (dam³), `eini`, `efin` | Water storage |
 | **Filtration** | `uid`✱, `name`✱, `waterway`✱, `reservoir`✱, `slope`, `constant` | Seepage model |
-| **Turbine** | `uid`✱, `name`✱, `waterway`✱, `generator`✱, `conversion_rate`, `main_reservoir` | Hydro turbine |
+| **Turbine** | `uid`✱, `name`✱, `waterway`✱, `generator`✱, `production_factor`, `main_reservoir` | Hydro turbine |
 | **ReservoirEfficiency** | `uid`✱, `name`✱, `turbine`✱, `reservoir`✱, `mean_efficiency`, `segments` | Volume-dependent efficiency |
 
 > See **[Input Data Reference](input-data.md)** for full field descriptions, units, and all optional fields.
@@ -1182,7 +1187,7 @@ charge Demand, and Converter automatically.
 element is defined, the turbine's conversion rate is updated during SDDP
 iterations based on the current reservoir volume.  The efficiency curve
 is a concave piecewise-linear function (analogous to PLP's "rendimiento"
-tables).  For monolithic solves, the static `conversion_rate` is used.
+tables).  For monolithic solves, the static `production_factor` is used.
 See the [Mathematical Formulation](formulation/mathematical-formulation.md)
 for the efficiency formula and the [SDDP Solver](methods/sddp.md)
 for the update mechanism.
@@ -1629,10 +1634,10 @@ source scenario:
       {"uid": 2, "probability_factor": 0.5}
     ],
     "aperture_array": [
-      {"uid": 1, "scenario": 1},
-      {"uid": 2, "scenario": 2},
-      {"uid": 3, "scenario": 1},
-      {"uid": 4, "scenario": 2}
+      {"uid": 1, "source_scenario": 1},
+      {"uid": 2, "source_scenario": 2},
+      {"uid": 3, "source_scenario": 1},
+      {"uid": 4, "source_scenario": 2}
     ]
   }
 }

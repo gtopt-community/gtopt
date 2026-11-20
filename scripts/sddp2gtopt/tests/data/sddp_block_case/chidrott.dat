@@ -1,0 +1,4 @@
+!NUM ...Nombre... .PV. .VAA .TAA #Uni Tipo ....Pot .FPMed. .QMin.. .QMax.. .VMin.. .VMax.. .VInic. Min.V+T ..VNC.. ..ICP.. ...IH..
+9101 Embalse       701 9102 9102    1    0     50.     1.0      0.     50.     10.    110.     0.5      0.       0      0.      0.
+9102 Pasada        702              1    0     30.     0.8      0.     40.      0.      0.      0.      0.       0      0.      0.
+9103 Futura        703 9101 9101    1    1     20.     1.0      0.     20.      0.      0.      0.      0.       0      0.      0.

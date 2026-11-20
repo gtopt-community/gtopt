@@ -53,7 +53,7 @@ jobs:
           pytest \
             --ignore=plp2gtopt/tests/test_integration.py \
             -n auto \
-            -q --tb=short -m "not integration" \
+            -q --tb=short -m "not integration and not wheel" \
             --cov=cvs2parquet \
             --cov=igtopt \
             --cov=plp2gtopt \
@@ -61,6 +61,18 @@ jobs:
             --cov=ts2gtopt \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing
+
+      - name: Wheel package-data check
+        # Builds the gtopt_scripts wheel, installs it (non-editable) into a
+        # throwaway venv and asserts every runtime data file ships and
+        # loads (PLEXOS-HARD UC list, emissions/cogen tables, solver .prm,
+        # gtopt_expand templates).  Guards against the 2026-11 bug where
+        # wheel installs silently lacked them.
+        working-directory: scripts
+        run: |
+          uv pip install --system setuptools wheel
+          pytest -p no:xdist -q --tb=short -m wheel \
+            gtopt_shared/tests/test_wheel_package_data.py
 
       - name: ruff (lint)
         working-directory: scripts

@@ -155,6 +155,29 @@ _FIELD_RE = re.compile(
     re.VERBOSE,
 )
 
+# Matches an uncommented struct field declaration; its description comes
+# from the ``///`` block immediately above it.  Groups: (type, name)
+_BARE_FIELD_RE = re.compile(
+    r"""
+    ^[ \t]*
+    (?!return\b|using\b|static\b|friend\b|constexpr\b)
+    ([\w:<>,*&]+(?:<[^;{}]*>)?)    # C++ type (group 1)
+    \s+
+    ([a-z_][\w]*)                 # field name (group 2)
+    \s*\{[^}]*\}\s*;\s*$          # default value { … } and semicolon
+    """,
+    re.VERBOSE,
+)
+
+
+def _first_sentence(text: str, limit: int = 160) -> str:
+    """First sentence of a doc comment, trimmed to ``limit`` characters."""
+    text = " ".join(text.split())
+    m = re.search(r"(?<=[.!?])\s", text)
+    first = text[: m.start()] if m else text
+    return first if len(first) <= limit else first[: limit - 1].rstrip() + "…"
+
+
 # Extracts [units] from a comment, e.g. "Maximum load [MW]" → "MW"
 _UNITS_RE = re.compile(r"\[([^\]]+)\]")
 
@@ -187,6 +210,7 @@ def parse_header(path: Path) -> list[StructInfo]:
     pending_details: list[str] = []
     in_comment_block = False
     comment_buffer: list[str] = []
+    pending_field_doc: list[str] = []
 
     i = 0
     while i < len(lines):
@@ -223,11 +247,14 @@ def parse_header(path: Path) -> list[StructInfo]:
             i += 1
             continue
 
-        # Single-line /// comment (may contribute to pending_brief)
+        # Single-line /// comment (may contribute to pending_brief, and is
+        # the description of an uncommented field declared right below)
         if stripped.startswith("///"):
             bm = _BRIEF_RE.search(stripped)
             if bm:
                 pending_brief = bm.group(1).strip()
+            elif not stripped.startswith("///<"):
+                pending_field_doc.append(stripped[3:].strip())
             i += 1
             continue
 
@@ -257,12 +284,20 @@ def parse_header(path: Path) -> list[StructInfo]:
         if current_struct is not None:
             brace_depth += stripped.count("{") - stripped.count("}")
 
-            # Field declaration
+            # Field declaration (inline ``///<`` comment, or a ``///``
+            # block right above an uncommented declaration)
             fm = _FIELD_RE.match(line)
+            bare = None if fm else _BARE_FIELD_RE.match(line)
+            comment = ""
+            if bare and pending_field_doc and brace_depth == 1:
+                fm = bare
+                comment = _first_sentence(" ".join(pending_field_doc))
+            elif fm:
+                comment = fm.group(3).strip()
+            pending_field_doc = []
             if fm:
                 cpp_type = fm.group(1).strip()
                 fname = fm.group(2).strip()
-                comment = fm.group(3).strip()
                 desc, units = _extract_units(comment)
                 current_struct.fields.append(
                     FieldInfo(
@@ -291,7 +326,10 @@ def parse_header(path: Path) -> list[StructInfo]:
 # Elements of interest (exported in the JSON API)
 # ---------------------------------------------------------------------------
 
-SYSTEM_ELEMENTS = [
+# Fallback element list, used only when the JSON-contract snapshot is
+# unavailable.  The default list follows the C++ contract (every element
+# array of ``System`` / ``Simulation``) — see :func:`_contract_elements`.
+_STATIC_SYSTEM_ELEMENTS = [
     "Bus",
     "Generator",
     "GeneratorAttrs",
@@ -314,9 +352,25 @@ SYSTEM_ELEMENTS = [
     "Turbine",
 ]
 
-SIMULATION_ELEMENTS = ["Block", "Stage", "Scenario", "Phase"]
+_STATIC_SIMULATION_ELEMENTS = ["Block", "Stage", "Scenario", "Phase"]
 
-OPTIONS_ELEMENTS = ["Options"]
+
+def _contract_elements(section: str, fallback: list[str]) -> list[str]:
+    """Element types of the ``section`` arrays in the C++ JSON contract."""
+    try:
+        # pylint: disable-next=import-outside-toplevel
+        from gtopt_shared.json_contracts import array_types
+
+        return list(dict.fromkeys(array_types(section).values()))
+    except (ImportError, OSError, KeyError):
+        return list(fallback)
+
+
+SYSTEM_ELEMENTS = _contract_elements("System", _STATIC_SYSTEM_ELEMENTS)
+
+SIMULATION_ELEMENTS = _contract_elements("Simulation", _STATIC_SIMULATION_ELEMENTS)
+
+OPTIONS_ELEMENTS = ["PlanningOptions", "ModelOptions"]
 
 ALL_ELEMENTS = OPTIONS_ELEMENTS + SIMULATION_ELEMENTS + SYSTEM_ELEMENTS
 

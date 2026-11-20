@@ -35,13 +35,15 @@
         }
       ]
     },
-    "demand_fail_cost": 1000.0,
     "method": "cascade",
+    "model_options": {
+      "demand_fail_cost": 1000.0,
+      "scale_objective": 1000.0,
+      "use_kirchhoff": true,
+      "use_single_bus": false
+    },
     "output_compression": "uncompressed",
-    "output_format": "csv",
-    "scale_objective": 1000.0,
-    "use_kirchhoff": true,
-    "use_single_bus": false
+    "output_format": "csv"
   },
   "simulation": {
     "block_array": [
@@ -408,7 +410,7 @@
         "gcost": 20.0,
         "name": "g1",
         "pmax": 360.2,
-        "pmin": 0,
+        "pmin": 0.0,
         "uid": 1
       },
       {
@@ -465,8 +467,7 @@
         "reactance": 0.0575,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 1,
-        "voltage": 10
+        "uid": 1
       },
       {
         "bus_a": 1,
@@ -475,8 +476,7 @@
         "reactance": 0.1652,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 2,
-        "voltage": 10
+        "uid": 2
       },
       {
         "bus_a": 2,
@@ -485,8 +485,7 @@
         "reactance": 0.1737,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 3,
-        "voltage": 10
+        "uid": 3
       },
       {
         "bus_a": 3,
@@ -495,8 +494,7 @@
         "reactance": 0.0379,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 4,
-        "voltage": 10
+        "uid": 4
       },
       {
         "bus_a": 2,
@@ -505,8 +503,7 @@
         "reactance": 0.1983,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 5,
-        "voltage": 10
+        "uid": 5
       },
       {
         "bus_a": 2,
@@ -515,8 +512,7 @@
         "reactance": 0.1763,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 6,
-        "voltage": 10
+        "uid": 6
       },
       {
         "bus_a": 4,
@@ -525,8 +521,7 @@
         "reactance": 0.0414,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 7,
-        "voltage": 10
+        "uid": 7
       },
       {
         "bus_a": 5,
@@ -535,8 +530,7 @@
         "reactance": 0.116,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 8,
-        "voltage": 10
+        "uid": 8
       },
       {
         "bus_a": 6,
@@ -545,8 +539,7 @@
         "reactance": 0.082,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 9,
-        "voltage": 10
+        "uid": 9
       },
       {
         "bus_a": 6,
@@ -555,8 +548,7 @@
         "reactance": 0.042,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 10,
-        "voltage": 10
+        "uid": 10
       },
       {
         "bus_a": 12,
@@ -565,8 +557,7 @@
         "reactance": 0.2559,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 11,
-        "voltage": 10
+        "uid": 11
       },
       {
         "bus_a": 12,
@@ -575,8 +566,7 @@
         "reactance": 0.1304,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 12,
-        "voltage": 10
+        "uid": 12
       },
       {
         "bus_a": 12,
@@ -585,8 +575,7 @@
         "reactance": 0.1987,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 13,
-        "voltage": 10
+        "uid": 13
       },
       {
         "bus_a": 14,
@@ -595,8 +584,7 @@
         "reactance": 0.1997,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 14,
-        "voltage": 10
+        "uid": 14
       },
       {
         "bus_a": 16,
@@ -605,8 +593,7 @@
         "reactance": 0.1923,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 15,
-        "voltage": 10
+        "uid": 15
       },
       {
         "bus_a": 15,
@@ -615,8 +602,7 @@
         "reactance": 0.2185,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 16,
-        "voltage": 10
+        "uid": 16
       },
       {
         "bus_a": 18,
@@ -625,8 +611,7 @@
         "reactance": 0.1292,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 17,
-        "voltage": 10
+        "uid": 17
       },
       {
         "bus_a": 19,
@@ -635,8 +620,7 @@
         "reactance": 0.068,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 18,
-        "voltage": 10
+        "uid": 18
       },
       {
         "bus_a": 10,
@@ -645,8 +629,7 @@
         "reactance": 0.209,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 19,
-        "voltage": 10
+        "uid": 19
       },
       {
         "bus_a": 10,
@@ -655,8 +638,7 @@
         "reactance": 0.0845,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 20,
-        "voltage": 10
+        "uid": 20
       },
       {
         "bus_a": 10,
@@ -665,8 +647,7 @@
         "reactance": 0.0749,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 21,
-        "voltage": 10
+        "uid": 21
       },
       {
         "bus_a": 10,
@@ -675,8 +656,7 @@
         "reactance": 0.1499,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 22,
-        "voltage": 10
+        "uid": 22
       },
       {
         "bus_a": 21,
@@ -685,8 +665,7 @@
         "reactance": 0.0236,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 23,
-        "voltage": 10
+        "uid": 23
       },
       {
         "bus_a": 15,
@@ -695,8 +674,7 @@
         "reactance": 0.202,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 24,
-        "voltage": 10
+        "uid": 24
       },
       {
         "bus_a": 22,
@@ -705,8 +683,7 @@
         "reactance": 0.179,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 25,
-        "voltage": 10
+        "uid": 25
       },
       {
         "bus_a": 23,
@@ -715,8 +692,7 @@
         "reactance": 0.27,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 26,
-        "voltage": 10
+        "uid": 26
       },
       {
         "bus_a": 24,
@@ -725,8 +701,7 @@
         "reactance": 0.3292,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 27,
-        "voltage": 10
+        "uid": 27
       },
       {
         "bus_a": 25,
@@ -735,8 +710,7 @@
         "reactance": 0.38,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 28,
-        "voltage": 10
+        "uid": 28
       },
       {
         "bus_a": 25,
@@ -745,8 +719,7 @@
         "reactance": 0.2087,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 29,
-        "voltage": 10
+        "uid": 29
       },
       {
         "bus_a": 27,
@@ -755,8 +728,7 @@
         "reactance": 0.4153,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 30,
-        "voltage": 10
+        "uid": 30
       },
       {
         "bus_a": 27,
@@ -765,8 +737,7 @@
         "reactance": 0.6027,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 31,
-        "voltage": 10
+        "uid": 31
       },
       {
         "bus_a": 29,
@@ -775,8 +746,7 @@
         "reactance": 0.4533,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 32,
-        "voltage": 10
+        "uid": 32
       },
       {
         "bus_a": 8,
@@ -785,8 +755,7 @@
         "reactance": 0.2,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 33,
-        "voltage": 10
+        "uid": 33
       },
       {
         "bus_a": 6,
@@ -795,8 +764,7 @@
         "reactance": 0.0599,
         "tmax_ab": 9999,
         "tmax_ba": 9999,
-        "uid": 34,
-        "voltage": 10
+        "uid": 34
       },
       {
         "bus_a": 6,
@@ -807,8 +775,7 @@
         "tmax_ab": 100.0,
         "tmax_ba": 100.0,
         "type": "transformer",
-        "uid": 35,
-        "voltage": 10
+        "uid": 35
       },
       {
         "bus_a": 6,
@@ -819,8 +786,7 @@
         "tmax_ab": 100.0,
         "tmax_ba": 100.0,
         "type": "transformer",
-        "uid": 36,
-        "voltage": 10
+        "uid": 36
       },
       {
         "bus_a": 11,
@@ -830,8 +796,7 @@
         "tmax_ab": 100.0,
         "tmax_ba": 100.0,
         "type": "transformer",
-        "uid": 37,
-        "voltage": 10
+        "uid": 37
       },
       {
         "bus_a": 10,
@@ -841,8 +806,7 @@
         "tmax_ab": 100.0,
         "tmax_ba": 100.0,
         "type": "transformer",
-        "uid": 38,
-        "voltage": 10
+        "uid": 38
       },
       {
         "bus_a": 4,
@@ -853,8 +817,7 @@
         "tmax_ab": 100.0,
         "tmax_ba": 100.0,
         "type": "transformer",
-        "uid": 39,
-        "voltage": 10
+        "uid": 39
       },
       {
         "bus_a": 12,
@@ -864,8 +827,7 @@
         "tmax_ab": 100.0,
         "tmax_ba": 100.0,
         "type": "transformer",
-        "uid": 40,
-        "voltage": 10
+        "uid": 40
       },
       {
         "bus_a": 28,
@@ -876,8 +838,7 @@
         "tmax_ab": 100.0,
         "tmax_ba": 100.0,
         "type": "transformer",
-        "uid": 41,
-        "voltage": 10
+        "uid": 41
       }
     ],
     "name": "ieee30b"

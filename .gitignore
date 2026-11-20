@@ -111,3 +111,9 @@ support/**/PDD_DIARIO/
 # Salidas de plp2gtopt sobre los casos CEN de largo plazo: se regeneran con el
 # plp2gtopt_state.json de cada carpeta (7-19 MB cada una, 168 MB en total).
 cases/cen_long_term_*/
+
+# pyvis (gtopt_diagram --format html) copies its JS/CSS assets into a
+# lib/ dir next to the working directory; never commit them.
+lib/bindings/
+lib/tom-select/
+lib/vis-9.1.2/

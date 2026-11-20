@@ -1,0 +1,6 @@
+ NUM. Tp ...NombreB.. Id  # tg Plnt Nombre Gener.Area
+    1  0 NORTE220         1  2 9001 TERMO_A         1
+    1  0 NORTE220         2  2 9002 TERMO_B         1
+    2  0 CENTRO220        1  1 9101 Embalse         1
+    2  0 CENTRO220        2  1 9102 Pasada          1
+    3  0 SUR 220          1  2 9003 DIESEL_C        1

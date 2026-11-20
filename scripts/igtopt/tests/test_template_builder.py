@@ -647,7 +647,7 @@ class TestNestSubOptionsSolver:
             "solver_feasible_eps": 1e-7,
             "solver_barrier_eps": 1e-6,
             "solver_log_level": 1,
-            "solver_reuse_basis": False,
+            "solver_mip_gap_abs": 1e-6,
         }
         result = _nest_sub_options(flat)
         so = result["solver_options"]
@@ -659,7 +659,7 @@ class TestNestSubOptionsSolver:
         assert so["feasible_eps"] == 1e-7
         assert so["barrier_eps"] == 1e-6
         assert so["log_level"] == 1
-        assert so["reuse_basis"] is False
+        assert so["mip_gap_abs"] == 1e-6
 
     def test_solver_options_passthrough(self):
         """Pre-nested solver_options dict is passed through."""

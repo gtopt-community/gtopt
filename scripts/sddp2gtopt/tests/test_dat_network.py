@@ -417,9 +417,14 @@ def test_water_network_and_boundary_cut() -> None:
     gens = {g["name"]: g for g in system["generator_array"]}
     assert gens["RES-H1"]["gcost"] == pytest.approx(0.0)
 
-    # Single-week dispatch → monolithic (default method, cut in monolithic_options).
+    # Single-week dispatch → monolithic (default method); the cut lives on
+    # the method-neutral FutureCost element, never in the options blocks.
     assert "method" not in planning["options"]
-    assert planning["options"]["monolithic_options"]["boundary_cuts_file"]
+    fcf = planning["system"]["future_cost_array"][0]
+    assert fcf["cuts_file"] == "boundary_cuts.csv"
+    assert fcf["mode"] == "combined"
+    assert "monolithic_options" not in planning["options"]
+    assert "sddp_options" not in planning["options"]
     # The cut CSV carries -water_value for the priced reservoir.
     cut = planning["_boundary_cuts"]
     header, row = cut.strip().splitlines()
@@ -470,6 +475,9 @@ def test_no_vfin_reservoir_priced_in_cut_without_efin_target() -> None:
     assert "efin" not in res and "efin_cost" not in res
     # Still priced via the single cut (water-value coefficient), linearised at eini.
     cut = planning["_boundary_cuts"]
+    assert planning["system"]["future_cost_array"][0]["cuts_file"] == (
+        "boundary_cuts.csv"
+    )
     header, row = cut.strip().splitlines()
     assert header == "iteration,scene,rhs,rs_NOVF-H1"
     cells = row.split(",")
@@ -748,3 +756,44 @@ def test_build_planning_hydro_cost() -> None:
     )
     gen = planning["system"]["generator_array"][0]
     assert gen["gcost"] == pytest.approx(92.0)
+
+
+def test_multistage_boundary_cut_on_future_cost() -> None:
+    """A staged horizon runs sddp; the cut still lives on FutureCost (never
+    in sddp_options), so every method loads it from the same place."""
+    from sddp2gtopt.entities import HydroSpec, StudySpec
+
+    study = StudySpec(stage_type=1, num_stages=2, num_blocks=1, deficit_cost=500.0)
+    hydros = [
+        HydroSpec(
+            code=601,
+            name="RES-H1",
+            reference_id=601,
+            p_inst=50.0,
+            fp_med=3.0,
+            qmax=15.0,
+            vmin=90.0,
+            vmax=340.0,
+            eini=200.0,
+            inflow=33.5,
+            water_value=1000.0,
+            bus_number=1,
+        ),
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=[],
+        hydros=hydros,
+        demands=[],
+        name="ms",
+        buses=[BusSpec(number=1, name="A-230", base_kv=230.0)],
+        circuits=[CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)],
+        hydro_topology=True,
+    )
+    assert planning["options"]["method"] == "sddp"
+    assert planning["system"]["future_cost_array"] == [
+        {"uid": 1, "name": "fcf", "cuts_file": "boundary_cuts.csv", "mode": "combined"}
+    ]
+    sddp = planning["options"].get("sddp_options", {})
+    assert not [k for k in sddp if k.startswith("boundary_")]

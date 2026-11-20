@@ -1,42 +1,44 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
-"""Tests for plexos2gtopt._defaults share-file resolution (portability).
+"""Tests for plexos2gtopt._defaults bundled-file resolution (portability).
 
-Regression guard for the hardcoded ``/home/<user>/.../share/gtopt``
-first candidate that used to live in ``_SHARE_CANDIDATES``: it resolved
-only on one developer machine and silently returned ``None`` (→ a
-downstream FileNotFoundError, or a fall back to the IPCC defaults) on
-every other checkout and CI runner.
+Regression guards for two historical bugs:
+
+* a hardcoded ``/home/<user>/.../share/gtopt`` candidate that only
+  resolved on one developer machine, and
+* the repo-root ``share/gtopt/emissions`` lookup that silently returned
+  ``None`` (→ fall back to the IPCC defaults) in wheel installs.
+
+The CEN-Chile overlay now ships as ``gtopt_shared`` package data and a
+missing file is a hard error.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from plexos2gtopt._defaults import (
-    _resolve_share_file,
-    resolve_default_emissions_file,
-)
+import pytest
+
+import gtopt_shared
+from gtopt_shared import resources
+from gtopt_shared.resources import MissingDataFileError
+from plexos2gtopt._defaults import resolve_default_emissions_file
 
 
-def test_resolve_default_emissions_file_is_checkout_relative() -> None:
-    """The bundled CEN-Chile emissions file resolves from *this* checkout.
-
-    Asserting the resolved path lives under this checkout's root (rather
-    than absence of any specific developer path) is what fails for a
-    hardcoded ``/home/<user>/...`` literal on a CI runner rooted elsewhere.
-    """
+def test_resolve_default_emissions_file_is_package_data() -> None:
+    """The CEN-Chile emissions file resolves inside the gtopt_shared package."""
     path = resolve_default_emissions_file()
-    assert path is not None, "cen_chile.json must resolve from the checkout"
     assert path.is_file()
     assert path.name == "cen_chile.json"
-    # Checkout-relative, not a fixed literal: the resolved path must live
-    # under the same repo root as this test file (parents[3]).
-    repo_root = Path(__file__).resolve().parents[3]
-    assert path.resolve().is_relative_to(repo_root), (
-        f"{path} must resolve under the checkout root {repo_root}"
+    pkg_dir = Path(gtopt_shared.__file__).resolve().parent
+    assert path.resolve().is_relative_to(pkg_dir), (
+        f"{path} must resolve inside the gtopt_shared package {pkg_dir}"
     )
 
 
-def test_resolve_share_file_missing_returns_none() -> None:
-    """A non-existent share file resolves to None, not a stale path."""
-    assert _resolve_share_file("definitely", "missing", "nope.json") is None
+def test_resolve_default_emissions_file_missing_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A broken install (file absent) raises instead of falling back."""
+    monkeypatch.setattr(resources, "_package_dir", lambda _pkg: tmp_path)
+    with pytest.raises(MissingDataFileError, match="cen_chile.json"):
+        resolve_default_emissions_file()

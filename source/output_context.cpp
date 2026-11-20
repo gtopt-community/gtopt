@@ -158,10 +158,10 @@ auto make_array(Values&& values, Valids&& valids = {})
 // The (only) solution-table writer.  Produces a 5-column long table:
 //   `(scenario, stage, block, uid, value)`
 // with one row per *non-zero* holder sample across every element field
-// under the (class, field, suffix) key.  POC measurements on
-// `support/plp/2_years` showed 5-7× smaller per-partition files on the
-// heavy Generator streams (0.1 % cell density) and 2-3× on the LMP /
-// line-flow streams.
+// under the (class, field, suffix) key.  POC measurements on the
+// `plp_2y` case (gtopt-cases) showed 5-7× smaller per-partition
+// files on the heavy Generator streams (0.1 % cell density) and 2-3×
+// on the LMP / line-flow streams.
 //
 // The field entries arrive SPARSE — `(grid-slot, value)` pairs ascending
 // by slot, collected by `FlatHelper::flat_sparse` — so this pass just
@@ -352,7 +352,7 @@ auto make_table(const FieldVector& field_vector, int round_digits = 0)
   // codec: lz4`) but `resolve_parquet_codec` then fell off the loop
   // and returned UNCOMPRESSED.  Result: every parquet column was
   // written uncompressed even though the user had asked for snappy
-  // or lz4.  See the support/plp/2_years bloat regression.
+  // or lz4.  See the plp_2y (gtopt-cases) bloat regression.
   static constexpr std::array<std::pair<std::string_view, codec_t>, 9>
       codec_map {
           {

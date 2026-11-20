@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.future_cost import effective_future_cost
+
 logger = logging.getLogger(__name__)
 
 
@@ -972,9 +974,7 @@ def compute_indicators(
     total_up_prov = sum(_peak_scalar(p.get("urmax")) or 0.0 for p in provs)
     total_dn_prov = sum(_peak_scalar(p.get("drmax")) or 0.0 for p in provs)
     model_opts = opts.get("model_options", {}) if isinstance(opts, dict) else {}
-    demand_fail_cost = float(
-        model_opts.get("demand_fail_cost", opts.get("demand_fail_cost", 0.0)) or 0.0
-    )
+    demand_fail_cost = float(model_opts.get("demand_fail_cost", 0.0) or 0.0)
     # Renewable available energy (GWh): Σ capacity × duration over non-hydro
     # renewable generators (the must-take availability profiles).
     renew_energy = 0.0
@@ -1146,10 +1146,7 @@ def _read_fcf_intercept(
     reservoir columns are the per-reservoir water-value slopes.  Returns
     ``(0.0, 0)`` when no cut file is present or *base_dir* is unset.
     """
-    opts = planning.get("options", {})
-    mono = opts.get("monolithic_options", {}) if isinstance(opts, dict) else {}
-    sim = planning.get("simulation", {})
-    cut_file = mono.get("boundary_cuts_file") or sim.get("boundary_cuts_file")
+    cut_file = effective_future_cost(planning).get("cuts_file")
     if not cut_file or not base_dir:
         return 0.0, 0
     path = Path(base_dir) / str(cut_file)
@@ -1177,16 +1174,14 @@ def _count_boundary_cuts(
 ) -> tuple[int, int]:
     """Return ``(num_cuts, num_state_variables)`` for the FCF boundary cut.
 
-    The cut is referenced by ``options.monolithic_options.boundary_cuts_file``
-    (or ``simulation.boundary_cuts_file``) and stored as a CSV whose header is
+    The cut is referenced by the FutureCost element's ``cuts_file`` (or a
+    deprecated alias honoured for the planning method) and stored as a CSV
+    whose header is
     ``scene,rhs,<reservoir>...`` followed by one data row per cut.  When
     *base_dir* is given the CSV is parsed (rows → cuts, slope columns → state
     variables); otherwise the file presence counts as a single cut.
     """
-    opts = planning.get("options", {})
-    mono = opts.get("monolithic_options", {}) if isinstance(opts, dict) else {}
-    sim = planning.get("simulation", {})
-    cut_file = mono.get("boundary_cuts_file") or sim.get("boundary_cuts_file")
+    cut_file = effective_future_cost(planning).get("cuts_file")
     if not cut_file:
         return 0, 0
     if not base_dir:
@@ -1533,17 +1528,24 @@ def _build_info_sections(
         )
     )
 
-    # -- Key options --
-    use_kirch = opts.get("use_kirchhoff", False)
-    use_sb = opts.get("use_single_bus", False)
+    # -- Key options (model options live under options.model_options) --
+    model_o = opts.get("model_options") or {}
+    use_kirch = model_o.get("use_kirchhoff", True)
+    use_sb = model_o.get("use_single_bus", False)
     sections.append(
         (
             "Options",
             [
                 ("use_kirchhoff", "true" if use_kirch else "false"),
                 ("use_single_bus", "true" if use_sb else "false"),
-                ("scale_objective", str(opts.get("scale_objective", 1000.0))),
-                ("demand_fail_cost", str(opts.get("demand_fail_cost", 0.0))),
+                (
+                    "scale_objective",
+                    str(model_o.get("scale_objective", 1000.0)),
+                ),
+                (
+                    "demand_fail_cost",
+                    str(model_o.get("demand_fail_cost", 1000.0)),
+                ),
                 ("input_directory", str(opts.get("input_directory", "(default)"))),
                 ("output_directory", str(opts.get("output_directory", "(default)"))),
                 ("output_format", str(opts.get("output_format", "csv"))),

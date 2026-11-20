@@ -283,6 +283,10 @@ set(GTOPT_NAMING_DIALECTS_SOURCE_PATH
     "${CMAKE_CURRENT_SOURCE_DIR}/share/gtopt/naming_dialects.json")
 set(GTOPT_NAMING_DIALECTS_INSTALL_PATH
     "${CMAKE_INSTALL_FULL_DATADIR}/gtopt/naming_dialects.json")
+# Re-run configure when the dictionary changes, so the compiled-in
+# fallback never goes stale after an edit of the JSON file.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${GTOPT_NAMING_DIALECTS_SOURCE_PATH}")
 file(READ "${GTOPT_NAMING_DIALECTS_SOURCE_PATH}"
      GTOPT_NAMING_DIALECTS_JSON_CONTENT)
 configure_file(
@@ -301,6 +305,10 @@ set(GTOPT_UNIT_DIALECTS_SOURCE_PATH
     "${CMAKE_CURRENT_SOURCE_DIR}/share/gtopt/unit_dialects.json")
 set(GTOPT_UNIT_DIALECTS_INSTALL_PATH
     "${CMAKE_INSTALL_FULL_DATADIR}/gtopt/unit_dialects.json")
+# Re-run configure when the dictionary changes, so the compiled-in
+# fallback never goes stale after an edit of the JSON file.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${GTOPT_UNIT_DIALECTS_SOURCE_PATH}")
 file(READ "${GTOPT_UNIT_DIALECTS_SOURCE_PATH}"
      GTOPT_UNIT_DIALECTS_JSON_CONTENT)
 configure_file(

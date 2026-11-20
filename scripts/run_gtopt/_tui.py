@@ -697,9 +697,10 @@ def _load_system_stats(json_path: Path | None) -> dict[str, Any]:
     # Options summary
     method = options.get("method", "?")
     solver = options.get("solver", "")
-    scale_obj = options.get("scale_objective")
-    kirchhoff = options.get("use_kirchhoff")
-    single_bus = options.get("use_single_bus")
+    model_opts = options.get("model_options") or {}
+    scale_obj = model_opts.get("scale_objective")
+    kirchhoff = model_opts.get("use_kirchhoff")
+    single_bus = model_opts.get("use_single_bus")
 
     return {
         "elements": element_counts,

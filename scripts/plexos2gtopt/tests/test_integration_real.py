@@ -1,8 +1,10 @@
 """Integration test against the real CEN PCP daily bundle.
 
-The fixture lives under ``support/plexos/DATOS20260422.zip.xz`` and is
-~3 MB compressed; if it isn't present the test is skipped so CI on a
-sparse checkout stays green.  When present, the test asserts:
+The fixture is the ``pcp_2026-04-22`` bundle of the external case
+repository (``$GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/
+source/DATOS20260422.zip.xz``, ~3 MB compressed; see
+``tools/get_cases.sh``); without it the test is skipped so default CI
+stays green.  When present, the test asserts:
 
 * the bundle locator handles ``.zip.xz`` without extracting in place
   (the file lands in a tempdir owned by the bundle handle);
@@ -24,6 +26,11 @@ from pathlib import Path
 
 import pytest
 
+from gtopt_shared.testing.external_cases import (
+    external_case_path,
+    missing_case_reason,
+)
+
 from plexos2gtopt.parsers import (
     UnresolvedConstraintReferenceError,
     extract_case,
@@ -32,11 +39,9 @@ from plexos2gtopt.plexos2gtopt import convert_plexos_bundle
 from plexos2gtopt.plexos_loader import locate_bundle
 
 
-REAL_BUNDLE = (
-    Path(__file__).resolve().parents[3]
-    / "support"
-    / "plexos_pcp_2026-04-22"
-    / "DATOS20260422.zip.xz"
+_REAL_BUNDLE_REL = "chile/daily_scheduling/pcp_2026-04-22/source/DATOS20260422.zip.xz"
+REAL_BUNDLE = external_case_path(_REAL_BUNDLE_REL) or Path(
+    "/nonexistent/DATOS20260422.zip.xz"
 )
 
 
@@ -55,7 +60,7 @@ def _gtopt_binary() -> Path | None:
 
 _skip_if_missing = pytest.mark.skipif(
     not REAL_BUNDLE.is_file(),
-    reason=f"CEN PCP bundle not vendored: {REAL_BUNDLE}",
+    reason=missing_case_reason(_REAL_BUNDLE_REL),
 )
 _skip_if_no_gtopt = pytest.mark.skipif(
     _gtopt_binary() is None,

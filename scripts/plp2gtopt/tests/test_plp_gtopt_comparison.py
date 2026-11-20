@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 
-"""PLP vs gtopt comparison on the plp_2_years case.
+"""PLP vs gtopt comparison on the plp_2y case (gtopt-cases).
 
-The 2-year support case ships the OFFICIAL PLP outputs of the same
-inputs (``plpemb.parquet`` — per-(simulation, block) reservoir
-volumes, turbined/spilled flows, inflows and filtration), so gtopt
+The plp_2y case keeps, next to its PLP inputs (``source/``), the
+OFFICIAL PLP outputs of the same inputs (``results/plp/plpemb.parquet``
+— per-(simulation, block) reservoir volumes, turbined/spilled flows,
+inflows and filtration), so gtopt
 with all irrigation couplings enabled can be validated against the
 real PLP run without building the Fortran model.
 
@@ -48,19 +49,29 @@ from pathlib import Path
 
 import pytest
 
+from gtopt_shared.testing.external_cases import (
+    external_case_path,
+    missing_case_reason,
+)
+
 pd = pytest.importorskip("pandas")
 pytest.importorskip("pyarrow")
 
-_SUPPORT_DIR = Path(__file__).resolve().parents[3] / "support"
-_PLP_2Y = _SUPPORT_DIR / "plp" / "2_years"
-_PLP_EMB = _PLP_2Y / "plpemb.parquet"
+# PLP 2-year case from the external case repository (GTOPT_CASES_DIR, see
+# tools/get_cases.sh): PLP inputs in ``source/``, the official PLP outputs
+# (private-only) in ``results/plp/``.
+_PLP_2Y_REL = "chile/medium_long_term/plp_2y/source"
+_PLP_2Y = external_case_path(_PLP_2Y_REL) or Path("/nonexistent/plp_2y")
+_PLP_2Y_RES_REL = "chile/medium_long_term/plp_2y/results/plp"
+_PLP_2Y_RES = external_case_path(_PLP_2Y_RES_REL) or Path("/nonexistent/plp_2y")
+_PLP_EMB = _PLP_2Y_RES / "plpemb.parquet"
 _HIDRO_FIRST = "Sim  1"  # PLP simulation of the first hydrology
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(
         not _PLP_EMB.exists(),
-        reason="plp_2_years official PLP outputs (plpemb.parquet) not available",
+        reason=missing_case_reason(f"{_PLP_2Y_RES_REL}/plpemb.parquet"),
     ),
 ]
 
@@ -188,6 +199,23 @@ def _seepage_piecewise(planning, reservoir: str):
         )
 
     return qfil
+
+
+class TestFutureCostOutput:
+    """The PLP planos cuts are wired through the FutureCost element only."""
+
+    def test_cuts_on_future_cost_no_legacy_keys(self, converted):
+        out_dir, planning = converted
+        fcf = planning["system"]["future_cost_array"]
+        assert len(fcf) == 1
+        assert fcf[0]["cuts_file"] == "boundary_cuts.csv"
+        assert fcf[0]["mode"] == "phi_expectation"
+        assert (out_dir / "boundary_cuts.csv").is_file()
+        opts = planning["options"]
+        for section in ("sddp_options", "monolithic_options"):
+            legacy = [k for k in opts.get(section, {}) if k.startswith("boundary_")]
+            assert not legacy, f"{section} still carries {legacy}"
+        assert not [k for k in planning["simulation"] if k.startswith("boundary_")]
 
 
 class TestEqualTier:
@@ -616,7 +644,7 @@ class TestIrrigationSimilar:
         Writes plp_gtopt_kpi_report.csv.
         """
         output_dir, planning = solved
-        bar_file = _PLP_2Y / "plpbar.parquet"
+        bar_file = _PLP_2Y_RES / "plpbar.parquet"
         report_rows = []
 
         # ---- LMP ----
@@ -739,7 +767,7 @@ class TestIrrigationSimilar:
         ``*********`` for values >= 1e6 (coerced to NaN); trailing
         comma yields an unnamed empty column; names carry padding.
         """
-        for base in (os.environ.get("PLP_OUT_DIR"), str(_PLP_2Y)):
+        for base in (os.environ.get("PLP_OUT_DIR"), str(_PLP_2Y_RES)):
             if not base:
                 continue
             for suffix in ("", ".xz"):

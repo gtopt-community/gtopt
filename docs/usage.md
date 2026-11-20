@@ -328,8 +328,6 @@ Defines the temporal structure of the optimization:
 ```json
 "simulation": {
   "annual_discount_rate": 0.1,
-  "boundary_cuts_file": "boundary_cuts.csv",
-  "boundary_cuts_valuation": "end_of_horizon",
   "block_array": [
     { "uid": 1, "duration": 1 },
     { "uid": 2, "duration": 2 },
@@ -347,13 +345,17 @@ Defines the temporal structure of the optimization:
 ```
 
 - **`annual_discount_rate`**: discount rate for multi-stage CAPEX.
-- **`boundary_cuts_file`**: CSV with boundary (future-cost) cuts.
-- **`boundary_cuts_valuation`**: `"end_of_horizon"` (default) or
-  `"present_value"`.
 - **Blocks**: time subdivisions within a stage (e.g., peak/off-peak hours),
   each with a `duration` in hours.
 - **Stages**: planning periods (e.g., years), referencing a range of blocks.
 - **Scenarios**: stochastic scenarios with probability weights.
+
+Boundary (future-cost) cuts are not a simulation field: they are configured
+on the FutureCost element in `system.future_cost_array` (e.g.
+`{"uid": 1, "name": "fcf", "cuts_file": "boundary_cuts.csv"}`), read by
+every method.  The former `simulation.boundary_cuts_file` /
+`boundary_cuts_valuation` keys are deprecated aliases; see
+[Input Data — Future Cost](input-data.md#326-future-cost).
 
 ### System
 
@@ -912,7 +914,7 @@ When the SDDP gap does not close within the expected number of iterations:
 - **Lower `convergence_tol`**: if the gap oscillates near the tolerance,
   try a slightly larger tolerance (e.g., `1e-3` instead of `1e-4`).
 - **Check boundary cuts**: for problems where the planning horizon is too
-  short, loading `boundary_cuts_file` can provide a better terminal
+  short, loading `future_cost_array[].cuts_file` can provide a better terminal
   approximation and speed convergence.
 - **Monitor progress**: use the SDDP monitoring API (`api_enabled: true`)
   and the `gtopt_monitor` script to visualize the convergence trajectory.

@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -71,7 +72,7 @@ def test_ieee57_reduce_solve_project(
 
     # 1. reduce 57 → K buses.
     reduce_cmd = [
-        "python",
+        sys.executable,
         "-m",
         "gtopt_reduce_network.main",
         "reduce",
@@ -120,7 +121,7 @@ def test_ieee57_reduce_solve_project(
     projected_out.mkdir()
     subprocess.run(
         [
-            "python",
+            sys.executable,
             "-m",
             "gtopt_reduce_network.main",
             "project-results",

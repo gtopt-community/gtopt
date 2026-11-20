@@ -135,6 +135,16 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "model_options.continuous_phases.",
             None,
         ),
+        (
+            "aperture_system_file",
+            _J_STR,
+            False,
+            (
+                "Optional per-phase override of the SDDP backward-pass **aperture system**: a path"
+                " to a Planning JSON whose `.system` (and its `.options.model_options`) replace…"
+            ),
+            None,
+        ),
     ],
     "scene_array": [
         ("uid", _J_INT, True, "Unique scene identifier (SDDP)", 1),
@@ -184,6 +194,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Override global Kirchhoff setting for this bus (true/false)",
             None,
         ),
+        ("description", _J_STR, False, "Optional free-text description", None),
     ],
     "line_array": [
         ("uid", _J_INT, True, "Unique line identifier", 1),
@@ -342,6 +353,60 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Annual capacity derating factor [p.u./year]",
             None,
         ),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        ("loss_pwl_layout", _J_STR, False, "Segment-layout strategy for the PWL", None),
+        ("loss_envelope", _J_SCHED, False, "Upper envelope [MW]", None),
+        (
+            "in_service",
+            _J_SCHED,
+            False,
+            (
+                "Per-(stage, block) in-service flag mirroring PLEXOS ``Line.Units`` (the "
+                "``Lin_Units.csv`` DataFile): ``1`` = line in service, ``0`` = line out "
+                "(maintenance / f…"
+            ),
+            None,
+        ),
+        (
+            "enforce_level",
+            _J_INT,
+            False,
+            (
+                "Thermal-limit enforcement mode, mirroring PLEXOS's ``Line.Enforce Limits`` "
+                "property: * ``0`` — never enforce."
+            ),
+            None,
+        ),
+        (
+            "loss_cost_eps",
+            _J_NUM,
+            False,
+            (
+                "Small positive cost per MWh of dissipated loss, breaks LP-relax "
+                "bidirectional-flow degeneracy."
+            ),
+            None,
+        ),
+        (
+            "loss_secant_segments",
+            _J_INT,
+            False,
+            (
+                "Number of L-secant segments for the ``tangent_signed_flow`` loss- upper-bound "
+                "chord (issue #504)."
+            ),
+            None,
+        ),
+        (
+            "loss_use_sos2",
+            _J_BOOL,
+            False,
+            (
+                "Enable SOS2 enforcement on the ``L`` secant-segment columns emitted when "
+                "``loss_secant_segments > 1`` (issue #504)."
+            ),
+            None,
+        ),
     ],
     # ------------------------------------------------------------------
     # System — generation
@@ -486,6 +551,16 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Annual capacity derating factor [p.u./year]",
             None,
         ),
+        ("pmin_fcost", _J_SCHED, False, "Optional penalty cost [$/MWh]", None),
+        (
+            "fuel_per_block",
+            _J_SCHED,
+            False,
+            "Optional per-(stage, block) override of `fuel`.",
+            None,
+        ),
+        ("uini", _J_NUM, False, "Initial number of units online at t = 0.", None),
+        ("cogen_mode", _J_STR, False, "Cogeneration mode tag.", None),
     ],
     "generator_profile_array": [
         ("uid", _J_INT, True, "Unique generator-profile identifier", 1),
@@ -560,32 +635,6 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("name", _J_STR, True, "Fuel name (e.g. 'natgas', 'diesel')", "natgas"),
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
         (
-            "emission",
-            _J_ID,
-            False,
-            "Legacy single-pollutant shortcut: Emission uid or name. Folded "
-            "into `emission_factors[]` together with `combustion` / `upstream`.",
-            None,
-        ),
-        (
-            "combustion",
-            _J_SCHED,
-            False,
-            "Legacy single-pollutant combustion (tank-to-stack) emission "
-            "factor [t/<fuel_unit>]. Used with `emission`; folded into "
-            "`emission_factors[]` at parse time.",
-            None,
-        ),
-        (
-            "upstream",
-            _J_SCHED,
-            False,
-            "Legacy single-pollutant upstream (well-to-tank) emission factor "
-            "[t/<fuel_unit>]. Used with `emission`; folded into "
-            "`emission_factors[]` at parse time.",
-            None,
-        ),
-        (
             "price",
             _J_SCHED,
             False,
@@ -621,6 +670,57 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Multi-pollutant per-fuel emission factors. JSON array of "
             "{emission, combustion [t/<fuel_unit>], upstream [t/<fuel_unit>]}.",
+            None,
+        ),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        (
+            "subtype",
+            _J_STR,
+            False,
+            "Optional fine-grained sub-classification of `type` — e.g.",
+            None,
+        ),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        (
+            "max_offtake",
+            _J_SCHED,
+            False,
+            "Maximum fuel consumption per stage [<fuel_unit>/stage]",
+            None,
+        ),
+        (
+            "max_offtake_cost",
+            _J_SCHED,
+            False,
+            "Per-unit penalty for exceeding `max_offtake` [$/<fuel_unit>]",
+            None,
+        ),
+        (
+            "max_offtake_per_block",
+            _J_BOOL,
+            False,
+            "When `true`, enforce the offtake cap **per block** instead of summed over the stage.",
+            None,
+        ),
+        (
+            "min_offtake",
+            _J_SCHED,
+            False,
+            "Minimum fuel consumption per stage [<fuel_unit>/stage]",
+            None,
+        ),
+        (
+            "min_offtake_cost",
+            _J_SCHED,
+            False,
+            "Per-unit penalty for SHORTFALL below `min_offtake` [$/<fuel_unit>]",
+            None,
+        ),
+        (
+            "min_offtake_per_block",
+            _J_BOOL,
+            False,
+            "When `true`, enforce the floor **per block** instead of summed over the stage.",
             None,
         ),
     ],
@@ -759,6 +859,35 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Min offline hours for cold start [h].",
             None,
         ),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        (
+            "ini_hours_up",
+            _J_NUM,
+            False,
+            "Raw PLEXOS ``Gen_IniHoursUp.csv`` value [h]",
+            None,
+        ),
+        (
+            "ini_hours_down",
+            _J_NUM,
+            False,
+            "Raw PLEXOS ``Gen_IniHoursDown.csv`` value [h]",
+            None,
+        ),
+        ("initial_power", _J_NUM, False, "Initial power output [MW]", None),
+        (
+            "max_starts",
+            _J_INT,
+            False,
+            (
+                "@name Startup-count bounds (PLEXOS ``Max Starts {Hour|Day|Week|...}`` + symmetric"
+                " ``Min Starts`` floor for forced-commitment)."
+            ),
+            None,
+        ),
+        ("min_starts", _J_NUM, False, "Min starts", None),
+        ("starts_scope", _J_STR, False, "Window-scope for ``max_starts``.", None),
     ],
     # ------------------------------------------------------------------
     # System — simple_commitment (minimal UC: pmin gating)
@@ -887,6 +1016,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Annual capacity derating factor [p.u./year]",
             None,
         ),
+        ("description", _J_STR, False, "Optional free-text description", None),
     ],
     "demand_profile_array": [
         ("uid", _J_INT, True, "Unique demand-profile identifier", 1),
@@ -1108,6 +1238,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Reset SoC to eini at the start of each day (true/false)",
             None,
         ),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        (
+            "max_cycles_day",
+            _J_NUM,
+            False,
+            "Daily energy-throughput limit — PLEXOS ``Battery.Max Cycles Day``.",
+            None,
+        ),
     ],
     "converter_array": [
         ("uid", _J_INT, True, "Unique converter identifier", 1),
@@ -1240,22 +1378,6 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             '(e.g. [{"generator": 10, "heat_rate": 0.18}])',
             None,
         ),
-        (
-            "generator",
-            _J_ID,
-            False,
-            "Legacy single-generator shortcut: folded into `generators` "
-            "with the top-level `heat_rate` at parse time.",
-            None,
-        ),
-        (
-            "heat_rate",
-            _J_NUM,
-            False,
-            "Legacy single-generator heat-rate companion to the `generator` "
-            "shortcut [m³/MWh]; folded into the first `generators` entry.",
-            None,
-        ),
     ],
     # ------------------------------------------------------------------
     # System — multi-carrier balance nodes (PR #483 / #484)
@@ -1322,6 +1444,30 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "PLP-style daily-cycle scaling (default 0 for CSP)",
             None,
         ),
+        ("expcap", _J_SCHED, False, "Capacity per expansion module [MWh_th]", None),
+        ("expmod", _J_SCHED, False, "Maximum number of expansion modules.", None),
+        ("capmax", _J_SCHED, False, "Absolute maximum capacity [MWh_th]", None),
+        (
+            "annual_capcost",
+            _J_SCHED,
+            False,
+            "Annualized investment cost [$/MWh_th-year]",
+            None,
+        ),
+        (
+            "annual_derating",
+            _J_SCHED,
+            False,
+            "Annual capacity derating factor [p.u./year]",
+            None,
+        ),
+        (
+            "integer_expmod",
+            _J_BOOL,
+            False,
+            "Integer-constrain the expmod variable.",
+            None,
+        ),
     ],
     "hydrogen_storage_array": [
         ("uid", _J_INT, True, "Unique hydrogen-storage identifier", 1),
@@ -1367,6 +1513,18 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("capacity", _J_SCHED, False, "Installed storage size [MWh_LHV]", None),
         ("use_state_variable", _J_INT, False, "SDDP state (1=yes, 0=no)", 1),
         ("daily_cycle", _J_INT, False, "PLP-style daily-cycle scaling", None),
+        ("expcap", _J_SCHED, False, "Capacity per expansion module.", None),
+        ("expmod", _J_SCHED, False, "Maximum number of expansion modules.", None),
+        ("capmax", _J_SCHED, False, "Absolute maximum capacity.", None),
+        ("annual_capcost", _J_SCHED, False, "Annualised investment cost", None),
+        ("annual_derating", _J_SCHED, False, "Annual derating factor.", None),
+        (
+            "integer_expmod",
+            _J_BOOL,
+            False,
+            "Integer-constrain the expmod variable.",
+            None,
+        ),
     ],
     "ammonia_storage_array": [
         ("uid", _J_INT, True, "Unique ammonia-storage identifier", 1),
@@ -1412,6 +1570,24 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("capacity", _J_SCHED, False, "Installed storage size [MWh_LHV]", None),
         ("use_state_variable", _J_INT, False, "SDDP state (1=yes, 0=no)", 1),
         ("daily_cycle", _J_INT, False, "PLP-style daily-cycle scaling", None),
+        ("expcap", _J_SCHED, False, "Capacity per expansion module.", None),
+        ("expmod", _J_SCHED, False, "Maximum number of expansion modules.", None),
+        ("capmax", _J_SCHED, False, "Absolute maximum capacity.", None),
+        (
+            "annual_capcost",
+            _J_SCHED,
+            False,
+            "Annualised investment cost [$/MWh_LHV-year]",
+            None,
+        ),
+        ("annual_derating", _J_SCHED, False, "Annual derating factor.", None),
+        (
+            "integer_expmod",
+            _J_BOOL,
+            False,
+            "Integer-constrain the expmod variable.",
+            None,
+        ),
     ],
     # ------------------------------------------------------------------
     # System — multi-carrier converter (PR #485)
@@ -1542,6 +1718,18 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("capacity", _J_SCHED, False, "Installed pool size [tCO₂]", None),
         ("use_state_variable", _J_INT, False, "SDDP state (1=yes, 0=no)", 1),
         ("daily_cycle", _J_INT, False, "PLP-style daily-cycle scaling", None),
+        ("expcap", _J_SCHED, False, "Per-expansion-module capacity.", None),
+        ("expmod", _J_SCHED, False, "Maximum expansion modules.", None),
+        ("capmax", _J_SCHED, False, "Absolute maximum capacity.", None),
+        ("annual_capcost", _J_SCHED, False, "Annualised investment cost.", None),
+        ("annual_derating", _J_SCHED, False, "Annual derating factor.", None),
+        (
+            "integer_expmod",
+            _J_BOOL,
+            False,
+            "Integer-constrain expansion modules.",
+            None,
+        ),
     ],
     # ------------------------------------------------------------------
     # System — reserves
@@ -1578,6 +1766,10 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Down-reserve failure cost [$/MW]",
             None,
         ),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        ("urmin", _J_SCHED, False, "Up-reserve Min-Provision floor [MW]", None),
+        ("drmin", _J_SCHED, False, "Down-reserve Min-Provision floor [MW]", None),
     ],
     "reserve_provision_array": [
         ("uid", _J_INT, True, "Unique reserve provision identifier", 1),
@@ -1643,6 +1835,8 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         ("urcost", _J_SCHED, False, "Up-reserve provision cost [$/MW]", None),
         ("drcost", _J_SCHED, False, "Down-reserve provision cost [$/MW]", None),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
     ],
     # ------------------------------------------------------------------
     # System — inertia (system-inertia requirements + provision links)
@@ -1752,14 +1946,6 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
-            "weight",
-            _J_NUM,
-            False,
-            "GWP weight for the legacy `emission` shortcut (default: 1.0). "
-            "Ignored when `emissions[]` is set explicitly.",
-            None,
-        ),
-        (
             "emissions",
             "JSON array",
             False,
@@ -1859,6 +2045,10 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "If true, excess water drains freely (spills without cost)",
             None,
         ),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        ("drain_capacity", _J_NUM, False, "Upper bound [m³/s]", None),
+        ("drain_cost", _J_NUM, False, "Per-(m³/s)·h cost on the drain column", None),
     ],
     "waterway_array": [
         ("uid", _J_INT, True, "Unique waterway identifier", 1),
@@ -1905,6 +2095,9 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Per-unit flow cost [$/m³/s/h] charged on the waterway flow column.",
             None,
         ),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        ("fmin_fcost", _J_SCHED, False, "Optional penalty cost [$/(m³/s)/h]", None),
     ],
     "flow_array": [
         ("uid", _J_INT, True, "Unique flow identifier", 1),
@@ -1936,6 +2129,22 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             True,
             "Flow discharge [m³/s]: scalar, array, or filename",
             10.0,
+        ),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        (
+            "fcost",
+            _J_SCHED,
+            False,
+            "Optional per-(stage, block) flow cost [$/(m³/s)/h]",
+            None,
+        ),
+        (
+            "inflow_model",
+            "JSON object",
+            False,
+            "Opt-in AR(1) inflow model (see InflowModel).",
+            None,
         ),
     ],
     "reservoir_array": [
@@ -2094,6 +2303,8 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "`reservoir_production_factor_array` at parse time).",
             None,
         ),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
     ],
     "reservoir_seepage_array": [
         ("uid", _J_INT, True, "Unique seepage identifier", 1),
@@ -2129,15 +2340,6 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Constant seepage rate [m³/s] — scalar, per-stage array, or filename. "
             "Used when segments is empty or as the initial value before the "
             "first volume-dependent update.",
-            None,
-        ),
-        (
-            "volume",
-            _J_NUM,
-            False,
-            "Legacy single-segment shortcut: lower-bound volume [hm³] for the "
-            "(volume, slope, constant) entry promoted into `segments[]` at "
-            "parse time.",
             None,
         ),
         (
@@ -2187,31 +2389,6 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             True,
             "Reservoir uid or name providing the volume reference",
             "res1",
-        ),
-        (
-            "volume",
-            _J_NUM,
-            False,
-            "Legacy single-segment shortcut: lower-bound volume [hm³] for the "
-            "(volume, slope, intercept) entry promoted into `segments[]` at "
-            "parse time.",
-            None,
-        ),
-        (
-            "slope",
-            _J_NUM,
-            False,
-            "Legacy single-segment slope [m³/s per hm³]; promoted into "
-            "`segments[]` together with `volume` / `intercept`.",
-            None,
-        ),
-        (
-            "intercept",
-            _J_NUM,
-            False,
-            "Legacy single-segment intercept [m³/s]; promoted into "
-            "`segments[]` together with `volume` / `slope`.",
-            None,
         ),
         (
             "segments",
@@ -2308,6 +2485,8 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Reservoir uid or name that is the primary head source",
             None,
         ),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
     ],
     "reservoir_production_factor_array": [
         ("uid", _J_INT, True, "Unique reservoir-efficiency identifier", 1),
@@ -2338,31 +2517,6 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_NUM,
             False,
             "Mean productivity [MW/(m³/s)] averaged over operating range",
-            None,
-        ),
-        (
-            "volume",
-            _J_NUM,
-            False,
-            "Legacy single-segment shortcut: lower-bound volume [hm³] for the "
-            "(volume, slope, constant) entry promoted into `segments[]` at "
-            "parse time.",
-            None,
-        ),
-        (
-            "slope",
-            _J_NUM,
-            False,
-            "Legacy single-segment slope [MW/(m³/s)/hm³]; promoted into "
-            "`segments[]` together with `volume` / `constant`.",
-            None,
-        ),
-        (
-            "constant",
-            _J_NUM,
-            False,
-            "Legacy single-segment constant [MW/(m³/s)]; promoted into "
-            "`segments[]` together with `volume` / `slope`.",
             None,
         ),
         (
@@ -2544,6 +2698,20 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "(reservoir-volume-driven cushion zones).",
             None,
         ),
+        (
+            "bypass_cost",
+            _J_NUM,
+            False,
+            "Per-unit cost on the bypass column ($/m³/s·h).",
+            None,
+        ),
+        (
+            "consumptive",
+            _J_BOOL,
+            False,
+            "Consumptive flag for the SERVED flow (``flow_b`` / ``qeh``).",
+            None,
+        ),
     ],
     "volume_right_array": [
         ("uid", _J_INT, True, "Unique volume-right identifier", 1),
@@ -2709,6 +2877,42 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "adjustment and at-reset eini provisioning.",
             None,
         ),
+        (
+            "reset_monthly",
+            _J_BOOL,
+            False,
+            (
+                "Reset at EVERY stage that starts a new calendar month (PLP: ``TipoEtaDE != "
+                "INTRAETA``, genpdmaule.f:937 — the monthly electric counter IVMGEMF re-provisions"
+                " ea…"
+            ),
+            None,
+        ),
+        (
+            "reset_value",
+            _J_NUM,
+            False,
+            "Explicit provision value at reset_month [hm³]",
+            None,
+        ),
+        (
+            "reset_debit_right",
+            _J_ID,
+            False,
+            "Debit reference for the reset provisioning.",
+            None,
+        ),
+        (
+            "reset_credit_right",
+            _J_ID,
+            False,
+            (
+                "Credit reference for the reset provisioning (PLP compensation recompute at "
+                "INICIOANO, genpdmaule.f:942-957): provision = min(emax, own_incoming + "
+                "credit_incomi…"
+            ),
+            None,
+        ),
     ],
     # ------------------------------------------------------------------
     # System — user constraints
@@ -2753,6 +2957,44 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Penalty unit hint: 'raw' (default) or 'hydro_flow'. "
             "Controls how `penalty` is interpreted physically.",
+            None,
+        ),
+        (
+            "daily_sum",
+            _J_BOOL,
+            False,
+            (
+                "Per-day sum: emit ONE LP row per 24 h day instead of the default "
+                "one-row-per-block expansion."
+            ),
+            None,
+        ),
+        (
+            "rhs",
+            _J_SCHED,
+            False,
+            "Per-(stage, block) override of the constraint's RHS.",
+            None,
+        ),
+        ("directive", "JSON object", False, "Typed constraint-family directive.", None),
+        (
+            "scope",
+            _J_STR,
+            False,
+            (
+                "Time-granularity at which this constraint's LP rows are instantiated "
+                '(``"block"`` default, ``"stage"``, ``"phase"``, ``"global"``).'
+            ),
+            None,
+        ),
+        (
+            "slack_name",
+            _J_STR,
+            False,
+            (
+                "User-controlled name for the auto-created slack column on soft constraints "
+                '(overrides the LP-internal default ``"slack"``).'
+            ),
             None,
         ),
     ],
@@ -2821,10 +3063,326 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "via CostHelper::block_ecost so the units match `Generator.gcost`.",
             None,
         ),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        (
+            "cost_type",
+            _J_STR,
+            False,
+            (
+                'Cost interpretation for the objective: ``"raw"`` (default, face value, no '
+                'prob/discount/duration), ``"power"`` (duration-weighted) or ``"energy"`` (prob × '
+                "disc…"
+            ),
+            None,
+        ),
+        (
+            "scope",
+            _J_STR,
+            False,
+            (
+                "Time-granularity at which this decision variable's LP column is instantiated "
+                '(``"block"`` default, ``"stage"``, ``"phase"``, ``"global"``).'
+            ),
+            None,
+        ),
+        ("block", _J_INT, False, "Optional single-block scope (block ``uid``).", None),
+        ("state", _J_BOOL, False, "AMPL **state variable** flag (piece 5).", None),
+        (
+            "link",
+            _J_BOOL,
+            False,
+            "Cross-phase **link** flag for a ``state`` variable (piece 5).",
+            None,
+        ),
+        (
+            "block_state",
+            _J_BOOL,
+            False,
+            (
+                "Per-block storage-state flag — makes this `block`-scoped variable behave like a "
+                "reservoir volume: the per-block columns are storage volumes, a cross-phase INCO…"
+            ),
+            None,
+        ),
+        (
+            "initial_value",
+            _J_NUM,
+            False,
+            (
+                "Initial value (`eini`-equivalent) for a `block_state` variable: the incoming "
+                "column on the first stage of the first phase is fixed to this."
+            ),
+            None,
+        ),
+        (
+            "obj_constant",
+            _J_NUM,
+            False,
+            "Optional objective constant for a mean-shifted (rebased) variable.",
+            None,
+        ),
     ],
     # ------------------------------------------------------------------
     # Simulation — apertures (SDDP backward-pass scenario sampling)
     # ------------------------------------------------------------------
+    "future_cost_array": [
+        ("uid", _J_INT, True, "Unique identifier", 1),
+        ("name", _J_STR, True, "Human-readable element name", "fcf"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        (
+            "cuts_file",
+            _J_STR,
+            False,
+            (
+                "Boundary-cut file that linearises the FCF: rows `iteration,scene,rhs,<state...>` "
+                "with `rhs` the FCF intercept and each reservoir coefficient `-water_value` ($/…"
+            ),
+            None,
+        ),
+        (
+            "scale_alpha",
+            _J_NUM,
+            False,
+            (
+                "Numerical scale applied to the α / `varphi_s` columns (the LP conditioning factor"
+                " on the cost-to-go variable)."
+            ),
+            None,
+        ),
+        (
+            "mean_shift",
+            _J_BOOL,
+            False,
+            (
+                "Rebase the α at the reservoirs' `efin` end-of-horizon targets so α' is centred on"
+                " ~0 when the targets are met (α' < 0 when more water is saved, > 0 when less)."
+            ),
+            None,
+        ),
+        (
+            "single_cut_equality",
+            _J_BOOL,
+            False,
+            (
+                "When a SINGLE boundary cut is loaded for a scene, install it as the equality `α +"
+                " Σ wvᵣ·efinᵣ = FCF` with α freed (`set_col_low_raw(-inf)`) — the continuous PL…"
+            ),
+            None,
+        ),
+        (
+            "sharing",
+            _J_STR,
+            False,
+            (
+                "Cross-scene cut sharing: `per_scene` (each scene keeps its own cut), `shared` "
+                "(broadcast every cut onto every scene's terminal α), or `multicut` (N dedicated "
+                "`…"
+            ),
+            None,
+        ),
+        (
+            "mode",
+            _J_STR,
+            False,
+            (
+                "Boundary-cut load mode: `noload`, `separated` (per-scene, default), `combined` "
+                "(broadcast all cuts to all scenes) or `phi_expectation` (PLP-literal NVarPhi pla…"
+            ),
+            None,
+        ),
+        (
+            "iteration_limit",
+            _J_INT,
+            False,
+            (
+                "Keep only the cuts of the last N iterations of the SOURCE run that produced "
+                "`cuts_file` (distinct values of the CSV `iteration` column — PLP's `IPDNumIte`)."
+            ),
+            None,
+        ),
+        (
+            "missing_cut_var_mode",
+            _J_STR,
+            False,
+            (
+                "How a cut row naming a state variable that is not in the model is handled: "
+                "`skip_coeff` (default — drop that coefficient, keep the cut) or `skip_cut` (drop "
+                "the…"
+            ),
+            None,
+        ),
+        (
+            "valuation",
+            _J_STR,
+            False,
+            (
+                "Valuation basis of the cut RHS / coefficients: `end_of_horizon` (default, no "
+                "discounting) or `present_value` (apply the last stage's effective discount "
+                "factor…"
+            ),
+            None,
+        ),
+        (
+            "use_user_alpha",
+            _J_BOOL,
+            False,
+            "User-overridable FCF (piece 5 step 2a).",
+            None,
+        ),
+        (
+            "user_alpha_uid",
+            _J_INT,
+            False,
+            "UID of the user-authored α `DecisionVariable` (piece 5 step 2a).",
+            None,
+        ),
+    ],
+    "line_commitment_array": [
+        ("uid", _J_INT, True, "Unique identifier", 1),
+        ("name", _J_STR, True, "Human-readable element name", "elem1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("description", _J_STR, False, "Optional free-text description", None),
+        ("line", _J_ID, False, "FK to the Line being switched", None),
+        (
+            "initial_status",
+            _J_NUM,
+            False,
+            "Initial closed/open state at ``t = 0``.",
+            None,
+        ),
+        (
+            "must_run",
+            _J_BOOL,
+            False,
+            (
+                "Force the binary status to ``u_l = 1`` for every block (commitment-equivalent "
+                '"must run" — line pinned closed).'
+            ),
+            None,
+        ),
+        (
+            "fixed_status",
+            _J_SCHED,
+            False,
+            (
+                "Per-(stage, block) forced commitment status — pins ``u_l`` to a specific value at"
+                " every (stage, block) where it is set."
+            ),
+            None,
+        ),
+        ("relax", _J_BOOL, False, "LP-relax the binary ``u_l`` to [0, 1]", None),
+        (
+            "kvl_big_m",
+            _J_NUM,
+            False,
+            "Per-line override of the KVL disjunction big-M parameter.",
+            None,
+        ),
+        (
+            "startup_cost",
+            _J_NUM,
+            False,
+            "Per-event line-CLOSING (startup) cost ($).",
+            None,
+        ),
+        (
+            "shutdown_cost",
+            _J_NUM,
+            False,
+            "Per-event line-OPENING (shutdown) cost ($).",
+            None,
+        ),
+        ("min_up_time", _J_NUM, False, "Minimum up time [hours]", None),
+        ("min_down_time", _J_NUM, False, "Minimum down time [hours]", None),
+        (
+            "max_starts",
+            _J_INT,
+            False,
+            "Upper bound on the number of CLOSE events (``v_l = 1``) over a rolling time window.",
+            None,
+        ),
+        (
+            "min_starts",
+            _J_INT,
+            False,
+            "Lower bound on the number of CLOSE events (``v_l = 1``) over a rolling time window.",
+            None,
+        ),
+        (
+            "starts_scope",
+            _J_STR,
+            False,
+            "Window-scope for ``max_starts`` / ``min_starts``.",
+            None,
+        ),
+        (
+            "hot_start_cost",
+            _J_NUM,
+            False,
+            "$/start when offline ≤ hot_start_time",
+            None,
+        ),
+        ("warm_start_cost", _J_NUM, False, "$/start when offline in (hot, cold]", None),
+        (
+            "cold_start_cost",
+            _J_NUM,
+            False,
+            "$/start when offline > cold_start_time",
+            None,
+        ),
+        ("hot_start_time", _J_NUM, False, "Hot/warm boundary [hours]", None),
+        ("cold_start_time", _J_NUM, False, "Warm/cold boundary [hours]", None),
+        (
+            "initial_hours",
+            _J_NUM,
+            False,
+            "Hours offline before the stage starts (pre-stage state).",
+            None,
+        ),
+    ],
+    "plant_array": [
+        ("uid", _J_INT, True, "Unique identifier", 1),
+        ("name", _J_STR, True, "Human-readable element name", "elem1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "generator_names",
+            "JSON array",
+            False,
+            "Member generators (configuration variants of one physical plant).",
+            None,
+        ),
+        (
+            "pmax",
+            _J_NUM,
+            False,
+            "Total dispatchable capacity envelope of the physical plant.",
+            None,
+        ),
+        (
+            "n_units",
+            _J_INT,
+            False,
+            "Number of physical units the plant can commit.",
+            None,
+        ),
+        (
+            "commit_coeffs",
+            "JSON array",
+            False,
+            "Per-variant commitment coefficients (same length as ``generator_names``).",
+            None,
+        ),
+        (
+            "uniq_mutex",
+            _J_BOOL,
+            False,
+            "When true, the LP emits one ``plant_uniq_<name>`` row per stage: ``Σ status",
+            None,
+        ),
+    ],
     "aperture_array": [
         ("uid", _J_INT, True, "Unique aperture identifier", 1),
         ("name", _J_STR, False, "Optional human-readable label", "ap1"),
@@ -2888,6 +3446,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             True,
             "Scale factor: physical_value = LP_value * scale (default: 1.0)",
             1000.0,
+        ),
+        (
+            "name",
+            _J_STR,
+            False,
+            "Element name (alternative to uid)",
+            None,
         ),
     ],
     # ------------------------------------------------------------------

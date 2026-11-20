@@ -30,28 +30,23 @@ from gtopt_shared.cli_flags import (
     add_use_single_bus_argument,
     add_write_out_argument,
 )
+from gtopt_shared.resources import package_data_path
 
 
 # ---------------------------------------------------------------------------
 # Packaged data templates
 # ---------------------------------------------------------------------------
 
-# Default RoR-equivalence whitelist shipped inside the gtopt_expand package.
-# The canonical copy now lives in gtopt_expand/templates/ (moved as part of
-# the gtopt_irrigation → gtopt_expand rename).  The plp2gtopt/templates/
-# copy is kept as a fallback for standalone plp2gtopt installs.
-DEFAULT_ROR_RESERVOIRS_FILE: Path = (
-    Path(__file__).resolve().parent / "templates" / "ror_equivalence.csv"
+# Default RoR-equivalence and pmin-as-flowright whitelists.  The single
+# canonical copy of each ships as package data of ``gtopt_expand``
+# (``gtopt_expand/templates/``) so plp2gtopt and ``gtopt_expand`` agree on
+# the central lists.  Resolved via ``find_spec`` (no import of
+# gtopt_expand) so it works for source, editable and wheel installs.
+DEFAULT_ROR_RESERVOIRS_FILE: Path = package_data_path(
+    "gtopt_expand", "templates", "ror_equivalence.csv"
 )
-
-# Default whitelist for the ``--pmin-as-flowright`` transform.  The
-# canonical copy ships inside the gtopt_expand package so plp2gtopt
-# and ``gtopt_expand pmin_as_flowright`` agree on the central list.
-DEFAULT_PMIN_FLOWRIGHT_FILE: Path = (
-    Path(__file__).resolve().parent.parent
-    / "gtopt_expand"
-    / "templates"
-    / "pmin_as_flowright.csv"
+DEFAULT_PMIN_FLOWRIGHT_FILE: Path = package_data_path(
+    "gtopt_expand", "templates", "pmin_as_flowright.csv"
 )
 
 
@@ -572,7 +567,8 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         choices=["noload", "separated", "combined", "phi_expectation"],
         help=(
             "Controls how PLP boundary cuts (plpplaem/plpplem files) are "
-            "loaded into the SDDP solver. "
+            "loaded by gtopt (written as FutureCost 'mode' in "
+            "system.future_cost_array, honoured by every method). "
             "'noload' disables boundary-cut loading; "
             "'separated' loads each cut into the scene matching its ISimul; "
             "'combined' broadcasts all cuts to every scene (CSV is "
@@ -590,8 +586,9 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         type=int,
         default=None,
         help=(
-            "Keep only boundary cuts from the last N SDDP iterations "
-            "(the most-converged ones); 0 means keep all.  Bounding this "
+            "Keep only boundary cuts from the last N PLP SDDP iterations "
+            "(the most-converged ones); 0 means keep all.  Written as "
+            "FutureCost 'iteration_limit'.  Bounding this "
             "limits a large tail of stale / foreign-system boundary cuts "
             "(which over-tighten the terminal alpha and drive LB > UB). "
             "(default: not set; GTOpt uses 0 = all)"
@@ -621,8 +618,8 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         default=False,
         help=(
             "Disable boundary-cut export entirely: skip writing "
-            "boundary_cuts.csv AND force boundary_cuts_mode=noload "
-            "in the GTOpt JSON.  Strictly stronger than "
+            "boundary_cuts.csv and set no FutureCost cuts_file "
+            "in the gtopt JSON.  Strictly stronger than "
             "--boundary-cuts-mode=noload, which still emits the CSV "
             "but tells GTOpt to ignore it on load."
         ),
@@ -1514,7 +1511,7 @@ def add_ror_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) ->
             "is known should be listed here — this file is the sole "
             "source of truth for --ror-as-reservoirs.  See "
             "docs/templates/ror_equivalence.example.csv for the schema. "
-            "(default: packaged template at plp2gtopt/templates/"
+            "(default: packaged template at gtopt_expand/templates/"
             "ror_equivalence.csv)"
         ),
     )

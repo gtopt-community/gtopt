@@ -8,6 +8,7 @@ import pytest
 
 from plp2gtopt.central_parser import CentralParser
 from plp2gtopt.gtopt_writer import GTOptWriter
+from plp2gtopt.idsim_parser import IdSimParser
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.simulation_writer import SimulationWriter
 
@@ -806,6 +807,63 @@ class TestGTOptWriterProcessMethods:
         writer = GTOptWriter(self._make_scenario_mock(num_hydrologies=10))
         with pytest.raises(ValueError, match="Invalid hydrology indices"):
             writer.process_scenarios({"hydrologies": "50", "probability_factors": None})
+
+    @staticmethod
+    def _make_idsim_scenario_mock(tmp_path, num_hydrologies=55):
+        """Mock parser with a rotating plpidsim.dat (sims start at 51-53)."""
+        idsim_path = tmp_path / "plpidsim.dat"
+        idsim_path.write_text(
+            "# Archivo de caudales por etapa\n"
+            "# Numero de simulaciones y etapas con caudales\n"
+            "      3       4\n"
+            "# Mes   Etapa  SimulInd(1,...,NSimul)\n"
+            "   003   001   51   52   53\n"
+            "   004   002   51   52   53\n"
+            "   005   003   52   53   54\n"
+            "   006   004   53   54   55\n"
+        )
+        idsim = IdSimParser(idsim_path)
+        idsim.parse()
+        mock = MagicMock()
+        aflce = MagicMock()
+        aflce.items = [{"num_hydrologies": num_hydrologies}]
+        mock.parsed_data = {"idsim_parser": idsim, "aflce_parser": aflce}
+        return mock
+
+    def test_process_scenarios_hydrology_outside_simulated_set(self, tmp_path):
+        """Any plpaflce.dat column is selectable, not only simulated starts.
+
+        Hydrology 2 is not the stage-1 column of any simulation; it follows
+        the simulated set's per-stage rotation (+0, +0, +1, +2).
+        """
+        writer = GTOptWriter(self._make_idsim_scenario_mock(tmp_path))
+        options = {"hydrologies": "2,52", "probability_factors": None}
+        writer.process_scenarios(options)
+        scenarios = writer.planning["simulation"]["scenario_array"]
+        assert [s["uid"] for s in scenarios] == [2, 52]
+        assert [s["hydrology"] for s in scenarios] == [1, 51]
+        maps = options["_hydrology_stage_maps"]
+        # 0-based aflce columns per PLP stage
+        assert maps[2] == {1: 1, 2: 1, 3: 2, 4: 3}
+        # Simulated hydrology keeps its own plpidsim row
+        assert maps[52] == {1: 51, 2: 51, 3: 52, 4: 53}
+
+    def test_process_scenarios_hydrology_rotation_wraps(self, tmp_path):
+        """Rotation past the last column wraps to the first (PLP 68 -> 1)."""
+        writer = GTOptWriter(
+            self._make_idsim_scenario_mock(tmp_path, num_hydrologies=55)
+        )
+        options = {"hydrologies": "54", "probability_factors": None}
+        writer.process_scenarios(options)
+        assert options["_hydrology_stage_maps"][54] == {1: 53, 2: 53, 3: 54, 4: 0}
+
+    def test_process_scenarios_hydrology_beyond_inflow_columns(self, tmp_path):
+        """Indices past the plpaflce.dat column count are still rejected."""
+        writer = GTOptWriter(
+            self._make_idsim_scenario_mock(tmp_path, num_hydrologies=55)
+        )
+        with pytest.raises(ValueError, match="Invalid hydrology indices: \\[56\\]"):
+            writer.process_scenarios({"hydrologies": "56", "probability_factors": None})
 
     def test_process_buses_empty(self):
         """process_buses handles missing bus_parser gracefully."""

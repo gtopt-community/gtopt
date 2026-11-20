@@ -42,7 +42,7 @@ columns $\varphi_0, \dots, \varphi_{M-1}$
 multicut).  Scene-$S$'s backward cut lands on $\varphi_{m(S)}$ and is
 broadcast to $\varphi_{m(S)}$ in **every** scene-LP
 (`share_cuts_for_phase` mechanics unchanged).  The terminal phase is
-unchanged (governed by `boundary_cut_sharing_mode`).
+unchanged (governed by the FutureCost `sharing` field).
 
 **The Markov-modulated resampled process.**  At phase $t$ in Markov
 state $m$: draw a scene $r$ from the within-state conditional

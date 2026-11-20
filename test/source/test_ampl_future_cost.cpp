@@ -161,11 +161,19 @@ auto make_user_alpha_sddp_planning(double rhs, double alpha_cost) -> Planning
                                         const std::string& boundary_cuts_file)
     -> double
 {
+  if (!boundary_cuts_file.empty()) {
+    // The FutureCost element is the single source of the boundary cuts.
+    if (planning.system.future_cost_array.empty()) {
+      planning.system.future_cost_array.push_back(
+          FutureCost {.uid = Uid {1}, .name = "fcf"});
+    }
+    auto& fc = planning.system.future_cost_array.front();
+    fc.cuts_file = boundary_cuts_file;
+    fc.mode = BoundaryCutsMode::combined;
+  }
   PlanningLP planning_lp(std::move(planning));
   MonolithicMethod mm;
   mm.enable_api = false;
-  mm.boundary_cuts_file = boundary_cuts_file;
-  mm.boundary_cuts_mode = BoundaryCutsMode::combined;
   const SolverOptions opts {};
   const auto rc = mm.solve(planning_lp, opts);
   REQUIRE(rc.has_value());

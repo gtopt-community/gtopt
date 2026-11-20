@@ -78,9 +78,10 @@ struct Simulation
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
    * External optimality cuts that approximate the expected future cost
-   * beyond the planning horizon.  Used by both SDDP and monolithic
-   * solvers.  If empty, no boundary cuts are loaded.
+   * beyond the planning horizon.
    */
+  /// DEPRECATED alias of `FutureCost::cuts_file` (any method); folded into the
+  /// FutureCost element by `resolve_future_cost_aliases` and then cleared.
   OptName boundary_cuts_file {};
 
   /** @brief Path to a parquet/csv file mapping blocks to calendar hours.
@@ -97,6 +98,8 @@ struct Simulation
    * - `end_of_horizon` (default): no discounting applied.
    * - `present_value`: apply the last-stage effective discount factor.
    */
+  /// DEPRECATED alias of `FutureCost::valuation` (any method); folded into the
+  /// FutureCost element by `resolve_future_cost_aliases` and then cleared.
   std::optional<BoundaryCutsValuation> boundary_cuts_valuation {};
 
   /** @brief When to rescale scenario/scene probabilities to sum 1.0.

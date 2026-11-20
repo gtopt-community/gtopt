@@ -72,18 +72,8 @@ public:
   OptInt lp_debug_phase_max {};
   /// Monolithic solve mode.
   SolveMode solve_mode {SolveMode::monolithic};
-  /// CSV file with boundary (future-cost) cuts (empty = none).
-  std::string boundary_cuts_file {};
-  /// Boundary cuts load mode.
-  BoundaryCutsMode boundary_cuts_mode {BoundaryCutsMode::separated};
-  /// Terminal-α sharing for boundary cuts.  Under `multicut` the terminal
-  /// phase carries N α columns (varphi_0..N-1) and each scenario's boundary
-  /// cut is routed to its own varphi_s in every scene-LP (mirrors the SDDP
-  /// path).  Default `per_scene` keeps the legacy single terminal α.
-  BoundaryCutSharingMode boundary_cut_sharing {
-      BoundaryCutSharingMode::per_scene};
-  /// Maximum iterations to load from boundary cuts file (0 = all).
-  int boundary_max_iterations {0};
+  // Boundary (future-cost) cuts are configured ONLY on the active
+  // `FutureCost` element (`system.future_cost_array`), read in `solve()`.
 
   [[nodiscard]] auto solve(PlanningLP& planning_lp, const SolverOptions& opts)
       -> std::expected<int, Error> override;

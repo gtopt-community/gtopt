@@ -654,7 +654,7 @@ def apply_plexos_overlay(
     in-memory :class:`OverlayReport` so callers can also log / inspect.
 
     When ``emissions_fallback_path`` is set (typically
-    ``share/gtopt/emissions/cen_chile.json``), the emissions JSON's
+    ``scripts/gtopt_shared/data/emissions/cen_chile.json``), the emissions JSON's
     optional ``generator_overrides`` section is consulted AFTER the
     PLEXOS overlay merge: for each PLP-side generator whose name
     appears in the overrides BUT whose post-overlay state still leaves

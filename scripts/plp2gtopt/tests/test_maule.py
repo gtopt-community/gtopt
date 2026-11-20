@@ -7,14 +7,20 @@ from pathlib import Path
 
 import pytest
 
+from gtopt_shared.testing.external_cases import (
+    external_case_path,
+    missing_case_reason,
+)
+
 from plp2gtopt.compressed_open import find_compressed_path
 from plp2gtopt.maule_parser import MauleParser
 from plp2gtopt.maule_writer import MauleWriter
 
 
-# Path to actual PLP test data (compressed)
-_SUPPORT_DIR = Path(__file__).parent.parent.parent.parent / "support"
-_PLP_2Y = _SUPPORT_DIR / "plp" / "2_years"
+# Path to actual PLP test data (compressed), from the external case
+# repository (GTOPT_CASES_DIR, see tools/get_cases.sh).
+_PLP_2Y_REL = "chile/medium_long_term/plp_2y/source"
+_PLP_2Y = external_case_path(_PLP_2Y_REL) or Path("/nonexistent/plp_2y")
 
 
 @pytest.fixture()
@@ -22,7 +28,7 @@ def maule_parser():
     """Parse the 2-year PLP Maule convention file."""
     resolved = find_compressed_path(_PLP_2Y / "plpmaulen.dat")
     if resolved is None:
-        pytest.skip("plpmaulen.dat not found in support/plp/2_years")
+        pytest.skip(missing_case_reason(f"{_PLP_2Y_REL}/plpmaulen.dat"))
     parser = MauleParser(resolved)
     parser.parse()
     return parser
@@ -59,7 +65,7 @@ class TestMauleParser:
         assert maule_config["v_comp_elec_max"] == pytest.approx(350.0)
 
     def test_initial_volumes(self, maule_config):
-        # Values from support/plp/2_years/plpmaulen.dat.xz (in 10^3 m3 → hm3):
+        # Values from plp_2y source/plpmaulen.dat.xz (in 10^3 m3 → hm3):
         # VGastoElecMenIni=0, VGastoElecAnuIni=184049, VGastoRiegoIni=133406,
         # VCompElecIni=0.
         assert maule_config["v_gasto_elec_men_ini"] == pytest.approx(0.0)
@@ -75,7 +81,7 @@ class TestMauleParser:
     def test_monthly_modulation(self, maule_config):
         mod = maule_config["mod_elec_reserva"]
         assert len(mod) == 12
-        # support/plp/2_years/plpmaulen.dat: 7 leading 100s, then 5 zeros.
+        # plp_2y source/plpmaulen.dat: 7 leading 100s, then 5 zeros.
         assert mod[:7] == [100.0] * 7
         assert mod[7:] == [0.0] * 5
 

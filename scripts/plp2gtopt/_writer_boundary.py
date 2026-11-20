@@ -15,6 +15,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.future_cost import set_future_cost_fields
+
 from .planos_writer import write_boundary_cuts_csv
 
 _logger = logging.getLogger(__name__)
@@ -60,9 +62,11 @@ class BoundaryMixin:
 
         If the PLP input contained plpplaem/plpplem files, the parsed boundary
         cuts are written to a CSV file in the output directory and the
-        ``sddp_boundary_cuts_file`` option is set so that the SDDP solver
-        loads them.  CLI options control mode, iteration filtering, and
-        whether to export hot-start cuts for intermediate stages.
+        FutureCost element (``system.future_cost_array[0].cuts_file``) is
+        set so that gtopt loads them for EVERY method (monolithic, sddp,
+        cascade).  No ``sddp_options.boundary_*`` key is written.  CLI
+        options control mode, iteration filtering, and whether to export
+        hot-start cuts for intermediate stages.
 
         CSV magnitudes are MODE-AWARE (the loader reads every mode's CSV
         verbatim, so the emission carries the normalization):
@@ -99,7 +103,7 @@ class BoundaryMixin:
             return
 
         output_dir = Path(options.get("output_dir", ""))
-        sddp_opts = self.planning["options"].setdefault("sddp_options", {})
+        fcf: dict = {}
         name_alias = self._load_alias_file(options.get("alias_file"))
 
         # Resolve the boundary-cut load mode FIRST — the CSV magnitudes
@@ -177,15 +181,15 @@ class BoundaryMixin:
             self.planning["_boundary_cuts_count"] = len(planos.cuts)
             self.planning["_boundary_state_variables"] = len(planos.reservoir_names)
             # ALWAYS emit just the bare ``"boundary_cuts.csv"`` —
-            # gtopt's `resolve_input` (`source/sddp_method.cpp::535`)
-            # already prepends ``input_directory`` to every relative
-            # path, so emitting ``"{input_directory}/boundary_cuts.csv"``
+            # gtopt resolves a relative FutureCost ``cuts_file`` against
+            # ``input_directory`` for every method, so emitting a
+            # pre-joined path, so emitting ``"{input_directory}/boundary_cuts.csv"``
             # produced a double-prefixed path like
             # ``my_case/my_case/boundary_cuts.csv``
             # which then silently fell back to "no boundary cuts"
             # (α pinned at 0, terminal value treated as zero, UB
             # shifted down by the missing future-cost envelope).
-            sddp_opts["boundary_cuts_file"] = "boundary_cuts.csv"
+            fcf["cuts_file"] = "boundary_cuts.csv"
 
         # Wire mode and max-iterations options through to the JSON
         # (`bc_mode` was resolved above, BEFORE the CSV write, because
@@ -215,11 +219,16 @@ class BoundaryMixin:
         # under `--hydrologies` filtering.  `phi_expectation` subsumes
         # its purpose with plane-keyed columns.
         if bc_mode is not None:
-            sddp_opts["boundary_cuts_mode"] = bc_mode
+            fcf["mode"] = bc_mode
 
+        # ``--boundary-max-iterations`` → FutureCost ``iteration_limit``
+        # (keep the cuts of the last N PLP iterations, IPDNumIte).
         bc_max_iter = options.get("boundary_max_iterations")
         if bc_max_iter is not None:
-            sddp_opts["boundary_max_iterations"] = bc_max_iter
+            fcf["iteration_limit"] = bc_max_iter
+
+        if fcf:
+            set_future_cost_fields(self.planning, fcf)
 
         # CFUE terminal policy: when the boundary cuts are loaded
         # (combined / phi_expectation mode) they ALREADY price the

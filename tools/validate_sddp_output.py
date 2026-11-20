@@ -261,9 +261,15 @@ def _scalar_bound(value: object, fallback: float) -> float:
 
 
 def validate_reservoir_efin(
-    output_dir: Path, reservoirs: list[dict[str, Any]]
+    output_dir: Path, reservoirs: list[dict[str, Any]], strict_emin: bool = True
 ) -> list[str]:
-    """Every efin value must lie within the reservoir's [emin, emax]."""
+    """Every efin value must lie within the reservoir's [emin, emax].
+
+    With ``model_options.strict_storage_emin = false`` the per-stage floor
+    is relaxed to 0 in the LP (PLP-style soft ``emin``), so only
+    [0, emax] is checked.  Bounds given as schedules (a file stem or an
+    inline array) vary per stage and are skipped.
+    """
     if not reservoirs:
         return []
     reservoir_dir = output_dir / "Reservoir"
@@ -287,10 +293,15 @@ def validate_reservoir_efin(
     # Long-form: filter by `uid`.  Wide-form: walk uid:N / name:N columns.
     for rsv in reservoirs:
         uid = rsv.get("uid")
-        # emin/emax may be schedules (a file-reference string or an
-        # array) rather than scalars; only scalar bounds are checked.
-        emin = _scalar_bound(rsv.get("emin", 0.0), -math.inf)
-        emax = _scalar_bound(rsv.get("emax", 0.0), math.inf)
+        emin_raw = rsv.get("emin", 0.0)
+        emax_raw = rsv.get("emax", 0.0)
+        if not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool)
+            for v in (emin_raw, emax_raw)
+        ):
+            continue
+        emin = float(emin_raw) if strict_emin else min(0.0, float(emin_raw))
+        emax = float(emax_raw)
         if long_layout:
             series = _long_form_values_for_uid(df, uid, rsv.get("name"))
             if series is None or series.empty:
@@ -823,7 +834,9 @@ def main() -> int:
     errors += validate_solution_csv(
         args.output_dir, allow_nonoptimal=args.allow_nonoptimal
     )
-    errors += validate_reservoir_efin(args.output_dir, reservoirs)
+    model_opts = cfg.get("options", {}).get("model_options", {})
+    strict_emin = bool(model_opts.get("strict_storage_emin", True))
+    errors += validate_reservoir_efin(args.output_dir, reservoirs, strict_emin)
     errors += validate_generator_generation(args.output_dir, generators)
     errors += validate_demand_fail(args.output_dir)
     if args.golden_json is not None:

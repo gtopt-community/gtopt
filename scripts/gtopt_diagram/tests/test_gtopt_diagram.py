@@ -38,7 +38,7 @@ _skip_no_graphviz = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 
 _IEEE9_JSON = {
-    "options": {"use_kirchhoff": True, "scale_objective": 1000},
+    "options": {"model_options": {"use_kirchhoff": True, "scale_objective": 1000}},
     "system": {
         "name": "ieee9b",
         "bus_array": [{"uid": i, "name": f"B{i}", "kv": 345} for i in range(1, 10)],

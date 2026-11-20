@@ -674,7 +674,7 @@ $\qquad\blacksquare$
 > $\sum_r w \varphi_r$ drops by exactly $\bar c$ when every cut is
 > shifted by $\bar c$ — true when $w N = 1$, i.e. under uniform
 > probabilities.  Under M4 with non-uniform probabilities the drop is
-> $p_s N \bar c \ne \bar c$, so the `boundary_cuts_mean_shift` opt-in
+> $p_s N \bar c \ne \bar c$, so the FutureCost `mean_shift` opt-in
 > combined with terminal multicut and non-uniform probabilities is not
 > exactly restituted.  Follow-up: scale the restitution by $p_s N$ (or
 > gate the combination).
@@ -732,7 +732,7 @@ scenario's cuts to its own terminal $\varphi_s$
 (`sddp_boundary_cuts.cpp:540-575`) — same semantics as §8 at the
 horizon.
 
-**`boundary_cuts_mode = phi_expectation` (PLP-literal terminal FCF,
+**FutureCost `mode = phi_expectation` (PLP-literal terminal FCF,
 2026-07-12).**  PLP's last-stage LP carries `NVarPhi` φ columns — one
 per *plane hydrology* $j$ of `plpplem2.dat` (`leeplaem.f`), each priced
 $1/\text{NVarPhi}$ (`PlaCFFO`, `defprbpd.f`), each bounded below by the
@@ -793,7 +793,7 @@ negative α legitimate — under A2's failure the 0-floor becomes an
 over-tightening; see also the §10 fallback caveat.
 
 **α-rebase (mean shift)** (`sddp_boundary_cuts.cpp:664-1000`,
-opt-in `boundary_cuts_mean_shift`):
+opt-in FutureCost `mean_shift`):
 
 **Lemma B1.**  *Subtracting a per-scene constant $\bar c$ from every
 boundary-cut RHS and adding $\bar c$ to the scene's first-phase master

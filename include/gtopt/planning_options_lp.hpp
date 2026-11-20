@@ -1096,17 +1096,8 @@ public:
 
   // ── Monolithic solver accessors ─────────────────────────────────────────
 
-  /// CSV file with boundary cuts for the monolithic solver (empty = none).
-  [[nodiscard]] auto monolithic_boundary_cuts_file() const -> Name
-  {
-    return m_options_.monolithic_options.boundary_cuts_file.value_or(Name {});
-  }
-
-  /// Maximum boundary cut iterations to load (0 = all).
-  [[nodiscard]] auto monolithic_boundary_max_iterations() const -> int
-  {
-    return m_options_.monolithic_options.boundary_max_iterations.value_or(0);
-  }
+  // Boundary (future-cost) cut settings live on the FutureCost element
+  // (`system.future_cost_array`), not here — see `future_cost.hpp`.
 
   /// Initial-MIP-solution (warm-start) options for the monolithic solver.
   /// Returns the configured `MipStartOptions` or a default (all-unset, i.e.
@@ -1701,44 +1692,6 @@ public:
     return m_options_.sddp_options.aperture_system_file.value_or(Name {});
   }
 
-  /// CSV file with boundary (future-cost) cuts for the last phase.
-  /// Empty = no boundary cuts.
-  [[nodiscard]] auto sddp_boundary_cuts_file() const -> Name
-  {
-    return m_options_.sddp_options.boundary_cuts_file.value_or(Name {});
-  }
-
-  /// Boundary cuts load mode as a string name.
-  [[nodiscard]] auto sddp_boundary_cuts_mode() const -> std::string_view
-  {
-    return enum_name(sddp_boundary_cuts_mode_enum());
-  }
-
-  /// Maximum boundary cut iterations to load (0 = all).
-  [[nodiscard]] auto sddp_boundary_max_iterations() const -> int
-  {
-    return m_options_.sddp_options.boundary_max_iterations.value_or(0);
-  }
-
-  /// How to handle cut rows referencing missing state variables.
-  [[nodiscard]] constexpr auto sddp_missing_cut_var_mode() const
-      -> MissingCutVarMode
-  {
-    return m_options_.sddp_options.missing_cut_var_mode.value_or(
-        MissingCutVarMode::skip_coeff);
-  }
-
-  /// Whether to apply α-rebase (mean-shift) on boundary cut load.
-  /// Default: **true** — centre α around zero so LP equilibration
-  /// sees comparable RHS magnitudes for boundary vs. runtime cuts.
-  /// Override with `--set sddp_options.boundary_cuts_mean_shift=false`
-  /// when you need raw on-disk RHS magnitudes preserved (e.g. for
-  /// byte-identical cut-file round-trips during regression bisects).
-  [[nodiscard]] constexpr auto sddp_boundary_cuts_mean_shift() const -> bool
-  {
-    return m_options_.sddp_options.boundary_cuts_mean_shift.value_or(true);
-  }
-
   // ``sddp_named_cuts_file`` accessor retired 2026-05 along with the
   // CSV named-cut path; hot-start cuts come from ``cuts_input_file``
   // (Parquet) only.
@@ -1983,28 +1936,6 @@ public:
     return m_options_.build_mode.value_or(BuildMode::scene_parallel);
   }
 
-  /// SDDP boundary cuts mode as an enum.
-  [[nodiscard]] constexpr auto sddp_boundary_cuts_mode_enum() const
-      -> BoundaryCutsMode
-  {
-    return m_options_.sddp_options.boundary_cuts_mode.value_or(
-        BoundaryCutsMode::separated);
-  }
-
-  /// How terminal/boundary cuts are shared across scenes on the terminal α.
-  /// Explicit `boundary_cut_sharing_mode` wins; otherwise derived from the
-  /// legacy `boundary_cuts_mode` scope (combined→shared, else per_scene).
-  [[nodiscard]] constexpr auto sddp_boundary_cut_sharing_mode_enum() const
-      -> BoundaryCutSharingMode
-  {
-    if (const auto& m = m_options_.sddp_options.boundary_cut_sharing_mode) {
-      return *m;
-    }
-    return sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::combined
-        ? BoundaryCutSharingMode::shared
-        : BoundaryCutSharingMode::per_scene;
-  }
-
   /// SDDP cut recovery mode as an enum.
   [[nodiscard]] constexpr auto sddp_cut_recovery_mode_enum() const
       -> HotStartMode
@@ -2024,29 +1955,6 @@ public:
   {
     return m_options_.monolithic_options.solve_mode.value_or(
         SolveMode::monolithic);
-  }
-
-  /// Monolithic boundary cuts mode as an enum.
-  [[nodiscard]] constexpr auto monolithic_boundary_cuts_mode_enum() const
-      -> BoundaryCutsMode
-  {
-    return m_options_.monolithic_options.boundary_cuts_mode.value_or(
-        BoundaryCutsMode::separated);
-  }
-
-  /// Terminal-α sharing for monolithic boundary cuts.  When unset, derive
-  /// from the boundary-cuts mode (combined → shared, else per_scene),
-  /// mirroring `sddp_boundary_cut_sharing_mode_enum`.
-  [[nodiscard]] constexpr auto monolithic_boundary_cut_sharing_mode_enum() const
-      -> BoundaryCutSharingMode
-  {
-    if (const auto& m = m_options_.monolithic_options.boundary_cut_sharing_mode)
-    {
-      return *m;
-    }
-    return monolithic_boundary_cuts_mode_enum() == BoundaryCutsMode::combined
-        ? BoundaryCutSharingMode::shared
-        : BoundaryCutSharingMode::per_scene;
   }
 
   /// Validate all enum-typed option fields and return a list of warnings.

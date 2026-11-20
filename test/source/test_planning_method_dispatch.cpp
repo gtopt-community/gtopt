@@ -118,13 +118,8 @@ auto build_expected_sddp_opts(const PlanningOptionsLP& options) -> SDDPOptions
     sddp_opts.cuts_input_file = cuts_input;
   }
 
-  const auto boundary_cuts = options.sddp_boundary_cuts_file();
-  if (!boundary_cuts.empty()) {
-    sddp_opts.boundary_cuts_file = std::string(boundary_cuts);
-  }
-  sddp_opts.boundary_cuts_mode = options.sddp_boundary_cuts_mode_enum();
-  sddp_opts.boundary_max_iterations = options.sddp_boundary_max_iterations();
-  sddp_opts.missing_cut_var_mode = options.sddp_missing_cut_var_mode();
+  // Boundary-cut fields are NOT wired from sddp_options: the FutureCost
+  // element is their single source (read by SDDPMethod itself).
 
   // ``named_cuts_file`` retired 2026-05 — hot-start cuts come from
   // ``cuts_input_file`` (Parquet) above.
@@ -348,10 +343,6 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     popts.sddp_options.recovery_mode = RecoveryMode::cuts;
     popts.sddp_options.save_per_iteration = false;
     popts.sddp_options.cuts_input_file = std::string("snap_cuts_in.csv");
-    popts.sddp_options.boundary_cuts_file = std::string("snap_bnd.csv");
-    popts.sddp_options.boundary_cuts_mode = BoundaryCutsMode::combined;
-    popts.sddp_options.boundary_max_iterations = 37;
-    popts.sddp_options.missing_cut_var_mode = MissingCutVarMode::skip_cut;
     popts.sddp_options.sentinel_file = std::string("snap_sentinel");
 
     // API / pool / async
@@ -417,10 +408,11 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.recovery_mode == RecoveryMode::cuts);
     CHECK(so.save_per_iteration == false);
     CHECK(so.cuts_input_file == "snap_cuts_in.csv");
-    CHECK(so.boundary_cuts_file == "snap_bnd.csv");
-    CHECK(so.boundary_cuts_mode == BoundaryCutsMode::combined);
-    CHECK(so.boundary_max_iterations == 37);
-    CHECK(so.missing_cut_var_mode == MissingCutVarMode::skip_cut);
+    // Boundary-cut fields stay at their defaults (FutureCost-sourced).
+    CHECK(so.boundary_cuts_file.empty());
+    CHECK(so.boundary_cuts_mode == BoundaryCutsMode::separated);
+    CHECK(so.boundary_max_iterations == 0);
+    CHECK(so.missing_cut_var_mode == MissingCutVarMode::skip_coeff);
     CHECK(so.sentinel_file == "snap_sentinel");
 
     // ── Logging / API ──
@@ -470,7 +462,6 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     popts.sddp_options.elastic_penalty = 9.81e2;
     popts.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
     popts.sddp_options.cut_directory = std::string("cascade_cuts");
-    popts.sddp_options.boundary_cuts_mode = BoundaryCutsMode::noload;
     popts.sddp_options.api_enabled = true;
     popts.sddp_options.pool_cpu_factor = 6.0;
     popts.sddp_options.pool_memory_limit_mb = 2048.0;
@@ -504,7 +495,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
                                     / "cascade_cuts" / sddp_file::combined_cuts)
                                        .string();
     CHECK(so.cuts_output_file == expected_cuts_out);
-    CHECK(so.boundary_cuts_mode == BoundaryCutsMode::noload);
+    CHECK(so.boundary_cuts_mode == BoundaryCutsMode::separated);
     CHECK(so.enable_api == true);
     CHECK(so.pool_cpu_factor == doctest::Approx(6.0));
     CHECK(so.pool_memory_limit_mb == doctest::Approx(2048.0));

@@ -65,6 +65,14 @@ results of each solver, selected with `GTOPT_SOLVER=<solver>`.  When the
 and `ieee_57b` are also compared against pandapower's DC OPF
 (`e2e_<case>_gtopt_compare`).
 
+Every planning JSON here and under `scripts/cases/` is also built with
+`gtopt --lp-only` (`case_lp_only_<dir>_<stem>` and
+`script_case_lp_only_<dir>_<stem>`, label `cases`; run them with
+`ctest --test-dir build -L cases`), so a case left in an old schema
+fails the suite.  Fix such a case by re-running its converter (the
+command is in its README or `<tool>_state.json`), not by editing the
+JSON by hand.
+
 To compare a manual run by hand:
 
 ```bash
@@ -139,9 +147,12 @@ with its contents and how to run its tests:
 | [`scripts/cen2gtopt/tests/data/`](../scripts/cen2gtopt/tests/data/README.md) | Short samples of the public data of the Chilean system operator (CEN): marginal costs, demand, generation and technical data. |
 
 Large studies of real systems (for example the Chilean national system
-over two years) are not shipped with the repository; the tests that use
-them look for them in `GTOPT_CASES_DIR` and are skipped when they are
-absent.
+over two years, `gtopt_case_2y*`, or `cen_long_term_1y`) are not shipped
+with the repository; they live in the case repository gtopt-cases
+(`<country>/<application>/<case>/`).  `tools/get_cases.sh` clones it at
+the commit pinned in `tools/cases.lock`; point `GTOPT_CASES_DIR` at the
+checkout.  The tests that use those cases are skipped (pytest) or not
+registered (CTest) when it is unset.
 
 ## Licences of the data
 

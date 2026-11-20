@@ -596,7 +596,7 @@ reproducibility is not affected by the evaluation pass.  Set
 **`simulation_mode`**: set `"simulation_mode": true` in `sddp_options`
 to skip all training iterations (`max_iterations` is forced to 0) and
 disable cut saving entirely.  Only the simulation pass runs, evaluating
-the policy from previously loaded cuts (typically via `hot_start`).
+the policy from previously loaded cuts (typically via `cut_recovery_mode`).
 This is useful for policy evaluation without modifying any cut state.
 
 ### 4.6 Cut Sharing (Optional)
@@ -727,11 +727,9 @@ In the cut CSV files, the `type` column distinguishes the two kinds:
 
 Two timeout settings protect against runaway LP solves:
 
-**`solve_timeout`** (default: 180 seconds / 3 minutes) applies to each
-forward-pass LP solve.  When a forward-pass phase LP exceeds this time,
-the solver writes the LP to a debug file in `log_directory`, logs a
-CRITICAL message, and marks the scene as failed.  The remaining scenes
-continue solving.
+**`forward_solver_options.time_limit`** (seconds; the former
+`sddp_options.solve_timeout` key was removed and is now rejected) is the
+solver time limit applied to each forward-pass LP solve.
 
 **`aperture_timeout`** (default: 15 seconds) applies to individual
 aperture LP solves in the backward pass.  When an aperture LP exceeds
@@ -744,7 +742,7 @@ Set either timeout to `0` to disable the corresponding time limit.
 {
   "options": {
     "sddp_options": {
-      "solve_timeout": 300,
+      "forward_solver_options": {"time_limit": 300},
       "aperture_timeout": 30
     }
   }
@@ -815,8 +813,18 @@ where $\alpha$ is the future-cost variable added to the last phase,
 $x_i$ are the state variables (reservoir volumes, battery SoC), $\rho_i$
 are gradient coefficients, and $\beta_0$ is the intercept (RHS).
 
-**CSV format** (`boundary_cuts_file` in `simulation`, or
-`sddp_options` for backward compatibility):
+The boundary cuts are configured on the FutureCost element
+(`system.future_cost_array`; full field list in
+[Input Data — Future Cost](../input-data.md#326-future-cost)), the single
+source read by every method (monolithic, SDDP, cascade).  A relative
+`cuts_file` resolves against `options.input_directory`.  The keys
+`sddp_options.boundary_*` / `missing_cut_var_mode` are deprecated aliases
+honoured only under `method = sddp` or `cascade`;
+`monolithic_options.boundary_*` keys are ignored by SDDP.
+`sddp_options.scale_alpha` and `cut_coeff_eps` remain SDDP settings
+(`future_cost_array[].scale_alpha`, when set, overrides the α scale).
+
+**CSV format** (`future_cost_array[].cuts_file`):
 
 ```
 name,iteration,scene,rhs,Reservoir1,Reservoir2,...
@@ -833,8 +841,7 @@ bc_2_1,2,1,-5100.0,0.26,0.74,...
 | `rhs` | Intercept $\beta_0$ (PLP: $-$`LDPhiPrv`) |
 | *State columns* | Gradient coefficients $\rho_i$ per state variable |
 
-**Load modes** (`boundary_cuts_mode` in `sddp_options`; the file
-itself is now specified via `boundary_cuts_file` in `simulation`):
+**Load modes** (`future_cost_array[].mode`):
 
 | Mode | Description |
 |------|-------------|
@@ -843,7 +850,7 @@ itself is now specified via `boundary_cuts_file` in `simulation`):
 | `"combined"` | All cuts are broadcast to all scenes |
 | `"phi_expectation"` | PLP-literal terminal FCF: the `scene` column is read as PLP's `ISimul` **plane hydrology**; every scene's terminal LP carries NVarPhi φ_j columns priced `p_s/NVarPhi`, each bounded by its hydrology's cuts at FULL magnitude (raw CSV — no `1/NVarPhi` pre-division).  The forward UB carries the terminal `E_j[FCF_j]` at realized volumes (PLP `ZSPFAdd`).  See `docs/formulation/sddp-cut-validity.md` §9 |
 
-**Iteration filtering** (`boundary_max_iterations` in `sddp_options`):
+**Iteration filtering** (`future_cost_array[].iteration_limit`):
 
 When set to a positive integer $N$, only cuts from the last $N$ distinct
 SDDP iterations (by the `iteration` column) are loaded.  This is useful
@@ -855,14 +862,19 @@ most recent ones are relevant.  Set to `0` to load all cuts (default).
 ```json
 {
   "options": {
-    "sddp_options": {
-      "boundary_cuts_mode": "separated",
-      "boundary_max_iterations": 3
-    }
+    "method": "sddp"
   },
-  "simulation": {
-    "boundary_cuts_file": "boundary_cuts.csv",
-    "boundary_cuts_valuation": "end_of_horizon"
+  "system": {
+    "future_cost_array": [
+      {
+        "uid": 1,
+        "name": "fcf",
+        "cuts_file": "boundary_cuts.csv",
+        "mode": "separated",
+        "iteration_limit": 3,
+        "valuation": "end_of_horizon"
+      }
+    ]
   }
 }
 ```
@@ -877,7 +889,13 @@ as a lower-bound constraint on the corresponding future-cost variable:
 
 $$\alpha_{\text{phase}} \;\ge\; \text{rhs} \;+\; \sum_{i} \rho_i \cdot x_i[\text{phase}]$$
 
-**CSV format** (`named_cuts_file` in `sddp_options`):
+> **Retired (2026-05):** the CSV `named_cuts_file` option no longer exists;
+> hot-start cuts are loaded from `sddp_options.cuts_input_file` (Parquet),
+> and end-of-horizon boundary cuts from the FutureCost element
+> (`system.future_cost_array[].cuts_file`).  The format below is kept for
+> reference only.
+
+**CSV format** (former `named_cuts_file`):
 
 ```
 name,iteration,scene,phase,rhs,Reservoir1,Reservoir2,...
@@ -894,13 +912,14 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `rhs` | Intercept $\beta_0$ |
 | *State columns* | Gradient coefficients per state variable (by name) |
 
-**Example**:
+**Example** (current equivalent — Parquet hot-start cuts):
 
 ```json
 {
   "options": {
     "sddp_options": {
-      "named_cuts_file": "planos_cuts.csv"
+      "cuts_input_file": "cuts/sddp_cuts.parquet",
+      "cut_recovery_mode": "keep"
     }
   }
 }
@@ -924,8 +943,7 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `alpha_max` | double | 1e12 | Upper bound for α variables |
 | `cut_sharing_mode` | CutSharingMode | none | Cut sharing strategy between scenes |
 | `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
-| `hot_start` | bool | false | Load previously saved cuts on startup |
-| `solve_timeout` | double | 180.0 | Forward-pass LP solve timeout in seconds (0 = no timeout) |
+| `cut_recovery_mode` | string | `"none"` | Hot-start from saved cuts: `none`, `keep`, `append`, `replace` (replaces the removed `hot_start` flag; CLI `--hot-start`) |
 | `aperture_timeout` | double | 15.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
 | `sentinel_file` | string | "" | Path to sentinel file for graceful stop |
 | `cuts_output_file` | string | "" | Path for saving cuts (CSV format) |
@@ -939,9 +957,8 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `api_stop_request_file` | string | "" | Path for monitoring API stop-request file |
 | `api_update_interval` | ms | 500 | Interval between monitoring samples |
 | `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all scenarios) |
-| `boundary_cuts_mode` | string | "separated" | Load mode: `"noload"`, `"separated"`, `"combined"` |
-| `boundary_max_iterations` | int | 0 | Max iterations to load (0 = all) |
-| `named_cuts_file` | string | "" | CSV file with named multi-phase cuts (S4.15) |
+| `boundary_cuts_mode` | string | — | Deprecated alias → `future_cost_array[].mode` |
+| `boundary_max_iterations` | int | — | Deprecated alias → `future_cost_array[].iteration_limit` |
 | `max_cuts_per_phase` | int | 0 | Max retained cuts per (scene, phase) LP (0 = unlimited) |
 | `cut_prune_interval` | int | 10 | Iterations between cut pruning passes |
 | `prune_dual_threshold` | double | 1e-8 | Dual threshold for inactive cut detection |
@@ -969,8 +986,8 @@ the JSON planning file.
       "convergence_tol": 1e-5,
       "elastic_penalty": 1e7,
       "elastic_mode": "chinneck",
-      "hot_start": true,
-      "solve_timeout": 300,
+      "cut_recovery_mode": "replace",
+      "forward_solver_options": {"time_limit": 300},
       "aperture_timeout": 30,
       "stationary_tol": 0.01,
       "stationary_window": 10
@@ -1009,11 +1026,9 @@ prefix, since the section name already provides the namespace).
 | `fact_max_cycles` | int | 500 | PLP FactMXC per-phase solve-cycle cap (`state_repair` / `farkas_recursive` only) |
 | `fcut_log` | bool | false | Write the PLP-style feasibility-cut debug log `gtopt_fcut.log` to `log_directory` (`plpfact.log` analogue; every elastic mode). CLI: `--fcut-log` |
 | `multi_cut_threshold` | int | 3 | Auto-switch to multi_cut after N cumulative infeasibilities at a (scene, phase) (counter is persistent) |
-| `alpha_min` | double | 0.0 | Lower bound for future cost variable α |
-| `alpha_max` | double | 1e12 | Upper bound for future cost variable α |
-| `hot_start` | bool | false | Load previously saved cuts on startup (from `cut_directory`) |
+| `cut_recovery_mode` | string | `"none"` | Hot-start from saved cuts (`none`, `keep`, `append`, `replace`); replaces the removed `hot_start` flag |
 | `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
-| `solve_timeout` | double | 180.0 | Forward-pass LP solve timeout in seconds (0 = no timeout) |
+| `forward_solver_options` | object | — | Solver options for forward-pass solves; `time_limit` replaces the removed `solve_timeout` |
 | `aperture_timeout` | double | 15.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
 | `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all) |
 | `aperture_chunk_size` | int | unset (auto = 1) | Apertures solved serially per pool task on a shared LP clone: `0`/unset = auto, `1` = one task per aperture (legacy), `K > 1` = K per task, `-1` = fully serial per scene (licence/memory-tight runs). CLI: `--aperture-chunk-size` |
@@ -1023,20 +1038,23 @@ prefix, since the section name already provides the namespace).
 | `basis_cross_mode` | string | `"off"` | Cross-pass basis reuse between forward and backward solves of the same (scene, phase); correctness-neutral, CPLEX/HiGHS only |
 | `aperture_directory` | string | `""` | Directory for aperture-specific scenario data |
 | `api_enabled` | bool | true | Enable SDDP monitoring API (JSON status file) |
-| `efficiency_update_skip` | int | 0 | Iterations to skip between efficiency coefficient updates |
-| `boundary_cuts_mode` | string | `"separated"` | Load mode: `"noload"`, `"separated"`, `"combined"` |
-| `boundary_cut_sharing_mode` | string | `"per_scene"` | Terminal-α sharing for boundary cuts: `"per_scene"`, `"shared"`, or `"multicut"` (one `varphi_s` column per scenario) |
-| `boundary_max_iterations` | int | 0 | Max SDDP iterations to load from boundary cuts (0 = all) |
-| `named_cuts_file` | string | `""` | CSV file with named multi-phase cuts (S4.15) |
+| `update_lp_skip` | int | 0 | Iterations to skip between LP coefficient updates (0 = every iteration) |
+| `boundary_cuts_file` | string | — | Deprecated alias → `future_cost_array[].cuts_file` |
+| `boundary_cuts_mode` | string | — | Deprecated alias → `future_cost_array[].mode` |
+| `boundary_cut_sharing_mode` | string | — | Deprecated alias → `future_cost_array[].sharing` |
+| `boundary_cuts_mean_shift` | bool | — | Deprecated alias → `future_cost_array[].mean_shift` |
+| `boundary_max_iterations` | int | — | Deprecated alias → `future_cost_array[].iteration_limit` |
+| `missing_cut_var_mode` | string | — | Deprecated alias → `future_cost_array[].missing_cut_var_mode` |
 | `simulation_mode` | bool | `false` | Skip training, run simulation pass only (S4.5.1) |
 | `save_simulation_cuts` | bool | `false` | Save feasibility cuts from simulation pass |
 | `stationary_tol` | double | 0.005 | ΔUB stationarity tolerance — the sole stop criterion while > 0; `0` disables it and makes `convergence_tol` the stop criterion (§4.5) |
 | `stationary_window` | int | 4 | Look-back window (iterations) for ΔUB stationarity; `<= 0` disables stationarity |
 
-> **Note**: `boundary_cuts_file` has moved to the `simulation`
-> section.  For backward compatibility, it is still accepted in
-> `sddp_options`.  See also `boundary_cuts_valuation` in
-> `simulation` (`"end_of_horizon"` or `"present_value"`).
+> **Note**: the boundary cuts live on the FutureCost element
+> (`system.future_cost_array`).  The `boundary_*` / `missing_cut_var_mode`
+> keys above are deprecated aliases honoured only for `method = sddp` /
+> `cascade` (translated with a warning; conflicting values are an error).
+> Migrate cases with `python tools/migrate_future_cost.py FILE...`.
 
 ### 5.3 CLI
 
@@ -1351,7 +1369,8 @@ When one or more scenes are infeasible during the forward pass:
 
 ### 5.8 Hot-Start and Error File Filtering
 
-Hot-start requires setting `hot_start: true` explicitly in `sddp_options`.
+Hot-start requires setting `cut_recovery_mode` (`keep`, `append` or
+`replace`) in `sddp_options` (CLI: `--hot-start`).
 When enabled, the solver loads cuts from the cut directory to warm-start
 the Benders approximation.  If `cuts_input_file` is also set, it takes
 precedence as the source of hot-start cuts.
@@ -1973,8 +1992,7 @@ Level 0 has no transition (it is the starting point).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `inherit_optimality_cuts` | bool | `false` | Carry forward Benders optimality cuts |
-| `optimality_dual_threshold` | real | 0.0 | Min \|dual\| for cut transfer (0 = all) |
+| `inherit_optimality_cuts` | int | `0` | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
 
 ### 10.4 Configuration Example
 

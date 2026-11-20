@@ -42,6 +42,7 @@ from gtopt_canonical_feed.cells import (
     COL_STAGE,
 )
 from gtopt_check_output._reader import load_planning, read_table
+from gtopt_shared.cen_cogen import load_cen_cogen_reference
 from gtopt_marginal_units._lp_duals import (
     GtoptLpDuals,
     load_gtopt_lp_duals,
@@ -602,91 +603,18 @@ def _opt_float(v: object) -> float | None:
     return None
 
 
-# ----------------------------------------------------------------------
-# CEN cogen reference list — loaded once and cached.
-# ----------------------------------------------------------------------
-#
-# The bundled CSV at ``share/gtopt/cogen/cen_chile_cogen.csv`` carries
-# explicit cogen identifications synthesised from three sources:
-#
-#   1. CEN-SIP ``unidades_generadoras`` (``nombre_tecnologia ==
-#      'Cogeneración - *'``) — the formal CEN registry.
-#   2. ``share/gtopt/emissions/cen_chile.json`` ``generator_overrides``
-#      where ``type`` starts with ``thermal:cogen``.
-#   3. Industrial-cogen central-name PREFIXES verified from CEN-SIP
-#      cross-reference + Informe CEN private docs (pulp-mill black-
-#      liquor cogen: CMPC, CELCO, ARAUCO, …; sulfur cogen: PAS_*; etc.).
-#
-# Loading is best-effort: if the CSV is missing or unreadable, ``_is_cogen``
-# falls back to the inline type/fuel/name heuristic.
-_COGEN_REFERENCE_NAMES: set[str] | None = None
-_COGEN_REFERENCE_PREFIXES: tuple[str, ...] = ()
+# CEN cogen reference list — shared loader in gtopt_shared.cen_cogen
+# (bundled ``gtopt_shared/data/cogen/cen_chile_cogen.csv``).  Required:
+# a missing CSV raises instead of silently falling back to the inline
+# heuristic (which mis-categorised CEN biomass / sulfuric-acid plants).
+# NB: before 2026-11 the candidate path here was ``parents[3]/share``
+# (one level above the repo root), so outside the original author's
+# box the CSV was never found and the heuristic was always used.
 
 
-def _load_cogen_reference() -> tuple[set[str], tuple[str, ...]]:
-    """Load (exact-names, prefix-tuple) from the bundled CEN cogen CSV.
-
-    Cached after first call. Returns ``(set(), ())`` if the CSV is
-    missing / unreadable — caller falls back to the inline heuristic.
-    """
-    global _COGEN_REFERENCE_NAMES, _COGEN_REFERENCE_PREFIXES
-    if _COGEN_REFERENCE_NAMES is not None:
-        return _COGEN_REFERENCE_NAMES, _COGEN_REFERENCE_PREFIXES
-    names: set[str] = set()
-    prefixes: list[str] = []
-    # Resolve the bundled file relative to the source tree.
-    candidates = [
-        Path(__file__).resolve().parents[3]
-        / "share"
-        / "gtopt"
-        / "cogen"
-        / "cen_chile_cogen.csv",
-    ]
-    loaded_from: Path | None = None
-    last_err: Exception | None = None
-    for path in candidates:
-        if not path.is_file():
-            continue
-        try:
-            import csv  # noqa: PLC0415
-
-            with open(path, newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    name = str(row.get("name_upper", "")).strip().upper()
-                    if not name:
-                        continue
-                    source = str(row.get("source", "")).lower()
-                    if source.startswith("pattern_prefix:"):
-                        prefixes.append(name)
-                    else:
-                        names.add(name)
-            loaded_from = path
-            break
-        except OSError as exc:
-            last_err = exc
-            continue
-    if loaded_from is None:
-        _LOG.warning(
-            "cogen reference CSV not loaded (checked %d paths; last "
-            "error: %s).  Falling back to inline heuristic — units "
-            "whose Generator.type starts with 'thermal:cogen' will "
-            "be marked cogen; all other dispatchable units are "
-            "treated as non-cogen.  Some CEN biomass / sulfuric-acid "
-            "plants may be miscategorised in the consequential MOER.",
-            len(candidates),
-            last_err,
-        )
-    else:
-        _LOG.info(
-            "cogen reference CSV loaded from %s (%d exact names, %d pattern prefixes)",
-            loaded_from,
-            len(names),
-            len(prefixes),
-        )
-    _COGEN_REFERENCE_NAMES = names
-    _COGEN_REFERENCE_PREFIXES = tuple(prefixes)
-    return _COGEN_REFERENCE_NAMES, _COGEN_REFERENCE_PREFIXES
+def _load_cogen_reference() -> tuple[frozenset[str], tuple[str, ...]]:
+    """Return the cached CEN cogen ``(exact_names, prefixes)`` pair."""
+    return load_cen_cogen_reference()
 
 
 def _is_cogen(g: dict) -> bool:
@@ -701,11 +629,11 @@ def _is_cogen(g: dict) -> bool:
          the converter has direct cogen info).
       2. **Explicit type tag** — ``Generator.type`` starts with
          ``thermal:cogen`` (the canonical convention used by
-         ``share/gtopt/emissions/cen_chile.json`` overrides; applied
+         ``scripts/gtopt_shared/data/emissions/cen_chile.json`` overrides; applied
          by both converters when ``--emissions-file`` carries the
          ``generator_overrides`` section).
       3. **CEN reference list** — bundled
-         ``share/gtopt/cogen/cen_chile_cogen.csv`` (synthesised from
+         ``scripts/gtopt_shared/data/cogen/cen_chile_cogen.csv`` (synthesised from
          CEN-SIP ``unidades_generadoras`` + Informe-CEN industrial
          patterns).  Match by exact upper-case name OR by central
          name starting with one of the known cogen prefixes.

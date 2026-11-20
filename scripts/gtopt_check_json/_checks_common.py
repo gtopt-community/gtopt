@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from gtopt_shared.json_contracts import array_types
+
 
 # ---------------------------------------------------------------------------
 # Finding data model
@@ -39,27 +41,10 @@ class Finding:
 # Element class helpers
 # ---------------------------------------------------------------------------
 
-# Maps each array name to a short human-readable label.
-_ELEMENT_ARRAYS: dict[str, str] = {
-    "bus_array": "Bus",
-    "generator_array": "Generator",
-    "demand_array": "Demand",
-    "line_array": "Line",
-    "battery_array": "Battery",
-    "converter_array": "Converter",
-    "reserve_zone_array": "ReserveZone",
-    "reserve_provision_array": "ReserveProvision",
-    "junction_array": "Junction",
-    "waterway_array": "Waterway",
-    "flow_array": "Flow",
-    "reservoir_array": "Reservoir",
-    "reservoir_seepage_array": "ReservoirSeepage",
-    "reservoir_discharge_limit_array": "ReservoirDischargeLimit",
-    "reservoir_production_factor_array": "ReservoirProductionFactor",
-    "turbine_array": "Turbine",
-    "generator_profile_array": "GeneratorProfile",
-    "demand_profile_array": "DemandProfile",
-}
+# Maps each system array name to its element label (the C++ contract
+# type), taken from the bundled JSON-contract snapshot so every element
+# gtopt accepts is covered (see :mod:`gtopt_shared.json_contracts`).
+_ELEMENT_ARRAYS: dict[str, str] = array_types("System")
 
 
 def _get_uid_set(sys: dict[str, Any], array_key: str) -> dict[Any, list[int]]:

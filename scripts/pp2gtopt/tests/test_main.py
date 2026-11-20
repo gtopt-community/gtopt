@@ -233,7 +233,7 @@ class TestCanonicalFlagsThreadToJson:
         import json  # pylint: disable=import-outside-toplevel
 
         data = json.loads(out.read_text())
-        assert data["options"]["scale_objective"] == 500.0
+        assert data["options"]["model_options"]["scale_objective"] == 500.0
 
     def test_no_use_kirchhoff_flips_option_in_json(self, tmp_path):
         out = tmp_path / "nokvl.json"
@@ -246,7 +246,7 @@ class TestCanonicalFlagsThreadToJson:
         import json  # pylint: disable=import-outside-toplevel
 
         data = json.loads(out.read_text())
-        assert data["options"]["use_kirchhoff"] is False
+        assert data["options"]["model_options"]["use_kirchhoff"] is False
 
     def test_demand_fail_cost_overrides_default(self, tmp_path):
         out = tmp_path / "dfc.json"
@@ -266,7 +266,7 @@ class TestCanonicalFlagsThreadToJson:
         import json  # pylint: disable=import-outside-toplevel
 
         data = json.loads(out.read_text())
-        assert data["options"]["demand_fail_cost"] == 4000.0
+        assert data["options"]["model_options"]["demand_fail_cost"] == 4000.0
 
     def test_use_single_bus_flips_to_true(self, tmp_path):
         out = tmp_path / "sb.json"
@@ -279,4 +279,4 @@ class TestCanonicalFlagsThreadToJson:
         import json  # pylint: disable=import-outside-toplevel
 
         data = json.loads(out.read_text())
-        assert data["options"]["use_single_bus"] is True
+        assert data["options"]["model_options"]["use_single_bus"] is True

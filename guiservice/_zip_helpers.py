@@ -36,12 +36,12 @@ import pandas as pd
 # The ``TYPE_CHECKING`` guard hides the fallback branch from mypy so the
 # symbol isn't flagged as ``no-redef``.
 if TYPE_CHECKING:
-    from guiservice._schemas import ELEMENT_TO_ARRAY_KEY
+    from guiservice._schemas import ELEMENT_TO_ARRAY_KEY, nest_model_options
 else:
     try:
-        from guiservice._schemas import ELEMENT_TO_ARRAY_KEY
+        from guiservice._schemas import ELEMENT_TO_ARRAY_KEY, nest_model_options
     except ImportError:
-        from _schemas import ELEMENT_TO_ARRAY_KEY
+        from _schemas import ELEMENT_TO_ARRAY_KEY, nest_model_options
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,16 @@ def _df_to_rows(df):
     return [[_sanitize_value(x) for x in row] for row in df.itertuples(index=False, name=None)]
 
 
+def unmapped_system_arrays(system_raw: dict) -> dict:
+    """``*_array`` entries of a planning ``system`` the GUI has no form for."""
+    mapped = set(ELEMENT_TO_ARRAY_KEY.values())
+    return {
+        key: value
+        for key, value in system_raw.items()
+        if key.endswith("_array") and key not in mapped
+    }
+
+
 def _build_case_json(case_data):
     """Build the gtopt-compatible JSON from the GUI case data."""
     options = case_data.get("options", {})
@@ -83,6 +93,11 @@ def _build_case_json(case_data):
     system_elements = case_data.get("system", {})
 
     system_section = {"name": case_data.get("case_name", "case")}
+    # System arrays the GUI has no form for (loaded from a planning file)
+    # are passed through untouched instead of being dropped.
+    for array_key, items in (case_data.get("system_extra") or {}).items():
+        if items:
+            system_section[array_key] = items
     for elem_type, array_key in ELEMENT_TO_ARRAY_KEY.items():
         items = system_elements.get(elem_type, [])
         if items:
@@ -98,7 +113,8 @@ def _build_case_json(case_data):
 
     result = {}
     if options:
-        result["options"] = options
+        # Model options belong under options.model_options.
+        result["options"] = nest_model_options(options)
     if simulation:
         result["simulation"] = simulation
     result["system"] = system_section
@@ -197,6 +213,7 @@ def _parse_uploaded_zip(zip_bytes):
         for elem_type, array_key in ELEMENT_TO_ARRAY_KEY.items():
             if array_key in system_raw:
                 case_data["system"][elem_type] = system_raw[array_key]
+        case_data["system_extra"] = unmapped_system_arrays(system_raw)
 
         # Parse data files (CSV and Parquet) into JSON for GUI display;
         # original ZIP bytes are preserved separately for submission.

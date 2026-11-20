@@ -31,6 +31,7 @@ _OLD_CONFIG_PATH = Path.home() / ".gtopt_check_json.conf"
 # Each check can be enabled / disabled individually via the config file.
 # The key is the check id; the value is "true" or "false".
 CHECK_DEFAULTS: dict[str, str] = {
+    "schema_keys": "true",
     "uid_uniqueness": "true",
     "name_uniqueness": "true",
     "demand_lmax_nonneg": "true",
@@ -44,6 +45,7 @@ CHECK_DEFAULTS: dict[str, str] = {
     "simulation_mode": "true",
     "sddp_options": "true",
     "cascade_solver_type": "true",
+    "future_cost_aliases": "true",
     "boundary_cuts": "true",
     # Engine-side validation: shells out to `gtopt --lp-only` and harvests
     # the C++-side `Validation: …` log lines.  Enabled by default — picks

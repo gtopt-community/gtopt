@@ -120,17 +120,10 @@ namespace
   {
     sddp_opts.cuts_input_file = cuts_input;
   }
-  if (const auto boundary_cuts = options.sddp_boundary_cuts_file();
-      !boundary_cuts.empty())
-  {
-    sddp_opts.boundary_cuts_file = std::string(boundary_cuts);
-  }
-  sddp_opts.boundary_cuts_mode = options.sddp_boundary_cuts_mode_enum();
-  sddp_opts.boundary_cut_sharing =
-      options.sddp_boundary_cut_sharing_mode_enum();
-  sddp_opts.boundary_max_iterations = options.sddp_boundary_max_iterations();
-  sddp_opts.missing_cut_var_mode = options.sddp_missing_cut_var_mode();
-  sddp_opts.boundary_cuts_mean_shift = options.sddp_boundary_cuts_mean_shift();
+  // Boundary (future-cost) cuts are NOT wired from `sddp_options`: the
+  // active FutureCost element is their single source, read by SDDPMethod
+  // itself (`apply_future_cost_config`).  The legacy `sddp_options.boundary_*`
+  // keys were translated into that element at planning load.
 
   // ``named_cuts_file`` retired 2026-05 — internal hot-start cuts
   // come from ``cuts_input_file`` (Parquet) above.
@@ -246,13 +239,6 @@ std::unique_ptr<PlanningMethod> make_planning_method(
   solver->lp_debug_phase_min = options.lp_debug_phase_min();
   solver->lp_debug_phase_max = options.lp_debug_phase_max();
   solver->solve_mode = options.monolithic_solve_mode_enum();
-  solver->boundary_cuts_file =
-      std::string(options.monolithic_boundary_cuts_file());
-  solver->boundary_cuts_mode = options.monolithic_boundary_cuts_mode_enum();
-  solver->boundary_cut_sharing =
-      options.monolithic_boundary_cut_sharing_mode_enum();
-  solver->boundary_max_iterations =
-      options.monolithic_boundary_max_iterations();
   return solver;
 }
 

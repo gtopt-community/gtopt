@@ -68,7 +68,6 @@ NON_ELEMENT_FILES = frozenset(
         "json_parse_policy.hpp",
         "json_enum_option.hpp",
         "json_right_bound_rule.hpp",  # helper struct
-        "json_schedule.hpp",  # helper
         "json_variable_scale.hpp",  # nested-only
         "json_lp_validation.hpp",  # nested options
         "json_lp_matrix_options.hpp",  # nested options
@@ -87,10 +86,12 @@ PSEUDO_CLASSES = frozenset({"_capacity"})
 #   json_variant_null<"lmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>
 #   json_array_null<"bus_array", Array<Bus>, Bus>
 #   json_bool_null<"strict_storage_emin", OptBool>
+#   json_string_raw<"class_name", std::string>
 JSON_MEMBER_RE = re.compile(
     r"""
     \b json_                                       # token start
-    (?: number | string | bool | variant | array | class | enum )
+    (?: number | string | bool | variant | array | class | enum | custom )
+    (?: _raw )?                                    # owning-string variant
     (?: _null )?                                   # nullable variant
     \s* < \s*
     " (?P<name> [^"]+ ) "                          # key name (group)

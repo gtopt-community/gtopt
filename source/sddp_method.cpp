@@ -30,6 +30,7 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/decision_variable_lp.hpp>
+#include <gtopt/future_cost_lp.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -932,49 +933,22 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // derive scale_alpha below; the cut loaders further down reuse the same
   // lambda.  Without this, gtopt invoked from a cwd other than the case dir
   // silently skips boundary / named / hot-start cut files even when the JSON
-  // wires them up correctly.  Absolute paths pass through unchanged.
+  // wires them up correctly.  Absolute paths pass through unchanged.  Same
+  // rule MonolithicMethod applies to `FutureCost.cuts_file`.
   const auto resolve_input = [&](const std::string& path) -> std::string
-  {
-    if (path.empty()) {
-      return path;
-    }
-    const std::filesystem::path p {path};
-    if (p.is_absolute()) {
-      return path;
-    }
-    return (std::filesystem::path {planning_lp().options().input_directory()}
-            / p)
-        .string();
-  };
+  { return resolve_future_cost_path(planning_lp(), path); };
 
-  // ── FutureCost element config consolidation (piece 5 step 2b) ──────────
-  // When an active FutureCost element authors boundary-cut fields, they win
-  // over the equivalent SDDPOptions fields (the element is the single source of
-  // truth).  Read-site only — each override is gated on the element having
-  // EXPLICITLY set the field, so when there is no FutureCost element (or it
-  // leaves a field unset) `m_options_` is byte-for-byte unchanged (backward-
-  // compatible — `test_sddp_boundary_cuts_mean_shift` stays green).  Skipped
-  // entirely under `use_user_alpha` (the user α replaces boundary cuts, handled
-  // separately below).
-  if (const auto* fc = active_future_cost(planning_lp());
-      fc != nullptr && !fc->use_user_alpha.value_or(false))
-  {
-    const auto cfg = boundary_config(*fc);
-    if (cfg.cuts_file.has_value()) {
-      m_options_.boundary_cuts_file = *cfg.cuts_file;
-    }
-    if (cfg.scale_alpha.has_value()) {
-      m_options_.scale_alpha = *cfg.scale_alpha;
-    }
-    if (cfg.mean_shift.has_value()) {
-      m_options_.boundary_cuts_mean_shift = *cfg.mean_shift;
-    }
-    if (cfg.sharing.has_value()) {
-      m_options_.boundary_cut_sharing = *cfg.sharing;
-    }
-    if (cfg.mode.has_value()) {
-      m_options_.boundary_cuts_mode = *cfg.mode;
-    }
+  // ── FutureCost element: the single source of the boundary-cut config ──
+  // `apply_future_cost_config` is the same mapping MonolithicMethod uses.
+  // The planning layer never copies `sddp_options.boundary_*` into
+  // `m_options_` (those legacy keys are translated into the element by
+  // `resolve_future_cost_aliases` at planning load), so for a JSON-driven run
+  // the element is the only source.  A programmatic `SDDPOptions` with no
+  // element (test fixtures) is left untouched.  Applied under
+  // `use_user_alpha` too, so the mutual-exclusion check below sees a
+  // `cuts_file` authored on the element.
+  if (const auto* fc = active_future_cost(planning_lp()); fc != nullptr) {
+    apply_future_cost_config(*fc, m_options_);
   }
 
   // ── phi_expectation pre-scan (PLP-literal terminal FCF) ────────────────
@@ -1245,7 +1219,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       return std::unexpected(Error {
           .code = ErrorCode::InvalidInput,
           .message = std::format(
-              "FutureCost '{}': use_user_alpha and boundary_cuts_file are "
+              "FutureCost '{}': use_user_alpha and cuts_file are "
               "mutually exclusive — the user-authored α + cuts replace the "
               "boundary-cut FCF, so supplying both is ambiguous",
               fc->name),
@@ -1427,15 +1401,17 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
               .add_obj_constant(restitution);
         }
 
-        SPDLOG_DEBUG(
-            "SDDP: loaded {} boundary cuts from {}", result->count, bc_path);
+        SPDLOG_INFO("SDDP: loaded {} boundary cuts from FutureCost '{}' ({})",
+                    result->count,
+                    m_options_.boundary_cuts_file,
+                    bc_path);
       } else {
         SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
                     result.error().message);
       }
     } else {
       SPDLOG_WARN(
-          "SDDP: boundary_cuts_file '{}' not found (resolved to '{}') — "
+          "SDDP: FutureCost cuts_file '{}' not found (resolved to '{}') — "
           "α at the last phase will stay pinned at 0",
           m_options_.boundary_cuts_file,
           bc_path);

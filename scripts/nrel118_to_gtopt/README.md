@@ -1,125 +1,123 @@
 # nrel118_to_gtopt
 
-Tiny converter that ports the **NREL-118 extended IEEE 118-bus test system**
-into a gtopt planning JSON, plus the integration test that exercises gtopt's
-emission framework end-to-end against this benchmark.
+Converter that ports the **NREL-118 extended IEEE 118-bus test system**
+into a **full-network, multi-block, multi-stage** gtopt case, plus the
+tests that exercise gtopt's emission framework against this benchmark.
+
+Full documentation: [`docs/scripts/nrel118_to_gtopt.md`](../../docs/scripts/nrel118_to_gtopt.md).
 
 ## Source
-
-The benchmark is the publicly published NREL extension of the IEEE 118-bus
-test system, designed for studies of high-renewable-penetration scenarios:
 
 * **Paper**: Peña, I.; Martinez-Anido, C. B.; Hodge, B.-M. *An Extended
   IEEE 118-Bus Test System With High Renewable Penetration.*
   IEEE Transactions on Power Systems, Vol. 33, No. 1, January 2018,
   pp. 281-289.
   DOI: [10.1109/TPWRS.2017.2695963](https://doi.org/10.1109/TPWRS.2017.2695963)
-* **Dataset**: `NREL-Sienna/PowerSystemsTestData` repository, `118-Bus/`
+* **Dataset**: `NREL-Sienna/PowerSystemsTestData`, `118-Bus/`
   directory —
   [github.com/NREL-Sienna/PowerSystemsTestData/tree/master/118-Bus](https://github.com/NREL-Sienna/PowerSystemsTestData/tree/master/118-Bus).
-  Fetched on demand by `_converter.py` via `urllib`, cached under
-  `~/.cache/gtopt/nrel118/`.
+  Downloaded on demand at a pinned commit into `~/.cache/gtopt/nrel118/`
+  (~26 MB).  The upstream repository has **no licence file**, so the
+  data is never vendored here; the unit tests use a synthetic 3-bus /
+  2-region dataset in the same CSV formats.
 
-The dataset ships **10 generation technologies** (coal subcritical, coal
-supercritical, natural-gas CC, natural-gas CT, oil CT, biomass, hydro,
-wind, solar, nuclear) with piecewise heat-rate functions (Heat Rate Base
-MMBTU/hr + 5 incremental bands BTU/kWh), minimum stable levels, ramping
-rates, start costs, and 8784-hour time-synchronous load / wind / solar
-series.
+## What the converter builds
 
-## What the converter does
+| Element | From | gtopt |
+|---|---|---|
+| 118 buses | `Buses.csv` | `bus_array` (uid = bus number, bus 69 reference) |
+| 186 lines | `Lines.csv` | `line_array`: `reactance` p.u./100 MVA, `tmax_ab/ba` |
+| 327 generators | `Generators.csv` | `generator_array` at their buses; `gcost = VO&M + HR × fuel price` |
+| 91 bus loads | `LoadR{1,2,3}DA.csv` × `partfact.csv` | `Demand/lmax.parquet` |
+| wind / solar / run-of-river hydro | `Wind*DA`, `Solar*DA`, `Hydro NN.csv` | `GeneratorProfile/profile.parquet` |
+| energy-limited hydro 01-15 | `118-hydro.csv` monthly GWh | load-shaped hourly cap (profile) |
+| hydro 36-39 | `Hydro_nondispatchable.csv` monthly MW | profile |
+| CO₂ | IPCC AR6 factors (below) | `fuel_array` + `emission_array` + `emission_zone_array` |
+| time | `--hours`, `--block-hours`, `--stage-hours` | `gtopt_shared.time_grid.TimeGrid` |
 
-1. **Download + cache** the four canonical CSVs (`Generators.csv`,
-   `Buses.csv`, `Lines.csv`, plus per-zone hourly profiles) from
-   NREL-Sienna/PowerSystemsTestData on first run, cached under
-   `~/.cache/gtopt/nrel118/`.
-2. **Parse** the per-generator piecewise heat-rate data
-   (Heat Rate Base + Inc Band 1-5 over Load Point Band 1-5).
-3. **Collapse to scalar HR** via pmax-weighted segment average so the
-   per-generator heat_rate is in GJ/MWh (canonical for gtopt's emission
-   pipeline today — gtopt's `expand_fuel_emission_sources` requires
-   scalar HR and skips piecewise with a WARN, pending the multi-fuel
-   feature tracked in issue #510).
-4. **Assign per-fuel CO₂ factors** from IPCC AR6 Table A.III.2 in a
-   small inline table (NO modification to the shared
-   `gtopt_shared/data/ipcc_emission_factors.json` — the per-fuel mapping
-   for this specific study is study-specific, not a global default):
+Default: the whole 8784-hour year, 1-hour blocks, daily stages (366 ×
+24), one phase per stage, DC OPF with Kirchhoff, no unit commitment
+(`--commitment relaxed|mip` adds ramps, min up/down and start costs).
 
-   | Fuel family | tCO₂/GJ | Source |
-   |---|---|---|
-   | Coal (subcritical, supercritical) | 0.0946 | IPCC AR6 WG3 Table A.III.2 |
-   | Natural Gas (CC, CT) | 0.0561 | IPCC AR6 WG3 Table A.III.2 |
-   | Oil / Diesel | 0.0741 | IPCC AR6 WG3 Table A.III.2 |
-   | Biomass | 0.0 | Biogenic-zero per IPCC AFOLU |
-   | Nuclear / Wind / Solar / Hydro | 0.0 | No fuel combustion |
+### Heat rate and CO₂
 
-5. **Emit gtopt JSON** with `Fuel.heat_content` unset (HR is already in
-   GJ/MWh), so gtopt's `heat_content` multiplication path doesn't fire
-   for this case — the formula collapses to the legacy `rate = hr ×
-   combustion`, exercised in the C++ test alongside the multiplication
-   path tested by the CEN-Chile bundles.
+The per-generator piecewise heat rate (Heat Rate Base + 5 incremental
+bands) is collapsed to a scalar full-load average in GJ/MWh (gtopt's
+`expand_fuel_emission_sources` requires a scalar heat rate; piecewise
+support is tracked in
+issue #510).
+Per-fuel CO₂ factors come from IPCC AR6 Table A.III.2, kept inline
+(study-specific, not added to `gtopt_shared/data/ipcc_emission_factors.json`):
+
+| Fuel family | tCO₂/GJ | Source |
+|---|---|---|
+| Coal | 0.0946 | IPCC AR6 WG3 Table A.III.2 |
+| Natural Gas (CC, CT, ICE, ST) | 0.0561 | IPCC AR6 WG3 Table A.III.2 |
+| Oil / Diesel (CT Oil), ST Other | 0.0741 | IPCC AR6 WG3 Table A.III.2 |
+| Biomass | 0.0 | Biogenic-zero per IPCC AFOLU |
+| Geothermal / Wind / Solar / Hydro | 0.0 | No fuel combustion |
+
+`Fuel.heat_content` is unset (heat rate already in GJ/MWh) and
+`Fuel.price = 0` — the fuel cost is folded into `Generator.gcost` using
+the dataset's own Sienna-loader prices (NG 5.4, coal 1.8, oil 21,
+biomass 2.4 $/MMBtu; `--fuel-prices typical` for EIA-style prices).
 
 ## CLI
 
 ```bash
-PYTHONPATH=. python -m nrel118_to_gtopt --week N -o OUT.json
+nrel118_to_gtopt -o nrel118/nrel118.json                 # whole year
+nrel118_to_gtopt --hours 168+168 -o week2/nrel118.json    # one week
+nrel118_to_gtopt --block-hours 4 --stage-hours 168 -o y/nrel118.json
+nrel118_to_gtopt --single-bus --renewables-share 0.33 -o r33/nrel118.json
+nrel118_to_gtopt --from-state nrel118/nrel118/nrel118_to_gtopt_state.json
 ```
 
-`--week N` selects a single representative week from the 8784-hour annual
-series (default = winter peak, around week 2 of January). The single-week
-horizon keeps the LP small enough for a CI integration test.
+(`PYTHONPATH=. python -m nrel118_to_gtopt …` from `scripts/` works too.)
 
-## What the integration test asserts
+## Tests
 
-**File**: `test/source/test_emission_nrel118_port.cpp`
+* `tests/test_converter.py` — unit tests on a synthetic mini dataset
+  written by the test (3 buses, 2 regions, 48 h; CR line endings, BOM,
+  over-capacity wind series, energy-limited and monthly hydro): readers,
+  load distribution, profiles, hydro budgets, time grid, commitment,
+  renewables share, CLI + `--from-state`, offline download logic.
+* `-m integration` tests use the real cache (download if allowed) and,
+  when a `gtopt` binary is found (`GTOPT_BIN`), solve one week at 0 %
+  and 33 % wind+solar and require the CO₂ reduction in [15 %, 50 %]
+  around the paper's annual 29-34 % (the reference itself is in
+  `integration_test/cases/nrel118_reference/headline_results.json`).
+* `test/source/test_emission_nrel118_port.cpp` — independent C++ check
+  of the emission framework on a hand-built single-bus subset of the
+  fleet (does not read converter output).
 
-Two TEST_CASEs:
-
-1. **Baseline thermal dispatch** — 6-thermal subset of the NREL-118
-   fleet (one per fuel-family rank: nuclear, coal subcrit, CC NG,
-   biomass, CT NG, CT Oil), no renewables, 1100 MW demand on a single
-   bus. Merit-order dispatch is solved; CO₂ total ≈ 368 t for the
-   single hour. Asserts the per-MWh rates synthesized by
-   `expand_fuel_emission_sources` match `heat_rate × combustion`
-   to numerical tolerance.
-
-2. **33%-renewables scenario vs baseline** — Same fleet plus a 363 MW
-   renewable injection (1100 × 0.33). Thermals derate proportionally.
-   CO₂ drops ~33% versus baseline. The assertion window is
-   **[15%, 50%]** — wider than the paper's annual 29-34% band because
-   a single representative hour is more variable than the full-year
-   average. The published reference number is the single regression
-   target this whole port chases.
-
-### Regression target (the gold)
+### Regression target
 
 > *"At 33% wind+solar penetration, the system avoids 29-34% of CO₂
 > emissions, 16-22% of NOₓ, and 14-24% of SO₂ vs. the baseline thermal
 > mix."* — Peña et al. 2018, abstract.
 
-The integration test windows this delta to [15%, 50%] for a single-hour
-fixture (the paper's number is an 8784-hour average). Tightening the
-window requires solving the full annual horizon — out of scope for CI.
+## Known gaps
+
+* Energy-limited hydro (`Hydro 01-15`): the monthly budget is pre-shaped
+  into an hourly cap proportional to system load; the LP cannot shift
+  that energy further (no multi-stage generator energy budget in gtopt).
+* Reserves and the real-time (`RT`) series are not converted.
+* `gen.csv`, `Interregional lines.csv`, `Escalators.csv` are unused.
 
 ## Caveat: surprise behavior
 
-`expand_fuel_emission_sources` in `source/system.cpp:602` **skips fuels
-with `combustion == 0 && upstream == 0`** — so biomass and nuclear
-generators get NO synthesized EmissionSource even when they declare a
-fuel + heat_rate. This is correct (zero-rate sources would be pure LP
-overhead) but means the per-EmissionSource count is fewer than the
-per-fueled-generator count. Both tests in this port account for this.
+`expand_fuel_emission_sources` in `source/system.cpp` **skips fuels
+with `combustion == 0 && upstream == 0`** — so biomass generators get
+NO synthesized EmissionSource even when they declare a fuel +
+heat_rate.  This is correct (zero-rate sources would be pure LP
+overhead) but means the EmissionSource count is smaller than the
+fueled-generator count.
 
 ## Related work
 
-- The `--emissions` flag and IPCC defaults are shared infrastructure
-  living in `gtopt_shared.emissions` and
+- `--emissions` flag and IPCC defaults: `gtopt_shared.emissions` and
   `gtopt_shared/data/ipcc_emission_factors.json`.
-- The piecewise→scalar fallback (this port's `collapse_piecewise_hr`)
-  is a converter-side workaround pending gtopt-side multi-fuel /
-  per-fuel HR support tracked in
-  issue #510.
-- Sister ports for cross-validation:
-  `scripts/rts_gmlc_to_gtopt/` (GridMod RTS-GMLC, per-gen native CO₂
-  multi-pollutant), `scripts/sienna_to_gtopt/` (5-bus non-emission
-  variants for cascading hydro / monitored line / HVDC).
+- Time grid shared with [pp2gtopt](../../docs/scripts/pp2gtopt.md):
+  `gtopt_shared/time_grid.py`.
+- Sister ports: `scripts/rts_gmlc_to_gtopt/` (GridMod RTS-GMLC),
+  `scripts/sienna_to_gtopt/` (5-bus variants).

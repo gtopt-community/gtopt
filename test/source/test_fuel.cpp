@@ -128,8 +128,8 @@ TEST_CASE("Fuel construction and JSON round-trip")  // NOLINT
     // fuel family — diesel / fuel_oil / gas / glp / biomasa / biogas /
     // carbon / otros) and an optional ``subtype`` hint (lng /
     // sub_bituminous / …) consumed by the IPCC emission-defaults
-    // overlay at share/gtopt/emissions/cen_chile.json.  gtopt itself
-    // doesn't wire either into the LP — they're metadata that must
+    // overlay at scripts/gtopt_shared/data/emissions/cen_chile.json.  gtopt
+    // itself doesn't wire either into the LP — they're metadata that must
     // round-trip cleanly through the JSON parser.
     const std::string_view json = R"({
         "uid": 11,

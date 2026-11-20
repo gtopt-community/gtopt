@@ -64,27 +64,40 @@ _TEMPLATE_SIMULATION_SHEETS = [
     "iteration_array",
 ]
 
+# Every ``*_array`` member of ``json_data_contract<System>`` in contract
+# order, except ``user_model_array`` (nested variable/constraint arrays that
+# do not flatten into one sheet — author it in JSON).  Enforced by
+# ``gtopt_shared/tests/test_json_contracts_sync.py``.
 _TEMPLATE_SYSTEM_SHEETS = [
     "bus_array",
-    "generator_array",
-    "generator_profile_array",
-    "capacity_profile_array",
     "demand_array",
-    "demand_profile_array",
+    "generator_array",
     "line_array",
+    "generator_profile_array",
+    "demand_profile_array",
+    "capacity_profile_array",
     "battery_array",
     "converter_array",
+    "thermal_node_array",
+    "thermal_storage_array",
+    "hydrogen_node_array",
+    "hydrogen_storage_array",
+    "ammonia_node_array",
+    "ammonia_storage_array",
+    "carrier_converter_array",
+    "allowance_pool_array",
     "lng_terminal_array",
     "reserve_zone_array",
     "reserve_provision_array",
-    "inertia_zone_array",
-    "inertia_provision_array",
     "fuel_array",
     "emission_array",
     "emission_zone_array",
     "emission_source_array",
     "commitment_array",
     "simple_commitment_array",
+    "line_commitment_array",
+    "inertia_zone_array",
+    "inertia_provision_array",
     "junction_array",
     "waterway_array",
     "flow_array",
@@ -98,6 +111,8 @@ _TEMPLATE_SYSTEM_SHEETS = [
     "volume_right_array",
     "user_param_array",
     "decision_variable_array",
+    "future_cost_array",
+    "plant_array",
     "user_constraint_array",
 ]
 

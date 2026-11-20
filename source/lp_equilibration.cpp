@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -54,6 +55,15 @@ namespace
   }
   return sqrt_ieee_halve(x);
 }
+
+/// Effective "no bound" threshold: the caller's solver infinity capped at
+/// `DblMax`.  A solver whose infinity is a true IEEE `+inf` (HiGHS) would
+/// otherwise let the in-memory `DblMax` sentinel pass the `< infinity` test
+/// and get scaled into a huge-but-finite ~1e303 bound.
+[[nodiscard]] constexpr double cap_infinity(double infinity) noexcept
+{
+  return std::min(infinity, std::numeric_limits<double>::max());
+}
 }  // namespace
 
 double equilibrate_row_in_place(std::span<double> elements,
@@ -61,6 +71,7 @@ double equilibrate_row_in_place(std::span<double> elements,
                                 double& rowub,
                                 double infinity) noexcept
 {
+  infinity = cap_infinity(infinity);
   // 1. Find max |coeff| over the row's non-zeros.
   double max_abs = 0.0;
   for (const double v : elements) {
@@ -130,6 +141,7 @@ std::vector<double> apply_row_max_equilibration(
     std::span<double> rowub,
     double infinity)
 {
+  infinity = cap_infinity(infinity);
   // Bulk row-max equilibration used at build time.  The per-row scaling
   // math is shared conceptually with the single-row
   // `equilibrate_row_in_place` primitive above; this variant just stays
@@ -201,6 +213,7 @@ std::vector<double> apply_ruiz_scaling(std::span<const std::int32_t> matbeg,
                                        int max_iterations,
                                        double tolerance)
 {
+  infinity = cap_infinity(infinity);
   const auto nrows = rowlb.size();
   const auto ncols = collb.size();
 

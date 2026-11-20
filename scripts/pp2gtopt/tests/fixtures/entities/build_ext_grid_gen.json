@@ -4,6 +4,6 @@
   "gcost": 20.0,
   "name": "g1",
   "pmax": 360.2,
-  "pmin": 0,
+  "pmin": 0.0,
   "uid": 1
 }

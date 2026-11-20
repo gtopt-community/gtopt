@@ -14,7 +14,6 @@ local.
 
 from __future__ import annotations
 
-import csv
 import json
 import logging
 import shutil
@@ -23,12 +22,14 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 
 from gtopt_shared.bus_kv import parse_bus_kv
+from gtopt_shared.cen_cogen import is_cen_cogen
 from gtopt_shared.cli_flags import DEFAULT_WRITE_OUT as _DEFAULT_WRITE_OUT_FALLBACK
 from gtopt_shared.csv_io import write_csv
 from gtopt_shared.pampl_ident import (
     pampl_ident as _pampl_ident,
     penalty_param_name as _penalty_param_name,
 )
+from gtopt_shared.resources import REINSTALL_HINT, MissingDataFileError
 from gtopt_shared.pampl_rhs import pampl_rhs_vector as _pampl_rhs_vector
 from gtopt_shared.water_values import (
     WaterValueResolver,
@@ -432,64 +433,9 @@ def soft_penalty_cost(
     return penalty
 
 
-# ----------------------------------------------------------------------
-# CEN cogen reference cache (best-effort load of the bundled CSV).
-# ----------------------------------------------------------------------
-_CEN_COGEN_NAMES: set[str] | None = None
-_CEN_COGEN_PREFIXES: tuple[str, ...] = ()
-
-
-def _load_cen_cogen_reference() -> tuple[set[str], tuple[str, ...]]:
-    """Load (exact-names, prefix-tuple) from
-    ``share/gtopt/cogen/cen_chile_cogen.csv``.  Cached after first call.
-    Returns ``(set(), ())`` if the file is missing — caller treats every
-    generator as non-cogen (the explicit emissions-overlay fallback
-    still applies cogen flags through GeneratorOverride.type_tag).
-    """
-    global _CEN_COGEN_NAMES, _CEN_COGEN_PREFIXES
-    if _CEN_COGEN_NAMES is not None:
-        return _CEN_COGEN_NAMES, _CEN_COGEN_PREFIXES
-    names: set[str] = set()
-    prefixes: list[str] = []
-    candidates = [
-        Path(__file__).resolve().parents[2]
-        / "share"
-        / "gtopt"
-        / "cogen"
-        / "cen_chile_cogen.csv",
-    ]
-    for path in candidates:
-        if not path.is_file():
-            continue
-        try:
-            with open(path, newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    name = str(row.get("name_upper", "")).strip().upper()
-                    if not name:
-                        continue
-                    source = str(row.get("source", "")).lower()
-                    if source.startswith("pattern_prefix:"):
-                        prefixes.append(name)
-                    else:
-                        names.add(name)
-            break
-        except OSError:
-            continue
-    _CEN_COGEN_NAMES = names
-    _CEN_COGEN_PREFIXES = tuple(prefixes)
-    return _CEN_COGEN_NAMES, _CEN_COGEN_PREFIXES
-
-
-def _is_cen_cogen(gen_name: str) -> bool:
-    """True iff the generator name matches the CEN cogen reference list."""
-    name = str(gen_name).strip().upper()
-    if not name:
-        return False
-    names, prefixes = _load_cen_cogen_reference()
-    if name in names:
-        return True
-    return any(name.startswith(p) for p in prefixes)
+# CEN cogen reference list — shared loader in gtopt_shared.cen_cogen
+# (bundled ``gtopt_shared/data/cogen/cen_chile_cogen.csv``; required).
+_is_cen_cogen = is_cen_cogen
 
 
 def build_generator_array(
@@ -855,7 +801,7 @@ def build_generator_array(
         # walk-up, post-solve emission attribution, dispatch reports)
         # don't need to re-derive cogen status from name patterns.  The
         # bundled CEN cogen reference at
-        # ``share/gtopt/cogen/cen_chile_cogen.csv`` carries the full
+        # ``scripts/gtopt_shared/data/cogen/cen_chile_cogen.csv`` carries the full
         # CEN cogen list (explicit ``Cogeneración - *`` SIP tags plus
         # the pulp-mill / sulfur / refinery prefix patterns derived
         # from CEN-SIP cross-reference + Informe-CEN docs).
@@ -1730,7 +1676,7 @@ def build_battery_array(
     out: list[dict[str, Any]] = []
     for i, bat in enumerate(batteries):
         eini = bat.eini
-        if bat.emax > 0.0 and eini > bat.emax:
+        if 0.0 < bat.emax < eini:
             logger.warning(
                 "battery %s: Initial Volume (%.3f MWh) > Max Volume "
                 "(%.3f MWh) — clamping eini to emax. Audit the bundle "
@@ -2914,7 +2860,7 @@ def build_decision_variable_array(
     The FCF cost-to-go ``alpha_fcf`` column is NEVER emitted: the
     end-of-horizon future-cost valuation is provided SOLELY by gtopt's
     native C++ boundary-cut loader (``boundary_cuts.csv`` +
-    ``monolithic_options.boundary_cuts_file``).  Emitting an ``alpha_fcf``
+    ``system.future_cost_array[0].cuts_file``).  Emitting an ``alpha_fcf``
     DecisionVariable double-counts the cost-to-go (two α columns, two cuts,
     a 2× terminal-storage gradient) and leaves a free LP column, so any such
     spec (e.g. carried by a stale case object) is filtered out here.
@@ -3021,7 +2967,7 @@ def build_user_constraint_array(
         return padded
 
     # The FCF boundary cut is emitted natively (``boundary_cuts.csv`` +
-    # ``monolithic_options.boundary_cuts_file``), never as a UserConstraint.
+    # ``system.future_cost_array[0].cuts_file``), never as a UserConstraint.
     # Drop any ``FCF_future_cost`` cut spec (e.g. carried by a stale case
     # object) so it is not re-emitted — directly to JSON here or via
     # ``.pampl`` downstream — since a UserConstraint encoding would
@@ -3926,7 +3872,7 @@ def build_planning(  # pylint: disable=too-many-arguments
     # End-of-horizon future-cost valuation is provided SOLELY by the C++
     # boundary-cut loader: ``MonolithicMethod`` registers the α future-cost
     # state variable and binds ``boundary_cuts.csv`` as
-    # ``α + Σ wvᵣ·efinᵣ >= FCF`` (``monolithic_boundary_cuts_mode`` defaults to
+    # ``α + Σ wvᵣ·efinᵣ >= FCF`` (``FutureCost.mode`` defaults to
     # ``separated``), α-rebased at the ``efin`` target (source/
     # monolithic_method.cpp; test/source/test_monolithic_boundary_cuts.cpp).
     # The converter writes that cut file in ``convert_plexos_bundle`` — it no
@@ -4037,16 +3983,30 @@ def install_solver_param_files(output_dir: Path) -> list[Path]:
     MindOpt) and ``.opts`` (HiGHS) — including the ``<solver>_warmstart``
     siblings loaded for the advanced-basis warm-start pass.
 
-    Returns the list of installed file paths (empty when no bundled files).
+    Returns the list of installed file paths.
+
+    Raises:
+        MissingDataFileError: when the bundled ``plexos2gtopt/solvers/`` directory
+            is missing or empty (broken install — the case would otherwise
+            silently run with untuned solver defaults).
     """
     if not _BUNDLED_SOLVERS_DIR.is_dir():
-        return []
+        raise MissingDataFileError(
+            f"bundled solver parameter directory not found: "
+            f"{_BUNDLED_SOLVERS_DIR}.  {REINSTALL_HINT}"
+        )
+    sources = sorted(
+        [*_BUNDLED_SOLVERS_DIR.glob("*.prm"), *_BUNDLED_SOLVERS_DIR.glob("*.opts")]
+    )
+    if not sources:
+        raise MissingDataFileError(
+            f"no *.prm / *.opts solver parameter files in "
+            f"{_BUNDLED_SOLVERS_DIR}.  {REINSTALL_HINT}"
+        )
     target_dir = output_dir / "solvers"
     target_dir.mkdir(parents=True, exist_ok=True)
     installed: list[Path] = []
-    for src in sorted(
-        [*_BUNDLED_SOLVERS_DIR.glob("*.prm"), *_BUNDLED_SOLVERS_DIR.glob("*.opts")]
-    ):
+    for src in sources:
         dst = target_dir / src.name
         shutil.copyfile(src, dst)
         installed.append(dst)
@@ -4119,7 +4079,7 @@ def write_boundary_cut_csv(
     ``-water_value`` (more stored water ⇒ lower future cost) on that
     reservoir's terminal-volume state variable.  Only reservoirs that
     exist in the bundle are emitted (the loader matches by element
-    name).  Returns the basename to set on ``simulation.boundary_cuts_file``,
+    name).  Returns the basename to set on the FutureCost ``cuts_file``,
     or ``None`` when no slope maps onto a bundle reservoir.
 
     ``water_value_factor`` (from ``--water-value-factor``) multiplies named

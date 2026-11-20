@@ -84,6 +84,7 @@ if TYPE_CHECKING:
         _parse_results_zip,
         _parse_uploaded_zip,
         _sanitize_value,
+        unmapped_system_arrays,
     )
 else:
     try:
@@ -99,6 +100,7 @@ else:
             _parse_results_zip,
             _parse_uploaded_zip,
             _sanitize_value,
+            unmapped_system_arrays,
         )
     except ImportError:
         # Script-mode import (cwd inside guiservice/ — gtopt_gui launcher).
@@ -114,6 +116,7 @@ else:
             _parse_results_zip,
             _parse_uploaded_zip,
             _sanitize_value,
+            unmapped_system_arrays,
         )
 # pylint: enable=unused-import,wrong-import-position
 
@@ -1017,9 +1020,11 @@ def _blank_template() -> dict[str, Any]:
             "input_format": "csv",
             "output_directory": "output",
             "output_format": "csv",
-            "use_single_bus": True,
-            "scale_objective": 1000.0,
-            "demand_fail_cost": 1000.0,
+            "model_options": {
+                "use_single_bus": True,
+                "scale_objective": 1000.0,
+                "demand_fail_cost": 1000.0,
+            },
         },
         "simulation": {
             "block_array": [{"uid": 1, "duration": 1}],
@@ -1046,6 +1051,7 @@ def _planning_json_to_case_data(planning: dict[str, Any], name: str) -> dict[str
     for elem_type, array_key in ELEMENT_TO_ARRAY_KEY.items():
         if array_key in system_raw:
             case_data["system"][elem_type] = system_raw[array_key]
+    case_data["system_extra"] = unmapped_system_arrays(system_raw)
     return case_data
 
 

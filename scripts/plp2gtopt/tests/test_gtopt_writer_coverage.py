@@ -449,6 +449,7 @@ class TestProcessBoundaryCuts:
         }
         writer.process_boundary_cuts(_make_opts(tmp_path))
         assert "sddp_options" not in writer.planning["options"]
+        assert "future_cost_array" not in writer.planning["system"]
 
     def test_no_boundary_cuts_flag(self, tmp_path):
         """process_boundary_cuts skips when no_boundary_cuts is True."""
@@ -467,6 +468,7 @@ class TestProcessBoundaryCuts:
         writer.process_boundary_cuts(opts)
         sddp = writer.planning["options"].get("sddp_options", {})
         assert "boundary_cuts_file" not in sddp
+        assert "future_cost_array" not in writer.planning["system"]
 
     @staticmethod
     def _make_planos_writer(tmp_path):
@@ -502,9 +504,11 @@ class TestProcessBoundaryCuts:
         probability composition instead."""
         writer, opts = self._make_planos_writer(tmp_path)
         writer.process_boundary_cuts(opts)
-        sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["boundary_cuts_mode"] == "phi_expectation"
-        assert sddp["boundary_cuts_file"] == "boundary_cuts.csv"
+        fcf = writer.planning["system"]["future_cost_array"][0]
+        assert fcf["mode"] == "phi_expectation"
+        assert fcf["cuts_file"] == "boundary_cuts.csv"
+        assert "iteration_limit" not in fcf
+        assert "sddp_options" not in writer.planning["options"]
         rhs = self._read_rhs(Path(opts["output_dir"]) / "boundary_cuts.csv")
         assert rhs == [100.0, 200.0]  # raw — NOT divided by NVarPhi=2
 
@@ -515,10 +519,36 @@ class TestProcessBoundaryCuts:
         writer, opts = self._make_planos_writer(tmp_path)
         opts["boundary_cuts_mode"] = "combined"
         writer.process_boundary_cuts(opts)
-        sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["boundary_cuts_mode"] == "combined"
+        fcf = writer.planning["system"]["future_cost_array"][0]
+        assert fcf["mode"] == "combined"
         rhs = self._read_rhs(Path(opts["output_dir"]) / "boundary_cuts.csv")
         assert rhs == [50.0, 100.0]  # divided by NVarPhi = max(scene) = 2
+
+    def test_boundary_max_iterations_becomes_iteration_limit(self, tmp_path):
+        """--boundary-max-iterations lands on FutureCost.iteration_limit and
+        no legacy boundary key is written anywhere in the options."""
+        writer, opts = self._make_planos_writer(tmp_path)
+        opts["boundary_max_iterations"] = 5
+        writer.process_boundary_cuts(opts)
+        fcf = writer.planning["system"]["future_cost_array"][0]
+        assert fcf["iteration_limit"] == 5
+        assert fcf["cuts_file"] == "boundary_cuts.csv"
+        dumped = json.dumps(writer.planning["options"])
+        for legacy in (
+            "boundary_cuts_file",
+            "boundary_cuts_mode",
+            "boundary_max_iterations",
+        ):
+            assert legacy not in dumped
+
+    def test_reuses_existing_future_cost_element(self, tmp_path):
+        """The bare SDDP α-output element is reused, not duplicated."""
+        writer, opts = self._make_planos_writer(tmp_path)
+        writer.planning["system"]["future_cost_array"] = [{"uid": 1, "name": "fcf"}]
+        writer.process_boundary_cuts(opts)
+        arr = writer.planning["system"]["future_cost_array"]
+        assert len(arr) == 1
+        assert arr[0]["cuts_file"] == "boundary_cuts.csv"
 
     def test_phi_expectation_governs_terminal(self, tmp_path):
         """cuts_govern_terminal applies under phi_expectation exactly as

@@ -33,8 +33,9 @@ Caller responsibility (plp2gtopt's writer pipeline):
   2. Call :func:`build_emissions_ray` → ``(rhs, slopes_dict)``.
   3. Write the CSV via :func:`planos_writer.write_boundary_cuts_csv`
      or just emit a tiny CSV directly with this module's helper.
-  4. Stamp ``planning['options']['boundary_cuts_file'] =
-     "boundary_cuts.csv"`` so gtopt picks it up.
+  4. Stamp ``planning['system']['future_cost_array'][0]['cuts_file'] =
+     "boundary_cuts.csv"`` (the FutureCost element) so gtopt picks it up
+     for every method.
 
 Conventions match commit 7b36f3728 (EPF-based reservoir terminal
 value already stamped as ``Reservoir.water_emission_value``); this
@@ -50,6 +51,7 @@ from pathlib import Path
 from typing import Any
 
 from gtopt_shared.csv_io import write_csv
+from gtopt_shared.future_cost import set_future_cost_fields
 
 logger = logging.getLogger(__name__)
 
@@ -197,14 +199,13 @@ def stamp_boundary_cuts_file_ref(
     planning: dict[str, Any],
     csv_relative_path: str = "boundary_cuts.csv",
 ) -> None:
-    """Set ``planning['options']['boundary_cuts_file']`` so gtopt picks
-    up the synthetic ray at solve time.
+    """Set the FutureCost element's ``cuts_file`` so gtopt picks up the
+    synthetic ray at solve time (``system.future_cost_array[0]``, created
+    when absent).
 
-    Idempotent.  Does not overwrite a user-set value.
+    Idempotent.  Does not overwrite a user-set ``cuts_file``.
     """
-    opts = planning.setdefault("options", {})
-    if "boundary_cuts_file" not in opts:
-        opts["boundary_cuts_file"] = csv_relative_path
+    set_future_cost_fields(planning, {"cuts_file": csv_relative_path}, overwrite=False)
 
 
 __all__ = [

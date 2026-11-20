@@ -113,6 +113,20 @@ def make_parser() -> argparse.ArgumentParser:
         "horizons.",
     )
     parser.add_argument(
+        "--num-scenarios",
+        type=int,
+        default=None,
+        help="SDDP block studies: keep only the first N historical inflow "
+        "series as scenarios (default: all NUMERO DE SERIES).",
+    )
+    parser.add_argument(
+        "--method",
+        choices=("sddp", "monolithic", "cascade"),
+        default="sddp",
+        help="SDDP block studies: gtopt planning method written to the JSON "
+        "(default: sddp; one phase per stage, one scene per scenario).",
+    )
+    parser.add_argument(
         "-l",
         "--log-level",
         default="INFO",
@@ -171,6 +185,8 @@ def main(argv: list[str] | None = None) -> None:
         "hydro_cost": args.hydro_cost,
         "import_limit": args.import_limit,
         "blocks_per_stage": args.blocks_per_stage,
+        "num_scenarios": args.num_scenarios,
+        "method": args.method,
     }
 
     if args.show_info:

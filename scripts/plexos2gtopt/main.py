@@ -60,9 +60,9 @@ constraints, commitments — the full PLEXOS object catalog).
 
 _EPILOG = """\
 Examples:
-  plexos2gtopt --info  support/plexos/pcp_2026-04-22/DATOS20260422.zip.xz
-  plexos2gtopt --validate support/plexos/pcp_2026-04-22
-  plexos2gtopt -i support/plexos/pcp_2026-04-22/PLEXOS20260422.zip -o gtopt_PLEXOS20260422
+  plexos2gtopt --info  pcp_2026-04-22/source/DATOS20260422.zip.xz
+  plexos2gtopt --validate pcp_2026-04-22/source/
+  plexos2gtopt -i pcp_2026-04-22/source/PLEXOS20260422.zip -o gtopt_PLEXOS20260422
 """
 
 

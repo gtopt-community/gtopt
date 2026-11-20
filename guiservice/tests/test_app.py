@@ -120,7 +120,8 @@ class TestBuildCaseJson:
         result = _build_case_json(data)
 
         assert result["options"]["annual_discount_rate"] == 0.1
-        assert result["options"]["demand_fail_cost"] == 1000
+        assert result["options"]["model_options"]["demand_fail_cost"] == 1000
+        assert "demand_fail_cost" not in result["options"]
 
 
 class TestBuildZip:

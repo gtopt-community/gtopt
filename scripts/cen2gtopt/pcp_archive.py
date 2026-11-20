@@ -112,6 +112,14 @@ Examples
 
     # Refresh the index (forces a fresh API call)
     python -m cen2gtopt.pcp_archive refresh
+
+    # One PCP day laid out as DATOS<d>.zip (+ RES<d>.zip) in a directory
+    # (unwraps PLEXOS<d>.zip; newer days publish DATOS/RES separately)
+    python -m cen2gtopt.pcp_archive pcp-day 2026-04-07 --dest ~/pcp_0407/
+
+    # The PLP input bundle (IPLP*) in force on a date, extracted
+    python -m cen2gtopt.pcp_archive plp-in-force 2026-05-15 --dry-run
+    python -m cen2gtopt.pcp_archive plp-in-force 2026-05-15 --extract ~/plp/
 """
 
 from __future__ import annotations
@@ -121,8 +129,11 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
+import tempfile
 import time
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -351,6 +362,143 @@ def download_one(
 
 
 # ---------------------------------------------------------------------------
+# PLP bundle in force on a date
+# ---------------------------------------------------------------------------
+
+#: File extensions of the PLP input files (plain or already compressed).
+PLP_INPUT_EXTS = (".dat", ".csv", ".prn")
+
+#: A file every PLP input set contains; marks the data directory.
+PLP_MARKER = "plpblo.dat"
+
+
+def select_plp_bundle(
+    files: list[PcpFile], date: str, name: str | None = None
+) -> PcpFile | None:
+    """Pick the PLP input bundle in force on ``date`` (``YYYY-MM-DD``).
+
+    PLP runs are not daily: among the ``PLP``-category files whose name
+    starts with ``IPLP`` (inputs; ``OPLP`` are results) take the one with
+    the latest file date on or before ``date``.  Ties (re-publications,
+    or ``IPLP2026…`` vs ``IPLP_2026…``) go to the latest
+    ``fecha_publicacion``.  ``name`` forces an exact file name (latest
+    publication wins).
+    """
+    if name:
+        named = [f for f in files if f.nombre == name]
+        return max(named, key=lambda f: f.fecha_publicacion) if named else None
+    cands = [
+        f
+        for f in files
+        if f.categoria.upper() == "PLP"
+        and f.nombre.upper().startswith("IPLP")
+        and (f.date_iso() or "9999") <= date
+    ]
+    if not cands:
+        return None
+    return max(cands, key=lambda f: (f.date_iso() or "", f.fecha_publicacion))
+
+
+def _is_plp_input(name: str) -> bool:
+    low = name.lower()
+    return any(low.endswith(e) or f"{e}." in low for e in PLP_INPUT_EXTS)
+
+
+def extract_plp_inputs(bundle: Path, dest: Path) -> list[Path]:
+    """Copy the PLP input files of ``bundle`` flat into ``dest``.
+
+    ``bundle`` is a PLP zip (nested zips are unpacked too) or a
+    directory.  The data directory is the shallowest one holding
+    ``plpblo.dat`` (plain or compressed); its ``.dat``/``.csv``/``.prn``
+    files (and their ``.xz`` parts) are copied.  Returns the copied
+    paths.
+    """
+    with tempfile.TemporaryDirectory(prefix="plp-unpack-") as tmp:
+        root = bundle
+        if not bundle.is_dir():
+            root = Path(tmp)
+            with zipfile.ZipFile(bundle) as zf:
+                zf.extractall(root)
+            for inner in list(root.rglob("*.zip")):
+                with zipfile.ZipFile(inner) as zf:
+                    zf.extractall(inner.with_suffix(""))
+        hits = sorted(
+            {
+                p.parent
+                for p in root.rglob("*")
+                if p.name.lower().startswith(PLP_MARKER)
+            },
+            key=lambda p: len(p.parts),
+        )
+        if not hits:
+            raise FileNotFoundError(f"no {PLP_MARKER} found in {bundle}")
+        dest.mkdir(parents=True, exist_ok=True)
+        out = []
+        for f in sorted(hits[0].iterdir()):
+            if f.is_file() and _is_plp_input(f.name):
+                out.append(Path(shutil.copy2(f, dest / f.name)))
+        return out
+
+
+# ---------------------------------------------------------------------------
+# One PCP day: DATOS (+ RES) laid out in a directory
+# ---------------------------------------------------------------------------
+
+
+def _extract_member(zip_path: Path, name: str, dest: Path) -> Path | None:
+    """Extract the member whose basename is ``name`` (case-insensitive)."""
+    with zipfile.ZipFile(zip_path) as zf:
+        for m in zf.namelist():
+            if Path(m).name.lower() == name.lower():
+                out = dest / Path(m).name
+                with zf.open(m) as fi, out.open("wb") as fo:
+                    shutil.copyfileobj(fi, fo, 1 << 20)
+                return out
+    return None
+
+
+def fetch_pcp_day(
+    date: str,
+    dest: Path,
+    *,
+    files: list[PcpFile] | None = None,
+    download_root: Path = DEFAULT_DOWNLOAD_ROOT,
+) -> tuple[Path, Path | None]:
+    """Lay out ``DATOS<d>.zip`` and ``RES<d>.zip`` of a PCP day in ``dest``.
+
+    Older days are published as one ``PLEXOS<d>.zip`` wrapper (unwrapped
+    here), newer ones as separate ``DATOS<d>.zip`` / ``RES<d>.zip``.
+    Downloads go through the cache under ``download_root``.  Returns
+    ``(datos, res)``; ``res`` is ``None`` when the solution is not
+    published.
+    """
+    d8 = date.replace("-", "")
+    files = fetch_index() if files is None else files
+    by_name: dict[str, PcpFile] = {}
+    for f in files:
+        prev = by_name.get(f.nombre)
+        if prev is None or f.fecha_publicacion > prev.fecha_publicacion:
+            by_name[f.nombre] = f
+    dest.mkdir(parents=True, exist_ok=True)
+    datos = dest / f"DATOS{d8}.zip"
+    res: Path | None = None
+    if f"PLEXOS{d8}.zip" in by_name:
+        wrapper = download_one(by_name[f"PLEXOS{d8}.zip"], output_dir=download_root)
+        if _extract_member(wrapper, datos.name, dest) is None:
+            raise FileNotFoundError(f"{datos.name} not inside {wrapper}")
+        res = _extract_member(wrapper, f"RES{d8}.zip", dest)
+    elif f"DATOS{d8}.zip" in by_name:
+        got = download_one(by_name[f"DATOS{d8}.zip"], output_dir=download_root)
+        shutil.copyfile(got, datos)
+        if f"RES{d8}.zip" in by_name:
+            got = download_one(by_name[f"RES{d8}.zip"], output_dir=download_root)
+            res = Path(shutil.copyfile(got, dest / f"RES{d8}.zip"))
+    else:
+        raise FileNotFoundError(f"no PLEXOS{d8}.zip / DATOS{d8}.zip in the CEN index")
+    return datos, res
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -446,6 +594,42 @@ def _cmd_refresh(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_pcp_day(args: argparse.Namespace) -> int:
+    datos, res = fetch_pcp_day(
+        args.date,
+        args.dest,
+        files=fetch_index(force=args.refresh),
+        download_root=args.output,
+    )
+    print(datos)
+    if res is not None:
+        print(res)
+    else:
+        _LOG.warning("no RES%s.zip published", args.date.replace("-", ""))
+    return 0
+
+
+def _cmd_plp_in_force(args: argparse.Namespace) -> int:
+    pick = select_plp_bundle(fetch_index(force=args.refresh), args.date, args.name)
+    if pick is None:
+        print(f"no IPLP bundle published on or before {args.date}", file=sys.stderr)
+        return 1
+    print(
+        f"selected {pick.nombre} (file date {pick.date_iso()}, "
+        f"published {pick.fecha_publicacion}) for {args.date}",
+        file=sys.stderr,
+    )
+    if args.dry_run:
+        print(pick.nombre)
+        return 0
+    local = download_one(pick, output_dir=args.output)
+    if args.extract:
+        n = len(extract_plp_inputs(local, args.extract))
+        print(f"extracted {n} PLP input files into {args.extract}", file=sys.stderr)
+    print(local)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="cen2gtopt.pcp_archive",
@@ -506,6 +690,41 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("refresh", help="Force-refresh the index cache")
     pr.set_defaults(func=_cmd_refresh)
+
+    pp = sub.add_parser(
+        "pcp-day", help="Lay out DATOS<d>.zip (+ RES<d>.zip) of one PCP day"
+    )
+    pp.add_argument("date", help="YYYY-MM-DD")
+    pp.add_argument("--dest", type=Path, required=True, help="Target directory.")
+    pp.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_DOWNLOAD_ROOT,
+        help=f"Download cache root (default: {DEFAULT_DOWNLOAD_ROOT})",
+    )
+    pp.add_argument("--refresh", action="store_true", help="Bypass the index cache.")
+    pp.set_defaults(func=_cmd_pcp_day)
+
+    pf = sub.add_parser(
+        "plp-in-force",
+        help="Select (and download) the PLP input bundle in force on a date",
+    )
+    pf.add_argument("date", help="YYYY-MM-DD")
+    pf.add_argument("--name", help="Force an exact file name (IPLP_20260401.zip).")
+    pf.add_argument(
+        "--dry-run", action="store_true", help="Only print the selected name."
+    )
+    pf.add_argument(
+        "--extract", type=Path, help="Copy the PLP input files into this directory."
+    )
+    pf.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_DOWNLOAD_ROOT,
+        help=f"Download cache root (default: {DEFAULT_DOWNLOAD_ROOT})",
+    )
+    pf.add_argument("--refresh", action="store_true", help="Bypass the index cache.")
+    pf.set_defaults(func=_cmd_plp_in_force)
 
     return p
 

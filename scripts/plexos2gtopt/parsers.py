@@ -231,6 +231,30 @@ _DIRECT_COEFFS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "dn",
         "provision_{name}",
     ),
+    # NON-regulation Battery reserve provision (``Raise`` / ``Lower``
+    # kinds — first seen in CEN PCP bundles from 2026-07 on, e.g.
+    # ``Gx_SSCC_Jadresic``).  PLEXOS scopes these to the battery's
+    # provision in reserves whose Type is NOT Regulation Raise/Lower
+    # (3/4); the battery-term reconciliation below routes them only to
+    # such zones (see ``_BATTERY_NONREG_PROVISION_KINDS``) so they never
+    # double-count the regulation provision the ``Regulation *`` kinds
+    # above already reference.
+    (
+        "Battery",
+        "Constraints",
+        "Raise Reserve Provision Coefficient",
+        "reserve_provision",
+        "up",
+        "provision_{name}",
+    ),
+    (
+        "Battery",
+        "Constraints",
+        "Lower Reserve Provision Coefficient",
+        "reserve_provision",
+        "dn",
+        "provision_{name}",
+    ),
     # Storage state: battery("X").energy / reservoir("X").efin —
     # registered by StorageLP::add_to_lp.  PLEXOS keeps these on the
     # Battery / Storage → Constraint membership row.
@@ -461,6 +485,90 @@ def _bess_matching_provisions(
         if allowed_ref is None or ref in allowed_ref:
             out.append(ref)
     return out
+
+
+#: Battery coefficient kinds that reference the provision in NON-
+#: regulation reserves only (PLEXOS Reserve Type ∉ {3, 4}).  The
+#: ``Regulation Raise/Lower`` and generic ``Reserve Provision`` kinds keep
+#: the CPF/CSF zone routing of :func:`_bess_matching_provisions`.
+_BATTERY_NONREG_PROVISION_KINDS = frozenset(
+    {
+        "Raise Reserve Provision Coefficient",
+        "Lower Reserve Provision Coefficient",
+    }
+)
+
+#: PLEXOS Reserve.Type values of the regulation products (3 = Regulation
+#: Raise, 4 = Regulation Lower).
+_REGULATION_RESERVE_TYPES = frozenset({3, 4})
+
+
+def _battery_reserve_memberships(db: PlexosDb) -> dict[str, dict[str, int]]:
+    """``{battery -> {reserve name -> PLEXOS Reserve.Type}}``.
+
+    Built from the ``Reserve → Battery`` (``Batteries``) membership table.
+    PLEXOS creates a battery reserve-provision variable ONLY for these
+    (Reserve, Battery) pairs: a battery absent from a reserve has no
+    provision in it, so any constraint coefficient on that provision
+    multiplies an identically-zero quantity.  ``Type`` is ``0`` when the
+    bundle leaves it at the PLEXOS default (not stored in the XML).
+    """
+    coll = db.collection_for_named("Reserve", "Battery", "Batteries")
+    if coll is None:
+        return {}
+    objs = db.object_by_id()
+    type_cache: dict[int, int] = {}
+    out: dict[str, dict[str, int]] = {}
+    for m in db.memberships_of(coll.collection_id):
+        rsv = objs.get(m.parent_object_id)
+        bat = objs.get(m.child_object_id)
+        if rsv is None or bat is None:
+            continue
+        if rsv.object_id not in type_cache:
+            type_cache[rsv.object_id] = int(
+                db.static_property("Reserve", rsv.object_id, "Type")
+            )
+        out.setdefault(bat.name, {})[rsv.name] = type_cache[rsv.object_id]
+    return out
+
+
+def _bess_candidate_zones(
+    bat_name: str,
+    direction: str,
+    constraint_name: str,
+    prop_name: str,
+    memberships: dict[str, int],
+) -> list[str]:
+    """Reserve zones a Battery reserve-provision term can refer to.
+
+    Returns the subset of the battery's actual reserve memberships
+    (``memberships``: ``{reserve -> Type}``) that the coefficient kind
+    ``prop_name`` targets in ``direction``:
+
+    * ``Raise`` / ``Lower`` kinds (:data:`_BATTERY_NONREG_PROVISION_KINDS`)
+      → member reserves of the matching direction (``_RS`` = up,
+      ``_LW`` = down) whose Type is NOT a regulation product.
+    * every other kind (``Regulation Raise/Lower``, generic
+      ``Reserve Provision``) → the ``<CPF|CSF>_<RS|LW>_BESS`` zones
+      :func:`_bess_matching_provisions` routes to, restricted to the
+      ones the battery is a member of.
+
+    An EMPTY result means PLEXOS has no provision variable for this
+    (battery, kind, direction) → the term is identically zero.
+    """
+    dir_tag = "_RS" if direction == "up" else "_LW"
+    if prop_name in _BATTERY_NONREG_PROVISION_KINDS:
+        return sorted(
+            zone
+            for zone, rtype in memberships.items()
+            if dir_tag in zone.upper() and rtype not in _REGULATION_RESERVE_TYPES
+        )
+    prefix = f"provision_{bat_name}_gen__"
+    return [
+        ref[len(prefix) :]
+        for ref in _bess_matching_provisions(bat_name, direction, constraint_name, None)
+        if ref[len(prefix) :] in memberships
+    ]
 
 
 # Coefficient kinds that are *derived expressions* over the generator's
@@ -1241,7 +1349,7 @@ def _fuel_subtype_from_name(name: str) -> str:
     the emission lookup falls back to the family alias in the IPCC
     defaults.  Coal is intentionally NOT subtyped here even though
     Chile burns sub-bituminous: that choice belongs in a
-    project-specific overrides file (``share/gtopt/emissions/cen_chile.json``),
+    project-specific overrides file (``scripts/gtopt_shared/data/emissions/cen_chile.json``),
     not in the generic plexos2gtopt parser — other PLEXOS markets
     use the same ``Carbon_*`` naming convention with different coal
     grades.
@@ -1264,7 +1372,7 @@ def _fuel_subtype_from_name(name: str) -> str:
     # emission lookup's family-prefix fallback gets them right
     # (Carbon_* → coal_bituminous via "carbon" alias, etc.).
     # Project-specific overrides (Andean coal = sub-bituminous, etc.)
-    # belong in share/gtopt/emissions/cen_chile.json.
+    # belong in scripts/gtopt_shared/data/emissions/cen_chile.json.
     return ""
 
 
@@ -3915,7 +4023,7 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         # by the per-reservoir piecewise slopes sourced from
         # ``Hydro_StoWaterValues.csv`` and emitted as a single
         # end-of-horizon boundary cut (FCF + per-reservoir water-value
-        # slopes; wired via ``simulation.boundary_cuts_file``).  The
+        # slopes; wired via ``system.future_cost_array[0].cuts_file``).  The
         # boundary cut is the authoritative terminal-volume pricing
         # surface — pricing storage above ``efin`` correctly under all
         # cases — so the legacy scalar ``Water Value`` + sentinel
@@ -7095,15 +7203,24 @@ def _hydro_min_mode() -> str:
     return val
 
 
+#: Bundled PLEXOS-HARD UC list (audited from the PCP solution .accdb).
+#: Shipped as package data — see ``[tool.setuptools.package-data]``.
+PLEXOS_HARD_UC_LIST_PARTS: tuple[str, str] = ("data", "cen_pcp_hard_ucs.txt")
+
+
 @functools.cache
 def _load_plexos_hard_uc_list() -> frozenset[str]:
     """Names of PLEXOS-HARD UCs (audited from sol .accdb) to promote to HARD.
 
-    Reads ``data/cen_pcp_hard_ucs.txt`` (one constraint name per line, an
-    optional ``  # ...`` annotation per line is stripped).  Loaded once
-    per process and cached.  Returns the legacy 2-name fallback
-    (``MACHICURA_GENT4def``, ``PEHUENCHE_GENT7def``) when the file is
-    missing or unreadable, preserving backwards-compatible behaviour.
+    Reads the bundled ``plexos2gtopt/data/cen_pcp_hard_ucs.txt`` (one
+    constraint name per line, an optional ``  # ...`` annotation per line
+    is stripped).  Loaded once per process and cached.
+
+    The file is **required**: a missing, unreadable or empty list raises
+    :class:`gtopt_shared.resources.MissingDataFileError` / ``ValueError``.
+    (Until 2026-11 a missing file silently fell back to a 2-name legacy
+    list, which turned ~100 CEN UCs from HARD into SOFT in wheel installs
+    that did not ship the file.)
 
     Hydro per-plant min/max/ramp names are filtered out by default
     (``--hydro-min-mode soft``) because they require commit-gating that
@@ -7111,44 +7228,46 @@ def _load_plexos_hard_uc_list() -> frozenset[str]:
     ``_HYDRO_GATED_UC_RE``.  Pass ``--hydro-min-mode hard`` to keep
     them in the list (debug / validation only).
     """
-    legacy = frozenset({"MACHICURA_GENT4def", "PEHUENCHE_GENT7def"})
-    path = Path(__file__).parent / "data" / "cen_pcp_hard_ucs.txt"
-    if not path.is_file():
-        return legacy
-    try:
-        names: set[str] = set()
-        for raw in path.read_text().splitlines():
-            line = raw.split("#", 1)[0].strip()
-            if line:
-                names.add(line)
-        if not names:
-            return legacy
-        # Apply the hydro-min-mode filter.
-        if _hydro_min_mode() == "soft":
-            removed = {n for n in names if _is_hydro_min_max_uc(n)}
-            if removed:
-                logger.info(
-                    "hydro-min-mode=soft: kept %d hydro per-plant min/max/ramp "
-                    "UCs at default soft tier (HARD would be infeasible "
-                    "without commit-gating — see _HYDRO_GATED_UC_RE note): "
-                    "%s",
-                    len(removed),
-                    ", ".join(sorted(removed)),
-                )
-            names -= removed
-        else:
-            kept = {n for n in names if _is_hydro_min_max_uc(n)}
-            if kept:
-                logger.warning(
-                    "hydro-min-mode=hard: keeping %d hydro per-plant "
-                    "min/max/ramp UCs in the HARD list — LP-relax may be "
-                    "infeasible without commit-gating!  Names: %s",
-                    len(kept),
-                    ", ".join(sorted(kept)),
-                )
-        return frozenset(names)
-    except OSError:
-        return legacy
+    from gtopt_shared.resources import package_data_file  # noqa: PLC0415
+
+    path = package_data_file(
+        "plexos2gtopt",
+        *PLEXOS_HARD_UC_LIST_PARTS,
+        purpose="PLEXOS-HARD user-constraint list",
+    )
+    names = set(_uc_policy.read_uc_name_list(path))
+    n_listed = len(names)
+    # Apply the hydro-min-mode filter.
+    if _hydro_min_mode() == "soft":
+        removed = {n for n in names if _is_hydro_min_max_uc(n)}
+        if removed:
+            logger.info(
+                "hydro-min-mode=soft: kept %d hydro per-plant min/max/ramp "
+                "UCs at default soft tier (HARD would be infeasible "
+                "without commit-gating — see _HYDRO_GATED_UC_RE note): "
+                "%s",
+                len(removed),
+                ", ".join(sorted(removed)),
+            )
+        names -= removed
+    else:
+        kept = {n for n in names if _is_hydro_min_max_uc(n)}
+        if kept:
+            logger.warning(
+                "hydro-min-mode=hard: keeping %d hydro per-plant "
+                "min/max/ramp UCs in the HARD list — LP-relax may be "
+                "infeasible without commit-gating!  Names: %s",
+                len(kept),
+                ", ".join(sorted(kept)),
+            )
+    logger.info(
+        "PLEXOS-HARD UC list: %d names loaded from %s (%d promotable after "
+        "hydro-min-mode filter)",
+        n_listed,
+        path,
+        len(names),
+    )
+    return frozenset(names)
 
 
 def _format_coefficient(value: float, first: bool) -> str:
@@ -7961,6 +8080,46 @@ def _tighten_decision_variable_bigm(
     return tuple(out)
 
 
+def unhandled_constraint_coefficient_kinds(
+    db: PlexosDb,
+) -> dict[tuple[str, str], int]:
+    """``{(parent class, property) -> data-row count}`` for every
+    ``<Class> → Constraint`` coefficient kind present in the bundle that
+    :func:`extract_user_constraints` does NOT translate.
+
+    A kind missing from :data:`_DIRECT_COEFFS`, :data:`_DERIVED_COEFFS`,
+    :data:`_FUEL_OFFTAKE` and :data:`_RESERVE_PROVISION_EXPANSION` would
+    otherwise be ignored without trace — a new PLEXOS export (e.g. the
+    Battery ``Raise Reserve Provision Coefficient`` that appeared in the
+    2026-07 CEN PCP bundles) must surface as a warning instead.
+    """
+    handled = {(pc, pn) for pc, _c, pn, *_rest in _DIRECT_COEFFS}
+    handled |= {(pc, pn) for pc, _c, pn, _m in _DERIVED_COEFFS}
+    handled.add((_FUEL_OFFTAKE[0], _FUEL_OFFTAKE[2]))
+    handled.add((_RESERVE_PROVISION_EXPANSION[0], _RESERVE_PROVISION_EXPANSION[2]))
+    constraint_cid = db.class_id("Constraint")
+    system_cid = db.class_id("System")
+    kind_by_prop: dict[int, tuple[str, str]] = {}
+    for coll in db.collections:
+        if coll.child_class_id != constraint_cid or coll.parent_class_id == system_cid:
+            continue
+        parent = db.classes_by_id.get(coll.parent_class_id, "")
+        for prop in db.properties:
+            if (
+                prop.collection_id == coll.collection_id
+                and prop.name.endswith("Coefficient")
+                and (parent, prop.name) not in handled
+            ):
+                kind_by_prop[prop.property_id] = (parent, prop.name)
+    out: dict[tuple[str, str], int] = {}
+    if kind_by_prop:
+        for row in db.data_rows:
+            kind = kind_by_prop.get(row.property_id)
+            if kind is not None:
+                out[kind] = out.get(kind, 0) + 1
+    return out
+
+
 def extract_user_constraints(  # pylint: disable=too-many-arguments
     db: PlexosDb,
     _bundle: PlexosBundle,
@@ -8161,12 +8320,29 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
     # no Horizon date (unit-test fixtures), preserving legacy
     # "include all rows" behaviour.
     horizon_start = db.horizon_start
+    # ``{battery -> {reserve -> Type}}`` from the Reserve→Battery
+    # memberships — decides when a Battery reserve-provision term is
+    # provably zero (Fix 7 in the per-constraint loop below).
+    bat_reserve_memberships = _battery_reserve_memberships(db)
+    unhandled_kinds = unhandled_constraint_coefficient_kinds(db)
+    if unhandled_kinds:
+        logger.warning(
+            "PLEXOS Constraint coefficient kind(s) with no gtopt mapping — "
+            "their terms are NOT in the emitted UserConstraints: %s",
+            ", ".join(
+                f"{parent}.{kind} ({n} row(s))"
+                for (parent, kind), n in sorted(unhandled_kinds.items())
+            ),
+        )
+    # (constraint, battery, coefficient kind / "Reserve Units Coefficient")
+    # triples dropped by Fix 7 — summarised in ONE warning after the loop.
+    battery_zero_provision_terms: list[tuple[str, str, str]] = []
 
     # Direct-coefficient index: one row per (parent_class, gtopt_class,
     # accessor, name_template) tuple with a pre-built lookup
     # ``{constraint_oid -> [(parent_name, coeff)]}``.
     direct_index: list[
-        tuple[str, str, str, str, dict[int, list[tuple[str, float]]]]
+        tuple[str, str, str, str, str, dict[int, list[tuple[str, float]]]]
     ] = []
     for (
         parent_class,
@@ -8185,6 +8361,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         direct_index.append(
             (
                 parent_class,
+                prop_name,
                 gtopt_class,
                 accessor,
                 name_tmpl,
@@ -8423,6 +8600,9 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         # provenance and the constraint can be re-activated in a
         # follow-up run where the contingency / gens come online.
         silent_zero_drops = 0
+        # Batteries whose reserve-provision term in THIS constraint was
+        # dropped by Fix 7 (no membership in the targeted reserve).
+        zero_provision_bats: set[str] = set()
         mid = sys_mid_by_constr.get(constr.object_id)
         if mid is None:
             continue
@@ -8670,7 +8850,14 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         gen_pmax_profiles = pmax_profiles_by_gen or {}
         rhs_shift_per_block: list[float] = []
 
-        for parent_class, gtopt_class, accessor, name_tmpl, per_constr in direct_index:
+        for (
+            parent_class,
+            prop_name,
+            gtopt_class,
+            accessor,
+            name_tmpl,
+            per_constr,
+        ) in direct_index:
             allowed_parent = (
                 emitted_names.get(parent_class) if emitted_names is not None else None
             )
@@ -8773,13 +8960,30 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
                     # term per matching zone.
                     if gtopt_class == "reserve_provision" and parent_class == "Battery":
                         direction = _bess_provision_direction(constr.name, accessor)
-                        bess_refs = (
-                            _bess_matching_provisions(
+                        bat_zones = bat_reserve_memberships.get(parent_name, {})
+                        if direction is None:
+                            bess_refs = []
+                        elif prop_name in _BATTERY_NONREG_PROVISION_KINDS:
+                            # Raise / Lower kinds: only the battery's
+                            # NON-regulation zones (never the CPF/CSF
+                            # regulation provisions the ``Regulation *``
+                            # kinds already reference).
+                            bess_refs = [
+                                f"provision_{parent_name}_gen__{zone}"
+                                for zone in _bess_candidate_zones(
+                                    parent_name,
+                                    direction,
+                                    constr.name,
+                                    prop_name,
+                                    bat_zones,
+                                )
+                                if allowed_ref is None
+                                or f"provision_{parent_name}_gen__{zone}" in allowed_ref
+                            ]
+                        else:
+                            bess_refs = _bess_matching_provisions(
                                 parent_name, direction, constr.name, allowed_ref
                             )
-                            if direction is not None
-                            else []
-                        )
                         if bess_refs:
                             for rn in bess_refs:
                                 terms.append(
@@ -8787,6 +8991,49 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
                                     + f'reserve_provision("{rn}").{direction}'
                                 )
                                 coefficients.append(coeff)
+                            continue
+                        # Fix 7 (battery NOT a member of the referenced
+                        # reserve(s)): PLEXOS creates a battery provision
+                        # variable only per (Reserve, Battery) membership.
+                        # When the battery belongs to NO reserve this kind
+                        # / direction / constraint can target (e.g.
+                        # ``BAT_KALLPA_EO`` / ``BAT_PAMPAS`` in
+                        # ``Gx_SSCC_Jadresic`` — no reserve membership at
+                        # all; ``BAT_ANDES_4_FV`` in
+                        # ``CSF_LW_MIN_BAT_ANDES_4_FV`` — CPF-only), the
+                        # term multiplies an identically-zero quantity
+                        # (PLEXOS RES 2026-11-09: Raise Reserve = 0 for
+                        # both batteries; 2026-08-16: the CSF MIN rows
+                        # report Activity = 0).  Drop it as a provably-
+                        # zero contribution (same rule as Fix 6 for
+                        # zone-less generator provisions), but keep the
+                        # hard-fail when the battery IS a member and the
+                        # zone-suffixed provision simply was not emitted.
+                        if (
+                            direction is not None
+                            and not parent_missing
+                            and not _bess_candidate_zones(
+                                parent_name,
+                                direction,
+                                constr.name,
+                                prop_name,
+                                bat_zones,
+                            )
+                        ):
+                            silent_zero_drops += 1
+                            zero_provision_bats.add(parent_name)
+                            battery_zero_provision_terms.append(
+                                (constr.name, parent_name, prop_name)
+                            )
+                            logger.debug(
+                                "constraint %s: dropping %s on battery '%s' "
+                                "(not a member of any targeted %s reserve; "
+                                "PLEXOS provision ≡ 0)",
+                                constr.name,
+                                prop_name,
+                                parent_name,
+                                direction,
+                            )
                             continue
                     # Fix 5 (PLEXOS ``BAT_*_AUX`` virtual buffer): the
                     # converter drops PLEXOS's auxiliary battery
@@ -9392,6 +9639,21 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
                     # available_capacity: pure RHS — no LHS term to emit.
                     continue
                 elif mode == "forward_to_battery_gen_commit":
+                    # Fix 7 companion: ``Reserve Units`` counts the
+                    # battery's units PROVIDING the reserve this row
+                    # targets.  When the battery's provision term in the
+                    # same constraint was dropped because it is not a
+                    # member of that reserve, its reserve units are 0 as
+                    # well (PLEXOS 2026-08-16: ``CSF_*_MIN_BAT_ANDES_4_FV``
+                    # Activity = 0 while the battery discharges with
+                    # Units = 1).  Forwarding to the battery's commitment
+                    # status would instead force the battery OFF.
+                    if parent_name in zero_provision_bats:
+                        silent_zero_drops += 1
+                        battery_zero_provision_terms.append(
+                            (constr.name, parent_name, prop_name)
+                        )
+                        continue
                     # Battery.Reserve Units → forward to the
                     # synthesised ``uc_<battery>_gen`` Commitment.
                     # ``System::expand_batteries`` now creates this
@@ -9505,7 +9767,15 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
                             "contribute 0 at this run date (shadow Lines "
                             "with Lin_Units=0, fully-offline Generators, "
                             "or Fuel.offtake terms with no consuming "
-                            "generators).  Emitted as an inactive stub to "
+                            "generators"
+                            + (
+                                ", or reserve terms of batteries that are "
+                                "not members of the targeted reserve: "
+                                + ", ".join(sorted(zero_provision_bats))
+                                if zero_provision_bats
+                                else ""
+                            )
+                            + ").  Emitted as an inactive stub to "
                             "preserve provenance; a follow-up run where "
                             "the zeroed elements come online can flip "
                             "active=True and restore the real LHS.  "
@@ -9919,6 +10189,16 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
         stats_out["sd_sentinel_dropped"] = sd_sentinel_dropped
         stats_out["unresolved_refs"] = len(unresolved_refs)
         stats_out["emitted_base"] = len(out)
+        stats_out["battery_zero_provision_terms"] = len(battery_zero_provision_terms)
+    if battery_zero_provision_terms:
+        logger.warning(
+            "%d Battery reserve term(s) dropped as identically zero: the "
+            "battery is not a member of any reserve the coefficient "
+            "targets, so PLEXOS has no provision variable for it "
+            "(constraint / battery / kind): %s",
+            len(battery_zero_provision_terms),
+            "; ".join(f"{c} / {b} / {k}" for c, b, k in battery_zero_provision_terms),
+        )
     # FAIL HARD on any unresolvable UserConstraint reference.  We held
     # off until every constraint was walked so the user sees the FULL
     # list in one error (not just the first).  This mirrors gtopt's

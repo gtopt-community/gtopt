@@ -126,9 +126,12 @@ def test_build_counts_sections(tmp_path: Path) -> None:
             "user_constraint_files": [
                 "uc_gas_offtake.pampl",
                 "uc_security.pampl",
-            ]
+            ],
+            "future_cost_array": [
+                {"uid": 1, "name": "fcf", "cuts_file": "boundary_cuts.csv"}
+            ],
         },
-        "options": {"monolithic_options": {"boundary_cuts_file": "boundary_cuts.csv"}},
+        "options": {},
         "simulation": {},
     }
     counts = compute_counts(planning, base_dir=str(tmp_path))
@@ -150,3 +153,38 @@ def test_empty_planning() -> None:
     assert isinstance(c, SystemCounts)
     assert c.user_constraints_total == 0
     assert not _build_counts_sections(c)
+
+
+def test_counts_boundary_cuts_follow_future_cost_rules(tmp_path: Path) -> None:
+    """The counted cut file is the one gtopt loads: FutureCost, or a legacy
+    alias honoured for the planning method (sddp_options only for sddp)."""
+    (tmp_path / "boundary_cuts.csv").write_text(
+        "scene,rhs,ResA\n0,1.0,2.0\n1,1.0,2.0\n",
+        encoding="utf-8",
+    )
+    legacy_sddp = {
+        "options": {"sddp_options": {"boundary_cuts_file": "boundary_cuts.csv"}}
+    }
+    c = compute_counts(
+        dict(legacy_sddp, system={}, simulation={}), base_dir=str(tmp_path)
+    )
+    assert c.boundary_cuts == 0  # monolithic (default) never reads sddp_options
+
+    legacy_sddp["options"]["method"] = "sddp"
+    c = compute_counts(
+        dict(legacy_sddp, system={}, simulation={}), base_dir=str(tmp_path)
+    )
+    assert c.boundary_cuts == 2
+
+    fcf = {
+        "options": {},
+        "simulation": {},
+        "system": {
+            "future_cost_array": [
+                {"uid": 1, "name": "fcf", "cuts_file": "boundary_cuts.csv"}
+            ]
+        },
+    }
+    c = compute_counts(fcf, base_dir=str(tmp_path))
+    assert c.boundary_cuts == 2
+    assert c.boundary_state_variables == 1

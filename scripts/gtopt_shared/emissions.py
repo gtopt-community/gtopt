@@ -839,7 +839,7 @@ def apply_emission_defaults(
     # When ``--only-emissions`` is set:
     #   1. stamp ``model_options.objective_mode = "emissions"`` so gtopt
     #      swaps the LP objective from $-cost to tCO2eq;
-    #   2. drop ``boundary_cuts_file`` (the FCF is dollar-denominated
+    #   2. drop the FutureCost ``cuts_file`` (the FCF is dollar-denominated
     #      and would inject a phantom multi-week future cost into the
     #      pure-emissions LP);
     #   3. stamp each Reservoir with a ``water_emission_value`` = EPF ·
@@ -931,7 +931,11 @@ def apply_emission_defaults_from_file(
 
 
 def _drop_boundary_cuts_refs(planning: dict[str, Any]) -> int:
-    """Remove every ``boundary_cuts_file`` key from the planning tree.
+    """Remove every boundary-cut file reference from the planning tree.
+
+    Clears the FutureCost elements' ``cuts_file``
+    (``system.future_cost_array[*]``) and any deprecated
+    ``boundary_cuts_file`` alias key.
 
     Used in pure-emissions mode (issue #519): the $-denominated SDDP
     cuts are meaningless when the LP objective is tCO2eq.  Returns the
@@ -953,6 +957,12 @@ def _drop_boundary_cuts_refs(planning: dict[str, Any]) -> int:
                 walk(v)
 
     walk(planning)
+    system = planning.get("system")
+    if isinstance(system, dict):
+        for element in system.get("future_cost_array") or []:
+            if isinstance(element, dict) and "cuts_file" in element:
+                element.pop("cuts_file")
+                n += 1
     return n
 
 

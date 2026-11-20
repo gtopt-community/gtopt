@@ -1,8 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """General validation checks: uniqueness, SDDP options, boundary cuts, AI."""
 
+import copy
 import csv
 from typing import Any
+
+from gtopt_shared.json_contracts import array_types, find_schema_problems
+from gtopt_shared.future_cost import (
+    effective_future_cost,
+    resolve_legacy_future_cost_keys,
+)
 
 from gtopt_check_json._checks_common import (
     Finding,
@@ -34,11 +41,7 @@ def check_uid_uniqueness(planning: dict[str, Any]) -> list[Finding]:
                 )
 
     # Simulation elements
-    for array_key, label in [
-        ("block_array", "Block"),
-        ("stage_array", "Stage"),
-        ("scenario_array", "Scenario"),
-    ]:
+    for array_key, label in array_types("Simulation").items():
         uid_map = _get_uid_set(sim, array_key)
         for uid, indices in uid_map.items():
             if len(indices) > 1:
@@ -312,20 +315,90 @@ def _build_state_variable_names(
     return state_names
 
 
+def check_schema_keys(planning: dict[str, Any]) -> list[Finding]:
+    """Report JSON keys the strict gtopt parser would reject.
+
+    Walks the planning dict against the bundled snapshot of the C++
+    ``json_data_contract`` member lists.  Unknown keys (typos, removed
+    fields such as ``Battery.gcost``, model options placed directly under
+    ``options`` instead of ``options.model_options``) are CRITICAL — gtopt
+    refuses the file.  Naming-dialect aliases are accepted by gtopt and
+    reported as a NOTE.  Deprecated boundary-cut keys are left to
+    :func:`check_future_cost_aliases`.
+    """
+    findings: list[Finding] = []
+    for issue in find_schema_problems(planning):
+        if issue.kind == "unknown":
+            findings.append(
+                Finding(
+                    check_id="schema_keys",
+                    severity=Severity.CRITICAL,
+                    message=issue.message,
+                    action="Remove or rename the key (gtopt rejects unknown keys)",
+                )
+            )
+        elif issue.kind == "alias":
+            findings.append(
+                Finding(
+                    check_id="schema_keys",
+                    severity=Severity.NOTE,
+                    message=issue.message,
+                )
+            )
+    return findings
+
+
+def check_future_cost_aliases(planning: dict[str, Any]) -> list[Finding]:
+    """Flag deprecated boundary-cut keys and conflicting FutureCost values.
+
+    The FutureCost element (``system.future_cost_array``) is the single
+    source of the FCF boundary cuts.  Every legacy key
+    (``sddp_options.boundary_*`` / ``missing_cut_var_mode``,
+    ``monolithic_options.boundary_*``, ``simulation.boundary_cuts_*``) is
+    reported as a WARNING (deprecated, or ignored for this method); the same
+    field given with different values in the element and an alias — or in
+    two aliases — is CRITICAL (gtopt refuses to run).
+    """
+    work = copy.deepcopy(planning)
+    report = resolve_legacy_future_cost_keys(work)
+    findings = [
+        Finding(
+            check_id="future_cost_aliases",
+            severity=Severity.WARNING,
+            message=msg,
+            action=(
+                "Move the setting onto system.future_cost_array[0] "
+                "(FutureCost: cuts_file, mode, sharing, mean_shift, "
+                "iteration_limit, missing_cut_var_mode, valuation)"
+            ),
+        )
+        for msg in report.warnings
+    ]
+    findings.extend(
+        Finding(
+            check_id="future_cost_aliases",
+            severity=Severity.CRITICAL,
+            message=msg,
+            action="Configure each boundary-cut field once, on FutureCost",
+        )
+        for msg in report.errors
+    )
+    return findings
+
+
 def check_boundary_cuts(
     planning: dict[str, Any],
     base_dir: str = "",
 ) -> list[Finding]:
     """Check that boundary-cuts CSV headers match known state variables.
 
-    Reads the ``boundary_cuts_file`` referenced in ``sddp_options``,
-    parses its CSV header, and warns about column names that do not
-    correspond to any known state variable in the model.
+    Reads the FutureCost ``cuts_file`` gtopt will load (the element, or a
+    deprecated alias honoured for the planning method), parses its CSV
+    header, and warns about column names that do not correspond to any
+    known state variable in the model.
     """
     findings: list[Finding] = []
-    opts = planning.get("options", {})
-    sddp = opts.get("sddp_options", {})
-    cuts_file = sddp.get("boundary_cuts_file", "")
+    cuts_file = effective_future_cost(planning).get("cuts_file", "")
 
     if not cuts_file:
         return findings
@@ -333,12 +406,18 @@ def check_boundary_cuts(
     # Resolve path relative to input_directory, then base_dir
     from pathlib import Path  # noqa: PLC0415
 
-    # boundary_cuts_file is resolved relative to the working directory.
-    # Try: as-is, relative to base_dir, relative to base_dir's parent.
+    # gtopt resolves a relative cuts_file against options.input_directory.
+    # Try: as-is, base_dir/input_directory, base_dir, base_dir's parent.
     cuts_path = Path(cuts_file)
+    input_dir = str((planning.get("options") or {}).get("input_directory") or "")
     if not cuts_path.is_absolute() and base_dir:
         base = Path(base_dir)
-        for candidate in (cuts_path, base / cuts_path, base.parent / cuts_path):
+        for candidate in (
+            cuts_path,
+            base / input_dir / cuts_path,
+            base / cuts_path,
+            base.parent / cuts_path,
+        ):
             if candidate.exists():
                 cuts_path = candidate
                 break
@@ -348,7 +427,7 @@ def check_boundary_cuts(
             Finding(
                 check_id="boundary_cuts",
                 severity=Severity.WARNING,
-                message=f"boundary_cuts_file not found: {cuts_path}",
+                message=f"FutureCost cuts_file not found: {cuts_path}",
                 action="Verify boundary cuts file path and plpplem data",
             )
         )
@@ -371,7 +450,7 @@ def check_boundary_cuts(
             Finding(
                 check_id="boundary_cuts",
                 severity=Severity.WARNING,
-                message=f"cannot read boundary_cuts_file: {exc}",
+                message=f"cannot read FutureCost cuts_file: {exc}",
                 action="Check file format and permissions",
             )
         )
@@ -411,7 +490,7 @@ def check_boundary_cuts(
                     severity=Severity.WARNING,
                     action="Verify reservoir names in plpplem match plpcnfce.dat",
                     message=(
-                        f"boundary_cuts_file has {len(csv_state_names)} "
+                        f"FutureCost cuts_file has {len(csv_state_names)} "
                         f"state variable column(s) but the model defines "
                         f"no state variables"
                     ),
@@ -427,7 +506,7 @@ def check_boundary_cuts(
                 check_id="boundary_cuts",
                 severity=Severity.WARNING,
                 message=(
-                    f"boundary_cuts_file references {len(unknown)} "
+                    f"FutureCost cuts_file references {len(unknown)} "
                     f"unknown state variable(s): {names_str}"
                 ),
                 action="Verify reservoir names in plpplem match plpcnfce.dat",

@@ -2556,9 +2556,13 @@ $$
 where $x_{i,T}$ are the state variables (reservoir volumes, battery SoC)
 at the last phase $T$, $\rho_i^{(k)}$ are gradient coefficients, and
 $\beta_0^{(k)}$ is the intercept.  Index $k$ runs over the set of
-external cuts loaded from the boundary cuts CSV file.
+external cuts loaded from the boundary cuts CSV file
+(`system.future_cost_array[].cuts_file`, the FutureCost element read by
+every method — monolithic, SDDP and cascade).
 
-The boundary cuts are loaded according to three modes:
+The boundary cuts are loaded according to the FutureCost `mode`
+(`"phi_expectation"`, the PLP-literal NVarPhi variant, is described in
+`docs/formulation/sddp-cut-validity.md`):
 
 - **`"noload"`** — skip loading (no terminal value function).
 - **`"separated"`** (default) — each cut is assigned to the scene whose
@@ -2566,7 +2570,7 @@ The boundary cuts are loaded according to three modes:
   per-simulation future-cost planes.
 - **`"combined"`** — all cuts are broadcast to all scenes.
 
-An optional `sddp_boundary_max_iterations` parameter limits loading to
+An optional FutureCost `iteration_limit` parameter limits loading to
 the last $N$ distinct SDDP iterations (by the `iteration` column in the
 CSV, corresponding to PLP's `IPDNumIte`).
 
@@ -2687,7 +2691,7 @@ Configuration:
 {
   "options": {
     "sddp_options": {
-      "hot_start": true,
+      "cut_recovery_mode": "replace",
       "cut_directory": "cuts"
     }
   }
@@ -2701,9 +2705,9 @@ from stalling on difficult instances.
 
 | Option | Scope | Default | Description |
 |--------|-------|---------|-------------|
-| `solve_timeout` | SDDP forward pass | 0 (none) | Time limit per LP solve (seconds) |
-| `aperture_timeout` | SDDP backward pass | 0 (none) | Time limit per aperture LP solve (seconds) |
-| `monolithic_solve_timeout` | Monolithic solver | 0 (none) | Time limit per scene LP solve (seconds) |
+| `sddp_options.forward_solver_options.time_limit` | SDDP forward pass | unset (none) | Time limit per LP solve (seconds) |
+| `sddp_options.aperture_timeout` | SDDP backward pass | 0 (none) | Time limit per aperture LP solve (seconds) |
+| `monolithic_options.solver_options.time_limit` | Monolithic solver | unset (none) | Time limit per scene LP solve (seconds) |
 
 When a timeout is exceeded:
 - The LP is saved to a debug file in `log_directory`
@@ -2921,10 +2925,10 @@ mathematical symbols used in this formulation.
 | `options.model_options.objective_mode` | — | `"cost"` (default) or `"emissions"` (§5.14 bis). Emission price and cap are `EmissionZone` fields (see Emissions below) |
 | `options.method` | — | Solver: `"monolithic"` or `"sddp"` |
 | `options.variable_scales` | $\sigma_x$ | Per-variable scale factors (Section 6.3) |
-| `simulation.boundary_cuts_file` | — | CSV with boundary cuts for last phase (Section 6.9) |
-| `simulation.boundary_cuts_valuation` | — | Valuation mode: `"end_of_horizon"` or `"present_value"` |
-| `options.sddp_options.boundary_cuts_mode` | — | Load mode: `"noload"`, `"separated"`, `"combined"`, `"phi_expectation"` |
-| `options.sddp_options.boundary_max_iterations` | — | Max iterations to load from boundary cuts |
+| `system.future_cost_array[].cuts_file` | — | CSV with boundary cuts for last phase (Section 6.9) |
+| `system.future_cost_array[].valuation` | — | Valuation mode: `"end_of_horizon"` or `"present_value"` |
+| `system.future_cost_array[].mode` | — | Load mode: `"noload"`, `"separated"`, `"combined"`, `"phi_expectation"` |
+| `system.future_cost_array[].iteration_limit` | — | Keep the cuts of the last $N$ source iterations (0 = all) |
 | `options.sddp_options.hot_start` | — | Enable hot-start from saved cuts (Section 6.10) |
 | `options.sddp_options.save_per_iteration` | — | Save cuts after each iteration (default: true) |
 | `options.sddp_options.solve_timeout` | — | LP solve time limit in seconds (Section 6.11) |

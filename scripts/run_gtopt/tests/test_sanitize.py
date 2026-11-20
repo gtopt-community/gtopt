@@ -794,3 +794,49 @@ def test_flat_fields_still_work(tmp_path: Path):
     data = json.loads(result.read_text())
     assert data["options"]["scale_objective"] == 1000
     assert data["options"]["scale_theta"] == 1000
+
+
+def test_future_cost_legacy_keys_reported_not_rewritten(tmp_path: Path, caplog):
+    """Deprecated boundary keys are reported; the JSON is left untouched
+    (gtopt translates them itself)."""
+    p = tmp_path / "plan.json"
+    p.write_text(
+        json.dumps(
+            {
+                "options": {
+                    "method": "sddp",
+                    "sddp_options": {"boundary_cuts_file": "bc.csv"},
+                },
+                "system": {},
+                "simulation": {},
+            }
+        )
+    )
+    with caplog.at_level(logging.INFO):
+        result = sanitize_json(p)
+    assert result == p
+    assert "sddp_options.boundary_cuts_file" in caplog.text
+    assert "future_cost_array" in caplog.text
+
+
+def test_future_cost_conflict_and_bad_mode_reported(tmp_path: Path, caplog):
+    p = tmp_path / "plan.json"
+    p.write_text(
+        json.dumps(
+            {
+                "options": {
+                    "monolithic_options": {"boundary_cuts_file": "b.csv"},
+                },
+                "system": {
+                    "future_cost_array": [
+                        {"uid": 1, "name": "fcf", "cuts_file": "a.csv", "mode": "x"}
+                    ]
+                },
+                "simulation": {},
+            }
+        )
+    )
+    with caplog.at_level(logging.INFO):
+        sanitize_json(p)
+    assert "conflicting values" in caplog.text
+    assert "mode='x'" in caplog.text

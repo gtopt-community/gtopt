@@ -349,11 +349,12 @@ class TestConvertStructure:
 
     def test_options(self, ieee30b_json):
         opts = ieee30b_json["options"]
-        assert opts["use_kirchhoff"] is True
-        assert opts["use_single_bus"] is False
         assert opts["output_compression"] == "uncompressed"
-        assert opts["scale_objective"] == 1000
-        assert opts["demand_fail_cost"] == 1000
+        model = opts["model_options"]
+        assert model["use_kirchhoff"] is True
+        assert model["use_single_bus"] is False
+        assert model["scale_objective"] == 1000
+        assert model["demand_fail_cost"] == 1000
 
     def test_simulation_arrays(self, ieee30b_json):
         sim = ieee30b_json["simulation"]
@@ -431,9 +432,13 @@ class TestConvertLines:
         # 34 physical lines + 4 transformers = 38, but some may be skipped
         assert len(lines) >= 38
 
-    def test_all_have_voltage_10(self, ieee30b_json):
+    def test_reactance_in_per_unit(self, ieee30b_json):
+        # Lines are emitted in per-unit (no ``voltage``, gtopt's V = 1):
+        # the former ``voltage: 10`` work-around divided X by 100, which
+        # pushed low-impedance branches under gtopt's 1e-6 p.u. reactance
+        # floor and silently dropped their Kirchhoff rows.
         for line in ieee30b_json["system"]["line_array"]:
-            assert line.get("voltage") == 10
+            assert "voltage" not in line
 
     def test_all_have_reactance(self, ieee30b_json):
         for line in ieee30b_json["system"]["line_array"]:
@@ -515,7 +520,7 @@ class TestConvertSolverType:
     def test_unsupported_solver_raises(self, tmp_path):
         out = tmp_path / "bad.json"
         with pytest.raises(ValueError, match="unsupported solver_type"):
-            convert(out, solver_type="monolithic")
+            convert(out, solver_type="bogus")
 
 
 # ---------------------------------------------------------------------------
@@ -697,3 +702,52 @@ class TestLoadNetwork:
         with open(out, encoding="utf-8") as fh:
             data = json.load(fh)
         assert data["system"]["name"] == "mynetwork"
+
+
+# ---------------------------------------------------------------------------
+# MATPOWER fidelity: in-service flags, sgens, negative reactance, PST sign
+# ---------------------------------------------------------------------------
+
+
+class TestMatpowerFidelity:
+    """Elements that from_ppc creates for MATPOWER cases are kept faithfully."""
+
+    def test_out_of_service_and_sgen(self, tmp_path):
+        net = pn.case9()
+        net.gen.loc[net.gen.index[0], "in_service"] = False
+        pp.create_sgen(net, bus=4, p_mw=50.0, max_p_mw=80.0, min_p_mw=10.0)
+        pp.create_sgen(net, bus=5, p_mw=20.0)  # no limits: fixed injection
+        pp.create_sgen(net, bus=6, p_mw=30.0, max_p_mw=30.0, in_service=False)
+        data = convert(tmp_path / "c9.json", net=net, name="c9")
+        gens = data["system"]["generator_array"]
+        # ext_grid + 1 in-service gen + 2 in-service sgens
+        assert len(gens) == 4
+        assert {(g["pmin"], g["pmax"]) for g in gens[2:]} == {
+            (10.0, 80.0),
+            (20.0, 20.0),
+        }
+
+    def test_negative_reactance_trafo_kept(self, tmp_path):
+        net = pn.case9()
+        pp.create_transformer_from_parameters(
+            net,
+            hv_bus=3,
+            lv_bus=4,
+            sn_mva=100.0,
+            vn_hv_kv=345.0,
+            vn_lv_kv=345.0,
+            vk_percent=-5.0,
+            vkr_percent=0.0,
+            pfe_kw=0.0,
+            i0_percent=0.0,
+        )
+        data = convert(tmp_path / "c9.json", net=net, name="c9")
+        trafos = [
+            ln for ln in data["system"]["line_array"] if ln.get("type") == "transformer"
+        ]
+        assert any(ln["reactance"] == pytest.approx(-0.05) for ln in trafos)
+
+    def test_monolithic_method(self, tmp_path):
+        data = convert(tmp_path / "m.json", solver_type="monolithic")
+        assert data["options"]["method"] == "monolithic"
+        assert "cascade_options" not in data["options"]

@@ -33,6 +33,10 @@ gtopt_diagram --help
 
 ## Quick Start
 
+The large `gtopt_case_2y` case is not shipped with gtopt; it lives in the
+case repository gtopt-cases (`tools/get_cases.sh`).  The examples use
+`C2Y=$GTOPT_CASES_DIR/chile/medium_long_term/gtopt_case_2y`.
+
 ```bash
 # Auto mode (DEFAULT) — the tool picks the right strategy for the case size
 gtopt_diagram cases/ieee_9b/ieee_9b.json -o ieee9b.svg        # small: all individual

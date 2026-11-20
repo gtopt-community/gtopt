@@ -16,6 +16,8 @@ This module is consumed by:
 
   * :mod:`plexos2gtopt.main`  (CLI ``plexos2gtopt``)
   * :mod:`plp2gtopt.main`     (CLI ``plp2gtopt``)
+  * :mod:`pp2gtopt.main`      (CLI ``pp2gtopt``, time-series mode)
+  * :mod:`nrel118_to_gtopt.__main__` (CLI ``nrel118_to_gtopt``)
 
 The C++ ``gtopt`` binary writes its own ``<output_dir>/gtopt_state.json``
 (see ``source/gtopt_main.cpp``) plus its README via
@@ -372,6 +374,79 @@ def write_plp2gtopt_readme(output_dir: Path) -> Path:
         _README_HEADER.format(tool="plp2gtopt")
         + table_body
         + _README_RERUN.format(tool="plp2gtopt", state_file="plp2gtopt_state.json")
+    )
+    return _write_readme(output_dir, body)
+
+
+def write_pp2gtopt_readme(output_dir: Path) -> Path:
+    """README for a ``pp2gtopt`` time-series input directory.
+
+    pp2gtopt writes ``<out>.json`` next to the ``<out>/`` input directory;
+    the state snapshot + this README live inside ``<out>/`` (paths in the
+    snapshot are relative to it).
+    """
+    rows = [
+        (
+            "`../<case_stem>.json`",
+            "Converted gtopt planning JSON (references this directory via "
+            "`options.input_directory`).",
+        ),
+        ("`Demand/lmax.parquet`", "Per-block load schedule [MW] (long layout)."),
+        (
+            "`GeneratorProfile/profile.parquet`",
+            "Per-block renewable availability factor [p.u. of capacity].",
+        ),
+        (
+            "`pp2gtopt_state.json`",
+            "**State snapshot** — CLI invocation + every parsed option (paths "
+            "relative to this directory) + energy summary.",
+        ),
+        ("`README.md`", "This file."),
+    ]
+    table_body = "\n".join(f"| {n} | {d} |" for n, d in rows)
+    body = (
+        _README_HEADER.format(tool="pp2gtopt")
+        + table_body
+        + _README_RERUN.format(tool="pp2gtopt", state_file="pp2gtopt_state.json")
+    )
+    return _write_readme(output_dir, body)
+
+
+def write_nrel118_to_gtopt_readme(output_dir: Path) -> Path:
+    """README for a ``nrel118_to_gtopt`` case input directory.
+
+    nrel118_to_gtopt writes ``<out>.json`` next to the ``<out>/`` input
+    directory; the state snapshot + this README live inside ``<out>/``
+    (paths in the snapshot are relative to it).
+    """
+    rows = [
+        (
+            "`../<case_stem>.json`",
+            "Converted gtopt planning JSON (references this directory via "
+            "`options.input_directory`).",
+        ),
+        (
+            "`Demand/lmax.parquet`",
+            "Per-block bus load [MW] = regional load x participation factor.",
+        ),
+        (
+            "`GeneratorProfile/profile.parquet`",
+            "Per-block wind / solar / hydro availability [p.u. of capacity].",
+        ),
+        (
+            "`nrel118_to_gtopt_state.json`",
+            "**State snapshot** — CLI invocation + every parsed option (paths "
+            "relative to this directory) + case summary.",
+        ),
+        ("`README.md`", "This file."),
+    ]
+    table_body = "\n".join(f"| {n} | {d} |" for n, d in rows)
+    body = (
+        _README_HEADER.format(tool="nrel118_to_gtopt")
+        + table_body
+        + _README_RERUN.format(
+            tool="nrel118_to_gtopt", state_file="nrel118_to_gtopt_state.json"
+        )
     )
     return _write_readme(output_dir, body)
 

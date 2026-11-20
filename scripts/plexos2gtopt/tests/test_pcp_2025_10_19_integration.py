@@ -5,8 +5,10 @@ PLEXOS archives being present and a MIP-capable ``gtopt`` binary, and marked
 ``integration`` so the default fast suite skips it.  Exercises the full
 pipeline:
 
-  1. ``plexos2gtopt`` converts ``support/plexos/pcp_2025-10-19`` (the
-     ``DATOS``/``RES`` archives) into a gtopt bundle, emitting the
+  1. ``plexos2gtopt`` converts the ``pcp_2025-10-19`` bundle of the
+     external case repository (``$GTOPT_CASES_DIR/chile/daily_scheduling/
+     pcp_2025-10-19/{source,results/plexos}``, the ``DATOS``/``RES``
+     archives) into a gtopt bundle, emitting the
      MIP warm-start (relax→round→domain_rules→inject) MIP-start by
      default (the converter default), then
   2. ``gtopt`` solves the converted case to proven optimality using that
@@ -28,10 +30,17 @@ from pathlib import Path
 
 import pytest
 
+from gtopt_shared.testing.external_cases import (
+    external_case_path,
+    missing_case_reason,
+)
+
 REPO = Path(__file__).resolve().parents[3]
-PLEXOS_DIR = REPO / "support" / "plexos"
-RAW = PLEXOS_DIR / "pcp_2025-10-19"
-STATE = PLEXOS_DIR / "gtopt_pcp_2025-10-19" / "plexos2gtopt_state.json"
+_CASE_REL = "chile/daily_scheduling/pcp_2025-10-19"
+_CASE = external_case_path(_CASE_REL) or Path("/nonexistent/pcp_2025-10-19")
+RAW = _CASE / "source"
+RES_DIR = _CASE / "results" / "plexos"  # private-only PLEXOS solution
+STATE = _CASE / "case" / "plexos2gtopt_state.json"
 
 pytestmark = pytest.mark.integration
 
@@ -78,24 +87,33 @@ def _plugin_dir(gtopt: str) -> str | None:
     return None
 
 
-@pytest.mark.skipif(not _have_raw(), reason="raw PCP 2025-10-19 archives not present")
+@pytest.mark.skipif(
+    not _have_raw(),
+    reason=missing_case_reason(f"{_CASE_REL}/source + case/plexos2gtopt_state.json"),
+)
 def test_pcp_2025_10_19_convert_and_solve(tmp_path: Path) -> None:
     out = tmp_path / "gtopt_pcp_2025-10-19"
+    # plexos2gtopt reads the RES bundle next to DATOS; the case repository
+    # keeps it in results/plexos/, so stage both side by side.
+    bundle = tmp_path / "pcp_2025-10-19"
+    bundle.mkdir()
+    for src in [*RAW.glob("DATOS*.zip*"), *RES_DIR.glob("RES*.zip*")]:
+        (bundle / src.name).symlink_to(src.resolve())
 
     # 1. Convert — replay the committed conversion options from the state
-    #    snapshot.  The positional ``pcp_2025-10-19`` resolves under PLEXOS_DIR.
+    #    snapshot; the input is the staged DATOS + RES bundle.
     conv = subprocess.run(
         [
             sys.executable,
             "-m",
             "plexos2gtopt",
-            "pcp_2025-10-19",
+            str(bundle),
             "--from-state",
             str(STATE),
             "--output-dir",
             str(out),
         ],
-        cwd=str(PLEXOS_DIR),
+        cwd=str(tmp_path),
         capture_output=True,
         text=True,
         timeout=1800,

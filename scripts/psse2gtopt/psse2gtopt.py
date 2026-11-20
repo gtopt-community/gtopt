@@ -35,6 +35,16 @@ def _is_raw(p: Path) -> bool:
     return any(name.endswith(".raw" + e) for e in _COMPRESS_EXT)
 
 
+def raw_stem(p: Path) -> str:
+    """Case name of a RAW file: ``case.raw`` / ``case.raw.xz`` -> ``case``."""
+    name = p.name
+    for e in _COMPRESS_EXT:
+        if name.lower().endswith(e):
+            name = name[: -len(e)]
+            break
+    return name[:-4] if name.lower().endswith(".raw") else Path(name).stem
+
+
 def _find_raw_files(directory: Path) -> list[Path]:
     """Return the ``.raw`` (or compressed ``.raw.*``) files, sorted by name."""
     return sorted(
@@ -132,7 +142,7 @@ def _default_output_dir(raw_file: Path, input_path: Path) -> Path:
     ``gtopt_<case>`` inference.
     """
     parent = input_path.parent if input_path.is_file() else input_path
-    return parent / f"gtopt_{raw_file.stem}"
+    return parent / f"gtopt_{raw_stem(raw_file)}"
 
 
 def convert_psse_case(options: dict[str, Any]) -> int:
@@ -168,7 +178,7 @@ def convert_psse_case(options: dict[str, Any]) -> int:
     output_file = (
         Path(output_file) if output_file else output_dir / f"{output_dir.name}.json"
     )
-    name = options.get("name") or raw_file.stem
+    name = options.get("name") or raw_stem(raw_file)
 
     nomenclatura = None
     nom_path = options.get("nomenclatura")

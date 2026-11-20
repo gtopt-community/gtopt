@@ -541,6 +541,75 @@ gtopt -s gtopt_ncp/gtopt_ncp.json -d out --set options.method=cascade
 
 ---
 
+## Multi-file PSR SDDP block cases (`deme*`/`dbf*` studies)
+
+Classic PSR SDDP studies — monthly stages, load blocks and historical inflow
+series, as published by the Peruvian COES and the Guatemalan AMM — have no
+`psrclasses.json`.  When a case directory holds `sddp.dat` **and** a
+`deme<nb><sfx>.dat` demand file, `sddp2gtopt` reads it with a separate
+front-end (`sddp_dat_parsers.py` → `sddp_case.py` → `sddp_case_writer.py`).
+The system suffix (`pe`, `gu`, …) comes from the `ID` column of
+`sistem.dat`.  Block-tagged files are looked up by exact name, 3-digit then
+2-digit block count (`dbf005pe`, `deme05pe`, `deme09gu`, `blrenw0090`).  No
+wildcard is used, because cases often ship several block resolutions side
+by side.
+
+```bash
+# 56 historical series, SDDP: one phase per monthly stage
+sddp2gtopt -i coes_2026/ -o coes_mrfo_2026/
+# first 8 series only, single LP
+sddp2gtopt -i coes_2026/ -o coes_small/ --num-scenarios 8 --method monolithic
+```
+
+### Files read and mapping
+
+| PSR file | gtopt element / field |
+|----------|-----------------------|
+| `sddp.dat` | stage type/start/count, blocks, number of series, hydro start year, network and losses flags, discount rate (`simulation.annual_discount_rate`), deficit cost (`demand_fail_cost`), spill penalty |
+| `duvame<nb>.dat` / `durfix<nb>.dat` | block durations per (year, month) / fixed % split |
+| `deme<nb><sfx>.dat` + `dbf<nb><sfx>.dat` | `Demand` per bus, MW: class energy (GWh) per block × normalised bus weights (latest `dbf` date ≤ stage) |
+| `dbus.dat` (fixed or CSV) + `busconnection.dat` + `volt.dat` | `Bus` (kV); generator → bus via `tg`/`Plnt` or `PlantType`/`PlantCode` |
+| `dcirc.dat` / `mcirc.dat` (v2 fixed, legacy, or CSV) | `Line`: R/X % on 100 MVA → Ω; rating → `tmax`; dated changes and entry → `active` |
+| `ctermi<sfx>.dat` / `mtermi<sfx>.dat` | thermal `Generator`: `pmax` = GerMax × availability × (1−Teif)(1−Ih); `gcost` = CEsp1 × fuel + CVaria; `pmin` = GerMin only when MR = 1 |
+| `ccombu<sfx>.dat`, `combme<sfx>.dat` | fuel cost; the monthly series overrides the constant |
+| `pmtrme`/`pmhime<sfx>.dat` | maintenance: file- or table-level units/info flags (reduction or absolute, units/%/MW) |
+| `rrme<nb><sfx>.dat` | reserve derating of `pmax` (%) |
+| `gmme`/`rgme<nb><sfx>.dat` | `<` caps `pmax`; `>`/`=` become a soft `pmin` (`pmin_fcost` = deficit cost) |
+| `chidro<sfx>.dat` / `mhidro<sfx>.dat` | hydro `Generator` + `Turbine` (FPMed, QMax), `Reservoir` when VMax > VMin (state variable, `eini` from `VInic`: p.u., or elevation via the Cota/Vol table when `tini` = 1), downstream turbined (VAA) and spilled (TAA) `Waterway`s |
+| `vminme`/`vmxome<sfx>.dat` | soft `Reservoir` minimum (`soft_emin` + penalty) / `emax` |
+| `mntome`, `riegme<sfx>.dat` | soft minimum outflow / irrigation withdrawal `Waterway`s (`fmin_fcost`) |
+| `mxtbme<sfx>.dat` | turbine flow cap |
+| `hinflw.dat` | `Flow` inflows: scenario *s* = historical year `ANO COND. INIC. HIDRO` + *s* − 1, same calendar month; station = plant `PV`.  Stations of plants that never operate in the horizon flow to the next in-service plant downstream |
+| `cgnd<sfx>.dat`, `gndsite<sfx>.dat`, `mgnd<sfx>.dat` | renewable `Generator` (PotIns × FatOpe) |
+| `blrenw<nb><sfx>.dat`, `blrenw<nb>[<sfx>]0.dat` (CSV or binary), `gndme<nb><sfx>.dat` | `GeneratorProfile` (scenario × stage × block) |
+| `cbattery`/`mbattery<sfx>.dat` | `Battery` |
+
+Each phase carries an explicit `apertures` list.  The scenarios are
+ranked by their total inflow in that stage and visited in bit-reversed
+rank order, so `--set sddp_options.num_apertures=N` keeps N hydrologies
+spread across the dry-to-wet range.  Without this list `num_apertures`
+has no effect, and every series becomes an aperture.
+
+Existence flags (`Tipo`/`Type`/`Existing` = 1) mark *future* elements.  A
+future element enters service at the date of its first modification record.
+A future element with no modification record never operates.
+
+### Simplifications (logged as `simplified:` at conversion)
+
+- Hourly chronology (`hrload`, `hrrenw`, `hrbmap`): not modelled; the
+  block representation is used.
+- Unit commitment, ramps, min up/down (`opectr`), start-up costs: not
+  modelled.
+- Hydro production-factor × volume curves, evaporation, filtration and
+  non-controllable spill: not modelled; FPMed is used.
+- Maximum total outflow (`mxtome`), joint reserves (`rsme`/`resger`), gas network, sum-of-circuit limits
+  (`csumcirc`), emission costs: not modelled.
+- Random generator/circuit outages: not modelled; only the deterministic
+  Teif/Ih derating is applied.
+- Multi-segment deficit cost curves: the first segment's cost is used.
+- `volini.dat` (binary, often stale) is ignored; `VInic` is used instead.
+- Additional years (`NUMERO DE ANOS ADICIONAL`) are not added.
+
 ## Roadmap and deferred mappings
 
 The following PSR features are **not yet** mapped.  See

@@ -341,7 +341,15 @@
     {"class": "line",             "canonical": "loss_pwl_layout",   "alt": "pwl_layout",          "dialect": "gtopt-legacy"},
     {"class": "fuel",             "canonical": "max_offtake",       "alt": "weekly_offtake_cap",  "dialect": "gtopt-legacy"},
     {"class": "fuel",             "canonical": "max_offtake",       "alt": "FueMaxOffWeek",       "dialect": "plexos"},
-    {"class": "fuel",             "canonical": "max_offtake_cost",  "alt": "offtake_violation_cost","dialect": "gtopt-legacy"}
+    {"class": "fuel",             "canonical": "max_offtake_cost",  "alt": "offtake_violation_cost","dialect": "gtopt-legacy"},
+    {"class": "reservoir",       "canonical": "emin",                 "alt": "Vmin",         "dialect": "sddp", "_note": "PSR SDDP chidro*.dat / PSRHydroPlant attribute names actually read by scripts/sddp2gtopt (sddp_case.py)."},
+    {"class": "reservoir",       "canonical": "emax",                 "alt": "Vmax",         "dialect": "sddp"},
+    {"class": "reservoir",       "canonical": "eini",                 "alt": "Vinic",        "dialect": "sddp"},
+    {"class": "turbine",         "canonical": "production_factor",    "alt": "FPMed",        "dialect": "sddp"},
+    {"class": "generator",       "canonical": "capacity",             "alt": "PotInst",      "dialect": "sddp"},
+    {"class": "generator",       "canonical": "capacity",             "alt": "PotIns",       "dialect": "sddp"},
+    {"class": "model_options",   "canonical": "demand_fail_cost",     "alt": "DeficitCost",  "dialect": "sddp"},
+    {"class": "simulation",      "canonical": "annual_discount_rate", "alt": "TaxaDesconto", "dialect": "sddp"}
   ],
 
   "_class_aliases_doc": "Class-scoped aliases.  Apply ONLY when the lookup is qualified with an element type.  Use for aliases whose name collides with a canonical attribute on a different element class — e.g. `discharge` is the canonical attribute of `flow` (Flow element), but a legacy alias of `target` *within flow_right*.  Promoting that to the global `aliases[]` would break Flow parsing; the class scope confines the rewrite to `flow_right` lookups only.  The JSON-input canonicalize step is class-blind and ignores this section; only the AMPL resolver consults it (via `canonical_for(class, alias)`).",

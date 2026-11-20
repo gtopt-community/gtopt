@@ -1,47 +1,42 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
-"""plexos2gtopt converter defaults — share-dir resolution.
+"""plexos2gtopt converter defaults — bundled reference-file resolution.
 
-Helpers that locate bundled CEN-Chile-specific reference files under
-``share/gtopt/...``.  Kept separate from :mod:`plexos2gtopt.parsers` so
-the resolution logic has one home and isn't duplicated across
-``gtopt_writer`` (cogen CSV) and ``plexos2gtopt`` (emissions JSON).
+Helpers that locate bundled CEN-Chile-specific reference files.  They
+ship as package data of :mod:`gtopt_shared` (``gtopt_shared/data/...``,
+see ``[tool.setuptools.package-data]`` in ``scripts/pyproject.toml``) so
+they are present for source-tree, editable and wheel installs alike.
+Kept separate from :mod:`plexos2gtopt.parsers` so the resolution logic
+has one home.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-# Search order for ``share/gtopt/`` files.  ``Path(__file__).parents[2] /
-# "share"`` is the checkout-relative path; it works for editor-style runs
-# from arbitrary working directories and under pytest's site-packages
-# hardlink, because ``__file__`` resolves back into the source tree.  Kept
-# as a tuple so additional install-layout candidates can be appended.
-_SHARE_CANDIDATES: tuple[Path, ...] = (
-    Path(__file__).resolve().parents[2] / "share" / "gtopt",
-)
+from gtopt_shared.resources import package_data_file
+
+#: Path components of the CEN-Chile emissions overlay relative to the
+#: ``gtopt_shared`` package directory.
+CEN_CHILE_EMISSIONS_PARTS: tuple[str, ...] = ("data", "emissions", "cen_chile.json")
 
 
-def _resolve_share_file(*relparts: str) -> Path | None:
-    """Return the first existing ``share/gtopt/<relparts...>`` file."""
-    for base in _SHARE_CANDIDATES:
-        path = base.joinpath(*relparts)
-        if path.is_file():
-            return path
-    return None
-
-
-def resolve_default_emissions_file() -> Path | None:
-    """Return the path to ``share/gtopt/emissions/cen_chile.json``.
+def resolve_default_emissions_file() -> Path:
+    """Return the path to the bundled CEN-Chile emissions overlay.
 
     Used by :func:`plexos2gtopt.plexos2gtopt.plexos2gtopt` when the
     operator did NOT pass an explicit ``--emissions-file``: plexos2gtopt
     is CEN-Chile-shaped (PLEXOS DBs in this codebase come from CEN's
     PCP archive), so the CEN-Chile defaults file is the right default.
+    It is a superset of the bare IPCC-2006 defaults
+    (``gtopt_shared/data/ipcc_emission_factors.json``).
 
-    Falls back to ``None`` when the file is missing (sandboxed installs
-    without ``share/``); ``apply_emission_defaults_from_file(None)`` then
-    resolves to the bundled IPCC-2006 defaults at
-    ``gtopt_shared/data/ipcc_emission_factors.json`` — the legacy
-    pre-2026-06 behavior.
+    Raises:
+        gtopt_shared.resources.MissingDataFileError: when the bundled file
+            is missing (broken install).  Pass ``--emissions-file`` to use
+            another table explicitly.
     """
-    return _resolve_share_file("emissions", "cen_chile.json")
+    return package_data_file(
+        "gtopt_shared",
+        *CEN_CHILE_EMISSIONS_PARTS,
+        purpose="CEN-Chile emissions overlay",
+    )

@@ -773,19 +773,21 @@ def _build_multibus_planning(
         # dispatch and runs **monolithic** (like the plexos2gtopt cases); a
         # multi-stage horizon (``--blocks-per-stage``) runs **sddp/cascade**.
         # Either way the reservoir water value rides a boundary cut on the
-        # reservoir end-volumes, wired into that method's options block.
+        # reservoir end-volumes, configured on the FutureCost element (the
+        # single, method-neutral source of the FCF boundary cuts).
         if cut_csv is not None:
             # The facade writes the CSV next to the JSON and rewrites the path
-            # to absolute (resolve_input passes absolutes through unchanged).
-            cut_opts = {
-                "boundary_cuts_file": "boundary_cuts.csv",
-                "boundary_cuts_mode": "combined",
-            }
+            # to absolute (absolute paths pass through unchanged in gtopt).
             if study.num_stages > 1:
                 options["method"] = "sddp"
-                options["sddp_options"] = cut_opts
-            else:
-                options["monolithic_options"] = cut_opts
+            system["future_cost_array"] = [
+                {
+                    "uid": 1,
+                    "name": "fcf",
+                    "cuts_file": "boundary_cuts.csv",
+                    "mode": "combined",
+                },
+            ]
         logger.info(
             "water network: %d junctions, %d reservoirs, %d turbines, %d inflows%s",
             len(jn),

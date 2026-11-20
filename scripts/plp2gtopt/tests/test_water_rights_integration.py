@@ -14,10 +14,16 @@ from pathlib import Path
 
 import pytest
 
+from gtopt_shared.testing.external_cases import (
+    external_case_path,
+    missing_case_reason,
+)
+
 from plp2gtopt.compressed_open import find_compressed_path
 
-_SUPPORT_DIR = Path(__file__).parent.parent.parent.parent / "support"
-_PLP_2Y = _SUPPORT_DIR / "plp" / "2_years"
+# PLP 2-year case from the external case repository (GTOPT_CASES_DIR).
+_PLP_2Y_REL = "chile/medium_long_term/plp_2y/source"
+_PLP_2Y = external_case_path(_PLP_2Y_REL) or Path("/nonexistent/plp_2y")
 
 
 def _has_plp_2_years() -> bool:
@@ -33,7 +39,7 @@ def _has_plp_2_years() -> bool:
 @pytest.mark.integration
 @pytest.mark.skipif(
     not _has_plp_2_years(),
-    reason="plp_2_years support directory not available",
+    reason=missing_case_reason(_PLP_2Y_REL),
 )
 class TestWaterRightsIntegration:
     """Integration tests using the plp_2_years PLP case."""
@@ -511,7 +517,7 @@ class TestWaterRightsIntegration:
 @pytest.mark.integration
 @pytest.mark.skipif(
     not _has_plp_2_years(),
-    reason="plp_2_years support directory not available",
+    reason=missing_case_reason(_PLP_2Y_REL),
 )
 class TestGtoptLpBuild:
     """Test that gtopt --lp-only succeeds on the converted case."""

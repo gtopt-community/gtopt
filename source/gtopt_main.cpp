@@ -39,6 +39,7 @@
 #include <string>
 #include <utility>
 
+#include <gtopt/future_cost_aliases.hpp>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/gtopt_lp_runner.hpp>
 #include <gtopt/gtopt_main.hpp>
@@ -313,6 +314,14 @@ void setup_trace_log(const MainOptions& opts)
 
   // Specific CLI flags override --set
   apply_cli_options(planning, opts);
+
+  // Fold the deprecated boundary-cut keys (`sddp_options.boundary_*`,
+  // `monolithic_options.boundary_*`, `simulation.boundary_cuts_*`) into the
+  // FutureCost element — the single source of the FCF boundary cuts for
+  // every method.  Runs after every JSON merge, `--set` and CLI override.
+  if (auto fc_result = resolve_future_cost_aliases(planning); !fc_result) {
+    return std::unexpected(std::move(fc_result.error().message));
+  }
 
   // Probe the Arrow/Parquet runtime once for the best available codec.
   planning.options.output_compression =

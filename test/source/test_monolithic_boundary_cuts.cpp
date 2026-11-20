@@ -26,6 +26,7 @@
 #include <fstream>
 
 #include <doctest/doctest.h>
+#include <gtopt/future_cost.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
@@ -58,6 +59,23 @@ auto write_cut_file(const std::string& path,
   return planning_lp.system(first_scene_index(), last_phase)
       .linear_interface()
       .active_cuts_size();
+}
+
+/// Configure the boundary cut on the FutureCost element — the single source
+/// MonolithicMethod reads.
+auto set_future_cost(Planning& planning,
+                     const std::string& cuts_file,
+                     bool mean_shift) -> void
+{
+  planning.system.future_cost_array = {
+      FutureCost {
+          .uid = Uid {1},
+          .name = "fcf",
+          .cuts_file = cuts_file,
+          .mean_shift = mean_shift,
+          .mode = BoundaryCutsMode::combined,
+      },
+  };
 }
 
 }  // namespace mono_bc
@@ -99,12 +117,10 @@ TEST_CASE(  // NOLINT
     auto planning = make_3phase_hydro_planning();
     // Force raw RHS onto the LP (no α-rebase) so the objective shift is
     // exactly phys_rhs and easy to assert against.
-    planning.options.sddp_options.boundary_cuts_mean_shift = OptBool {false};
+    set_future_cost(planning, cuts_file, /*mean_shift=*/false);
     PlanningLP planning_lp(std::move(planning));
 
     MonolithicMethod solver;
-    solver.boundary_cuts_file = cuts_file;
-    solver.boundary_cuts_mode = BoundaryCutsMode::combined;
     auto result = solver.solve(planning_lp, {});
     REQUIRE(result.has_value());
 
@@ -167,11 +183,9 @@ TEST_CASE(  // NOLINT
   // recovered evaluation point (shifted_rhs / wv) from the last cut row.
   const auto recover_eval_point = [&](Planning&& planning) -> double
   {
-    planning.options.sddp_options.boundary_cuts_mean_shift = OptBool {true};
+    set_future_cost(planning, cuts_file, /*mean_shift=*/true);
     PlanningLP planning_lp(std::move(planning));
     MonolithicMethod solver;
-    solver.boundary_cuts_file = cuts_file;
-    solver.boundary_cuts_mode = BoundaryCutsMode::combined;
     auto result = solver.solve(planning_lp, {});
     REQUIRE(result.has_value());
     const auto last_phase = planning_lp.simulation().last_phase_index();
