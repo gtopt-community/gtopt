@@ -13,6 +13,7 @@ heat rate in the writer are covered too.
 from __future__ import annotations
 
 import csv
+import shutil
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
@@ -82,6 +83,7 @@ _PROPS: dict[tuple[str, str], tuple[str, ...]] = {
         "Pump Efficiency",
         "Pump Units",
         "Min Up Time",
+        "Marginal Loss Factor",
     ),
     ("System", "Fuel"): ("Price",),
     ("System", "Battery"): (
@@ -249,6 +251,7 @@ def _sem_like(tmp_path: Path) -> Path:
         ("Wind", "Generator"),
         ("WindVar", "Variable"),
         ("WindFile", "Data File"),
+        ("LossFile", "Data File"),
         ("TH", "Generator"),
         ("HEAD", "Storage"),
         ("TAIL", "Storage"),
@@ -305,6 +308,12 @@ def _sem_like(tmp_path: Path) -> Path:
     b.sysdata("Generator", "Wind", "Rating Factor", 100.0, tags=(("WindVar", 1),))
     b.sysdata("Variable", "WindVar", "Profile", 0.0, tags=(("WindFile", None),))
     b.sysdata("Data File", "WindFile", "Filename", 0.0, text="CSV Files\\wind.csv")
+    # A loss-factor table that is not shipped: only a non-converted
+    # property refers to it, so its absence is not an error.
+    b.sysdata("Data File", "LossFile", "Filename", 0.0, text="CSV Files\\tlaf.csv")
+    b.sysdata(
+        "Generator", "CCGT", "Marginal Loss Factor", 1.0, tags=(("LossFile", None),)
+    )
     data_dir = tmp_path / "data"
     (data_dir / "CSV Files").mkdir(parents=True)
     with (data_dir / "CSV Files" / "wind.csv").open("w", encoding="utf-8") as fh:
@@ -426,7 +435,21 @@ def test_report_scenarios_and_counts(materialised) -> None:
     assert report.rows_dropped_scenario == 1
     assert report.data_files == {"WindFile": "wind.csv"}
     assert "Generator.Min Up Time" not in report.not_converted
+    assert report.not_converted["Generator.Marginal Loss Factor"] == 1
+    notes = [n for n in report.notes if "tlaf.csv" in n]
+    assert len(notes) == 1
+    assert "not converted" in notes[0]
+    assert str(Path.cwd()) not in notes[0]
     assert report.as_dict()["model"] == "M1"
+
+
+def test_missing_data_file_of_converted_property_raises(tmp_path: Path) -> None:
+    xml = _sem_like(tmp_path)
+    shutil.rmtree(tmp_path / "data")
+    opts = MaterialiseOptions(model="M1", start=datetime(2025, 1, 1), n_days=1)
+    # The wind Rating Factor needs wind.csv, which is gone.
+    with pytest.raises(FileNotFoundError, match="wind.csv"):
+        materialise_model(xml, opts, tmp_path / "o")
 
 
 def test_unknown_model_raises(tmp_path: Path) -> None:

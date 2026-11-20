@@ -111,6 +111,7 @@ _CONSUMED: frozenset[tuple[str, str]] = frozenset(
         ("Constraint", "RHS Day"),
         ("Constraint", "RHS Week"),
         ("Constraint", "Generation Coefficient"),
+        ("Constraint", "Penalty Price"),
         # Expression plumbing (consumed by this module itself).
         ("Variable", "Profile"),
         ("Data File", "Filename"),
@@ -336,6 +337,18 @@ class _DataFile:
         if len(self.columns) == 1:
             return rec[0]
         raise KeyError(f"{self.path.name}: no column {column!r} in {self.columns}")
+
+
+class MissingDataFileError(FileNotFoundError):
+    """A PLEXOS Data File named in the XML is not under the data dirs."""
+
+    def __init__(self, data_file: str, filename: str, roots: Iterable[Path]) -> None:
+        super().__init__(
+            f"PLEXOS Data File {data_file!r}: {filename!r} not found under "
+            f"{[str(r) for r in roots]} (pass --plexos-data-dir)"
+        )
+        self.data_file = data_file
+        self.filename = filename
 
 
 def find_data_file(name: str, roots: Iterable[Path]) -> Path | None:
@@ -611,11 +624,8 @@ class _Resolver:
             if row is not None and row.text:
                 path = find_data_file(row.text, self.roots)
                 if path is None:
-                    raise FileNotFoundError(
-                        f"PLEXOS Data File {self.db.obj_name[oid]!r}: "
-                        f"{row.text!r} not found under "
-                        f"{[str(r) for r in self.roots]} "
-                        "(pass --plexos-data-dir)"
+                    raise MissingDataFileError(
+                        self.db.obj_name[oid], row.text, self.roots
                     )
                 try:
                     df = _DataFile(path)
@@ -1110,7 +1120,22 @@ def materialise_model(
             dropped.update(r.data_id for r in rows)
             report.rows_dropped_inactive += len(rows)
             continue
-        val = res.row_value(row, t0, p0)
+        key = f"{child_cls}.{pname}"
+        converted = child_cls in _RUN_CLASSES or (child_cls, pname) in _CONSUMED
+        try:
+            val = res.row_value(row, t0, p0)
+        except MissingDataFileError as exc:
+            if converted:
+                raise
+            # A Data File used only by a property that is not converted
+            # (e.g. a loss-factor table) need not be present.
+            val = row.value
+            note = (
+                f"{key}: Data File {exc.data_file!r} ({exc.filename!r}) not "
+                "found; property not converted"
+            )
+            if note not in report.notes:
+                report.notes.append(note)
         if (child_cls, pname) in (
             ("Battery", "Capacity"),
             ("Battery", "Max Power"),
@@ -1120,8 +1145,7 @@ def materialise_model(
         keep[row.data_id] = val
         dropped.update(r.data_id for r in rows if r.data_id != row.data_id)
         report.rows_kept += 1
-        key = f"{child_cls}.{pname}"
-        if child_cls not in _RUN_CLASSES and (child_cls, pname) not in _CONSUMED:
+        if not converted:
             report.not_converted[key] = report.not_converted.get(key, 0) + 1
         elif _varies(res, rows, hours) and not _scheduled(child_cls, pname):
             report.frozen_at_start[key] = report.frozen_at_start.get(key, 0) + 1
@@ -1481,6 +1505,7 @@ def materialise_bundle_dir(
 __all__ = [
     "MaterialiseOptions",
     "MaterialiseReport",
+    "MissingDataFileError",
     "find_data_file",
     "materialise_bundle_dir",
     "materialise_model",
