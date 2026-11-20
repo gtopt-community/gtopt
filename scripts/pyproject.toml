@@ -19,6 +19,9 @@ name = "gtopt-scripts"
 version = "1.0.0"
 description = "GTOpt (Generation, Transmission and storage Optimization) conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, gtopt_check_json, gtopt_check_fingerprint, gtopt2pp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
 requires-python = ">=3.10"
+# Runtime dependencies.  This list is AUTHORITATIVE; requirements.txt
+# mirrors it for `pip install -r` users and must be kept in sync
+# (gtopt_shared/tests/test_requirements_sync.py checks it).
 dependencies = [
     "cairosvg>=2.7",
     "graphviz>=0.20",
@@ -33,6 +36,10 @@ dependencies = [
     "lz4>=4.0.0",
     "jinja2>=3.1",
     "requests>=2.31",
+    "networkx>=3.0",
+    "scipy>=1.10",
+    "urllib3>=1.26",
+    "xlrd>=2.0.1",  # psse2gtopt --nomenclatura (.xls)
 ]
 
 [project.scripts]
@@ -93,20 +100,45 @@ dev = [
     "xlsxwriter>=3.1",
     "hypothesis>=6.0",
 ]
-# CEN PCP/PID solution files are MS Access (.accdb) databases.  The
-# Python wrapper `pandas-access` shells out to the `mdb-tools` system
-# package — it is NOT pip-installable, so document it here and install
-# it via the OS package manager:
+# Optional feature groups.  Each one matches an optional import that
+# is guarded at its call site (the feature degrades or prints an
+# install hint when the package is missing):
+#
+#   diagram  gtopt_diagram renderers (graphviz/pyvis/cairosvg are also
+#            core deps today) + Pillow for the PNG viewer fallback
+#   plot     gtopt_monitor interactive GUI (matplotlib)
+#   highs    gtopt_check_lp in-process HiGHS solve (highspy)
+#   figures  tools/figures documentation figures and screenshots
+#            (matplotlib, cairosvg, playwright; Playwright also needs
+#            `playwright install chromium`)
+diagram = [
+    "graphviz>=0.20",
+    "pyvis>=0.3",
+    "cairosvg>=2.7",
+    "Pillow>=10.0",
+]
+plot = [
+    "matplotlib>=3.7",
+]
+highs = [
+    "highspy>=1.7",
+]
+figures = [
+    "matplotlib>=3.7",
+    "cairosvg>=2.7",
+    "playwright>=1.40",
+]
+# System programs (not pip-installable, so not an extra):
+# plexos2gtopt and cen2gtopt.pcp_solution read MS Access (.accdb)
+# solution databases by running the `mdb-tables` / `mdb-export`
+# programs from mdbtools (GPL-2.0, run as a separate process):
 #
 #   sudo apt-get install -y mdbtools          # Debian/Ubuntu
 #   brew install mdbtools                      # macOS
 #   conda install -c conda-forge mdbtools      # conda env
 #
-# Without `mdbtools` on $PATH, `cen2gtopt.pcp_solution` raises a
-# clear error pointing back to this comment.
-mdb = [
-    "pandas-access>=0.0.1",
-]
+# Without `mdbtools` on $PATH those commands exit with a clear
+# install-instruction message.
 
 [tool.setuptools]
 include-package-data = true

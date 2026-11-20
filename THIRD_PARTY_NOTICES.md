@@ -126,7 +126,7 @@ npm under their own licences. They are not distributed with GTOpt.
 | [pandas](https://pandas.pydata.org) | Tables | BSD-3-Clause |
 | [PyArrow](https://arrow.apache.org) | Parquet input and output | Apache-2.0 |
 | [openpyxl](https://openpyxl.readthedocs.io) | Excel workbooks (`igtopt`, exporters) | MIT |
-| [xlrd](https://github.com/python-excel/xlrd) (optional) | Legacy `.xls` files in `psse2gtopt` | BSD-3-Clause |
+| [xlrd](https://github.com/python-excel/xlrd) | Legacy `.xls` files in `psse2gtopt` | BSD-3-Clause |
 | [Rich](https://github.com/Textualize/rich) | Terminal output and the `run_gtopt` dashboard | MIT |
 | [Jinja2](https://jinja.palletsprojects.com) | Templates in `gtopt_expand` | BSD-3-Clause |
 | [requests](https://requests.readthedocs.io), with urllib3, idna, charset-normalizer and certifi | CEN data client, GUI service | Apache-2.0 (urllib3 and charset-normalizer MIT, idna BSD-3-Clause, certifi MPL-2.0) |
@@ -134,12 +134,14 @@ npm under their own licences. They are not distributed with GTOpt.
 | [graphviz](https://github.com/xflr6/graphviz) (Python package) | Diagrams in `gtopt_diagram`; runs the Graphviz `dot` program | MIT (the Graphviz program is EPL-1.0) |
 | [pyvis](https://github.com/WestHealth/pyvis) | Interactive HTML diagrams | BSD-3-Clause, West Health Institute |
 | [CairoSVG](https://github.com/Kozea/CairoSVG) | SVG to PNG/PDF in `gtopt_diagram` | LGPL-3.0-or-later |
-| [Pillow](https://python-pillow.org) (optional) | PNG output in `gtopt_diagram` | MIT-CMU (HPND) |
-| [Matplotlib](https://matplotlib.org) (optional) | Plots in `gtopt_monitor` and `tools/figures` | Matplotlib licence (PSF-based, BSD-compatible) |
-| [highspy](https://github.com/ERGO-Code/HiGHS) (optional) | IIS analysis in `gtopt_check_lp` | MIT |
-| [pandas-access](https://github.com/jbn/pandas_access) (optional `mdb` extra) | Reading `.accdb` files through mdbtools | MIT |
+| [Pillow](https://python-pillow.org) (optional `diagram` extra) | PNG viewer fallback in `gtopt_diagram` | MIT-CMU (HPND) |
+| [Matplotlib](https://matplotlib.org) (optional `plot` / `figures` extras) | Plots in `gtopt_monitor` and `tools/figures` | Matplotlib licence (PSF-based, BSD-compatible) |
+| [highspy](https://github.com/ERGO-Code/HiGHS) (optional `highs` extra) | IIS analysis in `gtopt_check_lp` | MIT |
 | [Flask](https://flask.palletsprojects.com) | GUI service | BSD-3-Clause |
-| [Playwright](https://playwright.dev/python/) (documentation screenshots only) | `tools/figures` | Apache-2.0 |
+| [Playwright](https://playwright.dev/python/) (optional `figures` extra; documentation screenshots only) | `tools/figures` | Apache-2.0 |
+
+`[project].dependencies` and the extras in `scripts/pyproject.toml`
+are the authoritative lists; `scripts/requirements*.txt` mirror them.
 
 Their transitive dependencies are permissive (BSD, MIT, Apache-2.0,
 PSF, ISC), except `certifi` and `tqdm` (pulled in by pandapower), which

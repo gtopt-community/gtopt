@@ -1,16 +1,29 @@
-# Runtime dependencies for the gtopt Python scripts
-# (cvs2parquet, igtopt, plp2gtopt, pp2gtopt)
+# Runtime dependencies for the gtopt Python scripts.
+#
+# AUTHORITATIVE LIST: [project].dependencies in scripts/pyproject.toml.
+# This file mirrors it for `pip install -r` users (and the CMake
+# `scripts` target); gtopt_shared/tests/test_requirements_sync.py fails
+# when the two drift apart.  Optional feature groups (diagram, plot,
+# highs, figures) are only declared as pyproject extras.
 #
 # Install:
 #   pip install -r scripts/requirements.txt
+#   pip install -e "./scripts[dev]"      # preferred: deps + dev tools
 #
+cairosvg>=2.7
+graphviz>=0.20
 numpy>=1.26.0,<2.4
 openpyxl>=3.1.0
 pandas>=2.0.0,<3.0
 pandapower>=2.13.0
 pyarrow>=12.0.0
+pyvis>=0.3
 rich>=13.0
 zstandard>=0.22.0
-cairosvg>=2.7.0
-graphviz>=0.20
-pyvis>=0.3
+lz4>=4.0.0
+jinja2>=3.1
+requests>=2.31
+networkx>=3.0
+scipy>=1.10
+urllib3>=1.26
+xlrd>=2.0.1

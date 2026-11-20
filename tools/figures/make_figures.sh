@@ -13,7 +13,7 @@
 # Requirements (install the Python ones in a virtualenv):
 #   - gtopt with the HiGHS (or COIN-OR) plugin        GTOPT_BIN or PATH
 #   - Python: matplotlib, cairosvg, playwright, rich, flask, pandas and the
-#     gtopt scripts:  pip install -e scripts matplotlib cairosvg playwright
+#     gtopt scripts:  pip install -e "scripts[figures]"
 #                     pip install -r guiservice/requirements.txt
 #   - Chrome/Chromium for Playwright (system Chrome is used when present,
 #     otherwise run `playwright install chromium`)

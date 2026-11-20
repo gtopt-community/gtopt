@@ -39,9 +39,8 @@ Install once via the OS package manager:
     brew install mdbtools                      # macOS
     conda install -c conda-forge mdbtools      # conda env
 
-(See also the ``[project.optional-dependencies].mdb`` extra in
-``scripts/pyproject.toml`` — ``pip install ./scripts[mdb]`` adds the
-optional ``pandas-access`` Python wrapper.)
+(mdbtools is a system program, not a Python dependency; see the
+"System programs" note in ``scripts/pyproject.toml``.)
 
 If ``mdbtools`` is not on ``$PATH``, every CLI subcommand exits 4
 with a clear install-instruction message.
@@ -116,7 +115,7 @@ def _require_mdbtools() -> None:
             "  Debian/Ubuntu:  sudo apt-get install -y mdbtools\n"
             "  macOS:          brew install mdbtools\n"
             "  conda env:      conda install -c conda-forge mdbtools\n"
-            "(see scripts/pyproject.toml [project.optional-dependencies].mdb)"
+            "(see the System programs note in scripts/pyproject.toml)"
         )
 
 
