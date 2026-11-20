@@ -76,6 +76,15 @@ from plp2gtopt.base_parser import BaseParser
 
 logger = logging.getLogger(__name__)
 
+# Uniform physical-unit conversion for plpplem2.dat gradients: PLP writes
+# ``GradX`` in ``$/(10³ m³)`` (= $/dam³, PLP's native "miles de m³" volume
+# unit) for EVERY reservoir, and gtopt volumes are hm³, so ×1000 lands a
+# gradient in ``$/hm³``.  plem1's ``FEscala`` is a pure LP-numerics column
+# scale that cancels in PLP's planos round trip — it is NOT a per-file unit
+# exponent.  Shared by the boundary-cut CSV writer and the cut water-value
+# helper so both see the same ``$/hm³`` magnitudes.
+PLANOS_GRAD_SCALE = 1000.0
+
 # FEscala field index (0-based) in the CSV-format plpplem1.dat / plpplaem1.dat.
 # The CSV row layout is:
 #   Numero, Nombre, Tipo, Barra, N/A, VolMin, VolMax, VolMinNECF, VolMaxNECF,
@@ -306,7 +315,7 @@ class PlanosParser(BaseParser):
         self,
         *,
         num_scenarios: Optional[int] = None,
-        apply_fescala: bool = True,
+        grad_scale: float = PLANOS_GRAD_SCALE,
     ) -> Dict[str, float]:
         """Per-reservoir cut **lower-bound** water value across all cuts.
 
@@ -328,19 +337,27 @@ class PlanosParser(BaseParser):
 
         The coefficients here are collected **SIGNED** (no ``abs``),
         because the lower-bound rule depends on the sign (``-max`` vs
-        ``-min``).  The per-reservoir ``scale`` (``1/num_scenarios`` when
-        ``num_scenarios >= 2``) and FEscala ``_vscale`` adjustment land
-        the result in the same per-scene ``$/hm³`` space as
-        ``Reservoir.efin_cost``.
+        ``-min``).  The ``1/num_scenarios`` divisor (when
+        ``num_scenarios >= 2``) and the uniform ``grad_scale`` unit
+        conversion land the result in the same ``$/hm³`` space as
+        ``Reservoir.efin_cost`` and the emitted ``boundary_cuts.csv``
+        gradients (``planos_writer.write_boundary_cuts_csv`` with the same
+        ``grad_scale``).
 
         Args:
             num_scenarios: PLP scenario count (``NVarPhi``).  When ``>= 2``
                 the raw PLP gradients are divided by ``num_scenarios`` to
                 land in gtopt per-scene ``$/hm³``.  ``None``/``0``/``1``
                 disables the divisor.
-            apply_fescala: when True (default) multiply each coefficient by
-                ``10^(FEscala - 6)`` to land in ``$/hm³`` (gtopt's volume
-                basis), matching ``planos_writer._vol_scale``.
+            grad_scale: uniform unit conversion applied to every
+                coefficient (default :data:`PLANOS_GRAD_SCALE` = 1000,
+                ``$/dam³ → $/hm³``).  Pass ``1.0`` for the raw on-disk
+                gradients.  History (2026-11): this replaces the former
+                per-reservoir ``10^(FEscala - 6)`` scaling, the same
+                FEscala mis-reading the CSV writer dropped on 2026-07-12;
+                it left ``efin_cost`` off by ``10^(9 - FEscala)`` from the
+                cuts gtopt loads (×10 low for FEscala=8, ×10 high for
+                FEscala=10 on CEN-IPLP).
 
         Returns:
             Mapping from reservoir name to its cut lower-bound water value
@@ -354,14 +371,6 @@ class PlanosParser(BaseParser):
         else:
             scale = 1.0
 
-        def _vscale(rname: str) -> float:
-            if not apply_fescala:
-                return 1.0
-            f = self.reservoir_fescala.get(rname)
-            if f is None:
-                return 1.0
-            return 10.0 ** (f - 6)
-
         # Collect SIGNED scaled coefficients per reservoir (skip val==0 so
         # structural zeros do not pollute the lower-bound reduction).
         signed: Dict[str, List[float]] = {}
@@ -374,7 +383,7 @@ class PlanosParser(BaseParser):
                     continue
                 if val == 0.0:
                     continue
-                signed.setdefault(rname, []).append(val * scale * _vscale(rname))
+                signed.setdefault(rname, []).append(val * scale * grad_scale)
 
         result: Dict[str, float] = {}
         for rname, vals in signed.items():

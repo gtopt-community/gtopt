@@ -10,7 +10,7 @@ Covers the public API of
 * ``fail_cost`` ($/(m³/s·h)) and ``efin_cost`` ($/hm³) formulas
 * ``is_active`` — gating semantics
 
-Reference values from the large hydrothermal case case (see the helper's docstring
+Reference values mimicking a CEN PLP case (see the helper's docstring
 and the auto-water-fail-cost design note) are checked with a ±0.5
 absolute tolerance to absorb floating-point rounding.
 """
@@ -44,11 +44,11 @@ class _FakeCenreParser:
         self.efficiencies = list(efficiencies)
 
 
-# Reference large-hydrothermal-case magnitudes — the synthetic centrals below mimic the
+# Reference CEN-PLP-scale magnitudes — the synthetic centrals below mimic the
 # tier-4 falla rung (568.4 $/MWh) and a small LMAULE-like cascade so we can
 # spot-check the documented numbers without needing the full PLP case on
 # disk.
-# Reference PLP-converted-case style magnitudes for the
+# Reference CEN-PLP-style magnitudes for the
 # ``ANCHOR = 0.75·avg_thermal_gcost + 0.25·min_falla_gcost`` formula:
 #
 #   * cheapest curtailment rung   = 100 $/MWh  (FALLA_T1)
@@ -651,11 +651,11 @@ class _FakePlanosParser:
         self._raw = dict(raw)
 
     def lower_bound_water_value_by_reservoir(
-        self, *, num_scenarios: Any = None, apply_fescala: bool = True
+        self, *, num_scenarios: Any = None, grad_scale: float = 1000.0
     ) -> Dict[str, float]:
         # Both kwargs are accepted but ignored — this fixture pre-computes
         # the lower bound to keep the tests focused on the discount step.
-        _ = (num_scenarios, apply_fescala)
+        _ = (num_scenarios, grad_scale)
         return dict(self._raw)
 
 

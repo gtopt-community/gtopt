@@ -42,7 +42,9 @@ class HydroMixin:
         the resolver keeps its auto ``ANCHOR × lost_pf`` estimate for
         every reservoir.
 
-        The value lives in raw ``$/hm³`` (after FEscala scaling).  It is
+        The value lives in raw ``$/hm³`` (after the uniform
+        ``PLANOS_GRAD_SCALE`` ``$/dam³ → $/hm³`` conversion — the SAME
+        scaling the emitted ``boundary_cuts.csv`` gradients carry).  It is
         the per-reservoir **OVERWRITE** for ``Reservoir.efin_cost`` (the
         2026-06-16 decision replaced the legacy ``min(auto, cap)`` cap
         with a direct overwrite — see
@@ -70,9 +72,9 @@ class HydroMixin:
         if planos is None:
             return {}
         # Per-reservoir cut lower-bound water value, in raw `$/hm³`
-        # (after FEscala scaling — that conversion happens inside
-        # `lower_bound_water_value_by_reservoir` when
-        # `apply_fescala=True`).  We DO NOT divide by N here because
+        # (the uniform `$/dam³ → $/hm³` grad_scale is applied inside
+        # `lower_bound_water_value_by_reservoir`, matching the CSV
+        # writer).  We DO NOT divide by N here because
         # `efin_cost` is the per-hm³ marginal cost added to the LP
         # objective for the END-of-horizon volume — it represents the
         # *aggregate* marginal water value, not the per-scene share.

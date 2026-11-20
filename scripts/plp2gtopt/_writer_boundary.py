@@ -17,6 +17,7 @@ from typing import Any
 
 from gtopt_shared.future_cost import set_future_cost_fields
 
+from .planos_parser import PLANOS_GRAD_SCALE
 from .planos_writer import write_boundary_cuts_csv
 
 _logger = logging.getLogger(__name__)
@@ -124,7 +125,7 @@ class BoundaryMixin:
         #
         # PLP applies its α-column with objective coefficient
         # `1/NVarPhi`, where `NVarPhi` is the **original PLP hydrology
-        # count** (28 on the large hydrothermal case).  gtopt's α-column under those modes
+        # count** (28 on CEN-IPLP).  gtopt's α-column under those modes
         # uses coefficient 1.0 and aggregates per-scene contributions
         # via `prob_s × α_s`.  For the gtopt expected α to match PLP,
         # the cut gradients/RHS must be pre-divided by NVarPhi, so that:
@@ -135,7 +136,7 @@ class BoundaryMixin:
         # Up to 2026-05-13 this code divided by `len(scenario_array)`
         # (= the gtopt-side scene count, often a wet-subset of size 16)
         # which under-divided whenever the user filtered hydrologies
-        # via `--hydrologies` — observed on the plain-variant hydrothermal case as a
+        # via `--hydrologies` — observed on CEN-IPLP as a
         # +75 % LB overshoot vs UB (LB ≈ 4.6 G vs UB ≈ 2.9 G).
         #
         # `max(scene)` over the parsed cuts recovers PLP's NVarPhi
@@ -176,7 +177,7 @@ class BoundaryMixin:
                 csv_path,
                 name_alias=name_alias,
                 num_scenarios=num_scenarios,
-                grad_scale=1000.0,
+                grad_scale=PLANOS_GRAD_SCALE,
             )
             self.planning["_boundary_cuts_count"] = len(planos.cuts)
             self.planning["_boundary_state_variables"] = len(planos.reservoir_names)
@@ -185,7 +186,7 @@ class BoundaryMixin:
             # ``input_directory`` for every method, so emitting a
             # pre-joined path, so emitting ``"{input_directory}/boundary_cuts.csv"``
             # produced a double-prefixed path like
-            # ``my_case/my_case/boundary_cuts.csv``
+            # ``gtopt_iplp_plain/gtopt_iplp_plain/boundary_cuts.csv``
             # which then silently fell back to "no boundary cuts"
             # (α pinned at 0, terminal value treated as zero, UB
             # shifted down by the missing future-cost envelope).

@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from plp2gtopt.planos_parser import PlanosParser, find_planos_files
+from plp2gtopt.planos_parser import (
+    PLANOS_GRAD_SCALE,
+    PlanosParser,
+    find_planos_files,
+)
 from plp2gtopt.planos_writer import write_boundary_cuts_csv
 
 
@@ -557,9 +561,10 @@ class TestLowerBoundWaterValueByReservoir:
     """Tests for PlanosParser.lower_bound_water_value_by_reservoir.
 
     The lower bound is ``-max(signed coeff)`` positive-floored (see
-    :func:`gtopt_shared.water_values.cut_lower_bound`), with the same
-    ``1/num_scenarios`` and ``10^(FEscala-6)`` scaling as the average
-    helper.
+    :func:`gtopt_shared.water_values.cut_lower_bound`), after the
+    ``1/num_scenarios`` divisor and the uniform ``grad_scale`` unit
+    conversion.  Most tests pass ``grad_scale=1.0`` to check the raw
+    reduction arithmetic; the unit conversion has its own tests.
     """
 
     def test_basic_lower_bound_is_neg_max_signed(self, tmp_path):
@@ -576,7 +581,7 @@ class TestLowerBoundWaterValueByReservoir:
         parser = PlanosParser(p1, p2)
         parser.parse()
 
-        out = parser.lower_bound_water_value_by_reservoir()
+        out = parser.lower_bound_water_value_by_reservoir(grad_scale=1.0)
         # -max([-100, -200, -300]) = -(-100) = 100.0
         assert out["LMAULE"] == pytest.approx(100.0)
 
@@ -590,30 +595,46 @@ class TestLowerBoundWaterValueByReservoir:
         parser.parse()
 
         # coeffs /4 = [-25, -50]; -max = 25.0
-        out = parser.lower_bound_water_value_by_reservoir(num_scenarios=4)
+        out = parser.lower_bound_water_value_by_reservoir(
+            num_scenarios=4, grad_scale=1.0
+        )
         assert out["R1"] == pytest.approx(25.0)
 
-    def test_fescala_scaling_applied(self, tmp_path):
-        """FEscala scales each coeff by ``10^(FEscala-6)`` before reduction."""
+    def test_default_grad_scale_is_dam3_to_hm3(self, tmp_path):
+        """Default scaling is the uniform ``$/dam³ → $/hm³`` ×1000."""
         p1 = tmp_path / "plpplaem1.dat"
         p2 = tmp_path / "plpplaem2.dat"
-        # CSV format so FEscala (field index 9) is parsed.  FEscala=8 →
-        # 10^(8-6) = 100.
-        p1.write_text(
-            "#Numero,Nombre,Tipo,Barra,NA,VolMin,VolMax,VMinN,VMaxN,FEscala\n"
-            "1,R1,A,0,0,0,0,0,0,8\n"
-        )
+        p1.write_text("1\n1 'R1'\n")
         p2.write_text("5\n1  5  1  1000.0  -100.0\n")
         parser = PlanosParser(p1, p2)
         parser.parse()
-        assert parser.reservoir_fescala.get("R1") == 8
 
-        # coeff -100 * 100 = -10000; -max = 10000.0
+        assert PLANOS_GRAD_SCALE == pytest.approx(1000.0)
         out = parser.lower_bound_water_value_by_reservoir()
-        assert out["R1"] == pytest.approx(10000.0)
-        # apply_fescala=False disables the multiplier.
-        out_no = parser.lower_bound_water_value_by_reservoir(apply_fescala=False)
-        assert out_no["R1"] == pytest.approx(100.0)
+        assert out["R1"] == pytest.approx(100.0 * PLANOS_GRAD_SCALE)
+
+    def test_fescala_does_not_scale_water_value(self, tmp_path):
+        """FEscala is an LP-numerics scale, not a unit: it must NOT change
+        the water value (regression for the retired ``10^(FEscala-6)``
+        scaling that disagreed with the boundary_cuts.csv gradients)."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        # CSV format so FEscala (field index 9) is parsed.
+        p1.write_text(
+            "#Numero,Nombre,Tipo,Barra,NA,VolMin,VolMax,VMinN,VMaxN,FEscala\n"
+            "1,R8,A,0,0,0,0,0,0,8\n"
+            "2,R10,A,0,0,0,0,0,0,10\n"
+        )
+        p2.write_text("5\n1  5  1  1000.0  -100.0  -100.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+        assert parser.reservoir_fescala == {"R8": 8, "R10": 10}
+
+        out = parser.lower_bound_water_value_by_reservoir()
+        assert out["R8"] == pytest.approx(100.0 * PLANOS_GRAD_SCALE)
+        assert out["R10"] == pytest.approx(100.0 * PLANOS_GRAD_SCALE)
+        raw = parser.lower_bound_water_value_by_reservoir(grad_scale=1.0)
+        assert raw == {"R8": pytest.approx(100.0), "R10": pytest.approx(100.0)}
 
     def test_positive_only_coeff_falls_back_to_cut_floor(self, tmp_path):
         """A cut pricing water as a liability (only positive coeff) → floor.
@@ -629,7 +650,7 @@ class TestLowerBoundWaterValueByReservoir:
         parser = PlanosParser(p1, p2)
         parser.parse()
 
-        out = parser.lower_bound_water_value_by_reservoir()
+        out = parser.lower_bound_water_value_by_reservoir(grad_scale=1.0)
         assert out["R1"] == pytest.approx(1.0)
 
     def test_mixed_sign_floors_to_smallest_positive_water_value(self, tmp_path):
@@ -645,7 +666,7 @@ class TestLowerBoundWaterValueByReservoir:
         parser = PlanosParser(p1, p2)
         parser.parse()
 
-        out = parser.lower_bound_water_value_by_reservoir()
+        out = parser.lower_bound_water_value_by_reservoir(grad_scale=1.0)
         assert out["R1"] == pytest.approx(80.0)
 
     def test_empty_cuts_empty_result(self, tmp_path):
@@ -656,7 +677,7 @@ class TestLowerBoundWaterValueByReservoir:
         p2.write_text("")
         parser = PlanosParser(p1, p2)
         parser.parse()
-        assert not parser.lower_bound_water_value_by_reservoir()
+        assert not parser.lower_bound_water_value_by_reservoir(grad_scale=1.0)
 
     def test_zero_coefficients_omitted(self, tmp_path):
         """All-zero cuts for a reservoir ⇒ no lower bound emitted."""
@@ -668,5 +689,5 @@ class TestLowerBoundWaterValueByReservoir:
         parser = PlanosParser(p1, p2)
         parser.parse()
 
-        out = parser.lower_bound_water_value_by_reservoir()
+        out = parser.lower_bound_water_value_by_reservoir(grad_scale=1.0)
         assert out == {"R1": pytest.approx(100.0)}

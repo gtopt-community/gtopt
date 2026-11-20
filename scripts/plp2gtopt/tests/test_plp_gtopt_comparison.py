@@ -132,12 +132,15 @@ def fixture_converted(tmp_path_factory):
 
 @pytest.fixture(scope="module", name="converted_legacy")
 def fixture_converted_legacy(tmp_path_factory):
-    """Convert with ``--no-cuts-govern-terminal`` so cut-covered
-    reservoirs retain the boundary-cut ``efin_cost`` (for provenance
-    checks that inspect the emitted value)."""
+    """Convert with ``--soft-storage-bounds --no-cuts-govern-terminal``
+    so cut-covered reservoirs retain the boundary-cut ``efin_cost`` (for
+    provenance checks that inspect the emitted value).  Both flags are
+    needed: the default hard storage bounds (2026-07) emit no
+    ``efin_cost`` at all, and the default cuts-govern-terminal strips it
+    from cut-covered reservoirs."""
     return _convert(
         tmp_path_factory.mktemp("plp_compare_legacy"),
-        ("--no-cuts-govern-terminal",),
+        ("--soft-storage-bounds", "--no-cuts-govern-terminal"),
     )
 
 
