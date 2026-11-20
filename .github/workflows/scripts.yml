@@ -71,7 +71,7 @@ jobs:
         working-directory: scripts
         run: |
           uv pip install --system setuptools wheel
-          pytest -p no:xdist -q --tb=short -m wheel \
+          pytest -n 0 -q --tb=short -m wheel \
             gtopt_shared/tests/test_wheel_package_data.py
 
       - name: ruff (lint)
