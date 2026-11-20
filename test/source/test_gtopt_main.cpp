@@ -441,8 +441,15 @@ TEST_CASE("gtopt_main - lp_file in MPS format")  // NOLINT
         .lp_only = true,
     });
     REQUIRE(result.has_value());
-    CHECK(*result == 0);
-    CHECK(std::filesystem::exists(dir / "model.lp"));
+    // cuOpt only writes MPS: an explicit `lp` request fails cleanly
+    // instead of writing the other format.
+    if (SolverRegistry::instance().default_solver() == "cuopt") {
+      CHECK(*result != 0);
+      CHECK_FALSE(std::filesystem::exists(dir / "model.lp"));
+    } else {
+      CHECK(*result == 0);
+      CHECK(std::filesystem::exists(dir / "model.lp"));
+    }
   }
   SUBCASE("an unknown lp_format is rejected")
   {

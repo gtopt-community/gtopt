@@ -13,13 +13,16 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -1201,148 +1204,150 @@ bool CuOptSolverBackend::write_mps_file_(const char* filename)
   // Written by hand from the host model instead of cuOptWriteProblem,
   // which has no way to receive names (it writes C0../R0..) and emits
   // MARKER sections even for a pure LP.  Free MPS: names are
-  // whitespace-delimited, so gtopt's long labels are kept verbatim.
+  // whitespace-delimited, so gtopt's long labels are kept verbatim (any
+  // whitespace inside a name is replaced by '_').
   if (filename == nullptr) {
     return false;
   }
   const auto& m = m_model_;
   const auto ncols = static_cast<size_t>(m.num_cols);
   const auto nrows = static_cast<size_t>(m.num_rows);
-  const auto col_name = [&](size_t j)
+  const auto mps_name = [](const std::vector<std::string>& names,
+                           size_t k,
+                           char prefix) -> std::string
   {
-    return j < m_col_names_.size() && !m_col_names_[j].empty()
-        ? m_col_names_[j]
-        : std::format("c{}", j);
+    if (k >= names.size() || names[k].empty()) {
+      return std::format("{}{}", prefix, k);
+    }
+    auto name = names[k];
+    std::ranges::replace_if(
+        name, [](unsigned char c) { return std::isspace(c) != 0; }, '_');
+    return name;
   };
+  const auto col_name = [&](size_t j)
+  { return mps_name(m_col_names_, j, 'c'); };
   const auto row_name = [&](size_t i)
+  { return mps_name(m_row_names_, i, 'r'); };
+  const auto is_free_row = [&](size_t i)
+  { return is_neg_inf(m.row_lb[i]) && is_pos_inf(m.row_ub[i]); };
+  const auto is_ranged_row = [&](size_t i)
   {
-    return i < m_row_names_.size() && !m_row_names_[i].empty()
-        ? m_row_names_[i]
-        : std::format("r{}", i);
+    const auto lo = m.row_lb[i];
+    const auto up = m.row_ub[i];
+    return lo != up && !is_neg_inf(lo) && !is_pos_inf(up);
   };
   constexpr std::string_view obj_name = "obj";
 
   // Column-major view of the row-wise matrix.
   std::vector<std::vector<std::pair<size_t, double>>> by_col(ncols);
-  for (size_t i = 0; i < nrows; ++i) {
+  for (const auto i : std::views::iota(size_t {0}, nrows)) {
     for (const auto& [j, v] : m.row_entries[i]) {
       by_col[static_cast<size_t>(j)].emplace_back(i, v);
     }
   }
 
   const auto file = std::format("{}.mps", filename);
-  std::ofstream out(file);
-  if (!out) {
+  std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+  if (!stream) {
     return false;
   }
-  out << "NAME " << m_prob_name_ << "\n";
-  out << "ROWS\n";
-  out << " N  " << obj_name << "\n";
-  for (size_t i = 0; i < nrows; ++i) {
+  // Formatted straight into the file buffer: no in-memory copy of the
+  // whole model.
+  auto out = std::ostreambuf_iterator<char> {stream};
+
+  std::format_to(out, "NAME {}\nROWS\n N  {}\n", m_prob_name_, obj_name);
+  for (const auto i : std::views::iota(size_t {0}, nrows)) {
     const auto lo = m.row_lb[i];
     const auto up = m.row_ub[i];
-    const char* type = "E";
+    char type = 'E';
     if (lo != up) {
-      if (is_neg_inf(lo) && is_pos_inf(up)) {
-        type = "N";  // free row
+      if (is_free_row(i)) {
+        type = 'N';
       } else if (is_neg_inf(lo)) {
-        type = "L";
+        type = 'L';
       } else {
-        type = "G";  // G, or ranged [lo, up] via RANGES
+        type = 'G';  // G, or ranged [lo, up] via RANGES
       }
     }
-    out << " " << type << "  " << row_name(i) << "\n";
+    std::format_to(out, " {}  {}\n", type, row_name(i));
   }
 
-  out << "COLUMNS\n";
+  std::format_to(out, "COLUMNS\n");
   bool in_int = false;
-  for (size_t j = 0; j < ncols; ++j) {
+  for (const auto j : std::views::iota(size_t {0}, ncols)) {
     const bool is_int = m.col_type[j] == 'I';
     if (is_int != in_int) {
-      out << "    MARKER  'MARKER'  " << (is_int ? "'INTORG'" : "'INTEND'")
-          << "\n";
+      std::format_to(
+          out, "    MARKER  'MARKER'  {}\n", is_int ? "'INTORG'" : "'INTEND'");
       in_int = is_int;
     }
     const auto name = col_name(j);
-    // Always list the column, even when it has no entries, so that it is
-    // not lost.
-    out << "    " << name << "  " << obj_name << "  "
-        << std::format("{}", m.col_obj[j]) << "\n";
+    // Always list the column, even without entries, so it is not lost.
+    std::format_to(out, "    {}  {}  {}\n", name, obj_name, m.col_obj[j]);
     for (const auto& [i, v] : by_col[j]) {
-      out << "    " << name << "  " << row_name(i) << "  "
-          << std::format("{}", v) << "\n";
+      std::format_to(out, "    {}  {}  {}\n", name, row_name(i), v);
     }
   }
   if (in_int) {
-    out << "    MARKER  'MARKER'  'INTEND'\n";
+    std::format_to(out, "    MARKER  'MARKER'  'INTEND'\n");
   }
 
-  out << "RHS\n";
+  std::format_to(out, "RHS\n");
   if (m.obj_offset != 0.0) {
     // Objective constant: RHS of the objective row is minus the constant.
-    out << "    RHS  " << obj_name << "  " << std::format("{}", -m.obj_offset)
-        << "\n";
+    std::format_to(out, "    RHS  {}  {}\n", obj_name, -m.obj_offset);
   }
-  bool any_range = false;
-  for (size_t i = 0; i < nrows; ++i) {
+  for (const auto i : std::views::iota(size_t {0}, nrows)) {
+    if (is_free_row(i)) {
+      continue;
+    }
     const auto lo = m.row_lb[i];
     const auto up = m.row_ub[i];
-    double rhs = 0.0;
-    if (lo == up || (!is_neg_inf(lo))) {
-      rhs = lo;  // E or G
-    } else if (!is_pos_inf(up)) {
-      rhs = up;  // L
-    }
-    if (is_neg_inf(lo) && is_pos_inf(up)) {
-      continue;  // N row
-    }
-    any_range = any_range || (lo != up && !is_neg_inf(lo) && !is_pos_inf(up));
+    // E and G (and ranged) rows take the lower bound, L rows the upper.
+    const double rhs = (lo == up || !is_neg_inf(lo)) ? lo : up;
     if (rhs != 0.0) {
-      out << "    RHS  " << row_name(i) << "  " << std::format("{}", rhs)
-          << "\n";
+      std::format_to(out, "    RHS  {}  {}\n", row_name(i), rhs);
     }
   }
-  if (any_range) {
-    out << "RANGES\n";
-    for (size_t i = 0; i < nrows; ++i) {
-      const auto lo = m.row_lb[i];
-      const auto up = m.row_ub[i];
-      if (lo != up && !is_neg_inf(lo) && !is_pos_inf(up)) {
-        out << "    RNG  " << row_name(i) << "  " << std::format("{}", up - lo)
-            << "\n";
-      }
+  if (std::ranges::any_of(std::views::iota(size_t {0}, nrows), is_ranged_row)) {
+    std::format_to(out, "RANGES\n");
+    for (const auto i : std::views::iota(size_t {0}, nrows)
+             | std::views::filter(is_ranged_row))
+    {
+      std::format_to(
+          out, "    RNG  {}  {}\n", row_name(i), m.row_ub[i] - m.row_lb[i]);
     }
   }
 
-  out << "BOUNDS\n";
-  for (size_t j = 0; j < ncols; ++j) {
+  std::format_to(out, "BOUNDS\n");
+  for (const auto j : std::views::iota(size_t {0}, ncols)) {
     const auto lo = m.col_lb[j];
     const auto up = m.col_ub[j];
     const auto name = col_name(j);
     const bool is_int = m.col_type[j] == 'I';
     if (lo == up) {
-      out << " FX BND  " << name << "  " << std::format("{}", lo) << "\n";
+      std::format_to(out, " FX BND  {}  {}\n", name, lo);
       continue;
     }
     if (is_neg_inf(lo) && is_pos_inf(up)) {
-      out << " FR BND  " << name << "\n";
+      std::format_to(out, " FR BND  {}\n", name);
       continue;
     }
     if (is_neg_inf(lo)) {
-      out << " MI BND  " << name << "\n";
+      std::format_to(out, " MI BND  {}\n", name);
     } else if (lo != 0.0 || is_int) {
-      out << " LO BND  " << name << "  " << std::format("{}", lo) << "\n";
+      std::format_to(out, " LO BND  {}  {}\n", name, lo);
     }
     if (!is_pos_inf(up)) {
-      out << " UP BND  " << name << "  " << std::format("{}", up) << "\n";
+      std::format_to(out, " UP BND  {}  {}\n", name, up);
     } else if (is_int) {
       // Some readers default integer columns to [0, 1]; say +inf.
-      out << " PL BND  " << name << "\n";
+      std::format_to(out, " PL BND  {}\n", name);
     }
   }
-  out << "ENDATA\n";
-  out.close();
-  return !out.fail();
+  std::format_to(out, "ENDATA\n");
+  stream.close();
+  return !stream.fail();
 }
 
 bool CuOptSolverBackend::write_lp(const char* filename, LpFileFormat format)

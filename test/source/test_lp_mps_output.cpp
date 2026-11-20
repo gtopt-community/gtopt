@@ -563,9 +563,8 @@ TEST_CASE("write_lp lp and mps behave alike on every backend")  // NOLINT
 
     for (const auto format : {LpFileFormat::lp, LpFileFormat::mps}) {
       CAPTURE(lp_file_format_name(format));
-      const auto expected = stem + std::string(lp_file_extension(format));
-      const auto other =
-          stem + std::string(lp_file_extension(other_lp_file_format(format)));
+      const auto expected = lp_file_path(stem, format);
+      const auto other = lp_file_path(stem, other_lp_file_format(format));
 
       const auto strict = li.write_lp(stem, format, LpFormatFallback::strict);
       if (lacks_format(solver, format)) {

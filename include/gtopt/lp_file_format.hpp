@@ -9,6 +9,7 @@
 #pragma once
 
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -18,7 +19,7 @@ namespace gtopt
 {
 
 /// File format used when an assembled LP model is written to disk.
-enum class LpFileFormat : uint8_t
+enum class LpFileFormat : std::uint8_t
 {
   lp = 0,  ///< CPLEX LP format (default), extension `.lp`
   mps = 1,  ///< MPS format, extension `.mps`
@@ -29,6 +30,13 @@ enum class LpFileFormat : uint8_t
     LpFileFormat format) noexcept
 {
   return format == LpFileFormat::mps ? ".mps" : ".lp";
+}
+
+/// Path of the file written for `stem` in `format` (`stem` + extension).
+[[nodiscard]] inline std::string lp_file_path(std::string_view stem,
+                                              LpFileFormat format)
+{
+  return std::format("{}{}", stem, lp_file_extension(format));
 }
 
 /// The other format (used for the fallback of diagnostic dumps).
@@ -47,7 +55,7 @@ enum class LpFileFormat : uint8_t
 
 /// What LinearInterface::write_lp does when the backend cannot write the
 /// requested format.
-enum class LpFormatFallback : uint8_t
+enum class LpFormatFallback : std::uint8_t
 {
   /// Fail with an error naming the backend.  Used when the user asked for
   /// the format explicitly (`--lp-file`, `--lp-format`).
@@ -84,12 +92,15 @@ struct LpFileTarget
 [[nodiscard]] inline LpFileTarget split_lp_file_target(
     std::string filename, LpFileFormat requested = LpFileFormat::lp)
 {
-  if (filename.ends_with(".mps")) {
-    filename.erase(filename.size() - 4);
-    return {.stem = std::move(filename), .format = LpFileFormat::mps};
-  }
-  if (filename.ends_with(".lp")) {
-    filename.erase(filename.size() - 3);
+  for (const auto format : {LpFileFormat::mps, LpFileFormat::lp}) {
+    if (const auto ext = lp_file_extension(format); filename.ends_with(ext)) {
+      filename.resize(filename.size() - ext.size());
+      // `.mps` selects MPS; `.lp` keeps the requested format.
+      return {
+          .stem = std::move(filename),
+          .format = format == LpFileFormat::mps ? format : requested,
+      };
+    }
   }
   return {.stem = std::move(filename), .format = requested};
 }

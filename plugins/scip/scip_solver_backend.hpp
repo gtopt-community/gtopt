@@ -252,7 +252,8 @@ public:
 private:
   /// Build a throwaway SCIP problem from the host model and write it to
   /// `<filename>.<ext>` with SCIP's reader for `ext` ("lp" or "mps").
-  [[nodiscard]] bool write_orig_problem_(const char* filename, const char* ext);
+  [[nodiscard]] bool write_orig_problem_(const char* filename,
+                                         LpFileFormat format);
 
   /// Lower `m_model_` to a fresh SCIP instance, solve, and snapshot the
   /// primal/dual/obj/status into `m_sol_`.  Shared by `initial_solve` and

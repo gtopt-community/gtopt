@@ -2305,7 +2305,7 @@ bool CplexSolverBackend::write_lp(const char* filename, LpFileFormat format)
 {
   // CPLEX writes both with their names; MPS gets MARKER sections for the
   // integer columns.
-  const auto file = std::format("{}{}", filename, lp_file_extension(format));
+  const auto file = lp_file_path(filename, format);
   const char* type = format == LpFileFormat::mps ? "MPS" : "LP";
   return CPXwriteprob(m_env_lp_.env(), m_env_lp_.lp(), file.c_str(), type) == 0;
 }

@@ -212,6 +212,8 @@ public:
 private:
   /// write_lp() helpers: `<filename>.lp` through the Clp interface, and
   /// `<filename>.mps` through CoinMpsIO (uncompressed).
+  /// Interface whose names the file writers use (see the definition).
+  [[nodiscard]] OsiSolverInterface& file_writer_();
   [[nodiscard]] bool write_lp_file_(const char* filename);
   [[nodiscard]] bool write_mps_file_(const char* filename);
 
