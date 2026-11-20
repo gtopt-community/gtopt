@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Real cases in gtopt-cases**: the public case repository
+  [gtopt-community/gtopt-cases](https://github.com/gtopt-community/gtopt-cases)
+  (Chile, Guatemala, Peru, Poland); `tools/get_cases.sh` and
+  `tools/cases.lock` pin it for the tests that need large external cases
+  (`GTOPT_CASES_DIR`).
+
 - **`pp2gtopt` monthly stages with representative blocks**:
   `--stage-period month|week|day` (calendar dates from a date column,
   `--start-date`, or a non-leap 2023 default) and `--block-method
