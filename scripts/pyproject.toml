@@ -11,13 +11,15 @@
 # PATH alongside the gtopt binary.
 
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "gtopt-scripts"
 version = "1.1.0"
 description = "GTOpt (Generation, Transmission and storage Optimization) conversion, diagram and utility scripts (gtopt_compare, cvs2parquet, gtopt_diagram, gtopt_check_lp, gtopt_check_json, gtopt_check_fingerprint, gtopt2pp, igtopt, plp2gtopt, pp2gtopt, ts2gtopt)"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
 requires-python = ">=3.10"
 # Runtime dependencies.  This list is AUTHORITATIVE; requirements.txt
 # mirrors it for `pip install -r` users and must be kept in sync
