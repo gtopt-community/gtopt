@@ -129,6 +129,12 @@ jobs:
             gtopt-clang-
             ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-
           max-size: 2G
+          # Save only on master pushes / manual runs (never for coverage
+          # builds, whose objects differ).  Every save is a full ~0.6-1 GB
+          # snapshot; per-PR saves filled the 10 GB repository cache quota
+          # and evicted the master snapshot that every PR restores (cache
+          # restores fall back from the PR scope to the base branch).
+          save: ${{ github.event_name != 'pull_request' && env.ENABLE_COVERAGE != 'true' }}
 
       # CPM cache key hashes only the files that drive dependency resolution
       # (CPM.cmake and the top-level CMakeLists with CPMAddPackage calls).
@@ -143,6 +149,12 @@ jobs:
 
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
+        with:
+          # Ninja instead of Make: Make builds target by target, so no test
+          # object started until libgtopt.a was linked (~4 min of the build
+          # on 4 cores, with idle cores during the library's slow tail).
+          # Ninja lets test objects compile alongside the library.
+          extra-packages: ninja-build
 
       # GCC 14 is pre-installed on ubuntu-latest; register unversioned
       # alternatives so 'gcc', 'g++', and 'gcov' resolve to gcc-14.
@@ -186,7 +198,13 @@ jobs:
             COVERAGE_FLAG="-DENABLE_TEST_COVERAGE=1"
             BUILD_TYPE="Debug"
           fi
-          cmake -S all -B build ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DGTOPT_REGISTER_PYTHON_TESTS=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          # GTOPT_TEST_UNITY_BATCH_SIZE=4: the default (11 test files per
+          # unity batch) is sized for a cold build on a 20-core host.  CI
+          # compiles on 4 cores from a warm ccache, where one touched test
+          # file or header recompiles every batch that contains it; with 4
+          # files per batch that is ~2.75x less code per invalidated batch.
+          # See test/CMakeLists.txt.
+          cmake -S all -B build -G Ninja ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DGTOPT_REGISTER_PYTHON_TESTS=ON -DGTOPT_TEST_UNITY_BATCH_SIZE=4 -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
         env:
           CC: ${{ env.CC }}
           CXX: ${{ env.CXX }}
@@ -222,7 +240,11 @@ jobs:
           build/standalone/gtopt --version
           echo "✓ gtopt --version works"
 
+      # Tests run in the sharded `test` job below.  Coverage builds keep
+      # running them here because lcov needs the .gcda files next to the
+      # objects in this job's build tree.
       - name: test
+        if: env.ENABLE_COVERAGE == 'true'
         run: |
           set -o pipefail
           cd build
@@ -255,7 +277,7 @@ jobs:
       # failure, so the annotation is the only cheap way to see WHICH
       # tests failed from outside an authenticated session.
       - name: report failed tests
-        if: failure()
+        if: failure() && env.ENABLE_COVERAGE == 'true'
         run: |
           [ -f build/ctest_output.log ] || exit 0
           BLOCK=$(sed -n '/The following tests FAILED:/,$p' build/ctest_output.log | head -40)
@@ -305,6 +327,32 @@ jobs:
             build/standalone/libspdlog.so.1.15
           retention-days: 7
           if-no-files-found: warn
+
+      # Ship the build tree to the `test` shards without object files,
+      # PCHs and static libs (not needed at test time).  ctest runs from
+      # the same absolute path in every job ($GITHUB_WORKSPACE/build), so
+      # CTestTestfile.cmake, the doctest-discovered test list and the
+      # RUNPATHs into build/ resolve unchanged.  tar keeps the exec bits
+      # and symlinks that upload-artifact would drop.
+      - name: package build tree for test shards
+        if: env.ENABLE_COVERAGE != 'true'
+        run: |
+          tar -cf - \
+            --exclude='*.o' --exclude='*.gch' --exclude='*.pch' \
+            --exclude='*.a' --exclude='*.d' \
+            --exclude='build/_deps/*-src' --exclude='build/_deps/*-subbuild' \
+            build | zstd -T0 -3 -q -o build-tree.tar.zst
+          ls -lh build-tree.tar.zst
+
+      - name: upload build tree for test shards
+        if: env.ENABLE_COVERAGE != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: gtopt-build-tree
+          path: build-tree.tar.zst
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
 
       - name: collect coverage (unit + integration)
         if: env.ENABLE_COVERAGE == 'true'
@@ -402,6 +450,104 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           echo "📥 Download the full HTML coverage report from the **cpp-coverage-report** artifact." >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Sharded ctest: the ~5000 CTest entries took ~5.2 min on one 4-core
+  # runner (896 s summed: ~730 s doctest cases, ~55 s e2e cases, ~115 s
+  # Python).  Each shard reuses the build tree from `build`:
+  #   - the gtoptTests doctest cases (independent of each other) are split
+  #     round-robin over 3 shards with `ctest -I <n>,,3`;
+  #   - the e2e cases and Python tests run together in a 4th shard,
+  #     because e2e compare/validate tests only `DEPENDS` (ordering, not a
+  #     fixture) on their `_solve` test and read its output files, so a
+  #     case must never be split across runners.
+  # webservice / test-installed-integrations need only the binary, so they
+  # no longer wait for the tests.
+  # ---------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    # Coverage builds run the tests inside `build` (see there).
+    if: github.event.inputs.run_coverage != 'true'
+    name: test (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: unit 1/3
+            ctest-args: -I 1,,3 -E '^(e2e_|scripts-)'
+          - shard: unit 2/3
+            ctest-args: -I 2,,3 -E '^(e2e_|scripts-)'
+          - shard: unit 3/3
+            ctest-args: -I 3,,3 -E '^(e2e_|scripts-)'
+          # -LE '^unit$': skip the per-package `scripts-<pkg>-unit` pytest
+          # entries; `scripts-all-unit` runs the same tests (plus the
+          # packages that have no per-package entry) in one xdist run.
+          # A plain `ctest` ran them twice (labels filter only with -L/-LE).
+          - shard: e2e + python
+            ctest-args: -R '^(e2e_|scripts-)' -LE '^unit$'
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: install dependencies
+        uses: ./.github/actions/install-apt-deps
+
+      # Same Python as `build`: the Python CTest entries call the absolute
+      # interpreter path recorded at configure time.
+      - name: Set up Python with uv
+        uses: ./.github/actions/setup-python-uv
+
+      - name: Pre-install scripts dependencies
+        run: uv pip install --system -q -e "./scripts[dev]" graphviz
+
+      - name: download build tree
+        uses: actions/download-artifact@v8
+        with:
+          name: gtopt-build-tree
+
+      - name: unpack build tree
+        run: |
+          zstd -d -q -c build-tree.tar.zst | tar -xf -
+          rm build-tree.tar.zst
+          build/standalone/gtopt --version
+
+      - name: test
+        run: |
+          set -o pipefail
+          cd build
+          # Pin the active LP solver to CLP (golden files are per solver;
+          # see the coverage path of the `build` job for details).
+          export GTOPT_SOLVER=clp
+          # Shard selection: see the matrix above.
+          ctest --output-on-failure -j$(nproc) ${{ matrix.ctest-args }} \
+            2>&1 | tee ctest_output.log
+          echo ""
+          echo "=== Test Summary (shard ${{ matrix.shard }}) ==="
+          grep -E "tests passed|Total Test time" ctest_output.log || true
+
+      # Surface the failing test names as a check-run annotation so they
+      # are visible from the checks API (and the PR UI) without opening
+      # the raw job log.  `ctest` exits with a fixed code 8 on any test
+      # failure, so the annotation is the only cheap way to see WHICH
+      # tests failed from outside an authenticated session.
+      - name: report failed tests
+        if: failure()
+        run: |
+          [ -f build/ctest_output.log ] || exit 0
+          BLOCK=$(sed -n '/The following tests FAILED:/,$p' build/ctest_output.log | head -40)
+          [ -n "$BLOCK" ] || exit 0
+          echo "$BLOCK"
+          # Workflow-command annotation: newlines must be %0A-escaped.
+          printf '::error title=ctest failures (shard ${{ matrix.shard }})::%s\n' "$(printf '%s' "$BLOCK" | tr '\n' '\r' | sed 's/\r/%0A/g')"
+          # Re-run the failed tests serially and annotate their output so
+          # the exact failing assertions are visible from the checks API.
+          cd build
+          export GTOPT_SOLVER=clp
+          ctest --rerun-failed --output-on-failure > rerun_failed.log 2>&1 || true
+          DETAIL=$(grep -vE "^\s+\[[0-9]{4}-" rerun_failed.log | head -120)
+          printf '::error title=failing test output (shard ${{ matrix.shard }})::%s\n' "$(printf '%s' "$DETAIL" | tr '\n' '\r' | sed 's/\r/%0A/g' | cut -c1-60000)"
 
   # ---------------------------------------------------------------------------
   # clang-tidy static analysis job
