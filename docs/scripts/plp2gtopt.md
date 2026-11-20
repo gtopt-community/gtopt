@@ -139,6 +139,7 @@ required files must be present; optional files are processed when found.
 | `plpcosce.dat` | `CostParser` | Generation cost curves per central |
 | `plpmance.dat` | `ManceParser` | Maintenance schedule for generating centrals |
 | `plpmanli.dat` | `ManliParser` | Maintenance schedule for transmission lines |
+| `mantlin.csv` (optional) | `ManliParser` | CEN line plan by block range: capacity, operative flag, V/R/X (read after `plpmanli.dat`, later rows win) |
 | `plpaflce.dat` | `AflceParser` | Inflow (afluent) data for hydro plants |
 | `plpextrac.dat` | `ExtracParser` | Water extraction data |
 | `plpmanem.dat` | `ManemParser` | Maintenance schedule for energy management |
@@ -250,6 +251,7 @@ that assembles the GTOpt JSON + Parquet bundle.
 | `plpidsim.dat` / `plpidape.dat`  | `simulation.scenario_array` + apertures                     | ✅      |
 | `plpbar.dat` (Bar / Bus)         | `system.bus_array`                                          | ✅      |
 | `plpcnfli.dat` + `plpmanli.dat`  | `system.line_array` + per-stage `tmax_ab/ba.parquet`        | ✅      |
+| `mantlin.csv`                    | merged into `Line/tmax_ab`, `tmax_ba`, `active`; per-stage `voltage`/`resistance`/`reactance.parquet` when they change | ✅      |
 | `plpcnfce.dat`  ⟶ thermal        | `system.generator_array` (thermal)                          | ✅      |
 | `plpcnfce.dat`  ⟶ embalse        | `Reservoir` + `Turbine` + `Junction` + `Waterway`           | ✅      |
 | `plpcnfce.dat`  ⟶ serie/pasada   | `Junction` + `Waterway` cascade (RoR & series hydro)        | ✅      |
@@ -294,7 +296,7 @@ uniform split; override with `-p`.
 | Voltage                           | (logged, not in JSON)  |                                                |
 | `IBarA`/`IBarB` in `plpcnfli.dat` | `Line.bus_a/bus_b`     | Resolved to bus names                          |
 | `FFalla`                          | (informational)        | Forced-outage flag                             |
-| `Tmax_AB / Tmax_BA`               | `Line.tmax_ab/ba`      | Time-varying via `plpmanli.dat`                |
+| `Tmax_AB / Tmax_BA`               | `Line.tmax_ab/ba`      | Time-varying via `plpmanli.dat` / `mantlin.csv` |
 | `Resist`, `Reactanc`              | `Line.resistance / reactance` | Used when `--use-kirchhoff` is on       |
 
 ### Centrales (`plpcnfce.dat`) — the heaviest mapping

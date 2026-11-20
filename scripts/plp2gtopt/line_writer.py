@@ -19,11 +19,11 @@ class Line(TypedDict, total=False):
     active: int | str
     bus_a: int
     bus_b: int
-    resistance: float
-    reactance: float
+    resistance: float | str
+    reactance: float | str
     tmax_ab: float | str
     tmax_ba: float | str
-    voltage: float
+    voltage: float | str
     loss_segments: int
     use_line_losses: bool
     loss_allocation_mode: str
@@ -90,10 +90,14 @@ class LineWriter(BaseWriter):
                 "active": active,
                 "bus_a": bus_number_a,
                 "bus_b": bus_number_b,
-                "resistance": line["r"],
+                "resistance": (
+                    "resistance" if pcol_name in pcols["resistance"] else line["r"]
+                ),
                 "tmax_ab": tmax_ab,
                 "tmax_ba": tmax_ba,
-                "voltage": line["voltage"],
+                "voltage": (
+                    "voltage" if pcol_name in pcols["voltage"] else line["voltage"]
+                ),
             }
 
             # Only include reactance for AC lines.  DC/HVDC lines
@@ -101,7 +105,9 @@ class LineWriter(BaseWriter):
             # the Kirchhoff voltage-law constraint for them.
             is_hvdc = line.get("hvdc", False)
             reactance = line["x"]
-            if reactance != 0.0 and not is_hvdc:
+            if pcol_name in pcols["reactance"] and not is_hvdc:
+                json_line["reactance"] = "reactance"
+            elif reactance != 0.0 and not is_hvdc:
                 json_line["reactance"] = reactance
 
             # Only include loss_segments when > 1 (piecewise-linear model).
@@ -144,7 +150,14 @@ class LineWriter(BaseWriter):
 
     def _write_parquet_files(self) -> Dict[str, List[str]]:
         """Write line data to Parquet file format."""
-        cols: Dict[str, List[str]] = {"tmax_ab": [], "tmax_ba": [], "active": []}
+        cols: Dict[str, List[str]] = {
+            "tmax_ab": [],
+            "tmax_ba": [],
+            "active": [],
+            "voltage": [],
+            "resistance": [],
+            "reactance": [],
+        }
 
         if not self.manli_parser:
             return cols
@@ -159,6 +172,6 @@ class LineWriter(BaseWriter):
         manli_writer = ManliWriter(
             self.manli_parser, self.line_parser, self.block_parser, self.options
         )
-        cols = manli_writer.to_parquet(output_dir)
+        cols.update(manli_writer.to_parquet(output_dir))
 
         return cols

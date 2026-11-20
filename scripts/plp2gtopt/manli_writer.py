@@ -5,6 +5,7 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict, cast
 
+import numpy as np
 import pandas as pd
 from .base_writer import BaseWriter
 from .manli_parser import ManliParser
@@ -118,9 +119,55 @@ class ManliWriter(BaseWriter):
 
         return df_tmax_ab, df_tmax_ba, df_active
 
+    # mantlin.csv per-block electrical parameters -> gtopt per-stage
+    # Line fields (plp key, gtopt field).  gtopt's voltage / resistance /
+    # reactance are stage schedules; mantlin.csv ranges are stage-aligned
+    # in CEN cases, so the first block of each stage is representative.
+    STAGE_FIELDS = (("voltage", "voltage"), ("r", "resistance"), ("x", "reactance"))
+
+    def _stage_field_dataframe(self, key: str, items: list) -> pd.DataFrame:
+        """Per-stage DataFrame of a mantlin electrical parameter."""
+        if not self.block_parser or not self.line_parser:
+            return pd.DataFrame()
+        rows = []
+        for item in items:
+            if key not in item:
+                continue
+            unit = self.line_parser.get_item_by_name(item["name"])
+            if unit is None:
+                continue
+            values = np.where(np.isnan(item[key]), float(unit[key]), item[key])
+            if np.allclose(values, float(unit[key]), rtol=1e-9, atol=1e-12):
+                continue
+            rows.append({**item, key: values})
+        if not rows:
+            return pd.DataFrame()
+        df = self._create_dataframe(
+            items=rows,
+            unit_parser=self.line_parser,
+            index_parser=self.block_parser,
+            value_field=key,
+            index_field="block",
+            fill_field=key,
+        )
+        if df.empty:
+            return df
+        df["stage"] = df.index.map(self.block_parser.get_stage_number).astype("int32")
+        df = df.drop(columns=["block"], errors="ignore")
+        df = df.groupby("stage", sort=True).first().reset_index()
+        return df
+
     def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
         """Write maintenance data to Parquet files."""
         cols: Dict[str, List[str]] = {"tmax_ab": [], "tmax_ba": [], "active": []}
+        if items is None:
+            items = self.items or []
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for key, field in self.STAGE_FIELDS:
+            df = self._stage_field_dataframe(key, items)
+            cols[field] = [c for c in df.columns if c != "stage"]
+            if not df.empty:
+                self.write_dataframe(df, output_dir, field)
         df_tmax_ab, df_tmax_ba, df_active = self.to_dataframe(items)
 
         cols["tmax_ab"] = df_tmax_ab.columns.tolist() if not df_tmax_ab.empty else []
