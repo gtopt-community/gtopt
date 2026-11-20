@@ -15,8 +15,9 @@ A PSS/E ``.raw`` is a single power-flow snapshot, so the planning is a
   bus + three lines);
 * generators become zero-information-cost ``Generator`` entries — PSS/E
   has no economic data, so a single configurable ``gcost`` is applied;
-* loads become ``Demand`` entries with the active power ``PL`` as an
-  inline ``lmax``.
+* loads become ``Demand`` entries with the total active power
+  ``PL + IP·VM + YP·VM²`` (ZIP parts at the solved bus voltage) as an
+  inline ``lmax``; negative loads become fixed zero-cost injections.
 
 ``use_kirchhoff = true`` turns this into a proper DC OPF; gtopt
 auto-pins one reference bus per electrical island, so no slack handling
@@ -192,21 +193,71 @@ def build_generators(
     return out, matched, len(out)
 
 
+def _load_mw(case: PsseCase) -> list[tuple[Any, float]]:
+    """In-service loads with their total active power at the solved voltage.
+
+    Uses :meth:`LoadSpec.active_mw` with the bus ``VM`` (``1.0`` when the
+    bus is unknown or has no solved voltage), so constant-current and
+    constant-admittance loads count as PSS/E reports them.
+    """
+    vm = {b.number: (b.vm if b.vm > 0.0 else 1.0) for b in case.buses}
+    return [
+        (load, load.active_mw(vm.get(load.bus, 1.0)))
+        for load in case.loads
+        if load.status == 1
+    ]
+
+
 def build_demands(
     case: PsseCase, live: set[int], names: dict[int, str]
 ) -> list[dict[str, Any]]:
-    """Map in-service positive loads to gtopt ``demand_array`` entries."""
+    """Map in-service positive loads to gtopt ``demand_array`` entries.
+
+    The demand is the total active load ``PL + IP·VM + YP·VM²`` at the
+    solved bus voltage (constant-power, -current and -admittance parts).
+    Negative loads are handled by :func:`build_load_injections`.
+    """
     out: list[dict[str, Any]] = []
     uid = 1
-    for load in case.loads:
-        if load.status != 1 or load.bus not in live or load.pl <= 0.0:
+    for load, p_mw in _load_mw(case):
+        if load.bus not in live or p_mw <= 0.0:
             continue
         out.append(
             {
                 "uid": uid,
                 "name": f"d{load.bus}_{load.ident}".strip(),
                 "bus": _ref(names, load.bus),
-                "lmax": [[load.pl]],
+                "lmax": [[p_mw]],
+            }
+        )
+        uid += 1
+    return out
+
+
+def build_load_injections(
+    case: PsseCase, live: set[int], names: dict[int, str], *, first_uid: int
+) -> list[dict[str, Any]]:
+    """Map in-service negative loads to fixed zero-cost generators.
+
+    PSS/E cases often represent HVDC terminals or external equivalents as
+    negative loads.  They are kept as fixed injections
+    (``pmin = pmax = −P``, ``gcost = 0``) named ``inj<bus>_<id>`` so the
+    power balance of the snapshot is preserved.
+    """
+    out: list[dict[str, Any]] = []
+    uid = first_uid
+    for load, p_mw in _load_mw(case):
+        if load.bus not in live or p_mw >= 0.0:
+            continue
+        out.append(
+            {
+                "uid": uid,
+                "name": f"inj{load.bus}_{load.ident}".strip(),
+                "bus": _ref(names, load.bus),
+                "pmin": -p_mw,
+                "pmax": -p_mw,
+                "gcost": 0.0,
+                "capacity": -p_mw,
             }
         )
         uid += 1
@@ -367,6 +418,14 @@ def build_planning(
         gcost_step=gcost_step,
     )
     demand_array = build_demands(case, live, names)
+    injections = build_load_injections(case, live, names, first_uid=len(gen_array) + 1)
+    if injections:
+        logger.info(
+            "%d negative load(s) -> fixed injections (%.1f MW in total)",
+            len(injections),
+            sum(g["pmax"] for g in injections),
+        )
+    gen_array.extend(injections)
     if merit_rank:
         logger.info(
             "LDM merit costs: matched %d of %d generators (%d unmatched -> placed last)",

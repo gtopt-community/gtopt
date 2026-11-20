@@ -63,6 +63,8 @@ class BusSpec:
         ide: PSS/E bus type code (see ``BUS_TYPE_*``).
         area: Area number (1 = Guatemala, 2 = El Salvador, …).
         zone: Zone number.
+        vm: Solved voltage magnitude [p.u.] (``VM``); scales the
+            constant-current / constant-admittance load components.
     """
 
     number: int
@@ -71,6 +73,7 @@ class BusSpec:
     ide: int = BUS_TYPE_PQ
     area: int = 1
     zone: int = 1
+    vm: float = 1.0
 
     @property
     def type_tag(self) -> str:
@@ -85,10 +88,13 @@ class BusSpec:
 
 @dataclass
 class LoadSpec:
-    """A constant-power load record.
+    """A ZIP load record.
 
-    Only the active part (``PL``) is used by the DC OPF; the reactive
-    and current/admittance parts are parsed but ignored.
+    PSS/E splits a load into constant-power (``PL``), constant-current
+    (``IP``, MW at 1 p.u. voltage) and constant-admittance (``YP``, MW at
+    1 p.u. voltage) active parts.  The DC OPF uses the total active power
+    at the solved bus voltage (:meth:`active_mw`); reactive parts are
+    parsed but ignored.
     """
 
     bus: int
@@ -96,6 +102,17 @@ class LoadSpec:
     status: int = 1
     pl: float = 0.0
     ql: float = 0.0
+    ip: float = 0.0
+    yp: float = 0.0
+
+    def active_mw(self, vm: float = 1.0) -> float:
+        """Total active load [MW] at voltage ``vm`` [p.u.].
+
+        ``PL + IP * vm + YP * vm**2`` — the MW PSS/E reports for the
+        solved case.  Negative values are injections (e.g. HVDC terminals
+        or external equivalents modelled as negative loads).
+        """
+        return self.pl + self.ip * vm + self.yp * vm * vm
 
 
 @dataclass

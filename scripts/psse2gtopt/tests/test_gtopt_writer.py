@@ -164,3 +164,54 @@ def test_write_planning_roundtrip(synthetic_planning: dict, tmp_path: Path) -> N
     assert len(reloaded["system"]["bus_array"]) == len(
         synthetic_planning["system"]["bus_array"]
     )
+
+
+_ZIP_RAW = """\
+0,   100.00, 32, 0, 1, 60.00     / ZIP-load fixture
+ZIP LOADS: CONSTANT-CURRENT AND NEGATIVE LOADS
+SECOND TITLE
+     1,'A           ', 500.0000,3,   1,   1,   1,1.05000,   0.0000
+     2,'B           ', 500.0000,1,   1,   1,   1,0.90000,  -5.0000
+ 0 /End of Bus data, Begin Load data
+     2,'1 ',1,   1,   1,    10.000,     0.000,   100.000,     0.000,    50.000,     0.000,   1,1
+     1,'1 ',1,   1,   1,     0.000,     0.000,  -200.000,     0.000,     0.000,     0.000,   1,1
+     2,'2 ',0,   1,   1,     0.000,     0.000,   999.000,     0.000,     0.000,     0.000,   1,1
+ 0 /End of Load data, Begin Fixed shunt data
+ 0 /End of Fixed shunt data, Begin Generator data
+     1,'1 ',   100.000,     0.000,   100.000,  -100.000,1.05000,     0,   500.000, 0.00000E+0, 2.00000E-1, 0.00000E+0, 0.00000E+0,1.00000,1,  100.0,   500.000,     0.000,   1,1.0000
+ 0 /End of Generator data, Begin Branch data
+     1,     2,'1 ', 1.00000E-3, 1.00000E-2, 0.00000E+0,    0.00,    0.00,    0.00,  0.00000,  0.00000,  0.00000,  0.00000,1,1,   0.00,   1,1.0000
+ 0 /End of Branch data, Begin Transformer data
+ 0 /End of Transformer data
+"""
+
+
+@pytest.fixture(scope="module")
+def zip_planning(tmp_path_factory: pytest.TempPathFactory) -> dict:
+    raw = tmp_path_factory.mktemp("zip") / "zip.raw"
+    raw.write_text(_ZIP_RAW, encoding="latin-1")
+    return build_planning(parse_raw(raw), name="zip")
+
+
+def test_zip_load_at_solved_voltage(zip_planning: dict) -> None:
+    """PL + IP*VM + YP*VM^2 at the bus VM (constant-current WECC-240 style)."""
+    demands = zip_planning["system"]["demand_array"]
+    assert [d["name"] for d in demands] == ["d2_1"]
+    vm = 0.9
+    expected = 10.0 + 100.0 * vm + 50.0 * vm * vm
+    assert demands[0]["lmax"][0][0] == pytest.approx(expected)
+
+
+def test_negative_load_becomes_fixed_injection(zip_planning: dict) -> None:
+    """A negative (IP-only) load is kept as a fixed zero-cost injection."""
+    gens = zip_planning["system"]["generator_array"]
+    inj = [g for g in gens if g["name"].startswith("inj")]
+    assert len(inj) == 1
+    g = inj[0]
+    assert g["name"] == "inj1_1"
+    assert g["bus"] == "b1"
+    assert g["pmin"] == pytest.approx(200.0 * 1.05)
+    assert g["pmax"] == pytest.approx(200.0 * 1.05)
+    assert g["gcost"] == pytest.approx(0.0)
+    uids = [x["uid"] for x in gens]
+    assert len(set(uids)) == len(uids)

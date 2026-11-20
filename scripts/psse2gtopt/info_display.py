@@ -41,16 +41,21 @@ def display_psse_info(options: dict[str, Any]) -> None:
 
     gens_on = [g for g in case.gens if g.status == 1 and g.pmax > 0]
     pmax_total = sum(g.pmax for g in gens_on)
-    loads_on = [d for d in case.loads if d.status == 1 and d.pl > 0]
-    load_total = sum(d.pl for d in loads_on)
+    vm = {b.number: (b.vm if b.vm > 0.0 else 1.0) for b in case.buses}
+    load_mw = [
+        (d, d.active_mw(vm.get(d.bus, 1.0))) for d in case.loads if d.status == 1
+    ]
+    loads_on = [(d, p) for d, p in load_mw if p > 0]
+    load_total = sum(p for _, p in loads_on)
+    neg_total = sum(p for _, p in load_mw if p < 0)
     branches_on = [b for b in case.branches if b.status == 1]
     xf2 = sum(1 for t in case.transformers if t.windings == 2 and t.status != 0)
     xf3 = sum(1 for t in case.transformers if t.windings == 3 and t.status != 0)
 
     load_by_area: dict[int, float] = defaultdict(float)
     bus_area = {b.number: b.area for b in case.buses}
-    for d in loads_on:
-        load_by_area[bus_area.get(d.bus, 0)] += d.pl
+    for d, p in loads_on:
+        load_by_area[bus_area.get(d.bus, 0)] += p
 
     print(f"PSS/E RAW case: {raw_file}")
     print(
@@ -72,8 +77,10 @@ def display_psse_info(options: dict[str, Any]) -> None:
     )
     print(
         f"  loads           : {len(case.loads)} total, {len(loads_on)} in-service, "
-        f"Σpl {load_total:,.0f} MW"
+        f"ΣP {load_total:,.0f} MW (PL+IP·VM+YP·VM²)"
     )
+    if neg_total < 0:
+        print(f"  negative loads  : {neg_total:,.0f} MW (-> fixed injections)")
     print(
         f"  branches        : {len(case.branches)} total, {len(branches_on)} in-service"
     )

@@ -24,7 +24,9 @@ emits a GTOpt planning that `gtopt --lp-only` ingests directly:
   plus three lines);
 - generators → `Generator` entries (PSS/E has no costs, so a single
   configurable `--gcost` is applied);
-- loads → `Demand` entries with the active power `PL` as inline `lmax`.
+- loads → `Demand` entries with the total active power
+  `PL + IP·VM + YP·VM²` as inline `lmax` (negative loads → fixed
+  injections).
 
 `use_kirchhoff = true` makes this a proper DC OPF; GTOpt auto-pins one
 reference bus per electrical island, so no slack handling is required.
@@ -139,8 +141,8 @@ Files are read as Latin-1 (PSS/E writes Windows-1252 / Latin-1 text).
 | Record       | Fields read                                                          |
 |--------------|---------------------------------------------------------------------|
 | Case-id      | `SBASE` (1), `REV` (2), `BASFRQ` (5)                                 |
-| BUS          | `I` (0), `NAME` (1), `BASKV` (2), `IDE` (3), `AREA` (4), `ZONE` (5)  |
-| LOAD         | `I` (0), `ID` (1), `STATUS` (2), `PL` (5), `QL` (6)                  |
+| BUS          | `I` (0), `NAME` (1), `BASKV` (2), `IDE` (3), `AREA` (4), `ZONE` (5), `VM` (7) |
+| LOAD         | `I` (0), `ID` (1), `STATUS` (2), `PL` (5), `QL` (6), `IP` (7), `YP` (9) |
 | GENERATOR    | `I` (0), `ID` (1), `STAT` (14), `PT`→pmax (16), `PB`→pmin (17)       |
 | BRANCH       | `I` (0), `J` (1), `CKT` (2), `X` (4), `RATEA` (6), `ST` (13)         |
 | TRANSFORMER L1 | `I` (0), `J` (1), `K` (2), `CKT` (3), `CZ` (5), `NAME` (10), `STAT` (11) |
@@ -183,8 +185,17 @@ synchronous condensers (`PT = 0`) are dropped.
 
 ### Loads → `demand_array`
 
-Each in-service load with `PL > 0` becomes a `Demand` with
-`lmax = [[PL]]` (MW).  Out-of-service and zero loads are dropped.
+A PSS/E load is a ZIP load: constant power `PL`, constant current `IP`
+and constant admittance `YP` (both in MW at 1 p.u. voltage).  Its active
+power is evaluated at the solved bus voltage `VM` of the snapshot,
+`P = PL + IP·VM + YP·VM²` — the MW PSS/E reports for the case (cases
+such as the reduced WECC 240-bus model hold all their load in `IP`).
+
+Each in-service load with `P > 0` becomes a `Demand` with
+`lmax = [[P]]` (MW).  A load with `P < 0` (HVDC terminals or external
+equivalents are often modelled this way) becomes a fixed zero-cost
+generator `inj<bus>_<id>` with `pmin = pmax = −P`, so the snapshot's
+power balance is preserved.  Out-of-service and zero loads are dropped.
 
 ### Branches + transformers → `line_array`
 

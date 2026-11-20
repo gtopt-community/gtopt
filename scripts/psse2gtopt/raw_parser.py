@@ -153,13 +153,14 @@ def _parse_buses(records: list[str]) -> list[BusSpec]:
                 ide=_to_int(f[3]),
                 area=_to_int(f[4]) if len(f) > 4 else 1,
                 zone=_to_int(f[5]) if len(f) > 5 else 1,
+                vm=_to_float(f[7]) if len(f) > 7 and f[7].strip() else 1.0,
             )
         )
     return out
 
 
 def _parse_loads(records: list[str]) -> list[LoadSpec]:
-    """LOAD: ``I, ID, STATUS, AREA, ZONE, PL, QL, …``."""
+    """LOAD: ``I, ID, STATUS, AREA, ZONE, PL, QL, IP, IQ, YP, YQ, …``."""
     out: list[LoadSpec] = []
     for rec in records:
         f = _split(rec)
@@ -172,6 +173,8 @@ def _parse_loads(records: list[str]) -> list[LoadSpec]:
                 status=_to_int(f[2]),
                 pl=_to_float(f[5]),
                 ql=_to_float(f[6]),
+                ip=_to_float(f[7]) if len(f) > 7 else 0.0,
+                yp=_to_float(f[9]) if len(f) > 9 else 0.0,
             )
         )
     return out
