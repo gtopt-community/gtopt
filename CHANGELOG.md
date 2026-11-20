@@ -19,16 +19,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   heat-rate curves are made convex, and constraints without a penalty stay
   hard.  Missing Data Files are fatal only when a converted property needs
   them.  A bare `*.xml` / `*.xml.xz` is accepted as input.
+
 - **`plexos2gtopt.aemo_isp`** (prototype): builds an hourly dispatch case for
   a short window of one scenario of AEMO's 2026 ISP PLEXOS model (buses,
   demand traces, generators, batteries, flow paths, hydro storages with
   inflows, daily energy limits); expansion and the PLEXOS constraint set are
   not converted yet.
+
 - **`plp2gtopt` reads `mantlin.csv`**: the transmission works plan of CEN
   PLP cases (e.g. the PET 2027 transmission-planning bases) is merged after
   `plpmanli.dat` block by block; lines now enter/leave service and change
   rating, R and X as planned (per-stage voltage/resistance/reactance
   schedules).
+
 - **`psse2gtopt` overlays**: `--gen-costs` (`bus,id[,pmax],mw1,cost1,…`) and
   `--line-limits` (`from,to,ckt,tmax`) CSV files.
 
@@ -92,9 +95,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `FutureCost.missing_cut_var_mode` is also new, and `FutureCost.valuation`
   is now typed `BoundaryCutsValuation` (`end_of_horizon` /
   `present_value`), the type the cut loader actually uses.
+
 - **`tools/migrate_future_cost.py`**: rewrites the deprecated boundary-cut
   keys of planning JSON files onto `system.future_cost_array`, preserving
   formatting (`--method-rules`, `--dry-run`).
+
 - **`gtopt_check_json` check `future_cost_aliases`**: warns on each
   deprecated boundary-cut key and reports conflicting values as critical.
 
@@ -123,9 +128,121 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Levels `none` (default), `summary` (JSON only) and `full` (`true`); the
   JSON follows `--lp-compression`.  The model file is unchanged.  See
   `docs/lp-scales.md`.
+
 - **`gtopt::build_info()`**: version and `git describe` revision of the
   running build, refreshed at build time, for audit trails in generated
   files.
+
+### Changed
+
+- **FutureCost is the single source of the FCF boundary cuts**: the
+  `system.future_cost_array` element configures the boundary cuts for every
+  method (monolithic, SDDP, cascade); a method never reads another
+  method's options.  The monolithic solver no longer honours
+  `sddp_options.boundary_cuts_mean_shift`, `missing_cut_var_mode`,
+  `scale_alpha` or `cut_coeff_eps` (it uses `FutureCost.scale_alpha` and
+  the default `cut_coeff_eps`).  A relative `cuts_file` now resolves
+  against `options.input_directory` under monolithic too, and a
+  single-phase SDDP run falling back to monolithic now loads the cuts.
+  `use_user_alpha` together with `cuts_file` is an error under monolithic
+  as under SDDP.  Generic extra linear constraints belong in
+  `UserConstraint`.
+
+- **Converters emit FutureCost**: `plp2gtopt`, `plexos2gtopt`,
+  `sddp2gtopt` and `igtopt` write `system.future_cost_array` and never the
+  legacy keys; `plp2gtopt`'s emissions ray no longer overwrites a user
+  `cuts_file`.
+
+### Deprecated
+
+- **Boundary-cut option keys** are now aliases of FutureCost fields,
+  translated once at planning load (after `--set`) with a warning:
+  `sddp_options.boundary_cuts_file`, `boundary_cuts_mode`,
+  `boundary_cut_sharing_mode`, `boundary_cuts_mean_shift`,
+  `boundary_max_iterations`, `missing_cut_var_mode` (honoured only for
+  `sddp` / `cascade`); `monolithic_options.boundary_cuts_file`,
+  `boundary_cuts_mode`, `boundary_cut_sharing_mode`,
+  `boundary_max_iterations` (only for `monolithic`);
+  `simulation.boundary_cuts_file`, `boundary_cuts_valuation` (any method).
+  A key of the other method is ignored with a warning; different values
+  for the same field are a hard error.
+
+### Removed
+
+- **`BoundaryCutSoftCost` enum**: the former type of `FutureCost.valuation`
+  was never read by the cut loader.
+
+### Fixed
+
+- **Security (code scanning)**: the guiservice-plus AI chat route no longer
+  fetches a browser-supplied URL (Ollama/custom endpoints must be
+  allow-listed in `GTOPT_AI_ALLOWED_BASE_URLS`); guiservice error responses
+  return an error id instead of exception text, and `/api/logs` omits
+  tracebacks.
+
+- **`psse2gtopt` loads**: constant-current and constant-impedance load
+  components are evaluated at the solved bus voltage
+  (`PL + IP·VM + YP·VM²`); negative loads become fixed injections instead
+  of being dropped.
+
+- **`plp2gtopt`: boundary-cut `efin_cost` used the wrong volume unit.**
+  `PlanosParser.lower_bound_water_value_by_reservoir` (the cut water value
+  that overwrites `Reservoir.efin_cost` under `--soft-storage-bounds`)
+  still scaled plpplem2 gradients by the per-reservoir `10^(FEscala-6)`,
+  the FEscala mis-reading the `boundary_cuts.csv` writer dropped on
+  2026-07-12.  `efin_cost` was off from the cuts gtopt loads by
+  `10^(9-FEscala)` (×10 low for FEscala=8, ×10 high for FEscala=10).
+  Both now use the shared uniform `PLANOS_GRAD_SCALE` (`$/dam³ → $/hm³`,
+  ×1000); the `apply_fescala` keyword became `grad_scale`.
+
+- **Python tools: runtime data files missing from non-editable installs.**
+  `pip install ./scripts` (wheel) did not ship
+  `plexos2gtopt/data/cen_pcp_hard_ucs.txt`, the `plexos2gtopt`/`plp2gtopt`
+  `solvers/*.prm|*.opts` files, the `gtopt_expand` whitelist CSVs, nor the
+  repo-root `share/gtopt/{emissions,cogen}` tables, and every loader
+  silently fell back: `plexos2gtopt` demoted ~90–110 CEN user constraints
+  per case from HARD to SOFT, used the bare IPCC emission factors instead
+  of `cen_chile.json`, tagged no cogen units and wrote no `solvers/`
+  directory.  All files are now package data; `cen_chile.json` and
+  `cen_chile_cogen.csv` moved from `share/gtopt/` to
+  `scripts/gtopt_shared/data/{emissions,cogen}/` (single copy; the C++
+  side only reads `share/gtopt/{naming,unit}_dialects.json`), and the
+  duplicate `plp2gtopt/templates/ror_equivalence.csv` was dropped in
+  favour of `gtopt_expand/templates/`.  A missing required file now raises
+  `gtopt_shared.resources.MissingDataFileError` with a reinstall hint.
+  The three copies of the cogen loader were merged into
+  `gtopt_shared.cen_cogen` (the `gtopt_marginal_units` copy looked one
+  directory above the repo root and never found the CSV).  A new
+  `pytest -m wheel` test builds and installs the wheel and checks every
+  file; the Scripts CI workflow runs it.  Cases converted with an
+  affected install must be reconverted.
+
+- **`future_cost_array` dropped on planning merge**: `System::merge` did
+  not merge `future_cost_array`, so a FutureCost element read from a
+  planning file was silently ignored.
+
+### Testing
+
+- **`test_water_fail_cost_magnitude.py` runs on the published `plp_2y`
+  case** (previously on a private case).  The `lost_pf` reference table
+  was recomputed from plp_2y data with its derivation documented, and is
+  checked end to end (`efin_cost = anchor × lost_pf × 1e6/3600`); the
+  boundary-cut overwrite is checked separately against the emitted
+  `boundary_cuts.csv`.  The old tests asserted obsolete defaults:
+  `efin_cost` is only emitted with `--soft-storage-bounds` (hard bounds by
+  default) and `--no-cuts-govern-terminal`, and the default
+  `phi_expectation` CSV is no longer pre-divided by `NVarPhi`.
+
+- **Monolithic keeps the boundary cuts of an SDDP-converted case**: new
+  doctest pins that a FutureCost element (what the converters emit)
+  loads under `method = monolithic`.
+
+## [1.0.0] - 2026-11-18
+
+First public release of GTOpt.
+
+
+### Added
 
 - **Unit commitment (three-bin formulation)**: full implementation of the
   Morales-España tight-and-compact UC model with status ($u$), startup ($v$),
@@ -186,42 +303,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **FutureCost is the single source of the FCF boundary cuts**: the
-  `system.future_cost_array` element configures the boundary cuts for every
-  method (monolithic, SDDP, cascade); a method never reads another
-  method's options.  The monolithic solver no longer honours
-  `sddp_options.boundary_cuts_mean_shift`, `missing_cut_var_mode`,
-  `scale_alpha` or `cut_coeff_eps` (it uses `FutureCost.scale_alpha` and
-  the default `cut_coeff_eps`).  A relative `cuts_file` now resolves
-  against `options.input_directory` under monolithic too, and a
-  single-phase SDDP run falling back to monolithic now loads the cuts.
-  `use_user_alpha` together with `cuts_file` is an error under monolithic
-  as under SDDP.  Generic extra linear constraints belong in
-  `UserConstraint`.
-- **Converters emit FutureCost**: `plp2gtopt`, `plexos2gtopt`,
-  `sddp2gtopt` and `igtopt` write `system.future_cost_array` and never the
-  legacy keys; `plp2gtopt`'s emissions ray no longer overwrites a user
-  `cuts_file`.
-
-### Deprecated
-
-- **Boundary-cut option keys** are now aliases of FutureCost fields,
-  translated once at planning load (after `--set`) with a warning:
-  `sddp_options.boundary_cuts_file`, `boundary_cuts_mode`,
-  `boundary_cut_sharing_mode`, `boundary_cuts_mean_shift`,
-  `boundary_max_iterations`, `missing_cut_var_mode` (honoured only for
-  `sddp` / `cascade`); `monolithic_options.boundary_cuts_file`,
-  `boundary_cuts_mode`, `boundary_cut_sharing_mode`,
-  `boundary_max_iterations` (only for `monolithic`);
-  `simulation.boundary_cuts_file`, `boundary_cuts_valuation` (any method).
-  A key of the other method is ignored with a warning; different values
-  for the same field are a hard error.
-
-### Removed
-
-- **`BoundaryCutSoftCost` enum**: the former type of `FutureCost.valuation`
-  was never read by the cut loader.
-
 - **Emission options replaced by `EmissionZone`**: `model_options.emission_cost`
   and `model_options.emission_cap` were removed (and are now rejected as
   unknown options).  A carbon price is now a zone `price` and a cap a zone
@@ -278,51 +359,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **Security (code scanning)**: the guiservice-plus AI chat route no longer
-  fetches a browser-supplied URL (Ollama/custom endpoints must be
-  allow-listed in `GTOPT_AI_ALLOWED_BASE_URLS`); guiservice error responses
-  return an error id instead of exception text, and `/api/logs` omits
-  tracebacks.
-- **`psse2gtopt` loads**: constant-current and constant-impedance load
-  components are evaluated at the solved bus voltage
-  (`PL + IP·VM + YP·VM²`); negative loads become fixed injections instead
-  of being dropped.
-
-- **`plp2gtopt`: boundary-cut `efin_cost` used the wrong volume unit.**
-  `PlanosParser.lower_bound_water_value_by_reservoir` (the cut water value
-  that overwrites `Reservoir.efin_cost` under `--soft-storage-bounds`)
-  still scaled plpplem2 gradients by the per-reservoir `10^(FEscala-6)`,
-  the FEscala mis-reading the `boundary_cuts.csv` writer dropped on
-  2026-07-12.  `efin_cost` was off from the cuts gtopt loads by
-  `10^(9-FEscala)` (×10 low for FEscala=8, ×10 high for FEscala=10).
-  Both now use the shared uniform `PLANOS_GRAD_SCALE` (`$/dam³ → $/hm³`,
-  ×1000); the `apply_fescala` keyword became `grad_scale`.
-
-- **Python tools: runtime data files missing from non-editable installs.**
-  `pip install ./scripts` (wheel) did not ship
-  `plexos2gtopt/data/cen_pcp_hard_ucs.txt`, the `plexos2gtopt`/`plp2gtopt`
-  `solvers/*.prm|*.opts` files, the `gtopt_expand` whitelist CSVs, nor the
-  repo-root `share/gtopt/{emissions,cogen}` tables, and every loader
-  silently fell back: `plexos2gtopt` demoted ~90–110 CEN user constraints
-  per case from HARD to SOFT, used the bare IPCC emission factors instead
-  of `cen_chile.json`, tagged no cogen units and wrote no `solvers/`
-  directory.  All files are now package data; `cen_chile.json` and
-  `cen_chile_cogen.csv` moved from `share/gtopt/` to
-  `scripts/gtopt_shared/data/{emissions,cogen}/` (single copy; the C++
-  side only reads `share/gtopt/{naming,unit}_dialects.json`), and the
-  duplicate `plp2gtopt/templates/ror_equivalence.csv` was dropped in
-  favour of `gtopt_expand/templates/`.  A missing required file now raises
-  `gtopt_shared.resources.MissingDataFileError` with a reinstall hint.
-  The three copies of the cogen loader were merged into
-  `gtopt_shared.cen_cogen` (the `gtopt_marginal_units` copy looked one
-  directory above the repo root and never found the CSV).  A new
-  `pytest -m wheel` test builds and installs the wheel and checks every
-  file; the Scripts CI workflow runs it.  Cases converted with an
-  affected install must be reconverted.
-
-- **`future_cost_array` dropped on planning merge**: `System::merge` did
-  not merge `future_cost_array`, so a FutureCost element read from a
-  planning file was silently ignored.
 - **Solver registry crash on failed plugin validation**: requesting a
   solver whose plugin fails subprocess validation (e.g. a transient
   license error) crashed with SIGSEGV instead of falling back to the
@@ -349,25 +385,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
-- **`test_water_fail_cost_magnitude.py` runs on the published `plp_2y`
-  case** (was the private `iplp_juan`, now retired).  The `lost_pf`
-  reference table was recomputed from plp_2y data with its derivation
-  documented, and is now checked end to end on a planos-free copy of the
-  case (`efin_cost = anchor × lost_pf × 1e6/3600`); the boundary-cut
-  overwrite is checked separately against the emitted `boundary_cuts.csv`.
-  The juan-based tests (and `test_plp_gtopt_comparison.py::
-  test_efin_cost_from_boundary_cuts`) had been silently skipped since
-  2026-05 and asserted obsolete defaults: `efin_cost` is only emitted with
-  `--soft-storage-bounds` (hard bounds by default since 2026-07) and
-  `--no-cuts-govern-terminal`, and the default `phi_expectation` CSV is
-  no longer pre-divided by `NVarPhi`.
-- **Monolithic keeps the boundary cuts of an SDDP-converted case**: new
-  doctest pins that a FutureCost element (what the converters emit)
-  loads under `method = monolithic`.
-
 - **+160 unit tests**: coverage increased from 71.5% to 77.3%, with new
   tests for `sddp_cut_io`, `sddp_monitor`, battery expansion, reservoir
   efficiency, variable scaling, and enum options.
 
 [Unreleased]: https://github.com/gtopt-community/gtopt/compare/v1.1.0...HEAD
-[1.1.0]: https://github.com/gtopt-community/gtopt/releases/tag/v1.1.0
+[1.1.0]: https://github.com/gtopt-community/gtopt/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/gtopt-community/gtopt/releases/tag/v1.0.0

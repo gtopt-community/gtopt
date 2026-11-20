@@ -280,7 +280,12 @@ jobs:
             echo "::error::empty CHANGELOG section for $VERSION"
             exit 1
           fi
+          compare=$(grep -m1 "^\[$VERSION\]: " CHANGELOG.md | sed 's/^\[[^]]*\]: //' || true)
           {
+            if [ -n "$compare" ]; then
+              echo
+              echo "**Full changelog**: $compare"
+            fi
             echo
             echo "## Downloads"
             echo
