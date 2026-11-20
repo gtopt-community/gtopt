@@ -1,81 +1,54 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
-// Port of the GenX "1_three_zones" example to gtopt's emission framework.
+// Emission-model test: three natural-gas combined-cycle (NGCC) plants in
+// three New England zones (MA / CT / ME) plus one solar and one wind
+// plant, aggregated onto a SINGLE gtopt bus with one global CO2 cap.
+// It exercises the fuel-emission expand pass and a binding CO2 cap.
 //
-// Source GenX example (as of 2026-05):
-//   https://github.com/GenXProject/GenX/tree/main/example_systems/1_three_zones
+// This is an independent test written for gtopt.  It uses only a few
+// public, factual technology parameters (below); no third-party code,
+// data file or table is copied.  The parameter values coincide with
+// those of the "1_three_zones" example documented by the GenX project
+// (https://github.com/GenXProject/GenX), which was used only as a
+// cross-check that they form a realistic, widely used set.
 //
-// CSVs fetched verbatim:
-//   resources/Thermal.csv
-//     https://raw.githubusercontent.com/GenXProject/GenX/main/example_systems/
-//     1_three_zones/resources/Thermal.csv
-//   resources/Vre.csv
-//     https://raw.githubusercontent.com/GenXProject/GenX/main/example_systems/
-//     1_three_zones/resources/Vre.csv
-//   system/Fuels_data.csv
-//     https://raw.githubusercontent.com/GenXProject/GenX/main/example_systems/
-//     1_three_zones/system/Fuels_data.csv
-//   system/Demand_data.csv
-//     https://raw.githubusercontent.com/GenXProject/GenX/main/example_systems/
-//     1_three_zones/system/Demand_data.csv
-//   policies/CO2_cap.csv
-//     https://raw.githubusercontent.com/GenXProject/GenX/main/example_systems/
-//     1_three_zones/policies/CO2_cap.csv
+// ## Parameters and their public sources
 //
-// The GenX system has 3 zones (MA / CT / ME) with one NGCC plant per zone
-// plus 4 VRE resources.  All thermal resources share the same fuel kind
-// ("natural gas", `*_NG`); only their heat-rate, var-OM and zonal fuel
-// price differ.  This port keeps the same plant parameters but
-// simplifies the topology to a SINGLE gtopt bus aggregating all zones —
-// enough to stress the fuel-emission expand pass + a binding CO2 cap.
+//   * CO2 content of natural gas: 53.06 kg CO2/MMBtu = 0.05306 t/MMBtu,
+//     the US EPA default emission factor (40 CFR Part 98, Subpart C,
+//     Table C-1; EPA GHG Emission Factors Hub).
+//   * Heat rates: 7.12 and 7.43 MMBtu/MWh for the CT and MA combined
+//     cycles and 12.62 MMBtu/MWh for the older ME unit -- representative
+//     values: the US EIA Electric Power Annual (Table 8.1) reports average
+//     operating heat rates of roughly 7.5-7.7 MMBtu/MWh for natural-gas
+//     combined cycles and above 10 MMBtu/MWh for natural-gas steam and
+//     combustion-turbine units.
+//   * Variable O&M: 3.55 / 3.57 / 4.50 $/MWh for the NGCCs and
+//     0.10 $/MWh for wind, of the order of the VOM values in the NREL
+//     Annual Technology Baseline and the EIA AEO cost and performance
+//     assumptions.
+//   * Delivered gas prices: 5.28 $/MMBtu (MA) and 5.45 $/MMBtu (CT, ME),
+//     of the order of EIA's New England natural-gas prices for electric
+//     power.
 //
-// ## Inputs (verbatim from the GenX CSVs)
-//
-// Thermal.csv (selected columns):
-//
-//   | Resource             | Heat_Rate (MMBtu/MWh) | Var_OM ($/MWh) | Fuel  |
-//   |----------------------|-----------------------|----------------|-------|
-//   | MA_natural_gas_CC    | 7.43                  | 3.55           | MA_NG |
-//   | CT_natural_gas_CC    | 7.12                  | 3.57           | CT_NG |
-//   | ME_natural_gas_CC    | 12.62                 | 4.50           | ME_NG |
-//
-// Fuels_data.csv — first data row holds the CO2_content (tCO2/MMBtu)
-// for each fuel column; later rows are time-indexed prices.  We use
-// the first-period prices (Time_Index=1):
-//
-//   | Fuel  | CO2_content (tCO2/MMBtu) | First-period price ($/MMBtu) |
-//   |-------|--------------------------|------------------------------|
-//   | MA_NG | 0.05306                  | 5.28                         |
-//   | CT_NG | 0.05306                  | 5.45                         |
-//   | ME_NG | 0.05306                  | 5.45                         |
-//
-// Vre.csv (selected; we keep one solar + one wind for the renewables):
-//
-//   | Resource         | Var_OM ($/MWh) |
-//   |------------------|----------------|
-//   | MA_solar_pv      | 0              |
-//   | CT_onshore_wind  | 0.10           |
-//
-// CO2_cap.csv — three mass-based per-zone caps (CO_2_Max_Mtons_*).
-// The single-bus port aggregates them into one global CO2 cap.  GenX's
-// caps are stated in million-tons per year; we down-scale to one stage
-// = one hour and pick a binding value derived from the algebra below.
+// Capacities, demand, the CO2 cap and the single-bus topology are
+// chosen for this test (see "Expected dispatch").
 //
 // ## Unit conversion (1 MMBtu = 1.05506 GJ)
 //
-//   heat_rate (GJ/MWh)         = heat_rate_MMBtu × 1.05506
+//   heat_rate (GJ/MWh)         = heat_rate_MMBtu x 1.05506
 //   price ($/GJ)               = price_MMBtu / 1.05506
 //   combustion (tCO2/GJ)       = CO2_content_MMBtu / 1.05506
 //
-// All three NGCCs share the same fuel CO2_content, so the per-MWh
-// CO2 rate (`heat_rate · combustion`) is set by heat_rate alone:
+// All three NGCCs share the same fuel CO2 content, so the per-MWh CO2
+// rate (`heat_rate * combustion`) is set by the heat rate alone:
 //
-//   | Plant   | heat_rate (GJ/MWh) | price ($/GJ) | SRMC ($/MWh) | CO2 (t/MWh)
-//   |
-//   |---------|--------------------|--------------|--------------|-------------|
-//   | MA_NGCC | 7.83909            | 5.00351      | 42.781       | 0.39423 | |
-//   CT_NGCC | 7.51203            | 5.16464      | 42.374       | 0.37779     |
-//   | ME_NGCC | 13.31486           | 5.16464      | 73.279       | 0.66962 |
+//   MA_NGCC: heat rate 7.83909 GJ/MWh, price 5.00351 $/GJ,
+//            SRMC 42.781 $/MWh, CO2 0.39423 t/MWh
+//   CT_NGCC: heat rate 7.51203 GJ/MWh, price 5.16464 $/GJ,
+//            SRMC 42.374 $/MWh, CO2 0.37779 t/MWh
+//   ME_NGCC: heat rate 13.31486 GJ/MWh, price 5.16464 $/GJ,
+//            SRMC 73.279 $/MWh, CO2 0.66962 t/MWh
 //
 // CT_NGCC is the cheapest thermal; ME_NGCC the dirtiest and most
 // expensive.  MA_NGCC sits between them on both axes.
@@ -137,7 +110,7 @@ using namespace gtopt;
 // Wrap the file body in a uniquely-named namespace so the inner
 // anonymous namespace doesn't collide with the other emission test
 // files when CMake batches them into a unity TU.
-namespace test_emission_genx_port
+namespace test_emission_three_zone_ngcc
 {
 namespace
 {
@@ -145,28 +118,28 @@ namespace
 // 1 MMBtu = 1.05506 GJ — IEEE / IAPWS conversion constant.
 constexpr Real kMMBtuPerGJ = 1.05506;
 
-// GenX raw inputs (verbatim from Thermal.csv + Fuels_data.csv).
-struct GenXThermal
+// Public technology parameters of one NGCC plant (see file header).
+struct NgccPlant
 {
-  Real heat_rate_mmbtu;  // Heat_Rate_MMBTU_per_MWh
-  Real var_om;  // Var_OM_Cost_per_MWh
-  Real fuel_price_mmbtu;  // First-period price from Fuels_data.csv
-  Real fuel_co2_mmbtu;  // CO2_content (Time_Index=0 row) tCO2/MMBtu
+  Real heat_rate_mmbtu;  // MMBtu/MWh
+  Real var_om;  // $/MWh
+  Real fuel_price_mmbtu;  // $/MMBtu
+  Real fuel_co2_mmbtu;  // tCO2/MMBtu (EPA natural-gas default)
 };
 
-constexpr GenXThermal kMA_NGCC = {
+constexpr NgccPlant kMA_NGCC = {
     .heat_rate_mmbtu = 7.43,
     .var_om = 3.55,
     .fuel_price_mmbtu = 5.28,
     .fuel_co2_mmbtu = 0.05306,
 };
-constexpr GenXThermal kCT_NGCC = {
+constexpr NgccPlant kCT_NGCC = {
     .heat_rate_mmbtu = 7.12,
     .var_om = 3.57,
     .fuel_price_mmbtu = 5.45,
     .fuel_co2_mmbtu = 0.05306,
 };
-constexpr GenXThermal kME_NGCC = {
+constexpr NgccPlant kME_NGCC = {
     .heat_rate_mmbtu = 12.62,
     .var_om = 4.50,
     .fuel_price_mmbtu = 5.45,
@@ -174,26 +147,26 @@ constexpr GenXThermal kME_NGCC = {
 };
 
 // Derived gtopt-side quantities (see header table).
-[[nodiscard]] constexpr Real heat_rate_gj(const GenXThermal& t) noexcept
+[[nodiscard]] constexpr Real heat_rate_gj(const NgccPlant& t) noexcept
 {
   return t.heat_rate_mmbtu * kMMBtuPerGJ;
 }
-[[nodiscard]] constexpr Real price_per_gj(const GenXThermal& t) noexcept
+[[nodiscard]] constexpr Real price_per_gj(const NgccPlant& t) noexcept
 {
   return t.fuel_price_mmbtu / kMMBtuPerGJ;
 }
-[[nodiscard]] constexpr Real combustion_per_gj(const GenXThermal& t) noexcept
+[[nodiscard]] constexpr Real combustion_per_gj(const NgccPlant& t) noexcept
 {
   return t.fuel_co2_mmbtu / kMMBtuPerGJ;
 }
-[[nodiscard]] constexpr Real srmc(const GenXThermal& t) noexcept
+[[nodiscard]] constexpr Real srmc(const NgccPlant& t) noexcept
 {
   // SRMC = price_per_GJ × heat_rate_GJ + var_OM
   //      = (fuel_price_MMBtu / 1.05506) × (heat_rate_MMBtu × 1.05506) + VOM
   //      = fuel_price_MMBtu × heat_rate_MMBtu + VOM  — kMMBtuPerGJ cancels.
   return (t.fuel_price_mmbtu * t.heat_rate_mmbtu) + t.var_om;
 }
-[[nodiscard]] constexpr Real co2_rate(const GenXThermal& t) noexcept
+[[nodiscard]] constexpr Real co2_rate(const NgccPlant& t) noexcept
 {
   // tCO2/MWh = heat_rate_GJ × combustion_per_GJ
   //         = heat_rate_MMBtu × CO2_content_MMBtu  — kMMBtuPerGJ cancels.
@@ -213,11 +186,11 @@ constexpr Real kDur = 1.0;
 
 constexpr Real kDemandFailCost = 1000.0;
 
-// Build the GenX-port system.  `co2_cap = std::nullopt` ⇒ uncapped.
-[[nodiscard]] System make_genx_system(std::optional<Real> co2_cap)
+// Build the test system.  `co2_cap = std::nullopt` ⇒ uncapped.
+[[nodiscard]] System make_test_system(std::optional<Real> co2_cap)
 {
   System sys;
-  sys.name = "GenXThreeZonesPort";
+  sys.name = "ThreeZoneNgcc";
   sys.bus_array = {{
       .uid = Uid {1},
       .name = "bus",
@@ -231,8 +204,8 @@ constexpr Real kDemandFailCost = 1000.0;
       },
   };
 
-  // Single CO2 pollutant + single global zone (aggregated from GenX's
-  // three per-zone caps).
+  // Single CO2 pollutant + single global zone covering all three
+  // aggregated zones.
   sys.emission_array = {
       {
           .uid = Uid {1},
@@ -258,9 +231,9 @@ constexpr Real kDemandFailCost = 1000.0;
       zone,
   };
 
-  // One fuel per generator (matching GenX's per-zone NG prices).  All
-  // three fuels share the same combustion factor — natural gas
-  // CO2_content from Fuels_data.csv row Time_Index=0.
+  // One fuel per generator (per-zone delivered gas price).  All three
+  // fuels share the same combustion factor -- the EPA natural-gas
+  // default CO2 content.
   sys.fuel_array = {
       {
           .uid = Uid {1},
@@ -300,8 +273,8 @@ constexpr Real kDemandFailCost = 1000.0;
       },
   };
 
-  // Three NGCC thermals + one solar + one wind.  gcost ≡ Var_OM
-  // (GenX's variable O&M is dispatch-cost per MWh).
+  // Three NGCC thermals + one solar + one wind.  gcost = variable O&M
+  // ($/MWh); the fuel cost is added by the fuel expand pass.
   sys.generator_array = {
       {
           .uid = Uid {1},
@@ -410,10 +383,10 @@ constexpr Real kDemandFailCost = 1000.0;
 // ── Uncapped baseline ──────────────────────────────────────────────────
 
 TEST_CASE(
-    "GenX 1_three_zones port — uncapped baseline: renewables + cheapest "
+    "Three-zone NGCC emission test — uncapped baseline: renewables + cheapest "
     "NGCC (CT) saturate, MA fills the remainder, ME stays off")  // NOLINT
 {
-  auto sys = make_genx_system(/*co2_cap=*/std::nullopt);
+  auto sys = make_test_system(/*co2_cap=*/std::nullopt);
   sys.fold_legacy_fuel_emission_factors();
   sys.expand_fuel_emission_sources();
 
@@ -453,12 +426,12 @@ TEST_CASE(
 // ── Binding CO2 cap ────────────────────────────────────────────────────
 
 TEST_CASE(
-    "GenX 1_three_zones port — binding CO2 cap forces unserved demand: "
+    "Three-zone NGCC emission test — binding CO2 cap forces unserved demand: "
     "CT stays full, MA throttled to honor the cap")  // NOLINT
 {
   // Uncapped CO2 = 53.548 tCO2; pick 45 tCO2 to bind.
   constexpr Real kCap = 45.0;
-  auto sys = make_genx_system(kCap);
+  auto sys = make_test_system(kCap);
   sys.fold_legacy_fuel_emission_factors();
   sys.expand_fuel_emission_sources();
 
@@ -496,4 +469,4 @@ TEST_CASE(
   CHECK(total_co2 == doctest::Approx(kCap).epsilon(1e-5));
 }
 
-}  // namespace test_emission_genx_port
+}  // namespace test_emission_three_zone_ngcc

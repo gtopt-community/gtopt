@@ -5,9 +5,10 @@
 // ``scripts/nrel118_to_gtopt`` does the full 118-bus / 327-generator /
 // 168-hour conversion (single-bus aggregation + piecewise heat-rate
 // collapse); the C++ test that follows mirrors the analytic pattern of
-// the other emission ports (PJM-5, GenX, PyPSA) on a tractable subset of
-// the NREL-118 fleet sized so the renewable-penetration delta is
-// reproducible without dragging in the full LP.
+// the other emission tests (PJM-5, three-zone NGCC, PyPSA) on a
+// tractable subset of the NREL-118 fleet sized so the
+// renewable-penetration delta is reproducible without dragging in the
+// full LP.
 //
 // ## Reference
 //

@@ -79,7 +79,7 @@ PYTHONPATH=. python -m sienna_to_gtopt hvdc            -o hvdc.json
 (NOT in `integration_test/` — that subtree is JSON-driven e2e; the C++
 TEST_CASEs live under `test/source/` and are auto-discovered via
 `CONFIGURE_DEPENDS`, matching the existing port-test pattern of
-`test_emission_pjm5_port.cpp` / `test_emission_genx_port.cpp` /
+`test_emission_pjm5_port.cpp` / `test_emission_three_zone_ngcc.cpp` /
 `test_emission_pypsa_port.cpp`).
 
 3 TEST_CASEs per file × 3 files = **9 integration tests** total.
