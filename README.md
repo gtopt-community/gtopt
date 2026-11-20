@@ -313,8 +313,10 @@ converters from data published by system operators and research groups
 
 | Country | Cases |
 |---|---|
+| <img src="https://flagcdn.com/w40/au.png" width="28" align="absmiddle" alt="Australia"> [Australia](https://github.com/gtopt-community/gtopt-cases/tree/main/australia) | One week of NEM dispatch from the AEMO 2026 ISP PLEXOS model (Step Change) |
 | <img src="https://flagcdn.com/w40/cl.png" width="28" align="absmiddle" alt="Chile"> [Chile](https://github.com/gtopt-community/gtopt-cases/tree/main/chile) | 14 daily unit commitments from the CEN PLEXOS bases; SDDP of 2, 5 and 23 years from PLP, with the Laja and Maule irrigation agreements |
 | <img src="https://flagcdn.com/w40/gt.png" width="28" align="absmiddle" alt="Guatemala"> [Guatemala](https://github.com/gtopt-community/gtopt-cases/tree/main/guatemala) | NCP daily/weekly dispatch, PSS®E network snapshots and six annual SDDP programmes (AMM/EOR) |
+| <img src="https://flagcdn.com/w40/ie.png" width="28" align="absmiddle" alt="Ireland"> [Ireland](https://github.com/gtopt-community/gtopt-cases/tree/main/ireland) | One week of SEM unit commitment from the SEM Committee PLEXOS model (downloaded and converted on demand) |
 | <img src="https://flagcdn.com/w40/pe.png" width="28" align="absmiddle" alt="Peru"> [Peru](https://github.com/gtopt-community/gtopt-cases/tree/main/peru) | Four annual SDDP cases of the COES 2026-2029 reserve-margin study |
 | <img src="https://flagcdn.com/w40/pl.png" width="28" align="absmiddle" alt="Poland"> [Poland](https://github.com/gtopt-community/gtopt-cases/tree/main/poland) | 3,374-bus DC OPF (MATPOWER `case3375wp`) |
 

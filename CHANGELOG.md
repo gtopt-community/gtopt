@@ -29,7 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Real cases in gtopt-cases**: the public case repository
   [gtopt-community/gtopt-cases](https://github.com/gtopt-community/gtopt-cases)
-  (Chile, Guatemala, Peru, Poland); `tools/get_cases.sh` and
+  (Australia, Chile, Guatemala, Ireland, Peru, Poland); `tools/get_cases.sh` and
   `tools/cases.lock` pin it for the tests that need large external cases
   (`GTOPT_CASES_DIR`).
 
