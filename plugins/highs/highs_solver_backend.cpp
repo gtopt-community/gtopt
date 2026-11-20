@@ -1042,7 +1042,7 @@ bool HighsSolverBackend::write_lp(const char* filename, LpFileFormat format)
 {
   // HiGHS picks the writer from the extension; names set through
   // passColName/passRowName and integrality (MARKER sections) are kept.
-  const auto file = std::format("{}{}", filename, lp_file_extension(format));
+  const auto file = lp_file_path(filename, format);
   return m_highs_->writeModel(file) != HighsStatus::kError;
 }
 

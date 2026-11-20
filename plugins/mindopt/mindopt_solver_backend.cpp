@@ -1339,7 +1339,7 @@ bool MindOptSolverBackend::write_lp(const char* filename, LpFileFormat format)
   // only be given a path that can be created: MindOpt 2.3 aborts the
   // process (double free) when the open fails.  LinearInterface::write_lp
   // checks the path before calling the backend.
-  const auto file = std::format("{}{}", filename, lp_file_extension(format));
+  const auto file = lp_file_path(filename, format);
   return MDOwrite(m_model_, file.c_str()) == MDO_OKAY;
 }
 

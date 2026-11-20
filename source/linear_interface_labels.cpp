@@ -319,9 +319,9 @@ namespace
 /// is removed so that no truncated model is mistaken for a good one.
 [[nodiscard]] bool backend_write(SolverBackend& backend,
                                  const std::string& stem,
-                                 LpFileFormat format) noexcept
+                                 LpFileFormat format)
 {
-  const auto path = stem + std::string(lp_file_extension(format));
+  const auto path = lp_file_path(stem, format);
   // Open the target ourselves first.  Native writers handle an fopen
   // failure badly (MindOpt 2.3's MDOwrite double-frees and aborts the
   // process), so a path that cannot be created never reaches them.
@@ -438,7 +438,7 @@ auto LinearInterface::write_lp(const std::string& filename,
                 : std::string {}),
     });
   }
-  return filename + std::string(lp_file_extension(written));
+  return lp_file_path(filename, written);
 }
 
 }  // namespace gtopt

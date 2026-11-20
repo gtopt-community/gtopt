@@ -7,9 +7,13 @@
  *            see LICENSING.md
  */
 
+#include <algorithm>
 #include <cmath>
 #include <format>
+#include <ranges>
+#include <span>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -1142,81 +1146,91 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
   }
 }
 
-bool OsiSolverBackend::write_lp_file_(const char* filename)
+OsiSolverInterface& OsiSolverBackend::file_writer_()
 {
-  // Prefer writing through the concrete OsiClpSolverInterface.
-  //
-  // For the CBC backend `m_solver_` is an OsiCbcSolverInterface, which does
-  // NOT override writeLp — it inherits `OsiSolverInterface::writeLp`, whose
-  // implementation rebuilds the row/column name arrays by round-tripping
-  // through the virtual getRowName/getColName/getObjName accessors.  On
-  // recent COIN-OR releases (CoinUtils ≥ 2.11) that round-trip drops the
-  // custom names, so CoinLpIO rejects the set ("vnames[k]: Name is empty")
-  // and silently falls back to default `cons0/C0000000` labels — erasing
-  // every gtopt label (Gen./Bus./sddp_fcut_...) from the LP dump.
-  //
-  // The underlying ClpModel already holds the real names (populated by
-  // `push_names` via `ClpModel::copyNames`), and OsiClpSolverInterface::
-  // writeLp reads them straight from the model, so it emits correct labels.
-  // For the CLP backend `as_clp` returns `m_solver_` itself; for any other
-  // OSI backend it returns nullptr and we fall back to the generic path.
+  // Prefer the concrete OsiClpSolverInterface.  For the CBC backend
+  // `m_solver_` is an OsiCbcSolverInterface whose inherited name accessors
+  // round-trip through CoinUtils and lose the custom names on recent
+  // COIN-OR releases; the ClpModel behind `as_clp` holds the real names
+  // (populated by `push_names` via `ClpModel::copyNames`).  Other OSI
+  // backends fall back to the generic interface.
   OsiSolverInterface* writer = as_clp(m_solver_.get(), m_type_);
   if (writer == nullptr) {
     writer = m_solver_.get();
   }
-
-  // CoinLpIO::setLpDataRowAndColNames validates rownames[nrow] as the
-  // objective function name slot.  A default-empty objective name is
-  // treated as invalid and triggers the default-label fallback, so ensure
-  // the objective has a non-empty name before writing.
+  // CoinLpIO / CoinMpsIO treat an empty objective name as invalid and fall
+  // back to default labels for everything.
   if (writer->getObjName().empty()) {
     writer->setObjName("obj");
   }
+  return *writer;
+}
+
+namespace
+{
+
+/// Column / row names (objective name last, as CoinLpIO and CoinMpsIO
+/// expect) and integrality of the model held by @p writer.
+struct OsiModelNames
+{
+  std::vector<std::string> cols;
+  std::vector<std::string> rows;
+  std::vector<char> integrality;
+};
+
+[[nodiscard]] OsiModelNames collect_model_names(
+    const OsiSolverInterface& writer)
+{
+  const auto col_range = std::views::iota(0, writer.getNumCols());
+  OsiModelNames names {
+      .cols = col_range
+          | std::views::transform([&](int j) { return writer.getColName(j); })
+          | std::ranges::to<std::vector>(),
+      .rows = std::views::iota(0, writer.getNumRows())
+          | std::views::transform([&](int i) { return writer.getRowName(i); })
+          | std::ranges::to<std::vector>(),
+      .integrality = col_range
+          | std::views::transform([&](int j)
+                                  { return writer.isInteger(j) ? '\1' : '\0'; })
+          | std::ranges::to<std::vector>(),
+  };
+  names.rows.push_back(writer.getObjName());
+  return names;
+}
+
+}  // namespace
+
+bool OsiSolverBackend::write_lp_file_(const char* filename)
+{
   // Build the CoinLpIO ourselves (as write_mps_file_ does with CoinMpsIO)
   // instead of OsiSolverInterface::writeLp, which drops the objective
   // offset: re-reading such a file gives a different objective value
   // (gtopt stores constants such as the demand-curtailment baseline
   // there).
-  const int ncols = writer->getNumCols();
-  const int nrows = writer->getNumRows();
-  std::vector<std::string> col_store(static_cast<size_t>(ncols));
-  std::vector<std::string> row_store(static_cast<size_t>(nrows) + 1);
-  std::vector<char> integrality(static_cast<size_t>(ncols), 0);
-  for (int j = 0; j < ncols; ++j) {
-    col_store[static_cast<size_t>(j)] = writer->getColName(j);
-    integrality[static_cast<size_t>(j)] = writer->isInteger(j) ? 1 : 0;
-  }
-  for (int i = 0; i < nrows; ++i) {
-    row_store[static_cast<size_t>(i)] = writer->getRowName(i);
-  }
-  row_store[static_cast<size_t>(nrows)] = writer->getObjName();
-  std::vector<const char*> col_ptrs;
-  std::vector<const char*> row_ptrs;
-  col_ptrs.reserve(col_store.size());
-  row_ptrs.reserve(row_store.size());
-  for (const auto& n : col_store) {
-    col_ptrs.push_back(n.c_str());
-  }
-  for (const auto& n : row_store) {
-    row_ptrs.push_back(n.c_str());
-  }
+  auto& writer = file_writer_();
+  const auto names = collect_model_names(writer);
+  const auto c_str = [](const std::string& n) { return n.c_str(); };
+  const auto col_ptrs = names.cols | std::views::transform(c_str)
+      | std::ranges::to<std::vector>();
+  const auto row_ptrs = names.rows | std::views::transform(c_str)
+      | std::ranges::to<std::vector>();
 
   const auto file = std::format("{}.lp", filename);
   try {
     CoinLpIO lpio;
-    lpio.setInfinity(writer->getInfinity());
-    lpio.setLpDataWithoutRowAndColNames(*writer->getMatrixByRow(),
-                                        writer->getColLower(),
-                                        writer->getColUpper(),
-                                        writer->getObjCoefficients(),
-                                        integrality.data(),
-                                        writer->getRowLower(),
-                                        writer->getRowUpper());
+    lpio.setInfinity(writer.getInfinity());
+    lpio.setLpDataWithoutRowAndColNames(*writer.getMatrixByRow(),
+                                        writer.getColLower(),
+                                        writer.getColUpper(),
+                                        writer.getObjCoefficients(),
+                                        names.integrality.data(),
+                                        writer.getRowLower(),
+                                        writer.getRowUpper());
     lpio.setLpDataRowAndColNames(row_ptrs.data(), col_ptrs.data());
     // OSI's OsiObjOffset is subtracted from c·x; CoinLpIO writes its
     // offset as a constant term of the objective, so flip the sign.
     double offset = 0.0;
-    writer->getDblParam(OsiObjOffset, offset);
+    writer.getDblParam(OsiObjOffset, offset);
     lpio.setObjectiveOffset(-offset);
     lpio.setProblemName("gtopt");
 
@@ -1229,16 +1243,11 @@ bool OsiSolverBackend::write_lp_file_(const char* filename)
     //    count is a multiple of numberAcross, gluing "Subject To" to the
     //    objective.  Pick a line width that avoids that count.
     constexpr double k_lp_eps = 1e-12;
-    const auto* obj = writer->getObjCoefficients();
-    int terms = 0;
-    for (int j = 0; j < ncols; ++j) {
-      if (std::abs(obj[j]) > k_lp_eps) {
-        ++terms;
-      }
-    }
-    if (std::abs(offset) > k_lp_eps) {
-      ++terms;
-    }
+    const std::span obj {writer.getObjCoefficients(),
+                         static_cast<std::size_t>(writer.getNumCols())};
+    const auto is_term = [](double c) { return std::abs(c) > k_lp_eps; };
+    const auto terms = static_cast<int>(std::ranges::count_if(obj, is_term))
+        + (is_term(offset) ? 1 : 0);
     int across = 10;
     while (terms > 0 && terms % across == 0) {
       ++across;
@@ -1258,49 +1267,27 @@ bool OsiSolverBackend::write_lp_file_(const char* filename)
 
 bool OsiSolverBackend::write_mps_file_(const char* filename)
 {
-  // Same rationale as write_lp: go through the concrete Clp interface when
-  // available so the names held by the ClpModel are used; integer columns get
-  // MARKER lines.
-  OsiSolverInterface* writer = as_clp(m_solver_.get(), m_type_);
-  if (writer == nullptr) {
-    writer = m_solver_.get();
-  }
-  if (writer->getObjName().empty()) {
-    writer->setObjName("obj");
-  }
   // OsiClpSolverInterface::writeMps / writeMpsNative both end in
   // `CoinMpsIO::writeMps(.., compression = 1, ..)`, which silently emits
   // `<name>.gz`.  Build the CoinMpsIO ourselves and write the exact,
-  // uncompressed path.  Names come from the interface accessors (Clp
-  // returns the ClpModel names pushed by push_names()); integer columns
-  // get MARKER INTORG/INTEND lines from the integrality array.
-  const int ncols = writer->getNumCols();
-  const int nrows = writer->getNumRows();
-  std::vector<std::string> col_names(static_cast<size_t>(ncols));
-  std::vector<std::string> row_names(static_cast<size_t>(nrows) + 1);
-  std::vector<char> integrality(static_cast<size_t>(ncols), 0);
-  for (int j = 0; j < ncols; ++j) {
-    col_names[static_cast<size_t>(j)] = writer->getColName(j);
-    integrality[static_cast<size_t>(j)] = writer->isInteger(j) ? 1 : 0;
-  }
-  for (int i = 0; i < nrows; ++i) {
-    row_names[static_cast<size_t>(i)] = writer->getRowName(i);
-  }
-  row_names[static_cast<size_t>(nrows)] = writer->getObjName();  // objective
+  // uncompressed path; integer columns get MARKER INTORG/INTEND lines from
+  // the integrality array.
+  auto& writer = file_writer_();
+  const auto names = collect_model_names(writer);
 
   CoinMpsIO mps;
-  mps.setMpsData(*writer->getMatrixByCol(),
-                 writer->getInfinity(),
-                 writer->getColLower(),
-                 writer->getColUpper(),
-                 writer->getObjCoefficients(),
-                 integrality.data(),
-                 writer->getRowLower(),
-                 writer->getRowUpper(),
-                 col_names,
-                 row_names);
+  mps.setMpsData(*writer.getMatrixByCol(),
+                 writer.getInfinity(),
+                 writer.getColLower(),
+                 writer.getColUpper(),
+                 writer.getObjCoefficients(),
+                 names.integrality.data(),
+                 writer.getRowLower(),
+                 writer.getRowUpper(),
+                 names.cols,
+                 names.rows);
   double offset = 0.0;
-  writer->getDblParam(OsiObjOffset, offset);
+  writer.getDblParam(OsiObjOffset, offset);
   mps.setObjectiveOffset(offset);
   mps.setProblemName("gtopt");
 

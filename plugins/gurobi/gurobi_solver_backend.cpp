@@ -1411,7 +1411,7 @@ bool GurobiSolverBackend::write_lp(const char* filename, LpFileFormat format)
 {
   ensure_updated_();
   // GRBwrite picks the format from the extension (.lp / .mps).
-  const auto file = std::format("{}{}", filename, lp_file_extension(format));
+  const auto file = lp_file_path(filename, format);
   return GRBwrite(m_model_, file.c_str()) == 0;
 }
 

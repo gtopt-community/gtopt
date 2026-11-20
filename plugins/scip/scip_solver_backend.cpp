@@ -1011,7 +1011,7 @@ void ScipSolverBackend::push_names(const std::vector<std::string>& col_names,
 }
 
 bool ScipSolverBackend::write_orig_problem_(const char* filename,
-                                            const char* ext)
+                                            LpFileFormat format)
 {
   bool ok = false;
   SCIP* scip = nullptr;
@@ -1020,14 +1020,16 @@ bool ScipSolverBackend::write_orig_problem_(const char* filename,
   }
   std::vector<SCIP_VAR*> vars;
   std::vector<SCIP_CONS*> conss;
-  const std::string path = std::format("{}.{}", filename, ext);
+  const auto path = lp_file_path(filename, format);
+  const std::string ext {lp_file_format_name(format)};
   if (SCIPincludeDefaultPlugins(scip) == SCIP_OKAY
       && SCIPcreateProbBasic(scip, m_prob_name_.c_str()) == SCIP_OKAY
       && scip_build_problem(
              scip, m_model_, vars, conss, &m_col_names_, &m_row_names_)
           == SCIP_OKAY)
   {
-    ok = SCIPwriteOrigProblem(scip, path.c_str(), ext, FALSE) == SCIP_OKAY;
+    ok = SCIPwriteOrigProblem(scip, path.c_str(), ext.c_str(), FALSE)
+        == SCIP_OKAY;
     for (auto*& c : conss) {
       if (c != nullptr) {
         SCIPreleaseCons(scip, &c);
@@ -1046,7 +1048,7 @@ bool ScipSolverBackend::write_orig_problem_(const char* filename,
 bool ScipSolverBackend::write_lp(const char* filename, LpFileFormat format)
 {
   // SCIP's "lp" / "mps" readers double as writers.
-  return write_orig_problem_(filename, lp_file_format_name(format).data());
+  return write_orig_problem_(filename, format);
 }
 
 std::unique_ptr<SolverBackend> ScipSolverBackend::clone() const

@@ -996,7 +996,7 @@ SolverTestResult test_write_lp(std::string_view solver)
       }
       ++written;
       const std::filesystem::path file = *result;
-      TC_CHECK(ctx, file.extension() == lp_file_extension(format));
+      TC_CHECK(ctx, result->ends_with(lp_file_extension(format)));
       TC_CHECK(ctx, std::filesystem::exists(file));
       std::error_code ec;
       std::filesystem::remove(file, ec);
