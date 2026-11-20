@@ -8,3 +8,4 @@ Marcelo Matus <marcelomatusacuna@gmail.com>    (author, maintainer)
 
 # Contributors
 Erick Sierra <esierra.ingeniero@gmail.com>     (CMake Find modules, CPLEX plugin, plp2gtopt, cases)
+Sebastian Cepeda <cp@e2biz.cl>                 (MPS model output, LP scales sidecar)
