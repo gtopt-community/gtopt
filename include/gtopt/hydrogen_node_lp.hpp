@@ -25,9 +25,8 @@ class HydrogenNodeLP : public ObjectLP<HydrogenNode>
 public:
   static constexpr std::string_view BalanceName {"balance"};
 
-  explicit HydrogenNodeLP(const HydrogenNode& phn,
-                          [[maybe_unused]] const InputContext& ic)
-      : ObjectLP<HydrogenNode>(phn)
+  explicit HydrogenNodeLP(const HydrogenNode& phn, const InputContext& ic)
+      : ObjectLP<HydrogenNode>(phn, ic, Element::class_name)
   {
   }
 

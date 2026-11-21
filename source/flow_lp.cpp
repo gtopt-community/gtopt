@@ -33,7 +33,7 @@ namespace gtopt
 {
 
 FlowLP::FlowLP(const Flow& pflow, const InputContext& ic)
-    : ObjectLP<Flow>(pflow)
+    : ObjectLP<Flow>(pflow, ic, Element::class_name)
     , discharge(ic, Element::class_name, id(), std::move(flow().discharge))
     , fcost(ic, Element::class_name, id(), std::move(flow().fcost))
 {

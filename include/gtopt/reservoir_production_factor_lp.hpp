@@ -46,10 +46,9 @@ class SystemLP;
 class ReservoirProductionFactorLP : public ObjectLP<ReservoirProductionFactor>
 {
 public:
-  explicit ReservoirProductionFactorLP(
-      const ReservoirProductionFactor& pre,
-      [[maybe_unused]] InputContext& ic) noexcept
-      : ObjectLP<ReservoirProductionFactor>(pre)
+  explicit ReservoirProductionFactorLP(const ReservoirProductionFactor& pre,
+                                       InputContext& ic)
+      : ObjectLP<ReservoirProductionFactor>(pre, ic, Element::class_name)
   {
   }
 

@@ -20,7 +20,7 @@
 namespace gtopt
 {
 PumpLP::PumpLP(const Pump& ppump, InputContext& ic)
-    : ObjectLP<Pump>(ppump)
+    : ObjectLP<Pump>(ppump, ic, Element::class_name)
     , pump_factor(ic, Element::class_name, id(), std::move(pump().pump_factor))
     , efficiency(ic, Element::class_name, id(), std::move(pump().efficiency))
     , capacity(ic, Element::class_name, id(), std::move(pump().capacity))

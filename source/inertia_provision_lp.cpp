@@ -51,7 +51,7 @@ namespace gtopt
 
 InertiaProvisionLP::InertiaProvisionLP(const InertiaProvision& ip,
                                        const InputContext& ic)
-    : Base(ip)
+    : Base(ip, ic, Element::class_name)
     , generator_index_(ic.element_index(generator_sid()))
     , inertia_zone_indexes_(
           make_izone_indexes(ic, inertia_provision().inertia_zones))

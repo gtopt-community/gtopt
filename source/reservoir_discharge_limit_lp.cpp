@@ -27,8 +27,8 @@ namespace gtopt
 {
 
 ReservoirDischargeLimitLP::ReservoirDischargeLimitLP(
-    const ReservoirDischargeLimit& ddl, [[maybe_unused]] InputContext& ic)
-    : ObjectLP<ReservoirDischargeLimit>(ddl)
+    const ReservoirDischargeLimit& ddl, InputContext& ic)
+    : ObjectLP<ReservoirDischargeLimit>(ddl, ic, Element::class_name)
 {
 }
 

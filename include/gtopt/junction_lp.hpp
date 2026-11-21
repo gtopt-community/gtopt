@@ -54,9 +54,8 @@ public:
    * @param ic Input context providing system-wide parameters
    * @param pjunction Junction data to model
    */
-  explicit JunctionLP(const Junction& pjunction,
-                      [[maybe_unused]] const InputContext& ic)
-      : ObjectLP<Junction>(pjunction)
+  explicit JunctionLP(const Junction& pjunction, const InputContext& ic)
+      : ObjectLP<Junction>(pjunction, ic, Element::class_name)
   {
   }
 

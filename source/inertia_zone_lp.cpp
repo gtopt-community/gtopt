@@ -122,7 +122,7 @@ InertiaZoneLP::Requirement::Requirement(const InputContext& ic,
 
 InertiaZoneLP::InertiaZoneLP(const InertiaZone& inertia_zone,
                              const InputContext& ic)
-    : Base(inertia_zone)
+    : Base(inertia_zone, ic, Element::class_name)
     , rr(ic,
          Element::class_name,
          id(),

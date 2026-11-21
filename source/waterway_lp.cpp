@@ -20,7 +20,7 @@ namespace gtopt
 {
 
 WaterwayLP::WaterwayLP(const Waterway& pwaterway, const InputContext& ic)
-    : ObjectLP<Waterway>(pwaterway)
+    : ObjectLP<Waterway>(pwaterway, ic, Element::class_name)
     , fmin(ic, Element::class_name, id(), std::move(waterway().fmin))
     , fmin_fcost(
           ic, Element::class_name, id(), std::move(waterway().fmin_fcost))

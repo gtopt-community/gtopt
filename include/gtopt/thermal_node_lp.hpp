@@ -40,9 +40,8 @@ class ThermalNodeLP : public ObjectLP<ThermalNode>
 public:
   static constexpr std::string_view BalanceName {"balance"};
 
-  explicit ThermalNodeLP(const ThermalNode& ptn,
-                         [[maybe_unused]] const InputContext& ic)
-      : ObjectLP<ThermalNode>(ptn)
+  explicit ThermalNodeLP(const ThermalNode& ptn, const InputContext& ic)
+      : ObjectLP<ThermalNode>(ptn, ic, Element::class_name)
   {
   }
 

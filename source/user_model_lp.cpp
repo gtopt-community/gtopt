@@ -58,7 +58,7 @@ namespace
 }  // namespace
 
 UserModelLP::UserModelLP(const UserModel& um, InputContext& ic)
-    : ObjectLP<UserModel>(um)
+    : ObjectLP<UserModel>(um, ic, Element::class_name)
     , m_tag_(resolve_tag(um))
 {
   m_variables_.reserve(um.variable_array.size());

@@ -25,9 +25,8 @@ class AmmoniaNodeLP : public ObjectLP<AmmoniaNode>
 public:
   static constexpr std::string_view BalanceName {"balance"};
 
-  explicit AmmoniaNodeLP(const AmmoniaNode& pan,
-                         [[maybe_unused]] const InputContext& ic)
-      : ObjectLP<AmmoniaNode>(pan)
+  explicit AmmoniaNodeLP(const AmmoniaNode& pan, const InputContext& ic)
+      : ObjectLP<AmmoniaNode>(pan, ic, Element::class_name)
   {
   }
 

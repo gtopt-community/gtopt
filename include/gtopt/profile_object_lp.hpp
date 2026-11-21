@@ -51,7 +51,7 @@ public:
   explicit ProfileObjectLP(ProfileType pprofile,
                            InputContext& ic,
                            const LPClassName& cname)
-      : Base(std::move(pprofile))
+      : Base(std::move(pprofile), ic, cname)
       , profile(ic, cname.full_name(), id(), std::move(Base::object().profile))
       , scost(ic, cname.full_name(), id(), std::move(Base::object().scost))
   {

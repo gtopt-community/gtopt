@@ -59,8 +59,8 @@ namespace gtopt
 {
 
 DecisionVariableLP::DecisionVariableLP(const DecisionVariable& pdv,
-                                       const InputContext& /*ic*/)
-    : ObjectLP<DecisionVariable>(pdv)
+                                       const InputContext& ic)
+    : ObjectLP<DecisionVariable>(pdv, ic, Element::class_name)
 {
   // Parse the time-granularity `scope` once at construction so the build
   // path dispatches on a plain enum.  Unset ⇒ Block (legacy behaviour).

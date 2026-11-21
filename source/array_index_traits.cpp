@@ -10,10 +10,16 @@
  */
 
 #include <array>
+#include <cmath>
+#include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <format>
+#include <limits>
 #include <map>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <arrow/csv/api.h>
@@ -617,6 +623,178 @@ template<typename CType>
   // rows) for the (Scenario, Stage, Block) reader, and only pivoted to wide
   // as a fallback for arities without a long-direct index builder.
   return *result;
+}
+
+namespace
+{
+
+// Append every value of integer array `a` (downcast to the concrete
+// ArrayT) to `builder`, converted to double.  The downcast is guarded by
+// the caller's type_id() switch.
+template<typename ArrayT>
+void append_int_as_double(arrow::DoubleBuilder& builder, const arrow::Array& a)
+{
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+  const auto& typed = static_cast<const ArrayT&>(a);
+  for (int64_t i = 0; i < typed.length(); ++i) {
+    if (typed.IsNull(i)) {
+      builder.UnsafeAppendNull();
+    } else {
+      builder.UnsafeAppend(static_cast<double>(typed.Value(i)));
+    }
+  }
+}
+
+[[nodiscard]] auto int_to_double_array(const ArrowArray& a)
+    -> std::shared_ptr<arrow::DoubleArray>
+{
+  arrow::DoubleBuilder builder;
+  if (!builder.Reserve(a->length()).ok()) {
+    return nullptr;
+  }
+  switch (a->type_id()) {
+    case arrow::Type::INT8:
+      append_int_as_double<arrow::Int8Array>(builder, *a);
+      break;
+    case arrow::Type::INT16:
+      append_int_as_double<arrow::Int16Array>(builder, *a);
+      break;
+    case arrow::Type::INT32:
+      append_int_as_double<arrow::Int32Array>(builder, *a);
+      break;
+    case arrow::Type::INT64:
+      append_int_as_double<arrow::Int64Array>(builder, *a);
+      break;
+    case arrow::Type::UINT8:
+      append_int_as_double<arrow::UInt8Array>(builder, *a);
+      break;
+    case arrow::Type::UINT16:
+      append_int_as_double<arrow::UInt16Array>(builder, *a);
+      break;
+    case arrow::Type::UINT32:
+      append_int_as_double<arrow::UInt32Array>(builder, *a);
+      break;
+    case arrow::Type::UINT64:
+      append_int_as_double<arrow::UInt64Array>(builder, *a);
+      break;
+    default:
+      return nullptr;
+  }
+  std::shared_ptr<arrow::Array> out;
+  if (!builder.Finish(&out).ok()) {
+    return nullptr;
+  }
+  return std::static_pointer_cast<arrow::DoubleArray>(out);
+}
+
+[[noreturn]] void throw_value_column_error(std::string_view cname,
+                                           std::string_view fname,
+                                           std::string_view detail)
+{
+  const auto msg = std::format(
+      "Input table '{}/{}': 'value' column {}", cname, fname, detail);
+  SPDLOG_CRITICAL(msg);
+  throw std::runtime_error(msg);
+}
+
+/// Whole-number double → int32, or a clear error naming the file and row.
+[[nodiscard]] auto real_to_int32_array(const arrow::DoubleArray& dbl,
+                                       int64_t row_base,
+                                       std::string_view cname,
+                                       std::string_view fname)
+    -> std::shared_ptr<arrow::Int32Array>
+{
+  constexpr auto lo =
+      static_cast<double>(std::numeric_limits<std::int32_t>::min());
+  constexpr auto hi =
+      static_cast<double>(std::numeric_limits<std::int32_t>::max());
+
+  arrow::Int32Builder builder;
+  if (!builder.Reserve(dbl.length()).ok()) {
+    return nullptr;
+  }
+  for (int64_t i = 0; i < dbl.length(); ++i) {
+    if (dbl.IsNull(i)) {
+      builder.UnsafeAppendNull();
+      continue;
+    }
+    const double v = dbl.Value(i);
+    if (!std::isfinite(v) || v != std::trunc(v) || v < lo || v > hi) {
+      throw_value_column_error(
+          cname,
+          fname,
+          std::format("holds {} at row {}, but this field is an integer "
+                      "schedule (e.g. `active`: 0/1) and needs whole numbers",
+                      v,
+                      row_base + i));
+    }
+    builder.UnsafeAppend(static_cast<std::int32_t>(v));
+  }
+  std::shared_ptr<arrow::Array> out;
+  if (!builder.Finish(&out).ok()) {
+    return nullptr;
+  }
+  return std::static_pointer_cast<arrow::Int32Array>(out);
+}
+
+}  // namespace
+
+auto ArrayIndexBase::coerce_value_column(const ArrowChunkedArray& col,
+                                         ValueKind kind,
+                                         std::string_view cname,
+                                         std::string_view fname)
+    -> ArrowChunkedArray
+{
+  if (!col || kind == ValueKind::other) {
+    return col;
+  }
+  const auto& type = col->type();
+  const auto tid = type->id();
+  if ((kind == ValueKind::integer && tid == arrow::Type::INT32)
+      || (kind == ValueKind::real && tid == arrow::Type::DOUBLE))
+  {
+    return col;
+  }
+
+  const auto* const kind_name =
+      kind == ValueKind::integer ? "an integer" : "a real";
+  const auto unsupported = [&]
+  {
+    throw_value_column_error(
+        cname,
+        fname,
+        std::format("has type '{}', which cannot be read as {} schedule",
+                    type->ToString(),
+                    kind_name));
+  };
+
+  arrow::ArrayVector out;
+  out.reserve(static_cast<std::size_t>(col->num_chunks()));
+  int64_t row_base = 0;
+  for (const auto& chunk : col->chunks()) {
+    ArrowArray converted;
+    if (kind == ValueKind::integer) {
+      if (is_compatible_double_type(tid)) {
+        if (const auto dbl = cast_to_double_array(chunk)) {
+          converted = real_to_int32_array(*dbl, row_base, cname, fname);
+        }
+      } else {
+        converted = widen_any_int_to_int32(chunk);
+      }
+    } else if (tid == arrow::Type::FLOAT) {
+      converted = cast_to_double_array(chunk);
+    } else {
+      converted = int_to_double_array(chunk);
+    }
+    if (!converted) {
+      unsupported();
+    }
+    row_base += chunk->length();
+    out.push_back(std::move(converted));
+  }
+  return std::make_shared<arrow::ChunkedArray>(
+      std::move(out),
+      kind == ValueKind::integer ? arrow::int32() : arrow::float64());
 }
 
 }  // namespace gtopt

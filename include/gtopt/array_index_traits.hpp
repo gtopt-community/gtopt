@@ -12,11 +12,13 @@
 
 #pragma once
 
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include <gtopt/arrow_index_cache.hpp>
 #include <gtopt/arrow_types.hpp>
@@ -116,7 +118,41 @@ struct ArrayIndexBase
                                              std::string_view fname)
       -> ArrowTable;
 
-  template<typename... Uid>
+  /// C++ value kind a schedule reads from a long table's `value` column.
+  enum class ValueKind : std::uint8_t
+  {
+    integer,  ///< int32-backed (`IntBool` such as `active`, `Int`, `Uid`)
+    real,  ///< double-backed (`Real`)
+    other,  ///< anything else: no coercion
+  };
+
+  /// Mirrors the int32 / double dispatch of `InputTraits::access_sched`.
+  template<typename Type>
+  static constexpr ValueKind value_kind_v =
+      (std::is_floating_point_v<Type> && sizeof(Type) >= sizeof(double))
+      ? ValueKind::real
+      : ((std::is_integral_v<Type> && !std::is_same_v<Type, bool>
+          && sizeof(Type) >= sizeof(std::int32_t))
+             ? ValueKind::integer
+             : ValueKind::other);
+
+  /// Coerce a long table's `value` column to the type the schedule reads,
+  /// once at load time:
+  ///   - integer: any integer column is widened to int32; a float/double
+  ///     column is accepted when every value is a whole number in int32
+  ///     range (e.g. an `active` schedule written as 1.0 / 0.0).
+  ///   - real: float is widened and any integer column is converted to
+  ///     double.
+  /// Any other column type, or a fractional value for an integer
+  /// schedule, throws std::runtime_error naming `<cname>/<fname>`, the
+  /// offending row and value.
+  [[nodiscard]] static auto coerce_value_column(const ArrowChunkedArray& col,
+                                                ValueKind kind,
+                                                std::string_view cname,
+                                                std::string_view fname)
+      -> ArrowChunkedArray;
+
+  template<typename Type, typename... Uid>
   [[nodiscard]] static constexpr auto get_arrow_index(
       const SystemContext& system_context,
       std::string_view cname,
@@ -217,6 +253,11 @@ struct ArrayIndexBase
       SPDLOG_CRITICAL(msg);
       throw std::runtime_error(msg);
     }
+    // Normalise the column to the schedule's value type once, here, where
+    // the file is known — so a mismatch is reported against the file
+    // instead of failing per access with an anonymous type error.
+    value_col =
+        coerce_value_column(value_col, value_kind_v<Type>, cname, fname);
     auto [groups, long_mask] =
         UidToArrowIdx<Uid...>::make_arrow_uids_idx_long(table);
     for (auto&& [euid, submap] : groups) {
@@ -314,12 +355,13 @@ public:
               const auto ref = parse_file_sched_ref(class_name, fsched);
               const Id ref_id =
                   ref.uid.has_value() ? Id {*ref.uid, id.second} : id;
-              return get_arrow_index<Uid...>(system_context,
-                                             index_cache.intern(ref.class_name),
-                                             index_cache.intern(ref.field_name),
-                                             ref_id,
-                                             array_map,
-                                             table_map);
+              return get_arrow_index<Type, Uid...>(
+                  system_context,
+                  index_cache.intern(ref.class_name),
+                  index_cache.intern(ref.field_name),
+                  ref_id,
+                  array_map,
+                  table_map);
             },
         },
         sched);

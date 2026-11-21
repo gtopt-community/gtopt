@@ -40,9 +40,8 @@ public:
   /// @param pbus The bus to wrap
   /// @param ic Input context for LP construction
   [[nodiscard]]
-  explicit constexpr BusLP(const Bus& pbus,
-                           [[maybe_unused]] const InputContext& ic) noexcept
-      : ObjectLP<Bus>(pbus)
+  explicit constexpr BusLP(const Bus& pbus, const InputContext& ic)
+      : ObjectLP<Bus>(pbus, ic, Element::class_name)
   {
   }
 

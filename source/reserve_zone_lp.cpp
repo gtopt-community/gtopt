@@ -146,7 +146,7 @@ ReserveZoneLP::Requirement::Requirement(const InputContext& ic,
 
 ReserveZoneLP::ReserveZoneLP(const ReserveZone& preserve_zone,
                              const InputContext& ic)
-    : Base(preserve_zone)
+    : Base(preserve_zone, ic, Element::class_name)
     , ur(ic,
          Element::class_name,
          id(),

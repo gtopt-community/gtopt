@@ -443,11 +443,11 @@ TEST_CASE("long input STB double — optval present and zero-fill")  // NOLINT
 }
 
 // ---------------------------------------------------------------------------
-// A long `value` column with a non-floating type read as a Real schedule
-// must fail loudly (is_compatible_double_type rejects int32) — silent
-// int->double reinterpretation would corrupt inputs.
+// A long `value` column with an integer type read as a Real schedule is
+// converted value by value at load (issue #544) — never reinterpreted
+// bit-wise — so 100 / 200 / 300 read back exactly.
 // ---------------------------------------------------------------------------
-TEST_CASE("long input STB double — int32 value column is rejected")  // NOLINT
+TEST_CASE("long input STB double — int32 value column is widened")  // NOLINT
 {
   const auto tmp_root =
       std::filesystem::temp_directory_path() / "test_lis_stb_badtype";
@@ -472,16 +472,13 @@ TEST_CASE("long input STB double — int32 value column is rejected")  // NOLINT
 
   const STBRealFieldSched fsched {std::string("profile")};
 
-  // The mismatch may surface at index build or at first access depending
-  // on which layer touches the value column first — either way it must
-  // throw, never silently reinterpret.
-  const auto build_and_read = [&]
-  {
-    const STBRealSched sched {ic, "TestGen", Id {Uid {1}, "profile"}, fsched};
-    return sched.at(
-        make_uid<Scenario>(1), make_uid<Stage>(1), make_uid<Block>(1));
-  };
-  CHECK_THROWS_AS(build_and_read(), std::exception);
+  const STBRealSched sched {ic, "TestGen", Id {Uid {1}, "profile"}, fsched};
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(100.0));
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(2))
+        == doctest::Approx(200.0));
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(300.0));
 
   std::filesystem::remove_all(tmp_root);
 }

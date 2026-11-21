@@ -42,8 +42,8 @@ public:
   static constexpr std::string_view RebaseName {"rebase"};
   static constexpr std::string_view ApproxFcfName {"approx_fcf"};
 
-  explicit FutureCostLP(const FutureCost& pfc, const InputContext& /*ic*/)
-      : ObjectLP<FutureCost>(pfc)
+  explicit FutureCostLP(const FutureCost& pfc, const InputContext& ic)
+      : ObjectLP<FutureCost>(pfc, ic, Element::class_name)
   {
   }
 

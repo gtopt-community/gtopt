@@ -13,7 +13,10 @@
 
 #pragma once
 
+#include <format>
+#include <stdexcept>
 #include <utility>
+#include <variant>
 
 #include <gtopt/object.hpp>
 #include <gtopt/schedule.hpp>
@@ -68,12 +71,28 @@ public:
    * @brief Constructs an ObjectLP by moving in an object
    * @param pobject The object to wrap and manage
    */
+  /// No InputContext is available here, so a file-backed `active`
+  /// schedule (`"active": "<file>"`) cannot be resolved: it is rejected
+  /// with a clear error instead of failing later, at LP build, with an
+  /// opaque "invalid arrow array or index" (issue #544).  Every LP
+  /// element wrapper must use the `(object, ic, class_name)` overload.
   template<typename OT>
     requires(!std::same_as<std::remove_cvref_t<OT>, ObjectLP>)
-  explicit constexpr ObjectLP(OT&& pobject) noexcept
+  explicit constexpr ObjectLP(OT&& pobject)
       : m_object_(std::forward<OT>(pobject))
       , m_active_(m_object_.active.value_or(True))
   {
+    if (m_object_.active
+        && std::holds_alternative<FileSched>(*m_object_.active))
+    {
+      throw std::invalid_argument(std::format(
+          "element '{}' (uid={}): file-backed 'active' schedule '{}' "
+          "needs an input context (internal error: LP wrapper built "
+          "without one)",
+          m_object_.name,
+          m_object_.uid,
+          std::get<FileSched>(*m_object_.active)));
+    }
   }
 
   template<typename OT>

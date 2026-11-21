@@ -20,7 +20,7 @@
 namespace gtopt
 {
 TurbineLP::TurbineLP(const Turbine& pturbine, InputContext& ic)
-    : ObjectLP<Turbine>(pturbine)
+    : ObjectLP<Turbine>(pturbine, ic, Element::class_name)
     , production_factor(
           ic, Element::class_name, id(), std::move(turbine().production_factor))
     , efficiency(ic, Element::class_name, id(), std::move(turbine().efficiency))

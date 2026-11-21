@@ -28,7 +28,7 @@ namespace gtopt
 
 ReservoirSeepageLP::ReservoirSeepageLP(const ReservoirSeepage& pseepage,
                                        InputContext& ic)
-    : ObjectLP<ReservoirSeepage>(pseepage)
+    : ObjectLP<ReservoirSeepage>(pseepage, ic, Element::class_name)
     , m_slope_sched_(ic, Element::class_name, id(), std::move(seepage().slope))
     , m_constant_sched_(
           ic, Element::class_name, id(), std::move(seepage().constant))
