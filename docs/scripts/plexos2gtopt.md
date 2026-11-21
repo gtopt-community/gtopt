@@ -839,7 +839,11 @@ Constraint right-hand sides by period (any PLEXOS database, not only
 `Hours of Operation Coefficient` maps to `commitment("uc_<gen>").status`
 (the hours the unit is on), e.g. the SEM yearly running-hours limits
 (`KGT1 ≤ 500 h/year` becomes `Σ_week status·Δt ≤ 500 × 168 / 8760 =
-9.59 h` on a one-week case).  Emission→Fuel `Production Rate` is read
+9.59 h` on a one-week case).  PLEXOS labels the period RHS "(000)", but
+for hours terms the converter reads it as **plain hours** (a deliberate
+deviation: 500 × 1000 running hours a year is physically impossible, so
+the SEM data are hours).  Generation / flow / fuel / emission terms keep
+the "(000)" scaling.  Emission→Fuel `Production Rate` is read
 in kg per fuel unit and written to `Fuel.emission_factors` in t per
 fuel unit.
 
@@ -995,7 +999,7 @@ python -m plexos2gtopt.aemo_isp "2026 ISP Step Change Model.xml" \
 |---|---|
 | `Node` (sub-region) | `Bus` |
 | `Node.Load` → demand trace (MW, half-hourly → hourly mean) | `Demand.lmax` |
-| `Generator` with `Units > 0` on the start day | `Generator`, `pmax = Units × Rating(trace / timeslice) or Max Capacity × (1 − Aux Incr)`, `gcost = Heat Rate × Fuel.Price + VO&M` |
+| `Generator` with `Units > 0` on the start day | `Generator`, `pmax = Units × Rating(trace / timeslice) or Max Capacity × (1 − Aux Incr)`, `gcost = VO&M` + `fuel` with `heat_rate = Heat Rate / (1 − Aux Incr)` (legacy: `gcost = Heat Rate × Fuel.Price + VO&M`) |
 | `Battery` with `Units > 0` | `Battery` (`Capacity`, `Max Power`, SoC limits, efficiencies; SoC 50 % at both ends) |
 | `Line` Max/Min Flow (timesliced, dated) | `Line.tmax_ab` / `tmax_ba`, transport model, lossless |
 | `Storage` (ML), `Waterway`, `Head/Tail Storage`, `Efficiency Incr`, `Natural Inflow` (m³/s) | `Reservoir` (hm³, end ≥ start), `Junction`, `Waterway`, `Turbine`, `Flow` |
@@ -1048,9 +1052,10 @@ Skipped, with the reason counted in `<name>.stats.json` →
 - Period RHS are pro-rated to the window.
 - Period values are taken as GWh (TJ for fuel), and period penalties
   as $/GWh.
-- PLEXOS `Heat Rate` is per gross MWh.  Emission rates and gas-zone
-  offtake use `Heat Rate / (1 − Aux Incr)` per sent-out MWh; the fuel
-  cost (`heat_rate × price`) uses the unadjusted `Heat Rate`.
+- PLEXOS `Heat Rate` is per gross MWh while gtopt dispatches sent-out
+  MWh.  Fuel cost (`heat_rate × price`), gas-zone offtake and emission
+  rates all use `Heat Rate / (1 − Aux Incr)` per sent-out MWh
+  (`--legacy` keeps the old unadjusted `gcost`).
 - Targets over more than one month (annual policy targets such as the
   SA renewable target, multi-year emission budgets) are not enforced by
   default.  A uniform weekly share of a seasonal target forced load

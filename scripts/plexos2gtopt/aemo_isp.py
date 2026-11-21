@@ -475,10 +475,14 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
         }
         fname = res.obj[fuel_oid].name if fuel_oid is not None else None
         if opts.isp.fuels and hr is not None and hr > 0 and fname is not None:
-            # native fuel form: gcost = VO&M, fuel cost = heat_rate × price
+            # native fuel form: gcost = VO&M, fuel cost = heat_rate × price.
+            # PLEXOS Heat Rate is per gross MWh; gtopt dispatches sent-out
+            # MWh (pmax already × (1 − Aux Incr)), so the sent-out heat
+            # rate Heat Rate / (1 − Aux Incr) is what fuel cost, fuel
+            # offtake and emissions all use.
             item["gcost"] = round(vom, 6)
             item["fuel"] = fname
-            item["heat_rate"] = hr
+            item["heat_rate"] = hr / (1.0 - aux) if aux < 1.0 else hr
             if fname not in fuel_price:
                 fuel_price[fname] = price
                 fuel_array.append(

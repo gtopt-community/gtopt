@@ -150,9 +150,9 @@ APPROXIMATIONS = [
     "targets and emission budgets) are not enforced by default: emission "
     "budgets become EmissionZones without cap (--long-periods prorate "
     "enforces the pro-rated share)",
-    "emission rates and gas-zone fuel offtake use gross-to-sent-out Heat "
-    "Rate / (1 − Aux Incr); the fuel cost (heat_rate × price) uses the "
-    "unadjusted Heat Rate",
+    "fuel cost, gas-zone fuel offtake and emission rates all use the "
+    "sent-out heat rate Heat Rate / (1 − Aux Incr) (the legacy gcost keeps "
+    "the unadjusted Heat Rate)",
 ]
 
 

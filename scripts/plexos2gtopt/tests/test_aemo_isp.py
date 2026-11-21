@@ -287,7 +287,8 @@ def test_dispatch_case_elements(isp_case: tuple[Path, Path]) -> None:
     # fuel mode (default): gcost = VO&M, fuel cost via Fuel.price x heat rate
     assert gens["COAL1"]["gcost"] == pytest.approx(5.0)
     assert gens["COAL1"]["fuel"] == "Coal"
-    assert gens["COAL1"]["heat_rate"] == pytest.approx(10.0)
+    # sent-out heat rate: Heat Rate / (1 − 10 % Aux Incr)
+    assert gens["COAL1"]["heat_rate"] == pytest.approx(10.0 / 0.9)
     fuels = {f["name"]: f for f in sys_["fuel_array"]}
     assert fuels["Coal"]["price"] == pytest.approx(3.0)  # dated 2027 row
     pmax = case.schedules[("Generator", "pmax")]

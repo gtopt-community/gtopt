@@ -390,7 +390,8 @@ def test_fuel_offtake_uses_aux_adjusted_heat_rate(tmp_path: Path) -> None:
     assert ref == 'generator("GT1").generation'
     assert float(coef) == pytest.approx(10.0 / 0.9, rel=1e-6)
     gens = {g["name"]: g for g in case.planning["system"]["generator_array"]}
-    assert gens["GT1"]["heat_rate"] == pytest.approx(10.0)
+    # fuel cost uses the same sent-out heat rate as offtake / emissions
+    assert gens["GT1"]["heat_rate"] == pytest.approx(10.0 / 0.9)
 
 
 def test_period_rhs_and_penalty_scaled_together(ccase: tuple[Path, Path]) -> None:
