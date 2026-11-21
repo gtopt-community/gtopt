@@ -72,7 +72,9 @@ bool PumpLP::add_to_lp(const SystemContext& sc,
   const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
 
   const auto& demand = sc.element<DemandLP>(demand_sid());
-  const auto& load_cols = demand.load_cols_at(scenario, stage);
+  // Tolerant lookup: a pump load whose lmax is 0 over the whole stage
+  // (unit not yet commissioned) has no load columns there.
+  const auto& load_cols = demand.lookup_load_cols(scenario, stage);
 
   BIndexHolder<RowIndex> rrows;
   BIndexHolder<RowIndex> crows;

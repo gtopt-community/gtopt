@@ -990,3 +990,151 @@ TEST_CASE(  // NOLINT
   const auto load_val = sol[load_col];
   CHECK(load_val == doctest::Approx(20.0).epsilon(1e-6));
 }
+
+TEST_CASE(  // NOLINT
+    "PumpLP — pump load with zero lmax over the stage (not yet commissioned)")
+{
+  // A pump whose load has lmax = 0 over the whole stage (a unit
+  // commissioned later in the horizon) has no load columns in that
+  // stage: the pump rows are skipped instead of failing the LP build.
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "load_d1",
+          .bus = Uid {1},
+          .fcost = 1000.0,
+          .capacity = 50.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "pump_demand",
+          .bus = Uid {1},
+          .lmax = 0.0,
+          .capacity = 0.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww_pump",
+          .junction_a = Uid {2},
+          .junction_b = Uid {1},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv_up",
+          .junction = Uid {1},
+          .capacity = 5000.0,
+          .emin = 0.0,
+          .emax = 5000.0,
+          .eini = 2000.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "rsv_down",
+          .junction = Uid {2},
+          .capacity = 5000.0,
+          .emin = 0.0,
+          .emax = 5000.0,
+          .eini = 3000.0,
+      },
+  };
+
+  // Pump with pump_factor=2.0 MW/(m³/s)
+  const Array<Pump> pump_array = {
+      {
+          .uid = Uid {1},
+          .name = "pump1",
+          .waterway = Uid {1},
+          .demand = Uid {2},
+          .pump_factor = 2.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .duration = 2,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 2,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "ZeroLoadPumpTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .pump_array = pump_array,
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+}
