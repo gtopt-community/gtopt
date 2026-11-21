@@ -129,7 +129,10 @@ class HydroSpec:
     bus_number: int | None = None  # PSR network bus (multi-bus .dat path)
     gcost: float = 0.0  # water-value opportunity cost [$/MWh] (0 = free)
     # Full hydro-topology fields (PSR ``chidro`` cascade + inflow + water value):
-    downstream_code: int | None = None  # PSR ``VAA`` — downstream plant NUM
+    # PSR ``TAA`` — plant receiving the TURBINED water (None = sea)
+    downstream_code: int | None = None
+    # PSR ``VAA`` — plant receiving the SPILLED water (None = sea)
+    spill_downstream_code: int | None = None
     committed: bool = True  # commith.dat on/off (off ⇒ pmax 0, water bypasses)
     max_gen: list[float] = field(default_factory=list)  # cprmxhgu pmax cap [MW/hour]
     eini: float = 0.0  # initial volume [hm³] (interpolated from VInic on cota–vol)

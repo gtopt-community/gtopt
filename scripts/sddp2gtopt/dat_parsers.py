@@ -232,7 +232,8 @@ class ThermalParser(BaseTextParser):
 _CHIDRO_COLS = {
     "num": (0, 4),
     "name": (4, 17),
-    "vaa": (23, 27),  # downstream plant NUM (Jusante)
+    "vaa": (23, 27),  # SPILLED-water downstream plant NUM (vertimiento)
+    "taa": (28, 32),  # TURBINED-water downstream plant NUM (turbinamiento)
     "pot": (43, 50),  # installed power [MW]
     "fpmed": (51, 58),  # production factor [MW/(m³/s)]
     "qmax": (67, 74),  # max turbine flow [m³/s]
@@ -289,7 +290,8 @@ class HydroParser(BaseTextParser):
 
     The hydro record is fixed-width.  Beyond the installed power (``Pot``)
     and production factor (``FPMed``) the parser now also recovers the
-    cascade topology (``VAA`` = downstream plant) and the storage state
+    cascade topology (``TAA`` = plant receiving the turbined water, ``VAA``
+    = plant receiving the spilled water) and the storage state
     (``VMin``/``VMax`` [hm³] and the initial volume, interpolated from the
     initial elevation ``VInic`` over the reservoir's embedded cota–vol
     curve) needed to build the full water network.
@@ -318,6 +320,7 @@ class HydroParser(BaseTextParser):
             qmax = vmin = vmax = vinic = eini = 0.0
             p_inst = fp_med = 0.0
             downstream: int | None = None
+            spill_down: int | None = None
             if pot_fw is not None and fp_fw is not None and len(line) >= 58:
                 name = line[slice(*_CHIDRO_COLS["name"])].strip() or toks[1]
                 p_inst, fp_med = pot_fw, fp_fw
@@ -326,7 +329,11 @@ class HydroParser(BaseTextParser):
                 vmax = _slice_float(line, *_CHIDRO_COLS["vmax"]) or 0.0
                 vinic = _slice_float(line, *_CHIDRO_COLS["vinic"]) or 0.0
                 vaa = line[slice(*_CHIDRO_COLS["vaa"])].strip()
-                downstream = int(vaa) if vaa.isdigit() and int(vaa) != code else None
+                taa = line[slice(*_CHIDRO_COLS["taa"])].strip()
+                # TAA receives the turbined water, VAA the spilled water; a
+                # blank code sends that water out of the system (sea).
+                downstream = int(taa) if taa.isdigit() and int(taa) != code else None
+                spill_down = int(vaa) if vaa.isdigit() and int(vaa) != code else None
                 if vmax > 0.0:
                     pairs = [
                         (_slice_float(line, a, b), _slice_float(line, c, d))
@@ -356,6 +363,7 @@ class HydroParser(BaseTextParser):
                     vinic=vinic,
                     eini=eini,
                     downstream_code=downstream,
+                    spill_downstream_code=spill_down,
                 )
             )
         n_res = sum(1 for h in out if h.vmax > 0.0)

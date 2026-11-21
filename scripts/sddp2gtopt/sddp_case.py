@@ -106,8 +106,11 @@ class SddpHydro:
     code: int
     name: str
     station: int
-    downstream: int | None  # VAA (turbined)
-    spill_to: int | None  # TAA (spilled)
+    # PSR ``chidro`` has two downstream codes: ``TAA`` (*turbinamiento aguas
+    # abajo*) receives the TURBINED water, ``VAA`` (*vertimiento aguas abajo*)
+    # the SPILLED water.  Blank = the water leaves the system (sea).
+    downstream: int | None  # TAA (turbined)
+    spill_to: int | None  # VAA (spilled)
     active: list[bool]
     pot: list[float]  # installed MW per stage (0 = no generator)
     pmax: Grid
@@ -191,6 +194,10 @@ class SddpBlockCase:
     inflows: dict[int, list[list[float]]]  # station → [scenario][stage] m³/s
     profiles: dict[str, list[Grid]]  # station → [scenario][stage][block] p.u.
     skipped: list[str] = field(default_factory=list)
+    # Plants never in service in the horizon (not modelled): NUM → the plant
+    # their water continues to (``VAA``, else ``TAA``), so cascades through
+    # them are not cut.
+    hydro_bypass: dict[int, int | None] = field(default_factory=dict)
 
     @property
     def num_blocks(self) -> int:
@@ -610,6 +617,7 @@ def _load_hydros(
     gen_bus: dict[tuple[int, int], int],
     ctl: SddpControl,
     skipped: list[str],
+    bypass: dict[int, int | None] | None = None,
 ) -> list[SddpHydro]:
     path = find_case_file(case_dir, f"chidro{sfx}.dat", "chidro*.dat")
     if path is None:
@@ -644,10 +652,14 @@ def _load_hydros(
         entry = _entry_date(base.get("Tipo", "0") == "1", hmods)
         active = [entry is not None and entry <= st.date for st in stages]
         if not any(active):
+            # Not built in the horizon: no turbine, so water reaching it
+            # follows the spill path (VAA), else the turbine path (TAA).
             dropped[code] = (
                 to_int(base.get("PV")) or 0,
                 to_int(base.get("VAA")) or to_int(base.get("TAA")) or None,
             )
+            if bypass is not None:
+                bypass[code] = dropped[code][1]
             continue
         first = active.index(True)
         rec0 = _effective(base, hmods, stages[first].date)
@@ -720,8 +732,8 @@ def _load_hydros(
                 code=code,
                 name=base.get("Nombre", f"h{code}"),
                 station=to_int(base.get("PV")) or 0,
-                downstream=to_int(rec0.get("VAA")) or None,
-                spill_to=to_int(rec0.get("TAA")) or None,
+                downstream=to_int(rec0.get("TAA")) or None,
+                spill_to=to_int(rec0.get("VAA")) or None,
                 active=active,
                 pot=pot,
                 pmax=pmax,
@@ -1069,7 +1081,10 @@ def load_sddp_block_case(
 
     buses, kv, gen_bus, lines = _load_network(case_dir, stages, skipped)
     thermals = _load_thermals(case_dir, sfx, nb_tag, stages, gen_bus, skipped)
-    hydros = _load_hydros(case_dir, sfx, nb_tag, stages, gen_bus, ctl, skipped)
+    bypass: dict[int, int | None] = {}
+    hydros = _load_hydros(
+        case_dir, sfx, nb_tag, stages, gen_bus, ctl, skipped, bypass=bypass
+    )
     renewables = _load_renewables(case_dir, sfx, stages, gen_bus)
     batteries = _load_batteries(case_dir, sfx, stages, skipped)
     demands = _load_demands(case_dir, sfx, nb_tag, stages)
@@ -1129,6 +1144,7 @@ def load_sddp_block_case(
         inflows=inflows,
         profiles=profiles,
         skipped=skipped,
+        hydro_bypass=bypass,
     )
     logger.info(
         "loaded PSR SDDP block case %s (sfx=%s): %d stages × %d blocks, "

@@ -502,41 +502,58 @@ def _build_water_network(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
     str | None,
 ]:
     """Build the hydraulic elements + boundary cut for the dispatched hydros.
 
     For every hydro that is emitted as a generator we create:
 
-    * a **Junction** (its headwater node), ``drain`` so surplus water spills
-      to sea (PSR ``SerVer = 0``);
+    * a **Junction** (its headwater node); ``drain`` (spill to sea, PSR
+      ``SerVer = 0``) only when the plant has no spill destination (``VAA``
+      blank), otherwise a spill **Waterway** to the ``VAA`` plant's junction
+      (uncapped) — so the spilled water stays in the cascade;
     * a **Reservoir** on that junction when the plant has storage
       (``VMax > 0``) — ``emin``/``emax`` = ``VMin``/``VMax`` [hm³], initial
       volume from the cota–vol interpolation, ``use_state_variable`` so the
       end-volume couples to the boundary cut;
     * a **Turbine** debiting the plant's junction and crediting the
-      downstream plant's junction (``VAA``); terminal plants drain to sea;
+      junction of the plant receiving the turbined water (``TAA``); a blank
+      ``TAA`` sends the turbined water to sea;
     * a **Flow** injecting the natural inflow [m³/s] into the junction.
 
     Returns ``(junction_array, reservoir_array, turbine_array, flow_array,
-    boundary_cut_csv)`` — the last is ``None`` when no reservoir carries a
+    waterway_array, boundary_cut_csv)`` — the last is ``None`` when no reservoir carries a
     positive water value.
     """
     junction_array: list[dict[str, Any]] = []
     reservoir_array: list[dict[str, Any]] = []
     turbine_array: list[dict[str, Any]] = []
     flow_array: list[dict[str, Any]] = []
+    waterway_array: list[dict[str, Any]] = []
     cuts: list[tuple[str, float, float]] = []
 
     for juid, h in enumerate(hydros, start=1):
-        junction_array.append(
-            {
-                "uid": juid,
-                "name": junctions_by_code[h.code],
-                "drain": True,
-                "drain_capacity": _SPILL_CAP,
-            }
-        )
+        vaa = getattr(h, "spill_downstream_code", None)
+        spill_to = junctions_by_code.get(vaa) if vaa is not None else None
+        if spill_to == junctions_by_code[h.code]:
+            spill_to = None
+        jitem: dict[str, Any] = {"uid": juid, "name": junctions_by_code[h.code]}
+        if spill_to is None:
+            # terminal for spilled water: spill to sea
+            jitem["drain"] = True
+            jitem["drain_capacity"] = _SPILL_CAP
+        else:
+            waterway_array.append(
+                {
+                    "uid": len(waterway_array) + 1,
+                    "name": f"sp_{_hy_ref(h.name)}",
+                    "junction_a": junctions_by_code[h.code],
+                    "junction_b": spill_to,
+                    "fmin": 0.0,
+                }
+            )
+        junction_array.append(jitem)
 
     ruid = tuid = fuid = 1
     for h in hydros:
@@ -614,7 +631,14 @@ def _build_water_network(
             fuid += 1
 
     cut_csv = _build_boundary_cut_csv(cuts) if cuts else None
-    return junction_array, reservoir_array, turbine_array, flow_array, cut_csv
+    return (
+        junction_array,
+        reservoir_array,
+        turbine_array,
+        flow_array,
+        waterway_array,
+        cut_csv,
+    )
 
 
 def _build_multibus_planning(
@@ -760,10 +784,12 @@ def _build_multibus_planning(
     cut_csv: str | None = None
     if hydro_topology and dispatched_hydros:
         junctions_by_code = {h.code: f"jn_{_hy_ref(h.name)}" for h in dispatched_hydros}
-        jn, rs, tb, fl, cut_csv = _build_water_network(
+        jn, rs, tb, fl, ww, cut_csv = _build_water_network(
             dispatched_hydros, junctions_by_code, study
         )
         system["junction_array"] = jn
+        if ww:
+            system["waterway_array"] = ww
         if rs:
             system["reservoir_array"] = rs
         system["turbine_array"] = tb

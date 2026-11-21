@@ -40,7 +40,7 @@ from typing import Any
 
 from gtopt_shared.json_planning import build_json_item, write_planning
 
-from .sddp_case import HM3_PER_M3S_H, Grid, SddpBlockCase, SddpHydro
+from .sddp_case import HM3_PER_M3S_H, Grid, SddpBlockCase
 
 logger = logging.getLogger(__name__)
 
@@ -138,14 +138,15 @@ def _t_as_tb(values: list[float], nb: int) -> Grid:
 
 
 def _resolve_downstream(
-    code: int | None, by_code: dict[int, SddpHydro], active: set[int]
+    code: int | None, bypass: dict[int, int | None], active: set[int]
 ) -> int | None:
-    """Follow the ``VAA`` chain past plants not modelled (future / absent)."""
+    """Follow a downstream code past plants not modelled (never in service
+    in the horizon): their water continues along ``bypass`` (their ``VAA``,
+    else ``TAA``) until a modelled plant; ``None`` = leaves the system."""
     seen: set[int] = set()
     while code and code not in active and code not in seen:
         seen.add(code)
-        nxt = by_code.get(code)
-        code = nxt.downstream if nxt is not None else None
+        code = bypass.get(code)
     return code if code in active else None
 
 
@@ -483,8 +484,8 @@ def _build_water_network(
 
     for h in case.hydros:
         j = jn[h.code]
-        down = _resolve_downstream(h.downstream, by_code, active)
-        spill = _resolve_downstream(h.spill_to, by_code, active)
+        down = _resolve_downstream(h.downstream, case.hydro_bypass, active)
+        spill = _resolve_downstream(h.spill_to, case.hydro_bypass, active)
         if spill == h.code:
             spill = None
         if down == h.code:

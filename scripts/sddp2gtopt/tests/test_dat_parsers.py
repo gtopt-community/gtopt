@@ -84,8 +84,12 @@ def _fw_chidro_line(
     vmin: float,
     vmax: float,
     vinic: float,
+    taa: int | str | None = None,
 ) -> str:
-    """Render one PSR fixed-width ``chidro`` data row at the real offsets."""
+    """Render one PSR fixed-width ``chidro`` data row at the real offsets.
+
+    ``vaa`` = spill destination, ``taa`` = turbined-water destination
+    (defaults to ``vaa``)."""
     buf = [" "] * 100
 
     def put_right(val: object, end: int) -> None:
@@ -96,6 +100,7 @@ def _fw_chidro_line(
     s = f"{name}"
     buf[5 : 5 + len(s)] = list(s)  # name left-justified
     put_right(vaa, 27)
+    put_right(vaa if taa is None else taa, 32)
     put_right(pot, 50)
     put_right(fpmed, 58)
     put_right(qmax, 74)

@@ -797,3 +797,48 @@ def test_multistage_boundary_cut_on_future_cost() -> None:
     ]
     sddp = planning["options"].get("sddp_options", {})
     assert not [k for k in sddp if k.startswith("boundary_")]
+
+
+def test_hydro_taa_vaa_split_ncp_path() -> None:
+    """``.dat`` path: turbine → TAA junction, spill waterway → VAA junction,
+    drain to sea only for plants with no spill destination (VAA blank)."""
+    from sddp2gtopt.entities import HydroSpec, StudySpec
+
+    study = StudySpec(stage_type=1, num_stages=1, num_blocks=2, deficit_cost=500.0)
+    buses = [BusSpec(number=1, name="A-230", base_kv=230.0)]
+    circuits = [CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)]
+    common = {"p_inst": 50.0, "fp_med": 2.0, "qmax": 15.0, "bus_number": 1}
+    hydros = [
+        HydroSpec(
+            code=1,
+            name="UP",
+            reference_id=1,
+            downstream_code=2,
+            spill_downstream_code=3,
+            inflow=10.0,
+            **common,
+        ),
+        HydroSpec(code=2, name="MID", reference_id=2, downstream_code=3, **common),
+        HydroSpec(code=3, name="LOW", reference_id=3, **common),
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=[],
+        hydros=hydros,
+        demands=[],
+        name="taa",
+        buses=buses,
+        circuits=circuits,
+        hydro_topology=True,
+    )
+    sy = planning["system"]
+    tb = {t["name"]: t for t in sy["turbine_array"]}
+    jn = {j["name"]: j for j in sy["junction_array"]}
+    ww = {w["name"]: w for w in sy.get("waterway_array", [])}
+    assert tb["tb_UP"]["junction_b"] == jn["jn_MID"]["name"]  # TAA
+    assert ww["sp_UP"]["junction_b"] == jn["jn_LOW"]["name"]  # VAA
+    assert not jn["jn_UP"].get("drain")  # spill stays in the cascade
+    assert jn["jn_MID"].get("drain") is True  # VAA blank → spill to sea
+    assert "sp_MID" not in ww
+    assert "junction_b" not in tb["tb_LOW"]  # TAA blank → turbined to sea
