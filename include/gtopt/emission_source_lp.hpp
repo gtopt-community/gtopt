@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include <gtopt/emission_source.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/object_lp.hpp>
@@ -93,30 +95,41 @@ public:
   {
     return upstream_rate_.at(s);
   }
-  /// @}
+  [[nodiscard]] auto param_fuel_rate(StageUid s) const
+  {
+    return fuel_rate_.at(s);
+  }
+  [[nodiscard]] auto param_upstream_fuel_rate(StageUid s) const
+  {
+    return upstream_fuel_rate_.at(s);
+  }
+
+  /// One LP column's share of a block's emissions: tonnes per unit of
+  /// the column's primal in that block (already × `dur`).  `combustion`
+  /// and `upstream` are NET of capture; `captured` is the abated part.
+  struct EmissionLeg
+  {
+    ColIndex col;
+    double combustion;
+    double upstream;
+    double captured;
+  };
+
+  using BlockEmission = std::vector<EmissionLeg>;
 
 private:
   OptTRealSched rate_;
   OptTRealSched upstream_rate_;
+  OptTRealSched fuel_rate_;
+  OptTRealSched upstream_fuel_rate_;
 
-  // Caches populated in add_to_lp and consumed in add_to_output to
-  // reconstruct the four per-source emission streams.  All four maps
-  // share the same (scenario, stage, block) key set.
-  STBIndexHolder<ColIndex> gen_cols_;
-  /// `(1 − capture) · rate · dur` per (s, t, b)  — combustion-only
-  /// multiplier on `gen_sol[col]`.
-  STBIndexHolder<double> combustion_factor_;
-  /// `(1 − capture) · upstream · dur` per (s, t, b).
-  STBIndexHolder<double> upstream_factor_;
-  /// `capture · (rate + upstream) · dur` per (s, t, b).
-  STBIndexHolder<double> captured_factor_;
-  /// Combustion `rate` [t/MWh] per (s, t, b) — broadcast of the
-  /// per-stage scalar across the stage's blocks.  Constant inside a
-  /// stage by construction.
+  // Per-(scenario, stage, block) emission legs, populated in add_to_lp
+  // and consumed in add_to_output to reconstruct the per-source
+  // emission streams.
+  STBIndexHolder<BlockEmission> block_emissions_;
   STBIndexHolder<double> rate_values_;
-  /// Upstream `upstream_rate` [t/MWh] per (s, t, b) — same shape
-  /// as `rate_values_`, only populated when upstream_rate is set.
   STBIndexHolder<double> upstream_rate_values_;
+  STBIndexHolder<double> fuel_rate_values_;
 };
 
 using EmissionSourceLPSId = ObjectSingleId<EmissionSourceLP>;

@@ -94,6 +94,21 @@ struct EmissionSource
   /// lifecycle (well-to-burner-tip) cap or tax; leave unset for
   /// stack-only (Scope 1) accounting.
   OptTRealFieldSched upstream_rate {};
+
+  /// Combustion emission factor on a FUEL basis `[t per fuel-unit]`,
+  /// stage-schedulable.  Applied to the generator's fuel burn instead
+  /// of its generation: `weight · fuel_rate · dur · burn` where `burn`
+  /// is `heat_rate_b · gen` for a (per-block) heat rate, or the
+  /// piecewise `h₁·gen + Σₖ Δhₖ · s_k` (heat-rate slack columns) for
+  /// `heat_rate_segments`.  Exact for any heat-rate shape — no single
+  /// t/MWh `rate` can represent a piecewise or per-block heat rate.
+  /// Additive with `rate`.  `System::expand_fuel_emission_sources()`
+  /// sets it to `Fuel.heat_content × emission_factor.combustion` for
+  /// generators whose heat rate is not a single scalar.
+  OptTRealFieldSched fuel_rate {};
+
+  /// Upstream (WTT) counterpart of `fuel_rate` `[t per fuel-unit]`.
+  OptTRealFieldSched upstream_fuel_rate {};
 };
 
 }  // namespace gtopt

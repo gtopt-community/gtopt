@@ -48,6 +48,10 @@ struct json_data_contract<EmissionSource>
       json_variant_null<"rate", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"upstream_rate",
                         OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"fuel_rate", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"upstream_fuel_rate",
+                        OptTRealFieldSched,
                         jvtl_TRealFieldSched>>;
 
   constexpr static auto to_json_data(EmissionSource const& s)
@@ -59,7 +63,9 @@ struct json_data_contract<EmissionSource>
                                  s.zone,
                                  s.emission,
                                  s.rate,
-                                 s.upstream_rate);
+                                 s.upstream_rate,
+                                 s.fuel_rate,
+                                 s.upstream_fuel_rate);
   }
 };
 

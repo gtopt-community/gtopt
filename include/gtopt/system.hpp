@@ -350,10 +350,13 @@ struct System
    * `<gen>_<pollutant>_via_fuel`.
    *
    * Time-varying heat_rate (vector / FileSched) and piecewise
-   * `heat_rate_segments` emit a WARN naming the generator and skip
-   * the row — explicit `EmissionSource` rows are required (a single
-   * linear rate on the generation column cannot represent the convex
-   * piecewise fuel burn exactly).  Time-varying fuel factors and
+   * `heat_rate_segments` get a FUEL-basis row instead:
+   * `EmissionSource{fuel_rate = heat_content × factor.combustion,
+   *                  upstream_fuel_rate = heat_content × factor.upstream}`
+   * which the LP applies to the generator's fuel-burn legs (per-block
+   * heat rate, or the convex piecewise burn including the heat-rate
+   * slack columns) — exact for any heat-rate shape.  Generators with
+   * `fuel_per_block` are still skipped (WARN).  Time-varying fuel factors and
    * `heat_content` collapse to their scalar arm (0 when non-scalar).
    * Idempotent on the scalar path: a re-run produces the same rows
    * with the same auto-generated names, so duplicates would collide

@@ -36,6 +36,10 @@
  * per-source output streams in `add_to_output`.
  */
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 #include <gtopt/allowance_pool_lp.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/emission_lp.hpp>
@@ -86,6 +90,9 @@ EmissionSourceLP::EmissionSourceLP(const EmissionSource& src,
     , rate_(ic, Element::class_name, id(), std::move(object().rate))
     , upstream_rate_(
           ic, Element::class_name, id(), std::move(object().upstream_rate))
+    , fuel_rate_(ic, Element::class_name, id(), std::move(object().fuel_rate))
+    , upstream_fuel_rate_(
+          ic, Element::class_name, id(), std::move(object().upstream_fuel_rate))
 {
 }
 
@@ -109,8 +116,12 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   // solve when needed.
   const auto rate = param_rate(stage.uid()).value_or(0.0);
   const auto upstream = param_upstream_rate(stage.uid()).value_or(0.0);
-  const auto effective_rate = rate + upstream;
-  if (effective_rate == 0.0) {
+  // Fuel-basis factors [t / fuel-unit], applied to the generator's fuel
+  // burn legs (exact for per-block and piecewise heat rates).
+  const auto fuel_rate = param_fuel_rate(stage.uid()).value_or(0.0);
+  const auto upstream_fuel =
+      param_upstream_fuel_rate(stage.uid()).value_or(0.0);
+  if (rate + upstream == 0.0 && fuel_rate + upstream_fuel == 0.0) {
     return true;
   }
 
@@ -160,8 +171,7 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   // ── CCS / abatement: per-(generator, pollutant) capture row ────────
   // If `Generator.emission_captures[]` contains a row for this
   // pollutant, scale the contribution by `(1 − capture_rate)` and add
-  // a per-MWh objective adder of `capture_rate · effective_rate ·
-  // capture_cost` on the generator dispatch column.
+  // a per-ton objective adder `capture_cost` on the captured tonnage.
   double capture_rate = 0.0;
   double capture_cost = 0.0;
   const auto stage_index = static_cast<std::size_t>(stage.index());
@@ -173,9 +183,6 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     }
   }
   const double net_factor = 1.0 - capture_rate;
-  // Per-MWh α rate [tCO₂-eq / MWh]: dur-free, lifted to a per-block
-  // tonnage in the per-block loop below.
-  const double alpha_rate = weight * net_factor * effective_rate;
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
 
@@ -191,10 +198,10 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   }
 
   // Wiring decisions for this (scenario, stage):
-  //   * cap_row exists       ⇒ stamp `+α` per block onto gen_col
-  //   * effective_price > 0  ⇒ add `block_ecost(price · α_rate)` to
-  //   gen_col.cost
-  //   * pool_fk set          ⇒ stamp `+α` per block onto pool.energy_row
+  //   * cap_row exists       ⇒ stamp `+α` per leg onto the leg column
+  //   * effective_price > 0  ⇒ add `block_ecost(price · α_rate)` to the
+  //                            leg column cost
+  //   * pool_fk set          ⇒ stamp `+α` per leg onto pool.energy_row
   const auto& cap_rows_map = zone.cap_rows();
   const auto cap_it = cap_rows_map.find(st_key);
   const RowIndex* cap_row_idx =
@@ -217,16 +224,16 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     pool_energy_rows = &pool.energy_rows_at(scenario, stage);
   }
 
-  // Per-block output-reconstruction caches (populated below;
-  // consumed by add_to_output to compute the per-source emission
-  // streams).  Populated regardless of whether any LP wiring fires,
-  // so reporting-only zones still emit the full per-source streams.
-  BIndexHolder<ColIndex> blk_gen_cols;
-  BIndexHolder<double> blk_combustion_factor;
-  BIndexHolder<double> blk_upstream_factor;
-  BIndexHolder<double> blk_captured_factor;
+  const bool fuel_basis = (fuel_rate + upstream_fuel) != 0.0;
+
+  // Per-block output-reconstruction caches (populated below; consumed
+  // by add_to_output).  Populated regardless of whether any LP wiring
+  // fires, so reporting-only zones still emit the full streams.
+  BIndexHolder<BlockEmission> blk_emissions;
   BIndexHolder<double> blk_rate_value;
   BIndexHolder<double> blk_upstream_rate_value;
+  BIndexHolder<double> blk_fuel_rate_value;
+  BIndexHolder<std::vector<std::pair<ColIndex, double>>> blk_weighted_emit;
 
   for (const auto& block : stage.blocks()) {
     const auto buid = block.uid();
@@ -236,89 +243,117 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     }
     const auto dur = block.duration();
     const auto gcol = gcol_it->second;
-    // α [tCO₂-eq / MW] for this block — convert α_rate ($/MWh basis)
-    // to per-block tonnage by multiplying by duration.  Used by both
-    // the cap row coefficient and the pool drawdown.
-    const double alpha_block = alpha_rate * dur;
 
-    // ── Cap row coefficient (only when zone has a cap row at (s,t)) ──
-    // Multiple sources may target the same (zone, generator) pair
-    // (e.g. two pollutants in a basket).  Read-modify-write to
-    // accumulate contributions rather than overwriting.
-    if (cap_row_idx != nullptr) {
-      const auto existing = lp.get_coeff(*cap_row_idx, gcol);
-      lp.set_coeff(*cap_row_idx, gcol, existing + alpha_block);
-    }
-
-    // ── Carbon tax (price or emissions_mode) ────────────────────────
-    // Per-MWh adder = `effective_price · α_rate`; block_ecost adds the
-    // per-block dur · probability · discount factors.  Mirrors the CCS
-    // opex adder pattern already in this file (below).
-    if (has_tax) {
-      const auto tax_adder = CostHelper::block_ecost(
-          scenario, stage, block, effective_price * alpha_rate);
-      lp.col_at(gcol).cost += tax_adder;
-    }
-
-    // ── Allowance-pool drawdown ─────────────────────────────────────
-    if (pool_energy_rows != nullptr) {
-      const auto it = pool_energy_rows->find(buid);
-      if (it != pool_energy_rows->end()) {
-        const auto existing = lp.get_coeff(it->second, gcol);
-        lp.set_coeff(it->second, gcol, existing + alpha_block);
+    // Per-MW-of-column rates [t / MWh-of-column]: generation basis on
+    // the dispatch column, fuel basis on every fuel-burn leg (the
+    // dispatch column itself and, for piecewise heat rates, the
+    // heat-rate slack columns).  Legs on the same column are merged.
+    BlockEmission rates;
+    const auto add_rate = [&](ColIndex col, double comb, double upstr)
+    {
+      if (comb == 0.0 && upstr == 0.0) {
+        return;
+      }
+      const auto it = std::ranges::find(rates, col, &EmissionLeg::col);
+      if (it != rates.end()) {
+        it->combustion += comb;
+        it->upstream += upstr;
+      } else {
+        rates.push_back({
+            .col = col,
+            .combustion = comb,
+            .upstream = upstr,
+            .captured = 0.0,
+        });
+      }
+    };
+    add_rate(gcol, rate, upstream);
+    if (fuel_basis) {
+      for (const auto& [col, burn] : gen.fuel_burn_legs(scenario, stage, buid))
+      {
+        add_rate(col, fuel_rate * burn, upstream_fuel * burn);
       }
     }
-
-    // ── CCS opex (per-block) ────────────────────────────────────────
-    // Charge `capture_cost` per ton captured.  The captured tonnage
-    // per MWh is `capture_rate · effective_rate`; multiplied by
-    // `capture_cost` gives $/MWh, then through block_ecost the same
-    // probability · discount · scale chain every other thermal cost
-    // uses.
-    if (capture_rate > 0.0 && capture_cost > 0.0) {
-      const auto adder = CostHelper::block_ecost(
-          scenario, stage, block, capture_rate * effective_rate * capture_cost);
-      lp.col_at(gcol).cost += adder;
+    if (rates.empty()) {
+      continue;
     }
 
-    // ── Reporting cache (always populated) ──────────────────────────
-    blk_gen_cols[buid] = gcol;
-    blk_combustion_factor[buid] = net_factor * rate * dur;
-    blk_upstream_factor[buid] = net_factor * upstream * dur;
-    blk_captured_factor[buid] = capture_rate * effective_rate * dur;
+    BlockEmission blk;
+    blk.reserve(rates.size());
+    auto& weighted = blk_weighted_emit[buid];
+    for (const auto& [col, comb, upstr, unused] : rates) {
+      const double leg_rate = comb + upstr;  // gross t / MWh-of-column
+      // α_rate [tCO₂-eq / MWh-of-column], dur-free; α = α_rate · dur.
+      const double alpha_rate = weight * net_factor * leg_rate;
+      const double alpha_block = alpha_rate * dur;
+
+      // ── Cap row coefficient (only when zone has a cap row at (s,t))
+      // Multiple sources may target the same (zone, column) pair (e.g.
+      // two pollutants in a basket): read-modify-write to accumulate.
+      if (cap_row_idx != nullptr) {
+        const auto existing = lp.get_coeff(*cap_row_idx, col);
+        lp.set_coeff(*cap_row_idx, col, existing + alpha_block);
+      }
+
+      // ── Carbon tax (price or emissions_mode) ──────────────────────
+      if (has_tax) {
+        lp.col_at(col).cost += CostHelper::block_ecost(
+            scenario, stage, block, effective_price * alpha_rate);
+      }
+
+      // ── Allowance-pool drawdown ───────────────────────────────────
+      if (pool_energy_rows != nullptr) {
+        const auto it = pool_energy_rows->find(buid);
+        if (it != pool_energy_rows->end()) {
+          const auto existing = lp.get_coeff(it->second, col);
+          lp.set_coeff(it->second, col, existing + alpha_block);
+        }
+      }
+
+      // ── CCS opex: capture_cost per captured ton ───────────────────
+      if (capture_rate > 0.0 && capture_cost > 0.0) {
+        lp.col_at(col).cost += CostHelper::block_ecost(
+            scenario, stage, block, capture_rate * leg_rate * capture_cost);
+      }
+
+      // ── Reporting legs (net of capture, per block) ────────────────
+      blk.push_back({
+          .col = col,
+          .combustion = net_factor * comb * dur,
+          .upstream = net_factor * upstr * dur,
+          .captured = capture_rate * leg_rate * dur,
+      });
+      weighted.emplace_back(col, net_factor * leg_rate * dur);
+    }
+
+    blk_emissions[buid] = std::move(blk);
     blk_rate_value[buid] = rate;
     if (upstream != 0.0) {
       blk_upstream_rate_value[buid] = upstream;
     }
+    if (fuel_basis) {
+      blk_fuel_rate_value[buid] = fuel_rate;
+    }
   }
 
-  if (!blk_gen_cols.empty()) {
+  if (!blk_emissions.empty()) {
     // ── PAMPL `emission_source("X").emissions` registration ────────
     // Expose the per-block NET (post-capture) emission expression
-    // `(combustion + upstream)_b · gen_col_b` to user constraints via
-    // the AMPL `block_cols_weighted_sum` registry — one leg per
-    // (gen_col, factor_b) per block.  Mirror of the new `fuel.offtake`
-    // accessor: a weighted sum of an existing LP column, no aggregator
-    // variable.  UCs can express "emissions of source X over the
-    // stage" as `sum(b in blocks) emission_source("X").emissions` and
-    // it expands directly onto the generator dispatch col.
-    BIndexHolder<std::vector<std::pair<ColIndex, double>>> blk_weighted_emit;
-    for (const auto& [buid, gcol] : blk_gen_cols) {
-      const double net_factor_b =
-          blk_combustion_factor.at(buid) + blk_upstream_factor.at(buid);
-      blk_weighted_emit[buid] = {{gcol, net_factor_b}};
-    }
+    // `Σ_legs coef_b · col_b` to user constraints via the AMPL
+    // `block_cols_weighted_sum` registry.  UCs can express "emissions
+    // of source X over the stage" as
+    // `sum(b in blocks) emission_source("X").emissions`.
     static constexpr auto ampl_name = Element::class_name.snake_case();
     sc.add_ampl_variable(
         ampl_name, uid(), "emissions", scenario, stage, blk_weighted_emit);
 
-    gen_cols_[st_key] = std::move(blk_gen_cols);
-    combustion_factor_[st_key] = std::move(blk_combustion_factor);
-    upstream_factor_[st_key] = std::move(blk_upstream_factor);
-    captured_factor_[st_key] = std::move(blk_captured_factor);
+    block_emissions_[st_key] = std::move(blk_emissions);
     rate_values_[st_key] = std::move(blk_rate_value);
     if (!blk_upstream_rate_value.empty()) {
       upstream_rate_values_[st_key] = std::move(blk_upstream_rate_value);
+    }
+    if (!blk_fuel_rate_value.empty()) {
+      fuel_rate_values_[st_key] = std::move(blk_fuel_rate_value);
     }
   }
 
@@ -342,33 +377,29 @@ bool EmissionSourceLP::add_to_output(OutputContext& out) const
   bool any_upstream = false;
   bool any_captured = false;
 
-  for (const auto& [st_key, blk_cols] : gen_cols_) {
+  for (const auto& [st_key, blocks] : block_emissions_) {
     auto& emissions_st = emissions_values[st_key];
     auto& combustion_st = combustion_values[st_key];
     auto& upstream_st = upstream_values[st_key];
     auto& captured_st = captured_values[st_key];
 
-    const auto& combustion_st_in = combustion_factor_.at(st_key);
-    const auto& upstream_st_in = upstream_factor_.at(st_key);
-    const auto& captured_st_in = captured_factor_.at(st_key);
-
-    for (const auto& [buid, gcol] : blk_cols) {
-      const auto gen_sol = out.primal(gcol);
-      const auto comb = combustion_st_in.at(buid) * gen_sol;
-      const auto upstr = upstream_st_in.at(buid) * gen_sol;
-      const auto capt = captured_st_in.at(buid) * gen_sol;
+    for (const auto& [buid, blk] : blocks) {
+      double comb = 0.0;
+      double upstr = 0.0;
+      double capt = 0.0;
+      for (const auto& leg : blk) {
+        const auto sol = out.primal(leg.col);
+        comb += leg.combustion * sol;
+        upstr += leg.upstream * sol;
+        capt += leg.captured * sol;
+        any_upstream = any_upstream || leg.upstream != 0.0;
+        any_captured = any_captured || leg.captured != 0.0;
+      }
 
       combustion_st[buid] = comb;
       upstream_st[buid] = upstr;
       captured_st[buid] = capt;
       emissions_st[buid] = comb + upstr;
-
-      if (upstream_st_in.at(buid) != 0.0) {
-        any_upstream = true;
-      }
-      if (captured_st_in.at(buid) != 0.0) {
-        any_captured = true;
-      }
     }
   }
 
@@ -387,6 +418,9 @@ bool EmissionSourceLP::add_to_output(OutputContext& out) const
   }
   if (!upstream_rate_values_.empty()) {
     out.add_col_sol_values(cname, "upstream_rate", pid, upstream_rate_values_);
+  }
+  if (!fuel_rate_values_.empty()) {
+    out.add_col_sol_values(cname, "fuel_rate", pid, fuel_rate_values_);
   }
 
   return true;

@@ -1143,8 +1143,8 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "System::expand_fuel_emission_sources — time-varying heat_rate skipped "
-    "with warn (LP-balance lossless contract)")  // NOLINT
+    "System::expand_fuel_emission_sources — time-varying heat_rate folds "
+    "on the fuel basis (#545)")  // NOLINT
 {
   System sys;
   sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
@@ -1156,7 +1156,8 @@ TEST_CASE(
                      .name = "gas",
                      .emission_factors = {{.emission = SingleId {Uid {1}},
                                            .combustion = 0.05}}}};
-  // Per-stage vector heat_rate — fold path requires scalar.
+  // Per-stage vector heat_rate — no single t/MWh rate; the fold emits a
+  // fuel-basis source (t per fuel-unit) applied to hr_b · gen in the LP.
   sys.generator_array = {{.uid = Uid {7},
                           .name = "ngcc",
                           .bus = Uid {1},
@@ -1165,7 +1166,10 @@ TEST_CASE(
                               std::vector<std::vector<Real>> {{8.0}, {9.0}}}}};
 
   sys.expand_fuel_emission_sources();
-  CHECK(sys.emission_source_array.empty());
+  REQUIRE(sys.emission_source_array.size() == 1);
+  const auto& src = sys.emission_source_array.front();
+  CHECK_FALSE(src.rate.has_value());
+  CHECK(std::get<Real>(src.fuel_rate.value_or(0.0)) == doctest::Approx(0.05));
 }
 
 TEST_CASE(

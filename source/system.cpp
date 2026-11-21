@@ -579,41 +579,27 @@ void System::expand_fuel_emission_sources()
       continue;
     }
 
-    // Piecewise heat rate: fuel burn is the convex PWL function
-    //   h₁·p + Σₖ (hₖ − hₖ₋₁)·max(0, p − P̄ₖ₋₁)
-    // carried by the generation column PLUS the per-segment heat-rate
-    // slack columns.  An `EmissionSource` is linear in the generation
-    // column only, so no single representative rate is exact (h₁
-    // under-states, h_K over-states, any average is wrong at some
-    // load).  Skip — loudly — instead of guessing.
-    if (!gen.heat_rate_segments.empty() && !gen.heat_rate.has_value()) {
-      SPDLOG_WARN(
-          "Generator '{}' uid={}: heat_rate_segments (piecewise heat "
-          "rate) is not supported by fuel-derived emissions — fuel "
-          "'{}' emission factors are NOT applied to this generator.  "
-          "Declare explicit EmissionSource entries (e.g. with a "
-          "representative per-MWh rate) to account for its emissions.",
-          gen.name,
-          gen.uid,
-          fuel->name);
-      continue;
-    }
-
-    // Scalar heat_rate only — time-varying schedules can't be folded
-    // lossless into the per-stage `EmissionSource.rate` field.
+    // Rate basis.  A scalar `heat_rate` folds losslessly into a t/MWh
+    // `EmissionSource.rate` (hr · hc · factor on the dispatch column).
+    // Any other heat-rate shape — per-(stage, block) `heat_rate`
+    // schedules or piecewise `heat_rate_segments` — is carried by a
+    // FUEL-basis rate instead (`EmissionSource.fuel_rate` = hc · factor
+    // [t / fuel-unit]), which EmissionSourceLP applies to the
+    // generator's fuel-burn legs (`GeneratorLP::fuel_burn_legs`): the
+    // per-block heat rate on the dispatch column, or the convex PWL
+    // `h₁·p + Σₖ Δhₖ·s_k` including the heat-rate slack columns.
+    // Exact in every case (issue #545: PLEXOS units with Load Point /
+    // Heat Rate Incr segments and per-block imports were silently left
+    // out of the emission accounting).
+    const bool has_pw = !gen.heat_rate_segments.empty()
+        && gen.heat_rate_segments.size() == gen.pmax_segments.size();
     const auto hr_opt = scalar_or(gen.heat_rate);
-    if (!hr_opt.has_value() || *hr_opt == 0.0) {
-      if (gen.heat_rate.has_value()) {
-        SPDLOG_WARN(
-            "Generator '{}' uid={}: non-scalar heat_rate — fuel-derived "
-            "emission sources skipped.  Declare explicit EmissionSource "
-            "entries to retain per-block accuracy.",
-            gen.name,
-            gen.uid);
-      }
+    const bool fuel_basis =
+        has_pw || (gen.heat_rate.has_value() && !hr_opt.has_value());
+    if (!fuel_basis && (!hr_opt.has_value() || *hr_opt == 0.0)) {
       continue;
     }
-    const double hr = *hr_opt;
+    const double hr = fuel_basis ? 1.0 : *hr_opt;
 
     // Unit alignment between heat_rate and emission_factor.combustion:
     //
@@ -683,9 +669,15 @@ void System::expand_fuel_emission_sources()
             .generator = OptSingleId {SingleId {gen.uid}},
             .zone = SingleId {zone.uid},
             .emission = fef.emission,
-            .rate = OptTRealFieldSched {hr * hc * combustion},
-            .upstream_rate = upstream != 0.0
+            .rate = fuel_basis ? OptTRealFieldSched {}
+                               : OptTRealFieldSched {hr * hc * combustion},
+            .upstream_rate = (!fuel_basis && upstream != 0.0)
                 ? OptTRealFieldSched {hr * hc * upstream}
+                : OptTRealFieldSched {},
+            .fuel_rate = fuel_basis ? OptTRealFieldSched {hc * combustion}
+                                    : OptTRealFieldSched {},
+            .upstream_fuel_rate = (fuel_basis && upstream != 0.0)
+                ? OptTRealFieldSched {hc * upstream}
                 : OptTRealFieldSched {},
         });
         src_uids.insert(emission_source_array.back().uid);

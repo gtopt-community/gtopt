@@ -1402,11 +1402,16 @@ pollutant link.  Can also be written inline as `Generator.emissions[]`.
 | `emission` | integer\|string | — | Yes | FK to Emission; must match an entry of the zone's `emissions` |
 | `rate` | number\|array\|string | t/MWh | No | Combustion (stack) rate |
 | `upstream_rate` | number\|array\|string | t/MWh | No | Upstream (well-to-tank) rate |
+| `fuel_rate` | number\|array\|string | t/fuel unit | No | Combustion factor applied to the generator's fuel burn (per-block or piecewise heat rate); additive with `rate` |
+| `upstream_fuel_rate` | number\|array\|string | t/fuel unit | No | Upstream factor applied to the fuel burn |
 
 `Fuel.emission_factors[]` (`{emission, combustion, upstream}` in t per
 fuel unit) builds one source per covering zone for every generator with
-that `fuel` and a scalar `heat_rate` (a generator with
-`heat_rate_segments` is skipped with a warning).  Pollutants can be
+that `fuel`: a t/MWh `rate` (heat rate × heat content × factor) when
+`heat_rate` is a scalar, otherwise (per-block `heat_rate`,
+`heat_rate_segments`) a `fuel_rate` (heat content × factor) that the LP
+applies to the exact fuel burn, including the piecewise heat-rate
+slacks.  Generators with `fuel_per_block` are skipped with a warning.  Pollutants can be
 referenced by name or by uid in zones, sources and fuels; both resolve
 against `emission_array`.
 

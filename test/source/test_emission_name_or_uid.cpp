@@ -8,7 +8,7 @@
 // match: a priced zone listing `"co2"` by name was shadowed by a fresh
 // unpriced `default_co2` zone, and mixed-form sources were dropped.
 //
-// Also covers the `heat_rate_segments` warning in
+// Also covers the `heat_rate_segments` fuel-basis fold in
 // `System::expand_fuel_emission_sources`.
 
 #include <algorithm>
@@ -26,8 +26,6 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
-
-#include "log_capture.hpp"
 
 using namespace gtopt;
 
@@ -195,8 +193,8 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "expand_fuel_emission_sources — heat_rate_segments warns and "
-    "skips")  // NOLINT
+    "expand_fuel_emission_sources — heat_rate_segments get a "
+    "fuel-basis source (#545)")  // NOLINT
 {
   System sys;
   sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
@@ -221,13 +219,14 @@ TEST_CASE(
       .capacity = 100.0,
   }};
 
-  const gtopt::test::LogCapture logs;
   sys.expand_fuel_emission_sources();
-  spdlog::default_logger()->flush();
 
-  CHECK(sys.emission_source_array.empty());
-  CHECK(logs.contains("pw_ngcc"));
-  CHECK(logs.contains("heat_rate_segments"));
+  // Piecewise burn is carried on the fuel basis (t / fuel-unit), no
+  // per-MWh rate: heat_content unset ⇒ fuel_rate = combustion factor.
+  REQUIRE(sys.emission_source_array.size() == 1);
+  const auto& src = sys.emission_source_array.front();
+  CHECK_FALSE(src.rate.has_value());
+  CHECK(std::get<Real>(src.fuel_rate.value_or(0.0)) == doctest::Approx(0.2));
 }
 
 TEST_CASE(

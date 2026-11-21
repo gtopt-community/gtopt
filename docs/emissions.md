@@ -14,7 +14,7 @@ Emissions are modelled with four elements:
 | Element | Role |
 |---|---|
 | `Emission` | Registry of pollutants: `co2`, `ch4`, `n2o`, `nox`, `so2`, `pm10`, … |
-| `EmissionSource` | Links a generator to a zone and a pollutant, with its combustion `rate` and optional `upstream_rate` (well-to-tank) in t/MWh. Can also be derived from `Fuel.emission_factors[]` × heat rate |
+| `EmissionSource` | Links a generator to a zone and a pollutant, with its combustion `rate` and optional `upstream_rate` (well-to-tank) in t/MWh, or `fuel_rate` / `upstream_fuel_rate` in t per fuel unit applied to the fuel burn. Can also be derived from `Fuel.emission_factors[]` × heat rate (piecewise and per-block heat rates included) |
 | `EmissionZone` | Scope of a balance: **system-wide or regional**. Lists the pollutants it covers with a `weight`, and optionally a `cap` (hard, or soft with `cap_cost`) and a per-tonne `price` |
 | `Generator.emission_captures[]` | Capture (CCS) per pollutant, with capture rate and cost |
 

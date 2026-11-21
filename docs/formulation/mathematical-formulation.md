@@ -1823,10 +1823,15 @@ Emissions are modelled with three element types (user guide:
   optional cap, cap cost and price;
 - `EmissionSource` $\nu \in \mathcal{ES}$ — links generator $g(\nu)$ to
   zone $z(\nu)$ and pollutant $\epsilon(\nu)$ with a combustion rate
-  $f_{\nu,t}$ and an upstream rate $f^{\text{up}}_{\nu,t}$ [t/MWh].
+  $f_{\nu,t}$ and an upstream rate $f^{\text{up}}_{\nu,t}$ [t/MWh],
+  and/or fuel-basis factors $\phi_{\nu,t}$, $\phi^{\text{up}}_{\nu,t}$
+  [t per fuel unit] (`fuel_rate`, `upstream_fuel_rate`).
   Sources are also synthesised from `Generator.emissions[]`, from
-  `Fuel.emission_factors[]` × scalar `heat_rate` (one per covering zone),
-  and from the legacy `Generator.emission_rate` (pollutant `co2`).
+  `Fuel.emission_factors[]` (one per covering zone: a t/MWh rate
+  $h_g \cdot \kappa_f \cdot e_{f,\epsilon}$ for a scalar `heat_rate`,
+  else the fuel-basis factor $\kappa_f \cdot e_{f,\epsilon}$, with
+  $\kappa_f$ = `heat_content`, 1 when unset), and from the legacy
+  `Generator.emission_rate` (pollutant `co2`).
 
 There is **no** emission variable and no balance row: every contribution
 is substituted onto the generator dispatch column $p_{g,s,t,b}$ with the
@@ -1838,7 +1843,27 @@ $$
   \bigl(f_{\nu,t} + f^{\text{up}}_{\nu,t}\bigr)\,\Delta_b
 \qquad [\text{t/MW}]
 $$
-<!-- source: source/emission_source_lp.cpp:166-169,236 -->
+<!-- source: source/emission_source_lp.cpp -->
+
+Fuel-basis factors act on the generator's fuel burn rate
+$F_{g,s,t,b}$ [fuel units/h], substituted the same way onto its legs:
+
+$$
+F_{g,s,t,b} \;=\;
+\begin{cases}
+h_{g,t,b}\, p_{g,s,t,b} & \text{scalar or per-block } \texttt{heat\_rate}\\
+h_{g,1}\, p_{g,s,t,b} + \sum_{k=1}^{K-1} (h_{g,k+1} - h_{g,k})\,
+  s_{g,k,s,t,b} & \texttt{heat\_rate\_segments}
+\end{cases}
+$$
+
+where $s_{g,k}$ are the piecewise heat-rate slack columns.  The
+coefficient on each leg is
+$\mu\,(1-\eta^{\text{cap}})\,(\phi_{\nu,t} + \phi^{\text{up}}_{\nu,t})
+\,\Delta_b$ times the leg's fuel coefficient, so the cap, price,
+allowance-pool and CCS terms below apply to the exact piecewise or
+per-block fuel burn.
+<!-- source: source/emission_source_lp.cpp, GeneratorLP::fuel_burn_legs -->
 
 where $\eta^{\text{cap}}_{g,\epsilon,t}$ is the CCS capture fraction
 (`Generator.emission_captures[].rate`, 0 when absent). A source whose
@@ -3181,6 +3206,8 @@ mathematical symbols used in this formulation.
 | `emission_zone_array[].allowance_pool` | $a(z)$ | FK to `AllowancePool`; replaces the cap row |
 | `emission_source_array[].rate` | $f_{\nu,t}$ | Combustion rate (t/MWh) |
 | `emission_source_array[].upstream_rate` | $f^{\text{up}}_{\nu,t}$ | Upstream (well-to-tank) rate (t/MWh) |
+| `emission_source_array[].fuel_rate` | $\phi_{\nu,t}$ | Combustion factor on the fuel burn (t/fuel unit) |
+| `emission_source_array[].upstream_fuel_rate` | $\phi^{\text{up}}_{\nu,t}$ | Upstream factor on the fuel burn (t/fuel unit) |
 | `generator_array[].emission_captures[].rate` | $\eta^{\text{cap}}_{g,\epsilon,t}$ | CCS capture fraction |
 | `generator_array[].emission_captures[].cost` | $c^{\text{ccs}}_{g,\epsilon,t}$ | Capture cost (\$/t captured) |
 | `fuel_array[].emission_factors[]` | — | Per-fuel-unit factors; with scalar `heat_rate` they generate sources |

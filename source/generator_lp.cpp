@@ -614,4 +614,37 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
   return CapacityBase::add_to_output(out);
 }
 
+auto GeneratorLP::fuel_burn_legs(const ScenarioLP& scenario,
+                                 const StageLP& stage,
+                                 BlockUid buid) const
+    -> std::vector<std::pair<ColIndex, double>>
+{
+  std::vector<std::pair<ColIndex, double>> legs;
+  const auto gcol = lookup_generation_col(scenario, stage, buid);
+  if (!gcol) {
+    return legs;
+  }
+  if (has_heat_rate_segments()) {
+    const auto& hr_segs = generator().heat_rate_segments;
+    legs.reserve(hr_segs.size());
+    legs.emplace_back(*gcol, hr_segs.front());
+    for (std::size_t k = 1; k < hr_segs.size(); ++k) {
+      if (k - 1 >= heat_rate_slack_cols_.size()) {
+        break;
+      }
+      if (const auto s_col =
+              lookup_inner(heat_rate_slack_cols_[k - 1], scenario, stage, buid))
+      {
+        legs.emplace_back(*s_col, hr_segs[k] - hr_segs[k - 1]);
+      }
+    }
+    return legs;
+  }
+  const auto hr = heat_rate.optval(stage.uid(), buid).value_or(0.0);
+  if (hr != 0.0) {
+    legs.emplace_back(*gcol, hr);
+  }
+  return legs;
+}
+
 }  // namespace gtopt

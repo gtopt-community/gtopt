@@ -1026,16 +1026,20 @@
     "zone",
     "emission",
     "rate",
-    "upstream_rate"
+    "upstream_rate",
+    "fuel_rate",
+    "upstream_fuel_rate"
    ],
    "header": "json_emission_source.hpp",
    "kinds": {
     "active": "variant",
     "emission": "variant",
+    "fuel_rate": "variant",
     "generator": "variant",
     "name": "string",
     "rate": "variant",
     "uid": "number",
+    "upstream_fuel_rate": "variant",
     "upstream_rate": "variant",
     "zone": "variant"
    },

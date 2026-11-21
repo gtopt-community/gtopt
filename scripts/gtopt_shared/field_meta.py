@@ -2073,6 +2073,22 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Upstream / well-to-tank (WTT) emission rate [t/MWh], stage-schedulable.",
             None,
         ),
+        (
+            "fuel_rate",
+            _J_SCHED,
+            False,
+            "Combustion emission factor on a fuel basis [t per fuel-unit], "
+            "applied to the generator's fuel burn (per-block or piecewise "
+            "heat rate).  Additive with `rate`.",
+            None,
+        ),
+        (
+            "upstream_fuel_rate",
+            _J_SCHED,
+            False,
+            "Upstream (WTT) emission factor on a fuel basis [t per fuel-unit].",
+            None,
+        ),
     ],
     # ------------------------------------------------------------------
     # System — hydro

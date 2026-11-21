@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <utility>
+#include <vector>
+
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/generator.hpp>
@@ -194,6 +197,21 @@ public:
   {
     return heat_rate_slack_cols_;
   }
+
+  /// Fuel burn of this generator at one (scenario, stage, block) as
+  /// LP legs `{(col, coef)}` in fuel-units per hour: `Σ coef · col`
+  /// is the fuel burn rate, so `dur_b · Σ coef · col` is the block's
+  /// fuel use.
+  ///   - scalar / per-(stage, block) `heat_rate`: `{(gen, hr_b)}`
+  ///   - piecewise `heat_rate_segments`: `{(gen, h_1)}` plus
+  ///     `{(s_k, h_{k+1} − h_k)}` for every heat-rate slack column —
+  ///     the convex PWL burn `h₁·p + Σₖ Δhₖ · max(0, p − P̄ₖ)`.
+  /// Empty when the block has no generation column or no heat rate.
+  /// Must be called after this generator's `add_to_lp` for the cell.
+  [[nodiscard]] auto fuel_burn_legs(const ScenarioLP& scenario,
+                                    const StageLP& stage,
+                                    BlockUid buid) const
+      -> std::vector<std::pair<ColIndex, double>>;
 
   /// `[segment_index] -> STBIndexHolder<RowIndex>` of piecewise kink
   /// rows.  Same shape as ``heat_rate_slack_cols_``.  Exposed so
