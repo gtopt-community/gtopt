@@ -315,11 +315,12 @@ def test_import_limit_caps_aggregate(tmp_path: Path) -> None:
         "----- Costo Deficit -----\n.% c1\n 100 500.0\n",
     )
     _write(cd / "sistem.dat", " NUM NOMBRE ID\n0001 SYS TS\n")
-    # Two import fuels (MEX-I, IMP-01, $0) + one domestic (GAS).
+    # Two priced import fuels (MEX-I, IMP-01) + one domestic (GAS).  A $0
+    # import fuel would mean "no offer" (unit unavailable) without PRECIOSMEX.
     _write(
         cd / "ccombuTS.dat",
         "!Num Nome UComb Custo\n   1 GAS  MWh 50.0\n"
-        "   2 MEX-I MWh 0.0\n   3 IMP-01 MWh 0.0\n",
+        "   2 MEX-I MWh 10.0\n   3 IMP-01 MWh 20.0\n",
     )
     # G1 (domestic), M1+M2 (imports, 600+400 = 1000 MW).
     _write(

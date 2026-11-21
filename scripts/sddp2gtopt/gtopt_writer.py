@@ -433,17 +433,25 @@ def _amm_override(tplant: Any, pmax_default: Any, study: StudySpec) -> tuple[Any
     if tp not in ("<", ">", "=") or not prof:
         return 0.0, pmax_default
     total = max(1, study.num_stages * study.num_blocks)
-    def_pmax = pmax_default if isinstance(pmax_default, (int, float)) else tplant.pmax
+    # per-hour default ceiling: the hourly cap (max_gen, e.g. hours with no
+    # import offer) when it spans the horizon, else the scalar default
+    if not isinstance(pmax_default, (int, float)) and len(tplant.max_gen) >= total:
+        dflt = [float(v) for v in tplant.max_gen[:total]]
+    else:
+        scalar = pmax_default if isinstance(pmax_default, (int, float)) else tplant.pmax
+        dflt = [float(scalar)] * total
     amm = [prof[i] if i < len(prof) else None for i in range(total)]
     if tp == "<":
-        return 0.0, _pmax_cap([v if v is not None else def_pmax for v in amm], study)
+        return 0.0, _pmax_cap(
+            [v if v is not None else dflt[i] for i, v in enumerate(amm)], study
+        )
     if tp == ">":
         return _pmax_cap(
             [v if v is not None else 0.0 for v in amm], study
         ), pmax_default
     return (
         _pmax_cap([v if v is not None else 0.0 for v in amm], study),
-        _pmax_cap([v if v is not None else def_pmax for v in amm], study),
+        _pmax_cap([v if v is not None else dflt[i] for i, v in enumerate(amm)], study),
     )
 
 

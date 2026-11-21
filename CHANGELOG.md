@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `sddp2gtopt`: interconnection imports are unavailable in hours with no
+  offer.  With `PRECIOSMEX.csv`, an hour priced blank or 0 for an import
+  unit (or the regional `INTER-SAL` series it inherits) closes that unit
+  for the hour; the Guatemala daily programs price only the billed days,
+  so the look-ahead days had free, uncapped imports.  Without
+  `PRECIOSMEX.csv`, an import unit whose fuel cost is 0 has no offer and
+  is left out.  RESTMEX fixed or floor schedules keep a unit available,
+  and their unscheduled hours now fall back to the hourly cap instead of
+  the installed capacity.  `--import-limit` stays an opt-in cap.
+
 ## [1.1.0] - 2026-11-20
 
 GTOpt 1.1.0 is the first release with packaged binaries, and it widens

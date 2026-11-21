@@ -347,6 +347,9 @@ def load_dat_case(
                 n_rm += 1
         logger.info("applied %d/%d AMM constraints to in-model units", n_rm, len(cons))
 
+    # ── imports without an offer are unavailable (after RESTMEX) ─────────
+    _apply_import_offers(thermals, has_price_file=px_path is not None)
+
     # ── interconnection import cap (after RESTMEX: fixed imports known) ──
     if import_limit is not None and import_limit > 0:
         _apply_import_cap(thermals, import_limit)
@@ -639,4 +642,70 @@ def _apply_import_cap(thermals: list[ThermalSpec], import_limit: float) -> None:
             scale,
             len(fixed),
             fixed_mw,
+        )
+
+
+def _apply_import_offers(thermals: list[ThermalSpec], *, has_price_file: bool) -> None:
+    """Make interconnection imports unavailable where they have no offer.
+
+    An import generator is the external market's offer, not a plant: it can
+    only deliver in hours the market operator priced it.
+
+    * With ``PRECIOSMEX.csv``: an hour whose price is blank or 0 for the unit
+      (its own series, or the regional ``INTER-SAL`` one it inherits) is an
+      hour with no offer, so the unit's hourly cap (``max_gen``) is 0 there.
+      AMM fills only the billed days; the look-ahead days are 0 for every
+      unit.  A unit with no offer in any hour is dropped (``pmax`` 0).
+    * Without ``PRECIOSMEX.csv``: the unit is priced from the fuel table, and
+      a 0 cost there means no offer, so the unit is dropped.
+
+    Hours with a RESTMEX fixed (``=``) or floor (``>``) schedule keep the
+    unit available: the operator's schedule wins.
+    """
+    n_hours = n_dropped = 0
+    dropped: list[str] = []
+    for t in thermals:
+        if not t.is_import or t.pmax <= 0:
+            continue
+        fixed = t.amm_profile if t.amm_tipo in ("=", ">") else []
+
+        def scheduled(i: int, fixed: list[float | None] = fixed) -> bool:
+            return i < len(fixed) and fixed[i] is not None
+
+        if has_price_file:
+            prices = t.gcost_profile
+            if not prices:
+                continue
+            base = t.max_gen
+            cap = [
+                (base[i] if i < len(base) else t.pmax)
+                if (p > 0.0 or scheduled(i))
+                else 0.0
+                for i, p in enumerate(prices)
+            ]
+            closed = sum(
+                1 for i, p in enumerate(prices) if p <= 0.0 and not scheduled(i)
+            )
+            if closed == 0:
+                continue
+            if all(c <= 0.0 for c in cap):
+                t.pmax = 0.0
+                n_dropped += 1
+                dropped.append(t.name)
+                continue
+            t.max_gen = cap
+            n_hours += closed
+        else:
+            cost = min((c for _, c in t.g_segments), default=0.0)
+            if cost <= 0.0 and not fixed:
+                t.pmax = 0.0
+                n_dropped += 1
+                dropped.append(t.name)
+    if n_hours or n_dropped:
+        logger.info(
+            "imports without an offer: %d unit-hour(s) closed, %d unit(s) "
+            "unavailable %s",
+            n_hours,
+            n_dropped,
+            dropped,
         )
