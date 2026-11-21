@@ -284,26 +284,6 @@ def load_dat_case(
                 bool(t.fuel_refs) and t.fuel_refs[0] in import_fuels
             ) or t.name.upper().startswith(("MEX", "ESA", "HON", "IMP", "EDC"))
 
-    # ── interconnection import cap ───────────────────────────────────────
-    # The PSR fuel table prices Mexico/import fuels at ~$0 with large plant
-    # capacities (the external equivalent), which would flood the dispatch.
-    # The physical tie limit is far smaller (GUA↔MEX ≈ 200 MW import); scale
-    # every import generator's pmax so their aggregate matches the limit.
-    if import_limit is not None and import_limit > 0:
-        imports = [t for t in thermals if t.is_import and t.pmax > 0]
-        total = sum(t.pmax for t in imports)
-        if total > import_limit:
-            scale = import_limit / total
-            for t in imports:
-                t.pmax *= scale
-            logger.info(
-                "import cap: scaled %d import generators %.0f → %.0f MW (×%.3f)",
-                len(imports),
-                total,
-                import_limit,
-                scale,
-            )
-
     # ── non-dispatchable renewables (cgndgu.dat + cpgndgu.dat) ───────────
     # Wind (``-E``) / solar (``-F``) with a fixed hourly availability forecast.
     # Modelled as generators capped at the forecast (``max_gen``) carrying the
@@ -366,6 +346,10 @@ def load_dat_case(
                 spec.amm_profile = rhs
                 n_rm += 1
         logger.info("applied %d/%d AMM constraints to in-model units", n_rm, len(cons))
+
+    # ── interconnection import cap (after RESTMEX: fixed imports known) ──
+    if import_limit is not None and import_limit > 0:
+        _apply_import_cap(thermals, import_limit)
 
     hydros: list[HydroSpec] = []
     hydro_path = find_dat(case_dir, *_HYDRO)
@@ -604,3 +588,55 @@ def load_dat_case(
         multi_bus=multi_bus,
         hydro_topology=hydro_topology,
     )
+
+
+def _fixed_import_mw(t: ThermalSpec) -> float:
+    """Peak MW of an import held by a RESTMEX fixed (``=``) or floor (``>``)
+    schedule; 0 for a flexible import."""
+    if t.amm_tipo not in ("=", ">"):
+        return 0.0
+    return max((v for v in t.amm_profile if v is not None), default=0.0)
+
+
+def _apply_import_cap(thermals: list[ThermalSpec], import_limit: float) -> None:
+    """Cap the aggregate interconnection import at ``import_limit`` [MW].
+
+    The PSR fuel table prices Mexico/import fuels at ~$0 with large plant
+    capacities (the external equivalent), which would flood the dispatch; the
+    physical tie limit is far smaller (GUA↔MEX ≈ 200 MW import).  Imports the
+    market operator FIXES (RESTMEX ``=`` / ``>``) keep their schedule: their
+    peak MW is subtracted from the limit and only the FLEXIBLE imports are
+    scaled so that their aggregate ``pmax`` matches what remains.  Scaling a
+    fixed import instead would leave ``pmin`` above ``capacity`` (infeasible
+    LP).  Warns when the fixed imports alone exceed the limit (the flexible
+    ones are then closed).
+    """
+    imports = [t for t in thermals if t.is_import and t.pmax > 0]
+    fixed = [t for t in imports if _fixed_import_mw(t) > 0.0]
+    flexible = [t for t in imports if t not in fixed]
+    fixed_mw = sum(_fixed_import_mw(t) for t in fixed)
+    room = import_limit - fixed_mw
+    if room < 0.0:
+        logger.warning(
+            "import cap: fixed-schedule imports %s peak at %.0f MW > limit %.0f "
+            "MW; kept as scheduled, flexible imports closed",
+            [t.name for t in fixed],
+            fixed_mw,
+            import_limit,
+        )
+        room = 0.0
+    total = sum(t.pmax for t in flexible)
+    if total > room:
+        scale = room / total if total > 0 else 0.0
+        for t in flexible:
+            t.pmax *= scale
+        logger.info(
+            "import cap: scaled %d flexible import generators %.0f → %.0f MW "
+            "(×%.3f); %d fixed-schedule import(s) kept (%.0f MW peak)",
+            len(flexible),
+            total,
+            room,
+            scale,
+            len(fixed),
+            fixed_mw,
+        )
