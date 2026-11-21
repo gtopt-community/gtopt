@@ -41,6 +41,7 @@
 #include <vector>
 
 #include <gtopt/allowance_pool_lp.hpp>
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/emission_lp.hpp>
 #include <gtopt/emission_source_lp.hpp>
@@ -225,6 +226,10 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   }
 
   const bool fuel_basis = (fuel_rate + upstream_fuel) != 0.0;
+  // No-load fuel (`Commitment.noload_fuel · u`) joins the fuel-basis
+  // legs; CommitmentLP is built before EmissionSourceLP.
+  const CommitmentLP* noload_cmt =
+      fuel_basis ? find_noload_fuel_commitment(sc, gen) : nullptr;
 
   // Per-block output-reconstruction caches (populated below; consumed
   // by add_to_output).  Populated regardless of whether any LP wiring
@@ -269,7 +274,8 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     };
     add_rate(gcol, rate, upstream);
     if (fuel_basis) {
-      for (const auto& [col, burn] : gen.fuel_burn_legs(scenario, stage, buid))
+      for (const auto& [col, burn] :
+           generator_fuel_burn_legs(gen, noload_cmt, scenario, stage, buid))
       {
         add_rate(col, fuel_rate * burn, upstream_fuel * burn);
       }

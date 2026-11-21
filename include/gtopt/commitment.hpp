@@ -164,6 +164,13 @@ struct Commitment
   /// the shutdown (`w`) variable in the objective, resolved per block.
   OptTBRealFieldSched shutdown_cost {};  ///< Shutdown cost [$/stop]
   OptReal noload_cost {};  ///< No-load cost when committed [$/hr]
+  /// No-load fuel burn while committed [fuel-unit / h] (PLEXOS
+  /// ``Heat Rate Base``).  Accounting only: it adds
+  /// ``noload_fuel · u · dt`` to the generator's fuel burn seen by
+  /// ``Fuel`` offtake limits and fuel-basis emission sources
+  /// (``EmissionSource.fuel_rate``).  Its fuel *cost* stays in
+  /// ``noload_cost`` (not re-priced from ``Fuel.price``).
+  OptReal noload_fuel {};
 
   /// Minimum stable level when committed [MW].  Distinct from
   /// ``Generator.pmin`` (which is the *always-on* hard floor that

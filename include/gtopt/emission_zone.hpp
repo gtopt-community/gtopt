@@ -134,6 +134,15 @@ struct EmissionZone
   ///     (the pool's `emin` / `efin` / `efin_cost` mediate compliance).
   /// When unset, the standalone `cap` row (if any) applies as before.
   OptSingleId allowance_pool {};
+
+  /// Optional bus scope for the fuel-derived sources synthesised by
+  /// `System::expand_fuel_emission_sources`: when non-empty, only
+  /// generators connected to one of these buses get a source in this
+  /// zone.  Empty (default) = every bus.  Lets a converter keep, e.g.,
+  /// interconnector import proxies out of a market's own total while
+  /// tracking them in a separate zone.  Explicit `EmissionSource` rows
+  /// are not filtered.
+  Array<SingleId> buses {};
 };
 
 }  // namespace gtopt

@@ -14,8 +14,8 @@ Emissions are modelled with four elements:
 | Element | Role |
 |---|---|
 | `Emission` | Registry of pollutants: `co2`, `ch4`, `n2o`, `nox`, `so2`, `pm10`, … |
-| `EmissionSource` | Links a generator to a zone and a pollutant, with its combustion `rate` and optional `upstream_rate` (well-to-tank) in t/MWh, or `fuel_rate` / `upstream_fuel_rate` in t per fuel unit applied to the fuel burn. Can also be derived from `Fuel.emission_factors[]` × heat rate (piecewise and per-block heat rates included) |
-| `EmissionZone` | Scope of a balance: **system-wide or regional**. Lists the pollutants it covers with a `weight`, and optionally a `cap` (hard, or soft with `cap_cost`) and a per-tonne `price` |
+| `EmissionSource` | Links a generator to a zone and a pollutant, with its combustion `rate` and optional `upstream_rate` (well-to-tank) in t/MWh, or `fuel_rate` / `upstream_fuel_rate` in t per fuel unit applied to the fuel burn. Can also be derived from `Fuel.emission_factors[]` × heat rate (piecewise and per-block heat rates and the committed no-load burn `Commitment.noload_fuel` included) |
+| `EmissionZone` | Scope of a balance: **system-wide or regional**. Lists the pollutants it covers with a `weight`, and optionally a `cap` (hard, or soft with `cap_cost`) and a per-tonne `price`. `buses` restricts the fuel-derived sources to generators on those buses |
 | `Generator.emission_captures[]` | Capture (CCS) per pollutant, with capture rate and cost |
 
 **Global and local pollutants.** A zone covering the whole system with
@@ -34,6 +34,15 @@ active at the same time, and a generator can feed several zones.
 | Cost of emissions in the objective | zone `price` × emissions; capture costs |
 | Cap-and-trade | `AllowancePool`: allowance pools coupled to emission zones |
 | Minimum-emission dispatch | `--set model_options.objective_mode=emissions`: minimizes emissions instead of cost; the storage duals (`Reservoir/water_value_dual`, `Battery/energy_dual`) then give the **carbon opportunity cost** of stored water and energy |
+
+**Imports.** Interconnector import proxies (e.g. the SEM `GB Single Gen
+Bid` / `France Bid` units on the `BETTA` / `France` buses) burn fuel in
+the model but their CO₂ is emitted outside the market.  Scope the
+market zone to the home buses (`"buses": ["SEM"]`) and add a twin zone
+with no cap or price scoped to the import buses: the market total then
+excludes imports while their tonnes stay visible in the twin's sources.
+`plexos2gtopt --emission-import-buses BETTA,France` does this
+automatically (`<zone>_imports`).
 
 Example of a system CO₂-eq zone with a carbon tax plus a regional NOₓ
 cap:

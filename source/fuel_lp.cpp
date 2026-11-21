@@ -47,6 +47,7 @@
 
 #include <tuple>
 
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
@@ -118,17 +119,17 @@ collect_gen_coefficients(const SystemContext& sc,
       continue;
     }
 
-    // Tolerant accessor — see `lookup_generation_cols` in
-    // GeneratorLP for why this is preferred over `generation_cols_at`.
-    const auto& gcols = gen.lookup_generation_cols(scenario, stage);
+    // The exact fuel burn of every block (issue #545 follow-up): the
+    // dispatch column at the (per-block) heat rate, the heat-rate slack
+    // columns of a piecewise curve, and the committed no-load burn
+    // `Commitment.noload_fuel · u` — the same legs fuel-basis emission
+    // sources use.  CommitmentLP is built before FuelLP.
+    const auto* noload_cmt = find_noload_fuel_commitment(sc, gen);
     for (const auto& block : stage.blocks()) {
       const auto buid = block.uid();
-      const auto hr = gen.param_heat_rate(stage_uid, buid).value_or(0.0);
-      if (hr <= 0.0) {
-        continue;
-      }
-      const auto it = gcols.find(buid);
-      if (it == gcols.end()) {
+      const auto legs =
+          generator_fuel_burn_legs(gen, noload_cmt, scenario, stage, buid);
+      if (legs.empty()) {
         continue;
       }
 
@@ -149,10 +150,16 @@ collect_gen_coefficients(const SystemContext& sc,
         }
       }
 
-      // coefficient = heat_rate × block_duration so the LHS
-      // (sum of coef × gen_col) evaluates to fuel-units when gen is
-      // in MW.  Matches the unit basis of `max_offtake`.
-      per_block[buid].emplace_back(it->second, hr * block.duration());
+      // coefficient = burn rate × block_duration so the LHS
+      // (sum of coef × col) evaluates to fuel-units when the column is
+      // in MW (or a 0/1 status).  Matches the unit basis of
+      // `max_offtake`.
+      auto& bucket = per_block[buid];
+      for (const auto& [col, burn] : legs) {
+        if (burn != 0.0) {
+          bucket.emplace_back(col, burn * block.duration());
+        }
+      }
     }
   }
 

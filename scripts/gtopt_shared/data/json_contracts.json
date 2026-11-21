@@ -726,6 +726,7 @@
     "startup_cost",
     "shutdown_cost",
     "noload_cost",
+    "noload_fuel",
     "pmin",
     "min_up_time",
     "min_down_time",
@@ -774,6 +775,7 @@
     "must_run": "bool",
     "name": "string",
     "noload_cost": "number",
+    "noload_fuel": "number",
     "pmin": "variant",
     "ramp_down": "variant",
     "ramp_up": "variant",
@@ -1059,12 +1061,14 @@
     "cap",
     "cap_cost",
     "price",
-    "allowance_pool"
+    "allowance_pool",
+    "buses"
    ],
    "header": "json_emission_zone.hpp",
    "kinds": {
     "active": "variant",
     "allowance_pool": "variant",
+    "buses": "array",
     "cap": "variant",
     "cap_cost": "variant",
     "emission": "variant",

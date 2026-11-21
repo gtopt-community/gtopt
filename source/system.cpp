@@ -489,6 +489,53 @@ template<typename T, typename Vector>
   return it == fuel_array.end() ? nullptr : &*it;
 }
 
+/// True when @p ref names element @p uid / @p name (Uid or Name form).
+[[nodiscard]] bool refers_to(const SingleId& ref,
+                             Uid uid,
+                             const Name& name) noexcept
+{
+  if (const auto* u = std::get_if<Uid>(&ref)) {
+    return *u == uid;
+  }
+  const auto* n = std::get_if<Name>(&ref);
+  return n != nullptr && *n == name;
+}
+
+/// True when the generator connected at @p gen_bus lies in the bus scope
+/// of @p zone (an empty scope covers every bus).  Both sides may use the
+/// Uid or the Name form; they are resolved through @p buses.
+[[nodiscard]] bool zone_covers_bus(const EmissionZone& zone,
+                                   const SingleId& gen_bus,
+                                   const gtopt::Array<Bus>& buses)
+{
+  if (zone.buses.empty()) {
+    return true;
+  }
+  const auto bus_it = std::ranges::find_if(
+      buses, [&](const Bus& b) { return refers_to(gen_bus, b.uid, b.name); });
+  return std::ranges::any_of(zone.buses,
+                             [&](const SingleId& ref)
+                             {
+                               if (bus_it != buses.end()) {
+                                 return refers_to(
+                                     ref, bus_it->uid, bus_it->name);
+                               }
+                               return ref == gen_bus;
+                             });
+}
+
+/// True when some Commitment on @p gen carries a no-load fuel burn.
+[[nodiscard]] bool has_noload_fuel(const gtopt::Array<Commitment>& commitments,
+                                   const Generator& gen) noexcept
+{
+  return std::ranges::any_of(commitments,
+                             [&](const Commitment& c)
+                             {
+                               return c.noload_fuel.value_or(0.0) != 0.0
+                                   && refers_to(c.generator, gen.uid, gen.name);
+                             });
+}
+
 /// Format the emission label component of an auto-generated source
 /// name — uses the user-friendly `co2`/`nox`/… name when the FK is
 /// a `Name`, falls back to `uid<N>` when it's a numeric `Uid`.
@@ -618,8 +665,11 @@ void System::expand_fuel_emission_sources()
     const bool has_pw = !gen.heat_rate_segments.empty()
         && gen.heat_rate_segments.size() == gen.pmax_segments.size();
     const auto hr_opt = scalar_or(gen.heat_rate);
-    const bool fuel_basis =
-        has_pw || (gen.heat_rate.has_value() && !hr_opt.has_value());
+    // A committed no-load burn (`Commitment.noload_fuel`, PLEXOS Heat
+    // Rate Base) is fuel without dispatch: only the fuel basis sees it.
+    const bool fuel_basis = has_pw
+        || (gen.heat_rate.has_value() && !hr_opt.has_value())
+        || has_noload_fuel(commitment_array, gen);
     if (!fuel_basis && (!hr_opt.has_value() || *hr_opt == 0.0)) {
       continue;
     }
@@ -671,7 +721,7 @@ void System::expand_fuel_emission_sources()
             {
               return same_emission(zef.emission, fef.emission, emission_array);
             });
-        if (!covers) {
+        if (!covers || !zone_covers_bus(zone, gen.bus, bus_array)) {
           continue;
         }
 

@@ -1379,6 +1379,7 @@ to have `chronological: true`.
 | `startup_cost` | number\|array\|string | $/start | No | Cost per startup event |
 | `shutdown_cost` | number\|array\|string | $/stop | No | Cost per shutdown event |
 | `noload_cost` | number | $/hr | No | Fixed hourly cost when committed |
+| `noload_fuel` | number | fuel unit/h | No | No-load fuel burn while committed (PLEXOS `Heat Rate Base`); counted in `Fuel` offtake and fuel-basis emissions (`noload_fuel · u · Δt`), not re-priced (cost stays in `noload_cost`) |
 | `min_up_time` | number | hours | No | Minimum online duration after startup |
 | `min_down_time` | number | hours | No | Minimum offline duration after shutdown |
 | `ramp_up` | number | MW/hr | No | Normal ramp-up rate |
@@ -1447,6 +1448,7 @@ of a price and/or cap.
 | `cap` | number\|array\|string | t/stage | No | Cap on total weighted emissions per (scenario, stage). Hard unless `cap_cost` is set |
 | `cap_cost` | number\|array\|string | $/t | No | Penalty on emissions above `cap` (soft cap) |
 | `allowance_pool` | integer\|string | — | No | FK to an `AllowancePool` (cap-and-trade with banking); replaces the per-stage `cap` row |
+| `buses` | array | — | No | Bus scope (uids or names) for the fuel-derived sources synthesised from `Fuel.emission_factors`: only generators on these buses get a source in this zone. Empty = all buses. Explicit `emission_source_array` rows are not filtered |
 
 ¹ Or the single-pollutant shortcut `"emission": "co2"` (weight 1.0).
 
@@ -1471,7 +1473,7 @@ that `fuel`: a t/MWh `rate` (heat rate × heat content × factor) when
 `heat_rate` is a scalar, otherwise (per-block `heat_rate`,
 `heat_rate_segments`) a `fuel_rate` (heat content × factor) that the LP
 applies to the exact fuel burn, including the piecewise heat-rate
-slacks.  Generators with `fuel_per_block` are skipped with a warning.  Pollutants can be
+slacks and the committed no-load burn `Commitment.noload_fuel · u`.  Generators with `fuel_per_block` are skipped with a warning.  Pollutants can be
 referenced by name or by uid in zones, sources and fuels; both resolve
 against `emission_array`.
 

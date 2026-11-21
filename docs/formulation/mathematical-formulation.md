@@ -2007,9 +2007,17 @@ h_{g,t,b}\, p_{g,s,t,b} & \text{scalar or per-block } \texttt{heat\_rate}\\
 h_{g,1}\, p_{g,s,t,b} + \sum_{k=1}^{K-1} (h_{g,k+1} - h_{g,k})\,
   s_{g,k,s,t,b} & \texttt{heat\_rate\_segments}
 \end{cases}
+\;+\; h^{0}_{g}\, u_{g,s,t,b}
 $$
 
-where $s_{g,k}$ are the piecewise heat-rate slack columns.  The
+where $s_{g,k}$ are the piecewise heat-rate slack columns and
+$h^{0}_{g}\,u_{g,s,t,b}$ is the no-load burn of a committed unit
+(`Commitment.noload_fuel`, PLEXOS `Heat Rate Base`, times the status
+$u$; zero without a commitment).  A generator whose commitment carries
+`noload_fuel` always uses the fuel basis.  The same
+$F_{g,s,t,b}\,\Delta_b$ is the generator's contribution to its fuel's
+offtake rows (`Fuel.max_offtake` / `min_offtake`, `fuel("X").offtake`);
+the no-load fuel *cost* remains in `noload_cost`.  The
 coefficient on each leg is
 $\mu\,(1-\eta^{\text{cap}})\,(\phi_{\nu,t} + \phi^{\text{up}}_{\nu,t})\,\Delta_b$
 times the leg's fuel coefficient, so the cap, price,

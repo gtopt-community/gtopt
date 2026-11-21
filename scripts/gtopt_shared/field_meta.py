@@ -762,6 +762,15 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "No-load cost when committed [$/h].",
             None,
         ),
+        (
+            "noload_fuel",
+            _J_NUM,
+            False,
+            "No-load fuel burn when committed [fuel-unit/h] (PLEXOS Heat Rate "
+            "Base); counted in fuel offtake and fuel-basis emissions, cost "
+            "stays in noload_cost.",
+            None,
+        ),
         ("min_up_time", _J_NUM, False, "Minimum up time [h].", None),
         ("min_down_time", _J_NUM, False, "Minimum down time [h].", None),
         ("ramp_up", _J_NUM, False, "Ramp-up limit while online [MW/h].", None),
@@ -2042,6 +2051,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "FK to an AllowancePool that banks this zone's allowances "
             "(cap-and-trade w/ banking). When set, production is drawn "
             "from the pool's bank and the standalone `cap` row is skipped.",
+            None,
+        ),
+        (
+            "buses",
+            "JSON array",
+            False,
+            "Bus scope (uids or names) of the fuel-derived sources: only "
+            "generators on these buses get a source in this zone (empty = all).",
             None,
         ),
     ],

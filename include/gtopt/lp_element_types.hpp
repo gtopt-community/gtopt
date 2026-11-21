@@ -103,6 +103,9 @@ class WaterwayLP;
 // up that single u_commit and uses it to gate the charge-side
 // demand bounds and any minimum-throughput row — the "one true
 // source for u_commit" principle.
+// CommitmentLP / SimpleCommitmentLP also run BEFORE FuelLP and
+// EmissionSourceLP, whose rows include the no-load fuel burn
+// `Commitment.noload_fuel · u` (status columns must already exist).
 using lp_element_types_t = std::tuple<BusLP,
                                       DemandLP,
                                       GeneratorLP,
@@ -122,12 +125,12 @@ using lp_element_types_t = std::tuple<BusLP,
                                       AllowancePoolLP,
                                       ReserveZoneLP,
                                       ReserveProvisionLP,
+                                      CommitmentLP,
+                                      SimpleCommitmentLP,
                                       FuelLP,
                                       EmissionLP,
                                       EmissionZoneLP,
                                       EmissionSourceLP,
-                                      CommitmentLP,
-                                      SimpleCommitmentLP,
                                       LineCommitmentLP,
                                       ConverterLP,
                                       InertiaZoneLP,

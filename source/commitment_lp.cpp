@@ -1406,4 +1406,34 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
   return true;
 }
 
+auto find_noload_fuel_commitment(const SystemContext& sc,
+                                 const GeneratorLP& gen) -> const CommitmentLP*
+{
+  for (const auto& cmt : sc.elements<CommitmentLP>()) {
+    if (cmt.commitment().noload_fuel.value_or(0.0) == 0.0) {
+      continue;
+    }
+    if (sc.element<GeneratorLP>(cmt.generator_sid()).uid() == gen.uid()) {
+      return &cmt;
+    }
+  }
+  return nullptr;
+}
+
+auto generator_fuel_burn_legs(const GeneratorLP& gen,
+                              const CommitmentLP* cmt,
+                              const ScenarioLP& scenario,
+                              const StageLP& stage,
+                              BlockUid buid)
+    -> std::vector<std::pair<ColIndex, double>>
+{
+  auto legs = gen.fuel_burn_legs(scenario, stage, buid);
+  if (cmt != nullptr) {
+    if (const auto leg = cmt->noload_fuel_leg(scenario, stage, buid)) {
+      legs.push_back(*leg);
+    }
+  }
+  return legs;
+}
+
 }  // namespace gtopt

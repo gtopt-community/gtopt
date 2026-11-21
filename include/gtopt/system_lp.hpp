@@ -398,7 +398,10 @@ public:
   // CommitmentLP / SimpleCommitmentLP so that the battery's
   // synthesized u_commit columns (created by `expand_batteries`)
   // are already stamped on the LP and reusable for charge-side
-  // gating — "one true source for u_commit".  Keep in sync with
+  // gating — "one true source for u_commit".  CommitmentLP /
+  // SimpleCommitmentLP also run BEFORE FuelLP / EmissionSourceLP so the
+  // no-load fuel burn (`Commitment.noload_fuel · u`) can join the fuel
+  // offtake and emission rows.  Keep in sync with
   // `lp_element_types_t` in `lp_element_types.hpp`.
   using collections_t = std::tuple<Collection<BusLP>,
                                    Collection<DemandLP>,
@@ -419,12 +422,12 @@ public:
                                    Collection<AllowancePoolLP>,
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
+                                   Collection<CommitmentLP>,
+                                   Collection<SimpleCommitmentLP>,
                                    Collection<FuelLP>,
                                    Collection<EmissionLP>,
                                    Collection<EmissionZoneLP>,
                                    Collection<EmissionSourceLP>,
-                                   Collection<CommitmentLP>,
-                                   Collection<SimpleCommitmentLP>,
                                    Collection<LineCommitmentLP>,
                                    Collection<ConverterLP>,
                                    Collection<InertiaZoneLP>,

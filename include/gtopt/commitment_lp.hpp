@@ -19,6 +19,10 @@
 
 #pragma once
 
+#include <optional>
+#include <utility>
+#include <vector>
+
 #include <gtopt/commitment.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/schedule.hpp>
@@ -73,6 +77,27 @@ public:
   {
     const auto it = status_cols_.find({scenario.uid(), stage.uid()});
     return it != status_cols_.end() ? &it->second : nullptr;
+  }
+
+  /// No-load fuel burn leg ``(u_col, noload_fuel)`` [fuel-unit / h per
+  /// unit of status] for block @p buid, or ``std::nullopt`` when
+  /// ``noload_fuel`` is unset / zero or the status column does not exist.
+  [[nodiscard]] std::optional<std::pair<ColIndex, double>> noload_fuel_leg(
+      const ScenarioLP& scenario, const StageLP& stage, BlockUid buid) const
+  {
+    const auto burn = commitment().noload_fuel.value_or(0.0);
+    if (burn == 0.0) {
+      return std::nullopt;
+    }
+    const auto* ucols = find_status_cols(scenario, stage);
+    if (ucols == nullptr) {
+      return std::nullopt;
+    }
+    const auto it = ucols->find(buid);
+    if (it == ucols->end()) {
+      return std::nullopt;
+    }
+    return std::pair {it->second, burn};
   }
 
   /// Per-block startup (v) columns for a (scenario, stage); nullptr when the
@@ -165,5 +190,24 @@ private:
 // CSV outputs depend on the exact string `"Commitment"`).
 static_assert(CommitmentLP::Element::class_name == LPClassName {"Commitment"},
               "Commitment::class_name must remain \"Commitment\"");
+
+/// The CommitmentLP of @p gen that carries a no-load fuel burn
+/// (``Commitment.noload_fuel > 0``), or nullptr.  CommitmentLP is built
+/// before FuelLP / EmissionSourceLP, so its status columns exist when
+/// they collect fuel-burn legs.
+[[nodiscard]] const CommitmentLP* find_noload_fuel_commitment(
+    const SystemContext& sc, const GeneratorLP& gen);
+
+/// Every fuel-burn leg of @p gen in block @p buid [fuel-unit / h per unit
+/// of column]: ``GeneratorLP::fuel_burn_legs`` (dispatch column and
+/// heat-rate slack columns) plus the no-load burn ``noload_fuel · u`` of
+/// @p cmt when non-null.  Shared by FuelLP offtake rows and fuel-basis
+/// EmissionSourceLP rows so both see the same fuel.
+[[nodiscard]] std::vector<std::pair<ColIndex, double>> generator_fuel_burn_legs(
+    const GeneratorLP& gen,
+    const CommitmentLP* cmt,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    BlockUid buid);
 
 }  // namespace gtopt

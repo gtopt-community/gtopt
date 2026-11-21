@@ -42,6 +42,7 @@ namespace
           .uid = Uid {1},
           .first_block = 0,
           .count_block = n_blocks,
+          .chronological = true,
       },
   };
   sim.scenario_array = {
@@ -54,7 +55,10 @@ namespace
 
 /// One bus, 80 MW demand, gas generator `thermal` (uid 1) plus an
 /// emission-free 100 $/MWh backup (uid 2), one CO₂ zone.
-[[nodiscard]] auto efb_system(Generator thermal, EmissionZone zone) -> System
+[[nodiscard]] auto efb_system(Generator thermal,
+                              EmissionZone zone,
+                              Array<Commitment> commitments = {},
+                              OptTRealFieldSched max_offtake = {}) -> System
 {
   System sys {
       .name = "emission_fuel_basis",
@@ -109,6 +113,8 @@ namespace
           },
       .emission_zone_array = {std::move(zone)},
   };
+  sys.commitment_array = std::move(commitments);
+  sys.fuel_array.front().max_offtake = std::move(max_offtake);
   sys.expand_fuel_emission_sources();
   return sys;
 }
@@ -235,4 +241,120 @@ TEST_CASE("Scalar heat rate — t/MWh rate path unchanged")  // NOLINT
   CHECK(std::get<Real>(src.rate.value_or(0.0)) == doctest::Approx(0.4));
   CHECK_FALSE(src.fuel_rate.has_value());
   CHECK(efb_solve(sys, 1) == doctest::Approx(960.0));
+}
+
+namespace
+{
+
+/// Always-on (must-run, relaxed) commitment of generator uid 1 with a
+/// 20 GJ/h no-load burn costing 20 $/h.
+[[nodiscard]] auto efb_noload_commitment() -> Array<Commitment>
+{
+  return {
+      {
+          .uid = Uid {1},
+          .name = "uc_thermal",
+          .generator = Uid {1},
+          .noload_cost = 20.0,
+          .noload_fuel = 20.0,
+          .relax = true,
+          .must_run = true,
+      },
+  };
+}
+
+[[nodiscard]] auto efb_scalar_gen() -> Generator
+{
+  return Generator {
+      .uid = Uid {1},
+      .name = "ocgt",
+      .bus = Uid {1},
+      .fuel = SingleId {Uid {1}},
+      .heat_rate = 8.0,
+      .capacity = 100.0,
+  };
+}
+
+}  // namespace
+
+TEST_CASE("No-load fuel — emissions count the committed burn")  // NOLINT
+{
+  // u = 1, hr 8, 80 MW: burn 640 + 20 (no-load) = 660 GJ → 33 t × 10 $/t
+  // = 330 $; fuel 640 $ + no-load cost 20 $.  Total 990 (980 without the
+  // no-load emissions).  The no-load burn forces the fuel basis.
+  const auto sys =
+      efb_system(efb_scalar_gen(), efb_zone({}, 10.0), efb_noload_commitment());
+  REQUIRE(sys.emission_source_array.size() == 1);
+  const auto& src = sys.emission_source_array.front();
+  CHECK_FALSE(src.rate.has_value());
+  CHECK(std::get<Real>(src.fuel_rate.value_or(0.0)) == doctest::Approx(0.05));
+  CHECK(efb_solve(sys, 1) == doctest::Approx(990.0));
+}
+
+TEST_CASE("No-load fuel — emission cap sees the no-load burn")  // NOLINT
+{
+  // Cap 25 t ⇒ burn ≤ 500 GJ ⇒ 8 p + 20 ≤ 500 ⇒ p = 60 MW; the clean
+  // unit covers 20 MW × 100.  Cost 480 + 20 + 2000 = 2500.
+  const auto sys =
+      efb_system(efb_scalar_gen(), efb_zone(25.0, {}), efb_noload_commitment());
+  CHECK(efb_solve(sys, 1) == doctest::Approx(2500.0));
+}
+
+TEST_CASE("Fuel offtake cap — piecewise heat rate burn")  // NOLINT
+{
+  // max_offtake 500 GJ: burn(p) = 9p − 100 above 50 MW ⇒ p = 66.667 MW
+  // (fuel 500 $) + 13.333 MW × 100 from the clean unit.  Total 1833.33.
+  // (heat_rate × generation alone ignored piecewise units entirely.)
+  const auto sys = efb_system(efb_piecewise(), efb_zone({}, {}), {}, 500.0);
+  CHECK(efb_solve(sys, 1) == doctest::Approx(500.0 + (40.0 / 3.0) * 100.0));
+}
+
+TEST_CASE("Fuel offtake cap — per-block heat rate burn")  // NOLINT
+{
+  // hr 8 / 10 in blocks 1 / 2, max_offtake 1200 GJ over the stage:
+  // fuel is cheaper per MWh in block 1 (8 $) and uses less of the cap,
+  // so block 1 runs 80 MW (640 GJ) and block 2 gets 560 GJ = 56 MW;
+  // 24 MW × 100 from the clean unit.  Cost 640 + 560 + 2400 = 3600.
+  Generator gen {
+      .uid = Uid {1},
+      .name = "imports",
+      .bus = Uid {1},
+      .fuel = SingleId {Uid {1}},
+      .heat_rate =
+          OptTBRealFieldSched {
+              std::vector<std::vector<Real>> {
+                  {8.0, 10.0},
+              },
+          },
+      .capacity = 100.0,
+  };
+  const auto sys = efb_system(std::move(gen), efb_zone({}, {}), {}, 1200.0);
+  CHECK(efb_solve(sys, 2) == doctest::Approx(3600.0));
+}
+
+TEST_CASE("Fuel offtake cap — committed no-load burn")  // NOLINT
+{
+  // max_offtake 500 GJ: 8 p + 20 ≤ 500 ⇒ p = 60 MW.  Cost 2500.
+  const auto sys = efb_system(
+      efb_scalar_gen(), efb_zone({}, {}), efb_noload_commitment(), 500.0);
+  CHECK(efb_solve(sys, 1) == doctest::Approx(2500.0));
+}
+
+TEST_CASE("EmissionZone.buses scopes fuel-derived sources")  // NOLINT
+{
+  // The gas unit sits on bus b1: a zone scoped to b1 gets its source, a
+  // zone scoped to another bus does not.
+  auto home = efb_zone({}, {});
+  home.buses = {SingleId {Name {"b1"}}};
+  auto other = efb_zone({}, {});
+  other.uid = Uid {2};
+  other.name = "z_imports";
+  other.buses = {SingleId {Uid {99}}};
+  auto sys = efb_system(efb_scalar_gen(), std::move(home));
+  CHECK(sys.emission_source_array.size() == 1);
+  sys.emission_source_array.clear();
+  sys.emission_zone_array.push_back(std::move(other));
+  sys.expand_fuel_emission_sources();
+  REQUIRE(sys.emission_source_array.size() == 1);
+  CHECK(sys.emission_source_array.front().zone == SingleId {Uid {1}});
 }
