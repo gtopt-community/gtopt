@@ -384,7 +384,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
           }
           const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
           const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
-          return rsv.reservoir().eini.value_or(0.0);
+          return build_time_reservoir_volume(sc, scenario, stage, rsv);
         });
     initial_rule_bound = evaluate_bound_rule(*opt_rule, axis_value);
   }
@@ -1055,10 +1055,10 @@ int FlowRightLP::update_lp(SystemLP& sys,
 
   const auto new_bound = evaluate_bound_rule(*opt_rule, axis_value);
 
-  if (new_bound == state.current_bound) {
-    return 0;
-  }
-
+  // No in-memory short-circuit: under `LowMemoryMode::compress` /
+  // `snapshot` the LP bounds revert to construction time on every
+  // reload while `state.current_bound` survives (see
+  // reservoir_discharge_limit_lp.cpp::update_lp).
   int total = 0;
   const auto mode = resolve_flow_mode(flow_right());
   const bool re_clamp_blocks = (mode != FlowMode::stage_uniform);

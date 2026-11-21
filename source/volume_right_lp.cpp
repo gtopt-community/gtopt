@@ -97,6 +97,20 @@ template<typename SystemLPT>
 
 }  // namespace
 
+Real VolumeRightLP::rule_rate_cap(Real rule_volume,
+                                  const StageLP& stage) const noexcept
+{
+  if (rule_volume >= LinearProblem::DblMax) {
+    return LinearProblem::DblMax;
+  }
+  const Real hours = stage.total_duration();
+  const Real denom = flow_conversion_rate() * hours;
+  if (denom <= 0.0) {
+    return LinearProblem::DblMax;
+  }
+  return std::max(rule_volume, 0.0) / denom;
+}
+
 bool VolumeRightLP::matches_reset_month(const StageLP& stage,
                                         std::string_view what) const
 {
@@ -170,7 +184,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
           }
           const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
           const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
-          return rsv.reservoir().eini.value_or(0.0);
+          return build_time_reservoir_volume(sc, scenario, stage, rsv);
         });
     initial_rule_bound = evaluate_bound_rule(*opt_rule, axis_value);
   }
@@ -186,9 +200,12 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
     auto uppb = fmax.at(stage.uid(), buid).value_or(LinearProblem::DblMax);
 
-    // Apply bound rule cap to upper bound
+    // Apply the bound rule cap.  The rule yields a VOLUME [hm³] (the
+    // rights provision); the extraction column is a RATE [m³/s], so the
+    // cap is the rate that spends the whole volume within the stage:
+    // rule / (fcr × stage_duration).
     if (opt_rule.has_value()) {
-      uppb = std::min(uppb, initial_rule_bound);
+      uppb = std::min(uppb, rule_rate_cap(initial_rule_bound, stage));
     }
 
     const auto fcol = lp.add_col(SparseCol {
@@ -558,15 +575,18 @@ int VolumeRightLP::update_lp(SystemLP& sys,
 
   const auto new_bound = evaluate_bound_rule(*opt_rule, axis_value);
 
-  if (new_bound == state.current_bound) {
-    return 0;
-  }
-
+  // No in-memory short-circuit (cf. reservoir_discharge_limit_lp.cpp):
+  // under `LowMemoryMode::compress` / `snapshot` the LP bounds revert to
+  // construction time on every reload while `state.current_bound`
+  // survives, so an equality skip would silently keep stale bounds.
   int total = 0;
   const auto& my_extraction_cols = extraction_cols_.at(st_key);
+  const auto rate_cap = rule_rate_cap(new_bound, stage);
 
   for (const auto& [buid, col] : my_extraction_cols) {
-    li.set_col_upp(col, new_bound);
+    const auto fmax_b =
+        fmax.at(stage.uid(), buid).value_or(LinearProblem::DblMax);
+    li.set_col_upp(col, std::min(fmax_b, rate_cap));
     ++total;
   }
 

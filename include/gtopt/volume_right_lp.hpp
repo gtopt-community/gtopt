@@ -64,6 +64,11 @@ public:
     return self.object();
   }
 
+  /// Extraction RATE cap [m³/s] equivalent to a bound-rule VOLUME
+  /// [hm³] spent over the whole stage: `volume / (fcr × duration_h)`.
+  [[nodiscard]] Real rule_rate_cap(Real rule_volume,
+                                   const StageLP& stage) const noexcept;
+
   [[nodiscard]] constexpr auto flow_conversion_rate() const noexcept
   {
     return volume_right().flow_conversion_rate.value_or(

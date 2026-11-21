@@ -385,8 +385,10 @@ TEST_CASE(  // NOLINT
   const auto col_upp = lp.get_col_upp();
   for (const auto& [buid, col] : ext) {
     // Without the floor, slope=-1 * 1500 = -1500 would clamp the
-    // column to a negative bound.  The floor should bring it to 25.
-    CHECK(col_upp[col] == doctest::Approx(25.0));
+    // column to a negative bound.  The floor brings the rule VOLUME to
+    // 25 hm3; the extraction RATE cap spends it over the 1 h stage:
+    // 25 / (0.0036 x 1).
+    CHECK(col_upp[col] == doctest::Approx(25.0 / (0.0036 * 1.0)));
   }
 }
 
@@ -519,11 +521,13 @@ TEST_CASE(  // NOLINT
 // ── 1.6 update_lp cache hit / miss ────────────────────────────────────────
 
 TEST_CASE(  // NOLINT
-    "VolumeRightLP Tier 1.6 - update_lp cache returns 0 on no-op")
+    "VolumeRightLP Tier 1.6 - update_lp re-issues the bound after an LP "
+    "reload")
 {
-  // First call to update_lp after add_to_lp should be a no-op because
-  // initial_rule_bound was already cached during construction.  A
-  // second call without any change must also return 0.
+  // Under low_memory compress/snapshot the LP bounds revert to their
+  // construction-time values on every reload while the element's cached
+  // `current_bound` survives.  update_lp must therefore re-issue the
+  // bound even when the rule value is unchanged (no short-circuit).
   const HydroFixture fx;
   const Array<VolumeRight> vrs = {
       {
@@ -563,9 +567,78 @@ TEST_CASE(  // NOLINT
 
   // Reservoir volume is unchanged from add_to_lp time → bound rule
   // value is identical → cache must short-circuit and return 0.
-  const auto first_call = vr_lp.update_lp(system_lp, scenarios[0], stages[0]);
-  CHECK(first_call == 0);
+  auto& li = system_lp.linear_interface();
+  const auto& ext = vr_lp.extraction_cols_at(scenarios[0], stages[0]);
+  REQUIRE(!ext.empty());
+  const auto expected = li.get_col_upp()[ext.begin()->second];
 
-  const auto second_call = vr_lp.update_lp(system_lp, scenarios[0], stages[0]);
-  CHECK(second_call == 0);
+  // Simulate a reload that restores a different (stale) bound.
+  for (const auto& [buid, col] : ext) {
+    li.set_col_upp(col, 1.0e6);
+  }
+  const auto n = vr_lp.update_lp(system_lp, scenarios[0], stages[0]);
+  CHECK(n > 0);
+  const auto col_upp = li.get_col_upp();
+  for (const auto& [buid, col] : ext) {
+    CHECK(col_upp[col] == doctest::Approx(expected));
+  }
+}
+
+// ── 1.8 bound_rule VOLUME -> extraction RATE (stage-length aware) ──────
+
+TEST_CASE(  // NOLINT
+    "VolumeRightLP Tier 1.8 - bound_rule volume caps the extraction rate "
+    "over the stage")
+{
+  // A 10 hm3 rule allows 10 / (0.0036 x 168) = 16.53 m3/s in a weekly
+  // stage and 10 / (0.0036 x 730) = 3.805 m3/s in a monthly one — never
+  // the raw "10" (hm3 used as m3/s).
+  for (const Real hours : {168.0, 730.0}) {
+    CAPTURE(hours);
+    const HydroFixture fx;
+    const Array<VolumeRight> vrs = {
+        {
+            .uid = Uid {1},
+            .name = "vrate",
+            .reservoir = Uid {1},
+            .emax = 1000.0,
+            .eini = 10.0,
+            .fmax = 500.0,
+            .bound_rule =
+                RightBoundRule {
+                    .reservoir = Uid {1},
+                    .segments =
+                        {
+                            {
+                                .volume = 0.0,
+                                .slope = 0.0,
+                                .constant = 10.0,
+                            },
+                        },
+                },
+        },
+    };
+    auto simulation = make_single_stage_simulation();
+    simulation.block_array[0].duration = hours;
+    const auto system = make_system(fx, vrs, "Tier1_7_Rate");
+    const PlanningOptionsLP options;
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto& vr_lp = system_lp.elements<VolumeRightLP>().front();
+    const auto& scenarios = system_lp.scene().scenarios();
+    const auto& stages = system_lp.phase().stages();
+    const auto& ext = vr_lp.extraction_cols_at(scenarios[0], stages[0]);
+    REQUIRE(!ext.empty());
+    auto& li = system_lp.linear_interface();
+    const auto expected = 10.0 / (0.0036 * hours);
+    for (const auto& [buid, col] : ext) {
+      CHECK(li.get_col_upp()[col] == doctest::Approx(expected));
+    }
+    // update_lp applies the same conversion (and keeps the fmax min).
+    std::ignore = vr_lp.update_lp(system_lp, scenarios[0], stages[0]);
+    for (const auto& [buid, col] : ext) {
+      CHECK(li.get_col_upp()[col] == doctest::Approx(expected));
+    }
+  }
 }

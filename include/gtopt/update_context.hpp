@@ -228,6 +228,38 @@ template<typename SystemLPT>
   return rc.default_volume;
 }
 
+/// Build-time estimate of a reservoir's volume at `stage` for the
+/// `RightBoundRule` evaluated in `add_to_lp` (before any solve).
+///
+/// At a phase boundary the predecessor phase's `efin` StateVariable is
+/// the correct per-phase state once a forward pass has set it (e.g.
+/// when the phase LP is rebuilt under `low_memory`); a zero/unset value
+/// falls back to the case `eini`.  In-phase stages have no solved state
+/// at build time and use the case `eini`; `update_lp` refreshes the
+/// bound from the solved/propagated state before every solve.
+template<typename SystemContextT>
+[[nodiscard]] Real build_time_reservoir_volume(const SystemContextT& sc,
+                                               const ScenarioLP& scenario,
+                                               const StageLP& stage,
+                                               const ReservoirLP& rsv)
+{
+  const Real def = rsv.reservoir().eini.value_or(0.0);
+  const auto [prev_stg, prev_ph] = sc.prev_stage(stage);
+  if (prev_stg == nullptr || prev_ph == nullptr) {
+    return def;
+  }
+  static constexpr auto reservoir_class_name = ReservoirLP::Element::class_name;
+  const auto svar_opt = sc.simulation().state_variable(StateVariable::key(
+      scenario, *prev_stg, reservoir_class_name, rsv.uid(), "efin"));
+  if (svar_opt.has_value()) {
+    const Real v = svar_opt->get().col_sol_physical();
+    if (v > 0.0) {
+      return v;
+    }
+  }
+  return def;
+}
+
 /// Convenience: return the (vini + vfin) / 2 average that all four
 /// reservoir-driven `update_lp` impls (FlowRight, RDL, ProductionFactor,
 /// VolumeRight) use as the bound-rule axis input.  ReservoirSeepageLP

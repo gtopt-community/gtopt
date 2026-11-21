@@ -1860,10 +1860,18 @@ column created when a `saving_rate` schedule is present
 
 $$
 \begin{aligned}
-0 \;\leq\; \xi_{o,s,t,b}^{\text{in}} \;\leq\; \min\!\bigl(\overline{F}_{o,t,b},\; B_o(x)\bigr)
+0 \;\leq\; \xi_{o,s,t,b}^{\text{in}} \;\leq\; \min\!\Bigl(\overline{F}_{o,t,b},\; \frac{\max(B_o(x),0)}{\alpha_o\,T_t}\Bigr)
 \qquad \forall \; o,\; s,t,b
 \end{aligned}
 $$
+
+The rule $B_o(x)$ yields a **volume** [hm³] (the same quantity used by
+the seasonal reset below); it is converted to a rate by the stage length
+$T_t = \sum_{b\in\mathcal{B}_t}\Delta_b$ [h] and $\alpha_o$ (0.0036
+hm³ per m³/s·h), i.e. "the whole rule volume spent in this stage".  $x$
+is the reservoir volume at the start of the phase (predecessor phase's
+`efin`, the case `eini` in the first phase) and is refreshed by
+`update_lp` between SDDP iterations.
 <!-- source: source/volume_right_lp.cpp:117-137 -->
 
 **Optional stage demand.** When $D_o > 0$, a deficit
