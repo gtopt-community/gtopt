@@ -122,6 +122,9 @@ DEFAULT_DISCOUNT_RATE = 0.07
 
 #: Battery fields that become per-(stage, block) inline matrices.
 _BATTERY_TB_FIELDS = ("emin", "emax", "pmax_charge", "pmax_discharge")
+#: battery schedules written as Battery/<field>.parquet (read by BatteryLP
+#: itself under the battery uid)
+_BATTERY_FILE_FIELDS = ("emin", "emax")
 
 _OP_RE = re.compile(r"\s(<=|>=|=)\s(\S+)\s*$")
 
@@ -718,12 +721,12 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
             # commissioned later (e.g. Snowy 2.0 turbines and pumps) must
             # keep their water coupling; before commissioning their
             # generator / pump-load capacity is 0 in the schedules
-            for k, elems in hydro.items():
+            for key, elems in hydro.items():
                 known = {e["name"] for e in elems}
-                for e in system.get(k, []):
+                for e in system.get(key, []):
                     if e["name"] not in known:
                         elems.append({**e, "uid": len(elems) + 1})
-                        stats[f"hydro_added_later_{k}"] += 1
+                        stats[f"hydro_added_later_{key}"] += 1
         for k, v in wk.stats.get("constraint_groups", {}).items():
             for r, n in v.items():
                 groups[k][r] += n
@@ -942,10 +945,22 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
     for name, b in bats.items():
         item = {k: v for k, v in b.items() if not k.startswith("_")}
         item["uid"] = len(battery_array) + 1
-        for f in _BATTERY_TB_FIELDS:
-            item[f] = [[round(float(v), 6) for v in row] for row in bat_tb[(name, f)]]
+        tables = {
+            f: [[round(float(v), 6) for v in row] for row in bat_tb[(name, f)]]
+            for f in _BATTERY_TB_FIELDS
+        }
         if b["_first"] == 0 and b["_eini"] is not None:
-            item["eini"] = _feasible_cycle_eini(name, b["_eini"], item)
+            item["eini"] = _feasible_cycle_eini(name, b["_eini"], tables)
+        for f in _BATTERY_TB_FIELDS:
+            if f in _BATTERY_FILE_FIELDS:
+                # the level bounds go to Battery/<field>.parquet (inline
+                # tables made the planning JSON large); the power limits
+                # stay inline: gtopt moves them to the battery's synthetic
+                # generator / demand, whose uids are not the battery's
+                item[f] = f
+                sched[("Battery", f)][item["uid"]] = np.asarray(tables[f], dtype=float)
+            else:
+                item[f] = tables[f]
         item["daily_cycle"] = True
         battery_array.append(item)
     for item in battery_candidates:

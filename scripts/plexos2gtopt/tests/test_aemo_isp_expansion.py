@@ -82,6 +82,14 @@ def _xcase(tmp_path: Path) -> tuple[Path, Path]:
     x.data("Generator", ocgt, "Units", 0)
     x.data("Generator", ocgt, "Max Capacity", 1)
     x.data("Generator", ocgt, "Max Units Built", 1000, date_from="2028-07-01T00:00:00")
+    # existing battery, retired from 2028-01-01 (emax 0 afterwards)
+    eb = x.cobj("Battery", "EB1", "Large-scale Battery NSW")
+    x.member("Battery", "Node", "Nodes", eb, nth)
+    x.data("Battery", eb, "Units", 1)
+    x.data("Battery", eb, "Units", 0, date_from="2028-01-01T00:00:00")
+    x.data("Battery", eb, "Max Power", 10)
+    x.data("Battery", eb, "Capacity", 20)
+    x.data("Battery", eb, "Initial SoC", 50)
     # candidate battery (not expanded by the prototype)
     bat = x.cobj("Battery", "STH Battery - 2h", "New Entrant Large-scale Battery NSW")
     x.member("Battery", "Node", "Nodes", bat, sth)
@@ -428,6 +436,18 @@ def test_write_case(xcase: tuple[Path, Path], tmp_path: Path) -> None:
     assert df.stage.max() == 12 and df.block.max() == 288
     pf = pd.read_parquet(out / "GeneratorProfile" / "profile.parquet")
     assert list(pf.columns) == ["scenario", "stage", "block", "uid", "value"]
+    # existing batteries: level bounds in Battery/*.parquet
+    eb = next(b for b in plan["system"]["battery_array"] if b["name"] == "EB1")
+    for f in ("emin", "emax"):
+        assert eb[f] == f
+        bf = pd.read_parquet(out / "Battery" / f"{f}.parquet")
+        assert list(bf.columns) == ["stage", "block", "uid", "value"]
+    # power limits stay inline (gtopt moves them to synthetic elements)
+    assert isinstance(eb["pmax_charge"], list) and len(eb["pmax_charge"]) == 12
+    em = pd.read_parquet(out / "Battery" / "emax.parquet")
+    em = em[em.uid == eb["uid"]]
+    assert em[em.stage == 1].value.max() == pytest.approx(20.0)
+    assert em[em.stage == 12].value.max() == 0.0
 
 
 def test_cli(xcase: tuple[Path, Path], tmp_path: Path) -> None:
