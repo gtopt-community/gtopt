@@ -1144,6 +1144,11 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
   std::size_t cuts_count = 0;
   std::string cuts_source;  // "" → cold; otherwise file or dir path
+  // Why a REQUESTED hot start ended cold (empty when no hot start was
+  // requested, or when it loaded ≥ 1 cut).  Surfaced at WARN in the
+  // summary line below — a silent "cuts=cold" after the user pointed
+  // `cuts_input_file` at a cut file cost a full study run to diagnose.
+  std::string cold_reason;
   std::size_t boundary_count = 0;
 
   // `resolve_input` is defined above the α-scale block (it is also used to
@@ -1161,9 +1166,16 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
         SPDLOG_DEBUG("SDDP hot-start: loaded {} cuts (max_iter={})",
                      result->count,
                      result->max_iteration);
+        if (result->count == 0) {
+          cold_reason = std::format(
+              "cuts_input_file '{}' contains no loadable cut (empty file, "
+              "or no row matched a (scene, phase) of this case)",
+              cuts_path);
+        }
       } else {
-        SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
-                    result.error().message);
+        cold_reason = std::format("could not load cuts_input_file '{}': {}",
+                                  cuts_path,
+                                  result.error().message);
       }
     } else if (m_options_.cut_recovery_mode != HotStartMode::none
                && !m_options_.cuts_output_file.empty())
@@ -1184,9 +1196,27 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
                        result->count,
                        cut_dir.string(),
                        result->max_iteration);
+        } else {
+          cold_reason = result.has_value()
+              ? std::format("no cut found in directory '{}'", cut_dir.string())
+              : std::format("could not load cuts from '{}': {}",
+                            cut_dir.string(),
+                            result.error().message);
         }
+      } else {
+        cold_reason = std::format(
+            "cut directory '{}' (from cuts_output_file) does not exist",
+            cut_dir.string());
       }
     }
+  } else if (!m_options_.cuts_input_file.empty()) {
+    // The CLI forces recovery_mode=none unless `--recover` is passed, so
+    // a cuts_input_file set via JSON / `--set` alone is ignored.
+    cold_reason = std::format(
+        "cuts_input_file '{}' ignored because recovery_mode={} (pass "
+        "--recover to load it)",
+        m_options_.cuts_input_file,
+        enum_name(m_options_.recovery_mode));
   }
 
   // ── Apply caller-supplied offset hint (e.g. cascade level base) ───────
@@ -1427,11 +1457,23 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   {
     const auto fmt_count = [](std::size_t n) -> std::string
     { return n == 0 ? std::string {"none"} : std::to_string(n); };
-    SPDLOG_INFO(
-        "SDDP HotStart: cuts={} boundary={} iter_offset={}",
-        cuts_source.empty() ? std::string {"cold"} : fmt_count(cuts_count),
-        fmt_count(boundary_count),
-        m_iteration_offset_);
+    const auto cuts_str = (cuts_source.empty() || cuts_count == 0)
+        ? std::string {"cold"}
+        : fmt_count(cuts_count);
+    if (cold_reason.empty()) {
+      SPDLOG_INFO("SDDP HotStart: cuts={} boundary={} iter_offset={}",
+                  cuts_str,
+                  fmt_count(boundary_count),
+                  m_iteration_offset_);
+    } else {
+      SPDLOG_WARN(
+          "SDDP HotStart: cuts={} boundary={} iter_offset={} — requested "
+          "hot start NOT applied: {}",
+          cuts_str,
+          fmt_count(boundary_count),
+          m_iteration_offset_,
+          cold_reason);
+    }
   }
 
   // ── Low-memory: release every per-cell backend after initialization ─────
