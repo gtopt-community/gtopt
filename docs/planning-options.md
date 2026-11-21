@@ -288,6 +288,26 @@ The FCF boundary cuts are configured on the FutureCost element
 | `low_memory_mode` | string | `"compress"` (SDDP/cascade) / `"off"` (monolithic) | One of `off` or `compress` (`snapshot` and `rebuild` are back-compat aliases for `compress`; see SDDP docs §7.6) |
 | `memory_codec` | string | `"auto"` | Compression codec for `compress` mode (`auto`, `lz4`, `snappy`, `zstd`, `gzip`, `none`) |
 
+### Work Pool Swap Gate
+
+These two fields live in `sddp_options` but apply to **every** work pool
+of the run (LP build, SDDP forward/backward, monolithic, output writing).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `pool_max_process_swap_mb` | float | `2048` | Process swap usage (`VmSwap`, MB) at/above which the pool throttles task dispatch — but **only while `VmSwap` is still growing** (see next field). `0` = gate off. CLI: `--swap-limit` |
+| `pool_swap_growth_mb` | float | `64` | `VmSwap` growth (MB per 5 s window) above which the process counts as actively swapping. `0` = any net growth counts. CLI: `--swap-growth` |
+
+`VmSwap` counts pages that *are* on swap, not pages being moved.  Cold
+pages the kernel evicted because of other load on the host stay there
+with no swap I/O at all, so the gate looks at the growth of `VmSwap`
+rather than its level: a process with a large but static `VmSwap` is
+never throttled.  The pool logs one `swap gate ENGAGED` line (info) when
+the gate closes and one `swap gate RELEASED` line, with the reason, when
+it opens again (one quiet 5 s window).  Growth is a per-process signal,
+so paging caused by other tenants of a shared host does not throttle
+this run; the host-wide swap I/O rate is not used.
+
 ### Monitoring and Control
 
 | Field | Type | Default | Description |

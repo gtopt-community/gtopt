@@ -35,6 +35,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdint>
 #include <expected>
 #include <format>
 #include <functional>
@@ -62,6 +63,211 @@
 namespace gtopt
 {
 
+// ─── Swap-gate process-wide defaults ─────────────────────────────────────────
+//
+// Every production pool is built from a default-constructed
+// `WorkPoolConfig` inside a factory (`make_solver_work_pool`,
+// `make_sddp_work_pool`, ...), so the user-facing swap knobs
+// (`sddp_options.pool_max_process_swap_mb` / `pool_swap_growth_mb`,
+// `--swap-limit` / `--swap-growth`) are published once per process here
+// and picked up by `WorkPoolConfig`'s defaults, instead of threading two
+// more parameters through every factory signature.  Set them BEFORE the
+// pools are created (`configure_planning` does); pools already running
+// keep the values they were constructed with.
+namespace detail
+{
+inline constexpr double builtin_max_process_swap_mb = 2048.0;
+inline constexpr double builtin_swap_growth_mb = 64.0;
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+inline std::atomic<double> g_default_max_process_swap_mb {
+    builtin_max_process_swap_mb,
+};
+inline std::atomic<double> g_default_swap_growth_mb {
+    builtin_swap_growth_mb,
+};
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
+}  // namespace detail
+
+/// Process-wide default for `WorkPoolConfig::max_process_swap_mb`
+/// (built-in 2048 MB; 0 = swap gate off).
+[[nodiscard]] inline double default_max_process_swap_mb() noexcept
+{
+  return detail::g_default_max_process_swap_mb.load(std::memory_order_relaxed);
+}
+
+/// Process-wide default for `WorkPoolConfig::swap_growth_mb`
+/// (built-in 64 MB per observation window).
+[[nodiscard]] inline double default_swap_growth_mb() noexcept
+{
+  return detail::g_default_swap_growth_mb.load(std::memory_order_relaxed);
+}
+
+/// Override the process-wide swap-gate defaults for pools created from
+/// now on.  Negative values are clamped to 0 (`max_process_swap_mb == 0`
+/// disables the gate; `swap_growth_mb == 0` treats ANY net growth as
+/// active swapping).
+inline void set_default_swap_gate(double max_process_swap_mb,
+                                  double swap_growth_mb) noexcept
+{
+  detail::g_default_max_process_swap_mb.store(
+      std::max(0.0, max_process_swap_mb), std::memory_order_relaxed);
+  detail::g_default_swap_growth_mb.store(std::max(0.0, swap_growth_mb),
+                                         std::memory_order_relaxed);
+}
+
+/// Restore the built-in swap-gate defaults (2048 MB / 64 MB).
+inline void reset_default_swap_gate() noexcept
+{
+  set_default_swap_gate(detail::builtin_max_process_swap_mb,
+                        detail::builtin_swap_growth_mb);
+}
+
+// ─── SwapGrowthGate ──────────────────────────────────────────────────────────
+
+/// Decides whether the process-VmSwap dispatch gate is engaged.
+///
+/// `VmSwap` (from `/proc/self/status`) counts pages that ARE on swap, not
+/// pages being moved.  Cold pages the kernel evicted (because of other
+/// load on the host, `vm.swappiness`, ...) sit there forever with zero
+/// swap I/O, so a bare `VmSwap >= limit` test latches closed: nothing the
+/// pool does can bring the number back down, and the pool crawls at the
+/// one always-admitted task for the rest of the run (observed in
+/// production: `Active: 1/31`, VmSwap 3343 MB >= 2048 MB for over an hour
+/// on a host with ~120 GB available and 0 pg/s swap I/O).
+///
+/// The gate therefore engages only while the process is ACTIVELY being
+/// pushed to swap:
+///
+///     engaged  <=>  VmSwap >= limit  AND  VmSwap grew by more than
+///                   `growth_mb` over the last observation window
+///
+/// Growth is measured against the window's MINIMUM sample, so a churn
+/// pattern (pages faulted back in, then evicted again) is detected the
+/// same way as monotonic growth.  The window restarts on every detected
+/// burst, so release needs one full quiet window — that is the only
+/// hysteresis.  When updates arrive late (the pool was idle or saturated
+/// and nobody consulted the gate), the growth threshold scales with the
+/// elapsed time so the decision stays a RATE test (`growth_mb` per
+/// `window`) rather than "64 MB at any point in the last ten minutes".
+///
+/// Why process VmSwap growth rather than the system swap I/O rate
+/// (`pswpin + pswpout` from `/proc/vmstat`): the I/O counters are
+/// host-wide, so on a shared box another tenant's paging would throttle
+/// this process (the same collective-throttle failure that got the
+/// load-average gate removed), and they also count benign swap-IN.
+/// VmSwap growth is scoped to this process and means exactly "our pages
+/// are being evicted right now", which is the only condition under which
+/// holding back new tasks helps.  The host-wide rate stays available as
+/// the separate, opt-in `max_swap_io_per_sec` gate.
+///
+/// Pure state machine: no clock or `/proc` access of its own — the caller
+/// feeds `(VmSwap, now)` samples — so tests drive it deterministically.
+/// Not thread-safe; the pool calls it under `queue_mutex_`.
+class SwapGrowthGate
+{
+public:
+  using clock = std::chrono::steady_clock;
+  using time_point = clock::time_point;
+  using duration = clock::duration;
+
+  /// What happened to the gate state on an `update()`.
+  enum class Transition : std::uint8_t
+  {
+    none,  ///< State unchanged.
+    engaged,  ///< Gate just closed (throttling starts).
+    released,  ///< Gate just opened (throttling stops).
+  };
+
+  constexpr SwapGrowthGate() noexcept = default;
+
+  constexpr SwapGrowthGate(double max_swap_mb,
+                           double growth_mb,
+                           duration window) noexcept
+      : max_swap_mb_(max_swap_mb)
+      , growth_mb_(std::max(0.0, growth_mb))
+      , window_(window > duration::zero() ? window : duration {1})
+  {
+  }
+
+  /// Feed one `(VmSwap, time)` sample; returns the resulting transition.
+  constexpr Transition update(double vmswap_mb, time_point now) noexcept
+  {
+    if (max_swap_mb_ <= 0.0) {
+      return Transition::none;  // gate disabled: never engages
+    }
+    vmswap_mb_ = vmswap_mb;
+    if (!has_base_) {
+      has_base_ = true;
+      base_mb_ = vmswap_mb;
+      base_time_ = now;
+      return Transition::none;
+    }
+    base_mb_ = std::min(base_mb_, vmswap_mb);
+    const auto growth = vmswap_mb - base_mb_;
+    const auto elapsed = now - base_time_;
+    if (elapsed >= window_) {
+      // Window complete: judge it as a rate (scale the threshold by the
+      // number of windows that actually elapsed), then start a new one.
+      const auto windows = std::chrono::duration<double>(elapsed)
+          / std::chrono::duration<double>(window_);
+      growing_ = growth > growth_mb_ * windows;
+      growth_seen_mb_ = growth;
+      base_mb_ = vmswap_mb;
+      base_time_ = now;
+    } else if (growth > growth_mb_) {
+      // Threshold already crossed inside the window: engage at once and
+      // restart the window so release needs a full quiet one.
+      growing_ = true;
+      growth_seen_mb_ = growth;
+      base_mb_ = vmswap_mb;
+      base_time_ = now;
+    }
+    const bool now_engaged = growing_ && vmswap_mb >= max_swap_mb_;
+    if (now_engaged == engaged_) {
+      return Transition::none;
+    }
+    engaged_ = now_engaged;
+    return now_engaged ? Transition::engaged : Transition::released;
+  }
+
+  /// True while dispatch must be throttled (over the limit AND growing).
+  [[nodiscard]] constexpr bool engaged() const noexcept { return engaged_; }
+  /// True while VmSwap is growing faster than `growth_mb` per window,
+  /// regardless of the absolute limit.
+  [[nodiscard]] constexpr bool growing() const noexcept { return growing_; }
+  /// Growth (MB) measured by the most recent window decision.
+  [[nodiscard]] constexpr double growth_seen_mb() const noexcept
+  {
+    return growth_seen_mb_;
+  }
+  /// Last VmSwap sample (MB).
+  [[nodiscard]] constexpr double vmswap_mb() const noexcept
+  {
+    return vmswap_mb_;
+  }
+  [[nodiscard]] constexpr double max_swap_mb() const noexcept
+  {
+    return max_swap_mb_;
+  }
+  [[nodiscard]] constexpr double growth_mb() const noexcept
+  {
+    return growth_mb_;
+  }
+  [[nodiscard]] constexpr duration window() const noexcept { return window_; }
+
+private:
+  double max_swap_mb_ {0.0};
+  double growth_mb_ {0.0};
+  duration window_ {std::chrono::seconds(5)};
+  bool has_base_ {false};
+  bool growing_ {false};
+  bool engaged_ {false};
+  double base_mb_ {0.0};
+  double vmswap_mb_ {0.0};
+  double growth_seen_mb_ {0.0};
+  time_point base_time_ {};
+};
+
 struct WorkPoolConfig
 {
   int max_threads;
@@ -72,11 +278,24 @@ struct WorkPoolConfig
   std::chrono::milliseconds scheduler_interval;
   std::string name;
   bool enable_periodic_stats {true};  ///< Log periodic CPU/MEM stats
-  /// Hard cap on process bytes paged to swap (MB).  When VmSwap exceeds
-  /// this, dispatch is blocked to let active tasks drain and release
-  /// memory instead of pushing more pages out.  Default 2048 MB — kicks
-  /// in before the kernel starts thrashing; set to 0 to disable.
-  double max_process_swap_mb {2048.0};
+  /// Cap on process bytes paged to swap (MB).  Dispatch is blocked while
+  /// VmSwap is at/above this AND still growing (see `swap_growth_mb` and
+  /// `SwapGrowthGate`): a large but STATIC VmSwap — cold pages parked on
+  /// swap with no I/O — never throttles.  Default 2048 MB
+  /// (`default_max_process_swap_mb()`); set to 0 to disable.
+  double max_process_swap_mb {default_max_process_swap_mb()};
+  /// VmSwap growth (MB per `swap_growth_window`) above which the process
+  /// counts as actively swapping.  Default 64 MB
+  /// (`default_swap_growth_mb()`); 0 = any net growth counts.
+  double swap_growth_mb {default_swap_growth_mb()};
+  /// Observation window for `swap_growth_mb`.  Also the release
+  /// hysteresis: the gate opens after one full window without growth.
+  std::chrono::milliseconds swap_growth_window {std::chrono::seconds(5)};
+  /// Test hook: when set, replaces the memory monitor's process-VmSwap
+  /// reading (MB) used by the swap gate.  Called from worker threads
+  /// (under the pool's queue mutex) and from statistics readers, so it
+  /// must be thread-safe, cheap, and must not call back into the pool.
+  std::function<double()> process_swap_source {};
   /// Soft cap on system swap I/O rate (pages/sec, sum of pswpin+pswpout).
   /// When the kernel is thrashing above this rate, dispatch is blocked.
   /// Only evaluated near thread saturation so quiescent paging (e.g.
@@ -100,7 +319,7 @@ struct WorkPoolConfig
           std::chrono::milliseconds(50),
       std::string name_ = "WorkPool",
       bool enable_periodic_stats_ = true,
-      double max_process_swap_mb_ = 2048.0,
+      double max_process_swap_mb_ = default_max_process_swap_mb(),
       double max_swap_io_per_sec_ = 0.0,
       int max_threads_ceiling_ = 0) noexcept
       : max_threads(max_threads_)
@@ -446,6 +665,15 @@ private:
   double max_process_rss_mb_;
   double max_process_swap_mb_;
   double max_swap_io_per_sec_;
+  /// Process-VmSwap reader (MB): the memory monitor in production, the
+  /// `WorkPoolConfig::process_swap_source` hook in tests.
+  std::function<double()> process_swap_source_;
+  /// "Over the limit AND actively growing" state machine for the VmSwap
+  /// gate.  Mutated only under `queue_mutex_` (from `can_dispatch_task`).
+  mutable SwapGrowthGate swap_gate_;
+  /// Mirror of `swap_gate_.engaged()` readable without `queue_mutex_`
+  /// (statistics / stall diagnostics run on the stats thread).
+  mutable std::atomic<bool> swap_gate_engaged_ {false};
   std::chrono::milliseconds scheduler_interval_;
   std::string name_;
   bool enable_periodic_stats_;
@@ -516,6 +744,10 @@ public:
       , max_process_rss_mb_(config.max_process_rss_mb)
       , max_process_swap_mb_(config.max_process_swap_mb)
       , max_swap_io_per_sec_(config.max_swap_io_per_sec)
+      , process_swap_source_(std::move(config.process_swap_source))
+      , swap_gate_(config.max_process_swap_mb,
+                   config.swap_growth_mb,
+                   config.swap_growth_window)
       , scheduler_interval_(config.scheduler_interval)
       , name_(std::move(config.name))
       , enable_periodic_stats_(config.enable_periodic_stats)
@@ -535,7 +767,11 @@ public:
             ? std::format(", {:.0f} MB max RSS", max_process_rss_mb_)
             : "",
         max_process_swap_mb_ > 0
-            ? std::format(", {:.0f} MB max VmSwap", max_process_swap_mb_)
+            ? std::format(
+                  ", {:.0f} MB max VmSwap (while growing > {:.0f} MB/{:.1f}s)",
+                  max_process_swap_mb_,
+                  swap_gate_.growth_mb(),
+                  std::chrono::duration<double>(swap_gate_.window()).count())
             : "",
         max_swap_io_per_sec_ > 0
             ? std::format(", {:.0f} pg/s max swap I/O", max_swap_io_per_sec_)
@@ -1027,6 +1263,9 @@ public:
     size_t throttled_process_swap;
     size_t throttled_swap_io;
     /// @}
+    /// True while the VmSwap gate is closed (VmSwap over the limit AND
+    /// actively growing — see `SwapGrowthGate`).
+    bool swap_gate_engaged;
   };
 
   Statistics get_statistics() const noexcept
@@ -1052,7 +1291,7 @@ public:
         .current_memory_percent = memory_monitor_.get_memory_percent(),
         .available_memory_mb = memory_monitor_.get_available_mb(),
         .process_rss_mb = memory_monitor_.get_process_rss_mb(),
-        .process_swap_mb = memory_monitor_.get_process_swap_mb(),
+        .process_swap_mb = read_process_swap_mb_(),
         .swap_used_mb = memory_monitor_.get_swap_used_mb(),
         .swap_io_rate = memory_monitor_.get_swap_io_rate(),
         .lp_tasks_dispatched = dispatched,
@@ -1068,6 +1307,7 @@ public:
         .throttled_process_swap =
             throttled_process_swap_.load(std::memory_order_relaxed),
         .throttled_swap_io = throttled_swap_io_.load(std::memory_order_relaxed),
+        .swap_gate_engaged = swap_gate_engaged_.load(std::memory_order_relaxed),
     };
   }
 
@@ -1498,6 +1738,66 @@ private:
     }
   }
 
+  /// Process VmSwap in MB: the injected test source when configured,
+  /// otherwise the memory monitor's last sample.
+  [[nodiscard]] double read_process_swap_mb_() const
+  {
+    return process_swap_source_ ? process_swap_source_()
+                                : memory_monitor_.get_process_swap_mb();
+  }
+
+  /// Sample VmSwap into `swap_gate_` and log ONCE (info) on each
+  /// engage / release transition, with the reason.  Caller must hold
+  /// `queue_mutex_` (serialises the non-thread-safe gate).
+  void update_swap_gate_() const
+  {
+    if (max_process_swap_mb_ <= 0.0) {
+      return;
+    }
+    using Transition = SwapGrowthGate::Transition;
+    const auto transition = swap_gate_.update(read_process_swap_mb_(),
+                                              std::chrono::steady_clock::now());
+    if (transition == Transition::none) {
+      return;
+    }
+    const auto window_s =
+        std::chrono::duration<double>(swap_gate_.window()).count();
+    if (transition == Transition::engaged) {
+      swap_gate_engaged_.store(true, std::memory_order_relaxed);
+      spdlog::info(
+          "[{}] swap gate ENGAGED: process VmSwap {:.0f} MB >= {:.0f} MB and "
+          "growing (+{:.0f} MB > {:.0f} MB per {:.1f}s) — throttling dispatch "
+          "until swap-out stops",
+          name_,
+          swap_gate_.vmswap_mb(),
+          max_process_swap_mb_,
+          swap_gate_.growth_seen_mb(),
+          swap_gate_.growth_mb(),
+          window_s);
+      return;
+    }
+    swap_gate_engaged_.store(false, std::memory_order_relaxed);
+    if (swap_gate_.vmswap_mb() < max_process_swap_mb_) {
+      spdlog::info(
+          "[{}] swap gate RELEASED: process VmSwap {:.0f} MB dropped below "
+          "{:.0f} MB — dispatch resumed",
+          name_,
+          swap_gate_.vmswap_mb(),
+          max_process_swap_mb_);
+    } else {
+      spdlog::info(
+          "[{}] swap gate RELEASED: process VmSwap {:.0f} MB is static "
+          "(+{:.0f} MB <= {:.0f} MB per {:.1f}s, no active swap-out) — "
+          "dispatch resumed although still >= {:.0f} MB",
+          name_,
+          swap_gate_.vmswap_mb(),
+          swap_gate_.growth_seen_mb(),
+          swap_gate_.growth_mb(),
+          window_s,
+          max_process_swap_mb_);
+    }
+  }
+
   /// Returns true iff @p next_task may be dispatched right now given
   /// current concurrency, CPU and memory pressure.  Caller must hold
   /// `queue_mutex_`.  Increments throttle counters on each failing
@@ -1509,6 +1809,11 @@ private:
   /// duplicating the gate logic.
   bool can_dispatch_task(const Task<void, Key, KeyCompare>& next_task) const
   {
+    // Feed the VmSwap growth detector on EVERY gate evaluation — before
+    // the thread-count test, the idle fast-path and the other gates — so
+    // its sampling does not depend on which gate happens to answer first.
+    update_swap_gate_();
+
     const auto threads_needed = next_task.requirements().estimated_threads;
     const auto current_threads =
         active_threads_.load(std::memory_order_relaxed);
@@ -1675,15 +1980,20 @@ private:
     }
 
     // Swap-pressure gates: once pages are going to/from swap, adding work
-    // tends to deepen the thrash.  Critical tasks get 10% headroom to
-    // avoid deadlocking progress when the pool is already paging.
-    if (max_process_swap_mb_ > 0.0) {
-      const auto vmswap = memory_monitor_.get_process_swap_mb();
+    // tends to deepen the thrash.  The VmSwap gate blocks only while the
+    // process is over the limit AND its VmSwap is still growing
+    // (`SwapGrowthGate`): VmSwap counts pages parked on swap, so a bare
+    // `VmSwap >= limit` test latches closed on cold pages that will never
+    // come back, pinning the pool at the one always-admitted task.
+    // Critical tasks get 10% headroom to avoid deadlocking progress when
+    // the pool is already paging.
+    if (swap_gate_.engaged()) {
+      const auto vmswap = swap_gate_.vmswap_mb();
       const auto swap_threshold =
           is_critical ? max_process_swap_mb_ * 1.1 : max_process_swap_mb_;
       if (vmswap >= swap_threshold) {
         throttled_process_swap_.fetch_add(1, std::memory_order_relaxed);
-        SPDLOG_DEBUG("{}: blocked by VmSwap {:.0f} MB >= {:.0f} MB",
+        SPDLOG_DEBUG("{}: blocked by growing VmSwap {:.0f} MB >= {:.0f} MB",
                      name_,
                      vmswap,
                      swap_threshold);

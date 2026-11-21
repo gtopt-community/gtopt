@@ -105,6 +105,8 @@ struct SddpOptionsConstructor
       OptBool backward_resolve_target,
       OptInt backward_max_fallbacks,
       OptInt max_async_spread,
+      OptReal pool_max_process_swap_mb,
+      OptReal pool_swap_growth_mb,
       std::optional<SolverOptions> forward_solver_options,
       std::optional<SolverOptions> backward_solver_options,
       std::optional<Array<int>> markov_states,
@@ -234,6 +236,8 @@ struct SddpOptionsConstructor
     opts.backward_resolve_target = backward_resolve_target;
     opts.backward_max_fallbacks = backward_max_fallbacks;
     opts.max_async_spread = max_async_spread;
+    opts.pool_max_process_swap_mb = pool_max_process_swap_mb;
+    opts.pool_swap_growth_mb = pool_swap_growth_mb;
     opts.forward_solver_options = forward_solver_options;
     opts.backward_solver_options = backward_solver_options;
     opts.markov_states = std::move(markov_states);
@@ -315,6 +319,8 @@ struct json_data_contract<SddpOptions>
       json_bool_null<"backward_resolve_target", OptBool>,
       json_number_null<"backward_max_fallbacks", OptInt>,
       json_number_null<"max_async_spread", OptInt>,
+      json_number_null<"pool_max_process_swap_mb", OptReal>,
+      json_number_null<"pool_swap_growth_mb", OptReal>,
       json_class_null<"forward_solver_options", SolverOptions>,
       json_class_null<"backward_solver_options", SolverOptions>,
       json_array_null<"markov_states",
@@ -392,6 +398,8 @@ struct json_data_contract<SddpOptions>
         opt.backward_resolve_target,
         opt.backward_max_fallbacks,
         opt.max_async_spread,
+        opt.pool_max_process_swap_mb,
+        opt.pool_swap_growth_mb,
         opt.forward_solver_options,
         opt.backward_solver_options,
         opt.markov_states,

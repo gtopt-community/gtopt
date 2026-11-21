@@ -108,12 +108,14 @@ void BasicWorkPool<Key, KeyCompare>::log_periodic_stats()
         reason = std::format("process RSS {:.0f} MB >= {:.0f} MB",
                              stats.process_rss_mb,
                              max_process_rss_mb_);
-      } else if (max_process_swap_mb_ > 0.0
-                 && stats.process_swap_mb >= max_process_swap_mb_)
-      {
-        reason = std::format("process VmSwap {:.0f} MB >= {:.0f} MB",
-                             stats.process_swap_mb,
-                             max_process_swap_mb_);
+      } else if (stats.swap_gate_engaged) {
+        // Only blame the VmSwap gate while it is actually closed (over
+        // the limit AND growing).  A large static VmSwap does not block
+        // dispatch, so reporting it here would misdirect the operator.
+        reason =
+            std::format("process VmSwap {:.0f} MB >= {:.0f} MB and growing",
+                        stats.process_swap_mb,
+                        max_process_swap_mb_);
       } else if (max_swap_io_per_sec_ > 0.0
                  && stats.swap_io_rate >= max_swap_io_per_sec_)
       {
@@ -165,7 +167,8 @@ void BasicWorkPool<Key, KeyCompare>::log_periodic_stats()
       spdlog::warn(
           "[{}] stall diag — workers_alive={} max_threads={} "
           "active_threads={} mem_pct={:.1f}%/{}% free_mb={:.0f}/{:.0f} "
-          "rss_mb={:.0f}/{:.0f} swap_mb={:.0f}/{:.0f} swap_io={:.0f}/{:.0f} "
+          "rss_mb={:.0f}/{:.0f} swap_mb={:.0f}/{:.0f}({}) "
+          "swap_io={:.0f}/{:.0f} "
           "cpu_load={:.1f}%/{:.1f}% "
           "throttle_counters[cpu={} mem%={} free={} rss={} swap={} sw_io={}]",
           name_,
@@ -180,6 +183,7 @@ void BasicWorkPool<Key, KeyCompare>::log_periodic_stats()
           max_process_rss_mb_,
           stats.process_swap_mb,
           max_process_swap_mb_,
+          stats.swap_gate_engaged ? "gate engaged" : "gate open",
           stats.swap_io_rate,
           max_swap_io_per_sec_,
           stats.current_cpu_load,

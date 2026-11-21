@@ -265,6 +265,18 @@ struct MainOptions
    * Bound to `--memory-quota`. */
   std::optional<double> memory_quota {};
 
+  /** @brief Work-pool swap gate limit (process VmSwap).
+   * Same size syntax as `memory_limit` ("2048", "300M", "5G"); "0"
+   * disables the gate.  Dispatch is throttled only while VmSwap is
+   * at/above this AND still growing (see `swap_growth`).  Maps to
+   * `sddp_options.pool_max_process_swap_mb`.  Bound to `--swap-limit`. */
+  std::optional<std::string> swap_limit {};
+
+  /** @brief VmSwap growth per 5 s window that counts as active swapping.
+   * Same size syntax as `memory_limit`.  Maps to
+   * `sddp_options.pool_swap_growth_mb`.  Bound to `--swap-growth`. */
+  std::optional<std::string> swap_growth {};
+
   /** @brief SDDP work pool CPU over-commit factor.
    * Multiplied by hardware_concurrency to set max pool threads.
    * Default 4.0 — extra threads compensate for clone mutex blocking. */

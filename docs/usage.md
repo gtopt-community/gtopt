@@ -77,6 +77,8 @@ Multiple system files can be provided and will be merged.
 | | `--recover` | `[=arg]` | Enable recovery from a previous SDDP run (loads cuts and state variables) |
 | | `--low-memory` | `[=mode]` | SDDP low-memory mode: `off`, `snapshot` (release solver, keep flat LP), `compress` (release solver, compress flat LP). Implicit value: `snapshot`. |
 | | `--memory-limit` | `arg` | Process memory limit for work-pool throttling (e.g. `4096`, `300M`, `5G`) |
+| | `--swap-limit` | `arg` | Work-pool swap gate: throttle task dispatch while the process `VmSwap` is at/above this size **and still growing** (e.g. `2048`, `300M`, `5G`; `0` = off; default `2048` MB). A large but static `VmSwap` never throttles. Same as `--set sddp_options.pool_max_process_swap_mb=<MB>` |
+| | `--swap-growth` | `arg` | `VmSwap` growth per 5 s window that counts as active swapping for `--swap-limit` (e.g. `64`, `256M`; default `64` MB). Same as `--set sddp_options.pool_swap_growth_mb=<MB>` |
 | | `--cpu-factor` | `arg` | Work-pool thread over-commit factor (default: `4.0`) |
 | | `--build-mode` | `arg` | LP build parallelism: `serial`, `scene-parallel` (default), `full-parallel`, `direct-parallel` |
 | | `--set` | `key=value` | Set any planning option (see below) |

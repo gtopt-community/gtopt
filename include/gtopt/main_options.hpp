@@ -350,6 +350,18 @@ template<typename T>
        "memory budget as a percentage of total host RAM "
        "(e.g. 30 → 30% of MemTotal, applied as --memory-limit). "
        "Overrides --memory-limit when both are given.")  //
+      ("swap-limit",
+       po::value<std::string>(),
+       "work pool swap gate: throttle task dispatch while the process "
+       "VmSwap is at/above this size AND still growing (e.g. 2048, 300M, "
+       "5G; 0 = off; default 2048 MB).  A large but static VmSwap never "
+       "throttles.  Shorthand for --set "
+       "sddp_options.pool_max_process_swap_mb=<MB>.")  //
+      ("swap-growth",
+       po::value<std::string>(),
+       "VmSwap growth per 5 s window that counts as active swapping for "
+       "--swap-limit (e.g. 64, 256M; default 64 MB).  Shorthand for --set "
+       "sddp_options.pool_swap_growth_mb=<MB>.")  //
       ("cpu-factor",
        po::value<double>(),
        "work pool thread over-commit factor (default: 4.0)")  //
@@ -1149,6 +1161,15 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
         parse_memory_size(*opts.memory_limit);
   }
 
+  if (opts.swap_limit) {
+    planning.options.sddp_options.pool_max_process_swap_mb =
+        parse_memory_size(*opts.swap_limit);
+  }
+  if (opts.swap_growth) {
+    planning.options.sddp_options.pool_swap_growth_mb =
+        parse_memory_size(*opts.swap_growth);
+  }
+
   if (opts.sddp_cpu_factor) {
     planning.options.sddp_options.pool_cpu_factor = opts.sddp_cpu_factor;
   }
@@ -1270,6 +1291,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
               .or_else([&] { return get_opt<std::string>(vm, "low-memory"); }),
       .memory_limit = get_opt<std::string>(vm, "memory-limit"),
       .memory_quota = get_opt<double>(vm, "memory-quota"),
+      .swap_limit = get_opt<std::string>(vm, "swap-limit"),
+      .swap_growth = get_opt<std::string>(vm, "swap-growth"),
       .sddp_cpu_factor =
           get_opt<double>(vm, "cpu-factor")
               .or_else([&] { return get_opt<double>(vm, "sddp-cpu-factor"); }),
@@ -1433,6 +1456,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   }
   opts.memory_limit = get_str("memory-limit");
   opts.memory_quota = get_dbl("memory-quota");
+  opts.swap_limit = get_str("swap-limit");
+  opts.swap_growth = get_str("swap-growth");
   opts.sddp_cpu_factor = get_dbl("cpu-factor");
   if (!opts.sddp_cpu_factor) {
     opts.sddp_cpu_factor = get_dbl("sddp-cpu-factor");
@@ -1601,6 +1626,8 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.time_limit, defaults.time_limit);
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.memory_quota, defaults.memory_quota);
+  merge(opts.swap_limit, defaults.swap_limit);
+  merge(opts.swap_growth, defaults.swap_growth);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
   merge(opts.cpu_quota, defaults.cpu_quota);
   merge(opts.build_mode, defaults.build_mode);

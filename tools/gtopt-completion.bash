@@ -62,6 +62,7 @@ _gtopt()
         --sddp-max-iterations|--sddp-min-iterations|\
         --sddp-convergence-tol|--sddp-elastic-penalty|--lp-coeff-ratio|\
         --memory-limit|--memory-quota|--cpu-factor|--cpu-quota|\
+        --swap-limit|--swap-growth|\
         --mip-gap|--time-limit)
             return ;;
         --build-mode)
@@ -91,6 +92,7 @@ _gtopt()
             --sddp-elastic-mode
             --cut-directory --log-directory --write-out
             --memory-saving --memory-limit --memory-quota
+            --swap-limit --swap-growth
             --cpu-factor --cpu-quota --build-mode"
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
     else

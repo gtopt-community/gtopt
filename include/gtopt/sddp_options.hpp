@@ -830,6 +830,21 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *  0 = no limit (default). */
   OptReal pool_memory_limit_mb {};
 
+  /** @brief Work-pool cap on process swap usage (VmSwap) in MB.
+   *  Task dispatch is throttled while the process VmSwap is at/above
+   *  this value AND still growing by more than `pool_swap_growth_mb`
+   *  per 5 s window, i.e. only while the process is actively being
+   *  swapped out.  A large but static VmSwap (cold pages parked on
+   *  swap) never throttles.  Applies to every work pool of the run
+   *  (LP build, SDDP, monolithic, output).  0 = gate off.
+   *  Default 2048. */
+  OptReal pool_max_process_swap_mb {};
+
+  /** @brief VmSwap growth (MB per 5 s window) above which the process
+   *  counts as actively swapping for `pool_max_process_swap_mb`.
+   *  0 = any net growth counts.  Default 64. */
+  OptReal pool_swap_growth_mb {};
+
   /** @brief Maximum iteration spread between fastest and slowest scene
    *  when cut_sharing is none and multiple scenes exist.
    *
@@ -883,7 +898,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// and `SDDP_OPTION_KEYS` in `scripts/gtopt_shared/options_meta.py`
   /// (a schema-parity pytest enforces the Python side; a `static_assert`
   /// in `json_sddp_options.hpp` enforces the tuple against this count).
-  static constexpr std::size_t json_field_count = 69;
+  static constexpr std::size_t json_field_count = 71;
 
   void merge(SddpOptions&& opts)
   {
@@ -955,6 +970,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(max_async_spread, opts.max_async_spread);
     merge_opt(pool_cpu_factor, opts.pool_cpu_factor);
     merge_opt(pool_memory_limit_mb, opts.pool_memory_limit_mb);
+    merge_opt(pool_max_process_swap_mb, opts.pool_max_process_swap_mb);
+    merge_opt(pool_swap_growth_mb, opts.pool_swap_growth_mb);
     if (opts.forward_solver_options.has_value()) {
       if (forward_solver_options.has_value()) {
         forward_solver_options->merge(*opts.forward_solver_options);

@@ -93,6 +93,8 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "backward_solver_options",
         "backward_max_fallbacks",
         "max_async_spread",
+        "pool_max_process_swap_mb",
+        "pool_swap_growth_mb",
         "low_memory_mode",
         "memory_codec",
         "lp_debug_passes",

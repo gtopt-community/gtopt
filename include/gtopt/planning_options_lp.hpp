@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <filesystem>
 #include <numbers>
 #include <optional>
@@ -1849,6 +1850,28 @@ public:
   [[nodiscard]] constexpr auto sddp_pool_memory_limit_mb() const
   {
     return m_options_.sddp_options.pool_memory_limit_mb.value_or(0.0);
+  }
+
+  static constexpr Real default_pool_max_process_swap_mb = 2048.0;
+  static constexpr Real default_pool_swap_growth_mb = 64.0;
+
+  /** @brief Work-pool process-VmSwap cap in MB (0 = gate off).
+   *
+   * The pool throttles dispatch only while VmSwap is at/above this AND
+   * growing by more than `pool_swap_growth_mb()` per window. */
+  [[nodiscard]] constexpr auto pool_max_process_swap_mb() const
+  {
+    return std::max(0.0,
+                    m_options_.sddp_options.pool_max_process_swap_mb.value_or(
+                        default_pool_max_process_swap_mb));
+  }
+
+  /** @brief VmSwap growth (MB per window) that counts as active swapping. */
+  [[nodiscard]] constexpr auto pool_swap_growth_mb() const
+  {
+    return std::max(0.0,
+                    m_options_.sddp_options.pool_swap_growth_mb.value_or(
+                        default_pool_swap_growth_mb));
   }
 
   /** @brief How update_lp elements obtain reservoir/battery volume between

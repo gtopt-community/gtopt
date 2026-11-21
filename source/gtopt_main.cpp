@@ -48,6 +48,7 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/resolve_planning_args.hpp>
 #include <gtopt/validate_planning.hpp>
+#include <gtopt/work_pool.hpp>
 #include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -314,6 +315,15 @@ void setup_trace_log(const MainOptions& opts)
 
   // Specific CLI flags override --set
   apply_cli_options(planning, opts);
+
+  // Publish the work-pool swap-gate knobs process-wide BEFORE any pool is
+  // created: every pool factory default-constructs its `WorkPoolConfig`,
+  // which reads these defaults (see `set_default_swap_gate`).
+  {
+    const PlanningOptionsLP swap_opts(planning.options);
+    set_default_swap_gate(swap_opts.pool_max_process_swap_mb(),
+                          swap_opts.pool_swap_growth_mb());
+  }
 
   // Fold the deprecated boundary-cut keys (`sddp_options.boundary_*`,
   // `monolithic_options.boundary_*`, `simulation.boundary_cuts_*`) into the

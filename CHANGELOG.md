@@ -519,6 +519,20 @@ listed below.
   `lookup_load_cols`.  Affects cases with maintenance windows that zero a
   battery's charge or discharge rating (plp2gtopt `plpmanbat`/`plpmaness`,
   PLEXOS per-block ratings).
+- **Work-pool swap gate no longer latches closed on cold swap**: the
+  process-`VmSwap` dispatch gate blocked new tasks whenever `VmSwap` was
+  at/above a hard-coded 2048 MB.  `VmSwap` counts pages that *are* on
+  swap, so once the kernel had parked cold pages there (other load on the
+  host, with zero swap I/O) the gate never reopened and the pool ran only
+  the one always-admitted task (`Active: 1/31`, "process VmSwap 3343 MB
+  >= 2048 MB", "stall recovery nudge fired" for over an hour on a host
+  with ~120 GB available).  The gate now engages only while `VmSwap` is
+  over the limit **and still growing** by more than a delta per 5 s
+  window (`SwapGrowthGate`), releases after one quiet window, and logs
+  one info line on engage and on release with the reason.  Both knobs
+  are now exposed: `sddp_options.pool_max_process_swap_mb` (default
+  2048, `0` = off; CLI `--swap-limit`) and
+  `sddp_options.pool_swap_growth_mb` (default 64; CLI `--swap-growth`).
 
 - **`plexos2gtopt.aemo_isp` hydro**: reservoirs carry
   `flow_conversion_rate = 0.0036` and `Max Spill`; pumped-storage units
