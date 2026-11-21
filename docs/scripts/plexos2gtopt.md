@@ -1035,16 +1035,19 @@ The end of the week is constrained only where the source data say so:
 |---|---|
 | `Target Week` | hard `efin` = the target |
 | `End Effects Method` = 2 (Recycle) | hard `efin = eini` (PLEXOS recycles over the `Balance Period`, a day in the 2026 ISP; only the week end is closed) |
-| `End Effects Method` 1 (Free) / 0 (Auto) / unset | no `efin` |
+| `End Effects Method` 1 (Free) / 0 (Auto) / unset | hard `efin = eini`, no price (`--hydro-end hold`, the default); no `efin` with `--hydro-end free` |
 
-A one-week case therefore has **no future value of water**: a free
-storage is worth nothing at the end of the week, and the solve may
-draw it down to `emin`.  Water is coupled between stages by the state
-variable, and its future value should come from SDDP cuts; only the
-last stage needs a terminal condition, which may be 0.
+A one-week case has **no future value of water**: no reservoir carries
+an end-of-week price.  By default the end volume may not fall below the
+start volume, so the week cannot spend stored water as free energy
+(with `--hydro-end free` the Free storages, Hydro TAS among them, drain
+to `emin`).  Water is coupled between stages by the state variable, and
+its future value should come from SDDP cuts; only the last stage needs
+a terminal condition.
 
-`--hydro-water-value V` (opt-in, $/MWh) gives every reservoir without a
-source-data target `efin = eini` with the shortfall priced at
+`--hydro-water-value V` (opt-in, $/MWh; overrides `--hydro-end` for
+those reservoirs) gives every reservoir without a source-data target
+a soft `efin = eini` with the shortfall priced at
 `efin_cost = V × MWh per hm³`, where the MWh per hm³ is the largest sum
 of turbine production factors along a path down the cascade × 10⁶ /
 3600 (parallel units are alternatives, a series cascade adds up); ponds

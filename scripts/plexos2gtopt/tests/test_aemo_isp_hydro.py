@@ -71,7 +71,11 @@ def _phes_case(tmp_path: Path) -> Path:
 
 
 def _case(
-    xml: Path, *, hydro_extras: bool = True, hydro_water_value: float | None = None
+    xml: Path,
+    *,
+    hydro_extras: bool = True,
+    hydro_water_value: float | None = None,
+    hydro_end: str = "hold",
 ) -> IspCase:
     opts = IspCaseOptions(
         xml=xml,
@@ -80,6 +84,7 @@ def _case(
         days=1,
         hydro_extras=hydro_extras,
         hydro_water_value=hydro_water_value,
+        hydro_end=hydro_end,
     )
     return build_dispatch_case(opts)
 
@@ -111,21 +116,32 @@ def test_week_start_levels(phes_case: Path) -> None:
     }
 
 
-def test_end_volume_from_source_data_only(phes_case: Path) -> None:
+def test_end_volume_hold_by_default(phes_case: Path) -> None:
     case = _case(phes_case)
     rsv = {r["name"]: r for r in case.planning["system"]["reservoir_array"]}
-    # no water value by default: Free / Auto storages end free
-    assert "efin" not in rsv["Dam"]
-    assert "efin" not in rsv["Lower"]
-    # Recycle → hard efin = eini; Target Week → hard efin = target
+    # Free / unset End Effects: hard efin = eini, no price
+    assert rsv["Dam"]["efin"] == pytest.approx(55.0)
+    assert rsv["Lower"]["efin"] == pytest.approx(3.0)
+    # Recycle → efin = eini; Target Week → efin = target
     assert rsv["Upper"]["efin"] == pytest.approx(1.0)
     assert rsv["Weekly"]["efin"] == pytest.approx(0.0)
     assert not any("efin_cost" in r for r in rsv.values())
     assert case.stats["hydro_end_rule"] == {
-        "free": 2,
+        "hold": 2,
         "recycle": 1,
         "target_week": 1,
     }
+
+
+def test_end_volume_free(phes_case: Path) -> None:
+    case = _case(phes_case, hydro_end="free")
+    rsv = {r["name"]: r for r in case.planning["system"]["reservoir_array"]}
+    assert "efin" not in rsv["Dam"]
+    assert "efin" not in rsv["Lower"]
+    # source-data targets stay
+    assert rsv["Upper"]["efin"] == pytest.approx(1.0)
+    assert rsv["Weekly"]["efin"] == pytest.approx(0.0)
+    assert case.stats["hydro_end_rule"]["free"] == 2
 
 
 def test_end_volume_water_value(phes_case: Path) -> None:

@@ -429,10 +429,12 @@ listed below.
   `Initial Volume`, else `Target Week` / `Target`, else `Initial Volume`
   above `Min Volume`, else mid level).  The end of the week is
   constrained only by the source data (`Target Week` → `efin`, `End
-  Effects Method` Recycle → `efin = eini`); other storages end free, so
-  a single week has no future value of water (it should come from SDDP
-  cuts).  `--hydro-water-value V` is an opt-in end value (`efin = eini`,
-  shortfall at V × the cascade's MWh per hm³).  `--legacy` is unchanged.
+  Effects Method` Recycle → `efin = eini`); the other (Free) storages
+  get a hard, unpriced `efin = eini` (`--hydro-end hold`, the default;
+  `--hydro-end free` drops it).  A single week has no future value of
+  water (it should come from SDDP cuts).  `--hydro-water-value V` is an
+  opt-in end value (soft `efin = eini`, shortfall at V × the cascade's
+  MWh per hm³).  `--legacy` is unchanged.
 
 - **Solver registry crash on failed plugin validation**: requesting a
   solver whose plugin fails subprocess validation (e.g. a transient

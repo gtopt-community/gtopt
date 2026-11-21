@@ -358,10 +358,14 @@ class IspCaseOptions:
     #: hydro realism (off with ``--legacy``): pumping, week-start levels,
     #: Max Spill, explicit hm³ flow conversion, source-data end targets
     hydro_extras: bool = True
-    #: opt-in water value [$/MWh] pricing an end volume below the start
-    #: volume on reservoirs whose source data give no end target; ``None``
-    #: (default) leaves the end volume free — a single week has no future
-    #: value of water (that comes from SDDP cuts)
+    #: end of the week for reservoirs whose source data give no end target
+    #: (End Effects Method Free / unset): ``"hold"`` = hard ``efin = eini``
+    #: without a price (the end volume may not fall below the start; a
+    #: single week has no future value of water — that should come from
+    #: SDDP cuts); ``"free"`` = no ``efin``
+    hydro_end: str = "hold"
+    #: opt-in water value [$/MWh]: those reservoirs get ``efin = eini``
+    #: as a soft target priced at the value (overrides ``hydro_end``)
     hydro_water_value: float | None = None
     include_batteries: bool = True
     demand_fail_cost: float | None = None
@@ -1024,6 +1028,13 @@ def _build_hydro(  # pylint: disable=too-many-locals,too-many-branches,too-many-
         }
         if extras:
             efin = _end_volume(res, o.object_id, day0, vmin, vmax, v0, end_rule)
+            if efin is None and opts.hydro_water_value is not None:
+                end_rule["water_value"] += 1
+            elif efin is None and opts.hydro_end == "hold":
+                end_rule["hold"] += 1
+                efin = v0
+            elif efin is None:
+                end_rule["free"] += 1
             if efin is not None:
                 rsv["efin"] = round(efin, 6)
         else:
@@ -1176,8 +1187,8 @@ def _end_volume(  # pylint: disable=too-many-arguments,too-many-positional-argum
     ``Target Week`` (end-of-week level) → that level; ``End Effects
     Method`` 2 (Recycle) → the start volume (PLEXOS recycles over the
     ``Balance Period``, a day in the 2026 ISP; only the window end is
-    closed here).  Free / Auto storages get no ``efin``: a single week
-    carries no future value of water.
+    closed here).  Free / Auto storages return ``None``; the caller
+    applies ``hydro_end`` / ``hydro_water_value``.
     """
     week = res.scalar(oid, "Target Week", day0)
     if week is not None:
@@ -1186,7 +1197,6 @@ def _end_volume(  # pylint: disable=too-many-arguments,too-many-positional-argum
     if res.scalar(oid, "End Effects Method", day0) == 2:
         counts["recycle"] += 1
         return v0
-    counts["free"] += 1
     return None
 
 
@@ -1291,6 +1301,14 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "shortfall priced at value × MWh per hm³ down the cascade (default: "
         "none, the end volume is free)",
     )
+    p.add_argument(
+        "--hydro-end",
+        choices=("hold", "free"),
+        default="hold",
+        help="reservoirs without a source-data end target (End Effects Method "
+        "Free / unset): hold = hard efin = start volume, no price (default); "
+        "free = no end condition",
+    )
     p.add_argument("--no-batteries", action="store_true")
     p.add_argument("--demand-fail-cost", type=float, default=None)
     g = p.add_argument_group(
@@ -1369,6 +1387,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         name=name,
         include_hydro=not args.no_hydro,
         hydro_extras=not args.legacy,
+        hydro_end=args.hydro_end,
         hydro_water_value=args.hydro_water_value,
         include_batteries=not args.no_batteries,
         demand_fail_cost=args.demand_fail_cost,

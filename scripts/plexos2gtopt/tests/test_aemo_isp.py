@@ -370,7 +370,7 @@ def test_hydro_mapping(isp_case: tuple[Path, Path]) -> None:
     res = sys_["reservoir_array"][0]
     assert res["emax"] == pytest.approx(50.0)  # 50 000 ML = 50 hm3
     assert res["eini"] == pytest.approx(20.0)
-    assert "efin" not in res  # no end target in the source data: free
+    assert res["efin"] == pytest.approx(20.0)  # held: end ≥ start, no price
     tur = sys_["turbine_array"][0]
     assert tur["generator"] == "HYD1"
     assert tur["production_factor"] == pytest.approx(2.0)
