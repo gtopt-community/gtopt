@@ -488,3 +488,146 @@ class TestBuildHydroGraph:
         assert G["R1"]["sink"]["production_factor"] == pytest.approx(5.0)
         # The fallback junction_a/junction_b "X → Y" should NOT exist
         assert not G.has_edge("X", "Y")
+
+
+# ---------------------------------------------------------------------------
+# accumulated production factor (rho_acc, NEWAVE turbined path)
+# ---------------------------------------------------------------------------
+
+
+def _sys(junctions, turbines=(), waterways=(), reservoirs=(), rpf=()):
+    return {
+        "junction_array": [{"name": j} for j in junctions],
+        "turbine_array": list(turbines),
+        "waterway_array": list(waterways),
+        "reservoir_array": list(reservoirs),
+        "reservoir_production_factor_array": list(rpf),
+    }
+
+
+def test_chain_turbineless_head_reservoir_does_not_stop_at_reservoirs():
+    """res -> res -> T1 -> T2 -> sea: rho_acc(head) = pf1 + pf2."""
+    from gtopt_shared.hydro_epf import chain_epf_per_reservoir
+
+    s = _sys(
+        ["jH", "jR", "j1", "j2"],
+        turbines=[
+            {
+                "name": "T1",
+                "junction_a": "j1",
+                "junction_b": "j2",
+                "production_factor": 2.0,
+            },
+            {"name": "T2", "junction_a": "j2", "production_factor": 1.5},
+        ],
+        waterways=[
+            {"name": "qH", "junction_a": "jH", "junction_b": "jR"},
+            {"name": "qR", "junction_a": "jR", "junction_b": "j1"},
+        ],
+        reservoirs=[{"name": "H", "junction": "jH"}, {"name": "R", "junction": "jR"}],
+    )
+    rho = chain_epf_per_reservoir(s)
+    assert rho["H"] == pytest.approx(3.5)
+    assert rho["R"] == pytest.approx(3.5)
+    seg = chain_epf_per_reservoir(s, stop_at_reservoirs=True)
+    assert seg["H"] == pytest.approx(0.0)
+    assert chain_epf_per_reservoir(s, mode="max_path")["H"] == pytest.approx(3.5)
+
+
+def test_chain_turbine_and_spill_branch_no_double_count():
+    """Turbine T1 (pf 2) and a spill waterway both reach j2 (T2 pf 1):
+    rho_acc = 3, not 2 + 1 + 1; a spill bypassing T2 to sea is not taken."""
+    from gtopt_shared.hydro_epf import chain_epf_per_reservoir
+
+    s = _sys(
+        ["j1", "j2"],
+        turbines=[
+            {
+                "name": "T1",
+                "junction_a": "j1",
+                "junction_b": "j2",
+                "production_factor": 2.0,
+            },
+            {"name": "T2", "junction_a": "j2", "production_factor": 1.0},
+        ],
+        waterways=[
+            {"name": "s1", "junction_a": "j1", "junction_b": "j2"},
+            {"name": "s2", "junction_a": "j2"},  # spill to sea
+        ],
+        reservoirs=[{"name": "R", "junction": "j1"}],
+    )
+    out = chain_epf_per_reservoir(s, with_path=True)
+    assert out["R"][0] == pytest.approx(3.0)
+    assert out["R"][1] == ["T1", "T2"]
+
+
+def test_chain_inactive_intermediate_plant_passes_water():
+    """An inactive plant contributes 0 but its water continues downstream."""
+    from gtopt_shared.hydro_epf import chain_epf_per_reservoir
+
+    s = _sys(
+        ["j0", "j1", "j2"],
+        turbines=[
+            {
+                "name": "T0",
+                "junction_a": "j0",
+                "junction_b": "j1",
+                "production_factor": 1.0,
+            },
+            {
+                "name": "Toff",
+                "junction_a": "j1",
+                "junction_b": "j2",
+                "production_factor": 5.0,
+                "active": 0,
+            },
+            {"name": "T2", "junction_a": "j2", "production_factor": 2.0},
+        ],
+        reservoirs=[{"name": "R", "junction": "j0"}],
+    )
+    assert chain_epf_per_reservoir(s)["R"] == pytest.approx(3.0)
+
+
+def test_chain_parallel_units_not_multiplied():
+    """PSR parallel units (turbine to sea, spill to the next unit): the
+    turbined path of unit 1 is pf1 only, not pf1 + pf2 + pf3."""
+    from gtopt_shared.hydro_epf import chain_epf_per_reservoir
+
+    s = _sys(
+        ["u1", "u2", "u3"],
+        turbines=[
+            {"name": f"T{i}", "junction_a": f"u{i}", "production_factor": 4.0}
+            for i in (1, 2, 3)
+        ],
+        waterways=[
+            {"name": "s1", "junction_a": "u1", "junction_b": "u2"},
+            {"name": "s2", "junction_a": "u2", "junction_b": "u3"},
+        ],
+        reservoirs=[{"name": "R", "junction": "u1"}],
+    )
+    assert chain_epf_per_reservoir(s)["R"] == pytest.approx(4.0)
+
+
+def test_chain_head_dependent_pf_is_volume_averaged():
+    """Equivalent productivity = pf(V) averaged over [emin, emax]."""
+    from gtopt_shared.hydro_epf import chain_epf_per_reservoir
+
+    s = _sys(
+        ["j"],
+        turbines=[{"name": "T", "junction_a": "j", "production_factor": 9.0}],
+        reservoirs=[{"name": "R", "junction": "j", "emin": 0.0, "emax": 100.0}],
+        rpf=[
+            {
+                "turbine": "T",
+                "reservoir": "R",
+                "segments": [{"volume": 0.0, "slope": 0.01, "constant": 1.0}],
+            }
+        ],
+    )
+    assert chain_epf_per_reservoir(s)["R"] == pytest.approx(1.5)
+
+
+def test_rho_acc_unit_conversion():
+    from gtopt_shared.hydro_epf import rho_acc_mwh_per_hm3
+
+    assert rho_acc_mwh_per_hm3(1.0) == pytest.approx(277.777, rel=1e-4)

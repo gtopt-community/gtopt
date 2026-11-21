@@ -32,9 +32,13 @@ either converter's process without extra hooks.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from typing import Any
 
 import networkx as nx
+
+logger = logging.getLogger(__name__)
 
 
 _GAS_EMISSION_TCO2_PER_MWH: float = 0.5
@@ -182,9 +186,296 @@ def water_emission_value_per_cumec_hour(
     return float(epf) * float(gas_em) * float(loss_mult)
 
 
+# ---------------------------------------------------------------------------
+# Accumulated production factor (rho_acc) of a reservoir chain
+# ---------------------------------------------------------------------------
+#
+# Follows the CEPEL NEWAVE definition of the stored energy of an equivalent
+# reservoir (NEWAVE reference manual, "energia armazenavel" /
+# "produtibilidade equivalente"): EAR = sum_i V_util,i x rho_acc,i, where the
+# ACCUMULATED productivity rho_acc,i is the sum of the equivalent
+# productivities of plant i and of every plant downstream of it along the
+# TURBINED path (jusante); the equivalent productivity uses the head averaged
+# over the useful volume (run-of-river: constant head); plants not in service
+# are excluded (they contribute 0 but still pass the water on).  Downstream
+# reservoirs only delay the water, so the walk does NOT stop at them.
+
+SEA = "__sea__"
+"""Sink node for turbines / waterways whose water leaves the system."""
+
+Resolver = Callable[[str, dict[str, Any], str, Any], Any]
+"""``resolver(class_name, element, field, default) -> value`` used to
+evaluate schedule-valued fields (``active``, ``production_factor``,
+``emin``/``emax``) at the evaluation stage; class names are gtopt's
+(``"Turbine"``, ``"Waterway"``, ``"Reservoir"``)."""
+
+
+def _num(v: Any, default: float = 0.0) -> float:
+    return (
+        float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
+    )
+
+
+def _default_resolver(_cls: str, elem: dict[str, Any], fld: str, default: Any) -> Any:
+    v = elem.get(fld, default)
+    # schedule references (strings) cannot be evaluated without the tables:
+    # treat ``active`` as on and numeric fields as the default
+    if isinstance(v, str):
+        return default
+    return v
+
+
+def _mean_pf_curve(segments: list[dict[str, Any]], vmin: float, vmax: float) -> float:
+    """Average over [vmin, vmax] of pf(V) = min_i(c_i + s_i (V - v_i)) (gtopt /
+    PLP ``FRendimientos`` concave envelope) -- the equivalent productivity of
+    a head-dependent plant (head averaged over the useful volume)."""
+    if not segments:
+        return 0.0
+    vmax = max(vmax, vmin)
+    n = 200
+    acc = 0.0
+    for k in range(n + 1):
+        v = vmin + (vmax - vmin) * k / n
+        f = min(
+            _num(sg.get("constant"))
+            + _num(sg.get("slope")) * (v - _num(sg.get("volume")))
+            for sg in segments
+        )
+        acc += f * (0.5 if k in (0, n) else 1.0)
+    return acc / n
+
+
+def build_chain_graph(
+    system: dict[str, Any],
+    *,
+    resolver: Resolver | None = None,
+) -> nx.MultiDiGraph:
+    """Junction multigraph for the accumulated production factor.
+
+    Edges carry ``kind`` ('turbine' | 'waterway'), ``name``, ``active`` and
+    ``production_factor`` [MW/(m3/s)] at the resolver's stage (0 for
+    waterways and inactive turbines -- an inactive turbine still passes the
+    water on).  Turbines / waterways without ``junction_b`` end at
+    :data:`SEA`.  Head-dependent plants (``reservoir_production_factor_array``)
+    use the curve averaged over the reservoir's [emin, emax], or its
+    ``mean_production_factor``.  Pumps are not arcs (no ``pump_array``
+    elements are read), so pump-back cycles are excluded.
+    """
+    rv = resolver or _default_resolver
+    g: nx.MultiDiGraph = nx.MultiDiGraph()
+    g.add_node(SEA)
+    for j in system.get("junction_array", []) or []:
+        if j.get("name"):
+            g.add_node(j["name"])
+    reservoirs = {r["name"]: r for r in system.get("reservoir_array", []) or []}
+    by_uid = {r.get("uid"): r for r in reservoirs.values()}
+    eq_pf: dict[str, float] = {}
+    for rp in system.get("reservoir_production_factor_array", []) or []:
+        tname = rp.get("turbine")
+        res = reservoirs.get(rp.get("reservoir")) or by_uid.get(rp.get("reservoir"))
+        segs = rp.get("segments") or []
+        if res is not None and segs:
+            vmin = _num(rv("Reservoir", res, "emin", 0.0))
+            vmax = _num(
+                rv("Reservoir", res, "emax", res.get("capacity", 0.0)),
+                _num(res.get("capacity")),
+            )
+            eq_pf[tname] = _mean_pf_curve(segs, vmin, vmax)
+        elif rp.get("mean_production_factor") is not None:
+            eq_pf[tname] = _num(rp.get("mean_production_factor"))
+
+    def tpf(t: dict[str, Any]) -> float:
+        if t.get("name") in eq_pf:
+            return eq_pf[t["name"]]
+        return _num(rv("Turbine", t, "production_factor", 0.0))
+
+    def is_on(cls: str, e: dict[str, Any]) -> bool:
+        return bool(_num(rv(cls, e, "active", 1), 1.0))
+
+    on_ww: dict[str, list[dict[str, Any]]] = {}
+    for t in system.get("turbine_array", []) or []:
+        w = t.get("waterway")
+        if isinstance(w, str) and w:
+            on_ww.setdefault(w, []).append(t)
+    for w in system.get("waterway_array", []) or []:
+        a = w.get("junction_a")
+        if not a:
+            continue
+        b = w.get("junction_b") or SEA
+        ts = on_ww.get(w.get("name", ""), [])
+        w_on = is_on("Waterway", w)
+        pf = sum(tpf(t) for t in ts if is_on("Turbine", t)) if w_on else 0.0
+        g.add_edge(
+            a,
+            b,
+            kind="turbine" if ts else "waterway",
+            name=w.get("name", ""),
+            active=w_on and (not ts or any(is_on("Turbine", t) for t in ts)),
+            production_factor=pf,
+        )
+    for t in system.get("turbine_array", []) or []:
+        a = t.get("junction_a")
+        if not a or (isinstance(t.get("waterway"), str) and t.get("waterway")):
+            continue
+        on = is_on("Turbine", t)
+        g.add_edge(
+            a,
+            t.get("junction_b") or SEA,
+            kind="turbine",
+            name=t.get("name", ""),
+            active=on,
+            production_factor=tpf(t) if on else 0.0,
+        )
+    return g
+
+
+def _turbined_path(
+    g: nx.MultiDiGraph, start: str, stop: set[str]
+) -> tuple[float, list[str]]:
+    """Walk the turbined path from ``start`` (NEWAVE jusante): at each
+    junction take the active turbine arc (the best chain if several);
+    with no active turbine take the release/pass-through arc (waterway or
+    inactive turbine) leading to the best chain.  Stops at the sea, at a
+    junction in ``stop`` or on a cycle."""
+
+    memo: dict[str, tuple[float, list[str]]] = {}
+
+    def walk(u: str, onpath: frozenset[str]) -> tuple[float, list[str]]:
+        if u == SEA or (u in stop and u != start):
+            return 0.0, []
+        if u in memo:
+            return memo[u]
+        arcs = list(g.out_edges(u, data=True))
+        tur = [(v, d) for _u, v, d in arcs if d["kind"] == "turbine" and d["active"]]
+        cand = tur or [(v, d) for _u, v, d in arcs]
+        best: tuple[float, list[str]] = (0.0, [])
+        for v, d in cand:
+            if v in onpath:
+                logger.warning("hydro chain: cycle at %s -> %s ignored", u, v)
+                continue
+            sub = walk(v, onpath | {v})
+            val = d["production_factor"] + sub[0]
+            if val > best[0] or not best[1]:
+                best = (
+                    val,
+                    ([d["name"]] if d["production_factor"] > 0 else []) + sub[1],
+                )
+        memo[u] = best
+        return best
+
+    return walk(start, frozenset({start}))
+
+
+def _max_path(
+    g: nx.MultiDiGraph, start: str, stop: set[str]
+) -> tuple[float, list[str]]:
+    """Longest production-factor path from ``start`` over all arcs (diagnostic)."""
+    sub = g.subgraph(nx.descendants(g, start) | {start}).copy()
+    if stop:
+        sub.remove_edges_from(
+            [(u, v, k) for u, v, k in sub.edges(keys=True) if u in stop and u != start]
+        )
+    if nx.is_directed_acyclic_graph(sub):
+        simple = nx.DiGraph()
+        for u, v, d in sub.edges(data=True):
+            w = d["production_factor"]
+            if not simple.has_edge(u, v) or simple[u][v]["weight"] < w:
+                simple.add_edge(u, v, weight=w, name=d["name"])
+        dist: dict[str, tuple[float, list[str]]] = {}
+        for u in reversed(list(nx.topological_sort(simple))):
+            best: tuple[float, list[str]] = (0.0, [])
+            for v in simple.successors(u):
+                d = simple[u][v]
+                val = d["weight"] + dist[v][0]
+                if val > best[0]:
+                    best = (val, ([d["name"]] if d["weight"] > 0 else []) + dist[v][1])
+            dist[u] = best
+        return dist.get(start, (0.0, []))
+    logger.warning(
+        "hydro chain from %s has a cycle: longest simple path (cutoff 60)", start
+    )
+    best = (0.0, [])
+    for tgt in sub.nodes:
+        for path in nx.all_simple_edge_paths(sub, start, tgt, cutoff=60):
+            val = sum(sub.edges[e]["production_factor"] for e in path)
+            if val > best[0]:
+                best = (
+                    val,
+                    [
+                        sub.edges[e]["name"]
+                        for e in path
+                        if sub.edges[e]["production_factor"] > 0
+                    ],
+                )
+    return best
+
+
+def chain_epf_per_reservoir(
+    system: dict[str, Any],
+    *,
+    stage: int | None = None,
+    stop_at_reservoirs: bool = False,
+    mode: str = "turbined_path",
+    resolver: Resolver | None = None,
+    with_path: bool = False,
+) -> dict[str, Any]:
+    """Accumulated production factor ``rho_acc`` [MW/(m3/s)] of each reservoir.
+
+    ``rho_acc[R]`` = sum of the (equivalent) production factors of the
+    turbines that the water released from R passes on its way to the sea,
+    following the TURBINED path (CEPEL NEWAVE "produtibilidade acumulada";
+    see the module notes above).  Downstream reservoirs do not stop the walk
+    unless ``stop_at_reservoirs``.  Multiply by ``1/flow_conversion_rate``
+    (0.0036 hm3 per (m3/s)h) to get MWh/hm3, see :func:`rho_acc_mwh_per_hm3`.
+
+    ``mode``:
+      * ``"turbined_path"`` (default): NEWAVE turbined path;
+      * ``"max_path"``: longest pf path over every arc incl. spills
+        (diagnostic; equals turbined_path except where routes split);
+      * ``"segment"``: the legacy :func:`epf_per_reservoir` (stops at the next
+        reservoir, sums every outgoing arc).
+    ``stage`` is informative: schedule-valued fields are evaluated by
+    ``resolver`` (which should be bound to that stage).  ``with_path``
+    returns ``{name: (rho, [turbine names])}``.
+    """
+    if mode == "segment":
+        return dict(epf_per_reservoir(system))
+    if mode not in ("turbined_path", "max_path"):
+        raise ValueError(f"unknown mode {mode!r}")
+    del stage  # evaluation stage is carried by the resolver
+    g = build_chain_graph(system, resolver=resolver)
+    res = {
+        r["name"]: r.get("junction", r["name"])
+        for r in system.get("reservoir_array", []) or []
+    }
+    stop = set(res.values()) if stop_at_reservoirs else set()
+    out: dict[str, Any] = {}
+    for name, j in res.items():
+        if j not in g:
+            val: tuple[float, list[str]] = (0.0, [])
+        elif mode == "turbined_path":
+            val = _turbined_path(g, j, stop)
+        else:
+            val = _max_path(g, j, stop)
+        out[name] = val if with_path else val[0]
+    return out
+
+
+def rho_acc_mwh_per_hm3(
+    rho_mw_per_m3s: float, flow_conversion_rate: float = 0.0036
+) -> float:
+    """MW/(m3/s) -> MWh/hm3: one hm3 released at 1 m3/s lasts
+    1/flow_conversion_rate hours (0.0036 hm3 per (m3/s)h)."""
+    return float(rho_mw_per_m3s) / float(flow_conversion_rate)
+
+
 __all__ = [
+    "SEA",
+    "build_chain_graph",
     "build_hydro_graph",
+    "chain_epf_per_reservoir",
     "epf_per_reservoir",
+    "rho_acc_mwh_per_hm3",
     "water_emission_value_per_cumec_hour",
     "_GAS_EMISSION_TCO2_PER_MWH",
     "_LOSS_MULTIPLIER",
