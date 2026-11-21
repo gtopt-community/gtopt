@@ -161,37 +161,6 @@ def _qdefm_value(
     return max(min(qp - q_hoya - qfilt, 0.0) + qn + qs + qe, 0.0)
 
 
-def _qdefm_k_value(
-    qp: float,
-    qn: float,
-    qe: float,
-    qs: float,
-    q_hoya: float,
-    qfilt_hist: float,
-    qf_ub: float,
-) -> float:
-    """Seepage-aware cap constant K'(t) (volume-dependent filtration).
-
-    PLP's per-stage cap is ``qdefm = max(min(QDefTucapel, QDefAbanico)
-    + R, 0)`` with the CURRENT filtration ``qf`` in both branches —
-    and since ``qf`` is common, ``min(QP − QHoya − qf, QFiltHist − qf)
-    = min(QP − QHoya, QFiltHist) − qf``.  The cap therefore
-    linearizes EXACTLY as
-
-        rights + qf <= K(t),   K(t) = min(QP − QHoya, QFiltHist) + R
-
-    with ``qf`` the ReservoirSeepage element's own LP flow variable.
-    The outer ``max(., 0)`` is a disjunction an LP row cannot carry:
-    flooring K'(t) at the maximum possible seepage flow (``qf_ub``,
-    the element's piecewise at the reservoir's emax) keeps the row
-    feasible in the zero-cap stages at the cost of a small relaxation
-    there (bounded in practice by the winter fmax gating and the
-    30 hm3 mixed ledger).  Pure — unit-testable.
-    """
-    k = min(qp - q_hoya, qfilt_hist) + qn + qs + qe
-    return max(k, qf_ub)
-
-
 def _netted_primary(gross: float, q_hoya: float, qfilt: float) -> float:
     """Netted primary delivery (PLP GetQsLajaM's QPRiego re-set).
 
@@ -316,6 +285,11 @@ class LajaAgreement(_RightsAgreementBase):
         ``use_value_elec``.)
         """
         resolver = self._water_value_resolver
+        if self._pin_plp_costs():
+            # PLP plplajam.dat costs are agreement data, not water
+            # values: keep them (opt out with pin_plp_costs: false /
+            # --no-pin-agreement-costs).
+            return legacy_irr_ns
         if resolver is None or not resolver.is_active:
             return legacy_irr_ns
         central_name = cfg["central_laja"]
@@ -338,6 +312,88 @@ class LajaAgreement(_RightsAgreementBase):
             central_name,
         )
         return new_value
+
+    def _category_stage_demand(
+        self, category: str, default: list[float]
+    ) -> list[float]:
+        """Per-stage category delivery with PLP manual withdrawals.
+
+        ``plplajam.dat`` "Retiro manuales de riego por etapa" (PLP
+        NumRetiros, leelajam.f) replaces the stage's QPRiego / QNRiego /
+        QERiego / QSRiego (the IQPR..IQSR values) for the listed stages.
+        """
+        manual = self._cfg.get("manual_withdrawals") or []
+        if not manual:
+            return list(default)
+        key = {
+            "1o_reg": "q_1o_reg",
+            "2o_reg": "q_2o_reg",
+            "emergencia": "q_emergencia",
+            "saltos": "q_saltos",
+        }[category]
+        by_stage = {int(m["stage"]): float(m[key]) for m in manual}
+        values = list(default)
+        stages = self._get_stages() if self._stage_parser is not None else []
+        for i, stg in enumerate(stages[: len(values)]):
+            number = int(stg.get("number", i + 1))
+            if number in by_stage:
+                values[i] = by_stage[number]
+        return values
+
+    def _warn_forced_flows(self) -> None:
+        """Warn when plplajam's forced El Toro flows are present.
+
+        PLP NumCaudalToro (genpdlajam.f): stages ``<= N`` cap the El
+        Toro generation at CaudalToro and drop the retiro-max row.  Not
+        modelled by gtopt.
+        """
+        forced = [
+            f for f in (self._cfg.get("forced_flows") or []) if float(f["flow"]) != 0
+        ]
+        if forced:
+            _logger.warning(
+                "laja: %d forced El Toro flow stage(s) in plplajam.dat"
+                " (PLP NumCaudalToro) are NOT modelled and are DROPPED: %s",
+                len(forced),
+                forced[:5],
+            )
+
+    def _convenio_1958(self) -> bool:
+        """True when the 1958 convenio (economy accumulators) is modelled.
+
+        PLP's 2017 ``plplajam`` model (genpdlajam.f) has no economy
+        ledgers; only the 1958 ``plplaja`` model (genpdlaja.f) does.
+        Default ``convenio_mode`` is ``"2017"``; non-zero ``ini_econ_*``
+        values are then dropped with a warning.
+        """
+        mode = str(self._cfg.get("convenio_mode", "2017"))
+        if mode == "1958":
+            return True
+        dropped = {
+            k: self._cfg.get(k)
+            for k in ("ini_econ_endesa", "ini_econ_reserve", "ini_econ_polcura")
+            if float(self._cfg.get(k, 0) or 0) != 0.0
+        }
+        if dropped:
+            _logger.warning(
+                "laja: convenio_mode=%s has no economy ledgers — the"
+                " non-zero initial economies %s are DROPPED (set"
+                ' convenio_mode: "1958" to model them).',
+                mode,
+                dropped,
+            )
+        return False
+
+    def _pin_plp_costs(self) -> bool:
+        """True when the PLP agreement costs must not be overridden.
+
+        The deficit / non-served costs of ``plplajam.dat`` (CostoRiegoNS
+        and the per-district factors) are part of the agreement
+        economics, not cascade water values; the auto fail-cost
+        resolver must not replace them unless explicitly asked
+        (``pin_plp_costs: false``).
+        """
+        return bool(self._cfg.get("pin_plp_costs", True))
 
     def _fmax_schedule(
         self,
@@ -478,6 +534,8 @@ class LajaAgreement(_RightsAgreementBase):
         reset_month_rights = _hydro_month_name(cfg.get("mes_inicio_riego", 9))
         reset_month_antic = _hydro_month_name(cfg.get("mes_inicio_anticipos", 6))
 
+        self._warn_forced_flows()
+
         # --- District flow rights (pre-computed) ---
         district_flow_rights = self._compute_district_flow_rights(cost_irr_ns)
 
@@ -503,26 +561,34 @@ class LajaAgreement(_RightsAgreementBase):
             seas_e = self._hydro_to_stage_schedule(cfg["seasonal_emergencia"])
             seas_s = self._hydro_to_stage_schedule(cfg["seasonal_saltos"])
             qfilt = float(cfg.get("filtracion_laja", 0.0))
-
-            seepage_ref = cfg.get("seepage_ref")
-            qf_ub = float(cfg.get("seepage_flow_ub", 0.0))
+            gross_p = self._category_stage_demand(
+                "1o_reg", [cfg["demand_1o_reg"] * v for v in seas_p]
+            )
+            gross_n = self._category_stage_demand(
+                "2o_reg", [cfg["demand_2o_reg"] * v for v in seas_n]
+            )
+            gross_e = self._category_stage_demand(
+                "emergencia", [cfg["demand_emergencia"] * v for v in seas_e]
+            )
+            gross_s = self._category_stage_demand(
+                "saltos", [cfg["demand_saltos"] * v for v in seas_s]
+            )
 
             def qdefm_series(hoya_series: list[float]) -> list[float]:
                 vals: list[float] = []
                 for i, stg in enumerate(self._get_stages()):
                     idx = int(stg.get("number", i + 1)) - 1
-                    qp = cfg["demand_1o_reg"] * seas_p[i]
-                    qn = cfg["demand_2o_reg"] * seas_n[i]
-                    qe = cfg["demand_emergencia"] * seas_e[i]
-                    qs = cfg["demand_saltos"] * seas_s[i]
+                    qp = gross_p[i]
+                    qn = gross_n[i]
+                    qe = gross_e[i]
+                    qs = gross_s[i]
                     qh = float(hoya_series[idx]) if idx < len(hoya_series) else 0.0
-                    if seepage_ref:
-                        # Volume-dependent filtration: the carrier holds
-                        # K'(t) and the cap row adds the seepage
-                        # element's flow variable (see _qdefm_k_value).
-                        vals.append(_qdefm_k_value(qp, qn, qe, qs, qh, qfilt, qf_ub))
-                    else:
-                        vals.append(_qdefm_value(qp, qn, qe, qs, qh, qfilt))
+                    # PLP's cap is NUMERIC (static FiltVals): a
+                    # volume-dependent seepage term in the row would
+                    # make the reservoir water value negative when the
+                    # cap binds (more volume -> more seepage -> less
+                    # chargeable riego).
+                    vals.append(_qdefm_value(qp, qn, qe, qs, qh, qfilt))
                 return vals
 
             by_scenario = cfg.get("q_hoya_inter_by_scenario")
@@ -548,12 +614,8 @@ class LajaAgreement(_RightsAgreementBase):
             else:
                 qdefm_sched = self._to_tb_sched(qdefm_series(q_hoya))
             # Expose to the .tampl renderer (it renders from the raw
-            # config) so the cap switches to the netted carrier (and,
-            # when the seepage element exists, to the seepage-aware
-            # row form).
+            # config) so the cap switches to the netted carrier.
             self._cfg["use_qdefm_carrier"] = True
-            if seepage_ref:
-                self._cfg["use_seepage_cap"] = True
 
         # --- User constraint expressions ---
         expression_partition = (
@@ -607,6 +669,7 @@ class LajaAgreement(_RightsAgreementBase):
             "max_anticipated": cfg["max_anticipated"],
             "qmax_anticipated": cfg.get("qmax_anticipated", 0.0),
             # VolumeRight: economy
+            "convenio_1958": self._convenio_1958(),
             "ini_econ_endesa": cfg.get("ini_econ_endesa", 0),
             "ini_econ_reserve": cfg.get("ini_econ_reserve", 0),
             "ini_econ_polcura": cfg.get("ini_econ_polcura", 0),
@@ -642,7 +705,9 @@ class LajaAgreement(_RightsAgreementBase):
         """
         cfg = self._cfg
         resolver = self._water_value_resolver
-        resolver_active = resolver is not None and resolver.is_active
+        resolver_active = (
+            resolver is not None and resolver.is_active and not self._pin_plp_costs()
+        )
         demands = {
             "1o_reg": cfg["demand_1o_reg"],
             "2o_reg": cfg["demand_2o_reg"],
@@ -682,7 +747,13 @@ class LajaAgreement(_RightsAgreementBase):
                     continue
 
                 seasonal = self._hydro_to_stage_schedule(cfg[seasonal_keys[category]])
-                target_values = [demand_base * pct * s for s in seasonal]
+                gross_values = self._category_stage_demand(
+                    category, [demand_base * s for s in seasonal]
+                )
+                seasonal = [
+                    (g / demand_base) if demand_base else 0.0 for g in gross_values
+                ]
+                target_values = [pct * g for g in gross_values]
                 if (
                     category == "1o_reg"
                     and q_hoya

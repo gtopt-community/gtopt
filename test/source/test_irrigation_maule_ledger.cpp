@@ -30,10 +30,10 @@ namespace
 
 // 1 bus, hydro (pf 2) + thermal 100 $/MWh, demand 50 MW for 24 h: the
 // hydro wants 25 m3/s = 2.16 hm3; the right allows only 1 hm3.
-constexpr Real kRemaining = 1.0;  // hm3 of right left (cap - used)
-constexpr Real kUsed = 0.5;  // hm3 already used (PLP data ini value)
+constexpr Real kLedgerRemaining = 1.0;  // hm3 of right left (cap - used)
+constexpr Real kLedgerUsed = 0.5;  // hm3 already used (PLP data ini value)
 
-[[nodiscard]] Simulation make_one_day()
+[[nodiscard]] Simulation make_ledger_day()
 {
   return {
       .block_array =
@@ -60,7 +60,8 @@ constexpr Real kUsed = 0.5;  // hm3 already used (PLP data ini value)
   };
 }
 
-[[nodiscard]] System make_system(VolumeRight right, std::string expression)
+[[nodiscard]] System make_ledger_system(VolumeRight right,
+                                        std::string expression)
 {
   return {
       .name = "MauleLedger",
@@ -157,16 +158,18 @@ constexpr Real kUsed = 0.5;  // hm3 already used (PLP data ini value)
   };
 }
 
-struct LedgerResult
+struct MauleLedgerResult
 {
   Real turbined {0.0};
   Real value {0.0};  ///< water value = −(raw energy-balance dual)
 };
 
-[[nodiscard]] LedgerResult solve(VolumeRight right, std::string expression)
+[[nodiscard]] MauleLedgerResult solve_ledger(VolumeRight right,
+                                             std::string expression)
 {
-  const auto sim = make_one_day();
-  const auto system = make_system(std::move(right), std::move(expression));
+  const auto sim = make_ledger_day();
+  const auto system =
+      make_ledger_system(std::move(right), std::move(expression));
   const PlanningOptionsLP options;
   SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
@@ -203,15 +206,15 @@ TEST_CASE(  // NOLINT
       .name = "maule_vol_gasto_elec_anual",
       .emin = 0.0,
       .emax = 10.0,
-      .eini = kRemaining,
+      .eini = kLedgerRemaining,
       .fmax = 1000.0,
       .use_state_variable = true,
   };
-  const auto r = solve(
+  const auto r = solve_ledger(
       ledger,
       R"(volume_right("maule_vol_gasto_elec_anual").extraction = waterway("ww").flow)");
   // Binding right: 1 hm3 / (24 h · 0.0036) = 11.574 m3/s.
-  CHECK(r.turbined == doctest::Approx(kRemaining / (24.0 * 0.0036)));
+  CHECK(r.turbined == doctest::Approx(kLedgerRemaining / (24.0 * 0.0036)));
   CHECK(r.value >= 0.0);
   CHECK(r.value > 1e-9);
 }
@@ -226,15 +229,15 @@ TEST_CASE(  // NOLINT
       .uid = Uid {1},
       .name = "maule_used_counter",
       .emin = 0.0,
-      .emax = kUsed + kRemaining,
-      .eini = kUsed,
+      .emax = kLedgerUsed + kLedgerRemaining,
+      .eini = kLedgerUsed,
       .fmax = 0.0,
       .saving_rate = 1000.0,
       .use_state_variable = true,
   };
-  const auto r = solve(
+  const auto r = solve_ledger(
       counter,
       R"(volume_right("maule_used_counter").saving = waterway("ww").flow)");
-  CHECK(r.turbined == doctest::Approx(kRemaining / (24.0 * 0.0036)));
+  CHECK(r.turbined == doctest::Approx(kLedgerRemaining / (24.0 * 0.0036)));
   CHECK(r.value < 0.0);
 }

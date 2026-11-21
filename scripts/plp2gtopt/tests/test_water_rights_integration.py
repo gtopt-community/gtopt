@@ -135,11 +135,11 @@ class TestWaterRightsIntegration:
         )
 
     def test_laja_volume_rights_count(self, converted_case):
-        """Laja creates 7 volume rights: 4 rights + 3 economy accumulators."""
+        """Laja creates 4 rights ledgers (2017 convenio: no economies)."""
         vrs = converted_case["system"].get("volume_right_array", [])
         laja_vrs = [vr for vr in vrs if vr["name"].startswith("laja_")]
-        assert len(laja_vrs) == 7, (
-            f"Expected 7 Laja volume rights, got {len(laja_vrs)}: "
+        assert len(laja_vrs) == 4, (
+            f"Expected 4 Laja volume rights, got {len(laja_vrs)}: "
             f"{[vr['name'] for vr in laja_vrs]}"
         )
 
@@ -152,9 +152,6 @@ class TestWaterRightsIntegration:
             "laja_vol_der_electrico",
             "laja_vol_der_mixto",
             "laja_vol_gasto_anticipado",
-            "laja_vol_econ_endesa",
-            "laja_vol_econ_reserva",
-            "laja_vol_econ_polcura",
         }
         missing = expected - names
         assert not missing, f"Missing Laja volume rights: {missing}"
@@ -262,12 +259,11 @@ class TestWaterRightsIntegration:
         # exists in the topology are tied to it (PLP +l_qriK).
         assert "constraint dist_anclaje_RIEGZACO" in laja
         assert "constraint dist_anclaje_RieSaltos" in laja
-        # The full conversion has aflce data AND the ELTORO seepage
-        # element, so the cap is the seepage-aware exact linearization
-        # `rights + seepage.flow <= K(t)` (volume-dependent
-        # filtration), referencing the physical element directly.
+        # The cap is PLP's numeric `qdrh + qdmh + qgah <= qdefm`: the
+        # ELTORO seepage flow must NOT enter the row (it would make
+        # the ELTORO water value negative when the cap binds).
         assert "<= flow_right('laja_qdefm').flow;" in laja
-        assert "+ seepage('ELTORO_seepage_2').flow" in laja
+        assert "seepage('ELTORO_seepage_2').flow" not in laja
 
         maule = (out / "maule.pampl").read_text(encoding="utf-8")
         assert "constraint maule_anclaje_particion" in maule
@@ -508,8 +504,10 @@ class TestWaterRightsIntegration:
         # plp_2y has RelaxInvern = T, so the Invernada level-rule rights
         # (embalsar / no_embalsar / holgura) are not emitted; Maule adds
         # qdrah (maule_deficit_riego), the QDefRiego carrier and the
-        # Melado district deficit (PLP qrhh).
-        assert len(frs) == 39, f"Expected 39 total flow rights, got {len(frs)}"
+        # Melado district deficit (PLP qrhh), plus the Cota 425 carrier
+        # (IExtr425 = 2 -> COLBUN_extrac_1_*).
+        assert len(frs) == 40, f"Expected 40 total flow rights, got {len(frs)}"
+        assert "maule_cota_425" in {fr["name"] for fr in frs}
 
     def test_no_phantom_rewarded_flow_rights(self, converted_case):
         """Every rewarded (uvalue > 0) FlowRight withdraws at a junction
@@ -541,9 +539,9 @@ class TestWaterRightsIntegration:
         assert not phantoms, f"phantom rewarded FlowRights: {phantoms}"
 
     def test_total_volume_rights(self, converted_case):
-        """Total volume rights = Laja (7) + Maule (6)."""
+        """Total volume rights = Laja (4) + Maule (6)."""
         vrs = converted_case["system"].get("volume_right_array", [])
-        assert len(vrs) == 13, f"Expected 13 total volume rights, got {len(vrs)}"
+        assert len(vrs) == 10, f"Expected 10 total volume rights, got {len(vrs)}"
 
 
 @pytest.mark.integration

@@ -88,6 +88,7 @@ _MAULE_HEAD = """\
 2
 # Porcentajes de riego mensuales Maule manuales
 35 15 0 0 0 25 65 75 65 60 58 42
+36 16 0 0 0 26 66 76 66 61 59 43
 # Ano desde donde se aplica modulacion automatica (0 -> desactivado)
 3
 # Factor de caudales futuros en disponibilidad de riego
@@ -206,7 +207,10 @@ class TestMauleParserSynthetic:
         cfg = maule_cfg.config
         assert cfg["pct_riego_mensual"][6] == pytest.approx(60.0)
         assert cfg["n_agnos_pct_manual"] == 2
-        assert cfg["pct_riego_manual"][0] == pytest.approx(35.0)
+        # One 12-value row per manual year (PLP reads NYear rows).
+        assert len(cfg["pct_riego_manual"]) == 2
+        assert cfg["pct_riego_manual"][0][0] == pytest.approx(35.0)
+        assert cfg["pct_riego_manual"][1][0] == pytest.approx(36.0)
         assert cfg["ano_mod_auto"] == 3
         assert cfg["factor_caudales_futuros"] == pytest.approx(0.75)
         assert cfg["mod_auto_res105"] is True
@@ -228,7 +232,8 @@ class TestMauleParserSynthetic:
         assert cfg["pct_riego_reserva"] == pytest.approx(75.0)
         assert cfg["caudal_res105"][7] == pytest.approx(170.0)
         assert cfg["n_agnos_res105_manual"] == 1
-        assert cfg["caudal_res105_manual"][0] == pytest.approx(75.0)
+        assert len(cfg["caudal_res105_manual"]) == 1
+        assert cfg["caudal_res105_manual"][0][0] == pytest.approx(75.0)
 
     def test_districts(self, maule_cfg):
         districts = maule_cfg.config["districts"]

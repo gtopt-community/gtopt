@@ -387,6 +387,10 @@ constraint maule_riego_cargado "IQDRAH: Maule irrigation qmnr + qmor <= qdrah":
 constraint maule_deficit_cubierto "IQDRMH: QDefRiego <= qdrah + qinvh":
   {{ S("flow_right('maule_qdef_riego').flow") }} <= {{ S("flow_right('maule_deficit_riego').flow") }} + {{ S(anchor_gen_ref_invernada) }}{% if seepage_ref_invernada is defined %} + {{ S("seepage('" ~ seepage_ref_invernada ~ "').flow") }}{% endif %};
 {% endif %}
+{% if extraction_ref_425 is defined and v_cota_425 | default(0) > 0 %}
+constraint maule_cota_425_anclaje "Cota 425: COLBUN extraction open only above Vol425":
+  waterway('{{ extraction_ref_425 }}').flow <= flow_right('maule_cota_425').flow;
+{% endif %}
 {% if anchor_gen_ref_canelon is defined and costo_canelon | default(0) > 0 %}
 constraint maule_canelon_anclaje "BCanelon: priced intake = its generation flow":
   flow_right('maule_bocatoma_canelon').flow = {{ anchor_gen_ref_canelon }};

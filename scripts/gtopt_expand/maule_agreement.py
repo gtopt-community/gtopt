@@ -377,6 +377,27 @@ class MauleAgreement(_RightsAgreementBase):
             "p_riego": p_riego,
         }
 
+    def _cota_425_context(self) -> dict[str, float] | None:
+        """PLP Cota 425 rule values, or ``None`` when not applicable.
+
+        Needs the resolved extraction waterway (``extraction_ref_425``,
+        injected by plp2gtopt from ``IExtr425``) and ``Vol425 > 0``.
+        """
+        cfg = self._cfg
+        volume = float(cfg.get("v_cota_425", 0.0) or 0.0)
+        if volume <= 0.0:
+            return None
+        if not cfg.get("extraction_ref_425"):
+            _logger.warning(
+                "maule: Cota 425 rule (IExtr425=%s, Vol425=%g hm3) has no"
+                " resolved COLBUN extraction waterway — the rule is NOT"
+                " applied.",
+                cfg.get("idx_extrac_colbun_425"),
+                volume,
+            )
+            return None
+        return {"volume": volume, "qmax": float(cfg.get("qmax_425", 0.0) or 0.0)}
+
     def _qdef_riego_stage(self) -> list[float] | None:
         """Per-stage PLP ``QDefRiego = max(friego·GastoRiegoMax − QHoyaInter, 0)``.
 
@@ -509,13 +530,27 @@ class MauleAgreement(_RightsAgreementBase):
 
         # --- Schedules ---
         pct_riego = cfg["pct_riego_mensual"]
-        irr_fmax_schedule = self._monthly_fmax_schedule(pct_riego, riego_max)
+        if self._stage_parser is not None:
+            # Manual years (PRiegoMauleAnual) keyed by the plpeta year.
+            irr_fmax_schedule = self._to_tb_sched(
+                [p / 100.0 * float(riego_max) for p in self._pct_riego_stage()]
+            )
+        else:
+            irr_fmax_schedule = self._monthly_fmax_schedule(pct_riego, riego_max)
 
         mod_elec = cfg["mod_elec_reserva"]
         elec_ord_fmax = self._monthly_fmax_schedule(mod_elec, elec_day_max)
 
         caudal_res105 = cfg["caudal_res105"]
-        res105_values = self._hydro_to_stage_schedule(caudal_res105)
+        if self._stage_parser is not None:
+            # Manual years (QRiego105Anual) keyed by the plpeta year.
+            res105_values = self._stage_monthly_values(
+                [float(v) for v in caudal_res105],
+                "caudal_res105_manual",
+                "n_agnos_res105_manual",
+            )
+        else:
+            res105_values = self._hydro_to_stage_schedule(caudal_res105)
         # `discharge` aliases `target` (OptTBRealFieldSched / 2D) —
         # emit scalar or 2D so the C++ JSON parser variant matches.
         res105_discharge = self._to_tb_sched(res105_values)
@@ -576,6 +611,7 @@ class MauleAgreement(_RightsAgreementBase):
             "qdrah_fmax": 2.0 * float(riego_max),
             "qdef_riego": None if qdef is None else self._to_tb_sched(qdef),
             "canelon_anchored": canelon_anchored,
+            "cota_425": self._cota_425_context(),
             # Costs / penalties
             "penalizador_1": cfg.get("penalizador_1", 1500),
             "costo_riego_ns_maule": cfg.get("costo_riego_ns_maule", 1000),

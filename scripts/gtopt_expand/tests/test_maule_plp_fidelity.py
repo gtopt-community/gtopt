@@ -279,3 +279,69 @@ class TestRightsLedgers:
         ]
         assert men["eini"] == pytest.approx(25.0 * 720 * 0.0036 - 10.0)
         assert men["reset_monthly"] is True
+
+
+# ---------------------------------------------------------------------------
+# Item 8 — manual years (PRiegoMauleAnual / QRiego105Anual)
+# ---------------------------------------------------------------------------
+
+
+class TestManualYears:
+    """genpdmaule.f:1679-1736: NYear manual rows override the default
+    monthly arrays for the first NYear plpeta years."""
+
+    def test_manual_rows_apply_to_their_year_only(self):
+        manual_pct = [40, 20, 0, 0, 0, 30, 70, 80, 70, 65, 63, 47]
+        manual_105 = [80, 40, 40, 40, 40, 60, 140, 160, 140, 130, 110, 80]
+        stages = _Stages(
+            [
+                {"number": 1, "month": 1, "year": 1, "duration": 744.0},
+                {"number": 2, "month": 1, "year": 2, "duration": 744.0},
+            ]
+        )
+        agreement = MauleAgreement(
+            _cfg(
+                n_agnos_pct_manual=1,
+                pct_riego_manual=[manual_pct],
+                n_agnos_res105_manual=1,
+                caudal_res105_manual=[manual_105],
+            ),
+            stage_parser=stages,
+        )
+        frs = _by_name(agreement.flow_rights)
+        # January = hydro month 10: manual 65 % (year 1), default 100 %.
+        assert frs["maule_gasto_normal_riego"]["fmax"] == [[130.0], [200.0]]
+        # Res 105 January: manual 130 (year 1), default 200 (year 2).
+        assert frs["maule_resolucion_105"]["fmax"] == [[130.0], [200.0]]
+
+
+class TestCota425:
+    """genpdmaule.f:1052-1063: the IExtr425 COLBUN extraction is open
+    (ExtrMax) only while V_COLBUN >= Vol425."""
+
+    def test_rule_emitted_with_resolved_waterway(self, tmp_path):
+        agreement = MauleAgreement(
+            _cfg(
+                v_cota_425=1047.9,
+                idx_extrac_colbun_425=2,
+                extraction_ref_425="COLBUN_extrac_1_28_26",
+                qmax_425=50.0,
+            )
+        )
+        fr = _by_name(agreement.flow_rights)["maule_cota_425"]
+        assert fr["bound_rule"]["reservoir"] == "COLBUN"
+        seg = fr["bound_rule"]["segments"]
+        assert seg[0]["constant"] == 0
+        assert seg[1]["volume"] == pytest.approx(1047.9)
+        assert seg[1]["constant"] == pytest.approx(50.0)
+        text = _pampl(agreement, tmp_path)
+        assert (
+            "waterway('COLBUN_extrac_1_28_26').flow <="
+            " flow_right('maule_cota_425').flow"
+        ) in text
+
+    def test_unresolved_waterway_warns(self, caplog):
+        with caplog.at_level("WARNING"):
+            agreement = MauleAgreement(_cfg(v_cota_425=1047.9))
+        assert "maule_cota_425" not in _by_name(agreement.flow_rights)
+        assert "Cota 425" in caplog.text

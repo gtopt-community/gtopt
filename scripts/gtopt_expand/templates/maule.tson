@@ -535,6 +535,26 @@
     {# Pre-computed in maule_writer._compute_district_entities()     #}
     {# because fmax depends on the irrigation schedule.              #}
     {# ============================================================= #}
+    {% if cota_425 is not none %}
+    ,{
+      "name": "maule_cota_425",
+      {# PLP Cota 425 (FijaMaule, genpdmaule.f:1052-1063): the
+         IExtr425-th COLBUN extraction may run (up to ExtrMax) only while
+         the COLBUN volume is >= Vol425; tied to the physical waterway by
+         the maule_cota_425_anclaje row. #}
+      "purpose": "carrier",
+      "direction": -1,
+      "fmax": {{ cota_425.qmax }},
+      "bound_rule": {
+        "reservoir": {{ res_colbun }},
+        "segments": [
+          {"volume": 0, "slope": 0, "constant": 0},
+          {"volume": {{ cota_425.volume }}, "slope": 0, "constant": {{ cota_425.qmax }}}
+        ]
+      }
+    }
+    {% endif %}
+
     {% for fr in district_flow_rights %}
     ,{{ fr }}
     {% endfor %}

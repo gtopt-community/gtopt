@@ -191,10 +191,13 @@ class MauleParser(BaseParser):
         self._config["n_agnos_pct_manual"] = self._parse_int(lines[idx])
         idx = self._next_idx(idx, lines)
 
-        # Porcentajes manuales (12 values)
-        parts = lines[idx].split()
-        self._config["pct_riego_manual"] = [float(v) for v in parts[:12]]
-        idx = self._next_idx(idx, lines)
+        # Porcentajes manuales: NYear rows of 12 values (genpdmaule.f
+        # reads exactly NYear rows — one per plpeta.dat year).
+        rows: List[List[float]] = []
+        for _ in range(self._config["n_agnos_pct_manual"]):
+            rows.append([float(v) for v in lines[idx].split()[:12]])
+            idx = self._next_idx(idx, lines)
+        self._config["pct_riego_manual"] = rows
 
         # Ano modulacion automatica (0 = desactivado)
         self._config["ano_mod_auto"] = self._parse_int(lines[idx])
@@ -239,10 +242,12 @@ class MauleParser(BaseParser):
         self._config["n_agnos_res105_manual"] = self._parse_int(lines[idx])
         idx = self._next_idx(idx, lines)
 
-        # Caud Res 105 manuales (12 values)
-        parts = lines[idx].split()
-        self._config["caudal_res105_manual"] = [float(v) for v in parts[:12]]
-        idx = self._next_idx(idx, lines)
+        # Caud Res 105 manuales: NYear rows of 12 values.
+        rows_105: List[List[float]] = []
+        for _ in range(self._config["n_agnos_res105_manual"]):
+            rows_105.append([float(v) for v in lines[idx].split()[:12]])
+            idx = self._next_idx(idx, lines)
+        self._config["caudal_res105_manual"] = rows_105
 
         # --- Withdrawal districts ---
         num_retiros = self._parse_int(lines[idx])

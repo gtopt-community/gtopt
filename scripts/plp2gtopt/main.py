@@ -693,6 +693,7 @@ def build_options(args: argparse.Namespace) -> dict[str, Any]:
         opts["flow_right_fail_cost"] = args.flow_right_fail_cost
     opts["expand_water_rights"] = args.expand_water_rights
     opts["irrigation_couplings"] = getattr(args, "irrigation_couplings", True)
+    opts["pin_agreement_costs"] = getattr(args, "pin_agreement_costs", True)
     opts["expand_lng"] = args.expand_lng
     opts["expand_ror"] = args.expand_ror
     ps_files = getattr(args, "pumped_storage_files", None)

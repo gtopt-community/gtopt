@@ -148,17 +148,6 @@ constraint laja_ledger_anticipado "Ledger: anticipado counter fills with qga":
 # ---------------------------------------------------------------------------
 {% if not (enable_attribution_cap | default(true)) %}
 {# Attribution cap disabled (enable_attribution_cap: false). #}
-{% elif use_seepage_cap | default(false) %}
-{# VOLUME-DEPENDENT cap: PLP evaluates qdefm with the CURRENT
-   filtration estimate; since qf is common to both min() branches the
-   cap linearizes exactly as `rights + qf <= K(t)` with qf the
-   ReservoirSeepage element's own LP flow (a PHYSICAL element of the
-   base topology, referenced directly — never duplicated) and K(t)
-   the per-stage carrier value min(QP - QHoya, QFiltHist) + R,
-   floored at the element's maximum flow for out-of-season
-   feasibility (see _qdefm_k_value). #}
-constraint laja_retiro_maximo "Attribution cap: riego-side charging + seepage <= K(t)":
-  flow_right('laja_der_riego').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow + seepage('{{ seepage_ref }}').flow <= flow_right('laja_qdefm').flow;
 {% elif use_qdefm_carrier | default(false) %}
 {# NETTED cap (static filtration): the laja_qdefm carrier holds PLP's
    per-stage net requirement (GetQsLajaM) — primary demand minus

@@ -151,7 +151,8 @@ class TestMauleParser:
 
     def test_pct_riego_manual(self, maule_config):
         pct = maule_config["pct_riego_manual"]
-        assert len(pct) == 12
+        assert len(pct) == maule_config["n_agnos_pct_manual"]
+        assert all(len(row) == 12 for row in pct)
 
     def test_auto_modulation(self, maule_config):
         assert "ano_mod_auto" in maule_config
@@ -168,7 +169,8 @@ class TestMauleParser:
 
     def test_caudal_res105_manual(self, maule_config):
         res105m = maule_config["caudal_res105_manual"]
-        assert len(res105m) == 12
+        assert len(res105m) == maule_config["n_agnos_res105_manual"]
+        assert all(len(row) == 12 for row in res105m)
 
     def test_econ_invernada_flags(self, maule_config):
         assert isinstance(maule_config["econ_inver_uso_reserva"], bool)

@@ -1011,6 +1011,9 @@ class HydroMixin:
         from gtopt_expand.laja_agreement import LajaAgreement  # noqa: PLC0415
 
         cfg = dict(cfg)
+        cfg.setdefault(
+            "pin_plp_costs", bool(self._wr_options().get("pin_agreement_costs", True))
+        )
         couplings = self._irrigation_couplings_enabled(cfg)
         # PLP anchors the Laja partition to El Toro's generation flow
         # only (no vertimiento term — genpdlajam.f:70-76).
@@ -1171,6 +1174,18 @@ class HydroMixin:
             if str(entity.get("reservoir", "")) == central_inv:
                 cfg["seepage_ref_invernada"] = str(entity.get("name", ""))
                 break
+        # Cota 425: the IExtr425-th COLBUN extraction waterway
+        # (``{COLBUN}_extrac_{IExtr425-1}_*``, plpextrac order).
+        idx_425 = int(cfg.get("idx_extrac_colbun_425", 0) or 0)
+        if idx_425 > 0:
+            prefix = f"{cfg.get('central_colbun', '')}_extrac_{idx_425 - 1}_"
+            for ww in self.planning["system"].get("waterway_array", []):
+                if str(ww.get("name", "")).startswith(prefix):
+                    cfg["extraction_ref_425"] = str(ww["name"])
+                    fmax = ww.get("fmax")
+                    if isinstance(fmax, (int, float)):
+                        cfg["qmax_425"] = float(fmax)
+                    break
         basins = [str(n) for n in cfg.get("intermediate_basins", [])]
         resolved = {n: self._flow_element_name(n) for n in basins}
         refs = [r for r in resolved.values() if r is not None]

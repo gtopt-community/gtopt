@@ -465,8 +465,12 @@
         "segments": {{ mixed_segments }},
         "cap": {{ max_mixed }}
       }
-    },
-
+    }
+    {# Economy accumulators exist only in the 1958 convenio mode
+       (PLP genpdlaja.f).  The 2017 plplajam model (genpdlajam.f) has
+       none, so they are emitted only for convenio_mode = "1958". #}
+    {% if convenio_1958 %}
+    ,
     {# ============================================================= #}
     {# VolumeRight: laja_vol_econ_endesa (PLP: IVESF)                #}
     {#                                                               #}
@@ -540,6 +544,7 @@
       "saving_rate": {{ saving_rate_econ }},
       "use_state_variable": true
     }
+    {% endif %}
   ],
 
   "user_constraint_array": [

@@ -119,6 +119,13 @@ class _MockWaterValueResolver:
 # ---------------------------------------------------------------------------
 # Minimal config builders
 # ---------------------------------------------------------------------------
+def _unpinned(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Opt out of the PLP cost pin so the resolver may override."""
+    cfg = dict(cfg)
+    cfg["pin_plp_costs"] = False
+    return cfg
+
+
 def _minimal_laja_config() -> dict[str, Any]:
     """Mirror ``test_round_trip._minimal_laja_config`` so the assertions
     are reproducible across PRs.  Kept here (not imported) so changes to
@@ -271,7 +278,7 @@ def test_laja_with_resolver_active_overrides_costs():
     penalties live on the retiro deficits only), so the override is
     observable on the district FlowRights.
     """
-    cfg = _minimal_laja_config()
+    cfg = _unpinned(_minimal_laja_config())
     resolver = _MockWaterValueResolver(
         is_active=True,
         water_fail_cost=1100.0,
@@ -285,6 +292,20 @@ def test_laja_with_resolver_active_overrides_costs():
     # The rights flows themselves never carry an NS cost.
     for name in ("laja_der_riego", "laja_der_electrico", "laja_gasto_anticipado"):
         assert "fcost" not in _flow_right(agreement, name)
+
+
+def test_laja_pinned_costs_ignore_active_resolver():
+    """Default pin: the PLP deficit costs (cost_irr_ns x factor) survive
+    an active resolver — agreement economics are not water values."""
+    cfg = _minimal_laja_config()
+    resolver = _MockWaterValueResolver(
+        is_active=True,
+        water_fail_cost=1100.0,
+        centrals={"TEST_CENTRAL": (10, 0.7)},
+    )
+    agreement = LajaAgreement(cfg, water_value_resolver=resolver)
+    fr_d1 = _flow_right(agreement, "D1_1o_reg")
+    assert _scalar_from_sched(fr_d1["fcost"]) == cfg["cost_irr_ns"]
 
 
 def test_laja_without_resolver_preserves_legacy_costs():
@@ -313,7 +334,7 @@ def test_laja_resolver_inactive_preserves_legacy_costs():
 
 def test_laja_district_per_central_cascade():
     """District with ``injection`` set → resolver uses that cascade."""
-    cfg = _minimal_laja_config()
+    cfg = _unpinned(_minimal_laja_config())
     # D2 has injection='INJECTION_CENTRAL', a different cascade pf.
     resolver = _MockWaterValueResolver(
         is_active=True,
@@ -339,7 +360,7 @@ def test_laja_district_per_central_cascade():
 
 def test_laja_district_unknown_injection_falls_back():
     """Active resolver but unknown injection → legacy factor scaling."""
-    cfg = _minimal_laja_config()
+    cfg = _unpinned(_minimal_laja_config())
     # Resolver only knows TEST_CENTRAL, NOT 'INJECTION_CENTRAL', so D2
     # should fall back to ``cost_irr_ns * cost_factor`` (itself
     # auto-derived from TEST_CENTRAL).
@@ -403,7 +424,7 @@ def test_from_json_threads_resolver(tmp_path):
     """
     import json
 
-    cfg = _minimal_laja_config()
+    cfg = _unpinned(_minimal_laja_config())
     json_path = tmp_path / "laja.json"
     with open(json_path, "w", encoding="utf-8") as fh:
         json.dump(cfg, fh)

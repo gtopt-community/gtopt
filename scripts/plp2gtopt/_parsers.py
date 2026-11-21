@@ -1717,6 +1717,20 @@ def add_general_arguments(
         ),
     )
     parser.add_argument(
+        "--pin-agreement-costs",
+        dest="pin_agreement_costs",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "keep the Laja/Maule agreement costs at their PLP values "
+            "(plplajam.dat / plpmaulen.dat: irrigation deficit and "
+            "non-served costs, per-district factors).  "
+            "--no-pin-agreement-costs lets the --auto-water-fail-cost "
+            "resolver replace them with cascade-derived values "
+            "(default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
         "--expand-lng",
         dest="expand_lng",
         action=argparse.BooleanOptionalAction,

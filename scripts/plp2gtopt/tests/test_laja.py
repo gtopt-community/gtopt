@@ -449,9 +449,8 @@ class TestLajaWriter:
         assert len(writer.user_constraints) == 1  # laja_partition balance
         # 5 partition + district withdrawal FlowRights
         assert len(writer.flow_rights) >= 5
-        assert (
-            len(writer.volume_rights) == 7
-        )  # irr, elec, mixed, anticipated + 3 economy
+        # irr, elec, mixed, anticipated (no economies: 2017 convenio)
+        assert len(writer.volume_rights) == 4
 
     def test_partition_user_constraint(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -818,37 +817,12 @@ class TestLajaWriter:
             if fr["name"].startswith("RieTucapel_"):
                 assert "junction_a" not in fr
 
-    def test_seepage_aware_cap(self, laja_config, tmp_path):
-        """With a ReservoirSeepage reference the cap becomes the exact
-        linearization `rights + seepage.flow <= K(t)`: the carrier
-        holds K(t) = min(QP − QHoya, QFiltHist) + R floored at the
-        element's max flow, and the row references the seepage element
-        directly."""
-        from gtopt_expand.laja_agreement import _qdefm_k_value
-
-        # Pure arithmetic: December (QP=90, hoya=60, R=56.5):
-        # K = min(30, 47) + 56.5 = 86.5 (> qf_ub floor 50).
-        assert _qdefm_k_value(
-            qp=90.0,
-            qn=53.0,
-            qe=0.0,
-            qs=3.5,
-            q_hoya=60.0,
-            qfilt_hist=47.0,
-            qf_ub=50.0,
-        ) == pytest.approx(86.5)
-        # Off-season (QP=0, R=0): K negative -> floored at qf_ub so
-        # the row stays feasible (rights forced towards 0 once the
-        # seepage flow approaches its maximum).
-        assert _qdefm_k_value(
-            qp=0.0,
-            qn=0.0,
-            qe=0.0,
-            qs=0.0,
-            q_hoya=60.0,
-            qfilt_hist=47.0,
-            qf_ub=50.0,
-        ) == pytest.approx(50.0)
+    def test_cap_has_no_seepage_term(self, laja_config, tmp_path):
+        """PLP's cap is numeric: `qdrh + qdmh + qgah <= qdefm`
+        (genpdlajam.f:290-296, qdefm from the static FiltVals).  Even
+        with a ReservoirSeepage reference the row must NOT carry the
+        volume-dependent seepage flow — `rights + qf(V) <= K` makes
+        the ELTORO water value negative when the cap binds."""
 
         class _Stages:
             def get_all(self):
@@ -862,14 +836,16 @@ class TestLajaWriter:
         carrier = next(fr for fr in writer.flow_rights if fr["name"] == "laja_qdefm")
         fmax = carrier["fmax"]
         first = fmax[0][0] if isinstance(fmax, list) else fmax
-        assert first == pytest.approx(86.5)
+        # Static-filtration qdefm: never floored at the seepage maximum
+        # (the former K'(t) form returned >= seepage_flow_ub = 50).
+        assert 0.0 <= first < 50.0
 
         writer.generate_pampl(tmp_path)
         text = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
-        assert (
-            "+ seepage('ELTORO_seepage_2').flow"
-            " <= flow_right('laja_qdefm').flow;" in text
-        )
+        cap = text[text.index("constraint laja_retiro_maximo") :]
+        cap = cap[: cap.index(";")]
+        assert "seepage(" not in cap
+        assert "<= flow_right('laja_qdefm').flow" in cap
 
     def test_feature_toggles_disable_couplings(self, laja_config, tmp_path):
         """The enable_* keys revert each coupling to the legacy shape."""
@@ -1053,9 +1029,21 @@ class TestLajaWriter:
         )
         assert total["fmax"] == pytest.approx(5582.0)
 
-    def test_economy_accumulators(self, laja_config):
-        """Economy VolumeRights (IVESF, IVERF, IVAPF) are emitted."""
+    def test_no_economies_in_2017_mode(self, laja_config):
+        """plplajam (2017, genpdlajam.f) has no economy ledgers."""
         writer = LajaWriter(laja_config)
+        names = {vr["name"] for vr in writer.volume_rights}
+        assert not names & {
+            "laja_vol_econ_endesa",
+            "laja_vol_econ_reserva",
+            "laja_vol_econ_polcura",
+        }
+
+    def test_economy_accumulators(self, laja_config):
+        """Economy VolumeRights (IVESF, IVERF, IVAPF) only in 1958 mode."""
+        cfg = dict(laja_config)
+        cfg["convenio_mode"] = "1958"
+        writer = LajaWriter(cfg)
         econ_names = {
             "laja_vol_econ_endesa",
             "laja_vol_econ_reserva",
@@ -1257,7 +1245,7 @@ class TestLajaWriterMinimalConfig:
         cfg = _minimal_laja_config()
         writer = LajaWriter(cfg)
         assert len(writer.flow_rights) >= 5
-        assert len(writer.volume_rights) == 7  # 4 rights + 3 economy
+        assert len(writer.volume_rights) == 4  # 4 rights (2017: no economy)
         assert len(writer.user_constraints) == 1
 
     def test_minimal_district_target(self):
@@ -1344,3 +1332,57 @@ class TestLajaPamplGeneration:
         result = writer.to_json_dict()
         assert "user_constraint_array" in result
         assert "user_constraint_file" not in result
+
+
+class TestLajaPlpFidelity:
+    """Items 6-8 of the PLP-fidelity review (plplajam / genpdlajam.f)."""
+
+    class _Stages:
+        def get_all(self):
+            return [
+                {"number": 1, "month": 12, "year": 1},
+                {"number": 2, "month": 12, "year": 1},
+            ]
+
+    def test_manual_withdrawals_override_stage_demand(self):
+        """PLP NumRetiros: the listed stage's QPRiego is replaced."""
+        cfg = _minimal_laja_config()
+        cfg["manual_withdrawals"] = [
+            {
+                "stage": 2,
+                "q_1o_reg": 20.0,
+                "q_2o_reg": 0.0,
+                "q_emergencia": 0.0,
+                "q_saltos": 0.0,
+            }
+        ]
+        cfg["enable_netted_targets"] = False
+        writer = LajaWriter(cfg, stage_parser=self._Stages())
+        d1 = next(fr for fr in writer.flow_rights if fr["name"] == "D1_1o_reg")
+        assert d1["target"] == [[50.0], [20.0]]
+
+    def test_forced_flows_warn_loudly(self, caplog):
+        cfg = _minimal_laja_config()
+        cfg["forced_flows"] = [{"stage": 1, "flow": 30.0}]
+        with caplog.at_level("WARNING"):
+            LajaWriter(cfg)
+        assert "NumCaudalToro" in caplog.text
+
+    def test_ini_econ_dropped_warns_in_2017_mode(self, caplog):
+        cfg = _minimal_laja_config()
+        cfg["ini_econ_endesa"] = 12.0
+        with caplog.at_level("WARNING"):
+            writer = LajaWriter(cfg)
+        assert "DROPPED" in caplog.text
+        assert all("econ" not in vr["name"] for vr in writer.volume_rights)
+
+    def test_plp_deficit_costs_pinned(self):
+        """cost_irr_ns x district factor survives without opt-out."""
+        cfg = _minimal_laja_config()
+        cfg["cost_irr_ns"] = 1100.0
+        cfg["districts"][0]["cost_factor"] = 0.2  # Saltos-like
+        writer = LajaWriter(cfg)
+        d1 = next(fr for fr in writer.flow_rights if fr["name"] == "D1_1o_reg")
+        fcost = d1["fcost"]
+        first = fcost[0][0] if isinstance(fcost, list) else fcost
+        assert first == pytest.approx(220.0)
