@@ -131,6 +131,37 @@ _OP_RE = re.compile(r"\s(<=|>=|=)\s(\S+)\s*$")
 # ---------------------------------------------------------------------------
 
 
+def _feasible_cycle_eini(name: str, eini: float, item: dict[str, Any]) -> float:
+    """Clip a daily-cycle battery's ``eini`` into every stage's bounds.
+
+    gtopt closes each daily-cycle stage with ``efin == eini`` and chains the
+    stages, so the level at every stage boundary equals ``eini``: it must
+    lie within each stage's ``[emin, emax]`` at its first and last block.
+    A unit that retires (or is mothballed) mid-horizon has ``emax = 0`` in
+    those stages, which made the LP infeasible (the ``storage_close`` row of
+    the first zero-capacity stage)."""
+    emax = item.get("emax")
+    emin = item.get("emin")
+    hi = eini
+    lo = 0.0
+    if isinstance(emax, list) and emax:
+        hi = min(min(float(r[0]), float(r[-1])) for r in emax)
+    if isinstance(emin, list) and emin:
+        lo = max(max(float(r[0]), float(r[-1])) for r in emin)
+    clipped = float(min(max(eini, lo), max(hi, lo)))
+    if abs(clipped - eini) > 1e-9:
+        logger.warning(
+            "battery %s: eini %.6g outside the stage-boundary range [%.6g, %.6g]"
+            " of its daily cycle (retirement / zero-capacity stages); using %.6g",
+            name,
+            eini,
+            lo,
+            hi,
+            clipped,
+        )
+    return clipped
+
+
 def month_starts(first_fy: int, years: int) -> list[date]:
     """First day of every month of FY ``first_fy`` (ending June) onwards."""
     out: list[date] = []
@@ -914,7 +945,7 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
         for f in _BATTERY_TB_FIELDS:
             item[f] = [[round(float(v), 6) for v in row] for row in bat_tb[(name, f)]]
         if b["_first"] == 0 and b["_eini"] is not None:
-            item["eini"] = b["_eini"]
+            item["eini"] = _feasible_cycle_eini(name, b["_eini"], item)
         item["daily_cycle"] = True
         battery_array.append(item)
     for item in battery_candidates:

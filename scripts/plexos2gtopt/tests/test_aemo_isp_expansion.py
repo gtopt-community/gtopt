@@ -472,3 +472,16 @@ def test_reservoir_terminal_rule_and_fill_year(xcase: tuple[Path, Path]) -> None
     tur = case.planning["system"]["turbine_array"]
     assert [t["generator"] for t in tur] == ["HYD_NEW"]
     assert st["hydro_added_later_turbine_array"] == 1
+
+
+def test_feasible_cycle_eini_clips_retiring_battery(caplog):
+    from plexos2gtopt.aemo_isp_expansion import (  # pylint: disable=import-outside-toplevel
+        _feasible_cycle_eini,
+    )
+
+    item = {"emax": [[8.9] * 24, [8.9] * 24, [0.0] * 24], "emin": [[0.0] * 24] * 3}
+    assert _feasible_cycle_eini("B", 4.46, item) == 0.0
+    assert "outside the stage-boundary range" in caplog.text
+    ok = {"emax": [[8.9] * 24] * 2, "emin": [[1.0] * 24] * 2}
+    assert _feasible_cycle_eini("B", 4.46, ok) == 4.46
+    assert _feasible_cycle_eini("B", 0.5, ok) == 1.0
