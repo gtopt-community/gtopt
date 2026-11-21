@@ -38,6 +38,12 @@ with **monthly stages** on top of the weekly dispatch converter
   ``--fill-years N`` (CLI default 1) appends N unreported FYs to damp the
   end effect, e.g. FY31 for an FY28-FY30 study; the stats record
   ``report_years`` / ``fill_years``.
+* Network augmentations (REZ transmission, DNSP and system-strength
+  options) are expansion **decision variables** here: the weekly
+  converter's ``--odp-augmentations`` (which fixes the builds of an ISP
+  development path from the outlook workbook) is never applied to the
+  expansion case.  Pumped-storage units of the weekly hydro model (pump
+  waterway + Pump + pump-load Demand) are carried over unchanged.
 * Existing fleet: every month is converted with the weekly converter on
   a window = the whole month, so commissioning, retirements (dated
   ``Units``), dated line limits (CDP network), fuel prices and traces
@@ -666,15 +672,27 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
         if m == 0:
             buses = system["bus_array"]
             hydro = {
-                k: system.get(k, [])
+                k: list(system.get(k, []))
                 for k in (
                     "junction_array",
                     "reservoir_array",
                     "waterway_array",
                     "turbine_array",
                     "flow_array",
+                    "pump_array",
                 )
             }
+        else:
+            # hydro topology is the union over the months: units
+            # commissioned later (e.g. Snowy 2.0 turbines and pumps) must
+            # keep their water coupling; before commissioning their
+            # generator / pump-load capacity is 0 in the schedules
+            for k, elems in hydro.items():
+                known = {e["name"] for e in elems}
+                for e in system.get(k, []):
+                    if e["name"] not in known:
+                        elems.append({**e, "uid": len(elems) + 1})
+                        stats[f"hydro_added_later_{k}"] += 1
         for k, v in wk.stats.get("constraint_groups", {}).items():
             for r, n in v.items():
                 groups[k][r] += n
@@ -704,8 +722,14 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
             if name not in dems:
                 dems[name] = {k: v for k, v in d.items() if k not in ("uid",)}
                 dem_lmax[name] = np.zeros((n_st, 24))
+            arr = ws.get(("Demand", "lmax"), {}).get(d["uid"])
+            if arr is None:
+                # demand without a trace (pump load: capacity only) —
+                # its capacity as a flat lmax for this month, 0 in the
+                # months where it does not exist yet
+                arr = np.full(nd * 24, float(d.get("capacity", 0.0)))
             for k, mk in enumerate(masks):
-                dem_lmax[name][s0 + k] = rep_mean(ws[("Demand", "lmax")][d["uid"]], mk)
+                dem_lmax[name][s0 + k] = rep_mean(arr, mk)
         for ln in system["line_array"]:
             name = ln["name"]
             if name not in lines:

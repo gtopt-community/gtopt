@@ -140,6 +140,14 @@ def _xcase(tmp_path: Path) -> tuple[Path, Path]:
     x.data("Storage", dam, "Max Volume", 5000)
     x.data("Storage", dam, "Initial Volume", 2000)
     x.data("Storage", dam, "End Effects Method", 1)
+    # hydro unit on the dam commissioned mid-year: its turbine must exist
+    hyd = x.cobj("Generator", "HYD_NEW", "Hydro NSW")
+    x.member("Generator", "Node", "Nodes", hyd, nth)
+    x.member("Generator", "Storage", "Head Storage", hyd, dam)
+    x.data("Generator", hyd, "Units", 0)
+    x.data("Generator", hyd, "Units", 1, date_from="2028-01-01T00:00:00")
+    x.data("Generator", hyd, "Max Capacity", 40)
+    x.data("Generator", hyd, "Efficiency Incr", 2.0)
 
     xml = tmp_path / "model" / "ISP X Model.xml"
     xml.parent.mkdir(parents=True)
@@ -461,3 +469,6 @@ def test_reservoir_terminal_rule_and_fill_year(xcase: tuple[Path, Path]) -> None
     assert st["report_years"] == 1 and st["fill_years"] == 1 and st["years"] == 2
     assert len(case.planning["simulation"]["stage_array"]) == 24
     assert st["reservoirs_cycled"] == 1 and st["reservoirs_free_terminal"] == 1
+    tur = case.planning["system"]["turbine_array"]
+    assert [t["generator"] for t in tur] == ["HYD_NEW"]
+    assert st["hydro_added_later_turbine_array"] == 1
