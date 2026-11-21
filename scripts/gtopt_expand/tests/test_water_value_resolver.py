@@ -30,7 +30,6 @@ from __future__ import annotations
 from typing import Any
 
 from gtopt_expand.laja_agreement import LajaAgreement
-from gtopt_expand.maule_agreement import MauleAgreement
 
 
 # ---------------------------------------------------------------------------
@@ -395,76 +394,6 @@ def test_laja_use_values_unchanged():
 
 # ---------------------------------------------------------------------------
 # Maule tests
-# ---------------------------------------------------------------------------
-def _find_user_constraint(agreement: Any, name: str) -> dict[str, Any]:
-    for uc in agreement.user_constraints:
-        if uc.get("name") == name:
-            return uc
-    raise AssertionError(
-        f"user_constraint {name!r} not found in {agreement.user_constraints!r}"
-    )
-
-
-def test_maule_with_resolver_overrides_penalty_invernada():
-    """Active resolver → ``penalty_invernada`` reflects cascade(invernada)."""
-    cfg = _minimal_maule_config()
-    resolver = _MockWaterValueResolver(
-        is_active=True,
-        water_fail_cost=1100.0,
-        centrals={"CIPRESES": (42, 0.45)},
-    )
-    agreement = MauleAgreement(cfg, water_value_resolver=resolver)
-
-    # ``penalty_invernada`` = ``efin_cost(0.45) / 1e6``
-    #                      = ANCHOR × pf × 1e6 / 3600 / 1e6
-    #                      = ANCHOR × pf / 3600
-    expected = 1100.0 * 0.45 / 3600.0
-    uc = _find_user_constraint(agreement, "invernada_balance")
-    assert uc.get("penalty") == expected
-
-
-def test_maule_without_resolver_preserves_hydro_fail_cost_default():
-    """No resolver → ``penalty_invernada`` falls back to the legacy default.
-
-    With neither ``penalty_invernada`` nor ``hydro_fail_cost`` in the
-    config the agreement uses its built-in 10.0 default.
-    """
-    cfg = _minimal_maule_config()
-    agreement = MauleAgreement(cfg)  # resolver=None
-    uc = _find_user_constraint(agreement, "invernada_balance")
-    assert uc.get("penalty") == 10.0
-
-
-def test_maule_resolver_inactive_preserves_hydro_fail_cost():
-    """Resolver provided but inactive → legacy ``hydro_fail_cost`` honored."""
-    cfg = _minimal_maule_config()
-    cfg["hydro_fail_cost"] = 25.0  # exercise the legacy fallback
-    resolver = _MockWaterValueResolver(
-        is_active=False,
-        water_fail_cost=1100.0,
-        centrals={"CIPRESES": (42, 0.45)},
-    )
-    agreement = MauleAgreement(cfg, water_value_resolver=resolver)
-    uc = _find_user_constraint(agreement, "invernada_balance")
-    assert uc.get("penalty") == 25.0
-
-
-def test_maule_resolver_unknown_invernada_falls_back():
-    """Active resolver but central_invernada not in the index → legacy path."""
-    cfg = _minimal_maule_config()
-    cfg["hydro_fail_cost"] = 12.5
-    resolver = _MockWaterValueResolver(
-        is_active=True,
-        water_fail_cost=1100.0,
-        centrals={"NOT_CIPRESES": (1, 0.1)},  # CIPRESES is missing
-    )
-    agreement = MauleAgreement(cfg, water_value_resolver=resolver)
-    uc = _find_user_constraint(agreement, "invernada_balance")
-    assert uc.get("penalty") == 12.5
-
-
-# ---------------------------------------------------------------------------
-# from_json plumbing
 # ---------------------------------------------------------------------------
 def test_from_json_threads_resolver(tmp_path):
     """``LajaAgreement.from_json`` accepts a resolver kwarg.

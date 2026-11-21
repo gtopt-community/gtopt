@@ -94,6 +94,23 @@ from gtopt_expand._base import hydro_month_name as _hydro_month_name
 
 _logger = logging.getLogger(__name__)
 
+# PLP HorasMesHid (plpmod.f:24) by calendar month, and FactTiempoH.
+_HOURS_PER_MONTH = {
+    1: 744.0,
+    2: 672.0,
+    3: 744.0,
+    4: 720.0,
+    5: 744.0,
+    6: 720.0,
+    7: 744.0,
+    8: 744.0,
+    9: 720.0,
+    10: 744.0,
+    11: 720.0,
+    12: 744.0,
+}
+_HM3_PER_M3S_H = 0.0036
+
 
 class MauleAgreement(_RightsAgreementBase):
     """Stage-2 transform: maule.json → FlowRight/VolumeRight/UserConstraint.
@@ -144,59 +161,6 @@ class MauleAgreement(_RightsAgreementBase):
             options=options,
             water_value_resolver=water_value_resolver,
         )
-
-    # ------------------------------------------------------ water-value helper
-    def _override_penalty_invernada(self, legacy_value: float) -> float:
-        """Return the (possibly auto-derived) ``penalty_invernada`` value.
-
-        ``penalty_invernada`` is in ``$/m³``.  When the resolver is
-        active and ``central_invernada`` is in its index, returns
-        ``resolver.efin_cost(cascade_pf) / 1e6`` — divides $/hm³ by
-        10⁶ m³/hm³ to get $/m³.  Equivalent to the canonical
-        ``ANCHOR × cascade_pf / 3600`` definition; we route through
-        :meth:`WaterValueResolver.efin_cost` for API consistency with
-        :class:`plp2gtopt.junction_writer.JunctionWriter` so any future
-        change to the resolver's helper composes through here too.
-
-        Falls through to ``legacy_value`` otherwise (no resolver, not
-        active, central_invernada missing from the resolver index, or
-        cascade_pf is zero).
-        """
-        resolver = self._water_value_resolver
-        if resolver is None or not resolver.is_active:
-            return legacy_value
-        central_name = self._cfg.get("central_invernada")
-        if not central_name:
-            return legacy_value
-        by_name = getattr(resolver, "_by_name", None) or {}
-        central = by_name.get(str(central_name))
-        if central is None:
-            _logger.info(
-                "auto-water-fail-cost: maule central_invernada %r not in"
-                " WaterValueResolver index; keeping legacy"
-                " penalty_invernada=%g.",
-                central_name,
-                legacy_value,
-            )
-            return legacy_value
-        try:
-            number = int(central.get("number", -1))
-        except (TypeError, ValueError):
-            return legacy_value
-        cascade_pf = resolver.cascade_lost_pf(number)
-        # ``efin_cost`` returns $/hm³; divide by 1e6 to get $/m³ (the
-        # unit ``penalty_invernada`` carries through to the LP as a
-        # ``hydro_flow``-class soft-constraint penalty).
-        new_value = float(resolver.efin_cost(cascade_pf)) / 1.0e6
-        _logger.info(
-            "auto-water-fail-cost: maule penalty_invernada = %g $/m³"
-            " (was %g, cascade_pf=%g at %s)",
-            new_value,
-            legacy_value,
-            cascade_pf,
-            central_name,
-        )
-        return new_value
 
     # ----------------------------------------------------------- variant
     def _machicura_model(self) -> str:
@@ -288,6 +252,225 @@ class MauleAgreement(_RightsAgreementBase):
         schedule = self._hydro_to_stage_schedule(monthly_flows)
         return self._to_tb_sched(schedule)
 
+    def _stage_monthly_values(
+        self,
+        default_hydro: list[float],
+        manual_key: str,
+        n_manual_key: str,
+    ) -> list[float]:
+        """Per-stage values of a hydro-month array with PLP manual years.
+
+        PLP keeps a ``(month, year)`` table initialised from the default
+        12-value array and overwritten, for the first ``NYear`` years, by
+        the manual rows of ``plpmaulen.dat`` (``PRiegoMauleAnual`` /
+        ``QRiego105Anual``, genpdmaule.f:1670-1736); stages look the
+        table up by their ``plpeta.dat`` year.  ``manual_key`` holds
+        either one 12-value row (legacy canonical JSON) or a list of
+        rows (one per manual year).  Without stage metadata the raw
+        hydro-month array is returned.
+        """
+        cfg = self._cfg
+        raw_manual = cfg.get(manual_key) or []
+        if raw_manual and not isinstance(raw_manual[0], (list, tuple)):
+            raw_manual = [raw_manual]
+        n_manual = min(int(cfg.get(n_manual_key, 0) or 0), len(raw_manual))
+        if self._stage_parser is None:
+            return [float(v) for v in default_hydro]
+        values: list[float] = []
+        for stage in self._get_stages():
+            hydro_idx = (int(stage.get("month", 1)) - 4) % 12
+            year = int(stage.get("year", 0) or 0)
+            row = raw_manual[year - 1] if 1 <= year <= n_manual else default_hydro
+            values.append(float(row[hydro_idx]))
+        return values
+
+    def _pct_riego_stage(self) -> list[float]:
+        """Per-stage irrigation percentage [%] (PRiegoMauleAnual)."""
+        return self._stage_monthly_values(
+            [float(v) for v in self._cfg["pct_riego_mensual"]],
+            "pct_riego_manual",
+            "n_agnos_pct_manual",
+        )
+
+    def _ledger_context(self) -> dict[str, Any]:
+        """Depletion-ledger values of the Maule rights counters.
+
+        PLP keeps the electric/irrigation spending as UP-counters
+        (``IVMGEMF/IVMGEAF/IVMGRTF = prev + dur·q`` capped by
+        ``IVMDEMT/IVMDEAT/IVMDRTT``, genpdmaule.f:269-351) and the
+        ``plpmaulen.dat`` initial values are amounts already USED.
+        gtopt models every counter as a REMAINING-rights depletion
+        ledger (``remaining = cap − used``): the balance row then reads
+        ``remaining_t = remaining_{t-1} − dur·q`` with ``remaining ≥ 0``,
+        whose dual (the value of one more hm³ of right) is ≥ 0.  An
+        up-counter ``used ≤ cap`` carries a ≤ 0 dual that the SDDP state
+        propagates as a NEGATIVE water value — the reason this form is
+        used.  Never pass the raw "used" value as ``eini``.
+
+        * monthly electric cap ``VDerElecMenMax = GastoElecMenMax ×
+          HorasMesHid × 0.0036`` [hm³] (genpdmaule.f:1643-1646) — a
+          per-stage ``emax``; ``GastoElecMenMax`` is a RATE [m³/s].
+        * ordinary-reserve rights (``IVMDOEF/IVMDORF`` minus
+          ``IVMGOEF/IVMGORF``): FijaMaule provisions ``PorcQNIDE/R ·
+          (V_util − VReservaExtraord)`` when entering the ordinary
+          regime with no rights (genpdmaule.f:802-810) and at every
+          January in that regime (:977-987); rights then accrue with
+          ``PorcQNIDE/R · QAflMaule`` (rows :300-307).
+        """
+        cfg = self._cfg
+        stages = self._get_stages() if self._stage_parser is not None else []
+        rate = float(cfg["gasto_elec_men_max"])
+        if stages:
+            men_caps = [
+                rate * _HOURS_PER_MONTH[int(st.get("month", 1))] * _HM3_PER_M3S_H
+                for st in stages
+            ]
+        else:
+            men_caps = [rate * 744.0 * _HM3_PER_M3S_H]
+        men_ini = max(men_caps[0] - float(cfg["v_gasto_elec_men_ini"]), 0.0)
+        anu_ini = max(
+            float(cfg["v_der_elect_anu_max"]) - float(cfg["v_gasto_elec_anu_ini"]),
+            0.0,
+        )
+        riego_ini = max(
+            float(cfg["v_der_riego_temp_max"]) - float(cfg["v_gasto_riego_ini"]),
+            0.0,
+        )
+
+        v_extraord = float(cfg["v_reserva_extraord"])
+        v_normal = v_extraord + float(cfg["v_reserva_ordinaria"])
+        v_util_min = float(cfg.get("v_util_min", 0.0))
+        p_elec = float(cfg["pct_elec_reserva"]) / 100.0
+        p_riego = float(cfg["pct_riego_reserva"]) / 100.0
+        der_e = float(cfg.get("v_der_rext_elec_ini", 0.0) or 0.0)
+        der_r = float(cfg.get("v_der_rext_riego_ini", 0.0) or 0.0)
+        used_e = float(cfg.get("v_gasto_rext_elec_ini", 0.0) or 0.0)
+        used_r = float(cfg.get("v_gasto_rext_riego_ini", 0.0) or 0.0)
+        v_ini = cfg.get("v_ini_maule")
+        if v_ini is not None:
+            v_util = float(v_ini) - v_util_min
+            if v_util >= v_normal:
+                # Normal regime: PLP zeroes the ordinary-reserve ledgers.
+                der_e = der_r = used_e = used_r = 0.0
+            elif der_e <= 0.0 and der_r <= 0.0:
+                reserva = max(v_util - v_extraord, 0.0)
+                der_e, der_r = p_elec * reserva, p_riego * reserva
+        res_ini_e = max(der_e - used_e, 0.0)
+        res_ini_r = max(der_r - used_r, 0.0)
+        # January provisioning rule on the absolute Maule volume V:
+        # p · (V − v_util_min − VReservaExtraord), 0 below the reserve.
+        v_base = v_util_min + v_extraord
+        cfg["ledger_res_ini_elec"] = res_ini_e
+        cfg["ledger_res_ini_riego"] = res_ini_r
+        return {
+            "men_emax": self._to_tb_sched(men_caps),
+            "men_ini": men_ini,
+            "anu_ini": anu_ini,
+            "riego_ini": riego_ini,
+            "res_ini_elec": res_ini_e,
+            "res_ini_riego": res_ini_r,
+            "res_emax_elec": p_elec * float(cfg["v_reserva_ordinaria"]),
+            "res_emax_riego": p_riego * float(cfg["v_reserva_ordinaria"]),
+            "res_rule_v_base": v_base,
+            "res_rule_v_normal": v_util_min + v_normal,
+            "p_elec": p_elec,
+            "p_riego": p_riego,
+        }
+
+    def _qdef_riego_stage(self) -> list[float] | None:
+        """Per-stage PLP ``QDefRiego = max(friego·GastoRiegoMax − QHoyaInter, 0)``.
+
+        GetQsMaule (genpdmaule.f:640-656).  ``None`` without stage
+        metadata or without the hoya-intermedia series.
+        """
+        cfg = self._cfg
+        q_hoya = cfg.get("q_hoya_inter_maule")
+        if self._stage_parser is None or q_hoya is None:
+            return None
+        pct = self._pct_riego_stage()
+        gmax = float(cfg["gasto_riego_max"])
+        return [
+            max(
+                pct[i] / 100.0 * gmax - (float(q_hoya[i]) if i < len(q_hoya) else 0.0),
+                0.0,
+            )
+            for i in range(len(pct))
+        ]
+
+    def _invernada_context(self) -> dict[str, Any]:
+        """Template values of the La Invernada level rule.
+
+        PLP (FijaMaule, genpdmaule.f:861-911; GetQsMaule :640-656)
+        classifies each stage: ``FInvernDesemb`` (deficit — no storing
+        allowed) when ``QDefRiego = max(QRiego − QHoyaInter, 0)`` exceeds
+        the Invernada filtration, or when ``QHoyaInter + QAflInvern`` is
+        below ``friego · GastoMauleMin``.  Deficit stages enable
+        ``qidn`` and close ``qisd``; the others do the opposite.  The
+        hard IQNINV / IQRNIN rows are emitted only for the deficit
+        stages and only when ``RelaxInvern`` is false (with it the PLP
+        row is deactivated, see the template).
+
+        The flow terms of the classification are the per-stage means of
+        the hydrologies (``q_hoya_inter_maule`` / ``q_afl_invernada``,
+        injected by plp2gtopt) and ``filtracion_invernada`` [m³/s] — the
+        same scenario-invariant approximation the Laja ``qdefm`` carrier
+        uses (gtopt FlowRight bounds have no scenario axis).
+        """
+        cfg = self._cfg
+        qmax = float(cfg.get("qmax_invernada", 200.0))
+        relax = bool(cfg.get("relax_invernada", cfg.get("flag_embalsa_1", True)))
+        level_rule = (not relax) and bool(cfg.get("inflow_ref_invernada"))
+        if not relax and not level_rule:
+            _logger.warning(
+                "maule: RelaxInvern = F but no natural-inflow Flow element"
+                " was resolved for central %r — the La Invernada level rule"
+                " (PLP IQNINV/IQRNIN) is NOT emitted.",
+                cfg.get("central_invernada"),
+            )
+        if level_rule and bool(cfg.get("flag_embalsa_2", False)):
+            _logger.warning(
+                "maule: NoDesembInv = T zeroes the qhein coefficient of"
+                " PLP IQRNIN only while the ordinary reserve is active"
+                " (a state-dependent switch); gtopt keeps the qhein term"
+                " (PLP default coefficient 1) in every deficit stage."
+            )
+        if not level_rule or self._stage_parser is None:
+            self._cfg["invernada_level_rule"] = level_rule
+            self._cfg.pop("invernada_deficit_stages", None)
+            return {
+                "qmax": qmax,
+                "level_rule": level_rule,
+                "fmax_deficit": qmax,
+                "fmax_sin_deficit": qmax,
+            }
+
+        pct = self._pct_riego_stage()
+        q_hoya = cfg.get("q_hoya_inter_maule") or []
+        q_afl = cfg.get("q_afl_invernada") or []
+        qfilt = float(cfg.get("filtracion_invernada", 0.0))
+        gmax = float(cfg["gasto_riego_max"])
+        gmin = float(cfg.get("caudal_min_embalsa", 0.0))
+        deficit_stages: list[int] = []
+        flags: list[bool] = []
+        for i, stage in enumerate(self._get_stages()):
+            friego = pct[i] / 100.0
+            qh = float(q_hoya[i]) if i < len(q_hoya) else 0.0
+            qa = float(q_afl[i]) if i < len(q_afl) else 0.0
+            desemb = max(friego * gmax - qh, 0.0) > qfilt
+            if not desemb:
+                desemb = (qh + qa) < friego * gmin
+            flags.append(desemb)
+            if desemb:
+                deficit_stages.append(int(stage.get("number", i + 1)))
+        self._cfg["invernada_level_rule"] = bool(deficit_stages)
+        self._cfg["invernada_deficit_stages"] = deficit_stages
+        return {
+            "qmax": qmax,
+            "level_rule": bool(deficit_stages),
+            "fmax_deficit": self._to_tb_sched([qmax if f else 0.0 for f in flags]),
+            "fmax_sin_deficit": self._to_tb_sched([0.0 if f else qmax for f in flags]),
+        }
+
     def _prepare_context(self) -> dict[str, Any]:
         """Prepare the template context with all pre-computed values.
 
@@ -344,41 +527,26 @@ class MauleAgreement(_RightsAgreementBase):
         costo_no_embalsar = cfg.get("costo_no_embalsar", 1000.0)
         costo_canelon = cfg.get("costo_canelon", 0.0)
 
-        # --- User constraint expressions ---
-        pct_elec = cfg["pct_elec_reserva"]
-        pct_riego_r = cfg["pct_riego_reserva"]
+        # --- Rights ledgers (remaining = cap - used) ---
+        ledgers = self._ledger_context()
 
-        expression_invernada = (
-            "flow_right('invernada_deficit').flow "
-            "+ flow_right('invernada_sin_deficit').flow "
-            "+ flow_right('invernada_caudal_natural').flow "
-            "= flow_right('invernada_embalsar').flow "
-            "+ flow_right('invernada_no_embalsar').flow"
-        )
-        description_invernada = "La Invernada winter balance: inflows equal outflows"
-
-        expression_pct_elec = (
-            f"flow_right('maule_gasto_ordinario_elec').flow <= "
-            f"{pct_elec / 100.0} * flow_right('maule_gasto_ordinario_elec').flow "
-            f"+ {pct_elec / 100.0} * flow_right('maule_gasto_ordinario_riego').flow"
-        )
-        description_pct_elec = (
-            f"Electric capped at {pct_elec}% of total ordinary reserve flow"
-        )
-
-        expression_pct_riego = (
-            f"flow_right('maule_gasto_ordinario_riego').flow <= "
-            f"{pct_riego_r / 100.0} * flow_right('maule_gasto_ordinario_elec').flow "
-            f"+ {pct_riego_r / 100.0} * flow_right('maule_gasto_ordinario_riego').flow"
-        )
-        description_pct_riego = (
-            f"Irrigation capped at {pct_riego_r}% of total ordinary reserve flow"
-        )
+        # --- La Invernada level rule (PLP IQNINV / IQRNIN) ---
+        invernada = self._invernada_context()
 
         # --- District entities (pre-computed) ---
         district_flow_rights, district_constraints = self._compute_district_entities(
-            irr_fmax_schedule
+            float(riego_max)
         )
+        qdef = self._qdef_riego_stage()
+        self._cfg["maule_qdef_riego"] = qdef is not None
+        canelon_anchored = bool(cfg.get("anchor_gen_ref_canelon"))
+        if float(cfg.get("costo_canelon", 0.0) or 0.0) > 0 and not canelon_anchored:
+            _logger.warning(
+                "maule: bocatoma %r has no generation waterway — its"
+                " CostoCanelon is dropped (an unanchored priced FlowRight"
+                " would be a phantom).",
+                cfg.get("bocatoma_canelon"),
+            )
 
         # --- Machicura variant parameters ---
         # These are always computed (cheap) so tests and debug dumps can
@@ -405,6 +573,9 @@ class MauleAgreement(_RightsAgreementBase):
             "irr_fmax_schedule": irr_fmax_schedule,
             "elec_ord_fmax": elec_ord_fmax,
             "res105_discharge": res105_discharge,
+            "qdrah_fmax": 2.0 * float(riego_max),
+            "qdef_riego": None if qdef is None else self._to_tb_sched(qdef),
+            "canelon_anchored": canelon_anchored,
             # Costs / penalties
             "penalizador_1": cfg.get("penalizador_1", 1500),
             "costo_riego_ns_maule": cfg.get("costo_riego_ns_maule", 1000),
@@ -415,36 +586,18 @@ class MauleAgreement(_RightsAgreementBase):
             "costo_no_embalsar": costo_no_embalsar,
             "costo_canelon": costo_canelon,
             # VolumeRight initial values and caps
-            "v_gasto_elec_men_ini": cfg["v_gasto_elec_men_ini"],
-            "gasto_elec_men_max": cfg["gasto_elec_men_max"],
-            "v_gasto_elec_anu_ini": cfg["v_gasto_elec_anu_ini"],
+            "ledger": ledgers,
             "v_der_elect_anu_max": cfg["v_der_elect_anu_max"],
-            "v_gasto_riego_ini": cfg["v_gasto_riego_ini"],
             "v_der_riego_temp_max": cfg["v_der_riego_temp_max"],
             "v_comp_elec_ini": cfg["v_comp_elec_ini"],
             "v_comp_elec_max": cfg["v_comp_elec_max"],
-            "v_gasto_rext_elec_ini": cfg.get("v_gasto_rext_elec_ini", 0.0),
-            "v_gasto_rext_riego_ini": cfg.get("v_gasto_rext_riego_ini", 0.0),
             # La Invernada
             "central_invernada": cfg["central_invernada"],
             "v_econ_inver_ini": cfg["v_econ_inver_ini"],
-            "qmax_invernada": cfg.get("qmax_invernada", 200),
-            # Soft-constraint penalty for the invernada_balance UserConstraint
-            # ($/m³).  Rendered as `penalty` with `penalty_class = "hydro_flow"`
-            # so the LP assembly converts it to $/(m³/s) per block via
-            # `× duration[h] × 3600`, mirroring FlowRight.fail_cost.  Defaults
-            # to the global `hydro_fail_cost` so the soft relaxation composes
-            # with element-level pricing without a separate tuning knob.
-            "penalty_invernada": self._override_penalty_invernada(
-                float(cfg.get("penalty_invernada", cfg.get("hydro_fail_cost", 10.0)))
-            ),
-            # UserConstraint expressions
-            "expression_invernada": expression_invernada,
-            "description_invernada": description_invernada,
-            "expression_pct_elec": expression_pct_elec,
-            "description_pct_elec": description_pct_elec,
-            "expression_pct_riego": expression_pct_riego,
-            "description_pct_riego": description_pct_riego,
+            "qmax_invernada": invernada["qmax"],
+            "invernada_level_rule": invernada["level_rule"],
+            "fmax_invernada_deficit": invernada["fmax_deficit"],
+            "fmax_invernada_sin_deficit": invernada["fmax_sin_deficit"],
             # District entities
             "district_flow_rights": district_flow_rights,
             "district_constraints": district_constraints,
@@ -458,7 +611,7 @@ class MauleAgreement(_RightsAgreementBase):
 
     def _compute_district_entities(
         self,
-        irr_fmax_schedule: float | list[list[float]],
+        district_fmax: float,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Pre-compute district FlowRight and UserConstraint entities.
 
@@ -469,9 +622,9 @@ class MauleAgreement(_RightsAgreementBase):
         district_flow_rights: list[dict[str, Any]] = []
         district_constraints: list[dict[str, Any]] = []
 
+        cost_ns = float(cfg.get("costo_riego_ns_res105", 1000.0))
         for district in cfg["districts"]:
             pct = district["percentage"]
-            constraint_op = "<=" if district["has_slack"] else "="
 
             # Transform district name: Rie prefix → retiro_ prefix
             raw_name = district["name"]
@@ -484,11 +637,9 @@ class MauleAgreement(_RightsAgreementBase):
                 "name": fr_name,
                 "purpose": "irrigation",
                 "direction": -1,
-                # `target` 0 with no fcost collapses to a plain
-                # [0, fmax] hard band (canonical key; the binding
-                # still accepts the legacy `discharge` alias).
-                "target": 0,
-                "fmax": irr_fmax_schedule,
+                # PLP qri has no upper bound (GenPDMauleEtaFO); the
+                # dist_* row ties it to qa105 <= QRiego105.
+                "fmax": district_fmax,
             }
             anchor_junction = district.get("anchor_junction")
             if anchor_junction and cfg.get("enable_physical_anchoring", True):
@@ -498,15 +649,31 @@ class MauleAgreement(_RightsAgreementBase):
                 fr_district["junction_a"] = anchor_junction
             district_flow_rights.append(fr_district)
 
+            # PLP "entregas de riego" (genpdmaule.f:431-440):
+            #   qri + qrhh = PRet · qa105     (qrhh only with slack,
+            #   priced CostoRiegoNS105)
+            lhs = f"flow_right('{fr_name}').flow"
+            if district["has_slack"]:
+                deficit_name = "deficit_" + fr_name.removeprefix("retiro_")
+                district_flow_rights.append(
+                    {
+                        "name": deficit_name,
+                        "purpose": "irrigation",
+                        "direction": -1,
+                        "target": 0,
+                        "fmax": district_fmax,
+                        "uvalue": -cost_ns,
+                    }
+                )
+                lhs += f" + flow_right('{deficit_name}').flow"
             district_constraints.append(
                 {
                     "name": f"dist_{fr_name}",
                     "expression": (
-                        f"flow_right('{fr_name}').flow "
-                        f"{constraint_op} "
-                        f"{pct / 100.0} * flow_right('maule_gasto_normal_riego').flow"
+                        f"{lhs} = {pct / 100.0} * "
+                        "flow_right('maule_resolucion_105').flow"
                     ),
-                    "description": f"{fr_name}: {pct}% of total irrigation",
+                    "description": f"{fr_name}: {pct}% of Res. 105 delivery",
                 }
             )
 

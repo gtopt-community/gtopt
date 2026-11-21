@@ -240,12 +240,11 @@ class TestMauleInvernadaFlowRightBounds:
     ``[0, qmax_invernada]``.
     """
 
+    # The deficit/no-deficit pair is always emitted; the level-rule
+    # FlowRights only when RelaxInvern = F (PLP IQRNIN active).
     _INVERNADA_NAMES = (
         "invernada_deficit",
         "invernada_sin_deficit",
-        "invernada_caudal_natural",
-        "invernada_embalsar",
-        "invernada_no_embalsar",
     )
 
     def test_all_five_have_fmax_equal_to_qmax_invernada(self):
@@ -276,66 +275,6 @@ class TestMauleInvernadaFlowRightBounds:
             assert fr.get("fmax", 0) > 0, (
                 f"{name}.fmax is falsy — default qmax_invernada not wired up"
             )
-
-
-class TestMauleInvernadaBalanceSoft:
-    """``invernada_balance`` must be emitted as a SOFT equality with
-    ``penalty_class = "hydro_flow"`` so the LP absorbs PLP-style
-    conditional-bound infeasibility through visible slack columns priced
-    in $/m³ × duration[h] × 3600 (see ``source/user_constraint_lp.cpp``
-    ``resolve_block_soft_penalty``).
-    """
-
-    def _invernada_balance_entry(self, cfg: dict) -> dict:
-        agreement = MauleAgreement(cfg)
-        ucs_by_name = {uc["name"]: uc for uc in agreement.user_constraints}
-        assert "invernada_balance" in ucs_by_name, (
-            "invernada_balance UserConstraint missing from agreement output"
-        )
-        return ucs_by_name["invernada_balance"]
-
-    def test_penalty_class_is_hydro_flow(self):
-        cfg = _minimal_maule_config()
-        uc = self._invernada_balance_entry(cfg)
-        assert uc.get("penalty_class") == "hydro_flow", (
-            f"invernada_balance.penalty_class = {uc.get('penalty_class')!r}; "
-            "expected 'hydro_flow' so the LP converts the $/m³ penalty to "
-            "$/(m³/s) per block via duration × 3600"
-        )
-
-    def test_penalty_respects_explicit_penalty_invernada(self):
-        cfg = _minimal_maule_config()
-        cfg["penalty_invernada"] = 42.5
-        uc = self._invernada_balance_entry(cfg)
-        assert uc.get("penalty") == 42.5, (
-            f"explicit penalty_invernada = 42.5 was not rendered "
-            f"(got penalty={uc.get('penalty')!r})"
-        )
-
-    def test_penalty_defaults_to_hydro_fail_cost_when_omitted(self):
-        cfg = _minimal_maule_config()
-        cfg.pop("penalty_invernada", None)
-        cfg["hydro_fail_cost"] = 17.0
-        uc = self._invernada_balance_entry(cfg)
-        assert uc.get("penalty") == 17.0, (
-            f"penalty_invernada absent → should default to hydro_fail_cost=17.0, "
-            f"got penalty={uc.get('penalty')!r}"
-        )
-
-    def test_penalty_has_a_positive_default_when_both_unset(self):
-        """Belt-and-suspenders: even if both ``penalty_invernada`` and
-        ``hydro_fail_cost`` are absent from the config, the rendered
-        entry must still carry a **positive** penalty so the soft
-        relaxation is genuinely armed.  A zero default would silently
-        restore hard-equality behaviour."""
-        cfg = _minimal_maule_config()
-        cfg.pop("penalty_invernada", None)
-        cfg.pop("hydro_fail_cost", None)
-        uc = self._invernada_balance_entry(cfg)
-        penalty = uc.get("penalty")
-        assert isinstance(penalty, (int, float)) and penalty > 0, (
-            f"invernada_balance.penalty must have a positive default, got {penalty!r}"
-        )
 
 
 class TestScheduleHelpersEmptyGuard:

@@ -269,8 +269,12 @@ class TestMauleWriter:
         res105 = next(
             fr for fr in writer.flow_rights if fr["name"] == "maule_resolucion_105"
         )
-        assert "target" in res105
-        assert res105["purpose"] == "environmental"
+        # PLP qa105: rewarded flow capped by QRiego105 (fmax) — the
+        # former target/fcost kink was a phantom reward.
+        assert res105["target"] == 0
+        assert "fcost" not in res105
+        assert res105["purpose"] == "irrigation"
+        assert res105["fmax"] != 0
 
     def test_district_flow_rights(self, maule_config):
         writer = MauleWriter(maule_config)
@@ -365,10 +369,12 @@ class TestMauleWriter:
         assert comp["fmax"] == pytest.approx(maule_config["gasto_elec_dia_max"])
         assert "bound_rule" not in comp  # no volume-dependent bound
 
-    def test_all_flow_rights_have_target(self, maule_config):
+    def test_priced_flow_rights_have_target(self, maule_config):
+        """Every FlowRight carrying a uvalue/fcost has its kink point."""
         writer = MauleWriter(maule_config)
         for fr in writer.flow_rights:
-            assert "target" in fr, f"{fr['name']} missing target"
+            if "uvalue" in fr or "fcost" in fr:
+                assert "target" in fr, f"{fr['name']} missing target"
 
     def test_district_constraint_operator(self, maule_config):
         """Districts with has_slack=True use <=, others use =."""
@@ -388,11 +394,10 @@ class TestMauleWriter:
                 continue
             district_name = uc["name"][len("dist_") :]
             d = districts_by_transformed[district_name]
-            if d["has_slack"]:
-                assert "<=" in uc["expression"], f"{district_name} should use <="
-            else:
-                # Exact equality: expression should contain "= " but not "<="
-                assert "<=" not in uc["expression"], f"{district_name} should use ="
+            # PLP: qri (+ qrhh deficit when has_slack) = PRet * qa105.
+            assert "<=" not in uc["expression"]
+            assert "maule_resolucion_105" in uc["expression"]
+            assert ("deficit_" in uc["expression"]) == bool(d["has_slack"])
 
     def test_volume_rights_compensation_credit(self, maule_config):
         """PLP recomputes the compensation at INICIOANO (january):
@@ -412,18 +417,11 @@ class TestMauleWriter:
             "maule_vol_compensacion_elec"
         )
 
-    def test_volume_rights_econ_invernada(self, maule_config):
+    def test_no_econ_invernada_ledger(self, maule_config):
+        """The unlinked economy accumulator (dead in gtopt) is gone."""
         writer = MauleWriter(maule_config)
-        vol_econ = next(
-            vr
-            for vr in writer.volume_rights
-            if vr["name"] == "maule_vol_econ_invernada"
-        )
-        # Ledgers are pure accounting (PLP-faithful): no physical
-        # reservoir coupling — water leaves via the anchored turbine arc.
-        assert "reservoir" not in vol_econ
-        assert vol_econ["purpose"] == "economy"
-        assert "reset_month" not in vol_econ
+        names = {vr["name"] for vr in writer.volume_rights}
+        assert "maule_vol_econ_invernada" not in names
 
     def test_pampl_ledger_and_anchor_constraints(self, maule_config, tmp_path):
         """maule.pampl carries the ledger linkages; anchor constraints are
@@ -470,9 +468,11 @@ class TestMauleWriter:
         assert "maule_anclaje_particion" not in text
         assert "dist_anclaje_" not in text
         assert "maule_ledger_" not in text
-        # The balance/split constraints are structural and stay.
-        assert "constraint invernada_balance" in text
-        assert "constraint maule_pct_ordinario_elec" in text
+        # The split constraints are structural and stay; the old soft
+        # Invernada balance is gone (PLP IQRNIN is a hard rule emitted
+        # only when RelaxInvern = F).
+        assert "constraint invernada_balance" not in text
+        assert "constraint dist_" in text
 
     def test_district_anchoring(self, maule_config, tmp_path):
         """Anchored Maule districts get a dist_anclaje constraint tying
@@ -504,7 +504,16 @@ class TestMauleWriter:
         # (TipoEtaDE != INTRAETA, genpdmaule.f:937) — not just january.
         assert vol_monthly["reset_monthly"] is True
         assert "reset_month" not in vol_monthly
-        assert vol_monthly["emax"] == pytest.approx(maule_config["gasto_elec_men_max"])
+        # GastoElecMenMax is a RATE [m3/s]: the cap is the volume
+        # rate x HorasMesHid x 0.0036 hm3 (genpdmaule.f:1643-1646).
+        emax = vol_monthly["emax"]
+        first = emax[0][0] if isinstance(emax, list) else emax
+        rate = maule_config["gasto_elec_men_max"]
+        assert first in (
+            pytest.approx(rate * 720 * 0.0036),
+            pytest.approx(rate * 744 * 0.0036),
+            pytest.approx(rate * 672 * 0.0036),
+        )
 
     def test_riego_temp_reset_at_season_start(self, maule_config):
         """The seasonal riego bucket restarts at MesRiegoIni — the first
@@ -659,8 +668,9 @@ class TestMauleWriterMinimalConfig:
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         assert len(writer.flow_rights) >= 6
-        assert len(writer.volume_rights) == 7  # 5 original + 2 rext accumulators
-        assert len(writer.user_constraints) >= 2  # balance + district constraints
+        # 3 spending ledgers + compensation + 2 ordinary-reserve ledgers
+        assert len(writer.volume_rights) == 6
+        assert len(writer.user_constraints) >= 2  # district constraints
 
     def test_district_percentage_sum(self):
         cfg = _minimal_maule_config()
@@ -670,13 +680,18 @@ class TestMauleWriterMinimalConfig:
         ]
         assert len(district_ucs) == 2
 
-    def test_slack_district_uses_le(self):
+    def test_slack_district_has_priced_deficit(self):
+        """PLP qrhh: slack districts close the equality with a deficit
+        column priced CostoRiegoNS105 (no <= row)."""
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         uc_dist2 = next(
             uc for uc in writer.user_constraints if uc["name"] == "dist_Dist2"
         )
-        assert "<=" in uc_dist2["expression"]
+        assert "<=" not in uc_dist2["expression"]
+        assert "flow_right('deficit_Dist2').flow" in uc_dist2["expression"]
+        deficit = next(fr for fr in writer.flow_rights if fr["name"] == "deficit_Dist2")
+        assert deficit["uvalue"] < 0
 
     def test_no_slack_district_uses_eq(self):
         cfg = _minimal_maule_config()
@@ -688,85 +703,65 @@ class TestMauleWriterMinimalConfig:
 
 
 class TestMauleInvernadaBalance:
-    """Tests for La Invernada winter storage balance entities."""
+    """La Invernada level rule entities (PLP IQNINV / IQRNIN).
 
-    def test_invernada_balance_user_constraint(self):
+    The full PLP-fidelity checks live in
+    ``gtopt_expand/tests/test_maule_plp_fidelity.py``; these guard the
+    writer-level shape.
+    """
+
+    _RULE_FRS = (
+        "invernada_embalsar",
+        "invernada_no_embalsar",
+        "invernada_holgura_superior",
+    )
+
+    @staticmethod
+    def _rule_cfg():
         cfg = _minimal_maule_config()
-        writer = MauleWriter(cfg)
-        uc = next(
-            (uc for uc in writer.user_constraints if uc["name"] == "invernada_balance"),
-            None,
-        )
-        assert uc is not None, "invernada_balance user constraint should exist"
+        cfg["flag_embalsa_1"] = False  # RelaxInvern = F
+        cfg["inflow_ref_invernada"] = "CIPRESES"
+        return cfg
 
-    def test_invernada_flow_rights_count(self):
-        """Should emit 5 FlowRights for La Invernada balance."""
-        cfg = _minimal_maule_config()
-        writer = MauleWriter(cfg)
-        inv_names = {
-            "invernada_deficit",
-            "invernada_sin_deficit",
-            "invernada_caudal_natural",
-            "invernada_embalsar",
-            "invernada_no_embalsar",
-        }
-        inv_frs = [fr for fr in writer.flow_rights if fr["name"] in inv_names]
-        assert len(inv_frs) == 5
+    def test_no_soft_invernada_balance(self):
+        writer = MauleWriter(self._rule_cfg())
+        names = {uc["name"] for uc in writer.user_constraints}
+        assert "invernada_balance" not in names
 
-    def test_invernada_directions(self):
-        """Deficit/no-deficit/inflow are supply (+1), storage/bypass are withdrawal (-1)."""
-        cfg = _minimal_maule_config()
-        writer = MauleWriter(cfg)
-        fr_by_name = {fr["name"]: fr for fr in writer.flow_rights}
+    def test_deficit_pair_always_emitted(self):
+        writer = MauleWriter(_minimal_maule_config())
+        names = {fr["name"] for fr in writer.flow_rights}
+        assert {"invernada_deficit", "invernada_sin_deficit"} <= names
 
-        for name in [
-            "invernada_deficit",
-            "invernada_sin_deficit",
-            "invernada_caudal_natural",
-        ]:
-            assert fr_by_name[name]["direction"] == 1
+    def test_relaxed_rule_emits_no_level_flows(self):
+        """RelaxInvern = T (default) deactivates the PLP row."""
+        writer = MauleWriter(_minimal_maule_config())
+        names = {fr["name"] for fr in writer.flow_rights}
+        assert not names & set(self._RULE_FRS)
 
-        for name in ["invernada_embalsar", "invernada_no_embalsar"]:
-            assert fr_by_name[name]["direction"] == -1
-
-    def test_invernada_flow_rights_exist(self):
-        """All Invernada FlowRights should exist."""
-        cfg = _minimal_maule_config()
-        writer = MauleWriter(cfg)
-        inv_names = {
-            "invernada_deficit",
-            "invernada_sin_deficit",
-            "invernada_caudal_natural",
-            "invernada_embalsar",
-            "invernada_no_embalsar",
-        }
-        fr_names = {fr["name"] for fr in writer.flow_rights}
-        missing = inv_names - fr_names
-        assert not missing, f"Missing Invernada FlowRights: {missing}"
+    def test_level_rule_flow_rights(self):
+        writer = MauleWriter(self._rule_cfg())
+        names = {fr["name"] for fr in writer.flow_rights}
+        assert set(self._RULE_FRS) <= names
 
     def test_invernada_storage_use_value(self):
-        """Storage uvalue is NEGATIVE: PLP FO(IQHINV) = +CostoEmbalsar
-        is a penalty, and a negative uvalue charges the flow."""
-        cfg = _minimal_maule_config()
-        writer = MauleWriter(cfg)
+        """Storing natural inflow is a PENALTY: PLP FO(IQHINV) =
+        +CostoEmbalsar, emitted as a negative uvalue."""
+        writer = MauleWriter(self._rule_cfg())
         storage = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_embalsar"
         )
         assert storage["uvalue"] == pytest.approx(-1500.0)
 
     def test_invernada_bypass_use_value(self):
-        """Bypass uvalue is NEGATIVE: PLP FO(IQHNEIN) = +CostoNoEmbalsar
-        is a penalty, and a negative uvalue charges the flow."""
-        cfg = _minimal_maule_config()
-        writer = MauleWriter(cfg)
+        writer = MauleWriter(self._rule_cfg())
         bypass = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_no_embalsar"
         )
         assert bypass["uvalue"] == pytest.approx(-1000.0)
 
     def test_invernada_storage_zero_cost_omitted(self):
-        """When costo_embalsar is 0, use_value should not be emitted."""
-        cfg = _minimal_maule_config()
+        cfg = self._rule_cfg()
         cfg["costo_embalsar"] = 0.0
         writer = MauleWriter(cfg)
         storage = next(
@@ -774,12 +769,22 @@ class TestMauleInvernadaBalance:
         )
         assert "uvalue" not in storage
 
+    def test_release_above_inflow_is_free(self):
+        writer = MauleWriter(self._rule_cfg())
+        holgura = next(
+            fr
+            for fr in writer.flow_rights
+            if fr["name"] == "invernada_holgura_superior"
+        )
+        assert "uvalue" not in holgura and "fcost" not in holgura
+
 
 class TestMauleBocatomaCanelon:
     """Tests for Bocatoma Canelon infrastructure cost."""
 
     def test_bocatoma_emitted(self):
         cfg = _minimal_maule_config()
+        cfg["anchor_gen_ref_canelon"] = "waterway('BCanelon_gen').flow"
         writer = MauleWriter(cfg)
         canelon = next(
             (fr for fr in writer.flow_rights if fr["name"] == "maule_bocatoma_canelon"),
@@ -789,6 +794,15 @@ class TestMauleBocatomaCanelon:
         # PLP: FO += CostoCanelon (penalty) → negative uvalue.
         assert canelon["uvalue"] == pytest.approx(-10.0)
         assert canelon["purpose"] == "irrigation"
+
+    def test_bocatoma_unanchored_dropped(self):
+        """Without the BCanelon generation waterway the priced intake
+        would be a phantom — it is dropped."""
+        cfg = _minimal_maule_config()
+        cfg.pop("anchor_gen_ref_canelon", None)
+        writer = MauleWriter(cfg)
+        names = {fr["name"] for fr in writer.flow_rights}
+        assert "maule_bocatoma_canelon" not in names
 
     def test_bocatoma_zero_cost_omitted(self):
         """When costo_canelon is 0, Bocatoma should not be emitted."""
@@ -846,8 +860,8 @@ class TestMaulePamplGeneration:
             content = (tmp_path / "maule.pampl").read_text()
 
             # Should contain constraint headers
-            assert "constraint maule_pct_ordinario_elec" in content
-            assert "constraint maule_pct_ordinario_riego" in content
+            assert "constraint maule_pct_ordinario" not in content
+            assert "constraint maule_riego_cargado" in content
             # Should contain district constraints
             assert "constraint dist_Dist1" in content
             assert "constraint dist_Dist2" in content

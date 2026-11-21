@@ -196,11 +196,11 @@ class TestWaterRightsIntegration:
         )
 
     def test_maule_volume_rights_count(self, converted_case):
-        """Maule creates 7 volume rights: 5 original + 2 rext accumulators."""
+        """Maule: 3 spending + compensation + 2 ordinary-reserve ledgers."""
         vrs = converted_case["system"].get("volume_right_array", [])
         maule_vrs = [vr for vr in vrs if vr["name"].startswith("maule_")]
-        assert len(maule_vrs) == 7, (
-            f"Expected 7 Maule volume rights, got {len(maule_vrs)}: "
+        assert len(maule_vrs) == 6, (
+            f"Expected 6 Maule volume rights, got {len(maule_vrs)}: "
             f"{[vr['name'] for vr in maule_vrs]}"
         )
 
@@ -224,7 +224,6 @@ class TestWaterRightsIntegration:
             "maule_vol_gasto_elec_anual",
             "maule_vol_gasto_riego_temp",
             "maule_vol_compensacion_elec",
-            "maule_vol_econ_invernada",
             "maule_vol_reserva_ord_elec",
             "maule_vol_reserva_ord_riego",
         }
@@ -506,12 +505,45 @@ class TestWaterRightsIntegration:
                 assert fr.get("consumptive") is True
         # +1: the `laja_qdefm` netting carrier (fixed column holding the
         # per-stage net irrigation requirement for the attribution cap).
+        # plp_2y has RelaxInvern = T, so the Invernada level-rule rights
+        # (embalsar / no_embalsar / holgura) are not emitted; Maule adds
+        # qdrah (maule_deficit_riego), the QDefRiego carrier and the
+        # Melado district deficit (PLP qrhh).
         assert len(frs) == 39, f"Expected 39 total flow rights, got {len(frs)}"
 
+    def test_no_phantom_rewarded_flow_rights(self, converted_case):
+        """Every rewarded (uvalue > 0) FlowRight withdraws at a junction
+        or is tied to a physical flow by a PAMPL constraint."""
+        frs = converted_case["system"].get("flow_right_array", [])
+        pampl = "".join(
+            p.read_text(encoding="utf-8")
+            for p in converted_case["output_dir"].glob("*.pampl")
+        )
+
+        def rewarded(fr):
+            uv = fr.get("uvalue")
+            if isinstance(uv, (int, float)):
+                return uv > 0
+            if isinstance(uv, list):
+                flat = [
+                    v for row in uv for v in (row if isinstance(row, list) else [row])
+                ]
+                return any(v > 0 for v in flat)
+            return False
+
+        phantoms = [
+            fr["name"]
+            for fr in frs
+            if rewarded(fr)
+            and "junction_a" not in fr
+            and f"flow_right('{fr['name']}')" not in pampl
+        ]
+        assert not phantoms, f"phantom rewarded FlowRights: {phantoms}"
+
     def test_total_volume_rights(self, converted_case):
-        """Total volume rights = Laja (7) + Maule (7)."""
+        """Total volume rights = Laja (7) + Maule (6)."""
         vrs = converted_case["system"].get("volume_right_array", [])
-        assert len(vrs) == 14, f"Expected 14 total volume rights, got {len(vrs)}"
+        assert len(vrs) == 13, f"Expected 13 total volume rights, got {len(vrs)}"
 
 
 @pytest.mark.integration

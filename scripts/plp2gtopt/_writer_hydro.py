@@ -1077,7 +1077,13 @@ class HydroMixin:
                     "anchor_gen_ref_invernada": str(cfg.get("central_invernada", "")),
                 },
             )
+            if cfg.get("bocatoma_canelon"):
+                self._inject_anchor_refs(
+                    cfg,
+                    {"anchor_gen_ref_canelon": str(cfg["bocatoma_canelon"])},
+                )
             self._inject_district_anchors(cfg)
+            self._inject_maule_flow_refs(cfg)
             self._require_irrigation_refs(
                 cfg,
                 "maule",
@@ -1103,6 +1109,85 @@ class HydroMixin:
             " + maule.pampl" if "user_constraint_file" in entities else "",
         )
         return entities
+
+    def _flow_element_name(self, name: str) -> str | None:
+        """Return the gtopt Flow element named *name* (case-insensitive)."""
+        name_l = str(name).lower()
+        for flow in self.planning["system"].get("flow_array", []):
+            fname = str(flow.get("name", ""))
+            if fname.lower() == name_l:
+                return fname
+        return None
+
+    @staticmethod
+    def _scenario_mean_series(series: Any) -> list | None:
+        """Reduce a `_hoya_inter_stage_means` result to one per-stage list.
+
+        Multi-scenario results are averaged per stage (the agreement
+        FlowRight bounds and UC domains carry no scenario axis — the
+        same approximation the Laja qdefm carrier documents).
+        """
+        if series is None:
+            return None
+        if isinstance(series, dict):
+            by_sc = series.get("by_scenario") or []
+            if not by_sc:
+                return list(series.get("first") or [])
+            n = min(len(s) for s in by_sc)
+            return [sum(s[i] for s in by_sc) / len(by_sc) for i in range(n)]
+        return list(series)
+
+    def _inject_maule_flow_refs(self, cfg: Dict[str, Any]) -> None:
+        """Resolve the Maule references to natural inflows and seepage.
+
+        * ``inflow_ref_invernada`` — the Flow element carrying La
+          Invernada's natural inflow (PLP ``QAflInvern``, the inflow of
+          the Invernada central); ``seepage_ref_invernada`` — its
+          ReservoirSeepage element (PLP filtration ``FiltVarInd``).
+        * ``hoya_flow_refs`` — the Flow elements of the hoya-intermedia
+          inflows (PLP ``QHoyaInter``), used by the Armerillo/Res 105
+          rows.
+        * ``q_hoya_inter_maule`` / ``q_afl_invernada`` — per-stage
+          scenario means used to classify the Invernada deficit stages.
+        """
+        central_inv = str(cfg.get("central_invernada", ""))
+        inflow = self._flow_element_name(central_inv)
+        if inflow is not None:
+            cfg["inflow_ref_invernada"] = inflow
+        # Laguna del Maule natural inflow (PLP QAflMaule — the accrual
+        # of the ordinary-reserve rights) and its initial volume (the
+        # FijaMaule regime/provisioning test at the horizon start).
+        central_maule = str(cfg.get("central_maule", ""))
+        inflow_maule = self._flow_element_name(central_maule)
+        if inflow_maule is not None:
+            cfg["inflow_ref_maule"] = inflow_maule
+        for rsv in self.planning["system"].get("reservoir_array", []):
+            if str(rsv.get("name", "")) == central_maule:
+                eini = rsv.get("eini")
+                if isinstance(eini, (int, float)):
+                    cfg["v_ini_maule"] = float(eini)
+                break
+        for entity in self.planning["system"].get("reservoir_seepage_array", []):
+            if str(entity.get("reservoir", "")) == central_inv:
+                cfg["seepage_ref_invernada"] = str(entity.get("name", ""))
+                break
+        basins = [str(n) for n in cfg.get("intermediate_basins", [])]
+        resolved = {n: self._flow_element_name(n) for n in basins}
+        refs = [r for r in resolved.values() if r is not None]
+        missing = [n for n, r in resolved.items() if r is None]
+        if missing:
+            _logger.warning(
+                "maule: hoya-intermedia inflow(s) %s have no Flow element —"
+                " they are left out of the Armerillo balance.",
+                missing,
+            )
+        cfg["hoya_flow_refs"] = refs
+        q_hoya = self._scenario_mean_series(self._hoya_inter_stage_means(basins))
+        if q_hoya is not None:
+            cfg["q_hoya_inter_maule"] = q_hoya
+        q_afl = self._scenario_mean_series(self._hoya_inter_stage_means([central_inv]))
+        if q_afl is not None:
+            cfg["q_afl_invernada"] = q_afl
 
     def _expand_lng(self, cfg: Mapping[str, Any]) -> None:
         """Run the Stage-2 LNG transform and merge ``lng_terminal_array``."""

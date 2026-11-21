@@ -2030,3 +2030,74 @@ TEST_CASE(  // NOLINT
 }  // namespace
 
 // NOLINTEND(bugprone-unchecked-optional-access)
+// ── Phantom-reward FlowRight guard ───────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "validate_planning - rewarded FlowRight with no junction and no UC is "
+    "an error")
+{
+  // A positive uvalue rewards flow; with no junction and no UC tying
+  // the column to any physical flow the LP collects the reward without
+  // moving water (the former Maule Res. 105 phantom).
+  auto p = make_minimal_planning();
+  p.system.flow_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "phantom",
+          .fmax = Real {100.0},
+          .target = Real {0.0},
+          .uvalue = Real {1100.0},
+      },
+  };
+  const auto result = validate_planning(p);
+  CHECK_FALSE(result.ok());
+  const bool found = std::ranges::any_of(
+      result.errors,
+      [](const auto& e)
+      { return e.contains("phantom") && e.contains("uvalue"); });
+  CHECK(found);
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - rewarded FlowRight anchored by a UC is accepted")
+{
+  auto p = make_minimal_planning();
+  p.system.flow_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "qa105",
+          .fmax = Real {100.0},
+          .target = Real {0.0},
+          .uvalue = Real {1100.0},
+      },
+  };
+  p.system.user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "armerillo",
+          .expression = R"(flow_right('qa105').flow <= 50)",
+      },
+  };
+  const auto result = validate_planning(p);
+  CHECK(result.ok());
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - priced (negative uvalue) unanchored FlowRight is "
+    "not an error")
+{
+  // A cost on a free column is inert (the LP sets it to 0), never a
+  // phantom benefit.
+  auto p = make_minimal_planning();
+  p.system.flow_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "cost_only",
+          .fmax = Real {100.0},
+          .target = Real {0.0},
+          .uvalue = Real {-10.0},
+      },
+  };
+  const auto result = validate_planning(p);
+  CHECK(result.ok());
+}

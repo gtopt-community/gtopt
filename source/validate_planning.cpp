@@ -10,6 +10,7 @@
  * that run after JSON parsing but before LP construction.
  */
 
+#include <algorithm>
 #include <cmath>
 #include <format>
 #include <optional>
@@ -877,6 +878,68 @@ void check_opt_field_positive(ValidationResult& result,
     return;
   }
   check_field_positive(result, *opt, p, owner_kind, owner_name, field_name);
+}
+
+/// True when any value of a FieldSched is strictly positive.  File
+/// references (resolved at load time) count as "unknown" → false.
+template<typename FieldSched>
+[[nodiscard]] bool field_has_positive(const FieldSched& fs)
+{
+  bool positive = false;
+  const auto scan = [&positive](this const auto& self, const auto& val) -> void
+  {
+    using T = std::remove_cvref_t<decltype(val)>;
+    if constexpr (std::is_arithmetic_v<T>) {
+      positive = positive || static_cast<double>(val) > 0.0;
+    } else if constexpr (std::is_same_v<T, FileSched>) {
+      // Unknown until load time.
+    } else {
+      for (const auto& sub : val) {
+        self(sub);
+      }
+    }
+  };
+  std::visit(scan, fs);
+  return positive;
+}
+
+/// True when a user-constraint expression references FlowRight `fr`
+/// (`flow_right('name')`, `flow_right("name")` or `flow_right(uid)`).
+[[nodiscard]] bool expression_references_flow_right(std::string_view expr,
+                                                    const FlowRight& fr)
+{
+  const auto has = [expr](const std::string& needle)
+  { return expr.find(needle) != std::string_view::npos; };
+  return has(std::format("flow_right('{}')", fr.name))
+      || has(std::format("flow_right(\"{}\")", fr.name))
+      || has(std::format("flow_right({})", fr.uid));
+}
+
+/// A FlowRight whose `uvalue` REWARDS flow (> 0), with no `junction_a`
+/// and no user constraint referencing it, collects the reward without
+/// moving any water — a phantom benefit (e.g. the former Maule
+/// Res. 105 right).  Report it as an error.
+void check_flow_right_anchoring(ValidationResult& result, const System& sys)
+{
+  for (const auto& fr : sys.flow_right_array) {
+    if (fr.junction_a.has_value() || !fr.uvalue.has_value()
+        || !field_has_positive(*fr.uvalue))
+    {
+      continue;
+    }
+    const bool referenced = std::ranges::any_of(
+        sys.user_constraint_array,
+        [&fr](const UserConstraint& uc)
+        { return expression_references_flow_right(uc.expression, fr); });
+    if (!referenced) {
+      result.errors.push_back(std::format(
+          "FlowRight '{}': positive uvalue (a reward) with no junction_a "
+          "and no user constraint referencing it — the LP would collect "
+          "the reward without moving water.  Attach it to a junction or "
+          "tie it to a physical flow with a user constraint.",
+          fr.name));
+    }
+  }
 }
 
 /// Check positivity of flow-right / volume-right / line / waterway fields.
@@ -1817,6 +1880,7 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
   check_referential_integrity(result, planning.system);
   check_ranges(result, planning);
   check_positivity(result, planning.system);
+  check_flow_right_anchoring(result, planning.system);
   check_heat_rate(result, planning.system);
   check_piecewise_feasibility(result, planning);
   check_aperture_references(result, planning);

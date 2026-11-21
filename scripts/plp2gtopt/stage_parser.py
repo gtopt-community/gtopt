@@ -56,6 +56,10 @@ class StageParser(BaseParser):
             stage = {
                 "number": stage_num,
                 "month": month,
+                # PLP `Ano` column: 1-based year index of the case — the
+                # Maule manual-year tables (PRiegoMauleAnual,
+                # QRiego105Anual) are keyed by it.
+                "year": int(parts[0]),
                 "duration": duration,
                 "discount_factor": discount_factor,
             }
