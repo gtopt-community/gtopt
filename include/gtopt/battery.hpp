@@ -361,6 +361,35 @@ struct Battery
   /// down reserve).  Only read when ``reserve_sustain_hours`` is set.
   OptBool reserve_discharge_credit {};
   /// @}
+
+  // ── Power-axis expansion ─────────────────────────────────────────────
+  //
+  // ``capacity`` / ``expcap`` / ``expmod`` / ``capmax`` /
+  // ``annual_capcost`` above expand the ENERGY axis [MWh].  The fields
+  // below expand the POWER axis [MW]: ``System::expand_batteries()``
+  // forwards them onto the synthetic ``Converter`` (its own
+  // ``capainst`` / ``capacost`` / ``expmod`` columns, SDDP state
+  // variables like every capacity object), whose per-block row
+  // ``discharge + charge ≤ capainst`` caps both directions.  User
+  // constraints reach it as ``converter("<battery>_conv").capainst``.
+  // ``pmax_charge`` / ``pmax_discharge`` remain the operational
+  // ceilings — set them ≥ ``power_capmax`` for a candidate battery.
+
+  OptTRealFieldSched power_capacity {};  ///< Installed power [MW]
+  OptTRealFieldSched power_expcap {};  ///< Power per expansion module [MW]
+  OptTRealFieldSched power_expmod {};  ///< Max number of power modules
+  OptTRealFieldSched power_capmax {};  ///< Absolute max power [MW]
+  OptTRealFieldSched
+      power_annual_capcost {};  ///< Annualized power cost [$/MW-year]
+  OptTRealFieldSched power_annual_derating {};  ///< Power derating [p.u./year]
+
+  /// Fixed storage duration [h]: when set, the LP adds per stage
+  /// ``energy capainst = energy_power_ratio × power capainst`` (installed
+  /// totals, existing capacity included), so energy and power are built
+  /// together as one technology with a fixed duration (e.g. 2 h, 4 h, 8 h
+  /// battery candidates).  Leave unset to optimise the two axes
+  /// independently, each with its own cost.
+  OptReal energy_power_ratio {};
 };
 
 }  // namespace gtopt

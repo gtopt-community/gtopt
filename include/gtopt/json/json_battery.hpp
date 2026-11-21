@@ -137,8 +137,26 @@ struct json_data_contract<Battery>
       json_number_null<"reserve_sustain_hours",
                        OptReal>,  ///< Native BESS reserve rows (T [h])
       json_bool_null<"reserve_discharge_credit",
-                     OptBool>  ///< Credit discharge in down headroom
-      >;
+                     OptBool>,  ///< Credit discharge in down headroom
+      json_variant_null<"power_capacity",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"power_expcap",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"power_expmod",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"power_capmax",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"power_annual_capcost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"power_annual_derating",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_number_null<"energy_power_ratio", OptReal>>;
 
   /**
    * @brief Converts a Battery object to a tuple for JSON serialization
@@ -185,7 +203,14 @@ struct json_data_contract<Battery>
                                  battery.max_cycles_day,
                                  battery.commitment,
                                  battery.reserve_sustain_hours,
-                                 battery.reserve_discharge_credit);
+                                 battery.reserve_discharge_credit,
+                                 battery.power_capacity,
+                                 battery.power_expcap,
+                                 battery.power_expmod,
+                                 battery.power_capmax,
+                                 battery.power_annual_capcost,
+                                 battery.power_annual_derating,
+                                 battery.energy_power_ratio);
   }
 };
 }  // namespace daw::json

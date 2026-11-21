@@ -633,6 +633,21 @@ A constraint that is defined but not active:
 }
 ```
 
+To enable a constraint only in some stages, give a per-stage schedule in
+`active_stages` (one 0/1 entry per stage, or a file field).  A stage with
+0 emits no row at all, which is better for LP numerics than a huge
+never-binding right-hand side.  Both `active` and `active_stages` must
+allow the stage:
+
+```json
+{
+  "uid": 11,
+  "name": "dated_limit",
+  "active_stages": [0, 1, 1],
+  "expression": "generator('G1').generation <= 10"
+}
+```
+
 ### Example 12 — Zero unserved energy requirement
 
 Force no load curtailment on demand D1:

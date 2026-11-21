@@ -202,6 +202,13 @@ struct UserConstraint
   /// Equality constraints (which produce two slack columns) suffix
   /// ``_pos`` / ``_neg`` on top of the user-supplied name.
   OptName slack_name {};
+
+  /// Per-stage activation schedule (``[1, 0, 1, ...]`` or a file field):
+  /// a stage with 0 emits no row for this constraint.  Composes with the
+  /// scalar ``active`` flag (both must allow the stage).  Lets a merged,
+  /// time-varying constraint exist only in some stages without a huge
+  /// never-binding RHS (which degrades LP numerics).
+  OptActive active_stages {};
 };
 
 }  // namespace gtopt

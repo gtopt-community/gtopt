@@ -1222,6 +1222,26 @@ p_{g,s,t,b} + \ell_{d,s,t,b} \;\leq\; \bar{C}_{v,t}
 \qquad \forall \; s, t, b
 $$
 
+$\bar{C}_{v,t}$ is the converter's installed power.  For the converter
+synthesised from a battery, `Battery.power_capacity` / `power_expcap` /
+`power_expmod` / `power_capmax` / `power_annual_capcost` /
+`power_annual_derating` make it an expandable power axis (§5.11, with its
+own `capainst` / `capacost` SDDP state columns), while the battery's own
+`capacity` / `expcap` / … expand the energy axis $\bar{E}_{e,t}$.
+
+#### Fixed Storage Duration (Optional)
+
+When `Battery.energy_power_ratio` $= H_e$ [h] is set and both axes have an
+installed-capacity column, energy and power are built together:
+
+$$
+\bar{E}_{e,t} \;=\; H_e \cdot \bar{C}_{v,t}
+\qquad \forall \; t
+$$
+
+Without it the two axes are optimised independently, each at its own
+annualised cost.
+
 ### 5.9 Reserve Constraints
 
 #### Reserve Zone Requirements
@@ -1666,7 +1686,12 @@ where:
 - $\xi_{g,t}$ is the stage derating factor (capacity degradation)
 - $M_g$ (`expcap`) is the capacity per expansion module
 - $m_{g,t}$ is the number of modules installed at stage $t$
-- $\Delta C_{g,t}$ accounts for any exogenous capacity changes between stages
+- $\Delta C_{g,t} = C_{g,t} - C_{g,t-1}$ is the exogenous change of the
+  `capacity` schedule $C$ between stages (also across SDDP phase
+  boundaries).  At the first expandable stage there is no
+  $\bar{C}_{g,t-1}$ and the existing capacity enters whole,
+  $\bar{C}_{g,t} = C_{g,t} + M_g \cdot m_{g,t}$: existing capacity is never
+  charged as a build.
 
 #### Expansion Bounds
 

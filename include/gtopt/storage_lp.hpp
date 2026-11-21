@@ -574,7 +574,14 @@ public:
     // Global final condition ("efin") is an explicit named constraint row
     // added AFTER the block loop for the last stage of the last phase only.
     ColIndex eicol;
-    const bool is_first_stage = (prev_stage == nullptr);
+    // A previous stage of the same phase where the element was inactive
+    // (e.g. a battery commissioned in this stage) has no efin column: the
+    // chain starts here, exactly like the first stage.
+    const bool prev_inactive_same_phase = prev_stage != nullptr
+        && prev_phase == nullptr
+        && !efin_cols.contains({scenario.uid(), prev_stage->uid()});
+    const bool is_first_stage =
+        (prev_stage == nullptr) || prev_inactive_same_phase;
     const bool is_cross_phase =
         (prev_stage != nullptr && prev_phase != nullptr);
     if (is_first_stage) {

@@ -913,6 +913,8 @@ UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
                         uc.constraint_type.value_or("power"))
                         .value_or(ConstraintScaleType::Power))
     , m_rhs_(ic, Element::class_name, id(), std::move(object().rhs))
+    , m_active_stages_(
+          ic, Element::class_name, id(), std::move(object().active_stages))
 {
   // Parse `penalty_class` at construction so the hot per-block loop can
   // dispatch on a plain enum.  An unrecognised value is a hard error —
@@ -1038,7 +1040,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  if (!is_active(stage)) {
+  if (!is_stage_active(stage)) {
     return true;
   }
 
@@ -1831,7 +1833,7 @@ bool UserConstraintLP::build_phase_cell_row(const SystemContext& sc,
   }
   // Last in-domain stage with at least one in-domain block.
   for (const auto& stage : std::ranges::reverse_view(stages)) {
-    if (!is_active(stage) || !in_range(domain.stages, stage.uid())) {
+    if (!is_stage_active(stage) || !in_range(domain.stages, stage.uid())) {
       continue;
     }
     const BlockLP* rep_block = nullptr;

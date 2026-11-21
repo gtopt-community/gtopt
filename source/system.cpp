@@ -287,7 +287,15 @@ void System::expand_batteries()
         .battery = Name {battery.name},
         .generator = Name {gen_name},
         .demand = Name {dem_name},
+        // Power-axis expansion (the battery's own fields expand energy).
+        .capacity = inherit(battery.power_capacity),
+        .expcap = inherit(battery.power_expcap),
+        .expmod = inherit(battery.power_expmod),
+        .capmax = inherit(battery.power_capmax),
+        .annual_capcost = inherit(battery.power_annual_capcost),
+        .annual_derating = inherit(battery.power_annual_derating),
         .commitment = battery.commitment,
+        .energy_power_ratio = battery.energy_power_ratio,
     });
 
     // Synthesise a Commitment for the battery's discharge generator

@@ -475,7 +475,14 @@
     "max_cycles_day",
     "commitment",
     "reserve_sustain_hours",
-    "reserve_discharge_credit"
+    "reserve_discharge_credit",
+    "power_capacity",
+    "power_expcap",
+    "power_expmod",
+    "power_capmax",
+    "power_annual_capcost",
+    "power_annual_derating",
+    "energy_power_ratio"
    ],
    "header": "json_battery.hpp",
    "kinds": {
@@ -497,6 +504,7 @@
     "eini": "number",
     "emax": "variant",
     "emin": "variant",
+    "energy_power_ratio": "number",
     "expcap": "variant",
     "expmod": "variant",
     "input_efficiency": "variant",
@@ -508,6 +516,12 @@
     "pmax_discharge": "variant",
     "pmin_charge": "variant",
     "pmin_discharge": "variant",
+    "power_annual_capcost": "variant",
+    "power_annual_derating": "variant",
+    "power_capacity": "variant",
+    "power_capmax": "variant",
+    "power_expcap": "variant",
+    "power_expmod": "variant",
     "reserve_discharge_credit": "bool",
     "reserve_sustain_hours": "number",
     "soft_emin": "variant",
@@ -823,7 +837,8 @@
     "annual_capcost",
     "annual_derating",
     "integer_expmod",
-    "commitment"
+    "commitment",
+    "energy_power_ratio"
    ],
    "header": "json_converter.hpp",
    "kinds": {
@@ -836,6 +851,7 @@
     "commitment": "bool",
     "conversion_rate": "variant",
     "demand": "variant",
+    "energy_power_ratio": "number",
     "expcap": "variant",
     "expmod": "variant",
     "generator": "variant",
@@ -3345,11 +3361,13 @@
     "rhs",
     "directive",
     "scope",
-    "slack_name"
+    "slack_name",
+    "active_stages"
    ],
    "header": "json_user_constraint.hpp",
    "kinds": {
     "active": "bool",
+    "active_stages": "variant",
     "constraint_type": "string",
     "daily_sum": "bool",
     "description": "string",

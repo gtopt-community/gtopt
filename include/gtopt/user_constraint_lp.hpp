@@ -236,6 +236,14 @@ private:
   /// ``std::nullopt`` for that key.  Empty (``has_value() == false``)
   /// when the source ``UserConstraint`` left ``rhs`` unset.
   OptTBRealSched m_rhs_ {};
+  /// Per-stage activation (`UserConstraint.active_stages`).
+  OptActiveSched m_active_stages_ {};
+
+  /// Scalar `active` AND the per-stage `active_stages` schedule.
+  [[nodiscard]] bool is_stage_active(const StageLP& stage) const
+  {
+    return is_active(stage) && m_active_stages_.at(stage.uid()) != False;
+  }
 
   /// Stable storage for the user-supplied slack column label (the
   /// ``slack_name`` field on the underlying ``UserConstraint``, populated

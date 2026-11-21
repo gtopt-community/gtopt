@@ -105,6 +105,12 @@ struct Converter
   /// ``System::expand_batteries()`` when ``Battery.commitment`` is
   /// enabled.
   OptBool commitment {};
+
+  /// Fixed storage duration [h] of the linked battery: per stage
+  /// ``battery capainst = energy_power_ratio × converter capainst``
+  /// (added only when both capacity columns exist).  Set by
+  /// ``System::expand_batteries()`` from ``Battery.energy_power_ratio``.
+  OptReal energy_power_ratio {};
 };
 
 }  // namespace gtopt

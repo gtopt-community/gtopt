@@ -87,6 +87,12 @@ def _xcase(tmp_path: Path) -> tuple[Path, Path]:
     x.member("Battery", "Node", "Nodes", bat, sth)
     x.data("Battery", bat, "Units", 0)
     x.data("Battery", bat, "Max Power", 1)
+    x.data("Battery", bat, "Capacity", 2)
+    x.data("Battery", bat, "Charge Efficiency", 90)
+    x.data("Battery", bat, "Discharge Efficiency", 95)
+    x.data("Battery", bat, "Build Cost", 1000)
+    x.data("Battery", bat, "WACC", 7)
+    x.data("Battery", bat, "Economic Life", 20)
     x.data("Battery", bat, "Max Units Built", 300, date_from="2027-07-01T00:00:00")
 
     # resource limit: Σ capacity built ≤ 300
@@ -108,10 +114,10 @@ def _xcase(tmp_path: Path) -> tuple[Path, Path]:
     )
     x.coef("Generator", sol, ob, "Installed Capacity Coefficient", 1.0)
     x.coef("Generator", wf, ob, "Installed Capacity Coefficient", 1.0)
-    # policy ≥ with a candidate battery term → needs battery expansion
+    # policy ≥ with a candidate battery term → converter power capainst
     cis = _constraint(x, "CIS Dispatchable NSW", "Policies NEM", sense=1, RHS_Year=50)
     x.coef("Battery", bat, cis, "Generation Capacity Coefficient", 1.0)
-    # shared upgrade with an in-year build term → not referenced yet
+    # shared upgrade with an in-year build term → expmod at the FY start
     sh = _constraint(x, "Shared_S1", "Shared REZ Upgrades", sense=-1, RHS_Year=1)
     x.coef("Generator", aug, sh, "Units Built in Year Coefficient", 1.0)
     # REZ export limit: solar + wind − 1.0 · augmentation ≤ 60
@@ -263,17 +269,30 @@ def test_capacity_constraints(xcase: tuple[Path, Path]) -> None:
     ob = ucs["isp_OCLimit_S1"]
     # existing wind (80 MW until Dec) is folded into the RHS
     assert ob["expression"].startswith('generator("S1_SAT").capainst <= ')
-    rhs = [row[0] for row in ob["rhs"]]
     # one yearly row at the FY build stage with the tightest monthly RHS
     # (wind still in service in July..December); other months inactive
-    assert rhs[0] == 170.0
-    assert rhs[1:] == [exp.INACTIVE_RHS] * 11
+    assert ob["expression"].endswith("<= 170")
+    assert "rhs" not in ob
+    assert ob["active_stages"] == [1] + [0] * 11
     assert "_capacity" not in ob
-    assert "isp_CIS_Dispatchable_NSW" not in ucs
-    assert "isp_Shared_S1" not in ucs
-    groups = case.stats["constraint_groups"]["capacity_build"]
-    assert any("Battery.candidate" in k for k in groups)
-    assert any("Units Built in Year" in k for k in groups)
+    cis = ucs["isp_CIS_Dispatchable_NSW"]
+    assert cis["expression"] == ('converter("STH Battery - 2h_conv").capainst >= 50')
+    assert cis["active_stages"][0] == 1
+    sh = ucs["isp_Shared_S1"]
+    assert sh["expression"] == 'generator("S1_Linear Augmentation 1").expmod <= 1'
+    assert sh["active_stages"] == [1] + [0] * 11
+    bats = {b["name"]: b for b in case.planning["system"]["battery_array"]}
+    b = bats["STH Battery - 2h"]
+    assert b["energy_power_ratio"] == 2.0
+    assert b["power_expcap"] == 1.0 and b["expcap"] == 2.0
+    assert b["power_expmod"][0] == 300 and b["power_expmod"][1:] == [0.0] * 11
+    assert b["power_annual_capcost"][0] == pytest.approx(
+        exp.annual_capcost(1000, 7, 20, 0), rel=1e-6
+    )
+    assert b["annual_capcost"] == 0.0
+    assert b["input_efficiency"] == 0.9 and b["output_efficiency"] == 0.95
+    assert b["pmax_discharge"] == 300.0 and b["emax"] == 600.0
+    assert case.stats["candidates_storage"] == 1
 
 
 def test_capacity_penalty(xcase: tuple[Path, Path]) -> None:
@@ -296,6 +315,12 @@ def test_fy_capacity_rhs() -> None:
     assert np.all(np.delete(out[:, 0], [0, 12]) == exp.INACTIVE_RHS)
     ge = exp._fy_capacity_rhs(rhs * 0 + 5.0, fy, ">=", -exp.INACTIVE_RHS)
     assert ge[0, 0] == 5.0 and ge[1, 0] == -exp.INACTIVE_RHS
+
+
+def test_life_factor() -> None:
+    assert exp.life_factor(25, 3) == 1.0
+    assert exp.life_factor(20, 25) == pytest.approx(0.8)
+    assert exp.life_factor(0, 10) == 1.0
 
 
 def test_day_masks_and_rep_mean() -> None:
@@ -359,9 +384,8 @@ def test_operational_capacity_constraint(xcase: tuple[Path, Path]) -> None:
     assert 'generator("S1_SAT").generation' in v1["expression"]
     assert 'generator("WF1").generation' in v1["expression"]
     assert 'generator("WF1")' not in ucs["isp_ExportLimit_S1_v2"]["expression"]
-    rhs = case.schedules[("UserConstraint", "rhs")][v1["uid"]]
-    assert rhs[0, 0] == pytest.approx(60.0)
-    assert rhs[11, 0] == pytest.approx(exp.INACTIVE_RHS)
+    assert v1["expression"].endswith("<= 60")
+    assert v1["active_stages"][0] == 1 and v1["active_stages"][11] == 0
 
 
 def test_daily_energy_becomes_stage_sum(xcase: tuple[Path, Path]) -> None:

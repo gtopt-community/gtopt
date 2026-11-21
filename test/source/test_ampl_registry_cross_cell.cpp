@@ -89,8 +89,8 @@ TEST_CASE(  // NOLINT
                            "generator",
                            Uid {7},
                            "capainst",
-                           ScenarioUid {1},
-                           StageUid {4},
+                           make_uid<Scenario>(1),
+                           make_uid<Stage>(4),
                            ColIndex {11});
 
   CHECK(
@@ -157,8 +157,8 @@ TEST_CASE(  // NOLINT
                                          "generator",
                                          Uid {(p * vars_per_round) + v + 1},
                                          "capainst",
-                                         ScenarioUid {1},
-                                         StageUid {p + 1},
+                                         make_uid<Scenario>(1),
+                                         make_uid<Stage>(p + 1),
                                          ColIndex {v});
               }
             }

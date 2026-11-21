@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <tuple>
 #include <vector>
 
 #include <gtopt/battery_lp.hpp>
@@ -264,6 +265,29 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   if (bat_ptr->battery().reserve_sustain_hours.has_value()) {
     add_native_reserve_rows(
         sc, scenario, stage, lp, *gen_ptr, *dem_ptr, *bat_ptr);
+  }
+
+  // Fixed storage duration: installed energy = ratio × installed power.
+  // Couples the battery's energy-axis expansion (BatteryLP capainst) with
+  // this converter's power-axis expansion, so a candidate is built as one
+  // technology (e.g. a 4 h battery).  Needs both capacity columns; when
+  // only one axis has a column (fixed energy or fixed power) the ratio is
+  // a property of the inputs and nothing is added.
+  if (const auto ratio = converter().energy_power_ratio; ratio && *ratio > 0) {
+    const auto bat_cap_col = bat_ptr->capacity_col_at(stage);
+    if (bat_cap_col && capacity_col) {
+      auto row =
+          SparseRow {
+              .class_name = Element::class_name.full_name(),
+              .constraint_name = DurationName,
+              .variable_uid = uid(),
+              .context = make_stage_context(scenario.uid(), stage.uid()),
+          }
+              .equal(0);
+      row[*bat_cap_col] = 1.0;
+      row[*capacity_col] = -*ratio;
+      std::ignore = lp.add_row(std::move(row));
+    }
   }
 
   // Conditional commitment: when ``Converter.commitment`` is set,

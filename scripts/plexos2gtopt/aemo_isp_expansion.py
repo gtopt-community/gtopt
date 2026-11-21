@@ -88,7 +88,8 @@ from .plexos_xml import PlexosDb, load_xml
 
 logger = logging.getLogger(__name__)
 
-#: Value written in the RHS of a stage where a merged constraint is absent.
+#: Marker RHS of a stage where a merged constraint is absent (internal; the
+#: written constraint gets a per-stage ``active_stages`` schedule instead).
 INACTIVE_RHS = 1.0e9
 
 #: Default discount rate when the XML has no ``LT Plan`` (AEMO: 7 % real).
@@ -152,6 +153,13 @@ def rep_mean(arr: np.ndarray, mask: np.ndarray) -> np.ndarray:
     nd = len(mask)
     a = np.asarray(arr, dtype=np.float64)[: nd * 24].reshape(nd, 24)
     return np.nanmean(a[mask], axis=0)
+
+
+def life_factor(life: float, remaining_years: float) -> float:
+    """Annuity scale when ``life`` ends before the horizon (else 1)."""
+    if life <= 0 or remaining_years <= life:
+        return 1.0
+    return life / remaining_years
 
 
 def crf(rate: float, life: float) -> float:
@@ -237,6 +245,8 @@ class ExpansionOptions:
     #: cannot repair the capacity a previous FY built (feasibility cuts on
     #: a capacity state converge one coordinate per iteration).
     capacity_penalty: float | None = None
+    #: add battery / pumped-hydro storage candidates (power + energy)
+    battery_candidates: bool = True
     #: restrict candidates to categories starting with one of these
     candidate_prefixes: tuple[str, ...] = ()
 
@@ -261,6 +271,12 @@ class Candidate:
     #: per stage: cumulative max units, build cost $/kW, buildable flag
     max_units: list[float] = field(default_factory=list)
     build_cost: list[float] = field(default_factory=list)
+    #: "generator" or "battery" (battery / pumped-hydro storage candidate)
+    kind: str = "generator"
+    #: storage: energy per unit [MWh] (``Capacity``) and efficiencies
+    unit_mwh: float = 0.0
+    eff_in: float = 1.0
+    eff_out: float = 1.0
 
 
 def find_candidates(
@@ -309,6 +325,66 @@ def find_candidates(
                 energy=energy,
                 max_units=mub,
                 build_cost=cost,
+            )
+        )
+    return out
+
+
+def find_battery_candidates(
+    res: IspResolver, months: list[date], prefixes: tuple[str, ...] = ()
+) -> list[Candidate]:
+    """Batteries / PHES with ``Units`` 0 and ``Max Units Built`` > 0.
+
+    One PLEXOS unit = ``Max Power`` MW and ``Capacity`` MWh; ``Build Cost``
+    is $/kW of power, so the whole annuity sits on the power axis and the
+    energy axis follows through ``energy_power_ratio`` (fixed duration).
+    """
+    bat_node = _single_child(res, "Battery", "Nodes")
+    nodes = {o.object_id: o.name for o in res.objects("Node")}
+    out: list[Candidate] = []
+    for o in sorted(res.objects("Battery"), key=lambda o: o.name):
+        cat = res.category(o)
+        if prefixes and not cat.startswith(prefixes):
+            continue
+        mub = [
+            res.scalar(o.object_id, "Max Units Built", d, 0.0) or 0.0 for d in months
+        ]
+        if max(mub) <= 0:
+            continue
+        if (res.scalar(o.object_id, "Units", months[0], 0.0) or 0.0) > 0:
+            continue
+        bus = nodes.get(bat_node.get(o.object_id, -1))
+        if bus is None:
+            logger.warning("battery candidate %s has no node, skipped", o.name)
+            continue
+
+        def val(prop: str, default: float, oid: int = o.object_id) -> float:
+            v = res.scalar(oid, prop, months[0], default)
+            return default if v is None else float(v)
+
+        out.append(
+            Candidate(
+                name=o.name,
+                oid=o.object_id,
+                bus=bus,
+                category=cat,
+                unit_mw=val("Max Power", 1.0) or 1.0,
+                wacc=val("WACC", 7.0),
+                life=val("Economic Life", 20.0),
+                fom=val("FO&M Charge", 0.0),
+                vom=val("VO&M Charge", 0.0),
+                aux=0.0,
+                heat_rate=None,
+                fuel_oid=None,
+                energy=True,
+                max_units=mub,
+                build_cost=[
+                    res.scalar(o.object_id, "Build Cost", d, 0.0) or 0.0 for d in months
+                ],
+                kind="battery",
+                unit_mwh=val("Capacity", 0.0),
+                eff_in=val("Charge Efficiency", 100.0) / 100.0,
+                eff_out=val("Discharge Efficiency", 100.0) / 100.0,
             )
         )
     return out
@@ -411,6 +487,56 @@ def _fy_capacity_rhs(
     return out
 
 
+def _battery_candidate(
+    c: Candidate,
+    bstage: list[bool],
+    nrep: int,
+    opts: ExpansionOptions,
+    fy_index: list[int],
+) -> dict[str, Any]:
+    """gtopt Battery with power + energy expansion for a storage candidate.
+
+    Units of ``Max Power`` MW / ``Capacity`` MWh; the annuity
+    (``Build Cost`` $/kW of power) is charged on the power axis and the
+    energy axis is tied to it by ``energy_power_ratio`` = duration [h].
+    """
+    n_st = len(bstage)
+    mub = [c.max_units[s // nrep] for s in range(n_st)]
+    pmax = max(mub) * c.unit_mw
+    cap = [
+        round(
+            annual_capcost(c.build_cost[s // nrep], c.wacc, c.life, c.fom)
+            * life_factor(c.life, opts.years - fy_index[s]),
+            3,
+        )
+        for s in range(n_st)
+    ]
+    expmod = [mub[s] if bstage[s] else 0.0 for s in range(n_st)]
+    return {
+        "name": c.name,
+        "bus": c.bus,
+        "type": "candidate_" + ("phes" if "PHES" in c.category else "battery"),
+        "description": f"storage expansion candidate [{c.category}]",
+        "input_efficiency": c.eff_in,
+        "output_efficiency": c.eff_out,
+        "emin": 0.0,
+        "emax": max(mub) * c.unit_mwh,
+        "pmax_charge": pmax,
+        "pmax_discharge": pmax,
+        "capacity": 0.0,
+        "expcap": c.unit_mwh,
+        "expmod": expmod,
+        "capmax": [m * c.unit_mwh for m in mub],
+        "annual_capcost": 0.0,
+        "power_capacity": 0.0,
+        "power_expcap": c.unit_mw,
+        "power_expmod": expmod,
+        "power_capmax": [m * c.unit_mw for m in mub],
+        "power_annual_capcost": cap,
+        "energy_power_ratio": c.unit_mwh / c.unit_mw,
+    }
+
+
 def _daily_net_load(
     system: dict[str, Any], ws: dict[tuple[str, str], Any], nd: int
 ) -> np.ndarray:
@@ -444,7 +570,10 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
     stage_days = [0] * n_st
     month_masks: list[list[np.ndarray]] = []
     fy_start = fy_start_stages(months, nrep)
+    fy_index = list(np.cumsum(fy_start) - 1)
     cands = find_candidates(res, months, opts.candidate_prefixes)
+    if opts.include_batteries and opts.battery_candidates:
+        cands += find_battery_candidates(res, months, opts.candidate_prefixes)
     cap_on = {c.name: capainst_stages(months, c, nrep) for c in cands}
     stats: dict[str, Any] = defaultdict(int)
     sched: dict[tuple[str, str], dict[int, np.ndarray]] = defaultdict(dict)
@@ -630,11 +759,25 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
         )
     profile_array: list[dict[str, Any]] = []
     gen_fuel_price: dict[int, list[float]] = {}
+    battery_candidates: list[dict[str, Any]] = []
     for c in cands:
+        if c.kind == "battery":
+            battery_candidates.append(
+                _battery_candidate(
+                    c, build_stages(months, c, nrep), nrep, opts, fy_index
+                )
+            )
+            stats["candidates"] += 1
+            stats["candidates_storage"] += 1
+            continue
         uid = len(generator_array) + 1
         bstage = build_stages(months, c, nrep)
+        # Economic life shorter than the rest of the horizon: gtopt's
+        # capacost keeps charging the annuity to the horizon end, so scale
+        # it by life / remaining years (same undiscounted total payment).
         cap = [
             annual_capcost(c.build_cost[s // nrep], c.wacc, c.life, c.fom)
+            * life_factor(c.life, opts.years - fy_index[s])
             for s in range(n_st)
         ]
         price = [0.0] * n_st
@@ -717,6 +860,11 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
         if b["_first"] == 0 and b["_eini"] is not None:
             item["eini"] = b["_eini"]
         battery_array.append(item)
+    for item in battery_candidates:
+        if item["name"] in bats:
+            logger.warning("battery candidate %s is also existing", item["name"])
+            continue
+        battery_array.append({**item, "uid": len(battery_array) + 1})
     flow_array: list[dict[str, Any]] = []
     for fl in hydro.get("flow_array", []):
         if fl["name"] in inflow:
@@ -753,6 +901,16 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
                 item["penalty"] = opts.capacity_penalty
             if is_capacity:
                 rhs = _fy_capacity_rhs(rhs, fy_start, var.op, off)
+            # stages without the constraint: per-stage ``active_stages`` (no LP
+            # row) instead of a huge never-binding RHS
+            live = np.abs(rhs[:, 0]) < abs(off)
+            if not live.any():
+                stats["uc_skipped_never_active"] += 1
+                continue
+            if not live.all():
+                item["active_stages"] = [int(v) for v in live]
+                rhs[~live] = rhs[live][0]
+            item["expression"] = f"{lhs} {var.op} {isp_c._fmt(float(rhs[live][0, 0]))}"
             if stage_scope:
                 vals = rhs[:, 0]
                 if not np.allclose(vals, vals[0]):

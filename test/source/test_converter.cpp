@@ -1,3 +1,4 @@
+#include <format>
 #include <string_view>
 
 #include <doctest/doctest.h>
@@ -316,10 +317,10 @@ TEST_CASE("ConverterLP - capainst column primal at lower bound")
   const auto cap_col = conv_lp.capacity_col_at(stage_lp);
   REQUIRE(cap_col.has_value());
 
-  // The expansion-module formulation pins capainst = 40 * expmod = 40
-  // when one module is chosen.
+  // capainst = capacity + expcap * expmod = 10 + 40 = 50 when one
+  // module is chosen (the existing 10 MW is not bought as a build).
   const auto cap_val = lp.get_col_sol()[*cap_col];
-  CHECK(cap_val == doctest::Approx(40.0).epsilon(1e-6));
+  CHECK(cap_val == doctest::Approx(50.0).epsilon(1e-6));
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
@@ -360,4 +361,189 @@ TEST_CASE(  // NOLINT
   auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);
+}
+
+namespace
+{
+
+/// Arbitrage fixture for battery power + energy expansion.  One bus, one
+/// 2 h stage: block 1 has a 10 $/MWh generator and no load, block 2 a
+/// 100 MW load served otherwise by a 1000 $/MWh unit.  Battery capex
+/// (annual / 8760 × 2 h, no discounting): energy 8760 $/MWh-yr → 2 $/MWh,
+/// power 4380 $/MW-yr → 1 $/MW.  `extra` is spliced into the battery and
+/// `ucs` into the user-constraint array.
+[[nodiscard]] double battery_expansion_obj(std::string_view extra,
+                                           std::string_view ucs = "")
+{
+  const auto json = std::format(
+      R"({{
+    "options": {{"annual_discount_rate": 0.0, "output_format": "csv",
+                "model_options": {{"use_single_bus": true,
+                                  "demand_fail_cost": 10000,
+                                  "scale_objective": 1}}}},
+    "simulation": {{
+      "block_array": [{{"uid": 1, "duration": 1}}, {{"uid": 2, "duration": 1}}],
+      "stage_array": [{{"uid": 1, "first_block": 0, "count_block": 2}}],
+      "scenario_array": [{{"uid": 1, "probability_factor": 1}}]}},
+    "system": {{
+      "name": "bat_power_exp",
+      "bus_array": [{{"uid": 1, "name": "b1"}}],
+      "demand_array": [{{"uid": 1, "name": "d1", "bus": "b1",
+                        "lmax": [[0, 100]]}}],
+      "generator_array": [
+        {{"uid": 1, "name": "cheap", "bus": "b1", "gcost": 10,
+          "pmax": [[100, 0]], "capacity": 100}},
+        {{"uid": 2, "name": "peaker", "bus": "b1", "gcost": 1000,
+          "capacity": 100}}],
+      "battery_array": [{{"uid": 1, "name": "bat", "bus": "b1",
+        "input_efficiency": 1, "output_efficiency": 1,
+        "daily_cycle": false, "eini": 0,
+        "pmax_charge": 1000, "pmax_discharge": 1000,
+        "capacity": 0, "expcap": 1, "expmod": 1000, "capmax": 1000,
+        "annual_capcost": 8760,
+        "power_capacity": 0, "power_expcap": 1, "power_expmod": 1000,
+        "power_capmax": 1000 {}}}]
+      {}}}
+  }})",
+      extra,
+      ucs);
+  Planning base;
+  base.merge(parse_planning_json(json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 1);
+  return planning_lp.systems()
+      .front()
+      .front()
+      .linear_interface()
+      .get_obj_value();
+}
+
+}  // namespace
+
+TEST_CASE("Battery power + energy expansion - hand-computed optima")  // NOLINT
+{
+  SUBCASE("independent axes: E = P = 100")
+  {
+    // 100 MWh × 10 (charge) + 2 × 100 (energy) + 1 × 100 (power)
+    CHECK(battery_expansion_obj(R"(, "power_annual_capcost": 4380)")
+          == doctest::Approx(1300.0));
+  }
+  SUBCASE("fixed 4 h duration: E = 4 P = 400")
+  {
+    // 1000 + 2 × 400 + 1 × 100
+    CHECK(battery_expansion_obj(
+              R"(, "power_annual_capcost": 4380, "energy_power_ratio": 4)")
+          == doctest::Approx(1900.0));
+  }
+  SUBCASE("prohibitive power cost: no battery, the peaker serves")
+  {
+    // power 1e9 $/MW-yr → 2.3e5 $/MW over 2 h > 990 $/MWh saving
+    CHECK(battery_expansion_obj(R"(, "power_annual_capcost": 1e9)")
+          == doctest::Approx(100.0 * 1000.0));
+  }
+  SUBCASE("user constraint on the power capainst caps the build")
+  {
+    // converter("bat_conv").capainst <= 50 → 50 MW shifted, 50 MWh peaker:
+    // 50 × 10 + 2 × 50 + 1 × 50 + 50 × 1000
+    CHECK(battery_expansion_obj(
+              R"(, "power_annual_capcost": 4380)",
+              R"(, "user_constraint_array": [{"uid": 1, "name": "pcap",
+                   "expression": "converter('bat_conv').capainst <= 50"}])")
+          == doctest::Approx(50650.0));
+  }
+}
+
+TEST_CASE(
+    "Battery power expansion - converter capainst is an SDDP state")  // NOLINT
+{
+  // Two phases, power built in phase 1: the converter's capainst/capacost
+  // are published as state variables (like every capacity object), so an
+  // SDDP cut can price the power axis.
+  constexpr std::string_view json = R"({
+    "options": {"annual_discount_rate": 0.0, "output_format": "csv",
+                "model_options": {"use_single_bus": true,
+                                  "demand_fail_cost": 10000,
+                                  "scale_objective": 1}},
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 1},
+                      {"uid": 3, "duration": 1}, {"uid": 4, "duration": 1}],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2},
+                      {"uid": 2, "first_block": 2, "count_block": 2}],
+      "phase_array": [{"uid": 1, "first_stage": 0, "count_stage": 1},
+                      {"uid": 2, "first_stage": 1, "count_stage": 1}],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]},
+    "system": {
+      "name": "bat_power_state",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "demand_array": [{"uid": 1, "name": "d1", "bus": "b1", "lmax": 10}],
+      "generator_array": [{"uid": 1, "name": "g1", "bus": "b1",
+                           "gcost": 10, "capacity": 50}],
+      "battery_array": [{"uid": 1, "name": "bat", "bus": "b1",
+        "pmax_charge": 100, "pmax_discharge": 100,
+        "capacity": 0, "expcap": 1, "expmod": [100, 0], "capmax": 100,
+        "annual_capcost": 8760,
+        "power_capacity": 0, "power_expcap": 1, "power_expmod": [100, 0],
+        "power_capmax": 100, "power_annual_capcost": 4380,
+        "energy_power_ratio": 2}]}
+  })";
+  Planning base;
+  base.merge(parse_planning_json(json));
+  PlanningLP planning_lp(std::move(base));
+  const auto& sim = planning_lp.simulation();
+  int n_conv_capainst = 0;
+  for (const auto& [key, svar] :
+       sim.state_variables(first_scene_index(), PhaseIndex {0}))
+  {
+    if (key.class_name == "Converter" && key.col_name == "capainst") {
+      ++n_conv_capainst;
+    }
+  }
+  CHECK(n_conv_capainst == 1);
+}
+
+TEST_CASE(  // NOLINT
+    "Battery - active schedule starting inactive (commissioned in stage 2)")
+{
+  // Stage 1 inactive → no efin column there; stage 2 (same phase) must
+  // start its own SoC chain instead of `flat_map::at` on the missing
+  // previous efin.  The battery then shifts 10 MWh from the cheap block
+  // to the expensive one in stage 2.
+  constexpr std::string_view json = R"({
+    "options": {"annual_discount_rate": 0.0, "output_format": "csv",
+                "model_options": {"use_single_bus": true,
+                                  "demand_fail_cost": 10000,
+                                  "scale_objective": 1}},
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 1},
+                      {"uid": 3, "duration": 1}, {"uid": 4, "duration": 1}],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2},
+                      {"uid": 2, "first_block": 2, "count_block": 2}],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]},
+    "system": {
+      "name": "late_active_battery",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "demand_array": [{"uid": 1, "name": "d1", "bus": "b1",
+                        "lmax": [[0, 10], [0, 10]]}],
+      "generator_array": [
+        {"uid": 1, "name": "cheap", "bus": "b1", "gcost": 10,
+         "pmax": [[100, 0], [100, 0]], "capacity": 100},
+        {"uid": 2, "name": "peaker", "bus": "b1", "gcost": 100,
+         "capacity": 100}],
+      "battery_array": [{"uid": 1, "name": "bat", "bus": "b1",
+        "active": [0, 1], "daily_cycle": false,
+        "input_efficiency": 1, "output_efficiency": 1,
+        "emin": 0, "emax": 50, "capacity": 50,
+        "pmax_charge": 50, "pmax_discharge": 50}]}
+  })";
+  Planning base;
+  base.merge(parse_planning_json(json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 1);
+  // stage 1: peaker 10 × 100; stage 2: 10 MWh via the battery at 10 $/MWh
+  CHECK(planning_lp.systems().front().front().linear_interface().get_obj_value()
+        == doctest::Approx(1000.0 + 100.0));
 }

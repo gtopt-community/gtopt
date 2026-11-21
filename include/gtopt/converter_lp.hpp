@@ -28,6 +28,9 @@ public:
   static constexpr std::string_view GenerationName {"generation"};
   static constexpr std::string_view DemandName {"demand"};
   static constexpr std::string_view CapacityName {"capacity"};
+  /// Fixed-duration coupling row (``Converter.energy_power_ratio``):
+  /// ``battery capainst − ratio × converter capainst = 0`` per stage.
+  static constexpr std::string_view DurationName {"duration"};
   /// Per-block commitment-status columns added when
   /// ``Converter.commitment`` is set: ``u_charge`` gates the synthetic
   /// charge ``Demand`` floor/ceiling; ``u_discharge`` gates the

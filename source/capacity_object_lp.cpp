@@ -104,7 +104,10 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
         }
       }
 
-      prev_stage_capacity = stage_capacity;
+      // Exogenous capacity change across the phase boundary (dated
+      // commissioning / retirement on an expandable element): the
+      // previous stage's schedule value, exactly as within a phase.
+      prev_stage_capacity = capacity_at(*prev_stage, stage_capacity);
 
       if (prev_phase_publishes) {
         const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
@@ -233,7 +236,15 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capainst_cols[stage_uid] = capainst_col;
   capacost_cols[stage_uid] = capacost_col;
 
-  const auto dcap = prev_stage_capacity - stage_capacity;
+  // capainst = (1 − ξ)·capainst_prev + expcap·expmod + (C_t − C_{t−1}).
+  // Without a previous capainst column (first expandable stage) the
+  // existing capacity enters whole: capainst = C_t + expcap·expmod —
+  // existing capacity is never paid for as a build.
+  const auto finite_capacity = [](double c)
+  { return c < LinearProblem::DblMax / 2 ? c : 0.0; };
+  const auto dcap = prev_capainst_col
+      ? finite_capacity(prev_stage_capacity) - finite_capacity(stage_capacity)
+      : -finite_capacity(stage_capacity);
   capainst_rows[stage_uid] = lp.add_row(std::move(capainst_row.equal(dcap)));
   capacost_rows[stage_uid] = lp.add_row(std::move(capacost_row.equal(0.0)));
 

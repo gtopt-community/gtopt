@@ -1465,10 +1465,10 @@ TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
   const auto cap_col = dem_lp.capacity_col_at(stage_lp);
   REQUIRE(cap_col.has_value());
 
-  // The expansion-module formulation pins capainst = expcap * expmod = 40
-  // when one module is chosen.
+  // capainst = capacity + expcap * expmod = 10 + 40 = 50 when one
+  // module is chosen (the existing 10 MW is not bought as a build).
   const auto& sol = lp.get_col_sol();
-  CHECK(sol[*cap_col] == doctest::Approx(40.0).epsilon(1e-6));
+  CHECK(sol[*cap_col] == doctest::Approx(50.0).epsilon(1e-6));
 }
 
 TEST_CASE(

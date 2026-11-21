@@ -734,9 +734,18 @@ def _add_term(  # pylint: disable=too-many-branches,too-many-return-statements
             ev.dropped["capacity_folded" if units * cap else "capacity_zero"] += 1
             return
         if prop in ("Capacity Built Coefficient", "Units Built in Year Coefficient"):
-            if opts.expansion and prop == "Units Built in Year Coefficient":
-                # in-year build of a candidate: no gtopt reference yet
-                ev.unsupported.add("Generator.Units Built in Year")
+            if (
+                opts.expansion
+                and prop == "Units Built in Year Coefficient"
+                and name in view.expansion
+            ):
+                # in-year build of a candidate = its expansion modules
+                # (expcap = Max Capacity = one unit); builds happen at the
+                # FY start, where the yearly constraint is enforced
+                ev.terms.append(
+                    Term(f"generator({_q(name)}).expmod", _simplify(c), pcls, name)
+                )
+                ev.dropped["build_variable"] += 1
                 return
             ev.dropped["build_term_zero"] += 1
             return
@@ -764,16 +773,24 @@ def _add_term(  # pylint: disable=too-many-branches,too-many-return-statements
         if prop == "Generation Capacity Coefficient":
             units = res.scalar(parent, "Units", view.day0, default=0.0) or 0.0
             pmax = res.scalar(parent, "Max Power", view.day0, default=0.0) or 0.0
-            if opts.expansion and units <= 0 and _is_candidate(res, parent):
-                # candidate battery: gtopt expands batteries on the energy
-                # axis only (no power-capacity variable to reference yet)
-                ev.unsupported.add("Battery.candidate Generation Capacity")
+            if opts.expansion and units <= 0 and name in view.expansion:
+                # candidate battery: installed power = its converter's
+                # capainst (Battery.power_* expansion fields)
+                ev.terms.append(
+                    Term(
+                        f"converter({_q(name + '_conv')}).capainst",
+                        _simplify(c),
+                        pcls,
+                        name,
+                    )
+                )
+                ev.dropped["capacity_variable"] += 1
                 return
             assert ev.const is not None
             ev.const += np.asarray(c) * units * pmax
             ev.dropped["capacity_folded" if units * pmax else "capacity_zero"] += 1
             return
-        if name not in view.batteries:
+        if name not in view.batteries and name not in view.expansion:
             ev.dropped["object_not_in_case"] += 1
             return
         if prop == "Generation Coefficient":
@@ -858,11 +875,6 @@ def _add_term(  # pylint: disable=too-many-branches,too-many-return-statements
             )
         return
     ev.unsupported.add(f"{pcls}.{prop}")
-
-
-def _is_candidate(res: IspResolver, oid: int) -> bool:
-    """True when the object has ``Max Units Built`` > 0 on some date."""
-    return any(r.value > 0 for r in res.rows.get((oid, "Max Units Built"), []))
 
 
 def _simplify(c: float | np.ndarray) -> float | np.ndarray:
