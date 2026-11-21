@@ -10,6 +10,8 @@
  * builds LP variables and constraints for energy conversion rate coupling.
  */
 
+#include <algorithm>
+
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/converter_lp.hpp>
@@ -70,7 +72,9 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   }
 
   auto&& gen_cols = gen_ptr->lookup_generation_cols(scenario, stage);
-  auto&& demand_cols = dem_ptr->load_cols_at(scenario, stage);
+  // Tolerant lookup: a battery with pmax_charge = 0 in every block of the
+  // stage has no load columns at all (P1 zero-lmax skip).
+  auto&& demand_cols = dem_ptr->lookup_load_cols(scenario, stage);
   auto&& finp_cols = bat_ptr->finp_cols_at(scenario, stage);
   auto&& fout_cols = bat_ptr->fout_cols_at(scenario, stage);
 
@@ -86,9 +90,10 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
     // LP-size / robustness: when the synthetic discharge generator or
     // charge demand elided this block (gold-standard zero-envelope P1
-    // skip), there is no column to couple — skip the conversion and
-    // capacity rows entirely.  Write-out rule: an absent coupling row
-    // has a 0 dual (it never bound), the natural zero.
+    // skip), that direction has no rating: pin its battery-side flow to
+    // 0, couple only the surviving direction, and skip the capacity /
+    // envelope rows.  Write-out rule: an absent coupling row has a 0
+    // dual (it never bound), the natural zero.
     const auto gcol_it = gen_cols.find(buid);
     const auto dcol_it = demand_cols.find(buid);
     const auto fout_it = fout_cols.find(buid);
@@ -96,6 +101,47 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     if (gcol_it == gen_cols.end() || dcol_it == demand_cols.end()
         || fout_it == fout_cols.end() || finp_it == finp_cols.end())
     {
+      // Pre-fix this `continue` left BOTH sides uncoupled, so when the
+      // charge demand was elided (``pmax_charge`` = 0 in a block) the
+      // battery ``finp`` column stayed in [0, +inf) with no row (free
+      // charging, energy from nowhere) AND the discharge generator was
+      // free generation at ``discharge_cost``.  Now: pin the battery-side
+      // flow whose grid partner is missing to 0, and still couple the side
+      // that has both columns.
+      if (gcol_it == gen_cols.end() && fout_it != fout_cols.end()) {
+        lp.col_at(fout_it->second).uppb = 0.0;
+      }
+      if (dcol_it == demand_cols.end() && finp_it != finp_cols.end()) {
+        lp.col_at(finp_it->second).uppb = 0.0;
+      }
+      const auto ctx =
+          make_block_context(scenario.uid(), stage.uid(), block.uid());
+      if (gcol_it != gen_cols.end() && fout_it != fout_cols.end()) {
+        auto grow =
+            SparseRow {
+                .class_name = Element::class_name.full_name(),
+                .constraint_name = GenerationName,
+                .variable_uid = uid(),
+                .context = ctx,
+            }
+                .equal(0);
+        grow[fout_it->second] = -stage_conversion_rate;
+        grow[gcol_it->second] = +1;
+        grows[buid] = lp.add_row(std::move(grow));
+      }
+      if (dcol_it != demand_cols.end() && finp_it != finp_cols.end()) {
+        auto drow =
+            SparseRow {
+                .class_name = Element::class_name.full_name(),
+                .constraint_name = DemandName,
+                .variable_uid = uid(),
+                .context = ctx,
+            }
+                .equal(0);
+        drow[finp_it->second] = -stage_conversion_rate;
+        drow[dcol_it->second] = +1;
+        drows[buid] = lp.add_row(std::move(drow));
+      }
       continue;
     }
 
@@ -150,6 +196,63 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       crow[dcol] = -1;
 
       crows[buid] = lp.add_row(std::move(crow));
+    }
+
+    // Battery power envelope (valid inequality, default ON):
+    //
+    //   p_charge / Pc_max + p_discharge / Pd_max ≤ 1
+    //
+    // Pc_max / Pd_max are the HARD per-block bounds of the synthetic
+    // charge demand / discharge generator columns, so the row never cuts
+    // a schedule a real inverter can run (it shares one power rating
+    // between both directions).  It removes the LP vertex where the
+    // battery charges and discharges simultaneously at full power — the
+    // cheapest way for a lossy (η < 1) battery to "burn" surplus energy.
+    // Partial simultaneous operation inside the envelope (e.g. 50 %/50 %)
+    // is still LP-feasible; only binaries forbid it entirely (none of the
+    // existing commitment paths do — ``u_commit`` gates both directions
+    // with the SAME u, and the legacy ``u_charge``/``u_discharge`` carry
+    // no exclusivity row — so the envelope is emitted for them too).
+    //
+    // Expansion: the converter's expandable ``capacity`` already adds
+    // ``p_charge + p_discharge ≤ capacity`` (the linear valid inequality
+    // for a variable rating); the envelope uses the column bounds, which
+    // are hard limits independent of that capacity, so both stay valid.
+    //
+    // Skipped when either bound is ≤ 0 (one direction off — no
+    // simultaneity possible), unbounded (no finite rating to normalise
+    // by), or when the hard floors (pmin_charge / pmin_discharge) already
+    // force a point OUTSIDE the envelope (explicit user schedule that the
+    // row would make infeasible).  Row scaled by max(Pc, Pd) → coefficients ≥
+    // 1, RHS in MW.
+    if (sc.options().battery_power_envelope()) {
+      const double pd_max = lp.get_col_uppb(gcol);
+      const double pc_max = lp.get_col_uppb(dcol);
+      // ≥ 1e20 MW = "no rating" sentinel (DblMax or solver infinity).
+      static constexpr double unbounded_mw = 1e20;
+      const bool finite = pd_max < unbounded_mw && pc_max < unbounded_mw;
+      // A hard floor schedule outside the envelope (e.g. pinned
+      // pmin_charge = pmin_discharge = full power) would turn the row
+      // into an infeasibility — respect the user's explicit schedule.
+      const bool forced_outside = finite && pd_max > 0.0 && pc_max > 0.0
+          && ((lp.get_col_lowb(gcol) / pd_max)
+                  + (lp.get_col_lowb(dcol) / pc_max)
+              > 1.0 + 1e-9);
+      if (pd_max > 0.0 && pc_max > 0.0 && finite && !forced_outside) {
+        const double pref = std::max(pc_max, pd_max);
+        auto erow =
+            SparseRow {
+                .class_name = Element::class_name.full_name(),
+                .constraint_name = PowerEnvelopeName,
+                .variable_uid = uid(),
+                .context = block_context,
+            }
+                .less_equal(pref);
+        erow[gcol] = pref / pd_max;
+        erow[dcol] = pref / pc_max;
+        power_envelope_rows[std::tuple {scenario.uid(), stage.uid()}][buid] =
+            lp.add_row(std::move(erow));
+      }
     }
   }
 
@@ -391,6 +494,7 @@ bool ConverterLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, GenerationName, id(), generation_rows);
   out.add_row_dual(cname, DemandName, id(), demand_rows);
   out.add_row_dual(cname, CapacityName, id(), capacity_rows);
+  out.add_row_dual(cname, PowerEnvelopeName, id(), power_envelope_rows);
 
   return CapacityBase::add_to_output(out);
 }

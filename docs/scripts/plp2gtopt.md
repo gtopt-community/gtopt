@@ -156,6 +156,26 @@ exists, the ESS path takes priority; otherwise the battery path is used.
 | `plpcenbat.dat` | `BatteryParser` | Battery central definition (alternative to ESS) |
 | `plpmanbat.dat` | `ManbatParser` | Maintenance schedule for batteries (energy bounds per block) |
 
+### Battery self-discharge (`annual_loss`)
+
+`plpess.dat` carries `mloss` in **%/month**; PLP (`genpdess.f`) drains the
+SoC by `−bd/730 · ln(1 − mloss/100)` per block of `bd` hours.  plp2gtopt
+emits the exact gtopt equivalent in the linear p.u./year convention:
+
+    annual_loss = −12 · ln(1 − mloss/100)     (≈ 0.12 · mloss)
+
+| Source | `annual_loss` in `battery_array` |
+|--------|----------------------------------|
+| `plpess.dat`, `mloss > 0` (DCMod 0/1) | converted value above (e.g. `mloss = 1` → 0.1206) |
+| `plpess.dat`, `mloss = 0` (DCMod 0/1) | **omitted** → gtopt default 0.48 p.u./yr (4 %/month) |
+| `plpcenbat.dat` (no loss field) | **omitted** → gtopt default 0.48 p.u./yr (4 %/month) |
+| `plpess.dat`, DCMod = 2 (regulation tank) | Reservoir, never a Battery (see below) |
+
+PLP writes `mloss = 0` both for "lossless" and "not specified", so a zero is
+treated as unspecified and the gtopt lithium default applies.  To reproduce
+a lossless PLP run exactly, set `model_options.battery_annual_loss = 0` in
+the generated case (or `--set model_options.battery_annual_loss=0`).
+
 ### Generation-coupled battery (`source_generator`)
 
 When a battery (BESS or ESS) is coupled to a co-located generation asset
@@ -193,7 +213,8 @@ Battery elements:
 - A **Reservoir** is created with:
   - `junction` = the paired hydro generator's central number (its junction UID)
   - `emax` = ESS energy capacity (MWh)
-  - `annual_loss` = `mloss × 12`
+  - `annual_loss` = `−12 · ln(1 − mloss/100)` (`mloss` is %/month; `0`
+    when `mloss = 0` — a regulation tank never takes the battery default)
   - `daily_cycle = true`
 
 The paired hydro generator already has a junction with river inflow and a

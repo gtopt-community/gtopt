@@ -107,6 +107,13 @@ struct StorageOptions
   /// StateVariable at registration time so the SDDP elastic filter can
   /// apply per-variable penalty costs.  Default 0.0 = use global penalty.
   double scost {0.0};
+
+  /// Self-discharge [p.u./year] used for every stage where the element's
+  /// own `annual_loss` schedule has no value.  `0.0` (lossless) for all
+  /// storages except Battery, which passes
+  /// `PlanningOptionsLP::battery_annual_loss()` (default 0.48 =
+  /// 4 %/month).
+  double default_annual_loss {0.0};
 };
 
 template<typename Object>
@@ -523,7 +530,8 @@ public:
     // The legacy per-stage `stage_ecost` is no longer cached.
 
     const auto hour_loss =
-        annual_loss.at(stage.uid()).value_or(0.0) / hours_per_year;
+        annual_loss.at(stage.uid()).value_or(opts.default_annual_loss)
+        / hours_per_year;
     const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
 
     // Physical bounds — stored directly in SparseCol; flatten() converts

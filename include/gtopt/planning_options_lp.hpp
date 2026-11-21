@@ -119,6 +119,21 @@ public:
    *  V-vs-kV unit-typo / busbar lines (e.g. `R/V² ≈ 5e-8`).  Set to `0.0` via
    *  `--set model_options.dc_line_resistance_threshold=0` to disable. */
   static constexpr Real default_dc_line_resistance_threshold = 1e-7;
+  /** @brief Default Battery self-discharge [p.u./year] applied when a
+   *  `Battery` leaves `annual_loss` unset.
+   *
+   *  `0.48` = 4 %/month × 12 in gtopt's linear convention (hourly drain
+   *  `annual_loss / 8760` ≈ 5.48e-5/h; a 730 h month loses exactly 4 %
+   *  of the stored energy in a single block).  Lithium-ion cells
+   *  self-discharge ≈ 1–3 %/month (Battery University BU-802b;
+   *  Wikipedia "Self-discharge") plus ≈ 3 %/month drawn by the
+   *  protection circuit / BMS (BU-802b); 4 %/month is a conservative
+   *  combined cell + BMS figure.  The positive drain also breaks the LP
+   *  degeneracy that otherwise admits cost-free charge/discharge
+   *  zig-zag.  Override planning-wide with
+   *  `model_options.battery_annual_loss` (`0` restores the legacy
+   *  lossless default). */
+  static constexpr Real default_battery_annual_loss = 0.48;
   /** @brief Default voltage-angle bound (`θ ∈ [−2π, +2π]`) used as
    *  fallback when `auto_scale_theta` did not run (e.g.
    *  `auto_scale=false`).  When auto-scaling is enabled the bound is
@@ -461,6 +476,22 @@ public:
   {
     return m_options_.model_options.dc_line_reactance_threshold.value_or(
         default_dc_line_reactance_threshold);
+  }
+
+  /// Resolved default self-discharge [p.u./year] for batteries whose
+  /// own `annual_loss` is unset.  See `default_battery_annual_loss`.
+  [[nodiscard]] constexpr auto battery_annual_loss() const
+  {
+    return m_options_.model_options.battery_annual_loss.value_or(
+        default_battery_annual_loss);
+  }
+
+  /// Whether battery converters emit the power-envelope valid inequality
+  /// `p_c/Pc_max + p_d/Pd_max ≤ 1` per block.  Default `true`.  See
+  /// `ModelOptions::battery_power_envelope`.
+  [[nodiscard]] constexpr bool battery_power_envelope() const
+  {
+    return m_options_.model_options.battery_power_envelope.value_or(true);
   }
 
   /// Returns the resolved threshold used by

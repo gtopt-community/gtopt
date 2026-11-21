@@ -40,6 +40,12 @@ public:
   static constexpr std::string_view ChargeLowerName {"charge_lower"};
   static constexpr std::string_view DischargeUpperName {"discharge_upper"};
   static constexpr std::string_view DischargeLowerName {"discharge_lower"};
+  /// Battery power-envelope valid inequality (default ON,
+  /// ``model_options.battery_power_envelope``):
+  /// ``p_charge/Pc_max + p_discharge/Pd_max ≤ 1`` per block, emitted
+  /// row-scaled by ``max(Pc_max, Pd_max)`` so it stays in MW units.
+  /// Cuts simultaneous full-power charge + discharge.
+  static constexpr std::string_view PowerEnvelopeName {"power_envelope"};
   /// PAMPL bidirectional flow compound: `flow = +discharge − charge`.
   /// Mirrors `line.flow = +flowp − flown`.  Resolves to the converter's
   /// signed net flow (positive when discharging the battery to the
@@ -84,6 +90,7 @@ private:
   STBIndexHolder<RowIndex> generation_rows;
   STBIndexHolder<RowIndex> demand_rows;
   STBIndexHolder<RowIndex> capacity_rows;
+  STBIndexHolder<RowIndex> power_envelope_rows;
 };
 
 // Pin the data-struct constant value so an accidental rename of the

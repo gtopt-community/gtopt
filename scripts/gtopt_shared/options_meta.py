@@ -188,6 +188,8 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "strict_storage_emin",
         "lp_reduction",
         "allow_oversupply",
+        "battery_annual_loss",
+        "battery_power_envelope",
     }
 )
 

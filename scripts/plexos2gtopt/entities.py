@@ -15,6 +15,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+#: Name suffix ``plexos_model._rewrite_pumped_storage`` gives the single
+#: Battery that replaces an energy-model pumped-storage plant (e.g. SEM
+#: Turlough Hill).  ``extract_batteries`` keys on it to tag the battery as
+#: pumped hydro and pin ``annual_loss = 0`` (no lithium self-discharge).
+PUMPED_STORAGE_BATTERY_SUFFIX = " pumped storage"
+
 
 @dataclass(frozen=True)
 class BundleSpec:
@@ -487,6 +493,14 @@ class BatterySpec:
     # constraint ``Σ discharge·Δt ≤ N · capacity`` per day (NOT a cost).
     # 1.0 for all 41 CEN PCP batteries; 0.0 ⇒ no limit emitted.
     max_cycles_day: float = 0.0
+    # Explicit self-discharge [p.u./year] for gtopt ``Battery.annual_loss``.
+    # ``None`` ⇒ field omitted ⇒ gtopt's lithium default (0.48 p.u./year =
+    # 4 %/month, ``model_options.battery_annual_loss``) applies.  Pumped
+    # storage rewritten as a Battery sets ``0.0`` (no electrochemical
+    # self-discharge; evaporation is negligible over a dispatch week).
+    annual_loss: float | None = None
+    # Optional gtopt ``Battery.type`` tag (``""`` ⇒ writer default).
+    storage_type: str = ""
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,7 @@
 """Unit tests for BatteryWriter class."""
 
+import math
+
 import pytest
 import pandas as pd
 
@@ -8,7 +10,7 @@ from ..ess_parser import EssParser
 from ..central_parser import CentralParser
 from ..manbat_parser import ManbatParser
 from ..maness_parser import ManessParser
-from ..battery_writer import BatteryWriter
+from ..battery_writer import BatteryWriter, mloss_to_annual_loss
 
 
 def _make_battery_parser(tmp_path, content: str) -> BatteryParser:
@@ -320,7 +322,7 @@ def test_ess_takes_priority_over_battery(tmp_path):
 
 
 def test_ess_annual_loss(tmp_path):
-    """annual_loss is mloss * 12."""
+    """annual_loss = -12·ln(1 - mloss/100) (PLP genpdess.f, mloss in %/month)."""
     ep = _make_ess_parser(
         tmp_path,
         " 1\n  ESS1  0.90  0.90  1.5  200.0  50.0  0\n",
@@ -329,7 +331,54 @@ def test_ess_annual_loss(tmp_path):
     entries = writer._all_entries()  # pylint: disable=protected-access
 
     assert len(entries) == 1
-    assert entries[0]["annual_loss"] == pytest.approx(1.5 * 12)
+    # Hand check: -12 * ln(0.985) = 0.181364...
+    assert entries[0]["annual_loss"] == pytest.approx(0.1813637, rel=1e-6)
+    bats = writer.to_battery_array()
+    assert bats[0]["annual_loss"] == pytest.approx(0.1813637, rel=1e-6)
+
+
+def test_mloss_to_annual_loss_matches_plp_block_drain():
+    """gtopt's per-block drain equals PLP's e_loss = -bd/730·ln(1-m/100)."""
+    for mloss in (0.5, 1.0, 2.0, 4.0):
+        al = mloss_to_annual_loss(mloss)
+        assert al is not None
+        for bd in (1.0, 24.0, 730.0):
+            plp = -bd / 730.0 * math.log(1.0 - mloss / 100.0)
+            assert al / 8760.0 * bd == pytest.approx(plp, rel=1e-12)
+    # 1 %/month ≈ 0.1206 p.u./year (≈ 0.12 · mloss)
+    assert mloss_to_annual_loss(1.0) == pytest.approx(0.120604, rel=1e-5)
+
+
+def test_mloss_zero_or_absent_leaves_annual_loss_unset():
+    """mloss <= 0 → None so gtopt's 4 %/month battery default applies."""
+    assert mloss_to_annual_loss(0.0) is None
+    assert mloss_to_annual_loss(-1.0) is None
+
+
+def test_ess_zero_mloss_omits_annual_loss(tmp_path):
+    """plpess.dat mloss = 0 → battery JSON has no annual_loss key."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.90  0.90  0.0  200.0  50.0  0\n",
+    )
+    bats = BatteryWriter(ess_parser=ep).to_battery_array()
+    assert len(bats) == 1
+    assert "annual_loss" not in bats[0]
+
+
+def test_cenbat_omits_annual_loss(tmp_path):
+    """plpcenbat.dat has no loss field → annual_loss omitted (gtopt default)."""
+    bp = _make_battery_parser(
+        tmp_path,
+        " 1     1\n"
+        " 1     BAT1\n"
+        " 1\n"
+        " BAT1_NEG     0.95\n"
+        " 1     0.95     0.0     200.0\n",
+    )
+    bats = BatteryWriter(battery_parser=bp).to_battery_array()
+    assert len(bats) == 1
+    assert "annual_loss" not in bats[0]
 
 
 def test_process_with_ess(tmp_path):
@@ -812,7 +861,9 @@ def test_ess_dcmod2_generates_regulation_reservoir(tmp_path):
     assert r["junction"] == 68  # paired generator's central number
     assert r["emax"] == pytest.approx(800.0)
     assert r["emin"] == pytest.approx(0.0)
-    assert r["annual_loss"] == pytest.approx(24.0)  # 2.0 * 12
+    # mloss = 2 %/month → -12·ln(0.98) = 0.242433 p.u./year (was the
+    # unit bug 2.0 * 12 = 24 p.u./year, i.e. 0.27 %/h).
+    assert r["annual_loss"] == pytest.approx(0.2424325, rel=1e-6)
     assert r["daily_cycle"] is True
 
 
@@ -920,7 +971,8 @@ def test_ess_dcmod2_works_with_pasada_central(tmp_path):
     assert r["uid"] == 900
     assert r["junction"] == 42  # pasada central's junction
     assert r["emax"] == pytest.approx(200.0)
-    assert r["annual_loss"] == pytest.approx(18.0)  # 1.5 * 12
+    # mloss = 1.5 %/month → -12·ln(0.985) = 0.181364 p.u./year
+    assert r["annual_loss"] == pytest.approx(0.1813637, rel=1e-6)
 
 
 # ---------------------------------------------------------------------------

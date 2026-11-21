@@ -1848,41 +1848,27 @@ def build_battery_array(
         if 0.0 < bat.max_cycles_day < reachable_cycles:
             entry["capacity"] = bat.emax
             entry["max_cycles_day"] = bat.max_cycles_day
-        # Default self-discharge for Li-ion BESS — gtopt's
-        # ``Battery.annual_loss`` (p.u./year linear) drives the
-        # energy-balance row coefficient
-        # ``SoC[t+1] = SoC[t] × (1 − annual_loss / 8760) + flows``.
-        #
-        # Literature on Li-ion BESS self-discharge:
-        #   * Battery University BU-802b: 0.35–2.5 %/month at 20 °C
-        #   * NREL Energy Storage Database: LFP 1–3 %/month;
-        #     NMC 2–5 %/month
-        #   * IEA Battery Storage Roadmap 2024: 1–3 %/month typical
-        #
-        # 2 %/month is mid-range — representative of LFP cells (the
-        # dominant grid-BESS chemistry in CEN deployments) at
-        # ambient operating temperatures (northern Chile averages
-        # ~25 °C).  Cumulative annual fraction lost:
-        # ``1 − (1 − 0.02)^12 ≈ 0.215`` (21.5 %/year linear).
-        #
-        # Setting an explicit loss has TWO LP-conditioning benefits
-        # beyond physical realism: (a) it gently penalises holding
-        # energy in storage, regularising the energy-balance equality
-        # chain and curing the LP-relax dual cascade we observe at
-        # eini = 0 batteries; (b) it makes the writer's emitted JSON
-        # self-documenting for downstream tools (gtopt_check, audit
-        # scripts) that expect explicit physical parameters.
-        #
-        # OPT-IN ONLY (``--default-storage-loss``, default OFF): this synthetic
-        # default self-discharge is NOT emitted unless explicitly requested —
-        # by default a battery carries no annual loss so the energy balance is
-        # not perturbed by a value PLEXOS never ships.  When enabled, emit it
-        # only if PLEXOS didn't already ship its own ``annual_loss`` (pulled
-        # from ``Battery.Self-discharge Rate`` if set — never observed
-        # populated in the reference case, but the safety check costs nothing).
+        # Self-discharge.  gtopt applies a DEFAULT of 0.48 p.u./year
+        # (4 %/month, lithium cell + BMS; ``model_options.
+        # battery_annual_loss``) to every Battery whose ``annual_loss`` is
+        # ABSENT, so a real BESS needs nothing here.  Non-lithium storage
+        # emitted as a Battery (pumped hydro rewritten by
+        # ``plexos_model._rewrite_pumped_storage``) carries an explicit
+        # ``bat.annual_loss = 0.0`` that must be written so the lithium
+        # default does not apply.
+        if bat.annual_loss is not None:
+            entry["annual_loss"] = bat.annual_loss
+        if bat.storage_type:
+            entry["type"] = bat.storage_type
+        # OPT-IN (``--default-storage-loss``, default OFF): the legacy
+        # synthetic 2 %/month (``1 − 0.98^12 ≈ 0.215`` p.u./year, LFP
+        # mid-range per BU-802b / NREL) written explicitly.  Since gtopt
+        # now defaults batteries to 4 %/month this flag LOWERS the loss of
+        # cycle-limited BESS to the 2 %/month figure; it never overrides
+        # an explicit value (pumped storage keeps 0).
         if apply_default_loss and bat.max_cycles_day > 0.0 and bat.emax > 0.0:
             if "annual_loss" not in entry:
-                entry["annual_loss"] = 0.215  # 2%/month → 21.5%/year (see above)
+                entry["annual_loss"] = 0.215  # 2%/month → 21.5%/year
         out.append(entry)
     return out
 

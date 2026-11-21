@@ -118,6 +118,9 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
       .variable_uid = uid(),
       .energy_scale = es,
       .flow_scale = fs,
+      // Absent `annual_loss` → planning-wide battery default (4 %/month
+      // unless `model_options.battery_annual_loss` overrides it).
+      .default_annual_loss = sc.options().battery_annual_loss(),
   };
   if (!StorageBase::add_to_lp(cname,
                               ampl_name,

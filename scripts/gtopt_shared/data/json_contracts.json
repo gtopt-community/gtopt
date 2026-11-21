@@ -2204,12 +2204,16 @@
     "objective_mode",
     "strict_storage_emin",
     "lp_reduction",
-    "allow_oversupply"
+    "allow_oversupply",
+    "battery_annual_loss",
+    "battery_power_envelope"
    ],
    "header": "json_model_options.hpp",
    "kinds": {
     "allow_oversupply": "bool",
     "auto_scale": "bool",
+    "battery_annual_loss": "number",
+    "battery_power_envelope": "bool",
     "continuous_phases": "string",
     "dc_line_reactance_threshold": "number",
     "dc_line_resistance_threshold": "number",

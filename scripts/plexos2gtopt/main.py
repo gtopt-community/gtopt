@@ -525,9 +525,10 @@ def make_parser() -> argparse.ArgumentParser:
             "emit the converter's SYNTHETIC default annual self-discharge / "
             "evaporation loss on storage that PLEXOS leaves unset: batteries "
             "21.5%%/yr (2%%/month Li-ion, BU/NREL/IEA) and reservoirs 4%%/yr "
-            "(ICOLD/World Bank Andean mid-range).  Default OFF — no synthetic "
-            "storage loss is added, so the energy/water balance is not "
-            "perturbed by a value the source data never ships.  Enable to "
+            "(ICOLD/World Bank Andean mid-range).  Default OFF.  Note: gtopt "
+            "itself defaults every battery without annual_loss to 4%%/month "
+            "(model_options.battery_annual_loss), so this flag LOWERS BESS "
+            "loss to 2%%/month; reservoirs stay lossless without it.  Enable to "
             "gently regularise the storage-balance chain (LP conditioning) "
             "and document the physical loss explicitly."
         ),

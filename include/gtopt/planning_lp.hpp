@@ -199,6 +199,16 @@ public:
   /// PlanningLP.
   static void validate_line_transmission(Planning& planning);
 
+  /// Count the batteries whose `annual_loss` is unset (and therefore get
+  /// the planning-wide self-discharge default
+  /// `PlanningOptionsLP::battery_annual_loss()`, 0.48 p.u./year =
+  /// 4 %/month unless `model_options.battery_annual_loss` overrides it)
+  /// and log the count once at INFO.  Read-only: the default itself is
+  /// applied inside `BatteryLP` via `StorageOptions::default_annual_loss`
+  /// so every construction path (PlanningLP, bare SystemLP) agrees.
+  /// Returns the count.  Static so unit tests can exercise it.
+  static std::size_t log_battery_annual_loss_default(const Planning& planning);
+
   /// Compute adaptive `scale_loss_link` from `median(R/V²)` when not
   /// explicitly set.  Picks a power-of-10 multiplier `s = 10^round(
   /// −log10(median(R/V²)))` so the smallest segment coefficient
@@ -303,6 +313,7 @@ public:
                 // ``planning.simulation.scenario_array`` we mutate here.
                 renormalize_scenario_probabilities(planning);
               }
+              log_battery_annual_loss_default(planning);
               return std::forward<PlanningT>(planning);
             }())
       , m_options_(m_planning_.options)

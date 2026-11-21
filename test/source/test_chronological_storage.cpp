@@ -718,6 +718,15 @@ TEST_CASE(  // NOLINT
           .capacity = 200.0,
       },
   };
+  // The charge demand is dispatchable (no curtailment penalty), as
+  // `System::expand_batteries()` makes it for unified batteries.  Without
+  // this the global demand_fail_cost priced NOT charging at 1000 $/MWh,
+  // and the LP "served" the 100 MW charge demand by simultaneous
+  // charge + discharge through the lossy battery — the energy-dumping
+  // vertex the battery power envelope now cuts (obj jumped to 180).
+  sys.demand_array[1].fcost = 0.0;
+  // This test is about chronological-stage assembly, not self-discharge.
+  sys.battery_array[0].annual_loss = 0.0;
 
   const auto simulation = make_chrono_simulation();
   PlanningOptions popts;

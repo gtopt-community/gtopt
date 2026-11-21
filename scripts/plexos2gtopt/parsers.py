@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from .entities import (
+    PUMPED_STORAGE_BATTERY_SUFFIX,
     BatterySpec,
     BoundaryCutSpec,
     BundleSpec,
@@ -3835,6 +3836,7 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # don't drift.
         # ``_os`` was imported at the top of ``extract_batteries`` (for
         # the ``--drop-batteries`` early return); reuse it here.
+        is_pumped = batt.name.endswith(PUMPED_STORAGE_BATTERY_SUFFIX)
         _pin = _os.environ.get("GTOPT_BATTERY_PIN_EFIN", "1").strip()
         pin_efin = _pin not in ("0", "false", "False", "no", "NO", "off")
         out.append(
@@ -3855,6 +3857,12 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
                 # PLEXOS reports efficiency as a percentage (97 → 0.97).
                 input_efficiency=charge_eff_pct / 100.0,
                 output_efficiency=discharge_eff_pct / 100.0,
+                # Pumped hydro rewritten as a Battery: no lithium
+                # self-discharge → pin 0 explicitly so gtopt's 4 %/month
+                # battery default does not apply.  Real BESS: omit
+                # (``None``) and let the gtopt default apply.
+                annual_loss=0.0 if is_pumped else None,
+                storage_type="pumped_hydro" if is_pumped else "",
             )
         )
     if skipped_aux:

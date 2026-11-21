@@ -94,6 +94,9 @@ constexpr Real kLoad = 40.0;
           .bus = kBusUid,
           .input_efficiency = kPumpEff,
           .output_efficiency = kGenEff,
+          // Pumped hydro: no lithium self-discharge (matches the
+          // `annual_loss: 0` written by sienna_to_gtopt/_pumped_storage.py).
+          .annual_loss = 0.0,
           .emin = 0.0,
           .emax = kCapacityMwh,
           .eini = kEiniMwh,

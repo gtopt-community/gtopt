@@ -59,6 +59,8 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | Field                  | Type    | Default   | Units         | Description |
 |------------------------|---------|-----------|---------------|-------------|
 | `demand_fail_cost`     | number  | *(none)*  | $/MWh         | Penalty cost for unserved demand (value of lost load) |
+| `battery_annual_loss`  | number  | `0.48`    | p.u./year     | Self-discharge for batteries without `annual_loss` (4 %/month; `0` = legacy lossless). See [Battery self-discharge default](#battery-self-discharge-default) |
+| `battery_power_envelope` | boolean | `true`  | --            | Per-block valid inequality `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` on every battery; `false` restores the pre-envelope LP |
 | `reserve_fail_cost`    | number  | *(none)*  | $/MWh         | Penalty cost for unserved spinning reserve |
 | `hydro_fail_cost`      | number  | *(none)*  | $/m³          | Default penalty cost for unmet hydro (irrigation) rights. Per-element `fail_cost` overrides this |
 | `hydro_use_value`      | number  | *(none)*  | $/m³          | Default value (benefit) of exercising hydro rights. Per-element `use_value` overrides this |
@@ -872,7 +874,7 @@ be defined manually (see §3.6 Converter).
 | `source_generator`  | integer\|string     | —            | No       | Source generator for generation-coupled mode (battery name or UID) |
 | `input_efficiency`  | number\|array\|string| p.u.        | No       | Charging efficiency |
 | `output_efficiency` | number\|array\|string| p.u.        | No       | Discharging efficiency |
-| `annual_loss`       | number\|array\|string| p.u./year   | No       | Annual self-discharge rate |
+| `annual_loss`       | number\|array\|string| p.u./year   | No       | Annual self-discharge rate (linear: hourly drain = value/8760). **Default when absent: 0.48 (4 %/month)** — see [Battery self-discharge default](#battery-self-discharge-default) |
 | `emin`              | number\|array\|string| MWh         | No       | Minimum state of charge |
 | `emax`              | number\|array\|string| MWh         | No       | Maximum state of charge |
 | `ecost`             | number\|array\|string| $/MWh       | No       | Storage usage cost (penalty) |
@@ -892,6 +894,47 @@ be defined manually (see §3.6 Converter).
 | `soft_emin_cost`    | number\|array\|string| $/MWh       | No       | Penalty cost per unit of `soft_emin` slack violation |
 | `use_state_variable`| boolean             | —            | No       | Enable stage/phase coupling of the battery state variable |
 | `daily_cycle`       | boolean             | —            | No       | Enforce daily cycling (initial SoC equals final SoC each day) |
+
+#### Battery self-discharge default
+
+A battery whose `annual_loss` is **absent** self-discharges at
+**0.48 p.u./year = 4 %/month** (`0.04 × 12`).  gtopt uses the linear
+convention `SoC[b] = SoC[b−1] · (1 − annual_loss/8760 · Δt_b) + …`, so the
+hourly drain is `0.48/8760 ≈ 5.48e-5` and a single 730 h block loses
+exactly 4 %.
+
+The value is a conservative lithium-ion cell + BMS figure:
+
+- Battery University, "BU-802b: What does Elevated Self-discharge Do?"
+  (<https://batteryuniversity.com/article/elevating-self-discharge>):
+  Li-ion ≈ 5 % in the first 24 h, then 1–2 %/month, plus ≈ 3 %/month for
+  the protection circuit; roughly doubles per +10 °C.
+- Wikipedia, "Self-discharge"
+  (<https://en.wikipedia.org/wiki/Self-discharge>): Li-ion 2–3 %/month.
+
+The default also penalises the LP degeneracy that lets a lossless battery
+cycle (charge/discharge zig-zag across blocks) at zero cost — but only
+when the replaced energy has a positive price.  If the charging window is
+priced at exactly 0 $/MWh (free curtailed solar), zig-zag schedules still
+tie; give the zero-cost unit its physical VOM (even 0.5–2 $/MWh) or set a
+datasheet degradation cost in the battery's `discharge_cost` to break it.
+Same-block simultaneous charge + discharge is limited by the
+**power envelope** `p_charge/pmax_charge + p_discharge/pmax_discharge ≤ 1`
+(on by default, `model_options.battery_power_envelope`; partial
+simultaneous operation inside it is still LP-feasible).
+
+Rules:
+
+- An explicit `annual_loss` (including `0`) is always respected.
+- `model_options.battery_annual_loss` changes the default for the whole
+  case; `0` restores the legacy lossless behaviour
+  (`--set model_options.battery_annual_loss=0`).
+- Only `Battery` is affected — `Reservoir`, `LngTerminal`, and the other
+  storages keep `annual_loss = 0` when unset.  Converters write an
+  explicit value for non-lithium storage emitted as a Battery (pumped
+  hydro → `0`), and plp2gtopt converts a nonzero PLP `mloss` [%/month] to
+  `−12·ln(1 − mloss/100)`.
+- gtopt logs once (INFO) how many batteries took the default.
 
 ### 3.6 Converter
 

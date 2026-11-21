@@ -365,6 +365,80 @@ listed below.
 
 ### Changed
 
+
+- **Batteries now self-discharge 4 %/month by default** (behaviour
+  change).  A `Battery` whose `annual_loss` is absent uses
+  `0.48` p.u./year (`0.04 × 12`, linear convention: hourly drain
+  `annual_loss/8760`), the combined lithium-ion cell + BMS figure from
+  Battery University BU-802b (cell 1–2 %/month + ≈ 3 %/month protection
+  circuit) and the Wikipedia "Self-discharge" table (Li-ion 2–3 %/month).
+  Besides realism it removes the cost-free charge/discharge zig-zag across
+  blocks whenever the marginal energy has a positive price (it does NOT
+  break the tie when the window price is exactly 0, nor same-block
+  simultaneous operation).  New `model_options.battery_annual_loss`
+  overrides the default case-wide; **restore the old lossless behaviour
+  with `--set model_options.battery_annual_loss=0`** (or `annual_loss: 0`
+  per battery).  Explicit per-battery values, including `0`, win;
+  Reservoir and other storages are unaffected.  gtopt logs once (INFO) how
+  many batteries took the default.  Results of every case with batteries
+  that omit `annual_loss` change slightly (CEN PCP weeks, AEMO ISP weeks,
+  PLP-converted cases, PET27).
+- **Battery power-envelope valid inequality on by default** (behaviour
+  change): each battery converter emits, per block,
+  `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` (`Converter/power_envelope`
+  rows, row-scaled by `max(Pc, Pd)`), cutting simultaneous full-power
+  charge + discharge — the vertex a lossy battery uses to dump surplus
+  energy at zero/negative prices.  Partial simultaneous operation inside
+  the envelope is still LP-feasible (only binaries remove it).  Skipped
+  when one direction has no rating or the hard `pmin_*` floors force a
+  point outside the envelope.  Disable with
+  `--set model_options.battery_power_envelope=false`.
+- **Converters write explicit `annual_loss` for non-lithium "batteries"**:
+  `plexos2gtopt --plexos-model` pumped storage rewritten as a Battery (SEM
+  Turlough Hill) and `sienna_to_gtopt` PHES get `annual_loss: 0`
+  (`type: pumped_hydro` / `pumped`); `plp2gtopt` emits
+  `annual_loss = −12·ln(1 − mloss/100)` for a nonzero `plpess.dat` `mloss`
+  [%/month] (exact PLP `genpdess.f` per-block drain) and omits it for
+  `mloss = 0` / `plpcenbat.dat` so the gtopt default applies.  This also
+  fixes the DCMod=2 regulation-tank Reservoir `annual_loss`, previously
+  `mloss × 12` (100× too large: `mloss` is a percentage).
+
+- **FutureCost is the single source of the FCF boundary cuts**: the
+  `system.future_cost_array` element configures the boundary cuts for every
+  method (monolithic, SDDP, cascade); a method never reads another
+  method's options.  The monolithic solver no longer honours
+  `sddp_options.boundary_cuts_mean_shift`, `missing_cut_var_mode`,
+  `scale_alpha` or `cut_coeff_eps` (it uses `FutureCost.scale_alpha` and
+  the default `cut_coeff_eps`).  A relative `cuts_file` now resolves
+  against `options.input_directory` under monolithic too, and a
+  single-phase SDDP run falling back to monolithic now loads the cuts.
+  `use_user_alpha` together with `cuts_file` is an error under monolithic
+  as under SDDP.  Generic extra linear constraints belong in
+  `UserConstraint`.
+- **Converters emit FutureCost**: `plp2gtopt`, `plexos2gtopt`,
+  `sddp2gtopt` and `igtopt` write `system.future_cost_array` and never the
+  legacy keys; `plp2gtopt`'s emissions ray no longer overwrites a user
+  `cuts_file`.
+
+### Deprecated
+
+- **Boundary-cut option keys** are now aliases of FutureCost fields,
+  translated once at planning load (after `--set`) with a warning:
+  `sddp_options.boundary_cuts_file`, `boundary_cuts_mode`,
+  `boundary_cut_sharing_mode`, `boundary_cuts_mean_shift`,
+  `boundary_max_iterations`, `missing_cut_var_mode` (honoured only for
+  `sddp` / `cascade`); `monolithic_options.boundary_cuts_file`,
+  `boundary_cuts_mode`, `boundary_cut_sharing_mode`,
+  `boundary_max_iterations` (only for `monolithic`);
+  `simulation.boundary_cuts_file`, `boundary_cuts_valuation` (any method).
+  A key of the other method is ignored with a warning; different values
+  for the same field are a hard error.
+
+### Removed
+
+- **`BoundaryCutSoftCost` enum**: the former type of `FutureCost.valuation`
+  was never read by the cut loader.
+
 - **Emission options replaced by `EmissionZone`**: `model_options.emission_cost`
   and `model_options.emission_cap` were removed (and are now rejected as
   unknown options).  A carbon price is now a zone `price` and a cap a zone
@@ -420,6 +494,20 @@ listed below.
   decomposition of the SDDP algorithm.
 
 ### Fixed
+
+- **Battery charge/discharge decoupled when one direction had no rating**:
+  when `pmax_charge` was 0 in a block (or `pmax_discharge` under
+  `--lp-reduction`), the synthetic charge demand (discharge generator)
+  column is elided and `ConverterLP`
+  skipped BOTH coupling rows, leaving the battery's `finp` column free in
+  `[0, +inf)` — free charging, energy from nowhere — and the discharge
+  generator as free generation at `discharge_cost`.  The uncoupled
+  battery-side flow is now pinned to 0 and the surviving direction is
+  still coupled.  A battery with `pmax_charge = 0` in EVERY block of a
+  stage also no longer throws (`flat_map::at`) — tolerant
+  `lookup_load_cols`.  Affects cases with maintenance windows that zero a
+  battery's charge or discharge rating (plp2gtopt `plpmanbat`/`plpmaness`,
+  PLEXOS per-block ratings).
 
 - **`plexos2gtopt.aemo_isp` hydro**: reservoirs carry
   `flow_conversion_rate = 0.0036` and `Max Spill`; pumped-storage units

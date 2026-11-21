@@ -143,6 +143,8 @@ solver configurations.
 | `scale_objective` | float | `1000` | Objective coefficient divisor |
 | `scale_theta` | float | `1000` | Voltage-angle variable scaling |
 | `demand_fail_cost` | float | -- | Penalty $/MWh for unserved demand |
+| `battery_annual_loss` | float | `0.48` | Self-discharge [p.u./year] for every Battery whose `annual_loss` is unset (4 %/month, Li-ion cell + BMS; linear hourly drain = value/8760). `0` restores the legacy lossless default. Explicit per-battery values win; Reservoir/other storage unaffected |
+| `battery_power_envelope` | bool | `true` | Emit `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` per block on every battery converter (`Converter/power_envelope`), cutting simultaneous full-power charge + discharge |
 | `reserve_fail_cost` | float | -- | Penalty $/MWh for unserved reserve |
 | `hydro_fail_cost` | float | -- | Default penalty $/m³ for unmet hydro rights (falls back to `0.0` when unset). Overridden by per-element `fail_cost` |
 | `hydro_use_value` | float | -- | Default benefit $/m³ for exercising hydro rights (falls back to `0.0` when unset). Overridden by per-element `use_value` |

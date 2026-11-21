@@ -110,9 +110,15 @@ namespace gtopt
  * The energy balance per block is:
  *
  * ```text
- * SoC[t+1] = SoC[t] × (1 − annual_loss/8760) + input_efficiency × charge
+ * SoC[t+1] = SoC[t] × (1 − annual_loss/8760 × Δt) + input_efficiency × charge
  *            − discharge / output_efficiency
  * ```
+ *
+ * When `annual_loss` is unset the planning-wide default
+ * `model_options.battery_annual_loss` applies — 0.48 p.u./year
+ * (4 %/month, lithium-ion cell + BMS; see
+ * `PlanningOptionsLP::default_battery_annual_loss`).  An explicit value,
+ * including 0, always wins.
  *
  * When the `bus` field is set, `System::expand_batteries()` auto-generates
  * the corresponding Generator, Demand, and Converter elements so the user
@@ -169,7 +175,9 @@ struct Battery
   OptTBRealFieldSched output_efficiency {};  ///< Discharging efficiency [p.u.]
                                              ///< per-(stage, block).
   OptTRealFieldSched
-      annual_loss {};  ///< Annual self-discharge rate [p.u./year]
+      annual_loss {};  ///< Annual self-discharge rate [p.u./year].  Unset
+                       ///< → `model_options.battery_annual_loss`
+                       ///< (default 0.48 = 4 %/month).
 
   OptTBRealFieldSched
       emin {};  ///< Minimum state of charge [MWh] — per-(stage, block).

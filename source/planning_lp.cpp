@@ -26,6 +26,7 @@
 #include <unordered_set>
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/battery.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/line.hpp>
@@ -369,6 +370,31 @@ void PlanningLP::validate_line_resistance(Planning& planning)
         clamped,
         threshold);
   }
+}
+
+// ── Battery self-discharge default ─────────────────────────────────────────
+
+std::size_t PlanningLP::log_battery_annual_loss_default(
+    const Planning& planning)
+{
+  const auto& batteries = planning.system.battery_array;
+  const auto n_default = static_cast<std::size_t>(std::ranges::count_if(
+      batteries, [](const Battery& b) { return !b.annual_loss.has_value(); }));
+  if (n_default == 0) {
+    return 0;
+  }
+  const double loss =
+      planning.options.model_options.battery_annual_loss.value_or(
+          PlanningOptionsLP::default_battery_annual_loss);
+  spdlog::info(
+      "  Battery self-discharge: {} of {} battery(ies) without annual_loss "
+      "use the default {:.4g} p.u./year ({:.3g} %/month); set "
+      "model_options.battery_annual_loss=0 to disable.",
+      n_default,
+      batteries.size(),
+      loss,
+      loss / 12.0 * 100.0);
+  return n_default;
 }
 
 // ── Power bound validation ─────────────────────────────────────────────────

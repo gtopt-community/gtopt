@@ -319,6 +319,28 @@ struct ModelOptions
   /// generation for free.  `--set model_options.allow_oversupply=true`.
   OptBool allow_oversupply {};
 
+  /// Planning-wide default self-discharge for every `Battery` whose own
+  /// `annual_loss` is ABSENT [p.u./year, linear convention: hourly drain
+  /// = annual_loss / 8760].  When unset, resolves to
+  /// `PlanningOptionsLP::default_battery_annual_loss` = `0.48` p.u./year
+  /// (4 %/month × 12, the lithium-ion cell + BMS self-discharge; see
+  /// `docs/input-data.md` → Battery for the references).  An explicit
+  /// per-battery `annual_loss` (including `0`) always wins.  Set to `0`
+  /// (`--set model_options.battery_annual_loss=0`) to restore the legacy
+  /// lossless default for a whole case.  Applies to `Battery` only —
+  /// Reservoir, LngTerminal and the other storages keep their own
+  /// `annual_loss` default of `0`.
+  OptReal battery_annual_loss {};
+
+  /// Emit the battery power-envelope valid inequality
+  /// `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` per block on every
+  /// battery converter (`Converter/power_envelope` rows).  Default
+  /// `true`.  It cuts simultaneous full-power charge + discharge, the
+  /// LP vertex a lossy battery uses to dump surplus energy; partial
+  /// simultaneous operation inside the envelope remains LP-feasible.
+  /// Set `false` to reproduce the pre-envelope LP.
+  OptBool battery_power_envelope {};
+
   void merge(const ModelOptions& opts)
   {
     merge_opt(use_single_bus, opts.use_single_bus);
@@ -350,6 +372,8 @@ struct ModelOptions
     merge_opt(strict_storage_emin, opts.strict_storage_emin);
     merge_opt(lp_reduction, opts.lp_reduction);
     merge_opt(allow_oversupply, opts.allow_oversupply);
+    merge_opt(battery_annual_loss, opts.battery_annual_loss);
+    merge_opt(battery_power_envelope, opts.battery_power_envelope);
   }
 
   /// True if any field is set.
@@ -369,7 +393,8 @@ struct ModelOptions
         || demand_fail_rhs_shift.has_value() || continuous_phases.has_value()
         || naming_dialect.has_value() || objective_mode.has_value()
         || strict_storage_emin.has_value() || lp_reduction.has_value()
-        || allow_oversupply.has_value();
+        || allow_oversupply.has_value() || battery_annual_loss.has_value()
+        || battery_power_envelope.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -408,7 +433,9 @@ struct ModelOptions
         && covers_opt(objective_mode, other.objective_mode)
         && covers_opt(strict_storage_emin, other.strict_storage_emin)
         && covers_opt(lp_reduction, other.lp_reduction)
-        && covers_opt(allow_oversupply, other.allow_oversupply);
+        && covers_opt(allow_oversupply, other.allow_oversupply)
+        && covers_opt(battery_annual_loss, other.battery_annual_loss)
+        && covers_opt(battery_power_envelope, other.battery_power_envelope);
   }
 };
 

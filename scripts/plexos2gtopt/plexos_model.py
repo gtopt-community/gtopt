@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from .entities import PUMPED_STORAGE_BATTERY_SUFFIX
 from .plexos_xml import NS
 
 logger = logging.getLogger(__name__)
@@ -1372,7 +1373,7 @@ def _rewrite_pumped_storage(
                 f"({len(nodes)} nodes)"
             )
             continue
-        name = f"{db.obj_name[head]} pumped storage"
+        name = f"{db.obj_name[head]}{PUMPED_STORAGE_BATTERY_SUFFIX}"
         boid = editor.add_object("Battery", name)
         bmid = editor.add_membership(sys_batt, sys_oid, boid)
         editor.add_membership(batt_node, boid, next(iter(nodes)))

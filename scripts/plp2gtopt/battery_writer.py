@@ -46,6 +46,7 @@ When ``plpmanbat.dat`` or ``plpmaness.dat`` provides per-block overrides:
 """
 
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
@@ -64,6 +65,27 @@ _logger = logging.getLogger(__name__)
 # Default battery parameters used when only plpcnfce.dat BAT centrals are present
 _DEFAULT_FPC = 0.95
 _DEFAULT_FPD = 0.95
+
+
+def mloss_to_annual_loss(mloss_pct: float) -> Optional[float]:
+    """Convert PLP ``plpess.dat`` ``mloss`` [%/month] to gtopt ``annual_loss``.
+
+    PLP (``genpdess.f``) applies a per-block SoC drain of
+    ``-bd/730 · ln(1 − mloss/100)`` (``bd`` = block hours).  gtopt's
+    linear convention drains ``annual_loss/8760 · bd`` per block, so the
+    exact equivalent is ``annual_loss = −12 · ln(1 − mloss/100)``
+    (≈ ``0.12 · mloss`` for small ``mloss``).
+
+    Returns ``None`` when ``mloss <= 0``: PLP writes ``0`` both for "no
+    loss" and "not specified", so the field is left ABSENT and gtopt's
+    planning-wide battery default (``model_options.battery_annual_loss``,
+    0.48 p.u./year = 4 %/month) applies.  ``mloss >= 100`` is clamped to
+    a full drain within the month (annual_loss = 12 · ln(100) cap).
+    """
+    if not mloss_pct > 0.0:
+        return None
+    frac = min(mloss_pct / 100.0, 0.99)
+    return -12.0 * math.log1p(-frac)
 
 
 class BatteryEntry(TypedDict, total=False):
@@ -227,7 +249,7 @@ class BatteryWriter(BaseWriter):
                         "emax": emax,
                         "pmax_charge": pmax_charge,
                         "pmax_discharge": pmax_discharge,
-                        "annual_loss": mloss * 12,
+                        "annual_loss": mloss_to_annual_loss(mloss),
                         "has_maintenance": man is not None,
                         "man_data": man,
                         "source_generator": source_gen,
@@ -301,7 +323,9 @@ class BatteryWriter(BaseWriter):
                         "emax": emax,
                         "pmax_charge": pmax_charge,
                         "pmax_discharge": pmax_discharge,
-                        "annual_loss": 0.0,
+                        # plpcenbat.dat has no self-discharge field →
+                        # leave absent so gtopt's battery default applies.
+                        "annual_loss": None,
                         "has_maintenance": man is not None,
                         "man_data": man,
                         "source_generator": source_gen,
@@ -381,6 +405,13 @@ class BatteryWriter(BaseWriter):
                 "emax": "emax" if has_man else emax,
                 "capacity": emax,
             }
+            # Self-discharge: emit only a nonzero PLP ``mloss`` (already
+            # converted to p.u./year).  Absent → gtopt applies its
+            # lithium default (4 %/month, ``model_options.
+            # battery_annual_loss``).
+            annual_loss = entry.get("annual_loss")
+            if annual_loss is not None and annual_loss > 0.0:
+                bat["annual_loss"] = annual_loss
             # Unified fields: only when no DC maintenance
             if not has_dc_man:
                 bat["bus"] = entry["bus"]
@@ -541,7 +572,9 @@ class BatteryWriter(BaseWriter):
                     "emin": 0.0,
                     "emax": emax,
                     "capacity": emax,
-                    "annual_loss": mloss * 12,
+                    # Regulation tank (hydro): never the battery
+                    # default — emit the PLP loss explicitly, 0 if none.
+                    "annual_loss": mloss_to_annual_loss(mloss) or 0.0,
                     "daily_cycle": True,
                 }
             )

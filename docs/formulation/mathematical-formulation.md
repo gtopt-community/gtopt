@@ -167,7 +167,7 @@ scenarios, stages, and blocks.
 | $\phi_g(b)$ | `generator_profile` | Generator capacity profile factor | — |
 | $\eta_e^{\text{in}}$ | `input_efficiency` | Battery charge efficiency | — |
 | $\eta_e^{\text{out}}$ | `output_efficiency` | Battery discharge efficiency | — |
-| $\mu_e$ | `annual_loss` | Battery annual self-discharge rate | 1/year |
+| $\mu_e$ | `annual_loss` | Battery annual self-discharge rate (default 0.48 = 4 %/month) | 1/year |
 | $\overline{E}_e$ | `emax` | Battery max energy | MWh |
 | $\underline{E}_e$ | `emin` | Battery min energy | MWh |
 | $E_e^0$ | `eini` | Battery initial energy | MWh |
@@ -1083,11 +1083,82 @@ $$
 
 where:
 - $\mu_e^h = \mu_e / 8760$ is the hourly self-discharge rate
+  (linear convention: a block of $\Delta_b$ hours keeps the fraction
+  $1 - \mu_e \Delta_b / 8760$ of the stored energy; compounding only
+  appears across consecutive blocks)
 - $\eta_e^{\text{in}}$ is the charging efficiency (fraction of input power
   stored)
 - $\eta_e^{\text{out}}$ is the discharging efficiency (fraction of stored
   energy delivered)
 - $\Delta_b$ is the block duration in hours
+
+#### Default self-discharge
+
+When a battery leaves `annual_loss` unset, gtopt uses
+$\mu_e = \bar\mu = 0.48$ year$^{-1}$, i.e. **4 % per month**
+($0.04 \times 12$; $\mu_e^h \approx 5.48 \times 10^{-5}$ h$^{-1}$, so a
+730 h block loses exactly 4 % of its stored energy).  The figure is the
+combined lithium-ion **cell + battery-management-system** self-discharge:
+Battery University BU-802b [[18]](#ref18) reports ≈ 5 % in the first
+24 h, then 1–2 %/month for the cell plus ≈ 3 %/month drawn by the
+protection circuit, roughly doubling per +10 °C; the Wikipedia
+"Self-discharge" table [[19]](#ref19) lists Li-ion at 2–3 %/month.  The
+planning-wide value is `model_options.battery_annual_loss` (`0` restores
+the legacy lossless default); an explicit per-battery `annual_loss`,
+including `0`, always wins.  Non-lithium storage emitted as a Battery
+(pumped hydro) is written with an explicit `annual_loss` by the
+converters.  Reservoirs and other storages are unaffected (their
+`annual_loss` still defaults to $0$).
+
+Besides physical realism, $\mu_e > 0$ removes part of an LP degeneracy:
+with $\mu_e = 0$ and $\eta^{\text{in}} = \eta^{\text{out}} = 1$, any
+charge/discharge zig-zag across blocks that returns the SoC to the same
+trajectory has zero cost, so the LP admits alternate optima with
+arbitrary cycling.  With $\mu_e > 0$ every MWh held in storage decays,
+so holding energy longer than needed costs the decayed energy times its
+replacement price.  Limits (verified in
+`test/source/test_battery_self_discharge.cpp`):
+
+- When the marginal energy in the charging window costs **exactly 0**
+  (curtailed solar at $0/MWh), the extra decay and the round-trip losses
+  of a zig-zag are replaced by free energy: zig-zag and direct schedules
+  still **tie**.  Any strictly positive cost on that energy breaks the
+  tie — e.g. a 1 $/MWh VOM on the zero-cost unit penalises a zig-zag that
+  cycles $X$ MWh by $X\,(1/(\eta^{\text{in}}\eta^{\text{out}}) - 1)$ $
+  ($8.64 for 80 MWh at $\eta = 0.95$), and a battery `discharge_cost`
+  (throughput / degradation cost, default 0) by `discharge_cost` · $X$.
+  gtopt adds no artificial default penalty: use the physical VOM of the
+  zero-cost units or a datasheet degradation cost.
+- Same-block simultaneous charge and discharge does not move the SoC, so
+  self-discharge never prices it; see the power envelope below.
+
+#### Power Envelope (valid inequality)
+
+By default (`model_options.battery_power_envelope = true`) each battery
+converter adds, per block,
+
+$$
+\frac{p_{e,s,t,b}^{\text{in}}}{\overline{P}_{e,t,b}^{\text{in}}}
++ \frac{p_{e,s,t,b}^{\text{out}}}{\overline{P}_{e,t,b}^{\text{out}}}
+\;\leq\; 1
+$$
+
+(row `Converter/power_envelope`, multiplied by
+$\max(\overline{P}^{\text{in}}, \overline{P}^{\text{out}})$ so it stays in
+MW), where $\overline{P}$ are the hard per-block bounds of the synthetic
+charge demand / discharge generator.  It is valid for any inverter that
+shares one rating between directions and cuts the vertex where a lossy
+battery charges and discharges simultaneously at full power to burn
+surplus energy at zero or negative prices.  Partial simultaneous
+operation inside the envelope remains LP-feasible — only binaries
+($u^{\text{in}} + u^{\text{out}} \le 1$) remove it entirely; none of the
+current commitment paths add that exclusivity.  With an expandable
+converter capacity the existing row
+$p^{\text{in}} + p^{\text{out}} \le \text{capacity}$ is the linear valid
+inequality for the variable rating; the envelope uses the fixed column
+bounds, so both stay valid.  The row is skipped when one direction has
+no rating ($\overline{P} \le 0$ or unbounded) or when the `pmin_*`
+floors force a point outside the envelope.
 
 #### Energy Bounds
 
@@ -3418,6 +3489,25 @@ DOI: [10.1109/TPWRS.2018.2829021](https://doi.org/10.1109/TPWRS.2018.2829021).
 > models into GTOpt format, and by the `gtopt_compare` validation script to
 > provide a reference DC OPF solution for benchmarking GTOpt results on
 > standard IEEE test cases (4-bus, 9-bus, 14-bus, 30-bus, 57-bus).
+
+### Storage Self-Discharge Data
+
+<a id="ref18"></a>
+**[18]** Battery University (Cadex Electronics). "BU-802b: What does
+Elevated Self-discharge Do?"
+URL: [https://batteryuniversity.com/article/elevating-self-discharge](https://batteryuniversity.com/article/elevating-self-discharge).
+
+> Li-ion: ≈ 5 % self-discharge in the first 24 h, then 1–2 %/month, plus
+> ≈ 3 %/month consumed by the protection circuit; self-discharge roughly
+> doubles per +10 °C.  Basis (with [[19]](#ref19)) of gtopt's default
+> battery `annual_loss` of 4 %/month.
+
+<a id="ref19"></a>
+**[19]** Wikipedia. "Self-discharge" (table of self-discharge rates by
+chemistry).
+URL: [https://en.wikipedia.org/wiki/Self-discharge](https://en.wikipedia.org/wiki/Self-discharge).
+
+> Lists lithium-ion cells at 2–3 %/month at room temperature.
 
 ### Solvers
 
