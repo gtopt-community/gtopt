@@ -74,6 +74,8 @@ import calendar
 import json
 import logging
 import re
+import subprocess
+import sys
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
@@ -1152,6 +1154,22 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _git_revision() -> str | None:
+    """Commit of the converter checkout (None outside a git tree)."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point."""
     args = _parse_args(argv)
@@ -1177,6 +1195,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         candidate_prefixes=tuple(args.candidate_prefix),
     )
     case = build_expansion_case(opts)
+    # provenance: the exact command and converter revision, so a published
+    # case can be regenerated with the same pinned flags
+    case.stats["command"] = [
+        "python3",
+        "-m",
+        "plexos2gtopt.aemo_isp_expansion",
+        *(sys.argv[1:] if argv is None else list(argv)),
+    ]
+    case.stats["converter_revision"] = _git_revision()
     path = write_expansion_case(case, args.output_dir, name)
     (args.output_dir / f"{name}.stats.json").write_text(
         json.dumps(case.stats, indent=1, sort_keys=True, default=_json_default) + "\n"

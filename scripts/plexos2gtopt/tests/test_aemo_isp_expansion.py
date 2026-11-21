@@ -441,6 +441,9 @@ def test_cli(xcase: tuple[Path, Path], tmp_path: Path) -> None:
     )
     assert rc == 0
     assert (out / "c.json").is_file() and (out / "c.stats.json").is_file()
+    st = json.loads((out / "c.stats.json").read_text())
+    assert st["command"][-4:] == ["-o", str(out), "-n", "c"]
+    assert st["fill_years"] == 1 and st["report_years"] == 1  # CLI default
 
 
 def test_reservoir_terminal_rule_and_fill_year(xcase: tuple[Path, Path]) -> None:
