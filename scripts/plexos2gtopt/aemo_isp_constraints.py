@@ -177,6 +177,13 @@ class ConstraintOptions:
     #: uniform weekly share of a seasonal annual / multi-year target is not
     #: a valid weekly limit; ``"prorate"`` enforces the pro-rated share.
     long_periods: str = "skip"
+    #: Expansion mode (:mod:`plexos2gtopt.aemo_isp_expansion`): capacity
+    #: terms of the expansion candidates listed in
+    #: :attr:`CaseView.expansion` become ``capainst`` variables and the
+    #: pure capacity / build constraints (RHS Year over installed or built
+    #: capacity) become stage-scope user constraints instead of being
+    #: skipped as "fixed fleet".
+    expansion: bool = False
     electrolyser_kwh_per_kg: float = DEFAULT_ELECTROLYSER_KWH_PER_KG
     #: Generator ``Min Load`` / ``Mark-up`` / ``Min Capacity Factor Year``
     #: (see :func:`plexos2gtopt.aemo_isp.build_dispatch_case`).
@@ -262,6 +269,13 @@ class CaseView:
     system: dict[str, Any]
     sched: dict[tuple[str, str], dict[int, np.ndarray]]
     purchasers: dict[str, PurchaserInfo] = field(default_factory=dict)
+    #: expansion candidates with a ``capainst`` column in this window
+    #: (generator name → gtopt class reference prefix, e.g. ``generator``)
+    expansion: frozenset[str] = frozenset()
+
+    def res_oid(self, name: str) -> int:
+        """Object id of the constraint called ``name``."""
+        return _constraint_oid(self, name)
 
     @property
     def nb(self) -> int:
@@ -702,6 +716,16 @@ def _add_term(  # pylint: disable=too-many-branches,too-many-return-statements
         return
     name = po.name
     if pcls == "Generator":
+        if name in view.expansion and prop in (
+            "Installed Capacity Coefficient",
+            "Capacity Built Coefficient",
+        ):
+            # candidate (Units = 0): installed = built = capainst
+            ev.terms.append(
+                Term(f"generator({_q(name)}).capainst", _simplify(c), pcls, name)
+            )
+            ev.dropped["capacity_variable"] += 1
+            return
         if prop == "Installed Capacity Coefficient":
             units = res.scalar(parent, "Units", view.day0, default=0.0) or 0.0
             cap = res.scalar(parent, "Max Capacity", view.day0, default=0.0) or 0.0
@@ -710,12 +734,20 @@ def _add_term(  # pylint: disable=too-many-branches,too-many-return-statements
             ev.dropped["capacity_folded" if units * cap else "capacity_zero"] += 1
             return
         if prop in ("Capacity Built Coefficient", "Units Built in Year Coefficient"):
+            if opts.expansion and prop == "Units Built in Year Coefficient":
+                # in-year build of a candidate: no gtopt reference yet
+                ev.unsupported.add("Generator.Units Built in Year")
+                return
             ev.dropped["build_term_zero"] += 1
             return
         if prop == "Pump Load Coefficient":
             ev.dropped["pump_load_not_modelled"] += 1
             return
         g = view.gens.get(name)
+        if g is None and name in view.expansion:
+            # expansion candidate: in the case, but not in the start-day fleet
+            aux = (res.scalar(parent, "Aux Incr", view.day0, default=0.0) or 0.0) / 100
+            g = GenInfo(name=name, bus="", aux=aux)
         if g is None:
             ev.dropped["object_not_in_case"] += 1
             return
@@ -732,6 +764,11 @@ def _add_term(  # pylint: disable=too-many-branches,too-many-return-statements
         if prop == "Generation Capacity Coefficient":
             units = res.scalar(parent, "Units", view.day0, default=0.0) or 0.0
             pmax = res.scalar(parent, "Max Power", view.day0, default=0.0) or 0.0
+            if opts.expansion and units <= 0 and _is_candidate(res, parent):
+                # candidate battery: gtopt expands batteries on the energy
+                # axis only (no power-capacity variable to reference yet)
+                ev.unsupported.add("Battery.candidate Generation Capacity")
+                return
             assert ev.const is not None
             ev.const += np.asarray(c) * units * pmax
             ev.dropped["capacity_folded" if units * pmax else "capacity_zero"] += 1
@@ -823,6 +860,11 @@ def _add_term(  # pylint: disable=too-many-branches,too-many-return-statements
     ev.unsupported.add(f"{pcls}.{prop}")
 
 
+def _is_candidate(res: IspResolver, oid: int) -> bool:
+    """True when the object has ``Max Units Built`` > 0 on some date."""
+    return any(r.value > 0 for r in res.rows.get((oid, "Max Units Built"), []))
+
+
 def _simplify(c: float | np.ndarray) -> float | np.ndarray:
     arr = np.asarray(c, dtype=float)
     if arr.ndim == 0:
@@ -895,6 +937,14 @@ def apply(  # pylint: disable=too-many-locals,too-many-branches,too-many-stateme
         include = res.scalar(o.object_id, "Include in LT Plan", view.day0, -1.0)
         if include is not None and include == 0:
             groups[group]["skipped: disabled (Include in LT Plan = 0)"] += 1
+            continue
+        if group == "capacity_build" and opts.expansion:
+            ev = evaluate(view, index, opts, o.object_id, group)
+            uc = _capacity_constraint(view, ev, groups) if ev is not None else None
+            if ev is None:
+                groups[group]["skipped: no RHS live in the window"] += 1
+            if uc is not None:
+                ucs.append(uc)
             continue
         if group in ("capacity_build", "no_coefficients", "company_vret"):
             reason = {
@@ -970,6 +1020,53 @@ def apply(  # pylint: disable=too-many-locals,too-many-branches,too-many-stateme
     if n_split:
         stats["directional_flow_variables"] = n_split
     return ucs
+
+
+def _capacity_constraint(
+    view: CaseView, ev: EvalConstraint, groups: dict[str, Counter[str]]
+) -> dict[str, Any] | None:
+    """Stage-scope user constraint over installed capacity (expansion mode).
+
+    PLEXOS capacity / build constraints carry an ``RHS Year`` in MW (not a
+    period energy): the value live on the window's first day bounds the
+    capacity installed in that year.  Existing units are folded into the
+    RHS (``Units × Max Capacity`` on the first day); candidates enter as
+    ``generator(...).capainst``.
+    """
+    group = ev.group
+    if ev.unsupported:
+        groups[group][
+            "skipped: unsupported term " + ",".join(sorted(ev.unsupported))
+        ] += 1
+        return None
+    rows = view.res.rows.get((view.res_oid(ev.name), ev.rhs_kind), [])
+    row = view.res.select_row(rows, view.day0)
+    if row is None or row.data_file is not None:
+        groups[group]["skipped: no RHS live in the window"] += 1
+        return None
+    assert ev.const is not None
+    if any(isinstance(t.coef, np.ndarray) for t in ev.terms):
+        groups[group]["skipped: time-varying capacity coefficient"] += 1
+        return None
+    op = SENSE_OP.get(ev.sense, "<=")
+    rhs = row.value - float(ev.const[0])
+    if not ev.terms:
+        _constant_only(ev, rhs, groups)
+        return None
+    uc: dict[str, Any] = {
+        "name": f"isp_{_slug(ev.name)}",
+        "description": f"PLEXOS Constraint '{ev.name}' [{ev.category}], "
+        f"{ev.rhs_kind} [MW] over installed capacity",
+        "expression": f"{lhs_text(ev.terms)} {op} {_fmt(rhs)}",
+        "scope": "stage",
+        "constraint_type": "raw",
+        #: marker for the expansion merger (yearly capacity semantics)
+        "_capacity": True,
+    }
+    if ev.penalty is not None:
+        uc["penalty"] = ev.penalty
+    groups[group]["converted: stage capacity"] += 1
+    return uc
 
 
 def _constraint_oid(view: CaseView, name: str) -> int:

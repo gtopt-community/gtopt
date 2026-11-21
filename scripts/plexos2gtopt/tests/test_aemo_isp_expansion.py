@@ -1,0 +1,352 @@
+"""Tests for :mod:`plexos2gtopt.aemo_isp_expansion`.
+
+A synthetic ISP-shaped XML (two sub-regions, an existing gas unit, an
+existing wind farm retiring mid-year, a candidate solar farm with a
+rating trace, a candidate REZ network augmentation, a candidate battery
+and the PLEXOS capacity / build constraint families) is converted into a
+one-year monthly-stage expansion case.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from plexos2gtopt import aemo_isp_expansion as exp
+from plexos2gtopt.tests.test_aemo_isp import _halfhourly_csv
+from plexos2gtopt.tests.test_aemo_isp_constraints import _constraint, _CXml
+
+FY_START = date(2027, 7, 1)
+NDAYS = 366  # 2027-07-01 .. 2028-06-30 (2028 is a leap year)
+
+
+@pytest.fixture(name="xcase")
+def _xcase(tmp_path: Path) -> tuple[Path, Path]:
+    x = _CXml()
+    nth = x.obj("Node", "NTH")
+    sth = x.obj("Node", "STH")
+    for node, name in ((nth, "NTH"), (sth, "STH")):
+        df = x.data_file(name, f"Traces\\demand\\{name}_dem.csv")
+        x.data("Node", node, "Load", 0)
+        x.data("Node", node, "Load", 0, tags=(df,))
+    gas = x.obj("Fuel", "Gas")
+    x.data("Fuel", gas, "Price", 5.0)
+    # existing gas unit
+    gt = x.cobj("Generator", "GT1", "Natural Gas NSW")
+    x.member("Generator", "Node", "Nodes", gt, nth)
+    x.member("Generator", "Fuel", "Fuels", gt, gas)
+    x.data("Generator", gt, "Units", 1)
+    x.data("Generator", gt, "Max Capacity", 100)
+    x.data("Generator", gt, "Heat Rate", 10)
+    x.data("Generator", gt, "VO&M Charge", 2)
+    # existing wind farm, retired from 2028-01-01
+    wf = x.cobj("Generator", "WF1", "Wind NSW")
+    x.member("Generator", "Node", "Nodes", wf, sth)
+    x.data("Generator", wf, "Units", 1)
+    x.data("Generator", wf, "Units", 0, date_from="2028-01-01T00:00:00")
+    x.data("Generator", wf, "Max Capacity", 80)
+    x.data("Generator", wf, "Rating", 80)
+    # candidate REZ solar: 1 MW units, rating trace, build from FY start
+    sol = x.cobj("Generator", "S1_SAT", "New Entrant REZ NSW")
+    x.member("Generator", "Node", "Nodes", sol, sth)
+    sol_df = x.data_file("S1_SAT", "Traces\\solar\\S1_SAT_RefYear5000.csv")
+    x.data("Generator", sol, "Units", 0)
+    x.data("Generator", sol, "Max Capacity", 1)
+    x.data("Generator", sol, "Rating", 0)
+    x.data("Generator", sol, "Rating", 0, tags=(sol_df,))
+    x.data("Generator", sol, "Max Units Built", 500, date_from="2027-07-01T00:00:00")
+    x.data("Generator", sol, "Build Cost", 1500, date_from="2027-07-01T00:00:00")
+    x.data("Generator", sol, "WACC", 7)
+    x.data("Generator", sol, "Economic Life", 30)
+    x.data("Generator", sol, "FO&M Charge", 15)
+    x.data("Generator", sol, "Aux Incr", 2)
+    # candidate REZ transmission augmentation (capacity token)
+    aug = x.cobj(
+        "Generator", "S1_Linear Augmentation 1", "Network Augmentation Single REZ"
+    )
+    x.member("Generator", "Node", "Nodes", aug, sth)
+    x.data("Generator", aug, "Units", 0)
+    x.data("Generator", aug, "Max Capacity", 1)
+    x.data("Generator", aug, "Max Units Built", 400, date_from="2027-07-01T00:00:00")
+    x.data("Generator", aug, "Build Cost", 800, date_from="2027-07-01T00:00:00")
+    x.data("Generator", aug, "WACC", 3)
+    x.data("Generator", aug, "Economic Life", 50)
+    # candidate gas available only from 2028-07-01 (outside the horizon)
+    ocgt = x.cobj("Generator", "NTH OCGT", "New Entrant Natural Gas NSW")
+    x.member("Generator", "Node", "Nodes", ocgt, nth)
+    x.data("Generator", ocgt, "Units", 0)
+    x.data("Generator", ocgt, "Max Capacity", 1)
+    x.data("Generator", ocgt, "Max Units Built", 1000, date_from="2028-07-01T00:00:00")
+    # candidate battery (not expanded by the prototype)
+    bat = x.cobj("Battery", "STH Battery - 2h", "New Entrant Large-scale Battery NSW")
+    x.member("Battery", "Node", "Nodes", bat, sth)
+    x.data("Battery", bat, "Units", 0)
+    x.data("Battery", bat, "Max Power", 1)
+    x.data("Battery", bat, "Max Units Built", 300, date_from="2027-07-01T00:00:00")
+
+    # resource limit: Σ capacity built ≤ 300
+    rl = _constraint(
+        x, "ResourceLimit_S1_Solar", "Resource Limits for REZ", sense=-1, RHS_Year=300
+    )
+    x.coef("Generator", sol, rl, "Capacity Built Coefficient", 1.0)
+    # onboarding limit over installed capacity (existing wind + candidate)
+    ob = _constraint(
+        x, "OCLimit_S1", "Onboarding and Connections Build Limits REZs", sense=-1
+    )
+    x.data(
+        "Constraint",
+        ob,
+        "RHS Year",
+        250,
+        date_from="2027-07-01T00:00:00",
+        date_to="2028-06-30T00:00:00",
+    )
+    x.coef("Generator", sol, ob, "Installed Capacity Coefficient", 1.0)
+    x.coef("Generator", wf, ob, "Installed Capacity Coefficient", 1.0)
+    # policy ≥ with a candidate battery term → needs battery expansion
+    cis = _constraint(x, "CIS Dispatchable NSW", "Policies NEM", sense=1, RHS_Year=50)
+    x.coef("Battery", bat, cis, "Generation Capacity Coefficient", 1.0)
+    # shared upgrade with an in-year build term → not referenced yet
+    sh = _constraint(x, "Shared_S1", "Shared REZ Upgrades", sense=-1, RHS_Year=1)
+    x.coef("Generator", aug, sh, "Units Built in Year Coefficient", 1.0)
+    # REZ export limit: solar + wind − 1.0 · augmentation ≤ 60
+    rez = _constraint(
+        x, "ExportLimit_S1", "REZ Network Export Constraints", sense=-1, RHS=60
+    )
+    x.coef("Generator", sol, rez, "Generation Coefficient", 1.0)
+    x.coef("Generator", wf, rez, "Generation Coefficient", 1.0)
+    x.coef("Generator", aug, rez, "Installed Capacity Coefficient", -1.0)
+    # daily energy cap on the gas unit: 1 GWh/day
+    day = _constraint(x, "GT1_Day", "Energy Constraints", sense=-1, RHS_Day=1)
+    x.coef("Generator", gt, day, "Generation Coefficient", 1.0)
+
+    xml = tmp_path / "model" / "ISP X Model.xml"
+    xml.parent.mkdir(parents=True)
+    x.write(xml)
+    for name, val in (("NTH", 60.0), ("STH", 30.0)):
+        _halfhourly_csv(
+            xml.parent / "Traces" / "demand" / f"{name}_dem.csv",
+            FY_START,
+            NDAYS,
+            lambda k, h, v=val: v,
+        )
+    traces = tmp_path / "traces"
+    _halfhourly_csv(
+        traces / "solar" / "S1_SAT_RefYear5000.csv",
+        FY_START,
+        NDAYS,
+        lambda k, h: 0.5 if 12 <= h < 36 else 0.0,
+    )
+    return xml, traces
+
+
+def _build(xml: Path, traces: Path, **kw: object):
+    opts = exp.ExpansionOptions(
+        xml=xml,
+        trace_roots=[xml.parent, traces],
+        first_fy=2028,
+        years=1,
+        name="t",
+        **kw,  # type: ignore[arg-type]
+    )
+    return exp.build_expansion_case(opts)
+
+
+def _ucs(case) -> dict[str, dict]:
+    return {
+        uc["name"]: uc
+        for uc in case.planning["system"].get("user_constraint_array", [])
+    }
+
+
+def _gens(case) -> dict[str, dict]:
+    return {g["name"]: g for g in case.planning["system"]["generator_array"]}
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+
+def test_month_starts_and_days() -> None:
+    m = exp.month_starts(2028, 1)
+    assert m[0] == date(2027, 7, 1) and m[-1] == date(2028, 6, 1) and len(m) == 12
+    assert [exp.days_in_month(d) for d in m][7] == 29  # Feb 2028
+
+
+def test_crf_and_annual_capcost() -> None:
+    assert exp.crf(0.0, 20) == pytest.approx(0.05)
+    assert exp.crf(0.07, 30) == pytest.approx(0.0805864, rel=1e-5)
+    # 1500 $/kW, 7 %, 30 y, FO&M 15 $/kW-yr → $/MW-yr
+    assert exp.annual_capcost(1500, 7, 30, 15) == pytest.approx(
+        1000 * (1500 * 0.0805864 + 15), rel=1e-5
+    )
+
+
+def test_split_expression_and_hod_mean() -> None:
+    assert exp.split_expression('generator("A").generation <= 5') == (
+        'generator("A").generation',
+        "<=",
+        5.0,
+    )
+    with pytest.raises(ValueError):
+        exp.split_expression("no operator")
+    arr = np.concatenate([np.arange(24.0), np.arange(24.0) + 2])
+    np.testing.assert_allclose(exp.hod_mean(arr, 2), np.arange(24.0) + 1)
+
+
+# ---------------------------------------------------------------------------
+# case
+# ---------------------------------------------------------------------------
+
+
+def test_time_structure(xcase: tuple[Path, Path]) -> None:
+    case = _build(*xcase, discount_rate=0.07)
+    sim = case.planning["simulation"]
+    assert len(sim["stage_array"]) == 12
+    assert len(sim["block_array"]) == 288
+    assert sim["block_array"][0]["duration"] == 31.0
+    assert sim["block_array"][24 * 7]["duration"] == 29.0
+    assert "phase_array" not in sim
+    assert case.planning["options"]["annual_discount_rate"] == 0.07
+    ph = _build(*xcase, phases="month").planning["simulation"]["phase_array"]
+    assert len(ph) == 12 and ph[3] == {"uid": 4, "first_stage": 3, "count_stage": 1}
+    assert len(_build(*xcase, phases="year").planning["simulation"]["phase_array"]) == 1
+
+
+def test_candidates(xcase: tuple[Path, Path]) -> None:
+    case = _build(*xcase)
+    gens = _gens(case)
+    assert {"GT1", "WF1", "S1_SAT", "S1_Linear Augmentation 1"} <= set(gens)
+    assert "NTH OCGT" not in gens  # not buildable inside the horizon
+    sol = gens["S1_SAT"]
+    assert sol["capacity"] == 0.0 and sol["expcap"] == 1.0
+    assert sol["expmod"][0] == 500 and sol["expmod"][1:] == [0.0] * 11
+    assert sol["capmax"] == [500.0] * 12
+    assert sol["annual_capcost"][0] == pytest.approx(
+        exp.annual_capcost(1500, 7, 30, 15), rel=1e-6
+    )
+    assert sol["type"].startswith("candidate_")
+    assert case.stats["candidates_energy"] == 1
+    assert case.stats["candidates_network"] == 1
+    prof = case.schedules[("GeneratorProfile", "profile")]
+    names = [p["generator"] for p in case.planning["system"]["generator_profile_array"]]
+    sp = prof[names.index("S1_SAT") + 1]
+    assert sp.shape == (12, 24)
+    assert sp[0, 7] == pytest.approx(0.5 * 0.98)
+    assert sp[0, 2] == pytest.approx(0.0)
+    assert np.all(prof[names.index("S1_Linear Augmentation 1") + 1] == 0.0)
+
+
+def test_existing_fleet_retirement(xcase: tuple[Path, Path]) -> None:
+    case = _build(*xcase)
+    gens = _gens(case)
+    pmax = case.schedules[("Generator", "pmax")][gens["WF1"]["uid"]]
+    assert np.all(pmax[:6] == pytest.approx(80.0))
+    assert np.all(pmax[6:] == 0.0)
+    gcost = case.schedules[("Generator", "gcost")][gens["GT1"]["uid"]]
+    assert gcost[0, 0] == pytest.approx(52.0)
+
+
+def test_capacity_constraints(xcase: tuple[Path, Path]) -> None:
+    case = _build(*xcase)
+    ucs = _ucs(case)
+    rl = ucs["isp_ResourceLimit_S1_Solar"]
+    assert rl["scope"] == "stage"
+    assert rl["expression"] == 'generator("S1_SAT").capainst <= 300'
+    ob = ucs["isp_OCLimit_S1"]
+    # existing wind (80 MW until Dec) is folded into the RHS
+    assert ob["expression"].startswith('generator("S1_SAT").capainst <= ')
+    rhs = [row[0] for row in ob["rhs"]]
+    # one yearly row at the FY build stage with the tightest monthly RHS
+    # (wind still in service in July..December); other months inactive
+    assert rhs[0] == 170.0
+    assert rhs[1:] == [exp.INACTIVE_RHS] * 11
+    assert "_capacity" not in ob
+    assert "isp_CIS_Dispatchable_NSW" not in ucs
+    assert "isp_Shared_S1" not in ucs
+    groups = case.stats["constraint_groups"]["capacity_build"]
+    assert any("Battery.candidate" in k for k in groups)
+    assert any("Units Built in Year" in k for k in groups)
+
+
+def test_fy_capacity_rhs() -> None:
+    months = exp.month_starts(2028, 2)
+    rhs = np.full((24, 24), 100.0)
+    rhs[3] = 80.0  # tighter in October of FY1
+    rhs[15] = exp.INACTIVE_RHS  # absent in October of FY2
+    out = exp._fy_capacity_rhs(rhs, months, "<=", exp.INACTIVE_RHS)
+    assert out[0, 0] == 80.0 and out[12, 0] == 100.0
+    assert np.all(np.delete(out[:, 0], [0, 12]) == exp.INACTIVE_RHS)
+    ge = exp._fy_capacity_rhs(rhs * 0 + 5.0, months, ">=", -exp.INACTIVE_RHS)
+    assert ge[0, 0] == 5.0 and ge[1, 0] == -exp.INACTIVE_RHS
+
+
+def test_operational_capacity_constraint(xcase: tuple[Path, Path]) -> None:
+    case = _build(*xcase)
+    ucs = _ucs(case)
+    # WF1 retires in January: the LHS changes → one variant per LHS, each
+    # inactive (RHS 1e9) in the stages of the other
+    assert sorted(n for n in ucs if n.startswith("isp_ExportLimit_S1")) == [
+        "isp_ExportLimit_S1_v1",
+        "isp_ExportLimit_S1_v2",
+    ]
+    v1 = ucs["isp_ExportLimit_S1_v1"]
+    assert "scope" not in v1
+    assert 'generator("S1_Linear Augmentation 1").capainst' in v1["expression"]
+    assert 'generator("S1_SAT").generation' in v1["expression"]
+    assert 'generator("WF1").generation' in v1["expression"]
+    assert 'generator("WF1")' not in ucs["isp_ExportLimit_S1_v2"]["expression"]
+    rhs = case.schedules[("UserConstraint", "rhs")][v1["uid"]]
+    assert rhs[0, 0] == pytest.approx(60.0)
+    assert rhs[11, 0] == pytest.approx(exp.INACTIVE_RHS)
+
+
+def test_daily_energy_becomes_stage_sum(xcase: tuple[Path, Path]) -> None:
+    case = _build(*xcase)
+    uc = _ucs(case)["isp_GT1_Day"]
+    assert uc["scope"] == "stage"
+    assert uc["expression"].startswith("sum{b in stage} dur[b] * (")
+    rhs = [row[0] for row in uc["rhs"]]
+    assert rhs[0] == pytest.approx(1000.0 * 31)
+    assert rhs[7] == pytest.approx(1000.0 * 29)
+
+
+def test_write_case(xcase: tuple[Path, Path], tmp_path: Path) -> None:
+    case = _build(*xcase)
+    out = tmp_path / "out"
+    path = exp.write_expansion_case(case, out, "t")
+    plan = json.loads(path.read_text())
+    assert plan["system"]["generator_array"]
+    df = pd.read_parquet(out / "Generator" / "pmax.parquet")
+    assert list(df.columns) == ["stage", "block", "uid", "value"]
+    assert df.stage.max() == 12 and df.block.max() == 288
+    pf = pd.read_parquet(out / "GeneratorProfile" / "profile.parquet")
+    assert list(pf.columns) == ["scenario", "stage", "block", "uid", "value"]
+
+
+def test_cli(xcase: tuple[Path, Path], tmp_path: Path) -> None:
+    xml, traces = xcase
+    out = tmp_path / "cli"
+    rc = exp.main(
+        [
+            str(xml),
+            "-t",
+            str(traces),
+            "--first-fy",
+            "2028",
+            "--years",
+            "1",
+            "-o",
+            str(out),
+            "-n",
+            "c",
+        ]
+    )
+    assert rc == 0
+    assert (out / "c.json").is_file() and (out / "c.stats.json").is_file()

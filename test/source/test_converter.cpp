@@ -1,7 +1,11 @@
+#include <string_view>
+
 #include <doctest/doctest.h>
 #include <gtopt/converter.hpp>
 #include <gtopt/converter_lp.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -319,3 +323,41 @@ TEST_CASE("ConverterLP - capainst column primal at lower bound")
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
+TEST_CASE(  // NOLINT
+    "ConverterLP - battery not yet commissioned (zero pmax stage) builds")
+{
+  // A battery whose charge/discharge envelope is 0 in stage 1 (commissioned
+  // in stage 2): the synthetic charge Demand elides every block of stage 1,
+  // so ConverterLP must use the tolerant column lookup instead of throwing
+  // `flat_map::at` (multi-year expansion cases with dated commissioning).
+  constexpr std::string_view json = R"({
+    "options": {"annual_discount_rate": 0.0, "output_format": "csv",
+                "model_options": {"use_single_bus": true,
+                                  "demand_fail_cost": 1000,
+                                  "scale_objective": 1}},
+    "simulation": {
+      "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 1},
+                      {"uid": 3, "duration": 1}, {"uid": 4, "duration": 1}],
+      "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2},
+                      {"uid": 2, "first_block": 2, "count_block": 2}],
+      "scenario_array": [{"uid": 1, "probability_factor": 1}]},
+    "system": {
+      "name": "late_battery",
+      "bus_array": [{"uid": 1, "name": "b1"}],
+      "demand_array": [{"uid": 1, "name": "d1", "bus": "b1", "lmax": 10}],
+      "generator_array": [{"uid": 1, "name": "g1", "bus": "b1",
+                           "gcost": 10, "capacity": 50}],
+      "battery_array": [{"uid": 1, "name": "bat1", "bus": "b1",
+                         "emin": 0, "emax": [[0, 0], [20, 20]],
+                         "pmax_charge": [[0, 0], [5, 5]],
+                         "pmax_discharge": [[0, 0], [5, 5]],
+                         "input_efficiency": 0.9,
+                         "output_efficiency": 0.9}]}
+  })";
+  Planning base;
+  base.merge(parse_planning_json(json));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 1);
+}

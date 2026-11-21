@@ -376,6 +376,10 @@ class IspCaseOptions:
     #: PLEXOS constraints / purchasers / H2 / emissions / fuel offtake /
     #: REZ buses (see :mod:`plexos2gtopt.aemo_isp_constraints`)
     isp: isp_c.ConstraintOptions = field(default_factory=isp_c.ConstraintOptions)
+    #: expansion candidates with a ``capainst`` column in this window (see
+    #: :mod:`plexos2gtopt.aemo_isp_expansion`); their capacity terms in
+    #: PLEXOS constraints become variables instead of constants
+    expansion_names: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -684,6 +688,7 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
             },
             system=system,
             sched=sched,
+            expansion=opts.expansion_names,
         )
         user_constraints.extend(isp_c.apply(view, isp, stats))
     if user_constraints:
