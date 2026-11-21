@@ -198,6 +198,11 @@ class ExpansionOptions:
     include_batteries: bool = True
     constraints: bool = True
     demand_fail_cost: float | None = None
+    #: slack cost for the hard yearly capacity constraints (PLEXOS Penalty
+    #: Price -1); None keeps them hard.  SDDP needs them soft: a month
+    #: cannot repair the capacity a previous FY built (feasibility cuts on
+    #: a capacity state converge one coordinate per iteration).
+    capacity_penalty: float | None = None
     #: restrict candidates to categories starting with one of these
     candidate_prefixes: tuple[str, ...] = ()
 
@@ -651,6 +656,8 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
             rhs = np.full((n_st, 24), off)
             for s, v in var.rhs.items():
                 rhs[s] = v
+            if is_capacity and opts.capacity_penalty and "penalty" not in base:
+                item["penalty"] = opts.capacity_penalty
             if is_capacity:
                 rhs = _fy_capacity_rhs(rhs, months, var.op, off)
             if stage_scope:
@@ -817,6 +824,13 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     p.add_argument("--no-isp-constraints", action="store_true")
     p.add_argument("--demand-fail-cost", type=float, default=None)
     p.add_argument(
+        "--capacity-penalty",
+        type=float,
+        default=None,
+        help="slack cost of the hard yearly capacity constraints "
+        "(recommended with --phases month|year)",
+    )
+    p.add_argument(
         "--candidate-prefix",
         action="append",
         default=[],
@@ -847,6 +861,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_batteries=not args.no_batteries,
         constraints=not args.no_isp_constraints,
         demand_fail_cost=args.demand_fail_cost,
+        capacity_penalty=args.capacity_penalty,
         candidate_prefixes=tuple(args.candidate_prefix),
     )
     case = build_expansion_case(opts)

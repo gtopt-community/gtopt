@@ -275,6 +275,14 @@ def test_capacity_constraints(xcase: tuple[Path, Path]) -> None:
     assert any("Units Built in Year" in k for k in groups)
 
 
+def test_capacity_penalty(xcase: tuple[Path, Path]) -> None:
+    hard = _ucs(_build(*xcase))["isp_OCLimit_S1"]
+    assert "penalty" not in hard
+    soft = _ucs(_build(*xcase, capacity_penalty=1e7))
+    assert soft["isp_OCLimit_S1"]["penalty"] == 1e7
+    assert "penalty" not in soft["isp_GT1_Day"]  # not a capacity constraint
+
+
 def test_fy_capacity_rhs() -> None:
     months = exp.month_starts(2028, 2)
     rhs = np.full((24, 24), 100.0)
