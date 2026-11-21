@@ -46,8 +46,11 @@ PLEXOS semantics used:
   Capacity`` (Units × Max Power) on the start day are constants moved to
   the RHS; ``Capacity Built`` / ``Units Built in Year`` are 0 (no
   expansion).  Terms on objects absent from the case (``Units`` 0,
-  candidates, skipped categories) are dropped; ``Pump Load`` is dropped
-  (pumping is not modelled).  A coefficient row tagged with a PLEXOS
+  candidates, skipped categories) are dropped; ``Pump Load`` terms are
+  dropped (pumping itself is modelled by :mod:`aemo_isp`, but in the 2026
+  ISP only the yearly Powering Australia Plan and the Snowy 2.0 pump
+  limit carry such terms — neither applies to a 2027 week).  A coefficient
+  row tagged with a PLEXOS
   ``Variable`` is multiplied by that variable's hourly ``Profile``.
 
 Everything that is a capacity-expansion or build condition (resource,

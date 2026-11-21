@@ -20,8 +20,10 @@ of the window:
 * Hydro: ``Storage`` → Reservoir + Junction, ``Waterway`` → Waterway,
   hydro generators with a ``Head Storage`` → Turbine (``Efficiency
   Incr`` MW per m³/s), daily / half-hourly natural inflows → Flow.
-  Storage volumes are PLEXOS ML (1000 m³) → hm³.  End volume ≥ start
-  volume.  Pumping is not modelled.
+  Storage volumes are PLEXOS ML (1000 m³) → hm³ (``flow_conversion_rate``
+  0.0036).  ``Pump Load`` units → tail→head Waterway + Pump + flexible
+  Demand.  Week-start level and end-of-week water value: see
+  :func:`_week_start_volume` and :func:`_price_end_volume`.
 * Demand: sub-regional operational demand traces (``Node.Load``).
 * Daily energy limits: ``Max Energy Day`` (DSP) and ``Max Energy
   Year`` (non-storage hydro) as ``daily_sum`` user constraints.
@@ -353,6 +355,11 @@ class IspCaseOptions:
     days: int = 7
     name: str = "isp_week"
     include_hydro: bool = True
+    #: hydro realism (off with ``--legacy``): pumping, week-start levels,
+    #: Max Spill, explicit hm³ flow conversion, water-value end target
+    hydro_extras: bool = True
+    #: water value [$/MWh] pricing an end volume below the start volume
+    hydro_water_value: float = 300.0
     include_batteries: bool = True
     demand_fail_cost: float | None = None
     #: PLEXOS constraints / purchasers / H2 / emissions / fuel offtake /
@@ -419,6 +426,7 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
     fuel_array: list[dict[str, Any]] = []
     fuel_price: dict[str, float] = {}
     turbine_gens: list[tuple[str, int, int | None, float]] = []
+    pump_gens: list[PumpGen] = []
     user_constraints: list[dict[str, Any]] = []
     gx_stats: dict[str, Any] = defaultdict(int)
     for o in sorted(res.objects("Generator"), key=lambda o: o.name):
@@ -512,6 +520,9 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
             eff = res.scalar(o.object_id, "Efficiency Incr", day0)
             if eff and eff > 0:
                 turbine_gens.append((o.name, h, tail.get(o.object_id), eff))
+                pg = _pump_gen(res, o, day0, units, bus, h, tail, eff)
+                if pg is not None:
+                    pump_gens.append(pg)
         # daily energy limits
         e_day = res.scalar(o.object_id, "Max Energy Day", day0)
         if e_day is not None and e_day > 0:
@@ -612,7 +623,15 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
     # ---- hydro ------------------------------------------------------------
     hydro: dict[str, list[dict[str, Any]]] = {}
     if opts.include_hydro:
-        hydro = _build_hydro(res, opts, turbine_gens, sched, stats)
+        hydro = _build_hydro(
+            res,
+            opts,
+            HydroInputs(turbine_gens, pump_gens if opts.hydro_extras else []),
+            sched,
+            stats,
+        )
+        for dem in hydro.pop("demand_array", []):
+            demand_array.append({"uid": len(demand_array) + 1, **dem})
 
     # ---- VoLL / options ---------------------------------------------------
     voll = opts.demand_fail_cost
@@ -648,7 +667,9 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
             batteries={b["name"]: b["bus"] for b in battery_array},
             lines={ln["name"] for ln in line_array},
             node_load={
-                d["bus"]: sched[("Demand", "lmax")][d["uid"]] for d in demand_array
+                d["bus"]: sched[("Demand", "lmax")][d["uid"]]
+                for d in demand_array
+                if d["uid"] in sched[("Demand", "lmax")]  # skip pump loads
             },
             system=system,
             sched=sched,
@@ -841,14 +862,128 @@ def _fill_nan_from_day_neighbours(arr: np.ndarray) -> np.ndarray:
     return s.fillna(0.0).to_numpy()
 
 
-def _build_hydro(
+#: m³/s × h → hm³ (PLEXOS volumes are 1000 m³, converted ÷ 1000 to hm³)
+HM3_PER_M3S_H = 0.0036
+#: MWh per hm³ released through a 1 MW/(m³/s) turbine (10⁶ m³ / 3600 s/h)
+MWH_PER_HM3_PER_PF = 1.0e6 / 3600.0
+
+
+@dataclass
+class PumpGen:
+    """A hydro generator that also pumps (PLEXOS ``Pump Load`` > 0)."""
+
+    name: str
+    bus: str
+    head: int
+    tail: int
+    eff: float  # Efficiency Incr [MW/(m³/s)]
+    pump_mw: float  # Pump Units × Pump Load
+    pump_eff: float  # Pump Efficiency [p.u.]
+
+
+@dataclass
+class HydroInputs:
+    """Hydro generators collected by the generator loop."""
+
+    turbine_gens: list[tuple[str, int, int | None, float]]
+    pump_gens: list[PumpGen] = field(default_factory=list)
+
+
+def _pump_gen(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    res: IspResolver,
+    o: Any,
+    day0: date,
+    units: float,
+    bus: str,
+    head: int,
+    tail: dict[int, int],
+    eff: float,
+) -> PumpGen | None:
+    """PLEXOS pumping: ``Pump Load`` MW per unit moving tail → head water."""
+    load = res.scalar(o.object_id, "Pump Load", day0, default=0.0) or 0.0
+    t = tail.get(o.object_id)
+    if load <= 0.0 or t is None:
+        return None
+    pu = res.scalar(o.object_id, "Pump Units", day0)
+    n = units if pu is None or pu >= 1e20 else pu
+    peff = _pct(res.scalar(o.object_id, "Pump Efficiency", day0), 0.7)
+    if n <= 0.0 or peff <= 0.0:
+        return None
+    return PumpGen(o.name, bus, head, t, eff, n * load, peff)
+
+
+def _week_start_volume(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    res: IspResolver,
+    oid: int,
+    day0: date,
+    vmin: float,
+    vmax: float,
+    counts: dict[str, int],
+) -> float:
+    """Reservoir level [hm³] at the window start.
+
+    PLEXOS applies ``Initial Volume`` at the model horizon start only;
+    later levels are a simulation result the XML does not carry.  Rule:
+    the horizon-start day uses Initial Volume; otherwise a live
+    ``Target`` wins; otherwise Initial Volume is kept as the modeller's
+    representative level when it is above Min Volume; an Initial Volume
+    at / below Min Volume (an "empty" placeholder, e.g. the irrigation
+    dams) gives the middle of the band.
+    """
+    v0 = res.scalar(oid, "Initial Volume", day0)
+    hs = res.db.horizon_start
+    if hs is not None and day0 == hs.date() and v0 is not None:
+        counts["horizon_start_initial_volume"] += 1
+        return min(max(v0 / 1000.0, vmin), vmax)
+    target = res.scalar(oid, "Target", day0)
+    if target is not None and target > 0:
+        counts["target"] += 1
+        return min(max(target / 1000.0, vmin), vmax)
+    if v0 is not None and v0 / 1000.0 > vmin + 1e-9:
+        counts["initial_volume"] += 1
+        return min(v0 / 1000.0, vmax)
+    counts["mid_level"] += 1
+    return 0.5 * (vmin + vmax)
+
+
+def _downstream_energy(
+    junction_names: list[str],
+    arcs: list[tuple[str, str | None, float]],
+) -> dict[str, float]:
+    """MWh made by one hm³ leaving each junction on its best path down.
+
+    ``arcs`` are (from, to, production factor) for turbines and (from,
+    to, 0) for waterways.  Water leaves through ONE arc, so parallel
+    units at a junction are alternatives (max), and a series cascade
+    adds up: E(j) = max over arcs (pf + E(to)) × 10⁶ / 3600.
+    """
+    out_arcs: dict[str, list[tuple[str | None, float]]] = defaultdict(list)
+    for a, b, pf in arcs:
+        out_arcs[a].append((b, pf))
+    memo: dict[str, float] = {}
+
+    def best(j: str, path: frozenset[str]) -> float:
+        if j in memo:
+            return memo[j]
+        val = 0.0
+        for b, pf in out_arcs[j]:
+            tail = 0.0 if b is None or b in path else best(b, path | {b})
+            val = max(val, pf + tail)
+        memo[j] = val
+        return val
+
+    return {j: MWH_PER_HM3_PER_PF * best(j, frozenset({j})) for j in junction_names}
+
+
+def _build_hydro(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     res: IspResolver,
     opts: IspCaseOptions,
-    turbine_gens: list[tuple[str, int, int | None, float]],
+    gens: HydroInputs,
     sched: dict[tuple[str, str], dict[int, np.ndarray]],
     stats: dict[str, Any],
 ) -> dict[str, list[dict[str, Any]]]:
     day0, days = opts.start, opts.days
+    extras = opts.hydro_extras
     storages = sorted(res.objects("Storage"), key=lambda o: o.name)
     sname = {o.object_id: o.name for o in storages}
     junction_array = [
@@ -856,6 +991,7 @@ def _build_hydro(
     ]
     reservoir_array: list[dict[str, Any]] = []
     flow_array: list[dict[str, Any]] = []
+    level_rule: dict[str, int] = defaultdict(int)
     for o in storages:
         vmax = (
             res.scalar(o.object_id, "Max Volume", day0, default=0.0) or 0.0
@@ -863,21 +999,30 @@ def _build_hydro(
         vmin = (
             res.scalar(o.object_id, "Min Volume", day0, default=0.0) or 0.0
         ) / 1000.0
-        v0 = res.scalar(o.object_id, "Initial Volume", day0)
-        v0 = vmax * 0.5 if v0 is None else v0 / 1000.0
-        v0 = min(max(v0, vmin), vmax)
-        reservoir_array.append(
-            {
-                "uid": len(reservoir_array) + 1,
-                "name": o.name,
-                "junction": o.name,
-                "emin": round(vmin, 6),
-                "emax": round(vmax, 6),
-                "eini": round(v0, 6),
-                "efin": round(v0, 6),
-                "efin_cost": 1.0e4,
-            }
-        )
+        if extras:
+            v0 = _week_start_volume(res, o.object_id, day0, vmin, vmax, level_rule)
+        else:
+            vi = res.scalar(o.object_id, "Initial Volume", day0)
+            v0 = vmax * 0.5 if vi is None else vi / 1000.0
+            v0 = min(max(v0, vmin), vmax)
+        rsv: dict[str, Any] = {
+            "uid": len(reservoir_array) + 1,
+            "name": o.name,
+            "junction": o.name,
+            "emin": round(vmin, 6),
+            "emax": round(vmax, 6),
+            "eini": round(v0, 6),
+            "efin": round(v0, 6),
+            "efin_cost": 1.0e4,
+        }
+        if extras:
+            # Volumes hm³, flows m³/s: say so explicitly (older gtopt
+            # builds fell back to 3.6 — the 1000 m³ factor — when absent).
+            rsv["flow_conversion_rate"] = HM3_PER_M3S_H
+            spill = res.scalar(o.object_id, "Max Spill", day0)
+            if spill is not None and 0.0 <= spill < 1e20:
+                rsv["spillway_capacity"] = spill
+        reservoir_array.append(rsv)
         inflow = res.hourly(o.object_id, "Natural Inflow", day0, days)
         if inflow is not None and np.nansum(inflow) > 0:
             uid = len(flow_array) + 1
@@ -910,7 +1055,7 @@ def _build_hydro(
             item["fmax"] = fmax
         waterway_array.append(item)
     turbine_array: list[dict[str, Any]] = []
-    for gname, h, t, eff in turbine_gens:
+    for gname, h, t, eff in gens.turbine_gens:
         item = {
             "uid": len(turbine_array) + 1,
             "name": f"turbine_{_slug(gname)}",
@@ -924,14 +1069,104 @@ def _build_hydro(
         else:
             item["drain"] = True
         turbine_array.append(item)
-    stats["hydro_storage_hm3"] = float(sum(r["emax"] for r in reservoir_array))
-    return {
+    out: dict[str, list[dict[str, Any]]] = {
         "junction_array": junction_array,
         "reservoir_array": reservoir_array,
         "waterway_array": waterway_array,
         "turbine_array": turbine_array,
         "flow_array": flow_array,
     }
+    if extras:
+        _add_pumps(gens.pump_gens, sname, out, stats)
+        _price_end_volume(out, opts.hydro_water_value)
+        stats["hydro_level_rule"] = dict(level_rule)
+    stats["hydro_storage_hm3"] = float(sum(r["emax"] for r in reservoir_array))
+    return out
+
+
+def _add_pumps(
+    pump_gens: list[PumpGen],
+    sname: dict[int, str],
+    out: dict[str, list[dict[str, Any]]],
+    stats: dict[str, Any],
+) -> None:
+    """Each pumping unit → tail→head Waterway + Pump + flexible Demand.
+
+    PLEXOS stores ``Pump Load × Pump Efficiency`` of generating potential:
+    water pumped [m³/s] = load [MW] × Pump Efficiency / Efficiency Incr,
+    i.e. gtopt ``pump_factor = Efficiency Incr`` with ``efficiency = Pump
+    Efficiency``.  The pump load is a Demand with no curtailment cost
+    (``fcost = 0``): it draws 0 … Pump Load MW at the bus price.
+    """
+    waterways = out["waterway_array"]
+    pumps: list[dict[str, Any]] = []
+    demands: list[dict[str, Any]] = []
+    for pg in pump_gens:
+        if pg.head not in sname or pg.tail not in sname:
+            continue
+        slug = _slug(pg.name)
+        qmax = pg.pump_mw * pg.pump_eff / pg.eff
+        wname = f"pump_{slug}"
+        waterways.append(
+            {
+                "uid": len(waterways) + 1,
+                "name": wname,
+                "junction_a": sname[pg.tail],
+                "junction_b": sname[pg.head],
+                "fmin": 0.0,
+                "fmax": round(qmax, 6),
+            }
+        )
+        dname = f"pump_load_{slug}"
+        demands.append(
+            {
+                "name": dname,
+                "bus": pg.bus,
+                "type": "pump",
+                "capacity": round(pg.pump_mw, 6),
+                "fcost": 0.0,
+            }
+        )
+        pumps.append(
+            {
+                "uid": len(pumps) + 1,
+                "name": f"pump_{slug}",
+                "waterway": wname,
+                "demand": dname,
+                "pump_factor": pg.eff,
+                "efficiency": pg.pump_eff,
+                "capacity": round(qmax, 6),
+                "main_reservoir": sname[pg.head],
+            }
+        )
+    if pumps:
+        out["pump_array"] = pumps
+        out["demand_array"] = demands
+    stats["hydro_pumps"] = len(pumps)
+    stats["hydro_pump_mw"] = float(sum(d["capacity"] for d in demands))
+
+
+def _price_end_volume(out: dict[str, list[dict[str, Any]]], water_value: float) -> None:
+    """End volume target = start volume; shortfall at the water value.
+
+    ``efin_cost`` [$/hm³] = water value [$/MWh] × the MWh one hm³ makes
+    on its best path down the cascade (largest sum of production factors
+    along a path × 10⁶/3600; parallel units are alternatives).
+    Reservoirs with no turbine below (tail ponds, weirs) use one
+    1 MW/(m³/s) unit so their shortfall is still priced.
+    """
+    arcs = [
+        (w["junction_a"], w.get("junction_b"), 0.0)
+        for w in out["waterway_array"]
+        if not w["name"].startswith("pump_")
+    ] + [
+        (t["junction_a"], t.get("junction_b"), float(t["production_factor"]))
+        for t in out["turbine_array"]
+    ]
+    energy = _downstream_energy([r["junction"] for r in out["reservoir_array"]], arcs)
+    for r in out["reservoir_array"]:
+        e = energy.get(r["junction"], 0.0) or MWH_PER_HM3_PER_PF
+        r["efin_cost"] = round(water_value * e, 3)
 
 
 # ---------------------------------------------------------------------------
@@ -996,6 +1231,14 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     p.add_argument("-n", "--name", default=None, help="case name (JSON stem)")
     p.add_argument(
         "--no-hydro", action="store_true", help="hydro generators without water balance"
+    )
+    p.add_argument(
+        "--hydro-water-value",
+        type=float,
+        default=300.0,
+        help="water value [$/MWh] pricing a reservoir end volume below its "
+        "start volume (efin_cost = value × MWh per hm³ down the cascade; "
+        "default %(default)s)",
     )
     p.add_argument("--no-batteries", action="store_true")
     p.add_argument("--demand-fail-cost", type=float, default=None)
@@ -1074,6 +1317,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         days=args.days,
         name=name,
         include_hydro=not args.no_hydro,
+        hydro_extras=not args.legacy,
+        hydro_water_value=args.hydro_water_value,
         include_batteries=not args.no_batteries,
         demand_fail_cost=args.demand_fail_cost,
         isp=isp_c.ConstraintOptions(

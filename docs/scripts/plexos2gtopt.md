@@ -1002,12 +1002,43 @@ python -m plexos2gtopt.aemo_isp "2026 ISP Step Change Model.xml" \
 | `Generator` with `Units > 0` on the start day | `Generator`, `pmax = Units × Rating(trace / timeslice) or Max Capacity × (1 − Aux Incr)`, `gcost = VO&M` + `fuel` with `heat_rate = Heat Rate / (1 − Aux Incr)` (legacy: `gcost = Heat Rate × Fuel.Price + VO&M`) |
 | `Battery` with `Units > 0` | `Battery` (`Capacity`, `Max Power`, SoC limits, efficiencies; SoC 50 % at both ends) |
 | `Line` Max/Min Flow (timesliced, dated) | `Line.tmax_ab` / `tmax_ba`, transport model, lossless |
-| `Storage` (ML), `Waterway`, `Head/Tail Storage`, `Efficiency Incr`, `Natural Inflow` (m³/s) | `Reservoir` (hm³, end ≥ start), `Junction`, `Waterway`, `Turbine`, `Flow` |
+| `Storage` (1000 m³), `Waterway`, `Head/Tail Storage`, `Efficiency Incr`, `Natural Inflow` (m³/s) | `Reservoir` (hm³, `flow_conversion_rate = 0.0036`, `Max Spill` → `spillway_capacity`), `Junction`, `Waterway`, `Turbine`, `Flow` |
+| `Pump Load` (MW) × `Pump Units`, `Pump Efficiency` (%) on a hydro generator with a `Tail Storage` | tail → head `Waterway` + `Pump` (`pump_factor = Efficiency Incr`, `efficiency = Pump Efficiency`) + a flexible `Demand` (`capacity` = pump MW, `fcost = 0`) |
 | `Max Energy Day` (DSP), `Max Energy Year` (hydro without storage) | daily `UserConstraint` (`daily_sum`) |
 | `Mark-up` ($/MWh; rooftop PV −1) | added to `gcost` |
 | `Min Load` (MW, timesliced; Tas hydro) | per-block `pmin`, capped at `pmax` |
 | `Min Capacity Factor Year` (%, coal / gas) | yearly energy floor: not enforced by default; `--long-periods prorate` adds a window-sum `generation ≥ CF × Units × Max Capacity × (1 − Aux Incr) × hours` (capped at Σ `pmax`) |
 | `Outage Factor` (bands 2–3), `Maintenance Rate` (new entrants), `Min Capacity Factor` (0) | not modelled (no outages in a deterministic week) |
+
+#### Hydro levels and the end-of-week value
+
+The XML stores volumes in 1000 m³ (converted ÷ 1000 to hm³), flows in
+m³/s and `Efficiency Incr` in MW/(m³/s), so every reservoir carries
+`flow_conversion_rate = 0.0036` hm³/(m³/s·h).
+
+PLEXOS uses `Initial Volume` only at the model horizon start (2026-07-01
+in the 2026 ISP); a later week's level is a simulation result the XML
+does not carry.  The week-start volume `eini` is therefore:
+
+1. `Initial Volume` when the window starts on the horizon start;
+2. otherwise a live `Target`, if any;
+3. otherwise `Initial Volume` as the modeller's representative level
+   when it is above `Min Volume`;
+4. otherwise (an "empty" placeholder, e.g. Blowering, Dartmouth,
+   Eildon, Hume, Koombooloomba, Kuranda) the middle of
+   `[Min Volume, Max Volume]`.
+
+The end target is `efin = eini`.  Ending lower costs
+`efin_cost = water value × MWh per hm³`, where the MWh per hm³ is the
+largest sum of turbine production factors along a path down the cascade
+× 10⁶ / 3600 (parallel units are alternatives, a series cascade adds
+up); ponds with no turbine below count one 1 MW/(m³/s) unit.
+`--hydro-water-value` sets the value (default 300 $/MWh), so a week
+draws storage down only when prices exceed it and is otherwise
+inflow-neutral.  `<name>.stats.json` → `hydro_level_rule` counts the
+rule used per reservoir.  `--legacy` keeps the old behaviour (Initial
+Volume clamped into the band, `efin_cost = 10⁴`, no pumping, no
+explicit conversion rate).
 
 Value selection per day: band-1 rows inside their date window; rows
 tagged with an active `Timeslice` override untagged rows; the latest
