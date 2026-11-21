@@ -990,7 +990,7 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
   {
     if (should_stop()) {
       return std::unexpected(Error {
-          .code = ErrorCode::SolverError,
+          .code = ErrorCode::Cancelled,
           .message = std::format("{}: cancelled",
                                  sddp_log("Backward",
                                           gtopt::uid_of(iteration_index),
@@ -1248,6 +1248,8 @@ auto SDDPMethod::run_forward_pass_all_scenes(
   ForwardPassOutcome out;
   out.scene_upper_bounds.resize(num_scenes, 0.0);
   out.scene_feasible.resize(num_scenes, 1);
+  StrongIndexVector<SceneIndex, uint8_t> cancelled_scene(
+      static_cast<std::size_t>(num_scenes), 0);
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     // Terminal-skip path: scene was declared structurally infeasible
@@ -1263,6 +1265,20 @@ auto SDDPMethod::run_forward_pass_all_scenes(
 
     auto fwd = futures[scene_index].get();
     auto& rs = m_scene_retry_state_[scene_index];
+    if (!fwd.has_value() && fwd.error().code == ErrorCode::Cancelled) {
+      // Cooperative stop mid-pass: not an infeasibility.  Leave the
+      // retry state alone and exempt the scene from the rollback hook
+      // below (its cuts are valid — nothing failed).
+      SPDLOG_DEBUG("SDDP Forward [i{} s{}]: {}",
+                   gtopt::uid_of(iteration_index),
+                   uid_of(scene_index),
+                   fwd.error().message);
+      out.cancelled = true;
+      out.scene_feasible[scene_index] = 0;
+      cancelled_scene[scene_index] = 1;
+      m_scenes_done_.fetch_add(1);
+      continue;
+    }
     if (!fwd.has_value()) {
       // Demoted to DEBUG: the per-(scene, phase) elastic-filter WARN
       // already emitted by `forward_pass` carries the same message;
@@ -1344,7 +1360,9 @@ auto SDDPMethod::run_forward_pass_all_scenes(
     // rows.  Format: "s1=8 s3=8 s6=8 …"
     std::string per_scene_breakdown;
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      if (out.scene_feasible[scene_index] != 0) {
+      if (out.scene_feasible[scene_index] != 0
+          || cancelled_scene[scene_index] != 0)
+      {
         continue;
       }
       // state_repair (alias plp): feasibility cuts are
@@ -1432,6 +1450,15 @@ auto SDDPMethod::run_forward_pass_all_scenes(
   // outputs in the next iteration.  Aborting here would discard them and
   // contradict the fail-stop design comment ("the next iteration restarts
   // every scene's forward pass from p1 with the freshly accumulated cuts").
+  if (out.cancelled) {
+    SPDLOG_INFO(
+        "SDDP Forward [i{}]: stop requested mid-pass — {} scene(s) "
+        "cancelled; iteration discarded (no backward pass, no rollback)",
+        gtopt::uid_of(iteration_index),
+        std::ranges::count(cancelled_scene, uint8_t {1}));
+    return out;
+  }
+
   if (out.scenes_solved == 0 && out.n_fcuts_installed == 0) {
     return std::unexpected(Error {
         .code = ErrorCode::SolverError,
@@ -1509,6 +1536,14 @@ auto SDDPMethod::run_backward_pass_all_scenes(
   BackwardPassOutcome out;
   for (auto& fut : futures) {
     auto bwd = fut.get();
+    if (!bwd.has_value() && bwd.error().code == ErrorCode::Cancelled) {
+      // Cooperative stop: the cuts already installed are valid.
+      SPDLOG_INFO("SDDP Backward [i{}]: {}",
+                  gtopt::uid_of(iteration_index),
+                  bwd.error().message);
+      m_scenes_done_.fetch_add(1);
+      continue;
+    }
     if (!bwd.has_value()) {
       SPDLOG_WARN("SDDP Backward [i{}]: failed: {}",
                   gtopt::uid_of(iteration_index),

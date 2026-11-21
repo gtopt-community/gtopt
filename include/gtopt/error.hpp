@@ -24,6 +24,10 @@ enum class ErrorCode : uint8_t
   InternalError,
   InvalidInput,
   FileIOError,
+  /// Cooperative stop (request_stop / sentinel / API stop file) hit
+  /// mid-pass.  Not a solver failure: SDDP must not treat it as an
+  /// infeasible scene (no retry-state change, no cut rollback).
+  Cancelled,
 };
 
 struct Error

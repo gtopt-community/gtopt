@@ -383,6 +383,18 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         monitor.stop();
         return std::unexpected(std::move(fwd.error()));
       }
+      if (fwd->cancelled) {
+        // Stop/sentinel hit mid-forward: the partial trajectory is
+        // discarded (no backward pass, no bounds, no cut rollback) and
+        // control falls through to the simulation pass + output tail,
+        // exactly as a stop caught at the top of the loop.
+        SPDLOG_INFO(
+            "SDDP Iter [i{}]: stop requested during forward pass, halting "
+            "after {} completed iteration(s)",
+            gtopt::uid_of(iteration_index),
+            iteration_relative(iteration_index, m_iteration_offset_));
+        break;
+      }
       ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
       // Copy (not move) — many downstream reads of ``fwd->scene_feasible``
       // remain in this function (cut storage, save_cuts_for_iteration,
@@ -1695,6 +1707,17 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             break;
           }
           auto fwd = sp.fwd_future.get();
+          if (!fwd.has_value() && fwd.error().code == ErrorCode::Cancelled) {
+            // Cooperative stop: not an infeasibility.  Discard this
+            // partial iteration (no tracker report, no backward) and go
+            // back to idle, where the stop check drains the scene.
+            SPDLOG_INFO("SDDP Forward [i{} s{}]: {}",
+                        sp.current_iteration_index,
+                        uid_of(scene),
+                        fwd.error().message);
+            sp.state = SceneState::idle;
+            break;
+          }
           if (!fwd.has_value()) {
             SPDLOG_WARN("SDDP Forward [i{} s{}]: async forward failed: {}",
                         sp.current_iteration_index,

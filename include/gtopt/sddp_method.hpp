@@ -192,6 +192,17 @@ public:
     m_iteration_callback_ = std::move(cb);
   }
 
+  /// Observer invoked at the head of every forward-pass phase, right
+  /// before the cooperative stop check (scene, phase).  Set it before
+  /// `solve()`; it runs on pool worker threads, so it must be
+  /// thread-safe.  Used to inject a stop at a deterministic point
+  /// mid-pass (tests) and for lightweight progress probes.
+  using ForwardPhaseObserver = std::function<void(SceneIndex, PhaseIndex)>;
+  void set_forward_phase_observer(ForwardPhaseObserver cb) noexcept
+  {
+    m_forward_phase_observer_ = std::move(cb);
+  }
+
   // ── Programmatic stop (thread-safe) ──
 
   /// Request the solver to stop gracefully after the current iteration.
@@ -1223,6 +1234,7 @@ private:
 
   // ── Stop / callback machinery ──
   SDDPIterationCallback m_iteration_callback_ {};
+  ForwardPhaseObserver m_forward_phase_observer_ {};
   std::atomic<bool> m_stop_requested_ {false};
   /// When true, should_stop() returns false (simulation pass ignores stops).
   /// Atomic: the orchestrator toggles it (solve_async) while forward-pass

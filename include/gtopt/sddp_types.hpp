@@ -1904,6 +1904,13 @@ struct ForwardPassOutcome
   std::vector<uint8_t> scene_feasible {};
   int scenes_solved {0};
   bool has_feasibility_issue {false};
+  /// A cooperative stop (`request_stop`, sentinel or API stop file)
+  /// cancelled at least one scene mid-pass.  Cancelled scenes are NOT
+  /// infeasible: their retry state is untouched and their cuts are not
+  /// rolled back.  The caller must discard this (partial) iteration —
+  /// no backward pass — and proceed to the normal post-training tail
+  /// (simulation pass / output).
+  bool cancelled {false};
   /// Total feasibility cuts (including multi-cut bound rows) installed
   /// across all scenes in this pass.  When zero and
   /// has_feasibility_issue is true, retrying will produce the same

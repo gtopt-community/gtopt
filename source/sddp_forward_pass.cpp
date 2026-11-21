@@ -201,9 +201,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     }
 
     const auto phase_index = PhaseIndex {phase_idx};
+    if (m_forward_phase_observer_) {
+      m_forward_phase_observer_(scene_index, phase_index);
+    }
     if (should_stop()) {
       return std::unexpected(Error {
-          .code = ErrorCode::SolverError,
+          .code = ErrorCode::Cancelled,
           .message = std::format("{}: cancelled",
                                  sddp_log("Forward",
                                           gtopt::uid_of(iteration_index),
