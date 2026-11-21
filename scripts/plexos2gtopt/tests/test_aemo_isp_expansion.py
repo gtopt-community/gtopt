@@ -302,6 +302,7 @@ def test_capacity_constraints(xcase: tuple[Path, Path]) -> None:
     assert b["annual_capcost"] == 0.0
     assert b["input_efficiency"] == 0.9 and b["output_efficiency"] == 0.95
     assert b["pmax_discharge"] == 300.0 and b["emax"] == 600.0
+    assert all(x["daily_cycle"] is True for x in bats.values())
     assert case.stats["candidates_storage"] == 1
 
 

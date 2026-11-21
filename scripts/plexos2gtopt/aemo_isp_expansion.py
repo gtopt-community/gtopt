@@ -29,6 +29,12 @@ with **monthly stages** on top of the weekly dispatch converter
   ``End Effects Method`` = Recycle or a ``Target Week`` (pondages, PHES
   upper reservoirs, the empty irrigation dams) cycle back to their
   initial volume within every stage (gtopt ``daily_cycle``).
+  Batteries (existing and candidates, incl. PHES) are written with an
+  explicit ``daily_cycle``: the state of charge closes within each
+  representative day.  This deliberately overrides PLEXOS's ``End
+  Effects Method`` = Free (set on every ISP battery): representative days
+  are not consecutive days, so carrying charge from one to the next would
+  move energy between unrelated days (and between months).
   ``--fill-years N`` (CLI default 1) appends N unreported FYs to damp the
   end effect, e.g. FY31 for an FY28-FY30 study; the stats record
   ``report_years`` / ``fill_years``.
@@ -885,12 +891,15 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
             item[f] = [[round(float(v), 6) for v in row] for row in bat_tb[(name, f)]]
         if b["_first"] == 0 and b["_eini"] is not None:
             item["eini"] = b["_eini"]
+        item["daily_cycle"] = True
         battery_array.append(item)
     for item in battery_candidates:
         if item["name"] in bats:
             logger.warning("battery candidate %s is also existing", item["name"])
             continue
-        battery_array.append({**item, "uid": len(battery_array) + 1})
+        battery_array.append(
+            {**item, "uid": len(battery_array) + 1, "daily_cycle": True}
+        )
     flow_array: list[dict[str, Any]] = []
     for fl in hydro.get("flow_array", []):
         if fl["name"] in inflow:
