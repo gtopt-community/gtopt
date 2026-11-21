@@ -741,6 +741,13 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
     generator_array: list[dict[str, Any]] = []
     for name, g in gens.items():
         uid = len(generator_array) + 1
+        # file-backed schedules of the base (hourly) conversion other than
+        # the regenerated pmax / gcost (e.g. a fixed-load ``pmin``) have no
+        # monthly table here: drop them rather than reference missing files.
+        for fld in [k for k, v in g.items() if v == k and k not in ("pmax", "gcost")]:
+            logger.warning("generator %s: dropped file field %s", name, fld)
+            stats["dropped_file_fields"] += 1
+            g = {k: v for k, v in g.items() if k != fld}
         generator_array.append(
             {
                 **g,
