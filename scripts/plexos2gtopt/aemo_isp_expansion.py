@@ -13,7 +13,10 @@ with **monthly stages** on top of the weekly dispatch converter
   monthly totals; batteries use gtopt's ``daily_cycle`` (the default),
   which rescales the energy balance by ``24 / stage_duration`` and
   closes every stage with ``efin == eini`` — a daily cycle repeated over
-  the month.
+  the month.  ``--rep-days 2`` splits every month into a **high** and a
+  **low net-load** representative day (daily demand − available wind
+  and solar, split at the month median), one stage each, block duration
+  = the days of the group; energy and costs stay exact month totals.
 * Phases: none (one monolithic LP) by default; ``--phases month`` /
   ``year`` writes one phase per month / per FY for the SDDP method, in
   which case installed capacity (``capainst`` / ``capacost``) and the
@@ -123,6 +126,34 @@ def hod_mean(arr: np.ndarray, days: int) -> np.ndarray:
     return np.nanmean(a.reshape(days, 24), axis=0)
 
 
+def day_masks(net_load: np.ndarray, rep_days: int) -> list[np.ndarray]:
+    """Split the days of a month into ``rep_days`` representative-day groups.
+
+    ``rep_days = 1``: every day.  ``rep_days = 2``: **high / low net-load**
+    days (daily demand minus available wind + solar, split at the month
+    median).  Net load, not weekday / weekend, drives what an expansion
+    plan has to cover — firming and storage are sized by the
+    low-renewable, high-demand days that a single month-mean day averages
+    away.  Both groups are kept non-empty.
+    """
+    nd = len(net_load)
+    if rep_days <= 1 or nd < 2:
+        return [np.ones(nd, dtype=bool)]
+    if rep_days != 2:
+        raise ValueError(f"rep_days must be 1 or 2, got {rep_days}")
+    order = np.argsort(-np.asarray(net_load, dtype=float), kind="stable")
+    high = np.zeros(nd, dtype=bool)
+    high[order[: (nd + 1) // 2]] = True
+    return [high, ~high]
+
+
+def rep_mean(arr: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Hour-of-day mean (24 values) over the days selected by ``mask``."""
+    nd = len(mask)
+    a = np.asarray(arr, dtype=np.float64)[: nd * 24].reshape(nd, 24)
+    return np.nanmean(a[mask], axis=0)
+
+
 def crf(rate: float, life: float) -> float:
     """Capital recovery factor (annuity per unit of present value)."""
     if life <= 0:
@@ -193,6 +224,9 @@ class ExpansionOptions:
     name: str = "isp_expansion"
     #: "none" (monolithic), "month" or "year" (one SDDP phase each)
     phases: str = "none"
+    #: representative days per month (1: month mean; 2: high / low
+    #: net-load days), one stage each
+    rep_days: int = 1
     discount_rate: float | None = None
     include_hydro: bool = True
     include_batteries: bool = True
@@ -280,18 +314,30 @@ def find_candidates(
     return out
 
 
-def build_stages(months: list[date], cand: Candidate) -> list[bool]:
-    """Stages where ``cand`` may build: FY start (July) or horizon start."""
+def fy_start_stages(months: list[date], rep_days: int = 1) -> list[bool]:
+    """Per stage: first stage of a FY (July, or the horizon start)."""
     return [
-        cand.max_units[s] > 0 and (d.month == 7 or s == 0) for s, d in enumerate(months)
+        k == 0 and (m == 0 or d.month == 7)
+        for m, d in enumerate(months)
+        for k in range(rep_days)
     ]
 
 
-def capainst_stages(months: list[date], cand: Candidate) -> list[bool]:
+def build_stages(months: list[date], cand: Candidate, rep_days: int = 1) -> list[bool]:
+    """Stages where ``cand`` may build: FY start (July) or horizon start."""
+    return [
+        f and cand.max_units[s // rep_days] > 0
+        for s, f in enumerate(fy_start_stages(months, rep_days))
+    ]
+
+
+def capainst_stages(
+    months: list[date], cand: Candidate, rep_days: int = 1
+) -> list[bool]:
     """Stages where gtopt creates the candidate's ``capainst`` column."""
     out: list[bool] = []
     seen = False
-    for b in build_stages(months, cand):
+    for b in build_stages(months, cand, rep_days):
         seen = seen or b
         out.append(seen)
     return out
@@ -312,9 +358,13 @@ class _UcVariant:
 
 
 def _fold_uc(
-    uc: dict[str, Any], rhs_h: np.ndarray | None, days: int
+    uc: dict[str, Any], rhs_h: np.ndarray | None, mask: np.ndarray
 ) -> tuple[str, dict[str, Any], str, Any]:
-    """Weekly-window user constraint → (key, base dict, op, stage rhs)."""
+    """Window user constraint → (key, base dict, op, stage rhs).
+
+    ``mask`` selects the days of the month the stage represents.
+    """
+    days = int(np.sum(mask))
     lhs, op, rhs = split_expression(uc["expression"])
     base = {
         k: v for k, v in uc.items() if k not in ("uid", "expression", "rhs", "_rhs")
@@ -325,16 +375,16 @@ def _fold_uc(
         base["scope"] = "stage"
         weight = "" if uc.get("constraint_type") == "raw" else "dur[b] * "
         lhs = f"sum{{b in stage}} {weight}({lhs})"
-        mean_day = float(np.mean(rhs_h)) if rhs_h is not None else rhs
+        mean_day = float(np.mean(rep_mean(rhs_h, mask))) if rhs_h is not None else rhs
         return f"stage|{lhs}", {**base, "_lhs": lhs}, op, mean_day * days
     if uc.get("scope") == "stage":
         return f"stage|{lhs}", {**base, "_lhs": lhs}, op, rhs
-    prof = hod_mean(rhs_h, days) if rhs_h is not None else np.full(24, rhs)
+    prof = rep_mean(rhs_h, mask) if rhs_h is not None else np.full(24, rhs)
     return f"block|{lhs}", {**base, "_lhs": lhs}, op, prof
 
 
 def _fy_capacity_rhs(
-    rhs: np.ndarray, months: list[date], op: str, off: float
+    rhs: np.ndarray, fy_start: list[bool], op: str, off: float
 ) -> np.ndarray:
     """Yearly capacity constraint → one row at each FY's first stage.
 
@@ -347,18 +397,36 @@ def _fy_capacity_rhs(
     """
     out = np.full_like(rhs, off)
     pick = np.min if op == "<=" else np.max
-    for s, d in enumerate(months):
-        if s and d.month != 7:
+    for s, first in enumerate(fy_start):
+        if not first:
             continue
         fy = [s]
-        for k in range(s + 1, len(months)):
-            if months[k].month == 7:
+        for k in range(s + 1, len(fy_start)):
+            if fy_start[k]:
                 break
             fy.append(k)
         live = [k for k in fy if abs(rhs[k, 0]) < abs(off)]
         if live:
             out[s] = pick(rhs[live, 0])
     return out
+
+
+def _daily_net_load(
+    system: dict[str, Any], ws: dict[tuple[str, str], Any], nd: int
+) -> np.ndarray:
+    """Daily energy: demand minus available wind + solar of the month window."""
+    net = np.zeros(nd)
+    for d in system["demand_array"]:
+        arr = ws.get(("Demand", "lmax"), {}).get(d["uid"])
+        if arr is not None:
+            net += np.nansum(np.asarray(arr, float)[: nd * 24].reshape(nd, 24), 1)
+    for g in system["generator_array"]:
+        if g.get("type") not in ("solar", "wind"):
+            continue
+        arr = ws.get(("Generator", "pmax"), {}).get(g["uid"])
+        if arr is not None:
+            net -= np.nansum(np.asarray(arr, float)[: nd * 24].reshape(nd, 24), 1)
+    return net
 
 
 def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
@@ -369,10 +437,15 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
     roots = list(opts.trace_roots) or [Path(opts.xml).parent]
     res = IspResolver(db, TraceLocator(roots))
     months = month_starts(opts.first_fy, opts.years)
-    n_st = len(months)
+    nrep = max(1, opts.rep_days)
+    n_st = len(months) * nrep
     ndays = [days_in_month(d) for d in months]
+    #: days represented by each stage (filled per month below)
+    stage_days = [0] * n_st
+    month_masks: list[list[np.ndarray]] = []
+    fy_start = fy_start_stages(months, nrep)
     cands = find_candidates(res, months, opts.candidate_prefixes)
-    cap_on = {c.name: capainst_stages(months, c) for c in cands}
+    cap_on = {c.name: capainst_stages(months, c, nrep) for c in cands}
     stats: dict[str, Any] = defaultdict(int)
     sched: dict[tuple[str, str], dict[int, np.ndarray]] = defaultdict(dict)
 
@@ -404,8 +477,9 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
     inst: dict[str, tuple[str, str, str, np.ndarray]] = {}
     voll = opts.demand_fail_cost
     groups: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    for s, (day0, nd) in enumerate(zip(months, ndays)):
-        names = frozenset(c.name for c in cands if cap_on[c.name][s])
+    for m, (day0, nd) in enumerate(zip(months, ndays)):
+        s0 = m * nrep
+        names = frozenset(c.name for c in cands if cap_on[c.name][s0])
         wopts = IspCaseOptions(
             xml=opts.xml,
             trace_roots=roots,
@@ -429,7 +503,13 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
         wk = build_dispatch_case(wopts, db=db)
         system = wk.planning["system"]
         voll = wk.planning["options"]["model_options"]["demand_fail_cost"]
-        if s == 0:
+        ws = wk.schedules
+        masks = day_masks(_daily_net_load(system, ws, nd), nrep)
+        month_masks.append(masks)
+        for k, mk in enumerate(masks):
+            stage_days[s0 + k] = int(mk.sum())
+        stg = range(s0, s0 + nrep)
+        if m == 0:
             buses = system["bus_array"]
             hydro = {
                 k: system.get(k, [])
@@ -444,13 +524,12 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
         for k, v in wk.stats.get("constraint_groups", {}).items():
             for r, n in v.items():
                 groups[k][r] += n
-        ws = wk.schedules
         for g in system["generator_array"]:
             name = g["name"]
             o = gen_obj[name]
             inst.setdefault(
                 name, ("Generator", res.category(o), g.get("type", ""), np.zeros(n_st))
-            )[3][s] = (res.scalar(o.object_id, "Units", day0, 0.0) or 0.0) * (
+            )[3][stg] = (res.scalar(o.object_id, "Units", day0, 0.0) or 0.0) * (
                 res.scalar(o.object_id, "Max Capacity", day0, 0.0) or 0.0
             )
             if name not in gens:
@@ -461,14 +540,18 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
                 }
                 gen_pmax[name] = np.zeros((n_st, 24))
                 gen_gcost[name] = np.full(n_st, float(g["gcost"]))
-            gen_pmax[name][s] = hod_mean(ws[("Generator", "pmax")][g["uid"]], nd)
-            gen_gcost[name][s] = float(g["gcost"])
+            for k, mk in enumerate(masks):
+                gen_pmax[name][s0 + k] = rep_mean(
+                    ws[("Generator", "pmax")][g["uid"]], mk
+                )
+            gen_gcost[name][stg] = float(g["gcost"])
         for d in system["demand_array"]:
             name = d["name"]
             if name not in dems:
                 dems[name] = {k: v for k, v in d.items() if k not in ("uid",)}
                 dem_lmax[name] = np.zeros((n_st, 24))
-            dem_lmax[name][s] = hod_mean(ws[("Demand", "lmax")][d["uid"]], nd)
+            for k, mk in enumerate(masks):
+                dem_lmax[name][s0 + k] = rep_mean(ws[("Demand", "lmax")][d["uid"]], mk)
         for ln in system["line_array"]:
             name = ln["name"]
             if name not in lines:
@@ -476,31 +559,32 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
                 for f in ("tmax_ab", "tmax_ba"):
                     line_t[(name, f)] = np.zeros((n_st, 24))
             for f in ("tmax_ab", "tmax_ba"):
-                line_t[(name, f)][s] = hod_mean(ws[("Line", f)][ln["uid"]], nd)
+                for k, mk in enumerate(masks):
+                    line_t[(name, f)][s0 + k] = rep_mean(ws[("Line", f)][ln["uid"]], mk)
         for b in system.get("battery_array", []):
             name = b["name"]
             inst.setdefault(
                 name,
                 ("Battery", res.category(bat_obj[name]), "battery", np.zeros(n_st)),
-            )[3][s] = float(b["pmax_discharge"])
+            )[3][stg] = float(b["pmax_discharge"])
             if name not in bats:
                 bats[name] = {
                     k: v
                     for k, v in b.items()
                     if k not in ("uid", *_BATTERY_TB_FIELDS, "eini", "efin")
                 }
-                bats[name]["_first"] = s
+                bats[name]["_first"] = s0
                 bats[name]["_eini"] = b.get("eini")
                 for f in _BATTERY_TB_FIELDS:
                     bat_tb[(name, f)] = np.zeros((n_st, 24))
             for f in _BATTERY_TB_FIELDS:
-                bat_tb[(name, f)][s] = float(b[f])
+                bat_tb[(name, f)][stg] = float(b[f])
         for fl in system.get("flow_array", []):
             arr = ws.get(("Flow", "discharge"), {}).get(fl["uid"])
             if arr is not None:
-                inflow.setdefault(fl["name"], np.zeros((n_st, 24)))[s] = hod_mean(
-                    arr, nd
-                )
+                q = inflow.setdefault(fl["name"], np.zeros((n_st, 24)))
+                for k, mk in enumerate(masks):
+                    q[s0 + k] = rep_mean(arr, mk)
         for dv in system.get("decision_variable_array", []):
             dvars.setdefault(dv["name"], {k: v for k, v in dv.items() if k != "uid"})
         uc_rhs = ws.get(("UserConstraint", "rhs"), {})
@@ -509,12 +593,13 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
                 stats["uc_skipped_profile_coefficient"] += 1
                 continue
             try:
-                key, base, op, rhs = _fold_uc(uc, uc_rhs.get(uc["uid"]), nd)
+                folded = [_fold_uc(uc, uc_rhs.get(uc["uid"]), mk) for mk in masks]
             except ValueError:
                 stats["uc_skipped_unparsed"] += 1
                 continue
-            var = ucs[uc["name"]].setdefault(key, _UcVariant(base=base, op=op))
-            var.rhs[s] = rhs
+            for k, (key, base, op, rhs) in enumerate(folded):
+                var = ucs[uc["name"]].setdefault(key, _UcVariant(base=base, op=op))
+                var.rhs[s0 + k] = rhs
         logger.info(
             "month %s: %d gens, %d ucs, %d candidates with capainst",
             day0,
@@ -547,15 +632,19 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
     gen_fuel_price: dict[int, list[float]] = {}
     for c in cands:
         uid = len(generator_array) + 1
-        bstage = build_stages(months, c)
+        bstage = build_stages(months, c, nrep)
         cap = [
-            annual_capcost(c.build_cost[s], c.wacc, c.life, c.fom) for s in range(n_st)
+            annual_capcost(c.build_cost[s // nrep], c.wacc, c.life, c.fom)
+            for s in range(n_st)
         ]
         price = [0.0] * n_st
         if c.heat_rate and c.fuel_oid is not None:
             price = gen_fuel_price.setdefault(
                 c.fuel_oid,
-                [res.scalar(c.fuel_oid, "Price", d, 0.0) or 0.0 for d in months],
+                [
+                    res.scalar(c.fuel_oid, "Price", months[s // nrep], 0.0) or 0.0
+                    for s in range(n_st)
+                ],
             )
         gcost = [round(c.vom + (c.heat_rate or 0.0) * p, 6) for p in price]
         generator_array.append(
@@ -569,23 +658,27 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
                 "gcost": [[v] * 24 for v in gcost] if len(set(gcost)) > 1 else gcost[0],
                 "capacity": 0.0,
                 "expcap": c.unit_mw,
-                "expmod": [c.max_units[s] if bstage[s] else 0.0 for s in range(n_st)],
-                "capmax": [c.max_units[s] * c.unit_mw for s in range(n_st)],
+                "expmod": [
+                    c.max_units[s // nrep] if bstage[s] else 0.0 for s in range(n_st)
+                ],
+                "capmax": [c.max_units[s // nrep] * c.unit_mw for s in range(n_st)],
                 "annual_capcost": [round(v, 3) for v in cap],
             }
         )
         prof = np.zeros((n_st, 24))
         if c.energy:
-            for s, (day0, nd) in enumerate(zip(months, ndays)):
+            for m, (day0, nd) in enumerate(zip(months, ndays)):
                 r = res.hourly(c.oid, "Rating", day0, nd)
+                stg = range(m * nrep, (m + 1) * nrep)
                 if r is None or not np.any(np.nan_to_num(r) > 0):
-                    prof[s] = 1.0
-                else:
-                    rf = res.hourly(c.oid, "Rating Factor", day0, nd)
-                    if rf is not None:
-                        r = r * np.where(np.isnan(rf), 100.0, rf) / 100.0
-                    prof[s] = np.clip(
-                        hod_mean(np.nan_to_num(r), nd) / c.unit_mw, 0.0, 1.0
+                    prof[stg] = 1.0
+                    continue
+                rf = res.hourly(c.oid, "Rating Factor", day0, nd)
+                if rf is not None:
+                    r = r * np.where(np.isnan(rf), 100.0, rf) / 100.0
+                for k, mk in enumerate(month_masks[m]):
+                    prof[m * nrep + k] = np.clip(
+                        rep_mean(np.nan_to_num(r), mk) / c.unit_mw, 0.0, 1.0
                     )
             prof *= 1.0 - c.aux
         pid = len(profile_array) + 1
@@ -659,7 +752,7 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
             if is_capacity and opts.capacity_penalty and "penalty" not in base:
                 item["penalty"] = opts.capacity_penalty
             if is_capacity:
-                rhs = _fy_capacity_rhs(rhs, months, var.op, off)
+                rhs = _fy_capacity_rhs(rhs, fy_start, var.op, off)
             if stage_scope:
                 vals = rhs[:, 0]
                 if not np.allclose(vals, vals[0]):
@@ -674,7 +767,7 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
     # ---- simulation -------------------------------------------------------
     block_array: list[dict[str, Any]] = []
     stage_array: list[dict[str, Any]] = []
-    for s, nd in enumerate(ndays):
+    for s, nd in enumerate(stage_days):
         stage_array.append({"uid": s + 1, "first_block": 24 * s, "count_block": 24})
         block_array.extend(
             {"uid": 24 * s + h + 1, "duration": float(nd)} for h in range(24)
@@ -685,7 +778,7 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
         "scenario_array": [{"uid": 1, "probability_factor": 1.0}],
     }
     if opts.phases != "none":
-        per = 1 if opts.phases == "month" else 12
+        per = nrep if opts.phases == "month" else 12 * nrep
         simulation["phase_array"] = [
             {"uid": k + 1, "first_stage": k * per, "count_stage": per}
             for k in range(n_st // per)
@@ -732,6 +825,8 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
             "first_fy": opts.first_fy,
             "years": opts.years,
             "stages": n_st,
+            "rep_days": nrep,
+            "stage_days": stage_days,
             "blocks": 24 * n_st,
             "phases": len(simulation.get("phase_array", [])) or 1,
             "discount_rate": rate,
@@ -814,6 +909,13 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     p.add_argument("--years", type=int, default=3)
     p.add_argument("--phases", choices=("none", "month", "year"), default="none")
     p.add_argument(
+        "--rep-days",
+        type=int,
+        choices=(1, 2),
+        default=1,
+        help="representative days per month (2: high / low net-load days)",
+    )
+    p.add_argument(
         "--discount-rate",
         type=float,
         default=None,
@@ -856,6 +958,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         years=args.years,
         name=name,
         phases=args.phases,
+        rep_days=args.rep_days,
         discount_rate=args.discount_rate,
         include_hydro=not args.no_hydro,
         include_batteries=not args.no_batteries,

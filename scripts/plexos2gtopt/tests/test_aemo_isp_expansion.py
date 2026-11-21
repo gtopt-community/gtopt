@@ -210,6 +210,7 @@ def test_time_structure(xcase: tuple[Path, Path]) -> None:
     sim = case.planning["simulation"]
     assert len(sim["stage_array"]) == 12
     assert len(sim["block_array"]) == 288
+    assert case.stats["rep_days"] == 1
     assert sim["block_array"][0]["duration"] == 31.0
     assert sim["block_array"][24 * 7]["duration"] == 29.0
     assert "phase_array" not in sim
@@ -288,11 +289,59 @@ def test_fy_capacity_rhs() -> None:
     rhs = np.full((24, 24), 100.0)
     rhs[3] = 80.0  # tighter in October of FY1
     rhs[15] = exp.INACTIVE_RHS  # absent in October of FY2
-    out = exp._fy_capacity_rhs(rhs, months, "<=", exp.INACTIVE_RHS)
+    fy = exp.fy_start_stages(months)
+    assert [i for i, f in enumerate(fy) if f] == [0, 12]
+    out = exp._fy_capacity_rhs(rhs, fy, "<=", exp.INACTIVE_RHS)
     assert out[0, 0] == 80.0 and out[12, 0] == 100.0
     assert np.all(np.delete(out[:, 0], [0, 12]) == exp.INACTIVE_RHS)
-    ge = exp._fy_capacity_rhs(rhs * 0 + 5.0, months, ">=", -exp.INACTIVE_RHS)
+    ge = exp._fy_capacity_rhs(rhs * 0 + 5.0, fy, ">=", -exp.INACTIVE_RHS)
     assert ge[0, 0] == 5.0 and ge[1, 0] == -exp.INACTIVE_RHS
+
+
+def test_day_masks_and_rep_mean() -> None:
+    net = np.array([5.0, 1.0, 9.0, 3.0, 7.0])
+    high, low = exp.day_masks(net, 2)
+    assert high.tolist() == [True, False, True, False, True]
+    assert (low == ~high).all()
+    assert len(exp.day_masks(net, 1)) == 1 and exp.day_masks(net, 1)[0].all()
+    with pytest.raises(ValueError):
+        exp.day_masks(net, 3)
+    arr = np.repeat(np.arange(5.0), 24)  # day d has value d all day
+    np.testing.assert_allclose(exp.rep_mean(arr, high), np.full(24, 2.0))
+    np.testing.assert_allclose(exp.rep_mean(arr, low), np.full(24, 2.0))
+    assert exp.fy_start_stages(exp.month_starts(2028, 1), 2)[:3] == [
+        True,
+        False,
+        False,
+    ]
+
+
+def test_two_representative_days(xcase: tuple[Path, Path]) -> None:
+    one = _build(*xcase)
+    two = _build(*xcase, rep_days=2, phases="month")
+    sim = two.planning["simulation"]
+    assert len(sim["stage_array"]) == 24 and len(sim["block_array"]) == 576
+    # each month's two stages split its days (31 = 16 high + 15 low)
+    assert two.stats["stage_days"][:2] == [16, 15]
+    assert sum(two.stats["stage_days"]) == sum(one.stats["stage_days"])
+    assert sim["block_array"][0]["duration"] == 16.0
+    assert sim["phase_array"][1] == {"uid": 2, "first_stage": 2, "count_stage": 2}
+    # builds only in the first stage of the FY
+    sol = _gens(two)["S1_SAT"]
+    assert sol["expmod"][0] == 500 and sol["expmod"][1:] == [0.0] * 23
+    # energy is preserved: days-weighted stage means = month mean
+    gens = _gens(one)
+    p1 = one.schedules[("Generator", "pmax")][gens["WF1"]["uid"]]
+    p2 = two.schedules[("Generator", "pmax")][_gens(two)["WF1"]["uid"]]
+    d = np.asarray(two.stats["stage_days"], float)
+    wmean = (p2[0::2] * d[0::2, None] + p2[1::2] * d[1::2, None]) / (
+        d[0::2, None] + d[1::2, None]
+    )
+    np.testing.assert_allclose(wmean, p1, rtol=1e-9)
+    # daily energy constraint: Σ stage RHS over the month's two stages
+    r1 = [row[0] for row in _ucs(one)["isp_GT1_Day"]["rhs"]]
+    r2 = [row[0] for row in _ucs(two)["isp_GT1_Day"]["rhs"]]
+    assert r2[0] + r2[1] == pytest.approx(r1[0])
 
 
 def test_operational_capacity_constraint(xcase: tuple[Path, Path]) -> None:
