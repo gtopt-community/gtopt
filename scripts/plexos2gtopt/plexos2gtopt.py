@@ -685,6 +685,9 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 only_emissions=only_emissions,
                 carbon_price=options.get("carbon_price"),
             )
+            import_buses = list(options.get("emission_import_buses") or [])
+            if import_buses:
+                split_import_emission_zones(planning, import_buses)
 
         # Topology-driven reservoir extraction-flow estimate (shared with
         # plp2gtopt): replace the generic C++ ReservoirLP -9000/6000 m³/s
@@ -844,3 +847,41 @@ __all__ = [
     "convert_plexos_bundle",
     "validate_plexos_bundle",
 ]
+
+
+def split_import_emission_zones(
+    planning: dict[str, Any], import_buses: list[str]
+) -> int:
+    """Keep import-proxy generators out of the market's emission zones.
+
+    Every EmissionZone gets ``buses`` = the system buses NOT listed in
+    ``import_buses``, and a tracking-only twin ``<zone>_imports`` (same
+    pollutants, no cap / price / pool) scoped to ``import_buses``.  gtopt
+    synthesises the fuel-derived EmissionSources per zone and bus scope,
+    so the market total excludes imports while their tonnes stay visible
+    in the ``_imports`` zone.  Returns the number of twins added.
+    """
+    sys_ = planning.get("system", {})
+    zones = sys_.get("emission_zone_array") or []
+    all_buses = [b["name"] for b in sys_.get("bus_array", []) or []]
+    wanted = set(import_buses)
+    unknown = sorted(wanted - set(all_buses))
+    if unknown:
+        raise ValueError(f"--emission-import-buses: unknown bus(es) {unknown}")
+    home = [b for b in all_buses if b not in wanted]
+    next_uid = max((int(z.get("uid", 0) or 0) for z in zones), default=0) + 1
+    twins: list[dict[str, Any]] = []
+    for zone in zones:
+        if zone.get("buses"):
+            continue
+        zone["buses"] = home
+        twins.append(
+            {
+                "uid": next_uid + len(twins),
+                "name": f"{zone['name']}_imports",
+                "emissions": [dict(e) for e in zone.get("emissions", [])],
+                "buses": sorted(wanted),
+            }
+        )
+    zones.extend(twins)
+    return len(twins)

@@ -3274,6 +3274,8 @@ def build_commitment_array(
             entry["ini_hours_down"] = c.ini_hours_down
         if c.noload_cost > 0.0:
             entry["noload_cost"] = c.noload_cost
+        if c.noload_fuel > 0.0:
+            entry["noload_fuel"] = c.noload_fuel
         # commitment.pmin: per-unit Min Stable Level when committed —
         # gtopt's commitment_lp.cpp reads this directly (when set)
         # and skips resetting Generator.pmin.  Distinct from

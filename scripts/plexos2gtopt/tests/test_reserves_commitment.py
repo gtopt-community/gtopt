@@ -668,6 +668,21 @@ def test_build_commitment_array_with_noload() -> None:
     assert out[0]["noload_cost"] == 42.0
 
 
+def test_build_commitment_array_with_noload_fuel() -> None:
+    """noload_fuel (Heat Rate Base burn) emits next to noload_cost."""
+    commits = (
+        CommitmentSpec(
+            generator_name="GEN_B",
+            noload_cost=42.0,
+            noload_fuel=2.1,
+        ),
+        CommitmentSpec(generator_name="GEN_C", startup_cost=5.0),
+    )
+    out = build_commitment_array(commits)
+    assert out[0]["noload_fuel"] == 2.1
+    assert "noload_fuel" not in out[1]
+
+
 def test_zero_pmax_generator_names_identifies_dead_units() -> None:
     """_zero_pmax_generator_names flags only units that can never dispatch."""
     from plexos2gtopt.gtopt_writer import _zero_pmax_generator_names

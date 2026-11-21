@@ -1027,6 +1027,11 @@ class CommitmentSpec:
     # independent of power output. For PLEXOS quadratic heat-rate
     # formulations, ``noload_cost = Heat Rate Base × Fuel Price``.
     noload_cost: float = 0.0
+    # No-load fuel burn (fuel units / h) while committed — PLEXOS
+    # ``Heat Rate Base`` itself, so fuel offtake limits and fuel-basis
+    # emissions see it.  Accounting only: the cost stays in
+    # ``noload_cost``.
+    noload_fuel: float = 0.0
     # PLEXOS ``Generator.Initial Generation`` (``Gen_IniGeneration.csv``)
     # in MW.  Maps to gtopt's ``Commitment.initial_power`` — the
     # dispatch level at ``t = -1`` used in the first-block ramp /

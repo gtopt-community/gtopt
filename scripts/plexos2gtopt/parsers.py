@@ -2581,7 +2581,7 @@ def extract_generators(
                 hr_incr + 2.0 * hr_incr2 * seg1_mid,
                 hr_incr + 2.0 * hr_incr2 * seg2_mid,
             )
-        _ = hr_base  # currently routed through Commitment.noload_cost
+        _ = hr_base  # Commitment.noload_cost (cost) + noload_fuel (burn)
         # PLEXOS Generator.Fixed Load (Gen_FixedLoad.csv): per-period
         # forced-dispatch profile.  We pass through even when all
         # entries are zero so the writer can still recognise the
@@ -6235,6 +6235,9 @@ def extract_commitments(
                 fuel_price_by_name.get(primary_fuel, 0.0) if primary_fuel else 0.0
             )
         noload_cost = hr_base * primary_price
+        # The burn itself (fuel units / h) for offtake + emissions —
+        # only meaningful when the unit has a fuel.
+        noload_fuel = hr_base if (hr_base > 0.0 and gen.fuel_names) else 0.0
         # Hoist the GeneratorSpec lookup once — used by both the
         # Min-Stable-Level / pmax clamp and the Initial-Power /
         # FixedLoad sync below.
@@ -6408,6 +6411,7 @@ def extract_commitments(
             or startup_ramp
             or initial_hours
             or noload_cost
+            or noload_fuel
             or cmt_pmin
             or initial_power
         )
@@ -6551,6 +6555,7 @@ def extract_commitments(
                 ramp_down_profile=ramp_down_profile,
                 startup_ramp=startup_ramp,
                 noload_cost=noload_cost,
+                noload_fuel=noload_fuel,
                 pmin=cmt_pmin,
                 pmin_profile=cmt_pmin_profile,
                 initial_power=initial_power,
@@ -7883,7 +7888,12 @@ PERIOD_RHS_MODES: tuple[str, ...] = ("prorate", "drop")
 _PERIOD_MW_ACCESSORS = frozenset({"generation", "flow", "charge", "discharge"})
 #: Accessors whose period sum is a duration in HOURS (commitment status ×
 #: Δt — PLEXOS ``Hours of Operation`` / ``Units Generating``): Δt-weighted,
-#: no unit scale.
+#: no unit scale.  This deliberately deviates from the "(000)" label of the
+#: PLEXOS period RHS (``RHS Week/Month/Year`` = "Right hand side each
+#: year (000)"): for hours terms the data only make sense as plain hours —
+#: the SEM XML caps KGT1 / AT1 / RH1 … at ``RHS Year`` 500-1500 with an
+#: ``Hours of Operation Coefficient`` of 1, i.e. 500-1500 running hours a
+#: year; read as thousands it would be 500 000 h (> 57 years) per year.
 _PERIOD_HOUR_ACCESSORS = frozenset({"status"})
 #: Accessors of per-block EVENTS (start-ups / shut-downs): plain count sum.
 _PERIOD_COUNT_ACCESSORS = frozenset({"startup", "shutdown"})

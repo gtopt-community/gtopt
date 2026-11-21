@@ -194,6 +194,15 @@ def make_parser() -> argparse.ArgumentParser:
     )
 
     add_emissions_arguments(parser)
+    parser.add_argument(
+        "--emission-import-buses",
+        default=None,
+        metavar="BUS[,BUS...]",
+        help="buses whose generators are import proxies (e.g. SEM: "
+        "BETTA,France).  Their fuel-derived emissions go to a separate "
+        "'<zone>_imports' EmissionZone (tracking only) and are kept out "
+        "of the default zone, so market totals exclude imports",
+    )
     # ``--write-out`` injects ``options.write_out`` into the planning JSON
     # so the standalone ``gtopt`` binary writes the right output streams
     # (Generator/generation_cost, Bus/balance_dual, etc.) for downstream
@@ -1259,6 +1268,11 @@ def main(argv: list[str] | None = None) -> None:
         "emissions_report": getattr(args, "emissions_report", None),
         "only_emissions": getattr(args, "only_emissions", False),
         "carbon_price": getattr(args, "carbon_price", None),
+        "emission_import_buses": [
+            b.strip()
+            for b in (getattr(args, "emission_import_buses", None) or "").split(",")
+            if b.strip()
+        ],
     }
 
     if args.compare_json:
