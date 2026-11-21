@@ -131,6 +131,16 @@ def _xcase(tmp_path: Path) -> tuple[Path, Path]:
     day = _constraint(x, "GT1_Day", "Energy Constraints", sense=-1, RHS_Day=1)
     x.coef("Generator", gt, day, "Generation Coefficient", 1.0)
 
+    # reservoirs: a Recycle pondage and a free (End Effects = Free) dam
+    pond = x.obj("Storage", "Pond")
+    x.data("Storage", pond, "Max Volume", 1000)
+    x.data("Storage", pond, "Initial Volume", 500)
+    x.data("Storage", pond, "End Effects Method", 2)
+    dam = x.obj("Storage", "Dam")
+    x.data("Storage", dam, "Max Volume", 5000)
+    x.data("Storage", dam, "Initial Volume", 2000)
+    x.data("Storage", dam, "End Effects Method", 1)
+
     xml = tmp_path / "model" / "ISP X Model.xml"
     xml.parent.mkdir(parents=True)
     x.write(xml)
@@ -431,3 +441,19 @@ def test_cli(xcase: tuple[Path, Path], tmp_path: Path) -> None:
     )
     assert rc == 0
     assert (out / "c.json").is_file() and (out / "c.stats.json").is_file()
+
+
+def test_reservoir_terminal_rule_and_fill_year(xcase: tuple[Path, Path]) -> None:
+    """Coupled volumes, free end volume, Recycle cycles within a stage."""
+    xml, traces = xcase
+    case = _build(xml, traces, fill_years=1)
+    res = {r["name"]: r for r in case.planning["system"]["reservoir_array"]}
+    for r in res.values():
+        assert "efin" not in r and "efin_cost" not in r
+    assert res["Pond"].get("daily_cycle") is True
+    assert "daily_cycle" not in res["Dam"]
+    assert res["Dam"]["eini"] == pytest.approx(2.0)
+    st = case.stats
+    assert st["report_years"] == 1 and st["fill_years"] == 1 and st["years"] == 2
+    assert len(case.planning["simulation"]["stage_array"]) == 24
+    assert st["reservoirs_cycled"] == 1 and st["reservoirs_free_terminal"] == 1

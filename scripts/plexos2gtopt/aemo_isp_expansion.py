@@ -21,6 +21,17 @@ with **monthly stages** on top of the weekly dispatch converter
   ``year`` writes one phase per month / per FY for the SDDP method, in
   which case installed capacity (``capainst`` / ``capacost``) and the
   reservoir volumes are the state variables.
+* Reservoirs: the volume is a state coupled across all stages (the water
+  value comes from that coupling); there is no per-stage ``efin ==
+  eini``, no terminal water value and no ``efin_cost`` — the terminal
+  condition is 0 (free end volume) at the horizon end only.  Only what
+  the PLEXOS data imposes is kept: Min / Max Volume, and storages with
+  ``End Effects Method`` = Recycle or a ``Target Week`` (pondages, PHES
+  upper reservoirs, the empty irrigation dams) cycle back to their
+  initial volume within every stage (gtopt ``daily_cycle``).
+  ``--fill-years N`` (CLI default 1) appends N unreported FYs to damp the
+  end effect, e.g. FY31 for an FY28-FY30 study; the stats record
+  ``report_years`` / ``fill_years``.
 * Existing fleet: every month is converted with the weekly converter on
   a window = the whole month, so commissioning, retirements (dated
   ``Units``), dated line limits (CDP network), fuel prices and traces
@@ -65,7 +76,7 @@ import logging
 import re
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -229,6 +240,10 @@ class ExpansionOptions:
     trace_roots: list[Path]
     first_fy: int = 2028
     years: int = 3
+    #: extra FYs appended after ``years`` to damp the end effect of the
+    #: free terminal reservoir volume (and of builds late in the
+    #: horizon); solved like any other year but not reported
+    fill_years: int = 0
     name: str = "isp_expansion"
     #: "none" (monolithic), "month" or "year" (one SDDP phase each)
     phases: str = "none"
@@ -559,6 +574,8 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
     opts: ExpansionOptions, db: PlexosDb | None = None
 ) -> IspCase:
     """Build the monthly-stage expansion case for ``opts``."""
+    report_years = opts.years
+    opts = replace(opts, years=opts.years + opts.fill_years, fill_years=0)
     db = db or load_xml(opts.xml)
     roots = list(opts.trace_roots) or [Path(opts.xml).parent]
     res = IspResolver(db, TraceLocator(roots))
@@ -878,8 +895,26 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
             item = {**fl, "uid": len(flow_array) + 1}
             flow_array.append(item)
             sched[("Flow", "discharge")][item["uid"]] = inflow[fl["name"]]
+    # Reservoirs: the water value couples the stages through the volume
+    # state; only the horizon end has a terminal condition, and it is 0
+    # (no efin, no efin_cost — the fill year(s) damp the end effect).
+    # Kept from the PLEXOS data: Min/Max Volume, ``End Effects Method`` =
+    # Recycle (2) and ``Target Week`` -> the volume cycles back to its
+    # initial value within every stage (``daily_cycle``: each stage is a
+    # representative day repeated over its days).
+    storage_oid = {o.name: o.object_id for o in res.objects("Storage")}
     for r in hydro.get("reservoir_array", []):
-        r["efin"] = r["eini"]
+        r.pop("efin", None)
+        r.pop("efin_cost", None)
+        oid = storage_oid.get(r["name"])
+        if oid is None:
+            continue
+        eem = res.scalar(oid, "End Effects Method", months[0], 0.0) or 0.0
+        if int(eem) == 2 or res.has(oid, "Target Week"):
+            r["daily_cycle"] = True
+            stats["reservoirs_cycled"] += 1
+        else:
+            stats["reservoirs_free_terminal"] += 1
 
     user_constraint_array: list[dict[str, Any]] = []
     for name, variants in sorted(ucs.items()):
@@ -989,6 +1024,8 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
         {
             "first_fy": opts.first_fy,
             "years": opts.years,
+            "report_years": report_years,
+            "fill_years": opts.years - report_years,
             "stages": n_st,
             "rep_days": nrep,
             "stage_days": stage_days,
@@ -1071,7 +1108,13 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         default=2028,
         help="first FY (ending year, 2028 = 2027-28)",
     )
-    p.add_argument("--years", type=int, default=3)
+    p.add_argument("--years", type=int, default=3, help="reported FYs")
+    p.add_argument(
+        "--fill-years",
+        type=int,
+        default=1,
+        help="unreported FYs appended to damp end effects (default 1)",
+    )
     p.add_argument("--phases", choices=("none", "month", "year"), default="none")
     p.add_argument(
         "--rep-days",
@@ -1121,6 +1164,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         trace_roots=[args.xml.parent, *args.trace_root],
         first_fy=args.first_fy,
         years=args.years,
+        fill_years=args.fill_years,
         name=name,
         phases=args.phases,
         rep_days=args.rep_days,
