@@ -842,3 +842,52 @@ def test_hydro_taa_vaa_split_ncp_path() -> None:
     assert jn["jn_MID"].get("drain") is True  # VAA blank → spill to sea
     assert "sp_MID" not in ww
     assert "junction_b" not in tb["tb_LOW"]  # TAA blank → turbined to sea
+
+
+def test_parallel_units_turbine_once() -> None:
+    """Guatemala/Chixoy parallel units (VAA = next unit, TAA blank): each
+    unit turbines to sea and only SPILLS to the next unit, so the water is
+    turbined once — accumulated pf from unit 1 = one unit's pf, not 3x."""
+    from gtopt_shared.hydro_epf import chain_epf_per_reservoir
+
+    from sddp2gtopt.entities import HydroSpec, StudySpec
+
+    study = StudySpec(stage_type=1, num_stages=1, num_blocks=2, deficit_cost=500.0)
+    buses = [BusSpec(number=1, name="A-230", base_kv=230.0)]
+    circuits = [CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)]
+    hydros = [
+        HydroSpec(
+            code=600 + i,
+            name=f"CHX-H{i}",
+            reference_id=600 + i,
+            p_inst=50.0,
+            fp_med=3.3,
+            qmax=15.0,
+            bus_number=1,
+            inflow=10.0 if i == 1 else 0.0,
+            vmin=0.0,
+            vmax=100.0 if i == 1 else 0.0,
+            spill_downstream_code=600 + i + 1 if i < 3 else None,
+        )
+        for i in (1, 2, 3)
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=[],
+        hydros=hydros,
+        demands=[],
+        name="chx",
+        buses=buses,
+        circuits=circuits,
+        hydro_topology=True,
+    )
+    sy = planning["system"]
+    tb = {t["name"]: t for t in sy["turbine_array"]}
+    ww = {w["name"]: w for w in sy.get("waterway_array", [])}
+    for i in (1, 2, 3):
+        assert "junction_b" not in tb[f"tb_CHX-H{i}"]  # turbined → sea
+    assert ww["sp_CHX-H1"]["junction_b"] == "jn_CHX-H2"
+    assert ww["sp_CHX-H2"]["junction_b"] == "jn_CHX-H3"
+    rho = chain_epf_per_reservoir(sy)
+    assert rho == {"rs_CHX-H1": pytest.approx(3.3)}  # one unit's pf, not 3 × 3.3

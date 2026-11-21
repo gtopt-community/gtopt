@@ -358,3 +358,24 @@ def test_validate_and_convert_dat(dat_case_dir: Path, tmp_path: Path) -> None:
     assert planning_file.is_file()
     data = json.loads(planning_file.read_text(encoding="utf-8"))
     assert len(data["system"]["generator_array"]) == 4
+
+
+def test_hydro_parser_reads_taa_and_vaa(tmp_path: Path) -> None:
+    """Guatemala parallel units: VAA = next unit (spill), TAA blank (turbined
+    water leaves); JUR-H1: VAA = next unit, TAA = 680 (HSM-H)."""
+    header = (
+        " NUM ...Nombre... .PV. .VAA .TAA #Uni Tipo ....Pot .FPMed. "
+        ".QMin.. .QMax.. .VMin.. .VMax.. .VInic.\n"
+    )
+    rows = (
+        _fw_chidro_line(601, "CHX-H1", 602, 50.7, 3.33, 15.0, 0.0, 0.0, 0.0, taa="")
+        + _fw_chidro_line(602, "CHX-H2", "", 50.9, 3.35, 15.0, 0.0, 0.0, 0.0)
+        + _fw_chidro_line(608, "JUR-H1", 609, 19.5, 5.03, 4.0, 0.0, 0.0, 0.0, taa=680)
+    )
+    path = tmp_path / "chidroGU.dat"
+    path.write_text(header + rows, encoding="latin-1")
+    hy = {h.name: h for h in HydroParser(path).parse()}
+    assert hy["CHX-H1"].downstream_code is None  # TAA blank → sea
+    assert hy["CHX-H1"].spill_downstream_code == 602  # VAA → next unit
+    assert hy["JUR-H1"].downstream_code == 680
+    assert hy["JUR-H1"].spill_downstream_code == 609
