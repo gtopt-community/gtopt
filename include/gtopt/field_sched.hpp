@@ -11,7 +11,11 @@
 
 #pragma once
 
+#include <charconv>
 #include <cstddef>
+#include <format>
+#include <optional>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -98,6 +102,96 @@ using OptTBUidFieldSched = OptUidFieldSched2;
 // Backwards-compatible short alias used by Generator.fuel_per_block.
 using TBUidSched = UidFieldSched2;
 using OptTBUidSched = OptUidFieldSched2;
+
+// ─── File-schedule references ───────────────────────────────────────────────
+//
+// A `FileSched` string names a long-layout input table.  Full grammar:
+//
+//   "<field>"                  -> <input_dir>/<OwnerClass>/<field>, rows of
+//                                 the owning element's own uid
+//   "<Class>@<field>"          -> <input_dir>/<Class>/<field>, rows of the
+//                                 owning element's own uid
+//   "<Class>@<field>#<uid>"    -> <input_dir>/<Class>/<field>, rows of
+//                                 element <uid> (uid override)
+//
+// The uid override lets a synthesized element read its parent's table
+// verbatim: `System::expand_batteries` rewrites a battery's `"act"` into
+// `"Battery@act#<battery uid>"` before copying it to `<bat>_gen`,
+// `<bat>_dem`, `<bat>_conv` and `uc_<bat>_gen`, so those elements resolve
+// the schedule in the Battery context instead of looking up their own
+// (non-existent) Generator/Demand/Converter/Commitment table and uid.
+
+/// Parsed form of a `FileSched` reference (see grammar above).  The views
+/// alias the inputs of `parse_file_sched_ref`.
+struct FileSchedRef
+{
+  std::string_view class_name;  ///< table sub-directory
+  std::string_view field_name;  ///< table file stem
+  std::optional<Uid> uid {};  ///< element uid override (`#<uid>`)
+};
+
+/// Split @p fsched into (class directory, field stem, optional uid).
+/// @p owner_class is used when no `@` is present.  A `#` suffix that is
+/// not a plain integer is kept as part of the field stem (no override).
+[[nodiscard]] constexpr auto parse_file_sched_ref(std::string_view owner_class,
+                                                  std::string_view fsched)
+    -> FileSchedRef
+{
+  FileSchedRef ref {
+      .class_name = owner_class,
+      .field_name = fsched,
+  };
+  if (const auto hash = fsched.rfind('#'); hash != std::string_view::npos) {
+    const auto digits = fsched.substr(hash + 1);
+    Uid uid {};
+    const auto* const last = digits.data() + digits.size();
+    if (const auto [ptr, ec] = std::from_chars(digits.data(), last, uid);
+        !digits.empty() && ec == std::errc {} && ptr == last)
+    {
+      ref.uid = uid;
+      ref.field_name = fsched.substr(0, hash);
+    }
+  }
+  if (const auto at = ref.field_name.find('@'); at != std::string_view::npos) {
+    ref.class_name = ref.field_name.substr(0, at);
+    ref.field_name = ref.field_name.substr(at + 1);
+  }
+  return ref;
+}
+
+/// Build a `FileSched` that resolves @p fsched exactly as element @p uid of
+/// class @p owner_class would: `"<Class>@<field>#<uid>"`.  A reference that
+/// already carries a uid override is returned unchanged (idempotent).
+[[nodiscard]] inline auto make_file_sched_ref(std::string_view owner_class,
+                                              std::string_view fsched,
+                                              Uid uid) -> FileSched
+{
+  const auto ref = parse_file_sched_ref(owner_class, fsched);
+  if (ref.uid.has_value()) {
+    return FileSched {fsched};
+  }
+  return std::format("{}@{}#{}", ref.class_name, ref.field_name, uid);
+}
+
+/// Copy an optional field schedule from a parent element of class
+/// @p owner_class / uid @p uid onto a synthesized child element.  Inline
+/// scalars and vectors are copied verbatim; a file reference is rewritten
+/// with `make_file_sched_ref` so the child still reads the parent's table
+/// rows instead of its own class directory and uid.
+template<typename T, typename Vector>
+[[nodiscard]] auto inherit_field_sched(
+    const std::optional<FieldSched<T, Vector>>& sched,
+    std::string_view owner_class,
+    Uid uid) -> std::optional<FieldSched<T, Vector>>
+{
+  auto out = sched;
+  if (out.has_value()) {
+    if (auto* const file = std::get_if<FileSched>(&*out)) {
+      *file = make_file_sched_ref(owner_class, *file, uid);
+    }
+  }
+  return out;
+}
 
 // ─── Diagnostics: in-memory footprint of a FieldSched ───────────────────────
 //

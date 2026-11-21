@@ -303,12 +303,21 @@ public:
               // deduced `const auto&`, so the .simulation() member access is
               // resolved at instantiation (SystemContext is complete there).
               // Runs under array_index_mutex() (held by make_array_index).
+              //
+              // The reference is normalised first (parse_file_sched_ref):
+              // `<Class>@<field>[#<uid>]` reads <Class>/<field> rows of
+              // element <uid> (default: the owning element), so a
+              // synthesized element (e.g. a battery's `<bat>_gen`) resolves
+              // its parent's table rows and shares the parent's index.
               auto& index_cache =
                   system_context.simulation().arrow_index_cache();
+              const auto ref = parse_file_sched_ref(class_name, fsched);
+              const Id ref_id =
+                  ref.uid.has_value() ? Id {*ref.uid, id.second} : id;
               return get_arrow_index<Uid...>(system_context,
-                                             index_cache.intern(class_name),
-                                             index_cache.intern(fsched),
-                                             id,
+                                             index_cache.intern(ref.class_name),
+                                             index_cache.intern(ref.field_name),
+                                             ref_id,
                                              array_map,
                                              table_map);
             },

@@ -88,7 +88,9 @@ namespace
 /// File-backed schedules are passed through unchanged because we
 /// cannot eagerly load + negate at expand time; callers that wire
 /// ``charge_cost`` via a Parquet/CSV file route must already store
-/// the value pre-negated.  Used by ``expand_batteries`` to push
+/// the value pre-negated (the reference itself is redirected to the
+/// battery table by ``inherit_field_sched`` before this call).  Used by
+/// ``expand_batteries`` to push
 /// ``Battery.charge_cost`` onto the synthetic Demand.fcost as a
 /// negative coefficient (so the demand-LP substitution
 /// ``lcol_cost = -fcost × block_factor`` lands on a positive per-MWh
@@ -145,6 +147,24 @@ void System::expand_batteries()
     if (!battery.bus.has_value()) {
       continue;  // traditional multi-element definition — skip
     }
+
+    // Every schedule copied onto a synthesized element goes through
+    // ``inherit``: inline scalars / vectors are copied verbatim, while a
+    // file-backed schedule (e.g. ``"active": "act"``) is rewritten to
+    // ``"Battery@act#<battery uid>"`` so the synthesized element reads the
+    // Battery/<file> rows of THIS battery.  Copying the raw string would
+    // make ``<bat>_gen`` look up Generator/act for its own uid (missing
+    // file / "Can't find element" at LP build).  The redirect is resolved
+    // lazily by the regular input path (parse_file_sched_ref), so it works
+    // for every scene/phase/aperture system and shares the battery's
+    // cached Arrow index — no eager table read at expansion time.
+    const auto bat_uid = battery.uid;
+    const auto inherit = [bat_uid](const auto& sched)
+    {
+      return inherit_field_sched(
+          sched, Battery::class_name.full_name(), bat_uid);
+    };
+    const auto active = inherit(battery.active);
 
     const auto gen_name = battery.name + "_gen";
     const auto dem_name = battery.name + "_dem";
@@ -208,9 +228,10 @@ void System::expand_batteries()
     generator_array.push_back(Generator {
         .uid = gen_uid++,
         .name = gen_name,
+        .active = active,
         .bus = *battery.bus,
-        .pmax = battery.pmax_discharge,
-        .gcost = battery.discharge_cost,
+        .pmax = inherit(battery.pmax_discharge),
+        .gcost = inherit(battery.discharge_cost),
     });
 
     // Charge demand: power absorbed from the charge bus.
@@ -234,14 +255,15 @@ void System::expand_batteries()
     //     LP then pays ``charge_cost`` per MWh charged, mirroring
     //     UC.jl's ``Charge cost ($/MW)`` semantics.
     OptTBRealFieldSched dem_fcost = battery.charge_cost.has_value()
-        ? negate_real_sched(battery.charge_cost)
+        ? negate_real_sched(inherit(battery.charge_cost))
         : OptTBRealFieldSched {RealFieldSched2 {0.0}};
     demand_array.push_back(Demand {
         .uid = dem_uid++,
         .name = dem_name,
+        .active = active,
         .bus = charge_bus,
-        .lmax = battery.pmax_charge,
-        .lmin = battery.pmin_charge,
+        .lmax = inherit(battery.pmax_charge),
+        .lmin = inherit(battery.pmin_charge),
         .fcost = std::move(dem_fcost),
     });
 
@@ -261,6 +283,7 @@ void System::expand_batteries()
     converter_array.push_back(Converter {
         .uid = conv_uid++,
         .name = conv_name,
+        .active = active,
         .battery = Name {battery.name},
         .generator = Name {gen_name},
         .demand = Name {dem_name},
@@ -296,6 +319,7 @@ void System::expand_batteries()
     Commitment bat_commit {
         .uid = cmt_uid++,
         .name = "uc_" + gen_name,
+        .active = active,
         .generator = Name {gen_name},
         // Honour an explicit MIP request; otherwise stay LP-relaxed
         // so the always-on synthesis adds no integer columns.
@@ -310,7 +334,7 @@ void System::expand_batteries()
     // file), so the discharge floor — scalar or full per-block
     // schedule — carries over verbatim.
     if (battery.pmin_discharge.has_value()) {
-      bat_commit.pmin = battery.pmin_discharge;
+      bat_commit.pmin = inherit(battery.pmin_discharge);
     }
     commitment_array.push_back(std::move(bat_commit));
 

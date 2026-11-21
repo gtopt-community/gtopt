@@ -495,6 +495,17 @@ listed below.
 
 ### Fixed
 
+- **File-backed battery schedules on the synthesized elements**: a unified
+  battery's file-backed `active`, `pmax_discharge`, `discharge_cost`,
+  `pmax_charge`, `pmin_charge`, `charge_cost` or `pmin_discharge` (e.g.
+  `"active": "act"`) was copied verbatim onto `<bat>_gen` / `<bat>_dem` /
+  `<bat>_conv` / `uc_<bat>_gen`, which then looked up their own class
+  directory and uid (`Generator/act` for the generator's uid) and failed
+  ("Can't read table for class 'Generator'…" / "Can't find element …").
+  `expand_batteries` now rewrites such references to
+  `"Battery@<field>#<battery uid>"` — a new `#<uid>` suffix of the
+  `<Class>@<field>` file-reference grammar — and the synthesized elements
+  also inherit the battery's `active` schedule.
 - **Battery charge/discharge decoupled when one direction had no rating**:
   when `pmax_charge` was 0 in a block (or `pmax_discharge` under
   `--lp-reduction`), the synthetic charge demand (discharge generator)

@@ -895,6 +895,23 @@ be defined manually (see §3.6 Converter).
 | `use_state_variable`| boolean             | —            | No       | Enable stage/phase coupling of the battery state variable |
 | `daily_cycle`       | boolean             | —            | No       | Enforce daily cycling (initial SoC equals final SoC each day) |
 
+#### File-backed battery schedules
+
+Any battery schedule may name a long-layout table instead of an inline
+value, e.g. `"active": "act"` reads `<input_dir>/Battery/act.parquet`
+(or `.csv`) rows `stage, uid, value` for the battery's own `uid`.  A unified
+battery (one with `bus`) is expanded into `<name>_gen`, `<name>_dem`,
+`<name>_conv` and `uc_<name>_gen`; the schedules they inherit (`active`,
+`pmax_discharge`, `discharge_cost`, `pmax_charge`, `pmin_charge`,
+`charge_cost`, `pmin_discharge`) are rewritten to the reference
+`"Battery@<field>#<battery uid>"`, so every synthesized element reads the
+**battery's** rows rather than its own class directory and uid.  The
+general file-reference grammar is `"<field>"`, `"<Class>@<field>"` and
+`"<Class>@<field>#<uid>"` (the last reads the rows of element `<uid>`).
+A file-backed `charge_cost` must still hold the **negated** value (it
+lands on the charge demand's `fcost`, as for an inline cost the expansion
+negates it).
+
 #### Battery self-discharge default
 
 A battery whose `annual_loss` is **absent** self-discharges at

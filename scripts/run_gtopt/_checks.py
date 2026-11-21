@@ -238,6 +238,11 @@ def check_input_files(json_path: Path, **_kwargs) -> CheckResult:
                 if "@" in value:
                     parts = value.split("@", 1)
                     dir_name, fname = parts[0], parts[1]
+                    # ``Class@field#<uid>`` reads <Class>/<field> rows of
+                    # element <uid>; the suffix is not part of the file.
+                    stem, sep, uid = fname.rpartition("#")
+                    if sep and uid.isdigit():
+                        fname = stem
                 elif value == field_name:
                     dir_name, fname = class_name, value
                 else:
