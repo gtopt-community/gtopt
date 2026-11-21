@@ -1000,6 +1000,10 @@ python -m plexos2gtopt.aemo_isp "2026 ISP Step Change Model.xml" \
 | `Line` Max/Min Flow (timesliced, dated) | `Line.tmax_ab` / `tmax_ba`, transport model, lossless |
 | `Storage` (ML), `Waterway`, `Head/Tail Storage`, `Efficiency Incr`, `Natural Inflow` (m³/s) | `Reservoir` (hm³, end ≥ start), `Junction`, `Waterway`, `Turbine`, `Flow` |
 | `Max Energy Day` (DSP), `Max Energy Year` (hydro without storage) | daily `UserConstraint` (`daily_sum`) |
+| `Mark-up` ($/MWh; rooftop PV −1) | added to `gcost` |
+| `Min Load` (MW, timesliced; Tas hydro) | per-block `pmin`, capped at `pmax` |
+| `Min Capacity Factor Year` (%, coal / gas) | yearly energy floor: not enforced by default; `--long-periods prorate` adds a window-sum `generation ≥ CF × Units × Max Capacity × (1 − Aux Incr) × hours` (capped at Σ `pmax`) |
+| `Outage Factor` (bands 2–3), `Maintenance Rate` (new entrants), `Min Capacity Factor` (0) | not modelled (no outages in a deterministic week) |
 
 Value selection per day: band-1 rows inside their date window; rows
 tagged with an active `Timeslice` override untagged rows; the latest
@@ -1018,7 +1022,7 @@ that apply to a fixed fleet over one week.  The module is
 |---|---|
 | REZ export / import limit on the REZ's own injections | REZ bus + radial line (`tmax_ab` = export, `tmax_ba` = import) |
 | other operational / operational + capacity constraint, `RHS` | per-block `UserConstraint` (capacity terms folded into the RHS) |
-| `RHS Day` (e.g. gas-zone daily offtake, TJ) | `daily_sum` `UserConstraint` (`fuel("X").offtake`, GJ) |
+| `RHS Day` (e.g. gas-zone daily offtake, TJ) | `daily_sum` `UserConstraint`, GJ: the fuel's units as `Heat Rate / (1 − Aux Incr) × generation` |
 | `RHS Month` (period ≤ 1 month) | window-sum `UserConstraint`, RHS pro-rated by hours |
 | `RHS Year` / `Custom` (period > 1 month) | not enforced by default; `--long-periods prorate` enforces the pro-rated share |
 | flexible `Purchaser` (electrolyser) | `CarrierConverter` → `HydrogenNode` |
@@ -1044,6 +1048,9 @@ Skipped, with the reason counted in `<name>.stats.json` →
 - Period RHS are pro-rated to the window.
 - Period values are taken as GWh (TJ for fuel), and period penalties
   as $/GWh.
+- PLEXOS `Heat Rate` is per gross MWh.  Emission rates and gas-zone
+  offtake use `Heat Rate / (1 − Aux Incr)` per sent-out MWh; the fuel
+  cost (`heat_rate × price`) uses the unadjusted `Heat Rate`.
 - Targets over more than one month (annual policy targets such as the
   SA renewable target, multi-year emission budgets) are not enforced by
   default.  A uniform weekly share of a seasonal target forced load

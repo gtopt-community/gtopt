@@ -25,6 +25,10 @@ of the window:
 * Demand: sub-regional operational demand traces (``Node.Load``).
 * Daily energy limits: ``Max Energy Day`` (DSP) and ``Max Energy
   Year`` (non-storage hydro) as ``daily_sum`` user constraints.
+* ``Mark-up`` → added to ``gcost``; ``Min Load`` → per-block ``pmin``;
+  ``Min Capacity Factor Year`` → window energy floor only with
+  ``--long-periods prorate`` (see :data:`GENERATOR_PROPERTY_NOTES`;
+  ``--legacy`` turns these off).
 
 * PLEXOS ``Constraint`` objects, purchasers (electrolysers → hydrogen),
   emissions, gas-zone offtake and REZ buses: see
@@ -416,6 +420,7 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
     fuel_price: dict[str, float] = {}
     turbine_gens: list[tuple[str, int, int | None, float]] = []
     user_constraints: list[dict[str, Any]] = []
+    gx_stats: dict[str, Any] = defaultdict(int)
     for o in sorted(res.objects("Generator"), key=lambda o: o.name):
         cat = res.category(o)
         if cat.startswith(SKIP_GENERATOR_CATEGORY_PREFIXES):
@@ -448,6 +453,8 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
         aux = _pct(res.scalar(o.object_id, "Aux Incr", day0), 0.0)
         pmax = np.clip(units * cap * (1.0 - aux), 0.0, None)
         vom = res.scalar(o.object_id, "VO&M Charge", day0, default=0.0) or 0.0
+        if opts.isp.generator_extras:
+            vom += _generator_extras(res, o, day0, gx_stats)
         hr = res.scalar(o.object_id, "Heat Rate", day0)
         fuel_cost = 0.0
         fuel_oid = gen_fuel.get(o.object_id)
@@ -486,6 +493,14 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
         )
         generator_array.append(item)
         sched[("Generator", "pmax")][uid] = pmax
+        if opts.isp.generator_extras:
+            pmin = _min_load(res, o, day0, days, pmax, gx_stats)
+            if pmin is not None:
+                item["pmin"] = "pmin"
+                sched[("Generator", "pmin")][uid] = pmin
+            uc = _min_cf_year_uc(res, o, day0, nb, units, aux, pmax, opts, gx_stats)
+            if uc is not None:
+                user_constraints.append(uc)
         stats[f"gen_{gtype}"] += 1
         stats[f"cap_{gtype}_mw"] += float(np.max(pmax))
         h = head.get(o.object_id)
@@ -507,6 +522,12 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
                         o.name, float(ey[0]) * 1000.0 / 365.0, "Max Energy Year"
                     )
                 )
+
+    if opts.isp.generator_extras:
+        stats["generator_properties"] = {
+            **dict(sorted(gx_stats.items())),
+            "approximations": GENERATOR_PROPERTY_NOTES,
+        }
 
     # ---- batteries --------------------------------------------------------
     battery_array: list[dict[str, Any]] = []
@@ -676,6 +697,91 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
     for key, arr in hydro.items():
         stats[key.replace("_array", "s")] = len(arr)
     return IspCase(planning=planning, schedules=dict(sched), stats=dict(stats))
+
+
+#: How the Generator properties outside the core dispatch fields are read.
+GENERATOR_PROPERTY_NOTES = [
+    "Mark-up [$/MWh] is added to gcost (rooftop PV −1 $/MWh: dispatched "
+    "before utility VRE is curtailed)",
+    "Min Load [MW, timesliced] is a per-block pmin, capped at pmax",
+    "Min Capacity Factor Year [%] is a yearly energy floor: not enforced by "
+    "default (long-period policy); --long-periods prorate enforces "
+    "CF × Units × Max Capacity × (1 − Aux Incr) × window hours, capped at "
+    "the window's Σ pmax",
+    "Min Capacity Factor (no period) is not mapped (only a zero value in the XML)",
+    "Outage Factor (bands 2-3, partial forced outages) and Maintenance Rate "
+    "(new entrants) are not modelled: no outages in a deterministic week",
+]
+
+
+def _generator_extras(
+    res: IspResolver, o: Any, day0: date, gx: dict[str, Any]
+) -> float:
+    """Mark-up [$/MWh] for ``o`` on ``day0`` and the unmapped-property counts."""
+    for prop in ("Outage Factor", "Maintenance Rate", "Min Capacity Factor"):
+        if res.has(o.object_id, prop):
+            gx[f"not modelled: {prop}"] += 1
+    markup = res.scalar(o.object_id, "Mark-up", day0)
+    if markup is None or markup == 0.0:
+        return 0.0
+    gx["Mark-up → gcost"] += 1
+    return float(markup)
+
+
+def _min_load(
+    res: IspResolver,
+    o: Any,
+    day0: date,
+    days: int,
+    pmax: np.ndarray,
+    gx: dict[str, Any],
+) -> np.ndarray | None:
+    """PLEXOS ``Min Load`` [MW] (timesliced) as a per-block pmin ≤ pmax."""
+    if not res.has(o.object_id, "Min Load"):
+        return None
+    ml = res.hourly(o.object_id, "Min Load", day0, days)
+    if ml is None or not np.any(np.nan_to_num(ml) > 0):
+        return None
+    gx["Min Load → pmin"] += 1
+    return np.minimum(np.nan_to_num(ml), pmax)
+
+
+def _min_cf_year_uc(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    res: IspResolver,
+    o: Any,
+    day0: date,
+    nb: int,
+    units: float,
+    aux: float,
+    pmax: np.ndarray,
+    opts: IspCaseOptions,
+    gx: dict[str, Any],
+) -> dict[str, Any] | None:
+    """``Min Capacity Factor Year`` → window energy floor (prorate only)."""
+    cf = res.scalar(o.object_id, "Min Capacity Factor Year", day0)
+    if cf is None or cf <= 0:
+        return None
+    if opts.isp.long_periods != "prorate":
+        gx["Min Capacity Factor Year: not enforced (long period)"] += 1
+        return None
+    maxcap = res.scalar(o.object_id, "Max Capacity", day0)
+    if maxcap is None or maxcap <= 0:
+        maxcap = float(np.max(pmax)) / max(units * (1.0 - aux), _TINY)
+    floor = cf / 100.0 * units * maxcap * (1.0 - aux) * nb
+    floor = min(floor, float(np.sum(pmax)))
+    gx["Min Capacity Factor Year → window energy floor"] += 1
+    return {
+        "name": f"min_cf_year_{_slug(o.name)}",
+        "expression": f'sum{{b in stage}} dur[b] * (generator("{o.name}")'
+        f".generation) >= {floor:.6g}",
+        "scope": "stage",
+        "constraint_type": "energy",
+        "description": f"PLEXOS Min Capacity Factor Year {cf:g} % pro-rated to "
+        "the window [MWh] — APPROXIMATION",
+    }
+
+
+_TINY = 1e-9
 
 
 def _daily_energy_uc(gen: str, mwh_per_day: float, source: str) -> dict[str, Any]:
@@ -975,6 +1081,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             h2_model=args.h2_model,
             long_periods=args.long_periods,
             electrolyser_kwh_per_kg=args.electrolyser_kwh_per_kg,
+            generator_extras=not args.legacy,
         ),
     )
     case = build_dispatch_case(opts)

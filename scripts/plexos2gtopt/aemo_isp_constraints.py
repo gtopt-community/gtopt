@@ -15,7 +15,7 @@ window is built, this module adds
   budget overlapping the window (cap pro-rated to the window);
 * **Fuel offtake**: generators carry ``fuel`` + ``heat_rate`` and the
   gas-zone daily offtake limits become ``daily_sum`` user constraints on
-  ``fuel("X").offtake``;
+  ``Σ_g Heat Rate_g / (1 − Aux Incr_g) · generator(g).generation``;
 * **REZ buses**: every REZ whose export / import limit involves only that
   REZ's own injections becomes a bus, connected to its sub-region by a
   radial line with ``tmax_ab`` / ``tmax_ba`` = export / import limit;
@@ -40,7 +40,8 @@ PLEXOS semantics used:
   ``DecisionVariable`` ``flow_fwd_<line>`` / ``flow_back_<line>`` ≥ ±flow
   (exact for convex use: ≤ with a positive coefficient; other uses are
   skipped); node ``Load`` → constant moved to the RHS; purchaser
-  ``Load`` → electrolyser input; fuel ``Offtake`` → ``fuel.offtake``.
+  ``Load`` → electrolyser input; fuel ``Offtake`` → the fuel's
+  generators' aux-adjusted heat-rate × generation terms.
   ``Installed Capacity`` (Units × Max Capacity) and battery ``Generation
   Capacity`` (Units × Max Power) on the start day are constants moved to
   the RHS; ``Capacity Built`` / ``Units Built in Year`` are 0 (no
@@ -149,8 +150,9 @@ APPROXIMATIONS = [
     "targets and emission budgets) are not enforced by default: emission "
     "budgets become EmissionZones without cap (--long-periods prorate "
     "enforces the pro-rated share)",
-    "emission rates use gross-to-sent-out (1 − Aux Incr); fuel offtake uses "
-    "the unadjusted Heat Rate",
+    "emission rates and gas-zone fuel offtake use gross-to-sent-out Heat "
+    "Rate / (1 − Aux Incr); the fuel cost (heat_rate × price) uses the "
+    "unadjusted Heat Rate",
 ]
 
 
@@ -173,6 +175,9 @@ class ConstraintOptions:
     #: a valid weekly limit; ``"prorate"`` enforces the pro-rated share.
     long_periods: str = "skip"
     electrolyser_kwh_per_kg: float = DEFAULT_ELECTROLYSER_KWH_PER_KG
+    #: Generator ``Min Load`` / ``Mark-up`` / ``Min Capacity Factor Year``
+    #: (see :func:`plexos2gtopt.aemo_isp.build_dispatch_case`).
+    generator_extras: bool = True
 
     @property
     def h2_efficiency(self) -> float:
@@ -794,7 +799,23 @@ def _add_term(  # pylint: disable=too-many-branches,too-many-return-statements
         if not users:
             ev.dropped["object_not_in_case"] += 1
             return
-        ev.terms.append(Term(f"fuel({_q(name)}).offtake", _simplify(c), pcls, name))
+        # Offtake [GJ/h] = Σ_g Heat Rate_g [GJ/MWh gross] × gross generation;
+        # gtopt generation is sent out, so each unit's coefficient is
+        # Heat Rate / (1 − Aux Incr) — the same gross-to-sent-out factor
+        # as the emission rates.  ``fuel("X").offtake`` would use the
+        # unadjusted ``heat_rate`` (which also drives the fuel cost), so
+        # the terms are spelled out per generator.
+        for g in sorted(users, key=lambda u: u.name):
+            assert g.heat_rate is not None
+            k = g.heat_rate / max(1.0 - g.aux, _EPS)
+            ev.terms.append(
+                Term(
+                    f"generator({_q(g.name)}).generation",
+                    _simplify(np.asarray(c) * k),
+                    "Generator",
+                    g.name,
+                )
+            )
         return
     ev.unsupported.add(f"{pcls}.{prop}")
 

@@ -225,6 +225,19 @@ def _isp_case(tmp_path: Path) -> tuple[Path, Path]:
     x.data("Generator", hyd, "Units", 1)
     x.data("Generator", hyd, "Max Capacity", 40)
     x.data("Generator", hyd, "Efficiency Incr", 2.0)
+    # Generator properties read by `generator_extras`
+    x.data("Generator", hyd, "Min Load", 6)
+    x.data("Generator", hyd, "Min Load", 15, tags=(summer,))
+    x.data("Generator", sol, "Mark-up", -1)
+    x.data(
+        "Generator",
+        coal,
+        "Min Capacity Factor Year",
+        30,
+        date_from="2026-07-01T00:00:00",
+    )
+    x.data("Generator", coal, "Outage Factor", 18.5)
+    x.data("Generator", cand, "Maintenance Rate", 3.5)
     xml = tmp_path / "model" / "ISP Test Model.xml"
     xml.parent.mkdir(parents=True)
     x.write(xml)
@@ -291,6 +304,44 @@ def test_dispatch_case_elements(isp_case: tuple[Path, Path]) -> None:
     assert lmax[1][0] == pytest.approx(100.0)
     assert lmax[2][0] == pytest.approx(40.5)
     assert case.planning["options"]["model_options"]["demand_fail_cost"] == 20000
+
+
+def test_generator_property_extras(isp_case: tuple[Path, Path]) -> None:
+    """Min Load → pmin, Mark-up → gcost, Min CF Year → prorated floor."""
+    xml, traces = isp_case
+    opts = _opts(xml, traces, date(2027, 1, 18), 2)
+    case = build_dispatch_case(opts)
+    gens = {g["name"]: g for g in case.planning["system"]["generator_array"]}
+    assert gens["SOLAR1"]["gcost"] == pytest.approx(-1.0)
+    assert gens["COAL1"]["gcost"] == pytest.approx(5.0)
+    # Min Load: 15 MW in Summer (January), capped at pmax (40 MW)
+    pmin = case.schedules[("Generator", "pmin")][gens["HYD1"]["uid"]]
+    assert gens["HYD1"]["pmin"] == "pmin"
+    assert pmin == pytest.approx(np.full(48, 15.0))
+    # Min Capacity Factor Year is a long-period target: skipped by default
+    ucs = case.planning["system"].get("user_constraint_array", [])
+    assert not [u for u in ucs if u["name"].startswith("min_cf_year")]
+    gp = case.stats["generator_properties"]
+    assert gp["Min Capacity Factor Year: not enforced (long period)"] == 1
+    assert gp["not modelled: Outage Factor"] == 1
+    assert gp["Mark-up → gcost"] == 1
+    assert gp["Min Load → pmin"] == 1
+
+    opts.isp.long_periods = "prorate"
+    pro = build_dispatch_case(opts)
+    uc = {u["name"]: u for u in pro.planning["system"]["user_constraint_array"]}[
+        "min_cf_year_COAL1"
+    ]
+    # 30 % × 1 unit × 100 MW × (1 − 10 % aux) × 48 h = 1296 MWh
+    assert uc["expression"].endswith(">= 1296")
+    assert uc["scope"] == "stage"
+
+    opts.isp.generator_extras = False
+    legacy = build_dispatch_case(opts)
+    lg = {g["name"]: g for g in legacy.planning["system"]["generator_array"]}
+    assert lg["SOLAR1"]["gcost"] == pytest.approx(0.0)
+    assert "pmin" not in lg["HYD1"]
+    assert "generator_properties" not in legacy.stats
 
 
 def test_line_timeslice_and_battery(isp_case: tuple[Path, Path]) -> None:

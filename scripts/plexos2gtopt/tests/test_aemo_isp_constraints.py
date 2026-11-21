@@ -132,6 +132,11 @@ def _constraint(
 
 @pytest.fixture(name="ccase")
 def _ccase(tmp_path: Path) -> tuple[Path, Path]:
+    return _make_ccase(tmp_path)
+
+
+def _make_ccase(tmp_path: Path, gt_aux: float = 0.0) -> tuple[Path, Path]:
+    """Write the synthetic model; ``gt_aux`` = GT1 ``Aux Incr`` [%]."""
     x = _CXml()
     nth = x.obj("Node", "NTH")
     sth = x.obj("Node", "STH")
@@ -151,6 +156,8 @@ def _ccase(tmp_path: Path) -> tuple[Path, Path]:
     x.data("Generator", gt, "Max Capacity", 100)
     x.data("Generator", gt, "Heat Rate", 10)
     x.data("Generator", gt, "VO&M Charge", 2)
+    if gt_aux:
+        x.data("Generator", gt, "Aux Incr", gt_aux)
     # REZ wind farm at STH, 80 MW flat
     wind = x.obj("Generator", "WF1")
     x.member("Generator", "Node", "Nodes", wind, sth)
@@ -197,6 +204,15 @@ def _ccase(tmp_path: Path) -> tuple[Path, Path]:
     # monthly energy cap: 31 GWh in January → 3 000 MWh for 3 days
     mon = _constraint(x, "Month1", "Energy Constraints", sense=-1, RHS_Month=31)
     x.coef("Generator", gt, mon, "Generation Coefficient", 1.0)
+    # soft period budgets: penalties are $ per RHS unit (GWh / TJ)
+    smon = _constraint(
+        x, "SoftMonth1", "Energy Constraints", sense=-1, penalty=2000, RHS_Month=31
+    )
+    x.coef("Generator", gt, smon, "Generation Coefficient", 1.0)
+    sday = _constraint(
+        x, "SoftDay1", "Energy Constraints", sense=-1, penalty=3000, RHS_Day=1.5
+    )
+    x.coef("Generator", gt, sday, "Generation Coefficient", 1.0)
     # gas zone daily offtake: 2 TJ/day
     gz = _constraint(x, "Gas Zone 1", "Gas Constraints", sense=-1, RHS_Day=2)
     x.coef("Fuel", gas, gz, "Offtake Coefficient", 1.0)
@@ -349,10 +365,53 @@ def test_period_rhs_prorated(ccase: tuple[Path, Path]) -> None:
 def test_rhs_day_daily_sum(ccase: tuple[Path, Path]) -> None:
     uc = _ucs(_build(*ccase))["isp_Gas_Zone_1"]
     assert uc["daily_sum"] is True
-    assert uc["expression"] == 'fuel("Gas").offtake <= 2000'  # 2 TJ → GJ
+    # aux 0: offtake = heat rate 10 GJ/MWh × sent-out generation
+    assert uc["expression"] == '10 * generator("GT1").generation <= 2000'
+    assert uc["constraint_type"] == "energy"
     gens = {g["name"]: g for g in _build(*ccase).planning["system"]["generator_array"]}
     assert gens["GT1"]["fuel"] == "Gas"
     assert gens["GT1"]["heat_rate"] == pytest.approx(10.0)
+
+
+def test_fuel_offtake_uses_aux_adjusted_heat_rate(tmp_path: Path) -> None:
+    """PLEXOS Heat Rate is per gross MWh; gtopt generation is sent out.
+
+    With 10 % aux the gas offtake per sent-out MWh is 10 / 0.9 GJ — the
+    same gross-to-sent-out factor the emission rates use.  The fuel cost
+    (``heat_rate`` × price) is left unchanged.
+    """
+    case = _build(*_make_ccase(tmp_path, gt_aux=10.0))
+    uc = _ucs(case)["isp_Gas_Zone_1"]
+    assert uc["daily_sum"] is True
+    assert uc["constraint_type"] == "energy"
+    lhs, rhs = uc["expression"].split(" <= ")
+    assert float(rhs) == pytest.approx(2000.0)  # 2 TJ → GJ
+    coef, ref = lhs.split(" * ")
+    assert ref == 'generator("GT1").generation'
+    assert float(coef) == pytest.approx(10.0 / 0.9, rel=1e-6)
+    gens = {g["name"]: g for g in case.planning["system"]["generator_array"]}
+    assert gens["GT1"]["heat_rate"] == pytest.approx(10.0)
+
+
+def test_period_rhs_and_penalty_scaled_together(ccase: tuple[Path, Path]) -> None:
+    """PLEXOS period RHS are "(000)": GWh rows are built in MWh.
+
+    The Penalty Price is $ per unit of violation in the RHS unit, so a
+    $/GWh penalty becomes $/MWh (÷ 1000) whenever the RHS is × 1000;
+    per-block ``RHS`` rows keep both unscaled.
+    """
+    ucs = _ucs(_build(*ccase))
+    month = ucs["isp_SoftMonth1"]
+    # 31 GWh × 1000 × 72 h / 744 h = 3000 MWh; 2000 $/GWh → 2 $/MWh
+    assert month["expression"].endswith("<= 3000")
+    assert month["penalty"] == pytest.approx(2.0)
+    day = ucs["isp_SoftDay1"]
+    # 1.5 GWh/day → 1500 MWh/day; 3000 $/GWh → 3 $/MWh
+    assert day["daily_sum"] is True
+    assert day["expression"].endswith("<= 1500")
+    assert day["penalty"] == pytest.approx(3.0)
+    # per-block RHS (MW) and its penalty ($/MW) are not rescaled
+    assert ucs["isp_Group1"]["penalty"] == pytest.approx(500.0)
 
 
 def test_rez_bus_and_radial_line(ccase: tuple[Path, Path]) -> None:
