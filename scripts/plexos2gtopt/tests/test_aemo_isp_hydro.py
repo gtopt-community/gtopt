@@ -37,6 +37,13 @@ def _phes_case(tmp_path: Path) -> Path:
         x.data("Storage", sto, "Initial Volume", vini)
         stores[name] = sto
     x.data("Storage", stores["Dam"], "Max Spill", 120)
+    x.data("Storage", stores["Upper"], "End Effects Method", 2)  # Recycle
+    x.data("Storage", stores["Lower"], "End Effects Method", 1)  # Free
+    weekly = x.obj("Storage", "Weekly")  # irrigation dam: empty every week
+    x.data("Storage", weekly, "Max Volume", 50_000)
+    x.data("Storage", weekly, "Min Volume", 0)
+    x.data("Storage", weekly, "Initial Volume", 0)
+    x.data("Storage", weekly, "Target Week", 0)
     for gname, head, eff, pump in (
         ("HYD", "Dam", 2.0, 0.0),
         ("PHES", "Upper", 1.5, 30.0),
@@ -64,7 +71,7 @@ def _phes_case(tmp_path: Path) -> Path:
 
 
 def _case(
-    xml: Path, *, hydro_extras: bool = True, hydro_water_value: float = 300.0
+    xml: Path, *, hydro_extras: bool = True, hydro_water_value: float | None = None
 ) -> IspCase:
     opts = IspCaseOptions(
         xml=xml,
@@ -92,21 +99,47 @@ def test_week_start_levels(phes_case: Path) -> None:
     rsv = {r["name"]: r for r in case.planning["system"]["reservoir_array"]}
     # Initial Volume 0 ≤ Min Volume: an empty placeholder → middle of band
     assert rsv["Dam"]["eini"] == pytest.approx(55.0)
-    assert rsv["Dam"]["efin"] == pytest.approx(55.0)
     # a real Initial Volume is kept as the representative level
     assert rsv["Upper"]["eini"] == pytest.approx(1.0)
     assert rsv["Lower"]["eini"] == pytest.approx(3.0)
-    assert case.stats["hydro_level_rule"] == {"mid_level": 1, "initial_volume": 2}
+    # Target Week: the previous week ended at the target
+    assert rsv["Weekly"]["eini"] == pytest.approx(0.0)
+    assert case.stats["hydro_level_rule"] == {
+        "mid_level": 1,
+        "initial_volume": 2,
+        "target_week": 1,
+    }
+
+
+def test_end_volume_from_source_data_only(phes_case: Path) -> None:
+    case = _case(phes_case)
+    rsv = {r["name"]: r for r in case.planning["system"]["reservoir_array"]}
+    # no water value by default: Free / Auto storages end free
+    assert "efin" not in rsv["Dam"]
+    assert "efin" not in rsv["Lower"]
+    # Recycle → hard efin = eini; Target Week → hard efin = target
+    assert rsv["Upper"]["efin"] == pytest.approx(1.0)
+    assert rsv["Weekly"]["efin"] == pytest.approx(0.0)
+    assert not any("efin_cost" in r for r in rsv.values())
+    assert case.stats["hydro_end_rule"] == {
+        "free": 2,
+        "recycle": 1,
+        "target_week": 1,
+    }
 
 
 def test_end_volume_water_value(phes_case: Path) -> None:
     sys_ = _case(phes_case, hydro_water_value=100.0).planning["system"]
     rsv = {r["name"]: r for r in sys_["reservoir_array"]}
-    # efin_cost [$/hm³] = water value × Σ production factors down the cascade
+    # opt-in: efin = eini, efin_cost [$/hm³] = water value × Σ production
+    # factors down the cascade
+    assert rsv["Dam"]["efin"] == pytest.approx(55.0)
     assert rsv["Dam"]["efin_cost"] == pytest.approx(100.0 * 2.0 * MWH_PER_HM3_PER_PF)
-    assert rsv["Upper"]["efin_cost"] == pytest.approx(100.0 * 1.5 * MWH_PER_HM3_PER_PF)
     # no turbine below the tail pond: priced as one 1 MW/(m³/s) unit
     assert rsv["Lower"]["efin_cost"] == pytest.approx(100.0 * MWH_PER_HM3_PER_PF)
+    # a source-data end target stays hard
+    assert "efin_cost" not in rsv["Upper"]
+    assert rsv["Upper"]["efin"] == pytest.approx(1.0)
 
 
 def test_pumped_storage_pump(phes_case: Path) -> None:

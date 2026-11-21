@@ -1021,24 +1021,38 @@ in the 2026 ISP); a later week's level is a simulation result the XML
 does not carry.  The week-start volume `eini` is therefore:
 
 1. `Initial Volume` when the window starts on the horizon start;
-2. otherwise a live `Target`, if any;
+2. otherwise a live `Target Week` (the level the previous week had to
+   end at: 0 for the irrigation dams Blowering, Dartmouth, Eildon and
+   Hume, which PLEXOS empties every week) or `Target`;
 3. otherwise `Initial Volume` as the modeller's representative level
    when it is above `Min Volume`;
-4. otherwise (an "empty" placeholder, e.g. Blowering, Dartmouth,
-   Eildon, Hume, Koombooloomba, Kuranda) the middle of
-   `[Min Volume, Max Volume]`.
+4. otherwise (an "empty" placeholder: Koombooloomba, Kuranda) the
+   middle of `[Min Volume, Max Volume]`.
 
-The end target is `efin = eini`.  Ending lower costs
-`efin_cost = water value × MWh per hm³`, where the MWh per hm³ is the
-largest sum of turbine production factors along a path down the cascade
-× 10⁶ / 3600 (parallel units are alternatives, a series cascade adds
-up); ponds with no turbine below count one 1 MW/(m³/s) unit.
-`--hydro-water-value` sets the value (default 300 $/MWh), so a week
-draws storage down only when prices exceed it and is otherwise
-inflow-neutral.  `<name>.stats.json` → `hydro_level_rule` counts the
+The end of the week is constrained only where the source data say so:
+
+| PLEXOS | gtopt |
+|---|---|
+| `Target Week` | hard `efin` = the target |
+| `End Effects Method` = 2 (Recycle) | hard `efin = eini` (PLEXOS recycles over the `Balance Period`, a day in the 2026 ISP; only the week end is closed) |
+| `End Effects Method` 1 (Free) / 0 (Auto) / unset | no `efin` |
+
+A one-week case therefore has **no future value of water**: a free
+storage is worth nothing at the end of the week, and the solve may
+draw it down to `emin`.  Water is coupled between stages by the state
+variable, and its future value should come from SDDP cuts; only the
+last stage needs a terminal condition, which may be 0.
+
+`--hydro-water-value V` (opt-in, $/MWh) gives every reservoir without a
+source-data target `efin = eini` with the shortfall priced at
+`efin_cost = V × MWh per hm³`, where the MWh per hm³ is the largest sum
+of turbine production factors along a path down the cascade × 10⁶ /
+3600 (parallel units are alternatives, a series cascade adds up); ponds
+with no turbine below count one 1 MW/(m³/s) unit.
+`<name>.stats.json` → `hydro_level_rule` / `hydro_end_rule` count the
 rule used per reservoir.  `--legacy` keeps the old behaviour (Initial
-Volume clamped into the band, `efin_cost = 10⁴`, no pumping, no
-explicit conversion rate).
+Volume clamped into the band, `efin = eini` with `efin_cost = 10⁴`, no
+pumping, no explicit conversion rate).
 
 Value selection per day: band-1 rows inside their date window; rows
 tagged with an active `Timeslice` override untagged rows; the latest

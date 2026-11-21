@@ -22,8 +22,8 @@ of the window:
   Incr`` MW per m³/s), daily / half-hourly natural inflows → Flow.
   Storage volumes are PLEXOS ML (1000 m³) → hm³ (``flow_conversion_rate``
   0.0036).  ``Pump Load`` units → tail→head Waterway + Pump + flexible
-  Demand.  Week-start level and end-of-week water value: see
-  :func:`_week_start_volume` and :func:`_price_end_volume`.
+  Demand.  Week-start level and end-of-week condition: see
+  :func:`_week_start_volume` and :func:`_end_volume`.
 * Demand: sub-regional operational demand traces (``Node.Load``).
 * Daily energy limits: ``Max Energy Day`` (DSP) and ``Max Energy
   Year`` (non-storage hydro) as ``daily_sum`` user constraints.
@@ -356,10 +356,13 @@ class IspCaseOptions:
     name: str = "isp_week"
     include_hydro: bool = True
     #: hydro realism (off with ``--legacy``): pumping, week-start levels,
-    #: Max Spill, explicit hm³ flow conversion, water-value end target
+    #: Max Spill, explicit hm³ flow conversion, source-data end targets
     hydro_extras: bool = True
-    #: water value [$/MWh] pricing an end volume below the start volume
-    hydro_water_value: float = 300.0
+    #: opt-in water value [$/MWh] pricing an end volume below the start
+    #: volume on reservoirs whose source data give no end target; ``None``
+    #: (default) leaves the end volume free — a single week has no future
+    #: value of water (that comes from SDDP cuts)
+    hydro_water_value: float | None = None
     include_batteries: bool = True
     demand_fail_cost: float | None = None
     #: PLEXOS constraints / purchasers / H2 / emissions / fuel offtake /
@@ -924,8 +927,9 @@ def _week_start_volume(  # pylint: disable=too-many-arguments,too-many-positiona
 
     PLEXOS applies ``Initial Volume`` at the model horizon start only;
     later levels are a simulation result the XML does not carry.  Rule:
-    the horizon-start day uses Initial Volume; otherwise a live
-    ``Target`` wins; otherwise Initial Volume is kept as the modeller's
+    the horizon-start day uses Initial Volume; otherwise a live ``Target
+    Week`` (the level the previous week had to end at) or ``Target``
+    wins; otherwise Initial Volume is kept as the modeller's
     representative level when it is above Min Volume; an Initial Volume
     at / below Min Volume (an "empty" placeholder, e.g. the irrigation
     dams) gives the middle of the band.
@@ -935,6 +939,10 @@ def _week_start_volume(  # pylint: disable=too-many-arguments,too-many-positiona
     if hs is not None and day0 == hs.date() and v0 is not None:
         counts["horizon_start_initial_volume"] += 1
         return min(max(v0 / 1000.0, vmin), vmax)
+    week = res.scalar(oid, "Target Week", day0)
+    if week is not None:
+        counts["target_week"] += 1
+        return min(max(week / 1000.0, vmin), vmax)
     target = res.scalar(oid, "Target", day0)
     if target is not None and target > 0:
         counts["target"] += 1
@@ -992,6 +1000,7 @@ def _build_hydro(  # pylint: disable=too-many-locals,too-many-branches,too-many-
     reservoir_array: list[dict[str, Any]] = []
     flow_array: list[dict[str, Any]] = []
     level_rule: dict[str, int] = defaultdict(int)
+    end_rule: dict[str, int] = defaultdict(int)
     for o in storages:
         vmax = (
             res.scalar(o.object_id, "Max Volume", day0, default=0.0) or 0.0
@@ -1012,9 +1021,14 @@ def _build_hydro(  # pylint: disable=too-many-locals,too-many-branches,too-many-
             "emin": round(vmin, 6),
             "emax": round(vmax, 6),
             "eini": round(v0, 6),
-            "efin": round(v0, 6),
-            "efin_cost": 1.0e4,
         }
+        if extras:
+            efin = _end_volume(res, o.object_id, day0, vmin, vmax, v0, end_rule)
+            if efin is not None:
+                rsv["efin"] = round(efin, 6)
+        else:
+            rsv["efin"] = round(v0, 6)
+            rsv["efin_cost"] = 1.0e4
         if extras:
             # Volumes hm³, flows m³/s: say so explicitly (older gtopt
             # builds fell back to 3.6 — the 1000 m³ factor — when absent).
@@ -1078,8 +1092,10 @@ def _build_hydro(  # pylint: disable=too-many-locals,too-many-branches,too-many-
     }
     if extras:
         _add_pumps(gens.pump_gens, sname, out, stats)
-        _price_end_volume(out, opts.hydro_water_value)
+        if opts.hydro_water_value is not None:
+            _price_end_volume(out, opts.hydro_water_value)
         stats["hydro_level_rule"] = dict(level_rule)
+        stats["hydro_end_rule"] = dict(end_rule)
     stats["hydro_storage_hm3"] = float(sum(r["emax"] for r in reservoir_array))
     return out
 
@@ -1146,8 +1162,39 @@ def _add_pumps(
     stats["hydro_pump_mw"] = float(sum(d["capacity"] for d in demands))
 
 
+def _end_volume(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    res: IspResolver,
+    oid: int,
+    day0: date,
+    vmin: float,
+    vmax: float,
+    v0: float,
+    counts: dict[str, int],
+) -> float | None:
+    """Hard end-of-week volume floor given by the source data, else ``None``.
+
+    ``Target Week`` (end-of-week level) → that level; ``End Effects
+    Method`` 2 (Recycle) → the start volume (PLEXOS recycles over the
+    ``Balance Period``, a day in the 2026 ISP; only the window end is
+    closed here).  Free / Auto storages get no ``efin``: a single week
+    carries no future value of water.
+    """
+    week = res.scalar(oid, "Target Week", day0)
+    if week is not None:
+        counts["target_week"] += 1
+        return min(max(week / 1000.0, vmin), vmax)
+    if res.scalar(oid, "End Effects Method", day0) == 2:
+        counts["recycle"] += 1
+        return v0
+    counts["free"] += 1
+    return None
+
+
 def _price_end_volume(out: dict[str, list[dict[str, Any]]], water_value: float) -> None:
-    """End volume target = start volume; shortfall at the water value.
+    """Opt-in: end target = start volume, shortfall at the water value.
+
+    Applies to reservoirs without a source-data ``efin`` (see
+    :func:`_end_volume`); those keep their hard target.
 
     ``efin_cost`` [$/hm³] = water value [$/MWh] × the MWh one hm³ makes
     on its best path down the cascade (largest sum of production factors
@@ -1165,7 +1212,10 @@ def _price_end_volume(out: dict[str, list[dict[str, Any]]], water_value: float) 
     ]
     energy = _downstream_energy([r["junction"] for r in out["reservoir_array"]], arcs)
     for r in out["reservoir_array"]:
+        if "efin" in r:
+            continue
         e = energy.get(r["junction"], 0.0) or MWH_PER_HM3_PER_PF
+        r["efin"] = r["eini"]
         r["efin_cost"] = round(water_value * e, 3)
 
 
@@ -1235,10 +1285,11 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     p.add_argument(
         "--hydro-water-value",
         type=float,
-        default=300.0,
-        help="water value [$/MWh] pricing a reservoir end volume below its "
-        "start volume (efin_cost = value × MWh per hm³ down the cascade; "
-        "default %(default)s)",
+        default=None,
+        help="opt-in water value [$/MWh]: reservoirs without a source-data "
+        "end target (Target Week / Recycle) get efin = start volume, a "
+        "shortfall priced at value × MWh per hm³ down the cascade (default: "
+        "none, the end volume is free)",
     )
     p.add_argument("--no-batteries", action="store_true")
     p.add_argument("--demand-fail-cost", type=float, default=None)

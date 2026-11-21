@@ -421,6 +421,19 @@ listed below.
 
 ### Fixed
 
+- **`plexos2gtopt.aemo_isp` hydro**: reservoirs carry
+  `flow_conversion_rate = 0.0036` and `Max Spill`; pumped-storage units
+  (`Pump Load` / `Pump Efficiency`: Kidston, Shoalhaven, Wivenhoe,
+  Tumut 3) pump through a tail → head `Waterway` + `Pump` + flexible
+  `Demand`; week-start levels follow the source data (horizon-start
+  `Initial Volume`, else `Target Week` / `Target`, else `Initial Volume`
+  above `Min Volume`, else mid level).  The end of the week is
+  constrained only by the source data (`Target Week` → `efin`, `End
+  Effects Method` Recycle → `efin = eini`); other storages end free, so
+  a single week has no future value of water (it should come from SDDP
+  cuts).  `--hydro-water-value V` is an opt-in end value (`efin = eini`,
+  shortfall at V × the cascade's MWh per hm³).  `--legacy` is unchanged.
+
 - **Solver registry crash on failed plugin validation**: requesting a
   solver whose plugin fails subprocess validation (e.g. a transient
   license error) crashed with SIGSEGV instead of falling back to the
