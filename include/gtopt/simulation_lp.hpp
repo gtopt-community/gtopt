@@ -20,8 +20,11 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <span>
+#include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -632,6 +635,7 @@ public:
     if (!m_need_ampl_variables_) {
       return;
     }
+    note_ampl_registration(class_name, element_uid, attribute);
     m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
         AmplVariableKey {
             .class_name = class_name,
@@ -664,6 +668,7 @@ public:
     if (!m_need_ampl_variables_) {
       return;
     }
+    note_ampl_registration(class_name, element_uid, attribute);
     m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
         AmplVariableKey {
             .class_name = class_name,
@@ -693,6 +698,7 @@ public:
     if (!m_need_ampl_variables_) {
       return;
     }
+    note_ampl_registration(class_name, element_uid, attribute);
     m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
         AmplVariableKey {
             .class_name = class_name,
@@ -731,6 +737,7 @@ public:
     if (!m_need_ampl_variables_) {
       return;
     }
+    note_ampl_registration(class_name, element_uid, attribute);
     m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
         AmplVariableKey {
             .class_name = class_name,
@@ -769,6 +776,7 @@ public:
     if (!m_need_ampl_variables_) {
       return;
     }
+    note_ampl_registration(class_name, element_uid, attribute);
     m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
         AmplVariableKey {
             .class_name = class_name,
@@ -945,18 +953,13 @@ public:
       Uid element_uid,
       std::string_view attribute) const
   {
-    for (const auto& by_phase : m_ampl_lp_cells_) {
-      for (const auto& cell : by_phase) {
-        for (const auto& [key, _] : cell.variables) {
-          if (key.class_name == class_name && key.element_uid == element_uid
-              && key.attribute == attribute)
-          {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
+    // Reads the thread-safe "ever registered" index, NOT the per-cell
+    // maps: those are mutated (and released) concurrently by the other
+    // scene-build threads, and scanning them from here was a data race
+    // that segfaulted the irrigation plp_2y build.
+    const auto key = ampl_index_key(class_name, attribute, element_uid);
+    const std::shared_lock lock(m_ampl_index_mtx_);
+    return m_ampl_element_attrs_.contains(key);
   }
 
   /// Is the (class, attribute) pair registered as an LP variable for
@@ -989,16 +992,9 @@ public:
   [[nodiscard]] bool find_ampl_class_attribute(std::string_view class_name,
                                                std::string_view attribute) const
   {
-    for (const auto& by_phase : m_ampl_lp_cells_) {
-      for (const auto& cell : by_phase) {
-        for (const auto& [key, _] : cell.variables) {
-          if (key.class_name == class_name && key.attribute == attribute) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
+    const auto key = ampl_index_key(class_name, attribute, {});
+    const std::shared_lock lock(m_ampl_index_mtx_);
+    return m_ampl_class_attrs_.contains(key);
   }
 
   /// Register an element's name so that user-expressions like
@@ -1441,6 +1437,60 @@ private:
   // no per-cell mutex is needed.  Allocated once in the constructor
   // with shape `[m_scene_array_.size()][m_phase_array_.size()]`.
   ampl_lp_registry_t m_ampl_lp_cells_;
+  /// Thread-safe "ever registered" indices backing the user-constraint
+  /// silent-zero checks (`find_ampl_variable_for_element`,
+  /// `find_ampl_class_attribute`).  Keys are OWNED strings
+  /// ("class\x1fattr" and "class\x1fattr\x1fuid"): the index outlives
+  /// `release_ampl_cell`, so it must not keep string_views into caller
+  /// storage.  Lookups are heterogeneous (string_view, no allocation)
+  /// through a per-thread key buffer.
+  struct AmplIndexHash
+  {
+    using is_transparent = void;
+    [[nodiscard]] std::size_t operator()(std::string_view sv) const noexcept
+    {
+      return std::hash<std::string_view> {}(sv);
+    }
+  };
+  using AmplIndexSet =
+      std::unordered_set<std::string, AmplIndexHash, std::equal_to<>>;
+  mutable std::shared_mutex m_ampl_index_mtx_;
+  AmplIndexSet m_ampl_element_attrs_;
+  AmplIndexSet m_ampl_class_attrs_;
+
+  [[nodiscard]] static std::string_view ampl_index_key(
+      std::string_view class_name,
+      std::string_view attribute,
+      std::optional<Uid> element_uid)
+  {
+    thread_local std::string buf;
+    buf.assign(class_name);
+    buf.push_back('\x1f');
+    buf.append(attribute);
+    if (element_uid.has_value()) {
+      buf.push_back('\x1f');
+      buf.append(std::to_string(*element_uid));
+    }
+    return buf;
+  }
+
+  void note_ampl_registration(std::string_view class_name,
+                              Uid element_uid,
+                              std::string_view attribute)
+  {
+    const auto element_key = ampl_index_key(class_name, attribute, element_uid);
+    {
+      const std::shared_lock lock(m_ampl_index_mtx_);
+      if (m_ampl_element_attrs_.contains(element_key)) {
+        return;
+      }
+    }
+    std::string owned_element {element_key};
+    std::string owned_class {ampl_index_key(class_name, attribute, {})};
+    const std::unique_lock lock(m_ampl_index_mtx_);
+    m_ampl_element_attrs_.insert(std::move(owned_element));
+    m_ampl_class_attrs_.insert(std::move(owned_class));
+  }
 
   // Globally-shared read-only registries (element-name lookup and
   // class-level compounds).  Populated exactly once — `SystemLP`'s
