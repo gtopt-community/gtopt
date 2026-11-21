@@ -96,6 +96,10 @@ class _Row:
     others: tuple[int, ...] = ()
 
 
+#: hm³ per (m³/s · h)
+HM3_PER_M3S_HOUR = 3600.0 / 1.0e6
+
+
 class IspResolver:
     """Resolve System-collection property values for a given day.
 
