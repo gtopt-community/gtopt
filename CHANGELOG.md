@@ -574,6 +574,39 @@ listed below.
   are now exposed: `sddp_options.pool_max_process_swap_mb` (default
   2048, `0` = off; CLI `--swap-limit`) and
   `sddp_options.pool_swap_growth_mb` (default 64; CLI `--swap-growth`).
+- **Irrigation agreements — PLP-fidelity revision** (deep review vs
+  `genpdmaule.f` / `genpdlajam.f`).  Maule: La Invernada IQRNIN/IQNINV
+  rule only when `RelaxInvern = F` and no phantom `econ_invernada`
+  (CIPRESES no longer taxed); ordinary-reserve ledgers provisioned per
+  `FijaMaule`; annual/seasonal counters emitted as remaining-rights
+  ledgers (non-negative state value); Res. 105 `qa105 ≤ min(qarmr,
+  QRiego105)` with district `retiro + deficit = pct · qa105` (Melado an
+  equality + deficit); manual-year tables and Cota 425 honoured.  Laja:
+  `laja_retiro_maximo` no longer carries the seepage term (it priced the
+  lake's water NEGATIVE), PLP costs pinned by default
+  (`--no-pin-agreement-costs` to opt out), economies only under the 1958
+  agreement, manual withdrawals applied, WARN for unmodelled forced flows
+  and `ini_econ`.  `validate_planning` rejects a rewarded FlowRight
+  (`uvalue > 0`) with no junction and no UserConstraint reference.
+- **`VolumeRight.bound_rule` units**: the rule volume [hm³] is converted
+  to a rate `V / (0.0036 · stage_hours)` before capping the extraction;
+  `initial_rule_bound` (VolumeRight and FlowRight) reads the predecessor
+  phase's reservoir `efin` instead of the case `eini`; `update_lp` no
+  longer skips an unchanged bound (stale under `low_memory`).
+- **SDDP stop during the forward pass**: a `request_stop` / sentinel /
+  API stop hit mid-forward (`ErrorCode::Cancelled`) is no longer counted
+  as an infeasible scene — no cut rollback, no "all scenes infeasible"
+  abort; the partial iteration is discarded and the run proceeds to the
+  simulation pass and output.
+- **AMPL registry race**: the user-constraint silent-zero lookups
+  (`find_ampl_variable_for_element`, `find_ampl_class_attribute`) scanned
+  every (scene, phase) cell while other scene threads were writing theirs
+  — a data race that segfaulted the plp_2y irrigation build.  They now
+  read a mutex-guarded registration index.
+- **SDDP hot start**: a requested hot start that ends cold (cuts file
+  ignored because `recovery_mode = none` — i.e. no `--recover` —, load
+  error, empty file or missing cut directory) now logs
+  `SDDP HotStart: cuts=cold … NOT applied: <reason>` at WARN.
 
 - **`plexos2gtopt.aemo_isp` hydro**: reservoirs carry
   `flow_conversion_rate = 0.0036` and `Max Spill`; pumped-storage units

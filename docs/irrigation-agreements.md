@@ -956,25 +956,91 @@ penalized only at the district withdrawals.
 | Reserve (IVERF) | Resets to zero when exiting lower cushion | Simple accumulator (no reset) | Low — reserve economies are emergency-only |
 | Alto Polcura (IVAPF) | No reset | No reset | None — equivalent |
 
-### 10.2 La Invernada Economy (Maule)
+### 10.2 PLP-fidelity revision (2026-11)
 
-PLP has conditional reset rules and seasonal usage windows for La
-Invernada economy that are not modeled in GTOpt.  The current
-implementation is a simple accumulator.
+The deep review of the agreements against PLP (`genpdmaule.f`,
+`genpdlajam.f`, `FijaMaule`) produced these changes.  The guiding rules:
+as few penalties as possible, no negative water values, hard identities
+instead of soft equalities, spillage stays free.
 
-### 10.3 Multi-Year Data Overrides
+**Maule**
 
-PLP supports annual tables for irrigation percentages (`pct_riego_manual`)
-and Resolution 105 flows (`caudal_res105_manual`) that change year by
-year.  These multi-year override tables are not consumed by the GTOpt
-converter.
+- **La Invernada** — the IQRNIN/IQNINV level rule is emitted only when
+  `RelaxInvern = F` (`invernada_nivel`: deficit + embalsar + seepage =
+  inflow + no_embalsar + holgura).  IQNINV is substituted into IQRNIN
+  (PLP gives `qninv` a `−inf` lower bound, which a FlowRight cannot carry
+  since `fmin ≥ 0`).  The phantom `econ_invernada` economy was removed
+  (PLP has no such ledger for the Invernada surplus).  CIPRESES is no
+  longer taxed by the agreement.
+- **Ordinary reserve** — `maule_reserva_ordinaria_{elec,riego}` are
+  VolumeRights provisioned with `20 % / 80 % · (V_util − 129)` (January
+  reset via `bound_rule`, initial value from `FijaMaule`) and accrued with
+  `saving ≤ p · inflow(LMAULE)`.  Approximation: the ledgers also accrue
+  in the normal regime (capped by `emax = p · 452`); PLP zeroes them
+  there.  Harmless, as the ordinary rights are only usable below 581 hm³.
+- **Remaining-rights ledgers** — the electric/irrigation annual and
+  seasonal counters are emitted as *remaining* ledgers
+  (`remaining = cap − used`, depleted by the extraction) instead of PLP's
+  up-counters (`used ≤ cap`).  Both are primal-equivalent, but the
+  up-counter's state dual is negative when binding and an SDDP cut on it
+  propagates a NEGATIVE water value (`test_irrigation_maule_ledger.cpp`).
+- **Res. 105 / districts** — `qa105 ≤ min(qarmr, QRiego105)`
+  (`maule_armerillo_105`), each district `retiro + deficit = pct · qa105`
+  (`dist_*`).  Melado is an equality with a deficit priced at
+  `CostoRiegoNS105`, not a `≤`.  `validate_planning` now rejects any
+  FlowRight with `uvalue > 0` that has neither `junction_a` nor a
+  UserConstraint reference (a rewarded flow with no physical tie).
+- **Manual years** — `pct_riego_manual` / `caudal_res105_manual` are read
+  for all `NYear` rows and applied by calendar year when stage metadata
+  carries a year.
+- **Cota 425** — the `IExtr425`-th COLBUN extraction is capped through the
+  `maule_cota_425` carrier (`bound_rule` on COLBUN: `ExtrMax` above
+  `Vol425`, else 0) and the `maule_cota_425_anclaje` row.
 
-### 10.4 Colbun 425 Extraction Limit
+**Laja**
 
-PLP imposes additional extraction limits when Colbun volume falls below
-elevation 425.  This volume-conditional bound is not modeled in GTOpt.
+- `laja_retiro_maximo` caps the irrigation-side charge at PLP's
+  NUMERIC `qdefm` only.  The former `+ seepage(V)` term made the lake's
+  water value negative when the cap was binding
+  (`test_irrigation_laja_cap.cpp`).
+- The agreement costs are pinned to PLP (`plplajam.dat`) by default;
+  `--no-pin-agreement-costs` lets the water-value resolver override them.
+- The economies (ENDESA, reserve, Alto Polcura) are emitted only under
+  the 1958 agreement (`convenio_1958`).
+- Manual withdrawals are applied to the targets and to `qdefm`.
+- Forced flows (`NumCaudalToro`) and `ini_econ` under the 2017 agreement
+  are NOT modelled; the converter logs a WARNING when the data carries
+  them.
 
-### 10.5 Data Coverage
+**C++ primitives**
+
+- `VolumeRight.bound_rule` yields a volume [hm³]; it is now converted to
+  a rate cap `V / (0.0036 · stage_hours)` before bounding the extraction
+  column (it was applied as a rate, off by the stage length).
+- `initial_rule_bound` reads the reservoir volume of the predecessor
+  phase (`efin` StateVariable) instead of the case `eini` for every
+  phase.
+- `update_lp` no longer skips the bound write when the rule value is
+  unchanged: under `low_memory` the LP is rebuilt from the flat snapshot
+  and the cached "current bound" was stale.
+
+### 10.3 Penalty inventory (after the revision)
+
+| Penalty / reward | Value | Source |
+|------------------|-------|--------|
+| Maule `deficit_riego` (qdrah) | −`CostoRiegoNS` uvalue | PLP `genpdmaule.f` (+1000) |
+| Maule district deficits (qrhh) | −`CostoRiegoNS105` uvalue | PLP (+1000) |
+| Maule `resolucion_105` (qa105) reward | `valor_riego_res105` | PLP (−1100) |
+| Invernada `embalsar` / `no_embalsar` | 1500 / 1000 | PLP qhinv / qhnein; only when `RelaxInvern = F` (not on plp_2y) |
+| Maule Canelon | `costo_canelon` | PLP; only with an anchored Canelon central |
+| Laja deficits (`fail_cost`) | `plplajam.dat` × cost factor, pinned | PLP |
+| Laja usage costs (uvalue) | `CQVar` (Saltos 1100 × 0.2 = 220) | PLP |
+| Reservoir `soft_emin` COLBUN, RAPEL | 10 $/dam³ | PLP `plpminembh.dat` |
+| Hydro `pmin_fcost` | water-value anchor (≈215 $/MWh on plp_2y) | gtopt `--soft-min-flows`, NOT PLP (PLP pmin is hard); `--no-soft-min-flows` restores the hard floor |
+
+Spillage carries no cost.
+
+### 10.4 Data Coverage
 
 - **Laja**: 43/51 config keys used (84%)
 - **Maule**: 31/55 config keys used (56%)
