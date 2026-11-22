@@ -1124,9 +1124,10 @@ replacement price.  Limits (verified in
   of a zig-zag are replaced by free energy: zig-zag and direct schedules
   still **tie**.  Any strictly positive cost on that energy breaks the
   tie — e.g. a 1 $/MWh VOM on the zero-cost unit penalises a zig-zag that
-  cycles $X$ MWh by $X\,(1/(\eta^{\text{in}}\eta^{\text{out}}) - 1)$ $
-  ($8.64 for 80 MWh at $\eta = 0.95$), and a battery `discharge_cost`
-  (throughput / degradation cost, default 0) by `discharge_cost` · $X$.
+  cycles $X$ MWh by $X\,(1/(\eta^{\text{in}}\eta^{\text{out}}) - 1)$
+  dollars (8.64 USD for 80 MWh at $\eta = 0.95$), and a battery
+  `discharge_cost` (throughput / degradation cost, default 0) by
+  `discharge_cost` · $X$.
   gtopt adds no artificial default penalty: use the physical VOM of the
   zero-cost units or a datasheet degradation cost.
 - Same-block simultaneous charge and discharge does not move the SoC, so
@@ -1138,8 +1139,8 @@ By default (`model_options.battery_power_envelope = true`) each battery
 converter adds, per block,
 
 $$
-\frac{p_{e,s,t,b}^{\text{in}}}{\overline{P}_{e,t,b}^{\text{in}}}
-+ \frac{p_{e,s,t,b}^{\text{out}}}{\overline{P}_{e,t,b}^{\text{out}}}
+\frac{p_{e,s,t,b}^{\text{in}}}{\overline{P}_{e,t,b}^{\text{in}}} +
+\frac{p_{e,s,t,b}^{\text{out}}}{\overline{P}_{e,t,b}^{\text{out}}}
 \;\leq\; 1
 $$
 
@@ -1930,8 +1931,8 @@ $$
 
 where $s_{g,k}$ are the piecewise heat-rate slack columns.  The
 coefficient on each leg is
-$\mu\,(1-\eta^{\text{cap}})\,(\phi_{\nu,t} + \phi^{\text{up}}_{\nu,t})
-\,\Delta_b$ times the leg's fuel coefficient, so the cap, price,
+$\mu\,(1-\eta^{\text{cap}})\,(\phi_{\nu,t} + \phi^{\text{up}}_{\nu,t})\,\Delta_b$
+times the leg's fuel coefficient, so the cap, price,
 allowance-pool and CCS terms below apply to the exact piecewise or
 per-block fuel burn.
 <!-- source: source/emission_source_lp.cpp, GeneratorLP::fuel_burn_legs -->

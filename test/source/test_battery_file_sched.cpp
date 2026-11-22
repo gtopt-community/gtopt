@@ -34,6 +34,7 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
 #include <parquet/arrow/writer.h>
@@ -411,6 +412,19 @@ TEST_CASE("Battery file-backed active with commitment = true")  // NOLINT
   const auto system = bfs_make_system(std::move(bat));
   REQUIRE(system.commitment_array.size() == 1);
   CHECK_FALSE(system.commitment_array.front().relax.value_or(true));
+  CHECK(std::get<FileSched>(
+            system.commitment_array.front().active.value_or(Active {0}))
+        == "Battery@act#7");
+
+  // The binary commitment needs a MIP-capable active solver; LP-only
+  // backends (e.g. CI pinned to clp) reject integer columns at load.
+  auto& reg = SolverRegistry::instance();
+  if (!reg.supports_mip(reg.default_solver())) {
+    MESSAGE("Skipping MIP build/solve — default solver '"
+            << reg.default_solver() << "' is LP-only");
+    std::filesystem::remove_all(dir);
+    return;
+  }
   bfs_check_active(system, dir, DataFormat::parquet);
   std::filesystem::remove_all(dir);
 }

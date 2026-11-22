@@ -413,9 +413,16 @@ TEST_CASE("Battery zig-zag degeneracy removed by self-discharge")  // NOLINT
 
     const auto r = solve(hours, k_flat_gen, k_flat_dem, zigzag_battery({}));
     CHECK(r.obj == doctest::Approx(base).epsilon(1e-9));
-    // With μ > 0 any stored MWh decays → the unique optimum is idle.
-    CHECK(r.sum_c() == doctest::Approx(0.0).epsilon(1e-9));
-    CHECK(r.sum_d() == doctest::Approx(0.0).epsilon(1e-9));
+    // With μ > 0 any stored MWh decays → the unique optimum keeps the
+    // SoC at 0 in every block.  With η = 1 a same-block c = d ≤ P/2
+    // (inside the power envelope) changes nothing and stays degenerate,
+    // so only the per-block NET flow is unique (CLP returns c = d = 70
+    // MWh in total, HiGHS / CPLEX return 0).
+    for (std::size_t i = 0; i < r.c.size(); ++i) {
+      CAPTURE(i);
+      CHECK(r.soc[i] == doctest::Approx(0.0).epsilon(1e-9));
+      CHECK(r.c[i] - r.d[i] == doctest::Approx(0.0).epsilon(1e-9));
+    }
   }
 
   SUBCASE("fixed zig-zag (charge 20 MW odd blocks, discharge even blocks)")
@@ -611,9 +618,13 @@ TEST_CASE(
       // Generator at 80 MW in all 24 blocks.
       CHECK(r.obj == doctest::Approx(-5.0 * 80.0 * 24.0).epsilon(1e-6));
       CHECK(r.sum_c() - r.sum_d() == doctest::Approx(720.0).epsilon(1e-6));
-      // a·Σc − b·Σd = e_end + L ∈ [0, emax + ε] with Σc = Σd + 720:
-      // Σd ∈ [(648 − emax)/(b − a), 648/(b − a)] = [3022, 3069.5] MWh.
-      CHECK(r.sum_d() >= (a * 720.0 - emax) / (b - a) - 1e-3);
+      // a·Σc − b·Σd = e_end + L with Σc = Σd + 720, e_end ∈ [0, emax]
+      // and the self-loss L ∈ [0, 24 h · emax · μ]:
+      // Σd ∈ [(648 − emax − L_max)/(b − a), 648/(b − a)] ≈ [3022, 3069.5]
+      // MWh.  Where inside the range a solver lands is a degenerate
+      // vertex choice (CLP: 3022.05 with the default loss).
+      const double l_max = loss ? 0.0 : 24.0 * emax * k_h;
+      CHECK(r.sum_d() >= (a * 720.0 - emax - l_max) / (b - a) - 1e-3);
       CHECK(r.sum_d() <= a * 720.0 / (b - a) + 1e-3);
       MESSAGE("no envelope, loss=" << std::string(loss ? "0" : "default")
                                    << ": discharge cycled " << r.sum_d()
