@@ -3,6 +3,11 @@
 #
 # Disabled-check rationale (groups):
 #   altera-*, llvmlibc-*        – domain-specific (FPGA / LLVM libc); not relevant
+#   abseil-*,                   – the project uses neither Abseil nor
+#   google-upgrade-googletest-case  googletest; these checks only rewrite
+#                                 towards absl:: / gtest APIs, yet their
+#                                 matchers cost ~5% of clang-tidy time
+#                                 (--enable-check-profile, 11 TUs)
 #   fuchsia-*                   – Fuchsia OS style; conflicts with project conventions
 #   llvm-header-guard,          – project uses #pragma once
 #   portability-avoid-pragma-once
@@ -87,7 +92,24 @@
 #                                  mt-unsafe list — so disabling the
 #                                  check project-wide is the only clean
 #                                  alternative to 21 per-site NOLINTs.
+#
+# Alias de-duplication (speed only, no coverage change):
+#   clang-tidy registers every alias name as a separate check instance,
+#   so with "*" each alias re-runs the AST matchers of its primary check
+#   and emits a duplicate diagnostic at the same location.  The 58
+#   aliases disabled at the end of the list below are exactly those
+#   whose effective options (clang-tidy-21 --dump-config) are identical
+#   to their primary check's, which stays enabled; e.g.
+#   hicpp-use-override -> modernize-use-override,
+#   cert-err61-cpp -> misc-throw-by-value-catch-by-reference.  Aliases
+#   whose options differ from the primary (cert-arr39-c, cert-dcl16-c,
+#   cert-oop54-cpp, cert-str34-c, cppcoreguidelines-narrowing-conversions,
+#   google-readability-braces-around-statements, llvm-else-after-return,
+#   llvm-qualified-auto) are kept: they flag a different set of sites.
+#   Existing NOLINT(<alias>) comments stay valid; the primary already
+#   reported (and therefore was already suppressed at) every such site.
 Checks: "*,\
+  -abseil-*,\
   -altera-*,\
   -boost-use-ranges,\
   -bugprone-easily-swappable-parameters,\
@@ -115,6 +137,7 @@ Checks: "*,\
   -fuchsia-overloaded-operator,\
   -fuchsia-statically-constructed-objects,\
   -fuchsia-trailing-return,\
+  -google-upgrade-googletest-case,\
   -google-build-using-namespace,\
   -google-readability-casting,\
   -google-readability-namespace-comments,\
@@ -138,7 +161,65 @@ Checks: "*,\
   -readability-identifier-naming,\
   -readability-magic-numbers,\
   -readability-redundant-member-init,\
-  -readability-trailing-comma\
+  -readability-trailing-comma,\
+  -cert-con36-c,\
+  -cert-con54-cpp,\
+  -cert-ctr56-cpp,\
+  -cert-dcl03-c,\
+  -cert-dcl37-c,\
+  -cert-dcl51-cpp,\
+  -cert-dcl54-cpp,\
+  -cert-dcl59-cpp,\
+  -cert-err09-cpp,\
+  -cert-err61-cpp,\
+  -cert-exp42-c,\
+  -cert-fio38-c,\
+  -cert-flp37-c,\
+  -cert-int09-c,\
+  -cert-msc24-c,\
+  -cert-msc30-c,\
+  -cert-msc32-c,\
+  -cert-msc33-c,\
+  -cert-msc54-cpp,\
+  -cert-oop11-cpp,\
+  -cert-pos44-c,\
+  -cert-pos47-c,\
+  -cert-sig30-c,\
+  -cppcoreguidelines-avoid-c-arrays,\
+  -cppcoreguidelines-c-copy-assignment-signature,\
+  -cppcoreguidelines-explicit-virtual-functions,\
+  -cppcoreguidelines-noexcept-destructor,\
+  -cppcoreguidelines-noexcept-move-operations,\
+  -cppcoreguidelines-noexcept-swap,\
+  -cppcoreguidelines-use-default-member-init,\
+  -fuchsia-header-anon-namespaces,\
+  -google-readability-function-size,\
+  -hicpp-avoid-c-arrays,\
+  -hicpp-avoid-goto,\
+  -hicpp-braces-around-statements,\
+  -hicpp-deprecated-headers,\
+  -hicpp-explicit-conversions,\
+  -hicpp-function-size,\
+  -hicpp-invalid-access-moved,\
+  -hicpp-member-init,\
+  -hicpp-move-const-arg,\
+  -hicpp-named-parameter,\
+  -hicpp-new-delete-operators,\
+  -hicpp-no-array-decay,\
+  -hicpp-no-malloc,\
+  -hicpp-noexcept-move,\
+  -hicpp-special-member-functions,\
+  -hicpp-static-assert,\
+  -hicpp-undelegated-constructor,\
+  -hicpp-uppercase-literal-suffix,\
+  -hicpp-use-auto,\
+  -hicpp-use-emplace,\
+  -hicpp-use-equals-default,\
+  -hicpp-use-equals-delete,\
+  -hicpp-use-noexcept,\
+  -hicpp-use-nullptr,\
+  -hicpp-use-override,\
+  -hicpp-vararg\
   "
 
 HeaderFilterRegex: '.*'
