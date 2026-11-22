@@ -42,8 +42,14 @@
 #           GTOPT_TIDY_NO_CACHE=1 disables the cache.
 #   cache dir: $CTCACHE_DIR, default ${TMPDIR:-/tmp}/ctcache-$USER.
 #           Keep it on local disk (not an NFS home).
+#           Point TMPDIR (or CTCACHE_DIR) at a large, persistent local
+#           disk: the cache is meant to live across runs.
+#   sharing: the checkout and DB paths are stripped from the hashed
+#           inputs (CTCACHE_STRIP + CTCACHE_STRIP_SRC=1), so one cache
+#           serves every worktree / clone / build-tidy dir of the repo.
 # CTCACHE_KEEP_COMMENTS=1 is forced so that removing a NOLINT comment
 # (which does not change the preprocessed code) invalidates the entry.
+# After the run the script prints this run's ctcache hits / misses.
 #
 # Tool selection: $CLANG_TIDY / $RUN_CLANG_TIDY, else the newest
 # versioned clang-tidy-N / run-clang-tidy-N pair, else the unversioned
@@ -229,6 +235,8 @@ if [[ "${GTOPT_TIDY_NO_CACHE:-0}" != 1 ]]; then
     export CTCACHE_CLANG_TIDY="$tidy_bin"
     export CTCACHE_DIR="${CTCACHE_DIR:-${TMPDIR:-/tmp}/ctcache-${USER:-user}}"
     export CTCACHE_KEEP_COMMENTS=1
+    export CTCACHE_STRIP="${CTCACHE_STRIP:-$(realpath "$db"):${repo_root}}"
+    export CTCACHE_STRIP_SRC="${CTCACHE_STRIP_SRC:-1}"
     binary="$wrapper"
     echo "run_tidy: ctcache $wrapper (cache $CTCACHE_DIR)"
   fi
@@ -238,5 +246,33 @@ fi
 regex=$(printf '%s\n' "${files[@]}" \
   | sed 's/[.[\*^$()+?{|]/\\&/g; s/^/^/; s/$/$/' | paste -sd'|' -)
 
-exec "$runner" -p "$db" -j "$jobs" -quiet -clang-tidy-binary "$binary" \
-  -header-filter='' -warnings-as-errors='*' "$regex"
+# ctcache keeps cumulative local hit/miss counters; report this run's
+# delta (the CI log shows how much the restored cache saved).
+ctcache_py=""
+if [[ "$binary" != "$tidy_bin" ]]; then
+  ctcache_py="$(dirname "$(realpath "$binary")")/src/ctcache/clang_tidy_cache.py"
+  [[ -f "$ctcache_py" ]] || ctcache_py=""
+fi
+ctcache_counts() {
+  python3 "$ctcache_py" --print-stats 2> /dev/null | python3 -c \
+    'import json,sys; l=json.load(sys.stdin)["local"]; print(l["hit_count"], l["miss_count"])' \
+    2> /dev/null || echo "0 0"
+}
+[[ -n "$ctcache_py" ]] && read -r hits0 miss0 < <(ctcache_counts)
+
+rc=0
+"$runner" -p "$db" -j "$jobs" -quiet -clang-tidy-binary "$binary" \
+  -header-filter='' -warnings-as-errors='*' "$regex" || rc=$?
+
+if [[ -n "$ctcache_py" ]]; then
+  read -r hits1 miss1 < <(ctcache_counts)
+  hits=$((hits1 - hits0))
+  # run-clang-tidy's own `-list-checks` probe goes through the wrapper
+  # and is counted as one miss; it is not a TU.
+  miss=$((miss1 - miss0 - 1))
+  ((miss < 0)) && miss=0
+  total=$((hits + miss))
+  echo "run_tidy: ctcache ${hits} hit(s), ${miss} miss(es)" \
+       "($(( total > 0 ? 100 * hits / total : 0 ))% hit rate)"
+fi
+exit "$rc"
