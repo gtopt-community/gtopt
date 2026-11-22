@@ -30,6 +30,7 @@ on:
       - 'cmake/**'
       - 'cmake_local/**'
       - 'tools/run_tidy.sh'
+      - 'tools/install_ctcache.sh'
       - '.github/workflows/clang-tidy.yml'
       - '.github/actions/install-clang/**'
   push:
@@ -43,6 +44,7 @@ on:
       - 'cmake/**'
       - 'cmake_local/**'
       - 'tools/run_tidy.sh'
+      - 'tools/install_ctcache.sh'
       - '.github/workflows/clang-tidy.yml'
       - '.github/actions/install-clang/**'
   schedule:
@@ -64,8 +66,8 @@ permissions:
 env:
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
   CTCACHE_DIR: ${{ github.workspace }}/.ctcache
-  # Pinned ctcache revision (https://github.com/matus-chochlik/ctcache).
-  CTCACHE_REF: 2cb1c2bdd86f5e56a9044908f7c36a8a04a30ca2
+  # Fail instead of silently running uncached if ctcache is missing.
+  GTOPT_TIDY_REQUIRE_CACHE: '1'
   TIDY_VERSION: '22'
 
 jobs:
@@ -129,18 +131,25 @@ jobs:
           version: ${{ env.TIDY_VERSION }}
           packages: clang clang-tidy
 
+      # Pinned git checkout (ctcache is not on PyPI); the pin lives in
+      # tools/install_ctcache.sh.  Installs to ~/.local/opt/ctcache,
+      # where tools/run_tidy.sh finds it.
       - name: install ctcache
-        run: |
-          git clone --quiet https://github.com/matus-chochlik/ctcache.git \
-            "$HOME/opt/ctcache"
-          git -C "$HOME/opt/ctcache" checkout --quiet "$CTCACHE_REF"
+        run: bash tools/install_ctcache.sh
 
+      # Key: clang-tidy version + every .clang-tidy (a config change
+      # invalidates entries anyway; ctcache hashes the effective config)
+      # + run id, so each run saves a fresh snapshot.  Restore falls back
+      # to the newest snapshot for the same config, then to any snapshot
+      # of the same clang-tidy version (still valid for unchanged TUs).
       - name: restore ctcache
         uses: actions/cache/restore@v6
         with:
           path: ${{ env.CTCACHE_DIR }}
-          key: ctcache-${{ env.TIDY_VERSION }}-${{ github.run_id }}
-          restore-keys: ctcache-${{ env.TIDY_VERSION }}-
+          key: ctcache-${{ env.TIDY_VERSION }}-${{ hashFiles('**/.clang-tidy') }}-${{ github.run_id }}
+          restore-keys: |
+            ctcache-${{ env.TIDY_VERSION }}-${{ hashFiles('**/.clang-tidy') }}-
+            ctcache-${{ env.TIDY_VERSION }}-
 
       - name: configure tidy compile DB
         run: |
@@ -161,4 +170,4 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ env.CTCACHE_DIR }}
-          key: ctcache-${{ env.TIDY_VERSION }}-${{ github.run_id }}
+          key: ctcache-${{ env.TIDY_VERSION }}-${{ hashFiles('**/.clang-tidy') }}-${{ github.run_id }}

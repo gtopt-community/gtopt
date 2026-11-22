@@ -34,11 +34,17 @@
 # effective clang-tidy config (--dump-config) and the arguments; a TU
 # that was clean before is skipped.  Only clean results are cached, so
 # a file with warnings is always re-analysed and still fails.
-#   lookup: $CTCACHE_WRAPPER, then ~/opt/ctcache/clang-tidy (the bash
-#           wrapper of a `git clone` of ctcache; it reads the real binary
-#           from $CTCACHE_CLANG_TIDY, which this script sets).  The older
+#   install: bash tools/install_ctcache.sh [DIR]  (pinned git checkout,
+#           default $CTCACHE_HOME or ~/.local/opt/ctcache).
+#   lookup: $CTCACHE_WRAPPER, $CTCACHE_HOME/clang-tidy,
+#           ~/.local/opt/ctcache/clang-tidy, ~/opt/ctcache/clang-tidy, then
+#           a ctcache wrapper installed as `clang-tidy` on PATH (the bash
+#           wrapper of the checkout; it reads the real binary from
+#           $CTCACHE_CLANG_TIDY, which this script sets).  The older
 #           single-file `clang-tidy-cache` script expects the real binary
-#           as its first argument and is not auto-detected.
+#           as its first argument and is not supported.
+#           Missing: a warning, and the run goes on uncached;
+#           GTOPT_TIDY_REQUIRE_CACHE=1 (CI) makes it an error (rc 2).
 #           GTOPT_TIDY_NO_CACHE=1 disables the cache.
 #   cache dir: $CTCACHE_DIR, default ${TMPDIR:-/tmp}/ctcache-$USER.
 #           Keep it on local disk (not an NFS home).
@@ -81,6 +87,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# A ctcache checkout's bash wrapper (named clang-tidy).
+is_ctcache_wrapper() {
+  [[ -f "$1" ]] && head -c 512 "$1" | grep -q 'clang-tidy cache wrapper'
+}
+
 # ---- clang-tidy / run-clang-tidy pair (newest version first) ----
 tidy_bin="${CLANG_TIDY:-}"
 runner="${RUN_CLANG_TIDY:-}"
@@ -90,8 +101,7 @@ for v in -23 -22 -21 -20 ""; do
   command -v "clang-tidy$v" > /dev/null || continue
   command -v "run-clang-tidy$v" > /dev/null || continue
   # Skip a ctcache wrapper installed as `clang-tidy` on PATH.
-  [[ "$(readlink -f "$(command -v "clang-tidy$v")")" == */tools/clang-tidy ]] \
-    && continue
+  is_ctcache_wrapper "$(command -v "clang-tidy$v")" && continue
   [[ -z "$tidy_bin" ]] && tidy_bin=$(command -v "clang-tidy$v")
   [[ -z "$runner" ]] && runner=$(command -v "run-clang-tidy$v")
   tidy_ver="$v"
@@ -228,10 +238,25 @@ echo "run_tidy: ${#files[@]} file(s), $(basename "$tidy_bin"), DB $db"
 binary="$tidy_bin"
 if [[ "${GTOPT_TIDY_NO_CACHE:-0}" != 1 ]]; then
   wrapper="${CTCACHE_WRAPPER:-}"
-  if [[ -z "$wrapper" && -x "$HOME/opt/ctcache/clang-tidy" ]]; then
-    wrapper="$HOME/opt/ctcache/clang-tidy"
+  if [[ -z "$wrapper" ]]; then
+    for w in ${CTCACHE_HOME:+"$CTCACHE_HOME/clang-tidy"} \
+             "$HOME/.local/opt/ctcache/clang-tidy" \
+             "$HOME/opt/ctcache/clang-tidy" \
+             "$(command -v clang-tidy || true)"; do
+      if [[ -x "$w" ]] && is_ctcache_wrapper "$w"; then
+        wrapper="$w"
+        break
+      fi
+    done
   fi
-  if [[ -n "$wrapper" ]]; then
+  if [[ -z "$wrapper" ]]; then
+    echo "run_tidy: ctcache not found -- running uncached." \
+         "Install it with: bash tools/install_ctcache.sh" \
+         "(or set CTCACHE_HOME / CTCACHE_WRAPPER)" >&2
+    if [[ "${GTOPT_TIDY_REQUIRE_CACHE:-0}" == 1 ]]; then
+      exit 2
+    fi
+  else
     export CTCACHE_CLANG_TIDY="$tidy_bin"
     export CTCACHE_DIR="${CTCACHE_DIR:-${TMPDIR:-/tmp}/ctcache-${USER:-user}}"
     export CTCACHE_KEEP_COMMENTS=1
