@@ -96,7 +96,7 @@ struct LpMatrixOptions
   LowMemoryMode low_memory_mode {LowMemoryMode::off};
 
   /// Codec for the deferred snapshot when `low_memory_mode == compress`.
-  /// `auto_select` defers to `select_codec()` which prefers lz4.
+  /// `auto_select` defers to `select_codec()` which resolves to zstd (level 1).
   CompressionCodec memory_codec {CompressionCodec::auto_select};
 
   /// Compute LP fingerprint (structural hash) during flatten.

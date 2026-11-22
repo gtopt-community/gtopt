@@ -507,7 +507,7 @@ public:
 
   /// Configure low-memory mode (off, snapshot, compress, rebuild).
   void set_low_memory(LowMemoryMode mode,
-                      CompressionCodec codec = CompressionCodec::lz4) noexcept;
+                      CompressionCodec codec = CompressionCodec::zstd) noexcept;
 
   /// Save a flat LP snapshot for future reconstruction.
   /// Call from create_lp() — the LinearInterface decides whether to keep
@@ -537,7 +537,7 @@ public:
   /// - no cut rows have been added yet (`m_active_cuts_.empty()`).
   void freeze_for_cuts(LowMemoryMode mode,
                        FlatLinearProblem flat_lp,
-                       CompressionCodec codec = CompressionCodec::lz4);
+                       CompressionCodec codec = CompressionCodec::zstd);
 
   /// Drop the compressed/uncompressed flat-LP snapshot held by this
   /// interface.  Used by the SDDP simulation Pass 1 in low-memory mode

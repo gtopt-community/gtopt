@@ -1096,7 +1096,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   LowMemoryMode low_memory_mode {LowMemoryMode::off};
 
   /// In-memory compression codec for low_memory compress mode.
-  /// Default: auto_select (picks best available: lz4 > snappy > zstd > gzip).
+  /// Default: auto_select (resolves to zstd level 1; `lz4` selectable).
   CompressionCodec memory_codec {CompressionCodec::auto_select};
 
   // ── Resolved FutureCost (boundary-cut) settings ──────────────────────

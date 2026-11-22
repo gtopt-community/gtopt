@@ -1643,7 +1643,7 @@ mitigate this:
      Maximum throughput, maximum memory.
    - `compress` (default for SDDP/cascade): backend released after
      every solve; the FlatLinearProblem is kept in memory — compressed
-     (lz4 / zstd, ~2–4× ratio) when the backend is released and
+     (zstd level 1 by default, ~7× ratio) when the backend is released and
      decompressed on demand — and replayed on the next access via
      `LinearInterface::reconstruct_backend()`.  Cuts the
      solver-resident memory. The scenes of one phase share the
@@ -1654,7 +1654,9 @@ mitigate this:
      of its bytes against that base, which is empty when the two are
      identical. The restore is bit-exact. On the CEN 2-year case the
      per-cell delta is about 3% of a full snapshot. The codec is
-     chosen by `memory_codec` (default `auto` → lz4).
+     chosen by `memory_codec`. The default `auto` resolves to zstd
+     level 1, about 30% smaller than lz4 on real snapshots.
+     `memory_codec = lz4` gives the fastest decompression.
    - `snapshot` *(back-compat alias → `compress` with
      `memory_codec = uncompressed`)*: same release/replay behaviour,
      but the in-memory snapshot is left uncompressed.

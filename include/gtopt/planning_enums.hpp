@@ -155,22 +155,22 @@ inline constexpr auto data_format_entries =
  * @brief Compression codec for file I/O and in-memory compression.
  *
  * Used for both output files (Parquet/CSV) and in-memory LP snapshots
- * (low_memory compress mode).  For in-memory use, `auto_select` picks
- * the fastest available codec at runtime (lz4 > snappy > zstd > gzip).
+ * (low_memory compress mode).  For in-memory use, `auto_select` resolves
+ * to zstd (level 1), the best ratio at negligible decompress cost.
  */
 enum class CompressionCodec : uint8_t
 {
   uncompressed = 0,  ///< No compression
   gzip = 1,  ///< gzip compression
   zstd = 2,  ///< Zstandard compression (default for `lp_compression`)
-  lz4 = 3,  ///< LZ4 compression (default for in-memory)
+  lz4 = 3,  ///< LZ4 compression (fastest in-memory option)
   bzip2 = 4,  ///< bzip2 compression (file I/O only)
   xz = 5,  ///< xz/LZMA compression (file I/O only)
   snappy =
       6,  ///< Snappy compression (default for Parquet `output_compression`)
   brotli = 7,  ///< Brotli compression (Arrow/Parquet only)
   lzo = 8,  ///< LZO compression (Arrow/Parquet only)
-  auto_select = 9,  ///< Pick fastest available (in-memory only)
+  auto_select = 9,  ///< In-memory default: resolves to zstd level 1
 };
 
 inline constexpr auto compression_codec_entries =

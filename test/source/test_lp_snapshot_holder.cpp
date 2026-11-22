@@ -47,7 +47,7 @@ TEST_CASE("LpSnapshotHolder S1 — default-constructed state")  // NOLINT
   const LpSnapshotHolder holder {};
   CHECK_FALSE(holder.has_data());
   CHECK_FALSE(holder.is_compressed());
-  CHECK(holder.codec() == CompressionCodec::lz4);
+  CHECK(holder.codec() == CompressionCodec::zstd);
   CHECK(holder.is_empty());
 }
 
@@ -56,12 +56,12 @@ TEST_CASE("LpSnapshotHolder S1 — default-constructed state")  // NOLINT
 TEST_CASE("LpSnapshotHolder set_codec round-trips")  // NOLINT
 {
   LpSnapshotHolder holder {};
-  holder.set_codec(CompressionCodec::zstd);
-  CHECK(holder.codec() == CompressionCodec::zstd);
-  CHECK_FALSE(holder.is_empty());  // codec mismatch from default
-
   holder.set_codec(CompressionCodec::lz4);
   CHECK(holder.codec() == CompressionCodec::lz4);
+  CHECK_FALSE(holder.is_empty());  // codec mismatch from default
+
+  holder.set_codec(CompressionCodec::zstd);
+  CHECK(holder.codec() == CompressionCodec::zstd);
   CHECK(holder.is_empty());  // back to default
 }
 

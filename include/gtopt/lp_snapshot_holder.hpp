@@ -15,7 +15,7 @@
  *                         (uncompressed or compressed buffer) used by
  *                         the `compress`/`snapshot` reconstruct path.
  *   * `m_memory_codec_` — `CompressionCodec` selected at
- *                         `set_low_memory()` time (default `lz4`).
+ *                         `set_low_memory()` time (default `zstd`).
  *
  * Plus the two compression helpers that gate purely on the snapshot's
  * own state (without consulting `m_low_memory_mode_`):
@@ -32,7 +32,7 @@
  * Invariants (asserted in debug, see `validate_consistency()`):
  *   * **S1.**  Default-constructed `LpSnapshotHolder{}` reports
  *              `has_data() == false`, `is_compressed() == false`,
- *              `codec() == CompressionCodec::lz4`.
+ *              `codec() == CompressionCodec::zstd`.
  *   * **S2.**  `clear()` resets the snapshot to an empty
  *              `LowMemorySnapshot` and leaves the codec untouched.
  *   * **S3.**  `decompress_if_compressed()` is idempotent — calling
@@ -106,7 +106,7 @@ public:
 
   /// **S2** — drop the snapshot to its default-constructed state.
   /// Leaves the codec untouched (callers that want a full reset
-  /// should also `set_codec(CompressionCodec::lz4)`).
+  /// should also `set_codec(CompressionCodec::zstd)`).
   void clear() noexcept { m_snapshot_ = LowMemorySnapshot {}; }
 
   /// Replace the snapshot's flat LP wholesale.  Used by `load_flat`
@@ -141,12 +141,12 @@ public:
   /// default-constructed state.
   [[nodiscard]] auto is_empty() const noexcept -> bool
   {
-    return !m_snapshot_.has_data() && m_codec_ == CompressionCodec::lz4;
+    return !m_snapshot_.has_data() && m_codec_ == CompressionCodec::zstd;
   }
 
 private:
   LowMemorySnapshot m_snapshot_ {};
-  CompressionCodec m_codec_ {CompressionCodec::lz4};
+  CompressionCodec m_codec_ {CompressionCodec::zstd};
   std::shared_ptr<FlatLpDedupRegistry> m_dedup_registry_ {};
   std::string m_dedup_key_ {};
 };

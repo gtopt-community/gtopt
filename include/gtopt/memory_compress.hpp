@@ -110,9 +110,11 @@ struct CompressedBuffer
 /// `compress(key, raw, codec)`: the first caller per `key` publishes its
 /// plain compressed buffer as the base; every caller (including the
 /// first) gets back a buffer holding only the compressed XOR against the
-/// base (empty when identical).  A size or codec mismatch falls back to
-/// a plain buffer.  The registry holds bases weakly, so a base is freed
-/// once the last cell referencing it drops its snapshot.  Thread-safe.
+/// base (empty when identical).  A size mismatch falls back to a plain
+/// buffer.  Every buffer carries its own `codec` tag, so a delta and its
+/// base may use different codecs and still restore.  The registry holds bases
+/// weakly, so a base is freed once the last cell referencing it drops its
+/// snapshot.  Thread-safe.
 class FlatLpDedupRegistry
 {
 public:

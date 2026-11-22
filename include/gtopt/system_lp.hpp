@@ -897,7 +897,7 @@ public:
   // ── Low-memory mode API (thin forwarding to LinearInterface) ──────────
 
   void set_low_memory(LowMemoryMode mode,
-                      CompressionCodec codec = CompressionCodec::lz4)
+                      CompressionCodec codec = CompressionCodec::zstd)
   {
     m_linear_interface_.set_low_memory(mode, codec);
     // Keep m_flat_opts_ in sync so write-out / accessor paths see the

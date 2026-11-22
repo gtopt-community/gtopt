@@ -286,7 +286,7 @@ The FCF boundary cuts are configured on the FutureCost element
 | `update_lp_skip` | int | `0` | Iterations to skip between LP coefficient updates (0 = every iteration) |
 | `state_variable_lookup_mode` | string | `"warm_start"` | Volume lookup for LP updates: `"warm_start"` or `"cross_phase"` |
 | `low_memory_mode` | string | `"compress"` (SDDP/cascade) / `"off"` (monolithic) | One of `off` or `compress` (`snapshot` and `rebuild` are back-compat aliases for `compress`; see SDDP docs §7.6) |
-| `memory_codec` | string | `"auto"` | Compression codec for `compress` mode (`auto`, `lz4`, `snappy`, `zstd`, `gzip`, `none`) |
+| `memory_codec` | string | `"auto"` | Compression codec for `compress` mode (`auto` = zstd level 1, `lz4`, `snappy`, `zstd`, `gzip`, `none`) |
 
 ### Work Pool Swap Gate
 

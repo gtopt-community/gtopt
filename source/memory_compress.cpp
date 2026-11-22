@@ -101,16 +101,13 @@ std::string_view codec_name(CompressionCodec codec) noexcept
 
 CompressionCodec select_codec(CompressionCodec preferred) noexcept
 {
-  // auto_select: pick the fastest available codec
+  // auto_select: zstd (level 1, always available).  Measured on 104 real
+  // CEN-2y flat-LP snapshots: zstd1 7.09x vs lz4 4.96x (30% smaller) at
+  // 3.5 vs 1.4 ms compress and 1.26 vs 0.34 ms decompress per 1.47 MB
+  // cell; snapshot decompression is ~0.1% of SDDP CPU, so the ratio
+  // wins.  `memory_codec = lz4` keeps the faster codec selectable.
   if (preferred == CompressionCodec::auto_select) {
-    // Priority: lz4 > snappy > zstd > gzip
-    if (is_codec_available(CompressionCodec::lz4)) {
-      return CompressionCodec::lz4;
-    }
-    if (is_codec_available(CompressionCodec::snappy)) {
-      return CompressionCodec::snappy;
-    }
-    return CompressionCodec::zstd;  // always available
+    return CompressionCodec::zstd;
   }
 
   // Explicit codec: use it if available, else fall back
@@ -500,9 +497,9 @@ CompressedBuffer FlatLpDedupRegistry::compress(const std::string& key,
       base = std::move(fresh);
     }
   }
-  if (base->original_size != raw.size() || base->codec != codec
-      || base->xor_base != nullptr)
-  {
+  // The delta may use a different codec than the base: each buffer
+  // carries its own `codec` tag and is decompressed with it.
+  if (base->original_size != raw.size() || base->xor_base != nullptr) {
     return compress_buffer(raw, codec);
   }
   auto diff = base->decompress_data();

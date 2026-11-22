@@ -40,6 +40,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/planning_options.hpp>
@@ -226,6 +227,8 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     // off` to keep the backend resident.
     CHECK(so.low_memory_mode == LowMemoryMode::compress);
     CHECK(so.memory_codec == CompressionCodec::auto_select);
+    // auto resolves to zstd level 1 for in-memory snapshots.
+    CHECK(select_codec(so.memory_codec) == CompressionCodec::zstd);
     CHECK(so.scale_alpha == doctest::Approx(0.0));
 
     // ── Cut sharing and files ──
@@ -393,6 +396,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.max_stored_cuts == 83);
     CHECK(so.low_memory_mode == LowMemoryMode::compress);
     CHECK(so.memory_codec == CompressionCodec::lz4);
+    CHECK(select_codec(so.memory_codec) == CompressionCodec::lz4);
     CHECK(so.scale_alpha == doctest::Approx(1234.0));
 
     // ── Cut sharing and files ──

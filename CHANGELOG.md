@@ -36,6 +36,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   starts the next development version; the tag check now also requires
   an empty suffix.  See `docs/releasing.md`.
 
+### Changed
+
+- SDDP `low_memory = compress` uses less memory:
+  - The in-memory flat-LP snapshots of the scenes of a phase are
+    deduplicated. Each cell stores a compressed XOR delta against one
+    shared base per phase, and the restore is bit-exact. On the CEN
+    2-year case the delta is about 3% of a full snapshot.
+  - The default in-memory codec (`sddp_options.memory_codec: auto`) is
+    now zstd level 1 instead of lz4. Snapshots are about 30% smaller,
+    and decompression stays about 0.1% of SDDP CPU time. Set
+    `memory_codec: lz4` to get the previous codec back.
+  - When the solution already lies inside its bounds, the cached
+    column bounds are dropped as the solver is released.
+
 ### Fixed
 
 - `sddp2gtopt`: interconnection imports are unavailable in hours with no

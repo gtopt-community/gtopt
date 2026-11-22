@@ -581,5 +581,49 @@ TEST_CASE("FlatLpDedupRegistry — base freed with its last cell")  // NOLINT
   CHECK(b2.decompress_data() == x);
 }
 
+TEST_CASE(
+    "compress_flat_lp — zstd1 round trip bit-exact, plain and dedup")  // NOLINT
+{
+  for (const bool dedup : {false, true}) {
+    CAPTURE(dedup);
+    auto registry = std::make_shared<FlatLpDedupRegistry>();
+    auto a = make_realistic_flp();
+    auto b = make_realistic_flp();
+    b.colub[2] = 7.5;
+    b.rowub[4] = 3.25;
+    const auto a0 = a;
+    const auto b0 = b;
+    auto* reg = dedup ? registry.get() : nullptr;
+    const auto ca = compress_flat_lp(a, CompressionCodec::zstd, reg, "k0_p2");
+    const auto cb = compress_flat_lp(b, CompressionCodec::zstd, reg, "k0_p2");
+    CHECK(ca.codec == CompressionCodec::zstd);
+    CHECK(cb.codec == CompressionCodec::zstd);
+    CHECK((ca.xor_base != nullptr) == dedup);
+    decompress_flat_lp(a, ca);
+    decompress_flat_lp(b, cb);
+    CHECK(flp_bit_equal(a, a0));
+    CHECK(flp_bit_equal(b, b0));
+  }
+}
+
+TEST_CASE(
+    "compress_flat_lp — default codec is zstd, lz4 override honoured")  // NOLINT
+{
+  auto a = make_realistic_flp();
+  const auto a0 = a;
+  const auto ca = compress_flat_lp(a, CompressionCodec::auto_select);
+  CHECK(ca.codec == CompressionCodec::zstd);
+  decompress_flat_lp(a, ca);
+  CHECK(flp_bit_equal(a, a0));
+
+  if (is_codec_available(CompressionCodec::lz4)) {
+    auto b = make_realistic_flp();
+    const auto cb = compress_flat_lp(b, CompressionCodec::lz4);
+    CHECK(cb.codec == CompressionCodec::lz4);
+    decompress_flat_lp(b, cb);
+    CHECK(flp_bit_equal(b, a0));
+  }
+}
+
 // NOLINTEND(bugprone-misplaced-widening-cast,
 // modernize-use-ranges,readability-math-missing-parentheses)

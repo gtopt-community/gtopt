@@ -90,20 +90,13 @@ TEST_CASE("select_codec falls back to an available codec")  // NOLINT
   CHECK(is_codec_available(c));
 }
 
-TEST_CASE("select_codec — auto_select picks fastest available")  // NOLINT
+TEST_CASE("select_codec — auto_select resolves to zstd")  // NOLINT
 {
-  // Priority order in source: lz4 > snappy > zstd.  On a build with
-  // lz4 we expect lz4; without lz4 but with snappy we expect snappy;
-  // otherwise zstd (always available).  Test the actual policy
-  // expressed by the source by chaining the priority check.
-  const auto c = select_codec(CompressionCodec::auto_select);
-  CHECK(is_codec_available(c));
+  // In-memory default: zstd level 1 (best ratio on real flat-LP
+  // snapshots at negligible decompress cost).  lz4 stays selectable.
+  CHECK(select_codec(CompressionCodec::auto_select) == CompressionCodec::zstd);
   if (is_codec_available(CompressionCodec::lz4)) {
-    CHECK(c == CompressionCodec::lz4);
-  } else if (is_codec_available(CompressionCodec::snappy)) {
-    CHECK(c == CompressionCodec::snappy);
-  } else {
-    CHECK(c == CompressionCodec::zstd);
+    CHECK(select_codec(CompressionCodec::lz4) == CompressionCodec::lz4);
   }
 }
 
@@ -285,4 +278,36 @@ TEST_CASE(  // NOLINT
 
   reset_compression_stats();
   CHECK(get_compression_stats().empty());
+}
+
+TEST_CASE("CompressedBuffer — per-buffer codec tag drives restore")  // NOLINT
+{
+  // Buffers compressed with different codecs restore through the same
+  // `decompress_data()` call: the codec is read from each buffer, not
+  // from the current default.  A dedup delta may also use a codec
+  // different from its base.
+  std::vector<char> raw(8192);
+  for (std::size_t i = 0; i < raw.size(); ++i) {
+    raw[i] = static_cast<char>((i * 31U) % 97U);
+  }
+  const auto z = compress_buffer(raw, CompressionCodec::zstd);
+  CHECK(z.codec == CompressionCodec::zstd);
+  CHECK(z.decompress_data() == raw);
+
+  if (is_codec_available(CompressionCodec::lz4)) {
+    const auto l = compress_buffer(raw, CompressionCodec::lz4);
+    CHECK(l.codec == CompressionCodec::lz4);
+    CHECK(l.decompress_data() == raw);
+
+    FlatLpDedupRegistry registry;
+    auto other = raw;
+    other[17] = 'q';
+    const auto base = registry.compress("p", raw, CompressionCodec::lz4);
+    const auto delta = registry.compress("p", other, CompressionCodec::zstd);
+    REQUIRE(delta.xor_base != nullptr);
+    CHECK(delta.xor_base->codec == CompressionCodec::lz4);
+    CHECK(delta.codec == CompressionCodec::zstd);
+    CHECK(base.decompress_data() == raw);
+    CHECK(delta.decompress_data() == other);
+  }
 }

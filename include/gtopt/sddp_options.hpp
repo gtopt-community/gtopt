@@ -630,7 +630,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 
   /// In-memory compression codec for low_memory level 2.
   /// Selects the algorithm used to compress the saved FlatLinearProblem.
-  /// Default: auto (picks best available: lz4 > snappy > zstd > gzip).
+  /// Default: auto (resolves to zstd level 1; set `lz4` for the fastest
+  /// decompress at a ~30% larger snapshot).
   /// Accepted values: "auto", "none", "lz4", "snappy", "zstd", "gzip".
   std::optional<CompressionCodec> memory_codec {};
 
