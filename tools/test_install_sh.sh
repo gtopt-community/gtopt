@@ -26,6 +26,7 @@ mk() { mkdir -p "$(dirname "$1")" && : >"$1"; }
 # CPLEX: two in /opt, a newer one reachable only through `cplex` on PATH.
 mk "$root/opt/ibm/ILOG/CPLEX_Studio129/cplex/include/ilcplex/cplex.h"
 mk "$root/opt/ibm/ILOG/CPLEX_Studio2211/cplex/include/ilcplex/cplex.h"
+mk "$root/opt/ibm/ILOG/CPLEX_Studio2211/cplex/bin/x86-64_linux/cplex"
 cplex_path="$home/apps/CPLEX_Studio2212/cplex"
 mk "$cplex_path/include/ilcplex/cplex.h"
 mkdir -p "$cplex_path/bin/x86-64_linux" "$work/cplexbin"
@@ -232,6 +233,11 @@ out=$(env HOME="$home" PATH="$bin:/usr/bin:/bin" GTOPT_INSTALL_ROOT="$root" \
 check "dry-run --solvers prunes stale plugins" "$out" 'rm -f .*/libgtopt_solver_cplex.so'
 check "dry-run keeps selected plugins" "$out" 'rm -f .*libgtopt_solver_(osi|highs).so' !
 check "dry-run changed nothing" "$(ls "$work")" 'pfx' !
+out=$(env HOME="$home" PATH="$bin:/usr/bin:/bin" GTOPT_INSTALL_ROOT="$root" \
+  bash "$script" --dry-run --no-deps --prefix "$work/pfx2" --solvers highs,cplex 2>&1)
+check "dry-run links the cplex CLI into PREFIX/bin" "$out" \
+  "ln -sfn $root/opt/ibm/ILOG/CPLEX_Studio2211/cplex/bin/x86-64_linux/cplex $work/pfx2/bin/cplex"
+check "dry-run: no cuopt_cli link without cuopt" "$out" 'bin/cuopt_cli' !
 out=$(bash "$script" --prefix 2>&1)
 check "missing option value" "$out" 'needs a value'
 

@@ -90,6 +90,7 @@ main() {
   say "Installing into $prefix"
   run $PSUDO "$cmake" --install "$build"
   prune_plugins "$prefix" "$PSUDO"
+  link_solver_tools "$prefix" "$PSUDO"
 
   ((python)) && install_python "$src"
 
@@ -103,6 +104,43 @@ main() {
     esac
   fi
   say "Done. Try:  gtopt --help   (docs: https://github.com/gtopt-community/gtopt/tree/master/docs)"
+}
+
+# Make the solver command-line tools visible next to gtopt, so the tools
+# that call them (gtopt_check_lp, LP benchmarks, ...) find them on PATH:
+# symlink PREFIX/bin/<tool> -> the solver's own binary.  Skipped when the
+# same binary is already on PATH; an existing non-link file is never
+# overwritten.  apt-installed tools (highs, scip, cbc, clp) are in
+# /usr/bin already.
+link_solver_tools() {  # link_solver_tools PREFIX SUDO
+  local prefix=$1 psudo=$2 entry name src f cur
+  local -a entries=() linked=()
+  if want cplex && [[ -n $CPLEX_DIR ]]; then
+    for f in "$CPLEX_DIR"/bin/*/cplex; do entries+=("cplex=$f"); break; done
+  fi
+  want gurobi && [[ -n $GUROBI_DIR ]] && entries+=("gurobi_cl=$GUROBI_DIR/bin/gurobi_cl")
+  want mindopt && [[ -n $MINDOPT_DIR ]] && entries+=("mindopt=$MINDOPT_DIR/bin/mindopt")
+  want cuopt && entries+=("cuopt_cli=$(cuopt_venv "$prefix")/bin/cuopt_cli")
+  if want scip && [[ -n ${SCIP_ROOT_DIR:-} ]]; then
+    entries+=("scip=$SCIP_ROOT_DIR/bin/scip")
+  fi
+  for entry in "${entries[@]}"; do
+    name=${entry%%=*} src=${entry#*=}
+    if ((DRY == 0)) && [[ ! -x $src ]]; then continue; fi
+    cur=$(command -v "$name" 2>/dev/null || true)
+    if [[ -n $cur ]] && [[ $(readlink -f "$cur") == "$(readlink -f "$src")" ]]; then
+      continue
+    fi
+    if [[ -e $prefix/bin/$name && ! -L $prefix/bin/$name ]]; then
+      warn "$prefix/bin/$name exists and is not a link; not linking $src"
+      continue
+    fi
+    run $psudo mkdir -p "$prefix/bin"
+    run $psudo ln -sfn "$src" "$prefix/bin/$name"
+    linked+=("$name")
+  done
+  ((${#linked[@]})) && say "Solver tools linked into $prefix/bin: ${linked[*]}"
+  return 0
 }
 
 prefix_sudo() {  # prefix_sudo DIR SUDO -> "" if DIR (or its nearest existing parent) is writable
@@ -204,7 +242,9 @@ install_deps() {
 
   say "Installing system packages (apt)"
   local -a extra=()
-  want cbc && extra+=(coinor-libcbc-dev)
+  # coinor-cbc / coinor-clp: the `cbc` / `clp` command-line tools used by
+  # gtopt_check_lp and the LP benchmarks (the -dev package is libraries only).
+  want cbc && extra+=(coinor-libcbc-dev coinor-cbc coinor-clp)
   run $sudo apt-get update -q
   run $sudo apt-get install -y -q --no-install-recommends \
     git ca-certificates wget gnupg pkg-config ninja-build lld \
@@ -544,7 +584,7 @@ print_solver_plan() {
     want "$s" || continue
     case $s in
       highs) line="HiGHS        open source; installed if missing" ;;
-      cbc) line="CBC/CLP      open source (apt coinor-libcbc-dev)" ;;
+      cbc) line="CBC/CLP      open source (apt coinor-libcbc-dev, coinor-cbc, coinor-clp)" ;;
       scip) line="SCIP         open source; installed if missing (scipopt .deb)" ;;
       cuopt)
         if [[ -n $CUOPT_DIR ]]; then line="cuOpt        found: $CUOPT_DIR"
