@@ -333,7 +333,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 # downstream extractors read via ``hasattr`` (see
                 # parsers.extract_reservoirs); the loader dataclass does not
                 # declare it, so the assignment is intentionally untyped.
-                bundle.block_layout = block_layout  # type: ignore[attr-defined]
+                bundle.block_layout = block_layout  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
                 logger.info(
                     "horizon-mode=plexos: %d blocks across %d days "
                     "(loaded from PLEXOS solution)",

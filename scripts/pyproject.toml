@@ -395,6 +395,10 @@ allowed-unresolved-imports = [
     "matplotlib",
     "matplotlib.**",
     "yaml",
+    # Repo-sibling helpers imported behind sys.path tweaks / try-except.
+    "get_gtopt_binary",
+    "guiservice",
+    "guiservice.**",
 ]
 # pyarrow.compute builds its functions dynamically (mypy needs the
 # attr-defined override above for the same reason).  pandas ships no

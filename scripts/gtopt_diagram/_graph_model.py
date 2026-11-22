@@ -143,6 +143,10 @@ class GraphModel:
     title: str = "gtopt Network"
     nodes: list[Node] = field(default_factory=list)
     edges: list[Edge] = field(default_factory=list)
+    # Cluster label metadata (plants, substations, basins, reserve zones,
+    # fuel groups, communities) keyed by ``Node.subcluster`` tag; filled
+    # by TopologyBuilder and read back by the renderers.
+    plant_meta: dict[str, str] = field(default_factory=dict)
 
     def add_node(self, n: Node) -> None:
         """Append a node to the graph."""

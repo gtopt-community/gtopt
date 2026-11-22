@@ -133,9 +133,12 @@ class _ScheduleTable:
             df = df.pivot_table(
                 index=index_cols, columns="uid", values="value", aggfunc="first"
             ).reset_index()
-            df.columns = [
-                col if isinstance(col, str) else f"uid:{int(col)}" for col in df.columns
-            ]
+            df.columns = pd.Index(
+                [
+                    col if isinstance(col, str) else f"uid:{int(col)}"
+                    for col in df.columns
+                ]
+            )
             df.columns.name = None
         uids: list[int] = []
         for col in df.columns:

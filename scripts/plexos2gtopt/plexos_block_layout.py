@@ -922,7 +922,7 @@ def extract_fuel_offtake_caps(
     # without changing the legacy ``(cap, scope_hours)`` return-type
     # contract.  Read by callers as
     # ``extract_fuel_offtake_caps.rhs_per_period.get(fuel)``.
-    extract_fuel_offtake_caps.rhs_per_period = chosen_per_period  # type: ignore[attr-defined]
+    extract_fuel_offtake_caps.rhs_per_period = chosen_per_period  # type: ignore[attr-defined]  # ty: ignore[missing-attribute]
 
     return result
 

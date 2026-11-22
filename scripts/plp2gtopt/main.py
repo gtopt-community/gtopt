@@ -5,6 +5,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_section
 from gtopt_shared.cli_signals import (  # pylint: disable=unused-import
@@ -422,7 +423,7 @@ def build_options(args: argparse.Namespace) -> dict:
         output_file = output_dir / Path(output_dir.name).with_suffix(".json")
     name = args.name if args.name is not None else Path(output_file).stem
     input_format = args.input_format if args.input_format else args.output_format
-    opts = {
+    opts: dict[str, Any] = {
         "input_dir": input_dir,
         "output_dir": output_dir,
         "output_file": output_file,

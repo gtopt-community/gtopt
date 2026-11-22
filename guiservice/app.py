@@ -958,7 +958,13 @@ def diagram_topology():
         edges  – list of vis.js edge objects
         meta   – dict with aggregate, voltage_threshold, n_total, visible_buses
     """
-    if not _DIAGRAM_AVAILABLE:
+    if (
+        not _DIAGRAM_AVAILABLE
+        or _FilterOptions is None
+        or _TopologyBuilder is None
+        or _model_to_visjs is None
+        or _model_to_reactflow is None
+    ):
         return jsonify({"error": "gtopt_diagram not available"}), 503
 
     body = request.get_json(silent=True) or {}

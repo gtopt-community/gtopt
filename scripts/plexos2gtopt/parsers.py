@@ -10791,7 +10791,7 @@ def _build_fuel_offtake_caps_ucs(
     # Per-block durations: when a block_layout is present, the
     # per-block hours sum to ``scope_hours``; otherwise assume
     # uniform 1h blocks across the full horizon.
-    block_layout = bundle.block_layout if hasattr(bundle, "block_layout") else ()
+    block_layout = getattr(bundle, "block_layout", ())
     if block_layout:
         block_durations = tuple(float(len(intervals)) for intervals in block_layout)
         horizon_hours = float(sum(block_durations))

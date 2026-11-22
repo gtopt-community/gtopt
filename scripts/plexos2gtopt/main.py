@@ -12,6 +12,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 from gtopt_config import add_color_argument
 from gtopt_shared.cli_flags import (
@@ -1163,7 +1164,7 @@ def main(argv: list[str] | None = None) -> None:
             "input bundle is required: pass it positionally or via --input-bundle"
         )
 
-    options = {
+    options: dict[str, Any] = {
         "input_bundle": bundle,
         "output_dir": args.output_dir,
         "use_single_bus": args.use_single_bus,

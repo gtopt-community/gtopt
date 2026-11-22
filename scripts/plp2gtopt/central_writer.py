@@ -232,7 +232,7 @@ class CentralWriter(BaseWriter):
                     generator["description"] = f"suspected {suspected}"
             json_centrals.append(generator)
 
-        return typing.cast(List[Dict[str, Any]], json_centrals)
+        return json_centrals
 
     def _write_parquet_files(self) -> Dict[str, List[str]]:
         """Write demand data to Parquet file format."""

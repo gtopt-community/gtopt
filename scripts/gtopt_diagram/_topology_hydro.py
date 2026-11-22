@@ -1580,10 +1580,6 @@ class TopologyHydroMixin(TopologyIdsMixin):
             # can read it back for the subgraph label.  Plants live in
             # an out-of-band dict keyed by subcluster tag so the Node
             # dataclass stays minimal.
-            if not hasattr(self.model, "plant_meta"):
-                # mypy false-positive: GraphModel is open for attribute
-                # attachment (lacks __slots__).
-                self.model.plant_meta = {}
             label_bits: list[str] = [str(pname)]
             if p.get("pmax") is not None:
                 label_bits.append(f"pmax={p['pmax']:g}")
@@ -1609,8 +1605,6 @@ class TopologyHydroMixin(TopologyIdsMixin):
                 tagged += 1
             if tagged < 2:
                 continue
-            if not hasattr(self.model, "plant_meta"):
-                self.model.plant_meta = {}
             self.model.plant_meta[cluster_key] = label
 
     def _substations(self):
@@ -1713,8 +1707,6 @@ class TopologyHydroMixin(TopologyIdsMixin):
                 tagged += 1
             if tagged < 2:
                 continue
-            if not hasattr(self.model, "plant_meta"):
-                self.model.plant_meta = {}
             self.model.plant_meta[cluster_key] = f"{prefix} substation ({tagged} buses)"
 
     # ─── Basin detection (A: hydro drainage cascade) ────────────────────────
@@ -1978,8 +1970,6 @@ class TopologyHydroMixin(TopologyIdsMixin):
             if lab:
                 tag(self._frid(fr), lab)
 
-        if not hasattr(self.model, "plant_meta"):
-            self.model.plant_meta = {}
         self.model.plant_meta.update(basin_meta)
 
     # ─── Reserve-zone grouping (B) ──────────────────────────────────────────
@@ -2042,8 +2032,6 @@ class TopologyHydroMixin(TopologyIdsMixin):
             meta[cluster_key] = f"{zname} reserve zone ({tagged} units)"
 
         if meta:
-            if not hasattr(self.model, "plant_meta"):
-                self.model.plant_meta = {}
             self.model.plant_meta.update(meta)
 
     # ─── Fuel-sharing grouping (C) ─────────────────────────────────────────
@@ -2186,8 +2174,6 @@ class TopologyHydroMixin(TopologyIdsMixin):
             meta[cluster_key] = f"{family} fuel ({tagged} units)"
 
         if meta:
-            if not hasattr(self.model, "plant_meta"):
-                self.model.plant_meta = {}
             self.model.plant_meta.update(meta)
 
     @staticmethod
@@ -2362,8 +2348,6 @@ class TopologyHydroMixin(TopologyIdsMixin):
             community_meta[label] = f"Region {label.split(':')[1]} ({count} nodes)"
 
         if community_meta:
-            if not hasattr(self.model, "plant_meta"):
-                self.model.plant_meta = {}
             self.model.plant_meta.update(community_meta)
 
     # ─── N4: basin layout via topological sort ────────────────────────────────

@@ -802,7 +802,7 @@ def add_write_out_argument(
 def add_common_arguments(
     parser: argparse.ArgumentParser,
     *,
-    defaults: dict[str, object] | None = None,
+    defaults: dict[str, Any] | None = None,
     dialects: dict[str, str] | None = None,
     skip: set[str] | None = None,
 ) -> None:
@@ -832,13 +832,13 @@ def add_common_arguments(
     if "scale_objective" not in skip:
         add_scale_objective_argument(
             parser,
-            default=float(defaults.get("scale_objective", 1000.0)),  # type: ignore[arg-type]
+            default=float(defaults.get("scale_objective", 1000.0)),
         )
     if "demand_fail_cost" not in skip:
         dfc = defaults.get("demand_fail_cost", 1000.0)
         add_demand_fail_cost_argument(
             parser,
-            default=None if dfc is None else float(dfc),  # type: ignore[arg-type]
+            default=None if dfc is None else float(dfc),
         )
     if "use_kirchhoff" not in skip:
         add_use_kirchhoff_argument(
@@ -847,33 +847,33 @@ def add_common_arguments(
     if "use_single_bus" not in skip:
         add_use_single_bus_argument(
             parser,
-            default=defaults.get("use_single_bus"),  # type: ignore[arg-type]
+            default=defaults.get("use_single_bus"),
             dialect=dialects.get("use_single_bus", "boolean_optional"),
         )
     if "line_losses_mode" not in skip:
         add_line_losses_mode_argument(
             parser,
-            default=defaults.get("line_losses_mode"),  # type: ignore[arg-type]
+            default=defaults.get("line_losses_mode"),
         )
     if "loss_cost_eps" not in skip:
         add_loss_cost_eps_argument(
             parser,
-            default=defaults.get("loss_cost_eps"),  # type: ignore[arg-type]
+            default=defaults.get("loss_cost_eps"),
             dialect=dialects.get("loss_cost_eps", "plp"),
         )
     if "lift_line_caps" not in skip:
         add_lift_line_caps_argument(
             parser,
-            default=defaults.get("lift_line_caps"),  # type: ignore[arg-type]
+            default=defaults.get("lift_line_caps"),
             dialect=dialects.get("lift_line_caps", "plp"),
         )
     if "aperture_chunk_size" not in skip:
         add_aperture_chunk_size_argument(
             parser,
-            default=defaults.get("aperture_chunk_size"),  # type: ignore[arg-type]
+            default=defaults.get("aperture_chunk_size"),
         )
     if "write_out" not in skip:
         add_write_out_argument(
             parser,
-            default=defaults.get("write_out"),  # type: ignore[arg-type]
+            default=defaults.get("write_out"),
         )

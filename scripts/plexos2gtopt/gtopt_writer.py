@@ -2986,8 +2986,9 @@ def build_user_constraint_array(
             "expression": c.expression,
         }
         penalty = c.penalty
-        if penalty <= 0.0 < (default_penalty or 0.0):
-            penalty = default_penalty  # type: ignore[assignment]
+        fallback_penalty = default_penalty or 0.0
+        if penalty <= 0.0 < fallback_penalty:
+            penalty = fallback_penalty
         if penalty > 0.0:
             entry["penalty"] = penalty
         if c.description:

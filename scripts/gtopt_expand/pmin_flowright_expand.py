@@ -507,7 +507,7 @@ def expand_pmin_flowright(
 
         rendi_raw = turbine.get("production_factor")
         try:
-            rendi = float(rendi_raw)  # type: ignore[arg-type]
+            rendi = float(rendi_raw)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         except (TypeError, ValueError):
             _logger.warning(
                 "pmin_as_flowright: turbine '%s' has non-numeric"

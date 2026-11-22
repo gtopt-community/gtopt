@@ -432,13 +432,14 @@ def decompress_case(directory: Path) -> int:
         else:
             single_files.append(f)
 
-    # Sort split parts by part number
-    for base, parts in split_bases.items():
-        parts.sort(
-            key=lambda p: int(
-                re.search(r"\.(\d+)\.[a-z0-9]+$", p.name).group(1)  # type: ignore[union-attr]
-            )
-        )
+    # Sort split parts by part number (every name in split_bases matched
+    # the classification regex above, so the search always succeeds).
+    def _part_no(p: Path) -> int:
+        pm = re.search(r"\.(\d+)\.[a-z0-9]+$", p.name)
+        return int(pm.group(1)) if pm else 0
+
+    for parts in split_bases.values():
+        parts.sort(key=_part_no)
 
     n_single = len(single_files)
     n_split = len(split_bases)

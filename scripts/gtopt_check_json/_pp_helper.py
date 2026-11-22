@@ -92,7 +92,7 @@ def _try_direct_diagnostics(planning: dict[str, Any]) -> str:
         net = pp.create_empty_network(name=sys.get("name", "gtopt_check"))
 
         # Build buses
-        bus_map: dict[Any, int] = {}
+        bus_map: dict[Any, Any] = {}  # values: pandapower bus index
         for bus in sys.get("bus_array", []):
             uid = bus.get("uid")
             name = bus.get("name", str(uid))

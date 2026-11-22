@@ -1124,7 +1124,7 @@ def build_plexos_solution(cache_dir: Path) -> dict[str, dict]:
             }
         except (ValueError, KeyError):
             continue
-    constraint_oids = {
+    constraint_oids: dict[int, str] = {
         oid: rec["name"]
         for oid, rec in objects.items()
         if rec["class_id"] == CONSTRAINT_CLASS_ID

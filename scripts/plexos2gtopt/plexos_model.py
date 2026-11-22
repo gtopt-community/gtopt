@@ -465,8 +465,13 @@ class _Db:
         for e in root.findall(f"{NS}t_membership"):
             mid, cid = _fint(e, "membership_id"), _fint(e, "collection_id")
             po, co = _fint(e, "parent_object_id"), _fint(e, "child_object_id")
-            if None not in (mid, cid, po, co):
-                self.mem[mid] = (cid, po, co)  # type: ignore[index,assignment]
+            if (
+                mid is not None
+                and cid is not None
+                and po is not None
+                and co is not None
+            ):
+                self.mem[mid] = (cid, po, co)
         self.prop_name: dict[int, str] = {}
         self.prop_coll: dict[int, int] = {}
         for e in root.findall(f"{NS}t_property"):

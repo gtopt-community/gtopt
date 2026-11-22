@@ -230,7 +230,7 @@ def _split_worst_bottleneck(sub: Any, comms: list[set[int]]) -> list[set[int]] |
             # Internal connectivity already broken (e.g. only tie was a
             # zero-weight floor edge outside the community): split off the
             # smallest internal component immediately.
-            parts = sorted(nx.connected_components(inner), key=len)
+            parts: list[set[Any]] = sorted(nx.connected_components(inner), key=len)
             part_a = set(int(u) for u in parts[0])
             part_b = set(u for u in comm) - part_a
             return _apply_split(comms, i, part_a, part_b)

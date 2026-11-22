@@ -57,7 +57,7 @@ CYAN = "\033[36m"
 DIM = "\033[2m"
 RESET = "\033[0m"
 
-USE_COLOR = True
+USE_COLOR: bool = True
 
 
 def _c(code: str, text: str) -> str:

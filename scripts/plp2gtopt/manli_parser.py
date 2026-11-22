@@ -173,6 +173,6 @@ class ManliParser(BaseParser):
             else:
                 self._append(entry)
 
-    def get_manli_by_name(self, name: str) -> Dict | None:
+    def get_manli_by_name(self, name: str) -> Optional[Dict]:
         """Get maintenance data for a specific line name."""
         return self.get_item_by_name(name)

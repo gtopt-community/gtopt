@@ -535,7 +535,9 @@ def _collect_islands(
     has_gen: dict[str, bool],
     has_dem: dict[str, bool],
 ) -> list[IslandInfo]:
-    components = [sorted(c, key=str) for c in nx.connected_components(network.graph)]
+    components: list[list[str]] = [
+        sorted(c, key=str) for c in nx.connected_components(network.graph)
+    ]
     components.sort(key=len, reverse=True)
     out: list[IslandInfo] = []
     for comp in components:

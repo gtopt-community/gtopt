@@ -146,7 +146,7 @@ class _TimeoutTransport(xmlrpc.client.SafeTransport):
         super().__init__()
         self._timeout = timeout
 
-    def make_connection(  # type: ignore[override]
+    def make_connection(  # type: ignore[override]  # ty: ignore[incompatible-method-override]
         self, host: str
     ) -> http.client.HTTPSConnection:
         conn = super().make_connection(host)

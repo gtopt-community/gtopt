@@ -21,7 +21,7 @@ CYAN = _CYAN
 RESET = _RESET
 
 # Module-level flag; set once by the CLI before any output is produced.
-USE_COLOR = True
+USE_COLOR: bool = True
 
 
 def c(code: str, text: str) -> str:

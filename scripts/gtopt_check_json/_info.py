@@ -325,7 +325,7 @@ def _first_scalar(val: Any) -> float | None:
     vec = _block_vector(val)
     if vec is None:
         return None
-    if isinstance(vec, float):
+    if not isinstance(vec, list):
         return vec
     if vec and isinstance(vec[0], (int, float)):
         return float(vec[0])
@@ -343,7 +343,7 @@ def _peak_scalar(val: Any) -> float | None:
     vec = _block_vector(val)
     if vec is None:
         return None
-    if isinstance(vec, float):
+    if not isinstance(vec, list):
         return vec
     nums = [float(v) for v in vec if isinstance(v, (int, float))]
     return max(nums) if nums else None
@@ -358,7 +358,7 @@ def _scalar_at_block(val: Any, block_idx: int) -> float | None:
     vec = _block_vector(val)
     if vec is None:
         return None
-    if isinstance(vec, float):
+    if not isinstance(vec, list):
         return vec
     if block_idx < len(vec) and isinstance(vec[block_idx], (int, float)):
         return float(vec[block_idx])

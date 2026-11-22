@@ -187,8 +187,8 @@ class TopologyIdsMixin:
         return TopologyIdsMixin._make_id("drain", t)
 
     def _resolve_field(
-        self, class_name: str, elem: dict, field: str, fallback: str = "—"
-    ) -> str:
+        self, class_name: str, elem: dict, field: str, fallback: str | None = "—"
+    ) -> str | None:
         """Resolve a field value, reading from Parquet if it's a file reference.
 
         Returns a formatted string suitable for display in labels.

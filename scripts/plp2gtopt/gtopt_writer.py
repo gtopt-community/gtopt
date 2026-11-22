@@ -144,7 +144,7 @@ def _collapse_orphan_drain_outflows(system: Dict[str, Any]) -> int:
     return len(collapsed)
 
 
-def _find_by_uid_or_name(arr: list[Dict], ref: Any) -> Dict | None:
+def _find_by_uid_or_name(arr: list[Dict], ref: Any) -> Optional[Dict]:
     """Look up an element in ``arr`` by Uid (int) or Name (str)."""
     if isinstance(ref, int):
         for elem in arr:

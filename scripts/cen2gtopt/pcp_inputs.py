@@ -590,7 +590,7 @@ class PcpInputs:
         # Authoritative XML mapping (fast path).  Falls back to a
         # substring-match heuristic for units missing from the XML.
         ufm = self.unit_fuel_map
-        fuel_keys = sorted(
+        fuel_keys: list[str] = sorted(
             fuels["fuel_name"].astype(str).tolist(), key=len, reverse=True
         )
 

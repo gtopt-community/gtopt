@@ -212,6 +212,6 @@ def _opt_float(v: object) -> Optional[float]:
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return None
     try:
-        return float(v)  # type: ignore[arg-type]
+        return float(v)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
     except (TypeError, ValueError):
         return None

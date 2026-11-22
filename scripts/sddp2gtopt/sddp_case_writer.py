@@ -207,9 +207,10 @@ def build_sddp_planning(
         "scenario_array": scenario_array,
     }
     if ns > 1:
-        simulation["phase_array"] = [
+        phase_array: list[dict[str, Any]] = [
             {"uid": s + 1, "first_stage": s, "count_stage": 1} for s in range(ns)
         ]
+        simulation["phase_array"] = phase_array
         simulation["scene_array"] = [
             {"uid": i + 1, "first_scenario": i, "count_scenario": 1}
             for i in range(nscn)
@@ -219,7 +220,7 @@ def build_sddp_planning(
             for i, scn in enumerate(case.scenarios)
         ]
         if nscn > 2:
-            for k, phase in enumerate(simulation["phase_array"]):
+            for k, phase in enumerate(phase_array):
                 phase["apertures"] = _stratified_apertures(case, k)
 
     # ── network ────────────────────────────────────────────────────────────

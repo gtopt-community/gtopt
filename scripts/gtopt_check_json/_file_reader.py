@@ -85,6 +85,8 @@ def _pivot_long_to_wide(df: Any) -> Any:
     """
     if "uid" not in df.columns or "value" not in df.columns:
         return df
+    import pandas as pd  # pylint: disable=import-outside-toplevel
+
     index_cols = [c for c in df.columns if c not in ("uid", "value")]
     if index_cols:
         df = df.pivot_table(
@@ -97,9 +99,9 @@ def _pivot_long_to_wide(df: Any) -> Any:
             .set_index("uid")[["value"]]
             .T.reset_index(drop=True)
         )
-    df.columns = [
-        col if isinstance(col, str) else f"uid:{int(col)}" for col in df.columns
-    ]
+    df.columns = pd.Index(
+        [col if isinstance(col, str) else f"uid:{int(col)}" for col in df.columns]
+    )
     df.columns.name = None
     return df
 

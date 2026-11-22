@@ -113,6 +113,8 @@ def to_wide_layout(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     wide = df.pivot_table(
         index=id_vars, columns="uid", values="value", aggfunc="first"
     ).reset_index()
-    wide.columns = [c if c in id_vars else f"uid:{int(c)}" for c in wide.columns]
+    wide.columns = pd.Index(
+        [c if c in id_vars else f"uid:{int(c)}" for c in wide.columns]
+    )
     wide.columns.name = None
     return wide

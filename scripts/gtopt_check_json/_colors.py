@@ -13,7 +13,7 @@ CYAN = "\033[36m"
 RESET = "\033[0m"
 
 # Module-level flag; set once by the CLI before any output is produced.
-USE_COLOR = True
+USE_COLOR: bool = True
 
 
 def c(code: str, text: str) -> str:
