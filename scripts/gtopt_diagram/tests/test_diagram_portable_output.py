@@ -8,7 +8,6 @@ URIs and DOT source no longer references the cache.
 
 import re
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -42,38 +41,9 @@ try:
 except ImportError:
     _HAS_GRAPHVIZ_PY = False
 
-
-def _has_neato_engine() -> bool:
-    """True when Graphviz can actually run the ``neato`` layout engine.
-
-    ``render_graphviz`` defaults to ``layout="neato"``.  Having the ``dot``
-    / ``neato`` executables is not enough: since Graphviz 14 (Ubuntu 26.04)
-    the neato layout lives in the separate ``libgvplugin-neato-layout8``
-    package, and without it every ``-Kneato`` call fails with
-    'There is no layout engine support for "neato"'.
-    """
-    dot = shutil.which("dot")
-    if not (_HAS_GRAPHVIZ_PY and dot):
-        return False
-    try:
-        subprocess.run(
-            [dot, "-Kneato", "-Tsvg"],
-            input=b"graph { a }",
-            capture_output=True,
-            check=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return True
-
-
 _skip_no_dot = pytest.mark.skipif(
-    not _has_neato_engine(),
-    reason=(
-        "graphviz Python package, `dot`, or the neato layout engine missing "
-        "(Ubuntu >= 26.04: apt-get install libgvplugin-neato-layout8)"
-    ),
+    not (_HAS_GRAPHVIZ_PY and shutil.which("dot")),
+    reason="graphviz Python package or executables not installed",
 )
 
 
