@@ -144,6 +144,9 @@ configure_db() {
     -DGTOPT_BUILD_WEBSERVICE=OFF \
     -DGTOPT_BUILD_GUISERVICE=OFF \
     ${GTOPT_TIDY_CMAKE_ARGS:-} > /dev/null
+  # The only build-time generated header (git_revision.hpp, included by
+  # build_info.cpp); without it that TU fails with clang-diagnostic-error.
+  cmake --build "$dir" --target gtopt_git_revision > /dev/null
   echo "run_tidy: tidy DB at $dir/compile_commands.json ($cxx)"
   # clangd / IDEs look for ./compile_commands.json; point it at the
   # per-file tidy DB unless the user already has one (git-ignored).
