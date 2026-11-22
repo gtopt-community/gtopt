@@ -14,6 +14,7 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/utils.hpp>
+#include <gtopt/warn_once.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt::line_losses
@@ -96,8 +97,8 @@ constexpr double kFlowAbsPinEps = 1e-6;
 /// choice has been retired because `piecewise_direct` has no link row
 /// and no `fp`/`fn` aggregator, so the LP can dump quadratic loss into
 /// fictitious bidirectional flow at any meshed line whose receiving bus
-/// has a negative LMP.  Verified empirically on a large national test case LP-relax:
-/// `piecewise_direct` produced ~1500 GWh of fictitious bidirectional
+/// has a negative LMP.  Verified empirically on a large national test case
+/// LP-relax: `piecewise_direct` produced ~1500 GWh of fictitious bidirectional
 /// flow vs ~130 GWh under `piecewise` (which is itself 99 % cleaner
 /// after the `piecewise` → `bidirectional` wrapping).  The 4-row cost
 /// of `piecewise` is worth the arbitrage immunity in any case where
@@ -150,23 +151,17 @@ LineLossesMode resolve_mode(const Line& line,
   }
 
   if (mode == LineLossesMode::dynamic) {
-    static bool warned = false;
-    if (!warned) {
-      spdlog::warn(
-          "line_losses_mode 'dynamic' is not yet implemented; "
-          "falling back to 'piecewise'");
-      warned = true;
-    }
+    static WarnOnceFlag warned;
+    warn_once(warned,
+              "line_losses_mode 'dynamic' is not yet implemented; "
+              "falling back to 'piecewise'");
   }
 
   if (mode == LineLossesMode::piecewise_direct && has_expansion) {
-    static bool warned = false;
-    if (!warned) {
-      spdlog::warn(
-          "line_losses_mode 'piecewise_direct' requires no capacity "
-          "column; falling back to 'piecewise' on expandable lines");
-      warned = true;
-    }
+    static WarnOnceFlag warned;
+    warn_once(warned,
+              "line_losses_mode 'piecewise_direct' requires no capacity "
+              "column; falling back to 'piecewise' on expandable lines");
   }
 
   return resolve_adaptive_dynamic(
@@ -342,21 +337,18 @@ LossConfig make_config(LineLossesMode mode,
   if (mode == LineLossesMode::tangent_signed_flow && nseg_secant_eff > 1
       && !use_sos2 && loss_cost_eps <= 0.0)
   {
-    static bool warned_l_no_sos2 = false;
-    if (!warned_l_no_sos2) {
-      spdlog::warn(
-          "line_losses: tangent_signed_flow with "
-          "loss_secant_segments={} requires EITHER loss_use_sos2=true "
-          "(lambda-form MIP, full envelope) OR loss_cost_eps > 0 "
-          "(activates the internal v-pin forcing Σv_l=|f| at LP "
-          "optimum, keeps the chord bounded; the ε itself prices the "
-          "loss column; pure LP).  With both off the LP inflates "
-          "Σ v_l and the chord collapses to a constant ceiling — "
-          "STRICTLY WORSE than loss_secant_segments=1.  "
-          "See issue #504.",
-          nseg_secant_eff);
-      warned_l_no_sos2 = true;
-    }
+    static WarnOnceFlag warned_l_no_sos2;
+    warn_once(warned_l_no_sos2,
+              "line_losses: tangent_signed_flow with "
+              "loss_secant_segments={} requires EITHER loss_use_sos2=true "
+              "(lambda-form MIP, full envelope) OR loss_cost_eps > 0 "
+              "(activates the internal v-pin forcing Σv_l=|f| at LP "
+              "optimum, keeps the chord bounded; the ε itself prices the "
+              "loss column; pure LP).  With both off the LP inflates "
+              "Σ v_l and the chord collapses to a constant ceiling — "
+              "STRICTLY WORSE than loss_secant_segments=1.  "
+              "See issue #504.",
+              nseg_secant_eff);
   }
 
   return {
@@ -1784,17 +1776,15 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   // for signed flow would require splitting ℓ into ℓ_p + ℓ_n with
   // SOS1-style mutual exclusion — out of scope for pure LP.
   if (config.allocation != LossAllocationMode::split) {
-    static bool warned = false;
-    if (!warned) {
-      spdlog::warn(
-          "tangent_signed_flow: loss_allocation_mode '{}' is "
-          "direction-blind for signed flow and was overridden to "
-          "'split' (only sign-symmetric mode).  This is the cure for "
-          "the R/A asymmetry observed in the reference case (see task #107).",
-          (config.allocation == LossAllocationMode::sender) ? "sender"
-                                                            : "receiver");
-      warned = true;
-    }
+    static WarnOnceFlag warned;
+    warn_once(
+        warned,
+        "tangent_signed_flow: loss_allocation_mode '{}' is "
+        "direction-blind for signed flow and was overridden to "
+        "'split' (only sign-symmetric mode).  This is the cure for "
+        "the R/A asymmetry observed in the reference case (see task #107).",
+        (config.allocation == LossAllocationMode::sender) ? "sender"
+                                                          : "receiver");
   }
   apply_loss_allocation(brow_a, brow_b, loss_col, LossAllocationMode::split);
 

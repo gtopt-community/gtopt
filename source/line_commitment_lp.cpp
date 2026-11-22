@@ -22,6 +22,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/warn_once.hpp>
 
 namespace gtopt
 {
@@ -142,18 +143,15 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
       const auto& segp = line_lp.flowp_seg_cols_at(scenario, stage);
       const auto& segn = line_lp.flown_seg_cols_at(scenario, stage);
       if (segp.contains(buid) || segn.contains(buid)) {
-        static bool warned_direct_ungated = false;
-        if (!warned_direct_ungated) {
-          spdlog::warn(
-              "LineCommitment on a piecewise_direct line has NO effect: "
-              "the mode has no flow aggregator to gate, so the "
-              "commitment (breaker) status is ignored and the line "
-              "keeps carrying segment flow while 'open'.  Use "
-              "'piecewise'/'bidirectional'/'tangent_signed_flow' for "
-              "committed lines.  See "
-              "test_line_losses_commitment_leak.cpp.");
-          warned_direct_ungated = true;
-        }
+        static WarnOnceFlag warned_direct_ungated;
+        warn_once(warned_direct_ungated,
+                  "LineCommitment on a piecewise_direct line has NO effect: "
+                  "the mode has no flow aggregator to gate, so the "
+                  "commitment (breaker) status is ignored and the line "
+                  "keeps carrying segment flow while 'open'.  Use "
+                  "'piecewise'/'bidirectional'/'tangent_signed_flow' for "
+                  "committed lines.  See "
+                  "test_line_losses_commitment_leak.cpp.");
       }
       continue;
     }
