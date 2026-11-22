@@ -10,7 +10,7 @@ by the host class) and on PLP parsed data attached to ``self.parser``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict
+from typing import Any, Callable, Dict
 
 from .aperture_writer import (
     build_aperture_array,
@@ -29,12 +29,10 @@ class TimeMixin:
     parser: Any
     planning: Dict[str, Any]  # see GTOptWriter.__init__
 
-    if TYPE_CHECKING:
-        # Provided by the host class (``GTOptWriter._normalize_method``,
-        # a staticmethod) — reachable via MRO.  Declared for mypy only:
-        # a runtime stub here would shadow the host's implementation.
-        @staticmethod
-        def _normalize_method(method: str) -> str: ...
+    # Provided by the host class (``GTOptWriter._normalize_method``, a
+    # staticmethod) — reachable via the MRO.  Annotation only (no runtime
+    # stub, which would shadow the host's implementation).
+    _normalize_method: Callable[[str], str]
 
     def process_stage_blocks(self, options):
         """Calculate first_block and count_block for stages, and build phase_array.

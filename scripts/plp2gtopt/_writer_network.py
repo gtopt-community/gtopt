@@ -10,7 +10,7 @@ host class wiring; this module purely encapsulates the methods.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict
+from typing import Any, Callable, Dict
 
 from .battery_writer import BatteryWriter
 from .bus_writer import BusWriter
@@ -25,13 +25,11 @@ class NetworkMixin:
     parser: Any
     planning: Dict[str, Any]  # see GTOptWriter.__init__
 
-    if TYPE_CHECKING:
-        # Provided by :class:`plp2gtopt._writer_generation.GenerationMixin`
-        # — reachable through the MRO of ``GTOptWriter``, which composes
-        # both mixins.  Declared for mypy only: a runtime stub here would
-        # shadow GenerationMixin's implementation (NetworkMixin is later
-        # in the MRO today, but that must not be load-bearing).
-        def _falla_by_bus(self) -> Dict[int, Dict[str, Any]]: ...
+    # Provided by :class:`plp2gtopt._writer_generation.GenerationMixin`
+    # — reachable through the MRO of ``GTOptWriter``, which composes both
+    # mixins.  Annotation only (no runtime stub, which could shadow the
+    # real method depending on the base-class order).
+    _falla_by_bus: Callable[[], Dict[int, Dict[str, Any]]]
 
     def process_demands(self, options):
         """Process demand data to include block and stage information."""
