@@ -1,0 +1,164 @@
+name: clang-tidy
+
+# Static analysis with clang-tidy 22 over a configure-only, non-unity
+# compile DB (tools/run_tidy.sh --configure: one entry per file, test
+# files included, no PCH).  Nothing is compiled.
+#
+#   pull_request / push : only the *.cpp files changed since the merge
+#                         base (plus <stem>.cpp / test_<stem>.cpp of a
+#                         changed <stem>.hpp) — a few minutes.
+#   schedule (nightly)  : every project TU; catches header-driven
+#                         regressions and new checks, and refreshes the
+#                         ctcache result cache that PR runs restore.
+#   workflow_dispatch   : full run by default, or changed-only.
+#
+# Result cache: ctcache (local mode) under $CTCACHE_DIR, persisted with
+# actions/cache.  A TU whose preprocessed source + comments, effective
+# .clang-tidy and flags are unchanged since a clean run is skipped, so a
+# nightly run on an unchanged tree is mostly cache hits.  Caches written
+# on the default branch (the nightly run) are visible to every PR.
+
+on:
+  pull_request:
+    branches: [master, main]
+    paths:
+      - '**/*.cpp'
+      - '**/*.hpp'
+      - '**/*.h'
+      - '**/.clang-tidy'
+      - '**/CMakeLists.txt'
+      - 'cmake/**'
+      - 'cmake_local/**'
+      - 'tools/run_tidy.sh'
+      - '.github/workflows/clang-tidy.yml'
+      - '.github/actions/install-clang/**'
+  push:
+    branches: [master, main]
+    paths:
+      - '**/*.cpp'
+      - '**/*.hpp'
+      - '**/*.h'
+      - '**/.clang-tidy'
+      - '**/CMakeLists.txt'
+      - 'cmake/**'
+      - 'cmake_local/**'
+      - 'tools/run_tidy.sh'
+      - '.github/workflows/clang-tidy.yml'
+      - '.github/actions/install-clang/**'
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Analyse every TU (false: only files changed vs master)'
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+  CTCACHE_DIR: ${{ github.workspace }}/.ctcache
+  # Pinned ctcache revision (https://github.com/matus-chochlik/ctcache).
+  CTCACHE_REF: 2cb1c2bdd86f5e56a9044908f7c36a8a04a30ca2
+  TIDY_VERSION: '22'
+
+jobs:
+  clang-tidy:
+    runs-on: ubuntu-latest
+    # A cold full run is the worst case (~600 TUs on 4 vCPUs); changed-
+    # file runs on PRs take minutes.
+    timeout-minutes: 240
+    name: clang-tidy
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The merge base with the target branch is needed for the
+          # changed-files selection.
+          fetch-depth: 0
+
+      - name: select mode
+        id: mode
+        run: |
+          full=false
+          case "${{ github.event_name }}" in
+            schedule) full=true ;;
+            workflow_dispatch) full="${{ inputs.full }}" ;;
+          esac
+          if [ "$full" = true ]; then
+            echo "args=--all" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = pull_request ]; then
+            echo "args=--base origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            echo "args=--base origin/${{ github.event.repository.default_branch }}" \
+              >> "$GITHUB_OUTPUT"
+          else
+            # Push: the previous tip; a new branch / force push has no
+            # usable "before", so fall back to the last commit.
+            before="${{ github.event.before }}"
+            if ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+              before=HEAD~1
+            fi
+            echo "args=--base $before" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/cache@v6
+        with:
+          path: "**/cpm_modules"
+          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
+          restore-keys: |
+            ${{ github.workflow }}-cpm-modules-
+            Ubuntu-gcc-cpm-modules-
+
+      - name: install dependencies
+        uses: ./.github/actions/install-apt-deps
+
+      # Only this job moves to clang 22; the build/test jobs keep their
+      # own compiler.  clang-22 provides the compiler the DB is
+      # configured with (and its resource headers); clang-tidy-22 ships
+      # run-clang-tidy-22.
+      - name: install clang + clang-tidy ${{ env.TIDY_VERSION }}
+        uses: ./.github/actions/install-clang
+        with:
+          version: ${{ env.TIDY_VERSION }}
+          packages: clang clang-tidy
+
+      - name: install ctcache
+        run: |
+          git clone --quiet https://github.com/matus-chochlik/ctcache.git \
+            "$HOME/opt/ctcache"
+          git -C "$HOME/opt/ctcache" checkout --quiet "$CTCACHE_REF"
+
+      - name: restore ctcache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.CTCACHE_DIR }}
+          key: ctcache-${{ env.TIDY_VERSION }}-${{ github.run_id }}
+          restore-keys: ctcache-${{ env.TIDY_VERSION }}-
+
+      - name: configure tidy compile DB
+        run: |
+          CXX=clang++-$TIDY_VERSION CC=clang-$TIDY_VERSION \
+            tools/run_tidy.sh --configure build-tidy
+
+      - name: clang-tidy ${{ steps.mode.outputs.args }}
+        run: |
+          CLANG_TIDY=$(command -v clang-tidy-$TIDY_VERSION) \
+          RUN_CLANG_TIDY=$(command -v run-clang-tidy-$TIDY_VERSION) \
+            tools/run_tidy.sh -p build-tidy -j "$(nproc)" \
+            ${{ steps.mode.outputs.args }}
+
+      # Save even when tidy failed: clean TUs of a failing run are still
+      # valid cache entries (only clean results are ever stored).
+      - name: save ctcache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.CTCACHE_DIR }}
+          key: ctcache-${{ env.TIDY_VERSION }}-${{ github.run_id }}

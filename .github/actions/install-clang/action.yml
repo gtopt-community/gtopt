@@ -7,10 +7,9 @@ description: >
   clang-format, clang-tidy, llvm-cov, llvm-profdata, etc. are all reachable
   without a version suffix.
 
-  NOTE: clang-22 packages are not yet available in the apt.llvm.org
-  repository.  The KyleMayes install-llvm-action marketplace action also does
-  not provide pre-built Linux x64 binaries for clang-22.  Use version 21
-  until clang-22 packages become available.
+  NOTE: apt.llvm.org now ships clang-22 (llvm-toolchain-<codename>-22);
+  the clang-tidy workflow uses it; the other workflows keep their own
+  pinned version.
 
 inputs:
   version:

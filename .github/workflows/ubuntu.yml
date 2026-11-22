@@ -42,10 +42,6 @@ on:
       - '.github/workflows/profile.yml'
   workflow_dispatch:
     inputs:
-      run_clang_tidy:
-        description: 'Run clang-tidy static analysis'
-        type: boolean
-        default: false
       run_coverage:
         description: 'Enable code coverage (slower build)'
         type: boolean
@@ -92,9 +88,6 @@ env:
   # Leave 'false' for faster builds without coverage overhead.
   # Can also be enabled via workflow_dispatch input `run_coverage: true`.
   ENABLE_COVERAGE: ${{ github.event.inputs.run_coverage == 'true' && 'true' || 'false' }}
-  # Set to 'true' to enable the clang-tidy static analysis job.
-  # Leave 'false' to skip it (saves ~10 min of analysis time).
-  ENABLE_CLANG_TIDY: ${{ github.event.inputs.run_clang_tidy == 'true' && 'true' || 'false' }}
   # ccache configuration (applied globally to every step).
   # Sloppiness is managed in ccache.conf by cmake_local/Ccache.cmake —
   # do not set CCACHE_SLOPPINESS here (see ccache notes above).
@@ -549,91 +542,8 @@ jobs:
           DETAIL=$(grep -vE "^\s+\[[0-9]{4}-" rerun_failed.log | head -120)
           printf '::error title=failing test output (shard ${{ matrix.shard }})::%s\n' "$(printf '%s' "$DETAIL" | tr '\n' '\r' | sed 's/\r/%0A/g' | cut -c1-60000)"
 
-  # ---------------------------------------------------------------------------
-  # clang-tidy static analysis job
-  # Runs only when triggered manually via workflow_dispatch with
-  # run_clang_tidy: true.  Uses ccache + clang-tidy-cache for fast reruns.
-  # ---------------------------------------------------------------------------
-  clang-tidy:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    name: clang-tidy
-    if: inputs.run_clang_tidy == true
-    # Run after the build job so the ccache + cpm_modules caches it just
-    # populated are warm.  This avoids a cold compile of every TU when
-    # clang-tidy reparses the project.
-    needs: build
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2.23
-        with:
-          key: gtopt-clang-${{ github.workflow }}-clang-tidy
-          # Fall back to the clang build cache (not the workflow-default gcc
-          # one) — clang-tidy only uses clang-compatible object hashes.
-          # Shared `gtopt-clang-` prefix lets us warm-start from coverage /
-          # profile caches as well.
-          restore-keys: |
-            gtopt-clang-${{ github.workflow }}-clang-tidy-
-            gtopt-clang-${{ github.workflow }}-clang-
-            gtopt-clang-
-            ${{ github.workflow }}-clang-tidy-
-            ${{ github.workflow }}-clang-
-          max-size: 2G
-
-      - uses: actions/cache@v6
-        with:
-          path: "**/cpm_modules"
-          key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
-          restore-keys: |
-            ${{ github.workflow }}-clang-tidy-cpm-modules-
-            ${{ github.workflow }}-clang-cpm-modules-
-
-      - name: install clang (full — clang-tidy required)
-        uses: ./.github/actions/install-clang
-        with:
-          version: 21
-
-      - name: install dependencies
-        uses: ./.github/actions/install-apt-deps
-
-      - name: set up clang-tidy-cache
-        uses: silicon-heaven/clang-tidy-cache-action@v1.2.0
-
-      - name: configure (clang-tidy mode)
-        run: |
-          # Configure only to generate compile_commands.json.  PCH is disabled
-          # because run-clang-tidy does not drive cmake's compile step and
-          # would otherwise reference PCH files that were never built.
-          # No CMAKE_CXX_CLANG_TIDY hook here — run-clang-tidy drives the
-          # analysis in parallel in the next step (strictly faster than
-          # `cmake --build` + CMAKE_CXX_CLANG_TIDY because no object files
-          # are emitted and no linking happens).
-          cmake -S all -Bbuild \
-            -DGTOPT_BUILD_INTEGRATION_TESTS=OFF \
-            -DGTOPT_BUILD_WEBSERVICE=OFF \
-            -DGTOPT_BUILD_GUISERVICE=OFF \
-            -DGTOPT_BUILD_SCRIPTS=OFF \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
-
-      - name: run-clang-tidy (parallel, via clang-tidy-cache)
-        run: |
-          # Drive clang-tidy in parallel over every TU in compile_commands.json.
-          # Equivalent to -j $(nproc).  clang-tidy-cache wraps clang-tidy so
-          # repeated runs hit the cache.  -header-filter='' keeps warnings
-          # limited to the main TU (never .hpp) — matches the project rule
-          # that clang-tidy only analyses .cpp files.
-          run-clang-tidy -p build -j "$(nproc)" -quiet \
-            -clang-tidy-binary clang-tidy-cache \
-            -header-filter='' \
-            -warnings-as-errors='*'
+  # clang-tidy runs in its own workflow (.github/workflows/clang-tidy.yml):
+  # changed files on PRs/pushes, every TU nightly.
 
   webservice:
     runs-on: ubuntu-latest
