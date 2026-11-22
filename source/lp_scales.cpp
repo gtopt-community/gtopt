@@ -360,8 +360,7 @@ template<typename Builder, typename T>
   ARROW_RETURN_NOT_OK(add("extra", extra_b));
   ARROW_RETURN_NOT_OK(add("scale", scale_b));
   ARROW_RETURN_NOT_OK(add("unit", unit_b));
-  return arrow::Table::Make(arrow::schema(std::move(fields)),
-                            std::move(arrays));
+  return arrow::Table::Make(arrow::schema(fields), arrays);
 }
 
 [[nodiscard]] auto rows_table(const std::vector<LpScaledRow>& rows,
@@ -622,7 +621,7 @@ std::expected<std::string, Error> write_lp_scales(const SystemLP& system,
                                                   std::string_view compression)
 {
   try {
-    const auto path = lp_scales_path(lp_path);
+    auto path = lp_scales_path(lp_path);
     const auto scales = make_lp_scales(system, lp_path, level);
 
     if (scales.tables) {
