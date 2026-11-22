@@ -238,6 +238,11 @@ the ones available.
 Without `--solver`, GTOpt picks the first available of CPLEX, HiGHS,
 MindOpt, CBC and CLP.
 
+See [Supported Solvers](docs/solvers.md) for each solver's test status and
+limitations (CLP is LP-only; for MIP prefer HiGHS or a commercial solver;
+cuOpt is for the monolithic method only; Gurobi is untested), why results
+can legitimately differ between solvers, and how to add a new one.
+
 The installer finds CPLEX, Gurobi and MindOpt in their usual locations
 (`/opt`, `~/opt`, `~`, or on `PATH`).  Elsewhere, pass the location to the
 installer (to `bash`, not to `curl`):

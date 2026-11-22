@@ -416,6 +416,7 @@ Located in `.github/workflows/`:
 | Run your first case | [Planning Guide → Quickstart](planning-guide.md#quickstart-your-first-solve) |
 | Understand the LP formulation | [Mathematical Formulation](formulation/mathematical-formulation.md) |
 | Full CLI reference | [Usage Guide](usage.md) |
+| Solver choice and limitations | [Supported Solvers](solvers.md) |
 | JSON / Parquet input format | [Input Data Reference](input-data.md) |
 | Convert a PLP or pandapower case | [Scripts Guide](scripts-guide.md) |
 | SDDP decomposition | [SDDP Method](methods/sddp.md) |
