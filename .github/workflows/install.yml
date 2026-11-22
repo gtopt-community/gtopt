@@ -77,6 +77,13 @@ jobs:
             mode: home
     steps:
       - uses: actions/checkout@v4
+        with:
+          # checkout mode clones this checkout (install.sh --repo /repo,
+          # git clone --filter=blob:none): a shallow source makes that a
+          # partial clone of a shallow repo, which git rejects ("shallow
+          # roots are not allowed to be updated") or hangs on.  '0' is
+          # quoted: a bare 0 is falsy, so `cond && 0 || 1` gives 1.
+          fetch-depth: ${{ matrix.source == 'checkout' && '0' || '1' }}
 
       - name: Run installer in ${{ matrix.image }}
         env:
@@ -97,7 +104,9 @@ jobs:
             if [[ $SOURCE == published ]]; then
               curl -fsSL "$url" | bash -s -- "${args[@]}"
             else
-              git config --global --add safe.directory '*'
+              # git is not installed yet (install.sh brings it), so trust
+              # the mounted checkout (another uid owns it) without git.
+              printf '[safe]\n\tdirectory = *\n' >> "$HOME/.gitconfig"
               bash /repo/install.sh --repo /repo --ref "$SHA" "${args[@]}"
             fi
           }
