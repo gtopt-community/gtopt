@@ -21,6 +21,18 @@ in the same unity batch (via ``UNITY_GROUP``).
 Unity builds can be disabled globally by setting
 ``-DGTOPT_UNITY_BUILD=OFF`` on the cmake command line.
 
+clang-tidy database mode
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+``-DGTOPT_TIDY_NON_UNITY=ON`` turns unity batching off for *every*
+target, including the test suite (which otherwise forces it on), and
+skips the project PCH (``target_gtopt_pch``).  ``compile_commands.json``
+then has one self-contained entry per source file, which is what
+clang-tidy needs: a unity batch is analysed as one opaque TU and its
+diagnostics are not attributed per file.  Use it only for a dedicated
+tidy build dir (``tools/run_tidy.sh``, CI clang-tidy job); normal
+builds keep unity on.
+
 Priority scheduling
 ^^^^^^^^^^^^^^^^^^^
 
@@ -38,6 +50,9 @@ individual per-file compilations.
 #]=======================================================================]
 
 option(GTOPT_UNITY_BUILD "Enable unity (jumbo) builds for faster compilation" OFF)
+option(GTOPT_TIDY_NON_UNITY
+       "clang-tidy database: no unity batches, no PCH (one entry per file)"
+       OFF)
 
 # Detect available CPU cores once
 include(ProcessorCount)
@@ -49,7 +64,7 @@ endif()
 function(target_enable_unity_build target)
   cmake_parse_arguments(ARG "" "BATCH_SIZE" "" ${ARGN})
 
-  if(NOT GTOPT_UNITY_BUILD)
+  if(NOT GTOPT_UNITY_BUILD OR GTOPT_TIDY_NON_UNITY)
     return()
   endif()
 

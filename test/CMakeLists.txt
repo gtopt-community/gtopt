@@ -128,6 +128,9 @@ target_link_libraries(
 # smaller value (see .github/workflows/ubuntu.yml) so a PR recompiles
 # only the batches it actually touches.  0 disables unity for the tests
 # (one object per test file).
+#
+# -DGTOPT_TIDY_NON_UNITY=ON overrides this (one TU per test file, for the
+# clang-tidy compile database; see cmake_local/UnityBuild.cmake).
 set(GTOPT_TEST_UNITY_BATCH_SIZE 11 CACHE STRING
     "Test files per gtoptTests unity batch (0 = no unity build)")
 if(GTOPT_TEST_UNITY_BATCH_SIZE GREATER 0)

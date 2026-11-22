@@ -17,6 +17,11 @@ not leak to downstream consumers of the target.
 #]=======================================================================]
 
 function(target_gtopt_pch target)
+  # A clang-tidy database must not reference PCH files that were never
+  # built (see GTOPT_TIDY_NON_UNITY in UnityBuild.cmake).
+  if(GTOPT_TIDY_NON_UNITY)
+    return()
+  endif()
   # A PCH is not relocatable: clang stores the absolute path of every
   # input file (cmake_pch.hxx / cmake_pch.hxx.cxx live in the build dir)
   # and refuses the PCH when they are missing ("could not find file ...
