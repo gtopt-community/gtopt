@@ -45,6 +45,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <utility>
@@ -412,6 +413,37 @@ inline void get_all_futures(std::span<std::future<void>> futures)
   if (first_error != nullptr) {
     std::rethrow_exception(first_error);
   }
+}
+
+/// Submit @p func to @p pool; when the pool refuses it (shutdown or
+/// enqueue failure) run it inline on the calling thread instead, so no
+/// unit of work is silently dropped and the caller always holds a valid
+/// future.  A task exception, pooled or inline, is delivered through the
+/// returned future (never thrown from here), so a `get_all_futures`
+/// drain still joins every sibling before anything propagates.
+/// @p refusal_warning, when non-empty, is logged at WARN on the inline
+/// fallback.  @p func must be copyable: the pool stores a copy and the
+/// original stays callable for the fallback.
+template<typename Pool, typename Func>
+[[nodiscard]] auto submit_or_run_inline(
+    Pool& pool,
+    Func&& func,
+    const typename Pool::Requirements& req = {},
+    std::string_view refusal_warning = {})
+    -> std::future<std::invoke_result_t<Func&>>
+{
+  auto fut = pool.submit(func, req);
+  if (fut.has_value()) {
+    return std::move(*fut);
+  }
+  if (!refusal_warning.empty()) {
+    SPDLOG_WARN("{}", refusal_warning);
+  }
+  std::packaged_task<std::invoke_result_t<Func&>()> task {
+      [&func] { return std::invoke(func); },
+  };
+  task();
+  return task.get_future();
 }
 
 /// Identity of the pool (if any) whose `worker_loop` owns the current

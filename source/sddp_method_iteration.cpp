@@ -1689,22 +1689,9 @@ auto SDDPMethod::run_backward_pass_synchronized(
             : backward_pass_single_phase(
                   scene_index, phase_index, offset, opts, iteration_index);
       };
-      auto fut = pool.submit(step_fn, bwd_req);
-      if (fut.has_value()) {
-        futures.emplace_back(scene_index, std::move(*fut));
-      } else {
-        // Pool refused (enqueue failure) — run the step inline so the
-        // phase barrier stays complete.  The previous unchecked
-        // `fut.value()` threw `bad_expected_access` here and unwound
-        // while sibling scene tasks still referenced this frame.
-        std::promise<std::expected<int, Error>> inline_p;
-        try {
-          inline_p.set_value(step_fn());
-        } catch (...) {
-          inline_p.set_exception(std::current_exception());
-        }
-        futures.emplace_back(scene_index, inline_p.get_future());
-      }
+      // Inline fallback on refusal keeps the phase barrier complete.
+      futures.emplace_back(scene_index,
+                           submit_or_run_inline(pool, step_fn, bwd_req));
     }
 
     // Wait for all scenes to complete this phase step.  Drain EVERY
@@ -1843,20 +1830,14 @@ auto SDDPMethod::run_backward_pass_synchronized(
       std::vector<std::future<int>> rel_futures;
       rel_futures.reserve(static_cast<std::size_t>(num_scenes));
       for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-        auto fut = pool.submit(
+        rel_futures.push_back(submit_or_run_inline(
+            pool,
             [this, si, src_phase_index]() -> int
             {
               planning_lp().system(si, src_phase_index).release_backend();
               return 0;
             },
-            bwd_req);
-        if (fut.has_value()) {
-          rel_futures.push_back(std::move(*fut));
-        } else {
-          // Pool refused (enqueue failure) — release inline so the cell
-          // is not silently left resident.
-          planning_lp().system(si, src_phase_index).release_backend();
-        }
+            bwd_req));
       }
       for (auto& f : rel_futures) {
         f.get();

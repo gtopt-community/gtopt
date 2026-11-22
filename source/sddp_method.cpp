@@ -1126,15 +1126,10 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
                              .outgoing_links.size());
     };
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      auto result = pool->submit([setup_scene, scene_index]
-                                 { setup_scene(scene_index); });
-      if (result.has_value()) {
-        futures.push_back(std::move(*result));
-      } else {
-        // Pool refused (enqueue failure) — run inline: silently skipping
-        // a scene's α/state-link setup would corrupt the whole solve.
-        setup_scene(scene_index);
-      }
+      // Inline fallback on refusal: silently skipping a scene's
+      // α/state-link setup would corrupt the whole solve.
+      futures.push_back(submit_or_run_inline(
+          *pool, [setup_scene, scene_index] { setup_scene(scene_index); }));
     }
     // Join ALL setup tasks before the first failure propagates.
     get_all_futures(futures);
@@ -1466,18 +1461,12 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
                     * static_cast<std::size_t>(num_phases));
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-        auto result = pool->submit(
+        futures.push_back(submit_or_run_inline(
+            *pool,
             [this, scene_index, phase_index]
             {
               planning_lp().system(scene_index, phase_index).release_backend();
-            });
-        if (result.has_value()) {
-          futures.push_back(std::move(*result));
-        } else {
-          // Pool refused (enqueue failure) — release inline so the cell
-          // is not silently left resident.
-          planning_lp().system(scene_index, phase_index).release_backend();
-        }
+            }));
       }
     }
     // Join ALL release tasks before the first failure propagates.

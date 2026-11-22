@@ -1880,20 +1880,12 @@ void PlanningLP::release_cells()
     futures.reserve(num_scenes);
     for (auto& phase_systems : m_systems_) {
       auto* const ps_ptr = &phase_systems;
-      auto result = pool->submit(
-          [ps_ptr]
-          {
-            ps_ptr->clear();
-            ps_ptr->shrink_to_fit();
-          });
-      if (result.has_value()) {
-        futures.push_back(std::move(*result));
-      } else {
-        // Pool refused the task (shutdown / saturation) — fall back to
-        // an in-thread release so no cell is leaked.
-        ps_ptr->clear();
-        ps_ptr->shrink_to_fit();
-      }
+      futures.push_back(submit_or_run_inline(*pool,
+                                             [ps_ptr]
+                                             {
+                                               ps_ptr->clear();
+                                               ps_ptr->shrink_to_fit();
+                                             }));
     }
     // Join ALL release tasks before any failure propagates (tasks point
     // into member state, but the drain keeps error timing deterministic).
@@ -1957,14 +1949,8 @@ void PlanningLP::build_all_lps_eagerly()
   for (auto& phase_systems : m_systems_) {
     for (auto& sys : phase_systems) {
       auto* const sys_ptr = &sys;
-      auto result = pool->submit([sys_ptr] { sys_ptr->ensure_lp_built(); });
-      if (result.has_value()) {
-        futures.push_back(std::move(*result));
-      } else {
-        // Pool refused (enqueue failure) — build inline so no cell is
-        // silently left unbuilt.
-        sys_ptr->ensure_lp_built();
-      }
+      futures.push_back(submit_or_run_inline(
+          *pool, [sys_ptr] { sys_ptr->ensure_lp_built(); }));
     }
   }
   // Join ALL eager-build tasks before the first failure propagates.

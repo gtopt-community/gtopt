@@ -1461,29 +1461,15 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
   };
 
   // Submit `fn` to the pool, falling back to INLINE execution when the
-  // pool refuses the task (enqueue failure).  The previous unchecked
-  // `pool.submit(...).value()` threw `bad_expected_access` on refusal
-  // and unwound the whole orchestration loop while sibling scene tasks
-  // still referenced this frame's locals (fwd_opts / bwd_opts /
-  // run_scene_simulation) — those are destroyed before the pool joins
-  // its workers.  Inline execution keeps the per-scene state machine
-  // holding a valid future in every case.
+  // pool refuses the task, so the per-scene state machine always holds a
+  // valid future.  Unwinding on a refusal instead would destroy this
+  // frame's locals (fwd_opts / bwd_opts / run_scene_simulation) while
+  // sibling scene tasks still reference them.
   const auto submit_or_inline =
       [&pool](const auto& fn, const BasicTaskRequirements<SDDPTaskKey>& req)
   {
-    using result_t = std::invoke_result_t<std::decay_t<decltype(fn)>>;
-    auto fut = pool.submit(fn, req);
-    if (fut.has_value()) {
-      return std::move(*fut);
-    }
-    SPDLOG_WARN("SDDP async: pool refused a task — running it inline");
-    std::promise<result_t> inline_p;
-    try {
-      inline_p.set_value(fn());
-    } catch (...) {
-      inline_p.set_exception(std::current_exception());
-    }
-    return inline_p.get_future();
+    return submit_or_run_inline(
+        pool, fn, req, "SDDP async: pool refused a task — running it inline");
   };
 
   bool all_done = false;
