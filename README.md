@@ -233,7 +233,7 @@ the ones available.
 | [CPLEX](https://www.ibm.com/products/ilog-cplex-optimization-studio) | Commercial (free academic) | IBM ILOG CPLEX Optimization Studio; set `CPLEX_ROOT_DIR` | Preferred when present |
 | [Gurobi](https://www.gurobi.com) | Commercial (free academic) | gurobi.com; set `GUROBI_HOME` | Opt-in: `--solver gurobi` |
 | [MindOpt](https://opt.alibabacloud.com) | Commercial | Alibaba Cloud; set `MINDOPT_HOME` | |
-| [cuOpt](https://github.com/NVIDIA/cuopt) | Apache-2.0, free | Installed by `install.sh` when an NVIDIA GPU is present (`libcuopt-cu12`/`-cu13` `>=26.8,<26.10`), or set `CUOPT_HOME` | Opt-in: `--solver cuopt` |
+| [cuOpt](https://github.com/NVIDIA/cuopt) | Apache-2.0, free | Installed by `install.sh` when an NVIDIA GPU is present (`libcuopt-cu12`/`-cu13` `>=26.8`; from 26.10 the `libcuopt_mathopt` wheel it pulls in), or set `CUOPT_HOME` | Opt-in: `--solver cuopt` |
 
 Without `--solver`, GTOpt picks the first available of CPLEX, HiGHS,
 MindOpt, CBC and CLP.

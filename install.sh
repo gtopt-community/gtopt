@@ -509,16 +509,17 @@ cuopt_wheel() {
   if [[ -n $cuda ]] && ((cuda >= 13)); then echo libcuopt-cu13; else echo libcuopt-cu12; fi
 }
 
-# >= 26.8: first C API the plugin supports.  < 26.10: from 26.10 the
-# headers and the C API moved to the separate libcuopt_mathopt wheel,
-# which the build's FindCuOpt.cmake does not search yet.
-CUOPT_SPEC=">=26.8,<26.10"
+# >= 26.8: first C API the plugin supports.  From 26.10 the headers and
+# the C API live in the libcuopt_mathopt wheel (pulled in by libcuopt);
+# FindCuOpt.cmake searches both layouts.
+CUOPT_SPEC=">=26.8"
 cuopt_venv() { echo "$1/lib/gtopt/cuopt"; }
 
 # Sets CUOPT_DIR (root with include/ + lib64/) and CUOPT_PY (a python that
 # imports libcuopt, used by the build to read the wheel version).
+# cuOpt >= 26.10 keeps cuopt_c.h in libcuopt_mathopt, <= 26.08 in libcuopt.
 find_cuopt() {
-  local prefix=$1 py d
+  local prefix=$1 py d m
   local hdr=include/cuopt/mathematical_optimization/cuopt_c.h
   if [[ -n ${CUOPT_HOME:-} ]]; then
     [[ -e $CUOPT_HOME/$hdr ]] && { CUOPT_DIR=$CUOPT_HOME; return 0; }
@@ -526,10 +527,12 @@ find_cuopt() {
   fi
   for py in "$(cuopt_venv "$prefix")/bin/python3" python3; do
     command -v "$py" >/dev/null 2>&1 || continue
-    d=$("$py" -c 'import libcuopt, os; print(os.path.dirname(libcuopt.__file__))' 2>/dev/null) || continue
-    [[ -e $d/$hdr ]] || continue
-    CUOPT_DIR=$d CUOPT_PY=$(command -v "$py")
-    return 0
+    for m in libcuopt_mathopt libcuopt; do
+      d=$("$py" -c "import $m, os; print(os.path.dirname($m.__file__))" 2>/dev/null) || continue
+      [[ -e $d/$hdr ]] || continue
+      CUOPT_DIR=$d CUOPT_PY=$(command -v "$py")
+      return 0
+    done
   done
   return 1
 }
