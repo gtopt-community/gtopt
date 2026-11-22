@@ -170,8 +170,8 @@ template<typename Tag>
 /// it satisfies std::weakly_incrementable and can be used with
 /// IotaRange and other range adaptors.
 template<typename Tag>
-// NOLINTNEXTLINE(cert-dcl58-cpp) - valid std template specialization for
-// user-defined type
+// NOLINTNEXTLINE(bugprone-std-namespace-modification) - valid std template
+// specialization for user-defined type
 struct std::incrementable_traits<gtopt::StrongIndexType<Tag>>
 {
   using difference_type = gtopt::Index;
@@ -180,8 +180,8 @@ struct std::incrementable_traits<gtopt::StrongIndexType<Tag>>
 /// Same specialisation for `StrongPositionIndexType` so positional
 /// indices remain usable with `IotaRange` and other range adaptors.
 template<typename Tag>
-// NOLINTNEXTLINE(cert-dcl58-cpp) - valid std template specialization for
-// user-defined type
+// NOLINTNEXTLINE(bugprone-std-namespace-modification) - valid std template
+// specialization for user-defined type
 struct std::incrementable_traits<gtopt::StrongPositionIndexType<Tag>>
 {
   using difference_type = gtopt::Index;

@@ -299,7 +299,8 @@ struct FormatSI
 // aggregate by value (no heap), so the only allocations on the
 // log path happen here, lazily.
 template<class CharT>
-struct std::formatter<gtopt::SDDPLogTag, CharT>  // NOLINT(cert-dcl58-cpp)
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
+struct std::formatter<gtopt::SDDPLogTag, CharT>
     : std::formatter<std::basic_string_view<CharT>, CharT>
 {
   template<class FormatContext>
@@ -329,7 +330,8 @@ struct std::formatter<gtopt::SDDPLogTag, CharT>  // NOLINT(cert-dcl58-cpp)
 // phase) `format_si` call site (~5/cell × ~24K cells on CEN-scale)
 // stops paying the alloc cost.
 template<class CharT>
-struct std::formatter<gtopt::FormatSI, CharT>  // NOLINT(cert-dcl58-cpp)
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
+struct std::formatter<gtopt::FormatSI, CharT>
     : std::formatter<std::basic_string_view<CharT>, CharT>
 {
   template<class FormatContext>

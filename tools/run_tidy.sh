@@ -10,6 +10,7 @@
 #                                                     merge-base(REF, HEAD)
 #   tools/run_tidy.sh [-p DB] [-j N] --all            every project TU
 #   tools/run_tidy.sh --configure [DIR]               create a tidy DB
+#   --no-analyzer (any mode): skip the clang-analyzer-* checks
 #
 # With no files it checks the *.cpp files changed against HEAD (the
 # project policy), test files included, plus <stem>.cpp and
@@ -59,6 +60,13 @@
 # (which does not change the preprocessed code) invalidates the entry.
 # After the run the script prints this run's ctcache hits / misses.
 #
+# Static analyzer: the clang-analyzer-* checks (path-sensitive symbolic
+# execution) are the single most expensive group.  --no-analyzer (or
+# GTOPT_TIDY_ANALYZER=0) appends -checks=-clang-analyzer-* to the
+# .clang-tidy set; the CI job does that for pull_request / push runs and
+# keeps the analyzer in the nightly full run.  ctcache hashes the
+# effective config, so the two modes keep separate cache entries.
+#
 # Tool selection: $CLANG_TIDY / $RUN_CLANG_TIDY, else the newest
 # versioned clang-tidy-N / run-clang-tidy-N pair, else the unversioned
 # one.  --configure uses the matching clang++-N (override with $CXX).
@@ -70,6 +78,7 @@ jobs=$(nproc)
 mode=changed
 base=""
 configure_dir=""
+analyzer="${GTOPT_TIDY_ANALYZER:-1}"
 files=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -77,6 +86,7 @@ while [[ $# -gt 0 ]]; do
     -j) jobs="$2"; shift 2 ;;
     -j*) jobs="${1#-j}"; shift ;;
     --all) mode=all; shift ;;
+    --no-analyzer) analyzer=0; shift ;;
     --base) mode=base; base="$2"; shift 2 ;;
     --configure)
       mode=configure
@@ -84,7 +94,7 @@ while [[ $# -gt 0 ]]; do
         configure_dir="$2"; shift
       fi
       shift ;;
-    -h|--help) sed -n '3,64p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,71p' "$0"; exit 0 ;;
     *) files+=("$(realpath -m "$1")"); shift ;;
   esac
 done
@@ -317,9 +327,15 @@ ctcache_counts() {
 }
 [[ -n "$ctcache_py" ]] && read -r hits0 miss0 < <(ctcache_counts)
 
+extra=()
+if [[ "$analyzer" == 0 ]]; then
+  extra=(-checks=-clang-analyzer-*)
+  echo "run_tidy: clang-analyzer-* checks skipped (--no-analyzer)"
+fi
+
 rc=0
 "$runner" -p "$db" -j "$jobs" -quiet -clang-tidy-binary "$binary" \
-  -header-filter='' -warnings-as-errors='*' "$regex" || rc=$?
+  -header-filter='' -warnings-as-errors='*' "${extra[@]}" "$regex" || rc=$?
 
 if [[ -n "$ctcache_py" ]]; then
   read -r hits1 miss1 < <(ctcache_counts)

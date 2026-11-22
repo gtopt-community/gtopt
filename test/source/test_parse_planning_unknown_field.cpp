@@ -30,7 +30,7 @@ using namespace gtopt;
 
 namespace
 {
-// NOLINTBEGIN(cert-err58-cpp)
+// NOLINTBEGIN(bugprone-throwing-static-initialization)
 const std::string kUnknownTopLevelJson = R"({
   "options": {},
   "simulation": {
@@ -91,7 +91,7 @@ const std::string kRemovedOutputLayoutJson = R"({
     "bus_array": [{"uid": 1, "name": "b1"}]
   }
 })";
-// NOLINTEND(cert-err58-cpp)
+// NOLINTEND(bugprone-throwing-static-initialization)
 
 std::string write_temp_json(const std::filesystem::path& dir,
                             std::string_view stem,

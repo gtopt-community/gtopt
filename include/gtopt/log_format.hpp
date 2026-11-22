@@ -75,7 +75,8 @@ struct FormatDur
 // ─── std::formatter<FormatPct> ─────────────────────────────────────────────
 
 template<class CharT>
-struct std::formatter<gtopt::log::FormatPct, CharT>  // NOLINT(cert-dcl58-cpp)
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
+struct std::formatter<gtopt::log::FormatPct, CharT>
     : std::formatter<std::basic_string_view<CharT>, CharT>
 {
   template<class FormatContext>
@@ -88,7 +89,8 @@ struct std::formatter<gtopt::log::FormatPct, CharT>  // NOLINT(cert-dcl58-cpp)
 // ─── std::formatter<FormatDur> ─────────────────────────────────────────────
 
 template<class CharT>
-struct std::formatter<gtopt::log::FormatDur, CharT>  // NOLINT(cert-dcl58-cpp)
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
+struct std::formatter<gtopt::log::FormatDur, CharT>
     : std::formatter<std::basic_string_view<CharT>, CharT>
 {
   template<class FormatContext>

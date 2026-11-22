@@ -173,7 +173,8 @@ template<class Tag>
 // ─── std::hash specialization ───────────────────────────────────────────────
 
 template<class Tag>
-struct std::hash<gtopt::UidOf<Tag>>  // NOLINT(cert-dcl58-cpp)
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
+struct std::hash<gtopt::UidOf<Tag>>
 {
   [[nodiscard]] constexpr auto operator()(
       const gtopt::UidOf<Tag>& u) const noexcept -> std::size_t
@@ -189,7 +190,8 @@ struct std::hash<gtopt::UidOf<Tag>>  // NOLINT(cert-dcl58-cpp)
 // the existing strong-type family.
 
 template<class Tag, class CharT>
-struct std::formatter<gtopt::UidOf<Tag>, CharT>  // NOLINT(cert-dcl58-cpp)
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
+struct std::formatter<gtopt::UidOf<Tag>, CharT>
     : std::formatter<gtopt::uid_t, CharT>
 {
   template<class FormatContext>

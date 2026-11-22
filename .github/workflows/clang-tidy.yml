@@ -12,6 +12,14 @@ name: clang-tidy
 #                         ctcache result cache that PR runs restore.
 #   workflow_dispatch   : full run by default, or changed-only.
 #
+# Static analyzer: clang-analyzer-* (path-sensitive, the most expensive
+# group) runs only in full runs (nightly / full dispatch).  Changed-file
+# runs pass --no-analyzer: PR feedback is faster, and an analyzer
+# finding introduced by a PR surfaces in the next nightly instead of on
+# the PR itself.  The two modes have separate ctcache entries (the
+# effective config differs), which costs PR runs little: their changed
+# TUs miss the cache anyway.
+#
 # Result cache: ctcache (local mode) under $CTCACHE_DIR, persisted with
 # actions/cache.  A TU whose preprocessed source + comments, effective
 # .clang-tidy and flags are unchanged since a clean run is skipped, so a
@@ -95,7 +103,11 @@ jobs:
           esac
           if [ "$full" = true ]; then
             echo "args=--all" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = pull_request ]; then
+            exit 0
+          fi
+          # Changed-file runs: no clang-analyzer-* (nightly only).
+          echo "GTOPT_TIDY_ANALYZER=0" >> "$GITHUB_ENV"
+          if [ "${{ github.event_name }}" = pull_request ]; then
             echo "args=--base origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event_name }}" = workflow_dispatch ]; then
             echo "args=--base origin/${{ github.event.repository.default_branch }}" \
@@ -158,8 +170,8 @@ jobs:
 
       - name: clang-tidy ${{ steps.mode.outputs.args }}
         run: |
-          CLANG_TIDY=$(command -v clang-tidy-$TIDY_VERSION) \
-          RUN_CLANG_TIDY=$(command -v run-clang-tidy-$TIDY_VERSION) \
+          CLANG_TIDY=$(command -v "clang-tidy-$TIDY_VERSION") \
+          RUN_CLANG_TIDY=$(command -v "run-clang-tidy-$TIDY_VERSION") \
             tools/run_tidy.sh -p build-tidy -j "$(nproc)" \
             ${{ steps.mode.outputs.args }}
 

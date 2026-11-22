@@ -9,12 +9,28 @@
 #                                 matchers cost ~5% of clang-tidy time
 #                                 (--enable-check-profile, 11 TUs)
 #   fuchsia-*                   – Fuchsia OS style; conflicts with project conventions
-#   llvm-header-guard,          – project uses #pragma once
-#   portability-avoid-pragma-once
-#   llvm-include-order          – project clang-format handles include ordering
-#   llvm-namespace-comment,     – project already writes }  // namespace gtopt comments
-#   google-readability-namespace-comments,
-#   llvm-namespace-comment
+#   llvm-*                      – LLVM-project conventions: header guards (we
+#                                 use #pragma once), include order (clang-format
+#                                 does it), namespace comments, isa/dyn_cast,
+#                                 Twine, MLIR op builders, llvm:: range helpers
+#                                 (llvm-use-ranges), register types.  None
+#                                 applies to gtopt.
+#   android-*, darwin-*, objc-*, – foreign platforms / ecosystems (Android
+#   zircon-*, linuxkernel-*,       bionic cloexec, Apple / Objective-C, Zircon,
+#   mpi-*, openmp-*, boost-*,      Linux kernel, MPI, OpenMP pragmas, Boost
+#   google-objc-*                  idioms): gtopt has no such code (boost is
+#                                 only boost::container; boost-use-to-string /
+#                                 boost-use-ranges produce no findings).  The
+#                                 matchers still cost time on every TU.
+#   portability-avoid-pragma-once – project uses #pragma once
+#   google-readability-namespace-comments – project already writes
+#                                 }  // namespace gtopt comments
+#   google-runtime-int          – project style uses int / long / std::int64_t
+#                                 freely (Arrow / COIN-OR / solver APIs); the
+#                                 int16/int64 rewrite is not wanted.
+#   google-runtime-float        – (clang-tidy ≥ 22) "long double" ban; none in
+#                                 the codebase and not a project rule.
+#   google-readability-avoid-underscore-in-googletest-name – googletest only
 #   google-build-using-namespace – 'using namespace' in .cpp TU scope is accepted
 #   google-readability-casting  – project uses C++ casts; extra verbosity not required
 #   modernize-use-trailing-return-type – project uses both styles; not enforced
@@ -61,8 +77,6 @@
 #   clang-diagnostic-{c2y-extensions,          – compiler-version noise; not actionable
 #     constexpr-local-var-non-literal-type,
 #     template-param-default-arg-redefinition}
-#   llvm-prefer-static-over-anonymous-namespace – misc-use-anonymous-namespace
-#                                  (enabled) takes the opposite, preferred stance
 #   illegal-initializer-type    – Clang-specific; no violations in codebase
 #   misc-no-recursion           – recursion is idiomatic (parsers, LP-element
 #                                  traversal, ensure_backend chains).  The
@@ -96,22 +110,43 @@
 # Alias de-duplication (speed only, no coverage change):
 #   clang-tidy registers every alias name as a separate check instance,
 #   so with "*" each alias re-runs the AST matchers of its primary check
-#   and emits a duplicate diagnostic at the same location.  The 58
-#   aliases disabled at the end of the list below are exactly those
-#   whose effective options (clang-tidy-21 --dump-config) are identical
-#   to their primary check's, which stays enabled; e.g.
-#   hicpp-use-override -> modernize-use-override,
-#   cert-err61-cpp -> misc-throw-by-value-catch-by-reference.  Aliases
-#   whose options differ from the primary (cert-arr39-c, cert-dcl16-c,
-#   cert-oop54-cpp, cert-str34-c, cppcoreguidelines-narrowing-conversions,
-#   google-readability-braces-around-statements, llvm-else-after-return,
-#   llvm-qualified-auto) are kept: they flag a different set of sites.
-#   Existing NOLINT(<alias>) comments stay valid; the primary already
-#   reported (and therefore was already suppressed at) every such site.
+#   and emits a duplicate diagnostic at the same location.  Every alias
+#   of the clang-tidy-22 alias table (docs: checks/list "Check aliases")
+#   whose primary is enabled is disabled at the end of the list below;
+#   the canonical bugprone / misc / modernize / readability name stays.
+#   Aliases with option defaults different from the primary's were
+#   checked one by one (clang-tidy-22 --dump-config):
+#     cert-arr39-c, cert-dcl16-c, cert-str34-c,
+#     google-readability-braces-around-statements, llvm-else-after-return,
+#     llvm-qualified-auto – the alias defaults are a strict subset of the
+#                           primary's (it flags fewer sites): dropped.
+#     cert-oop54-cpp      – flags MORE sites than the primary
+#                           (WarnOnlyIfThisHasSuspiciousField=false);
+#                           that option is moved to
+#                           bugprone-unhandled-self-assignment below.
+#     cppcoreguidelines-narrowing-conversions – PedanticMode=true moved
+#                           to bugprone-narrowing-conversions below.
+#     cppcoreguidelines-non-private-member-variables-in-classes – kept:
+#                           its primary (misc-) is disabled above and the
+#                           alias (IgnoreClassesWithAllMemberVariables-
+#                           BeingPublic=true) only flags mixed classes.
+#   cert-dcl50/dcl58/env33/err34/err52/err58/err60/flp30/mem57/msc50/
+#   msc51/oop57/oop58 became aliases of bugprone-/misc-/modernize- checks
+#   in clang-tidy 22; NOLINTs now use the canonical name.
+#
+# clang-analyzer subfamilies for foreign platforms / APIs: osx.*,
+#   optin.osx.*, webkit.*, fuchsia.*, optin.mpi.*,
+#   apiModeling.google.GTest, optin.performance.GCDAntipattern,
+#   security.insecureAPI.decodeValueOfObjCType, core.NonnilStringConstants
+#   (ObjC), nullability.* (_Nonnull annotations, not used by gtopt).
+#   The rest of the analyzer is kept, but runs only in the nightly full
+#   CI run (tools/run_tidy.sh --no-analyzer on PR / push; see
+#   .github/workflows/clang-tidy.yml).
 Checks: "*,\
   -abseil-*,\
   -altera-*,\
-  -boost-use-ranges,\
+  -android-*,\
+  -boost-*,\
   -bugprone-easily-swappable-parameters,\
   -bugprone-empty-catch,\
   -bugprone-lambda-function-name,\
@@ -121,32 +156,40 @@ Checks: "*,\
   -clang-analyzer-optin.core.EnumCastOutOfRange,\
   -clang-analyzer-security.ArrayBound,\
   -clang-analyzer-unix.Stream,\
+  -clang-analyzer-apiModeling.google.GTest,\
+  -clang-analyzer-core.NonnilStringConstants,\
+  -clang-analyzer-fuchsia.*,\
+  -clang-analyzer-nullability.*,\
+  -clang-analyzer-optin.mpi.*,\
+  -clang-analyzer-optin.osx.*,\
+  -clang-analyzer-optin.performance.GCDAntipattern,\
+  -clang-analyzer-osx.*,\
+  -clang-analyzer-security.insecureAPI.decodeValueOfObjCType,\
+  -clang-analyzer-webkit.*,\
   -clang-diagnostic-c2y-extensions,\
   -clang-diagnostic-constexpr-local-var-non-literal-type,\
   -clang-diagnostic-template-param-default-arg-redefinition,\
   -concurrency-mt-unsafe,\
   -cppcoreguidelines-avoid-magic-numbers,\
+  -darwin-*,\
+  -fuchsia-*,\
   -cppcoreguidelines-macro-to-enum,\
   -cppcoreguidelines-macro-usage,\
   -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,\
   -cppcoreguidelines-pro-bounds-constant-array-index,\
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,\
-  -fuchsia-default-arguments-calls,\
-  -fuchsia-default-arguments-declarations,\
-  -fuchsia-multiple-inheritance,\
-  -fuchsia-overloaded-operator,\
-  -fuchsia-statically-constructed-objects,\
-  -fuchsia-trailing-return,\
+  -google-objc-*,\
+  -google-readability-avoid-underscore-in-googletest-name,\
+  -google-runtime-float,\
+  -google-runtime-int,\
   -google-upgrade-googletest-case,\
   -google-build-using-namespace,\
   -google-readability-casting,\
   -google-readability-namespace-comments,\
   -hicpp-signed-bitwise,\
   -illegal-initializer-type,\
-  -llvm-header-guard,\
-  -llvm-include-order,\
-  -llvm-namespace-comment,\
-  -llvm-prefer-static-over-anonymous-namespace,\
+  -linuxkernel-*,\
+  -llvm-*,\
   -llvmlibc-*,\
   -misc-confusable-identifiers,\
   -misc-include-cleaner,\
@@ -155,6 +198,9 @@ Checks: "*,\
   -misc-non-private-member-variables-in-classes,\
   -modernize-macro-to-enum,\
   -modernize-use-trailing-return-type,\
+  -mpi-*,\
+  -objc-*,\
+  -openmp-*,\
   -portability-avoid-pragma-once,\
   -readability-function-cognitive-complexity,\
   -readability-identifier-length,\
@@ -162,37 +208,57 @@ Checks: "*,\
   -readability-magic-numbers,\
   -readability-redundant-member-init,\
   -readability-trailing-comma,\
+  -zircon-*,\
+  -cert-arr39-c,\
   -cert-con36-c,\
   -cert-con54-cpp,\
   -cert-ctr56-cpp,\
   -cert-dcl03-c,\
+  -cert-dcl16-c,\
   -cert-dcl37-c,\
+  -cert-dcl50-cpp,\
   -cert-dcl51-cpp,\
   -cert-dcl54-cpp,\
+  -cert-dcl58-cpp,\
   -cert-dcl59-cpp,\
+  -cert-env33-c,\
   -cert-err09-cpp,\
+  -cert-err34-c,\
+  -cert-err52-cpp,\
+  -cert-err58-cpp,\
+  -cert-err60-cpp,\
   -cert-err61-cpp,\
   -cert-exp42-c,\
   -cert-fio38-c,\
+  -cert-flp30-c,\
   -cert-flp37-c,\
   -cert-int09-c,\
+  -cert-mem57-cpp,\
   -cert-msc24-c,\
   -cert-msc30-c,\
   -cert-msc32-c,\
   -cert-msc33-c,\
+  -cert-msc50-cpp,\
+  -cert-msc51-cpp,\
   -cert-msc54-cpp,\
   -cert-oop11-cpp,\
+  -cert-oop54-cpp,\
+  -cert-oop57-cpp,\
+  -cert-oop58-cpp,\
   -cert-pos44-c,\
   -cert-pos47-c,\
   -cert-sig30-c,\
+  -cert-str34-c,\
   -cppcoreguidelines-avoid-c-arrays,\
   -cppcoreguidelines-c-copy-assignment-signature,\
   -cppcoreguidelines-explicit-virtual-functions,\
+  -cppcoreguidelines-narrowing-conversions,\
   -cppcoreguidelines-noexcept-destructor,\
   -cppcoreguidelines-noexcept-move-operations,\
   -cppcoreguidelines-noexcept-swap,\
   -cppcoreguidelines-use-default-member-init,\
-  -fuchsia-header-anon-namespaces,\
+  -google-build-namespaces,\
+  -google-readability-braces-around-statements,\
   -google-readability-function-size,\
   -hicpp-avoid-c-arrays,\
   -hicpp-avoid-goto,\
@@ -233,10 +299,6 @@ CheckOptions:
     value: false
   - key: bugprone-use-after-move.IgnorePartialMoves
     value: false
-  - key: hicpp-invalid-access-moved.IgnoreUnnamedTypes
-    value: false
-  - key: hicpp-invalid-access-moved.IgnorePartialMoves
-    value: false
   - key: 'bugprone-argument-comment.StrictMode'
     value: 'true'
 # Prefer using enum classes with 2 values for parameters instead of bools
@@ -256,8 +318,13 @@ CheckOptions:
     value: 'true'
   - key: 'cppcoreguidelines-init-variables.MathHeader'
     value: '<cmath>'
-  - key: 'cppcoreguidelines-narrowing-conversions.PedanticMode'
+  - key: 'bugprone-narrowing-conversions.PedanticMode'
     value: 'true'
+# Was the default of the (disabled) alias cert-oop54-cpp: flag every
+# copy assignment without a self-assignment guard, not only classes
+# holding pointer members.
+  - key: 'bugprone-unhandled-self-assignment.WarnOnlyIfThisHasSuspiciousField'
+    value: 'false'
   - key: 'readability-else-after-return.WarnOnUnfixable'
     value: 'true'
   - key: 'readability-else-after-return.WarnOnConditionVariables'
