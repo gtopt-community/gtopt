@@ -1712,8 +1712,26 @@ class JunctionWriter(BaseWriter):
                 "fmin": 0.0,
                 "fcost": fail_cost,
             }
+            # ``fmax`` MUST be explicit: the C++ FlowRight resolves a
+            # missing fmax (no target) to ``fmin`` = 0, which would pin the
+            # whole district offtake to zero.  PLP bounds this gen-path
+            # withdrawal by ``PotMax / Rendi`` literally — including the
+            # 9999 "no limit" sentinel — so port that value (a column
+            # bound, no kappa impact); PotMax = 0 means PLP cannot divert.
             if gen_fmax is not None and math.isfinite(gen_fmax):
                 flow_right["fmax"] = float(gen_fmax)
+            elif gen_pot_max > 0.0 and gen_rendi > 0.0:
+                flow_right["fmax"] = gen_pot_max / gen_rendi
+            else:
+                flow_right["fmax"] = 0.0
+                _logger.warning(
+                    "irrigation-diversion '%s': PotMax=%g / Rendi=%g gives no "
+                    "diversion capacity — the district offtake is fixed at 0 "
+                    "(as in PLP)",
+                    central_name,
+                    gen_pot_max,
+                    gen_rendi,
+                )
             system["flow_right_array"].append(flow_right)
             _logger.info(
                 "irrigation-diversion: emitted consumptive FlowRight '%s' "

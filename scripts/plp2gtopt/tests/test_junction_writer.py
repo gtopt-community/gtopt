@@ -370,9 +370,13 @@ def test_irrigation_diversion_fmax_bounded():
     assert fr["fmax"] == pytest.approx(35.0)
 
 
-def test_irrigation_diversion_fmax_unbounded():
-    """A ``PotMax`` at/above the PLP no-limit sentinel (9000+) means there is
-    no genuine diversion cap, so ``fmax`` is omitted (unbounded FlowRight).
+def test_irrigation_diversion_fmax_sentinel_is_explicit():
+    """A ``PotMax`` at the PLP no-limit sentinel (9999) is still ported as an
+    explicit ``fmax = PotMax / Rendi`` (PLP bounds the gen path literally).
+
+    Omitting ``fmax`` is NOT "unbounded": the C++ FlowRight resolves a
+    missing fmax (no target) to ``fmin = 0`` (flow_right_lp.cpp
+    ``resolve_bounds``), which pinned every such district offtake to 0.
     """
     central = _irrigation_central(pmax=9999.0)
     writer = JunctionWriter(
@@ -380,7 +384,21 @@ def test_irrigation_diversion_fmax_unbounded():
     )
     result = writer.to_json_array()[0]
     fr = next(f for f in result["flow_right_array"] if f.get("junction_a") == "RieTest")
-    assert "fmax" not in fr
+    rendi = float(central.get("efficiency", 1.0) or 1.0)
+    assert fr["fmax"] == pytest.approx(9999.0 / rendi)
+
+
+def test_irrigation_diversion_zero_potmax_warns(caplog):
+    """``PotMax = 0`` gives PLP no diversion capacity: explicit fmax 0 + WARN."""
+    central = _irrigation_central(pmax=0.0)
+    writer = JunctionWriter(
+        central_parser=MockCentralParser([central]), options=_LEGACY_OPTS
+    )
+    with caplog.at_level("WARNING"):
+        result = writer.to_json_array()[0]
+    fr = next(f for f in result["flow_right_array"] if f.get("junction_a") == "RieTest")
+    assert fr["fmax"] == 0.0
+    assert "no diversion capacity" in caplog.text
 
 
 @pytest.mark.parametrize(
