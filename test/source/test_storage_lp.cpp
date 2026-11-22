@@ -1182,7 +1182,11 @@ double min_block_energy_with_strict(bool strict)
   opts.model_options.strict_storage_emin = strict;
 
   auto options = PlanningOptionsLP {opts};
-  SimulationLP sim_lp(make_simple_simulation(), options);
+  // SimulationLP keeps a reference to the Simulation: it must outlive
+  // sim_lp (binding the temporary was a heap-use-after-free, found by
+  // TSan).
+  const auto simulation = make_simple_simulation();
+  SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
 
   auto& li = sys_lp.linear_interface();

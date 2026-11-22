@@ -386,7 +386,8 @@ TEST_CASE("FlatHelper Move Semantics")
   SUBCASE("Move Assignment")
   {
     FlatHelper original(simulation);
-    const SimulationLP simulation2 {{}, options};  // NOLINT
+    const Simulation empty_simulation {};
+    const SimulationLP simulation2 {empty_simulation, options};  // NOLINT
 
     FlatHelper moved(simulation2);
     moved = std::move(original);

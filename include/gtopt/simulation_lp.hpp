@@ -85,6 +85,13 @@ public:
       const PlanningOptionsLP& options,
       std::shared_ptr<ArrowIndexCache> shared_index_cache = {});
 
+  /// SimulationLP stores a reference to `simulation`; reject temporaries
+  /// at compile time (they dangle as soon as the full expression ends).
+  SimulationLP(Simulation&& simulation,
+               const PlanningOptionsLP& options,
+               std::shared_ptr<ArrowIndexCache> shared_index_cache = {}) =
+      delete;
+
   // Accessors
   /**
    * @brief Gets the underlying simulation model
