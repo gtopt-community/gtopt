@@ -83,4 +83,5 @@ class IndhorParser:
         """Return the parsed data as a list of row dicts."""
         if self._df is None or self._df.empty:
             return []
-        return self._df.to_dict(orient="records")
+        records: List[Dict[str, Any]] = self._df.to_dict(orient="records")
+        return records

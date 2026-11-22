@@ -302,10 +302,12 @@ def _resolve_input_dir(args: argparse.Namespace) -> Path:
 
     Priority: -i flag > positional argument > default 'input'.
     """
-    if args.input_dir is not None:
-        return args.input_dir
-    if args.positional_input is not None:
-        return args.positional_input
+    input_dir: Path | None = args.input_dir
+    if input_dir is not None:
+        return input_dir
+    positional: Path | None = args.positional_input
+    if positional is not None:
+        return positional
     return Path("input")
 
 
@@ -406,7 +408,7 @@ def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
         logging.info("--plp-legacy: applying %s", ", ".join(applied))
 
 
-def build_options(args: argparse.Namespace) -> dict:
+def build_options(args: argparse.Namespace) -> dict[str, Any]:
     """Convert parsed CLI arguments to a conversion options dict."""
     _apply_plp_legacy_bundle(args)
     input_dir = _resolve_input_dir(args)
@@ -539,7 +541,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "emissions_horizon_years": getattr(args, "emissions_horizon_years", None),
     }
     # Model-specific options nested under model_options.
-    model_opts: dict = {
+    model_opts: dict[str, Any] = {
         "demand_fail_cost": args.demand_fail_cost,
         # Renamed per §11.10 (docs/analysis/naming-conventions.md): the
         # gtopt canonical option is `state_violation_cost`; the legacy

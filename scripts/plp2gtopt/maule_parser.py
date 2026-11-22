@@ -29,6 +29,7 @@ See also:
   plp_implementation.md -- detailed field documentation
 """
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .base_parser import BaseParser
@@ -42,7 +43,7 @@ class MauleParser(BaseParser):
     to emit FlowRight, VolumeRight, and RightJunction entities.
     """
 
-    def __init__(self, file_path):
+    def __init__(self, file_path: str | Path) -> None:
         super().__init__(file_path)
         self._config: Dict[str, Any] = {}
 

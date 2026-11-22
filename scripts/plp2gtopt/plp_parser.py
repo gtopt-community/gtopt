@@ -44,7 +44,7 @@ from .compressed_open import find_compressed_path, resolve_compressed_path
 class PLPParser:
     """Handles parsing of all PLP input files."""
 
-    def __init__(self, options: Dict[str, Any]):
+    def __init__(self, options: Dict[str, Any]) -> None:
         """Initialize PLPParser with input directory."""
         self.input_path: Path = Path(options.get("input_dir", ""))
         self.parsed_data: dict[str, Any] = {}
@@ -52,11 +52,11 @@ class PLPParser:
 
         self._validate_input_dir()
 
-    def _validate_input_dir(self):
+    def _validate_input_dir(self) -> None:
         if not self.input_path.is_dir():
             raise FileNotFoundError(f"Input directory not found: {self.input_path}")
 
-    def parse_all(self):
+    def parse_all(self) -> None:
         """Parse all PLP input files."""
         # Store conversion options so downstream parsers can read them
         self.parsed_data["_options"] = self._options

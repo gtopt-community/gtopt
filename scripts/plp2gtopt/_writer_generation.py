@@ -25,7 +25,7 @@ class GenerationMixin:
     parser: Any
     planning: Dict[str, Any]  # see GTOptWriter.__init__
 
-    def process_generator_profiles(self, options):
+    def process_generator_profiles(self, options: Dict[str, Any]) -> None:
         """Process generator profile data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_parser", [])
         blocks = self.parser.parsed_data.get("block_parser", None)
@@ -47,7 +47,7 @@ class GenerationMixin:
             options,
         ).to_json_array()
 
-    def classify_pasada_centrals(self, options):
+    def classify_pasada_centrals(self, options: Dict[str, Any]) -> None:
         """Classify pasada centrals by detected technology.
 
         Populates ``options["_pasada_hydro_names"]`` (set of names for
@@ -137,7 +137,7 @@ class GenerationMixin:
                 len(profile_names),
             )
 
-    def process_centrals(self, options):
+    def process_centrals(self, options: Dict[str, Any]) -> None:
         """Process central data to include block and stage information."""
         centrals = self.parser.parsed_data.get("central_parser", None)
         stages = self.parser.parsed_data.get("stage_parser", None)

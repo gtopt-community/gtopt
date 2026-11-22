@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, cast, TypedDict
 
 import pandas as pd
 
+from gtopt_expand.ror_expand import RorSpec
 from gtopt_shared.water_values import WaterValueResolver
 
 from .base_writer import BaseWriter
@@ -34,7 +35,6 @@ from .ralco_parser import RalcoParser
 from .manem_writer import ManemWriter
 from .minembh_parser import MinembhParser
 from .vrebemb_parser import VrebembParser
-from .ror_equivalence_parser import RorSpec
 from .stage_parser import StageParser
 from .mance_parser import ManceParser
 from .block_parser import BlockParser
@@ -148,21 +148,6 @@ def _merge_pf_curves_min(
     return merged
 
 
-class _SpillwayFields(TypedDict, total=False):
-    """Subset of ``Reservoir`` fields produced by ``_spillway_fields``.
-
-    Used as the return type for the helper so its result can be
-    ``**``-expanded into a ``Reservoir`` literal without mypy losing the
-    statically-known key names.  Both keys are optional because the
-    helper returns ``{}`` to suppress the drain column entirely for a
-    never-drain sentinel (see the ``_DRAIN_KILLED_RESERVOIRS`` branch in
-    ``_spillway_fields``).
-    """
-
-    spillway_cost: float
-    spillway_capacity: float
-
-
 class Waterway(TypedDict, total=False):
     """Represents a waterway connection between junctions in the hydro system.
 
@@ -232,21 +217,13 @@ class _ReservoirRequired(TypedDict):
     flow_conversion_rate: float
 
 
-class Reservoir(_ReservoirRequired, total=False):
-    """Represents a storage node in the hydro system.
+class _ReservoirOptional(TypedDict, total=False):
+    """Optional fields for Reservoir.
 
-    ``use_state_variable`` is optional: when set to ``False`` the reservoir
-    state (energy level) is not linked across blocks, which models small /
-    independent hydro reservoirs (PLP ``Hid_Indep='T'``).
-
-    Energy scaling is now handled exclusively via the ``variable_scales``
-    option in the planning options section (not per-element fields).
-
-    ``fmin`` / ``fmax`` (extraction / storage-flow bounds) are *optional*:
-    the reservoir construction site intentionally omits them so the C++
-    ``ReservoirLP`` applies its own finite defaults (see the ``qe`` bounds
-    note at the reservoir literal).  They are only ever emitted by
-    downstream estimators that fill concrete topology-derived bounds.
+    Split out of :class:`Reservoir` so ``_spillway_fields`` can return it:
+    a ``**``-expanded item in a ``Reservoir`` literal must declare every
+    non-required key the literal leaves unset (mypy ``extra_checks``),
+    otherwise mypy cannot type-check keys the item might carry.
     """
 
     use_state_variable: bool
@@ -263,6 +240,24 @@ class Reservoir(_ReservoirRequired, total=False):
     production_factor: List[Dict[str, Any]]
     daily_cycle: bool
     efin_cost: float
+
+
+class Reservoir(_ReservoirRequired, _ReservoirOptional):
+    """Represents a storage node in the hydro system.
+
+    ``use_state_variable`` is optional: when set to ``False`` the reservoir
+    state (energy level) is not linked across blocks, which models small /
+    independent hydro reservoirs (PLP ``Hid_Indep='T'``).
+
+    Energy scaling is now handled exclusively via the ``variable_scales``
+    option in the planning options section (not per-element fields).
+
+    ``fmin`` / ``fmax`` (extraction / storage-flow bounds) are *optional*:
+    the reservoir construction site intentionally omits them so the C++
+    ``ReservoirLP`` applies its own finite defaults (see the ``qe`` bounds
+    note at the reservoir literal).  They are only ever emitted by
+    downstream estimators that fill concrete topology-derived bounds.
+    """
 
 
 class Turbine(TypedDict, total=False):
@@ -1831,7 +1826,8 @@ class JunctionWriter(BaseWriter):
                     return "discharge"
                 # Column filtered out — emit the scalar afluent (which is the
                 # constant the filter detected) so the LP sees the same value.
-        return central.get("afluent", 0.0)
+        afluent: float = central.get("afluent", 0.0)
+        return afluent
 
     def _load_ror_reservoir_spec(
         self, items: List[Dict[str, Any]]
@@ -2032,7 +2028,7 @@ class JunctionWriter(BaseWriter):
 
     def _spillway_fields(
         self, central_name: str, *, drain_disabled: bool = False
-    ) -> "_SpillwayFields":
+    ) -> _ReservoirOptional:
         """Compute ``spillway_cost`` / ``spillway_capacity`` for one reservoir.
 
         EVERY reservoir gets its storage-drain (spillway) column ENABLED

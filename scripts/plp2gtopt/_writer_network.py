@@ -31,7 +31,7 @@ class NetworkMixin:
     # real method depending on the base-class order).
     _falla_by_bus: Callable[[], Dict[int, Dict[str, Any]]]
 
-    def process_demands(self, options):
+    def process_demands(self, options: Dict[str, Any]) -> None:
         """Process demand data to include block and stage information."""
         demands = self.parser.parsed_data.get("demand_parser", [])
         if not demands:
@@ -107,7 +107,7 @@ class NetworkMixin:
 
         self.planning["system"]["demand_array"] = demand_array
 
-    def process_buses(self):
+    def process_buses(self) -> None:
         """Process bus data to include block and stage information."""
         buses = self.parser.parsed_data.get("bus_parser", [])
         if not buses:
@@ -115,7 +115,7 @@ class NetworkMixin:
 
         self.planning["system"]["bus_array"] = BusWriter(buses).to_json_array()
 
-    def process_lines(self, options):
+    def process_lines(self, options: Dict[str, Any]) -> None:
         """Process line data to include block and stage information."""
         lines = self.parser.parsed_data.get("line_parser", [])
         blocks = self.parser.parsed_data.get("block_parser", None)
@@ -125,7 +125,7 @@ class NetworkMixin:
             lines, blocks, manlis, options
         ).to_json_array()
 
-    def process_battery(self, options):
+    def process_battery(self, options: Dict[str, Any]) -> None:
         """Process battery/ESS data and append to existing arrays."""
         battery_parser = self.parser.parsed_data.get("battery_parser", None)
         ess_parser = self.parser.parsed_data.get("ess_parser", None)

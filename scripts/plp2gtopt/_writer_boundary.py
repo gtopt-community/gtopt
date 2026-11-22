@@ -58,7 +58,7 @@ class BoundaryMixin:
             )
         return data
 
-    def process_boundary_cuts(self, options):
+    def process_boundary_cuts(self, options: dict[str, Any]) -> None:
         """Write boundary-cut and hot-start-cut CSVs from parsed PLP planos data.
 
         If the PLP input contained plpplaem/plpplem files, the parsed boundary
@@ -104,7 +104,7 @@ class BoundaryMixin:
             return
 
         output_dir = Path(options.get("output_dir", ""))
-        fcf: dict = {}
+        fcf: dict[str, Any] = {}
         name_alias = self._load_alias_file(options.get("alias_file"))
 
         # Resolve the boundary-cut load mode FIRST — the CSV magnitudes
@@ -141,7 +141,7 @@ class BoundaryMixin:
         #
         # `max(scene)` over the parsed cuts recovers PLP's NVarPhi
         # exactly (ISimul is 1-based and dense up to NVarPhi).
-        scenario_array: list = (
+        scenario_array: list[dict[str, Any]] = (
             self.planning.get("simulation", {}).get("scenario_array") or []
         )
         # NVarPhi = max ISimul across the PLP cuts.  Fallback to the
@@ -380,7 +380,7 @@ class BoundaryMixin:
         return dropped
 
     @staticmethod
-    def _warn_if_unequal_probabilities(scenario_array: list) -> None:
+    def _warn_if_unequal_probabilities(scenario_array: list[dict[str, Any]]) -> None:
         """Log a warning when scenario probabilities are not equal.
 
         The 1/NVarPhi probability factor applied in :mod:`planos_writer`
@@ -410,7 +410,7 @@ class BoundaryMixin:
     # the hot-start CSV writer.
 
     @staticmethod
-    def _load_variable_scales_file(file_path: Path) -> list[dict]:
+    def _load_variable_scales_file(file_path: Path) -> list[dict[str, Any]]:
         """Load variable scales from a JSON file.
 
         The file must contain a JSON array of objects, each with keys:
@@ -430,7 +430,7 @@ class BoundaryMixin:
                 )
                 return []
             required_keys = {"class_name", "variable", "uid", "scale"}
-            result: list[dict] = []
+            result: list[dict[str, Any]] = []
             for entry in data:
                 if not isinstance(entry, dict) or not required_keys <= entry.keys():
                     logger.warning(
@@ -449,7 +449,7 @@ class BoundaryMixin:
             )
             return []
 
-    def process_variable_scales(self, options):
+    def process_variable_scales(self, options: dict[str, Any]) -> None:
         """Build ``variable_scales`` entries in the options section.
 
         Generates VariableScale JSON entries for reservoir energy scaling
@@ -480,7 +480,7 @@ class BoundaryMixin:
             return
 
         # --- Load file-based scales first (lowest priority) ---
-        file_scales: list[dict] = []
+        file_scales: list[dict[str, Any]] = []
         if has_file:
             file_path = options["variable_scales_file"]
             file_scales = self._load_variable_scales_file(Path(file_path))
@@ -495,22 +495,24 @@ class BoundaryMixin:
         # Track which (class_name, variable, uid) are set by auto/explicit
         computed_keys: set[tuple[str, str, int]] = set()
 
-        scales: list[dict] = []
+        scales: list[dict[str, Any]] = []
 
         # --- Reservoir energy scales ---
         if has_reservoir:
-            explicit_reservoir: dict = options.get("reservoir_energy_scale", {})
+            explicit_reservoir: dict[str, Any] = options.get(
+                "reservoir_energy_scale", {}
+            )
             auto_reservoir = options.get("auto_reservoir_energy_scale", False)
 
             # Collect FEscala data from planos parser (plpplem1.dat)
             planos = self.parser.parsed_data.get("planos_parser")
-            fescala_map: dict = {}
+            fescala_map: dict[str, Any] = {}
             if planos is not None:
                 fescala_map = planos.reservoir_fescala
 
             # Collect central_parser energy_scale as fallback for auto mode
             central_parser = self.parser.parsed_data.get("central_parser")
-            central_energy_scale: dict = {}
+            central_energy_scale: dict[str, Any] = {}
             if central_parser is not None:
                 for central in central_parser.centrals:
                     if central.get("type") == "embalse" and "energy_scale" in central:
@@ -563,7 +565,7 @@ class BoundaryMixin:
 
         # --- Battery energy scales ---
         if has_battery:
-            explicit_energy: dict = options.get("battery_energy_scale", {})
+            explicit_energy: dict[str, Any] = options.get("battery_energy_scale", {})
             auto_energy = options.get("auto_battery_energy_scale", False)
 
             batteries = self.planning["system"].get("battery_array", [])

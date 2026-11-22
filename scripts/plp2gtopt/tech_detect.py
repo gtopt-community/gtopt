@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ _PLP_BASE_TYPE: dict[str, str] = {
 # Order matters: first match wins.  More specific patterns come first.
 # ---------------------------------------------------------------------------
 
-_NAME_PATTERNS: list[tuple[re.Pattern, str]] = [
+_NAME_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # Solar
     (
         re.compile(
@@ -332,7 +333,7 @@ def _load_csv_overrides(path: str) -> dict[str, str]:
 
 
 def classify_generators(
-    centrals: list[dict],
+    centrals: list[dict[str, Any]],
     *,
     overrides: dict[str, str] | None = None,
     auto_detect: bool = True,

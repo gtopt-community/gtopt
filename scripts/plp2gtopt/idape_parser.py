@@ -112,5 +112,6 @@ class IdApeParser(BaseParser):
         """
         for entry in self._data:
             if entry["simulation"] == simulation and entry["stage"] == stage:
-                return entry["indices"]
+                indices: list[int] = entry["indices"]
+                return indices
         return []

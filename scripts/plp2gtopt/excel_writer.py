@@ -121,7 +121,7 @@ _SYS_SHEETS = [
 ]
 
 # .introduction content (title, heading, body, table entries)
-_INTRO_LINES: list[tuple] = [
+_INTRO_LINES: list[tuple[str, ...]] = [
     ("gtopt Planning Workbook (from plp2gtopt)", "TITLE"),
     ("", ""),
     (
@@ -202,7 +202,7 @@ def _collect_field_order(sheet_name: str) -> list[str]:
         return []
 
 
-def _records_to_df(records: list[dict], sheet_name: str) -> pd.DataFrame:
+def _records_to_df(records: list[dict[str, Any]], sheet_name: str) -> pd.DataFrame:
     """Convert a list of JSON records to a DataFrame with canonical column order."""
     if not records:
         return pd.DataFrame()
@@ -222,9 +222,9 @@ def _records_to_df(records: list[dict], sheet_name: str) -> pd.DataFrame:
                 all_keys.append(key)
                 seen.add(key)
 
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for rec in records:
-        row: dict = {}
+        row: dict[str, Any] = {}
         for key in all_keys:
             val = rec.get(key)
             if val is None:
@@ -240,7 +240,7 @@ def _records_to_df(records: list[dict], sheet_name: str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=all_keys)
 
 
-def _flatten_options(planning_options: dict) -> list[tuple[str, Any]]:
+def _flatten_options(planning_options: dict[str, Any]) -> list[tuple[str, Any]]:
     """Flatten the planning options dict to (key, value) pairs for the options sheet.
 
     Nested dicts (like ``sddp_options``) are flattened with their sub-keys.
@@ -266,7 +266,7 @@ def _flatten_options(planning_options: dict) -> list[tuple[str, Any]]:
     return pairs
 
 
-def _add_intro_sheet(ws: Any, styles: dict) -> None:
+def _add_intro_sheet(ws: Any, styles: dict[str, Any]) -> None:
     """Write the .introduction sheet content."""
     ws.column_dimensions["A"].width = 30
     ws.column_dimensions["B"].width = 14
@@ -305,7 +305,9 @@ def _add_intro_sheet(ws: Any, styles: dict) -> None:
         row += 1
 
 
-def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> None:
+def _add_plpinfo_sheet(
+    ws: Any, planning: dict[str, Any], options: dict[str, Any], styles: dict[str, Any]
+) -> None:
     """Write the .plpinfo conversion stats sheet."""
     ws.column_dimensions["A"].width = 32
     ws.column_dimensions["B"].width = 22
@@ -319,7 +321,7 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
     output_dir = str(options.get("output_dir", ""))
     mo = options.get("model_options", {})
 
-    sections: list[tuple] = [
+    sections: list[tuple[Any, ...]] = [
         ("Conversion Metadata", "HEADING"),
         ("key", "value", "", "TABLE_HEADER"),
         ("input_dir", input_dir, "", "TABLE"),
@@ -413,7 +415,9 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
                 ws.cell(row=row_idx, column=2).fill = styles["ALT_ROW"]
 
 
-def _add_options_sheet(ws: Any, planning_options: dict, styles: dict) -> None:
+def _add_options_sheet(
+    ws: Any, planning_options: dict[str, Any], styles: dict[str, Any]
+) -> None:
     """Write the options sheet with key|value|description columns."""
     ws.column_dimensions["A"].width = 34
     ws.column_dimensions["B"].width = 22
@@ -436,8 +440,8 @@ def _add_options_sheet(ws: Any, planning_options: dict, styles: dict) -> None:
 def _add_data_sheet(
     ws: Any,
     sheet_name: str,
-    records: list[dict],
-    styles: dict,
+    records: list[dict[str, Any]],
+    styles: dict[str, Any],
     get_column_letter: Any,
 ) -> None:
     """Write a data sheet from a list of JSON records (no help rows)."""
@@ -472,7 +476,7 @@ def _add_timeseries_sheet(
     ws: Any,
     sheet_name: str,
     df: pd.DataFrame,
-    styles: dict,
+    styles: dict[str, Any],
     get_column_letter: Any,
 ) -> None:
     """Write a time-series @-sheet from a DataFrame."""

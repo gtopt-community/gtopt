@@ -173,7 +173,7 @@ def display_plp_info(options: Dict[str, Any]) -> None:
         )
         print("  Hydrology mapping (stage 1):")
         active_hydros: List[int] = []
-        seen: set = set()
+        seen: set[int] = set()
         for sim_idx in range(idsim.num_simulations):
             h = idsim.get_index(sim_idx, 1)
             if h is not None:
@@ -208,7 +208,7 @@ def display_plp_info(options: Dict[str, Any]) -> None:
 
         if idap2 is not None:
             # Collect union across effective stages
-            ape_union: set = set()
+            ape_union: set[int] = set()
             for entry in idap2.items:
                 if 1 <= entry["stage"] <= effective_stages:
                     for h in entry["indices"]:

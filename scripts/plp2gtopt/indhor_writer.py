@@ -15,7 +15,7 @@ block-granularity solver output.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .indhor_parser import IndhorParser
 from .base_writer import BaseWriter
@@ -39,7 +39,7 @@ class IndhorWriter(BaseWriter):
     def __init__(
         self,
         indhor_parser: Optional[IndhorParser] = None,
-        options: Optional[dict] = None,
+        options: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(None, options)
         self.indhor_parser = indhor_parser

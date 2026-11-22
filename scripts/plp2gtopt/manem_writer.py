@@ -60,7 +60,9 @@ class ManemWriter(BaseWriter):
         ]
         return cast(List[Dict[str, Any]], json_manems)
 
-    def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
+    def _create_dataframe_for_field(
+        self, field: str, items: list[dict[str, Any]]
+    ) -> pd.DataFrame:
         """Create a DataFrame for a specific maintenance field (emin/emax).
 
         The emin/emax field must be DENSE — every stage of every reservoir

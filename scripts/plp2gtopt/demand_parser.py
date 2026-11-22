@@ -17,7 +17,7 @@ class DemandParser(BaseParser):
     """Parser for plpdem.dat format files containing bus demand data."""
 
     @property
-    def demands(self):
+    def demands(self) -> list[dict[str, Any]]:
         """Return the demand entries."""
         return self.get_all()
 
@@ -97,6 +97,6 @@ class DemandParser(BaseParser):
         finally:
             lines.clear()
 
-    def get_demand_by_name(self, name):
+    def get_demand_by_name(self, name: str) -> Optional[dict[str, Any]]:
         """Get demand data for a specific bus name."""
         return self.get_item_by_name(name)

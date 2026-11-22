@@ -71,7 +71,7 @@ class AflceWriter(BaseWriter):
         return cast(List[Dict[str, Any]], json_flows)
 
     def _build_base_columns(
-        self, items: list
+        self, items: list[dict[str, Any]]
     ) -> tuple[
         list[str], np.ndarray | None, dict[str, float], list[tuple[str, np.ndarray]]
     ]:
@@ -175,7 +175,8 @@ class AflceWriter(BaseWriter):
             dtype=np.intp,
             count=len(master_index),
         )
-        return flow_2d[np.arange(flow_2d.shape[0]), col_idx]
+        selected: np.ndarray = flow_2d[np.arange(flow_2d.shape[0]), col_idx]
+        return selected
 
     def to_dataframe(
         self, items: Optional[List[Dict[str, Any]]] = None

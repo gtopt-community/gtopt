@@ -85,7 +85,8 @@ class IdSimParser(BaseParser):
         for entry in self._data:
             if entry["stage"] == stage:
                 if 0 <= simulation < len(entry["indices"]):
-                    return entry["indices"][simulation]
+                    index: int = entry["indices"][simulation]
+                    return index
         return None
 
     def get_stage_map(self, simulation: int) -> Dict[int, int]:

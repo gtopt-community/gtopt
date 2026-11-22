@@ -27,8 +27,10 @@ import pyarrow.parquet as pq
 
 from gtopt_shared.csv_io import write_csv
 from gtopt_shared.dataframe import to_long_layout
-
-from .base_writer import _DEFAULT_COMPRESSION, _probe_parquet_codec
+from gtopt_shared.parquet import (
+    DEFAULT_COMPRESSION as _DEFAULT_COMPRESSION,
+    probe_parquet_codec as _probe_parquet_codec,
+)
 
 
 def _make_wetness_sort_key(
@@ -56,9 +58,9 @@ def _unique_hydro_indices(
     idap2_parser: Any,
     num_simulations: int,
     num_stages: int,
-) -> set:
+) -> set[int]:
     """Collect all unique 1-based hydrology indices referenced by apertures."""
-    indices: set = set()
+    indices: set[int] = set()
 
     if idap2_parser is not None:
         for entry in idap2_parser.items:
@@ -186,8 +188,8 @@ def build_aperture_array(
     # Collect the union of all used stages' aperture indices preserving
     # first-appearance order.  plpidap2.dat is stage-indexed — we must
     # iterate over all output stages, not only stage 1.
-    seen: set = set()
-    unique_hydros: list = []
+    seen: set[int] = set()
+    unique_hydros: list[int] = []
     for entry in idap2_parser.items:
         if 1 <= entry["stage"] <= num_stages:
             for h in entry["indices"]:
@@ -223,7 +225,7 @@ def build_aperture_array(
     # Track aperture-only hydrologies — these need extra scenarios in
     # scenario_array so the C++ solver can find them.  The scenario UID
     # matches the Fortran 1-based hydrology index (PLP convention).
-    aperture_hydro_seen: set = set()
+    aperture_hydro_seen: set[int] = set()
 
     aperture_array: List[Dict[str, Any]] = []
     extra_scenarios: List[Dict[str, Any]] = []
@@ -323,7 +325,7 @@ def build_aperture_array(
 def _compute_wetness_over_stages(
     aflce_parser: Any,
     block_parser: Any,
-    valid_plp_stages: set,
+    valid_plp_stages: set[int],
 ) -> Dict[int, float]:
     """Inner reducer shared by :func:`compute_phase_wetness` and
     :func:`compute_global_wetness`.
@@ -517,8 +519,8 @@ def build_phase_apertures(
     # We need to reconstruct which hydro each aperture references.
     # build_aperture_array assigns UIDs sequentially from unique_hydros,
     # so we rebuild the same unique_hydros list to create the reverse map.
-    seen: set = set()
-    unique_hydros: list = []
+    seen: set[int] = set()
+    unique_hydros: list[int] = []
     for entry in idap2_parser.items:
         if 1 <= entry["stage"] <= num_stages:
             for h in entry["indices"]:
@@ -563,7 +565,7 @@ def build_phase_apertures(
     for phase in phase_array:
         first_stage_0 = phase["first_stage"]
         count = phase["count_stage"]
-        phase_hydros: list = []
+        phase_hydros: list[int] = []
         for stage_0 in range(first_stage_0, first_stage_0 + count):
             plp_stage = stage_0 + 1  # convert to 1-based PLP stage
             if plp_stage > num_stages:
@@ -612,7 +614,7 @@ def write_aperture_afluents(
     central_parser: Any,
     block_parser: Any,
     aperture_hydros: List[int],
-    forward_hydros: set,
+    forward_hydros: set[int],
     output_dir: Path,
     options: Optional[Dict[str, Any]] = None,
     hydro_uid_map: Optional[Dict[int, int]] = None,

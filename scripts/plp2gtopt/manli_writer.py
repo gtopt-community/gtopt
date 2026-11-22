@@ -56,7 +56,9 @@ class ManliWriter(BaseWriter):
         ]
         return cast(List[Dict[str, Any]], json_manlis)
 
-    def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
+    def _create_dataframe_for_field(
+        self, field: str, items: list[dict[str, Any]]
+    ) -> pd.DataFrame:
         """Create a DataFrame for a specific maintenance field."""
         df = self._create_dataframe(
             items=items,
@@ -68,7 +70,7 @@ class ManliWriter(BaseWriter):
         )
         return df
 
-    def block_to_stage_df(self, df):
+    def block_to_stage_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """Process a DataFrame to set stage as index and remove duplicates."""
         if df.empty:
             return df
@@ -127,7 +129,9 @@ class ManliWriter(BaseWriter):
     # in CEN cases, so the first block of each stage is representative.
     STAGE_FIELDS = (("voltage", "voltage"), ("r", "resistance"), ("x", "reactance"))
 
-    def _stage_field_dataframe(self, key: str, items: list) -> pd.DataFrame:
+    def _stage_field_dataframe(
+        self, key: str, items: list[dict[str, Any]]
+    ) -> pd.DataFrame:
         """Per-stage DataFrame of a mantlin electrical parameter."""
         if not self.block_parser or not self.line_parser:
             return pd.DataFrame()

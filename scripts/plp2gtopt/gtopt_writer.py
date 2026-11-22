@@ -144,7 +144,9 @@ def _collapse_orphan_drain_outflows(system: Dict[str, Any]) -> int:
     return len(collapsed)
 
 
-def _find_by_uid_or_name(arr: list[Dict], ref: Any) -> Optional[Dict]:
+def _find_by_uid_or_name(
+    arr: list[Dict[str, Any]], ref: Any
+) -> Optional[Dict[str, Any]]:
     """Look up an element in ``arr`` by Uid (int) or Name (str)."""
     if isinstance(ref, int):
         for elem in arr:
@@ -158,7 +160,7 @@ def _find_by_uid_or_name(arr: list[Dict], ref: Any) -> Optional[Dict]:
     return None
 
 
-def _validate_piecewise_segments(planning: Dict) -> list[str]:
+def _validate_piecewise_segments(planning: Dict[str, Any]) -> list[str]:
     """Per-segment range feasibility for seepage + discharge_limit.
 
     Mirrors the C++ ``check_piecewise_feasibility`` in
@@ -972,7 +974,7 @@ class GTOptWriter(
                 max_aps = max(max_aps, len(aps))
         return max(max_aps, 1)
 
-    def process_options(self, options):
+    def process_options(self, options: Dict[str, Any]) -> None:
         """Process options data to include input and output paths.
 
         The solver type is emitted at the top level as ``method`` so that
@@ -995,7 +997,7 @@ class GTOptWriter(
         # (see ``_build_default_cascade_options``); for plain SDDP the user
         # can override at the gtopt CLI with ``--sddp-num-apertures N`` or
         # ``--set sddp_options.num_apertures=N``.
-        sddp_opts: dict = {}
+        sddp_opts: dict[str, Any] = {}
 
         cut_sharing_mode = options.get("cut_sharing_mode")
         if cut_sharing_mode is not None:
@@ -1373,7 +1375,7 @@ class GTOptWriter(
         # Set annual_discount_rate on the simulation section.
         self.planning["simulation"]["annual_discount_rate"] = discount_rate
 
-    def to_json(self, options: Optional[Dict[str, Any]] = None) -> Dict:
+    def to_json(self, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Convert parsed data to GTOPT JSON structure."""
         if options is None:
             options = {}
@@ -1623,7 +1625,7 @@ class GTOptWriter(
 
         return self.planning
 
-    def write(self, options=None):
+    def write(self, options: Optional[Dict[str, Any]] = None) -> None:
         """Write JSON output to file."""
         if options is None:
             options = {}
@@ -1663,7 +1665,9 @@ class GTOptWriter(
         if getattr(self, "_cascade_reduced_active", False):
             self._emit_reduced_artefacts(output_file, options)
 
-    def _emit_reduced_artefacts(self, output_file: Path, options: dict) -> None:
+    def _emit_reduced_artefacts(
+        self, output_file: Path, options: dict[str, Any]
+    ) -> None:
         """Run the network reducer on the completed planning and write
         the L1 (transport-only) + L2 (DC-OPF with lossfactor uplift)
         reduced JSONs alongside the main case.

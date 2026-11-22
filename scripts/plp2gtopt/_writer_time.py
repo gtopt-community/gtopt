@@ -10,7 +10,7 @@ by the host class) and on PLP parsed data attached to ``self.parser``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import TYPE_CHECKING, Any, Dict
 
 from .aperture_writer import (
     build_aperture_array,
@@ -30,11 +30,16 @@ class TimeMixin:
     planning: Dict[str, Any]  # see GTOptWriter.__init__
 
     # Provided by the host class (``GTOptWriter._normalize_method``, a
-    # staticmethod) — reachable via the MRO.  Annotation only (no runtime
-    # stub, which would shadow the host's implementation).
-    _normalize_method: Callable[[str], str]
+    # staticmethod) — reachable via the MRO.  Declared for type checkers
+    # only (no runtime stub, which would shadow the host's implementation);
+    # declared as a staticmethod rather than a ``Callable`` attribute so
+    # the host's staticmethod is a compatible override.
+    if TYPE_CHECKING:
 
-    def process_stage_blocks(self, options):
+        @staticmethod
+        def _normalize_method(method: str) -> str: ...
+
+    def process_stage_blocks(self, options: Dict[str, Any]) -> None:
         """Calculate first_block and count_block for stages, and build phase_array.
 
         Phase assignment priority (highest to lowest):
@@ -118,7 +123,7 @@ class TimeMixin:
                     for i in range(num_stages)
                 ]
 
-    def process_scenarios(self, options):
+    def process_scenarios(self, options: Dict[str, Any]) -> None:
         """Process scenario data to include block and stage information.
 
         **Hydrology index convention (Fortran 1-based)**
@@ -179,10 +184,10 @@ class TimeMixin:
                     stage1_to_sim[h1] = sim_idx
 
         # Helper: collect all available hydrology indices from PLP data
-        def _all_hydro_indices() -> list:
+        def _all_hydro_indices() -> list[int]:
             if idsim_parser is not None and idsim_parser.num_simulations > 0:
-                indices: list = []
-                seen_h: set = set()
+                indices: list[int] = []
+                seen_h: set[int] = set()
                 for sim_idx in range(idsim_parser.num_simulations):
                     h = idsim_parser.get_index(sim_idx, 1)
                     if h is not None and h not in seen_h:
@@ -335,7 +340,7 @@ class TimeMixin:
             for stage, h in ref_row.items()
         }
 
-    def process_apertures(self, options):
+    def process_apertures(self, options: Dict[str, Any]) -> None:
         """Build aperture_array from parsed PLP aperture index files.
 
         When ``plpidap2.dat`` (or ``plpidape.dat``) is present, the aperture
@@ -369,8 +374,8 @@ class TimeMixin:
 
         # Build map: 0-based hydrology index → gtopt scenario UID
         scenarios = self.planning["simulation"].get("scenario_array", [])
-        scenario_hydro_map: dict = {}
-        forward_hydros: set = set()
+        scenario_hydro_map: dict[int, int] = {}
+        forward_hydros: set[int] = set()
         for scen in scenarios:
             hydro_0based = scen.get("hydrology")
             if hydro_0based is not None:
@@ -477,7 +482,7 @@ class TimeMixin:
             block_parser=self.parser.parsed_data.get("block_parser", None),
         )
 
-    def process_indhor(self, options):
+    def process_indhor(self, options: Dict[str, Any]) -> None:
         """Write block-to-hour map from indhor.csv if present, and record in JSON.
 
         When the PLP input directory contains ``indhor.csv``, plp_parser will

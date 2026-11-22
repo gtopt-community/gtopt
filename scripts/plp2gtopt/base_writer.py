@@ -89,7 +89,7 @@ class BaseWriter(ABC):
         fill_field: Optional[str] = None,
         item_key: str = "number",
         skip_types: tuple[str, ...] = (),
-        value_oper: Callable = lambda x: x,
+        value_oper: Callable[[Any], Any] = lambda x: x,
     ) -> pd.DataFrame:
         """Create a DataFrame from items with common processing.
 
@@ -251,7 +251,8 @@ class BaseWriter(ABC):
         """Return ``"parquet"`` or ``"csv"`` from *options*."""
         if options is None:
             options = self.options
-        return (options or {}).get("output_format", "parquet")
+        output_format: str = (options or {}).get("output_format", "parquet")
+        return output_format
 
     def write_dataframe(
         self,
@@ -353,7 +354,8 @@ class BaseWriter(ABC):
         if last_time > 0 and blocks:
             for block in blocks:
                 if block["accumulated_time"] >= last_time:
-                    return block["stage"]
+                    stage: int = block["stage"]
+                    return stage
 
         return last_stage
 

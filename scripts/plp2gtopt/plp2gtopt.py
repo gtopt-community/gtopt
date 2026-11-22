@@ -53,7 +53,7 @@ from ._comparison import (  # noqa: F401  — re-exported for backward compat
 logger = logging.getLogger(__name__)
 
 
-def _features_rows(options: dict | None) -> list[tuple[str, str]]:
+def _features_rows(options: dict[str, Any] | None) -> list[tuple[str, str]]:
     """Return ``(name, value)`` rows for the active plp2gtopt feature toggles.
 
     ``options`` is the CLI-derived opts dict assembled in ``main.build_opts``
@@ -144,7 +144,9 @@ def _features_rows(options: dict | None) -> list[tuple[str, str]]:
     return rows
 
 
-def _log_stats(planning: dict, elapsed: float, options: dict | None = None) -> None:
+def _log_stats(
+    planning: dict[str, Any], elapsed: float, options: dict[str, Any] | None = None
+) -> None:
     """Print conversion statistics using styled terminal tables.
 
     When ``options`` is supplied (the CLI-derived opts dict from
@@ -271,7 +273,7 @@ def _log_stats(planning: dict, elapsed: float, options: dict | None = None) -> N
     )
 
 
-def show_simulation_summary(planning: dict) -> None:
+def show_simulation_summary(planning: dict[str, Any]) -> None:
     """Print a detailed summary of the simulation structure."""
     from gtopt_check_json._terminal import (  # noqa: PLC0415
         print_kv_table,
@@ -853,8 +855,6 @@ def convert_plp_case(options: dict[str, Any]) -> int:
             # Fix temp dir paths in the planning dict and re-write the
             # JSON.
             if not json_inside:
-                from .gtopt_writer import _strip_internal_keys  # noqa: PLC0415
-
                 tmp_str = str(tmp_options["output_dir"])
                 final_str = str(output_dir)
                 plan_json = json.dumps(writer.planning)
@@ -862,7 +862,7 @@ def convert_plp_case(options: dict[str, Any]) -> int:
                     plan_json = plan_json.replace(tmp_str, final_str)
                     writer.planning = json.loads(plan_json)
                 with open(output_file, "w", encoding="utf-8") as f:
-                    json.dump(_strip_internal_keys(writer.planning), f, indent=4)
+                    json.dump(strip_internal_keys(writer.planning), f, indent=4)
 
             # Mark last build step done before printing tables
             progress.step("validate")

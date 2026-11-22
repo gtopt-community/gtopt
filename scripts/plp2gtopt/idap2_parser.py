@@ -88,5 +88,6 @@ class IdAp2Parser(BaseParser):
         """
         for entry in self._data:
             if entry["stage"] == stage:
-                return entry["indices"]
+                indices: list[int] = entry["indices"]
+                return indices
         return []

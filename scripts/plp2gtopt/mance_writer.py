@@ -60,7 +60,9 @@ class ManceWriter(BaseWriter):
         ]
         return cast(List[Dict[str, Any]], json_mances)
 
-    def _create_dataframe_for_field(self, field: str, items: list) -> pd.DataFrame:
+    def _create_dataframe_for_field(
+        self, field: str, items: list[dict[str, Any]]
+    ) -> pd.DataFrame:
         """Create a DataFrame for a specific maintenance field (pmin/pmax)."""
         df = self._create_dataframe(
             items=items,

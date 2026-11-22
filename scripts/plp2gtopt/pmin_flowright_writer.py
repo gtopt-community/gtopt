@@ -37,9 +37,10 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from gtopt_shared.dataframe import to_wide_layout
 from gtopt_shared.water_values import WaterValueResolver
 
-from .base_writer import BaseWriter, to_wide_layout
+from .base_writer import BaseWriter
 
 _logger = logging.getLogger(__name__)
 

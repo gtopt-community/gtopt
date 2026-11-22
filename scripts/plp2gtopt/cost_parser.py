@@ -11,7 +11,7 @@ class CostParser(BaseParser):
     """Parser for plpcosce.dat format files containing central cost data."""
 
     @property
-    def costs(self):
+    def costs(self) -> list[dict[str, Any]]:
         """Return the cost entries."""
         return self.get_all()
 

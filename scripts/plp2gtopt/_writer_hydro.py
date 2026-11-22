@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, List, Mapping
 
 from gtopt_shared.water_values import (
     WaterValueResolver,
@@ -79,7 +79,9 @@ class HydroMixin:
         # objective for the END-of-horizon volume — it represents the
         # *aggregate* marginal water value, not the per-scene share.
         try:
-            raw = planos.lower_bound_water_value_by_reservoir(num_scenarios=None)
+            raw: Dict[str, float] = planos.lower_bound_water_value_by_reservoir(
+                num_scenarios=None
+            )
         except (AttributeError, TypeError):
             # Defensive — older parser fixtures may not implement the
             # helper.  Treat as "no cuts available" instead of crashing
@@ -173,7 +175,7 @@ class HydroMixin:
                 patched,
             )
 
-    def process_ror_spec(self, options):
+    def process_ror_spec(self, options: Dict[str, Any]) -> None:
         """Resolve ``--ror-as-reservoirs`` once so downstream writers share it.
 
         Runs before ``process_afluents`` and ``process_junctions`` so that
@@ -259,7 +261,7 @@ class HydroMixin:
             len(promoted),
         )
 
-    def process_afluents(self, options):
+    def process_afluents(self, options: Dict[str, Any]) -> None:
         """Write affluent/discharge Parquet files for Flow elements.
 
         Excludes:
@@ -321,7 +323,7 @@ class HydroMixin:
         if options is not None:
             options["_aflce_emitted_uids"] = emitted
 
-    def process_junctions(self, options):
+    def process_junctions(self, options: Dict[str, Any]) -> None:
         """Build and merge the hydro junction / waterway / reservoir topology."""
         centrals = self.parser.parsed_data.get("central_parser", None)
         stages = self.parser.parsed_data.get("stage_parser", None)
@@ -398,7 +400,7 @@ class HydroMixin:
                 else:
                     self.planning["system"][key] = val
 
-    def process_water_rights(self, options):
+    def process_water_rights(self, options: Dict[str, Any]) -> None:
         """Emit Laja / Maule Stage-2 artifacts.
 
         Controls Laja/Maule irrigation-agreement expansion only.  LNG
@@ -466,7 +468,7 @@ class HydroMixin:
                 cfg["extrac_entries"] = list(extrac_parser.get_all())
             self._expand_maule(cfg, stage_parser, output_dir)
 
-    def process_lng(self, options):
+    def process_lng(self, options: Dict[str, Any]) -> None:
         """Emit LNG Stage-2 expansion.
 
         Fully independent of ``process_water_rights``.  When
@@ -487,7 +489,7 @@ class HydroMixin:
 
         self._expand_lng(gnl_parser.config)
 
-    def process_pumped_storage(self, options):
+    def process_pumped_storage(self, options: Dict[str, Any]) -> None:
         """Emit pumped-storage expansions from ``--pumped-storage FILE[s]``.
 
         For each config file in ``options["pumped_storage_files"]``,
@@ -825,7 +827,9 @@ class HydroMixin:
                     key,
                 )
 
-    def _hoya_inter_stage_means(self, names: list) -> list | dict | None:
+    def _hoya_inter_stage_means(
+        self, names: List[str]
+    ) -> List[float] | Dict[str, Any] | None:
         """Duration-weighted stage means of the hoya-intermedia inflows.
 
         Mirrors PLP's ``QAfluEtaM``/``GetQsLajaM`` (genpdlajam.f:370-446):
@@ -844,7 +848,7 @@ class HydroMixin:
         blocks = self.parser.parsed_data.get("block_parser")
         if aflce is None or blocks is None or not names:
             return None
-        per_stage: Dict[int, list] = {}
+        per_stage: Dict[int, List[tuple[int, float]]] = {}
         for blk in blocks.blocks:
             per_stage.setdefault(int(blk["stage"]), []).append(
                 (int(blk["number"]), float(blk["duration"]))
@@ -854,7 +858,7 @@ class HydroMixin:
         # Per-central per-block flows for EVERY hydrology column —
         # scenario-dimensioned qdefm uses one series per forward
         # scenario (each references a PLP hydrology).
-        flows_by_name: Dict[str, Dict[int, list]] = {}
+        flows_by_name: Dict[str, Dict[int, List[float]]] = {}
         num_h = 1
         for name in names:
             entry = aflce.get_flow_by_name(str(name))
@@ -867,8 +871,8 @@ class HydroMixin:
         if not flows_by_name:
             return None
 
-        def stage_means(h_idx: int) -> list:
-            means: list = []
+        def stage_means(h_idx: int) -> List[float]:
+            means: List[float] = []
             for stage_num in sorted(per_stage):
                 total_dur = 0.0
                 acc = 0.0
@@ -890,7 +894,7 @@ class HydroMixin:
             for sc in self.planning.get("simulation", {}).get("scenario_array", [])
             if "input_directory" not in sc
         ]
-        by_scenario: list = []
+        by_scenario: List[List[float]] = []
         for sc in scenarios:
             h = sc.get("hydrology")
             h_idx = (int(h) - 1) if isinstance(h, (int, float)) and int(h) >= 1 else 0
@@ -1112,7 +1116,7 @@ class HydroMixin:
             len(entities.get("lng_terminal_array", [])),
         )
 
-    def process_pmin_flowright(self, options):
+    def process_pmin_flowright(self, options: Dict[str, Any]) -> None:
         """Convert whitelisted generators' ``pmin`` into FlowRight obligations.
 
         Companion to :mod:`gtopt_expand.pmin_flowright_expand`.  Runs
@@ -1205,7 +1209,7 @@ class HydroMixin:
 
         ensure_bypass_for_flowrights(self.planning["system"])
 
-    def process_flow_turbines(self, options):
+    def process_flow_turbines(self, options: Dict[str, Any]) -> None:
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.
 
         Only pasada centrals classified as hydro (in

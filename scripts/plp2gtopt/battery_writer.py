@@ -669,7 +669,10 @@ class BatteryWriter(BaseWriter):
             self.write_dataframe(pd.DataFrame(lmax_data), dem_dir, "lmax")
 
     def process(
-        self, existing_gen: List[Dict], existing_dem: List[Dict], output_dir: Path
+        self,
+        existing_gen: List[Dict[str, Any]],
+        existing_dem: List[Dict[str, Any]],
+        output_dir: Path,
     ) -> Dict[str, Any]:
         """Produce all battery output arrays.
 

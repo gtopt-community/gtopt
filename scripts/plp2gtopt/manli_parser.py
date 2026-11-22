@@ -15,12 +15,15 @@ import numpy as np
 from .base_parser import BaseParser
 from .compressed_open import compressed_open, find_compressed_path
 
+# One plpmantlin.dat block record: (tmax_ab, tmax_ba, voltage, r, x, operational).
+_MantlinRec = tuple[float, float, float, float, float, bool]
+
 
 class ManliParser(BaseParser):
     """Parser for plpmanli.dat format files containing line maintenance data."""
 
     @property
-    def manlis(self) -> List[Dict]:
+    def manlis(self) -> List[Dict[str, Any]]:
         """Return the maintenance entries."""
         return self.get_all()
 
@@ -110,7 +113,7 @@ class ManliParser(BaseParser):
         if path is None:
             return
 
-        per_line: Dict[str, Dict[int, tuple]] = {}
+        per_line: Dict[str, Dict[int, _MantlinRec]] = {}
         order: List[str] = []
         with compressed_open(path, encoding="latin-1") as fh:
             for raw in fh:
@@ -143,7 +146,7 @@ class ManliParser(BaseParser):
             # Seed with the plpmanli.dat entry so mantlin rows override it
             # block by block without dropping plpmanli-only blocks.
             prev = self.get_item_by_name(name)
-            merged: Dict[int, tuple] = {}
+            merged: Dict[int, _MantlinRec] = {}
             if prev is not None:
                 for i, blk in enumerate(prev["block"]):
                     merged[int(blk)] = (
@@ -173,6 +176,6 @@ class ManliParser(BaseParser):
             else:
                 self._append(entry)
 
-    def get_manli_by_name(self, name: str) -> Optional[Dict]:
+    def get_manli_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get maintenance data for a specific line name."""
         return self.get_item_by_name(name)
