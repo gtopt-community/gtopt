@@ -84,7 +84,8 @@ jobs:
 
       - name: mypy
         working-directory: scripts
-        run: mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt sddp2gtopt plexos2gtopt --ignore-missing-imports
+        # Every package under scripts/ (tests/ excluded via [tool.mypy]).
+        run: mypy cen2gtopt cen_demanda cvs2parquet gtopt2pbi gtopt2pp gtopt_canonical_feed gtopt_check_cases gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_check_topology gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_expand gtopt_field_extractor gtopt_marginal_units gtopt_monitor gtopt_reduce_network gtopt_results_summary gtopt_shared gtopt_timeseries_export igtopt nrel118_to_gtopt plexos2gtopt plexos_compress_case plp2gtopt plp_compress_case pp2gtopt psse2gtopt rts_gmlc_to_gtopt run_gtopt sddp2gtopt sienna_to_gtopt ts2gtopt --ignore-missing-imports
 
       - name: ty (advisory, non-blocking)
         # Fast second type checker (astral-sh/ty, beta).  Configured in
