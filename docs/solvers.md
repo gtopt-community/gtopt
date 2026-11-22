@@ -90,6 +90,13 @@ note above).
 | cuOpt | 26.08; 26.12 (nightly) | from 26.10 the C API ships in the `libcuopt_mathopt` wheel; `install.sh` installs `>= 26.8` |
 | Gurobi | — | written against the C API of Gurobi 10–14 (`libgurobi100` … `libgurobi140`); not run against any version |
 
+**Tried another version?**  If you run gtopt with a solver version not
+listed here — and it works, or it does not — please tell us in the
+community
+[Discussions](https://github.com/gtopt-community/gtopt/discussions) (or
+open an issue for a failure), with the solver, its version and the case
+type, so this table can grow.
+
 `gtopt --solvers` lists the plugins that load; each solve logs the solver
 name and version in the run log (for example `solver=highs/1.15.0`).
 
