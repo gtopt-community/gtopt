@@ -305,7 +305,9 @@ TEST_CASE("BESS reserve: up headroom credits curtailing the charge")  // NOLINT
   c.native = R"("reserve_sustain_hours": 0.0,)";
   const auto nat = solve(c);
   CHECK(nat.r_up == doctest::Approx(60.0));
-  CHECK(nat.pc == doctest::Approx(20.0));
+  // Only the net charge is pinned: simultaneous charge/discharge with
+  // unit efficiencies is degenerate (CLP may return pc = 20 + x, pd = x).
+  CHECK((nat.pc - nat.pd) == doctest::Approx(20.0));
   CHECK(nat.g1 == doctest::Approx(120.0));
   CHECK(nat.obj == doctest::Approx(6000.0));
   CHECK(nat.lambda == doctest::Approx(50.0));

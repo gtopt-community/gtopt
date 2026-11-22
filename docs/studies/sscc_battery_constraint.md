@@ -29,8 +29,8 @@ are in the base data (no scenario tag) with `Include in ST Schedule =
 -1`, so they are active in every PCP run.  The reserves themselves are
 switched on by the `C{P,S,T}F{Up,Down}_ON_BESS` scenarios of the model.
 
-For a battery $B$ (example `BAT_TOCOPILLA`, 2026-05-17; $\eta_c =
-\eta_d = 0.95$, capacity 580 MWh) the set is:
+For a battery $B$ (example `BAT_TOCOPILLA`, 2026-05-17;
+$\eta_c = \eta_d = 0.95$, capacity 580 MWh) the set is:
 
 | PLEXOS constraint | Members and coefficients | Sense / RHS | Penalty |
 |---|---|---|---|
@@ -108,10 +108,16 @@ PLEXOS books it into the battery's SoC instead (H2), the AUX rows only
 cancel that term at the bus and the derivation below does not apply as
 written.
 
-Write the bus balance with dual $\lambda$ and (2) with duals $\mu^{\downarrow},
-\mu^{\uparrow}$ (Lagrangian $c^\top x - \lambda(\text{inj} - \text{wd} - D)
-- \mu^{\downarrow}(a r^\downarrow - g^x) - \dots$).  Stationarity for
-$g^x$ (cost 0, coefficient $+1$ in the bus row and in (2)):
+Write the bus balance with dual $\lambda$ and (2) with duals
+$\mu^{\downarrow}, \mu^{\uparrow}$, with Lagrangian
+
+$$
+c^\top x - \lambda(\text{inj} - \text{wd} - D)
+\;-\; \mu^{\downarrow}(a r^\downarrow - g^x) - \dots
+$$
+
+Stationarity for $g^x$ (cost 0, coefficient $+1$ in the bus row and in
+(2)):
 
 $$ -\lambda + \mu^{\downarrow} = 0 \;\Rightarrow\; \mu^{\downarrow} = \lambda. $$
 
@@ -155,8 +161,8 @@ unit.
   $-3.20$ in hours 20–24 while the rest of the north is at $+15$; there the
   AUX loads equal the batteries' discharge (ANDES_3 h20: discharge 44.05 =
   AUX load 44.05) — the BESS discharges into a fictitious load to back its
-  up-reserve offer, and `B_CF_*_COMP` carry duals of $\pm 3.19 =
-  \mp\lambda$.
+  up-reserve offer, and `B_CF_*_COMP` carry duals of
+  $\pm 3.19 = \mp\lambda$.
 - Day-1 negative prices elsewhere (system-wide −0.37 in 11-03 midday,
   −1 to −10 in the 2025–26 bundles, −132 at Pan de Azúcar on 05-25)
   predate the SSCC set (2025-10-05 already has −7.1), so the SSCC rows are
@@ -232,8 +238,9 @@ energy; no free-disposal argument applies because $g^x$ cannot be reduced
 without reducing a required reserve.
 
 The expected-deployment energy (CEN's intent in (2)) can be added later as
-an *SoC* term, $E_t = \dots - \Delta t\,(u^\uparrow r^\uparrow/\eta_d - u^\downarrow
-\eta_c r^\downarrow)$, never as a bus injection.  Its up part only raises
+an *SoC* term,
+$E_t = \dots - \Delta t\,(u^\uparrow r^\uparrow/\eta_d - u^\downarrow \eta_c r^\downarrow)$,
+never as a bus injection.  Its up part only raises
 prices; its down part puts energy into the SoC and should be used with
 care (or $u^\downarrow = 0$) if price safety is required.  Not implemented
 here.

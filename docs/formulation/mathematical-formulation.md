@@ -1272,15 +1272,15 @@ $e_{e,s,t,b}$ the end-of-block SoC and $\overline{P}$, $\underline{E}$,
 $\overline{E}$ the hard column bounds:
 
 $$
-p_{e,s,t,b}^{\text{out}} - p_{e,s,t,b}^{\text{in}}
-+ \sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{up}}
+p_{e,s,t,b}^{\text{out}} - p_{e,s,t,b}^{\text{in}} +
+\sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{up}}
 \;\leq\; \overline{P}_{e,t,b}^{\text{out}}
 \qquad\text{(\texttt{reserve\_up\_headroom})}
 $$
 
 $$
-p_{e,s,t,b}^{\text{in}} - \kappa_e\, p_{e,s,t,b}^{\text{out}}
-+ \sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{dn}}
+p_{e,s,t,b}^{\text{in}} - \kappa_e\, p_{e,s,t,b}^{\text{out}} +
+\sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{dn}}
 \;\leq\; \overline{P}_{e,t,b}^{\text{in}}
 \qquad\text{(\texttt{reserve\_dn\_headroom})}
 $$
