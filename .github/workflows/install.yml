@@ -1,0 +1,132 @@
+name: Installer
+
+# End-to-end test of the one-line installer (install.sh) in clean
+# Ubuntu 24.04 and Debian 13 containers, the way a user runs it: a
+# non-root user with sudo, nothing but curl/sudo preinstalled.
+#
+#   * published: `curl .../gtopt-community/gtopt/master/install.sh | bash`
+#     exactly as the public README documents it (builds public master).
+#   * checkout:  `bash install.sh` from this checkout, building this
+#     commit (cloned from the mounted workspace).  Catches installer
+#     regressions before they reach master.
+#
+# Each cell runs the installer, re-runs it (idempotency), then checks
+# `gtopt --version`, that `gtopt --solvers` finds HiGHS and CBC/CLP from
+# the install prefix (no GTOPT_PLUGIN_DIR), and solves cases/ieee_4b_ori
+# with HiGHS.  The --prefix ~/.local --python mode also checks the
+# Python tools on PATH.
+#
+# The `unit` job (seconds) checks option parsing, solver selection and
+# commercial/GPU detection against fake trees (tools/test_install_sh.sh).
+#
+# A cold build takes ~20-40 min per cell, so this runs weekly, on manual
+# dispatch, and when install.sh itself changes — not on every PR.
+
+on:
+  schedule:
+    # Mondays 05:41 UTC (off the hour to dodge the scheduler rush).
+    - cron: '41 5 * * 1'
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - install.sh
+      - tools/test_install_sh.sh
+      - .github/workflows/install.yml
+  pull_request:
+    paths:
+      - install.sh
+      - tools/test_install_sh.sh
+      - .github/workflows/install.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: install.sh unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck install.sh tools/test_install_sh.sh
+      - name: Option parsing and solver selection (fake trees)
+        run: bash tools/test_install_sh.sh
+
+  install:
+    needs: unit
+    name: ${{ matrix.image }} / ${{ matrix.source }} / ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['ubuntu:24.04', 'debian:13']
+        source: [published, checkout]
+        mode: [system, home]
+        exclude:
+          # The published script only changes on public pushes; the
+          # weekly published run covers the default (sudo) path.
+          - source: published
+            mode: home
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run installer in ${{ matrix.image }}
+        env:
+          IMAGE: ${{ matrix.image }}
+          SOURCE: ${{ matrix.source }}
+          MODE: ${{ matrix.mode }}
+          SHA: ${{ github.sha }}
+        run: |
+          cat > "$RUNNER_TEMP/inner.sh" <<'EOF'
+          set -euo pipefail
+          url=https://raw.githubusercontent.com/gtopt-community/gtopt/master/install.sh
+          args=()
+          if [[ $MODE == home ]]; then
+            args=(--prefix "$HOME/.local" --python)
+            export PATH="$HOME/.local/bin:$PATH"
+          fi
+          inst() {
+            if [[ $SOURCE == published ]]; then
+              curl -fsSL "$url" | bash -s -- "${args[@]}"
+            else
+              git config --global --add safe.directory '*'
+              bash /repo/install.sh --repo /repo --ref "$SHA" "${args[@]}"
+            fi
+          }
+          inst | tail -n 40
+          echo "::group::re-run (idempotency)"
+          inst | tail -n 20
+          echo "::endgroup::"
+          hash -r
+          gtopt --version
+          solvers=$(env -u GTOPT_PLUGIN_DIR gtopt --solvers)
+          echo "$solvers"
+          grep -qi highs <<<"$solvers"
+          grep -qiE 'cbc|clp' <<<"$solvers"
+          work=$(mktemp -d)
+          cp /repo/cases/ieee_4b_ori/ieee_4b_ori.json "$work/"
+          (cd "$work" && gtopt ieee_4b_ori.json --solver highs)
+          if [[ $MODE == home ]]; then
+            for t in plp2gtopt run_gtopt gtopt_diagram; do
+              "$t" --help >/dev/null
+              echo "$t: $(command -v "$t")"
+            done
+          fi
+          EOF
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" \
+            -v "$RUNNER_TEMP/inner.sh:/inner.sh:ro" \
+            -e SOURCE -e MODE -e SHA "$IMAGE" bash -euo pipefail -c '
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends \
+                curl ca-certificates sudo >/dev/null
+              useradd -m -s /bin/bash tester
+              echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester
+              su tester -c "SOURCE=$SOURCE MODE=$MODE SHA=$SHA bash /inner.sh"'
