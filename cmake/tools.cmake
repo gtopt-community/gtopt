@@ -12,7 +12,12 @@ include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 # enables sanitizers support using the the `USE_SANITIZER` flag available values are:
 # Address, Memory, MemoryWithOrigins, Undefined, Thread, Leak, 'Address;Undefined'
 if(USE_SANITIZER OR USE_STATIC_ANALYZER)
-  CPMAddPackage("gh:StableCoder/cmake-scripts#24.08.1")
+  # Pinned to 24.04.1: the last tag of StableCoder/cmake-scripts and the last
+  # one whose sanitizers.cmake still honours the `USE_SANITIZER` cache
+  # variable (later commits switched to `add_sanitizer_support()`).  The
+  # previous pin `24.08.1` does not exist upstream, so configuring with
+  # -DUSE_SANITIZER=... failed at the git-clone step.
+  CPMAddPackage("gh:StableCoder/cmake-scripts#24.04.1")
 
   if(USE_SANITIZER)
     include(${cmake-scripts_SOURCE_DIR}/sanitizers.cmake)
