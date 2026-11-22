@@ -1,0 +1,16 @@
+# Archivo con la duracion de los bloques
+# Bloques
+     12
+# Bloque   Etapa   NHoras  Ano   Mes  TipoBloque
+    001    001      720    001    001    'Bloque 01'
+    002    002      744    001    002    'Bloque 01'
+    003    003      720    001    003    'Bloque 01'
+    004    004      744    001    004    'Bloque 01'
+    005    005      744    001    005    'Bloque 01'
+    006    006      720    001    006    'Bloque 01'
+    007    007      744    001    007    'Bloque 01'
+    008    008      720    001    008    'Bloque 01'
+    009    009      744    001    009    'Bloque 01'
+    010    010      744    001    010    'Bloque 01'
+    011    011      672    001    011    'Bloque 01'
+    012    012      744    001    012    'Bloque 01'

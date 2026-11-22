@@ -1,0 +1,16 @@
+# Archivo con la duracion de las etapas
+# Etapas
+     12   'H'
+# Ano  Mes  Etapa FDesh   NHoras    FactTasa    TipoEtapa
+  001  001    001     F      720    1.000000    '1 Bloque'
+  001  002    002     F      744    1.000000    '1 Bloque'
+  001  003    003     F      720    1.000000    '1 Bloque'
+  001  004    004     F      744    1.000000    '1 Bloque'
+  001  005    005     F      744    1.000000    '1 Bloque'
+  001  006    006     F      720    1.000000    '1 Bloque'
+  001  007    007     F      744    1.000000    '1 Bloque'
+  001  008    008     F      720    1.000000    '1 Bloque'
+  001  009    009     F      744    1.000000    '1 Bloque'
+  001  010    010     F      744    1.000000    '1 Bloque'
+  001  011    011     F      672    1.000000    '1 Bloque'
+  001  012    012     F      744    1.000000    '1 Bloque'
