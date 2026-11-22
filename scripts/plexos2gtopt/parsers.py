@@ -3739,8 +3739,10 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # separate Max Power Charge / Discharge properties).
         capacity = db.static_property("Battery", batt.object_id, "Capacity")
         max_power = db.static_property("Battery", batt.object_id, "Max Power")
-        # PLEXOS ``Max Load`` = maximum charging power; CEN PCP leaves it
-        # unset (symmetric ``Max Power``).
+        # PLEXOS ``Max Load`` = maximum charging power (a materialised
+        # general model, e.g. SEM pumped storage, sets it apart from
+        # ``Max Power``).  CEN PCP ships the same 2 MW placeholder in it
+        # as in ``Max Power``.
         max_load = db.static_property("Battery", batt.object_id, "Max Load")
         # Override the placeholder Max Power with the Gen_Rating peak
         # for the matching ``BAT_<name>`` Generator (the canonical
@@ -3748,6 +3750,12 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         _power_series = gen_rating.get(batt.name) or []
         gen_rating_peak = max(_power_series) if _power_series else 0.0
         max_power = max(max_power, gen_rating_peak)
+        # The charge leg resolves exactly like the discharge leg: the
+        # data-file rating (Gen_Rating, symmetric) beats the static
+        # placeholder, and an unset Max Load means symmetric Max Power.
+        # Taking the static Max Load verbatim capped every flat-rated
+        # CEN battery at 2 MW of charge.
+        max_charge = max(max_load, gen_rating_peak) if max_load > 0.0 else max_power
         # Keep the full per-period rating when it VARIES (battery DLR) so the
         # writer can emit a per-block pmax_charge/pmax_discharge profile instead
         # of the scalar peak (which over-states power in the de-rated blocks).
@@ -3802,14 +3810,14 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # CEN PCP daily bundle).  Set the bad pmin → 0 to mirror
         # the plp2gtopt convention (synthetic battery demand has
         # ``lmax`` only, ``lmin = 0``, no ``fcost``).
-        if pmin_charge > max_power > 0.0:
+        if pmin_charge > max_charge > 0.0:
             logger.warning(
-                "Battery '%s': Min Charge Level %.2f MW > Max Power "
+                "Battery '%s': Min Charge Level %.2f MW > charge power "
                 "%.2f MW — dropping pmin_charge (matches plp2gtopt: "
                 "synthetic <bat>_dem keeps lmax only, lmin = 0).",
                 batt.name,
                 pmin_charge,
-                max_power,
+                max_charge,
             )
             pmin_charge = 0.0
         if pmin_discharge > max_power > 0.0:
@@ -3848,7 +3856,7 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
                 emax=emax_mwh,
                 eini=eini,
                 efin=eini if pin_efin else 0.0,
-                pmax_charge=max_load if max_load > 0.0 else max_power,
+                pmax_charge=max_charge,
                 pmax_discharge=max_power,
                 power_profile=battery_power_profile,
                 pmin_charge=pmin_charge,

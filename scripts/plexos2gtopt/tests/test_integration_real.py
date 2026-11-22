@@ -480,6 +480,24 @@ def test_real_bundle_p2_static_properties() -> None:
 
 
 @_skip_if_missing
+def test_real_bundle_battery_charge_power_not_placeholder() -> None:
+    """The bundle's static ``Max Load`` is the same 2 MW placeholder as
+    ``Max Power``; the charge leg must take the Gen_Rating rating too
+    (regression: 30 batteries of this day were capped at 2 MW)."""
+    # pylint: disable=import-outside-toplevel
+    from plexos2gtopt.parsers import extract_batteries
+    from plexos2gtopt.plexos_xml import load_xml
+
+    with locate_bundle(REAL_BUNDLE) as bundle:
+        batts = extract_batteries(load_xml(bundle.xml_path), bundle)
+    assert batts
+    for b in batts:
+        assert b.pmax_charge == pytest.approx(b.pmax_discharge), b.name
+    by_name = {b.name: b for b in batts}
+    assert by_name["BAT_DEL_DESIERTO"].pmax_charge > 100.0
+
+
+@_skip_if_missing
 def test_real_bundle_convert_emits_valid_planning(tmp_path: Path) -> None:
     """`convert_plexos_bundle` produces a gtopt-shaped planning JSON."""
     out_file = tmp_path / "DATOS20260422.json"

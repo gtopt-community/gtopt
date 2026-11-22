@@ -2142,6 +2142,85 @@ def test_extract_batteries_drops_infeasible_pmin_charge(tmp_path: Path) -> None:
     assert batts["valid"].pmin_charge == 1.0
 
 
+# Placeholder-vs-data-file precedence for the battery charge leg.  CEN PCP
+# ships the same 2 MW placeholder in both ``Max Power`` and ``Max Load``;
+# the real (symmetric) rating comes from Gen_Rating.csv.  ``asym`` has no
+# Gen_Rating row and a genuine ``Max Load`` (materialised-model pumped
+# storage), ``sym`` has no ``Max Load`` at all.
+_BATT_MAXLOAD_XML = (
+    _BATT_PMIN_XML.replace(
+        """  <t_property>
+    <property_id>501</property_id>""",
+        """  <t_property>
+    <property_id>503</property_id><collection_id>80</collection_id>
+    <name>Max Load</name>
+  </t_property>
+  <t_property>
+    <property_id>501</property_id>""",
+    )
+    .replace(">bess_a<", ">BAT_PLACEHOLDER<")
+    .replace(">valid<", ">asym<")
+    .replace(
+        "</MasterDataSet>",
+        """  <t_object>
+    <object_id>42</object_id><class_id>7</class_id><name>sym</name>
+  </t_object>
+  <t_membership>
+    <membership_id>902</membership_id><collection_id>83</collection_id>
+    <parent_object_id>42</parent_object_id><child_object_id>10</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>952</membership_id><collection_id>80</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>42</child_object_id>
+  </t_membership>
+  <t_data>
+    <data_id>10</data_id><membership_id>950</membership_id>
+    <property_id>503</property_id><value>2.0</value>
+  </t_data>
+  <t_data>
+    <data_id>11</data_id><membership_id>951</membership_id>
+    <property_id>503</property_id><value>3.0</value>
+  </t_data>
+  <t_data>
+    <data_id>12</data_id><membership_id>952</membership_id>
+    <property_id>500</property_id><value>7.0</value>
+  </t_data>
+</MasterDataSet>""",
+    )
+)
+
+
+def test_extract_batteries_charge_power_prefers_data_file(tmp_path: Path) -> None:
+    """The Gen_Rating data file beats the static 2 MW ``Max Load``
+    placeholder on the charge leg, exactly as it does for ``Max Power``.
+
+    Regression: taking the static ``Max Load`` verbatim capped every
+    flat-rated CEN PCP battery at 2 MW of charge (e.g. a 200 MW BESS
+    could only charge at 2 MW).  A genuine ``Max Load`` without a
+    Gen_Rating row (materialised model) is still honoured, and an unset
+    ``Max Load`` falls back to the symmetric ``Max Power``.
+    """
+    (tmp_path / "DBSEN_PRGDIARIO.xml").write_text(_BATT_MAXLOAD_XML)
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        + "".join(f"BAT_PLACEHOLDER,2026,1,1,{p},1,200\n" for p in range(1, 25)),
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(tmp_path / "DBSEN_PRGDIARIO.xml")
+    batts = {b.name: b for b in extract_batteries(db, bundle)}
+    flat = batts["BAT_PLACEHOLDER"]
+    assert flat.pmax_discharge == pytest.approx(200.0)
+    assert flat.pmax_charge == pytest.approx(200.0)
+    # The pmins (2.5 / 2.8 MW) fit inside the real rating → kept.
+    assert flat.pmin_charge == pytest.approx(2.5)
+    assert batts["asym"].pmax_discharge == pytest.approx(5.0)
+    assert batts["asym"].pmax_charge == pytest.approx(3.0)
+    assert batts["sym"].pmax_charge == pytest.approx(7.0)
+    assert batts["sym"].pmax_discharge == pytest.approx(7.0)
+
+
 def test_extract_batteries_keeps_valid_pmin_end_to_end(tmp_path: Path) -> None:
     """Companion to the drop-path test: when ``Min Charge Level``
     fits inside ``Max Power``, the extractor preserves the value AND
