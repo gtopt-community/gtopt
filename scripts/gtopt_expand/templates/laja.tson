@@ -408,6 +408,7 @@
       "purpose": "irrigation",
       "eini": {{ ini_irr }},
       "emax": {{ max_irr }},
+      "forfeit": true,
       "use_state_variable": true,
       "reset_month": {{ reset_month_rights }},
       "reset_debit_right": "laja_vol_gasto_anticipado",
@@ -436,6 +437,7 @@
       "purpose": "generation",
       "eini": {{ ini_elec }},
       "emax": {{ max_elec }},
+      "forfeit": true,
       "use_state_variable": true,
       "reset_month": {{ reset_month_rights }},
       "bound_rule": {
@@ -462,6 +464,7 @@
       "purpose": "mixed",
       "eini": {{ ini_mixed }},
       "emax": {{ max_mixed }},
+      "forfeit": true,
       "use_state_variable": true,
       "reset_month": {{ reset_month_rights }},
       "bound_rule": {

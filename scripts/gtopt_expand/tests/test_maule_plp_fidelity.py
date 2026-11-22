@@ -302,6 +302,30 @@ class TestRightsLedgers:
         assert men["eini"] == pytest.approx(25.0 * 720 * 0.0036 - 10.0)
         assert men["reset_monthly"] is True
 
+    def test_depletion_ledgers_allow_free_disposal(self):
+        """Every Maule ledger is a depletion ledger: forfeit = true.
+
+        Free disposal keeps the state value >= 0 (no degenerate cap
+        vertex; plp_2y SDDP cuts carried negative ledger slopes without it).
+        """
+        agreement = MauleAgreement(_cfg(), stage_parser=_stages([4, 5]))
+        vrs = _by_name(agreement.volume_rights)
+        for name in (
+            "maule_vol_gasto_elec_mensual",
+            "maule_vol_gasto_elec_anual",
+            "maule_vol_gasto_riego_temp",
+            "maule_vol_compensacion_elec",
+            "maule_vol_reserva_ord_elec",
+            "maule_vol_reserva_ord_riego",
+        ):
+            if name in vrs:
+                assert vrs[name].get("forfeit") is True, name
+        assert all(
+            vr.get("forfeit") is True
+            for vr in agreement.volume_rights
+            if "saving_rate" not in vr and "reset_value" not in vr
+        )
+
 
 # ---------------------------------------------------------------------------
 # Item 8 — manual years (PRiegoMauleAnual / QRiego105Anual)

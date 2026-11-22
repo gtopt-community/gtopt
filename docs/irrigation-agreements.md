@@ -265,6 +265,7 @@ SDDP state-variable coupling.
 | `reset_month` | Optional | Month when rights are re-provisioned |
 | `bound_rule` | Optional | Volume-dependent dynamic bound |
 | `saving_rate` | OptTBRealFieldSched | Economy deposit rate [m³/s] |
+| `forfeit` | OptBool | Free disposal of unused rights (default false) |
 | `flow_conversion_rate` | OptReal | m³/s·h → hm³ (default 0.0036) |
 
 ### 4.3 LP Formulation
@@ -277,6 +278,21 @@ vol(b) = vol(b-1) + fcr × dur(b) × saving(b) / escale
 ```
 
 Where `fcr = 0.0036 hm³/(m³/s·h)` is the flow conversion rate.
+
+**Free disposal (`forfeit: true`):** a zero-cost `forfeit(b) >= 0`
+column enters the balance with the extraction's coefficient, so unused
+rights can be dropped — the rights analogue of a free spillway.  Without
+it a depletion ledger sitting at its cap (`eini = emax`, right unused)
+is a degenerate vertex: the cap and the zero-extraction bound both bind
+and the solver may return any balance dual in `[-c, 0]`; a cap below the
+incoming volume (`emax < eini`) even forces costly use, with a unique
+negative dual.  An SDDP cut then carries the negative slope upstream
+(plp_2y: 100 % of the cut coefficients on `maule_vol_gasto_riego_temp`
+were negative).  With disposal the state value is provably `>= 0`; it
+is primal-neutral because dropping a permission never helps.  The Laja
+and Maule templates set it on every depletion ledger, never on
+up-counters (`reset_value`, the anticipado) or economies (`saving_rate`),
+where disposal would erase a debt.
 
 **Demand constraint per stage** (if `demand > 0`):
 

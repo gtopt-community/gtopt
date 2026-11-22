@@ -61,7 +61,8 @@ constexpr Real kLedgerUsed = 0.5;  // hm3 already used (PLP data ini value)
 }
 
 [[nodiscard]] System make_ledger_system(VolumeRight right,
-                                        std::string expression)
+                                        std::string expression,
+                                        Real hydro_gcost)
 {
   return {
       .name = "MauleLedger",
@@ -89,7 +90,7 @@ constexpr Real kLedgerUsed = 0.5;  // hm3 already used (PLP data ini value)
                   .uid = Uid {1},
                   .name = "hydro",
                   .bus = Uid {1},
-                  .gcost = 0.0,
+                  .gcost = hydro_gcost,
                   .capacity = 200.0,
               },
               {
@@ -165,11 +166,12 @@ struct MauleLedgerResult
 };
 
 [[nodiscard]] MauleLedgerResult solve_ledger(VolumeRight right,
-                                             std::string expression)
+                                             std::string expression,
+                                             Real hydro_gcost = 0.0)
 {
   const auto sim = make_ledger_day();
   const auto system =
-      make_ledger_system(std::move(right), std::move(expression));
+      make_ledger_system(std::move(right), std::move(expression), hydro_gcost);
   const PlanningOptionsLP options;
   SimulationLP simulation_lp(sim, options);
   SystemLP system_lp(system, simulation_lp);
@@ -240,4 +242,83 @@ TEST_CASE(  // NOLINT
       R"(volume_right("maule_used_counter").saving = waterway("ww").flow)");
   CHECK(r.turbined == doctest::Approx(kLedgerRemaining / (24.0 * 0.0036)));
   CHECK(r.value < 0.0);
+}
+
+// ── Free disposal (VolumeRight::forfeit) ────────────────────────────
+//
+// plp_2y SDDP showed negative energy duals on the Maule ledgers, mostly
+// at the cap (`remaining == emax`, right unused) and then everywhere
+// upstream through the cuts (100 % of the cut coefficients on
+// maule_vol_gasto_riego_temp were negative).  Two sources:
+//   (a) a degenerate cap vertex (cap and zero-extraction bound both
+//       binding: any dual in [-c, 0] is optimal);
+//   (b) a cap below the incoming volume (`emax < eini`), which FORCES
+//       extraction: the unique dual is then negative.
+// With free disposal both vanish: dropping unused rights is free.
+
+namespace
+{
+
+// Hydro dearer than thermal: using the right costs (200 - 100) $/MWh.
+constexpr Real kUneconomicHydro = 200.0;
+
+[[nodiscard]] VolumeRight make_capped_ledger(Real eini, Real emax, bool forfeit)
+{
+  return {
+      .uid = Uid {1},
+      .name = "ledger",
+      .emin = 0.0,
+      .emax = emax,
+      .eini = eini,
+      .fmax = 1000.0,
+      .forfeit = forfeit,
+      .use_state_variable = true,
+  };
+}
+
+constexpr auto kLink =
+    R"(volume_right("ledger").extraction = waterway("ww").flow)";
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "Maule ledger - a cap below the incoming volume forces costly use")
+{
+  // eini 1 hm3 > emax 0.5 hm3: without disposal 0.5 hm3 MUST be
+  // turbined at a 100 $/MWh loss; the unique value of one more hm3 of
+  // right is -(200 - 100) * pf 2 / 0.0036 = -55 555.6 $/hm3.
+  const auto r = solve_ledger(
+      make_capped_ledger(1.0, 0.5, false), kLink, kUneconomicHydro);
+  CHECK(r.turbined == doctest::Approx(0.5 / (24.0 * 0.0036)));
+  CHECK(r.value == doctest::Approx(-100.0 * 2.0 / 0.0036));
+}
+
+TEST_CASE(  // NOLINT
+    "Maule ledger - forfeit drops the excess for free, value >= 0")
+{
+  const auto r =
+      solve_ledger(make_capped_ledger(1.0, 0.5, true), kLink, kUneconomicHydro);
+  CHECK(r.turbined == doctest::Approx(0.0));
+  CHECK(r.value >= 0.0);
+  CHECK(r.value == doctest::Approx(0.0));
+}
+
+TEST_CASE(  // NOLINT
+    "Maule ledger - forfeit keeps the unused-at-cap value non-negative")
+{
+  // eini == emax, right unused (degenerate cap vertex).
+  const auto r =
+      solve_ledger(make_capped_ledger(1.0, 1.0, true), kLink, kUneconomicHydro);
+  CHECK(r.turbined == doctest::Approx(0.0));
+  CHECK(r.value >= 0.0);
+}
+
+TEST_CASE(  // NOLINT
+    "Maule ledger - forfeit is primal-neutral on a binding right")
+{
+  // The binding case of the first test: disposal is never used.
+  const auto with =
+      solve_ledger(make_capped_ledger(kLedgerRemaining, 10.0, true), kLink);
+  CHECK(with.turbined == doctest::Approx(kLedgerRemaining / (24.0 * 0.0036)));
+  CHECK(with.value > 1e-9);
 }

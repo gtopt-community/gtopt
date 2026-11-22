@@ -619,6 +619,13 @@ listed below.
   fixed-discharge Flow folded by `lp_reduction` stays resolvable in
   user constraints (constant moved to the RHS).  `validate_planning`
   warns on a `bound_rule` with no segments.
+- **Rights ledgers — free disposal** (`VolumeRight.forfeit`): a
+  zero-cost `forfeit` column lets unused rights be dropped, like a free
+  spillway.  On plp_2y the Maule ledgers carried negative balance duals
+  (degenerate cap vertex, or `emax < eini` forcing use) that SDDP cuts
+  propagated upstream (all `maule_vol_gasto_riego_temp` cut slopes were
+  negative).  The Laja and Maule templates now set `forfeit: true` on
+  every depletion ledger (not on up-counters or economies).
 
 - **`plexos2gtopt.aemo_isp` hydro**: reservoirs carry
   `flow_conversion_rate = 0.0036` and `Max Spill`; pumped-storage units

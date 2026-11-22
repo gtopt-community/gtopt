@@ -584,6 +584,7 @@
       "purpose": "generation",
       "eini": {{ ledger.men_ini }},
       "emax": {{ ledger.men_emax }},
+      "forfeit": true,
       "use_state_variable": true,
       "reset_monthly": true
     },
@@ -593,6 +594,7 @@
       "purpose": "generation",
       "eini": {{ ledger.anu_ini }},
       "emax": {{ v_der_elect_anu_max }},
+      "forfeit": true,
       "use_state_variable": true,
       "reset_month": "january"
     },
@@ -602,6 +604,7 @@
       "purpose": "irrigation",
       "eini": {{ ledger.riego_ini }},
       "emax": {{ v_der_riego_temp_max }},
+      "forfeit": true,
       "use_state_variable": true,
       "reset_month": {{ reset_month_riego }}
     },
@@ -618,6 +621,7 @@
       "purpose": "generation",
       "eini": {{ v_comp_elec_ini }},
       "emax": {{ v_comp_elec_max }},
+      "forfeit": true,
       "use_state_variable": true
     },
 
@@ -649,6 +653,7 @@
       "eini": {{ ledger.res_ini_elec }},
       "emax": {{ ledger.res_emax_elec }},
       "saving_rate": {{ riego_max }},
+      "forfeit": true,
       "use_state_variable": true,
       "reset_month": "january",
       "bound_rule": {
@@ -672,6 +677,7 @@
       "eini": {{ ledger.res_ini_riego }},
       "emax": {{ ledger.res_emax_riego }},
       "saving_rate": {{ riego_max }},
+      "forfeit": true,
       "use_state_variable": true,
       "reset_month": "january",
       "bound_rule": {

@@ -45,6 +45,7 @@ struct VolumeRightConstructor
       OptReal fail_cost,
       OptReal priority,
       OptTBRealFieldSched saving_rate,
+      OptBool forfeit,
       OptReal flow_conversion_rate,
       OptBool use_state_variable,
       OptTRealFieldSched annual_loss,
@@ -76,6 +77,7 @@ struct VolumeRightConstructor
     vr.fail_cost = fail_cost;
     vr.priority = priority;
     vr.saving_rate = std::move(saving_rate);
+    vr.forfeit = forfeit;
     vr.flow_conversion_rate = flow_conversion_rate;
     vr.use_state_variable = use_state_variable;
     vr.annual_loss = std::move(annual_loss);
@@ -124,6 +126,7 @@ struct json_data_contract<VolumeRight>
       json_variant_null<"saving_rate",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
+      json_bool_null<"forfeit", OptBool>,
       json_number_null<"flow_conversion_rate", OptReal>,
       json_bool_null<"use_state_variable", OptBool>,
       json_variant_null<"annual_loss",
@@ -158,6 +161,7 @@ struct json_data_contract<VolumeRight>
                            vr.fail_cost,
                            vr.priority,
                            vr.saving_rate,
+                           vr.forfeit,
                            vr.flow_conversion_rate,
                            vr.use_state_variable,
                            vr.annual_loss,

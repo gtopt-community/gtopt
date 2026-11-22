@@ -397,6 +397,33 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     }
   }
 
+  // Free disposal (`forfeit`): a zero-cost outflow with the extraction's
+  // own balance coefficient, so unused rights can be dropped like
+  // spilled water.  It removes the degenerate cap vertex that otherwise
+  // lets the solver report a negative state value (see
+  // VolumeRight::forfeit).  Not coupled to the physical reservoir or to
+  // a parent right.
+  if (volume_right().forfeit.value_or(false)) {
+    const auto& own_erows = energy_rows_at(scenario, stage);
+    BIndexHolder<ColIndex> forfeit_cols;
+    map_reserve(forfeit_cols, blocks.size());
+    for (auto&& block : blocks) {
+      const auto buid = block.uid();
+      const auto fcol = lp.add_col(SparseCol {
+          .class_name = Element::class_name.full_name(),
+          .variable_name = ForfeitName,
+          .variable_uid = uid(),
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+      });
+      auto& erow = lp.row_at(own_erows.at(buid));
+      erow[fcol] = erow.get_coeff(extraction_cols.at(buid));
+      forfeit_cols[buid] = fcol;
+    }
+    sc.add_ampl_variable(
+        ampl_name, uid(), ForfeitName, scenario, stage, forfeit_cols);
+  }
+
   // Store columns for external coupling access
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   extraction_cols_[st_key] = extraction_cols;

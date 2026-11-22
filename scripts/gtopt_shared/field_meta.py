@@ -2915,6 +2915,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "forfeit",
+            _J_BOOL,
+            False,
+            "Free disposal of unused rights (zero-cost ``forfeit`` column): "
+            "keeps the ledger state value >= 0. Depletion ledgers only.",
+            None,
+        ),
+        (
             "flow_conversion_rate",
             _J_NUM,
             False,

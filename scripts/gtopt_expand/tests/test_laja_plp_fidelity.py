@@ -152,6 +152,20 @@ class TestLedgers:
         """IVGAF = prev + dur*IQGAH (R12): extraction pinned to 0."""
         assert _volume(laja, "laja_vol_gasto_anticipado")["fmax"] == 0
 
+    def test_rights_ledgers_allow_free_disposal(self, laja):
+        """Depletion ledgers forfeit freely; the anticipado counter can't.
+
+        Dropping unused rights never helps (value >= 0), but dropping the
+        up-counter would erase the December debit.
+        """
+        for name in (
+            "laja_vol_der_riego",
+            "laja_vol_der_electrico",
+            "laja_vol_der_mixto",
+        ):
+            assert _volume(laja, name)["forfeit"] is True
+        assert "forfeit" not in _volume(laja, "laja_vol_gasto_anticipado")
+
     def test_ledgers_are_sddp_state_variables(self, laja):
         """All four ledgers carry state across phases (cuts see them).
 

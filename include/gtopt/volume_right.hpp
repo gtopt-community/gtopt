@@ -170,6 +170,19 @@ struct VolumeRight
   /// PLP: IVESN/IVERN/IVAPN.
   OptTBRealFieldSched saving_rate {};
 
+  /// Free disposal of unused rights (default false).  When true, a
+  /// zero-cost `forfeit` column per block may drop remaining volume from
+  /// the ledger, the rights analogue of a free spillway.  A remaining-
+  /// rights ledger whose volume sits at its cap (`eini = emax`, right
+  /// unused) is otherwise a degenerate vertex: the cap and the zero-
+  /// extraction bound both bind and the solver may return a NEGATIVE
+  /// balance dual, which an SDDP cut then propagates as a negative value
+  /// of holding rights.  With free disposal the state value is
+  /// provably >= 0.  Primal-neutral for depletion ledgers (dropping a
+  /// permission never helps); NOT for up-counters (`reset_value`) or
+  /// debit sources, where disposal would erase a debt.
+  OptBool forfeit {};
+
   // ── Storage configuration ──────────────────────────────────────────
 
   OptReal flow_conversion_rate {
