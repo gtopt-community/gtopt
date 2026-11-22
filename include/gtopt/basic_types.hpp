@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <optional>
@@ -138,6 +139,30 @@ using StrongPositionIndexType =
                  strong::bicrementable,
                  strong::boolean,
                  strong::implicitly_convertible_to<Index>>;
+
+/**
+ * @brief Container offset of a strong index: its underlying value as
+ *        `std::size_t`.
+ *
+ * Named replacement for `static_cast<std::size_t>(idx)` when a strong
+ * index addresses a plain `std::vector` (per-scene counters, masses, …).
+ * Containers that are only ever indexed by one strong type should be a
+ * `StrongIndexVector` instead, which needs no unwrap at all.
+ */
+template<typename Tag>
+[[nodiscard]] constexpr auto to_size(StrongPositionIndexType<Tag> idx) noexcept
+    -> std::size_t
+{
+  return static_cast<std::size_t>(idx.value_of());
+}
+
+/// @copydoc to_size(StrongPositionIndexType<Tag>)
+template<typename Tag>
+[[nodiscard]] constexpr auto to_size(StrongIndexType<Tag> idx) noexcept
+    -> std::size_t
+{
+  return static_cast<std::size_t>(idx.value_of());
+}
 
 }  // namespace gtopt
 

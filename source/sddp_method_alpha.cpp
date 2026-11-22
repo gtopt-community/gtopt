@@ -156,7 +156,7 @@ namespace
   for (const double p : masses) {
     total += p;
   }
-  const double own = masses[static_cast<std::size_t>(scene_index)];
+  const double own = masses[to_size(scene_index)];
   if (!(total > 0.0) || !(own > 0.0)) {
     return 1.0 / static_cast<double>(n_alpha);
   }
@@ -218,14 +218,14 @@ std::vector<double> alpha_col_weights(const SimulationLP& sim,
           "vs register_alpha_variables)",
           terminal_phi_count,
           n_alpha,
-          static_cast<std::size_t>(scene_index));
+          to_size(scene_index));
     } else {
       const auto masses = scene_probability_masses(sim);
       double total = 0.0;
       for (const double p : masses) {
         total += p;
       }
-      const double own = masses[static_cast<std::size_t>(scene_index)];
+      const double own = masses[to_size(scene_index)];
       const double p_s = (total > 0.0 && own > 0.0)
           ? own / total
           : 1.0 / static_cast<double>(std::max<std::size_t>(masses.size(), 1));
@@ -361,7 +361,7 @@ void register_alpha_variables(PlanningLP& planning_lp,
   };
 
   for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
-    const bool is_last = (static_cast<std::size_t>(pi) + 1 == n_phases);
+    const bool is_last = (to_size(pi) + 1 == n_phases);
     const bool multi = is_last ? terminal_multi : intermediate_multi;
     std::size_t n_alpha = multi ? std::max<std::size_t>(num_scenes, 1) : 1;
     // Markov: non-terminal phases carry M state columns; the terminal

@@ -1661,8 +1661,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
     std::vector<std::size_t> per_scene_before(
         static_cast<std::size_t>(num_scenes), 0);
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      per_scene_before[static_cast<std::size_t>(si)] =
-          m_cut_store_.at(si).size();
+      per_scene_before[to_size(si)] = m_cut_store_.at(si).size();
     }
 
     // Submit all feasible scenes for this phase step in parallel
@@ -1824,11 +1823,10 @@ auto SDDPMethod::run_backward_pass_synchronized(
     std::vector<std::size_t> rows_before_share(
         static_cast<std::size_t>(num_scenes), 0);
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      rows_before_share[static_cast<std::size_t>(si)] =
-          planning_lp()
-              .system(si, src_phase_index)
-              .linear_interface()
-              .get_numrows();
+      rows_before_share[to_size(si)] = planning_lp()
+                                           .system(si, src_phase_index)
+                                           .linear_interface()
+                                           .get_numrows();
     }
 
     share_cuts_for_phase(src_phase_index, scene_cuts, iteration_index);
@@ -1836,7 +1834,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
     // Per-scene receive count = post - pre on the destination
     // (scene, src_phase_index) cell.
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      const auto si_sz = static_cast<std::size_t>(si);
+      const auto si_sz = to_size(si);
       const auto rows_after = planning_lp()
                                   .system(si, src_phase_index)
                                   .linear_interface()
@@ -1899,7 +1897,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
     std::ptrdiff_t infeas_count = 0;
     std::ptrdiff_t feas_total = 0;
     for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-      const auto si_sz = static_cast<std::size_t>(si);
+      const auto si_sz = to_size(si);
       if (scene_feasible[si] == 0U) {
         infeas_total += per_scene_cuts_received[si_sz];
         ++infeas_count;

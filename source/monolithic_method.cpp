@@ -211,7 +211,7 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       const auto& offsets = bc_result->alpha_offsets_per_scene;
       const auto last_phase = planning_lp.simulation().last_phase_index();
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-        const auto si = static_cast<std::size_t>(scene_index);
+        const auto si = to_size(scene_index);
         const double c = (si < offsets.size()) ? offsets[scene_index] : 0.0;
         if (c != 0.0) {
           planning_lp.system(scene_index, last_phase)

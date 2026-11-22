@@ -455,7 +455,7 @@ struct SceneCapSubgradients
   const auto p0 = first_phase_index();
   const auto nphases = sim.phase_count();
   for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
-    const auto s = static_cast<std::size_t>(si);
+    const auto s = to_size(si);
     if (s < scene_values.size()) {
       out.value[s] = scene_values[s];
     }
@@ -716,7 +716,7 @@ auto solve_investment_master(const Planning& planning,
         std::optional<std::size_t> scene_idx;
         for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
           if (sim.uid_of(si) == cut.scene_uid) {
-            scene_idx = static_cast<std::size_t>(si);
+            scene_idx = to_size(si);
             break;
           }
         }

@@ -86,8 +86,7 @@ const StateVariable* find_alpha_state_var(const SimulationLP& sim,
   // Multicut: the α column dedicated to `source_scene` is keyed by
   // `uid = sddp_alpha_uid + source_scene` (offset 0 == the legacy single α).
   const auto alpha_uid = static_cast<Uid>(
-      sddp_alpha_uid
-      + static_cast<Uid>(static_cast<std::size_t>(source_scene)));
+      sddp_alpha_uid + static_cast<Uid>(to_size(source_scene)));
   auto svar = sim.state_variable(StateVariable::Key {
       .uid = alpha_uid,
       .col_name = sddp_alpha_col_name,
@@ -235,8 +234,8 @@ SceneIndex sample_forward_realization(const SimulationLP& sim,
   const auto drawn = sample_weighted_index(
       probs,
       static_cast<std::uint64_t>(gtopt::uid_of(iteration_index)),
-      static_cast<std::uint64_t>(static_cast<std::size_t>(scene_index)),
-      static_cast<std::uint64_t>(static_cast<std::size_t>(phase_index)));
+      static_cast<std::uint64_t>(to_size(scene_index)),
+      static_cast<std::uint64_t>(to_size(phase_index)));
   return SceneIndex {static_cast<Index>(drawn)};
 }
 
@@ -256,14 +255,13 @@ std::vector<std::pair<ColIndex, Uid>> alpha_cols_on_cell(
   // permanently in place.  Every layout keeps its α uids contiguous
   // from `sddp_alpha_uid`, so the first-gap stop is exact.
   std::vector<std::pair<ColIndex, Uid>> cols;
-  for (std::size_t off = 0;; ++off) {
-    const auto src = SceneIndex {static_cast<Index>(off)};
+  for (SceneIndex src {0};; ++src) {
     const auto* svar =
         find_alpha_state_var(sim, scene_index, phase_index, src, kind);
     if (svar == nullptr) {
       break;  // contiguous α uids from sddp_alpha_uid — first gap ends it
     }
-    const Uid alpha_uid = sddp_alpha_uid + static_cast<Uid>(off);
+    const Uid alpha_uid = sddp_alpha_uid + static_cast<Uid>(to_size(src));
     cols.emplace_back(svar->col(), alpha_uid);
   }
   return cols;
@@ -490,7 +488,7 @@ std::vector<double> markov_alpha_weights(const SimulationLP& sim,
     }
   }
 
-  const auto s = static_cast<std::size_t>(scene_index);
+  const auto s = to_size(scene_index);
   const auto from = markov.state_of(scene_index);
   const double p_s = masses[s];
 
@@ -1410,7 +1408,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
           }
           double restitution = c_bar;
           if (phi_terminal && mass_total > 0.0) {
-            const auto si = static_cast<std::size_t>(scene_index);
+            const auto si = to_size(scene_index);
             const double own =
                 si < scene_masses.size() ? scene_masses[si] : 0.0;
             // p_s = own / mass_total.  A zero-probability scene (own == 0)

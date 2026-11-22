@@ -217,3 +217,14 @@ TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
   CHECK(static_cast<gtopt::uid_t>(cut.phase_uid) == 42);
   CHECK(static_cast<gtopt::uid_t>(cut.scene_uid) == 7);
 }
+
+TEST_CASE("to_size unwraps strong indices to container offsets")  // NOLINT
+{
+  static_assert(std::is_same_v<decltype(to_size(SceneIndex {3})), std::size_t>);
+  static_assert(to_size(SceneIndex {3}) == 3);
+  static_assert(to_size(PhaseIndex {0}) == 0);
+  static_assert(to_size(StrongIndexType<struct ToSizeTag> {7}) == 7);
+
+  const std::vector<double> masses {0.25, 0.75};
+  CHECK(masses[to_size(SceneIndex {1})] == doctest::Approx(0.75));
+}

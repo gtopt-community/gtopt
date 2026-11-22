@@ -1258,12 +1258,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // NVarPhi > scene_count columns; keep the walk shape identical
         // to `alpha_cols_on_cell`).
         std::vector<double> alpha_sols;
-        for (std::size_t off = 0;; ++off) {
+        for (SceneIndex src {0};; ++src) {
           const auto* alpha_svar =
-              find_alpha_state_var(sim,
-                                   scene_index,
-                                   phase_index,
-                                   SceneIndex {static_cast<Index>(off)});
+              find_alpha_state_var(sim, scene_index, phase_index, src);
           if (alpha_svar == nullptr) {
             break;  // α uids are contiguous — first gap ends the layout
           }
