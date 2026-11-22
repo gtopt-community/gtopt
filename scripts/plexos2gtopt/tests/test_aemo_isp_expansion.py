@@ -295,9 +295,13 @@ def test_capacity_constraints(xcase: tuple[Path, Path]) -> None:
     ob = ucs["isp_OCLimit_S1"]
     # existing wind (80 MW until Dec) is folded into the RHS
     assert ob["expression"].startswith('generator("S1_SAT").capainst <= ')
-    # one yearly row at the FY build stage with the tightest monthly RHS
-    # (wind still in service in July..December); other months inactive
-    assert ob["expression"].endswith("<= 170")
+    # one yearly row at the FY build stage; the folded fleet is the FY
+    # mean (wind in service July..December only); other months inactive
+    assert ob["expression"].endswith("<= 210")
+    tight = _ucs(_build(*xcase, capacity_year_fleet="tightest"))["isp_OCLimit_S1"]
+    assert tight["expression"].endswith("<= 170")
+    end = _ucs(_build(*xcase, capacity_year_fleet="end"))["isp_OCLimit_S1"]
+    assert end["expression"].endswith("<= 250")
     assert "rhs" not in ob
     assert ob["active_stages"] == [1] + [0] * 11
     assert "_capacity" not in ob
@@ -337,8 +341,25 @@ def test_fy_capacity_rhs() -> None:
     rhs[15] = exp.INACTIVE_RHS  # absent in October of FY2
     fy = exp.fy_start_stages(months)
     assert [i for i, f in enumerate(fy) if f] == [0, 12]
-    out = exp._fy_capacity_rhs(rhs, fy, "<=", exp.INACTIVE_RHS)
+    out = exp._fy_capacity_rhs(rhs, fy, "<=", exp.INACTIVE_RHS, "tightest")
     assert out[0, 0] == 80.0 and out[12, 0] == 100.0
+    mean = exp._fy_capacity_rhs(rhs, fy, "<=", exp.INACTIVE_RHS)
+    assert mean[0, 0] == pytest.approx((11 * 100.0 + 80.0) / 12)
+    assert mean[12, 0] == 100.0  # the inactive month is not averaged
+    end = exp._fy_capacity_rhs(rhs, fy, "<=", exp.INACTIVE_RHS, "end")
+    assert end[0, 0] == 100.0
+    # a >= target with a fleet growing during the year: the mean (and
+    # the end) are looser than the 1-July snapshot
+    grow = np.full((24, 24), 517.0)
+    grow[4:12] = 300.0  # 217 MW commissioned in November
+    assert exp._fy_capacity_rhs(grow, fy, ">=", -exp.INACTIVE_RHS, "tightest")[
+        0, 0
+    ] == pytest.approx(517.0)
+    assert exp._fy_capacity_rhs(grow, fy, ">=", -exp.INACTIVE_RHS)[
+        0, 0
+    ] == pytest.approx((4 * 517.0 + 8 * 300.0) / 12)
+    with pytest.raises(ValueError):
+        exp._fy_capacity_rhs(rhs, fy, "<=", exp.INACTIVE_RHS, "bogus")
     assert np.all(np.delete(out[:, 0], [0, 12]) == exp.INACTIVE_RHS)
     ge = exp._fy_capacity_rhs(rhs * 0 + 5.0, fy, ">=", -exp.INACTIVE_RHS)
     assert ge[0, 0] == 5.0 and ge[1, 0] == -exp.INACTIVE_RHS

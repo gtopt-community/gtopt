@@ -308,6 +308,9 @@ class ExpansionOptions:
     #: cannot repair the capacity a previous FY built (feasibility cuts on
     #: a capacity state converge one coordinate per iteration).
     capacity_penalty: float | None = None
+    #: yearly value of the existing fleet folded into the capacity
+    #: constraints: mean | end | tightest (see :func:`_fy_capacity_rhs`)
+    capacity_year_fleet: str = "mean"
     #: add battery / pumped-hydro storage candidates (power + energy)
     battery_candidates: bool = True
     #: restrict candidates to categories starting with one of these
@@ -522,20 +525,44 @@ def _fold_uc(
     return f"block|{lhs}", {**base, "_lhs": lhs}, op, prof
 
 
+#: how the yearly capacity constraint aggregates the monthly RHS (each
+#: month folds the fleet in service on its first day)
+CAPACITY_YEAR_FLEET = ("mean", "end", "tightest")
+
+
 def _fy_capacity_rhs(
-    rhs: np.ndarray, fy_start: list[bool], op: str, off: float
+    rhs: np.ndarray,
+    fy_start: list[bool],
+    op: str,
+    off: float,
+    fleet: str = "mean",
 ) -> np.ndarray:
     """Yearly capacity constraint → one row at each FY's first stage.
 
     Installed capacity only changes at the FY build stage, so the PLEXOS
-    ``RHS Year`` constraint is enforced once per FY with the tightest
-    monthly RHS (the existing fleet folded into it may change during the
-    year); the other months are inactive.  This keeps every month
-    feasible for any state the build stage hands over — needed by SDDP,
-    where a later month cannot change the capacity decided in July.
+    ``RHS Year`` constraint is enforced once per FY; the other months are
+    inactive.  This keeps every month feasible for any state the build
+    stage hands over — needed by SDDP, where a later month cannot change
+    the capacity decided in July.  The existing fleet folded into the
+    monthly RHS changes during the year (units commissioned or retired
+    mid-year); ``fleet`` picks the yearly value: ``mean`` (default: the
+    FY's time-averaged installed capacity, PLEXOS' yearly quantity),
+    ``end`` (the last live month) or ``tightest`` (the most restrictive
+    month — a ≥ target then sees only the 1-July fleet, which makes e.g.
+    the 2026 ISP ``CIS Dispatchable SA`` FY2028 target infeasible next to
+    the hard ``Adelaide Battery Limit``).
     """
+    if fleet not in CAPACITY_YEAR_FLEET:
+        raise ValueError(f"unknown capacity year fleet {fleet!r}")
     out = np.full_like(rhs, off)
-    pick = np.min if op == "<=" else np.max
+
+    def pick(v: np.ndarray) -> float:
+        if fleet == "mean":
+            return float(np.mean(v))
+        if fleet == "end":
+            return float(v[-1])
+        return float(np.min(v) if op == "<=" else np.max(v))
+
     for s, first in enumerate(fy_start):
         if not first:
             continue
@@ -1023,7 +1050,9 @@ def build_expansion_case(  # pylint: disable=too-many-locals,too-many-branches,t
             if is_capacity and opts.capacity_penalty and "penalty" not in base:
                 item["penalty"] = opts.capacity_penalty
             if is_capacity:
-                rhs = _fy_capacity_rhs(rhs, fy_start, var.op, off)
+                rhs = _fy_capacity_rhs(
+                    rhs, fy_start, var.op, off, opts.capacity_year_fleet
+                )
             # stages without the constraint: per-stage ``active_stages`` (no LP
             # row) instead of a huge never-binding RHS
             live = np.abs(rhs[:, 0]) < abs(off)
@@ -1215,6 +1244,14 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     p.add_argument("--no-isp-constraints", action="store_true")
     p.add_argument("--demand-fail-cost", type=float, default=None)
     p.add_argument(
+        "--capacity-year-fleet",
+        choices=CAPACITY_YEAR_FLEET,
+        default="mean",
+        help="yearly value of the existing fleet in the capacity "
+        "constraints: mean (time-averaged over the FY, default), end "
+        "(last month) or tightest (most restrictive month)",
+    )
+    p.add_argument(
         "--capacity-penalty",
         type=float,
         default=None,
@@ -1271,6 +1308,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         constraints=not args.no_isp_constraints,
         demand_fail_cost=args.demand_fail_cost,
         capacity_penalty=args.capacity_penalty,
+        capacity_year_fleet=args.capacity_year_fleet,
         candidate_prefixes=tuple(args.candidate_prefix),
     )
     case = build_expansion_case(opts)
