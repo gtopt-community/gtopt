@@ -43,6 +43,13 @@ jobs:
       - name: Install scripts package and dev dependencies
         run: uv pip install --system -e "./scripts[dev]" graphviz
 
+      - name: Install Graphviz executables
+        # dot/neato for the gtopt_diagram rendering tests, which skip
+        # without them (the `graphviz` pip package is only the binding).
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends graphviz
+
       - name: Run unit tests with coverage
         # Mirrors the `scripts-all-unit` ctest target — single pytest
         # invocation with pytest-xdist (`-n auto`), one fork per CPU,
@@ -90,14 +97,15 @@ jobs:
       - name: ty (advisory, non-blocking)
         # Fast second type checker (astral-sh/ty, beta).  Configured in
         # [tool.ty] of scripts/pyproject.toml and run over the whole
-        # scripts tree (~1 s).  Pinned: ty 0.0.x still renames rules
-        # between releases.  --exit-zero + continue-on-error keep it
+        # scripts tree (~1 s).  Pinned (ty==<pin> in the dev extra of
+        # scripts/pyproject.toml): ty 0.0.x still renames rules between
+        # releases.  --exit-zero + continue-on-error keep it
         # advisory -- mypy above stays the blocking gate; findings show
         # up as GitHub annotations on the PR diff.
         if: always()
         working-directory: scripts
         continue-on-error: true
-        run: uvx ty@0.0.107 check --python "$(which python)" --output-format github --exit-zero
+        run: ty check --python "$(which python)" --output-format github --exit-zero
 
       - name: Check coverage threshold (warning only)
         if: always()

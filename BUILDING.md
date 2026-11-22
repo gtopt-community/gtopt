@@ -31,6 +31,19 @@ This guide provides detailed instructions for building GTOpt from source, includ
 | spdlog | 1.12+ | Logging | `libspdlog-dev` |
 | jemalloc | 5.0+ | Multi-thread malloc (eliminates glibc arena fragmentation; ~60% peak-RSS reduction on SDDP runs) | `libjemalloc-dev` |
 | lld | 14+ | Fast linker (auto-detected) | `lld` |
+| zstd / lz4 / snappy | — | Compression (LP snapshots, Parquet) + `zstd`/`lz4` CLIs used by scripts | `libzstd-dev zstd liblz4-dev lz4 libsnappy-dev` |
+| lcov | — | C++ coverage reports | `lcov` |
+| Graphviz | 2.40+ | `gtopt_diagram` rendering (`dot`, `neato`); its tests skip without it | `graphviz` |
+| cairo | — | SVG→PNG via `cairosvg` (scripts) | `libcairo2-dev` |
+| mdbtools | — | `cen2gtopt` / `plexos2gtopt` read MS Access `.accdb` | `mdbtools` |
+| clang-tidy | 21 + 22 | Pre-commit tidy; CI `clang-tidy.yml` runs 22 | apt.llvm.org `clang-tidy-21 clang-tidy-22` |
+| ctcache | pinned | clang-tidy result cache for `tools/run_tidy.sh` | `bash tools/install_ctcache.sh` |
+| Python tools | see `scripts/pyproject.toml` | ruff, pylint, mypy, ty (exact pin), pytest(-cov,-xdist), actionlint, shellcheck, pre-commit | `pip install -e "./scripts[dev,lint]"` |
+| Doxygen + TeX Live | — | API docs; white paper via `latexmk` (optional, alt. to tectonic) | `bash tools/setup_sandbox.sh --with-docs` |
+| Julia | 1.10+ | `tools/*.jl` golden generators (optional) | `bash tools/setup_sandbox.sh --with-julia` |
+
+`bash tools/setup_sandbox.sh --check` lists what is missing on the current
+host (and the exact install commands) without installing anything.
 
 **LP Solver Backends**: GTOpt loads LP solver backends as dynamic plugins at
 runtime. The default is auto-detected by priority: CPLEX > HiGHS > MindOpt > CBC > CLP (Gurobi, SCIP and cuOpt are opt-in via `--solver`).

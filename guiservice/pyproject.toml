@@ -26,6 +26,8 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-xdist>=3.0",
     "ruff>=0.4.0",
+    # Same exact pin as scripts/pyproject.toml and guiservice.yml.
+    "ty==0.0.107",
     "types-requests>=2.31",
 ]
 

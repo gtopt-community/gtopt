@@ -102,8 +102,25 @@ dev = [
     "pytest-cov>=6.0",
     "pytest-xdist>=3.0",
     "ruff>=0.15",
+    # astral-sh/ty (beta) renames rules between 0.0.x releases: keep this
+    # exact pin -- it is the one CI installs (scripts.yml runs the `ty`
+    # from this extra; guiservice.yml's `uvx ty@<pin>` must match).
+    # Run it against the env that has the deps installed:
+    #   ty check --python "$(which python)"
+    "ty==0.0.107",
     "xlsxwriter>=3.1",
     "hypothesis>=6.0",
+]
+# Repo-wide linters that are not Python packages themselves but ship as
+# self-contained PyPI wheels, so `pip install -e "./scripts[lint]"`
+# gives every developer the same binaries (used by .pre-commit-config
+# and for checking changed workflows / shell scripts by hand):
+#   actionlint .github/workflows/<file>.yml
+#   shellcheck tools/*.sh
+lint = [
+    "actionlint-py>=1.7.12",
+    "shellcheck-py>=0.11",
+    "pre-commit>=4.0",
 ]
 # Optional feature groups.  Each one matches an optional import that
 # is guarded at its call site (the feature degrades or prints an
