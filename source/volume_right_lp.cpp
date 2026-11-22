@@ -30,6 +30,7 @@
  *
  * Efficiency is 1.0 — rights are consumed 1:1 without loss.
  */
+#include <algorithm>
 #include <format>
 
 #include <gtopt/linear_problem.hpp>
@@ -352,7 +353,10 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
                            volume_right().eini.value_or(0.0)
                                + credit_lp.volume_right().eini.value_or(0.0));
     } else if (opt_rule.has_value()) {
-      provision = initial_rule_bound;
+      // A rule may evaluate above the ledger's capacity (e.g. a reserve
+      // provision p·(V − base) past the regime threshold); fixing eini
+      // above emax makes the stage infeasible — clamp to [0, emax].
+      provision = std::clamp(initial_rule_bound, 0.0, stage_cap);
     } else {
       provision = stage_cap;
     }
@@ -597,16 +601,20 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   if (is_reset_stage_update) {
     // ``reset_value`` provisions are static — nothing to refresh.
     if (!volume_right().reset_value.has_value()) {
+      // Same [0, emax] clamp as the build-time provision.
+      const auto stage_cap =
+          param_emax(stage.uid(), stage.blocks().front().uid()).value_or(0.0);
+      const auto provision = std::clamp(new_bound, 0.0, stage_cap);
       if (const auto it = reset_debit_rows_.find({scenario.uid(), stage.uid()});
           it != reset_debit_rows_.end())
       {
         // Debit-row provisioning: refresh the row RHS
         // (eini + debit_eini = provision).
-        li.set_row_equal_to(it->second, new_bound);
+        li.set_row_equal_to(it->second, provision);
       } else {
         const auto eini_col = eini_col_at(scenario, stage);
-        li.set_col_low(eini_col, new_bound);
-        li.set_col_upp(eini_col, new_bound);
+        li.set_col_low(eini_col, provision);
+        li.set_col_upp(eini_col, provision);
       }
       ++total;
     }

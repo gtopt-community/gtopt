@@ -641,7 +641,8 @@
     {# Ordinary-reserve elec rights (PLP IVMDOEF - IVMGOEF):
        provisioned p * (V_util - 129) (FijaMaule :802-810, :977-987),
        accrues p * QAflMaule (row :300-307, saving linked in the PAMPL),
-       re-provisioned every January from the Maule volume. #}
+       re-provisioned every January from the Maule volume; zero in the
+       normal regime (V >= 581), so the provision never exceeds emax. #}
     {
       "name": "maule_vol_reserva_ord_elec",
       "purpose": "generation",
@@ -654,7 +655,8 @@
         "reservoir": {{ res_maule }},
         "segments": [
           {"volume": 0, "slope": 0, "constant": 0},
-          {"volume": {{ ledger.res_rule_v_base }}, "slope": {{ ledger.p_elec }}, "constant": {{ -ledger.p_elec * ledger.res_rule_v_base }}}
+          {"volume": {{ ledger.res_rule_v_base }}, "slope": {{ ledger.p_elec }}, "constant": {{ -ledger.p_elec * ledger.res_rule_v_base }}},
+          {"volume": {{ ledger.res_rule_v_normal }}, "slope": 0, "constant": 0}
         ]
       }
     },
@@ -662,7 +664,8 @@
     {# Ordinary-reserve riego rights (PLP IVMDORF - IVMGORF):
        provisioned p * (V_util - 129) (FijaMaule :802-810, :977-987),
        accrues p * QAflMaule (row :300-307, saving linked in the PAMPL),
-       re-provisioned every January from the Maule volume. #}
+       re-provisioned every January from the Maule volume; zero in the
+       normal regime (V >= 581), so the provision never exceeds emax. #}
     {
       "name": "maule_vol_reserva_ord_riego",
       "purpose": "irrigation",
@@ -675,7 +678,8 @@
         "reservoir": {{ res_maule }},
         "segments": [
           {"volume": 0, "slope": 0, "constant": 0},
-          {"volume": {{ ledger.res_rule_v_base }}, "slope": {{ ledger.p_riego }}, "constant": {{ -ledger.p_riego * ledger.res_rule_v_base }}}
+          {"volume": {{ ledger.res_rule_v_base }}, "slope": {{ ledger.p_riego }}, "constant": {{ -ledger.p_riego * ledger.res_rule_v_base }}},
+          {"volume": {{ ledger.res_rule_v_normal }}, "slope": 0, "constant": 0}
         ]
       }
     }

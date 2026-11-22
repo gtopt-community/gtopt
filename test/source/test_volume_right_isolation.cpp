@@ -444,6 +444,67 @@ TEST_CASE(  // NOLINT
   CHECK(col_upp[eini_col] == doctest::Approx(emax_val));
 }
 
+// ── 1.5b reset provision never exceeds emax ──────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "VolumeRightLP Tier 1.5b - reset provision from bound_rule is capped at "
+    "emax")
+{
+  // A January re-provision rule that evaluates above the ledger's emax
+  // (Maule ordinary reserve 0.2·(V − 129) at V > 581) used to fix eini
+  // above emax and made the stage LP infeasible — the plp_2y SDDP run
+  // failed in every scene at the January phase.  The provision is
+  // clamped to [0, emax].
+  const HydroFixture fx;
+  constexpr double emax_val = 80.0;
+  const Array<VolumeRight> vrs = {
+      {
+          .uid = Uid {1},
+          .name = "vreset_capped",
+          .reservoir = Uid {1},
+          .emax = emax_val,
+          .eini = 0.0,
+          .use_state_variable = false,
+          .reset_month = MonthType::april,
+          .bound_rule =
+              RightBoundRule {
+                  .reservoir = Uid {1},
+                  .segments =
+                      {
+                          {
+                              .volume = 0.0,
+                              .slope = 0.0,
+                              .constant = 5.0 * emax_val,
+                          },
+                      },
+              },
+      },
+  };
+
+  const auto simulation = make_single_stage_simulation();
+  const auto system = make_system(fx, vrs, "Tier1_5b_ResetCap");
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& vr_lp = system_lp.elements<VolumeRightLP>().front();
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  const auto eini_col = vr_lp.eini_col_at(scenarios[0], stages[0]);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+  CHECK(lp.get_col_upp()[eini_col] == doctest::Approx(emax_val));
+
+  // update_lp re-provisions from the same rule: still capped.
+  std::ignore = vr_lp.update_lp(system_lp, scenarios[0], stages[0]);
+  CHECK(lp.get_col_low()[eini_col] == doctest::Approx(emax_val));
+  CHECK(lp.get_col_upp()[eini_col] == doctest::Approx(emax_val));
+}
+
 // ── 1.7 solve LP and inspect extraction col_sol ──────────────────────────
 
 TEST_CASE(  // NOLINT

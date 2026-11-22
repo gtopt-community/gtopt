@@ -227,6 +227,28 @@ class TestOrdinaryReserve:
         assert vrs["maule_vol_reserva_ord_riego"]["eini"] == pytest.approx(0.0)
         assert vrs["maule_vol_reserva_ord_elec"]["eini"] == pytest.approx(0.0)
 
+    def test_january_rule_zero_in_normal_regime_and_capped(self):
+        """The January re-provision never exceeds emax (= p * 452).
+
+        A rule ``p * (V - 129)`` without a normal-regime segment fixes the
+        reset ``eini`` above ``emax`` once V > 581 -- the plp_2y SDDP run
+        went infeasible in every scene at the January phase.  PLP zeroes
+        the reserve ledgers in the normal regime (FijaMaule).
+        """
+
+        def rule(segs, v):
+            active = [sg for sg in segs if sg["volume"] <= v][-1]
+            return active["constant"] + active["slope"] * v
+
+        agreement = MauleAgreement(_cfg(v_ini_maule=400.0), stage_parser=_stages([1]))
+        vrs = _by_name(agreement.volume_rights)
+        for name in ("maule_vol_reserva_ord_riego", "maule_vol_reserva_ord_elec"):
+            vr = vrs[name]
+            segs = vr["bound_rule"]["segments"]
+            for v in (0.0, 100.0, 129.0, 400.0, 580.9, 581.0, 900.0, 1450.0):
+                assert -1e-9 <= rule(segs, v) <= vr["emax"] + 1e-9, (name, v)
+            assert rule(segs, 900.0) == pytest.approx(0.0)
+
     def test_existing_rights_kept_minus_used(self):
         agreement = MauleAgreement(
             _cfg(
