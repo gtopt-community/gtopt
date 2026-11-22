@@ -593,7 +593,59 @@ TEST_CASE("ApertureCutResult default construction")  // NOLINT
   CHECK(result.weight == doctest::Approx(0.0));
   CHECK_FALSE(result.feasible);
   CHECK(result.status == 0);
+  CHECK(result.solve_s == doctest::Approx(0.0));
   CHECK_FALSE(result.cut.has_value());
+}
+
+TEST_CASE(  // NOLINT
+    "classify_aperture_failure separates timeouts from other statuses")
+{
+  using namespace gtopt;
+
+  SUBCASE("status 2 is a proven infeasibility")
+  {
+    CHECK(classify_aperture_failure(2, 5.0, 1800.0)
+          == ApertureFailureKind::infeasible);
+  }
+  SUBCASE("status 3 well below the limit is not a timeout")
+  {
+    // Regression: y24_S2 logged "[i1 s5 p4 a1]: timed out (1800.0s,
+    // status 3)" for an aperture batch that took 101 s in total.
+    CHECK(classify_aperture_failure(3, 101.0, 1800.0)
+          == ApertureFailureKind::non_optimal);
+    CHECK(classify_aperture_failure(-1, 0.0, 0.0)
+          == ApertureFailureKind::non_optimal);
+    CHECK(classify_aperture_failure(3, 5000.0, 0.0)
+          == ApertureFailureKind::non_optimal);
+  }
+  SUBCASE("status 3 at the limit is a timeout (HiGHS / CLP time limit)")
+  {
+    CHECK(classify_aperture_failure(3, 1800.0, 1800.0)
+          == ApertureFailureKind::timed_out);
+  }
+  SUBCASE("status 1 is a timeout only when the solve reached the limit")
+  {
+    CHECK(classify_aperture_failure(1, 1800.2, 1800.0)
+          == ApertureFailureKind::timed_out);
+    CHECK(classify_aperture_failure(1, 1750.0, 1800.0)
+          == ApertureFailureKind::timed_out);
+    CHECK(classify_aperture_failure(1, 12.0, 1800.0)
+          == ApertureFailureKind::abandoned);
+    CHECK(classify_aperture_failure(1, 12.0, 0.0)
+          == ApertureFailureKind::abandoned);
+  }
+  SUBCASE("status 2 is a proven infeasibility even at the limit")
+  {
+    CHECK(classify_aperture_failure(2, 1800.0, 1800.0)
+          == ApertureFailureKind::infeasible);
+  }
+  SUBCASE("classification is usable at compile time")
+  {
+    static_assert(classify_aperture_failure(1, 10.0, 10.0)
+                  == ApertureFailureKind::timed_out);
+    static_assert(classify_aperture_failure(3, 1.0, 10.0)
+                  == ApertureFailureKind::non_optimal);
+  }
 }
 
 }  // namespace

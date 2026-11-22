@@ -25,6 +25,7 @@
 #include <bit>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <future>
 #include <optional>
@@ -392,8 +393,50 @@ struct ApertureCutResult
   double weight {0.0};
   bool feasible {false};
   int status {0};
+  /// Wall-clock seconds spent in this aperture's resolve (memo-hit
+  /// duplicates inherit the original solve's value).
+  /// Lets the failure log tell a real time-limit hit apart from other
+  /// non-optimal outcomes that share a status code.
+  double solve_s {0.0};
   std::optional<SparseRow> cut {};
 };
+
+/// Why a non-feasible aperture solve failed, derived from the
+/// `LinearInterface::get_status()` code (0 optimal, 1 abandoned,
+/// 2 proven infeasible/unbounded, 3 any other non-optimal outcome) and
+/// the measured solve time.
+enum class ApertureFailureKind : std::uint8_t
+{
+  infeasible,  ///< status 2: proven primal/dual infeasible
+  timed_out,  ///< status 1 with the solve reaching the aperture timeout
+  abandoned,  ///< status 1 well below the timeout (iteration/objective
+              ///< limit, numerical abort, solver exception)
+  non_optimal,  ///< status 3 (or unknown) well below the timeout:
+                ///< neither optimal nor proven infeasible, e.g. CPLEX
+                ///< infeasible-or-unbounded or unscaled infeasibilities
+};
+
+/// Classify an aperture failure.  The status code alone cannot tell a
+/// time-limit stop apart: CPLEX reports CPX_STAT_ABORT_TIME_LIM through
+/// `is_abandoned()` (status 1) while HiGHS' kTimeLimit and CLP's time-limit
+/// stop land in the catch-all status 3, and both codes also cover stops
+/// that have nothing to do with time (iteration/objective limits,
+/// infeasible-or-unbounded, unscaled infeasibilities).  So a status-1/3 stop
+/// counts as a timeout only when the measured solve time reached (95 % of)
+/// a positive @p timeout_s.
+[[nodiscard]] constexpr auto classify_aperture_failure(
+    int status, double solve_s, double timeout_s) noexcept
+    -> ApertureFailureKind
+{
+  if (status == 2) {
+    return ApertureFailureKind::infeasible;
+  }
+  if (timeout_s > 0.0 && solve_s >= 0.95 * timeout_s) {
+    return ApertureFailureKind::timed_out;
+  }
+  return status == 1 ? ApertureFailureKind::abandoned
+                     : ApertureFailureKind::non_optimal;
+}
 
 /// Result of a chunked task (one task can hold N aperture solves under
 /// the chunked aperture pass).  At chunk_size=1 each chunk is a 1-element

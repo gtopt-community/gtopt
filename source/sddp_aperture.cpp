@@ -1067,6 +1067,7 @@ auto solve_apertures_for_phase(
                   .weight = weight,
                   .feasible = false,
                   .status = status,
+                  .solve_s = solve_s,
               });
               // Memo: future duplicates inside the chunk inherit the
               // infeasible status (and don't pay the resolve cost).
@@ -1296,17 +1297,42 @@ auto solve_apertures_for_phase(
       for (auto& result : chunk_results) {
         if (!result.feasible) {
           ++n_infeasible;
-          if (aperture_timeout > 0.0
-              && (result.status == 1 || result.status == 3))
-          {
+          const auto kind = classify_aperture_failure(
+              result.status, result.solve_s, aperture_timeout);
+          if (kind == ApertureFailureKind::timed_out) {
             spdlog::warn(
                 "SDDP Aperture [i{} s{} p{} a{}]: timed out ({:.1f}s, "
-                "status {}), treating as infeasible",
+                "limit {:.1f}s, status {}), treating as infeasible",
                 gtopt::uid_of(iteration_index),
                 scene_uid_val,
                 phase_uid_val,
                 result.ap_uid,
+                result.solve_s,
                 aperture_timeout,
+                result.status);
+          } else if (kind == ApertureFailureKind::abandoned) {
+            spdlog::warn(
+                "SDDP Aperture [i{} s{} p{} a{}]: solve abandoned after "
+                "{:.1f}s (status {}: iteration/objective limit or numerical "
+                "abort, not the {:.1f}s timeout), treating as infeasible",
+                gtopt::uid_of(iteration_index),
+                scene_uid_val,
+                phase_uid_val,
+                result.ap_uid,
+                result.solve_s,
+                result.status,
+                aperture_timeout);
+          } else if (kind == ApertureFailureKind::non_optimal) {
+            spdlog::warn(
+                "SDDP Aperture [i{} s{} p{} a{}]: non-optimal after {:.1f}s "
+                "(status {}: neither optimal nor proven infeasible, e.g. "
+                "infeasible-or-unbounded or unscaled infeasibilities), "
+                "treating as infeasible",
+                gtopt::uid_of(iteration_index),
+                scene_uid_val,
+                phase_uid_val,
+                result.ap_uid,
+                result.solve_s,
                 result.status);
           } else if (spdlog::should_log(spdlog::level::trace)) {
             spdlog::trace(
