@@ -188,6 +188,7 @@ bool FlowLP::add_to_lp(SystemContext& sc,
   // legacy input_iterator category, so std::prev is not applicable.
   std::optional<ColIndex> ar_last_flow_col;
 
+  BIndexHolder<double> folded_discharge;
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
@@ -221,6 +222,9 @@ bool FlowLP::add_to_lp(SystemContext& sc,
       const double delta = is_input() ? -d : d;
       brow.lowb += delta;
       brow.uppb += delta;
+      // Keep `flow('X').flow` resolvable in user constraints: the
+      // folded block registers as a constant (no column).
+      folded_discharge[buid] = d;
       continue;  // no LP column emitted for this fixed flow
     }
 
@@ -318,7 +322,17 @@ bool FlowLP::add_to_lp(SystemContext& sc,
   }
 
   // Register PAMPL-visible columns.
-  if (!flow_cols.at(st_key).empty()) {
+  // Folded fixed-discharge blocks register as constants (offset, no
+  // column) so `flow('X').flow` still resolves under --lp-reduction.
+  if (!folded_discharge.empty()) {
+    sc.add_ampl_variable(ampl_name,
+                         uid(),
+                         FlowName,
+                         scenario,
+                         stage,
+                         flow_cols.at(st_key),
+                         folded_discharge);
+  } else if (!flow_cols.at(st_key).empty()) {
     sc.add_ampl_variable(
         ampl_name, uid(), FlowName, scenario, stage, flow_cols.at(st_key));
   }

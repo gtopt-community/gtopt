@@ -211,6 +211,24 @@ struct AmplVariable
     return 0.0;
   }
 
+  /// Constant-only entry: the block carries an offset but NO column —
+  /// the attribute was folded into a constant (e.g. a fixed-discharge
+  /// `Flow` under `--lp-reduction`).  The resolver then contributes the
+  /// constant to the row RHS instead of reporting an unknown attribute.
+  [[nodiscard]] std::optional<double> constant_at(
+      BlockUid block_uid) const noexcept
+  {
+    if (!extras || extras->block_offsets.empty() || col_at(block_uid)) {
+      return std::nullopt;
+    }
+    if (const auto it = extras->block_offsets.find(block_uid);
+        it != extras->block_offsets.end())
+    {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
   /// Look up the per-block sum-of-cols list for this block.  Returns an
   /// empty span when this registration is not a sum-of-cols entry, or
   /// when the block has no list entry.  Callers prefer the single-col

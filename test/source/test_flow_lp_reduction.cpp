@@ -39,7 +39,7 @@ struct SolveResult
   std::size_t n_flow_cols {};
 };
 
-SolveResult solve(bool reduce)
+SolveResult solve(bool reduce, std::string uc_expression = {})
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
@@ -73,7 +73,9 @@ SolveResult solve(bool reduce)
       {
           .uid = Uid {1},
           .name = "j_up",
-          .drain = false,
+          // With a user constraint capping the turbined flow, the
+          // surplus inflow must be able to leave j_up.
+          .drain = !uc_expression.empty(),
       },
       {
           .uid = Uid {2},
@@ -133,6 +135,16 @@ SolveResult solve(bool reduce)
       .scenario_array = {{.uid = Uid {1}}},
   };
 
+  Array<UserConstraint> user_constraints;
+  if (!uc_expression.empty()) {
+    user_constraints.push_back(UserConstraint {
+        .uid = Uid {1},
+        .name = "cap_by_inflow",
+        .expression = uc_expression,
+        .constraint_type = "raw",
+    });
+  }
+
   const System system = {
       .name = "FlowReductionTest",
       .bus_array = bus_array,
@@ -142,6 +154,7 @@ SolveResult solve(bool reduce)
       .waterway_array = waterway_array,
       .flow_array = flow_array,
       .turbine_array = turbine_array,
+      .user_constraint_array = user_constraints,
   };
 
   PlanningOptions opts;
@@ -211,3 +224,23 @@ TEST_CASE(
 }
 
 }  // namespace test_flow_lp_reduction
+
+TEST_CASE(  // NOLINT
+    "Folded fixed Flow still resolves as a constant in a user constraint")
+{
+  // Irrigation PAMPL rows reference the natural inflow (e.g. the Maule
+  // ordinary-rights accrual `saving <= 0.2 * flow('LMAULE').flow`).
+  // Under lp_reduction the fixed flow has no column: it must resolve to
+  // its discharge (moved to the RHS), not fail as "unknown attribute".
+  // Cap: turbined <= 0.4 * 25 = 10 m3/s -> 10 MW hydro, 40 MW thermal.
+  const std::string uc =
+      R"(waterway("ww1").flow <= 0.4 * flow("river_inflow").flow)";
+  const auto col_form = test_flow_lp_reduction::solve(false, uc);
+  const auto folded = test_flow_lp_reduction::solve(true, uc);
+  CHECK(folded.obj == doctest::Approx(col_form.obj));
+  CHECK(folded.n_flow_cols == 0);
+  // Hand value: 3 one-hour blocks x (5 $/MWh * 10 MW + 80 $/MWh * 40 MW).
+  CHECK(folded.obj == doctest::Approx(3.0 * (5.0 * 10.0 + 80.0 * 40.0)));
+  // The cap binds: without it the full 25 m3/s is turbined (cheaper).
+  CHECK(test_flow_lp_reduction::solve(true, {}).obj < folded.obj - 1.0);
+}

@@ -460,6 +460,16 @@ namespace
             .element_known = true,
         };
       }
+      // (d) Constant-only block (attribute folded into a constant, e.g.
+      // a fixed-discharge Flow under --lp-reduction): the term is the
+      // constant itself, moved to the RHS through offset_shift.
+      if (const auto constant = var->constant_at(buid)) {
+        return {
+            .emitted = true,
+            .offset_shift = coef * *constant,
+            .element_known = true,
+        };
+      }
       // Registered for this (class, uid, attribute) here but no column
       // for THIS block (e.g. per-block pmax=0): a defined silent-zero —
       // the element is known so the term legitimately contributes 0.
