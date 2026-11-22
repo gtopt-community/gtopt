@@ -423,16 +423,16 @@ private:
 ///
 /// One entry per (scene, candidate).  A candidate whose phase-0 `capainst`
 /// state is not resolvable in a scene (e.g. the backend was released under
-/// low_memory) yields a NaN slot; the caller falls back to the α-cut
+/// low_memory) yields an empty slot; the caller falls back to the α-cut
 /// projection for that scene.
 struct SceneCapSubgradients
 {
-  /// subgrad[scene_index][candidate_index] = g_{s,j}; NaN when unavailable.
-  std::vector<std::vector<double>> subgrad;
+  /// subgrad[scene_index][candidate_index] = g_{s,j}; empty when unavailable.
+  std::vector<std::vector<std::optional<double>>> subgrad;
   /// khat[scene_index][candidate_index] = the pinned capainst value K̂_j.
-  std::vector<std::vector<double>> khat;
+  std::vector<std::vector<std::optional<double>>> khat;
   /// value[scene_index] = V_s^{(0)}(K̂), the full phase-0 objective.
-  std::vector<double> value;
+  std::vector<std::optional<double>> value;
   bool all_resolved {true};
 };
 
@@ -443,12 +443,12 @@ struct SceneCapSubgradients
 {
   const auto& sim = plp.simulation();
   const auto num_scenes = static_cast<std::size_t>(sim.scene_count());
-  constexpr auto qnan = std::numeric_limits<double>::quiet_NaN();
 
   SceneCapSubgradients out;
-  out.subgrad.assign(num_scenes, std::vector<double>(cands.size(), qnan));
-  out.khat.assign(num_scenes, std::vector<double>(cands.size(), qnan));
-  out.value.assign(num_scenes, qnan);
+  out.subgrad.assign(num_scenes,
+                     std::vector<std::optional<double>>(cands.size()));
+  out.khat.assign(num_scenes, std::vector<std::optional<double>>(cands.size()));
+  out.value.assign(num_scenes, std::nullopt);
 
   constexpr std::string_view kCapacityConstraint {"capacity"};
 
@@ -473,7 +473,7 @@ struct SceneCapSubgradients
       // K̂ — the pinned trial capacity, read from the phase-0 capainst
       // state variable's primal (physical).  The master's single K_g
       // aggregates the candidate's capacity across the horizon.
-      double k_hat = qnan;
+      std::optional<double> k_hat;
       for (const auto& [key, svar] : svars) {
         if (key.col_name == CapacityObjectBase::CapainstName
             && key.class_name == c.class_name && key.uid == c.uid)
@@ -519,7 +519,7 @@ struct SceneCapSubgradients
         }
       }
 
-      if (!std::isfinite(k_hat)) {
+      if (!k_hat.has_value() || !std::isfinite(*k_hat)) {
         out.all_resolved = false;
         continue;
       }
@@ -530,9 +530,9 @@ struct SceneCapSubgradients
           "dV/dK={:.6g} K̂={:.6g}",
           s,
           c.name,
-          (s < scene_values.size() ? scene_values[s] : qnan),
+          out.value[s].value_or(std::numeric_limits<double>::quiet_NaN()),
           dV_dK,
-          k_hat);
+          *k_hat);
     }
   }
   return out;
@@ -676,7 +676,11 @@ auto solve_investment_master(const Planning& planning,
     // below only fires for scenes the reduced-cost read could not resolve.
     std::vector<uint8_t> scene_full_cut(num_scenes, 0U);
     for (std::size_t s = 0; s < num_scenes; ++s) {
-      if (s >= subg.value.size() || !std::isfinite(subg.value[s])) {
+      if (s >= subg.value.size()) {
+        continue;
+      }
+      const auto& scene_value = subg.value[s];
+      if (!scene_value.has_value() || !std::isfinite(*scene_value)) {
         continue;
       }
       // Assemble the per-candidate slope / K̂ vectors, falling back to the
@@ -685,21 +689,21 @@ auto solve_investment_master(const Planning& planning,
       std::vector<double> khat(candidates.size(), 0.0);
       bool ok = true;
       for (std::size_t j = 0; j < candidates.size(); ++j) {
-        const double gj = subg.subgrad[s][j];
-        if (!std::isfinite(gj)) {
+        const auto& gj = subg.subgrad[s][j];
+        if (!gj.has_value() || !std::isfinite(*gj)) {
           ok = false;
           break;
         }
-        g[j] = gj;
-        const double kh = subg.khat[s][j];
-        khat[j] = std::isfinite(kh)
-            ? kh
+        g[j] = *gj;
+        const auto& kh = subg.khat[s][j];
+        khat[j] = (kh.has_value() && std::isfinite(*kh))
+            ? *kh
             : base_capacity[j] + (candidates[j].expcap * builds[j]);
       }
       if (!ok) {
         continue;  // leave this scene to the α-cut fallback
       }
-      master.add_full_value_cut(s, subg.value[s], k_cols, g, khat);
+      master.add_full_value_cut(s, *scene_value, k_cols, g, khat);
       scene_full_cut[s] = 1U;
       ++cuts_added;
     }
