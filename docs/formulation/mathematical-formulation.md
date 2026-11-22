@@ -1261,6 +1261,78 @@ p_{g,s,t,b} - r_{p,s,t,b}^{\text{dn}} \;\geq\; \underline{P}_{g,t,b}
 \qquad \forall \; p \in \mathcal{P},\; s, t, b
 $$
 
+#### Native BESS Reserve Deliverability (opt-in)
+
+When a battery $e$ sets `reserve_sustain_hours` $= T_e \ge 0$, the two
+generic rows above are **not** emitted for the provisions of its
+synthetic discharge generator.  Instead the linking converter adds, per
+block, with $\mathcal{P}_e$ the provisions of that generator,
+$p^{\text{out}}$/$p^{\text{in}}$ the discharge/charge columns,
+$e_{e,s,t,b}$ the end-of-block SoC and $\overline{P}$, $\underline{E}$,
+$\overline{E}$ the hard column bounds:
+
+$$
+p_{e,s,t,b}^{\text{out}} - p_{e,s,t,b}^{\text{in}}
++ \sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{up}}
+\;\leq\; \overline{P}_{e,t,b}^{\text{out}}
+\qquad\text{(\texttt{reserve\_up\_headroom})}
+$$
+
+$$
+p_{e,s,t,b}^{\text{in}} - \kappa_e\, p_{e,s,t,b}^{\text{out}}
++ \sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{dn}}
+\;\leq\; \overline{P}_{e,t,b}^{\text{in}}
+\qquad\text{(\texttt{reserve\_dn\_headroom})}
+$$
+
+and, when $T_e > 0$,
+
+$$
+e_{e,s,t,b} - \frac{T_e}{\eta_{e,t,b}^{\text{out}}}
+\sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{up}}
+\;\geq\; \underline{E}_{e,t,b}
+\qquad\text{(\texttt{reserve\_up\_energy})}
+$$
+
+$$
+e_{e,s,t,b} + T_e\,\eta_{e,t,b}^{\text{in}}
+\sum_{p \in \mathcal{P}_e} r_{p,s,t,b}^{\text{dn}}
+\;\leq\; \overline{E}_{e,t,b}
+\qquad\text{(\texttt{reserve\_dn\_energy})}
+$$
+
+$\kappa_e = 1$ when `reserve_discharge_credit` is true (full inverter
+range: a discharging battery can also regulate down by cutting its
+output), $\kappa_e = 0$ otherwise (default, charge-side headroom only).
+The SoC rows act on the post-self-discharge SoC $e_{e,s,t,b}$ of §5.7.
+
+**Price property.**  No reserve column appears in any bus balance
+(§5.1), so a reserve price $\pi_z \ge 0$ reaches a bus price
+$\lambda_n$ only through the battery's own dispatch columns.  With row
+duals $\mu^{\text{uh}}, \mu^{\text{ue}} \ge 0$, the up rows contribute
+$+\mu^{\text{uh}}$ to the reduced cost of $p^{\text{out}}$ and
+$-\mu^{\text{uh}}$ to that of $p^{\text{in}}$ (and $\mu^{\text{ue}}$ raises
+the value of stored energy): they penalise injection and reward
+withdrawal, so they can only *raise* $\lambda_n$.  The default down
+headroom ($\kappa_e = 0$) only penalises withdrawal and never rewards an
+injection.  Hence, at a bus with a free-disposal resource (a curtailable
+injection or a generator above its minimum), $\lambda_n \ge 0$ is
+preserved; a negative price can arise only from a pre-existing
+non-disposable injection, or — with $\kappa_e = 1$ or a binding
+`reserve_dn_energy` row in a pocket without disposal — from a genuine
+physical shortage of down capability.
+
+By contrast, the CEN PLEXOS formulation (`BAT_*_CF_GEN_COMP`) adds an
+auxiliary battery whose discharge $g^{\text{aux}}$ is pinned to
+$\alpha\, r^{\text{dn}}$ and enters the bus balance.  With $r^{\text{dn}}$
+and $g^{\text{aux}}$ basic, the KKT conditions give
+$\lambda_n = (c^{\text{dn}} - \pi_z)/\alpha$: the bus price is the
+down-reserve price, amplified by $1/\alpha$ and with negative sign, even
+when the battery itself has spare headroom; and the auxiliary tank
+creates (or, on the up side, destroys) $\alpha\,r$ MWh per hour.
+See `docs/studies/sscc_battery_constraint.md` and
+`test/source/test_bess_reserve_native.cpp`.
+
 #### Reserve Costs
 
 - **Up-reserve provision cost**: $c_{p,t}^{\text{ur}} \cdot \omega_{s,t,b}$

@@ -473,7 +473,9 @@
     "use_state_variable",
     "daily_cycle",
     "max_cycles_day",
-    "commitment"
+    "commitment",
+    "reserve_sustain_hours",
+    "reserve_discharge_credit"
    ],
    "header": "json_battery.hpp",
    "kinds": {
@@ -506,6 +508,8 @@
     "pmax_discharge": "variant",
     "pmin_charge": "variant",
     "pmin_discharge": "variant",
+    "reserve_discharge_credit": "bool",
+    "reserve_sustain_hours": "number",
     "soft_emin": "variant",
     "soft_emin_cost": "variant",
     "source_generator": "variant",

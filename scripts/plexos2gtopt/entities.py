@@ -493,6 +493,10 @@ class BatterySpec:
     # constraint ``Σ discharge·Δt ≤ N · capacity`` per day (NOT a cost).
     # 1.0 for all 41 CEN PCP batteries; 0.0 ⇒ no limit emitted.
     max_cycles_day: float = 0.0
+    # Native BESS reserve sustain duration T [h] (``--bess-reserve
+    # native``): written as ``Battery.reserve_sustain_hours``; ``None``
+    # (default) keeps gtopt's generic generator reserve rows.
+    reserve_sustain_hours: float | None = None
     # Explicit self-discharge [p.u./year] for gtopt ``Battery.annual_loss``.
     # ``None`` ⇒ field omitted ⇒ gtopt's lithium default (0.48 p.u./year =
     # 4 %/month, ``model_options.battery_annual_loss``) applies.  Pumped

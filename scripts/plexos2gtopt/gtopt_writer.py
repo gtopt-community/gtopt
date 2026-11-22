@@ -1860,6 +1860,8 @@ def build_battery_array(
             entry["annual_loss"] = bat.annual_loss
         if bat.storage_type:
             entry["type"] = bat.storage_type
+        if bat.reserve_sustain_hours is not None:
+            entry["reserve_sustain_hours"] = bat.reserve_sustain_hours
         # OPT-IN (``--default-storage-loss``, default OFF): the legacy
         # synthetic 2 %/month (``1 − 0.98^12 ≈ 0.215`` p.u./year, LFP
         # mid-range per BU-802b / NREL) written explicitly.  Since gtopt

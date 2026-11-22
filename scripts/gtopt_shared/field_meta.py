@@ -1246,6 +1246,22 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Daily energy-throughput limit — PLEXOS ``Battery.Max Cycles Day``.",
             None,
         ),
+        (
+            "reserve_sustain_hours",
+            _J_NUM,
+            False,
+            "Native BESS reserve rows: sustain duration T [h] for the "
+            "power-headroom and SoC-sufficiency rows (unset = legacy)",
+            None,
+        ),
+        (
+            "reserve_discharge_credit",
+            _J_BOOL,
+            False,
+            "Credit discharge in the BESS down-reserve headroom "
+            "(default false = charge-side only)",
+            None,
+        ),
     ],
     "converter_array": [
         ("uid", _J_INT, True, "Unique converter identifier", 1),

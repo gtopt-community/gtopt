@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <vector>
 
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/commitment_lp.hpp>
@@ -19,6 +20,7 @@
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -254,6 +256,14 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
             lp.add_row(std::move(erow));
       }
     }
+  }
+
+  // Native BESS reserve deliverability rows (opt-in via
+  // ``Battery.reserve_sustain_hours``).  ReserveProvisionLP ran earlier
+  // and skipped its generic generator rows for this battery.
+  if (bat_ptr->battery().reserve_sustain_hours.has_value()) {
+    add_native_reserve_rows(
+        sc, scenario, stage, lp, *gen_ptr, *dem_ptr, *bat_ptr);
   }
 
   // Conditional commitment: when ``Converter.commitment`` is set,
@@ -495,8 +505,197 @@ bool ConverterLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, DemandName, id(), demand_rows);
   out.add_row_dual(cname, CapacityName, id(), capacity_rows);
   out.add_row_dual(cname, PowerEnvelopeName, id(), power_envelope_rows);
+  out.add_row_dual(
+      cname, ReserveUpHeadroomName, id(), reserve_up_headroom_rows);
+  out.add_row_dual(
+      cname, ReserveDnHeadroomName, id(), reserve_dn_headroom_rows);
+  out.add_row_dual(cname, ReserveUpEnergyName, id(), reserve_up_energy_rows);
+  out.add_row_dual(cname, ReserveDnEnergyName, id(), reserve_dn_energy_rows);
 
   return CapacityBase::add_to_output(out);
+}
+
+bool is_native_bess_reserve_generator(const SystemContext& sc,
+                                      const GeneratorLP& gen)
+{
+  for (const auto& conv : sc.elements<ConverterLP>()) {
+    try {
+      if (&sc.element<GeneratorLP>(conv.generator_sid()) != &gen) {
+        continue;
+      }
+      const auto& bat = sc.element<BatteryLP>(conv.battery_sid());
+      return bat.battery().reserve_sustain_hours.has_value();
+    } catch (const std::exception&) {
+      continue;  // converter partner not in the LP
+    }
+  }
+  return false;
+}
+
+/**
+ * Native BESS reserve rows.  With ``pd`` / ``pc`` the synthetic
+ * discharge-generator / charge-demand columns, ``e`` the end-of-block
+ * SoC column and ``Σr`` the sum over every ReserveProvision of this
+ * battery's discharge generator:
+ *
+ *   reserve_up_headroom:  pd − pc + Σ r_up ≤ Pd_max
+ *   reserve_dn_headroom:  pc [− pd] + Σ r_dn ≤ Pc_max
+ *   reserve_up_energy:    e − (T/ηd)·Σ r_up ≥ e_lowb      (T > 0)
+ *   reserve_dn_energy:    e + T·ηc·Σ r_dn  ≤ e_uppb      (T > 0)
+ *
+ * Pd_max / Pc_max / e bounds are the hard per-block column bounds.  No
+ * reserve column enters a bus balance: the reserve price reaches the bus
+ * price only through the battery's own dispatch columns.  The up rows
+ * reward withdrawals / penalise injections (they can only raise a bus
+ * price); the default (no discharge credit) down headroom never rewards
+ * an injection.
+ */
+void ConverterLP::add_native_reserve_rows(const SystemContext& sc,
+                                          const ScenarioLP& scenario,
+                                          const StageLP& stage,
+                                          LinearProblem& lp,
+                                          const GeneratorLP& gen,
+                                          const DemandLP& dem,
+                                          const BatteryLP& bat)
+{
+  const double sustain_h =
+      std::max(0.0, bat.battery().reserve_sustain_hours.value_or(0.0));
+  const bool dn_credit = bat.battery().reserve_discharge_credit.value_or(false);
+
+  std::vector<const ReserveProvisionLP*> provisions;
+  for (const auto& rp : sc.elements<ReserveProvisionLP>()) {
+    try {
+      if (&sc.element<GeneratorLP>(rp.generator_sid()) == &gen) {
+        provisions.push_back(&rp);
+      }
+    } catch (const std::exception&) {
+      continue;
+    }
+  }
+  if (provisions.empty()) {
+    return;
+  }
+
+  auto&& gen_cols = gen.lookup_generation_cols(scenario, stage);
+  auto&& demand_cols = dem.lookup_load_cols(scenario, stage);
+  const BIndexHolder<ColIndex>* energy_cols = nullptr;
+  try {
+    energy_cols = &bat.energy_cols_at(scenario, stage);
+  } catch (const std::exception&) {
+    energy_cols = nullptr;
+  }
+
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  const auto cname = Element::class_name.full_name();
+
+  for (const auto& block : stage.blocks()) {
+    const auto buid = block.uid();
+    std::vector<ColIndex> ups;
+    std::vector<ColIndex> dns;
+    for (const auto* rp : provisions) {
+      if (const auto c = rp->lookup_up_provision_col(scenario, stage, buid)) {
+        ups.push_back(*c);
+      }
+      if (const auto c = rp->lookup_dn_provision_col(scenario, stage, buid)) {
+        dns.push_back(*c);
+      }
+    }
+    if (ups.empty() && dns.empty()) {
+      continue;
+    }
+    const auto ctx = make_block_context(scenario.uid(), stage.uid(), buid);
+    const auto gcol_it = gen_cols.find(buid);
+    const auto dcol_it = demand_cols.find(buid);
+    const bool has_g = gcol_it != gen_cols.end();
+    const bool has_d = dcol_it != demand_cols.end();
+    const double pd_max = has_g ? lp.get_col_uppb(gcol_it->second) : 0.0;
+    const double pc_max = has_d ? lp.get_col_uppb(dcol_it->second) : 0.0;
+
+    if (!ups.empty()) {
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = ReserveUpHeadroomName,
+              .variable_uid = uid(),
+              .context = ctx,
+          }
+              .less_equal(pd_max);
+      if (has_g) {
+        row[gcol_it->second] = 1.0;
+      }
+      if (has_d) {
+        row[dcol_it->second] = -1.0;
+      }
+      for (const auto c : ups) {
+        row[c] += 1.0;
+      }
+      reserve_up_headroom_rows[st_key][buid] = lp.add_row(std::move(row));
+    }
+    if (!dns.empty()) {
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = ReserveDnHeadroomName,
+              .variable_uid = uid(),
+              .context = ctx,
+          }
+              .less_equal(pc_max);
+      if (has_d) {
+        row[dcol_it->second] = 1.0;
+      }
+      if (dn_credit && has_g) {
+        row[gcol_it->second] = -1.0;
+      }
+      for (const auto c : dns) {
+        row[c] += 1.0;
+      }
+      reserve_dn_headroom_rows[st_key][buid] = lp.add_row(std::move(row));
+    }
+
+    if (sustain_h <= 0.0 || energy_cols == nullptr) {
+      continue;
+    }
+    const auto ecol_it = energy_cols->find(buid);
+    if (ecol_it == energy_cols->end()) {
+      continue;
+    }
+    const auto ecol = ecol_it->second;
+    if (!ups.empty()) {
+      const double eta_d =
+          bat.param_output_efficiency(stage.uid(), buid).value_or(1.0);
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = ReserveUpEnergyName,
+              .variable_uid = uid(),
+              .context = ctx,
+          }
+              .greater_equal(lp.get_col_lowb(ecol));
+      row[ecol] = 1.0;
+      const double coef = eta_d > 0.0 ? sustain_h / eta_d : sustain_h;
+      for (const auto c : ups) {
+        row[c] -= coef;
+      }
+      reserve_up_energy_rows[st_key][buid] = lp.add_row(std::move(row));
+    }
+    if (!dns.empty()) {
+      const double eta_c =
+          bat.param_input_efficiency(stage.uid(), buid).value_or(1.0);
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = ReserveDnEnergyName,
+              .variable_uid = uid(),
+              .context = ctx,
+          }
+              .less_equal(lp.get_col_uppb(ecol));
+      row[ecol] = 1.0;
+      for (const auto c : dns) {
+        row[c] += sustain_h * eta_c;
+      }
+      reserve_dn_energy_rows[st_key][buid] = lp.add_row(std::move(row));
+    }
+  }
 }
 
 }  // namespace gtopt

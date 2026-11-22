@@ -131,9 +131,13 @@ struct json_data_contract<Battery>
                                                     ///< Cycles Day): hard
                                                     ///< Σ discharge·Δt ≤
                                                     ///< N·capacity per day
-      json_bool_null<"commitment", OptBool>  ///< Conditional rate floors
-                                             ///< via Converter integer
-                                             ///< binary
+      json_bool_null<"commitment", OptBool>,  ///< Conditional rate floors
+                                              ///< via Converter integer
+                                              ///< binary
+      json_number_null<"reserve_sustain_hours",
+                       OptReal>,  ///< Native BESS reserve rows (T [h])
+      json_bool_null<"reserve_discharge_credit",
+                     OptBool>  ///< Credit discharge in down headroom
       >;
 
   /**
@@ -179,7 +183,9 @@ struct json_data_contract<Battery>
                                  battery.use_state_variable,
                                  battery.daily_cycle,
                                  battery.max_cycles_day,
-                                 battery.commitment);
+                                 battery.commitment,
+                                 battery.reserve_sustain_hours,
+                                 battery.reserve_discharge_credit);
   }
 };
 }  // namespace daw::json

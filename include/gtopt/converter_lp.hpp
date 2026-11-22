@@ -46,6 +46,16 @@ public:
   /// row-scaled by ``max(Pc_max, Pd_max)`` so it stays in MW units.
   /// Cuts simultaneous full-power charge + discharge.
   static constexpr std::string_view PowerEnvelopeName {"power_envelope"};
+  /// Native BESS reserve rows (``Battery.reserve_sustain_hours`` set):
+  /// power headroom (``pd − pc + Σr_up ≤ Pd``, ``pc + Σr_dn ≤ Pc``) and
+  /// state-of-charge sufficiency (``e − (T/ηd)Σr_up ≥ e_min``,
+  /// ``e + T·ηc·Σr_dn ≤ e_max``).  See ``Battery::reserve_sustain_hours``.
+  static constexpr std::string_view ReserveUpHeadroomName {
+      "reserve_up_headroom"};
+  static constexpr std::string_view ReserveDnHeadroomName {
+      "reserve_dn_headroom"};
+  static constexpr std::string_view ReserveUpEnergyName {"reserve_up_energy"};
+  static constexpr std::string_view ReserveDnEnergyName {"reserve_dn_energy"};
   /// PAMPL bidirectional flow compound: `flow = +discharge − charge`.
   /// Mirrors `line.flow = +flowp − flown`.  Resolves to the converter's
   /// signed net flow (positive when discharging the battery to the
@@ -91,7 +101,27 @@ private:
   STBIndexHolder<RowIndex> demand_rows;
   STBIndexHolder<RowIndex> capacity_rows;
   STBIndexHolder<RowIndex> power_envelope_rows;
+  STBIndexHolder<RowIndex> reserve_up_headroom_rows;
+  STBIndexHolder<RowIndex> reserve_dn_headroom_rows;
+  STBIndexHolder<RowIndex> reserve_up_energy_rows;
+  STBIndexHolder<RowIndex> reserve_dn_energy_rows;
+
+  /// Emit the native BESS reserve rows for one (scenario, stage).
+  void add_native_reserve_rows(const SystemContext& sc,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               LinearProblem& lp,
+                               const GeneratorLP& gen,
+                               const DemandLP& dem,
+                               const BatteryLP& bat);
 };
+
+/// True when @p gen is the discharge generator of a battery whose
+/// ``reserve_sustain_hours`` is set, i.e. its reserve provisions are
+/// modelled by the native BESS rows of the linking ``ConverterLP``
+/// (``ReserveProvisionLP`` then skips its generic generator rows).
+[[nodiscard]] bool is_native_bess_reserve_generator(const SystemContext& sc,
+                                                    const GeneratorLP& gen);
 
 // Pin the data-struct constant value so an accidental rename of the
 // `Converter::class_name` literal fails the build (LP row labels and

@@ -1,9 +1,11 @@
 #include <expected>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <string_view>
 #include <vector>
 
+#include <gtopt/converter_lp.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -194,10 +196,13 @@ std::expected<void, Error> add_provision(
       cap_rows[buid] = lp.add_row(std::move(crow));
     }
 
-    prov_rows[buid] = lp.add_row(provision_row(
-        gcol,
-        prov_col,
-        make_block_context(scenario.uid(), stage.uid(), block.uid())));
+    if (auto prow = provision_row(
+            gcol,
+            prov_col,
+            make_block_context(scenario.uid(), stage.uid(), block.uid())))
+    {
+      prov_rows[buid] = lp.add_row(std::move(*prow));
+    }
 
     //
     // Inject the provision coefficient into every active zone's
@@ -315,8 +320,20 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     const auto [opt_capacity, capacity_col] =
         generator_lp.capacity_and_col(stage, lp);
 
-    auto uprov_row = [&](auto gcol, auto rcol, auto context)
+    // Battery discharge generator in native BESS-reserve mode
+    // (``Battery.reserve_sustain_hours`` set): the linking ConverterLP
+    // emits the aggregated power-headroom / SoC rows over all of this
+    // battery's provisions, so the generic per-provision generator rows
+    // (``g + r_up <= Pd`` and ``g - r_dn >= 0``) are skipped.  The latter
+    // would force the battery to DISCHARGE to offer down reserve.
+    const bool native_bess = is_native_bess_reserve_generator(sc, generator_lp);
+
+    auto uprov_row =
+        [&](auto gcol, auto rcol, auto context) -> std::optional<SparseRow>
     {
+      if (native_bess) {
+        return std::nullopt;
+      }
       auto rrow =
           SparseRow {
               .class_name = cname,
@@ -335,8 +352,12 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
       return rrow;
     };
 
-    auto dprov_row = [&](auto gcol, auto rcol, auto context)
+    auto dprov_row =
+        [&](auto gcol, auto rcol, auto context) -> std::optional<SparseRow>
     {
+      if (native_bess) {
+        return std::nullopt;
+      }
       auto rrow =
           SparseRow {
               .class_name = cname,

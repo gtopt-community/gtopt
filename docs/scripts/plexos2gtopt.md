@@ -857,6 +857,7 @@ fuel unit.
 | `--pampl-uc-only FAM1,FAM2,…` | unset | Emit ONLY these families. |
 | `--pampl-uc-off FAM1,FAM2,…` | unset | Drop these families (leave-one-out diagnostic). |
 | `--lax-uc-refs` | OFF | Downgrade unresolved-ref errors to warnings + silent drop. |
+| `--bess-reserve {uc,native}` | `uc` | CEN "BESS SSCC Constraints" (`UP/DOWNStorageBound_<bat>`, `<bat>_CF_{GEN,LOAD}_COMP` + `<bat>_AUX`). `uc`: legacy UserConstraint mapping. `native`: set `Battery.reserve_sustain_hours` (recovered from the storage-bound coefficients), make those four rows inactive provenance stubs, keep `CSF_*_MIN_BAT_*`, and count BESS SSCC provisions at gross value. The native rows never put reserve energy in a bus balance, so they cannot pin a negative CMg; see `docs/studies/sscc_battery_constraint.md`. |
 
 ### Soft-penalty policy
 

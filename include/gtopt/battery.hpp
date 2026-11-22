@@ -327,6 +327,40 @@ struct Battery
   /// Propagated by ``System::expand_batteries()`` onto
   /// ``Converter.commitment``.
   OptBool commitment {};
+
+  /// @name Native BESS reserve deliverability (opt-in)
+  /// @{
+
+  /// Reserve sustain duration ``T`` [h].  When set (``>= 0``), every
+  /// ``ReserveProvision`` whose generator is this battery's discharge
+  /// generator is modelled with the native BESS rows emitted by the
+  /// linking ``Converter`` instead of the generic generator rows
+  /// (``g + r_up <= Pd``, ``g - r_dn >= 0``):
+  ///
+  /// ```text
+  /// reserve_up_headroom:  pd - pc + sum r_up <= Pd_max
+  /// reserve_dn_headroom:  pc + sum r_dn      <= Pc_max  (+ pd, see below)
+  /// reserve_up_energy:    e - (T/eta_d) sum r_up >= e_min   (T > 0)
+  /// reserve_dn_energy:    e + T eta_c sum r_dn   <= e_max   (T > 0)
+  /// ```
+  ///
+  /// ``e`` is the end-of-block state of charge.  No reserve term ever
+  /// enters a bus balance, so the rows cannot create a forced injection
+  /// (the mechanism by which CEN's PLEXOS ``BAT_*_CF_GEN_COMP`` + AUX
+  /// battery formulation produces negative marginal costs).  ``T = 0``
+  /// keeps only the power-headroom rows.  Unset (default) => legacy
+  /// generic generator rows, no change to existing cases.
+  OptReal reserve_sustain_hours {};
+
+  /// Credit discharge in the down-reserve headroom
+  /// (``pc - pd + sum r_dn <= Pc_max``, the full physical inverter range).
+  /// Default ``false`` uses the charge-side headroom only
+  /// (``pc + sum r_dn <= Pc_max``), which never rewards an injection.
+  /// ``true`` is the physical upper bound but reintroduces the classical
+  /// down-reserve negative-price channel (a unit must inject to offer
+  /// down reserve).  Only read when ``reserve_sustain_hours`` is set.
+  OptBool reserve_discharge_credit {};
+  /// @}
 };
 
 }  // namespace gtopt
