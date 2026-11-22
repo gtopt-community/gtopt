@@ -10,7 +10,8 @@
 #   --build          Also run cmake --build after configure (implies --configure)
 #   --build-type T   CMake build type: CIFast (default) | Debug | Release | RelWithDebInfo
 #   --debug          Shortcut for --build-type Debug (full symbols, asserts)
-#   --no-save-ccjson Skip saving compile_commands.json to tools/ after build
+#   --no-tidy-db     Skip creating the clang-tidy compile DB (build-tidy/)
+#                    (--no-save-ccjson is accepted as an old alias)
 #   --help           Show this help and exit
 #
 # Build-type rationale:
@@ -27,11 +28,11 @@
 #   4. Pre-install Python scripts dev dependencies (speeds up CTest fixture).
 #   5. (Optional) cmake configure — uses whichever compiler was installed.
 #   6. (Optional) cmake --build + ctest.
-#   7. (Optional) After a successful build, copy compile_commands.json to
-#      tools/compile_commands.json in the repository.  This allows agents
-#      to run clang-tidy on individual files without rebuilding:
-#        clang-tidy -p tools/compile_commands.json source/my_file.cpp
-#      Use --no-save-ccjson to skip this step.
+#   7. (With --configure, Clang only) Create the clang-tidy compile DB in
+#      build-tidy/ (configure-only, one entry per file, tests included):
+#        tools/run_tidy.sh --configure
+#      tools/run_tidy.sh then finds it automatically.  Use --no-tidy-db
+#      to skip this step.
 #
 # Environment:
 #   REPO_ROOT   Path to the repository root (default: directory containing this
@@ -46,10 +47,8 @@
 #     repository is unreachable, GCC 14 is used as a fallback.  Both produce
 #     a fully working build; the summary at the end reports which was chosen.
 #   • clang-22 packages are not yet available on apt.llvm.org; use version 21.
-#   • compile_commands.json is saved to tools/ after every successful build
-#     so that clang-tidy can be run on demand without rebuilding.
-#     Committed to the repo so agents start with a usable compile DB.
-#       clang-tidy -p tools/compile_commands.json source/my_file.cpp
+#   • The clang-tidy DB lives in build-tidy/ (git-ignored, machine-local
+#     paths); run the CLAUDE.md pre-commit tidy step with tools/run_tidy.sh.
 
 
 set -euo pipefail
@@ -65,7 +64,7 @@ DO_CONFIGURE=false
 DO_BUILD=false
 BUILD_TYPE=CIFast
 CLANG_VERSION=21
-SAVE_CCJSON=true
+TIDY_DB=true
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -75,7 +74,7 @@ while [[ $# -gt 0 ]]; do
     --build)        DO_CONFIGURE=true; DO_BUILD=true ;;
     --build-type)   shift; BUILD_TYPE="$1" ;;
     --debug)        BUILD_TYPE=Debug ;;
-    --no-save-ccjson) SAVE_CCJSON=false ;;
+    --no-tidy-db|--no-save-ccjson) TIDY_DB=false ;;
     --help|-h)
       sed -n '2,/^# Notes:/p' "$0" | sed 's/^# \?//'
       exit 0 ;;
@@ -308,6 +307,17 @@ if $DO_CONFIGURE; then
   fi
   cmake "${CMAKE_ARGS[@]}"
   ok "cmake configure done"
+
+  # clang-tidy compile DB (configure-only, non-unity, no PCH) — see
+  # tools/run_tidy.sh.  Needs Clang: a GCC command line does not parse.
+  if $TIDY_DB && $CLANG_INSTALLED; then
+    log "Configuring the clang-tidy compile DB (build-tidy/)..."
+    CXX="${CXX}" CC="${CC}" \
+      GTOPT_TIDY_CMAKE_ARGS="${CMAKE_PREFIX_ARG} -DCPM_SOURCE_CACHE=${CPM_CACHE}" \
+      bash tools/run_tidy.sh --configure "${REPO_ROOT}/build-tidy" \
+      && ok "clang-tidy DB ready: tools/run_tidy.sh [files]" \
+      || warn "clang-tidy DB configure failed (tools/run_tidy.sh --configure)"
+  fi
 fi
 
 if $DO_BUILD; then
@@ -318,16 +328,6 @@ if $DO_BUILD; then
   log "Running tests..."
   (cd build && ctest --output-on-failure -j"$(nproc)")
   ok "All tests passed"
-
-  # Save compile_commands.json to tools/ so clang-tidy can be run on demand
-  # without rebuilding.  Commit it so agent sessions work without a build:
-  #   clang-tidy -p tools/compile_commands.json source/my_file.cpp
-  if $SAVE_CCJSON && [[ -f build/compile_commands.json ]]; then
-    log "Saving compile_commands.json to tools/compile_commands.json..."
-    cp build/compile_commands.json tools/compile_commands.json
-    ok "compile_commands.json saved -- run clang-tidy without rebuilding:"
-    ok "  clang-tidy -p tools/compile_commands.json source/my_file.cpp"
-  fi
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────────
@@ -344,8 +344,8 @@ echo "${COMPILER_LINE}"
 echo " ccache       : $(ccache --version 2>/dev/null | head -1)"
 if $DO_BUILD; then
   echo " Build        : build/"
-  if $SAVE_CCJSON && [[ -f tools/compile_commands.json ]]; then
-    echo " compile_commands: tools/compile_commands.json (clang-tidy ready)"
+  if [[ -f build-tidy/compile_commands.json ]]; then
+    echo " clang-tidy DB: build-tidy/ (tools/run_tidy.sh)"
   fi
 fi
 if ! $CLANG_INSTALLED; then

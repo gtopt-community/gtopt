@@ -3,10 +3,9 @@
 /cpm_modules
 .DS_Store
 .cache
+# Compile DBs hold machine-local absolute paths: never commit one.  The
+# clang-tidy DB is generated in build-tidy/ by tools/run_tidy.sh --configure.
 compile_commands.json
-# Exception: tools/compile_commands.json is committed intentionally so agents
-# can run clang-tidy without rebuilding (saved by setup_sandbox.sh --build).
-!tools/compile_commands.json
 CMakeCache.txt
 /CMakeFiles
 TAGS
