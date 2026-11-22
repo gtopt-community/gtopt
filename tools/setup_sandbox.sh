@@ -148,7 +148,16 @@ APT_DOCS=(
   texlive-science texlive-publishers texlive-pictures
   texlive-fonts-recommended
 )
+# Graphviz >= 14 (Ubuntu 26.04+) ships the neato layout engine -- the
+# gtopt_diagram default -- as a separate plugin package; without it the
+# `neato` binary exists but every -Kneato render fails.
+if apt-cache show libgvplugin-neato-layout8 &>/dev/null; then
+  APT_BASE+=(libgvplugin-neato-layout8)
+fi
 PIP_DOCS=(Pygments jinja2)
+# Standalone Python CLIs: `uv tool install` (one isolated env per tool,
+# shims in ~/.local/bin -- works where the system Python has no pip).
+UV_TOOLS=(ruff ty==0.0.107 actionlint-py shellcheck-py pre-commit)
 JULIA_PKGS='["JSON","JuMP","HiGHS","DataFrames","UnitCommitment","PowerSystems","PowerSimulations","PowerSystemCaseBuilder","HydroPowerSimulations","StorageSystemsSimulations"]'
 CLANG_TIDY_NEXT=22   # clang-tidy.yml TIDY_VERSION
 
@@ -190,11 +199,25 @@ if $CHECK_ONLY; then
            "clang-tidy-${CLANG_TIDY_NEXT}"; do
     need_cmd required "$t" "apt.llvm.org llvm-toolchain-${CODENAME}-${t##*-} (bash tools/setup_sandbox.sh)"
   done
-  for t in cmake dot neato mdb-export uv python3; do
-    need_cmd required "$t" "see APT list / pip install uv"
+  for t in cmake dot mdb-export python3; do
+    need_cmd required "$t" "see the APT list above"
   done
-  for t in ruff pylint mypy ty pytest actionlint shellcheck pre-commit; do
-    need_cmd required "$t" 'uv pip install -e "./scripts[dev,lint]"'
+  need_cmd required uv "curl -LsSf https://astral.sh/uv/install.sh | sh"
+  if command -v dot &>/dev/null; then
+    if echo 'graph { a }' | dot -Kneato -Tsvg > /dev/null 2>&1; then
+      ok "graphviz neato layout engine"
+    else
+      missing_apt+=(libgvplugin-neato-layout8); req_missing=1
+      warn "missing (required): graphviz neato layout engine"
+    fi
+  fi
+  need_cmd required ruff "uv tool install ruff  (fallback: pip install --user ruff)"
+  need_cmd required ty "uv tool install ty==0.0.107  (pin: scripts/pyproject.toml)"
+  need_cmd required actionlint "uv tool install actionlint-py"
+  need_cmd required shellcheck "uv tool install shellcheck-py"
+  need_cmd required pre-commit "uv tool install pre-commit"
+  for t in pylint mypy pytest; do
+    need_cmd required "$t" 'uv pip install -e "./scripts[dev]" (needs the scripts deps in the same env)'
   done
   ctc="${CTCACHE_HOME:-$HOME/.local/opt/ctcache}"
   if [[ -x "$ctc/clang-tidy" || -x "$HOME/opt/ctcache/clang-tidy" ]]; then
@@ -384,9 +407,11 @@ rm -f /tmp/_sandbox_compiler
 # packages, reducing the scripts-install-deps CTest fixture from ~35 s to ~3 s.
 if $INSTALL_PYTHON; then
   if ! command -v uv &>/dev/null; then
-    log "uv not found -- installing via pip..."
+    log "uv not found -- installing..."
     pip install --break-system-packages uv -q 2>/dev/null \
-      || pip install uv -q
+      || pip install uv -q 2>/dev/null \
+      || { curl -LsSf https://astral.sh/uv/install.sh | sh \
+           && export PATH="$HOME/.local/bin:$PATH"; }
     ok "uv installed"
   fi
   log "Pre-installing Python scripts dev dependencies..."
@@ -395,6 +420,10 @@ if $INSTALL_PYTHON; then
     || pip install --break-system-packages -q -e "./scripts[dev,lint]" 2>/dev/null \
     || { warn "Python scripts dep install failed -- CTest fixture will install them (slower)."; }
   ok "Python scripts dev dependencies installed"
+  for t in "${UV_TOOLS[@]}"; do
+    uv tool install -q "$t" 2>/dev/null || warn "uv tool install $t failed"
+  done
+  ok "standalone Python CLIs installed with uv tool (~/.local/bin)"
 fi
 
 # ── Step 4b: clang-tidy-22 (CI clang-tidy job) + ctcache ─────────────────────

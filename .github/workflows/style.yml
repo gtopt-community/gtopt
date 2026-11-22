@@ -143,7 +143,9 @@ jobs:
             guiservice/pyproject.toml
 
       - name: Install ruff
-        run: pip install "ruff>=0.4.0"
+        # Same floor as the ruff pin in scripts/pyproject.toml [dev]
+        # (installing the whole extra would pull pandas/pandapower/...).
+        run: pip install "ruff>=0.15"
 
       - name: check Python format (ruff format)
         # Like clang-format, ruff format violations are warnings only — the
