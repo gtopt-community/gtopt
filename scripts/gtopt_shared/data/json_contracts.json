@@ -2786,6 +2786,7 @@
     "convergence_tol",
     "elastic_penalty",
     "scale_alpha",
+    "alpha_min",
     "cut_recovery_mode",
     "recovery_mode",
     "save_per_iteration",
@@ -2848,6 +2849,7 @@
    ],
    "header": "json_sddp_options.hpp",
    "kinds": {
+    "alpha_min": "number",
     "aperture_chunk_size": "number",
     "aperture_directory": "string",
     "aperture_drop_fcuts": "bool",

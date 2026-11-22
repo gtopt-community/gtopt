@@ -1539,6 +1539,12 @@ public:
     return m_options_.sddp_options.scale_alpha.value_or(0.0);
   }
 
+  /// Optional universal α floor (`sddp_options.alpha_min`), unset = none.
+  [[nodiscard]] constexpr auto sddp_alpha_min() const -> OptReal
+  {
+    return m_options_.sddp_options.alpha_min;
+  }
+
   /**
    * @brief Whether to save cuts after each iteration (default: true)
    */

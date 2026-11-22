@@ -121,6 +121,17 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * all state variables — keeps α O(1) relative to the largest state
    * variable in LP units. */
   OptReal scale_alpha {};
+  /** @brief Universal lower bound on the future-cost variable α [$].
+   *
+   * Unset (default): α is floored only by the cut-derived projection
+   * (`apply_alpha_floor`), which can be very negative when cuts carry
+   * steep state slopes over wide state ranges (e.g. capacity-expansion
+   * `capainst` with large `capmax`).  Set to 0 when every stage cost is
+   * non-negative — the cost-to-go can then never be negative, and the
+   * floor stops early iterations from exploiting linear cut
+   * extrapolation (over-building against a negative α).  Not valid with
+   * negative-cost elements or `boundary_cuts_mean_shift`. */
+  OptReal alpha_min {};
 
   // ── Cut file management ────────────────────────────────────────────────────
   /** @brief Cut persistence mode: none (default), keep, append, or replace.
@@ -898,7 +909,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// and `SDDP_OPTION_KEYS` in `scripts/gtopt_shared/options_meta.py`
   /// (a schema-parity pytest enforces the Python side; a `static_assert`
   /// in `json_sddp_options.hpp` enforces the tuple against this count).
-  static constexpr std::size_t json_field_count = 71;
+  static constexpr std::size_t json_field_count = 72;
 
   void merge(SddpOptions&& opts)
   {
@@ -916,6 +927,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(convergence_tol, opts.convergence_tol);
     merge_opt(elastic_penalty, opts.elastic_penalty);
     merge_opt(scale_alpha, opts.scale_alpha);
+    merge_opt(alpha_min, opts.alpha_min);
     merge_opt(cut_recovery_mode, opts.cut_recovery_mode);
     merge_opt(recovery_mode, opts.recovery_mode);
     merge_opt(save_per_iteration, opts.save_per_iteration);

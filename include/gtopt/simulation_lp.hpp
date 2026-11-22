@@ -944,10 +944,9 @@ public:
   /// scenario, stage, block)" (treat-as-zero) from "attribute is a
   /// typo or not supported on this element" (strict-mode error).
   ///
-  /// Scans every (scene, phase) cell, matching any AmplVariableKey
-  /// with the given class+uid+attribute regardless of scenario/stage.
-  /// Cost is O(cells × variables) but only triggered on the failure
-  /// path of `resolve_col_to_row` — never on the hot success path.
+  /// Answered from a thread-safe (class, uid, attribute) index filled
+  /// by every `add_ampl_variable` (independent of scenario/stage and of
+  /// `release_ampl_cell`).
   [[nodiscard]] bool find_ampl_variable_for_element(
       std::string_view class_name,
       Uid element_uid,
@@ -986,9 +985,8 @@ public:
   ///     registers this attribute — typo on ``generation`` →
   ///     ``generattion`` returns false).
   ///
-  /// Scans every (scene, phase) cell.  Cost is O(cells × variables)
-  /// but only triggered on the failure path of ``resolve_col_to_row``
-  /// — never on the hot success path.
+  /// Answered from a thread-safe (class, attribute) index filled by
+  /// every ``add_ampl_variable``.
   [[nodiscard]] bool find_ampl_class_attribute(std::string_view class_name,
                                                std::string_view attribute) const
   {

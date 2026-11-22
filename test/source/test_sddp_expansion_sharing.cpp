@@ -734,3 +734,67 @@ TEST_CASE(  // NOLINT
     MESSAGE("MIP solver license unavailable — integer-module tier skipped");
   }
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// 6. `sddp_options.alpha_min = 0`: the universal α floor (valid for a
+// non-negative-cost model) keeps every future-cost column ≥ 0 after the
+// cut-derived floor and does not move the Benders ≡ SDDP optimum.
+// Without it, capacity cuts (steep ∂V/∂capainst over a wide [capacity,
+// capmax] range) project α far below zero — the AEMO ISP monthly
+// expansion case logged α ≈ −5e11 at the build months.
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP expansion sharing — alpha_min = 0 floors α and keeps the optimum")
+{
+  auto planning = ex_make_planning(kExDryInflow, kExDryInflow);
+  planning.options.sddp_options.alpha_min = 0.0;
+  PlanningLP plp(std::move(planning));
+  REQUIRE(plp.options().sddp_alpha_min().value_or(-1.0)
+          == doctest::Approx(0.0));
+
+  auto opts = ex_sddp_opts(CutSharingMode::multicut,
+                           /*max_iterations=*/25,
+                           /*convergence_tol=*/1.0e-6);
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  double v_full = 0.0;
+  {
+    auto ext_planning = ex_make_extensive_planning(kExDryInflow,
+                                                   /*integer_module=*/false,
+                                                   /*solver=*/ {});
+    PlanningLP ext_plp(std::move(ext_planning));
+    auto ext_status = ext_plp.resolve();
+    REQUIRE(ext_status.has_value());
+    v_full = ext_plp.system(first_scene_index(), PhaseIndex {0})
+                 .linear_interface()
+                 .get_obj_value();
+  }
+
+  const auto& last = results->back();
+  INFO("LB=", last.lower_bound, " UB=", last.upper_bound, " v_full=", v_full);
+  CHECK(last.lower_bound == doctest::Approx(last.upper_bound).epsilon(1e-6));
+  CHECK(last.upper_bound == doctest::Approx(v_full).epsilon(1e-3));
+
+  // Every α column that cuts released is floored at ≥ 0.
+  const auto& sim = plp.simulation();
+  int n_alpha = 0;
+  for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
+    for (const auto pi : iota_range<PhaseIndex>(0, sim.phase_count())) {
+      auto& sys = plp.system(si, pi);
+      sys.ensure_lp_built();
+      const auto& li = sys.linear_interface();
+      const auto lows = li.get_col_low();
+      for (const auto& [key, svar] : sim.state_variables(si, pi)) {
+        if (key.col_name == sddp_alpha_col_name) {
+          ++n_alpha;
+          CHECK(lows[svar.col()] >= -1e-9);
+        }
+      }
+    }
+  }
+  MESSAGE("alpha columns checked: ", n_alpha);
+}

@@ -82,6 +82,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "convergence_confidence",
         "cut_coeff_eps",
         "scale_alpha",
+        "alpha_min",
         "update_lp_skip",
         "forward_sampling_mode",
         "integer_cuts_mode",

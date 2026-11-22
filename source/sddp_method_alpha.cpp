@@ -780,6 +780,12 @@ void apply_alpha_floor(PlanningLP& planning_lp,
     } else {
       li.set_col_upp(alpha_col, upper_phys);
     }
+    // Optional user floor (`sddp_options.alpha_min`): the cost-to-go of
+    // a non-negative-cost model is ≥ 0, so `max(cut floor, alpha_min)`
+    // stays valid while removing the linear-extrapolation hole.
+    if (const auto alpha_min = planning_lp.options().sddp_alpha_min()) {
+      tightest_floor_phys = std::max(tightest_floor_phys, *alpha_min);
+    }
     // Use the raw setter for ±∞ sentinel floor values to avoid
     // set_col_low's internal division by col_scale on sentinels.
     if (li.is_pos_inf(tightest_floor_phys)

@@ -55,6 +55,7 @@ struct SddpOptionsConstructor
       OptReal convergence_tol,
       OptReal elastic_penalty,
       OptReal scale_alpha,
+      OptReal alpha_min,
       OptName cut_recovery_mode_str,
       OptName recovery_mode_str,
       OptBool save_per_iteration,
@@ -148,6 +149,7 @@ struct SddpOptionsConstructor
     opts.convergence_tol = convergence_tol;
     opts.elastic_penalty = elastic_penalty;
     opts.scale_alpha = scale_alpha;
+    opts.alpha_min = alpha_min;
     if (cut_recovery_mode_str) {
       opts.cut_recovery_mode = gtopt::require_enum<HotStartMode>(
           "cut_recovery_mode", *cut_recovery_mode_str);
@@ -267,6 +269,7 @@ struct json_data_contract<SddpOptions>
       json_number_null<"convergence_tol", OptReal>,
       json_number_null<"elastic_penalty", OptReal>,
       json_number_null<"scale_alpha", OptReal>,
+      json_number_null<"alpha_min", OptReal>,
       json_string_null<"cut_recovery_mode", OptName>,
       json_string_null<"recovery_mode", OptName>,
       json_bool_null<"save_per_iteration", OptBool>,
@@ -348,6 +351,7 @@ struct json_data_contract<SddpOptions>
         opt.convergence_tol,
         opt.elastic_penalty,
         opt.scale_alpha,
+        opt.alpha_min,
         detail::enum_to_opt_name(opt.cut_recovery_mode),
         detail::enum_to_opt_name(opt.recovery_mode),
         opt.save_per_iteration,
