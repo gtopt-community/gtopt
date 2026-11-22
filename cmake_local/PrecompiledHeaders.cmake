@@ -17,6 +17,23 @@ not leak to downstream consumers of the target.
 #]=======================================================================]
 
 function(target_gtopt_pch target)
+  # A PCH is not relocatable: clang stores the absolute path of every
+  # input file (cmake_pch.hxx / cmake_pch.hxx.cxx live in the build dir)
+  # and refuses the PCH when they are missing ("could not find file ...
+  # referenced by AST file").  When Ccache.cmake turns on cross-build-dir
+  # sharing (a base_dir=... override in the launcher), ccache keys the
+  # PCH compile on base_dir-relative paths, so a second build dir gets
+  # the first dir's .pch, which points into the first dir -- and fails
+  # as soon as that dir is deleted (or silently reads its files while it
+  # exists).  Sharing every object across build dirs is worth more than
+  # the PCH there, so skip the PCH.  CI (CCACHE_BASEDIR env, fixed
+  # workspace path) and -DGTOPT_CCACHE_TUNING=OFF keep it.
+  get_target_property(_launcher ${target} CXX_COMPILER_LAUNCHER)
+  if(_launcher MATCHES "ccache" AND _launcher MATCHES "base_dir=")
+    message(STATUS "${target}: PCH off (ccache base_dir sharing; "
+                   "-DGTOPT_CCACHE_TUNING=OFF keeps it)")
+    return()
+  endif()
   target_precompile_headers(${target} PRIVATE
     # --- containers & data structures ---
     <array>
