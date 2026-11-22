@@ -419,6 +419,9 @@ auto solve_apertures_for_phase(
   //     window by the `DecompressionGuard` at
   //     `sddp_aperture_pass.cpp:390, 579`).  See
   //     `LinearInterface::clone_from_flat` for full contract.
+  //
+  // Keep this lock (needed for CPLEX, measured negligible); see the note
+  // on `s_native_clone_mutex` in `LinearInterface::clone()`.
   static std::mutex s_global_clone_mutex;
   auto* clone_mutex = &s_global_clone_mutex;
 

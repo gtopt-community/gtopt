@@ -973,6 +973,14 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // they want **snapshot-state** semantics — that path is for
   // callers who don't need the post-snapshot dynamic state
   // (alpha, installed cuts) replayed into the clone.
+  //
+  // KEEP THIS LOCK — do not try to remove or narrow it again.  It is
+  // required for correctness with CPLEX at least: `CPXcloneprob` touches
+  // process-wide solver state, and concurrent native clones crash inside
+  // the solver library.  It was also measured to be free: with the
+  // default options (manual clone route) it is never taken, and forcing
+  // the native route the threads wait on it for at most ~0.02% of the
+  // run time.  There is nothing to gain by removing it.
   static std::mutex s_native_clone_mutex;
   const std::scoped_lock native_clone_lock(s_native_clone_mutex);
 
