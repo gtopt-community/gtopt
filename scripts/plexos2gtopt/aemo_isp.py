@@ -779,7 +779,8 @@ def _min_load(
     if ml is None or not np.any(np.nan_to_num(ml) > 0):
         return None
     gx["Min Load → pmin"] += 1
-    return np.minimum(np.nan_to_num(ml), pmax)
+    pmin: np.ndarray = np.minimum(np.nan_to_num(ml), pmax)
+    return pmin
 
 
 def _min_cf_year_uc(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -870,7 +871,8 @@ def _fill_nan_from_day_neighbours(arr: np.ndarray) -> np.ndarray:
     if not np.isnan(arr).any():
         return arr
     s = pd.Series(arr).ffill().bfill()
-    return s.fillna(0.0).to_numpy()
+    filled: np.ndarray = s.fillna(0.0).to_numpy()
+    return filled
 
 
 #: m³/s × h → hm³ (PLEXOS volumes are 1000 m³, converted ÷ 1000 to hm³)

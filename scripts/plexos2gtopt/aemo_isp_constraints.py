@@ -975,7 +975,8 @@ def apply(  # pylint: disable=too-many-locals,too-many-branches,too-many-stateme
 def _constraint_oid(view: CaseView, name: str) -> int:
     for o in view.res.objects("Constraint"):
         if o.name == name:
-            return o.object_id
+            oid: int = o.object_id
+            return oid
     raise KeyError(name)
 
 

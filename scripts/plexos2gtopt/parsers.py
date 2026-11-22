@@ -25,7 +25,7 @@ import re
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .entities import (
     PUMPED_STORAGE_BATTERY_SUFFIX,
@@ -3178,7 +3178,7 @@ def _apply_adaptive_loss_segments(
 def _apply_dynamic_loss_layout(
     lines: tuple[LineSpec, ...],
     err_pct: float,
-    lossy: list,
+    lossy: list[tuple[int, LineSpec, float]],
 ) -> tuple[LineSpec, ...]:
     """Per-line PWL LAYOUT assignment under the same ``err_pct`` budget.
 
@@ -7056,7 +7056,7 @@ def _expand_timeslice(
 
 
 def _build_rhs_timeslice_profile(
-    rhs_rows: list,
+    rhs_rows: list[PlexosDataRow],
     base_value: float,
     horizon_start: datetime | None,
     n_blocks: int,
@@ -7116,7 +7116,9 @@ def _build_rhs_timeslice_profile(
     base = min(untagged_active) if untagged_active else base_value
     profile = [base] * n_blocks
     for row in tagged_rows:
-        mask = _expand_timeslice(row.timeslice, horizon_start, n_blocks)
+        # ``tagged_rows`` keeps only rows with a non-empty timeslice.
+        tag = cast(str, row.timeslice)
+        mask = _expand_timeslice(tag, horizon_start, n_blocks)
         for i, on in enumerate(mask):
             if on:
                 profile[i] = row.value
@@ -7149,7 +7151,7 @@ def _block_in_date_window(
 
 
 def _build_rhs_date_overlay_profile(
-    rhs_rows: list,
+    rhs_rows: list[PlexosDataRow],
     base_value: float,
     horizon_start: datetime | None,
     n_blocks: int,
@@ -7447,7 +7449,7 @@ def _is_contingency_constraint(
     )
 
 
-def _first_value(rows: list) -> float | None:
+def _first_value(rows: list[PlexosDataRow]) -> float | None:
     """Return the lowest-data_id value from a ``data_for`` result, or None.
 
     Drops the PLEXOS ``±1E+30`` infinity sentinel — caller would treat
@@ -7465,7 +7467,10 @@ def _first_value(rows: list) -> float | None:
 
 
 def _horizon_value(
-    rows: list, horizon_start: datetime | None, *, prefer_min: bool = False
+    rows: list[PlexosDataRow],
+    horizon_start: datetime | None,
+    *,
+    prefer_min: bool = False,
 ) -> float | None:
     """Select the effective PLEXOS property value for ``horizon_start``.
 
@@ -7529,7 +7534,9 @@ def _horizon_value(
     return min(candidates, key=lambda r: r.data_id).value
 
 
-def _has_active_rhs_row(rows: list, horizon_start: datetime | None) -> bool:
+def _has_active_rhs_row(
+    rows: list[PlexosDataRow], horizon_start: datetime | None
+) -> bool:
     """True if any row is undated OR its ``[date_from, date_to]`` window
     covers ``horizon_start``.
 
@@ -7589,7 +7596,7 @@ def _index_coefficient_rows(
     mid_to_pair = _build_membership_pair_index(db, coll_id)
     # Group data rows by membership_id so multiple amendments to the
     # same (parent, constraint, property) tuple resolve to a single value.
-    by_mid: dict[int, list] = {}
+    by_mid: dict[int, list[PlexosDataRow]] = {}
     for d in db.data_rows:
         if d.membership_id in mid_to_pair and d.property_id == prop_id:
             by_mid.setdefault(d.membership_id, []).append(d)

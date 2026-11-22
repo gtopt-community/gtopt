@@ -237,8 +237,8 @@ _TERM_RE = re.compile(
 )
 
 
-def _parse_lhs_terms(lhs_str: str) -> list[dict]:
-    terms: list[dict] = []
+def _parse_lhs_terms(lhs_str: str) -> list[dict[str, Any]]:
+    terms: list[dict[str, Any]] = []
     last_end = 0
     for tm in _TERM_RE.finditer(lhs_str):
         sign_token = tm.group("sign") or "+"
@@ -261,7 +261,7 @@ def _parse_lhs_terms(lhs_str: str) -> list[dict]:
     return terms
 
 
-def parse_pampl_file(path: Path) -> list[dict]:
+def parse_pampl_file(path: Path) -> list[dict[str, Any]]:
     """Parse one ``uc_*.pampl`` file → list of UC dicts.
 
     Each dict carries ``{name, file, active, op, rhs_scalar, rhs_profile,
@@ -273,7 +273,7 @@ def parse_pampl_file(path: Path) -> list[dict]:
         ln for ln in text.splitlines(keepends=True) if not ln.lstrip().startswith("#")
     )
     pen_params = {m.group(1): float(m.group(2)) for m in _PARAM_RE.finditer(text_clean)}
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     for m in _UC_DEF_RE.finditer(text_clean):
         flag = (m.group("flag") or "").strip()
         is_inactive = "inactive" in flag
@@ -315,18 +315,18 @@ def parse_pampl_file(path: Path) -> list[dict]:
     return results
 
 
-def parse_pampl_dir(pampl_dir: Path) -> list[dict]:
+def parse_pampl_dir(pampl_dir: Path) -> list[dict[str, Any]]:
     """All ``uc_*.pampl`` files in ``pampl_dir``, concatenated."""
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for p in sorted(pampl_dir.glob("uc_*.pampl")):
         rows.extend(parse_pampl_file(p))
     return rows
 
 
-def parse_json_ucs(planning_json: Path) -> list[dict]:
+def parse_json_ucs(planning_json: Path) -> list[dict[str, Any]]:
     """Extract inline UCs from the planning JSON ``user_constraint_array``."""
     data = json.loads(planning_json.read_text())
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     uc_arr = data.get("system", {}).get("user_constraint_array", [])
     for uc in uc_arr:
         expr = uc.get("expression", "") or ""
@@ -627,7 +627,9 @@ def _load_plexos_input_series(
     return out
 
 
-def _parse_gtopt_bounds(planning_json: Path) -> tuple[list[dict], list[dict]]:
+def _parse_gtopt_bounds(
+    planning_json: Path,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Extract ``(generators, lines)`` bound records from the planning JSON.
 
     Each generator record is ``{name, pmin, pmax}`` (``None`` when unset);
@@ -638,13 +640,13 @@ def _parse_gtopt_bounds(planning_json: Path) -> tuple[list[dict], list[dict]]:
         return [], []
     data = json.loads(planning_json.read_text())
     system = data.get("system", {})
-    gens: list[dict] = []
+    gens: list[dict[str, Any]] = []
     for g in system.get("generator_array", []):
         name = g.get("name")
         if name is None:
             continue
         gens.append({"name": str(name), "pmin": g.get("pmin"), "pmax": g.get("pmax")})
-    lines: list[dict] = []
+    lines: list[dict[str, Any]] = []
     for ln in system.get("line_array", []):
         name = ln.get("name")
         if name is None:
@@ -688,7 +690,7 @@ def _field_peak(val: Any) -> float | None:
     return max(flat) if flat else None
 
 
-def _parse_gtopt_provisions(planning_json: Path) -> list[dict]:
+def _parse_gtopt_provisions(planning_json: Path) -> list[dict[str, Any]]:
     """Extract reserve-provision cap records from the planning JSON.
 
     Each record is ``{name, generator, urmax, drmax}`` where ``urmax``/``drmax``
@@ -698,7 +700,7 @@ def _parse_gtopt_provisions(planning_json: Path) -> list[dict]:
     if not planning_json.is_file():
         return []
     data = json.loads(planning_json.read_text())
-    provs: list[dict] = []
+    provs: list[dict[str, Any]] = []
     for p in data.get("system", {}).get("reserve_provision_array", []):
         gen = p.get("generator")
         if gen is None:
@@ -714,7 +716,9 @@ def _parse_gtopt_provisions(planning_json: Path) -> list[dict]:
     return provs
 
 
-def _bounds_item(name: str, field_name: str, gval: Any, pval: float) -> dict | None:
+def _bounds_item(
+    name: str, field_name: str, gval: Any, pval: float
+) -> dict[str, Any] | None:
     """Emit a B12 mismatch dict when ``gval`` (gtopt) differs from ``pval``.
 
     ``gval`` may be ``None`` (field unset in the JSON) — in that case there
@@ -788,7 +792,7 @@ def _expected_gen_bounds(
     return exp_pmin, exp_pmax, None
 
 
-def build_b12_bounds(planning_json: Path, input_dir: Path) -> list[dict]:
+def build_b12_bounds(planning_json: Path, input_dir: Path) -> list[dict[str, Any]]:
     """Compare gtopt element bounds vs the PLEXOS input CSVs (B12 bucket).
 
     Returns the list of mismatch items, one per (element, field) that
@@ -810,7 +814,7 @@ def build_b12_bounds(planning_json: Path, input_dir: Path) -> list[dict]:
 
     raw_rating = series.get("gen_rating", {})
     gens, lines = _parse_gtopt_bounds(planning_json)
-    items: list[dict] = []
+    items: list[dict[str, Any]] = []
     explained = 0  # gen diffs ABSORBED by units-out / fixed-load rules.
 
     for g in gens:
@@ -902,7 +906,9 @@ def build_b12_bounds(planning_json: Path, input_dir: Path) -> list[dict]:
     return items
 
 
-def build_b13_profile_collapse(planning_json: Path, input_dir: Path) -> list[dict]:
+def build_b13_profile_collapse(
+    planning_json: Path, input_dir: Path
+) -> list[dict[str, Any]]:
     """B13: per-block profile-collapse detector (gtopt JSON vs PLEXOS input).
 
     B12 compares only the PEAK of a rating against ``max(CSV)``, so a converter
@@ -921,7 +927,7 @@ def build_b13_profile_collapse(planning_json: Path, input_dir: Path) -> list[dic
     ``_warn_if_series_varies`` guard and B12 cover those).  An absent or
     zero-capacity field (val <= 0) is N/A.
     """
-    items: list[dict] = []
+    items: list[dict[str, Any]] = []
     if not planning_json.is_file():
         return items
     rating_path = input_dir / "Gen_Rating.csv"
@@ -978,7 +984,7 @@ def build_b13_profile_collapse(planning_json: Path, input_dir: Path) -> list[dic
     return items
 
 
-def _parse_gtopt_reservoir_bounds(planning_json: Path) -> list[dict]:
+def _parse_gtopt_reservoir_bounds(planning_json: Path) -> list[dict[str, Any]]:
     """Extract reservoir ``emin``/``emax`` records from the planning JSON.
 
     Each record is ``{name, emin, emax}`` where the bound is the RAW JSON
@@ -988,7 +994,7 @@ def _parse_gtopt_reservoir_bounds(planning_json: Path) -> list[dict]:
     if not planning_json.is_file():
         return []
     data = json.loads(planning_json.read_text())
-    out: list[dict] = []
+    out: list[dict[str, Any]] = []
     for r in data.get("system", {}).get("reservoir_array", []):
         name = r.get("name")
         if name is None:
@@ -997,7 +1003,9 @@ def _parse_gtopt_reservoir_bounds(planning_json: Path) -> list[dict]:
     return out
 
 
-def build_b14_reservoir_bounds(planning_json: Path, input_dir: Path) -> list[dict]:
+def build_b14_reservoir_bounds(
+    planning_json: Path, input_dir: Path
+) -> list[dict[str, Any]]:
     """B14: reservoir storage-bound consistency (gtopt JSON vs PLEXOS input).
 
     Reservoir ``emin``/``emax`` are NATIVE element bounds on
@@ -1022,7 +1030,7 @@ def build_b14_reservoir_bounds(planning_json: Path, input_dir: Path) -> list[dic
     soft ``efin`` slack carries the operational end-of-day target); only a
     genuine scalar collapse of a varying floor is reported.
     """
-    items: list[dict] = []
+    items: list[dict[str, Any]] = []
     if not planning_json.is_file():
         return items
     from .plexos_csv import read_wide  # noqa: PLC0415
@@ -1108,14 +1116,14 @@ def build_b14_reservoir_bounds(planning_json: Path, input_dir: Path) -> list[dic
 # ---------------------------------------------------------------------------
 # PLEXOS sol .accdb cache loaders
 # ---------------------------------------------------------------------------
-def _read_csv(path: Path) -> list[dict]:
+def _read_csv(path: Path) -> list[dict[str, Any]]:
     with path.open() as f:
         return list(csv.DictReader(f))
 
 
-def build_plexos_solution(cache_dir: Path) -> dict[str, dict]:
+def build_plexos_solution(cache_dir: Path) -> dict[str, dict[str, Any]]:
     """Aggregate per-constraint solution metrics from the PLEXOS cache."""
-    objects = {}
+    objects: dict[int, dict[str, Any]] = {}
     for r in _read_csv(cache_dir / "t_object.csv"):
         try:
             objects[int(r["object_id"])] = {
@@ -1164,7 +1172,7 @@ def build_plexos_solution(cache_dir: Path) -> dict[str, dict]:
             continue
         by_key[kid].append(v)
 
-    result: dict[str, dict] = {}
+    result: dict[str, dict[str, Any]] = {}
     for oid, name in constraint_oids.items():
         prop_keys = keys_by_constraint.get(oid, {})
         rec: dict[str, Any] = {"name": name, "object_id": oid}
@@ -1554,7 +1562,9 @@ _PROFILE_REL_TOL = 0.01
 _PROFILE_ABS_TOL = 1.0e-3
 
 
-def _distinct_set_mismatch(gtopt: list[float], plexos: list[float]) -> dict | None:
+def _distinct_set_mismatch(
+    gtopt: list[float], plexos: list[float]
+) -> dict[str, Any] | None:
     """Compare two series by their DISTINCT VALUE SETS (position-independent).
 
     Used by the INPUT-vs-EMITTED checks (B15 fuel price, B16 turbine PF) where
@@ -1612,7 +1622,7 @@ def _profile_block_diff(
 def build_b14_reservoir_bounds_sol(
     planning_json: Path,
     storages: dict[str, dict[int, list[float]]],
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """B14 (sol-based): reservoir emin/emax vs the PLEXOS SOLUTION Storage series.
 
     Unlike the input-CSV variant (:func:`build_b14_reservoir_bounds`, which
@@ -1648,7 +1658,7 @@ def build_b14_reservoir_bounds_sol(
     split because a too-HIGH floor is a hard bug while a too-LOW floor is the
     documented soft-efin design.
     """
-    items: list[dict] = []
+    items: list[dict[str, Any]] = []
     if not planning_json.is_file() or not storages:
         return items
 
@@ -1834,7 +1844,7 @@ def build_b15_fuel_price(
     planning_json: Path,
     input_dir: Path | None,
     plexos_fuel_price: dict[str, list[float]] | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """B15: Fuel.price per-block profile vs PLEXOS price (sol-first, input fallback).
 
     gtopt emits ``Fuel.price`` as a scalar OR a ``[[stage][block]]`` matrix when
@@ -1850,7 +1860,7 @@ def build_b15_fuel_price(
     ``profile_spurious`` (gtopt varies, PLEXOS constant), ``value_mismatch``
     (per-block values differ beyond tolerance).
     """
-    items: list[dict] = []
+    items: list[dict[str, Any]] = []
     if not planning_json.is_file():
         return items
 
@@ -1921,7 +1931,9 @@ def build_b15_fuel_price(
     return items
 
 
-def build_b16_turbine_pf(planning_json: Path, input_dir: Path | None) -> list[dict]:
+def build_b16_turbine_pf(
+    planning_json: Path, input_dir: Path | None
+) -> list[dict[str, Any]]:
     """B16: Turbine production_factor / capacity vs the bundle input series.
 
     ``Turbine.production_factor`` (MW per m³/s) is NOT a native PLEXOS solution
@@ -1935,7 +1947,7 @@ def build_b16_turbine_pf(planning_json: Path, input_dir: Path | None) -> list[di
     (per-block values differ beyond tolerance).  Skips gracefully when the
     input dir / CSV is absent (the usual CEN-bundle case).
     """
-    items: list[dict] = []
+    items: list[dict[str, Any]] = []
     if not planning_json.is_file() or input_dir is None:
         return items
     pf_path = input_dir / "Hydro_EfficiencyIncr.csv"
@@ -2079,7 +2091,7 @@ def build_b17_soft_slack(
     planning_json: Path,
     reserve_softness: dict[str, Any] | None,
     reserve_vors: dict[str, dict[str, Any]] | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """B17: soft-slack coverage for the integer-coupled constraint families.
 
     Reports, per family, whether gtopt uses a soft-slack cost or a hard floor
@@ -2098,7 +2110,7 @@ def build_b17_soft_slack(
     carries a ``family`` tag and either an ``info`` / ``report`` payload or a
     ``priority`` (``HIGH``) flag with the suggested remediation.
     """
-    items: list[dict] = []
+    items: list[dict[str, Any]] = []
     if not planning_json.is_file():
         return items
     data = json.loads(planning_json.read_text())
@@ -2241,7 +2253,7 @@ def build_b17_soft_slack(
     # ── 3. Waterway forced flow (fmin > 0) ──────────────────────────────────
     # Soft slack = Waterway.fmin_fcost.  Report which forced flows are soft vs
     # hard and the cost value (Caudal_Eco_*, B_*, Filt_*).
-    forced: list[dict] = []
+    forced: list[dict[str, Any]] = []
     for w in system.get("waterway_array", []):
         name = w.get("name")
         if name is None:
@@ -2339,21 +2351,21 @@ class AuditInputs:
 class AuditResult:
     """In-memory audit output (also serialisable via :func:`to_dict`)."""
 
-    plexos_solution: dict[str, dict]
-    gtopt_ucs: list[dict]
+    plexos_solution: dict[str, dict[str, Any]]
+    gtopt_ucs: list[dict[str, Any]]
     duplicates: dict[str, list[str]]
     intersection: list[str]
     missing_from_gtopt: list[str]
     synthetic_in_gtopt: list[str]
-    buckets: dict[str, list[dict]]
-    per_row_diff: list[dict]
-    summary: dict
+    buckets: dict[str, list[dict[str, Any]]]
+    per_row_diff: list[dict[str, Any]]
+    summary: dict[str, Any]
     hard_list: set[str] = field(default_factory=set)
     # B11 native-RHS subsets whose PLEXOS source isn't in the constraint cache
     # (e.g. reserve requirements carried on a Reserve object, not a Constraint).
-    native_deferred: list[dict] = field(default_factory=list)
+    native_deferred: list[dict[str, Any]] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "summary": self.summary,
             "duplicates": self.duplicates,
@@ -2435,7 +2447,9 @@ def _is_nolimit_sentinel(v: float) -> bool:
 #     the ``urmin``/``drmin`` Min-Provision FLOOR and would false-positive).
 
 
-def _commitment_plexos_source(genname: str, plexos: dict[str, dict]) -> str | None:
+def _commitment_plexos_source(
+    genname: str, plexos: dict[str, dict[str, Any]]
+) -> str | None:
     """PLEXOS source Constraint name for a commitment genname (or None).
 
     The LP genname is the lower-cased, sanitised plant stem.  Match it
@@ -2453,7 +2467,7 @@ def _commitment_plexos_source(genname: str, plexos: dict[str, dict]) -> str | No
 
 
 def _reserve_zone_plexos_source(
-    zone_name: str, direction: str, plexos: dict[str, dict]
+    zone_name: str, direction: str, plexos: dict[str, dict[str, Any]]
 ) -> str | None:
     """PLEXOS redundant ``*MinProvision`` Constraint for a reserve zone.
 
@@ -2487,8 +2501,8 @@ def _compare_native_element(
     ident: str,
     direction: str,
     g_series: list[float],
-    plexos: dict[str, dict],
-) -> dict | None:
+    plexos: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
     """Compare one native element's gtopt RHS vs its PLEXOS source.
 
     Returns a B11 item dict on a material mismatch, ``{"deferred": ...}`` when
@@ -2564,9 +2578,9 @@ def _compare_native_element(
 
 def build_b11_native_rhs(
     native: dict[NativeKey, list[float]],
-    plexos: dict[str, dict],
+    plexos: dict[str, dict[str, Any]],
     reserve_zone_requirement: dict[tuple[str, str], list[float]] | None = None,
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Build the B11 bucket + the deferred-source list from native LP rows.
 
     Returns ``(b11_items, deferred_items)``.  Commitment rows compare the
@@ -2580,8 +2594,8 @@ def build_b11_native_rhs(
     A reserve-zone subset with no JSON requirement series is skipped.
     """
     reqs = reserve_zone_requirement or {}
-    b11: list[dict] = []
-    deferred: list[dict] = []
+    b11: list[dict[str, Any]] = []
+    deferred: list[dict[str, Any]] = []
     for (kind, ident, direction), g_series in sorted(native.items()):
         if kind == "reserve_zone":
             req = reqs.get((ident, direction))
@@ -2648,8 +2662,8 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
     # entries the diff just computed.
     plexos = plexos_keyed
 
-    buckets: dict[str, list[dict]] = defaultdict(list)
-    per_row: list[dict] = []
+    buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    per_row: list[dict[str, Any]] = []
     for name in intersection:
         p = plexos[name]
         g = gtopt_by_name[name]
@@ -2902,7 +2916,7 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
     # Min-Provision floor).  ``plexos`` is rekeyed to sanitised identifiers
     # above, but the native source names (ANTUCO_PMax, CTF_DownMinProvision,
     # ...) are already valid identifiers, so the sanitised dict resolves 1:1.
-    native_deferred: list[dict] = []
+    native_deferred: list[dict[str, Any]] = []
     if inputs.gtopt_lp is not None and inputs.gtopt_lp.is_file():
         native = parse_lp_native_constraints(inputs.gtopt_lp, inputs.gtopt_json)
         rz_req = reserve_zone_requirement_series(inputs.gtopt_json)
@@ -3123,9 +3137,11 @@ def make_parser() -> argparse.ArgumentParser:
 
 
 def _resolve_gtopt_json(args: argparse.Namespace) -> Path:
-    if args.gtopt_json is not None:
-        return args.gtopt_json
-    for p in sorted(args.gtopt_dir.glob("*.json")):
+    gtopt_json: Path | None = args.gtopt_json
+    if gtopt_json is not None:
+        return gtopt_json
+    gtopt_dir: Path = args.gtopt_dir
+    for p in sorted(gtopt_dir.glob("*.json")):
         if not p.name.endswith(".provenance.json"):
             return p
     raise SystemExit(

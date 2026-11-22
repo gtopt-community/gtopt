@@ -38,6 +38,7 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import Any
 
 # Rich is already a project dependency (see scripts/pyproject.toml).
 from rich.console import Console
@@ -78,7 +79,7 @@ def _plexos_cache_path(res_zip: Path, cache_dir: Path | None = None) -> Path:
     return cache_dir / f"{res_zip.stem}-{digest}.pkl"
 
 
-def _load_plexos_cache(path: Path) -> dict | None:
+def _load_plexos_cache(path: Path) -> dict[str, Any] | None:
     """Best-effort cache reader; returns ``None`` on miss or corruption."""
     if not path.is_file():
         return None
@@ -92,7 +93,7 @@ def _load_plexos_cache(path: Path) -> dict | None:
     return data
 
 
-def _save_plexos_cache(path: Path, data: dict) -> None:
+def _save_plexos_cache(path: Path, data: dict[str, Any]) -> None:
     """Atomic pickle write: tmp + rename so a SIGINT mid-write does not
     leave a half-written cache file the next run would try to load."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -102,7 +103,7 @@ def _save_plexos_cache(path: Path, data: dict) -> None:
     tmp.replace(path)
 
 
-def _compute_plexos_all(accdb_path: Path) -> dict:
+def _compute_plexos_all(accdb_path: Path) -> dict[str, Any]:
     """Run every ``compute_plexos_*`` extractor once on the same accdb.
 
     Returns a dict the cache layer can pickle.  The keys map 1-to-1
@@ -630,7 +631,7 @@ def compute_plexos_energy_totals(
 
 def _sum_real_generator_mwh(
     case_dir: Path,
-    bundle: dict,
+    bundle: dict[str, Any],
     durations: dict[int, float],
 ) -> tuple[float, float]:
     """Split ``Generator/generation_sol.parquet`` MWh into real vs synthetic.
@@ -701,7 +702,7 @@ def _sum_line_losses_extras_mwh(
 
 def _compute_line_losses_analytic_mwh(
     case_dir: Path,
-    bundle: dict,
+    bundle: dict[str, Any],
     durations: dict[int, float],
 ) -> float:
     """Analytic line-loss total: ``Σ_line Σ_block (R/V²) · |f|² · dur``.
@@ -951,7 +952,7 @@ def _render_problem_size_compare(
 
 def _sum_consumer_demand_field_mwh(
     case_dir: Path,
-    bundle: dict,
+    bundle: dict[str, Any],
     durations: dict[int, float],
     parquet_rel: str,
 ) -> float:
@@ -982,7 +983,7 @@ def _sum_consumer_demand_field_mwh(
 
 def _sum_consumer_fail_mwh(
     case_dir: Path,
-    bundle: dict,
+    bundle: dict[str, Any],
     durations: dict[int, float],
 ) -> float:
     """Sum ``Demand/fail_sol`` MWh restricted to **real consumer demands**.
@@ -3788,7 +3789,7 @@ def _categorize_uc(name: str) -> str:
 
 def load_uc_penalty_breakdown(
     case_dir: Path, penalty_per_unit: float
-) -> dict[str, dict]:
+) -> dict[str, dict[str, Any]]:
     """Load gtopt's UserConstraint slack outputs and aggregate the
     penalty cost per constraint.
 
@@ -3842,7 +3843,7 @@ def load_uc_penalty_breakdown(
         for uid, slack in table.groupby("uid")["value"].sum().items():
             by_uid[int(uid)] = by_uid.get(int(uid), 0.0) + float(slack)
 
-    breakdown: dict[str, dict] = {}
+    breakdown: dict[str, dict[str, Any]] = {}
     for uid, total_slack in by_uid.items():
         name = uid_to_name.get(uid, f"uid={uid}")
         # Per-UC penalty wins; ``penalty_per_unit`` is the diagnostic
@@ -3864,7 +3865,7 @@ def load_uc_penalty_breakdown(
 
 
 def _render_uc_drilldown(
-    breakdown: dict[str, dict],
+    breakdown: dict[str, dict[str, Any]],
     penalty_per_unit: float,
     top_n: int,
     console: Console,
@@ -4035,7 +4036,7 @@ def _pull_plexos_gen_by_period(
 def compute_uc_block_drilldown(
     case_dir: Path,
     accdb_path: Path,
-    breakdown: dict[str, dict],
+    breakdown: dict[str, dict[str, Any]],
     top_n: int = 5,
 ) -> dict[str, list[dict[str, float | str]]]:
     """Per-block PLEXOS vs gtopt LHS comparison for the top-N
@@ -4074,7 +4075,9 @@ def compute_uc_block_drilldown(
     uc_by_name = {u["name"]: u for u in ucs}
 
     # Parse expressions for the top-N offenders, collecting referenced gen names.
-    chosen: list[tuple[str, dict, tuple[list[tuple[float, str]], str, float]]] = []
+    chosen: list[
+        tuple[str, dict[str, Any], tuple[list[tuple[float, str]], str, float]]
+    ] = []
     referenced: set[str] = set()
     for name in list(breakdown)[:top_n]:
         uc = uc_by_name.get(name)
@@ -4748,7 +4751,7 @@ def main(argv: list[str] | None = None) -> int:
             # ``--cache-dir``).  Subsequent runs against the same
             # RES zip skip mdb-export entirely (~minutes → seconds).
             cache_path = _plexos_cache_path(res_zip, args.cache_dir)
-            plexos_data: dict | None = None
+            plexos_data: dict[str, Any] | None = None
             if not args.no_cache:
                 plexos_data = _load_plexos_cache(cache_path)
                 if plexos_data is not None:

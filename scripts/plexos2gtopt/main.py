@@ -1131,11 +1131,11 @@ def make_parser() -> argparse.ArgumentParser:
 
 def _resolve_bundle(args: argparse.Namespace) -> Path | None:
     """Pick ``-i`` / ``--input-bundle`` over the positional argument."""
-    if args.input_bundle is not None:
-        return args.input_bundle
-    if args.positional_input is not None:
-        return args.positional_input
-    return None
+    input_bundle: Path | None = args.input_bundle
+    if input_bundle is not None:
+        return input_bundle
+    positional: Path | None = args.positional_input
+    return positional
 
 
 def main(argv: list[str] | None = None) -> None:

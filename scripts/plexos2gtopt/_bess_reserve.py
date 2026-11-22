@@ -40,7 +40,7 @@ from .plexos_xml import load_xml
 if TYPE_CHECKING:
     from .entities import PlexosCase
     from .plexos_loader import PlexosBundle
-    from .plexos_xml import PlexosDb
+    from .plexos_xml import PlexosDataRow, PlexosDb
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +52,13 @@ _DN_PREFIX = "DOWNStorageBound_"
 _COMP_SUFFIXES = ("_CF_GEN_COMP", "_CF_LOAD_COMP")
 
 
-def _rows_by_membership(db: PlexosDb) -> dict[int, list]:
-    cached = getattr(db, "_bess_rows_by_mem", None)
+def _rows_by_membership(db: PlexosDb) -> dict[int, list[PlexosDataRow]]:
+    cached: dict[int, list[PlexosDataRow]] | None = getattr(
+        db, "_bess_rows_by_mem", None
+    )
     if cached is not None:
         return cached
-    out: dict[int, list] = {}
+    out: dict[int, list[PlexosDataRow]] = {}
     for row in db.data_rows:
         out.setdefault(row.membership_id, []).append(row)
     object.__setattr__(db, "_bess_rows_by_mem", out)

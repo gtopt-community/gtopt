@@ -128,7 +128,8 @@ def _to_hourly(vals: list[float]) -> np.ndarray:
     n = len(vals)
     arr = np.asarray(vals, dtype=np.float64)
     if n == 48:
-        return arr.reshape(24, 2).mean(axis=1)
+        hourly: np.ndarray = arr.reshape(24, 2).mean(axis=1)
+        return hourly
     if n == 24:
         return arr
     if n == 1:
