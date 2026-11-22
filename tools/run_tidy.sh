@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# tools/run_tidy.sh — the CLAUDE.md pre-commit clang-tidy step, with an
+# tools/run_tidy.sh — the pre-commit clang-tidy step (CONTRIBUTING.md), with an
 # optional result cache.  Also used by the CI clang-tidy job.
 #
 # Usage:
@@ -12,7 +12,7 @@
 #   tools/run_tidy.sh --configure [DIR]               create a tidy DB
 #
 # With no files it checks the *.cpp files changed against HEAD (the
-# CLAUDE.md policy), test files included, plus <stem>.cpp and
+# project policy), test files included, plus <stem>.cpp and
 # test_<stem>.cpp for every changed <stem>.hpp (headers themselves are
 # never analysed).  Exit status is non-zero when any warning is reported
 # (-warnings-as-errors='*').

@@ -23,7 +23,7 @@
 #                    tools/*.jl golden generators (optional; CPLEX.jl not
 #                    installed -- it needs a licensed CPLEX)
 #
-# Dependency groups (see also CLAUDE.md "Environment Setup"):
+# Dependency groups (see also BUILDING.md):
 #   required  compilers (Clang 21 / GCC 14 fallback), clang-format-21,
 #             clang-tidy-21 + clang-tidy-22 (CI clang-tidy job), ccache,
 #             lld, ninja, COIN-OR CBC/CLP, Arrow/Parquet, Boost, spdlog,
@@ -71,7 +71,7 @@
 #     a fully working build; the summary at the end reports which was chosen.
 #   • clang-22 packages are not yet available on apt.llvm.org; use version 21.
 #   • The clang-tidy DB lives in build-tidy/ (git-ignored, machine-local
-#     paths); run the CLAUDE.md pre-commit tidy step with tools/run_tidy.sh.
+#     paths); run the pre-commit tidy step with tools/run_tidy.sh.
 
 
 set -euo pipefail
