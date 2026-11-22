@@ -718,28 +718,6 @@ auto solve_apertures_for_phase(
               using E = std::remove_cvref_t<decltype(e)>;
               if constexpr (HasUpdateAperture<E>) {
                 for (const auto& stage : phase_lp.stages()) {
-                  ApertureValueFn value_fn;
-                  if (scen_ptr != nullptr) {
-                    const auto& ap_scen = *scen_ptr;
-                    value_fn = [&e, &ap_scen](
-                                   StageUid st,
-                                   BlockUid bl) -> std::optional<double>
-                    { return e.aperture_value(ap_scen.uid(), st, bl); };
-                  } else {
-                    const ScenarioUid ap_uid_val =
-                        make_uid<Scenario>(aperture.source_scenario);
-                    value_fn = [&e, &aperture_cache, ap_uid_val](
-                                   StageUid st,
-                                   BlockUid bl) -> std::optional<double>
-                    {
-                      return aperture_cache.lookup(
-                          E::Element::class_name.full_name(),
-                          e.id().second,
-                          ap_uid_val,
-                          st,
-                          bl);
-                    };
-                  }
                   // Row-touching updater: record whether it actually
                   // receives a value (dual-shared precondition guard).
                   // Every non-FlowLP updater is row-touching; FlowLP is
@@ -758,18 +736,51 @@ auto solve_apertures_for_phase(
                       return true;
                     }
                   }();
-                  if (ds_mode && row_touching) {
-                    value_fn = [inner = std::move(value_fn), &non_bound_write](
-                                   StageUid st,
-                                   BlockUid bl) -> std::optional<double>
-                    {
-                      auto v = inner(st, bl);
-                      non_bound_write = non_bound_write || v.has_value();
-                      return v;
-                    };
+                  const bool track_writes = ds_mode && row_touching;
+                  // The concrete provider lambda goes straight to
+                  // `update_aperture` (a template on the profile
+                  // elements), so the per-block value lookup is a
+                  // direct call instead of a `std::function` hop.
+                  auto update_with = [&](const auto& value_fn)
+                  {
+                    if (track_writes) {
+                      [[maybe_unused]] const auto ok = e.update_aperture(
+                          clone,
+                          base_scenario,
+                          [&value_fn, &non_bound_write](
+                              StageUid st, BlockUid bl) -> std::optional<double>
+                          {
+                            auto v = value_fn(st, bl);
+                            non_bound_write = non_bound_write || v.has_value();
+                            return v;
+                          },
+                          stage);
+                    } else {
+                      [[maybe_unused]] const auto ok = e.update_aperture(
+                          clone, base_scenario, value_fn, stage);
+                    }
+                  };
+                  if (scen_ptr != nullptr) {
+                    const auto& ap_scen = *scen_ptr;
+                    update_with(
+                        [&e, &ap_scen](StageUid st,
+                                       BlockUid bl) -> std::optional<double>
+                        { return e.aperture_value(ap_scen.uid(), st, bl); });
+                  } else {
+                    const ScenarioUid ap_uid_val =
+                        make_uid<Scenario>(aperture.source_scenario);
+                    update_with(
+                        [&e, &aperture_cache, ap_uid_val](
+                            StageUid st, BlockUid bl) -> std::optional<double>
+                        {
+                          return aperture_cache.lookup(
+                              E::Element::class_name.full_name(),
+                              e.id().second,
+                              ap_uid_val,
+                              st,
+                              bl);
+                        });
                   }
-                  [[maybe_unused]] const auto ok =
-                      e.update_aperture(clone, base_scenario, value_fn, stage);
                 }
               }
               return true;

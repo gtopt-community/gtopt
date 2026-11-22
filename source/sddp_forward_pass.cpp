@@ -82,11 +82,13 @@ void SDDPMethod::apply_sampled_realization(SceneIndex scene_index,
     using E = std::remove_cvref_t<decltype(e)>;
     if constexpr (HasUpdateAperture<E>) {
       for (const auto& stage : phase_lp.stages()) {
-        const ApertureValueFn value_fn =
+        std::ignore = e.update_aperture(
+            li,
+            base_scenario,
             [&e, realization_uid](StageUid st,
                                   BlockUid bl) -> std::optional<double>
-        { return e.aperture_value(realization_uid, st, bl); };
-        std::ignore = e.update_aperture(li, base_scenario, value_fn, stage);
+            { return e.aperture_value(realization_uid, st, bl); },
+            stage);
       }
     }
     return true;
