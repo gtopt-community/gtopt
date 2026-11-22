@@ -215,6 +215,13 @@ needed.
    `install.sh` and to `BUILDING.md`.  New solvers are opt-in by default;
    the automatic priority order lives in `source/solver_registry.cpp`.
 
+**Please share it.**  If you write a plugin for a new solver (or improve
+an existing one), we would be very grateful if you contributed it back
+with a pull request to
+[gtopt-community/gtopt](https://github.com/gtopt-community/gtopt) — see
+[CONTRIBUTING.md](../CONTRIBUTING.md).  Include the solver version you
+tested with and any limitation you found, so this page stays accurate.
+
 Plugins may be distributed under their own terms: the plugin interface
 headers are Apache-2.0 (see [LICENSE-EXCEPTION.md](../LICENSE-EXCEPTION.md)).
 
