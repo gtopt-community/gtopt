@@ -1033,8 +1033,8 @@ instead of soft equalities, spillage stays free.
 | Maule `resolucion_105` (qa105) reward | `valor_riego_res105` | PLP (−1100) |
 | Invernada `embalsar` / `no_embalsar` | 1500 / 1000 | PLP qhinv / qhnein; only when `RelaxInvern = F` (not on plp_2y) |
 | Maule Canelon | `costo_canelon` | PLP; only with an anchored Canelon central |
-| Laja deficits (`fail_cost`) | `plplajam.dat` × cost factor, pinned | PLP |
-| Laja usage costs (uvalue) | `CQVar` (Saltos 1100 × 0.2 = 220) | PLP |
+| Laja deficits (`fail_cost`) | 1100 × district factor (RIEGZACO 1.5, Tucapel 1.0, Saltos 0.2) × monthly NS factor, pinned | PLP `plplajam.dat` |
+| Laja usage costs (uvalue) | electric 1150 × FactMen, mixed 0.1, anticipado 1.0 (riego 0) | PLP `CQVar` |
 | Reservoir `soft_emin` COLBUN, RAPEL | 10 $/dam³ | PLP `plpminembh.dat` |
 | Hydro `pmin_fcost` | water-value anchor (≈215 $/MWh on plp_2y) | gtopt `--soft-min-flows`, NOT PLP (PLP pmin is hard); `--no-soft-min-flows` restores the hard floor |
 
@@ -1047,6 +1047,24 @@ Spillage carries no cost.
 
 Unused keys are primarily: hydro model concerns, multi-year overrides,
 auto-modulation logic, PLP-specific flags, and accumulated volume caps.
+
+### 10.5 Test ladder
+
+The agreements are tested bottom-up; every expected value is computed
+by hand from the CEN `plplajam.dat` / `plpmaulen.dat` and cites the PLP
+routine it encodes.
+
+| Level | What | Where |
+|-------|------|-------|
+| L0 | Zone rules: Laja cushions 1200/170/530/3682 with half-open boundaries (1199.999 / 1200 / 1200.001), the +30 mixed transfer, DerElectMax cap; Maule 581 gate (580.999 / 581 / 581.001); empty rule → 0 + validation warning | `test/source/test_irrigation_rule_ladder.cpp`, `test_validate_planning.cpp` |
+| L1 | VolumeRight: hm³ rule → rate (168 h / 730 h), reset provision clamped to `[0, emax]`, provision from the stage-start volume, `update_lp` after a reload; FlowRight fmax/target/uvalue semantics | `test_volume_right_isolation.cpp` (Tier 1.4–1.8), `test_flow_right*.cpp` |
+| L2 | Ledgers: remaining rights (`eini = cap − used`), extraction ≤ remaining, dual ≥ 0; anticipado up-counter + December debit | `test_irrigation_maule_ledger.cpp`, `test_irrigation_reset_cross_phase.cpp` |
+| L3 | One user constraint at a time: Laja partition / cap without seepage; Maule partition, ordinary reserve, Invernada, Res. 105 split, Cota 425, manual years | `test_irrigation_laja_cap.cpp`, `test_irrigation_invernada_boundary.cpp`, `gtopt_expand/tests/test_laja_plp_fidelity.py`, `test_maule_plp_fidelity.py` |
+| L4–L5 | End-to-end PLP → plp2gtopt → gtopt on `scripts/cases/plp_min_irrigation` (12 months × 2 hydrologies): Laja-only, Maule-only and both, strict PAMPL (every constraint assembled; a dangling reference aborts), monolithic and SDDP layouts | `scripts/plp2gtopt/tests/test_irrigation_e2e.py` (`-m integration`, ~20 s) |
+| SDDP | Stop/sentinel mid-forward is not an infeasibility; hot start loads N > 0 cuts and warns when it ends cold | `test_sddp_forward_stop.cpp`, `test_sddp_hot_start_load.cpp` |
+
+Global invariant checked by the e2e suite: no negative reservoir water
+value and no negative ledger dual.
 
 ---
 

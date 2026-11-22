@@ -607,6 +607,18 @@ listed below.
   ignored because `recovery_mode = none` — i.e. no `--recover` —, load
   error, empty file or missing cut directory) now logs
   `SDDP HotStart: cuts=cold … NOT applied: <reason>` at WARN.
+- **Irrigation — end-to-end findings** (new PLP → plp2gtopt → gtopt
+  e2e suite): an irrigation-diversion FlowRight whose PotMax is the PLP
+  9999 sentinel was emitted without `fmax`, which the C++ resolves to 0
+  — the offtake was pinned shut (plp_2y: RieSur123SCDZ, hence every
+  Res. 105 district, and RieSaltos); it now carries `PotMax / Rendi`.
+  The season re-provision reads the stage-start reservoir volume
+  (`VolIni`, genpdlajam.f:575-576) instead of `(vini + vfin)/2`.  The
+  Laja anticipado up-counter has no outflow (`fmax: 0`; a free
+  extraction let the LP drain it and dodge the December debit).  A
+  fixed-discharge Flow folded by `lp_reduction` stays resolvable in
+  user constraints (constant moved to the RHS).  `validate_planning`
+  warns on a `bound_rule` with no segments.
 
 - **`plexos2gtopt.aemo_isp` hydro**: reservoirs carry
   `flow_conversion_rate = 0.0036` and `Max Spill`; pumped-storage units
