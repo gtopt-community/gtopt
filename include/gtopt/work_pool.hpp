@@ -517,9 +517,17 @@ struct BasicTaskRequirements
 /// `BasicTaskRequirements<int64_t>`.
 using TaskRequirements = BasicTaskRequirements<>;
 
-/// @brief Generic task wrapper with type-erased key type.
+/// @brief Queued unit of work: a type-erased callable plus its scheduling
+/// requirements.
 ///
-/// @tparam T         Result type of the task callable (default `void`).
+/// The callable is held in a `std::move_only_function`, so `submit()`
+/// moves its (move-only) `std::packaged_task<R()>` straight in — no
+/// `shared_ptr` indirection and no second shared state.  The submitter
+/// keeps the matching `std::future<R>`; exceptions thrown by user code land
+/// in that future, so `execute()` does not throw for pool-submitted tasks.
+///
+/// @tparam T         Result type of the stored callable (default `void`;
+///                   the pool always queues `void` tasks).
 /// @tparam Key       The priority-key type (must match the pool's key type).
 /// @tparam KeyCompare  Comparator for the secondary sort.  The default
 ///                   `std::less<Key>` gives "smaller key = higher priority".
@@ -536,7 +544,7 @@ public:
   using key_compare = KeyCompare;
 
 private:
-  std::packaged_task<T()> task_;
+  std::move_only_function<T()> task_;
   BasicTaskRequirements<Key> requirements_;
   std::chrono::steady_clock::time_point submit_time_;
 
@@ -556,8 +564,6 @@ public:
       , submit_time_(std::chrono::steady_clock::now())
   {
   }
-
-  std::future<T> get_future() { return task_.get_future(); }
 
   void execute() { task_(); }
 
@@ -1010,9 +1016,12 @@ public:
       -> std::expected<std::future<std::invoke_result_t<Func, Args...>>,
                        std::error_code>
   {
-    if constexpr (std::is_same_v<std::decay_t<Func>, std::function<void()>>) {
+    if constexpr (std::is_same_v<std::decay_t<Func>, std::function<void()>>
+                  || std::is_same_v<std::decay_t<Func>,
+                                    std::move_only_function<void()>>)
+    {
       if (!func) {
-        SPDLOG_WARN("Attempted to submit null std::function");
+        SPDLOG_WARN("Attempted to submit null function wrapper");
         return std::unexpected(
             std::make_error_code(std::errc::invalid_argument));
       }
@@ -1021,12 +1030,13 @@ public:
     using ReturnType = std::invoke_result_t<Func, Args...>;
 
     try {
-      auto task = std::make_shared<std::packaged_task<ReturnType()>>(
+      std::packaged_task<ReturnType()> task {
           [func = std::forward<Func>(func),
            ... args = std::forward<Args>(args)]() mutable
-          { return std::invoke(func, args...); });
+          { return std::invoke(func, args...); },
+      };
 
-      auto future = task->get_future();
+      auto future = task.get_future();
 
       {
         const std::scoped_lock<std::mutex> lock(queue_mutex_);
@@ -1040,7 +1050,7 @@ public:
         try {
           // Both emplace_back and push_heap are under queue_mutex_, so
           // no other thread can observe the intermediate state.
-          task_queue_.emplace_back([task]() { (*task)(); }, req);
+          task_queue_.emplace_back(std::move(task), req);
           std::ranges::push_heap(task_queue_, std::less<> {});
           tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
           tasks_pending_.fetch_add(1, std::memory_order_relaxed);
@@ -1117,8 +1127,7 @@ public:
       }
       for (auto& [func, req] : tasks) {
         try {
-          auto ptask = std::make_shared<std::packaged_task<ReturnType()>>(
-              std::move(func));
+          std::packaged_task<ReturnType()> ptask {std::move(func)};
           // Build the future locally — only push to `results` after the
           // queue-side operations succeed.  The previous order pushed
           // the future first, so a `length_error` from `emplace_back`
@@ -1129,8 +1138,8 @@ public:
           // surfacing the queue error.  Building the future locally
           // first keeps `results.size() == tasks.size()` and ensures
           // every entry matches the enqueue outcome.
-          auto fut = ptask->get_future();
-          task_queue_.emplace_back([ptask]() { (*ptask)(); }, req);
+          auto fut = ptask.get_future();
+          task_queue_.emplace_back(std::move(ptask), req);
           std::ranges::push_heap(task_queue_, std::less<> {});
           tasks_submitted_.fetch_add(1, std::memory_order_relaxed);
           tasks_pending_.fetch_add(1, std::memory_order_relaxed);
