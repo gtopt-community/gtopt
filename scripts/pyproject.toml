@@ -369,3 +369,49 @@ extra_checks = true
 [[tool.mypy.overrides]]
 module = ["gtopt_check_output._reader", "gtopt_check_output._checks"]
 disable_error_code = ["attr-defined"]
+
+# ---------------------------------------------------------------------------
+# ty (astral-sh/ty) -- fast, NON-blocking advisory checker run in CI after
+# mypy (`uvx ty@<pinned> check --exit-zero`).  mypy stays the gate.
+# ---------------------------------------------------------------------------
+
+[tool.ty.environment]
+# Match [tool.mypy] python_version (ty would otherwise take 3.8 from
+# requires-python).
+python-version = "3.10"
+# Flat multi-package layout: scripts/ itself is the import root.
+root = ["."]
+
+[tool.ty.src]
+# Mirrors mypy's exclude = ["tests/"]; cases/ holds data + ad-hoc scripts.
+exclude = ["**/tests/**", "cases/**", "**/cases/**"]
+
+[tool.ty.analysis]
+# Per-module equivalent of mypy --ignore-missing-imports for the optional
+# dependencies that CI does not install.
+allowed-unresolved-imports = [
+    "highspy",
+    "highspy.**",
+    "matplotlib",
+    "matplotlib.**",
+    "yaml",
+]
+# pyarrow.compute builds its functions dynamically (mypy needs the
+# attr-defined override above for the same reason).  pandas ships no
+# py.typed: mypy treats it as Any, while ty analyses its source and its
+# incomplete inline annotations, producing dozens of false positives
+# (DataFrame(columns=list[str]), int(Hashable), DatetimeIndex.hour, ...).
+# Treat it as Any here too for mypy parity.
+replace-imports-with-any = ["pyarrow.compute", "pandas", "pandas.**"]
+
+[tool.ty.rules]
+# @contextmanager functions annotated `-> Iterator[...]`: style only.
+deprecated = "ignore"
+redundant-cast = "warn"
+
+# The diagram builder attaches attributes to GraphModel dynamically.
+[[tool.ty.overrides]]
+include = ["gtopt_diagram/_topology_*.py", "gtopt_diagram/gtopt_diagram.py"]
+
+[tool.ty.overrides.rules]
+missing-attribute = "warn"

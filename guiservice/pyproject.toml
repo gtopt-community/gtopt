@@ -107,3 +107,21 @@ warn_unused_ignores = true
 warn_return_any = false
 disallow_untyped_defs = false
 exclude = ["tests/"]
+
+# ---------------------------------------------------------------------------
+# ty (astral-sh/ty) -- fast, NON-blocking advisory checker run in CI after
+# mypy.  Run from this directory: `ty check app.py gtopt_gui.py ...`.
+# ---------------------------------------------------------------------------
+
+[tool.ty.environment]
+python-version = "3.10"
+# app.py imports ``guiservice._schemas`` (package form), so the repo root
+# is the import root; ../scripts replaces the runtime sys.path.insert()
+# hack that ty does not follow.
+root = [".."]
+extra-paths = ["../scripts"]
+
+[tool.ty.analysis]
+# pandas ships no py.typed: mypy treats it as Any, ty would analyse its
+# incomplete inline annotations.  Keep parity with mypy.
+replace-imports-with-any = ["pyarrow.compute", "pandas", "pandas.**"]

@@ -57,6 +57,18 @@ jobs:
           mypy guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py \
             --ignore-missing-imports
 
+      - name: ty (advisory, non-blocking)
+        # Fast second type checker (astral-sh/ty, beta), configured in
+        # [tool.ty] of guiservice/pyproject.toml.  Pinned; advisory only
+        # (--exit-zero + continue-on-error) -- mypy above is the gate.
+        if: always()
+        working-directory: guiservice
+        continue-on-error: true
+        run: |
+          uvx ty@0.0.107 check --python "$(which python)" \
+            --output-format github --exit-zero \
+            app.py gtopt_gui.py gtopt_guisrv.py
+
       - name: Run tests with coverage
         if: always()
         run: |
