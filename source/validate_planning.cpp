@@ -942,6 +942,33 @@ void check_flow_right_anchoring(ValidationResult& result, const System& sys)
   }
 }
 
+/// A `bound_rule` with no segments evaluates to its `cap` (or 0 when no
+/// cap is set) for every volume — a silently constant right that the
+/// author almost certainly did not mean.  Report it as a warning.
+void check_bound_rules(ValidationResult& result, const System& sys)
+{
+  const auto warn_empty = [&result](std::string_view cls,
+                                    std::string_view name,
+                                    const std::optional<RightBoundRule>& rule)
+  {
+    if (rule.has_value() && rule->segments.empty()) {
+      result.warnings.push_back(std::format(
+          "{} '{}': bound_rule has no segments — it evaluates to {} for "
+          "every volume",
+          cls,
+          name,
+          rule->cap.has_value() ? std::format("its cap {}", *rule->cap)
+                                : std::string {"0"}));
+    }
+  };
+  for (const auto& vr : sys.volume_right_array) {
+    warn_empty("VolumeRight", vr.name, vr.bound_rule);
+  }
+  for (const auto& fr : sys.flow_right_array) {
+    warn_empty("FlowRight", fr.name, fr.bound_rule);
+  }
+}
+
 /// Check positivity of flow-right / volume-right / line / waterway fields.
 void check_positivity(ValidationResult& result, const System& sys)
 {
@@ -1881,6 +1908,7 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
   check_ranges(result, planning);
   check_positivity(result, planning.system);
   check_flow_right_anchoring(result, planning.system);
+  check_bound_rules(result, planning.system);
   check_heat_rate(result, planning.system);
   check_piecewise_feasibility(result, planning);
   check_aperture_references(result, planning);

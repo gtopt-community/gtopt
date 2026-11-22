@@ -2101,3 +2101,31 @@ TEST_CASE(  // NOLINT
   const auto result = validate_planning(p);
   CHECK(result.ok());
 }
+
+TEST_CASE(  // NOLINT
+    "validate_planning - empty bound_rule warns and evaluates to 0")
+{
+  // An empty rule is a constant 0 (or its cap) for every volume: legal,
+  // but almost certainly a data error — warn, do not fail.
+  auto p = make_minimal_planning();
+  p.system.volume_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "vr_empty_rule",
+          .emax = 100.0,
+          .bound_rule =
+              RightBoundRule {
+                  .reservoir = Uid {1},
+                  .segments = {},
+              },
+      },
+  };
+  const auto result = validate_planning(p);
+  const bool warned = std::ranges::any_of(
+      result.warnings,
+      [](const auto& w)
+      { return w.contains("vr_empty_rule") && w.contains("no segments"); });
+  CHECK(warned);
+  CHECK(evaluate_bound_rule(*p.system.volume_right_array[0].bound_rule, 500.0)
+        == doctest::Approx(0.0));
+}
