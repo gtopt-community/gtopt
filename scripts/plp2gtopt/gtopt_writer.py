@@ -1688,6 +1688,14 @@ class GTOptWriter(
             reduce_case,
         )
 
+        # Serialise the planning ONCE without the ``_``-prefixed
+        # Python-side metadata keys (``_boundary_cuts_count``,
+        # ``_skipped_isolated``, ...).  ``save_case`` dumps ``case.raw``
+        # verbatim, and the L1/L2 JSONs are loaded by gtopt through
+        # ``system_file`` with StrictParsePolicy, which rejects any
+        # unknown top-level member.
+        clean_planning_json = json.dumps(_strip_internal_keys(self.planning))
+
         cascade_opts = options.get("cascade_reduced_opts") or {}
         disable_l1 = bool(cascade_opts.get("disable_l1", False))
         disable_l2 = bool(cascade_opts.get("disable_l2", False))
@@ -1704,7 +1712,7 @@ class GTOptWriter(
 
         # Build a Case wrapping the in-memory planning (deep-copied so the
         # reducer cannot mutate the writer's own dict).
-        base_case = Case(raw=json.loads(json.dumps(self.planning)))
+        base_case = Case(raw=json.loads(clean_planning_json))
         _index_buses(base_case)
         n_buses = len(base_case.array("bus_array"))
         if n_buses == 0:
@@ -1772,7 +1780,7 @@ class GTOptWriter(
 
             # Each level needs a fresh deep-copied case — reduce_case
             # mutates internal caches.
-            case = Case(raw=json.loads(json.dumps(self.planning)))
+            case = Case(raw=json.loads(clean_planning_json))
             _index_buses(case)
             result = reduce_case(case, cfg)
 

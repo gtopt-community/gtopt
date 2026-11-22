@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -304,3 +306,52 @@ def test_method_sddp_does_not_emit_cascade_options() -> None:
 )
 def test_normalize_method_table(method_in: str, expected: str) -> None:
     assert GTOptWriter._normalize_method(method_in) == expected
+
+
+# ─── Reduced-level JSONs must be strict-parseable ────────────────────────
+
+
+def test_reduced_level_jsons_drop_internal_metadata_keys(tmp_path: Path) -> None:
+    """L1/L2 JSONs must not carry ``_``-prefixed writer metadata.
+
+    ``self.planning`` holds Python-side metadata under ``_``-prefixed
+    top-level keys (``_boundary_cuts_count`` whenever PLP boundary cuts
+    exist, ``_skipped_isolated``, ...).  gtopt loads the L1/L2 files via
+    the cascade ``system_file`` with StrictParsePolicy, which rejects
+    unknown members — so the reducer must see the stripped planning.
+    Regression: the keys used to be copied verbatim into L1/L2.
+    """
+    w = GTOptWriter(MagicMock())
+    w.planning["system"] = {
+        "bus_array": [{"uid": i, "name": f"b{i}"} for i in range(1, 5)],
+        "line_array": [
+            {
+                "uid": 10 + i,
+                "name": f"l{i}",
+                "bus_a": f"b{i}",
+                "bus_b": f"b{i + 1}",
+                "reactance": 0.1,
+                "tmax_ab": 100,
+                "tmax_ba": 100,
+            }
+            for i in range(1, 4)
+        ],
+        "generator_array": [
+            {"uid": 1, "name": "g1", "bus": "b1", "pmax": 200, "gcost": 10},
+        ],
+        "demand_array": [{"uid": 1, "name": "d4", "bus": "b4", "lmax": 80}],
+    }
+    w.planning["_boundary_cuts_count"] = 3
+    w.planning["_boundary_state_variables"] = 2
+    w.planning["_skipped_isolated"] = ["iso_central"]
+
+    w._emit_reduced_artefacts(tmp_path / "case.json", {})
+
+    level_files = sorted(tmp_path.glob("case.L[12].json"))
+    assert [p.name for p in level_files] == ["case.L1.json", "case.L2.json"]
+    for path in level_files:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        assert not [k for k in raw if k.startswith("_")], path.name
+        assert raw["system"]["bus_array"]
+    # The writer's own metadata is untouched (the summary still reads it).
+    assert w.planning["_boundary_cuts_count"] == 3
