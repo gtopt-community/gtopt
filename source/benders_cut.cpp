@@ -26,8 +26,11 @@
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #endif
 
+#include <algorithm>
 #include <cmath>
+#include <optional>
 #include <ranges>
+#include <string_view>
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/constraint_names.hpp>
@@ -1223,6 +1226,48 @@ struct RelaxationSpec
   }
   return infos;
 }
+
+/// Indices of the state links the elastic filter relaxed AND gave a
+/// fixing row — the only links that can carry a feasibility-cut
+/// coefficient.  `link_infos` and `links` are parallel arrays; pairs past
+/// the shorter of the two are ignored.
+[[nodiscard]] auto relaxed_fixing_link_indices(
+    std::span<const RelaxedVarInfo> link_infos, std::size_t num_links)
+{
+  return std::views::iota(std::size_t {0},
+                          std::min(link_infos.size(), num_links))
+      | std::views::filter(
+             [link_infos](std::size_t idx)
+             {
+               const auto& info = link_infos[idx];
+               return info.relaxed
+                   && info.fixing_row != RowIndex {unknown_index};
+             });
+}
+
+/// `-dual(fixing_row)` of a relaxed link — the Farkas ray / σ component
+/// of its feasibility cut — or nullopt when the solver reported a
+/// non-finite dual.  A degenerate re-solve can report optimal with NaN
+/// duals, and `abs(NaN) < eps` is false, so magnitude filters alone do not
+/// keep a NaN out of the emitted row.  The non-finite case is logged as
+/// "<caller>: non-finite dual ... — <action>".
+[[nodiscard]] std::optional<double> negated_fixing_row_dual(
+    const auto& duals,
+    const RelaxedVarInfo& info,
+    std::string_view caller,
+    std::string_view action)
+{
+  const double value = -duals[info.fixing_row];
+  if (std::isfinite(value)) {
+    return value;
+  }
+  spdlog::warn("{}: non-finite dual {} at fixing row {} — {}",
+               caller,
+               value,
+               static_cast<int>(info.fixing_row),
+               action);
+  return std::nullopt;
+}
 }  // namespace
 
 auto elastic_filter_solve(const LinearInterface& li,
@@ -1966,27 +2011,17 @@ auto build_plp_feasibility_cuts(ElasticSolveResult& elastic,
   extracts.reserve(links.size());
   double rhs_total = 0.0;
 
-  const std::size_t n_links = std::min(link_infos.size(), links.size());
-  for (std::size_t idx = 0; idx < n_links; ++idx) {
+  for (const auto idx : relaxed_fixing_link_indices(link_infos, links.size())) {
     const auto& info = link_infos[idx];
     const auto& link = links[idx];
-    if (!info.relaxed || info.fixing_row == RowIndex {unknown_index}) {
-      continue;
-    }
 
     // ray_i = −dual(fixing_row_i).  PLP never sees NaN (its LP is
     // always solved to a simplex vertex); gtopt guards anyway — a NaN
-    // dual would poison the emitted row (same rationale as the
-    // build_multi_cuts guard).  Treated as ray = 0 (link dropped).
-    double ray = -duals[info.fixing_row];
-    if (!std::isfinite(ray)) {
-      spdlog::warn(
-          "build_plp_feasibility_cuts: non-finite dual {} at fixing "
-          "row {} — ray zeroed",
-          ray,
-          static_cast<int>(info.fixing_row));
-      ray = 0.0;
-    }
+    // dual would poison the emitted row.  Treated as ray = 0 (link
+    // dropped).
+    double ray = negated_fixing_row_dual(
+                     duals, info, "build_plp_feasibility_cuts", "ray zeroed")
+                     .value_or(0.0);
     // Ray-zero threshold (osicallsc.cpp:723): |ray| < FactEPS + 2^-36.
     if (std::abs(ray) < ray_eps) {
       ray = 0.0;
@@ -2189,28 +2224,19 @@ auto build_farkas_recursive_cut(ElasticSolveResult& elastic,
   double box_top_lhs = 0.0;
   bool box_top_bounded = true;
   constexpr double kInfThreshold = 0.5 * LinearProblem::DblMax;
-  const std::size_t n_links = std::min(link_infos.size(), links.size());
-  for (std::size_t idx = 0; idx < n_links; ++idx) {
+  for (const auto idx : relaxed_fixing_link_indices(link_infos, links.size())) {
     const auto& info = link_infos[idx];
     const auto& link = links[idx];
-    if (!info.relaxed || info.fixing_row == RowIndex {unknown_index}) {
-      continue;
-    }
 
     // σ_i = −dual(fixing_row_i) — same sign convention as
     // `build_feasibility_cut_physical` (σ > 0 ⇔ the clone wants the
-    // state to INCREASE).  NaN guard mirrors the other builders: a
-    // degenerate re-solve can report optimal with NaN duals, and
-    // `abs(NaN) < eps` is false.
-    const double sigma_view = -duals[info.fixing_row];
-    if (!std::isfinite(sigma_view)) {
-      spdlog::warn(
-          "build_farkas_recursive_cut: non-finite dual {} at fixing "
-          "row {} — link skipped",
-          sigma_view,
-          static_cast<int>(info.fixing_row));
+    // state to INCREASE).  A non-finite dual skips the link.
+    const auto sigma = negated_fixing_row_dual(
+        duals, info, "build_farkas_recursive_cut", "link skipped");
+    if (!sigma) {
       continue;
     }
+    const double sigma_view = *sigma;
     if (std::abs(sigma_view) < dual_eps) {
       continue;
     }
