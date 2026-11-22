@@ -26,8 +26,10 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -41,10 +43,25 @@ namespace gtopt
 
 class LpNameSpillStore;  // async label-metadata spill store (non-owning)
 
+/// Transparent string hash for the label maps: `find` / `contains` with a
+/// `std::string_view` or string literal does not allocate a temporary
+/// `std::string`.
+struct LabelHash
+{
+  using is_transparent = void;
+
+  [[nodiscard]] std::size_t operator()(std::string_view sv) const noexcept
+  {
+    return std::hash<std::string_view> {}(sv);
+  }
+};
+
 /// Column (variable) name → strong column index map.
-using col_name_map_t = std::unordered_map<std::string, ColIndex>;
+using col_name_map_t =
+    std::unordered_map<std::string, ColIndex, LabelHash, std::equal_to<>>;
 /// Row (constraint) name → strong row index map.
-using row_name_map_t = std::unordered_map<std::string, RowIndex>;
+using row_name_map_t =
+    std::unordered_map<std::string, RowIndex, LabelHash, std::equal_to<>>;
 
 /// Name / label subsystem of a `LinearInterface`.  Groups the
 /// name-to-index maps, the frozen flatten-time label metadata, the
