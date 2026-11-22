@@ -301,6 +301,15 @@ public:
     return m_cache_.col_upp().size();
   }
 
+  /// True when the `get_col_sol()` physical-space clamp against the
+  /// cached column bounds is a bitwise no-op for every column, i.e.
+  /// the clamped and unclamped views of the cached primal agree bit
+  /// for bit.  Vacuously true when the bound cache is empty.
+  /// `release_backend()` uses this to drop the `col_low` / `col_upp`
+  /// cache (2 x 8 x ncols bytes per cell) whenever keeping it cannot
+  /// change any value served while the backend is released.
+  [[nodiscard]] bool col_bounds_clamp_is_noop() const noexcept;
+
   /// Diagnostic resident-byte breakdown for the memory-accounting pass.
   /// Read-only; sums the retainers this interface holds between solves.
   struct DiagResidentBytes

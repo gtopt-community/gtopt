@@ -7,7 +7,10 @@
  *            see LICENSING.md
  */
 
+#include <bit>
+#include <cstdint>
 #include <expected>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/error.hpp>
@@ -4862,12 +4865,17 @@ TEST_CASE(
   REQUIRE(solve.has_value());
   REQUIRE(li.is_optimal());
 
-  // Release snapshots the live backend's column bounds into the LI
-  // cache, where the cache-first raw getters would serve them.
-  li.release_backend();
-  REQUIRE(li.is_backend_released());
+  // The post-solve cache captured the live backend's column bounds.
   REQUIRE(li.cached_col_low_size() == 1);  // col-bound cache populated
   REQUIRE(li.cached_col_upp_size() == 1);
+
+  // Release drops that cache when the `get_col_sol()` clamp is a
+  // bitwise no-op (here x = 3 lies inside its box), so no stale bound
+  // can survive into the released window either.
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+  CHECK(li.cached_col_low_size() == 0);
+  CHECK(li.cached_col_upp_size() == 0);
 
   // Reconstruct must EVICT that cache via `clear_col_bounds_cache()` so
   // the cache-first getters fall through to the freshly reloaded
@@ -4976,4 +4984,65 @@ TEST_CASE(  // NOLINT
   REQUIRE(std::ssize(cn) >= 51);
   CHECK(cn[ColIndex {0}] == "c0");
   CHECK(cn[alpha].find("alpha") != std::string::npos);
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface compress release drops no-op col-bound cache")
+{
+  // max x + y  s.t.  x + y <= 6,  0 <= x <= 5,  0 <= y <= 3
+  // The optimal primal lies inside every column's bound box, so the
+  // `get_col_sol()` clamp is a no-op and release must drop the cached
+  // col_low / col_upp while serving bit-identical physical values.
+  LinearProblem lp;
+  const auto cx = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 5.0,
+      .cost = -1.0,
+  });
+  const auto cy = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 3.0,
+      .cost = -1.0,
+  });
+  const auto r = lp.add_row(SparseRow {
+      .lowb = -LinearProblem::DblMax,
+      .uppb = 6.0,
+  });
+  lp.set_coeff(r, cx, 1.0);
+  lp.set_coeff(r, cy, 1.0);
+  auto flat = lp.flatten({});
+
+  LinearInterface li;
+  li.load_flat(flat);
+  li.save_base_numrows();
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  auto solve = li.resolve(SolverOptions {.log_level = 0});
+  REQUIRE(solve.has_value());
+  REQUIRE(li.is_optimal());
+  REQUIRE(li.cached_col_low_size() == 2);
+  REQUIRE(li.cached_col_upp_size() == 2);
+  CHECK(li.col_bounds_clamp_is_noop());
+
+  // Physical (clamped) values served while the backend is live.
+  std::vector<std::uint64_t> before;
+  for (const double v : li.get_col_sol()) {
+    before.push_back(std::bit_cast<std::uint64_t>(v));
+  }
+  REQUIRE(before.size() == 2);
+
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+  CHECK(li.cached_col_low_size() == 0);
+  CHECK(li.cached_col_upp_size() == 0);
+  CHECK(li.col_bounds_clamp_is_noop());  // vacuous on an empty cache
+
+  // Released-path values are bit-identical to the clamped ones.
+  std::vector<std::uint64_t> after;
+  for (const double v : li.get_col_sol()) {
+    after.push_back(std::bit_cast<std::uint64_t>(v));
+  }
+  CHECK(after == before);
+  CHECK(li.is_backend_released());  // reading did not reconstruct
+  CHECK(li.get_col_sol()[cx] + li.get_col_sol()[cy] == doctest::Approx(6.0));
 }

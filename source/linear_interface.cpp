@@ -9,10 +9,12 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cassert>
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <format>
 #include <memory>
@@ -232,6 +234,18 @@ void LinearInterface::release_backend() noexcept
         m_backend_->fill_col_cost(m_cache_.col_cost_buffer(ncols_sz));
         m_backend_->fill_row_dual(m_cache_.row_dual_buffer(nrows_sz));
       }
+      // The cached column bounds (`col_low` / `col_upp`, 16 B per
+      // column) have exactly one reader while the backend is released:
+      // the physical-space clamp in `get_col_sol()`.  Every other
+      // reader runs on a live backend, and `reconstruct_backend()`
+      // clears this cache anyway.  When that clamp changes no value
+      // (the common case: the solver primal already lies inside its
+      // bound box), the released-path unclamped view is bit-identical,
+      // so the bounds are pure dead weight until the next solve —
+      // drop them.  Cells whose primal does need the clamp keep them.
+      if (col_bounds_clamp_is_noop()) {
+        m_cache_.clear_col_bounds_cache();
+      }
     } else {
       // Non-optimal release: drop any stale primal/dual snapshot so
       // future `get_col_sol()` reads don't return values that belong
@@ -291,6 +305,51 @@ void LinearInterface::release_backend() noexcept
   m_backend_released_ = true;
   m_backend_.reset();
   m_phase_ = LiPhase::BackendReleased;
+}
+
+bool LinearInterface::col_bounds_clamp_is_noop() const noexcept
+{
+  const auto sol = m_cache_.col_sol();
+  const auto low = m_cache_.col_low();
+  const auto upp = m_cache_.col_upp();
+  if (low.empty() && upp.empty()) {
+    return true;
+  }
+  if (sol.size() != low.size() || sol.size() != upp.size()
+      || m_scaling_.col_scales == nullptr)
+  {
+    return false;
+  }
+  const auto& scales = *m_scaling_.col_scales;
+  const auto n = static_cast<Index>(sol.size());
+  // Build the two views exactly as `get_col_sol()` does (cache branch
+  // vs released branch) and compare element-wise, bit for bit.
+  const ScaledView unclamped {
+      sol.data(),
+      n,
+      scales.data(),
+      scales.size(),
+      ScaledView::Op::multiply,
+  };
+  const ScaledView clamped {
+      sol.data(),
+      n,
+      scales.data(),
+      scales.size(),
+      low.data(),
+      n,
+      upp.data(),
+      n,
+      ScaledView::Op::multiply,
+  };
+  for (std::size_t i = 0; i < sol.size(); ++i) {
+    if (std::bit_cast<std::uint64_t>(unclamped[i])
+        != std::bit_cast<std::uint64_t>(clamped[i]))
+    {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ── Cache invalidation on LP mutation ──
