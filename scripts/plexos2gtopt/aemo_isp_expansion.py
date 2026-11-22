@@ -183,7 +183,8 @@ def days_in_month(day: date) -> int:
 def hod_mean(arr: np.ndarray, days: int) -> np.ndarray:
     """Hour-of-day mean (24 values) of an hourly array of ``days`` days."""
     a = np.asarray(arr, dtype=float)
-    return np.nanmean(a.reshape(days, 24), axis=0)
+    out: np.ndarray = np.nanmean(a.reshape(days, 24), axis=0)
+    return out
 
 
 def day_masks(net_load: np.ndarray, rep_days: int) -> list[np.ndarray]:
@@ -211,7 +212,8 @@ def rep_mean(arr: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """Hour-of-day mean (24 values) over the days selected by ``mask``."""
     nd = len(mask)
     a = np.asarray(arr, dtype=np.float64)[: nd * 24].reshape(nd, 24)
-    return np.nanmean(a[mask], axis=0)
+    out: np.ndarray = np.nanmean(a[mask], axis=0)
+    return out
 
 
 def life_factor(life: float, remaining_years: float) -> float:
@@ -227,7 +229,7 @@ def crf(rate: float, life: float) -> float:
         return 1.0
     if abs(rate) < 1e-12:
         return 1.0 / life
-    return rate / (1.0 - (1.0 + rate) ** (-life))
+    return float(rate / (1.0 - (1.0 + rate) ** (-life)))
 
 
 def annual_capcost(
