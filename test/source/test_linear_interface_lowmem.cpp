@@ -3975,10 +3975,12 @@ TEST_CASE(  // NOLINT
   // post-flatten adds happen on the still-released backend's lazy
   // path — they must NOT trigger decompression.
   li.release_backend();
-  // Frozen live vector is now empty (compressed); count is 0 from
-  // load_flat semantics on a non-rebuilt backend.  `flatten_col_count`
-  // reads `m_labels_.col_labels_meta->size()` directly.
-  CHECK(li.flatten_col_count() == 0);
+  // Frozen live vector is now empty (cleared on release), but the
+  // frozen/post-flatten boundary is the STRUCTURAL size installed by
+  // `load_flat` — it must not collapse to 0, or post-flatten adds would
+  // be padded with one label per structural column.
+  CHECK(li.frozen_col_labels_meta_size() == 0);
+  CHECK(li.flatten_col_count() == 2);
 
   // ensure_backend reloads the LP, and the frozen labels-meta is
   // rehydrated only through the lazy path (NOT eagerly).
@@ -3997,6 +3999,7 @@ TEST_CASE(  // NOLINT
   });
   CHECK(li.flatten_col_count() == 2);
   CHECK(li.get_numcols() == 3);
+  CHECK(li.post_flatten_col_labels_meta_size() == 1);
 
   // Multi-cycle: release/reconstruct repeatedly with post-flatten
   // adds in between; the frozen count never grows.
@@ -4886,3 +4889,91 @@ TEST_CASE(
 
 // NOLINTEND(readability-trailing-comma)
 // NOLINTEND(readability-qualified-auto)
+
+// ─── Post-flatten label metadata is not padded to the structural size ────
+//
+// Regression (y24 SDDP memory growth): with label metadata dropped from the
+// snapshot (low-memory, no LP names) the frozen/post-flatten boundary used
+// to be `col_labels_meta->size() == 0`, so the alpha column (index ncols)
+// resized `post_flatten_col_labels_meta` to ncols + 1 and every cut row
+// resized the row side to nrows + k.  The padding (one label per STRUCTURAL
+// col/row, ~9 MB per cell on the y24 case) survived every release/reconstruct
+// cycle — 16 GB on 1728 cells.  The boundary is now the structural size.
+
+TEST_CASE(  // NOLINT
+    "LinearInterface post-flatten label meta stays sized to the additions "
+    "when structural labels are dropped")
+{
+  LinearProblem lp;
+  std::vector<ColIndex> cols;
+  for (int j = 0; j < 50; ++j) {
+    cols.push_back(lp.add_col(SparseCol {
+        .uppb = 10.0,
+        .cost = 1.0,
+        .class_name = "Generator",
+        .variable_name = "generation",
+        .variable_uid = Uid {j},
+    }));
+  }
+  const auto r = lp.add_row(SparseRow {
+      .lowb = 1.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {1},
+  });
+  for (const auto c : cols) {
+    lp.set_coeff(r, c, 1.0);
+  }
+  auto flat = lp.flatten({});
+  flat.label_meta.reset();  // labels dropped (low-memory, no names)
+  REQUIRE(flat.ncols == 50);
+
+  LinearInterface li;
+  li.set_low_memory(LowMemoryMode::compress);
+  li.load_flat(flat);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+
+  CHECK(li.frozen_col_labels_meta_size() == 0);
+  CHECK(li.flatten_col_count() == 50);
+  CHECK(li.flatten_row_count() == 1);
+
+  const auto alpha = li.add_col(SparseCol {
+      .uppb = 1.0e6,
+      .class_name = "Sddp",
+      .variable_name = "alpha",
+      .variable_uid = Uid {0},
+  });
+  CHECK(alpha == ColIndex {50});
+  auto cut = SparseRow {
+      .lowb = 0.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Sddp",
+      .constraint_name = "cut",
+      .variable_uid = Uid {7},
+  };
+  cut[alpha] = 1.0;
+  cut[cols.front()] = -2.0;
+  std::ignore = li.add_cut_row(cut);  // recorded → replayed on reconstruct
+
+  CHECK(li.post_flatten_col_labels_meta_size() == 1);
+  CHECK(li.post_flatten_row_labels_meta_size() == 1);
+
+  // Several release → reconstruct (replay) cycles keep it that way.
+  for (int i = 0; i < 3; ++i) {
+    li.release_backend();
+    li.reconstruct_backend();
+    CHECK(li.post_flatten_col_labels_meta_size() == 1);
+    CHECK(li.post_flatten_row_labels_meta_size() == 1);
+    CHECK(li.flatten_col_count() == 50);
+  }
+
+  // Labels still resolve: structural cols get generic names, the
+  // post-flatten alpha / cut keep their real metadata.
+  li.materialize_labels();
+  const auto& cn = li.col_index_to_name();
+  REQUIRE(std::ssize(cn) >= 51);
+  CHECK(cn[ColIndex {0}] == "c0");
+  CHECK(cn[alpha].find("alpha") != std::string::npos);
+}

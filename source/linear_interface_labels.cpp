@@ -51,9 +51,10 @@ void LinearInterface::generate_labels_from_maps(
   // now from the store (cached after the first hit, so the repeated
   // forward/backward/aperture error-LP dumps for one cell touch disk once).
   // No-op when no store is attached — the live vectors are authoritative.
-  // Runs BEFORE the loops because `col_label_at` indexes post-flatten metadata
-  // at `i - m_labels_.col_labels_meta->size()`, so the frozen size must be
-  // restored first or the cut/alpha rows would be mis-resolved.
+  // Runs BEFORE the loops so the structural labels resolve to real names.
+  // (`col_label_at` indexes post-flatten metadata at
+  // `i - flatten_col_count()`, the structural size installed by `load_flat`,
+  // so the boundary no longer depends on whether this reload happened.)
   if (m_labels_.name_store != nullptr && !m_labels_.spill_key.empty()
       && m_labels_.col_labels_meta->empty()
       && m_labels_.row_labels_meta->empty())
@@ -119,7 +120,7 @@ void LinearInterface::generate_labels_from_maps(
         // output): the entire frozen label vector is empty.  Emit a generic
         // positional name instead of throwing — only `write_lp` / dumps
         // consume these, and a generic name is acceptable there.
-        if (flatten_col_count() == 0) {
+        if (!m_labels_.col_labels_meta || m_labels_.col_labels_meta->empty()) {
           cin[ci] = std::format("c{}", i);
           col_names[i] = cin[ci];
           continue;
@@ -200,7 +201,7 @@ void LinearInterface::generate_labels_from_maps(
       if (it == m_post_clone_row_metas_.end()) {
         // Labels intentionally dropped (low-memory build without name
         // output) — generic positional name rather than throw (see col side).
-        if (flatten_row_count() == 0) {
+        if (!m_labels_.row_labels_meta || m_labels_.row_labels_meta->empty()) {
           rin[ri] = std::format("r{}", i);
           row_names[i] = rin[ri];
           continue;

@@ -671,15 +671,16 @@ const SparseColLabel* LinearInterface::col_label_at(ColIndex idx) const noexcept
   // next `load_flat` (which repopulates it from the snapshot).  In
   // that window no consumer reads label metadata: `write_lp` requires
   // a loaded backend, which implies `load_flat` already ran.
-  if (m_labels_.col_labels_meta) {
-    const auto& cm = *m_labels_.col_labels_meta;
-    if (i < cm.size()) {
-      return &cm[i];
+  const auto frozen = flatten_col_count();
+  if (i < frozen) {
+    if (m_labels_.col_labels_meta && i < m_labels_.col_labels_meta->size()) {
+      return &(*m_labels_.col_labels_meta)[i];
     }
-    const auto post_offset = i - cm.size();
-    if (post_offset < m_labels_.post_flatten_col_labels_meta.size()) {
-      return &m_labels_.post_flatten_col_labels_meta[post_offset];
-    }
+    return nullptr;  // structural col whose labels were dropped
+  }
+  const auto post_offset = i - frozen;
+  if (post_offset < m_labels_.post_flatten_col_labels_meta.size()) {
+    return &m_labels_.post_flatten_col_labels_meta[post_offset];
   }
   return nullptr;
 }
@@ -690,15 +691,16 @@ const SparseRowLabel* LinearInterface::row_label_at(RowIndex idx) const noexcept
     return nullptr;
   }
   const auto i = static_cast<std::size_t>(idx);
-  if (m_labels_.row_labels_meta) {
-    const auto& rm = *m_labels_.row_labels_meta;
-    if (i < rm.size()) {
-      return &rm[i];
+  const auto frozen = flatten_row_count();
+  if (i < frozen) {
+    if (m_labels_.row_labels_meta && i < m_labels_.row_labels_meta->size()) {
+      return &(*m_labels_.row_labels_meta)[i];
     }
-    const auto post_offset = i - rm.size();
-    if (post_offset < m_labels_.post_flatten_row_labels_meta.size()) {
-      return &m_labels_.post_flatten_row_labels_meta[post_offset];
-    }
+    return nullptr;  // structural row whose labels were dropped
+  }
+  const auto post_offset = i - frozen;
+  if (post_offset < m_labels_.post_flatten_row_labels_meta.size()) {
+    return &m_labels_.post_flatten_row_labels_meta[post_offset];
   }
   return nullptr;
 }
@@ -1016,6 +1018,8 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // semantics here — the per-clone divergence happens later when the
   // clone's own `add_col_disposable` / `add_row_disposable` writes
   // land in `m_post_clone_*_metas_`, never back into these vectors.
+  cloned.m_labels_.frozen_col_count = m_labels_.frozen_col_count;
+  cloned.m_labels_.frozen_row_count = m_labels_.frozen_row_count;
   cloned.m_labels_.post_flatten_col_labels_meta =
       m_labels_.post_flatten_col_labels_meta;
   cloned.m_labels_.post_flatten_row_labels_meta =
@@ -1247,6 +1251,10 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   m_labels_.post_flatten_row_labels_meta.clear();
   m_post_flatten_col_meta_index_.clear();
   m_post_flatten_row_meta_index_.clear();
+  // Frozen/post-flatten boundary = the structural size, independent of
+  // whether label metadata was kept (see `LpLabelStore::frozen_col_count`).
+  m_labels_.frozen_col_count = static_cast<std::size_t>(flat_lp.ncols);
+  m_labels_.frozen_row_count = static_cast<std::size_t>(flat_lp.nrows);
 
   // The flat LP carries the authoritative structural labels.  Drop any
   // stale compressed buffer left over from a previous release_backend()

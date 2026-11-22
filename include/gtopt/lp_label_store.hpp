@@ -132,6 +132,21 @@ struct LpLabelStore
   std::vector<SparseColLabel> post_flatten_col_labels_meta {};
   std::vector<SparseRowLabel> post_flatten_row_labels_meta {};
 
+  /// Structural (flatten-side) column / row counts installed by the last
+  /// `load_flat` — the boundary between the frozen and the post-flatten
+  /// halves of the label index space.  Deliberately NOT derived from
+  /// `col_labels_meta->size()`: under low-memory without LP names the
+  /// frozen metadata is empty (dropped, spilled, or cleared on
+  /// `release_backend`), and an empty-vector-derived boundary of 0 made
+  /// every post-flatten add (alpha, each cut row) pad
+  /// `post_flatten_*_labels_meta` with one entry per STRUCTURAL col/row —
+  /// ~(ncols + nrows) labels retained per cell for the whole run
+  /// (~9 MB/cell, ~16 GB on the 1728-cell y24 case), and mis-indexed
+  /// post-flatten labels once a spill-store reload repopulated the frozen
+  /// vectors.
+  std::size_t frozen_col_count {0};
+  std::size_t frozen_row_count {0};
+
   /// Compressed backups of the metadata vectors — populated on
   /// `release_backend` under `compress` mode, drained on the first
   /// label-metadata read after reload.

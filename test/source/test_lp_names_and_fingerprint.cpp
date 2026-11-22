@@ -735,8 +735,12 @@ TEST_CASE(  // NOLINT
     sys.reconstruct_backend();
   }
   REQUIRE_FALSE(li.is_backend_released());
-  CHECK(li.flatten_col_count() == 0);  // dropped: not in the snapshot
-  CHECK(li.flatten_row_count() == 0);
+  // Label metadata dropped (not in the snapshot); the structural
+  // frozen/post-flatten boundary is still the flattened size.
+  CHECK(li.frozen_col_labels_meta_size() == 0);
+  CHECK(li.frozen_row_labels_meta_size() == 0);
+  CHECK(li.flatten_col_count() > 0);
+  CHECK(li.flatten_row_count() > 0);
 
   // Synthesise the labels — `generate_labels_from_maps` reloads the metadata
   // from the store first.  Use `materialize_labels` (not `write_lp`) because
@@ -745,8 +749,8 @@ TEST_CASE(  // NOLINT
   li.materialize_labels();
 
   // The reload repopulated the frozen vectors from the store …
-  CHECK(li.flatten_row_count() > 0);
-  CHECK(li.flatten_col_count() > 0);
+  CHECK(li.frozen_row_labels_meta_size() == li.flatten_row_count());
+  CHECK(li.frozen_col_labels_meta_size() == li.flatten_col_count());
   // … and the synthesised labels are REAL: the underscore-joined
   // `class_var_uid_scene_phase_block` form (e.g. `bus_balance_1_1_1_1`),
   // never the generic `c0`/`r0` fallback (a single token, no '_').  A single

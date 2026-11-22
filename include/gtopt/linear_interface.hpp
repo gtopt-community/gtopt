@@ -243,6 +243,32 @@ public:
     return m_scaling_.col_scales.use_count();
   }
 
+  /// Diagnostic: entries currently held in the frozen (flatten-side) label
+  /// metadata.  0 when labels were dropped / spilled / cleared on release;
+  /// `flatten_col_count()` keeps reporting the structural size regardless.
+  [[nodiscard]] auto frozen_col_labels_meta_size() const noexcept
+  {
+    return m_labels_.col_labels_meta ? m_labels_.col_labels_meta->size()
+                                     : std::size_t {0};
+  }
+  [[nodiscard]] auto frozen_row_labels_meta_size() const noexcept
+  {
+    return m_labels_.row_labels_meta ? m_labels_.row_labels_meta->size()
+                                     : std::size_t {0};
+  }
+
+  /// Diagnostic: entries held in the per-instance post-flatten label
+  /// metadata (alpha, cut rows, elastic slacks, …).  Must track the
+  /// number of post-`load_flat` additions, never the structural size.
+  [[nodiscard]] auto post_flatten_col_labels_meta_size() const noexcept
+  {
+    return m_labels_.post_flatten_col_labels_meta.size();
+  }
+  [[nodiscard]] auto post_flatten_row_labels_meta_size() const noexcept
+  {
+    return m_labels_.post_flatten_row_labels_meta.size();
+  }
+
   /// Test-only diagnostic: number of doubles currently held in the
   /// LI-side post-solve solution-vector cache.  Returns 0 when the
   /// cache is empty (off mode never populates, or compress mode after
@@ -576,13 +602,11 @@ public:
   /// before `load_flat`; in that case the count is 0.
   [[nodiscard]] auto flatten_col_count() const noexcept
   {
-    return m_labels_.col_labels_meta ? m_labels_.col_labels_meta->size()
-                                     : size_t {0};
+    return m_labels_.frozen_col_count;
   }
   [[nodiscard]] auto flatten_row_count() const noexcept
   {
-    return m_labels_.row_labels_meta ? m_labels_.row_labels_meta->size()
-                                     : size_t {0};
+    return m_labels_.frozen_row_count;
   }
 
   /// Resolve a column / row index into the appropriate metadata bucket
