@@ -102,6 +102,12 @@ at the BESS bus, with energy that comes from (or goes to) nowhere.
 
 ## 3. Why it produces negative marginal costs
 
+*Open question:* this section assumes PLEXOS's Reserve `Energy Usage`
+has no effect on a battery's own Generation/Load (hypothesis H1, §9).  If
+PLEXOS books it into the battery's SoC instead (H2), the AUX rows only
+cancel that term at the bus and the derivation below does not apply as
+written.
+
 Write the bus balance with dual $\lambda$ and (2) with duals $\mu^{\downarrow},
 \mu^{\uparrow}$ (Lagrangian $c^\top x - \lambda(\text{inj} - \text{wd} - D)
 - \mu^{\downarrow}(a r^\downarrow - g^x) - \dots$).  Stationarity for
@@ -338,7 +344,20 @@ Findings:
   Oportunidad BESS" charge:
   https://www.energiaestrategica.com/afry-proyecta-reduccion-en-costos-de-operacion-y-sistemicos-con-la-habilitacion-bess-en-mercado-de-servicios-complementarios/
 
-These were located by search only; the PDFs were not downloaded.
+- Coordinador, *Informe SSCC 2026* (Dec 2025; CSF minimum delivery
+  15 min, CTF up to 1 h):
+  https://www.coordinador.cl/wp-content/uploads/2025/12/2025.12.23-Informe_SSCC_2026-Definitivo.pdf
+- Coordinador, *Reglas SSCC en tiempo real* (GO-SEN, Feb 2026):
+  https://www.coordinador.cl/wp-content/uploads/2026/02/Informe_GO-SEN_Reglas_SSCCv6_20260224.pdf
+- PLEXOS help, `Reserve.EnergyUsage`, `Reserve.Duration`,
+  `ReserveBatteries.MaxResponse` / `MaxChargeResponse` (portal pages not
+  directly readable; content taken from search-engine excerpts and from
+  the property schema embedded in the CEN XML, PLEXOS 10.000 R08).
+
+The CNE report and annex were read in full.  The CNE annex states that
+activation factors were modelled by having the BESS "deliver part of
+their reserve as energy" and warns about zero-marginal-cost injections in
+the solar block.
 
 ## 8. Recommendations
 
@@ -353,3 +372,59 @@ These were located by search only; the PDFs were not downloaded.
 3. Follow-ups in gtopt: commitment-gated headroom ($\overline P u$), an
    optional SoC energy-usage term, start-of-block SoC check, and the
    pending `provision_BAT_*` naming bug on 2026-11 bundles.
+
+## 9. Open question: does `Energy Usage` reach the BESS SoC? (H1 vs H2)
+
+What PLEXOS offers natively (property schema in the CEN XML, PLEXOS
+10.000 R08, plus help excerpts):
+
+- **Power headroom** — native: Reserve→Batteries `Max Response`
+  (discharge side), `Max Charge Response` (charge side), `Total
+  Response`.  CEN uses the first two (from `CFdata` CSVs).  In the
+  2026-05-17 solution a BESS charging at 112.6 MW provides 152.7 MW of
+  up reserve, i.e. reducing charge is credited.
+- **Energy sufficiency** — `Reserve.Duration` [s] ("time over which the
+  required response must be maintained", since 6.208) exists; whether it
+  acts on Battery objects in 10.0 R08 could not be confirmed (the help
+  text is hydro-oriented).  CEN does not use it and writes
+  `UP/DOWNStorageBound` (1 h) by hand.
+- **Deployed energy** — `Reserve.Energy Usage` is native and CEN fills it
+  from `SSCC_Activation_BESS.csv` (only the six `*_BESS` reserves use
+  it).  Per the help, it enters the energy balance as
+  $\text{Gen} + EU\cdot\text{Prov}$ (raise) and
+  $\text{Gen} - (1-EU)\cdot\text{Prov}$ (lower).  For generators the help
+  says reported Generation already includes it; for batteries it is not
+  documented.
+
+The `B_CF_*_COMP` coefficients are exactly that native `Energy Usage`
+term with the opposite sign, and the rows are per battery (the AUX
+tracks the main battery's own provision: e.g. DEL_DESIERTO_AUX h1 =
+0.33·54.09 + 0.19·78.5 = 32.76, not the pool total).  Two readings:
+
+- **H1** — `Energy Usage` has no effect on Battery Generation/Load.  The
+  AUX then injects/withdraws fictitious energy at the bus: the mechanism
+  of §3 and what `--bess-reserve uc` reproduces.
+- **H2** — PLEXOS books `Energy Usage` into the battery's Generation/Load
+  (hence its SoC).  The AUX then only cancels that term at the bus, and
+  the whole design amounts to "activation energy goes to the SoC, not to
+  the bus"; §3's $\lambda = (c^\downarrow - \pi^\downarrow)/a$ does not
+  apply as written and the `uc` reproduction is not faithful.
+
+Evidence from the 2026-05-17 PLEXOS solution: battery SoC satisfies
+$\Delta E = \text{Load}\,\eta_c - \text{Gen}/\eta_d$ exactly and node and
+system balances close with the AUX included — compatible with both.  The
+pattern leans to H2: in all 508 hours with an active AUX the BESS has
+flow, in 308 of the 320 hours without reserve it is idle, and in 167
+hours its net is exactly the negative of the AUX; against it, 8 hours
+have the opposite sign and 3 hours fall below the minimum charge level.
+
+**Decisive test** (requires PLEXOS): re-solve with `Energy Usage = 0` on
+the `*_BESS` reserves, or without the CF rows, and compare battery
+dispatch and nodal prices.
+
+Independently of H1/H2, the native gtopt rows (§4) keep reserve out of
+every bus balance and cannot create negative prices.  A price-safe
+formulation for CEN is to drop `Energy Usage`, the CF rows and the AUX,
+and widen the energy bound (raise:
+$\eta_d E \ge (1 + u\,\Delta t)\,r^\uparrow$, analogously for lower).
+Recommendation 2 of §8 should wait for the H1/H2 test.
