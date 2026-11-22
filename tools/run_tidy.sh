@@ -18,15 +18,17 @@
 # (-warnings-as-errors='*').
 #
 # Compile database (DB): -p <build-dir|compile_commands.json>, else
-# $GTOPT_TIDY_DB, else ./build-tidy when it exists, else ./build.
-# The right DB is a *tidy DB*: configure-only (nothing is compiled),
-# with -DGTOPT_TIDY_NON_UNITY=ON so that every source file, test files
-# included, has its own entry and no PCH is referenced.  Create one with
-#   tools/run_tidy.sh --configure            # -> ./build-tidy (~10 s)
-# and re-run it after adding or removing .cpp files.  A normal build dir
-# works for library files, but its test suite is a unity build: test
-# files have no entry there and are reported as "not in the compile DB".
+# $GTOPT_TIDY_DB, else ./build-tidy -- created automatically on first
+# use, and refreshed once when a requested file is not in it (a new
+# .cpp).  It is a *tidy DB*: configure-only (nothing is compiled), with
+# -DGTOPT_TIDY_NON_UNITY=ON so that every source file, test files
+# included, has its own entry and no PCH is referenced.  --configure
+# [DIR] (re)creates one explicitly.  A normal build dir works for
+# library files, but its test suite is a unity build: test files have
+# no entry there and are reported as "not in the compile DB".
 # Extra cmake arguments for --configure: $GTOPT_TIDY_CMAKE_ARGS.
+# Creating ./build-tidy also adds a ./compile_commands.json symlink to it
+# (for clangd / IDEs) when the checkout has none; both are git-ignored.
 #
 # Result cache (optional): when ctcache
 # (https://github.com/matus-chochlik/ctcache) is found, clang-tidy runs
@@ -82,7 +84,7 @@ while [[ $# -gt 0 ]]; do
         configure_dir="$2"; shift
       fi
       shift ;;
-    -h|--help) sed -n '3,48p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,64p' "$0"; exit 0 ;;
     *) files+=("$(realpath -m "$1")"); shift ;;
   esac
 done
@@ -107,9 +109,9 @@ for v in -23 -22 -21 -20 ""; do
   tidy_ver="$v"
 done
 
-if [[ "$mode" == configure ]]; then
-  dir="${configure_dir:-${repo_root}/build-tidy}"
-  cxx="${CXX:-}"
+configure_db() {
+  local dir="$1" cxx="${CXX:-}" cc c
+  local -a launcher generator
   if [[ -z "$cxx" ]]; then
     for c in "clang++$tidy_ver" clang++; do
       if command -v "$c" > /dev/null; then
@@ -123,12 +125,10 @@ if [[ "$mode" == configure ]]; then
     exit 2
   fi
   cc="${CC:-${cxx/clang++/clang}}"
-  launcher=()
   if command -v ccache > /dev/null; then
     launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache
               -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
   fi
-  generator=()
   command -v ninja > /dev/null && generator=(-G Ninja)
   # Configure only: clang-tidy needs the compile commands, not objects.
   # CIFast keeps the flags identical to the normal agent build.
@@ -145,6 +145,17 @@ if [[ "$mode" == configure ]]; then
     -DGTOPT_BUILD_GUISERVICE=OFF \
     ${GTOPT_TIDY_CMAKE_ARGS:-} > /dev/null
   echo "run_tidy: tidy DB at $dir/compile_commands.json ($cxx)"
+  # clangd / IDEs look for ./compile_commands.json; point it at the
+  # per-file tidy DB unless the user already has one (git-ignored).
+  if [[ "$(realpath -m "$dir")" == "$(realpath "$repo_root")/build-tidy" \
+        && ! -e "$repo_root/compile_commands.json" \
+        && ! -L "$repo_root/compile_commands.json" ]]; then
+    ln -s build-tidy/compile_commands.json "$repo_root/compile_commands.json"
+  fi
+}
+
+if [[ "$mode" == configure ]]; then
+  configure_db "${configure_dir:-${repo_root}/build-tidy}"
   exit 0
 fi
 
@@ -153,10 +164,14 @@ if [[ -z "$tidy_bin" || -z "$runner" ]]; then
   exit 2
 fi
 
+# Default DB: ./build-tidy, created on first use (configure only).
+auto_db=0
 if [[ -z "$db" ]]; then
-  db="${repo_root}/build"
-  if [[ -f "${repo_root}/build-tidy/compile_commands.json" ]]; then
-    db="${repo_root}/build-tidy"
+  db="${repo_root}/build-tidy"
+  auto_db=1
+  if [[ ! -f "$db/compile_commands.json" ]]; then
+    echo "run_tidy: creating the tidy DB in $db (first use)"
+    configure_db "$db"
   fi
 fi
 [[ -f "$db" ]] && db=$(dirname "$db")
@@ -181,9 +196,7 @@ fi
 # regex that matches no entry, so report such files explicitly.  --all
 # selects every in-repo entry except sources generated in build dirs
 # and third-party packages.
-mapfile -t files < <(
-  python3 - "$repo_root" "$db/compile_commands.json" "$mode" \
-    "${files[@]}" <<'EOF'
+resolve_py=$(cat <<'EOF'
 import json, os, sys
 root, db_json, mode, *want = sys.argv[1:]
 root = os.path.realpath(root)
@@ -229,6 +242,22 @@ for w in want:
           file=sys.stderr)
 EOF
 )
+resolve() {
+  python3 -c "$resolve_py" "$repo_root" "$db/compile_commands.json" "$mode" \
+    "${requested[@]}"
+}
+requested=("${files[@]}")
+missing_log=$(mktemp)
+mapfile -t files < <(resolve 2> "$missing_log")
+if [[ -s "$missing_log" && $auto_db == 1 ]]; then
+  # New .cpp files since the DB was configured: refresh it once.
+  echo "run_tidy: refreshing the tidy DB (files not in it)"
+  configure_db "$db"
+  mapfile -t files < <(resolve)
+else
+  cat "$missing_log" >&2
+fi
+rm -f "$missing_log"
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "run_tidy: no .cpp files to check"
   exit 0
