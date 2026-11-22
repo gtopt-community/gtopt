@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <format>
-#include <numeric>
 #include <ranges>
 #include <span>
 #include <vector>
@@ -718,11 +717,10 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       // phase-2), not just phase-2 — otherwise ``new_cuts=N`` and
       // ``N iters`` under-report at every level that ran a forget pass.
       phase1_cuts_added =
-          std::accumulate(result->begin(),
-                          result->end(),
-                          0,
-                          [](int sum, const SDDPIterationResult& r)
-                          { return sum + r.cuts_added; });
+          std::ranges::fold_left(*result,
+                                 0,
+                                 [](int sum, const SDDPIterationResult& r)
+                                 { return sum + r.cuts_added; });
       phase1_iter_count_for_stats = phase1_iters;
       m_all_results_.insert(
           m_all_results_.end(), result->begin(), result->end());
@@ -821,11 +819,10 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     const SDDPIterationResult empty_sentinel {};
     const auto& last = result->empty() ? empty_sentinel : result->back();
     const int phase2_cuts =
-        std::accumulate(result->begin(),
-                        result->end(),
-                        0,
-                        [](int sum, const SDDPIterationResult& r)
-                        { return sum + r.cuts_added; });
+        std::ranges::fold_left(*result,
+                               0,
+                               [](int sum, const SDDPIterationResult& r)
+                               { return sum + r.cuts_added; });
     const int total_cuts = phase1_cuts_added + phase2_cuts;
 
     // `gap0` = first training iteration's gap (initial level gap).

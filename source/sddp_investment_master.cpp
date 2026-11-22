@@ -11,6 +11,7 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <utility>
@@ -284,10 +285,9 @@ public:
     SparseRow row;
     row[m_theta_col_[scene_index]] = 1.0;
     double rhs = scene_value;
-    for (std::size_t j = 0; j < k_cols.size(); ++j) {
-      const double g = subgrad[j];
-      row[k_cols[j]] += -g;
-      rhs -= g * k_hat[j];
+    for (const auto& [col, g, kh] : std::views::zip(k_cols, subgrad, k_hat)) {
+      row[col] += -g;
+      rhs -= g * kh;
     }
     (void)m_lp_.add_row(row.greater_equal(rhs));
   }

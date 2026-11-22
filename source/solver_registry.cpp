@@ -12,7 +12,7 @@
 #include <cstdlib>
 #include <exception>
 #include <format>
-#include <numeric>
+#include <ranges>
 #include <stdexcept>
 #include <string_view>
 
@@ -49,11 +49,11 @@ std::string join_strings(const std::vector<std::string>& strs,
   if (strs.empty()) {
     return {};
   }
-  return std::accumulate(std::next(strs.begin()),
-                         strs.end(),
-                         strs.front(),
-                         [sep](const std::string& a, const std::string& b)
-                         { return std::format("{}{}{}", a, sep, b); });
+  return std::ranges::fold_left(
+      strs | std::views::drop(1),
+      strs.front(),
+      [sep](const std::string& a, const std::string& b)
+      { return std::format("{}{}{}", a, sep, b); });
 }
 
 }  // namespace

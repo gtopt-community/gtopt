@@ -732,17 +732,20 @@ void PlanningLP::renormalize_scenario_probabilities(Planning& planning)
     }
   }
 
+  // The in-scope scenarios: in an active scene and themselves active.
+  auto in_scope = std::views::zip(scenario_array, in_active_scene)
+      | std::views::filter(
+                      [](const auto& sc_active)
+                      {
+                        const auto& [sc, active] = sc_active;
+                        return active && sc.is_active();
+                      })
+      | std::views::elements<0>;
+
   // Sum probability mass over the active subset.
   double total = 0.0;
   std::size_t n_active = 0;
-  for (std::size_t i = 0; i < scenario_array.size(); ++i) {
-    if (!in_active_scene[i]) {
-      continue;
-    }
-    const auto& sc = scenario_array[i];
-    if (!sc.is_active()) {
-      continue;
-    }
+  for (const auto& sc : in_scope) {
     total += sc.probability_factor.value_or(1.0);
     ++n_active;
   }
@@ -778,14 +781,7 @@ void PlanningLP::renormalize_scenario_probabilities(Planning& planning)
   // any LP, so the values are inconsequential, but leaving them
   // untouched preserves round-trip readability of the JSON.
   const double scale = 1.0 / total;
-  for (std::size_t i = 0; i < scenario_array.size(); ++i) {
-    if (!in_active_scene[i]) {
-      continue;
-    }
-    auto& sc = scenario_array[i];
-    if (!sc.is_active()) {
-      continue;
-    }
+  for (auto& sc : in_scope) {
     sc.probability_factor = sc.probability_factor.value_or(1.0) * scale;
   }
   SPDLOG_INFO(
