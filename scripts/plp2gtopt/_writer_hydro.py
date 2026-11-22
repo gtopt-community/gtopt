@@ -1123,7 +1123,7 @@ class HydroMixin:
         return None
 
     @staticmethod
-    def _scenario_mean_series(series: Any) -> list | None:
+    def _scenario_mean_series(series: Any) -> list[float] | None:
         """Reduce a `_hoya_inter_stage_means` result to one per-stage list.
 
         Multi-scenario results are averaged per stage (the agreement
