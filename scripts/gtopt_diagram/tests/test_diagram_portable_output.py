@@ -8,6 +8,7 @@ URIs and DOT source no longer references the cache.
 
 import re
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -41,9 +42,32 @@ try:
 except ImportError:
     _HAS_GRAPHVIZ_PY = False
 
+
+def _has_layout_engine(engine: str) -> bool:
+    """True when the installed Graphviz can lay out with *engine*.
+
+    Some distro builds ship ``dot`` without the ``neato`` plugin, which is
+    the default layout used by :func:`render_graphviz`.
+    """
+    exe = shutil.which("dot")
+    if exe is None:
+        return False
+    try:
+        proc = subprocess.run(
+            [exe, f"-K{engine}", "-Tsvg"],
+            input=b"graph { a -- b }",
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
 _skip_no_dot = pytest.mark.skipif(
-    not (_HAS_GRAPHVIZ_PY and shutil.which("dot")),
-    reason="graphviz Python package or executables not installed",
+    not (_HAS_GRAPHVIZ_PY and _has_layout_engine("neato")),
+    reason="graphviz Python package or the 'neato' layout engine not installed",
 )
 
 
