@@ -52,3 +52,24 @@ def test_simulated_with_feed_kind_rejected(tmp_path):
         ]
     )
     assert code == EXIT_INPUT_ERROR
+
+
+def test_dispatch_without_uid_columns_raises_input_error(tmp_path):
+    """A non-empty generation_sol with no recognisable uid layout must be
+    rejected up front instead of yielding ``Cells(dispatch=None)``."""
+    import pandas as pd  # noqa: PLC0415
+    import pytest  # noqa: PLC0415
+
+    from gtopt_marginal_units._gtopt_reader import (  # noqa: PLC0415
+        cells_from_gtopt_output,
+    )
+    from gtopt_marginal_units.errors import InputValidationError  # noqa: PLC0415
+
+    out = tmp_path / "out"
+    (out / "Generator").mkdir(parents=True)
+    pd.DataFrame({"scenario": [1], "stage": [1], "block": [1], "g10": [50.0]}).to_csv(
+        out / "Generator/generation_sol.csv", index=False
+    )
+
+    with pytest.raises(InputValidationError, match="uid"):
+        cells_from_gtopt_output(out)

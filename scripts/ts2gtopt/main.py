@@ -476,7 +476,7 @@ def main(argv: list[str] | None = None) -> None:
                 flag = "  ✓" if abs(ratio - 1.0) < 1e-6 else "  !"
                 print(f"  {col}: {ratio:.8f}{flag}")
 
-    except (ValueError, IOError, FileNotFoundError) as exc:
+    except (ValueError, OSError) as exc:
         logging.error("%s", exc)
         sys.exit(1)
 

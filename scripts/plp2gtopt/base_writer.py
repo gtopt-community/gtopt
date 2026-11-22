@@ -12,7 +12,7 @@ import json
 import sys
 from abc import ABC
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TypeVar, Callable
+from typing import Any, Dict, List, Optional, Callable
 
 import numpy as np
 import pandas as pd
@@ -33,8 +33,6 @@ from .block_parser import BlockParser
 from .stage_parser import StageParser
 from .base_parser import BaseParser
 
-ParserVar = TypeVar("ParserVar", bound=BaseParser)  # Used in type hints
-
 
 class BaseWriter(ABC):
     """Base class for all GTOPT JSON writers."""
@@ -45,7 +43,7 @@ class BaseWriter(ABC):
 
     def __init__(
         self,
-        parser: Optional[ParserVar] = None,
+        parser: Optional[BaseParser] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize with a parser instance.
@@ -83,7 +81,7 @@ class BaseWriter(ABC):
     def _create_dataframe(
         self,
         items: List[Dict[str, Any]],
-        unit_parser: ParserVar | None,
+        unit_parser: BaseParser | None,
         index_parser: BlockParser | StageParser | None,
         value_field: str,
         index_field: str,

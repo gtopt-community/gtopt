@@ -117,6 +117,16 @@ def test_write_empty_demands(tmp_path):
             assert data == data2
 
 
+def test_to_json_array_without_parser(tmp_path):
+    """Regression: with no parser ``self.items`` is None; to_json_array
+    must treat that as "no demands" instead of iterating None."""
+    writer = DemandWriter(options={"output_dir": tmp_path})
+    assert writer.items is None
+    result = writer.to_json_array()
+    assert isinstance(result, list)
+    assert not result
+
+
 def test_to_dataframe_structure(
     sample_demand_writer,
 ):  # pylint: disable=redefined-outer-name

@@ -868,8 +868,18 @@ def cells_from_gtopt_output(
     load_wide = read_table(output_dir, "Demand/load_sol")
     ens_wide = read_table(output_dir, "Demand/fail_sol")
 
+    dispatch = _wide_to_long(dispatch_wide, COL_GEN_UID, COL_DISPATCH)
+    if dispatch is None:
+        # Non-empty but unrecognised layout (wide form without any
+        # ``uid:N`` column).  ``Cells.dispatch`` is not Optional: fail
+        # here with a clear message instead of handing None downstream.
+        raise InputValidationError(
+            f"Generator/generation_sol in {output_dir} has neither the "
+            "long-form (uid, value) columns nor any wide 'uid:N' column; "
+            "cannot run mode=simulated without dispatch data."
+        )
     return Cells(
-        dispatch=_wide_to_long(dispatch_wide, COL_GEN_UID, COL_DISPATCH),
+        dispatch=dispatch,
         lmp=_wide_to_long(lmp_wide, COL_BUS_UID, COL_LMP),
         flow=flow_frame,
         flow_dual=_wide_to_long(flow_cost_wide, COL_LINE_UID, COL_FLOW_DUAL),

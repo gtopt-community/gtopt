@@ -138,7 +138,7 @@ class _TopologyAux:
 
     gen_by_uid: dict[int, Generator]
     bus_name_by_uid: dict[int, str]
-    gens_by_bus_uid: dict[int, list]
+    gens_by_bus_uid: dict[int, list[Generator]]
     radial_buses: frozenset[int]
 
 
@@ -168,7 +168,7 @@ def _topology_aux(topology: Topology) -> _TopologyAux:
 
     gen_by_uid = {g.uid: g for g in topology.generators}
     bus_name_by_uid = {b.uid: b.name for b in topology.buses}
-    gens_by_bus_uid: dict[int, list] = {}
+    gens_by_bus_uid: dict[int, list[Generator]] = {}
     for g in topology.generators:
         gens_by_bus_uid.setdefault(int(g.bus_uid), []).append(g)
 
