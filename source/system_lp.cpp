@@ -23,6 +23,7 @@
 #include <mutex>
 #include <optional>
 #include <ranges>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -140,10 +141,8 @@ constexpr auto add_to_lp(auto& collections,
       return !use_single_bus ? e.add_to_lp(system_context, scenario, stage, lp)
                              : true;
     } else {
-      try {
-        // For all other elements, just call their add_to_lp method
-        return e.add_to_lp(system_context, scenario, stage, lp);
-      } catch (const std::exception& ex) {
+      const auto log_failure = [&](const std::exception& ex)
+      {
         SPDLOG_ERROR(
             std::format("Error adding {} uid={} to LP "
                         "(scenario={}, stage={}): {}",
@@ -152,24 +151,18 @@ constexpr auto add_to_lp(auto& collections,
                         scenario.uid(),
                         stage.uid(),
                         ex.what()));
-        // User-constraint failures propagate in strict/debug mode so the
-        // caller can surface non-convex rejections, unknown parameters,
-        // and similar author errors instead of silently dropping the
-        // constraint.  Other element types keep the original "log and
-        // continue" behavior for most failures, but `std::runtime_error`
-        // is reserved for fail-fast schema/author errors (missing
-        // `stage.month` on a `reset_month` VR, monthly parameter out of
-        // range, etc.) and always propagates so the caller cannot
-        // silently produce a wrong LP.
-        if constexpr (std::is_same_v<T, UserConstraintLP>) {
-          const auto mode = system_context.options().constraint_mode();
-          if (mode == ConstraintMode::strict || mode == ConstraintMode::debug) {
-            throw;
-          }
-        }
-        if (dynamic_cast<const std::runtime_error*>(&ex) != nullptr) {
-          throw;
-        }
+      };
+      try {
+        // For all other elements, just call their add_to_lp method
+        return e.add_to_lp(system_context, scenario, stage, lp);
+      } catch (const std::runtime_error& ex) {
+        // `std::runtime_error` is reserved for fail-fast schema/author
+        // errors (missing `stage.month` on a `reset_month` VR, monthly
+        // parameter out of range, etc.) and always propagates so the
+        // caller cannot silently produce a wrong LP.
+        log_failure(ex);
+        throw;
+      } catch (const std::logic_error& ex) {
         // `std::logic_error` (and subclasses: `std::out_of_range`,
         // `std::invalid_argument`, `std::domain_error`, etc.) signals
         // a programmer/data bug — `flat_map::at` on a missing key, a
@@ -180,8 +173,20 @@ constexpr auto add_to_lp(auto& collections,
         // of identical errors that bury the root cause.  Fail fast so
         // the caller (gtopt_main) returns a clean non-zero exit with
         // one diagnostic on stderr instead of a 6k-error log file.
-        if (dynamic_cast<const std::logic_error*>(&ex) != nullptr) {
-          throw;
+        log_failure(ex);
+        throw;
+      } catch (const std::exception& ex) {
+        log_failure(ex);
+        // Any other failure is logged and the element skipped, except
+        // for user constraints in strict/debug mode: those propagate so
+        // the caller can surface non-convex rejections, unknown
+        // parameters, and similar author errors instead of silently
+        // dropping the constraint.
+        if constexpr (std::is_same_v<T, UserConstraintLP>) {
+          const auto mode = system_context.options().constraint_mode();
+          if (mode == ConstraintMode::strict || mode == ConstraintMode::debug) {
+            throw;
+          }
         }
         return false;
       }
