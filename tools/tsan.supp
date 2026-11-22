@@ -1,0 +1,63 @@
+# ThreadSanitizer suppressions for gtopt.
+#
+# Used by .github/workflows/tsan.yml and by local TSan runs (see the
+# "Sanitizers" section of CLAUDE.md):
+#
+#   TSAN_OPTIONS="suppressions=$PWD/tools/tsan.supp halt_on_error=0 \
+#     second_deadlock_stack=1 history_size=4" ctest ...
+#
+# Rules for adding an entry:
+#   * Never suppress a race whose frames are only in gtopt code.  Fix it,
+#     or (for a known issue being fixed elsewhere) add a narrow entry that
+#     names the branch/PR fixing it, and delete the entry once it lands.
+#   * Third-party libraries are NOT instrumented, so TSan cannot see their
+#     internal synchronisation (lock-free atomics, futexes, custom
+#     allocators) and reports the memory they hand back to us as racy.
+#     Suppress those by library module or by the library's own symbols,
+#     never with a pattern that also matches gtopt code.
+#   * `race:X` matches X against the function, file and module name of
+#     every frame of BOTH stacks of a report, so a module pattern such as
+#     `libhighs.so` hides any report in which that library takes part.
+#   * Every entry carries a justification.
+
+# ---- HiGHS (libhighs.so.1) -------------------------------------------------
+# HiGHS runs its own work-stealing task executor (HighsTaskExecutor): the
+# gtopt HiGHS plugin requests `threads = physical cores`, so every solve
+# spawns HiGHS worker threads (pthread_create from inside Highs::run) that
+# copy HighsLp / HighsOptions, run symmetry detection, sub-MIPs, etc. and
+# park in run_worker().  All hand-offs between the calling thread and those
+# workers go through lock-free atomics inside the uninstrumented libhighs,
+# so TSan sees: ~HighsLp vs HighsLp copy, ~HighsSymmetryDetection vs
+# createNode, HighsOptions::operator= vs memcpy, executor dispose() vs
+# run_worker's pthread_cond_wait, and worker reads of the caller's stack
+# during LinearInterface::clone.  In every observed report one side is a
+# HiGHS-internal worker thread.  The module pattern deliberately does NOT
+# match gtopt's own plugin (libgtopt_solver_highs.so).
+race:libhighs.so
+
+# ---- dynamic TLS of dlopen()ed solver plugins ------------------------------
+# HighsSolverBackend::apply_options keeps a `static thread_local int` in the
+# dlopen()ed plugin.  glibc allocates that dynamic TLS block with malloc and
+# frees it from _dl_deallocate_tls (uninstrumented ld.so) when a work-pool
+# thread exits; when another thread's TLS block later reuses the address
+# TSan reports a race between the free and the new thread's first access.
+# Per-thread data, no sharing: known TSan false positive with dynamic TLS.
+race:_dl_deallocate_tls
+
+# ---- Apache Arrow / Parquet I/O stack --------------------------------------
+# Arrow's CSV/Parquet readers complete work on Arrow's internal CPU thread
+# pool and publish results through arrow::Future (atomics inside libarrow);
+# Arrow allocates through its bundled mimalloc pool, whose lock-free
+# cross-thread free lists are invisible to TSan; function-local statics in
+# libarrow (arrow::float32(), uint16(), Fingerprintable) are guarded by the
+# uninstrumented libarrow's __cxa_guard.  Observed reports: csv_read_table /
+# load_boundary_cuts_csv / boundary_cut_coeff_stats / load_cuts reading a
+# Table that an Arrow pool thread built, and concurrent
+# OutputContext::write / parquet writers (one file per work-pool task, no
+# shared writer object) racing only inside mimalloc / zstd / zlib buffers
+# reused across threads.
+race:libarrow.so
+race:libparquet.so
+race:libmimalloc.so
+race:libzstd.so
+race:libz.so.1

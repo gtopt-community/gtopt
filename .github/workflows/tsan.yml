@@ -1,0 +1,176 @@
+name: TSan
+
+# ThreadSanitizer build + C++ test run.
+#
+# Builds the whole `all/` super-project with clang 21 and
+# -DUSE_SANITIZER=Thread (cmake/tools.cmake -> cmake-scripts
+# sanitizers.cmake, adds -fsanitize=thread to compile AND link flags),
+# then runs the C++ ctest suite with tools/tsan.supp.  Any unsuppressed
+# TSan report makes the reporting test process exit with code 66, so the
+# ctest step (and the job) fails.
+#
+# Triggers: push to master + nightly + manual, NOT pull_request.  Measured
+# on a 40-core box restricted to -j4 (comparable to a 4-vCPU runner): the
+# cold TSan build took ~42 min and the full C++ ctest (5096 tests) ~16 min
+# with CBC (~21 min with HiGHS), i.e. ~1 h cold / ~25-35 min with a warm
+# ccache — 2-3x the regular Ubuntu job, too slow to gate every PR.  Races
+# are caught within a day (nightly) or right after the merge (push).
+#
+# Notes:
+#   * jemalloc is disabled (-DGTOPT_USE_JEMALLOC=OFF): TSan intercepts
+#     malloc/free itself and a replacement allocator breaks that.
+#   * Only the COIN-OR plugin is built on the runner (HiGHS is not packaged
+#     for Ubuntu 24.04); the run pins GTOPT_SOLVER=cbc.  Solver libraries
+#     are not instrumented; their races are handled in tools/tsan.supp.
+#   * Python tests are off (GTOPT_REGISTER_PYTHON_TESTS defaults OFF).
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'scripts/**'
+      - 'guiservice/**'
+      - 'webservice/**'
+  schedule:
+    # 06:17 UTC nightly (off the hour to dodge the scheduler rush).
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      ctest_regex:
+        description: 'Optional ctest -R regex (empty = full suite)'
+        type: string
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: 1
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CC: clang
+  CXX: clang++
+
+permissions:
+  contents: read
+
+jobs:
+  tsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    name: tsan
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2.23
+        with:
+          key: gtopt-tsan-clang21
+          restore-keys: |
+            gtopt-tsan-clang21-
+          max-size: 2G
+
+      - uses: actions/cache@v6
+        with:
+          path: "**/cpm_modules"
+          key: tsan-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
+          restore-keys: |
+            tsan-cpm-modules-
+
+      - name: install dependencies
+        uses: ./.github/actions/install-apt-deps
+
+      # Full LLVM suite: includes libclang-rt-21-dev (the TSan runtime)
+      # and llvm-symbolizer (symbolised TSan stacks).
+      - name: install clang
+        uses: ./.github/actions/install-clang
+        with:
+          version: 21
+
+      # Ubuntu 24.04 runner kernels use 32 bits of mmap ASLR entropy, which
+      # can collide with TSan's fixed shadow-memory layout ("unexpected
+      # memory mapping").  28 bits is the value TSan supports everywhere.
+      - name: lower ASLR entropy for TSan
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: configure
+        run: |
+          cmake -S all -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_FLAGS_RELWITHDEBINFO="-O1 -g" \
+            -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O1 -g" \
+            -DUSE_SANITIZER=Thread \
+            -DGTOPT_USE_JEMALLOC=OFF \
+            -DGTOPT_BUILD_INTEGRATION_TESTS=ON \
+            -DGTOPT_BUILD_SCRIPTS=OFF \
+            -DGTOPT_BUILD_WEBSERVICE=OFF \
+            -DGTOPT_BUILD_GUISERVICE=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: build
+        run: cmake --build build -j$(nproc)
+
+      - name: test
+        run: |
+          set -o pipefail
+          ulimit -c unlimited
+          mkdir -p "${GITHUB_WORKSPACE}/tsan-logs"
+          cd build
+          # HiGHS is not packaged for Ubuntu 24.04, so the runner only has
+          # the COIN-OR plugin; CBC (not CLP) keeps the MIP paths covered.
+          export GTOPT_SOLVER=cbc
+          export TSAN_OPTIONS="halt_on_error=0 second_deadlock_stack=1 history_size=4 suppressions=${GITHUB_WORKSPACE}/tools/tsan.supp log_path=${GITHUB_WORKSPACE}/tsan-logs/tsan external_symbolizer_path=$(command -v llvm-symbolizer)"
+          # Excluded: the two SDDP literature A1 tests reach LB 8194.44
+          # instead of 8055.56 in the -O1 TSan build (deterministically,
+          # with CBC and HiGHS, and with no TSan report); plain -O0/-O2
+          # builds pass.  Tracked separately; not a sanitizer finding.
+          EXCLUDE='^SDDP literature (A1 —|#4 — dual_shared/screened)'
+          REGEX='${{ github.event.inputs.ctest_regex }}'
+          ctest --output-on-failure -j"$(nproc)" --timeout 1800 \
+            -E "$EXCLUDE" ${REGEX:+-R "$REGEX"} 2>&1 | tee ctest_output.log
+
+      # Any file in tsan-logs/ is an unsuppressed report (TSan writes one
+      # file per reporting process); the reporting test already failed
+      # with exit code 66, this step just surfaces the stacks.
+      - name: TSan report summary
+        if: always()
+        run: |
+          shopt -s nullglob
+          LOGS=(tsan-logs/tsan.*)
+          N=0
+          if [ ${#LOGS[@]} -gt 0 ]; then
+            N=$(cat "${LOGS[@]}" | grep -c 'WARNING: ThreadSanitizer' || true)
+          fi
+          {
+            echo '## ThreadSanitizer'
+            echo ''
+            echo "Unsuppressed reports: ${N} (in ${#LOGS[@]} process logs)"
+            if [ "${N}" -gt 0 ]; then
+              echo ''
+              echo '```'
+              cat "${LOGS[@]}" | grep -A14 'WARNING: ThreadSanitizer' | head -300
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${N}" -gt 0 ]; then
+            echo "::error::${N} unsuppressed ThreadSanitizer report(s)"
+            exit 1
+          fi
+
+      - name: upload TSan logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tsan-logs
+          path: |
+            tsan-logs/
+            build/ctest_output.log
+          retention-days: 14
