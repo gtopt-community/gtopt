@@ -909,7 +909,7 @@ template<typename FieldSched>
                                                     const FlowRight& fr)
 {
   const auto has = [expr](const std::string& needle)
-  { return expr.find(needle) != std::string_view::npos; };
+  { return expr.contains(needle); };
   return has(std::format("flow_right('{}')", fr.name))
       || has(std::format("flow_right(\"{}\")", fr.name))
       || has(std::format("flow_right({})", fr.uid));

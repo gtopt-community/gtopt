@@ -192,7 +192,7 @@ struct MauleLedgerResult
       "waterway", Uid {1}, "flow", scenarios[0].uid(), stages[0].uid(), buid);
   REQUIRE(col.has_value());
   return {
-      .turbined = lp.get_col_sol()[*col],
+      .turbined = col ? lp.get_col_sol()[*col] : 0.0,
       .value = -duals[rows.at(buid)],
   };
 }
@@ -288,7 +288,7 @@ TEST_CASE(  // NOLINT
   // turbined at a 100 $/MWh loss; the unique value of one more hm3 of
   // right is -(200 - 100) * pf 2 / 0.0036 = -55 555.6 $/hm3.
   const auto r = solve_ledger(
-      make_capped_ledger(1.0, 0.5, false), kLink, kUneconomicHydro);
+      make_capped_ledger(1.0, 0.5, /*forfeit=*/false), kLink, kUneconomicHydro);
   CHECK(r.turbined == doctest::Approx(0.5 / (24.0 * 0.0036)));
   CHECK(r.value == doctest::Approx(-100.0 * 2.0 / 0.0036));
 }
@@ -296,8 +296,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Maule ledger - forfeit drops the excess for free, value >= 0")
 {
-  const auto r =
-      solve_ledger(make_capped_ledger(1.0, 0.5, true), kLink, kUneconomicHydro);
+  const auto r = solve_ledger(
+      make_capped_ledger(1.0, 0.5, /*forfeit=*/true), kLink, kUneconomicHydro);
   CHECK(r.turbined == doctest::Approx(0.0));
   CHECK(r.value >= 0.0);
   CHECK(r.value == doctest::Approx(0.0));
@@ -307,8 +307,8 @@ TEST_CASE(  // NOLINT
     "Maule ledger - forfeit keeps the unused-at-cap value non-negative")
 {
   // eini == emax, right unused (degenerate cap vertex).
-  const auto r =
-      solve_ledger(make_capped_ledger(1.0, 1.0, true), kLink, kUneconomicHydro);
+  const auto r = solve_ledger(
+      make_capped_ledger(1.0, 1.0, /*forfeit=*/true), kLink, kUneconomicHydro);
   CHECK(r.turbined == doctest::Approx(0.0));
   CHECK(r.value >= 0.0);
 }
@@ -317,8 +317,8 @@ TEST_CASE(  // NOLINT
     "Maule ledger - forfeit is primal-neutral on a binding right")
 {
   // The binding case of the first test: disposal is never used.
-  const auto with =
-      solve_ledger(make_capped_ledger(kLedgerRemaining, 10.0, true), kLink);
+  const auto with = solve_ledger(
+      make_capped_ledger(kLedgerRemaining, 10.0, /*forfeit=*/true), kLink);
   CHECK(with.turbined == doctest::Approx(kLedgerRemaining / (24.0 * 0.0036)));
   CHECK(with.value > 1e-9);
 }

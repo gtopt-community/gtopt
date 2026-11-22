@@ -216,7 +216,7 @@ struct LajaCapResult
       "flow_right", Uid {1}, "flow", scenarios[0].uid(), stages[0].uid(), buid);
   REQUIRE(col.has_value());
   return {
-      .riego = lp.get_col_sol()[*col],
+      .riego = col ? lp.get_col_sol()[*col] : 0.0,
       .value = -duals[rows.at(buid)],
   };
 }

@@ -657,8 +657,9 @@ TEST_CASE(  // NOLINT
     CHECK(result.ok());
     CHECK(result.warnings.size() >= 1);
     // Probabilities should be rescaled to sum 1.0
-    const double sum = p.simulation.scenario_array[0].probability_factor.value()
-        + p.simulation.scenario_array[1].probability_factor.value();
+    const double sum =
+        p.simulation.scenario_array[0].probability_factor.value_or(-1.0)
+        + p.simulation.scenario_array[1].probability_factor.value_or(-1.0);
     CHECK(sum == doctest::Approx(1.0));
   }
 
@@ -671,9 +672,9 @@ TEST_CASE(  // NOLINT
     CHECK(result.ok());
     CHECK(result.warnings.size() >= 1);
     // Probabilities should remain unchanged
-    CHECK(p.simulation.scenario_array[0].probability_factor.value()
+    CHECK(p.simulation.scenario_array[0].probability_factor.value_or(-1.0)
           == doctest::Approx(orig0));
-    CHECK(p.simulation.scenario_array[1].probability_factor.value()
+    CHECK(p.simulation.scenario_array[1].probability_factor.value_or(-1.0)
           == doctest::Approx(orig1));
   }
 }
@@ -2126,6 +2127,7 @@ TEST_CASE(  // NOLINT
       [](const auto& w)
       { return w.contains("vr_empty_rule") && w.contains("no segments"); });
   CHECK(warned);
-  CHECK(evaluate_bound_rule(*p.system.volume_right_array[0].bound_rule, 500.0)
-        == doctest::Approx(0.0));
+  const auto& rule = p.system.volume_right_array[0].bound_rule;
+  REQUIRE(rule.has_value());
+  CHECK((rule && evaluate_bound_rule(*rule, 500.0) == doctest::Approx(0.0)));
 }

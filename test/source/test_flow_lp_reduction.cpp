@@ -39,7 +39,7 @@ struct SolveResult
   std::size_t n_flow_cols {};
 };
 
-SolveResult solve(bool reduce, std::string uc_expression = {})
+SolveResult solve(bool reduce, const std::string& uc_expression = {})
 {
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
@@ -235,8 +235,8 @@ TEST_CASE(  // NOLINT
   // Cap: turbined <= 0.4 * 25 = 10 m3/s -> 10 MW hydro, 40 MW thermal.
   const std::string uc =
       R"(waterway("ww1").flow <= 0.4 * flow("river_inflow").flow)";
-  const auto col_form = test_flow_lp_reduction::solve(false, uc);
-  const auto folded = test_flow_lp_reduction::solve(true, uc);
+  const auto col_form = test_flow_lp_reduction::solve(/*reduce=*/false, uc);
+  const auto folded = test_flow_lp_reduction::solve(/*reduce=*/true, uc);
   CHECK(folded.obj == doctest::Approx(col_form.obj));
   CHECK(folded.n_flow_cols == 0);
   // Hand value: 3 one-hour blocks x (5 $/MWh * 10 MW + 80 $/MWh * 40 MW).

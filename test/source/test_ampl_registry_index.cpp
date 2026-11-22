@@ -59,7 +59,7 @@ TEST_CASE(  // NOLINT
   const auto sim = make_index_sim();
   const PlanningOptionsLP options;
   SimulationLP sim_lp(sim, options);
-  sim_lp.set_need_ampl_variables(true);
+  sim_lp.set_need_ampl_variables(/*v=*/true);
 
   sim_lp.add_ampl_variable(SceneIndex {0},
                            PhaseIndex {0},
@@ -87,7 +87,7 @@ TEST_CASE(  // NOLINT
   const auto sim = make_index_sim();
   const PlanningOptionsLP options;
   SimulationLP sim_lp(sim, options);
-  sim_lp.set_need_ampl_variables(true);
+  sim_lp.set_need_ampl_variables(/*v=*/true);
 
   constexpr int kN = 20000;
   std::atomic<bool> done {false};

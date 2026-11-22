@@ -354,8 +354,8 @@ TEST_CASE(  // NOLINT
 {
   // Profitable turbining with the level rule active and inactive must
   // give the same zero objective: the agreement never prices releases.
-  const auto with_rule = solve_invernada(50.0, 0.0, true);
-  const auto without_rule = solve_invernada(50.0, 200.0, false);
+  const auto with_rule = solve_invernada(50.0, 0.0, /*level_rule=*/true);
+  const auto without_rule = solve_invernada(50.0, 200.0, /*level_rule=*/false);
   CHECK(with_rule.obj == doctest::Approx(without_rule.obj));
   CHECK(with_rule.turbined == doctest::Approx(without_rule.turbined));
 }
