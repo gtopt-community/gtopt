@@ -33,12 +33,13 @@ This guide provides detailed instructions for building GTOpt from source, includ
 | lld | 14+ | Fast linker (auto-detected) | `lld` |
 | zstd / lz4 / snappy | — | Compression (LP snapshots, Parquet) + `zstd`/`lz4` CLIs used by scripts | `libzstd-dev zstd liblz4-dev lz4 libsnappy-dev` |
 | lcov | — | C++ coverage reports | `lcov` |
-| Graphviz | 2.40+ | `gtopt_diagram` rendering (`dot`, `neato`); its tests skip without it | `graphviz` |
+| Graphviz | 2.40+ | `gtopt_diagram` rendering (`dot`, `neato`); its tests skip without it | `graphviz` (+ `libgvplugin-neato-layout8` on Ubuntu 26.04+) |
 | cairo | — | SVG→PNG via `cairosvg` (scripts) | `libcairo2-dev` |
 | mdbtools | — | `cen2gtopt` / `plexos2gtopt` read MS Access `.accdb` | `mdbtools` |
 | clang-tidy | 21 + 22 | Pre-commit tidy; CI `clang-tidy.yml` runs 22 | apt.llvm.org `clang-tidy-21 clang-tidy-22` |
 | ctcache | pinned | clang-tidy result cache for `tools/run_tidy.sh` | `bash tools/install_ctcache.sh` |
-| Python tools | see `scripts/pyproject.toml` | ruff, pylint, mypy, ty (exact pin), pytest(-cov,-xdist), actionlint, shellcheck, pre-commit | `pip install -e "./scripts[dev,lint]"` |
+| Python tools | see `scripts/pyproject.toml` | ruff, ty (exact pin), actionlint, shellcheck, pre-commit | `uv tool install <name>` (fallback `pip install --user`) |
+| Python test/lint env | see `scripts/pyproject.toml` | pylint, mypy, pytest(-cov,-xdist) + scripts deps | `uv pip install -e "./scripts[dev]"` |
 | Doxygen + TeX Live | — | API docs; white paper via `latexmk` (optional, alt. to tectonic) | `bash tools/setup_sandbox.sh --with-docs` |
 | Julia | 1.10+ | `tools/*.jl` golden generators (optional) | `bash tools/setup_sandbox.sh --with-julia` |
 

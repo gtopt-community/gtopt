@@ -207,7 +207,9 @@ if $CHECK_ONLY; then
     if echo 'graph { a }' | dot -Kneato -Tsvg > /dev/null 2>&1; then
       ok "graphviz neato layout engine"
     else
-      missing_apt+=(libgvplugin-neato-layout8); req_missing=1
+      [[ " ${missing_apt[*]} " == *" libgvplugin-neato-layout8 "* ]] \
+        || missing_apt+=(libgvplugin-neato-layout8)
+      req_missing=1
       warn "missing (required): graphviz neato layout engine"
     fi
   fi
