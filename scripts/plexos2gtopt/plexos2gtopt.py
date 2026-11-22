@@ -447,7 +447,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         # ``--plexos-legacy`` is on (strict PLEXOS semantics — no
         # cross-bundle mixing) or when ``--no-plp-embalses`` is set.
         case = _maybe_patch_with_plp_embalses(case, options, input_path)
-        if options.get("bess_reserve") == "native":
+        if options.get("bess_reserve", "native") == "native":
             from ._bess_reserve import apply_native_bess_reserve
 
             case = apply_native_bess_reserve(case, bundle)

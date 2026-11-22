@@ -281,13 +281,13 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bess-reserve",
         choices=("uc", "native"),
-        default="uc",
+        default="native",
         help=(
             "How CEN's 'BESS SSCC Constraints' are converted.  'uc' "
-            "(default): emit UPStorageBound/DOWNStorageBound and "
+            "(legacy, PLEXOS-faithful): emit UPStorageBound/DOWNStorageBound and "
             "BAT_*_CF_GEN_COMP/CF_LOAD_COMP as user constraints (the "
             "CF_*_COMP rows couple reserve provision to bus energy and "
-            "can price BESS buses negative).  'native': set "
+            "can price BESS buses negative).  'native' (default): set "
             "Battery.reserve_sustain_hours (gtopt's native BESS power-"
             "headroom + SoC-sufficiency rows), make those four families "
             "inactive and count BESS SSCC provisions at gross value."
@@ -1242,7 +1242,7 @@ def main(argv: list[str] | None = None) -> None:
         "compare_json": args.compare_json,
         "lax_uc_refs": args.lax_uc_refs,
         "plexos_legacy": args.plexos_legacy,
-        "bess_reserve": getattr(args, "bess_reserve", "uc"),
+        "bess_reserve": getattr(args, "bess_reserve", "native"),
         "plp_embalses": args.plp_embalses,
         "no_plp_embalses": args.no_plp_embalses,
         # Emission infrastructure (cli_flags.add_emissions_arguments).

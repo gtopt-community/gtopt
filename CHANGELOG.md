@@ -9,6 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Native BESS reserve deliverability: `Battery.reserve_sustain_hours`
+  (and `reserve_discharge_credit`) add per-block power-headroom and
+  SoC-sufficiency rows for the battery's reserve provisions, with no
+  reserve term in any bus balance, so they cannot pin negative bus
+  prices.  Off by default in gtopt.
+- `plexos2gtopt --bess-reserve {native,uc}`, default `native`: CEN's
+  "BESS SSCC Constraints" (`UP/DOWNStorageBound_*`, `*_CF_{GEN,LOAD}_COMP`
+  and the fictitious `*_AUX` battery) map to the native rows.  `uc`
+  keeps the previous UserConstraint mapping.  See
+  `docs/studies/sscc_battery_constraint.md`.
 - `gtopt --version`, the `--help` header and the `starting gtopt` log
   line show the git revision the binary was built from, e.g.
   `1.1.0 (v1.1.0-20-g5a4fd2ef8abc)`.  A clean build of exactly the

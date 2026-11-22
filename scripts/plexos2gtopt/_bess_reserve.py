@@ -130,6 +130,8 @@ def apply_native_bess_reserve(
     case: PlexosCase, bundle: PlexosBundle, db: PlexosDb | None = None
 ) -> PlexosCase:
     """Rewrite ``case`` so CEN's BESS SSCC rows use gtopt's native primitive."""
+    if not case.batteries:
+        return case
     if db is None:
         db = load_xml(bundle.xml_path)
     natives: set[str] = set()
