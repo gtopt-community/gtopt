@@ -53,7 +53,9 @@ class StageWriter(BaseWriter):
         super().__init__(stage_parser, options)
         self.block_parser = block_parser
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """Convert stage data to JSON array format."""
         if items is None:
             items = self.items or []

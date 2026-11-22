@@ -25,7 +25,9 @@ class BlockWriter(BaseWriter):
         """Initialize with a BlockParser instance."""
         super().__init__(block_parser, options)
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """Convert block data to JSON array format."""
         if items is None:
             items = self.items or []

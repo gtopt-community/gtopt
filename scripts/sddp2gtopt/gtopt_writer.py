@@ -23,7 +23,7 @@ from typing import Any
 
 from gtopt_shared.json_planning import (  # noqa: F401  pylint: disable=unused-import
     build_json_item,
-    write_planning,  # re-exported for back-compat
+    write_planning as write_planning,  # explicit re-export (back-compat)
 )
 
 from .entities import (

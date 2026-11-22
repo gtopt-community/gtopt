@@ -57,7 +57,9 @@ class BaseWriter(ABC):
         self.items = self.parser.get_all() if self.parser else None
         self.options = options if options is not None else {}
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """Convert data to JSON array format."""
         if items is None:
             items = self.items or []
@@ -74,7 +76,7 @@ class BaseWriter(ABC):
         except (IOError, ValueError) as e:
             raise IOError(f"Failed to write JSON to {output_path}: {str(e)}") from e
 
-    def _build_json_item(self, **fields) -> Dict[str, Any]:
+    def _build_json_item(self, **fields: Any) -> Dict[str, Any]:
         """Help to consistently build JSON output items."""
         return {k: v for k, v in fields.items() if v is not None}
 
@@ -88,7 +90,7 @@ class BaseWriter(ABC):
         index_name: Optional[str] = None,
         fill_field: Optional[str] = None,
         item_key: str = "number",
-        skip_types=(),
+        skip_types: tuple[str, ...] = (),
         value_oper: Callable = lambda x: x,
     ) -> pd.DataFrame:
         """Create a DataFrame from items with common processing.
@@ -330,7 +332,7 @@ class BaseWriter(ABC):
 
         return col_name
 
-    def _get_last_stage(self, blocks=None) -> int:
+    def _get_last_stage(self, blocks: Any = None) -> int:
         """Get the last stage number from options with validation.
 
         Returns:

@@ -65,6 +65,6 @@ class CostParser(BaseParser):
         finally:
             lines.clear()
 
-    def get_cost_by_name(self, name: str):
+    def get_cost_by_name(self, name: str) -> Optional[dict[str, Any]]:
         """Get cost data for a specific central name."""
         return self.get_item_by_name(name)

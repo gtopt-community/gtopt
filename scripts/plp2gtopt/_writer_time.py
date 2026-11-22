@@ -10,7 +10,7 @@ by the host class) and on PLP parsed data attached to ``self.parser``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict
 
 from .aperture_writer import (
     build_aperture_array,
@@ -27,10 +27,14 @@ class TimeMixin:
     """Stage / phase / scenario / aperture / indhor processing."""
 
     parser: Any
-    planning: Dict[str, Dict[str, Any]]
+    planning: Dict[str, Any]  # see GTOptWriter.__init__
 
-    # ``_normalize_method`` is provided by the host class
-    # (:class:`plp2gtopt.gtopt_writer.GTOptWriter`) — reachable via MRO.
+    if TYPE_CHECKING:
+        # Provided by the host class (``GTOptWriter._normalize_method``,
+        # a staticmethod) — reachable via MRO.  Declared for mypy only:
+        # a runtime stub here would shadow the host's implementation.
+        @staticmethod
+        def _normalize_method(method: str) -> str: ...
 
     def process_stage_blocks(self, options):
         """Calculate first_block and count_block for stages, and build phase_array.
@@ -264,9 +268,11 @@ class TimeMixin:
                     "hydrology": hydro_0based,
                 }
             )
-            sim_idx = stage1_to_sim.get(hydro_1based)
-            if sim_idx is not None and idsim_parser is not None:
-                stage_row = idsim_parser.get_stage_map(sim_idx)
+            # ``None`` = hydrology not the stage-1 column of any simulation
+            # (handled by the rotation branch below).
+            hydro_sim_idx = stage1_to_sim.get(hydro_1based)
+            if hydro_sim_idx is not None and idsim_parser is not None:
+                stage_row = idsim_parser.get_stage_map(hydro_sim_idx)
                 if stage_row:
                     hydrology_stage_maps[hydro_1based] = {
                         stage: h - 1 for stage, h in stage_row.items()
@@ -311,7 +317,7 @@ class TimeMixin:
 
     @staticmethod
     def _shifted_stage_map(
-        idsim_parser, ref_sim: int, hydro_1based: int, num_hydrologies: int
+        idsim_parser: Any, ref_sim: int, hydro_1based: int, num_hydrologies: int
     ) -> dict[int, int]:
         """Per-stage 0-based aflce columns for a non-simulated hydrology.
 

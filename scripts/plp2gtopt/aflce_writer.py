@@ -53,7 +53,9 @@ class AflceWriter(BaseWriter):
         self.scenarios = scenarios or []
         self.pasada_unscale_map: Dict[str, float] = dict(pasada_unscale_map or {})
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """Convert flow data to JSON array format."""
         if items is None:
             items = self.items or []
@@ -298,7 +300,9 @@ class AflceWriter(BaseWriter):
 
         return pd.concat(dfs, ignore_index=True)
 
-    def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
+    def to_parquet(
+        self, output_dir: Path, items: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, List[str]]:
         """Write flow data to Parquet files (one per hydrology).
 
         The output file is named ``discharge.parquet`` to match the C++

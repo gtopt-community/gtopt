@@ -1897,7 +1897,7 @@ class JunctionWriter(BaseWriter):
         self,
         system: HydroSystemOutput,
         central_parser: CentralParser,
-        parquet_cols,
+        parquet_cols: Dict[str, List[str]],
     ) -> None:
         """Process reservoir centrals into reservoir elements."""
         reservoirs = central_parser.centrals_of_type.get("embalse", [])

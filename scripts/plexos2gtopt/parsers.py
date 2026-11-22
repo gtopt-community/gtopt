@@ -7465,7 +7465,7 @@ def _first_value(rows: list) -> float | None:
 
 
 def _horizon_value(
-    rows: list, horizon_start, *, prefer_min: bool = False
+    rows: list, horizon_start: datetime | None, *, prefer_min: bool = False
 ) -> float | None:
     """Select the effective PLEXOS property value for ``horizon_start``.
 
@@ -7497,7 +7497,7 @@ def _horizon_value(
     if not rows:
         return None
 
-    def _active_priority(row) -> int | None:
+    def _active_priority(row: Any) -> int | None:
         df, dt_ = row.date_from, row.date_to
         if df is None and dt_ is None:
             return 0
@@ -7529,7 +7529,7 @@ def _horizon_value(
     return min(candidates, key=lambda r: r.data_id).value
 
 
-def _has_active_rhs_row(rows: list, horizon_start) -> bool:
+def _has_active_rhs_row(rows: list, horizon_start: datetime | None) -> bool:
     """True if any row is undated OR its ``[date_from, date_to]`` window
     covers ``horizon_start``.
 

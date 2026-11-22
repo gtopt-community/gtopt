@@ -129,9 +129,9 @@ class PLPParser:
             ("gnl_parser", GnlParser, "plpcnfgnl.dat"),
         ]
         for name, parser_class, filename in optional_parsers:
-            filepath = _opt(filename)
-            if filepath is not None:
-                p = parser_class(filepath)
+            opt_path = _opt(filename)
+            if opt_path is not None:
+                p = parser_class(opt_path)
                 p.parse(self.parsed_data)
                 self.parsed_data[name] = p
 

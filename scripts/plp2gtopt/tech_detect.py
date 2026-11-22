@@ -28,6 +28,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import os
 import re
 
 log = logging.getLogger(__name__)
@@ -211,7 +212,7 @@ _CENTIPO_LABEL_MAP: dict[str, str] = {
 }
 
 
-def load_centipo_csv(input_dir) -> dict[str, str]:
+def load_centipo_csv(input_dir: str | os.PathLike[str]) -> dict[str, str]:
     """Read PLP's ``centipo.csv`` file if present.
 
     Returns a {central_name: technology} dict.  Two formats are accepted::

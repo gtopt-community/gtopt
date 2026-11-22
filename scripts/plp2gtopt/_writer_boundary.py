@@ -27,7 +27,7 @@ class BoundaryMixin:
     """Boundary-cut + variable-scale processing for ``GTOptWriter``."""
 
     parser: Any
-    planning: dict[str, dict[str, Any]]
+    planning: dict[str, Any]  # see GTOptWriter.__init__
 
     # Provided by the sibling ``HydroMixin`` (both mixed into
     # ``GTOptWriter``): per-reservoir cut lower-bound water values.

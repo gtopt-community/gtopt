@@ -23,7 +23,7 @@ class GenerationMixin:
     """Generator-profile, central, falla and pasada-classification."""
 
     parser: Any
-    planning: Dict[str, Dict[str, Any]]
+    planning: Dict[str, Any]  # see GTOptWriter.__init__
 
     def process_generator_profiles(self, options):
         """Process generator profile data to include block and stage information."""

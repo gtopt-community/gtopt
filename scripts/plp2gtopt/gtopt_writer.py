@@ -20,7 +20,7 @@ import math
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 # JSON post-processing helpers live in ``gtopt_shared.json_utils`` so
 # every converter shares a single implementation (issue #507 Phase 1).
@@ -376,13 +376,22 @@ class GTOptWriter(
 ):
     """Handles conversion of parsed PLP data to GTOPT JSON format."""
 
-    def __init__(self, parser: PLPParser, options=None):
+    def __init__(
+        self, parser: PLPParser, options: Optional[Dict[str, Any]] = None
+    ) -> None:
         """Initialize GTOptWriter with a PLPParser instance."""
         self.parser = parser
         self.options = options
         self.output_path = None
 
-        self.planning: Dict[str, Dict[str, Any]] = {
+        # Values are NOT all dicts: besides the ``options`` / ``system`` /
+        # ``simulation`` sections, the writer stashes Python-side
+        # metadata under ``_``-prefixed top-level keys (e.g.
+        # ``_boundary_cuts_count: int``, ``_skipped_isolated: list``)
+        # read by the conversion summary.  They MUST be removed with
+        # ``_strip_internal_keys`` before writing any JSON gtopt parses
+        # (StrictParsePolicy rejects unknown members).
+        self.planning: Dict[str, Any] = {
             "options": {},
             "system": {},
             "simulation": {},
@@ -1364,7 +1373,7 @@ class GTOptWriter(
         # Set annual_discount_rate on the simulation section.
         self.planning["simulation"]["annual_discount_rate"] = discount_rate
 
-    def to_json(self, options=None) -> Dict:
+    def to_json(self, options: Optional[Dict[str, Any]] = None) -> Dict:
         """Convert parsed data to GTOPT JSON structure."""
         if options is None:
             options = {}

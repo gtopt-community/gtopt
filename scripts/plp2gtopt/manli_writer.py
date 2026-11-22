@@ -38,7 +38,9 @@ class ManliWriter(BaseWriter):
         self.line_parser = line_parser
         self.block_parser = block_parser
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """Convert maintenance data to JSON array format."""
         if items is None:
             items = self.items or []
@@ -87,7 +89,7 @@ class ManliWriter(BaseWriter):
         return df
 
     def to_dataframe(
-        self, items=None
+        self, items: Optional[List[Dict[str, Any]]] = None
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Convert maintenance data to pandas DataFrames."""
         if items is None:
@@ -157,7 +159,9 @@ class ManliWriter(BaseWriter):
         df = df.groupby("stage", sort=True).first().reset_index()
         return df
 
-    def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
+    def to_parquet(
+        self, output_dir: Path, items: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, List[str]]:
         """Write maintenance data to Parquet files."""
         cols: Dict[str, List[str]] = {"tmax_ab": [], "tmax_ba": [], "active": []}
         if items is None:

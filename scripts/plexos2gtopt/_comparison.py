@@ -21,12 +21,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from gtopt_shared.json_utils import strip_internal_keys
 
 from .entities import PlexosCase, generator_has_fuel_cost
 from .uc_families import UC_FAMILY_ORDER, uc_family
+
+if TYPE_CHECKING:
+    from gtopt_check_json._info import SystemCounts
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +288,9 @@ def _plexos_element_counts(case: PlexosCase) -> dict[str, Any]:
     }
 
 
-def _gtopt_element_counts(planning: dict[str, Any], base_dir: str | None = None):
+def _gtopt_element_counts(
+    planning: dict[str, Any], base_dir: str | None = None
+) -> SystemCounts:
     """Return the gtopt-JSON element counts via the gtopt_check authority.
 
     Delegates to :func:`gtopt_check_json._info.compute_counts` — never

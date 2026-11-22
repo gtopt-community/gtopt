@@ -43,7 +43,9 @@ class ManemWriter(BaseWriter):
         self.central_parser = central_parser
         self.stage_parser = stage_parser
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """Convert maintenance data to JSON array format."""
         if items is None:
             items = self.items or []
@@ -81,7 +83,7 @@ class ManemWriter(BaseWriter):
             value_field=field,
             index_field="stage",
             fill_field=field,
-            skip_types=("falla"),
+            skip_types=("falla",),
         )
 
         # Dense-default guard: re-fill any remaining NaN (reservoir whose
@@ -148,7 +150,9 @@ class ManemWriter(BaseWriter):
         except Exception as e:
             raise ValueError(f"Failed to create DataFrames: {str(e)}") from e
 
-    def to_parquet(self, output_dir: Path, items=None) -> Dict[str, List[str]]:
+    def to_parquet(
+        self, output_dir: Path, items: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, List[str]]:
         """Write maintenance data to Parquet/CSV files for emin and emax."""
         cols: Dict[str, List[str]] = {"emin": [], "emax": []}
         df_emin, df_emax = self.to_dataframe(items)

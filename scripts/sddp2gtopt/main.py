@@ -157,9 +157,9 @@ def make_parser() -> argparse.ArgumentParser:
 def _resolve_input_dir(args: argparse.Namespace) -> Path | None:
     """Pick ``-i`` over the positional argument; ``None`` if neither set."""
     if args.input_dir is not None:
-        return args.input_dir
+        return Path(args.input_dir)
     if args.positional_input is not None:
-        return args.positional_input
+        return Path(args.positional_input)
     return None
 
 

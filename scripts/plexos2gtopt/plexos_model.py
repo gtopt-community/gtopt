@@ -746,7 +746,9 @@ def _parse_rows(
     return dict(all_rows), dropped
 
 
-def _write_long(path: Path, series: dict[str, list[float]], hours) -> int:
+def _write_long(
+    path: Path, series: dict[str, list[float]], hours: list[tuple[datetime, int]]
+) -> int:
     with path.open("w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["NAME", "YEAR", "MONTH", "DAY", "PERIOD", "BAND", "VALUE"])
@@ -756,7 +758,9 @@ def _write_long(path: Path, series: dict[str, list[float]], hours) -> int:
     return len(series)
 
 
-def _write_wide(path: Path, series: dict[str, list[float]], hours) -> int:
+def _write_wide(
+    path: Path, series: dict[str, list[float]], hours: list[tuple[datetime, int]]
+) -> int:
     names = sorted(series)
     with path.open("w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
@@ -1225,7 +1229,9 @@ def _scheduled(cls: str, prop: str) -> bool:
     }
 
 
-def _varies(res: _Resolver, rows: list[_Row], hours) -> bool:
+def _varies(
+    res: _Resolver, rows: list[_Row], hours: list[tuple[datetime, int]]
+) -> bool:
     if len(rows) == 1 and not rows[0].exprs and rows[0].pattern is None:
         return False
     vals = []

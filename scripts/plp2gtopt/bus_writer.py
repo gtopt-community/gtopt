@@ -26,7 +26,9 @@ class BusWriter(BaseWriter):
         """Initialize with a BusParser instance."""
         super().__init__(bus_parser, options)
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """Convert bus data to JSON array format.
 
         In PLP the first bus is always used as the DC-OPF reference bus

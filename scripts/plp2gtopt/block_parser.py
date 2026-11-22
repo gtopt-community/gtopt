@@ -9,7 +9,7 @@ Handles:
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 from .base_parser import BaseParser
 
 
@@ -72,6 +72,6 @@ class BlockParser(BaseParser):
         """Return the stage num for the block."""
         return self.stage_number_map.get(int(block_num), -1)
 
-    def get_stage_numbers(self, block_nums) -> List[int]:
+    def get_stage_numbers(self, block_nums: Iterable[int]) -> List[int]:
         """Return the stage num for the block."""
         return [self.stage_number_map.get(block_num, -1) for block_num in block_nums]

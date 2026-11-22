@@ -37,10 +37,14 @@ class DemandWriter(BaseWriter):
         super().__init__(demand_parser, options)
         self.block_parser = block_parser
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """Convert demand data to JSON array format."""
         if items is None:
-            items = self.items
+            # ``self.items`` is None when the writer has no parser; match
+            # the other writers and treat that as "no demands".
+            items = self.items or []
 
         self.to_parquet(items=items)
 
@@ -67,7 +71,9 @@ class DemandWriter(BaseWriter):
         _logger.debug("Total Energy Demand [GWh]: %.2f", total_energy / 1000.0)
         return cast(List[Dict[str, Any]], json_demands)
 
-    def to_dataframe(self, items: Optional[List[Dict[str, Any]]] = None):
+    def to_dataframe(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Convert demand data to pandas DataFrame format.
 
         Returns:
@@ -149,7 +155,7 @@ class DemandWriter(BaseWriter):
 
         return df, de
 
-    def to_parquet(self, items=None) -> None:
+    def to_parquet(self, items: Optional[List[Dict[str, Any]]] = None) -> None:
         """Write demand data to Parquet file format."""
         output_dir = (
             self.options["output_dir"] / "Demand"

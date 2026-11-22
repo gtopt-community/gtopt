@@ -29,7 +29,7 @@ class HydroMixin:
     """Hydro / water-rights / LNG / pumped-storage processing."""
 
     parser: Any
-    planning: Dict[str, Dict[str, Any]]
+    planning: Dict[str, Any]  # see GTOptWriter.__init__
 
     def _build_cut_water_values(self) -> Dict[str, float]:
         """Return the per-reservoir boundary-cut water-value dict.

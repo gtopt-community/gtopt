@@ -35,7 +35,9 @@ class CostWriter(BaseWriter):
         self.central_parser = central_parser
         self.stage_parser = stage_parser
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """Convert cost data to JSON array format."""
         if items is None:
             items = self.items or []
@@ -67,7 +69,9 @@ class CostWriter(BaseWriter):
 
         return df
 
-    def to_parquet(self, output_dir: Path, cost_items=None) -> Dict[str, List[str]]:
+    def to_parquet(
+        self, output_dir: Path, cost_items: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, List[str]]:
         """Write demand data to Parquet file format."""
         cols: Dict[str, List[str]] = {"gcost": []}
 

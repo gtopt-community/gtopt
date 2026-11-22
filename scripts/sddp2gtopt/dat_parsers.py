@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 from gtopt_shared.base_parser import BaseTextParser
 
@@ -46,6 +48,8 @@ from .entities import (
 # Bus base voltage from the name suffix (``AGU-230`` → 230, ``SID-22`` → 22).
 _KV_SUFFIX = re.compile(r"-(\d+(?:\.\d+)?)$")
 
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +79,7 @@ class ControlParser(BaseTextParser):
         self.validate_file()
         lines = self.read_data_lines(comment_prefixes=())
 
-        def value_after(keyword: str, cast, default):
+        def value_after(keyword: str, cast: Callable[[float], _T], default: _T) -> _T:
             """First numeric token appearing after ``keyword`` on its line."""
             for line in lines:
                 pos = line.find(keyword)

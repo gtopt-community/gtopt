@@ -46,7 +46,9 @@ class LineWriter(BaseWriter):
         self.line_parser = line_parser
         self.block_parser = block_parser
 
-    def to_json_array(self, items=None) -> List[Dict[str, Any]]:
+    def to_json_array(
+        self, items: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """Convert line data to JSON array format."""
         if items is None:
             items = self.items
