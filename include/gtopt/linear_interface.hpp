@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <expected>
@@ -328,6 +329,12 @@ public:
         * kDbl;
     const auto& snap = m_snapshot_holder_.snapshot();
     r.compressed_bytes = snap.compressed_lp.data.size();
+    // Amortised share of a cross-scene dedup base (held by every cell of
+    // the phase; the registry only holds it weakly).
+    if (const auto& base = snap.compressed_lp.xor_base; base != nullptr) {
+      r.compressed_bytes += base->data.size()
+          / static_cast<std::size_t>(std::max(base.use_count(), 1L));
+    }
     r.active_cuts = m_replay_.active_cuts_size();
     r.flat_resident = !snap.flat_lp.matbeg.empty();
     return r;
@@ -2844,6 +2851,15 @@ public:
   {
     m_labels_.name_store = store;
     m_labels_.spill_key = std::move(key);
+  }
+
+  /// Attach the cross-cell snapshot dedup registry and this cell's key
+  /// (see `FlatLpDedupRegistry`).  Must precede the first compression;
+  /// later calls only affect cells not yet compressed.
+  void set_snapshot_dedup(std::shared_ptr<FlatLpDedupRegistry> registry,
+                          std::string key) noexcept
+  {
+    m_snapshot_holder_.set_dedup(std::move(registry), std::move(key));
   }
 
   /// @brief Returns the LabelMaker driving label generation for add_col/row.

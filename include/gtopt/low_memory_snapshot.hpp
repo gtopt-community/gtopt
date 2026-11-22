@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <string>
+
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/memory_compress.hpp>
 
@@ -51,7 +53,11 @@ struct LowMemorySnapshot
 
   /// Compress the flat LP (first call only) and free expanded vectors.
   /// Subsequent calls just free the expanded vectors.
-  void compress(CompressionCodec codec);
+  /// With a non-null @p registry the buffer is deduplicated against the
+  /// registry base for @p dedup_key (see `FlatLpDedupRegistry`).
+  void compress(CompressionCodec codec,
+                FlatLpDedupRegistry* registry = nullptr,
+                const std::string& dedup_key = {});
 
   /// Decompress the flat LP vectors from the compressed buffer.
   /// Keeps the compressed buffer intact (persistent cache).

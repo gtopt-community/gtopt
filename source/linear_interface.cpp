@@ -856,29 +856,34 @@ void LinearInterface::enable_compression()
   const bool was_first_compress = m_snapshot_holder_.compress_if_uncompressed();
 
   if (was_first_compress) {
-    const auto orig = m_snapshot_holder_.snapshot().compressed_lp.original_size;
-    const auto comp = m_snapshot_holder_.snapshot().compressed_lp.data.size();
-    const auto ratio =
+    const auto& cbuf = m_snapshot_holder_.snapshot().compressed_lp;
+    const auto orig = cbuf.original_size;
+    const auto comp = cbuf.data.size();
+    // Under cross-scene dedup `comp` is this cell's XOR delta only; the
+    // shared per-phase base is reported separately.
+    const auto base = cbuf.xor_base ? cbuf.xor_base->data.size() : 0;
+    [[maybe_unused]] const auto own_ratio =
         comp > 0 ? static_cast<double>(orig) / static_cast<double>(comp) : 0.0;
     SPDLOG_DEBUG(
-        "  snapshot compressed: {} -> {} bytes (ratio {:.2f}x, codec {})",
+        "  snapshot compressed: {} -> {} bytes (+{} shared base) "
+        "(ratio {:.2f}x, codec {})",
         orig,
         comp,
-        ratio,
-        codec_name(m_snapshot_holder_.snapshot().compressed_lp.codec));
+        base,
+        own_ratio,
+        codec_name(cbuf.codec));
     static std::once_flag first_log_flag;
-    std::call_once(
-        first_log_flag,
-        [&]
-        {
-          SPDLOG_INFO(
-              "  first snapshot compressed: {} -> {} bytes "
-              "(ratio {:.2f}x, codec {})",
-              orig,
-              comp,
-              ratio,
-              codec_name(m_snapshot_holder_.snapshot().compressed_lp.codec));
-        });
+    std::call_once(first_log_flag,
+                   [&]
+                   {
+                     SPDLOG_INFO(
+                         "  first snapshot compressed: {} -> {} bytes "
+                         "(+{} shared base, codec {})",
+                         orig,
+                         comp,
+                         base,
+                         codec_name(cbuf.codec));
+                   });
   }
 }
 

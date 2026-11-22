@@ -1437,6 +1437,11 @@ auto PlanningLP::create_systems(System& system,
               num_phases,
               enum_name(build_mode));
 
+  if (resolved_opts.low_memory_mode == LowMemoryMode::compress
+      && resolved_opts.dedup_registry == nullptr)
+  {
+    resolved_opts.dedup_registry = std::make_shared<FlatLpDedupRegistry>();
+  }
   if (resolved_opts.low_memory_mode != LowMemoryMode::off) {
     const auto effective_codec = select_codec(resolved_opts.memory_codec);
     SPDLOG_INFO("  low_memory={} (memory codec: {})",

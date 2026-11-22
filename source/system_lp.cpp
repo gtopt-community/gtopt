@@ -653,6 +653,16 @@ constexpr auto create_linear_interface(auto& collections,
     // legacy uncompressed-snapshot behaviour (no compression
     // until release).
     if (flat_opts.low_memory_mode == LowMemoryMode::compress) {
+      // Cross-scene dedup: all scenes of a phase share the matrix, costs
+      // and scales and differ in a few bounds, so store each cell as an
+      // XOR delta against one base per (kind, phase).
+      if (flat_opts.dedup_registry != nullptr) {
+        li.set_snapshot_dedup(
+            flat_opts.dedup_registry,
+            std::format("k{}_p{}",
+                        static_cast<int>(system_context.kind()),
+                        phase.uid().value()));
+      }
       li.enable_compression();
     }
   } else {

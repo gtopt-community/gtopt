@@ -48,6 +48,8 @@
 
 #pragma once
 
+#include <memory>
+#include <string>
 #include <utility>
 
 #include <gtopt/low_memory_snapshot.hpp>
@@ -93,6 +95,15 @@ public:
 
   void set_codec(CompressionCodec c) noexcept { m_codec_ = c; }
 
+  /// Attach the cross-cell dedup registry and this cell's key (see
+  /// `FlatLpDedupRegistry`).  Used by the next first-compress only.
+  void set_dedup(std::shared_ptr<FlatLpDedupRegistry> registry,
+                 std::string key) noexcept
+  {
+    m_dedup_registry_ = std::move(registry);
+    m_dedup_key_ = std::move(key);
+  }
+
   /// **S2** — drop the snapshot to its default-constructed state.
   /// Leaves the codec untouched (callers that want a full reset
   /// should also `set_codec(CompressionCodec::lz4)`).
@@ -120,7 +131,7 @@ public:
   [[nodiscard]] auto compress_if_uncompressed() -> bool
   {
     const bool was_first_compress = !m_snapshot_.is_compressed();
-    m_snapshot_.compress(m_codec_);
+    m_snapshot_.compress(m_codec_, m_dedup_registry_.get(), m_dedup_key_);
     return was_first_compress && m_snapshot_.is_compressed();
   }
 
@@ -136,6 +147,8 @@ public:
 private:
   LowMemorySnapshot m_snapshot_ {};
   CompressionCodec m_codec_ {CompressionCodec::lz4};
+  std::shared_ptr<FlatLpDedupRegistry> m_dedup_registry_ {};
+  std::string m_dedup_key_ {};
 };
 
 }  // namespace gtopt

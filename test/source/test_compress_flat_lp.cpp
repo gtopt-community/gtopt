@@ -17,6 +17,9 @@
  */
 
 #include <algorithm>
+#include <cstring>
+#include <limits>
+#include <memory>
 #include <numeric>
 #include <vector>
 
@@ -470,6 +473,112 @@ TEST_CASE("compress_flat_lp with double round-trip through CompressedBuffer")
   decompress_flat_lp(flp, cb);
 
   verify_flp_equal(flp, expected);
+}
+
+namespace
+{
+/// Byte-wise equality of every numeric vector (bit-exact, NaN-safe).
+template<typename T>
+[[nodiscard]] bool same_bytes(const std::vector<T>& a, const std::vector<T>& b)
+{
+  return a.size() == b.size()
+      && (a.empty()
+          || std::memcmp(a.data(), b.data(), a.size() * sizeof(T)) == 0);
+}
+
+[[nodiscard]] bool flp_bit_equal(const FlatLinearProblem& a,
+                                 const FlatLinearProblem& b)
+{
+  return same_bytes(a.matbeg, b.matbeg) && same_bytes(a.matind, b.matind)
+      && same_bytes(a.colint, b.colint) && same_bytes(a.matval, b.matval)
+      && same_bytes(a.collb, b.collb) && same_bytes(a.colub, b.colub)
+      && same_bytes(a.objval, b.objval) && same_bytes(a.rowlb, b.rowlb)
+      && same_bytes(a.rowub, b.rowub) && same_bytes(a.col_scales, b.col_scales)
+      && same_bytes(a.row_scales, b.row_scales);
+}
+}  // namespace
+
+TEST_CASE(
+    "compress_flat_lp — cross-scene dedup round-trips bit-exact")  // NOLINT
+{
+  const auto codec = select_codec(CompressionCodec::auto_select);
+  auto registry = std::make_shared<FlatLpDedupRegistry>();
+
+  // Scene A, scene B (a few bounds differ: inflows), scene C identical
+  // to A — the shape measured across the scenes of one phase.
+  auto a = make_realistic_flp();
+  auto b = make_realistic_flp();
+  b.collb[3] = 1.25;
+  b.colub[7] = 42.0;
+  b.rowlb[5] = -std::numeric_limits<double>::quiet_NaN();
+  auto c = make_realistic_flp();
+  const auto a0 = a;
+  const auto b0 = b;
+  const auto c0 = c;
+
+  const auto ca = compress_flat_lp(a, codec, registry.get(), "k0_p1");
+  const auto cb = compress_flat_lp(b, codec, registry.get(), "k0_p1");
+  const auto cc = compress_flat_lp(c, codec, registry.get(), "k0_p1");
+  CHECK(registry->live_bases() == 1);
+
+  // All three share one base; identical cells store no delta at all.
+  REQUIRE(ca.xor_base != nullptr);
+  CHECK(cb.xor_base == ca.xor_base);
+  CHECK(cc.xor_base == ca.xor_base);
+  CHECK(ca.data.empty());
+  CHECK(cc.data.empty());
+  CHECK_FALSE(cb.data.empty());
+  CHECK(cb.data.size() < ca.xor_base->data.size());
+  CHECK_FALSE(ca.empty());
+  CHECK_FALSE(cc.empty());
+
+  decompress_flat_lp(a, ca);
+  decompress_flat_lp(b, cb);
+  decompress_flat_lp(c, cc);
+  CHECK(flp_bit_equal(a, a0));
+  CHECK(flp_bit_equal(b, b0));
+  CHECK(flp_bit_equal(c, c0));
+}
+
+TEST_CASE("FlatLpDedupRegistry — size mismatch and key isolation")  // NOLINT
+{
+  const auto codec = select_codec(CompressionCodec::auto_select);
+  FlatLpDedupRegistry registry;
+
+  const std::vector<char> x(4096, 'x');
+  std::vector<char> y(4096, 'x');
+  y[100] = 'y';
+  const std::vector<char> z(1000, 'z');
+
+  const auto bx = registry.compress("p1", x, codec);
+  const auto by = registry.compress("p1", y, codec);
+  const auto bz = registry.compress("p1", z, codec);  // different size
+  const auto bo = registry.compress("p2", y, codec);  // other key
+
+  CHECK(bz.xor_base == nullptr);  // plain fallback
+  CHECK(bo.xor_base != bx.xor_base);
+  CHECK(bx.decompress_data() == x);
+  CHECK(by.decompress_data() == y);
+  CHECK(bz.decompress_data() == z);
+  CHECK(bo.decompress_data() == y);
+  CHECK(registry.live_bases() == 2);
+}
+
+TEST_CASE("FlatLpDedupRegistry — base freed with its last cell")  // NOLINT
+{
+  const auto codec = select_codec(CompressionCodec::auto_select);
+  FlatLpDedupRegistry registry;
+  const std::vector<char> x(2048, 'a');
+  {
+    const auto b1 = registry.compress("p", x, codec);
+    CHECK(registry.live_bases() == 1);
+    CHECK(b1.decompress_data() == x);
+  }
+  CHECK(registry.live_bases() == 0);
+  // A later cell re-publishes a fresh base for the same key.
+  const auto b2 = registry.compress("p", x, codec);
+  CHECK(registry.live_bases() == 1);
+  CHECK(b2.decompress_data() == x);
 }
 
 // NOLINTEND(bugprone-misplaced-widening-cast,

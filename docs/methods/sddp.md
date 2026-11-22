@@ -1646,8 +1646,15 @@ mitigate this:
      (lz4 / zstd, ~2–4× ratio) when the backend is released and
      decompressed on demand — and replayed on the next access via
      `LinearInterface::reconstruct_backend()`.  Cuts the
-     solver-resident memory but still pays one snapshot per cell.  The
-     codec is chosen by `memory_codec` (default `auto` → lz4).
+     solver-resident memory. The scenes of one phase share the
+     constraint matrix, costs and scales bit for bit and differ only
+     in a few percent of the bounds, so the snapshots are
+     deduplicated across scenes. Each phase keeps one shared
+     compressed base, and every cell stores only the compressed XOR
+     of its bytes against that base, which is empty when the two are
+     identical. The restore is bit-exact. On the CEN 2-year case the
+     per-cell delta is about 3% of a full snapshot. The codec is
+     chosen by `memory_codec` (default `auto` → lz4).
    - `snapshot` *(back-compat alias → `compress` with
      `memory_codec = uncompressed`)*: same release/replay behaviour,
      but the in-memory snapshot is left uncompressed.

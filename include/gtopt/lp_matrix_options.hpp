@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -27,6 +28,8 @@
 
 namespace gtopt
 {
+
+class FlatLpDedupRegistry;
 
 class LpNameSpillStore;  // fwd-decl: non-owning back-pointer carried below
 
@@ -155,6 +158,14 @@ struct LpMatrixOptions
   /// reloads it on demand.  Null disables the spill (current behaviour).
   /// Build-control carrier only — NOT merged, serialised, or compared.
   LpNameSpillStore* name_store {nullptr};
+
+  /// Shared cross-cell snapshot dedup registry (see
+  /// `FlatLpDedupRegistry` in memory_compress.hpp).  Installed by
+  /// `PlanningLP::create_systems` under `low_memory = compress`; each
+  /// cell's compressed flat LP is then stored as an XOR delta against
+  /// one base per (kind, phase).  Null disables dedup.  Build-control
+  /// carrier only — NOT merged, serialised, or compared.
+  std::shared_ptr<FlatLpDedupRegistry> dedup_registry {};
 
   /// Merge optional fields from another LpMatrixOptions.
   /// Non-optional fields (eps, col_with_names, etc.) are not merged —

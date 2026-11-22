@@ -460,10 +460,85 @@ std::vector<char> decompress(std::span<const char> compressed,
   throw std::runtime_error("unknown codec");
 }
 
+// ── Cross-cell dedup ───────────────────────────────────────────────────────
+
+std::vector<char> CompressedBuffer::decompress_data() const
+{
+  if (xor_base == nullptr) {
+    return gtopt::decompress(data, original_size, codec);
+  }
+  auto raw = xor_base->decompress_data();
+  if (!data.empty()) {
+    const auto diff = gtopt::decompress(data, original_size, codec);
+    for (std::size_t i = 0; i < raw.size(); ++i) {
+      raw[i] = static_cast<char>(raw[i] ^ diff[i]);
+    }
+  }
+  return raw;
+}
+
+CompressedBuffer FlatLpDedupRegistry::compress(const std::string& key,
+                                               std::span<const char> raw,
+                                               CompressionCodec codec)
+{
+  std::shared_ptr<const CompressedBuffer> base;
+  {
+    const std::scoped_lock lock(m_mutex_);
+    if (const auto it = m_bases_.find(key); it != m_bases_.end()) {
+      base = it->second.lock();
+    }
+  }
+  if (base == nullptr) {
+    // Compress outside the lock; on a lost race adopt the winner's base.
+    auto fresh =
+        std::make_shared<const CompressedBuffer>(compress_buffer(raw, codec));
+    const std::scoped_lock lock(m_mutex_);
+    auto& slot = m_bases_[key];
+    base = slot.lock();
+    if (base == nullptr) {
+      slot = fresh;
+      base = std::move(fresh);
+    }
+  }
+  if (base->original_size != raw.size() || base->codec != codec
+      || base->xor_base != nullptr)
+  {
+    return compress_buffer(raw, codec);
+  }
+  auto diff = base->decompress_data();
+  bool identical = true;
+  for (std::size_t i = 0; i < diff.size(); ++i) {
+    diff[i] = static_cast<char>(diff[i] ^ raw[i]);
+    identical = identical && diff[i] == 0;
+  }
+  CompressedBuffer out {
+      .data = {},
+      .original_size = raw.size(),
+      .codec = codec,
+      .xor_base = std::move(base),
+  };
+  if (!identical) {
+    out.data = gtopt::compress(diff, codec);
+  }
+  return out;
+}
+
+std::size_t FlatLpDedupRegistry::live_bases() const
+{
+  const std::scoped_lock lock(m_mutex_);
+  std::size_t n = 0;
+  for (const auto& [key, weak] : m_bases_) {
+    n += weak.expired() ? 0U : 1U;
+  }
+  return n;
+}
+
 // ── FlatLinearProblem compression ──────────────────────────────────────────
 
 CompressedBuffer compress_flat_lp(FlatLinearProblem& flp,
-                                  CompressionCodec codec)
+                                  CompressionCodec codec,
+                                  FlatLpDedupRegistry* registry,
+                                  const std::string& dedup_key)
 {
   const auto effective = select_codec(codec);
   if (effective == CompressionCodec::uncompressed) {
@@ -514,7 +589,9 @@ CompressedBuffer compress_flat_lp(FlatLinearProblem& flp,
   append(flp.col_scales);
   append(flp.row_scales);
 
-  auto result = compress_buffer(buf, effective);
+  auto result = registry != nullptr
+      ? registry->compress(dedup_key, buf, effective)
+      : compress_buffer(buf, effective);
   result.flp_nnz = nnz;
   result.flp_colint_count = colint_count;
   // Preserve col_scales / row_scales sizes so decompress reads
@@ -634,14 +711,16 @@ void clear_flat_lp_vectors(FlatLinearProblem& flp)
 
 // ── LowMemorySnapshot ─────────────────────────────────────────────────────
 
-void LowMemorySnapshot::compress(CompressionCodec codec)
+void LowMemorySnapshot::compress(CompressionCodec codec,
+                                 FlatLpDedupRegistry* registry,
+                                 const std::string& dedup_key)
 {
   // Flat LP: compress only on first call (immutable after save_snapshot).
   // Solution vectors are NOT compressed here — they are cached directly
   // on LinearInterface (m_cached_col_sol_ etc.) and never need snapshot
   // compression/decompression.
   if (compressed_lp.empty() && !flat_lp.matbeg.empty()) {
-    compressed_lp = compress_flat_lp(flat_lp, codec);
+    compressed_lp = compress_flat_lp(flat_lp, codec, registry, dedup_key);
     // compress_flat_lp already clears the numeric vectors
   } else if (!compressed_lp.empty()) {
     // Already have compressed form — just free expanded vectors

@@ -15,8 +15,12 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
+#include <mutex>
 #include <span>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <gtopt/planning_enums.hpp>
@@ -77,16 +81,56 @@ struct CompressedBuffer
   size_t flp_col_scales_size {0};
   size_t flp_row_scales_size {0};
 
-  [[nodiscard]] bool empty() const noexcept { return data.empty(); }
+  /// Cross-cell dedup (see `FlatLpDedupRegistry`).  When non-null, this
+  /// buffer stores only the byte-wise XOR of its raw bytes against the
+  /// raw bytes of `xor_base` (a plain, same-size buffer shared by every
+  /// cell of the same phase): `data` is the compressed XOR, or EMPTY
+  /// when the two are byte-identical.  Restoring XORs the decompressed
+  /// base back in, so the round trip is bit-exact by construction.
+  std::shared_ptr<const CompressedBuffer> xor_base {};
+
+  [[nodiscard]] bool empty() const noexcept
+  {
+    return data.empty() && xor_base == nullptr;
+  }
 
   /// Decompress and return the original data.
-  [[nodiscard]] std::vector<char> decompress_data() const
-  {
-    return gtopt::decompress(data, original_size, codec);
-  }
+  [[nodiscard]] std::vector<char> decompress_data() const;
 };
 
-/// Compress a byte span into a CompressedBuffer.
+/// Cross-cell base registry for flat-LP snapshot dedup.
+///
+/// The (scene, phase) cells of one phase share the constraint matrix,
+/// costs and scales bit for bit and differ only in a few percent of the
+/// bounds (inflows, initial volumes).  Measured on the CEN 2-year case:
+/// matbeg/matind/matval/objval/scales identical across scenes, ~2.5% of
+/// column and row bounds different; the compressed XOR against a sibling
+/// is 1-8 KB vs ~200-300 KB for the full buffer.
+///
+/// `compress(key, raw, codec)`: the first caller per `key` publishes its
+/// plain compressed buffer as the base; every caller (including the
+/// first) gets back a buffer holding only the compressed XOR against the
+/// base (empty when identical).  A size or codec mismatch falls back to
+/// a plain buffer.  The registry holds bases weakly, so a base is freed
+/// once the last cell referencing it drops its snapshot.  Thread-safe.
+class FlatLpDedupRegistry
+{
+public:
+  [[nodiscard]] CompressedBuffer compress(const std::string& key,
+                                          std::span<const char> raw,
+                                          CompressionCodec codec);
+
+  /// Number of keys currently holding a live base.
+  [[nodiscard]] std::size_t live_bases() const;
+
+private:
+  mutable std::mutex m_mutex_;
+  std::unordered_map<std::string, std::weak_ptr<const CompressedBuffer>>
+      m_bases_;
+};
+
+/// Compress a byte span into a CompressedBuffer./// Compress a byte span into a
+/// CompressedBuffer.
 [[nodiscard]] inline CompressedBuffer compress_buffer(
     std::span<const char> data, CompressionCodec codec)
 {
@@ -104,8 +148,13 @@ struct FlatLinearProblem;
 /// buffer, compress it, and clear the source vectors (keeping metadata
 /// like ncols/nrows, names, stats, etc.).
 /// No-op and returns an empty buffer when @p codec resolves to `none`.
-[[nodiscard]] CompressedBuffer compress_flat_lp(FlatLinearProblem& flp,
-                                                CompressionCodec codec);
+/// When @p registry is non-null the buffer is deduplicated against the
+/// registry's base for @p dedup_key (see `FlatLpDedupRegistry`).
+[[nodiscard]] CompressedBuffer compress_flat_lp(
+    FlatLinearProblem& flp,
+    CompressionCodec codec,
+    FlatLpDedupRegistry* registry = nullptr,
+    const std::string& dedup_key = {});
 
 /// Decompress a buffer previously created by compress_flat_lp() and
 /// restore the numeric vectors of @p flp.  No-op when @p buf is empty.
