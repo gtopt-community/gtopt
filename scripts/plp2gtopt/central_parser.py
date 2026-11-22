@@ -266,14 +266,10 @@ class CentralParser(BaseParser):
     def max_falla_cost(self) -> float:
         """Maximum ``gcost`` across all PLP ``falla`` centrals.
 
-        Used as the global ``model_options.demand_fail_cost`` default
-        when no explicit value is provided: the system-wide upper
-        bound on unserved-load price.  Demands without an explicit
-        per-demand ``fcost`` fall back to this global, so it must be
-        at least as high as the most expensive curtailment tier
-        anywhere in the system — otherwise the LP would prefer
-        wholesale curtailment over generation that costs less than
-        the global default but more than the global.
+        NOT used for the global ``model_options.demand_fail_cost``: that
+        default stays 0 because the Python-emitted battery charge
+        demands carry no ``fcost`` (see ``GTOptWriter.process_options``).
+        Kept as a diagnostic helper.
 
         Returns 0.0 when the central list has no ``falla`` centrals.
         """

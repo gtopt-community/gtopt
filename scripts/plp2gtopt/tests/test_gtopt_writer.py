@@ -663,6 +663,32 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out"})
         assert writer.planning["options"]["model_options"]["demand_fail_cost"] == 0
 
+    def test_process_options_demand_fail_cost_ignores_falla_max(self):
+        """The global stays 0 even when the case has priced falla centrals.
+
+        Python-emitted battery charge demands (``<name>_chrg``) carry no
+        ``fcost`` and rely on the 0 global to stay freely dispatchable.
+        Regression guard for the former ``self.central_parser`` path
+        (an attribute GTOptWriter never had) that pretended to default
+        the global to ``max(falla.gcost)``.
+        """
+        central_parser = MagicMock()
+        central_parser.max_falla_cost.return_value = 500.0
+        central_parser.avg_falla_cost.return_value = 400.0
+        parser = MagicMock()
+        parser.parsed_data = {"central_parser": central_parser}
+        writer = GTOptWriter(parser)
+        writer.process_options({"output_dir": "out"})
+        model = writer.planning["options"]["model_options"]
+        assert model["demand_fail_cost"] == 0.0
+
+        writer = GTOptWriter(parser)
+        writer.process_options(
+            {"output_dir": "out", "model_options": {"demand_fail_cost": 750.0}}
+        )
+        model = writer.planning["options"]["model_options"]
+        assert model["demand_fail_cost"] == pytest.approx(750.0)
+
     def test_process_options_with_discount(self):
         """process_options passes discount_rate to simulation."""
         writer = GTOptWriter(MagicMock())
