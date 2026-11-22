@@ -82,7 +82,7 @@ TEST_CASE(  // NOLINT
                           "gcost": [[{}]], "capacity": 1000}}],
     "battery_array": [{{"uid": 1, "name": "bess", "bus": 1,
                         "input_efficiency": 0.9, "output_efficiency": 0.9,
-                        "emin": 0, "emax": 50, "eini": 0,
+                        "annual_loss": 0, "emin": 0, "emax": 50, "eini": 0,
                         "pmax_charge": 100, "pmax_discharge": 100,
                         "capacity": 50, "daily_cycle": true}}]}}
 }})",
@@ -114,7 +114,7 @@ TEST_CASE(  // NOLINT
                           "gcost": [[1], [100]], "capacity": 1000}}],
     "battery_array": [{{"uid": 1, "name": "bess", "bus": 1,
                         "input_efficiency": 0.9, "output_efficiency": 0.9,
-                        "emin": 0, "emax": 50, "eini": 0,
+                        "annual_loss": 0, "emin": 0, "emax": 50, "eini": 0,
                         "pmax_charge": 100, "pmax_discharge": 100,
                         "capacity": 50, "daily_cycle": false,
                         "use_state_variable": true}}]}}

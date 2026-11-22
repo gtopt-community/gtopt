@@ -40,7 +40,7 @@ phase 0), which correspond to `output/<Element>/<field>.csv`.
 
 ## Checking against the reference
 
-Expected objective: **5028.54**.
+Expected objective: **5027.40**.
 
 The case is an end-to-end test.  With a build configured with
 `-DGTOPT_BUILD_INTEGRATION_TESTS=ON` (see [`../README.md`](../README.md)):
