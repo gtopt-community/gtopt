@@ -336,22 +336,23 @@ warn_unused_ignores = true
 warn_return_any = false
 disallow_untyped_defs = false
 exclude = ["tests/"]
+# Only consulted where disallow_untyped_calls is on (the strict converter
+# override below).  pyarrow ships py.typed but leaves e.g.
+# pyarrow.parquet.read_table / write_table unannotated.  Global-only flag.
+untyped_calls_exclude = ["pyarrow"]
 
-# Converters: check the bodies of unannotated functions and reject
-# partially-annotated signatures.  Scoped to these packages for now —
-# enabling them globally adds ~90 errors elsewhere (mostly gtopt_diagram
-# and run_gtopt); widen this list as those packages are cleaned up.
+# The three converters (plp2gtopt, plexos2gtopt, sddp2gtopt) are held to
+# the per-module equivalent of ``mypy --strict``.  ``strict = true`` is NOT
+# used here: inside an override it leaks flags such as
+# disallow_any_generics to every module.  Of the --strict flags,
+# warn_unused_configs / warn_redundant_casts are global-only and
+# warn_unused_ignores is already set globally above.  Widen this list as
+# other packages are cleaned up.
 [[tool.mypy.overrides]]
 module = ["plp2gtopt.*", "plexos2gtopt.*", "sddp2gtopt.*"]
 check_untyped_defs = true
-disallow_incomplete_defs = true
-
-# sddp2gtopt is small and fully annotated: hold it to the per-module
-# equivalent of --strict.  (``strict = true`` is NOT used here: inside an
-# override it leaks flags such as disallow_any_generics to every module.)
-[[tool.mypy.overrides]]
-module = ["sddp2gtopt.*"]
 disallow_any_generics = true
+disallow_incomplete_defs = true
 disallow_subclassing_any = true
 disallow_untyped_calls = true
 disallow_untyped_defs = true
