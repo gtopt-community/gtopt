@@ -505,6 +505,67 @@ TEST_CASE(  // NOLINT
   CHECK(lp.get_col_upp()[eini_col] == doctest::Approx(emax_val));
 }
 
+TEST_CASE(  // NOLINT
+    "VolumeRightLP Tier 1.5c - reset provision uses the stage-start volume")
+{
+  // PLP provisions the season rights from the volume at the START of the
+  // reset stage: VolLajaM = VolIni(IVol) (genpdlajam.f:575-576), zones
+  // evaluated at INICIOTEMP (genpdlajam.f:624-649).  update_lp used the
+  // (vini + vfin)/2 average with vfin from the previous solve, so the
+  // provision drifted with the stage's own outcome.
+  //
+  // Hand values: rule = 0.1 * V, eini(rsv) = 1500 -> provision 150.
+  // Over a 730 h stage the reservoir fills (inflow 100 m3/s, turbined
+  // 25 m3/s) to ~1697 hm3; the old average gave ~159.9.
+  const HydroFixture fx;
+  const Array<VolumeRight> vrs = {
+      {
+          .uid = Uid {1},
+          .name = "vreset_vini",
+          .reservoir = Uid {1},
+          .emax = 1000.0,
+          .eini = 0.0,
+          .use_state_variable = false,
+          .reset_month = MonthType::april,
+          .bound_rule =
+              RightBoundRule {
+                  .reservoir = Uid {1},
+                  .segments =
+                      {
+                          {
+                              .volume = 0.0,
+                              .slope = 0.1,
+                              .constant = 0.0,
+                          },
+                      },
+              },
+      },
+  };
+
+  auto simulation = make_single_stage_simulation();
+  simulation.block_array[0].duration = 730.0;
+  const auto system = make_system(fx, vrs, "Tier1_5c_ResetVini");
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& vr_lp = system_lp.elements<VolumeRightLP>().front();
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  const auto eini_col = vr_lp.eini_col_at(scenarios[0], stages[0]);
+
+  auto& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  CHECK(lp.get_col_upp()[eini_col] == doctest::Approx(150.0));
+
+  // The solved stage moved the reservoir away from its start volume;
+  // re-provisioning must still read the start volume.
+  std::ignore = vr_lp.update_lp(system_lp, scenarios[0], stages[0]);
+  CHECK(lp.get_col_low()[eini_col] == doctest::Approx(150.0));
+  CHECK(lp.get_col_upp()[eini_col] == doctest::Approx(150.0));
+}
+
 // ── 1.7 solve LP and inspect extraction col_sol ──────────────────────────
 
 TEST_CASE(  // NOLINT

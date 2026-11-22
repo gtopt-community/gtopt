@@ -601,10 +601,25 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   if (is_reset_stage_update) {
     // ``reset_value`` provisions are static — nothing to refresh.
     if (!volume_right().reset_value.has_value()) {
+      // PLP provisions from the volume at the START of the reset stage
+      // (VolLajaM = VolIni(IVol), genpdlajam.f:575-576, evaluated at
+      // INICIOTEMP, genpdlajam.f:624-649) — not the (vini + vfin)/2
+      // average used for the per-stage rate cap above, whose vfin is
+      // the stage's own previous solution.
+      const auto provision_axis = resolve_bound_rule_axis_value(
+          *opt_rule,
+          stage.month(),
+          [&]() -> Real
+          {
+            return physical_eini_from_cache(
+                sys, scenario, stage, state.reservoir_cache);
+          });
+      const auto provision_bound =
+          evaluate_bound_rule(*opt_rule, provision_axis);
       // Same [0, emax] clamp as the build-time provision.
       const auto stage_cap =
           param_emax(stage.uid(), stage.blocks().front().uid()).value_or(0.0);
-      const auto provision = std::clamp(new_bound, 0.0, stage_cap);
+      const auto provision = std::clamp(provision_bound, 0.0, stage_cap);
       if (const auto it = reset_debit_rows_.find({scenario.uid(), stage.uid()});
           it != reset_debit_rows_.end())
       {
