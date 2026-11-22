@@ -119,6 +119,17 @@ sudo apt-get install -y --no-install-recommends \
   ca-certificates lsb-release wget
 ok "ccache and base packages installed"
 
+# ccache sizing: one full CIFast build is ~0.2 GB, but each worktree /
+# build type / compiler adds its own set and the 5 GB default thrashes
+# with several concurrent builds.  Only raise the limit while it is
+# still the built-in default (a user setting wins).  base_dir /
+# hash_dir / sloppiness are passed per invocation by
+# cmake_local/Ccache.cmake; keep the cache dir on local disk (export
+# CCACHE_DIR per host when $HOME is an NFS mount).
+if ccache -p 2>/dev/null | grep -q '^(default) max_size'; then
+  ccache --max-size=30G > /dev/null && ok "ccache max_size set to 30G"
+fi
+
 # ── Steps 2-3: Arrow/Parquet + Compiler (in parallel) ────────────────────────
 # These two installations are independent and can run concurrently, saving
 # ~1-2 minutes on fresh setups.

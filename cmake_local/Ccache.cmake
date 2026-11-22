@@ -111,6 +111,84 @@ if(CCACHE_PROGRAM)
     file(TOUCH "${_ccache_marker}")
     message(STATUS "ccache: wrote PCH + coverage sloppiness to ${_ccache_conf}")
   endif()
+  # ---- Per-invocation ccache settings (ccache >= 4.8) ----
+  # ccache >= 4.8 accepts `KEY=VALUE` config overrides between `ccache`
+  # and the compiler, so the settings below travel with the build tree
+  # instead of depending on each host's ~/.config/ccache/ccache.conf:
+  #   base_dir   common ancestor of the source tree, the build tree and
+  #              the CPM source cache.  ccache rewrites absolute paths
+  #              under it to cwd-relative ones, so two build dirs at the
+  #              same depth (two tools/mk_scratch_build.sh dirs, CI runs)
+  #              share hits.  Without it every -I/-o/source path differs
+  #              and a fresh build dir misses on every TU.
+  #   hash_dir   false: do not hash the cwd (it only lands in the DWARF
+  #              comp_dir of the -g1 CIFast / -g Debug objects).
+  #   sloppiness the PCH/coverage tokens above plus include_file_mtime/
+  #              ctime, so the generated headers (git_revision.hpp,
+  #              *_builtin.hpp) do not drop their TUs out of direct mode.
+  # Only applied when the launcher is plain ccache (ours, or the
+  # `-DCMAKE_<LANG>_COMPILER_LAUNCHER=ccache` used by CI / CLAUDE.md); a
+  # launcher that already carries arguments is left alone.  The result
+  # is a normal (non-cache) variable: it shadows the cache entry for
+  # this directory and every add_subdirectory() below it.
+  # Disable with -DGTOPT_CCACHE_TUNING=OFF.
+  option(GTOPT_CCACHE_TUNING
+         "Pass base_dir/hash_dir/sloppiness overrides to ccache" ON)
+  execute_process(
+    COMMAND "${CCACHE_PROGRAM}" --version
+    OUTPUT_VARIABLE _ccache_ver_out
+    ERROR_QUIET
+  )
+  string(REGEX MATCH "version ([0-9]+\\.[0-9]+)" _ccache_ver_m
+               "${_ccache_ver_out}")
+  set(_ccache_ver "${CMAKE_MATCH_1}")
+  if(GTOPT_CCACHE_TUNING AND _ccache_ver VERSION_GREATER_EQUAL 4.8)
+    set(_cc_paths "${CMAKE_SOURCE_DIR}/.." "${CMAKE_BINARY_DIR}")
+    if(CPM_SOURCE_CACHE AND IS_ABSOLUTE "${CPM_SOURCE_CACHE}")
+      list(APPEND _cc_paths "${CPM_SOURCE_CACHE}")
+    elseif(DEFINED ENV{CPM_SOURCE_CACHE})
+      list(APPEND _cc_paths "$ENV{CPM_SOURCE_CACHE}")
+    elseif(DEFINED ENV{HOME})
+      list(APPEND _cc_paths "$ENV{HOME}/.cache/cpm")
+    endif()
+    set(_cc_base "")
+    foreach(_p IN LISTS _cc_paths)
+      cmake_path(ABSOLUTE_PATH _p NORMALIZE)
+      string(REGEX REPLACE "/$" "" _p "${_p}")
+      if(_cc_base STREQUAL "")
+        set(_cc_base "${_p}")
+      endif()
+      string(FIND "${_p}/" "${_cc_base}/" _pos)
+      while(NOT _pos EQUAL 0 AND NOT _cc_base STREQUAL "/"
+            AND NOT _cc_base STREQUAL "")
+        cmake_path(GET _cc_base PARENT_PATH _cc_base)
+        string(FIND "${_p}/" "${_cc_base}/" _pos)
+      endwhile()
+    endforeach()
+    set(_cc_args
+        "hash_dir=false"
+        "sloppiness=gcno_cwd,pch_defines,time_macros,include_file_mtime,include_file_ctime"
+    )
+    # base_dir=/ would also rewrite system header paths; skip it then.
+    # An explicit CCACHE_BASEDIR in the environment (CI sets it to the
+    # workspace) wins: command-line settings override the environment.
+    if(DEFINED ENV{CCACHE_BASEDIR})
+      set(_cc_base "")
+    endif()
+    if(NOT _cc_base STREQUAL "/" AND NOT _cc_base STREQUAL "")
+      list(PREPEND _cc_args "base_dir=${_cc_base}")
+    endif()
+    foreach(_lang C CXX)
+      list(LENGTH CMAKE_${_lang}_COMPILER_LAUNCHER _l_len)
+      get_filename_component(_l_name "${CMAKE_${_lang}_COMPILER_LAUNCHER}"
+                             NAME)
+      if(_l_len EQUAL 1 AND _l_name STREQUAL "ccache")
+        set(CMAKE_${_lang}_COMPILER_LAUNCHER
+            "${CMAKE_${_lang}_COMPILER_LAUNCHER};${_cc_args}")
+      endif()
+    endforeach()
+    message(STATUS "ccache ${_ccache_ver} overrides: ${_cc_args}")
+  endif()
   message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
 else()
   message(STATUS "USE_CCACHE=YES but ccache not found in PATH — building without cache")

@@ -60,4 +60,16 @@ function(target_gtopt_pch target)
     # --- third-party ---
     <spdlog/spdlog.h>
   )
+  # Clang records the mtime of every header in the PCH and rejects the
+  # PCH ("file has been modified since the precompiled header was
+  # built") once any of them is touched.  That breaks ccache: a cached
+  # PCH restored into a build dir whose headers have a newer mtime (a
+  # fresh checkout, a second worktree) is unusable, and ccache docs
+  # require -fno-pch-timestamp for Clang PCH caching.  Content changes
+  # are still caught: ccache hashes the headers and Ninja's depfile
+  # rebuilds the PCH.  The flag is a cc1 option that only affects
+  # -emit-pch, so passing it to every TU of the target is harmless.
+  target_compile_options(${target} PRIVATE
+    "$<$<COMPILE_LANG_AND_ID:CXX,Clang>:SHELL:-Xclang -fno-pch-timestamp>"
+  )
 endfunction()
