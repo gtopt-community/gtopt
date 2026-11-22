@@ -219,3 +219,69 @@ TEST_CASE(  // NOLINT
 
   check_all_backends_released(plp);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 5. Aperture backward + compress: transient collections are not retained
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Under compress the disposable XLP collection wrappers are dropped after
+// construction.  The backward aperture step rehydrates them
+// (`rebuild_collections_if_needed`) so the per-aperture `update_aperture`
+// loop can read element columns.  Before the fix nothing dropped them again,
+// so every backward-visited cell kept a full collection set resident for the
+// rest of the run — on the 16-scene × 108-phase y24 case that was ~25 MB per
+// cell, ~40 GB over one backward pass (RSS + VmSwap 37 → 77 GB).  After the
+// fix the step restores the dropped state once the cell is released.
+
+TEST_CASE(  // NOLINT
+    "SDDP aperture backward + low_memory=compress: disposable collections "
+    "are released after each backward step")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  planning.options.method = MethodType::sddp;
+  planning.simulation.aperture_array = Array<Aperture> {
+      Aperture {
+          .uid = Uid {1},
+          .source_scenario = Uid {1},
+          .probability_factor = 0.5,
+      },
+      Aperture {
+          .uid = Uid {2},
+          .source_scenario = Uid {2},
+          .probability_factor = 0.5,
+      },
+  };
+  PlanningLP plp(std::move(planning));
+
+  const auto num_scenes = plp.simulation().scene_count();
+  const auto num_phases = plp.simulation().phase_count();
+  REQUIRE(num_phases >= Index {2});
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 2;
+  sddp_opts.min_iterations = 2;
+  sddp_opts.convergence_tol = 1e-9;
+  sddp_opts.cut_sharing = CutSharingMode::multicut;
+  sddp_opts.low_memory_mode = LowMemoryMode::compress;
+  sddp_opts.memory_codec = CompressionCodec::uncompressed;
+  sddp_opts.enable_api = false;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  // The backward pass must have produced cuts through the aperture path.
+  CHECK(sddp.num_stored_cuts() > 0);
+
+  // Phases 1..N-1 are backward aperture targets.  Their disposable
+  // wrappers must be dropped again (the HasUpdateLP ones stay resident).
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    for (const auto pi : iota_range<PhaseIndex>(1, num_phases)) {
+      const auto& sys = plp.system(si, pi);
+      INFO("scene=" << value_of(si) << " phase=" << value_of(pi));
+      CHECK(sys.linear_interface().is_backend_released());
+      CHECK_FALSE(sys.disposable_collections_resident());
+    }
+  }
+}

@@ -123,6 +123,23 @@ template<typename Range>
   return out;
 }
 
+/// Undo the transient `rebuild_collections_if_needed()` performed for a
+/// backward aperture step.  Under compress the disposable XLP wrappers are
+/// dropped after construction; the aperture step rehydrates them only so
+/// the per-aperture `update_aperture` loop can read element columns.  Once
+/// the clones are gone and the cell's backend has been released, nothing
+/// reads them again until the next visit (which rebuilds on demand), so
+/// keeping them resident only pinned ~one collection set per visited cell
+/// — the dominant RSS growth of a compress backward pass.  Cells whose
+/// disposables were already resident before the step are left untouched.
+void release_transient_aperture_collections(gtopt::SystemLP& sys,
+                                            bool were_resident)
+{
+  if (!were_resident) {
+    sys.clear_disposable_collections();
+  }
+}
+
 }  // namespace
 
 namespace gtopt
@@ -516,6 +533,15 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   // thread BEFORE dispatching aperture tasks: the per-aperture update loop
   // in sddp_aperture.cpp reads `sys.collections()` from every task
   // concurrently and would otherwise race on `m_collections_`.
+  //
+  // Remember whether the disposable wrappers were already resident: under
+  // compress they are dropped after construction, and this rehydration is
+  // only needed for the aperture solves below.  Leaving them resident
+  // afterwards grew the process by one full collection set (~25 MB on the
+  // 1728-cell y24 case) per backward cell visit until every cell held
+  // one (~40 GB) — see `release_transient_aperture_collections`.
+  const bool collections_were_resident =
+      clone_sys.disposable_collections_resident();
   clone_sys.rebuild_collections_if_needed();
 
   // Hybrid cut links for the aperture path: `dependent_col` points into the
@@ -705,6 +731,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   // `m_backend_released_`).
   if (m_options_.low_memory_mode != LowMemoryMode::off) {
     clone_sys.release_backend();
+    release_transient_aperture_collections(clone_sys,
+                                           collections_were_resident);
   }
 
   return cuts_added;
@@ -843,6 +871,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     // Single-threaded XLP-state rebuild before aperture tasks are
     // dispatched (same rationale as in
     // `backward_pass_aperture_phase_impl`).
+    const bool collections_were_resident =
+        clone_sys.disposable_collections_resident();
     clone_sys.rebuild_collections_if_needed();
 
     // Hybrid cut links + incoming-state fix for the aperture path; forward
@@ -980,6 +1010,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     // touched again in this scene's backward pass.
     if (m_options_.low_memory_mode != LowMemoryMode::off) {
       clone_sys.release_backend();
+      release_transient_aperture_collections(clone_sys,
+                                             collections_were_resident);
     }
   }
 

@@ -472,6 +472,17 @@ public:
     return m_collections_built_;
   }
 
+  /// Diagnostic: are the DISPOSABLE (non-`HasUpdateLP`) collection
+  /// wrappers resident too?  False under compress after construction
+  /// (`clear_disposable_collections()`), true after an explicit
+  /// `rebuild_collections_if_needed()`.  Callers that rehydrate the
+  /// disposables only for a transient read (the backward aperture step)
+  /// use it to restore the dropped state afterwards.
+  [[nodiscard]] constexpr bool disposable_collections_resident() const noexcept
+  {
+    return m_collections_built_ && m_disposable_collections_built_;
+  }
+
   /**
    * @brief Access the underlying system
    * @return Reference to the system
