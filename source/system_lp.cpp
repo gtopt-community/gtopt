@@ -632,6 +632,19 @@ constexpr auto create_linear_interface(auto& collections,
       li.set_name_store(flat_opts.name_store, std::move(key));
       flat_lp.label_meta = nullptr;
     }
+    // Cross-scene dedup: all scenes of a phase share the matrix, costs
+    // and scales and differ in a few bounds, so store each cell as an
+    // XOR delta against one base per (kind, phase).  Must be attached
+    // BEFORE `defer_initial_load`, which already compresses the snapshot
+    // under `compress` — attaching it afterwards silently disabled dedup.
+    if (flat_opts.low_memory_mode == LowMemoryMode::compress
+        && flat_opts.dedup_registry != nullptr)
+    {
+      li.set_snapshot_dedup(flat_opts.dedup_registry,
+                            std::format("k{}_p{}",
+                                        static_cast<int>(system_context.kind()),
+                                        phase.uid().value()));
+    }
     li.defer_initial_load(std::move(flat_lp));
     // Eagerly compress the snapshot at build time under
     // ``compress`` so the build phase steady-state memory is the
@@ -653,16 +666,6 @@ constexpr auto create_linear_interface(auto& collections,
     // legacy uncompressed-snapshot behaviour (no compression
     // until release).
     if (flat_opts.low_memory_mode == LowMemoryMode::compress) {
-      // Cross-scene dedup: all scenes of a phase share the matrix, costs
-      // and scales and differ in a few bounds, so store each cell as an
-      // XOR delta against one base per (kind, phase).
-      if (flat_opts.dedup_registry != nullptr) {
-        li.set_snapshot_dedup(
-            flat_opts.dedup_registry,
-            std::format("k{}_p{}",
-                        static_cast<int>(system_context.kind()),
-                        phase.uid().value()));
-      }
       li.enable_compression();
     }
   } else {

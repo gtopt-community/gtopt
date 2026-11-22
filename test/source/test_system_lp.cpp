@@ -9,13 +9,17 @@
  * This module contains unit tests for the SystemLP class.
  */
 
+#include <bit>
+#include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/json/json_system.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_context.hpp>
@@ -552,4 +556,75 @@ TEST_CASE(
   system_lp.release_backend();
   CHECK_NOTHROW([[maybe_unused]] const auto& _ =
                     system_lp.elements<DemandLP>());
+}
+
+TEST_CASE(  // NOLINT
+    "SystemLP — compress mode deduplicates snapshots via the registry")
+{
+  // Two cells of the same (kind, phase) built with one shared registry
+  // must store their compressed snapshots against a single base.  Guards
+  // the build ordering: the registry has to be attached before
+  // `defer_initial_load`, which already compresses under `compress`.
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .forced = true,
+          .capacity = 100.0,
+      },
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 1000.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const System system = {
+      .name = "SEN",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+
+  LpMatrixOptions flat_opts;
+  flat_opts.low_memory_mode = LowMemoryMode::compress;
+  flat_opts.dedup_registry = std::make_shared<FlatLpDedupRegistry>();
+
+  SystemLP cell_a(system, simulation_lp, flat_opts);
+  SystemLP cell_b(system, simulation_lp, flat_opts);
+
+  CHECK(cell_a.linear_interface().is_snapshot_deduplicated());
+  CHECK(cell_b.linear_interface().is_snapshot_deduplicated());
+  CHECK(flat_opts.dedup_registry->live_bases() == 1);
+
+  // Both cells reconstruct from the deduplicated snapshot and solve to
+  // the same objective, bit for bit.
+  REQUIRE(cell_a.linear_interface().resolve({}).has_value());
+  REQUIRE(cell_b.linear_interface().resolve({}).has_value());
+  CHECK(std::bit_cast<std::uint64_t>(cell_a.linear_interface().get_obj_value())
+        == std::bit_cast<std::uint64_t>(
+            cell_b.linear_interface().get_obj_value()));
+  CHECK(cell_a.linear_interface().get_obj_value()
+        == doctest::Approx(50.0 * 100.0));
+
+  // Without a registry the snapshot is stored plain.
+  LpMatrixOptions plain_opts;
+  plain_opts.low_memory_mode = LowMemoryMode::compress;
+  SystemLP cell_plain(system, simulation_lp, plain_opts);
+  CHECK_FALSE(cell_plain.linear_interface().is_snapshot_deduplicated());
 }

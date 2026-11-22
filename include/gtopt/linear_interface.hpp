@@ -311,6 +311,13 @@ public:
   /// change any value served while the backend is released.
   [[nodiscard]] bool col_bounds_clamp_is_noop() const noexcept;
 
+  /// True when the compressed snapshot is stored as a delta against a
+  /// shared cross-scene base (see `FlatLpDedupRegistry`).
+  [[nodiscard]] bool is_snapshot_deduplicated() const noexcept
+  {
+    return m_snapshot_holder_.snapshot().compressed_lp.xor_base != nullptr;
+  }
+
   /// Diagnostic resident-byte breakdown for the memory-accounting pass.
   /// Read-only; sums the retainers this interface holds between solves.
   struct DiagResidentBytes
@@ -2854,8 +2861,10 @@ public:
   }
 
   /// Attach the cross-cell snapshot dedup registry and this cell's key
-  /// (see `FlatLpDedupRegistry`).  Must precede the first compression;
-  /// later calls only affect cells not yet compressed.
+  /// (see `FlatLpDedupRegistry`).  Must precede the first compression
+  /// (note `defer_initial_load` compresses under `compress`); later calls
+  /// only affect cells not yet compressed.  `is_snapshot_deduplicated()`
+  /// reports whether the stored snapshot actually uses a shared base.
   void set_snapshot_dedup(std::shared_ptr<FlatLpDedupRegistry> registry,
                           std::string key) noexcept
   {
