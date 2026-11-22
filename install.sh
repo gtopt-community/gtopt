@@ -163,7 +163,8 @@ PREFIX/lib/gtopt/cuopt).  Commercial solvers are never installed.
 
 Commercial solvers are searched in:
   CPLEX    $CPLEX_ROOT_DIR, $CPLEX_STUDIO_DIR*, /opt/ibm/ILOG/CPLEX_Studio*,
-           ~/opt/ibm/ILOG/CPLEX_Studio*, ~/ibm/ILOG/CPLEX_Studio*, `cplex`
+           ~/opt/ibm/ILOG/CPLEX_Studio*, ~/ibm/ILOG/CPLEX_Studio*,
+           /opt/cplex, ~/opt/cplex, `cplex`
   Gurobi   $GUROBI_HOME, /opt/gurobi*/linux64, ~/opt/gurobi*/linux64,
            ~/gurobi*/linux64, `gurobi_cl`
   MindOpt  $MINDOPT_HOME, /opt/mindopt/*/linux64-*, ~/opt/mindopt/*/...,
@@ -403,7 +404,7 @@ solver_dir() {
 
 not_found_msg() {
   case $1 in
-    cplex) echo "CPLEX requested but not found.  Looked at \$CPLEX_ROOT_DIR, \$CPLEX_STUDIO_DIR*, /opt/ibm/ILOG/CPLEX_Studio*/cplex, ~/opt/ibm/ILOG/CPLEX_Studio*/cplex, ~/ibm/ILOG/CPLEX_Studio*/cplex and 'cplex' on PATH.  Point to it with:  CPLEX_ROOT_DIR=/path/to/CPLEX_Studio*/cplex" ;;
+    cplex) echo "CPLEX requested but not found.  Looked at \$CPLEX_ROOT_DIR, \$CPLEX_STUDIO_DIR*, /opt/ibm/ILOG/CPLEX_Studio*/cplex, ~/opt/ibm/ILOG/CPLEX_Studio*/cplex, ~/ibm/ILOG/CPLEX_Studio*/cplex, /opt/cplex, ~/opt/cplex and 'cplex' on PATH.  Point to it with:  CPLEX_ROOT_DIR=/path/to/CPLEX_Studio*/cplex" ;;
     gurobi) echo "Gurobi requested but not found.  Looked at \$GUROBI_HOME, /opt/gurobi*/linux64, ~/opt/gurobi*/linux64, ~/gurobi*/linux64 and 'gurobi_cl' on PATH.  Point to it with:  GUROBI_HOME=/path/to/gurobi*/linux64" ;;
     mindopt) echo "MindOpt requested but not found.  Looked at \$MINDOPT_HOME, /opt/mindopt/*/linux64-*, ~/opt/mindopt/*/linux64-* and ~/mindopt/*/linux64-*.  Point to it with:  MINDOPT_HOME=/path/to/mindopt/<version>/linux64-x86" ;;
   esac
@@ -412,6 +413,16 @@ not_found_msg() {
 
 # Print "<version>\t<dir>" candidates on stdin; output the newest dir.
 newest() { sort -t$'\t' -k1,1V | tail -n 1 | cut -f2; }
+
+# Version of a CPLEX dir without CPLEX_Studio<NNN> in its path, from
+# cpxconst.h, in the Studio naming (22.1.1 -> 2211, 12.10 -> 1210) so it
+# sorts together with Studio installs.
+cplex_header_version() {
+  awk '/define CPX_VERSION_VERSION /{a=$3} /define CPX_VERSION_RELEASE /{b=$3}
+       /define CPX_VERSION_MODIFICATION /{c=$3}
+       END{ if (a != "") printf "%s%s%s\n", a, b, (c > 0 ? c : "") }' \
+    "$1/include/ilcplex/cpxconst.h" 2>/dev/null
+}
 
 find_cplex() {
   local d v line
@@ -426,6 +437,10 @@ find_cplex() {
     done
     printf '%s\n' "$_ROOT"/opt/ibm/ILOG/CPLEX_Studio*/cplex \
       "$HOME"/opt/ibm/ILOG/CPLEX_Studio*/cplex "$HOME"/ibm/ILOG/CPLEX_Studio*/cplex
+    # Flat installs: /opt/cplex or ~/opt/cplex, either the `cplex` dir
+    # itself (include/ilcplex inside) or a Studio tree with cplex/ below.
+    printf '%s\n' "$_ROOT"/opt/cplex "$_ROOT"/opt/cplex/cplex \
+      "$HOME"/opt/cplex "$HOME"/opt/cplex/cplex
     if command -v cplex >/dev/null 2>&1; then
       line=$(readlink -f "$(command -v cplex)")
       dirname "$(dirname "$(dirname "$line")")"
@@ -433,7 +448,9 @@ find_cplex() {
   } | while read -r line; do
     [[ -e $line/include/ilcplex/cplex.h ]] || continue
     v=$(grep -o 'CPLEX_Studio[0-9]*' <<<"$line" | tail -n 1)
-    printf '%s\t%s\n' "${v#CPLEX_Studio}" "$line"
+    v=${v#CPLEX_Studio}
+    [[ -n $v ]] || v=$(cplex_header_version "$line")
+    printf '%s\t%s\n' "$v" "$line"
   done | newest)
   [[ -n $d ]] && echo "$d"
 }

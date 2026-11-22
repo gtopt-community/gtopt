@@ -121,6 +121,23 @@ check "CPLEX_ROOT_DIR wins over newer installs" "$out" "^CPLEX=$root/opt/ibm/ILO
 out=$(sel CPLEX_STUDIO_DIR2212="$home/apps/CPLEX_Studio2212" -- )
 check "CPLEX_STUDIO_DIR* is probed" "$out" "^CPLEX=$cplex_path$"
 
+# Flat CPLEX installs (/opt/cplex, ~/opt/cplex): version from cpxconst.h.
+cpx_ver() {  # cpx_ver <cplex dir> <version> <release> <modification>
+  mk "$1/include/ilcplex/cplex.h"
+  printf '#define CPX_VERSION_VERSION       %s\n#define CPX_VERSION_RELEASE       %s\n#define CPX_VERSION_MODIFICATION  %s\n' \
+    "$2" "$3" "$4" >"$1/include/ilcplex/cpxconst.h"
+}
+root2="$work/root2" home2="$work/home2"
+cpx_ver "$root2/opt/cplex" 12 10 0
+out=$(sel GTOPT_INSTALL_ROOT="$root2" HOME="$home2" -- )
+check "flat /opt/cplex found" "$out" "^CPLEX=$root2/opt/cplex$"
+mk "$root2/opt/ibm/ILOG/CPLEX_Studio2211/cplex/include/ilcplex/cplex.h"
+out=$(sel GTOPT_INSTALL_ROOT="$root2" HOME="$home2" -- )
+check "Studio2211 newer than flat 12.10" "$out" "^CPLEX=$root2/opt/ibm/ILOG/CPLEX_Studio2211/cplex$"
+cpx_ver "$home2/opt/cplex/cplex" 22 1 2
+out=$(sel GTOPT_INSTALL_ROOT="$root2" HOME="$home2" -- )
+check "home opt/cplex/cplex 22.1.2 is newest" "$out" "^CPLEX=$home2/opt/cplex/cplex$"
+
 out=$(sel -- --no-detect)
 check "--no-detect: nothing found" "$out" '^SELECTED=\[highs cbc \]$'
 out=$(sel GUROBI_HOME="$root/opt/gurobi1100/linux64" -- --no-detect)

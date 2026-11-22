@@ -50,8 +50,10 @@ if(NOT COIN_ROOT_DIR)
   unset(_coin_cand)
   unset(_coin_cbc)
 endif()
+# Empty = auto-search (see cmake_local/FindCPLEX.cmake: /opt/cplex,
+# ~/opt/cplex, CPLEX_Studio* under /opt/ibm/ILOG and ~/[opt/]ibm/ILOG).
 set(CPLEX_ROOT_DIR
-    "/opt/cplex"
+    ""
     CACHE PATH "IBM ILOG CPLEX installation prefix"
 )
 
