@@ -27,6 +27,7 @@
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_io_internal.hpp>
 #include <gtopt/sddp_types.hpp>  // sddp_boundary_cut_tag
+#include <gtopt/strong_index_vector.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 
@@ -539,7 +540,7 @@ using namespace gtopt::detail;
     // production recovery run).  Row construction below is unchanged —
     // only the install step moves from per-cut `add_cut_row` to the
     // collect-then-bulk pattern below.
-    std::vector<std::vector<SparseRow>> scene_cuts(
+    StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts(
         static_cast<size_t>(num_scenes));
     for (const auto& rc : raw_cuts) {
       // Pre-scan: check for missing state variables with non-zero
@@ -711,7 +712,7 @@ using namespace gtopt::detail;
         // it, the install path defaulted to ``eps=0`` and small
         // physical coefficients (e.g., ill-conditioned PLP exports)
         // could survive into the LP and degrade kappa.
-        scene_cuts[static_cast<size_t>(scene_index)].push_back(std::move(row));
+        scene_cuts[scene_index].push_back(std::move(row));
       }
       max_iteration = std::max(max_iteration, rc.iteration_index);
       ++cuts_loaded;

@@ -14,6 +14,7 @@
 #include <array>
 #include <chrono>
 #include <limits>
+#include <ranges>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -28,6 +29,7 @@
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/solver_stats.hpp>
 #include <gtopt/solver_status.hpp>
+#include <gtopt/strong_index_vector.hpp>
 #include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -924,7 +926,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   } else {
     // Snapshot per-scene cut counts so sim-pass-added feasibility cuts
     // can be discarded below (unless `save_simulation_cuts` is set).
-    std::vector<std::size_t> sim_before_scene_sizes;
+    StrongIndexVector<SceneIndex, std::size_t> sim_before_scene_sizes;
     {
       const auto& sc = m_cut_store_.scene_cuts();
       sim_before_scene_sizes.reserve(sc.size());
@@ -1150,15 +1152,12 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     if (!m_options_.save_simulation_cuts) {
       std::size_t dropped = 0;
       auto& scene_cuts = m_cut_store_.scene_cuts();
-      for (std::size_t si_sz = 0;
-           si_sz < scene_cuts.size() && si_sz < sim_before_scene_sizes.size();
-           ++si_sz)
+      for (auto&& [cuts, pre] :
+           std::views::zip(scene_cuts, sim_before_scene_sizes))
       {
-        const auto si = SceneIndex {static_cast<Index>(si_sz)};
-        const auto pre = sim_before_scene_sizes[si_sz];
-        if (scene_cuts[si].size() > pre) {
-          dropped += scene_cuts[si].size() - pre;
-          scene_cuts[si].resize(pre);
+        if (cuts.size() > pre) {
+          dropped += cuts.size() - pre;
+          cuts.resize(pre);
         }
       }
       if (dropped > 0) {
@@ -1320,7 +1319,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     bool scene_converged {false};
   };
 
-  std::vector<SceneProgress> progress(static_cast<std::size_t>(num_scenes));
+  StrongIndexVector<SceneIndex, SceneProgress> progress(
+      static_cast<std::size_t>(num_scenes));
   for (auto& sp : progress) {
     sp.current_iteration_index = m_iteration_offset_;
   }
@@ -1501,7 +1501,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
   // sentinel marks "scene never reached sim pass" — the tail discard
   // treats those as no-op (no shrink) so non-finishing scenes keep
   // every backward cut.
-  std::vector<std::size_t> sim_before_scene_sizes(
+  StrongIndexVector<SceneIndex, std::size_t> sim_before_scene_sizes(
       static_cast<std::size_t>(num_scenes),
       std::numeric_limits<std::size_t>::max());
 
@@ -1520,13 +1520,13 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
   //
   // Same default sentinel as `sim_before_scene_sizes`: "stop never
   // fired for this scene" → no truncation.
-  std::vector<std::size_t> stop_before_scene_sizes(
+  StrongIndexVector<SceneIndex, std::size_t> stop_before_scene_sizes(
       static_cast<std::size_t>(num_scenes),
       std::numeric_limits<std::size_t>::max());
 
   while (!all_done) {
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-      auto& sp = progress[static_cast<std::size_t>(scene)];
+      auto& sp = progress[scene];
 
       switch (sp.state) {
         case SceneState::idle: {
@@ -1589,8 +1589,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             // for the rationale — capturing at function start (the
             // pre-fix behaviour) gave every scene a snapshot of 0 and
             // the discard then wiped every backward Optimality cut.
-            sim_before_scene_sizes[static_cast<std::size_t>(scene)] =
-                m_cut_store_.at(scene).size();
+            sim_before_scene_sizes[scene] = m_cut_store_.at(scene).size();
             // Submit simulation forward pass for this scene.
             //
             // Ordering is `Medium` like every other SDDP task — the
@@ -2280,13 +2279,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // point during the drain pass can be truncated deterministically.
       // Without this, the inherited cut count at the next cascade
       // level depends on the pool's drain timing race.
-      auto& scene_cuts_at_stop = m_cut_store_.scene_cuts();
-      for (std::size_t si_sz = 0; si_sz < scene_cuts_at_stop.size()
-           && si_sz < stop_before_scene_sizes.size();
-           ++si_sz)
+      for (auto&& [cuts, pre] :
+           std::views::zip(m_cut_store_.scene_cuts(), stop_before_scene_sizes))
       {
-        const auto si = SceneIndex {static_cast<Index>(si_sz)};
-        stop_before_scene_sizes[si_sz] = scene_cuts_at_stop[si].size();
+        pre = cuts.size();
       }
     }
 
@@ -2316,18 +2312,15 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
   if (!m_options_.save_simulation_cuts) {
     std::size_t dropped = 0;
     auto& scene_cuts = m_cut_store_.scene_cuts();
-    for (std::size_t si_sz = 0;
-         si_sz < scene_cuts.size() && si_sz < sim_before_scene_sizes.size();
-         ++si_sz)
+    for (auto&& [cuts, pre] :
+         std::views::zip(scene_cuts, sim_before_scene_sizes))
     {
-      const auto si = SceneIndex {static_cast<Index>(si_sz)};
-      const auto pre = sim_before_scene_sizes[si_sz];
       if (pre == std::numeric_limits<std::size_t>::max()) {
         continue;  // scene never reached the sim pass
       }
-      if (scene_cuts[si].size() > pre) {
-        dropped += scene_cuts[si].size() - pre;
-        scene_cuts[si].resize(pre);
+      if (cuts.size() > pre) {
+        dropped += cuts.size() - pre;
+        cuts.resize(pre);
       }
     }
     if (dropped > 0) {
@@ -2359,18 +2352,15 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     auto& scene_cuts = m_cut_store_.scene_cuts();
 
     if (mode == CutDrainMode::count) {
-      for (std::size_t si_sz = 0;
-           si_sz < scene_cuts.size() && si_sz < stop_before_scene_sizes.size();
-           ++si_sz)
+      for (auto&& [cuts, pre] :
+           std::views::zip(scene_cuts, stop_before_scene_sizes))
       {
-        const auto si = SceneIndex {static_cast<Index>(si_sz)};
-        const auto pre = stop_before_scene_sizes[si_sz];
         if (pre == std::numeric_limits<std::size_t>::max()) {
           continue;  // stop never fired — keep everything
         }
-        if (scene_cuts[si].size() > pre) {
-          dropped += scene_cuts[si].size() - pre;
-          scene_cuts[si].resize(pre);
+        if (cuts.size() > pre) {
+          dropped += cuts.size() - pre;
+          cuts.resize(pre);
         }
       }
     } else if (mode == CutDrainMode::iteration) {
@@ -2383,12 +2373,11 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       const auto certified_iter = results.empty()
           ? m_iteration_offset_
           : results.back().iteration_index;
-      for (std::size_t si_sz = 0; si_sz < scene_cuts.size(); ++si_sz) {
-        const auto si = SceneIndex {static_cast<Index>(si_sz)};
+      for (auto& scene_store : scene_cuts) {
         // `SceneCutStore::cuts()` exposes the underlying
         // `std::vector<StoredCut>&` — use it directly so
         // `std::erase_if` matches the vector overload.
-        auto& vec = scene_cuts[si].cuts();
+        auto& vec = scene_store.cuts();
         const auto orig = vec.size();
         std::erase_if(vec,
                       [certified_iter](const auto& c)
