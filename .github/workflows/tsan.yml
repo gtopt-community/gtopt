@@ -132,7 +132,11 @@ jobs:
           # instead of 8055.56 in the -O1 TSan build (deterministically,
           # with CBC and HiGHS, and with no TSan report); plain -O0/-O2
           # builds pass.  Tracked separately; not a sanitizer finding.
-          EXCLUDE='^SDDP literature (A1 —|#4 — dual_shared/screened)'
+          # Also excluded: the e2e_*_sddp_validate checks -- pure-Python
+          # (tools/validate_sddp_output.py needs pandas + pyarrow, which
+          # this runner does not install; Python tests are off here).
+          # The e2e_*_sddp_solve runs they check still run under TSan.
+          EXCLUDE='^SDDP literature (A1 —|#4 — dual_shared/screened)|_sddp_validate$'
           REGEX='${{ github.event.inputs.ctest_regex }}'
           ctest --output-on-failure -j"$(nproc)" --timeout 1800 \
             -E "$EXCLUDE" ${REGEX:+-R "$REGEX"} 2>&1 | tee ctest_output.log
