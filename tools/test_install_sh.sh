@@ -196,6 +196,15 @@ out=$(sel CUOPT_HOME="$work/cuopt" -- )
 check "CUOPT_HOME used even without GPU" "$out" '^SELECTED=\[.*cuopt \]$'
 check "CUOPT_HOME exported to the build" "$out" "^ARG CUOPT_HOME=$work/cuopt$"
 
+# ---- prefix ownership -------------------------------------------------------
+psudo() { GTOPT_INSTALL_NO_MAIN=1 bash -c 'source "$0"; echo "[$(prefix_sudo "$1" sudo)]"' "$script" "$1"; }
+check "missing prefix under writable home: no sudo" "$(psudo "$home/.local/x/y")" '^\[\]$'
+mkdir -p "$work/ro" && chmod 555 "$work/ro"
+if ((EUID != 0)); then
+  check "prefix under read-only dir: sudo" "$(psudo "$work/ro/pfx")" '^\[sudo\]$'
+fi
+chmod 755 "$work/ro"
+
 # ---- whole script, --help and --dry-run -----------------------------------
 out=$(bash "$script" --help)
 check "--help shows --solvers" "$out" '--solvers'

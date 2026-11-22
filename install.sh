@@ -47,6 +47,14 @@ main() {
     sudo=sudo
   fi
 
+  # sudo only for a prefix the user cannot write; a missing prefix under a
+  # writable parent (e.g. a fresh ~/.local) is created as the user, so no
+  # step leaves root-owned directories in the user's home.
+  PSUDO=$(prefix_sudo "$prefix" "$sudo")
+  if [[ -z $PSUDO && ! -e $prefix ]]; then
+    run mkdir -p "$prefix"
+  fi
+
   say "GTOpt installer: ref=$ref prefix=$prefix"
   resolve_solvers "$prefix"
   print_solver_plan
@@ -80,13 +88,8 @@ main() {
   run "$cmake" --build "$build" -j "$jobs"
 
   say "Installing into $prefix"
-  local psudo=""
-  if ! { ((DRY)) || [[ -w $prefix ]] ||
-    { [[ ! -e $prefix ]] && mkdir -p "$prefix" 2>/dev/null; }; }; then
-    psudo=$sudo
-  fi
-  run $psudo "$cmake" --install "$build"
-  prune_plugins "$prefix" "$psudo"
+  run $PSUDO "$cmake" --install "$build"
+  prune_plugins "$prefix" "$PSUDO"
 
   ((python)) && install_python "$src"
 
@@ -100,6 +103,12 @@ main() {
     esac
   fi
   say "Done. Try:  gtopt --help   (docs: https://github.com/gtopt-community/gtopt/tree/master/docs)"
+}
+
+prefix_sudo() {  # prefix_sudo DIR SUDO -> "" if DIR (or its nearest existing parent) is writable
+  local d=$1
+  while [[ ! -e $d && $d != / ]]; do d=$(dirname "$d"); done
+  if [[ -w $d ]]; then echo ""; else echo "$2"; fi
 }
 
 need_arg() {
@@ -265,11 +274,7 @@ install_highs() {
     -DBUILD_SHARED_LIBS=ON -DFAST_BUILD=ON -DBUILD_TESTING=OFF \
     -DCMAKE_INSTALL_PREFIX="$prefix"
   run "$cmake" --build "$tmp/build" -j "$jobs"
-  if ((DRY)) || [[ -w $prefix ]]; then
-    run "$cmake" --install "$tmp/build"
-  else
-    run $sudo "$cmake" --install "$tmp/build"
-  fi
+  run $PSUDO "$cmake" --install "$tmp/build"
   rm -rf "$tmp"
 }
 
@@ -651,10 +656,8 @@ install_scip() {
 # cuOpt (NVIDIA, Apache-2.0): the libcuopt wheel from PyPI in a dedicated
 # venv under the prefix; the build links its stable C API.
 install_cuopt() {
-  local sudo=$1 prefix=$2 venv psudo=""
+  local prefix=$2 venv psudo=$PSUDO
   venv=$(cuopt_venv "$prefix")
-  [[ -w $prefix ]] || { [[ ! -e $prefix ]] && mkdir -p "$prefix" 2>/dev/null; } ||
-    psudo=$sudo
   say "Installing NVIDIA cuOpt ($CUOPT_WHEEL$CUOPT_SPEC) into $venv"
   if ((DRY)); then
     run $psudo python3 -m venv "$venv"
@@ -716,6 +719,6 @@ install_python() {
   fi
 }
 
-DRY=0
+DRY=0 PSUDO=""
 # GTOPT_INSTALL_NO_MAIN=1: define the functions only (used by the tests).
 [[ -n ${GTOPT_INSTALL_NO_MAIN:-} ]] || main "$@"
