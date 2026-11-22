@@ -73,6 +73,26 @@ technology, total spill) — these too can move when costs tie exactly.  Small t
 `loss_cost_eps` on line losses) are a deliberate way to make some of these
 choices unique.
 
+## Solver versions used in development
+
+The plugins were developed and tested against these versions.  Other
+versions of the same API usually work, but they have not been checked;
+when you use a different one, compare it against a second solver (see the
+note above).
+
+| Solver | Versions developed / tested with | Notes |
+|--------|----------------------------------|-------|
+| CPLEX | 22.1.1 | |
+| HiGHS | 1.15.0; 1.12.0 | 1.12.0 is the Ubuntu/Debian `libhighs-dev` package and the version `install.sh` builds from source when no package exists |
+| MindOpt | 2.3.0 | |
+| SCIP | 9.1.1 | `install.sh` installs the SCIP Opt Suite 10.1.0 package, not yet covered by the test suites |
+| CBC / CLP | 2.10.12 / 1.17.10 | Ubuntu/Debian `coinor-libcbc-dev` / `coinor-libclp-dev` |
+| cuOpt | 26.08; 26.12 (nightly) | from 26.10 the C API ships in the `libcuopt_mathopt` wheel; `install.sh` installs `>= 26.8` |
+| Gurobi | — | written against the C API of Gurobi 10–14 (`libgurobi100` … `libgurobi140`); not run against any version |
+
+`gtopt --solvers` lists the plugins that load; each solve logs the solver
+name and version in the run log (for example `solver=highs/1.15.0`).
+
 ## Choosing a solver
 
 - **Default**: when `--solver` is not given, gtopt picks the first
