@@ -79,29 +79,50 @@ endif()
 
 # ---- cuOpt plugin (NVIDIA GPU solver; stable C API only) ----
 # Gated like the other optional solvers.  FindCuOpt auto-detects the pip
-# `libcuopt-cu12` wheel via `python -c "import libcuopt"`, or honours
-# CUOPT_HOME / CUOPT_ROOT_DIR.  Disable with -DGTOPT_DISABLE_CUOPT=ON.
+# wheels via `python -c "import libcuopt_mathopt"` (cuOpt >= 26.10, where
+# the C API and headers moved to the `libcuopt_mathopt-cu12/-cu13` wheel)
+# and `import libcuopt` (<= 26.08 layout), or honours CUOPT_HOME /
+# CUOPT_ROOT_DIR / -D_CUOPT_PYTHON=<venv python>.  Disable with
+# -DGTOPT_DISABLE_CUOPT=ON.
 #
 # Minimum 26.8: MIP starts coexist with presolve from 26.08 (older
 # releases hard-reject cuOptAddMIPStart under presolve), and the 26.08
-# C API is the one the backend is validated against.  Until 26.08 goes
-# stable, install the nightly:
-#   pip install --user --pre --upgrade \
-#     --extra-index-url https://pypi.anaconda.org/rapidsai-wheels-nightly/simple \
-#     "libcuopt-cu12>=26.8.0a0"
+# C API is the one the backend is validated against:
+#   pip install --user "libcuopt-cu12>=26.8"     # or libcuopt-cu13
+#
+# A miss is a WARNING (not a quiet STATUS) when cuOpt was asked for
+# explicitly (-DGTOPT_DISABLE_CUOPT=OFF, CUOPT_HOME, CUOPT_ROOT_DIR) or an
+# NVIDIA GPU is present, so a GPU box never silently builds without it.
 
 find_package(CuOpt 26.8 QUIET)
 if(CUOPT_FOUND)
   if(CUOPT_VERSION)
-    message(STATUS "Solver plugin: cuOpt enabled (${CUOPT_VERSION_FULL} at ${CUOPT_INCLUDE_DIR})")
+    message(STATUS "Solver plugin: cuOpt enabled (${CUOPT_VERSION_FULL}: ${CUOPT_LIBRARY})")
   else()
-    message(STATUS "Solver plugin: cuOpt enabled (${CUOPT_INCLUDE_DIR})")
+    message(STATUS "Solver plugin: cuOpt enabled (${CUOPT_LIBRARY})")
   endif()
   add_subdirectory(cuopt)
-elseif(CUOPT_VERSION)
-  message(STATUS "Solver plugin: cuOpt skipped (found ${CUOPT_VERSION_FULL}, but >= 26.8 is required; upgrade libcuopt-cu12)")
+elseif(NOT GTOPT_DISABLE_CUOPT)
+  set(_cuopt_wanted "")
+  if(DEFINED GTOPT_DISABLE_CUOPT)
+    set(_cuopt_wanted "requested with -DGTOPT_DISABLE_CUOPT=OFF")
+  elseif(DEFINED ENV{CUOPT_HOME} OR CUOPT_ROOT_DIR OR DEFINED ENV{CUOPT_ROOT_DIR})
+    set(_cuopt_wanted "requested via CUOPT_HOME/CUOPT_ROOT_DIR")
+  elseif(EXISTS "/proc/driver/nvidia/version")
+    set(_cuopt_wanted "an NVIDIA GPU is present")
+  endif()
+  if(CUOPT_VERSION AND CUOPT_INCLUDE_DIR AND CUOPT_LIBRARY)
+    set(_cuopt_why "found ${CUOPT_VERSION_FULL}, but >= 26.8 is required; upgrade libcuopt-cu12/-cu13")
+  else()
+    set(_cuopt_why "cuOpt not found: ${CUOPT_DIAGNOSTIC}. pip install libcuopt-cu12 (or -cu13; >= 26.10 also pulls libcuopt_mathopt), set CUOPT_HOME, or pass -D_CUOPT_PYTHON=<python that imports it>")
+  endif()
+  if(_cuopt_wanted)
+    message(WARNING "Solver plugin: cuOpt skipped although ${_cuopt_wanted} -- ${_cuopt_why}.  Silence with -DGTOPT_DISABLE_CUOPT=ON.")
+  else()
+    message(STATUS "Solver plugin: cuOpt skipped (${_cuopt_why})")
+  endif()
 else()
-  message(STATUS "Solver plugin: cuOpt skipped (cuOpt not found; pip install libcuopt-cu12 or set CUOPT_HOME)")
+  message(STATUS "Solver plugin: cuOpt disabled (GTOPT_DISABLE_CUOPT=ON)")
 endif()
 
 # ---- SCIP plugin (open-source CIP/MIP solver; Apache-2.0 since v9) ----

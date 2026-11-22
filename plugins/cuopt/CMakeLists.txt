@@ -3,9 +3,9 @@ gtopt_solver_cuopt
 ------------------
 
 MODULE library implementing the SolverBackend interface via the NVIDIA
-cuOpt GPU solver's stable C API (``cuopt/mathematical_optimization/cuopt_c.h``,
-``libcuopt.so``).  Uses ONLY the C API — no CUDA toolkit headers, no
-RAFT/RMM C++ templates — so it builds with the project's normal compiler.
+cuOpt GPU solver's stable C API (``cuopt/mathematical_optimization/cuopt_c.h``;
+``libcuopt_mathopt.so`` from cuOpt >= 26.10, ``libcuopt.so`` before).
+Uses ONLY the C API — no CUDA toolkit headers, no RAFT/RMM C++ templates — so it builds with the project's normal compiler.
 
 cuOpt has no live-mutation API, so this backend keeps its own mutable
 host model and rebuilds the immutable cuOpt problem on every solve
