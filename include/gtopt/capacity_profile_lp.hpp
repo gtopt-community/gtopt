@@ -55,12 +55,7 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  /// Update profile constraints for an aperture scenario.
-  [[nodiscard]] bool update_aperture(
-      LinearInterface& li,
-      const ScenarioLP& base_scenario,
-      const std::function<std::optional<double>(StageUid, BlockUid)>& value_fn,
-      const StageLP& stage) const;
+  // update_aperture: inherited from ProfileObjectLP.
 };
 
 // Pin the unified class-name literal so an accidental rename fails the

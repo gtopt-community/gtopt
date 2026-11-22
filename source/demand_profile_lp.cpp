@@ -63,13 +63,4 @@ bool DemandProfileLP::add_to_output(OutputContext& out) const
       Element::class_name.full_name(), out, UnservedName);
 }
 
-bool DemandProfileLP::update_aperture(
-    LinearInterface& li,
-    const ScenarioLP& base_scenario,
-    const std::function<std::optional<double>(StageUid, BlockUid)>& value_fn,
-    const StageLP& stage) const
-{
-  return ProfileObjectLP::update_aperture(li, base_scenario, value_fn, stage);
-}
-
 }  // namespace gtopt
