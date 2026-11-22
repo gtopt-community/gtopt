@@ -361,6 +361,10 @@
       "use_state_variable": true,
       "reset_month": {{ reset_month_antic }},
       "reset_value": 0,
+      {# No outflow: IVGAF only accumulates (R12).  An unbounded free  #}
+      {# extraction column would let the LP drain the counter before  #}
+      {# december and dodge the riego debit.                          #}
+      "fmax": 0,
       "saving_rate": {{ qmax_anticipated }}
     },
 

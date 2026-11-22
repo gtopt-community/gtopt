@@ -595,6 +595,9 @@ class TestLajaWriter:
         assert vol_antic["reset_value"] == 0
         assert vol_antic["reset_month"] == "september"
         assert "saving_rate" in vol_antic
+        # IVGAF has no outflow (genpdlajam.f R12): a free extraction
+        # column would drain the counter and cancel the december debit.
+        assert vol_antic["fmax"] == 0
 
     def test_riego_reset_debit(self, laja_config):
         """The december riego provision debits the anticipado counter
