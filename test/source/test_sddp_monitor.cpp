@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <ranges>
 #include <sstream>
@@ -21,6 +22,7 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/build_info.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_status.hpp>
@@ -305,6 +307,14 @@ TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
   CHECK(content.find("\"status\": \"running\"") != std::string::npos);
   CHECK(content.find("\"current_pass\": 1") != std::string::npos);
   CHECK(content.find("\"scenes_done\": 4") != std::string::npos);
+
+  // The gtopt build that wrote the file
+  const auto build = build_info();
+  CHECK(content.find(std::format("\"gtopt_version\": \"{}\"", build.version))
+        != std::string::npos);
+  CHECK(content.find(
+            std::format("\"gtopt_revision\": \"{}\"", build.git_revision))
+        != std::string::npos);
 
   // Verify history array is present with iteration entries
   CHECK(content.find("\"history\"") != std::string::npos);

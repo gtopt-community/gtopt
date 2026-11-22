@@ -12,6 +12,9 @@ name: Release
 #                            release branch be tested before the workflow
 #                            exists on the default branch)
 #
+# After the draft release is created, `bump-dev` opens a PR that moves
+# master to the next development version (X.(Y+1).0-dev).
+#
 # Third-party actions are pinned by commit SHA (version in the comment).
 
 on:
@@ -76,8 +79,20 @@ jobs:
           fi
           version=${BASH_REMATCH[1]}
           cmake_version=$(sed -n '/^project(/,/^)/s/^ *VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt)
+          # Between releases master carries a pre-release marker
+          # (GTOPT_VERSION_SUFFIX "-dev", Python "X.Y.Z.devN"); a release
+          # must have none.
+          if ! grep -q '^set(GTOPT_VERSION_SUFFIX "[^"]*")$' CMakeLists.txt; then
+            echo "::error::CMakeLists.txt has no 'set(GTOPT_VERSION_SUFFIX \"...\")' line"
+            exit 1
+          fi
+          cmake_suffix=$(sed -n 's/^set(GTOPT_VERSION_SUFFIX "\([^"]*\)")$/\1/p' CMakeLists.txt)
           py_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' scripts/pyproject.toml | head -1)
-          echo "tag=$tag cmake=$cmake_version scripts=$py_version"
+          echo "tag=$tag cmake=$cmake_version suffix='$cmake_suffix' scripts=$py_version"
+          if [ -n "$cmake_suffix" ]; then
+            echo "::error::GTOPT_VERSION_SUFFIX in CMakeLists.txt is '$cmake_suffix'; a release needs it empty"
+            exit 1
+          fi
           if [ "$cmake_version" != "$version" ] || [ "$py_version" != "$version" ]; then
             echo "::error::version mismatch: tag $version, CMakeLists.txt $cmake_version, scripts/pyproject.toml $py_version"
             exit 1
@@ -107,8 +122,15 @@ jobs:
       CC: gcc-14
       CXX: g++-14
       VERSION: ${{ needs.prepare.outputs.version }}
+      # A tag build must report exactly X.Y.Z (see the smoke tests).
+      GTOPT_SMOKE_EXACT_VERSION: ${{ github.ref_type == 'tag' && '1' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history and tags: the build embeds `git describe`, which
+          # `gtopt --version` prints next to the version unless the build
+          # is exactly the release tag.
+          fetch-depth: 0
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
@@ -321,3 +343,75 @@ jobs:
             --title "GTOpt $VERSION" \
             --notes-file notes.md
           echo "Draft release $TAG created; review and publish it on GitHub." >> "$GITHUB_STEP_SUMMARY"
+
+  # -------------------------------------------------------------------------
+  # Open the next development cycle: after a tag vX.Y.Z has produced its
+  # draft release, open a PR against master that bumps CMakeLists.txt to
+  # VERSION X.(Y+1).0 + GTOPT_VERSION_SUFFIX "-dev" and
+  # scripts/pyproject.toml to X.(Y+1).0.dev0 (PEP 440).  Skipped when master
+  # no longer carries the released version (already bumped by hand, or a
+  # patch release from an older line).  See docs/releasing.md.
+  # -------------------------------------------------------------------------
+  bump-dev:
+    needs: [prepare, release]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+
+      - name: bump master to the next development version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          IFS=. read -r major minor _ <<<"$VERSION"
+          next="$major.$((minor + 1)).0"
+          branch="chore/dev-$next"
+
+          cmake_version=$(sed -n '/^project(/,/^)/s/^ *VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt)
+          cmake_suffix=$(sed -n 's/^set(GTOPT_VERSION_SUFFIX "\([^"]*\)")$/\1/p' CMakeLists.txt)
+          if [ "$cmake_version" != "$VERSION" ] || [ -n "$cmake_suffix" ]; then
+            echo "master is at $cmake_version$cmake_suffix, not $VERSION; no bump needed." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "branch $branch already exists; not opening another bump PR." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          sed -i "/^project(/,/^)/s/^\( *VERSION \)[0-9.]*$/\1$next/" CMakeLists.txt
+          sed -i 's/^set(GTOPT_VERSION_SUFFIX "[^"]*")$/set(GTOPT_VERSION_SUFFIX "-dev")/' CMakeLists.txt
+          sed -i "0,/^version = \".*\"$/s//version = \"$next.dev0\"/" scripts/pyproject.toml
+          git diff
+          grep -q "^  VERSION $next$" CMakeLists.txt
+          grep -q '^set(GTOPT_VERSION_SUFFIX "-dev")$' CMakeLists.txt
+          grep -q "^version = \"$next.dev0\"$" scripts/pyproject.toml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "chore: start $next development (after $TAG)"
+          git push origin "$branch"
+          cat > "$RUNNER_TEMP/body.md" <<EOF
+          Released $TAG.  This moves master to the next development version, so
+          builds from master report \`$next-dev ($TAG-N-g<hash>)\` instead of
+          \`$VERSION\`:
+
+          - \`CMakeLists.txt\`: \`VERSION $next\` and \`GTOPT_VERSION_SUFFIX "-dev"\`
+          - \`scripts/pyproject.toml\`: \`version = "$next.dev0"\`
+
+          Opened by the release workflow (see \`docs/releasing.md\`).  Pull
+          requests opened with \`GITHUB_TOKEN\` do not start CI: close and
+          reopen this one to run the checks before merging.
+          EOF
+          gh pr create --repo "$GITHUB_REPOSITORY" --base master --head "$branch" \
+            --title "chore: start $next development" --body-file "$RUNNER_TEMP/body.md"
+          echo "Opened the $next development PR from $branch." >> "$GITHUB_STEP_SUMMARY"

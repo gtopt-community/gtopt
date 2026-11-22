@@ -429,7 +429,7 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
   // for at least half.
   CHECK(total_finite_duals >= expected_balanced_cells / 2);
 
-  // ── 4. solution.csv: 14-column header + row width via the extracted
+  // ── 4. solution.csv: 16-column header + row width via the extracted
   //       solution_csv.hpp formatter, exercised on the real write_out() path.
   const auto sol_csv = std::filesystem::path(tmpdir) / "solution.csv";
   REQUIRE(std::filesystem::exists(sol_csv));
@@ -455,12 +455,14 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
     std::string header;
     REQUIRE(std::getline(in, header));
     const auto hcols = split(header);
-    REQUIRE(hcols.size() == 14);
+    REQUIRE(hcols.size() == 16);
     CHECK(hcols[9] == "solve_ticks");
     CHECK(hcols[10] == "solve_time_s");
     CHECK(hcols[11] == "solve_calls");
     CHECK(hcols[12] == "infeasible_count");
     CHECK(hcols[13] == "scale_objective");
+    CHECK(hcols[14] == "gtopt_version");
+    CHECK(hcols[15] == "gtopt_revision");
 
     std::string data_row;
     REQUIRE(std::getline(in, data_row));

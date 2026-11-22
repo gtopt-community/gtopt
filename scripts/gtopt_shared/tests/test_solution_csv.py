@@ -11,6 +11,7 @@ from gtopt_shared.solution_csv import (
     CONVENTION_PHYSICAL,
     ScaleObjectiveMismatchError,
     default_scale_objective,
+    format_gtopt_build,
     parse_solution_csv,
     resolve_objective,
 )
@@ -106,3 +107,31 @@ def test_missing_or_bad_obj_value(value):
 )
 def test_default_scale_objective(options, expected):
     assert default_scale_objective(options) == expected
+
+
+@pytest.mark.parametrize(
+    ("version", "revision", "expected"),
+    [
+        ("1.1.0", "v1.1.0", "1.1.0"),
+        ("1.1.0", "v1.1.0-20-g5a4fd2ef8", "1.1.0 (v1.1.0-20-g5a4fd2ef8)"),
+        ("1.1.0", "v1.1.0-dirty", "1.1.0 (v1.1.0-dirty)"),
+        ("1.1.0", "unknown", "1.1.0"),
+        ("1.1.0", "", "1.1.0"),
+        ("1.1.0", None, "1.1.0"),
+        ("1.2.0-dev", "v1.1.0-23-gabc", "1.2.0-dev (v1.1.0-23-gabc)"),
+        (None, "v1.1.0", None),
+        ("", "v1.1.0", None),
+    ],
+)
+def test_format_gtopt_build(version, revision, expected):
+    assert format_gtopt_build(version, revision) == expected
+
+
+def test_parse_keeps_build_columns():
+    text = (
+        "scene,phase,status,obj_value,scale_objective,gtopt_version,gtopt_revision\n"
+        "0,0,0,1.5,1,1.1.0,v1.1.0-3-gdeadbeef\n"
+    )
+    row = parse_solution_csv(text)
+    assert row["gtopt_version"] == "1.1.0"
+    assert row["gtopt_revision"] == "v1.1.0-3-gdeadbeef"

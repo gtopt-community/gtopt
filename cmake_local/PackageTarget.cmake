@@ -10,6 +10,7 @@ Usage::
   package_target(
     NAME <name>
     VERSION <version>
+    [VERSION_SUFFIX <suffix>]
     NAMESPACE <namespace>
     BINARY_DIR <binary_dir>
     INCLUDE_DIR <include_dir>
@@ -23,7 +24,9 @@ The function:
 
 * creates an ``ALIAS`` target ``<namespace>::<name>``
 * generates a version header at ``<version_header>`` and adds the
-  containing directory to the target's ``BUILD_INTERFACE`` includes
+  containing directory to the target's ``BUILD_INTERFACE`` includes.
+  ``<NAME>_VERSION`` is ``<version><suffix>`` (e.g. ``1.2.0-dev``);
+  the numeric parts and the suffix are also defined separately.
 
 #]=======================================================================]
 
@@ -33,7 +36,7 @@ function(package_target)
   cmake_parse_arguments(
     PT
     ""
-    "NAME;VERSION;NAMESPACE;BINARY_DIR;INCLUDE_DIR;INCLUDE_DESTINATION;VERSION_HEADER;COMPATIBILITY"
+    "NAME;VERSION;VERSION_SUFFIX;NAMESPACE;BINARY_DIR;INCLUDE_DIR;INCLUDE_DESTINATION;VERSION_HEADER;COMPATIBILITY"
     "DEPENDENCIES"
     ${ARGN}
   )

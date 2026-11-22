@@ -1543,7 +1543,11 @@ Both `SDDPMethod` and `MonolithicMethod` create a local `SolverMonitor`
 during their `solve()` call.
 
 **Solver status file** (`solver_status.json`) contains:
-- `"version"`, `"timestamp"`, `"elapsed_s"`, `"status"`, `"iteration"`
+- `"version"` (of the file layout), `"timestamp"`, `"elapsed_s"`,
+  `"status"`, `"iteration"`
+- `"gtopt_version"`, `"gtopt_revision"`: the gtopt build that wrote the
+  file (version and `git describe --always --dirty` of its source tree,
+  `unknown` outside a git checkout); also in `solution.csv`
 - `"lower_bound"`, `"upper_bound"`, `"gap"`, `"converged"`, `"max_iterations"`
 - `"solver"`, `"method"`: runtime solver identity and planning method
 - `"history"`: per-iteration array with `lower_bound`, `upper_bound`, `gap`,

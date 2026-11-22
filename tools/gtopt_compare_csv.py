@@ -10,7 +10,8 @@ Handles:
   - Near-zero values: absolute differences below *tolerance* pass.
   - Run-dependent solver telemetry columns (``kappa``, ``max_kappa``,
     ``solve_ticks``, ``solve_time_s``, ``solve_calls``, ``infeasible_count``
-    and the ``scale_objective`` metadata in ``solution.csv``) are never
+    and the ``scale_objective`` / ``gtopt_version`` / ``gtopt_revision``
+    metadata in ``solution.csv``) are never
     compared — see ``SKIP_COLUMNS``.
   - Columns are matched **by name** and only the columns present in the
     *expected* (golden) file are compared.  Extra columns appended to the
@@ -58,6 +59,9 @@ SKIP_COLUMNS = frozenset(
         # units (see _ObjectiveColumns) and legitimately differs between
         # methods (SDDP/cascade default 1, monolithic 1000) and options.
         "scale_objective",
+        # Build metadata: which gtopt wrote the file, not a result.
+        "gtopt_version",
+        "gtopt_revision",
     }
 )
 

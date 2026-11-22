@@ -10,6 +10,13 @@ project(
   LANGUAGES CXX
 )
 
+# Pre-release marker appended to GTOPT_VERSION (and `gtopt --version`).
+# project(VERSION) only accepts numbers, so between releases master
+# carries `VERSION X.Y.0` plus the suffix "-dev" (scripts/pyproject.toml:
+# "X.Y.0.dev0").  A release has an empty suffix; release.yml checks it.
+# See docs/releasing.md.
+set(GTOPT_VERSION_SUFFIX "")
+
 # ---- Ninja job pools (limit parallelism to avoid OOM) ----
 # cmake -j still controls the *default* pool; these pools cap the maximums.
 include(ProcessorCount)
@@ -494,6 +501,8 @@ package_target(
   ${PROJECT_NAME}
   VERSION
   ${PROJECT_VERSION}
+  VERSION_SUFFIX
+  "${GTOPT_VERSION_SUFFIX}"
   NAMESPACE
   ${PROJECT_NAME}
   BINARY_DIR

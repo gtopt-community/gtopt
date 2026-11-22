@@ -208,6 +208,20 @@ function(gtopt_find_external_case out_var relpath)
   set(${out_var} "${_found}" PARENT_SCOPE)
 endfunction()
 
+# ---- CLI: --version ----
+# `gtopt --version` prints the version, then the git revision it was built
+# from unless the build is exactly the release tag: "1.1.0" or
+# "1.2.0-dev (v1.1.0-23-g0123456789ab)".  The formatting rules themselves
+# are unit-tested in test/source/test_build_info.cpp.
+add_test(NAME cli_version COMMAND ${GTOPT_EXECUTABLE_FILE} --version)
+set_tests_properties(
+  cli_version
+  PROPERTIES
+    PASS_REGULAR_EXPRESSION
+    "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?( \\([^)]+\\))?\n$"
+    FAIL_REGULAR_EXPRESSION "unknown"
+)
+
 # ---- Register e2e test cases ----
 # To add a new case, place it under cases/<name>/ with a system JSON file and
 # an output/ directory containing the expected CSV results, then add a line:

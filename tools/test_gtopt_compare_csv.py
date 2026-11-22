@@ -59,6 +59,16 @@ def test_skip_columns_cover_solution_telemetry():
     assert "status" not in gtopt_compare_csv.SKIP_COLUMNS
 
 
+def test_build_metadata_columns_never_compared(tmp_path):
+    """A golden carrying gtopt_version/gtopt_revision still matches a newer build."""
+    header = "scene,phase,status,obj_value,gtopt_version,gtopt_revision\n"
+    golden = header + "0,0,0,10.5,1.1.0,v1.1.0\n"
+    actual = header + "0,0,0,10.5,1.2.0-dev,v1.1.0-23-gabc-dirty\n"
+    errors, warnings = _compare(tmp_path, actual, golden, strict=True)
+    assert not errors
+    assert not warnings
+
+
 def _solution(obj: str, scale: str | None) -> str:
     header = "scene,phase,status,status_name,obj_value,kappa,gap"
     row = f"0,0,0,optimal,{obj},5,0"

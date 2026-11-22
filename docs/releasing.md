@@ -11,6 +11,30 @@ patch number for fixes only, the minor number for new features that keep
 existing inputs working, and the major number when inputs or outputs
 change incompatibly.
 
+## Versions between releases
+
+`master` carries the **next** version with a development marker as soon
+as a release is out.  After `vX.Y.Z` it is:
+
+| File | Value |
+|---|---|
+| `CMakeLists.txt` | `project(gtopt VERSION X.(Y+1).0 ...)` and `set(GTOPT_VERSION_SUFFIX "-dev")` |
+| `scripts/pyproject.toml` | `version = "X.(Y+1).0.dev0"` (PEP 440) |
+
+CMake's `project(VERSION)` accepts only numbers, so the marker lives in
+the separate `GTOPT_VERSION_SUFFIX` variable; `GTOPT_VERSION` (and
+`gtopt --version`) is the number followed by the suffix.  The release
+workflow opens the PR that makes this change (see step 7).
+
+Every build also embeds the `git describe --always --dirty` of its
+source tree.  `gtopt --version`, the `--help` header and the
+`starting gtopt` log line print both, for example
+`1.2.0-dev (v1.1.0-23-g0123456789ab)`.  Only a clean build of exactly
+the release tag prints the bare version, `1.1.0`.  A build from a
+source tree without git (e.g. a tarball) prints the version alone.  The
+same version and revision go into each run's `solution.csv` and
+`solver_status.json` as `gtopt_version` / `gtopt_revision`.
+
 ## What a release contains
 
 | Asset | Contents |
@@ -34,17 +58,19 @@ plugin that is not on its allowlist.
 
 On a branch off `master`, set the new version in:
 
-- `CMakeLists.txt`: `project(gtopt VERSION X.Y.Z ...)`.  This sets
+- `CMakeLists.txt`: `project(gtopt VERSION X.Y.Z ...)`, and clear the
+  development marker: `set(GTOPT_VERSION_SUFFIX "")`.  Together they set
   `GTOPT_VERSION`, which `gtopt --version` prints.
-- `scripts/pyproject.toml`: `version = "X.Y.Z"`.  The Python tools print
-  this version with `--version`.
+- `scripts/pyproject.toml`: `version = "X.Y.Z"` (drop the `.devN`).  The
+  Python tools print this version with `--version`.
 - `guiservice/pyproject.toml` and `webservice/package.json` (plus the
   two top-level `version` fields in `webservice/package-lock.json`),
   which track the product version.
 - `CITATION.cff`: `version` and `date-released`.
 
 The release workflow fails if the tag, `CMakeLists.txt` and
-`scripts/pyproject.toml` do not agree.
+`scripts/pyproject.toml` do not agree, or if `GTOPT_VERSION_SUFFIX` is
+not empty.
 
 ### 2. Update the changelog
 
@@ -100,19 +126,24 @@ git push origin vX.Y.Z
 The tag push runs `release.yml`:
 
 1. `prepare` checks that the tag, `CMakeLists.txt`,
-   `scripts/pyproject.toml` and the `CHANGELOG.md` section agree.
+   `scripts/pyproject.toml` and the `CHANGELOG.md` section agree, and that
+   `GTOPT_VERSION_SUFFIX` is empty.
 2. `linux-x86_64` builds HiGHS (cached) and gtopt (Release, `-O2 -g1`),
    then runs `tools/release/package_linux.sh`.  That script installs
    gtopt, bundles the shared libraries, splits the debug info, strips the
    binaries, rewrites the RUNPATHs and builds the archives.  Next,
    `tools/release/smoke_test.sh` unpacks each archive into a clean
-   directory and runs `gtopt --version` and `gtopt --solvers`.  It also
+   directory and runs `gtopt --version` (which must print exactly
+   `X.Y.Z` on a tag build: the job checks out the full history so the
+   embedded `git describe` sees the tag) and `gtopt --solvers`.  It also
    solves `c0` with HiGHS and CLP and checks the objective.
 3. `python` builds the sdist and wheel from `scripts/` and checks that
    the wheel installs.
 4. `release` writes `SHA256SUMS` and extracts the release notes from
    `CHANGELOG.md`.  It then runs `gh release create --draft` with all the
-   assets.  This is the only job with `contents: write`.
+   assets.
+5. `bump-dev` opens the next development cycle (step 7).  It and
+   `release` are the only jobs with write permissions.
 
 ### 6. Review and publish
 
@@ -127,3 +158,20 @@ Then click **Publish release**.  To withdraw a broken draft, delete it
 and the tag (`git push origin :refs/tags/vX.Y.Z`), fix the problem on
 `master`, and tag again.  Never move a tag after its release has been
 published.  Release a new patch version instead.
+
+### 7. Merge the development-version PR
+
+Once the draft exists, the `bump-dev` job opens a pull request
+`chore/dev-X.(Y+1).0` against `master`.  It sets `CMakeLists.txt` to
+`VERSION X.(Y+1).0` with `GTOPT_VERSION_SUFFIX "-dev"` and
+`scripts/pyproject.toml` to `X.(Y+1).0.dev0`.  Pull requests opened with
+the workflow's `GITHUB_TOKEN` do not start CI, so close and reopen it to
+run the checks, then merge it.  Builds from `master` then report e.g.
+`X.(Y+1).0-dev (vX.Y.Z-3-g0123456789ab)`.
+
+The job skips the PR when `master` no longer carries `X.Y.Z` (it was
+bumped by hand, or this is a patch release from an older line).  It needs
+the repository setting *Settings → Actions → General → Allow GitHub
+Actions to create and approve pull requests*; without it, make the same
+change by hand.  The next release starts again at step 1 and sets the
+final version.

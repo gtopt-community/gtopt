@@ -79,6 +79,25 @@ class SolutionObjective:
     convention: str
 
 
+GTOPT_VERSION = "gtopt_version"
+GTOPT_REVISION = "gtopt_revision"
+
+
+def format_gtopt_build(version: str | None, revision: str | None) -> str | None:
+    """Render the gtopt build that wrote an output, like ``gtopt --version``.
+
+    Mirrors ``gtopt::format_version_string`` (``include/gtopt/build_info.hpp``):
+    ``"1.1.0 (v1.1.0-20-g5a4fd2ef8)"``, or just ``"1.1.0"`` for a clean build
+    of the exact ``v1.1.0`` tag or when the revision is ``unknown``.  Returns
+    ``None`` when *version* is missing (outputs older than these columns).
+    """
+    if not version:
+        return None
+    if not revision or revision in ("unknown", f"v{version}"):
+        return version
+    return f"{version} ({revision})"
+
+
 def parse_solution_rows(rows: list[list[str]]) -> dict[str, str]:
     """Flatten parsed ``solution.csv`` records into ``{column: value}``.
 

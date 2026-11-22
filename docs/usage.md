@@ -58,7 +58,7 @@ Multiple system files can be provided and will be merged.
 | Short | Long Flag | Argument | Description |
 | ----- | --------- | -------- | ----------- |
 | `-h` | `--help` | | Show help message and exit |
-| `-V` | `--version` | | Show program version and exit |
+| `-V` | `--version` | | Show the program version and the git revision it was built from (see below), then exit |
 | `-v` | `--verbose` | | Activate maximum verbosity (trace-level logging) |
 | `-q` | `--quiet` | `[=arg]` | Suppress all log output to stdout |
 | `-S` | `--stats` | | Print pre-solve system statistics and post-solve results summary |
@@ -479,8 +479,8 @@ On success, GTOpt logs its progress and exits with code 0:
 The solver produces a `solution.csv` summary:
 
 ```text
-scene,phase,status,status_name,obj_value,kappa,max_kappa,gap,gap_change,solve_ticks,solve_time_s,solve_calls,infeasible_count,scale_objective
-0,0,0,optimal,23163.424133184093,284,-1,0,1,0.0016,0.0021,1,0,1000
+scene,phase,status,status_name,obj_value,kappa,max_kappa,gap,gap_change,solve_ticks,solve_time_s,solve_calls,infeasible_count,scale_objective,gtopt_version,gtopt_revision
+0,0,0,optimal,23163.424133184093,284,-1,0,1,0.0016,0.0021,1,0,1000,1.1.0,v1.1.0-20-g5a4fd2ef8abc
 ```
 
 One row per solved `(scene, phase)` cell:
@@ -503,11 +503,18 @@ One row per solved `(scene, phase)` cell:
 - **`scale_objective`**: objective scale factor the cell LP was built with
   (`obj_value / scale_objective` is the LP-raw objective).  SDDP and
   cascade default to 1; monolithic defaults to 1000.
+- **`gtopt_version`**, **`gtopt_revision`**: the gtopt build that wrote the
+  file, the same on every row: its version (`1.1.0`, or `1.2.0-dev`
+  between releases) and the `git describe --always --dirty` of its source
+  tree (`unknown` for a build outside a git checkout).  `gtopt --version`
+  prints the same pair as `1.1.0 (v1.1.0-20-g5a4fd2ef8abc)`, or just
+  `1.1.0` for a clean build of the release tag.
 
 New columns are only ever appended.  The e2e golden comparison
 (`tools/gtopt_compare_csv.py`) compares only the columns present in the
 golden, never the run-dependent telemetry (`kappa`, `max_kappa`,
-`solve_*`, `infeasible_count`), and compares `obj_value` in physical units
+`solve_*`, `infeasible_count`) or the build metadata (`gtopt_version`,
+`gtopt_revision`), and compares `obj_value` in physical units
 (it is a hard error even for the solver-agnostic `output/` goldens).
 Refresh the goldens with `tools/update_solution_goldens.py`.
 
@@ -519,7 +526,8 @@ Output is organized by component type. Each component produces solution
 ### Solution summary
 
 `solution.csv` — overall optimization result (objective value, status, SDDP
-convergence metrics).
+convergence metrics) and the gtopt version and git revision that produced
+it.
 
 ### Generator output
 

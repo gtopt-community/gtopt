@@ -33,6 +33,29 @@ def test_check_solution_csv(tmp_path: Path):
     assert result["scale_objective"] == 1000
 
 
+def test_check_solution_reports_gtopt_build(tmp_path: Path):
+    """The gtopt_version/gtopt_revision columns surface as ``gtopt_build``."""
+    sol = tmp_path / "solution.csv"
+    sol.write_text(
+        _SOLUTION_HEADER.rstrip("\n")
+        + ",gtopt_version,gtopt_revision\n"
+        + "0,0,0,optimal,12345.6,3,3,0,1,0.1,0.01,1,0,1000,"
+        + "1.1.0,v1.1.0-20-g5a4fd2ef8abc\n"
+    )
+    result = check_solution(tmp_path)
+    assert result["gtopt_build"] == "1.1.0 (v1.1.0-20-g5a4fd2ef8abc)"
+    assert abs(result["objective"] - 12345.6) < 1e-6
+
+
+def test_check_solution_without_build_columns(tmp_path: Path):
+    """Outputs older than the build columns have no ``gtopt_build``."""
+    sol = tmp_path / "solution.csv"
+    sol.write_text(
+        _SOLUTION_HEADER + "0,0,0,optimal,12345.6,3,3,0,1,0.1,0.01,1,0,1000\n"
+    )
+    assert "gtopt_build" not in check_solution(tmp_path)
+
+
 def test_check_solution_legacy_csv(tmp_path: Path):
     """Legacy solution.csv (no telemetry/scale columns): obj_value is LP-raw."""
     sol = tmp_path / "solution.csv"

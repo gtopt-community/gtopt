@@ -23,6 +23,7 @@
 #include <mutex>
 #include <string>
 
+#include <gtopt/build_info.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_status.hpp>
 #include <gtopt/utils.hpp>
@@ -148,6 +149,10 @@ std::string build_iteration_status_json(
 
   json += "{\n";
   json += std::format("  \"version\": 1,\n");
+  // Which gtopt produced this run (`version` above is the file schema).
+  const auto build = build_info();
+  json += std::format("  \"gtopt_version\": \"{}\",\n", build.version);
+  json += std::format("  \"gtopt_revision\": \"{}\",\n", build.git_revision);
   json += std::format("  \"timestamp\": {:.3f},\n", now_ts);
   json += std::format("  \"elapsed_s\": {:.3f},\n", elapsed_seconds);
   // PID lets external tools (run_gtopt --attach, --list) verify the

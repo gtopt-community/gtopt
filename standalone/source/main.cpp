@@ -3,6 +3,7 @@
 #include <set>
 #include <string>
 
+#include <gtopt/build_info.hpp>
 #include <gtopt/check_solvers.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json_schema.hpp>
@@ -11,7 +12,6 @@
 #include <gtopt/resolve_planning_args.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/unit_registry.hpp>
-#include <gtopt/version.hpp>
 #include <unistd.h>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -95,7 +95,7 @@ int main(int argc, char** argv)
     }
 
     if (vm.contains("help")) {
-      std::cout << "GTOpt " << GTOPT_VERSION
+      std::cout << "GTOpt " << gtopt::build_info().version_string()
                 << " - Generation, Transmission and storage Optimization\n"
                    "Optimization and analysis of power-system generation, "
                    "transmission and storage\n"
@@ -212,7 +212,7 @@ record — `--quiet` further silences the log file too.
     }
 
     if (vm.contains("version")) {
-      std::cout << GTOPT_VERSION << '\n';
+      std::cout << gtopt::build_info().version_string() << '\n';
       return 0;
     }
 
@@ -446,7 +446,7 @@ record — `--quiet` further silences the log file too.
       gtopt::setup_file_logging(main_opts, /*suppress_stdout=*/true);
     }
 
-    spdlog::info("starting gtopt {}", GTOPT_VERSION);
+    spdlog::info("starting gtopt {}", gtopt::build_info().version_string());
 
     auto result = gtopt::gtopt_main(main_opts);
     if (result.has_value()) {

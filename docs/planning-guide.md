@@ -1277,6 +1277,7 @@ output/
 | `kappa` | Basis condition number (`-1` when unavailable) |
 | `status` | 0 = optimal; 1 = infeasible; 2 = unbounded; -1 = not solved |
 | `scale_objective` | Objective scale factor of the LP (`obj_value / scale_objective` = LP-raw objective) |
+| `gtopt_version`, `gtopt_revision` | The gtopt build that wrote the file: version and `git describe` revision (same on every row) |
 
 See [usage.md](usage.md#solution-summary) for the full column list.
 

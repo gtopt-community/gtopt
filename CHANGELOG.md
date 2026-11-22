@@ -7,6 +7,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `gtopt --version`, the `--help` header and the `starting gtopt` log
+  line show the git revision the binary was built from, e.g.
+  `1.1.0 (v1.1.0-20-g5a4fd2ef8abc)`.  A clean build of exactly the
+  release tag prints just `1.1.0`; a build without git prints the
+  version alone.
+- `solution.csv` gains two trailing columns, `gtopt_version` and
+  `gtopt_revision`, and `solver_status.json` the same two keys, so every
+  run records which gtopt produced it.  `run_gtopt` shows it in its
+  post-run summary.  The golden comparator ignores both columns.
+- Development versions: between releases `master` carries the next
+  version with a marker (`GTOPT_VERSION_SUFFIX "-dev"` in
+  `CMakeLists.txt`, `X.Y.Z.dev0` in `scripts/pyproject.toml`), so a
+  master build reports e.g. `1.2.0-dev (v1.1.0-23-g...)`.  After a tag
+  produces its draft release, the release workflow opens the PR that
+  starts the next development version; the tag check now also requires
+  an empty suffix.  See `docs/releasing.md`.
+
 ### Fixed
 
 - `sddp2gtopt`: interconnection imports are unavailable in hours with no

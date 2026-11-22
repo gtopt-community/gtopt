@@ -39,6 +39,8 @@ SolutionRow make_row(int status)
       .solve_calls = 4,
       .infeasible_count = 0,
       .scale_objective = 1000.0,
+      .gtopt_version = "1.2.0-dev",
+      .gtopt_revision = "v1.1.0-23-gabc",
   };
 }
 }  // namespace
@@ -50,7 +52,7 @@ TEST_CASE("solution.csv header and row field counts stay in sync")  // NOLINT
   const auto header_fields = count_csv_fields(solution_csv_header());
   const auto row_fields = count_csv_fields(solution_csv_line(make_row(0)));
 
-  CHECK(header_fields == 14);
+  CHECK(header_fields == 16);
   CHECK(row_fields == header_fields);
 }
 
@@ -90,4 +92,12 @@ TEST_CASE(
     const auto bad = solution_csv_line(make_row(-1));
     CHECK(bad.find(",unknown,") != std::string::npos);
   }
+}
+
+TEST_CASE("solution_csv_line ends with the gtopt build columns")  // NOLINT
+{
+  const auto header = std::string(solution_csv_header());
+  CHECK(header.ends_with(",gtopt_version,gtopt_revision\n"));
+  const auto line = solution_csv_line(make_row(0));
+  CHECK(line.ends_with(",1000,1.2.0-dev,v1.1.0-23-gabc\n"));
 }

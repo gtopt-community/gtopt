@@ -27,6 +27,7 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/battery.hpp>
+#include <gtopt/build_info.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/line.hpp>
@@ -2274,6 +2275,7 @@ void PlanningLP::write_out()
                * static_cast<std::size_t>(num_phases));
 
   const auto& sddp = m_sddp_summary_;
+  const auto build = build_info();
 
   for (const auto& phase_systems : m_systems_) {
     for (const auto& system : phase_systems) {
@@ -2305,6 +2307,8 @@ void PlanningLP::write_out()
           .solve_calls = li.solver_stats().total_solve_calls(),
           .infeasible_count = li.solver_stats().infeasible_count,
           .scale_objective = li.scale_objective(),
+          .gtopt_version = build.version,
+          .gtopt_revision = build.git_revision,
       });
     }
   }

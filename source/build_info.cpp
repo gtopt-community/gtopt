@@ -6,12 +6,26 @@
  *            see LICENSING.md
  */
 
+#include <format>
+
 #include <gtopt/build_info.hpp>
 #include <gtopt/git_revision.hpp>
 #include <gtopt/version.hpp>
 
 namespace gtopt
 {
+
+std::string format_version_string(std::string_view version,
+                                  std::string_view git_revision)
+{
+  const bool no_revision = git_revision.empty() || git_revision == "unknown";
+  const bool exact_tag = git_revision.size() == version.size() + 1
+      && git_revision.starts_with('v') && git_revision.substr(1) == version;
+  if (no_revision || exact_tag) {
+    return std::string(version);
+  }
+  return std::format("{} ({})", version, git_revision);
+}
 
 BuildInfo build_info() noexcept
 {

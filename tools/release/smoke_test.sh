@@ -3,7 +3,9 @@
 #
 # Smoke-test a gtopt binary release tarball in a clean directory:
 #   - the tree resolves all shared libraries with an empty LD_LIBRARY_PATH,
-#   - `gtopt --version` reports the expected version,
+#   - `gtopt --version` reports the expected version (exactly X.Y.Z, with
+#     no git revision, when GTOPT_SMOKE_EXACT_VERSION=1: a clean build of
+#     the release tag),
 #   - `gtopt --solvers` lists HiGHS, CLP and CBC,
 #   - the bundled c0 example solves to optimality with HiGHS and CLP,
 #     matching the reference objective.
@@ -46,6 +48,10 @@ echo "== gtopt --version"
 out=$("${clean_env[@]}" "$gtopt" --version)
 echo "$out"
 grep -q "$version" <<<"$out" || { echo "FAIL: version $version not reported" >&2; exit 1; }
+if [[ ${GTOPT_SMOKE_EXACT_VERSION:-} == 1 && $out != "$version" ]]; then
+  echo "FAIL: expected exactly '$version' from a release-tag build, got '$out'" >&2
+  exit 1
+fi
 
 echo "== gtopt --solvers"
 out=$("${clean_env[@]}" "$gtopt" --solvers 2>&1)

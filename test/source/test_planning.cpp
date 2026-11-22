@@ -2708,7 +2708,11 @@ TEST_CASE(  // NOLINT
   const auto i_obj = col("obj_value");
   const auto i_scale = col("scale_objective");
   const auto i_status = col("status");
-  CHECK(i_scale == h1.size() - 1);  // appended, never reorders older columns
+  // Appended columns never reorder older ones: scale_objective stays
+  // right after infeasible_count, ahead of the later build columns.
+  CHECK(i_scale == col("infeasible_count") + 1);
+  CHECK(col("gtopt_version") == i_scale + 1);
+  CHECK(col("gtopt_revision") == h1.size() - 1);
 
   REQUIRE(rows1.size() == 6);
   REQUIRE(rows1.size() == rows1k.size());

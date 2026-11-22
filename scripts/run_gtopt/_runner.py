@@ -12,7 +12,13 @@ import threading
 import time
 from pathlib import Path
 
-from gtopt_shared.solution_csv import default_scale_objective, resolve_objective
+from gtopt_shared.solution_csv import (
+    GTOPT_REVISION,
+    GTOPT_VERSION,
+    default_scale_objective,
+    format_gtopt_build,
+    resolve_objective,
+)
 
 log = logging.getLogger(__name__)
 
@@ -649,8 +655,10 @@ def run_check_lp(lp_files: list[Path]) -> None:
 def check_solution(results_dir: Path, fallback_scale: float | None = None) -> dict:
     """Parse solution.csv (or solution.parquet) from the results directory.
 
-    Returns a dict with keys: ``status``, ``objective`` and
-    ``scale_objective`` (or empty if the file is not found / unparseable).
+    Returns a dict with keys: ``status``, ``objective``,
+    ``scale_objective`` and, for outputs that record it, ``gtopt_build``
+    (the writing gtopt as ``gtopt --version`` prints it), or empty if the
+    file is not found / unparseable.
     ``objective`` is the first cell's ``obj_value`` in physical cost units
     (see :mod:`gtopt_shared.solution_csv`); *fallback_scale* is only used
     for legacy outputs that do not record their ``scale_objective``.  Both the CSV and Parquet
@@ -687,6 +695,11 @@ def check_solution(results_dir: Path, fallback_scale: float | None = None) -> di
         if objective is not None:
             result["objective"] = objective.value
             result["scale_objective"] = objective.scale_objective
+        build = format_gtopt_build(
+            first_row.get(GTOPT_VERSION), first_row.get(GTOPT_REVISION)
+        )
+        if build is not None:
+            result["gtopt_build"] = build
         return result
     except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         log.warning("failed to parse %s: %s", src, exc)
@@ -1409,6 +1422,8 @@ def report_solution(
         rows.append((label, value))
 
     # ── Paths ──
+    if "gtopt_build" in sol:
+        rows.append(("gtopt", sol["gtopt_build"]))
     rows.append(("Results", str(results_dir)))
     log_path = results_dir / "logs" / "gtopt.log"
     if log_path.is_file():

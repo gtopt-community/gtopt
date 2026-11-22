@@ -17,6 +17,7 @@
 #include <vector>
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/build_info.hpp>
 #include <gtopt/future_cost_lp.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/lp_debug_writer.hpp>
@@ -459,6 +460,10 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       json.reserve(1024);
       json += "{\n";
       json += std::format("  \"version\": 1,\n");
+      const auto build = build_info();
+      json += std::format("  \"gtopt_version\": \"{}\",\n", build.version);
+      json +=
+          std::format("  \"gtopt_revision\": \"{}\",\n", build.git_revision);
       json += std::format("  \"status\": \"done\",\n");
       json += std::format("  \"method\": \"monolithic\",\n");
       // Query the actual solver identity from the first available LP
