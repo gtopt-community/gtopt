@@ -112,10 +112,12 @@ if [[ "$mode" == configure ]]; then
     launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache
               -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
   fi
+  generator=()
+  command -v ninja > /dev/null && generator=(-G Ninja)
   # Configure only: clang-tidy needs the compile commands, not objects.
   # CIFast keeps the flags identical to the normal agent build.
   # shellcheck disable=SC2086  # GTOPT_TIDY_CMAKE_ARGS is a word list
-  cmake -S "$repo_root/all" -B "$dir" -G Ninja \
+  cmake -S "$repo_root/all" -B "$dir" "${generator[@]}" \
     -DCMAKE_BUILD_TYPE=CIFast \
     -DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" \
     "${launcher[@]}" \
