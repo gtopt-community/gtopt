@@ -176,7 +176,18 @@ public:
   SolverMonitor(SolverMonitor&&) = delete;
   SolverMonitor& operator=(SolverMonitor&&) = delete;
 
-  ~SolverMonitor() = default;
+  /// Stop and join the sampling thread *before* any other member is
+  /// destroyed.  `m_thread_` is declared ahead of the history / status
+  /// members, so the implicit destructor would tear those down while the
+  /// sampler could still be inside its loop body (`stop()` only requests a
+  /// stop) — a use-after-destroy race reported by ThreadSanitizer.
+  ~SolverMonitor()
+  {
+    if (m_thread_.joinable()) {
+      m_thread_.request_stop();
+      m_thread_.join();
+    }
+  }
 
   /// Start the background sampling thread.
   /// @param pool         The work pool to sample statistics from.

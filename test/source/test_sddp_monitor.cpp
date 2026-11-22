@@ -13,12 +13,15 @@
  */
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <ranges>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -498,4 +501,61 @@ TEST_CASE(
   CHECK(content.find("\"pool_process_rss_mb\"") != std::string::npos);
 
   std::filesystem::remove(tmp_file);
+}
+
+namespace
+{
+/// Minimal pool stand-in: SolverMonitor::start() only needs
+/// get_statistics() with these five fields.
+struct FakeMonitorPool
+{
+  struct Statistics
+  {
+    double current_cpu_load {12.5};
+    int active_threads {3};
+    double current_memory_percent {40.0};
+    double process_rss_mb {100.0};
+    double available_memory_mb {1000.0};
+  };
+
+  mutable std::atomic<int> calls {0};
+
+  [[nodiscard]] Statistics get_statistics() const noexcept
+  {
+    calls.fetch_add(1, std::memory_order_relaxed);
+    return {};
+  }
+};
+}  // namespace
+
+TEST_CASE(
+    "SolverMonitor destructor joins the sampler before tearing down "
+    "history")  // NOLINT
+{
+  using namespace gtopt;
+  using namespace std::chrono_literals;
+
+  // Regression for a ThreadSanitizer report: m_thread_ is declared before
+  // m_history_ / the status strings, so the implicit destructor destroyed
+  // them while the sampler thread could still be appending.  Under TSan
+  // this loop reproduces the race on every run; in a plain build it checks
+  // that the sampler is stopped once the monitor is gone.
+  for (int round = 0; round < 20; ++round) {
+    FakeMonitorPool pool;
+    int calls_at_destruction = 0;
+    {
+      SolverMonitor monitor(SolverMonitor::Interval {0});
+      monitor.start(pool, std::chrono::steady_clock::now(), "TestMonitor");
+      while (pool.calls.load() < 3) {
+        std::this_thread::sleep_for(100us);
+      }
+      CHECK_FALSE(monitor.history().empty());
+      if (round % 2 == 0) {
+        monitor.stop();  // non-blocking: destructor must still join
+      }
+    }
+    calls_at_destruction = pool.calls.load();
+    std::this_thread::sleep_for(1ms);
+    CHECK(pool.calls.load() == calls_at_destruction);
+  }
 }
