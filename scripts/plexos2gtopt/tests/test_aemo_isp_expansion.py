@@ -526,3 +526,43 @@ def test_feasible_cycle_eini_clips_retiring_battery(caplog):
     ok = {"emax": [[8.9] * 24] * 2, "emin": [[1.0] * 24] * 2}
     assert _feasible_cycle_eini("B", 4.46, ok) == 4.46
     assert _feasible_cycle_eini("B", 0.5, ok) == 1.0
+
+
+@pytest.mark.parametrize(
+    ("category", "loss"),
+    [
+        ("New Entrant PHES NSW", 0.0),
+        ("New Entrant Large-scale Battery NSW", None),
+    ],
+)
+def test_battery_candidate_phes_has_no_self_discharge(
+    category: str, loss: float | None, tmp_path: Path
+) -> None:
+    """PHES candidates pin ``annual_loss = 0``; Li-ion keeps gtopt's default."""
+    c = exp.Candidate(
+        name="cand",
+        oid=1,
+        bus="b1",
+        category=category,
+        unit_mw=100.0,
+        wacc=7.0,
+        life=40.0,
+        fom=0.0,
+        vom=0.0,
+        aux=0.0,
+        heat_rate=None,
+        fuel_oid=None,
+        energy=True,
+        max_units=[1.0],
+        build_cost=[2000.0],
+        kind="battery",
+        unit_mwh=800.0,
+        eff_in=0.85,
+        eff_out=0.9,
+    )
+    opts = exp.ExpansionOptions(xml=tmp_path / "x.xml", trace_roots=[], years=1)
+    entry = exp._battery_candidate(  # pylint: disable=protected-access
+        c, [True], 1, opts, [0]
+    )
+    assert entry.get("annual_loss") == loss
+    assert entry["type"] == ("candidate_phes" if loss == 0.0 else "candidate_battery")

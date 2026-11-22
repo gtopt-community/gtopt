@@ -52,6 +52,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- plexos2gtopt AEMO ISP (weekly and expansion): pumped hydro (PHES)
+  written as a Battery now carries `annual_loss: 0`, so it no longer
+  inherits the Li-ion self-discharge default
+  (`model_options.battery_annual_loss`).
+
 - `sddp2gtopt`: interconnection imports are unavailable in hours with no
   offer.  With `PRECIOSMEX.csv`, an hour priced blank or 0 for an import
   unit (or the regional `INTER-SAL` series it inherits) closes that unit

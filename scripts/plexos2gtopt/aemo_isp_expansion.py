@@ -604,10 +604,11 @@ def _battery_candidate(
         for s in range(n_st)
     ]
     expmod = [mub[s] if bstage[s] else 0.0 for s in range(n_st)]
-    return {
+    phes = "PHES" in c.category
+    entry: dict[str, Any] = {
         "name": c.name,
         "bus": c.bus,
-        "type": "candidate_" + ("phes" if "PHES" in c.category else "battery"),
+        "type": "candidate_" + ("phes" if phes else "battery"),
         "description": f"storage expansion candidate [{c.category}]",
         "input_efficiency": c.eff_in,
         "output_efficiency": c.eff_out,
@@ -627,6 +628,12 @@ def _battery_candidate(
         "power_annual_capcost": cap,
         "energy_power_ratio": c.unit_mwh / c.unit_mw,
     }
+    if phes:
+        # Pumped hydro has no electrochemical self-discharge: pin 0 so the
+        # gtopt Li-ion default (``model_options.battery_annual_loss``) does
+        # not drain the upper reservoir.
+        entry["annual_loss"] = 0.0
+    return entry
 
 
 def _daily_net_load(

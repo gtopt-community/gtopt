@@ -598,6 +598,13 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
                     "pmax_discharge": round(float(pmax.max()), 6),
                     "input_efficiency": ceff,
                     "output_efficiency": deff,
+                    # pumped hydro carried as a Battery: no self-discharge
+                    # (otherwise gtopt applies its Li-ion default)
+                    **(
+                        {"annual_loss": 0.0}
+                        if "PHES" in res.category(o).upper()
+                        else {}
+                    ),
                 }
             )
             stats["battery_mw"] += float(pmax.max())
