@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Migrate deprecated boundary-cut keys of gtopt JSON files to FutureCost.
 
 The FutureCost element (``system.future_cost_array``) is the single,

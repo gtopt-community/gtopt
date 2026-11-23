@@ -45,8 +45,11 @@ _gtopt()
         --algorithm|-a)
             COMPREPLY=( $(compgen -W "default primal dual barrier" -- "$cur") )
             return ;;
+        --aperture-chunk-mode)
+            COMPREPLY=( $(compgen -W "per_scene per_aperture chunked" -- "$cur") )
+            return ;;
         --aperture-chunk-size)
-            COMPREPLY=( $(compgen -W "auto 0 1 2 4 8 16 -1" -- "$cur") )
+            COMPREPLY=( $(compgen -W "auto 2 4 8 16" -- "$cur") )
             return ;;
         --write-out)
             COMPREPLY=( $(compgen -W "all none solution sol dual reduced_cost rcost rc" -- "$cur") )
@@ -86,7 +89,8 @@ _gtopt()
             --use-single-bus -b --use-kirchhoff -k
             --no-scale --no-mip --mip-gap
             --naming-dialect --list-dialects
-            --sddp-num-apertures --aperture-chunk-size --recover
+            --sddp-num-apertures --aperture-chunk-mode --aperture-chunk-size
+            --recover
             --sddp-max-iterations --sddp-min-iterations
             --sddp-convergence-tol --sddp-elastic-penalty
             --sddp-elastic-mode
@@ -381,37 +385,6 @@ _gtopt_diagram()
     fi
 }
 complete -F _gtopt_diagram gtopt_diagram
-
-# ---------------------------------------------------------------------------
-# gtopt_field_extractor
-# ---------------------------------------------------------------------------
-_gtopt_field_extractor()
-{
-    local cur prev
-    _init_completion || return
-
-    case "$prev" in
-        -o|--output)
-            _filedir
-            return ;;
-        -f|--format)
-            COMPREPLY=( $(compgen -W "md html" -- "$cur") )
-            return ;;
-        -e|--elements)
-            return ;;
-        -l|--log-level)
-            COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR" -- "$cur") )
-            return ;;
-    esac
-
-    if [[ "$cur" == -* ]]; then
-        COMPREPLY=( $(compgen -W "--output -o --format -f --elements -e
-            --no-color --log-level -l --version -V --help -h" -- "$cur") )
-    else
-        _filedir -d
-    fi
-}
-complete -F _gtopt_field_extractor gtopt_field_extractor
 
 # ---------------------------------------------------------------------------
 # igtopt
@@ -739,7 +712,7 @@ _run_gtopt()
 complete -F _run_gtopt run_gtopt
 
 # ---------------------------------------------------------------------------
-# gtopt_monitor (formerly sddp_monitor)
+# gtopt_monitor
 # ---------------------------------------------------------------------------
 _gtopt_monitor()
 {
@@ -771,7 +744,6 @@ _gtopt_monitor()
     fi
 }
 complete -F _gtopt_monitor gtopt_monitor
-complete -F _gtopt_monitor sddp_monitor
 
 # ---------------------------------------------------------------------------
 # gtopt_config  (if available as a standalone command)
@@ -938,7 +910,6 @@ _gtopt_expand()
     fi
 }
 complete -F _gtopt_expand gtopt_expand
-complete -F _gtopt_expand gtopt_irrigation  # deprecated alias
 
 # ---------------------------------------------------------------------------
 # cen_demanda
@@ -1064,9 +1035,8 @@ complete -F _gtopt_marginal_units gtopt_marginal_units
 complete -F _gtopt_marginal_units gtopt-marginal-units 2>/dev/null
 
 # ---------------------------------------------------------------------------
-# cen2gtopt and its sibling commands (cen2gtopt-{marginal-units,marginal-period,
-#                                              buses,cache,pcp-{archive,inputs,
-#                                              validate,solution}})
+# cen2gtopt and its sibling commands (cen2gtopt-{marginal-period,buses,cache,
+#                                              pcp-{archive,inputs,solution}})
 # ---------------------------------------------------------------------------
 _cen2gtopt()
 {
@@ -1096,13 +1066,45 @@ _cen2gtopt()
     fi
 }
 complete -F _cen2gtopt cen2gtopt
-complete -F _cen2gtopt cen2gtopt-marginal-units 2>/dev/null
 complete -F _cen2gtopt cen2gtopt-marginal-period 2>/dev/null
 complete -F _cen2gtopt cen2gtopt-buses 2>/dev/null
 complete -F _cen2gtopt cen2gtopt-cache 2>/dev/null
 complete -F _cen2gtopt cen2gtopt-pcp-archive 2>/dev/null
 complete -F _cen2gtopt cen2gtopt-pcp-inputs 2>/dev/null
-complete -F _cen2gtopt cen2gtopt-pcp-validate 2>/dev/null
 complete -F _cen2gtopt cen2gtopt-pcp-solution 2>/dev/null
+
+# ---------------------------------------------------------------------------
+# gtopt-fetch  (operator data downloads; gtopt_operators)
+# ---------------------------------------------------------------------------
+_gtopt_fetch()
+{
+    local cur prev words cword
+    _init_completion || return
+
+    case "$prev" in
+        --out|--cache|--file|--lock|verify)
+            _filedir
+            return ;;
+        --date|--since|--until|--version)
+            return ;;
+    esac
+
+    case "$cword" in
+        1)
+            COMPREPLY=( $(compgen -W "operators verify cen amm eor coes xm aemo
+                --cache --verbose -v --quiet -q --help -h" -- "$cur") )
+            return ;;
+        2)
+            [[ "${words[1]}" != operators && "${words[1]}" != verify ]] &&
+                COMPREPLY=( $(compgen -W "list info get" -- "$cur") )
+            return ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--date --version --out --file --refresh
+            --dry-run --since --until --lock --write-lock --help -h" -- "$cur") )
+    fi
+}
+complete -F _gtopt_fetch gtopt-fetch 2>/dev/null
 
 # vim: ft=bash

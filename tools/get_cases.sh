@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #
 # Clone or update the gtopt case repository (gtopt-cases) at the
 # commit pinned in tools/cases.lock, and print the export line for
