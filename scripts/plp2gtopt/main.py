@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_section
+from gtopt_shared.operator import add_operator_argument, select_operator
 from gtopt_shared.cli_signals import (  # pylint: disable=unused-import
     install_termination_handlers,
     signal_handler,  # noqa: F401  re-export for back-compat / tests
@@ -247,6 +248,7 @@ def make_parser() -> argparse.ArgumentParser:
             "See <output_dir>/README.md for the snapshot format."
         ),
     )
+    add_operator_argument(parser)
 
     return parser
 
@@ -515,6 +517,9 @@ def build_options(args: argparse.Namespace) -> dict[str, Any]:
         # JunctionWriter._spillway_fields.  ``getattr`` keeps minimal-
         # Namespace test fixtures working.
         "plp_spill_costs": getattr(args, "plp_spill_costs", False),
+        # ``--falla-segments {first,all}`` (default "first"): see
+        # plp2gtopt/falla_segments.py.
+        "falla_segments": getattr(args, "falla_segments", "first"),
         # ``--reservoir-flow-estimate`` (default True): topology-driven
         # per-reservoir extraction-flow bounds (gtopt_shared.reservoir_flow).
         # ``getattr`` keeps minimal-Namespace test fixtures working.
@@ -562,14 +567,9 @@ def build_options(args: argparse.Namespace) -> dict[str, Any]:
     }
     if args.scale_theta is not None:
         model_opts["scale_theta"] = args.scale_theta
-    elif args.use_kirchhoff and args.kirchhoff_mode == "node_angle":
-        # node_angle default: pin scale_theta=1.0 (no θ auto-scaling).  On the
-        # CEN65 full-network LP the auto θ-scale (median X/V² ≈ 2.7e-4) shrinks
-        # the angle columns ~3700×, which skews the matrix and forces ruiz
-        # equilibration to compensate — net slower.  The raw per-line KVL
-        # matrix is already well-conditioned (X/V² ~ 1e-4…1e-2), so leaving θ
-        # unscaled avoids the extra skew.
-        model_opts["scale_theta"] = 1.0
+    # Otherwise leave scale_theta unset: the θ scale (and the adaptive
+    # theta_max bound) is decided on the C++ side by
+    # PlanningLP::auto_scale_theta, uniformly for every input source.
     if args.reserve_fail_cost is not None:
         # §11.10 rename: gtopt canonical is `reserve_shortage_cost`;
         # legacy `reserve_fail_cost` JSON key still accepted via the
@@ -585,6 +585,9 @@ def build_options(args: argparse.Namespace) -> dict[str, Any]:
         model_opts["loss_secant_segments"] = args.loss_secant_segments
     opts["model_options"] = model_opts
 
+    if getattr(args, "aperture_chunk_mode", None) is not None:
+        sddp_opts = opts.setdefault("sddp_options", {})
+        sddp_opts["aperture_chunk_mode"] = args.aperture_chunk_mode
     if getattr(args, "aperture_chunk_size", None) is not None:
         sddp_opts = opts.setdefault("sddp_options", {})
         sddp_opts["aperture_chunk_size"] = args.aperture_chunk_size
@@ -592,8 +595,9 @@ def build_options(args: argparse.Namespace) -> dict[str, Any]:
     # Iterative fast-path defaults (benchmarked plp2gtopt -> gtopt pipeline,
     # ~PLP parity on the CEN65 2-year case): provably-zero LP-column elision
     # (``lp_reduction``, ~-19% wall) + dual aperture warm-start
-    # (``aperture_solve_mode = warm`` with ``aperture_chunk_size = 0`` — auto,
-    # parallel per-aperture chunks) + dual simplex on the forward/backward
+    # (``aperture_solve_mode = warm`` with ``aperture_chunk_mode =
+    # per_scene`` — every aperture of a scene warm-chained on one clone) +
+    # dual simplex on the forward/backward
     # passes with an advanced (warm) basis.  The ``tangent_signed_flow``
     # loss model is the default (see ``line_losses_mode`` above).  All are
     # overridable.  Applied to BOTH ``sddp`` and ``cascade``: these top-level
@@ -818,6 +822,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # Resolve options once so the snapshot + the converter share the
     # exact same parsed-options dict (incl. resolved output_dir).
+    select_operator(getattr(args, "operator", None), "plp", args.input_dir, args)
     _opts_for_snapshot = build_options(args)
     try:
         critical_count = convert_plp_case(_opts_for_snapshot)

@@ -284,13 +284,14 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["sddp_options"]["num_apertures"] == 8
         assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
         assert levels[2]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
-        # Every level now inherits the base warm + chunk=0 fast-path — no
-        # per-level aperture_solve_mode / aperture_chunk_size override (the
+        # Every level now inherits the base warm + per_scene fast-path — no
+        # per-level aperture_solve_mode / aperture_chunk_* override (the
         # former reduced_cost/-1 splits on the big levels were dropped so all
         # levels run the same warm + parallel-aperture config).
         for _lv in range(4):
             assert "aperture_solve_mode" not in levels[_lv]["sddp_options"]
             assert "aperture_chunk_size" not in levels[_lv]["sddp_options"]
+            assert "aperture_chunk_mode" not in levels[_lv]["sddp_options"]
         # Level 3: full network — full per-phase aperture list (every
         # scenario).  ``num_apertures`` and ``aperture_selection_mode``
         # must be ABSENT so the C++ side iterates the full
@@ -315,7 +316,8 @@ class TestGTOptWriterProcessMethods:
             assert opts["model_options"]["lp_reduction"] is True, method
             so = opts["sddp_options"]
             assert so["aperture_solve_mode"] == "warm", method
-            assert so["aperture_chunk_size"] == 0, method
+            assert so["aperture_chunk_mode"] == "per_scene", method
+            assert "aperture_chunk_size" not in so, method
             assert so["forward_solver_options"] == {
                 "algorithm": "dual",
                 "advanced_basis": True,

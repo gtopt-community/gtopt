@@ -23,7 +23,8 @@ def test_defaults_on_empty_dicts() -> None:
     apply_iterative_fast_path(model_opts, sddp_opts)
     assert model_opts["lp_reduction"] is True
     assert sddp_opts["aperture_solve_mode"] == "warm"
-    assert sddp_opts["aperture_chunk_size"] == 0
+    assert sddp_opts["aperture_chunk_mode"] == "per_scene"
+    assert "aperture_chunk_size" not in sddp_opts
     assert sddp_opts["forward_solver_options"] == {
         "algorithm": "dual",
         "advanced_basis": True,
@@ -64,3 +65,27 @@ def test_source_seeds_writer_direct_path() -> None:
     assert model_opts["lp_reduction"] is False
     assert sddp_opts["aperture_chunk_size"] == 4
     assert sddp_opts["aperture_solve_mode"] == "cold"
+
+
+def test_src_chunk_mode_passes_through() -> None:
+    """A source conf's named mode + K are copied, no per_scene injected."""
+    model_opts: dict = {}
+    sddp_opts: dict = {}
+    apply_iterative_fast_path(
+        model_opts,
+        sddp_opts,
+        src_sddp={"aperture_chunk_mode": "chunked", "aperture_chunk_size": 4},
+    )
+    assert sddp_opts["aperture_chunk_mode"] == "chunked"
+    assert sddp_opts["aperture_chunk_size"] == 4
+
+
+def test_src_legacy_chunk_size_alone_keeps_mode_unset() -> None:
+    """A legacy integer alone stays the mode selector (gtopt maps + warns)."""
+    model_opts: dict = {}
+    sddp_opts: dict = {}
+    apply_iterative_fast_path(
+        model_opts, sddp_opts, src_sddp={"aperture_chunk_size": 1}
+    )
+    assert sddp_opts["aperture_chunk_size"] == 1
+    assert "aperture_chunk_mode" not in sddp_opts

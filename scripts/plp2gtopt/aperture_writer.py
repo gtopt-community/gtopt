@@ -391,8 +391,9 @@ def compute_phase_wetness(
     PLP stage falls within the phase window.  Used by
     :func:`build_phase_apertures` to sort per-phase apertures **wettest →
     driest**, so the gtopt SDDP backward pass running with
-    ``aperture_chunk_size > 1`` groups similar bounds into the same chunk
-    and gets warm-start reuse on the shared LP clone.
+    ``aperture_chunk_mode = per_scene`` (or ``chunked``) groups similar
+    bounds into the same chunk and gets warm-start reuse on the shared LP
+    clone.
 
     Returns an empty dict when either parser is ``None`` (thermal-only
     cases, or callers that don't have the affluent / block data wired

@@ -98,6 +98,8 @@ def _features_rows(options: dict[str, Any] | None) -> list[tuple[str, str]]:
         )
     )
     rows.append(("vrebemb_as_sink", "on" if o.get("vrebemb_as_sink") else "off"))
+    if o.get("falla_segments", "first") != "first":
+        rows.append(("falla_segments", str(o["falla_segments"])))
     # ``vert_cost_cap`` is only consulted by
     # ``junction_writer._resolve_storage_bound_cost`` on the legacy
     # (vrebemb → CVert → CLI default) cascade.  When

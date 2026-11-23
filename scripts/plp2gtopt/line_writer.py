@@ -103,8 +103,10 @@ class LineWriter(BaseWriter):
             }
 
             # Only include reactance for AC lines.  DC/HVDC lines
-            # (reactance=0 or hvdc=True) omit reactance so gtopt skips
-            # the Kirchhoff voltage-law constraint for them.
+            # (PLP X=0 or hvdc=True) omit reactance so gtopt skips
+            # the Kirchhoff voltage-law constraint for them.  Never
+            # write reactance=0: gtopt reads an explicit 0 as a
+            # zero-impedance tie (equal bus angles), not as DC.
             is_hvdc = line.get("hvdc", False)
             reactance = line["x"]
             if pcol_name in pcols["reactance"] and not is_hvdc:

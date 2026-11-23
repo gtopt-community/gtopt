@@ -1319,6 +1319,11 @@ class HydroMixin:
         hydro_names = options.get("_pasada_hydro_names", set())
         if not hydro_names:
             return
+        # ``--pasada-mode hydro``: the JunctionWriter already emits the full
+        # junction/waterway/flow/turbine topology for these pasadas; adding
+        # the flow+turbine pair here duplicates their Flow/Turbine uids.
+        if options.get("pasada_mode") == "hydro":
+            return
 
         central_parser = self.parser.parsed_data.get("central_parser")
         if not central_parser:

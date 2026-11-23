@@ -25,20 +25,6 @@ import pandas as pd
 _logger = logging.getLogger(__name__)
 
 
-def _camel_to_snake_array(cname: str) -> str:
-    """Convert a CamelCase element type name to its snake_case_array sheet name.
-
-    Examples
-    --------
-    >>> _camel_to_snake_array("Demand")
-    'demand_array'
-    >>> _camel_to_snake_array("GeneratorProfile")
-    'generator_profile_array'
-    """
-    snake = re.sub(r"([A-Z])", lambda m: "_" + m.group(1).lower(), cname)
-    return snake.lstrip("_") + "_array"
-
-
 def _build_uid_to_name_maps(planning: dict[str, Any]) -> dict[str, dict[str, str]]:
     """Build ``uid:N`` → element-name maps for all arrays in the planning dict.
 

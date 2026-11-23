@@ -583,3 +583,146 @@ def test_broken_pampl_reference_fails(gtopt, tmp_path, variant, pampl, good, bad
     token = re.search(r"'([^']+)'", bad)
     assert token is not None
     assert token.group(1) in output
+
+
+# ---------------------------------------------------------------------------
+# Phantom-flow audit (review 2026-11-22): water is conserved, no ledger
+# is coupled to the physical balance, no physical flow runs negative.
+# ---------------------------------------------------------------------------
+
+_KEY = ["scenario", "stage", "block"]
+_FLOW_TOL = 1e-3
+
+
+def _long(r: _Results, cls: str, field: str) -> pd.DataFrame:
+    path = r.root / cls / f"{field}.parquet"
+    if not path.exists():
+        return pd.DataFrame(columns=[*_KEY, "uid", "value"])
+    df = pd.read_parquet(path)
+    return df[[*_KEY, "uid", "value"]].astype({"value": float})
+
+
+def _junction_residuals(r: _Results) -> pd.DataFrame:
+    """Per-(scenario, stage, block, junction) balance residual.
+
+    Rebuilt from the written columns only — including the opt-in
+    FlowRight ``bypass_sol`` arc — so every junction must close: no
+    water path may be hidden from the output.
+    """
+    s = r.system
+    jid = {j["name"]: j["uid"] for j in s.get("junction_array", [])}
+    jid.update({j["uid"]: j["uid"] for j in s.get("junction_array", [])})
+    parts: list[pd.DataFrame] = []
+
+    def add(df: pd.DataFrame, junction: Any, coef: float) -> None:
+        if junction is None or df.empty:
+            return
+        t = df[_KEY].copy()
+        t["j"] = jid[junction]
+        t["v"] = coef * df["value"].to_numpy()
+        parts.append(t)
+
+    ww = _long(r, "Waterway", "flow_sol")
+    for w in s.get("waterway_array", []):
+        d = ww[ww["uid"] == w["uid"]]
+        lf = w.get("lossfactor") or 0.0
+        add(d, w.get("junction_a"), -1.0)
+        add(d, w.get("junction_b"), 1.0 - float(lf))
+    tu = _long(r, "Turbine", "flow_sol")
+    for t in s.get("turbine_array", []):
+        if t.get("junction_a") is None:
+            continue
+        d = tu[tu["uid"] == t["uid"]]
+        add(d, t.get("junction_a"), -1.0)
+        add(d, t.get("junction_b"), 1.0)
+    rx = _long(r, "Reservoir", "extraction_sol")
+    rd = _long(r, "Reservoir", "drain_sol")
+    for rs in s.get("reservoir_array", []):
+        add(rx[rx["uid"] == rs["uid"]], rs.get("junction"), 1.0)
+        add(rd[rd["uid"] == rs["uid"]], rs.get("spill_junction"), 1.0)
+    jd = _long(r, "Junction", "drain_sol")
+    for j in s.get("junction_array", []):
+        add(jd[jd["uid"] == j["uid"]], j["uid"], -1.0)
+    fr_sol = _long(r, "FlowRight", "flow_sol")
+    fr_byp = _long(r, "FlowRight", "bypass_sol")
+    for fr in s.get("flow_right_array", []):
+        if fr.get("junction_a") is None:
+            continue
+        d = fr_sol[fr_sol["uid"] == fr["uid"]]
+        add(d, fr.get("junction_a"), -1.0)
+        if fr.get("junction_b") is not None:
+            if fr.get("consumptive") is False:
+                add(d, fr.get("junction_b"), 1.0)
+            b = fr_byp[fr_byp["uid"] == fr["uid"]]
+            add(b, fr.get("junction_a"), -1.0)
+            add(b, fr.get("junction_b"), 1.0)
+    fl = _long(r, "Flow", "flow_sol")
+    for f in s.get("flow_array", []):
+        if f.get("junction") is None:
+            continue
+        sign = 1.0 if (f.get("direction") or 1) >= 0 else -1.0
+        d = fl[fl["uid"] == f["uid"]]
+        if d.empty:  # folded by lp_reduction: read the input schedule
+            src = r.case / "Flow" / "discharge.parquet"
+            dis = pd.read_parquet(src)
+            d = dis[dis["uid"] == f["uid"]][[*_KEY, "value"]]
+        add(d, f.get("junction"), sign)
+    return pd.concat(parts).groupby([*_KEY, "j"], as_index=False)["v"].sum()
+
+
+@pytest.mark.parametrize("variant", ["both", "laja", "maule"])
+class TestNoPhantomFlows:
+    """Hydro conservation on the solved agreements (monolithic)."""
+
+    def test_physical_flows_non_negative(self, solved, variant):
+        r = solved[variant]
+        for cls, field in [
+            ("Waterway", "flow_sol"),
+            ("Turbine", "flow_sol"),
+            ("FlowRight", "flow_sol"),
+            ("Junction", "drain_sol"),
+            ("Reservoir", "drain_sol"),
+            ("VolumeRight", "extraction_sol"),
+        ]:
+            df = _long(r, cls, field)
+            assert (df["value"] >= -_FLOW_TOL).all(), (cls, df.nsmallest(3, "value"))
+
+    def test_junction_balances_close(self, solved, variant):
+        bal = _junction_residuals(solved[variant])
+        bad = bal[bal["v"].abs() > 1e-2]
+        assert bad.empty, bad.head(10)
+
+    def test_ledgers_not_coupled_to_physical_storage(self, solved, variant):
+        """Agreement ledgers are pure accounting (no `reservoir` debit)."""
+        for vr in solved[variant].system.get("volume_right_array", []):
+            assert vr.get("reservoir") is None, vr["name"]
+
+    def test_unanchored_rights_are_accounting_only(self, solved, variant):
+        """Rights without junction_a never touch a junction balance."""
+        bal = _junction_residuals(solved[variant])
+        assert not bal.empty
+        for fr in solved[variant].system.get("flow_right_array", []):
+            if fr.get("junction_a") is None:
+                assert fr.get("junction_b") is None, fr["name"]
+
+
+class TestNoPhantomFlowsSddp:
+    """Same audit on the SDDP layout (lp_reduction folds the inflows)."""
+
+    def test_junction_balances_close(self, sddp):
+        bal = _junction_residuals(sddp)
+        bad = bal[bal["v"].abs() > 1e-2]
+        assert bad.empty, bad.head(10)
+
+    def test_no_implicit_bypass_arc(self, sddp):
+        """A bare ``junction_b`` (carry-mode diversion) builds no bypass
+        arc: only rights that opt in (``use_bypass``) may report one."""
+        byp = _long(sddp, "FlowRight", "bypass_sol")
+        opted = {
+            fr["uid"]
+            for fr in sddp.system.get("flow_right_array", [])
+            if fr.get("use_bypass")
+            or fr.get("bypass_cost") is not None
+            or fr.get("bypass_fmax") is not None
+        }
+        assert set(byp["uid"].unique()) <= opted

@@ -69,16 +69,13 @@ def test_aperture_chunk_size_defaults_to_none() -> None:
     assert args.aperture_chunk_size is None
 
 
-def test_loss_cost_eps_defaults_to_one() -> None:
-    # plp2gtopt now ships ``loss_cost_eps = 1.0 $/MWh`` by default —
-    # strictly breaks the bidirectional-flow degeneracy even under
-    # aggressive presolve / Ruiz scaling, and doubles as the v-pin the
-    # tangent_signed_flow L-secant bracket needs when
-    # loss_secant_segments > 1 without SOS2.  Pass ``--loss-cost-eps 0``
-    # to opt out.
+def test_loss_cost_eps_defaults_to_none() -> None:
+    # The default lives in gtopt (0.1 $/MWh): plp2gtopt leaves the flag
+    # unset so the key is not emitted.  Pass ``--loss-cost-eps 0`` to
+    # opt out.
     p = make_parser()
     args = p.parse_args(["/tmp/x"])
-    assert args.loss_cost_eps == 1.0
+    assert args.loss_cost_eps is None
 
 
 def test_lift_line_caps_defaults_to_none() -> None:
@@ -120,13 +117,12 @@ def test_build_options_emits_loss_cost_eps() -> None:
     assert opts["model_options"]["loss_cost_eps"] == 1e-6
 
 
-def test_build_options_emits_default_loss_cost_eps() -> None:
-    # The plp2gtopt default ``--loss-cost-eps 1.0`` is forwarded as
-    # ``options.model_options.loss_cost_eps`` so the gtopt LP receives
-    # the strict degeneracy-breaker out of the box (no opt-in needed).
+def test_build_options_omits_loss_cost_eps_by_default() -> None:
+    # Unset ``--loss-cost-eps`` -> no ``model_options.loss_cost_eps``
+    # key: gtopt's built-in 0.1 $/MWh default applies.
     args = _parse()
     opts = build_options(args)
-    assert opts["model_options"]["loss_cost_eps"] == 1.0
+    assert "loss_cost_eps" not in opts["model_options"]
 
 
 def test_build_options_omits_loss_secant_segments_by_default() -> None:
@@ -146,8 +142,8 @@ def test_build_options_omits_loss_secant_segments_by_default() -> None:
 def test_build_options_emits_explicit_zero_loss_cost_eps() -> None:
     # Setting ``--loss-cost-eps 0`` is the opt-out path — the explicit
     # ``0.0`` is forwarded (not omitted) so the planning JSON shows the
-    # user explicitly asked for legacy behaviour, not "left at default".
-    # The C++ side reads the explicit 0.0 the same as a missing field.
+    # user explicitly asked for legacy behaviour.  It MUST be emitted:
+    # a missing field resolves to gtopt's non-zero 0.1 default.
     args = _parse("--loss-cost-eps", "0")
     opts = build_options(args)
     assert opts["model_options"]["loss_cost_eps"] == 0.0

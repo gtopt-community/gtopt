@@ -18,19 +18,24 @@ from gtopt_config import (
     add_version_argument,
 )
 from gtopt_shared.cli_flags import (
+    add_aperture_chunk_mode_argument,
     add_aperture_chunk_size_argument,
     add_demand_fail_cost_argument,
+    add_demand_tier_segments_argument,
     add_lift_line_caps_argument,
     add_line_losses_mode_argument,
     add_loss_cost_eps_argument,
     add_loss_secant_segments_argument,
     add_scale_objective_argument,
+    add_scale_theta_argument,
     add_soft_storage_bounds_argument,
     add_use_kirchhoff_argument,
     add_use_single_bus_argument,
     add_write_out_argument,
 )
 from gtopt_shared.resources import package_data_path
+
+from .falla_segments import DEFAULT_FALLA_SEGMENTS
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +428,7 @@ def add_scenario_arguments(
             "If not set, defaults to <output-dir>/apertures when needed."
         ),
     )
+    add_aperture_chunk_mode_argument(parser)
     add_aperture_chunk_size_argument(parser)
     # ``--write-out`` injects ``options.write_out`` into the planning
     # JSON so the standalone ``gtopt`` binary writes the right output
@@ -1048,6 +1054,17 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         default=None,
         help="cost penalty for reserve shortfall in $/MWh (default: not set)",
     )
+    # ``--falla-segments`` (default ``first``): how the PLP falla tiers
+    # (FALLA_<bus>_1..N, increasing cost, plpmance capacity = fraction of
+    # the bus demand) map onto gtopt's single ``Demand.fcost``.  ``first``
+    # keeps the historical output (cheapest tier only); ``all`` splits each
+    # demand into ``<name>_falla<k>`` siblings, one per tier.  See
+    # plp2gtopt/falla_segments.py.
+    add_demand_tier_segments_argument(
+        parser,
+        dialect="plp",
+        default=conf.get("falla_segments", DEFAULT_FALLA_SEGMENTS),
+    )
     # ``--reservoir-flow-estimate`` (default True): replace the generic
     # C++ ReservoirLP -9000/6000 m³/s extraction defaults with tight,
     # per-reservoir fmin/fmax estimated from the hydraulic network
@@ -1074,18 +1091,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     add_scale_objective_argument(
         parser, default=float(conf.get("scale_objective", "1.0"))
     )
-    parser.add_argument(
-        "--scale-theta",
-        dest="scale_theta",
-        type=float,
-        metavar="FACTOR",
-        default=None,
-        help=(
-            "voltage-angle scale factor (1/ScaleAng). "
-            "Only emitted when explicitly set; C++ auto_scale_theta "
-            "computes from median line reactance by default."
-        ),
-    )
+    add_scale_theta_argument(parser)
     add_use_single_bus_argument(parser)
     add_use_kirchhoff_argument(parser)
     parser.add_argument(
@@ -1124,14 +1130,12 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # --line-losses-mode (and is bundled by --plp-legacy) for PLP LP-diff
     # parity runs.
     add_line_losses_mode_argument(parser, default="tangent_signed_flow")
-    # ``loss_cost_eps`` defaults to 1.0 $/MWh for plp2gtopt — below any
-    # thermal SRMC so dispatch is unchanged, but strong enough that the
-    # tangent_signed_flow |f|-aux v-pin (required when
-    # loss_secant_segments > 1 without SOS2) and the legacy PWL
-    # bidirectional-flow degeneracy are strictly broken even under
-    # aggressive presolve / Ruiz scaling.  Pass ``--loss-cost-eps 0``
-    # to disable.
-    add_loss_cost_eps_argument(parser, dialect="plp", default=1.0)
+    # ``loss_cost_eps``: UNSET by default — gtopt's built-in 0.1 $/MWh
+    # applies (strictly breaks the PWL bidirectional-flow degeneracy and
+    # the tangent_signed_flow |f|-aux slack with negligible LMP
+    # distortion).  An explicit value, including ``--loss-cost-eps 0``
+    # to disable, is emitted as ``model_options.loss_cost_eps``.
+    add_loss_cost_eps_argument(parser, dialect="plp")
     # ``loss_secant_segments`` default: UNSET (gtopt resolves S=1, the
     # single-secant chord).  Extra secants are inert in pure LP — the
     # chord is inactive at benign optima (accuracy is governed by the
@@ -1395,13 +1399,16 @@ def add_reservoir_battery_arguments(
         dest="soft_emin_cost",
         type=float,
         metavar="COST",
-        default=0.1,
+        default=0.0,
         help=(
-            "default penalty cost ($/dam³ — note: --vert-cost-cap is "
-            "$/hm³, 1 hm³ = 1000 dam³) for the soft minimum volume "
-            "constraint (plpminembh.dat).  Per-stage costs from the file "
-            "override this default.  Set to 0 to disable soft emin. "
-            "(default: %(default)s)"
+            "opt-in fallback penalty ($/dam³ — note: --vert-cost-cap is "
+            "$/hm³, 1 hm³ = 1000 dam³) for plpminembh.dat soft minimum "
+            "volume stages whose file cost is zero.  The file's own "
+            "per-stage costs are always used when positive; a zero file "
+            "cost means PLP's slack is free, so the stage is skipped "
+            "unless this fallback is > 0; a negative value ignores "
+            "plpminembh.dat (default: %(default)s — no penalty the "
+            "source does not define)"
         ),
     )
     # ``--auto-water-fail-cost`` (default True since 2026-05-11): replace

@@ -12,9 +12,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Dict
 
+from gtopt_shared.demand_tiers import tier_uid_offset
+
 from .battery_writer import BatteryWriter
 from .bus_writer import BusWriter
 from .demand_writer import DemandWriter
+from .falla_segments import build_falla_tiers
 from .line_writer import LineWriter
 
 
@@ -50,7 +53,19 @@ class NetworkMixin:
                 demand["bus"] = bus["number"]
 
         blocks = self.parser.parsed_data.get("block_parser", [])
-        demand_writer = DemandWriter(demands, blocks, options)
+        falla_tiers, falla_uid_offset = self._falla_segment_tiers(options, buses)
+        # ``split`` = legacy sibling demands; ``all`` = native curve on the
+        # original demand (``Demand.fail_segments``, set below).
+        native_tiers = (
+            falla_tiers if options.get("falla_segments", "first") == "all" else {}
+        )
+        demand_writer = DemandWriter(
+            demands,
+            blocks,
+            options,
+            {} if native_tiers else falla_tiers,
+            falla_uid_offset,
+        )
         demand_array = demand_writer.to_json_array()
 
         # Set fcost from falla centrals (bus → min gcost falla).  Real
@@ -81,7 +96,7 @@ class NetworkMixin:
 
         if falla_by_bus:
             # Write Demand/fcost for fallas with cost schedules
-            filed_buses = demand_writer.write_fcost(
+            filed_uids = demand_writer.write_fcost(
                 demand_array,
                 falla_by_bus,
                 self.parser.parsed_data.get("cost_parser"),
@@ -90,8 +105,16 @@ class NetworkMixin:
             )
             for dem in demand_array:
                 bus = dem.get("bus")
-                if bus in falla_by_bus:
-                    if bus in filed_buses:
+                tier_central = demand_writer.tier_centrals.get(dem.get("uid"))
+                if tier_central is not None:
+                    # --falla-segments all: each tier keeps its own cost.
+                    dem["fcost"] = (
+                        "fcost"
+                        if dem.get("uid") in filed_uids
+                        else tier_central.get("gcost", 0.0)
+                    )
+                elif bus in falla_by_bus:
+                    if dem.get("uid") in filed_uids:
                         dem["fcost"] = "fcost"
                     else:
                         dem["fcost"] = falla_by_bus[bus].get("gcost", 0.0)
@@ -105,7 +128,37 @@ class NetworkMixin:
             for dem in demand_array:
                 dem["fcost"] = default_real_fcost
 
+        if native_tiers:
+            demand_writer.apply_fail_segments(
+                demand_array,
+                native_tiers,
+                self.parser.parsed_data.get("cost_parser"),
+                self.parser.parsed_data.get("stage_parser"),
+            )
+
         self.planning["system"]["demand_array"] = demand_array
+
+    def _falla_segment_tiers(
+        self, options: Dict[str, Any], buses: Any
+    ) -> tuple[Dict[int, Any], int]:
+        """Return ``(bus -> falla tiers, tier uid offset)``.
+
+        Empty unless ``options["falla_segments"]`` is ``all`` / ``split``.  The uid
+        offset is a power of ten above every bus and central number, so
+        the tier uids never clash with real demands nor with the
+        ``<battery>_chrg`` demands (uid = central number).
+        """
+        if options.get("falla_segments", "first") not in ("all", "split"):
+            return {}, 0
+        central_parser = self.parser.parsed_data.get("central_parser")
+        if not central_parser:
+            return {}, 0
+        tiers = build_falla_tiers(
+            central_parser.centrals, self.parser.parsed_data.get("mance_parser")
+        )
+        numbers = [int(c.get("number", 0) or 0) for c in central_parser.centrals]
+        numbers += [int(b.get("number", 0) or 0) for b in getattr(buses, "items", [])]
+        return tiers, tier_uid_offset(max(numbers, default=1))
 
     def process_buses(self) -> None:
         """Process bus data to include block and stage information."""

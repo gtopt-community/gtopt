@@ -111,10 +111,13 @@ plp2gtopt -i input/ -l DEBUG
 | `-p, --probability-factors P1[,P2,…]` | equal | Probability weights per hydrology scenario |
 | `-k, --use-kirchhoff` | off | Enable Kirchhoff voltage-law (DC OPF) constraints |
 | `-b, --use-single-bus` | off | Use single-bus (copper-plate) mode |
-| `--use-line-losses` | GTOpt default | Model transmission line losses |
+| `--use-line-losses` | gtopt default | Model transmission line losses |
+| `--loss-cost-eps EPS` | not set (gtopt: `0.1`) | $/MWh on line-loss columns (`model_options.loss_cost_eps`); `0` disables |
 | `--demand-fail-cost COST` | `1000.0` | Cost penalty for demand curtailment ($/MWh) |
 | `--reserve-fail-cost COST` | not set | Cost penalty for reserve shortfall ($/MWh) |
+| `--falla-segments {first,all,split}` | `first` | PLP failure tiers: `first` = cheapest tier as the demand `fcost`; `all` = native `Demand.fail_segments` curve; `split` = one `<demand>_falla<k>` demand per tier (see [Demand](#demand-plpdemdat-plpcoscedat)) |
 | `--scale-objective FACTOR` | `1000.0` | Objective function scaling factor |
+| `--scale-theta FACTOR` | not set | Voltage-angle scale: the LP angle is FACTOR × θ (1 = radians, 1000 = milliradians). Unset ⇒ nothing is emitted and gtopt picks 1/(3·median(X/V²)); an explicit value is written to `model_options.scale_theta` |
 | `-z, --zip` | off | Bundle JSON + data files into a ZIP archive |
 | `-l, --log-level LEVEL` | `INFO` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 | `-V, --version` | — | Print version and exit |
@@ -156,15 +159,15 @@ exists, the ESS path takes priority; otherwise the battery path is used.
 | `plpcenbat.dat` | `BatteryParser` | Battery central definition (alternative to ESS) |
 | `plpmanbat.dat` | `ManbatParser` | Maintenance schedule for batteries (energy bounds per block) |
 
-### Battery self-discharge (`annual_loss`)
+### Battery self-discharge (`annual_standing_loss`)
 
 `plpess.dat` carries `mloss` in **%/month**; PLP (`genpdess.f`) drains the
 SoC by `−bd/730 · ln(1 − mloss/100)` per block of `bd` hours.  plp2gtopt
 emits the exact gtopt equivalent in the linear p.u./year convention:
 
-    annual_loss = −12 · ln(1 − mloss/100)     (≈ 0.12 · mloss)
+    annual_standing_loss = −12 · ln(1 − mloss/100)     (≈ 0.12 · mloss)
 
-| Source | `annual_loss` in `battery_array` |
+| Source | `annual_standing_loss` in `battery_array` |
 |--------|----------------------------------|
 | `plpess.dat`, `mloss > 0` (DCMod 0/1) | converted value above (e.g. `mloss = 1` → 0.1206) |
 | `plpess.dat`, `mloss = 0` (DCMod 0/1) | **omitted** → gtopt default 0.48 p.u./yr (4 %/month) |
@@ -173,8 +176,8 @@ emits the exact gtopt equivalent in the linear p.u./year convention:
 
 PLP writes `mloss = 0` both for "lossless" and "not specified", so a zero is
 treated as unspecified and the gtopt lithium default applies.  To reproduce
-a lossless PLP run exactly, set `model_options.battery_annual_loss = 0` in
-the generated case (or `--set model_options.battery_annual_loss=0`).
+a lossless PLP run exactly, set
+`model_options.battery_annual_standing_loss = 0` in the generated case (or `--set model_options.battery_annual_standing_loss=0`).
 
 ### Generation-coupled battery (`source_generator`)
 
@@ -213,7 +216,7 @@ Battery elements:
 - A **Reservoir** is created with:
   - `junction` = the paired hydro generator's central number (its junction UID)
   - `emax` = ESS energy capacity (MWh)
-  - `annual_loss` = `−12 · ln(1 − mloss/100)` (`mloss` is %/month; `0`
+  - `annual_standing_loss` = `−12 · ln(1 − mloss/100)` (`mloss` is %/month; `0`
     when `mloss = 0` — a regulation tank never takes the battery default)
   - `daily_cycle = true`
 
@@ -345,6 +348,14 @@ look-alikes).  Use `--pasada-mode {hydro,flow-turbine,profile}` to
 override; `--plp-legacy` forces `flow-turbine` for byte-faithful PLP
 parity.
 
+**Profile values are per-unit.**  A `GeneratorProfile` is a factor of
+the generator `capacity` (PLP `PotMax`), not MW.  PLP bounds a pasada
+central's flow by `min(aflce, PMax / Rendi)` and produces `Rendi · q`
+MW, so plp2gtopt writes `profile = aflce · Rendi / PotMax` clipped to
+`[0, 1]`, with one summary warning for the clipped values.  A central
+with `PotMax ≤ 0` gets a zero profile.  The scalar `afluent` path uses
+the same rule.
+
 ### Demand (`plpdem.dat`, `plpcosce.dat`)
 
 | PLP source                 | GTOpt target                          | Conversion                          |
@@ -352,6 +363,44 @@ parity.
 | `plpdem.dat` MW values     | `Demand.lmax[stage][block]`           | direct (no GWh→MW step needed)      |
 | `plpcosce.dat` `Falla`     | `options.demand_fail_cost`            | average of first-tier FALLA gcost   |
 | `plpcosce.dat` per-segment | piecewise gcost on virtual generators | one segment per cost tier           |
+
+#### Failure tiers (`--falla-segments`)
+
+PLP models unserved energy with several *falla* centrals per bus
+(`FALLA_<bus>_1..4` in the CEN cases): fictitious generators with
+increasing `CosVar` whose `plpmance.dat` `PotMax` is a fixed share of the
+bus demand (CEN: 5 % / 5 % / 10 % / 80 %).  gtopt has one `fcost` per
+demand, so:
+
+- `--falla-segments first` (default): one demand per bus with
+  `fcost` = cheapest tier (its `plpcosce.dat` schedule when present,
+  min across tiers).  Higher tiers are dropped.
+- `--falla-segments all`: each demand on a bus with two or more tiers
+  keeps its single column and gets the native stepwise curve
+  `fail_segments` = `[{"fraction": f_1, "cost": c_1}, …, {"cost": c_K}]`
+  (`f_k` as below, last tier open) instead of `fcost`.  A tier cost is the
+  falla `gcost`, or — when its `plpcosce.dat` schedule varies — the
+  per-stage file `Demand/fail_cost_seg<k>`.  gtopt adds one served-load
+  column per tier (no rows) and writes `Demand/fail_seg<k>_sol` per tier
+  next to the total `Demand/fail_sol`.
+- `--falla-segments split`: each demand on a bus with two or more tiers
+  becomes one sibling demand per tier, `<demand>_falla<k>` (`k` = 1 for
+  the cheapest).  `lmax` (and `emin`) = `f_k` × original, with
+  `f_k = ΣPotMax_k / Σ_j ΣPotMax_j` from `plpmance.dat`, normalised so the
+  siblings add up exactly to the original demand.  `fcost` = tier cost
+  (or its `plpcosce.dat` schedule).  Tier 1 keeps the original uid; tier
+  `k` gets `uid + (k-1)·10^d`, with `10^d` above every bus and central
+  number.  Curtailment per tier is the `Demand/fail_sol` of each sibling;
+  served load at the bus is the sum over `_falla<k>`.  Buses with one
+  tier, or whose tiers lack a `plpmance.dat` schedule, are not split.
+
+Both `all` and `split` keep rationing in the standard `Demand` fail
+output (no falla generators), so unserved-energy reports need no change.
+
+The naming, uid and fraction helpers live in
+`scripts/gtopt_shared/demand_tiers.py` and are shared with
+`sddp2gtopt --deficit-segments`, which applies the same split to the PSR
+SDDP `Costo Deficit` curve (`<demand>_deficit<k>`).
 
 When `--demand-fail-cost` is **not** explicitly set, `plp2gtopt`
 auto-derives it from the first-tier FALLA gcost in `plpcnfce.dat`;
@@ -396,11 +445,25 @@ case (mapped to `Reservoir`, not `Battery`).
 | First-tier `falla` cost              | `options.demand_fail_cost`                    |
 | `vrebemb` (spillage cost)            | `Reservoir.efin_cost` per stage               |
 | `plpmanem` `emin/emax` per stage     | `Reservoir.soft_emin_cost` slack              |
+| `plpminembh` `EmbCostoH` per stage   | `Reservoir.soft_emin` / `soft_emin_cost`      |
 | `plpmaness` capacity bands           | per-stage `Battery` `emin/emax/dcmin/dcmax`   |
 
-`--soft-storage-bounds` (default **on**) routes per-reservoir
+`--soft-storage-bounds` (default **off**) routes per-reservoir
 end-volume slack through the C++ `Reservoir.efin_cost` mechanism
-instead of hard constraints, matching PLP's per-stage rebalse cost.
+instead of hard constraints.  By default `efin` and the maintenance
+`emin` stay hard, as in PLP.
+
+`plpminembh.dat` soft floors use the file's own per-stage cost
+(`EmbCostoH`, `leeminembh.f`).  A stage with cost 0 has a free slack in
+PLP, so the floor has no effect and plp2gtopt emits nothing for it.
+`--soft-emin-cost C` (default 0) is an opt-in fallback price for those
+stages; it is not a PLP datum.  A negative value ignores
+`plpminembh.dat` altogether.
+
+plp2gtopt adds no hydro penalty that the PLP data does not define.  The
+reservoir spillway (storage drain) is free unless `--plp-spill-costs` is
+given: a positive cost on the only way out of a full reservoir makes its
+water value negative while it spills.
 
 ---
 

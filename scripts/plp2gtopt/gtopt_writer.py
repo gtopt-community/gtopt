@@ -160,6 +160,48 @@ def _find_by_uid_or_name(
     return None
 
 
+_BUS_ELEMENT_ARRAYS = ("generator_array", "demand_array", "battery_array")
+
+
+def _find_lineless_bus_elements(planning: Dict[str, Any]) -> list[str]:
+    """Warn about elements attached to a bus with no in-service line.
+
+    In a multi-bus case an element whose bus is touched by no line (or
+    only by lines with a scalar ``active = 0``) forms its own electrical
+    island: its generation is stranded (or its load unservable).  Stale
+    PLP network data does this when a unit keeps the bus of an older
+    network vintage (e.g. a bus that was renamed or removed from
+    ``plpcnfli.dat``).  Lines with a scheduled ``active`` (file / vector)
+    count as in service.  Single-bus cases (no lines, or
+    ``use_single_bus``) are not checked.
+    """
+    system = planning.get("system", {})
+    lines = system.get("line_array") or []
+    model_opts = planning.get("options", {}).get("model_options", {})
+    if not lines or model_opts.get("use_single_bus"):
+        return []
+    lined: set[Any] = set()
+    for line in lines:
+        active = line.get("active")
+        if isinstance(active, (int, float)) and not active:
+            continue
+        lined.update(line[k] for k in ("bus_a", "bus_b") if k in line)
+    bus_names = {b.get("uid"): b.get("name") for b in system.get("bus_array") or []}
+    warnings: list[str] = []
+    for arr in _BUS_ELEMENT_ARRAYS:
+        for elem in system.get(arr) or []:
+            bus = elem.get("bus")
+            if bus is None or bus in lined:
+                continue
+            bus_label = bus_names.get(bus, bus) if isinstance(bus, int) else bus
+            warnings.append(
+                f"{arr.removesuffix('_array')} '{elem.get('name')}' sits on bus "
+                f"'{bus_label}' which has no in-service line: isolated "
+                "island (stale network data?)"
+            )
+    return warnings
+
+
 def _validate_piecewise_segments(planning: Dict[str, Any]) -> list[str]:
     """Per-segment range feasibility for seepage + discharge_limit.
 
@@ -670,7 +712,7 @@ class GTOptWriter(
             "num_apertures": 8,
             "aperture_selection_mode": "stride",
             # Transport inherits the base warm aperture config
-            # (aperture_solve_mode=warm, aperture_chunk_size=0, dual +
+            # (aperture_solve_mode=warm, aperture_chunk_mode=per_scene, dual +
             # advanced_basis) — SAME as the warmup/uninodal levels, no
             # reduced_cost override.  The former override was motivated by a
             # 2026-06-08 measurement showing warm net-negative (warm/cold
@@ -678,8 +720,8 @@ class GTOptWriter(
             # seeded solve ran barrier + presolve, which discards the basis, so
             # "warm" was silently a cold solve.  With presolve off on the warm
             # re-solve the aperture warm-start is competitive at this scale
-            # too.  (Trade-off to watch: chunk=-1 serializes apertures per
-            # scene at the phase barrier — override aperture_chunk_size from the
+            # too.  (Trade-off to watch: per_scene serializes apertures per
+            # scene at the phase barrier — override aperture_chunk_mode from the
             # source conf if machine saturation matters more than warm reuse.)
         }
         # L3: num_apertures / aperture_selection_mode intentionally
@@ -705,7 +747,7 @@ class GTOptWriter(
             "stationary_tol": 0.01,
             "stationary_gap_ceiling": 0.85,
             # Full_network inherits the base warm aperture config
-            # (aperture_solve_mode=warm, aperture_chunk_size=0, dual +
+            # (aperture_solve_mode=warm, aperture_chunk_mode=per_scene, dual +
             # advanced_basis) — same as every other level, no reduced_cost
             # override.  See the L2/transport comment: the former override's
             # "warm net-negative" rationale predated the warm-start presolve
@@ -1087,10 +1129,6 @@ class GTOptWriter(
         # cut_coeff_eps: drop coefficients with |value| < eps (default 1e-8).
         sddp_opts["cut_coeff_eps"] = options.get("cut_coeff_eps", 1e-8)
 
-        # Drop feasibility cuts from aperture clone replay so they don't
-        # conflict with perturbed trial states.  Default true (matches C++).
-        sddp_opts["aperture_drop_fcuts"] = options.get("aperture_drop_fcuts", True)
-
         # Backward-solver threads: defer to the C++ default (2).  The
         # historical override pinning to 1 was based on per-cell solve
         # being parallel-simplex-overhead-bound, but the post-2026-05
@@ -1241,8 +1279,8 @@ class GTOptWriter(
         # ``loss_cost_eps`` / ``loss_secant_segments`` ride the same
         # allowlist: ``model_opts`` is rebuilt from scratch here, so any
         # key not copied explicitly is silently DROPPED even when
-        # ``main.build_options`` set it (the loss-model CLI defaults —
-        # tangent_signed_flow + eps=1.0 + S=2 — depend on these).
+        # ``main.build_options`` set it (the tangent_signed_flow CLI
+        # default and any explicit --loss-cost-eps depend on these).
         if "loss_cost_eps" in src_model:
             model_opts["loss_cost_eps"] = src_model["loss_cost_eps"]
         if "loss_secant_segments" in src_model:
@@ -1254,8 +1292,8 @@ class GTOptWriter(
         # Benchmarked plp2gtopt -> gtopt pipeline (~PLP parity on CEN65 2-year):
         #   * lp_reduction          — elide provably-zero LP columns (~-19% wall)
         #   * aperture_solve_mode   = warm   (dual aperture warm-start)
-        #   * aperture_chunk_size   = 0      (auto: parallel per-aperture
-        #                                     chunks — backward saturates cores)
+        #   * aperture_chunk_mode   = per_scene (all apertures of a scene
+        #                                     warm-chained on one clone)
         #   * forward/backward_solver_options.algorithm = dual + advanced_basis
         # These are applied here (not only in main.process_options, whose nested
         # opts the writer otherwise rebuilds from an allowlist) so they actually
@@ -1646,6 +1684,10 @@ class GTOptWriter(
         # PLP data and the gtopt run will surface real infeasibilities
         # downstream anyway.
         for warn_msg in _validate_piecewise_segments(planning):
+            _logger.warning("%s", warn_msg)
+        # Elements on buses with no in-service line form isolated
+        # islands (stale bus of an older network vintage).  Warn-only.
+        for warn_msg in _find_lineless_bus_elements(planning):
             _logger.warning("%s", warn_msg)
 
         progress = options.get("_progress")

@@ -232,7 +232,7 @@ class _ReservoirOptional(TypedDict, total=False):
     spill_junction: str
     spillway_cost: float
     spillway_capacity: float
-    annual_loss: float
+    annual_standing_loss: float
     soft_emin: list[float]
     soft_emin_cost: list[float]
     seepage: List[Dict[str, Any]]
@@ -578,6 +578,9 @@ class JunctionWriter(BaseWriter):
         # the end of ``to_json_array``.
         self._seepage_redundant_spillway_count: int = 0
         self._seepage_redundant_spillway_names: list[str] = []
+        # Seepage receiving junctions given a free drain (see
+        # ``_ensure_seepage_outlets``).
+        self._seepage_drain_names: list[str] = []
         # Gen waterways of transit centrals (``bus = 0``) that have
         # plpmance.dat per-stage flow envelopes.  These centrals have
         # no generator entry to consume Generator/pmin.parquet, so we
@@ -764,6 +767,7 @@ class JunctionWriter(BaseWriter):
         self._dead_zero_waterway_count = 0
         # Reset seepage-redundant-spillway suppression state for this run.
         self._seepage_redundant_spillway_count = 0
+        self._seepage_drain_names = []
         self._seepage_redundant_spillway_names = []
         # Log precedence interaction once: ``--drop-spillway-waterway``
         # suppresses every ``_ver`` arc, so ``--vrebemb-as-sink`` is a
@@ -863,6 +867,11 @@ class JunctionWriter(BaseWriter):
         # Per-stage flow envelope (fmin/fmax) on gen waterways of
         # transit-only centrals (``bus = 0`` AND has plpmance.dat).
         self._write_transit_waterway_bounds()
+
+        # Forced seepage must always have somewhere to go: a seepage
+        # receiving junction whose outlets cannot carry q(V) turns the
+        # outlet capacity into a cap on the source reservoir volume.
+        self._ensure_seepage_outlets(system)
 
         if self._plp_no_limit_count > 0:
             _logger.info(
@@ -2168,8 +2177,12 @@ class JunctionWriter(BaseWriter):
         """Add soft_emin and soft_emin_cost from plpminembh.dat if available.
 
         Builds per-stage arrays from the sparse minembh data.  Stages without
-        data get 0 (no constraint).  The cost defaults to the CLI option
-        ``--soft-emin-cost`` (default 0.1) when the file cost is zero.
+        data get 0 (no constraint).  The per-stage penalty is the file's
+        ``EmbCostoH`` (leeminembh.f).  A zero file cost means PLP's slack is
+        free — the floor has no effect — so the stage is skipped, unless the
+        user opts into a fallback price with ``--soft-emin-cost`` (default
+        0: no penalty that the source data does not define).  A negative
+        value drops the plpminembh.dat floors altogether.
         """
         if not self.minembh_parser or not self.stage_parser:
             return
@@ -2179,9 +2192,13 @@ class JunctionWriter(BaseWriter):
             return
 
         num_stages = self.stage_parser.num_stages
-        default_cost = self.options.get("soft_emin_cost", 0.1) if self.options else 0.1
-        if default_cost <= 0:
-            return
+        default_cost = (
+            float(self.options.get("soft_emin_cost", 0.0) or 0.0)
+            if self.options
+            else 0.0
+        )
+        if default_cost < 0:
+            return  # ``--soft-emin-cost -1``: ignore plpminembh.dat entirely
 
         # Build per-stage arrays (0-indexed); minembh stages are 1-based.
         soft_emin_arr = [0.0] * num_stages
@@ -2194,9 +2211,14 @@ class JunctionWriter(BaseWriter):
         for i, stage_num in enumerate(stages):
             idx = int(stage_num) - 1  # convert to 0-based
             if 0 <= idx < num_stages and float(vmins[i]) > 0:
-                soft_emin_arr[idx] = float(vmins[i])
                 file_cost = float(costs[i])
-                soft_cost_arr[idx] = file_cost if file_cost > 0 else default_cost
+                cost = file_cost if file_cost > 0 else default_cost
+                if cost <= 0:
+                    # Free slack in PLP → the floor is inert; emitting it
+                    # with an invented price would distort water values.
+                    continue
+                soft_emin_arr[idx] = float(vmins[i])
+                soft_cost_arr[idx] = cost
 
         # Only add if there's at least one non-zero soft_emin
         if any(v > 0 for v in soft_emin_arr):
@@ -2557,6 +2579,127 @@ class JunctionWriter(BaseWriter):
 
             self._append_reservoir_constraint(
                 system, rsv, seepage, "reservoir_seepage_array", "seepage"
+            )
+
+    def _ensure_seepage_outlets(self, system: HydroSystemOutput) -> None:
+        """Give a free drain to seepage junctions whose outlets are too small.
+
+        A ``ReservoirSeepage`` row is an equality: the seepage waterway
+        carries ``q = c + s·efin`` with the segment picked from the
+        stage-initial volume — exactly PLP's ``FILT_LINE`` filtration
+        (``plp-filtracv.f``: tramo from ``VolIni``, row ``qf − pend·V =
+        const`` on the end-of-stage volume column, ``Sentido = 'E'``).
+        When the receiving junction's outlets are capped below the
+        largest ``q`` the line can produce on ``[emin, emax]``, the outlet
+        capacity becomes a hidden upper bound on the reservoir volume and
+        the junction balance dual turns negative (CIPRESES →
+        FILT_CIPRESES: PotMax/Rendi = 20.1 m³/s and VertMax = 0, while the
+        first tramo, chosen at a low initial volume and extrapolated to a
+        full reservoir, asks for ~30 m³/s).  PLP's LP has the same cap;
+        the excess is a linearisation artefact (the true curve stays
+        below the outlet capacity), so it is discarded through a free
+        ``drain`` instead of being routed downstream as phantom water.
+
+        No cost is attached; the drain is bounded by ``q_max − outlet
+        capacity`` when the capacity is a scalar.  ``--plp-legacy`` keeps
+        PLP's capped topology and only logs the warning.
+        """
+        junctions = {
+            str(j.get("name")): j
+            for j in system.get("junction_array", [])
+            if isinstance(j, dict)
+        }
+        waterways = {
+            str(w.get("name")): w
+            for w in system.get("waterway_array", [])
+            if isinstance(w, dict)
+        }
+        reservoirs = {
+            str(r.get("name")): r
+            for r in system.get("reservoir_array", [])
+            if isinstance(r, dict)
+        }
+        plp_legacy = bool(self.options.get("plp_legacy", False))
+
+        def _num(value: Any) -> Optional[float]:
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return float(value)
+            return None
+
+        for seep in system.get("reservoir_seepage_array", []):
+            ww = waterways.get(str(seep.get("waterway")))
+            rsv = reservoirs.get(str(seep.get("reservoir")))
+            if ww is None or rsv is None:
+                continue
+            jname = ww.get("junction_b")
+            junction = junctions.get(str(jname)) if jname is not None else None
+            if junction is None or junction.get("drain"):
+                continue
+            if any(r.get("junction") == jname for r in reservoirs.values()):
+                continue  # a reservoir at the junction absorbs the seepage
+
+            vmax = _num(rsv.get("emax"))
+            if vmax is None:
+                vmax = _num(rsv.get("capacity"))
+            if vmax is None:
+                continue
+            vmin = _num(rsv.get("emin")) or 0.0
+            segments = seep.get("segments") or [
+                {"slope": seep.get("slope", 0.0), "constant": seep.get("constant")}
+            ]
+            q_max = max(
+                float(seg.get("constant") or 0.0) + float(seg.get("slope") or 0.0) * v
+                for seg in segments
+                for v in (vmin, vmax)
+            )
+
+            cap: Optional[float] = 0.0
+            unbounded = False
+            for w in waterways.values():
+                if w.get("junction_a") != jname:
+                    continue
+                fmax = w.get("fmax")
+                if fmax is None:
+                    unbounded = True
+                    break
+                fval = _num(fmax)
+                cap = None if (cap is None or fval is None) else cap + fval
+            if not unbounded and any(
+                t.get("junction_a") == jname for t in system.get("turbine_array", [])
+            ):
+                cap = None  # turbine outlet: capacity not known here
+            if unbounded or (cap is not None and q_max <= cap + 1e-9):
+                continue
+
+            cap_txt = "schedule" if cap is None else f"{cap:.4g} m3/s"
+            if plp_legacy:
+                _logger.warning(
+                    "Seepage '%s' can force up to %.4g m3/s into junction '%s' "
+                    "whose outlets carry %s; plp-legacy keeps the cap (the "
+                    "outlet capacity bounds reservoir '%s' volume).",
+                    seep.get("name"),
+                    q_max,
+                    jname,
+                    cap_txt,
+                    rsv.get("name"),
+                )
+                continue
+            junction["drain"] = True
+            if cap is not None:
+                # Only the over-forecast above the outlet capacity may
+                # leave: keeps the drain from soaking up seepage that has
+                # zero downstream value but could still flow on.
+                junction["drain_capacity"] = q_max - cap
+            self._seepage_drain_names.append(str(jname))
+            _logger.warning(
+                "Seepage '%s' can force up to %.4g m3/s into junction '%s' "
+                "whose outlets carry %s: added a free drain so the outlet "
+                "capacity does not cap reservoir '%s' volume.",
+                seep.get("name"),
+                q_max,
+                jname,
+                cap_txt,
+                rsv.get("name"),
             )
 
     def _process_seepages_filemb(

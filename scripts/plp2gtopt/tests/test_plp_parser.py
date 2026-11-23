@@ -46,19 +46,20 @@ def test_plp_parser_init_invalid_dir(tmp_path):
 
 def test_parse_all_success(sample_input_dir):
     """Test parse_all with all required files present."""
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
-        "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
-        "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
-        "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
-        "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
-        "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
-        "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem:
+    with (
+        patch("plp2gtopt.plp_parser.BlockParser") as mock_block,
+        patch("plp2gtopt.plp_parser.StageParser") as mock_stage,
+        patch("plp2gtopt.plp_parser.BusParser") as mock_bus,
+        patch("plp2gtopt.plp_parser.LineParser") as mock_line,
+        patch("plp2gtopt.plp_parser.CentralParser") as mock_central,
+        patch("plp2gtopt.plp_parser.DemandParser") as mock_demand,
+        patch("plp2gtopt.plp_parser.CostParser") as mock_cost,
+        patch("plp2gtopt.plp_parser.ManceParser") as mock_mance,
+        patch("plp2gtopt.plp_parser.ManliParser") as mock_manli,
+        patch("plp2gtopt.plp_parser.AflceParser") as mock_aflce,
+        patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac,
+        patch("plp2gtopt.plp_parser.ManemParser") as mock_manem,
+    ):
         # Setup mock parsers
         mock_parser = MagicMock()
         mock_parser.parse.return_value = None
@@ -116,19 +117,21 @@ def test_parse_all_with_battery(tmp_path):
     (tmp_path / "plpess.dat").unlink(missing_ok=True)
     (tmp_path / "plpcenbat.dat").write_text("")
 
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
-        "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
-        "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
-        "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
-        "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
-        "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
-        "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.BatteryParser") as mock_battery:
+    with (
+        patch("plp2gtopt.plp_parser.BlockParser") as mock_block,
+        patch("plp2gtopt.plp_parser.StageParser") as mock_stage,
+        patch("plp2gtopt.plp_parser.BusParser") as mock_bus,
+        patch("plp2gtopt.plp_parser.LineParser") as mock_line,
+        patch("plp2gtopt.plp_parser.CentralParser") as mock_central,
+        patch("plp2gtopt.plp_parser.DemandParser") as mock_demand,
+        patch("plp2gtopt.plp_parser.CostParser") as mock_cost,
+        patch("plp2gtopt.plp_parser.ManceParser") as mock_mance,
+        patch("plp2gtopt.plp_parser.ManliParser") as mock_manli,
+        patch("plp2gtopt.plp_parser.AflceParser") as mock_aflce,
+        patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac,
+        patch("plp2gtopt.plp_parser.ManemParser") as mock_manem,
+        patch("plp2gtopt.plp_parser.BatteryParser") as mock_battery,
+    ):
         mock_p = MagicMock()
         mock_p.parse.return_value = None
         for m in [
@@ -164,19 +167,21 @@ def test_parse_all_with_ess_only(tmp_path):
             shutil.copy(f, tmp_path / f.name)
     (tmp_path / "plpess.dat").write_text("# Numero de ESS\n 0\n")
 
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
-        "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
-        "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
-        "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
-        "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
-        "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
-        "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.EssParser") as mock_ess:
+    with (
+        patch("plp2gtopt.plp_parser.BlockParser") as mock_block,
+        patch("plp2gtopt.plp_parser.StageParser") as mock_stage,
+        patch("plp2gtopt.plp_parser.BusParser") as mock_bus,
+        patch("plp2gtopt.plp_parser.LineParser") as mock_line,
+        patch("plp2gtopt.plp_parser.CentralParser") as mock_central,
+        patch("plp2gtopt.plp_parser.DemandParser") as mock_demand,
+        patch("plp2gtopt.plp_parser.CostParser") as mock_cost,
+        patch("plp2gtopt.plp_parser.ManceParser") as mock_mance,
+        patch("plp2gtopt.plp_parser.ManliParser") as mock_manli,
+        patch("plp2gtopt.plp_parser.AflceParser") as mock_aflce,
+        patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac,
+        patch("plp2gtopt.plp_parser.ManemParser") as mock_manem,
+        patch("plp2gtopt.plp_parser.EssParser") as mock_ess,
+    ):
         mock_p = MagicMock()
         mock_p.parse.return_value = None
         for m in [
@@ -214,21 +219,22 @@ def test_parse_all_ess_takes_priority_when_both_present(tmp_path):
     (tmp_path / "plpess.dat").write_text("# Numero de ESS\n 0\n")
     (tmp_path / "plpcenbat.dat").write_text("")
 
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
-        "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
-        "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
-        "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
-        "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
-        "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
-        "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.EssParser") as mock_ess, patch(
-        "plp2gtopt.plp_parser.BatteryParser"
-    ) as mock_battery:
+    with (
+        patch("plp2gtopt.plp_parser.BlockParser") as mock_block,
+        patch("plp2gtopt.plp_parser.StageParser") as mock_stage,
+        patch("plp2gtopt.plp_parser.BusParser") as mock_bus,
+        patch("plp2gtopt.plp_parser.LineParser") as mock_line,
+        patch("plp2gtopt.plp_parser.CentralParser") as mock_central,
+        patch("plp2gtopt.plp_parser.DemandParser") as mock_demand,
+        patch("plp2gtopt.plp_parser.CostParser") as mock_cost,
+        patch("plp2gtopt.plp_parser.ManceParser") as mock_mance,
+        patch("plp2gtopt.plp_parser.ManliParser") as mock_manli,
+        patch("plp2gtopt.plp_parser.AflceParser") as mock_aflce,
+        patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac,
+        patch("plp2gtopt.plp_parser.ManemParser") as mock_manem,
+        patch("plp2gtopt.plp_parser.EssParser") as mock_ess,
+        patch("plp2gtopt.plp_parser.BatteryParser") as mock_battery,
+    ):
         mock_p = MagicMock()
         mock_p.parse.return_value = None
         for m in [
@@ -269,21 +275,22 @@ def test_parse_all_with_maness(tmp_path):
     (tmp_path / "plpess.dat").write_text("# Numero de ESS\n 0\n")
     (tmp_path / "plpmaness.dat").write_text("# Numero de ESS con mantenimiento\n 0\n")
 
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
-        "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
-        "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
-        "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
-        "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
-        "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
-        "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.EssParser") as mock_ess, patch(
-        "plp2gtopt.plp_parser.ManessParser"
-    ) as mock_maness:
+    with (
+        patch("plp2gtopt.plp_parser.BlockParser") as mock_block,
+        patch("plp2gtopt.plp_parser.StageParser") as mock_stage,
+        patch("plp2gtopt.plp_parser.BusParser") as mock_bus,
+        patch("plp2gtopt.plp_parser.LineParser") as mock_line,
+        patch("plp2gtopt.plp_parser.CentralParser") as mock_central,
+        patch("plp2gtopt.plp_parser.DemandParser") as mock_demand,
+        patch("plp2gtopt.plp_parser.CostParser") as mock_cost,
+        patch("plp2gtopt.plp_parser.ManceParser") as mock_mance,
+        patch("plp2gtopt.plp_parser.ManliParser") as mock_manli,
+        patch("plp2gtopt.plp_parser.AflceParser") as mock_aflce,
+        patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac,
+        patch("plp2gtopt.plp_parser.ManemParser") as mock_manem,
+        patch("plp2gtopt.plp_parser.EssParser") as mock_ess,
+        patch("plp2gtopt.plp_parser.ManessParser") as mock_maness,
+    ):
         mock_p = MagicMock()
         mock_p.parse.return_value = None
         for m in [
@@ -322,19 +329,21 @@ def test_parse_all_with_cenre(tmp_path):
     # Write a minimal plpcenre.dat (0 entries)
     (tmp_path / "plpcenre.dat").write_text("# Archivo de Rendimiento de Embalses\n 0\n")
 
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
-        "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
-        "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
-        "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
-        "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
-        "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
-        "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.CenreParser") as mock_cenre:
+    with (
+        patch("plp2gtopt.plp_parser.BlockParser") as mock_block,
+        patch("plp2gtopt.plp_parser.StageParser") as mock_stage,
+        patch("plp2gtopt.plp_parser.BusParser") as mock_bus,
+        patch("plp2gtopt.plp_parser.LineParser") as mock_line,
+        patch("plp2gtopt.plp_parser.CentralParser") as mock_central,
+        patch("plp2gtopt.plp_parser.DemandParser") as mock_demand,
+        patch("plp2gtopt.plp_parser.CostParser") as mock_cost,
+        patch("plp2gtopt.plp_parser.ManceParser") as mock_mance,
+        patch("plp2gtopt.plp_parser.ManliParser") as mock_manli,
+        patch("plp2gtopt.plp_parser.AflceParser") as mock_aflce,
+        patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac,
+        patch("plp2gtopt.plp_parser.ManemParser") as mock_manem,
+        patch("plp2gtopt.plp_parser.CenreParser") as mock_cenre,
+    ):
         mock_p = MagicMock()
         mock_p.parse.return_value = None
         for m in [
@@ -371,19 +380,21 @@ def test_parse_all_with_cenfi(tmp_path):
     # Write a minimal plpcenfi.dat (0 entries)
     (tmp_path / "plpcenfi.dat").write_text("# Archivo de centrales filtracion\n 0\n")
 
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
-        "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
-        "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
-        "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
-        "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
-        "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
-        "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.CenfiParser") as mock_cenfi:
+    with (
+        patch("plp2gtopt.plp_parser.BlockParser") as mock_block,
+        patch("plp2gtopt.plp_parser.StageParser") as mock_stage,
+        patch("plp2gtopt.plp_parser.BusParser") as mock_bus,
+        patch("plp2gtopt.plp_parser.LineParser") as mock_line,
+        patch("plp2gtopt.plp_parser.CentralParser") as mock_central,
+        patch("plp2gtopt.plp_parser.DemandParser") as mock_demand,
+        patch("plp2gtopt.plp_parser.CostParser") as mock_cost,
+        patch("plp2gtopt.plp_parser.ManceParser") as mock_mance,
+        patch("plp2gtopt.plp_parser.ManliParser") as mock_manli,
+        patch("plp2gtopt.plp_parser.AflceParser") as mock_aflce,
+        patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac,
+        patch("plp2gtopt.plp_parser.ManemParser") as mock_manem,
+        patch("plp2gtopt.plp_parser.CenfiParser") as mock_cenfi,
+    ):
         mock_p = MagicMock()
         mock_p.parse.return_value = None
         for m in [
@@ -412,19 +423,20 @@ def test_parse_all_with_cenfi(tmp_path):
 
 def test_parse_all_without_cenre_cenfi(sample_input_dir):
     """parse_all does not create cenre/cenfi parsers when files are absent."""
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
-        "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
-        "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
-        "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
-        "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
-        "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
-        "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem:
+    with (
+        patch("plp2gtopt.plp_parser.BlockParser") as mock_block,
+        patch("plp2gtopt.plp_parser.StageParser") as mock_stage,
+        patch("plp2gtopt.plp_parser.BusParser") as mock_bus,
+        patch("plp2gtopt.plp_parser.LineParser") as mock_line,
+        patch("plp2gtopt.plp_parser.CentralParser") as mock_central,
+        patch("plp2gtopt.plp_parser.DemandParser") as mock_demand,
+        patch("plp2gtopt.plp_parser.CostParser") as mock_cost,
+        patch("plp2gtopt.plp_parser.ManceParser") as mock_mance,
+        patch("plp2gtopt.plp_parser.ManliParser") as mock_manli,
+        patch("plp2gtopt.plp_parser.AflceParser") as mock_aflce,
+        patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac,
+        patch("plp2gtopt.plp_parser.ManemParser") as mock_manem,
+    ):
         mock_p = MagicMock()
         mock_p.parse.return_value = None
         for m in [
@@ -463,19 +475,21 @@ def test_parse_all_with_filemb(tmp_path):
         "# Archivo de Filtraciones de Embalses\n# Numero\n 0\n"
     )
 
-    with patch("plp2gtopt.plp_parser.BlockParser") as mock_block, patch(
-        "plp2gtopt.plp_parser.StageParser"
-    ) as mock_stage, patch("plp2gtopt.plp_parser.BusParser") as mock_bus, patch(
-        "plp2gtopt.plp_parser.LineParser"
-    ) as mock_line, patch("plp2gtopt.plp_parser.CentralParser") as mock_central, patch(
-        "plp2gtopt.plp_parser.DemandParser"
-    ) as mock_demand, patch("plp2gtopt.plp_parser.CostParser") as mock_cost, patch(
-        "plp2gtopt.plp_parser.ManceParser"
-    ) as mock_mance, patch("plp2gtopt.plp_parser.ManliParser") as mock_manli, patch(
-        "plp2gtopt.plp_parser.AflceParser"
-    ) as mock_aflce, patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac, patch(
-        "plp2gtopt.plp_parser.ManemParser"
-    ) as mock_manem, patch("plp2gtopt.plp_parser.FilembParser") as mock_filemb:
+    with (
+        patch("plp2gtopt.plp_parser.BlockParser") as mock_block,
+        patch("plp2gtopt.plp_parser.StageParser") as mock_stage,
+        patch("plp2gtopt.plp_parser.BusParser") as mock_bus,
+        patch("plp2gtopt.plp_parser.LineParser") as mock_line,
+        patch("plp2gtopt.plp_parser.CentralParser") as mock_central,
+        patch("plp2gtopt.plp_parser.DemandParser") as mock_demand,
+        patch("plp2gtopt.plp_parser.CostParser") as mock_cost,
+        patch("plp2gtopt.plp_parser.ManceParser") as mock_mance,
+        patch("plp2gtopt.plp_parser.ManliParser") as mock_manli,
+        patch("plp2gtopt.plp_parser.AflceParser") as mock_aflce,
+        patch("plp2gtopt.plp_parser.ExtracParser") as mock_extrac,
+        patch("plp2gtopt.plp_parser.ManemParser") as mock_manem,
+        patch("plp2gtopt.plp_parser.FilembParser") as mock_filemb,
+    ):
         mock_p = MagicMock()
         mock_p.parse.return_value = None
         for m in [

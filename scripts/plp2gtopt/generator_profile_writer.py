@@ -4,6 +4,8 @@
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict, cast
+import logging
+import math
 import typing
 
 import pandas as pd
@@ -14,6 +16,34 @@ from .bus_parser import BusParser
 from .aflce_parser import AflceParser
 from .aflce_writer import AflceWriter
 from .block_parser import BlockParser
+
+_logger = logging.getLogger(__name__)
+
+
+def profile_factor(central: Dict[str, Any]) -> float:
+    """Return the factor mapping a PLP pasada ``aflce`` value to per-unit.
+
+    PLP models a pasada central as a flow column ``q`` bounded by
+    ``q <= min(aflce, PMax / Rendi)`` and produces ``Rendi * q`` MW
+    (``plp-fijamues.f``).  Its available generation is therefore
+    ``Rendi * aflce`` MW, while a gtopt ``GeneratorProfile`` is a
+    per-unit factor of the generator ``capacity`` (= PLP ``PotMax``):
+    ``profile = Rendi * aflce / PotMax``.  A non-positive ``PotMax``
+    returns 0 (the gtopt generator has no capacity to scale anyway).
+    """
+    try:
+        capacity = float(central.get("pmax", 0.0) or 0.0)
+        efficiency = float(central.get("efficiency", 1.0) or 1.0)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(capacity) or capacity <= 0.0:
+        return 0.0
+    return efficiency / capacity
+
+
+def to_per_unit(value: float, central: Dict[str, Any]) -> float:
+    """Scalar ``aflce`` (MW-equivalent) → per-unit profile clipped to [0, 1]."""
+    return min(max(float(value) * profile_factor(central), 0.0), 1.0)
 
 
 class CapacityProfile(TypedDict):
@@ -114,8 +144,11 @@ class GeneratorProfileWriter(BaseWriter):
                 if self.aflce_parser
                 else None
             )
+            afluent: str | float
             if aflce is None:
-                afluent = central.get("afluent", 0.0)
+                # Scalar PLP ``afluent`` is MW-equivalent: normalise it to a
+                # per-unit factor of the generator capacity.
+                afluent = to_per_unit(central.get("afluent", 0.0), central)
             elif profile_names is not None:
                 # Auto/explicit profile mode: own GeneratorProfile parquet
                 afluent = "profile"
@@ -140,8 +173,12 @@ class GeneratorProfileWriter(BaseWriter):
     def _write_profile_parquet(self, profile_names: set[str]) -> None:
         """Write profile Parquet files for solar/wind pasada centrals.
 
-        Writes to ``GeneratorProfile/profile.parquet`` containing the
-        affluent data (capacity factor) for each profile central.
+        Writes to ``GeneratorProfile/profile.parquet`` the per-unit
+        capacity factor of each profile central: the PLP ``aflce`` value
+        (MW-equivalent) times ``Rendi`` divided by ``PotMax`` (the gtopt
+        ``Generator.capacity``), clipped to [0, 1] — see
+        :func:`profile_factor`.  Values above ``PotMax`` are clipped (PLP
+        caps them at ``PMax`` too); every clip is counted in one warning.
         """
         if not self.aflce_parser or not profile_names:
             return
@@ -172,4 +209,48 @@ class GeneratorProfileWriter(BaseWriter):
         # C++ GeneratorProfile.profile field name.
         df = aflce_writer.to_dataframe(items=profile_items)
         if isinstance(df, pd.DataFrame) and not df.empty:
+            self._normalize_profile_columns(df, profile_names)
             aflce_writer.write_dataframe(df, output_dir, "profile")
+
+    def _normalize_profile_columns(
+        self, df: pd.DataFrame, profile_names: set[str]
+    ) -> None:
+        """Convert the MW-equivalent aflce columns of *df* to per-unit."""
+        centrals = (
+            self.central_parser.centrals_of_type.get("pasada", [])
+            if self.central_parser
+            else []
+        )
+        n_clipped = 0
+        n_zero_cap: list[str] = []
+        max_raw = 0.0
+        for central in centrals:
+            name = central["name"]
+            if name not in profile_names:
+                continue
+            col = self.pcol_name(name, int(central["number"]))
+            if col not in df.columns:
+                continue
+            factor = profile_factor(central)
+            if factor <= 0.0:
+                n_zero_cap.append(name)
+            scaled = df[col].astype("float64") * factor
+            over = scaled > 1.0 + 1e-9
+            if over.any():
+                n_clipped += int(over.sum())
+                max_raw = max(max_raw, float(scaled.max()))
+            df[col] = scaled.clip(lower=0.0, upper=1.0)
+        if n_clipped:
+            _logger.warning(
+                "GeneratorProfile: clipped %d per-unit profile value(s) > 1 "
+                "(max %.3f): PLP aflce * Rendi exceeds PotMax",
+                n_clipped,
+                max_raw,
+            )
+        if n_zero_cap:
+            _logger.warning(
+                "GeneratorProfile: %d profile central(s) with PotMax <= 0 "
+                "get a zero profile: %s",
+                len(n_zero_cap),
+                ", ".join(sorted(n_zero_cap)[:10]),
+            )

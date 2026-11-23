@@ -103,8 +103,9 @@ def test_init_config(tmp_path, capsys):
     """_init_config writes defaults and prints a message."""
     from plp2gtopt.main import _init_config  # noqa: PLC0415
 
-    with patch("plp2gtopt.main.save_section") as mock_save, patch(
-        "plp2gtopt.main.DEFAULT_CONFIG_PATH", tmp_path / ".gtopt.conf"
+    with (
+        patch("plp2gtopt.main.save_section") as mock_save,
+        patch("plp2gtopt.main.DEFAULT_CONFIG_PATH", tmp_path / ".gtopt.conf"),
     ):
         _init_config()
     mock_save.assert_called_once()
@@ -336,7 +337,7 @@ class TestBuildOptions:
         opts = build_options(args)
         assert opts["model_options"]["lp_reduction"] is True
         assert opts["sddp_options"]["aperture_solve_mode"] == "warm"
-        assert opts["sddp_options"]["aperture_chunk_size"] == 0
+        assert opts["sddp_options"]["aperture_chunk_mode"] == "per_scene"
         assert opts["sddp_options"]["forward_solver_options"] == {
             "algorithm": "dual",
             "advanced_basis": True,
@@ -353,7 +354,7 @@ class TestBuildOptions:
         opts = build_options(args)
         assert opts["model_options"]["lp_reduction"] is True
         assert opts["sddp_options"]["aperture_solve_mode"] == "warm"
-        assert opts["sddp_options"]["aperture_chunk_size"] == 0
+        assert opts["sddp_options"]["aperture_chunk_mode"] == "per_scene"
         assert opts["sddp_options"]["forward_solver_options"]["algorithm"] == "dual"
         assert opts["sddp_options"]["backward_solver_options"]["algorithm"] == "dual"
 
@@ -420,9 +421,16 @@ class TestBuildOptions:
         assert opts["cut_sharing_mode"] == "none"
 
     def test_sddp_fast_path_defaults_overridable(self):
-        # An explicit --aperture-chunk-size wins over the warm default of -1.
+        # An explicit --aperture-chunk-size wins over the per_scene default.
         args = self._make_args(method="sddp", aperture_chunk_size=4)
         opts = build_options(args)
+        assert opts["sddp_options"]["aperture_chunk_size"] == 4
+        assert "aperture_chunk_mode" not in opts["sddp_options"]
+        args = self._make_args(
+            method="sddp", aperture_chunk_mode="chunked", aperture_chunk_size=4
+        )
+        opts = build_options(args)
+        assert opts["sddp_options"]["aperture_chunk_mode"] == "chunked"
         assert opts["sddp_options"]["aperture_chunk_size"] == 4
         assert opts["sddp_options"]["aperture_solve_mode"] == "warm"
 
@@ -503,9 +511,10 @@ class TestMainCLI:
 
     def test_init_config_mode(self):
         """--init-config calls _init_config and returns."""
-        with patch("plp2gtopt.main.make_parser") as mock_parser, patch(
-            "plp2gtopt.main._init_config"
-        ) as mock_init:
+        with (
+            patch("plp2gtopt.main.make_parser") as mock_parser,
+            patch("plp2gtopt.main._init_config") as mock_init,
+        ):
             ns = argparse.Namespace(init_config=True)
             mock_parser.return_value.parse_args.return_value = ns
             main(["--init-config"])
@@ -513,9 +522,10 @@ class TestMainCLI:
 
     def test_show_info_mode(self, tmp_path):
         """--info calls display_plp_info."""
-        with patch("plp2gtopt.main.make_parser") as mock_parser, patch(
-            "plp2gtopt.main.display_plp_info"
-        ) as mock_info:
+        with (
+            patch("plp2gtopt.main.make_parser") as mock_parser,
+            patch("plp2gtopt.main.display_plp_info") as mock_info,
+        ):
             ns = argparse.Namespace(
                 init_config=False,
                 show_info=True,
@@ -531,8 +541,9 @@ class TestMainCLI:
 
     def test_show_info_error_handling(self):
         """--info handles RuntimeError gracefully."""
-        with patch("plp2gtopt.main.make_parser") as mock_parser, patch(
-            "plp2gtopt.main.display_plp_info", side_effect=RuntimeError("bad")
+        with (
+            patch("plp2gtopt.main.make_parser") as mock_parser,
+            patch("plp2gtopt.main.display_plp_info", side_effect=RuntimeError("bad")),
         ):
             ns = argparse.Namespace(
                 init_config=False,
@@ -566,9 +577,11 @@ class TestMainCLI:
 
     def test_validate_mode_success(self):
         """--validate calls validate_plp_case and exits 0 on success."""
-        with patch("plp2gtopt.main.make_parser") as mock_parser, patch(
-            "plp2gtopt.main.validate_plp_case", return_value=True
-        ) as mock_val, patch("plp2gtopt.main.build_options", return_value={}):
+        with (
+            patch("plp2gtopt.main.make_parser") as mock_parser,
+            patch("plp2gtopt.main.validate_plp_case", return_value=True) as mock_val,
+            patch("plp2gtopt.main.build_options", return_value={}),
+        ):
             ns = TestBuildOptions._make_args(
                 validate=True,
                 show_info=False,
@@ -584,9 +597,11 @@ class TestMainCLI:
 
     def test_validate_mode_failure(self):
         """--validate exits 1 on validation failure."""
-        with patch("plp2gtopt.main.make_parser") as mock_parser, patch(
-            "plp2gtopt.main.validate_plp_case", return_value=False
-        ), patch("plp2gtopt.main.build_options", return_value={}):
+        with (
+            patch("plp2gtopt.main.make_parser") as mock_parser,
+            patch("plp2gtopt.main.validate_plp_case", return_value=False),
+            patch("plp2gtopt.main.build_options", return_value={}),
+        ):
             ns = TestBuildOptions._make_args(
                 validate=True,
                 show_info=False,
@@ -601,9 +616,13 @@ class TestMainCLI:
 
     def test_variable_scales_template_mode(self):
         """--variable-scales-template calls print_variable_scales_template."""
-        with patch("plp2gtopt.main.make_parser") as mock_parser, patch(
-            "plp2gtopt.main.print_variable_scales_template", return_value=0
-        ) as mock_tmpl, patch("plp2gtopt.main.build_options", return_value={}):
+        with (
+            patch("plp2gtopt.main.make_parser") as mock_parser,
+            patch(
+                "plp2gtopt.main.print_variable_scales_template", return_value=0
+            ) as mock_tmpl,
+            patch("plp2gtopt.main.build_options", return_value={}),
+        ):
             ns = TestBuildOptions._make_args(
                 validate=False,
                 show_info=False,
@@ -619,11 +638,14 @@ class TestMainCLI:
 
     def test_convert_error_handling_no_args(self, capsys):
         """main shows usage hint when convert fails and no args were given."""
-        with patch("plp2gtopt.main.make_parser") as mock_parser, patch(
-            "plp2gtopt.main.convert_plp_case",
-            side_effect=RuntimeError("fail"),
-        ), patch("plp2gtopt.main.build_options", return_value={}), patch.object(
-            sys, "argv", ["plp2gtopt"]
+        with (
+            patch("plp2gtopt.main.make_parser") as mock_parser,
+            patch(
+                "plp2gtopt.main.convert_plp_case",
+                side_effect=RuntimeError("fail"),
+            ),
+            patch("plp2gtopt.main.build_options", return_value={}),
+            patch.object(sys, "argv", ["plp2gtopt"]),
         ):
             ns = TestBuildOptions._make_args(
                 validate=False,
@@ -642,11 +664,14 @@ class TestMainCLI:
 
     def test_convert_error_handling_with_args(self, capsys):
         """main prints error without usage when args were given."""
-        with patch("plp2gtopt.main.make_parser") as mock_parser, patch(
-            "plp2gtopt.main.convert_plp_case",
-            side_effect=FileNotFoundError("missing"),
-        ), patch("plp2gtopt.main.build_options", return_value={}), patch.object(
-            sys, "argv", ["plp2gtopt", "-i", "somedir"]
+        with (
+            patch("plp2gtopt.main.make_parser") as mock_parser,
+            patch(
+                "plp2gtopt.main.convert_plp_case",
+                side_effect=FileNotFoundError("missing"),
+            ),
+            patch("plp2gtopt.main.build_options", return_value={}),
+            patch.object(sys, "argv", ["plp2gtopt", "-i", "somedir"]),
         ):
             ns = TestBuildOptions._make_args(
                 validate=False,

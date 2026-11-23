@@ -317,7 +317,9 @@ def _split_and_compress(
     n_parts = max(2, math.ceil(compressed_size / split_bytes * 2.0))
 
     max_attempts = 5
-    for attempt in range(max_attempts):
+    attempt = 0
+    while True:
+        attempt += 1
         compressed_paths = _do_split_compress(
             src.name, data, lines, n_parts, ext, tmpdir, codec, codec_args
         )
@@ -325,6 +327,15 @@ def _split_and_compress(
         # Check if any part exceeds the limit
         max_csize = max(p.stat().st_size for p in compressed_paths)
         if max_csize <= split_bytes:
+            break
+        if attempt >= max_attempts:
+            # Give up but keep this attempt's (oversized) parts.
+            log.warning(
+                "  %s: could not fit all parts under %dMB after %d attempts",
+                src.name,
+                split_bytes // (1024 * 1024),
+                max_attempts,
+            )
             break
 
         # Re-estimate: scale up based on the worst offender
@@ -335,19 +346,12 @@ def _split_and_compress(
             max_csize // 1024,
             split_bytes // 1024,
             new_n,
-            attempt + 2,
+            attempt + 1,
         )
         # Clean up previous attempt
         for p in compressed_paths:
             p.unlink(missing_ok=True)
         n_parts = new_n
-    else:
-        log.warning(
-            "  %s: could not fit all parts under %dMB after %d attempts",
-            src.name,
-            split_bytes // (1024 * 1024),
-            max_attempts,
-        )
 
     # Report final sizes
     for cpath in compressed_paths:
@@ -375,7 +379,7 @@ def _do_split_compress(
         if start >= len(lines):
             break
         chunk = b"\n".join(lines[start:end])
-        if i < n_parts - 1:
+        if end < len(lines):
             chunk += b"\n"
         raw = tmpdir / f"{name}.{i + 1}"
         raw.write_bytes(chunk)
@@ -419,27 +423,22 @@ def decompress_case(directory: Path) -> int:
             print(f"No .xz or data files found in {directory}")
         return 0
 
-    # Classify: single files vs split parts
-    split_bases: dict[str, list[Path]] = {}
+    # Classify: single files vs split parts (foo.dat.N.xz), keeping the
+    # part number captured by the classification regex for ordering.
+    numbered_parts: dict[str, list[tuple[int, Path]]] = {}
     single_files: list[Path] = []
 
     for f in compressed:
-        # Match foo.dat.N.xz pattern
         m = re.match(r"^(.+)\.(\d+)(\.[a-z0-9]+)$", f.name)
         if m:
-            base = m.group(1)
-            split_bases.setdefault(base, []).append(f)
+            numbered_parts.setdefault(m.group(1), []).append((int(m.group(2)), f))
         else:
             single_files.append(f)
 
-    # Sort split parts by part number (every name in split_bases matched
-    # the classification regex above, so the search always succeeds).
-    def _part_no(p: Path) -> int:
-        pm = re.search(r"\.(\d+)\.[a-z0-9]+$", p.name)
-        return int(pm.group(1)) if pm else 0
-
-    for parts in split_bases.values():
-        parts.sort(key=_part_no)
+    split_bases: dict[str, list[Path]] = {
+        base: [p for _, p in sorted(parts, key=lambda t: t[0])]
+        for base, parts in numbered_parts.items()
+    }
 
     n_single = len(single_files)
     n_split = len(split_bases)

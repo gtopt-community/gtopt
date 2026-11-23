@@ -7,9 +7,12 @@ from typing import Any, Dict, List, Optional, TypedDict, cast
 from pathlib import Path
 import pandas as pd
 
+from gtopt_shared.demand_tiers import fail_segments, tier_name, tier_uid
+
 from .base_writer import BaseWriter
 from .demand_parser import DemandParser
 from .block_parser import BlockParser
+from .falla_segments import FallaTier
 
 _logger = logging.getLogger(__name__)
 
@@ -32,10 +35,30 @@ class DemandWriter(BaseWriter):
         demand_parser: Optional[DemandParser] = None,
         block_parser: Optional[BlockParser] = None,
         options: Optional[Dict[str, Any]] = None,
+        falla_tiers: Optional[Dict[int, List[FallaTier]]] = None,
+        falla_uid_offset: int = 0,
     ):
-        """Initialize with a DemandParser instance."""
+        """Initialize with a DemandParser instance.
+
+        *falla_tiers* (bus -> tiers, see
+        :func:`plp2gtopt.falla_segments.build_falla_tiers`) enables the
+        ``--falla-segments all`` split: every demand on such a bus is
+        emitted as one ``<name>_falla<k>`` sibling per tier, with uid
+        ``uid + (k - 1) * falla_uid_offset``.
+        """
         super().__init__(demand_parser, options)
         self.block_parser = block_parser
+        self.falla_tiers: Dict[int, List[FallaTier]] = falla_tiers or {}
+        self.falla_uid_offset = falla_uid_offset
+        #: uid -> falla central of every emitted tier demand.
+        self.tier_centrals: Dict[Any, Dict[str, Any]] = {}
+
+    def _tiers_of(self, demand: Dict[str, Any]) -> List[FallaTier]:
+        """Return the falla tiers that split *demand* (empty = no split)."""
+        bus = demand.get("bus")
+        if not self.falla_tiers or not isinstance(bus, int):
+            return []
+        return self.falla_tiers.get(bus, [])
 
     def to_json_array(
         self, items: Optional[List[Dict[str, Any]]] = None
@@ -66,7 +89,17 @@ class DemandWriter(BaseWriter):
             }
             total_energy += demand["energy"]
 
-            json_demands.append(dem)
+            tiers = self._tiers_of(demand)
+            if not tiers:
+                json_demands.append(dem)
+                continue
+            for tier in tiers:
+                uid = tier_uid(int(dem["uid"]), tier.k, self.falla_uid_offset)
+                tdem = cast(Demand, dict(dem))
+                tdem["uid"] = uid
+                tdem["name"] = tier_name(demand["name"], tier.k)
+                json_demands.append(tdem)
+                self.tier_centrals[uid] = tier.central
 
         _logger.debug("Total Energy Demand [GWh]: %.2f", total_energy / 1000.0)
         return cast(List[Dict[str, Any]], json_demands)
@@ -120,10 +153,26 @@ class DemandWriter(BaseWriter):
                 s = (1.0 - management_factor) * s
                 e = management_factor * es
                 demand["emin"] = "emin"
-                energies.append(e)
+                if not self._tiers_of(demand):
+                    energies.append(e)
+
+            tiers = self._tiers_of(demand)
+            if tiers:
+                # --falla-segments all: one scaled column per tier.
+                for tier in tiers:
+                    tname = f"uid:{tier_uid(uid, tier.k, self.falla_uid_offset)}"
+                    series.append((tier.fraction * s).rename(tname))
+                    if management_factor > 0.0:
+                        energies.append((tier.fraction * e).rename(tname))
+                continue
 
             # Add to DataFrame
             series.append(s)
+
+        if not series:
+            # Every demand was skipped (bus 0 / no block data): nothing to
+            # write — ``pd.concat([])`` would raise "No objects to concatenate".
+            return df, de
 
         df = pd.concat(series, axis=1)
         if self.block_parser:
@@ -186,25 +235,17 @@ class DemandWriter(BaseWriter):
         When multiple falla centrals sit on the same bus and have cost
         schedules, the **minimum** cost per stage across all of them is
         used.  The base gcost from plpcnfce.dat fills stages not covered
-        by the schedule.
+        by the schedule.  Tier demands emitted by ``--falla-segments all``
+        (see :attr:`tier_centrals`) use the schedule of their own tier.
 
-        Returns ``(df, filed_buses)`` where *df* has columns
-        ``stage, uid:<N>, …`` and *filed_buses* is the set of demand bus
-        numbers that got a time-varying fcost.
+        Returns ``(df, filed_uids)`` where *df* has columns
+        ``stage, uid:<N>, …`` and *filed_uids* is the set of demand uids
+        that got a time-varying fcost (the bus number for untiered
+        demands).
         """
         empty: tuple[pd.DataFrame, set[Any]] = (pd.DataFrame(), set())
 
         if not cost_parser or not stage_parser or not central_parser:
-            return empty
-
-        # Build demand uid → bus mapping
-        bus_to_uid: Dict[int, Any] = {}
-        for dem in demand_array:
-            bus = dem.get("bus")
-            if bus in falla_by_bus:
-                bus_to_uid[bus] = dem.get("uid", bus)
-
-        if not bus_to_uid:
             return empty
 
         # Group all falla centrals by bus
@@ -213,17 +254,38 @@ class DemandWriter(BaseWriter):
             if central.get("type") != "falla":
                 continue
             bus = central.get("bus", 0)
-            if bus <= 0 or bus not in bus_to_uid:
+            if bus <= 0 or bus not in falla_by_bus:
                 continue
             fallas_per_bus.setdefault(bus, []).append(central)
+
+        # Demand uid → falla centrals whose cost schedule it follows.
+        # Untiered demands follow every falla of their bus (bus order of
+        # the central list); tier demands follow their own tier only.
+        bus_to_uid: Dict[int, Any] = {}
+        tier_groups: Dict[Any, List[Dict[str, Any]]] = {}
+        for dem in demand_array:
+            uid = dem.get("uid", dem.get("bus"))
+            if uid in self.tier_centrals:
+                tier_groups[uid] = [self.tier_centrals[uid]]
+            elif dem.get("bus") in fallas_per_bus:
+                bus_to_uid[dem["bus"]] = uid
+        groups: Dict[Any, List[Dict[str, Any]]] = {
+            bus_to_uid[bus]: fallas
+            for bus, fallas in fallas_per_bus.items()
+            if bus in bus_to_uid
+        }
+        groups.update(tier_groups)
+
+        if not groups:
+            return empty
 
         stages = [s["number"] for s in stage_parser.items]
 
         series_list: List[pd.Series] = []
-        filed_buses: set[Any] = set()
+        filed_uids: set[Any] = set()
 
-        for bus, fallas in fallas_per_bus.items():
-            # Collect cost schedules from all fallas on this bus
+        for dem_uid, fallas in groups.items():
+            # Collect cost schedules from all fallas of this demand
             bus_schedules: List[pd.Series] = []
             min_base_gcost = min(f.get("gcost", 0.0) for f in fallas)
             for falla in fallas:
@@ -248,10 +310,7 @@ class DemandWriter(BaseWriter):
                     s = s.reindex(stages).fillna(falla.get("gcost", 0.0))
                     bus_schedules.append(s)
 
-            if not bus_schedules:
-                continue
-
-            # Element-wise minimum across all fallas on this bus
+            # Element-wise minimum across all fallas of this demand
             min_series = bus_schedules[0]
             for s in bus_schedules[1:]:
                 min_series = min_series.combine(s, min)
@@ -260,10 +319,9 @@ class DemandWriter(BaseWriter):
             if (min_series == min_base_gcost).all():
                 continue
 
-            dem_uid = bus_to_uid[bus]
             min_series.name = f"uid:{dem_uid}"
             series_list.append(min_series)
-            filed_buses.add(bus)
+            filed_uids.add(dem_uid)
 
         if not series_list:
             return empty
@@ -272,7 +330,69 @@ class DemandWriter(BaseWriter):
         df = df.reset_index().rename(columns={"index": "stage"})
         df["stage"] = df["stage"].astype("int32")
 
-        return df, filed_buses
+        return df, filed_uids
+
+    @staticmethod
+    def _falla_cost_series(
+        falla: Dict[str, Any], cost_parser: Any, stages: List[int]
+    ) -> pd.Series:
+        """Per-stage cost of one falla central (base gcost where no schedule)."""
+        base = float(falla.get("gcost", 0.0))
+        entry = (
+            cost_parser.get_cost_by_name(falla.get("name", "")) if cost_parser else None
+        )
+        if entry is None:
+            return pd.Series(base, index=stages, dtype="float64")
+        s = pd.Series(
+            data=entry["cost"], index=entry["stage"].tolist(), dtype="float64"
+        )
+        s = s[~s.index.duplicated(keep="last")]
+        return s.reindex(stages).fillna(base)
+
+    def apply_fail_segments(
+        self,
+        demand_array: List[Dict[str, Any]],
+        tiers_by_bus: Dict[int, List[FallaTier]],
+        cost_parser: Any,
+        stage_parser: Any,
+    ) -> None:
+        """``--falla-segments all``: set the native ``fail_segments`` curve.
+
+        Every demand on a multi-tier bus gets ``fail_segments`` =
+        ``[{fraction_k, cost_k}, …, {cost_K}]`` (last tier open) and loses
+        its single ``fcost``.  A tier cost is the falla's scalar ``gcost``
+        or, when its ``plpcosce`` schedule varies, the per-stage file
+        ``Demand/fail_cost_seg<k>`` (column ``uid:<demand uid>``).
+        """
+        stages = [s["number"] for s in stage_parser.items] if stage_parser else []
+        per_k: Dict[int, List[pd.Series]] = {}
+        for dem in demand_array:
+            tiers = tiers_by_bus.get(dem.get("bus"))  # type: ignore[arg-type]
+            if not tiers:
+                continue
+            costs: List[Any] = []
+            for tier in tiers:
+                base = float(tier.central.get("gcost", 0.0))
+                cost: Any = base
+                if stages:
+                    series = self._falla_cost_series(tier.central, cost_parser, stages)
+                    if not (series == base).all():
+                        per_k.setdefault(tier.k, []).append(
+                            series.rename(f"uid:{dem['uid']}")
+                        )
+                        cost = f"fail_cost_seg{tier.k}"
+                costs.append(cost)
+            dem.pop("fcost", None)
+            dem["fail_segments"] = fail_segments([t.fraction for t in tiers], costs)
+        if not per_k:
+            return
+        output_dir = self.options.get("output_dir", Path("results")) / "Demand"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for k, series_list in sorted(per_k.items()):
+            df = pd.concat(series_list, axis=1)
+            df = df.reset_index().rename(columns={"index": "stage"})
+            df["stage"] = df["stage"].astype("int32")
+            self.write_dataframe(df, output_dir, f"fail_cost_seg{k}")
 
     def write_fcost(
         self,
@@ -284,9 +404,9 @@ class DemandWriter(BaseWriter):
     ) -> set[Any]:
         """Write Demand/fcost from falla cost schedules.
 
-        Returns the set of demand bus numbers that got a file-based fcost.
+        Returns the set of demand uids that got a file-based fcost.
         """
-        df, filed_buses = self.to_fcost_dataframe(
+        df, filed_uids = self.to_fcost_dataframe(
             demand_array, falla_by_bus, cost_parser, stage_parser, central_parser
         )
 
@@ -295,4 +415,4 @@ class DemandWriter(BaseWriter):
             output_dir.mkdir(parents=True, exist_ok=True)
             self.write_dataframe(df, output_dir, "fcost")
 
-        return filed_buses
+        return filed_uids

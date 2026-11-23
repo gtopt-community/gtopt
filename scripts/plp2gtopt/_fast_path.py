@@ -12,8 +12,9 @@ The config (benchmarked to ~PLP parity on the CEN65 2-year case):
 
 * ``model_options.lp_reduction``        — elide provably-zero LP columns (~-19% wall)
 * ``sddp_options.aperture_solve_mode``  = ``warm`` (dual aperture warm-start)
-* ``sddp_options.aperture_chunk_size``  = ``0`` (auto: one task per aperture
-  chunk → the backward aperture pass parallelises across cores)
+* ``sddp_options.aperture_chunk_mode``  = ``per_scene`` (every aperture of a
+  scene warm-chained on one LP clone — 7.7x faster backward than
+  ``per_aperture`` on the CEN y24 case, identical bounds)
 * forward/backward solver ``algorithm`` = ``dual`` (+ ``advanced_basis`` forward)
 * ``sddp_options.low_memory_mode``       = ``off`` (the reference oracle —
   off never diverges, so the fast dual+warm config is correct there).
@@ -96,15 +97,25 @@ def apply_iterative_fast_path(
     sddp_opts.setdefault(
         "basis_cross_mode", src_sddp.get("basis_cross_mode") or "full_cross"
     )
-    if "aperture_chunk_size" not in sddp_opts:
-        acs = src_sddp.get("aperture_chunk_size")
-        # 0 = auto (parallel-safe manual-clone path): one task per aperture
-        # chunk so the backward aperture pass parallelises across cores.  The
-        # former -1 (all apertures/phase in one serial chunk) amortized clone
-        # reconstruction + warm-started within the chain, but capped backward
-        # parallelism at num_scenes — leaving cores idle when num_scenes <
-        # cores.  Auto is the documented CEN-IPLP-scale fastest.
-        sddp_opts["aperture_chunk_size"] = 0 if acs is None else acs
+    if (
+        "aperture_chunk_mode" not in sddp_opts
+        and "aperture_chunk_size" not in sddp_opts
+    ):
+        # per_scene: every aperture of a (scene, phase) solved in series on
+        # one LP clone, warm-chained off the resident basis.  Measured on the
+        # CEN y24 case (16 scenes x 16 apertures, CPLEX): 2.5 vs 19.3
+        # min/iteration backward against per_aperture, same bounds/memory.
+        # A source conf may pin the mode and/or K (``chunked``); a legacy
+        # integer ``aperture_chunk_size`` alone is passed through untouched so
+        # gtopt's back-compat mapping (with its deprecation warning) applies.
+        src_mode = src_sddp.get("aperture_chunk_mode")
+        src_size = src_sddp.get("aperture_chunk_size")
+        if src_mode is not None:
+            sddp_opts["aperture_chunk_mode"] = src_mode
+        if src_size is not None:
+            sddp_opts["aperture_chunk_size"] = src_size
+        if src_mode is None and src_size is None:
+            sddp_opts["aperture_chunk_mode"] = "per_scene"
 
     # Memory mode default.  The fast dual+warm config is correct only under
     # low_memory_mode=off (the reference oracle — off never diverges).  Under
@@ -139,7 +150,7 @@ def apply_iterative_fast_path(
         #     shrinking the LP is pure speedup.
         #   * BACKWARD apertures — warm-start dual + presolve OFF (the fast
         #     default).  The aperture pass (aperture_solve_mode=warm) honors
-        #     these (aperture_chunk_size=0 → auto, parallel per-aperture).
+        #     these (aperture_chunk_mode=per_scene → warm chain per scene).
         #     Cheap; safe IFF the aperture duals are unique — empirically
         #     validated per case (the seed was the forward primal, not the
         #     cut duals).  Falls back to forward's barrier on both passes if a
