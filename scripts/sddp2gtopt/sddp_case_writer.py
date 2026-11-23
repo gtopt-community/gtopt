@@ -29,7 +29,13 @@ Model mapping (one PSR element → gtopt elements):
   block profile).
 * **Circuit** → ``Line`` (R/X converted from % on 100 MVA to Ω at the
   higher end voltage; PWL losses when the study enables them).
-* **Demand** → one ``Demand`` per bus.
+* **Demand** → one ``Demand`` per bus; ``deficit_segments="all"`` sets
+  the native ``model_options.demand_fail_segments`` curve, while
+  ``deficit_segments="split"``
+  and a multi-segment ``Costo Deficit`` curve, one ``<demand>_deficit<k>``
+  sibling per segment (``lmax`` = segment depth x demand, the last segment
+  taking the rest; ``fcost`` = segment cost), see
+  :mod:`gtopt_shared.demand_tiers`.
 """
 
 from __future__ import annotations
@@ -38,9 +44,17 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.demand_tiers import (
+    fail_segments,
+    pct_fractions,
+    tier_name,
+    tier_uid,
+    tier_uid_offset,
+)
 from gtopt_shared.json_planning import build_json_item, write_planning
 
 from .sddp_case import HM3_PER_M3S_H, Grid, SddpBlockCase
+from .sddp_dat_parsers import SddpControl
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +164,41 @@ def _resolve_downstream(
     return code if code in active else None
 
 
+def deficit_tiers(ctl: SddpControl, mode: str) -> list[tuple[float, float]] | None:
+    """Return ``(fraction, cost)`` per deficit segment, or ``None``.
+
+    ``None`` (single demand at ``ctl.deficit_cost``) unless *mode* is
+    ``"all"`` / ``"split"`` and ``sddp.dat`` lists two or more segments.  The ``%``
+    depths are shares of each demand (the curve is study-wide, the
+    same for every bus and stage); the last segment takes whatever the
+    others leave (:func:`gtopt_shared.demand_tiers.pct_fractions`).
+    """
+    segs = ctl.deficit_segments
+    if mode not in ("all", "split") or len(segs) < 2:
+        return None
+    try:
+        fracs = pct_fractions([p for p, _ in segs])
+    except ValueError as exc:
+        logger.warning(
+            "deficit-segments: %s; keeping the first-segment demand_fail_cost", exc
+        )
+        return None
+    if abs(sum(p for p, _ in segs) - 100.0) > 1e-6:
+        logger.warning(
+            "deficit-segments: depths %s sum to %g %%, not 100 %%; the last "
+            "segment covers the remaining %.4g %% of each demand",
+            [p for p, _ in segs],
+            sum(p for p, _ in segs),
+            100.0 * fracs[-1],
+        )
+    tiers = [(f, float(c)) for f, (_, c) in zip(fracs, segs)]
+    logger.info(
+        "deficit-segments: %s",
+        ", ".join(f"{100.0 * f:.4g}%@{c:g}" for f, c in tiers),
+    )
+    return tiers
+
+
 def _bus_names(case: SddpBlockCase) -> dict[int, str]:
     out: dict[int, str] = {}
     used: set[str] = set()
@@ -167,6 +216,7 @@ def build_sddp_planning(
     *,
     name: str,
     method: str = "sddp",
+    deficit_segments: str = "first",
 ) -> tuple[dict[str, Any], _TableSink]:
     """Assemble the gtopt planning dict + the Parquet tables to write."""
     sink = _TableSink()
@@ -382,15 +432,35 @@ def build_sddp_planning(
 
     # ── demand ─────────────────────────────────────────────────────────────
     demand_array = []
-    for duid, bus in enumerate(sorted(b for b in case.demands if b in bus_name), 1):
-        demand_array.append(
-            {
-                "uid": duid,
-                "name": f"d_{bus_name[bus]}",
-                "bus": bus_name[bus],
-                "lmax": _tb_field(sink, "Demand", "lmax", duid, case.demands[bus]),
-            }
-        )
+    demand_buses = sorted(b for b in case.demands if b in bus_name)
+    tiers = deficit_tiers(ctl, deficit_segments)
+    offset = tier_uid_offset(len(demand_buses))
+    for duid, bus in enumerate(demand_buses, 1):
+        if tiers is None or deficit_segments == "all":
+            # ``all``: one demand per bus; the curve rides on the global
+            # ``model_options.demand_fail_segments`` set below.
+            demand_array.append(
+                {
+                    "uid": duid,
+                    "name": f"d_{bus_name[bus]}",
+                    "bus": bus_name[bus],
+                    "lmax": _tb_field(sink, "Demand", "lmax", duid, case.demands[bus]),
+                }
+            )
+            continue
+        # --deficit-segments split: one sibling per deficit segment.
+        for k, (frac, cost) in enumerate(tiers, 1):
+            uid = tier_uid(duid, k, offset)
+            grid = [[v * frac for v in row] for row in case.demands[bus]]
+            demand_array.append(
+                {
+                    "uid": uid,
+                    "name": tier_name(f"d_{bus_name[bus]}", k, "deficit"),
+                    "bus": bus_name[bus],
+                    "lmax": _tb_field(sink, "Demand", "lmax", uid, grid),
+                    "fcost": cost,
+                }
+            )
 
     # ── hydro network ──────────────────────────────────────────────────────
     water = _build_water_network(case, sink, hydro_gen)
@@ -414,6 +484,13 @@ def build_sddp_planning(
         "demand_fail_cost": deficit,
         "scale_objective": 1000.0,
     }
+    if tiers is not None and deficit_segments == "all":
+        # Native stepwise curve (study-wide): every demand inherits it
+        # (no per-demand fcost); ``demand_fail_cost`` stays as segment 1
+        # for the soft-pmin / summary consumers.
+        model_options["demand_fail_segments"] = fail_segments(
+            [f for f, _ in tiers], [c for _, c in tiers]
+        )
     if ctl.use_losses and line_array:
         model_options["line_losses_mode"] = "piecewise"
         model_options["loss_segments"] = 3
@@ -651,9 +728,12 @@ def write_sddp_case(
     name: str,
     method: str = "sddp",
     compression: str = "zstd",
+    deficit_segments: str = "first",
 ) -> Path:
     """Write the planning JSON + Parquet tables; returns the JSON path."""
-    planning, sink = build_sddp_planning(case, name=name, method=method)
+    planning, sink = build_sddp_planning(
+        case, name=name, method=method, deficit_segments=deficit_segments
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     files = sink.write(output_dir, compression=compression)
     write_planning(planning, output_file)

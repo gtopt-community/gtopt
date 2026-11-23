@@ -76,19 +76,21 @@ def build_options(
         "use_kirchhoff": use_kirchhoff,
         "demand_fail_cost": float(study.deficit_cost),
         "scale_objective": 1.0 if hydro_topology else 1000,
-        # PSR networks carry near-zero-reactance bus-tie / coupler circuits
-        # (``reactance_pu`` ~5e-4, just above the ``_MIN_REACTANCE`` 1e-5 floor).
-        # Under ``use_kirchhoff`` those near-short-circuits attract
-        # disproportionate DC flow (f = Δθ / X) and saturate their ``tmax``,
-        # pinning bus angles so parallel higher-reactance ties — with ample
-        # spare capacity — cannot feed load pockets.  The result is spurious
-        # congestion + demand curtailment (a 58-bus, 335 MW GUA pocket priced
-        # at the 315 $/MWh fail cost).  Promote any circuit with
-        # ``|x_pu| < threshold`` to a KVL-free "DC line" (flow-bounded only) so
-        # power distributes by economics.  1e-3 removes the curtailment
-        # (9160 → 28 MWh on the GUA weekly case) and saturates (identical up to
-        # 1e-2); it sits safely between the coupler scale (~5e-4) and real
-        # transmission reactances (≳1e-2).
+        # PSR networks carry bus-tie / coupler circuits with near-zero
+        # reactance (``dcirc.dat`` X ≲ 0.1 %, i.e. ``reactance_pu`` ≲ 1e-3
+        # on 100 MVA; 52 in the GUA case).  As ordinary KVL lines those
+        # near-short-circuits attract disproportionate DC flow
+        # (f = Δθ / X) and pin the bus angles, so ``|x_pu| < threshold``
+        # marks them as tiny-reactance circuits; 1e-3 sits between the
+        # coupler scale and real transmission reactances (≳ 1e-2).  They
+        # use gtopt's default ``tiny_reactance_mode`` (``"tie"``:
+        # zero-impedance tie, θ_a = θ_b, flow free within ``tmax``) like
+        # every other converter.  Note: the earlier GUA observation that
+        # ``tie`` caused 9160 MWh of curtailment vs 28 MWh with ``dc`` was
+        # a units bug, not a coupler effect — dcirc R/X were read as ohms
+        # (X·100/kV², with some 69 kV buses mistyped as 691/692 kV), which
+        # pushed 62 real lines (mostly 69 kV) below the threshold.  With
+        # the correct % → p.u. conversion only the 52 real couplers are ties.
         "dc_line_reactance_threshold": 1.0e-3,
     }
     if hydro_topology:
@@ -392,9 +394,9 @@ def _net_bus_ref(number: int) -> str:
 _SPILL_CAP = 1.0e6
 
 # Reservoir flow→volume conversion for PSR's units (hm³ storage, m³/s flow):
-# 1 m³/s · 1 h = 3600 m³ = 0.0036 hm³.  Set explicitly on every reservoir —
-# gtopt's LP defaults an *absent* flow_conversion_rate to 3.6 (the dam³
-# convention, 1000× larger), which spuriously overflows hm³ reservoirs.
+# 1 m³/s · 1 h = 3600 m³ = 0.0036 hm³.  Set explicitly on every reservoir
+# (gtopt's default is the same 0.0036; older builds defaulted an *absent*
+# flow_conversion_rate to 3.6, the dam³ convention, 1000× larger).
 _FLOW_CONVERSION_RATE = 0.0036
 
 
@@ -576,23 +578,28 @@ def _build_water_network(
                 "emin": h.vmin,
                 "emax": h.vmax,
                 "eini": h.eini,
-                # MUST be set: PSR uses hm³ volumes + m³/s flows, so the
-                # conversion is 0.0036 hm³/(m³/s·h).  gtopt's LP defaults an
-                # ABSENT flow_conversion_rate to 3.6 (the dam³ convention) —
-                # 1000× too large — which fills the reservoirs in minutes
-                # (spurious overflows).  Pin it to the hm³ value.
+                # Pinned: PSR uses hm³ volumes + m³/s flows, so the
+                # conversion is 0.0036 hm³/(m³/s·h).  This is also gtopt's
+                # default, but older builds defaulted an ABSENT
+                # flow_conversion_rate to 3.6 (the dam³ convention, 1000×
+                # too large), so the value stays explicit.
                 "flow_conversion_rate": _FLOW_CONVERSION_RATE,
                 "use_state_variable": True,
             }
-            if h.water_value > 0.0:
+            # A negative water value (stored water is a liability, e.g. a
+            # costly spill) is a valid boundary-cut slope too: it is shipped
+            # in the cut like a positive one.  Only the soft end target needs
+            # a positive price, so ``efin``/``efin_cost`` stay gated on > 0.
+            if h.water_value != 0.0:
                 if h.efin > 0.0:
                     # A real end-volume is shipped (PSR ``volfincp``): emit a soft
                     # end target ``vol_end + slack >= efin`` priced at the water
                     # value, and linearise the cut at the SAME ``efin``.  The hard
                     # floor stays ``emin`` (``vfin >= vmin``).
                     cut_eval = min(max(h.efin, h.vmin), h.vmax)
-                    reservoir["efin"] = cut_eval
-                    reservoir["efin_cost"] = h.water_value
+                    if h.water_value > 0.0:
+                        reservoir["efin"] = cut_eval
+                        reservoir["efin_cost"] = h.water_value
                 else:
                     # No end-volume shipped → do NOT assume ``vfin = vini``.  The
                     # only hard end constraint is ``vfin >= vmin`` (the ``emin``

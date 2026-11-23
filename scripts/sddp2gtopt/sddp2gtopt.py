@@ -126,8 +126,11 @@ def _resolve_output_paths(
 def _convert_sddp_block_case(input_dir: Path, options: dict[str, Any]) -> int:
     """Convert a PSR SDDP block study (see :mod:`sddp2gtopt.sddp_case`)."""
     num_scn = options.get("num_scenarios")
+    deficit_segments = str(options.get("deficit_segments") or "first")
     case = load_sddp_block_case(
-        input_dir, num_scenarios=int(num_scn) if num_scn else None
+        input_dir,
+        num_scenarios=int(num_scn) if num_scn else None,
+        deficit_segments=deficit_segments,
     )
     output_dir, output_file, planning_name = _resolve_output_paths(
         input_dir,
@@ -141,6 +144,7 @@ def _convert_sddp_block_case(input_dir: Path, options: dict[str, Any]) -> int:
         Path(output_file),
         name=planning_name,
         method=str(options.get("method") or "sddp"),
+        deficit_segments=deficit_segments,
     )
     for note in case.skipped:
         logger.info("simplified: %s", note)
@@ -185,6 +189,14 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
     # historical inflow series) → multi-scenario SDDP planning + Parquet.
     if is_dat_case(input_dir) and is_sddp_block_case(input_dir):
         return _convert_sddp_block_case(input_dir, options)
+
+    if str(options.get("deficit_segments") or "first") != "first":
+        logger.warning(
+            "--deficit-segments %s only applies to SDDP block studies "
+            "(sddp.dat deficit curve); this front-end keeps a single "
+            "demand_fail_cost",
+            options.get("deficit_segments"),
+        )
 
     # Front-end selection: raw PSR `.dat` collection vs psrclasses.json.
     buses = None

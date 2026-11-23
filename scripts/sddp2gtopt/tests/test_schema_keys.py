@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """sddp2gtopt emits only keys gtopt's strict JSON parser accepts.
 
 Converts the bundled fixtures (the multi-file PSR SDDP block case and the

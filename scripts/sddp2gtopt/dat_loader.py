@@ -89,20 +89,91 @@ class DatCase:
 # transformers (very high p.u. X on a 100 MVA base) are capped so the LP
 # coefficient spread stays well-conditioned — both are near-radial links
 # whose flow is set by the load, not the reactance, so the clamp is
-# physically harmless.
+# physically harmless.  The floor (1e-4 p.u. = 0.01 %) sits an order of
+# magnitude below the writer's ``dc_line_reactance_threshold`` (1e-3 p.u.),
+# so it never changes whether a circuit is classified as a bus-tie
+# coupler; it only keeps ``X == 0`` rows (the GUA ``dcirc.dat`` has one)
+# finite.  The cap (20 p.u. = 2000 %) is above every GUA circuit (max
+# 624 %), i.e. it only guards against corrupt entries.
 _MIN_PU = 1.0e-4
 _MAX_PU = 20.0
 
 
-def _ohm_to_pu(x_ohm: float, kv: float) -> float:
-    """Convert an ohm reactance to per-unit on a 100 MVA base.
+def _pct_to_pu(value_pct: float) -> float:
+    """Convert a ``dcirc.dat`` R or X from % to per-unit (100 MVA base).
 
-    ``X_pu = X_ohm · S_base / V²`` with ``S_base = 100`` MVA.  For a
-    transformer (different end voltages) the HV side is used as the
-    reference, the standard convention.  Falls back to the raw value when
-    the bus base voltage is unknown.
+    PSR ``dcirc.dat`` stores ``RESIS``/``REACT`` in **percent on the
+    100 MVA system base** (the same convention as the JSON/CSV front-end,
+    see :mod:`sddp2gtopt.sddp_case`), so ``x_pu = X% / 100`` — no bus
+    voltage is involved.  Treating them as ohms (``X·100/kV²``) made the
+    result depend on ``Volt.dat`` and shrank every 69 kV line by ~50x (and
+    ~5000x on the buses whose kV was mistyped as 691/692).
     """
-    return x_ohm * 100.0 / (kv * kv) if kv > 0 else x_ohm
+    return value_pct / 100.0
+
+
+# Standard nominal voltages (kV) seen in PSR / Central-American networks.
+# Used only to recognise a mistyped ``Volt.dat`` entry, never to snap a
+# plausible value.
+_STANDARD_KV: tuple[float, ...] = (
+    0.4, 0.48, 2.3, 4.16, 6.6, 6.9, 13.2, 13.8, 22.0, 34.5, 69.0, 115.0,
+    138.0, 230.0, 400.0, 500.0,
+)  # fmt: skip
+
+
+def _is_standard_kv(kv: float) -> bool:
+    return any(abs(kv - s) < 1e-6 for s in _STANDARD_KV)
+
+
+def _sanitize_kv(kv: float, bus_name: str) -> float | None:
+    """Return the corrected kV for a mistyped ``Volt.dat`` entry, else None.
+
+    PSR bus names end in ``-<class><index>`` (``ESC-692`` = 69 kV bus #2,
+    ``GSU-231`` = 230 kV bus #1).  Some ``Volt.dat`` rows copy that suffix
+    as the voltage (692., 691., 342., 232., 132.).  A value is treated as
+    mistyped only when it is **not** a standard voltage **and** equals the
+    name's (≥ 3-digit) numeric suffix; the trailing index digit is dropped
+    and the remaining class digits are matched to a standard voltage —
+    first by integer part (``69`` → 69, ``34`` → 34.5, ``13`` → 13.8),
+    then by tens (``23`` → 230).
+    """
+    if kv <= 0.0 or _is_standard_kv(kv):
+        return None
+    suffix = bus_name.rsplit("-", 1)[-1] if "-" in bus_name else ""
+    if len(suffix) < 3 or not suffix.isdigit() or float(suffix) != kv:
+        return None
+    cls = int(suffix[:-1])
+    by_int = [s for s in _STANDARD_KV if int(s) == cls]
+    if by_int:
+        return max(by_int)
+    by_tens = [s for s in _STANDARD_KV if s >= 10.0 and int(s // 10) == cls]
+    return max(by_tens) if by_tens else None
+
+
+def _sanitize_volt(volt: dict[int, float], names: dict[int, str]) -> dict[int, float]:
+    """Fix mistyped ``Volt.dat`` kV values (see :func:`_sanitize_kv`).
+
+    The bus voltage only feeds the ``Bus.voltage`` metadata (and gtopt's
+    optional ``kirchhoff_threshold``), never the line impedance.  Each
+    distinct correction is logged once as a warning.
+    """
+    out = dict(volt)
+    fixes: dict[tuple[float, float], list[str]] = {}
+    for bus, kv in volt.items():
+        fixed = _sanitize_kv(kv, names.get(bus, ""))
+        if fixed is not None:
+            out[bus] = fixed
+            fixes.setdefault((kv, fixed), []).append(names.get(bus, str(bus)))
+    for (raw, fixed), buses in sorted(fixes.items()):
+        logger.warning(
+            "Volt.dat: %d bus(es) with mistyped kV %g (copies the name "
+            "suffix) -> %g kV: %s",
+            len(buses),
+            raw,
+            fixed,
+            ", ".join(buses[:5]) + (" …" if len(buses) > 5 else ""),
+        )
+    return out
 
 
 def _clamp_reactance(x_pu: float) -> float:
@@ -118,7 +189,7 @@ def _infer_missing_kv(kv_by_bus: dict[int, float], circuits: list[CircuitSpec]) 
     Generator terminal buses are absent from ``Volt.dat`` and have no
     voltage in their name; they connect to the network through a single
     step-up transformer, so the highest-voltage neighbour is the right
-    reference for the ohm→p.u. conversion.  Iterated a few times to
+    reference for the bus ``voltage`` metadata.  Iterated a few times to
     propagate across short low-voltage chains.
     """
     adj: dict[int, list[int]] = {}
@@ -480,23 +551,27 @@ def load_dat_case(
         gen2bus = bp.gen2bus
         raw_circuits = CircuitParser(circ_path).parse()
 
-        # Bus base voltage: Volt.dat (authoritative) → name suffix →
-        # neighbour inference (generator terminal buses absent from
-        # Volt.dat inherit the highest-voltage neighbour).
+        # Bus base voltage (``Bus.voltage`` metadata only — the circuit
+        # impedances are % on 100 MVA and need no kV): Volt.dat (with
+        # mistyped suffix-copies sanitised) → name suffix → neighbour
+        # inference (generator terminal buses absent from Volt.dat inherit
+        # the highest-voltage neighbour).
         kv_by_bus = {b.number: b.base_kv for b in buses}
         volt_path = find_compressed_path(case_dir / "Volt.dat")
         if volt_path is not None:
-            for bus, kv in VoltParser(volt_path).parse().items():
-                kv_by_bus[bus] = kv
+            names = {b.number: b.name for b in buses}
+            volt = _sanitize_volt(VoltParser(volt_path).parse(), names)
+            kv_by_bus.update(volt)
         for b in buses:
             b.base_kv = kv_by_bus.get(b.number, b.base_kv)
         _infer_missing_kv(kv_by_bus, raw_circuits)
         for b in buses:
             b.base_kv = kv_by_bus.get(b.number, b.base_kv)
 
+        # dcirc.dat R/X are % on 100 MVA → per-unit; independent of kV.
         for c in raw_circuits:
-            kv = max(kv_by_bus.get(c.from_bus, 0.0), kv_by_bus.get(c.to_bus, 0.0))
-            c.reactance_pu = _clamp_reactance(_ohm_to_pu(c.reactance_pu, kv))
+            c.resistance = _pct_to_pu(c.resistance)
+            c.reactance_pu = _clamp_reactance(_pct_to_pu(c.reactance_pu))
             circuits.append(c)
         # Route generators to their bus by name (keeping a spec's own bus —
         # e.g. a renewable's cgndgu bus — when dbus has no name mapping).

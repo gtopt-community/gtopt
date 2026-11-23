@@ -16,10 +16,12 @@ import sys
 from pathlib import Path
 
 from gtopt_config import add_color_argument
+from gtopt_shared.cli_flags import add_demand_tier_segments_argument
 from gtopt_shared.cli_signals import (
     install_termination_handlers,
     signal_handler as _signal_handler,  # noqa: F401  re-export for back-compat / tests
 )
+from gtopt_shared.operator import add_operator_argument, select_operator
 
 from .info_display import display_sddp_info
 from .sddp2gtopt import convert_sddp_case, validate_sddp_case
@@ -126,6 +128,11 @@ def make_parser() -> argparse.ArgumentParser:
         help="SDDP block studies: gtopt planning method written to the JSON "
         "(default: sddp; one phase per stage, one scene per scenario).",
     )
+    # ``--deficit-segments`` (default ``first``): sddp.dat "Costo Deficit"
+    # curve → one demand priced at the first segment, or (``all``) one
+    # ``<demand>_deficit<k>`` sibling per segment.  Same split as
+    # plp2gtopt's ``--falla-segments`` (gtopt_shared/demand_tiers.py).
+    add_demand_tier_segments_argument(parser, dialect="sddp")
     parser.add_argument(
         "-l",
         "--log-level",
@@ -151,6 +158,7 @@ def make_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    add_operator_argument(parser)
     return parser
 
 
@@ -178,6 +186,7 @@ def main(argv: list[str] | None = None) -> None:
     input_dir = _resolve_input_dir(args)
     if input_dir is None:
         parser.error("input directory is required: pass it positionally or via -i")
+    select_operator(args.operator, "sddp", input_dir, args)
 
     options = {
         "input_dir": input_dir,
@@ -187,6 +196,7 @@ def main(argv: list[str] | None = None) -> None:
         "blocks_per_stage": args.blocks_per_stage,
         "num_scenarios": args.num_scenarios,
         "method": args.method,
+        "deficit_segments": args.deficit_segments,
     }
 
     if args.show_info:

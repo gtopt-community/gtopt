@@ -96,6 +96,9 @@ gtopt --lp-only -s gtopt_demo/gtopt_demo.json
 | `--hydro-cost $/MWh`          | `0`     | Uniform hydro water-value stand-in (no-storage .dat)|
 | `--import-limit MW`           | —       | Cap aggregate interconnection import (GUA↔MEX ≈ 200)|
 | `--blocks-per-stage K`        | `0`     | `0` = single-stage monolithic; divisor of horizon → daily stages → sddp/cascade |
+| `--num-scenarios N`           | all     | Block studies: keep the first N historical series |
+| `--method {sddp,monolithic,cascade}` | `sddp` | Block studies: planning method written to the JSON |
+| `--deficit-segments {first,all,split}` | `first` | Block studies: `first` = one demand per bus priced at the first deficit segment; `all` = native `model_options.demand_fail_segments` curve; `split` = one `<demand>_deficit<k>` demand per segment (see [Deficit cost curve](#deficit-cost-curve---deficit-segments)) |
 | `--info`                      | off     | Print case summary and exit                       |
 | `--validate`                  | off     | Run schema sanity checks and exit                 |
 | `-l, --log-level LEVEL`       | `INFO`  | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`|
@@ -458,11 +461,25 @@ When both `dbus.dat` and `dcirc.dat` are present, the converter emits a
 - **buses** from `dbus.dat` (one GTOpt `Bus` per node);
 - **generator → bus** routing from the `dbus.dat` plant columns (matched
   by name — 100 % of the Guatemalan thermal+hydro plants map);
-- **circuits** from the fixed-width `dcirc.dat` (lines + transformers),
-  with ohm reactances converted to per-unit on a 100 MVA base using the
-  bus base voltages from **`Volt.dat`** (name-suffix + neighbour
-  inference fill the generator-terminal buses absent from `Volt.dat`);
-  near-radial extremes are floored/capped to keep the LP well-conditioned;
+- **circuits** from the fixed-width `dcirc.dat` (lines + transformers):
+  `RESIS`/`REACT` are **% on the 100 MVA system base**, so
+  `x_pu = X/100` (no bus voltage involved); extremes are floored
+  (1e-4 p.u., well below the 1e-3 p.u. tie threshold) and capped
+  (20 p.u.) to keep the LP well-conditioned;
+- **coupler circuits** (bus ties with `x_pu < 1e-3`, i.e. X < 0.1 %,
+  written as `model_options.dc_line_reactance_threshold = 1e-3`) use
+  gtopt's default `tiny_reactance_mode = "tie"`: a zero-impedance tie
+  that forces equal bus angles, with the flow free within `tmax`.  The
+  converter no longer pins `"dc"`.  Pass
+  `--set model_options.tiny_reactance_mode=dc` to model them as KVL-free
+  DC links instead (as ties, a coupler's `tmax` can bind and parallel
+  circuits between the same buses carry no flow);
+- **bus voltages** (`Bus.voltage`, metadata only) from **`Volt.dat`**
+  (name-suffix + neighbour inference fill the generator-terminal buses
+  absent from it).  `Volt.dat` rows whose kV is non-standard and copies
+  the bus-name suffix (`ESC-692` typed as 692 kV) are corrected to the
+  voltage class (692 → 69, 342 → 34.5, 232 → 230, 132 → 13.8) with a
+  warning;
 - **per-bus demand** from `cpdexbus.dat` (one `Demand` per load node).
 
 Falls back to a single bus when `dbus`/`dcirc` are absent.
@@ -489,6 +506,10 @@ physically by the turbines and the water value rides a **single boundary
 cut** on the reservoir end-volumes: a `boundary_cuts.csv` whose per-reservoir
 column is `−WV` ($/hm³, from `watervcp.csv` × 1000) and `rhs = ΣWV·emax`,
 so the marginal cost of releasing stored water from reservoir *r* is `WVᵣ`.
+A **negative** PSR water value (stored water is a liability, e.g. a
+costly spill) is kept in the cut with its sign; only the soft end target
+(`efin` / `efin_cost`, emitted when PSR ships an end volume) requires a
+positive water value.
 
 The case writes `scale_objective = 1` + `auto_scale` (the cut rows are
 divided by `scale_objective`, so a raw-money objective keeps the water
@@ -569,7 +590,7 @@ sddp2gtopt -i coes_2026/ -o coes_small/ --num-scenarios 8 --method monolithic
 | `duvame<nb>.dat` / `durfix<nb>.dat` | block durations per (year, month) / fixed % split |
 | `deme<nb><sfx>.dat` + `dbf<nb><sfx>.dat` | `Demand` per bus, MW: class energy (GWh) per block × normalised bus weights (latest `dbf` date ≤ stage) |
 | `dbus.dat` (fixed or CSV) + `busconnection.dat` + `volt.dat` | `Bus` (kV); generator → bus via `tg`/`Plnt` or `PlantType`/`PlantCode` |
-| `dcirc.dat` / `mcirc.dat` (v2 fixed, legacy, or CSV) | `Line`: R/X % on 100 MVA → Ω; rating → `tmax`; dated changes and entry → `active` |
+| `dcirc.dat` / `mcirc.dat` (v2 fixed, legacy, or CSV) | `Line`: R/X % on the 100 MVA base → per-unit (`x_pu = X/100`, no kV involved); rating → `tmax`; dated changes and entry → `active` |
 | `ctermi<sfx>.dat` / `mtermi<sfx>.dat` | thermal `Generator`: `pmax` = GerMax × availability × (1−Teif)(1−Ih); `gcost` = CEsp1 × fuel + CVaria; `pmin` = GerMin only when MR = 1 |
 | `ccombu<sfx>.dat`, `combme<sfx>.dat` | fuel cost; the monthly series overrides the constant |
 | `pmtrme`/`pmhime<sfx>.dat` | maintenance: file- or table-level units/info flags (reduction or absolute, units/%/MW) |
@@ -594,6 +615,54 @@ Existence flags (`Tipo`/`Type`/`Existing` = 1) mark *future* elements.  A
 future element enters service at the date of its first modification record.
 A future element with no modification record never operates.
 
+### Deficit cost curve (`--deficit-segments`)
+
+`sddp.dat` lists the deficit cost as up to four `% / cost` pairs under
+`Costo Deficit` (e.g. Guatemala: `2 314.95  98 1968.44`, i.e. the first
+2 % of each demand at 314.95 $/MWh, the rest at 1968.44).  The curve is
+study-wide (same for every bus and stage); segments with `% = 0` are
+ignored.  gtopt has one `fcost` per demand, so:
+
+- `--deficit-segments first` (default): one demand per bus, priced by
+  `model_options.demand_fail_cost` = first segment cost.  Output is
+  byte-identical to earlier versions.
+- `--deficit-segments all`: one demand per bus (as `first`) plus the
+  native stepwise curve `model_options.demand_fail_segments` =
+  `[{"fraction": pct_1/100, "cost": c_1}, …, {"cost": c_K}]` (last
+  segment open).  Every demand inherits it; gtopt adds one served-load
+  column per segment (no extra rows) and reports `Demand/fail_sol`
+  (total) plus `Demand/fail_seg<k>_sol` per segment.
+- `--deficit-segments split`: each demand becomes one sibling per segment,
+  `d_<bus>_deficit<k>`, with `lmax` = `pct_k / 100` × original and
+  `fcost` = segment cost.  The last segment is open-ended: it takes
+  whatever the others leave, so the siblings always add up to the full
+  demand (a warning is logged when the `%` do not sum to 100).  Segment 1
+  keeps the original uid; segment `k` gets `uid + (k-1)·10^d`, with
+  `10^d` above every demand uid.  `demand_fail_cost` and the soft-`pmin`
+  penalty stay at the first segment cost.  Curtailment per segment is the
+  `Demand/fail_sol` of each sibling; served load at a bus is the sum over
+  `_deficit<k>`.
+
+With one segment, `all` / `split` change nothing.  The flag applies to block
+studies only; the `psrclasses.json` and NCP `.dat` front-ends keep a
+single `demand_fail_cost` (a warning is logged).  The split uses the
+same helpers as `plp2gtopt --falla-segments`
+(`scripts/gtopt_shared/demand_tiers.py`).
+
+```text
+$ sddp2gtopt -i gu_case/ -o gu_tiers/ --deficit-segments all
+INFO deficit-segments: 2%@314.95, 98%@1968.44
+"model_options": {"demand_fail_cost": 314.95,
+  "demand_fail_segments": [{"fraction": 0.02, "cost": 314.95}, {"cost": 1968.44}], ...}
+
+$ sddp2gtopt -i gu_case/ -o gu_tiers/ --deficit-segments split
+"demand_array": [
+  {"uid": 1,  "name": "d_CENTRO220_deficit1", "bus": "CENTRO220", "lmax": "lmax", "fcost": 314.95},
+  {"uid": 11, "name": "d_CENTRO220_deficit2", "bus": "CENTRO220", "lmax": "lmax", "fcost": 1968.44},
+  ...
+]
+```
+
 ### Simplifications (logged as `simplified:` at conversion)
 
 - Hourly chronology (`hrload`, `hrrenw`, `hrbmap`): not modelled; the
@@ -606,7 +675,8 @@ A future element with no modification record never operates.
   (`csumcirc`), emission costs: not modelled.
 - Random generator/circuit outages: not modelled; only the deterministic
   Teif/Ih derating is applied.
-- Multi-segment deficit cost curves: the first segment's cost is used.
+- Multi-segment deficit cost curves: the first segment's cost is used,
+  unless `--deficit-segments all|split` (below).
 - `volini.dat` (binary, often stale) is ignored; `VInic` is used instead.
 - Additional years (`NUMERO DE ANOS ADICIONAL`) are not added.
 

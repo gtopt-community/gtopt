@@ -184,8 +184,9 @@ class GaugingStationSpec:
 class BusSpec:
     """A network bus (``dbus.dat``) for the multi-bus DC OPF path.
 
-    ``base_kv`` is taken from the bus-name voltage suffix (``AGU-230`` →
-    230); used to convert ohm reactances to per-unit.
+    ``base_kv`` is the nominal voltage (``Volt.dat``, else the bus-name
+    suffix ``AGU-230`` → 230); written as ``Bus.voltage`` metadata only —
+    ``dcirc.dat`` impedances are % on 100 MVA and need no kV.
     """
 
     number: int

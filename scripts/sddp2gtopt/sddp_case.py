@@ -1049,6 +1049,7 @@ def load_sddp_block_case(
     case_dir: str | Path,
     *,
     num_scenarios: int | None = None,
+    deficit_segments: str = "first",
 ) -> SddpBlockCase:
     """Parse a PSR SDDP block study into a :class:`SddpBlockCase`.
 
@@ -1056,6 +1057,10 @@ def load_sddp_block_case(
         case_dir: PSR case directory (``sddp.dat`` + ``*<sfx>.dat``).
         num_scenarios: Keep only the first N historical series (default:
             all ``NUMERO DE SERIES``).
+        deficit_segments: ``"first"`` (default), ``"all"`` or ``"split"``;
+            only decides
+            whether a multi-segment deficit curve is reported as simplified
+            (the split itself happens in the writer).
     """
     case_dir = Path(case_dir)
     ctl_path = find_case_file(case_dir, "sddp.dat")
@@ -1066,7 +1071,7 @@ def load_sddp_block_case(
     sfx = parse_system_suffix(sys_path) if sys_path else ""
     nb_tag = f"{ctl.num_blocks:03d}" if ctl.num_blocks else ""
     skipped: list[str] = []
-    if len(ctl.deficit_segments) > 1:
+    if len(ctl.deficit_segments) > 1 and deficit_segments not in ("all", "split"):
         skipped.append(
             "deficit cost curve "
             + ", ".join(f"{p:g}%@{c:g}" for p, c in ctl.deficit_segments)

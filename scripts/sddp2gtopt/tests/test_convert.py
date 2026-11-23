@@ -222,3 +222,21 @@ def test_case0_lp_only_smoke(case0_dir: Path, tmp_path: Path, gtopt_bin: str) ->
         f"gtopt --lp-only failed:\nstdout:\n{proc.stdout.decode()}\n"
         f"stderr:\n{proc.stderr.decode()}"
     )
+
+
+def test_convert_omits_loss_cost_eps_by_default(
+    case_two_systems_dir: Path, tmp_path: Path
+) -> None:
+    """``loss_cost_eps`` is gtopt's to default (0.1 $/MWh): the converter
+    must not emit it, globally or per line, unless explicitly asked."""
+    out_dir = tmp_path / "no_eps"
+    rc = convert_sddp_case(
+        {
+            "input_dir": case_two_systems_dir,
+            "output_dir": out_dir,
+            "name": "no_eps",
+        }
+    )
+    assert rc == 0
+    text = next(out_dir.glob("*.json")).read_text(encoding="utf-8")
+    assert '"loss_cost_eps"' not in text

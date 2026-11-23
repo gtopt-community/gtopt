@@ -56,7 +56,7 @@ def test_circuit_parser(tmp_path: Path) -> None:
     assert len(circ) == 2
     a, b = circ[0], circ[1]
     assert (a.from_bus, a.to_bus, a.name) == (1000, 1106, "LINEA1")
-    assert a.reactance_pu == pytest.approx(3.02)  # raw ohms until loader converts
+    assert a.reactance_pu == pytest.approx(3.02)  # raw % until loader converts
     assert a.rating == pytest.approx(491.6)
     assert (b.from_bus, b.to_bus) == (1857, 16011)
     assert b.resistance == pytest.approx(0.10) and b.reactance_pu == pytest.approx(0.25)
@@ -223,8 +223,9 @@ def test_load_dat_case_multibus(tmp_path: Path) -> None:
     assert case.multi_bus is True
     assert len(case.buses) == 2
     assert len(case.circuits) == 1
-    # ohm → per-unit: 5 Ω on 230 kV, 100 MVA base → 5·100/230² ≈ 0.00945.
-    assert case.circuits[0].reactance_pu == pytest.approx(5 * 100 / 230**2, rel=1e-3)
+    # % on 100 MVA → per-unit: X = 5 % → 0.05 p.u., R = 1 % → 0.01 p.u.
+    assert case.circuits[0].reactance_pu == pytest.approx(0.05)
+    assert case.circuits[0].resistance == pytest.approx(0.01)
     # generators routed to bus 1, demand to bus 2.
     assert {t.bus_number for t in case.thermals} == {1}
     assert {h.bus_number for h in case.hydros} == {1}
@@ -401,7 +402,7 @@ def test_water_network_and_boundary_cut() -> None:
     assert res["name"] == "rs_RES-H1"
     assert (res["emin"], res["emax"], res["eini"]) == (90.0, 340.0, 200.0)
     assert res["use_state_variable"] is True
-    # hm³/(m³/s·h) conversion must be pinned (gtopt LP defaults absent → 3.6).
+    # hm³/(m³/s·h) conversion is pinned explicitly (also the gtopt default).
     assert res["flow_conversion_rate"] == pytest.approx(0.0036)
     # Soft end-of-horizon target at the expected end volume efin (150, NOT eini),
     # priced at the water value.
@@ -484,6 +485,50 @@ def test_no_vfin_reservoir_priced_in_cut_without_efin_target() -> None:
     cells = row.split(",")
     assert float(cells[-1]) == pytest.approx(-90000.0)  # -WV
     assert float(cells[2]) == pytest.approx(90000.0 * 120.0)  # rhs = WV·eini
+
+
+def test_negative_water_value_kept_in_cut_without_efin_target() -> None:
+    """A negative water value is a valid cut slope; it gets no efin target."""
+    from sddp2gtopt.entities import HydroSpec, StudySpec
+
+    study = StudySpec(stage_type=1, num_stages=1, num_blocks=2, deficit_cost=500.0)
+    buses = [BusSpec(number=1, name="A-230", base_kv=230.0)]
+    circuits = [CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)]
+    hydros = [
+        HydroSpec(
+            code=801,
+            name="NEG-H1",
+            reference_id=801,
+            p_inst=40.0,
+            fp_med=2.0,
+            qmax=10.0,
+            vmin=50.0,
+            vmax=200.0,
+            eini=120.0,
+            efin=150.0,  # shipped end volume: the cut is linearised there
+            water_value=-1000.0,  # stored water is a liability (costly spill)
+            bus_number=1,
+        )
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=[],
+        hydros=hydros,
+        demands=[],
+        name="neg",
+        buses=buses,
+        circuits=circuits,
+        hydro_topology=True,
+    )
+    res = planning["system"]["reservoir_array"][0]
+    # A soft end target needs a positive price: none is emitted.
+    assert "efin" not in res and "efin_cost" not in res
+    header, row = planning["_boundary_cuts"].strip().splitlines()
+    assert header == "iteration,scene,rhs,rs_NEG-H1"
+    cells = row.split(",")
+    assert float(cells[-1]) == pytest.approx(1000.0)  # -WV, sign kept
+    assert float(cells[2]) == pytest.approx(-1000.0 * 150.0)  # rhs = WV·efin
 
 
 def test_max_gen_cap_sets_pmax_pmin_zero_no_uc() -> None:

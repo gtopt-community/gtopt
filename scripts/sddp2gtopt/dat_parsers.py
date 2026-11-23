@@ -491,10 +491,10 @@ class CircuitParser(BaseTextParser):
     """Parse the fixed-width ``dcirc.dat`` → ``CircuitSpec`` list.
 
     Columns: ``#BOR`` [0:8], ``#BDE`` [8:17], ``RESIS REACT`` [17:29]
-    (ohms — converted to per-unit later by the loader), then the name and
-    the MVA rating.  ``reactance_pu`` on the returned specs temporarily
-    holds the **raw ohm** value; :func:`dat_loader.load_dat_case`
-    normalises it to per-unit using the bus base voltages.
+    (**% on the 100 MVA system base**), then the name and the MVA rating.
+    ``resistance`` / ``reactance_pu`` on the returned specs temporarily
+    hold the **raw %** values; :func:`dat_loader.load_dat_case` divides
+    them by 100 (per-unit) — no bus voltage is involved.
     """
 
     def parse(self) -> list[CircuitSpec]:
@@ -508,7 +508,7 @@ class CircuitParser(BaseTextParser):
             if not to_field.isdigit():
                 continue
             to_bus = int(to_field)
-            r_ohm, x_ohm = _split_reactance_region(line[17:29])
+            r_pct, x_pct = _split_reactance_region(line[17:29])
             rest = line[29:].split()
             name = rest[0] if rest else ""
             rating = 0.0
@@ -521,8 +521,8 @@ class CircuitParser(BaseTextParser):
                     from_bus=from_bus,
                     to_bus=to_bus,
                     name=name,
-                    resistance=r_ohm,
-                    reactance_pu=x_ohm,  # raw ohms; loader → per-unit
+                    resistance=r_pct,  # raw %; loader → per-unit
+                    reactance_pu=x_pct,  # raw %; loader → per-unit
                     rating=rating,
                 )
             )
