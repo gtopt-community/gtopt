@@ -164,7 +164,7 @@ TEST_CASE("UserModel — JSON round-trip preserves bundle")  // NOLINT
   CHECK((um2.tag && *um2.tag == "fcf"));
 }
 
-TEST_CASE("UserModel — parses inside a System; defaults stay empty")  // NOLINT
+TEST_CASE("UserModel — parses inside a System, defaults stay empty")  // NOLINT
 {
   constexpr std::string_view js = R"({
     "name": "sys",

@@ -20,14 +20,17 @@
 #include <future>
 #include <limits>
 #include <mutex>
+#include <numbers>
 #include <ranges>
 #include <stdexcept>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/battery.hpp>
 #include <gtopt/build_info.hpp>
+#include <gtopt/bus.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/line.hpp>
@@ -177,6 +180,67 @@ namespace
   return clamped;
 }
 
+/// True when both endpoint buses of `line` pin `reference_theta` to
+/// angles that a zero-impedance tie (`θ_b − θ_a = −φ`) cannot satisfy.
+/// A non-scalar phase shift is checked as `φ = 0`.
+[[nodiscard]] bool tie_conflicts_with_reference_theta(const Line& line,
+                                                      const Bus* bus_a,
+                                                      const Bus* bus_b)
+{
+  if (bus_a == nullptr || bus_b == nullptr || !bus_a->reference_theta
+      || !bus_b->reference_theta)
+  {
+    return false;
+  }
+  double phi_deg = 0.0;
+  if (line.phase_shift_deg.has_value()
+      && std::holds_alternative<double>(*line.phase_shift_deg))
+  {
+    phi_deg = std::get<double>(*line.phase_shift_deg);
+  }
+  const double phi_rad = phi_deg * std::numbers::pi / 180.0;
+  constexpr double kAngleTol = 1e-9;
+  return std::abs(*bus_b->reference_theta - *bus_a->reference_theta + phi_rad)
+      > kAngleTol;
+}
+
+/// Smallest |X/V²| among the statically known reactance entries of `line`
+/// that make it a zero-impedance tie (`X = 0`, or `0 < |X/V²| <
+/// threshold`), or nullopt when the line has no such entry.  File-backed
+/// schedules cannot be inspected here (the KVL assemblers still classify
+/// their per-stage values).
+[[nodiscard]] std::optional<double> tie_reactance_pu(const Line& line,
+                                                     double threshold)
+{
+  if (!line.reactance.has_value()) {
+    return std::nullopt;
+  }
+  const auto v_opt = line_repr_voltage(line);
+  const double v = (v_opt.has_value() && *v_opt != 0.0) ? *v_opt : 1.0;
+  const auto tie_pu = [&](double x) -> std::optional<double>
+  {
+    const double pu = std::abs(x / (v * v));
+    if (x == 0.0 || (threshold > 0.0 && pu < threshold)) {
+      return pu;
+    }
+    return std::nullopt;
+  };
+  const auto& sched = *line.reactance;
+  if (const auto* xs = std::get_if<double>(&sched)) {
+    return tie_pu(*xs);
+  }
+  if (const auto* xv = std::get_if<std::vector<double>>(&sched)) {
+    std::optional<double> min_pu;
+    for (const double x : *xv) {
+      if (const auto pu = tie_pu(x)) {
+        min_pu = std::min(min_pu.value_or(*pu), *pu);
+      }
+    }
+    return min_pu;
+  }
+  return std::nullopt;
+}
+
 // Raw-MW threshold below which a nonzero power/transmission bound is treated as
 // degenerate noise and rewritten to exactly 0.0.  Unlike the per-unit X/R
 // thresholds (which scale by V² and are exposed as model_options knobs), MW
@@ -186,6 +250,12 @@ namespace
 // nonzero value to *exactly* zero lets the LP-assembly zero-column/row skip
 // eliminate the dead column/row cleanly (see source/*_lp.cpp).
 constexpr double k_power_bound_threshold = 1e-4;
+
+// Auto `scale_theta = 1 / (k_theta_auto_divisor · median(X/V²))`.  θ is a
+// node potential accumulating ~D line drops to the reference bus, so
+// 1/median(X/V²) leaves θ_LP ~D× the line flows; ≈√D (D ≈ 8-10 on the
+// Chilean system) balances it — see PlanningLP::auto_scale_theta.
+constexpr double k_theta_auto_divisor = 3.0;
 
 // Rewrite to 0, in place, any nonzero schedule entry whose |value| is below
 // `threshold` on the `member` schedule of every element in `array`.  Returns
@@ -274,52 +344,147 @@ void PlanningLP::validate_line_reactance(Planning& planning)
   // hardcoded 1e-4 raw-X check missed V-vs-kV unit-typo lines on
   // physical-unit inputs and was over-aggressive on per-unit inputs).
   //
-  // Lines whose per-unit susceptance falls below the threshold are
-  // almost always one of:
-  //   1. data-entry mistakes (V entered in V instead of kV → V² 1e6×
-  //      too small → x_pu 1e6× too small),
-  //   2. HVDC links / phase-shifters / FACTS devices (X = 0 sentinel
-  //      or X ≈ ε, which power-system planners genuinely model
-  //      *without* a KVL coupling), or
-  //   3. very-low-X transformers / busbar segments (KVL technically
-  //      valid but contributes nothing — phase-angle drop is below
-  //      solver tolerance anyway).
-  // In every case the right action is to drop the line out of the
-  // Kirchhoff matrix.  We do this by rewriting the line's reactance
-  // schedule to scalar 0.0 — the LP assembler in
-  // `kirchhoff_node_angle.cpp` then skips the θ-row for that line.
+  // Lines with `X = 0` or a per-unit reactance below the threshold are
+  // near-zero-impedance branches (bus-bar segments, couplers,
+  // series-compensation auxiliary nodes, very-low-X transformers) or
+  // data-entry mistakes (V entered in V instead of kV).  Their `x_τ`
+  // coefficient is zero or numerically negligible, so it must not reach
+  // the Kirchhoff matrix.  `model_options.tiny_reactance_mode` selects
+  // what replaces it:
+  //
+  //   * `tie` (default): keep the value; the KVL assemblers classify the
+  //     line as a zero-impedance tie (`PlanningOptionsLP::
+  //     classify_line_reactance`) and emit `−θ_a + θ_b = −φ` without the
+  //     flow term — the physical limit X → 0, forcing the two bus angles
+  //     equal.  A tie between two buses whose `reference_theta` pins are
+  //     inconsistent would make the LP infeasible: that line falls back
+  //     to a DC link (reactance unset) with a warning.
+  //   * `dc` (legacy): rewrite sub-threshold reactances to 0; `X = 0`
+  //     lines are DC links (no KVL coupling), which lets the LP use them
+  //     as free phase shifters.
+  //
+  // Only lines with NO reactance (HVDC, PLP DC lines) are DC links in
+  // `tie` mode.
   //
   // Default threshold is `default_dc_line_reactance_threshold` (1e-6
   // p.u.).  Real transmission `x_pu ≥ 1e-3` (4 OOM above) and real
   // distribution `x_pu ≥ 1e-4` (2 OOM above) so genuine lines are
-  // never falsely promoted.  Set
-  // `model_options.dc_line_reactance_threshold = 0` to disable.
+  // never falsely flagged.  `model_options.dc_line_reactance_threshold
+  // = 0` disables the sub-threshold test (exact zeros are still ties).
   //
-  // Mirrors the plp2gtopt battery_writer clamping of input/output_efficiency.
-  // Read the threshold directly from `model_options` — this pass runs
+  // Read the options directly from `model_options` — this pass runs
   // before `PlanningOptionsLP` is constructed (so before flat-to-model
-  // migration), but the new option is only exposed via `model_options`
-  // and has no deprecated flat field, so direct lookup is safe.
-  const double threshold =
-      planning.options.model_options.dc_line_reactance_threshold.value_or(
-          PlanningOptionsLP::default_dc_line_reactance_threshold);
-  if (!(threshold > 0.0)) {
+  // migration), but both options are only exposed via `model_options`
+  // and have no deprecated flat field, so direct lookup is safe.
+  const auto& mo = planning.options.model_options;
+  const double threshold = mo.dc_line_reactance_threshold.value_or(
+      PlanningOptionsLP::default_dc_line_reactance_threshold);
+  const auto mode =
+      mo.tiny_reactance_mode
+          .and_then([](const auto& name)
+                    { return enum_from_name<TinyReactanceMode>(name); })
+          .value_or(PlanningOptionsLP::default_tiny_reactance_mode);
+
+  if (mode == TinyReactanceMode::dc) {
+    if (!(threshold > 0.0)) {
+      return;
+    }
+    const std::size_t clamped = clamp_line_pu_schedule_below(
+        planning,
+        threshold,
+        &Line::reactance,
+        "reactance",
+        "tiny_reactance_mode=dc: line treated as DC/HVDC, no Kirchhoff "
+        "constraint");
+    if (clamped > 0) {
+      spdlog::info(
+          "  Line reactance validation: clamped {} line(s) with "
+          "|x_pu|=|X/V²| below {:.0e} to zero (tiny_reactance_mode=dc).",
+          clamped,
+          threshold);
+    }
     return;
   }
 
-  const std::size_t clamped = clamp_line_pu_schedule_below(
-      planning,
-      threshold,
-      &Line::reactance,
-      "reactance",
-      "line treated as DC/HVDC, no Kirchhoff constraint");
+  // ── tiny_reactance_mode = tie ──
+  std::unordered_map<Uid, const Bus*> bus_by_uid;
+  std::unordered_map<std::string_view, const Bus*> bus_by_name;
+  for (const auto& bus : planning.system.bus_array) {
+    bus_by_uid.emplace(bus.uid, &bus);
+    if (!bus.name.empty()) {
+      bus_by_name.emplace(bus.name, &bus);
+    }
+  }
+  const auto find_bus = [&](const SingleId& sid) -> const Bus*
+  {
+    if (const auto* uid = std::get_if<Uid>(&sid)) {
+      const auto it = bus_by_uid.find(*uid);
+      return it != bus_by_uid.end() ? it->second : nullptr;
+    }
+    const auto it = bus_by_name.find(std::get<Name>(sid));
+    return it != bus_by_name.end() ? it->second : nullptr;
+  };
+  const auto bus_label = [](const Bus* bus, const SingleId& sid)
+  {
+    if (bus != nullptr) {
+      return bus->name.empty() ? std::format("uid={}", bus->uid) : bus->name;
+    }
+    return std::visit([](const auto& v) { return std::format("{}", v); }, sid);
+  };
 
-  if (clamped > 0) {
+  // One warning per tie line; past `kMaxTieWarnings` the rest are
+  // aggregated into a single summary line.
+  constexpr std::size_t kMaxTieWarnings = 20;
+  std::size_t ties = 0;
+  std::size_t dc_fallbacks = 0;
+  for (auto& line : planning.system.line_array) {
+    const auto pu = tie_reactance_pu(line, threshold);
+    if (!pu.has_value()) {
+      continue;
+    }
+    const Bus* bus_a = find_bus(line.bus_a);
+    const Bus* bus_b = find_bus(line.bus_b);
+    if (tie_conflicts_with_reference_theta(line, bus_a, bus_b)) {
+      spdlog::warn(
+          "(line_reactance) Line '{}' (uid={}): zero-impedance tie between "
+          "buses '{}' and '{}' whose reference_theta pins differ — line "
+          "falls back to DC (reactance dropped, no Kirchhoff constraint).",
+          line.name,
+          line.uid,
+          bus_label(bus_a, line.bus_a),
+          bus_label(bus_b, line.bus_b));
+      line.reactance.reset();
+      ++dc_fallbacks;
+      continue;
+    }
+    if (ties < kMaxTieWarnings) {
+      spdlog::warn(
+          "(line_reactance) Line '{}' (uid={}): |X/V²|={:.3e} "
+          "(zero or below {:.0e}) — zero-impedance tie, angles of buses "
+          "'{}' and '{}' forced equal.",
+          line.name,
+          line.uid,
+          *pu,
+          threshold,
+          bus_label(bus_a, line.bus_a),
+          bus_label(bus_b, line.bus_b));
+    }
+    ++ties;
+  }
+  if (ties > kMaxTieWarnings) {
+    spdlog::warn(
+        "(line_reactance) … and {} more zero-impedance tie line(s) "
+        "(bus angles forced equal).",
+        ties - kMaxTieWarnings);
+  }
+  if (ties > 0 || dc_fallbacks > 0) {
     spdlog::info(
-        "  Line reactance validation: clamped {} line(s) with |x_pu|=|X/V²| "
-        "below {:.0e} to zero.",
-        clamped,
-        threshold);
+        "  Line reactance validation (tiny_reactance_mode=tie): {} "
+        "zero-impedance tie(s), {} DC fallback(s) on conflicting "
+        "reference_theta.  Use tiny_reactance_mode=dc for the legacy "
+        "free-flow DC treatment.",
+        ties,
+        dc_fallbacks);
   }
 }
 
@@ -375,22 +540,24 @@ void PlanningLP::validate_line_resistance(Planning& planning)
 
 // ── Battery self-discharge default ─────────────────────────────────────────
 
-std::size_t PlanningLP::log_battery_annual_loss_default(
+std::size_t PlanningLP::log_battery_annual_standing_loss_default(
     const Planning& planning)
 {
   const auto& batteries = planning.system.battery_array;
   const auto n_default = static_cast<std::size_t>(std::ranges::count_if(
-      batteries, [](const Battery& b) { return !b.annual_loss.has_value(); }));
+      batteries,
+      [](const Battery& b) { return !b.annual_standing_loss.has_value(); }));
   if (n_default == 0) {
     return 0;
   }
   const double loss =
-      planning.options.model_options.battery_annual_loss.value_or(
-          PlanningOptionsLP::default_battery_annual_loss);
+      planning.options.model_options.battery_annual_standing_loss.value_or(
+          PlanningOptionsLP::default_battery_annual_standing_loss);
   spdlog::info(
-      "  Battery self-discharge: {} of {} battery(ies) without annual_loss "
+      "  Battery self-discharge: {} of {} battery(ies) without "
+      "annual_standing_loss "
       "use the default {:.4g} p.u./year ({:.3g} %/month); set "
-      "model_options.battery_annual_loss=0 to disable.",
+      "model_options.battery_annual_standing_loss=0 to disable.",
       n_default,
       batteries.size(),
       loss,
@@ -463,8 +630,35 @@ void PlanningLP::validate_line_transmission(Planning& planning)
 
 void PlanningLP::auto_scale_theta(Planning& planning)
 {
-  // Only compute when scale_theta is not explicitly set at any level.
+  // `scale_theta` ENLARGES the angle: θ_LP = scale_theta · θ (rad), so
+  // `1` = radians and `1000` = milliradians.  (Between 2026-03 and 2026-11
+  // the meaning was inverted, θ = θ_LP · scale_theta, with auto values
+  // ~1e-4; old JSONs carrying such values now shrink θ — warn.)
+  //
+  // Computes, independently:
+  //   * `scale_theta = 1 / (k_theta_auto_divisor · median(x_τ))` — only
+  //     when not set by the user;
+  //   * `theta_max = Σ_l tmax_l · x_τ_l` — only when not set by the user,
+  //     but REGARDLESS of `scale_theta` (plp2gtopt pins `scale_theta = 1`
+  //     in node_angle mode; skipping theta_max then silently left the
+  //     angle columns at ±2π and capped flows below tmax);
+  //   * the x_τ spread (unit-consistency) validation — always.
   auto& opts = planning.options;
+  {
+    const auto& mo0 = opts.model_options;
+    const bool kirchhoff_on =
+        mo0.use_kirchhoff.value_or(true) && !mo0.use_single_bus.value_or(false);
+    if (kirchhoff_on && mo0.scale_theta.has_value() && *mo0.scale_theta < 1.0) {
+      spdlog::warn(
+          "  model_options.scale_theta = {:.6g} < 1 shrinks the bus angle "
+          "(θ_LP = scale_theta · θ).  The meaning changed in 2026-11: it "
+          "used to be θ = θ_LP · scale_theta.  For the old value use "
+          "{:.6g}, or leave scale_theta unset for auto (1/(3·median X/V²)).{}",
+          *mo0.scale_theta,
+          *mo0.scale_theta > 0.0 ? 1.0 / *mo0.scale_theta : 1.0,
+          *mo0.scale_theta > 0.0 ? "" : "  Non-positive value: ignored (1).");
+    }
+  }
   // Global `auto_scale = false` kill switch (`--no-scale`): skip every
   // auto-scale heuristic so LP coefficients stay in raw physical units.
   if (!opts.model_options.auto_scale.value_or(true)) {
@@ -474,9 +668,8 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   // `PlanningOptions` were removed.  Single source is
   // `opts.model_options.*`.
   const auto& mo = opts.model_options;
-  if (mo.scale_theta.has_value()) {
-    return;
-  }
+  const bool auto_scale_theta_value = !mo.scale_theta.has_value();
+  const bool auto_theta_max = !mo.theta_max.has_value();
 
   // Don't auto-scale when Kirchhoff is disabled or single-bus mode.
   if (mo.use_kirchhoff.has_value() && !*mo.use_kirchhoff) {
@@ -488,12 +681,16 @@ void PlanningLP::auto_scale_theta(Planning& planning)
 
   // Collect scalar x_tau = X / V² values from all lines.
   //
-  // The Kirchhoff row emits theta_coeff = 1/|x_tau| (see line_lp.cpp:65-88).
-  // The theta column is then multiplied by scale_theta in flatten() (see
-  // linear_problem.cpp:358), so the assembled theta coefficient is
-  // scale_theta / |x_tau|. To drive this to ~1 for the median line — which
-  // makes row-max equilibration produce a near-identity Kirchhoff row — we
-  // must pick scale_theta = median(|x_tau|) = median(X/V²).
+  // The node_angle KVL row is written in its natural form
+  //   −θ_a + θ_b + x_τ·f_p − x_τ·f_n = −φ
+  // (kirchhoff_node_angle.cpp).  With θ_LP = scale_theta · θ the θ_LP
+  // coefficient becomes ±1/scale_theta (flatten applies the Bus.theta
+  // VariableScale = 1/scale_theta).  To give it the magnitude of the flow
+  // terms of the median line — so row-max equilibration produces a
+  // near-identity Kirchhoff row — 1/scale_theta = median(|x_τ|) would do;
+  // the auto rule further divides scale_theta by k_theta_auto_divisor (see
+  // below), i.e. scale_theta = 1 / (3 · median(X/V²)).  The cycle_basis
+  // assembler multiplies its rows by the same scale_theta.
   //
   // Collecting median(X) directly (the previous heuristic) is wrong because
   // it is computed in a space orthogonal to the true susceptance spread on
@@ -552,6 +749,18 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   // O(10-100) rad, are unaffected.
   constexpr double kPerLineThetaContrib = 1e3;
   double theta_max_accum = 0.0;
+  // Per-unit floor below which a nonzero line is a zero-impedance tie
+  // (`tiny_reactance_mode = tie`, see `validate_line_reactance`); 0
+  // disables the exclusion.
+  const double tie_threshold =
+      mo.tiny_reactance_mode
+              .and_then([](const auto& name)
+                        { return enum_from_name<TinyReactanceMode>(name); })
+              .value_or(PlanningOptionsLP::default_tiny_reactance_mode)
+          == TinyReactanceMode::tie
+      ? mo.dc_line_reactance_threshold.value_or(
+            PlanningOptionsLP::default_dc_line_reactance_threshold)
+      : 0.0;
   std::size_t clamped_lines = 0;
   for (const auto& line : planning.system.line_array) {
     if (!line.reactance.has_value()) {
@@ -571,6 +780,12 @@ void PlanningLP::auto_scale_theta(Planning& planning)
       }
     }
     const double x_tau = x / (v * v);
+    // Zero-impedance ties (`tiny_reactance_mode = tie`) carry no flow
+    // coefficient in the KVL rows, so their tiny x_τ must not pull the
+    // median / spread statistics.  (`dc` mode already clamped them.)
+    if (tie_threshold > 0.0 && x_tau < tie_threshold) {
+      continue;
+    }
     if (x_tau > 0.0) {
       x_taus.push_back(x_tau);
       // Per-line max capacity across both directions and all blocks.
@@ -605,18 +820,30 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   // Compute median x_tau = median(X/V²).
   std::ranges::sort(x_taus);
   const auto n = x_taus.size();
-  const double median_x_tau = (n % 2 == 0)
-      ? (x_taus[(n / 2) - 1] + x_taus[n / 2]) / 2.0
-      : x_taus[n / 2];
+  if (auto_scale_theta_value) {
+    const double median_x_tau = (n % 2 == 0)
+        ? (x_taus[(n / 2) - 1] + x_taus[n / 2]) / 2.0
+        : x_taus[n / 2];
 
-  // scale_theta = median(|x_tau|) so that the assembled theta coefficient
-  // scale_theta / |x_tau| ≈ 1 for the median line, and row-max
-  // equilibration converges to a near-identity Kirchhoff row.
-  opts.model_options.scale_theta = median_x_tau;
-  spdlog::info(
-      "  Auto scale_theta = {:.6g} (median of {} line x_tau = X/V² values)",
-      median_x_tau,
-      n);
+    // scale_theta = 1 / (k_theta_auto_divisor · median(|x_tau|)).  The
+    // plain 1/median would match the θ_LP coefficient to the median line's
+    // flow coefficient, but θ is a node potential that accumulates ~D line
+    // drops on the way to the reference bus (D ≈ 8-10 on the Chilean
+    // system), so θ_LP would sit ~D× above the line flows.  Dividing by
+    // ≈√D = 3 balances the KVL-row θ coefficient (~3) against the θ_LP
+    // magnitude.  Benchmark (cl5y y24_S2_perf, CPLEX, 2 SDDP iterations):
+    // radians κ 1.56e8 / 1.137M ticks; 1/median (≈3116) κ 1.12e7 /
+    // 1.086M; 1000 κ 1.12e7 / 1.071M (best); 300 κ 1.12e7 / 1.086M.  This
+    // rule gives ≈1039 on cl5y.  No rounding.
+    const double auto_scale = 1.0 / (k_theta_auto_divisor * median_x_tau);
+    opts.model_options.scale_theta = auto_scale;
+    spdlog::info(
+        "  Auto scale_theta = {:.6g} (θ_LP = scale_theta · θ; "
+        "1/(3·median X/V²), median {:.6g} of {} line x_tau values)",
+        auto_scale,
+        median_x_tau,
+        n);
+  }
 
   // theta_max = Σ_l (tmax_l · x_τ_l) — a topology-aware upper bound on
   // the largest possible θ-spread between any two buses in the
@@ -629,8 +856,9 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   // flows below `tmax` (the ±2π hardcoded default would have done so
   // whenever `tmax · x_τ > 2π`, e.g. on IEEE 9-bus where
   // `250 MW · 0.0576 = 14.4 rad ≫ 2π = 6.28 rad`).  Honour an
-  // explicit user override.
-  if (!opts.model_options.theta_max.has_value()) {
+  // explicit user override.  Independent of `scale_theta`: the bound
+  // is on the physical angle, whatever its column scale.
+  if (auto_theta_max) {
     // Floor at default (`2π`) so very small networks don't end up
     // with theta_max ≪ 1 and lose simplex / IPM headroom.  Ceiling
     // at ``kThetaMaxCeiling`` (1e5 rad) keeps the angle column bound

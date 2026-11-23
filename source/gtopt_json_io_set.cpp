@@ -28,6 +28,7 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
+#include <gtopt/json_canonicalize.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
@@ -53,8 +54,9 @@ namespace
   }
   // Try integer
   {
-    // NOLINTNEXTLINE(misc-const-correctness) -- strtoll/strtod take char**
-    char* end = nullptr;
+    // strtoll/strtod need a `char**`, so `end` cannot point to const
+    // (clang-tidy 21 false positive).
+    char* end = nullptr;  // NOLINT(misc-const-correctness)
     (void)std::strtoll(v.c_str(), &end, /*base=*/10);
     if (end != v.c_str() && *end == '\0') {
       return v;
@@ -62,8 +64,7 @@ namespace
   }
   // Try floating-point
   {
-    // NOLINTNEXTLINE(misc-const-correctness) -- strtoll/strtod take char**
-    char* end = nullptr;
+    char* end = nullptr;  // NOLINT(misc-const-correctness)
     (void)std::strtod(v.c_str(), &end);
     if (end != v.c_str() && *end == '\0') {
       return v;
@@ -421,7 +422,10 @@ bool apply_set_options(Planning& planning,
 
     // JSON overlay approach for all other paths
     const auto json_val = to_json_value(value);
-    auto json = build_set_option_json(key, json_val);
+    // Same alias rewrite as the planning files, so legacy / dialect
+    // keys (e.g. the deprecated `model_options.battery_annual_loss`)
+    // keep working under `--set`.
+    auto json = canonicalize_json_keys(build_set_option_json(key, json_val));
 
     // Pad the overlay's cascade level_array to match the base size before
     // merging.  `build_set_option_json` only constructs (N+1) elements when
@@ -448,7 +452,8 @@ bool apply_set_options(Planning& planning,
       // If auto-typed value failed (e.g. number where string expected),
       // retry with the value as a quoted string
       if (json_val.front() != '"') {
-        auto str_json = build_set_option_json(key, "\"" + value + "\"");
+        auto str_json = canonicalize_json_keys(
+            build_set_option_json(key, "\"" + value + "\""));
         try {
           auto overlay =
               daw::json::from_json<Planning>(str_json, StrictParsePolicy);

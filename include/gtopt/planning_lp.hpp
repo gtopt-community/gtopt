@@ -124,32 +124,27 @@ private:
   }
 
 public:
-  /// Validate line reactance values and clamp tiny ones to zero.
+  /// Validate zero / tiny line reactances (`tiny_reactance_mode`).
   ///
-  /// Promotes any line whose effective per-unit susceptance term
-  /// `|x_pu| = |X/V²|` falls below
-  /// `model_options.dc_line_reactance_threshold` (default `1e-6`) to a
-  /// "DC line" by rewriting its reactance schedule to scalar `0.0`.
-  /// The Kirchhoff assembler in `kirchhoff_node_angle.cpp` then skips
-  /// the θ-row for that line (no KVL coupling, only flow bounds).
+  /// Flags every line whose reactance is `0` or whose per-unit
+  /// susceptance term `|x_pu| = |X/V²|` falls below
+  /// `model_options.dc_line_reactance_threshold` (default `1e-6`).  The
+  /// check is dimensionally correct (susceptance, not raw `X`) so it
+  /// handles per-unit and physical-unit (kV / Ω) inputs and catches
+  /// V-vs-kV unit-typo lines that a raw-`|X|` cutoff misses.
   ///
-  /// The check is dimensionally correct (susceptance, not raw `X`) so
-  /// it handles both per-unit and physical-unit (kV / Ω) inputs and
-  /// catches V-vs-kV unit-typo lines that a raw-`|X|` cutoff misses.
+  /// * `tiny_reactance_mode = tie` (default): the value is kept and the
+  ///   KVL assemblers emit a zero-impedance tie (`−θ_a + θ_b = −φ`, no
+  ///   flow term), warning once per line (aggregated past 20) that the
+  ///   two bus angles are forced equal.  A tie between buses whose
+  ///   `reference_theta` pins it cannot satisfy falls back to a DC link
+  ///   (reactance reset) with a warning.
+  /// * `tiny_reactance_mode = dc` (legacy): sub-threshold reactances are
+  ///   rewritten to `0.0`; `X = 0` lines are DC links (no KVL row).
   ///
-  /// Sources of `x_pu` below threshold are almost always: data-entry
-  /// mistakes (V/kV typo), HVDC links / phase-shifters (`X = 0`
-  /// sentinels), or short busbar segments whose KVL contribution is
-  /// below solver tolerance.  In every case dropping the KVL row is
-  /// the correct action — and avoids poisoning LP conditioning with
-  /// outlier `x_τ` coefficients.
-  ///
-  /// Set `model_options.dc_line_reactance_threshold = 0` to disable
-  /// the promotion entirely.  Static so it can be exercised by unit
+  /// Lines without `reactance` (HVDC, PLP DC lines) are DC links in both
+  /// modes and are not touched.  Static so it can be exercised by unit
   /// tests without standing up a full PlanningLP.
-  ///
-  /// Mirrors the battery input/output_efficiency clamping performed at
-  /// `scripts/plp2gtopt/battery_writer.py`.
   static void validate_line_reactance(Planning& planning);
 
   /// Validate line resistance values and clamp tiny ones to zero.
@@ -199,15 +194,17 @@ public:
   /// PlanningLP.
   static void validate_line_transmission(Planning& planning);
 
-  /// Count the batteries whose `annual_loss` is unset (and therefore get
-  /// the planning-wide self-discharge default
-  /// `PlanningOptionsLP::battery_annual_loss()`, 0.48 p.u./year =
-  /// 4 %/month unless `model_options.battery_annual_loss` overrides it)
-  /// and log the count once at INFO.  Read-only: the default itself is
-  /// applied inside `BatteryLP` via `StorageOptions::default_annual_loss`
-  /// so every construction path (PlanningLP, bare SystemLP) agrees.
-  /// Returns the count.  Static so unit tests can exercise it.
-  static std::size_t log_battery_annual_loss_default(const Planning& planning);
+  /// Count the batteries whose `annual_standing_loss` is unset (and therefore
+  /// get the planning-wide self-discharge default
+  /// `PlanningOptionsLP::battery_annual_standing_loss()`, 0.48 p.u./year =
+  /// 4 %/month unless `model_options.battery_annual_standing_loss` overrides
+  /// it) and log the count once at INFO.  Read-only: the default itself is
+  /// applied inside `BatteryLP` via
+  /// `StorageOptions::default_annual_standing_loss` so every construction path
+  /// (PlanningLP, bare SystemLP) agrees. Returns the count.  Static so unit
+  /// tests can exercise it.
+  static std::size_t log_battery_annual_standing_loss_default(
+      const Planning& planning);
 
   /// Compute adaptive `scale_loss_link` from `median(R/V²)` when not
   /// explicitly set.  Picks a power-of-10 multiplier `s = 10^round(
@@ -313,12 +310,13 @@ public:
                 // ``planning.simulation.scenario_array`` we mutate here.
                 renormalize_scenario_probabilities(planning);
               }
-              log_battery_annual_loss_default(planning);
+              log_battery_annual_standing_loss_default(planning);
               return std::forward<PlanningT>(planning);
             }())
       , m_options_(m_planning_.options)
       , m_simulation_(
             m_planning_.simulation, m_options_, std::move(shared_index_cache))
+      , m_flat_opts_(inheritable_flat_options(flat_opts))
       , m_name_store_(make_name_store(flat_opts, m_options_))
       , m_systems_(create_systems(
             m_planning_.system,
@@ -333,6 +331,33 @@ public:
     // aperture_system_file resolves.
     build_aperture_systems(
         enforce_names_for_method(flat_opts, m_options_, m_planning_));
+  }
+
+  /**
+   * @brief The explicit `LpMatrixOptions` this PlanningLP was built with.
+   *
+   * The caller's options (solver, `eps`, LP names for `lp_file` /
+   * `lp_debug` / `lp_error`, `compute_stats`, equilibration, …) minus the
+   * per-instance build carriers (`name_store`, `dedup_registry`, the
+   * `flatten_*_uid` cell tags), which each PlanningLP sets up itself.
+   * Cascade levels that rebuild their LP inherit these, so a level does
+   * not silently fall back to `LpMatrixOptions{}`.
+   */
+  [[nodiscard]] constexpr const LpMatrixOptions& flat_options() const noexcept
+  {
+    return m_flat_opts_;
+  }
+
+  /// Strip the per-instance build carriers from @p opts (see
+  /// `flat_options()`).
+  [[nodiscard]] static LpMatrixOptions inheritable_flat_options(
+      LpMatrixOptions opts)
+  {
+    opts.name_store = nullptr;
+    opts.dedup_registry.reset();
+    opts.flatten_scene_uid.reset();
+    opts.flatten_phase_uid.reset();
+    return opts;
   }
 
   /**
@@ -593,6 +618,9 @@ private:
   Planning m_planning_;
   PlanningOptionsLP m_options_;
   SimulationLP m_simulation_;
+
+  /// The caller's explicit LP build options (see `flat_options()`).
+  LpMatrixOptions m_flat_opts_;
 
   /// Run-lifetime async store that holds each cell's spilled label metadata
   /// off-heap (Parquet) when names are kept under low-memory.  Declared BEFORE

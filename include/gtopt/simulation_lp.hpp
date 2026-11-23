@@ -252,7 +252,22 @@ public:
       return {&prev_stage, &prev_phase};
     }
 
+    // `stage.index()` is the stage's position WITHIN its phase
+    // (`PhaseLP` builds its StageLPs with a phase-local index), so the
+    // same-phase predecessor must come from the phase's own stage list.
+    // Indexing the global `m_stage_array_` with it is only right for the
+    // first phase: in a later multi-stage phase it returned a stage of
+    // an EARLIER phase, the storage/capacity chain then found no efin
+    // column for it and restarted the stage from `eini` (free water /
+    // reset capacity in every non-first stage of a non-first phase).
     const auto prev_stage_index = previous(stage.index());
+    if (const auto phase_index = stage.phase_index();
+        phase_index != PhaseIndex {unknown_index})
+    {
+      const auto& phase_stages = phases()[phase_index].stages();
+      return {&phase_stages[static_cast<std::size_t>(prev_stage_index)],
+              nullptr};
+    }
     return {&m_stage_array_[prev_stage_index], nullptr};
   }
 
@@ -778,7 +793,8 @@ public:
       ScenarioUid scenario_uid,
       StageUid stage_uid,
       const BIndexHolder<std::vector<std::pair<ColIndex, double>>>&
-          block_cols_weighted_sum)
+          block_cols_weighted_sum,
+      const BIndexHolder<double>& block_offsets = {})
   {
     if (!m_need_ampl_variables_) {
       return;
@@ -795,7 +811,9 @@ public:
         AmplVariable {
             .extras =
                 std::make_unique<AmplVariable::Extras>(AmplVariable::Extras {
-                    .block_cols_weighted_sum = block_cols_weighted_sum}),
+                    .block_cols_weighted_sum = block_cols_weighted_sum,
+                    .block_offsets = block_offsets,
+                }),
         });
   }
 

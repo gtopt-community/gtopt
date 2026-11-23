@@ -27,6 +27,12 @@
  * `NamesRegistry::instance()`.  Aliases must be globally unique
  * across element types (the registry enforces this at load time), so
  * the rewriter does not need element-type context.
+ *
+ * Aliases flagged `"deprecated": true` (renamed gtopt keys such as
+ * `annual_loss` → `annual_standing_loss`) are still rewritten, but log
+ * a once-per-process `spdlog::warn`, and an object that sets both the
+ * deprecated alias and its canonical key throws `std::invalid_argument`
+ * (after the rewrite one of the two values would be silently lost).
  */
 
 #pragma once

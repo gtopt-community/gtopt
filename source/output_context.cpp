@@ -180,14 +180,15 @@ template<typename Type = double, typename FieldVector>
 auto make_field_arrays_long(const FieldVector& field_vector,
                             int round_digits = 0)
 {
-  // Identifier columns use `uint16_t` (0-65535).  gtopt's per-class uid
-  // namespace caps far below 64K — typical 2-year case has ~2000
-  // generators, ~330 lines, ~10 reservoirs — and the per-cell axes
-  // are even smaller (≤16 scenarios, ≤51 stages, ≤510 blocks).  Two
-  // bytes per row instead of four (int32) or eight (int64) cuts the
-  // identifier byte budget by 2-4× on the typical long-form table
-  // before any encoding/compression runs.  See feedback message
-  // 2026-05-19 from MM (`gtopt_2_years` ~1 GB output target).
+  // Identifier columns use `int32_t`, the underlying type of `Uid`
+  // (`uid_t`), so every element / scenario / stage / block uid
+  // round-trips losslessly.  They were `uint16_t` until 2026-11: that
+  // silently wrapped uids >= 65536 (e.g. reservoir uid 101333 was
+  // written as 35797, colliding with other elements) and block uids of
+  // long hourly horizons (8760 blocks/year) overflow 16 bits after ~7
+  // years.  The width costs little on disk: the key columns keep
+  // parquet's default dictionary/RLE encoding, so long constant runs
+  // compress to almost nothing regardless of the physical width.
   // Value-column type specialization (2026-05-19):
   //
   //   * `round_digits ∈ [1, 7]` → store as `float` (4 bytes/value).
@@ -214,10 +215,10 @@ auto make_field_arrays_long(const FieldVector& field_vector,
   // a second template instantiation would double compile time on
   // every TU that calls `make_field_arrays_long`.
   const bool use_float32 = (round_digits >= 1 && round_digits <= 7);
-  std::vector<uint16_t> long_scenario;
-  std::vector<uint16_t> long_stage;
-  std::vector<uint16_t> long_block;
-  std::vector<uint16_t> long_uid;
+  std::vector<int32_t> long_scenario;
+  std::vector<int32_t> long_stage;
+  std::vector<int32_t> long_block;
+  std::vector<int32_t> long_uid;
   std::vector<Type> long_value;
   std::vector<float> long_value_f32;
 
@@ -249,17 +250,15 @@ auto make_field_arrays_long(const FieldVector& field_vector,
       if (v == Type {0}) {
         continue;
       }
-      // Narrowing to uint16 is safe: see the `long_scenario` declaration
-      // comment above for the per-axis bound rationale.  Values
-      // outside 0-65535 are wrapped silently — relying on the bound
-      // check above the loop (and on `parse_uid_suffix` returning
-      // -1 → 65535 sentinel) for correctness.
-      long_scenario.push_back(static_cast<uint16_t>(
-          scenario_uids.empty() ? Uid {0} : scenario_uids[slot]));
-      long_stage.push_back(static_cast<uint16_t>(stage_uids[slot]));
-      long_block.push_back(static_cast<uint16_t>(
-          block_uids.empty() ? Uid {0} : block_uids[slot]));
-      long_uid.push_back(static_cast<uint16_t>(uid_val));
+      // `Uid` is `int32_t`: the scenario / stage / block uids are stored
+      // as-is.  `uid_val` comes from `parse_uid_suffix` (int64, -1 on a
+      // malformed name); element uids are `Uid`s, so the narrowing is
+      // lossless for every well-formed field name.
+      long_scenario.push_back(scenario_uids.empty() ? Uid {0}
+                                                    : scenario_uids[slot]);
+      long_stage.push_back(stage_uids[slot]);
+      long_block.push_back(block_uids.empty() ? Uid {0} : block_uids[slot]);
+      long_uid.push_back(static_cast<int32_t>(uid_val));
       // Round in double-precision first, *then* narrow.  Float32 has
       // ~7 *binary*-significant digits; that is not the same as a
       // decimal-grid round.  Without the explicit round_to_digits
@@ -299,18 +298,18 @@ auto make_field_arrays_long(const FieldVector& field_vector,
   // case first; the natural order is the right one for this data.
 
   std::vector<ArrowField> fields {
-      arrow::field("scenario", arrow::uint16()),
-      arrow::field("stage", arrow::uint16()),
-      arrow::field("block", arrow::uint16()),
-      arrow::field("uid", arrow::uint16()),
+      arrow::field("scenario", arrow::int32()),
+      arrow::field("stage", arrow::int32()),
+      arrow::field("block", arrow::int32()),
+      arrow::field("uid", arrow::int32()),
       arrow::field("value",
                    use_float32 ? arrow::float32() : ArrowTraits<Type>::type()),
   };
   std::vector<ArrowArray> arrays {
-      make_array<uint16_t>(long_scenario),
-      make_array<uint16_t>(long_stage),
-      make_array<uint16_t>(long_block),
-      make_array<uint16_t>(long_uid),
+      make_array<int32_t>(long_scenario),
+      make_array<int32_t>(long_stage),
+      make_array<int32_t>(long_block),
+      make_array<int32_t>(long_uid),
       use_float32 ? make_array<float>(long_value_f32)
                   : make_array<Type>(long_value),
   };

@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <exception>
 #include <filesystem>
@@ -1112,9 +1113,15 @@ std::atomic<std::size_t>& write_out_cells_counter() noexcept
 
 void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
 {
+  // Merge the planning-level `options.lp_matrix_options` (equilibration,
+  // Ruiz knobs, validation, ...) under the caller's explicit fields and
+  // apply the topology-dependent equilibration default — the same
+  // resolution for the production runner, cascade levels, aperture
+  // systems and directly constructed PlanningLP/SystemLP (unit tests).
+  auto flat_opts =
+      system_context().options().resolve_lp_matrix_options(flat_opts_in);
   // Inject scale_objective from planning options if not already set,
   // so that flatten() applies the global objective divisor.
-  auto flat_opts = flat_opts_in;
   if (flat_opts.scale_objective == 1.0) {
     flat_opts.scale_objective = system_context().options().scale_objective();
   }
@@ -1823,6 +1830,12 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
 {
   auto& li = linear_interface();
 
+  // `solver_options.time_limit` is a wall-clock budget for this whole solve:
+  // the MIP-start stages below (LP relaxation, repair) draw from it and the
+  // MIP solve gets what they leave (see `budgeted` further down).
+  const auto solve_t0 = std::chrono::steady_clock::now();
+  bool ran_mip_start = false;
+
   // ── Initial-MIP-solution (warm-start) pipeline ────────────────────────
   //
   // Before the MIP solve, optionally solve the LP relaxation (diagnosing
@@ -2012,6 +2025,7 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
     if (!ms) {
       return std::unexpected(std::move(ms.error()));
     }
+    ran_mip_start = true;
   }
 
   // ── Root LP basis cache (Experiment A) ────────────────────────────────
@@ -2074,7 +2088,31 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
     }
   }
 
-  auto result = li.resolve(rb_loaded ? effective_opts : solver_options);
+  // Charge the MIP-start pipeline's wall time against the time_limit
+  // budget.  The MIP always gets at least `min_retry_time_slice_s` so an
+  // injected start is still evaluated (and its incumbent returned) when the
+  // warm-start stages consumed the whole budget.
+  auto budgeted = rb_loaded ? effective_opts : solver_options;
+  if (ran_mip_start) {
+    const double elapsed = std::chrono::duration<double>(
+                               std::chrono::steady_clock::now() - solve_t0)
+                               .count();
+    if (const auto remaining =
+            remaining_time_limit(budgeted.time_limit, elapsed);
+        remaining.has_value() && *remaining < budgeted.time_limit.value_or(0.0))
+    {
+      budgeted.time_limit = std::max(*remaining, min_retry_time_slice_s);
+      spdlog::info(
+          "SystemLP::resolve [scene={} phase={}]: time_limit budget {:.1f}s, "
+          "{:.1f}s used by the MIP-start stages — {:.1f}s left for the solve",
+          scene().uid(),
+          phase().uid(),
+          solver_options.time_limit.value_or(0.0),
+          elapsed,
+          *budgeted.time_limit);
+    }
+  }
+  auto result = li.resolve(budgeted);
   if (!result) {
     return result;
   }

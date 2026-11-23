@@ -185,6 +185,16 @@ public:
     return col_cost_span[col];
   }
 
+  /// Physical row dual at the given LP row.  Row counterpart of
+  /// :func:`cost`; used by reconstruction sites that report the reduced
+  /// cost of a substituted slack as `-dual` of the row it was folded into
+  /// (e.g. the slack-free `GeneratorProfile` form).  Callers MUST check
+  /// `has_row_duals()` first.
+  [[nodiscard]] constexpr double dual(RowIndex row) const noexcept
+  {
+    return row_dual_span[row];
+  }
+
   /// True when the solve published reduced costs.  False under the
   /// dual-recovery bail (MIP primal preserved, duals unavailable —
   /// see `fix_mip_and_resolve_duals`): reconstruction sites that read

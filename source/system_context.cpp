@@ -180,7 +180,8 @@ void SystemContext::add_ampl_variable(
     const ScenarioLP& scenario,
     const StageLP& stage,
     const BIndexHolder<std::vector<std::pair<ColIndex, double>>>&
-        block_cols_weighted_sum) const
+        block_cols_weighted_sum,
+    const BIndexHolder<double>& block_offsets) const
 {
   if (m_silent_flatten_pass_ && !m_replay_ampl_registry_) {
     return;
@@ -192,7 +193,8 @@ void SystemContext::add_ampl_variable(
                                         attribute,
                                         scenario.uid(),
                                         stage.uid(),
-                                        block_cols_weighted_sum);
+                                        block_cols_weighted_sum,
+                                        block_offsets);
 }
 
 std::optional<ColIndex> SystemContext::find_ampl_col(

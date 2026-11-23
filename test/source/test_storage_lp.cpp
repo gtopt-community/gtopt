@@ -716,10 +716,11 @@ TEST_CASE(  // NOLINT
   CHECK(bat_lp.flow_scale() == doctest::Approx(1.0));
 }
 
-// ─── annual_loss nonzero ────────────────────────────────────────────────────
+// ─── annual_standing_loss nonzero
+// ────────────────────────────────────────────────────
 
 TEST_CASE(  // NOLINT
-    "StorageLP with annual_loss produces feasible LP")
+    "StorageLP with annual_standing_loss produces feasible LP")
 {
   using namespace gtopt;
 
@@ -730,7 +731,7 @@ TEST_CASE(  // NOLINT
           .bus = Uid {1},
           .input_efficiency = 0.95,
           .output_efficiency = 0.95,
-          .annual_loss = 0.10,
+          .annual_standing_loss = 0.10,
           .emin = 0.0,
           .emax = 100.0,
           .capacity = 100.0,

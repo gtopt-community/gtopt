@@ -760,8 +760,10 @@ TEST_CASE("PlanningLP - auto_scale_theta computes median reactance")
 
   PlanningLP planning_lp(planning);
 
-  // After construction, scale_theta should be the median reactance (0.10)
-  CHECK(planning_lp.options().scale_theta() == doctest::Approx(0.10));
+  // After construction, scale_theta should be 1 / (3 · median reactance
+  // (0.10)) (θ_LP = scale_theta · θ).
+  CHECK(planning_lp.options().scale_theta()
+        == doctest::Approx(1.0 / (3.0 * 0.10)));
 }
 
 TEST_CASE("PlanningLP - auto_scale_theta skips when explicitly set")
@@ -1054,7 +1056,8 @@ TEST_CASE("PlanningLP - auto_scale_theta with even number of lines")
 
   PlanningLP planning_lp(planning);
 
-  CHECK(planning_lp.options().scale_theta() == doctest::Approx(0.07));
+  CHECK(planning_lp.options().scale_theta()
+        == doctest::Approx(1.0 / (3.0 * 0.07)));
 }
 
 TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
@@ -1158,12 +1161,13 @@ TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
 
   PlanningLP planning_lp(planning);
 
-  // median of { 9.917e-4, 2.066e-4, 4.0e-7 } = 2.066e-4
+  // median of { 9.917e-4, 2.066e-4, 4.0e-7 } = 2.066e-4; scale_theta is
+  // 1 / (3 · median) (θ_LP = scale_theta · θ).
   CHECK(planning_lp.options().scale_theta()
-        == doctest::Approx(10.0 / (220.0 * 220.0)).epsilon(1e-9));
+        == doctest::Approx((220.0 * 220.0) / (3.0 * 10.0)).epsilon(1e-9));
 
-  // Sanity: should be many orders of magnitude away from median(raw X)=10.
-  CHECK(planning_lp.options().scale_theta() < 1.0);
+  // Sanity: should be many orders of magnitude away from 1/median(raw X).
+  CHECK(planning_lp.options().scale_theta() > 1.0);
 }
 
 TEST_CASE("PlanningLP - auto_scale_theta with const Planning")

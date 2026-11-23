@@ -6,9 +6,14 @@
  */
 
 #include <cstddef>
+#include <format>
+#include <mutex>
+#include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <gtopt/json_canonicalize.hpp>
@@ -72,6 +77,75 @@ namespace
   return !content.contains('\\');
 }
 
+/// Warn once per process about a deprecated alias key (a renamed gtopt
+/// key flagged `"deprecated": true` in naming_dialects.json).
+void warn_deprecated_once(std::string_view alias, std::string_view canonical)
+{
+  static std::mutex mutex;
+  static std::set<std::string, std::less<>> warned;
+  {
+    const std::scoped_lock lock {mutex};
+    if (!warned.emplace(alias).second) {
+      return;
+    }
+  }
+  spdlog::warn("deprecated JSON key '{}': use '{}' instead", alias, canonical);
+}
+
+/// Throw when the JSON object `object_text` (from its `{` to its `}`)
+/// sets a deprecated alias together with its canonical key — after the
+/// rewrite both would land on the same member and one would be silently
+/// dropped.  Only called for objects that contain a deprecated alias.
+void check_deprecated_conflicts(std::string_view object_text,
+                                const NamesRegistry& registry)
+{
+  // (raw key, canonical key) for every top-level key of the object.
+  std::vector<std::pair<std::string_view, std::string_view>> keys;
+  int depth = 0;
+  bool expecting_key = false;
+  std::size_t i = 0;
+  while (i < object_text.size()) {
+    const char c = object_text[i];
+    if (c == '"') {
+      const std::size_t end = skip_string(object_text, i);
+      if (depth == 1 && expecting_key) {
+        const auto key = raw_string_content(object_text, i, end);
+        keys.emplace_back(key, registry.canonical_for(key).value_or(key));
+        expecting_key = false;
+      }
+      i = end;
+      continue;
+    }
+    if (c == '{' || c == '[') {
+      ++depth;
+      expecting_key = (depth == 1);
+    } else if (c == '}' || c == ']') {
+      --depth;
+    } else if (c == ',' && depth == 1) {
+      expecting_key = true;
+    }
+    ++i;
+  }
+
+  for (const auto& [raw, canonical] : keys) {
+    if (!registry.is_deprecated(raw)) {
+      continue;
+    }
+    for (const auto& [other_raw, other_canonical] : keys) {
+      if (other_raw != raw && other_canonical == canonical) {
+        throw std::invalid_argument(std::format(
+            "JSON object sets both '{}' and '{}' ('{}' is a deprecated "
+            "alias of '{}') — keep only '{}'",
+            other_raw,
+            raw,
+            raw,
+            canonical,
+            canonical));
+      }
+    }
+  }
+}
+
 }  // namespace
 
 std::string canonicalize_json_keys(std::string_view json_text,
@@ -101,6 +175,8 @@ std::string canonicalize_json_keys(std::string_view json_text,
   {
     bool in_object;  // true if frame opened with '{'
     bool expecting_key;  // true if the next quoted string is a key
+    std::size_t open_pos {0};  // input offset of the opening '{'
+    bool has_deprecated {false};  // object holds a deprecated alias key
   };
   std::vector<Frame> stack;
   stack.reserve(16);
@@ -112,7 +188,11 @@ std::string canonicalize_json_keys(std::string_view json_text,
     switch (c) {
       case '{': {
         out.push_back(c);
-        stack.push_back({.in_object = true, .expecting_key = true});
+        stack.push_back({
+            .in_object = true,
+            .expecting_key = true,
+            .open_pos = i,
+        });
         ++i;
         continue;
       }
@@ -126,6 +206,11 @@ std::string canonicalize_json_keys(std::string_view json_text,
       case ']': {
         out.push_back(c);
         if (!stack.empty()) {
+          if (c == '}' && stack.back().has_deprecated) {
+            const auto open = stack.back().open_pos;
+            check_deprecated_conflicts(json_text.substr(open, i + 1 - open),
+                                       registry);
+          }
           stack.pop_back();
         }
         ++i;
@@ -206,6 +291,10 @@ std::string canonicalize_json_keys(std::string_view json_text,
                     }
                   }
                 }
+              }
+              if (registry.is_deprecated(content)) {
+                warn_deprecated_once(content, *canonical);
+                stack.back().has_deprecated = true;
               }
               out.push_back('"');
               out.append(*canonical);

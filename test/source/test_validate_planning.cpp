@@ -2131,3 +2131,115 @@ TEST_CASE(  // NOLINT
   REQUIRE(rule.has_value());
   CHECK((rule && evaluate_bound_rule(*rule, 500.0) == doctest::Approx(0.0)));
 }
+
+namespace
+{
+/// The single error that mentions @p needle (empty when none).
+[[nodiscard]] std::string vp_error_with(const ValidationResult& r,
+                                        std::string_view needle)
+{
+  const auto it = std::ranges::find_if(
+      r.errors, [needle](const std::string& e) { return e.contains(needle); });
+  return it == r.errors.end() ? std::string {} : *it;
+}
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "validate_planning - unknown model_options enum names the field, the "
+    "value and the valid values")
+{
+  auto p = make_minimal_planning();
+  p.options.model_options.line_losses_mode = "linaer";
+  p.options.cascade_options.level_array = {
+      CascadeLevel {
+          .model_options =
+              ModelOptions {
+                  .kirchhoff_mode = "loop_basis",
+              },
+      },
+  };
+  const auto r = validate_planning(p);
+  CHECK_FALSE(r.ok());
+
+  const auto loss = vp_error_with(r, "linaer");
+  CHECK(loss.contains("model_options.line_losses_mode"));
+  CHECK(loss.contains("'linaer'"));
+  CHECK(loss.contains("expected one of:"));
+  CHECK(loss.contains("piecewise"));
+  CHECK(loss.contains("adaptive"));
+
+  const auto kvl = vp_error_with(r, "loop_basis");
+  CHECK(
+      kvl.contains("cascade_options.level_array[0].model_options"
+                   ".kirchhoff_mode"));
+  CHECK(kvl.contains("node_angle"));
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - unknown per-element mode strings are rejected")
+{
+  auto p = make_minimal_planning();
+  p.system.line_array = {
+      {
+          .uid = Uid {7},
+          .name = "l7",
+          .bus_a = Uid {1},
+          .bus_b = Uid {1},
+          .line_losses_mode = "piecewize",
+          .loss_pwl_layout = "uniformm",
+          .loss_allocation_mode = "both",
+      },
+  };
+  p.system.generator_array = {
+      {
+          .uid = Uid {3},
+          .name = "g3",
+          .bus = Uid {1},
+          .cogen_mode = "always",
+      },
+  };
+
+  SUBCASE("each bad value is reported with element, field and choices")
+  {
+    const auto r = validate_planning(p);
+    CHECK_FALSE(r.ok());
+    const auto loss = vp_error_with(r, "piecewize");
+    CHECK(loss.contains("Line 'l7' (uid 7): line_losses_mode"));
+    CHECK(loss.contains("expected one of:"));
+    CHECK(loss.contains("bidirectional"));
+    CHECK(vp_error_with(r, "uniformm").contains("loss_pwl_layout"));
+    CHECK(vp_error_with(r, "'both'").contains("receiver"));
+    CHECK(vp_error_with(r, "'always'").contains("Generator 'g3'"));
+    CHECK(vp_error_with(r, "'always'").contains("must_run"));
+  }
+
+  SUBCASE("valid values pass")
+  {
+    p.system.line_array.front().line_losses_mode = "piecewise";
+    p.system.line_array.front().loss_pwl_layout = "uniform";
+    p.system.line_array.front().loss_allocation_mode = "split";
+    p.system.generator_array.front().cogen_mode = "must_run";
+    const auto r = validate_planning(p);
+    CHECK(vp_error_with(r, "unknown value").empty());
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - deprecated sddp_options.aperture_drop_fcuts warns")
+{
+  auto p = make_minimal_planning();
+  CHECK_FALSE(p.options.sddp_options.aperture_drop_fcuts.has_value());
+  {
+    const auto r = validate_planning(p);
+    CHECK(std::ranges::none_of(r.warnings,
+                               [](const std::string& w)
+                               { return w.contains("aperture_drop_fcuts"); }));
+  }
+  p.options.sddp_options.aperture_drop_fcuts = true;
+  const auto r = validate_planning(p);
+  CHECK(r.ok());  // a warning, not an error: old cases still load
+  CHECK(std::ranges::any_of(
+      r.warnings,
+      [](const std::string& w)
+      { return w.contains("aperture_drop_fcuts is deprecated and ignored"); }));
+}

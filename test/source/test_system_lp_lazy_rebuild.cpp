@@ -270,7 +270,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE(  // NOLINT
     "SystemLP under compress: update_lp does NOT rehydrate disposable "
-    "collections; rebuild_collections_if_needed does")
+    "collections, rebuild_collections_if_needed does")
 {
   LpMatrixOptions flat_opts;
   flat_opts.low_memory_mode = LowMemoryMode::compress;

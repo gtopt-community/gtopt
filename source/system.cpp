@@ -305,13 +305,9 @@ void System::expand_batteries()
     // reference ``commitment("uc_<bat>_gen").status`` for system
     // min-units / inertia rows (e.g. ``CSF_MinUnits``), and PLEXOS
     // itself synthesises an internal commitment binary from the
-    // battery's ``Units`` property for every battery.  Previously
-    // gtopt created the commitment only when the battery carried
-    // ``pmin_discharge`` / ``pmin_charge`` / explicit
-    // ``commitment = true`` — so a UC referencing a plain battery's
-    // commitment crashed the resolver with "element is missing or
-    // inactive" (observed on CEN PCP CSF_MinUnits →
-    // ``uc_BAT_MANZANO_FV_gen``).
+    // battery's ``Units`` property for every battery.  Creating it
+    // only for batteries with ``pmin_*`` / ``commitment = true`` would
+    // make such a UC fail with "element is missing or inactive".
     //
     // The commitment owns the ``u`` variable that gates dispatch
     // direction and reserve provision; ``Commitment.pmin`` carries

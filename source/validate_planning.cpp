@@ -15,8 +15,10 @@
 #include <format>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
@@ -24,7 +26,9 @@
 
 #include <gtopt/enum_option.hpp>
 #include <gtopt/field_sched.hpp>
+#include <gtopt/generator_enums.hpp>
 #include <gtopt/line_enums.hpp>
+#include <gtopt/user_constraint_enums.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/validate_planning.hpp>
 #include <spdlog/spdlog.h>
@@ -1003,6 +1007,33 @@ void check_positivity(ValidationResult& result, const System& sys)
                       "to return the served flow to the river",
                       fr.name));
     }
+    // Opt-in pass-through bypass arc: needs both endpoints, a
+    // non-negative capacity, and it is the only thing that gives a
+    // consumptive right's `junction_b` a meaning.
+    if (fr.bypass_fmax.has_value() && *fr.bypass_fmax < 0.0) {
+      result.errors.push_back(
+          std::format("FlowRight '{}': bypass_fmax must be >= 0 (got {})",
+                      fr.name,
+                      *fr.bypass_fmax));
+    }
+    if (fr.bypass_requested()
+        && (!fr.junction_a.has_value() || !fr.junction_b.has_value()))
+    {
+      result.warnings.push_back(
+          std::format("FlowRight '{}': bypass requested but 'junction_a' and "
+                      "'junction_b' are not both set — no bypass arc is built",
+                      fr.name));
+    }
+    if (fr.junction_b.has_value() && !fr.bypass_requested()
+        && fr.consumptive.value_or(true))
+    {
+      result.warnings.push_back(std::format(
+          "FlowRight '{}': 'junction_b' is set but the right is consumptive "
+          "and no bypass is requested — 'junction_b' has no effect (set "
+          "'use_bypass': true for a pass-through arc, or "
+          "'consumptive': false to return the served flow)",
+          fr.name));
+    }
   }
 
   // VolumeRight: storage and demand magnitudes must be >= 0.
@@ -1659,6 +1690,154 @@ void check_piecewise_feasibility(ValidationResult& result,
 }
 
 /// Validate range constraints on simulation parameters.
+[[nodiscard]] std::optional<double> scalar_segment_cost(
+    const FailSegment& seg) noexcept
+{
+  if (seg.cost) {
+    if (const auto* v = std::get_if<Real>(&*seg.cost)) {
+      return *v;
+    }
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<double> scalar_segment_cost(
+    const ScalarFailSegment& seg) noexcept
+{
+  return seg.cost;
+}
+
+/// Validate one stepwise demand-failure curve (`Demand.fail_segments` or
+/// `model_options.demand_fail_segments`).  `owner` labels the messages.
+template<typename Segment>
+void check_fail_segment_list(ValidationResult& result,
+                             std::span<const Segment> segs,
+                             std::string_view owner)
+{
+  if (segs.empty()) {
+    return;
+  }
+  if (segs.size() > max_fail_segments) {
+    result.errors.push_back(
+        std::format("{}: fail_segments has {} segments (max {})",
+                    owner,
+                    segs.size(),
+                    max_fail_segments));
+  }
+  double cum = 0.0;
+  std::optional<double> prev_cost;
+  bool warned_decreasing = false;
+  for (std::size_t k = 0; k < segs.size(); ++k) {
+    const auto& seg = segs[k];
+    const bool last = (k + 1 == segs.size());
+    if (seg.fraction) {
+      if (*seg.fraction <= 0.0 || *seg.fraction > 1.0) {
+        result.errors.push_back(
+            std::format("{}: fail_segments[{}].fraction = {} must be in (0, 1]",
+                        owner,
+                        k,
+                        *seg.fraction));
+      }
+      cum += *seg.fraction;
+    } else if (!last) {
+      result.errors.push_back(std::format(
+          "{}: fail_segments[{}].fraction is required (only the last "
+          "segment may be open)",
+          owner,
+          k));
+    } else if (cum >= 1.0 - 1e-9) {
+      result.errors.push_back(std::format(
+          "{}: open last fail segment is empty (previous fractions sum to "
+          "{})",
+          owner,
+          cum));
+    }
+    if (!seg.cost) {
+      result.errors.push_back(
+          std::format("{}: fail_segments[{}].cost is required", owner, k));
+      continue;
+    }
+    if (const auto scalar = scalar_segment_cost(seg)) {
+      if (prev_cost && *scalar < *prev_cost && !warned_decreasing) {
+        result.warnings.push_back(std::format(
+            "{}: fail_segments costs decrease at segment {} ({} < {}); the "
+            "LP curtails the cheapest segment first regardless of order "
+            "(non-convex curves are not representable)",
+            owner,
+            k,
+            *scalar,
+            *prev_cost));
+        warned_decreasing = true;
+      }
+      prev_cost = scalar;
+    }
+  }
+  if (cum > 1.0 + 1e-9) {
+    result.errors.push_back(
+        std::format("{}: fail_segments fractions sum to {} (> 1)", owner, cum));
+  }
+}
+
+void check_fail_segments(ValidationResult& result, const Planning& planning)
+{
+  const auto& global = planning.options.model_options.demand_fail_segments;
+  if (global) {
+    check_fail_segment_list(result,
+                            std::span<const ScalarFailSegment> {*global},
+                            "model_options.demand_fail_segments");
+  }
+  const auto& sys = planning.system;
+  std::unordered_set<Uid> seg_uids;
+  std::unordered_set<std::string_view> seg_names;
+  for (const auto& dem : sys.demand_array) {
+    if (dem.fail_segments.empty()) {
+      continue;
+    }
+    const auto owner = std::format("Demand '{}'", dem.name);
+    check_fail_segment_list(
+        result, std::span<const FailSegment> {dem.fail_segments}, owner);
+    if (dem.fcost) {
+      result.warnings.push_back(std::format(
+          "{}: both fcost and fail_segments set; fail_segments takes "
+          "precedence",
+          owner));
+    }
+    if (dem.forced.value_or(false)) {
+      result.warnings.push_back(std::format(
+          "{}: forced demand ignores fail_segments (no curtailment)", owner));
+    }
+    if (dem.fail_segments.size() > 1) {
+      seg_uids.insert(dem.uid);
+      seg_names.insert(dem.name);
+    }
+  }
+  const auto is_seg = [&](const SingleId& sid)
+  {
+    if (const auto* u = std::get_if<Uid>(&sid)) {
+      return seg_uids.contains(*u);
+    }
+    return seg_names.contains(std::get<Name>(sid));
+  };
+  for (const auto& dp : sys.demand_profile_array) {
+    if (is_seg(dp.demand)) {
+      result.errors.push_back(std::format(
+          "DemandProfile '{}': demand {} uses fail_segments (not supported "
+          "with a DemandProfile)",
+          dp.name,
+          format_single_id(dp.demand)));
+    }
+  }
+  for (const auto& conv : sys.converter_array) {
+    if (is_seg(conv.demand)) {
+      result.errors.push_back(std::format(
+          "Converter '{}': demand {} uses fail_segments (a converter "
+          "charge demand must be a single load column)",
+          conv.name,
+          format_single_id(conv.demand)));
+    }
+  }
+}
+
 void check_ranges(ValidationResult& result, const Planning& planning)
 {
   const auto& sim = planning.simulation;
@@ -1900,16 +2079,189 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
 
 }  // namespace
 
+namespace
+{
+
+/// String-typed `model_options` enums (`line_losses_mode`,
+/// `kirchhoff_mode`, `tiny_reactance_mode`, `objective_mode`) are resolved
+/// lazily by `PlanningOptionsLP`, which maps an unrecognised name to the
+/// default.  A typo such as `"line_losses_mode": "linaer"` therefore ran
+/// silently with the default formulation.  Reject it up front, for the
+/// global model options and every cascade-level override.
+void check_model_option_names(ValidationResult& result,
+                              const ModelOptions& mo,
+                              std::string_view where)
+{
+  const auto bad = [&](std::string_view field,
+                       const std::string& value,
+                       std::string_view expected)
+  {
+    result.errors.push_back(
+        std::format("{}.{}: unknown value '{}' (expected one of: {})",
+                    where,
+                    field,
+                    value,
+                    expected));
+  };
+  const auto names = []<typename E>(std::type_identity<E>)
+  {
+    std::string out;
+    for (const auto& entry : enum_entries(E {})) {
+      if (!out.empty()) {
+        out += ", ";
+      }
+      out += entry.name;
+    }
+    return out;
+  };
+  if (mo.line_losses_mode
+      && !enum_from_name<LineLossesMode>(*mo.line_losses_mode))
+  {
+    bad("line_losses_mode",
+        *mo.line_losses_mode,
+        names(std::type_identity<LineLossesMode> {}));
+  }
+  if (mo.kirchhoff_mode && !enum_from_name<KirchhoffMode>(*mo.kirchhoff_mode)) {
+    bad("kirchhoff_mode",
+        *mo.kirchhoff_mode,
+        names(std::type_identity<KirchhoffMode> {}));
+  }
+  if (mo.tiny_reactance_mode
+      && !enum_from_name<TinyReactanceMode>(*mo.tiny_reactance_mode))
+  {
+    bad("tiny_reactance_mode",
+        *mo.tiny_reactance_mode,
+        names(std::type_identity<TinyReactanceMode> {}));
+  }
+  if (const auto& om = mo.objective_mode;
+      om && *om != "cost" && *om != "emissions" && *om != "emission")
+  {
+    bad("objective_mode", *om, "cost, emissions");
+  }
+}
+
+void check_model_options(ValidationResult& result, const Planning& planning)
+{
+  const auto& opts = planning.options;
+  check_model_option_names(result, opts.model_options, "model_options");
+  check_model_option_names(result,
+                           opts.cascade_options.model_options,
+                           "cascade_options.model_options");
+  for (const auto& [i, level] :
+       std::views::enumerate(opts.cascade_options.level_array))
+  {
+    if (level.model_options) {
+      check_model_option_names(
+          result,
+          *level.model_options,
+          std::format("cascade_options.level_array[{}].model_options", i));
+    }
+  }
+}
+
+/// Comma-separated canonical (non-alias) names of enum @p E.
+template<typename E>
+[[nodiscard]] std::string enum_names_list()
+{
+  std::string out;
+  for (const auto& entry : enum_entries(E {})) {
+    if (entry.is_alias) {
+      continue;
+    }
+    if (!out.empty()) {
+      out += ", ";
+    }
+    out += entry.name;
+  }
+  return out;
+}
+
+/// Reject an unknown per-element mode string `<class> '<name>'.<field>`.
+template<typename E, typename Elem>
+void check_element_enum(ValidationResult& result,
+                        std::string_view class_name,
+                        const Elem& elem,
+                        std::string_view field,
+                        const OptName& value)
+{
+  if (value && !enum_from_name<E>(*value)) {
+    result.errors.push_back(
+        std::format("{} '{}' (uid {}): {}: unknown value '{}' "
+                    "(expected one of: {})",
+                    class_name,
+                    elem.name,
+                    elem.uid,
+                    field,
+                    *value,
+                    enum_names_list<E>()));
+  }
+}
+
+/// Per-element mode strings (e.g. `Line.line_losses_mode`) are parsed
+/// lazily by the LP layer, which maps an unknown name to the default (or
+/// the global setting) with at most a log line, so a typo silently changed
+/// the model.  Reject them up front.
+void check_element_mode_names(ValidationResult& result, const System& sys)
+{
+  for (const auto& line : sys.line_array) {
+    check_element_enum<LineLossesMode>(
+        result, "Line", line, "line_losses_mode", line.line_losses_mode);
+    check_element_enum<LinePwlLayout>(
+        result, "Line", line, "loss_pwl_layout", line.loss_pwl_layout);
+    check_element_enum<LossAllocationMode>(result,
+                                           "Line",
+                                           line,
+                                           "loss_allocation_mode",
+                                           line.loss_allocation_mode);
+  }
+  for (const auto& gen : sys.generator_array) {
+    check_element_enum<CogenMode>(
+        result, "Generator", gen, "cogen_mode", gen.cogen_mode);
+  }
+  for (const auto& fr : sys.flow_right_array) {
+    if (fr.flow_mode && *fr.flow_mode != "per_block"
+        && *fr.flow_mode != "stage_average" && *fr.flow_mode != "stage_uniform")
+    {
+      result.errors.push_back(
+          std::format("FlowRight '{}' (uid {}): flow_mode: unknown value '{}' "
+                      "(expected one of: per_block, stage_average, "
+                      "stage_uniform)",
+                      fr.name,
+                      fr.uid,
+                      *fr.flow_mode));
+    }
+  }
+  for (const auto& dv : sys.decision_variable_array) {
+    check_element_enum<ConstraintScaleType>(
+        result, "DecisionVariable", dv, "cost_type", dv.cost_type);
+  }
+  for (const auto& uc : sys.user_constraint_array) {
+    check_element_enum<ConstraintScaleType>(
+        result, "UserConstraint", uc, "constraint_type", uc.constraint_type);
+  }
+}
+
+}  // namespace
+
 [[nodiscard]] ValidationResult validate_planning(Planning& planning)
 {
   ValidationResult result;
 
   check_referential_integrity(result, planning.system);
   check_ranges(result, planning);
+  check_model_options(result, planning);
+  check_element_mode_names(result, planning.system);
+  if (planning.options.sddp_options.aperture_drop_fcuts.has_value()) {
+    result.warnings.emplace_back(
+        "sddp_options.aperture_drop_fcuts is deprecated and ignored (no "
+        "solver code reads it; the backward pass never adds feasibility "
+        "cuts) - remove it from the case");
+  }
   check_positivity(result, planning.system);
   check_flow_right_anchoring(result, planning.system);
   check_bound_rules(result, planning.system);
   check_heat_rate(result, planning.system);
+  check_fail_segments(result, planning);
   check_piecewise_feasibility(result, planning);
   check_aperture_references(result, planning);
   check_completeness(result, planning);

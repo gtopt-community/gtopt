@@ -606,6 +606,8 @@ public:
   /// mirror of the `EmissionZone.production` removal).  Resolver
   /// stamps `row[col] += base_coef · weight` per leg.  See
   /// `AmplVariable::block_cols_weighted_sum` for the data layout.
+  /// Optional `block_offsets` add a per-block constant (folded onto the
+  /// row RHS by the resolver) — used by `demand.fail = lmax − Σ load_k`.
   void add_ampl_variable(
       std::string_view class_name,
       Uid element_uid,
@@ -613,7 +615,8 @@ public:
       const ScenarioLP& scenario,
       const StageLP& stage,
       const BIndexHolder<std::vector<std::pair<ColIndex, double>>>&
-          block_cols_weighted_sum) const;
+          block_cols_weighted_sum,
+      const BIndexHolder<double>& block_offsets = {}) const;
 
   /// Look up a registered variable column.  Returns nullopt if the
   /// (class, uid, attribute, scenario, stage, block) combination was

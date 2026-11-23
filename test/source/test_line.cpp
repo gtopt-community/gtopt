@@ -489,9 +489,11 @@ TEST_CASE("LineLP - DC line (no reactance) skips Kirchhoff")
     CHECK(nrows_ac > nrows_dc);
   }
 
-  SUBCASE("reactance = 0 — Kirchhoff skipped")
+  SUBCASE("reactance = 0 — zero-impedance tie, or DC with legacy mode")
   {
-    // DC line: reactance explicitly set to 0
+    // reactance explicitly 0: a zero-impedance tie under the default
+    // `tiny_reactance_mode = tie` (one KVL row θ_b − θ_a = 0 per block),
+    // a DC link (no KVL row) under the legacy `tiny_reactance_mode = dc`.
     const Array<Line> line_array = {
         {
             .uid = Uid {1},
@@ -518,9 +520,23 @@ TEST_CASE("LineLP - DC line (no reactance) skips Kirchhoff")
     SystemLP system_lp(system, simulation_lp);
 
     auto&& lp = system_lp.linear_interface();
+    const auto nrows_tie = lp.get_numrows();
     auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
+
+    auto dc_opts = opts;
+    dc_opts.model_options.tiny_reactance_mode = OptName {"dc"};
+    const PlanningOptionsLP dc_options(dc_opts);
+    SimulationLP dc_simulation_lp(simulation, dc_options);
+    SystemLP dc_system_lp(system, dc_simulation_lp);
+    auto&& dc_lp = dc_system_lp.linear_interface();
+    auto dc_result = dc_lp.resolve();
+    REQUIRE(dc_result.has_value());
+    CHECK(dc_result.value() == 0);
+
+    // The tie adds exactly one KVL row (one block); DC adds none.
+    CHECK(nrows_tie == dc_lp.get_numrows() + 1);
   }
 }
 

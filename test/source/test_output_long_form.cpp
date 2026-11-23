@@ -17,7 +17,7 @@
  *   * `SystemLP::total_write_ms` / `total_write_cells` accumulate
  *     across calls
  *   * `output_layout = long` schema shape (`scenario, stage, block,
- *     uid, value` with `uint16` keys)
+ *     uid, value` with `int32` (`Uid`) keys)
  */
 
 #include <cmath>
@@ -110,7 +110,7 @@ auto read_long_leaf(const std::filesystem::path& dataset_dir)
 
 TEST_CASE(
     "output long-form: schema is (scenario, stage, block, uid, value) "
-    "with uint16 keys")  // NOLINT
+    "with int32 keys")  // NOLINT
 {
   auto [system, simulation] = make_tiny_system();
   const auto tmpdir =
@@ -139,10 +139,104 @@ TEST_CASE(
   CHECK(table->schema()->field(2)->name() == "block");
   CHECK(table->schema()->field(3)->name() == "uid");
   CHECK(table->schema()->field(4)->name() == "value");
-  CHECK(table->schema()->field(0)->type()->id() == arrow::Type::UINT16);
-  CHECK(table->schema()->field(1)->type()->id() == arrow::Type::UINT16);
-  CHECK(table->schema()->field(2)->type()->id() == arrow::Type::UINT16);
-  CHECK(table->schema()->field(3)->type()->id() == arrow::Type::UINT16);
+  CHECK(table->schema()->field(0)->type()->id() == arrow::Type::INT32);
+  CHECK(table->schema()->field(1)->type()->id() == arrow::Type::INT32);
+  CHECK(table->schema()->field(2)->type()->id() == arrow::Type::INT32);
+  CHECK(table->schema()->field(3)->type()->id() == arrow::Type::INT32);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(
+    "output long-form: uids and block uids above 65535 round-trip")  // NOLINT
+{
+  // Regression: the key columns were uint16, so element uid 101333 came
+  // back as 35797 (mod 65536) and block uids of long hourly horizons
+  // (8760 blocks/year) wrapped too.  Uids beyond 16 bits must survive.
+  constexpr Uid big_gen_uid {101333};
+  constexpr Uid big_block_uid {70000};
+  constexpr Uid big_stage_uid {66000};
+  constexpr Uid big_scenario_uid {65537};
+
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = big_gen_uid,
+          .name = "g_big",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 300.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = big_block_uid, .duration = 1.0},
+          },
+      .stage_array =
+          {
+              {.uid = big_stage_uid, .first_block = 0, .count_block = 1},
+          },
+      .scenario_array =
+          {
+              {.uid = big_scenario_uid},
+          },
+  };
+  const System system = {
+      .name = "LongFormBigUid",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_lf_big_uid";
+  std::filesystem::remove_all(tmpdir);
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 10000.0;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = DataFormat::parquet;
+  opts.output_round_decimals = 5;
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+  REQUIRE(system_lp.linear_interface().resolve().has_value());
+  system_lp.write_out();
+
+  const auto table =
+      read_long_leaf(tmpdir / "Generator" / "generation_sol.parquet");
+  REQUIRE(table != nullptr);
+  REQUIRE(table->num_rows() == 1);
+  REQUIRE(table->num_columns() == 5);
+  for (int c = 0; c < 4; ++c) {
+    REQUIRE(table->schema()->field(c)->type()->id() == arrow::Type::INT32);
+  }
+  const auto combined = table->CombineChunks().ValueOr(table);
+  const auto col = [&](int c)
+  {
+    return std::static_pointer_cast<arrow::Int32Array>(
+        combined->column(c)->chunk(0));
+  };
+  CHECK(col(0)->Value(0) == big_scenario_uid);
+  CHECK(col(1)->Value(0) == big_stage_uid);
+  CHECK(col(2)->Value(0) == big_block_uid);
+  CHECK(col(3)->Value(0) == big_gen_uid);
+  const auto val_col = std::static_pointer_cast<arrow::FloatArray>(
+      combined->column(4)->chunk(0));
+  CHECK(static_cast<double>(val_col->Value(0)) == doctest::Approx(100.0));
 
   std::filesystem::remove_all(tmpdir);
 }
@@ -239,7 +333,7 @@ TEST_CASE(
   // First row should be the g1 dispatch for block 1.  Read uid + value
   // and verify the round-then-cast invariant.
   const auto uid_col =
-      std::static_pointer_cast<arrow::UInt16Array>(table->column(3)->chunk(0));
+      std::static_pointer_cast<arrow::Int32Array>(table->column(3)->chunk(0));
   const auto val_col =
       std::static_pointer_cast<arrow::FloatArray>(table->column(4)->chunk(0));
   REQUIRE(uid_col != nullptr);
@@ -287,15 +381,15 @@ TEST_CASE("output long-form: exact-zero rows are dropped")  // NOLINT
 
   // Walk every row, collect distinct uids actually present.  g2 (uid=2)
   // should NOT be there because its dispatch is exactly zero.
-  std::set<uint16_t> uids_present;
+  std::set<int32_t> uids_present;
   const auto uid_col =
-      std::static_pointer_cast<arrow::UInt16Array>(table->column(3)->chunk(0));
+      std::static_pointer_cast<arrow::Int32Array>(table->column(3)->chunk(0));
   REQUIRE(uid_col != nullptr);
   for (int64_t i = 0; i < uid_col->length(); ++i) {
     uids_present.insert(uid_col->Value(i));
   }
-  CHECK(uids_present.contains(uint16_t {1}));
-  CHECK_FALSE(uids_present.contains(uint16_t {2}));
+  CHECK(uids_present.contains(int32_t {1}));
+  CHECK_FALSE(uids_present.contains(int32_t {2}));
 
   std::filesystem::remove_all(tmpdir);
 }
