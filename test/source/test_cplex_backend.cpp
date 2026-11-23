@@ -233,7 +233,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "CPLEX set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
+    "CPLEX set_log_filename(level>0) writes a log, clear stops it")  // NOLINT
 {
   auto backend = make_cplex_or_skip();
   if (!backend) {

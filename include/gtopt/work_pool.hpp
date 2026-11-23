@@ -55,6 +55,7 @@
 #include <gtopt/hardware_info.hpp>
 #include <gtopt/memory_monitor.hpp>
 #include <gtopt/resource_governor.hpp>
+#include <gtopt/work_pool_diagnostics.hpp>
 #include <spdlog/spdlog.h>
 
 #ifdef __linux__
@@ -762,8 +763,7 @@ private:
 
   // Stall detection: tracked across `log_periodic_stats()` calls to detect
   // when `tasks_completed` stops advancing while work is still queued.
-  mutable size_t last_logged_completed_ {0};
-  mutable int stall_intervals_ {0};
+  StallTracker stall_tracker_ {};
 
 public:
   BasicWorkPool(BasicWorkPool&&) = delete;

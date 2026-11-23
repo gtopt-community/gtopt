@@ -254,7 +254,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "HiGHS set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
+    "HiGHS set_log_filename(level>0) writes a log, clear stops it")  // NOLINT
 {
   auto backend = make_highs_or_skip();
   if (!backend) {

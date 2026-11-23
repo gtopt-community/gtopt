@@ -217,7 +217,7 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "add_obj_constant - successive calls accumulate; clone carries the sum")
+    "add_obj_constant - successive calls accumulate, clone carries the sum")
 {
   using namespace test_solver_obj_offset;
   auto& reg = SolverRegistry::instance();

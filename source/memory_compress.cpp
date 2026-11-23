@@ -15,8 +15,11 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <format>
+#include <limits>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 
 #include <gtopt/low_memory_snapshot.hpp>
@@ -121,6 +124,23 @@ CompressionCodec select_codec(CompressionCodec preferred) noexcept
 namespace
 {
 
+// Every codec must produce exactly `original_size` bytes.  A short or
+// long result means the stream is corrupt, truncated, or paired with the
+// wrong metadata; returning the zero-padded output buffer would hand a
+// silently garbage LP to `load_flat`.
+void require_exact_size(std::string_view codec,
+                        std::size_t produced,
+                        std::size_t original_size)
+{
+  if (produced != original_size) {
+    throw std::runtime_error(std::format(
+        "{} decompress size mismatch: produced {} bytes, expected {}",
+        codec,
+        produced,
+        original_size));
+  }
+}
+
 // ── zstd (always available) ─────────────────────────────────────────────
 
 std::vector<char> compress_zstd(std::span<const char> data)
@@ -147,6 +167,7 @@ std::vector<char> decompress_zstd(std::span<const char> compressed,
     throw std::runtime_error(std::string("zstd decompress failed: ")
                              + ZSTD_getErrorName(rc));
   }
+  require_exact_size("zstd", rc, original_size);
   return out;
 }
 
@@ -190,6 +211,7 @@ std::vector<char> decompress_gzip(std::span<const char> compressed,
     throw std::runtime_error("gzip decompress failed (zlib error "
                              + std::to_string(rc) + ")");
   }
+  require_exact_size("gzip", static_cast<std::size_t>(out_len), original_size);
   return out;
 }
 
@@ -216,6 +238,11 @@ std::vector<char> compress_lz4(std::span<const char> data)
 std::vector<char> decompress_lz4(std::span<const char> compressed,
                                  size_t original_size)
 {
+  // LZ4's C API takes `int` sizes; reject anything that would narrow.
+  constexpr auto kIntMax = static_cast<size_t>(std::numeric_limits<int>::max());
+  if (original_size > kIntMax || compressed.size() > kIntMax) {
+    throw std::runtime_error("lz4 decompress: size exceeds LZ4 limits");
+  }
   std::vector<char> out(original_size);
   const auto rc = LZ4_decompress_safe(compressed.data(),
                                       out.data(),
@@ -224,6 +251,7 @@ std::vector<char> decompress_lz4(std::span<const char> compressed,
   if (rc < 0) {
     throw std::runtime_error("lz4 decompress failed");
   }
+  require_exact_size("lz4", static_cast<std::size_t>(rc), original_size);
   return out;
 }
 
@@ -245,6 +273,16 @@ std::vector<char> compress_snappy(std::span<const char> data)
 std::vector<char> decompress_snappy(std::span<const char> compressed,
                                     size_t original_size)
 {
+  // RawUncompress trusts the length varint embedded in the stream and
+  // writes that many bytes: validate it against `original_size` FIRST,
+  // otherwise a corrupt header overruns the output buffer.
+  size_t embedded_len = 0;
+  if (!snappy::GetUncompressedLength(
+          compressed.data(), compressed.size(), &embedded_len))
+  {
+    throw std::runtime_error("snappy decompress failed (bad length header)");
+  }
+  require_exact_size("snappy", embedded_len, original_size);
   std::vector<char> out(original_size);
   if (!snappy::RawUncompress(compressed.data(), compressed.size(), out.data()))
   {
@@ -412,7 +450,11 @@ std::vector<char> decompress(std::span<const char> compressed,
           compressed,
           original_size,
           [&]
-          { return std::vector<char> {compressed.begin(), compressed.end()}; });
+          {
+            require_exact_size(
+                "uncompressed", compressed.size(), original_size);
+            return std::vector<char> {compressed.begin(), compressed.end()};
+          });
     case CompressionCodec::zstd:
       return timed_decompress(
           codec,
@@ -465,6 +507,15 @@ std::vector<char> CompressedBuffer::decompress_data() const
     return gtopt::decompress(data, original_size, codec);
   }
   auto raw = xor_base->decompress_data();
+  // The XOR delta is only defined against a same-size base; `decompress`
+  // already pins the delta to `original_size`, so a base of any other
+  // size would read past `diff` (or leave a tail un-XORed).
+  if (raw.size() != original_size) {
+    throw std::runtime_error(
+        std::format("xor-delta decompress: base holds {} bytes, expected {}",
+                    raw.size(),
+                    original_size));
+  }
   if (!data.empty()) {
     const auto diff = gtopt::decompress(data, original_size, codec);
     for (std::size_t i = 0; i < raw.size(); ++i) {
@@ -658,7 +709,31 @@ void decompress_flat_lp(FlatLinearProblem& flp, const CompressedBuffer& buf)
   flp.col_scales.resize(buf.flp_col_scales_size);
   flp.row_scales.resize(buf.flp_row_scales_size);
 
-  auto raw = buf.decompress_data();
+  // The restore below memcpy's exactly `expected` bytes out of `raw`;
+  // a metadata/buffer mismatch or a corrupt stream must fail loudly
+  // (and leave `flp` empty so a retry is not mistaken for "already
+  // decompressed") instead of over-reading or loading garbage.
+  std::vector<char> raw;
+  try {
+    const auto bytes_of = []<typename T>(const std::vector<T>& vec)
+    { return vec.size() * sizeof(T); };
+    const size_t expected = bytes_of(flp.matbeg) + bytes_of(flp.matind)
+        + bytes_of(flp.colint) + bytes_of(flp.matval) + bytes_of(flp.collb)
+        + bytes_of(flp.colub) + bytes_of(flp.objval) + bytes_of(flp.rowlb)
+        + bytes_of(flp.rowub) + bytes_of(flp.col_scales)
+        + bytes_of(flp.row_scales);
+    if (buf.original_size != expected) {
+      throw std::runtime_error(
+          std::format("decompress_flat_lp: compressed buffer holds {} bytes "
+                      "but the flat-LP metadata expects {}",
+                      buf.original_size,
+                      expected));
+    }
+    raw = buf.decompress_data();
+  } catch (...) {
+    clear_flat_lp_vectors(flp);
+    throw;
+  }
   const auto* src = raw.data();
 
   auto restore = [&src]<typename T>(std::vector<T>& vec)

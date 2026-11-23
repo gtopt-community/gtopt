@@ -48,6 +48,8 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -250,7 +252,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "OSI/CLP set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
+    "OSI/CLP set_log_filename(level>0) writes a log, clear stops it")  // NOLINT
 {
   auto backend = make_osi_clp_or_skip();
   if (!backend) {
@@ -661,9 +663,9 @@ TEST_CASE("OSI/CLP get_basis/set_basis round-trip warm-starts")  // NOLINT
   const auto captured = backend->get_basis();
   // OSI/CLP always leaves a resident simplex basis after a solve.
   REQUIRE(captured.has_value());
-  CHECK(captured->num_cols()
+  CHECK(test_support::require_value(captured).num_cols()
         == static_cast<std::size_t>(backend->get_num_cols()));
-  CHECK(captured->num_rows()
+  CHECK(test_support::require_value(captured).num_rows()
         == static_cast<std::size_t>(backend->get_num_rows()));
 
   SUBCASE("install the captured basis into a fresh backend + warm-solve")
@@ -674,7 +676,7 @@ TEST_CASE("OSI/CLP get_basis/set_basis round-trip warm-starts")  // NOLINT
     warm_lp.load_into(*warm);
 
     // Dimensions match, so set_basis installs verbatim.
-    REQUIRE(warm->set_basis(*captured));
+    REQUIRE(warm->set_basis(test_support::require_value(captured)));
 
     SolverOptions opts;
     opts.advanced_basis = true;  // force a simplex (warm) resolve, not barrier.
@@ -695,6 +697,6 @@ TEST_CASE("OSI/CLP get_basis/set_basis round-trip warm-starts")  // NOLINT
     REQUIRE(other);
     OsiTrivialLP3 lp3 {other->infinity()};
     lp3.load_into(*other);
-    CHECK_FALSE(other->set_basis(*captured));
+    CHECK_FALSE(other->set_basis(test_support::require_value(captured)));
   }
 }

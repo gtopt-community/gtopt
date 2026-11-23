@@ -17,6 +17,7 @@
 #include <gtopt/cpu_monitor.hpp>
 #include <gtopt/sddp_pool.hpp>  // SDDPTaskKey — for explicit instantiation
 #include <gtopt/work_pool.hpp>
+#include <gtopt/work_pool_diagnostics.hpp>
 
 namespace gtopt
 {
@@ -81,67 +82,33 @@ void BasicWorkPool<Key, KeyCompare>::log_periodic_stats()
     // the warning.  That scenario is covered by gdb thread dumps when
     // it surfaces; the more common false positive on long
     // monolithic tasks is what users actually see.
-    const bool dispatch_blocked = stats.tasks_pending > 0;
-    const bool no_progress = stats.tasks_completed == last_logged_completed_;
-    if (dispatch_blocked && no_progress) {
-      ++stall_intervals_;
-    } else {
-      stall_intervals_ = 0;
-    }
-    last_logged_completed_ = stats.tasks_completed;
+    stall_tracker_.observe(stats.tasks_pending, stats.tasks_completed);
 
-    if (stall_intervals_ >= 2) {
-      std::string reason;
-      if (stats.current_memory_percent >= max_memory_percent_) {
-        reason = std::format("memory usage {:.1f}% >= {:.1f}%",
-                             stats.current_memory_percent,
-                             max_memory_percent_);
-      } else if (stats.available_memory_mb < min_free_memory_mb_
-                 && stats.available_memory_mb > 0.0)
-      {
-        reason = std::format("free memory {:.0f} MB < {:.0f} MB",
-                             stats.available_memory_mb,
-                             min_free_memory_mb_);
-      } else if (max_process_rss_mb_ > 0.0
-                 && stats.process_rss_mb >= max_process_rss_mb_)
-      {
-        reason = std::format("process RSS {:.0f} MB >= {:.0f} MB",
-                             stats.process_rss_mb,
-                             max_process_rss_mb_);
-      } else if (stats.swap_gate_engaged) {
-        // Only blame the VmSwap gate while it is actually closed (over
-        // the limit AND growing).  A large static VmSwap does not block
-        // dispatch, so reporting it here would misdirect the operator.
-        reason =
-            std::format("process VmSwap {:.0f} MB >= {:.0f} MB and growing",
-                        stats.process_swap_mb,
-                        max_process_swap_mb_);
-      } else if (max_swap_io_per_sec_ > 0.0
-                 && stats.swap_io_rate >= max_swap_io_per_sec_)
-      {
-        reason = std::format("swap thrashing {:.0f} pg/s >= {:.0f} pg/s",
-                             stats.swap_io_rate,
-                             max_swap_io_per_sec_);
-      } else if (stats.active_threads + 1 >= static_cast<int>(
-                     max_threads_.load(std::memory_order_relaxed) * 0.8)
-                 && stats.current_cpu_load >= max_cpu_threshold_)
-      {
-        reason = std::format("CPU load {:.1f}% >= {:.1f}%",
-                             stats.current_cpu_load,
-                             max_cpu_threshold_);
-      } else if (stats.swap_io_rate > 0.0) {
-        reason = std::format(
-            "active task(s) not completing (kernel paging "
-            "{:.0f} pg/s — likely thrash)",
-            stats.swap_io_rate);
-      } else {
-        reason =
-            "active task(s) not completing (external block or blocked I/O)";
-      }
+    if (stall_tracker_.intervals >= StallTracker::warn_after) {
+      const std::string reason = describe_stall_reason(
+          StallGateSnapshot {
+              .memory_percent = stats.current_memory_percent,
+              .available_memory_mb = stats.available_memory_mb,
+              .process_rss_mb = stats.process_rss_mb,
+              .process_swap_mb = stats.process_swap_mb,
+              .swap_io_rate = stats.swap_io_rate,
+              .cpu_load = stats.current_cpu_load,
+              .active_threads = stats.active_threads,
+              .swap_gate_engaged = stats.swap_gate_engaged,
+          },
+          StallGateLimits {
+              .max_memory_percent = max_memory_percent_,
+              .min_free_memory_mb = min_free_memory_mb_,
+              .max_process_rss_mb = max_process_rss_mb_,
+              .max_process_swap_mb = max_process_swap_mb_,
+              .max_swap_io_per_sec = max_swap_io_per_sec_,
+              .max_cpu_threshold = max_cpu_threshold_,
+              .max_threads = max_threads_.load(std::memory_order_relaxed),
+          });
       SPDLOG_WARN(
           "[{}] no progress for {} intervals ({} pending, {} active): {}",
           name_,
-          stall_intervals_,
+          stall_tracker_.intervals,
           stats.tasks_pending,
           stats.tasks_active,
           reason);
@@ -259,38 +226,102 @@ void BasicWorkPool<Key, KeyCompare>::log_final_stats() const
     // "why is my pool only at 50% CPU?" without re-running with
     // DEBUG logs.  Each counter is the number of schedule ticks on
     // which that gate blocked dispatch.
-    const auto total_throttle = stats.throttled_cpu + stats.throttled_memory_pct
-        + stats.throttled_free_memory + stats.throttled_process_rss
-        + stats.throttled_process_swap + stats.throttled_swap_io;
-    if (total_throttle > 0) {
-      // Compact form: only emit gates that actually fired.  The large-case
-      // run had every counter at 0 except cpu, producing the noisy
-      // ``cpu=35876 mem%=0 free_mem=0 rss=0 swap=0 swap_io=0`` line —
-      // an operator only needs to see that it was the CPU gate.  When
-      // multiple gates fire we still surface all of them so a swap-IO
-      // bottleneck is still distinguishable from a free-memory one.
-      std::string parts;
-      const auto add = [&](std::string_view label, std::size_t v)
-      {
-        if (v > 0) {
-          if (!parts.empty()) {
-            parts.append(" ");
-          }
-          parts.append(std::format("{}={}", label, v));
-        }
-      };
-      add("cpu", stats.throttled_cpu);
-      add("mem%", stats.throttled_memory_pct);
-      add("free_mem", stats.throttled_free_memory);
-      add("rss", stats.throttled_process_rss);
-      add("swap", stats.throttled_process_swap);
-      add("swap_io", stats.throttled_swap_io);
-      spdlog::info(
-          "[{}]   throttle: {} (total={})", name_, parts, total_throttle);
+    const ThrottleCounts throttle {
+        .cpu = stats.throttled_cpu,
+        .memory_pct = stats.throttled_memory_pct,
+        .free_memory = stats.throttled_free_memory,
+        .process_rss = stats.throttled_process_rss,
+        .process_swap = stats.throttled_process_swap,
+        .swap_io = stats.throttled_swap_io,
+    };
+    if (const auto total_throttle = throttle.total(); total_throttle > 0) {
+      // Compact form: only emit gates that actually fired, so an
+      // operator sees at a glance which gate held the pool back while
+      // a swap-IO bottleneck stays distinguishable from a free-memory
+      // one when several gates fire (see format_throttle_summary).
+      spdlog::info("[{}]   throttle: {} (total={})",
+                   name_,
+                   format_throttle_summary(throttle),
+                   total_throttle);
     }
   } catch (const std::exception& e) {
     SPDLOG_WARN("log_final_stats failed: {}", e.what());
   }
+}
+
+// ─── Pure diagnostics helpers (work_pool_diagnostics.hpp) ────────────────────
+
+std::string describe_stall_reason(const StallGateSnapshot& s,
+                                  const StallGateLimits& lim)
+{
+  if (s.memory_percent >= lim.max_memory_percent) {
+    return std::format("memory usage {:.1f}% >= {:.1f}%",
+                       s.memory_percent,
+                       lim.max_memory_percent);
+  }
+  if (s.available_memory_mb < lim.min_free_memory_mb
+      && s.available_memory_mb > 0.0)
+  {
+    return std::format("free memory {:.0f} MB < {:.0f} MB",
+                       s.available_memory_mb,
+                       lim.min_free_memory_mb);
+  }
+  if (lim.max_process_rss_mb > 0.0
+      && s.process_rss_mb >= lim.max_process_rss_mb)
+  {
+    return std::format("process RSS {:.0f} MB >= {:.0f} MB",
+                       s.process_rss_mb,
+                       lim.max_process_rss_mb);
+  }
+  if (s.swap_gate_engaged) {
+    // Only blame the VmSwap gate while it is actually closed (over the
+    // limit AND growing).  A large static VmSwap does not block
+    // dispatch, so reporting it here would misdirect the operator.
+    return std::format("process VmSwap {:.0f} MB >= {:.0f} MB and growing",
+                       s.process_swap_mb,
+                       lim.max_process_swap_mb);
+  }
+  if (lim.max_swap_io_per_sec > 0.0
+      && s.swap_io_rate >= lim.max_swap_io_per_sec)
+  {
+    return std::format("swap thrashing {:.0f} pg/s >= {:.0f} pg/s",
+                       s.swap_io_rate,
+                       lim.max_swap_io_per_sec);
+  }
+  if (s.active_threads + 1 >= static_cast<int>(lim.max_threads * 0.8)
+      && s.cpu_load >= lim.max_cpu_threshold)
+  {
+    return std::format(
+        "CPU load {:.1f}% >= {:.1f}%", s.cpu_load, lim.max_cpu_threshold);
+  }
+  if (s.swap_io_rate > 0.0) {
+    return std::format(
+        "active task(s) not completing (kernel paging "
+        "{:.0f} pg/s — likely thrash)",
+        s.swap_io_rate);
+  }
+  return "active task(s) not completing (external block or blocked I/O)";
+}
+
+std::string format_throttle_summary(const ThrottleCounts& c)
+{
+  std::string parts;
+  const auto add = [&](std::string_view label, std::size_t v)
+  {
+    if (v > 0) {
+      if (!parts.empty()) {
+        parts.append(" ");
+      }
+      parts.append(std::format("{}={}", label, v));
+    }
+  };
+  add("cpu", c.cpu);
+  add("mem%", c.memory_pct);
+  add("free_mem", c.free_memory);
+  add("rss", c.process_rss);
+  add("swap", c.process_swap);
+  add("swap_io", c.swap_io);
+  return parts;
 }
 
 // ─── Explicit instantiations ─────────────────────────────────────────────────

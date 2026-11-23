@@ -547,7 +547,7 @@ TEST_CASE("Mock CPU monitoring")
   public:
     void set_test_load(double load) { test_load_ = load; }
 
-    [[nodiscard]] double get_load() const noexcept { return test_load_; }
+    [[nodiscard]] double test_load() const noexcept { return test_load_; }
 
   private:
     double test_load_ = 50.0;
@@ -558,13 +558,13 @@ TEST_CASE("Mock CPU monitoring")
   SUBCASE("Simulate low CPU load")
   {
     monitor.set_test_load(25.0);
-    CHECK(monitor.get_load() == 25.0);
+    CHECK(monitor.test_load() == 25.0);
   }
 
   SUBCASE("Simulate high CPU load")
   {
     monitor.set_test_load(90.0);
-    CHECK(monitor.get_load() == 90.0);
+    CHECK(monitor.test_load() == 90.0);
   }
 }
 

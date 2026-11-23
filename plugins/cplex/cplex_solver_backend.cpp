@@ -186,11 +186,18 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   if (opts.param_file.has_value() && !opts.param_file->empty()) {
     const int rc = CPXreadcopyparam(env, opts.param_file->c_str());
     if (rc != 0) {
+      // Loud on purpose: a missing .prm silently changes the solve (the
+      // case's tuned LPMethod / MIP emphasis / tolerances are lost).  gtopt
+      // resolves relative paths against input_directory before the plugin
+      // sees them (`resolve_solver_param_files`), so reaching here means
+      // the file really is missing or unreadable.
       spdlog::warn(
-          "CPLEX: CPXreadcopyparam('{}') returned status {} — fell back to "
-          "gtopt-set defaults",
+          "CPLEX: CANNOT READ parameter file '{}' (CPXreadcopyparam status "
+          "{}{}) — solving with CPLEX/gtopt DEFAULT parameters, NOT the "
+          "case's tuning",
           *opts.param_file,
-          rc);
+          rc,
+          rc == CPXERR_FAIL_OPEN_READ ? ": cannot open file" : "");
     } else {
       spdlog::info(
           "CPLEX: read parameter file '{}' (typed gtopt options below override "

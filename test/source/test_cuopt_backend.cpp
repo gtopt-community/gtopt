@@ -232,7 +232,7 @@ TEST_CASE("cuOpt load_problem resets previous LP state")  // NOLINT
   CHECK(backend->obj_value() == doctest::Approx(3.0));
 }
 
-TEST_CASE("cuOpt set_log_filename writes a .log; clear stops it")  // NOLINT
+TEST_CASE("cuOpt set_log_filename writes a .log, clear stops it")  // NOLINT
 {
   auto backend = make_cuopt_or_skip();
   if (!backend) {

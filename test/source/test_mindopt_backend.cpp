@@ -285,7 +285,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "MindOpt set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
+    "MindOpt set_log_filename(level>0) writes a log, clear stops it")  // NOLINT
 {
   auto backend = make_mindopt_or_skip();
   if (!backend) {

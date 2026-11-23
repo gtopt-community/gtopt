@@ -248,7 +248,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "Gurobi set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
+    "Gurobi set_log_filename(level>0) writes a log, clear stops it")  // NOLINT
 {
   auto backend = make_gurobi_or_skip();
   if (!backend) {

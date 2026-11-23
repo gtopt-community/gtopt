@@ -52,7 +52,9 @@ namespace gtopt
 /// @param original_size  Original uncompressed size (must be known).
 /// @param codec  Algorithm used for compression.
 /// @return Decompressed bytes of exactly original_size.
-/// @throws std::runtime_error if decompression fails.
+/// @throws std::runtime_error if decompression fails or the codec does
+///         not produce exactly `original_size` bytes (corrupt/truncated
+///         stream or mismatched metadata — never zero-padded).
 [[nodiscard]] std::vector<char> decompress(std::span<const char> compressed,
                                            size_t original_size,
                                            CompressionCodec codec);
@@ -160,6 +162,9 @@ struct FlatLinearProblem;
 
 /// Decompress a buffer previously created by compress_flat_lp() and
 /// restore the numeric vectors of @p flp.  No-op when @p buf is empty.
+/// @throws std::runtime_error on a corrupt buffer or when
+///         `buf.original_size` disagrees with the flat-LP metadata; @p flp
+///         numeric vectors are left empty in that case.
 void decompress_flat_lp(FlatLinearProblem& flp, const CompressedBuffer& buf);
 
 /// Clear only the large numeric vectors of a FlatLinearProblem,
