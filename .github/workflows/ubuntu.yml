@@ -294,6 +294,18 @@ jobs:
           FAILED=$(grep -c "Failed" ctest_output.log || echo 0)
           echo "Total: $TOTAL | Passed: $PASSED | Failed: $FAILED"
 
+      # The main run pins CLP, so the output_highs/ goldens were never
+      # compared in CI.  Re-run the (small) e2e golden cases against the
+      # pinned HiGHS so they are, strictly, with the version they were
+      # generated with (see .github/actions/install-highs).
+      - name: e2e goldens with pinned HiGHS
+        run: |
+          set -o pipefail
+          ulimit -c unlimited
+          cd build
+          GTOPT_SOLVER=highs ctest -R '^e2e_' --output-on-failure \
+            -j"$(nproc)" 2>&1 | tee ctest_highs_e2e.log
+
       # Surface the failing test names as a check-run annotation so they
       # are visible from the checks API (and the PR UI) without opening
       # the raw job log.  `ctest` exits with a fixed code 8 on any test

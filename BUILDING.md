@@ -245,8 +245,12 @@ ls /usr/local/include/highs/Highs.h
 builds it on releases without a package, and it is the `libhighs-dev`
 of Ubuntu 26.04 / Debian 13.  Tests that compare HiGHS primal values
 (goldens) are only guaranteed against 1.12.0: other releases may return
-a different vertex of the same optimal face.  Bump all three places
-together and re-check the HiGHS goldens.
+a different vertex of the same optimal face, and the duals differ too
+(1.15.0 changes `efin_cost`, `eini_cost` and bus/converter duals of
+`cases/bat_4b_24` and `cases/exp_bat_4b_24`).  The `cases/*/output_highs/`
+goldens are generated with 1.12.0, and CI re-runs the e2e cases with
+`GTOPT_SOLVER=highs` against them.  Bump all three places together and
+regenerate the `output_highs/` goldens with the new version.
 
 ### macOS
 
