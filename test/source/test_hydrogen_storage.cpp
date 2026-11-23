@@ -30,7 +30,7 @@ TEST_CASE("HydrogenStorage default values")  // NOLINT
   CHECK_FALSE(hs.hydrogen_node.has_value());
   CHECK_FALSE(hs.input_efficiency.has_value());
   CHECK_FALSE(hs.output_efficiency.has_value());
-  CHECK_FALSE(hs.annual_loss.has_value());
+  CHECK_FALSE(hs.annual_standing_loss.has_value());
   CHECK_FALSE(hs.emin.has_value());
   CHECK_FALSE(hs.emax.has_value());
   CHECK_FALSE(hs.eini.has_value());

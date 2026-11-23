@@ -26,7 +26,7 @@ TEST_CASE("AmmoniaStorage JSON round-trip — refrigerated tank")  // NOLINT
     "name": "nh3_tank_mejillones",
     "type": "refrigerated",
     "ammonia_node": "nh3_node_1",
-    "annual_loss": 0.025,
+    "annual_standing_loss": 0.025,
     "emin": 0.0,
     "emax": 310000.0,
     "eini": 155000.0,
@@ -41,8 +41,7 @@ TEST_CASE("AmmoniaStorage JSON round-trip — refrigerated tank")  // NOLINT
   CHECK(as.name == "nh3_tank_mejillones");
   CHECK(as.type.value_or(Name {}) == "refrigerated");
   REQUIRE(as.ammonia_node.has_value());
-  REQUIRE(std::holds_alternative<Name>(*as.ammonia_node));
-  CHECK(std::get<Name>(*as.ammonia_node) == "nh3_node_1");
+  CHECK(as.ammonia_node == OptSingleId {Name {"nh3_node_1"}});
   CHECK(as.eini.value_or(-1.0) == doctest::Approx(155000.0));
   CHECK(as.efin.value_or(-1.0) == doctest::Approx(100000.0));
 }
@@ -52,6 +51,5 @@ TEST_CASE("AmmoniaStorage JSON: ammonia_node uid-int form")  // NOLINT
   std::string_view js = R"({"uid":1,"name":"tank","ammonia_node":42})";
   const AmmoniaStorage as = daw::json::from_json<AmmoniaStorage>(js);
   REQUIRE(as.ammonia_node.has_value());
-  REQUIRE(std::holds_alternative<Uid>(*as.ammonia_node));
-  CHECK(std::get<Uid>(*as.ammonia_node) == Uid {42});
+  CHECK(as.ammonia_node == OptSingleId {Uid {42}});
 }

@@ -52,7 +52,7 @@ TEST_CASE("ThermalStorage JSON round-trip — full molten-salt config")  // NOLI
     "thermal_node": "hot_tank",
     "input_efficiency": 0.98,
     "output_efficiency": 0.98,
-    "annual_loss": 0.05,
+    "annual_standing_loss": 0.05,
     "emin": 150.0,
     "emax": 1500.0,
     "eini": 750.0,
@@ -69,8 +69,7 @@ TEST_CASE("ThermalStorage JSON round-trip — full molten-salt config")  // NOLI
   CHECK(ts.type.value_or(Name {}) == "molten_salt");
 
   REQUIRE(ts.thermal_node.has_value());
-  REQUIRE(std::holds_alternative<Name>(*ts.thermal_node));
-  CHECK(std::get<Name>(*ts.thermal_node) == "hot_tank");
+  CHECK(ts.thermal_node == OptSingleId {Name {"hot_tank"}});
 
   CHECK(ts.eini.value_or(-1.0) == doctest::Approx(750.0));
   CHECK(ts.efin.value_or(-1.0) == doctest::Approx(200.0));
@@ -90,6 +89,5 @@ TEST_CASE("ThermalStorage JSON: thermal_node accepts uid-int")  // NOLINT
   std::string_view js = R"({"uid":1,"name":"tes","thermal_node":42})";
   const ThermalStorage ts = daw::json::from_json<ThermalStorage>(js);
   REQUIRE(ts.thermal_node.has_value());
-  REQUIRE(std::holds_alternative<Uid>(*ts.thermal_node));
-  CHECK(std::get<Uid>(*ts.thermal_node) == Uid {42});
+  CHECK(ts.thermal_node == OptSingleId {Uid {42}});
 }

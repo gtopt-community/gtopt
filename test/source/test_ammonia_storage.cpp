@@ -30,7 +30,7 @@ TEST_CASE("AmmoniaStorage default values")  // NOLINT
   CHECK_FALSE(as.ammonia_node.has_value());
   CHECK_FALSE(as.input_efficiency.has_value());
   CHECK_FALSE(as.output_efficiency.has_value());
-  CHECK_FALSE(as.annual_loss.has_value());
+  CHECK_FALSE(as.annual_standing_loss.has_value());
   CHECK_FALSE(as.emin.has_value());
   CHECK_FALSE(as.emax.has_value());
   CHECK_FALSE(as.eini.has_value());
@@ -49,7 +49,7 @@ TEST_CASE("AmmoniaStorage attribute assignment — refrigerated tank")  // NOLIN
   // 60 kt-NH3 ≈ 310 GWh_LHV (5.17 kWh/kg × 60 000 t × 1000 kg/t / 1e6)
   as.eini = 155000.0;  // half-full (in MWh_LHV).
   as.emax = 310000.0;
-  as.annual_loss = 0.025;  // ~0.07% per day boil-off.
+  as.annual_standing_loss = 0.025;  // ~0.07% per day boil-off.
 
   CHECK(as.uid == Uid {77});
   CHECK(as.name == "atacama_nh3_tank");

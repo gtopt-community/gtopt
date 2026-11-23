@@ -656,6 +656,10 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions opts;
+    // The col-scale checks below isolate variable_scales: pin row_max so
+    // the multi-bus Kirchhoff ruiz default does not rescale the columns.
+    opts.lp_matrix_options.equilibration_method =
+        LpEquilibrationMethod::row_max;
     // Set energy scale via variable_scales option (not per-element field)
     opts.variable_scales = {
         {

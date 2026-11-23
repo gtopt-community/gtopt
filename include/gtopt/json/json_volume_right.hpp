@@ -48,7 +48,7 @@ struct VolumeRightConstructor
       OptBool forfeit,
       OptReal flow_conversion_rate,
       OptBool use_state_variable,
-      OptTRealFieldSched annual_loss,
+      OptTRealFieldSched annual_standing_loss,
       OptName reset_month_str,
       OptBool reset_monthly,
       OptReal reset_value,
@@ -80,7 +80,7 @@ struct VolumeRightConstructor
     vr.forfeit = forfeit;
     vr.flow_conversion_rate = flow_conversion_rate;
     vr.use_state_variable = use_state_variable;
-    vr.annual_loss = std::move(annual_loss);
+    vr.annual_standing_loss = std::move(annual_standing_loss);
     if (reset_month_str) {
       vr.reset_month =
           gtopt::require_enum<MonthType>("reset_month", *reset_month_str);
@@ -129,7 +129,7 @@ struct json_data_contract<VolumeRight>
       json_bool_null<"forfeit", OptBool>,
       json_number_null<"flow_conversion_rate", OptReal>,
       json_bool_null<"use_state_variable", OptBool>,
-      json_variant_null<"annual_loss",
+      json_variant_null<"annual_standing_loss",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_string_null<"reset_month", OptName>,
@@ -164,7 +164,7 @@ struct json_data_contract<VolumeRight>
                            vr.forfeit,
                            vr.flow_conversion_rate,
                            vr.use_state_variable,
-                           vr.annual_loss,
+                           vr.annual_standing_loss,
                            detail::enum_to_opt_name(vr.reset_month),
                            vr.reset_monthly,
                            vr.reset_value,

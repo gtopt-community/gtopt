@@ -726,7 +726,7 @@ TEST_CASE(  // NOLINT
   // vertex the battery power envelope now cuts (obj jumped to 180).
   sys.demand_array[1].fcost = 0.0;
   // This test is about chronological-stage assembly, not self-discharge.
-  sys.battery_array[0].annual_loss = 0.0;
+  sys.battery_array[0].annual_standing_loss = 0.0;
 
   const auto simulation = make_chrono_simulation();
   PlanningOptions popts;

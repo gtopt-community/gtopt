@@ -28,7 +28,7 @@ TEST_CASE("HydrogenStorage JSON round-trip — salt cavern")  // NOLINT
     "hydrogen_node": "h2_node_1",
     "input_efficiency": 0.95,
     "output_efficiency": 0.99,
-    "annual_loss": 0.005,
+    "annual_standing_loss": 0.005,
     "emin": 50000.0,
     "emax": 200000.0,
     "eini": 100000.0,
@@ -43,8 +43,7 @@ TEST_CASE("HydrogenStorage JSON round-trip — salt cavern")  // NOLINT
   CHECK(hs.name == "salt_cavern_atacama");
   CHECK(hs.type.value_or(Name {}) == "salt_cavern");
   REQUIRE(hs.hydrogen_node.has_value());
-  REQUIRE(std::holds_alternative<Name>(*hs.hydrogen_node));
-  CHECK(std::get<Name>(*hs.hydrogen_node) == "h2_node_1");
+  CHECK(hs.hydrogen_node == OptSingleId {Name {"h2_node_1"}});
   CHECK(hs.eini.value_or(-1.0) == doctest::Approx(100000.0));
   CHECK(hs.efin.value_or(-1.0) == doctest::Approx(80000.0));
 }

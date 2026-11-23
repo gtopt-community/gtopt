@@ -81,13 +81,13 @@ public:
 
   static constexpr std::string_view DemandName {"demand"};
 
-  /// Per-block pass-through bypass column (`bypass_b ≥ 0`).  Emitted
-  /// only when ``FlowRight::junction_b`` is set: contributes
-  /// negatively to ``junction_a``'s balance row (water leaves the
-  /// source junction) and positively to ``junction_b``'s
-  /// balance row (water arrives downstream).  Priced at
-  /// ``bypass_cost · cf`` so the LP only uses it when pressure
-  /// relief is required.
+  /// Per-block pass-through bypass column (`bypass_b ∈ [0, bypass_fmax]`).
+  /// Emitted only when the bypass is explicitly requested
+  /// (``FlowRight::bypass_requested()``) and both junctions are set:
+  /// contributes −1 to ``junction_a``'s balance row and +1 to
+  /// ``junction_b``'s, priced at ``bypass_cost · cf``.  Written to the
+  /// output as ``FlowRight/bypass_sol`` and exposed to PAMPL as
+  /// ``flow_right('x').bypass``.
   static constexpr std::string_view BypassName {"bypass"};
 
   explicit FlowRightLP(const FlowRight& pflow, const InputContext& ic);
@@ -230,6 +230,23 @@ public:
     }
     return b_it->second;
   }
+  /// Column of the opt-in pass-through bypass at (scenario, stage,
+  /// block); `std::nullopt` when the bypass was not emitted.
+  [[nodiscard]] std::optional<ColIndex> bypass_col_at(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      const BlockLP& block) const noexcept
+  {
+    const auto st_it = bypass_cols.find({scenario.uid(), stage.uid()});
+    if (st_it == bypass_cols.end()) {
+      return std::nullopt;
+    }
+    const auto b_it = st_it->second.find(block.uid());
+    if (b_it == st_it->second.end()) {
+      return std::nullopt;
+    }
+    return b_it->second;
+  }
   /// Test-only sibling of `fail_col_at` for the excess (sp) slack.
   [[nodiscard]] std::optional<ColIndex> excess_col_at(
       const ScenarioLP& scenario,
@@ -280,6 +297,9 @@ private:
   STBIndexHolder<ColIndex> excess_cols;
   /// Per-block kink rows `flow_b − excess_b + fail_b = target_b`.
   STBIndexHolder<RowIndex> flow_kink_rows;
+  /// Per-block opt-in pass-through columns `bypass_b` (a → b).  Empty
+  /// unless the bypass is requested (see `BypassName`).
+  STBIndexHolder<ColIndex> bypass_cols;
 
   /// Stage-average flow column `qeh ∈ [fmin_e, fmax_e]` (one per scene
   /// × stage).  Only populated when `use_average = true`.

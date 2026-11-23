@@ -70,7 +70,7 @@ namespace gtopt
  * volume balance per block is:
  *
  * ```text
- * V[t+1] = V[t] × (1 − annual_loss/8760 × duration)
+ * V[t+1] = V[t] × (1 − annual_standing_loss/8760 × duration)
  *        + flow_conversion_rate × (inflows − outflows) × duration
  * ```
  *
@@ -129,8 +129,9 @@ struct Reservoir
                              ///< Same unit convention as ``Waterway.fcost``.
 
   OptTRealFieldSched capacity {};  ///< Total usable storage capacity [hm³]
-  OptTRealFieldSched annual_loss {};  ///< Annual fractional evaporation/seepage
-                                      ///< loss [p.u./year]
+  OptTRealFieldSched
+      annual_standing_loss {};  ///< Annual fractional evaporation/seepage
+                                ///< loss [p.u./year]
   OptTBRealFieldSched emin {};  ///< Minimum allowed stored volume [hm³] —
                                 ///< per-(stage, block); accepts a scalar
                                 ///< (broadcasts), a 2-D nested array, or a

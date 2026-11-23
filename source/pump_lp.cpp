@@ -108,7 +108,16 @@ bool PumpLP::add_to_lp(const SystemContext& sc,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     };
     rrow[fcol] = stage_conversion_rate;
-    rrow[lcol] = -1;
+    // Stepwise-failure demand: the served load is Σ tranche columns.
+    if (const auto segs = demand.load_segment_cols(scenario, stage, buid);
+        !segs.empty())
+    {
+      for (const auto& scol : segs) {
+        rrow[scol] = -1;
+      }
+    } else {
+      rrow[lcol] = -1;
+    }
 
     rrows[buid] = lp.add_row(std::move(rrow.less_equal(0)));
 

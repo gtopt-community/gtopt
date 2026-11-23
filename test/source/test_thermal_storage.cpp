@@ -36,7 +36,7 @@ TEST_CASE("ThermalStorage default values")  // NOLINT
 
   CHECK_FALSE(ts.input_efficiency.has_value());
   CHECK_FALSE(ts.output_efficiency.has_value());
-  CHECK_FALSE(ts.annual_loss.has_value());
+  CHECK_FALSE(ts.annual_standing_loss.has_value());
 
   CHECK_FALSE(ts.emin.has_value());
   CHECK_FALSE(ts.emax.has_value());

@@ -83,9 +83,14 @@ bool FlowLP::add_to_lp(SystemContext& sc,
   // junction-balance RHS instead of emitting a fixed singleton column.
   // Disabled under the AR inflow model: the model needs live columns —
   // both as AR-row members and as the state-variable source the next
-  // stage/phase chains from.
-  const bool reduce_fixed_flow =
-      sc.options().lp_reduction() && !has_inflow_model;
+  // stage/phase chains from.  Also disabled for sddp / cascade: the
+  // aperture backward pass and the sampled forward realizations rewrite
+  // inflows through `update_aperture`, which pins flow COLUMNS — a folded
+  // inflow has no column and would silently keep the base scenario's
+  // hydrology in every aperture / sampled LP.
+  const bool reduce_fixed_flow = sc.options().lp_reduction()
+      && !has_inflow_model
+      && sc.options().method_type_enum() == MethodType::monolithic;
 
   // ── AR(1) inflow model: resolve this stage's lag ─────────────────────
   //

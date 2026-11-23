@@ -28,7 +28,7 @@ TEST_CASE("LngTerminal default construction")  // NOLINT
   CHECK_FALSE(t.ecost.has_value());
   CHECK_FALSE(t.eini.has_value());
   CHECK_FALSE(t.efin.has_value());
-  CHECK_FALSE(t.annual_loss.has_value());
+  CHECK_FALSE(t.annual_standing_loss.has_value());
   CHECK_FALSE(t.sendout_max.has_value());
   CHECK_FALSE(t.sendout_min.has_value());
   CHECK_FALSE(t.delivery.has_value());
@@ -245,11 +245,11 @@ TEST_CASE("LngTerminal with no delivery — generation drains tank")  // NOLINT
         == doctest::Approx(LngTestFixture::tank_ini - 20.0).epsilon(0.1));
 }
 
-TEST_CASE("LngTerminal with BOG (annual_loss)")  // NOLINT
+TEST_CASE("LngTerminal with BOG (annual_standing_loss)")  // NOLINT
 {
   LngTestFixture f;
   // Set BOG rate: 10% per year
-  f.system.lng_terminal_array.front().annual_loss = 0.1;
+  f.system.lng_terminal_array.front().annual_standing_loss = 0.1;
   // No delivery, no generator link — pure storage loss test
   f.system.lng_terminal_array.front().delivery = 0.0;
   f.system.lng_terminal_array.front().generators = {};

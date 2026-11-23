@@ -182,37 +182,43 @@ struct FlowRight
 
   /// Optional downstream junction (the return / pass-through point).
   /// Named `junction_b` for parity with Waterway/Turbine's downstream
-  /// endpoint.  When set, the FlowRight is no longer a pure 1-junction
-  /// consumer: any water at ``junction_a`` that the (potentially capped)
-  /// ``flow`` column cannot or does not consume can flow through an
-  /// auxiliary ``bypass`` column to ``junction_b`` instead.  This models
-  /// PLEXOS-style irrigation rights / hydro discharge envelopes
-  /// where the river continues downstream after the irrigation
-  /// point, regardless of how much (or little) is consumed by the
-  /// right itself.
+  /// endpoint.  It is used by two independent, explicit mechanisms:
   ///
-  /// LP shape per (scene, stage, block):
-  ///   * the existing ``flow_col`` column still represents the
-  ///     consumption side (bounded by ``[fmin, fmax]`` and the
-  ///     target/fcost/uvalue kink) — its sign in the source
-  ///     junction's balance is negative (water leaves the basin),
-  ///   * a new ``bypass_col`` column is added (free, non-negative,
-  ///     priced at ``bypass_cost·cf`` so it's only used when needed)
-  ///     contributing negatively to ``junction_a``'s balance and
-  ///     positively to ``junction_b``'s balance — preserving
-  ///     mass conservation.
+  ///   * ``consumptive = false`` — the SERVED flow is credited (+1) to
+  ///     ``junction_b`` (carry mode, see ``consumptive``);
+  ///   * the optional pass-through ``bypass`` arc (see ``use_bypass``).
   ///
-  /// Without this field the FlowRight remains a pure consumer
-  /// (backward-compatible).
+  /// Setting ``junction_b`` alone does NOT create any extra water path:
+  /// the bypass arc is opt-in.
   OptSingleId junction_b {};
 
+  /// Opt-in pass-through ``bypass`` arc ``junction_a → junction_b``.
+  ///
+  /// When enabled (and both junctions are set, in ``per_block`` /
+  /// ``stage_average`` mode) the LP adds one ``bypass_b`` column per
+  /// block, bounded by ``[0, bypass_fmax]`` and priced at
+  /// ``bypass_cost·cf``, contributing −1 to ``junction_a``'s balance and
+  /// +1 to ``junction_b``'s balance (mass-conserving).  It models
+  /// PLEXOS-style rights where the river continues downstream after the
+  /// offtake regardless of how much the right consumes.  The primal is
+  /// written to the output as ``FlowRight/bypass_sol``.
+  ///
+  /// Resolution: an explicit value wins; when unset the arc is enabled
+  /// iff ``bypass_cost`` or ``bypass_fmax`` is set (legacy implicit
+  /// opt-in).  A ``junction_b`` with none of the three emits no arc.
+  OptBool use_bypass {};
+
   /// Per-unit cost on the bypass column ($/m³/s·h).  Defaults to 0
-  /// (free pass-through, used freely by the LP whenever water
-  /// otherwise has nowhere to go).  Set a small positive value to
-  /// prefer consumption (``flow_col``) over pass-through, or a
-  /// large value to make the bypass a last-resort pressure release.
-  /// Only meaningful when ``junction_b`` is set.
+  /// (free pass-through).  Set a small positive value to prefer
+  /// consumption (``flow_col``) over pass-through, or a large value to
+  /// make the bypass a last-resort pressure release.  Only meaningful
+  /// when the bypass is enabled (see ``use_bypass``).
   OptReal bypass_cost {};
+
+  /// Upper bound on the bypass column [m³/s] (the pass-through channel
+  /// capacity).  Unset ⇒ unbounded.  Only meaningful when the bypass is
+  /// enabled (see ``use_bypass``).
+  OptReal bypass_fmax {};
 
   /// Consumptive flag for the SERVED flow (``flow_b`` / ``qeh``).
   ///
@@ -226,9 +232,18 @@ struct FlowRight
   /// like a Waterway/Turbine arc, while still enforcing the ``[fmin,fmax]``
   /// / ``target`` / ``fcost`` band on the carried flow.  Models a minimum
   /// river / turbined flow (cf. SDDP "minimum turbined/total outflow").
-  /// Requires ``junction_b``; the optional ``bypass_cost`` bypass
-  /// column still carries any pass-through above the served band.
+  /// Requires ``junction_b``.  Water above the served band needs its own
+  /// outlet at ``junction_a`` (e.g. a spill waterway, or the opt-in
+  /// ``use_bypass`` arc).
   OptBool consumptive {};
+
+  /// Resolved opt-in for the pass-through ``bypass`` arc (see
+  /// ``use_bypass``).  Does not check that the junctions are set.
+  [[nodiscard]] constexpr bool bypass_requested() const noexcept
+  {
+    return use_bypass.value_or(bypass_cost.has_value()
+                               || bypass_fmax.has_value());
+  }
 };
 
 }  // namespace gtopt

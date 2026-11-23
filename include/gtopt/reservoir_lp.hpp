@@ -67,7 +67,10 @@ public:
 
   [[nodiscard]] constexpr auto flow_conversion_rate() const noexcept
   {
-    return reservoir().flow_conversion_rate.value_or(3.6);
+    // Unset (e.g. omitted in JSON) → the same hm³/(m³/s·h) default as the
+    // C++ struct initialiser and the docs (was 3.6, the dam³ convention).
+    return reservoir().flow_conversion_rate.value_or(
+        Reservoir::default_flow_conversion_rate);
   }
 
   [[nodiscard]] constexpr auto spillway_cost() const noexcept

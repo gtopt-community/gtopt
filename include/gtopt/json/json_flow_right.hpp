@@ -62,7 +62,9 @@ struct FlowRightConstructor
                                      OptReal priority,
                                      std::optional<RightBoundRule> bound_rule,
                                      OptSingleId junction_b,
+                                     OptBool use_bypass,
                                      OptReal bypass_cost,
+                                     OptReal bypass_fmax,
                                      OptBool consumptive) const
   {
     // Back-compat alias: `discharge` is the legacy name of `target`.
@@ -93,7 +95,9 @@ struct FlowRightConstructor
         .priority = priority,
         .bound_rule = std::move(bound_rule),
         .junction_b = std::move(junction_b),
+        .use_bypass = use_bypass,
         .bypass_cost = bypass_cost,
+        .bypass_fmax = bypass_fmax,
         .consumptive = consumptive,
     };
   }
@@ -124,7 +128,9 @@ struct json_data_contract<FlowRight>
       json_number_null<"priority", OptReal>,
       json_class_null<"bound_rule", std::optional<RightBoundRule>>,
       json_variant_null<"junction_b", OptSingleId, jvtl_SingleId>,
+      json_bool_null<"use_bypass", OptBool>,
       json_number_null<"bypass_cost", OptReal>,
+      json_number_null<"bypass_fmax", OptReal>,
       json_bool_null<"consumptive", OptBool>>;
 
   constexpr static auto to_json_data(FlowRight const& fr)
@@ -150,7 +156,9 @@ struct json_data_contract<FlowRight>
                                  fr.priority,
                                  fr.bound_rule,
                                  fr.junction_b,
+                                 fr.use_bypass,
                                  fr.bypass_cost,
+                                 fr.bypass_fmax,
                                  fr.consumptive);
   }
 };

@@ -68,9 +68,10 @@ struct HydrogenStorage
   OptTBRealFieldSched output_efficiency {};  ///< Withdrawal efficiency [p.u.]
                                              ///< (pressure-reduction /
                                              ///< re-gasification losses).
-  OptTRealFieldSched annual_loss {};  ///< Self-discharge [p.u./year].
-                                      ///< Salt cavern: < 0.01.  LH₂: 0.5%
-                                      ///< per day → 0.18 per year.
+  OptTRealFieldSched
+      annual_standing_loss {};  ///< Self-discharge [p.u./year].
+                                ///< Salt cavern: < 0.01.  LH₂: 0.5%
+                                ///< per day → 0.18 per year.
 
   // ── Energy bounds (MWh_LHV) ─────────────────────────────────────
   OptTBRealFieldSched emin {};  ///< Minimum stored energy [MWh_LHV].

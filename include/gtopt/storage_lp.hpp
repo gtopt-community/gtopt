@@ -109,11 +109,11 @@ struct StorageOptions
   double scost {0.0};
 
   /// Self-discharge [p.u./year] used for every stage where the element's
-  /// own `annual_loss` schedule has no value.  `0.0` (lossless) for all
-  /// storages except Battery, which passes
-  /// `PlanningOptionsLP::battery_annual_loss()` (default 0.48 =
+  /// own `annual_standing_loss` schedule has no value.  `0.0` (lossless) for
+  /// all storages except Battery, which passes
+  /// `PlanningOptionsLP::battery_annual_standing_loss()` (default 0.48 =
   /// 4 %/month).
-  double default_annual_loss {0.0};
+  double default_annual_standing_loss {0.0};
 };
 
 template<typename Object>
@@ -169,8 +169,10 @@ public:
       , emin(ic, cname.full_name(), id(), std::move(storage().emin))
       , emax(ic, cname.full_name(), id(), std::move(storage().emax))
       , ecost(ic, cname.full_name(), id(), std::move(storage().ecost))
-      , annual_loss(
-            ic, cname.full_name(), id(), std::move(storage().annual_loss))
+      , annual_standing_loss(ic,
+                             cname.full_name(),
+                             id(),
+                             std::move(storage().annual_standing_loss))
       , soft_emin(ic, cname.full_name(), id(), std::move(storage().soft_emin))
       , soft_emin_cost(
             ic, cname.full_name(), id(), std::move(storage().soft_emin_cost))
@@ -529,8 +531,8 @@ public:
     // per-(stage, block); we resolve it inside the block loop below.
     // The legacy per-stage `stage_ecost` is no longer cached.
 
-    const auto hour_loss =
-        annual_loss.at(stage.uid()).value_or(opts.default_annual_loss)
+    const auto hour_loss = annual_standing_loss.at(stage.uid())
+                               .value_or(opts.default_annual_standing_loss)
         / hours_per_year;
     const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
 
@@ -1255,7 +1257,7 @@ private:
                         ///< contract as ``emin``.
   OptTBRealSched ecost;  ///< Per-(stage, block) holding cost.
 
-  OptTRealSched annual_loss;
+  OptTRealSched annual_standing_loss;
 
   OptTBRealSched soft_emin;  ///< Per-(stage, block) soft-emin floor.
   OptTBRealSched soft_emin_cost;  ///< Per-(stage, block) soft-emin

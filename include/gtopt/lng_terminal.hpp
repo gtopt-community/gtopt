@@ -19,12 +19,12 @@
  * |--------------------------|---------------------|-----------------------------------|
  * | emin, emax, eini, efin   | m³                  | LNG volume in tank | |
  * ecost                    | $/m³                | Holding cost per m³ stored |
- * | annual_loss              | p.u./year           | Boil-off gas fraction per
- * year    | | sendout_max, sendout_min | m³/h                | Regasification
- * rate limits        | | delivery                 | m³/stage            | Total
- * LNG delivered per stage     | | spillway_cost            | $/m³ | Penalty for
- * venting LNG           | | spillway_capacity        | m³/h                |
- * Max venting rate                  | | scost                    | $/m³ | SDDP
+ * | annual_standing_loss              | p.u./year           | Boil-off gas
+ * fraction per year    | | sendout_max, sendout_min | m³/h                |
+ * Regasification rate limits        | | delivery                 | m³/stage |
+ * Total LNG delivered per stage     | | spillway_cost            | $/m³ |
+ * Penalty for venting LNG           | | spillway_capacity        | m³/h | Max
+ * venting rate                  | | scost                    | $/m³ | SDDP
  * state penalty (× mpf → $/MWh) | | mean_production_factor   | MWh/m³ | Energy
  * content of LNG             | | soft_emin, soft_emin_cost| m³, $/m³ | Soft
  * lower bound and penalty      | | flow_conversion_rate     | m³/(m³/h · h) |
@@ -46,7 +46,7 @@
  *   "sendout_max": 2000,
  *   "delivery": [50000, 0, 50000, 0],
  *   "spillway_cost": 100,
- *   "annual_loss": 0.001,
+ *   "annual_standing_loss": 0.001,
  *   "use_state_variable": true,
  *   "generators": [
  *     {"generator": 10, "heat_rate": 0.18},
@@ -84,7 +84,7 @@ struct LngGeneratorLink
  * volume balance per block is:
  *
  * ```text
- * V[t+1] = V[t] × (1 − annual_loss/8760 × duration)
+ * V[t+1] = V[t] × (1 − annual_standing_loss/8760 × duration)
  *        + delivery_rate × duration
  *        − sendout × duration
  *        − vent × duration
@@ -139,7 +139,8 @@ struct LngTerminal
                          ///< storage_lp.hpp).
 
   // ── Losses ─────────────────────────────────────────────────────────────
-  OptTRealFieldSched annual_loss {};  ///< Boil-off gas rate [p.u./year]
+  OptTRealFieldSched
+      annual_standing_loss {};  ///< Boil-off gas rate [p.u./year]
 
   // ── Send-out (regasification) ──────────────────────────────────────────
   OptReal sendout_max {};  ///< Max regasification rate [m³/h]

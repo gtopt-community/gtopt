@@ -33,7 +33,7 @@
  *   * No ``source_generator`` (handled externally by the power block).
  *   * No internal ``commitment`` (the power block carries it).
  *   * ``emin`` represents the molten-salt freezing heel.
- *   * ``annual_loss`` is TES self-discharge from insulation losses
+ *   * ``annual_standing_loss`` is TES self-discharge from insulation losses
  *     (typical 5%/year ≈ 1 °C/day on a well-insulated two-tank
  *     molten-salt system).
  *   * Default unit is MWh_th, not MWh_e.
@@ -84,9 +84,10 @@ struct ThermalStorage
   OptTBRealFieldSched
       output_efficiency {};  ///< Discharging efficiency [p.u.] per-(stage,
                              ///< block). Captures salt→HTF losses.
-  OptTRealFieldSched annual_loss {};  ///< TES self-discharge [p.u./year].
-                                      ///< Typical 0.05 (≈ 5%/year ≈ 1 °C/day on
-                                      ///< a two-tank molten salt system).
+  OptTRealFieldSched
+      annual_standing_loss {};  ///< TES self-discharge [p.u./year].
+                                ///< Typical 0.05 (≈ 5%/year ≈ 1 °C/day on
+                                ///< a two-tank molten salt system).
 
   // ── Energy bounds (MWh_th) ──────────────────────────────────────
   OptTBRealFieldSched

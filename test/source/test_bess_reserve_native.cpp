@@ -47,7 +47,7 @@ struct BessCase
   double eini {50.0};
   double eta_c {1.0};
   double eta_d {1.0};
-  double annual_loss {0.0};
+  double annual_standing_loss {0.0};
   std::string native {"\"reserve_sustain_hours\": 1.0,"};
   // system
   double demand {50.0};
@@ -87,7 +87,7 @@ std::string make_json(const BessCase& c)
     aux_battery = R"(,
         {"uid": 2, "name": "aux", "bus": 1,
          "input_efficiency": 1.0, "output_efficiency": 1.0,
-         "annual_loss": 0.0, "emin": 0, "emax": 10000, "capacity": 10000,
+         "annual_standing_loss": 0.0, "emin": 0, "emax": 10000, "capacity": 10000,
          "eini": 5000, "pmax_charge": 1000, "pmax_discharge": 1000,
          "use_state_variable": true, "daily_cycle": false})";
     ucs = std::format(
@@ -125,7 +125,7 @@ std::string make_json(const BessCase& c)
     "battery_array": [
       {{"uid": 1, "name": "bess", "bus": 1,
         "input_efficiency": {}, "output_efficiency": {},
-        "annual_loss": {}, "emin": 0, "emax": {}, "capacity": {},
+        "annual_standing_loss": {}, "emin": 0, "emax": {}, "capacity": {},
         "eini": {}, "pmax_charge": {}, "pmax_discharge": {},
         {}
         "use_state_variable": true, "daily_cycle": false}}{}
@@ -141,7 +141,7 @@ std::string make_json(const BessCase& c)
       c.g1_cost,
       c.eta_c,
       c.eta_d,
-      c.annual_loss,
+      c.annual_standing_loss,
       c.emax,
       c.emax,
       c.eini,
@@ -344,8 +344,8 @@ TEST_CASE("BESS reserve: up SoC sufficiency with efficiency")  // NOLINT
 
   SUBCASE("self-discharge is drained before the sufficiency test")
   {
-    // annual_loss 0.48 → e = 50·(1 − 0.48/8760) + pc ≥ 150.
-    c.annual_loss = 0.48;
+    // annual_standing_loss 0.48 → e = 50·(1 − 0.48/8760) + pc ≥ 150.
+    c.annual_standing_loss = 0.48;
     const auto s = solve(c);
     const double pc = 100.0 + (50.0 * 0.48 / 8760.0);
     CHECK(s.soc == doctest::Approx(150.0));
@@ -401,7 +401,10 @@ TEST_CASE("BESS reserve: down SoC room and discharge credit")  // NOLINT
     h.native =
         R"("reserve_sustain_hours": 0.0, "reserve_discharge_credit": true,)";
     const auto cr = solve(h);
-    CHECK(cr.r_dn == doctest::Approx(50.0));
+    // Degenerate above the requirement: provision is free, so any
+    // r_dn in [50, Pc + pd - pc] = [50, 120] is optimal (HiGHS 1.12
+    // returns 120, 1.15 returns 50).  The objective pins the credit.
+    CHECK(cr.r_dn >= 50.0 - 1e-6);
     CHECK(cr.pd >= 30.0 - 1e-6);
     CHECK(cr.obj == doctest::Approx(0.0).epsilon(1e-9));
   }

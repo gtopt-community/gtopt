@@ -31,6 +31,9 @@ using namespace gtopt;
 namespace test_hydrogen_ammonia_lp_smoke
 {
 
+namespace
+{
+
 Simulation make_chrono_4h_simulation()
 {
   return {
@@ -56,6 +59,8 @@ Simulation make_chrono_4h_simulation()
           },
   };
 }
+
+}  // namespace
 
 }  // namespace test_hydrogen_ammonia_lp_smoke
 
@@ -108,7 +113,7 @@ TEST_CASE(
           .hydrogen_node = SingleId {Uid {11}},
           .input_efficiency = 0.95,
           .output_efficiency = 0.99,
-          // annual_loss intentionally unset: with eini == efin and no
+          // annual_standing_loss intentionally unset: with eini == efin and no
           // external source/sink, any self-discharge makes SoC drift below
           // efin and the LP becomes primal-infeasible.
           .emin = 50000.0,
@@ -137,7 +142,8 @@ TEST_CASE(
           .name = "nh3_tank",
           // ACTIVE: finp/fout now stamped into AmmoniaNodeLP balance row.
           .ammonia_node = SingleId {Uid {22}},
-          // annual_loss intentionally unset (same rationale as H₂ above).
+          // annual_standing_loss intentionally unset (same rationale as H₂
+          // above).
           .emin = 0.0,
           .emax = 310000.0,
           .eini = 155000.0,

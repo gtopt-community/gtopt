@@ -84,7 +84,7 @@ struct AmmoniaStorage
   /// Self-discharge from boil-off [p.u./year].  Refrigerated NH₃ tank
   /// ≈ 0.015–0.035 (0.04–0.1% per day).  Substantially smaller than
   /// LH₂ boil-off (~0.18/year).
-  OptTRealFieldSched annual_loss {};
+  OptTRealFieldSched annual_standing_loss {};
 
   // ── Energy bounds (MWh_LHV) ─────────────────────────────────────
   OptTBRealFieldSched emin {};  ///< Minimum stored energy [MWh_LHV].

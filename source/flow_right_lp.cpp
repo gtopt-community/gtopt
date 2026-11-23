@@ -669,8 +669,8 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     // a Waterway/Turbine arc) while still enforcing its [fmin,fmax]/target
     // band.  Default (`consumptive` unset/true) keeps the legacy
     // pure-consumer behaviour.  Requires `junction_b`.
-    const bool return_flow = !flow_right().consumptive.value_or(true)
-        && flow_right().junction_b.has_value();
+    const auto& ret_ref = flow_right().junction_b;
+    const bool return_flow = !flow_right().consumptive.value_or(true);
 
     if (mode == FlowMode::stage_uniform) {
       // Same qeh column subtracted from every block's balance row —
@@ -684,8 +684,8 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
             lp.row_at(brow_it->second)[qeh_it->second] = -1.0;
           }
         }
-        if (return_flow) {
-          const JunctionLPSId ret_sid(*flow_right().junction_b);
+        if (return_flow && ret_ref.has_value()) {
+          const JunctionLPSId ret_sid(*ret_ref);
           const auto& ret_brows =
               sc.element(ret_sid).balance_rows_at(scenario, stage);
           for (auto&& block : blocks) {
@@ -706,8 +706,8 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
           lp.row_at(brow_it->second)[fcol_it->second] = -1.0;
         }
       }
-      if (return_flow) {
-        const JunctionLPSId ret_sid(*flow_right().junction_b);
+      if (return_flow && ret_ref.has_value()) {
+        const JunctionLPSId ret_sid(*ret_ref);
         const auto& ret_brows =
             sc.element(ret_sid).balance_rows_at(scenario, stage);
         for (auto&& block : blocks) {
@@ -722,18 +722,19 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     }
   }
 
-  // Optional pass-through bypass.  When ``junction_b`` is set,
-  // emit one ``bypass_X`` column per block, contribute it negatively
-  // to ``junction_a``'s balance (water leaves the source junction
-  // alongside the consumption flow) and positively to
-  // ``junction_b``'s balance (water arrives downstream).  Only
-  // active for per-block / stage_average modes; stage_uniform is
-  // typically used for steady environmental releases that don't need
-  // a pass-through alternative.
+  // Opt-in pass-through bypass arc ``junction_a → junction_b``.  Only
+  // emitted when explicitly requested (``use_bypass``, or the legacy
+  // implicit opt-in via ``bypass_cost`` / ``bypass_fmax``) — a bare
+  // ``junction_b`` (e.g. a carry-mode right) must not open a hidden
+  // water path.  One ``bypass_b`` column per block, bounded by
+  // ``[0, bypass_fmax]``, priced at ``bypass_cost·cf``, contributing −1
+  // to ``junction_a``'s balance and +1 to ``junction_b``'s.  Only active
+  // for per-block / stage_average modes; stage_uniform is typically used
+  // for steady environmental releases that don't need a pass-through.
   const auto& bypass_ref = flow_right().junction_b;
   const auto& junction_ref = flow_right().junction_a;
-  if (bypass_ref.has_value() && mode != FlowMode::stage_uniform
-      && junction_ref.has_value())
+  if (flow_right().bypass_requested() && bypass_ref.has_value()
+      && mode != FlowMode::stage_uniform && junction_ref.has_value())
   {
     const JunctionLPSId src_sid(*junction_ref);
     const JunctionLPSId dst_sid(*bypass_ref);
@@ -742,7 +743,11 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     const auto& src_brows = src_lp.balance_rows_at(scenario, stage);
     const auto& dst_brows = dst_lp.balance_rows_at(scenario, stage);
     const Real bypass_cost_raw = flow_right().bypass_cost.value_or(0.0);
+    const Real bypass_uppb =
+        flow_right().bypass_fmax.value_or(LinearProblem::DblMax);
 
+    BIndexHolder<ColIndex> bcols;
+    map_reserve(bcols, blocks.size());
     for (auto&& block : blocks) {
       const auto buid = block.uid();
       const auto block_ctx =
@@ -752,13 +757,14 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
           : 0.0;
       const auto bypass_col = lp.add_col(SparseCol {
           .lowb = 0.0,
-          .uppb = LinearProblem::DblMax,
+          .uppb = bypass_uppb,
           .cost = bypass_cost_cf,
           .class_name = cname,
           .variable_name = BypassName,
           .variable_uid = uid(),
           .context = block_ctx,
       });
+      bcols[buid] = bypass_col;
       if (auto src_it = src_brows.find(buid); src_it != src_brows.end()) {
         lp.row_at(src_it->second)[bypass_col] = -1.0;
       }
@@ -766,6 +772,8 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         lp.row_at(dst_it->second)[bypass_col] = +1.0;
       }
     }
+    sc.add_ampl_variable(ampl_name, uid(), BypassName, scenario, stage, bcols);
+    bypass_cols[st_key] = std::move(bcols);
   }
 
   return true;
@@ -904,6 +912,12 @@ bool FlowRightLP::add_to_output(OutputContext& out) const
 
   out.add_col_sol(cname, FlowName, id(), flow_cols);
   out.add_col_cost(cname, FlowName, id(), flow_cols);
+
+  // Opt-in pass-through bypass arc (visible water path a → b).
+  if (!bypass_cols.empty()) {
+    out.add_col_sol(cname, BypassName, id(), bypass_cols);
+    out.add_col_cost(cname, BypassName, id(), bypass_cols);
+  }
 
   // Per-block kink slacks (primal = deficit / surplus quantity).
   // Full-kink path emits the explicit slack-column primals directly.

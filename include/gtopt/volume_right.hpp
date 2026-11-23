@@ -193,7 +193,8 @@ struct VolumeRight
   /// StateVariables (SDDP-style coupling — Tilmant's "dummy reservoir").
   OptBool use_state_variable {};
 
-  OptTRealFieldSched annual_loss {};  ///< Annual fractional loss [p.u./year]
+  OptTRealFieldSched
+      annual_standing_loss {};  ///< Annual fractional loss [p.u./year]
 
   /// Calendar month at which rights are re-provisioned.
   /// When the stage's month matches reset_month, eini is set to:

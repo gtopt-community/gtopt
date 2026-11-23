@@ -37,7 +37,7 @@ LngTerminalLP::LngTerminalLP(const LngTerminal& pterminal,
  * - Regasification (send-out) flow variables
  * - Delivery inflow schedule
  * - Generator fuel consumption coupling via heat rates
- * - Boil-off gas losses (via StorageLP annual_loss)
+ * - Boil-off gas losses (via StorageLP annual_standing_loss)
  * - Venting/spill with penalty cost
  */
 bool LngTerminalLP::add_to_lp(SystemContext& sc,
@@ -94,7 +94,7 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
   //          energy_rows after this call, matching PLP's model where
   //          the only physical outflow is generator fuel consumption)
   // - drain = venting (with spillway_cost/capacity)
-  // - annual_loss = BOG
+  // - annual_standing_loss = BOG
   const BIndexHolder<ColIndex> empty_fout;
 
   const auto mpf = terminal().mean_production_factor.value_or(

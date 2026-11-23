@@ -471,9 +471,14 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      // Physical coefficient: flow → energy conversion factor.
+      // The parent's energy row follows the storage convention
+      // `E_b = E_{b-1} − coef·x`: a POSITIVE coefficient is an outflow
+      // (same sign as the physical-reservoir coupling below).  So a
+      // withdrawal (`direction = −1`, the default) must enter with
+      // `+fcr·dur` and a supply (`direction = +1`) with `−fcr·dur`,
+      // i.e. `coef = −direction·fcr·dur`.
       // flatten() applies col_scale to both flow and energy columns.
-      const auto coeff = flow_conversion_rate() * block.duration() * dir;
+      const auto coeff = -flow_conversion_rate() * block.duration() * dir;
       lp.row_at(vr_erows.at(buid))[extraction_cols.at(buid)] = coeff;
     }
   }

@@ -10,6 +10,7 @@
  * junctions, including flow balance constraints and drain effects.
  */
 
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -52,6 +53,13 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
   // drain_cost}`` row.  Defaults (uppb = +∞, cost = 0) preserve the
   // legacy free-drain behaviour for junctions that don't carry the
   // new fields.
+  //
+  // ``drain_cost`` is priced like ``Waterway.fcost`` and
+  // ``Reservoir.spillway_cost``: $/(m³/s)·h through
+  // ``CostHelper::block_ecost`` (× probability × discount × duration), so
+  // the junction-level drain and the ``_ver`` waterway encoding really
+  // build the same LP.  It used to enter the objective raw, i.e. without
+  // the block duration and the scenario/stage cost factor.
   const double drain_uppb = junction().drain_capacity.value_or(DblMax);
   const double drain_cost = junction().drain_cost.value_or(0.0);
 
@@ -70,7 +78,9 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
     if (add_drain_col) {
       const auto dcol = lp.add_col({
           .uppb = drain_uppb,
-          .cost = drain_cost,
+          .cost = drain_cost != 0.0
+              ? CostHelper::block_ecost(scenario, stage, block, drain_cost)
+              : 0.0,
           .class_name = Element::class_name.full_name(),
           .variable_name = DrainName,
           .variable_uid = uid(),
@@ -108,9 +118,8 @@ bool JunctionLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
-  // `drain:cost` is **not** emitted — the drain column is constructed
-  // with `.cost = 0.0` (no objective contribution), so its reduced
-  // cost is zero by construction.  No downstream tooling consumes
+  // `drain:cost` is **not** emitted — the drain column is free unless
+  // `drain_cost` is set, and no downstream tooling consumes
   // `Junction/drain_cost.*` (verified by grep across scripts/ /
   // guiservice/ / integration_test/, 2026-05-14).  Mirrors the
   // line.flow:cost / bus.theta:cost drops.

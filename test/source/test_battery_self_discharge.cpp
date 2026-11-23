@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Battery self-discharge default (model_options.battery_annual_loss,
+// Battery self-discharge default (model_options.battery_annual_standing_loss,
 // 0.48 p.u./year = 4 %/month) and the battery power-envelope valid
 // inequality (model_options.battery_power_envelope,
 // p_c/Pc_max + p_d/Pd_max <= 1).
@@ -68,7 +68,7 @@ Simulation make_sim(const Vec& durations)
 
 struct RunOpts
 {
-  std::optional<double> battery_annual_loss {};
+  std::optional<double> battery_annual_standing_loss {};
   std::optional<bool> battery_power_envelope {};
 };
 
@@ -124,11 +124,12 @@ BatRun solve(const Vec& durations,
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1.0e4;
   opts.model_options.use_single_bus = true;
-  if (ro.battery_annual_loss) {
-    opts.model_options.battery_annual_loss = *ro.battery_annual_loss;
+  if (ro.battery_annual_standing_loss) {
+    opts.model_options.battery_annual_standing_loss =
+        ro.battery_annual_standing_loss;
   }
   if (ro.battery_power_envelope) {
-    opts.model_options.battery_power_envelope = *ro.battery_power_envelope;
+    opts.model_options.battery_power_envelope = ro.battery_power_envelope;
   }
   const PlanningOptionsLP options {opts};
   // SimulationLP keeps a reference: the Simulation must outlive it.
@@ -162,7 +163,7 @@ BatRun solve(const Vec& durations,
 
 /// Idle battery: charging/discharging is priced out so c = d = 0 and
 /// the SoC only decays.
-Battery idle_battery(std::optional<double> annual_loss)
+Battery idle_battery(std::optional<double> annual_standing_loss)
 {
   Battery bat {
       .uid = Uid {1},
@@ -181,38 +182,48 @@ Battery idle_battery(std::optional<double> annual_loss)
       .use_state_variable = true,
       .daily_cycle = false,
   };
-  if (annual_loss) {
-    bat.annual_loss = *annual_loss;
+  if (annual_standing_loss) {
+    bat.annual_standing_loss = *annual_standing_loss;
   }
   return bat;
 }
 
-const Array<Generator> k_flat_gen = {
-    {
-        .uid = Uid {1},
-        .name = "g1",
-        .bus = Uid {1},
-        .gcost = 100.0,
-        .capacity = 1000.0,
-    },
-};
+/// Built on call: a namespace-scope Array would be a throwing static
+/// initializer.
+[[nodiscard]] auto k_flat_gen() -> Array<Generator>
+{
+  return {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 1000.0,
+      },
+  };
+}
 
-const Array<Demand> k_flat_dem = {
-    {
-        .uid = Uid {1},
-        .name = "d1",
-        .bus = Uid {1},
-        .lmax = 50.0,
-    },
-};
+/// Built on call: a namespace-scope Array would be a throwing static
+/// initializer.
+[[nodiscard]] auto k_flat_dem() -> Array<Demand>
+{
+  return {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .lmax = 50.0,
+      },
+  };
+}
 
 }  // namespace
 
 TEST_CASE("Battery self-discharge default - 4 %/month SoC decay")  // NOLINT
 {
-  SUBCASE("absent annual_loss: one 730 h block loses exactly 4 %")
+  SUBCASE("absent annual_standing_loss: one 730 h block loses exactly 4 %")
   {
-    const auto r = solve({730.0}, k_flat_gen, k_flat_dem, idle_battery({}));
+    const auto r = solve({730.0}, k_flat_gen(), k_flat_dem(), idle_battery({}));
     REQUIRE(r.soc.size() == 1);
     CHECK(r.c[0] == doctest::Approx(0.0));
     CHECK(r.d[0] == doctest::Approx(0.0));
@@ -220,41 +231,42 @@ TEST_CASE("Battery self-discharge default - 4 %/month SoC decay")  // NOLINT
     CHECK(r.soc[0] == doctest::Approx(96.0).epsilon(1e-9));
   }
 
-  SUBCASE("absent annual_loss: 730 hourly blocks compound the drain")
+  SUBCASE("absent annual_standing_loss: 730 hourly blocks compound the drain")
   {
     const auto r =
-        solve(Vec(730, 1.0), k_flat_gen, k_flat_dem, idle_battery({}));
+        solve(Vec(730, 1.0), k_flat_gen(), k_flat_dem(), idle_battery({}));
     REQUIRE(r.soc.size() == 730);
     const double expected = 100.0 * std::pow(1.0 - k_h, 730.0);  // 96.077
     CHECK(r.soc.back() == doctest::Approx(expected).epsilon(1e-9));
     CHECK(r.soc.front() == doctest::Approx(100.0 * (1.0 - k_h)));
   }
 
-  SUBCASE("explicit annual_loss = 0 is respected (no loss)")
+  SUBCASE("explicit annual_standing_loss = 0 is respected (no loss)")
   {
-    const auto r = solve({730.0}, k_flat_gen, k_flat_dem, idle_battery(0.0));
+    const auto r =
+        solve({730.0}, k_flat_gen(), k_flat_dem(), idle_battery(0.0));
     CHECK(r.soc[0] == doctest::Approx(100.0).epsilon(1e-9));
   }
 
-  SUBCASE("planning-level override model_options.battery_annual_loss")
+  SUBCASE("planning-level override model_options.battery_annual_standing_loss")
   {
     // 0.12 p.u./year → 1 % over 730 h.
     const auto r = solve({730.0},
-                         k_flat_gen,
-                         k_flat_dem,
+                         k_flat_gen(),
+                         k_flat_dem(),
                          idle_battery({}),
                          {
-                             .battery_annual_loss = 0.12,
+                             .battery_annual_standing_loss = 0.12,
                          });
     CHECK(r.soc[0] == doctest::Approx(99.0).epsilon(1e-9));
 
     // Legacy behaviour restored with 0.
     const auto r0 = solve({730.0},
-                          k_flat_gen,
-                          k_flat_dem,
+                          k_flat_gen(),
+                          k_flat_dem(),
                           idle_battery({}),
                           {
-                              .battery_annual_loss = 0.0,
+                              .battery_annual_standing_loss = 0.0,
                           });
     CHECK(r0.soc[0] == doctest::Approx(100.0).epsilon(1e-9));
   }
@@ -263,11 +275,11 @@ TEST_CASE("Battery self-discharge default - 4 %/month SoC decay")  // NOLINT
   {
     // 0.24 p.u./year → 2 % over 730 h, override (0) ignored.
     const auto r = solve({730.0},
-                         k_flat_gen,
-                         k_flat_dem,
+                         k_flat_gen(),
+                         k_flat_dem(),
                          idle_battery(0.24),
                          {
-                             .battery_annual_loss = 0.0,
+                             .battery_annual_standing_loss = 0.0,
                          });
     CHECK(r.soc[0] == doctest::Approx(98.0).epsilon(1e-9));
   }
@@ -276,8 +288,9 @@ TEST_CASE("Battery self-discharge default - 4 %/month SoC decay")  // NOLINT
 TEST_CASE("Battery self-discharge default - Reservoir unaffected")  // NOLINT
 {
   // A reservoir on an isolated junction cannot release water, so its
-  // volume only changes through annual_loss.  With annual_loss unset it
-  // must stay at eini (the battery default must not leak into it).
+  // volume only changes through annual_standing_loss.  With
+  // annual_standing_loss unset it must stay at eini (the battery default must
+  // not leak into it).
   const System system = {
       .name = "RsvNoDefaultLoss",
       .bus_array =
@@ -287,8 +300,8 @@ TEST_CASE("Battery self-discharge default - Reservoir unaffected")  // NOLINT
                   .name = "b1",
               },
           },
-      .demand_array = k_flat_dem,
-      .generator_array = k_flat_gen,
+      .demand_array = k_flat_dem(),
+      .generator_array = k_flat_gen(),
       .junction_array =
           {
               {
@@ -341,22 +354,22 @@ TEST_CASE("PlanningLP logs and counts batteries taking the default")  // NOLINT
       idle_battery(0.0),
       idle_battery({}),
   };
-  CHECK(PlanningLP::log_battery_annual_loss_default(planning) == 2);
+  CHECK(PlanningLP::log_battery_annual_standing_loss_default(planning) == 2);
   planning.system.battery_array.clear();
-  CHECK(PlanningLP::log_battery_annual_loss_default(planning) == 0);
+  CHECK(PlanningLP::log_battery_annual_standing_loss_default(planning) == 0);
 }
 
 // ─── Zig-zag degeneracy ─────────────────────────────────────────────────────
 //
 // 24 hourly blocks, flat price 100 $/MWh (one generator), demand 50 MW,
 // lossless-efficiency battery (η_in = η_out = 1), eini = 0, 20 MW.
-// With annual_loss = 0 any charge/discharge cycling has zero cost, so the
-// LP has a face of alternate optima.  The default self-discharge makes
+// With annual_standing_loss = 0 any charge/discharge cycling has zero cost, so
+// the LP has a face of alternate optima.  The default self-discharge makes
 // every stored MWh decay, so cycling becomes strictly costly.
 namespace
 {
 
-Battery zigzag_battery(std::optional<double> annual_loss,
+Battery zigzag_battery(std::optional<double> annual_standing_loss,
                        OptTBRealFieldSched pmin_c = {},
                        OptTBRealFieldSched pmax_c = RealFieldSched2 {20.0},
                        OptTBRealFieldSched pmin_d = {},
@@ -379,8 +392,8 @@ Battery zigzag_battery(std::optional<double> annual_loss,
       .use_state_variable = true,
       .daily_cycle = false,
   };
-  if (annual_loss) {
-    bat.annual_loss = *annual_loss;
+  if (annual_standing_loss) {
+    bat.annual_standing_loss = *annual_standing_loss;
   }
   return bat;
 }
@@ -408,10 +421,10 @@ TEST_CASE("Battery zig-zag degeneracy removed by self-discharge")  // NOLINT
   SUBCASE("free optimum: no cycling with the default")
   {
     const auto lossless =
-        solve(hours, k_flat_gen, k_flat_dem, zigzag_battery(0.0));
+        solve(hours, k_flat_gen(), k_flat_dem(), zigzag_battery(0.0));
     CHECK(lossless.obj == doctest::Approx(base).epsilon(1e-9));
 
-    const auto r = solve(hours, k_flat_gen, k_flat_dem, zigzag_battery({}));
+    const auto r = solve(hours, k_flat_gen(), k_flat_dem(), zigzag_battery({}));
     CHECK(r.obj == doctest::Approx(base).epsilon(1e-9));
     // With μ > 0 any stored MWh decays → the unique optimum keeps the
     // SoC at 0 in every block.  With η = 1 a same-block c = d ≤ P/2
@@ -429,18 +442,22 @@ TEST_CASE("Battery zig-zag degeneracy removed by self-discharge")  // NOLINT
   {
     // Charge pinned to 20 MW in blocks 1, 3, ..., 23; discharge free
     // (≤ 20 MW) only in blocks 2, 4, ..., 24.
-    const auto chg = alternating(20.0, true);
-    const auto dis = alternating(20.0, false);
+    const auto chg = alternating(20.0, /*odd=*/true);
+    const auto dis = alternating(20.0, /*odd=*/false);
 
-    const auto zz0 = solve(
-        hours, k_flat_gen, k_flat_dem, zigzag_battery(0.0, chg, chg, {}, dis));
+    const auto zz0 = solve(hours,
+                           k_flat_gen(),
+                           k_flat_dem(),
+                           zigzag_battery(0.0, chg, chg, {}, dis));
     // Lossless: the zig-zag is cost-neutral → ties the optimum.
     CHECK(zz0.obj == doctest::Approx(base).epsilon(1e-9));
     CHECK(zz0.sum_c() == doctest::Approx(240.0));
     CHECK(zz0.sum_d() == doctest::Approx(240.0));
 
-    const auto zz = solve(
-        hours, k_flat_gen, k_flat_dem, zigzag_battery({}, chg, chg, {}, dis));
+    const auto zz = solve(hours,
+                          k_flat_gen(),
+                          k_flat_dem(),
+                          zigzag_battery({}, chg, chg, {}, dis));
     // Default: each 20 MWh cycle loses 20·h before it is discharged
     // (one hour of decay), replaced at 100 $/MWh.
     // Δ = 12 cycles × 20 MWh × h × 100 $/MWh = 24 000·h = 1.3150685 $.
@@ -468,8 +485,8 @@ TEST_CASE("Battery zig-zag degeneracy removed by self-discharge")  // NOLINT
       b.emax = 0.0;
       return b;
     };
-    const auto s0 = solve(hours, k_flat_gen, k_flat_dem, make(0.0));
-    const auto s = solve(hours, k_flat_gen, k_flat_dem, make({}));
+    const auto s0 = solve(hours, k_flat_gen(), k_flat_dem(), make(0.0));
+    const auto s = solve(hours, k_flat_gen(), k_flat_dem(), make({}));
     CHECK(s0.obj == doctest::Approx(base).epsilon(1e-9));
     CHECK(s.obj == doctest::Approx(base).epsilon(1e-9));
     CHECK(s.sum_c() == doctest::Approx(240.0));
@@ -516,21 +533,22 @@ TEST_CASE(
 
   SUBCASE("lossless: early and late charging tie")
   {
-    const auto e = solve(hours, gens, k_flat_dem, make(0.0, early));
-    const auto l = solve(hours, gens, k_flat_dem, make(0.0, late));
+    const auto e = solve(hours, gens, k_flat_dem(), make(0.0, early));
+    const auto l = solve(hours, gens, k_flat_dem(), make(0.0, late));
     CHECK(e.obj == doctest::Approx(base).epsilon(1e-9));
     CHECK(l.obj == doctest::Approx(base).epsilon(1e-9));
   }
 
   SUBCASE("default: charging late is strictly better")
   {
-    const auto e = solve(hours, gens, k_flat_dem, make({}, early));
-    const auto l = solve(hours, gens, k_flat_dem, make({}, late));
+    const auto e = solve(hours, gens, k_flat_dem(), make({}, early));
+    const auto l = solve(hours, gens, k_flat_dem(), make({}, late));
     // late: 20 MWh decays one hour → 20·h replaced at 100 $/MWh.
     CHECK(l.obj - base == doctest::Approx(2000.0 * k_h).epsilon(1e-6));
     // early: decays two hours → 20·(1 − (1 − h)²).
-    CHECK(e.obj - base
-          == doctest::Approx(2000.0 * (2.0 * k_h - k_h * k_h)).epsilon(1e-6));
+    CHECK(
+        e.obj - base
+        == doctest::Approx(2000.0 * ((2.0 * k_h) - (k_h * k_h))).epsilon(1e-6));
     // Δ = 2000·h·(1 − h) ≈ 0.10958 $.
     CHECK(e.obj - l.obj
           == doctest::Approx(2000.0 * k_h * (1.0 - k_h)).epsilon(1e-6));
@@ -538,7 +556,7 @@ TEST_CASE(
     // Free charging (≤ 20 MW in blocks 1–2): the optimum charges late.
     auto free_bat = make({}, OptTBRealFieldSched {20.0});
     free_bat.pmin_charge.reset();
-    const auto f = solve(hours, gens, k_flat_dem, free_bat);
+    const auto f = solve(hours, gens, k_flat_dem(), free_bat);
     CHECK(f.c[0] == doctest::Approx(0.0).epsilon(1e-9));
     CHECK(f.c[1] == doctest::Approx(20.0));
     CHECK(f.obj == doctest::Approx(l.obj).epsilon(1e-9));
@@ -578,20 +596,25 @@ Battery dump_battery(std::optional<double> loss)
       .daily_cycle = false,
   };
   if (loss) {
-    bat.annual_loss = *loss;
+    bat.annual_standing_loss = *loss;
   }
   return bat;
 }
 
-const Array<Generator> k_subsidised_gen = {
-    {
-        .uid = Uid {1},
-        .name = "g_neg",
-        .bus = Uid {1},
-        .gcost = -5.0,
-        .capacity = 80.0,
-    },
-};
+/// Built on call: a namespace-scope Array would be a throwing static
+/// initializer.
+[[nodiscard]] auto k_subsidised_gen() -> Array<Generator>
+{
+  return {
+      {
+          .uid = Uid {1},
+          .name = "g_neg",
+          .bus = Uid {1},
+          .gcost = -5.0,
+          .capacity = 80.0,
+      },
+  };
+}
 
 }  // namespace
 
@@ -609,8 +632,8 @@ TEST_CASE(
          {std::optional<double> {0.0}, std::optional<double> {}})
     {
       const auto r = solve(hours,
-                           k_subsidised_gen,
-                           k_flat_dem,
+                           k_subsidised_gen(),
+                           k_flat_dem(),
                            dump_battery(loss),
                            {
                                .battery_power_envelope = false,
@@ -624,8 +647,8 @@ TEST_CASE(
       // MWh.  Where inside the range a solver lands is a degenerate
       // vertex choice (CLP: 3022.05 with the default loss).
       const double l_max = loss ? 0.0 : 24.0 * emax * k_h;
-      CHECK(r.sum_d() >= (a * 720.0 - emax - l_max) / (b - a) - 1e-3);
-      CHECK(r.sum_d() <= a * 720.0 / (b - a) + 1e-3);
+      CHECK(r.sum_d() >= (((a * 720.0) - emax - l_max) / (b - a)) - 1e-3);
+      CHECK(r.sum_d() <= (a * 720.0 / (b - a)) + 1e-3);
       MESSAGE("no envelope, loss=" << std::string(loss ? "0" : "default")
                                    << ": discharge cycled " << r.sum_d()
                                    << " MWh, obj " << r.obj);
@@ -639,11 +662,11 @@ TEST_CASE(
     // Σ stored ≤ emax (+ tiny self-loss) ⇒
     //   Σs ≤ (24·(b − a)·P/2 + emax) / (a + (b − a)/2) = 513.83 MWh.
     const double sum_s_max =
-        (24.0 * (b - a) * k_pmax / 2.0 + emax) / (a + (b - a) / 2.0);
-    const double obj_expected = -5.0 * (24.0 * 50.0 + sum_s_max);
+        ((24.0 * (b - a) * k_pmax / 2.0) + emax) / (a + ((b - a) / 2.0));
+    const double obj_expected = -5.0 * ((24.0 * 50.0) + sum_s_max);
 
     const auto r0 =
-        solve(hours, k_subsidised_gen, k_flat_dem, dump_battery(0.0));
+        solve(hours, k_subsidised_gen(), k_flat_dem(), dump_battery(0.0));
     CHECK(r0.sum_c() - r0.sum_d() == doctest::Approx(sum_s_max).epsilon(1e-6));
     CHECK(r0.obj == doctest::Approx(obj_expected).epsilon(1e-6));
     for (std::size_t i = 0; i < r0.c.size(); ++i) {
@@ -651,14 +674,16 @@ TEST_CASE(
     }
 
     // Default self-discharge barely changes it (SoC ≤ 10 MWh).
-    const auto r = solve(hours, k_subsidised_gen, k_flat_dem, dump_battery({}));
+    const auto r =
+        solve(hours, k_subsidised_gen(), k_flat_dem(), dump_battery({}));
     CHECK(r.obj == doctest::Approx(obj_expected).epsilon(1e-4));
     CHECK(r.obj <= r0.obj + 1e-9);
 
     // Partial simultaneous operation is still used (honest limitation):
     // Σd = (24·P − Σs)/2 ≈ 2143 MWh of discharge while charging.
-    CHECK(r0.sum_d()
-          == doctest::Approx((24.0 * k_pmax - sum_s_max) / 2.0).epsilon(1e-6));
+    CHECK(
+        r0.sum_d()
+        == doctest::Approx(((24.0 * k_pmax) - sum_s_max) / 2.0).epsilon(1e-6));
     MESSAGE("envelope: surplus absorbed "
             << r0.sum_c() - r0.sum_d() << " MWh (vs 720), discharge cycled "
             << r0.sum_d() << " MWh, obj " << r0.obj);
@@ -668,10 +693,10 @@ TEST_CASE(
 TEST_CASE("Battery power envelope rows present by default")  // NOLINT
 {
   const Vec hours(24, 1.0);
-  const auto on = solve(hours, k_flat_gen, k_flat_dem, zigzag_battery({}));
+  const auto on = solve(hours, k_flat_gen(), k_flat_dem(), zigzag_battery({}));
   const auto off = solve(hours,
-                         k_flat_gen,
-                         k_flat_dem,
+                         k_flat_gen(),
+                         k_flat_dem(),
                          zigzag_battery({}),
                          {
                              .battery_power_envelope = false,
@@ -682,11 +707,13 @@ TEST_CASE("Battery power envelope rows present by default")  // NOLINT
 
   SUBCASE("skipped when one direction is off (pmax_charge = 0)")
   {
-    const auto r = solve(
-        hours, k_flat_gen, k_flat_dem, zigzag_battery({}, {}, 0.0, {}, 20.0));
+    const auto r = solve(hours,
+                         k_flat_gen(),
+                         k_flat_dem(),
+                         zigzag_battery({}, {}, 0.0, {}, 20.0));
     const auto r_off = solve(hours,
-                             k_flat_gen,
-                             k_flat_dem,
+                             k_flat_gen(),
+                             k_flat_dem(),
                              zigzag_battery({}, {}, 0.0, {}, 20.0),
                              {
                                  .battery_power_envelope = false,
@@ -747,14 +774,19 @@ Array<Generator> user_gen(double window_price)
   };
 }
 
-const Array<Demand> k_user_dem = {
-    {
-        .uid = Uid {1},
-        .name = "d",
-        .bus = Uid {1},
-        .lmax = 100.0,
-    },
-};
+/// Built on call: a namespace-scope Array would be a throwing static
+/// initializer.
+[[nodiscard]] auto k_user_dem() -> Array<Demand>
+{
+  return {
+      {
+          .uid = Uid {1},
+          .name = "d",
+          .bus = Uid {1},
+          .lmax = 100.0,
+      },
+  };
+}
 
 Battery user_battery(std::optional<double> loss,
                      bool zigzag,
@@ -806,7 +838,7 @@ Battery user_battery(std::optional<double> loss,
       .daily_cycle = false,
   };
   if (loss) {
-    bat.annual_loss = *loss;
+    bat.annual_standing_loss = *loss;
   }
   return bat;
 }
@@ -823,7 +855,7 @@ double peak_decay_cost()
     e -= d / k_ueta;
     delivered += d;
   }
-  return (k_ueta * k_ue - delivered) * 270.0;
+  return ((k_ueta * k_ue) - delivered) * 270.0;
 }
 
 double window_discharge(const BatRun& r)
@@ -844,19 +876,25 @@ TEST_CASE("User case: zig-zag in a 0 $/MWh window")  // NOLINT
   const Vec hours(k_nb, 1.0);
   // Lossless reference: night 9 h × 100 MW × 40 + peak (500 − 0.95·200)
   // × 270 = 36 000 + 83 700.
-  constexpr double base = 36000.0 + (500.0 - k_ueta * k_ue) * 270.0;
+  constexpr double base = 36000.0 + ((500.0 - (k_ueta * k_ue)) * 270.0);
   // Zig-zag cycles 4 × 20 MWh through the battery inside the window.
   constexpr double zz_mwh = 80.0;
 
-  SUBCASE("a) annual_loss = 0, no envelope: zig-zag ties the optimum")
+  SUBCASE("a) annual_standing_loss = 0, no envelope: zig-zag ties the optimum")
   {
     const RunOpts ro {
         .battery_power_envelope = false,
     };
-    const auto ref =
-        solve(hours, user_gen(0.0), k_user_dem, user_battery(0.0, false), ro);
-    const auto zz =
-        solve(hours, user_gen(0.0), k_user_dem, user_battery(0.0, true), ro);
+    const auto ref = solve(hours,
+                           user_gen(0.0),
+                           k_user_dem(),
+                           user_battery(0.0, /*zigzag=*/false),
+                           ro);
+    const auto zz = solve(hours,
+                          user_gen(0.0),
+                          k_user_dem(),
+                          user_battery(0.0, /*zigzag=*/true),
+                          ro);
     CHECK(ref.obj == doctest::Approx(base).epsilon(1e-9));
     CHECK(zz.obj == doctest::Approx(base).epsilon(1e-9));
     CHECK(window_discharge(zz) == doctest::Approx(zz_mwh));
@@ -872,10 +910,16 @@ TEST_CASE("User case: zig-zag in a 0 $/MWh window")  // NOLINT
     const RunOpts ro {
         .battery_power_envelope = false,
     };
-    const auto ref =
-        solve(hours, user_gen(0.0), k_user_dem, user_battery({}, false), ro);
-    const auto zz =
-        solve(hours, user_gen(0.0), k_user_dem, user_battery({}, true), ro);
+    const auto ref = solve(hours,
+                           user_gen(0.0),
+                           k_user_dem(),
+                           user_battery({}, /*zigzag=*/false),
+                           ro);
+    const auto zz = solve(hours,
+                          user_gen(0.0),
+                          k_user_dem(),
+                          user_battery({}, /*zigzag=*/true),
+                          ro);
     CHECK(ref.soc[17] == doctest::Approx(k_ue));
     CHECK(zz.soc[17] == doctest::Approx(k_ue));
     CHECK(zz.obj == doctest::Approx(ref.obj).epsilon(1e-10));
@@ -888,13 +932,13 @@ TEST_CASE("User case: zig-zag in a 0 $/MWh window")  // NOLINT
   SUBCASE("c) envelope: alternating zig-zag remains a tie")
   {
     // One direction per hour never touches c/50 + d/50 ≤ 1.
-    const auto ref =
-        solve(hours, user_gen(0.0), k_user_dem, user_battery({}, false));
-    const auto zz =
-        solve(hours, user_gen(0.0), k_user_dem, user_battery({}, true));
+    const auto ref = solve(
+        hours, user_gen(0.0), k_user_dem(), user_battery({}, /*zigzag=*/false));
+    const auto zz = solve(
+        hours, user_gen(0.0), k_user_dem(), user_battery({}, /*zigzag=*/true));
     CHECK(zz.obj == doctest::Approx(ref.obj).epsilon(1e-10));
     for (std::size_t i = 0; i < k_nb; ++i) {
-      CHECK(ref.c[i] / k_up + ref.d[i] / k_up <= 1.0 + 1e-9);
+      CHECK((ref.c[i] / k_up) + (ref.d[i] / k_up) <= 1.0 + 1e-9);
     }
   }
 
@@ -902,19 +946,21 @@ TEST_CASE("User case: zig-zag in a 0 $/MWh window")  // NOLINT
   {
     // Zig-zag delivers 80 MWh that had to be charged as
     // 80/(0.95·0.95) MWh: extra 80·(1/0.9025 − 1) = 8.6427 MWh at 1 $.
-    const double expected = zz_mwh * (1.0 / (k_ueta * k_ueta) - 1.0);
-    const auto ref =
-        solve(hours, user_gen(1.0), k_user_dem, user_battery(0.0, false));
-    const auto zz =
-        solve(hours, user_gen(1.0), k_user_dem, user_battery(0.0, true));
+    const double expected = zz_mwh * ((1.0 / (k_ueta * k_ueta)) - 1.0);
+    const auto ref = solve(hours,
+                           user_gen(1.0),
+                           k_user_dem(),
+                           user_battery(0.0, /*zigzag=*/false));
+    const auto zz = solve(
+        hours, user_gen(1.0), k_user_dem(), user_battery(0.0, /*zigzag=*/true));
     CHECK(zz.obj - ref.obj == doctest::Approx(expected).epsilon(1e-6));
 
     // With the default the zig-zag also holds energy longer → a little
     // more self-loss, also priced at 1 $/MWh.
-    const auto ref_l =
-        solve(hours, user_gen(1.0), k_user_dem, user_battery({}, false));
-    const auto zz_l =
-        solve(hours, user_gen(1.0), k_user_dem, user_battery({}, true));
+    const auto ref_l = solve(
+        hours, user_gen(1.0), k_user_dem(), user_battery({}, /*zigzag=*/false));
+    const auto zz_l = solve(
+        hours, user_gen(1.0), k_user_dem(), user_battery({}, /*zigzag=*/true));
     CHECK(zz_l.obj - ref_l.obj > expected - 1e-6);
     CHECK(zz_l.obj - ref_l.obj == doctest::Approx(expected).epsilon(1e-2));
     MESSAGE("window VOM 1 $/MWh: zig-zag penalty lossless "
@@ -925,26 +971,27 @@ TEST_CASE("User case: zig-zag in a 0 $/MWh window")  // NOLINT
   SUBCASE("d2) battery throughput cost (discharge_cost) breaks the tie")
   {
     // discharge_cost = 1 $/MWh: the zig-zag discharges 80 extra MWh.
-    auto ref_b = user_battery({}, false);
-    auto zz_b = user_battery({}, true);
+    auto ref_b = user_battery({}, /*zigzag=*/false);
+    auto zz_b = user_battery({}, /*zigzag=*/true);
     ref_b.discharge_cost = 1.0;
     zz_b.discharge_cost = 1.0;
-    const auto ref = solve(hours, user_gen(0.0), k_user_dem, ref_b);
-    const auto zz = solve(hours, user_gen(0.0), k_user_dem, zz_b);
+    const auto ref = solve(hours, user_gen(0.0), k_user_dem(), ref_b);
+    const auto zz = solve(hours, user_gen(0.0), k_user_dem(), zz_b);
     CHECK(zz.obj - ref.obj == doctest::Approx(zz_mwh).epsilon(1e-6));
   }
 
   SUBCASE("solver's own vertex on the degenerate case (report only)")
   {
-    // Free schedule, annual_loss = 0, envelope off: which vertex does the
-    // configured solver return?  Not asserted — the face is degenerate.
-    const auto r = solve(hours,
-                         user_gen(0.0),
-                         k_user_dem,
-                         user_battery(0.0, false, true),
-                         {
-                             .battery_power_envelope = false,
-                         });
+    // Free schedule, annual_standing_loss = 0, envelope off: which vertex does
+    // the configured solver return?  Not asserted — the face is degenerate.
+    const auto r =
+        solve(hours,
+              user_gen(0.0),
+              k_user_dem(),
+              user_battery(0.0, /*zigzag=*/false, /*window_discharge=*/true),
+              {
+                  .battery_power_envelope = false,
+              });
     double window_c = 0.0;
     for (std::size_t i = 0; i < k_nb; ++i) {
       if (in_window(i)) {

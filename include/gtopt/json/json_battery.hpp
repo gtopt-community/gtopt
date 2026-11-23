@@ -52,7 +52,7 @@ struct json_data_contract<Battery>
       json_variant_null<"output_efficiency",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,  ///< Output efficiency schedule
-      json_variant_null<"annual_loss",
+      json_variant_null<"annual_standing_loss",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Annual energy loss factor
       json_variant_null<"emin",
@@ -176,7 +176,7 @@ struct json_data_contract<Battery>
                                  battery.source_generator,
                                  battery.input_efficiency,
                                  battery.output_efficiency,
-                                 battery.annual_loss,
+                                 battery.annual_standing_loss,
                                  battery.emin,
                                  battery.emax,
                                  battery.ecost,

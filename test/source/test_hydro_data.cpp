@@ -248,7 +248,7 @@ TEST_CASE("Reservoir construction and default values")
   CHECK_FALSE(reservoir.spillway_cost.has_value());
 
   CHECK_FALSE(reservoir.capacity.has_value());
-  CHECK_FALSE(reservoir.annual_loss.has_value());
+  CHECK_FALSE(reservoir.annual_standing_loss.has_value());
   CHECK_FALSE(reservoir.emin.has_value());
   CHECK_FALSE(reservoir.emax.has_value());
   CHECK_FALSE(reservoir.ecost.has_value());
@@ -290,7 +290,7 @@ TEST_CASE("Reservoir attribute assignment")
   reservoir.spillway_cost = 5.0;
 
   reservoir.capacity = 50000.0;
-  reservoir.annual_loss = 0.02;
+  reservoir.annual_standing_loss = 0.02;
   reservoir.emin = 10000.0;
   reservoir.emax = 45000.0;
   reservoir.ecost = 1.5;
@@ -310,7 +310,7 @@ TEST_CASE("Reservoir attribute assignment")
 
   CHECK(*std::get_if<Real>(&reservoir.capacity.value())
         == doctest::Approx(50000.0));
-  CHECK(*std::get_if<Real>(&reservoir.annual_loss.value())
+  CHECK(*std::get_if<Real>(&reservoir.annual_standing_loss.value())
         == doctest::Approx(0.02));
   CHECK(*std::get_if<Real>(&reservoir.emin.value())
         == doctest::Approx(10000.0));

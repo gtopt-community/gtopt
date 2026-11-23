@@ -21,6 +21,8 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 // ── Shared fixture (same topology as test_flow_right.cpp Tier 2) ──────────
@@ -446,7 +448,7 @@ TEST_CASE(  // NOLINT
   const auto fr = daw::json::from_json<FlowRight>(json);
   REQUIRE(fr.target.has_value());
   // target is a variant: scalar stored as Real.
-  const auto* rptr = std::get_if<Real>(&*fr.target);
+  const auto* rptr = std::get_if<Real>(&test_support::require_value(fr.target));
   REQUIRE(rptr != nullptr);
   CHECK(*rptr == doctest::Approx(42.5));
   // The legacy discharge field is NOT stored separately — it is
@@ -507,13 +509,13 @@ TEST_CASE(  // NOLINT
 // ── 2.20b JSON: `consumptive` flag parses ────────────────────────────────
 
 TEST_CASE(  // NOLINT
-    "FlowRight JSON Tier 2.20b - consumptive flag parses; default unset")
+    "FlowRight JSON Tier 2.20b - consumptive flag parses, default unset")
 {
   const auto fr_soft = daw::json::from_json<FlowRight>(
       R"({"uid": 1, "name": "fr_nc", "junction_a": 1, "junction_b": 2,
           "consumptive": false})");
   REQUIRE(fr_soft.consumptive.has_value());
-  CHECK(*fr_soft.consumptive == false);
+  CHECK(fr_soft.consumptive == false);
 
   // Absent → unset (defaults to consumptive at the LP layer).
   const auto fr_def =
@@ -530,8 +532,8 @@ TEST_CASE(  // NOLINT
       R"({"uid": 1, "name": "fr_ab", "junction_a": 7, "junction_b": 9})");
   REQUIRE(fr.junction_a.has_value());
   REQUIRE(fr.junction_b.has_value());
-  CHECK(std::get<Uid>(*fr.junction_a) == Uid {7});
-  CHECK(std::get<Uid>(*fr.junction_b) == Uid {9});
+  CHECK(fr.junction_a == OptSingleId {Uid {7}});
+  CHECK(fr.junction_b == OptSingleId {Uid {9}});
 
   // The dropped legacy `junction` key is now an unknown member and is
   // silently ignored — junction_a stays unset when only `junction` is given.
@@ -553,7 +555,8 @@ TEST_CASE(  // NOLINT
           "target": [[5.0, 10.0], [3.0, 4.0]]})";
   const auto fr = daw::json::from_json<FlowRight>(json);
   REQUIRE(fr.target.has_value());
-  const auto* mat = std::get_if<std::vector<std::vector<Real>>>(&*fr.target);
+  const auto* mat = std::get_if<std::vector<std::vector<Real>>>(
+      &test_support::require_value(fr.target));
   REQUIRE(mat != nullptr);
   REQUIRE(mat->size() == 2);
   REQUIRE((*mat)[0].size() == 2);

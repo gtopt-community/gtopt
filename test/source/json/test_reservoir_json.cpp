@@ -15,7 +15,7 @@ TEST_CASE("Reservoir basic fields deserialization")
     "active":1,
     "junction":456,
     "capacity":null,
-    "annual_loss":null,
+    "annual_standing_loss":null,
     "emin":null,
     "emax":null,
     "ecost":null,
@@ -31,12 +31,15 @@ TEST_CASE("Reservoir basic fields deserialization")
   CHECK(std::get<IntBool>(res.active.value_or(False)));
   CHECK(std::get<Uid>(res.junction) == 456);
   CHECK_FALSE(res.capacity.has_value());
-  CHECK_FALSE(res.annual_loss.has_value());
+  CHECK_FALSE(res.annual_standing_loss.has_value());
   CHECK_FALSE(res.emin.has_value());
   CHECK_FALSE(res.emax.has_value());
   CHECK_FALSE(res.ecost.has_value());
   CHECK_FALSE(res.eini.has_value());
   CHECK_FALSE(res.efin.has_value());
+  // An omitted flow_conversion_rate stays unset; ReservoirLP resolves it
+  // to Reservoir::default_flow_conversion_rate (0.0036 hm³/(m³/s·h)).
+  CHECK_FALSE(res.flow_conversion_rate.has_value());
 }
 
 TEST_CASE("Reservoir optional fields deserialization")
@@ -46,7 +49,7 @@ TEST_CASE("Reservoir optional fields deserialization")
     "name":"TestReservoir",
     "junction":12,
     "capacity":1.0,
-    "annual_loss":0.05,
+    "annual_standing_loss":0.05,
     "emin":100.0,
     "emax":1000.0,
     "ecost":5.0,
@@ -57,7 +60,7 @@ TEST_CASE("Reservoir optional fields deserialization")
   const Reservoir res = daw::json::from_json<Reservoir>(json_data);
   CHECK(res.capacity.has_value());
   CHECK(std::get<double>(res.capacity.value_or(-1.0)) == 1.0);
-  CHECK(std::get<double>(res.annual_loss.value_or(-1.0)) == 0.05);
+  CHECK(std::get<double>(res.annual_standing_loss.value_or(-1.0)) == 0.05);
   CHECK(std::get<double>(res.emin.value_or(-1.0)) == 100.0);
   CHECK(std::get<double>(res.emax.value_or(-1.0)) == 1000.0);
   CHECK(std::get<double>(res.ecost.value_or(-1.0)) == 5.0);
@@ -102,7 +105,7 @@ TEST_CASE("Reservoir roundtrip serialization")
       .active = true,
       .junction = SingleId {Uid {456}},
       .capacity = OptTRealFieldSched {1.0},
-      .annual_loss = OptTRealFieldSched {0.05},
+      .annual_standing_loss = OptTRealFieldSched {0.05},
       .emin = OptTBRealFieldSched {100.0},
       .emax = OptTBRealFieldSched {1000.0},
       .ecost = OptTBRealFieldSched {5.0},
@@ -127,9 +130,9 @@ TEST_CASE("Reservoir roundtrip serialization")
   CHECK(std::get<Uid>(roundtrip.junction) == std::get<Uid>(original.junction));
   CHECK(roundtrip.capacity.has_value());
   CHECK(roundtrip.capacity.value_or(-1.0) == original.capacity.value_or(-2.0));
-  CHECK(roundtrip.annual_loss.has_value());
-  CHECK(roundtrip.annual_loss.value_or(-1.0)
-        == original.annual_loss.value_or(-2.0));
+  CHECK(roundtrip.annual_standing_loss.has_value());
+  CHECK(roundtrip.annual_standing_loss.value_or(-1.0)
+        == original.annual_standing_loss.value_or(-2.0));
   CHECK(roundtrip.emin.has_value());
   CHECK(roundtrip.emin.value_or(-1.0) == original.emin.value_or(-2.0));
   CHECK(roundtrip.emax.has_value());
@@ -156,7 +159,7 @@ TEST_CASE("Reservoir with empty optional fields")
   CHECK(res.name == "TestReservoir");
   CHECK_FALSE(res.active.has_value());
   CHECK_FALSE(res.capacity.has_value());
-  CHECK_FALSE(res.annual_loss.has_value());
+  CHECK_FALSE(res.annual_standing_loss.has_value());
   CHECK_FALSE(res.emin.has_value());
   CHECK_FALSE(res.emax.has_value());
   CHECK_FALSE(res.ecost.has_value());

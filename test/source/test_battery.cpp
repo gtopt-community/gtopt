@@ -28,7 +28,7 @@ TEST_CASE("Battery construction and default values")
   CHECK(battery.uid == Uid {unknown_uid});
   CHECK(battery.name == Name {});
   CHECK_FALSE(battery.active.has_value());
-  CHECK_FALSE(battery.annual_loss.has_value());
+  CHECK_FALSE(battery.annual_standing_loss.has_value());
   CHECK_FALSE(battery.emin.has_value());
   CHECK_FALSE(battery.emax.has_value());
   CHECK_FALSE(battery.ecost.has_value());
@@ -56,7 +56,7 @@ TEST_CASE("Battery attribute assignment")
   battery.emax = 100.0;
   battery.eini = 50.0;
   battery.efin = 50.0;
-  battery.annual_loss = 0.05;
+  battery.annual_standing_loss = 0.05;
   battery.ecost = 5.0;
 
   // Capacity-related attributes
@@ -81,13 +81,13 @@ TEST_CASE("Battery attribute assignment")
   // For OptTRealFieldSched types, we need to get the Real variant alternative
   CHECK(std::get_if<Real>(&battery.emin.value()) != nullptr);
   CHECK(std::get_if<Real>(&battery.emax.value()) != nullptr);
-  CHECK(std::get_if<Real>(&battery.annual_loss.value()) != nullptr);
+  CHECK(std::get_if<Real>(&battery.annual_standing_loss.value()) != nullptr);
   CHECK(std::get_if<Real>(&battery.ecost.value()) != nullptr);
 
   // Check actual values using std::get_if
   CHECK(*std::get_if<Real>(&battery.emin.value()) == 10.0);
   CHECK(*std::get_if<Real>(&battery.emax.value()) == 100.0);
-  CHECK(*std::get_if<Real>(&battery.annual_loss.value()) == 0.05);
+  CHECK(*std::get_if<Real>(&battery.annual_standing_loss.value()) == 0.05);
   CHECK(*std::get_if<Real>(&battery.ecost.value()) == 5.0);
 
   // Capacity-related checks
@@ -750,6 +750,10 @@ TEST_CASE(  // NOLINT
 
     PlanningOptions opts;
     opts.model_options.demand_fail_cost = 1000.0;
+    // The col-scale checks below isolate variable_scales: pin row_max so
+    // the multi-bus Kirchhoff ruiz default does not rescale the columns.
+    opts.lp_matrix_options.equilibration_method =
+        LpEquilibrationMethod::row_max;
     // Set energy scale via variable_scales option (not per-element field)
     opts.variable_scales = {
         {
