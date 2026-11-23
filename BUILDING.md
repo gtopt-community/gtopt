@@ -224,7 +224,7 @@ sudo apt-get install -y libhighs-dev highs   # `highs` is needed by the package'
 On Ubuntu 24.04, build from source:
 
 ```bash
-git clone --depth 1 --branch v1.10.0 https://github.com/ERGO-Code/HiGHS.git /tmp/HiGHS
+git clone --depth 1 --branch v1.12.0 https://github.com/ERGO-Code/HiGHS.git /tmp/HiGHS
 cmake -S /tmp/HiGHS -B /tmp/HiGHS/build \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX=/usr/local
@@ -239,6 +239,14 @@ Verify:
 ```bash
 ls /usr/local/include/highs/Highs.h
 ```
+
+**Reference version: HiGHS 1.12.0.**  CI (`ubuntu.yml`, via
+`.github/actions/install-highs`) builds exactly this tag, `install.sh`
+builds it on releases without a package, and it is the `libhighs-dev`
+of Ubuntu 26.04 / Debian 13.  Tests that compare HiGHS primal values
+(goldens) are only guaranteed against 1.12.0: other releases may return
+a different vertex of the same optimal face.  Bump all three places
+together and re-check the HiGHS goldens.
 
 ### macOS
 

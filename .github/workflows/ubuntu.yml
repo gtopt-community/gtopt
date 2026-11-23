@@ -157,6 +157,16 @@ jobs:
         with:
           version: 14
 
+      # Pinned HiGHS (see .github/actions/install-highs): the runner has no
+      # HiGHS package, and an unpinned one makes HiGHS golden comparisons
+      # depend on the solver release.  Built once per version and cached.
+      - name: install HiGHS (pinned)
+        id: highs
+        uses: ./.github/actions/install-highs
+        with:
+          compiler: ${{ env.CXX }}
+          c-compiler: ${{ env.CC }}
+
       - name: install clang
         if: env.ACTIVE_COMPILER == 'clang'
         uses: ./.github/actions/install-clang
@@ -185,6 +195,7 @@ jobs:
           # (fast compile), minimal line-only debug info (backtraces still work
           # on test failures).  Coverage runs need full debug info for lcov
           # line mapping, so switch back to Debug when coverage is enabled.
+          set -o pipefail
           COVERAGE_FLAG=""
           BUILD_TYPE="CIFast"
           if [ "${{ env.ENABLE_COVERAGE }}" = "true" ]; then
@@ -197,13 +208,32 @@ jobs:
           # file or header recompiles every batch that contains it; with 4
           # files per batch that is ~2.75x less code per invalidated batch.
           # See test/CMakeLists.txt.
-          cmake -S all -B build -G Ninja ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DGTOPT_REGISTER_PYTHON_TESTS=ON -DGTOPT_TEST_UNITY_BATCH_SIZE=4 -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake -S all -B build -G Ninja ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DGTOPT_REGISTER_PYTHON_TESTS=ON -DGTOPT_TEST_UNITY_BATCH_SIZE=4 -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DHIGHS_ROOT_DIR="${HIGHS_PREFIX}" 2>&1 | tee configure.log
+          # Fail fast if the HiGHS plugin did not pick up the pinned build
+          # (e.g. a stray system libhighs shadowing it).
+          if ! grep -qF "HiGHS enabled (${HIGHS_VERSION})" configure.log; then
+            echo "::error::HiGHS plugin not built against pinned HiGHS ${HIGHS_VERSION}"
+            grep -i highs configure.log || true
+            exit 1
+          fi
         env:
           CC: ${{ env.CC }}
           CXX: ${{ env.CXX }}
+          HIGHS_PREFIX: ${{ steps.highs.outputs.prefix }}
+          HIGHS_VERSION: ${{ steps.highs.outputs.version }}
 
+      # `-k`: keep going after the first failing TU so one run reports every
+      # GCC-only diagnostic (e.g. -Werror=range-loop-construct, which clang
+      # does not emit) instead of one per push.
       - name: build
-        run: cmake --build build -j$(nproc)
+        run: |
+          if grep -q '^CMAKE_GENERATOR:INTERNAL=Ninja' build/CMakeCache.txt; then
+            keep_going=(-k 0)
+          else
+            keep_going=(-k)
+          fi
+          cmake --build build -j"$(nproc)" -- "${keep_going[@]}"
 
       - name: ccache stats
         if: always()
@@ -308,6 +338,12 @@ jobs:
           else
             echo "::warning::libspdlog.so.1.15 not found under build/; downloaded gtopt may fail to run on a clean machine"
           fi
+          # Same for the pinned HiGHS (the runner has no system libhighs):
+          # the HiGHS plugin's DT_NEEDED is libhighs.so.1.
+          highs_so=$(find "$HOME"/opt/highs-*/lib -name 'libhighs.so.1' 2>/dev/null | head -n1)
+          if [ -n "$highs_so" ]; then
+            cp -L "$highs_so" build/standalone/libhighs.so.1
+          fi
           ls -la build/standalone/
 
       - name: upload gtopt binary
@@ -318,6 +354,7 @@ jobs:
             build/standalone/gtopt
             build/standalone/libgtopt_solver_*.so
             build/standalone/libspdlog.so.1.15
+            build/standalone/libhighs.so.1
           retention-days: 7
           if-no-files-found: warn
 

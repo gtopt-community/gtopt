@@ -295,6 +295,7 @@ find_cmake() {
 
 # HiGHS: apt package where available (Ubuntu 25.04+, Debian 13+),
 # otherwise build the release from source into the install prefix.
+# Keep tag= in sync with .github/actions/install-highs (CI pin, BUILDING.md).
 install_highs() {
   local sudo=$1 cmake=$2 prefix=$3 jobs=$4 tag=v1.12.0
   if apt-cache show libhighs-dev >/dev/null 2>&1; then
