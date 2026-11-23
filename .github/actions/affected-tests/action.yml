@@ -1,0 +1,117 @@
+name: Affected tests
+description: >
+  Computes the tests / lints affected by this push or pull request with
+  tools/affected_tests.py and exposes the selection as step outputs.
+  Falls back to the full selection when the event has no usable base
+  (workflow_dispatch / schedule, first push of a branch, force-push whose
+  "before" commit is gone) or when `full` is true.  The selection and the
+  reason for every pick (or for escalating to full) are written to the job
+  summary.
+
+inputs:
+  full:
+    description: Force the full selection ("true"/"false").
+    default: "false"
+  title:
+    description: Heading of the job-summary section.
+    default: Affected tests
+
+outputs:
+  mode:
+    description: "'affected' or 'full' (no usable base / forced)."
+    value: ${{ steps.select.outputs.mode }}
+  base:
+    description: Base commit the diff was taken against (empty in full mode).
+    value: ${{ steps.select.outputs.base }}
+  cpp:
+    description: "C++ unit selection: none | subset | full."
+    value: ${{ steps.select.outputs.cpp }}
+  integration:
+    description: "C++ integration selection: none | subset | full."
+    value: ${{ steps.select.outputs.integration }}
+  py:
+    description: "Python direct selection (own tests of changed packages)."
+    value: ${{ steps.select.outputs.py }}
+  pytest:
+    description: Python direct targets, relative to scripts/.
+    value: ${{ steps.select.outputs.pytest }}
+  py_deps:
+    description: "Python reverse-dependency selection: none | subset | full."
+    value: ${{ steps.select.outputs.py_deps }}
+  pytest_deps:
+    description: Python reverse-dependency targets, relative to scripts/.
+    value: ${{ steps.select.outputs.pytest_deps }}
+  gui:
+    description: "guiservice selection: none | subset | full."
+    value: ${{ steps.select.outputs.gui }}
+  gui_tests:
+    description: guiservice test targets (repo-relative).
+    value: ${{ steps.select.outputs.gui_tests }}
+  pylint:
+    description: scripts packages to pylint (changed, in the CI list).
+    value: ${{ steps.select.outputs.pylint }}
+  mypy:
+    description: scripts packages to mypy (changed + library importers).
+    value: ${{ steps.select.outputs.mypy }}
+  coverage_packages:
+    description: Packages whose own test dir ran (per-package coverage gate).
+    value: ${{ steps.select.outputs.coverage_packages }}
+
+runs:
+  using: composite
+  steps:
+    - name: select affected tests
+      id: select
+      shell: bash
+      env:
+        FORCE_FULL: ${{ inputs.full }}
+        EVENT: ${{ github.event_name }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PUSH_BEFORE: ${{ github.event.before }}
+        TITLE: ${{ inputs.title }}
+      run: |
+        set -euo pipefail
+        base=""
+        reason=""
+        if [ "$FORCE_FULL" = "true" ]; then
+          reason="full run requested"
+        elif [ "$EVENT" = "pull_request" ]; then
+          base="$PR_BASE"
+        elif [ "$EVENT" = "push" ]; then
+          base="$PUSH_BEFORE"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base=""
+            reason="first push of this ref (no previous commit)"
+          fi
+        else
+          reason="event '$EVENT' has no base commit"
+        fi
+        if [ -n "$base" ] && ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+          if ! git fetch --no-tags --quiet --depth=1 origin "$base"; then
+            reason="base ${base} is not fetchable (force-push?)"
+            base=""
+          fi
+        fi
+        out=$(mktemp)
+        if [ -n "$base" ]; then
+          echo "mode=affected" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          python3 tools/affected_tests.py --base "$base" --head HEAD --two-dot \
+            --format github > "$out"
+          python3 tools/affected_tests.py --base "$base" --head HEAD --two-dot -v
+          python3 tools/affected_tests.py --base "$base" --head HEAD --two-dot \
+            --format markdown | sed "1s|.*|## ${TITLE} (vs \`${base:0:12}\`)|" \
+            >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "mode=full" >> "$GITHUB_OUTPUT"
+          echo "base=" >> "$GITHUB_OUTPUT"
+          python3 tools/affected_tests.py --files --full --format github > "$out"
+          {
+            echo "## ${TITLE}: FULL run"
+            echo ""
+            echo "Reason: ${reason}."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "full run: ${reason}"
+        fi
+        cat "$out" >> "$GITHUB_OUTPUT"
+        cat "$out"

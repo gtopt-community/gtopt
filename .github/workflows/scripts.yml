@@ -10,6 +10,9 @@ on:
       - "scripts/**"
       - "scripts/pyproject.toml"
       - ".github/workflows/scripts.yml"
+      - ".github/actions/affected-tests/**"
+      - "tools/affected_tests.py"
+      - "tools/test_affected_tests.py"
   pull_request:
     branches:
       - master
@@ -18,7 +21,15 @@ on:
       - "scripts/**"
       - "scripts/pyproject.toml"
       - ".github/workflows/scripts.yml"
+      - ".github/actions/affected-tests/**"
+      - "tools/affected_tests.py"
+      - "tools/test_affected_tests.py"
   workflow_dispatch:
+    inputs:
+      full_run:
+        description: 'Run the full suite (off = only tests affected vs origin/master)'
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -37,11 +48,37 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Incremental testing (tools/affected_tests.py): the own test dirs of
+      # the changed packages run in full with coverage; reverse dependencies
+      # run through pytest-testmon (coverage-based selection) when a
+      # .testmondata database is restored from the cache, else in full.
+      # Full run on workflow_dispatch (default) or without a usable base.
+      - name: affected tests
+        id: affected
+        uses: ./.github/actions/affected-tests
+        with:
+          full: ${{ github.event_name == 'workflow_dispatch' && inputs.full_run }}
+          title: Affected Python tests
+
       - name: Set up Python with uv
         uses: ./.github/actions/setup-python-uv
 
       - name: Install scripts package and dev dependencies
-        run: uv pip install --system -e "./scripts[dev]" graphviz
+        run: uv pip install --system -e "./scripts[dev]" graphviz pytest-testmon
+
+      - name: Selector self-test (tools/affected_tests.py)
+        run: python -m pytest -q -n 0 -p no:cacheprovider tools/test_affected_tests.py
+
+      # testmon database: any older DB is safe (testmon re-selects every
+      # test whose recorded dependencies changed since), so fall back to
+      # the most recent one when this exact commit has none.
+      - name: Restore testmon database
+        uses: actions/cache/restore@v5
+        with:
+          path: scripts/.testmondata
+          key: testmon-scripts-${{ runner.os }}-py3.12-${{ github.sha }}
+          restore-keys: |
+            testmon-scripts-${{ runner.os }}-py3.12-
 
       - name: Install Graphviz executables
         # dot/neato for the gtopt_diagram rendering tests, which skip
@@ -51,23 +88,74 @@ jobs:
           sudo apt-get install -y --no-install-recommends graphviz
 
       - name: Run unit tests with coverage
-        # Mirrors the `scripts-all-unit` ctest target — single pytest
-        # invocation with pytest-xdist (`-n auto`), one fork per CPU,
+        # Full mode mirrors the `scripts-all-unit` ctest target — single
+        # pytest invocation with pytest-xdist (`-n auto`), one fork per CPU,
         # so collection startup is paid once.  pytest-cov merges per-
-        # worker coverage data automatically.
+        # worker coverage data automatically.  The coverage runs disable
+        # pytest-testmon (-p no:testmon): testmon refuses to run next to
+        # pytest-cov with branch coverage on ([tool.coverage.run]
+        # branch = true), which crashed every xdist worker with an
+        # INTERNALERROR.  Only the dependents run uses --testmon; tests
+        # missing from its database are always selected, so a database
+        # that never saw the coverage runs only over-selects.
         working-directory: scripts
+        env:
+          MODE: ${{ steps.affected.outputs.mode }}
+          PY: ${{ steps.affected.outputs.py }}
+          PY_DEPS: ${{ steps.affected.outputs.py_deps }}
+          PYTEST_DIRECT: ${{ steps.affected.outputs.pytest }}
+          PYTEST_DEPS: ${{ steps.affected.outputs.pytest_deps }}
         run: |
-          pytest \
-            --ignore=plp2gtopt/tests/test_integration.py \
-            -n auto \
-            -q --tb=short -m "not integration and not wheel" \
-            --cov=cvs2parquet \
-            --cov=igtopt \
-            --cov=plp2gtopt \
-            --cov=pp2gtopt \
-            --cov=ts2gtopt \
-            --cov-report=xml:coverage.xml \
-            --cov-report=term-missing
+          set -o pipefail
+          COMMON=(--ignore=plp2gtopt/tests/test_integration.py -n auto
+                  -q --tb=short -m "not integration and not wheel")
+          if [ "$MODE" = "full" ] || [ "$PY" = "full" ]; then
+            pytest "${COMMON[@]}" -p no:testmon \
+              --cov \
+              --cov-report=json:coverage.json \
+              --cov-report=xml:coverage.xml \
+              --cov-report=term-missing
+            exit 0
+          fi
+          rc=0
+          if [ "$PY" = "subset" ]; then
+            echo "::group::direct: $PYTEST_DIRECT"
+            # A subset cannot reach the repo-wide fail_under (95 % of
+            # every package): the per-package gate step judges it.
+            # shellcheck disable=SC2086  # word-split the target list
+            pytest "${COMMON[@]}" -p no:testmon --cov --cov-branch \
+              --cov-fail-under=0 \
+              --cov-report=json:coverage.json \
+              --cov-report=xml:coverage.xml \
+              --cov-report=term-missing $PYTEST_DIRECT || rc=1
+            echo "::endgroup::"
+          fi
+          if [ "$PY_DEPS" != "none" ]; then
+            TARGETS=""
+            [ "$PY_DEPS" = "subset" ] && TARGETS="$PYTEST_DEPS"
+            SELECT=()
+            if [ -f .testmondata ]; then
+              SELECT=(--testmon-forceselect)
+              echo "dependents: testmon selection (database restored)"
+            else
+              echo "dependents: no testmon database -- running them in full"
+            fi
+            echo "::group::dependents (${PY_DEPS}): ${TARGETS:-all}"
+            # Exit 5 = testmon selected nothing (no dependent affected).
+            drc=0
+            # shellcheck disable=SC2086
+            pytest "${COMMON[@]}" --testmon "${SELECT[@]}" $TARGETS || drc=$?
+            if [ "$drc" -ne 0 ] && [ "$drc" -ne 5 ]; then rc=1; fi
+            echo "::endgroup::"
+          fi
+          exit $rc
+
+      - name: Save testmon database
+        if: always() && github.event_name == 'push'
+        uses: actions/cache/save@v5
+        with:
+          path: scripts/.testmondata
+          key: testmon-scripts-${{ runner.os }}-py3.12-${{ github.sha }}
 
       - name: Wheel package-data check
         # Builds the gtopt_scripts wheel, installs it (non-editable) into a
@@ -78,7 +166,7 @@ jobs:
         working-directory: scripts
         run: |
           uv pip install --system setuptools wheel
-          pytest -n 0 -q --tb=short -m wheel \
+          pytest -n 0 -q --tb=short -m wheel -p no:testmon \
             gtopt_shared/tests/test_wheel_package_data.py
 
       - name: ruff (lint)
@@ -87,12 +175,37 @@ jobs:
 
       - name: pylint
         working-directory: scripts
-        run: pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt sddp2gtopt plexos2gtopt
+        env:
+          MODE: ${{ steps.affected.outputs.mode }}
+          PY: ${{ steps.affected.outputs.py }}
+          PYLINT: ${{ steps.affected.outputs.pylint }}
+        run: |
+          if [ "$MODE" = "full" ] || [ "$PY" = "full" ]; then
+            pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt sddp2gtopt plexos2gtopt
+          elif [ -n "$PYLINT" ]; then
+            # shellcheck disable=SC2086
+            pylint --jobs=0 $PYLINT
+          else
+            echo "no changed package in the pylint gate"
+          fi
 
       - name: mypy
         working-directory: scripts
-        # Every package under scripts/ (tests/ excluded via [tool.mypy]).
-        run: mypy cen2gtopt cen_demanda cvs2parquet gtopt2pbi gtopt2pp gtopt_canonical_feed gtopt_check_cases gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_check_topology gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_expand gtopt_field_extractor gtopt_marginal_units gtopt_monitor gtopt_reduce_network gtopt_results_summary gtopt_shared gtopt_timeseries_export igtopt nrel118_to_gtopt plexos2gtopt plexos_compress_case plp2gtopt plp_compress_case pp2gtopt psse2gtopt rts_gmlc_to_gtopt run_gtopt sddp2gtopt sienna_to_gtopt ts2gtopt --ignore-missing-imports
+        # Every package under scripts/ (tests/ excluded via [tool.mypy]);
+        # affected mode: the changed packages plus their library importers.
+        env:
+          MODE: ${{ steps.affected.outputs.mode }}
+          PY: ${{ steps.affected.outputs.py }}
+          MYPY: ${{ steps.affected.outputs.mypy }}
+        run: |
+          if [ "$MODE" = "full" ] || [ "$PY" = "full" ]; then
+            mypy cen2gtopt cen_demanda cvs2parquet gtopt2pbi gtopt2pp gtopt_canonical_feed gtopt_check_cases gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_check_topology gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_expand gtopt_field_extractor gtopt_marginal_units gtopt_monitor gtopt_operators gtopt_reduce_network gtopt_results_summary gtopt_shared gtopt_timeseries_export igtopt nrel118_to_gtopt plexos2gtopt plexos_compress_case plp2gtopt plp_compress_case pp2gtopt psse2gtopt rts_gmlc_to_gtopt run_gtopt sddp2gtopt sienna_to_gtopt ts2gtopt --ignore-missing-imports
+          elif [ -n "$MYPY" ]; then
+            # shellcheck disable=SC2086
+            mypy $MYPY --ignore-missing-imports
+          else
+            echo "no changed package to type-check"
+          fi
 
       - name: ty (advisory, non-blocking)
         # Fast second type checker (astral-sh/ty, beta).  Configured in
@@ -107,13 +220,40 @@ jobs:
         continue-on-error: true
         run: ty check --python "$(which python)" --output-format github --exit-zero
 
-      - name: Check coverage threshold (warning only)
-        if: always()
+      - name: Coverage gate (per package + total, branch)
+        # Branch coverage of EVERY package listed in [tool.coverage.run]
+        # source.  Fails when any package is below package_min or the
+        # total is below total_min ([tool.gtopt.coverage] in
+        # scripts/pyproject.toml).  Gaps are closed with tests, never
+        # with `pragma: no cover`.
+        # Full runs only; affected runs use the per-package gate below.
+        if: always() && (steps.affected.outputs.mode == 'full' || steps.affected.outputs.py == 'full')
         working-directory: scripts
         run: |
-          coverage report --fail-under=83 || \
-            echo "::warning title=Coverage::Unit-test coverage is below 83% threshold"
-        continue-on-error: true
+          pytest -n 0 -q -p no:cacheprovider \
+            ../tools/test_check_coverage_per_package.py
+          python ../tools/check_coverage_per_package.py coverage.json \
+            --config pyproject.toml
+
+      - name: Per-package coverage gate (affected packages)
+        # Affected runs measure only the packages whose own test dir ran
+        # (coverage_packages): enforce the per-package thresholds for those,
+        # never the total.  Active once tools/check_coverage_per_package.py
+        # (per-package branch-coverage gate) is on master; full runs keep
+        # their own gate.
+        if: >-
+          always() && steps.affected.outputs.mode == 'affected'
+          && steps.affected.outputs.py == 'subset'
+          && steps.affected.outputs.coverage_packages != ''
+          && hashFiles('tools/check_coverage_per_package.py') != ''
+        working-directory: scripts
+        env:
+          PKGS: ${{ steps.affected.outputs.coverage_packages }}
+        run: |
+          python ../tools/affected_tests.py --filter-coverage coverage.json \
+            coverage-affected.json --coverage-packages "$PKGS"
+          python ../tools/check_coverage_per_package.py coverage-affected.json \
+            --config pyproject.toml --total-min 0
 
       - name: Upload coverage report
         if: always()
@@ -131,6 +271,8 @@ jobs:
           python - <<'EOF'
           import os
           import xml.etree.ElementTree as ET
+          if not os.path.exists("coverage.xml"):
+              raise SystemExit(0)
           tree = ET.parse("coverage.xml")
           root = tree.getroot()
           line_rate = float(root.get("line-rate", 0)) * 100
@@ -151,13 +293,60 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: affected tests
+        id: affected
+        uses: ./.github/actions/affected-tests
+        with:
+          full: ${{ github.event_name == 'workflow_dispatch' && inputs.full_run }}
+          title: Affected Python integration tests
+
+      # The integration suites below belong to plp2gtopt, igtopt and
+      # ts2gtopt (plus the public-CLI smoke tests); in affected mode run
+      # only those whose tests were selected.
+      - name: integration targets
+        id: targets
+        env:
+          MODE: ${{ steps.affected.outputs.mode }}
+          PY: ${{ steps.affected.outputs.py }}
+          PY_DEPS: ${{ steps.affected.outputs.py_deps }}
+          SELECTED: ${{ steps.affected.outputs.pytest }} ${{ steps.affected.outputs.pytest_deps }}
+        run: |
+          all="plp2gtopt/tests/test_integration.py igtopt/tests ts2gtopt/tests tests/test_public_cli.py"
+          if [ "$MODE" = "full" ] || [ "$PY" = "full" ] || [ "$PY_DEPS" = "full" ]; then
+            targets="$all"
+          else
+            targets=""
+            for pkg in plp2gtopt igtopt ts2gtopt; do
+              case " $SELECTED " in
+                *" ${pkg}/tests"*)
+                  if [ "$pkg" = plp2gtopt ]; then
+                    targets="$targets plp2gtopt/tests/test_integration.py"
+                  else
+                    targets="$targets ${pkg}/tests"
+                  fi ;;
+              esac
+            done
+          fi
+          # The public-CLI smoke tests cover every package's entry point.
+          if [ -n "$targets" ] || [ -n "${SELECTED// /}" ]; then
+            case " $targets " in
+              *" tests/test_public_cli.py "*) ;;
+              *) targets="$targets tests/test_public_cli.py" ;;
+            esac
+          fi
+          echo "targets=${targets# }" >> "$GITHUB_OUTPUT"
+          echo "integration targets: ${targets:-none}"
+
       - name: Set up Python with uv
+        if: steps.targets.outputs.targets != ''
         uses: ./.github/actions/setup-python-uv
 
       - name: Install scripts package and dev dependencies
+        if: steps.targets.outputs.targets != ''
         run: uv pip install --system -e "./scripts[dev]" graphviz
 
       - name: Install solver runtime dependencies
+        if: steps.targets.outputs.targets != ''
         run: |
           # The gtopt solver plugins (libgtopt_solver_osi.so) need COIN-OR
           # runtime libraries.  Install them before downloading the binary
@@ -171,6 +360,7 @@ jobs:
             liblapack3 libblas3
 
       - name: Download gtopt binary and install runtime libraries
+        if: steps.targets.outputs.targets != ''
         run: |
           # Download the binary from the latest CI artifact and install any
           # missing runtime libraries (skipped automatically if already present,
@@ -197,6 +387,7 @@ jobs:
 
       - name: Verify solver plugins are available
         id: check_solvers
+        if: steps.targets.outputs.targets != ''
         run: |
           if "$GTOPT_BIN" --lp-solvers 2>&1 | grep -q "Available"; then
             echo "has_solvers=true" >> "$GITHUB_OUTPUT"
@@ -208,15 +399,12 @@ jobs:
       - name: Run integration tests
         if: steps.check_solvers.outputs.has_solvers == 'true'
         working-directory: scripts
-        run: |
-          pytest \
-            plp2gtopt/tests/test_integration.py \
-            igtopt/tests \
-            ts2gtopt/tests \
-            -v -m integration \
-            --tb=short
         env:
+          TARGETS: ${{ steps.targets.outputs.targets }}
           GTOPT_BIN: ${{ env.GTOPT_BIN }}
+        run: |
+          # shellcheck disable=SC2086
+          pytest $TARGETS -v -m integration --tb=short
 
   cmake-install:
     runs-on: ubuntu-latest

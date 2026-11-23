@@ -8,6 +8,10 @@ on:
     paths:
       - "guiservice/**"
       - ".github/workflows/guiservice.yml"
+      # guiservice imports scripts packages (gtopt_diagram, ...): the
+      # `select` job decides whether a scripts/ change reaches it.
+      - "scripts/**"
+      - ".github/actions/affected-tests/**"
   pull_request:
     branches:
       - master
@@ -16,7 +20,14 @@ on:
       - "guiservice/**"
       - ".github/workflows/guiservice.yml"
       - ".pylintrc"
+      - "scripts/**"
+      - ".github/actions/affected-tests/**"
   workflow_dispatch:
+    inputs:
+      full_run:
+        description: 'Run the full suite (off = only tests affected vs origin/master)'
+        type: boolean
+        default: true
 
 
 concurrency:
@@ -27,9 +38,31 @@ permissions:
   contents: read
 
 jobs:
+  # Incremental testing (tools/affected_tests.py): skip the guiservice jobs
+  # when the change cannot reach guiservice (e.g. a scripts/ package it
+  # does not import), run only the changed test files when nothing else
+  # changed, and the full suite otherwise.
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.affected.outputs.mode }}
+      gui: ${{ steps.affected.outputs.gui }}
+      gui_tests: ${{ steps.affected.outputs.gui_tests }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: affected tests
+        id: affected
+        uses: ./.github/actions/affected-tests
+        with:
+          full: ${{ github.event_name == 'workflow_dispatch' && inputs.full_run }}
+          title: Affected guiservice tests
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: select
+    if: needs.select.outputs.mode == 'full' || needs.select.outputs.gui != 'none'
 
     steps:
       - uses: actions/checkout@v7
@@ -45,6 +78,10 @@ jobs:
           uv pip install --system pytest pytest-cov pytest-xdist \
             ruff pylint mypy types-requests
           uv pip install --system -r guiservice/requirements.txt
+          # Test-only: requirements.txt omits pyarrow on purpose (see the
+          # launcher job), but the tests write parquet and the topology
+          # endpoints run scripts/gtopt_diagram, which needs networkx.
+          uv pip install --system pyarrow networkx
 
       - name: ruff (lint)
         run: ruff check guiservice/app.py guiservice/gtopt_gui.py guiservice/gtopt_guisrv.py
@@ -71,22 +108,37 @@ jobs:
 
       - name: Run tests with coverage
         if: always()
+        env:
+          MODE: ${{ needs.select.outputs.mode }}
+          GUI_TESTS: ${{ needs.select.outputs.gui_tests }}
         run: |
-          python -m pytest guiservice/tests/test_app.py guiservice/tests/test_gtopt_gui.py \
-            guiservice/tests/test_gtopt_guisrv.py guiservice/tests/test_security.py \
-            guiservice/tests/test_error_exposure.py \
-            guiservice/tests/test_schema_contract.py \
-            -n auto -q --tb=short --cov=guiservice --cov-report=term-missing \
+          set -o pipefail
+          if [ "$MODE" = "affected" ] && [ -n "$GUI_TESTS" ] \
+             && [ "$GUI_TESTS" != "guiservice/tests" ]; then
+            # Only test files changed: run just those (no coverage gate).
+            # shellcheck disable=SC2086
+            python -m pytest $GUI_TESTS -n auto -q --tb=short \
+              | tee "${{ runner.temp }}/pytest-guiservice.log"
+            exit 0
+          fi
+          python -m pytest guiservice/tests \
+            -n auto -q --tb=short --cov=guiservice \
+            --cov-config=guiservice/pyproject.toml --cov-report=term-missing \
+            --cov-report=json:coverage-guiservice.json \
             --cov-report=html:coverage-guiservice \
             --cov-report=xml:coverage-guiservice.xml \
             | tee "${{ runner.temp }}/pytest-guiservice.log"
 
-      - name: Check coverage threshold (warning only)
-        if: always()
+      - name: Coverage gate (branch, per package + total)
+        # Skipped when the affected run only executed changed test files
+        # (no coverage data is produced then).
+        if: >-
+          always() && !(needs.select.outputs.mode == 'affected'
+          && needs.select.outputs.gui_tests != ''
+          && needs.select.outputs.gui_tests != 'guiservice/tests')
         run: |
-          python -m coverage report --fail-under=55 --data-file=.coverage || \
-            echo "::warning::Guiservice coverage below 55% threshold"
-        continue-on-error: true
+          python tools/check_coverage_per_package.py coverage-guiservice.json \
+            --config guiservice/pyproject.toml
 
       - name: upload Python coverage report
         if: always()
@@ -107,6 +159,8 @@ jobs:
   install-and-test-launchers:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: select
+    if: needs.select.outputs.mode == 'full' || needs.select.outputs.gui != 'none'
 
     steps:
       - uses: actions/checkout@v7

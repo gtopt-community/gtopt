@@ -69,6 +69,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pushes run only the affected C++ tests (tools/affected_tests.py);
+      # the daily schedule and workflow_dispatch stay full runs.
+      - name: affected tests
+        id: affected
+        uses: ./.github/actions/affected-tests
+        with:
+          full: ${{ github.event_name != 'push' }}
+          title: Affected C++ tests (TSan)
+
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
@@ -138,8 +147,19 @@ jobs:
           # The e2e_*_sddp_solve runs they check still run under TSan.
           EXCLUDE='^SDDP literature (A1 —|#4 — dual_shared/screened)|_sddp_validate$'
           REGEX='${{ github.event.inputs.ctest_regex }}'
-          ctest --output-on-failure -j"$(nproc)" --timeout 1800 \
-            -E "$EXCLUDE" ${REGEX:+-R "$REGEX"} 2>&1 | tee ctest_output.log
+          MODE='${{ steps.affected.outputs.mode }}'
+          BASE='${{ steps.affected.outputs.base }}'
+          if [ "$MODE" = "affected" ] && [ -z "$REGEX" ]; then
+            cd "${GITHUB_WORKSPACE}"
+            python3 tools/affected_tests.py --base "$BASE" --two-dot \
+              --run --no-build --suites cpp -B build -j "$(nproc)" \
+              --ctest-arg=--timeout --ctest-arg=1800 \
+              --ctest-arg=-E --ctest-arg="$EXCLUDE" 2>&1 \
+              | tee build/ctest_output.log
+          else
+            ctest --output-on-failure -j"$(nproc)" --timeout 1800 \
+              -E "$EXCLUDE" ${REGEX:+-R "$REGEX"} 2>&1 | tee ctest_output.log
+          fi
 
       # Any file in tsan-logs/ is an unsuppressed report (TSan writes one
       # file per reporting process); the reporting test already failed
