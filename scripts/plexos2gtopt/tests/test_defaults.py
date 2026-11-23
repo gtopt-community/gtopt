@@ -20,6 +20,7 @@ import pytest
 
 import gtopt_shared
 from gtopt_shared import resources
+from gtopt_shared.country import load_country
 from gtopt_shared.resources import MissingDataFileError
 from plexos2gtopt._defaults import resolve_default_emissions_file
 
@@ -39,6 +40,7 @@ def test_resolve_default_emissions_file_missing_raises(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A broken install (file absent) raises instead of falling back."""
+    load_country("cl")  # country file read before the install "breaks"
     monkeypatch.setattr(resources, "_package_dir", lambda _pkg: tmp_path)
     with pytest.raises(MissingDataFileError, match="cen_chile.json"):
         resolve_default_emissions_file()

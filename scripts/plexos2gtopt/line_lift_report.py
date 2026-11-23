@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Rank the binding lines of a solved gtopt case, to choose line lifts.
 
 Some lines of the CEN PCP cases are operated above their stated rating

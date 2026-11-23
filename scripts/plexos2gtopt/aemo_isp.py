@@ -601,7 +601,7 @@ def build_dispatch_case(opts: IspCaseOptions, db: PlexosDb | None = None) -> Isp
                     # pumped hydro carried as a Battery: no self-discharge
                     # (otherwise gtopt applies its Li-ion default)
                     **(
-                        {"annual_loss": 0.0}
+                        {"annual_standing_loss": 0.0}
                         if "PHES" in res.category(o).upper()
                         else {}
                     ),
@@ -1384,7 +1384,9 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         type=float,
         default=isp_c.DEFAULT_ELECTROLYSER_KWH_PER_KG,
         help="electrolyser specific consumption [kWh_e/kg H2] used for the H2 "
-        "efficiency (default: IASR 2026 PEM 2026-27, %(default)s)",
+        "efficiency; required when the case has hydrogen targets (no "
+        "default: take it from the AEMO IASR workbook, not redistributable; "
+        "see `gtopt-fetch aemo info iasr_workbook`)",
     )
     p.add_argument("-l", "--log-level", default="INFO")
     return p.parse_args(argv)

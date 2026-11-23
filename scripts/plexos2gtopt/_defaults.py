@@ -13,11 +13,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gtopt_shared.resources import package_data_file
+from gtopt_shared.country import emissions_overlay_path
+from gtopt_shared.resources import MissingDataFileError
 
-#: Path components of the CEN-Chile emissions overlay relative to the
-#: ``gtopt_shared`` package directory.
-CEN_CHILE_EMISSIONS_PARTS: tuple[str, ...] = ("data", "emissions", "cen_chile.json")
+#: Country whose default emissions overlay plexos2gtopt applies when no
+#: ``--emissions-file`` is given (``gtopt_shared/data/countries/cl.toml``
+#: names the overlay file).
+DEFAULT_EMISSIONS_COUNTRY = "cl"
 
 
 def resolve_default_emissions_file() -> Path:
@@ -26,8 +28,9 @@ def resolve_default_emissions_file() -> Path:
     Used by :func:`plexos2gtopt.plexos2gtopt.plexos2gtopt` when the
     operator did NOT pass an explicit ``--emissions-file``: plexos2gtopt
     is CEN-Chile-shaped (PLEXOS DBs in this codebase come from CEN's
-    PCP archive), so the CEN-Chile defaults file is the right default.
-    It is a superset of the bare IPCC-2006 defaults
+    PCP archive), so the Chilean overlay named in the ``cl`` country
+    file (``cen_chile.json``) is the right default.  It is a superset of
+    the bare IPCC-2006 defaults
     (``gtopt_shared/data/ipcc_emission_factors.json``).
 
     Raises:
@@ -35,8 +38,7 @@ def resolve_default_emissions_file() -> Path:
             is missing (broken install).  Pass ``--emissions-file`` to use
             another table explicitly.
     """
-    return package_data_file(
-        "gtopt_shared",
-        *CEN_CHILE_EMISSIONS_PARTS,
-        purpose="CEN-Chile emissions overlay",
-    )
+    path = emissions_overlay_path(DEFAULT_EMISSIONS_COUNTRY)
+    if path is None:  # pragma: no cover - cl.toml always names one
+        raise MissingDataFileError("country 'cl' names no emissions overlay")
+    return path

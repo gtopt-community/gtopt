@@ -1384,15 +1384,13 @@ def load_plexos_reserve_vors(
     """
     if xml_path is None or not Path(xml_path).is_file():
         return {}
-    try:
-        from .parsers import probe_reserve_violation_cost
-        from .plexos_xml import load_xml
-    except ImportError as exc:  # pragma: no cover - defensive
-        logger.warning("reserve VoRS read unavailable: %s", exc)
-        return {}
+    # Sibling package modules: always importable (no optional dependency).
+    from .parsers import probe_reserve_violation_cost  # noqa: PLC0415
+    from .plexos_xml import load_xml  # noqa: PLC0415
+
     try:
         db = load_xml(xml_path)
-    except (OSError, ValueError) as exc:  # pragma: no cover - defensive
+    except (OSError, ValueError) as exc:
         logger.warning("reserve VoRS read failed (%s): %s", xml_path, exc)
         return {}
     out: dict[str, dict[str, Any]] = {}

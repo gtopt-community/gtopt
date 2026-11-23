@@ -367,13 +367,13 @@ def load_block_layout_from_res_zip(
     return load_block_layout_from_accdb(accdb_path)
 
 
-#: PLEXOS solution-database tables that downstream comparison tools
-#: (chiefly :mod:`compare_with_plexos`) repeatedly read via
+#: PLEXOS solution-database tables that the layout / category readers
+#: (this module and :mod:`parsers`) would otherwise re-read via
 #: ``mdb-export`` shell-out — slow (each pass costs ~1-3 s of CSV
 #: serialization).  When plexos2gtopt extracts the .accdb anyway to
 #: read t_phase_3, we mirror these tables as zstd-compressed CSVs
-#: into ``<output_dir>/plexos_cache/`` so later compare runs read
-#: the cache directly without re-invoking ``mdb-export``.  The
+#: into ``<output_dir>/plexos_cache/`` so later reads use the cache
+#: directly without re-invoking ``mdb-export``.  The
 #: cache key is the .accdb path; if the user re-downloads a fresh
 #: solution the cache is silently invalidated by the new path.
 _CACHED_PLEXOS_TABLES = (

@@ -275,7 +275,13 @@ def _make_ccase(tmp_path: Path, gt_aux: float = 0.0) -> tuple[Path, Path]:
     return xml, traces
 
 
+#: Synthetic electrolyser consumption [kWh/kg] for the fixtures (the real
+#: value comes from the AEMO IASR workbook, which is not redistributable).
+KWH_PER_KG = 50.0
+
+
 def _build(xml: Path, traces: Path, **kw: object):
+    kw.setdefault("electrolyser_kwh_per_kg", KWH_PER_KG)
     opts = IspCaseOptions(
         xml=xml,
         trace_roots=[xml.parent, traces],
@@ -437,16 +443,22 @@ def test_rez_bus_and_radial_line(ccase: tuple[Path, Path]) -> None:
     )
 
 
+def test_hydrogen_needs_electrolyser_consumption(ccase: tuple[Path, Path]) -> None:
+    """No built-in IASR value: H2 targets require the CLI value."""
+    with pytest.raises(ValueError, match="--electrolyser-kwh-per-kg"):
+        _build(*ccase, electrolyser_kwh_per_kg=None)
+
+
 def test_purchasers_and_hydrogen_native(ccase: tuple[Path, Path]) -> None:
     case = _build(*ccase)
     sys_ = case.planning["system"]
     cc = sys_["carrier_converter_array"]
     assert [c["name"] for c in cc] == ["ELY1"]
     assert cc[0]["capacity"] == pytest.approx(20.0)
-    assert cc[0]["efficiency"] == pytest.approx(33.33 / 56.76, rel=1e-5)
+    assert cc[0]["efficiency"] == pytest.approx(33.33 / KWH_PER_KG, rel=1e-5)
     hd = sys_["hydrogen_demand_array"][0]
     # 0.744 GWh × 1000 × 72/744 = 72 MWh_e → × η MWh_LHV, equality
-    e = 72.0 * 33.33 / 56.76
+    e = 72.0 * 33.33 / KWH_PER_KG
     assert hd["min_energy"] == pytest.approx(e, rel=1e-5)
     assert hd["max_energy"] == pytest.approx(e, rel=1e-5)
     assert hd["hydrogen_node"] == cc[0]["to_node"]

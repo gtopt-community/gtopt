@@ -669,9 +669,9 @@ def test_convexify_segments_merges_equal_and_decreasing_slopes() -> None:
 
 
 def test_pumped_storage_battery_no_lithium_self_discharge(materialised) -> None:
-    """Pumped storage rewritten as a Battery pins ``annual_loss = 0``.
+    """Pumped storage rewritten as a Battery pins ``annual_standing_loss = 0``.
 
-    gtopt defaults every Battery without ``annual_loss`` to 4 %/month
+    gtopt defaults every Battery without ``annual_standing_loss`` to 4 %/month
     (lithium); the pumped-hydro Battery must not inherit it, while the
     real BESS keeps the field absent so the default applies.
     """
@@ -685,12 +685,12 @@ def test_pumped_storage_battery_no_lithium_self_discharge(materialised) -> None:
     bundle = PlexosBundle(root=out, source=out)
     specs = {b.name: b for b in extract_batteries(db, bundle)}
     phes = specs["HEAD pumped storage"]
-    assert phes.annual_loss == 0.0
+    assert phes.annual_standing_loss == 0.0
     assert phes.storage_type == "pumped_hydro"
     entries = {e["name"]: e for e in build_battery_array(tuple(specs.values()))}
-    assert entries["HEAD pumped storage"]["annual_loss"] == 0.0
+    assert entries["HEAD pumped storage"]["annual_standing_loss"] == 0.0
     assert entries["HEAD pumped storage"]["type"] == "pumped_hydro"
     for name, entry in entries.items():
         if name != "HEAD pumped storage":
-            assert "annual_loss" not in entry
-            assert specs[name].annual_loss is None
+            assert "annual_standing_loss" not in entry
+            assert specs[name].annual_standing_loss is None

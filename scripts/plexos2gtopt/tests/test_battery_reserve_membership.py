@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Battery reserve-provision terms vs. Reserve→Battery memberships (Fix 7).
 
 Recent CEN PCP bundles (2026-07 onward) attach reserve-provision

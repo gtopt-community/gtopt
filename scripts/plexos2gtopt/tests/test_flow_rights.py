@@ -147,6 +147,8 @@ def test_build_flow_right_array_emits_explicit_bypass_junction() -> None:
     assert len(out) == 1
     assert out[0]["junction_b"] == "DOWNSTREAM"
     assert out[0]["bypass_cost"] == 2.5
+    # The LP builds the a→b arc only on explicit opt-in.
+    assert out[0]["use_bypass"] is True
 
 
 def test_build_flow_right_array_auto_resolves_bypass_from_vert_waterway() -> None:
@@ -164,6 +166,7 @@ def test_build_flow_right_array_auto_resolves_bypass_from_vert_waterway() -> Non
     out = build_flow_right_array(fr, waterways=waterways)
     assert len(out) == 1
     assert out[0]["junction_b"] == "ELTORO_DS"
+    assert out[0]["use_bypass"] is True
     # Default bypass_cost is 0.0 → not emitted (LP defaults to free
     # pass-through, used freely when no irrigation pressure).
     assert "bypass_cost" not in out[0]
@@ -180,6 +183,7 @@ def test_build_flow_right_array_no_bypass_when_no_topology() -> None:
     assert len(out) == 1
     assert "junction_b" not in out[0]
     assert "bypass_cost" not in out[0]
+    assert "use_bypass" not in out[0]
 
 
 def test_build_flow_right_array_no_longer_appends_synthetic_waterway() -> None:

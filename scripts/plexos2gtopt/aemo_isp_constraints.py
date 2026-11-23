@@ -69,7 +69,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-if TYPE_CHECKING:  # pragma: no cover
+if TYPE_CHECKING:
     from .aemo_isp import IspResolver, _Row
 
 logger = logging.getLogger(__name__)
@@ -116,9 +116,18 @@ REZ_CATEGORIES = {
     "DREZ Import Constraints": "import",
 }
 
-#: Default electrolyser specific consumption [kWh_e / kg H2] — IASR 2026
-#: workbook, "Other hydrogen assumptions", PEM 2026-27.
-DEFAULT_ELECTROLYSER_KWH_PER_KG = 56.76
+#: Electrolyser specific consumption [kWh_e / kg H2] has no default: the
+#: value comes from the AEMO IASR workbook, which may not be
+#: redistributed.  Pass ``--electrolyser-kwh-per-kg`` (see
+#: ``gtopt-fetch aemo info iasr_workbook`` for the source and terms).
+DEFAULT_ELECTROLYSER_KWH_PER_KG: float | None = None
+
+#: How to obtain the electrolyser consumption (error / help text).
+ELECTROLYSER_SOURCE_HINT = (
+    "electrolyser specific consumption [kWh_e/kg H2] from the AEMO IASR "
+    "workbook (PEM, study year); the workbook is not redistributable, see "
+    "`gtopt-fetch aemo info iasr_workbook`"
+)
 #: Lower heating value of hydrogen [kWh / kg].
 H2_LHV_KWH_PER_KG = 33.33
 
@@ -145,8 +154,8 @@ APPROXIMATIONS = [
     "$/GWh; both are converted to MWh (GJ)",
     "RHS Day becomes one daily_sum row per day (1 h blocks)",
     "H2 consumption targets: electrolyser GWh_e × efficiency (IASR PEM "
-    "kWh/kg, not in the XML) → HydrogenDemand MWh_LHV; free intra-window H2 "
-    "storage",
+    "kWh/kg passed by the user, not in the XML) → HydrogenDemand MWh_LHV; "
+    "free intra-window H2 storage",
     "capacity terms (Installed Capacity, Generation Capacity) are folded with "
     "the start-day Units; build terms are zero (fixed fleet)",
     "period targets longer than one month (RHS Year / RHS Custom policy "
@@ -184,14 +193,23 @@ class ConstraintOptions:
     #: capacity) become stage-scope user constraints instead of being
     #: skipped as "fixed fleet".
     expansion: bool = False
-    electrolyser_kwh_per_kg: float = DEFAULT_ELECTROLYSER_KWH_PER_KG
+    electrolyser_kwh_per_kg: float | None = DEFAULT_ELECTROLYSER_KWH_PER_KG
     #: Generator ``Min Load`` / ``Mark-up`` / ``Min Capacity Factor Year``
     #: (see :func:`plexos2gtopt.aemo_isp.build_dispatch_case`).
     generator_extras: bool = True
 
     @property
     def h2_efficiency(self) -> float:
-        """Electrolyser efficiency [MWh_LHV / MWh_e]."""
+        """Electrolyser efficiency [MWh_LHV / MWh_e].
+
+        Raises:
+            ValueError: when no electrolyser consumption was given.
+        """
+        if self.electrolyser_kwh_per_kg is None:
+            raise ValueError(
+                "the case has hydrogen targets: pass --electrolyser-kwh-per-kg "
+                f"({ELECTROLYSER_SOURCE_HINT})"
+            )
         return H2_LHV_KWH_PER_KG / self.electrolyser_kwh_per_kg
 
 
@@ -343,9 +361,9 @@ def prorated_rhs(
         row = res.select_row(rows, d)
         if row is None or row.data_file is not None:
             continue
+        # select_row only returns rows live on ``d``, so the period
+        # always contains ``d``
         first, last = period_of(rhs_kind, row, d)
-        if not first <= d <= last:
-            continue
         hours = 24.0 * ((last - first).days + 1)
         total += row.value * 24.0 / hours
         found = True

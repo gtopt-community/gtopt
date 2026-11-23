@@ -21,15 +21,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from gtopt_check_json._info import SystemCounts
 from gtopt_shared.json_utils import strip_internal_keys
 
 from .entities import PlexosCase, generator_has_fuel_cost
 from .uc_families import UC_FAMILY_ORDER, uc_family
-
-if TYPE_CHECKING:
-    from gtopt_check_json._info import SystemCounts
 
 logger = logging.getLogger(__name__)
 

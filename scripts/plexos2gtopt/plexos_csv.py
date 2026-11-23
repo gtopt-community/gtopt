@@ -119,9 +119,7 @@ def read_long(
         # defined predecessor) stay at 0.0 — caller's problem if that
         # matters.
         for name, series in out.items():
-            flags = defined.get(name)
-            if not flags:
-                continue
+            flags = defined[name]
             last_defined = 0.0
             seen_first = False
             for i in range(out_len):

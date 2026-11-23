@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """plexos2gtopt wires the FCF boundary cut through the FutureCost element.
 
 The FutureCost element (``system.future_cost_array``) is the single,

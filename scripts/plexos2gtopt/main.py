@@ -21,9 +21,11 @@ from gtopt_shared.cli_flags import (
     add_loss_cost_eps_argument,
     add_loss_secant_segments_argument,
     add_no_lift_lines_argument,
+    add_scale_theta_argument,
     add_soft_storage_bounds_argument,
     add_use_single_bus_argument,
 )
+from gtopt_shared.operator import add_operator_argument, select_operator
 from gtopt_shared.cli_signals import (
     install_termination_handlers,
     signal_handler as _signal_handler,  # noqa: F401  re-export for back-compat / tests
@@ -303,6 +305,7 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     add_use_single_bus_argument(parser, dialect="store_true")
+    add_scale_theta_argument(parser)
     add_color_argument(parser)
     parser.add_argument(
         "--cogen-must-run",
@@ -446,13 +449,12 @@ def make_parser() -> argparse.ArgumentParser:
             "line_losses.cpp seg_geom docstring)."
         ),
     )
-    # plexos2gtopt default = 1.0 ($/MWh) — strictly breaks PWL-loss
-    # bidirectional-flow degeneracy AND acts as the internal v-pin the
-    # tangent_signed_flow L-secant bracket needs when
-    # loss_secant_segments > 1 without SOS2.  (The former 0.1 already
-    # removed the lossp/lossn conditioning contributions vs the legacy
-    # 0.0.)
-    add_loss_cost_eps_argument(parser, dialect="plexos", default=1.0)
+    # ``loss_cost_eps``: UNSET by default — gtopt's built-in 0.1 $/MWh
+    # applies (breaks the PWL-loss bidirectional-flow degeneracy and acts
+    # as the internal v-pin the tangent_signed_flow L-secant bracket needs
+    # when loss_secant_segments > 1 without SOS2).  An explicit value,
+    # including ``--loss-cost-eps 0`` to disable, is emitted.
+    add_loss_cost_eps_argument(parser, dialect="plexos")
     # ``loss_secant_segments`` default: UNSET (gtopt resolves S=1, the
     # single-secant chord).  Extra secants are inert in pure LP (the
     # chord is inactive at benign optima; the arbitrage ceiling is
@@ -551,8 +553,8 @@ def make_parser() -> argparse.ArgumentParser:
             "evaporation loss on storage that PLEXOS leaves unset: batteries "
             "21.5%%/yr (2%%/month Li-ion, BU/NREL/IEA) and reservoirs 4%%/yr "
             "(ICOLD/World Bank Andean mid-range).  Default OFF.  Note: gtopt "
-            "itself defaults every battery without annual_loss to 4%%/month "
-            "(model_options.battery_annual_loss), so this flag LOWERS BESS "
+            "itself defaults every battery without annual_standing_loss to 4%%/month "
+            "(model_options.battery_annual_standing_loss), so this flag LOWERS BESS "
             "loss to 2%%/month; reservoirs stay lossless without it.  Enable to "
             "gently regularise the storage-balance chain (LP conditioning) "
             "and document the physical loss explicitly."
@@ -1135,6 +1137,7 @@ def make_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    add_operator_argument(parser)
     return parser
 
 
@@ -1187,11 +1190,13 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(
             "input bundle is required: pass it positionally or via --input-bundle"
         )
+    select_operator(args.operator, "plexos", bundle, args)
 
     options: dict[str, Any] = {
         "input_bundle": bundle,
         "output_dir": args.output_dir,
         "use_single_bus": args.use_single_bus,
+        "scale_theta": args.scale_theta,
         "default_uc_penalty": args.default_uc_penalty,
         "pampl_uc_mode": args.pampl_uc_mode,
         "pampl_uc_only": args.pampl_uc_only,

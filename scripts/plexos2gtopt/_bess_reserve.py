@@ -33,14 +33,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING
-
-from .plexos_xml import load_xml
-
-if TYPE_CHECKING:
-    from .entities import PlexosCase
-    from .plexos_loader import PlexosBundle
-    from .plexos_xml import PlexosDataRow, PlexosDb
+from .entities import PlexosCase
+from .plexos_loader import PlexosBundle
+from .plexos_xml import PlexosDataRow, PlexosDb, load_xml
 
 logger = logging.getLogger(__name__)
 

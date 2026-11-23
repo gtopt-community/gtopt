@@ -114,11 +114,6 @@ def _is_pure_line_flow(expression: str) -> bool:
     )
 
 
-def _references_commitment(expression: str) -> bool:
-    """LHS references at least one ``commitment(...)`` term."""
-    return "commitment(" in expression
-
-
 def _is_pure_commitment(expression: str) -> bool:
     """LHS references ONLY ``commitment(...)`` terms.
 

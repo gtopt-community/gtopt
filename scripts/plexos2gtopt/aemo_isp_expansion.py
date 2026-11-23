@@ -630,9 +630,10 @@ def _battery_candidate(
     }
     if phes:
         # Pumped hydro has no electrochemical self-discharge: pin 0 so the
-        # gtopt Li-ion default (``model_options.battery_annual_loss``) does
-        # not drain the upper reservoir.
-        entry["annual_loss"] = 0.0
+        # gtopt Li-ion default
+        # (``model_options.battery_annual_standing_loss``) does not drain
+        # the upper reservoir.
+        entry["annual_standing_loss"] = 0.0
     return entry
 
 

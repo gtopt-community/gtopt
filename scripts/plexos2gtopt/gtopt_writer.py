@@ -135,7 +135,7 @@ def build_options(
     *,
     use_single_bus: bool = False,
     demand_fail_cost: float = 1000.0,
-    loss_cost_eps: float = 0.0,
+    loss_cost_eps: float | None = None,
     loss_secant_segments: int | None = None,
     line_losses_mode: str | None = None,
     write_out: str | None = None,
@@ -215,12 +215,14 @@ def build_options(
             # provision) yet a shortage is always preferred over shedding load,
             # removing the hard-floor infeasibility.
             "reserve_shortage_cost": max(demand_fail_cost - 1.0, 0.0),
-            # ``loss_cost_eps`` (default 0.0) is emitted ONLY when > 0
-            # so legacy JSON output stays byte-identical when the flag
-            # is not passed.  When set, every PWL/bidirectional line
-            # inherits this ε to break LP-relax bidirectional-flow
-            # degeneracy.
-            **({"loss_cost_eps": loss_cost_eps} if loss_cost_eps > 0.0 else {}),
+            # ``loss_cost_eps`` is emitted ONLY when set (``None`` =
+            # flag not passed -> gtopt's built-in 0.1 $/MWh applies).
+            # An explicit 0 IS emitted: it is the only way to disable ε.
+            **(
+                {"loss_cost_eps": float(loss_cost_eps)}
+                if loss_cost_eps is not None
+                else {}
+            ),
             # ``loss_secant_segments`` (default 4 from the plexos2gtopt
             # CLI) — global L-secant chord count for the
             # tangent_signed_flow |f|-aux upper bracket; also the SOS2
@@ -1107,6 +1109,16 @@ def _resolve_loss_layout(line: Any) -> tuple[str, int]:
     return resolved_layout, _int_loss_env("GTOPT_NSEG_LOSSES", 4)
 
 
+def _tmax_peak(value: Any) -> float:
+    """Peak scalar of a ``tmax_*`` entry (scalar or ``[[per-block]]`` matrix).
+
+    ``build_line_array`` only ever emits these two shapes.
+    """
+    if isinstance(value, (int, float)):
+        return float(value)
+    return max((float(x) for row in value for x in row), default=0.0)
+
+
 def _scale_tmax(value: Any, factor: float) -> Any:
     """Scale a ``tmax_*`` entry by ``factor``.
 
@@ -1293,21 +1305,15 @@ def build_line_array(
                 # the larger original directional rating so a single
                 # envelope covers both legs; the loss mode itself is
                 # assigned further below.
-                def _scalar_max(value: Any) -> float:
-                    """Peak scalar of a tmax entry (scalar or [[matrix]])."""
-                    if isinstance(value, (int, float)):
-                        return float(value)
-                    return max((float(x) for row in value for x in row), default=0.0)
-
                 orig_env = 0.0
                 if "tmax_ab" in entry:
                     rating_ab = entry["tmax_ab"]
-                    orig_env = max(orig_env, _scalar_max(rating_ab))
+                    orig_env = max(orig_env, _tmax_peak(rating_ab))
                     entry["tmax_normal_ab"] = _scale_tmax(rating_ab, normal_f)
                     entry["tmax_ab"] = _scale_tmax(rating_ab, hard_f)
                 if "tmax_ba" in entry:
                     rating_ba = entry["tmax_ba"]
-                    orig_env = max(orig_env, _scalar_max(rating_ba))
+                    orig_env = max(orig_env, _tmax_peak(rating_ba))
                     entry["tmax_normal_ba"] = _scale_tmax(rating_ba, normal_f)
                     entry["tmax_ba"] = _scale_tmax(rating_ba, hard_f)
                 if orig_env > 0.0:
@@ -1322,6 +1328,9 @@ def build_line_array(
                     envelope_factor = hard_f if _extend_overload else 1.0
                     entry["loss_envelope"] = orig_env * envelope_factor
                 entry["overload_penalty"] = overload_penalty
+        # PLEXOS Reactance 0 / unset = no KVL (DC-like transport line):
+        # omit the key.  An explicit ``reactance: 0`` would be read by
+        # gtopt as a zero-impedance tie (equal bus angles), not as DC.
         if line.reactance > 0.0:
             entry["reactance"] = line.reactance
         # PLEXOS Resistance (pid 1888) → gtopt Line.resistance +
@@ -1418,29 +1427,12 @@ def build_line_array(
                 # non-soft-capped lines (the entire 500 kV mesh + key
                 # 220 kV transformers).
                 if "loss_envelope" not in entry:
-
-                    def _peak_tmax(v: Any) -> float:
-                        """Peak rating across scalar OR DLR-profile tmax
-                        (matches the soft-cap block's ``_scalar_max``
-                        helper above): keep the highest value the line
-                        is ever rated for so the loss-PWL envelope
-                        covers the realistic loading band uniformly."""
-                        if isinstance(v, (int, float)):
-                            return float(v)
-                        if isinstance(v, list):
-                            try:
-                                return max(
-                                    (float(x) for row in v for x in row),
-                                    default=0.0,
-                                )
-                            except TypeError:
-                                # 1-D list (no outer brackets)
-                                return max((float(x) for x in v), default=0.0)
-                        return 0.0
-
+                    # Peak rating across scalar OR DLR-profile tmax: keep
+                    # the highest value the line is ever rated for so the
+                    # loss-PWL envelope covers the realistic loading band.
                     env = max(
-                        _peak_tmax(entry.get("tmax_ab", 0.0)),
-                        _peak_tmax(entry.get("tmax_ba", 0.0)),
+                        _tmax_peak(entry.get("tmax_ab", 0.0)),
+                        _tmax_peak(entry.get("tmax_ba", 0.0)),
                     )
                     if env > 0.0:
                         entry["loss_envelope"] = env
@@ -1474,11 +1466,12 @@ def _fill_forward_defined(series: list[float] | tuple[float, ...]) -> list[float
     # Back-fill any leading zeros from the first defined value.
     first_defined = next((v for v in series if v != 0.0), None)
     if first_defined is not None:
-        for k, v in enumerate(out):
-            if v == 0.0:
-                out[k] = first_defined
-            else:
-                break
+        # ``out`` keeps ``first_defined`` at its original index, so the
+        # back-fill walk always stops there.
+        k = 0
+        while out[k] == 0.0:
+            out[k] = first_defined
+            k += 1
     return out
 
 
@@ -1791,6 +1784,11 @@ def build_battery_array(
         # varies, emit pmax_charge/pmax_discharge as a per-block matrix so the
         # de-rated blocks are honoured; otherwise the scalar peak.  CEN ships
         # symmetric Max Power, so the same profile feeds both legs.
+        # An out-of-service battery (Gen_Rating 0 MW over the whole horizon)
+        # gets an EXPLICIT 0 on both legs: an omitted pmax is unbounded.
+        if bat.out_of_service:
+            entry["pmax_discharge"] = 0.0
+            entry["pmax_charge"] = 0.0
         if bat.pmax_discharge > 0.0:
             entry["pmax_discharge"] = _battery_power_field(
                 bat.power_profile, bat.pmax_discharge, block_layout
@@ -1849,15 +1847,15 @@ def build_battery_array(
             entry["capacity"] = bat.emax
             entry["max_cycles_day"] = bat.max_cycles_day
         # Self-discharge.  gtopt applies a DEFAULT of 0.48 p.u./year
-        # (4 %/month, lithium cell + BMS; ``model_options.
-        # battery_annual_loss``) to every Battery whose ``annual_loss`` is
-        # ABSENT, so a real BESS needs nothing here.  Non-lithium storage
-        # emitted as a Battery (pumped hydro rewritten by
-        # ``plexos_model._rewrite_pumped_storage``) carries an explicit
-        # ``bat.annual_loss = 0.0`` that must be written so the lithium
-        # default does not apply.
-        if bat.annual_loss is not None:
-            entry["annual_loss"] = bat.annual_loss
+        # (4 %/month, lithium cell + BMS;
+        # ``model_options.battery_annual_standing_loss``) to every Battery
+        # whose ``annual_standing_loss`` is ABSENT, so a real BESS needs
+        # nothing here.  Non-lithium storage emitted as a Battery (pumped
+        # hydro rewritten by ``plexos_model._rewrite_pumped_storage``)
+        # carries an explicit ``bat.annual_standing_loss = 0.0`` that must
+        # be written so the lithium default does not apply.
+        if bat.annual_standing_loss is not None:
+            entry["annual_standing_loss"] = bat.annual_standing_loss
         if bat.storage_type:
             entry["type"] = bat.storage_type
         if bat.reserve_sustain_hours is not None:
@@ -1869,8 +1867,8 @@ def build_battery_array(
         # cycle-limited BESS to the 2 %/month figure; it never overrides
         # an explicit value (pumped storage keeps 0).
         if apply_default_loss and bat.max_cycles_day > 0.0 and bat.emax > 0.0:
-            if "annual_loss" not in entry:
-                entry["annual_loss"] = 0.215  # 2%/month → 21.5%/year
+            if "annual_standing_loss" not in entry:
+                entry["annual_standing_loss"] = 0.215  # 2%/month → 21.5%/year
         out.append(entry)
     return out
 
@@ -2403,9 +2401,9 @@ def build_reservoir_array(
             # set 0, so the default now matches it.)
             entry["spillway_cost"] = 0.0
         # Default annual evaporation / seepage loss for hydroelectric
-        # reservoirs — gtopt's ``Reservoir.annual_loss`` (p.u./year
+        # reservoirs — gtopt's ``Reservoir.annual_standing_loss`` (p.u./year
         # linear) drives the energy-balance row coefficient
-        # ``V[t+1] = V[t] × (1 − annual_loss / 8760 × duration) + flows``.
+        # ``V[t+1] = V[t] × (1 − annual_standing_loss / 8760 × duration) + flows``.
         #
         # Literature on reservoir evaporation losses (annual fraction
         # of usable storage lost to surface evaporation + seepage):
@@ -2433,12 +2431,18 @@ def build_reservoir_array(
         # requested — by default a reservoir carries no annual loss so the
         # water balance is not perturbed by a value PLEXOS never ships.  When
         # enabled, emit only if PLEXOS didn't already ship its own
-        # ``annual_loss`` (pulled from ``Storage.Annual Loss Rate`` if set —
-        # never observed populated in the reference case, safety check costs nothing) and
+        # ``annual_standing_loss`` (pulled from ``Storage.Annual Loss Rate`` if set —
+        # never observed populated in v0407, safety check costs nothing) and
         # skip reservoirs with effectively zero storage (pass-through / RoR
         # pondage where the loss is meaningless).
-        if apply_default_loss and "annual_loss" not in entry and res.emax > 0.0:
-            entry["annual_loss"] = 0.03  # 3 %/year — in Andean 1–3% ∩ Pyrenean 2.8–5.6%
+        if (
+            apply_default_loss
+            and "annual_standing_loss" not in entry
+            and res.emax > 0.0
+        ):
+            entry["annual_standing_loss"] = (
+                0.03  # 3 %/year — in Andean 1–3% ∩ Pyrenean 2.8–5.6%
+            )
         out.append(entry)
     return out
 
@@ -3080,10 +3084,11 @@ def build_flow_right_array(
     horizon.  Without this gtopt's ``FieldSched`` lookup would read
     past the end of a 24-element row on multi-day runs.
 
-    **Inline bypass via FlowRight.bypass_junction**: gtopt's
-    ``FlowRight`` LP class supports a pass-through column priced at
-    ``bypass_cost·cf`` that contributes -1 to ``junction`` and +1 to
-    ``bypass_junction`` (see ``flow_right_lp.cpp``).  When a
+    **Inline bypass via FlowRight.junction_b + use_bypass**: gtopt's
+    ``FlowRight`` LP class supports an opt-in pass-through column priced
+    at ``bypass_cost·cf`` that contributes -1 to ``junction_a`` and +1 to
+    ``junction_b`` (see ``flow_right_lp.cpp``); it is reported as
+    ``FlowRight/bypass_sol``.  When a
     ``FlowRightSpec`` declares ``bypass_junction``, the writer emits
     that on the JSON entry — the LP layer adds the pressure-release
     flow inline rather than via a parallel synthetic Waterway.  When
@@ -3145,6 +3150,9 @@ def build_flow_right_array(
         bypass_to = fr.bypass_junction or spill_downstream.get(fr.junction_name)
         if bypass_to is not None:
             entry["junction_b"] = bypass_to
+            # The LP only builds the a→b pass-through arc on explicit
+            # opt-in (a bare ``junction_b`` opens no water path).
+            entry["use_bypass"] = True
             if fr.bypass_cost > 0.0:
                 entry["bypass_cost"] = fr.bypass_cost
             bypassed += 1
@@ -3546,6 +3554,7 @@ def _internalise_real_reservoir_ocean_spill(system: dict[str, Any]) -> int:
     for fr in flow_rights:
         if _ref_name(fr.get("junction_b")) in dropped_ocean:
             fr.pop("junction_b", None)
+            fr.pop("use_bypass", None)
             fr.pop("bypass_cost", None)
 
     system["waterway_array"] = [w for w in waterways if w["uid"] not in dropped_ww]
@@ -3714,7 +3723,7 @@ def build_planning(  # pylint: disable=too-many-arguments
     default_storage_loss: bool = False,
     fcf_scale_alpha: float | None = None,
     fcf_coeff_divisor: float = 1.0,
-    loss_cost_eps: float = 0.0,
+    loss_cost_eps: float | None = None,
     loss_secant_segments: int | None = None,
     line_losses_mode: str | None = None,
     write_out: str | None = None,
@@ -4686,8 +4695,10 @@ def write_user_constraint_pampl(
             rhs_txt = ""
             if "rhs" in uc:
                 rhs_vec = _pampl_rhs_vector(uc["rhs"])
-                if rhs_vec is not None:
-                    rhs_txt = " rhs [" + ", ".join(f"{v:g}" for v in rhs_vec) + "]"
+                # Rows whose ``rhs`` has no vector form were routed to
+                # ``json_remaining`` above, so the vector always exists here.
+                assert rhs_vec is not None
+                rhs_txt = " rhs [" + ", ".join(f"{v:g}" for v in rhs_vec) + "]"
             lines.append(f"{prefix}constraint {ident}{pen_txt}{rhs_txt}:")
             lines.append(f"  {uc['expression']};")
             lines.append("")

@@ -2221,6 +2221,81 @@ def test_extract_batteries_charge_power_prefers_data_file(tmp_path: Path) -> Non
     assert batts["sym"].pmax_discharge == pytest.approx(7.0)
 
 
+def _gen_rating_rows(name: str, value: float) -> str:
+    return "".join(f"{name},2026,1,1,{p},1,{value}\n" for p in range(1, 25))
+
+
+def test_extract_batteries_zero_rating_is_out_of_service(tmp_path: Path) -> None:
+    """A Gen_Rating series that is 0 MW over the whole horizon means the
+    battery is out of service: both legs must be 0 MW, not the 2 MW static
+    ``Max Power`` / ``Max Load`` placeholder, and the writer must emit the
+    zeros explicitly (an omitted pmax is unbounded in gtopt).
+
+    Regression: BAT_CHACA, BAT_ARENALES, BAT_HUATACONDO_FV and
+    BAT_ALFALFAL_VR1 (CEN PCP 2026-04-22) were emitted as 2 MW batteries.
+    A battery whose real rating is 2 MW (BAT_ARICA) must stay at 2 MW.
+    """
+    # pylint: disable=import-outside-toplevel
+    from plexos2gtopt.gtopt_writer import build_battery_array
+
+    (tmp_path / "DBSEN_PRGDIARIO.xml").write_text(
+        _BATT_MAXLOAD_XML.replace(">asym<", ">BAT_REAL2<")
+    )
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        + _gen_rating_rows("BAT_PLACEHOLDER", 0)
+        + _gen_rating_rows("BAT_REAL2", 2),
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(tmp_path / "DBSEN_PRGDIARIO.xml")
+    batts = {b.name: b for b in extract_batteries(db, bundle)}
+
+    off = batts["BAT_PLACEHOLDER"]
+    assert off.out_of_service
+    assert off.pmax_discharge == 0.0
+    assert off.pmax_charge == 0.0
+    assert not off.power_profile
+    # Its pmins (2.5 / 2.8 MW) exceed the 0 MW rating → dropped, so the
+    # battery is not forced into an infeasible min-charge/discharge.
+    assert off.pmin_charge == 0.0
+
+    real = batts["BAT_REAL2"]
+    assert not real.out_of_service
+    # Static Max Power 5 MW beats the 2 MW rating (max of the two) and the
+    # genuine Max Load 3 MW drives the charge leg, as before.
+    assert real.pmax_discharge == pytest.approx(5.0)
+    assert real.pmax_charge == pytest.approx(3.0)
+    # No Gen_Rating row at all → unaffected (symmetric Max Power).
+    assert not batts["sym"].out_of_service
+    assert batts["sym"].pmax_discharge == pytest.approx(7.0)
+
+    entries = {e["name"]: e for e in build_battery_array(tuple(batts.values()))}
+    assert entries["BAT_PLACEHOLDER"]["pmax_discharge"] == 0.0
+    assert entries["BAT_PLACEHOLDER"]["pmax_charge"] == 0.0
+    assert entries["BAT_REAL2"]["pmax_discharge"] == pytest.approx(5.0)
+
+
+def test_extract_batteries_real_2mw_rating_kept(tmp_path: Path) -> None:
+    """A flat 2 MW Gen_Rating (BAT_ARICA-like: real rating equal to the
+    placeholder) is a working battery: 2 MW on both legs."""
+    (tmp_path / "DBSEN_PRGDIARIO.xml").write_text(_BATT_MAXLOAD_XML)
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        + _gen_rating_rows("BAT_PLACEHOLDER", 2),
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(tmp_path / "DBSEN_PRGDIARIO.xml")
+    batts = {b.name: b for b in extract_batteries(db, bundle)}
+    flat = batts["BAT_PLACEHOLDER"]
+    assert not flat.out_of_service
+    assert flat.pmax_discharge == pytest.approx(2.0)
+    assert flat.pmax_charge == pytest.approx(2.0)
+
+
 def test_extract_batteries_keeps_valid_pmin_end_to_end(tmp_path: Path) -> None:
     """Companion to the drop-path test: when ``Min Charge Level``
     fits inside ``Max Power``, the extractor preserves the value AND

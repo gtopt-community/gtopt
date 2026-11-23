@@ -538,7 +538,10 @@ def test_feasible_cycle_eini_clips_retiring_battery(caplog):
 def test_battery_candidate_phes_has_no_self_discharge(
     category: str, loss: float | None, tmp_path: Path
 ) -> None:
-    """PHES candidates pin ``annual_loss = 0``; Li-ion keeps gtopt's default."""
+    """PHES candidates pin ``annual_standing_loss = 0``.
+
+    Li-ion keeps gtopt's default.
+    """
     c = exp.Candidate(
         name="cand",
         oid=1,
@@ -564,5 +567,5 @@ def test_battery_candidate_phes_has_no_self_discharge(
     entry = exp._battery_candidate(  # pylint: disable=protected-access
         c, [True], 1, opts, [0]
     )
-    assert entry.get("annual_loss") == loss
+    assert entry.get("annual_standing_loss") == loss
     assert entry["type"] == ("candidate_phes" if loss == 0.0 else "candidate_battery")

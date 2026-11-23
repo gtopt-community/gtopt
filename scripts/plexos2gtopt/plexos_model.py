@@ -1194,8 +1194,6 @@ def materialise_model(
     out_dir.mkdir(parents=True, exist_ok=True)
     tree.write(out_dir / xml_path.name, encoding="utf-8", xml_declaration=True)
     for csv_name, table in sorted(csvs.items()):
-        if not table:
-            continue
         writer = (
             _write_wide
             if csv_name in ("Nod_Load.csv", "Lin_Units.csv")
@@ -1458,9 +1456,10 @@ def _rewrite_dsp_bids(
             goid = editor.add_object("Generator", name)
             gmid = editor.add_membership(sys_gen, sys_oid, goid)
             editor.add_membership(gen_node, goid, nodes[0])
-            new_rows.append((gmid, vom, 10000.0 if price is None else price, 1))
+            bid = 10000.0 if price is None else price
+            new_rows.append((gmid, vom, bid, 1))
             csvs["Gen_Rating.csv"][name] = qty
-            made.append(f"{name} ({max(qty):g} MW @ {price:g})")
+            made.append(f"{name} ({max(qty):g} MW @ {bid:g})")
         if made:
             report.rewrites.append("DSP bid bands -> generators: " + ", ".join(made))
 

@@ -465,11 +465,14 @@ def test_real_bundle_p2_static_properties() -> None:
         f"expected ≥90% of lines to carry reactance, got "
         f"{lines_with_x}/{len(case.lines)}"
     )
-    # Every battery must expose a non-zero Max Power (Capacity may be
-    # zero for some sites still in construction, but Max Power is the
-    # nameplate the unit was registered with).
-    powered = sum(1 for b in case.batteries if b.pmax_discharge > 0.0)
-    assert powered >= 0.9 * len(case.batteries)
+    # Every in-service battery must expose a non-zero Max Power (Capacity
+    # may be zero for some sites still in construction, but Max Power is
+    # the nameplate the unit was registered with).  Out-of-service units
+    # (Gen_Rating 0 MW over the horizon — 5 on day 1 of this bundle) are
+    # 0 MW by design and must stay a small minority.
+    in_service = [b for b in case.batteries if not b.out_of_service]
+    assert len(in_service) >= 0.8 * len(case.batteries)
+    assert all(b.pmax_discharge > 0.0 for b in in_service)
     # Round-trip efficiency: ≥50% means the percent→fraction conversion
     # in the parser fired (CEN values are 95–98%).  Without the
     # conversion the value would still be ≈97 (raw percent), well
@@ -495,6 +498,41 @@ def test_real_bundle_battery_charge_power_not_placeholder() -> None:
         assert b.pmax_charge == pytest.approx(b.pmax_discharge), b.name
     by_name = {b.name: b for b in batts}
     assert by_name["BAT_DEL_DESIERTO"].pmax_charge > 100.0
+
+
+@_skip_if_missing
+def test_real_bundle_out_of_service_batteries_zero_power() -> None:
+    """Batteries whose Gen_Rating is 0 MW over the whole horizon are out
+    of service and get 0 MW on both legs, not the 2 MW placeholder; the
+    genuine 2 MW BAT_ARICA keeps its rating."""
+    # pylint: disable=import-outside-toplevel
+    from plexos2gtopt.parsers import extract_batteries
+    from plexos2gtopt.plexos_xml import load_xml
+
+    with locate_bundle(REAL_BUNDLE) as bundle:
+        # The PCP forward-look week (the case is converted with the 7-day
+        # PLEXOS horizon): BAT_MARIA_ELENA_FV is 0 MW for six days and back
+        # at 60.5 MW on the seventh, so it must NOT be flagged.
+        bundle.n_days = 7
+        batts = extract_batteries(load_xml(bundle.xml_path), bundle)
+    by_name = {b.name: b for b in batts}
+    for name in (
+        "BAT_CHACA",
+        "BAT_ARENALES",
+        "BAT_HUATACONDO_FV",
+        "BAT_ALFALFAL_VR1",
+    ):
+        b = by_name[name]
+        assert b.out_of_service, name
+        assert b.pmax_discharge == 0.0, name
+        assert b.pmax_charge == 0.0, name
+    arica = by_name["BAT_ARICA"]
+    assert not arica.out_of_service
+    assert arica.pmax_discharge == pytest.approx(2.0)
+    assert arica.pmax_charge == pytest.approx(2.0)
+    # Partially de-rated units are in service and keep their profile.
+    assert not by_name["BAT_MARIA_ELENA_FV"].out_of_service
+    assert by_name["BAT_MARIA_ELENA_FV"].pmax_discharge > 0.0
 
 
 @_skip_if_missing

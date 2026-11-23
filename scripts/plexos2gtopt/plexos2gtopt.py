@@ -489,7 +489,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             soft_storage_bounds=soft_storage_bounds,
             soft_penalty_override=options.get("soft_penalty_cost"),
             default_storage_loss=bool(options.get("default_storage_loss", False)),
-            loss_cost_eps=float(options.get("loss_cost_eps", 0.0) or 0.0),
+            loss_cost_eps=options.get("loss_cost_eps"),
             loss_secant_segments=options.get("loss_secant_segments"),
             line_losses_mode=options.get("line_losses_mode"),
             write_out=options.get("write_out"),
@@ -508,6 +508,11 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             model_opts = planning["options"].setdefault("model_options", {})
             model_opts["use_single_bus"] = True
             model_opts["use_kirchhoff"] = False
+        # --scale-theta: opt-in manual θ scale (θ_LP = FACTOR · θ).  Unset
+        # leaves it to gtopt's C++ auto_scale_theta (1/(3·median(X/V²))).
+        if options.get("scale_theta") is not None:
+            model_opts = planning["options"].setdefault("model_options", {})
+            model_opts["scale_theta"] = float(options["scale_theta"])
 
         output_dir.mkdir(parents=True, exist_ok=True)
         # End-of-horizon future-cost (boundary) cut from

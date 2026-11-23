@@ -24,6 +24,7 @@ dialect. Symmetric design: open-with, ``.first(...)`` /
 from __future__ import annotations
 
 import logging
+import lzma
 import re
 import tempfile
 import zipfile
@@ -161,11 +162,6 @@ def _unwrap_outer(zip_path: Path, dest: Path) -> Path:
 
 def _extract_xz_zip(xz_path: Path, dest_dir: Path) -> Path:
     """Decompress ``*.zip.xz`` to ``dest_dir`` and return the resulting zip path."""
-    try:
-        import lzma  # pylint: disable=import-outside-toplevel
-    except ImportError as exc:  # pragma: no cover — stdlib on all supported versions
-        raise RuntimeError("lzma module unavailable; cannot extract .zip.xz") from exc
-
     out_zip = dest_dir / xz_path.name.removesuffix(".xz")
     with lzma.open(xz_path, "rb") as src, out_zip.open("wb") as dst:
         # 1 MiB chunks keep peak memory bounded for the 18 MB PCP files.
@@ -195,8 +191,6 @@ def _locate_xml_file(xml_input: Path) -> PlexosBundle:
         return PlexosBundle(
             root=xml_input.parent, source=xml_input, xml_name=xml_input.name
         )
-    import lzma  # pylint: disable=import-outside-toplevel
-
     # Lifetime owned by the returned bundle (see ``locate_bundle``).
     # pylint: disable-next=consider-using-with
     tmp = tempfile.TemporaryDirectory(prefix="plexos2gtopt-")
@@ -270,11 +264,11 @@ def locate_bundle(input_path: Path) -> PlexosBundle:
                 input_path.parent,
             )
         else:
-            hint = ""
-            if not datos_archives:
-                hint = " (no DATOS*.zip or DATOS*.zip.xz files found either)"
-            elif len(datos_archives) > 1:
-                hint = f" ({len(datos_archives)} DATOS* archives found)"
+            hint = (
+                f" ({len(datos_archives)} DATOS* archives found)"
+                if datos_archives
+                else " (no DATOS*.zip or DATOS*.zip.xz files found either)"
+            )
             raise FileNotFoundError(
                 f"{input_path}: directory does not contain {DBSEN_FILENAME}{hint}"
             )

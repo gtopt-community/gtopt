@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """The bundled PLEXOS-HARD UC list loads, has the audited size, and a
 missing list is a hard error (never a silent HARD→SOFT downgrade)."""
 

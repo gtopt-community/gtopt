@@ -29,7 +29,10 @@ always (this is a diagnostic, not a gate).
 from __future__ import annotations
 
 import argparse
+import csv
+import functools
 import hashlib
+import io
 import json
 import os
 import pickle
@@ -122,7 +125,10 @@ def _compute_plexos_all(accdb_path: Path) -> dict[str, Any]:
     # PLEXOS pid-119 ``gen_cost_usd`` (which uses the integrated
     # PLEXOS per-block cost — a different accounting basis, kept for
     # historical reference).
-    totals["gen_cost_srmc_usd"] = sum(mwh * srmc for mwh, srmc in unit.values())
+    # An empty ``totals`` (no t_phase_3 block layout) must stay empty so
+    # main() skips Step 3 instead of rendering a half-filled dict.
+    if totals:
+        totals["gen_cost_srmc_usd"] = sum(mwh * srmc for mwh, srmc in unit.values())
     return {
         "_version": _PLEXOS_CACHE_VERSION,
         "totals": totals,
@@ -410,54 +416,36 @@ PLEXOS_PROP_LINE_IMPORT_LIMIT = 1466  # MW negative-direction cap
 # ============================================================
 
 
-def _read_plexos_table(
-    accdb_path: Path,
-    table: str,
-    *,
-    case_dir: Path | None = None,
-) -> str:
-    """Return the CSV text for ``table`` from a PLEXOS .accdb.
+def _find_case_bundle(case_dir: Path) -> Path | None:
+    """Return the PLEXOS-source bundle JSON of a gtopt case dir.
 
-    Tries three sources in order:
-      1. ``case_dir / "plexos_cache" / "<table>.csv.zst"`` — the
-         pre-extracted cache plexos2gtopt drops during conversion.
-         Decompressed via the ``zstd -d`` CLI (avoids hard
-         python-zstandard dep).
-      2. ``<accdb_dir> / "plexos_cache" / "<table>.csv.zst"``
-         when the .accdb itself is under a cached layout.
-      3. Live ``mdb-export <accdb> <table>`` fallback — slow,
-         used when the cache is absent or unreadable.
-
-    Returns the raw CSV text (headers + rows) ready to pass into
-    ``csv.DictReader(io.StringIO(...))``.
+    The bundle is the first ``*.json`` (sorted) that is neither gtopt's
+    solved ``planning.json`` dump nor the plexos2gtopt
+    ``*.provenance.json`` run-metadata sidecar.  ``None`` when there is
+    no such entry or it is not a regular file.
     """
+    for cand in sorted(case_dir.glob("*.json")):
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
+            continue
+        return cand if cand.is_file() else None
+    return None
+
+
+def _load_case_bundle(case_dir: Path) -> dict[str, Any]:
+    """Parse the case bundle JSON; ``FileNotFoundError`` when absent."""
+    bundle_path = _find_case_bundle(case_dir)
+    if bundle_path is None:
+        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
+    bundle: dict[str, Any] = json.loads(bundle_path.read_text())
+    return bundle
+
+
+def _mdb_dump(accdb_path: Path, table: str) -> list[dict[str, str]]:
+    """Live ``mdb-export <accdb> <table>`` parsed into CSV dict rows."""
     import subprocess
 
-    candidates: list[Path] = []
-    if case_dir is not None:
-        candidates.append(case_dir / "plexos_cache" / f"{table}.csv.zst")
-    if accdb_path is not None:
-        candidates.append(accdb_path.parent / "plexos_cache" / f"{table}.csv.zst")
-
-    for cache in candidates:
-        if not cache.exists():
-            continue
-        try:
-            proc = subprocess.run(
-                ["zstd", "-d", "-q", "-c", str(cache)],
-                capture_output=True,
-                check=True,
-                text=True,
-                timeout=60,
-            )
-            return proc.stdout
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
-            # Cache file is corrupt or zstd unavailable — fall through
-            # to the live extraction below.
-            continue
-
-    # Live fallback.
-    return subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+    out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+    return list(csv.DictReader(io.StringIO(out)))
 
 
 def _plexos_block_durations_from_accdb(
@@ -486,8 +474,6 @@ def _plexos_block_durations_from_accdb(
         # mdb-export missing or accdb unreadable.
         raise RuntimeError(f"cannot read t_phase_3 from {accdb_path}: {exc}") from exc
 
-    import csv
-    import io
     import collections
 
     counts: dict[int, int] = collections.Counter()
@@ -535,18 +521,12 @@ def compute_plexos_energy_totals(
 
     Returns ``{}`` if the .accdb can't be read.
     """
-    import subprocess
 
     durations = _plexos_block_durations_from_accdb(accdb_path)
     if not durations:
         return {}
 
-    def _dump(table: str) -> list[dict[str, str]]:
-        import csv
-        import io
-
-        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
-        return list(csv.DictReader(io.StringIO(out)))
+    _dump = functools.partial(_mdb_dump, accdb_path)
 
     keys = _dump("t_key")
     data0 = _dump("t_data_0")
@@ -799,13 +779,8 @@ def _compute_plexos_line_losses_analytic_mwh(
     the LP.  Returns 0.0 when no flows / resistances are available.
     """
 
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
-            continue
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
+    bundle_path = _find_case_bundle(case_dir)
+    if bundle_path is None:
         return 0.0
     bundle = json.loads(bundle_path.read_text())
 
@@ -981,41 +956,6 @@ def _sum_consumer_demand_field_mwh(
     return float((df.loc[mask, "value"] * df.loc[mask, "duration"]).sum())
 
 
-def _sum_consumer_fail_mwh(
-    case_dir: Path,
-    bundle: dict[str, Any],
-    durations: dict[int, float],
-) -> float:
-    """Sum ``Demand/fail_sol`` MWh restricted to **real consumer demands**.
-
-    gtopt's ``expand_batteries`` (C++ ``system.cpp``) auto-instantiates
-    a synthetic ``<bat>_dem`` Demand per Battery, with
-    ``fcost = 0`` by design — the LP is intentionally free to leave
-    those demands unserved (i.e. the battery simply doesn't charge
-    that block).  The fail_sol parquet pools real consumer fail AND
-    those synthetic battery fails together; the synthetics
-    overwhelm the real numbers (~7.5 GWh on CEN PCP) and turn the
-    unserved-MWh metric into noise.
-
-    Filter by uid range: bundle's input ``demand_array`` covers
-    uids 1…N (N=127 on CEN PCP).  Synthetic ``<bat>_dem`` entries
-    are appended by gtopt at uid > N.  Sum only fail rows where
-    uid ≤ N.
-    """
-    import pyarrow.parquet as pq
-
-    f = case_dir / "output" / "Demand" / "fail_sol.parquet"
-    if not f.exists():
-        return 0.0
-    consumer_uids = {int(d["uid"]) for d in bundle["system"].get("demand_array", [])}
-    if not consumer_uids:
-        return 0.0
-    df = pq.read_table(f).to_pandas()
-    df["duration"] = df["block"].astype(int).map(durations).fillna(0.0)
-    mask = df["uid"].astype(int).isin(consumer_uids)
-    return float((df.loc[mask, "value"] * df.loc[mask, "duration"]).sum())
-
-
 def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     """Sum gtopt's per-block MW dispatch into MWh using bundle's
     block durations.  Reads parquet directly via pyarrow (already a
@@ -1028,15 +968,8 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     #    convention is either ``plexos_bundle.json`` (legacy) or
     #    ``<stem>.json`` (current plexos2gtopt output).  Look for
     #    either.
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        if cand.name == "planning.json":
-            continue  # gtopt's writer copies; not the source bundle
-        if cand.name.endswith(".provenance.json"):
-            continue  # plexos2gtopt run-metadata sidecar; not the bundle
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
+    bundle_path = _find_case_bundle(case_dir)
+    if bundle_path is None:
         raise FileNotFoundError(
             f"no PLEXOS-source JSON found in {case_dir} "
             "(looked for *.json, ignored planning.json)"
@@ -1281,17 +1214,12 @@ def compute_plexos_per_unit_srmc(
     undefined.
     """
     import collections
-    import csv
-    import io
-    import subprocess
 
     durations = _plexos_block_durations_from_accdb(accdb_path)
     if not durations:
         return {}
 
-    def _dump(table: str) -> list[dict[str, str]]:
-        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
-        return list(csv.DictReader(io.StringIO(out)))
+    _dump = functools.partial(_mdb_dump, accdb_path)
 
     keys = _dump("t_key")
     data0 = _dump("t_data_0")
@@ -1372,18 +1300,7 @@ def compute_gtopt_per_unit_srmc(
 
     import pyarrow.parquet as pq
 
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        # Skip the solved planning dump and the conversion-provenance
-        # sidecar (neither is the PLEXOS-source case bundle).
-        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
-            continue
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
-        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
-
-    bundle = json.loads(bundle_path.read_text())
+    bundle = _load_case_bundle(case_dir)
     durations = {
         int(b["uid"]): float(b.get("duration", 1.0))
         for b in bundle["simulation"]["block_array"]
@@ -1537,18 +1454,13 @@ def compute_plexos_per_bus_lmp(
     t_phase_3 block durations.
     """
     import collections
-    import csv
-    import io
-    import subprocess
 
     durations = _plexos_block_durations_from_accdb(accdb_path)
     if not durations:
         return {}
     total_hours = sum(durations.values())
 
-    def _dump(table: str) -> list[dict[str, str]]:
-        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
-        return list(csv.DictReader(io.StringIO(out)))
+    _dump = functools.partial(_mdb_dump, accdb_path)
 
     keys = _dump("t_key")
     data0 = _dump("t_data_0")
@@ -1605,18 +1517,7 @@ def compute_gtopt_per_bus_lmp(
 
     import pyarrow.parquet as pq
 
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        # Skip the solved planning dump and the conversion-provenance
-        # sidecar (neither is the PLEXOS-source case bundle).
-        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
-            continue
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
-        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
-
-    bundle = json.loads(bundle_path.read_text())
+    bundle = _load_case_bundle(case_dir)
     durations = {
         int(b["uid"]): float(b.get("duration", 1.0))
         for b in bundle["simulation"]["block_array"]
@@ -1766,18 +1667,13 @@ def compute_plexos_per_line(
     mistake.
     """
     import collections
-    import csv
-    import io
-    import subprocess
 
     durations = _plexos_block_durations_from_accdb(accdb_path)
     if not durations:
         return {}
     total_hours = sum(durations.values())
 
-    def _dump(table: str) -> list[dict[str, str]]:
-        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
-        return list(csv.DictReader(io.StringIO(out)))
+    _dump = functools.partial(_mdb_dump, accdb_path)
 
     keys = _dump("t_key")
     data0 = _dump("t_data_0")
@@ -1940,18 +1836,7 @@ def compute_gtopt_per_line(
 
     import pyarrow.parquet as pq
 
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        # Skip the solved planning dump and the conversion-provenance
-        # sidecar (neither is the PLEXOS-source case bundle).
-        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
-            continue
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
-        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
-
-    bundle = json.loads(bundle_path.read_text())
+    bundle = _load_case_bundle(case_dir)
     durations = {
         int(b["uid"]): float(b.get("duration", 1.0))
         for b in bundle["simulation"]["block_array"]
@@ -2347,13 +2232,8 @@ def _plexos_name_to_category(accdb_path: Path) -> dict[str, str]:
     generators by joining on name (gtopt's bundle doesn't preserve
     category).
     """
-    import csv
-    import io
-    import subprocess
 
-    def _dump(table: str) -> list[dict[str, str]]:
-        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
-        return list(csv.DictReader(io.StringIO(out)))
+    _dump = functools.partial(_mdb_dump, accdb_path)
 
     cats = _dump("t_category")
     objs = _dump("t_object")
@@ -2429,18 +2309,7 @@ def compute_gtopt_generation_by_technology(
     """
     import pyarrow.parquet as pq
 
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        # Skip the solved planning dump and the conversion-provenance
-        # sidecar (neither is the PLEXOS-source case bundle).
-        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
-            continue
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
-        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
-
-    bundle = json.loads(bundle_path.read_text())
+    bundle = _load_case_bundle(case_dir)
     durations = {
         int(b["uid"]): float(b.get("duration", 1.0))
         for b in bundle["simulation"]["block_array"]
@@ -2547,18 +2416,13 @@ def compute_plexos_reservoir_volumes(
     519 Available SoC (proxy for instantaneous volume).
     """
     import collections
-    import csv
-    import io
-    import subprocess
 
     durations = _plexos_block_durations_from_accdb(accdb_path)
     if not durations:
         return {}
     total_hours = sum(durations.values())
 
-    def _dump(table: str) -> list[dict[str, str]]:
-        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
-        return list(csv.DictReader(io.StringIO(out)))
+    _dump = functools.partial(_mdb_dump, accdb_path)
 
     keys = _dump("t_key")
     data0 = _dump("t_data_0")
@@ -2644,18 +2508,13 @@ def compute_plexos_reservoir_water_value(
     with gtopt ``Reservoir/water_value_dual``.
     """
     import collections
-    import csv
-    import io
-    import subprocess
 
     durations = _plexos_block_durations_from_accdb(accdb_path)
     if not durations:
         return {}
     total_hours = sum(durations.values()) or 1.0
 
-    def _dump(table: str) -> list[dict[str, str]]:
-        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
-        return list(csv.DictReader(io.StringIO(out)))
+    _dump = functools.partial(_mdb_dump, accdb_path)
 
     obj_name = {int(o["object_id"]): o["name"] for o in _dump("t_object")}
     mem_child = {
@@ -2706,18 +2565,7 @@ def compute_gtopt_reservoir_volumes(
 
     import pyarrow.parquet as pq
 
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        # Skip the solved planning dump and the conversion-provenance
-        # sidecar (neither is the PLEXOS-source case bundle).
-        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
-            continue
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
-        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
-
-    bundle = json.loads(bundle_path.read_text())
+    bundle = _load_case_bundle(case_dir)
     durations = {
         int(b["uid"]): float(b.get("duration", 1.0))
         for b in bundle["simulation"]["block_array"]
@@ -2769,16 +2617,7 @@ def compute_gtopt_reservoir_water_value(
 
     import pyarrow.parquet as pq
 
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
-            continue
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
-        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
-
-    bundle = json.loads(bundle_path.read_text())
+    bundle = _load_case_bundle(case_dir)
     durations = {
         int(b["uid"]): float(b.get("duration", 1.0))
         for b in bundle["simulation"]["block_array"]
@@ -2925,17 +2764,12 @@ def compute_plexos_battery_operation(
     "battery over-cycling" gap.
     """
     import collections
-    import csv
-    import io
-    import subprocess
 
     durations = _plexos_block_durations_from_accdb(accdb_path)
     if not durations:
         return {}
 
-    def _dump(table: str) -> list[dict[str, str]]:
-        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
-        return list(csv.DictReader(io.StringIO(out)))
+    _dump = functools.partial(_mdb_dump, accdb_path)
 
     keys = _dump("t_key")
     data0 = _dump("t_data_0")
@@ -3006,18 +2840,7 @@ def compute_gtopt_battery_operation(
 
     import pyarrow.parquet as pq
 
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        # Skip the solved planning dump and the conversion-provenance
-        # sidecar (neither is the PLEXOS-source case bundle).
-        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
-            continue
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
-        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
-
-    bundle = json.loads(bundle_path.read_text())
+    bundle = _load_case_bundle(case_dir)
     durations = {
         int(b["uid"]): float(b.get("duration", 1.0))
         for b in bundle["simulation"]["block_array"]
@@ -3139,17 +2962,12 @@ def compute_plexos_commitment(
     the same block is invisible).
     """
     import collections
-    import csv
-    import io
-    import subprocess
 
     durations = _plexos_block_durations_from_accdb(accdb_path)
     if not durations:
         return {}
 
-    def _dump(table: str) -> list[dict[str, str]]:
-        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
-        return list(csv.DictReader(io.StringIO(out)))
+    _dump = functools.partial(_mdb_dump, accdb_path)
 
     keys = _dump("t_key")
     data0 = _dump("t_data_0")
@@ -3235,18 +3053,7 @@ def compute_gtopt_commitment(
 
     import pyarrow.parquet as pq
 
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        # Skip the solved planning dump and the conversion-provenance
-        # sidecar (neither is the PLEXOS-source case bundle).
-        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
-            continue
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
-        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
-
-    bundle = json.loads(bundle_path.read_text())
+    bundle = _load_case_bundle(case_dir)
     durations = {
         int(b["uid"]): float(b.get("duration", 1.0))
         for b in bundle["simulation"]["block_array"]
@@ -3447,8 +3254,6 @@ def _read_boundary_cut_coeffs(*dirs: str | Path | None) -> dict[str, float]:
     candidate directory in order and returns the first hit's first data row
     as ``{reservoir_name -> |coef|}``; empty dict when no file is found.
     """
-    import csv  # local import — matches this module's lazy-csv convention
-
     for d in dirs:
         if d is None:
             continue
@@ -3988,13 +3793,8 @@ def _pull_plexos_gen_by_period(
     block layout (mdb-export reports values already aggregated to the
     bundle's block periods)."""
     import collections
-    import csv
-    import io
-    import subprocess
 
-    def _dump(table: str) -> list[dict[str, str]]:
-        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
-        return list(csv.DictReader(io.StringIO(out)))
+    _dump = functools.partial(_mdb_dump, accdb_path)
 
     objects = _dump("t_object")
     name_by_oid = {int(o["object_id"]): o["name"] for o in objects}
@@ -4051,15 +3851,8 @@ def compute_uc_block_drilldown(
     if not breakdown:
         return {}
 
-    bundle_path: Path | None = None
-    for cand in sorted(case_dir.glob("*.json")):
-        # Skip the solved planning dump and the conversion-provenance
-        # sidecar (neither is the PLEXOS-source case bundle).
-        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
-            continue
-        bundle_path = cand
-        break
-    if bundle_path is None or not bundle_path.is_file():
+    bundle_path = _find_case_bundle(case_dir)
+    if bundle_path is None:
         return {}
 
     bundle = json.loads(bundle_path.read_text())
@@ -4174,14 +3967,7 @@ def _render_uc_block_drilldown(
     if not drilldown:
         return
 
-    bundle_path = next(
-        (
-            c
-            for c in case_dir.glob("*.json")
-            if c.name != "planning.json" and c.is_file()
-        ),
-        None,
-    )
+    bundle_path = _find_case_bundle(case_dir)
     expr_by_name: dict[str, str] = {}
     if bundle_path is not None:
         bundle = json.loads(bundle_path.read_text())
@@ -4420,11 +4206,6 @@ def _resolve_res_zip_for_date(date_str: str) -> Path:
                     f"(found: {outer.namelist()})"
                 )
             outer.extract(inner_name, unpacked_dir)
-        if not cached_res.is_file():  # defensive — extract should have produced it
-            raise FileNotFoundError(
-                f"auto-extracted {inner_name} from {outer_zip} but "
-                f"{cached_res} is missing"
-            )
         return cached_res
 
     raise FileNotFoundError(

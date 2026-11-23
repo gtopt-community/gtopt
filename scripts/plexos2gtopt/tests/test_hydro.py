@@ -663,3 +663,70 @@ def test_writer_flow_array_shape() -> None:
     assert len(out[0]["discharge"][0]) == 1
     assert len(out[0]["discharge"][0][0]) == 24
     assert out[0]["discharge"][0][0][5] == 5
+
+
+# ---------------------------------------------------------------------------
+# ``Max Flow Penalty`` prices flow above ``Max Flow`` (not every m³/s).
+# ---------------------------------------------------------------------------
+
+
+def _xml_with_waterway_limits(max_flow: float, penalty: float) -> str:
+    """``_HYDRO_XML`` plus System-collection Max Flow / Max Flow Penalty."""
+    extra = f"""
+  <t_collection>
+    <collection_id>94</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>9</child_class_id>
+    <name>Waterways</name>
+  </t_collection>
+  <t_membership>
+    <membership_id>530</membership_id>
+    <collection_id>94</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>40</child_object_id>
+  </t_membership>
+  <t_property>
+    <property_id>110</property_id>
+    <collection_id>94</collection_id>
+    <name>Max Flow</name>
+  </t_property>
+  <t_property>
+    <property_id>111</property_id>
+    <collection_id>94</collection_id>
+    <name>Max Flow Penalty</name>
+  </t_property>
+  <t_data>
+    <data_id>10</data_id>
+    <membership_id>530</membership_id>
+    <property_id>110</property_id>
+    <value>{max_flow}</value>
+  </t_data>
+  <t_data>
+    <data_id>11</data_id>
+    <membership_id>530</membership_id>
+    <property_id>111</property_id>
+    <value>{penalty}</value>
+  </t_data>
+</MasterDataSet>
+"""
+    return _HYDRO_XML.replace("</MasterDataSet>\n", extra)
+
+
+def test_max_flow_penalty_is_spill_cost_when_max_flow_zero(tmp_path: Path) -> None:
+    """``Max Flow = 0`` (CEN ``Vert_*``): every m³/s pays the penalty."""
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_xml_with_waterway_limits(0.0, 3.6))
+    waterways = extract_waterways(load_xml(xml_path))
+    assert len(waterways) == 1
+    assert waterways[0].fcost == 3.6
+
+
+def test_max_flow_penalty_dropped_when_max_flow_unbounded(tmp_path: Path) -> None:
+    """``Max Flow = 1e+30`` (CEN ``Post_Isla``): the penalty never binds in
+    PLEXOS, so no per-unit cost is emitted on that outflow path (an invented
+    outflow cost can make the upstream water value negative)."""
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_xml_with_waterway_limits(1.0e30, 3.6))
+    waterways = extract_waterways(load_xml(xml_path))
+    assert len(waterways) == 1
+    assert waterways[0].fcost == 0.0

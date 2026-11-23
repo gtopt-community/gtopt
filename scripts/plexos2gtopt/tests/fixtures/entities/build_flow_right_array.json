@@ -42,6 +42,7 @@
     "junction_b": "DOWNSTREAM",
     "name": "bypass_demo",
     "purpose": "env_flow",
-    "uid": 3
+    "uid": 3,
+    "use_bypass": true
   }
 ]

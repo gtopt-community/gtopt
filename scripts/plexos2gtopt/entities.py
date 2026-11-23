@@ -18,7 +18,7 @@ from typing import Any
 #: Name suffix ``plexos_model._rewrite_pumped_storage`` gives the single
 #: Battery that replaces an energy-model pumped-storage plant (e.g. SEM
 #: Turlough Hill).  ``extract_batteries`` keys on it to tag the battery as
-#: pumped hydro and pin ``annual_loss = 0`` (no lithium self-discharge).
+#: pumped hydro and pin ``annual_standing_loss = 0`` (no lithium self-discharge).
 PUMPED_STORAGE_BATTERY_SUFFIX = " pumped storage"
 
 
@@ -480,6 +480,12 @@ class BatterySpec:
     # battery's power in the de-rated blocks).  Empty ⇒ constant rating ⇒
     # scalar.  CEN ships symmetric Max Power, so one series feeds both legs.
     power_profile: tuple[float, ...] = field(default_factory=tuple)
+    # True when the ``BAT_<name>`` Gen_Rating series is 0 MW over the whole
+    # horizon (unit out of service, e.g. BAT_CHACA / BAT_ARENALES on CEN PCP
+    # 2026-04-22).  ``pmax_charge`` / ``pmax_discharge`` are then 0 and the
+    # writer emits them EXPLICITLY (it otherwise omits a 0 rating, which
+    # gtopt reads as "unbounded").
+    out_of_service: bool = False
     input_efficiency: float = 1.0
     output_efficiency: float = 1.0
     # PLEXOS Min Charge / Min Discharge Level (MW): minimum power when
@@ -497,12 +503,12 @@ class BatterySpec:
     # native``): written as ``Battery.reserve_sustain_hours``; ``None``
     # (default) keeps gtopt's generic generator reserve rows.
     reserve_sustain_hours: float | None = None
-    # Explicit self-discharge [p.u./year] for gtopt ``Battery.annual_loss``.
+    # Explicit self-discharge [p.u./year] for gtopt ``Battery.annual_standing_loss``.
     # ``None`` ⇒ field omitted ⇒ gtopt's lithium default (0.48 p.u./year =
-    # 4 %/month, ``model_options.battery_annual_loss``) applies.  Pumped
+    # 4 %/month, ``model_options.battery_annual_standing_loss``) applies.  Pumped
     # storage rewritten as a Battery sets ``0.0`` (no electrochemical
     # self-discharge; evaporation is negligible over a dispatch week).
-    annual_loss: float | None = None
+    annual_standing_loss: float | None = None
     # Optional gtopt ``Battery.type`` tag (``""`` ⇒ writer default).
     storage_type: str = ""
 

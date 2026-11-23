@@ -23,15 +23,22 @@ The methodology describes the following:
   period to **weekly**; the 2024 ISP used monthly.
 - Export and green-commodity facilities also carry an **inflexible
   baseload**.
-- There is a minimum annual utilisation factor. The IASR value is 0.75.
+- There is a minimum annual utilisation factor (value in the IASR
+  workbook).
 - Electrolyser builds are linear decisions. The capacity is not fixed
   in advance.
 
-The IASR workbook gives these values:
+The IASR workbook gives, per study year, the PEM electrolyser specific
+consumption (kWh_e/kg), the hydrogen heat content, the inflexible load
+associated with each kg and the monthly demand profiles / sub-regional
+demand.
 
-- PEM electrolyser: 56.76 kWh/kg in 2026-27.
-- H2 heat content: 142 GJ/t, so 39.4 kWh_LHV per kg.
-- Inflexible associated load: about 6.8 kWh/kg.
+Those values are **not reproduced here**: AEMO workbooks may be used but
+not redistributed.  The source (page, terms, edition) is registered in
+`scripts/gtopt_operators/aemo/sources.toml`; get the workbook with
+`gtopt-fetch aemo get iasr_workbook --version <ISP year>` (prints the
+page and terms; register the downloaded file with `--file`), read the
+values there and pass them on the command line.
 - Monthly demand profiles and sub-regional demand in Mt.
 
 ## What the PLEXOS XML (fixed-fleet DLT data) contains
@@ -62,9 +69,11 @@ Bus ──Demand "purchaser_fixed" (lmax = Fixed Load schedule)
 
 - **Electrolysers.** Each flexible Purchaser becomes a
   `CarrierConverter`.
-  - Efficiency: η = 33.33 / 56.76 ≈ 0.587 MWh_LHV per MWh_e, taken from
-    the IASR workbook (the XML has no efficiency). CLI option
-    `--electrolyser-kwh-per-kg`.
+  - Efficiency: η = 33.33 / c MWh_LHV per MWh_e, where c is the PEM
+    specific consumption [kWh_e/kg] of the IASR workbook (the XML has
+    no efficiency; 33.33 kWh/kg is the H2 lower heating value).  CLI
+    option `--electrolyser-kwh-per-kg`, required when the case has H2
+    targets (there is no built-in default).
 - **H2 targets.** Each monthly H2 consumption constraint becomes one
   `HydrogenNode` and one `HydrogenDemand`.
   - The target is the RHS pro-rated to the window. This is an
@@ -124,8 +133,9 @@ Considered and rejected for now:
 
 ## Open points (user decisions)
 
-- **Efficiency source.** The XML has none, so the IASR PEM value is
-  used. The 2026-27 value ages; it is exposed as a CLI option.
+- **Efficiency source.** The XML has none, so the IASR PEM value of the
+  study year must be passed with `--electrolyser-kwh-per-kg`.  Next
+  step: extract it from the user's workbook during case preparation.
 - **Pro-rating of monthly targets.** The weekly target is month × 7 /
   days(month). AEMO's weekly balancing would use the monthly profile
   divided by weeks, which gives the same result for a uniform month.

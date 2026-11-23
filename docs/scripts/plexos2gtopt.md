@@ -467,6 +467,13 @@ transformations:
   sink junctions on CEN PCP weekly. `--vert-routing cascade` keeps
   the legacy "Vert feeds next cascade junction" routing; default
   `ocean` drains.
+* **`Max Flow Penalty` is a violation price.**  PLEXOS charges it on
+  flow above `Max Flow`.  With `Max Flow = 0` (every CEN `Vert_*`
+  spillway) it is a per-unit spill cost and becomes `fcost` /
+  `drain_cost` / `spillway_cost`.  With an unbounded `Max Flow`
+  (`Post_Isla`) the penalty never applies in PLEXOS, so no cost is
+  emitted: an invented cost on an outflow path can make the upstream
+  water value negative.
 * **Built-in turbine waterway.** Each `Turbine` carries its own
   flow arc (`junction_a` = reservoir, `junction_b` = tail storage)
   + power conversion (`production_factor = fp_med`), eliminating
@@ -889,6 +896,7 @@ fuel unit.
 | `--loss-extend-overload` | OFF | Extend each soft-cap line's PWL envelope across the soft-headroom band. |
 | `--loss-tangent-lines NAME,…` | unset | Per-line escape hatch to force `tangent` layout. |
 | `--nseg-tangent` / `--nseg-uniform` | 6 / 4 | Per-layout segment counts. |
+| `--loss-cost-eps EPS` | not set (gtopt: `0.1`) | $/MWh on line-loss columns (`model_options.loss_cost_eps`); emitted only when passed, `0` disables. |
 
 ### Line cap policy
 
@@ -898,6 +906,12 @@ fuel unit.
 | `--lift-line-caps NAMES` | `Capricornio110->LaNegra110` | Demote to EL=0 with wider free band (4×) + 10× hard cap. Empty string activates a global soft-EL=1 mode. |
 | `--auto-lift-lines [THR]` | unset | After write, run DC OPF and patch `enforce_level = 0` on lines whose unlifted flow exceeds THR × rating. |
 | `--auto-lift-engine {pandapower,gtopt}` | `pandapower` | OPF engine for the auto-lift detector. |
+
+### Network (voltage angles)
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--scale-theta FACTOR` | unset | Voltage-angle scale factor: the LP angle is FACTOR × θ (1 = radians, 1000 = milliradians). Unset ⇒ nothing is emitted and gtopt's C++ auto-scaling picks 1/(3·median(X/V²)); an explicit value is written to `model_options.scale_theta`. |
 
 ### Commitment mode
 
