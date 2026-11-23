@@ -9,6 +9,7 @@ from dataclasses import asdict
 from typing import Any
 
 from rich.console import Console
+from rich.markup import escape
 
 from gtopt_check_topology._analyzer import (
     AnalysisReport,
@@ -23,6 +24,13 @@ from gtopt_check_topology._analyzer import (
     ReserveZoneIssue,
     TimeVaryingCapacityIssue,
     VoltageMix,
+)
+from gtopt_check_topology._temporal import (
+    InterZoneLine,
+    StageIsland,
+    StageTopology,
+    TopologyPeriod,
+    format_ranges,
 )
 
 # Severity glyphs -- chosen ASCII-only by default so terminals without an
@@ -64,6 +72,146 @@ def _cycle_label(cycle: CycleInfo, max_buses: int = 4) -> str:
 # ---------------------------------------------------------------------------
 # Console rendering
 # ---------------------------------------------------------------------------
+
+_MAX_LISTED = 10
+
+
+def _mw_summary(isl: StageIsland) -> str:
+    parts = [f"{kind[:3]} {_fmt_mw(mw)}" for kind, mw in sorted(isl.mw_by_kind.items())]
+    return ", ".join(parts)
+
+
+def _print_island_line(console: Console, idx: int, isl: StageIsland) -> None:
+    head = (
+        f"    #{idx} [{isl.zone_label}] {len(isl.buses)} bus"
+        f"{'es' if len(isl.buses) != 1 else ''}, {isl.n_elements} elements"
+    )
+    if isl.mw_by_kind:
+        head += f" ({_mw_summary(isl)})"
+    if isl.n_inert:
+        head += f" +{isl.n_inert} inert 0-MW"
+    if len(isl.buses) <= 3:
+        head += ": " + ", ".join(isl.buses)
+    console.print(head)
+    for elem in isl.elements[:_MAX_LISTED]:
+        tags = f" [{','.join(elem.tags)}]" if elem.tags else ""
+        cap = "? MW" if elem.capacity_mw is None else _fmt_mw(elem.capacity_mw)
+        console.print(f"        - {elem.kind} {elem.name}{tags} @ {elem.bus}: {cap}")
+    if len(isl.elements) > _MAX_LISTED:
+        console.print(f"        ... (+{len(isl.elements) - _MAX_LISTED})")
+
+
+def _print_period(console: Console, period: TopologyPeriod) -> None:
+    bearing = period.islands_with_elements
+    empty = [i for i in period.islands if not i.has_elements]
+    glyph = _OK if len(bearing) <= 1 and not empty else _WARN
+    inactive = (
+        f", {period.n_inactive_buses} inactive buses" if period.n_inactive_buses else ""
+    )
+    console.print(
+        f"  {glyph} stages {period.stage_label} ({period.n_stages}): "
+        f"{len(period.islands)} islands, {len(bearing)} with elements{inactive}"
+    )
+    for idx, isl in enumerate(bearing, start=1):
+        _print_island_line(console, idx, isl)
+    if empty:
+        names = [b for isl in empty for b in isl.buses]
+        preview = ", ".join(names[:_MAX_LISTED])
+        if len(names) > _MAX_LISTED:
+            preview += f", ... (+{len(names) - _MAX_LISTED})"
+        n_inert = sum(i.n_inert for i in empty)
+        inert = f", {n_inert} inert 0-MW elements" if n_inert else ""
+        console.print(
+            f"    {len(empty)} island(s) without elements (benign{inert}): {preview}"
+        )
+
+
+def _print_inter_zone(
+    console: Console, lines: list[InterZoneLine], quiet: bool
+) -> None:
+    if not lines:
+        if not quiet:
+            console.print(f"{_INFO} T2. Inter-zone lines: 0")
+        return
+    console.print(f"{_INFO} T2. Inter-zone lines: {len(lines)}")
+    for ln in lines:
+        console.print(
+            f"  uid={ln.uid} {ln.name}: {ln.bus_a} [{ln.zone_a}] <-> "
+            f"{ln.bus_b} [{ln.zone_b}], tmax {_fmt_mw(ln.tmax)}, "
+            f"in service stages {format_ranges(ln.service)}"
+        )
+
+
+def _print_stage_topology(
+    console: Console, report: AnalysisReport, quiet: bool
+) -> None:
+    topo: StageTopology | None = report.stage_topology
+    if topo is None:
+        return
+    changing = len(topo.periods) > 1
+    console.print(
+        f"{_INFO} T1. Per-stage topology: {topo.n_stages} stages, "
+        f"{len(topo.periods)} topology period(s)" + ("" if changing else " (constant)")
+    )
+    for period in topo.periods:
+        _print_period(console, period)
+    _print_inter_zone(console, topo.inter_zone_lines, quiet)
+
+    exp = topo.expectation
+    if exp is not None:
+        what = f"{exp.expected}" + (
+            f" (zones {','.join(exp.zones)})" if exp.zones else ""
+        )
+        if exp.ok:
+            console.print(f"{_OK} T3. Expected islands with elements <= {what}")
+        else:
+            console.print(
+                f"{_ERR} T3. Expected islands with elements <= {what}: "
+                f"violated in {len(exp.violations)} period(s)"
+            )
+            for vio in exp.violations:
+                label = (
+                    str(vio.first_stage)
+                    if vio.first_stage == vio.last_stage
+                    else f"{vio.first_stage}-{vio.last_stage}"
+                )
+                console.print(
+                    f"  stages {label}: {vio.n_islands_with_elements} islands "
+                    f"with elements; offenders:"
+                )
+                for idx, isl in enumerate(vio.offenders, start=1):
+                    _print_island_line(console, idx, isl)
+
+    if topo.elements_on_inactive_bus:
+        dead = topo.elements_on_inactive_bus
+        mw = sum(e.capacity_mw or 0.0 for e in dead)
+        console.print(
+            f"{_WARN} T6. Elements active on an inactive bus: {len(dead)} "
+            f"({_fmt_mw(mw)})"
+        )
+        for elem in dead[:_MAX_LISTED]:
+            cap = "? MW" if elem.capacity_mw is None else _fmt_mw(elem.capacity_mw)
+            console.print(
+                f"  {elem.kind} {elem.name} @ {elem.bus}: {cap}, stages "
+                f"{format_ranges(elem.stages)}"
+            )
+        if len(dead) > _MAX_LISTED:
+            console.print(f"  ... (+{len(dead) - _MAX_LISTED})")
+    if report.never_in_service:
+        console.print(
+            f"{_INFO} T4. Lines never in service: {len(report.never_in_service)}"
+        )
+        for ref in report.never_in_service[:_MAX_LISTED]:
+            console.print(f"  uid={ref.uid} {ref.name} ({ref.bus_a} - {ref.bus_b})")
+        if len(report.never_in_service) > _MAX_LISTED:
+            console.print(f"  ... (+{len(report.never_in_service) - _MAX_LISTED})")
+    if report.unresolved_fields:
+        console.print(
+            f"{_WARN} T5. Unresolved schedule references: "
+            f"{len(report.unresolved_fields)} (defaults used)"
+        )
+        for item in report.unresolved_fields[:_MAX_LISTED]:
+            console.print(f"  - {item}")
 
 
 def _print_islands(console: Console, report: AnalysisReport, quiet: bool) -> None:
@@ -184,16 +332,27 @@ def _print_bridges(console: Console, report: AnalysisReport, quiet: bool) -> Non
 def _print_dc(console: Console, report: AnalysisReport, quiet: bool) -> None:
     if not report.dc_lines:
         if not quiet:
-            console.print(f"{_INFO} C1. DC links (reactance = 0): 0")
-        return
-    console.print(
-        f"{_INFO} C1. DC links (reactance = 0): "
-        f"{len(report.dc_lines)} (excluded from cycle analysis)"
-    )
-    for ref in report.dc_lines[:10]:
+            console.print(f"{_INFO} C1. DC links (no reactance): 0")
+    else:
+        console.print(
+            f"{_INFO} C1. DC links (no reactance): "
+            f"{len(report.dc_lines)} (excluded from cycle analysis)"
+        )
+        _print_refs(console, report.dc_lines)
+    if report.tie_lines:
+        console.print(
+            f"{_INFO} C1. Zero-impedance ties (reactance ~ 0): "
+            f"{len(report.tie_lines)} (bus angles equal; excluded from "
+            "cycle analysis)"
+        )
+        _print_refs(console, report.tie_lines)
+
+
+def _print_refs(console: Console, refs: list[LineRef]) -> None:
+    for ref in refs[:10]:
         console.print(f"  - {ref.name} ({ref.bus_a} <-> {ref.bus_b})")
-    if len(report.dc_lines) > 10:
-        console.print(f"  ... (+{len(report.dc_lines) - 10})")
+    if len(refs) > 10:
+        console.print(f"  ... (+{len(refs) - 10})")
 
 
 def _print_negative(console: Console, report: AnalysisReport, quiet: bool) -> None:
@@ -275,8 +434,12 @@ def _print_battery_eini(console: Console, report: AnalysisReport, quiet: bool) -
         f"{_WARN} D3. Battery initial-state issues: {len(issues)} battery(ies)"
     )
     for iss in issues[:20]:
+        # Escape the literal "[in: ...]" so rich does not swallow it as markup.
         uc_hint = (
-            f"  [in: {', '.join(iss.in_ucs[:3])}{'...' if len(iss.in_ucs) > 3 else ''}]"
+            escape(
+                f"  [in: {', '.join(iss.in_ucs[:3])}"
+                f"{'...' if len(iss.in_ucs) > 3 else ''}]"
+            )
             if iss.in_ucs
             else ""
         )
@@ -390,6 +553,8 @@ def render_console_report(
     console.print("")
     _print_time_varying_capacity(console, report, quiet)
     _print_reservoir_cascade(console, report, quiet)
+    console.print("")
+    _print_stage_topology(console, report, quiet)
 
     # ---- summary line ----
     parts: list[str] = []
@@ -421,6 +586,11 @@ def render_console_report(
         parts.append(
             f"{len(report.parallel_circuit_identical)} identical-parallel groups"
         )
+    topo = report.stage_topology
+    if topo is not None and len(topo.periods) > 1:
+        parts.append(f"{len(topo.periods)} topology periods")
+    if report.expectation_failed:
+        parts.append("expected-islands check FAILED")
     if not parts:
         parts.append("no issues")
     console.print(f"\n[bold]Summary:[/bold] {', '.join(parts)}")
@@ -562,6 +732,7 @@ def report_to_json(report: AnalysisReport) -> dict[str, Any]:
         "sos1_candidates": [_line_to_dict(s) for s in report.sos1_candidates],
         "bridges": [_line_to_dict(b) for b in report.bridges],
         "dc_lines": [_line_to_dict(ref) for ref in report.dc_lines],
+        "tie_lines": [_line_to_dict(ref) for ref in report.tie_lines],
         "negative_impedance": [_negative_to_dict(n) for n in report.negative_impedance],
         "voltage_mixing": [_voltage_mix_to_dict(m) for m in report.voltage_mixing],
         "self_loops": [_line_to_dict(ref) for ref in report.self_loops],
@@ -586,6 +757,76 @@ def report_to_json(report: AnalysisReport) -> dict[str, Any]:
         "parallel_circuit_identical": [
             _parallel_identical_to_dict(p) for p in report.parallel_circuit_identical
         ],
+        "stage_topology": _stage_topology_to_dict(report.stage_topology),
+        "never_in_service": [_line_to_dict(r) for r in report.never_in_service],
+        "unresolved_fields": list(report.unresolved_fields),
+    }
+
+
+def _stage_island_to_dict(isl: StageIsland) -> dict[str, Any]:
+    return {
+        "n_buses": len(isl.buses),
+        "zones": isl.zones,
+        "n_elements": isl.n_elements,
+        "n_inert": isl.n_inert,
+        "mw_by_kind": isl.mw_by_kind,
+        "buses": isl.buses,
+        "elements": [asdict(e) for e in isl.elements],
+    }
+
+
+def _stage_topology_to_dict(topo: StageTopology | None) -> dict[str, Any] | None:
+    if topo is None:
+        return None
+    exp = topo.expectation
+    return {
+        "n_stages": topo.n_stages,
+        "periods": [
+            {
+                "first_stage": p.first_stage,
+                "last_stage": p.last_stage,
+                "n_stages": p.n_stages,
+                "n_inactive_buses": p.n_inactive_buses,
+                "n_islands": len(p.islands),
+                "n_islands_with_elements": len(p.islands_with_elements),
+                "islands": [_stage_island_to_dict(i) for i in p.islands],
+            }
+            for p in topo.periods
+        ],
+        "inter_zone_lines": [
+            {
+                "uid": ln.uid,
+                "name": ln.name,
+                "bus_a": ln.bus_a,
+                "bus_b": ln.bus_b,
+                "zone_a": ln.zone_a,
+                "zone_b": ln.zone_b,
+                "tmax": ln.tmax,
+                "first_stage": ln.first_stage,
+                "service": [list(r) for r in ln.service],
+            }
+            for ln in topo.inter_zone_lines
+        ],
+        "elements_on_inactive_bus": [
+            {**asdict(e), "stages": [list(r) for r in e.stages]}
+            for e in topo.elements_on_inactive_bus
+        ],
+        "expectation": None
+        if exp is None
+        else {
+            "expected": exp.expected,
+            "zones": exp.zones,
+            "ok": exp.ok,
+            "violations": [
+                {
+                    "first_stage": v.first_stage,
+                    "last_stage": v.last_stage,
+                    "n_islands_with_elements": v.n_islands_with_elements,
+                    "offenders": [_stage_island_to_dict(i) for i in v.offenders],
+                }
+                for v in exp.violations
+            ],
+        },
     }
 
 

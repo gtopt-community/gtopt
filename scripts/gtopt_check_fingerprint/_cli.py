@@ -148,7 +148,11 @@ def main(argv: list[str] | None = None) -> int:
         "verify": _cmd_verify,
         "compare": _cmd_compare,
     }
-    return commands[args.command](args)
+    try:
+        return commands[args.command](args)
+    except OSError as exc:
+        print(f"gtopt_check_fingerprint: error: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

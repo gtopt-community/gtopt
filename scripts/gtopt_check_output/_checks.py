@@ -7,8 +7,6 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pandas as pd
-
 from ._loss_arbitrage import (
     LossArbitrageReport,
     detect_loss_arbitrage,
@@ -53,21 +51,6 @@ class OutputReport:
     @property
     def ok(self) -> bool:
         return not any(f.severity == "CRITICAL" for f in self.findings)
-
-
-def _uid_cols(df: pd.DataFrame) -> list[str]:
-    """Return uid:N columns from a DataFrame."""
-    return [c for c in df.columns if c.startswith("uid:")]
-
-
-def _to_wide(df: pd.DataFrame) -> pd.DataFrame:
-    """Return only uid columns, ensuring numeric."""
-    cols = _uid_cols(df)
-    if not cols:
-        # Try all non-index columns
-        idx = {"scenario", "stage", "block"}
-        cols = [c for c in df.columns if c not in idx]
-    return df[cols].apply(pd.to_numeric, errors="coerce")
 
 
 # ---------------------------------------------------------------------------
@@ -453,14 +436,6 @@ def compute_lmp_statistics(results_dir: Path, planning: dict) -> list[Finding]:
     return findings
 
 
-def _per_block_durations(planning: dict, df: pd.DataFrame) -> pd.Series:
-    """Map each row's `block` column to its duration (hours)."""
-    block_dur = get_block_durations(planning)
-    if "block" in df.columns:
-        return df["block"].map(block_dur).fillna(1.0).astype(float)
-    return pd.Series(1.0, index=df.index, dtype=float)
-
-
 def _scalar_from_planning_field(value: object, fallback: float = 0.0) -> float:
     """Extract a scalar from a planning-JSON cost field.  Returns
     `fallback` when the field is a parquet file reference, a TB
@@ -471,6 +446,64 @@ def _scalar_from_planning_field(value: object, fallback: float = 0.0) -> float:
     if isinstance(value, (int, float)):
         return float(value)
     return fallback
+
+
+def _segment_costs(segments: object) -> list[float] | None:
+    """Scalar per-segment costs of a ``fail_segments`` list, or ``None``
+    when the curve is absent or a cost is not a plain number."""
+    if not isinstance(segments, list) or not segments:
+        return None
+    costs: list[float] = []
+    for seg in segments:
+        cost = seg.get("cost") if isinstance(seg, dict) else None
+        if not isinstance(cost, (int, float)):
+            return None
+        costs.append(float(cost))
+    return costs
+
+
+def demand_fail_cost_coefs(
+    planning: dict,
+) -> tuple[dict[int, float], list[dict[int, float]]]:
+    """Per-demand failure-cost coefficients for the cost breakdown.
+
+    Returns ``(single, segments)``: ``single`` maps the uid of every
+    single-tranche demand to its scalar fail cost (own ``fcost`` else
+    the global ``demand_fail_cost``); ``segments[k]`` maps the uid of
+    every multi-segment demand to the cost of segment ``k + 1``.
+    Precedence mirrors ``DemandLP``: forced → none; own
+    ``fail_segments``; own ``fcost``; global ``demand_fail_segments``;
+    global ``demand_fail_cost``.  Non-scalar (schedule / file) costs
+    contribute 0, as elsewhere in this summary.
+    """
+    model_opts = planning.get("options", {}).get("model_options", {})
+    dfc = _scalar_from_planning_field(model_opts.get("demand_fail_cost"), 0.0)
+    global_segs = model_opts.get("demand_fail_segments")
+    single: dict[int, float] = {}
+    segments: list[dict[int, float]] = []
+    for dem in planning.get("system", {}).get("demand_array", []):
+        uid = int(dem.get("uid", 0))
+        if dem.get("forced"):
+            continue
+        own_segs = dem.get("fail_segments")
+        if own_segs:
+            costs = _segment_costs(own_segs)
+        elif "fcost" in dem:
+            costs = [_scalar_from_planning_field(dem.get("fcost"), 0.0)]
+        elif global_segs:
+            costs = _segment_costs(global_segs)
+        else:
+            costs = [dfc]
+        if not costs:
+            continue
+        if len(costs) == 1:
+            single[uid] = costs[0]
+            continue
+        while len(segments) < len(costs):
+            segments.append({})
+        for k, cost in enumerate(costs):
+            segments[k][uid] = cost
+    return single, segments
 
 
 def compute_cost_breakdown(results_dir: Path, planning: dict) -> list[Finding]:
@@ -494,8 +527,10 @@ def compute_cost_breakdown(results_dir: Path, planning: dict) -> list[Finding]:
     Cost coefficients sourced from the planning JSON:
       * Generator → uses `Generator/srmc_sol.parquet` (already in
         physical $/MWh and segment-aware for piecewise heat rate).
-      * Demand    → `model_options.demand_fail_cost` (per-system
-        scalar) times `Demand/fail_sol.parquet`.
+      * Demand    → own scalar `fcost` (else `model_options.
+        demand_fail_cost`) times `Demand/fail_sol.parquet`; stepwise
+        curves (`fail_segments`) use `Demand/fail_seg<k>_sol.parquet`
+        × the segment cost.
       * Line      → `tcost` per line (scalar or skipped if file-ref).
 
     Fields stored as a parquet file reference / per-(stage, block)
@@ -522,17 +557,34 @@ def compute_cost_breakdown(results_dir: Path, planning: dict) -> list[Finding]:
         if abs(gen_total) > 0.01:
             components["generation"] = gen_total
 
-    # ─── Load-shedding penalty: demand_fail_cost · fail · duration ─────
+    # ─── Load-shedding penalty: fail cost · fail · duration ──────────
+    # Single-tranche demands: own scalar ``fcost`` (else the global
+    # ``demand_fail_cost``) × ``Demand/fail_sol``.  Demands with a
+    # stepwise curve (``fail_segments`` / global
+    # ``demand_fail_segments``) are priced per segment from
+    # ``Demand/fail_seg<k>_sol``.
     fail_ds = open_dataset(results_dir, "Demand/fail_sol")
     if fail_ds is not None:
         model_opts = planning.get("options", {}).get("model_options", {})
         dfc = _scalar_from_planning_field(
             model_opts.get("demand_fail_cost"), fallback=0.0
         )
-        if dfc > 0.0:
-            fail_total = streaming_sol_weighted_sum(fail_ds, durations) * dfc
-            if abs(fail_total) > 0.01:
-                components["load shedding penalty"] = fail_total
+        single_coef, seg_coefs = demand_fail_cost_coefs(planning)
+        # Uids absent from ``demand_array`` keep the global cost; the
+        # adjustment map re-prices listed single-tranche demands and
+        # removes segmented ones (priced per segment below).
+        adjust = {uid: c - dfc for uid, c in single_coef.items()}
+        for coef in seg_coefs:
+            adjust.update({uid: -dfc for uid in coef})
+        fail_total = streaming_sol_weighted_sum(fail_ds, durations) * dfc
+        if any(adjust.values()):
+            fail_total += streaming_sol_weighted_sum(fail_ds, durations, adjust)
+        for k, coef in enumerate(seg_coefs, start=1):
+            seg_ds = open_dataset(results_dir, f"Demand/fail_seg{k}_sol")
+            if seg_ds is not None and coef:
+                fail_total += streaming_sol_weighted_sum(seg_ds, durations, coef)
+        if abs(fail_total) > 0.01:
+            components["load shedding penalty"] = fail_total
 
     # ─── Transmission cost: tcost · flow · duration ────────────────────
     line_tcost: dict[int, float] = {}

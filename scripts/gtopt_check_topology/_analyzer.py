@@ -23,13 +23,28 @@ from typing import Any, Iterable
 
 import networkx as nx
 
+from gtopt_shared.field_sched import StageSchedResolver
+
+from gtopt_check_topology._temporal import (
+    DEFAULT_DETAIL_MAX_BUSES,
+    ResolvedLine,
+    ResolvedModel,
+    StageTopology,
+    analyse_stage_topology,
+    build_resolved_model,
+)
+
 # ---------------------------------------------------------------------------
 # Tunables
 # ---------------------------------------------------------------------------
 
-# Reactance below this magnitude (per-unit) is treated as an HVDC / pure DC
-# link with controllable power flow -- excluded from cycle_basis because such
-# links do not enforce KVL.
+# A line WITHOUT a ``reactance`` field is an HVDC / pure DC link with
+# controllable power flow (gtopt emits no KVL row for it).  A line whose
+# reactance is present but at most this magnitude (per-unit; explicit 0
+# included) is a zero-impedance TIE: gtopt forces its bus angles equal
+# (``model_options.tiny_reactance_mode = "tie"``).  Both are excluded from
+# cycle_basis -- a DC link enforces no KVL and a tie merges its endpoints
+# (its X = 0 would make the cycle asymmetry metrics degenerate).
 DC_REACTANCE_TOL = 1e-12
 
 # Default cycle-danger cut-off (matches the validated prototype score on
@@ -86,10 +101,9 @@ def _bus_voltage_from_name(name: str) -> int | None:
     match = _VOLTAGE_NAME_RE.search(name)
     if match is None:
         return None
-    try:
-        return int(match.group(1))
-    except ValueError:  # pragma: no cover - regex guarantees digit-only
-        return None
+    # ``\d`` only matches Unicode decimal digits, all of which ``int``
+    # accepts -- no ValueError is possible here.
+    return int(match.group(1))
 
 
 def _edge_key(a: str, b: str) -> tuple[str, str]:
@@ -125,6 +139,8 @@ class LineRef:
     reactance: float
     resistance: float
     tmax: float
+    is_dc: bool = False
+    """True when the line carries no ``reactance`` (HVDC / DC link)."""
 
 
 @dataclass
@@ -275,12 +291,19 @@ class NetworkGraph:
     """Every line on each (sorted) bus pair, including parallel circuits."""
 
     dc_lines: list[LineRef]
-    """Lines with |reactance| ≤ DC_REACTANCE_TOL (excluded from cycle_basis)."""
+    """Lines without a reactance -- DC links (excluded from cycle_basis)."""
+
+    tie_lines: list[LineRef]
+    """Lines with |reactance| ≤ DC_REACTANCE_TOL (explicit 0 included) --
+    zero-impedance ties (excluded from cycle_basis)."""
 
     self_loops: list[LineRef]
     """Lines whose endpoints coincide -- topologically degenerate."""
 
     skipped_unknown_bus: list[LineRef]
+    # Lines never in service in any stage (inactive, dead bus or
+    # tmax_ab == tmax_ba == 0 throughout) -- excluded from the graph.
+    never_in_service: list[LineRef] = field(default_factory=list)
     """Lines referencing buses absent from bus_array."""
 
 
@@ -301,6 +324,7 @@ class AnalysisReport:
     bridges: list[LineRef] = field(default_factory=list)
 
     dc_lines: list[LineRef] = field(default_factory=list)
+    tie_lines: list[LineRef] = field(default_factory=list)
     negative_impedance: list[NegativeImpedance] = field(default_factory=list)
     voltage_mixing: list[VoltageMix] = field(default_factory=list)
 
@@ -320,6 +344,11 @@ class AnalysisReport:
     )
 
     danger_threshold: int = DEFAULT_DANGER_THRESHOLD
+
+    # Schedule-aware (per-stage) analysis.
+    stage_topology: StageTopology | None = None
+    never_in_service: list[LineRef] = field(default_factory=list)
+    unresolved_fields: list[str] = field(default_factory=list)
 
     # --- derived helpers -------------------------------------------------
 
@@ -352,56 +381,96 @@ class AnalysisReport:
     def islands_no_generator(self) -> list[IslandInfo]:
         return [i for i in self.islands if not i.has_generator]
 
+    @property
+    def islands_unsupplied(self) -> list[IslandInfo]:
+        """Islands carrying demand but no generator (fatal).
+
+        An island with neither demand nor generation (e.g. a lone
+        auxiliary bus) is benign and does not count.
+        """
+        return [i for i in self.islands if i.has_demand and not i.has_generator]
+
+    @property
+    def expectation_failed(self) -> bool:
+        exp = self.stage_topology.expectation if self.stage_topology else None
+        return exp is not None and not exp.ok
+
 
 # ---------------------------------------------------------------------------
 # Graph builder
 # ---------------------------------------------------------------------------
 
 
-def _line_ref(line: dict[str, Any]) -> LineRef:
+def _line_ref(line: ResolvedLine) -> LineRef:
+    """Representative scalar view of a (possibly scheduled) line.
+
+    Time-varying values are collapsed over the stages where the line is
+    in service: reactance / resistance take the min-|value| stage (the
+    strongest KVL coupling) and ``tmax`` the max ``tmax_ab``.  Cycle,
+    bridge and DC analyses therefore run on the UNION topology (every
+    line in service in at least one stage) with min reactance.
+    """
     return LineRef(
-        uid=line.get("uid"),
-        name=str(line.get("name", line.get("uid", "?"))),
-        bus_a=str(line.get("bus_a", "")),
-        bus_b=str(line.get("bus_b", "")),
-        reactance=float(line.get("reactance", 0.0) or 0.0),
-        resistance=float(line.get("resistance", 0.0) or 0.0),
-        tmax=_to_max_float(line.get("tmax_ab", 0.0)) or 0.0,
+        uid=line.uid,
+        name=line.name,
+        bus_a=line.bus_a,
+        bus_b=line.bus_b,
+        reactance=line.rep_reactance(),
+        resistance=line.rep_resistance(),
+        tmax=line.rep_tmax(),
+        is_dc=not line.has_reactance(),
     )
 
 
-def build_network_graph(planning: dict[str, Any]) -> NetworkGraph:
+def resolve_planning(
+    planning: dict[str, Any], case_dir: str | Path | None = None
+) -> ResolvedModel:
+    """Resolve every scheduled field of the planning, stage by stage.
+
+    ``case_dir`` anchors ``options.input_directory``; it defaults to the
+    ``_pampl_dir`` the CLI threads through (the planning file's dir) or
+    the current directory.
+    """
+    base = case_dir if case_dir is not None else planning.get("_pampl_dir", ".")
+    resolver = StageSchedResolver.from_planning(planning, base)
+    return build_resolved_model(planning, resolver)
+
+
+def build_network_graph(
+    planning: dict[str, Any], model: ResolvedModel | None = None
+) -> NetworkGraph:
     """Build the undirected graph used for KVL / connectivity analysis.
 
-    * Excludes lines with ``|reactance| <= DC_REACTANCE_TOL`` -- they are
-      treated as HVDC / DC links and live in ``dc_lines``.
+    * Excludes lines without a ``reactance`` -- HVDC / DC links, kept in
+      ``dc_lines``.
+    * Excludes lines with ``|reactance| <= DC_REACTANCE_TOL`` (explicit 0
+      included) -- zero-impedance ties, kept in ``tie_lines``.
     * Excludes self-loops (``bus_a == bus_b``).
     * Excludes lines referencing buses absent from ``bus_array``.
+    * Excludes lines never in service in any stage (``never_in_service``).
     * For multi-edges, the simple graph keeps the min-reactance line as
       its representative.  ``edge_to_lines`` retains every parallel
       circuit so the SOS1 list can later enumerate them all.
     """
-    sys = planning.get("system", {}) or {}
-    bus_array = sys.get("bus_array", []) or []
-    line_array = sys.get("line_array", []) or []
-
-    known_buses: set[str] = set()
-    for bus in bus_array:
-        name = bus.get("name")
-        if name:
-            known_buses.add(str(name))
+    if model is None:
+        model = resolve_planning(planning)
+    known_buses: set[str] = set(model.bus_names)
 
     graph: nx.Graph = nx.Graph()
-    for name in known_buses:
+    # Insert nodes in bus_array order (not set order) so cycle_basis is
+    # reproducible across PYTHONHASHSEED values.
+    for name in model.bus_names:
         graph.add_node(name)
 
     edge_to_lines: dict[tuple[str, str], list[LineRef]] = defaultdict(list)
     dc_lines: list[LineRef] = []
+    tie_lines: list[LineRef] = []
     self_loops: list[LineRef] = []
     skipped: list[LineRef] = []
+    never: list[LineRef] = []
 
-    for raw in line_array:
-        ref = _line_ref(raw)
+    for line in model.lines:
+        ref = _line_ref(line)
         if not ref.bus_a or not ref.bus_b:
             skipped.append(ref)
             continue
@@ -411,8 +480,14 @@ def build_network_graph(planning: dict[str, Any]) -> NetworkGraph:
         if ref.bus_a == ref.bus_b:
             self_loops.append(ref)
             continue
-        if abs(ref.reactance) <= DC_REACTANCE_TOL:
+        if not any(line.in_service):
+            never.append(ref)
+            continue
+        if ref.is_dc:
             dc_lines.append(ref)
+            continue
+        if abs(ref.reactance) <= DC_REACTANCE_TOL:
+            tie_lines.append(ref)
             continue
         key = _edge_key(ref.bus_a, ref.bus_b)
         edge_to_lines[key].append(ref)
@@ -432,8 +507,10 @@ def build_network_graph(planning: dict[str, Any]) -> NetworkGraph:
         graph=graph,
         edge_to_lines=dict(edge_to_lines),
         dc_lines=dc_lines,
+        tie_lines=tie_lines,
         self_loops=self_loops,
         skipped_unknown_bus=skipped,
+        never_in_service=never,
     )
 
 
@@ -476,57 +553,21 @@ def _cycle_to_edges(cycle: list[str]) -> list[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def _bus_has_generator_map(planning: dict[str, Any]) -> dict[str, bool]:
-    sys = planning.get("system", {}) or {}
+def _bus_has_generator_map(model: ResolvedModel) -> dict[str, bool]:
+    """Buses hosting a generator or battery active in some stage."""
     has_gen: dict[str, bool] = defaultdict(bool)
-
-    # Map UIDs back to names so generator bus references that use a UID
-    # are still attributed correctly.
-    name_by_uid: dict[Any, str] = {}
-    for bus in sys.get("bus_array", []) or []:
-        uid = bus.get("uid")
-        name = bus.get("name")
-        if uid is not None and name:
-            name_by_uid[uid] = str(name)
-
-    def resolve(ref: Any) -> str | None:
-        if ref is None:
-            return None
-        if isinstance(ref, str):
-            return ref
-        return name_by_uid.get(ref)
-
-    for gen in sys.get("generator_array", []) or []:
-        bid = resolve(gen.get("bus"))
-        if bid:
-            has_gen[bid] = True
-    # Batteries and converters can also inject power -- count them too.
-    for bat in sys.get("battery_array", []) or []:
-        bid = resolve(bat.get("bus"))
-        if bid:
-            has_gen[bid] = True
+    for elem in model.elements:
+        if elem.kind in ("generator", "battery") and any(elem.active):
+            has_gen[elem.bus] = True
     return dict(has_gen)
 
 
-def _bus_has_demand_map(planning: dict[str, Any]) -> dict[str, bool]:
-    sys = planning.get("system", {}) or {}
-    name_by_uid: dict[Any, str] = {}
-    for bus in sys.get("bus_array", []) or []:
-        uid = bus.get("uid")
-        name = bus.get("name")
-        if uid is not None and name:
-            name_by_uid[uid] = str(name)
-
+def _bus_has_demand_map(model: ResolvedModel) -> dict[str, bool]:
+    """Buses hosting a demand active in some stage."""
     has_dem: dict[str, bool] = defaultdict(bool)
-    for dem in sys.get("demand_array", []) or []:
-        ref = dem.get("bus")
-        bid: str | None = None
-        if isinstance(ref, str):
-            bid = ref
-        elif ref is not None:
-            bid = name_by_uid.get(ref)
-        if bid:
-            has_dem[bid] = True
+    for elem in model.elements:
+        if elem.kind == "demand" and any(elem.active):
+            has_dem[elem.bus] = True
     return dict(has_dem)
 
 
@@ -557,19 +598,25 @@ def _collect_islands(
 
 
 def _collect_negative_impedance(
-    line_array: list[dict[str, Any]],
+    lines: list[ResolvedLine],
 ) -> list[NegativeImpedance]:
+    """C2 -- lines with a negative reactance or resistance in ANY stage.
+
+    The reported values are the per-line minimum over all stages.
+    """
     out: list[NegativeImpedance] = []
-    for raw in line_array:
-        x = float(raw.get("reactance", 0.0) or 0.0)
-        r = float(raw.get("resistance", 0.0) or 0.0)
-        if x < 0.0 or r < 0.0:
+    for line in lines:
+        x = line.min_value(line.reactance)
+        r = line.min_value(line.resistance)
+        x_val = 0.0 if x is None else x
+        r_val = 0.0 if r is None else r
+        if x_val < 0.0 or r_val < 0.0:
             out.append(
                 NegativeImpedance(
-                    uid=raw.get("uid"),
-                    name=str(raw.get("name", raw.get("uid", "?"))),
-                    reactance=x,
-                    resistance=r,
+                    uid=line.uid,
+                    name=line.name,
+                    reactance=x_val,
+                    resistance=r_val,
                 )
             )
     return out
@@ -577,7 +624,7 @@ def _collect_negative_impedance(
 
 def _collect_voltage_mixing(
     bus_array: list[dict[str, Any]],
-    line_array: list[dict[str, Any]],
+    lines: list[ResolvedLine],
 ) -> list[VoltageMix]:
     """Flag lines whose endpoints sit at distinct (heuristic) voltage levels.
 
@@ -596,25 +643,23 @@ def _collect_voltage_mixing(
             name_voltage[str(name)] = v
 
     out: list[VoltageMix] = []
-    for raw in line_array:
-        a = raw.get("bus_a")
-        b = raw.get("bus_b")
-        if not isinstance(a, str) or not isinstance(b, str):
-            continue
+    for line in lines:
+        a = line.bus_a
+        b = line.bus_b
         va = name_voltage.get(a)
         vb = name_voltage.get(b)
         if va is None or vb is None or va == vb:
             continue
         # Skip lines that already declare a non-zero ``voltage`` (taken as
         # the transformer-tap hint).  Lines with voltage == 0 or absent
-        # are considered untransformed and are flagged.
-        tap = raw.get("voltage")
-        if isinstance(tap, (int, float)) and tap not in (0, 0.0):
+        # are considered untransformed and are flagged.  A scheduled
+        # voltage counts when it is non-zero in any stage.
+        if any(v not in (None, 0.0) for v in line.voltage):
             continue
         out.append(
             VoltageMix(
-                uid=raw.get("uid"),
-                name=str(raw.get("name", raw.get("uid", "?"))),
+                uid=line.uid,
+                name=line.name,
                 bus_a=a,
                 bus_b=b,
                 bus_a_voltage=va,
@@ -649,19 +694,16 @@ def _collect_cycles(
         segments_all: list[LineRef] = []
         x_vals: list[float] = []
         t_vals: list[float] = []
+        # Every cycle-basis edge is a graph edge, and every graph edge was
+        # created from a non-empty ``edge_to_lines`` bucket.
         for edge in edges:
-            if not network.graph.has_edge(*edge):
-                continue
             data = network.graph[edge[0]][edge[1]]
             x_vals.append(abs(float(data["reactance"])))
             t_vals.append(float(data["tmax"]))
-            refs = network.edge_to_lines.get(edge, [])
-            if refs:
-                # min-X representative for display, ALL parallels for SOS1.
-                segments.append(min(refs, key=lambda r: abs(r.reactance)))
-                segments_all.extend(refs)
-        if not x_vals:
-            continue
+            refs = network.edge_to_lines[edge]
+            # min-X representative for display, ALL parallels for SOS1.
+            segments.append(min(refs, key=lambda r: abs(r.reactance)))
+            segments_all.extend(refs)
         asym_x = _ratio(x_vals)
         asym_tmax = _ratio(t_vals) if min(t_vals) > 0 else float("inf")
         min_tmax = min(t_vals)
@@ -670,19 +712,16 @@ def _collect_cycles(
         # would saturate.  ``pct_through_min_X = 1 - min(X)/sum(X)`` is the
         # KVL-forced share of any loop circulation that flows through the
         # smallest-reactance segment.  Threshold = tmax_min_X / share.
+        # A simple-graph cycle has >= 3 edges, each with |X| > tie tolerance,
+        # so 0 < min(X) <= sum(X)/3 and the share is always positive.
         sum_x = sum(x_vals)
         min_x = min(x_vals)
         sat_threshold_mw: float | None = None
-        if 0.0 < min_x < sum_x:
-            share = 1.0 - (min_x / sum_x)
-            if share > 0.0:
-                # Find tmax of the min-X edge (zip back to t_vals).
-                tmax_min_x = next(
-                    (t for x, t in zip(x_vals, t_vals) if x == min_x),
-                    min(t_vals),
-                )
-                if tmax_min_x > 0:
-                    sat_threshold_mw = tmax_min_x / share
+        share = 1.0 - (min_x / sum_x)
+        # Find tmax of the min-X edge (zip back to t_vals).
+        tmax_min_x = next(t for x, t in zip(x_vals, t_vals) if x == min_x)
+        if tmax_min_x > 0:
+            sat_threshold_mw = tmax_min_x / share
         out.append(
             CycleInfo(
                 buses=list(cyc),
@@ -792,66 +831,24 @@ def _collect_reserve_zone_coherence(
 # ---------------------------------------------------------------------------
 
 
-def _pmax_per_bus(planning: dict[str, Any]) -> dict[str, float]:
-    """Sum nominal pmax per bus across generators (and batteries discharge)."""
-    sys = planning.get("system", {}) or {}
-    name_by_uid: dict[Any, str] = {}
-    for bus in sys.get("bus_array", []) or []:
-        uid = bus.get("uid")
-        name = bus.get("name")
-        if uid is not None and name:
-            name_by_uid[uid] = str(name)
+def _pmax_per_bus(model: ResolvedModel) -> dict[str, float]:
+    """Sum of generator ``pmax`` + battery ``pmax_discharge`` per bus.
 
-    def resolve(ref: Any) -> str | None:
-        if isinstance(ref, str):
-            return ref
-        if ref is None:
-            return None
-        return name_by_uid.get(ref)
-
+    Scheduled values contribute their maximum over all stages.
+    """
     out: dict[str, float] = defaultdict(float)
-    for gen in sys.get("generator_array", []) or []:
-        bid = resolve(gen.get("bus"))
-        if not bid:
-            continue
-        pmax = _to_max_float(gen.get("pmax")) or 0.0
-        if pmax > 0:
-            out[bid] += pmax
-    for bat in sys.get("battery_array", []) or []:
-        bid = resolve(bat.get("bus"))
-        if not bid:
-            continue
-        pmax = _to_max_float(bat.get("pmax_discharge")) or 0.0
-        if pmax > 0:
-            out[bid] += pmax
+    for elem in model.elements:
+        if elem.kind in ("generator", "battery"):
+            out[elem.bus] += elem.max_capacity() or 0.0
     return dict(out)
 
 
-def _peak_load_per_bus(planning: dict[str, Any]) -> dict[str, float]:
-    sys = planning.get("system", {}) or {}
-    name_by_uid: dict[Any, str] = {}
-    for bus in sys.get("bus_array", []) or []:
-        uid = bus.get("uid")
-        name = bus.get("name")
-        if uid is not None and name:
-            name_by_uid[uid] = str(name)
-
+def _peak_load_per_bus(model: ResolvedModel) -> dict[str, float]:
+    """Sum of demand ``lmax`` (max over stages / blocks) per bus."""
     out: dict[str, float] = defaultdict(float)
-    for dem in sys.get("demand_array", []) or []:
-        ref = dem.get("bus")
-        bid: str | None = None
-        if isinstance(ref, str):
-            bid = ref
-        elif ref is not None:
-            bid = name_by_uid.get(ref)
-        if not bid:
-            continue
-        peak = _to_max_float(dem.get("lmax")) or 0.0
-        if peak > 0:
-            out[bid] = max(out[bid], peak) if bid in out else peak
-            # NB: ``out[bid] = max(...)`` short-circuits ``defaultdict`` 0.0
-            # the first time -- subsequent loads on the same bus stack via max
-            # because lmax is already per-bus peak.
+    for elem in model.elements:
+        if elem.kind == "demand":
+            out[elem.bus] += elem.max_capacity() or 0.0
     return dict(out)
 
 
@@ -1089,21 +1086,27 @@ def _flatten_numeric(value: Any) -> list[float]:
 
 
 def _collect_time_varying_capacity_issues(
-    line_array: list[dict[str, Any]],
+    lines: list[ResolvedLine],
     *,
     zero_pct_threshold: float = 0.5,
 ) -> list[TimeVaryingCapacityIssue]:
     """E1 -- lines whose ``tmax_ab`` is mostly zero across blocks.
 
-    Only lines whose ``tmax_ab`` is a list (per-block schedule) are
+    Only lines whose ``tmax_ab`` is a list (per-block schedule) or a
+    file reference (counted per stage, max over the stage's blocks) are
     considered.  Scalar tmax lines are out-of-scope for this check.
     """
     out: list[TimeVaryingCapacityIssue] = []
-    for raw in line_array:
+    for line in lines:
+        raw = line.raw
         tmax = raw.get("tmax_ab")
-        if not isinstance(tmax, list):
+        if isinstance(tmax, list):
+            flat = _flatten_numeric(tmax)
+        elif isinstance(tmax, str):
+            # File-backed: one entry per stage (max over its blocks).
+            flat = [v for v in line.tmax_ab if v is not None]
+        else:
             continue
-        flat = _flatten_numeric(tmax)
         if not flat:
             continue
         max_t = max(flat)
@@ -1193,22 +1196,18 @@ def _collect_reservoir_cascade_issues(
                     detail=f"junction_b='{b}'",
                 )
             )
-        if isinstance(a, str) and isinstance(b, str):
-            water_graph.add_edge(a, b, name=name)
+        water_graph.add_edge(a, b, name=name)
 
     # 2) Cycles in the water-flow digraph (water should NOT recirculate).
-    try:
-        for cyc in nx.simple_cycles(water_graph):
-            label = "->".join(cyc + [cyc[0]])
-            out.append(
-                ReservoirCascadeIssue(
-                    name="<cascade>",
-                    issue="water-flow cycle (water recirculates)",
-                    detail=label,
-                )
+    for cyc in nx.simple_cycles(water_graph):
+        label = "->".join(cyc + [cyc[0]])
+        out.append(
+            ReservoirCascadeIssue(
+                name="<cascade>",
+                issue="water-flow cycle (water recirculates)",
+                detail=label,
             )
-    except nx.NetworkXError:  # pragma: no cover - defensive
-        pass
+        )
 
     # 3) Reservoirs with no inflow source AND no initial volume.
     # 4) Reservoirs whose outflow path is empty (water stranded).
@@ -1303,38 +1302,56 @@ def analyse_planning(
     bundle: str = "",
     danger_threshold: int = DEFAULT_DANGER_THRESHOLD,
     max_cycle_size: int = DEFAULT_MAX_CYCLE_SIZE,
+    case_dir: str | Path | None = None,
+    expect_islands: int | None = None,
+    expect_zones: list[str] | None = None,
+    detail_max_buses: int = DEFAULT_DETAIL_MAX_BUSES,
 ) -> AnalysisReport:
-    """Run every Tier-1 + Tier-2 topology check and return a populated report."""
+    """Run every Tier-1 + Tier-2 topology check and return a populated report.
+
+    Scheduled fields (scalars, inline arrays, file references) are
+    resolved per stage first -- see :func:`resolve_planning`.  The static
+    checks run on the union topology; the per-stage connectivity lands
+    in :attr:`AnalysisReport.stage_topology`.
+    """
     sys = planning.get("system", {}) or {}
     bus_array = sys.get("bus_array", []) or []
     line_array = sys.get("line_array", []) or []
 
-    network = build_network_graph(planning)
-    has_gen = _bus_has_generator_map(planning)
-    has_dem = _bus_has_demand_map(planning)
+    model = resolve_planning(planning, case_dir)
+    network = build_network_graph(planning, model)
+    has_gen = _bus_has_generator_map(model)
+    has_dem = _bus_has_demand_map(model)
 
     islands = _collect_islands(network, has_gen, has_dem)
     isolated = sorted(n for n in network.graph.nodes if network.graph.degree(n) == 0)
     stubs = _collect_stubs(network)
     cycles = _collect_cycles(network, max_cycle_size)
     bridges = _collect_bridges(network)
-    negs = _collect_negative_impedance(line_array)
-    mixing = _collect_voltage_mixing(bus_array, line_array)
+    negs = _collect_negative_impedance(model.lines)
+    mixing = _collect_voltage_mixing(bus_array, model.lines)
 
     # Tier-2 collectors.
     reserve_issues = _collect_reserve_zone_coherence(planning)
-    pmax_per_bus = _pmax_per_bus(planning)
-    peak_per_bus = _peak_load_per_bus(planning)
+    pmax_per_bus = _pmax_per_bus(model)
+    peak_per_bus = _peak_load_per_bus(model)
     island_issues = _collect_island_feasibility(
         islands, pmax_per_bus, peak_per_bus, has_dem
     )
     battery_issues = _collect_battery_eini_issues(planning)
-    tv_capacity_issues = _collect_time_varying_capacity_issues(line_array)
+    tv_capacity_issues = _collect_time_varying_capacity_issues(model.lines)
     cascade_issues = _collect_reservoir_cascade_issues(planning)
 
     # Need the dangerous-cycle set first so B6 can flag overlap.
     dangerous = [c for c in cycles if c.is_dangerous(danger_threshold)]
     parallel_identical = _collect_parallel_circuit_identical(network, dangerous)
+
+    stage_topology = analyse_stage_topology(
+        model,
+        expect_islands=expect_islands,
+        expect_zones=expect_zones,
+        detail_max_buses=detail_max_buses,
+    )
 
     return AnalysisReport(
         bundle=bundle,
@@ -1347,6 +1364,7 @@ def analyse_planning(
         cycles=cycles,
         bridges=bridges,
         dc_lines=network.dc_lines,
+        tie_lines=network.tie_lines,
         negative_impedance=negs,
         voltage_mixing=mixing,
         skipped_unknown_bus=network.skipped_unknown_bus,
@@ -1358,4 +1376,7 @@ def analyse_planning(
         reservoir_cascade_issues=cascade_issues,
         parallel_circuit_identical=parallel_identical,
         danger_threshold=danger_threshold,
+        stage_topology=stage_topology,
+        never_in_service=network.never_in_service,
+        unresolved_fields=model.unresolved,
     )

@@ -15,10 +15,13 @@ Exit codes
 ----------
 0  -- the planning file parsed and no fatal data error was found
 1  -- the planning file could not be read / parsed
-2  -- a fatal data error was found (negative reactance, island without
-      generator, ...).  Warnings (dangerous cycles, bridges, voltage mix)
-      do NOT trigger a non-zero exit so this tool stays safe to use in
-      pre-flight pipelines.
+2  -- a fatal data error was found (negative reactance, an island with
+      demand but no generator, ...).  Warnings (dangerous cycles,
+      bridges, voltage mix, element-free isolated buses) do NOT trigger
+      a non-zero exit so this tool stays safe to use in pre-flight
+      pipelines.
+3  -- ``--expect-islands`` / ``--expect-zones`` was given and some stage
+      has more islands carrying active elements than expected.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from rich.console import Console
 
 from gtopt_check_topology._analyzer import (
     DEFAULT_DANGER_THRESHOLD,
+    DEFAULT_DETAIL_MAX_BUSES,
     DEFAULT_MAX_CYCLE_SIZE,
     analyse_planning,
 )
@@ -127,6 +131,49 @@ def _build_parser() -> argparse.ArgumentParser:
         help="List ALL cycles, not just the dangerous ones.",
     )
     parser.add_argument(
+        "--case-dir",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help=(
+            "Directory that options.input_directory is relative to "
+            "(default: the planning file's directory).  Useful for derived "
+            "planning files stored in a sub-directory of the case."
+        ),
+    )
+    parser.add_argument(
+        "--expect-islands",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Fail (exit 3) when any stage has more than N islands carrying "
+            "active elements (generators, demands, batteries).  Element-free "
+            "islands are ignored."
+        ),
+    )
+    parser.add_argument(
+        "--expect-zones",
+        default=None,
+        metavar="Z1,Z2,...",
+        help=(
+            "Like --expect-islands with N = number of zones, keeping the "
+            "largest element-bearing island of each zone (zone = bus "
+            "zone/country/area field or the name prefix, e.g. CL_ -> CL).  "
+            "Every other element-bearing island is an offender."
+        ),
+    )
+    parser.add_argument(
+        "--detail-max-buses",
+        type=int,
+        default=DEFAULT_DETAIL_MAX_BUSES,
+        metavar="N",
+        help=(
+            "List every attached element for islands with <= N buses "
+            "(default %(default)s); larger islands only show totals."
+        ),
+    )
+    parser.add_argument(
         "--no-color",
         action="store_true",
         help="Disable ANSI colour output (useful in pipelines / CI logs).",
@@ -158,6 +205,14 @@ def main(argv: list[str] | None = None) -> int:
         bundle=planning_path.name,
         danger_threshold=args.danger_threshold,
         max_cycle_size=args.max_cycle_size,
+        case_dir=args.case_dir if args.case_dir is not None else planning_path.parent,
+        expect_islands=args.expect_islands,
+        expect_zones=(
+            [z.strip() for z in args.expect_zones.split(",") if z.strip()]
+            if args.expect_zones
+            else None
+        ),
+        detail_max_buses=args.detail_max_buses,
     )
 
     console = Console(
@@ -204,10 +259,12 @@ def main(argv: list[str] | None = None) -> int:
             console.print(f"Wrote strict-direction candidates -> {strict_path}")
 
     # Fatal data errors trigger exit 2; warnings keep exit 0.
-    if report.negative_impedance or report.islands_no_generator:
+    if report.negative_impedance or report.islands_unsupplied:
         return 2
+    if report.expectation_failed:
+        return 3
     return 0
 
 
-if __name__ == "__main__":  # pragma: no cover - exercised via CLI
+if __name__ == "__main__":
     raise SystemExit(main())

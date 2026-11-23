@@ -239,34 +239,6 @@ def streaming_uid_sum_per_col(
     return out
 
 
-def streaming_uid_abs_max(dataset: pads.Dataset | None) -> float:
-    """Max |value| across every uid:* cell.  Streaming.
-
-    Layout-aware: long-form scans only the `value` column.
-    """
-    if dataset is None:
-        return 0.0
-    if dataset_layout(dataset) == "long":
-        m = 0.0
-        for batch in _scan_batches(dataset, ["value"]):
-            arr = pc.abs(batch["value"])
-            mx = pc.max(arr).as_py()
-            if mx is not None and mx > m:
-                m = float(mx)
-        return m
-    cols = dataset_uid_cols(dataset)
-    if not cols:
-        return 0.0
-    m = 0.0
-    for batch in _scan_batches(dataset, cols):
-        for col in cols:
-            arr = pc.abs(batch[col])
-            mx = pc.max(arr).as_py()
-            if mx is not None and mx > m:
-                m = float(mx)
-    return m
-
-
 def streaming_uid_stats(
     dataset: pads.Dataset | None,
 ) -> dict[str, float]:
@@ -296,18 +268,16 @@ def streaming_uid_stats(
             if cnt == 0:
                 continue
             n += int(cnt)
-            s = pc.sum(arr_clean).as_py()
-            if s is not None:
-                total += float(s)
+            # ``arr_clean`` is non-empty and null-free here, so the
+            # sums below are never ``None``.
+            total += float(pc.sum(arr_clean).as_py())
             cur_min = pc.min(arr_clean).as_py()
             if cur_min is not None and cur_min < mn:
                 mn = float(cur_min)
             cur_max = pc.max(arr_clean).as_py()
             if cur_max is not None and cur_max > mx:
                 mx = float(cur_max)
-            neg = pc.sum(pc.less(arr_clean, 0.0)).as_py()
-            if neg is not None:
-                n_neg += int(neg)
+            n_neg += int(pc.sum(pc.less(arr_clean, 0.0)).as_py())
         if n == 0:
             return {
                 "count": 0,
@@ -341,18 +311,16 @@ def streaming_uid_stats(
             if cnt == 0:
                 continue
             n += int(cnt)
-            s = pc.sum(arr_clean).as_py()
-            if s is not None:
-                total += float(s)
+            # ``arr_clean`` is non-empty and null-free here, so the
+            # sums below are never ``None``.
+            total += float(pc.sum(arr_clean).as_py())
             cur_min = pc.min(arr_clean).as_py()
             if cur_min is not None and cur_min < mn:
                 mn = float(cur_min)
             cur_max = pc.max(arr_clean).as_py()
             if cur_max is not None and cur_max > mx:
                 mx = float(cur_max)
-            neg = pc.sum(pc.less(arr_clean, 0.0)).as_py()
-            if neg is not None:
-                n_neg += int(neg)
+            n_neg += int(pc.sum(pc.less(arr_clean, 0.0)).as_py())
     if n == 0:
         return {"count": 0, "sum": 0.0, "min": 0.0, "max": 0.0, "mean": 0.0, "n_neg": 0}
     return {
@@ -617,87 +585,14 @@ def streaming_sol_weighted_sum(
     return total
 
 
-def _np_array_from_list(values: list[float]):
-    """Tiny helper to build an Arrow array from a Python list without
-    importing numpy at module load time (keeps the import surface tight)."""
-    import numpy as np  # noqa: PLC0415
-
-    return np.asarray(values, dtype="float64")
-
-
-def streaming_sqr_weighted_sum(
-    dataset: pads.Dataset | None,
-    block_durations: dict[int, float],
-    coef_per_uid: dict[int, float],
-) -> float:
-    """Σ over (s,t,b,uid) of  value(s,t,b,uid)² × duration(b) × coef(uid).
-
-    Used by ``check_transmission_losses`` for the analytical loss
-    estimate ``Σ_lines (R / V²) · flow²(s,t,b) · dur(b)`` — flow comes
-    from ``Line/flow_sol``, the per-line coefficient is ``R / V²``.
-
-    Streaming: never materialises the full table (peak memory ≈ one
-    record batch, same shape as `streaming_sol_weighted_sum`).
-    """
-    if dataset is None:
-        return 0.0
-    if dataset_layout(dataset) == "long":
-        total = 0.0
-        for batch in _scan_batches(dataset, ["block", "uid", "value"]):
-            block_arr = batch["block"].to_pylist()
-            dur = [
-                block_durations.get(b if b is not None else 0, 1.0) for b in block_arr
-            ]
-            dur_arr = pa.array(dur, type=pa.float64())
-            uid_arr = batch["uid"].to_pylist()
-            coef_arr = pa.array(
-                [
-                    coef_per_uid.get(int(u), 0.0) if u is not None else 0.0
-                    for u in uid_arr
-                ],
-                type=pa.float64(),
-            )
-            value_arr = batch["value"].cast("float64")
-            sqr = pc.multiply(value_arr, value_arr)
-            prod = pc.multiply(sqr, dur_arr)
-            weighted = pc.multiply(prod, coef_arr)
-            s = pc.sum(weighted).as_py()
-            if s is not None:
-                total += float(s)
-        return total
-    cols = dataset_uid_cols(dataset)
-    if not cols:
-        return 0.0
-    total = 0.0
-    for batch in _scan_batches(dataset, cols + ["block"]):
-        block_arr = batch["block"]
-        dur = [
-            block_durations.get(b if b is not None else 0, 1.0)
-            for b in block_arr.to_pylist()
-        ]
-        dur_arr = pa.array(dur, type=pa.float64())
-        for col in cols:
-            uid = int(col.split(":")[1])
-            coef = coef_per_uid.get(uid, 0.0)
-            if coef == 0.0:
-                continue
-            value_arr = batch[col].cast("float64")
-            sqr = pc.multiply(value_arr, value_arr)
-            weighted = pc.multiply(sqr, dur_arr)
-            s = pc.sum(weighted).as_py()
-            if s is not None:
-                total += float(s) * coef
-    return total
-
-
 def streaming_sqr_weighted_sum_per_uid(
     dataset: pads.Dataset | None,
     block_durations: dict[int, float],
     coef_per_uid: dict[int, float],
 ) -> dict[int, float]:
     """Σ over (s,t,b) per uid of  value² × duration(b) × coef(uid).
-    Streaming variant of ``streaming_sqr_weighted_sum`` that keeps the
-    per-uid breakdown.  Used by ``check_transmission_losses`` to rank
+    Streaming (peak memory ≈ one record batch); keeps the per-uid
+    breakdown.  Used by ``check_transmission_losses`` to rank
     lines by their analytical loss contribution and to flag potential
     loss-arbitrage candidates (lines with much larger flow than the
     net transfer they accomplish).
@@ -901,16 +796,4 @@ def get_generator_profile_info(planning: dict) -> pd.DataFrame:
         else:
             gen_uid = gen_name_to_uid.get(str(gen_ref), -1)
         rows.append({"uid": uid, "name": name, "generator_uid": gen_uid})
-    return pd.DataFrame(rows)
-
-
-def get_demand_info(planning: dict) -> pd.DataFrame:
-    """Return a DataFrame with demand uid, name, bus."""
-    demands = planning.get("system", {}).get("demand_array", [])
-    rows = []
-    for d in demands:
-        uid = d.get("uid", 0)
-        name = d.get("name", f"uid:{uid}")
-        bus = d.get("bus", "")
-        rows.append({"uid": uid, "name": name, "bus": bus})
     return pd.DataFrame(rows)

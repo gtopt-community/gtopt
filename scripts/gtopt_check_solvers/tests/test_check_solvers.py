@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gtopt_check_solvers._binary import find_gtopt_binary
 from gtopt_check_solvers._solver_tests import (
     BUILTIN_TESTS,
     SolverTestReport,
@@ -40,38 +39,6 @@ def _write_solution_csv(output_dir: Path, status: int, obj_value: float) -> None
         f"obj_value,kappa,status\n{obj_value},{1.0},{status}\n",
         encoding="utf-8",
     )
-
-
-# ---------------------------------------------------------------------------
-# _binary.py
-# ---------------------------------------------------------------------------
-
-
-class TestFindGtoptBinary:
-    def test_returns_none_when_not_found(self, tmp_path):
-        with patch.dict(os.environ, {"GTOPT_BIN": ""}, clear=False):
-            with patch("shutil.which", return_value=None):
-                with patch(
-                    "gtopt_check_solvers._binary._standard_build_paths",
-                    return_value=[],
-                ):
-                    result = find_gtopt_binary()
-                    assert result is None
-
-    def test_env_var_takes_precedence(self, tmp_path):
-        fake_bin = tmp_path / "gtopt"
-        fake_bin.touch(mode=0o755)
-        with patch.dict(os.environ, {"GTOPT_BIN": str(fake_bin)}, clear=False):
-            result = find_gtopt_binary()
-            assert result == str(fake_bin)
-
-    def test_falls_back_to_path(self, tmp_path):
-        fake_bin = tmp_path / "gtopt"
-        fake_bin.touch(mode=0o755)
-        with patch.dict(os.environ, {"GTOPT_BIN": ""}, clear=False):
-            with patch("shutil.which", return_value=str(fake_bin)):
-                result = find_gtopt_binary()
-                assert result == str(fake_bin)
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +329,7 @@ class TestMain:
         with patch.dict(os.environ, {"GTOPT_BIN": ""}, clear=False):
             with patch("shutil.which", return_value=None):
                 with patch(
-                    "gtopt_check_solvers._binary._standard_build_paths",
+                    "gtopt_shared.gtopt_binary._standard_build_paths",
                     return_value=[],
                 ):
                     rc = main([])

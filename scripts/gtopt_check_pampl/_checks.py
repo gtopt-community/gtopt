@@ -458,12 +458,12 @@ def check_operator_usage(
     statements = _split_statements(clean)
 
     for stmt_text, stmt_start_line in statements:
+        # _split_statements never yields blank statements.
         stripped = stmt_text.strip()
-        if not stripped:
-            continue
 
-        # Skip param declarations
-        if stripped.startswith("param "):
+        # Skip param and var declarations (``var slack_<NAME>;`` names the
+        # soft-constraint slack column; it has no comparison operator).
+        if re.match(r"(?:param|var)\s", stripped):
             continue
 
         # Remove the constraint header if present

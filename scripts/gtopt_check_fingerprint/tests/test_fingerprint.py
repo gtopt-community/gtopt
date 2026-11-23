@@ -154,3 +154,12 @@ class TestJsonRoundTrip:
         assert "hash" in data["structural"]
         assert "columns" in data["structural"]
         assert "rows" in data["structural"]
+
+
+def test_cli_missing_lp_file_is_clean_error(tmp_path: Path, capsys) -> None:
+    """A missing input file exits 2 with a message, not a traceback."""
+    # pylint: disable-next=import-outside-toplevel
+    from gtopt_check_fingerprint._cli import main
+
+    assert main(["compute", str(tmp_path / "missing.lp")]) == 2
+    assert "error:" in capsys.readouterr().err

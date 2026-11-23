@@ -3,5 +3,5 @@
 
 from gtopt_check_topology.main import main
 
-if __name__ == "__main__":  # pragma: no cover - exercised via CLI
+if __name__ == "__main__":
     raise SystemExit(main())

@@ -9,8 +9,9 @@ The main entry point is
 
 Sub-modules
 -----------
-:mod:`._binary`        — gtopt binary discovery
 :mod:`._solver_tests`  — LP solver test-suite definition and runner
+
+The gtopt binary is discovered via :mod:`gtopt_shared.gtopt_binary`.
 """
 
 from .gtopt_check_solvers import main

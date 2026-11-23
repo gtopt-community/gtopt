@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Library behind ``gtopt_check_cases``: check a case collection.
 
 A *case collection* (e.g. the public ``gtopt-cases`` repository) is a

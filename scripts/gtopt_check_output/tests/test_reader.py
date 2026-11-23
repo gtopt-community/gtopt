@@ -8,13 +8,11 @@ import pandas as pd
 from gtopt_check_output._reader import (
     dataset_layout,
     get_block_durations,
-    get_demand_info,
     get_generator_info,
     get_generator_profile_info,
     get_line_info,
     open_dataset,
     read_table,
-    streaming_uid_abs_max,
     streaming_uid_stats,
     streaming_uid_sum,
     streaming_uid_sum_per_col,
@@ -135,21 +133,6 @@ def test_get_line_info():
     assert len(df) == 2
     assert df.iloc[0]["tmax"] == 200.0
     assert df.iloc[1]["tmax"] == 150.0
-
-
-def test_get_demand_info():
-    """Extracts demand info."""
-    planning = {
-        "system": {
-            "demand_array": [
-                {"uid": 1, "name": "d1", "bus": "b1"},
-                {"uid": 2, "name": "d2", "bus": "b2"},
-            ]
-        }
-    }
-    df = get_demand_info(planning)
-    assert len(df) == 2
-    assert df.iloc[0]["name"] == "d1"
 
 
 def test_get_generator_info_empty():
@@ -284,24 +267,6 @@ def test_streaming_uid_sum_per_col_layouts_agree(tmp_path: Path):
     ds_long = open_dataset(long_dir, "Generator/generation_sol")
     assert ds_long is not None
     assert streaming_uid_sum_per_col(ds_long) == expected
-
-
-def test_streaming_uid_abs_max_layouts_agree(tmp_path: Path):
-    """`streaming_uid_abs_max` returns the same max-abs value for both
-    layouts."""
-    wide_dir = tmp_path / "wide"
-    wide_dir.mkdir()
-    _write_wide_dataset(wide_dir / "Generator" / "generation_sol.parquet")
-    ds_wide = open_dataset(wide_dir, "Generator/generation_sol")
-    assert ds_wide is not None
-    assert streaming_uid_abs_max(ds_wide) == 40.0
-
-    long_dir = tmp_path / "long"
-    long_dir.mkdir()
-    _write_long_dataset(long_dir / "Generator" / "generation_sol.parquet")
-    ds_long = open_dataset(long_dir, "Generator/generation_sol")
-    assert ds_long is not None
-    assert streaming_uid_abs_max(ds_long) == 40.0
 
 
 def test_streaming_uid_stats_long_count_excludes_zeros(tmp_path: Path):

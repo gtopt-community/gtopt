@@ -356,6 +356,13 @@ def read_gtopt_cost(output_dir: Path, scale: float = 1.0) -> float:
     return float(row["obj_value"]) * scale
 
 
+def _matrix_cell(matrix: list[list[float]], row: int, col: int) -> float:
+    """``matrix[row][col]`` or ``0.0`` when out of range."""
+    if row < len(matrix) and col < len(matrix[row]):
+        return matrix[row][col]
+    return 0.0
+
+
 def read_gtopt_battery_dispatch(output_dir: Path, n_blocks: int | None = None) -> tuple:
     """Return (fout, finp) lists from Battery/fout_sol.csv and finp_sol.csv.
 
@@ -891,6 +898,102 @@ def build_net_bat_4b_24(block: int, bat_fout: float, bat_finp: float):
 # ---------------------------------------------------------------------------
 
 
+def _report_diff(
+    label: str,
+    ref_name: str,
+    ref_val: float,
+    gt_val: float,
+    tol: float,
+    prec: int = 4,
+) -> bool:
+    """Print one ``reference vs gtopt`` comparison row.
+
+    Returns ``False`` when the absolute difference exceeds *tol*.
+    """
+    diff = abs(ref_val - gt_val)
+    # ``diff <= tol`` is False for NaN, so a NaN value fails (and is
+    # reported as FAIL) instead of silently passing.
+    ok = diff <= tol
+    print(
+        f"{label}: {ref_name}={ref_val:.{prec}f}  gtopt={gt_val:.{prec}f}"
+        f"  diff={diff:.{prec}f}  [{'PASS' if ok else 'FAIL'}]"
+    )
+    return ok
+
+
+def _report_cost(pp_cost: float, gtopt_cost: float) -> bool:
+    """Print the objective comparison (relative 1e-3 tolerance, min 1 $)."""
+    cost_diff = abs(pp_cost - gtopt_cost)
+    cost_tol = max(1.0, abs(gtopt_cost) * 1e-3)
+    ok = cost_diff <= cost_tol  # False for NaN
+    print(
+        f"Cost: pandapower={pp_cost:.2f}  gtopt={gtopt_cost:.2f}"
+        f"  diff={cost_diff:.4f}  [{'PASS' if ok else 'FAIL'}]"
+    )
+    return ok
+
+
+def _compare_dcopf(
+    net,
+    output_dir: Path,
+    tol_mw: float,
+    tol_lmp: float,
+    *,
+    total_generation: bool,
+    compare_lmps: bool,
+) -> bool:
+    """Run pandapower DC OPF on *net* and compare it with the gtopt output.
+
+    *total_generation* compares the summed dispatch (ext_grid included, as
+    gtopt models it as a regular generator) instead of per-generator values.
+    *compare_lmps* adds the per-bus LMP comparison.
+    """
+    import pandapower as pp  # pylint: disable=import-outside-toplevel
+
+    pp.rundcopp(net, verbose=False)
+
+    pp_gen = list(net.res_gen["p_mw"].values)
+    pp_cost = net.res_cost
+    pp_lmps = list(net.res_bus["lam_p"].values) if compare_lmps else []
+
+    gtopt_gen = read_gtopt_generation(output_dir)
+    gtopt_cost = read_gtopt_cost(output_dir)
+    gtopt_lmps = read_gtopt_lmps(output_dir) if compare_lmps else []
+
+    passed = True
+
+    if total_generation:
+        pp_ext = float(net.res_ext_grid["p_mw"].sum())
+        pp_total = sum([pp_ext] + pp_gen)
+        if not _report_diff(
+            "Total generation", "pandapower", pp_total, sum(gtopt_gen), tol_mw
+        ):
+            passed = False
+    else:
+        print("Generation comparison (MW):")
+        for i, (pp_val, gt_val) in enumerate(zip(pp_gen, gtopt_gen)):
+            if not _report_diff(f"  g{i + 1}", "pandapower", pp_val, gt_val, tol_mw):
+                passed = False
+
+    if not _report_cost(pp_cost, gtopt_cost):
+        passed = False
+
+    if compare_lmps:
+        print("Bus LMP comparison ($/MWh):")
+        for i, (pp_val, gt_val) in enumerate(zip(pp_lmps, gtopt_lmps)):
+            if not _report_diff(f"  b{i + 1}", "pandapower", pp_val, gt_val, tol_lmp):
+                passed = False
+
+    return passed
+
+
+def _load_or_build(pandapower_file: Path | None, builder: Callable[[], object]):
+    """Return the network from *pandapower_file*, or build it with *builder*."""
+    if pandapower_file is not None:
+        return load_pandapower_net(pandapower_file)
+    return builder()
+
+
 def _compare_s1b(
     output_dir: Path,
     tol_mw: float,
@@ -899,45 +1002,10 @@ def _compare_s1b(
     **_kwargs: object,
 ) -> bool:
     """Compare s1b generation and cost; no bus LMPs for this 1-bus case."""
-    import pandapower as pp  # pylint: disable=import-outside-toplevel
-
-    net = (
-        load_pandapower_net(pandapower_file)
-        if pandapower_file is not None
-        else build_net_s1b()
+    net = _load_or_build(pandapower_file, build_net_s1b)
+    return _compare_dcopf(
+        net, output_dir, tol_mw, tol_lmp, total_generation=False, compare_lmps=False
     )
-    pp.rundcopp(net, verbose=False)
-
-    pp_gen = list(net.res_gen["p_mw"].values)
-    pp_cost = net.res_cost
-
-    gtopt_gen = read_gtopt_generation(output_dir)
-    gtopt_cost = read_gtopt_cost(output_dir)
-
-    passed = True
-
-    print("Generation comparison (MW):")
-    for i, (pp_val, gt_val) in enumerate(zip(pp_gen, gtopt_gen)):
-        diff = abs(pp_val - gt_val)
-        status = "PASS" if diff <= tol_mw else "FAIL"
-        if diff > tol_mw:
-            passed = False
-        print(
-            f"  g{i + 1}: pandapower={pp_val:.4f}  gtopt={gt_val:.4f}"
-            f"  diff={diff:.4f}  [{status}]"
-        )
-
-    cost_diff = abs(pp_cost - gtopt_cost)
-    cost_tol = max(1.0, abs(gtopt_cost) * 1e-3)
-    cost_status = "PASS" if cost_diff <= cost_tol else "FAIL"
-    if cost_diff > cost_tol:
-        passed = False
-    print(
-        f"Cost: pandapower={pp_cost:.2f}  gtopt={gtopt_cost:.2f}"
-        f"  diff={cost_diff:.4f}  [{cost_status}]"
-    )
-
-    return passed
 
 
 def _compare_ieee_4b_ori(
@@ -948,59 +1016,10 @@ def _compare_ieee_4b_ori(
     **_kwargs: object,
 ) -> bool:
     """Compare ieee_4b_ori generation, cost, and bus LMPs."""
-    import pandapower as pp  # pylint: disable=import-outside-toplevel
-
-    net = (
-        load_pandapower_net(pandapower_file)
-        if pandapower_file is not None
-        else build_net_ieee_4b_ori()
+    net = _load_or_build(pandapower_file, build_net_ieee_4b_ori)
+    return _compare_dcopf(
+        net, output_dir, tol_mw, tol_lmp, total_generation=False, compare_lmps=True
     )
-    pp.rundcopp(net, verbose=False)
-
-    pp_gen = list(net.res_gen["p_mw"].values)
-    pp_cost = net.res_cost
-    pp_lmps = list(net.res_bus["lam_p"].values)
-
-    gtopt_gen = read_gtopt_generation(output_dir)
-    gtopt_cost = read_gtopt_cost(output_dir)
-    gtopt_lmps = read_gtopt_lmps(output_dir)
-
-    passed = True
-
-    print("Generation comparison (MW):")
-    for i, (pp_val, gt_val) in enumerate(zip(pp_gen, gtopt_gen)):
-        diff = abs(pp_val - gt_val)
-        status = "PASS" if diff <= tol_mw else "FAIL"
-        if diff > tol_mw:
-            passed = False
-        print(
-            f"  g{i + 1}: pandapower={pp_val:.4f}  gtopt={gt_val:.4f}"
-            f"  diff={diff:.4f}  [{status}]"
-        )
-
-    cost_diff = abs(pp_cost - gtopt_cost)
-    cost_tol = max(1.0, abs(gtopt_cost) * 1e-3)
-    cost_status = "PASS" if cost_diff <= cost_tol else "FAIL"
-    if cost_diff > cost_tol:
-        passed = False
-    print(
-        f"Cost: pandapower={pp_cost:.2f}  gtopt={gtopt_cost:.2f}"
-        f"  diff={cost_diff:.4f}  [{cost_status}]"
-    )
-
-    print("Bus LMP comparison ($/MWh):")
-    bus_names = [f"b{i + 1}" for i in range(len(pp_lmps))]
-    for name, pp_val, gt_val in zip(bus_names, pp_lmps, gtopt_lmps):
-        diff = abs(pp_val - gt_val)
-        status = "PASS" if diff <= tol_lmp else "FAIL"
-        if diff > tol_lmp:
-            passed = False
-        print(
-            f"  {name}: pandapower={pp_val:.4f}  gtopt={gt_val:.4f}"
-            f"  diff={diff:.4f}  [{status}]"
-        )
-
-    return passed
 
 
 def _compare_ieee30b(
@@ -1015,60 +1034,10 @@ def _compare_ieee30b(
     The ext_grid generation is summed separately because gtopt models
     it as a regular generator while pandapower uses res_ext_grid.
     """
-    import pandapower as pp  # pylint: disable=import-outside-toplevel
-
-    net = (
-        load_pandapower_net(pandapower_file)
-        if pandapower_file is not None
-        else build_net_ieee30b()
+    net = _load_or_build(pandapower_file, build_net_ieee30b)
+    return _compare_dcopf(
+        net, output_dir, tol_mw, tol_lmp, total_generation=True, compare_lmps=True
     )
-    pp.rundcopp(net, verbose=False)
-
-    pp_ext = float(net.res_ext_grid["p_mw"].sum())
-    pp_gen = list(net.res_gen["p_mw"].values)
-    pp_all = [pp_ext] + pp_gen
-    pp_cost = net.res_cost
-    pp_lmps = list(net.res_bus["lam_p"].values)
-
-    gtopt_gen = read_gtopt_generation(output_dir)
-    gtopt_cost = read_gtopt_cost(output_dir)
-    gtopt_lmps = read_gtopt_lmps(output_dir)
-
-    passed = True
-
-    pp_total = sum(pp_all)
-    gt_total = sum(gtopt_gen)
-    diff_total = abs(pp_total - gt_total)
-    status_total = "PASS" if diff_total <= tol_mw else "FAIL"
-    if diff_total > tol_mw:
-        passed = False
-    print(
-        f"Total generation: pandapower={pp_total:.4f}  gtopt={gt_total:.4f}"
-        f"  diff={diff_total:.4f}  [{status_total}]"
-    )
-
-    cost_diff = abs(pp_cost - gtopt_cost)
-    cost_tol = max(1.0, abs(gtopt_cost) * 1e-3)
-    cost_status = "PASS" if cost_diff <= cost_tol else "FAIL"
-    if cost_diff > cost_tol:
-        passed = False
-    print(
-        f"Cost: pandapower={pp_cost:.2f}  gtopt={gtopt_cost:.2f}"
-        f"  diff={cost_diff:.4f}  [{cost_status}]"
-    )
-
-    print("Bus LMP comparison ($/MWh):")
-    for i, (pp_val, gt_val) in enumerate(zip(pp_lmps, gtopt_lmps)):
-        diff = abs(pp_val - gt_val)
-        status = "PASS" if diff <= tol_lmp else "FAIL"
-        if diff > tol_lmp:
-            passed = False
-        print(
-            f"  b{i + 1}: pandapower={pp_val:.4f}  gtopt={gt_val:.4f}"
-            f"  diff={diff:.4f}  [{status}]"
-        )
-
-    return passed
 
 
 def _compare_ieee_57b(
@@ -1085,60 +1054,10 @@ def _compare_ieee_57b(
     separately (as in the ieee30b case) because gtopt represents it as a
     regular generator while pandapower stores it in res_ext_grid.
     """
-    import pandapower as pp  # pylint: disable=import-outside-toplevel
-
-    net = (
-        load_pandapower_net(pandapower_file)
-        if pandapower_file is not None
-        else build_net_ieee_57b()
+    net = _load_or_build(pandapower_file, build_net_ieee_57b)
+    return _compare_dcopf(
+        net, output_dir, tol_mw, tol_lmp, total_generation=True, compare_lmps=True
     )
-    pp.rundcopp(net, verbose=False)
-
-    pp_ext = float(net.res_ext_grid["p_mw"].sum())
-    pp_gen = list(net.res_gen["p_mw"].values)
-    pp_all = [pp_ext] + pp_gen
-    pp_cost = net.res_cost
-    pp_lmps = list(net.res_bus["lam_p"].values)
-
-    gtopt_gen = read_gtopt_generation(output_dir)
-    gtopt_cost = read_gtopt_cost(output_dir)
-    gtopt_lmps = read_gtopt_lmps(output_dir)
-
-    passed = True
-
-    pp_total = sum(pp_all)
-    gt_total = sum(gtopt_gen)
-    diff_total = abs(pp_total - gt_total)
-    status_total = "PASS" if diff_total <= tol_mw else "FAIL"
-    if diff_total > tol_mw:
-        passed = False
-    print(
-        f"Total generation: pandapower={pp_total:.4f}  gtopt={gt_total:.4f}"
-        f"  diff={diff_total:.4f}  [{status_total}]"
-    )
-
-    cost_diff = abs(pp_cost - gtopt_cost)
-    cost_tol = max(1.0, abs(gtopt_cost) * 1e-3)
-    cost_status = "PASS" if cost_diff <= cost_tol else "FAIL"
-    if cost_diff > cost_tol:
-        passed = False
-    print(
-        f"Cost: pandapower={pp_cost:.2f}  gtopt={gtopt_cost:.2f}"
-        f"  diff={cost_diff:.4f}  [{cost_status}]"
-    )
-
-    print("Bus LMP comparison ($/MWh):")
-    for i, (pp_val, gt_val) in enumerate(zip(pp_lmps, gtopt_lmps)):
-        diff = abs(pp_val - gt_val)
-        status = "PASS" if diff <= tol_lmp else "FAIL"
-        if diff > tol_lmp:
-            passed = False
-        print(
-            f"  b{i + 1}: pandapower={pp_val:.4f}  gtopt={gt_val:.4f}"
-            f"  diff={diff:.4f}  [{status}]"
-        )
-
-    return passed
 
 
 def _compare_bat_4b_24(
@@ -1200,7 +1119,8 @@ def _compare_bat_4b_24(
         pp.rundcopp(net, verbose=False)
 
         pp_gen = list(net.res_gen["p_mw"].values)
-        # pp_gen[0]=g1, pp_gen[1]=g2, pp_gen[2]=g_solar, (bat_net may add a 4th)
+        # build_net_bat_4b_24 always creates g1, g2, g_solar as gens 0..2
+        # (a positive battery injection may add a 4th, never fewer).
         gtopt_g1 = gtopt_gen_all[b][0]  # uid:1
         gtopt_g2 = gtopt_gen_all[b][1]  # uid:2
         gtopt_g_solar = gtopt_gen_all[b][2]  # uid:3
@@ -1208,18 +1128,15 @@ def _compare_bat_4b_24(
         for gi, (name, gt_val) in enumerate(
             [("g1", gtopt_g1), ("g2", gtopt_g2), ("g_solar", gtopt_g_solar)]
         ):
-            if gi >= len(pp_gen):
-                continue
-            pp_val = pp_gen[gi]
-            diff = abs(pp_val - gt_val)
-            status = "PASS" if diff <= tol_mw else "FAIL"
-            if diff > tol_mw:
+            if not _report_diff(
+                f"  block {b + 1:2d} {name}",
+                "pandapower",
+                pp_gen[gi],
+                gt_val,
+                tol_mw,
+                prec=3,
+            ):
                 passed = False
-            print(
-                f"  block {b + 1:2d} {name}:"
-                f" pandapower={pp_val:.3f}  gtopt={gt_val:.3f}"
-                f"  diff={diff:.3f}  [{status}]"
-            )
 
     return passed
 
@@ -1335,15 +1252,22 @@ def _compare_plp(
     )
 
     # --- Read gtopt battery dispatch when PLP has ESS data ---
+    # ``gt_*_m`` are ``[block][uid]`` matrices (ESS ``ei`` ↔ battery
+    # uid ``ei + 1``); ``gt_fout`` is the first battery per block.
     gt_fout: list = []
-    gt_finp: list = []
+    gt_fout_m: list = []
+    gt_finp_m: list = []
     if has_ess:
         bat_dir = output_dir / "Battery"
         if bat_dir.exists():
             try:
-                gt_fout, gt_finp = read_gtopt_battery_dispatch(
-                    output_dir, n_blocks=n_blocks
+                gt_fout_m = _read_gtopt_per_block_uid_values(
+                    _find_gtopt_csv(bat_dir, "fout_sol"), n_blocks=n_blocks
                 )
+                gt_finp_m = _read_gtopt_per_block_uid_values(
+                    _find_gtopt_csv(bat_dir, "finp_sol"), n_blocks=n_blocks
+                )
+                gt_fout = [row[0] if row else 0.0 for row in gt_fout_m]
             except FileNotFoundError:
                 pass  # battery files absent → treat as all-zero
 
@@ -1366,15 +1290,10 @@ def _compare_plp(
         for gi, name in enumerate(conv_centrals):
             plp_val = plp_row.get(name, 0.0)
             gt_val = gt_row[gi] if gi < len(gt_row) else 0.0
-            diff = abs(plp_val - gt_val)
-            status = "PASS" if diff <= tol_mw else "FAIL"
-            if diff > tol_mw:
+            if not _report_diff(
+                f"  block {b:2d} {name}", "plp", plp_val, gt_val, tol_mw, prec=3
+            ):
                 passed = False
-            print(
-                f"  block {b:2d} {name}:"
-                f" plp={plp_val:.3f}  gtopt={gt_val:.3f}"
-                f"  diff={diff:.3f}  [{status}]"
-            )
 
     # --- Battery ESS comparison: charge and discharge per ESS unit ---
     if has_ess and plp_ess:
@@ -1388,25 +1307,21 @@ def _compare_plp(
                 plp_row = plp_ess.get(b, {}).get(
                     ess_name, {"charge": 0.0, "discharge": 0.0}
                 )
-                gt_charge = gt_finp[b - 1] if b - 1 < len(gt_finp) else 0.0
-                gt_discharge = gt_fout[b - 1] if b - 1 < len(gt_fout) else 0.0
-                # When multiple ESS exist, shift index by ei (uid:ei+1)
-                if ei > 0 and b - 1 < len(gt_finp):
-                    gt_charge = gt_finp[ei] if ei < len(gt_finp) else 0.0
-                    gt_discharge = gt_fout[ei] if ei < len(gt_fout) else 0.0
+                gt_charge = _matrix_cell(gt_finp_m, b - 1, ei)
+                gt_discharge = _matrix_cell(gt_fout_m, b - 1, ei)
                 for label, plp_val, gt_val in [
                     ("charge", plp_row["charge"], gt_charge),
                     ("discharge", plp_row["discharge"], gt_discharge),
                 ]:
-                    diff = abs(plp_val - gt_val)
-                    status = "PASS" if diff <= tol_mw else "FAIL"
-                    if diff > tol_mw:
+                    if not _report_diff(
+                        f"  block {b:2d} {ess_name} {label}",
+                        "plp",
+                        plp_val,
+                        gt_val,
+                        tol_mw,
+                        prec=3,
+                    ):
                         passed = False
-                    print(
-                        f"  block {b:2d} {ess_name} {label}:"
-                        f" plp={plp_val:.3f}  gtopt={gt_val:.3f}"
-                        f"  diff={diff:.3f}  [{status}]"
-                    )
 
     # --- BAT centrals in plpcen.csv vs battery fout ---
     if bat_centrals and gt_fout:
@@ -1418,15 +1333,15 @@ def _compare_plp(
             plp_row = plp_gen.get(b, {})
             gt_val = gt_fout[b - 1] if b - 1 < len(gt_fout) else 0.0
             plp_bat_total = sum(plp_row.get(n, 0.0) for n in bat_centrals)
-            diff = abs(plp_bat_total - gt_val)
-            status = "PASS" if diff <= tol_mw else "FAIL"
-            if diff > tol_mw:
+            if not _report_diff(
+                f"  block {b:2d} BAT discharge",
+                "plp",
+                plp_bat_total,
+                gt_val,
+                tol_mw,
+                prec=3,
+            ):
                 passed = False
-            print(
-                f"  block {b:2d} BAT discharge:"
-                f" plp={plp_bat_total:.3f}  gtopt={gt_val:.3f}"
-                f"  diff={diff:.3f}  [{status}]"
-            )
 
     # --- CMg / LMP comparison ---
     print(
@@ -1439,15 +1354,10 @@ def _compare_plp(
         for bi, name in enumerate(bus_names):
             plp_val = plp_row.get(name, 0.0)
             gt_val = gt_row[bi] if bi < len(gt_row) else 0.0
-            diff = abs(plp_val - gt_val)
-            status = "PASS" if diff <= tol_lmp else "FAIL"
-            if diff > tol_lmp:
+            if not _report_diff(
+                f"  block {b:2d} {name}", "plp", plp_val, gt_val, tol_lmp
+            ):
                 passed = False
-            print(
-                f"  block {b:2d} {name}:"
-                f" plp={plp_val:.4f}  gtopt={gt_val:.4f}"
-                f"  diff={diff:.4f}  [{status}]"
-            )
 
     return passed
 
@@ -1508,8 +1418,9 @@ _NET_BUILDERS = {
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
-    """Parse CLI arguments and run the selected case comparison."""
+def main(argv: list[str] | None = None) -> None:
+    """Parse CLI arguments (``sys.argv`` when *argv* is None) and run the
+    selected case comparison."""
     parser = argparse.ArgumentParser(
         prog="gtopt_compare",
         description=__doc__,
@@ -1591,7 +1502,7 @@ examples:
     add_version_argument(parser)
     add_log_level_argument(parser)
     add_color_argument(parser)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),

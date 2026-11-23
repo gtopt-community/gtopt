@@ -10,6 +10,8 @@ Sub-modules
 -----------
 :mod:`._analyzer` -- pure-data graph analysis (islands, cycles, bridges,
                      danger score, SOS1 candidates)
+:mod:`._temporal` -- schedule-aware per-stage model (topology periods,
+                     inter-zone lines, expected-islands check)
 :mod:`._render`   -- rich-based console renderer and JSON report writer
 :mod:`.main`      -- argparse CLI
 """
@@ -23,7 +25,9 @@ from gtopt_check_topology._analyzer import (
     analyse_planning,
     build_network_graph,
     cycle_danger_score,
+    resolve_planning,
 )
+from gtopt_check_topology._temporal import StageTopology, TopologyPeriod
 from gtopt_check_topology._render import (
     render_console_report,
     report_to_json,
@@ -41,7 +45,10 @@ __all__ = [
     "build_network_graph",
     "cycle_danger_score",
     "main",
+    "StageTopology",
+    "TopologyPeriod",
     "render_console_report",
+    "resolve_planning",
     "report_to_json",
     "sos1_candidates_payload",
 ]

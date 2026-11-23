@@ -139,9 +139,13 @@ class TestBenchmarkRunners:
         )
         mock_result.stderr = ""
 
-        with patch(
-            "gtopt_check_lp._benchmark.find_cplex_binary", return_value="/usr/bin/cplex"
-        ), patch("subprocess.run", return_value=mock_result):
+        with (
+            patch(
+                "gtopt_check_lp._benchmark.find_cplex_binary",
+                return_value="/usr/bin/cplex",
+            ),
+            patch("subprocess.run", return_value=mock_result),
+        ):
             result = _run_cplex(lp, "dual", 2, 30)
         assert result is not None
         assert result.solver == "cplex"
@@ -154,9 +158,13 @@ class TestBenchmarkRunners:
         lp = tmp_path / "test.lp"
         lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
 
-        with patch(
-            "gtopt_check_lp._benchmark.find_cplex_binary", return_value="/usr/bin/cplex"
-        ), patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cplex", 30)):
+        with (
+            patch(
+                "gtopt_check_lp._benchmark.find_cplex_binary",
+                return_value="/usr/bin/cplex",
+            ),
+            patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cplex", 30)),
+        ):
             result = _run_cplex(lp, "barrier", 0, 30)
         assert result is not None
         assert "error" in result.status
@@ -183,8 +191,9 @@ class TestBenchmarkRunners:
         )
         mock_result.stderr = ""
 
-        with patch("shutil.which", return_value="/usr/bin/highs"), patch(
-            "subprocess.run", return_value=mock_result
+        with (
+            patch("shutil.which", return_value="/usr/bin/highs"),
+            patch("subprocess.run", return_value=mock_result),
         ):
             result = _run_highs(lp, "barrier", 4, 30)
         assert result is not None
@@ -213,8 +222,9 @@ class TestBenchmarkRunners:
         )
         mock_result.stderr = ""
 
-        with patch("shutil.which", return_value="/usr/bin/clp"), patch(
-            "subprocess.run", return_value=mock_result
+        with (
+            patch("shutil.which", return_value="/usr/bin/clp"),
+            patch("subprocess.run", return_value=mock_result),
         ):
             result = _run_clp(lp, "primal", 2, 30)
         assert result is not None
@@ -238,8 +248,9 @@ class TestBenchmarkRunners:
         mock_result.stdout = "Optimal objective 50\nTotal time (CPU seconds):  0.03"
         mock_result.stderr = ""
 
-        with patch("shutil.which", return_value="/usr/bin/cbc"), patch(
-            "subprocess.run", return_value=mock_result
+        with (
+            patch("shutil.which", return_value="/usr/bin/cbc"),
+            patch("subprocess.run", return_value=mock_result),
         ):
             result = _run_cbc(lp, "default", 0, 30)
         assert result is not None
@@ -258,9 +269,10 @@ class TestBenchmarkDriver:
         lp = tmp_path / "test.lp"
         lp.write_text("Minimize\n obj: x\nEnd\n", encoding="utf-8")
 
-        with patch(
-            "gtopt_check_lp._benchmark.find_cplex_binary", return_value=None
-        ), patch("shutil.which", return_value=None):
+        with (
+            patch("gtopt_check_lp._benchmark.find_cplex_binary", return_value=None),
+            patch("shutil.which", return_value=None),
+        ):
             report = run_benchmark(lp, algos=["dual"], thread_counts=[0])
         assert len(report.results) == 0
 
@@ -281,10 +293,10 @@ class TestBenchmarkDriver:
         def _which(name):
             return "/usr/bin/highs" if name == "highs" else None
 
-        with patch(
-            "gtopt_check_lp._benchmark.find_cplex_binary", return_value=None
-        ), patch("shutil.which", side_effect=_which), patch(
-            "subprocess.run", return_value=mock_result
+        with (
+            patch("gtopt_check_lp._benchmark.find_cplex_binary", return_value=None),
+            patch("shutil.which", side_effect=_which),
+            patch("subprocess.run", return_value=mock_result),
         ):
             report = run_benchmark(lp, algos=["dual"], thread_counts=[0], timeout=10)
         assert len(report.results) > 0

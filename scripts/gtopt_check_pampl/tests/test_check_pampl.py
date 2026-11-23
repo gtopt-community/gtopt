@@ -182,6 +182,20 @@ class TestCheckOperatorUsage:
         findings = check_operator_usage(source)
         assert any("!=" in f.message or "not supported" in f.message for f in findings)
 
+    def test_var_declaration_is_not_an_expression(self):
+        """Regression: ``var slack_<NAME>;`` is a declaration, not a row.
+
+        It used to raise "lacks a comparison operator" on valid files such
+        as ``cases/ieee_24b_rts/uc_opf_limits.pampl``.
+        """
+        source = (
+            "var slack_c1, slack_c2;\n"
+            "constraint c1: generator('G1').generation <= 10;\n"
+        )
+        assert not check_operator_usage(source)
+        # A real expression without an operator is still flagged.
+        assert check_operator_usage("constraint c3: generator('G1').generation;")
+
 
 # ── check_domain_clauses ──────────────────────────────────────────────────
 

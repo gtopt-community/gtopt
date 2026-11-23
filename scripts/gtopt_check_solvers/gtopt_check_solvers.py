@@ -37,8 +37,8 @@ from gtopt_check_json._terminal import (
     print_section,
 )
 from gtopt_config import configure_logging, get_version
+from gtopt_shared.gtopt_binary import find_gtopt_binary
 
-from ._binary import find_gtopt_binary
 from ._solver_tests import (
     BUILTIN_TESTS,
     SolverTestReport,

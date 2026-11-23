@@ -13,23 +13,15 @@ to actual numeric values for a given element and (scenario, block) pair.
 from pathlib import Path
 from typing import Any
 
+# Shared with the other preflight tools (re-exported for callers here).
+from gtopt_shared.field_sched import build_table_path
 
-def build_table_path(
-    input_dir: str,
-    class_name: str,
-    field_name: str,
-) -> str:
-    """Build the base file path (without extension) for an input table.
-
-    Mirrors the C++ ``build_table_path`` in ``array_index_traits.cpp``.
-
-    If *field_name* contains ``@``, the part before ``@`` is the class
-    and the part after is the field.  Otherwise *class_name* / *field_name*.
-    """
-    if "@" in field_name:
-        parts = field_name.split("@", 1)
-        return str(Path(input_dir) / parts[0] / parts[1])
-    return str(Path(input_dir) / class_name / field_name)
+__all__ = [
+    "build_table_path",
+    "resolve_file_sched_series",
+    "resolve_file_sched_value",
+    "try_read_table",
+]
 
 
 def try_read_table(

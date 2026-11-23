@@ -103,6 +103,96 @@ def check_demand_lmax_nonneg(planning: dict[str, Any]) -> list[Finding]:
     return findings
 
 
+_MAX_FAIL_SEGMENTS = 16
+
+
+def _fail_segment_problems(
+    segments: Any, *, scalar_costs: bool
+) -> tuple[list[str], list[str]]:
+    """Return ``(errors, warnings)`` for one stepwise failure curve.
+
+    Mirrors ``check_fail_segment_list`` in ``source/validate_planning.cpp``.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    if not isinstance(segments, list):
+        return ["fail_segments must be a JSON array"], warnings
+    if len(segments) > _MAX_FAIL_SEGMENTS:
+        errors.append(f"{len(segments)} segments (max {_MAX_FAIL_SEGMENTS})")
+    cum = 0.0
+    prev_cost: float | None = None
+    for k, seg in enumerate(segments):
+        if not isinstance(seg, dict):
+            errors.append(f"segment {k} is not an object")
+            continue
+        last = k + 1 == len(segments)
+        frac = seg.get("fraction")
+        if frac is not None:
+            if not isinstance(frac, (int, float)) or not 0.0 < frac <= 1.0:
+                errors.append(f"segment {k}: fraction={frac} must be in (0, 1]")
+            else:
+                cum += float(frac)
+        elif not last:
+            errors.append(f"segment {k}: fraction required (only the last is open)")
+        elif cum >= 1.0 - 1e-9:
+            errors.append(f"open last segment is empty (fractions sum to {cum:g})")
+        cost = seg.get("cost")
+        if cost is None:
+            errors.append(f"segment {k}: cost is required")
+        elif isinstance(cost, (int, float)):
+            if prev_cost is not None and cost < prev_cost:
+                warnings.append(
+                    f"costs decrease at segment {k} ({cost:g} < {prev_cost:g}); "
+                    "the LP curtails the cheapest segment first"
+                )
+            prev_cost = float(cost)
+        elif scalar_costs:
+            errors.append(f"segment {k}: cost must be a scalar number")
+    if cum > 1.0 + 1e-9:
+        errors.append(f"fractions sum to {cum:g} (> 1)")
+    return errors, warnings
+
+
+def check_demand_fail_segments(planning: dict[str, Any]) -> list[Finding]:
+    """Validate stepwise failure curves (``Demand.fail_segments`` and
+    ``model_options.demand_fail_segments``)."""
+    findings: list[Finding] = []
+    targets: list[tuple[str, Any, bool]] = []
+    model_opts = planning.get("options", {}).get("model_options", {})
+    if model_opts.get("demand_fail_segments") is not None:
+        targets.append(
+            (
+                "model_options.demand_fail_segments",
+                model_opts["demand_fail_segments"],
+                True,
+            )
+        )
+    for idx, demand in enumerate(planning.get("system", {}).get("demand_array", [])):
+        segs = demand.get("fail_segments")
+        if segs:
+            name = demand.get("name", f"index {idx}")
+            targets.append((f"Demand '{name}'", segs, False))
+    for owner, segs, scalar in targets:
+        errors, warnings = _fail_segment_problems(segs, scalar_costs=scalar)
+        for msg in errors:
+            findings.append(
+                Finding(
+                    check_id="demand_fail_segments",
+                    severity=Severity.CRITICAL,
+                    message=f"{owner}: fail_segments {msg}",
+                )
+            )
+        for msg in warnings:
+            findings.append(
+                Finding(
+                    check_id="demand_fail_segments",
+                    severity=Severity.WARNING,
+                    message=f"{owner}: fail_segments {msg}",
+                )
+            )
+    return findings
+
+
 def check_simulation_mode(planning: dict[str, Any]) -> list[Finding]:
     """Check simulation mode configuration for consistency.
 
@@ -483,19 +573,20 @@ def check_boundary_cuts(
     if not known:
         # No state variables in the model at all -- every column is
         # unknown, but that may just mean the model has none.
-        if csv_state_names:
-            findings.append(
-                Finding(
-                    check_id="boundary_cuts",
-                    severity=Severity.WARNING,
-                    action="Verify reservoir names in plpplem match plpcnfce.dat",
-                    message=(
-                        f"FutureCost cuts_file has {len(csv_state_names)} "
-                        f"state variable column(s) but the model defines "
-                        f"no state variables"
-                    ),
-                )
+        # ``csv_state_names`` is never empty here: the loop above only
+        # breaks on a non-fixed column.
+        findings.append(
+            Finding(
+                check_id="boundary_cuts",
+                severity=Severity.WARNING,
+                action="Verify reservoir names in plpplem match plpcnfce.dat",
+                message=(
+                    f"FutureCost cuts_file has {len(csv_state_names)} "
+                    f"state variable column(s) but the model defines "
+                    f"no state variables"
+                ),
             )
+        )
         return findings
 
     unknown = [n for n in csv_state_names if n not in known]

@@ -271,7 +271,7 @@ try:
         UC_FAMILY_ORDER,
         uc_family,
     )
-except ImportError:  # pragma: no cover - exercised only without plexos2gtopt
+except ImportError:  # exercised only without plexos2gtopt
     UC_FAMILY_ORDER = ("operational",)
 
     def uc_family(_name: str) -> str:  # type: ignore[misc]

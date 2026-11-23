@@ -170,10 +170,9 @@ def _parse_coeff_var_pairs(expr: str) -> list[tuple[float, str]]:
         if re.fullmatch(r"[eE]", varname):
             continue
         if num_s:
-            try:
-                coeff = float((sign_s or "") + num_s)
-            except ValueError:
-                coeff = 1.0 if sign_s != "-" else -1.0
+            # ``num_s`` is matched by a strict numeric regex, so float()
+            # cannot fail here.
+            coeff = float((sign_s or "") + num_s)
         elif sign_s == "-":
             coeff = -1.0
         else:
@@ -230,8 +229,7 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
     current_con_expr = ""
 
     def _flush_constraint(name: str, expr: str) -> None:
-        if not name:
-            return
+        # Callers only flush when a constraint name is pending.
         # Store the raw constraint expression for later display in top-N
         # reports.  Collapse multi-line continuations into a single line
         # and trim excessive whitespace to keep it readable.

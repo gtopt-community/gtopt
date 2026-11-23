@@ -10,8 +10,6 @@ Backward compatibility: if ``~/.gtopt_check_json.conf`` exists and
 """
 
 import configparser
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -35,6 +33,7 @@ CHECK_DEFAULTS: dict[str, str] = {
     "uid_uniqueness": "true",
     "name_uniqueness": "true",
     "demand_lmax_nonneg": "true",
+    "demand_fail_segments": "true",
     "affluent_nonneg": "true",
     "element_references": "true",
     "bus_connectivity": "true",
@@ -69,27 +68,6 @@ _AI_DEFAULT_PROVIDER = "claude"
 def default_config_path() -> Path:
     """Return the unified config file path: ``~/.gtopt.conf``."""
     return DEFAULT_CONFIG_PATH
-
-
-def read_git_email() -> str:
-    """Read the user e-mail from the git global configuration.
-
-    Returns an empty string when git is not installed or no email is set.
-    """
-    git_bin = shutil.which("git")
-    if git_bin is None:
-        return ""
-    try:
-        result = subprocess.run(
-            [git_bin, "config", "--global", "user.email"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        return result.stdout.strip()
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
 
 
 def _migrate_old_config() -> None:

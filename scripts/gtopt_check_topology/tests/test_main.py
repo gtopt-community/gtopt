@@ -3,19 +3,24 @@
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from rich.console import Console
 
 from gtopt_check_topology._analyzer import (
     DEFAULT_DANGER_THRESHOLD,
+    AnalysisReport,
+    BatteryEiniIssue,
     analyse_planning,
     build_network_graph,
     cycle_danger_score,
 )
 from gtopt_check_topology._render import (
+    render_console_report,
     report_to_json,
     sos1_candidates_payload,
 )
@@ -200,23 +205,55 @@ def test_multiple_islands_are_flagged():
 
 
 def test_dc_link_classified_and_excluded_from_cycle_basis():
-    # A-B-C triangle but the A-C edge is an HVDC link (reactance=0).
+    # A-B-C triangle but the A-C edge is an HVDC link (no reactance).
+    dc_link = _line(3, "A", "C")
+    del dc_link["reactance"]
     plan = _planning(
         ["A", "B", "C"],
         [
             _line(1, "A", "B", reactance=0.1),
             _line(2, "B", "C", reactance=0.1),
-            _line(3, "A", "C", reactance=0.0),  # DC link
+            dc_link,
         ],
     )
     net = build_network_graph(plan)
     assert len(net.dc_lines) == 1
     assert net.dc_lines[0].uid == 3
+    assert net.dc_lines[0].is_dc
+    assert not net.tie_lines
     # Only two AC edges -> no cycle.
     assert net.graph.number_of_edges() == 2
     report = analyse_planning(plan)
     assert report.n_cycles == 0
     assert len(report.dc_lines) == 1
+    assert report_to_json(report)["tie_lines"] == []
+
+
+def test_zero_reactance_is_a_tie_not_a_dc_link():
+    # reactance = 0 is a zero-impedance tie in gtopt (bus angles equal),
+    # NOT a DC link -- only an absent reactance means DC.
+    plan = _planning(
+        ["A", "B", "C"],
+        [
+            _line(1, "A", "B", reactance=0.1),
+            _line(2, "B", "C", reactance=0.1),
+            _line(3, "A", "C", reactance=0.0),  # zero-impedance tie
+        ],
+    )
+    net = build_network_graph(plan)
+    assert not net.dc_lines
+    assert [ref.uid for ref in net.tie_lines] == [3]
+    assert not net.tie_lines[0].is_dc
+    assert net.graph.number_of_edges() == 2
+    report = analyse_planning(plan)
+    assert not report.dc_lines
+    assert len(report.tie_lines) == 1
+    assert report_to_json(report)["tie_lines"][0]["uid"] == 3
+    buf = io.StringIO()
+    render_console_report(report, console=Console(file=buf, width=200))
+    text = buf.getvalue()
+    assert "DC links (no reactance): 0" in text
+    assert "Zero-impedance ties (reactance ~ 0): 1" in text
 
 
 # ---------------------------------------------------------------------------
@@ -612,3 +649,26 @@ def test_sos1_payload_schema():
         set(line.keys()) == {"uid", "name", "bus_a", "bus_b"}
         for line in payload["lines"]
     )
+
+
+def test_battery_uc_hint_is_rendered_literally():
+    """Regression: rich swallowed the ``[in: ...]`` UC hint as markup."""
+    report = AnalysisReport(
+        bundle="b",
+        n_buses=0,
+        n_lines=0,
+        n_cycles=0,
+        battery_eini_issues=[
+            BatteryEiniIssue(
+                name="BAT",
+                issue="eini=0 with UC reference (needs periodic-cycle)",
+                eini=0.0,
+                emin_first=None,
+                emax_first=None,
+                in_ucs=["uc_a"],
+            )
+        ],
+    )
+    buf = io.StringIO()
+    render_console_report(report, console=Console(file=buf, width=200))
+    assert "[in: uc_a]" in buf.getvalue()

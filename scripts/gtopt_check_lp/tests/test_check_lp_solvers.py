@@ -50,8 +50,9 @@ class TestLocalSolverStubs:
     """Tests that local solver runners return (False, reason) when binary absent."""
 
     def test_cplex_not_found(self):
-        with patch("shutil.which", return_value=None), patch(
-            "gtopt_check_lp._solvers.find_cplex_binary", return_value=None
+        with (
+            patch("shutil.which", return_value=None),
+            patch("gtopt_check_lp._solvers.find_cplex_binary", return_value=None),
         ):
             ok, msg = run_local_cplex(Path("dummy.lp"))
         assert not ok
@@ -163,10 +164,14 @@ class TestCoinorErrorPaths:
         def _which(name):
             return f"/usr/bin/{name}" if name == "clp" else None
 
-        with patch("shutil.which", side_effect=_which), patch(
-            "subprocess.run",
-            side_effect=subprocess.TimeoutExpired("clp", 5),
-        ), patch("gtopt_check_lp._solvers.as_sanitized_lp") as mock_ctx:
+        with (
+            patch("shutil.which", side_effect=_which),
+            patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired("clp", 5),
+            ),
+            patch("gtopt_check_lp._solvers.as_sanitized_lp") as mock_ctx,
+        ):
             mock_ctx.return_value.__enter__ = MagicMock(
                 return_value=Path("/tmp/test.lp")
             )
@@ -189,9 +194,11 @@ class TestCoinorErrorPaths:
         def _which(name):
             return f"/usr/bin/{name}" if name == "clp" else None
 
-        with patch("shutil.which", side_effect=_which), patch(
-            "subprocess.run", side_effect=_mock_run
-        ), patch("gtopt_check_lp._solvers.as_sanitized_lp") as mock_ctx:
+        with (
+            patch("shutil.which", side_effect=_which),
+            patch("subprocess.run", side_effect=_mock_run),
+            patch("gtopt_check_lp._solvers.as_sanitized_lp") as mock_ctx,
+        ):
             mock_ctx.return_value.__enter__ = MagicMock(
                 return_value=Path("/tmp/test.lp")
             )
@@ -235,8 +242,9 @@ class TestHighsPythonIIS:
 
     def test_highs_binary_timeout(self):
         """HiGHS binary timeout returns descriptive error."""
-        with patch("shutil.which", return_value="/usr/bin/highs"), patch(
-            "subprocess.run", side_effect=subprocess.TimeoutExpired("highs", 5)
+        with (
+            patch("shutil.which", return_value="/usr/bin/highs"),
+            patch("subprocess.run", side_effect=subprocess.TimeoutExpired("highs", 5)),
         ):
             ok, msg = run_local_highs_binary(Path("d.lp"), timeout=5)
         assert not ok
@@ -244,8 +252,9 @@ class TestHighsPythonIIS:
 
     def test_highs_binary_oserror(self):
         """HiGHS binary OSError returns descriptive error."""
-        with patch("shutil.which", return_value="/usr/bin/highs"), patch(
-            "subprocess.run", side_effect=OSError("exec failed")
+        with (
+            patch("shutil.which", return_value="/usr/bin/highs"),
+            patch("subprocess.run", side_effect=OSError("exec failed")),
         ):
             ok, msg = run_local_highs_binary(Path("d.lp"))
         assert not ok
@@ -269,20 +278,26 @@ class TestRunIisDispatch:
         assert "cplex output" in out
 
     def test_run_iis_highs_python(self):
-        with patch(
-            "gtopt_check_lp._solvers.run_local_highs_python",
-            return_value=(True, "highs output"),
-        ), patch.dict("sys.modules", {"highspy": MagicMock()}):
+        with (
+            patch(
+                "gtopt_check_lp._solvers.run_local_highs_python",
+                return_value=(True, "highs output"),
+            ),
+            patch.dict("sys.modules", {"highspy": MagicMock()}),
+        ):
             ok, name, _out = run_iis(Path("d.lp"), solver="highs")
         assert ok
         assert name == "HiGHS"
 
     def test_run_iis_highs_binary_fallback(self):
         """When highspy is not installed, fall back to binary."""
-        with patch(
-            "gtopt_check_lp._solvers.run_local_highs_binary",
-            return_value=(True, "binary output"),
-        ), patch.dict("sys.modules", {"highspy": None}):
+        with (
+            patch(
+                "gtopt_check_lp._solvers.run_local_highs_binary",
+                return_value=(True, "binary output"),
+            ),
+            patch.dict("sys.modules", {"highspy": None}),
+        ):
             # Force ImportError for highspy
             import builtins  # noqa: PLC0415
 
@@ -341,9 +356,11 @@ class TestRunAllSolvers:
         (Python HiGHS bindings) so the test is independent of what is actually
         installed in the current environment.
         """
-        with patch("shutil.which", return_value=None), patch(
-            "gtopt_check_lp._solvers.find_cplex_binary", return_value=None
-        ), _NO_HIGHSPY:
+        with (
+            patch("shutil.which", return_value=None),
+            patch("gtopt_check_lp._solvers.find_cplex_binary", return_value=None),
+            _NO_HIGHSPY,
+        ):
             ok, name, out = run_all_solvers(
                 _BAD_BOUNDS, email="", neos_url="", timeout=5
             )
@@ -388,9 +405,11 @@ class TestRunAllSolversBranches:
         """When no solver is found, a helpful hint is returned."""
         from gtopt_check_lp._solvers import run_all_solvers as _ras  # noqa: PLC0415
 
-        with patch("gtopt_check_lp._solvers.shutil.which", return_value=None), patch(
-            "gtopt_check_lp._solvers.find_cplex_binary", return_value=None
-        ), patch.dict("sys.modules", {"highspy": None}):
+        with (
+            patch("gtopt_check_lp._solvers.shutil.which", return_value=None),
+            patch("gtopt_check_lp._solvers.find_cplex_binary", return_value=None),
+            patch.dict("sys.modules", {"highspy": None}),
+        ):
             import builtins  # noqa: PLC0415
 
             original_import = builtins.__import__
@@ -423,11 +442,14 @@ class TestRunAllSolversBranches:
                 return "/usr/bin/highs"
             return None
 
-        with patch("builtins.__import__", side_effect=_mock_import), patch(
-            "gtopt_check_lp._solvers.shutil.which", side_effect=_which
-        ), patch("gtopt_check_lp._solvers.find_cplex_binary", return_value=None), patch(
-            "gtopt_check_lp._solvers.run_local_highs_binary",
-            return_value=(True, "highs binary"),
+        with (
+            patch("builtins.__import__", side_effect=_mock_import),
+            patch("gtopt_check_lp._solvers.shutil.which", side_effect=_which),
+            patch("gtopt_check_lp._solvers.find_cplex_binary", return_value=None),
+            patch(
+                "gtopt_check_lp._solvers.run_local_highs_binary",
+                return_value=(True, "highs binary"),
+            ),
         ):
             ok, _name, out = _ras(Path("d.lp"), email="", timeout=5)
         assert ok
@@ -657,10 +679,10 @@ class TestSolverConfig:
         """print_solver_status shows install hints for missing solvers."""
         from gtopt_check_lp._config import print_solver_status  # noqa: PLC0415
 
-        with patch(
-            "gtopt_check_lp._solvers.find_cplex_binary", return_value=None
-        ), patch("gtopt_check_lp._config.shutil.which", return_value=None), patch.dict(
-            "sys.modules", {"highspy": None}
+        with (
+            patch("gtopt_check_lp._solvers.find_cplex_binary", return_value=None),
+            patch("gtopt_check_lp._config.shutil.which", return_value=None),
+            patch.dict("sys.modules", {"highspy": None}),
         ):
             import builtins  # noqa: PLC0415
 
@@ -681,10 +703,10 @@ class TestSolverConfig:
         """HiGHS via highspy when binary is missing."""
         from gtopt_check_lp._config import get_solver_status  # noqa: PLC0415
 
-        with patch(
-            "gtopt_check_lp._solvers.find_cplex_binary", return_value=None
-        ), patch("gtopt_check_lp._config.shutil.which", return_value=None), patch.dict(
-            "sys.modules", {"highspy": MagicMock()}
+        with (
+            patch("gtopt_check_lp._solvers.find_cplex_binary", return_value=None),
+            patch("gtopt_check_lp._config.shutil.which", return_value=None),
+            patch.dict("sys.modules", {"highspy": MagicMock()}),
         ):
             status = get_solver_status()
         highs_entry = [s for s in status if "HiGHS" in s[1]]

@@ -56,7 +56,7 @@ from gtopt_check_json._terminal import (
 # installed.
 try:
     from gtopt_check_lp._ai import AiOptions  # noqa: PLC0415
-except ImportError:  # pragma: no cover
+except ImportError:
     from dataclasses import dataclass  # noqa: PLC0415
 
     @dataclass
