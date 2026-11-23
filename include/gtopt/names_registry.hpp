@@ -12,15 +12,18 @@
  * the canonical gtopt names accepted by `from_json<Planning>` under
  * `StrictParsePolicy`.
  *
- * File search order:
+ * Resolution order (deterministic and version-safe):
  *
- *   1. `$GTOPT_NAMING_DIALECTS_FILE` environment variable
- *   2. `${CMAKE_INSTALL_FULL_DATADIR}/gtopt/naming_dialects.json`
- *      (absolute install path baked at configure time)
- *   3. `<source-tree>/share/gtopt/naming_dialects.json`
- *      (development workflow — when running from the build tree)
- *   4. Compiled-in fallback (an embedded copy of the shipped file)
- *   5. Empty registry (graceful degradation)
+ *   1. `$GTOPT_NAMING_DIALECTS_FILE` — explicit override file (logged at
+ *      info level; a warning flags an override that lacks aliases of the
+ *      compiled-in dictionary, i.e. a probably stale copy)
+ *   2. Compiled-in dictionary — `share/gtopt/naming_dialects.json`
+ *      embedded at configure time, so it always matches the binary
+ *   3. Empty registry (graceful degradation, only if 1-2 fail to parse)
+ *
+ * Install / user share dirs (`<prefix>/share/gtopt/`,
+ * `~/.local/share/gtopt/`) are never probed: a stale installed copy
+ * must not shadow the dictionary of the running binary.
  *
  * The registry is loaded once on first access (singleton); subsequent
  * lookups are O(log n) via `gtopt::flat_map` (vector-backed; the
@@ -92,6 +95,12 @@ public:
     return m_canonical_to_aliases_;
   }
 
+  /// True when `alias` is a global alias flagged `"deprecated": true`
+  /// in naming_dialects.json — a renamed gtopt key kept only for
+  /// back-compat.  `canonicalize_json_keys` warns once per such alias
+  /// and rejects an object that sets both it and its canonical key.
+  [[nodiscard]] bool is_deprecated(std::string_view alias) const noexcept;
+
   /// Look up the source dialect tag of a given alias (the `dialect`
   /// field on the entry in `naming_dialects.json`).  Returns nullopt
   /// when the alias is unknown or its dialect tag was empty.  Used by
@@ -140,6 +149,8 @@ private:
   /// `m_alias_to_canonical_` from each entry's `dialect` field; entries
   /// with an empty `dialect` are omitted (no warning surface possible).
   gtopt::flat_map<std::string, std::string> m_alias_to_dialect_;
+  /// Global aliases flagged `"deprecated": true` (value unused).
+  gtopt::flat_map<std::string, bool> m_deprecated_aliases_;
   /// (canonical, dialect) → alias inverse index.  Populated alongside
   /// the forward indices in `build_from_json`.  Keyed by the dialect
   /// string so the output rewrite can pick the alias matching the
@@ -149,9 +160,14 @@ private:
   std::optional<std::filesystem::path> m_source_path_;
 };
 
-/// Resolve the file path the registry singleton would load from. Used
-/// for diagnostics (`--list-dialects`) and tests. Returns `nullopt`
-/// when only the compiled-in fallback is available.
+/// Resolve the override file the registry singleton would load from:
+/// `$GTOPT_NAMING_DIALECTS_FILE` when set and existing, else `nullopt`
+/// (the compiled-in dictionary is used).  No other path is probed.
 [[nodiscard]] std::optional<std::filesystem::path> find_names_file();
+
+/// Build a fresh registry with the same resolution as `instance()`
+/// (override file, else compiled-in dictionary), without caching.
+/// Exposed for tests of the resolution order.
+[[nodiscard]] NamesRegistry load_names_registry();
 
 }  // namespace gtopt

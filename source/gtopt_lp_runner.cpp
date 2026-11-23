@@ -12,6 +12,7 @@
  */
 
 #include <chrono>
+#include <exception>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -37,9 +38,12 @@
 #include <gtopt/memory_monitor.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/planning_options_lp.hpp>
 #include <gtopt/reservoir.hpp>
 #include <gtopt/sddp_common.hpp>  // format_si()
 #include <gtopt/solve_outcome.hpp>
+#include <gtopt/solver_param_file.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/solver_stats.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -101,7 +105,7 @@ namespace
 {
   return field_sched_dynamic_bytes(r.emin) + field_sched_dynamic_bytes(r.emax)
       + field_sched_dynamic_bytes(r.capacity)
-      + field_sched_dynamic_bytes(r.annual_loss);
+      + field_sched_dynamic_bytes(r.annual_standing_loss);
 }
 
 [[nodiscard]] inline std::size_t sum_field_sched_bytes(const Waterway& w)
@@ -144,27 +148,6 @@ template<typename Elem>
       + sum_array_field_sched_bytes(sys.reservoir_array)
       + sum_array_field_sched_bytes(sys.waterway_array)
       + sum_array_field_sched_bytes(sys.battery_array);
-}
-
-/// Compute the effective equilibration method when none is set by the user.
-///
-/// Kirchhoff constraints on multi-bus networks produce heterogeneous row and
-/// column scales (reactances span multiple orders of magnitude, loss segments
-/// introduce tiny coefficients).  Ruiz equilibration handles this much better
-/// than single-pass row_max.  For single-bus or non-Kirchhoff models the
-/// simpler row_max default is retained.
-[[nodiscard]] constexpr auto effective_equilibration_method(
-    const Planning& planning) noexcept -> LpEquilibrationMethod
-{
-  const auto& lp_opts = planning.options.lp_matrix_options;
-  if (lp_opts.equilibration_method.has_value()) {
-    return *lp_opts.equilibration_method;
-  }
-  const auto& mo = planning.options.model_options;
-  const bool use_kirchhoff = mo.use_kirchhoff.value_or(true);
-  const bool use_single_bus = mo.use_single_bus.value_or(false);
-  return (use_kirchhoff && !use_single_bus) ? LpEquilibrationMethod::ruiz
-                                            : LpEquilibrationMethod::row_max;
 }
 
 /// Log pre-solve system statistics.
@@ -221,30 +204,37 @@ void log_pre_solve_stats(
   log_count("scenarios", sim.scenario_array.size());
   spdlog::info("=== Key options ===");
   const auto& mo = plan_opts.model_options;
+  // Effective values (with defaults) come from the same accessors the LP
+  // build uses, so the log never reports a default the build does not apply.
+  const PlanningOptionsLP eff_opts {plan_opts};
   const auto log_kv = [](std::string_view label, std::string_view value)
   { spdlog::info("  {:<18} : {}", label, value); };
-  log_kv("use_kirchhoff", mo.use_kirchhoff.value_or(false) ? "true" : "false");
+  log_kv("use_kirchhoff", eff_opts.use_kirchhoff() ? "true" : "false");
   log_kv("kirchhoff_mode",
          mo.kirchhoff_mode.has_value() ? std::string(*mo.kirchhoff_mode)
-                                       : "node_angle (default)");
-  log_kv("use_single_bus",
-         mo.use_single_bus.value_or(false) ? "true" : "false");
-  log_kv("scale_objective",
-         std::format("{}", mo.scale_objective.value_or(1'000.0)));
+                                       : "cycle_basis (default)");
+  log_kv("tiny_reactance_mode",
+         mo.tiny_reactance_mode.has_value()
+             ? std::string(*mo.tiny_reactance_mode)
+             : "tie (default)");
+  log_kv("use_single_bus", eff_opts.use_single_bus() ? "true" : "false");
+  log_kv("scale_objective", std::format("{}", eff_opts.scale_objective()));
   log_kv("scale_theta",
          mo.scale_theta.has_value() ? std::format("{:.6g}", *mo.scale_theta)
-                                    : "auto (median reactance)");
+                                    : "auto (1/(3·median X/V²))");
   log_kv("scale_loss_link",
          mo.scale_loss_link.has_value()
              ? std::format("{:.6g}", *mo.scale_loss_link)
              : "auto (median R/V²)");
   log_kv("loss_cost_eps",
-         mo.loss_cost_eps.has_value() ? std::format("{:.6g}", *mo.loss_cost_eps)
-                                      : "0 (default; no per-MWh loss cost)");
+         mo.loss_cost_eps.has_value()
+             ? std::format("{:.6g}", *mo.loss_cost_eps)
+             : std::format("{:.6g} (default)",
+                           PlanningOptionsLP::default_loss_cost_eps));
   log_kv(
       "equilibration",
       std::format("{}{}",
-                  enum_name(effective_equilibration_method(planning)),
+                  enum_name(eff_opts.equilibration_method()),
                   plan_opts.lp_matrix_options.equilibration_method.has_value()
                       ? ""
                       : " (default)"));
@@ -556,20 +546,78 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
                        planning_lp.options().lp_coeff_ratio_threshold());
 }
 
+/// Name of the solver backend the LP will be built with: the explicit
+/// `--solver`, else `options.lp_matrix_options.solver_name`, else the
+/// process default (GTOPT_SOLVER env / plugin priority).  Empty when no
+/// plugin is available (the build itself then reports the error).
+[[nodiscard]] std::string effective_solver_name(const Planning& planning,
+                                                const MainOptions& opts)
+{
+  if (opts.solver && !opts.solver->empty()) {
+    return *opts.solver;
+  }
+  if (!planning.options.lp_matrix_options.solver_name.empty()) {
+    return planning.options.lp_matrix_options.solver_name;
+  }
+  try {
+    return std::string {SolverRegistry::instance().default_solver()};
+  } catch (const std::exception&) {
+    return {};
+  }
+}
+
+/// Warn when `solver_options.param_file` is set but the active backend
+/// does not read the main parameter file (only CPLEX and cuOpt do; HiGHS,
+/// MindOpt and Gurobi only read a `<solver>_warmstart.*` sibling of it).
+void warn_param_file_ignored(const Planning& planning)
+{
+  const auto& so = planning.options.solver_options;
+  const auto& solver = planning.options.lp_matrix_options.solver_name;
+  if (!so.param_file || so.param_file->empty() || solver.empty()) {
+    return;
+  }
+  if (solver == "cplex" || solver == "cuopt") {
+    return;
+  }
+  spdlog::warn(
+      "solver_options.param_file '{}' is ignored by the '{}' solver: only "
+      "cplex and cuopt read the main parameter file",
+      *so.param_file,
+      solver);
+}
+
 /// Prepare LP build options and apply per-solver config.
 [[nodiscard]] LpMatrixOptions prepare_matrix_options(Planning& planning,
                                                      const MainOptions& opts,
                                                      bool do_stats)
 {
+  // Solver pin, `[solver.<name>]` section and `.prm` discovery (idempotent;
+  // gtopt_main already ran it before writing gtopt_state.json).
+  resolve_solver_setup(planning, opts);
+  warn_param_file_ignored(planning);
+
   // --lp-file and --lp-debug require all col+row names to be generated so
   // the solver can write a readable .lp dump.  `lp_error` also needs them: it
   // writes an error LP file on cell infeasibility.  All three off ⇒ no name
   // metadata is generated/compressed/saved/loaded.
+  // `lp_debug` / `lp_error` are read from the planning options, which
+  // already carry the CLI flags, `--set` and the JSON (and .gtopt.conf)
+  // values — a JSON-only `"lp_debug": true` used to dump name-less LPs.
   const bool enable_names = opts.lp_file.has_value()
-      || opts.lp_debug.value_or(false) || opts.lp_error.value_or(false);
-  const auto eq_method = effective_equilibration_method(planning);
+      || planning.options.lp_debug.value_or(false)
+      || planning.options.lp_error.value_or(false);
+  // Equilibration is deliberately left unset: `SystemLP::create_lp`
+  // resolves it from the (possibly cascade-level-overridden) planning
+  // options via `PlanningOptionsLP::resolve_lp_matrix_options`, the same
+  // path a directly constructed PlanningLP takes.
   auto flat_opts = make_lp_matrix_options(
-      enable_names, opts.matrix_eps, do_stats, opts.solver, eq_method);
+      enable_names,
+      opts.matrix_eps,
+      do_stats,
+      planning.options.lp_matrix_options.solver_name.empty()
+          ? std::optional<std::string> {}
+          : std::optional<std::string> {
+                planning.options.lp_matrix_options.solver_name});
 
   // Production solve path: the AMPL variable registry is only needed to
   // resolve user constraints during the build, so release each cell's
@@ -582,8 +630,33 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     log_pre_solve_stats(opts.planning_files, planning);
   }
 
-  // Apply per-solver config from .gtopt.conf [solver.<name>] sections.
-  if (const auto& solver_key = flat_opts.solver_name; !solver_key.empty()) {
+  return flat_opts;
+}
+
+}  // namespace
+
+// ── Public API ────────────────────────────────────────────────────────
+
+void resolve_solver_setup(Planning& planning, const MainOptions& opts)
+{
+  // The solver whose `.gtopt.conf [solver.<name>]` section and
+  // `solvers/<name>.prm` apply is the one the LP will actually be built
+  // with: `--solver` (or the config-file `solver` key) when given, else the
+  // planning-level pin, else the process default (GTOPT_SOLVER env / plugin
+  // priority) — the same chain `PlanningLP` resolves.
+  const std::string solver_key = effective_solver_name(planning, opts);
+
+  // Pin it on the planning: cascade levels with model-option overrides
+  // rebuild a fresh PlanningLP from (a clone of) the planning, and the
+  // pre-solve snapshot (gtopt_state.json) records it so a replay of the
+  // snapshot uses the same solver.
+  if (!solver_key.empty()) {
+    planning.options.lp_matrix_options.solver_name = solver_key;
+  }
+
+  // Apply per-solver config from .gtopt.conf [solver.<name>] sections,
+  // UNDER the planning solver_options (the planning values win).
+  if (!solver_key.empty()) {
     if (const auto it = opts.solver_configs.find(solver_key);
         it != opts.solver_configs.end())
     {
@@ -603,14 +676,17 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   if (auto& so = planning.options.solver_options;
       !so.param_file.has_value() || so.param_file->empty())
   {
-    if (const auto& solver_key = flat_opts.solver_name; !solver_key.empty()) {
+    if (!solver_key.empty()) {
       const std::filesystem::path candidate =
           std::filesystem::path(
               planning.options.input_directory.value_or(std::string {"input"}))
           / "solvers" / (solver_key + ".prm");
       std::error_code ec;
       if (std::filesystem::exists(candidate, ec) && !ec) {
-        so.param_file = candidate.string();
+        // Absolute, so the relative-path resolution below cannot re-anchor
+        // it (a relative input_directory is relative to the working dir).
+        const auto abs = std::filesystem::absolute(candidate, ec);
+        so.param_file = (ec ? candidate : abs.lexically_normal()).string();
         spdlog::info("Auto-loaded {} parameter file: {}",
                      solver_key,
                      so.param_file.value());
@@ -618,8 +694,18 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     }
   }
 
-  return flat_opts;
+  // Resolve every relative `param_file` (e.g. the "solvers/cplex.prm" that
+  // plexos2gtopt / plp2gtopt pin) against input_directory first (the case
+  // directory wins), the working directory only as a fallback — the
+  // plugins pass it verbatim to the backend and derive sibling files
+  // (`cplex_warmstart.prm`, `cuopt.cfg`, …) from its directory, so an
+  // unresolved relative path silently ran the case with solver defaults
+  // whenever gtopt was started outside the case directory.
+  resolve_solver_param_files(planning.options);
 }
+
+namespace
+{
 
 /// Run the solver and return whether an optimal solution was found.
 [[nodiscard]] SolveOutcome run_solver(PlanningLP& planning_lp)
@@ -856,7 +942,7 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
     // and would ignore the lp_debug compression / filter options that
     // ``LpDebugWriter`` honours.  Restrict to the ``--lp-only`` case.
     const bool monolithic_lp_only_debug = want_lp_only
-        && opts.lp_debug.value_or(false)
+        && planning_lp.options().lp_debug()
         && planning_lp.options().method_type_enum() == MethodType::monolithic
         && !opts.lp_file.has_value();
 

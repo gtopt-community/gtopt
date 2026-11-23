@@ -2,6 +2,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/names_registry.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -282,8 +284,9 @@ TEST_CASE("NamesRegistry — dialect_for + alias_for round-trip")  // NOLINT
     for (const auto* d : {"gtopt", "plexos", "sddp", "pypsa"}) {
       const auto alias = r.alias_for("pmax", d);
       REQUIRE(alias.has_value());
-      CHECK(r.canonical_for(*alias).value_or("") == "pmax");
-      CHECK(r.dialect_for(*alias).value_or("") == d);
+      const auto& alias_name = test_support::require_value(alias);
+      CHECK(r.canonical_for(alias_name).value_or("") == "pmax");
+      CHECK(r.dialect_for(alias_name).value_or("") == d);
     }
   }
 }

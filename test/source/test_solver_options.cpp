@@ -375,7 +375,7 @@ TEST_CASE(  // NOLINT
     dest.merge(src);
 
     REQUIRE(dest.log_mode.has_value());
-    CHECK(*dest.log_mode == SolverLogMode::detailed);
+    CHECK(dest.log_mode == SolverLogMode::detailed);
   }
 
   SUBCASE("merge source overwrites existing log_mode")
@@ -389,7 +389,7 @@ TEST_CASE(  // NOLINT
     dest.merge(src);
 
     REQUIRE(dest.log_mode.has_value());
-    CHECK(*dest.log_mode == SolverLogMode::detailed);
+    CHECK(dest.log_mode == SolverLogMode::detailed);
   }
 
   SUBCASE("merge preserves dest log_mode when source is nullopt")
@@ -401,7 +401,7 @@ TEST_CASE(  // NOLINT
     dest.merge(src);
 
     REQUIRE(dest.log_mode.has_value());
-    CHECK(*dest.log_mode == SolverLogMode::nolog);
+    CHECK(dest.log_mode == SolverLogMode::nolog);
   }
 }
 
@@ -460,7 +460,7 @@ TEST_CASE(  // NOLINT
   CHECK(resolved.feasible_eps.value_or(0.0) == doctest::Approx(1e-7));
   // Global fills in log_mode (not set in method-specific)
   REQUIRE(resolved.log_mode.has_value());
-  CHECK(*resolved.log_mode == SolverLogMode::detailed);
+  CHECK(resolved.log_mode == SolverLogMode::detailed);
 }
 
 TEST_CASE(  // NOLINT
@@ -482,7 +482,7 @@ TEST_CASE(  // NOLINT
 
   // Monolithic wins for log_mode
   REQUIRE(resolved.log_mode.has_value());
-  CHECK(*resolved.log_mode == SolverLogMode::detailed);
+  CHECK(resolved.log_mode == SolverLogMode::detailed);
   // Global fills in barrier_eps
   CHECK(resolved.barrier_eps.value_or(0.0) == doctest::Approx(1e-8));
 }
@@ -503,12 +503,12 @@ TEST_CASE(  // NOLINT
   const auto mono = plp.monolithic_solver_options();
   CHECK(mono.optimal_eps.value_or(0.0) == doctest::Approx(1e-6));
   REQUIRE(mono.log_mode.has_value());
-  CHECK(*mono.log_mode == SolverLogMode::detailed);
+  CHECK(mono.log_mode == SolverLogMode::detailed);
 
   const auto fwd = plp.sddp_forward_solver_options();
   CHECK(fwd.optimal_eps.value_or(0.0) == doctest::Approx(1e-6));
   REQUIRE(fwd.log_mode.has_value());
-  CHECK(*fwd.log_mode == SolverLogMode::detailed);
+  CHECK(fwd.log_mode == SolverLogMode::detailed);
 }
 
 TEST_CASE("SolverOptions - Threading options")

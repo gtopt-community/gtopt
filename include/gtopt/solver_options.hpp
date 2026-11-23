@@ -113,10 +113,20 @@ struct SolverOptions
    */
   std::optional<SolverLogMode> log_mode {};
 
-  /** @brief Time limit for individual LP solves in seconds.
-   *  0 = no limit (solver default).  When non-zero, the solver will abort
-   *  the current solve if the wall-clock time exceeds this value.
-   *  The caller should check `is_optimal()` after solve to detect timeouts.
+  /** @brief Wall-clock time budget, in seconds, for the whole solve of one
+   *  LP / MIP.  0 / unset = no limit (solver default).
+   *
+   *  The budget covers every attempt gtopt makes for that problem, not
+   *  each attempt separately: the algorithm fallback cycle of
+   *  `LinearInterface::initial_solve` / `resolve` (see `max_fallbacks`)
+   *  hands each retry only the time that is LEFT, and skips the remaining
+   *  retries once less than `min_retry_time_slice_s` is left (the last
+   *  solver status / incumbent is kept).  For a monolithic solve the
+   *  MIP-start pipeline (LP relaxation, repair) also draws from the same
+   *  budget: the MIP itself gets what the warm-start stages left over.
+   *  The fix-integers dual-recovery LP that runs after a successful MIP is
+   *  not charged against it.  The caller should check `is_optimal()` after
+   *  solve to detect timeouts.
    */
   std::optional<double> time_limit {};
 
@@ -237,6 +247,17 @@ struct SolverOptions
    *
    *  Unset (``nullopt``, default) ⇒ no file is read, backend defaults
    *  apply as before.
+   *
+   *  A relative path is resolved like the case's other input files before
+   *  any plugin sees it (`resolve_solver_param_files`): first relative to
+   *  `input_directory` (the case directory wins, so the conventional
+   *  ``"solvers/cplex.prm"`` works when gtopt runs from an output
+   *  directory), and only when no such file exists there relative to the
+   *  working directory.  The resolved path, and which of the two locations
+   *  supplied it, is logged; a file found nowhere is
+   *  reported at WARN and the solver runs with its defaults.  Sibling files
+   *  derived from its directory (``cplex_warmstart.prm``, ``cuopt.cfg``,
+   *  ``highs_warmstart.opts``, …) follow the resolved location.
    */
   std::optional<std::string> param_file {};
 
@@ -358,5 +379,25 @@ struct SolverOptions
     merge_opt(param_file, user.param_file);
   }
 };
+
+/// A retry that would get less than this many seconds of the remaining
+/// `SolverOptions::time_limit` budget is skipped (no solver makes useful
+/// progress on a large LP / MIP in under a second, and a zero / negative
+/// limit is "no limit" for several backends).
+inline constexpr double min_retry_time_slice_s = 1.0;
+
+/// Remaining wall-clock budget of @p time_limit after @p elapsed_s seconds.
+///
+/// `std::nullopt` when no limit is set (unset or <= 0 ⇒ unlimited);
+/// otherwise `time_limit - elapsed_s`, which may be zero or negative once
+/// the budget is exhausted.
+[[nodiscard]] constexpr std::optional<double> remaining_time_limit(
+    std::optional<double> time_limit, double elapsed_s) noexcept
+{
+  if (!time_limit.has_value() || *time_limit <= 0.0) {
+    return std::nullopt;
+  }
+  return *time_limit - elapsed_s;
+}
 
 }  // namespace gtopt

@@ -49,7 +49,7 @@ TEST_CASE("UnitRegistry — basic (class, canonical, dialect) lookup")  // NOLIN
   {
     const auto u = r.unit_for("line", "lossfactor", "gtopt");
     REQUIRE(u.has_value());
-    CHECK(u->empty());
+    CHECK(u.value_or("x").empty());
   }
 }
 

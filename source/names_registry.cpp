@@ -7,6 +7,7 @@
 
 #include <cstdlib>
 #include <format>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -44,6 +45,10 @@ struct NameAliasEntry
   std::string alt;
   std::string dialect;
   std::string note;  // "_note" field — informational, ignored at runtime
+  /// `true` for a renamed gtopt key kept only for back-compat: the
+  /// canonicaliser still rewrites it but warns once and rejects an
+  /// object that also sets the canonical key.
+  std::optional<bool> deprecated;
 };
 
 /// The whole file. We consume `aliases` (global) and `class_aliases`
@@ -72,17 +77,19 @@ namespace daw::json
 template<>
 struct json_data_contract<gtopt::names_registry_detail::NameAliasEntry>
 {
-  using type = json_member_list<json_string<"class", std::string>,
-                                json_string<"canonical", std::string>,
-                                json_string<"alt", std::string>,
-                                json_string_null<"dialect", std::string>,
-                                json_string_null<"_note", std::string>>;
+  using type =
+      json_member_list<json_string<"class", std::string>,
+                       json_string<"canonical", std::string>,
+                       json_string<"alt", std::string>,
+                       json_string_null<"dialect", std::string>,
+                       json_string_null<"_note", std::string>,
+                       json_bool_null<"deprecated", std::optional<bool>>>;
 
   constexpr static auto to_json_data(
       gtopt::names_registry_detail::NameAliasEntry const& e)
   {
     return std::forward_as_tuple(
-        e.klass, e.canonical, e.alt, e.dialect, e.note);
+        e.klass, e.canonical, e.alt, e.dialect, e.note, e.deprecated);
   }
 };
 
@@ -165,6 +172,9 @@ void NamesRegistry::build_from_json(std::string_view json_content)
       continue;
     }
     m_canonical_to_aliases_[entry.canonical].emplace_back(entry.alt);
+    if (entry.deprecated.value_or(false)) {
+      m_deprecated_aliases_.emplace(entry.alt, true);
+    }
     if (!entry.dialect.empty()) {
       m_alias_to_dialect_.emplace(entry.alt, entry.dialect);
       // First (canonical, dialect) pair wins.  Subsequent entries with
@@ -260,6 +270,11 @@ std::optional<std::string_view> NamesRegistry::canonical_for(
   return canonical_for(alias);
 }
 
+bool NamesRegistry::is_deprecated(std::string_view alias) const noexcept
+{
+  return m_deprecated_aliases_.contains(std::string {alias});
+}
+
 std::optional<std::string_view> NamesRegistry::dialect_for(
     std::string_view alias) const noexcept
 {
@@ -285,9 +300,12 @@ std::optional<std::filesystem::path> find_names_file()
 {
   namespace fs = std::filesystem;
 
-  // 1. Environment override.
+  // Only an explicit override is ever read from disk.  The default
+  // dictionary is the copy compiled into this binary, so a stale
+  // `naming_dialects.json` in an install / user share dir (e.g. an old
+  // `~/.local/share/gtopt/`) can never shadow the running version.
   if (const char* env = std::getenv("GTOPT_NAMING_DIALECTS_FILE");
-      env != nullptr)
+      env != nullptr && *env != '\0')
   {
     fs::path p {env};
     if (fs::exists(p)) {
@@ -295,61 +313,79 @@ std::optional<std::filesystem::path> find_names_file()
     }
     spdlog::warn(
         "names_registry: $GTOPT_NAMING_DIALECTS_FILE='{}' set but path does "
-        "not exist; falling back to default search",
+        "not exist; using the compiled-in dictionary",
         env);
   }
-
-  // 2. Absolute install path baked at configure time.
-  if (!kInstalledNamesFilePath.empty()) {
-    fs::path p {std::string {kInstalledNamesFilePath}};
-    if (fs::exists(p)) {
-      return p;
-    }
-  }
-
-  // 3. In-tree source path (development / out-of-source builds).
-  if (!kSourceNamesFilePath.empty()) {
-    fs::path p {std::string {kSourceNamesFilePath}};
-    if (fs::exists(p)) {
-      return p;
-    }
-  }
-
-  // 4. Caller should fall back to compiled-in JSON.
   return std::nullopt;
+}
+
+NamesRegistry load_names_registry()
+{
+  std::optional<NamesRegistry> builtin;
+  try {
+    builtin.emplace(kBuiltinNamesJson);
+  } catch (const std::exception& ex) {
+    spdlog::error("names_registry: compiled-in dictionary failed to parse: {}",
+                  ex.what());
+  }
+
+  if (const auto path = find_names_file(); path.has_value()) {
+    try {
+      NamesRegistry r {*path};
+      // Version-safety check: an override that lacks aliases this
+      // binary knows about is most likely an outdated copy.
+      std::size_t missing = 0;
+      std::string first_missing;
+      if (builtin.has_value()) {
+        for (const auto& [canonical, aliases] : builtin->canonical_to_aliases())
+        {
+          for (const auto& alias : aliases) {
+            if (r.canonical_for(alias).value_or("") != canonical) {
+              if (missing == 0) {
+                first_missing = std::format("{} -> {}", alias, canonical);
+              }
+              ++missing;
+            }
+          }
+        }
+      }
+      spdlog::info(
+          "names_registry: loaded override '{}' "
+          "($GTOPT_NAMING_DIALECTS_FILE)",
+          path->string());
+      if (missing > 0) {
+        spdlog::warn(
+            "names_registry: override '{}' lacks {} alias(es) of this "
+            "binary's dictionary (e.g. '{}') — probably a stale copy; "
+            "unset $GTOPT_NAMING_DIALECTS_FILE to use the compiled-in one",
+            path->string(),
+            missing,
+            first_missing);
+      }
+      return r;
+    } catch (const std::exception& ex) {
+      spdlog::warn(
+          "names_registry: failed to load '{}': {} — using the "
+          "compiled-in dictionary",
+          path->string(),
+          ex.what());
+    }
+  }
+
+  if (builtin.has_value()) {
+    spdlog::debug("names_registry: using the compiled-in dictionary");
+    return std::move(*builtin);
+  }
+  // Empty registry: canonicalize_json_keys becomes a verbatim copy.
+  // This makes the system degrade gracefully to the pre-feature
+  // behaviour (no alias support) rather than aborting startup.
+  spdlog::error("names_registry: disabling JSON key canonicalisation");
+  return NamesRegistry {std::string_view {R"({"version": 1, "aliases": []})"}};
 }
 
 const NamesRegistry& NamesRegistry::instance()
 {
-  static const NamesRegistry registry = []() -> NamesRegistry
-  {
-    if (const auto path = find_names_file(); path.has_value()) {
-      try {
-        NamesRegistry r {*path};
-        spdlog::debug("names_registry: loaded from '{}'", path->string());
-        return r;
-      } catch (const std::exception& ex) {
-        spdlog::warn(
-            "names_registry: failed to load '{}': {} — using "
-            "compiled-in fallback",
-            path->string(),
-            ex.what());
-      }
-    }
-    try {
-      return NamesRegistry {kBuiltinNamesJson};
-    } catch (const std::exception& ex) {
-      spdlog::error(
-          "names_registry: compiled-in fallback also failed to parse: {}"
-          " — disabling JSON key canonicalisation",
-          ex.what());
-      // Empty registry: canonicalize_json_keys becomes a verbatim copy.
-      // This makes the system degrade gracefully to the pre-feature
-      // behaviour (no alias support) rather than aborting startup.
-      return NamesRegistry {
-          std::string_view {R"({"version": 1, "aliases": []})"}};
-    }
-  }();
+  static const NamesRegistry registry = load_names_registry();
   return registry;
 }
 

@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <gtopt/fail_segment.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/utils.hpp>
 
@@ -48,18 +49,27 @@ struct ModelOptions
   OptName line_losses_mode {};
   /// Minimum bus voltage [kV] below which Kirchhoff is not applied.
   OptReal kirchhoff_threshold {};
-  /// Per-unit reactance floor `|X/V²|` below which a transmission line
-  /// is auto-promoted to a "DC line" (no Kirchhoff coupling).  The
-  /// validation step in `PlanningLP::validate_line_reactance` rewrites
-  /// the line's reactance schedule to scalar `0.0` so the LP assembler
-  /// skips the θ-row, capping the spread of `x_τ = τ·X/V²` coefficients
-  /// in the Kirchhoff matrix and dropping kappa.  Default (when unset):
-  /// `1e-6` p.u. — conservative enough that real transmission lines
+  /// Per-unit reactance floor `|X/V²|` below which a transmission
+  /// line's flow term is dropped from the Kirchhoff matrix, capping the
+  /// spread of `x_τ = τ·X/V²` coefficients and dropping kappa.  With
+  /// `tiny_reactance_mode = "tie"` (default) such a line becomes a
+  /// zero-impedance tie (θ_a − θ_b = φ); with `"dc"` (legacy)
+  /// `PlanningLP::validate_line_reactance` rewrites its reactance to
+  /// `0.0` and the line is a "DC line" (no Kirchhoff coupling).  Default (when
+  /// unset): `1e-6` p.u. — conservative enough that real transmission lines
   /// (`x_pu ≥ 1e-3`) and real distribution lines/cables (`x_pu ≥ 1e-4`)
   /// are never falsely promoted, while V-vs-kV unit-typo lines
   /// (`x_pu ≈ 1e-7…1e-9`) and HVDC/phase-shifter sentinels (`X = 0`)
   /// are caught.  Set to `0.0` to disable promotion entirely.
   OptReal dc_line_reactance_threshold {};
+  /// Treatment of lines whose reactance is set but is `0` or has
+  /// `|X/V²|` below `dc_line_reactance_threshold`: `"tie"` (default)
+  /// keeps them as zero-impedance ties (KVL `θ_a − θ_b = φ` without the
+  /// flow term: the two bus angles are forced equal) or `"dc"` (legacy)
+  /// turns them into DC links without KVL coupling.  See
+  /// TinyReactanceMode.  Lines with no `reactance` are DC links in both
+  /// modes.
+  OptName tiny_reactance_mode {};
   /// Per-unit resistance floor `|R/V²|` below which a transmission line's
   /// quadratic losses are dropped (the line is treated as lossless).  Mirrors
   /// `dc_line_reactance_threshold`: `PlanningLP::validate_line_resistance`
@@ -79,7 +89,14 @@ struct ModelOptions
   OptInt loss_segments {};
   /// Divisor for all objective coefficients (numerical stability).
   OptReal scale_objective {};
-  /// Scaling factor for voltage-angle variables.
+  /// Voltage-angle enlargement: θ_LP = scale_theta · θ (rad), so `1` =
+  /// radians and `1000` = milliradians.  When unset (and `auto_scale`),
+  /// `1 / (3 · median(X/V²))`: 1/median would match the median line's
+  /// KVL coefficients, and the extra ≈√D = 3 accounts for θ accumulating
+  /// ~D line drops to the reference bus.
+  /// Unset with `auto_scale = false` ⇒ `1`.  NOTE: before 2026-11 the
+  /// meaning was inverted (θ = θ_LP · scale_theta); values < 1 now shrink
+  /// θ and trigger a load-time warning.
   OptReal scale_theta {};
   /// Row-scale factor for the line-loss linking constraint
   /// (`loss − Σ loss_k · seg_k = 0`).  When unset, `auto_scale_loss_link`
@@ -94,9 +111,9 @@ struct ModelOptions
   /// Strictly breaks the LP-relax bidirectional-flow degeneracy: among
   /// all primal-feasible solutions sharing the same net dispatch, the
   /// LP picks the one with single-direction flow (``fn = 0`` for net
-  /// flow ``f = fp − fn ≥ 0``).  Recommended: ``1e-6`` $/MWh — well
-  /// below LP optimality tolerance so the objective is essentially
-  /// unchanged.  Default ``0.0`` (unset) preserves legacy behaviour.
+  /// flow ``f = fp − fn ≥ 0``).  The $/MWh value is block-duration
+  /// weighted like any energy cost.  Unset resolves to 0.1 $/MWh
+  /// (``PlanningOptionsLP::default_loss_cost_eps``); ``0`` disables it.
   /// Per-line ``Line.loss_cost_eps`` overrides this global default.
   /// Inert for ``none``, ``linear`` and ``piecewise_direct`` (no loss
   /// column).  In ``tangent_signed_flow`` ε prices the LOSS column
@@ -144,6 +161,10 @@ struct ModelOptions
   OptBool auto_scale {};
   /// Penalty cost for unserved demand [$/MWh].
   OptReal demand_fail_cost {};
+  /// Default stepwise demand-failure (VoLL) curve for demands that
+  /// define neither ``fcost`` nor ``fail_segments``.  Takes precedence
+  /// over ``demand_fail_cost``.  Segment costs are scalars.
+  std::optional<Array<ScalarFailSegment>> demand_fail_segments {};
   /// Penalty cost for unserved spinning-reserve [$/MWh].
   OptReal reserve_shortage_cost {};
   /// Default penalty cost for unmet hydro rights [$/m³].
@@ -320,17 +341,18 @@ struct ModelOptions
   OptBool allow_oversupply {};
 
   /// Planning-wide default self-discharge for every `Battery` whose own
-  /// `annual_loss` is ABSENT [p.u./year, linear convention: hourly drain
-  /// = annual_loss / 8760].  When unset, resolves to
-  /// `PlanningOptionsLP::default_battery_annual_loss` = `0.48` p.u./year
-  /// (4 %/month × 12, the lithium-ion cell + BMS self-discharge; see
+  /// `annual_standing_loss` is ABSENT [p.u./year, linear convention: hourly
+  /// drain = annual_standing_loss / 8760].  When unset, resolves to
+  /// `PlanningOptionsLP::default_battery_annual_standing_loss` = `0.48`
+  /// p.u./year (4 %/month × 12, the lithium-ion cell + BMS self-discharge; see
   /// `docs/input-data.md` → Battery for the references).  An explicit
-  /// per-battery `annual_loss` (including `0`) always wins.  Set to `0`
-  /// (`--set model_options.battery_annual_loss=0`) to restore the legacy
-  /// lossless default for a whole case.  Applies to `Battery` only —
+  /// per-battery `annual_standing_loss` (including `0`) always wins.  Set to
+  /// `0`
+  /// (`--set model_options.battery_annual_standing_loss=0`) to restore the
+  /// legacy lossless default for a whole case.  Applies to `Battery` only —
   /// Reservoir, LngTerminal and the other storages keep their own
-  /// `annual_loss` default of `0`.
-  OptReal battery_annual_loss {};
+  /// `annual_standing_loss` default of `0`.
+  OptReal battery_annual_standing_loss {};
 
   /// Emit the battery power-envelope valid inequality
   /// `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` per block on every
@@ -350,6 +372,7 @@ struct ModelOptions
     merge_opt(line_losses_mode, opts.line_losses_mode);
     merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);
     merge_opt(dc_line_reactance_threshold, opts.dc_line_reactance_threshold);
+    merge_opt(tiny_reactance_mode, opts.tiny_reactance_mode);
     merge_opt(dc_line_resistance_threshold, opts.dc_line_resistance_threshold);
     merge_opt(loss_segments, opts.loss_segments);
     merge_opt(scale_objective, opts.scale_objective);
@@ -361,6 +384,7 @@ struct ModelOptions
     merge_opt(theta_max, opts.theta_max);
     merge_opt(auto_scale, opts.auto_scale);
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
+    merge_opt(demand_fail_segments, opts.demand_fail_segments);
     merge_opt(reserve_shortage_cost, opts.reserve_shortage_cost);
     merge_opt(hydro_spill_cost, opts.hydro_spill_cost);
     merge_opt(hydro_use_value, opts.hydro_use_value);
@@ -372,7 +396,7 @@ struct ModelOptions
     merge_opt(strict_storage_emin, opts.strict_storage_emin);
     merge_opt(lp_reduction, opts.lp_reduction);
     merge_opt(allow_oversupply, opts.allow_oversupply);
-    merge_opt(battery_annual_loss, opts.battery_annual_loss);
+    merge_opt(battery_annual_standing_loss, opts.battery_annual_standing_loss);
     merge_opt(battery_power_envelope, opts.battery_power_envelope);
   }
 
@@ -383,17 +407,19 @@ struct ModelOptions
         || kirchhoff_mode.has_value() || use_line_losses.has_value()
         || line_losses_mode.has_value() || kirchhoff_threshold.has_value()
         || dc_line_reactance_threshold.has_value()
+        || tiny_reactance_mode.has_value()
         || dc_line_resistance_threshold.has_value() || loss_segments.has_value()
         || scale_objective.has_value() || scale_theta.has_value()
         || scale_loss_link.has_value() || loss_cost_eps.has_value()
         || loss_secant_segments.has_value() || loss_use_sos2.has_value()
         || theta_max.has_value() || demand_fail_cost.has_value()
-        || reserve_shortage_cost.has_value() || hydro_spill_cost.has_value()
-        || hydro_use_value.has_value() || state_violation_cost.has_value()
-        || demand_fail_rhs_shift.has_value() || continuous_phases.has_value()
-        || naming_dialect.has_value() || objective_mode.has_value()
-        || strict_storage_emin.has_value() || lp_reduction.has_value()
-        || allow_oversupply.has_value() || battery_annual_loss.has_value()
+        || demand_fail_segments.has_value() || reserve_shortage_cost.has_value()
+        || hydro_spill_cost.has_value() || hydro_use_value.has_value()
+        || state_violation_cost.has_value() || demand_fail_rhs_shift.has_value()
+        || continuous_phases.has_value() || naming_dialect.has_value()
+        || objective_mode.has_value() || strict_storage_emin.has_value()
+        || lp_reduction.has_value() || allow_oversupply.has_value()
+        || battery_annual_standing_loss.has_value()
         || battery_power_envelope.has_value();
   }
 
@@ -412,6 +438,7 @@ struct ModelOptions
         && covers_opt(kirchhoff_threshold, other.kirchhoff_threshold)
         && covers_opt(dc_line_reactance_threshold,
                       other.dc_line_reactance_threshold)
+        && covers_opt(tiny_reactance_mode, other.tiny_reactance_mode)
         && covers_opt(dc_line_resistance_threshold,
                       other.dc_line_resistance_threshold)
         && covers_opt(loss_segments, other.loss_segments)
@@ -423,6 +450,7 @@ struct ModelOptions
         && covers_opt(loss_use_sos2, other.loss_use_sos2)
         && covers_opt(theta_max, other.theta_max)
         && covers_opt(demand_fail_cost, other.demand_fail_cost)
+        && covers_opt(demand_fail_segments, other.demand_fail_segments)
         && covers_opt(reserve_shortage_cost, other.reserve_shortage_cost)
         && covers_opt(hydro_spill_cost, other.hydro_spill_cost)
         && covers_opt(hydro_use_value, other.hydro_use_value)
@@ -434,7 +462,8 @@ struct ModelOptions
         && covers_opt(strict_storage_emin, other.strict_storage_emin)
         && covers_opt(lp_reduction, other.lp_reduction)
         && covers_opt(allow_oversupply, other.allow_oversupply)
-        && covers_opt(battery_annual_loss, other.battery_annual_loss)
+        && covers_opt(battery_annual_standing_loss,
+                      other.battery_annual_standing_loss)
         && covers_opt(battery_power_envelope, other.battery_power_envelope);
   }
 };

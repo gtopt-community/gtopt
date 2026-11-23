@@ -22,6 +22,17 @@ namespace gtopt
 
 struct MainOptions;
 
+/// Resolve the solver the run will use and apply its configuration to
+/// @p planning: pin the effective solver name (`--solver` > planning pin >
+/// GTOPT_SOLVER / plugin priority) on
+/// `planning.options.lp_matrix_options.solver_name`, overlay the
+/// `.gtopt.conf [solver.<name>]` section under `solver_options`, and
+/// auto-discover `<input_directory>/solvers/<name>.prm` into
+/// `solver_options.param_file` when unset.  Idempotent; gtopt_main runs it
+/// before writing the pre-solve snapshot (gtopt_state.json) so the
+/// snapshot records the solver and the resolved parameter file.
+void resolve_solver_setup(Planning& planning, const MainOptions& opts);
+
 /// Build the LP model, solve it, and write output.
 ///
 /// Wraps the full LP pipeline: matrix construction, optional LP-file dump,

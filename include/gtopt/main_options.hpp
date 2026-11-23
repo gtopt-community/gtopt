@@ -13,10 +13,16 @@
 
 #pragma once
 
+#include <charconv>
 #include <cstdlib>
+#include <filesystem>
+#include <functional>
+#include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include <gtopt/cli_options.hpp>
@@ -96,9 +102,10 @@ template<typename T>
  * @brief Parse an aperture-chunk-size value from a string.
  *
  * Accepts either an integer literal (parsed via @c std::stoi) or the
- * case-insensitive string @c "auto" — mapped to the JSON sentinel 0,
- * which @c SDDPMethod::initialize_solver resolves to a concrete K via
- * @c compute_auto_aperture_chunk_size (power-of-2 rounded).
+ * case-insensitive string @c "auto" — mapped to 0 ("unset"): under
+ * @c aperture_chunk_mode = chunked that picks K via
+ * @c compute_auto_aperture_chunk_size; with no mode it keeps the default
+ * @c per_scene (see @c resolve_aperture_chunk).
  *
  * Used by both the boost::program_options CLI parse (where the flag
  * is declared as a @c std::string) and the INI-file parser (where the
@@ -231,7 +238,9 @@ template<typename T>
        po::value<std::vector<std::string>>(),
        "set any Planning option via dotted path (repeatable). "
        "Example: --set sddp_options.forward_solver_options.threads=8. "
-       "Values are auto-typed (bool/int/double/string)")  //
+       "Values are auto-typed (bool/int/double/string).  Precedence: "
+       "CLI flag > --set (last wins) > planning JSON (last -s wins) > "
+       ".gtopt.conf > built-in default")  //
       // ---- LP options ----
       ("lp-file,l",
        po::value<std::string>(),
@@ -312,16 +321,20 @@ template<typename T>
        po::value<int>(),
        "SDDP backward-pass aperture count: 0=disabled (default), -1=all, "
        "N=first N scenarios")  //
+      ("aperture-chunk-mode",
+       po::value<std::string>(),
+       "SDDP backward-pass aperture grouping: per_scene (default; all "
+       "apertures of a scene solved in series on one LP clone with "
+       "warm-start reuse), per_aperture (one task per aperture, fresh "
+       "clone, cold solve), chunked (--aperture-chunk-size K apertures "
+       "per task; K unset = auto formula); shorthand for --set "
+       "sddp_options.aperture_chunk_mode=<name>")  //
       ("aperture-chunk-size",
        po::value<std::string>(),
-       "SDDP chunked aperture pass: apertures solved serially per task, "
-       "sharing one LP clone with warm-start reuse.  Accepts either an "
-       "integer or the literal 'auto'. "
-       "auto/0/unset=auto (formula `A_max × S / (2 × cores)` rounded "
-       "down to nearest power of 2), "
-       "1=legacy 1-task-per-aperture, "
-       ">1=exactly K apertures per task, "
-       "-1=fully serial (one task per scene, all apertures inside)")  //
+       "K apertures per task for --aperture-chunk-mode chunked ('auto' "
+       "or 0 = formula `A_max × S / (2 × cores)`).  Deprecated as a "
+       "mode selector when --aperture-chunk-mode is not given: "
+       "-1=per_scene, 1=per_aperture, K>1=chunked K")  //
       ("recover",
        po::value<bool>().implicit_value(/*v=*/true),
        "enable recovery from a previous SDDP run (loads cuts and state "
@@ -460,7 +473,10 @@ template<typename T>
        "--set solver_options.time_limit=<value>.  Applied to every LP / "
        "MIP solve the backend issues (forward + backward passes in "
        "SDDP, every aperture clone in cascade); the solver aborts the "
-       "current solve when wall-clock exceeds the limit.  Backend "
+       "current solve when wall-clock exceeds the limit.  The limit is "
+       "a budget per LP / MIP: algorithm-fallback retries and the "
+       "MIP-start stages share it (retries get the remaining time).  "
+       "Backend "
        "mapping: CPLEX TILIM, HiGHS time_limit, Gurobi TimeLimit, "
        "MindOpt MAX_TIME, CLP setMaximumSeconds.  Callers should check "
        "`is_optimal()` after solve to detect timeouts.")
@@ -757,8 +773,14 @@ inline void apply_cli_options(
     planning.options.sddp_options.num_apertures = *sddp_num_apertures;
   }
 
+  // `--lp-debug` and `--lp-error` are independent flags.  `--lp-error` used
+  // to be applied only inside the `--lp-debug` branch, so `--lp-error` alone
+  // never reached the planning, and `--lp-debug` alone clobbered a JSON
+  // `lp_error: true` with nullopt.
   if (lp_debug) {
     planning.options.lp_debug = lp_debug;
+  }
+  if (lp_error) {
     planning.options.lp_error = lp_error;
   }
 
@@ -813,21 +835,10 @@ inline void warn_deprecated_cli(const std::optional<std::string>& opt,
   }
 }
 
-/**
- * @brief Apply command-line options from a MainOptions struct to a Planning
- * object
- *
- * Convenience overload that takes a @c MainOptions struct directly, delegating
- * to the individual-parameter overload.
- *
- * @param planning The Planning object to update
- * @param opts     The MainOptions containing the option overrides
- */
-inline void apply_cli_options(Planning& planning, const MainOptions& opts)
+/// @brief Emit the "--flag is deprecated, use --set" warnings for every
+/// deprecated CLI flag set in @p opts.
+inline void warn_deprecated_cli_flags(const MainOptions& opts)
 {
-  // Emit deprecation warnings for options replaceable by --set.
-  // Skip directory warnings when auto-resolved from a directory argument
-  // (these are internal, not user-provided CLI flags).
   warn_deprecated_cli(opts.use_single_bus, "use-single-bus", "use_single_bus");
   warn_deprecated_cli(opts.use_kirchhoff, "use-kirchhoff", "use_kirchhoff");
   if (!opts.dirs_auto_resolved) {
@@ -857,13 +868,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                       "sddp_options.elastic_penalty");
   warn_deprecated_cli(
       opts.sddp_elastic_mode, "sddp-elastic-mode", "sddp_options.elastic_mode");
-  // `--constraint-mode` is a permanent CLI shorthand for
-  // `--set planning_options.constraint_mode=...` — no deprecation
-  // warning, but the apply step below routes the override.
-  if (opts.constraint_mode) {
-    planning.options.constraint_mode = require_enum<ConstraintMode>(
-        "constraint-mode", opts.constraint_mode.value());
-  }
   if (opts.algorithm.has_value()) {
     spdlog::warn(
         "--algorithm is deprecated, use: --set solver_options"
@@ -877,6 +881,34 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   warn_deprecated_cli(opts.lp_coeff_ratio_threshold,
                       "lp-coeff-ratio",
                       "lp_matrix_options.lp_coeff_ratio_threshold");
+}
+
+/**
+ * @brief Apply command-line options from a MainOptions struct to a Planning
+ * object
+ *
+ * Convenience overload that takes a @c MainOptions struct directly, delegating
+ * to the individual-parameter overload.
+ *
+ * @param planning The Planning object to update
+ * @param opts     The MainOptions containing the option overrides
+ */
+inline void apply_cli_options(Planning& planning, const MainOptions& opts)
+{
+  // Emit deprecation warnings for options replaceable by --set.
+  // Skip directory warnings when auto-resolved from a directory argument
+  // (these are internal, not user-provided CLI flags), and skip them all
+  // for config-file defaults (they are not CLI flags either).
+  if (!opts.from_config_file) {
+    warn_deprecated_cli_flags(opts);
+  }
+  // `--constraint-mode` is a permanent CLI shorthand for
+  // `--set planning_options.constraint_mode=...` — no deprecation
+  // warning, but the apply step below routes the override.
+  if (opts.constraint_mode) {
+    planning.options.constraint_mode = require_enum<ConstraintMode>(
+        "constraint-mode", opts.constraint_mode.value());
+  }
 
   apply_cli_options(planning,
                     opts.use_single_bus,
@@ -901,6 +933,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   // Additional SDDP options not in the positional overload
   if (opts.sddp_min_iterations) {
     planning.options.sddp_options.min_iterations = opts.sddp_min_iterations;
+  }
+  if (opts.sddp_aperture_chunk_mode) {
+    planning.options.sddp_options.aperture_chunk_mode =
+        require_enum<ApertureChunkMode>("aperture-chunk-mode",
+                                        *opts.sddp_aperture_chunk_mode);
   }
   if (opts.sddp_aperture_chunk_size) {
     planning.options.sddp_options.aperture_chunk_size =
@@ -1279,6 +1316,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
       .constraint_mode = get_opt<std::string>(vm, "constraint-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
+      .sddp_aperture_chunk_mode =
+          get_opt<std::string>(vm, "aperture-chunk-mode"),
       .sddp_aperture_chunk_size =
           get_opt<std::string>(vm, "aperture-chunk-size")
               .and_then([](const std::string& s)
@@ -1326,21 +1365,49 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
 // ── Config file support ────────────────────────────────────────────────────
 
+/// Parse a whole config-file value as a number of type @p T (surrounding
+/// blanks allowed, trailing garbage rejected — `std::stoi("4x")` used to
+/// return 4).  Nullopt when it is not a valid @p T.
+template<typename T>
+[[nodiscard]] std::optional<T> parse_conf_number(std::string_view text)
+{
+  while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) {
+    text.remove_prefix(1);
+  }
+  while (!text.empty() && (text.back() == ' ' || text.back() == '\t')) {
+    text.remove_suffix(1);
+  }
+  if (!text.empty() && text.front() == '+') {
+    text.remove_prefix(1);
+  }
+  T value {};
+  const auto* const end = text.data() + text.size();
+  const auto [ptr, ec] = std::from_chars(text.data(), end, value);
+  if (text.empty() || ec != std::errc {} || ptr != end) {
+    return std::nullopt;
+  }
+  return value;
+}
+
 /**
- * @brief Load a MainOptions from the `[gtopt]` section of `.gtopt.conf`.
+ * @brief Load a MainOptions from the `[gtopt]` section of a config file.
  *
- * Reads the config file found by @c find_config_file() and extracts
- * values from the `[gtopt]` section.  Keys use kebab-case matching
- * the CLI flag names (e.g. `output-format`, `sddp-max-iterations`).
+ * Extracts values from the `[gtopt]` section (and the per-solver
+ * `[solver.<name>]` sections) of @p config_path.  Keys use kebab-case
+ * matching the CLI flag names (e.g. `output-format`,
+ * `sddp-max-iterations`).  Explicit-path entry point: no environment /
+ * CWD / HOME lookup, so it can be unit tested with a fixture file.
  *
+ * @param config_path Config file to read; an empty path yields defaults.
  * @return MainOptions with fields populated from the config file.
  *         Fields not present in the config file remain as nullopt.
  */
-[[nodiscard]] inline MainOptions load_gtopt_config()
+[[nodiscard]] inline MainOptions load_gtopt_config_from(
+    const std::filesystem::path& config_path)
 {
   MainOptions opts;
+  opts.from_config_file = true;
 
-  const auto config_path = find_config_file();
   if (config_path.empty()) {
     return opts;
   }
@@ -1352,10 +1419,30 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   }
 
   const auto& section = it->second;
+  const auto file = config_path.string();
+
+  // Every key looked up is recorded; whatever else the section holds is
+  // reported as unknown below (one warning per key, naming file, section
+  // and key).  Only gtopt's own sections are checked — the Python tools'
+  // sections ([global], [run_gtopt], ...) are not ours to judge.
+  std::set<std::string, std::less<>> seen;
+  const auto bad_value = [&file](std::string_view sec,
+                                 std::string_view key,
+                                 std::string_view value,
+                                 std::string_view what)
+  {
+    spdlog::warn("{}: [{}] {} = '{}' is not a valid {} (ignored)",
+                 file,
+                 sec,
+                 key,
+                 value,
+                 what);
+  };
 
   // Helper: get string value if present
   auto get_str = [&](const std::string& key) -> std::optional<std::string>
   {
+    seen.insert(key);
     if (const auto kv = section.find(key); kv != section.end()) {
       if (!kv->second.empty()) {
         return kv->second;
@@ -1367,6 +1454,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   // Helper: get bool value if present
   auto get_bool = [&](const std::string& key) -> std::optional<bool>
   {
+    seen.insert(key);
     if (const auto kv = section.find(key); kv != section.end()) {
       const auto& v = kv->second;
       if (v == "true" || v == "1" || v == "yes") {
@@ -1375,6 +1463,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       if (v == "false" || v == "0" || v == "no") {
         return false;
       }
+      bad_value("gtopt", key, v, "boolean (true/false/yes/no/1/0)");
     }
     return std::nullopt;
   };
@@ -1382,11 +1471,12 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   // Helper: get int value if present
   auto get_int = [&](const std::string& key) -> std::optional<int>
   {
+    seen.insert(key);
     if (const auto kv = section.find(key); kv != section.end()) {
-      try {
-        return std::stoi(kv->second);
-      } catch (...) {
+      if (const auto v = parse_conf_number<int>(kv->second)) {
+        return v;
       }
+      bad_value("gtopt", key, kv->second, "integer");
     }
     return std::nullopt;
   };
@@ -1394,11 +1484,12 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   // Helper: get double value if present
   auto get_dbl = [&](const std::string& key) -> std::optional<double>
   {
+    seen.insert(key);
     if (const auto kv = section.find(key); kv != section.end()) {
-      try {
-        return std::stod(kv->second);
-      } catch (...) {
+      if (const auto v = parse_conf_number<double>(kv->second)) {
+        return v;
       }
+      bad_value("gtopt", key, kv->second, "number");
     }
     return std::nullopt;
   };
@@ -1445,12 +1536,14 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.sddp_elastic_mode = get_str("sddp-elastic-mode");
   opts.constraint_mode = get_str("constraint-mode");
   opts.sddp_num_apertures = get_int("sddp-num-apertures");
+  opts.sddp_aperture_chunk_mode = get_str("aperture-chunk-mode");
   // aperture-chunk-size accepts "auto" (→0) or an integer literal.
   if (const auto s = get_str("aperture-chunk-size")) {
     opts.sddp_aperture_chunk_size = parse_aperture_chunk_size(*s);
   }
   // Prefer the new key; fall back to the deprecated `low-memory` alias.
   opts.memory_saving = get_str("memory-saving");
+  seen.insert("low-memory");
   if (!opts.memory_saving) {
     opts.memory_saving = get_str("low-memory");
   }
@@ -1459,6 +1552,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.swap_limit = get_str("swap-limit");
   opts.swap_growth = get_str("swap-growth");
   opts.sddp_cpu_factor = get_dbl("cpu-factor");
+  seen.insert("sddp-cpu-factor");
   if (!opts.sddp_cpu_factor) {
     opts.sddp_cpu_factor = get_dbl("sddp-cpu-factor");
   }
@@ -1472,9 +1566,16 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     try {
       opts.algorithm = parse_lp_algorithm(*raw);
     } catch (...) {
+      bad_value("gtopt", "algorithm", *raw, "LP algorithm");
     }
   }
   opts.threads = get_int("threads");
+
+  for (const auto& [key, value] : section) {
+    if (!seen.contains(key)) {
+      spdlog::warn("{}: [gtopt] unknown key '{}' (ignored)", file, key);
+    }
+  }
 
   // Per-solver configuration: [solver.cplex], [solver.highs], [solver.clp]
   for (const auto& [sec_name, sec_map] : ini) {
@@ -1486,9 +1587,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       continue;
     }
 
-    // Helper lambdas bound to this section
+    // Helper lambdas bound to this section (lookups recorded, see above)
+    std::set<std::string, std::less<>> sv_seen;
     auto sv_str = [&](const std::string& key) -> std::optional<std::string>
     {
+      sv_seen.insert(key);
       if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
         if (!kv->second.empty()) {
           return kv->second;
@@ -1498,26 +1601,29 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     };
     auto sv_int = [&](const std::string& key) -> std::optional<int>
     {
+      sv_seen.insert(key);
       if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
-        try {
-          return std::stoi(kv->second);
-        } catch (...) {
+        if (const auto v = parse_conf_number<int>(kv->second)) {
+          return v;
         }
+        bad_value(sec_name, key, kv->second, "integer");
       }
       return std::nullopt;
     };
     auto sv_dbl = [&](const std::string& key) -> std::optional<double>
     {
+      sv_seen.insert(key);
       if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
-        try {
-          return std::stod(kv->second);
-        } catch (...) {
+        if (const auto v = parse_conf_number<double>(kv->second)) {
+          return v;
         }
+        bad_value(sec_name, key, kv->second, "number");
       }
       return std::nullopt;
     };
     auto sv_bool = [&](const std::string& key) -> std::optional<bool>
     {
+      sv_seen.insert(key);
       if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
         const auto& v = kv->second;
         if (v == "true" || v == "1" || v == "yes") {
@@ -1526,6 +1632,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
         if (v == "false" || v == "0" || v == "no") {
           return false;
         }
+        bad_value(sec_name, key, v, "boolean (true/false/yes/no/1/0)");
       }
       return std::nullopt;
     };
@@ -1535,6 +1642,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       try {
         sopts.algorithm = parse_lp_algorithm(*raw);
       } catch (...) {
+        bad_value(sec_name, "algorithm", *raw, "LP algorithm");
       }
     }
     if (const auto v = sv_int("threads")) {
@@ -1557,10 +1665,29 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       sopts.max_fallbacks = *v;
     }
 
+    for (const auto& [key, value] : sec_map) {
+      if (!sv_seen.contains(key)) {
+        spdlog::warn(
+            "{}: [{}] unknown key '{}' (ignored)", file, sec_name, key);
+      }
+    }
+
     opts.solver_configs[solver_name] = sopts;
   }
 
   return opts;
+}
+
+/**
+ * @brief Load a MainOptions from the `[gtopt]` section of `.gtopt.conf`.
+ *
+ * Reads the config file found by @c find_config_file() (`$GTOPT_CONFIG`,
+ * then `./.gtopt.conf`, then `~/.gtopt.conf`) via
+ * @c load_gtopt_config_from().
+ */
+[[nodiscard]] inline MainOptions load_gtopt_config()
+{
+  return load_gtopt_config_from(find_config_file());
 }
 
 /**
@@ -1614,6 +1741,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_elastic_mode, defaults.sddp_elastic_mode);
   merge(opts.constraint_mode, defaults.constraint_mode);
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
+  merge(opts.sddp_aperture_chunk_mode, defaults.sddp_aperture_chunk_mode);
   merge(opts.sddp_aperture_chunk_size, defaults.sddp_aperture_chunk_size);
   merge(opts.memory_saving, defaults.memory_saving);
   merge(opts.no_scale, defaults.no_scale);
@@ -1641,6 +1769,158 @@ inline void merge_config_defaults(MainOptions& opts,
     if (!opts.solver_configs.contains(name)) {
       opts.solver_configs[name] = sopts;
     }
+  }
+}
+
+/**
+ * @brief Split config-file values into runtime-only fields and the
+ *        planning-level defaults layer.
+ *
+ * Implements the documented precedence
+ * `CLI flag > --set > planning JSON > .gtopt.conf > default`:
+ *
+ * - keys with no planning-JSON counterpart (`lp-file`,
+ *   `lp-format`, `matrix-eps`, `json-file`, `stats`, `trace-log`,
+ *   `async-logger`) and the `[solver.<name>]` sections are merged into
+ *   @p opts only where the CLI left them unset (`merge_config_defaults`
+ *   semantics; the `[solver.<name>]` values are later overlaid UNDER the
+ *   planning `solver_options`, see `prepare_matrix_options`);
+ * - every other key is stored in `opts.config_defaults` and applied by
+ *   `apply_config_file_defaults()` to the options the planning JSON left
+ *   unset, before `--set` and the CLI flags.
+ */
+inline void split_config_defaults(MainOptions& opts, const MainOptions& conf)
+{
+  auto merge =
+      []<typename T>(std::optional<T>& dst, const std::optional<T>& src)
+  {
+    if (!dst.has_value() && src.has_value()) {
+      dst = src;
+    }
+  };
+  merge(opts.lp_file, conf.lp_file);
+  merge(opts.lp_format, conf.lp_format);
+  merge(opts.matrix_eps, conf.matrix_eps);
+  merge(opts.json_file, conf.json_file);
+  merge(opts.print_stats, conf.print_stats);
+  merge(opts.trace_log, conf.trace_log);
+  merge(opts.async_logger, conf.async_logger);
+  for (const auto& [name, sopts] : conf.solver_configs) {
+    if (!opts.solver_configs.contains(name)) {
+      opts.solver_configs[name] = sopts;
+    }
+  }
+
+  auto layer = conf;
+  layer.from_config_file = true;
+  layer.lp_file.reset();
+  layer.lp_format.reset();
+  layer.matrix_eps.reset();
+  layer.json_file.reset();
+  layer.print_stats.reset();
+  layer.trace_log.reset();
+  layer.async_logger.reset();
+  layer.solver_configs.clear();
+  layer.config_defaults.reset();
+  opts.config_defaults = std::make_shared<const MainOptions>(std::move(layer));
+}
+
+/**
+ * @brief Apply the `.gtopt.conf` planning-level defaults to @p planning.
+ *
+ * Each config-file value is applied only when the planning JSON left the
+ * matching option unset, so the JSON (and afterwards `--set` and the CLI
+ * flags, applied by the caller) always win over the config file.
+ * Relative directories from the config file are resolved against the
+ * current working directory (as they were when the config file behaved
+ * like a CLI default), not against the planning JSON location.
+ */
+inline void apply_config_file_defaults(Planning& planning,
+                                       const MainOptions& conf)
+{
+  auto c = conf;
+  c.from_config_file = true;
+  const auto& po = planning.options;
+  const auto& so = po.sddp_options;
+  auto drop_if_set = []<typename T, typename U>(std::optional<T>& conf_value,
+                                                const std::optional<U>& json)
+  {
+    if (json.has_value()) {
+      conf_value.reset();
+    }
+  };
+  drop_if_set(c.input_directory, po.input_directory);
+  drop_if_set(c.input_format, po.input_format);
+  drop_if_set(c.output_directory, po.output_directory);
+  drop_if_set(c.output_format, po.output_format);
+  drop_if_set(c.output_compression, po.output_compression);
+  drop_if_set(c.log_directory, po.log_directory);
+  drop_if_set(c.use_single_bus, po.model_options.use_single_bus);
+  drop_if_set(c.use_kirchhoff, po.model_options.use_kirchhoff);
+  drop_if_set(c.lp_only, po.lp_only);
+  drop_if_set(c.lp_scales, po.lp_scales);
+  drop_if_set(c.lp_debug, po.lp_debug);
+  drop_if_set(c.lp_error, po.lp_error);
+  drop_if_set(c.lp_compression, po.lp_compression);
+  drop_if_set(c.lp_coeff_ratio_threshold,
+              po.lp_matrix_options.lp_coeff_ratio_threshold);
+  drop_if_set(c.constraint_mode, po.constraint_mode);
+  drop_if_set(c.build_mode, po.build_mode);
+  drop_if_set(c.write_out, po.write_out);
+  drop_if_set(c.cut_directory, so.cut_directory);
+  drop_if_set(c.fcut_log, so.fcut_log);
+  drop_if_set(c.sddp_max_iterations, so.max_iterations);
+  drop_if_set(c.sddp_min_iterations, so.min_iterations);
+  drop_if_set(c.sddp_convergence_tol, so.convergence_tol);
+  drop_if_set(c.sddp_elastic_penalty, so.elastic_penalty);
+  drop_if_set(c.sddp_elastic_mode, so.elastic_mode);
+  drop_if_set(c.sddp_num_apertures, so.num_apertures);
+  drop_if_set(c.sddp_aperture_chunk_mode, so.aperture_chunk_mode);
+  drop_if_set(c.sddp_aperture_chunk_size, so.aperture_chunk_size);
+  drop_if_set(c.memory_saving, so.low_memory_mode);
+  drop_if_set(c.memory_limit, so.pool_memory_limit_mb);
+  drop_if_set(c.memory_quota, so.pool_memory_limit_mb);
+  drop_if_set(c.swap_limit, so.pool_max_process_swap_mb);
+  drop_if_set(c.swap_growth, so.pool_swap_growth_mb);
+  drop_if_set(c.sddp_cpu_factor, so.pool_cpu_factor);
+  if (po.solver_options.algorithm != LPAlgo::default_algo) {
+    c.algorithm.reset();
+  }
+  if (po.solver_options.threads != 0) {
+    c.threads.reset();
+  }
+
+  for (auto* dir :
+       {
+           &c.input_directory,
+           &c.output_directory,
+           &c.log_directory,
+           &c.cut_directory,
+       })
+  {
+    if (dir->has_value() && std::filesystem::path(**dir).is_relative()) {
+      std::error_code ec;
+      auto abs = std::filesystem::absolute(**dir, ec);
+      if (!ec) {
+        *dir = abs.lexically_normal().string();
+      }
+    }
+  }
+
+  apply_cli_options(planning, c);
+  // `solver` maps to the planning pin `lp_matrix_options.solver_name`
+  // (below `--solver`, above $GTOPT_SOLVER / plugin priority).
+  if (c.solver && !c.solver->empty()
+      && planning.options.lp_matrix_options.solver_name.empty())
+  {
+    planning.options.lp_matrix_options.solver_name = *c.solver;
+  }
+  if (c.lp_only) {
+    planning.options.lp_only = c.lp_only;
+  }
+  if (c.lp_scales) {
+    planning.options.lp_scales =
+        require_enum<LpScalesLevel>("lp-scales", *c.lp_scales);
   }
 }
 

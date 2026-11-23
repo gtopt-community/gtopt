@@ -16,6 +16,7 @@
 #include <expected>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -199,14 +200,13 @@ struct MainOptions
   std::optional<std::string> constraint_mode {};
   /** @brief Number of SDDP backward-pass apertures (0=disabled, -1=all) */
   std::optional<int> sddp_num_apertures {};
-  /** @brief Per-task aperture chunk size (chunked backward pass).
-   *
-   * Sentinel-encoded:
-   *   *  unset (nullopt) / 0 → auto (formula based on A_max × scenes / cores).
-   *   *  1  → legacy 1-task-per-aperture path.
-   *   *  >1 → exactly K apertures per task, serial within (warm-start reuse
-   *          on the shared LP clone).
-   *   *  -1 → cap at A_max per phase (single task per scene, fully serial). */
+  /** @brief Backward-pass aperture grouping by name (`--aperture-chunk-mode`):
+   *  "per_scene" (default), "per_aperture" or "chunked".  Validated via
+   *  `require_enum<ApertureChunkMode>` when applied. */
+  std::optional<std::string> sddp_aperture_chunk_mode {};
+  /** @brief Apertures per task K for `chunked` (`--aperture-chunk-size`;
+   *  "auto"/0 = formula).  Legacy mode selector when no mode is given
+   *  (deprecated): -1 → per_scene, 1 → per_aperture, K > 1 → chunked K. */
   std::optional<int> sddp_aperture_chunk_size {};
   /** @brief Enable SDDP hot-start from previously saved cuts */
   std::optional<bool> sddp_hot_start {};
@@ -394,8 +394,9 @@ struct MainOptions
   /** @brief Per-solve time limit in seconds (CLI shortcut).
    *
    * Bound to the CLI flag `--time-limit <seconds>`.  Forwards to
-   * `solver_options.time_limit`.  Applied to every LP / MIP solve;
-   * the solver aborts when wall-clock exceeds the limit. */
+   * `solver_options.time_limit`.  Applied to every LP / MIP solve as a
+   * wall-clock budget shared by its fallback retries and MIP-start
+   * stages; the solver aborts when the budget is exhausted. */
   std::optional<double> time_limit {};
 
   /** @brief Enable the initial-MIP-solution (warm-start) pipeline (CLI flag).
@@ -434,6 +435,26 @@ struct MainOptions
    * from a directory argument (not explicitly set by the user).
    * Suppresses deprecation warnings in apply_cli_options. */
   bool dirs_auto_resolved {false};
+
+  /** @brief Planning-level defaults read from `.gtopt.conf` `[gtopt]`.
+   *
+   * Precedence is "the more explicit, the closer to the run, wins":
+   * CLI flag > `--set` > planning JSON (last `-s` file wins) >
+   * `.gtopt.conf` > built-in default.  The config-file values that have a
+   * planning-JSON counterpart are therefore NOT merged into the CLI fields
+   * above (that would let them beat the JSON and `--set`); they are kept
+   * here and applied by `configure_planning` only to the options the JSON
+   * left unset, before `--set` and the CLI flags (`solver` fills the
+   * planning pin `lp_matrix_options.solver_name`).  Runtime-only keys with
+   * no JSON counterpart (`lp-file`, `matrix-eps`, `stats`, …)
+   * and the `[solver.<name>]` sections are merged into the fields above
+   * directly.  Null when no config file was loaded.
+   */
+  std::shared_ptr<const MainOptions> config_defaults {};
+
+  /** @brief True for a MainOptions loaded from a config file: suppresses
+   * the "--flag is deprecated" warnings (they name CLI flags). */
+  bool from_config_file {false};
 };
 
 /**

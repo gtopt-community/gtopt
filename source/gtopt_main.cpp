@@ -306,6 +306,15 @@ void setup_trace_log(const MainOptions& opts)
 [[nodiscard]] std::expected<int, std::string> configure_planning(
     Planning& planning, const MainOptions& opts)
 {
+  // Precedence (more explicit / closer to the run wins):
+  //   CLI flag > --set > planning JSON (last -s wins) > .gtopt.conf >
+  //   built-in default.
+  // The JSON files are already merged into `planning`; the config-file
+  // defaults fill only what the JSON left unset.
+  if (opts.config_defaults) {
+    apply_config_file_defaults(planning, *opts.config_defaults);
+  }
+
   // Apply --set key=value overrides (before specific CLI flags)
   if (!opts.set_options.empty()) {
     if (!apply_set_options(planning, opts.set_options)) {
@@ -541,6 +550,12 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
   if (peek.log_directory && !peek.log_directory->empty()) {
     return {*peek.log_directory};
   }
+  // 2b. `.gtopt.conf` `log-directory` (below the JSON, see
+  //     MainOptions::config_defaults).
+  const auto* conf = opts.config_defaults.get();
+  if (conf != nullptr && conf->log_directory && !conf->log_directory->empty()) {
+    return {*conf->log_directory};
+  }
 
   // 3. Default: `<output_directory>/logs`, with output_directory
   //    resolved by the same precedence as the solver output
@@ -550,10 +565,16 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
   if (opts.output_directory.has_value()) {
     return fs::path(*opts.output_directory) / "logs";
   }
+  auto json_out = find_set_option(opts.set_options, "output_directory")
+                      .or_else([&peek] { return peek.output_directory; });
+  // A config-file output directory is CWD-relative (like a CLI flag), see
+  // apply_config_file_defaults().
+  if (!json_out && conf != nullptr && conf->output_directory) {
+    return fs::absolute(*conf->output_directory) / "logs";
+  }
   fs::path out_dir {
-      find_set_option(opts.set_options, "output_directory")
-          .or_else([&peek] { return peek.output_directory; })
-          .value_or(std::string {PlanningOptionsLP::default_output_directory}),
+      std::move(json_out).value_or(
+          std::string {PlanningOptionsLP::default_output_directory}),
   };
   if (!opts.planning_files.empty() && out_dir.is_relative()) {
     const auto json_dir = fs::path(opts.planning_files.front()).parent_path();
@@ -616,8 +637,14 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
     const std::string_view enforce_dialect = opts.naming_dialect.has_value()
         ? std::string_view {*opts.naming_dialect}
         : std::string_view {};
+    // Planning-file fallback lookup dir: CLI --input-directory, else the
+    // config-file `input-directory` default.
+    auto file_search_dir = opts.input_directory;
+    if (!file_search_dir && opts.config_defaults) {
+      file_search_dir = opts.config_defaults->input_directory;
+    }
     auto parse_result = parse_planning_files(
-        opts.planning_files, opts.input_directory, enforce_dialect);
+        opts.planning_files, file_search_dir, enforce_dialect);
     if (!parse_result) {
       return std::unexpected(std::move(parse_result.error()));
     }
@@ -666,6 +693,11 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
                             "output");
       }
     }
+
+    // Resolve the solver (pin + [solver.<name>] + solvers/<name>.prm)
+    // before the JSON dump and the pre-solve snapshot, so both record the
+    // solver and the parameter file the run actually uses.
+    resolve_solver_setup(my_planning, opts);
 
     // Write JSON output if requested
     if (opts.json_file) {

@@ -8,7 +8,9 @@
  *
  * Reads the standard `~/.gtopt.conf` INI file used by all gtopt scripts.
  * The `[gtopt]` section provides default values for the C++ binary's
- * command-line options.  CLI flags always take precedence over config values.
+ * command-line options.  They are defaults only; precedence is
+ * CLI flag > `--set` > planning JSON (last `-s` wins) > `.gtopt.conf` >
+ * built-in default (see `MainOptions::config_defaults`).
  *
  * ### Search order
  * 1. `$GTOPT_CONFIG` environment variable (exact path)
@@ -34,6 +36,8 @@
 #include <fstream>
 #include <map>
 #include <string>
+
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -137,6 +141,14 @@ using IniData = std::map<std::string, std::map<std::string, std::string>>;
     std::filesystem::path p(env);
     if (std::filesystem::exists(p)) {
       return p;
+    }
+    // An explicit override that points nowhere is almost always a typo;
+    // say so instead of silently falling back to ./ or ~/.
+    if (*env != '\0') {
+      spdlog::warn(
+          "$GTOPT_CONFIG='{}' does not exist; falling back to "
+          "./.gtopt.conf and ~/.gtopt.conf",
+          env);
     }
   }
 

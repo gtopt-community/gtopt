@@ -332,22 +332,19 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("NamesRegistry — load from shipped on-disk file")  // NOLINT
 {
-  // Bypass the singleton + compiled-in fallback path; force a file
-  // read of the shipped `share/gtopt/naming_dialects.json`. This
-  // catches install-path / find-file regressions that the
-  // singleton-only test in test_names_registry.cpp would mask
-  // (because the singleton falls back to the compiled-in copy when
-  // the file path is unreachable).
-  const auto path = find_names_file();
-  REQUIRE(path.has_value());
-  REQUIRE(std::filesystem::exists(*path));
+  // Bypass the singleton + compiled-in dictionary; force a file read
+  // of the shipped `share/gtopt/naming_dialects.json` through the
+  // file-loading constructor (the code path of an explicit
+  // `$GTOPT_NAMING_DIALECTS_FILE` override).
+  const auto path =
+      std::filesystem::path {GTOPT_TEST_SHARE_DIR} / "naming_dialects.json";
+  REQUIRE(std::filesystem::exists(path));
 
-  const NamesRegistry r {*path};
+  const NamesRegistry r {path};
 
   SUBCASE("source_path is set when constructed from a file")
   {
-    REQUIRE(r.source_path().has_value());
-    CHECK(*r.source_path() == *path);
+    CHECK(r.source_path().value_or(std::filesystem::path {}) == path);
   }
 
   SUBCASE("file-loaded registry resolves the shipped Generator aliases")

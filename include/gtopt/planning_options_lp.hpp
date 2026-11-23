@@ -58,6 +58,15 @@ public:
   /** @brief Default number of flow segments per line (1 = linear model,
    * &gt;1 = piecewise-linear quadratic approximation of P_loss = R·f²/V²) */
   static constexpr Int default_loss_segments = 1;
+  /** @brief Default per-MWh cost ($/MWh) on the loss columns
+   * (``model_options.loss_cost_eps``).  0.1 strictly breaks the LP-relax
+   * bidirectional-flow degeneracy and the tangent_signed_flow |f|-aux
+   * slack while keeping the LMP distortion negligible (measured on a
+   * CEN 5-year SDDP: small negative LMPs shrink ~8x vs eps = 1, same
+   * total losses).  Inert for modes without a loss column (``none``,
+   * ``linear``, ``piecewise_direct``).  Set ``loss_cost_eps = 0``
+   * explicitly to disable. */
+  static constexpr Real default_loss_cost_eps = 0.1;
   /** @brief Default setting for Kirchhoff constraints */
   static constexpr Bool default_use_kirchhoff = true;
   /** @brief Default Kirchhoff Voltage Law formulation.
@@ -85,13 +94,14 @@ public:
   static constexpr Bool default_strict_storage_emin = true;
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
-  /** @brief Default per-unit reactance floor for DC-line auto-promotion.
+  /** @brief Default per-unit reactance floor for zero-impedance ties.
    *
    *  Lines whose effective per-unit susceptance term `|x_pu| = |X/V²|`
-   *  falls below this value are rewritten to `X = 0` by
-   *  `PlanningLP::validate_line_reactance` and skipped by the Kirchhoff
-   *  assembler — eliminating outlier `x_τ` coefficients that blow up
-   *  CPLEX/HiGHS kappa.
+   *  falls below this value lose their flow term in the Kirchhoff
+   *  assembler — zero-impedance tie under `tiny_reactance_mode = tie`
+   *  (default), DC line (`X` rewritten to 0 by
+   *  `PlanningLP::validate_line_reactance`) under `dc` — eliminating
+   *  outlier `x_τ` coefficients that blow up CPLEX/HiGHS kappa.
    *
    *  `1e-6` is conservative: real transmission `x_pu ≥ 1e-3` (4 OOM
    *  above), real distribution `x_pu ≥ 1e-4` (2 OOM above), and real EHV
@@ -102,6 +112,14 @@ public:
    *  Set to `0.0` via `--set model_options.dc_line_reactance_threshold=0`
    *  to disable promotion entirely. */
   static constexpr Real default_dc_line_reactance_threshold = 1e-6;
+  /** @brief Default treatment of nonzero sub-threshold reactances.
+   *
+   *  `tie`: a line with `X = 0` or `|X/V²| < dc_line_reactance_threshold`
+   *  is a zero-impedance tie (KVL row without the flow term), the
+   *  physical limit of a near-zero-impedance AC branch.  The legacy `dc`
+   *  treatment let the LP use such lines as free phase shifters. */
+  static constexpr TinyReactanceMode default_tiny_reactance_mode =
+      TinyReactanceMode::tie;
   /** @brief Default per-unit resistance floor for lossless auto-promotion.
    *
    *  Lines whose per-unit loss term `|R/V²|` falls below this value are
@@ -121,10 +139,10 @@ public:
    *  `--set model_options.dc_line_resistance_threshold=0` to disable. */
   static constexpr Real default_dc_line_resistance_threshold = 1e-7;
   /** @brief Default Battery self-discharge [p.u./year] applied when a
-   *  `Battery` leaves `annual_loss` unset.
+   *  `Battery` leaves `annual_standing_loss` unset.
    *
    *  `0.48` = 4 %/month × 12 in gtopt's linear convention (hourly drain
-   *  `annual_loss / 8760` ≈ 5.48e-5/h; a 730 h month loses exactly 4 %
+   *  `annual_standing_loss / 8760` ≈ 5.48e-5/h; a 730 h month loses exactly 4 %
    *  of the stored energy in a single block).  Lithium-ion cells
    *  self-discharge ≈ 1–3 %/month (Battery University BU-802b;
    *  Wikipedia "Self-discharge") plus ≈ 3 %/month drawn by the
@@ -132,9 +150,9 @@ public:
    *  combined cell + BMS figure.  The positive drain also breaks the LP
    *  degeneracy that otherwise admits cost-free charge/discharge
    *  zig-zag.  Override planning-wide with
-   *  `model_options.battery_annual_loss` (`0` restores the legacy
+   *  `model_options.battery_annual_standing_loss` (`0` restores the legacy
    *  lossless default). */
-  static constexpr Real default_battery_annual_loss = 0.48;
+  static constexpr Real default_battery_annual_standing_loss = 0.48;
   /** @brief Default voltage-angle bound (`θ ∈ [−2π, +2π]`) used as
    *  fallback when `auto_scale_theta` did not run (e.g.
    *  `auto_scale=false`).  When auto-scaling is enabled the bound is
@@ -166,8 +184,8 @@ public:
    * Ruiz equilibration it widens the matrix dynamic range, hurting
    * basis-condition.
    *
-   * See also: ``equilibration_method()`` (defaults to ``none`` for
-   * single-bus; ``ruiz`` only for multi-bus Kirchhoff).
+   * See also: ``equilibration_method()`` (``ruiz`` for multi-bus
+   * Kirchhoff, ``row_max`` otherwise).
    */
   static constexpr Real default_scale_objective = 1'000;
 
@@ -263,6 +281,16 @@ public:
   [[nodiscard]] constexpr auto demand_fail_cost() const
   {
     return m_options_.model_options.demand_fail_cost;
+  }
+
+  /// @brief Global default stepwise demand-failure curve (empty span
+  /// when unset).  See ``ModelOptions::demand_fail_segments``.
+  [[nodiscard]] constexpr std::span<const ScalarFailSegment>
+  demand_fail_segments() const noexcept
+  {
+    const auto& segs = m_options_.model_options.demand_fail_segments;
+    return segs ? std::span<const ScalarFailSegment> {*segs}
+                : std::span<const ScalarFailSegment> {};
   }
 
   /// @brief True when ``model_options.objective_mode = "emissions"`` —
@@ -467,24 +495,51 @@ public:
         default_kirchhoff_threshold);
   }
 
-  /// @brief Gets the per-unit reactance floor for DC-line auto-promotion.
+  /// @brief Gets the per-unit reactance floor for zero-impedance ties.
   ///
-  /// Returns the resolved threshold used by
-  /// `PlanningLP::validate_line_reactance` when deciding whether a
-  /// line's `|X/V²|` is small enough to warrant rewriting `X` to `0`
-  /// (and thus dropping the line out of the Kirchhoff matrix).
+  /// Returns the resolved threshold below which a line's `|X/V²|` loses
+  /// its KVL flow term: a zero-impedance tie under `tiny_reactance_mode
+  /// = tie`, a DC link (X rewritten to 0 by
+  /// `PlanningLP::validate_line_reactance`) under `dc`.
   [[nodiscard]] constexpr auto dc_line_reactance_threshold() const
   {
     return m_options_.model_options.dc_line_reactance_threshold.value_or(
         default_dc_line_reactance_threshold);
   }
 
-  /// Resolved default self-discharge [p.u./year] for batteries whose
-  /// own `annual_loss` is unset.  See `default_battery_annual_loss`.
-  [[nodiscard]] constexpr auto battery_annual_loss() const
+  /// @brief Gets the treatment of nonzero sub-threshold reactances.
+  ///
+  /// Priority: model_options.tiny_reactance_mode (string) →
+  ///           default_tiny_reactance_mode (tie).
+  /// An unrecognised string falls back to the default.
+  [[nodiscard]] constexpr TinyReactanceMode tiny_reactance_mode() const
   {
-    return m_options_.model_options.battery_annual_loss.value_or(
-        default_battery_annual_loss);
+    if (m_options_.model_options.tiny_reactance_mode.has_value()) {
+      return enum_from_name<TinyReactanceMode>(
+                 *m_options_.model_options.tiny_reactance_mode)
+          .value_or(default_tiny_reactance_mode);
+    }
+    return default_tiny_reactance_mode;
+  }
+
+  /// @brief Classify a line's stage reactance for KVL assembly
+  /// (`dc` / zero-impedance `tie` / regular `ac`).
+  [[nodiscard]] constexpr LineKvlKind classify_line_reactance(
+      std::optional<double> reactance, double voltage) const
+  {
+    return gtopt::classify_line_reactance(reactance,
+                                          voltage,
+                                          dc_line_reactance_threshold(),
+                                          tiny_reactance_mode());
+  }
+
+  /// Resolved default self-discharge [p.u./year] for batteries whose
+  /// own `annual_standing_loss` is unset.  See
+  /// `default_battery_annual_standing_loss`.
+  [[nodiscard]] constexpr auto battery_annual_standing_loss() const
+  {
+    return m_options_.model_options.battery_annual_standing_loss.value_or(
+        default_battery_annual_standing_loss);
   }
 
   /// Whether battery converters emit the power-envelope valid inequality
@@ -505,7 +560,11 @@ public:
         default_dc_line_resistance_threshold);
   }
 
-  /// @brief Gets the voltage angle scaling factor.
+  /// @brief Gets the voltage-angle enlargement factor.
+  ///
+  /// θ_LP = scale_theta · θ (rad): `1` = radians, `1000` = milliradians.
+  /// Auto (when unset and `auto_scale`) = 1 / (3 · median(X/V²)).  The
+  /// `Bus.theta` VariableScale entry is its reciprocal.
   [[nodiscard]] constexpr auto scale_theta() const
   {
     return m_options_.model_options.scale_theta.value_or(1.0);
@@ -530,11 +589,13 @@ public:
   /// Returns the resolved global ``loss_cost_eps`` ($/MWh) applied to
   /// every PWL/bidirectional line's ``loss_p``/``loss_n`` column to
   /// strictly break the LP-relax bidirectional-flow degeneracy.  When
-  /// unset, returns ``0.0`` (legacy behaviour — no epsilon).  Per-line
-  /// ``Line.loss_cost_eps`` overrides this value when present.
+  /// unset, returns ``default_loss_cost_eps`` (0.1 $/MWh); an explicit
+  /// ``0`` disables it.  Per-line ``Line.loss_cost_eps`` overrides this
+  /// value when present.
   [[nodiscard]] constexpr auto loss_cost_eps() const
   {
-    return m_options_.model_options.loss_cost_eps.value_or(0.0);
+    return m_options_.model_options.loss_cost_eps.value_or(
+        default_loss_cost_eps);
   }
 
   /// @brief Gets the global default for ``Line.loss_secant_segments``
@@ -609,7 +670,7 @@ public:
   }
 
   /// Solution output is long-only — a 6-column non-zero-only shape
-  /// `(scenario, stage, block, uid, value)` with `uint16_t` keys and a
+  /// `(scenario, stage, block, uid, value)` with `int32_t` (`Uid`) keys and a
   /// `BYTE_STREAM_SPLIT`-encoded value column.  Combined with the matching
   /// `zstd` compression default, this produces a 3-7× smaller on-disk
   /// footprint on the typical 0.1 %-dense gtopt output (e.g. 1 GB → 298 MB on
@@ -820,33 +881,26 @@ public:
         default_lp_coeff_ratio_threshold);
   }
 
-  /// The matrix equilibration method to use.
+  /// The matrix equilibration method to use — the single source of the
+  /// default, shared by the production runner (`gtopt_lp_runner.cpp`) and
+  /// every directly constructed `PlanningLP` / `SystemLP` (via
+  /// `resolve_lp_matrix_options`).
   ///
-  /// Equilibration default depends on network topology:
-  ///   - Single-bus mode  → ``none``  (no row/column scaling needed —
-  ///     all flows live on one bus, the constraint matrix has uniform
-  ///     scales by construction).
+  /// User-supplied JSON ``options.lp_matrix_options.equilibration_method``
+  /// = ``"ruiz" | "row_max" | "none"`` always takes precedence.  When
+  /// unset the default depends on network topology:
   ///   - Multi-bus Kirchhoff → ``ruiz`` (heterogeneous reactance × tmax
   ///     ratios across lines create wide row/column magnitude spread
   ///     that ruiz iteration tames).
-  ///   - Multi-bus copper-plate → ``none`` (no Kirchhoff coupling).
+  ///   - Single-bus or copper-plate → ``row_max``.
   ///
-  /// **Single-bus default changed to ``none`` in 2026-05** after the
-  /// the large hydrothermal case scaling benchmark (16-scene, 51-phase,
-  /// 7,431-cut hot-start; ``-b 1`` single-bus mode) showed equilibration on top
-  /// of ``scale_objective`` and per-element ``auto_scale`` widens basis kappa
-  /// rather than improving it.  iter-15 kappa:
-  ///
-  ///   - ``row_max`` (old single-bus default) : 1.27e+08
-  ///   - ``none``    (new single-bus default) : 8.10e+07 (1.6× lower)
-  ///
-  /// Solution quality (gap, LB, UB) is invariant across choices.
-  /// Multi-bus Kirchhoff cases (IEEE-9/14/57/118-bus benchmarks)
-  /// still benefit from ruiz — the reactance disparity across the
-  /// network drives that need — so the multi-bus default is unchanged.
-  ///
-  /// User-supplied JSON ``options.lp_matrix_options.equilibration_method``
-  /// = ``"ruiz" | "row_max" | "none"`` always takes precedence.
+  /// Note: commit 63b36e677 (2026-05) switched the single-bus default of
+  /// this accessor to ``none`` after a large hydrothermal kappa benchmark
+  /// (iter-15 kappa 1.27e8 → 8.10e7), but the accessor was never called —
+  /// production kept its own ``row_max`` copy of the policy.  The
+  /// production behaviour (``row_max``) is what is resolved here; set
+  /// ``equilibration_method: none`` explicitly for the benchmarked
+  /// single-bus configuration.
   [[nodiscard]] constexpr auto equilibration_method() const noexcept
   {
     if (m_options_.lp_matrix_options.equilibration_method.has_value()) {
@@ -854,7 +908,28 @@ public:
     }
     const bool kirchhoff_multi_bus = use_kirchhoff() && !use_single_bus();
     return kirchhoff_multi_bus ? LpEquilibrationMethod::ruiz
-                               : LpEquilibrationMethod::none;
+                               : LpEquilibrationMethod::row_max;
+  }
+
+  /// Resolve the effective `LpMatrixOptions` for an LP build.
+  ///
+  /// Every user-facing optional field left unset in @p explicit_opts
+  /// (equilibration_method, fast_sqrt_method, ruiz_max_iterations,
+  /// ruiz_tolerance, compute_stats, lp_coeff_ratio_threshold, validation)
+  /// is filled from ``options.lp_matrix_options``; an explicit field wins
+  /// only when set.  A still-unset `equilibration_method` then takes the
+  /// topology default of `equilibration_method()`.  Applied by
+  /// `SystemLP::create_lp`, so production (`gtopt_lp_runner`), cascade
+  /// levels, aperture systems and directly constructed `PlanningLP` /
+  /// `SystemLP` (unit tests) all build with the same options.
+  [[nodiscard]] auto resolve_lp_matrix_options(
+      LpMatrixOptions explicit_opts) const -> LpMatrixOptions
+  {
+    explicit_opts.fill_unset_from(m_options_.lp_matrix_options);
+    if (!explicit_opts.equilibration_method.has_value()) {
+      explicit_opts.equilibration_method = equilibration_method();
+    }
+    return explicit_opts;
   }
 
   /// Controls error handling for user constraint resolution.
@@ -1058,15 +1133,20 @@ public:
     return m_options_.sddp_options.aperture_seed_basis.value_or(false);
   }
 
-  /// Resolved per-task aperture chunk size (sentinel-encoded).
-  ///
-  ///   *  0 → auto (compute_auto_aperture_chunk_size at SDDPMethod setup).
-  ///   *  1 → legacy 1-task-per-aperture.
-  ///   * >1 → exactly K apertures per task, serial within.
-  ///   * -1 → cap at A_max per phase (single task per scene).
-  ///
-  /// Default: 0 (auto).  See `SddpOptions::aperture_chunk_size` for
-  /// the JSON-facing documentation.
+  /// Aperture task grouping as configured (`nullopt` = not set; the
+  /// default `per_scene` — or the mode implied by the legacy integer
+  /// `aperture_chunk_size` — is resolved at SDDPMethod setup by
+  /// `resolve_aperture_chunk()`).  See `SddpOptions::aperture_chunk_mode`.
+  [[nodiscard]] constexpr auto sddp_aperture_chunk_mode() const noexcept
+      -> std::optional<ApertureChunkMode>
+  {
+    return m_options_.sddp_options.aperture_chunk_mode;
+  }
+
+  /// Apertures per task for `aperture_chunk_mode = chunked` (`0` = unset).
+  /// When the mode is unset the legacy integer encoding still selects it
+  /// (`-1` → per_scene, `1` → per_aperture, `K > 1` → chunked K; `0` →
+  /// default per_scene).  See `SddpOptions::aperture_chunk_size`.
   [[nodiscard]] constexpr auto sddp_aperture_chunk_size() const noexcept
   {
     return m_options_.sddp_options.aperture_chunk_size.value_or(0);
@@ -2067,15 +2147,18 @@ private:
                                  });
     };
 
-    // Inject Bus.theta — scale_theta already follows physical = LP × scale.
-    // Post-§11 (2026-05-17): legacy top-level `opts.scale_theta` removed;
-    // single source is `opts.model_options.scale_theta`.
+    // Inject Bus.theta.  The `scale_theta` OPTION enlarges the angle
+    // (θ_LP = scale_theta · θ_phys; 1000 ⇒ milliradians), so the
+    // VariableScale entry — `physical = LP × scale` like every other
+    // entry — is its reciprocal.  A non-positive value is ignored (1.0).
+    // Post-§11 (2026-05-17): single source is
+    // `opts.model_options.scale_theta`.
     if (!has_entry(Bus::class_name, "theta")) {
       const auto st = opts.model_options.scale_theta.value_or(1.0);
       opts.variable_scales.push_back(VariableScale {
           .class_name {Bus::class_name.full_name()},
           .variable {"theta"},
-          .scale = st,
+          .scale = (st > 0.0) ? 1.0 / st : 1.0,
       });
     }
 

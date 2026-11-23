@@ -10,9 +10,11 @@
  * See cli_options.hpp for the public interface and template definitions.
  */
 
+#include <format>
 #include <iostream>
 #include <ranges>
 #include <span>
+#include <stdexcept>
 
 #include <gtopt/cli_options.hpp>
 
@@ -257,8 +259,21 @@ void command_line_parser::store_value(
 {
   if (def.multi_value) {
     multi[def.long_name].push_back(raw);
-  } else {
+    return;
+  }
+  // The typed value parsers use std::stoi / std::stod, which throw bare
+  // std::invalid_argument("stoi") / std::out_of_range on a malformed
+  // token.  Re-throw as parse_error so `--threads abc` is reported as a
+  // CLI usage error (exit 1, option table echoed) naming the option,
+  // instead of escaping as an internal error ("Exception: stoi", exit 3).
+  try {
     vm[def.long_name].set(def.parser(raw));
+  } catch (const std::invalid_argument&) {
+    throw parse_error(std::format(
+        "invalid value '{}' for option '--{}'", raw, def.long_name));
+  } catch (const std::out_of_range&) {
+    throw parse_error(std::format(
+        "value '{}' out of range for option '--{}'", raw, def.long_name));
   }
 }
 

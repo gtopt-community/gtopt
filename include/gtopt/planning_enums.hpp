@@ -166,8 +166,7 @@ enum class CompressionCodec : uint8_t
   lz4 = 3,  ///< LZ4 compression (fastest in-memory option)
   bzip2 = 4,  ///< bzip2 compression (file I/O only)
   xz = 5,  ///< xz/LZMA compression (file I/O only)
-  snappy =
-      6,  ///< Snappy compression (default for Parquet `output_compression`)
+  snappy = 6,  ///< Snappy compression (fast Parquet `output_compression`)
   brotli = 7,  ///< Brotli compression (Arrow/Parquet only)
   lzo = 8,  ///< LZO compression (Arrow/Parquet only)
   auto_select = 9,  ///< In-memory default: resolves to zstd level 1

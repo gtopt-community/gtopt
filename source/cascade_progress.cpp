@@ -404,16 +404,21 @@ private:
   fs::rename(tmp, path, ec);
   if (ec) {
     // Fall back to copy+remove (e.g. cross-device rename on tmpfs).
-    std::error_code ec2;
-    fs::copy_file(tmp, path, fs::copy_options::overwrite_existing, ec2);
-    fs::remove(tmp, ec2);
-    if (ec2) {
+    // Separate error codes: a successful remove() of the temp file must
+    // not clear a copy_file() failure.
+    std::error_code copy_ec;
+    fs::copy_file(tmp, path, fs::copy_options::overwrite_existing, copy_ec);
+    std::error_code remove_ec;
+    fs::remove(tmp, remove_ec);
+    if (copy_ec) {
       return std::unexpected(Error {
           .code = ErrorCode::FileIOError,
-          .message = std::format("rename('{}' -> '{}') failed: {}",
+          .message = std::format("rename('{}' -> '{}') failed: {}; copy "
+                                 "fallback failed: {}",
                                  tmp,
                                  path.string(),
-                                 ec.message()),
+                                 ec.message(),
+                                 copy_ec.message()),
       });
     }
   }

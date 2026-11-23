@@ -1041,9 +1041,9 @@ TEST_CASE("--set legacy alias: bare scale_objective → model_options")
 TEST_CASE("--set legacy alias: bare scale_theta → model_options")
 {
   Planning planning;
-  REQUIRE(apply_set_options(planning, {"scale_theta=0.001"}));
+  REQUIRE(apply_set_options(planning, {"scale_theta=1000"}));
   CHECK(planning.options.model_options.scale_theta.value_or(-1.0)
-        == doctest::Approx(0.001));
+        == doctest::Approx(1000.0));
 }
 
 TEST_CASE("--set legacy alias: bare use_single_bus → model_options")

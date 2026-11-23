@@ -16,6 +16,12 @@
 
 #pragma once
 
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <variant>
+
 #include <daw/json/daw_json_link.h>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/json/json_basic_types.hpp>
@@ -36,6 +42,48 @@ using OptSolverScaling = std::optional<SolverScaling>;
 using OptInt = std::optional<int>;
 using OptBool = std::optional<bool>;
 
+/// Enum-valued solver option given either by name (`"detailed"`) or by its
+/// legacy numeric code (`1`).  daw::json picks the alternative matching the
+/// JSON token type (number → Int, string → Name).
+using IntOrName = std::variant<gtopt::Int, gtopt::Name>;
+using OptIntOrName = std::optional<IntOrName>;
+using jvtl_IntOrName = json_variant_type_list<json_number_no_name<gtopt::Int>,
+                                              json_string_no_name<gtopt::Name>>;
+
+/// Resolve an @ref IntOrName to enum @p E: a name via `require_enum`, a
+/// number must be the code of a listed enumerator.  Throws
+/// `std::invalid_argument` naming the option and the valid values.
+template<typename E>
+[[nodiscard]] std::optional<E> enum_from_int_or_name(std::string_view option,
+                                                     const OptIntOrName& v)
+{
+  if (!v) {
+    return std::nullopt;
+  }
+  if (const auto* name = std::get_if<gtopt::Name>(&*v)) {
+    return gtopt::require_enum<E>(option, *name);
+  }
+  const auto code = std::get<gtopt::Int>(*v);
+  for (const auto& e : gtopt::enum_entries(E {})) {
+    if (std::cmp_equal(static_cast<int>(e.value), code)) {
+      return e.value;
+    }
+  }
+  // Out of range: report it with the valid names.
+  return gtopt::require_enum<E>(option, std::to_string(code));
+}
+
+/// Serialise an enum option as its numeric code (the historical JSON form,
+/// still read by external tools).
+template<typename E>
+[[nodiscard]] OptIntOrName int_or_name_from_enum(const std::optional<E>& v)
+{
+  if (!v) {
+    return std::nullopt;
+  }
+  return IntOrName {static_cast<gtopt::Int>(*v)};
+}
+
 /// Constructs SolverOptions from nullable JSON fields, applying defaults.
 struct SolverOptionsConstructor
 {
@@ -48,9 +96,9 @@ struct SolverOptionsConstructor
                            OptReal mip_gap,
                            OptReal mip_gap_abs,
                            OptInt log_level,
-                           OptSolverLogMode log_mode,
+                           const OptIntOrName& log_mode_raw,
                            OptReal time_limit,
-                           OptSolverScaling scaling,
+                           const OptIntOrName& scaling_raw,
                            const OptName& crossover_str,
                            OptInt max_fallbacks,
                            OptBool memory_emphasis,
@@ -61,6 +109,10 @@ struct SolverOptionsConstructor
     if (algorithm_str.has_value()) {
       algorithm = gtopt::require_enum<LPAlgo>("algorithm", *algorithm_str);
     }
+    const auto log_mode =
+        enum_from_int_or_name<SolverLogMode>("log_mode", log_mode_raw);
+    const auto scaling =
+        enum_from_int_or_name<SolverScaling>("scaling", scaling_raw);
     CrossoverMode crossover = CrossoverMode::automatic;
     if (crossover_str.has_value()) {
       crossover =
@@ -95,25 +147,26 @@ struct json_data_contract<SolverOptions>
 {
   using constructor_t = SolverOptionsConstructor;
 
-  using type = json_member_list<json_string_null<"algorithm", OptName>,
-                                json_number_null<"threads", OptInt>,
-                                json_bool_null<"presolve", OptBool>,
-                                json_number_null<"optimal_eps", OptReal>,
-                                json_number_null<"feasible_eps", OptReal>,
-                                json_number_null<"barrier_eps", OptReal>,
-                                json_number_null<"mip_gap", OptReal>,
-                                json_number_null<"mip_gap_abs", OptReal>,
-                                json_number_null<"log_level", OptInt>,
-                                json_number_null<"log_mode", OptSolverLogMode>,
-                                json_number_null<"time_limit", OptReal>,
-                                json_number_null<"scaling", OptSolverScaling>,
-                                json_string_null<"crossover", OptName>,
-                                json_number_null<"max_fallbacks", OptInt>,
-                                json_bool_null<"memory_emphasis", OptBool>,
-                                json_string_null<"param_file", OptName>,
-                                json_bool_null<"advanced_basis", OptBool>>;
+  using type = json_member_list<
+      json_string_null<"algorithm", OptName>,
+      json_number_null<"threads", OptInt>,
+      json_bool_null<"presolve", OptBool>,
+      json_number_null<"optimal_eps", OptReal>,
+      json_number_null<"feasible_eps", OptReal>,
+      json_number_null<"barrier_eps", OptReal>,
+      json_number_null<"mip_gap", OptReal>,
+      json_number_null<"mip_gap_abs", OptReal>,
+      json_number_null<"log_level", OptInt>,
+      json_variant_null<"log_mode", OptIntOrName, jvtl_IntOrName>,
+      json_number_null<"time_limit", OptReal>,
+      json_variant_null<"scaling", OptIntOrName, jvtl_IntOrName>,
+      json_string_null<"crossover", OptName>,
+      json_number_null<"max_fallbacks", OptInt>,
+      json_bool_null<"memory_emphasis", OptBool>,
+      json_string_null<"param_file", OptName>,
+      json_bool_null<"advanced_basis", OptBool>>;
 
-  static constexpr auto to_json_data(SolverOptions const& opt)
+  static auto to_json_data(SolverOptions const& opt)
   {
     return std::make_tuple(
         OptName {std::string {gtopt::enum_name(opt.algorithm)}},
@@ -125,9 +178,9 @@ struct json_data_contract<SolverOptions>
         opt.mip_gap,
         opt.mip_gap_abs,
         OptInt {opt.log_level},
-        opt.log_mode,
+        int_or_name_from_enum(opt.log_mode),
         opt.time_limit,
-        opt.scaling,
+        int_or_name_from_enum(opt.scaling),
         OptName {gtopt::enum_name(opt.crossover)},
         OptInt {opt.max_fallbacks},
         opt.memory_emphasis,

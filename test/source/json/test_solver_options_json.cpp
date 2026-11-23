@@ -6,6 +6,8 @@
  *            see LICENSING.md
  */
 
+#include <exception>
+#include <string>
 #include <string_view>
 
 #include <doctest/doctest.h>
@@ -234,3 +236,51 @@ TEST_CASE("SolverOptions JSON max_fallbacks parsing and round-trip")
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
+TEST_CASE("SolverOptions JSON log_mode / scaling accept names or numbers")
+{
+  SUBCASE("names")
+  {
+    const auto o = daw::json::from_json<SolverOptions>(
+        R"({"log_mode": "detailed", "scaling": "aggressive"})");
+    CHECK(o.log_mode.value_or(SolverLogMode::nolog) == SolverLogMode::detailed);
+    CHECK(o.scaling.value_or(SolverScaling::none) == SolverScaling::aggressive);
+  }
+
+  SUBCASE("legacy numeric codes still work")
+  {
+    const auto o =
+        daw::json::from_json<SolverOptions>(R"({"log_mode": 1, "scaling": 0})");
+    CHECK(o.log_mode.value_or(SolverLogMode::nolog) == SolverLogMode::detailed);
+    CHECK(o.scaling.value_or(SolverScaling::automatic) == SolverScaling::none);
+  }
+
+  SUBCASE("written back as numbers (unchanged output format)")
+  {
+    SolverOptions o;
+    o.log_mode = SolverLogMode::detailed;
+    o.scaling = SolverScaling::aggressive;
+    const auto text = daw::json::to_json(o);
+    CHECK(text.contains(R"("log_mode":1)"));
+    CHECK(text.contains(R"("scaling":2)"));
+  }
+
+  SUBCASE("unknown name or code names the option and the valid values")
+  {
+    const auto message = [](std::string_view json) -> std::string
+    {
+      try {
+        (void)daw::json::from_json<SolverOptions>(json);
+      } catch (const std::exception& e) {
+        return e.what();
+      }
+      return {};
+    };
+    const auto bad_name = message(R"({"log_mode": "verbose"})");
+    CHECK(bad_name.contains("log_mode"));
+    CHECK(bad_name.contains("verbose"));
+    CHECK(bad_name.contains("detailed"));
+    const auto bad_code = message(R"({"scaling": 7})");
+    CHECK(bad_code.contains("scaling"));
+    CHECK(bad_code.contains("aggressive"));
+  }
+}

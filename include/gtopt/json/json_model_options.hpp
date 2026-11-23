@@ -11,6 +11,7 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
+#include <gtopt/json/json_fail_segment.hpp>
 #include <gtopt/json/json_field_sched.hpp>
 #include <gtopt/model_options.hpp>
 
@@ -29,6 +30,7 @@ struct json_data_contract<ModelOptions>
       json_string_null<"line_losses_mode", OptName>,
       json_number_null<"kirchhoff_threshold", OptReal>,
       json_number_null<"dc_line_reactance_threshold", OptReal>,
+      json_string_null<"tiny_reactance_mode", OptName>,
       json_number_null<"dc_line_resistance_threshold", OptReal>,
       json_number_null<"loss_segments", OptInt>,
       json_number_null<"scale_objective", OptReal>,
@@ -40,6 +42,9 @@ struct json_data_contract<ModelOptions>
       json_number_null<"theta_max", OptReal>,
       json_bool_null<"auto_scale", OptBool>,
       json_number_null<"demand_fail_cost", OptReal>,
+      json_array_null<"demand_fail_segments",
+                      std::optional<std::vector<gtopt::ScalarFailSegment>>,
+                      gtopt::ScalarFailSegment>,
       json_number_null<"reserve_shortage_cost", OptReal>,
       json_number_null<"hydro_spill_cost", OptReal>,
       json_number_null<"hydro_use_value", OptReal>,
@@ -51,7 +56,7 @@ struct json_data_contract<ModelOptions>
       json_bool_null<"strict_storage_emin", OptBool>,
       json_bool_null<"lp_reduction", OptBool>,
       json_bool_null<"allow_oversupply", OptBool>,
-      json_number_null<"battery_annual_loss", OptReal>,
+      json_number_null<"battery_annual_standing_loss", OptReal>,
       json_bool_null<"battery_power_envelope", OptBool>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
@@ -63,6 +68,7 @@ struct json_data_contract<ModelOptions>
                                  opt.line_losses_mode,
                                  opt.kirchhoff_threshold,
                                  opt.dc_line_reactance_threshold,
+                                 opt.tiny_reactance_mode,
                                  opt.dc_line_resistance_threshold,
                                  opt.loss_segments,
                                  opt.scale_objective,
@@ -74,6 +80,7 @@ struct json_data_contract<ModelOptions>
                                  opt.theta_max,
                                  opt.auto_scale,
                                  opt.demand_fail_cost,
+                                 opt.demand_fail_segments,
                                  opt.reserve_shortage_cost,
                                  opt.hydro_spill_cost,
                                  opt.hydro_use_value,
@@ -85,7 +92,7 @@ struct json_data_contract<ModelOptions>
                                  opt.strict_storage_emin,
                                  opt.lp_reduction,
                                  opt.allow_oversupply,
-                                 opt.battery_annual_loss,
+                                 opt.battery_annual_standing_loss,
                                  opt.battery_power_envelope);
   }
 };

@@ -4,6 +4,7 @@
  */
 
 #include <cstdlib>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -189,8 +190,10 @@ std::optional<std::filesystem::path> find_units_file()
 {
   namespace fs = std::filesystem;
 
-  // 1. Environment override.
-  if (const char* env = std::getenv("GTOPT_UNIT_DIALECTS_FILE"); env != nullptr)
+  // Only an explicit override is ever read from disk; the default is
+  // the copy compiled into this binary (see `find_names_file()`).
+  if (const char* env = std::getenv("GTOPT_UNIT_DIALECTS_FILE");
+      env != nullptr && *env != '\0')
   {
     fs::path p {env};
     if (fs::exists(p)) {
@@ -198,60 +201,63 @@ std::optional<std::filesystem::path> find_units_file()
     }
     spdlog::warn(
         "unit_registry: $GTOPT_UNIT_DIALECTS_FILE='{}' set but path does "
-        "not exist; falling back to default search",
+        "not exist; using the compiled-in dictionary",
         env);
   }
-
-  // 2. Absolute install path baked at configure time.
-  if (!kInstalledUnitsFilePath.empty()) {
-    fs::path p {std::string {kInstalledUnitsFilePath}};
-    if (fs::exists(p)) {
-      return p;
-    }
-  }
-
-  // 3. In-tree source path (development / out-of-source builds).
-  if (!kSourceUnitsFilePath.empty()) {
-    fs::path p {std::string {kSourceUnitsFilePath}};
-    if (fs::exists(p)) {
-      return p;
-    }
-  }
-
-  // 4. Caller should fall back to compiled-in JSON.
   return std::nullopt;
+}
+
+UnitRegistry load_unit_registry()
+{
+  std::optional<UnitRegistry> builtin;
+  try {
+    builtin.emplace(kBuiltinUnitsJson);
+  } catch (const std::exception& ex) {
+    spdlog::error("unit_registry: compiled-in dictionary failed to parse: {}",
+                  ex.what());
+  }
+
+  if (const auto path = find_units_file(); path.has_value()) {
+    try {
+      UnitRegistry r {*path};
+      spdlog::info(
+          "unit_registry: loaded override '{}' ($GTOPT_UNIT_DIALECTS_FILE, "
+          "{} entries)",
+          path->string(),
+          r.size());
+      if (builtin.has_value() && r.size() < builtin->size()) {
+        spdlog::warn(
+            "unit_registry: override '{}' has {} entries, fewer than the "
+            "{} of this binary's dictionary — probably a stale copy; unset "
+            "$GTOPT_UNIT_DIALECTS_FILE to use the compiled-in one",
+            path->string(),
+            r.size(),
+            builtin->size());
+      }
+      return r;
+    } catch (const std::exception& ex) {
+      spdlog::warn(
+          "unit_registry: failed to load '{}': {} — using the compiled-in "
+          "dictionary",
+          path->string(),
+          ex.what());
+    }
+  }
+
+  if (builtin.has_value()) {
+    spdlog::debug("unit_registry: using the compiled-in dictionary");
+    return std::move(*builtin);
+  }
+  // Empty registry: every unit_for() returns nullopt and no
+  // unit-driven behaviour fires (graceful degradation to the
+  // pre-feature behaviour).
+  spdlog::error("unit_registry: disabling unit-aware diagnostics");
+  return UnitRegistry {std::string_view {R"({"version": 1, "units": []})"}};
 }
 
 const UnitRegistry& UnitRegistry::instance()
 {
-  static const UnitRegistry registry = []() -> UnitRegistry
-  {
-    if (const auto path = find_units_file(); path.has_value()) {
-      try {
-        UnitRegistry r {*path};
-        spdlog::debug("unit_registry: loaded from '{}'", path->string());
-        return r;
-      } catch (const std::exception& ex) {
-        spdlog::warn(
-            "unit_registry: failed to load '{}': {} — using "
-            "compiled-in fallback",
-            path->string(),
-            ex.what());
-      }
-    }
-    try {
-      return UnitRegistry {kBuiltinUnitsJson};
-    } catch (const std::exception& ex) {
-      spdlog::error(
-          "unit_registry: compiled-in fallback also failed to parse: {} "
-          "— disabling unit-aware diagnostics",
-          ex.what());
-      // Empty registry: every unit_for() returns nullopt and no
-      // unit-driven behaviour fires (graceful degradation to the
-      // pre-feature behaviour).
-      return UnitRegistry {std::string_view {R"({"version": 1, "units": []})"}};
-    }
-  }();
+  static const UnitRegistry registry = load_unit_registry();
   return registry;
 }
 
