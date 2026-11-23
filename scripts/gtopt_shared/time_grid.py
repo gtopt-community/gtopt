@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Hourly time-grid helpers shared by time-series converters.
 
 Converters that turn an hourly series (load, renewable availability, …)

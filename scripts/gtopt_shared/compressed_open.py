@@ -20,15 +20,20 @@ Supported compression formats:
 """
 
 import bz2
+import glob
 import gzip
 import io
 import lzma
+import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import IO, cast
 
 # Probe order: most common first.
 _EXTENSIONS = (".xz", ".gz", ".zst", ".lz4", ".bz2")
+
+# Split-part suffix after ``<name>.``: part number + optional codec ext.
+_SPLIT_SUFFIX_RE = re.compile(r"(\d+)((?:\.[A-Za-z0-9]+)?)")
 
 # Number of threads for parallel decompression of split files.
 _DECOMPRESS_THREADS = 4
@@ -87,40 +92,28 @@ _OPENER = {
 def _find_split_parts(path: Path) -> list[Path] | None:
     """Find numbered split parts for *path*.
 
-    Looks for ``path.1``, ``path.2``, … (plain) or
-    ``path.1.xz``, ``path.2.xz``, … (compressed, any supported codec).
-    Returns the sorted list of part paths, or ``None`` if no parts found.
-    All parts must use the same compression extension (or none).
+    Looks for ``path.1``, ``path.2``, … (plain) and ``path.1.xz``,
+    ``path.2.gz``, … (compressed, any supported codec).  Plain and
+    compressed parts may coexist: each part number is resolved
+    independently, preferring the plain file and then the codecs in
+    ``_EXTENSIONS`` probe order.  Names that are not exactly
+    ``<name>.<N>`` or ``<name>.<N><ext>`` are ignored.  Returns the parts
+    sorted by part number, or ``None`` if there is no part ``1``.
     """
     parent = path.parent
     name = path.name
-
-    # Try plain splits first: foo.dat.1, foo.dat.2, …
-    plain_1 = parent / f"{name}.1"
-    if plain_1.exists():
-        parts = sorted(
-            parent.glob(f"{name}.[0-9]*"),
-            key=lambda p: int(p.suffix.lstrip(".")),
-        )
-        if parts:
-            return parts
-
-    # Try compressed splits: foo.dat.1.xz, foo.dat.2.gz, …
-    for ext in _EXTENSIONS:
-        part_1 = parent / f"{name}.1{ext}"
-        if part_1.exists():
-
-            def _sort_key(p: Path, _ext: str = ext) -> int:
-                return int(p.name.removeprefix(f"{name}.").removesuffix(_ext))
-
-            parts = sorted(
-                parent.glob(f"{name}.[0-9]*{ext}"),
-                key=_sort_key,
-            )
-            if parts:
-                return parts
-
-    return None
+    rank = {"": 0} | {ext: i + 1 for i, ext in enumerate(_EXTENSIONS)}
+    best: dict[int, tuple[int, Path]] = {}
+    for p in parent.glob(f"{glob.escape(name)}.[0-9]*"):
+        m = _SPLIT_SUFFIX_RE.fullmatch(p.name[len(name) + 1 :])
+        if m is None or m.group(2) not in rank:
+            continue
+        num, r = int(m.group(1)), rank[m.group(2)]
+        if num not in best or r < best[num][0]:
+            best[num] = (r, p)
+    if 1 not in best:
+        return None
+    return [best[n][1] for n in sorted(best)]
 
 
 def _decompress_part(path: Path) -> bytes:

@@ -395,6 +395,14 @@ add_pytest_unit_test(
   FIXTURE_REQUIRED scripts-deps
 )
 
+# Public-CLI smoke suite: --help + offline e2e case for EVERY console
+# script in [project.scripts] (scripts/tests/test_public_cli.py).
+add_pytest_unit_test(
+  scripts-public-cli-unit
+  DIR      "${SCRIPTS_DIR}/tests"
+  FIXTURE_REQUIRED scripts-deps
+)
+
 # ── Consolidated unit-test runner ────────────────────────────────────────
 #
 # `scripts-all-unit` runs every package's unit tests in a SINGLE pytest
@@ -507,6 +515,26 @@ if(TARGET gtoptStandalone)
   )
 elseif(DEFINED GTOPT_BINARY_PATH AND GTOPT_BINARY_PATH)
   set_tests_properties(${_igtopt_int_tests} PROPERTIES
+    ENVIRONMENT "GTOPT_BIN=${GTOPT_BINARY_PATH}"
+  )
+endif()
+
+# ---- Public-CLI round trips (tool -> gtopt solve) ----
+# The needs_gtopt cases of scripts/tests/test_public_cli.py; they skip
+# cleanly when no gtopt binary is found.
+add_pytest_integration_test(
+  scripts-public-cli-e2e
+  FILE     "${SCRIPTS_DIR}/tests/test_public_cli.py"
+  KEYWORD  "with_gtopt"
+  FIXTURE_REQUIRED scripts-deps
+  COST 40
+)
+if(TARGET gtoptStandalone)
+  set_tests_properties(scripts-public-cli-e2e PROPERTIES
+    ENVIRONMENT "GTOPT_BIN=$<TARGET_FILE:gtoptStandalone>"
+  )
+elseif(DEFINED GTOPT_BINARY_PATH AND GTOPT_BINARY_PATH)
+  set_tests_properties(scripts-public-cli-e2e PROPERTIES
     ENVIRONMENT "GTOPT_BIN=${GTOPT_BINARY_PATH}"
   )
 endif()

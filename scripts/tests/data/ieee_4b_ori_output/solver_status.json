@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "gtopt_version": "1.1.0",
+  "gtopt_revision": "930147b1cbff",
+  "status": "done",
+  "method": "monolithic",
+  "solver": "highs/1.15.0",
+  "elapsed_s": 0.002,
+  "total_scenes": 1,
+  "scenes_done": 1,
+  "scene_times": [0.0009],
+  "realtime": {
+    "timestamps": [0.001],
+    "cpu_loads": [50.0],
+    "active_workers": [0],
+    "memory_percent": [14.5],
+    "process_rss_mb": [48],
+    "available_memory_mb": [216506]
+  }
+}

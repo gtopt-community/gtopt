@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Machine-readable snapshot of gtopt's C++ JSON input contract.
 
 The C++ source of truth for every JSON key gtopt accepts is the set of

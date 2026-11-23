@@ -196,7 +196,9 @@
   "VolMin",
   "Voltage",
   "Wheeling Charge",
+  "annual_loss",
   "auction_volume",
+  "battery_annual_loss",
   "capital_cost",
   "capture_cost",
   "capture_rate",
@@ -207,6 +209,8 @@
   "curtailment_cost",
   "cyclic_state_of_charge",
   "cyclic_storage",
+  "deficit_segments",
+  "deficit_segments_global",
   "demand_option_c",
   "derating_rate",
   "efficiency_charge",
@@ -214,6 +218,7 @@
   "eta",
   "expansion_capacity",
   "expansion_modules",
+  "falla_segments",
   "final_soc",
   "free_allocation",
   "gwp",
@@ -281,6 +286,8 @@
   "vmin",
   "vn_kv",
   "voll_cost",
+  "voll_curve",
+  "voll_segments",
   "weekly_offtake_cap",
   "ww",
   "x"
@@ -294,7 +301,7 @@
     "active",
     "type",
     "emission",
-    "annual_loss",
+    "annual_standing_loss",
     "emin",
     "emax",
     "ecost",
@@ -321,7 +328,7 @@
     "active": "variant",
     "annual_capcost": "variant",
     "annual_derating": "variant",
-    "annual_loss": "variant",
+    "annual_standing_loss": "variant",
     "auction_cap": "variant",
     "auction_price": "variant",
     "capacity": "variant",
@@ -370,7 +377,7 @@
     "ammonia_node",
     "input_efficiency",
     "output_efficiency",
-    "annual_loss",
+    "annual_standing_loss",
     "emin",
     "emax",
     "ecost",
@@ -395,7 +402,7 @@
     "ammonia_node": "variant",
     "annual_capcost": "variant",
     "annual_derating": "variant",
-    "annual_loss": "variant",
+    "annual_standing_loss": "variant",
     "capacity": "variant",
     "capmax": "variant",
     "daily_cycle": "bool",
@@ -448,7 +455,7 @@
     "source_generator",
     "input_efficiency",
     "output_efficiency",
-    "annual_loss",
+    "annual_standing_loss",
     "emin",
     "emax",
     "ecost",
@@ -489,7 +496,7 @@
     "active": "variant",
     "annual_capcost": "variant",
     "annual_derating": "variant",
-    "annual_loss": "variant",
+    "annual_standing_loss": "variant",
     "bus": "variant",
     "capacity": "variant",
     "capmax": "variant",
@@ -671,6 +678,7 @@
     "num_apertures",
     "aperture_selection_mode",
     "aperture_solve_mode",
+    "aperture_chunk_mode",
     "aperture_chunk_size",
     "aperture_screen_count",
     "aperture_seed_basis",
@@ -683,6 +691,7 @@
    ],
    "header": "json_cascade_options.hpp",
    "kinds": {
+    "aperture_chunk_mode": "string",
     "aperture_chunk_size": "number",
     "aperture_screen_count": "number",
     "aperture_seed_basis": "bool",
@@ -913,6 +922,7 @@
     "lmin",
     "lossfactor",
     "fcost",
+    "fail_segments",
     "forced",
     "emin",
     "ecost",
@@ -937,6 +947,7 @@
     "emin": "variant",
     "expcap": "variant",
     "expmod": "variant",
+    "fail_segments": "array",
     "fcost": "variant",
     "forced": "bool",
     "integer_expmod": "bool",
@@ -947,7 +958,9 @@
     "type": "string",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {
+    "fail_segments": "FailSegment"
+   }
   },
   "DemandAttrs": {
    "fields": [
@@ -958,6 +971,7 @@
     "lmin",
     "lossfactor",
     "fcost",
+    "fail_segments",
     "forced",
     "emin",
     "ecost",
@@ -981,6 +995,7 @@
     "emin": "variant",
     "expcap": "variant",
     "expmod": "variant",
+    "fail_segments": "array",
     "fcost": "variant",
     "forced": "bool",
     "integer_expmod": "bool",
@@ -989,7 +1004,9 @@
     "lossfactor": "variant",
     "type": "string"
    },
-   "nested": {}
+   "nested": {
+    "fail_segments": "FailSegment"
+   }
   },
   "DemandProfile": {
    "fields": [
@@ -1109,6 +1126,18 @@
    },
    "nested": {}
   },
+  "FailSegment": {
+   "fields": [
+    "fraction",
+    "cost"
+   ],
+   "header": "json_fail_segment.hpp",
+   "kinds": {
+    "cost": "variant",
+    "fraction": "number"
+   },
+   "nested": {}
+  },
   "Flow": {
    "fields": [
     "uid",
@@ -1158,7 +1187,9 @@
     "priority",
     "bound_rule",
     "junction_b",
+    "use_bypass",
     "bypass_cost",
+    "bypass_fmax",
     "consumptive"
    ],
    "header": "json_flow_right.hpp",
@@ -1166,6 +1197,7 @@
     "active": "variant",
     "bound_rule": "class",
     "bypass_cost": "number",
+    "bypass_fmax": "number",
     "consumptive": "bool",
     "direction": "number",
     "discharge": "variant",
@@ -1181,6 +1213,7 @@
     "target": "variant",
     "uid": "number",
     "use_average": "bool",
+    "use_bypass": "bool",
     "uvalue": "variant"
    },
    "nested": {
@@ -1485,7 +1518,7 @@
     "hydrogen_node",
     "input_efficiency",
     "output_efficiency",
-    "annual_loss",
+    "annual_standing_loss",
     "emin",
     "emax",
     "ecost",
@@ -1509,7 +1542,7 @@
     "active": "variant",
     "annual_capcost": "variant",
     "annual_derating": "variant",
-    "annual_loss": "variant",
+    "annual_standing_loss": "variant",
     "capacity": "variant",
     "capmax": "variant",
     "daily_cycle": "bool",
@@ -1791,7 +1824,7 @@
     "eini",
     "efin",
     "efin_cost",
-    "annual_loss",
+    "annual_standing_loss",
     "sendout_max",
     "sendout_min",
     "delivery",
@@ -1808,7 +1841,7 @@
    "header": "json_lng_terminal.hpp",
    "kinds": {
     "active": "variant",
-    "annual_loss": "variant",
+    "annual_standing_loss": "variant",
     "delivery": "variant",
     "ecost": "variant",
     "efin": "number",
@@ -1842,7 +1875,8 @@
     "ruiz_max_iterations",
     "ruiz_tolerance",
     "compute_stats",
-    "validation"
+    "validation",
+    "solver_name"
    ],
    "header": "json_lp_matrix_options.hpp",
    "kinds": {
@@ -1852,6 +1886,7 @@
     "lp_coeff_ratio_threshold": "number",
     "ruiz_max_iterations": "number",
     "ruiz_tolerance": "number",
+    "solver_name": "string",
     "validation": "class"
    },
    "nested": {
@@ -2207,6 +2242,7 @@
     "line_losses_mode",
     "kirchhoff_threshold",
     "dc_line_reactance_threshold",
+    "tiny_reactance_mode",
     "dc_line_resistance_threshold",
     "loss_segments",
     "scale_objective",
@@ -2218,6 +2254,7 @@
     "theta_max",
     "auto_scale",
     "demand_fail_cost",
+    "demand_fail_segments",
     "reserve_shortage_cost",
     "hydro_spill_cost",
     "hydro_use_value",
@@ -2229,20 +2266,21 @@
     "strict_storage_emin",
     "lp_reduction",
     "allow_oversupply",
-    "battery_annual_loss",
+    "battery_annual_standing_loss",
     "battery_power_envelope"
    ],
    "header": "json_model_options.hpp",
    "kinds": {
     "allow_oversupply": "bool",
     "auto_scale": "bool",
-    "battery_annual_loss": "number",
+    "battery_annual_standing_loss": "number",
     "battery_power_envelope": "bool",
     "continuous_phases": "string",
     "dc_line_reactance_threshold": "number",
     "dc_line_resistance_threshold": "number",
     "demand_fail_cost": "number",
     "demand_fail_rhs_shift": "bool",
+    "demand_fail_segments": "array",
     "hydro_spill_cost": "number",
     "hydro_use_value": "number",
     "kirchhoff_mode": "string",
@@ -2262,11 +2300,14 @@
     "state_violation_cost": "number",
     "strict_storage_emin": "bool",
     "theta_max": "number",
+    "tiny_reactance_mode": "string",
     "use_kirchhoff": "bool",
     "use_line_losses": "bool",
     "use_single_bus": "bool"
    },
-   "nested": {}
+   "nested": {
+    "demand_fail_segments": "ScalarFailSegment"
+   }
   },
   "MonolithicOptions": {
    "fields": [
@@ -2562,7 +2603,7 @@
     "spillway_capacity",
     "spillway_cost",
     "capacity",
-    "annual_loss",
+    "annual_standing_loss",
     "emin",
     "emax",
     "ecost",
@@ -2585,7 +2626,7 @@
    "header": "json_reservoir.hpp",
    "kinds": {
     "active": "variant",
-    "annual_loss": "variant",
+    "annual_standing_loss": "variant",
     "capacity": "variant",
     "daily_cycle": "bool",
     "description": "string",
@@ -2756,6 +2797,18 @@
    },
    "nested": {}
   },
+  "ScalarFailSegment": {
+   "fields": [
+    "fraction",
+    "cost"
+   ],
+   "header": "json_fail_segment.hpp",
+   "kinds": {
+    "cost": "number",
+    "fraction": "number"
+   },
+   "nested": {}
+  },
   "Scenario": {
    "fields": [
     "uid",
@@ -2824,6 +2877,7 @@
     "lp_debug_passes",
     "aperture_use_manual_clone",
     "aperture_drop_fcuts",
+    "aperture_chunk_mode",
     "aperture_chunk_size",
     "aperture_solve_mode",
     "aperture_screen_count",
@@ -2870,6 +2924,7 @@
    "header": "json_sddp_options.hpp",
    "kinds": {
     "alpha_min": "number",
+    "aperture_chunk_mode": "string",
     "aperture_chunk_size": "number",
     "aperture_directory": "string",
     "aperture_drop_fcuts": "bool",
@@ -3041,7 +3096,7 @@
     "crossover": "string",
     "feasible_eps": "number",
     "log_level": "number",
-    "log_mode": "number",
+    "log_mode": "variant",
     "max_fallbacks": "number",
     "memory_emphasis": "bool",
     "mip_gap": "number",
@@ -3049,7 +3104,7 @@
     "optimal_eps": "number",
     "param_file": "string",
     "presolve": "bool",
-    "scaling": "number",
+    "scaling": "variant",
     "threads": "number",
     "time_limit": "number"
    },
@@ -3260,7 +3315,7 @@
     "thermal_node",
     "input_efficiency",
     "output_efficiency",
-    "annual_loss",
+    "annual_standing_loss",
     "emin",
     "emax",
     "ecost",
@@ -3284,7 +3339,7 @@
     "active": "variant",
     "annual_capcost": "variant",
     "annual_derating": "variant",
-    "annual_loss": "variant",
+    "annual_standing_loss": "variant",
     "capacity": "variant",
     "capmax": "variant",
     "daily_cycle": "bool",
@@ -3467,7 +3522,7 @@
     "forfeit",
     "flow_conversion_rate",
     "use_state_variable",
-    "annual_loss",
+    "annual_standing_loss",
     "reset_month",
     "reset_monthly",
     "reset_value",
@@ -3478,7 +3533,7 @@
    "header": "json_volume_right.hpp",
    "kinds": {
     "active": "variant",
-    "annual_loss": "variant",
+    "annual_standing_loss": "variant",
     "bound_rule": "class",
     "demand": "variant",
     "direction": "number",

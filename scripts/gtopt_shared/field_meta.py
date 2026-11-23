@@ -220,7 +220,8 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "reactance",
             _J_SCHED,
             False,
-            "Series reactance [p.u.] (required for Kirchhoff DC OPF)",
+            "Series reactance [p.u.] (Kirchhoff DC OPF); omit for a DC/HVDC"
+            " link (no KVL); 0 or tiny = zero-impedance tie (equal angles)",
             None,
         ),
         (
@@ -967,6 +968,18 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "fail_segments",
+            "JSON array",
+            False,
+            "Stepwise failure (VoLL) curve: JSON array of {fraction [p.u. of "
+            "lmax], cost [$/MWh, scalar|per-stage array|filename]} objects in "
+            "curtailment order; the last fraction may be omitted (open "
+            "residual).  Takes precedence over fcost.  Example: "
+            '[{"fraction":0.05,"cost":492.4},{"fraction":0.05,"cost":541.7},'
+            '{"fraction":0.1,"cost":648.6},{"cost":742.1}]',
+            None,
+        ),
+        (
             "forced",
             _J_BOOL,
             False,
@@ -1091,7 +1104,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             0.95,
         ),
         (
-            "annual_loss",
+            "annual_standing_loss",
             _J_SCHED,
             False,
             "Annual self-discharge loss factor [p.u./year]",
@@ -1403,7 +1416,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         ("ecost", _J_SCHED, False, "Holding cost [$/m³]", None),
-        ("annual_loss", _J_SCHED, False, "Boil-off gas rate [p.u./year]", 0.001),
+        (
+            "annual_standing_loss",
+            _J_SCHED,
+            False,
+            "Boil-off gas rate [p.u./year]",
+            0.001,
+        ),
         ("sendout_max", _J_NUM, False, "Max regasification rate [m³/h]", None),
         ("sendout_min", _J_NUM, False, "Min regasification rate [m³/h]", None),
         ("delivery", _J_SCHED, False, "Scheduled LNG delivery [m³/stage]", None),
@@ -1483,7 +1502,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Discharging efficiency [p.u.] per-(stage, block)",
             0.98,
         ),
-        ("annual_loss", _J_SCHED, False, "TES self-discharge [p.u./year]", 0.05),
+        (
+            "annual_standing_loss",
+            _J_SCHED,
+            False,
+            "TES self-discharge [p.u./year]",
+            0.05,
+        ),
         ("emin", _J_SCHED, False, "Minimum thermal SoC [MWh_th]", 0),
         ("emax", _J_SCHED, False, "Maximum thermal SoC [MWh_th]", 1500),
         ("ecost", _J_SCHED, False, "Holding cost [$/MWh_th]", None),
@@ -1553,7 +1578,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         ("output_efficiency", _J_SCHED, False, "Withdrawal efficiency [p.u.]", 0.99),
         (
-            "annual_loss",
+            "annual_standing_loss",
             _J_SCHED,
             False,
             "Self-discharge [p.u./year] (salt cavern ≈ 0.01; LH₂ ≈ 0.18)",
@@ -1653,7 +1678,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("input_efficiency", _J_SCHED, False, "Charging efficiency [p.u.]", None),
         ("output_efficiency", _J_SCHED, False, "Withdrawal efficiency [p.u.]", None),
         (
-            "annual_loss",
+            "annual_standing_loss",
             _J_SCHED,
             False,
             "Boil-off [p.u./year] (refrigerated NH₃ ≈ 0.025)",
@@ -1767,7 +1792,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         ("emission", _J_ID, False, 'FK into emission_array (typically "co2")', "co2"),
         (
-            "annual_loss",
+            "annual_standing_loss",
             _J_SCHED,
             False,
             "Allowance-decay rate [p.u./year] (e.g. EU ETS MSR ≈ 0.12 above "
@@ -2309,7 +2334,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         ("capacity", _J_SCHED, False, "Reservoir storage capacity [hm³]", None),
         (
-            "annual_loss",
+            "annual_standing_loss",
             _J_SCHED,
             False,
             "Annual evaporation/seepage loss factor [p.u./year]",
@@ -2823,10 +2848,25 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "use_bypass",
+            _J_BOOL,
+            False,
+            "Opt-in pass-through bypass arc junction_a -> junction_b "
+            "(reported as bypass_sol).",
+            None,
+        ),
+        (
             "bypass_cost",
             _J_NUM,
             False,
             "Per-unit cost on the bypass column ($/m³/s·h).",
+            None,
+        ),
+        (
+            "bypass_fmax",
+            _J_NUM,
+            False,
+            "Upper bound on the bypass column [m³/s] (unset = unbounded).",
             None,
         ),
         (
@@ -2987,7 +3027,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
-            "annual_loss",
+            "annual_standing_loss",
             _J_SCHED,
             False,
             "Annual fractional loss [p.u./year], stage-schedulable.",

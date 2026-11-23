@@ -55,6 +55,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "save_aperture_lp",
         "aperture_use_manual_clone",
         "aperture_drop_fcuts",
+        "aperture_chunk_mode",
         "aperture_chunk_size",
         "aperture_solve_mode",
         "aperture_screen_count",
@@ -168,6 +169,7 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "scale_objective",
         "scale_theta",
         "demand_fail_cost",
+        "demand_fail_segments",
         "reserve_shortage_cost",  # renamed from reserve_fail_cost per §11.10
         "reserve_fail_cost",  # legacy alias (gtopt-legacy dialect)
         "hydro_spill_cost",  # renamed from hydro_fail_cost per §11.10
@@ -178,6 +180,7 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "kirchhoff_mode",
         "line_losses_mode",
         "dc_line_reactance_threshold",
+        "tiny_reactance_mode",
         "dc_line_resistance_threshold",
         "scale_loss_link",
         "loss_cost_eps",
@@ -191,7 +194,8 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "strict_storage_emin",
         "lp_reduction",
         "allow_oversupply",
-        "battery_annual_loss",
+        "battery_annual_standing_loss",
+        "battery_annual_loss",  # legacy alias (gtopt-legacy dialect)
         "battery_power_envelope",
     }
 )
@@ -245,10 +249,12 @@ INTENTIONAL_OPTION_KEY_OVERLAPS: frozenset[str] = frozenset(
 # Each entry has a canonical C++ counterpart in the SAME partition:
 #   reserve_fail_cost → reserve_shortage_cost  (model)
 #   hydro_fail_cost   → hydro_spill_cost       (model)
+#   battery_annual_loss → battery_annual_standing_loss  (model)
 LEGACY_OPTION_KEY_ALIASES: frozenset[str] = frozenset(
     {
         "reserve_fail_cost",
         "hydro_fail_cost",
+        "battery_annual_loss",
     }
 )
 

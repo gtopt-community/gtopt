@@ -8,7 +8,9 @@ duplicated implementations.
 """
 
 from gtopt_shared.cli_flags import (
+    APERTURE_CHUNK_MODE_CHOICES,
     LINE_LOSSES_MODE_CHOICES,
+    add_aperture_chunk_mode_argument,
     add_aperture_chunk_size_argument,
     add_common_arguments,
     add_demand_fail_cost_argument,
@@ -49,12 +51,14 @@ from gtopt_shared.pampl_rhs import pampl_rhs_vector
 __all__ = [
     "DEFAULT_EMISSIONS_FILE",
     "DEFAULT_INF_OMIT_KEYS",
+    "APERTURE_CHUNK_MODE_CHOICES",
     "LINE_LOSSES_MODE_CHOICES",
     "EmissionDefaults",
     "EmissionFactor",
     "EmissionReport",
     "PENALTY_TIER_NAMES",
     "SEN_KV_LEVELS",
+    "add_aperture_chunk_mode_argument",
     "add_aperture_chunk_size_argument",
     "add_common_arguments",
     "add_demand_fail_cost_argument",

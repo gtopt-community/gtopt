@@ -504,7 +504,7 @@ def _read_parquet_peaks_by_uid(path: Path) -> dict[int, float] | None:
         return None
     try:
         import pyarrow.parquet as pq  # noqa: PLC0415  pylint: disable=import-outside-toplevel
-    except ImportError:  # pragma: no cover - pyarrow is a hard dep in practice
+    except ImportError:
         logger.warning("reservoir_flow: pyarrow unavailable; cannot read %s", path)
         return None
     try:
@@ -854,12 +854,17 @@ def _piecewise_seepage(segments: list[dict[str, Any]], volume: float) -> float |
     breakpoints, mirroring ``source/reservoir_seepage_lp.cpp``:
     ``q_filt = constant + slope · efin``).
     """
+    # Drop segments without a numeric breakpoint BEFORE sorting: a
+    # non-numeric ``volume`` would make ``sorted`` raise TypeError.
+    valid = [
+        seg
+        for seg in segments
+        if isinstance(seg.get("volume"), (int, float))
+        and not isinstance(seg.get("volume"), bool)
+    ]
     chosen: dict[str, Any] | None = None
-    for seg in sorted(segments, key=lambda s: s.get("volume", 0.0)):
-        bp = seg.get("volume")
-        if not isinstance(bp, (int, float)) or isinstance(bp, bool):
-            continue
-        if chosen is None or bp <= volume:
+    for seg in sorted(valid, key=lambda s: s["volume"]):
+        if chosen is None or seg["volume"] <= volume:
             chosen = seg
     if chosen is None:
         return None
@@ -1065,10 +1070,8 @@ def estimate_reservoir_flow_bounds(  # noqa: PLR0914,PLR0913  pylint: disable=to
     ww_by_name, ww_by_uid = _build_index_maps(waterways)
 
     def jkey(ref: Any) -> str | None:
-        k = _junction_key(ref, name_to_key, uid_to_key)
-        if k is None and isinstance(ref, str):
-            return ref
-        return k
+        # A string ref always resolves (unknown names map to themselves).
+        return _junction_key(ref, name_to_key, uid_to_key)
 
     # ---- per-junction CONDUIT-out capacity (waterways + turbines) --------
     # This deliberately EXCLUDES drains: an unbounded spillway spills OUT

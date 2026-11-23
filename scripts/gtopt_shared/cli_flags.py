@@ -23,17 +23,25 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal
+
+from gtopt_shared.demand_tiers import DEFAULT_TIER_SEGMENTS, TIER_SEGMENT_CHOICES
+
+from gtopt_shared.operator import add_operator_argument
 
 __all__ = [
+    "APERTURE_CHUNK_MODE_CHOICES",
     "DEFAULT_WRITE_OUT",
     "LINE_LOSSES_MODE_CHOICES",
+    "add_aperture_chunk_mode_argument",
     "add_aperture_chunk_size_argument",
     "add_common_arguments",
     "add_demand_fail_cost_argument",
+    "add_demand_tier_segments_argument",
     "add_emissions_arguments",
     "add_lift_line_caps_argument",
     "add_line_losses_mode_argument",
+    "add_operator_argument",
     "add_loss_cost_eps_argument",
     "add_loss_secant_segments_argument",
     "add_scale_objective_argument",
@@ -93,6 +101,16 @@ LINE_LOSSES_MODE_CHOICES: Final[tuple[str, ...]] = (
     "dynamic",
     "piecewise_direct",
     "tangent_signed_flow",
+)
+
+# Mirrors the C++ ``ApertureChunkMode`` enum
+# (``include/gtopt/sddp_enums.hpp``, ``aperture_chunk_mode_entries``):
+#
+#   0 per_scene (default), 1 per_aperture, 2 chunked
+APERTURE_CHUNK_MODE_CHOICES: Final[tuple[str, ...]] = (
+    "per_scene",
+    "per_aperture",
+    "chunked",
 )
 
 
@@ -266,6 +284,29 @@ def add_scale_objective_argument(
     )
 
 
+def add_scale_theta_argument(parser: argparse.ArgumentParser) -> None:
+    """Register ``--scale-theta FACTOR`` (opt-in voltage-angle scale).
+
+    Default ``None``: nothing is emitted and gtopt's C++
+    ``auto_scale_theta`` picks the scale from the median line X/V².  An
+    explicit value is emitted as ``options.model_options.scale_theta``
+    (θ_LP = FACTOR · θ), e.g. ``1000`` for milliradians.
+    """
+    parser.add_argument(
+        "--scale-theta",
+        dest="scale_theta",
+        type=float,
+        metavar="FACTOR",
+        default=None,
+        help=(
+            "voltage-angle scale factor: the LP angle is FACTOR × θ "
+            "(1 = radians, 1000 = milliradians).  Only emitted when "
+            "explicitly set; by default gtopt (C++ auto_scale_theta) "
+            "picks it from the median line X/V²."
+        ),
+    )
+
+
 def add_demand_fail_cost_argument(
     parser: argparse.ArgumentParser,
     *,
@@ -291,6 +332,56 @@ def add_demand_fail_cost_argument(
             if help_text is not None
             else ("cost penalty for demand curtailment in $/MWh (default: %(default)s)")
         ),
+    )
+
+
+#: Per-converter spelling of the deficit-tier flag: each tool keeps its
+#: source model's vocabulary (PLP "falla", PSR SDDP "Costo Deficit").
+_TIER_SEGMENT_DIALECTS: Final[dict[str, tuple[str, str, str]]] = {
+    "plp": (
+        "--falla-segments",
+        "falla_segments",
+        "PLP failure (falla) tiers: 'first' = one demand per bus with "
+        "fcost = cheapest tier; 'all' = native Demand.fail_segments "
+        "curve (fraction = tier share of the demand from plpmance, cost "
+        "= tier cost); 'split' = one '<demand>_falla<k>' demand per tier "
+        "(legacy sibling split) (default: %(default)s)",
+    ),
+    "sddp": (
+        "--deficit-segments",
+        "deficit_segments",
+        "PSR SDDP deficit cost curve (sddp.dat 'Costo Deficit' %% / cost "
+        "pairs): 'first' = one demand per bus with fcost = first segment "
+        "cost; 'all' = native stepwise curve "
+        "(model_options.demand_fail_segments, last segment open); "
+        "'split' = one '<demand>_deficit<k>' demand per segment with "
+        "lmax = segment depth x demand (legacy sibling split) "
+        "(default: %(default)s)",
+    ),
+}
+
+
+def add_demand_tier_segments_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    dialect: Literal["plp", "sddp"],
+    default: str = DEFAULT_TIER_SEGMENTS,
+) -> None:
+    """Register the deficit-tier flag (``--falla-segments`` / ``--deficit-segments``).
+
+    Both flags share choices (:data:`TIER_SEGMENT_CHOICES`), default
+    (``first`` = a single demand priced at the first tier) and the
+    sibling-demand split of :mod:`gtopt_shared.demand_tiers`; only the
+    spelling follows the source model (``dialect="plp"`` →
+    ``--falla-segments``, ``dialect="sddp"`` → ``--deficit-segments``).
+    """
+    flag, dest, help_text = _TIER_SEGMENT_DIALECTS[dialect]
+    parser.add_argument(
+        flag,
+        dest=dest,
+        choices=TIER_SEGMENT_CHOICES,
+        default=default,
+        help=help_text,
     )
 
 
@@ -441,66 +532,40 @@ def add_loss_cost_eps_argument(
     default: float | None = None,
     dialect: str = "plp",
 ) -> None:
-    """Register ``--loss-cost-eps`` (per-direction loss column cost).
+    """Register ``--loss-cost-eps`` (per-MWh cost on the loss columns).
 
-    Two dialects:
+    The default lives in gtopt (C++): ``model_options.loss_cost_eps``
+    unset resolves to 0.1 $/MWh.  Converters therefore keep
+    ``default=None`` (flag not passed -> key not emitted) and emit the
+    value only when given — an explicit ``0`` is emitted too, since it
+    is the only way to disable ε now that the C++ default is non-zero.
 
-    * ``"plp"`` (plp2gtopt): ``default=None`` + ``metavar='EPS'`` —
-      caller decides the default.  ``plp2gtopt._parsers`` passes
-      ``default=0.1`` so PLP-derived runs ship with a strictly
-      degeneracy-breaking value out of the box; pass ``--loss-cost-eps
-      0`` to opt out.
-
-    * ``"plexos"`` (plexos2gtopt): ``default=0.0`` and no metavar —
-      always emitted in the planning JSON, even at the legacy 0.0.
+    Both dialects (``"plp"`` for plp2gtopt, ``"plexos"`` for
+    plexos2gtopt) share the same semantics; the dialect is kept so the
+    help text and the ``metavar`` match each converter's conventions.
 
     Emitted as ``options.model_options.loss_cost_eps``.
     """
-    if dialect == "plp":
-        parser.add_argument(
-            "--loss-cost-eps",
-            dest="loss_cost_eps",
-            type=float,
-            default=default,
-            metavar="EPS",
-            help=(
-                "Small positive cost ($/MWh) stamped on every per-direction "
-                "loss column (loss_p / loss_n) of PWL-loss lines. Strictly "
-                "breaks the pure LP-relax bidirectional-flow degeneracy: "
-                "the LP picks single-direction dispatch among primal-optimal "
-                "solutions sharing the same net flow. Recommended: 1e-6 — "
-                "essentially zero objective impact yet eliminates the "
-                "residual phantom bidirectional flow. Emitted as "
-                "options.model_options.loss_cost_eps. "
-                "(default: not set — GTOpt picks 0.0, legacy behaviour)"
-            ),
-        )
-    elif dialect == "plexos":
-        eff_default = 0.0 if default is None else default
-        parser.add_argument(
-            "--loss-cost-eps",
-            type=float,
-            default=eff_default,
-            help=(
-                "Small positive cost ($/MWh) stamped on every per-direction "
-                "loss column (``loss_p`` / ``loss_n``) of PWL-loss lines.  "
-                "Strictly breaks the pure LP-relax bidirectional-flow "
-                "degeneracy: the LP picks single-direction dispatch among "
-                "primal-optimal solutions sharing the same net flow.  "
-                "Recommended: ``1e-6`` — essentially zero objective impact "
-                "(well below LP optimality tolerance) yet eliminates the "
-                "residual ~1-11%% phantom bidirectional flow that survives "
-                "the ``piecewise → bidirectional`` wrapping.  Default 0.0 "
-                "preserves legacy behaviour.  Emitted as the global "
-                "``options.model_options.loss_cost_eps`` field — every "
-                "PWL/bidirectional line inherits the same ε."
-            ),
-        )
-    else:
+    if dialect not in ("plp", "plexos"):
         raise ValueError(
             f"add_loss_cost_eps_argument: unknown dialect {dialect!r}; "
             "expected 'plp' or 'plexos'"
         )
+    parser.add_argument(
+        "--loss-cost-eps",
+        dest="loss_cost_eps",
+        type=float,
+        default=default,
+        metavar="EPS",
+        help=(
+            "Cost ($/MWh) stamped on the line-loss columns of PWL / "
+            "tangent_signed_flow loss lines.  Breaks the LP-relax "
+            "bidirectional-flow degeneracy and blocks loss arbitrage under "
+            "negative LMPs.  Emitted as options.model_options.loss_cost_eps; "
+            "pass 0 to disable.  "
+            "(default: not set — gtopt picks 0.1 $/MWh)"
+        ),
+    )
 
 
 def add_loss_secant_segments_argument(
@@ -717,16 +782,48 @@ def add_no_lift_lines_argument(
     )
 
 
+def add_aperture_chunk_mode_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: str | None = None,
+) -> None:
+    """Register ``--aperture-chunk-mode`` (SDDP backward aperture grouping).
+
+    Choice list mirrors the C++ ``ApertureChunkMode`` enum
+    (:data:`APERTURE_CHUNK_MODE_CHOICES`).  Emitted as
+    ``options.sddp_options.aperture_chunk_mode``.  ``default=None``
+    leaves the field unset so gtopt picks ``per_scene``.
+    """
+    parser.add_argument(
+        "--aperture-chunk-mode",
+        dest="aperture_chunk_mode",
+        metavar="MODE",
+        default=default,
+        choices=list(APERTURE_CHUNK_MODE_CHOICES),
+        help=(
+            "SDDP backward-pass aperture grouping, emitted as "
+            "options.sddp_options.aperture_chunk_mode. 'per_scene' "
+            "(gtopt default): all apertures of a scene solved in series "
+            "on one LP clone with warm-start reuse (fastest measured; "
+            "parallelism capped at the scene count). 'per_aperture': one "
+            "task per aperture, fresh clone, cold solve. 'chunked': "
+            "--aperture-chunk-size K apertures per task. "
+            "(default: not set — gtopt picks 'per_scene')"
+        ),
+    )
+
+
 def add_aperture_chunk_size_argument(
     parser: argparse.ArgumentParser,
     *,
     default: int | None = None,
 ) -> None:
-    """Register ``--aperture-chunk-size`` (SDDP chunk granularity).
+    """Register ``--aperture-chunk-size`` (K for ``chunked``).
 
-    Emitted as ``options.sddp_options.aperture_chunk_size``.  Integer
-    or ``None`` (auto): 0/unset = auto, 1 = legacy 1-per-task,
-    > 1 = K-per-task, -1 = fully serial per scene.
+    Emitted as ``options.sddp_options.aperture_chunk_size``.  Meaningful
+    with ``--aperture-chunk-mode chunked``; without a mode gtopt still
+    accepts the legacy integer as a (deprecated) mode selector:
+    -1 = per_scene, 1 = per_aperture, K > 1 = chunked K.
     """
     parser.add_argument(
         "--aperture-chunk-size",
@@ -735,13 +832,11 @@ def add_aperture_chunk_size_argument(
         default=default,
         metavar="K",
         help=(
-            "SDDP chunked aperture pass: K apertures solved serially per "
-            "task on a shared LP clone (warm-start reuse). 0/unset = auto "
-            "(currently resolves to 1, empirically fastest under the "
-            "parallel-safe manual-clone path on CEN-IPLP-scale workloads), "
-            "1 = legacy 1-task-per-aperture, > 1 = K per task, "
-            "-1 = fully serial per scene. Emitted as "
-            "options.sddp_options.aperture_chunk_size."
+            "apertures per task for --aperture-chunk-mode chunked "
+            "(0/unset = auto formula). Emitted as "
+            "options.sddp_options.aperture_chunk_size. Deprecated as a "
+            "mode selector without --aperture-chunk-mode: -1 = per_scene, "
+            "1 = per_aperture, K > 1 = chunked K."
         ),
     )
 
@@ -816,7 +911,8 @@ def add_common_arguments(
         Per-flag default overrides keyed by ``dest`` name
         (``scale_objective``, ``demand_fail_cost``, ``use_kirchhoff``,
         ``use_single_bus``, ``line_losses_mode``, ``loss_cost_eps``,
-        ``lift_line_caps``, ``aperture_chunk_size``).
+        ``lift_line_caps``, ``aperture_chunk_mode``,
+        ``aperture_chunk_size``).
     dialects
         Per-flag dialect overrides for the multi-dialect flags
         (``use_single_bus``, ``loss_cost_eps``, ``lift_line_caps``).
@@ -866,6 +962,11 @@ def add_common_arguments(
             parser,
             default=defaults.get("lift_line_caps"),
             dialect=dialects.get("lift_line_caps", "plp"),
+        )
+    if "aperture_chunk_mode" not in skip:
+        add_aperture_chunk_mode_argument(
+            parser,
+            default=defaults.get("aperture_chunk_mode"),
         )
     if "aperture_chunk_size" not in skip:
         add_aperture_chunk_size_argument(

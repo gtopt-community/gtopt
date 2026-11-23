@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """CEN-Chile cogeneration reference list (single loader for all tools).
 
 The bundled CSV ``gtopt_shared/data/cogen/cen_chile_cogen.csv`` carries

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """End-to-end packaging check: build the wheel, install it (non-editable)
 into a throwaway venv and verify every runtime data file is readable.
 

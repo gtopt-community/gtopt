@@ -1031,3 +1031,17 @@ def test_drop_large_reservoir_spillways() -> None:
         sys_prot, caps, 300.0, protected_waterways=frozenset({"Vert_BIG"})
     )
     assert len(sys_prot["waterway_array"]) == 3
+
+
+def test_piecewise_seepage_ignores_non_numeric_breakpoints():
+    """Regression: a segment with a non-numeric ``volume`` used to crash the
+    breakpoint sort (TypeError) instead of being skipped."""
+    from gtopt_shared.reservoir_flow import _piecewise_seepage
+
+    segs = [
+        {"volume": "x", "slope": 1.0, "constant": 0.0},
+        {"volume": 50.0, "slope": 0.2, "constant": -4.0},
+        {"volume": 0.0, "slope": 0.1, "constant": 1.0},
+    ]
+    assert _piecewise_seepage(segs, 60.0) == pytest.approx(8.0)
+    assert _piecewise_seepage(segs, 10.0) == pytest.approx(2.0)

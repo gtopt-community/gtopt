@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Fast checks for bundled package data (gtopt_shared.resources).
 
 The slow end-to-end counterpart, which builds and installs a real wheel,

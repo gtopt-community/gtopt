@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Drift gate: every Python mirror of gtopt's C++ JSON contract.
 
 The C++ ``json_data_contract<T>`` member lists (``include/gtopt/json``)
@@ -225,8 +225,14 @@ _PARTITIONS = (
     ("MONOLITHIC_OPTION_KEYS", "MonolithicOptions", frozenset()),
     ("SOLVER_OPTION_KEYS", "SolverOptions", frozenset()),
     ("MODEL_OPTION_KEYS", "ModelOptions", options_meta.LEGACY_OPTION_KEY_ALIASES),
-    # ``validation`` is a nested JSON-only block.
-    ("LP_MATRIX_OPTION_KEYS", "LpMatrixOptions", frozenset({"validation"})),
+    # ``validation`` is a nested JSON-only block; ``solver_name`` (the solver
+    # pin gtopt records in gtopt_state.json) would clash with the flat
+    # sheet's ``solver_`` -> ``solver_options`` prefix, so it is JSON-only.
+    (
+        "LP_MATRIX_OPTION_KEYS",
+        "LpMatrixOptions",
+        frozenset({"validation", "solver_name"}),
+    ),
 )
 
 

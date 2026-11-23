@@ -12,12 +12,15 @@ covers the path yet.
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 import pytest
 
 from gtopt_shared.cli_flags import (
+    APERTURE_CHUNK_MODE_CHOICES,
     LINE_LOSSES_MODE_CHOICES,
+    add_aperture_chunk_mode_argument,
     add_aperture_chunk_size_argument,
     add_common_arguments,
     add_demand_fail_cost_argument,
@@ -285,11 +288,21 @@ def test_loss_cost_eps_plp_explicit() -> None:
     assert args.loss_cost_eps == 1e-6
 
 
-def test_loss_cost_eps_plexos_default_zero() -> None:
+def test_loss_cost_eps_plexos_default_none() -> None:
+    # The default lives in gtopt (0.1 $/MWh): unset flag -> None.
     parser = _parser()
     add_loss_cost_eps_argument(parser, dialect="plexos")
     args = parser.parse_args([])
-    assert args.loss_cost_eps == 0.0
+    assert args.loss_cost_eps is None
+
+
+def test_loss_cost_eps_explicit_zero_kept() -> None:
+    # An explicit 0 is the only way to disable eps -> must survive.
+    for dialect in ("plp", "plexos"):
+        parser = _parser()
+        add_loss_cost_eps_argument(parser, dialect=dialect)
+        args = parser.parse_args(["--loss-cost-eps", "0"])
+        assert args.loss_cost_eps == 0.0
 
 
 def test_loss_cost_eps_plexos_default_override() -> None:
@@ -374,7 +387,7 @@ def test_aperture_chunk_size_explicit() -> None:
 
 
 def test_aperture_chunk_size_serial_negative() -> None:
-    """-1 = fully serial per scene."""
+    """-1 = legacy per_scene selector (still accepted, gtopt warns)."""
     parser = _parser()
     add_aperture_chunk_size_argument(parser)
     args = parser.parse_args(["--aperture-chunk-size", "-1"])
@@ -386,6 +399,43 @@ def test_aperture_chunk_size_rejects_non_int() -> None:
     add_aperture_chunk_size_argument(parser)
     with pytest.raises(SystemExit):
         parser.parse_args(["--aperture-chunk-size", "auto"])
+
+
+# ---------------------------------------------------------------------------
+# aperture_chunk_mode
+# ---------------------------------------------------------------------------
+
+
+def test_aperture_chunk_mode_choices_mirror_cpp_enum() -> None:
+    """Choices must match ``aperture_chunk_mode_entries`` in sddp_enums.hpp."""
+    header = (
+        Path(__file__).resolve().parents[3] / "include" / "gtopt" / "sddp_enums.hpp"
+    )
+    text = header.read_text(encoding="utf-8")
+    block = text.split("aperture_chunk_mode_entries =", 1)[1].split("});", 1)[0]
+    names = tuple(re.findall(r'\.name = "(\w+)"', block))
+    assert names == APERTURE_CHUNK_MODE_CHOICES
+
+
+def test_aperture_chunk_mode_default_none() -> None:
+    parser = _parser()
+    add_aperture_chunk_mode_argument(parser)
+    assert parser.parse_args([]).aperture_chunk_mode is None
+
+
+@pytest.mark.parametrize("mode", APERTURE_CHUNK_MODE_CHOICES)
+def test_aperture_chunk_mode_accepts_names(mode: str) -> None:
+    parser = _parser()
+    add_aperture_chunk_mode_argument(parser)
+    args = parser.parse_args(["--aperture-chunk-mode", mode])
+    assert args.aperture_chunk_mode == mode
+
+
+def test_aperture_chunk_mode_rejects_unknown() -> None:
+    parser = _parser()
+    add_aperture_chunk_mode_argument(parser)
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--aperture-chunk-mode", "serial"])
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +456,7 @@ def test_add_common_arguments_registers_all_flags() -> None:
         "line_losses_mode",
         "loss_cost_eps",
         "lift_line_caps",
+        "aperture_chunk_mode",
         "aperture_chunk_size",
     ):
         assert hasattr(args, field), f"missing {field}"
@@ -443,7 +494,7 @@ def test_add_common_arguments_plexos_dialects() -> None:
     )
     args = parser.parse_args([])
     assert args.use_single_bus is False  # store_true default
-    assert args.loss_cost_eps == 0.0
+    assert args.loss_cost_eps is None
     from gtopt_shared.cli_flags import DEFAULT_LIFT_LINE_CAPS_PLEXOS
 
     assert args.lift_line_caps == DEFAULT_LIFT_LINE_CAPS_PLEXOS

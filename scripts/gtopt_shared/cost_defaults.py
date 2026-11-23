@@ -44,12 +44,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from gtopt_shared.country import load_country
 
-# Default Chile CNE social cost of carbon (USD per tCO2eq).  Used as
+
+def _default_scc() -> float:
+    scc = load_country("cl").social_carbon_price
+    if scc is None:  # pragma: no cover - cl.toml always defines it
+        raise ValueError("gtopt_shared/data/countries/cl.toml lacks [carbon]")
+    return scc
+
+
+# Default social cost of carbon (USD per tCO2eq): the Chile CNE value,
+# read from ``gtopt_shared/data/countries/cl.toml`` ([carbon]).  Used as
 # the bridge factor for converting $/MWh slack values to tCO2/MWh.
 # Stamped on ``EmissionZone.price`` by the emissions overlay so the
 # LP applies the conversion once at the EmissionZone level.
-DEFAULT_SCC: float = 35.0
+DEFAULT_SCC: float = _default_scc()
 
 
 @dataclass(frozen=True)

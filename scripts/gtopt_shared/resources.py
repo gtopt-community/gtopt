@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Locate non-Python data files bundled inside the gtopt Python packages.
 
 Every runtime data file read by the converters (hard-UC lists, emission
@@ -122,7 +122,15 @@ REQUIRED_DATA_FILES: tuple[tuple[str, str], ...] = (
     ("gtopt_shared", "data/json_contracts.json"),
     ("gtopt_shared", "data/emissions/cen_chile.json"),
     ("gtopt_shared", "data/cogen/cen_chile_cogen.csv"),
+    *(
+        ("gtopt_shared", f"data/countries/{cc}.toml")
+        for cc in ("au", "cl", "co", "gt", "pe")
+    ),
     ("plexos2gtopt", "data/cen_pcp_hard_ucs.txt"),
+    *(
+        ("gtopt_operators", f"{op}/sources.toml")
+        for op in ("cen", "amm", "eor", "coes", "xm", "aemo")
+    ),
     *(("plexos2gtopt", f"solvers/{n}") for n in _SOLVER_PARAM_FILES),
     *(("plp2gtopt", f"solvers/{n}") for n in _SOLVER_PARAM_FILES),
     ("gtopt_expand", "templates/laja.tampl"),
