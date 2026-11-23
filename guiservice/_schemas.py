@@ -207,7 +207,7 @@ ELEMENT_SCHEMAS = {
             {"name": "active", "type": "boolean", "required": False},
             {"name": "input_efficiency", "type": "number_or_file", "required": False},
             {"name": "output_efficiency", "type": "number_or_file", "required": False},
-            {"name": "annual_loss", "type": "number_or_file", "required": False},
+            {"name": "annual_standing_loss", "type": "number_or_file", "required": False},
             {"name": "emin", "type": "number_or_file", "required": False},
             {"name": "emax", "type": "number_or_file", "required": False},
             {"name": "ecost", "type": "number_or_file", "required": False},
@@ -251,6 +251,10 @@ ELEMENT_SCHEMAS = {
             {"name": "name", "type": "string", "required": True},
             {"name": "active", "type": "boolean", "required": False},
             {"name": "drain", "type": "boolean", "required": False},
+            # Drain upper bound [m³/s] (default +inf) and cost
+            # [$/(m³/s·h)] (default 0); both ignored unless ``drain``.
+            {"name": "drain_capacity", "type": "number", "required": False},
+            {"name": "drain_cost", "type": "number", "required": False},
         ],
     },
     "waterway": {
@@ -287,7 +291,7 @@ ELEMENT_SCHEMAS = {
             {"name": "spillway_capacity", "type": "number", "required": False},
             {"name": "spillway_cost", "type": "number", "required": False},
             {"name": "capacity", "type": "number_or_file", "required": False},
-            {"name": "annual_loss", "type": "number_or_file", "required": False},
+            {"name": "annual_standing_loss", "type": "number_or_file", "required": False},
             {"name": "emin", "type": "number_or_file", "required": False},
             {"name": "emax", "type": "number_or_file", "required": False},
             {"name": "ecost", "type": "number_or_file", "required": False},

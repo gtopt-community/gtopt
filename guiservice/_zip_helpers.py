@@ -25,7 +25,7 @@ import os
 import re
 import zipfile
 from base64 import b64decode, b64encode
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pandas as pd
 
@@ -33,15 +33,13 @@ import pandas as pd
 # package (tests, ``from guiservice.app import …`` callers); the bare
 # ``from _schemas`` fallback works when ``app.py`` is launched as a
 # script with ``cwd=guiservice/`` by the ``gtopt_gui`` launcher.
-# The ``TYPE_CHECKING`` guard hides the fallback branch from mypy so the
-# symbol isn't flagged as ``no-redef``.
-if TYPE_CHECKING:
+try:
     from guiservice._schemas import ELEMENT_TO_ARRAY_KEY, nest_model_options
-else:
-    try:
-        from guiservice._schemas import ELEMENT_TO_ARRAY_KEY, nest_model_options
-    except ImportError:
-        from _schemas import ELEMENT_TO_ARRAY_KEY, nest_model_options
+except ImportError:
+    from _schemas import (  # type: ignore[no-redef]
+        ELEMENT_TO_ARRAY_KEY,
+        nest_model_options,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +179,18 @@ def _build_zip(case_data):
     return buf
 
 
+def _data_file_key(name: str, input_dir: str, ext: str) -> str:
+    """Map a ZIP member to its ``data_files`` key.
+
+    Strips the ``input_directory`` prefix (if present) and the extension
+    *ext* (which *name* is known to end with).
+    """
+    rel = name
+    if input_dir and rel.startswith(input_dir + "/"):
+        rel = rel[len(input_dir) + 1 :]
+    return rel[: -len(ext)]
+
+
 def _parse_uploaded_zip(zip_bytes):
     """Parse an uploaded ZIP file into case data structure.
 
@@ -218,14 +228,9 @@ def _parse_uploaded_zip(zip_bytes):
         # Parse data files (CSV and Parquet) into JSON for GUI display;
         # original ZIP bytes are preserved separately for submission.
         for name in zf.namelist():
-            if name.endswith(".csv") and not name.endswith(".json"):
-                rel = name
-                # Strip input_directory prefix if present
-                input_dir = case_data["options"].get("input_directory", "")
-                if input_dir and rel.startswith(input_dir + "/"):
-                    rel = rel[len(input_dir) + 1 :]
-                if rel.endswith(".csv"):
-                    rel = rel[:-4]
+            input_dir = case_data["options"].get("input_directory", "")
+            if name.endswith(".csv"):
+                rel = _data_file_key(name, input_dir, ".csv")
                 try:
                     content = zf.read(name).decode("utf-8")
                     reader = csv.reader(io.StringIO(content))
@@ -239,12 +244,7 @@ def _parse_uploaded_zip(zip_bytes):
                     logger.warning("Failed to parse CSV file %s: %s", name, e)
 
             elif name.endswith(".parquet"):
-                rel = name
-                input_dir = case_data["options"].get("input_directory", "")
-                if input_dir and rel.startswith(input_dir + "/"):
-                    rel = rel[len(input_dir) + 1 :]
-                if rel.endswith(".parquet"):
-                    rel = rel[:-8]
+                rel = _data_file_key(name, input_dir, ".parquet")
                 try:
                     raw_bytes = zf.read(name)
                     df = pd.read_parquet(io.BytesIO(raw_bytes))

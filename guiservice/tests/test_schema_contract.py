@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """GUI schemas vs gtopt's C++ JSON contract.
 
 Reads the contract snapshot generated from ``include/gtopt/json``
@@ -103,3 +103,26 @@ def test_unmapped_arrays_survive_round_trip() -> None:
     assert out["system"]["pump_array"] == planning["system"]["pump_array"]
     assert out["system"]["future_cost_array"][0]["cuts_file"] == "c.csv"
     assert out["options"] == planning["options"]
+
+
+def test_junction_exposes_drain_fields(types: dict) -> None:
+    fields = {f["name"]: f for f in ELEMENT_SCHEMAS["junction"]["fields"]}
+    for name in ("drain_capacity", "drain_cost"):
+        assert name in types["Junction"]["fields"]
+        assert fields[name]["type"] == "number"
+        assert fields[name]["required"] is False
+
+
+def test_junction_drain_fields_round_trip() -> None:
+    junction = {
+        "uid": 1,
+        "name": "sea",
+        "drain": True,
+        "drain_capacity": 250.0,
+        "drain_cost": 0.5,
+    }
+    planning = {"options": {}, "system": {"junction_array": [junction]}}
+    case = _planning_json_to_case_data(planning, "rt")
+    assert case["system"]["junction"][0]["drain_cost"] == 0.5
+    out = _build_case_json(case)
+    assert out["system"]["junction_array"] == [junction]

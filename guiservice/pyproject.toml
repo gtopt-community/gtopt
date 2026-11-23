@@ -50,17 +50,26 @@ pythonpath = ["."]
 # ---------------------------------------------------------------------------
 
 [tool.coverage.run]
+branch = true
 source = ["guiservice"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
 show_missing = true
 precision = 1
+# No `pragma: no cover` entry on purpose (see scripts/pyproject.toml).
 exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
+    "if TYPE_CHECKING:",
     "if __name__ == .__main__.",
 ]
+fail_under = 95
+
+# Gate enforced by tools/check_coverage_per_package.py (guiservice.yml):
+# same policy as scripts/ -- package >= 90 %, total >= 95 %, BRANCH
+# coverage, gaps closed with tests.
+[tool.gtopt.coverage]
+package_min = 90.0
+total_min = 95.0
 
 # ---------------------------------------------------------------------------
 # ruff

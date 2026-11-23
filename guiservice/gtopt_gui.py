@@ -503,8 +503,12 @@ def launch_ui_plus(port, guiservice_url, dev_mode, log_dir):
     return url, proc, handle
 
 
-def main():
-    """Main entry point for gtopt_gui."""
+def main(argv=None):
+    """Main entry point for gtopt_gui.
+
+    Args:
+        argv: Optional argument list (defaults to ``sys.argv[1:]``).
+    """
     parser = argparse.ArgumentParser(
         description="Launch the GTOpt GUI service and open a web browser.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -617,7 +621,7 @@ an external webservice.
         help="Run GUI Plus in `next dev` mode (default: `next start`)",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Validate config file if provided
     config_path = None

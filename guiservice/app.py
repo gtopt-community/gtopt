@@ -19,7 +19,7 @@ import tempfile
 import uuid
 from base64 import b64decode
 from collections import deque
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import pandas as pd
@@ -68,11 +68,7 @@ except ImportError:
 #      discoverable.  Fall back to the bare module names which DO
 #      resolve in that mode.
 # pylint: disable=unused-import,wrong-import-position
-if TYPE_CHECKING:
-    # mypy / IDEs use the package-form import; at runtime we wrap it in
-    # a try/except so the script-mode launcher works too.  Hiding the
-    # fallback branch from the type checker avoids spurious
-    # ``no-redef`` errors on the symbols.
+try:
     from guiservice._schemas import (  # noqa: F401
         ELEMENT_SCHEMAS,
         ELEMENT_TO_ARRAY_KEY,
@@ -87,38 +83,22 @@ if TYPE_CHECKING:
         _sanitize_value,
         unmapped_system_arrays,
     )
-else:
-    try:
-        from guiservice._schemas import (  # noqa: F401
-            ELEMENT_SCHEMAS,
-            ELEMENT_TO_ARRAY_KEY,
-            OPTIONS_SCHEMA,
-        )
-        from guiservice._zip_helpers import (  # noqa: F401
-            _build_case_json,
-            _build_zip,
-            _df_to_rows,
-            _parse_results_zip,
-            _parse_uploaded_zip,
-            _sanitize_value,
-            unmapped_system_arrays,
-        )
-    except ImportError:
-        # Script-mode import (cwd inside guiservice/ — gtopt_gui launcher).
-        from _schemas import (  # noqa: F401
-            ELEMENT_SCHEMAS,
-            ELEMENT_TO_ARRAY_KEY,
-            OPTIONS_SCHEMA,
-        )
-        from _zip_helpers import (  # noqa: F401
-            _build_case_json,
-            _build_zip,
-            _df_to_rows,
-            _parse_results_zip,
-            _parse_uploaded_zip,
-            _sanitize_value,
-            unmapped_system_arrays,
-        )
+except ImportError:
+    # Script-mode import (cwd inside guiservice/ — gtopt_gui launcher).
+    from _schemas import (  # type: ignore[no-redef]  # noqa: F401
+        ELEMENT_SCHEMAS,
+        ELEMENT_TO_ARRAY_KEY,
+        OPTIONS_SCHEMA,
+    )
+    from _zip_helpers import (  # type: ignore[no-redef]  # noqa: F401
+        _build_case_json,
+        _build_zip,
+        _df_to_rows,
+        _parse_results_zip,
+        _parse_uploaded_zip,
+        _sanitize_value,
+        unmapped_system_arrays,
+    )
 # pylint: enable=unused-import,wrong-import-position
 
 app = Flask(__name__)
@@ -541,14 +521,16 @@ def submit_solve():
         return jsonify({"error": "Webservice request timed out"}), 504
     except http_requests.HTTPError as e:
         body = ""
+        status: int | str = "no response"
         if e.response is not None:
+            status = e.response.status_code
             try:
                 body = e.response.json().get("error", e.response.text)
             except Exception:
                 body = e.response.text
         app.logger.warning("Webservice HTTP error on submit: %s", body)
         return (
-            jsonify({"error": f"Webservice error ({e.response.status_code}): {body}"}),
+            jsonify({"error": f"Webservice error ({status}): {body}"}),
             502,
         )
     except Exception:

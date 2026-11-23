@@ -201,3 +201,30 @@ def test_main_exception_exits(tmp_path, capsys):
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
     assert "boom" in captured.err
+
+
+def test_main_non_loopback_host_warns(tmp_path, monkeypatch, capsys):
+    """Binding to 0.0.0.0 warns about missing auth and displays localhost."""
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    mock_app_module = MagicMock()
+
+    with patch("sys.argv", ["gtopt_guisrv", "--host", "0.0.0.0"]):
+        with patch("guiservice.gtopt_guisrv.get_guiservice_dir", return_value=tmp_path):
+            with patch("guiservice.gtopt_guisrv.check_dependencies", return_value=True):
+                with patch.dict("sys.modules", {"app": mock_app_module}):
+                    guisrv.main()
+
+    captured = capsys.readouterr()
+    assert "binding to non-loopback host '0.0.0.0'" in captured.err
+    assert "URL: http://localhost:5001" in captured.out
+    mock_app_module.app.run.assert_called_once_with(host="0.0.0.0", port=5001, debug=False)
+
+
+def test_main_debug_refused_on_non_loopback_host(capsys):
+    """--debug together with a non-loopback host is a usage error."""
+    with patch("sys.argv", ["gtopt_guisrv", "--host", "0.0.0.0", "--debug"]):
+        with pytest.raises(SystemExit) as exc_info:
+            guisrv.main()
+
+    assert exc_info.value.code == 2
+    assert "--debug is refused" in capsys.readouterr().err

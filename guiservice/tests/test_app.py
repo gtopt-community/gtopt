@@ -1747,6 +1747,18 @@ class TestWebserviceProxyErrors:
         )
         assert resp.status_code == 502
 
+    @patch("guiservice.app.http_requests.post")
+    def test_submit_http_error_without_response(self, mock_post, client):
+        """An HTTPError carrying no response still yields a clean 502."""
+        mock_post.side_effect = requests.HTTPError("no response attached")
+        resp = client.post(
+            "/api/solve/submit",
+            data=json.dumps(_sample_case_data()),
+            content_type="application/json",
+        )
+        assert resp.status_code == 502
+        assert resp.get_json()["error"] == "Webservice error (no response): "
+
     @patch("guiservice.app.http_requests.get")
     def test_list_jobs_timeout(self, mock_get, client):
 
