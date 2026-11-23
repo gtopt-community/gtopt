@@ -105,9 +105,17 @@ foreach(_rel ${_shards})
       file(APPEND "${_out}" "${_content}")
       set(_first FALSE)
     else()
-      # Drop the header line of subsequent shards.
-      string(REGEX REPLACE "^[^\n]*\n" "" _content_body "${_content}")
-      file(APPEND "${_out}" "${_content_body}")
+      # Drop the header line of subsequent shards.  Not with
+      # `string(REGEX REPLACE "^[^\n]*\n" ...)`: CMake re-anchors `^` after
+      # each replacement, so that strips EVERY line and the flat file kept
+      # only the first shard's rows (multi-phase SDDP outputs lost phases
+      # 2..N).
+      string(FIND "${_content}" "\n" _nl)
+      if(_nl GREATER_EQUAL 0)
+        math(EXPR _body_start "${_nl} + 1")
+        string(SUBSTRING "${_content}" ${_body_start} -1 _content_body)
+        file(APPEND "${_out}" "${_content_body}")
+      endif()
     endif()
   endforeach()
 endforeach()

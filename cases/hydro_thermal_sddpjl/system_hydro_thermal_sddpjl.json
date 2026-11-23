@@ -83,7 +83,8 @@
         "capacity": 15.0,
         "emin": 5.0,
         "emax": 15.0,
-        "eini": 10.0
+        "eini": 10.0,
+        "flow_conversion_rate": 3.6
       }
     ],
     "flow_array": [

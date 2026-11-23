@@ -17,13 +17,14 @@
       "objective (323100) but a different per-phase split: per-phase",
       "costs reshuffled while phase=1's cumulative obj_value still",
       "matched the golden's 323100.  The hot-start-load test exercises",
-      "a converged-cut sim pass — the policy IS optimal, but at multi-",
+      "a converged-cut sim pass \u2014 the policy IS optimal, but at multi-",
       "vertex degeneracy CLP's simplex pivot order picks among",
       "equivalent vertices and the per-phase decomposition is not",
       "deterministic across CLP minor versions or build flags.  The",
       "TOTAL UB (phase=1 obj_value = 323100) still pins exactly; the",
       "2% rel just absorbs the per-phase reshuffling within a",
-      "degenerate optimum.  Phase=1 obj_value is the strict total."
+      "degenerate optimum.  Phase=1 obj_value is the strict total.",
+      "2026-11-23: the phase 2-3 obj_value pins are dropped (status only), as in the base and HiGHS goldens: with the SDDP cut-binding / alpha-floor fixes CLP lands on another degenerate split (214350 / 105150 vs 212100 / 102900, phase 3 off by 2.2%) with the same 323100 total."
     ],
     "abs": 1.0,
     "rel": 0.02
@@ -39,14 +40,12 @@
     {
       "scene": 0,
       "phase": 2,
-      "status": 0,
-      "obj_value": 212100.0
+      "status": 0
     },
     {
       "scene": 0,
       "phase": 3,
-      "status": 0,
-      "obj_value": 102900.0
+      "status": 0
     }
   ],
   "element_samples": [

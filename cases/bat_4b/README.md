@@ -15,7 +15,7 @@ Written for GTOpt, derived from `ieee_4b_ori`.  The 24-hour version is
 |---------|------|
 | Network | as `ieee_4b_ori` (4 buses, 5 lines) |
 | Generators | `g1`: 250 MW, 20 $/MWh; `g2`: 150 MW, 40 $/MWh; `g_solar` at `b1`: 90 MW, zero cost, profile 0, 0.67, 1, 0.22 |
-| Battery | `bat1` at `b3`: 200 MWh, 60 MW charge and discharge, 95% efficiency each way, starts empty |
+| Battery | `bat1` at `b3`: 200 MWh, 60 MW charge and discharge, 95% efficiency each way, self-discharge `annual_standing_loss` 0.48 p.u./year (4 %/month), starts empty |
 | Demands | `d3` at `b3`: 120, 60, 30, 200 MW; `d4` at `b4`: 80, 40, 20, 130 MW |
 
 The battery charges in the low-demand, sunny blocks and discharges in

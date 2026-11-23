@@ -20,7 +20,7 @@ for `igtopt` it is in
 |---------|------|
 | Network | as `ieee_4b_ori` (4 buses, 5 lines) |
 | Generators | `g1`: 250 MW, 20 $/MWh; `g2`: 150 MW, 40 $/MWh; `g_solar`: 90 MW, zero cost, hourly profile peaking at noon |
-| Battery | `bat1` at `b3`: 200 MWh, 60 MW, 95% efficiency each way |
+| Battery | `bat1` at `b3`: 200 MWh, 60 MW, 95% efficiency each way, self-discharge `annual_standing_loss` 0.48 p.u./year (4 %/month) |
 | Demands | `d3` and `d4`, 24-hour profiles with a morning and an evening peak |
 
 The battery's energy dual (`Battery/energy_dual.csv`) is the

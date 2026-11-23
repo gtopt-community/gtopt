@@ -49,9 +49,10 @@ whose optimum can be derived analytically.
 
 ## Expected objective (literature/analytical)
 
-gtopt's reservoir applies a `flow_conversion_rate` (default
-`3.6` — see `include/gtopt/reservoir_lp.hpp:53`) when converting
-turbine flow in m³/s to per-hour reservoir depletion.  Per-block
+gtopt's reservoir applies a `flow_conversion_rate` when converting
+turbine flow in m³/s to per-hour reservoir depletion.  This case pins
+`flow_conversion_rate = 3.6` explicitly (the JSON default was 3.6 until
+it was unified with the documented 0.0036 hm³/(m³/s·h)).  Per-block
 draw is then capped at `(eini − emin) / 3.6 = 5 / 3.6 ≈ 1.3889`
 m³/s.  With `production_factor = 1.0` the per-block hydro output
 ceiling is the same `1.3889` MW.
@@ -85,7 +86,7 @@ golden-CSV path.
 ## Cross-tool validation status
 
 **Pandapower DC OPF cannot validate this case.**  The 21.111…
-optimum hinges on the gtopt-specific `flow_conversion_rate = 3.6`
+optimum hinges on the explicit `flow_conversion_rate = 3.6`
 factor on the `Reservoir` element (m³/s → per-hour reservoir
 depletion).  Pandapower is single-snapshot, has no `Reservoir`
 element, and reports `obj = 0` (free hydro at gcost = 0).  The

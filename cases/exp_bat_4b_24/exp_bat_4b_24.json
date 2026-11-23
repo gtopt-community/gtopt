@@ -304,6 +304,7 @@
         "bus": "b3",
         "input_efficiency": 0.95,
         "output_efficiency": 0.95,
+        "annual_standing_loss": 0.48,
         "emin": 0,
         "emax": 400,
         "eini": 0,

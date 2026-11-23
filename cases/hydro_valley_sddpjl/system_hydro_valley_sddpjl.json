@@ -103,7 +103,8 @@
         "capacity": 200.0,
         "emin": 0.0,
         "emax": 200.0,
-        "eini": 200.0
+        "eini": 200.0,
+        "flow_conversion_rate": 3.6
       },
       {
         "uid": 2,
@@ -112,7 +113,8 @@
         "capacity": 200.0,
         "emin": 0.0,
         "emax": 200.0,
-        "eini": 200.0
+        "eini": 200.0,
+        "flow_conversion_rate": 3.6
       }
     ],
     "flow_array": [

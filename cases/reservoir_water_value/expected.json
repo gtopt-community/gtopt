@@ -1,0 +1,415 @@
+{
+  "spill_free": {
+    "description": "free spillway: water value 0 while spilling, >0 when dry",
+    "objective": 3055.5555555555557,
+    "checks": [
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "value": 0.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "value": 0.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 3,
+        "value": 13888.888888888889
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "min": 0.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "min": 0.0
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 2,
+        "value": 0.5
+      },
+      {
+        "file": "Reservoir/drain_sol",
+        "uid": 1,
+        "stages": [
+          1,
+          2
+        ],
+        "sum": 800.0
+      },
+      {
+        "file": "Reservoir/drain_sol",
+        "uid": 1,
+        "stage": 3,
+        "value": 0.0
+      }
+    ]
+  },
+  "spill_cost": {
+    "description": "spillway_cost c = 3.6 on the only exit: water value -c/fcr",
+    "objective": 8815.555555555555,
+    "checks": [
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "value": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "value": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 3,
+        "value": 13888.888888888889
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "max": -1.0,
+        "min": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "max": -1.0,
+        "min": -1000.0
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 2,
+        "value": 0.5
+      },
+      {
+        "file": "Reservoir/drain_sol",
+        "uid": 1,
+        "stages": [
+          1,
+          2
+        ],
+        "sum": 800.0
+      }
+    ]
+  },
+  "spill_cost_free_exit": {
+    "description": "spillway_cost 3.6 plus a free junction drain: back to 0",
+    "objective": 3055.5555555555557,
+    "checks": [
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "value": 0.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "value": 0.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 3,
+        "value": 13888.888888888889
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "min": 0.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "min": 0.0
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 2,
+        "value": 0.5
+      },
+      {
+        "file": "Reservoir/drain_sol",
+        "uid": 1,
+        "stages": [
+          1,
+          2
+        ],
+        "sum": 0.0
+      },
+      {
+        "file": "Junction/drain_sol",
+        "uid": 1,
+        "stages": [
+          1,
+          2
+        ],
+        "sum": 800.0
+      }
+    ]
+  },
+  "drain_cost": {
+    "description": "Junction.drain_cost 3.6 on the only exit: -drain_cost/fcr",
+    "objective": 8815.555555555555,
+    "checks": [
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "value": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "value": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 3,
+        "value": 13888.888888888889
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "max": -1.0,
+        "min": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "max": -1.0,
+        "min": -1000.0
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 2,
+        "value": 0.5
+      },
+      {
+        "file": "Junction/drain_sol",
+        "uid": 1,
+        "stages": [
+          1,
+          2
+        ],
+        "sum": 800.0
+      }
+    ]
+  },
+  "waterway_fcost": {
+    "description": "Waterway.fcost 3.6 on the only spill path: -fcost/fcr",
+    "objective": 8815.555555555555,
+    "checks": [
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "value": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "value": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 3,
+        "value": 13888.888888888889
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "max": -1.0,
+        "min": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "max": -1.0,
+        "min": -1000.0
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 2,
+        "value": 0.5
+      },
+      {
+        "file": "Waterway/flow_sol",
+        "uid": 2,
+        "stages": [
+          1,
+          2
+        ],
+        "sum": 800.0
+      }
+    ]
+  },
+  "ecost": {
+    "description": "Reservoir.ecost 100 $/hm3 per block, no exit: -ecost x remaining blocks",
+    "objective": 1878.0,
+    "checks": [
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "value": -300.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "value": -200.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 3,
+        "value": -100.0
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 1,
+        "value": 3.38
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 2,
+        "value": 6.26
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 3,
+        "value": 9.14
+      }
+    ]
+  },
+  "spill_cost_sddp": {
+    "description": "SDDP (3 phases) of spill_cost: same objective and water values",
+    "objective": 8815.555555555555,
+    "checks": [
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "value": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "value": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 3,
+        "value": 13888.888888888889
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "max": -1.0,
+        "min": -1000.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "max": -1.0,
+        "min": -1000.0
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 2,
+        "value": 0.5
+      },
+      {
+        "file": "Reservoir/drain_sol",
+        "uid": 1,
+        "stages": [
+          1,
+          2
+        ],
+        "sum": 800.0
+      }
+    ]
+  },
+  "ecost_sddp": {
+    "description": "SDDP (3 phases) of ecost: negative cut slopes carry -200/-100 back",
+    "objective": 1878.0,
+    "checks": [
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 1,
+        "value": -300.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 2,
+        "value": -200.0
+      },
+      {
+        "file": "Reservoir/water_value_dual",
+        "uid": 1,
+        "stage": 3,
+        "value": -100.0
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 1,
+        "value": 3.38
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 2,
+        "value": 6.26
+      },
+      {
+        "file": "Reservoir/energy_sol",
+        "uid": 1,
+        "stage": 3,
+        "value": 9.14
+      }
+    ]
+  }
+}

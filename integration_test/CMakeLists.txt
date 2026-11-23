@@ -159,6 +159,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 include(${CMAKE_SCRIPTS_DIR}/add_sddp_case.cmake)
+include(${CMAKE_SCRIPTS_DIR}/add_expected_values_case.cmake)
 
 # ---- Pandapower detection ----
 # Locate gtopt_compare (installed binary, source tree, or any Python with
@@ -222,6 +223,95 @@ set_tests_properties(
     FAIL_REGULAR_EXPRESSION "unknown"
 )
 
+# ---- CLI front end: info commands, exit codes, output formats ----
+# Each test runs the real binary through integration_test/cmake/
+# run_cli_case.cmake in a fresh work directory (cwd) and checks the exit
+# code, stdout/stderr and the files left behind.  The in-process
+# counterpart (same code paths, captured streams) is
+# test/source/test_gtopt_cli.cpp.
+set(RUN_CLI_CASE "${CMAKE_SCRIPTS_DIR}/run_cli_case.cmake")
+
+function(add_cli_test name)
+  cmake_parse_arguments(A "" "EXIT;STDOUT;STDERR;NOT_STDOUT;INPUT_NAME;INPUT_CONTENT"
+                        "ARGS;FILES" ${ARGN})
+  if(NOT DEFINED A_EXIT)
+    set(A_EXIT 0)
+  endif()
+  list(JOIN A_ARGS "|" _args)
+  list(JOIN A_FILES "|" _files)
+  set(_defs
+    "-DGTOPT_BINARY=${GTOPT_EXECUTABLE_FILE}"
+    "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/cli_output/${name}"
+    "-DCLI_ARGS=${_args}"
+    "-DEXPECT_EXIT=${A_EXIT}")
+  if(_files)
+    list(APPEND _defs "-DEXPECT_FILES=${_files}")
+  endif()
+  foreach(_kv STDOUT:STDOUT_REGEX STDERR:STDERR_REGEX
+              NOT_STDOUT:NOT_STDOUT_REGEX INPUT_NAME:INPUT_NAME
+              INPUT_CONTENT:INPUT_CONTENT)
+    string(REPLACE ":" ";" _kv "${_kv}")
+    list(GET _kv 0 _k)
+    list(GET _kv 1 _var)
+    if(DEFINED A_${_k})
+      list(APPEND _defs "-D${_var}=${A_${_k}}")
+    endif()
+  endforeach()
+  add_test(NAME cli_${name}
+           COMMAND ${CMAKE_COMMAND} ${_defs} -P "${RUN_CLI_CASE}")
+  set_tests_properties(cli_${name} PROPERTIES LABELS "cli;e2e" TIMEOUT 300)
+endfunction()
+
+set(_ieee4 "${CASES_DIR}/ieee_4b_ori/ieee_4b_ori.json")
+
+# Informational sub-commands (no planning file).
+add_cli_test(help ARGS --help STDOUT "--lp-only.*Examples.*Outputs")
+add_cli_test(unknown_flag ARGS --definitely-not-a-flag EXIT 1
+             STDOUT "^ERROR: ")
+add_cli_test(bad_typed_value ARGS --threads abc EXIT 1
+             STDOUT "^ERROR: invalid value 'abc' for option '--threads'")
+add_cli_test(list_dialects ARGS --list-dialects
+             STDOUT "^# canonical.*# [0-9]+ rows [(]")
+add_cli_test(list_dialects_unknown ARGS --list-dialects no_such_dialect
+             EXIT 1 STDERR "unknown dialect 'no_such_dialect'")
+add_cli_test(json_schema ARGS --json-schema STDOUT "\"properties\"")
+add_cli_test(json_schema_unknown ARGS --json-schema no_such_schema EXIT 1)
+add_cli_test(solvers ARGS --solvers STDOUT "Available LP solvers:")
+add_cli_test(check_solvers_unknown ARGS --check-solvers no_such_solver
+             EXIT 1 STDERR "solver 'no_such_solver' not available")
+
+# Input errors map to exit code 2.
+add_cli_test(missing_file ARGS does_not_exist.json --quiet EXIT 2)
+add_cli_test(invalid_json ARGS broken.json --quiet EXIT 2
+             INPUT_NAME broken.json INPUT_CONTENT "{ \"system\": { \"bus_array\": ")
+
+# Real runs on ieee_4b_ori.
+add_cli_test(ieee4_lp_only
+             ARGS "${_ieee4}" --lp-only --quiet --output-directory out
+             FILES out/gtopt_state.json out/README.md)
+add_cli_test(ieee4_csv
+             ARGS "${_ieee4}" --quiet --output-directory out
+                  --output-format csv --output-compression uncompressed
+                  --json-file merged.json
+             FILES out/solution.csv out/Generator/generation_sol*.csv
+                   out/Bus/balance_dual*.csv merged.json)
+add_cli_test(ieee4_parquet_stats
+             ARGS "${_ieee4}" --quiet --output-directory out
+                  --output-format parquet --stats
+             FILES out/solution.csv out/Generator/generation_sol*.parquet)
+add_cli_test(ieee4_single_bus
+             ARGS "${_ieee4}" --quiet --output-directory out
+                  --set model_options.use_single_bus=true
+                  --output-format csv
+             FILES out/solution.csv)
+# No --quiet and stdout is a pipe: logs are redirected to
+# <output>/logs/gtopt_N.log (the non-interactive branch of the CLI).
+add_cli_test(ieee4_log_file
+             ARGS "${_ieee4}" --output-directory out
+                  --trace-log "@WORK_DIR@/trace.log"
+             NOT_STDOUT "starting gtopt"
+             FILES out/logs/gtopt_*.log trace*.log out/solution.csv)
+
 # ---- Register e2e test cases ----
 # To add a new case, place it under cases/<name>/ with a system JSON file and
 # an output/ directory containing the expected CSV results, then add a line:
@@ -237,6 +327,7 @@ add_e2e_case(ieee_9b_ori ieee_9b_ori.json)
 add_e2e_case(ieee_14b_ori ieee_14b_ori.json)
 add_e2e_case(ieee_4b_ori ieee_4b_ori.json)
 add_e2e_case(s1b s1b.json)
+add_e2e_case(s1b_fail_segments s1b_fail_segments.json)
 add_e2e_case(bat_4b bat_4b.json)
 add_e2e_case(ieee30b ieee30b.json)
 add_e2e_case(ieee_57b ieee_57b.json)
@@ -255,6 +346,19 @@ add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 add_e2e_case(hydro_valley_sddpjl system_hydro_valley_sddpjl.json)
 add_e2e_case(fast_hydro_thermal system_fast_hydro_thermal.json)
 add_e2e_case(hydro_thermal_sddpjl system_hydro_thermal_sddpjl.json)
+
+# Reservoir water value under spill (cases/reservoir_water_value/README.md):
+# a full, spilling reservoir has water value 0 with a free exit and
+# -cost/fcr when every exit is priced (spillway_cost, Junction.drain_cost,
+# Waterway.fcost) or when stored volume is priced (ecost).  Values are
+# derived by hand in expected.json and asserted with an explicit
+# tolerance; the *_sddp variants check that SDDP (3 phases) reproduces the
+# monolithic objective and the negative water values through its cuts.
+foreach(_rwv spill_free spill_cost spill_cost_free_exit drain_cost
+             waterway_fcost ecost spill_cost_sddp ecost_sddp)
+  add_expected_values_case(rwv_${_rwv} ${_rwv}.json
+    CASE_DIR reservoir_water_value LABELS "hydro")
+endforeach()
 
 # PSR SDDP multi-system fixtures, converted to gtopt JSON by
 # `scripts/sddp2gtopt/` (multi-system support landed 2026-05-16).

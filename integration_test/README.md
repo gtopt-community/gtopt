@@ -145,6 +145,18 @@ Then convert back to pandapower, solve, and extract golden files.
 | `exp_bat_4b` | 4 | 1 | 4 | Battery expansion |
 | `exp_bat_4b_24` | 4 | 1 | 4 | 24h battery expansion |
 
+### Cases checked against derived values
+
+`add_expected_values_case(<test> <json> CASE_DIR <dir>)` runs gtopt and
+then `tools/check_expected_values.py`, which asserts hand-derived values
+from `<dir>/expected.json` (objective, primal values, duals, sign
+bounds) and fails on any mismatch (the golden-CSV comparison above only
+warns unless a solver-specific golden exists).
+
+| Case | Notes |
+|------|-------|
+| `reservoir_water_value` | Water value of a spilling reservoir: 0 with a free exit, −c/fcr with priced spillway / junction drain / waterway, −ecost per block left, >0 when dry; monolithic and SDDP |
+
 ## LP conditioning tests (`numerics` label)
 
 `GTOPT_NUMERICS_TESTS=ON` registers tests that solve a large, badly
