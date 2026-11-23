@@ -114,10 +114,13 @@ struct FutureCost
   /// `FCF − Σ wvᵣ·efinᵣ` so every reservoir's terminal storage is priced at
   /// `wvᵣ` on BOTH sides of the target.  Default (unset) = `true` = the
   /// current behaviour.  Set `false` to keep the slack-able `≥` Benders
-  /// lower-bound form (α floored at the cut, never freed) even for a single
-  /// cut — e.g. for a faithful comparison against a user-authored `≥` FCF
-  /// cut.  With MANY cuts the `≥` max-envelope form is ALWAYS used regardless
-  /// of this flag (the value function is the max of its supporting cuts).
+  /// lower-bound form (α never freed: it keeps its column floor — the
+  /// cut-derived box floor, raised by `sddp_options.alpha_min` when set) even
+  /// for a single cut — e.g. for a faithful comparison against a
+  /// user-authored `≥` FCF cut.  Without `alpha_min` the `≥` row on a
+  /// minimised α binds at the optimum, so the two forms coincide.  With MANY
+  /// cuts the `≥` max-envelope form is ALWAYS used regardless of this flag (the
+  /// value function is the max of its supporting cuts).
   OptBool single_cut_equality {};
 
   /// Cross-scene cut sharing: `per_scene` (each scene keeps its own cut),

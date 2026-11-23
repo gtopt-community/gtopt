@@ -353,47 +353,57 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool aperture_use_manual_clone {};
 
-  /** @brief Drop feasibility cuts from aperture clone replay.
-   *  When true, feasibility cut rows (fcut) are filtered out during
-   *  clone-from-flat replay so they don't conflict with perturbed
-   *  trial states.  Default: true. */
-  OptBool aperture_drop_fcuts {true};
+  /** @brief DEPRECATED, ignored.  Was "drop feasibility cuts from aperture
+   *  clone replay"; no solver code has read it since it was re-added to the
+   *  JSON contract (2026-05-12), and the backward pass never adds
+   *  feasibility cuts.  Still parsed so existing case JSONs load;
+   *  `validate_planning` warns when it is set. */
+  OptBool aperture_drop_fcuts {};
 
-  /** @brief Number of apertures solved serially per backward-pass task.
+  /** @brief How backward-pass apertures are grouped into work-pool tasks
+   *         (`per_scene` / `per_aperture` / `chunked`).
    *
-   * Controls the chunked aperture pass.  Each chunk is submitted as
-   * **one** SDDP work-pool task that clones the phase LP **once**
-   * and solves its inner apertures sequentially.  By default each
-   * inner solve is an independent cold barrier (the shared clone only
-   * amortizes the LP reconstruction); set `aperture_solve_mode = warm`
-   * to additionally warm-start every aperture after the first off the
-   * previous one's resident basis (a few simplex pivots instead of a
-   * fresh barrier).
+   * Each task clones the phase LP **once** and solves its apertures in
+   * series on that clone; under `aperture_solve_mode = warm` (the
+   * effective default) every aperture after the first re-optimizes the
+   * resident basis (a few dual-simplex pivots) instead of a cold solve.
    *
-   * Pairs with the per-phase aperture wetness sort applied by
-   * `plp2gtopt` (driest → wettest within each phase): consecutive
-   * apertures in a chunk have similar bounds, maximising warm-
-   * start reuse.
+   * - `per_scene` (**default**): one task per (scene, phase) holding all
+   *   of its apertures — maximum warm-start reuse, one clone per cell,
+   *   backward parallelism capped at the number of scenes.  On the CEN
+   *   y24 case (16 scenes × 16 apertures, CPLEX) the backward pass runs
+   *   7.7× faster than `per_aperture` (2.5 vs 19.3 min/iteration) with
+   *   identical bounds and peak memory.
+   * - `per_aperture`: one task per aperture on a fresh clone, cold solve
+   *   (the pre-2026-11 effective default).
+   * - `chunked`: `aperture_chunk_size = K` apertures per task; K unset →
+   *   `compute_auto_aperture_chunk_size` formula.
    *
-   * Sentinel encoding (resolved at SDDPMethod setup):
+   * Pairs with the per-phase aperture wetness sort applied by `plp2gtopt`
+   * (consecutive apertures have similar bounds → cheap warm re-solves).
    *
-   *   * absent / `nullopt` / `0` → **auto** — currently resolves to
-   *     `1` (the legacy 1-task-per-aperture path).  Measured on the
-   *     the large hydrothermal case 16-scene × 16-aperture × 51-phase case
-   * under the parallel-safe manual-clone route, K=1 is consistently fastest
-   *     because per-aperture solves are small (≪ 100 ms) and the
-   *     work-pool fan-out wins over chunked warm-start reuse.  The
-   *     `compute_auto_aperture_chunk_size` formula is retained for
-   *     future workloads where clone setup dominates per-aperture
-   *     solve cost.
-   *   * `1`  → legacy behaviour: one task per aperture, one clone
-   *     per task, no inner serial loop.
-   *   * `K > 1` → use exactly `K` apertures per task.
-   *   * `-1` → cap at `A_max` per phase: a single task per scene that
-   *     iterates every aperture in series.  Useful for licence-
-   *     constrained or memory-tight runs.
+   * Default: `nullopt` → `per_scene` (unless the legacy integer
+   * `aperture_chunk_size` selects another mode, see below).  Resolved at
+   * SDDPMethod setup by `resolve_aperture_chunk()` (`sddp_aperture.hpp`).
+   */
+  std::optional<ApertureChunkMode> aperture_chunk_mode {};
+
+  /** @brief Apertures per task for `aperture_chunk_mode = chunked` (K).
    *
-   * Default: `nullopt` (auto = 1).
+   * Only meaningful with `aperture_chunk_mode = chunked`; with
+   * `per_scene` / `per_aperture` a contradicting value is ignored with a
+   * warning.
+   *
+   * **Deprecated as a mode selector.**  When `aperture_chunk_mode` is
+   * unset the legacy integer encoding still selects the mode (with a
+   * deprecation warning):
+   *
+   *   * absent / `0` ("auto") → `per_scene` (the default; silent).
+   *   * `-1` → `per_scene`.
+   *   * `1`  → `per_aperture`.
+   *   * `K > 1` → `chunked` with K.
+   *
+   * Default: `nullopt`.
    */
   OptInt aperture_chunk_size {};
 
@@ -408,10 +418,11 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *   legacy behaviour.
    * - `warm` (**effective default** — an unset option resolves to `warm`
    *   in `PlanningOptionsLP::sddp_aperture_solve_mode()`, and plp2gtopt
-   *   emits it explicitly): only meaningful with `aperture_chunk_size > 1`;
-   *   the first aperture in a chunk seeds a basis (barrier + crossover)
-   *   and every subsequent aperture re-optimizes it with a warm simplex
-   *   solve (via `SolverOptions::advanced_basis` → CPLEX `ADVIND=1`)
+   *   emits it explicitly): engages whenever a task holds more than one
+   *   aperture (`aperture_chunk_mode = per_scene`, the default, or
+   *   `chunked` with K > 1); the first aperture in a chunk seeds a basis
+   * (barrier + crossover) and every subsequent aperture re-optimizes it with a
+   * warm simplex solve (via `SolverOptions::advanced_basis` → CPLEX `ADVIND=1`)
    *   instead of a fresh cold barrier.  Aperture deltas (column bounds;
    *   equality-row RHS under AR inflows / profile elements) preserve
    *   dual feasibility, so the basis stays valid across apertures.
@@ -461,7 +472,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * plus appended cut rows; the captured basis is an exact dual-simplex
    * seed and
    * the gap shrinks as the policy converges.  The within-chunk resident
-   * basis carries the remaining apertures (`aperture_chunk_size > 1`).
+   * basis carries the remaining apertures (`per_scene` / `chunked`).
    *
    * Default: `nullopt` → `false` (every first aperture solves cold, the
    * legacy behaviour).
@@ -479,7 +490,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * is correctness-neutral; it silently degrades to a cold solve on backends
    * without basis save/restore (only CPLEX and HiGHS support it) and is gated
    * off where the row structure is not tail-append compatible
-   * (`aperture_drop_fcuts`, `aperture_system_file`).
+   * (e.g. `aperture_system_file`).
    *
    * See `BasisCrossMode`.  Default: `nullopt` → `off` (legacy behaviour).
    */
@@ -910,7 +921,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// and `SDDP_OPTION_KEYS` in `scripts/gtopt_shared/options_meta.py`
   /// (a schema-parity pytest enforces the Python side; a `static_assert`
   /// in `json_sddp_options.hpp` enforces the tuple against this count).
-  static constexpr std::size_t json_field_count = 72;
+  static constexpr std::size_t json_field_count = 73;
 
   void merge(SddpOptions&& opts)
   {
@@ -948,6 +959,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(save_aperture_lp, opts.save_aperture_lp);
     merge_opt(aperture_use_manual_clone, opts.aperture_use_manual_clone);
     merge_opt(aperture_drop_fcuts, opts.aperture_drop_fcuts);
+    merge_opt(aperture_chunk_mode, opts.aperture_chunk_mode);
     merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
     merge_opt(aperture_solve_mode, opts.aperture_solve_mode);
     merge_opt(aperture_screen_count, opts.aperture_screen_count);

@@ -877,9 +877,6 @@ struct CellCuts
           const auto list_start = coeffs_arr->value_offset(i);
           const auto list_end = coeffs_arr->value_offset(i + 1);
 
-          const auto& sv_map =
-              sim.state_variables(first_scene_index(), phase_index);
-
           struct ResolvedCoeff
           {
             ColIndex col;
@@ -899,17 +896,19 @@ struct CellCuts
             const auto var = coeff_var_arr->GetView(k);
             const auto uid_val = coeff_uid_arr->Value(k);
 
-            bool found = false;
-            for (const auto& [skey, svar] : sv_map) {
-              if (skey.class_name == cls && skey.col_name == var
-                  && skey.uid == Uid {uid_val})
-              {
-                resolved_coeffs.push_back({.col = svar.col(), .coeff = coeff});
-                found = true;
-                break;
-              }
-            }
-            if (!found) {
+            // The phase-state column: in a multi-stage phase every stage
+            // registers the same (class, var, uid) — the cut was written
+            // on the LAST stage's column (see `find_phase_state_col`).
+            const auto col = find_phase_state_col(sim,
+                                                  first_scene_index(),
+                                                  phase_index,
+                                                  cls,
+                                                  Uid {uid_val},
+                                                  [var](std::string_view c)
+                                                  { return c == var; });
+            if (col) {
+              resolved_coeffs.push_back({.col = *col, .coeff = coeff});
+            } else {
               SPDLOG_WARN(
                   "SDDP load_cuts_parquet: coeff ({}:{}:{}) not found in "
                   "state variables at iter {}; ignoring coefficient",
@@ -1065,9 +1064,6 @@ struct CellCuts
       const auto phase_uid_val = sim.uid_of(phase_index);
 
       if (!cell_cuts.opt.empty()) {
-        for (const auto& cut : cell_cuts.opt) {
-          bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
-        }
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
         // Capture base row index BEFORE add_rows so each cut's
@@ -1076,6 +1072,11 @@ struct CellCuts
         li.add_rows(cell_cuts.opt);
         for (const auto& cut : cell_cuts.opt) {
           li.record_cut_row(cut);
+        }
+        // Release / floor α only once the rows are in `active_cuts()`:
+        // the floor is derived from them (see `add_cut_row`).
+        for (const auto& cut : cell_cuts.opt) {
+          bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
         }
         if (cut_store != nullptr) {
           for (std::size_t i = 0; i < cell_cuts.opt.size(); ++i) {
@@ -1126,14 +1127,14 @@ struct CellCuts
       }
       const auto [scene_index, phase_index] =
           std::pair {cell_key.scene, cell_key.phase};
-      for (const auto& cut : cell_cuts.opt) {
-        bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
-      }
       auto& li =
           planning_lp.system(scene_index, phase_index).linear_interface();
       li.add_rows(cell_cuts.opt);
       for (const auto& cut : cell_cuts.opt) {
         li.record_cut_row(cut);
+      }
+      for (const auto& cut : cell_cuts.opt) {
+        bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
       }
     }
 

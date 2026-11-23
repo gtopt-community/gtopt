@@ -9,7 +9,7 @@
  * Sibling translation unit of ``sddp_method.cpp``; carries a
  * focused subset of ``SDDPMethod``'s member functions to keep
  * each TU under ~700 LoC.  Split landed in commit referenced by
- * Phase B of the SDDP source-hygiene refactor.  See
+ * Phase B of the gtopt-hygiene refactor.  See
  * ``include/gtopt/sddp_method.hpp`` for the class declaration
  * and ``source/sddp_method.cpp`` for the constructor / solver
  * lifecycle helpers.
@@ -277,15 +277,11 @@ int SDDPMethod::update_lp_for_phase(SceneIndex scene_index,
   // separate sddp_state_variable_lookup_mode option (warm_start vs
   // cross_phase) handled in propagate_trial_values.
   //
-  // Previously this pointer was only set when lookup == cross_phase,
-  // leaving warm_start (the default) with prev_phase_sys = nullptr.
-  // physical_eini then fell through to its JSON `eini` fallback (e.g.
-  // 1731 Hm³ for ELTORO), pinning the seepage segment to the
-  // construction-time volume regardless of the actual forward-pass
-  // trajectory.  Observed on the large hydrothermal case p38 where the
-  // resulting 15.09 m³/s seepage baseflow exceeded the scheduled affluent and
-  // structurally broke the LP after the forward pass had drained the
-  // reservoir to zero.
+  // Without it physical_eini falls back to the JSON `eini`, pinning the
+  // seepage segment to the construction-time volume regardless of the
+  // forward-pass trajectory (on the large hydrothermal case p38 that baseflow
+  // exceeded the scheduled affluent once the reservoir was drained and
+  // made the LP infeasible).
   if (phase_index) {
     const auto prev_phase_index = previous(phase_index);
     auto& prev_sys = planning_lp().system(scene_index, prev_phase_index);
@@ -301,16 +297,9 @@ int SDDPMethod::update_lp_for_phase(SceneIndex scene_index,
     // `HasUpdateLP` doc in system_lp.hpp:163-171).  The element-walking
     // `physical_eini` overload in storage_lp.hpp has no production callers.
     //
-    // The previous `prev_sys.rebuild_collections_if_needed()` here was the
-    // single dominant memory allocator under `--memory-saving compress`
-    // with a memory limit (eviction on): it re-inflated the predecessor's
-    // FULL ~50-type collection tuple (~250 MB on the 2-year case, measured
-    // via jemalloc heap profiling) on every forward/backward phase, purely
-    // to protect a code path nothing uses — and the rebuilt collections
-    // then stayed resident, pinning RSS at ~num_cells × per-cell.  Dropping
-    // it is numerically identical (same `get_col_sol()[efin_col]` value)
-    // and is the keystone that lets collection-eviction actually bound the
-    // resident floor.
+    // A rebuild here would re-inflate the predecessor's full collection
+    // tuple (~250 MB per cell on the 2-year case) on every phase and keep
+    // it resident, defeating collection eviction under low_memory.
   } else {
     sys.set_prev_phase_sys(nullptr);
   }
@@ -433,13 +422,11 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     // production factor, seepage, discharge limit, …) are NOT in the
     // snapshot — they live only on the volatile backend that was
     // dropped at the previous `release_backend()`.  Without this call
-    // the backward re-solve runs on stale construction-time matval
-    // (e.g. the large hydrothermal case `turbine_conversion_*_54_*` coefficient
-    // stayed pinned at 0.97522 vs the forward's 0.97612), producing cuts whose
-    // value-function geometry is inconsistent with the forward model.  Observed
-    // plateau: gap=133.78%, LB=-695M from iter 2. Under `LowMemoryMode::off`
-    // `update_lp_for_phase` is idempotent (same coefficient re-written), so
-    // this is a no-op cost.
+    // the backward re-solve runs on stale construction-time matval and
+    // produces cuts inconsistent with the forward model (observed as a
+    // permanent gap plateau on the large hydrothermal case).
+    // Under `LowMemoryMode::off` `update_lp_for_phase` is idempotent
+    // (same coefficient re-written), so this is a no-op cost.
     update_lp_for_phase(scene_index, phase_index);
 
     // Forward-sampling consistency (`ForwardSamplingMode::resampled`):
@@ -829,9 +816,8 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // up vertically when grepped.  The trailing `/T` is preserved so
   // run_gtopt's TUI grid parser can pre-allocate phase columns from
   // the first backward line (see `_tui.py::_SDDP_LOG_RE`).
-  // `(resolve=yes/no)` is no longer in this INFO line — it's
-  // constant within a run once `backward_resolve_target` is fixed;
-  // the DEBUG line below preserves it for diagnostics.
+  // `(resolve=yes/no)` is constant within a run, so only the DEBUG
+  // line below carries it.
   spdlog::info("SDDP Backward [i{} s{} p{}/{}]: cut z={} (α≥{}, links={}/{})",
                gtopt::uid_of(iteration_index),
                uid_of(scene_index),
@@ -1280,11 +1266,9 @@ auto SDDPMethod::run_forward_pass_all_scenes(
       continue;
     }
     if (!fwd.has_value()) {
-      // Demoted to DEBUG: the per-(scene, phase) elastic-filter WARN
-      // already emitted by `forward_pass` carries the same message;
-      // this outer wrapper used to repeat it once per failed scene
-      // for an extra 16 redundant lines per iteration on the large hydrothermal
-      // case. The aggregated rollback summary in `run_backward_pass_*`
+      // DEBUG, not WARN: the per-(scene, phase) elastic-filter WARN
+      // already emitted by `forward_pass` carries the same message.
+      // The aggregated rollback summary in `run_backward_pass_*`
       // (`SDDP Forward [iN]: rolled back M cut row(s) across K
       // infeasible scene(s) [s1=8 s3=8 …]`) is the user-facing
       // signal; this DEBUG line preserves the per-scene tag for
@@ -1581,7 +1565,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
   // backward pass kick off (the non-synchronized path has the
   // matching log at line ~764).  Without this the log goes silent
   // between "Forward [i0] rolled back N cuts" and the next
-  // iteration summary, which on CEN-scale runs is several
+  // iteration summary, which on large-case runs is several
   // minutes of aperture solves.
   SPDLOG_INFO(
       "SDDP Backward [i{}]: dispatching {}/{} feasible scene(s) × "
@@ -1797,10 +1781,10 @@ auto SDDPMethod::run_backward_pass_synchronized(
     }
 
     // Periodic INFO progress every 10 phases on long backward
-    // passes — CEN-scale runs have 50 phases × ~80 cells per
+    // passes — large-case runs have 50 phases × ~80 cells per
     // phase × 2-3s per aperture solve, so the synchronized loop
     // can take many minutes silent.  10 phases ≈ once per minute
-    // on the large case, frequent enough for users to see progress without
+    // on large-case, frequent enough for users to see progress without
     // flooding the log on smaller fixtures.
     if (uid_of(phase_index) % 10 == 0) {
       const auto elapsed = std::chrono::duration<double>(
@@ -2001,12 +1985,6 @@ void SDDPMethod::compute_iteration_bounds(
   ir.scene_probability_lost = (total_p > 0.0) ? lost_p / total_p : 0.0;
 }
 
-void SDDPMethod::apply_cut_sharing_for_iteration(IterationIndex iteration_index)
-{
-  m_cut_store_.apply_cut_sharing_for_iteration(
-      iteration_index, m_options_, planning_lp(), m_label_maker_);
-}
-
 void SDDPMethod::finalize_iteration_result(
     SDDPIterationResult& ir,
     IterationIndex iteration_index,
@@ -2025,9 +2003,7 @@ void SDDPMethod::finalize_iteration_result(
     // are oldest-first; last seed entry is the previous cascade
     // level's most recent iter).  This lets a ``stationary_window=N``
     // configuration exercise a real N-iter lookback at iter 1 of a
-    // new cascade level — previously the seed was a single point,
-    // so a window > 1 silently degraded to a 1-iter lookback at
-    // every cascade transition.  See :func:`seed_prior_bounds`
+    // new cascade level.  See :func:`seed_prior_bounds`
     // for the seed-array rationale and convergence-safety pairing
     // with ``min_iterations >= 2``.
     const auto window = static_cast<std::size_t>(m_options_.stationary_window);

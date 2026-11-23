@@ -455,11 +455,9 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
 
   // PLP parity (plp-agrespd.f:722): flat FactEPS-relative outward
   // perturbation on the aggregated RHS.  PLP applies `rhs += FactEPS ·
-  // |rhs|` unconditionally (same in multi-cut branch, :791).  The
-  // niter-escalating form we used previously was a gtopt-local
-  // heuristic for the large hydrothermal case degeneracy; PLP achieves the same
-  // via the dx filter above catching repeat degenerate activations.
-  // niter parameter retained for signature stability; ignored here.
+  // |rhs|` unconditionally (same in multi-cut branch, :791); repeat
+  // degenerate activations are caught by the dx filter above instead of
+  // an niter-escalating ε.  `niter` is kept for signature stability.
   (void)niter;
   // PLP's FactEPS = 1e-8 (getopts.f:231) applied as `rhs += FactEPS·|rhs|`
   // (plp-agrespd.f:722, 791) is designed for PLP's unit ray magnitudes
@@ -710,30 +708,17 @@ RelaxedVarInfo relax_fixed_state_variable(
   // √10 vs PEHUENCHE at 1.0).
   //
   // Empirical: on plp_2_years iter 0 the var_scale-aware price
-  // pushes the forward pass ~6 phases deeper than the LP-only
-  // price before the `forward_max_attempts=100` budget exhausts
-  // (p19 vs p15), breaking the α-free degeneracy that was
-  // diagnosed in the phase-13 thrash.  Previously hard-coded to
-  // 1.0 (Chinneck (2008) § 4 pure-feasibility).
-  // P0-A fix (2026-04-23): per-variable `link.scost` overrides the
-  // global penalty when set (> 0).  `scost` is populated in
-  // `collect_state_variable_links` from `svar.scost() / scale_obj`,
-  // matching the pre-divide-by-scale_obj convention of `penalty`.
-  // Multi-reservoir fixtures with differing water values previously
-  // had this field silently discarded — every slack was priced at
-  // the same global penalty, breaking the elastic filter's ability
-  // to prefer cheap-to-violate variables over expensive ones.
-  // PLP parity (osicallsc.cpp:658): slack obj = 1.0 flat for every
-  // relaxed state, regardless of per-variable business-cost hints.
-  // `link.scost` carries the business `state_violation_cost` (default
-  // 5000 in production cases) — NOT a Chinneck Phase-1 feasibility
-  // price.  Using it here amplified the ray magnitude 5000× and
-  // produced emax-pinning multi-cuts that violated LP tolerance by
-  // `1e-8 × pi × rhs ≈ 0.03` on the large hydrothermal case p27.  The pure
-  // `penalty` path matches PLP's AgrElastici call site
-  // (plp-agrespd.f:673 passes `objs = 0` so every slack receives the
-  // default 1.0).  `link.scost` retained on the struct for non-SDDP
-  // consumers that may use it as a true business-cost hint.
+  // pushes the forward pass ~6 phases deeper than a flat 1.0 price
+  // before `forward_max_attempts=100` exhausts (p19 vs p15).
+  //
+  // `link.scost` is deliberately NOT used.  It carries the business
+  // `state_violation_cost` (default 5000 in production cases), not a
+  // Phase-1 feasibility price: pricing slacks with it amplified the ray
+  // magnitude 5000× and produced emax-pinning multi-cuts that violated
+  // LP tolerance by `1e-8 × pi × rhs ≈ 0.03` (on a large hydrothermal case).
+  // PLP parity: slack obj = 1.0 flat for every relaxed state
+  // (osicallsc.cpp:658; plp-agrespd.f:673 passes `objs = 0`).
+  // `link.scost` stays on the struct for non-SDDP consumers.
   (void)link.scost;  // intentionally unused here
   // For the D3 slack-bound computation below we use the dep column's
   // *effective* LP-to-physical scale (reused in the ruiz case).  Under
@@ -2199,10 +2184,9 @@ auto build_farkas_recursive_cut(ElasticSolveResult& elastic,
   // already zeroes the clone's offset alongside the column
   // coefficients (so this subtraction is a no-op on every production
   // path), but the intercept formula is only correct for the
-  // pure-slack objective — a clone handed in with a live offset
-  // (demand-fail Option-A baseline ~1.7e8/phase on the 2-yr case)
-  // previously inflated every frcut RHS by that constant and drove
-  // the additive p52→p0 RHS runaway (6.2e9 at p1).
+  // pure-slack objective — a live offset (e.g. the demand-fail
+  // baseline, ~1.7e8/phase on the 2-yr case) would inflate every frcut
+  // RHS by that constant and compound additively from phase to phase.
   const double v_gap =
       elastic.clone.get_obj_value() - elastic.clone.get_obj_constant();
 

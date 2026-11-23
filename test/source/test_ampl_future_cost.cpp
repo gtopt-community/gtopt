@@ -488,7 +488,8 @@ TEST_CASE(  // NOLINT
   opts.convergence_mode = ConvergenceMode::gap_only;
   opts.stationary_tol = 0.0;
   opts.cut_sharing = CutSharingMode::none;
-  opts.aperture_chunk_size = -1;  // aperture disabled (increment A scope)
+  // aperture disabled (increment A scope)
+  opts.aperture_chunk_mode = ApertureChunkMode::per_scene;
   opts.enable_api = false;
 
   SDDPMethod sddp(planning_lp, opts);
@@ -534,8 +535,11 @@ TEST_CASE(  // NOLINT
 // terminal value (α pinned to `FCF − Σ wvᵣ·efinᵣ`, so a reservoir saved ABOVE
 // the FCF break-even earns a NEGATIVE α future-cost credit).  Setting
 // `single_cut_equality = false` keeps the slack-able `≥` Benders lower-bound
-// form (α floored at the cut, NOT freed), so that credit is capped at the cut
-// floor and never goes negative.
+// form (α NOT freed: it keeps its column floor, here the documented
+// `alpha_min = 0` of a non-negative-cost model), so that credit is capped at
+// the floor and never goes negative.  The cut-derived floor alone
+// (`apply_alpha_floor`, `FCF − wv·emax < 0`) would not cap it: a `≥` row on
+// a minimised α binds at the optimum exactly like the `=` row.
 //
 // The fixture uses a single cut `α ≥ FCF − wv·s_rsv1` (CSV coef = −wv) with a
 // small `FCF` and a large `wv`, so the optimal policy (which conserves water
@@ -574,6 +578,11 @@ struct SddpBounds
     fc.single_cut_equality = single_cut_eq;
   }
   planning.system.future_cost_array.push_back(fc);
+  // Non-negative-cost fixture: the `≥` form floors α at `alpha_min = 0`
+  // (the documented knob).  Without a floor, `α ≥ FCF − wv·s` with α
+  // minimised binds at the optimum and is indistinguishable from the `=`
+  // form; the equality path frees α explicitly regardless of this floor.
+  planning.options.sddp_options.alpha_min = OptReal {0.0};
   PlanningLP planning_lp(std::move(planning));
 
   SDDPOptions opts;
@@ -588,7 +597,10 @@ struct SddpBounds
   const auto results = sddp.solve();
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
-  return {.lb = results->back().lower_bound, .ub = results->back().upper_bound};
+  return {
+      .lb = results->back().lower_bound,
+      .ub = results->back().upper_bound,
+  };
 }
 }  // namespace
 }  // namespace amplfcf_test
@@ -673,7 +685,7 @@ TEST_CASE(  // NOLINT
     o.convergence_mode = ConvergenceMode::gap_only;
     o.stationary_tol = 0.0;
     o.cut_sharing = CutSharingMode::none;
-    o.aperture_chunk_size = -1;
+    o.aperture_chunk_mode = ApertureChunkMode::per_scene;
     o.enable_api = false;
     return o;
   };
@@ -834,7 +846,7 @@ TEST_CASE("active_user_alpha_uid — guard preconditions")  // NOLINT
     PlanningLP planning_lp(make_user_alpha_planning(1000.0));
     const auto ua = active_user_alpha_uid(planning_lp);
     REQUIRE(ua.has_value());
-    CHECK(*ua == kUserAlphaUid);
+    CHECK(ua == kUserAlphaUid);
   }
 
   SUBCASE("nullopt when the FutureCost element is explicitly deactivated")
@@ -1009,7 +1021,7 @@ TEST_CASE(  // NOLINT
   opts.convergence_mode = ConvergenceMode::gap_only;
   opts.stationary_tol = 0.0;
   opts.cut_sharing = CutSharingMode::none;
-  opts.aperture_chunk_size = -1;
+  opts.aperture_chunk_mode = ApertureChunkMode::per_scene;
   opts.enable_api = false;
 
   SDDPMethod sddp(planning_lp, opts);

@@ -357,42 +357,20 @@ bool LinearInterface::col_bounds_clamp_is_noop() const noexcept
 // Called from every public LP-mutation API (add_row / add_col /
 // set_coeff / set_*_bound / set_obj_coeffs / reset_from / …) so the
 // cached optimality flag and cached primal/dual/reduced-cost vectors
-// are dropped the moment the LP structurally changes.  This restores
-// byte-symmetry between `LowMemoryMode::off` and `compress`:
+// are dropped the moment the LP changes, in every `low_memory_mode`.
+// Readers consult the LI cache exclusively when it is populated, so a
+// cache surviving a mid-iteration `add_row` (Benders cut) would hand a
+// col_sol that violates the new cut to downstream consumers (SDDP state
+// propagation, `physical_eini`, …) and make the backward pass build
+// cuts inconsistent with the backend's own state.
 //
-//   * Under `off`, the live backend (CPLEX/HiGHS/...) flips
-//     `is_proven_optimal()` to false the instant a row/col or
-//     coefficient changes — `physical_eini` / `physical_efin` and
-//     other readers gated on `is_optimal()` then correctly fall
-//     through to default values until the next `resolve()`.
-//
-//   * Under `compress`, we'd otherwise carry `m_cached_is_optimal_`
-//     forward from the prior optimal solve, surviving a
-//     mid-iteration `add_row` (Benders cut), and downstream
-//     consumers would silently read a now-stale cached col_sol that
-//     doesn't satisfy the new cut.  The SDDP backward pass then
-//     produces inconsistent cuts vs off mode — exactly the large hydrothermal
-//     case LB divergence (compress LB ≈ 5× off LB).
-//
-// Skipped during `m_replaying_` (bulk replay restores recorded
-// state — not a new mutation) and under `LowMemoryMode::off` (off
-// uses the live backend's flag directly).  Memory is released via
-// `shrink_to_fit` so the per-cell footprint after invalidation
-// matches off mode's (no cached vectors held).
+// Skipped during replay: bulk replay restores recorded state, it is
+// not a new mutation.
 void LinearInterface::invalidate_cached_optimal_on_mutation() noexcept
 {
   if (m_replay_.replaying()) {
     return;
   }
-  // Drop the cached optimality flag and primal/dual/reduced-cost
-  // vectors regardless of `low_memory_mode`.  Off mode used to skip
-  // this branch on the assumption that the live backend's
-  // `is_proven_optimal()` already flips false on mutation, but with
-  // the LI cache now serving as the single source of truth (post the
-  // plugin-cache removal), readers consult the LI cache exclusively
-  // when populated — letting it survive a mutation under off would
-  // hand stale solution data to downstream consumers (e.g. SDDP
-  // state propagation) on the next read after an `add_row`.
   m_cache_.invalidate_optimal_on_mutation();
   m_cache_.clear_all_solution_vectors();
 }
@@ -661,7 +639,7 @@ void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
   //    Uses the bulk `set_col_bounds_raw` API (one CPXchgbds call
   //    on CPLEX, one HighsLp update on HiGHS) instead of N pairs of
   //    `set_col_lower/upper` virtual dispatches — matters on cases
-  //    with many forward-pass dep_col pins (production the large hydrothermal
+  //    with many forward-pass dep_col pins (production large hydrothermal
   //    case). The `ReplayGuard` above already makes the bulk call skip the
   //    per-element `set_pending_col_*` re-record path.
   if (const auto& pending = source.pending_col_bounds(); !pending.empty()) {
@@ -942,37 +920,8 @@ void LinearInterface::open_log_handler(const int log_level)
 
 LinearInterface LinearInterface::clone(CloneKind kind) const
 {
-  // Process-global serialisation of `backend().clone()`.
-  //
-  // The native clone route (this method) calls into the solver's
-  // own `clone()` — `CPXcloneprob` on CPLEX, equivalent on every
-  // other backend — which has process-global side effects (env,
-  // licence manager, internal allocator) that are not reentrant
-  // across threads.  Two failure modes have been observed in
-  // production with concurrent calls and no mutex:
-  //
-  //   * Crashes — three SDDPWorkPool threads GPF'd at the same
-  //     instruction pointer inside CPLEX on the large hydrothermal case
-  //     (commit `1d7a05c1` added a per-callsite mutex on the
-  //     aperture path).
-  //
-  //   * Deadlocks — 10/122 SDDPWorkPool threads parked in
-  //     `_M_futex_wait_until` two frames below
-  //     `BendersCut::elastic_filter_solve`, the SDDP forward pass
-  //     wedged for >7 min (large-case thread dump, 2026-05-07).
-  //
-  // The aperture path's per-callsite mutex was insufficient: it
-  // only serialised within one entry-point.  Concurrent elastic
-  // clones in the forward pass had no protection at all.  Putting
-  // the mutex here, inside `LinearInterface::clone()` itself,
-  // guarantees every native-clone caller (elastic, aperture,
-  // future paths) is automatically safe with no per-call boiler-
-  // plate.  Callers that want the parallel-safe manual route
-  // (no mutex, builds via `CPXcreateprob` + `CPXaddrows` on a
-  // freshly-opened env) call `clone_from_flat()` explicitly when
-  // they want **snapshot-state** semantics — that path is for
-  // callers who don't need the post-snapshot dynamic state
-  // (alpha, installed cuts) replayed into the clone.
+  // Process-global serialisation of the native solver clone; see the
+  // thread-safety note on `clone()` in linear_interface.hpp.
   //
   // KEEP THIS LOCK — do not try to remove or narrow it again.  It is
   // required for correctness with CPLEX at least: `CPXcloneprob` touches
@@ -985,10 +934,9 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   const std::scoped_lock native_clone_lock(s_native_clone_mutex);
 
   // Route through the centralized `backend()` accessor so the source
-  // auto-resurrects if released (low_memory_mode != off).  Prior to
-  // this, direct `m_backend_->clone()` null-deref segfaulted when the
-  // SDDP forward pass had released the phase backend before the
-  // backward/aperture pass cloned it.
+  // auto-resurrects if released (low_memory_mode != off): the SDDP
+  // forward pass may have released the phase backend before the
+  // backward/aperture pass clones it.
   //
   // The backend is always cloned independently — solver internals
   // (CPLEX env, HiGHS basis factorisation) are non-reentrant.  Only
@@ -1632,10 +1580,9 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   //
   // Caller doesn't need to remember a follow-up `record_dynamic_col`
   // — historically that was a hidden requirement that silently
-  // dropped post-init cols on the first reconstruct (the large cascade case
-  // SIGSEGV).
-  // 2026-05-11 fix — record unconditionally (no mode gate).  Under
-  // `off`, `system_lp.cpp:560` still saves a snapshot, so the
+  // dropped post-init cols on the first reconstruct (the large hydrothermal
+  // case SIGSEGV). 2026-05-11 fix — record unconditionally (no mode gate).
+  // Under `off`, `system_lp.cpp:560` still saves a snapshot, so the
   // aperture-path `clone_from_flat` consumes this buffer.  Without
   // recording α cols here, `apply_post_load_replay` re-installs cuts
   // that reference an α column index past the snapshot's numcols —
@@ -2187,7 +2134,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   //     handled by the basis structure rather than being amplified
   //     into κ when α enters the basis).  Without this, row-max
   //     normalization would pick a state link as the divisor,
-  //     pushing α down to O(10⁻⁹) on CEN-scale problems and
+  //     pushing α down to O(10⁻⁹) on large-case problems and
   //     contributing κ ≈ 10⁹ per cut.
   //   - ROW-MAX normalization (default): divide by max-abs.  Right
   //     for structural rows where no single column carries the
@@ -2336,7 +2283,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   // collapses N CPXaddrows calls into one and N×3 element walks into
   // N×1 (the previous fallback was per-row `add_row`, which dominated
   // the cut-replay cost under `LowMemoryMode::compress` — see the
-  // 2026-05 LB-overshoot investigation on a large hydrothermal case).
+  // 2026-05 LB-overshoot investigation).
   //
   // Composition contract (matches the singular `add_row(SparseRow)`
   // compose_physical body at :1929-2071):

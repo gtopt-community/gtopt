@@ -14,6 +14,8 @@
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/sparse_col.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 // ---------------------------------------------------------------------------
@@ -244,7 +246,7 @@ TEST_CASE("build_benders_cut_physical state_var overload matches span overload")
       mkctx(),
   };
   svar0.set_col_sol(5.0);  // phys = 5 * 2 = 10
-  svar0.set_reduced_cost(0.4);  // rc_phys = 0.4 * scale_obj / 2
+  svar0.set_reduced_cost(0.4, 2.0);  // rc_phys = 0.4 * scale_obj / 2
 
   StateVariable svar1 {
       key0,
@@ -254,7 +256,7 @@ TEST_CASE("build_benders_cut_physical state_var overload matches span overload")
       mkctx(),
   };
   svar1.set_col_sol(3.0);  // phys = 3
-  svar1.set_reduced_cost(-2.0);  // rc_phys = -2 * scale_obj
+  svar1.set_reduced_cost(-2.0, 1.0);  // rc_phys = -2 * scale_obj
 
   constexpr double scale_obj = 10.0;
 
@@ -302,7 +304,7 @@ TEST_CASE("build_benders_cut_physical state_var overload eps filters small rc")
       LpContext {},
   };
   svar_tiny.set_col_sol(5.0);
-  svar_tiny.set_reduced_cost(1e-13);  // rc_phys = 1e-13 * 1 / 1 = 1e-13
+  svar_tiny.set_reduced_cost(1e-13, 1.0);  // rc_phys = 1e-13 * 1 / 1 = 1e-13
 
   StateVariable svar_big {
       key0,
@@ -312,7 +314,7 @@ TEST_CASE("build_benders_cut_physical state_var overload eps filters small rc")
       LpContext {},
   };
   svar_big.set_col_sol(3.0);
-  svar_big.set_reduced_cost(4.0);
+  svar_big.set_reduced_cost(4.0, 1.0);
 
   const std::vector<StateVarLink> links = {
       {.source_col = ColIndex {1}, .state_var = &svar_tiny},
@@ -396,7 +398,7 @@ TEST_CASE(
           LpContext {},
       };
       svar.set_col_sol(raw_col_sol);
-      svar.set_reduced_cost(raw_rc);
+      svar.set_reduced_cost(raw_rc, target_var_scale);
 
       const std::vector<StateVarLink> links = {
           {.source_col = ColIndex {1}, .state_var = &svar},
@@ -1460,18 +1462,22 @@ TEST_CASE(  // NOLINT
   auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
 
   REQUIRE(result.has_value());
-  REQUIRE(result->link_infos.size() == 2);
+  REQUIRE(test_support::require_value(result).link_infos.size() == 2);
 
   // Link 1 (trial=5, ub=10): non-essential — slack cols cleared.
-  CHECK(result->link_infos[0].sup_col == ColIndex {unknown_index});
-  CHECK(result->link_infos[0].sdn_col == ColIndex {unknown_index});
+  CHECK(test_support::require_value(result).link_infos[0].sup_col
+        == ColIndex {unknown_index});
+  CHECK(test_support::require_value(result).link_infos[0].sdn_col
+        == ColIndex {unknown_index});
 
   // Link 2 (trial=100, ub=50): essential — slack cols preserved.
-  CHECK(result->link_infos[1].sup_col != ColIndex {unknown_index});
-  CHECK(result->link_infos[1].sdn_col != ColIndex {unknown_index});
+  CHECK(test_support::require_value(result).link_infos[1].sup_col
+        != ColIndex {unknown_index});
+  CHECK(test_support::require_value(result).link_infos[1].sdn_col
+        != ColIndex {unknown_index});
 
   // Clone is still optimal after the IIS-filter re-fix solve.
-  CHECK(result->clone.is_optimal());
+  CHECK(test_support::require_value(result).clone.is_optimal());
 }
 
 TEST_CASE(  // NOLINT
@@ -1486,13 +1492,17 @@ TEST_CASE(  // NOLINT
   auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
 
   REQUIRE(result.has_value());
-  REQUIRE(result->link_infos.size() == 2);
+  REQUIRE(test_support::require_value(result).link_infos.size() == 2);
 
   // Both links remain active — no filtering possible.
-  CHECK(result->link_infos[0].sup_col != ColIndex {unknown_index});
-  CHECK(result->link_infos[0].sdn_col != ColIndex {unknown_index});
-  CHECK(result->link_infos[1].sup_col != ColIndex {unknown_index});
-  CHECK(result->link_infos[1].sdn_col != ColIndex {unknown_index});
+  CHECK(test_support::require_value(result).link_infos[0].sup_col
+        != ColIndex {unknown_index});
+  CHECK(test_support::require_value(result).link_infos[0].sdn_col
+        != ColIndex {unknown_index});
+  CHECK(test_support::require_value(result).link_infos[1].sup_col
+        != ColIndex {unknown_index});
+  CHECK(test_support::require_value(result).link_infos[1].sdn_col
+        != ColIndex {unknown_index});
 }
 
 TEST_CASE(  // NOLINT
@@ -1509,14 +1519,14 @@ TEST_CASE(  // NOLINT
   // When all relaxed bounds are inactive the function returns the full
   // elastic result unchanged (no filtering needed).
   REQUIRE(result.has_value());
-  REQUIRE(result->link_infos.size() == 2);
-  CHECK(result->clone.is_optimal());
+  REQUIRE(test_support::require_value(result).link_infos.size() == 2);
+  CHECK(test_support::require_value(result).clone.is_optimal());
 
   // The full-elastic-pass result preserves slack columns even when slacks
   // are zero — it's the chinneck IIS pass that would clear them, but here
   // there is nothing to filter (n_active == 0 short-circuit).
-  CHECK(result->link_infos[0].relaxed);
-  CHECK(result->link_infos[1].relaxed);
+  CHECK(test_support::require_value(result).link_infos[0].relaxed);
+  CHECK(test_support::require_value(result).link_infos[1].relaxed);
 }
 
 TEST_CASE(  // NOLINT
@@ -1531,7 +1541,8 @@ TEST_CASE(  // NOLINT
   auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
   REQUIRE(result.has_value());
 
-  auto cuts = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
+  auto cuts = build_multi_cuts(
+      test_support::require_value(result), fx.links, {}, 1e-6, 0);
 
   // build_multi_cuts skips links whose sup_col/sdn_col are unknown_index,
   // so only the essential link 2 contributes — at most 2 cuts (ub + lb).
@@ -1597,22 +1608,24 @@ TEST_CASE(  // NOLINT
         : elastic_filter_solve(fx.li, fx.links, 1e3, opts);
 
     REQUIRE(result.has_value());
-    REQUIRE(result->link_infos.size() == 2);
-    CHECK(result->clone.is_optimal());
+    REQUIRE(test_support::require_value(result).link_infos.size() == 2);
+    CHECK(test_support::require_value(result).clone.is_optimal());
 
     // single_cut consumes the elastic result via
     // build_benders_cut_physical; multi_cut / chinneck additionally
     // call build_multi_cuts.  Both should run without throwing.
-    auto bc = build_benders_cut_physical(ColIndex {99},  // any source_col
-                                         fx.links,
-                                         result->clone,
-                                         result->clone.get_obj_value());
+    auto bc = build_benders_cut_physical(
+        ColIndex {99},  // any source_col
+        fx.links,
+        test_support::require_value(result).clone,
+        test_support::require_value(result).clone.get_obj_value());
     CHECK(bc.cmap.size() >= 1);
 
     if (mode == ElasticFilterMode::multi_cut
         || mode == ElasticFilterMode::chinneck)
     {
-      auto mc = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
+      auto mc = build_multi_cuts(
+          test_support::require_value(result), fx.links, {}, 1e-6, 0);
       // For chinneck, only the essential link contributes (cuts.size() ≤ 2).
       // For multi_cut, both links may contribute (cuts.size() ≤ 4).
       const std::size_t expected_max =
@@ -2048,8 +2061,9 @@ TEST_CASE(  // NOLINT
     PushUpLP f {0.0, 5.0, 1.0};
     auto res = elastic_filter_solve(f.li, std::span {&f.link, 1}, 1e3, opts);
     REQUIRE(res.has_value());
-    REQUIRE(res->solved);
-    auto cuts = build_multi_cuts(*res, std::span {&f.link, 1}, {}, 1e-6, 0);
+    REQUIRE(test_support::require_value(res).solved);
+    auto cuts = build_multi_cuts(
+        test_support::require_value(res), std::span {&f.link, 1}, {}, 1e-6, 0);
     REQUIRE_FALSE(cuts.empty());
     const auto& cut = cuts.front();
     const double coeff = cut.cmap.at(ColIndex {99});
@@ -2062,8 +2076,9 @@ TEST_CASE(  // NOLINT
     PushUpLP f {0.0, 5.0, K};
     auto res = elastic_filter_solve(f.li, std::span {&f.link, 1}, 1e3, opts);
     REQUIRE(res.has_value());
-    REQUIRE(res->solved);
-    auto cuts = build_multi_cuts(*res, std::span {&f.link, 1}, {}, 1e-6, 0);
+    REQUIRE(test_support::require_value(res).solved);
+    auto cuts = build_multi_cuts(
+        test_support::require_value(res), std::span {&f.link, 1}, {}, 1e-6, 0);
     REQUIRE_FALSE(cuts.empty());
     const auto& cut = cuts.front();
     const double coeff = cut.cmap.at(ColIndex {99});
@@ -2075,8 +2090,9 @@ TEST_CASE(  // NOLINT
     PushUpLP f {0.0, 5.0, 10.0};
     auto res = elastic_filter_solve(f.li, std::span {&f.link, 1}, 1e3, opts);
     REQUIRE(res.has_value());
-    REQUIRE(res->solved);
-    auto cuts = build_multi_cuts(*res, std::span {&f.link, 1}, {}, 1e-6, 0);
+    REQUIRE(test_support::require_value(res).solved);
+    auto cuts = build_multi_cuts(
+        test_support::require_value(res), std::span {&f.link, 1}, {}, 1e-6, 0);
     REQUIRE_FALSE(cuts.empty());
     const auto& cut = cuts.front();
     const double coeff = cut.cmap.at(ColIndex {99});
@@ -2109,9 +2125,12 @@ TEST_CASE(  // NOLINT
   PushUpLP f0 {0.0, 5.0, 1.0};
   auto res0 = elastic_filter_solve(f0.li, std::span {&f0.link, 1}, 1e3, opts);
   REQUIRE(res0.has_value());
-  REQUIRE(res0->solved);
-  auto cuts0 =
-      build_multi_cuts(*res0, std::span {&f0.link, 1}, {}, cut_coeff_eps, 0);
+  REQUIRE(test_support::require_value(res0).solved);
+  auto cuts0 = build_multi_cuts(test_support::require_value(res0),
+                                std::span {&f0.link, 1},
+                                {},
+                                cut_coeff_eps,
+                                0);
   REQUIRE_FALSE(cuts0.empty());
   const double coeff0 = cuts0.front().cmap.at(ColIndex {99});
   const double implied0 = cuts0.front().lowb / coeff0;
@@ -2122,9 +2141,12 @@ TEST_CASE(  // NOLINT
   auto res100 =
       elastic_filter_solve(f100.li, std::span {&f100.link, 1}, 1e3, opts);
   REQUIRE(res100.has_value());
-  REQUIRE(res100->solved);
-  auto cuts100 = build_multi_cuts(
-      *res100, std::span {&f100.link, 1}, {}, cut_coeff_eps, 100);
+  REQUIRE(test_support::require_value(res100).solved);
+  auto cuts100 = build_multi_cuts(test_support::require_value(res100),
+                                  std::span {&f100.link, 1},
+                                  {},
+                                  cut_coeff_eps,
+                                  100);
   REQUIRE_FALSE(cuts100.empty());
   const double coeff100 = cuts100.front().cmap.at(ColIndex {99});
   const double implied100 = cuts100.front().lowb / coeff100;
@@ -2193,9 +2215,10 @@ TEST_CASE(  // NOLINT
   SolverOptions opts;
   auto elastic = elastic_filter_solve(li, links, 1e3, opts);
   REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  REQUIRE(test_support::require_value(elastic).solved);
 
-  auto cuts = build_multi_cuts(*elastic, links, {}, 1e-6, 0);
+  auto cuts = build_multi_cuts(
+      test_support::require_value(elastic), links, {}, 1e-6, 0);
 
   // Two cuts: one for dep1, one for dep2.
   REQUIRE(cuts.size() == 2);
@@ -2314,15 +2337,19 @@ TEST_CASE(  // NOLINT
     ChinneckLBFixture fx {5.0, 5.0, 3.0, 50.0, K};
     auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
     REQUIRE(result.has_value());
-    REQUIRE(result->link_infos.size() == 2);
+    REQUIRE(test_support::require_value(result).link_infos.size() == 2);
 
     // Link 1 (trial=lb=5): non-essential — slacks cleared by chinneck.
-    CHECK(result->link_infos[0].sup_col == ColIndex {unknown_index});
-    CHECK(result->link_infos[0].sdn_col == ColIndex {unknown_index});
+    CHECK(test_support::require_value(result).link_infos[0].sup_col
+          == ColIndex {unknown_index});
+    CHECK(test_support::require_value(result).link_infos[0].sdn_col
+          == ColIndex {unknown_index});
 
     // Link 2 (trial=3 < lb=50): essential — slacks preserved.
-    CHECK(result->link_infos[1].sup_col != ColIndex {unknown_index});
-    CHECK(result->link_infos[1].sdn_col != ColIndex {unknown_index});
+    CHECK(test_support::require_value(result).link_infos[1].sup_col
+          != ColIndex {unknown_index});
+    CHECK(test_support::require_value(result).link_infos[1].sdn_col
+          != ColIndex {unknown_index});
   }
 }
 
@@ -2342,7 +2369,8 @@ TEST_CASE(  // NOLINT
     ChinneckLBFixture fx {5.0, 5.0, 3.0, 50.0, 1.0};
     auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
     REQUIRE(result.has_value());
-    auto cuts = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
+    auto cuts = build_multi_cuts(
+        test_support::require_value(result), fx.links, {}, 1e-6, 0);
     CHECK_FALSE(cuts.empty());
     const auto& c = cuts.front();
     const double coeff = c.cmap.at(ColIndex {100});
@@ -2358,7 +2386,8 @@ TEST_CASE(  // NOLINT
     ChinneckLBFixture fx {5.0, 5.0, 3.0, 50.0, 10.0};
     auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
     REQUIRE(result.has_value());
-    auto cuts = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
+    auto cuts = build_multi_cuts(
+        test_support::require_value(result), fx.links, {}, 1e-6, 0);
     CHECK_FALSE(cuts.empty());
     const auto& c = cuts.front();
     const double coeff = c.cmap.at(ColIndex {100});
@@ -2370,7 +2399,8 @@ TEST_CASE(  // NOLINT
     ChinneckLBFixture fx {5.0, 5.0, 3.0, 50.0, 100.0};
     auto result = chinneck_filter_solve(fx.li, fx.links, 1e3, opts);
     REQUIRE(result.has_value());
-    auto cuts = build_multi_cuts(*result, fx.links, {}, 1e-6, 0);
+    auto cuts = build_multi_cuts(
+        test_support::require_value(result), fx.links, {}, 1e-6, 0);
     CHECK_FALSE(cuts.empty());
     const auto& c = cuts.front();
     const double coeff = c.cmap.at(ColIndex {100});

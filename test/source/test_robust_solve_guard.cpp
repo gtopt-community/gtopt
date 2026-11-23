@@ -88,7 +88,7 @@ TEST_CASE("RobustSolveGuard ctor engages, dtor disengages")  // NOLINT
 }
 
 TEST_CASE(
-    "engage_robust_solve is idempotent-loose; escalate compounds")  // NOLINT
+    "engage_robust_solve is idempotent-loose, escalate compounds")  // NOLINT
 {
   auto backend = make_any_backend_or_skip();
   if (!backend) {

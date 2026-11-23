@@ -83,6 +83,7 @@
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/utils.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
@@ -411,12 +412,14 @@ struct OracleCutView
   // every varphi_s under multicut); the fixture's only physical state
   // is the reservoir energy.
   OracleCutView view {
-      .scene_pos = static_cast<std::size_t>(*scene),
-      .phase_pos = static_cast<int>(static_cast<std::size_t>(*phase)),
+      .scene_pos = static_cast<std::size_t>(test_support::require_value(scene)),
+      .phase_pos = static_cast<int>(
+          static_cast<std::size_t>(test_support::require_value(phase))),
   };
   view.rhs = sc.rhs;
 
-  const auto& svars = sim.state_variables(*scene, *phase);
+  const auto& svars = sim.state_variables(test_support::require_value(scene),
+                                          test_support::require_value(phase));
   bool alpha_seen = false;
   std::size_t n_state_coeffs = 0;
   for (const auto& [col, coeff] : sc.coefficients) {
@@ -1463,7 +1466,7 @@ TEST_CASE(  // NOLINT
 // ═════════════════════════════════════════════════════════════════════════
 // BENCHMARK (report only, no hard asserts): aperture solve modes on the
 // 2-scene × 10-phase × 2-reservoir fixture.  `warm` is the production
-// baseline and needs `aperture_chunk_size = -1` (fully serial per scene)
+// baseline and needs `aperture_chunk_mode = per_scene` (the default)
 // for its within-chunk basis chain to engage; `cold` is the legacy
 // per-aperture barrier; `dual_shared` / `screened` skip re-solves via
 // Lemma AP2 synthesis.  Expectation on a CPU simplex/barrier backend
@@ -1490,7 +1493,7 @@ TEST_CASE(  // NOLINT
 
   const auto run_bench = [&rows](const std::string& label,
                                  ApertureSolveMode mode,
-                                 int chunk_size,
+                                 ApertureChunkMode chunk_mode,
                                  int screen_count)
   {
     auto planning = make_2scene_10phase_two_reservoir_planning();
@@ -1503,7 +1506,7 @@ TEST_CASE(  // NOLINT
     opts.cut_sharing = CutSharingMode::none;
     opts.apertures = std::vector<Uid> {Uid {1}, Uid {2}};
     opts.aperture_solve_mode = mode;
-    opts.aperture_chunk_size = chunk_size;
+    opts.aperture_chunk_mode = chunk_mode;
     opts.aperture_screen_count = screen_count;
     opts.enable_api = false;
 
@@ -1529,10 +1532,13 @@ TEST_CASE(  // NOLINT
     });
   };
 
-  run_bench("warm (chunk=-1, baseline)", ApertureSolveMode::warm, -1, 2);
-  run_bench("cold", ApertureSolveMode::cold, 0, 2);
-  run_bench("dual_shared", ApertureSolveMode::dual_shared, 0, 2);
-  run_bench("screened (N=1)", ApertureSolveMode::screened, 0, 1);
+  constexpr auto per_scene = ApertureChunkMode::per_scene;
+  constexpr auto per_aperture = ApertureChunkMode::per_aperture;
+  run_bench(
+      "warm (per_scene, baseline)", ApertureSolveMode::warm, per_scene, 2);
+  run_bench("cold", ApertureSolveMode::cold, per_aperture, 2);
+  run_bench("dual_shared", ApertureSolveMode::dual_shared, per_aperture, 2);
+  run_bench("screened (N=1)", ApertureSolveMode::screened, per_aperture, 1);
 
   std::string report =
       "\nAperture solve-mode benchmark "

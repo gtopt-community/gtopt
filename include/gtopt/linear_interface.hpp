@@ -153,6 +153,13 @@ public:
    * use for solve-and-discard clones (aperture, elastic) to save
    * memory at peak concurrency.  See `CloneKind` for full contract.
    *
+   * Thread safety: every call is serialised process-wide by a mutex
+   * inside `clone()`.  Native clone routines (`CPXcloneprob` on CPLEX,
+   * the equivalent elsewhere) have process-global side effects (env,
+   * licence manager, allocator) that are not reentrant; concurrent
+   * SDDP clones crashed and deadlocked without it.  `clone_from_flat()`
+   * is the lock-free alternative.
+   *
    * @return A new LinearInterface wrapping the cloned solver.
    */
   [[nodiscard]] LinearInterface clone(CloneKind kind = CloneKind::deep) const;
@@ -164,12 +171,8 @@ public:
    *
    * Why two clone routes coexist:
    *   - `clone(CloneKind)`        → calls `backend().clone()` (e.g.
-   *     `CPXcloneprob`).  Some backends (CPLEX 22.1 in particular)
-   *     have process-global side effects in this path that crashed
-   *     three threads at the same instruction pointer in a large
-   *     hydrothermal case (commit 1d7a05c1) — the call site in
-   *     `sddp_aperture.cpp` therefore serialises every `clone()`
-   *     invocation under `s_global_clone_mutex`.
+   *     `CPXcloneprob`), serialised process-wide by a mutex (see the
+   *     thread-safety note on `clone()`).
    *   - `clone_from_flat(kind)` → goes through `CPXcreateprob` +
    *     `CPXaddrows` (or the equivalent on each backend).  Those
    *     calls are env-local: every `CplexSolverBackend` ctor runs
@@ -192,31 +195,17 @@ public:
    * path.  `kind == CloneKind::deep` keeps the freshly-built
    * metadata that `load_flat` produced.
    *
-   * `with_replay == false` (default) clones **snapshot state only**
-   * — the resulting LP has no post-snapshot α col, no installed
-   * cuts, and no forward-pass-pinned bounds.  This is what the
-   * SDDP aperture path wants (the aperture solves the structural
-   * LP with bound updates, no cuts).
-   *
-   * `with_replay == true` additionally replays the source's
-   * `m_replay_` state (dynamic_cols, dynamic_rows, active_cuts,
-   * pending_col_bounds) onto the freshly-built clone — yielding a
-   * **current-state** clone equivalent to what `clone()` would
-   * produce, but built via the parallel-safe `CPXcreateprob`
-   * path instead of the serialised `CPXcloneprob`.  This is what
-   * the SDDP forward-pass elastic filter needs: it must clone the
-   * full current LP (with α + all cuts) and solve concurrently
-   * across many SDDPWorkPool threads, which is exactly the
-   * scenario where the native `clone()` mutex serialised 13+
-   * threads on the large hydrothermal case (2026-05-07 deadlock).
+   * After `load_flat` the source's `m_replay_` state (dynamic_cols,
+   * dynamic_rows, active_cuts, pending_col_bounds) is replayed onto
+   * the clone, yielding a **current-state** clone equivalent to what
+   * `clone()` would produce (α + all installed cuts), but built via
+   * the parallel-safe `CPXcreateprob` path.  This is what the SDDP
+   * forward-pass elastic filter needs: it clones the full current LP
+   * and solves concurrently across many SDDPWorkPool threads, where
+   * the native `clone()` mutex would serialise them.
    *
    * @return A new LinearInterface populated from the saved snapshot.
    */
-  /// Always replays the source's `m_replay_` onto the clone after the
-  /// `load_flat` (the `with_replay` parameter that gated this was
-  /// dropped 2026-05-13 — no production caller invoked it with
-  /// `false`, and the snapshot-frozen clone variant is no longer
-  /// needed).
   [[nodiscard]] LinearInterface clone_from_flat(
       CloneKind kind = CloneKind::shallow) const;
 
@@ -393,7 +382,7 @@ public:
   ///     `update_stored_cut_duals` and `prune_inactive_cuts`
   ///     (`sddp_cut_store.cpp:177, 222`).
   ///
-  /// On the large hydrothermal case run the col_sol + col_cost vectors carry
+  /// On a large hydrothermal case run the col_sol + col_cost vectors carry
   /// 0.7–2.5 GB across all `(scene, phase)` cells between iterations.
   /// Once the iteration's state CSV has been written and the backward
   /// pass has consumed the per-state-variable values via
@@ -419,7 +408,7 @@ public:
   /// production SDDP `write_lp` runs at most once per cell (debug
   /// `--lp-debug`, error-LP capture).  After the dump returns the
   /// caches are dead weight: ~50k strings × ~30 bytes per LP × N
-  /// cells is hundreds of MB on CEN-scale cases, persisting until
+  /// cells is hundreds of MB on large cases, persisting until
   /// process exit unless we drop them.
   ///
   /// Safe to call after every `write_lp` because:
@@ -3186,7 +3175,8 @@ private:
   void populate_solution_cache_post_solve() noexcept;
 
   /// Replay-on-reconstruct buffer (Phase 2a of the LinearInterface
-  /// split — see ``include/gtopt/lp_replay_buffer.hpp``).
+  /// split — see
+  /// ``include/gtopt/lp_replay_buffer.hpp``).
   ///
   /// Owns the dynamic-cols / dynamic-rows / active-cuts vectors, the
   /// pending-col-bounds map, and the in-replay flag.  Empty under

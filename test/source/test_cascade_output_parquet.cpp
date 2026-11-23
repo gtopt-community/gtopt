@@ -130,7 +130,7 @@ namespace
   return table;
 }
 
-// Read an Arrow numeric array element as double (handles the uint16 keys and
+// Read an Arrow numeric array element as double (handles the int32 keys and
 // the float32 / float64 value column produced by the long writer).
 [[nodiscard]] auto numeric_at(const std::shared_ptr<arrow::Array>& a, int64_t i)
     -> double

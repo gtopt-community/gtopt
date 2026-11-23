@@ -14,7 +14,10 @@
 
 #pragma once
 
+#include <algorithm>
 #include <expected>
+#include <iterator>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -26,6 +29,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/sddp_method.hpp>
+#include <gtopt/simulation_lp.hpp>
 
 namespace gtopt
 {
@@ -47,12 +51,6 @@ class PlanningLP;
 /// Uses flat_map for cache-friendly sorted lookup.
 [[nodiscard]] auto build_phase_uid_map(const PlanningLP& planning_lp)
     -> flat_map<PhaseUid, PhaseIndex>;
-
-// ``extract_iteration_from_name`` was removed in 2026-05.  Every
-// consumer now reads the iteration index directly from the matching
-// struct field (``StoredCut::iteration_index``,
-// ``RawBoundaryCut::iteration_index``).  See the documentation block
-// in ``source/sddp_cut_io.cpp`` for the migration notes.
 
 /// Canonical state-variable column name that may appear as a cut
 /// coefficient column in boundary / hot-start cut CSV headers.
@@ -83,6 +81,53 @@ inline constexpr std::string_view EfinColName {"efin"};
     std::string_view col_name) noexcept -> bool
 {
   return col_name == EfinColName;
+}
+
+/// Resolve the PHASE-STATE column of a state variable on a (scene, phase)
+/// cell: among the registered state variables with @p class_name, @p uid
+/// and a column name accepted by @p col_match, the one of the phase's
+/// LAST stage.
+///
+/// A phase spanning several stages registers one `efin` state variable
+/// per stage for the same element (same class / uid / column name); only
+/// the last stage's column is the phase state that SDDP links to the next
+/// phase, that Benders cuts are written on, and that a terminal FCF
+/// prices.  Taking the first registry match instead (the map is ordered
+/// by stage) silently binds cut coefficients to the FIRST stage's
+/// end-volume.  For single-stage phases the result is the unique match.
+///
+/// @return the column, or `nullopt` when no state variable matches.
+template<typename ColNameMatch>
+[[nodiscard]] auto find_phase_state_col(const SimulationLP& sim,
+                                        SceneIndex scene_index,
+                                        PhaseIndex phase_index,
+                                        std::string_view class_name,
+                                        Uid uid,
+                                        ColNameMatch&& col_match)
+    -> std::optional<ColIndex>
+{
+  const auto& stages = sim.phases()[phase_index].stages();
+  std::optional<ColIndex> found;
+  std::ptrdiff_t found_pos = -1;
+  for (const auto& [key, svar] : sim.state_variables(scene_index, phase_index))
+  {
+    if (key.uid != uid || key.class_name != class_name
+        || !std::forward<ColNameMatch>(col_match)(key.col_name))
+    {
+      continue;
+    }
+    // Stage position inside the phase (a key outside it ranks last-most).
+    const auto pos = std::ranges::distance(
+        stages.begin(),
+        std::ranges::find(stages,
+                          key.stage_uid,
+                          [](const auto& stage) { return stage.uid(); }));
+    if (pos > found_pos) {
+      found_pos = pos;
+      found = svar.col();
+    }
+  }
+  return found;
 }
 
 /// Build a scene UID -> SceneIndex lookup from a SimulationLP.
@@ -200,9 +245,8 @@ struct BoundaryCutCoeffStats
 // File-level KeyValueMetadata: {version: "3", scale_objective: "<.17g>"}
 //
 // Cut identity is the structured :class:`CutKey` 5-tuple
-// {type, scene_uid, phase_uid, iteration_index, extra}; the legacy
-// ``name: utf8`` column was dropped in 2026-05 along with the JSON
-// writer and ``extract_iteration_from_name`` parser.  LP row labels
+// {type, scene_uid, phase_uid, iteration_index, extra}; the file has
+// no ``name`` column.  LP row labels
 // (``LabelMaker::make_row_label``) are still emitted for
 // CoinLpIO / debug-dump consumers but live only on the live LP, never
 // in the on-disk cut file.

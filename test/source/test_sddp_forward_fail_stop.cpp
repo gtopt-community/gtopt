@@ -188,7 +188,7 @@ TEST_CASE(  // NOLINT
 // ─── Branch 4 — Option / JSON wiring ───────────────────────────────────────
 
 TEST_CASE(  // NOLINT
-    "SDDPOptions::sddp_forward_fail_stop default is false; can be flipped")
+    "SDDPOptions::sddp_forward_fail_stop default is false, can be flipped")
 {
   // SDDPOptions struct default flipped from `true` → `false` (see
   // `planning_options_lp.hpp::default_sddp_forward_fail_stop`): the
@@ -205,7 +205,7 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "PlanningOptionsLP::sddp_forward_fail_stop default false; honours OptBool")
+    "PlanningOptionsLP::sddp_forward_fail_stop default false, honours OptBool")
 {
   // Default-constructed PlanningOptionsLP — no `forward_fail_stop` set
   // anywhere in the JSON-derived option bag.

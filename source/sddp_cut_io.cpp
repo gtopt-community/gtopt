@@ -267,15 +267,5 @@ namespace gtopt
                                option_scale_alpha,
                                boundary_cut_max_avg_coeff(boundary_cuts_file));
 }
-// ``extract_iteration_from_name`` was removed in 2026-05.  Every
-// consumer now reads the iteration index directly from the matching
-// struct field (``StoredCut::iteration_index``,
-// ``RawBoundaryCut::iteration_index``) rather than parsing it back out
-// of a generated row label.  See:
-//   * ``sddp_cut_parquet.cpp::load_cuts_parquet`` — reads the
-//     ``iteration`` int32 column directly.
-//   * ``sddp_boundary_cuts.cpp`` / ``sddp_named_cuts.cpp`` — both
-//     parsers populate ``iteration_index`` while reading CSV rows
-//     and reuse that variable downstream.
 
 }  // namespace gtopt

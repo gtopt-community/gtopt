@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BSD-3-Clause
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 //
 // FutureCost as the single source of the future-cost-function (FCF)
 // boundary cuts, for every method.

@@ -181,16 +181,10 @@ struct ApertureEntry
 
 // ─── Auto-tuned aperture chunk size ────────────────────────────────────────
 
-/// @note As of commit 8e08b1c4, `SDDPMethod::initialize_solver` resolves
-///       the `auto` sentinel (requested == 0) directly to K=1 (the
-///       empirically-fastest setting on the large hydrothermal case), bypassing
-///       this formula entirely.  The function is RETAINED — and exercised by
-///       the six boundary-behaviour unit tests in
-///       `test_sddp_aperture_functions.cpp` — as a documented helper
-///       for future workloads where the chunked path may win again,
-///       e.g. very large per-aperture LPs (≫ 100 ms each) where the
-///       deflat+replay amortisation and dual-basis warm-start savings
-///       outweigh the loss of work-pool fan-out.
+/// @note Used only for `aperture_chunk_mode = chunked` without an explicit
+///       K (see `resolve_aperture_chunk()` below).  The default mode is
+///       `per_scene` (K = A_max), measured 7.7× faster than one task per
+///       aperture on the CEN y24 case.
 ///
 /// Compute a default `aperture_chunk_size` from problem dimensions.
 ///
@@ -283,6 +277,112 @@ struct ApertureEntry
   const auto u = static_cast<unsigned>(std::max(k, 1));
   k = (u > 1) ? static_cast<int>(std::bit_floor(u - 1U)) : 1;
   return std::min(std::max(k, 1), max_apertures_per_phase);
+}
+
+// ─── Aperture chunk mode resolution ────────────────────────────────────────
+
+/// Outcome of `resolve_aperture_chunk()`: the concrete task grouping plus
+/// diagnostic flags the caller turns into log lines (kept out of the pure
+/// function so it stays `constexpr` and unit-testable).
+struct ApertureChunkResolution
+{
+  ApertureChunkMode mode {default_aperture_chunk_mode};
+  /// Concrete apertures per task, in `[1, max_apertures_per_phase]`
+  /// (`1` when there are no apertures).
+  int chunk_size {1};
+  /// The legacy integer `aperture_chunk_size` (1, -1 or K > 1) selected
+  /// the mode because `aperture_chunk_mode` was unset → deprecation.
+  bool legacy_size {false};
+  /// `aperture_chunk_size` contradicts the explicit mode and was ignored
+  /// (e.g. `per_scene` with `aperture_chunk_size = 4`).
+  bool size_ignored {false};
+  /// `aperture_chunk_size` is not a valid encoding (< -1); fell back to
+  /// the default mode (legacy path) or the auto K (`chunked`).
+  bool invalid_size {false};
+  /// `chunked` without an explicit K: K came from
+  /// `compute_auto_aperture_chunk_size`.
+  bool auto_size {false};
+};
+
+/// Resolve the backward-pass aperture grouping from the user-facing
+/// `aperture_chunk_mode` (optional) and `aperture_chunk_size` (`0` =
+/// unset).
+///
+/// Explicit mode:
+///   * `per_scene`    → K = A_max.  A size other than 0 / -1 is ignored
+///                      (`size_ignored`).
+///   * `per_aperture` → K = 1.  A size other than 0 / 1 is ignored.
+///   * `chunked`      → K = size clamped to `[1, A_max]`; size 0 (unset)
+///                      or < -1 → auto formula (`auto_size`, the latter
+///                      also `invalid_size`); size -1 contradicts and is
+///                      treated as K = A_max (`size_ignored`).
+///
+/// Mode unset (legacy integer encoding, kept for back-compat):
+///   * size 0 (unset / "auto") → `per_scene` (the default), silent.
+///   * size -1                 → `per_scene`    + `legacy_size`.
+///   * size 1                  → `per_aperture` + `legacy_size`.
+///   * size K > 1              → `chunked` K    + `legacy_size`.
+///   * size < -1               → `per_scene`    + `invalid_size`.
+[[nodiscard]] constexpr ApertureChunkResolution resolve_aperture_chunk(
+    std::optional<ApertureChunkMode> mode,
+    int size,
+    int max_apertures_per_phase,
+    int n_active_scenes,
+    int n_physical_cores,
+    double parallel_factor = 2.0) noexcept
+{
+  ApertureChunkResolution r {};
+  const int a_max = std::max(max_apertures_per_phase, 1);
+
+  if (!mode.has_value()) {
+    if (size == 0) {
+      r.mode = default_aperture_chunk_mode;
+    } else if (size == -1) {
+      r.mode = ApertureChunkMode::per_scene;
+      r.legacy_size = true;
+    } else if (size == 1) {
+      r.mode = ApertureChunkMode::per_aperture;
+      r.legacy_size = true;
+    } else if (size > 1) {
+      r.mode = ApertureChunkMode::chunked;
+      r.legacy_size = true;
+    } else {
+      r.mode = default_aperture_chunk_mode;
+      r.invalid_size = true;
+    }
+  } else {
+    r.mode = *mode;
+  }
+
+  switch (r.mode) {
+    case ApertureChunkMode::per_scene:
+      r.chunk_size = a_max;
+      r.size_ignored = mode.has_value() && size != 0 && size != -1;
+      break;
+    case ApertureChunkMode::per_aperture:
+      r.chunk_size = 1;
+      r.size_ignored = mode.has_value() && size != 0 && size != 1;
+      break;
+    case ApertureChunkMode::chunked:
+      if (size > 0) {
+        r.chunk_size = std::min(size, a_max);
+      } else if (size == -1) {
+        r.chunk_size = a_max;
+        r.size_ignored = true;
+      } else {
+        r.chunk_size = compute_auto_aperture_chunk_size(max_apertures_per_phase,
+                                                        n_active_scenes,
+                                                        n_physical_cores,
+                                                        parallel_factor);
+        r.auto_size = true;
+        r.invalid_size = size < -1;
+      }
+      break;
+  }
+  if (max_apertures_per_phase <= 0) {
+    r.chunk_size = 1;
+  }
+  return r;
 }
 
 // ─── Dual-shared aperture cut correction (Infanger–Morton) ─────────────────

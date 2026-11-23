@@ -55,7 +55,7 @@ TEST_CASE(  // NOLINT
       .phase_index = PhaseIndex {0},
   };
   const StateVariable svar {lp_key, ColIndex {0}, 0.0, 1.0, LpContext {}};
-  svar.set_reduced_cost(7.25);
+  svar.set_reduced_cost(7.25, 1.0);
   REQUIRE(svar.reduced_cost() == doctest::Approx(7.25));
 
   // Add a couple of rows to the LP (mirror expected_cut install), then
@@ -95,7 +95,7 @@ TEST_CASE(  // NOLINT
       .phase_index = PhaseIndex {0},
   };
   const StateVariable svar {lp_key, ColIndex {1}, 0.0, 1.0, LpContext {}};
-  svar.set_reduced_cost(3.0);
+  svar.set_reduced_cost(3.0, 1.0);
   // Physical trial value = col_sol * var_scale = 10 * 1 = 10.
   svar.set_col_sol(10.0);
 
@@ -125,7 +125,7 @@ TEST_CASE(  // NOLINT
   CHECK(cut1.lowb == doctest::Approx(70.0));
 
   // Simulate a subsequent forward-pass capture writing a new rc.
-  svar.set_reduced_cost(-2.0);
+  svar.set_reduced_cost(-2.0, 1.0);
 
   // Second call: rc = -2.0 → coefficient +2.0, lowb == 100 - (-2)*10 == 120.
   const auto cut2 = build_benders_cut_physical(alpha, links, 100.0, 1.0);

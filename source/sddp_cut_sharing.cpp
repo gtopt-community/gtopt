@@ -120,13 +120,12 @@ void share_cuts_for_phase(
   // `defprbpd.f:810` 1/N averaging.  `bound_alpha_for_cut` (called per
   // cut below) releases whichever `varphi_s` the cut references.
   //
-  // Each cut already carries its source-scene metadata from
-  // ``apply_cut_sharing_for_iteration::to_sparse_row``, so we
-  // stamp here only to overwrite with the DESTINATION scene's
-  // context (each scene's LP needs a unique-within-LP label;
-  // the source scene's metadata is fine cross-scene but breaks
-  // the duplicate-label invariant within one LP when the same
-  // cut is appended multiple times for the broadcast).
+  // Each cut already carries its source-scene metadata from the
+  // caller's row builder, so we stamp here only to overwrite with the
+  // DESTINATION scene's context (each scene's LP needs a unique-within-LP
+  // label; the source scene's metadata is fine cross-scene but breaks the
+  // duplicate-label invariant within one LP when the same cut is appended
+  // multiple times for the broadcast).
   std::vector<SparseRow> all_cuts;
   {
     size_t total = 0;
@@ -171,23 +170,25 @@ void share_cuts_for_phase(
       stamped_cuts.push_back(std::move(cut));
     }
 
-    // Step 1: release α (only fires for cuts that reference α; the
+    // Step 1: bulk row dispatch — single backend call.
+    auto& li = planning.system(scene_index, phase_index).linear_interface();
+    li.add_rows(stamped_cuts, /*eps=*/0.0);
+
+    // Step 2: per-cut bookkeeping (`active_cuts()` + low-memory replay).
+    for (const auto& cut : stamped_cuts) {
+      li.record_cut_row(cut);
+    }
+
+    // Step 3: release α (only fires for cuts that reference α; the
     // call is idempotent across cuts, so a redundant release is a
     // cheap no-op).  Backward-pass optimality cuts that demand α > 0
     // require this release; a raw `add_row + record_cut_row` pair
     // would skip it and leave α frozen at `lowb = uppb = 0`, observed
-    // on the large hydrothermal case iter i1 p1 as silent infeasibility.
+    // on a large hydrothermal case as silent infeasibility.  It runs
+    // AFTER the rows are recorded because the α floor is derived from
+    // `active_cuts()` (see `add_cut_row`).
     for (const auto& cut : stamped_cuts) {
       bound_alpha_for_cut(planning, scene_index, phase_index, cut);
-    }
-
-    // Step 2: bulk row dispatch — single backend call.
-    auto& li = planning.system(scene_index, phase_index).linear_interface();
-    li.add_rows(stamped_cuts, /*eps=*/0.0);
-
-    // Step 3: per-cut bookkeeping (no-op when low_memory_mode == off).
-    for (const auto& cut : stamped_cuts) {
-      li.record_cut_row(cut);
     }
   }
 

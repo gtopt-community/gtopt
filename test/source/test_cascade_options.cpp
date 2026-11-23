@@ -242,6 +242,13 @@ TEST_CASE("CascadeLevelMethod - Merge aperture_solve_mode / chunk_size")
   CHECK(*base2.aperture_solve_mode == "warm");
   REQUIRE(base2.aperture_chunk_size.has_value());
   CHECK(*base2.aperture_chunk_size == -1);
+
+  // Named aperture_chunk_mode merges like the other per-level strings.
+  CascadeLevelMethod base3 {.aperture_chunk_mode = "per_scene"};
+  base3.merge(CascadeLevelMethod {.aperture_chunk_mode = "per_aperture"});
+  CHECK(base3.aperture_chunk_mode.value_or("") == "per_aperture");
+  base3.merge(CascadeLevelMethod {.max_iterations = 5});
+  CHECK(base3.aperture_chunk_mode.value_or("") == "per_aperture");
 }
 
 TEST_CASE(

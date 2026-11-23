@@ -36,6 +36,8 @@
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/state_variable.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -147,12 +149,12 @@ TEST_CASE(
   // term the state-relaxed clone is itself infeasible and the builder
   // reports FAIL — "relaxed clone infeasible".
   {
-    auto elastic = elastic_filter_solve(
+    auto elastic_opt = elastic_filter_solve(
         fx.li, fx.links, 1.0, SolverOptions {}, kFrkUnitPolicy);
-    REQUIRE(elastic.has_value());
-    CHECK(!elastic->solved);
+    auto& elastic = test_support::require_value(elastic_opt);
+    CHECK(!elastic.solved);
     auto res = build_farkas_recursive_cut(
-        elastic.value(), fx.links, LpContext {}, kFrkFactEps);
+        elastic, fx.links, LpContext {}, kFrkFactEps);
     CHECK(res.status == PlpCutStatus::fail);
     CHECK(res.cuts.empty());
   }
@@ -162,15 +164,15 @@ TEST_CASE(
   const std::vector<RowIndex> fcut_rows {
       fx.poisoned_row,
   };
-  auto elastic = elastic_filter_solve(
+  auto elastic_opt = elastic_filter_solve(
       fx.li, fx.links, 1.0, SolverOptions {}, kFrkUnitPolicy, fcut_rows);
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
-  REQUIRE(elastic->fcut_infos.size() == 1);
-  CHECK(elastic->fcut_infos.front().row == fx.poisoned_row);
+  auto& elastic = test_support::require_value(elastic_opt);
+  REQUIRE(elastic.solved);
+  REQUIRE(elastic.fcut_infos.size() == 1);
+  CHECK(elastic.fcut_infos.front().row == fx.poisoned_row);
 
-  auto res = build_farkas_recursive_cut(
-      elastic.value(), fx.links, LpContext {}, kFrkFactEps);
+  auto res =
+      build_farkas_recursive_cut(elastic, fx.links, LpContext {}, kFrkFactEps);
   CHECK(res.status == PlpCutStatus::cuts_added);
   REQUIRE(res.cuts.size() == 1);
 
@@ -185,10 +187,10 @@ TEST_CASE(
   // The RHS folds the poisoned row's intercept: read ω and z* off the
   // clone and verify rhs = σ·v̂ + ω·z* (+ the fact_eps margin).  Here
   // ω·z* = 1 × 400 — a KNOWN +400 vs the σ-only term σ·v̂ = 250.
-  const auto& fi = elastic->fcut_infos.front();
-  auto duals = elastic->clone.get_row_dual();
+  const auto& fi = elastic.fcut_infos.front();
+  auto duals = elastic.clone.get_row_dual();
   const double omega = duals[fi.row];
-  const double z_star = elastic->clone.get_col_sol_raw()[fi.z_col];
+  const double z_star = elastic.clone.get_col_sol_raw()[fi.z_col];
   CHECK(omega == doctest::Approx(1.0).epsilon(1e-6));
   CHECK(z_star == doctest::Approx(400.0).epsilon(1e-6));
 
@@ -201,8 +203,8 @@ TEST_CASE(
   // Contrast pin: the state_repair builder on the SAME clone zeroes
   // the link via its dx filter (the repair went entirely through z)
   // and reports HOLGURAS — only farkas_recursive extracts a cut here.
-  auto plp = build_plp_feasibility_cuts(
-      elastic.value(), fx.links, LpContext {}, kFrkFactEps);
+  auto plp =
+      build_plp_feasibility_cuts(elastic, fx.links, LpContext {}, kFrkFactEps);
   CHECK(plp.status == PlpCutStatus::holguras);
 }
 
@@ -262,21 +264,21 @@ TEST_CASE(
       },
   };
 
-  auto elastic =
+  auto elastic_opt =
       elastic_filter_solve(li, links, 1.0, SolverOptions {}, kFrkUnitPolicy);
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& elastic = test_support::require_value(elastic_opt);
+  REQUIRE(elastic.solved);
 
   // Unit policy pins the slack OBJECTIVE coefficients at exactly 1.0
   // on the clone (`get_obj_coeff` — the post-solve `get_col_cost*`
   // views return reduced costs, not objective coefficients).
-  const auto& info = elastic->link_infos.front();
+  const auto& info = elastic.link_infos.front();
   REQUIRE(info.relaxed);
-  CHECK(elastic->clone.get_obj_coeff()[info.sup_col] == doctest::Approx(1.0));
-  CHECK(elastic->clone.get_obj_coeff()[info.sdn_col] == doctest::Approx(1.0));
+  CHECK(elastic.clone.get_obj_coeff()[info.sup_col] == doctest::Approx(1.0));
+  CHECK(elastic.clone.get_obj_coeff()[info.sdn_col] == doctest::Approx(1.0));
 
-  auto res = build_farkas_recursive_cut(
-      elastic.value(), links, LpContext {}, kFrkFactEps);
+  auto res =
+      build_farkas_recursive_cut(elastic, links, LpContext {}, kFrkFactEps);
   REQUIRE(res.status == PlpCutStatus::cuts_added);
   REQUIRE(res.cuts.size() == 1);
   const auto& frk = res.cuts.front();
@@ -286,7 +288,7 @@ TEST_CASE(
   // the σ-only cut: same coefficient and RHS as the aggregated
   // build_feasibility_cut_physical row (up to the fact_eps margin).
   auto agg = build_feasibility_cut_physical(
-      links, elastic->link_infos, elastic->clone, kFrkFactEps, 1);
+      links, elastic.link_infos, elastic.clone, kFrkFactEps, 1);
   REQUIRE(agg.cmap.contains(src));
   CHECK(frk.cmap.at(src) == doctest::Approx(agg.cmap.at(src)).epsilon(1e-9));
   CHECK(frk.lowb
@@ -360,13 +362,13 @@ TEST_CASE(
       },
   };
 
-  auto elastic =
+  auto elastic_opt =
       elastic_filter_solve(li, links, 1.0, SolverOptions {}, kFrkUnitPolicy);
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& elastic = test_support::require_value(elastic_opt);
+  REQUIRE(elastic.solved);
 
-  auto res = build_farkas_recursive_cut(
-      elastic.value(), links, LpContext {}, kFrkFactEps);
+  auto res =
+      build_farkas_recursive_cut(elastic, links, LpContext {}, kFrkFactEps);
   REQUIRE(res.status == PlpCutStatus::cuts_added);
   REQUIRE(res.cuts.size() == 1);
   const auto& cut = res.cuts.front();
@@ -472,24 +474,23 @@ TEST_CASE(
       },
   };
 
-  auto elastic =
+  auto elastic_opt =
       elastic_filter_solve(li, links, 1.0, SolverOptions {}, kFrkUnitPolicy);
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& elastic = test_support::require_value(elastic_opt);
+  REQUIRE(elastic.solved);
 
   // The Phase-1 clone: unit-per-PHYSICAL slack pricing (cost = 10 per
   // raw unit on the scaled column, 1 on the unscaled one) and a
   // zeroed objective constant.
-  const auto& info_a = elastic->link_infos.at(0);
+  const auto& info_a = elastic.link_infos.at(0);
   REQUIRE(info_a.relaxed);
-  CHECK(elastic->clone.get_obj_coeff()[info_a.sdn_col]
-        == doctest::Approx(10.0));
-  CHECK(elastic->clone.get_obj_constant() == doctest::Approx(0.0));
+  CHECK(elastic.clone.get_obj_coeff()[info_a.sdn_col] == doctest::Approx(10.0));
+  CHECK(elastic.clone.get_obj_constant() == doctest::Approx(0.0));
   // V = minimum PHYSICAL repair (100 hm3), constant excluded.
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(100.0));
+  CHECK(elastic.clone.get_obj_value() == doctest::Approx(100.0));
 
-  auto res = build_farkas_recursive_cut(
-      elastic.value(), links, LpContext {}, kFrkFactEps);
+  auto res =
+      build_farkas_recursive_cut(elastic, links, LpContext {}, kFrkFactEps);
   REQUIRE(res.status == PlpCutStatus::cuts_added);
   REQUIRE(res.cuts.size() == 1);
   const auto& cut = res.cuts.front();
@@ -534,17 +535,17 @@ TEST_CASE(
   const std::vector<RowIndex> fcut_rows {
       fx.poisoned_row,
   };
-  auto elastic = elastic_filter_solve(
+  auto elastic_opt = elastic_filter_solve(
       fx.li, fx.links, 1.0, SolverOptions {}, kFrkUnitPolicy, fcut_rows);
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& elastic = test_support::require_value(elastic_opt);
+  REQUIRE(elastic.solved);
 
   // The clone's objective constant is zeroed; V = σ-part + ω·z* only.
-  CHECK(elastic->clone.get_obj_constant() == doctest::Approx(0.0));
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(400.0));
+  CHECK(elastic.clone.get_obj_constant() == doctest::Approx(0.0));
+  CHECK(elastic.clone.get_obj_value() == doctest::Approx(400.0));
 
-  auto res = build_farkas_recursive_cut(
-      elastic.value(), fx.links, LpContext {}, kFrkFactEps);
+  auto res =
+      build_farkas_recursive_cut(elastic, fx.links, LpContext {}, kFrkFactEps);
   REQUIRE(res.status == PlpCutStatus::cuts_added);
   REQUIRE(res.cuts.size() == 1);
   const auto& cut = res.cuts.front();
@@ -607,13 +608,13 @@ TEST_CASE("farkas_recursive: holguras and fail paths")  // NOLINT
         poisoned_row,
     };
 
-    auto elastic = elastic_filter_solve(
+    auto elastic_opt = elastic_filter_solve(
         li, links, 1.0, SolverOptions {}, kFrkUnitPolicy, fcut_rows);
-    REQUIRE(elastic.has_value());
-    REQUIRE(elastic->solved);
+    auto& elastic = test_support::require_value(elastic_opt);
+    REQUIRE(elastic.solved);
 
-    auto res = build_farkas_recursive_cut(
-        elastic.value(), links, LpContext {}, kFrkFactEps);
+    auto res =
+        build_farkas_recursive_cut(elastic, links, LpContext {}, kFrkFactEps);
     CHECK(res.status == PlpCutStatus::holguras);
     CHECK(res.cuts.empty());
   }
@@ -664,19 +665,19 @@ TEST_CASE("farkas_recursive: holguras and fail paths")  // NOLINT
         },
     };
 
-    auto elastic =
+    auto elastic_opt =
         elastic_filter_solve(li, links, 1.0, SolverOptions {}, kFrkUnitPolicy);
-    REQUIRE(elastic.has_value());
-    CHECK(!elastic->solved);
+    auto& elastic = test_support::require_value(elastic_opt);
+    CHECK(!elastic.solved);
 
-    auto res = build_farkas_recursive_cut(
-        elastic.value(), links, LpContext {}, kFrkFactEps);
+    auto res =
+        build_farkas_recursive_cut(elastic, links, LpContext {}, kFrkFactEps);
     CHECK(res.status == PlpCutStatus::fail);
     CHECK(res.cuts.empty());
   }
 }
 
-TEST_CASE("elastic mode rename: plp == state_repair; JSON canonical")  // NOLINT
+TEST_CASE("elastic mode rename: plp == state_repair, JSON canonical")  // NOLINT
 {
   SUBCASE("parser accepts both spellings plus the new mode")
   {

@@ -3,7 +3,8 @@
  * @brief     Translate the deprecated boundary-cut option keys into FutureCost
  * @date      Fri Nov 20 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  *
  * The `FutureCost` element (`system.future_cost_array`) is the ONE place the
  * future-cost-function (FCF) boundary cuts are configured, for every method.

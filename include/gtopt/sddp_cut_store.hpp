@@ -400,15 +400,6 @@ public:
   [[nodiscard]] std::vector<StoredCut> build_combined_cuts(
       const PlanningLP& planning_lp) const;
 
-  /// Apply cut-sharing across scenes for all phases in this iteration.
-  /// New cuts are identified by comparing the current per-scene vector
-  /// size against `m_scene_cuts_before_` (populated by the caller
-  /// before the backward pass).
-  void apply_cut_sharing_for_iteration(IterationIndex iteration_index,
-                                       const SDDPOptions& options,
-                                       PlanningLP& planning_lp,
-                                       const LabelMaker& label_maker);
-
   /// Save cuts (combined + per-scene) after an iteration.
   ///
   /// When @p pool is non-null, the per-scene cut-file writes are

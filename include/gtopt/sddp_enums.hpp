@@ -591,7 +591,9 @@ inline constexpr auto aperture_selection_mode_entries =
  *
  * - `warm` (**effective default** — an unset option resolves to `warm` in
  *   `PlanningOptionsLP::sddp_aperture_solve_mode()`, and plp2gtopt emits it
- *   explicitly): only meaningful with `aperture_chunk_size > 1`.  The first
+ *   explicitly): engages whenever a task holds more than one aperture
+ *   (`aperture_chunk_mode = per_scene`, the default, or `chunked` with
+ *   K > 1).  The first
  *   aperture in a chunk seeds a basis (cold barrier + crossover, or a dual
  *   seed from the forward basis under `basis_cross_mode = full_cross`);
  *   every subsequent aperture re-optimizes that resident basis with a
@@ -633,8 +635,8 @@ enum class ApertureSolveMode : uint8_t
 {
   cold = 0,  ///< Cold barrier + crossover; cut from vertex reduced costs.
   warm = 1,  ///< Warm dual simplex off the resident chunk basis
-             ///< (chunk_size > 1).  EFFECTIVE DEFAULT (unset resolves to
-             ///< `warm`; see PlanningOptionsLP::sddp_aperture_solve_mode).
+             ///< (per_scene / chunked K>1).  EFFECTIVE DEFAULT (unset resolves
+             ///< to `warm`; see PlanningOptionsLP::sddp_aperture_solve_mode).
   reduced_cost = 2,  ///< Cold barrier, NO crossover; cut from interior-point
                      ///< reduced costs (filtered by cut_coeff_eps).
   dual_shared = 3,  ///< Solve the representative aperture only; synthesize
@@ -669,6 +671,62 @@ inline constexpr auto aperture_solve_mode_entries =
   return std::span {aperture_solve_mode_entries};
 }
 
+// ─── ApertureChunkMode ─────────────────────────────────────────────────────
+
+/**
+ * @brief How the backward-pass apertures of one (scene, phase) cell are
+ *        grouped into work-pool tasks.
+ *
+ * Each task clones the phase LP **once** and solves its apertures in
+ * series on that clone; under `aperture_solve_mode = warm` (the effective
+ * default) every aperture after the first in a task re-optimizes the
+ * resident basis with a few dual-simplex pivots instead of a cold solve.
+ *
+ * - `per_scene` (**default**): one task per (scene, phase) holding *all*
+ *   of its apertures.  Maximum warm-start reuse and one clone per cell;
+ *   backward parallelism is capped at the number of scenes.  Measured on
+ *   a 16-scene × 16-aperture hydrothermal case: several times faster
+ *   backward than `per_aperture`, identical bounds and peak memory.
+ *   Legacy integer spelling: `aperture_chunk_size = -1`
+ *   (`0` / unset — the former "auto" — also resolves here now).
+ * - `per_aperture`: one task per aperture, each on a fresh clone with a
+ *   cold solve.  Maximum fan-out, no warm-start reuse.  Legacy integer
+ *   spelling: `aperture_chunk_size = 1` (the pre-2026-11 effective
+ *   default).
+ * - `chunked`: `aperture_chunk_size = K` apertures per task (K ≥ 1).
+ *   When K is unset the work-pool-saturation formula
+ *   `compute_auto_aperture_chunk_size` picks it.  Legacy integer
+ *   spelling: `aperture_chunk_size = K > 1` without a mode.
+ *
+ * The cuts are mathematically identical across modes (the grouping only
+ * changes scheduling and the simplex path), so bounds agree up to solver
+ * tolerances.  Resolution of mode + size (incl. the legacy integer
+ * encoding) lives in `resolve_aperture_chunk()` (`sddp_aperture.hpp`).
+ */
+enum class ApertureChunkMode : uint8_t
+{
+  per_scene = 0,  ///< All apertures of a (scene, phase) in one serial task.
+                  ///< DEFAULT.
+  per_aperture = 1,  ///< One task (fresh clone, cold solve) per aperture.
+  chunked = 2,  ///< K = aperture_chunk_size apertures per task.
+};
+
+inline constexpr auto aperture_chunk_mode_entries =
+    std::to_array<EnumEntry<ApertureChunkMode>>({
+        {.name = "per_scene", .value = ApertureChunkMode::per_scene},
+        {.name = "per_aperture", .value = ApertureChunkMode::per_aperture},
+        {.name = "chunked", .value = ApertureChunkMode::chunked},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(ApertureChunkMode /*tag*/) noexcept
+{
+  return std::span {aperture_chunk_mode_entries};
+}
+
+/// THE single default for the backward-pass aperture grouping.
+inline constexpr auto default_aperture_chunk_mode =
+    ApertureChunkMode::per_scene;
+
 /// THE single default for the number of dual-shared aperture cuts
 /// re-solved exactly under `aperture_solve_mode = screened` (largest
 /// |intercept correction| first).  Referenced by the
@@ -694,7 +752,7 @@ inline constexpr int default_sddp_aperture_screen_count = 2;
  * neutral.  Reuse silently degrades to a cold solve on backends without basis
  * save/restore (only CPLEX and HiGHS support it) and is gated off where the
  * forward/backward row structure is not tail-append compatible (e.g.
- * `aperture_drop_fcuts`, `aperture_system_file`).
+ * `aperture_system_file`).
  *
  * - `off`: no basis reuse.
  * - `warm`: same-direction reuse — each forward solve warm-starts from this

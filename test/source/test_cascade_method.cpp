@@ -191,7 +191,6 @@ TEST_CASE("JSON parsing of cascade level active field")  // NOLINT
   {
     CHECK(levels[0].name.value_or("") == "disabled");
     REQUIRE(levels[0].active.has_value());
-    CHECK(*levels[0].active == false);
     CHECK(levels[0].active.value_or(true) == false);
   }
 
@@ -199,7 +198,6 @@ TEST_CASE("JSON parsing of cascade level active field")  // NOLINT
   {
     CHECK(levels[1].name.value_or("") == "enabled");
     REQUIRE(levels[1].active.has_value());
-    CHECK(*levels[1].active == true);
     CHECK(levels[1].active.value_or(true) == true);
   }
 
@@ -716,6 +714,51 @@ TEST_CASE(  // NOLINT
 
     const auto opts = solver.test_build_level_sddp_opts(level, -1);
     CHECK(opts.max_iterations == 30);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "CascadePlanningMethod build_level_sddp_opts aperture_chunk_mode by name")
+{
+  SUBCASE("per-level chunked + K replaces the inherited per_scene")
+  {
+    SDDPOptions base;
+    base.aperture_chunk_mode = ApertureChunkMode::per_scene;
+    TestableCascade solver(std::move(base), CascadeOptions {});
+
+    CascadeLevelMethod level;
+    level.aperture_chunk_mode = OptName {"chunked"};
+    level.aperture_chunk_size = OptInt {4};
+
+    const auto opts = solver.test_build_level_sddp_opts(level);
+    CHECK(opts.aperture_chunk_mode.value_or(ApertureChunkMode::per_scene)
+          == ApertureChunkMode::chunked);
+    CHECK(opts.aperture_chunk_size == 4);
+  }
+
+  SUBCASE("per-level per_aperture drops an inherited K")
+  {
+    SDDPOptions base;
+    base.aperture_chunk_mode = ApertureChunkMode::chunked;
+    base.aperture_chunk_size = 8;
+    TestableCascade solver(std::move(base), CascadeOptions {});
+
+    CascadeLevelMethod level;
+    level.aperture_chunk_mode = OptName {"per_aperture"};
+
+    const auto opts = solver.test_build_level_sddp_opts(level);
+    CHECK(opts.aperture_chunk_mode.value_or(ApertureChunkMode::chunked)
+          == ApertureChunkMode::per_aperture);
+    CHECK(opts.aperture_chunk_size == 0);
+  }
+
+  SUBCASE("an unknown mode name is rejected")
+  {
+    const TestableCascade solver(SDDPOptions {}, CascadeOptions {});
+    CascadeLevelMethod level;
+    level.aperture_chunk_mode = OptName {"per_planet"};
+    CHECK_THROWS_AS((void)solver.test_build_level_sddp_opts(level),
+                    std::invalid_argument);
   }
 }
 

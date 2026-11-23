@@ -296,6 +296,9 @@ void propagate_trial_values(std::span<StateVarLink> links,
 /// per-LP snapshots.
 ///
 ///   rc_phys  = state_var->reduced_cost_physical(scale_objective)
+///            = rc_LP[dep] · scale_objective / col_scale[dep]
+///              (the DEPENDENT column's own scale — never the source
+///              column's `var_scale`, which ruiz makes different)
 ///   v̂_phys  = state_var->col_sol_physical()
 ///   lowb    = objective_value_physical − Σ rc_phys · v̂_phys
 ///   row[src_col] = −rc_phys,  row[alpha_col] = 1.0

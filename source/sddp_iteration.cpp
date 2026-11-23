@@ -165,7 +165,7 @@ inline constexpr std::array<ZScoreBucket, 4> kZScoreTable {
 ///      uninitialised iter cannot trigger.  **No window-fill guard**:
 ///      under the multi-cut overshoot regime UB stabilises long
 ///      before LB does, and waiting for a full window just wastes
-///      wall time at expensive levels (the large full-network case ≈ 13 min
+///      wall time at expensive levels (the large hydrothermal case ≈ 13 min
 ///      per iter).
 ///   3. ``gap_ok`` (stationarity DISABLED: ``stationary_tol <= 0``,
 ///      ``stationary_window <= 0`` or ``convergence_mode == gap_only``)
@@ -582,7 +582,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       //
       //  1. Used the *uniform* sample mean and variance over all
       //     ``scene_upper_bounds`` entries.  For heterogeneous-prob
-      //     runs (large-case: 16 hydrology scenarios with non-uniform
+      //     runs (large case: 16 hydrology scenarios with non-uniform
       //     ``probability_factor``) this gives the wrong σ̂ — the
       //     correct estimator weights each scene by ``p_s``.
       //  2. Included infeasible scenes (whose UB stayed at the
@@ -818,11 +818,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       // ── Post-iteration housekeeping (timed) ──
       // Single INFO line at the end summarises the breakdown so the
-      // inter-iteration gap visible in operator logs (e.g. the
-      // large hydrothermal case's ~10 s gap) can be attributed to its
-      // components — api status write, cut persistence, idempotent backend
-      // release safety net, and the user-supplied iteration
-      // callback — without rebuilding with TRACE logs on.
+      // inter-iteration gap visible in operator logs (e.g. the large
+      // hydrothermal case ~10 s gap) can be attributed to its components —
+      // api status write, cut persistence, idempotent backend release safety
+      // net, and the user-supplied iteration callback — without rebuilding with
+      // TRACE logs on.
       using PostClock = std::chrono::steady_clock;
       const auto post_iter_t0 = PostClock::now();
       const auto post_elapsed_s = [](PostClock::time_point start) noexcept
@@ -848,20 +848,13 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // `m_backend_released_` is already set (`linear_interface.cpp:144`),
       // so the cost is dominated by the loop overhead (~µs total).
       //
-      // Previously this loop also called `drop_cached_primal_only()`
-      // to free the per-cell col_sol/col_cost snapshots, but that
-      // broke `physical_eini` under compress: the next iteration's
-      // forward `update_lp_for_phase` reads `get_col_sol()` to evaluate
-      // turbine production factor / seepage / discharge limit at the
-      // previous solve's reservoir volume, and dropping the cache
-      // forced the read to fall through to the freshly reconstructed
-      // backend whose `col_solution()` is zero/undefined → coefficients
-      // pinned at construction-time default_volume → SDDP plateau at
-      // gap=133.78% on the large hydrothermal case.  The retained col_sol
-      // vector costs ~50 KB × num_cells (≈ 40 MB on the large case, 2.5 GB on
-      // the 816- cell support cases).  ensure_backend now restores cached
-      // primal/dual onto the live backend so the read path stays
-      // valid across release_backend → ensure_backend cycles.
+      // The cached col_sol/col_cost are deliberately KEPT (no
+      // `drop_cached_primal_only()`): the next iteration's forward
+      // `update_lp_for_phase` reads `get_col_sol()` to evaluate turbine
+      // production factor / seepage / discharge limit at the previous
+      // solve's reservoir volume, and a freshly reconstructed backend
+      // has no solution to read.  `ensure_backend` restores the cached
+      // primal/dual onto the live backend.  Cost: ~50 KB per cell.
       const auto t_release = PostClock::now();
       if (m_options_.low_memory_mode != LowMemoryMode::off) {
         const auto ns = planning_lp().simulation().scene_count();
@@ -1960,7 +1953,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // runs and (b) caused `CascadeLevelStats::cuts_added` to be 0
       // even when hundreds of optimality cuts had been installed in
       // the LP — confirmed by trace logs (`active_cuts ≥ 1`,
-      // `save_cuts_for_iteration` running each iter) on CEN-scale.
+      // `save_cuts_for_iteration` running each iter) on large cases.
       {
         const auto rel = iteration_relative(next_converge_iteration_index,
                                             m_iteration_offset_);
@@ -1975,8 +1968,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // aggregation must not multiply by ``weights[si]`` again
       // (which would double-count probability).  See the comment at
       // ``compute_iteration_bounds`` for the full derivation.  The
-      // ``weights`` span computed above stays available for cut-
-      // sharing aggregation; it is no longer consulted for bounds.
+      // ``weights`` span above is for cut-sharing aggregation only.
       (void)weights;  // intentionally unused for bound aggregation
       ir.scene_upper_bounds.resize(static_cast<std::size_t>(num_scenes));
       ir.scene_lower_bounds.resize(static_cast<std::size_t>(num_scenes));
@@ -2017,10 +2009,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // the cascade orchestrator with the last N iters of the
       // previous level (oldest-first), walk a combined index over
       // ``[seed ⧺ results]`` so a ``stationary_window=N``
-      // configuration actually exercises an N-iter lookback at iter 1
-      // — previously the seed was a single point and any window > 1
-      // silently degraded to a 1-iter lookback at every cascade
-      // transition.  Pair with ``min_iterations >= 2`` to avoid
+      // configuration actually exercises an N-iter lookback at iter 1.
+      // Pair with ``min_iterations >= 2`` to avoid
       // converging instantly when the inherited envelope nearly
       // matches the previous level's UB (see the sync companion at
       // :func:`SDDPMethod::finalize_iteration_result`).

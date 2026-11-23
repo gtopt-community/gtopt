@@ -9,7 +9,7 @@
  * Sibling translation unit of ``sddp_method.cpp``; carries a
  * focused subset of ``SDDPMethod``'s member functions to keep
  * each TU under ~700 LoC.  Split landed in commit referenced by
- * Phase B of the SDDP source-hygiene refactor.  See
+ * Phase B of the gtopt-hygiene refactor.  See
  * ``include/gtopt/sddp_method.hpp`` for the class declaration
  * and ``source/sddp_method.cpp`` for the constructor / solver
  * lifecycle helpers.
@@ -838,12 +838,18 @@ RowIndex add_cut_row(PlanningLP& planning_lp,
                      const SparseRow& cut,
                      double eps)
 {
-  if (cut_type == CutType::Optimality) {
-    bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
-  }
+  // Install the row FIRST, then release / re-floor α: `apply_alpha_floor`
+  // derives α's column floor from `active_cuts()`, so it must already see
+  // this cut.  The reverse order floored α from the PREVIOUS cuts only —
+  // on a cell's first cut that is the `0` fallback, which overstates the
+  // cost-to-go (and the LB) whenever it is negative (negative-cost
+  // units, rebased FCFs) until a second cut arrives.
   const auto row = planning_lp.system(scene_index, phase_index)
                        .linear_interface()
                        .add_cut_row(cut, eps);
+  if (cut_type == CutType::Optimality) {
+    bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
+  }
 
   // ── Dual install on the aperture system ───────────────────────────────
   // When this cell has a backward-pass aperture system, the same cut must
@@ -897,6 +903,7 @@ RowIndex add_cut_row(PlanningLP& planning_lp,
     }
 
     if (remapped_ok) {
+      std::ignore = ap_sys->linear_interface().add_cut_row(ap_cut, eps);
       if (cut_type == CutType::Optimality) {
         bound_alpha_for_cut(planning_lp,
                             scene_index,
@@ -904,7 +911,6 @@ RowIndex add_cut_row(PlanningLP& planning_lp,
                             ap_cut,
                             SystemKind::aperture);
       }
-      std::ignore = ap_sys->linear_interface().add_cut_row(ap_cut, eps);
     } else {
       SPDLOG_WARN(
           "aperture dual cut-install skipped at (s{} p{}): cut references "
@@ -1156,7 +1162,13 @@ void SDDPMethod::capture_state_variable_values(
     }
     const auto dep = link.dependent_col;
     if (dep < col_index_size(reduced_costs)) {
-      link.state_var->set_reduced_cost(reduced_costs[dep]);
+      // Record the rc together with the DEPENDENT column's own scale:
+      // under ruiz equilibration it differs from the source column's
+      // `var_scale()` (synced in step 0), and dividing the dependent
+      // rc by the source scale skewed every optimality-cut slope by
+      // s_dep / s_src (LB > UB).
+      link.state_var->set_reduced_cost(reduced_costs[dep],
+                                       li.get_col_scale(dep));
     }
   }
 }
@@ -1192,18 +1204,13 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   // The per-variable physical-unit scaling (var_scale) is applied inside
   // relax_fixed_state_variable() using each link's var_scale field.
   //
-  // Slack-cost scaling: the elastic filter's slack variables (sup/sdn)
-  // were previously given cost = 1 (Chinneck's pure-feasibility
-  // convention).  On plp_2_years iter 0 this produced a degeneracy
-  // where every α-free fcut contributed a tiny hyperplane on the
-  // state and no signal on future cost, stalling convergence as
-  // phases 13-25 thrashed through 100 backtracks without closing
-  // the gap.  Multiplying the slack cost by the target phase's
-  // discount factor puts each slack on the same economic footing
-  // as dispatch costs at that phase — the elastic objective now
-  // reflects "discounted cost of violating the state pin" rather
-  // than "unit-feasibility gap", breaking the degeneracy when no
-  // optimality cuts have arrived yet at intermediate phases.
+  // Slack-cost scaling: multiplying the slack cost by the target
+  // phase's discount factor puts each slack on the same economic
+  // footing as dispatch costs at that phase, so the elastic objective
+  // is the "discounted cost of violating the state pin".  A flat unit
+  // cost (Chinneck's pure-feasibility convention) made every α-free
+  // fcut a tiny hyperplane with no future-cost signal and stalled
+  // plp_2_years (phases 13-25 thrashing through 100 backtracks).
   const auto scale_obj = li.scale_objective();
   const auto& target_phase = planning_lp().simulation().phases()[phase_index];
   const double phase_discount = target_phase.stages().empty()

@@ -54,6 +54,7 @@
 #include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/utils.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 #include "solver_test_helpers.hpp"
 
@@ -381,7 +382,7 @@ struct ScDispatchSample
               .scene_pos = static_cast<std::size_t>(scene),
               .phase_pos = static_cast<int>(static_cast<std::size_t>(phase)),
               .gen = sol[gcol],
-              .status = sol[*ucol],
+              .status = sol[test_support::require_value(ucol)],
           });
         }
       }
@@ -455,7 +456,8 @@ struct ScCutView
   REQUIRE_MESSAGE(phase.has_value(), "cut phase_uid not found in simulation");
 
   ScCutView view {.rhs = sc.rhs};
-  const auto& svars = sim.state_variables(*scene, *phase);
+  const auto& svars = sim.state_variables(test_support::require_value(scene),
+                                          test_support::require_value(phase));
   bool alpha_seen = false;
   std::size_t n_state_coeffs = 0;
   for (const auto& [col, coeff] : sc.coefficients) {
@@ -495,7 +497,7 @@ struct ScCutView
 
 TEST_CASE(  // NOLINT
     "SimpleCommitment × SDDP — dispatch is 0 or in [pmin, pmax] across "
-    "iterations; the LP twin dispatches inside (0, pmin)")
+    "iterations, the LP twin dispatches inside (0, pmin)")
 {
   const auto mip_solver = solver_test::first_mip_solver();
   if (mip_solver.empty()) {
@@ -587,7 +589,7 @@ TEST_CASE(  // NOLINT
 // ═════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
-    "SimpleCommitment × SDDP — LB ≤ extensive MIP optimum; strengthened "
+    "SimpleCommitment × SDDP — LB ≤ extensive MIP optimum, strengthened "
     "LB ≥ none LB at convergence")
 {
   const auto mip_solver = solver_test::first_mip_solver();
@@ -676,14 +678,18 @@ TEST_CASE(  // NOLINT
         // V_MIP is state-CONSTANT (the dispatch is pinned at every
         // reservoir level), so the legacy flat cut at the MIP
         // incumbent is accidentally EXACT and the none-mode LB hits
-        // the optimum from iteration 1 (observed: none = 25200 at
-        // i1 while strengthened = 23256, still converging along its
-        // sloped LP cuts).  The theorem-backed run-level statement is
-        // therefore at CONVERGENCE: the strengthened LB ends no lower
-        // than the none LB, and both end at the MIP optimum here.
-        // The per-iteration ordering stays as a WARN-level probe.
-        REQUIRE(none.size() == strengthened.size());
-        for (std::size_t i = 0; i < none.size(); ++i) {
+        // the optimum after the first backward pass (observed with
+        // CPLEX: none = 25200 at i2 while strengthened = 23256 at i2,
+        // still converging along its sloped LP cuts, 25200 at i3).
+        // The theorem-backed run-level statement is therefore at
+        // CONVERGENCE: the strengthened LB ends no lower than the
+        // none LB, and both end at the MIP optimum here.  With
+        // stationary_tol = 0 the gap exit stops each mode as soon as
+        // UB == LB, so the two runs may have DIFFERENT lengths; the
+        // per-iteration ordering is a WARN-level probe over the
+        // common prefix only.
+        const auto n_common = std::min(none.size(), strengthened.size());
+        for (std::size_t i = 0; i < n_common; ++i) {
           INFO("iter=",
                i,
                " none=",
@@ -736,7 +742,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE(  // NOLINT
     "SimpleCommitment × cut_sharing — off-or-min holds under none and "
-    "multicut; bounds sanity per convention")
+    "multicut, bounds sanity per convention")
 {
   const auto mip_solver = solver_test::first_mip_solver();
   if (mip_solver.empty()) {
@@ -756,21 +762,27 @@ TEST_CASE(  // NOLINT
           bool strict_bounds;
         };
         const std::array<ModeCase, 3> cases = {{
-            {.label = "none heterogeneous",
-             .mode = CutSharingMode::none,
-             .wet = kScWetInflow,
-             .dry = kScDryInflow,
-             .strict_bounds = true},
-            {.label = "multicut heterogeneous (WARN bounds)",
-             .mode = CutSharingMode::multicut,
-             .wet = kScWetInflow,
-             .dry = kScDryInflow,
-             .strict_bounds = false},
-            {.label = "multicut identical scenes",
-             .mode = CutSharingMode::multicut,
-             .wet = kScDryInflow,
-             .dry = kScDryInflow,
-             .strict_bounds = true},
+            {
+                .label = "none heterogeneous",
+                .mode = CutSharingMode::none,
+                .wet = kScWetInflow,
+                .dry = kScDryInflow,
+                .strict_bounds = true,
+            },
+            {
+                .label = "multicut heterogeneous (WARN bounds)",
+                .mode = CutSharingMode::multicut,
+                .wet = kScWetInflow,
+                .dry = kScDryInflow,
+                .strict_bounds = false,
+            },
+            {
+                .label = "multicut identical scenes",
+                .mode = CutSharingMode::multicut,
+                .wet = kScDryInflow,
+                .dry = kScDryInflow,
+                .strict_bounds = true,
+            },
         }};
 
         for (const auto& mc : cases) {

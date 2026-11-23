@@ -219,7 +219,6 @@ using namespace gtopt::detail;
 
     // For each state-variable header column, find the
     // corresponding LP column in the last phase.
-    const auto& svar_map = sim.state_variables(first_scene_index(), last_phase);
 
     const auto num_state_cols = std::ssize(headers) - state_var_start;
     std::vector<std::optional<ColIndex>> header_col_map;
@@ -272,14 +271,19 @@ using namespace gtopt::detail;
           // no state variable, found_col stays nullopt and the
           // missing-coefficient handling (skip_coeff or skip_cut)
           // takes over.
-          for (const auto& [key, svar] : svar_map) {
-            if (key.uid == elem_uid && key.class_name == cname
-                && is_final_state_col(key.col_name))
-            {
-              found_col = svar.col();
-              break;
-            }
-          }
+          //
+          // The match is the LAST stage's state of the last phase: a
+          // multi-stage last phase (always the case for the monolithic
+          // single-phase LP) registers one `efin` per stage, and the
+          // terminal FCF prices the end-of-horizon volume, not the
+          // first stage's.
+          found_col = find_phase_state_col(sim,
+                                           first_scene_index(),
+                                           last_phase,
+                                           cname,
+                                           elem_uid,
+                                           [](std::string_view col)
+                                           { return is_final_state_col(col); });
         }
       }
 
@@ -803,13 +807,17 @@ using namespace gtopt::detail;
         if (!target.has_value()) {
           return;
         }
-        for (const auto& [key, svar] : svar_map) {
-          if (key.uid == elem_uid && key.class_name == cname
-              && is_final_state_col(key.col_name))
-          {
-            col_target[svar.col()] = *target;
-            break;
-          }
+        // Same phase-state column the cut rows were resolved to (the last
+        // stage's efin of the last phase).
+        if (const auto col = find_phase_state_col(
+                sim,
+                first_scene_index(),
+                last_phase,
+                cname,
+                elem_uid,
+                [](std::string_view c) { return is_final_state_col(c); }))
+        {
+          col_target[*col] = *target;
         }
       };
       for (const auto& rsv : sys.reservoir_array) {

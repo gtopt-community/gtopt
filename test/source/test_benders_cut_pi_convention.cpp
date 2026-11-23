@@ -100,7 +100,7 @@ TEST_CASE(
 // (both source and dependent columns share the same `variable_scales`
 // entry).  The fix shouldn't change behavior here — this is the
 // regression guard.  The real ruiz-driven LB-overshoot fix needs a
-// CEN-scale fixture to reproduce, which is too heavy for a unit test.
+// large-case fixture to reproduce, which is too heavy for a unit test.
 TEST_CASE(
     "SDDPMethod 2-phase pi convention - variable_scales no ruiz")  // NOLINT
 {
@@ -195,7 +195,7 @@ TEST_CASE(
       LpContext {},
   };
   svar1.set_col_sol(5.0);
-  svar1.set_reduced_cost(0.3);
+  svar1.set_reduced_cost(0.3, 2.0);
 
   // svar2: rc_phys_2 = -0.1 × 1000 / 4 = -25, v̂_phys_2 = 2.5 × 4 = 10.
   // row[11] = -rc_phys_2 = +25 and contributes -(-25)×10 = +250 to lowb.
@@ -207,7 +207,7 @@ TEST_CASE(
       LpContext {},
   };
   svar2.set_col_sol(2.5);
-  svar2.set_reduced_cost(-0.1);
+  svar2.set_reduced_cost(-0.1, 4.0);
 
   const std::vector<StateVarLink> links = {
       {
@@ -261,7 +261,7 @@ TEST_CASE(
         LpContext {},
     };
     svar1b.set_col_sol(5.0);
-    svar1b.set_reduced_cost(0.3);
+    svar1b.set_reduced_cost(0.3, 4.0);
 
     const std::vector<StateVarLink> links_b = {
         {
@@ -309,7 +309,7 @@ TEST_CASE(
         LpContext {},
     };
     svar_tiny.set_col_sol(7.0);
-    svar_tiny.set_reduced_cost(1e-13);  // pi = 1e-10 (below 1e-9 eps)
+    svar_tiny.set_reduced_cost(1e-13, 1.0);  // pi = 1e-10 (below 1e-9 eps)
 
     const std::vector<StateVarLink> links_tiny = {
         {

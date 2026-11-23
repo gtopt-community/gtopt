@@ -63,12 +63,20 @@ struct CascadeLevelMethod
   /// net-negative under warm-start and should use ``"reduced_cost"`` (cold
   /// barrier, no crossover) so chunks can be split for parallelism.
   OptName aperture_solve_mode {};
-  /// Aperture chunk size for this level (nullopt = inherit base
-  /// ``SDDPOptions::aperture_chunk_size``).  ``0`` = auto (≈2× cores tasks
-  /// per phase, the balanced default), ``-1`` = fully serial per scene
-  /// (one LP clone, warm-start reuse, but caps parallelism at S tasks),
-  /// ``K`` = K apertures per chunk.  Pair ``-1``/large with ``"warm"`` and
-  /// ``0``/small with ``"reduced_cost"``.
+  /// Aperture task grouping for this level (nullopt = inherit base
+  /// ``SDDPOptions::aperture_chunk_mode``): ``"per_scene"`` (default; all
+  /// apertures of a scene in one serial task, warm-start reuse, caps
+  /// parallelism at S tasks), ``"per_aperture"`` (one cold task per
+  /// aperture) or ``"chunked"`` (``aperture_chunk_size`` = K per task).
+  /// Setting a non-``chunked`` mode here drops an inherited K.
+  OptName aperture_chunk_mode {};
+  /// Apertures per task for ``aperture_chunk_mode = "chunked"`` at this
+  /// level (nullopt = inherit base ``SDDPOptions::aperture_chunk_size``).
+  /// Legacy: set alone (without ``aperture_chunk_mode``) the integer still
+  /// selects the level's mode (deprecated): ``-1`` → per_scene, ``1`` →
+  /// per_aperture, ``K > 1`` → chunked K, ``0`` → default per_scene —
+  /// unless the inherited mode is already ``chunked`` and K > 0, in which
+  /// case only K changes.
   OptInt aperture_chunk_size {};
   /// Number of dual-shared cuts re-solved exactly under
   /// ``aperture_solve_mode = "screened"`` for this level (nullopt =
@@ -125,6 +133,7 @@ struct CascadeLevelMethod
     merge_opt(num_apertures, opts.num_apertures);
     merge_opt(aperture_selection_mode, opts.aperture_selection_mode);
     merge_opt(aperture_solve_mode, opts.aperture_solve_mode);
+    merge_opt(aperture_chunk_mode, opts.aperture_chunk_mode);
     merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
     merge_opt(aperture_screen_count, opts.aperture_screen_count);
     merge_opt(aperture_seed_basis, opts.aperture_seed_basis);

@@ -20,6 +20,7 @@
 
 namespace daw::json
 {
+using gtopt::ApertureChunkMode;
 using gtopt::ApertureSolveMode;
 using gtopt::BasisCrossMode;
 using gtopt::BoundaryCutSharingMode;
@@ -73,6 +74,7 @@ struct SddpOptionsConstructor
       OptName lp_debug_passes,
       OptBool aperture_use_manual_clone,
       OptBool aperture_drop_fcuts,
+      OptName aperture_chunk_mode_str,
       OptInt aperture_chunk_size,
       OptName aperture_solve_mode_str,
       OptInt aperture_screen_count,
@@ -176,6 +178,10 @@ struct SddpOptionsConstructor
     opts.lp_debug_passes = std::move(lp_debug_passes);
     opts.aperture_use_manual_clone = aperture_use_manual_clone;
     opts.aperture_drop_fcuts = aperture_drop_fcuts;
+    if (aperture_chunk_mode_str) {
+      opts.aperture_chunk_mode = gtopt::require_enum<ApertureChunkMode>(
+          "aperture_chunk_mode", *aperture_chunk_mode_str);
+    }
     opts.aperture_chunk_size = aperture_chunk_size;
     if (aperture_solve_mode_str) {
       opts.aperture_solve_mode = gtopt::require_enum<ApertureSolveMode>(
@@ -289,6 +295,7 @@ struct json_data_contract<SddpOptions>
       json_string_null<"lp_debug_passes", OptName>,
       json_bool_null<"aperture_use_manual_clone", OptBool>,
       json_bool_null<"aperture_drop_fcuts", OptBool>,
+      json_string_null<"aperture_chunk_mode", OptName>,
       json_number_null<"aperture_chunk_size", OptInt>,
       json_string_null<"aperture_solve_mode", OptName>,
       json_number_null<"aperture_screen_count", OptInt>,
@@ -369,6 +376,7 @@ struct json_data_contract<SddpOptions>
         opt.lp_debug_passes,
         opt.aperture_use_manual_clone,
         opt.aperture_drop_fcuts,
+        detail::enum_to_opt_name(opt.aperture_chunk_mode),
         opt.aperture_chunk_size,
         detail::enum_to_opt_name(opt.aperture_solve_mode),
         opt.aperture_screen_count,

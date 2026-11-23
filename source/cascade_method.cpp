@@ -97,8 +97,15 @@ auto CascadePlanningMethod::build_level_sddp_opts(
       opts.aperture_solve_mode = gtopt::require_enum<ApertureSolveMode>(
           "aperture_solve_mode", *level_solver->aperture_solve_mode);
     }
-    opts.aperture_chunk_size =
-        level_solver->aperture_chunk_size.value_or(opts.aperture_chunk_size);
+    apply_aperture_chunk_override(
+        opts,
+        level_solver->aperture_chunk_mode.transform(
+            [](const std::string& name)
+            {
+              return gtopt::require_enum<ApertureChunkMode>(
+                  "aperture_chunk_mode", name);
+            }),
+        level_solver->aperture_chunk_size);
     opts.aperture_screen_count = level_solver->aperture_screen_count.value_or(
         opts.aperture_screen_count);
     opts.aperture_seed_basis =
@@ -455,7 +462,12 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       // Pass the shared arrow-index cache so this level's per-cell builds
       // reuse the warm (Stage, Block) index instead of rebuilding it cold;
       // seed the cache from this level when it is the first to build.
-      const LpMatrixOptions level_flat_opts {};
+      // Inherit the caller's full LP build options (solver, eps, LP names
+      // for lp_file / lp_debug / lp_error, compute_stats, equilibration,
+      // …).  An empty LpMatrixOptions{} here silently dropped them all on
+      // every rebuilt level; equilibration left unset still resolves from
+      // the level's own model_options (SystemLP::create_lp).
+      const auto& level_flat_opts = planning_lp.flat_options();
       auto new_lp = std::make_unique<PlanningLP>(
           std::move(modified_planning), level_flat_opts, shared_index_cache);
       if (!shared_index_cache) {
@@ -555,22 +567,11 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       }
     }
     // Always create a fresh solver for each level, ensuring clean state.
-    // Preserve the previous level's max kappa as an observability
-    // baseline — CPLEX barrier without crossover may leave the new
-    // level's LPs without a queryable basis, in which case
-    // ``global_max_kappa()`` would report -1 and the per-iter
-    // ``kappa=…`` log clause would silently disappear.  Seeding
-    // forward keeps the iter table readable across the cascade.
     current_solver = std::make_unique<SDDPMethod>(*current_lp, level_opts);
-    // ``carry_kappa`` was previously used to seed the new solver's
-    // baseline, keeping the ``kappa=…`` clause alive across cascade
-    // levels.  Removed: under CPLEX barrier without crossover the
-    // per-iter LP solve never refreshes the value, so the seed
-    // propagated a stale snapshot from the warmup LP into every later
-    // level (every level showed exactly the same value — physically
-    // meaningless).  Leaving the kappa
-    // column empty when there is no fresh observation is more honest
-    // than displaying a misleading carry-forward.
+    // ``carry_kappa`` deliberately does NOT seed the new solver's kappa
+    // baseline: under CPLEX barrier without crossover the per-iter LP
+    // solve never refreshes it, so every later level would display the
+    // warm-up LP's stale value.  An empty kappa column is more honest.
     (void)carry_kappa;
 
     // Seed the new solver's Δgap lookback with the prior level's
@@ -587,11 +588,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     //   * explicit aperture list set     → its size
     //   * `num_apertures = N` set        → N (the per-phase cap)
     //   * neither set                    → -1 (use full per-phase list)
-    // Previously this only inspected `apertures.size()` and reported -1
-    // for the entire new `num_apertures` mode emitted by plp2gtopt for
-    // cascade levels — making the log misleading on the plain-variant
-    // hydrothermal case where every level has a meaningful per-phase aperture
-    // budget.
     const int aperture_log_count = level_opts.apertures.has_value()
         ? static_cast<int>(level_opts.apertures->size())
         : level_opts.num_apertures.value_or(-1);
@@ -679,8 +675,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // below so the per-level summary log reports the FULL level work
     // (phase-1 + phase-2), not just phase-2's tail.  Without this the
     // ``Cascade [X]: N iters, new_cuts=M`` line under-reports at every
-    // level that ran a forget pass — same observability bug family as
-    // the "after 0 iters" off-by-one we fixed in the forget log.
+    // level that ran a forget pass.
     int phase1_cuts_added = 0;
     int phase1_iter_count_for_stats = 0;
 
@@ -847,6 +842,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         .converged = last.converged,
         .elapsed_s = level_elapsed,
         .cuts_added = total_cuts,
+        .lp_options = current_lp->flat_options(),
     });
 
     // Mark this level as `done` in the checkpoint.  The actual flush to
@@ -962,25 +958,14 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
           level_name,
           next_level.transition.has_value());
       if (next_level.transition) {
-        // NOTE on cut activity / pruning at the cascade boundary:
-        // The previous implementation refreshed each stored cut's
-        // dual by reading `row_dual[cut.row]` from the main cell's
-        // LP and filtered by `optimality_dual_threshold`.  That was
-        // structurally wrong — cuts are added to the main cell via
-        // `add_row` after the aperture clones have been solved; the
-        // main cell itself is not re-solved with the new cut binding,
-        // so its last-solve row_dual at `cut.row` is either stale
-        // (from a forward solve that predates this cut) or empty
-        // (cache wiped by the post-add invalidate-on-mutation).
-        // The structurally correct "cut activity" is the probability-
-        // weighted dual aggregate across apertures that exercise the
-        // cut during the backward pass.  That requires instrumenting
-        // the aperture loop and accumulating per-cut activity across
-        // iterations — a real feature (decay / normalisation design
-        // choices) that does not exist today.  Until it does, every
-        // Optimality cut is inherited and no threshold filter is
-        // applied; Feasibility cuts are still skipped (they are
-        // regenerated by the next level's forward pass as needed).
+        // Cut activity at the cascade boundary: every Optimality cut is
+        // inherited, with no dual-threshold filter.  The main cell's
+        // `row_dual[cut.row]` is not a valid activity measure — cuts are
+        // added after the aperture clones solve and the cell is not
+        // re-solved, so that dual is stale or empty.  The correct measure
+        // (probability-weighted aperture duals accumulated across
+        // iterations) is not implemented.  Feasibility cuts are not
+        // inherited; the next level's forward pass regenerates them.
         auto stored_cuts = current_solver->stored_cuts();
         const auto& trans = *next_level.transition;
         const int opt_cut_mode = trans.inherit_optimality_cuts.value_or(0);

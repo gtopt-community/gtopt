@@ -209,8 +209,9 @@ public:
   /// into `LinearInterface::m_scaling_.col_scales[col()]`.  Call
   /// `set_var_scale()` post-flatten to sync this cached value to the
   /// authoritative `LinearInterface::get_col_scale(col())`, so that
-  /// `col_sol_physical()` and `reduced_cost_physical()` agree with
-  /// the LP's internal scaling.  See
+  /// `col_sol_physical()` and `source_reduced_cost()` lifting agree
+  /// with the LP's internal scaling.  (`reduced_cost_physical()` uses
+  /// the dependent column's scale, see `reduced_cost_col_scale()`.)  See
   /// `SDDPMethod::capture_state_variable_values` for the sync site.
   [[nodiscard]] constexpr auto var_scale() const noexcept
   {
@@ -220,10 +221,9 @@ public:
   /// Update the cached `var_scale` to match the post-equilibration
   /// `col_scale` from the owning `LinearInterface`.  Called from
   /// `capture_state_variable_values` so the value seen by
-  /// `col_sol_physical()` / `reduced_cost_physical()` is always the
-  /// authoritative LP-side scale.  Mutable through const because
-  /// `m_var_scale_` is a runtime cache, like `m_col_sol_` and
-  /// `m_reduced_cost_` already are.
+  /// `col_sol_physical()` is always the authoritative LP-side scale.  Mutable
+  /// through const because `m_var_scale_` is a runtime cache, like `m_col_sol_`
+  /// and `m_reduced_cost_` already are.
   constexpr void set_var_scale(double s) const noexcept { m_var_scale_ = s; }
 
   /// LP hierarchy context (scenario, stage, block, ...).
@@ -296,16 +296,37 @@ public:
     return m_col_sol_ * m_var_scale_;
   }
 
-  /// Reduced cost of the dependent column in the target phase's last
-  /// solve, in **raw LP** space.  Use `reduced_cost_physical()` below
-  /// when building physical-space Benders cuts.
+  /// Reduced cost of the DEPENDENT column in the target phase's last
+  /// solve, in **raw LP** space (i.e. in the dependent column's own LP
+  /// units).  Use `reduced_cost_physical()` below when building
+  /// physical-space Benders cuts.
   [[nodiscard]] constexpr auto reduced_cost() const noexcept
   {
     return m_reduced_cost_;
   }
-  constexpr void set_reduced_cost(double v) const noexcept
+
+  /// Column scale of the DEPENDENT column whose raw reduced cost is
+  /// stored in `reduced_cost()` (physical = LP × scale).  Recorded
+  /// together with the rc by `set_reduced_cost`, because it generally
+  /// differs from this state variable's own `var_scale()` (the SOURCE
+  /// column scale): ruiz equilibration assigns independent factors to
+  /// the source column (e.g. last-block `efin` of phase t) and to the
+  /// dependent column (`sini` of phase t+1).
+  [[nodiscard]] constexpr auto reduced_cost_col_scale() const noexcept
   {
-    m_reduced_cost_ = v;
+    return m_reduced_cost_col_scale_;
+  }
+
+  /// Record the dependent column's raw LP reduced cost together with
+  /// that column's own post-equilibration scale
+  /// (`LinearInterface::get_col_scale(dependent_col)`).  Both are
+  /// required so `reduced_cost_physical()` never mixes the dependent
+  /// column's rc with the source column's scale.
+  constexpr void set_reduced_cost(double rc_lp,
+                                  double dependent_col_scale) const noexcept
+  {
+    m_reduced_cost_ = rc_lp;
+    m_reduced_cost_col_scale_ = dependent_col_scale;
   }
 
   /// Reduced cost of THIS state variable's own source column in its
@@ -319,8 +340,8 @@ public:
   /// PLP's `AgrElastici` prices each elastic slack pair with a
   /// `0.01 × rc(vf_i, t−1)` tilt toward the cheapest reservoir.
   /// Lift to the LP-folded "physical" convention via
-  /// `× scale_objective / var_scale()` (same convention as
-  /// `reduced_cost_physical`).
+  /// `× scale_objective / var_scale()` — here `var_scale()` IS the
+  /// right divisor, since the rc belongs to this (source) column.
   [[nodiscard]] constexpr auto source_reduced_cost() const noexcept
   {
     return m_source_reduced_cost_;
@@ -330,8 +351,14 @@ public:
     m_source_reduced_cost_ = v;
   }
 
-  /// LP-space reduced cost scaled by `scale_objective / var_scale`:
-  ///   `rc_LP × scale_objective / var_scale`.
+  /// Dependent-column reduced cost lifted out of LP scaling:
+  ///   `rc_LP × scale_objective / reduced_cost_col_scale()`.
+  ///
+  /// The divisor is the DEPENDENT column's scale (the column the rc
+  /// belongs to), NOT this state variable's `var_scale()` (the source
+  /// column's scale).  Equivalent to
+  /// `LinearInterface::get_col_cost()[dependent_col]` on the target LP,
+  /// so the two `build_benders_cut_physical` overloads agree.
   ///
   /// **Important**: despite the name, this is NOT a truly physical
   /// reduced cost in $/[physical-unit]/hour.  The per-(scenario, stage,
@@ -352,7 +379,9 @@ public:
   [[nodiscard]] constexpr double reduced_cost_physical(
       double scale_objective) const noexcept
   {
-    return m_reduced_cost_ * scale_objective / m_var_scale_;
+    return (m_reduced_cost_col_scale_ != 0.0)
+        ? m_reduced_cost_ * scale_objective / m_reduced_cost_col_scale_
+        : m_reduced_cost_ * scale_objective;
   }
 
 private:
@@ -365,6 +394,7 @@ private:
 
   mutable double m_col_sol_ {0.0};
   mutable double m_reduced_cost_ {0.0};
+  mutable double m_reduced_cost_col_scale_ {1.0};
   mutable double m_source_reduced_cost_ {0.0};
 };
 

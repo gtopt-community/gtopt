@@ -605,6 +605,7 @@ TEST_CASE("SddpOptions JSON - full-population round-trip")  // NOLINT
   opts.lp_debug_passes = "aperture";
   opts.aperture_use_manual_clone = false;
   opts.aperture_drop_fcuts = true;
+  opts.aperture_chunk_mode = ApertureChunkMode::chunked;
   opts.aperture_chunk_size = 6;
   opts.aperture_solve_mode = ApertureSolveMode::screened;
   opts.aperture_screen_count = 5;
@@ -683,6 +684,7 @@ TEST_CASE("SddpOptions JSON - full-population round-trip")  // NOLINT
   CHECK(rt.lp_debug_passes == opts.lp_debug_passes);
   CHECK(rt.aperture_use_manual_clone == opts.aperture_use_manual_clone);
   CHECK(rt.aperture_drop_fcuts == opts.aperture_drop_fcuts);
+  CHECK(rt.aperture_chunk_mode == opts.aperture_chunk_mode);
   CHECK(rt.aperture_chunk_size == opts.aperture_chunk_size);
   CHECK(rt.aperture_solve_mode == opts.aperture_solve_mode);
   CHECK(rt.aperture_screen_count == opts.aperture_screen_count);

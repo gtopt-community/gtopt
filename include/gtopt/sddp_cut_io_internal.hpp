@@ -15,8 +15,8 @@
  *   * source/sddp_boundary_cuts.cpp — boundary (future-cost) cuts loaded
  *                                     from PLP-compatible CSV
  *
- * `is_final_state_col` and `extract_iteration_from_name` live in the
- * public header `<gtopt/sddp_cut_io.hpp>` (they have unit tests).
+ * `is_final_state_col` lives in the public header
+ * `<gtopt/sddp_cut_io.hpp>` (it has unit tests).
  *
  * External callers should include `<gtopt/sddp_cut_io.hpp>` instead.
  * This header lives in `include/gtopt/` only because the build system

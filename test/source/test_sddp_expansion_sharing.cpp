@@ -70,6 +70,7 @@
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/utils.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 #include "solver_test_helpers.hpp"
 
@@ -379,7 +380,7 @@ void ex_set_scenario_inflows(Planning& planning, double q_wet, double q_dry)
   const auto& stage0 = sim.phases()[PhaseIndex {0}].stages().front();
   const auto col = it->capacity_col_at(stage0);
   REQUIRE(col.has_value());
-  return sys.linear_interface().get_col_sol()[*col];
+  return sys.linear_interface().get_col_sol()[test_support::require_value(col)];
 }
 
 /// Phase-0 installed capacity (`capainst` at stage 0) of the candidate
@@ -401,7 +402,7 @@ void ex_set_scenario_inflows(Planning& planning, double q_wet, double q_dry)
     const auto col = it->capacity_col_at(stage0);
     REQUIRE(col.has_value());
     caps[static_cast<std::size_t>(scene)] =
-        sys.linear_interface().get_col_sol()[*col];
+        sys.linear_interface().get_col_sol()[test_support::require_value(col)];
   }
   return caps;
 }
@@ -458,7 +459,8 @@ TEST_CASE(  // NOLINT
     }
     REQUIRE((scene.has_value() && phase.has_value()));
 
-    const auto& svars = sim.state_variables(*scene, *phase);
+    const auto& svars = sim.state_variables(test_support::require_value(scene),
+                                            test_support::require_value(phase));
     for (const auto& [col, coeff] : sc.coefficients) {
       for (const auto& [key, svar] : svars) {
         if (svar.col() != col) {
@@ -511,7 +513,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE(  // NOLINT
     "SDDP expansion sharing — wait-and-see (none) splits the build, "
-    "multicut hedges it; none LB ≤ multicut UB")
+    "multicut hedges it, none LB ≤ multicut UB")
 {
   constexpr int kIters = 12;
 
@@ -665,7 +667,7 @@ TEST_CASE(  // NOLINT
 // ═════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
-    "SDDP expansion sharing — integer module (MIP): integral build; "
+    "SDDP expansion sharing — integer module (MIP): integral build, "
     "LB ≤ the monolithic MIP optimum (Benders ≡ SDDP gate)")
 {
   const auto mip_solver = solver_test::first_mip_solver();

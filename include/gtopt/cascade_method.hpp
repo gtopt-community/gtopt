@@ -30,6 +30,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_context.hpp>
+#include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/sddp_method.hpp>
@@ -56,6 +57,9 @@ struct CascadeLevelStats
   bool converged {};  ///< Whether convergence tolerance was met
   double elapsed_s {};  ///< Wall-clock time for this level
   int cuts_added {};  ///< Total cuts added across all iterations
+  /// LP build options of the PlanningLP this level solved (inherited from
+  /// the caller's PlanningLP when the level rebuilt its LP).
+  LpMatrixOptions lp_options {};
 };
 
 // ─── CascadePlanningMethod ──────────────────────────────────────────────────

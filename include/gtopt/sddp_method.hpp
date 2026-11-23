@@ -416,6 +416,22 @@ public:
   /// SDDP options (const)
   [[nodiscard]] constexpr auto& options() const noexcept { return m_options_; }
 
+  /// Backward-pass aperture grouping resolved at the last solve() setup
+  /// (`per_scene` until then).  The input fields
+  /// `options().aperture_chunk_mode` / `aperture_chunk_size` are never
+  /// overwritten, so a cascade re-solve re-resolves from the user values.
+  [[nodiscard]] constexpr auto aperture_chunk_mode() const noexcept
+  {
+    return m_aperture_chunk_.mode;
+  }
+
+  /// Concrete apertures per backward-pass task resolved at the last
+  /// solve() setup (`A_max` under `per_scene`, `1` under `per_aperture`).
+  [[nodiscard]] constexpr auto aperture_chunk_size() const noexcept
+  {
+    return m_aperture_chunk_.chunk_size;
+  }
+
   /// Mutable options access (for cascade orchestration between solve() calls).
   [[nodiscard]] constexpr auto& mutable_options() noexcept
   {
@@ -1075,15 +1091,6 @@ public:
                                 std::span<const uint8_t> scene_feasible,
                                 std::span<const double> weights) const;
 
-  /// Apply cut-sharing across scenes for all phases generated in this
-  /// iteration.
-  /// @param iteration_index  Current SDDP iteration index.
-  ///
-  /// New cuts are identified by comparing each scene's current
-  /// `m_scene_cuts_` vector size against `m_scene_cuts_before_` —
-  /// the caller must populate the latter before the backward pass.
-  void apply_cut_sharing_for_iteration(IterationIndex iteration_index);
-
   /// Compute gap + gap_change, update convergence flag, update live-query
   /// atomics, log.  @p results carries the previous iterations so that
   /// gap_change can be evaluated against the look-back window before the
@@ -1133,6 +1140,8 @@ private:
 
   std::reference_wrapper<PlanningLP> m_planning_lp_;
   SDDPOptions m_options_;
+  /// Resolved aperture task grouping (see `aperture_chunk_mode()`).
+  ApertureChunkResolution m_aperture_chunk_ {};
   ApertureDataCache m_aperture_cache_;
   LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;

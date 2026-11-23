@@ -307,6 +307,11 @@ constexpr std::array<double, 3> kA1Inflows = {0.0, 50.0, 100.0};
   options.model_options.demand_fail_cost = 1.0e6;
   options.model_options.use_single_bus = OptBool {true};
   options.model_options.scale_objective = OptReal {1.0};
+  // SDDP.jl's first_steps declares the cost-to-go `lower_bound = 0.0`
+  // (every stage cost is non-negative); mirror it with the documented
+  // `alpha_min` floor so the cut trajectory matches the reference model
+  // instead of relying on the cut-derived floor alone.
+  options.sddp_options.alpha_min = OptReal {0.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -331,6 +336,13 @@ constexpr std::array<double, 3> kA1Inflows = {0.0, 50.0, 100.0};
   opts.apertures = std::nullopt;  // use the per-phase aperture_array
   opts.aperture_solve_mode = mode;
   opts.aperture_screen_count = 1;
+  // One cold clone per aperture: the A1 LPs are dual-degenerate, so a
+  // shared clone (per_scene, the default) would start every aperture
+  // after the first from the previous one's resident basis and land on a
+  // different (equally valid) dual vertex — breaking the cut-for-cut
+  // parity the dual_shared tests below assert against the exact
+  // per-aperture cut.  The dual-shared modes force a single chunk anyway.
+  opts.aperture_chunk_mode = ApertureChunkMode::per_aperture;
   opts.enable_api = false;
   return opts;
 }
@@ -796,7 +808,7 @@ TEST_CASE(  // NOLINT
 // ═════════════════════════════════════════════════════════════════════════
 TEST_CASE(  // NOLINT
     "SDDP literature E2 — msppy Brazilian 4-reservoir: published pins "
-    "anchored (doc-tier; VAR(1) inflow gap blocks reproduction)")
+    "anchored (doc-tier, VAR(1) inflow gap blocks reproduction)")
 {
   // Cited (catalog §7 E2 / C2, Ding-Ahmed-Shapiro 2019 Table 6).
   constexpr double kE2_T2_exact = 1623203.0;

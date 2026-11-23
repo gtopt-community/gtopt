@@ -158,17 +158,28 @@ TEST_CASE("StateVariable physical accessors")
 
   SUBCASE("reduced_cost_physical = LP × scale_obj / var_scale")
   {
-    var.set_reduced_cost(2.0);
+    var.set_reduced_cost(2.0, 8.0);
     CHECK(var.reduced_cost() == doctest::Approx(2.0));  // raw LP unchanged
     // physical = 2 × 1000 / 8 = 250
     CHECK(var.reduced_cost_physical(1000.0) == doctest::Approx(250.0));
+  }
+
+  SUBCASE("reduced_cost_physical divides by the DEPENDENT column scale")
+  {
+    // The rc belongs to the dependent column (next-phase `sini`), whose
+    // ruiz scale (4) differs from the source column's var_scale (8).
+    var.set_reduced_cost(2.0, 4.0);
+    CHECK(var.reduced_cost_col_scale() == doctest::Approx(4.0));
+    CHECK(var.var_scale() == doctest::Approx(8.0));  // source untouched
+    // physical = 2 × 1000 / 4 = 500 (NOT 2 × 1000 / 8 = 250)
+    CHECK(var.reduced_cost_physical(1000.0) == doctest::Approx(500.0));
   }
 
   SUBCASE("var_scale = 1 means physical equals LP")
   {
     StateVariable unit_var {lp_key, ColIndex {1}, 0.0, 1.0, LpContext {}};
     unit_var.set_col_sol(3.14);
-    unit_var.set_reduced_cost(-1.5);
+    unit_var.set_reduced_cost(-1.5, 1.0);
     CHECK(unit_var.col_sol_physical() == doctest::Approx(3.14));
     CHECK(unit_var.reduced_cost_physical(1.0) == doctest::Approx(-1.5));
   }

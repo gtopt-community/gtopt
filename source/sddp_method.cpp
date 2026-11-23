@@ -829,24 +829,17 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     m_max_kappa_iter_[scene_index].resize(num_phases, IterationIndex {});
   }
 
-  // ── Resolve aperture_chunk_size (sentinel → concrete K) ────────────────
+  // ── Resolve the backward-pass aperture grouping ───────────────────────
   //
-  // Sentinel encoding (from `SddpOptions::aperture_chunk_size`):
-  //   *  0 → auto: pick K so that the resulting per-phase task count
-  //         (`scenes × ⌈A/K⌉`) tracks the work pool's target
-  //         concurrency (`parallel_factor × physical_concurrency`).
-  //   *  1 → legacy 1-aperture-per-task path.
-  //   * >1 → use this K verbatim.
-  //   * -1 → cap at A_max per phase (one task per scene, fully serial
-  //         inside).
-  //
-  // Computed once at setup time and stored back into
-  // `m_options_.aperture_chunk_size` so every per-phase call site
-  // (`solve_apertures_for_phase`) reads the same resolved value.
-  // A_max uses the per-phase aperture override when present
-  // (`PhaseLP::apertures()`), otherwise falls back to the global
-  // `simulation.aperture_array` size — matches the runtime resolution
-  // in `solve_apertures_for_phase`.
+  // `aperture_chunk_mode` (per_scene default / per_aperture / chunked) +
+  // `aperture_chunk_size` (K for chunked; legacy integer mode selector
+  // when the mode is unset) → concrete apertures-per-task K.  See
+  // `resolve_aperture_chunk()` for the full table.  The input fields in
+  // `m_options_` are left untouched so a cascade re-solve re-resolves
+  // from the user values.  A_max uses the per-phase aperture override
+  // when present (`PhaseLP::apertures()`), otherwise falls back to the
+  // global `simulation.aperture_array` size — matches the runtime
+  // resolution in `solve_apertures_for_phase`.
   {
     const auto& global_aps = sim.apertures();
     int max_aps_per_phase = 0;
@@ -861,44 +854,56 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
                                        : static_cast<int>(global_aps.size());
       max_aps_per_phase = std::max(n, max_aps_per_phase);
     }
-    const int requested = m_options_.aperture_chunk_size;
-    int resolved = 1;
-    std::string_view source = "user";
-    if (max_aps_per_phase <= 0) {
-      // No apertures anywhere — chunk_size doesn't matter; pick 1 for safety.
-      resolved = 1;
-      source = "no-apertures";
-    } else if (requested == 0) {
-      // Auto path: apply the work-pool-saturation formula then round
-      // DOWN to the nearest power of two (1, 2, 4, 8, 16, …) so chunk
-      // shapes are balanced.  On the large hydrothermal case 16-scene ×
-      // 16-aperture × 51-phase under barrier + split crossover + the bulk-API
-      // `set_col_bounds_bulk` path (b85011e1) the auto-selected K=4
-      // matches K=8 = 142.6 s, both ahead of legacy K=1 = 147.3 s.
-      // Users who want a specific K override via
-      // `aperture_chunk_size: K` in JSON or `--aperture-chunk-size K`
-      // on the CLI; "auto" (or 0) maps here.
-      resolved = compute_auto_aperture_chunk_size(
-          max_aps_per_phase,
-          static_cast<int>(num_scenes),
-          static_cast<int>(physical_concurrency()),
-          /*parallel_factor=*/2.0);
-      source = "auto";
-    } else if (requested == -1) {
-      resolved = max_aps_per_phase;
-      source = "fully-serial";
-    } else {
-      resolved = std::min(std::max(requested, 1), max_aps_per_phase);
-      source = "user";
+    const auto req_mode = m_options_.aperture_chunk_mode;
+    const int req_size = m_options_.aperture_chunk_size;
+    m_aperture_chunk_ =
+        resolve_aperture_chunk(req_mode,
+                               req_size,
+                               max_aps_per_phase,
+                               static_cast<int>(num_scenes),
+                               static_cast<int>(physical_concurrency()));
+    const auto& rc = m_aperture_chunk_;
+    const auto mode_name = enum_name(rc.mode);
+
+    if (rc.legacy_size) {
+      SPDLOG_WARN(
+          "SDDP Aperture: aperture_chunk_size={} used as a mode selector is "
+          "deprecated; set sddp_options.aperture_chunk_mode=\"{}\"{} "
+          "(CLI: --aperture-chunk-mode {})",
+          req_size,
+          mode_name,
+          rc.mode == ApertureChunkMode::chunked
+              ? std::format(" with aperture_chunk_size={}", req_size)
+              : std::string {},
+          mode_name);
+    }
+    if (rc.invalid_size) {
+      SPDLOG_WARN(
+          "SDDP Aperture: invalid aperture_chunk_size={} (expected K >= 1, "
+          "or the legacy -1/0); using {}",
+          req_size,
+          rc.auto_size ? std::string {"the auto K"}
+                       : std::format("aperture_chunk_mode={}", mode_name));
+    }
+    if (rc.size_ignored) {
+      SPDLOG_WARN(
+          "SDDP Aperture: aperture_chunk_size={} contradicts "
+          "aperture_chunk_mode={} and is ignored ({})",
+          req_size,
+          mode_name,
+          rc.mode == ApertureChunkMode::chunked
+              ? "-1 means per_scene; using K = A_max"
+              : "K applies only to aperture_chunk_mode=chunked");
     }
     SPDLOG_INFO(
-        "SDDP Aperture: chunk_size={} ({}: A_max={} S={} cores={} pf=2.0)",
-        resolved,
-        source,
+        "SDDP Aperture: chunk_mode={} chunk_size={}{} (A_max={} S={} "
+        "cores={})",
+        mode_name,
+        rc.chunk_size,
+        rc.auto_size ? " (auto)" : "",
         max_aps_per_phase,
         num_scenes,
         physical_concurrency());
-    m_options_.aperture_chunk_size = resolved;
   }
 
   // ── Low-memory mode: configure all SystemLPs ──────────────────────────────

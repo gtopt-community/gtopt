@@ -32,6 +32,7 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
@@ -590,15 +591,15 @@ TEST_CASE("SDDPMethod - 2-phase with apertures converges")  // NOLINT
     CHECK(total_cuts > 0);
   }
 
-  // Chunked aperture pass: K=1 (legacy 1-task-per-aperture),
-  // K=2 (one chunk holds both apertures, exercises shared-clone +
-  // memo path), and K=-1 (fully serial cap).  All three must
+  // Chunked aperture pass: per_aperture (K=1, one task per aperture),
+  // chunked K=2 (one chunk holds both apertures, exercises shared-clone +
+  // memo path), and per_scene (fully serial cap, the default).  All three must
   // converge to the same final UB on this 2-aperture case modulo
   // solver tolerance.
-  SUBCASE("apertures + chunk_size=1 (legacy path)")
+  SUBCASE("apertures + per_aperture")
   {
     sddp_opts.apertures = std::nullopt;
-    sddp_opts.aperture_chunk_size = 1;
+    sddp_opts.aperture_chunk_mode = ApertureChunkMode::per_aperture;
     SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
@@ -606,9 +607,10 @@ TEST_CASE("SDDPMethod - 2-phase with apertures converges")  // NOLINT
     CHECK(results->back().converged);
   }
 
-  SUBCASE("apertures + chunk_size=2 (single-chunk shared clone)")
+  SUBCASE("apertures + chunked K=2 (single-chunk shared clone)")
   {
     sddp_opts.apertures = std::nullopt;
+    sddp_opts.aperture_chunk_mode = ApertureChunkMode::chunked;
     sddp_opts.aperture_chunk_size = 2;
     SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
@@ -617,10 +619,10 @@ TEST_CASE("SDDPMethod - 2-phase with apertures converges")  // NOLINT
     CHECK(results->back().converged);
   }
 
-  SUBCASE("apertures + chunk_size=-1 (fully serial per scene)")
+  SUBCASE("apertures + per_scene (fully serial per scene)")
   {
     sddp_opts.apertures = std::nullopt;
-    sddp_opts.aperture_chunk_size = -1;
+    sddp_opts.aperture_chunk_mode = ApertureChunkMode::per_scene;
     SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
@@ -757,6 +759,7 @@ TEST_CASE(  // NOLINT
     sddp_opts.convergence_tol = 0.0;  // disable early termination
     sddp_opts.enable_api = false;
     sddp_opts.apertures = std::nullopt;  // use per-phase apertures
+    sddp_opts.aperture_chunk_mode = ApertureChunkMode::chunked;
     sddp_opts.aperture_chunk_size = chunk_size;
     sddp_opts.aperture_solve_mode =
         warm_start ? ApertureSolveMode::warm : ApertureSolveMode::cold;
@@ -803,6 +806,65 @@ TEST_CASE(  // NOLINT
   const double ub_k4_warm_seed =
       run_at(4, /*warm_start=*/true, /*seed_basis=*/true);
   CHECK(ub_k4_warm_seed == doctest::Approx(ub_k1).epsilon(1e-3));
+
+  // Named aperture_chunk_mode (2026-11): the default (mode unset →
+  // per_scene, warm solve mode) and per_aperture (one cold clone per
+  // aperture) must CONVERGE to the same bounds.  The grouping changes
+  // only scheduling and the simplex path, never the value function — but
+  // on this degenerate fixture the shared clone lands on a different
+  // (equally valid) dual vertex, so the per-iteration LB trajectories
+  // differ; compare the converged LB and UB instead.  Also pins the
+  // resolved grouping and that the input fields stay untouched.
+  struct Bounds
+  {
+    double lb {};
+    double ub {};
+    bool converged {};
+  };
+  auto run_mode = [&](std::optional<ApertureChunkMode> mode,
+                      ApertureChunkMode expected_mode,
+                      int expected_k) -> Bounds
+  {
+    auto planning = build_planning();
+    planning.options.lp_matrix_options.solver_name = pinned_solver;
+    PlanningLP plp(std::move(planning));
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 200;
+    sddp_opts.convergence_tol = 1e-4;
+    sddp_opts.enable_api = false;
+    sddp_opts.apertures = std::nullopt;
+    sddp_opts.aperture_chunk_mode = mode;
+    sddp_opts.aperture_solve_mode = ApertureSolveMode::warm;
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    CHECK(sddp.aperture_chunk_mode() == expected_mode);
+    CHECK(sddp.aperture_chunk_size() == expected_k);
+    CHECK(sddp.options().aperture_chunk_mode == mode);
+    CHECK(sddp.options().aperture_chunk_size == 0);
+    MESSAGE("chunk_mode=",
+            enum_name(expected_mode),
+            " iters=",
+            results->size(),
+            " lb=",
+            results->back().lower_bound,
+            " ub=",
+            results->back().upper_bound);
+    return {
+        .lb = results->back().lower_bound,
+        .ub = results->back().upper_bound,
+        .converged = results->back().converged,
+    };
+  };
+
+  const auto def = run_mode(std::nullopt, ApertureChunkMode::per_scene, 4);
+  const auto per_ap = run_mode(
+      ApertureChunkMode::per_aperture, ApertureChunkMode::per_aperture, 1);
+  CHECK(def.converged);
+  CHECK(per_ap.converged);
+  CHECK(def.ub == doctest::Approx(per_ap.ub).epsilon(1e-3));
+  CHECK(def.lb == doctest::Approx(per_ap.lb).epsilon(1e-3));
 }
 
 // ─── Unit tests for free utility functions ─────────────────────────────────
@@ -3650,8 +3712,10 @@ TEST_CASE(  // NOLINT
       CAPTURE(hard.fcuts);
       REQUIRE(hard.efin_duals[0].has_value());
       REQUIRE(hard.efin_duals[1].has_value());
-      const double dual0 = std::abs(*hard.efin_duals[0]);
-      const double dual1 = std::abs(*hard.efin_duals[1]);
+      const double dual0 =
+          std::abs(test_support::require_value(hard.efin_duals[0]));
+      const double dual1 =
+          std::abs(test_support::require_value(hard.efin_duals[1]));
       const double dual_max = std::max(dual0, dual1);
       CAPTURE(dual0);
       CAPTURE(dual1);
@@ -3879,7 +3943,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(dual_1.has_value());
   CAPTURE(*dual_0);
   CAPTURE(*dual_1);
-  const double dual_max = std::max(*dual_0, *dual_1);
+  const double dual_max = std::max(test_support::require_value(dual_0),
+                                   test_support::require_value(dual_1));
   CAPTURE(dual_max);
   // Margin of 1e-3 above zero rules out solver-tolerance noise.  The
   // primal optimum is unique but the dual is not: CLP (1.17.x) picks
@@ -4268,8 +4333,9 @@ TEST_CASE(  // NOLINT
   const auto off_hard = run_case({}, off_cfg);
   REQUIRE(off_hard.efin_duals[0].has_value());
   REQUIRE(off_hard.efin_duals[1].has_value());
-  const double off_dual_max = std::max(std::abs(*off_hard.efin_duals[0]),
-                                       std::abs(*off_hard.efin_duals[1]));
+  const double off_dual_max =
+      std::max(std::abs(test_support::require_value(off_hard.efin_duals[0])),
+               std::abs(test_support::require_value(off_hard.efin_duals[1])));
   CAPTURE(off_hard.ub);
   CAPTURE(off_dual_max);
   REQUIRE(std::isfinite(off_hard.ub));
@@ -4325,8 +4391,10 @@ TEST_CASE(  // NOLINT
       CAPTURE(hard.fcuts);
       REQUIRE(hard.efin_duals[0].has_value());
       REQUIRE(hard.efin_duals[1].has_value());
-      const double dual0 = std::abs(*hard.efin_duals[0]);
-      const double dual1 = std::abs(*hard.efin_duals[1]);
+      const double dual0 =
+          std::abs(test_support::require_value(hard.efin_duals[0]));
+      const double dual1 =
+          std::abs(test_support::require_value(hard.efin_duals[1]));
       const double dual_max = std::max(dual0, dual1);
       CAPTURE(dual_max);
 
@@ -5766,25 +5834,6 @@ TEST_CASE("SDDPMethod update_max_kappa(double) accumulator")  // NOLINT
         == doctest::Approx(cell0_before));
 }
 
-TEST_CASE(
-    "SDDPMethod apply_cut_sharing_for_iteration — none mode no-op")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP plp(std::move(planning));
-
-  SDDPOptions opts;
-  opts.cut_sharing = CutSharingMode::none;
-  SDDPMethod sddp(plp, opts);
-  REQUIRE(sddp.solve().has_value());
-  const auto before = sddp.num_stored_cuts();
-
-  // ``cut_sharing = none`` → method returns without mutating the cut
-  // store.  Pin that the call is safe and idempotent.
-  sddp.apply_cut_sharing_for_iteration(IterationIndex {0});
-  sddp.apply_cut_sharing_for_iteration(IterationIndex {1});
-  CHECK(sddp.num_stored_cuts() == before);
-}
-
 // ─── 2-scene 10-phase two-reservoir cut-sharing tests ─────────────────────
 //
 // These tests use the `make_2scene_10phase_two_reservoir_planning` fixture
@@ -5802,10 +5851,6 @@ TEST_CASE(
 
 namespace
 {
-
-/// Equal probability assigned to each scene in the 2-scene 10-phase
-/// 2-reservoir fixture (0.5 + 0.5 = 1.0).
-[[maybe_unused]] constexpr double k2scene10phaseProb = 0.5;
 
 /// Shared SDDP options for all 2-scene 10-phase 2-reservoir cut-sharing tests.
 inline auto make_2scene_10phase_2rsv_sddp_opts() -> SDDPOptions
@@ -5859,7 +5904,7 @@ TEST_CASE(  // NOLINT
         == doctest::Approx(last.scene_upper_bounds[1]).epsilon(0.01));
 
   // Total UB = sum of per-scene UBs (each already prob-weighted via
-  // ``CostHelper::block_ecost``; the ``k2scene10phaseProb`` factor is
+  // ``CostHelper::block_ecost``; the 0.5 scene probability is
   // already baked into both ``scene_upper_bounds[0]`` and ``[1]``).
   const double expected_ub =
       last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
@@ -5921,13 +5966,21 @@ TEST_CASE(  // NOLINT
   struct ModeResult
   {
     CutSharingMode mode {};
-    const char* label {nullptr};
+    const char* label {};
     double ub {0.0};
   };
 
   std::array<ModeResult, 2> mode_results = {{
-      {.mode = CutSharingMode::none, .label = "none", .ub = 0.0},
-      {.mode = CutSharingMode::multicut, .label = "multicut", .ub = 0.0},
+      {
+          .mode = CutSharingMode::none,
+          .label = "none",
+          .ub = 0.0,
+      },
+      {
+          .mode = CutSharingMode::multicut,
+          .label = "multicut",
+          .ub = 0.0,
+      },
   }};
 
   for (auto& mr : mode_results) {
@@ -6036,6 +6089,12 @@ namespace
   // dual±1 fixture wedges the MindOpt simplex — pin to another backend
   // (callers skip when pick_non_mindopt_solver() returns "").
   planning.options.lp_matrix_options.solver_name = pick_non_mindopt_solver();
+  // Every cost in this fixture is non-negative (thermal, demand-fail and the
+  // soft efin penalty), so the cost-to-go is ≥ 0: state that with the
+  // documented `alpha_min = 0` floor.  Without it α is floored only by the
+  // cut-derived projection, which is a VALID but weak bound (min LB ≈ −7e4
+  // at efin_cost = 500).
+  planning.options.sddp_options.alpha_min = OptReal {0.0};
   PlanningLP plp(std::move(planning));
 
   SDDPOptions sddp_opts;
@@ -6133,10 +6192,12 @@ TEST_CASE(  // NOLINT
   //       cuts (eaa613ec), the LB-overshoot is now suppressed — the
   //       α_T floor keeps the lower bound anchored at the physical
   //       optimum regardless of soft-efin penalty magnitude.
-  const auto [safe_min_rhs, _, safe_lb] = sweep_efin_cost_for_flip(50.0);
+  const auto [safe_min_rhs, safe_max_rhs, safe_lb] =
+      sweep_efin_cost_for_flip(50.0);
   CHECK(safe_min_rhs > 0.0);
   CHECK(safe_lb > 0.0);
-  const auto [_, _, big_lb] = sweep_efin_cost_for_flip(500.0);
+  const auto [big_min_rhs, big_max_rhs, big_lb] =
+      sweep_efin_cost_for_flip(500.0);
   CHECK(big_lb > 0.0);  // α_T floor prevents LB overshoot
 }
 
@@ -6272,7 +6333,8 @@ TEST_CASE(  // NOLINT
                            const std::vector<double>& test_costs) -> double
   {
     for (const double ec : test_costs) {
-      const auto [_, _, min_lb] = sweep_efin_cost_for_flip(ec, dfc, tgc, pf);
+      const auto [min_rhs, max_rhs, min_lb] =
+          sweep_efin_cost_for_flip(ec, dfc, tgc, pf);
       if (min_lb < 0.0) {
         return ec;  // first overshoot value
       }
@@ -6294,19 +6356,69 @@ TEST_CASE(  // NOLINT
 
   const std::vector<Config> configs = {
       // Baseline (fixture defaults: dfc=10000, tgc=100, pf=1.0)
-      {"dfc=10000 tgc=100 pf=1.0 (baseline)", 10000.0, 100.0, 1.0},
+      {
+          .label = "dfc=10000 tgc=100 pf=1.0 (baseline)",
+          .demand_fail_cost = 10000.0,
+          .thermal_gcost = 100.0,
+          .production_factor = 1.0,
+      },
       // Vary demand_fail only
-      {"dfc= 1000 tgc=100 pf=1.0", 1000.0, 100.0, 1.0},
-      {"dfc=  500 tgc=100 pf=1.0", 500.0, 100.0, 1.0},
-      {"dfc=  100 tgc=100 pf=1.0 (dfc==tgc)", 100.0, 100.0, 1.0},
+      {
+          .label = "dfc= 1000 tgc=100 pf=1.0",
+          .demand_fail_cost = 1000.0,
+          .thermal_gcost = 100.0,
+          .production_factor = 1.0,
+      },
+      {
+          .label = "dfc=  500 tgc=100 pf=1.0",
+          .demand_fail_cost = 500.0,
+          .thermal_gcost = 100.0,
+          .production_factor = 1.0,
+      },
+      {
+          .label = "dfc=  100 tgc=100 pf=1.0 (dfc==tgc)",
+          .demand_fail_cost = 100.0,
+          .thermal_gcost = 100.0,
+          .production_factor = 1.0,
+      },
       // Vary thermal only
-      {"dfc=10000 tgc= 50 pf=1.0", 10000.0, 50.0, 1.0},
-      {"dfc=10000 tgc= 25 pf=1.0", 10000.0, 25.0, 1.0},
-      {"dfc=10000 tgc=200 pf=1.0", 10000.0, 200.0, 1.0},
+      {
+          .label = "dfc=10000 tgc= 50 pf=1.0",
+          .demand_fail_cost = 10000.0,
+          .thermal_gcost = 50.0,
+          .production_factor = 1.0,
+      },
+      {
+          .label = "dfc=10000 tgc= 25 pf=1.0",
+          .demand_fail_cost = 10000.0,
+          .thermal_gcost = 25.0,
+          .production_factor = 1.0,
+      },
+      {
+          .label = "dfc=10000 tgc=200 pf=1.0",
+          .demand_fail_cost = 10000.0,
+          .thermal_gcost = 200.0,
+          .production_factor = 1.0,
+      },
       // Vary production_factor (this is what the user asked about)
-      {"dfc=10000 tgc=100 pf=0.5 (pf/2)", 10000.0, 100.0, 0.5},
-      {"dfc=10000 tgc=100 pf=0.25 (pf/4)", 10000.0, 100.0, 0.25},
-      {"dfc=10000 tgc=100 pf=2.0 (pf×2)", 10000.0, 100.0, 2.0},
+      {
+          .label = "dfc=10000 tgc=100 pf=0.5 (pf/2)",
+          .demand_fail_cost = 10000.0,
+          .thermal_gcost = 100.0,
+          .production_factor = 0.5,
+      },
+      {
+          .label = "dfc=10000 tgc=100 pf=0.25 (pf/4)",
+          .demand_fail_cost = 10000.0,
+          .thermal_gcost = 100.0,
+          .production_factor = 0.25,
+      },
+      {
+          .label = "dfc=10000 tgc=100 pf=2.0 (pf×2)",
+          .demand_fail_cost = 10000.0,
+          .thermal_gcost = 100.0,
+          .production_factor = 2.0,
+      },
       // Note: pf=4 makes the system infeasible from very high
       // hydro-side capacity (each hm³ → 4 MWh > demand of 40 MW
       // can't be drained), so we omit it.

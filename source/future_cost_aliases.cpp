@@ -3,7 +3,8 @@
  * @brief     Translate the deprecated boundary-cut option keys into FutureCost
  * @date      Fri Nov 20 2026
  * @author    marcelo
- * @copyright BSD-3-Clause
+ * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
+ *            see LICENSING.md
  */
 
 #include <algorithm>
@@ -140,7 +141,8 @@ private:
     return arr.back();
   }
 
-  System& m_system_;
+  System&
+      m_system_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::optional<std::size_t> m_index_ {};
   std::map<std::string, std::string, std::less<>> m_origin_ {};
 };

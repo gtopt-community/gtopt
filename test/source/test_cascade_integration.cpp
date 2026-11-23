@@ -1214,3 +1214,79 @@ TEST_CASE(  // NOLINT
 }
 
 }  // anonymous namespace
+
+TEST_CASE(  // NOLINT
+    "Cascade rebuilt levels inherit the caller's LpMatrixOptions")
+{
+  // Regression: a level with model_options overrides rebuilt its PlanningLP
+  // with LpMatrixOptions{}, dropping the solver, eps, LP names (lp_file /
+  // lp_debug / lp_error), compute_stats, equilibration, ... on that level.
+  using namespace gtopt;
+
+  LpMatrixOptions parent;
+  parent.eps = 1.25e-13;
+  parent.col_with_names = true;
+  parent.row_with_names = true;
+  parent.col_with_name_map = true;
+  parent.row_with_name_map = true;
+  parent.compute_stats = true;
+  parent.equilibration_method = LpEquilibrationMethod::row_max;
+  parent.lp_coeff_ratio_threshold = 4.5e6;
+
+  PlanningLP planning_lp(make_3phase_2bus_hydro_planning(), parent);
+  CHECK(planning_lp.flat_options().eps == doctest::Approx(1.25e-13));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 0.01;
+  sddp_opts.apertures = std::vector<Uid> {};
+
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"single_bus"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {2},
+                  .apertures = Array<Uid> {},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"network"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {false},
+                  .use_kirchhoff = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {2},
+                  .apertures = Array<Uid> {},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+  REQUIRE(solver.solve(planning_lp, lp_opts).has_value());
+  REQUIRE(solver.level_stats().size() == 2);
+
+  for (const auto& ls : solver.level_stats()) {
+    INFO("level " << ls.name);
+    const auto& o = ls.lp_options;
+    CHECK(o.eps == doctest::Approx(1.25e-13));
+    CHECK(o.col_with_names);
+    CHECK(o.row_with_names);
+    CHECK(o.col_with_name_map);
+    CHECK(o.row_with_name_map);
+    CHECK(o.compute_stats.value_or(false));
+    CHECK(o.equilibration_method.value_or(LpEquilibrationMethod::none)
+          == LpEquilibrationMethod::row_max);
+    CHECK(o.lp_coeff_ratio_threshold.value_or(0.0) == doctest::Approx(4.5e6));
+    CHECK(o.name_store == nullptr);
+  }
+}

@@ -11,6 +11,7 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_types.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
@@ -471,8 +472,8 @@ TEST_CASE(  // NOLINT
   for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
     const auto bounds = alpha_bounds_raw(plp, si, target_phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->first == doctest::Approx(0.0));
-    CHECK(bounds->second == doctest::Approx(0.0));
+    CHECK(test_support::require_value(bounds).first == doctest::Approx(0.0));
+    CHECK(test_support::require_value(bounds).second == doctest::Approx(0.0));
   }
 
   // Build an α-referring cut per scene and feed share_cuts_for_phase
@@ -487,13 +488,20 @@ TEST_CASE(  // NOLINT
 
   share_cuts_for_phase(target_phase, scene_cuts, CutSharingMode::multicut, plp);
 
-  // Post-condition: α at target_phase is freed on every scene.
+  // Post-condition: α at target_phase is released on every scene — the
+  // bootstrap pin's upper bound is lifted to +∞ and the lower bound is the
+  // CUT-DERIVED floor `rhs − max_box(0.5·x₀)` (finite, from the installed
+  // row; `apply_alpha_floor`).  It is no longer the seed 0: the floor is
+  // computed after the row is in `active_cuts()`, so even the first cut
+  // contributes its own floor instead of the "no cut" fallback.
   for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
     CAPTURE(si);
     const auto bounds = alpha_bounds_raw(plp, si, target_phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->first == doctest::Approx(0.0));
-    CHECK(bounds->second > kEffectivelyPlusInf);
+    CHECK(test_support::require_value(bounds).first > kEffectivelyMinusInf);
+    CHECK(test_support::require_value(bounds).first
+          < 100.0);  // never above the cut's own RHS
+    CHECK(test_support::require_value(bounds).second > kEffectivelyPlusInf);
   }
 }
 

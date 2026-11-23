@@ -297,7 +297,7 @@ namespace detail
 /// in the `static_assert`s below to pin every `sddp_*_row_prefix`
 /// to its `(class_short, constraint_name)` pair so a rename of
 /// either constant fails the build instead of silently de-syncing
-/// the cut-row dispatcher in `extract_iteration_from_name`.
+/// the prefixes from the emitted cut-row labels.
 [[nodiscard]] consteval bool prefix_matches(
     std::string_view prefix,
     std::string_view class_short,
@@ -317,9 +317,8 @@ namespace detail
 }
 }  // namespace detail
 
-/// Row-name prefixes for the four SDDP pass-tagged cut types,
-/// consumed by `extract_iteration_from_name` (`sddp_cut_io.cpp`)
-/// to dispatch on row-name shape without re-parsing the
+/// Row-name prefixes for the four SDDP pass-tagged cut types, for
+/// dispatching on row-name shape without re-parsing the
 /// (class, constraint) pair.  Each prefix is verified at compile
 /// time against the corresponding `sddp_alpha_lp_class.short_name()`
 /// + `sddp_<x>_constraint_name` pair via the `static_assert`s below.
@@ -539,8 +538,8 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   // iterating up to ``max_iterations``.
   // The statistical CI test (``convergence_confidence``) is opt-in
   // (default 0) because it is too easily fooled by σ scatter when scene
-  // UBs are heterogeneous (e.g. Maule-type large cases).  ``min_iterations`` =
-  // 1 is the minimum that still lets the convergence check fire — set higher
+  // UBs are heterogeneous (e.g. large hydrothermal cases).  ``min_iterations``
+  // = 1 is the minimum that still lets the convergence check fire — set higher
   // (e.g. 3) only at noisy bootstrap levels (cascade L0) where the very-first
   // iter's gap is structurally meaningless; cascade L1+ inherit a converged
   // envelope and may legitimately exit on their first qualifying iter.
@@ -816,7 +815,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// pass via `svar.col_sol_physical()`, and stored optimality cuts
   /// come from the training backward passes).  See
   /// `CascadePlanningMethod::solve` for the orchestration.  On
-  /// CEN-scale this saves the ~9 s/cell × 816 cells / 16-way
+  /// large-case scale this saves the ~9 s/cell × 816 cells / 16-way
   /// parallel ≈ 7 min per intermediate level.
   bool skip_simulation_pass {false};
 
@@ -1004,23 +1003,21 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// the native route.  Default: false (preserve legacy behaviour).
   bool aperture_use_manual_clone {false};
 
-  /// Apertures solved serially per backward-pass task (chunked aperture
-  /// pass).  Each chunk is one work-pool task that clones the phase LP
-  /// once and solves its inner apertures in series with warm-start
-  /// reuse on the shared clone.
-  ///
-  /// Sentinel values (resolved at SDDPMethod setup):
-  ///
-  ///   *  0 → auto.  Picked by
-  ///         `compute_auto_aperture_chunk_size(A_max, S, C,
-  ///         parallel_factor=2.0)`.
-  ///   *  1 → legacy: one task per aperture (no chunking).
-  ///   * >1 → use exactly this many apertures per task.
-  ///   * -1 → cap at A_max per phase (single task per scene, fully
-  ///         serial inside).
-  ///
-  /// Default 0 (auto).  See `sddp_options.hpp::aperture_chunk_size` for
-  /// the JSON-facing field documentation.
+  /// How backward-pass apertures are grouped into work-pool tasks
+  /// (`per_scene` / `per_aperture` / `chunked`).  `nullopt` = not set →
+  /// `per_scene` unless the legacy integer `aperture_chunk_size` selects
+  /// another mode.  Resolved once at SDDPMethod setup by
+  /// `resolve_aperture_chunk()` (`sddp_aperture.hpp`); the resolved
+  /// grouping is exposed via `SDDPMethod::aperture_chunk_mode()` /
+  /// `aperture_chunk_size()` and these input fields are left untouched.
+  /// See `sddp_options.hpp::aperture_chunk_mode` for the JSON-facing
+  /// documentation.
+  std::optional<ApertureChunkMode> aperture_chunk_mode {};
+
+  /// Apertures per task for `aperture_chunk_mode = chunked` (`0` =
+  /// unset).  With the mode unset, the legacy integer encoding still
+  /// selects it (deprecated): `0` → per_scene (default), `-1` →
+  /// per_scene, `1` → per_aperture, `K > 1` → chunked K.
   int aperture_chunk_size {0};
 
   /// Aperture solve / cut-recovery mode: `cold` (barrier + crossover,
@@ -1192,8 +1189,8 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///
   /// Default: gap_stationary.  The statistical CI test
   /// (``ConvergenceMode::statistical``) is opt-in because
-  /// heterogeneous-scene σ scatter (Maule-type large cases) can trivially fire
-  /// it at large %gap.
+  /// heterogeneous-scene σ scatter (large hydrothermal cases) can trivially
+  /// fire it at large %gap.
   ConvergenceMode convergence_mode {ConvergenceMode::gap_stationary};
 
   /// Tolerance for "UB stopped moving" detection (gap_change < tol).
@@ -1302,6 +1299,41 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// 0 = synchronous (current behavior, default).
   int max_async_spread {0};
 };
+
+/// Apply a per-level (cascade) aperture-grouping override onto @p opts.
+///
+///   * @p mode set: replaces the inherited mode; when the new mode is not
+///     `chunked` an inherited K is dropped (it would only trigger a
+///     spurious "size ignored" warning).  @p size, if also set, wins.
+///   * only @p size set (legacy per-level integer): if the inherited mode
+///     is `chunked` and K > 0 only K changes; otherwise the inherited mode
+///     is cleared so the integer re-selects it (deprecated encoding, see
+///     `resolve_aperture_chunk()`).
+constexpr void apply_aperture_chunk_override(
+    SDDPOptions& opts,
+    std::optional<ApertureChunkMode> mode,
+    std::optional<int> size) noexcept
+{
+  if (mode.has_value()) {
+    opts.aperture_chunk_mode = mode;
+    if (*mode != ApertureChunkMode::chunked) {
+      opts.aperture_chunk_size = 0;
+    }
+    if (size.has_value()) {
+      opts.aperture_chunk_size = *size;
+    }
+    return;
+  }
+  if (!size.has_value()) {
+    return;
+  }
+  const bool keep_chunked =
+      opts.aperture_chunk_mode == ApertureChunkMode::chunked && *size > 0;
+  if (!keep_chunked) {
+    opts.aperture_chunk_mode.reset();
+  }
+  opts.aperture_chunk_size = *size;
+}
 
 // ─── Iteration result ───────────────────────────────────────────────────────
 
@@ -1671,11 +1703,14 @@ void record_col_bounds_dynamic(PlanningLP& planning_lp,
 /// Install an SDDP cut (feasibility or optimality) on the LP backend
 /// at `(scene, phase)`.  Single unified entry point for every cut
 /// install site:
-///   1. For optimality cuts that reference α, release α's bootstrap
-///      pin via `bound_alpha_for_cut`.  Feasibility cuts, and
-///      optimality cuts with no α term, leave the pin intact.
-///   2. Add the row to the live LP backend and record it for
-///      low-memory replay via `LinearInterface::add_cut_row`.
+///   1. Add the row to the live LP backend and record it in
+///      `active_cuts()` / the low-memory replay via
+///      `LinearInterface::add_cut_row`.
+///   2. For optimality cuts that reference α, release α's bootstrap
+///      pin via `bound_alpha_for_cut`, whose floor is derived from
+///      `active_cuts()` — so it must run after step 1 (otherwise a
+///      cell's first cut floors α at the `0` fallback).  Feasibility
+///      cuts, and optimality cuts with no α term, leave the pin intact.
 /// Callers that also persist the cut into `SDDPCutManager` should call
 /// `SDDPMethod::store_cut(...)` afterwards using the returned
 /// `RowIndex` — `store_cut` no longer re-records the cut for replay
