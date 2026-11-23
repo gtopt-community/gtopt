@@ -126,8 +126,8 @@ namespace
 
   const auto allocation = raw_line.loss_allocation_mode_enum();
   // Resolve the per-MWh loss-column ε cost: per-line override (when set)
-  // beats the global ``model_options.loss_cost_eps`` default.  ``0.0``
-  // preserves legacy behaviour — no extra cost on loss columns.
+  // beats the global ``model_options.loss_cost_eps`` default (0.1 $/MWh
+  // when unset).  An explicit ``0.0`` disables the loss-column cost.
   const double loss_cost_eps =
       raw_line.loss_cost_eps.value_or(sc.options().loss_cost_eps());
 

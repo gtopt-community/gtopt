@@ -34,6 +34,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/error.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/planning_enums.hpp>
 
 namespace gtopt
@@ -99,6 +100,12 @@ struct LpScalesContext
   OptUid aperture {};
   OptInt extra {};
 };
+
+/// Maps the in-memory `LpContext` variant to its sidecar form (`type`
+/// tag + the uids of that alternative); `std::monostate` maps to
+/// `std::nullopt` (context-free column).
+[[nodiscard]] auto to_scales_context(const LpContext& context)
+    -> std::optional<LpScalesContext>;
 
 /// A column whose scale factor is not 1: `x_physical = scale * x_LP`.
 struct LpScaledColumn

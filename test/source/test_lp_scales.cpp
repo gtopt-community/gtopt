@@ -51,7 +51,11 @@ auto make_tmp_dir(const std::string& name) -> std::filesystem::path
 auto named_options()
 {
   return make_lp_matrix_options(
-      true, std::nullopt, false, std::nullopt, std::nullopt);
+      /*enable_names=*/true,
+      std::nullopt,
+      /*compute_stats=*/false,
+      std::nullopt,
+      std::nullopt);
 }
 
 /// Reads one Parquet table of the sidecar back.

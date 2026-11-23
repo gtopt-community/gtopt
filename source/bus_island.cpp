@@ -8,6 +8,7 @@
  */
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <map>
 #include <numeric>
@@ -65,6 +66,49 @@ auto DisjointSetUnion::unite(std::size_t x, std::size_t y) -> bool
 }
 
 // ── Island detection ──────────────────────────────────────────────────
+
+namespace
+{
+
+/// True when `line` imposes a KVL relation between its bus angles in at
+/// least one stage (regular AC line or zero-impedance tie), judged from
+/// the statically known reactance / voltage schedules.  File-backed
+/// schedules cannot be inspected here and are conservatively treated as
+/// coupling (the pre-tie behaviour for any line with a reactance).
+[[nodiscard]] bool line_couples_angles(const Line& line,
+                                       const PlanningOptionsLP& options)
+{
+  if (!line.reactance.has_value()) {
+    return false;
+  }
+  double v = 1.0;
+  if (line.voltage.has_value()) {
+    if (const auto* vs = std::get_if<double>(&*line.voltage)) {
+      v = *vs;
+    } else if (const auto* vv =
+                   std::get_if<std::vector<double>>(&*line.voltage))
+    {
+      double v_max = 0.0;
+      for (const double x : *vv) {
+        v_max = std::max(v_max, std::abs(x));
+      }
+      v = v_max > 0.0 ? v_max : 1.0;
+    }
+  }
+  const auto couples = [&](double x)
+  { return options.classify_line_reactance(x, v) != LineKvlKind::dc; };
+
+  const auto& sched = *line.reactance;
+  if (const auto* xs = std::get_if<double>(&sched)) {
+    return couples(*xs);
+  }
+  if (const auto* xv = std::get_if<std::vector<double>>(&sched)) {
+    return std::ranges::any_of(*xv, couples);
+  }
+  return true;  // FileSched
+}
+
+}  // namespace
 
 auto detect_islands_and_fix_references(Array<Bus>& buses,
                                        const Array<Line>& lines,
@@ -129,8 +173,12 @@ auto detect_islands_and_fix_references(Array<Bus>& buses,
     if (line.bus_a == line.bus_b) {
       continue;
     }
-    // Skip lines without reactance (no Kirchhoff contribution)
-    if (!line.reactance.has_value()) {
+    // Skip DC links (no Kirchhoff coupling between the bus angles):
+    // reactance unset, or 0 / sub-threshold under
+    // `tiny_reactance_mode = dc`.  AC lines AND zero-impedance ties
+    // (sub-threshold under `tiny_reactance_mode = tie`) couple θ_a and
+    // θ_b, so they join the two buses into one island.
+    if (!line_couples_angles(line, options)) {
       continue;
     }
     const auto idx_a = resolve(line.bus_a);

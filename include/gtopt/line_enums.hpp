@@ -9,7 +9,9 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
+#include <optional>
 
 #include <gtopt/enum_option.hpp>
 
@@ -300,8 +302,8 @@ inline constexpr auto line_losses_mode_entries =
  *   free variable above its lower bound, so in blocks where the
  *   receiver bus has a NEGATIVE LMP the LP can pick `loss` arbitrarily
  *   high (up to whatever upstream generation can supply) to gain on
- *   the dual.  Empirically on a large national test case this inflates `loss_sol`
- *   reporting by ~6× system-wide on lines whose receivers see
+ *   the dual.  Empirically on a large national test case this inflates
+ *   `loss_sol` reporting by ~6× system-wide on lines whose receivers see
  *   periodic negative-LMP excursions (must-dispatch wind, fixed-load
  *   exports), but the LP-objective impact is bounded by the gen
  *   merit-order at the sender so the SOLVE stays well-conditioned.
@@ -380,6 +382,84 @@ inline constexpr auto kirchhoff_mode_entries =
 [[nodiscard]] constexpr auto enum_entries(KirchhoffMode /*tag*/) noexcept
 {
   return std::span {kirchhoff_mode_entries};
+}
+
+// ─── TinyReactanceMode ───────────────────────────────────────────────
+
+/**
+ * @brief What to do with a line whose reactance is set but is `0` or
+ *        has a per-unit `|X/V²|` below
+ *        `model_options.dc_line_reactance_threshold` (default 1e-6).
+ *
+ * Such lines are bus-bar segments, couplers, series-compensation
+ * auxiliary nodes or near-zero-impedance branches.  Physically they
+ * force `θ_a ≈ θ_b`, but their `x_τ` coefficient is zero or
+ * numerically negligible.
+ *
+ * - `tie` (0, default): **zero-impedance tie**.  The KVL relation is
+ *   kept without the flow term — `node_angle` emits
+ *   `−θ_a + θ_b = −φ` (the off-nominal tap `τ` multiplies `x` and is
+ *   therefore irrelevant; the phase shift `φ` is kept) and
+ *   `cycle_basis` keeps the line as a cycle edge with `x = 0`.  The
+ *   flow stays a free variable bounded by `tmax` and still enters both
+ *   bus balances.  The line connects its buses for island detection
+ *   and reference-angle pinning, like any AC line.
+ * - `dc` (1): legacy behaviour — sub-threshold reactances are clamped
+ *   to `0` and `X = 0` lines are DC links (no KVL row at all), so the
+ *   LP can use them as free phase shifters.
+ *
+ * Only lines with NO `reactance` (unset; HVDC and PLP DC lines are
+ * emitted that way) are DC links in `tie` mode.
+ */
+enum class TinyReactanceMode : uint8_t
+{
+  tie = 0,  ///< zero-impedance tie: θ_a − θ_b = φ, no flow term (default)
+  dc = 1,  ///< legacy: X = 0 / tiny X is a free-flow DC link
+};
+
+inline constexpr auto tiny_reactance_mode_entries =
+    std::to_array<EnumEntry<TinyReactanceMode>>({
+        {.name = "tie", .value = TinyReactanceMode::tie},
+        {.name = "dc", .value = TinyReactanceMode::dc},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(TinyReactanceMode /*tag*/) noexcept
+{
+  return std::span {tiny_reactance_mode_entries};
+}
+
+/// How the Kirchhoff assemblers treat one line at one stage.
+enum class LineKvlKind : uint8_t
+{
+  dc,  ///< no KVL coupling (reactance unset, or zero / tiny in `dc` mode)
+  tie,  ///< zero-impedance tie: KVL row without the flow term
+  ac,  ///< regular AC line: full KVL row with `x_τ = τ·X/V²`
+};
+
+/**
+ * @brief Classify a line's stage reactance for KVL assembly.
+ *
+ * @param reactance  stage reactance `X` (nullopt = unset)
+ * @param voltage    stage voltage `V` (1.0 in per-unit mode)
+ * @param threshold  `dc_line_reactance_threshold` (`≤ 0` disables)
+ * @param mode       `tiny_reactance_mode`
+ */
+[[nodiscard]] constexpr LineKvlKind classify_line_reactance(
+    std::optional<double> reactance,
+    double voltage,
+    double threshold,
+    TinyReactanceMode mode) noexcept
+{
+  if (!reactance.has_value()) {
+    return LineKvlKind::dc;
+  }
+  if (*reactance == 0.0
+      || (threshold > 0.0 && voltage != 0.0
+          && std::abs(*reactance / (voltage * voltage)) < threshold))
+  {
+    return mode == TinyReactanceMode::tie ? LineKvlKind::tie : LineKvlKind::dc;
+  }
+  return LineKvlKind::ac;
 }
 
 }  // namespace gtopt

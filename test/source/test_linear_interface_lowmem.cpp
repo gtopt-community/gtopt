@@ -2949,7 +2949,7 @@ TEST_CASE("LinearInterface — fully-dropped label_meta falls back, no throw")
 // number of replayed cuts.  Any later `materialize_labels` /
 // `push_names_to_solver` / `write_lp` then threw
 // `std::logic_error("row N has no entry in m_labels_.row_labels_meta")` — the
-// failure mode observed on `the large hydrothermal case` SDDP runs.  This
+// failure mode observed on the large hydrothermal case SDDP runs.  This
 // test exercises a single labeled cut across a compress→reconstruct
 // cycle and asserts that label synthesis no longer throws.
 TEST_CASE(  // NOLINT
@@ -3414,7 +3414,7 @@ TEST_CASE(  // NOLINT
 // ── drop_cached_primal_only — between-iteration memory release ──────────────
 
 TEST_CASE(  // NOLINT
-    "LinearInterface — drop_cached_primal_only retains row_dual; "
+    "LinearInterface — drop_cached_primal_only retains row_dual, "
     "col_sol / col_cost reads trigger reconstruct")
 {
   // Pins the contract introduced for the SDDP between-iter memory drop:
@@ -4058,7 +4058,6 @@ TEST_CASE(  // NOLINT
     "LinearInterface — set_col_upp_raw throws on out-of-range ColIndex")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(readability-qualified-auto)
   // NOLINTBEGIN(readability-trailing-comma)
 
   LinearInterface li;
@@ -4138,7 +4137,7 @@ TEST_CASE(  // NOLINT
 // them.  If a future change adds an `m_pending_row_bounds_` map, the
 // second subcase will flip and signal the policy change.
 TEST_CASE(  // NOLINT
-    "LinearInterface — set_rhs_raw IS replayed; set_row_low/upp_raw is not")
+    "LinearInterface — set_rhs_raw IS replayed, set_row_low/upp_raw is not")
 {
   // Construction-time row bounds: lowb = 5.0, uppb = DblMax (from fixture).
   auto [li, flat, x1, x2] = make_simple_li_lp();
@@ -4896,7 +4895,6 @@ TEST_CASE(
 }
 
 // NOLINTEND(readability-trailing-comma)
-// NOLINTEND(readability-qualified-auto)
 
 // ─── Post-flatten label metadata is not padded to the structural size ────
 //
@@ -4914,6 +4912,7 @@ TEST_CASE(  // NOLINT
 {
   LinearProblem lp;
   std::vector<ColIndex> cols;
+  cols.reserve(50);
   for (int j = 0; j < 50; ++j) {
     cols.push_back(lp.add_col(SparseCol {
         .uppb = 10.0,

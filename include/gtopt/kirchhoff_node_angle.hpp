@@ -101,9 +101,12 @@ struct LineKvlInputs
 /// Emit one KVL equality row per block for a single line.  Returns
 /// the per-block `RowIndex` map so the caller can store it (typically
 /// in `LineLP::theta_rows[(scenario, stage)]`) for later dual output.
-/// Returns an empty map when the line has no reactance, when the
-/// effective `x_τ = τ · X / V²` is zero, or when either bus has no
-/// theta column for this `(scenario, stage)`.
+/// Returns an empty map when the line is a DC link (reactance unset, or
+/// `X = 0` / sub-threshold `X` under `tiny_reactance_mode = dc`), or
+/// when either bus has no theta column for this `(scenario, stage)`.
+/// A zero-impedance tie (`X = 0` / sub-threshold `X` under
+/// `tiny_reactance_mode = tie`) gets the row without the flow term:
+/// `−θ_a + θ_b = −φ`.
 [[nodiscard]] BIndexHolder<RowIndex> add_line_kvl_rows(
     const SystemContext& sc,
     const ScenarioLP& scenario,

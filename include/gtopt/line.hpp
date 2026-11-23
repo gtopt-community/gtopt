@@ -94,9 +94,14 @@ struct Line
                                   ///< Omit or set to 1.0 for per-unit mode.
   OptTRealFieldSched resistance {};  ///< Series resistance [Ω].
                                      ///< Use p.u. when voltage is omitted.
-  OptTRealFieldSched reactance {};  ///< Series reactance for DC power flow [Ω].
-                                    ///< Use p.u. when voltage is omitted
-                                    ///< (default). Susceptance: B = V² / X.
+  /// Series reactance for DC power flow [Ω] (p.u. when voltage is
+  /// omitted).  Susceptance: B = V² / X.  Omit it for a DC link (HVDC,
+  /// no Kirchhoff coupling).  `0` or a value with `|X/V²|` below
+  /// `model_options.dc_line_reactance_threshold` makes the line a
+  /// zero-impedance tie that forces the two bus angles equal (θ_a − θ_b
+  /// = φ), unless `model_options.tiny_reactance_mode = "dc"` (legacy:
+  /// such lines are DC links).
+  OptTRealFieldSched reactance {};
   OptTBRealFieldSched lossfactor {};  ///< Lumped loss factor [p.u.]
                                       ///< per-(stage, block).
   OptBool use_line_losses {};  ///< @deprecated Use `line_losses_mode` instead.
@@ -227,11 +232,14 @@ struct Line
   /// that single-direction optimum, eliminating LP-degeneracy phantom
   /// bidirectional flow without SOS1, MIP, or binaries.
   ///
-  /// Recommended value: ``1e-6`` $/MWh — essentially zero objective
-  /// impact (well below LP optimality tolerance, ~1e-9 relative) yet
-  /// strictly breaks the degeneracy.  Default ``0.0`` (unset)
-  /// preserves legacy behaviour.  Per-line override beats the global
-  /// ``model_options.loss_cost_eps`` default.  Inert for ``none``,
+  /// Default: 0.1 $/MWh of loss energy, stamped like any other energy
+  /// cost (weighted by block duration, scenario probability and
+  /// discount) — small next to energy prices yet large enough to break
+  /// the degeneracy robustly and to guard against mild negative-LMP
+  /// loss arbitrage.  Unset falls back to the global
+  /// ``model_options.loss_cost_eps`` (itself defaulting to 0.1 $/MWh);
+  /// an explicit ``0`` disables ε on this line.  Per-line override beats
+  /// the global default.  Inert for ``none``,
   /// ``linear`` and ``piecewise_direct`` — those have no loss column.
   ///
   /// SIZING for negative-price exposure: ε lands on the LOSS columns

@@ -919,3 +919,73 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);
 }
+
+TEST_CASE(  // NOLINT
+    "Island detection - per-stage reactance / voltage schedules (dc mode)")
+{
+  // Under `tiny_reactance_mode = "dc"` a line couples the bus angles only
+  // when |X/V²| reaches `dc_line_reactance_threshold` in at least one
+  // stage.  Schedules are judged statically: a vector reactance couples
+  // when any stage does, a vector voltage uses its largest |V| (all-zero
+  // → V = 1), and a file-backed reactance is conservatively coupling.
+  PlanningOptions popts {
+      .model_options =
+          {
+              .use_single_bus = false,
+              .use_kirchhoff = true,
+              .kirchhoff_threshold = 0.0,
+          },
+  };
+  popts.model_options.kirchhoff_mode = OptName {"node_angle"};
+  popts.model_options.tiny_reactance_mode = OptName {"dc"};
+  const PlanningOptionsLP opts {std::move(popts)};
+
+  const auto islands =
+      [&](OptTRealFieldSched reactance, OptTRealFieldSched voltage)
+  {
+    Array<Bus> buses = {
+        {
+            .uid = 0,
+            .name = "b0",
+        },
+        {
+            .uid = 1,
+            .name = "b1",
+        },
+    };
+    const Array<Line> lines = {
+        {
+            .uid = 0,
+            .name = "l01",
+            .bus_a = SingleId {0},
+            .bus_b = SingleId {1},
+            .voltage = std::move(voltage),
+            .reactance = std::move(reactance),
+        },
+    };
+    return detect_islands_and_fix_references(buses, lines, opts);
+  };
+
+  SUBCASE("vector reactance: every stage below the threshold → DC link")
+  {
+    CHECK(islands(std::vector<Real> {1e-9, 1e-9}, {}) == 2);
+  }
+  SUBCASE("vector reactance: one coupling stage joins the island")
+  {
+    CHECK(islands(std::vector<Real> {1e-9, 0.1}, {}) == 1);
+  }
+  SUBCASE("vector voltage uses max |V|")
+  {
+    // 0.01 / 220² ≈ 2e-7 < 1e-3 → DC in every stage.
+    CHECK(islands(0.01, std::vector<Real> {0.0, 220.0}) == 2);
+  }
+  SUBCASE("all-zero voltage vector falls back to V = 1")
+  {
+    // 0.01 / 1² ≥ 1e-3 → a regular AC line.
+    CHECK(islands(0.01, std::vector<Real> {0.0, 0.0}) == 1);
+  }
+  SUBCASE("file-backed reactance is treated as coupling")
+  {
+    CHECK(islands(FileSched {"reactance"}, {}) == 1);
+  }
+}

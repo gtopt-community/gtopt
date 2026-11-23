@@ -37,9 +37,12 @@ TEST_CASE("LpMatrixOptions JSON - Missing fields keep defaults")
   CHECK(opts.col_with_names == false);
   CHECK(opts.row_with_names == false);
   CHECK_FALSE(opts.compute_stats.has_value());
-  // Ruiz tuning knobs: omitted JSON keeps the struct defaults (5 / 1e-3).
-  CHECK(opts.ruiz_max_iterations == 5);
-  CHECK(opts.ruiz_tolerance == doctest::Approx(1e-3));
+  // Ruiz tuning knobs: omitted JSON leaves them unset; the consumer
+  // applies the defaults (5 / 1e-3).
+  CHECK_FALSE(opts.ruiz_max_iterations.has_value());
+  CHECK_FALSE(opts.ruiz_tolerance.has_value());
+  CHECK(LpMatrixOptions::default_ruiz_max_iterations == 5);
+  CHECK(LpMatrixOptions::default_ruiz_tolerance == doctest::Approx(1e-3));
 }
 
 TEST_CASE("LpMatrixOptions JSON - Ruiz tuning knobs deserialize")
@@ -53,8 +56,8 @@ TEST_CASE("LpMatrixOptions JSON - Ruiz tuning knobs deserialize")
 
   REQUIRE(opts.equilibration_method.has_value());
   CHECK(*opts.equilibration_method == LpEquilibrationMethod::ruiz);
-  CHECK(opts.ruiz_max_iterations == 3);
-  CHECK(opts.ruiz_tolerance == doctest::Approx(1e-2));
+  CHECK(opts.ruiz_max_iterations.value_or(-1) == 3);
+  CHECK(opts.ruiz_tolerance.value_or(-1.0) == doctest::Approx(1e-2));
 }
 
 TEST_CASE("LpMatrixOptions JSON - Round-trip serialization")
@@ -71,9 +74,9 @@ TEST_CASE("LpMatrixOptions JSON - Round-trip serialization")
 
   REQUIRE(rt.lp_coeff_ratio_threshold.has_value());
   CHECK(*rt.lp_coeff_ratio_threshold == doctest::Approx(5e6));
-  // Non-optional ruiz knobs are always serialized → survive the round-trip.
-  CHECK(rt.ruiz_max_iterations == 4);
-  CHECK(rt.ruiz_tolerance == doctest::Approx(5e-4));
+  // Set ruiz knobs are serialized → survive the round-trip.
+  CHECK(rt.ruiz_max_iterations.value_or(-1) == 4);
+  CHECK(rt.ruiz_tolerance.value_or(-1.0) == doctest::Approx(5e-4));
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)

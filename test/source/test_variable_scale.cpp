@@ -254,7 +254,8 @@ TEST_CASE("Integration: LP column scale drives output rescaling")  // NOLINT
 
   // Simulate bus theta: physical bounds in radians, scale = scale_theta.
   // flatten() converts to LP units by dividing by scale.
-  constexpr double scale_theta = 0.001;  // 1/1000
+  // Column scale = 1 / scale_theta option (θ_LP = 1000 · θ).
+  constexpr double scale_theta = 0.001;
   const auto theta = lp.add_col(SparseCol {
       .lowb = -std::numbers::pi,
       .uppb = +std::numbers::pi,

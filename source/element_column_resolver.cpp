@@ -439,7 +439,13 @@ namespace
         for (const auto& [col, weight] : weighted) {
           row[col] += coef * weight;
         }
-        return {.emitted = true, .offset_shift = 0.0, .element_known = true};
+        // Optional per-block constant (e.g. `demand.fail = lmax − Σ
+        // load_k`): folded onto the row RHS by the caller.
+        return {
+            .emitted = true,
+            .offset_shift = coef * var->offset_at(buid),
+            .element_known = true,
+        };
       }
       // (b) Unweighted sum-of-cols (virtual aggregator, e.g.
       // ``piecewise_direct`` segments) — every leg has weight 1.  These

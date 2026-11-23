@@ -28,7 +28,9 @@
  * Global options (`scale_theta`, `scale_alpha`) are auto-injected into the
  * `variable_scales` array by `PlanningOptionsLP`.  All scales follow the
  * same convention `physical = LP × scale`:
- *   - `Bus.theta`:  scale_theta = 1e-4  (theta ~0.01 rad → LP ~100)
+ *   - `Bus.theta`:  scale = 1 / scale_theta (the `scale_theta` option
+ *     enlarges: θ_LP = scale_theta · θ; scale_theta = 1e4 → scale = 1e-4,
+ *     theta ~0.01 rad → LP ~100)
  *   - `Sddp.alpha`: scale_alpha = 1e7   (alpha ~1e8 $ → LP ~10)
  *   - `Reservoir.energy`: energy_scale = 1000 (energy ~1e6 → LP ~1000)
  *

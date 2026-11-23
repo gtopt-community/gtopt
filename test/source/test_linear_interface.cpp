@@ -10,6 +10,8 @@
 #include <cmath>
 #include <expected>
 #include <filesystem>
+#include <format>
+#include <fstream>
 
 #include <doctest/doctest.h>
 #include <gtopt/error.hpp>
@@ -719,18 +721,60 @@ TEST_CASE("LinearInterface - EPOPT optimality tolerance folds scale_objective")
     CHECK(eps.value_or(-1.0) == doctest::Approx(1e-9));
   }
 
-  SUBCASE("explicit physical optimal_eps is divided by scale_objective")
+  SUBCASE("an explicit optimal_eps is used as given, not rescaled")
   {
-    // user 1e-4 physical / 100 = 1e-6 raw (inside [1e-9, 1e-1]).
+    // The scale-derived value applies only when the user set none.
     const auto eps = build_and_solve(100.0, 1e-4);
-    CHECK(eps.value_or(-1.0) == doctest::Approx(1e-6));
+    CHECK(eps.value_or(-1.0) == doctest::Approx(1e-4));
+    const auto eps2 = build_and_solve(1.0e6, 3.3e-7);
+    CHECK(eps2.value_or(-1.0) == doctest::Approx(3.3e-7));
   }
 
-  SUBCASE("scaled tolerance is clamped to the EPOPT floor 1e-9")
+  SUBCASE("a parameter file that sets the tolerance is not overridden")
   {
-    // user 1e-6 physical / 1e6 = 1e-12 → clamped up to 1e-9.
-    const auto eps = build_and_solve(1.0e6, 1e-6);
-    CHECK(eps.value_or(-1.0) == doctest::Approx(1e-9));
+    // The typed optimal_eps would override the file's value (CPLEX applies
+    // param_file first), so it must stay unset.
+    const auto prm =
+        std::filesystem::temp_directory_path() / "gtopt_test_epopt_prm.prm";
+    {
+      std::ofstream f {prm};
+      f << "CPLEX Parameter File Version 22.1.0\n"
+        << "CPXPARAM_Simplex_Tolerances_Optimality  3.3e-07\n";
+    }
+    LinearProblem lp("EpoptPrmLP");
+    const auto c = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 2.0});
+    const auto r = lp.add_row({.lowb = 5.0, .uppb = 15.0});
+    lp.set_coeff(r, c, 1.0);
+    LpMatrixOptions flat_opts;
+    flat_opts.scale_objective = 1000.0;
+    auto flat_lp = lp.flatten(flat_opts);
+    LinearInterface interface;
+    interface.load_flat(flat_lp);
+    SolverOptions opts;
+    opts.param_file = prm.string();
+    REQUIRE(interface.initial_solve(opts).has_value());
+    CHECK_FALSE(interface.last_solver_options().optimal_eps.has_value());
+
+    SUBCASE("a file without the tolerance keeps the scale-derived value")
+    {
+      {
+        std::ofstream f {prm};
+        f << "CPXPARAM_Simplex_Limits_Iterations  1000\n";
+      }
+      // New path: the per-path cache must not mask the other file.
+      const auto prm2 = prm.string() + ".noeps.prm";
+      std::filesystem::copy_file(
+          prm, prm2, std::filesystem::copy_options::overwrite_existing);
+      LinearInterface li2;
+      li2.load_flat(flat_lp);
+      SolverOptions o2;
+      o2.param_file = prm2;
+      REQUIRE(li2.initial_solve(o2).has_value());
+      CHECK(li2.last_solver_options().optimal_eps.value_or(-1.0)
+            == doctest::Approx(1e-6 / 1000.0));
+      std::filesystem::remove(prm2);
+    }
+    std::filesystem::remove(prm);
   }
 }
 
@@ -2606,7 +2650,7 @@ TEST_CASE("LinearProblem::add_obj_constant — physical-units accumulator")
 }
 
 TEST_CASE(
-    "LinearInterface::get_obj_value — raw includes obj_constant; phys = raw × "
+    "LinearInterface::get_obj_value — raw includes obj_constant, phys = raw × "
     "scale")
 {
   using namespace gtopt;

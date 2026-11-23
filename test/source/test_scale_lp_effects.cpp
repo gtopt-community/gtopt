@@ -7,8 +7,10 @@
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *
- * All scales follow the unified convention: physical = LP × scale.
- *   - scale_theta  = 1e-4  (1/ScaleAng) — theta is small, scaled UP in LP
+ * VariableScale entries follow the convention physical = LP × scale.
+ * The `scale_theta` option enlarges: θ_LP = scale_theta · θ, so its
+ * Bus.theta VariableScale entry is 1/scale_theta.
+ *   - scale_theta  = 1e4   (ScaleAng)   — theta is small, scaled UP in LP
  *   - scale_alpha  = 1e7   (ScalePhi)   — alpha is large, scaled DOWN in LP
  *   - energy_scale = 1000  (ScaleVol)   — energy is large, scaled DOWN in LP
  *   - scale_objective = 1e7 (ScaleObj)  — cost divisor
@@ -233,7 +235,7 @@ TEST_CASE("scale_objective — LP objective scales inversely")  // NOLINT
   // Physical cost = 250 MW × 20 $/MWh = 5000 $
   // LP obj = 5000 / scale_objective
   constexpr double physical_cost = 250.0 * 20.0;
-  constexpr double scale_theta = 0.0001;  // 1/ScaleAng
+  constexpr double scale_theta = 10'000.0;  // ScaleAng
 
   auto [obj_1k, kappa_1k] = solve_ieee4b(1'000, scale_theta);
   auto [obj_10k, kappa_10k] = solve_ieee4b(10'000, scale_theta);
@@ -255,13 +257,14 @@ TEST_CASE("scale_objective — LP objective scales inversely")  // NOLINT
 TEST_CASE(  // NOLINT
     "scale_theta — Kirchhoff coefficients scale with theta")
 {
-  // Convention: physical = LP × scale_theta, LP = physical / scale_theta.
-  // Theta bounds: ±2π / scale_theta.
-  // Smaller scale_theta → larger LP bounds → scaled-up theta.
+  // Convention: θ_LP = scale_theta · θ (physical).
+  // Theta bounds: ±theta_max · scale_theta, where theta_max is the auto
+  // Σ_l tmax_l · x_τ_l (computed even with scale_theta set).
+  // Larger scale_theta → larger LP bounds → scaled-up theta.
 
   constexpr double scale_obj = 10'000.0;
 
-  for (const auto st : {0.01, 0.001, 0.0001}) {
+  for (const auto st : {100.0, 1'000.0, 10'000.0}) {
     auto json = make_ieee4b_json(scale_obj, st);
     Planning base;
     base.merge(parse_planning_json(json));
@@ -278,10 +281,11 @@ TEST_CASE(  // NOLINT
     CHECK(li.get_obj_value_raw()
           == doctest::Approx(expected_obj).epsilon(1e-4));
 
-    // Theta column physical bounds should be ±2π (invariant of scale).
-    // Raw LP bounds should be ±2π / scale_theta.
+    // Theta column physical bounds should be ±theta_max (invariant of
+    // scale).  Raw LP bounds should be ±theta_max · scale_theta.
     const auto& col_map = li.col_name_map();
-    constexpr double two_pi = 2.0 * std::numbers::pi;
+    const double two_pi = planning_lp.options().theta_max();
+    CHECK(two_pi >= 2.0 * std::numbers::pi);
 
     for (const auto& [name, idx] : col_map) {
       if (name.contains("theta")) {
@@ -297,13 +301,13 @@ TEST_CASE(  // NOLINT
           continue;
         }
 
-        // Physical bounds are invariant: ±2π
+        // Physical bounds are invariant: ±theta_max
         CHECK(low == doctest::Approx(-two_pi).epsilon(1e-3));
         CHECK(upp == doctest::Approx(+two_pi).epsilon(1e-3));
 
-        // Raw LP bounds scale with theta: ±2π / scale_theta
-        CHECK(col_low_raw[idx] == doctest::Approx(-two_pi / st).epsilon(1e-3));
-        CHECK(col_upp_raw[idx] == doctest::Approx(+two_pi / st).epsilon(1e-3));
+        // Raw LP bounds scale with theta: ±theta_max · scale_theta
+        CHECK(col_low_raw[idx] == doctest::Approx(-two_pi * st).epsilon(1e-3));
+        CHECK(col_upp_raw[idx] == doctest::Approx(+two_pi * st).epsilon(1e-3));
         break;
       }
     }
@@ -320,9 +324,9 @@ TEST_CASE(  // NOLINT
   constexpr double scale_obj = 10'000.0;
 
   // scale_theta=1.0 → theta bounds ≈ ±6.28 (no scaling)
-  // scale_theta=0.0001 → theta bounds ≈ ±62800 (scaled up 10000×)
+  // scale_theta=10000 → theta bounds scaled up 10000× in the LP
   auto [obj_noscale, kappa_noscale] = solve_ieee4b(scale_obj, 1.0);
-  auto [obj_scaled, kappa_scaled] = solve_ieee4b(scale_obj, 0.0001);
+  auto [obj_scaled, kappa_scaled] = solve_ieee4b(scale_obj, 10'000.0);
 
   // Both should produce the same physical objective
   CHECK(obj_noscale == doctest::Approx(obj_scaled).epsilon(1e-3));
@@ -352,7 +356,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "scale_objective — appropriate scaling reduces kappa")
 {
-  constexpr double scale_theta = 0.0001;
+  constexpr double scale_theta = 10'000.0;
 
   auto [obj_1, kappa_1] = solve_ieee4b(1.0, scale_theta);
   auto [obj_10k, kappa_10k] = solve_ieee4b(10'000.0, scale_theta);
@@ -470,7 +474,8 @@ TEST_CASE(  // NOLINT
   SUBCASE("explicit scale_theta populates Bus.theta directly")
   {
     PlanningOptions opts;
-    opts.model_options.scale_theta = 0.0002;  // = 1/5000
+    // θ_LP = 5000 · θ ⇒ VariableScale (physical = LP × scale) = 1/5000.
+    opts.model_options.scale_theta = 5'000.0;
     const PlanningOptionsLP lp_opts {opts};
 
     const auto vs = lp_opts.variable_scale_map().lookup("Bus", "theta");
@@ -480,7 +485,7 @@ TEST_CASE(  // NOLINT
   SUBCASE("user-provided Bus.theta entry is NOT overwritten")
   {
     PlanningOptions opts;
-    opts.model_options.scale_theta = 0.0002;
+    opts.model_options.scale_theta = 5'000.0;
     opts.variable_scales = {
         VariableScale {
             .class_name = "Bus",

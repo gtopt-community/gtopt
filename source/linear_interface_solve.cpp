@@ -15,9 +15,19 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <exception>
 #include <expected>
 #include <format>
+#include <fstream>
+#include <mutex>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <gtopt/error.hpp>
@@ -46,40 +56,156 @@ namespace
   return ticks;
 }
 
-/// Fold @p scale_objective into the solver's reduced-cost optimality
-/// tolerance (CPLEX ``EPOPT`` / HiGHS dual-feasibility tolerance).
+/// Optimality-tolerance value a solver parameter file sets, if any.
 ///
-/// The optimality tolerance is applied by the backend in **raw**
-/// LP-objective space, but ``flatten()`` divides the objective by
-/// ``scale_objective`` (linear_problem.cpp), so a raw reduced cost is
-/// ``rc_raw = rc_phys / scale_objective``.  A *fixed* raw tolerance ``T``
-/// therefore declares optimality at a **physical** reduced-cost floor of
-/// ``T × scale_objective`` — i.e. the solver gets coarser (and the
-/// returned basis / reduced costs scale-dependent) as ``scale_objective``
-/// grows.  This is the one place where ``scale_objective`` leaks into an
-/// algorithmic decision rather than a pure objective rescaling.
-///
-/// Keep the *physical* floor invariant by setting the raw tolerance to
-/// ``phys_eps / scale_objective``, where ``phys_eps`` is the requested
-/// physical tolerance (default ``1e-6`` — the value that is correct at
-/// ``scale_objective == 1`` and matches the CPLEX default).  Clamped to
-/// the documented ``EPOPT`` range ``[1e-9, 1e-1]``.
-///
-/// No-op when ``scale_objective == 1`` (raw == physical) so backend
-/// defaults are preserved for the common case (and the new
-/// ``scale_objective = 1`` plp2gtopt default).
-void scale_optimality_tol_for_objective(SolverOptions& opts,
-                                        double scale_objective) noexcept
+/// Recognises the CPLEX names (`CPXPARAM_Simplex_Tolerances_Optimality`,
+/// `CPX_PARAM_EPOPT`, `EpOpt`) and the generic `optimality_tolerance` /
+/// `dual_feasibility_tolerance`.  Cached per path (the solve path calls
+/// this for every LP solve).  An unreadable file counts as "not set".
+[[nodiscard]] std::optional<double> param_file_optimality_tol(
+    const std::string& path)
 {
+  static std::mutex mutex;
+  static std::unordered_map<std::string, std::optional<double>> cache;
+  const std::scoped_lock lock {mutex};
+  if (const auto it = cache.find(path); it != cache.end()) {
+    return it->second;
+  }
+  std::optional<double> found;
+  std::ifstream in {path};
+  std::string line;
+  while (in && std::getline(in, line)) {
+    std::istringstream ls {line};
+    std::string key;
+    std::string value;
+    if (!(ls >> key >> value)) {
+      continue;
+    }
+    std::string lower;
+    lower.reserve(key.size());
+    for (const char c : key) {
+      lower.push_back(
+          static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (lower == "cpxparam_simplex_tolerances_optimality"
+        || lower == "cpx_param_epopt" || lower == "epopt"
+        || lower == "optimality_tolerance"
+        || lower == "dual_feasibility_tolerance")
+    {
+      try {
+        found = std::stod(value);
+      } catch (const std::exception&) {
+        continue;
+      }
+    }
+  }
+  cache.emplace(path, found);
+  return found;
+}
+
+/// Resolve the reduced-cost optimality tolerance (CPLEX ``EPOPT`` / HiGHS
+/// dual-feasibility tolerance) the backend gets, in this order:
+///
+/// 1. ``solver_options.optimal_eps`` set by the user (JSON, ``--set``,
+///    ``.gtopt.conf [solver.<name>]``): used as given;
+/// 2. the solver parameter file (``param_file``, e.g. the case's
+///    ``solvers/cplex.prm``) sets it: ``optimal_eps`` is left unset so the
+///    file's value stays in force (a typed ``optimal_eps`` would override
+///    it, see ``apply_options_to_env``);
+/// 3. otherwise, when ``scale_objective != 1``, the scale-derived value
+///    ``1e-6 / scale_objective`` clamped to ``[1e-9, 1e-1]``.
+///
+/// Why 3: the backend applies the tolerance in **raw** LP-objective space,
+/// but ``flatten()`` divides the objective by ``scale_objective``
+/// (linear_problem.cpp), so a raw reduced cost is
+/// ``rc_raw = rc_phys / scale_objective`` and a fixed raw tolerance gets
+/// coarser in physical terms as ``scale_objective`` grows.  ``1e-6`` is the
+/// CPLEX default, i.e. the value that is correct at ``scale_objective == 1``.
+/// A user / parameter-file value is never silently replaced by it.
+///
+/// Logs one info line per distinct outcome (value and why) per process.
+void scale_optimality_tol_for_objective(SolverOptions& opts,
+                                        const SolverOptions& user,
+                                        double scale_objective)
+{
+  // One info line per distinct decision (value + reason) per process: the
+  // solve path runs this for every LP solve.
+  const auto log_once = [](std::string msg)
+  {
+    static std::mutex mutex;
+    static std::unordered_set<std::string> seen;
+    const std::scoped_lock lock {mutex};
+    if (seen.insert(msg).second) {
+      spdlog::info("{}", msg);
+    }
+  };
+
+  if (user.optimal_eps.has_value()) {
+    opts.optimal_eps = user.optimal_eps;
+    log_once(std::format("optimality tolerance {:g}: from solver_options",
+                         *user.optimal_eps));
+    return;
+  }
+  if (opts.param_file.has_value() && !opts.param_file->empty()) {
+    if (const auto prm = param_file_optimality_tol(*opts.param_file)) {
+      opts.optimal_eps.reset();
+      log_once(std::format("optimality tolerance {:g}: from parameter file {}",
+                           *prm,
+                           *opts.param_file));
+      return;
+    }
+  }
   if (scale_objective == 1.0) {
+    log_once("optimality tolerance: solver default (scale_objective = 1)");
     return;
   }
   constexpr double base_phys_eps = 1e-6;  // physical floor at scale_obj == 1
   constexpr double epopt_min = 1e-9;  // CPLEX EPOPT lower clamp
   constexpr double epopt_max = 1e-1;  // CPLEX EPOPT upper clamp
-  const double phys_eps = opts.optimal_eps.value_or(base_phys_eps);
   opts.optimal_eps =
-      std::clamp(phys_eps / scale_objective, epopt_min, epopt_max);
+      std::clamp(base_phys_eps / scale_objective, epopt_min, epopt_max);
+  log_once(std::format(
+      "optimality tolerance {:g}: derived from scale_objective {:g} "
+      "(1e-6 / scale_objective; no solver_options.optimal_eps or parameter "
+      "file value)",
+      *opts.optimal_eps,
+      scale_objective));
+}
+
+/// Clamp the next fallback attempt to what is left of the solve's
+/// wall-clock `time_limit` budget (started at @p solve_t0).
+///
+/// `time_limit` is a budget for the WHOLE solve of the LP / MIP, not per
+/// attempt: without this, a MIP that hit its limit on the first attempt
+/// was re-run up to `max_fallbacks` more times with the full limit each
+/// (3 × 3600 s for a time_limit=3600 PCP case).  Returns false — skip the
+/// attempt, keeping the last status / incumbent — once less than
+/// `min_retry_time_slice_s` is left.  No-op (true) when no limit is set.
+[[nodiscard]] bool clamp_retry_to_budget(
+    SolverOptions& retry_opts,
+    const std::optional<double>& time_limit,
+    std::chrono::steady_clock::time_point solve_t0,
+    std::string_view tag)
+{
+  const double elapsed =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - solve_t0)
+          .count();
+  const auto remaining = remaining_time_limit(time_limit, elapsed);
+  if (!remaining.has_value()) {
+    return true;
+  }
+  if (*remaining < min_retry_time_slice_s) {
+    spdlog::info(
+        "{}: time_limit budget of {:.1f}s exhausted after {:.1f}s — "
+        "skipping the remaining algorithm fallbacks (keeping the last "
+        "solver status / incumbent)",
+        tag,
+        time_limit.value_or(0.0),
+        elapsed);
+    return false;
+  }
+  retry_opts.time_limit = remaining;
+  return true;
 }
 }  // namespace
 
@@ -109,9 +235,10 @@ std::expected<int, Error> LinearInterface::initial_solve(
     // Start from backend-optimal defaults, overlay user settings on top.
     auto effective = m_backend_->optimal_options();
     effective.overlay(solver_options);
-    // Keep the physical reduced-cost optimality floor invariant to
-    // scale_objective (the EPOPT scale-leak — see helper docstring).
-    scale_optimality_tol_for_objective(effective, m_scale_objective_);
+    // Resolve the optimality tolerance: user / parameter-file value, else
+    // the scale_objective-derived one (EPOPT scale-leak, see helper).
+    scale_optimality_tol_for_objective(
+        effective, solver_options, m_scale_objective_);
     m_last_solver_options_ = effective;
 
     m_backend_->apply_options(effective);
@@ -145,6 +272,9 @@ std::expected<int, Error> LinearInterface::initial_solve(
           accumulate_solve_effort(*m_backend_, wall);
     };
 
+    // Wall-clock origin of the time_limit budget shared by the first
+    // attempt and every fallback below.
+    const auto solve_t0 = Clock::now();
     timed_solve();
 
     if (!is_optimal() && effective.max_fallbacks > 0) {
@@ -155,6 +285,14 @@ std::expected<int, Error> LinearInterface::initial_solve(
       for (int attempt = 0; attempt < effective.max_fallbacks && !is_optimal();
            ++attempt)
       {
+        if (!clamp_retry_to_budget(
+                fallback_opts,
+                effective.time_limit,
+                solve_t0,
+                m_log_tag_.empty() ? get_prob_name() : m_log_tag_))
+        {
+          break;
+        }
         const auto next_algo = next_fallback_algo(current_algo);
         spdlog::warn("{}: initial_solve non-optimal with {}, fallback to {}",
                      m_log_tag_.empty() ? get_prob_name() : m_log_tag_,
@@ -237,9 +375,10 @@ std::expected<int, Error> LinearInterface::resolve(
     // Start from backend-optimal defaults, overlay user settings on top.
     auto effective = m_backend_->optimal_options();
     effective.overlay(solver_options);
-    // Keep the physical reduced-cost optimality floor invariant to
-    // scale_objective (the EPOPT scale-leak — see helper docstring).
-    scale_optimality_tol_for_objective(effective, m_scale_objective_);
+    // Resolve the optimality tolerance: user / parameter-file value, else
+    // the scale_objective-derived one (EPOPT scale-leak, see helper).
+    scale_optimality_tol_for_objective(
+        effective, solver_options, m_scale_objective_);
     m_last_solver_options_ = effective;
 
     m_backend_->apply_options(effective);
@@ -275,6 +414,9 @@ std::expected<int, Error> LinearInterface::resolve(
           accumulate_solve_effort(*m_backend_, wall);
     };
 
+    // Wall-clock origin of the time_limit budget shared by the first
+    // attempt and every fallback below.
+    const auto solve_t0 = Clock::now();
     timed_solve();
 
     if (!is_optimal() && effective.max_fallbacks > 0) {
@@ -285,6 +427,14 @@ std::expected<int, Error> LinearInterface::resolve(
       for (int attempt = 0; attempt < effective.max_fallbacks && !is_optimal();
            ++attempt)
       {
+        if (!clamp_retry_to_budget(
+                fallback_opts,
+                effective.time_limit,
+                solve_t0,
+                m_log_tag_.empty() ? get_prob_name() : m_log_tag_))
+        {
+          break;
+        }
         const auto next_algo = next_fallback_algo(current_algo);
         // Demoted to DEBUG: these fallback-cycle lines were printing 2–3
         // consecutive warn lines per infeasible LP (barrier→dual→primal).
@@ -370,7 +520,7 @@ LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
   // warm dual simplex for the throwaway fixed-LP pass.
   auto effective = m_backend_->optimal_options();
   effective.overlay(opts);
-  scale_optimality_tol_for_objective(effective, m_scale_objective_);
+  scale_optimality_tol_for_objective(effective, opts, m_scale_objective_);
   m_last_solver_options_ = effective;
 
   // Snapshot the MIP incumbent primal BEFORE the backend mutates

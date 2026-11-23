@@ -499,6 +499,10 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   } else if (eq_method == LpEquilibrationMethod::ruiz) {
     const auto sqrt_method =
         opts.fast_sqrt_method.value_or(FastSqrtMethod::ieee_halve);
+    const int ruiz_max_iterations = opts.ruiz_max_iterations.value_or(
+        LpMatrixOptions::default_ruiz_max_iterations);
+    const double ruiz_tolerance =
+        opts.ruiz_tolerance.value_or(LpMatrixOptions::default_ruiz_tolerance);
     // Pass ``colpin`` (= integer ∪ pin_scale) instead of ``colint``
     // alone so Ruiz pins both integers AND semantically-binary
     // continuous cols (task #50).
@@ -514,8 +518,8 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
                                         colpin,
                                         m_infinity_,
                                         sqrt_method,
-                                        opts.ruiz_max_iterations,
-                                        opts.ruiz_tolerance);
+                                        ruiz_max_iterations,
+                                        ruiz_tolerance);
   }
 
   // Compose SparseRow scales with equilibration scales.

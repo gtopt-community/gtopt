@@ -802,7 +802,7 @@ namespace
 // Long output reader: return the `value` rows whose `uid` column equals
 // `uid`.  Zeros are dropped at write time, so an all-zero element yields an
 // empty vector (the long-form counterpart of "no `uid:N` column").  Handles
-// the uint16 uid column and the float32 / float64 value column.
+// the int32 (legacy uint16) uid column and the float32 / float64 value column.
 [[nodiscard]] std::vector<double> long_uid_values(const ArrowTable& table,
                                                   int uid)
 {

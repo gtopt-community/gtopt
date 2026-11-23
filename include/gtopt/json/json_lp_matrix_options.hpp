@@ -29,9 +29,11 @@ struct LpMatrixOptionsConstructor
                                            OptInt ruiz_max_iterations,
                                            OptReal ruiz_tolerance,
                                            OptBool compute_stats,
-                                           LpValidationOptions validation) const
+                                           LpValidationOptions validation,
+                                           OptName solver_name) const
   {
     LpMatrixOptions opts;
+    opts.solver_name = solver_name.value_or(std::string {});
     opts.lp_coeff_ratio_threshold = lp_coeff_ratio_threshold;
     if (equilibration_method_name) {
       opts.equilibration_method =
@@ -42,14 +44,10 @@ struct LpMatrixOptionsConstructor
       opts.fast_sqrt_method = gtopt::require_enum<gtopt::FastSqrtMethod>(
           "fast_sqrt_method", *fast_sqrt_method_name);
     }
-    // Ruiz iteration cap / tolerance: applied only when present so the
-    // struct defaults (10 / 1e-3) remain when the JSON omits them.
-    if (ruiz_max_iterations) {
-      opts.ruiz_max_iterations = *ruiz_max_iterations;
-    }
-    if (ruiz_tolerance) {
-      opts.ruiz_tolerance = *ruiz_tolerance;
-    }
+    // Ruiz iteration cap / tolerance: unset when the JSON omits them, so
+    // the consumer applies LpMatrixOptions::default_ruiz_* (5 / 1e-3).
+    opts.ruiz_max_iterations = ruiz_max_iterations;
+    opts.ruiz_tolerance = ruiz_tolerance;
     opts.compute_stats = compute_stats;
     opts.validation = validation;
     return opts;
@@ -68,7 +66,8 @@ struct json_data_contract<LpMatrixOptions>
                        json_number_null<"ruiz_max_iterations", OptInt>,
                        json_number_null<"ruiz_tolerance", OptReal>,
                        json_bool_null<"compute_stats", OptBool>,
-                       json_class_null<"validation", LpValidationOptions>>;
+                       json_class_null<"validation", LpValidationOptions>,
+                       json_string_null<"solver_name", OptName>>;
 
   static auto to_json_data(LpMatrixOptions const& opt)
   {
@@ -78,13 +77,15 @@ struct json_data_contract<LpMatrixOptions>
     const OptName sqrt_name = opt.fast_sqrt_method
         ? OptName {std::string(gtopt::enum_name(*opt.fast_sqrt_method))}
         : OptName {};
-    return std::make_tuple(opt.lp_coeff_ratio_threshold,
-                           eq_name,
-                           sqrt_name,
-                           OptInt {opt.ruiz_max_iterations},
-                           OptReal {opt.ruiz_tolerance},
-                           opt.compute_stats,
-                           opt.validation);
+    return std::make_tuple(
+        opt.lp_coeff_ratio_threshold,
+        eq_name,
+        sqrt_name,
+        opt.ruiz_max_iterations,
+        opt.ruiz_tolerance,
+        opt.compute_stats,
+        opt.validation,
+        opt.solver_name.empty() ? OptName {} : OptName {opt.solver_name});
   }
 };
 

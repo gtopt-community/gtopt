@@ -212,7 +212,7 @@ TEST_CASE(  // NOLINT
   // Solve with different scale_theta values; the LP objective should be
   // the same because the user constraint on theta (1 rad) is not binding
   // in this configuration.
-  for (const auto st : {1.0, 0.01, 0.0001}) {
+  for (const auto st : {1.0, 100.0, 10'000.0}) {
     auto json = make_theta_uc_json(st);
     Planning base;
     base.merge(parse_planning_json(json));
@@ -252,7 +252,7 @@ TEST_CASE(  // NOLINT
         "use_single_bus": false,
         "demand_fail_cost": 1000,
         "scale_objective": 1000,
-        "scale_theta": 0.0001,
+        "scale_theta": 10000,
         "use_kirchhoff": true
       }}
     }},
@@ -1240,7 +1240,7 @@ TEST_CASE(  // NOLINT
 
   constexpr double expected = (100.0 * 10.0) + (50.0 * 50.0);
 
-  for (const auto st : {1.0, 0.001, 0.0001}) {
+  for (const auto st : {1.0, 1'000.0, 10'000.0}) {
     for (const auto so : {1.0, 1'000.0}) {
       auto json = make_line_uc_json(st, so);
       Planning base;
@@ -1287,7 +1287,7 @@ constexpr std::string_view multi_scale_uc_json = R"json(
         "use_single_bus": false,
         "demand_fail_cost": 1000,
         "scale_objective": 10000,
-        "scale_theta": 0.0001,
+        "scale_theta": 10000,
         "use_kirchhoff": true
       }
     },

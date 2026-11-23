@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <numbers>
 #include <optional>
 #include <queue>
@@ -213,7 +214,7 @@ namespace
 struct ResolvedLine
 {
   const LineLP* line;  ///< owner; used for flow-col lookup
-  double x_tau;  ///< τ · X / V², row coefficient on signed flow
+  double x_tau;  ///< τ · X / V², row coefficient on signed flow (0: tie)
   double phi_rad;  ///< phase-shift contribution to RHS
   bool active;  ///< false ⇒ skip in cycle building
 };
@@ -242,17 +243,19 @@ std::size_t add_kvl_rows(const SystemContext& sc,
   // PyPSA hardcodes `× 1e5` in `define_kirchhoff_voltage_constraints`
   // to push per-unit-reactance coefficients off the LP solver's
   // numerical noise floor.  gtopt instead uses the adaptive
-  // `scale_theta = median(|x_τ|)` already computed by
-  // `PlanningLP::auto_scale_theta` for the `node_angle` strategy:
+  // `scale_theta = 1 / (3 · median(|x_τ|))` (θ_LP = scale_theta · θ)
+  // already computed by `PlanningLP::auto_scale_theta` for the
+  // `node_angle` strategy:
   //
-  //   row_scale = 1 / scale_theta   ≈   1 / median(|x_τ|)
+  //   row_scale = scale_theta   ≈   1 / (3 · median(|x_τ|))
   //
-  // so cycle KVL coefficients land at `x_τ · row_scale` ≈ 1 for the
+  // so cycle KVL coefficients land at `x_τ · row_scale` ≈ 1/3 for the
   // median line, matching the post-θ-col-scale magnitude of the
-  // `node_angle` row exactly.  Cross-mode coefficient consistency.
+  // `node_angle` row (there the θ_LP coefficient is
+  // 1 / scale_theta ≈ 3 · median(|x_τ|), against the x_τ flow terms).
+  // Cross-mode coefficient consistency.
   const double scale_theta_value = sc.options().scale_theta();
-  const double row_scale =
-      (scale_theta_value > 0.0) ? (1.0 / scale_theta_value) : 1.0;
+  const double row_scale = (scale_theta_value > 0.0) ? scale_theta_value : 1.0;
 
   // ── Resolve per-line scalars + build the edge list ─────────────────
   std::vector<ResolvedLine> resolved;
@@ -284,16 +287,22 @@ std::size_t add_kvl_rows(const SystemContext& sc,
       resolved.push_back(rl);
       continue;
     }
+    // DC links (reactance unset, or 0 / sub-threshold under
+    // `tiny_reactance_mode = dc`) are not KVL edges.  A zero-impedance
+    // tie (0 / sub-threshold under `tiny_reactance_mode = tie`) IS an edge,
+    // with `x = 0`: it closes loops and contributes only its phase
+    // shift φ to the cycle RHS (τ multiplies x and is irrelevant).
     const auto x_opt = line.param_reactance(stage.uid());
-    if (!x_opt || x_opt.value() == 0.0) {
+    const double V = line.param_voltage(stage.uid()).value_or(1.0);
+    const auto kind = sc.options().classify_line_reactance(x_opt, V);
+    if (kind == LineKvlKind::dc) {
       resolved.push_back(rl);
       continue;
     }
-    const double X = x_opt.value();
-    const double V = line.param_voltage(stage.uid()).value_or(1.0);
     const double tau = line.param_tap_ratio(stage.uid()).value_or(1.0);
-    const double x_tau = tau * X / (V * V);
-    if (x_tau == 0.0) {
+    const double x_tau =
+        (kind == LineKvlKind::tie) ? 0.0 : tau * x_opt.value() / (V * V);
+    if (kind == LineKvlKind::ac && x_tau == 0.0) {
       resolved.push_back(rl);
       continue;
     }
@@ -421,6 +430,9 @@ std::size_t add_kvl_rows(const SystemContext& sc,
         }
         const double coef_base = ce.sign * rl.x_tau * row_scale;
         rhs += ce.sign * rl.phi_rad * row_scale;
+        if (coef_base == 0.0) {
+          continue;  // zero-impedance tie: no flow term, only φ
+        }
 
         // Stamp flow cols.  In `piecewise_direct` line-loss mode the
         // flowp / flown aggregators are absent and segments stamp
@@ -451,6 +463,25 @@ std::size_t add_kvl_rows(const SystemContext& sc,
         if (auto it = fsc.find(buid); it != fsc.end()) {
           flow_coeffs[it->second] += coef_base;
         }
+      }
+
+      if (!disjunctive && flow_coeffs.empty()) {
+        // Cycle made only of zero-impedance ties: the row degenerates to
+        // `0 = Σ ε·φ`.  Consistent (Σ ε·φ = 0) ⇒ redundant; otherwise the
+        // tie loop imposes contradictory phase shifts and the row would
+        // make the LP infeasible — drop it either way, warn once per
+        // (cycle, stage) in the inconsistent case.
+        if (std::abs(rhs) > 1e-12 && block.uid() == blocks.front().uid()) {
+          spdlog::warn(
+              "kirchhoff::cycle_basis: cycle {} consists only of "
+              "zero-impedance ties with net phase shift {:.6g} rad ≠ 0 "
+              "(scenario={}, stage={}) — KVL row dropped",
+              cycle_idx,
+              rhs / row_scale,
+              scenario.uid(),
+              stage.uid());
+        }
+        continue;
       }
 
       if (!disjunctive) {

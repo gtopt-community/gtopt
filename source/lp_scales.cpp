@@ -49,89 +49,6 @@ namespace gtopt
 namespace
 {
 
-/// Maps the in-memory `LpContext` variant to its sidecar form.
-[[nodiscard]] auto to_scales_context(const LpContext& context)
-    -> std::optional<LpScalesContext>
-{
-  return std::visit(
-      Overload {
-          [](const std::monostate&) -> std::optional<LpScalesContext>
-          { return std::nullopt; },
-          [](const StageContext& c) -> std::optional<LpScalesContext>
-          {
-            const auto& [scenario, stage] = c;
-            return LpScalesContext {
-                .type = "stage",
-                .scenario = scenario,
-                .stage = stage,
-            };
-          },
-          [](const BlockContext& c) -> std::optional<LpScalesContext>
-          {
-            const auto& [scenario, stage, block] = c;
-            return LpScalesContext {
-                .type = "block",
-                .scenario = scenario,
-                .stage = stage,
-                .block = block,
-            };
-          },
-          [](const BlockExContext& c) -> std::optional<LpScalesContext>
-          {
-            const auto& [scenario, stage, block, extra] = c;
-            return LpScalesContext {
-                .type = "block_ex",
-                .scenario = scenario,
-                .stage = stage,
-                .block = block,
-                .extra = extra,
-            };
-          },
-          [](const ScenePhaseContext& c) -> std::optional<LpScalesContext>
-          {
-            const auto& [scene, phase] = c;
-            return LpScalesContext {
-                .type = "scene_phase",
-                .scene = scene,
-                .phase = phase,
-            };
-          },
-          [](const PhaseContext& c) -> std::optional<LpScalesContext>
-          {
-            const auto& [scene, phase, element] = c;
-            return LpScalesContext {
-                .type = "phase",
-                .scene = scene,
-                .phase = phase,
-                .element = element,
-            };
-          },
-          [](const IterationContext& c) -> std::optional<LpScalesContext>
-          {
-            const auto& [scene, phase, iteration, extra] = c;
-            return LpScalesContext {
-                .type = "iteration",
-                .scene = scene,
-                .phase = phase,
-                .iteration = iteration,
-                .extra = extra,
-            };
-          },
-          [](const ApertureContext& c) -> std::optional<LpScalesContext>
-          {
-            const auto& [scene, phase, aperture, extra] = c;
-            return LpScalesContext {
-                .type = "aperture",
-                .scene = scene,
-                .phase = phase,
-                .aperture = aperture,
-                .extra = extra,
-            };
-          },
-      },
-      context);
-}
-
 /// Removes from @p s the first of @p suffixes it ends with, if any.
 constexpr void strip_one_suffix(std::string_view& s,
                                 std::span<const std::string_view> suffixes)
@@ -428,6 +345,88 @@ template<typename Builder, typename T>
 }
 
 }  // namespace
+
+auto to_scales_context(const LpContext& context)
+    -> std::optional<LpScalesContext>
+{
+  return std::visit(
+      Overload {
+          [](const std::monostate&) -> std::optional<LpScalesContext>
+          { return std::nullopt; },
+          [](const StageContext& c) -> std::optional<LpScalesContext>
+          {
+            const auto& [scenario, stage] = c;
+            return LpScalesContext {
+                .type = "stage",
+                .scenario = scenario,
+                .stage = stage,
+            };
+          },
+          [](const BlockContext& c) -> std::optional<LpScalesContext>
+          {
+            const auto& [scenario, stage, block] = c;
+            return LpScalesContext {
+                .type = "block",
+                .scenario = scenario,
+                .stage = stage,
+                .block = block,
+            };
+          },
+          [](const BlockExContext& c) -> std::optional<LpScalesContext>
+          {
+            const auto& [scenario, stage, block, extra] = c;
+            return LpScalesContext {
+                .type = "block_ex",
+                .scenario = scenario,
+                .stage = stage,
+                .block = block,
+                .extra = extra,
+            };
+          },
+          [](const ScenePhaseContext& c) -> std::optional<LpScalesContext>
+          {
+            const auto& [scene, phase] = c;
+            return LpScalesContext {
+                .type = "scene_phase",
+                .scene = scene,
+                .phase = phase,
+            };
+          },
+          [](const PhaseContext& c) -> std::optional<LpScalesContext>
+          {
+            const auto& [scene, phase, element] = c;
+            return LpScalesContext {
+                .type = "phase",
+                .scene = scene,
+                .phase = phase,
+                .element = element,
+            };
+          },
+          [](const IterationContext& c) -> std::optional<LpScalesContext>
+          {
+            const auto& [scene, phase, iteration, extra] = c;
+            return LpScalesContext {
+                .type = "iteration",
+                .scene = scene,
+                .phase = phase,
+                .iteration = iteration,
+                .extra = extra,
+            };
+          },
+          [](const ApertureContext& c) -> std::optional<LpScalesContext>
+          {
+            const auto& [scene, phase, aperture, extra] = c;
+            return LpScalesContext {
+                .type = "aperture",
+                .scene = scene,
+                .phase = phase,
+                .aperture = aperture,
+                .extra = extra,
+            };
+          },
+      },
+      context);
+}
 
 std::string lp_scales_path(std::string_view lp_path, std::string_view suffix)
 {

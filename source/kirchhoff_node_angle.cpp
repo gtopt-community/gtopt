@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 
+#include <cmath>
 #include <numbers>
 
 #include <gtopt/bus_lp.hpp>
@@ -8,6 +9,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/utils.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt::kirchhoff::node_angle
 {
@@ -26,11 +28,35 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
     const BIndexHolder<std::vector<ColIndex>>& fnsegcols,
     const BIndexHolder<ColIndex>& fscols)
 {
-  // Skip Kirchhoff for lines without reactance (DC/HVDC lines).  A
-  // zero-reactance line would create a degenerate constraint
-  // (θ_a = θ_b) that doesn't model DC power flow correctly.
-  if (!inputs.reactance || inputs.reactance.value() == 0.0) {
+  // Skip Kirchhoff for DC links: reactance unset (HVDC, PLP DC lines),
+  // or `X = 0` / sub-threshold under the legacy `tiny_reactance_mode =
+  // dc`.  Under `tiny_reactance_mode = tie` (default) `X = 0` or a
+  // sub-threshold X is a zero-impedance tie: the row is kept without the
+  // flow term (`−θ_a + θ_b = −φ`) — the physical X → 0 limit instead of
+  // a free phase shifter.
+  const auto kind =
+      sc.options().classify_line_reactance(inputs.reactance, inputs.voltage);
+  if (kind == LineKvlKind::dc) {
     return {};
+  }
+  const bool is_tie = kind == LineKvlKind::tie;
+
+  // Degenerate tie: both endpoints pin `reference_theta` to angles the
+  // tie cannot satisfy.  `PlanningLP::validate_line_reactance` already
+  // clamps such lines to DC (with a warning); this guard covers Planning
+  // objects that skipped validation.
+  const double phi_rad = inputs.phase_shift_deg * std::numbers::pi / 180.0;
+  if (is_tie) {
+    const auto ref_a = bus_a_lp.reference_theta();
+    const auto ref_b = bus_b_lp.reference_theta();
+    constexpr double kAngleTol = 1e-9;
+    if (ref_a && ref_b && std::abs(*ref_b - *ref_a + phi_rad) > kAngleTol) {
+      SPDLOG_DEBUG(
+          "kirchhoff::node_angle: tie line uid={} joins buses with "
+          "inconsistent reference_theta — treated as DC",
+          inputs.line_uid);
+      return {};
+    }
   }
 
   const auto& blocks = stage.blocks();
@@ -43,22 +69,19 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
     return {};
   }
 
-  const double X = inputs.reactance.value();
-  // V defaults to 1.0 (per-unit mode).  When V is in kV, X must be in Ω
-  // so that B = V²/X yields consistent susceptance units.
+  // Flow coefficient x_τ = τ · X / V².  V defaults to 1.0 (per-unit
+  // mode); when V is in kV, X must be in Ω so that B = V²/X yields
+  // consistent susceptance units.  The off-nominal tap ratio τ scales
+  // the effective susceptance.  A tie has no flow term (x_τ ≡ 0: τ is
+  // irrelevant, the phase shift φ is kept).
+  const double X = inputs.reactance.value_or(0.0);  // set: kind != dc
   const double V = inputs.voltage;
-  // Physical susceptance term x = X / V² (reactance per V²).
   const double x = X / (V * V);
-
-  // Off-nominal tap ratio: scales effective susceptance by τ.
   const double tau = inputs.tap_ratio;
-  const double x_tau = tau * x;
-  if (x_tau == 0.0) {
+  const double x_tau = is_tie ? 0.0 : tau * x;
+  if (!is_tie && x_tau == 0.0) {
     return {};
   }
-
-  // Phase-shift angle in radians; shifts the equality constraint RHS.
-  const double phi_rad = inputs.phase_shift_deg * std::numbers::pi / 180.0;
 
   // Natural Kirchhoff form (no manual row pre-scaling):
   //
@@ -73,8 +96,10 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
   // Writing the row in its natural form hands row scaling back to
   // `linear_problem.cpp` row-max equilibration, which auto-unscales
   // duals.  The theta column is separately col-scaled by `scale_theta`
-  // (chosen as median(|x_tau|) in `planning_lp.cpp:auto_scale_theta`),
-  // so after equilibration the median line's row has near-unit
+  // (θ_LP = scale_theta · θ; auto = 1 / (3 · median(|x_tau|)) in
+  // `planning_lp.cpp:auto_scale_theta`, so the θ_LP coefficient is
+  // ≈ 3 · median(|x_tau|), within a small factor of the flow terms),
+  // so after equilibration the median line's row has O(1)
   // coefficients both in the theta and flow directions.
   const double kirchhoff_rhs = -phi_rad;
 
@@ -119,6 +144,14 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
 
     trow[theta_a_cols.at(buid)] = -1.0;
     trow[theta_b_cols.at(buid)] = +1.0;
+
+    if (is_tie) {
+      // Zero-impedance tie: θ_b − θ_a = −φ, no flow term.  The flow
+      // column stays free within ±tmax and still enters both bus
+      // balances (stamped by LineLP).
+      trows[buid] = lp.add_row(std::move(trow));
+      continue;
+    }
 
     if (fp_seg_n != 0) {
       for (const auto& col : fp_seg_it->second) {

@@ -59,7 +59,10 @@ struct LpMatrixOptions
   std::optional<LpEquilibrationMethod>
       equilibration_method {};  ///< Matrix equilibration method.
                                 ///< See LpEquilibrationMethod for options.
-                                ///< Default is `row_max`.
+                                ///< Unset resolves through
+                                ///< `PlanningOptionsLP::equilibration_method`
+                                ///< (ruiz for multi-bus Kirchhoff, else
+                                ///< row_max).
   std::optional<FastSqrtMethod>
       fast_sqrt_method {};  ///< Approximate sqrt for Ruiz scaling.
                             ///< See FastSqrtMethod for options.
@@ -75,11 +78,19 @@ struct LpMatrixOptions
   ///
   /// Default cap is 5 (was 10).  Solvers with their own internal scaling
   /// re-equilibrate the matrix anyway, so additional Ruiz iterations add
-  /// little conditioning while costing build time linearly.  5 keeps
-  /// a margin of equilibration headroom for scaling-free backends (HiGHS / CLP)
-  /// while halving the per-build Ruiz cost vs the old 10.
-  int ruiz_max_iterations {5};
-  double ruiz_tolerance {1e-3};
+  /// little conditioning while costing build time linearly.  5 keeps a margin
+  /// of equilibration headroom for scaling-free backends (HiGHS / CLP) while
+  /// halving the per-build Ruiz cost vs the old 10.
+  ///
+  /// Optional so a caller-supplied value and the planning-level JSON value
+  /// can be told apart when the two are merged (see
+  /// `PlanningOptionsLP::resolve_lp_matrix_options`); unset resolves to
+  /// `default_ruiz_max_iterations` / `default_ruiz_tolerance` at the
+  /// consumer site.
+  static constexpr int default_ruiz_max_iterations = 5;
+  static constexpr double default_ruiz_tolerance = 1e-3;
+  OptInt ruiz_max_iterations {};
+  OptReal ruiz_tolerance {};
 
   double scale_objective {1.0};  ///< Global divisor for all objective
                                  ///< coefficients (numerical conditioning).
@@ -176,7 +187,30 @@ struct LpMatrixOptions
     merge_opt(equilibration_method, other.equilibration_method);
     merge_opt(fast_sqrt_method, other.fast_sqrt_method);
     merge_opt(compute_stats, other.compute_stats);
+    merge_opt(ruiz_max_iterations, other.ruiz_max_iterations);
+    merge_opt(ruiz_tolerance, other.ruiz_tolerance);
     validation.merge(other.validation);
+    if (!other.solver_name.empty()) {
+      solver_name = other.solver_name;
+    }
+  }
+
+  /// Fill every *unset* user-facing optional field from @p base, keeping
+  /// the fields already set here (explicit value wins only when set).
+  /// Covers exactly the JSON-mapped fields (`merge` above); the
+  /// build-internal fields (names, eps, solver, low-memory, ...) are
+  /// untouched.
+  void fill_unset_from(const LpMatrixOptions& base)
+  {
+    auto merged = base;
+    merged.merge(*this);
+    lp_coeff_ratio_threshold = merged.lp_coeff_ratio_threshold;
+    equilibration_method = merged.equilibration_method;
+    fast_sqrt_method = merged.fast_sqrt_method;
+    compute_stats = merged.compute_stats;
+    ruiz_max_iterations = merged.ruiz_max_iterations;
+    ruiz_tolerance = merged.ruiz_tolerance;
+    validation = merged.validation;
   }
 };
 

@@ -5,9 +5,13 @@
 // `PlanningLP::validate_line_reactance` and the configurable
 // `model_options.dc_line_reactance_threshold` option.
 //
-// The validator promotes any line with `|x_pu| = |X/V²| < threshold`
-// to a DC line by rewriting its reactance schedule to scalar 0.0
-// (which the Kirchhoff assembler then skips).  This file checks:
+// Under the legacy `tiny_reactance_mode = dc` the validator promotes any
+// line with `|x_pu| = |X/V²| < threshold` to a DC line by rewriting its
+// reactance schedule to 0.0 (which the Kirchhoff assembler then skips).
+// Under the default `tiny_reactance_mode = tie` it keeps the value (the
+// assemblers emit a zero-impedance tie), except when both buses pin
+// inconsistent `reference_theta` values (reactance dropped → DC).
+// The legacy-mode checks:
 //   1. default threshold (1e-6) accessor;
 //   2. scalar X promotion based on per-unit susceptance, not raw X;
 //   3. vector-schedule per-entry promotion;
@@ -33,9 +37,15 @@ using namespace gtopt;
 namespace
 {
 
-[[nodiscard]] auto make_planning_with_lines(Array<Line> lines,
-                                            PlanningOptions opts = {})
-    -> Planning
+[[nodiscard]] auto legacy_dc_opts() -> PlanningOptions
+{
+  PlanningOptions opts;
+  opts.model_options.tiny_reactance_mode = OptName {"dc"};
+  return opts;
+}
+
+[[nodiscard]] auto make_planning_with_lines(
+    Array<Line> lines, PlanningOptions opts = legacy_dc_opts()) -> Planning
 {
   Planning planning;
   planning.options = std::move(opts);
@@ -190,7 +200,7 @@ TEST_CASE("validate_line_reactance honours user-tightened threshold")
 {
   // x_pu = 1e-7.  Default 1e-6 would clamp; user lowers threshold to
   // 1e-8 so this line stays in KVL.
-  PlanningOptions opts;
+  auto opts = legacy_dc_opts();
   opts.model_options.dc_line_reactance_threshold = 1e-8;
   Array<Line> lines = {
       {
@@ -213,7 +223,7 @@ TEST_CASE("validate_line_reactance with threshold=0 disables promotion")
 {
   // Even an absurdly tiny x_pu survives when the user sets threshold = 0.
   // This is the documented kill-switch.
-  PlanningOptions opts;
+  auto opts = legacy_dc_opts();
   opts.model_options.dc_line_reactance_threshold = 0.0;
   Array<Line> lines = {
       {
@@ -257,6 +267,129 @@ TEST_CASE("validate_line_reactance leaves zero or unset reactance alone")
   PlanningLP::validate_line_reactance(planning);
   CHECK(reactance_scalar(planning.system.line_array[0]) == 0.0);
   CHECK_FALSE(planning.system.line_array[1].reactance.has_value());
+}
+
+// ── tiny_reactance_mode = tie (default) ─────────────────────────────
+
+TEST_CASE("tiny_reactance_mode default is tie, names round-trip")
+{
+  const PlanningOptionsLP plp_opts {};
+  CHECK(plp_opts.tiny_reactance_mode() == TinyReactanceMode::tie);
+  CHECK(PlanningOptionsLP::default_tiny_reactance_mode
+        == TinyReactanceMode::tie);
+  for (const auto& entry : tiny_reactance_mode_entries) {
+    const auto parsed = enum_from_name<TinyReactanceMode>(entry.name);
+    REQUIRE(parsed.has_value());
+    CHECK(*parsed == entry.value);
+    CHECK(enum_name(*parsed) == entry.name);
+  }
+  CHECK_FALSE(enum_from_name<TinyReactanceMode>("short").has_value());
+
+  PlanningOptions opts;
+  opts.model_options.tiny_reactance_mode = OptName {"dc"};
+  CHECK(PlanningOptionsLP {opts}.tiny_reactance_mode()
+        == TinyReactanceMode::dc);
+  opts.model_options.tiny_reactance_mode = OptName {"bogus"};
+  CHECK(PlanningOptionsLP {opts}.tiny_reactance_mode()
+        == TinyReactanceMode::tie);
+}
+
+TEST_CASE("classify_line_reactance — unset / zero / tiny / regular")
+{
+  using enum TinyReactanceMode;
+  constexpr double thr = 1e-6;
+  // Unset reactance is always a DC link.
+  CHECK(classify_line_reactance(std::nullopt, 1.0, thr, tie)
+        == LineKvlKind::dc);
+  CHECK(classify_line_reactance(std::nullopt, 1.0, thr, dc) == LineKvlKind::dc);
+  // Explicit zero: tie by default, DC in legacy mode, even with the
+  // sub-threshold test disabled (threshold = 0).
+  CHECK(classify_line_reactance(0.0, 1.0, thr, tie) == LineKvlKind::tie);
+  CHECK(classify_line_reactance(0.0, 1.0, 0.0, tie) == LineKvlKind::tie);
+  CHECK(classify_line_reactance(0.0, 1.0, thr, dc) == LineKvlKind::dc);
+  // Tiny per-unit reactance (X/V² = 0.025/220² ≈ 5.2e-7).
+  CHECK(classify_line_reactance(0.025, 220.0, thr, tie) == LineKvlKind::tie);
+  CHECK(classify_line_reactance(0.025, 220.0, thr, dc) == LineKvlKind::dc);
+  CHECK(classify_line_reactance(0.025, 220.0, 0.0, tie) == LineKvlKind::ac);
+  // Regular line.
+  CHECK(classify_line_reactance(10.0, 220.0, thr, tie) == LineKvlKind::ac);
+  CHECK(classify_line_reactance(10.0, 220.0, thr, dc) == LineKvlKind::ac);
+}
+
+TEST_CASE("validate_line_reactance in tie mode keeps zero and tiny reactance")
+{
+  Array<Line> lines = {
+      {
+          .uid = Uid {1},
+          .name = "tiny_x",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 1e-7,
+      },
+      {
+          .uid = Uid {2},
+          .name = "explicit_zero",
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .reactance = 0.0,
+      },
+      {
+          .uid = Uid {3},
+          .name = "mixed",
+          .bus_a = Uid {1},
+          .bus_b = Uid {3},
+          .reactance = std::vector<Real> {0.01, 1e-9},
+      },
+      {
+          .uid = Uid {4},
+          .name = "unset",
+          .bus_a = Uid {1},
+          .bus_b = Uid {3},
+      },
+  };
+  auto planning = make_planning_with_lines(std::move(lines), {});
+  PlanningLP::validate_line_reactance(planning);
+  const auto& la = planning.system.line_array;
+  CHECK(reactance_scalar(la[0]) == doctest::Approx(1e-7));
+  CHECK(reactance_scalar(la[1]) == 0.0);
+  const auto vec = reactance_vector(la[2]);
+  REQUIRE(vec.size() == 2);
+  CHECK(vec[1] == doctest::Approx(1e-9));
+  CHECK_FALSE(la[3].reactance.has_value());
+}
+
+TEST_CASE(
+    "validate_line_reactance in tie mode drops a tie between buses pinned "
+    "to different reference angles")
+{
+  Array<Line> lines = {
+      {
+          .uid = Uid {1},
+          .name = "conflict",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .reactance = 0.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "consistent",
+          .bus_a = Uid {1},
+          .bus_b = Uid {3},
+          .reactance = 1e-8,
+      },
+  };
+  auto planning = make_planning_with_lines(std::move(lines), {});
+  planning.system.bus_array = {
+      {.uid = Uid {1}, .name = "b1", .reference_theta = 0.0},
+      {.uid = Uid {2}, .name = "b2", .reference_theta = 0.1},
+      {.uid = Uid {3}, .name = "b3", .reference_theta = 0.0},
+  };
+  PlanningLP::validate_line_reactance(planning);
+  // Infeasible tie → falls back to DC (reactance dropped).
+  CHECK_FALSE(planning.system.line_array[0].reactance.has_value());
+  // Consistent pins (both 0) → the tie is kept.
+  CHECK(reactance_scalar(planning.system.line_array[1])
+        == doctest::Approx(1e-8));
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)

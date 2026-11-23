@@ -53,8 +53,9 @@ constexpr double DblMax = std::numeric_limits<double>::max();
  *
  *   physical_value = LP_value × scale
  *
- * For example, a voltage angle column with `scale_theta = 0.0001` stores
- * `scale = 0.0001` because `theta_physical = theta_LP × 0.0001`.
+ * For example, a voltage angle column with `scale_theta = 10000`
+ * (θ_LP = 10000 · θ) stores `scale = 0.0001` because
+ * `theta_physical = theta_LP × 0.0001`.
  * A reservoir energy column with `energy_scale = 100000` stores
  * `scale = 100000` because `volume_physical = volume_LP × 100000`.
  * All scales follow the same convention — no inversions.
