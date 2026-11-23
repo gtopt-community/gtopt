@@ -73,11 +73,6 @@ def load_config(config_path: Path | None = None) -> configparser.ConfigParser:
         except configparser.Error as exc:
             log.warning("error reading %s: %s", path, exc)
 
-    # Ensure defaults are present even after reading
-    for key, val in _GLOBAL_DEFAULTS.items():
-        if not parser.has_option("global", key):
-            parser.set("global", key, val)
-
     return parser
 
 

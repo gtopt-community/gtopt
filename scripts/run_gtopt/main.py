@@ -10,6 +10,11 @@ import sys
 from pathlib import Path
 
 from gtopt_config import get_version
+from gtopt_shared.gtopt_binary import (
+    find_gtopt_binary,
+    find_plexos2gtopt,
+    find_plp2gtopt,
+)
 
 from ._attach import (
     list_runs,
@@ -17,7 +22,6 @@ from ._attach import (
     resolve_target,
     run_attach_loop,
 )
-from ._binary import find_gtopt_binary, find_plexos2gtopt, find_plp2gtopt
 from ._checks import (
     available_checks,
     run_postflight_checks,

@@ -48,6 +48,8 @@ _VALID_APERTURE_SOLVE_MODES = {
     "dual_shared",
     "screened",
 }
+# Mirrors `aperture_chunk_mode_entries` in include/gtopt/sddp_enums.hpp.
+_VALID_APERTURE_CHUNK_MODES = {"per_scene", "per_aperture", "chunked"}
 _VALID_ELASTIC_MODES = {
     "single_cut",
     "multi_cut",
@@ -86,6 +88,14 @@ def _set_model_opt(opts: dict, key: str, value: Any) -> None:
         opts[key] = value
 
 
+def _del_model_opt(opts: dict, key: str) -> None:
+    """Remove a model option from both canonical and flat locations."""
+    mo = opts.get("model_options")
+    if isinstance(mo, dict):
+        mo.pop(key, None)
+    opts.pop(key, None)
+
+
 def _validate_options(opts: dict) -> list[str]:
     """Validate planning options and return a list of warning/error messages.
 
@@ -105,8 +115,12 @@ def _validate_options(opts: dict) -> list[str]:
 
     scale_theta = _get_model_opt(opts, "scale_theta")
     if scale_theta is not None and scale_theta <= 0:
-        messages.append("FIX: scale_theta must be > 0, setting to 1000")
-        _set_model_opt(opts, "scale_theta", 1000)
+        # Drop the invalid value so gtopt's adaptive (C++ side) θ scaling
+        # applies instead of an arbitrary fixed factor.
+        messages.append(
+            "FIX: scale_theta must be > 0, removing it (gtopt auto-scales θ)"
+        )
+        _del_model_opt(opts, "scale_theta")
 
     # ── Demand/reserve fail cost ──
     dfc = _get_model_opt(opts, "demand_fail_cost")
@@ -234,6 +248,7 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
         ("forward_sampling_mode", _VALID_FORWARD_SAMPLING_MODES),
         ("integer_cuts_mode", _VALID_INTEGER_CUTS_MODES),
         ("aperture_solve_mode", _VALID_APERTURE_SOLVE_MODES),
+        ("aperture_chunk_mode", _VALID_APERTURE_CHUNK_MODES),
         ("elastic_mode", _VALID_ELASTIC_MODES),
     ]:
         val = sddp.get(mode_key)
@@ -255,7 +270,7 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
     if svlm is not None and svlm not in ("warm_start", "cross_phase"):
         messages.append(
             f"WARN: sddp state_variable_lookup_mode='{svlm}' not in "
-            "{{'warm_start', 'cross_phase'}}"
+            "{'warm_start', 'cross_phase'}"
         )
 
     timeout = sddp.get("aperture_timeout")
@@ -519,11 +534,12 @@ def sanitize_json(
     for dir_key in ("input_directory", "output_directory"):
         raw = opts.get(dir_key, "")
         if raw and not Path(raw).is_absolute():
+            # ``raw`` is relative and ``resolved`` absolute, so they always
+            # differ: every relative directory is rewritten.
             resolved = str((case_root / raw).resolve())
-            if resolved != raw:
-                log.info("sanitize: %s '%s' -> '%s'", dir_key, raw, resolved)
-                opts[dir_key] = resolved
-                changed = True
+            log.info("sanitize: %s '%s' -> '%s'", dir_key, raw, resolved)
+            opts[dir_key] = resolved
+            changed = True
 
     if not changed:
         return json_path

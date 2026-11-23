@@ -290,10 +290,9 @@ class SDDPGridTracker:
         worst = _GRID_IDLE
         visited = 0
         for sc in self._scenes:
-            sg = self._grid.get(sc)
-            if sg is None:
-                continue
-            cell = sg.get((iteration, phase), _GRID_IDLE)
+            # Every registered scene owns a grid row (process_line and
+            # load_from_status add both together).
+            cell = self._grid[sc].get((iteration, phase), _GRID_IDLE)
             if cell != _GRID_IDLE:
                 visited += 1
                 worst = max(worst, cell)
@@ -366,8 +365,7 @@ class SDDPGridTracker:
                 # Legacy format: positional packed string.
                 cells_iter = enumerate(cells)
                 width = len(cells)
-            if width == 0:
-                continue
+            # ``cells`` is truthy here, so width >= 1.
             self._scenes.add(sc)
             self._max_iter = max(self._max_iter, it)
             self._max_phase = max(self._max_phase, width - 1)
@@ -497,7 +495,7 @@ class SolverPhaseTracker:
                 groups = match.groups()
                 if len(groups) == 2:  # noqa: PLR2004
                     st.detail = f"iter {groups[0]}/{groups[1]}"
-                elif len(groups) == 3:  # noqa: PLR2004
+                else:  # 3 groups: monolithic "scene N done (k/total)"
                     st.detail = f"scene {groups[1]}/{groups[2]}"
             break  # first match wins
 
@@ -2043,7 +2041,7 @@ class SolverDisplay:
         elif key == "g":
             self._grid_scroll_offset = 0
             self._grid_user_scrolled = False  # re-enable auto-follow
-        elif key == "G":
+        else:  # "G" (caller only forwards j/k/J/K/g/G)
             self._grid_scroll_offset = max(0, n_scenes - 1)
         # Clamp; final clamping against the dynamic visible-window
         # size happens in the renderer.
@@ -2216,7 +2214,7 @@ class SolverDisplay:
                 )
             panels.append(_build_log(log_lines))
 
-        elif mode == _MODE_CONVERGENCE:
+        else:  # _MODE_CONVERGENCE (mode is always taken modulo _MODE_COUNT)
             # Per-scene convergence heatmap + sparklines
             if has_sddp:
                 panels.append(_build_progress(data))

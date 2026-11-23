@@ -174,11 +174,11 @@ def test_corrupt_json_returns_none(tmp_path: Path):
 
 
 def test_scale_theta_fix(tmp_path: Path):
-    """scale_theta <= 0 is fixed to 1000."""
+    """scale_theta <= 0 is removed so gtopt auto-scales θ."""
     p = _write_plan(tmp_path / "plan.json", {"scale_theta": 0})
     result = sanitize_json(p)
     data = json.loads(result.read_text())
-    assert data["options"]["scale_theta"] == 1000
+    assert "scale_theta" not in data["options"]
 
 
 def test_warn_demand_fail_cost_zero(tmp_path: Path):
@@ -287,6 +287,25 @@ def test_valid_aperture_solve_modes_pass(tmp_path: Path, caplog):
         with caplog.at_level(logging.INFO, logger="run_gtopt._sanitize"):
             assert sanitize_json(p) == p
     assert "aperture_solve_mode" not in caplog.text
+
+
+def test_aperture_chunk_mode_validation(tmp_path: Path, caplog):
+    """Canonical aperture_chunk_mode names pass; an unknown one warns."""
+    for mode in ("per_scene", "per_aperture", "chunked"):
+        p = _write_plan(
+            tmp_path / f"plan_{mode}.json",
+            {"sddp_options": {"aperture_chunk_mode": mode}},
+        )
+        with caplog.at_level(logging.INFO, logger="run_gtopt._sanitize"):
+            assert sanitize_json(p) == p
+    assert "aperture_chunk_mode" not in caplog.text
+    p = _write_plan(
+        tmp_path / "plan_bad.json",
+        {"sddp_options": {"aperture_chunk_mode": "per_secne"}},
+    )
+    with caplog.at_level(logging.INFO, logger="run_gtopt._sanitize"):
+        assert sanitize_json(p) == p
+    assert "aperture_chunk_mode" in caplog.text
 
 
 def test_warn_markov_mode_missing_config(tmp_path: Path, caplog):
@@ -752,7 +771,7 @@ def test_model_options_scale_theta_fix(tmp_path: Path):
     )
     result = sanitize_json(p)
     data = json.loads(result.read_text())
-    assert data["options"]["model_options"]["scale_theta"] == 1000
+    assert "scale_theta" not in data["options"]["model_options"]
 
 
 def test_model_options_demand_fail_cost_warn(tmp_path: Path):
@@ -793,7 +812,7 @@ def test_flat_fields_still_work(tmp_path: Path):
     assert result is not None
     data = json.loads(result.read_text())
     assert data["options"]["scale_objective"] == 1000
-    assert data["options"]["scale_theta"] == 1000
+    assert "scale_theta" not in data["options"]
 
 
 def test_future_cost_legacy_keys_reported_not_rewritten(tmp_path: Path, caplog):

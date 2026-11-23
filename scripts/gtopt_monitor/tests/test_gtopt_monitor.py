@@ -225,6 +225,24 @@ class TestRunText:
         captured = capsys.readouterr().out
         assert "Solver converged" in captured
 
+    def test_done_exits_loop(
+        self, capsys: pytest.CaptureFixture, tmp_path: Path
+    ) -> None:
+        """Regression: a finished monolithic run ('done') ends --no-gui.
+
+        Monolithic solves never report 'converged'; the text monitor used
+        to poll a finished status file forever.
+        """
+        fpath = tmp_path / "solver_status.json"
+        fpath.write_text(
+            json.dumps({"status": "done", "method": "monolithic"}),
+            encoding="utf-8",
+        )
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep") as sleep:
+            run_text(fpath, poll_interval=0.1)
+        assert sleep.call_count == 0
+        assert "Solver finished" in capsys.readouterr().out
+
     def test_keyboard_interrupt_stops(
         self, capsys: pytest.CaptureFixture, status_file: Path
     ) -> None:
@@ -542,8 +560,9 @@ class TestMain:
 
     def test_default_args_calls_run_gui(self) -> None:
         """With no arguments, main calls run_gui with defaults."""
-        with patch("gtopt_monitor.gtopt_monitor.run_gui") as mock_gui, patch(
-            "sys.argv", ["gtopt_monitor"]
+        with (
+            patch("gtopt_monitor.gtopt_monitor.run_gui") as mock_gui,
+            patch("sys.argv", ["gtopt_monitor"]),
         ):
             main()
         mock_gui.assert_called_once()
@@ -553,8 +572,9 @@ class TestMain:
 
     def test_no_gui_flag_calls_run_text(self) -> None:
         """--no-gui flag dispatches to run_text."""
-        with patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text, patch(
-            "sys.argv", ["gtopt_monitor", "--no-gui"]
+        with (
+            patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text,
+            patch("sys.argv", ["gtopt_monitor", "--no-gui"]),
         ):
             main()
         mock_text.assert_called_once()
@@ -564,8 +584,11 @@ class TestMain:
 
     def test_custom_status_file(self) -> None:
         """--status-file sets the path passed to run_gui."""
-        with patch("gtopt_monitor.gtopt_monitor.run_gui") as mock_gui, patch(
-            "sys.argv", ["gtopt_monitor", "--status-file", "/tmp/my_status.json"]
+        with (
+            patch("gtopt_monitor.gtopt_monitor.run_gui") as mock_gui,
+            patch(
+                "sys.argv", ["gtopt_monitor", "--status-file", "/tmp/my_status.json"]
+            ),
         ):
             main()
         call_args = mock_gui.call_args
@@ -573,8 +596,9 @@ class TestMain:
 
     def test_custom_poll_interval(self) -> None:
         """--poll sets the polling interval passed to run_text."""
-        with patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text, patch(
-            "sys.argv", ["gtopt_monitor", "--no-gui", "--poll", "0.5"]
+        with (
+            patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text,
+            patch("sys.argv", ["gtopt_monitor", "--no-gui", "--poll", "0.5"]),
         ):
             main()
         call_args = mock_text.call_args
@@ -582,16 +606,19 @@ class TestMain:
 
     def test_all_custom_args(self) -> None:
         """All CLI arguments are forwarded correctly."""
-        with patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text, patch(
-            "sys.argv",
-            [
-                "gtopt_monitor",
-                "--no-gui",
-                "--status-file",
-                "/custom/path.json",
-                "--poll",
-                "3.0",
-            ],
+        with (
+            patch("gtopt_monitor.gtopt_monitor.run_text") as mock_text,
+            patch(
+                "sys.argv",
+                [
+                    "gtopt_monitor",
+                    "--no-gui",
+                    "--status-file",
+                    "/custom/path.json",
+                    "--poll",
+                    "3.0",
+                ],
+            ),
         ):
             main()
         mock_text.assert_called_once_with(Path("/custom/path.json"), 3.0)

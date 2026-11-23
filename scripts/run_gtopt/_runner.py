@@ -906,6 +906,11 @@ def _compute_energy_indicators(
         # stage's start time (matching the C++ StageLp constructor).
         stage_effective_discount: dict[int, float] = {}
         scale_obj = 1000.0
+        # Planning JSON contents; stays empty when no JSON is available so
+        # the demand/bus lookups below degrade gracefully instead of
+        # raising NameError (which silently dropped every indicator after
+        # ``generated_twh``).
+        data: dict = {}
         if planning_json and planning_json.is_file():
             with open(planning_json, encoding="utf-8") as f:
                 data = json.load(f)
@@ -1069,8 +1074,6 @@ def _compute_energy_indicators(
             sits on.  Used for the LMP-valued withdrawal cost (load × LMP) and
             injection value (generation × LMP).  Long layout only."""
             cols = ["scenario", "block", "uid", "value"]
-            if value_df is None or dual_df is None:
-                return 0.0
             if not (_is_long(value_df) and _is_long(dual_df)):
                 return 0.0
             if any(c not in value_df.columns for c in cols) or any(

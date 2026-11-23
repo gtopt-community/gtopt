@@ -24,7 +24,8 @@ Usage
   --no-gui             Print status to stdout instead of opening a GUI window
                        (useful in headless / CI environments).
 
-The script exits when the solver reports "converged" or when you press Ctrl-C.
+The script exits when the solver reports "converged" or "done", or when you
+press Ctrl-C.
 
 Requirements
 ------------
@@ -338,8 +339,14 @@ def run_text(status_file: Path, poll_interval: float) -> None:
             data = load_status(status_file)
             if data is not None:
                 print_status(data)
-                if data.get("status") == "converged":
+                status = data.get("status")
+                if status == "converged":
                     print("\n  Solver converged.")
+                    break
+                if status == "done":
+                    # Final status of a monolithic solve (and of a
+                    # finished run): nothing more will be written.
+                    print("\n  Solver finished.")
                     break
             time.sleep(poll_interval)
     except KeyboardInterrupt:
