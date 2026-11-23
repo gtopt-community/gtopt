@@ -280,3 +280,33 @@ def test_cli_scale_objective_mismatch_is_error(tmp_path, capsys):
     code = cli_main([str(outdir), "-o", str(dest), "--scale-objective", "1000"])
     assert code == 2
     assert "scale_objective" in capsys.readouterr().err
+
+
+def test_hive_parquet_and_csv_shards_one_sheet_per_table(tmp_path):
+    """Regression: current gtopt output layouts map to ``<Class>_<stem>``.
+
+    Hive Parquet datasets used to collapse into a single ``phase=0_part``
+    sheet and CSV shards kept their ``_s0_p0`` suffix, with an all-zero
+    Overview.
+    """
+    import pandas as pd  # pylint: disable=import-outside-toplevel
+
+    out = tmp_path / "output"
+    out.mkdir()
+    (out / "solution.csv").write_text(_solution_csv(500.0))
+    part = out / "Generator" / "generation_sol.parquet" / "scene=0" / "phase=0"
+    part.mkdir(parents=True)
+    pd.DataFrame(
+        {"scenario": [1], "stage": [1], "block": [1], "uid": [1], "value": [50.0]}
+    ).to_parquet(part / "part.parquet")
+    (out / "Demand").mkdir()
+    (out / "Demand" / "load_sol_s0_p0.csv").write_text(
+        "scenario,stage,block,uid,value\n1,1,1,1,50.0\n"
+    )
+    dest = tmp_path / "out.xlsx"
+    export_to_excel(out, dest)
+    wb = openpyxl.load_workbook(dest)
+    assert {"Generator_generation_sol", "Demand_load_sol"} <= set(wb.sheetnames)
+    assert not any(name.startswith("phase=") for name in wb.sheetnames)
+    overview = _overview(dest)
+    assert overview["Total generation (MWh)"] == pytest.approx(50.0)

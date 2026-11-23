@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -76,8 +77,6 @@ def _per_uid_totals(df: pd.DataFrame, skip_cols: set[str]) -> dict[str, float]:
     string).  Both feed ``_extract_tech_total`` and the element counts.
     """
     if _is_long(df):
-        if "uid" not in df.columns or "value" not in df.columns:
-            return {}
         vals = pd.to_numeric(df["value"], errors="coerce").fillna(0)
         grouped = vals.groupby(df["uid"]).sum()
         return {str(k): float(v) for k, v in grouped.items()}
@@ -224,7 +223,7 @@ def summarize_output_dict(
         """Element count — distinct ``uid`` (long) or ``uid:N`` column
         count (wide, == len(per_uid))."""
         if _is_long(df):
-            return int(df["uid"].nunique()) if "uid" in df.columns else 0
+            return int(df["uid"].nunique())
         return len(per_uid)
 
     def _value_series(df: pd.DataFrame):
@@ -298,38 +297,88 @@ def summarize_output_dict(
 # ---------------------------------------------------------------------------
 
 
+# gtopt writes one CSV shard per (scene, phase): ``<stem>_s<N>_p<M>.csv``,
+# and Parquet as a hive dataset ``<stem>.parquet/scene=N/phase=M/part.parquet``.
+_SHARD_SUFFIX_RE = re.compile(r"_s\d+_p\d+$")
+_CSV_EXTS = (".csv.gz", ".csv.zst", ".csv")
+# Hive partition columns pandas materialises; they duplicate scenario/stage.
+_PARTITION_COLS = ("scene", "phase")
+
+
+def _output_key(parts: list[str]) -> str | None:
+    """Map a relative output path (split on ``/``) to ``<Class>/<stem>``.
+
+    Handles the three layouts gtopt has produced: legacy single file
+    (``<Class>/<stem>.csv``), CSV shards (``<Class>/<stem>_s0_p0.csv``)
+    and hive Parquet (``<Class>/<stem>.parquet/scene=0/phase=0/part.parquet``).
+    Returns ``None`` for files that are not output tables.
+    """
+    for i, part in enumerate(parts[:-1]):
+        if part.endswith(".parquet"):
+            stem = part[: -len(".parquet")]
+            parent = parts[i - 1] if i > 0 else ""
+            return f"{parent}/{stem}" if parent else stem
+    base = parts[-1]
+    for ext in (*_CSV_EXTS, ".parquet"):
+        if base.lower().endswith(ext):
+            stem = _SHARD_SUFFIX_RE.sub("", base[: -len(ext)])
+            parent = parts[-2] if len(parts) > 1 else ""
+            return f"{parent}/{stem}" if parent else stem
+    return None
+
+
+def _read_table(name: str, raw: bytes | Path) -> pd.DataFrame:
+    """Read one CSV / Parquet output file (path or in-memory bytes)."""
+    src: Any = raw if isinstance(raw, Path) else io.BytesIO(raw)
+    if name.lower().endswith(".parquet"):
+        df = pd.read_parquet(src)
+        return df.drop(columns=[c for c in _PARTITION_COLS if c in df.columns])
+    compression: Any = "infer"
+    if not isinstance(raw, Path):
+        if name.endswith(".gz"):
+            compression = "gzip"
+        elif name.endswith(".zst"):
+            compression = "zstd"
+    return pd.read_csv(src, compression=compression)
+
+
+def _collect(
+    results: dict[str, Any], frames: dict[str, list[pd.DataFrame]]
+) -> dict[str, Any]:
+    """Concatenate the per-shard frames into ``results['outputs']``."""
+    for key, parts in sorted(frames.items()):
+        df = pd.concat(parts, ignore_index=True) if len(parts) > 1 else parts[0]
+        results["outputs"][key] = {
+            "columns": list(df.columns),
+            "data": df.values.tolist(),
+        }
+    return results
+
+
 def _read_output_dir(path: Path) -> dict[str, Any]:
     """Walk an output directory and build a dict mimicking _parse_results_zip."""
     results: dict[str, Any] = {"solution": {}, "outputs": {}, "terminal_output": ""}
-    for root, _, files in os.walk(path):
-        parent = os.path.basename(root) if Path(root) != path else ""
-        for fname in files:
-            full = Path(root) / fname
-            name = fname.lower()
-            try:
-                if name == "solution.csv":
-                    results["solution"] = parse_solution_csv(
-                        full.read_text(encoding="utf-8")
-                    )
-                elif name.endswith(".parquet"):
-                    df = pd.read_parquet(full)
-                    base = fname[: -len(".parquet")]
-                    key = f"{parent}/{base}" if parent else base
-                    results["outputs"][key] = {
-                        "columns": list(df.columns),
-                        "data": df.values.tolist(),
-                    }
-                elif name.endswith(".csv"):
-                    df = pd.read_csv(full)
-                    base = fname[: -len(".csv")]
-                    key = f"{parent}/{base}" if parent else base
-                    results["outputs"][key] = {
-                        "columns": list(df.columns),
-                        "data": df.values.tolist(),
-                    }
-            except (OSError, ValueError, pd.errors.ParserError):
+    frames: dict[str, list[pd.DataFrame]] = {}
+    for full in sorted(path.rglob("*")):
+        if not full.is_file():
+            continue
+        parts = list(full.relative_to(path).parts)
+        try:
+            if parts == ["solution.csv"]:
+                results["solution"] = parse_solution_csv(
+                    full.read_text(encoding="utf-8")
+                )
                 continue
-    return results
+            key = _output_key(parts)
+            if key is None:
+                continue
+            # Read before registering the key: an unreadable shard must not
+            # leave an empty frame list behind (``_collect`` indexes [0]).
+            df = _read_table(full.name, full)
+            frames.setdefault(key, []).append(df)
+        except (OSError, ValueError, pd.errors.ParserError):
+            continue
+    return _collect(results, frames)
 
 
 def _read_zip(path: Path) -> dict[str, Any]:
@@ -347,34 +396,26 @@ def _read_zip(path: Path) -> dict[str, Any]:
 
     # Fallback: do the parse inline
     results: dict[str, Any] = {"solution": {}, "outputs": {}, "terminal_output": ""}
+    frames: dict[str, list[pd.DataFrame]] = {}
     with zipfile.ZipFile(path, "r") as zf:
-        for name in zf.namelist():
-            base = os.path.basename(name)
-            parent = os.path.basename(os.path.dirname(name))
+        for name in sorted(zf.namelist()):
+            parts = [p for p in name.split("/") if p]
+            if not parts or name.endswith("/"):
+                continue
             try:
-                if base == "solution.csv":
+                if parts[-1] == "solution.csv":
                     results["solution"] = parse_solution_csv(
                         zf.read(name).decode("utf-8")
                     )
-                elif name.endswith(".csv"):
-                    df = pd.read_csv(io.BytesIO(zf.read(name)))
-                    no_ext = base[: -len(".csv")]
-                    key = f"{parent}/{no_ext}" if parent else no_ext
-                    results["outputs"][key] = {
-                        "columns": list(df.columns),
-                        "data": df.values.tolist(),
-                    }
-                elif name.endswith(".parquet"):
-                    df = pd.read_parquet(io.BytesIO(zf.read(name)))
-                    no_ext = base[: -len(".parquet")]
-                    key = f"{parent}/{no_ext}" if parent else no_ext
-                    results["outputs"][key] = {
-                        "columns": list(df.columns),
-                        "data": df.values.tolist(),
-                    }
+                    continue
+                key = _output_key(parts)
+                if key is None:
+                    continue
+                df = _read_table(parts[-1], zf.read(name))
+                frames.setdefault(key, []).append(df)
             except (OSError, ValueError, pd.errors.ParserError):
                 continue
-    return results
+    return _collect(results, frames)
 
 
 def summarize_results(

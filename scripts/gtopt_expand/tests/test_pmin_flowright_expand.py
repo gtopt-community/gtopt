@@ -442,6 +442,8 @@ class TestEnsureBypassForFlowrights:
         fr = system["flow_right_array"][0]
         assert fr["junction_b"] == "PANGUE_DS_ocean"
         assert fr["bypass_cost"] == 0.0
+        # Explicit LP opt-in: a bare junction_b builds no bypass arc.
+        assert fr["use_bypass"] is True
 
     def test_soft_flow_right_skips_bypass_when_no_drain_available(self) -> None:
         """When the FlowRight's source junction has no sibling drain

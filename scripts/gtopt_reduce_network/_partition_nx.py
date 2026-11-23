@@ -166,10 +166,13 @@ def _partition_component(sub: Any, comp_k: int, seed: int) -> list[set[int]]:
     ]
     while len(comms) > comp_k:
         comms = _merge_strongest_pair(sub, comms)
-    while len(comms) < comp_k:
-        split = _split_worst_bottleneck(sub, comms)
-        if split is None:
-            break
+    # ``split`` is None only when every community is a singleton, which
+    # cannot coexist with ``len(comms) < comp_k < len(nodes)``; the walrus
+    # guard just keeps the loop total.
+    while (
+        len(comms) < comp_k
+        and (split := _split_worst_bottleneck(sub, comms)) is not None
+    ):
         comms = split
     return comms
 

@@ -1046,8 +1046,13 @@ class TestLineIsIntraSubstation:
         assert not self._short({"resistance": 0.02, "reactance": 0.15})
 
     def test_missing_rx_not_flagged(self):
-        # No reactance means no signal — must not flag.
+        # No reactance means a DC link — must not flag.
         assert not self._short({"bus_a": 1, "bus_b": 2})
+        assert not self._short({"resistance": 0.0, "reactance": None})
+
+    def test_zero_reactance_tie_flagged(self):
+        # reactance 0 is a zero-impedance tie (equal bus angles).
+        assert self._short({"bus_a": 1, "bus_b": 2, "reactance": 0.0})
 
 
 _SUBSTATION_PLANNING = {

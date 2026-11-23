@@ -159,7 +159,7 @@ def _write_lossfactor(
             d["lossfactor"] = old_f + lf_new
         elif collision == "compound":
             d["lossfactor"] = (1.0 + old_f) * (1.0 + lf_new) - 1.0
-        else:  # pragma: no cover - guarded by apply_loss_mode
+        else:  # apply_loss_mode validates; direct callers may not
             raise ValueError(f"unknown collision={collision!r}")
         n_set += 1
     return n_set, n_skipped

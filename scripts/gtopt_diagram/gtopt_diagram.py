@@ -396,7 +396,11 @@ class TopologyBuilder(
 
         self._focus_nids = self._compute_focus_set() if self.opts.focus_buses else None
 
-        # Auto-hide hydro subsystem when no hydro elements exist
+        # Auto-hide the hydro part of the "full" subsystem when no hydro
+        # elements exist.  Only the hydro builders are skipped: the
+        # subsystem itself stays "full" so the full-only overlays (reserve
+        # zones / provisions) are still drawn for purely electrical systems.
+        draw_hydro = self.subsystem in ("full", "hydro")
         if self.subsystem == "full":
             sys = self.sys
             has_hydro = any(
@@ -415,10 +419,8 @@ class TopologyBuilder(
                 )
             )
             if not has_hydro:
-                self.subsystem = "electrical"
-                logger.debug(
-                    "No hydro elements found; switching to electrical subsystem"
-                )
+                draw_hydro = False
+                logger.debug("No hydro elements found; skipping hydro subsystem")
 
         s = self.subsystem
         if s in ("full", "electrical"):
@@ -491,7 +493,7 @@ class TopologyBuilder(
             # Fuel grouping (C) — final subcluster fallback for
             # thermal/gas generators sharing a Fuel.
             self._fuel_groups()
-        if s in ("full", "hydro"):
+        if draw_hydro:
             self._junctions()
             self._waterways()
             self._reservoirs()

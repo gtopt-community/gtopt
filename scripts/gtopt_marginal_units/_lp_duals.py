@@ -235,12 +235,11 @@ def _read_long(
     # but the dispatch / lmp / flow frames'  cell-key is
     # ``(scen, stage, block, NA, NA, "simulated")`` — a mismatch that
     # silently skips the rc-branch of ``_select_marginal_candidates``.
-    if "date_utc" not in out.columns:
-        out["date_utc"] = pd.NA
-    if "hour" not in out.columns:
-        out["hour"] = pd.NA
-    if "data_source" not in out.columns:
-        out["data_source"] = "simulated"
+    # ``out`` only carries (scenario, stage, block, uid, value), so the
+    # padding columns are never present yet.
+    out["date_utc"] = pd.NA
+    out["hour"] = pd.NA
+    out["data_source"] = "simulated"
     return out
 
 

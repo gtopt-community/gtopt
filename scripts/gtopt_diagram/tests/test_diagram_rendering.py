@@ -475,8 +475,8 @@ _RESERVE_PLANNING = {
         ],
         "demand_array": [],
         "line_array": [],
-        # A dummy junction keeps subsystem="full" (otherwise auto-switches to
-        # "electrical" when no hydro elements exist, which skips reserve zones).
+        # A dummy junction also exercises the hydro builders alongside the
+        # reserve overlays (see TestReserveZonePurelyElectrical for none).
         "junction_array": [{"uid": 1, "name": "J_dummy"}],
         "reserve_zone_array": [
             {"uid": 1, "name": "RZ_Norte"},
@@ -547,6 +547,33 @@ class TestReserveZoneRendering:
     def test_no_duplicate_node_ids(self):
         model = self._build()
         _assert_no_duplicate_node_ids(model)
+
+
+class TestReserveZonePurelyElectrical:
+    """Regression: reserve zones are drawn even without any hydro element.
+
+    ``build()`` used to switch ``subsystem`` from "full" to "electrical"
+    when no hydro element existed, which silently dropped the full-only
+    reserve-zone / reserve-provision overlays.
+    """
+
+    def test_reserve_zones_without_hydro(self):
+        planning = {
+            "system": {
+                k: v
+                for k, v in _RESERVE_PLANNING["system"].items()
+                if k != "junction_array"
+            }
+        }
+        fo = gd.FilterOptions(aggregate="none")
+        builder = gd.TopologyBuilder(planning, subsystem="full", opts=fo)
+        model = builder.build()
+        assert builder.subsystem == "full"
+        rz_ids = {n.node_id for n in model.nodes if n.kind == "reserve_zone"}
+        assert rz_ids == {"rzone_RZ_Norte_1", "rzone_RZ_Sur_2"}
+        pairs = {(e.src, e.dst) for e in model.edges}
+        assert ("gen_G2_2", "rzone_RZ_Norte_1") in pairs
+        assert not [n for n in model.nodes if n.kind == "junction"]
 
 
 _RESERVE_LIST_PLANNING = {

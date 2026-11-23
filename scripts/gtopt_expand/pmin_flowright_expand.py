@@ -396,6 +396,9 @@ def ensure_bypass_for_flowrights(system: dict[str, Any]) -> int:
         # when the FlowRight's consumptive cap would otherwise be
         # exceeded.  Set a non-zero ``bypass_cost`` to prefer
         # consumption (the FlowRight's ``flow_col``) over the spill.
+        # ``use_bypass`` is the explicit LP opt-in (a bare ``junction_b``
+        # builds no arc); the arc is reported as ``bypass_sol``.
+        fr["use_bypass"] = True
         fr["bypass_cost"] = 0.0
         wired += 1
     return wired
@@ -577,9 +580,12 @@ def expand_pmin_flowright(
             # `target` is the canonical FlowRight kink key (= pmin/rendi
             # here); the binding still accepts the legacy `discharge` alias.
             "target": discharge,
-            "junction_b": bypass_junction,
-            "bypass_cost": 0.0,
         }
+        if bypass_junction is not None:
+            # Explicit LP opt-in: a bare ``junction_b`` builds no arc.
+            flow_right["junction_b"] = bypass_junction
+            flow_right["use_bypass"] = True
+            flow_right["bypass_cost"] = 0.0
         flow_rights.append(flow_right)
 
         uid += 1

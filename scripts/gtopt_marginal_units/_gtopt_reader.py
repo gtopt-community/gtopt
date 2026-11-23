@@ -115,15 +115,33 @@ def topology_from_planning(
     # per-gen ``emission_rate`` JSON field when no sources exist
     # (legacy plexos2gtopt / nrel118_to_gtopt converters that bake
     # the factor into the generator directly).
-    zone_weights: dict[int, dict[str, float]] = {
-        int(z["uid"]): {
-            # str(): the FK may be a uid (int) or a name; the source
-            # side below is looked up with str(src["emission"]).
-            str(e["emission"]): float(e.get("weight", 1.0))
-            for e in z.get("emissions", [])
-        }
-        for z in system.get("emission_zone_array", [])
-    }
+    # Malformed zone / zone-emission entries are dropped with a warning,
+    # consistent with the malformed ``emission_source_array`` rows below
+    # (sources that reference a dropped entry then get weight 0).
+    zone_weights: dict[int, dict[str, float]] = {}
+    for z in system.get("emission_zone_array", []):
+        try:
+            z_weights = zone_weights.setdefault(int(z["uid"]), {})
+        except (KeyError, TypeError, ValueError) as exc:
+            _LOG.warning(
+                "emission_zone_array row malformed (%s): %r — zone dropped.",
+                exc,
+                z,
+            )
+            continue
+        for e in z.get("emissions", []):
+            try:
+                # str(): the FK may be a uid (int) or a name; the source
+                # side below is looked up with str(src["emission"]).
+                z_weights[str(e["emission"])] = float(e.get("weight", 1.0))
+            except (KeyError, TypeError, ValueError) as exc:
+                _LOG.warning(
+                    "emission_zone_array zone %s emission entry malformed "
+                    "(%s): %r — entry dropped.",
+                    z.get("uid"),
+                    exc,
+                    e,
+                )
     # Per-source LP-emitted rate from ``EmissionSource/rate_sol.parquet``.
     # Prefer this over the static planning-JSON rate when available — it
     # captures any per-block adjustment the LP applied (per-block fuel
@@ -416,21 +434,15 @@ def topology_from_planning(
     )
 
     gen_by_name = {g.name: g for g in generators}
+    # ``generators`` was built 1:1 from ``generator_array`` (same order),
+    # so the original JSON entry is the one at the same index.
+    gen_json = system.get("generator_array", [])
     n_inherited = 0
     for idx, g_struct in enumerate(generators):
         if g_struct.emission_rate is not None and g_struct.emission_rate != 0.0:
             continue
         # Look up the original JSON entry to read description meta.
-        json_entry = next(
-            (
-                jg
-                for jg in system.get("generator_array", [])
-                if int(jg["uid"]) == g_struct.uid
-            ),
-            None,
-        )
-        if json_entry is None:
-            continue
+        json_entry = gen_json[idx]
         meta = parse_meta(json_entry.get("description"))
         parent_name = meta.get("inherits_emission_from")
         if not parent_name or not isinstance(parent_name, str):

@@ -158,11 +158,6 @@ class _ScheduleTable:
             block_col=block_col,
         )
 
-    def stages(self) -> np.ndarray:
-        if self.stage_col is None:
-            return np.asarray([], dtype=np.int64)
-        return self.df[self.stage_col].to_numpy()
-
     def value_for(self, uid: int) -> np.ndarray | None:
         """Return the per-row series for ``uid:<uid>`` or None if absent."""
         col = f"uid:{uid}"
@@ -266,17 +261,6 @@ def _build_stage_axis(tables: dict[str, _ScheduleTable]) -> np.ndarray:
     return np.asarray(sorted(seen), dtype=np.int64)
 
 
-def _build_stage_block_axis(
-    tables: dict[str, _ScheduleTable],
-) -> pd.DataFrame:
-    """Return a DataFrame with [stage, block] columns derived from any
-    stage-block scheduled field (the union should match in practice)."""
-    for t in tables.values():
-        if t.axis == "stage-block" and t.stage_col and t.block_col:
-            return t.df[[t.stage_col, t.block_col]].copy()
-    return pd.DataFrame({"stage": [], "block": []})
-
-
 def aggregate_line_schedules(
     case_dir: Path,
     input_directory: str,
@@ -314,9 +298,15 @@ def aggregate_line_schedules(
         if stem not in _RULES:
             skipped_unknown.append(stem)
             continue
-        discovered[stem] = _ScheduleTable.from_parquet(
+        table = _ScheduleTable.from_parquet(
             field=stem, axis=_RULES[stem]["axis"], path=p
         )
+        if not table.uid_cols:
+            # Column-less / uid-less schedule (e.g. plp2gtopt with an
+            # empty plpmanli.dat): nothing to aggregate, scalars apply.
+            logger.debug("Line schedule '%s' has no uid columns; skipped", stem)
+            continue
+        discovered[stem] = table
     if skipped_unhandled:
         logger.warning(
             "Line schedules not aggregated in v1 (reduced JSON uses scalar): %s",

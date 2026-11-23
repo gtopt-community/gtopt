@@ -133,23 +133,6 @@ class TopologyNetworkMixin(TopologyIdsMixin):
         # Strip trailing junk so "COLBUN_" becomes "COLBUN" and
         # "ATA-T" stays "ATA-T".
         stem = stem.rstrip("_-. ")
-        # If the stem ends with one trailing letter or digit AND the
-        # NEXT char in every member is the same family (so the
-        # trailing char is the variant suffix), drop it.  Eg first
-        # name "ATA_TG1A", second "ATA_TG1B" → LCP "ATA_TG1" — already
-        # clean.  But "Plant1A" / "Plant1B" → LCP "Plant1" → drop "1".
-        # Conservative: only strip a single trailing digit-or-letter
-        # if every member's next char (at position n-1) is a single
-        # variant char [A-Z0-9].
-        if (
-            len(stem) >= 4
-            and stem[-1].isalnum()
-            and all(n - 1 < len(nm) and nm[n - 1 : n].isalnum() for nm in names)
-            # Only strip when names AFTER the stem actually diverge —
-            # never strip a digit that's part of a shared word.
-            and len({nm[n - 1 : n] for nm in names}) > 1
-        ):
-            stem = stem[:-1].rstrip("_-. ")
         if len(stem) < 3:
             return first
         return stem

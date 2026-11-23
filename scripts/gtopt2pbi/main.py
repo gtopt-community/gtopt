@@ -46,7 +46,11 @@ def _codec_kwargs(compression: str, level: Optional[int]) -> dict:
     codec = (compression or "").lower()
     if codec in _UNCOMPRESSED_ALIASES:
         return {}
-    if not pa.Codec.is_available(codec):
+    try:
+        available = pa.Codec.is_available(codec)
+    except ValueError:  # unknown codec name (e.g. a typo) — not just missing
+        available = False
+    if not available:
         print(
             f"warning: codec '{codec}' unavailable in this Arrow build; "
             "falling back to 'gzip'",

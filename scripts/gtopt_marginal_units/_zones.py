@@ -190,6 +190,8 @@ def build_ptdf(
             )
 
     line_uids = [ln.uid for ln in active_lines]
+    # First row wins on duplicate uids (matches ``list.index``).
+    line_row = {uid: row for row, uid in reversed(list(enumerate(line_uids)))}
     n_lines = len(line_uids)
     n_buses = len(bus_uids)
     ptdf = np.zeros((n_lines, n_buses), dtype=float)
@@ -261,20 +263,9 @@ def build_ptdf(
         # X-matrix for the component: for each line, e_l = (1/x_l) * (e_a − e_b)
         # in local non-ref coordinates.
         for ln in comp_lines_local:
-            try:
-                row = line_uids.index(ln.uid)
-            except ValueError as exc:
-                # A line that's in this component's local list but missing
-                # from ``line_uids`` is a topology-vs-PTDF mismatch — the
-                # PTDF row would be incomplete, silently corrupting
-                # downstream marginal attribution on this line's buses.
-                raise InputValidationError(
-                    f"line uid={ln.uid} (component {zid}, "
-                    f"bus_a={ln.bus_a_uid}, bus_b={ln.bus_b_uid}) is in "
-                    f"the component's line list but missing from the "
-                    f"global ``line_uids`` index — PTDF would be "
-                    f"incomplete. Topology / line array out of sync."
-                ) from exc
+            # ``comp_lines_local`` is a subset of ``active_lines``, whose
+            # uids are exactly ``line_uids``: the lookup cannot miss.
+            row = line_row[ln.uid]
             assert ln.reactance is not None  # require_reactance=True checked above
             inv_x = 1.0 / float(ln.reactance)
             ia = local_index[ln.bus_a_uid]

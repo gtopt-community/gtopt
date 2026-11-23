@@ -55,3 +55,38 @@ def test_main_module_importable() -> None:
     import gtopt_reduce_network.main as cli  # noqa: F401
 
     assert hasattr(cli, "main")
+
+
+def test_cascade_run_options_after_input_are_parsed(tmp_path: Path, monkeypatch):
+    """Regression: an argparse.REMAINDER positional swallowed -K/-o placed
+    after the input path, so the documented invocation always failed."""
+    seen: dict[str, object] = {}
+
+    def fake_cascade(inp: Path, **kwargs: object) -> dict[str, Path]:
+        seen.update(kwargs, input=inp)
+        return {}
+
+    monkeypatch.setattr("gtopt_reduce_network.main.cascade_run", fake_cascade)
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "cascade-run",
+                str(tmp_path / "c.json"),
+                "-K",
+                "3",
+                "-o",
+                str(tmp_path / "out"),
+                "--",
+                "--lp-only",
+                "-K",
+            ]
+        )
+    assert excinfo.value.code == 0
+    assert seen["target_buses"] == 3
+    assert seen["extra_gtopt_args"] == ["--lp-only", "-K"]
+
+
+def test_passthrough_rejected_for_other_subcommands(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main(["reduce", str(tmp_path / "c.json"), "-K", "3", "--", "--x"])
+    assert excinfo.value.code == 2

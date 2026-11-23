@@ -1316,21 +1316,24 @@ class TopologyHydroMixin(TopologyIdsMixin):
         """Return True when a Line is a transformer or very-short line.
 
         Detected by structural marker (``type == "transformer"``) OR by
-        per-unit R+X both below the short-line thresholds.  Lines whose
-        R/X are missing default to "not short" — only positively-tagged
-        candidates qualify.
+        per-unit R+X both below the short-line thresholds.  A line
+        without ``reactance`` is a DC link (never short); an explicit
+        ``reactance: 0`` is a zero-impedance tie (short by definition).
         """
         ltype = (line.get("type") or "").lower()
         if "transformer" in ltype:
             return True
+        x_raw = line.get("reactance")
+        if x_raw is None:
+            return False
         try:
             r = float(line.get("resistance", 0.0) or 0.0)
-            x = float(line.get("reactance", 0.0) or 0.0)
+            x = float(x_raw)
         except (TypeError, ValueError):
             return False
         return (
             0 <= r <= TopologyHydroMixin._SHORT_LINE_R_PU
-            and 0 < x <= TopologyHydroMixin._SHORT_LINE_X_PU
+            and 0 <= x <= TopologyHydroMixin._SHORT_LINE_X_PU
         )
 
     # Stem-detection regex shared between explicit and auto-plant paths.
@@ -1545,12 +1548,9 @@ class TopologyHydroMixin(TopologyIdsMixin):
         # Build name → Node lookup once.  Run even when ``plant_array``
         # is empty so the heuristic auto-detection still groups
         # turbines sharing a junction.
+        # Generators carry their canonical name as the label stem; trust
+        # the JSON name field by looking up via _gid.
         gen_by_name: dict[str, Node] = {}
-        for node in self.model.nodes:
-            if node.kind in ("generator", "battery"):
-                # Generators carry their canonical name as the label
-                # stem; trust the JSON name field by looking up via _gid.
-                pass
         for g in self.sys.get("generator_array", []):
             gid = self._gid(g)
             for node in self.model.nodes:
@@ -1789,13 +1789,9 @@ class TopologyHydroMixin(TopologyIdsMixin):
 
         # Each connected component is a candidate basin.
         groups: dict[str, list[str]] = {}
-        for i, comp_nodes in enumerate(nx.connected_components(graph)):
-            members = sorted(comp_nodes)
-            if not members:
-                continue
-            root = members[0]  # canonical key (lexicographic minimum)
-            groups[root] = members
-            _ = i  # quiet pylint when networkx returns lazily
+        for comp_nodes in nx.connected_components(graph):
+            members = sorted(comp_nodes)  # components are never empty
+            groups[members[0]] = members  # key: lexicographic minimum
 
         # Identify "interesting" junctions — those with at least one
         # hydro element attached (reservoir, turbine, flow source, or
@@ -2114,24 +2110,13 @@ class TopologyHydroMixin(TopologyIdsMixin):
         # Build node-id → family map.  For aggregated nodes, the
         # family is well-defined only when ALL member gens share it.
         nid_family: dict = {}
-        agg_members: dict = {}  # nid → list of gen-uids represented
-        for g in self.sys.get("generator_array", []) or []:
-            gid = self._gid(g)
-            agg_members.setdefault(gid, []).append(g.get("uid"))
         # ``_resolve_gen_node_id`` returns the rendered node id for any
         # generator (respects aggregation).  Group gens by their
         # rendered node id, then assign that node a family only when
         # every member agrees.
         rendered_by_gen: dict = {}
-        try:
-            resolver_fn = self._resolve_gen_node_id
-        except AttributeError:
-            resolver_fn = None
         for g in self.sys.get("generator_array", []) or []:
-            if resolver_fn:
-                rid = resolver_fn(g.get("uid")) or self._gid(g)
-            else:
-                rid = self._gid(g)
+            rid = self._resolve_gen_node_id(g.get("uid")) or self._gid(g)
             rendered_by_gen.setdefault(rid, []).append(g.get("uid"))
 
         from collections import Counter  # noqa: PLC0415
@@ -2198,6 +2183,60 @@ class TopologyHydroMixin(TopologyIdsMixin):
             bus_by_uid[uid] = b
         return ref_to_uid, bus_by_uid
 
+    @staticmethod
+    def _line_reactance(ln: dict) -> float:
+        """Return the line reactance as float (0.0 when absent/invalid)."""
+        try:
+            return float(ln.get("reactance") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @classmethod
+    def _reactance_or_one(cls, ln: dict) -> float:
+        """Line reactance, or 1.0 when it is absent / non-positive."""
+        w = cls._line_reactance(ln)
+        return w if w > 0.0 else 1.0
+
+    def _ac_graph(
+        self,
+        buses: list,
+        lines: list,
+        *,
+        skip_dc: bool = False,
+        weight=None,
+    ):
+        """Build the bus/line ``networkx.Graph`` keyed by canonical bus uid.
+
+        Every bus with a uid is a node.  Inactive lines, self-loops and
+        lines with an unresolvable endpoint are skipped; with *skip_dc*
+        HVDC/DC lines are skipped too.  When *weight* is given, each edge
+        gets ``weight=weight(line)``.
+
+        Returns ``(graph, ref_to_uid, bus_by_uid)``.
+        """
+        import networkx as nx  # noqa: PLC0415
+
+        ref_to_uid, bus_by_uid = self._bus_ref_resolver(buses)
+        graph = nx.Graph()
+        for uid in bus_by_uid:
+            graph.add_node(uid)
+        for ln in lines:
+            if skip_dc:
+                ltype = (ln.get("type") or "").lower()
+                if "dc" in ltype or "hvdc" in ltype:
+                    continue
+            if ln.get("active") in (0, False, "0", "false"):
+                continue
+            a = ref_to_uid.get(ln.get("bus_a"))
+            b = ref_to_uid.get(ln.get("bus_b"))
+            if a is None or b is None or a == b:
+                continue
+            if weight is None:
+                graph.add_edge(a, b)
+            else:
+                graph.add_edge(a, b, weight=weight(ln))
+        return graph, ref_to_uid, bus_by_uid
+
     # ─── N1: critical topology (bridges + articulation points) ───────────────
     def _critical_topology(self):
         """Mark AC bridges and articulation points (N-1 single-failure).
@@ -2213,21 +2252,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
         if not buses or not lines:
             return
 
-        ref_to_uid, bus_by_uid = self._bus_ref_resolver(buses)
-        graph = nx.Graph()
-        for uid in bus_by_uid:
-            graph.add_node(uid)
-        for ln in lines:
-            ltype = (ln.get("type") or "").lower()
-            if "dc" in ltype or "hvdc" in ltype:
-                continue
-            if ln.get("active") in (0, False, "0", "false"):
-                continue
-            a = ref_to_uid.get(ln.get("bus_a"))
-            b = ref_to_uid.get(ln.get("bus_b"))
-            if a is None or b is None or a == b:
-                continue
-            graph.add_edge(a, b)
+        graph, _, bus_by_uid = self._ac_graph(buses, lines, skip_dc=True)
 
         if graph.number_of_edges() == 0:
             return
@@ -2272,7 +2297,6 @@ class TopologyHydroMixin(TopologyIdsMixin):
         ``_basins`` runs after this and uses ``super_cluster`` to mean
         ``basin:X`` on the water side.  Same field, disjoint node types.
         """
-        import networkx as nx  # noqa: PLC0415
         from networkx.algorithms import community as nx_community  # noqa: PLC0415
 
         buses = self.sys.get("bus_array", []) or []
@@ -2280,21 +2304,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
         if len(buses) < 6 or not lines:
             return
 
-        ref_to_uid, bus_by_uid = self._bus_ref_resolver(buses)
-        graph = nx.Graph()
-        for uid in bus_by_uid:
-            graph.add_node(uid)
-        for ln in lines:
-            ltype = (ln.get("type") or "").lower()
-            if "dc" in ltype or "hvdc" in ltype:
-                continue
-            if ln.get("active") in (0, False, "0", "false"):
-                continue
-            a = ref_to_uid.get(ln.get("bus_a"))
-            b = ref_to_uid.get(ln.get("bus_b"))
-            if a is None or b is None or a == b:
-                continue
-            graph.add_edge(a, b)
+        graph, ref_to_uid, bus_by_uid = self._ac_graph(buses, lines, skip_dc=True)
 
         if graph.number_of_edges() == 0:
             return
@@ -2485,27 +2495,12 @@ class TopologyHydroMixin(TopologyIdsMixin):
         if len(buses) < 4 or not lines:
             return
 
-        ref_to_uid, bus_by_uid = self._bus_ref_resolver(buses)
-        graph = nx.Graph()
-        for uid in bus_by_uid:
-            graph.add_node(uid)
-        for ln in lines:
-            ltype = (ln.get("type") or "").lower()
-            if "dc" in ltype or "hvdc" in ltype:
-                continue
-            if ln.get("active") in (0, False, "0", "false"):
-                continue
-            a = ref_to_uid.get(ln.get("bus_a"))
-            b = ref_to_uid.get(ln.get("bus_b"))
-            if a is None or b is None or a == b:
-                continue
-            try:
-                w = float(ln.get("reactance") or 0.0)
-            except (TypeError, ValueError):
-                w = 0.0
-            if w <= 0.0:
-                w = 1.0
-            graph.add_edge(a, b, weight=w)
+        graph, _, _ = self._ac_graph(
+            buses,
+            lines,
+            skip_dc=True,
+            weight=self._reactance_or_one,
+        )
 
         if graph.number_of_edges() < 2:
             return
@@ -2561,18 +2556,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
         if len(buses) < 2:
             return  # single-bus copper plate is intentionally "isolated".
 
-        ref_to_uid, bus_by_uid = self._bus_ref_resolver(buses)
-        graph = nx.Graph()
-        for uid in bus_by_uid:
-            graph.add_node(uid)
-        for ln in lines:
-            if ln.get("active") in (0, False, "0", "false"):
-                continue
-            a = ref_to_uid.get(ln.get("bus_a"))
-            b = ref_to_uid.get(ln.get("bus_b"))
-            if a is None or b is None or a == b:
-                continue
-            graph.add_edge(a, b)
+        graph, _, bus_by_uid = self._ac_graph(buses, lines)
 
         isolated_uids = set(nx.isolates(graph))
         if not isolated_uids:
@@ -2607,18 +2591,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
         if not generators or not demands or not lines or len(buses) < 2:
             return
 
-        ref_to_uid, bus_by_uid = self._bus_ref_resolver(buses)
-        graph = nx.Graph()
-        for uid in bus_by_uid:
-            graph.add_node(uid)
-        for ln in lines:
-            if ln.get("active") in (0, False, "0", "false"):
-                continue
-            a = ref_to_uid.get(ln.get("bus_a"))
-            b = ref_to_uid.get(ln.get("bus_b"))
-            if a is None or b is None or a == b:
-                continue
-            graph.add_edge(a, b)
+        graph, ref_to_uid, _ = self._ac_graph(buses, lines)
 
         demand_bus_uids: set = set()
         for d in demands:
@@ -2671,18 +2644,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
         if len(buses) < 8 or not lines:
             return
 
-        ref_to_uid, bus_by_uid = self._bus_ref_resolver(buses)
-        graph = nx.Graph()
-        for uid in bus_by_uid:
-            graph.add_node(uid)
-        for ln in lines:
-            if ln.get("active") in (0, False, "0", "false"):
-                continue
-            a = ref_to_uid.get(ln.get("bus_a"))
-            b = ref_to_uid.get(ln.get("bus_b"))
-            if a is None or b is None or a == b:
-                continue
-            graph.add_edge(a, b)
+        graph, _, bus_by_uid = self._ac_graph(buses, lines)
 
         if graph.number_of_edges() == 0:
             return
@@ -2725,22 +2687,9 @@ class TopologyHydroMixin(TopologyIdsMixin):
         if not buses or not lines:
             return
 
-        ref_to_uid, bus_by_uid = self._bus_ref_resolver(buses)
-        graph = nx.Graph()
-        for uid in bus_by_uid:
-            graph.add_node(uid)
-        for ln in lines:
-            if ln.get("active") in (0, False, "0", "false"):
-                continue
-            a = ref_to_uid.get(ln.get("bus_a"))
-            b = ref_to_uid.get(ln.get("bus_b"))
-            if a is None or b is None or a == b:
-                continue
-            try:
-                w = float(ln.get("reactance") or 0.0)
-            except (TypeError, ValueError):
-                w = 0.0
-            graph.add_edge(a, b, weight=max(w, 0.001))
+        graph, ref_to_uid, bus_by_uid = self._ac_graph(
+            buses, lines, weight=lambda ln: max(self._line_reactance(ln), 0.001)
+        )
 
         focus_uids: set = {ref_to_uid.get(f) for f in focus}
         focus_uids.discard(None)
@@ -2788,18 +2737,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
         if len(buses) < 3 or not lines:
             return
 
-        ref_to_uid, bus_by_uid = self._bus_ref_resolver(buses)
-        graph = nx.Graph()
-        for uid in bus_by_uid:
-            graph.add_node(uid)
-        for ln in lines:
-            if ln.get("active") in (0, False, "0", "false"):
-                continue
-            a = ref_to_uid.get(ln.get("bus_a"))
-            b = ref_to_uid.get(ln.get("bus_b"))
-            if a is None or b is None or a == b:
-                continue
-            graph.add_edge(a, b)
+        graph, _, bus_by_uid = self._ac_graph(buses, lines)
 
         if graph.number_of_edges() < 3:
             return

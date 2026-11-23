@@ -372,11 +372,10 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     # constraint — valid.  Bus refs are remapped to the endpoint's cluster
     # representative (itself, for an anchor) for robustness.
     if protected_line_uids:
+        # Protected uids were collected from this very line_array.
         by_uid = {int(ln["uid"]): ln for ln in original_line_array}
         for u in sorted(protected_line_uids):
-            src = by_uid.get(u)
-            if src is None:
-                continue
+            src = by_uid[u]
             entry = dict(src)
             for end in ("bus_a", "bus_b"):
                 try:

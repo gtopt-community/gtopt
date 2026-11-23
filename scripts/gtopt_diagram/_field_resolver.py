@@ -19,6 +19,20 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _select_or_first(df: "Any", col: str, wanted: int) -> "Any":
+    """Return the rows of *df* where *col* == *wanted*.
+
+    When no row matches, return the rows of the first value of *col*
+    instead.  Frames without *col* (or empty frames) pass through.
+    """
+    if col not in df.columns:
+        return df
+    match = df[df[col] == wanted]
+    if match.empty and len(df) > 0:
+        match = df[df[col] == df[col].iloc[0]]
+    return match
+
+
 class FieldSchedResolver:
     """Resolve FieldSched file references to numeric values.
 
@@ -139,37 +153,14 @@ class FieldSchedResolver:
 
     def _extract_row(self, df: "Any") -> dict[int, float]:
         """Extract values from a DataFrame for the selected scenario/stage/block."""
-        # Filter by scenario, stage, block if columns exist
-        if "scenario" in df.columns:
-            match = df[df["scenario"] == self._scenario]
-            if match.empty:
-                # Fall back to first scenario
-                first_scen = df["scenario"].iloc[0] if len(df) > 0 else None
-                if first_scen is not None:
-                    match = df[df["scenario"] == first_scen]
-                else:
-                    match = df
-            df = match
-
-        if "stage" in df.columns:
-            match = df[df["stage"] == self._stage]
-            if match.empty:
-                first_stage = df["stage"].iloc[0] if len(df) > 0 else None
-                if first_stage is not None:
-                    match = df[df["stage"] == first_stage]
-                else:
-                    match = df
-            df = match
-
-        if "block" in df.columns:
-            match = df[df["block"] == self._block]
-            if match.empty:
-                first_block = df["block"].iloc[0] if len(df) > 0 else None
-                if first_block is not None:
-                    match = df[df["block"] == first_block]
-                else:
-                    match = df
-            df = match
+        # Filter by scenario, stage, block if columns exist; a selection
+        # absent from the file falls back to the first value present.
+        for col, wanted in (
+            ("scenario", self._scenario),
+            ("stage", self._stage),
+            ("block", self._block),
+        ):
+            df = _select_or_first(df, col, wanted)
 
         result: dict[int, float] = {}
 

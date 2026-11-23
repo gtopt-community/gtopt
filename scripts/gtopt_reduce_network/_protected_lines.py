@@ -80,9 +80,7 @@ def collect_protected_lines(
 
     endpoint_buses: set[int] = set()
     for uid in protected_uids:
-        ln = line_by_uid.get(uid)
-        if ln is None:
-            continue
+        ln = line_by_uid[uid]  # protected uids come from line_by_uid
         for end in ("bus_a", "bus_b"):
             try:
                 b = resolve_bus_ref(case, ln.get(end))

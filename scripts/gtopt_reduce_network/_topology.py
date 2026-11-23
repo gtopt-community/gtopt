@@ -4,16 +4,19 @@
 Operates on numpy arrays / dicts derived from a Case to keep the topology
 math independent of the JSON serialisation.
 
-DC lines: gtopt models an HVDC line as a line without reactance (or
-X = 0) — the KVL emitter skips it (``kirchhoff_node_angle.cpp``) and only
-its capacity bounds apply — optionally tagged ``type: "dc"``.  The line
-graph mirrors that: such lines are KEPT, flagged in ``line_is_dc``, carry
-``line_x = inf`` internally (so ``1/x`` contributes 0 susceptance), and
-are excluded from every reactance-based computation while keeping their
-transfer capability for clustering and corridor aggregation.  Lines with
+DC lines: gtopt models an HVDC line as a line WITHOUT a reactance — the
+KVL emitter skips it (``kirchhoff_node_angle.cpp``) and only its capacity
+bounds apply — optionally tagged ``type: "dc"``.  (An explicit ``X = 0``
+or a tiny ``X`` is NOT DC in gtopt: under the default
+``model_options.tiny_reactance_mode = "tie"`` it is a zero-impedance tie
+forcing equal bus angles.)  The line graph keeps DC lines, flags them in
+``line_is_dc``, gives them ``line_x = inf`` internally (so ``1/x``
+contributes 0 susceptance), and excludes them from every reactance-based
+computation while keeping their transfer capability for clustering and
+corridor aggregation.  As a REDUCTION choice, lines with
 ``X <= dc_reactance_threshold`` (near-jumpers whose huge ``1/X`` would
-wreck KVL conditioning) are treated the same way — the Python analogue of
-gtopt's ``model_options.dc_line_reactance_threshold``.
+wreck KVL conditioning) are reclassified DC as well; their aggregated
+equivalents are emitted without reactance, so gtopt sees them as DC.
 """
 
 from __future__ import annotations
@@ -85,11 +88,13 @@ def build_line_graph(
     A line is classified DC when ANY of:
 
     * it carries ``type: "dc"``;
-    * its ``reactance`` is missing / non-scalar / ``X <=
-      dc_reactance_threshold`` (per-unit) — mirroring gtopt's own KVL
-      emitter, which skips those lines (``kirchhoff_node_angle.cpp``; C++
-      analogue ``model_options.dc_line_reactance_threshold``).  With the
-      threshold at ``0.0`` only ``X <= 0`` lines qualify; the default
+    * its ``reactance`` is missing / non-scalar (a DC line in gtopt, whose
+      KVL emitter skips it) or ``X <= dc_reactance_threshold`` (per-unit) —
+      a reduction choice: gtopt itself turns such lines into zero-impedance
+      ties (``model_options.tiny_reactance_mode = "tie"``) unless
+      ``tiny_reactance_mode = "dc"``; the reduced case emits them without
+      reactance, i.e. as DC.  With the threshold at ``0.0`` only
+      ``X <= 0`` lines qualify; the default
       ``1e-4`` is the PSS/E ``THRSHZ`` closed-switch standard, capturing
       near-jumper lines whose huge ``1/X`` susceptance would wreck KVL
       conditioning without pulling real backbone segments out of KVL;
@@ -248,19 +253,6 @@ def build_undirected_adjacency(graph: LineGraph) -> csr_matrix:
         cols.extend((b_i, a_i))
         data.extend((x_eq, x_eq))
     return csr_matrix((data, (rows, cols)), shape=(n, n))
-
-
-def find_parallel_groups(graph: LineGraph) -> dict[tuple[int, int], list[int]]:
-    """Group line *positions* (not uids) by their unordered (a, b) endpoints."""
-    groups: dict[tuple[int, int], list[int]] = {}
-    for pos, (a, b) in enumerate(zip(graph.line_a, graph.line_b)):
-        a_i, b_i = int(a), int(b)
-        if a_i == b_i:
-            continue
-        if a_i > b_i:
-            a_i, b_i = b_i, a_i
-        groups.setdefault((a_i, b_i), []).append(pos)
-    return groups
 
 
 def _line_active(line: dict[str, Any]) -> bool:

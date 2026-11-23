@@ -211,9 +211,9 @@ def _degree2_eliminate(state: _State, *, untouchable: set[int]) -> int:
     eliminated = 0
     # Snapshot to allow mutation while iterating.
     candidates = [u for u in list(state.bus_uids) if u not in untouchable]
+    # Only the bus being processed is ever discarded, so every remaining
+    # candidate is still present in ``state.bus_uids``.
     for bus in candidates:
-        if bus not in state.bus_uids:
-            continue  # already removed during this pass
         incident = state.incident.get(bus, set())
         if len(incident) != 2:
             continue

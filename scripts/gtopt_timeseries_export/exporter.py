@@ -46,12 +46,10 @@ def _safe_sheet_name(name: str, seen: set[str]) -> str:
 def _autofit(worksheet) -> None:
     """Set a reasonable column width for every column in a worksheet."""
     for column_cells in worksheet.columns:
-        try:
-            max_len = max(
-                len(str(c.value)) if c.value is not None else 0 for c in column_cells
-            )
-        except ValueError:
-            max_len = 10
+        # openpyxl never yields an empty column tuple, so max() is safe.
+        max_len = max(
+            len(str(c.value)) if c.value is not None else 0 for c in column_cells
+        )
         width = min(max(10, max_len + 2), 40)
         # Column letter via the first cell
         col_letter = column_cells[0].column_letter
@@ -94,7 +92,7 @@ def export_from_dict(
         # pylint: disable=import-outside-toplevel
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Font, PatternFill
-    except ImportError as exc:  # pragma: no cover
+    except ImportError as exc:
         raise RuntimeError(
             "openpyxl is required for gtopt_timeseries_export; install it with "
             "`pip install openpyxl`."

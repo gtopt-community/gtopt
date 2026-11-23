@@ -415,3 +415,50 @@ def test_empty_tag_short_circuits(tmp_path: Path) -> None:
     )
     assert not out
     assert not list(line_dir.glob("*_*.parquet"))
+
+
+# ─── Degenerate (column-less) schedules ─────────────────────────────────
+
+
+def test_columnless_schedules_are_skipped(tmp_path: Path) -> None:
+    """Regression: plp2gtopt writes column-less ``Line/{active,tmax_ab,
+    tmax_ba}.parquet`` when ``plpmanli.dat`` has no maintenance.  They used
+    to crash the stage-block aggregation with ``KeyError: 'stage'``."""
+    case_dir = tmp_path / "case"
+    line_dir = case_dir / "Line"
+    line_dir.mkdir(parents=True)
+    for stem in ("active", "tmax_ab", "tmax_ba"):
+        pd.DataFrame().to_parquet(line_dir / f"{stem}.parquet")
+    out = aggregate_line_schedules(
+        case_dir=case_dir,
+        input_directory=".",
+        reduced_tag="t",
+        aggregated_lines=[_eq(99, absorbed=[1, 2])],
+        original_line_array=[_line(1), _line(2)],
+    )
+    assert not out
+    assert not list(line_dir.glob("*_t.parquet"))
+
+
+def test_columnless_active_with_real_tmax_ab(tmp_path: Path) -> None:
+    """A column-less active schedule is ignored; tmax_ab still aggregates."""
+    case_dir = tmp_path / "case"
+    line_dir = case_dir / "Line"
+    line_dir.mkdir(parents=True)
+    pd.DataFrame().to_parquet(line_dir / "active.parquet")
+    _write_block_parquet(
+        line_dir / "tmax_ab.parquet",
+        stages=[1, 1],
+        blocks=[1, 2],
+        cols={1: [50.0, 60.0]},
+    )
+    out = aggregate_line_schedules(
+        case_dir=case_dir,
+        input_directory=".",
+        reduced_tag="t",
+        aggregated_lines=[_eq(99, absorbed=[1, 2])],
+        original_line_array=[_line(1), _line(2)],
+    )
+    assert out == {"tmax_ab": "tmax_ab_t"}
+    df = _read_parquet(line_dir / "tmax_ab_t.parquet")
+    assert df["uid:99"].tolist() == pytest.approx([150.0, 160.0])

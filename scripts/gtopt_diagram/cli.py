@@ -20,6 +20,7 @@ from gtopt_config import (
     add_log_level_argument,
     add_version_argument,
 )
+from gtopt_diagram._field_resolver import FieldSchedResolver
 from gtopt_diagram._graph_model import FilterOptions
 from gtopt_diagram._planning_diagram import (
     _build_planning_html,
@@ -413,14 +414,13 @@ Examples (gtopt_case_2y is in $GTOPT_CASES_DIR/chile/medium_long_term):
             try:
                 import cairosvg  # noqa: PLC0415
 
+                # Only png / pdf reach here (argparse choices).
                 if fmt == "png":
                     cairosvg.svg2png(
                         bytestring=svg_src.encode(), write_to=out, scale=2.0
                     )
-                elif fmt == "pdf":
-                    cairosvg.svg2pdf(bytestring=svg_src.encode(), write_to=out)
                 else:
-                    Path(out).write_text(svg_src, encoding="utf-8")
+                    cairosvg.svg2pdf(bytestring=svg_src.encode(), write_to=out)
             except ImportError:
                 logger.warning("cairosvg not found; writing SVG instead")
                 out = out.rsplit(".", 1)[0] + ".svg"
@@ -513,25 +513,16 @@ Examples (gtopt_case_2y is in $GTOPT_CASES_DIR/chile/medium_long_term):
         ),
     )
     # Create resolver for file-referenced field values (pmax, lmax, etc.)
+    # relative to the JSON file's directory + options.input_directory.
     resolver = None
-    input_path = getattr(args, "input", None)
-    if input_path:
-        base_dir = str(Path(input_path).parent)
-        input_dir = planning.get("options", {}).get("input_directory", ".")
-        try:
-            from gtopt_diagram._field_resolver import (  # noqa: PLC0415
-                FieldSchedResolver,
-            )
-
-            resolver = FieldSchedResolver(
-                base_dir=base_dir,
-                input_dir=input_dir,
-                scenario=getattr(args, "scenario", 1),
-                stage=getattr(args, "stage", 1),
-                block=getattr(args, "block", 1),
-            )
-        except Exception:  # pylint: disable=broad-except
-            logger.debug("FieldSchedResolver not available; file references unresolved")
+    if args.json_file:
+        resolver = FieldSchedResolver(
+            base_dir=str(Path(args.json_file).parent),
+            input_dir=planning.get("options", {}).get("input_directory", "."),
+            scenario=args.scenario,
+            stage=args.stage,
+            block=args.block,
+        )
 
     builder = TopologyBuilder(
         planning, subsystem=args.subsystem, opts=opts, resolver=resolver

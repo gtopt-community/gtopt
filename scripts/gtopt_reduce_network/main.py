@@ -76,23 +76,35 @@ def main(argv: list[str] | None = None) -> None:
         )
     )
 
-    args = parser.parse_args(argv)
+    # Everything after the first bare ``--`` is forwarded verbatim to gtopt
+    # (cascade-run only).  Split it off BEFORE argparse sees it: an
+    # ``argparse.REMAINDER`` positional would also swallow every option
+    # that follows the input path (``cascade-run case.json -K 3 ...``).
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    passthrough: list[str] = []
+    if "--" in raw_argv:
+        sep = raw_argv.index("--")
+        raw_argv, passthrough = raw_argv[:sep], raw_argv[sep + 1 :]
+    args = parser.parse_args(raw_argv)
+    if args.cmd == "cascade-run":
+        args.extra_gtopt_args = passthrough
+    elif passthrough:
+        parser.error(f"unrecognized arguments: -- {' '.join(passthrough)}")
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    # argparse (``required=True`` subparsers) guarantees ``args.cmd`` is
+    # one of these keys.
+    handlers = {
+        "reduce": _cmd_reduce,
+        "project-results": _cmd_project_results,
+        "project-investment": _cmd_project_investment,
+        "cascade-run": _cmd_cascade_run,
+    }
     try:
-        if args.cmd == "reduce":
-            _cmd_reduce(args)
-        elif args.cmd == "project-results":
-            _cmd_project_results(args)
-        elif args.cmd == "project-investment":
-            _cmd_project_investment(args)
-        elif args.cmd == "cascade-run":
-            _cmd_cascade_run(args)
-        else:
-            parser.error(f"unknown subcommand {args.cmd!r}")
+        handlers[args.cmd](args)
     except (FileNotFoundError, ValueError, KeyError) as exc:
         logging.error("%s", exc)
         sys.exit(1)
@@ -177,8 +189,10 @@ def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
             "lines with per-unit reactance <= X are treated as DC (no KVL, "
             "transport capacity only): near-jumper lines whose huge 1/X "
             "susceptance would wreck KVL conditioning.  Default 1e-4 = "
-            "PSS/E THRSHZ closed-switch standard.  GTOpt analogue: "
-            "model_options.dc_line_reactance_threshold"
+            "PSS/E THRSHZ closed-switch standard.  The reduced case "
+            "emits them without reactance (DC); note gtopt itself treats "
+            "tiny/zero X as a zero-impedance tie "
+            "(model_options.tiny_reactance_mode='tie')"
         ),
     )
     p.add_argument(
@@ -515,17 +529,11 @@ def _add_cascade_run_parser(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="also run gtopt on the original full case for comparison",
     )
-    p.add_argument(
-        "extra_gtopt_args",
-        nargs=argparse.REMAINDER,
-        help="extra arguments forwarded to gtopt after '--'",
-    )
+    p.epilog = "Arguments after a bare '--' are forwarded verbatim to gtopt."
 
 
 def _cmd_cascade_run(args: argparse.Namespace) -> None:
-    extras = list(args.extra_gtopt_args or [])
-    if extras and extras[0] == "--":
-        extras = extras[1:]
+    extras = list(args.extra_gtopt_args)
     paths = cascade_run(
         args.input,
         target_buses=args.target_buses,

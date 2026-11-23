@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import sys
 
+import pandas as pd
 import pytest
 
 from gtopt_results_summary import summarize_output_dict, summarize_results
@@ -180,6 +182,48 @@ def test_summarize_results_dir(tmp_path):
     assert s["status"] == "0"
     assert s["obj_value"] == pytest.approx(3000.0)
     assert s["obj_value_raw"] == pytest.approx(3.0)
+
+
+def test_summarize_results_dir_current_layouts(tmp_path):
+    """Regression: per-(scene, phase) CSV shards and hive Parquet datasets.
+
+    gtopt writes ``<stem>_s<N>_p<M>.csv`` (CSV) or
+    ``<stem>.parquet/scene=N/phase=M/part.parquet`` (Parquet).  Both used
+    to be keyed by their raw file name, so every KPI silently read 0.
+    """
+    long_rows = "scenario,stage,block,uid,value\n"
+    csv_dir = tmp_path / "csv_out"
+    (csv_dir / "Generator").mkdir(parents=True)
+    (csv_dir / "solution.csv").write_text(_solution_csv(3000.0))
+    (csv_dir / "Generator" / "generation_sol_s0_p0.csv").write_text(
+        long_rows + "1,1,1,1,100.0\n"
+    )
+    (csv_dir / "Generator" / "generation_sol_s0_p1.csv").write_text(
+        long_rows + "1,2,2,1,200.0\n"
+    )
+    s = summarize_results(csv_dir)
+    assert s["total_generation"] == pytest.approx(300.0)
+    assert s["n_generators"] == 1
+
+    pq_dir = tmp_path / "pq_out"
+    (pq_dir / "solution.csv").parent.mkdir(parents=True)
+    (pq_dir / "solution.csv").write_text(_solution_csv(3000.0))
+    for phase, value in ((0, 100.0), (1, 200.0)):
+        part = pq_dir / "Generator" / "generation_sol.parquet" / "scene=0"
+        part = part / f"phase={phase}"
+        part.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "scenario": [1],
+                "stage": [phase + 1],
+                "block": [1],
+                "uid": [1],
+                "value": [value],
+            }
+        ).to_parquet(part / "part.parquet")
+    s = summarize_results(pq_dir)
+    assert s["total_generation"] == pytest.approx(300.0)
+    assert s["n_generators"] == 1
 
 
 def test_cli_pretty(tmp_path, capsys):
@@ -422,3 +466,27 @@ def test_counts_from_generation_sol():
     assert s["n_generators"] == 3
     assert s["n_buses"] == 2
     assert s["n_lines"] == 1
+
+
+@pytest.mark.parametrize("as_zip", [False, True])
+def test_unreadable_lone_shard_is_skipped_not_fatal(tmp_path, monkeypatch, as_zip):
+    """Regression: an empty/corrupt output file that is the ONLY shard of
+    its table used to leave an empty frame list behind and crash the whole
+    summary with IndexError; it must just be skipped."""
+    out = tmp_path / "output"
+    (out / "Demand").mkdir(parents=True)
+    (out / "solution.csv").write_text(_solution_csv(5000.0), encoding="utf-8")
+    (out / "Demand" / "fail_sol_s0_p0.csv").write_bytes(b"")
+    source = out
+    if as_zip:
+        # Force the inline ZIP parser (guiservice.app not importable).
+        monkeypatch.setitem(sys.modules, "guiservice.app", None)
+        import zipfile as zfmod
+
+        source = tmp_path / "out.zip"
+        with zfmod.ZipFile(source, "w") as zf:
+            zf.writestr("solution.csv", _solution_csv(5000.0))
+            zf.writestr("Demand/fail_sol_s0_p0.csv", "")
+    s = summarize_results(source)
+    assert s["total_unserved"] == 0.0
+    assert s["obj_value"] == pytest.approx(5000.0)

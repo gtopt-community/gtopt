@@ -622,9 +622,9 @@ def _process_cells(
             zid = zone_of.get(bus_uid)
             if zid is None:
                 continue
-            zres = zone_results.get(zid)
-            if zres is None:
-                continue
+            # Both partition paths emit a result for every zone id in
+            # ``zone_of`` (LP-dual zones and R3 zones alike).
+            zres = zone_results[zid]
             zone_lmp = float(zres.lambda_z)
             # Emit one row per generator at this bus that contributed.
             gens_at_bus = [g for g in topology.generators if g.bus_uid == bus_uid]
