@@ -207,9 +207,8 @@ private:
     opts.model_options.demand_fail_cost = 1000.0;
     // Deliberately NOT setting model_options.reserve_shortage_cost:
     // the zone requirement must stay a hard row (see file header).
-    if (loss_cost_eps > 0.0) {
-      opts.model_options.loss_cost_eps = loss_cost_eps;
-    }
+    // Always explicit: 0 must disable ε (the unset default is 0.1).
+    opts.model_options.loss_cost_eps = loss_cost_eps;
     opts.lp_matrix_options.col_with_names = true;
     opts.lp_matrix_options.row_with_names = true;
     opts.lp_matrix_options.col_with_name_map = true;

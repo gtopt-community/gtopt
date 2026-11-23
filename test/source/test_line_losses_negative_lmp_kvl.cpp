@@ -185,9 +185,8 @@ private:
     opts.model_options.kirchhoff_mode = std::string("cycle_basis");
     opts.model_options.scale_objective = 1000.0;
     opts.model_options.demand_fail_cost = 1000.0;
-    if (knobs.loss_cost_eps > 0.0) {
-      opts.model_options.loss_cost_eps = knobs.loss_cost_eps;
-    }
+    // Always explicit: 0 must disable ε (the unset default is 0.1).
+    opts.model_options.loss_cost_eps = knobs.loss_cost_eps;
     opts.lp_matrix_options.col_with_names = true;
     opts.lp_matrix_options.row_with_names = true;
     opts.lp_matrix_options.col_with_name_map = true;
@@ -608,7 +607,16 @@ TEST_CASE(
   CAPTURE(loss14);
 
   CHECK(std::abs(f14) > 10.0);
-  CHECK(v14 <= std::abs(f14) + 0.01);
+  // v is pinned to |f| only by the internal 1e-6 $/MWh tie-break
+  // (kFlowAbsPinEps), i.e. 1e-9 in LP units at scale_objective 1000:
+  // below every solver's dual tolerance, so inflating v is optimal
+  // within tolerance (HiGHS 1.12 returns v = the 1000 MW envelope,
+  // 1.15 returns |f|).  Assert the abs row and that the pin is
+  // present, not the solver's tie-break.
+  CHECK(v14 >= std::abs(f14) - 0.01);
+  CHECK(li.get_obj_coeff()[static_cast<std::size_t>(
+            value_of(find_col(li, "line_flow_abs_4_")))]
+        > 0.0);
   // ℓ collapses to the tangent lower envelope: within c·f² from above.
   CHECK(loss14 <= (kCLoss * f14 * f14) + 1e-4);
 }

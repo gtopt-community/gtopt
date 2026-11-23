@@ -20,46 +20,12 @@
 namespace gtopt::line_losses
 {
 
-// ─── Refactor TODO (issue #504 follow-up) ───────────────────────────
-//
-// This translation unit currently aggregates EVERY loss-mode
-// implementation (none / linear / piecewise / bidirectional /
-// piecewise_direct / tangent_signed_flow) plus the public geometry
-// helpers (loss_segment_geometry, loss_tangent_geometry,
-// compute_adaptive_loss_segments, compute_dynamic_loss_layout) plus
-// the dispatcher add_block.  At ~2700 LOC it's the largest TU in
-// gtopt and compiles in ~3.5 s — meaningful build-time tail and
-// awkward review surface when adding a new mode.
-//
-// Pending modular split (post-#504, separate non-functional PR):
-//
-//   include/gtopt/line_losses_detail.hpp
-//       — declares the per-mode `detail::add_*` API + shared helpers
-//         (apply_loss_allocation, add_capacity_row,
-//         kLossCoeffTolerance, kLossLpRowTolerance) in
-//         `gtopt::line_losses::detail` namespace.
-//   source/line_losses.cpp
-//       — keeps resolve_mode, make_config, the dispatcher add_block,
-//         and the public geometry helpers.  ~600 LOC.
-//   source/line_losses_helpers.cpp
-//       — shared `detail::` helpers (apply_*, add_capacity_row, the
-//         seg_geom / midpoint_debias_offset utilities, the tangent
-//         and segment stamping helpers).  ~500 LOC.
-//   source/line_losses_linear.cpp                 — add_none + add_linear
-//   source/line_losses_piecewise.cpp              — add_piecewise (incl.
-//                                                    add_piecewise_shared)
-//   source/line_losses_bidirectional.cpp          — add_bidirectional +
-//                                                    add_direction
-//   source/line_losses_piecewise_direct.cpp       — add_piecewise_direct
-//   source/line_losses_tangent_signed_flow.cpp    — add_tangent_signed_flow
-//                                                    (issue #504 home —
-//                                                    L-secant + SOS2)
-//
-// The split is non-functional (just moves code) so it warrants its
-// own focused commit with no schema or LP-row changes — easier to
-// review, easier to bisect.  See the conversation that landed
-// PR #511.
-// ────────────────────────────────────────────────────────────────────
+// TODO(issue #504 follow-up): this ~2900-LOC TU holds every loss mode
+// plus the geometry helpers and the add_block dispatcher.  Split it
+// (non-functional, its own commit) into a `line_losses_detail.hpp`
+// with the shared `detail::` helpers and one .cpp per mode family
+// (linear, piecewise, bidirectional, piecewise_direct,
+// tangent_signed_flow).
 
 // ─── Mode resolution ────────────────────────────────────────────────
 
@@ -73,8 +39,8 @@ namespace
 /// the arbitrage guard): pricing ``v`` with the user ε makes ε a
 /// transport toll on all legitimate flow.  1e-6 $/MWh is well below
 /// LP optimality tolerance, so it never moves a dispatch decision.
-/// Activated only when ``loss_cost_eps > 0`` so unset-ε cases remain
-/// byte-identical to legacy behaviour.
+/// Activated only when ``loss_cost_eps > 0`` so an explicit ε = 0
+/// reproduces the legacy (no-pin) formulation byte-for-byte.
 constexpr double kFlowAbsPinEps = 1e-6;
 
 /// Map `adaptive` → piecewise/bidirectional; `dynamic` → piecewise;
@@ -1177,7 +1143,8 @@ BlockResult add_piecewise_shared(const LossConfig& config,
 
   // Loss variable: tracks total power dissipated.
   //
-  // ``loss_cost_eps`` (default 0.0) stamps a tiny per-MWh cost on the
+  // ``loss_cost_eps`` (resolved by ``LineLP``, 0.1 $/MWh unless
+  // overridden) stamps a small per-MWh cost on the
   // loss column so the LP strictly prefers single-direction dispatch
   // among otherwise-degenerate solutions.  ``add_piecewise_shared`` has
   // ONE shared loss column for both directions (``tangent`` layout only
@@ -1386,7 +1353,8 @@ DirResult add_direction(const LossConfig& config,
       .context = block_ctx,
   });
 
-  // ``loss_cost_eps`` (default 0.0) stamps a tiny per-MWh cost on each
+  // ``loss_cost_eps`` (resolved by ``LineLP``, 0.1 $/MWh unless
+  // overridden) stamps a small per-MWh cost on each
   // per-direction loss column so the LP strictly prefers single-
   // direction dispatch.  The per-direction loss curve is convex; with
   // ε > 0 on both ``loss_p`` and ``loss_n`` the LP picks the unique

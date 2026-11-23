@@ -425,6 +425,9 @@ auto solve_with_loss_mode(std::string_view mode_name, int loss_segments = 3)
   opts.model_options.use_kirchhoff = false;
   opts.model_options.scale_objective = 1000.0;
   opts.model_options.demand_fail_cost = 1000.0;
+  // The callers read the loss back from the objective (gcost only), so
+  // pin ε = 0 explicitly (the unset default is 0.1 $/MWh).
+  opts.model_options.loss_cost_eps = 0.0;
 
   const System system = {
       .name = "LossEngineTest",

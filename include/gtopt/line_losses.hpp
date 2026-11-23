@@ -143,11 +143,13 @@ struct LossConfig
   /// (``loss_p`` / ``loss_n``) in ``piecewise``/``bidirectional`` modes.
   /// Strictly breaks LP-relax bidirectional-flow degeneracy: among all
   /// primal-feasible solutions sharing the same net dispatch the LP
-  /// picks the one with single-direction flow.  ``0.0`` (default)
-  /// preserves legacy behaviour.  Recommended ε ≈ 1e-6 $/MWh — well
-  /// below LP optimality tolerance, so the objective is essentially
-  /// unchanged.  Inert for ``none``, ``linear``, ``piecewise_direct``,
-  /// and ``tangent`` layouts.
+  /// picks the one with single-direction flow.  ``0.0`` here means no
+  /// ε; ``LineLP`` passes the resolved value (per-line override, else
+  /// ``model_options.loss_cost_eps``, else 0.1 $/MWh; an explicit 0
+  /// disables it).  The $/MWh value is block-duration weighted
+  /// (``CostHelper::block_ecost``) like any energy cost.  Inert for
+  /// ``none``, ``linear``,
+  /// ``piecewise_direct``, and ``tangent`` layouts.
   double loss_cost_eps {0.0};
   /// Number of L-secant segment columns ``v_l`` emitted per (line,
   /// block) by ``add_tangent_signed_flow`` when the L-secant chord

@@ -268,9 +268,8 @@ private:
     opts.model_options.kirchhoff_mode = std::string("node_angle");
     opts.model_options.scale_objective = 1000.0;
     opts.model_options.demand_fail_cost = 1000.0;
-    if (knobs.loss_cost_eps > 0.0) {
-      opts.model_options.loss_cost_eps = knobs.loss_cost_eps;
-    }
+    // Always explicit: 0 must disable ε (the unset default is 0.1).
+    opts.model_options.loss_cost_eps = knobs.loss_cost_eps;
     opts.lp_matrix_options.col_with_names = true;
     opts.lp_matrix_options.row_with_names = true;
     opts.lp_matrix_options.col_with_name_map = true;

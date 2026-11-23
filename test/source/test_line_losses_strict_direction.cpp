@@ -26,8 +26,9 @@
 // degeneracy.
 //
 // This file pins three invariants:
-//   1) DEFAULT (``loss_cost_eps = 0``) — loss columns carry ``cost = 0``
-//      in the LP matrix (byte-identical to legacy behaviour).
+//   1) DEFAULT (unset ``loss_cost_eps``) — loss columns carry the
+//      0.1 $/MWh default; an explicit ``0`` (global or per line) gives
+//      ``cost = 0`` (byte-identical to the legacy behaviour).
 //   2) ENABLED (``loss_cost_eps = 1e-6``) — loss columns carry the
 //      block-scaled ε cost on EVERY per-direction loss column.
 //   3) PHANTOM-FREE (``loss_cost_eps = 1e-6``) — on the 3-bus loop
@@ -35,6 +36,7 @@
 //      (no phantom bidirectional flow).
 
 #include <algorithm>
+#include <cmath>
 #include <span>
 #include <string>
 #include <string_view>
@@ -231,34 +233,89 @@ namespace strict_direction_test
 
 // ─── Tests ────────────────────────────────────────────────────────────
 
-TEST_CASE("loss_cost_eps default 0 keeps loss column costs at 0")  // NOLINT
+namespace
+{
+
+/// Raw objective costs of the per-direction loss columns of the 3-bus
+/// loop, built with the given per-line and global ``loss_cost_eps``.
+[[nodiscard]] auto loss_column_costs(OptReal line_eps, OptReal global_eps)
+    -> std::vector<double>
 {
   auto [system, simulation] = build_three_bus_loop("bidirectional",
                                                    /*loss_segments=*/3,
-                                                   /*loss_cost_eps=*/ {});
+                                                   line_eps);
 
   PlanningOptions opts = build_options();
+  opts.model_options.loss_cost_eps = global_eps;
   const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp, build_matrix_opts());
 
   auto& li = sys_lp.linear_interface();
-  const auto costs = li.get_col_cost_raw();
+  // Objective coefficients (NOT ``get_col_cost_raw``, which returns
+  // reduced costs — all zero before a solve).
+  const auto costs = li.get_obj_coeff();
 
-  const auto lossp_cols = cols_containing(li, "line_lossp_");
+  auto cols = cols_containing(li, "line_lossp_");
   const auto lossn_cols = cols_containing(li, "line_lossn_");
-  REQUIRE(!lossp_cols.empty());
+  REQUIRE(!cols.empty());
   REQUIRE(!lossn_cols.empty());
+  cols.insert(cols.end(), lossn_cols.begin(), lossn_cols.end());
 
-  for (const auto& idx : lossp_cols) {
-    const double cost = costs[value_of(idx)];
-    CAPTURE(value_of(idx));
-    CHECK(cost == doctest::Approx(0.0));
+  std::vector<double> out;
+  out.reserve(cols.size());
+  for (const auto& idx : cols) {
+    out.push_back(costs[value_of(idx)]);
   }
-  for (const auto& idx : lossn_cols) {
-    const double cost = costs[value_of(idx)];
-    CAPTURE(value_of(idx));
-    CHECK(cost == doctest::Approx(0.0));
+  return out;
+}
+
+}  // namespace
+
+TEST_CASE("loss_cost_eps default resolution")  // NOLINT
+{
+  // ``LinearProblem::flatten()`` divides objective coefficients by
+  // ``scale_objective = 1000``.
+  constexpr double scale_objective = 1000.0;
+
+  SUBCASE("unset resolves to the 0.1 $/MWh default")
+  {
+    PlanningOptions opts;
+    const PlanningOptionsLP options(opts);
+    CHECK(options.loss_cost_eps() == doctest::Approx(0.1));
+    CHECK(PlanningOptionsLP::default_loss_cost_eps == doctest::Approx(0.1));
+
+    const double expected = 0.1 / scale_objective;
+    for (const double cost : loss_column_costs({}, {})) {
+      CHECK(cost == doctest::Approx(expected).epsilon(1e-6).scale(0.0));
+    }
+  }
+
+  SUBCASE("explicit global 0 disables the loss-column cost")
+  {
+    PlanningOptions opts;
+    opts.model_options.loss_cost_eps = 0.0;
+    const PlanningOptionsLP options(opts);
+    CHECK(options.loss_cost_eps() == doctest::Approx(0.0));
+
+    for (const double cost : loss_column_costs({}, OptReal {0.0})) {
+      CHECK(std::abs(cost) < 1e-15);
+    }
+  }
+
+  SUBCASE("explicit per-line 0 beats the global default")
+  {
+    for (const double cost : loss_column_costs(OptReal {0.0}, {})) {
+      CHECK(std::abs(cost) < 1e-15);
+    }
+  }
+
+  SUBCASE("per-line value beats an explicit global value")
+  {
+    const double expected = 2.0 / scale_objective;
+    for (const double cost : loss_column_costs(OptReal {2.0}, OptReal {0.0})) {
+      CHECK(cost == doctest::Approx(expected).epsilon(1e-6).scale(0.0));
+    }
   }
 }
 
@@ -274,7 +331,7 @@ TEST_CASE("loss_cost_eps stamps per-direction loss columns")  // NOLINT
   SystemLP sys_lp(system, sim_lp, build_matrix_opts());
 
   auto& li = sys_lp.linear_interface();
-  const auto costs = li.get_col_cost_raw();
+  const auto costs = li.get_obj_coeff();
 
   const auto lossp_cols = cols_containing(li, "line_lossp_");
   const auto lossn_cols = cols_containing(li, "line_lossn_");
@@ -293,12 +350,12 @@ TEST_CASE("loss_cost_eps stamps per-direction loss columns")  // NOLINT
   for (const auto& idx : lossp_cols) {
     const double cost = costs[value_of(idx)];
     CAPTURE(value_of(idx));
-    CHECK(cost == doctest::Approx(expected).epsilon(1e-3));
+    CHECK(cost == doctest::Approx(expected).epsilon(1e-6).scale(0.0));
   }
   for (const auto& idx : lossn_cols) {
     const double cost = costs[value_of(idx)];
     CAPTURE(value_of(idx));
-    CHECK(cost == doctest::Approx(expected).epsilon(1e-3));
+    CHECK(cost == doctest::Approx(expected).epsilon(1e-6).scale(0.0));
   }
 }
 

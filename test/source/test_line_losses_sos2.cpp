@@ -283,18 +283,14 @@ TEST_CASE("Line JSON — loss_secant_segments + loss_use_sos2 round-trip")
 
   const auto ln = daw::json::from_json<Line>(json);
   CHECK(ln.uid == Uid {42});
-  REQUIRE(ln.loss_secant_segments.has_value());
-  CHECK(ln.loss_secant_segments.value() == 4);
-  REQUIRE(ln.loss_use_sos2.has_value());
-  CHECK(ln.loss_use_sos2.value() == true);
+  CHECK(ln.loss_secant_segments.value_or(-1) == 4);
+  CHECK(ln.loss_use_sos2.value_or(false));
 
   // Round-trip the back to JSON and re-parse to pin to_json_data wiring.
   const auto out = daw::json::to_json(ln);
   const auto ln2 = daw::json::from_json<Line>(out);
-  REQUIRE(ln2.loss_secant_segments.has_value());
-  CHECK(ln2.loss_secant_segments.value() == 4);
-  REQUIRE(ln2.loss_use_sos2.has_value());
-  CHECK(ln2.loss_use_sos2.value() == true);
+  CHECK(ln2.loss_secant_segments.value_or(-1) == 4);
+  CHECK(ln2.loss_use_sos2.value_or(false));
 }
 
 // ── (2) L = 1 default — legacy single-secant behaviour ──────────────
@@ -1128,9 +1124,8 @@ private:
     };
     ln.loss_secant_segments = L;
     ln.loss_use_sos2 = use_sos2;
-    if (loss_cost_eps > 0.0) {
-      ln.loss_cost_eps = loss_cost_eps;
-    }
+    // Always explicit: 0 must disable ε (the unset default is 0.1).
+    ln.loss_cost_eps = loss_cost_eps;
     return ln;
   }
 
@@ -1401,9 +1396,24 @@ TEST_CASE(
   CAPTURE(v[2]);
   CAPTURE(v[3]);
 
-  // Σ v_l = |f| = 75 — the core ε-rely invariant.
+  // Σ v_l = |f| = 75 is the core ε-rely invariant, but it is enforced
+  // only by the internal 1e-6 $/MWh pin (kFlowAbsPinEps), i.e. 1e-9 in
+  // LP units at scale_objective 1000 — below every solver's dual
+  // tolerance, so Σ v_l > |f| is optimal within tolerance (HiGHS 1.12
+  // returns v_l = w for every segment).  Assert the abs rows hold
+  // (Σ v_l ≥ |f|) and that every v_l carries the pin; a lost ε term
+  // (the bug this test guards) zeroes the coefficient.
   const double sum_v = v[0] + v[1] + v[2] + v[3];
-  CHECK(sum_v == doctest::Approx(75.0).epsilon(1e-3));
+  CHECK(sum_v >= 75.0 - 1e-6);
+  const auto obj = li.get_obj_coeff();
+  int pinned = 0;
+  for (const auto& [name, idx] : col_map) {
+    if (name.contains("line_flow_abs_")) {
+      CHECK(obj[static_cast<std::size_t>(value_of(idx))] > 0.0);
+      ++pinned;
+    }
+  }
+  CHECK(pinned == 4);
 
   // Each v_l honours its [0, w] bound with w = TMAX / L = 50.
   constexpr double w = FullEnvelopeFixture::TMAX / 4;

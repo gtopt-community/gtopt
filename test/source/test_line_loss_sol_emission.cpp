@@ -227,7 +227,7 @@ TEST_CASE(  // NOLINT
 // remains ``extras``-gated and must NOT appear here.
 // ─────────────────────────────────────────────────────────────────────
 TEST_CASE(  // NOLINT
-    "LineLP - solution-only emits Line/loss_sol; lossn_sol stays extras-gated")
+    "LineLP - solution-only emits Line/loss_sol, lossn_sol stays extras-gated")
 {
   auto [system, simulation] = make_lossy_line_system();
 
