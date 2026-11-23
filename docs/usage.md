@@ -134,14 +134,20 @@ Multiple system files can be provided and will be merged.
 ## Configuration File (`.gtopt.conf`)
 
 The C++ binary reads default option values from an INI configuration file.
-CLI flags always take precedence over config file values, which in turn take
-precedence over JSON file values.
+Config-file values are *defaults*: the planning JSON, `--set` and the CLI
+flags all override them (see [Precedence](#precedence)).
 
 ### Search order
 
 1. `$GTOPT_CONFIG` environment variable (exact path)
 2. `./.gtopt.conf` (current working directory)
 3. `~/.gtopt.conf` (home directory)
+
+The first file found is used.  When `$GTOPT_CONFIG` is set but names a
+file that does not exist, gtopt logs a warning
+(`$GTOPT_CONFIG='…' does not exist; falling back to ./.gtopt.conf and
+~/.gtopt.conf`) and continues with the next locations — a typo in the
+path no longer switches the configuration silently.
 
 ### Format
 
@@ -174,20 +180,49 @@ All keys use kebab-case matching the CLI long flags (without `--`):
 | `sddp-convergence-tol` | float | SDDP convergence tolerance |
 | `use-single-bus` | bool | Single-bus mode |
 | `lp-debug` | bool | Save LP debug files |
-| `demand-fail-cost` | float | Penalty for unserved demand |
-| `scale-objective` | float | Objective scaling factor |
-| `method` | string | Planning method |
-| `input-directory` | string | Input data directory |
-| `output-directory` | string | Output directory |
+| `input-directory` | string | Input data directory (CWD-relative) |
+| `output-directory` | string | Output directory (CWD-relative) |
+| `log-directory`, `cut-directory` | string | Log / SDDP cut directories |
+| `lp-only`, `lp-error`, `lp-compression` | | Same as the CLI flags |
+
+Model options such as `demand_fail_cost`, `scale_objective` or `method`
+are not config-file keys: set them in the planning JSON or with `--set`.
+
+Enumerated options are checked by name wherever they come from (JSON,
+`--set`, config file): a misspelled `model_options.line_losses_mode`,
+`kirchhoff_mode`, `tiny_reactance_mode` or `objective_mode` (global,
+`cascade_options.model_options` or a cascade level), a per-element mode
+string (`Line.line_losses_mode` / `loss_pwl_layout` /
+`loss_allocation_mode`, `Generator.cogen_mode`, `FlowRight.flow_mode`,
+`DecisionVariable.cost_type`, `UserConstraint.constraint_type`) or an
+unknown `solver_options.log_mode` / `scaling` name is an **error** that
+names the field, the bad value and the valid choices.  Such typos used to
+fall back silently to the default formulation.
+Unknown keys and unparsable values in `[gtopt]` and `[solver.<name>]`
+are ignored with a one-line warning naming the file, the section and the
+key (the Python tools' sections are not checked).
 
 ### Precedence
 
-Values are resolved in this order (highest priority first):
+The rule is *the more explicit, the closer to the run, wins*.  Values are
+resolved in this order (highest priority first):
 
-1. **CLI flags** (`--solver highs`, `--set key=value`)
-2. **Config file** (`~/.gtopt.conf` `[gtopt]` section)
-3. **JSON files** (`"options"` section in planning JSON)
-4. **Built-in defaults** (compiled into the binary)
+1. **Dedicated CLI flags** (`--solver highs`, `--output-format csv`,
+   `--sddp-max-iterations 50`, …)
+2. **`--set key=value`** (repeatable; a later `--set` of the same key wins)
+3. **JSON files** (`"options"` section; with several `-s` files the last
+   file that sets a field wins)
+4. **Config file** (`.gtopt.conf` `[gtopt]` section)
+5. **Built-in defaults** (compiled into the binary)
+
+A config-file value is therefore applied only to the options that neither
+the planning JSON, `--set` nor a CLI flag set (`solver` fills
+`lp_matrix_options.solver_name`, which beats `$GTOPT_SOLVER`).  Keys with
+no JSON counterpart (`lp-file`, `lp-format`, `matrix-eps`, `stats`,
+`json-file`, `trace-log`, `async-logger`) are plain CLI defaults.  The
+`[solver.<name>]` sections sit below the planning `solver_options` too.
+This is the same rule the Python tools apply to their own sections
+(explicit CLI argument > config file > default).
 
 > **Note**: The Python scripts (`run_gtopt`, `gtopt_check_output`, etc.) also
 > read `~/.gtopt.conf` but use different sections (`[global]`, `[run_gtopt]`,
@@ -229,8 +264,10 @@ Solver and I/O settings:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `lp_matrix_options.equilibration_method` | string | Matrix equilibration: `"none"`, `"row_max"` (default), `"ruiz"` |
+| `lp_matrix_options.equilibration_method` | string | Matrix equilibration: `"none"`, `"row_max"`, `"ruiz"`; default `"ruiz"` for multi-bus Kirchhoff, else `"row_max"` |
 | `lp_matrix_options.fast_sqrt_method` | string | Approximate sqrt for Ruiz scaling (see `FastSqrtMethod`) |
+| `lp_matrix_options.ruiz_max_iterations` | int | Ruiz iteration cap (default 5) |
+| `lp_matrix_options.ruiz_tolerance` | float | Ruiz convergence tolerance (default 1e-3) |
 | `lp_matrix_options.compute_stats` | bool | Compute coefficient min/max/ratio during flatten |
 | `lp_matrix_options.lp_coeff_ratio_threshold` | float | Ratio threshold above which a per-scene/phase breakdown is printed (default 1e7) |
 | `output_format` | string | Output format: `"csv"` or `"parquet"` |
@@ -243,6 +280,7 @@ Solver and I/O settings:
 | `log_directory` | string | Directory for log and error LP files (default: `"logs"`) |
 | `lp_debug` | bool | Save LP debug files to `log_directory` before solving (see below) |
 | `lp_fingerprint` | bool | Write LP structural fingerprint JSON to output directory (see [LP Fingerprint](lp-fingerprint.md)) |
+| `solver_options.param_file` | string | Backend-native solver parameter file (see [Solver parameter files](#solver-parameter-files-solverssolverprm)) |
 
 #### `lp_debug` — LP debug file output
 
@@ -307,10 +345,18 @@ gtopt mycase --lp-debug --set log_directory=logs
 
 The JSON-visible fields of `lp_matrix_options` are:
 
-- `equilibration_method` (`"none"`, `"row_max"` (default), `"ruiz"`)
+- `equilibration_method` (`"none"`, `"row_max"`, `"ruiz"`; default
+  `"ruiz"` for multi-bus Kirchhoff, else `"row_max"`)
 - `fast_sqrt_method` (Ruiz only — see `FastSqrtMethod`)
+- `ruiz_max_iterations` (int; default 5), `ruiz_tolerance` (float;
+  default 1e-3)
 - `compute_stats` (bool)
 - `lp_coeff_ratio_threshold` (float; default 1e7)
+
+These fields are resolved per LP build by
+`PlanningOptionsLP::resolve_lp_matrix_options`, so they apply identically
+to the `gtopt` binary, every cascade level, SDDP aperture systems, and a
+`PlanningLP` constructed directly from C++ (unit tests, embedders).
 
 ```json
 {
@@ -539,16 +585,20 @@ it.
 Example `generation_sol.csv`:
 
 ```csv
-"scenario","stage","block","uid:1"
-1,1,1,10
-1,2,2,15
-1,3,3,8
-1,4,4,20
-1,5,5,20
+"scenario","stage","block","uid","value"
+1,1,1,1,10
+1,2,2,1,15
+1,3,3,1,8
+1,4,4,1,20
+1,5,5,1,20
 ```
 
-Each row is a `(scenario, stage, block)` tuple. Column `uid:1` contains the
-dispatch value (MW) for generator with UID 1.
+Output files (CSV and Parquet) use a long layout: one row per non-zero
+`(scenario, stage, block, uid)` cell, with the value in `value` (here the
+dispatch in MW of the generator with UID 1).  Zero values are not
+written.  The key columns are `int32` (the `Uid` type); uids and block
+numbers above 65535 are valid, so readers must not cast them to 16-bit
+types.
 
 ### Demand output
 
@@ -675,6 +725,42 @@ Enable DC power flow constraints for multi-bus systems:
 gtopt system_c0.json --set use_kirchhoff=true
 ```
 
+### Solver parameter files (`solvers/<solver>.prm`)
+
+A case can carry backend-native solver tuning in
+`solver_options.param_file` (CPLEX `.prm`; cuOpt reads it too, and
+derives its `cuopt.cfg` sibling from the same directory).  The file is
+read by the backend before gtopt applies its typed `solver_options`
+fields, so an explicit `optimal_eps`, `threads`, … still wins over the
+same parameter in the file.
+
+- **Auto-discovery**: when `param_file` is not set (JSON, `--set`),
+  gtopt looks for `<input_directory>/solvers/<solver>.prm`, where
+  `<solver>` is the backend the LP is actually built with (`--solver`,
+  else the planning pin, else `$GTOPT_SOLVER` / the plugin priority).
+  The converters (`plp2gtopt`, `plexos2gtopt`) emit this layout.  A
+  `.prm` in the case root or under `<cwd>/input/solvers` is **not**
+  picked up.
+- **Relative paths**: a relative `param_file` (e.g. the
+  `"solvers/cplex.prm"` the converters pin) is case data.  It is
+  resolved against `input_directory` **first** — the case directory
+  wins — and against the working directory only when the case has no
+  such file.  The log names the location used:
+
+  ```text
+  solver_options.param_file 'solvers/cplex.prm' resolved against input_directory '<case>': '<case>/solvers/cplex.prm'
+  ```
+
+  The same applies to every `SolverOptions` bundle (monolithic, MIP-start
+  relaxation, SDDP forward/backward, cascade).
+- A file that cannot be found anywhere is reported at WARN and the
+  solver runs with its **default** parameters.
+- The resolved absolute path is recorded in `gtopt_state.json`, so a
+  replay of the snapshot uses the same tuning.
+- Only CPLEX and cuOpt read the main parameter file; with other backends
+  gtopt warns that it is ignored (HiGHS, MindOpt and Gurobi read only a
+  `<solver>_warmstart.*` sibling of it).
+
 ### cuOpt tuning file (`cuopt.cfg`)
 
 When the cuOpt (GPU) backend is selected and the planning option
@@ -734,6 +820,24 @@ useful keys:
 | `warmstart` | boolean | **plugin-local** (not forwarded to cuOpt): per-case default for the automatic PDLP warm start on incremental re-solves. Precedence: default (on) < tuning file < `GTOPT_CUOPT_WARMSTART` env |
 
 Unknown keys log a warning and are skipped; the solve proceeds.
+
+### Naming and unit dictionaries
+
+The field-name aliases (naming dialects) and the unit dictionary are
+compiled into the `gtopt` binary, so they always match its version.  The
+copies installed under `<prefix>/share/gtopt/` are reference material
+and are never read automatically.  To use a custom dictionary, point an
+environment variable at it:
+
+| Variable | File |
+|----------|------|
+| `GTOPT_NAMING_DIALECTS_FILE` | naming dialects (`naming_dialects.json` format) |
+| `GTOPT_UNIT_DIALECTS_FILE` | unit dictionary (`unit_dialects.json` format) |
+
+gtopt logs the override, warns when it lacks entries of the built-in
+dictionary (probably a stale copy), and falls back to the built-in one
+when the file is missing, empty or invalid.  See
+[naming conventions §12.4a](analysis/naming-conventions.md).
 
 ### Merging multiple system files
 
@@ -887,7 +991,7 @@ An unbounded model is rare and typically indicates missing variable bounds.
 **Common causes:**
 
 - A generator with negative `gcost` and no `pmax` upper bound.
-- Missing bounds on voltage angle variables (`scale_theta` set to 0).
+- A non-positive `scale_theta` (ignored, treated as 1, with a warning).
 - Incorrect `scale_objective` value (e.g., 0 or negative).
 
 **Diagnostic steps:**

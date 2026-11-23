@@ -180,6 +180,10 @@ modes:
 | `fail_cost` | OptTBRealFieldSched | Penalty for unmet demand [$/m³/s·h] |
 | `use_value` | OptTBRealFieldSched | Benefit value for flow usage [$/m³/s·h] |
 | `bound_rule` | Optional | Volume-dependent dynamic bound on flow |
+| `junction_b` | OptSingleId | Return point: carry mode (`consumptive: false`) and/or the opt-in bypass |
+| `consumptive` | OptBool | `false` returns the served flow to `junction_b` |
+| `use_bypass` | OptBool | Opt-in pass-through arc `junction_a → junction_b` (`bypass_sol`) |
+| `bypass_cost` / `bypass_fmax` | OptReal | Bypass cost [$/m³/s·h] and capacity [m³/s] |
 
 ### 3.3 LP Variables and Constraints
 
@@ -217,6 +221,12 @@ balance row (consumptive withdrawal):
 ```
 junction_balance_row[flow_col] = -1.0
 ```
+
+A `junction_b` alone opens no extra water path.  The pass-through
+`bypass` column (−1 at `junction_a`, +1 at `junction_b`, bounded by
+`bypass_fmax`) is built only on explicit opt-in (`use_bypass: true`,
+or `bypass_cost` / `bypass_fmax` set) and is written as
+`FlowRight/bypass_sol`, so junction balances close from the output.
 
 ### 3.5 Bound Rule (Volume-Dependent Bounds)
 

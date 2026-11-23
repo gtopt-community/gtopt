@@ -59,7 +59,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | Field                  | Type    | Default   | Units         | Description |
 |------------------------|---------|-----------|---------------|-------------|
 | `demand_fail_cost`     | number  | *(none)*  | $/MWh         | Penalty cost for unserved demand (value of lost load) |
-| `battery_annual_loss`  | number  | `0.48`    | p.u./year     | Self-discharge for batteries without `annual_loss` (4 %/month; `0` = legacy lossless). See [Battery self-discharge default](#battery-self-discharge-default) |
+| `battery_annual_standing_loss`  | number  | `0.48`    | p.u./year     | Self-discharge for batteries without `annual_standing_loss` (4 %/month; `0` = legacy lossless). See [Battery self-discharge default](#battery-self-discharge-default) |
 | `battery_power_envelope` | boolean | `true`  | --            | Per-block valid inequality `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` on every battery; `false` restores the pre-envelope LP |
 | `reserve_fail_cost`    | number  | *(none)*  | $/MWh         | Penalty cost for unserved spinning reserve |
 | `hydro_fail_cost`      | number  | *(none)*  | $/m³          | Default penalty cost for unmet hydro (irrigation) rights. Per-element `fail_cost` overrides this |
@@ -68,11 +68,14 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `use_line_losses`      | boolean | `true`    | --            | **Deprecated** — use `line_losses_mode` instead. Enable resistive line-loss modeling |
 | `line_losses_mode`     | string  | `"adaptive"` | --         | Line-loss model: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
 | `loss_segments`        | integer | `1`       | --            | Number of piecewise-linear segments for quadratic line losses (1 = linear) |
+| `loss_cost_eps`        | number  | `0.1`     | $/MWh         | Cost on the line-loss columns: breaks bidirectional-flow degeneracy and blocks loss arbitrage under negative LMPs. Per-line `Line.loss_cost_eps` overrides; `0` disables. Inert for `none`/`linear`/`piecewise_direct` |
 | `use_kirchhoff`        | boolean | `true`    | --            | Enable DC Kirchhoff voltage-law constraints |
 | `use_single_bus`       | boolean | `false`   | --            | Collapse network to a single bus (copper-plate model) |
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
+| `dc_line_reactance_threshold` | number | `1e-6` | p.u.   | `\|X/V²\|` below which a line's KVL flow term is dropped (see `tiny_reactance_mode`); `0` disables |
+| `tiny_reactance_mode`  | string  | `"tie"`   | --            | Lines with `reactance` 0 or below `dc_line_reactance_threshold`: `"tie"` = zero-impedance tie (bus angles forced equal, `θ_a − θ_b = φ`); `"dc"` = legacy free-flow DC link. Lines without `reactance` are always DC links |
 | `scale_objective`      | number  | `1000`    | dimensionless | Divisor applied to all objective coefficients for numerical stability |
-| `scale_theta`          | number  | `1000`    | dimensionless | Scaling factor for voltage-angle variables |
+| `scale_theta`          | number  | auto      | dimensionless | Voltage-angle enlargement: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians |
 | `objective_mode`       | string  | `"cost"`  | --            | `"emissions"` minimises emissions instead of cost (see [Emissions](#325-emissions)). Emission prices and caps are set on `EmissionZone`, not here |
 | `continuous_phases`    | string  | `"none"`  | --            | Phase range where all integer/binary variables relax to continuous. Syntax: `"all"`, `"none"`, `"0"`, `"1,3:5,8:"`, `":3"` |
 
@@ -173,9 +176,9 @@ over the corresponding `solver_options` sub-fields.
 | `feasible_eps` | number  | solver default | Feasibility tolerance (omit to keep solver default) |
 | `barrier_eps`  | number  | solver default | Barrier convergence tolerance (omit to keep solver default) |
 | `log_level`    | integer | `0`         | Solver output verbosity (0 = silent) |
-| `log_mode`     | string  | `"nolog"`   | Solver log-file policy: `"nolog"` (no files) or `"detailed"` (one file per scene/phase/aperture, `<solver>_sc<N>_ph<N>[_ap<N>].log`) |
+| `log_mode`     | string  | `"nolog"`   | Solver log-file policy: `"nolog"` (no files) or `"detailed"` (one file per scene/phase/aperture, `<solver>_sc<N>_ph<N>[_ap<N>].log`); numeric `0` / `1` also accepted |
 | `time_limit`   | number  | solver default | Per-LP wall-clock time limit in seconds. Exceeding it aborts the solve; caller must check `is_optimal()` |
-| `scaling`      | string  | solver default | Internal solver scaling strategy. See `SolverScaling` enum |
+| `scaling`      | string  | solver default | Internal solver scaling strategy: `"none"`, `"automatic"`, `"aggressive"` (or `0` / `1` / `2`). See `SolverScaling` enum |
 | `crossover`    | boolean | `true`      | When `algorithm == barrier`, convert the interior-point solution to a simplex basis (required for duals). SDDP forward pass sets it false for speed |
 | `max_fallbacks`| integer | `2`         | On non-optimal exit, cycle through barrier → dual → primal up to this many times. `0` disables fallback |
 
@@ -375,7 +378,7 @@ fields:
 | `kirchhoff_threshold`  | number  | `0.0`   | Threshold for Kirchhoff constraint activation |
 | `loss_segments`        | integer | `1`     | Number of piecewise-linear loss segments |
 | `scale_objective`      | number  | `1000`  | Divisor for objective coefficients |
-| `scale_theta`          | number  | `1000`  | Scaling factor for voltage-angle variables |
+| `scale_theta`          | number  | auto    | Voltage-angle enlargement: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians |
 | `demand_fail_cost`     | number  | *(none)*| Penalty cost for unserved demand [$/MWh] |
 | `reserve_fail_cost`    | number  | *(none)*| Penalty cost for unserved reserve [$/MWh] |
 
@@ -768,6 +771,7 @@ An electrical demand (load) connected to a bus.
 | `lmax`             | number\|array\|string| MW          | No       | Maximum served load |
 | `lossfactor`       | number\|array\|string| p.u.        | No       | Network loss factor |
 | `fcost`            | number\|array\|string| $/MWh       | No       | Demand curtailment cost |
+| `fail_segments`    | array of objects    | —            | No       | Stepwise curtailment (VoLL) curve `[{fraction, cost}, …]`; overrides `fcost` (see below) |
 | `emin`             | number\|array\|string| MWh         | No       | Minimum energy that must be served per stage |
 | `ecost`            | number\|array\|string| $/MWh       | No       | Energy-shortage cost |
 | `capacity`         | number\|array\|string| MW          | No       | Installed capacity |
@@ -776,6 +780,36 @@ An electrical demand (load) connected to a bus.
 | `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
+
+#### Stepwise failure curve (`fail_segments`)
+
+`fail_segments` is an ordered list of curtailment segments.  Each object
+has `fraction` (share of the block demand `lmax`, `0 < fraction ≤ 1`) and
+`cost` ($/MWh; scalar, per-stage array, or a filename under
+`input_directory/Demand/`).  Only the last segment may omit `fraction`:
+it is then open and covers the residual `1 − Σ fraction`.  When every
+fraction is explicit and they sum to less than 1, the uncovered remainder
+is firm load (it cannot be curtailed — PLP `FALLA_*` semantics).
+
+```json
+{"uid": 1, "name": "d1", "bus": "b1", "lmax": 120,
+ "fail_segments": [
+   {"fraction": 0.05, "cost": 492.4},
+   {"fraction": 0.05, "cost": 541.7},
+   {"fraction": 0.10, "cost": 648.6},
+   {"cost": 742.1}]}
+```
+
+Costs should be non-decreasing (a warning is issued otherwise).  The LP
+adds one served-load column per segment (no extra rows); a single
+segment is identical to `fcost`.  Precedence: `forced` > `fail_segments`
+> `fcost` > `model_options.demand_fail_segments` >
+`model_options.demand_fail_cost`.  Outputs: `Demand/fail_sol` (total)
+plus `Demand/fail_seg<k>_sol` per segment (K ≥ 2).  User constraints can
+reference `demand('d1').fail` (total curtailment) and
+`demand('d1').load`.  A demand with K ≥ 2 segments cannot be the charge
+demand of a `Converter` nor carry a `DemandProfile` / demand
+`CapacityProfile`.
 
 ### 3.4 Line
 
@@ -790,8 +824,9 @@ A transmission line connecting two buses.
 | `active`           | boolean             | —            | No       | Whether the line is active |
 | `voltage`          | number\|array\|string| kV          | No       | Nominal voltage level. Omit or set to 1.0 for per-unit mode |
 | `resistance`       | number\|array\|string| Ω (p.u.)    | No       | Series resistance. Use Ω when voltage is in kV; p.u. when voltage is omitted |
-| `reactance`        | number\|array\|string| Ω (p.u.)    | No       | Series reactance (DC power flow). Use Ω when voltage is in kV; p.u. when voltage is omitted. Susceptance: $B = V^2 / X$ |
+| `reactance`        | number\|array\|string| Ω (p.u.)    | No       | Series reactance (DC power flow). Use Ω when voltage is in kV; p.u. when voltage is omitted. Susceptance: $B = V^2 / X$. Omit for a DC/HVDC link (no KVL). `0` or `\|X/V²\|` below `dc_line_reactance_threshold` is a zero-impedance tie forcing equal bus angles (unless `tiny_reactance_mode = "dc"`) |
 | `lossfactor`       | number\|array\|string| p.u.        | No       | Lumped loss factor |
+| `loss_cost_eps`    | number              | $/MWh        | No       | Per-line price on the line-loss columns; overrides `model_options.loss_cost_eps` (default 0.1). Set ≥ ½·\|π_a + π_b\| on corridors where the end-bus prices can sum negative to block loss arbitrage; `0` disables. Inert for `none`/`linear`/`piecewise_direct` |
 | `type`             | string              | —            | No       | Element type tag; use `"transformer"` for transformers |
 | `tap_ratio`        | number\|array\|string| p.u.        | No       | Off-nominal tap ratio τ (default 1.0). A tap-changing transformer with τ ≠ 1 has effective susceptance $B/\tau$. Supports per-stage schedule. |
 | `phase_shift_deg`  | number\|array\|string| degrees     | No       | Phase-shift angle φ in degrees (default 0). Models a Phase-Shifting Transformer (PST); shifts the Kirchhoff constraint RHS by $-\sigma_\theta \cdot \phi_{\text{rad}}$. |
@@ -874,7 +909,7 @@ be defined manually (see §3.6 Converter).
 | `source_generator`  | integer\|string     | —            | No       | Source generator for generation-coupled mode (battery name or UID) |
 | `input_efficiency`  | number\|array\|string| p.u.        | No       | Charging efficiency |
 | `output_efficiency` | number\|array\|string| p.u.        | No       | Discharging efficiency |
-| `annual_loss`       | number\|array\|string| p.u./year   | No       | Annual self-discharge rate (linear: hourly drain = value/8760). **Default when absent: 0.48 (4 %/month)** — see [Battery self-discharge default](#battery-self-discharge-default) |
+| `annual_standing_loss`       | number\|array\|string| p.u./year   | No       | Annual self-discharge rate (linear: hourly drain = value/8760). **Default when absent: 0.48 (4 %/month)** — see [Battery self-discharge default](#battery-self-discharge-default) |
 | `emin`              | number\|array\|string| MWh         | No       | Minimum state of charge |
 | `emax`              | number\|array\|string| MWh         | No       | Maximum state of charge |
 | `ecost`             | number\|array\|string| $/MWh       | No       | Storage usage cost (penalty) |
@@ -914,9 +949,10 @@ negates it).
 
 #### Battery self-discharge default
 
-A battery whose `annual_loss` is **absent** self-discharges at
+A battery whose `annual_standing_loss` is **absent** self-discharges at
 **0.48 p.u./year = 4 %/month** (`0.04 × 12`).  gtopt uses the linear
-convention `SoC[b] = SoC[b−1] · (1 − annual_loss/8760 · Δt_b) + …`, so the
+convention
+`SoC[b] = SoC[b−1] · (1 − annual_standing_loss/8760 · Δt_b) + …`, so the
 hourly drain is `0.48/8760 ≈ 5.48e-5` and a single 730 h block loses
 exactly 4 %.
 
@@ -942,16 +978,21 @@ simultaneous operation inside it is still LP-feasible).
 
 Rules:
 
-- An explicit `annual_loss` (including `0`) is always respected.
-- `model_options.battery_annual_loss` changes the default for the whole
+- An explicit `annual_standing_loss` (including `0`) is always respected.
+- `model_options.battery_annual_standing_loss` changes the default for the whole
   case; `0` restores the legacy lossless behaviour
-  (`--set model_options.battery_annual_loss=0`).
+  (`--set model_options.battery_annual_standing_loss=0`).
 - Only `Battery` is affected — `Reservoir`, `LngTerminal`, and the other
-  storages keep `annual_loss = 0` when unset.  Converters write an
+  storages keep `annual_standing_loss = 0` when unset.  Converters write an
   explicit value for non-lithium storage emitted as a Battery (pumped
   hydro → `0`), and plp2gtopt converts a nonzero PLP `mloss` [%/month] to
   `−12·ln(1 − mloss/100)`.
 - gtopt logs once (INFO) how many batteries took the default.
+- **Deprecated alias**: the previous key `annual_loss` (on every storage
+  element) and `model_options.battery_annual_loss` are still accepted
+  and rewritten to `annual_standing_loss` /
+  `battery_annual_standing_loss`, with a one-time deprecation warning.
+  Setting both spellings on the same object is an error.
 
 ### 3.6 Converter
 
@@ -982,7 +1023,9 @@ A hydraulic node in the water network.
 | `uid`    | integer | —     | Yes      | Unique identifier |
 | `name`   | string  | —     | Yes      | Junction name |
 | `active` | boolean | —     | No       | Whether the junction is active |
-| `drain`  | boolean | —     | No       | If true, excess water can leave the system freely |
+| `drain`  | boolean | —     | No       | If true, excess water can leave the system through a drain column |
+| `drain_capacity` | number | m³/s | No | Upper bound on the drain flow (default +∞ = unbounded; PLP `VertMax`). Ignored unless `drain` is true |
+| `drain_cost` | number | $/(m³/s·h) | No | Cost of the drained flow, weighted per block like `Waterway.fcost` (default 0 = free; PLP `CVert`). Ignored unless `drain` is true |
 
 ### 3.8 Waterway
 
@@ -1011,9 +1054,9 @@ A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10�
 | `active`               | boolean             | —           | No       | Whether the reservoir is active |
 | `junction`             | integer\|string     | —           | Yes      | Associated junction UID or name |
 | `spillway_capacity`    | number              | m³/s        | No       | Maximum uncontrolled spill capacity |
-| `spillway_cost`        | number              | $/hm³      | No       | Penalty per unit of spilled water |
+| `spillway_cost`        | number              | $/(m³/s·h) | No       | Cost per unit of spilled flow; setting it (0 = free) creates the spill column |
 | `capacity`             | number\|array\|string| hm³       | No       | Total usable storage capacity |
-| `annual_loss`          | number\|array\|string| p.u./year  | No       | Annual evaporation/seepage loss rate |
+| `annual_standing_loss`          | number\|array\|string| p.u./year  | No       | Annual evaporation/seepage loss rate |
 | `emin`                 | number\|array\|string| hm³       | No       | Minimum allowed stored volume |
 | `emax`                 | number\|array\|string| hm³       | No       | Maximum allowed stored volume |
 | `ecost`                | number\|array\|string| $/hm³     | No       | Water value (shadow cost of stored water) |
@@ -1027,6 +1070,13 @@ A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10�
 | `soft_emin_cost`       | number\|array\|string| $/hm³     | No       | Penalty cost per unit of `soft_emin` slack violation |
 | `use_state_variable`   | boolean             | —           | No       | Enable stage/phase coupling of the reservoir state variable |
 | `daily_cycle`          | boolean             | —           | No       | Enforce daily cycling (initial volume equals final volume each day) |
+
+All reservoir costs are opt-in: gtopt adds none by default.  A positive
+`spillway_cost` (or `ecost`, or a cost on every outflow path) makes the
+water value negative, down to −cost, while the reservoir spills: one
+more m³ in a full reservoir must be spilled at that cost.  Set them only
+when the source model publishes the value; use `spillway_cost = 0` for a
+free spillway.
 
 ### 3.10 Turbine
 
@@ -1319,10 +1369,20 @@ Water-right constraints on waterway flow (m³/s).  See
 | `uid`        | integer         | —     | Yes      | Unique identifier |
 | `name`       | string          | —     | Yes      | Flow right name |
 | `active`     | boolean         | —     | No       | Activation flag (default: true) |
-| `waterway`   | integer\|string | —     | Yes      | Target waterway UID or name |
+| `junction_a` | integer\|string | —     | No       | Source junction (the served flow is withdrawn there) |
 | `fmin`       | number\|array\|string | m³/s | No | Minimum required flow (floor right) |
 | `fmax`       | number\|array\|string | m³/s | No | Maximum allowed flow (ceiling right) |
 | `fcost`      | number\|array\|string | $/m³/s | No | Penalty cost per unit of right violation |
+| `junction_b` | integer\|string | —     | No       | Return junction (carry mode and/or the opt-in bypass) |
+| `consumptive`| boolean         | —     | No       | `false` returns the served flow to `junction_b` (default: true) |
+| `use_bypass` | boolean         | —     | No       | Opt-in pass-through arc `junction_a → junction_b` (default: off; implied by `bypass_cost`/`bypass_fmax`) |
+| `bypass_cost`| number          | $/m³/s·h | No    | Cost on the bypass arc (default: 0) |
+| `bypass_fmax`| number          | m³/s  | No       | Capacity of the bypass arc (default: unbounded) |
+
+**Outputs** (`FlowRight/`): `flow_sol` / `flow_cost`, `fail_sol`,
+`excess_sol`, `flow_kink_dual`, and — only when the bypass is built —
+`bypass_sol` / `bypass_cost` (the pass-through flow, needed to close the
+`junction_a` / `junction_b` balances from the output).
 
 See [irrigation-agreements.md](irrigation-agreements.md) for details and examples.
 

@@ -6,7 +6,8 @@
 #   2. ./.gtopt.conf  (current working directory)
 #   3. ~/.gtopt.conf  (home directory)
 #
-# CLI flags always take precedence over config values.
+# Config values are defaults.  Precedence (highest wins):
+#   CLI flag > --set > planning JSON (last -s wins) > this file > built-in
 # =============================================================================
 
 [gtopt]

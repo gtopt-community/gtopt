@@ -808,8 +808,10 @@ coefficients.  For a system where generation costs are ~\$100/MWh and
 24-hour blocks are used, the raw coefficient is $100 × 24 = 2400$.  With
 `scale_objective = 1000` this becomes 2.4, which is well-conditioned.
 
-Similarly, `model_options.scale_theta` (default 1000) normalises
-voltage-angle variables.
+Similarly, `model_options.scale_theta` normalises voltage-angle
+variables: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians.  Leave it unset (auto) unless you have a reason; values
+below 1 shrink θ and trigger a load-time warning (the meaning was inverted
+before 2026-11, when values such as `1e-4` were common).
 
 These defaults are adequate for most power systems.
 
@@ -1196,7 +1198,8 @@ for the update mechanism.
 
 ## 11. Field reference and auto-generated docs
 
-The `scripts/gtopt_field_extractor.py` utility parses the C++ header files and
+The `gtopt_field_extractor` developer utility (run from `scripts/` as
+`python -m gtopt_field_extractor`) parses the C++ header files and
 generates documentation tables directly from the source code. This ensures the
 documentation stays in sync with the implementation.
 
@@ -1204,19 +1207,19 @@ documentation stays in sync with the implementation.
 
 ```bash
 # All elements (printed to stdout)
-python3 scripts/gtopt_field_extractor.py
+python3 -m gtopt_field_extractor
 
 # Specific elements
-python3 scripts/gtopt_field_extractor.py --elements Generator Demand Line Battery
+python3 -m gtopt_field_extractor --elements Generator Demand Line Battery
 
 # Write to a file
-python3 scripts/gtopt_field_extractor.py --output docs/field_reference.md
+python3 -m gtopt_field_extractor --output docs/field_reference.md
 ```
 
 ### Generate an HTML field reference
 
 ```bash
-python3 scripts/gtopt_field_extractor.py --format html --output docs/field_reference.html
+python3 -m gtopt_field_extractor --format html --output docs/field_reference.html
 ```
 
 The generated HTML includes:

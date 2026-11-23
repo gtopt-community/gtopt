@@ -390,17 +390,17 @@ Each row defines a reservoir connected to a hydraulic junction. Key fields:
 | `name` | string | Reservoir name |
 | `junction` | uid or name | Associated hydraulic junction |
 | `spillway_capacity` | number | Maximum uncontrolled spill [m³/s] |
-| `spillway_cost` | number | Penalty cost per unit spilled [$/dam³] |
-| `capacity` | number \| schedule | Maximum storage [dam³] |
-| `annual_loss` | number \| schedule | Fractional evaporation/seepage loss per year [p.u.] |
-| `emin` | number \| schedule | Minimum storage volume [dam³] |
-| `emax` | number \| schedule | Maximum storage volume [dam³] |
-| `ecost` | number \| schedule | Shadow cost of stored water [$/dam³] |
-| `eini` | number | Initial stored volume [dam³] |
-| `efin` | number | Target stored volume [dam³] |
+| `spillway_cost` | number | Cost per unit of spilled flow [$/(m³/s·h)] |
+| `capacity` | number \| schedule | Maximum storage [hm³] |
+| `annual_standing_loss` | number \| schedule | Fractional evaporation/seepage loss per year [p.u.] |
+| `emin` | number \| schedule | Minimum storage volume [hm³] |
+| `emax` | number \| schedule | Maximum storage volume [hm³] |
+| `ecost` | number \| schedule | Shadow cost of stored water [$/hm³] |
+| `eini` | number | Initial stored volume [hm³] |
+| `efin` | number | Target stored volume [hm³] |
 | `fmin` | number | Minimum net inflow [m³/s] |
 | `fmax` | number | Maximum net inflow [m³/s] |
-| `flow_conversion_rate` | number | m³/s × hours → dam³ (default: 0.0036) |
+| `flow_conversion_rate` | number | m³/s × hours → hm³ (default: 0.0036) |
 | `use_state_variable` | bool | Enable stage/phase coupling via SDDP (default: false) |
 | `daily_cycle` | bool | Enable daily cycle operation (default: false) |
 

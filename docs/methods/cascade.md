@@ -83,6 +83,9 @@ This distinction is important:
 - **Rebuild** (model_options present): useful when the network topology
   changes (e.g. single bus -> multi-bus with Kirchhoff).  Column
   indices change, so cuts must be transferred via named resolution.
+  The rebuilt LP takes `options.lp_matrix_options`, and an unset
+  `equilibration_method` follows the level's own topology (`ruiz` for
+  multi-bus Kirchhoff, `row_max` otherwise).
 - **Reuse** (model_options absent): useful when only solver parameters
   change (e.g. enabling apertures for SDDP after a Benders warm-start).
   The solver state (cuts, basis) is preserved, avoiding rebuild cost.
@@ -278,7 +281,7 @@ flowchart LR
 | `kirchhoff_threshold` | real | 0.0 | Min bus voltage [kV] for Kirchhoff |
 | `loss_segments` | int | 1 | Piecewise-linear segments for quadratic losses |
 | `scale_objective` | real | 1000 | Divisor for objective coefficients |
-| `scale_theta` | real | 1.0 | Scaling for voltage-angle variables |
+| `scale_theta` | real | auto | Voltage-angle enlargement: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians |
 | `demand_fail_cost` | real | 1000 | Penalty for unserved demand [$/MWh] |
 | `reserve_fail_cost` | real | 1000 | Penalty for unserved reserve [$/MWh] |
 

@@ -4,6 +4,7 @@ This guide provides detailed instructions for building GTOpt from source, includ
 
 ## Table of Contents
 
+- [One-line installer](#one-line-installer)
 - [Dependencies](#dependencies)
 - [Installing Dependencies](#installing-dependencies)
   - [Ubuntu/Debian](#ubuntudebian)
@@ -15,6 +16,71 @@ This guide provides detailed instructions for building GTOpt from source, includ
 - [Building and Running Tests](#building-and-running-tests)
 - [Formatting and Linting](#formatting-and-linting)
 - [Troubleshooting](#troubleshooting)
+
+## One-line installer
+
+`install.sh` (repository root) does everything below for Ubuntu 24.04+ and
+Debian 13+ (x86_64, arm64): apt dependencies, Apache Arrow, the solvers,
+a Release build of the standalone binary and `cmake --install`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/gtopt-community/gtopt/master/install.sh | bash
+curl -fsSL .../install.sh | bash -s -- --prefix "$HOME/.local" --python
+curl -fsSL .../install.sh | bash -s -- --help      # all options
+curl -fsSL .../install.sh | bash -s -- --dry-run   # show the plan only
+```
+
+Re-running it updates the checkout (`~/.cache/gtopt/src`) and rebuilds
+incrementally.
+
+### Solver selection
+
+| Invocation | Solver plugins built |
+|------------|----------------------|
+| (default) | HiGHS + CBC/CLP (installed if missing), every commercial solver found, cuOpt if an NVIDIA GPU is present |
+| `--solvers highs,cbc,cplex` | exactly the listed ones; all others disabled (and their old plugins removed from the prefix) |
+| `--solvers all` | HiGHS, CBC/CLP, SCIP, cuOpt (GPU only) + every commercial solver found |
+| `--without scip,cuopt` | default or `all` minus the listed ones |
+
+Names: `highs`, `cbc` (also `clp`/`osi`: one plugin serves CBC and CLP),
+`scip`, `cuopt`, `cplex`, `gurobi`, `mindopt`.  `--solver` is accepted as
+an alias of `--solvers`; `--no-highs` (deprecated) = `--without highs`;
+`--no-cuopt` = `--without cuopt`.  Listing a solver in `--solvers` and
+excluding it with `--without`/`--no-*` is an error.
+
+How each solver is obtained:
+
+- **HiGHS**: apt `libhighs-dev` where packaged (Debian 13, Ubuntu 25.04+),
+  otherwise HiGHS is built from source into the prefix.
+- **CBC/CLP**: apt `coinor-libcbc-dev`.
+- **SCIP**: the official SCIP Opt Suite `.deb` for the release
+  (github.com/scipopt/scip releases), unless `SCIP_ROOT_DIR` is set or
+  SCIP is already installed.
+- **cuOpt** (NVIDIA GPU detected via `nvidia-smi` or
+  `/proc/driver/nvidia`): the PyPI wheel `libcuopt-cu13` (driver CUDA
+  13+) or `libcuopt-cu12`, in a dedicated venv `PREFIX/lib/gtopt/cuopt`;
+  (~3.5 GB with its CUDA libraries; `>=26.8`; from 26.10 the headers
+  and C API come from the `libcuopt_mathopt` wheel that `libcuopt`
+  pulls in, and `FindCuOpt.cmake` searches both layouts).  An existing
+  install (`CUOPT_HOME`, or `libcuopt_mathopt`/`libcuopt` importable)
+  is reused.
+  Without a GPU cuOpt is skipped with one info line.
+- **CPLEX / Gurobi / MindOpt** are never installed; they are detected
+  (newest version wins) and passed to the build:
+
+  | Solver | Searched in | Override |
+  |--------|-------------|----------|
+  | CPLEX | `$CPLEX_STUDIO_DIR*`, `/opt/ibm/ILOG/CPLEX_Studio*/cplex`, `~/opt/ibm/ILOG/...`, `~/ibm/ILOG/...`, `cplex` on `PATH` | `CPLEX_ROOT_DIR` |
+  | Gurobi | `/opt/gurobi*/linux64`, `~/opt/gurobi*/linux64`, `~/gurobi*/linux64`, `gurobi_cl` on `PATH` | `GUROBI_HOME` |
+  | MindOpt | `/opt/mindopt/*/linux64-*`, `~/opt/mindopt/*/linux64-*`, `~/mindopt/*/linux64-*` | `MINDOPT_HOME` |
+
+  `--no-detect` skips the search and only honours the variables.  Pass
+  them to `bash`, not to `curl`:
+  `curl -fsSL .../install.sh | CPLEX_ROOT_DIR=/opt/ibm/ILOG/CPLEX_Studio2211/cplex bash`.
+
+The installer's selection logic is covered by `tools/test_install_sh.sh`
+(fake directory trees and a fake `nvidia-smi`); `.github/workflows/install.yml`
+runs it and the full installer in clean containers.
 
 ## Dependencies
 

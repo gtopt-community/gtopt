@@ -28,9 +28,9 @@ Cross-references:
 All fixtures use `flow_conversion_rate = 1.0` and
 `production_factor = 1.0`, so **one dam³/h of turbined water equals one
 MWh of energy** — the SDDP.jl convention where the reservoir volume is
-denominated directly in MWh. This deliberately departs from GTOpt's
-default `flow_conversion_rate = 3.6` (m³/s → per-hour depletion)
-documented in
+denominated directly in MWh. This deliberately departs from gtopt's
+`flow_conversion_rate = 3.6` (m³/s → per-hour depletion; pinned
+explicitly, the gtopt default is 0.0036 hm³/(m³/s·h)) documented in
 [`cases/hydro_thermal_sddpjl/README.md`](../../cases/hydro_thermal_sddpjl/README.md);
 that factor matters only when the source data is in m³/s. `scale_objective
 = 1`, so every reported bound is in physical dollars.

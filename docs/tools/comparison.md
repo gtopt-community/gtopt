@@ -249,7 +249,7 @@ reactance (`x_pu < 1e-6`) are filtered out.
 | Energy min | `emin` (MWh) | — (default 0) | `BatEMin` (MWh) | `min_e_mwh` | |
 | Max charge power | `pmax_charge` (MW) | `DCMax` (MW) | — | `max_p_mw` | ESS: from `plpess.dat` field `DCMax`. |
 | Max discharge power | `pmax_discharge` (MW) | `DCMax` (MW) | — | `max_p_mw` | ESS: same as charge (symmetric). |
-| Self-discharge | `annual_loss` (p.u./year) | `mloss` (p.u.) | — | — | PLP ESS: `mloss` field. |
+| Self-discharge | `annual_standing_loss` (p.u./year) | `mloss` (p.u.) | — | — | PLP ESS: `mloss` field. |
 | Initial SoC | `eini` (MWh) | — | `BatEMax/2` (default) | `soc_percent` | PLP Battery: initializes at 50% capacity. |
 | Final SoC | `efin` (MWh) | — | — | — | gtopt-only end-of-horizon constraint. |
 | Generation cost | `gcost` ($/MWh) | — | — | — | gtopt-only; cost of discharge. |
@@ -300,9 +300,9 @@ per downstream node in the hydro cascade.
 | Spillway cost | `spillway_cost` ($/dam³) | — | gtopt-only penalty for spilling. |
 | Storage capacity | `capacity` (dam³) | `vol_max` (Mm³) | Same as emax in basic cases. |
 | Volume scale | `variable_scales` (energy) | — | LP scaling via `options.variable_scales`: converts dam³ to Mm³ for numerics. |
-| Flow conversion | `flow_conversion_rate` (0.0036) | 0.0036 | Converts m³/s × hours → dam³. Both use same factor. |
+| Flow conversion | `flow_conversion_rate` (0.0036) | 0.0036 | Converts m³/s × hours → hm³. Both use same factor. |
 | State variable | `use_state_variable` (bool) | — (always true) | SDDP: carries volume across phases. |
-| Annual loss | `annual_loss` (p.u./year) | — | Evaporation/seepage rate. |
+| Annual loss | `annual_standing_loss` (p.u./year) | — | Evaporation/seepage rate. |
 | Daily cycle | `daily_cycle` (bool) | — | Daily cycling constraint. |
 
 **Volume unit convention:**
@@ -479,7 +479,7 @@ f_l = B_l × (θ_a − θ_b)    where B_l = V² / X_l (susceptance)
 |--------|-------|-----|------------|
 | Angle variable | `θ` (radians, scaled by `scale_theta`) | `θ` (radians) | `θ` (degrees internally, radians in model) |
 | Susceptance | `V²/X` with per-unit X | `V²/X` with per-unit X | Computed from physical Ω | |
-| Angle scaling | `scale_theta` (default 1000) for numerical stability | No explicit scaling | No explicit scaling |
+| Angle scaling | `scale_theta` (θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians) for numerical stability | No explicit scaling | No explicit scaling |
 | Loss model | Optional piecewise-linear losses | Quadratic loss approximation | Lossless (standard DC OPF) |
 | Reference bus | `reference_theta = 0` on one bus | Slack bus angle = 0 | `ext_grid` bus angle = 0 |
 
@@ -971,7 +971,7 @@ This section places GTOpt in the broader context.
 | Feature | **GTOpt** | **PyPSA** | **GenX** | **IDAES-GTEP** | **QuESt** | **SDDP.jl** | **PLP** |
 |---------|-----------|-----------|----------|----------------|-----------|-------------|---------|
 | Language | C++26 | Python | Julia | Python | Python | Julia | Fortran |
-| License | BSD-3 | MIT | GPL-2 | BSD-3 | BSD-3 | MPL-2 | Proprietary |
+| License | AGPL-3.0 (or commercial) | MIT | GPL-2 | BSD-3 | BSD-3 | MPL-2 | Proprietary |
 | Primary use | GTEP + OPF | Multi-sector planning | Capacity expansion | GTEP | Storage planning | Stochastic opt. | Hydrothermal sched. |
 | DC OPF (Kirchhoff) | ✓ | ✓ | Transport only | ✓ | — | — | ✓ |
 | AC OPF | — | ✓ | — | ✓ | — | — | — |

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "doc": "gtopt naming registry. Each entry maps an alternative input key (`alt`) to the canonical gtopt JSON key (`canonical`). All listed alternates are accepted as input keys and rewritten to the canonical name before the strict daw::json parser sees them. `class` and `dialect` are informational tags consumed by `--list-dialects` diagnostics; the runtime alias->canonical lookup ignores them. The PLEXOS / SDDP entries are best-effort from memory and from the CEN PCP daily bundle (DATOS20260422) seed plus the `scripts/plexos2gtopt/` converter — please correct as needed. The PyPSA / pandapower / PLP entries are higher-confidence (derived from those tools' code / documentation). Classes prefixed with `_` (e.g. `_capacity`, `_fuel_emission_factor`) are sub-records embedded inside a top-level element rather than first-class JSON arrays; the aliases still document the canonical→dialect mapping for converter authors.",
+  "doc": "gtopt naming registry. Each entry maps an alternative input key (`alt`) to the canonical gtopt JSON key (`canonical`). All listed alternates are accepted as input keys and rewritten to the canonical name before the strict daw::json parser sees them. `class` and `dialect` are informational tags consumed by `--list-dialects` diagnostics; the runtime alias->canonical lookup ignores them. The PLEXOS / SDDP entries are best-effort from memory and from the CEN PCP daily bundle (DATOS20260422) seed plus the `scripts/plexos2gtopt/` converter — please correct as needed. The PyPSA / pandapower / PLP entries are higher-confidence (derived from those tools' code / documentation). Classes prefixed with `_` (e.g. `_capacity`, `_fuel_emission_factor`) are sub-records embedded inside a top-level element rather than first-class JSON arrays; the aliases still document the canonical→dialect mapping for converter authors. An entry with `\"deprecated\": true` is a renamed gtopt key: it is still rewritten, but gtopt logs a one-time deprecation warning and rejects an object that also sets the canonical key.",
 
   "aliases": [
     {"class": "generator", "canonical": "pmin", "alt": "min_power",        "dialect": "gtopt"},
@@ -38,6 +38,10 @@
 
     {"class": "demand", "canonical": "fcost", "alt": "curtailment_cost", "dialect": "gtopt"},
     {"class": "demand", "canonical": "fcost", "alt": "CustoDeficit",     "dialect": "sddp"},
+
+    {"class": "demand", "canonical": "fail_segments", "alt": "voll_segments",    "dialect": "gtopt"},
+    {"class": "demand", "canonical": "fail_segments", "alt": "deficit_segments", "dialect": "sddp", "_note": "SDDP deficit segments are (pct, cost) with pct in %; converters translate to {fraction, cost}. Only the outer key is aliased."},
+    {"class": "demand", "canonical": "fail_segments", "alt": "falla_segments",   "dialect": "plp", "_note": "PLP FALLA_<bus>_1..4 failure units (capacity = fraction of demand, gcost = cost)."},
 
     {"class": "demand", "canonical": "lmin", "alt": "min_demand", "dialect": "gtopt"},
     {"class": "demand", "canonical": "lmin", "alt": "Firm Load",  "dialect": "plexos"},
@@ -100,6 +104,8 @@
     {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "VoLL",               "dialect": "plexos"},
     {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "CustoDeficitGlobal", "dialect": "sddp"},
     {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "load_shedding",      "dialect": "pypsa"},
+    {"class": "model_options", "canonical": "demand_fail_segments", "alt": "voll_curve",           "dialect": "gtopt"},
+    {"class": "model_options", "canonical": "demand_fail_segments", "alt": "deficit_segments_global", "dialect": "sddp"},
 
     {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "reserve_fail_cost",  "dialect": "gtopt-legacy"},
     {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "CustoFaltaReserva",   "dialect": "sddp"},
@@ -342,6 +348,15 @@
     {"class": "fuel",             "canonical": "max_offtake",       "alt": "weekly_offtake_cap",  "dialect": "gtopt-legacy"},
     {"class": "fuel",             "canonical": "max_offtake",       "alt": "FueMaxOffWeek",       "dialect": "plexos"},
     {"class": "fuel",             "canonical": "max_offtake_cost",  "alt": "offtake_violation_cost","dialect": "gtopt-legacy"},
+    {"class": "battery", "canonical": "annual_standing_loss", "alt": "annual_loss", "dialect": "gtopt-legacy", "deprecated": true, "_note": "Renamed to annual_standing_loss (PyPSA standing_loss). Deprecated: accepted with a one-time warning; setting both keys on one object is an error."},
+    {"class": "reservoir", "canonical": "annual_standing_loss", "alt": "annual_loss", "dialect": "gtopt-legacy", "deprecated": true},
+    {"class": "lng_terminal", "canonical": "annual_standing_loss", "alt": "annual_loss", "dialect": "gtopt-legacy", "deprecated": true},
+    {"class": "hydrogen_storage", "canonical": "annual_standing_loss", "alt": "annual_loss", "dialect": "gtopt-legacy", "deprecated": true},
+    {"class": "ammonia_storage", "canonical": "annual_standing_loss", "alt": "annual_loss", "dialect": "gtopt-legacy", "deprecated": true},
+    {"class": "thermal_storage", "canonical": "annual_standing_loss", "alt": "annual_loss", "dialect": "gtopt-legacy", "deprecated": true},
+    {"class": "allowance_pool", "canonical": "annual_standing_loss", "alt": "annual_loss", "dialect": "gtopt-legacy", "deprecated": true},
+    {"class": "volume_right", "canonical": "annual_standing_loss", "alt": "annual_loss", "dialect": "gtopt-legacy", "deprecated": true},
+    {"class": "model_options", "canonical": "battery_annual_standing_loss", "alt": "battery_annual_loss", "dialect": "gtopt-legacy", "deprecated": true},
     {"class": "reservoir",       "canonical": "emin",                 "alt": "Vmin",         "dialect": "sddp", "_note": "PSR SDDP chidro*.dat / PSRHydroPlant attribute names actually read by scripts/sddp2gtopt (sddp_case.py)."},
     {"class": "reservoir",       "canonical": "emax",                 "alt": "Vmax",         "dialect": "sddp"},
     {"class": "reservoir",       "canonical": "eini",                 "alt": "Vinic",        "dialect": "sddp"},

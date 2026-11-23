@@ -105,7 +105,11 @@ where:
 - $z_t^*$ is the optimal objective of phase $t$ (including its own $\alpha_t$)
 - $S$ is the set of state-variable links between phases $t-1$ and $t$
 - $\text{rc}_i$ is the reduced cost of the dependent column for state variable
-  $i$ in phase $t$'s LP
+  $i$ in phase $t$'s LP, in physical units: the LP reduced cost divided by
+  the dependent column's **own** scale factor (times `scale_objective`).
+  Under Ruiz equilibration the source and dependent columns get different
+  scales, so using the source column's scale would skew every slope (see
+  [SDDP cut validity](../formulation/sddp-cut-validity.md))
 - $x_{t-1,i}$ is the source column in phase $t-1$
 - $\hat{v}_i$ is the trial value used in the forward pass
 
@@ -434,6 +438,33 @@ with each parquet file containing `stage`, `block`, and `uid:N` columns
 - `num_apertures = -1` — use all available scenarios as apertures
 - `num_apertures = N > 0` — use the first N scenarios (capped at total)
 
+<a id="aperture-task-grouping"></a>
+**Aperture task grouping** (`aperture_chunk_mode`): how the apertures
+of one (scene, phase) are split into work-pool tasks.  Each task clones
+the phase LP once and solves its apertures in series on that clone, so
+under the default `warm` solve mode every aperture after the first
+re-optimizes the previous one's basis with a few dual-simplex pivots.
+
+| Mode | Tasks per (scene, phase) | Trade-off |
+|------|--------------------------|-----------|
+| `per_scene` (**default**) | 1 (all apertures) | maximum warm-start reuse, one clone per cell; parallelism capped at the number of scenes |
+| `per_aperture` | one per aperture | maximum fan-out; every aperture is a fresh clone + cold solve |
+| `chunked` | ⌈A / K⌉ with K = `aperture_chunk_size` | in between; K unset → `⌈A·S / (2·cores)⌉` rounded down to a power of two |
+
+Measured on a 16-scene × 16-aperture hydrothermal case, the backward
+pass is several times faster under `per_scene` than under
+`per_aperture`, with the same bounds and the same peak memory.  The grouping changes only the scheduling
+and the simplex path, never the cuts, so bounds agree up to solver
+tolerance.  The resolved grouping is logged at setup as
+`SDDP Aperture: chunk_mode=<name> chunk_size=<K> ...`.
+
+The integer `aperture_chunk_size` used to encode the mode (`1` = one
+task per aperture, `-1` = per scene, `K > 1` = K per task, `0` = auto,
+which resolved to 1).  It is still accepted when `aperture_chunk_mode`
+is unset — with a deprecation warning — but `0`/unset now means the new
+default `per_scene`.  A size that contradicts an explicit mode (e.g.
+`per_scene` with `aperture_chunk_size = 4`) is ignored with a warning.
+
 **Aperture solve modes** (`aperture_solve_mode`): how each aperture
 subproblem is solved and how its cut's coefficients are recovered.
 Apertures of one (scene, phase) share the LP matrix and differ only in
@@ -443,7 +474,7 @@ exploit.
 | Mode | Per-aperture work | Cut source | Notes |
 |------|-------------------|------------|-------|
 | `cold` | cold barrier + crossover solve | vertex reduced costs | legacy byte-for-byte behaviour |
-| `warm` | warm dual simplex off the resident chunk basis | vertex reduced costs | **effective default** (unset resolves to `warm`); needs `aperture_chunk_size > 1` (or `-1`) for the within-chunk chain to engage |
+| `warm` | warm dual simplex off the resident chunk basis | vertex reduced costs | **effective default** (unset resolves to `warm`); the within-chunk chain engages whenever a task holds several apertures — `aperture_chunk_mode = per_scene` (the default) or `chunked` with K > 1 |
 | `reduced_cost` | cold barrier, no crossover | interior-point reduced costs | ~35% faster on big LPs; ε-optimal duals filtered by `cut_coeff_eps` |
 | `dual_shared` | **no solve** (representative only) | representative's vertex duals + bound-delta intercept correction | opt-in Infanger–Morton sharing (Lemma AP2, [cut-validity §6](../formulation/sddp-cut-validity.md)); forces a single chunk; falls back to exact solves on row-touching profile updates, sentinel deltas, or an infeasible representative |
 | `screened` | `dual_shared` + `aperture_screen_count` exact re-solves | mixed | the synthesized cuts with the largest \|correction\| are re-solved exactly on the resident basis |
@@ -939,7 +970,7 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `elastic_penalty` | double | 1e6 | Penalty cost for elastic slack variables |
 | `elastic_filter_mode` | ElasticFilterMode | single_cut | Elastic filter strategy (see S5.4) |
 | `multi_cut_threshold` | int | 10 | Infeasibility count before auto-switching to multi_cut (0 = always multi_cut, <0 = disabled) |
-| `alpha_min` | double | 0.0 | Lower bound for α variables |
+| `alpha_min` | double | unset | Universal lower bound for α.  Unset: α is floored only by the cut-derived box floor (from the first installed cut on).  Set `0` when every stage cost is non-negative (the SDDP.jl `lower_bound = 0` analogue); not valid with negative-cost elements or `boundary_cuts_mean_shift` |
 | `alpha_max` | double | 1e12 | Upper bound for α variables |
 | `cut_sharing_mode` | CutSharingMode | none | Cut sharing strategy between scenes |
 | `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
@@ -1031,8 +1062,9 @@ prefix, since the section name already provides the namespace).
 | `forward_solver_options` | object | — | Solver options for forward-pass solves; `time_limit` replaces the removed `solve_timeout` |
 | `aperture_timeout` | double | 15.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
 | `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all) |
-| `aperture_chunk_size` | int | unset (auto = 1) | Apertures solved serially per pool task on a shared LP clone: `0`/unset = auto, `1` = one task per aperture (legacy), `K > 1` = K per task, `-1` = fully serial per scene (licence/memory-tight runs). CLI: `--aperture-chunk-size` |
-| `aperture_solve_mode` | string | `"warm"` | Per-aperture solve / cut recovery: `"cold"` (barrier + crossover, exact vertex duals), `"warm"` (chunk-resident basis re-optimize; needs `aperture_chunk_size > 1` or `-1`), `"reduced_cost"` (barrier without crossover, ~35% faster per aperture on big LPs), `"dual_shared"` (representative solve + Lemma AP2 synthesis; see §4.4), `"screened"` (`dual_shared` + top-\|corr\| exact re-solves) |
+| `aperture_chunk_mode` | string | `"per_scene"` | How backward apertures are grouped into pool tasks (each task clones the phase LP once and solves its apertures in series): `"per_scene"` (all apertures of a (scene, phase) in one task — warm-start chain, one clone per cell; parallelism capped at the scene count), `"per_aperture"` (one task per aperture, fresh clone, cold solve), `"chunked"` (`aperture_chunk_size` = K per task). See [Aperture task grouping](#aperture-task-grouping). CLI: `--aperture-chunk-mode` |
+| `aperture_chunk_size` | int | unset | K apertures per task for `aperture_chunk_mode = "chunked"` (unset = auto formula). Deprecated as a mode selector when `aperture_chunk_mode` is unset: `-1` → `per_scene`, `1` → `per_aperture`, `K > 1` → `chunked`, `0` → default (warning logged). CLI: `--aperture-chunk-size` |
+| `aperture_solve_mode` | string | `"warm"` | Per-aperture solve / cut recovery: `"cold"` (barrier + crossover, exact vertex duals), `"warm"` (chunk-resident basis re-optimize; engages under `per_scene` / `chunked` K > 1), `"reduced_cost"` (barrier without crossover, ~35% faster per aperture on big LPs), `"dual_shared"` (representative solve + Lemma AP2 synthesis; see §4.4), `"screened"` (`dual_shared` + top-\|corr\| exact re-solves) |
 | `aperture_screen_count` | int | 2 | Synthesized cuts re-solved exactly under `aperture_solve_mode = "screened"` (picked by largest \|intercept correction\|); ignored by every other mode |
 | `aperture_seed_basis` | bool | false | Seed each iteration's first backward aperture from the previous iteration's basis (dual warm start; acts only under `cold`/`warm` modes) |
 | `basis_cross_mode` | string | `"off"` | Cross-pass basis reuse between forward and backward solves of the same (scene, phase); correctness-neutral, CPLEX/HiGHS only |
@@ -1981,7 +2013,7 @@ fields inherit from the global configuration.
 | `kirchhoff_threshold` | real | 0.0 | Min bus voltage [kV] for Kirchhoff |
 | `loss_segments` | int | 1 | Piecewise-linear loss segments |
 | `scale_objective` | real | 1000 | Divisor for objective coefficients |
-| `scale_theta` | real | 1.0 | Scaling for voltage-angle variables |
+| `scale_theta` | real | auto | Voltage-angle enlargement: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians |
 | `demand_fail_cost` | real | 1000 | Penalty for unserved demand [$/MWh] |
 | `reserve_fail_cost` | real | 1000 | Penalty for unserved reserve [$/MWh] |
 

@@ -301,7 +301,7 @@ is dimensionally correct.
 | `reservoir.spill` / `reservoir.drain` | flow scale (from `variable_scales`) | 1000 |
 | `battery.energy` | energy scale (from `variable_scales`) | 1.0 |
 | `battery.spill` / `battery.drain` | flow scale (from `variable_scales`) | 1.0 |
-| `bus.theta` / `bus.angle` | `1 / scale_theta` | 1/1000 |
+| `bus.theta` / `bus.angle` | `1 / scale_theta` (θ_LP = scale_theta · θ) | 3·median(X/V²) |
 | All other variables | 1.0 (no scaling) | — |
 
 For example, `reservoir("R1").volume >= 5000` (in dam³) is automatically

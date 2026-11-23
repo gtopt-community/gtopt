@@ -9,6 +9,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `gtopt_state.json` (pre-solve snapshot) now records the solver the run
+  resolved (`lp_matrix_options.solver_name`, new JSON field; `--solver` >
+  JSON pin > `.gtopt.conf` `solver` > `$GTOPT_SOLVER` > plugin priority)
+  and the resolved parameter file (`solver_options.param_file`, including
+  an auto-discovered `solvers/<solver>.prm`), so a replay of the snapshot
+  uses the same backend and tuning.  A warning now says when
+  `param_file` is set but the active backend ignores it (only cplex and
+  cuopt read the main parameter file).
+
+- `plexos2gtopt --scale-theta FACTOR` (same opt-in flag as `plp2gtopt`,
+  now shared as `gtopt_shared.cli_flags.add_scale_theta_argument`): the LP
+  angle is FACTOR × θ (1 = radians, 1000 = milliradians).  Default unset:
+  nothing is emitted and gtopt's C++ auto-scaling (1/(3·median(X/V²))) picks
+  the scale; an explicit value is written to `model_options.scale_theta`
+  and always wins over auto (`theta_max` is still auto-computed).  The
+  same manual override works on any case with
+  `--set model_options.scale_theta=1000`.
+- `cases/reservoir_water_value/`: e2e cases (monolithic and SDDP) that
+  pin the water value of a spilling reservoir: 0 with a free exit, −c/fcr
+  when every exit is priced (`spillway_cost`, `Junction.drain_cost`,
+  `Waterway.fcost`), −ecost × remaining blocks with `ecost`, and >0 when
+  dry.  Checked against hand-derived values by
+  `tools/check_expected_values.py` (`add_expected_values_case`).
+
+- `plp2gtopt --falla-segments {first,all}`, default `first` (output
+  unchanged).  `all` keeps every PLP failure tier: each demand on a bus
+  with several `FALLA_<bus>_k` centrals is split into `<demand>_falla<k>`
+  demands with `lmax` = tier share of the demand (from `plpmance.dat`)
+  and `fcost` = tier cost, so rationing follows PLP's cost curve.
+- `sddp2gtopt --deficit-segments {first,all}`, default `first` (output
+  unchanged).  `all` keeps the whole `sddp.dat` "Costo Deficit" curve on
+  SDDP block studies: each demand becomes `<demand>_deficit<k>` demands
+  with `lmax` = segment % of the demand (last segment takes the rest) and
+  `fcost` = segment cost.  Both converters now share the split helpers in
+  `gtopt_shared/demand_tiers.py` and the flag registrar
+  `gtopt_shared.cli_flags.add_demand_tier_segments_argument`.
+- `sddp_options.aperture_chunk_mode` (CLI `--aperture-chunk-mode`, cascade
+  per-level `sddp_options.aperture_chunk_mode`): names how backward-pass
+  apertures are grouped into tasks — `per_scene` (default),
+  `per_aperture`, or `chunked` (`aperture_chunk_size` = K per task).  The
+  setup log shows the resolved mode, e.g.
+  `SDDP Aperture: chunk_mode=per_scene chunk_size=16`.  A size that
+  contradicts the mode (e.g. `per_scene` with `aperture_chunk_size: 4`)
+  is ignored with a warning.  `plp2gtopt` and `run_gtopt` accept and check
+  the new name.
+- Native stepwise demand-failure (VoLL) curve: `Demand.fail_segments`
+  (`[{fraction, cost}]`, per-stage schedulable cost, open last segment,
+  firm remainder) and the global default
+  `model_options.demand_fail_segments`.  The LP splits the served load
+  into one column per segment with plain bounds (K − 1 extra columns per
+  block, no extra rows; one segment is LP-identical to `fcost`).  New
+  outputs `Demand/fail_seg<k>_sol`; `demand('x').fail` is now available
+  to user constraints.  Validation in gtopt and `gtopt_check_json`
+  (`demand_fail_segments` check); `gtopt_check_output` prices load
+  shedding per segment.
+- `scripts/tests/test_public_cli.py`: every console script in
+  `[project.scripts]` must pass `--help` and an end-to-end run on a tiny
+  case (converters also solve the result with gtopt when a binary is
+  available); a new public tool without a case fails CI.
+- `tools/affected_tests.py`: selects the C++ (doctest files, integration
+  CTest entries), Python (pytest dirs / files, pytest-testmon for reverse
+  dependencies), guiservice and tools tests plus the lint targets
+  affected by a git change, explains every pick, escalates to the full
+  suite for core headers, build files and packaging config, and runs the
+  selection (`--run`, `--lint`).  CI uses it through the
+  `.github/actions/affected-tests` action: `ubuntu.yml`, `tsan.yml`
+  (pushes), `scripts.yml` and `guiservice.yml` run only the affected
+  tests against the PR base / previous push, fall back to the full suite
+  without a usable base, and keep a `full_run` `workflow_dispatch` input
+  (default on).  In affected runs the Python coverage gate applies per
+  package to the packages whose own tests ran.  `guiservice.yml` now also
+  triggers on `scripts/**` and skips itself when the change cannot reach
+  guiservice.
 - Native BESS reserve deliverability: `Battery.reserve_sustain_hours`
   (and `reserve_discharge_credit`) add per-block power-headroom and
   SoC-sufficiency rows for the battery's reserve provisions, with no
@@ -35,9 +108,153 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   produces its draft release, the release workflow opens the PR that
   starts the next development version; the tag check now also requires
   an empty suffix.  See `docs/releasing.md`.
+- `gtopt_check_topology` checks the network per stage.  It honours
+  `Bus.active`, `Line.active` and `tmax_ab = tmax_ba = 0`, and reports
+  topology periods (stage ranges with the same islands).  Each island
+  shows its zone (bus `zone` field or name prefix such as `CL_`) and
+  the elements on its buses with their MW.  Inter-zone lines are
+  listed with the stages they are in service.  New
+  `--expect-islands N` / `--expect-zones CL,PE` exit with code 3 when
+  a stage has more islands with elements than expected.  See
+  `docs/scripts/gtopt_check_topology.md`.
 
 ### Changed
 
+- **SDDP α floor (behaviour change)**: the future-cost variable α is no
+  longer floored at 0 when a cell installs its first cut — the floor is
+  derived from the cuts actually installed (see *Fixed*).  **Models with
+  only non-negative costs that relied on the implicit first-cut `α ≥ 0`
+  should set `sddp_options.alpha_min = 0`**; without it the trial
+  trajectory of the first iterations (and where a fixed-iteration run
+  stops) can change.  Models with negative costs or rebased FCFs need no
+  action — they were the ones reporting an invalid lower bound.
+- A relative `solver_options.param_file` (e.g. the `"solvers/cplex.prm"`
+  the converters pin) resolves against `input_directory` first — the case
+  directory wins — and against the working directory only when the case
+  has no such file; the log names the location used.  An auto-discovered
+  `<input_directory>/solvers/<solver>.prm` is recorded as an absolute
+  path.
+- `solver_options.time_limit` is a wall-clock budget for the whole solve
+  of one LP/MIP: MIP-start stages and the algorithm-fallback retries share
+  it (each retry gets what is left; retries stop once < 1 s remains).  A
+  MIP that hit its limit used to be re-run up to `max_fallbacks` more
+  times with the full limit each.
+
+- Option precedence is now *the more explicit, the closer to the run,
+  wins*: CLI flag > `--set` > planning JSON (last `-s` wins) >
+  `.gtopt.conf` > built-in default.  `.gtopt.conf` `[gtopt]` values used
+  to be merged as if they were CLI flags, so they silently beat both the
+  planning JSON and an explicit `--set` of the same option (e.g.
+  `sddp-max-iterations` in `~/.gtopt.conf` overrode
+  `--set sddp_options.max_iterations=…`).  They now fill only options the
+  JSON, `--set` and the CLI left unset; relative directories from the
+  config file stay CWD-relative.  Same rule as the Python tools' own
+  config sections.  Documented in `docs/usage.md`, `--help` (`--set`) and
+  `docs/templates/gtopt.conf.sample`.  **Behaviour change** for runs whose
+  config file and planning JSON set the same option.
+
+- Auto `scale_theta` (θ_LP = scale_theta · θ, when unset) is now
+  `1 / (3 · median(X/V²))` instead of `1 / median(X/V²)`.  θ is a node
+  potential accumulating ~D line drops to the reference bus (D ≈ 8-10 on
+  the Chilean system), so the old rule left θ_LP ~8× the line flows;
+  dividing by ≈√D = 3 balances the KVL-row θ coefficient against the θ_LP
+  magnitude.  On CEN cl5y it gives ≈1039, next to the empirically best
+  1000 (y24_S2_perf, CPLEX, 2 SDDP iterations: radians κ 1.56e8 / 1.137M
+  ticks; old auto ≈3116 κ 1.12e7 / 1.086M; 1000 κ 1.12e7 / 1.071M).
+  Explicit values (e.g. `--set model_options.scale_theta=1000`) are
+  honoured unchanged.
+- `sddp2gtopt` no longer pins `model_options.tiny_reactance_mode = "dc"`:
+  PSR coupler circuits below `dc_line_reactance_threshold` (1e-3 p.u.)
+  now use gtopt's default `tie` (zero-impedance tie, equal bus angles)
+  like every other converter.  `--set model_options.tiny_reactance_mode=dc`
+  restores the KVL-free DC-link treatment.  (The ~9 GWh GUA curtailment
+  originally blamed on the couplers was the `dcirc.dat` units bug listed
+  under *Fixed*, not a tie effect.)
+- SDDP: the backward-pass apertures are now grouped **per scene** by
+  default — every aperture of a (scene, phase) is solved in series on one
+  LP clone, each warm-started off the previous basis.  Before, the
+  default ("auto", which resolved to 1) gave one task per aperture with a
+  fresh clone and a cold solve.  On a 16-scene × 16-aperture
+  hydrothermal case the backward pass is several times faster, with the
+  same bounds and peak memory.  Results
+  are numerically the same up to solver tolerances.  Backward
+  parallelism is now capped at the number of scenes; set
+  `sddp_options.aperture_chunk_mode = "per_aperture"` (or
+  `--aperture-chunk-mode per_aperture`) to get the previous behaviour.
+  `plp2gtopt` now writes `aperture_chunk_mode: "per_scene"` instead of
+  `aperture_chunk_size: 0`.
+- **Result-changing for JSON cases that omit it**: an unset
+  `Reservoir.flow_conversion_rate` now resolves to
+  `Reservoir::default_flow_conversion_rate` = 0.0036 hm³/(m³/s·h), the
+  value the C++ struct default and the docs already stated.  The JSON
+  path fell back to 3.6 (the dam³ convention, 1000× larger).  The
+  converters always set it explicitly; the SDDP.jl fixtures
+  `fast_hydro_thermal`, `hydro_thermal_sddpjl` and
+  `hydro_valley_sddpjl` now pin `flow_conversion_rate: 3.6` so their
+  goldens are unchanged.  Cases that relied on the implicit 3.6 must
+  set it.
+
+- **Result-changing for cases with line losses and no explicit
+  `loss_cost_eps`**: `model_options.loss_cost_eps` now defaults to
+  `0.1` $/MWh in gtopt (was `0`; constant
+  `PlanningOptionsLP::default_loss_cost_eps`).  It prices the loss
+  columns of the `piecewise` / `bidirectional` / `adaptive` /
+  `tangent_signed_flow` modes (inert for `none`, `linear`,
+  `piecewise_direct`), breaking bidirectional-flow degeneracy and the
+  small negative-LMP loss arbitrage; on a CEN 5-year SDDP it shrank
+  small negative LMPs ~8x vs `1.0` with identical total losses.
+  Per-line `Line.loss_cost_eps` still overrides; set `0` explicitly to
+  restore the old formulation.  `plp2gtopt` and `plexos2gtopt` no longer
+  impose their own default (`1.0`): `--loss-cost-eps` is unset by
+  default (key not emitted, gtopt's `0.1` applies) and any explicit
+  value, including `0`, is emitted.
+- **GeneratorProfile formulation: no spillover column, availability capped
+  at pmax.**  The profile row is now `gen ≤ A` with
+  `A = min(capacity·profile, pmax_block)` (expansion:
+  `gen − min(profile, 1)·C ≤ 0`); spillover `A − gen` is reconstructed at
+  output time into the same `GeneratorProfile/spillover_sol` file,
+  `spillover_dual` is the dual of the `≤` row (same sign as before) and
+  `spillover_cost` is `−dual`.  One LP column fewer per profiled
+  generator × block.  A profile with a non-zero `scost` keeps the slack
+  column, now bounded `0 ≤ spill ≤ A`.  DemandProfile keeps its
+  `unserved` column (bounded by `profile·capacity`, not clamped by
+  `lmax`).  gtopt warns once per element when a profile value is > 1
+  (profiles are per-unit of capacity, not MW).
+
+- Public Python tools: `pip install ./scripts` no longer installs
+  developer tools as commands.  `gtopt_field_extractor`,
+  `cen2gtopt.marginal_units` and `cen2gtopt.pcp_validate` remain
+  available as `python -m <module>` from `scripts/`.  The aliases
+  `sddp_monitor` (use `gtopt_monitor`) and `gtopt_irrigation` (use
+  `gtopt_expand`) were removed.  `docs/scripts-guide.md` lists every
+  public tool in one table.
+
+- `FlowRight` pass-through `bypass` arc (`junction_a` → `junction_b`) is
+  now opt-in: it is built only with `use_bypass: true` (or, for older
+  JSON, when `bypass_cost` / the new `bypass_fmax` is set).  It is
+  bounded by `bypass_fmax` and written to the output as
+  `FlowRight/bypass_sol` (PAMPL: `flow_right('x').bypass`).  Before, any
+  right with `junction_b` got a free, unbounded arc that the output did
+  not show, so junction balances could not be closed from the results
+  (up to 828 m³/s on a Laja carry-mode diversion).  `plexos2gtopt` and
+  `gtopt_expand` pmin-as-FlowRight now emit `use_bypass` explicitly;
+  validation warns when a consumptive right sets `junction_b` without a
+  bypass.
+
+- `plp2gtopt --soft-emin-cost` now defaults to 0 instead of 0.1.  The
+  `plpminembh.dat` soft minimum volume uses only the file's per-stage
+  cost; stages with cost 0 (a free slack in PLP, i.e. no effect) are no
+  longer emitted with an invented 0.1 price.  Results change for cases
+  with zero-cost `plpminembh.dat` rows: those floors disappear, as in
+  PLP.  Pass `--soft-emin-cost 0.1` for the old behaviour.  A zero
+  fallback no longer suppresses the file's positive costs; use a
+  negative value (e.g. `--soft-emin-cost -1`) to ignore the file.
+- `plexos2gtopt` no longer turns a Waterway `Max Flow Penalty` into a
+  per-unit flow cost when `Max Flow` is unbounded.  PLEXOS charges the
+  penalty only on flow above `Max Flow`, so it never applies there.
+  CEN PCP: `Post_Isla` loses its 3.6 $/(m³/s·h) `fcost`; the `Vert_*`
+  spillways (`Max Flow = 0`) keep theirs.  Results change slightly
+  around Isla / Curillinque.
 - SDDP `low_memory = compress` uses less memory:
   - The in-memory flat-LP snapshots of the scenes of a phase are
     deduplicated. Each cell stores a compressed XOR delta against one
@@ -49,14 +266,285 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     `memory_codec: lz4` to get the previous codec back.
   - When the solution already lies inside its bounds, the cached
     column bounds are dropped as the solver is released.
+- The storage loss field `annual_loss` is renamed `annual_standing_loss`
+  on every storage element (Battery, Reservoir, LngTerminal,
+  HydrogenStorage, AmmoniaStorage, ThermalStorage, AllowancePool,
+  VolumeRight), and `model_options.battery_annual_loss` is renamed
+  `model_options.battery_annual_standing_loss`.  The name follows PyPSA's
+  `standing_loss` and makes clear it is the loss while stored, not the
+  round-trip efficiency.  The old keys stay accepted as deprecated
+  aliases (JSON input and `--set`), with a one-time warning; setting both
+  spellings on one object is an error.  All converters now write the new
+  key.
+
+### Deprecated
+
+- `sddp_options.aperture_drop_fcuts` is deprecated and ignored.  It was
+  re-added to the JSON contract and to the `plp2gtopt` output (default
+  `true`) on 2026-05-12, but no solver code ever read it, and the backward
+  pass never adds feasibility cuts, so it had no effect.  It is still
+  parsed (old cases load); setting it logs a validation warning.  The
+  default is now unset and `plp2gtopt` no longer writes it.
+
+- `sddp_options.aperture_chunk_size` as a mode selector.  When
+  `aperture_chunk_mode` is not set, the old integers still work and log a
+  deprecation warning: `-1` → `per_scene`, `1` → `per_aperture`, `K > 1` →
+  `chunked` with K.  `0` / unset (formerly "auto", which resolved to 1)
+  now means the new default `per_scene`, without a warning.  Keep
+  `aperture_chunk_size` only as K for `aperture_chunk_mode: "chunked"`.
 
 ### Fixed
 
-- plexos2gtopt AEMO ISP (weekly and expansion): pumped hydro (PHES)
-  written as a Battery now carries `annual_loss: 0`, so it no longer
-  inherits the Li-ion self-discharge default
-  (`model_options.battery_annual_loss`).
+- A relative `solver_options.param_file` was handed verbatim to the
+  backend, so a run started outside the case directory
+  (`--set input_directory=<case>`) failed to open `solvers/cplex.prm`
+  (CPLEX error 1423) and silently solved with solver defaults; sibling
+  files derived from its directory (`cplex_warmstart.prm`, `cuopt.cfg`,
+  …) were lost the same way.  Every `SolverOptions` bundle (global,
+  monolithic, MIP-start relax, SDDP forward/backward, cascade) is now
+  resolved before any plugin sees it; a file found nowhere is a WARN.
+- `plexos2gtopt`: a battery whose `BAT_<name>` `Gen_Rating` series is
+  0 MW over the whole horizon is out of service — `pmax_charge =
+  pmax_discharge = 0`, written explicitly — instead of a working battery
+  sized by the 2 MW static `Max Power` placeholder.  Partially de-rated
+  units keep their rating series.
+- `Junction.drain_cost` is now priced like `Waterway.fcost` and
+  `Reservoir.spillway_cost` ($/(m³/s)·h through `CostHelper::block_ecost`,
+  i.e. × probability × discount × block duration).  It entered the
+  objective raw, so with 2 h blocks a costed junction drain cost half of
+  the equivalent `_ver` waterway and the water value of a spilling
+  reservoir came out at −c/(fcr·duration) instead of −c/fcr.
+- `sddp2gtopt`: a negative PSR water value is kept as a boundary-cut
+  slope (it was dropped together with the `efin`/`efin_cost` target,
+  which stays positive-only).
+- **plp2gtopt: GeneratorProfile written in MW instead of per-unit.**
+  Profile-mode pasada centrals (solar / wind / CSP under
+  `--pasada-mode auto|profile`) wrote the raw `plpaflce.dat` value
+  (MW-equivalent) as `GeneratorProfile/profile`, so
+  `capacity × profile` reached ~capacity² (e.g. FINIS_TERRAE_FV
+  281.8 × 63.6 MW ≈ 17 900 MW of "available" energy and spillover up to
+  2.5e4).  The profile is now `aflce × Rendi / PotMax` clipped to [0, 1]
+  (PLP bounds the pasada flow by `min(aflce, PMax/Rendi)`,
+  `plp-fijamues.f`); the scalar `afluent` path is fixed likewise.
+  Dispatch was unaffected (pmax still capped generation) but
+  spillover outputs and LP RHS magnitudes were wrong.  **PLP-derived
+  cases converted with profile-mode pasadas must be regenerated**; in
+  gtopt-cases the affected ones (profile max > 1) are
+  `chile/medium_long_term/cen_long_term_1y`,
+  `chile/medium_long_term/plp_23y/case` and
+  `chile/medium_long_term/archive/scripts_cases_2y/gtopt_case_2y`
+  (Peru / Guatemala profiles are already per-unit), plus derived cases
+  such as the cl-pe interconnection merges.
 
+- Parquet solution output: the `scenario`, `stage`, `block` and `uid` key
+  columns are now `int32` (the `Uid` type) instead of `uint16`.  Element
+  uids >= 65536 were silently wrapped mod 65536 (reservoir uid 101333 was
+  written as 35797, colliding with other elements), and block uids of long
+  hourly horizons overflowed after ~7 years.  Readers that cast the key
+  columns to `uint16` must accept `int32`.
+
+- Naming / unit dialect dictionaries: a stale installed
+  `naming_dialects.json` / `unit_dialects.json` (e.g. an old
+  `~/.local/share/gtopt/` copy) no longer shadows the running binary's
+  dictionary.  The copy compiled into the binary is now the default;
+  an external file is read only through `$GTOPT_NAMING_DIALECTS_FILE` /
+  `$GTOPT_UNIT_DIALECTS_FILE` (logged, with a warning when the override
+  lacks entries of the built-in dictionary).  Install and user share
+  dirs are never probed.  Fixes the `annual_loss` deprecated-alias tests
+  failing on machines with an older install.
+- Multi-stage phases after the first one keep their stage chain.
+  `SimulationLP::prev_stage` indexed the GLOBAL stage array with the
+  stage's phase-LOCAL index, so in phase 2+ the second and later stages
+  got a stage of an earlier phase as predecessor: storage restarted from
+  `eini` (free water; a 3-stage hydro case with phases {1, 2} reported
+  LB = UB = 1.4 M instead of 6.5 M) and every other `prev_stage` user
+  (capacity, flow, volume-right and decision-variable chains) saw the
+  wrong stage.  Single-stage phases and the first phase were not
+  affected.
+
+- SDDP: cuts loaded onto a multi-stage phase now bind to the phase's
+  LAST-stage state column.  A multi-stage phase registers one `efin` per
+  stage under the same `(class, uid, col_name)`; the boundary-cut loader
+  (`load_boundary_cuts_csv`, incl. the mean-shift target) and the Parquet
+  hot-start loader took the first registry match — the end volume of the
+  phase's FIRST stage.  Terminal FCFs on the monolithic single-phase LP and
+  on multi-stage last phases, and reloaded cuts on multi-stage phases,
+  therefore priced the wrong column (a 3-phase hydro case: monolithic
+  800 k instead of 6.5 M; reloaded LB 1.7 M instead of 6.5 M).  New helper
+  `find_phase_state_col` (`sddp_cut_io.hpp`).
+
+- SDDP: the α floor is derived after the cut row is installed.  Every
+  install site (`add_cut_row`, cut sharing, Parquet reload) floored α
+  before adding the row, so a cell's first cut was floored from an empty
+  cut set — the `α ≥ 0` fallback.  With a negative cost-to-go
+  (negative-cost units, rebased FCFs) this reported an invalid LB above
+  the optimum for one iteration (3.75 M vs the 0.825 M optimum).  The floor
+  is now the documented cut-derived box floor from the first cut on.
+  Non-negative-cost models that relied on the implicit first-cut `α ≥ 0`
+  should set `sddp_options.alpha_min = 0` (the trial trajectory, and
+  where a fixed-iteration run stalls, can change without it).
+
+- `.gtopt.conf`: an unknown key or an unparsable value (number, boolean,
+  algorithm) in `[gtopt]` or `[solver.<name>]` now logs one warning naming
+  the file, the section and the key; it used to be dropped silently.
+  Numbers must be whole tokens (`threads = 4x` was read as 4).  The Python
+  tools' sections are not checked.
+
+- JSON `solver_options.log_mode` and `solver_options.scaling` accept the
+  names documented for them (`"detailed"`, `"aggressive"`, …); the parser
+  only took the numeric codes, which still work.  An unknown name or code
+  is an error naming the option and the valid values.  Output JSON keeps
+  writing the numeric codes.
+
+- A JSON / `--set` `lp_debug` or `lp_error` now enables LP row/column
+  names like the `--lp-debug` / `--lp-error` flags do; only the CLI flags
+  did, so a JSON-only `"lp_debug": true` dumped LPs with generic names.
+
+- Cascade levels that rebuild their LP (model-option overrides or a
+  `system_file` swap) now inherit the caller's full `LpMatrixOptions`
+  (solver, `matrix_eps`, LP names for `--lp-file` / `lp_debug` /
+  `lp_error`, `compute_stats`, equilibration, coefficient-ratio
+  threshold).  They were rebuilt with `LpMatrixOptions{}`, so e.g.
+  `lp_debug` dumps and error LPs of those levels had no names.
+  `PlanningLP::flat_options()` exposes the options; each level's are in
+  `CascadeLevelStats::lp_options`.
+
+- The solver parameter file's optimality tolerance is no longer silently
+  replaced: with `scale_objective != 1` every solve set a typed
+  `optimal_eps = 1e-6 / scale_objective`, which CPLEX applies after the
+  `.prm`, so a case's `CPXPARAM_Simplex_Tolerances_Optimality` never took
+  effect.  The order is now: `solver_options.optimal_eps` (used as given;
+  it used to be divided by `scale_objective` too) > the parameter file's
+  value > the `scale_objective`-derived default.  One info line reports
+  the value used and why.  **Result-changing** for runs that set
+  `optimal_eps` or a `.prm` tolerance with `scale_objective != 1`.
+
+- Unknown per-element mode strings are now a validation error naming the
+  element, the field, the bad value and the valid values:
+  `Line.line_losses_mode`, `Line.loss_pwl_layout`,
+  `Line.loss_allocation_mode`, `Generator.cogen_mode`,
+  `FlowRight.flow_mode`, `DecisionVariable.cost_type` and
+  `UserConstraint.constraint_type`.  They used to fall back silently to the
+  global / default setting (`FlowRight.flow_mode` with a log line only).
+
+- Unknown names in the string-typed `model_options` enums
+  (`line_losses_mode`, `kirchhoff_mode`, `tiny_reactance_mode`,
+  `objective_mode`), globally or in a cascade level, are now a validation
+  error.  They used to fall back to the default formulation silently
+  (e.g. `"line_losses_mode": "linaer"` ran the adaptive loss model).
+
+- `$GTOPT_CONFIG` pointing at a missing file now logs a warning instead of
+  silently falling back to `./.gtopt.conf` / `~/.gtopt.conf`.
+
+- `--solver` is kept by cascade levels that rebuild their LP (model-option
+  overrides): those levels used to fall back to the default solver
+  (`GTOPT_SOLVER` / plugin priority).
+
+- The `.gtopt.conf` `[solver.<name>]` section and the auto-discovered
+  `<input_directory>/solvers/<name>.prm` now follow the solver the LP is
+  actually built with (`--solver`, else `GTOPT_SOLVER` / plugin priority).
+  Both were applied only with an explicit `--solver`, so a default-solver
+  run (e.g. CPLEX picked by priority) silently ignored the case's
+  `solvers/cplex.prm`.
+
+- `--lp-error` is applied on its own: it was only honoured together with
+  `--lp-debug`, and `--lp-debug` alone reset a JSON `lp_error: true`.
+
+- `options.lp_matrix_options` is now resolved in one place
+  (`PlanningOptionsLP::resolve_lp_matrix_options`, applied by
+  `SystemLP::create_lp`) instead of only through the `LpMatrixOptions`
+  argument the `gtopt` runner builds.  Before, a `PlanningLP` constructed
+  directly (unit tests, embedders) and every **cascade level rebuilt with a
+  new LP** ignored the JSON `equilibration_method` and the topology
+  default (ruiz for multi-bus Kirchhoff) and ran with `row_max`; and the
+  JSON fields `ruiz_max_iterations`, `ruiz_tolerance`, `fast_sqrt_method`
+  and `validation` were ignored on every path, including the binary.
+  An explicit `LpMatrixOptions` field still wins when it is set.  The
+  equilibration default is unchanged (ruiz for multi-bus Kirchhoff, else
+  `row_max`) and now also follows a cascade level's own `model_options`
+  (e.g. a single-bus level 0 uses `row_max`, not the base case's ruiz).
+  **Result-changing** for cascade levels ≥ 1 on multi-bus Kirchhoff cases
+  (now ruiz) and for runs that set the Ruiz knobs / validation in JSON.
+  `LpMatrixOptions::ruiz_max_iterations` / `ruiz_tolerance` are now
+  optional (unset = 5 / 1e-3).  The pre-solve "Key options" log now
+  prints the effective `use_kirchhoff` (was `false` when unset, though the
+  default is `true`) and `scale_objective` (was 1000 for SDDP/cascade,
+  whose default is 1).
+- SDDP optimality cuts under `equilibration_method: ruiz` (the default
+  for multi-bus Kirchhoff cases) had wrong slopes: the next-phase
+  `sini` reduced cost was divided by the scale of the current-phase
+  `efin` column instead of its own.  Ruiz scales the two columns
+  differently, so every state-variable slope was off by
+  `col_scale(sini) / col_scale(efin)` and the lower bound could exceed
+  the upper bound and the true optimum.  `StateVariable` now stores the
+  dependent column's scale with its reduced cost.  **Result-changing**
+  for every SDDP / cascade run with ruiz (bounds, cuts, saved cut files,
+  dispatch); `row_max` and `none` runs are unaffected.  Cut files saved
+  by ruiz runs before this fix carry the wrong slopes and should be
+  regenerated rather than hot-started from.
+- `sddp2gtopt` (NCP/`.dat` front-end): `dcirc.dat` `RESIS`/`REACT` are
+  now read as **% on the 100 MVA base** (`x_pu = X/100`, `r_pu = R/100`),
+  as the JSON/CSV front-end already did, instead of ohms converted with
+  the `Volt.dat` bus voltage (`X·100/kV²`).  The ohm reading shrank 69 kV
+  reactances ~50x (and ~5000x on buses whose `Volt.dat` kV copies the
+  name suffix, e.g. 692/691/342/232), so on the Guatemala NCP case 62
+  real circuits (47 at 69 kV, 10 at 230 kV, 5 at 34.5 kV) fell below
+  `dc_line_reactance_threshold` (105 "ties" instead of the 52 real
+  couplers) and were modelled as zero-impedance ties; that, not the
+  couplers, caused the 9160 MWh curtailment previously attributed to
+  `tiny_reactance_mode`.
+  Mistyped `Volt.dat` voltages (non-standard kV equal to the bus-name
+  suffix) are corrected with a warning (692 → 69, 342 → 34.5, 232 → 230,
+  132 → 13.8); they now only affect the `Bus.voltage` metadata.
+
+- `VolumeRight.right_reservoir`: the `direction` sign was inverted —
+  a child "withdrawal" (`direction = -1`, the default) credited the
+  parent ledger.  It now debits it, as documented; `+1` credits it.
+- `plp2gtopt`: a seepage (`plpfilemb.dat`) whose receiving junction's
+  outlets cannot carry the largest flow of the seepage line on
+  `[emin, emax]` gets a free drain at that junction, bounded by that
+  excess.  Before, the outlet
+  capacity capped the source reservoir volume and priced the junction
+  negatively (CIPRESES → FILT_CIPRESES, outlet 20.1 m³/s).  PLP has the
+  same cap; `--plp-legacy` keeps it and only warns.
+
+- SDDP / cascade with `lp_reduction`: fixed-discharge inflows are no
+  longer folded into the junction-balance RHS.  The fold removed the
+  inflow column, so the aperture backward pass and sampled forward
+  realizations (`update_aperture`) silently kept the base scenario's
+  inflow at every folded junction — on converted PLP cases all
+  reservoir/junction inflows.  Monolithic runs still fold.
+
+- `gtopt_check_topology` no longer crashes on cases whose line fields
+  name input files (e.g. `"reactance": "cl_reactance"`).  Scheduled
+  fields (scalars, inline per-stage / per-block arrays and
+  `<input_directory>/<Class>/<name>` tables) are resolved per stage
+  with the new shared `gtopt_shared.field_sched.StageSchedResolver`.
+  Static checks run on the union of in-service lines with min |X|.
+  An isolated bus without demand no longer causes exit code 2.
+
+- `gtopt_results_summary` and `gtopt_timeseries_export` read the current
+  gtopt output layout (`<field>_sol_s<k>_p<k>.csv` shards and
+  hive-partitioned Parquet); they reported all-zero KPIs and a single
+  `phase=0_part` sheet before.
+- `gtopt_monitor --no-gui` exits when a monolithic run reports `done`.
+- `gtopt_check_pampl` no longer warns on `param`/`var` declarations.
+- `sienna_to_gtopt` and `gtopt_check_fingerprint` exit with a clear
+  message instead of a traceback on an unavailable bundle / missing file.
+
+- plexos2gtopt AEMO ISP (weekly and expansion): pumped hydro (PHES)
+  written as a Battery now carries `annual_standing_loss: 0`, so it no
+  longer inherits the Li-ion self-discharge default
+  (`model_options.battery_annual_standing_loss`).
+- In-memory decompression (`low_memory = compress` LP snapshots) now
+  checks that every codec (zstd, gzip, lz4, snappy, uncompressed)
+  produces exactly the recorded original size.  A corrupt, truncated or
+  mismatched buffer used to be zero-padded and loaded as a garbage LP;
+  a snappy stream whose embedded length exceeded the recorded size
+  overran the output buffer.  The cross-scene XOR-delta restore checks
+  the base size too, and the snapshot restore validates the flat-LP
+  metadata against the buffer size and leaves the snapshot empty on
+  failure.
 - `sddp2gtopt`: interconnection imports are unavailable in hours with no
   offer.  With `PRECIOSMEX.csv`, an hour priced blank or 0 for an import
   unit (or the regional `INTER-SAL` series it inherits) closes that unit

@@ -142,8 +142,19 @@ $$
 $$
 
 **Reduced-cost units.**  `StateVariable::reduced_cost_physical(σ)`
-returns $rc_{LP} \cdot \sigma / \text{var\_scale}$
-(`state_variable.hpp:329-333`).  Despite the name this is the folded
+returns $rc_{LP} \cdot \sigma / \text{col\_scale}_{dep}$, where
+$rc_{LP}$ is the reduced cost of the *dependent* column (phase $t{+}1$
+`sini`) and $\text{col\_scale}_{dep}$ is **that column's own**
+post-equilibration scale, recorded with the rc by
+`set_reduced_cost(rc, col_scale_dep)`.  It equals
+`get_col_cost()[dep]` on the target LP, so the state-variable and
+`LinearInterface` cut-builder overloads agree.  The source column's
+`var_scale` ($\text{col\_scale}_{src}$, phase-$t$ `efin`) must not be
+used here: Ruiz equilibration gives the two columns independent factors,
+and dividing by $\text{col\_scale}_{src}$ skews every slope by
+$\text{col\_scale}_{dep}/\text{col\_scale}_{src}$ (the pre-2026-11
+bug: LB above the single-LP optimum).  The source-side scale enters
+only through `add_row`'s column scaling (step 1).  Despite the name this is the folded
 physical reduced cost: the `cost_factor` ($p_s \cdot$ discount $\cdot$
 duration) baked into the objective is still present.  §3 shows this is
 exactly the right object — cut RHS and coefficients are *uniformly*
@@ -785,6 +796,21 @@ $\approx \text{NVarPhi}\times$ when the per-hydrology FCFs are
 comparable in size (the 2026-07 cost-gap audit measured 0.94e9 vs
 PLP's 2.02e9 on the 2-year parity case).
 
+**Reported gap with boundary cuts.**  Because the UB strips the
+terminal α and (with the rebase below) carries $\bar c$ through the
+first-phase objective offset, a converged run reports exactly
+
+$$
+\text{LB} - \text{UB} = \Phi(v_T^\star) - \bar c ,
+$$
+
+so LB > UB is the expected reading whenever the terminal FCF at the
+final volumes exceeds $\bar c$ — also for exact, self-generated
+boundary cuts.  It is a property of the cuts and of this accounting,
+identical under every equilibration (pinned by
+`test_sddp_cut_exactness.cpp`, "boundary cuts from the same system" /
+"foreign overshooting boundary cuts").
+
 **Terminal α ≥ 0 floor** (`sddp_method_alpha.cpp:277-297`): valid iff
 stage costs are non-negative (assumption A2).  Deliberately violated
 by design features: the *user* α is released to go negative
@@ -851,6 +877,19 @@ $\max_k$, hence safe.*  (The accumulator variable is named
 the cut row forces $\alpha \ge b_k - \sum_j\max(\cdot)$.  A column
 bound implied by existing rows never cuts feasible points.
 $\qquad\blacksquare$
+
+**Install order.**  The floor is derived from `active_cuts()`, so every
+install site (`add_cut_row`, cut sharing, Parquet reload, aperture dual
+install) records the row first and floors α afterwards.  Before
+2026-11-22 the order was reversed: a cell's first cut was floored from
+an empty cut set (the zero fallback below), so with negative
+cost-to-go (negative-cost units, rebased FCFs) LB stayed above the
+optimum for one extra iteration.  The bootstrap pin $\alpha = 0$ of
+iteration 0 itself is still assumption A2.  The accidental first-cut
+$\alpha \ge 0$ also steered the trial trajectory of non-negative-cost
+models; those should state A2 explicitly with `sddp_options.alpha_min = 0`
+(the SDDP.jl `lower_bound = 0` analogue, as the A1 literature benchmark
+now does).
 
 **Caveat (zero fallback).**  When *no* referencing cut yields a
 bounded box-floor, the code writes floor $= 0.0$
@@ -986,9 +1025,15 @@ a change of `scale_objective`, `scale_alpha` (via the α column's own
 
 **Name-based coefficient resolution.**  Coefficients rebind by
 `(class, var, uid)` against the destination's state-variable registry
-(`:872-902`).  Precondition A6: the registry must contain every saved
-identity; misses are dropped with a WARN and *unbounded* one-sided
-error (§4).  The oracle harness should include a
+(`:872-902`).  A multi-stage phase registers one `efin` per stage under
+the same identity; `find_phase_state_col` picks the **last** stage's —
+the phase state the cut was written on.  (Before 2026-11-22 the first
+registry match, i.e. the first stage's end volume, was taken, both
+here and in `load_boundary_cuts_csv`: reloaded cuts and terminal FCFs on
+multi-stage phases — always the case for the monolithic single-phase LP
+— priced the wrong column.)  Precondition A6: the registry must contain
+every saved identity; misses are dropped with a WARN and *unbounded*
+one-sided error (§4).  The oracle harness should include a
 same-universe-reload invariance test.
 
 **Multicut broadcast reconstruction** (fix `9300306da`;

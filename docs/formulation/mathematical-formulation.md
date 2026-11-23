@@ -149,7 +149,7 @@ scenarios, stages, and blocks.
 | $\Delta_b$ | `duration` | Block duration | hours |
 | $r$ | `annual_discount_rate` | Annual discount rate | — |
 | $\sigma$ | `scale_objective` | Objective scaling divisor (default 1000) | — |
-| $\sigma_\theta$ | `scale_theta` | Voltage angle scaling (default 1000) | — |
+| $\sigma_\theta$ | `scale_theta` | Voltage angle enlargement, $\theta^{\text{LP}} = \sigma_\theta \theta$ (auto $1/\operatorname{median}(X/V^2)$; 1 = rad, 1000 = mrad) | — |
 | $c_g$ | `gcost` | Generator variable cost | \$/MWh |
 | $c_d^{\text{fail}}$ | `demand_fail_cost` | Load curtailment penalty | \$/MWh |
 | $c_l$ | `tcost` | Line transfer cost | \$/MWh |
@@ -167,7 +167,7 @@ scenarios, stages, and blocks.
 | $\phi_g(b)$ | `generator_profile` | Generator capacity profile factor | — |
 | $\eta_e^{\text{in}}$ | `input_efficiency` | Battery charge efficiency | — |
 | $\eta_e^{\text{out}}$ | `output_efficiency` | Battery discharge efficiency | — |
-| $\mu_e$ | `annual_loss` | Battery annual self-discharge rate (default 0.48 = 4 %/month) | 1/year |
+| $\mu_e$ | `annual_standing_loss` | Battery annual self-discharge rate (default 0.48 = 4 %/month) | 1/year |
 | $\overline{E}_e$ | `emax` | Battery max energy | MWh |
 | $\underline{E}_e$ | `emin` | Battery min energy | MWh |
 | $E_e^0$ | `eini` | Battery initial energy | MWh |
@@ -197,7 +197,7 @@ scenarios, stages, and blocks.
 | $c_o^f$ | `fail_cost` (volume right) | Volume-right deficit penalty | \$/m³ |
 | $\alpha_o$ | `flow_conversion_rate` | Flow-to-volume conversion (= $0.0036$) | hm³/((m³/s)·h) |
 | $\rho_\tau$ | `fcr` (LNG) | Flow conversion rate (tank volume) | — |
-| $\lambda_\tau$ | `annual_loss` (LNG) | Boil-off rate | 1/year |
+| $\lambda_\tau$ | `annual_standing_loss` (LNG) | Boil-off rate | 1/year |
 | $\eta_g^{hr}$ | `heat_rate` (LNG link) | Fuel consumption per MWh (m³\_LNG/MWh); note: symbol uses η for historical reasons but this is a consumption rate, not efficiency | m³/MWh |
 | $\text{SU}_g$ | `startup_cost` | Startup cost | \$ |
 | $\text{SD}_g$ | `shutdown_cost` | Shutdown cost | \$ |
@@ -223,7 +223,7 @@ scenarios, stages, and blocks.
 | $q_{d,s,t,b}$ | Unserved load (curtailment) at demand $d$ | $\geq 0$ |
 | $f_{l,s,t,b}^+$ | Line $l$ forward power flow ($a \to b$) | $[0,\; \overline{F}_l^{ab}]$ |
 | $f_{l,s,t,b}^-$ | Line $l$ reverse power flow ($b \to a$) | $[0,\; \overline{F}_l^{ba}]$ |
-| $\theta_{n,s,t,b}$ | Voltage angle at bus $n$ (Kirchhoff mode) | $[-2\pi \sigma_\theta,\; 2\pi \sigma_\theta]$ |
+| $\theta_{n,s,t,b}$ | Voltage angle at bus $n$ (Kirchhoff mode, LP units $\sigma_\theta \cdot$ rad) | $[-\theta_{\max} \sigma_\theta,\; \theta_{\max} \sigma_\theta]$ |
 | $e_{e,s,t,b}$ | Battery $e$ energy (state of charge) | $[\underline{E}_e,\; \overline{E}_e]$ |
 | $p_{e,s,t,b}^{\text{in}}$ | Battery $e$ charging power | $\geq 0$ |
 | $p_{e,s,t,b}^{\text{out}}$ | Battery $e$ discharging power | $\geq 0$ |
@@ -361,6 +361,7 @@ Additional OPEX terms may include:
 - **Reserve failure cost**: $\sum_{z} c_z^{\text{rfail}} (q_{z,s,t,b}^{\text{up}} + q_{z,s,t,b}^{\text{dn}})$
 - **Reserve provision cost**: $\sum_{p} \bigl( c_{p,t}^{\text{ur}} \; r_{p,s,t,b}^{\text{up}} + c_{p,t}^{\text{dr}} \; r_{p,s,t,b}^{\text{dn}} \bigr)$
 - **Spillway cost**: $\sum_{r} c_{r,t}^{\text{spill}} \; \text{spill}_{r,s,t,b}$
+- **Junction drain cost**: $\sum_{j} c_{j}^{\text{drain}} \; \delta_{j,s,t,b}$ (§5.10)
 - **Emission price and CCS cost**: $\sum_{\nu} c^{\text{em}}_{z(\nu),t} \, (\alpha^{\text{em}}_{\nu,t,b} / \Delta_b) \, p_{g(\nu),s,t,b}$ plus capture cost (§5.14 bis); soft emission-cap slack $c^{\text{cap}}_{z,t} \, s^{\text{cap}}_{z,s,t}$ is weighted by $\pi_s \delta_t / \sigma$ only
 - **Generator profile spillover cost**: $\sum_{g} c_{g,t}^{\text{spill}} \; \text{spill}_{g,s,t,b}$
 
@@ -466,18 +467,58 @@ This constraint links the operational variable to the investment variable
 ### 5.3 Generator Profile Constraints
 
 When a generator profile $\phi_g(s,t,b)$ is defined (e.g., for solar or
-wind plants), the profile constrains the maximum output at each block:
+wind plants), the profile bounds the output at each block.  The profile is
+a **per-unit factor of the capacity** $\bar{C}_{g,t}$, not MW.  The
+available energy is capped by the generation range, so curtailment can
+never exceed what the unit could physically produce:
 
 $$
-p_{g,s,t,b} + \text{spill}_{g,s,t,b} = \phi_g(s,t,b) \cdot \bar{C}_{g,t}
-\qquad \forall \; s, t, b
+A_{g,s,t,b} = \min\!\left(\phi_g(s,t,b)\,\bar{C}_{g,t},\; \bar{P}_{g,t,b}\right)
 $$
 
-where:
-- $\phi_g(s,t,b) \in [0, 1]$ is the capacity factor at each block
-- $\text{spill}_{g,s,t,b} \geq 0$ is curtailed generation (spillover)
-- The spillover variable has cost $c_g^{\text{spill}} \cdot \omega_{s,t,b}$
-  (may be zero to allow free curtailment of renewables)
+where $\bar{P}_{g,t,b}$ is the upper bound of the generation column (block
+`pmax`, already capped by a fixed capacity).
+
+**Slack-free form** (default: no spillover cost, $c_g^{\text{spill}} = 0$).
+No spillover column is created; the profile row is an inequality:
+
+$$
+p_{g,s,t,b} \;\le\; A_{g,s,t,b} \qquad \forall \; s, t, b
+$$
+
+With an expansion (capacity) column the row reads
+$p_{g,s,t,b} - \min(\phi_g, 1)\,C_{g,t} \le 0$: a profile above 1 is clipped
+(with a warning) so the unit never produces more than its built capacity.
+
+Curtailment is reconstructed after the solve,
+$\text{spill}_{g,s,t,b} = \max(0,\, A_{g,s,t,b} - p_{g,s,t,b})$ (with a
+capacity column $A = \min(\min(\phi_g,1)\,C^\star_{g,t}, \bar{P}_{g,t,b})$),
+and written to `GeneratorProfile/spillover_sol`.  `spillover_dual` is the
+dual of the $\le$ row (same sign convention as the equality row it
+replaces: $\partial z / \partial A \le 0$), and `spillover_cost` is the
+reduced cost the zero-cost slack would have had, $-\text{dual}$.
+
+**Slack form** (when $c_g^{\text{spill}} \neq 0$ in the stage).  The priced
+spillover keeps its column:
+
+$$
+p_{g,s,t,b} + \text{spill}_{g,s,t,b} = A_{g,s,t,b},
+\qquad 0 \le \text{spill}_{g,s,t,b} \le A_{g,s,t,b}
+$$
+
+(with a capacity column:
+$p + \text{spill} - \min(\phi_g,1)\,C_{g,t} = 0$,
+$\text{spill} \le \min(\phi_g,1)\,\bar{C}^{\max}_{g,t}$), costed at
+$c_g^{\text{spill}} \cdot \omega_{s,t,b}$.
+
+> **Why slack-free.** The spillover column is a column singleton in an
+> equality row; every presolve turns `p + s = A, s ≥ 0` into `p ≤ A`.  The
+> slack-free form builds that reduced LP directly: one column fewer per
+> profiled generator × block, identical optimum and identical row dual.
+> A priced spillover (`scost ≠ 0`) would need the substitution
+> `cost(spill) = c·A − c·p` folded into the generation cost; the column is
+> kept in that (rare) case instead.
+> <!-- source: include/gtopt/profile_object_lp.hpp (add_profile_to_lp) -->
 
 ### 5.4 Demand Constraints
 
@@ -516,6 +557,59 @@ $$
 
 where $\lambda_d$ is the demand-side loss factor.
 
+#### Stepwise Curtailment Cost (`fail_segments`)
+
+A demand may carry a stepwise value-of-lost-load curve with $K$ segments
+$\{(f_{d,k},\, c_{d,k,t})\}_{k=1}^{K}$ — `Demand.fail_segments`, or the
+global default `model_options.demand_fail_segments` for demands without
+`fcost` / `fail_segments` (typical sources: PLP `FALLA_<bus>_1..4`, SDDP
+`deficit_segments`, CNE CFLD 0–5/5–10/10–20/>20 %, PLEXOS `VoLL` +
+`Internal VoLL`/`Level`).  Segment $k$ covers $f_{d,k}\,\overline{L}_{d,t,b}$
+MW of curtailment priced at $c_{d,k,t}$ (per-stage schedule).  An open last
+segment takes the residual $f_{d,K} = 1 - \sum_{k<K} f_{d,k}$; when all
+fractions are explicit and sum to less than one, the remainder
+$\phi_d = 1 - \sum_k f_{d,k}$ is **firm** (non-curtailable) load.
+
+The served load is split into $K$ tranche variables with plain column
+bounds — no extra rows:
+
+$$
+\ell_{d,s,t,b} = \sum_{k=1}^{K} \ell_{d,k,s,t,b}, \qquad
+\underline{\ell}_{d,k,t,b} \;\le\; \ell_{d,k,s,t,b} \;\le\; u_{d,k,t,b},
+\qquad u_{d,k,t,b} = f_{d,k}\,\overline{L}_{d,t,b}
+\;\bigl(+\,\phi_d\,\overline{L}_{d,t,b}\ \text{for}\ k = k^\star\bigr)
+$$
+
+where $k^\star$ is the most expensive segment, so
+$\sum_k u_{d,k,t,b} = \overline{L}_{d,t,b}$.  The per-segment curtailment
+is $q_{d,k,s,t,b} = u_{d,k,t,b} - \ell_{d,k,s,t,b}$ and
+$q_{d,s,t,b} = \sum_k q_{d,k,s,t,b}$.  Each tranche enters the bus balance
+(§5.1) and the capacity row with the same coefficient as $\ell_{d,s,t,b}$,
+and its objective contribution is the per-tranche substitution of the
+curtailment cost:
+
+$$
+\sum_{k=1}^{K} c_{d,k,t}\,\omega_{s,t,b}\, q_{d,k,s,t,b}
+\;=\;
+\underbrace{\sum_{k} c_{d,k,t}\,\omega_{s,t,b}\, u_{d,k,t,b}}_{\text{objective constant}}
+\;-\; \sum_{k} c_{d,k,t}\,\omega_{s,t,b}\, \ell_{d,k,s,t,b} .
+$$
+
+The served-load floor
+$F_{d,t,b} = \max\bigl(L^{\min}_{d,t,b},\ \phi_d\,\overline{L}_{d,t,b}\bigr)$
+is distributed greedily over the tranche lower bounds
+$\underline{\ell}_{d,k,t,b}$ in decreasing cost order.  With
+non-decreasing costs $c_{d,1,t} \le \dots \le c_{d,K,t}$ (convex curve)
+this is exact: the tranches are perfect substitutes in every row, so the
+LP curtails the cheapest segment first and realises the stepwise curve
+without ordering constraints or binaries.  Decreasing costs are accepted
+with a validation warning (the LP still curtails cheapest-first).
+$K = 1$ reproduces the single `load` column of the `fcost` formulation
+exactly; $K$ segments add $K-1$ columns per block and no rows.
+Precedence per demand: `forced` (no curtailment) > `Demand.fail_segments`
+> `Demand.fcost` > `model_options.demand_fail_segments` >
+`model_options.demand_fail_cost`.
+
 #### Minimum Energy Constraint (Optional)
 
 When a minimum energy requirement $E_d^{\min}$ is specified:
@@ -531,8 +625,13 @@ When a `DemandProfile` element is attached to a demand $d$, the served load
 is tied to a time-varying profile factor $\phi_d(s,t,b) \in [0,1]$ with an
 auxiliary spillover (unserved) variable $q_{d,s,t,b}^{\text{prof}} \geq 0$.
 
-This mirrors §5.3 GeneratorProfile: one LP column per block and one
-equality row per block.
+This is the slack form of §5.3 (one LP column per block and one equality
+row per block).  Unlike generator spillover, the unserved slack is always
+kept (it carries the curtailment semantics and usually a cost) and the
+available amount is **not** capped by the load limit `lmax`: profile
+demand above `lmax` remains unserved.  The slack is bounded by
+$0 \le q^{\text{prof}} \le \phi_d\,\overline{L}_{d,t}$ (no-capacity-column
+form).  A profile value above 1 triggers the same per-unit warning.
 
 #### Profile Row — With Capacity Column
 
@@ -668,8 +767,8 @@ with all-positive generation costs — an idle line can ride $\ell$ up
 its chord to $c_l \overline{F}_l^2$, a fictitious energy sink.  The
 sole monetisation of that channel is the loss column itself, so a
 per-MWh loss price $\varepsilon_l$ (JSON `loss_cost_eps`, per line or
-via the `model_options` default) is stamped **on the loss column
-only**:
+via the `model_options` default, which is $0.1$ \$/MWh when unset;
+an explicit `0` disables it) is stamped **on the loss column only**:
 
 $$ \Delta\,\text{OPEX}_{l,s,t,b}
    \;=\; \varepsilon_l \cdot \omega_{s,t,b} \cdot \ell_{l,s,t,b}. $$
@@ -697,9 +796,9 @@ lossy line, so iterate until no new flags.
 > anchored to the piecewise secant; it never moves a dispatch
 > decision.  The user $\varepsilon_l$ is **not** charged on $v_l$ —
 > doing so would turn $\varepsilon_l$ into a transport toll on all
-> legitimate flow.  The pin is gated on $\varepsilon_l > 0$, so
-> unset-$\varepsilon$ cases stay byte-identical to the legacy pure-LP
-> behaviour.  `linear` and `piecewise_direct` have no loss column and
+> legitimate flow.  The pin is gated on $\varepsilon_l > 0$, so an
+> explicit $\varepsilon_l = 0$ reproduces the legacy pure-LP
+> behaviour byte-for-byte.  `linear` and `piecewise_direct` have no loss column and
 > cannot be $\varepsilon$-guarded; the exact fix there is the SOS2
 > $\lambda$-form below.
 
@@ -830,6 +929,47 @@ documentation purposes):
 }
 ```
 
+#### DC Links and Zero-Impedance Ties
+
+A line's `reactance` field selects one of three KVL treatments:
+
+| `reactance` | `tiny_reactance_mode = tie` (default) | `tiny_reactance_mode = dc` (legacy) |
+|-------------|---------------------------------------|-------------------------------------|
+| absent / unset | DC link (no KVL row) | DC link (no KVL row) |
+| $X_l = 0$ or $\lvert X_l / V^2 \rvert < \epsilon_X$ | zero-impedance tie | DC link (no KVL row) |
+| $\lvert X_l / V^2 \rvert \ge \epsilon_X$ | regular KVL row (above) | regular KVL row (above) |
+
+where $\epsilon_X$ is `model_options.dc_line_reactance_threshold`
+(default $10^{-6}$ p.u.; $0$ disables the sub-threshold test, but an
+explicit $X_l = 0$ is still a tie).  HVDC links and PLP DC lines are
+emitted **without** `reactance`.
+
+A **zero-impedance tie** is the $X_l \to 0$ limit of the transformer
+constraint: the flow term vanishes (the tap ratio $\tau_l$ multiplies
+$\chi_l$ and is therefore irrelevant) while the phase shift is kept,
+
+$$ -\theta_{a,s,t,b} + \theta_{b,s,t,b}
+= -\sigma_\theta \cdot \varphi_{l,\text{rad}}
+\qquad \forall \; s, t, b,
+$$
+
+so the two bus angles are forced equal (up to $\varphi_l$).  The flow
+$f_{l,s,t,b}^{\pm}$ remains a free variable bounded by the line's
+`tmax_ab` / `tmax_ba` and still enters both bus balances.  In
+`cycle_basis` mode the tie is a cycle edge with coefficient $0$: it
+closes loops and contributes only $\varepsilon_l \varphi_l$ to the
+cycle right-hand side.  A cycle made only of ties degenerates to
+$0 = \sum \varepsilon_l \varphi_l$ and is dropped (with a warning when
+the net phase shift is nonzero).  Ties join their buses for island
+detection and reference-angle pinning, like any AC line.  A tie between
+two buses whose `reference_theta` values cannot satisfy the row is
+infeasible; the line then falls back to a DC link with a warning.
+
+The legacy `dc` treatment drops the KVL row, so the LP may open an
+arbitrary angle difference across a physically near-zero-impedance
+branch and use it as a free phase shifter, distorting loop flows and
+nodal prices.
+
 #### Reference Bus
 
 One bus is designated as the **reference bus** with a fixed voltage angle:
@@ -845,7 +985,7 @@ typically $\theta^{\text{ref}} = 0$.
 
 For non-reference buses:
 
-$$ -2\pi \, \sigma_\theta \;\leq\; \theta_{n,s,t,b} \;\leq\; 2\pi \, \sigma_\theta
+$$ -\theta_{\max} \, \sigma_\theta \;\leq\; \theta_{n,s,t,b} \;\leq\; \theta_{\max} \, \sigma_\theta
 \qquad \forall \; n \neq n^{\text{ref}},\; s, t, b
 $$
 
@@ -855,7 +995,8 @@ Kirchhoff constraints are added when **all** of:
 - `use_kirchhoff = true` (default)
 - `use_single_bus = false` (default)
 - The system has more than `kirchhoff_threshold` buses (default 0)
-- Line has a defined `reactance` value
+- Line has a defined `reactance` value (a zero or sub-threshold value
+  yields a zero-impedance tie, see above; an absent value a DC link)
 
 #### Optimal Transmission Switching (issue #509)
 
@@ -1094,7 +1235,7 @@ where:
 
 #### Default self-discharge
 
-When a battery leaves `annual_loss` unset, gtopt uses
+When a battery leaves `annual_standing_loss` unset, gtopt uses
 $\mu_e = \bar\mu = 0.48$ year$^{-1}$, i.e. **4 % per month**
 ($0.04 \times 12$; $\mu_e^h \approx 5.48 \times 10^{-5}$ h$^{-1}$, so a
 730 h block loses exactly 4 % of its stored energy).  The figure is the
@@ -1103,12 +1244,12 @@ Battery University BU-802b [[18]](#ref18) reports ≈ 5 % in the first
 24 h, then 1–2 %/month for the cell plus ≈ 3 %/month drawn by the
 protection circuit, roughly doubling per +10 °C; the Wikipedia
 "Self-discharge" table [[19]](#ref19) lists Li-ion at 2–3 %/month.  The
-planning-wide value is `model_options.battery_annual_loss` (`0` restores
-the legacy lossless default); an explicit per-battery `annual_loss`,
+planning-wide value is `model_options.battery_annual_standing_loss`
+(`0` restores the legacy lossless default); an explicit per-battery `annual_standing_loss`,
 including `0`, always wins.  Non-lithium storage emitted as a Battery
-(pumped hydro) is written with an explicit `annual_loss` by the
+(pumped hydro) is written with an explicit `annual_standing_loss` by the
 converters.  Reservoirs and other storages are unaffected (their
-`annual_loss` still defaults to $0$).
+`annual_standing_loss` still defaults to $0$).
 
 Besides physical realism, $\mu_e > 0$ removes part of an LP degeneracy:
 with $\mu_e = 0$ and $\eta^{\text{in}} = \eta^{\text{out}} = 1$, any
@@ -1381,6 +1522,7 @@ $$
 \;+\; \sum_{r \in \mathcal{R}_j} d_{r,s,t,b}
 \;-\; \sum_{u \in \mathcal{U}_j^{\text{intake}}} \tilde{\varphi}_{u,s,t,b}
 \;+\; \sum_{u \in \mathcal{U}_j^{\text{tail}}} \tilde{\varphi}_{u,s,t,b}
+\;-\; \delta_{j,s,t,b}
 \;=\; 0
 \qquad \forall \; j, s, t, b
 $$
@@ -1393,6 +1535,17 @@ where:
   m³/s) owned by turbine $u$ in built-in waterway mode, when the turbine's
   `junction_a` debits junction $j$ ($\mathcal{U}_j^{\text{intake}}$) and its
   optional `junction_b` credits junction $j$ ($\mathcal{U}_j^{\text{tail}}$).
+- $\delta_{j,s,t,b}$ is the **drain** column [m³/s], present only when
+  `Junction.drain = true`: $0 \le \delta_{j,s,t,b} \le \overline{\delta}_j$
+  (`drain_capacity`, default $+\infty$), with objective coefficient
+  $c_j^{\text{drain}} \cdot \omega_{s,t,b}$ (`drain_cost`, \$/(m³/s)·h,
+  default 0).  The cost goes through the same block weight as
+  `Waterway.fcost` and `Reservoir.spillway_cost` (probability × discount ×
+  duration / `scale_objective`), so a costed junction drain and the
+  equivalent `_ver` waterway to a free sink build the same LP.  Before
+  2026-11 `drain_cost` entered the objective raw (no duration, probability
+  or discount).
+  <!-- source: source/junction_lp.cpp (JunctionLP::add_to_lp) -->
 
 **Built-in waterway turbine.** When a `Turbine` element sets `junction_a`,
 the turbine owns its own per-block flow column and the separate `Waterway`
@@ -1450,15 +1603,29 @@ Reservoir volume dynamics follow the same storage template as batteries:
 
 $$
 v_{r,s,t,b} = v_{r,s,t,b-1} \cdot (1 - \mu_r^h \, \Delta_b)
-\;-\; d_{r,s,t,b} \cdot \Delta_b
-\;-\; \text{spill}_{r,s,t,b} \cdot \Delta_b
+\;-\; \alpha_r \, d_{r,s,t,b} \cdot \Delta_b
+\;-\; \alpha_r \, \text{spill}_{r,s,t,b} \cdot \Delta_b
 $$
 
 where:
 - $\mu_r^h$ is the hourly evaporation/seepage loss rate
-- $d_{r,s,t,b}$ is the net extraction from the reservoir (positive = water
-  leaving for turbines)
-- $\text{spill}_{r,s,t,b}$ is the spillway discharge
+- $\alpha_r$ is `flow_conversion_rate` [hm³/((m³/s)·h)]; an unset value
+  resolves to $0.0036$ (before 2026-11 the JSON path fell back to $3.6$)
+- $d_{r,s,t,b}$ is the net extraction from the reservoir [m³/s]
+  (positive = water leaving for turbines)
+- $\text{spill}_{r,s,t,b}$ is the spillway discharge [m³/s]; the column
+  exists only when `spillway_cost` is set (0 = free spill), bounded by
+  `spillway_capacity` and costed at
+  $c_{r,t}^{\text{spill}} \cdot \omega_{s,t,b}$ (\$/(m³/s)·h)
+
+**Sign of the water value.**  The water value (dual of this row, in
+\$/hm³) is zero while a full reservoir spills through a free exit.  When
+every exit is priced at $c$ \$/(m³/s)·h, one more hm³ costs
+$c / \alpha_r$ to discharge, so the water value of a spilling reservoir
+is $-c/\alpha_r$: negative water values are a legitimate result, and
+SDDP carries them through its cuts (`cases/reservoir_water_value`).
+<!-- source: include/gtopt/storage_lp.hpp (StorageBase::add_to_lp),
+     include/gtopt/reservoir_lp.hpp (flow_conversion_rate) -->
 
 #### Volume Bounds
 
@@ -1853,11 +2020,29 @@ $$
 $$
 <!-- source: source/flow_right_lp.cpp:246-274 -->
 
-**Consumptive coupling.** When a `junction` reference is set, each
+**Consumptive coupling.** When a `junction_a` reference is set, each
 block's flow column is injected with coefficient $-1$ into the junction
 balance row of §5.10, subtracting the extraction from the physical
-water balance.
-<!-- source: source/flow_right_lp.cpp:278-293 -->
+water balance.  With `consumptive = false` (carry mode) the same column
+is also injected with $+1$ into `junction_b`'s balance row, so the
+served flow returns to the river.
+<!-- source: source/flow_right_lp.cpp (consumptive coupling) -->
+
+**Opt-in pass-through bypass.** Only when explicitly requested
+(`use_bypass = true`, or — legacy implicit opt-in — `bypass_cost` or
+`bypass_fmax` set) and both `junction_a` ($j_a$) and `junction_b`
+($j_b$) are set (per-block / stage-average modes), a bypass column
+
+$$
+0 \;\leq\; \beta_{i,s,t,b} \;\leq\; \overline{\beta}_i
+\qquad (\overline{\beta}_i = \texttt{bypass\_fmax},\ +\infty \text{ if unset})
+$$
+
+enters $j_a$'s balance with $-1$ and $j_b$'s with $+1$, priced at
+`bypass_cost` $\cdot\,\Delta_b$ (scaled like every block cost).  It is
+reported as `FlowRight/bypass_sol`.  A bare `junction_b` builds no arc:
+it opens no water path that the output does not show.
+<!-- source: source/flow_right_lp.cpp (bypass) -->
 
 #### 5.13.2 Volume Rights
 
@@ -1929,7 +2114,11 @@ $$
 extraction column is injected with coefficient $+\alpha_o\,\Delta_b$
 into the energy balance row of the linked reservoir (§5.10), debiting
 the physical water storage. A `right_reservoir` link analogously
-couples a child right to a parent rights ledger.
+couples a child right to a parent rights ledger with coefficient
+$-d_o\,\alpha_o\,\Delta_b$ in the parent's energy row, where
+$d_o$ = `direction` ($-1$, the default, is a withdrawal that debits
+the parent like the physical coupling above; $+1$ is a supply that
+credits it).
 <!-- source: source/volume_right_lp.cpp:278-307 -->
 
 ### 5.14 LNG Terminal
@@ -1944,7 +2133,7 @@ heat rates. The formulation reuses the `StorageLP` balance template
 - `fout` = 0 (no direct outflow — generator consumption is injected
   into the balance row below);
 - `drain` = venting column with penalty `spillway_cost`;
-- `annual_loss` = boil-off rate $\lambda_\tau$.
+- `annual_standing_loss` = boil-off rate $\lambda_\tau$.
 
 <!-- source: source/lng_terminal_lp.cpp:62-132 -->
 
@@ -2485,9 +2674,18 @@ Multiply by $\sigma$ to recover the cost in original monetary units.
 
 ### 6.2 Voltage Angle Scaling
 
-Voltage angles are scaled by `scale_theta` ($\sigma_\theta$, default 1000)
-to keep angle variables and susceptance coefficients in a numerically
-well-conditioned range.
+Voltage angles are enlarged by `scale_theta` ($\sigma_\theta$):
+θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians.  The auto value puts the median line's KVL coefficients at
+$\sigma_\theta X/V^2 \approx 1/3$: θ is a node potential accumulating
+~$D$ line drops to the reference bus ($D \approx 8$–10 on the Chilean
+system), so the extra factor $\approx\sqrt{D} = 3$ balances the θ
+coefficient against the θ_LP magnitude (on CEN 5-year SDDP it lands near
+1000, the empirically best value), keeping angle variables and
+susceptance coefficients in a numerically well-conditioned range (internally the
+`Bus.theta` VariableScale entry is $1/\sigma_\theta$, following the
+generic $\text{physical} = \text{LP} \times \text{scale}$ convention).
+Values below 1 shrink θ and log a load-time warning: before 2026-11 the
+option had the inverse meaning.
 
 ### 6.3 Variable Scaling
 
@@ -2515,7 +2713,7 @@ invariant to the choice of scale**.
 |-----------|-------|--------|---------|--------|
 | Battery | `variable_scales` (energy) | $\sigma_E$ | 1.0 | SoC variable: $E_{\text{phys}} = E_{\text{LP}} \times \sigma_E$ |
 | Reservoir | `variable_scales` (energy) | $\sigma_V$ | 1.0 | Volume variable: $V_{\text{phys}} = V_{\text{LP}} \times \sigma_V$ |
-| Bus | `scale_theta` | $\sigma_\theta$ | 1000 | Angle variable: $\theta_{\text{phys}} = \theta_{\text{LP}} / \sigma_\theta$ |
+| Bus | `scale_theta` | $\sigma_\theta$ | auto $1/\operatorname{median}(X/V^2)$ | Angle variable: $\theta_{\text{phys}} = \theta_{\text{LP}} / \sigma_\theta$ |
 
 When a scale factor $\sigma_x$ is applied to a storage variable, the LP
 formulation adjusts:
@@ -2600,8 +2798,10 @@ Global options (`scale_theta`) take precedence over entries in
 | Single bus | `use_single_bus` | `false` | Disables all network constraints (copper plate) |
 | Line losses | `use_line_losses` | `true` | Enables loss modeling (§5.5) |
 | Kirchhoff threshold | `kirchhoff_threshold` | `0` | Minimum bus count for Kirchhoff activation |
+| Tiny-reactance floor | `dc_line_reactance_threshold` | `1e-6` | $\lvert X/V^2 \rvert$ below which the KVL flow term is dropped (§5.6) |
+| Tiny-reactance mode | `tiny_reactance_mode` | `"tie"` | `tie`: zero / sub-threshold $X$ is a zero-impedance tie ($\theta_a - \theta_b = \varphi$); `dc`: legacy DC link (§5.6) |
 | Objective scale | `scale_objective` | `1000` | Divides all cost coefficients |
-| Theta scale | `scale_theta` | `1000` | Scales voltage angle variables |
+| Theta scale | `scale_theta` | auto | θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians |
 | Annual discount rate | `annual_discount_rate` | `0.0` | Multi-year cost discounting (now in `simulation`) |
 | Demand fail cost | `demand_fail_cost` | *(none)* | Enables load curtailment variables |
 | Reserve fail cost | `reserve_fail_cost` | *(none)* | Enables reserve shortage variables |
@@ -2868,7 +3068,11 @@ where:
 - $\mathcal{S}_t$ is the set of state-variable links between phases
   $t{-}1$ and $t$
 - $\text{rc}_i^{(k)}$ is the reduced cost of the dependent column for
-  state variable $i$ in phase $t$
+  state variable $i$ in phase $t$, unscaled with that column's own
+  scale: $\text{rc}_i = \text{rc}^{\text{LP}}_i \cdot \sigma /
+  \text{col\_scale}_{\text{dep}}$ (`StateVariable::reduced_cost_physical`,
+  `include/gtopt/state_variable.hpp`).  The source column's scale must
+  not be used: Ruiz equilibration scales the two columns independently
 - $x_{t-1,i}$ is the source column (decision variable) in phase $t{-}1$
 - $\hat{v}_i^{(k)}$ is the trial value from the forward pass
 
@@ -2882,6 +3086,28 @@ $$
 The right-hand side is stored as the cut's `rhs` field and the
 coefficients $\text{rc}_i^{(k)}$ are stored as `(column_index, coefficient)`
 pairs in the `StoredCut` structure.
+
+**Units.**  Cuts are built, stored and saved in *physical* units
+(money, and money per state unit such as USD/hm³), so they do not depend
+on how the LP is scaled.  The solver returns the reduced cost of the
+dependent column in its own LP units; it is lifted with **that column's**
+scale,
+
+$$
+\text{rc}_i^{(k)} \;=\; \text{rc}^{\text{LP}}_{\text{dep}(i)}
+\cdot \frac{\sigma_{\text{obj}}}{s_{\text{dep}(i)}},
+$$
+
+where $\sigma_{\text{obj}}$ is `scale_objective` and $s_{\text{dep}(i)}$
+the dependent (phase-$t$ `sini`) column's final scale, including the
+equilibration factor.  The source column's scale $s_{\text{src}(i)}$
+(phase-$t{-}1$ `efin`) enters only when the physical row is composed
+into the source LP.  Ruiz equilibration gives the two columns independent
+factors, so using $s_{\text{src}}$ instead of $s_{\text{dep}}$ skews every
+slope by $s_{\text{dep}}/s_{\text{src}}$.  Within a phase that spans
+several stages, the state $x_{t-1,i}$ is the **last** stage's end
+volume.  `test_sddp_cut_exactness.cpp` checks these cuts against
+hand-derived value functions under `none`, `row_max` and `ruiz`.
 
 #### Feasibility Cuts
 
@@ -2922,6 +3148,23 @@ Boundary cuts are analogous to PLP's "planos de embalse" (reservoir
 future-cost function). They are supported by both the SDDP and
 monolithic solvers. When used with the monolithic solver, an $\alpha$
 variable is added to the last phase and the cuts are applied identically.
+$x_{i,T}$ is the end volume of the **last stage** of the last phase; for
+the monolithic single-phase LP this is the end of the horizon.
+
+**Reported bounds.**  Let
+$\Phi(x) = \max_k \bigl(\beta_0^{(k)} + \sum_i \rho_i^{(k)} x_i\bigr)$
+be the terminal FCF.  The SDDP upper bound adds up the phase costs and
+leaves out the terminal $\alpha_T$, while the lower bound includes
+$\Phi$ through the cut recursion.  With the α-rebase (`mean_shift`), the
+UB carries the constant $\bar c$ instead.  At convergence, therefore,
+
+$$
+\text{LB} - \text{UB} \;=\; \Phi(x_T^\star) - \bar c ,
+$$
+
+which is positive (LB above UB) whenever the terminal FCF at the final
+volumes is above $\bar c$, even when the cuts are exact.  The size of
+the gap depends on the cuts, not on how the LP is scaled.
 
 > **See also**: [`docs/SDDP_SOLVER.md`](../methods/sddp.md) Section 4.11
 > for the CSV format specification, load modes, and iteration filtering.
@@ -3251,7 +3494,7 @@ mathematical symbols used in this formulation.
 | `battery_array[].efin` | $E_e^{\text{fin}}$ | Final energy (MWh) |
 | `battery_array[].input_efficiency` | $\eta_e^{\text{in}}$ | Charge efficiency |
 | `battery_array[].output_efficiency` | $\eta_e^{\text{out}}$ | Discharge efficiency |
-| `battery_array[].annual_loss` | $\mu_e$ | Annual self-discharge |
+| `battery_array[].annual_standing_loss` | $\mu_e$ | Annual self-discharge |
 | `variable_scales` (Battery, energy) | $\sigma_E$ | Energy variable scale factor (Section 6.3) |
 
 ### Converter
@@ -3319,7 +3562,7 @@ mathematical symbols used in this formulation.
 | `lng_terminal_array[].eini` | $e_\tau^0$ | Initial tank volume (m³) |
 | `lng_terminal_array[].efin` | $e_\tau^{\text{fin}}$ | Target final tank volume (m³) |
 | `lng_terminal_array[].ecost` | — | Holding cost per m³ stored (\$/m³) |
-| `lng_terminal_array[].annual_loss` | $\lambda_\tau$ | Annual boil-off rate (p.u./year) |
+| `lng_terminal_array[].annual_standing_loss` | $\lambda_\tau$ | Annual boil-off rate (p.u./year) |
 | `lng_terminal_array[].delivery` | $D_{\tau,t}$ | Scheduled LNG arrival volume per stage (m³) |
 | `lng_terminal_array[].sendout_max` | — | Max regasification rate (m³/h) |
 | `lng_terminal_array[].sendout_min` | — | Min regasification rate (m³/h) |
@@ -3614,7 +3857,7 @@ URL: [https://batteryuniversity.com/article/elevating-self-discharge](https://ba
 > Li-ion: ≈ 5 % self-discharge in the first 24 h, then 1–2 %/month, plus
 > ≈ 3 %/month consumed by the protection circuit; self-discharge roughly
 > doubles per +10 °C.  Basis (with [[19]](#ref19)) of gtopt's default
-> battery `annual_loss` of 4 %/month.
+> battery `annual_standing_loss` of 4 %/month.
 
 <a id="ref19"></a>
 **[19]** Wikipedia. "Self-discharge" (table of self-discharge rates by

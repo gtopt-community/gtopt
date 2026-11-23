@@ -10,10 +10,12 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
 ## Table of Contents
 
 - [Installation](#installation)
+- [Public tools at a glance](#public-tools-at-a-glance)
 - **Data Preparation & Conversion**
   - [gtopt_diagram](#gtopt_diagram) · [full docs](scripts/gtopt_diagram.md)
   - [plp2gtopt](#plp2gtopt) · [full docs](scripts/plp2gtopt.md)
-  - [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
+  - [gtopt-fetch](#gtopt-fetch)
+- [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
   - [psse2gtopt](#psse2gtopt) · [full docs](scripts/psse2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
   - [nrel118_to_gtopt](#nrel118_to_gtopt) · [full docs](scripts/nrel118_to_gtopt.md)
@@ -37,8 +39,8 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
   - [plp_compress_case](#plp_compress_case) — compress PLP case files
 - **Utilities**
   - [gtopt_config](#gtopt_config) — unified configuration for all tools
-  - [gtopt_field_extractor](#gtopt_field_extractor)
-- [Tool Comparison (GTOpt vs PLP vs pandapower)](tools/comparison.md)
+  - [gtopt_field_extractor](#gtopt_field_extractor) (developer tool, `python -m`)
+- [Tool Comparison (gtopt vs PLP vs pandapower)](tools/comparison.md)
 - [Using with gtopt\_guisrv and gtopt\_websrv](#using-with-gtopt_guisrv-and-gtopt_websrv)
 
 ---
@@ -51,14 +53,12 @@ Install all tools with a single `pip` command from the repository root:
 pip install ./scripts
 ```
 
-This registers all 22 command-line tools on your `PATH`:
-`gtopt_diagram`, `plp2gtopt`, `sddp2gtopt`, `pp2gtopt`, `gtopt2pp`,
-`igtopt`, `cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
-`gtopt_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
-`gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`,
-`gtopt_check_fingerprint`, `gtopt_field_extractor`, `gtopt_check_pampl`,
-`gtopt_expand`, `cen_demanda`,
-and `plp_compress_case`.  An editable install is useful during
+This registers every **public** command-line tool on your `PATH` — the
+authoritative list is `[project.scripts]` in `scripts/pyproject.toml`,
+summarised in [Public tools at a glance](#public-tools-at-a-glance).
+Every one of them is exercised by `scripts/tests/test_public_cli.py`
+(`--help` plus an end-to-end run on a tiny case).  An editable install is
+useful during
 development:
 
 ```bash
@@ -108,39 +108,75 @@ pip install -e "./scripts[dev,diagram]"
 # adds: graphviz, pyvis, cairosvg
 ```
 
+### Public tools at a glance
+
+One line per console script installed by `pip install ./scripts`:
+
+| Command | Purpose | Docs |
+|---------|---------|------|
+| `plp2gtopt` | PLP (`plp*.dat`) case → gtopt JSON + Parquet | [plp2gtopt](scripts/plp2gtopt.md) |
+| `plexos2gtopt` | PLEXOS XML / CEN PCP bundle → gtopt JSON | [plexos2gtopt](scripts/plexos2gtopt.md) |
+| `plexos2gtopt-line-lifts` | Rank binding lines of a solved PLEXOS-derived case to choose `--lift-line-caps` | [plexos2gtopt](scripts/plexos2gtopt.md) |
+| `sddp2gtopt` | PSR SDDP/NCP case → gtopt JSON | [sddp2gtopt](scripts/sddp2gtopt.md) |
+| `psse2gtopt` | PSS®E RAW → gtopt DC OPF case | [psse2gtopt](scripts/psse2gtopt.md) |
+| `pp2gtopt` | pandapower network → gtopt JSON | [pp2gtopt](scripts/pp2gtopt.md) |
+| `gtopt2pp` | gtopt JSON → pandapower network | [gtopt2pp](#gtopt2pp) |
+| `nrel118_to_gtopt` | NREL-118 test system → multi-stage gtopt case | [nrel118_to_gtopt](scripts/nrel118_to_gtopt.md) |
+| `sienna_to_gtopt` | Sienna (PowerSimulations.jl) reference systems → gtopt JSON | — |
+| `igtopt` | Excel workbook → gtopt JSON (and `--make-template`) | [igtopt](scripts/igtopt.md) |
+| `cvs2parquet` | CSV → Parquet converter for gtopt input tables | [cvs2parquet](scripts/cvs2parquet.md) |
+| `ts2gtopt` | Project time series onto a gtopt block horizon | [ts2gtopt](scripts/ts2gtopt.md) |
+| `gtopt_expand` | Expansion transforms: LNG terminal, ROR promotion, pumped storage, irrigation agreements | [irrigation](irrigation-agreements.md) |
+| `gtopt-net` | Network reduction (reduce / project results / cascade run) | [proposal](network_reduction_proposal.md) |
+| `run_gtopt` | Smart gtopt wrapper with pre/post-flight checks | [run_gtopt](#run_gtopt) |
+| `gtopt_monitor` | Live solver status dashboard (GUI or `--no-gui`) | [gtopt_monitor](#gtopt_monitor) |
+| `gtopt_check_json` | Validate a gtopt planning JSON | [gtopt_check_json](#gtopt_check_json) |
+| `gtopt_check_topology` | Pre-flight network topology analysis (per-stage islands, KVL loops) | [gtopt_check_topology](scripts/gtopt_check_topology.md) |
+| `gtopt_check_pampl` | Validate PAMPL/TAMPL user-constraint files | [gtopt_check_pampl](#gtopt_check_pampl) |
+| `gtopt_check_lp` | Diagnose infeasible LP files | [gtopt_check_lp](#gtopt_check_lp) |
+| `gtopt_check_output` | Analyse a gtopt output directory | [gtopt_check_output](#gtopt_check_output) |
+| `gtopt_check_solvers` | Discover and validate LP solver plugins | [gtopt_check_solvers](#gtopt_check_solvers) |
+| `gtopt_check_fingerprint` | Compute / verify / compare LP structural fingerprints | [lp-fingerprint](lp-fingerprint.md) |
+| `gtopt_check_cases` | Check a case collection (`gtopt-cases`) against its catalog | [gtopt_check_cases](#gtopt_check_cases) |
+| `gtopt_compress_lp` | Compress LP debug files | [gtopt_compress_lp](#gtopt_compress_lp) |
+| `gtopt_compare` | Compare gtopt results with pandapower / PLP references | [gtopt_compare](scripts/gtopt_compare.md) |
+| `gtopt_diagram` | Network topology and planning-structure diagrams | [gtopt_diagram](scripts/gtopt_diagram.md) |
+| `gtopt_results_summary` | Summarise a gtopt output directory | — |
+| `gtopt_timeseries_export` | Export gtopt results as tidy time series | — |
+| `gtopt2pbi` | Reshape gtopt Parquet outputs for Power BI | — |
+| `gtopt-marginal-units` | Marginal-unit / marginal-emission identification from gtopt results | [plan](scripts/gtopt_marginal_units_plan.md) |
+| `plp_compress_case` | Compress / decompress PLP case directories | [plp_compress_case](#plp_compress_case) |
+| `plexos_compress_case` | Compress / decompress PLEXOS bundle directories | — |
+| `cen_demanda` | Download CEN SIPUB hourly demand data | — |
+| `cen2gtopt` | Fetch CEN real-operation data into a canonical feed | [review](scripts/cen_marginal_emissions_review.md) |
+| `cen2gtopt-marginal-period` | Multi-day CEN marginal-unit runs → Parquet dataset | [review](scripts/cen_marginal_emissions_review.md) |
+| `cen2gtopt-buses` | CEN bus catalogue and operational islands | [review](scripts/cen_marginal_emissions_review.md) |
+| `cen2gtopt-cache` | Inspect / pre-warm the CEN download cache | [review](scripts/cen_marginal_emissions_review.md) |
+| `gtopt-fetch` | Download operator data (CEN, AMM, EOR, AEMO, …) through the source registry, with a checksummed cache | [gtopt-fetch](#gtopt-fetch) |
+| `cen2gtopt-pcp-archive` | Download CEN PCP base / solution bundles (deprecated: use `gtopt-fetch cen`) | [review](scripts/cen_marginal_emissions_review.md) |
+| `cen2gtopt-pcp-inputs` | Read CEN PCP LP-input CSV bundles | [review](scripts/cen_marginal_emissions_review.md) |
+| `cen2gtopt-pcp-solution` | Read CEN PCP `.accdb` solution files (needs `mdbtools`) | [review](scripts/cen_marginal_emissions_review.md) |
+
+### Developer tools (not installed as commands)
+
+Repository-maintenance helpers stay importable but are **not** console
+scripts; run them from `scripts/` with `python -m`:
+
+| Module | Purpose |
+|--------|---------|
+| `python -m gtopt_field_extractor` | Generate field-reference tables from the C++ headers (needs the source tree) |
+| `python -m cen2gtopt.marginal_units` | Single-day marginal-unit diagnostic (hard-coded date; research use) |
+| `python -m cen2gtopt.pcp_validate` | Back-test the marginal-emission pipeline against CEN's PCP solution |
+
+The former aliases `sddp_monitor` (use `gtopt_monitor`) and
+`gtopt_irrigation` (use `gtopt_expand`) were removed.  Other developer
+tools live in [`tools/`](../tools/README.md).
+
 ### Package organization
 
-Each command-line tool lives in its own Python package directory under
-`scripts/`:
-
-| Package directory | Command | Description |
-|-------------------|---------|-------------|
-| `gtopt_compare/` | `gtopt_compare` | pandapower ↔ GTOpt comparison |
-| `cvs2parquet/` | `cvs2parquet` | CSV → Parquet converter |
-| `gtopt_diagram/` | `gtopt_diagram` | Network topology / planning diagrams |
-| `gtopt_field_extractor/` | `gtopt_field_extractor` | C++ header field metadata extractor |
-| `igtopt/` | `igtopt` | Excel → gtopt JSON converter |
-| `plp2gtopt/` | `plp2gtopt` | PLP → gtopt JSON converter |
-| `sddp2gtopt/` | `sddp2gtopt` | PSR SDDP/NCP → gtopt JSON converter (json + `.dat`) |
-| `psse2gtopt/` | `psse2gtopt` | PSS®E RAW → gtopt multi-bus DC OPF converter |
-| `pp2gtopt/` | `pp2gtopt` | pandapower → gtopt JSON converter |
-| `nrel118_to_gtopt/` | `nrel118_to_gtopt` | NREL-118 test system → full-network multi-stage gtopt case |
-| `gtopt2pp/` | `gtopt2pp` | gtopt JSON → pandapower converter |
-| `run_gtopt/` | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
-| `gtopt_check_json/` | `gtopt_check_json` | JSON planning file validator |
-| `gtopt_check_lp/` | `gtopt_check_lp` | Infeasible LP file diagnostic tool |
-| `gtopt_check_output/` | `gtopt_check_output` | Solver output analyzer |
-| `gtopt_check_solvers/` | `gtopt_check_solvers` | LP solver plugin discovery & validation |
-| `gtopt_compress_lp/` | `gtopt_compress_lp` | LP debug file compressor |
-| `gtopt_check_fingerprint/` | `gtopt_check_fingerprint` | LP structural fingerprint verification & comparison |
-| `gtopt_check_pampl/` | `gtopt_check_pampl` | PAMPL expression syntax and LP resolution validator |
-| `gtopt_check_cases/` | `gtopt_check_cases` | LP-size (and optional solve) check of a case collection against its `catalog.json` |
-| `plp_compress_case/` | `plp_compress_case` | PLP case file compressor |
-| `gtopt_config/` | *(library)* | Unified configuration management |
-| `gtopt_monitor/` | `gtopt_monitor` | Live solver monitoring dashboard |
-| `ts2gtopt/` | `ts2gtopt` | Time-series → GTOpt block schedule converter |
-| `gtopt_expand/` | `gtopt_expand` | Expansion transforms: LNG terminal, ROR promotion, pumped storage, irrigation agreements (`gtopt_irrigation` is a deprecated alias) |
-| `cen_demanda/` | `cen_demanda` | Coordinador Eléctrico Nacional SIPUB hourly demand downloader |
+Each tool lives in its own Python package directory under `scripts/`
+(`scripts/<package>/`, with tests in `scripts/<package>/tests/`); shared
+code is in `gtopt_shared/`, `gtopt_config/` and `gtopt_writer/`.
 
 ### Dependencies
 
@@ -544,6 +580,39 @@ centrals by name so the user can verify that they are genuinely unused.
 | Invalid data format | `Invalid data format: …` |
 
 ---
+
+## gtopt-fetch
+
+Common download CLI over the per-operator source registries
+(`scripts/gtopt_operators/<op>/sources.toml`; design in
+[operator-split](design/operator-split.md)).  The registry holds only
+URLs, file-name patterns and the *names* of the environment variables
+that carry API keys: keys are never stored in the repository and never
+logged.
+
+```bash
+gtopt-fetch operators                              # registered operators
+gtopt-fetch cen list                               # datasets of the CEN
+gtopt-fetch cen info pcp                           # URL, terms, credential
+export GTOPT_CEN_PORTAL_KEY=...                    # portal browse key
+gtopt-fetch cen get pcp --date 2026-04-22 --out case/source
+gtopt-fetch cen get plp_inputs --date 2026-05-15   # bundle in force
+gtopt-fetch verify case/source                     # sha256 vs MANIFEST.jsonl
+```
+
+- Cache: `$GTOPT_FETCH_CACHE` (default `~/.cache/gtopt/fetch`), one
+  directory per `<operator>/<dataset>` with a `MANIFEST.jsonl` (file,
+  sha256, size, URL without query string, fetched/published dates).
+  Files already downloaded by `cen2gtopt-pcp-archive` are reused.
+- `--out DIR` hard-links the files into `DIR` and writes the manifest
+  there; `gtopt-fetch verify DIR --write-lock` pins them in a
+  `sources.lock` (`sha256sum` format) for a case repository.
+- Datasets whose source forbids redistribution (AEMO workbooks and
+  models) are `manual`: `get` prints the page and the terms (exit 3);
+  download the file yourself and register it with `--file`.  Never
+  commit those files.
+- Exit status: 0 ok, 1 error, 2 missing credential, 3 manual download
+  required.
 
 ## sddp2gtopt
 
@@ -1655,8 +1724,6 @@ gtopt_monitor --get method --case-dir ./mycase
 gtopt_monitor --get sddp_options.max_iterations --case-dir ./mycase
 ```
 
-The `sddp_monitor` command is still available as a backward-compatible alias.
-
 The tool exits when the solver reports "converged" or when you press Ctrl-C.
 
 ### Text mode output
@@ -1685,15 +1752,18 @@ HTML documentation tables.  Parses `///< Description [units]` comments on
 struct member declarations and produces a table with columns:
 `Field`, `C++ Type`, `JSON Type`, `Units`, `Required`, `Description`.
 
+Developer tool: it reads `include/gtopt/` from a source checkout, so it
+is not installed as a command.  Run it from `scripts/`:
+
 ```bash
 # Dump all element tables to stdout as Markdown
-gtopt_field_extractor
+python -m gtopt_field_extractor
 
 # Write full HTML reference to a file
-gtopt_field_extractor --format html --output INPUT_DATA_API.html
+python -m gtopt_field_extractor --format html --output INPUT_DATA_API.html
 
 # Extract only Generator and Demand elements
-gtopt_field_extractor --elements Generator Demand
+python -m gtopt_field_extractor --elements Generator Demand
 ```
 
 ---

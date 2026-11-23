@@ -52,7 +52,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `input_format` | string | `"parquet"` | Input format: `"parquet"` or `"csv"` |
 | `output_directory` | string | `"output"` | Root directory for result files |
 | `output_format` | string | `"parquet"` | Output format: `"parquet"` or `"csv"` |
-| `output_compression` | string | `"snappy"` | Compression codec for output files |
+| `output_compression` | string | `"zstd"` | Compression codec for output files |
 | `use_uid_fname` | bool | `true` | Use UIDs instead of names in filenames |
 
 ### Model Parameters (deprecated flat fields)
@@ -74,7 +74,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `use_single_bus` | bool | `false` | **Deprecated** — use `model_options.use_single_bus` |
 | `kirchhoff_threshold` | float | `0.0` | **Deprecated** — use `model_options.kirchhoff_threshold` |
 | `scale_objective` | float | `1000` | **Deprecated** — use `model_options.scale_objective` |
-| `scale_theta` | float | `1000` | **Deprecated** — use `model_options.scale_theta` |
+| `scale_theta` | float | auto | **Deprecated** — use `model_options.scale_theta` |
 
 > **Note**: `annual_discount_rate` belongs in the `simulation` section.
 > For backward compatibility it is still accepted as a flat field in
@@ -139,11 +139,16 @@ solver configurations.
 | `use_line_losses` | bool | `true` | **Deprecated** — use `line_losses_mode` instead. Model resistive line losses (on/off) |
 | `line_losses_mode` | string | `"adaptive"` | Line loss formulation: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
 | `kirchhoff_threshold` | float | `0.0` | Min bus voltage [kV] for Kirchhoff activation |
+| `kirchhoff_mode` | string | `"cycle_basis"` | KVL formulation: `"cycle_basis"` (loop flow) or `"node_angle"` (B–θ) |
+| `dc_line_reactance_threshold` | float | `1e-6` | Per-unit floor `\|X/V²\|` below which a line's KVL flow term is dropped (see `tiny_reactance_mode`); `0` disables |
+| `tiny_reactance_mode` | string | `"tie"` | Lines with `reactance` 0 or below `dc_line_reactance_threshold`: `"tie"` = zero-impedance tie, KVL forces the two bus angles equal (`θ_a − θ_b = φ`), flow free within `tmax`; `"dc"` = legacy free-flow DC link. Lines without `reactance` are always DC links |
 | `loss_segments` | int | `1` | Piecewise-linear segments for quadratic losses |
+| `loss_cost_eps` | float | `0.1` | $/MWh on line-loss columns (degeneracy breaker / negative-LMP arbitrage guard). Per-line `Line.loss_cost_eps` overrides; `0` disables. Inert for `none`/`linear`/`piecewise_direct` |
 | `scale_objective` | float | `1000` | Objective coefficient divisor |
-| `scale_theta` | float | `1000` | Voltage-angle variable scaling |
+| `scale_theta` | float | auto | Voltage-angle enlargement: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians. `auto_scale = false` and unset ⇒ 1. Values < 1 shrink θ and log a warning (the meaning was inverted before 2026-11). A manual value always wins over auto (`theta_max` is still auto-computed); set it with `--set model_options.scale_theta=1000` or the converters' opt-in `--scale-theta FACTOR` (`plp2gtopt`, `plexos2gtopt`), which emit nothing by default |
 | `demand_fail_cost` | float | -- | Penalty $/MWh for unserved demand |
-| `battery_annual_loss` | float | `0.48` | Self-discharge [p.u./year] for every Battery whose `annual_loss` is unset (4 %/month, Li-ion cell + BMS; linear hourly drain = value/8760). `0` restores the legacy lossless default. Explicit per-battery values win; Reservoir/other storage unaffected |
+| `demand_fail_segments` | array | -- | Default stepwise curtailment curve `[{fraction, cost}, …]` (scalar costs) for demands with neither `fcost` nor `fail_segments`; takes precedence over `demand_fail_cost`. See input-data §3.3 |
+| `battery_annual_standing_loss` | float | `0.48` | Self-discharge [p.u./year] for every Battery whose `annual_standing_loss` is unset (4 %/month, Li-ion cell + BMS; linear hourly drain = value/8760). `0` restores the legacy lossless default. Explicit per-battery values win; Reservoir/other storage unaffected |
 | `battery_power_envelope` | bool | `true` | Emit `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` per block on every battery converter (`Converter/power_envelope`), cutting simultaneous full-power charge + discharge |
 | `reserve_fail_cost` | float | -- | Penalty $/MWh for unserved reserve |
 | `hydro_fail_cost` | float | -- | Default penalty $/m³ for unmet hydro rights (falls back to `0.0` when unset). Overridden by per-element `fail_cost` |
@@ -164,14 +169,15 @@ configures the LP backend.
 | `threads` | int | `0` | Number of parallel solver threads (0 = solver default) |
 | `presolve` | bool | `true` | Apply LP presolve before solving |
 | `log_level` | int | `0` | Solver output verbosity (0 = none) |
-| `log_mode` | string | `"nolog"` | Solver log-file policy: `"nolog"` or `"detailed"` (per-scene/phase/aperture file) |
-| `optimal_eps` | float | -- | Optimality tolerance (nullopt = solver default) |
+| `log_mode` | string | `"nolog"` | Solver log-file policy: `"nolog"` or `"detailed"` (per-scene/phase/aperture file); the legacy numeric codes `0` / `1` are also accepted |
+| `optimal_eps` | float | -- | Optimality (reduced-cost) tolerance, passed to the solver as given.  Unset: the solver parameter file's value if it sets one (e.g. `CPXPARAM_Simplex_Tolerances_Optimality` in `solvers/cplex.prm`), else `1e-6 / scale_objective` (clamped to [1e-9, 1e-1]) when `scale_objective != 1`, else the solver default.  The value used and why is logged once |
 | `feasible_eps` | float | -- | Feasibility tolerance (nullopt = solver default) |
 | `barrier_eps` | float | -- | Barrier convergence tolerance (nullopt = solver default) |
-| `time_limit` | float | -- | Per-solve time limit in seconds (0 = no limit) |
-| `scaling` | string | -- | Internal solver scaling strategy (nullopt = solver default). See `SolverScaling` enum |
+| `time_limit` | float | -- | Wall-clock budget in seconds for the whole solve of one LP/MIP (0 = no limit): MIP-start stages and algorithm-fallback retries share it — each retry gets the remaining time and retries stop once < 1 s is left |
+| `scaling` | string | -- | Internal solver scaling strategy (nullopt = solver default): `"none"`, `"automatic"`, `"aggressive"` (or the codes `0` / `1` / `2`). See `SolverScaling` enum |
 | `crossover` | bool | `true` | Convert interior-point solution to a simplex basis for duals (only meaningful with `algorithm=barrier`) |
 | `max_fallbacks` | int | `2` | On non-optimal exit, cycle through barrier → dual → primal up to this many times. `0` disables fallback |
+| `param_file` | string | -- | Backend-native parameter file (CPLEX `.prm`, …), read before the typed fields above. A relative path is resolved against `input_directory` first (the case directory wins, so `"solvers/cplex.prm"` works when gtopt runs from an output directory); the working directory is only a fallback when the case has no such file.  The resolved path and which location supplied it are logged; a missing file is reported at WARN.  Unset: `<input_directory>/solvers/<solver>.prm` is used when it exists (auto-discovery) |
 
 ## MonolithicOptions Fields
 
@@ -198,14 +204,28 @@ LP representation is built and conditioned before being handed to the
 backend.  Only the fields listed below are exposed in JSON; the four name
 flags (`col_with_names`, `row_with_names`, `col_with_name_map`,
 `row_with_name_map`) are set internally and are enabled together when
-`--lp-file` or `--lp-debug` is present on the CLI.
+`--lp-file` is given or `lp_debug` / `lp_error` is on (CLI flag, `--set`
+or JSON).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `equilibration_method` | string | `"row_max"` | Matrix scaling: `"none"`, `"row_max"`, `"ruiz"` (auto-enabled for Kirchhoff models) |
+| `equilibration_method` | string | topology | Matrix scaling: `"none"`, `"row_max"`, `"ruiz"`.  Unset ⇒ `"ruiz"` for multi-bus Kirchhoff models (`use_kirchhoff` and not `use_single_bus`), else `"row_max"` |
 | `fast_sqrt_method` | string | `"ieee_halve"` | Approximate sqrt used by Ruiz scaling; see `FastSqrtMethod` enum |
+| `ruiz_max_iterations` | int | `5` | Ruiz iteration cap |
+| `ruiz_tolerance` | float | `1e-3` | Ruiz convergence tolerance |
 | `compute_stats` | bool | `false` | Compute and log coefficient min/max/ratio during `flatten()` |
 | `lp_coeff_ratio_threshold` | float | `1e7` | When global max/min coefficient ratio exceeds this, print a per-scene/phase breakdown |
+| `solver_name` | string | -- | Solver backend pin (`--solver` wins; beats `.gtopt.conf` `solver`, `$GTOPT_SOLVER` and plugin priority).  gtopt writes the solver it resolved here in `gtopt_state.json`, so replaying the snapshot uses the same backend |
+
+These fields are resolved for every LP build
+(`PlanningOptionsLP::resolve_lp_matrix_options`): the `gtopt` binary,
+each cascade level, SDDP aperture systems and a `PlanningLP` built
+directly from C++ all use the same options.  The topology default of
+`equilibration_method` follows the `model_options` of the LP being
+built, so a cascade level that rebuilds its LP with
+`use_single_bus = true` defaults to `"row_max"` and a multi-bus
+Kirchhoff level to `"ruiz"`; an explicit `equilibration_method` applies
+to every level.
 
 > **LP naming**: There is **no** `names_level` field or `--lp-names-level`
 > flag.  Pass `--lp-file <path>` or `--lp-debug` to have GTOpt enable all
@@ -278,6 +298,8 @@ The FCF boundary cuts are configured on the FutureCost element
 | `aperture_directory` | string | -- | Alternate data directory for aperture scenarios |
 | `aperture_timeout` | float | `15.0` | Per-aperture LP solve timeout in seconds (0 = no limit) |
 | `save_aperture_lp` | bool | `false` | Save LP files for infeasible apertures to log directory |
+| `aperture_chunk_mode` | string | `"per_scene"` | Backward aperture grouping into pool tasks: `"per_scene"` (all apertures of a (scene, phase) in series on one LP clone, warm-start reuse; parallelism capped at the scene count), `"per_aperture"` (one task per aperture, fresh clone, cold solve), `"chunked"` (`aperture_chunk_size` = K per task). CLI: `--aperture-chunk-mode` (see `docs/methods/sddp.md`, "Aperture task grouping") |
+| `aperture_chunk_size` | int | -- | K apertures per task for `aperture_chunk_mode = "chunked"` (unset = auto formula). Deprecated as a mode selector when no mode is set: `-1` → `per_scene`, `1` → `per_aperture`, `K > 1` → `chunked` (warning logged); `0` → default `per_scene`. CLI: `--aperture-chunk-size` |
 
 ### LP Updates and State Variables
 
@@ -367,7 +389,8 @@ and 1e-8 tolerance (from global), while the backward pass uses algorithm 3
 
 Variable scaling factors are resolved in this order (highest priority first):
 
-1. Global options (`scale_theta` for bus voltage angles)
+1. Global options (`scale_theta` for bus voltage angles; it ENLARGES θ,
+   θ_LP = scale_theta · θ, so its `Bus.theta` entry is `1 / scale_theta`)
 2. `variable_scales` entries matching by `(class_name, variable, uid)`
 3. `variable_scales` entries matching by `(class_name, variable, uid=-1)` (wildcard)
 4. Default scale = 1.0
@@ -378,7 +401,7 @@ Variable scaling factors are resolved in this order (highest priority first):
 {
   "options": {
     "model_options": {
-      "scale_theta": 0.001
+      "scale_theta": 1000
     },
     "variable_scales": [
       {"class_name": "Reservoir", "variable": "energy", "uid": -1, "scale": 1000.0},
@@ -393,17 +416,24 @@ Variable scaling factors are resolved in this order (highest priority first):
 When multiple JSON files are passed to GTOpt, their `"options"` sections are
 merged left to right.  For each field:
 
-- **Scalars**: the first file's value wins (later files fill in missing fields)
+- **Optional scalars**: the last file that sets the field wins
+  (unset fields in later files leave earlier values alone)
 - **Sub-objects**: merged recursively (same rule per field)
+- **Non-optional `solver_options` fields** (`algorithm`, `threads`,
+  `presolve`, `log_level`): the first file wins
 - **`variable_scales`**: appended (later files add entries, earlier entries
   take precedence for the same key)
 
 ### Precedence layers
 
-1. **CLI flags** (`--solver highs`, `--set use_single_bus=true`)
-2. **Config file** (`~/.gtopt.conf` `[gtopt]` section)
-3. **JSON files** (first file wins for each field)
-4. **Built-in defaults** (`PlanningOptionsLP` compile-time defaults)
+The more explicit, the closer to the run, wins:
+
+1. **Dedicated CLI flags** (`--solver highs`, `--output-format csv`)
+2. **`--set`** (`--set use_single_bus=true`; the last `--set` of a key wins)
+3. **JSON files** (last file that sets a field wins, see above)
+4. **Config file** (`.gtopt.conf` `[gtopt]` section; only fills fields the
+   layers above left unset)
+5. **Built-in defaults** (`PlanningOptionsLP` compile-time defaults)
 
 ## MainOptions (CLI-only)
 

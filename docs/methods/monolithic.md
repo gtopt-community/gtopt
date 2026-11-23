@@ -139,6 +139,15 @@ rejects it).  Bound the LP solve with the solver time limit instead:
 `monolithic_options.solver_options.time_limit` (seconds), or the global
 `options.solver_options.time_limit`.  Unset means no time limit.
 
+`time_limit` is a wall-clock **budget for the whole solve** of the LP/MIP,
+not a per-attempt limit: the MIP-start stages (LP relaxation, repair)
+draw from it, the MIP gets what they leave, and the algorithm fallback
+retries (`max_fallbacks`) only get the time that is still left — they
+are skipped once less than 1 s remains, keeping the last status and
+incumbent.  A `time_limit: 3600` run therefore ends after about one hour
+(plus output writing and the fix-integers dual-recovery LP, which is not
+charged against the budget).
+
 ### 4.4 Boundary Cuts
 
 Boundary cuts approximate the expected future cost beyond the planning

@@ -1179,7 +1179,7 @@ use chronological blocks with full UC.
 | **Commitment periods** | ✓ Variable resolution | No | No | ✓ |
 | **Phase relaxation** | ✓ Per-phase | No | No | ✓ |
 | **Language** | C++26 | Python | Julia | C++/C# |
-| **Open source** | ✓ BSD-3 | ✓ MIT | ✓ GPL-2 | Commercial |
+| **Open source** | ✓ AGPL-3.0 (or commercial) | ✓ MIT | ✓ GPL-2 | Commercial |
 
 ### Key Differentiators
 

@@ -77,6 +77,12 @@ plotted by `tools/figures/plot_battery.py`). The dashed line is
 below its energy value times the charge efficiency, and discharges while
 the marginal cost (40 $/MWh) is above its energy value divided by the
 discharge efficiency (38 / 0.95).
+Water values can be **negative**.  With a free exit (spillway, drain or
+waterway to a free sink) the water value of a full, spilling reservoir is
+zero.  If every exit carries a cost `c` in $/(m³/s·h), one more hm³ must
+be discharged at `c / flow_conversion_rate`, so the water value drops to
+that negative value.  gtopt and its converters add no hydro costs by
+default; set them only when the source model defines them.
 
 ## Examples
 
@@ -84,6 +90,7 @@ discharge efficiency (38 / 0.95).
 |---|---|
 | `cases/hydro_valley_sddpjl`, `cases/hydro_thermal_sddpjl` | Hydro valley and hydro-thermal benchmarks from SDDP.jl |
 | `cases/fast_hydro_thermal` | Small hydro-thermal system for quick tests |
+| `cases/reservoir_water_value` | Sign and size of the water value of a spilling reservoir (free and priced exits), monolithic and SDDP |
 | `cases/bat_4b_24`, `cases/exp_bat_4b_24` | 24-hour battery operation, and battery expansion |
 
 ```bash
