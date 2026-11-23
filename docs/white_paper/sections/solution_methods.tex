@@ -110,7 +110,11 @@ LP solution, which is numerically robust when state variables are at
 their bounds.  The \texttt{row\_dual} mode instead reads the row dual
 values of the state-linking constraints directly.  Both modes produce
 valid cuts; the choice can affect convergence speed depending on problem
-structure and solver backend.
+structure and solver backend.  The coefficients are returned to physical
+units with the scale factor of the column they are read from: under Ruiz
+equilibration the state variable of stage~$t$ and its copy in
+stage~$t{+}1$ are scaled independently, and mixing the two factors would
+produce cuts that overestimate the future cost.
 
 \paragraph{Uncertainty and apertures.}
 Hydro inflows, renewable capacity factors and demand vary across
@@ -145,8 +149,9 @@ Several features make SDDP practical on national-scale systems:
   \item \textbf{Parallelism}: scenes, phases and apertures are solved in
     parallel by an adaptive work pool that throttles dispatch on free
     memory.
-  \item \textbf{Low-memory mode}: each subproblem is kept as an
-    lz4-compressed snapshot between solves and rebuilt on demand.
+  \item \textbf{Low-memory mode}: each subproblem is kept as a
+    compressed snapshot (zstd by default, lz4 optional) between solves
+    and rebuilt on demand.
   \item \textbf{Warm starts}: simplex bases are stored in a
     solver-neutral form and reused across iterations, runs and
     backends.
@@ -303,6 +308,6 @@ HiGHS~\cite{huangfu2018highs}, SCIP, NVIDIA cuOpt (GPU), CPLEX, Gurobi
 and MindOpt.  Without an explicit choice, the first available of CPLEX,
 HiGHS, MindOpt, CBC and CLP is used.  Each solve reports its status and
 an estimate of the condition number, and per-element variable scaling,
-objective scaling and row/column equilibration (row-max or Ruiz) keep
-models with kWh-scale batteries and TWh-scale reservoirs numerically
-stable.
+objective scaling and row/column equilibration (Ruiz by default for
+multi-bus Kirchhoff networks, row-max otherwise) keep models with
+kWh-scale batteries and TWh-scale reservoirs numerically stable.

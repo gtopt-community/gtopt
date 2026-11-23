@@ -205,6 +205,14 @@ where $\overline{\ell}_{d,t,b}$ is the scheduled demand at block~$b$,
 incorporating any demand profile scaling.  When curtailment is disabled,
 the load is fixed: $\ell_{d,s,t,b} = \overline{\ell}_{d,t,b}$.
 
+Instead of the single penalty $c^f_d$, a demand can carry a stepwise
+value-of-lost-load curve of $K$ segments (\texttt{fail\_segments}): the
+served load is split into $K$ tranches bounded by
+$f_{d,k}\,\overline{\ell}_{d,t,b}$, and the curtailment of tranche~$k$
+is priced at $c^f_{d,k}$.  With non-decreasing segment costs the LP
+curtails the cheapest segment first, so the curve needs no extra rows,
+ordering constraints or binaries.
+
 \subsection{DC Power Flow (Kirchhoff Constraints)}
 
 When \texttt{use\_kirchhoff} is enabled, for each line $\ell$ and
@@ -215,10 +223,21 @@ f_{\ell,s,t,b} = \frac{V_\ell^2}{X_\ell}
   \left(\theta_{a_\ell,s,t,b} - \theta_{b_\ell,s,t,b}\right)
 \end{equation}
 where $X_\ell$ is the line reactance [$\Omega$] and $V_\ell$ is the
-nominal voltage [kV].  A scaling factor $\sigma_\theta$
-(\texttt{scale\_theta}, default 1000) is applied to the angle variables
-for numerical conditioning: $\theta^\text{scaled} = \sigma_\theta \cdot
-\theta$.
+nominal voltage [kV].  The angle variables are enlarged by a factor
+$\sigma_\theta$ (\texttt{scale\_theta}) for numerical conditioning:
+$\theta^\text{LP} = \sigma_\theta \cdot \theta$.  When it is not set,
+$\sigma_\theta = 1 / \bigl(3 \operatorname{median}_\ell (X_\ell /
+V_\ell^2)\bigr)$.  An angle accumulates about $D$ line drops on the way
+to the reference bus, and the factor $3 \approx \sqrt{D}$ balances the
+angle coefficient of the Kirchhoff row against the size of
+$\theta^\text{LP}$.  A value set by the user is kept as given.
+
+A line with zero reactance, or with $|X_\ell/V_\ell^2|$ below a
+threshold (default $10^{-6}$~p.u.), is a zero-impedance tie by default:
+the flow term of~\eqref{eq:transformer} vanishes, the two bus angles are
+forced equal (up to the phase shift), and the flow is free within the
+line limits.  A line without a reactance is a DC link and has no
+Kirchhoff row.
 
 Line flow is bounded by transfer capacities:
 \begin{equation}
@@ -287,11 +306,16 @@ by $K$ tangents of the convex quadratic~\cite{coffrin2014lpac},
 with $c_\ell = R_\ell/V_\ell^2$.  It is bounded above by a secant chord
 on an auxiliary $v_\ell \geq |f_\ell|$, which closes the
 bidirectional-flow channel.  A small loss price $\varepsilon_\ell$
-[\$/MWh] on $\lambda^{\mathrm{L}}_\ell$ removes the remaining incentive
-to inflate the losses whenever
-$\varepsilon_\ell \geq \tfrac12 |\pi_{a_\ell}+\pi_{b_\ell}|$.  Its
-effect on legitimate operation is proportional to the losses, not to
-the flow.  For lines where the chord is too loose, an $L$-segment chord
+[\$/MWh] on $\lambda^{\mathrm{L}}_\ell$, weighted by
+$\omega_{s,t,b}$, removes the remaining incentive to inflate the losses
+whenever $\varepsilon_\ell \geq \tfrac12 |\pi_{a_\ell}+\pi_{b_\ell}|$.
+Its effect on legitimate operation is proportional to the losses, not to
+the flow.  The same price is applied to the loss columns of the
+piecewise and bidirectional models, where it also breaks the degeneracy
+between one-way and two-way flow.  It defaults to 0.1~\$/MWh, can be
+raised per line on the corridors where the arbitrage appears, and is
+disabled with $\varepsilon_\ell = 0$.
+For lines where the chord is too loose, an $L$-segment chord
 with a type-2 special ordered set makes the upper bound tight at the
 breakpoints, with a worst-case error of
 $c_\ell \overline{F}_\ell^2/(4L^2)$.
@@ -309,7 +333,9 @@ e_{e,s,t,b} = e_{e,s,t,b-1}(1 - \mu_e^h \Delta_b) \\
 where $\eta^\text{in}_e$ and $\eta^\text{out}_e$ are charge and discharge
 efficiencies, $p^\text{in}, p^\text{out}$ are charge and discharge
 power [MW], and $\mu_e^h = \mu_e / 8760$ is the hourly self-discharge
-rate derived from the annual loss rate~$\mu_e$.
+rate derived from the annual standing-loss rate~$\mu_e$
+(\texttt{annual\_standing\_loss}, default 0.48~p.u./year, about 4\% per
+month).
 Initial SoC $e_{e,\cdot,\cdot,0} = e^\text{ini}_e$ is an
 equality constraint in the first stage; the final SoC of stage~$t$
 links to the initial SoC of stage~$t{+}1$.
@@ -418,7 +444,15 @@ where $q_w$ is the waterway discharge [m$^3$/s], $F_j$ is the exogenous
 inflow at junction $j$, and $\alpha_r = 0.0036$ converts flow rates to
 volume increments: since 1~m$^3$/s flowing for 1~hour equals
 3600~m$^3$ = 0.0036~hm$^3$, $\alpha_r = 3.6 \times 10^{-3}$
-[hm$^3$/(m$^3$/s$\cdot$h)].
+[hm$^3$/(m$^3$/s$\cdot$h)] (the default when \texttt{flow\_conversion\_rate}
+is not set).  A junction can release surplus water through a drain
+column bounded by a capacity and priced, like waterway flows and
+spillways, per (m$^3$/s)$\cdot$h with the block weight
+$\omega_{s,t,b}$.  These exit costs are optional.  When every exit of a
+full reservoir carries a cost~$c$, its water value (the dual
+of~\eqref{eq:hydro_balance}) is $-c/\alpha_r$: one more hm$^3$ must be
+discharged at a cost, and SDDP carries such negative values through its
+cuts.
 
 Each turbine $h$ linking waterway $w$ to generator $g$ provides:
 \begin{equation}
@@ -544,18 +578,24 @@ converters.
 \subsection{Generator Profile Constraints}
 
 When a generator has a capacity profile $\phi_g(s,t,b)$ (e.g., solar
-irradiance or wind availability), the output is forced to follow the
-profile:
+irradiance or wind availability), the profile bounds the output.  The
+profile is a per-unit factor of the capacity, and the available power is
+capped by the generation range $\overline{p}_{g,t,b}$:
 \begin{equation}
 \label{eq:profile}
-p_{g,s,t,b} + s_{g,s,t,b} = \phi_g(s,t,b) \cdot \bar{C}_{g,t}
+p_{g,s,t,b} \leq A_{g,s,t,b}
+  = \min\bigl(\phi_g(s,t,b) \cdot \bar{C}_{g,t},\;
+    \overline{p}_{g,t,b}\bigr)
 \end{equation}
-where $\phi_g(s,t,b) \in [0,1]$ is the per-block capacity factor and
-$s_{g,s,t,b} \geq 0$ is the curtailed (spilled) generation.  The
-spillover variable carries cost $c_g^\text{spill} \cdot \omega_{s,t,b}$,
-which may be set to zero to allow free curtailment of renewables.  This
-lets the optimizer spill excess renewable production when it is not
-economically efficient to deliver.
+When the capacity is an expansion variable the row reads
+$p_{g,s,t,b} - \min(\phi_g, 1)\,\bar{C}_{g,t} \leq 0$.  Curtailment
+needs no variable of its own: the spilled renewable energy is computed
+after the solve as $s_{g,s,t,b} = \max(0, A_{g,s,t,b} - p_{g,s,t,b})$,
+and its marginal value is the dual of~\eqref{eq:profile}.  Only when
+curtailment carries a cost $c_g^\text{spill}$ is the equality
+$p_{g,s,t,b} + s_{g,s,t,b} = A_{g,s,t,b}$ with
+$0 \leq s_{g,s,t,b} \leq A_{g,s,t,b}$ and cost
+$c_g^\text{spill}\,\omega_{s,t,b}\,s_{g,s,t,b}$ used instead.
 
 \subsection{Demand Minimum Energy}
 
