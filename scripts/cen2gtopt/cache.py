@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 
 from cen2gtopt._cen_client import (
@@ -34,7 +33,7 @@ from cen2gtopt._cached_extractor import (
     clear_cache,
     prefetch_date,
 )
-from cen2gtopt._cen_client import CenApiClient, CenApiConfig
+from cen2gtopt._cen_client import CenApiClient, CenApiConfig, user_keys_from_env
 from cen2gtopt.daily_update import (
     TIER_PRESETS,
     daily_update,
@@ -43,19 +42,9 @@ from cen2gtopt.daily_update import (
 
 
 def _make_client() -> CenApiClient:
-    keys = {
-        s: os.environ[k]
-        for k, s in [
-            ("CEN_USER_KEY", "sip"),
-            ("CEN_OPERACION_KEY", "operacion"),
-            ("CEN_MERCADOS_KEY", "mercados"),
-            ("CEN_PLANIFICACION_KEY", "planificacion"),
-        ]
-        if k in os.environ
-    }
-    # No bundled default key: a missing CEN_USER_KEY surfaces as a
-    # CenAuthError (with instructions) on the first network call.
-    cfg = CenApiConfig(user_keys=keys)
+    # Keys only from the environment ($CEN_USER_KEY, $CEN_OPERACION_KEY,
+    # ...; see gtopt_operators/cen/sources.toml).
+    cfg = CenApiConfig(user_keys=user_keys_from_env())
     return CenApiClient(cfg)
 
 

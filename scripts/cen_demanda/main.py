@@ -43,7 +43,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-SIPUB_BASE_URL = "https://sipub.api.coordinador.cl/sipub/api/v2"
+from gtopt_operators.registry import endpoint_url
+
+SIPUB_BASE_URL = endpoint_url("cen", "sipub_v2")
 DEFAULT_ENDPOINT = "demanda_sistema_real"
 DEFAULT_RATE_PER_HOUR = 60
 DEFAULT_TIMEOUT_S = 60.0

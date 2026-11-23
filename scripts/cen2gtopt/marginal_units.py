@@ -58,7 +58,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-import time
 import warnings
 from pathlib import Path
 
@@ -66,7 +65,7 @@ import numpy as np
 import pandas as pd
 
 from cen2gtopt._cached_extractor import fetch_by_name
-from cen2gtopt._cen_client import CenApiClient, CenApiConfig
+from cen2gtopt._cen_client import CenApiClient, CenApiConfig, user_keys_from_env
 from cen2gtopt._emission_factors import UpstreamBasis, lookup_scvic
 from cen2gtopt._id_bridge import (
     build_alias_index,
@@ -84,10 +83,6 @@ from cen2gtopt._scvic_api import cv_rpt_for_date
 # locally after entry for back-compat.
 
 DATE = "2026-04-22"
-#: CEN SIP API ``user_key`` read from ``$CEN_USER_KEY`` (no default is
-#: bundled).  When unset, SIP calls raise ``CenAuthError`` explaining
-#: how to obtain and export a key; cached data keeps working offline.
-SIP_KEY = os.environ.get("CEN_USER_KEY", "").strip()
 #: Default workdir for the legacy ``main()`` CLI.  Created lazily
 #: inside ``main()`` — never at import time.
 WORK_DIR = Path("/tmp/cen_emission_factor_v3")
@@ -338,123 +333,6 @@ def build_unit_metadata(
 PLEXOS_OVERLAY_MAX_RATIO: float = 2.0
 
 
-def overlay_plexos_capacities(
-    pmin_by_id: dict[int, float],
-    pmax_by_id: dict[int, float],
-    plexos_xml_path: Path | str | None,
-    units_df: pd.DataFrame | None = None,
-    max_ratio: float = PLEXOS_OVERLAY_MAX_RATIO,
-) -> tuple[dict[int, float], dict[int, float], dict[int, str]]:
-    """Overlay PLEXOS-published Min Stable Level / Max Capacity onto the
-    CEN-derived pmin / pmax dicts, **preferring PLEXOS where available**.
-
-    Per the rule "even if PLEXOS produces the same result as our
-    heuristic, prefer the data source": the operator's published
-    Min Stable Level / Max Capacity are the authoritative values used
-    by PLEXOS itself when clearing the published λ_CEN, so they should
-    take precedence over the CEN unidades_generadoras heuristic.
-
-    Bridge: PLEXOS represents each plant as MULTIPLE generator objects
-    (one per block, plus per-fuel-variant synthetic 0.01 MW
-    placeholders).  The function therefore SUMS Max Capacity and Min
-    Stable Level across all PLEXOS generators whose normalised name
-    aliases match a given CEN ``id_central``, after dropping
-    placeholders (max-capacity < 1 MW).
-
-    Args:
-        pmin_by_id, pmax_by_id: Heuristic dicts from
-            :func:`build_unit_metadata`.  Used as fallback when PLEXOS
-            has no entry for a given id_central.
-        plexos_xml_path: Path to ``DBSEN_PRGDIARIO_PID.xml`` (preferred)
-            or ``DBSEN_PRGDIARIO.xml``.  ``None`` = no overlay.
-        units_df: The ``unidades_generadoras`` frame.  Required for
-            the alias bridge: each row's ``central`` / ``nombre_central``
-            are normalised and matched against PLEXOS object names.
-            ``None`` returns the inputs unchanged.
-
-    Returns ``(pmin_overlaid, pmax_overlaid, audit)`` where ``audit``
-    maps ``id_central`` → ``"plexos"`` (PLEXOS sum used) /
-    ``"cen_fallback"`` (no PLEXOS match — heuristic kept).
-    """
-    if plexos_xml_path is None or units_df is None or units_df.empty:
-        return dict(pmin_by_id), dict(pmax_by_id), {}
-
-    # pylint: disable=import-outside-toplevel
-    from cen2gtopt._id_bridge import _aliases
-    from cen2gtopt._plexos_xml import parse_generator_input_properties
-
-    plexos_props = parse_generator_input_properties(str(plexos_xml_path))
-    if not plexos_props:
-        return dict(pmin_by_id), dict(pmax_by_id), {}
-
-    # 1. Index every meaningful PLEXOS generator by its alias keys.
-    #    ``alias → list[(plexos_name, props_dict)]`` — PLEXOS may have
-    #    several blocks of the same plant.  We dedupe by plexos_name
-    #    when summing per id_central below.
-    plexos_by_alias: dict[str, list[tuple[str, dict[str, float]]]] = {}
-    for plexos_name, props in plexos_props.items():
-        max_cap = props.get("Max Capacity")
-        if max_cap is None or max_cap < 1.0:
-            continue  # skip 0.01 MW fuel-mix synthetic placeholders
-        for a in _aliases(plexos_name):
-            plexos_by_alias.setdefault(a, []).append((plexos_name, props))
-
-    # 2. For each id_central, find PLEXOS blocks whose aliases overlap
-    #    with the CEN central name's aliases, then SUM Max Capacity /
-    #    Min Stable Level across the matched blocks (deduped by name).
-    pmin_out = dict(pmin_by_id)
-    pmax_out = dict(pmax_by_id)
-    audit: dict[int, str] = {ic: "cen_fallback" for ic in pmin_out}
-    seen_ids: set[int] = set()
-    for _, row in units_df.iterrows():
-        try:
-            ic = int(row["id_central"])
-        except (TypeError, ValueError):
-            continue
-        if ic in seen_ids:
-            continue
-        candidate_names = {
-            str(row.get(c))
-            for c in ("central", "nombre_central")
-            if pd.notna(row.get(c)) and str(row.get(c))
-        }
-        matched: dict[str, dict[str, float]] = {}
-        for name in candidate_names:
-            for a in _aliases(name):
-                for plexos_name, props in plexos_by_alias.get(a, []):
-                    matched.setdefault(plexos_name, props)
-        if not matched:
-            continue
-        sum_max = sum(p["Max Capacity"] for p in matched.values())
-        sum_min_vals = [
-            float(p["Min Stable Level"])
-            for p in matched.values()
-            if "Min Stable Level" in p
-        ]
-        # Sanity check: alias-based bridges over-attribute when
-        # (a) the CEN central name is a stem of multiple PLEXOS plants
-        # (e.g. "NEHUENCO" → all of NEHUENCO_1-*, NEHUENCO_2-*,
-        # NEHUENCO_9B_*), or (b) PLEXOS encodes the same physical block
-        # as multiple fuel-mode variants whose Max Capacity values are
-        # MUTUALLY EXCLUSIVE rather than additive.  When the resulting
-        # PLEXOS sum exceeds the CEN sum by more than ``max_ratio`` (or
-        # is less than 1/max_ratio of it), drop the match — the
-        # heuristic is more reliable than a wildly-off overlay.
-        seen_ids.add(ic)
-        cen_pmax = float(pmax_by_id.get(ic, 0.0))
-        if cen_pmax > 1.0 and (
-            sum_max > max_ratio * cen_pmax or sum_max < cen_pmax / max_ratio
-        ):
-            audit[ic] = "cen_fallback"
-            continue
-        pmax_out[ic] = float(sum_max)
-        if sum_min_vals:
-            pmin_out[ic] = float(sum(sum_min_vals))
-        audit[ic] = "plexos"
-
-    return pmin_out, pmax_out, audit
-
-
 def _normalize_cmg_15min(raw: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame()
     out["date_utc"] = raw["fecha"].astype(str).str.slice(0, 10)
@@ -485,213 +363,6 @@ def _try_fetch_cmg(
     df = _normalize_cmg_15min(raw)
     df["source"] = kind
     return df
-
-
-#: Endpoint spec for bulk fetcher (mirrors the registry in
-#: :mod:`cen2gtopt._cached_extractor`).
-ENDPOINTS_BULK = {
-    "cmg_online": {
-        "service": "sip",
-        "path": "/costo-marginal-online/v4/findByDate",
-    },
-    "cmg_real": {
-        "service": "sip",
-        "path": "/costo-marginal-real/v4/findByDate",
-    },
-}
-
-
-def _enumerate_bar_transfs(
-    client: CenApiClient,  # noqa: ARG001  — kept for signature stability
-    *,
-    date: str,  # noqa: ARG001  — unused but kept for signature stability
-    verbose: bool = False,
-) -> list[tuple[int, str, str]]:
-    """Enumerate CEN bus identifiers strictly from the **cmg-real
-    on-disk cache** (no live API access at all).
-
-    Reads every cached parquet under
-    ``~/.cache/gtopt/cen2gtopt/sip/costo_marginal_real__v4__findByDate/``
-    to harvest unique ``(id_info, bar_transf, barra_info)`` tuples.
-    When the cache is empty, returns an empty list — caller must
-    populate the cache (e.g. via per-bus ``fetch_by_name`` calls or
-    by running the pipeline against a known REF_BUSES list once).
-
-    Returns ``[(id_info, bar_transf, barra_info), …]`` sorted.
-    """
-    # pylint: disable=import-outside-toplevel
-    from cen2gtopt._bus_catalogue import discover_buses_from_cache
-
-    cat = discover_buses_from_cache()
-    seen: dict[int, tuple[int, str, str]] = {}
-    if not cat.empty:
-        for _, r in cat.iterrows():
-            iid = int(r["bus_id"])
-            seen[iid] = (
-                iid,
-                str(r["bar_transf"]),
-                str(r.get("barra_info", "")),
-            )
-    if verbose:
-        print(f"    cmg-real cache: {len(seen)} unique buses")
-    return sorted(seen.values())
-
-
-def fetch_cmg_bulk(
-    client: CenApiClient,
-    *,
-    date: str,
-    endpoint: str = "cmg_real",
-    bar_transfs: list[str] | None = None,
-    max_workers: int = 1,  # noqa: ARG001  — retained for back-compat
-    verbose: bool = False,
-    base_delay_ms: float = 200.0,
-    max_delay_ms: float = 4000.0,
-    retry_failed: bool = True,
-) -> pd.DataFrame:
-    """Bulk-fetch CMG for **all CEN buses** for one date using a
-    **sequential per-bar_transf** fetch with adaptive throttle.
-
-    Replaces the prior ThreadPoolExecutor implementation: parallel
-    per-bus fetches against the same gateway routinely tripped the
-    3scale rate-limiter, masking partial failures behind silent retries.
-    Sequential fetching is slower in best case (~5 min vs ~1 min for
-    1 400 buses) but **deterministic, observable, and never drops a
-    bus on a 429 storm**.
-
-    Adaptive throttle: between requests we sleep ``delay_ms``; on a
-    429 / 5xx cascade we double it (capped at ``max_delay_ms``);
-    after a stretch of clean successes we relax it back toward
-    ``base_delay_ms``.  Failed buses are queued and retried in a
-    second pass with the back-off ceiling.
-
-    Args:
-        client: open SIP client.
-        date: YYYY-MM-DD.
-        endpoint: ``"cmg_real"`` (default, settled) or ``"cmg_online"``
-            (preliminary, has version multiplicity).
-        bar_transfs: optional explicit list of bar_transf strings to
-            fetch.  When ``None``, auto-discovers ALL CEN buses.
-        max_workers: kept for signature stability — sequential pass
-            ignores this.
-        verbose: print per-bus progress.
-        base_delay_ms: initial inter-request delay.
-        max_delay_ms: ceiling on the adaptive back-off.
-        retry_failed: when True, do a second pass over buses whose
-            first attempt returned an empty frame OR raised; helps
-            recover from transient 429 / 502 storms without losing data.
-
-    Returns the long DataFrame with the same schema as before.
-    """
-    if endpoint not in ENDPOINTS_BULK:
-        raise ValueError(
-            f"unknown endpoint {endpoint!r}; expected one of {list(ENDPOINTS_BULK)}"
-        )
-
-    # 1. Discovery (skip when caller passed bar_transfs)
-    if bar_transfs is None:
-        if verbose:
-            print(f"    discovering bar_transfs for {date} …")
-        catalogue = _enumerate_bar_transfs(client, date=date, verbose=verbose)
-        bar_transfs = [bt for _, bt, _ in catalogue]
-    if verbose:
-        print(
-            f"    fetching {len(bar_transfs)} buses sequentially via "
-            f"cmg-{endpoint.removeprefix('cmg_')} "
-            f"(throttle={base_delay_ms:.0f}–{max_delay_ms:.0f}ms adaptive)"
-        )
-
-    def _fetch_one_bus(bt: str) -> tuple[list[dict], str]:
-        """Returns (rows, status). status ∈ {ok, empty, error}."""
-        try:
-            df_bus = fetch_by_name(
-                client,
-                endpoint,
-                start=date,
-                extra_params={"bar_transf": bt},
-            )
-        except Exception:  # noqa: BLE001  # pylint: disable=broad-except
-            return ([], "error")
-        if df_bus.empty:
-            return ([], "empty")
-        return (df_bus.to_dict("records"), "ok")
-
-    # 2. Sequential per-bus fetch with adaptive throttle
-    rows: list[dict] = []
-    failed: list[str] = []
-    delay_ms = base_delay_ms
-    consecutive_ok = 0
-    n_ok = 0
-    n_empty = 0
-    n_error = 0
-    for n_done, bt in enumerate(bar_transfs, 1):
-        bus_rows, status = _fetch_one_bus(bt)
-        rows.extend(bus_rows)
-        if status == "ok":
-            n_ok += 1
-            consecutive_ok += 1
-            # Decay throttle after sustained success.
-            if consecutive_ok >= 5 and delay_ms > base_delay_ms:
-                delay_ms = max(base_delay_ms, delay_ms * 0.7)
-        elif status == "empty":
-            n_empty += 1
-            consecutive_ok = 0
-        else:
-            n_error += 1
-            consecutive_ok = 0
-            failed.append(bt)
-            # Tighten throttle on failure.
-            delay_ms = min(max_delay_ms, delay_ms * 2.0)
-        if verbose and (n_done % 100 == 0 or n_done == len(bar_transfs)):
-            print(
-                f"    [{n_done}/{len(bar_transfs)}] ok={n_ok} empty={n_empty} "
-                f"error={n_error} total_rows={len(rows):,} delay={delay_ms:.0f}ms"
-            )
-        time.sleep(delay_ms / 1000.0)
-
-    # 3. Optional retry pass on the failed list.
-    if retry_failed and failed:
-        if verbose:
-            print(f"    retry pass: {len(failed)} buses (ceiling delay)")
-        delay_ms = max_delay_ms
-        for n_done, bt in enumerate(failed, 1):
-            bus_rows, status = _fetch_one_bus(bt)
-            rows.extend(bus_rows)
-            if status == "ok":
-                n_ok += 1
-                n_error -= 1
-            time.sleep(delay_ms / 1000.0)
-            if verbose and (n_done % 25 == 0 or n_done == len(failed)):
-                print(
-                    f"    retry [{n_done}/{len(failed)}] cum ok={n_ok} error={n_error}"
-                )
-
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    out = pd.DataFrame()
-    out["id_info"] = pd.to_numeric(df["id_info"], errors="coerce").astype("Int64")
-    out["bar_transf"] = df["barra_transf"].astype(str)
-    out["barra_info"] = df["barra_info"].astype(str)
-    out["date_utc"] = df["fecha"].astype(str).str.slice(0, 10)
-    out["hour"] = pd.to_numeric(df["hra"], errors="coerce").astype("Int64")
-    out["minute"] = pd.to_numeric(df["min"], errors="coerce").astype("Int64")
-    out["quarter"] = out["hour"].astype(int) * 4 + (out["minute"].astype(int) // 15)
-    out["lmp"] = pd.to_numeric(df["cmg_usd_mwh_"], errors="coerce")
-    out["source"] = endpoint
-    # cmg-online returns multiple ``version`` rows per (bus, quarter)
-    # — REAL-DEF / REAL-PRE / EN LINEA represent the validation
-    # lifecycle.  Keep ONE row per cell, preferring the most-validated.
-    if "version" in df.columns:
-        out["version"] = df["version"].astype(str)
-        version_priority = {"REAL-DEF": 0, "REAL-PRE": 1, "EN LINEA": 2}
-        out["_pri"] = out["version"].map(lambda v: version_priority.get(v, 9))
-        out = (
-            out.sort_values("_pri")
-            .drop_duplicates(subset=["id_info", "quarter"], keep="first")
-            .drop(columns=["_pri"])
-        )
-    return out.dropna(subset=["id_info", "lmp", "quarter"]).reset_index(drop=True)
 
 
 def fetch_cmg_real(
@@ -748,12 +419,11 @@ def fetch_cmg_real(
         # Back-extrapolate: for any missing quarter at the start of
         # the day (CEN's 02:30 cutoff leaves 00:00-02:15 absent),
         # copy the value from the first known quarter of the day.
-        present = set(df["quarter"])
+        # ``df`` is sorted, so every quarter below the first known one
+        # is missing.
         first_known = df.iloc[0]
         fills = []
         for q in range(int(first_known["quarter"])):
-            if q in present:
-                continue
             row = first_known.copy()
             row["quarter"] = q
             row["hour"] = q // 4
@@ -966,22 +636,6 @@ def fetch_gen_programada_pcp(
     return df.dropna(subset=["hour", "mw", "id_central"]).reset_index(drop=True)
 
 
-def fetch_cmg_programado_pcp(
-    client: CenApiClient,
-    *,
-    date: str | None = None,
-) -> pd.DataFrame:
-    """Programmed CMG per bus per hour. Implicit water-value source
-    for hydros."""
-    df = fetch_by_name(client, "cmg_programado_pcp", start=date or DATE)
-    if df.empty:
-        return df
-    df["fecha_hora"] = pd.to_datetime(df["fecha_hora"], errors="coerce")
-    df["hour"] = df["fecha_hora"].dt.hour.astype("Int64")
-    df["cmg"] = pd.to_numeric(df["cmg_usd_mwh"], errors="coerce").astype(float)
-    return df.dropna(subset=["hour", "cmg"]).reset_index(drop=True)
-
-
 def fetch_embalse_real(
     client: CenApiClient,
     *,
@@ -991,35 +645,10 @@ def fetch_embalse_real(
     return fetch_by_name(client, "embalse_real", start=date or DATE)
 
 
-def fetch_flujo_programado_pcp(
-    client: CenApiClient,
-    *,
-    date: str | None = None,
-) -> pd.DataFrame:
-    """Programmed line flows — useful for island detection
-    (saturated lines) and bus-mapping centrales."""
-    df = fetch_by_name(client, "flujo_programado_pcp", start=date or DATE)
-    if df.empty:
-        return df
-    df["fecha_hora"] = pd.to_datetime(df["fecha_hora"], errors="coerce")
-    df["hour"] = df["fecha_hora"].dt.hour.astype("Int64")
-    df["mw"] = pd.to_numeric(df["flujo_mw"], errors="coerce").astype(float)
-    return df.dropna(subset=["hour", "mw"]).reset_index(drop=True)
-
-
 # ---------------------------------------------------------------------------
 # The reverse-engineered identifier
 # ---------------------------------------------------------------------------
 INTERIOR_TOL_RATIO = 0.05  # within 5% of pmin or pmax → treat as boundary
-
-
-def candidates_pmax(candidates: pd.DataFrame, id_central: int) -> float:
-    """Look up the pmax of a central in the candidate set."""
-    rows = candidates[candidates["id_central"] == id_central]
-    if rows.empty:
-        return 0.0
-    val = rows["pmax"].iloc[0]
-    return float(val) if pd.notna(val) else 0.0
 
 
 def identify_marginal(
@@ -1224,36 +853,6 @@ HYDRO_TIPOS_FOR_RENEWABLE = {
 }
 
 
-def _load_pid_nod_loss(date_iso: str) -> pd.DataFrame:
-    """Load PID's per-bus per-period transmission losses (MW).
-
-    Returns a DataFrame with columns ``bus_name`` (PLEXOS bus name,
-    e.g. ``Crucero220``), ``period`` (1-24), ``loss_mw``.  Empty
-    when no PID bundle is on disk for ``date_iso``.
-
-    These are absolute losses (MW) per bus per period.  To compute
-    a per-bus marginal loss factor we need bus load per period — see
-    :func:`_pid_per_bus_mlf` which combines this with ``Nod_Load``.
-    """
-    try:
-        # pylint: disable=import-outside-toplevel
-        from cen2gtopt.pcp_inputs import load_pcp_inputs
-    except ImportError:
-        return pd.DataFrame()
-    try:
-        inputs = load_pcp_inputs(date_iso, source="pid", auto_download=False)
-    except FileNotFoundError:
-        return pd.DataFrame()
-    if not inputs.is_pid:
-        return pd.DataFrame()
-    nl = inputs.nod_loss
-    if nl.empty:
-        return nl
-    return nl.rename(
-        columns={"NAME": "bus_name", "PERIOD": "period", "VALUE": "loss_mw"},
-    )[["bus_name", "period", "loss_mw"]]
-
-
 def _pid_per_bus_mlf(date_iso: str) -> dict[tuple[str, int], float]:
     """Compute per-(bus_name, period) marginal loss factor from PID.
 
@@ -1271,11 +870,10 @@ def _pid_per_bus_mlf(date_iso: str) -> dict[tuple[str, int], float]:
     Returns ``{(plexos_bus_name, period_1..24): mlf}``.  Empty dict
     when PID inputs unavailable.
     """
-    try:
-        # pylint: disable=import-outside-toplevel
-        from cen2gtopt.pcp_inputs import load_pcp_inputs
-    except ImportError:
-        return {}
+    # Lazy import: pcp_inputs is heavy and only needed with PID data.
+    # pylint: disable=import-outside-toplevel
+    from cen2gtopt.pcp_inputs import load_pcp_inputs
+
     try:
         inputs = load_pcp_inputs(date_iso, source="pid", auto_download=False)
     except FileNotFoundError:
@@ -1342,14 +940,12 @@ def _pid_per_bus_mlf_from_accdb(
       * the property is not present in the schema
     """
     # pylint: disable=import-outside-toplevel
-    try:
-        from cen2gtopt.pcp_solution import (
-            _have_mdbtools,
-            extract_property,
-            resolve_solution,
-        )
-    except ImportError:
-        return {}
+    from cen2gtopt.pcp_solution import (
+        _have_mdbtools,
+        extract_property,
+        resolve_solution,
+    )
+
     if not _have_mdbtools():
         return {}
     try:
@@ -1380,65 +976,6 @@ def _pid_per_bus_mlf_from_accdb(
     return out
 
 
-def _bus_mlf_by_id_info(
-    bus_mlf_plexos: dict[tuple[str, int], float],
-) -> dict[int, float]:
-    """Translate PID's per-bus MLF dict (keyed on PLEXOS bus names
-    like ``"Crucero220"``) into a dict keyed on CEN's stable ``id_info``
-    integer (the same key used by cmg-real / cmg-online).
-
-    Lookup chain: PLEXOS name → bar_transf (via the same heuristic +
-    overrides table that ``cen2gtopt.prepopulate_cache`` uses) →
-    id_info (via the local bus catalogue scanned from cmg-real
-    cache).  Buses missing from any step are silently dropped.
-
-    The result is **period-aggregated** (mean MLF across the day) —
-    consumers that need per-period values can reuse
-    :func:`_pid_per_bus_mlf` directly.
-    """
-    if not bus_mlf_plexos:
-        return {}
-    # Local imports to keep cold-start cost low.
-    # pylint: disable=import-outside-toplevel
-    from cen2gtopt._bus_catalogue import discover_buses_from_cache
-    from cen2gtopt.prepopulate_cache import (
-        PLEXOS_TO_BAR_TRANSF,
-        _heuristic_bar_transf,
-    )
-
-    # Aggregate per-period MLFs to one value per PLEXOS bus
-    by_plexos: dict[str, list[float]] = {}
-    for (plexos_name, _period), val in bus_mlf_plexos.items():
-        by_plexos.setdefault(plexos_name, []).append(float(val))
-    plexos_avg = {n: sum(v) / len(v) for n, v in by_plexos.items()}
-
-    # PLEXOS → bar_transf
-    plexos_to_bt: dict[str, str] = {}
-    for plexos_name in plexos_avg:
-        bt = PLEXOS_TO_BAR_TRANSF.get(plexos_name)
-        if bt is None:
-            bt = _heuristic_bar_transf(plexos_name)
-        if bt:
-            plexos_to_bt[plexos_name] = bt
-
-    # bar_transf → id_info from on-disk cmg-real cache
-    cat = discover_buses_from_cache()
-    if cat.empty:
-        return {}
-    bt_to_id = dict(zip(cat["bar_transf"], cat["bus_id"]))
-
-    out: dict[int, float] = {}
-    for plexos_name, mlf in plexos_avg.items():
-        bt = plexos_to_bt.get(plexos_name)
-        if bt is None:
-            continue
-        iid = bt_to_id.get(bt)
-        if iid is None:
-            continue
-        out[int(iid)] = mlf
-    return out
-
-
 def _load_pid_mlf_by_id(
     date_iso: str,
     alias_index: dict[str, int],
@@ -1453,12 +990,10 @@ def _load_pid_mlf_by_id(
     Imported lazily so the heavy ``pcp_inputs`` module isn't loaded
     on every call.
     """
-    try:
-        # Local import to break the import cycle pcp_inputs ↔ marginal_units
-        # pylint: disable=import-outside-toplevel
-        from cen2gtopt.pcp_inputs import load_pcp_inputs, resolve_pcp_unit
-    except ImportError:
-        return {}
+    # Local import to break the import cycle pcp_inputs ↔ marginal_units
+    # pylint: disable=import-outside-toplevel
+    from cen2gtopt.pcp_inputs import load_pcp_inputs, resolve_pcp_unit
+
     try:
         inputs = load_pcp_inputs(date_iso, source="pid", auto_download=False)
     except FileNotFoundError:
@@ -1476,6 +1011,171 @@ def _load_pid_mlf_by_id(
         if ic is not None:
             out[int(ic)] = float(value)
     return out
+
+
+#: Per-fuel SCVIC CV floor — excludes "takeoff" / contract-minimum
+#: configurations that do not reflect the unit's true marginal CV
+#: (e.g. GNL under take-or-pay is dispatched at a sunk-cost CV of
+#: $5-$25 but is a price-taker).  Other fuels use DEFAULT_CV_FLOOR,
+#: which also drops tech-min / start-up configurations ($0-$10).
+FUEL_CV_FLOOR: dict[str, float] = {
+    "GNL": 30.0,
+    "Gas Natural": 30.0,
+    "GLP": 30.0,
+    "Gas Propano": 30.0,
+}
+DEFAULT_CV_FLOOR = 15.0
+#: SCVIC CVs at or above this are PLEXOS "out of economic order" sentinels.
+SCVIC_CV_CEILING = 1000.0
+
+
+def _build_cv_ladder(
+    scvic: pd.DataFrame,
+    alias_index: dict[str, int],
+) -> tuple[dict[int, list[float]], dict[int, str]]:
+    """Per-``id_central`` SCVIC ladder.
+
+    Keeps ALL realistic CV options per central (each unit declares
+    several configurations: tech-min, full-load, multi-fuel modes);
+    the picker chooses the one matching the operating point.  Returns
+    ``(cv_options_by_id, fuel_by_id)`` where the fuel is the first one
+    seen for that central.
+    """
+    cv_options_by_id: dict[int, list[float]] = {}
+    fuel_by_id: dict[int, str] = {}
+    if scvic.empty:
+        return cv_options_by_id, fuel_by_id
+    scvic = scvic[scvic["costo_variable_total"] < SCVIC_CV_CEILING]
+    for _, r in scvic.iterrows():
+        cn = str(r.get("central_name", ""))
+        un = str(r.get("unidad_name", "") or "")
+        cf = str(r.get("configuracion", "") or "")
+        fuel = str(r.get("tipo_combustible", "")).strip()
+        cv = float(r["costo_variable_total"])
+        if cv < FUEL_CV_FLOOR.get(fuel, DEFAULT_CV_FLOOR):
+            continue
+        ic = bridge_resolve(cn, alias_index, un, cf)
+        if ic is None:
+            continue
+        cv_options_by_id.setdefault(ic, []).append(cv)
+        fuel_by_id.setdefault(ic, fuel)
+    return cv_options_by_id, fuel_by_id
+
+
+def _forced_id_set(instr: pd.DataFrame, alias_index: dict[str, int]) -> set[int]:
+    """``id_central`` of price-taker units for the day.
+
+    A unit is forced when any instruction row has ``estado != "N"``
+    (RO/LF/DN/DRO/PO/PDO/DF/MM/DLF/DP/CSE) or a consigna in
+    :data:`FORCED_CONSIGNAS` (contractual TOP / inflexible modes and
+    SSCC setpoints: CI, MT, PMT, PP, PS, PC).
+    """
+    forced: set[int] = set()
+    if instr.empty:
+        return forced
+    forced_mask = (instr["estado"].astype(str).str.upper() != "N") | instr[
+        "consigna"
+    ].astype(str).isin(FORCED_CONSIGNAS)
+    for raw in instr[forced_mask]["central"].astype(str).unique():
+        ic = bridge_resolve(raw, alias_index)
+        if ic is not None:
+            forced.add(ic)
+    return forced
+
+
+def _dispatch_frame(
+    gen: pd.DataFrame,
+    alias_index: dict[str, int],
+    pmin_by_id: dict[int, float],
+    pmax_by_id: dict[int, float],
+) -> pd.DataFrame:
+    """Per-(id_central, hour) dispatch with declared limits.
+
+    Bridges ``generacion_real`` central names to ``id_central`` (rows
+    that do not bridge are dropped) and adds ``pmin_decl``,
+    ``pmax_decl`` and ``pmax_eff`` = min(API pmax, declared pmax).
+    """
+    gen2 = gen.copy()
+    gen2["id_central"] = (
+        gen2["central"].astype(str).map(lambda c: bridge_resolve(c, alias_index))
+    )
+    gen2 = gen2.dropna(subset=["id_central", "hour"])
+    gen2["id_central"] = gen2["id_central"].astype(int)
+    gen2["pmin_decl"] = gen2["id_central"].map(pmin_by_id).fillna(0.0)
+    gen2["pmax_decl"] = gen2["id_central"].map(pmax_by_id)
+    gen2["pmax_eff"] = gen2.apply(
+        lambda r: (
+            min(r["pmax"], r["pmax_decl"]) if pd.notna(r["pmax_decl"]) else r["pmax"]
+        ),
+        axis=1,
+    )
+    return gen2
+
+
+def _pick_island_marginals(
+    island_keys: pd.DataFrame,
+    gen2: pd.DataFrame,
+    *,
+    forced_id_set: set[int],
+    fuel_by_id: dict[int, str],
+    cv_options_by_id: dict[int, list[float]],
+    upstream_basis: UpstreamBasis,
+) -> dict[tuple[int, str], dict]:
+    """Identify the marginal unit once per (quarter, island).
+
+    ``island_keys`` carries ``quarter``, ``hour``, ``island_id`` and
+    the picker target ``lam_median``.  Each pick is enriched with the
+    Tier-1 fields (dispatch / limits / headroom of the picked unit,
+    ``tier_wedge_usd`` to the next CV option) and ``n_forced_in_pool``.
+    """
+    # P1-B: pre-group gen2 by hour (avoids an O(n) scan per island).
+    gen2_by_hour: dict[int, pd.DataFrame] = {
+        int(h): grp[grp["mw"] > 0].copy() for h, grp in gen2.groupby("hour")
+    }
+    island_marginals: dict[tuple[int, str], dict] = {}
+    for _, ir in island_keys.iterrows():
+        quarter = int(ir["quarter"])
+        hour = int(ir["hour"])
+        island = str(ir["island_id"])
+        lam = float(ir["lam_median"])
+        cands = gen2_by_hour.get(hour, pd.DataFrame()).copy()
+        if cands.empty:
+            cands["forced"] = pd.Series(dtype=bool)
+        else:
+            cands["forced"] = cands["id_central"].isin(forced_id_set)
+        candidates = (
+            cands[
+                ["id_central", "central", "mw", "pmin_decl", "pmax_eff", "forced"]
+            ].rename(columns={"pmin_decl": "pmin", "pmax_eff": "pmax"})
+            if not cands.empty
+            else pd.DataFrame()
+        )
+        marg = identify_marginal(
+            lambda_target=lam,
+            candidates=candidates,
+            fuel_by_id=fuel_by_id,
+            cv_options_by_id=cv_options_by_id,
+            upstream_basis=upstream_basis,
+        )
+        if marg.get("marginal_id") is not None:
+            mid = int(marg["marginal_id"])
+            cand_row = cands[cands["id_central"] == mid]
+            # The picked unit always comes from ``candidates``.
+            marg["marginal_dispatch_mw"] = float(cand_row["mw"].iloc[0])
+            marg["marginal_pmin"] = float(cand_row["pmin_decl"].iloc[0])
+            marg["marginal_pmax"] = float(cand_row["pmax_eff"].iloc[0])
+            marg["marginal_headroom_mw"] = max(
+                0.0,
+                marg["marginal_pmax"] - marg["marginal_dispatch_mw"],
+            )
+            # Tier-wedge: gap to next-up CV in the picked unit's ladder.
+            opts = sorted(cv_options_by_id.get(mid, []))
+            cv_picked = float(marg.get("marginal_cv", 0))
+            above = [c for c in opts if c > cv_picked]
+            marg["tier_wedge_usd"] = float(min(above) - cv_picked) if above else 0.0
+        marg["n_forced_in_pool"] = int(cands["forced"].sum()) if not cands.empty else 0
+        island_marginals[(quarter, island)] = marg
+    return island_marginals
 
 
 def compute_marginal_units_for_day(
@@ -1577,64 +1277,12 @@ def compute_marginal_units_for_day(
     # the unit's operational mode — see build_unit_metadata().
     pmin_by_id, pmax_by_id, tipo_by_id = build_unit_metadata(units)
 
-    # SCVIC ladder
-    scvic = cv_rpt_for_date(date_iso)
-    fuel_cv_floor = {
-        "GNL": 30.0,
-        "Gas Natural": 30.0,
-        "GLP": 30.0,
-        "Gas Propano": 30.0,
-    }
-    if not scvic.empty:
-        scvic = scvic[scvic["costo_variable_total"] < 1000.0]
-    cv_options_by_id: dict[int, list[float]] = {}
-    fuel_by_id: dict[int, str] = {}
-    central_by_id: dict[int, str] = {}
-    if not scvic.empty:
-        for _, r in scvic.iterrows():
-            cn = str(r.get("central_name", ""))
-            un = str(r.get("unidad_name", "") or "")
-            cf = str(r.get("configuracion", "") or "")
-            fuel = str(r.get("tipo_combustible", "")).strip()
-            floor = fuel_cv_floor.get(fuel, 15.0)
-            cv = float(r["costo_variable_total"])
-            if cv < floor:
-                continue
-            ic = bridge_resolve(cn, alias_index, un, cf)
-            if ic is None:
-                continue
-            cv_options_by_id.setdefault(ic, []).append(cv)
-            if ic not in fuel_by_id:
-                fuel_by_id[ic] = fuel
-                central_by_id[ic] = cn
-
-    # Forced/RO id set (estado != N OR consigna ∈ FORCED set)
-    forced_consignas = FORCED_CONSIGNAS
-    forced_id_set: set[int] = set()
-    if not instr.empty:
-        forced_mask = (instr["estado"].astype(str).str.upper() != "N") | instr[
-            "consigna"
-        ].astype(str).isin(forced_consignas)
-        for raw in instr[forced_mask]["central"].astype(str).unique():
-            ic = bridge_resolve(raw, alias_index)
-            if ic is not None:
-                forced_id_set.add(ic)
-
-    # Per-(id, hour) dispatch
-    gen2 = gen.copy()
-    gen2["id_central"] = (
-        gen2["central"].astype(str).map(lambda c: bridge_resolve(c, alias_index))
+    # SCVIC ladder + forced/RO set + per-(id, hour) dispatch.
+    cv_options_by_id, fuel_by_id = _build_cv_ladder(
+        cv_rpt_for_date(date_iso), alias_index
     )
-    gen2 = gen2.dropna(subset=["id_central", "hour"])
-    gen2["id_central"] = gen2["id_central"].astype(int)
-    gen2["pmin_decl"] = gen2["id_central"].map(pmin_by_id).fillna(0.0)
-    gen2["pmax_decl"] = gen2["id_central"].map(pmax_by_id)
-    gen2["pmax_eff"] = gen2.apply(
-        lambda r: (
-            min(r["pmax"], r["pmax_decl"]) if pd.notna(r["pmax_decl"]) else r["pmax"]
-        ),
-        axis=1,
-    )
+    forced_id_set = _forced_id_set(instr, alias_index)
+    gen2 = _dispatch_frame(gen, alias_index, pmin_by_id, pmax_by_id)
     gen2["tipo"] = gen2["id_central"].map(tipo_by_id).fillna("")
 
     # System-context per hour: total demand, renewable fraction
@@ -1644,15 +1292,11 @@ def compute_marginal_units_for_day(
         for h, grp in gen2[gen2["mw"] > 0].groupby("hour"):
             tot = float(grp["mw"].sum())
             demand_by_hour[int(h)] = tot
-            if tot > 0:
-                vre_mask = grp["id_central"].map(
-                    lambda i: fuel_by_id.get(int(i), "") in RENEWABLE_FUELS
-                ) | grp["tipo"].isin(HYDRO_TIPOS_FOR_RENEWABLE)
-                renewable_frac_by_hour[int(h)] = float(
-                    grp.loc[vre_mask, "mw"].sum() / tot
-                )
-            else:
-                renewable_frac_by_hour[int(h)] = 0.0
+            # Only rows with mw > 0 are grouped, so tot > 0.
+            vre_mask = grp["id_central"].map(
+                lambda i: fuel_by_id.get(int(i), "") in RENEWABLE_FUELS
+            ) | grp["tipo"].isin(HYDRO_TIPOS_FOR_RENEWABLE)
+            renewable_frac_by_hour[int(h)] = float(grp.loc[vre_mask, "mw"].sum() / tot)
 
     # Cluster buses into islands per quarter
     cmg_islands = cluster_buses_into_islands(cmg)
@@ -1679,58 +1323,14 @@ def compute_marginal_units_for_day(
         )
         .reset_index()
     )
-    island_marginals: dict[tuple[int, str], dict] = {}
-    island_pool_size: dict[tuple[int, str], int] = {}
-    # P1-B: pre-group gen2 by hour (avoids 96 × O(n) scans).
-    gen2_by_hour: dict[int, pd.DataFrame] = {
-        int(h): grp[grp["mw"] > 0].copy() for h, grp in gen2.groupby("hour")
-    }
-    for _, ir in island_keys.iterrows():
-        quarter = int(ir["quarter"])
-        hour = int(ir["hour"])
-        island = str(ir["island_id"])
-        lam = float(ir["lam_median"])
-        cands = gen2_by_hour.get(hour, pd.DataFrame()).copy()
-        if cands.empty:
-            cands["forced"] = pd.Series(dtype=bool)
-        else:
-            cands["forced"] = cands["id_central"].isin(forced_id_set)
-        candidates = (
-            cands[
-                ["id_central", "central", "mw", "pmin_decl", "pmax_eff", "forced"]
-            ].rename(columns={"pmin_decl": "pmin", "pmax_eff": "pmax"})
-            if not cands.empty
-            else pd.DataFrame()
-        )
-        marg = identify_marginal(
-            lambda_target=lam,
-            candidates=candidates,
-            fuel_by_id=fuel_by_id,
-            cv_options_by_id=cv_options_by_id,
-            upstream_basis=upstream_basis,
-        )
-        # Tier-1 enrichment from the candidate set
-        if marg.get("marginal_id") is not None:
-            mid = int(marg["marginal_id"])
-            cand_row = cands[cands["id_central"] == mid]
-            if not cand_row.empty:
-                marg["marginal_dispatch_mw"] = float(cand_row["mw"].iloc[0])
-                marg["marginal_pmin"] = float(cand_row["pmin_decl"].iloc[0])
-                marg["marginal_pmax"] = float(cand_row["pmax_eff"].iloc[0])
-                marg["marginal_headroom_mw"] = max(
-                    0.0,
-                    marg["marginal_pmax"] - marg["marginal_dispatch_mw"],
-                )
-            # Tier-wedge: gap to next-up CV in the picked unit's ladder
-            opts = sorted(cv_options_by_id.get(mid, []))
-            cv_picked = float(marg.get("marginal_cv", 0))
-            above = [c for c in opts if c > cv_picked]
-            marg["tier_wedge_usd"] = float(min(above) - cv_picked) if above else 0.0
-        # Forced-pool diagnostic
-        n_forced_in_pool = int(cands["forced"].sum()) if not cands.empty else 0
-        marg["n_forced_in_pool"] = n_forced_in_pool
-        island_marginals[(quarter, island)] = marg
-        island_pool_size[(quarter, island)] = len(candidates)
+    island_marginals = _pick_island_marginals(
+        island_keys,
+        gen2,
+        forced_id_set=forced_id_set,
+        fuel_by_id=fuel_by_id,
+        cv_options_by_id=cv_options_by_id,
+        upstream_basis=upstream_basis,
+    )
 
     # P1-A: vectorised reconstruction (replaces iterrows() over cells)
     out = _reconstruct_output(
@@ -1739,8 +1339,7 @@ def compute_marginal_units_for_day(
         island_size=island_size,
         mlf_by_id=mlf_by_id,
     )
-    if out.empty:
-        return out
+    # ``cmg`` is non-empty here, so ``out`` has one row per CMG cell.
     # System context (per-hour)
     out["system_total_demand_mw"] = (
         out["hour"].map(demand_by_hour).fillna(0.0).astype(float)
@@ -1779,377 +1378,6 @@ def compute_marginal_units_for_day(
         mlf_by_id=mlf_by_id,
         bus_mlf=bus_mlf_relabelled,
     )
-
-
-def auto_detect_pid_xml(date_iso: str) -> Path | None:
-    """Locate a ``DBSEN_PRGDIARIO_PID.xml`` for ``date_iso`` in the
-    local PCP/PID archive cache, preferring the latest re-solve period.
-
-    Returns ``None`` when no PID bundle is unpacked for that date —
-    the caller (the v3 picker) then falls back to CEN-only metadata.
-    """
-    extract_root = (
-        Path.home() / ".cache" / "gtopt" / "cen2gtopt" / "pcp_archive" / "_unpacked"
-    )
-    if not extract_root.exists():
-        return None
-    ymd = date_iso.replace("-", "")
-    candidates: list[Path] = []
-    for outer in sorted(extract_root.glob(f"PID_{ymd}_*")):
-        for inner in (outer / outer.name, outer):
-            xml = inner / "Modelos" / "DBSEN_PRGDIARIO_PID.xml"
-            if xml.exists():
-                candidates.append(xml)
-                break
-    if not candidates:
-        return None
-    # Prefer the latest re-solve period (highest PP suffix).
-    candidates.sort(key=lambda p: p.parents[2].name, reverse=True)
-    return candidates[0]
-
-
-def compute_marginal_units_for_day_all_buses(
-    client: CenApiClient,
-    *,
-    date_iso: str,
-    use_pid_mlf: bool = True,
-    use_plexos_overlay: bool = False,
-    plexos_xml_path: Path | str | None = None,
-    verbose: bool = True,
-    bulk_endpoint: str = "cmg_online",
-    max_buses: int | None = None,
-    upstream_basis: UpstreamBasis = UpstreamBasis.NONE,
-) -> pd.DataFrame:
-    """Run the marginal-emission pipeline over **every CEN bus** for
-    one day.
-
-    Replaces the per-bus ``cmg-real`` fetch loop (slow, rate-limited)
-    with a bulk paginated fetch of the entire day's data via the
-    ``cmg-online`` endpoint's ``limit``/``offset`` parameters
-    (~5 min for ~1 375 buses).  After bulk-fetching, the rest of the
-    pipeline runs unchanged: dispatch, instructions, units, SCVIC
-    ladder, per-island marginal-unit picker, loss-factor correction,
-    optional PID MLF.
-
-    Args:
-        client: open SIP client.
-        date_iso: ``YYYY-MM-DD``.
-        use_pid_mlf: enable per-unit + per-bus PID MLF correction.
-        use_plexos_overlay: opt-in v3 picker (default **False**).  When
-            True, prefers PLEXOS-published Min Stable Level / Max
-            Capacity from the PID XML over the CEN unidades_generadoras
-            heuristic.  Currently degrades λ-pipe accuracy because the
-            alias bridge over-attributes capacity for plants with
-            multiple PLEXOS fuel-mode variants per physical block
-            (e.g. NEHUENCO_1-FA_GN_A, NEHUENCO_1-TG_GN_A, ...
-            sum to ~30× the real plant total).  A block-aware bridge
-            is required before this can be enabled by default.  See
-            :func:`overlay_plexos_capacities` for the function and
-            ``PLEXOS_OVERLAY_MAX_RATIO`` for the partial sanity check.
-        plexos_xml_path: path to ``DBSEN_PRGDIARIO_PID.xml``.  When
-            ``None`` and ``use_plexos_overlay=True``, auto-discovered
-            via :func:`auto_detect_pid_xml`.
-        verbose: print progress for each pipeline step.
-        bulk_endpoint: ``"cmg_online"`` (default — paginated, fast)
-            or ``"cmg_real"`` (settled but rate-limited).
-        max_buses: optional cap on number of buses to include
-            (useful for development/testing).  ``None`` = all.
-
-    Returns the same long-form DataFrame as
-    :func:`compute_marginal_units_for_day` but with per-(bus,
-    quarter) rows for every published bus.  When the v3 overlay
-    fires, the per-cell output gains a ``pmin_pmax_source`` column
-    with values ``"plexos"`` or ``"cen_fallback"``.
-    """
-    if verbose:
-        print(f"[1] bulk fetching {bulk_endpoint} for {date_iso} …")
-    bulk = fetch_cmg_bulk(
-        client,
-        date=date_iso,
-        endpoint=bulk_endpoint,
-        verbose=verbose,
-    )
-    if bulk.empty:
-        return pd.DataFrame()
-    if verbose:
-        print(f"  {len(bulk):,} rows / {bulk['id_info'].nunique()} buses fetched")
-
-    # Reshape bulk into the cmg-DataFrame format the rest of the
-    # pipeline expects: bus_uid, bus_label, source, ...
-    cmg = pd.DataFrame()
-    cmg["date_utc"] = bulk["date_utc"]
-    cmg["hour"] = bulk["hour"]
-    cmg["minute"] = bulk["minute"]
-    cmg["quarter"] = bulk["quarter"]
-    cmg["bus_name"] = bulk["barra_info"]
-    cmg["lmp"] = bulk["lmp"]
-    cmg["bus_uid"] = bulk["id_info"].astype(int)
-    cmg["bus_label"] = bulk["barra_info"]
-    cmg["source"] = bulk["source"]
-
-    if max_buses is not None:
-        keep_ids = sorted(cmg["bus_uid"].unique())[:max_buses]
-        cmg = cmg[cmg["bus_uid"].isin(keep_ids)].reset_index(drop=True)
-        if verbose:
-            print(f"  capped to first {len(keep_ids)} buses by id_info")
-
-    # Now load the supporting data (gen, instr, units, scvic) — these
-    # are bus-list-independent
-    if verbose:
-        print("[2] generacion-real …")
-    gen = fetch_generacion_real(client, date=date_iso)
-    if verbose:
-        print("[3] instrucciones-operacionales-cmg …")
-    instr = fetch_instrucciones(client, date=date_iso)
-    if verbose:
-        print("[4] unidades-generadoras …")
-    units = fetch_unidades_generadoras(client, date=date_iso)
-    alias_index = build_alias_index(units)
-
-    mlf_by_id: dict[int, float] = (
-        _load_pid_mlf_by_id(date_iso, alias_index) if use_pid_mlf else {}
-    )
-    # Prefer the accdb-published per-bus per-period MLF (exact PLEXOS
-    # solver output) over the Nod_Loss/Nod_Load approximation.  The
-    # accdb path requires `mdbtools` on PATH and a downloaded PID
-    # bundle; fall back to the CSV approximation otherwise.
-    bus_mlf: dict[tuple[str, int], float] = {}
-    bus_mlf_source = "none"
-    if use_pid_mlf:
-        bus_mlf = _pid_per_bus_mlf_from_accdb(date_iso)
-        if bus_mlf:
-            bus_mlf_source = "accdb"
-        else:
-            bus_mlf = _pid_per_bus_mlf(date_iso)
-            if bus_mlf:
-                bus_mlf_source = "Nod_Loss approximation"
-    bus_mlf_by_id_info: dict[int, float] = _bus_mlf_by_id_info(bus_mlf)
-    if verbose and (mlf_by_id or bus_mlf):
-        print(
-            f"  PID MLF loaded: {len(mlf_by_id)} units, "
-            f"{len({k[0] for k in bus_mlf})} buses (source: {bus_mlf_source}), "
-            f"{len(bus_mlf_by_id_info)} id_info-bridged"
-        )
-
-    # Per-id metadata: pmin uses MAX of (technical, environmental,
-    # frequency-control) MTs to capture the binding minimum given
-    # the unit's operational mode — see build_unit_metadata().
-    pmin_by_id, pmax_by_id, _ = build_unit_metadata(units)
-
-    # v3 picker: overlay PLEXOS-published Min Stable Level / Max
-    # Capacity from the PID XML on top of the CEN heuristic dicts.
-    # Operator-published bounds are authoritative — the same numbers
-    # PLEXOS used to clear the published λ_CEN.
-    plexos_audit: dict[int, str] = {}
-    if use_plexos_overlay:
-        if plexos_xml_path is None:
-            plexos_xml_path = auto_detect_pid_xml(date_iso)
-        if plexos_xml_path is not None:
-            pmin_by_id, pmax_by_id, plexos_audit = overlay_plexos_capacities(
-                pmin_by_id,
-                pmax_by_id,
-                plexos_xml_path=plexos_xml_path,
-                units_df=units,
-            )
-            n_plexos = sum(1 for v in plexos_audit.values() if v == "plexos")
-            if verbose:
-                print(
-                    f"  PLEXOS PID overlay: {n_plexos}/{len(plexos_audit)} "
-                    f"id_centrales use PLEXOS-published bounds "
-                    f"({100 * n_plexos / max(len(plexos_audit), 1):.1f}%); "
-                    f"source={Path(plexos_xml_path).name}"
-                )
-        elif verbose:
-            print(
-                "  PLEXOS PID overlay: no PID XML found in cache — "
-                "falling back to CEN heuristic for all id_centrales"
-            )
-
-    # SCVIC ladder
-    scvic = cv_rpt_for_date(date_iso)
-    fuel_cv_floor = {
-        "GNL": 30.0,
-        "Gas Natural": 30.0,
-        "GLP": 30.0,
-        "Gas Propano": 30.0,
-    }
-    if not scvic.empty:
-        scvic = scvic[scvic["costo_variable_total"] < 1000.0]
-    cv_options_by_id: dict[int, list[float]] = {}
-    fuel_by_id: dict[int, str] = {}
-    central_by_id: dict[int, str] = {}
-    if not scvic.empty:
-        for _, r in scvic.iterrows():
-            cn = str(r.get("central_name", ""))
-            un = str(r.get("unidad_name", "") or "")
-            cf = str(r.get("configuracion", "") or "")
-            fuel = str(r.get("tipo_combustible", "")).strip()
-            floor = fuel_cv_floor.get(fuel, 15.0)
-            cv = float(r["costo_variable_total"])
-            if cv < floor:
-                continue
-            ic = bridge_resolve(cn, alias_index, un, cf)
-            if ic is None:
-                continue
-            cv_options_by_id.setdefault(ic, []).append(cv)
-            if ic not in fuel_by_id:
-                fuel_by_id[ic] = fuel
-                central_by_id[ic] = cn
-
-    # Forced/RO id set
-    forced_consignas = FORCED_CONSIGNAS
-    forced_id_set: set[int] = set()
-    if not instr.empty:
-        forced_mask = (instr["estado"].astype(str).str.upper() != "N") | instr[
-            "consigna"
-        ].astype(str).isin(forced_consignas)
-        for raw in instr[forced_mask]["central"].astype(str).unique():
-            ic = bridge_resolve(raw, alias_index)
-            if ic is not None:
-                forced_id_set.add(ic)
-
-    # Per-(id, hour) dispatch
-    gen2 = gen.copy()
-    gen2["id_central"] = (
-        gen2["central"].astype(str).map(lambda c: bridge_resolve(c, alias_index))
-    )
-    gen2 = gen2.dropna(subset=["id_central", "hour"])
-    gen2["id_central"] = gen2["id_central"].astype(int)
-    gen2["pmin_decl"] = gen2["id_central"].map(pmin_by_id).fillna(0.0)
-    gen2["pmax_decl"] = gen2["id_central"].map(pmax_by_id)
-    gen2["pmax_eff"] = gen2.apply(
-        lambda r: (
-            min(r["pmax"], r["pmax_decl"]) if pd.notna(r["pmax_decl"]) else r["pmax"]
-        ),
-        axis=1,
-    )
-
-    # Annotate cmg with bus_mlf and the **inverse-MLF lambda
-    # estimate** of the system-reference price.  When PID's per-bus
-    # MLF is available for a bus, divide its λ by the MLF (since
-    # λ_bus = λ_ref × bus_mlf, so λ_ref ≈ λ_bus / bus_mlf).  When
-    # MLF is missing, fall back to the raw λ_bus (assumes mlf=1).
-    cmg["bus_mlf_picker"] = cmg["bus_uid"].map(bus_mlf_by_id_info).astype(float)
-    cmg["lambda_ref_est"] = cmg["lmp"].astype(float) / cmg["bus_mlf_picker"].fillna(1.0)
-    if verbose and bus_mlf_by_id_info:
-        n_with_mlf = cmg["bus_mlf_picker"].notna().sum()
-        print(
-            f"  inverse-MLF picker: {n_with_mlf} of {len(cmg)} cells use "
-            f"λ_ref = λ_bus / bus_mlf (the rest fall back to raw λ_bus)"
-        )
-
-    # Cluster + identify marginal per island
-    if verbose:
-        print(
-            f"[5] cluster {cmg['bus_uid'].nunique()} buses into islands "
-            f"per quarter (tol=${ISLAND_LMP_TOL}, max_spread=${ISLAND_MAX_SPREAD})"
-        )
-    cmg_islands = cluster_buses_into_islands(cmg)
-    n_isl = cmg_islands.groupby("quarter")["island_id"].nunique()
-    if verbose:
-        print(
-            f"  islands per quarter: median={int(n_isl.median())}, "
-            f"max={int(n_isl.max())}, total unique={cmg_islands['island_id'].nunique()}"
-        )
-
-    island_size = (
-        cmg_islands.groupby(["quarter", "island_id"]).size().rename("island_n_buses")
-    )
-    # Use median-(λ_ref) across the island as picker target — when
-    # PID bus-MLF is available for at least some buses in the island,
-    # this yields the system-reference price directly; otherwise it
-    # gracefully falls back to median raw λ.  All buses in the island
-    # share the picked marginal unit by construction.
-    # Picker target = median(λ_ref_est) per island, where
-    # ``lambda_ref_est = lmp / bus_mlf`` when bus_mlf is available
-    # (preferring accdb-published MLF, falling back to raw lmp when
-    # MLF is missing).  This inverts the bus loss factor to recover
-    # the system-reference price the marginal unit's CV represents.
-    # Earlier attempt with the Nod_Loss CSV approximation regressed
-    # — but with the accdb source the MLFs are precise enough.
-    island_keys = (
-        cmg_islands.groupby(["quarter", "island_id"])
-        .agg(
-            date_utc=("date_utc", "first"),
-            hour=("hour", "first"),
-            lam_median=("lmp", "median"),
-            # NOTE: tried `lam_median=("lambda_ref_est", "median")`
-            # with both Nod_Loss-approximated and accdb-published
-            # MLFs — both regressed.  Proper inverse-MLF picker
-            # needs per-candidate scaling, not a uniform target
-            # rescale.  See doctring + critical-review notes.
-        )
-        .reset_index()
-    )
-
-    if verbose:
-        print(
-            f"[6] per-island marginal identification "
-            f"({len(island_keys):,} (quarter, island) keys)"
-        )
-    # P1-B: pre-group gen2 by hour (avoids O(n) full-frame scan in
-    # every island-loop iteration).
-    gen2_by_hour: dict[int, pd.DataFrame] = {
-        int(h): grp[grp["mw"] > 0].copy() for h, grp in gen2.groupby("hour")
-    }
-
-    island_marginals: dict[tuple[int, str], dict] = {}
-    for _, ir in island_keys.iterrows():
-        quarter = int(ir["quarter"])
-        hour = int(ir["hour"])
-        island = str(ir["island_id"])
-        lam = float(ir["lam_median"])
-        cands = gen2_by_hour.get(hour, pd.DataFrame()).copy()
-        if cands.empty:
-            cands["forced"] = pd.Series(dtype=bool)
-        else:
-            cands["forced"] = cands["id_central"].isin(forced_id_set)
-        candidates = (
-            cands[
-                ["id_central", "central", "mw", "pmin_decl", "pmax_eff", "forced"]
-            ].rename(columns={"pmin_decl": "pmin", "pmax_eff": "pmax"})
-            if not cands.empty
-            else pd.DataFrame()
-        )
-        marg = identify_marginal(
-            lambda_target=lam,
-            candidates=candidates,
-            fuel_by_id=fuel_by_id,
-            cv_options_by_id=cv_options_by_id,
-            upstream_basis=upstream_basis,
-        )
-        if marg.get("marginal_id") is not None:
-            mid = int(marg["marginal_id"])
-            cand_row = cands[cands["id_central"] == mid]
-            if not cand_row.empty:
-                marg["marginal_dispatch_mw"] = float(cand_row["mw"].iloc[0])
-                marg["marginal_pmin"] = float(cand_row["pmin_decl"].iloc[0])
-                marg["marginal_pmax"] = float(cand_row["pmax_eff"].iloc[0])
-                marg["marginal_headroom_mw"] = max(
-                    0.0,
-                    marg["marginal_pmax"] - marg["marginal_dispatch_mw"],
-                )
-            opts = sorted(cv_options_by_id.get(mid, []))
-            cv_picked = float(marg.get("marginal_cv", 0))
-            above = [c for c in opts if c > cv_picked]
-            marg["tier_wedge_usd"] = float(min(above) - cv_picked) if above else 0.0
-        marg["n_forced_in_pool"] = int(cands["forced"].sum()) if not cands.empty else 0
-        island_marginals[(quarter, island)] = marg
-
-    # P1-A: vectorised per-bus reconstruction — build a marginals_df
-    # then merge into cmg_islands instead of iterrows() over 155k cells.
-    if verbose:
-        print(f"[7] reconstructing {len(cmg_islands):,} per-(bus, quarter) cells")
-    out = _reconstruct_output(
-        cmg_islands=cmg_islands,
-        island_marginals=island_marginals,
-        island_size=island_size,
-        mlf_by_id=mlf_by_id,
-        plexos_audit=plexos_audit,
-    )
-    if out.empty:
-        return out
-    return _apply_loss_corrections(out, mlf_by_id=mlf_by_id, bus_mlf=bus_mlf)
 
 
 def _reconstruct_output(
@@ -2327,241 +1555,78 @@ def _apply_loss_corrections(
 TIER_UNCERTAINTY_THRESHOLD = 2.0
 
 
-def main() -> int:
-    # Legacy CLI side-effects (lazily applied here, NEVER at import
-    # time): silence noisy DataFrame warnings + create WORK_DIR.
-    warnings.filterwarnings("ignore")
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
+def _print_side_feeds(client: CenApiClient, date: str) -> None:
+    """Fetch and summarise the informational side feeds of the legacy
+    report (limitations, PCP programmed dispatch, reservoir levels).
 
-    print("=" * 80)
-    print(f"  Emission-factor identifier v3 — date={DATE}")
-    print("=" * 80)
+    Each feed is best-effort: an upstream failure prints a warning and
+    the report continues.
+    """
+    print("\n[4b] limitaciones-transmision (line saturation events)")
+    try:
+        lim = fetch_limitaciones(client, date=date)
+        print(f"  {len(lim)} limitation events for {date}")
+        if not lim.empty and "instalacion_nombre" in lim.columns:
+            top = lim["instalacion_nombre"].value_counts().head(5)
+            print("  most-limited installations:")
+            for k, v in top.items():
+                print(f"    {k}: {v}")
+    except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+        print(f"  WARN: {type(exc).__name__}: {exc}")
 
-    sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
-    with CenApiClient(sip_cfg) as client:
-        print("\n[1] CMG real (15-min, 2 reference buses)")
-        cmg = fetch_cmg_real(client)
-        if cmg.empty:
-            print("  no CMG — aborting")
-            return 1
-        print("\n[2] generacion-real (hourly per central)")
-        gen = fetch_generacion_real(client)
-        print(f"  {len(gen)} rows / {gen['central'].nunique()} centrales")
-        print("\n[3] instrucciones-operacionales-cmg")
-        instr = fetch_instrucciones(client)
-        print(f"  {len(instr)} instructions")
-        print("\n[4] unidades-generadoras (pmin)")
-        units = fetch_unidades_generadoras(client)
-        print(f"  {len(units)} units")
+    # cmg-programado-pcp is intentionally not fetched: it was used only
+    # for the hydro water-value injection, which was dropped, and the
+    # endpoint routinely 502s on this user_key tier.
 
-        print("\n[4b] limitaciones-transmision (line saturation events)")
-        try:
-            lim = fetch_limitaciones(client)
-            print(f"  {len(lim)} limitation events for {DATE}")
-            if not lim.empty and "instalacion_nombre" in lim.columns:
-                top = lim["instalacion_nombre"].value_counts().head(5)
-                print("  most-limited installations:")
-                for k, v in top.items():
-                    print(f"    {k}: {v}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"  WARN: {type(exc).__name__}: {exc}")
-            lim = pd.DataFrame()
+    print("\n[4d] generacion-programada-pcp (LP-output dispatch per unit)")
+    try:
+        gen_pcp = fetch_gen_programada_pcp(client, date=date)
+        n_centrales = gen_pcp["id_central"].nunique() if not gen_pcp.empty else 0
+        print(f"  {len(gen_pcp)} rows / {n_centrales} centrales")
+    except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+        print(f"  WARN: {type(exc).__name__}: {exc}")
 
-        # cmg-programado-pcp removed — it was used only for the
-        # hydro water-value injection which the user asked to drop.
-        # The endpoint also routinely 502s on this user_key tier,
-        # so removing it eliminates the slow rate-limit hang on
-        # every fresh run.
-        pcp = pd.DataFrame()
+    print("\n[4e] embalse-real (reservoir levels)")
+    try:
+        embalse = fetch_embalse_real(client, date=date)
+        n_reservoirs = embalse["nombre_embalse"].nunique() if not embalse.empty else 0
+        print(f"  {len(embalse)} reservoir rows / {n_reservoirs} unique reservoirs")
+    except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
+        print(f"  WARN: {type(exc).__name__}: {exc}")
 
-        print("\n[4d] generacion-programada-pcp (LP-output dispatch per unit)")
-        try:
-            gen_pcp = fetch_gen_programada_pcp(client)
-            n_centrales = gen_pcp["id_central"].nunique() if not gen_pcp.empty else 0
-            print(f"  {len(gen_pcp)} rows / {n_centrales} centrales")
-        except Exception as exc:  # noqa: BLE001
-            print(f"  WARN: {type(exc).__name__}: {exc}")
-            gen_pcp = pd.DataFrame()
 
-        print("\n[4e] embalse-real (reservoir levels)")
-        try:
-            embalse = fetch_embalse_real(client)
-            n_reservoirs = (
-                embalse["nombre_embalse"].nunique() if not embalse.empty else 0
-            )
-            print(f"  {len(embalse)} reservoir rows / {n_reservoirs} unique reservoirs")
-        except Exception as exc:  # noqa: BLE001
-            print(f"  WARN: {type(exc).__name__}: {exc}")
-            embalse = pd.DataFrame()
+#: Only "Hidroeléctrica de embalse" plants are treated as reservoir
+#: hydros (PLP optimises them; the Bellman dual is the water value).
+#: Run-of-river hydros are price-takers.
+RESERVOIR_TIPOS = frozenset({"Hidroeléctrica de embalse"})
 
-    print("\n[bridge] id_central alias index")
-    alias_index = build_alias_index(units)
-    print(f"  {index_stats(alias_index)}")
 
-    # --- Build per-id metadata ---
-    # pmin uses MAX of (technical, environmental, frequency-control)
-    # MTs to capture the binding minimum given the unit's operational
-    # mode — see build_unit_metadata().
-    pmin_by_id, pmax_by_id, _ = build_unit_metadata(units)
-
-    # ---- Water value per hour from cmg-programado-pcp ----
-    # The PLP/PCP LP embeds water values as the marginal CV of hydro
-    # plants. The PCP-cleared CMG implicitly = hydro marginal CV when
-    # the marginal IS hydro. We use the system median PCP CMG per
-    # hour as the implicit water value for ALL hydros.
-    water_value_by_hour: dict[int, float] = {}
-    if not pcp.empty:
-        for h, grp in pcp.groupby("hour"):
-            water_value_by_hour[int(h)] = float(grp["cmg"].median())
-    print(
-        f"  water value per hour (median PCP CMG): "
-        f"min=${min(water_value_by_hour.values(), default=0):.1f} "
-        f"max=${max(water_value_by_hour.values(), default=0):.1f}"
-    )
-
-    # ---- Reservoir-hydro id_central set ----
-    # Only "Hidroeléctrica de embalse" plants get a water-value CV.
-    # PLP optimizes them and the Bellman dual = water value.
-    # Pasada (run-of-river) hydros — even large ones — are treated
-    # as price-takers per the user's directive: only ~10 reservoir
-    # plants set the marginal via water value.
-    RESERVOIR_TIPOS = {"Hidroeléctrica de embalse"}
+def _reservoir_hydro_ids(units: pd.DataFrame) -> tuple[set[int], list[str]]:
+    """Return ``(id_central set, sorted plant names)`` of reservoir hydros."""
     hydro_id_set: set[int] = set()
-    hydro_central_names: list[str] = []
-    if not units.empty:
-        h_units = units[
-            units["tipo_tecnologia_unidad"].astype(str).isin(RESERVOIR_TIPOS)
-        ]
-        for ic in h_units["id_central"].dropna().unique():
-            try:
-                hydro_id_set.add(int(ic))
-            except (TypeError, ValueError):
-                pass
-        hydro_central_names = sorted(set(h_units["central"].astype(str)))
-    print(f"  reservoir-hydro id_central set: {len(hydro_id_set)} centrales")
-    print(f"    plants: {hydro_central_names}")
+    if units.empty:
+        return hydro_id_set, []
+    h_units = units[units["tipo_tecnologia_unidad"].astype(str).isin(RESERVOIR_TIPOS)]
+    for ic in h_units["id_central"].dropna().unique():
+        try:
+            hydro_id_set.add(int(ic))
+        except (TypeError, ValueError):
+            pass
+    return hydro_id_set, sorted(set(h_units["central"].astype(str)))
 
-    # SCVIC CV + fuel per id_central — keep ALL realistic CVs per
-    # central (each unit declares multiple configurations: tech-min,
-    # full-load, multi-fuel modes). The "marginal CV" depends on the
-    # operating point; we pick the matching one at lookup time.
-    scvic = cv_rpt_for_date(DATE)
-    # Filter to realistic full-load range. $15-$1000 excludes
-    # tech-min/start-up configs (typically $0-$10) and PLEXOS
-    # sentinels ($1000+ "out of economic order").
-    # Per-fuel CV floor — excludes "takeoff" / contract-minimum
-    # configurations that don't reflect the unit's true marginal CV.
-    # Specifically, GNL plants under take-or-pay LNG contracts are
-    # forced to consume gas at sunk cost; their dispatch carries a
-    # very-low declared CV ($5-$25) but they're price-takers, not
-    # price-setters. Same for GLP and other contract-driven fuels.
-    FUEL_CV_FLOOR = {
-        "GNL": 30.0,  # take-or-pay LNG
-        "Gas Natural": 30.0,
-        "GLP": 30.0,
-        "Gas Propano": 30.0,
-        # All other fuels share the global $15 floor.
-    }
-    scvic = scvic[scvic["costo_variable_total"] < 1000.0]
-    cv_options_by_id: dict[int, list[float]] = {}
-    fuel_by_id: dict[int, str] = {}
-    central_by_id: dict[int, str] = {}
-    for _, r in scvic.iterrows():
-        cn = str(r.get("central_name", ""))
-        un = str(r.get("unidad_name", "") or "")
-        cf = str(r.get("configuracion", "") or "")
-        fuel = str(r.get("tipo_combustible", "")).strip()
-        floor = FUEL_CV_FLOOR.get(fuel, 15.0)
-        cv = float(r["costo_variable_total"])
-        if cv < floor:
-            continue  # filter takeoff / tech-min configs
-        ic = bridge_resolve(cn, alias_index, un, cf)
-        if ic is None:
-            continue
-        cv_options_by_id.setdefault(ic, []).append(cv)
-        if ic not in fuel_by_id:
-            fuel_by_id[ic] = fuel
-            central_by_id[ic] = cn
-    avg_options = sum(len(v) for v in cv_options_by_id.values()) / max(
-        1, len(cv_options_by_id)
-    )
-    print(
-        f"  SCVIC by id_central: {len(cv_options_by_id)} centrales — "
-        f"avg {avg_options:.1f} CV options/central "
-        f"(GNL takeoff configs excluded)"
-    )
 
-    # Forced/RO id set — broadened to include:
-    #   * estado != "N"  (RO/LF/DN/DRO/PO/PDO/DF/MM/DLF/DP/CSE)
-    #   * consigna ∈ FORCED_CONSIGNAS — operator-imposed setpoint forcing.
-    #     Two physical reasons coexist:
-    #       (a) Contractual TOP / inflexible mode
-    #             CI  = Cumplimiento Inflexible      (TOP / take-or-pay GNL)
-    #             MT  = Mínimo Técnico               (held at pmin for stability)
-    #             PMT = Pre-Mínimo Técnico           (ramping up to MT)
-    #       (b) Servicios Complementarios (SSCC) — synchronous machines
-    #           held to a setpoint to provide inertia / frequency reserve.
-    #           Motivos in the data confirm: "Activación CTF (+)",
-    #           "Con SSCC", "Subida anticipadamente por retiro de generación
-    #           ERV Fotovoltaica" (preventive ramp-up for solar drop-off).
-    #             PP  = Punto Programado             (CTF activation carrier)
-    #             PS  = Punto Seguimiento            (held for ramp-reserve)
-    #             PC  = Pico Carga                   (peak / ramp pre-stage)
-    #     All six force the unit OFF the merit margin → it is a price-taker
-    #     and must not appear as a marginal-unit candidate.
-    # Use the module-level frozenset (imported below in the body
-    # via the closure on the global ``FORCED_CONSIGNAS``).
-    forced_id_set: set[int] = set()
-    n_by_estado = n_by_consigna = 0
-    if not instr.empty:
-        forced_mask = (instr["estado"].astype(str).str.upper() != "N") | instr[
-            "consigna"
-        ].astype(str).isin(FORCED_CONSIGNAS)
-        n_by_estado = (instr["estado"].astype(str).str.upper() != "N").sum()
-        n_by_consigna = instr["consigna"].astype(str).isin(FORCED_CONSIGNAS).sum()
-        for raw in instr[forced_mask]["central"].astype(str).unique():
-            ic = bridge_resolve(raw, alias_index)
-            if ic is not None:
-                forced_id_set.add(ic)
-    print(
-        f"  Forced id set: {len(forced_id_set)} centrales "
-        f"(estado≠N: {n_by_estado} rows, "
-        f"consigna∈{{CI,MT,PMT,PP,PS,PC}}: {n_by_consigna} rows)"
-    )
-
-    # Per-(id, hour) dispatch — bridge gen_real central → id
-    gen2 = gen.copy()
-    gen2["id_central"] = (
-        gen2["central"].astype(str).map(lambda c: bridge_resolve(c, alias_index))
-    )
-    gen2 = gen2.dropna(subset=["id_central", "hour"])
-    gen2["id_central"] = gen2["id_central"].astype(int)
-    gen2["pmin_decl"] = gen2["id_central"].map(pmin_by_id).fillna(0.0)
-    # Use API pmax (might disagree with units pmax — prefer the smaller).
-    gen2["pmax_decl"] = gen2["id_central"].map(pmax_by_id)
-    gen2["pmax_eff"] = gen2.apply(
-        lambda r: (
-            min(r["pmax"], r["pmax_decl"]) if pd.notna(r["pmax_decl"]) else r["pmax"]
-        ),
-        axis=1,
-    )
-
-    # --- Cluster buses into islands per (date, quarter) ---
-    print(
-        "\n[5] cluster buses into islands per quarter "
-        f"(tol = ${ISLAND_LMP_TOL:.2f}/MWh)"
-    )
-    cmg_islands = cluster_buses_into_islands(cmg)
-    n_islands_per_q = cmg_islands.groupby("quarter")["island_id"].nunique()
-    print(
-        f"  islands per quarter: median={int(n_islands_per_q.median())}, "
-        f"max={int(n_islands_per_q.max())}, total unique={cmg_islands['island_id'].nunique()}"
-    )
-
-    # --- Per-island marginal identification ---
-    print("\n[6] per-island reverse-engineered marginal identification")
-    # Identify the marginal once per (quarter, island). All buses in
-    # the same island get the same marginal unit.
+def _legacy_island_marginals(
+    cmg_islands: pd.DataFrame,
+    gen2: pd.DataFrame,
+    *,
+    forced_id_set: set[int],
+    fuel_by_id: dict[int, str],
+    cv_options_by_id: dict[int, list[float]],
+    hydro_id_set: set[int],
+    water_value_by_hour: dict[int, float],
+) -> dict[tuple[int, str], dict]:
+    """Identify the marginal unit once per (quarter, island) using the
+    λ of the first bus seen in the island (legacy picker target)."""
     island_keys = cmg_islands[
         ["date_utc", "quarter", "hour", "island_id", "lmp"]
     ].drop_duplicates(subset=["quarter", "island_id"])
@@ -2572,10 +1637,8 @@ def main() -> int:
         island = str(ir["island_id"])
         lam = float(ir["lmp"])
         h_gen = gen2[gen2["hour"] == hour]
-        # Keep ALL dispatched units; mark forced status. The
-        # identify_marginal function decides per-unit whether forced
-        # implies exclusion (forced + at_pmin) or inclusion (forced
-        # but interior — they ARE the marginal at their declared CV).
+        # Keep ALL dispatched units; identify_marginal decides whether
+        # forced implies exclusion (forced + at pmin) or not.
         cands = h_gen[h_gen["mw"] > 0].copy()
         cands["forced"] = cands["id_central"].isin(forced_id_set)
         candidates = cands[
@@ -2589,8 +1652,16 @@ def main() -> int:
             hydro_id_set=hydro_id_set,
             water_value=water_value_by_hour.get(hour, lam),
         )
+    return island_marginals
 
-    # --- Per-bus per-15min reconstruction ---
+
+def _legacy_output(
+    cmg_islands: pd.DataFrame,
+    island_marginals: dict[tuple[int, str], dict],
+) -> pd.DataFrame:
+    """Per-bus per-15-min reconstruction plus the empirical loss
+    factor (λ_bus / λ_ref, ref = lowest bus_uid per quarter) and the
+    discrepancy flag (|MC − λ_CEN| > $5 outside curtailment)."""
     out_rows = []
     for _, lr in cmg_islands.iterrows():
         quarter = int(lr["quarter"])
@@ -2605,13 +1676,11 @@ def main() -> int:
                 "bus_uid": int(lr["bus_uid"]),
                 "bus_label": str(lr["bus_label"]),
                 "island_id": island,
-                "lambda_cen": float(lr["lmp"]),  # settlement λ
-                "lambda_pipe": float(
-                    marg.get("marginal_cv", float("nan"))
-                ),  # reconstructed MC
+                "lambda_cen": float(lr["lmp"]),
+                "lambda_pipe": float(marg.get("marginal_cv", float("nan"))),
                 "marginal_central": str(marg.get("marginal_central", "")),
                 "marginal_fuel": str(marg.get("marginal_fuel", "")),
-                "epsilon": float(marg.get("epsilon", 0.0)),  # marginal emission factor
+                "epsilon": float(marg.get("epsilon", 0.0)),
                 "regime": str(marg.get("regime", "")),
                 "n_candidates": int(marg.get("n_candidates", 0)),
                 "n_dispatched_unmapped": int(marg.get("n_dispatched_unmapped", 0)),
@@ -2622,51 +1691,48 @@ def main() -> int:
     out = pd.DataFrame(out_rows)
     out["delta_lmp"] = out["lambda_pipe"] - out["lambda_cen"]
     out["abs_delta"] = out["delta_lmp"].abs()
-
-    # ---- Loss-factor extension: bus-level marginal emissions ----
-    # FP_bus[q] ≈ λ_bus[q] / λ_ref[q] is the empirical loss penalty
-    # factor at each bus (Lin & Tang 2024 ε_b = β_b · Φ(α)).
-    # Reference: lowest bus_uid that has data per quarter (typically
-    # the most central / lowest-loss bus). All other buses' λ are
-    # ratioed against it — values > 1 imply higher local losses,
-    # < 1 implies the bus is closer to the marginal generator.
-    # ε_at_bus = ε_marginal × FP_bus is the loss-adjusted marginal
-    # emission factor for billing/attribution.
-    if not out.empty:
-        ref_per_q = (
-            out.sort_values("bus_uid")
-            .groupby("quarter")
-            .first()["lambda_cen"]
-            .rename("lambda_ref")
-        )
-        out = out.merge(ref_per_q, left_on="quarter", right_index=True, how="left")
-        out["loss_factor"] = (
-            (out["lambda_cen"] / out["lambda_ref"])
-            .where(out["lambda_ref"] > 0.0, 1.0)
-            .round(4)
-        )
-        out["epsilon_at_bus"] = (out["epsilon"] * out["loss_factor"]).round(2)
-        out.drop(columns=["lambda_ref"], inplace=True)
-    # Diagnostic tag: where the reverse-engineered identification
-    # disagrees with λ_CEN by more than $5/MWh AND we're not in
-    # curtailment regime. These are the cells whose marginal-unit
-    # pick is suspect — useful for later analysis of which data
-    # sources are missing / mis-bridged.
+    # FP_bus[q] ≈ λ_bus[q] / λ_ref[q] — empirical loss penalty factor
+    # (Lin & Tang 2024 ε_b = β_b · Φ(α)); ε_at_bus = ε × FP_bus.
+    ref_per_q = (
+        out.sort_values("bus_uid").groupby("quarter").first()["lambda_cen"]
+    ).rename("lambda_ref")
+    out = out.merge(ref_per_q, left_on="quarter", right_index=True, how="left")
+    out["loss_factor"] = (
+        (out["lambda_cen"] / out["lambda_ref"])
+        .where(out["lambda_ref"] > 0.0, 1.0)
+        .round(4)
+    )
+    out["epsilon_at_bus"] = (out["epsilon"] * out["loss_factor"]).round(2)
+    out.drop(columns=["lambda_ref"], inplace=True)
     out["discrepancy_flag"] = (out["abs_delta"] > 5.0) & (
         ~out["regime"].str.startswith("renewable_")
     )
-    out.to_parquet(WORK_DIR / "marginal_units_v3.parquet", index=False)
-    discrepancies = out[out["discrepancy_flag"]].copy()
-    discrepancies.to_parquet(WORK_DIR / "discrepancies_v3.parquet", index=False)
+    return out
 
-    # ---- Display ----
-    pd.set_option("display.float_format", lambda x: f"{x:.2f}")
-    pd.set_option("display.max_colwidth", 30)
-    pd.set_option("display.width", 220)
 
-    # Show 2 representative buses (centre + south) at 15-min granularity.
+def _print_bus_views(out: pd.DataFrame, date: str) -> list[int]:
+    """Print the 15-min view of the displayed reference buses and the
+    hourly aggregate; returns the displayed bus uids."""
     print()
     show_bus_uids = [b[1] for b in REF_BUSES if b[1] in (1, 2)] or [REF_BUSES[0][1]]
+    cols = [
+        "time",
+        "lambda_cen",
+        "lambda_pipe",
+        "delta_lmp",
+        "epsilon",
+        "marginal_central",
+        "marginal_fuel",
+        "regime",
+    ]
+    renames = {
+        "lambda_cen": "λ_CEN",
+        "lambda_pipe": "MC*",
+        "delta_lmp": "Δ",
+        "epsilon": "ε(kg/MWh)",
+        "marginal_central": "marginal",
+        "marginal_fuel": "fuel",
+    }
     for _bt, bus_uid, label in REF_BUSES:
         if bus_uid not in show_bus_uids:
             continue
@@ -2678,39 +1744,19 @@ def main() -> int:
             lambda r: f"{int(r['hour']):02d}:{int(r['minute']):02d}", axis=1
         )
         print("=" * 130)
-        print(f"  Bus {bus_uid}: {label} — {DATE} — 15-min reconstruction")
+        print(f"  Bus {bus_uid}: {label} — {date} — 15-min reconstruction")
         print("=" * 130)
-        cols = [
-            "time",
-            "lambda_cen",
-            "lambda_pipe",
-            "delta_lmp",
-            "epsilon",
-            "marginal_central",
-            "marginal_fuel",
-            "regime",
-        ]
-        renames = {
-            "lambda_cen": "λ_CEN",
-            "lambda_pipe": "MC*",
-            "delta_lmp": "Δ",
-            "epsilon": "ε(kg/MWh)",
-            "marginal_central": "marginal",
-            "marginal_fuel": "fuel",
-        }
-        # Show first 8 + last 8 quarters for a compact view.
-        n = len(sub)
-        if n > 24:
-            head = sub.head(12)
-            tail = sub.tail(12)
+        # Show first 12 + last 12 quarters for a compact view.
+        if len(sub) > 24:
             mid = pd.DataFrame([{c: "…" for c in cols}])
-            disp = pd.concat([head[cols], mid, tail[cols]], ignore_index=True)
+            disp = pd.concat(
+                [sub.head(12)[cols], mid, sub.tail(12)[cols]], ignore_index=True
+            )
         else:
             disp = sub[cols]
         print(disp.rename(columns=renames).to_string(index=False))
         print()
 
-    # Hour-aggregated view for both displayed buses
     print("=" * 130)
     print("  HOURLY VIEW (15-min cells aggregated) — both reference buses")
     print("=" * 130)
@@ -2723,24 +1769,27 @@ def main() -> int:
             MC_pipe=("lambda_pipe", "mean"),
             Δ_mean=("delta_lmp", lambda s: s.abs().mean()),
             ε=("epsilon", "mean"),
-            marginal=(
-                "marginal_central",
-                lambda s: s.mode().iloc[0] if not s.mode().empty else "",
-            ),
-            fuel=(
-                "marginal_fuel",
-                lambda s: s.mode().iloc[0] if not s.mode().empty else "",
-            ),
+            marginal=("marginal_central", _mode_or_empty),
+            fuel=("marginal_fuel", _mode_or_empty),
         )
         .reset_index()
         .round(2)
     )
     print(hourly.to_string(index=False))
     print()
+    return show_bus_uids
 
-    # ---- Per-bus daily summary across ALL fetched buses ----
+
+def _mode_or_empty(s: pd.Series) -> object:
+    """Most frequent value of ``s`` (``""`` when ``s`` has none)."""
+    mode = s.mode()
+    return mode.iloc[0] if not mode.empty else ""
+
+
+def _print_daily_and_accuracy(out: pd.DataFrame, date: str) -> None:
+    """Per-bus daily summary, regime breakdown and Δλ accuracy."""
     print("=" * 130)
-    print(f"  DAILY SUMMARY ACROSS ALL {out['bus_uid'].nunique()} BUSES — {DATE}")
+    print(f"  DAILY SUMMARY ACROSS ALL {out['bus_uid'].nunique()} BUSES — {date}")
     print("=" * 130)
     daily = (
         out.groupby("bus_label")
@@ -2761,18 +1810,19 @@ def main() -> int:
     print(daily.to_string())
     print()
 
-    # ---- Regime breakdown ----
     print("=" * 130)
     print("  REGIME BREAKDOWN")
     print("=" * 130)
     print(out["regime"].value_counts().to_string())
     print()
 
-    # ---- Δλ accuracy ----
     print("=" * 130)
     print("  Δλ = MC_pipe − λ_CEN  (the reconstructed-MC accuracy)")
     print("=" * 130)
-    attr = out[out["regime"].isin(["interior_match", "boundary_fallback"])]
+    # Cells with an attributed marginal unit (identify_marginal tags
+    # them ``matched_interior`` / ``matched_capped_pmax`` /
+    # ``matched_near_pmin`` / ``matched_above``).
+    attr = out[out["regime"].str.startswith("matched_")]
     if not attr.empty:
         d = attr["delta_lmp"].abs()
         print(f"  attributed cells: {len(attr)} / {len(out)}")
@@ -2783,7 +1833,9 @@ def main() -> int:
         print(f"  within $2:        {(d <= 2).sum()}")
         print(f"  within $5:        {(d <= 5).sum()}")
 
-    # ---- Discrepancy log — cells where reverse-engineered MC ≠ λ_CEN ----
+
+def _print_discrepancies(out: pd.DataFrame, work_dir: Path) -> None:
+    """Discrepancy log — cells where the reconstructed MC ≠ λ_CEN."""
     print()
     print("=" * 130)
     print(
@@ -2794,61 +1846,76 @@ def main() -> int:
     disc = out[out["discrepancy_flag"]].copy()
     if disc.empty:
         print("  (none)")
-    else:
-        # Group discrepancies by pattern
-        print(
-            f"  total discrepancies: {len(disc)} / {len(out)} "
-            f"({100 * len(disc) / len(out):.0f}%)"
-        )
-        print()
-        print("  Pattern A — λ_CEN much higher than highest dispatched-eligible CV")
-        print(
-            "  (suggests CV catalogue is missing the actual marginal unit, "
-            "or it was dispatched at low MW we filtered out)"
-        )
-        higher = disc[disc["delta_lmp"] < -5].copy()
-        higher["top_above_lambda"] = higher["top_above_lambda"].fillna("")
-        if not higher.empty:
-            sample = (
-                higher.groupby(["bus_label", "hour"])
-                .agg(
-                    n=("quarter", "count"),
-                    λ_CEN=("lambda_cen", "mean"),
-                    MC_pipe=("lambda_pipe", "mean"),
-                    Δ=("delta_lmp", "mean"),
-                    next_above_λ=("top_above_lambda", "first"),
-                )
-                .reset_index()
-                .round(2)
+        return
+    print(
+        f"  total discrepancies: {len(disc)} / {len(out)} "
+        f"({100 * len(disc) / len(out):.0f}%)"
+    )
+    print()
+    print("  Pattern A — λ_CEN much higher than highest dispatched-eligible CV")
+    print(
+        "  (suggests CV catalogue is missing the actual marginal unit, "
+        "or it was dispatched at low MW we filtered out)"
+    )
+    higher = disc[disc["delta_lmp"] < -5].copy()
+    higher["top_above_lambda"] = higher["top_above_lambda"].fillna("")
+    if not higher.empty:
+        sample = (
+            higher.groupby(["bus_label", "hour"])
+            .agg(
+                n=("quarter", "count"),
+                λ_CEN=("lambda_cen", "mean"),
+                MC_pipe=("lambda_pipe", "mean"),
+                Δ=("delta_lmp", "mean"),
+                next_above_λ=("top_above_lambda", "first"),
             )
-            print(sample.head(20).to_string(index=False))
-        print()
-        print(
-            "  Pattern B — λ_CEN lower than our pick (suggests we're missing "
-            "the forced/RO flag for the picked unit)"
+            .reset_index()
+            .round(2)
         )
-        lower = disc[disc["delta_lmp"] > 5]
-        if not lower.empty:
-            sample = (
-                lower.groupby(["bus_label", "hour"])
-                .agg(
-                    n=("quarter", "count"),
-                    λ_CEN=("lambda_cen", "mean"),
-                    MC_pipe=("lambda_pipe", "mean"),
-                    Δ=("delta_lmp", "mean"),
-                    picked=(
-                        "marginal_central",
-                        lambda s: s.mode().iloc[0] if not s.mode().empty else "",
-                    ),
-                )
-                .reset_index()
-                .round(2)
+        print(sample.head(20).to_string(index=False))
+    print()
+    print(
+        "  Pattern B — λ_CEN lower than our pick (suggests we're missing "
+        "the forced/RO flag for the picked unit)"
+    )
+    lower = disc[disc["delta_lmp"] > 5]
+    if not lower.empty:
+        sample = (
+            lower.groupby(["bus_label", "hour"])
+            .agg(
+                n=("quarter", "count"),
+                λ_CEN=("lambda_cen", "mean"),
+                MC_pipe=("lambda_pipe", "mean"),
+                Δ=("delta_lmp", "mean"),
+                picked=("marginal_central", _mode_or_empty),
             )
-            print(sample.head(20).to_string(index=False))
-        print()
-        print(f"  Discrepancy parquet: {WORK_DIR / 'discrepancies_v3.parquet'}")
+            .reset_index()
+            .round(2)
+        )
+        print(sample.head(20).to_string(index=False))
+    print()
+    print(f"  Discrepancy parquet: {work_dir / 'discrepancies_v3.parquet'}")
 
-    # ---- Rejection-reason analysis for the morning peak hour ----
+
+def _rejection_reason(r: pd.Series) -> str:
+    """Why a dispatched unit is (not) in the marginal-candidate pool."""
+    if not r["bridged"]:
+        return "ID_BRIDGE_MISS"
+    if r["forced"]:
+        return "FORCED_RO"
+    if not r["has_scvic"]:
+        return "NO_SCVIC_CV"
+    return "OK_in_pool"
+
+
+def _print_rejection_analysis(
+    gen2: pd.DataFrame,
+    *,
+    cv_options_by_id: dict[int, list[float]],
+    forced_id_set: set[int],
+    hour: int = 6,
+) -> None:
+    """What is NOT in the candidate pool at the peak hour, and why."""
     print()
     print("=" * 130)
     print(
@@ -2856,7 +1923,7 @@ def main() -> int:
         "for the peak hour (06:00)"
     )
     print("=" * 130)
-    h6 = gen2[(gen2["hour"] == 6) & (gen2["mw"] > 0)].copy()
+    h6 = gen2[(gen2["hour"] == hour) & (gen2["mw"] > 0)].copy()
     h6 = h6.sort_values("mw", ascending=False)
     h6["bridged"] = h6["id_central"].notna()
     h6["has_scvic"] = h6["id_central"].map(
@@ -2880,20 +1947,7 @@ def main() -> int:
         ),
         axis=1,
     )
-    h6["reason"] = h6.apply(
-        lambda r: (
-            "OK_in_pool"
-            if r["bridged"] and r["has_scvic"] and not r["forced"]
-            else "FORCED_RO"
-            if r["forced"]
-            else "NO_SCVIC_CV"
-            if r["bridged"] and not r["has_scvic"]
-            else "ID_BRIDGE_MISS"
-            if not r["bridged"]
-            else "UNKNOWN"
-        ),
-        axis=1,
-    )
+    h6["reason"] = h6.apply(_rejection_reason, axis=1)
     print()
     print("  By reason — top 30 dispatched centrales (by MW) at 06:00:")
     cols_show = ["central", "mw", "bridged", "has_scvic", "forced", "best_cv", "reason"]
@@ -2910,16 +1964,138 @@ def main() -> int:
     )
     print(summary.to_string())
     print()
+    in_pool_mw = h6[h6["reason"] == "OK_in_pool"]["mw"].sum()
     print(f"  → ALL plants with MW > 0 at peak: total {h6['mw'].sum():.0f} MW")
     print(
         f"  → in_pool plants (bridged + SCVIC + not forced): "
-        f"{h6[h6['reason'] == 'OK_in_pool']['mw'].sum():.0f} MW "
-        f"({100 * h6[h6['reason'] == 'OK_in_pool']['mw'].sum() / h6['mw'].sum():.0f}%)"
+        f"{in_pool_mw:.0f} MW "
+        f"({100 * in_pool_mw / h6['mw'].sum():.0f}%)"
     )
 
+
+def run_legacy_report(
+    client: CenApiClient,
+    *,
+    date: str = DATE,
+    work_dir: Path = WORK_DIR,
+) -> int:
+    """Legacy single-day identifier report (v3) against an open client.
+
+    Writes ``marginal_units_v3.parquet`` / ``discrepancies_v3.parquet``
+    into ``work_dir`` and prints the diagnostic report.  Returns the
+    process exit code (1 when no CMG was published).
+    """
+    print("\n[1] CMG real (15-min, 2 reference buses)")
+    cmg = fetch_cmg_real(client, date=date)
+    if cmg.empty:
+        print("  no CMG — aborting")
+        return 1
+    print("\n[2] generacion-real (hourly per central)")
+    gen = fetch_generacion_real(client, date=date)
+    print(f"  {len(gen)} rows / {gen['central'].nunique()} centrales")
+    print("\n[3] instrucciones-operacionales-cmg")
+    instr = fetch_instrucciones(client, date=date)
+    print(f"  {len(instr)} instructions")
+    print("\n[4] unidades-generadoras (pmin)")
+    units = fetch_unidades_generadoras(client, date=date)
+    print(f"  {len(units)} units")
+    _print_side_feeds(client, date)
+
+    print("\n[bridge] id_central alias index")
+    alias_index = build_alias_index(units)
+    print(f"  {index_stats(alias_index)}")
+    pmin_by_id, pmax_by_id, _ = build_unit_metadata(units)
+
+    # Hydro water values used to come from cmg-programado-pcp, which is
+    # no longer fetched; reservoir hydros therefore carry none.
+    water_value_by_hour: dict[int, float] = {}
+    print(
+        f"  water value per hour (median PCP CMG): "
+        f"min=${min(water_value_by_hour.values(), default=0):.1f} "
+        f"max=${max(water_value_by_hour.values(), default=0):.1f}"
+    )
+    hydro_id_set, hydro_central_names = _reservoir_hydro_ids(units)
+    print(f"  reservoir-hydro id_central set: {len(hydro_id_set)} centrales")
+    print(f"    plants: {hydro_central_names}")
+
+    cv_options_by_id, fuel_by_id = _build_cv_ladder(cv_rpt_for_date(date), alias_index)
+    avg_options = sum(len(v) for v in cv_options_by_id.values()) / max(
+        1, len(cv_options_by_id)
+    )
+    print(
+        f"  SCVIC by id_central: {len(cv_options_by_id)} centrales — "
+        f"avg {avg_options:.1f} CV options/central "
+        f"(GNL takeoff configs excluded)"
+    )
+
+    forced_id_set = _forced_id_set(instr, alias_index)
+    n_by_estado = n_by_consigna = 0
+    if not instr.empty:
+        n_by_estado = (instr["estado"].astype(str).str.upper() != "N").sum()
+        n_by_consigna = instr["consigna"].astype(str).isin(FORCED_CONSIGNAS).sum()
+    print(
+        f"  Forced id set: {len(forced_id_set)} centrales "
+        f"(estado≠N: {n_by_estado} rows, "
+        f"consigna∈{{CI,MT,PMT,PP,PS,PC}}: {n_by_consigna} rows)"
+    )
+    gen2 = _dispatch_frame(gen, alias_index, pmin_by_id, pmax_by_id)
+
+    print(
+        "\n[5] cluster buses into islands per quarter "
+        f"(tol = ${ISLAND_LMP_TOL:.2f}/MWh)"
+    )
+    cmg_islands = cluster_buses_into_islands(cmg)
+    n_islands_per_q = cmg_islands.groupby("quarter")["island_id"].nunique()
+    print(
+        f"  islands per quarter: median={int(n_islands_per_q.median())}, "
+        f"max={int(n_islands_per_q.max())}, total unique={cmg_islands['island_id'].nunique()}"
+    )
+
+    print("\n[6] per-island reverse-engineered marginal identification")
+    island_marginals = _legacy_island_marginals(
+        cmg_islands,
+        gen2,
+        forced_id_set=forced_id_set,
+        fuel_by_id=fuel_by_id,
+        cv_options_by_id=cv_options_by_id,
+        hydro_id_set=hydro_id_set,
+        water_value_by_hour=water_value_by_hour,
+    )
+    out = _legacy_output(cmg_islands, island_marginals)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    out.to_parquet(work_dir / "marginal_units_v3.parquet", index=False)
+    out[out["discrepancy_flag"]].to_parquet(
+        work_dir / "discrepancies_v3.parquet", index=False
+    )
+
+    pd.set_option("display.float_format", lambda x: f"{x:.2f}")
+    pd.set_option("display.max_colwidth", 30)
+    pd.set_option("display.width", 220)
+    _print_bus_views(out, date)
+    _print_daily_and_accuracy(out, date)
+    _print_discrepancies(out, work_dir)
+    _print_rejection_analysis(
+        gen2, cv_options_by_id=cv_options_by_id, forced_id_set=forced_id_set
+    )
     print()
-    print(f"  Marginal-unit dataset: {WORK_DIR / 'marginal_units_v3.parquet'}")
+    print(f"  Marginal-unit dataset: {work_dir / 'marginal_units_v3.parquet'}")
     return 0
+
+
+def main() -> int:
+    """Console entry point: legacy single-day report for :data:`DATE`."""
+    # Legacy CLI side-effects (lazily applied here, NEVER at import
+    # time): silence noisy DataFrame warnings + create WORK_DIR.
+    warnings.filterwarnings("ignore")
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+
+    print("=" * 80)
+    print(f"  Emission-factor identifier v3 — date={DATE}")
+    print("=" * 80)
+
+    sip_cfg = CenApiConfig(user_keys=user_keys_from_env())
+    with CenApiClient(sip_cfg) as client:
+        return run_legacy_report(client, date=DATE, work_dir=WORK_DIR)
 
 
 if __name__ == "__main__":

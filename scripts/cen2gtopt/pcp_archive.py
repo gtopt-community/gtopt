@@ -13,9 +13,10 @@ Discovery mechanism
 
 The portal is an Angular SPA whose backend is an authenticated S3-
 backed REST API at ``administracion.api.coordinador.cl/programa-
-operacion/`` — but the SPA's bundled USERKEY constant is publicly
-embedded (it is the "browse-only" key, not a per-user credential).
-We use that key to call:
+operacion/`` — the SPA authenticates with a browse-only key embedded
+in its JavaScript bundle.  gtopt never stores that key: export it as
+``$GTOPT_CEN_PORTAL_KEY`` (see ``gtopt_operators/cen/sources.toml``)
+and it is used to call:
 
   GET …/programa-operacion/bucket-s3/s3/listFiles?user_key=<KEY>
 
@@ -47,6 +48,10 @@ The portal exposes ~1 900 files across these categories:
   RE    — Reportes especiales
 
 Use ``pcp_archive list`` to enumerate.
+
+.. note:: Deprecated CLI.  ``gtopt-fetch cen ...`` (``gtopt_operators``)
+   is the common download tool with a unified, checksummed cache; this
+   module stays as the CEN portal backend and as a compatibility CLI.
 
 Bundle structure (PLEXOS{date}.zip)
 -----------------------------------
@@ -127,7 +132,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import re
 import shutil
 import sys
@@ -145,43 +149,26 @@ from cen2gtopt._cen_client import (
     redact_secrets,
     tls_verify_default,
 )
+from gtopt_operators.auth import (
+    MissingCredentialError,
+    install_http_log_redaction,
+    operator_credential,
+    redact,
+)
+from gtopt_operators.registry import endpoint_url
 
 _LOG = logging.getLogger("cen2gtopt.pcp_archive")
+install_http_log_redaction()
 
-#: Environment variable holding the ``user_key`` for the CEN
-#: "programa de operación" portal API (``administracion.api.coordinador.cl``).
-#: No key is bundled with gtopt.
-PORTAL_USER_KEY_ENV = "CEN_PORTAL_USER_KEY"
+#: Registry names (``gtopt_operators/cen/sources.toml``).
+_OPERATOR = "cen"
+_PORTAL_AUTH = "portal"
 
-PORTAL_KEY_HELP = (
-    "The CEN PCP archive index needs a portal user_key.  Set it with "
-    f"`export {PORTAL_USER_KEY_ENV}=<key>`.  The key is the USERKEY used "
-    "by the public web app at https://programa.coordinador.cl (look for "
-    "USERKEY in its JavaScript bundle), or a key issued to you at "
-    "https://portal.api.coordinador.cl/."
-)
+#: Index endpoint of the Programa de Operación portal.
+LIST_URL = endpoint_url(_OPERATOR, "portal_list")
 
-
-class MissingPortalKeyError(RuntimeError):
-    """Raised when a PCP-archive network call has no portal user_key."""
-
-
-class PcpArchiveError(requests.RequestException):
-    """A PCP-archive HTTP call failed (message has secrets redacted)."""
-
-
-def portal_user_key(user_key: str | None = None) -> str:
-    """Return *user_key* or ``$CEN_PORTAL_USER_KEY``; raise if neither is set."""
-    key = (user_key or os.environ.get(PORTAL_USER_KEY_ENV, "")).strip()
-    if not key:
-        raise MissingPortalKeyError(PORTAL_KEY_HELP)
-    return key
-
-
-LIST_URL = (
-    "https://administracion.api.coordinador.cl/"
-    "programa-operacion/bucket-s3/s3/listFiles"
-)
+#: Origin header the portal API expects.
+PORTAL_ORIGIN = endpoint_url(_OPERATOR, "portal_web")
 
 #: On-disk index cache — the listFiles response is ~1 MB JSON.
 DEFAULT_INDEX_PATH = Path.home() / ".cache" / "gtopt" / "cen2gtopt" / "pcp_index.json"
@@ -249,7 +236,9 @@ def fetch_index(
     Uses an on-disk JSON cache (``DEFAULT_INDEX_PATH``).  Re-fetches
     when older than ``INDEX_FRESH_S`` (6 h) or when ``force=True``.
     Each call returns *fresh presigned URLs* in the live response —
-    cached URLs may have expired (typically valid 12 h).
+    cached URLs may have expired (typically valid 12 h).  ``user_key``
+    defaults to ``$GTOPT_CEN_PORTAL_KEY`` and is only read on a cache
+    miss.
     """
     cache_path = cache_path or DEFAULT_INDEX_PATH
     if not force and cache_path.exists():
@@ -259,23 +248,23 @@ def fetch_index(
             data = json.loads(cache_path.read_text(encoding="utf-8"))
             return [PcpFile.from_dict(d) for d in data]
 
-    key = portal_user_key(user_key)
+    if user_key is None:
+        # Only needed on a cache miss; raises MissingCredentialError
+        # naming $GTOPT_CEN_PORTAL_KEY when it is not exported.
+        user_key = operator_credential(_OPERATOR, _PORTAL_AUTH)
     _LOG.info("fetching CEN PCP index …")
     try:
         resp = requests.get(
             LIST_URL,
-            params={"user_key": key},
-            headers={"Origin": "https://programa.coordinador.cl"},
+            params={"user_key": user_key},
+            headers={"Origin": PORTAL_ORIGIN},
             timeout=timeout,
             verify=tls_verify_default(),
         )
         resp.raise_for_status()
     except requests.RequestException as exc:
-        # ``requests`` embeds the full URL (``?user_key=<KEY>``) in the
-        # message; re-raise with the secret redacted and no chaining.
-        raise PcpArchiveError(
-            f"CEN PCP index fetch failed: {redact_secrets(exc)}"
-        ) from None
+        # The request URL carries the key: never let it reach a log.
+        raise requests.RequestException(redact(str(exc))) from None
     rows = resp.json()
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(rows), encoding="utf-8")
@@ -338,25 +327,23 @@ def download_one(
         _LOG.debug("skip existing: %s", out)
         return out
     _LOG.info("download %s (%s) …", f.nombre, f.descripcion[:60])
-    with requests.get(
-        f.enlace_descarga,
-        stream=True,
-        timeout=timeout,
-        verify=tls_verify_default(),
-    ) as r:
-        try:
+    try:
+        with requests.get(
+            f.enlace_descarga,
+            stream=True,
+            timeout=timeout,
+            verify=tls_verify_default(),
+        ) as r:
             r.raise_for_status()
-        except requests.HTTPError as exc:
-            # Presigned S3 URLs carry signature/credential params.
-            raise PcpArchiveError(
-                f"download of {f.nombre} failed: {redact_secrets(exc)}"
-            ) from None
-        tmp = out.with_suffix(out.suffix + ".part")
-        with tmp.open("wb") as fp:
-            for chunk in r.iter_content(chunk_size=1 << 20):
-                if chunk:
-                    fp.write(chunk)
-        tmp.rename(out)
+            tmp = out.with_suffix(out.suffix + ".part")
+            with tmp.open("wb") as fp:
+                for chunk in r.iter_content(chunk_size=1 << 20):
+                    if chunk:
+                        fp.write(chunk)
+            tmp.rename(out)
+    except requests.RequestException as exc:
+        # Pre-signed URLs carry S3 signatures: redact before logging.
+        raise requests.RequestException(redact(str(exc))) from None
     _LOG.info("  → %s (%.1f MB)", out, out.stat().st_size / 1e6)
     return out
 
@@ -549,7 +536,6 @@ def _cmd_info(args: argparse.Namespace) -> int:
         print(f"  published: {f.fecha_publicacion}")
         print(f"  expires:   {f.vencimiento}")
         print(f"  description: {f.descripcion}")
-        print(f"  presigned URL (truncated): {f.enlace_descarga[:120]}…")
         print()
     return 0
 
@@ -732,6 +718,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     apply_insecure_tls_argument(args)
+    print(
+        "note: cen2gtopt-pcp-archive is deprecated; use `gtopt-fetch cen ...`",
+        file=sys.stderr,
+    )
     if args.quiet:
         log_level = logging.WARNING
     elif args.verbose:
@@ -742,7 +732,11 @@ def main(argv: list[str] | None = None) -> int:
         level=log_level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    return args.func(args)
+    try:
+        return args.func(args)
+    except MissingCredentialError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

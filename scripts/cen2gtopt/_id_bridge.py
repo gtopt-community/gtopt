@@ -177,8 +177,7 @@ def build_alias_index(
     out: dict[str, int] = {}
 
     def _add(alias: str, ic: int) -> None:
-        if not alias:
-            return
+        # ``_aliases`` never yields empty keys, so no guard is needed.
         existing = out.get(alias)
         if existing is None or ic < existing:
             out[alias] = ic

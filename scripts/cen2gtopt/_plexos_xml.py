@@ -107,13 +107,13 @@ def _parse_memberships(
     out: list[tuple[int, int]] = []
     for mem in root.findall(f"{NS}t_membership"):
         cid = mem.findtext(f"{NS}collection_id")
-        if cid is None or int(cid) != collection_id:
-            continue
         po = mem.findtext(f"{NS}parent_object_id")
         co = mem.findtext(f"{NS}child_object_id")
-        if po is None or co is None:
+        if cid is None or po is None or co is None:
             continue
         try:
+            if int(cid) != collection_id:
+                continue
             out.append((int(po), int(co)))
         except ValueError:
             continue
@@ -179,11 +179,12 @@ def parse_unit_node_map(xml_path: Path | str) -> dict[str, str]:
         try:
             pcid = int(col.findtext(f"{NS}parent_class_id") or 0)
             ccid = int(col.findtext(f"{NS}child_class_id") or 0)
+            if pcid != CLASS_GENERATOR or ccid != CLASS_NODE:
+                continue
+            gn_collection_id = int(col.findtext(f"{NS}collection_id") or 0)
         except ValueError:
             continue
-        if pcid == CLASS_GENERATOR and ccid == CLASS_NODE:
-            gn_collection_id = int(col.findtext(f"{NS}collection_id") or 0)
-            break
+        break
     if gn_collection_id is None:
         return {}
 

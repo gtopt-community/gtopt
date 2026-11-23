@@ -1,0 +1,10 @@
+# Source registry of the Comité de Operación Económica del Sistema
+# (Peru).  No datasets registered yet.
+schema_version = 1
+
+[operator]
+id = "coes"
+name = "Comité de Operación Económica del Sistema Interconectado Nacional"
+country = "pe"
+timezone = "America/Lima"
+homepage = "https://www.coes.org.pe"

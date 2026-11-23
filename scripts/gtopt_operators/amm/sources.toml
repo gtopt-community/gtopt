@@ -1,0 +1,23 @@
+# Source registry of the Administrador del Mercado Mayorista (Guatemala).
+# The AMM publishes its planning (NCP/SDDP) and results bundles on HTML
+# index pages; there is no API.  gtopt-fetch prints the page and the
+# user downloads the file, then registers it with --file.
+schema_version = 1
+
+[operator]
+id = "amm"
+name = "Administrador del Mercado Mayorista"
+country = "gt"
+timezone = "America/Guatemala"
+homepage = "https://www.amm.org.gt"
+
+[dataset.planning]
+backend = "html_index"
+description = "Latest planning publications (NCP weekly / SDDP medium-long term bundles)"
+page = "https://www.amm.org.gt/ultpub/ultimas_pub_plani.php"
+consumer = "sddp2gtopt"
+
+[dataset.results]
+backend = "html_index"
+description = "Latest operation results publications"
+page = "https://www.amm.org.gt/ultpub/ultimas_pub_resul.php"

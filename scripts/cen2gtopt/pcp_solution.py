@@ -81,6 +81,7 @@ import zipfile
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Any, Protocol
 
 import pandas as pd
 
@@ -107,14 +108,83 @@ EXIT_NO_MDBTOOLS = 4
 # ---------------------------------------------------------------------------
 
 
+class MdbRunner(Protocol):
+    """Process runner for the mdbtools binaries.
+
+    Abstracts the ``mdb-tables`` / ``mdb-export`` subprocess calls so
+    tests (and alternative backends) can inject a fake without
+    touching ``$PATH``.  Install one with :func:`set_mdb_runner`.
+    """
+
+    def available(self) -> bool:
+        """True iff the backend can run ``mdb-tables`` and ``mdb-export``."""
+
+    def run(
+        self, args: list[str], *, text: bool, timeout: int
+    ) -> subprocess.CompletedProcess[Any]:
+        """Run ``args`` and return the completed process (raise on error)."""
+
+
+class SubprocessMdbRunner:
+    """Default :class:`MdbRunner`: the mdbtools binaries on ``$PATH``."""
+
+    def available(self) -> bool:
+        """True iff both ``mdb-tables`` and ``mdb-export`` are on $PATH."""
+        return all(shutil.which(b) for b in ("mdb-tables", "mdb-export"))
+
+    def run(
+        self, args: list[str], *, text: bool, timeout: int
+    ) -> subprocess.CompletedProcess[Any]:
+        """``subprocess.run`` with ``check=True`` and captured output."""
+        return subprocess.run(
+            args,
+            check=True,
+            capture_output=True,
+            text=text,
+            timeout=timeout,
+        )
+
+
+_RUNNER: MdbRunner = SubprocessMdbRunner()
+
+
+def set_mdb_runner(runner: MdbRunner) -> MdbRunner:
+    """Install ``runner`` for every mdbtools call; return the previous one.
+
+    Also drops the table cache, since cached frames came from the
+    previous runner.
+    """
+    global _RUNNER  # pylint: disable=global-statement
+    previous = _RUNNER
+    _RUNNER = runner
+    clear_table_cache()
+    return previous
+
+
 def _have_mdbtools() -> bool:
-    """True iff both ``mdb-tables`` and ``mdb-export`` are on $PATH."""
-    return all(shutil.which(b) for b in ("mdb-tables", "mdb-export"))
+    """True iff the active runner can reach ``mdb-tables``/``mdb-export``."""
+    return _RUNNER.available()
+
+
+class MdbToolsNotFoundError(SystemExit):
+    """mdbtools is missing: exits with :data:`EXIT_NO_MDBTOOLS` (4).
+
+    ``str()`` is the install-instruction message.  The integer exit code
+    keeps the interpreter silent, so :func:`_require_mdbtools` prints the
+    message to stderr before raising.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(EXIT_NO_MDBTOOLS)
+        self.message = message
+
+    def __str__(self) -> str:
+        return self.message
 
 
 def _require_mdbtools() -> None:
     if not _have_mdbtools():
-        raise SystemExit(
+        message = (
             "mdbtools not found on $PATH.\n"
             "Install via your OS package manager:\n"
             "  Debian/Ubuntu:  sudo apt-get install -y mdbtools\n"
@@ -122,15 +192,15 @@ def _require_mdbtools() -> None:
             "  conda env:      conda install -c conda-forge mdbtools\n"
             "(see the System programs note in scripts/pyproject.toml)"
         )
+        print(message, file=sys.stderr)
+        raise MdbToolsNotFoundError(message)
 
 
 def list_tables(accdb_path: Path) -> list[str]:
     """Return every table name in the .accdb (via ``mdb-tables -1``)."""
     _require_mdbtools()
-    out = subprocess.run(
+    out = _RUNNER.run(
         ["mdb-tables", "-1", str(accdb_path)],
-        check=True,
-        capture_output=True,
         text=True,
         timeout=120,
     )
@@ -145,10 +215,8 @@ def export_table(
 ) -> pd.DataFrame:
     """Read one table to a DataFrame via ``mdb-export``."""
     _require_mdbtools()
-    out = subprocess.run(
+    out = _RUNNER.run(
         ["mdb-export", "-D", "%Y-%m-%d %H:%M:%S", str(accdb_path), table],
-        check=True,
-        capture_output=True,
         text=False,  # bytes — let pandas detect encoding
         timeout=timeout,
     )

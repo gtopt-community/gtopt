@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Compact summary of a CEN PCP PLEXOS solution (``RES<date>.zip``).
 
 Used by ``cen2gtopt-pcp-solution summary``.  Produces two small,

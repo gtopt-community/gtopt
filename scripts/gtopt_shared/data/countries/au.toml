@@ -1,0 +1,16 @@
+# Australia -- National Electricity Market (AEMO).
+schema_version = 1
+country = "au"
+name = "Australia (NEM)"
+currency = "AUD"
+timezone = "Australia/Brisbane"  # NEM time: AEST, no daylight saving
+
+[unserved_energy]
+# Market price cap; changes every financial year (Jul-Jun).  Prefer the
+# Region VoLL of the ISP model when present.
+kind = "single"
+unit = "AUD/MWh"
+cost = 23200.0
+source = "AEMC, market price cap FY2026-27 (media release 2026-02-26)"
+url = "https://www.aemc.gov.au/news-centre/media-releases/aemc-updates-market-price-cap-2026-27"
+valid_from = "2026-07-01"

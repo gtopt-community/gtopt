@@ -1,0 +1,22 @@
+# Guatemala -- Sistema Nacional Interconectado (AMM).
+schema_version = 1
+country = "gt"
+name = "Guatemala"
+currency = "USD"
+timezone = "America/Guatemala"
+
+[unserved_energy]
+# Values for Guatemala of the regional study (USD of 2021).  The national
+# CNEE/AMM value was not verified; prefer the deficit curve of the SDDP
+# case when present.
+kind = "tiers"
+unit = "USD/MWh"
+source = "CRIE-44-2023, unserved-energy cost values for Guatemala"
+url = "https://apps.grupoice.com/CenceWeb/documentos/1/1007/98/RESOL-CRIE-44-2023_ESTABLECER_EFECTOS_PLANIFICAC_GENERAC_Y_TRANSMIS_REGIONAL_VALORES_COSTO_ENERGA_NO_SUMINISTRADA.pdf"
+valid_from = "2023-01-01"
+tiers = [
+  { depth = 0.05, cost = 643.0 },
+  { depth = 0.10, cost = 1086.0 },
+  { depth = 0.30, cost = 1543.0 },
+  { depth = 1.00, cost = 2542.0 },
+]

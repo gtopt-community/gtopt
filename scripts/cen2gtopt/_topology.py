@@ -81,7 +81,11 @@ def _load_cen_format(data: dict) -> Topology:
                 ),
                 tmax_ab=float(ln.get("tmax_ab", ln.get("tmax", 0.0))),
                 tmax_ba=float(ln.get("tmax_ba", ln.get("tmax", 0.0))),
-                reactance=_opt_float(ln.get("reactance") or ln.get("x")),
+                # ``reactance: 0`` is a zero-impedance tie in gtopt, not a
+                # missing value: only fall back to ``x`` when it is absent.
+                reactance=_opt_float(
+                    ln["reactance"] if ln.get("reactance") is not None else ln.get("x")
+                ),
                 active=bool(ln.get("active", True)),
             )
         )

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Tests for the PLEXOS solution summary (fake tables, no mdbtools)."""
 
 from __future__ import annotations

@@ -1,0 +1,34 @@
+# Chile -- Sistema Eléctrico Nacional (SEN).
+# Regulatory scalars only, each with its source.  Precedence in the
+# converters: CLI > value read from the source model (PLP FALLA,
+# PLEXOS Region.VoLL, ...) > operator defaults > this file > COST_DEFAULTS.
+schema_version = 1
+country = "cl"
+name = "Chile"
+currency = "USD"
+timezone = "America/Santiago"
+hydro_year_start_month = 4  # PLP hydrological year: April-March
+
+[unserved_energy]
+# Long-duration unserved-energy cost (CFLD) by rationing depth;
+# depth = upper fraction of the demand covered by the tier.
+kind = "tiers"
+unit = "USD/MWh"
+source = "CNE Res. Ex. 432/2026 (Diario Oficial 2026-08-21), CFLD SEN"
+url = "https://www.diariooficial.interior.gob.cl/publicaciones/2026/08/21/44530/01/2857667.pdf"
+valid_from = "2026-08-22"
+short_duration_cost = 13730.0  # CFCD 13.73 USD/kWh
+tiers = [
+  { depth = 0.05, cost = 795.11 },
+  { depth = 0.10, cost = 974.80 },
+  { depth = 0.20, cost = 1135.97 },
+  { depth = 1.00, cost = 1434.37 },
+]
+
+[carbon]
+social_price = 35.0  # USD/tCO2e; gtopt_shared.cost_defaults.DEFAULT_SCC
+unit = "USD/tCO2e"
+source = "Chile CNE social cost of carbon (gtopt default since the emissions overlay)"
+
+[emissions]
+overlay = "cen_chile.json"  # gtopt_shared/data/emissions/

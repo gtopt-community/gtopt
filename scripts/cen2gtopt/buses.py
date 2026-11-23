@@ -70,13 +70,12 @@ from cen2gtopt._cen_client import (
     CenApiConfig,
     add_insecure_tls_argument,
     apply_insecure_tls_argument,
-    env_user_key,
+    user_keys_from_env,
 )
 
 
 def _make_client() -> CenApiClient:
-    keys = {"sip": env_user_key()}
-    cfg = CenApiConfig(user_keys=keys)
+    cfg = CenApiConfig(user_keys=user_keys_from_env())
     return CenApiClient(cfg)
 
 
@@ -312,30 +311,34 @@ def _cmd_islands_aggregate(df: pd.DataFrame) -> int:
         )
         cross = (cross > 0).astype(int)
         # Co-island matrix = X.T @ X / (number of quarters)
+        # ``sub`` holds every row of the (>= 2) top buses, so at least
+        # one (date, quarter) snapshot exists and n_q >= 1.
         n_q = cross.index.droplevel("island_id").drop_duplicates().size
-        if n_q > 0:
-            co = cross.T.dot(cross) / n_q
-            # zero out diagonal
-            for c in co.columns:
-                co.loc[c, c] = 0.0
-            print(
-                "Co-island fraction (top-30 buses × top-30 buses, "
-                f"sampled across {n_q} quarters):"
-            )
-            # Show top-10 most-tightly-bound bus pairs
-            stack = co.stack().sort_values(ascending=False)
-            stack = stack[stack < 1.0]  # exclude self
-            seen: set[frozenset] = set()
-            print()
-            print(f"{'bus A':40s}  {'bus B':40s}  freq")
-            for (a, b), v in stack.items():
-                key = frozenset({a, b})
-                if key in seen:
-                    continue
-                seen.add(key)
-                if len(seen) > 10:
-                    break
-                print(f"{a:40s}  {b:40s}  {v:.2%}")
+        co = cross.T.dot(cross) / n_q
+        # zero out diagonal
+        for c in co.columns:
+            co.loc[c, c] = 0.0
+        print(
+            "Co-island fraction (top-30 buses × top-30 buses, "
+            f"sampled across {n_q} quarters):"
+        )
+        # Show top-10 most-tightly-bound bus pairs
+        stack = co.stack().sort_values(ascending=False)
+        # Exclude the (zeroed) diagonal: a bus is not its own pair.
+        # Pairs that always share an island (freq == 100 %) are the
+        # most tightly bound ones and must be kept.
+        stack = stack[[a != b for a, b in stack.index]]
+        seen: set[frozenset] = set()
+        print()
+        print(f"{'bus A':40s}  {'bus B':40s}  freq")
+        for (a, b), v in stack.items():
+            key = frozenset({a, b})
+            if key in seen:
+                continue
+            seen.add(key)
+            if len(seen) > 10:
+                break
+            print(f"{a:40s}  {b:40s}  {v:.2%}")
     return 0
 
 

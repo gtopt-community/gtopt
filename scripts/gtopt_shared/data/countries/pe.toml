@@ -1,0 +1,14 @@
+# Peru -- Sistema Eléctrico Interconectado Nacional (COES).
+schema_version = 1
+country = "pe"
+name = "Peru"
+currency = "USD"
+timezone = "America/Lima"
+
+[unserved_energy]
+kind = "single"
+unit = "USD/MWh"
+cost = 746.0
+source = "Osinergmin, Informe Técnico 225-2025-GRT (Precios en Barra May-2025 to Apr-2026), costo de racionamiento"
+url = "https://cdn.www.gob.pe/uploads/document/file/7992239/6717668-informe-tecnico-225-2025-grt.pdf"
+valid_from = "2025-05-01"

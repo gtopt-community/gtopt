@@ -28,6 +28,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from gtopt_operators.registry import endpoint_url
+
 
 @dataclass(slots=True, frozen=True)
 class SipEndpoint:
@@ -42,7 +44,7 @@ class SipEndpoint:
 
 
 # Base URL — the 3scale gateway for the Información Pública service.
-SIP_BASE_URL = "https://sipub.api.coordinador.cl"
+SIP_BASE_URL = endpoint_url("cen", "sip")
 
 
 # ----------------------------------------------------------------------

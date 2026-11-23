@@ -44,38 +44,25 @@ import logging
 import os
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
+import urllib3
 
-#: Environment variable holding the CEN API (SIP) ``user_key``.
-CEN_USER_KEY_ENV = "CEN_USER_KEY"
-
-#: How to obtain / configure a CEN API key (appended to auth errors).
-CEN_KEY_HELP = (
-    "CEN API calls need a personal user_key.  Register (free) at "
-    "https://portal.api.coordinador.cl/, subscribe to the API you need "
-    "(e.g. SIP), and export it: `export CEN_USER_KEY=<your-key>` "
-    "(per-service keys: CEN_OPERACION_KEY, CEN_MERCADOS_KEY, "
-    "CEN_PLANIFICACION_KEY)."
+from gtopt_operators.auth import (
+    MissingCredentialError,
+    credential_hint,
+    install_http_log_redaction,
+    redact,
+    resolve_credential,
 )
-
-
-def env_user_key(var: str = CEN_USER_KEY_ENV) -> str:
-    """Return the CEN ``user_key`` stored in env var *var* ("" if unset).
-
-    No key is bundled with gtopt: the value must come from the
-    environment.  An empty result is accepted here so that clients can
-    be constructed offline (cache-only use, tests); the actual network
-    call raises :class:`CenAuthError` with :data:`CEN_KEY_HELP`.
-    """
-    return os.environ.get(var, "").strip()
-
+from gtopt_operators.registry import load_registry
 
 _LOG = logging.getLogger("cen2gtopt.client")
+install_http_log_redaction()
 
 #: Environment variable that, when truthy, disables TLS certificate
 #: verification for every cen2gtopt HTTP call (explicit opt-out only).
@@ -151,16 +138,51 @@ def redact_secrets(text: object) -> str:
     return _SECRET_PARAM_RE.sub(r"\1=***", str(text))
 
 
-# Gateway hostnames per master plan §9.2.2 + the live-probe findings
-# of 2026-05-06.
+#: The six gateway services.  Base URLs and the environment variables
+#: holding each service key live in ``gtopt_operators/cen/sources.toml``.
+SERVICES: tuple[str, ...] = (
+    "operacion",
+    "sip",
+    "medidas",
+    "planificacion",
+    "mercados",
+    "infotecnica",
+)
+
 SERVICE_BASE_URLS: dict[str, str] = {
-    "operacion": "https://operacion.api.coordinador.cl",
-    "sip": "https://sipub.api.coordinador.cl",
-    "medidas": "https://medidas.api.coordinador.cl",
-    "planificacion": "https://planificacion.api.coordinador.cl",
-    "mercados": "https://mercados.api.coordinador.cl",
-    "infotecnica": "https://infotecnica.api.coordinador.cl",
+    s: load_registry("cen").endpoint_url(s) for s in SERVICES
 }
+
+
+def service_key_hint(service: str) -> str:
+    """How to provide the key of ``service`` (names env vars, never values)."""
+    reg = load_registry("cen")
+    auth = reg.endpoints[service].auth if service in reg.endpoints else ""
+    if auth in reg.auth:
+        return credential_hint(reg.auth[auth])
+    return f"no credential is registered for service {service!r}"
+
+
+def user_keys_from_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Return ``{service: key}`` for every service whose key is set.
+
+    Keys come only from the environment variables named in
+    ``gtopt_operators/cen/sources.toml`` (``$CEN_USER_KEY`` for SIP,
+    ``$CEN_OPERACION_KEY``, ...).  Services without a key are omitted;
+    :meth:`CenApiClient.get` then fails with a message naming the
+    variable to set.
+    """
+    reg = load_registry("cen")
+    out: dict[str, str] = {}
+    for service in SERVICES:
+        auth = reg.endpoints[service].auth
+        if not auth:
+            continue
+        try:
+            out[service] = resolve_credential(reg.auth[auth], environ)
+        except MissingCredentialError:
+            continue
+    return out
 
 
 class CenApiError(Exception):
@@ -204,14 +226,10 @@ class CenApiClient:
                 "TLS certificate verification DISABLED for CEN API calls — "
                 "only use this for local probes"
             )
-            # The WARNING above replaces urllib3's per-request
-            # InsecureRequestWarning spam.
-            try:
-                import urllib3  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
-
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            except ImportError:  # pragma: no cover
-                pass
+            # Suppress the urllib3 InsecureRequestWarning when verify=False.
+            # urllib3 is a hard dependency of requests, so it is always
+            # importable here.
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def close(self) -> None:
         self._session.close()
@@ -246,7 +264,8 @@ class CenApiClient:
             )
         if not self.config.user_keys.get(service):
             raise CenAuthError(
-                f"no user_key configured for service {service!r}; {CEN_KEY_HELP}"
+                f"no user_key configured for service {service!r}: "
+                f"{service_key_hint(service)}"
             )
 
         merged: dict[str, Any] = dict(params or {})
@@ -270,7 +289,7 @@ class CenApiClient:
                     path,
                     attempt + 1,
                     self.config.max_retries + 1,
-                    redact_secrets(exc),
+                    redact(str(exc)),
                     wait,
                 )
                 time.sleep(wait)
@@ -282,7 +301,7 @@ class CenApiClient:
                     return resp.json()
                 except ValueError as exc:
                     raise CenApiError(
-                        f"expected JSON body from {service}{path}, got "
+                        f"expected JSON body from {redact(url)}, got "
                         f"{resp.headers.get('content-type')}"
                     ) from exc
             if resp.status_code == 403:
@@ -317,7 +336,7 @@ class CenApiClient:
 
         raise CenServerError(
             f"{self.config.max_retries + 1} attempts exhausted for "
-            f"{service}{path}; last error: {redact_secrets(last_exc)}"
+            f"{service}{path}; last error: {redact(str(last_exc))}"
         )
 
     # ------------------------------------------------------------------

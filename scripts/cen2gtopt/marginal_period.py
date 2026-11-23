@@ -128,7 +128,7 @@ from cen2gtopt._bus_catalogue import (
     save_catalogue,
     to_ref_buses,
 )
-from cen2gtopt._cen_client import CenApiClient, CenApiConfig
+from cen2gtopt._cen_client import CenApiClient, CenApiConfig, user_keys_from_env
 from cen2gtopt._emission_factors import (
     UpstreamBasis,
     add_upstream_basis_arg,
@@ -136,7 +136,6 @@ from cen2gtopt._emission_factors import (
 )
 from cen2gtopt.marginal_units import (
     REF_BUSES,
-    SIP_KEY,
     compute_marginal_units_for_day,
 )
 
@@ -310,7 +309,9 @@ def _maybe_refresh_catalogue(
     else:  # api
         if not date:
             raise SystemExit("--refresh-buses=api requires --refresh-date")
-        sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
+        sip_cfg = CenApiConfig(
+            user_keys=user_keys_from_env(),
+        )
         with CenApiClient(sip_cfg) as client:
             new = discover_buses_from_api(client, date=date)
     merged = merge_catalogues(existing, new)
@@ -349,7 +350,9 @@ def _process_one_day(
     res = DayResult(date_iso=date_iso, status="?", n_buses=len(ref_buses))
     t0 = time.monotonic()
     try:
-        sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
+        sip_cfg = CenApiConfig(
+            user_keys=user_keys_from_env(),
+        )
         with CenApiClient(sip_cfg) as client:
             df = compute_marginal_units_for_day(
                 client,

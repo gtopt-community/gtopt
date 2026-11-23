@@ -569,18 +569,17 @@ class PcpInputs:
         units = self.units.copy()
         if units.empty:
             return units
-        # Period-specific heat-rate override
-        hr_p = self.heat_rate
+        # Period-specific heat-rate override (``units`` is non-empty, so
+        # ``heat_rate`` is too).
+        hr_p = self.heat_rate[self.heat_rate["PERIOD"] == period]
         if not hr_p.empty:
-            hr_p = hr_p[hr_p["PERIOD"] == period]
-            if not hr_p.empty:
-                units = units.drop(columns=["heat_rate_gj_per_mwh"]).merge(
-                    hr_p[["NAME", "VALUE"]].rename(
-                        columns={"NAME": "unit_name", "VALUE": "heat_rate_gj_per_mwh"}
-                    ),
-                    on="unit_name",
-                    how="left",
-                )
+            units = units.drop(columns=["heat_rate_gj_per_mwh"]).merge(
+                hr_p[["NAME", "VALUE"]].rename(
+                    columns={"NAME": "unit_name", "VALUE": "heat_rate_gj_per_mwh"}
+                ),
+                on="unit_name",
+                how="left",
+            )
         fuels = self.fuels
         if fuels.empty:
             units["fuel_name"] = ""

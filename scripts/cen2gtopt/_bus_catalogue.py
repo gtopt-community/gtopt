@@ -134,10 +134,7 @@ def parse_voltage(bar_transf: str | None) -> int:
     m = _VOLT_RE.search(str(bar_transf))
     if not m:
         return 0
-    try:
-        return int(m.group(1))
-    except (TypeError, ValueError):
-        return 0
+    return int(m.group(1))
 
 
 def infer_region(barra_info: str | None, bar_transf: str | None = None) -> str:

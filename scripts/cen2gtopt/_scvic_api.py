@@ -42,9 +42,11 @@ import requests
 
 from cen2gtopt._cen_client import tls_verify_default
 
+from gtopt_operators.registry import endpoint_url
+
 _LOG = logging.getLogger("cen2gtopt.scvic_api")
 
-CV_RPT_BASE = "https://costosvariables.coordinador.cl:8080/v1"
+CV_RPT_BASE = endpoint_url("cen", "costos_variables")
 
 
 def _to_float_es(s: object) -> float:

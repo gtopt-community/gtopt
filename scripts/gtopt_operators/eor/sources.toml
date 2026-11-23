@@ -1,0 +1,20 @@
+# Source registry of the Ente Operador Regional (Mercado Eléctrico
+# Regional, Central America).
+schema_version = 1
+
+[operator]
+id = "eor"
+name = "Ente Operador Regional"
+country = "gt"  # seat in Guatemala; the market (MER) is regional
+timezone = "America/Guatemala"
+homepage = "https://www.enteoperador.org"
+
+[dataset.max_transfers]
+backend = "html_index"
+description = "Maximum inter-area transfer capacities (commercial management)"
+page = "https://www.enteoperador.org/mer/gestion-comercial/maximas-transferencias/"
+
+[dataset.max_transfer_study]
+backend = "html_index"
+description = "Study of maximum power transfer capacities"
+page = "https://www.enteoperador.org/mer/gestion-tecnica-operativa/estudio-de-maximas-capacidades-de-transferencias-de-potencia/"

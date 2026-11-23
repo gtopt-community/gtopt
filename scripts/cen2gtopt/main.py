@@ -3,8 +3,8 @@
 
 v1 is strictly an on-the-spot one-shot CLI per master plan §9.1.1.
 No background loop, no recurring runner, no streaming append.
-``--source sip`` is documented but raises NotImplementedError
-until v1.1.
+``--source sip`` fetches live data; ``--source csv`` supports only
+``--manifest-only``.
 """
 
 from __future__ import annotations
@@ -54,7 +54,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--source",
         choices=("sip", "csv", "auto"),
         default="auto",
-        help="Data source: sip (v1.1), csv (v1 default), auto.",
+        help=(
+            "Data source: sip (live fetch), csv (--manifest-only only), "
+            "auto (sip if an API key is set, else csv)."
+        ),
     )
     p.add_argument("--api-key", help="SIP API key; falls back to $CEN_USER_KEY.")
     p.add_argument("--cache", type=Path, help="On-disk cache directory.")
@@ -195,16 +198,12 @@ def _run(args: argparse.Namespace) -> int:
         _LOG.info("manifest-only: wrote %s", args.out / "manifest.json")
         return EXIT_OK
 
-    # Production CSV path is v1; v1 ships parsers + writer but the
-    # actual HTTP fetch + URL templates are TODO(verify-at-integration).
-    # For v1 we expect callers to provide pre-fetched CSVs via the
-    # cache directory. If --cache is empty, abort with a clear error.
+    # The CSV source has no fetch/convert implementation: only the
+    # --manifest-only smoke test above is supported for it.
     raise _CliError(
-        "cen2gtopt v1 CSV-fetch path requires pre-populated cache files; "
-        "live HTTP fetching is gated by TODO(verify-at-integration) URL "
-        "templates in _csv_endpoints.py and is not exercised in v1. "
-        "Either run --manifest-only or place CEN CSV exports in --cache "
-        "before running. See master plan §9.2.1."
+        "cen2gtopt --source csv supports only --manifest-only; there is no "
+        "CSV fetch/convert path. Use --source sip (with --api-key or "
+        "$CEN_USER_KEY) to fetch data."
     )
 
 

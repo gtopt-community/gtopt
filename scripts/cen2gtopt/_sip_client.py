@@ -36,22 +36,6 @@ from cen2gtopt._sip_endpoints import (
 _LOG = logging.getLogger("cen2gtopt.sip")
 
 
-# Backwards-compat error type — older code in main.py imports this.
-class SipNotImplementedError(NotImplementedError):
-    """Raised when an unimplemented SIP path is requested."""
-
-
-def fetch_via_sip(*_args, **_kwargs):
-    """Legacy entry point — superseded by :func:`fetch_endpoint`.
-
-    Kept so existing `main.py` imports don't break; raises a clear
-    message when invoked.
-    """
-    raise SipNotImplementedError(
-        "fetch_via_sip() is the v0.1 stub; use SipClient.fetch_endpoint(...)"
-    )
-
-
 # ----------------------------------------------------------------------
 # Generic fetchers
 # ----------------------------------------------------------------------
@@ -296,7 +280,6 @@ def _normalize_cmg(raw: pd.DataFrame, *, value_col: str) -> pd.DataFrame:
 __all__ = [
     "ALL_ENDPOINTS",
     "CenAuthError",
-    "SipNotImplementedError",
     "fetch_centrales",
     "fetch_costo_marginal_online",
     "fetch_costo_marginal_real",
@@ -306,5 +289,4 @@ __all__ = [
     "fetch_instrucciones_operacionales_cmg",
     "fetch_limitaciones_transmision",
     "fetch_programas_mantenimiento_mayor",
-    "fetch_via_sip",
 ]

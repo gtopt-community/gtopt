@@ -22,7 +22,7 @@ Strategy:
    and persist for subsequent runs.
 4. **Update the bus catalogue** at
    ``~/.cache/gtopt/cen2gtopt/known_buses.parquet`` so downstream
-   tools (``cen_buses list``, ``compute_marginal_units_for_day_all_buses``)
+   tools (``cen2gtopt-buses list``, ``cen2gtopt-marginal-period``)
    see the expanded bus set.
 
 Runs entirely against the cached extractor — no raw API calls.
@@ -65,8 +65,8 @@ from cen2gtopt._cen_client import (
     CenApiConfig,
     add_insecure_tls_argument,
     apply_insecure_tls_argument,
+    user_keys_from_env,
 )
-from cen2gtopt.marginal_units import SIP_KEY
 
 _LOG = logging.getLogger("cen2gtopt.prepopulate_cache")
 
@@ -271,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
     # sequential pass is slower but deterministic and observable;
     # the inter-request delay backs off on 429 / 5xx and decays back
     # toward ``--delay-ms`` after sustained successes.
-    cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
+    cfg = CenApiConfig(user_keys=user_keys_from_env())
     n_ok = n_empty = 0
     rows_total = 0
     failed: list[str] = []

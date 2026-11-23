@@ -1,0 +1,34 @@
+# Source registry of the Australian Energy Market Operator.
+#
+# AEMO workbooks and models may be downloaded for local use but must NOT
+# be redistributed: they are registered as manual, non-redistributable
+# datasets.  gtopt-fetch prints the page and the terms; the user
+# downloads the file and registers it in the local cache with --file
+# (checksummed in MANIFEST.jsonl).  Never commit their contents.
+schema_version = 1
+
+[operator]
+id = "aemo"
+name = "Australian Energy Market Operator"
+country = "au"
+timezone = "Australia/Brisbane"  # NEM time (AEST, no daylight saving)
+homepage = "https://aemo.com.au"
+
+[dataset.iasr_workbook]
+backend = "manual"
+description = "ISP Inputs, Assumptions and Scenarios (IASR) workbook, by ISP edition (--version)"
+page = "https://aemo.com.au/energy-systems/major-publications/integrated-system-plan-isp"
+filename = "iasr_workbook_{version}.xlsx"
+terms = "https://aemo.com.au/privacy-and-legal-notices/copyright-permissions"
+redistributable = false
+consumer = "plexos2gtopt.aemo_isp"
+notes = "source of the electrolyser specific consumption (--electrolyser-kwh-per-kg) and the other hydrogen assumptions"
+
+[dataset.isp_model]
+backend = "manual"
+description = "ISP PLEXOS model and trace files, by ISP edition (--version)"
+page = "https://aemo.com.au/energy-systems/major-publications/integrated-system-plan-isp"
+filename = "isp_model_{version}.zip"
+terms = "https://aemo.com.au/privacy-and-legal-notices/copyright-permissions"
+redistributable = false
+consumer = "plexos2gtopt.aemo_isp"

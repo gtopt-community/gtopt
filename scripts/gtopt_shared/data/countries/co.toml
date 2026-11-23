@@ -1,0 +1,8 @@
+# Colombia -- Sistema Interconectado Nacional (XM).
+# No current official unserved-energy values were found (UPME CRO1..CRO4,
+# CREG 119/1998): use the deficit curve of the source model.
+schema_version = 1
+country = "co"
+name = "Colombia"
+currency = "USD"
+timezone = "America/Bogota"

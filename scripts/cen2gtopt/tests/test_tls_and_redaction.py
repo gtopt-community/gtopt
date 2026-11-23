@@ -23,7 +23,6 @@ from cen2gtopt._cen_client import (
     redact_secrets,
     tls_verify_default,
 )
-from cen2gtopt._infotecnica import InfotecnicaConfig
 
 # Low-entropy placeholder, built at runtime so secret scanners stay quiet.
 SECRET = "-".join(["not", "a", "real", "key"])
@@ -38,7 +37,6 @@ def test_tls_verification_on_by_default(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.delenv(INSECURE_TLS_ENV, raising=False)
     assert tls_verify_default() is True
     assert CenApiConfig(user_keys={}).verify_tls is True
-    assert InfotecnicaConfig().verify_tls is True
 
 
 @pytest.mark.parametrize("value", ["0", "", "no", "false"])
@@ -157,7 +155,7 @@ def test_fetch_index_error_redacts_key(
         )
 
     monkeypatch.setattr(pcp_archive.requests, "get", _fail)
-    with pytest.raises(pcp_archive.PcpArchiveError) as excinfo:
+    with pytest.raises(requests.RequestException) as excinfo:
         pcp_archive.fetch_index(
             user_key=SECRET, cache_path=tmp_path / "idx.json", force=True
         )

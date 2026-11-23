@@ -1,0 +1,9 @@
+# Source registry of XM (Colombia).  No datasets registered yet.
+schema_version = 1
+
+[operator]
+id = "xm"
+name = "XM Compañía de Expertos en Mercados"
+country = "co"
+timezone = "America/Bogota"
+homepage = "https://www.xm.com.co"

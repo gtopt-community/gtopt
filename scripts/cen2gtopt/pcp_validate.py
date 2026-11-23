@@ -68,10 +68,10 @@ from cen2gtopt._cen_client import (
     CenApiConfig,
     add_insecure_tls_argument,
     apply_insecure_tls_argument,
+    user_keys_from_env,
 )
 from cen2gtopt.marginal_units import (
     REF_BUSES,
-    SIP_KEY,
     compute_marginal_units_for_day,
 )
 from cen2gtopt.pcp_inputs import load_pcp_inputs
@@ -273,7 +273,7 @@ def validate_one_day(
     medianed across buses, manufacturing aggregation noise where the
     pipeline was actually accurate.
     """
-    sip_cfg = CenApiConfig(user_keys={"sip": SIP_KEY})
+    sip_cfg = CenApiConfig(user_keys=user_keys_from_env())
     with CenApiClient(sip_cfg) as client:
         _LOG.info("[%s] running pipeline …", date_iso)
         pipe = compute_marginal_units_for_day(
@@ -369,20 +369,22 @@ def validate_one_day(
     return pipe_h
 
 
+#: The per-cell Δ columns written by :func:`validate_one_day`.
+DELTA_COLUMNS: tuple[str, ...] = (
+    "delta_pipeline_vs_real",
+    "delta_pipeline_pid_vs_real",
+    "delta_pipeline_vs_plexos",
+    "delta_plexos_vs_real",
+)
+
+
 def _print_table(df: pd.DataFrame) -> None:
     pd.set_option("display.width", 220)
     pd.set_option("display.float_format", lambda x: f"{x:.2f}")
     # Per-bus mean accuracy
     print("--- per-bus mean |Δ| (USD/MWh) ---")
     by_bus = (
-        df.groupby("bus_label")[
-            [
-                "delta_pipeline_vs_real",
-                "delta_pipeline_pid_vs_real",
-                "delta_pipeline_vs_plexos",
-                "delta_plexos_vs_real",
-            ]
-        ]
+        df.groupby("bus_label")[list(DELTA_COLUMNS)]
         .apply(lambda d: d.abs().mean())
         .round(3)
     )
@@ -392,12 +394,7 @@ def _print_table(df: pd.DataFrame) -> None:
 
     # System aggregate across all bus-hours
     print("--- system aggregate across all (bus × hour) cells ---")
-    for col in (
-        "delta_pipeline_vs_real",
-        "delta_pipeline_pid_vs_real",
-        "delta_pipeline_vs_plexos",
-        "delta_plexos_vs_real",
-    ):
+    for col in DELTA_COLUMNS:
         s = df[col].dropna()
         if s.empty:
             continue
@@ -444,6 +441,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-except
             _LOG.error("[%s] failed: %s", d, exc)
             continue
+        if df.empty:
+            _LOG.warning("[%s] no validation rows", d)
+            continue
         if len(dates) == 1:
             print(
                 f"=== validation for {d} "
@@ -463,11 +463,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print("=" * 80)
         print(f"PERIOD SUMMARY — {len(dates)} days")
         print("=" * 80)
-        for col in (
-            "delta_pipeline_vs_real",
-            "delta_pipeline_vs_pcp",
-            "delta_pcp_vs_real",
-        ):
+        for col in DELTA_COLUMNS:
             s = all_df[col].dropna()
             if s.empty:
                 continue

@@ -1,0 +1,197 @@
+# Source registry of the Coordinador Eléctrico Nacional (Chile).
+#
+# Only URLs, file-name patterns and the *names* of the environment
+# variables that hold credentials live here -- never a key or data.
+# Schema: gtopt_operators/registry.py.  CLI: gtopt-fetch cen ...
+schema_version = 1
+
+[operator]
+id = "cen"
+name = "Coordinador Eléctrico Nacional"
+country = "cl"
+timezone = "America/Santiago"
+homepage = "https://www.coordinador.cl"
+geo = "CL"  # the programa-operacion S3 bucket only serves Chilean IPs
+
+# --- credentials (environment variables only) -----------------------------
+
+[auth.portal]
+kind = "env"
+env = ["GTOPT_CEN_PORTAL_KEY"]
+param = "user_key"
+doc = "browse-only key of the programa.coordinador.cl web app (the USERKEY constant of its JS bundle)"
+
+[auth.sip]
+kind = "env"
+env = ["CEN_USER_KEY", "CEN_API_KEY"]
+param = "user_key"
+doc = "per-developer SIPUB user_key issued by the CEN API portal; $CEN_API_KEY is the deprecated alias"
+
+[auth.operacion]
+kind = "env"
+env = ["CEN_OPERACION_KEY"]
+param = "user_key"
+
+[auth.mercados]
+kind = "env"
+env = ["CEN_MERCADOS_KEY"]
+param = "user_key"
+
+[auth.planificacion]
+kind = "env"
+env = ["CEN_PLANIFICACION_KEY"]
+param = "user_key"
+
+[auth.medidas]
+kind = "env"
+env = ["CEN_MEDIDAS_KEY"]
+param = "user_key"
+
+[auth.infotecnica]
+kind = "env"
+env = ["CEN_INFOTECNICA_KEY"]
+param = "user_key"
+
+# --- endpoints --------------------------------------------------------------
+
+[endpoint.portal_web]
+url = "https://programa.coordinador.cl"
+doc = "Programa de Operación portal (Origin header of the API calls)"
+
+[endpoint.portal_list]
+url = "https://administracion.api.coordinador.cl/programa-operacion/bucket-s3/s3/listFiles"
+auth = "portal"
+origin = "https://programa.coordinador.cl"
+doc = "index of every published file, with pre-signed S3 URLs (~12 h)"
+
+[endpoint.portal_presign]
+url = "https://administracion.api.coordinador.cl/programa-operacion/bucket-s3/s3/presigned-url-download"
+auth = "portal"
+origin = "https://programa.coordinador.cl"
+doc = "fresh pre-signed URL for one file; encodedKey = base64('<categoria>/<nombre>')"
+
+[endpoint.sip]
+url = "https://sipub.api.coordinador.cl"
+auth = "sip"
+
+[endpoint.sipub_v2]
+url = "https://sipub.api.coordinador.cl/sipub/api/v2"
+auth = "sip"
+
+[endpoint.operacion]
+url = "https://operacion.api.coordinador.cl"
+auth = "operacion"
+
+[endpoint.medidas]
+url = "https://medidas.api.coordinador.cl"
+auth = "medidas"
+
+[endpoint.planificacion]
+url = "https://planificacion.api.coordinador.cl"
+auth = "planificacion"
+
+[endpoint.mercados]
+url = "https://mercados.api.coordinador.cl"
+auth = "mercados"
+
+[endpoint.infotecnica]
+url = "https://infotecnica.api.coordinador.cl"
+auth = "infotecnica"
+
+[endpoint.costos_variables]
+url = "https://costosvariables.coordinador.cl:8080/v1"
+doc = "SCVIC variable-cost reports (no key)"
+
+# --- datasets of the Programa de Operación portal ---------------------------
+# Patterns are regexes on the file name; {D} = YYYYMMDD.
+
+[dataset.pcp]
+backend = "cen_portal"
+description = "PCP day-ahead PLEXOS bundle: DATOS<d>.zip (inputs) + RES<d>.zip (solution)"
+auth = "portal"
+categories = ["PCP", "PCP_RES"]
+patterns = ['PLEXOS{D}\.zip', 'DATOS{D}\.zip']
+unwrap = ['DATOS{D}\.zip', 'RES{D}\.zip']
+companions = ['RES{D}\.zip']
+date_rule = "exact"
+consumer = "plexos2gtopt"
+page = "https://programa.coordinador.cl/operacion/pcp/bases-modelo"
+
+[dataset.pcp_tco]
+backend = "cen_portal"
+description = "PCP operation policy (TCO<d>.zip)"
+auth = "portal"
+categories = ["PCP", "PCP_RES"]
+patterns = ['TCO{D}\.zip']
+
+[dataset.pcp_programa]
+backend = "cen_portal"
+description = "Published PCP schedule (PROGRAMA<d>.zip)"
+auth = "portal"
+categories = ["PCP", "PCP_RES"]
+patterns = ['PROGRAMA{D}\.zip']
+
+[dataset.pcp_sscc]
+backend = "cen_portal"
+description = "Awarded ancillary-service offers (OfertasSSCCAdj<d>.zip)"
+auth = "portal"
+categories = ["PCP", "PCP_RES"]
+patterns = ['OfertasSSCCAdj{D}\.zip']
+
+[dataset.pcp_basedef]
+backend = "cen_portal"
+description = "PCP input parameter sheets (BasePCPDef<d>.xlsx)"
+auth = "portal"
+categories = ["PCP"]
+patterns = ['BasePCPDef{D}\.xlsx']
+
+[dataset.pid_inputs]
+backend = "cen_portal"
+description = "Intra-day re-runs: DATOS<d>_<hh>.zip (every hour of the day)"
+auth = "portal"
+categories = ["PID"]
+patterns = ['DATOS{D}_\d\d\.zip']
+multi = true
+
+[dataset.pid_results]
+backend = "cen_portal"
+description = "Intra-day re-run solutions: RES<d>_<hh>.zip"
+auth = "portal"
+categories = ["PID", "PID_RES"]
+patterns = ['RES{D}_\d\d\.zip']
+multi = true
+
+[dataset.plp_inputs]
+backend = "cen_portal"
+description = "PLP (SDDP) input bundle in force on the date (IPLP*.zip)"
+auth = "portal"
+categories = ["PLP", "PMP"]
+patterns = ['IPLP_?{D}.*\.zip']
+date_rule = "latest_on_or_before"
+consumer = "plp2gtopt"
+
+[dataset.plp_results]
+backend = "cen_portal"
+description = "PLP results in force on the date (OPLP*.zip)"
+auth = "portal"
+categories = ["PLP", "PMP", "PMP_RES"]
+patterns = ['OPLP_?{D}.*\.zip']
+date_rule = "latest_on_or_before"
+
+[dataset.costos_variables]
+backend = "cen_portal"
+description = "Variable costs used by the programme (COSTOSVARIABLES<d>.zip)"
+auth = "portal"
+patterns = ['COSTOSVARIABLES{D}\.zip']
+
+[dataset.disp_combustibles]
+backend = "cen_portal"
+description = "Fuel availability (DISPONIBILIDADCOMBUSTIBLES<d>.xlsx)"
+auth = "portal"
+patterns = ['DISPONIBILIDADCOMBUSTIBLES{D}\.xlsx']
+
+[dataset.pronosticos_ernc]
+backend = "cen_portal"
+description = "Variable-renewable forecasts (Pronosticos_<d>.zip)"
+auth = "portal"
+patterns = ['Pronosticos_{D}\.zip']
