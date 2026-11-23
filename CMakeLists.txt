@@ -278,18 +278,15 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
 )
 
-# ---- Naming-dialects registry: compiled-in fallback + path constants ----
-# The runtime registry tries an external file first
-# (`$GTOPT_NAMING_DIALECTS_FILE`, then the install location, then the
-# in-tree source copy); if all of those fail it falls back to the JSON
-# content baked at configure time below.  This guarantees the registry
-# always works for tests / standalone runs / library consumers that
-# skip the install step.
+# ---- Naming-dialects registry: compiled-in default dictionary ----
+# The JSON is embedded at configure time below and is the registry's
+# default: it always matches the binary, so a stale copy in an install
+# or user share dir (e.g. ~/.local/share/gtopt) can never shadow it.
+# An external file is read only when `$GTOPT_NAMING_DIALECTS_FILE` names
+# one explicitly (see source/names_registry.cpp).
 include(GNUInstallDirs)
 set(GTOPT_NAMING_DIALECTS_SOURCE_PATH
     "${CMAKE_CURRENT_SOURCE_DIR}/share/gtopt/naming_dialects.json")
-set(GTOPT_NAMING_DIALECTS_INSTALL_PATH
-    "${CMAKE_INSTALL_FULL_DATADIR}/gtopt/naming_dialects.json")
 # Re-run configure when the dictionary changes, so the compiled-in
 # fallback never goes stale after an edit of the JSON file.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -305,13 +302,11 @@ list(APPEND headers
      "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/names_builtin.hpp")
 
 # ---- Unit-dialects registry: same wiring, sibling file ----
-# Bakes `share/gtopt/unit_dialects.json` into a compiled-in fallback so
-# the runtime UnitRegistry (`source/unit_registry.cpp`) always has a
-# working dictionary even without an installed copy.
+# Bakes `share/gtopt/unit_dialects.json` into the compiled-in default
+# dictionary of the runtime UnitRegistry (`source/unit_registry.cpp`);
+# `$GTOPT_UNIT_DIALECTS_FILE` is the only external override.
 set(GTOPT_UNIT_DIALECTS_SOURCE_PATH
     "${CMAKE_CURRENT_SOURCE_DIR}/share/gtopt/unit_dialects.json")
-set(GTOPT_UNIT_DIALECTS_INSTALL_PATH
-    "${CMAKE_INSTALL_FULL_DATADIR}/gtopt/unit_dialects.json")
 # Re-run configure when the dictionary changes, so the compiled-in
 # fallback never goes stale after an edit of the JSON file.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -404,11 +399,11 @@ target_include_directories(
                          $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/generated>
 )
 
-# Install the editable naming-dialects dictionary alongside the
-# library.  The runtime loader probes
-# `${CMAKE_INSTALL_FULL_DATADIR}/gtopt/naming_dialects.json` (baked at
-# configure time into names_builtin.hpp) before falling back to the
-# compiled-in copy.
+# Install the dialect dictionaries alongside the library as a
+# human-readable reference and as a starting point for a custom
+# dictionary.  The runtime never probes the install dir: the binary uses
+# its compiled-in copy unless `$GTOPT_NAMING_DIALECTS_FILE` /
+# `$GTOPT_UNIT_DIALECTS_FILE` point at an override file.
 install(FILES "${GTOPT_NAMING_DIALECTS_SOURCE_PATH}"
               "${GTOPT_UNIT_DIALECTS_SOURCE_PATH}"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/gtopt")

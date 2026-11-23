@@ -156,6 +156,13 @@ if(NOT TEST_INSTALLED_VERSION)
   )
 endif()
 
+# In-tree `share/gtopt` (shipped dialect dictionaries) for tests that
+# read the source copy explicitly; the library itself never probes it.
+target_compile_definitions(
+  ${PROJECT_NAME}
+  PRIVATE GTOPT_TEST_SHARE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../share/gtopt"
+)
+
 # ---- Ensure solver plugins are rebuilt before running tests ----
 include(GtoptPlugin)
 gtopt_require_solver_plugins(${PROJECT_NAME})
@@ -169,6 +176,32 @@ include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
 # instead of holding the whole ctest run hostage.  3600 s clears the
 # slowest legitimate SDDP integration tests with margin.
 doctest_discover_tests(${PROJECT_NAME} PROPERTIES TIMEOUT 3600)
+
+# Guard: a ';' in a test-case name makes doctest_discover_tests register
+# a filter that matches nothing, so ctest reports "Passed" without running
+# the test.  Fail loudly instead (cheap: one --list-test-cases call).
+add_test(
+  NAME gtoptTests.test_names_no_semicolon
+  COMMAND ${CMAKE_COMMAND} -DTEST_EXECUTABLE=$<TARGET_FILE:${PROJECT_NAME}>
+          -P "${CMAKE_CURRENT_LIST_DIR}/check_test_names.cmake"
+)
+set_tests_properties(gtoptTests.test_names_no_semicolon PROPERTIES TIMEOUT 120)
+
+# $GTOPT_PLUGIN_DIR is read once, when the SolverRegistry singleton is
+# built, so its search-order canary needs the variable set at process
+# start: run that one test case in its own process with a canary dir.
+set(GTOPT_PLUGIN_DIR_CANARY "${CMAKE_CURRENT_BINARY_DIR}/plugin_dir_canary")
+file(MAKE_DIRECTORY "${GTOPT_PLUGIN_DIR_CANARY}")
+add_test(
+  NAME gtoptTests.plugin_dir_env_canary
+  COMMAND $<TARGET_FILE:${PROJECT_NAME}>
+          "--test-case=SolverRegistry - GTOPT_PLUGIN_DIR canary*"
+)
+set_tests_properties(
+  gtoptTests.plugin_dir_env_canary
+  PROPERTIES ENVIRONMENT "GTOPT_PLUGIN_DIR=${GTOPT_PLUGIN_DIR_CANARY}"
+             TIMEOUT 120
+)
 
 # ---- Coverage ----
 include(Coverage)

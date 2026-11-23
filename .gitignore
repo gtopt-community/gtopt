@@ -116,3 +116,4 @@ cases/cen_long_term_*/
 lib/bindings/
 lib/tom-select/
 lib/vis-9.1.2/
+.testmondata*
