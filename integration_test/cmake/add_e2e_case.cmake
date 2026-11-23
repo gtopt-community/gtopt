@@ -22,9 +22,12 @@ The function creates the following CTest tests for every registered case:
 3. **e2e_<case>_compare_<csv>** – compares each expected CSV against actual
    output (one test per file).
 
-When ``GTOPT_SOLVER`` is set (via environment or CMake variable) and a
-matching ``output_<solver>/`` directory exists, that directory is used for
-golden-file comparison.  Otherwise, ``output/`` is used.
+When ``GTOPT_SOLVER`` is set (environment, read at test time) and a
+matching ``output_<solver>/`` directory exists, it must hold a golden for
+every CSV in ``output/`` (compared ``--strict``); a missing one fails the
+compare test unless listed in ``integration_test/golden_fallback.txt``.
+Cases without ``output_<solver>/`` compare against ``output/``
+(non-strict).  See ``compare_csv.cmake``.
 
 Required variables (must be set before ``include(AddE2ECase)``):
 

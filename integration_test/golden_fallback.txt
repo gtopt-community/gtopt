@@ -1,0 +1,55 @@
+# Explicit opt-outs for integration_test/cmake/compare_csv.cmake.
+#
+# A case that has an output_<solver>/ directory must contain a golden for
+# every CSV in output/ -- a missing one FAILS the e2e_<case>_compare_* test
+# (it used to fall back silently to output/, non-strict, which hid stale
+# per-solver goldens).  Each line below allows ONE such fallback:
+#
+#   <case> <solver> <csv path relative to output/ | *>   # reason
+#
+# The fallback compares against output/<csv> non-strict and the test log
+# says so.  Delete a line as soon as the golden exists (or the
+# output_<solver>/ dir is removed); never add one without a reason.
+
+# output_clp/ holds only solution.csv plus legacy wide-format
+# <field>_s0_p0.csv files that nothing reads; there are no per-element
+# CLP goldens.  CI runs with GTOPT_SOLVER=clp, so these cases compare
+# against output/ until CLP per-element goldens are generated (or the
+# stale output_clp/*_s0_p0.csv files are removed and output_clp/ keeps
+# only solution.csv -- the entries stay needed until then).
+bat_4b        clp *   # no per-element CLP goldens (stale wide format)
+bat_4b_24     clp *   # no per-element CLP goldens (stale wide format)
+exp_bat_4b_24 clp *   # no per-element CLP goldens (stale wide format)
+ieee_14b      clp *   # no per-element CLP goldens (stale wide format)
+ieee30b       clp *   # no per-element CLP goldens (stale wide format)
+ieee_57b      clp *   # no per-element CLP goldens (stale wide format)
+
+# Battery/energy_* (the SoC rows) were never written for the per-solver
+# dirs; regenerate them with the solver and drop these lines.
+bat_4b        highs   Battery/energy_cost.csv   # missing solver golden
+bat_4b        highs   Battery/energy_dual.csv   # missing solver golden
+bat_4b        highs   Battery/energy_sol.csv    # missing solver golden
+bat_4b        cplex   Battery/energy_cost.csv   # missing solver golden
+bat_4b        cplex   Battery/energy_dual.csv   # missing solver golden
+bat_4b        cplex   Battery/energy_sol.csv    # missing solver golden
+bat_4b        mindopt Battery/energy_cost.csv   # missing solver golden
+bat_4b        mindopt Battery/energy_dual.csv   # missing solver golden
+bat_4b        mindopt Battery/energy_sol.csv    # missing solver golden
+bat_4b_24     highs   Battery/energy_cost.csv   # missing solver golden
+bat_4b_24     highs   Battery/energy_dual.csv   # missing solver golden
+bat_4b_24     highs   Battery/energy_sol.csv    # missing solver golden
+bat_4b_24     cplex   Battery/energy_cost.csv   # missing solver golden
+bat_4b_24     cplex   Battery/energy_dual.csv   # missing solver golden
+bat_4b_24     cplex   Battery/energy_sol.csv    # missing solver golden
+bat_4b_24     mindopt Battery/energy_cost.csv   # missing solver golden
+bat_4b_24     mindopt Battery/energy_dual.csv   # missing solver golden
+bat_4b_24     mindopt Battery/energy_sol.csv    # missing solver golden
+exp_bat_4b_24 highs   Battery/energy_cost.csv   # missing solver golden
+exp_bat_4b_24 highs   Battery/energy_dual.csv   # missing solver golden
+exp_bat_4b_24 highs   Battery/energy_sol.csv    # missing solver golden
+exp_bat_4b_24 cplex   Battery/energy_cost.csv   # missing solver golden
+exp_bat_4b_24 cplex   Battery/energy_dual.csv   # missing solver golden
+exp_bat_4b_24 cplex   Battery/energy_sol.csv    # missing solver golden
+exp_bat_4b_24 mindopt Battery/energy_cost.csv   # missing solver golden
+exp_bat_4b_24 mindopt Battery/energy_dual.csv   # missing solver golden
+exp_bat_4b_24 mindopt Battery/energy_sol.csv    # missing solver golden
