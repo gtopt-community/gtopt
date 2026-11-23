@@ -639,3 +639,10 @@ def test_nrel118_week_co2_reduction_in_expected_window(tmp_path: Path):
     assert totals["baseline"] > 0.0
     pct = 100.0 * (totals["baseline"] - totals["ren33"]) / totals["baseline"]
     assert 15.0 <= pct <= 50.0, f"CO2 reduction {pct:.1f}% outside [15, 50]"
+
+
+def test_build_case_omits_loss_cost_eps_by_default(mini: Path, tmp_path: Path):
+    """``loss_cost_eps`` is left to gtopt's default (0.1 $/MWh): not
+    emitted in model_options nor on any line."""
+    planning, _ = build_case(convert(mini), tmp_path / "case" / "mini.json")
+    assert '"loss_cost_eps"' not in json.dumps(planning)

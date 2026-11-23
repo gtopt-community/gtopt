@@ -751,3 +751,9 @@ class TestMatpowerFidelity:
         data = convert(tmp_path / "m.json", solver_type="monolithic")
         assert data["options"]["method"] == "monolithic"
         assert "cascade_options" not in data["options"]
+
+
+def test_convert_omits_loss_cost_eps_by_default(ieee30b_json):
+    """``loss_cost_eps`` is left to gtopt's default (0.1 $/MWh): not
+    emitted in model_options nor on any line."""
+    assert '"loss_cost_eps"' not in json.dumps(ieee30b_json)

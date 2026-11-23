@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
@@ -116,6 +117,8 @@ def test_to_gtopt_json_emits_one_fuel_per_thermal():
         generators=gens,
     )
     payload = to_gtopt_json(conv, include_pollutants=("co2",))
+    # loss_cost_eps is left to gtopt's default (0.1 $/MWh): never emitted.
+    assert '"loss_cost_eps"' not in json.dumps(payload)
     # Only the thermal generator gets a fuel (renewable HR=0 is skipped).
     assert len(payload["system"]["fuel_array"]) == 1
     fuel = payload["system"]["fuel_array"][0]

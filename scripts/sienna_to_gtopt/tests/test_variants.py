@@ -375,3 +375,13 @@ def test_wecc_240_invalid_sizes_raise():
     # n_gen > n_bus.
     with pytest.raises(ValueError):
         build_wecc_240(case, n_bus=5, n_gen=10, n_demand=5, n_line=20)
+
+
+@pytest.mark.parametrize(
+    "build",
+    [build_hvdc, build_monitored_line, build_cascading_hydro],
+)
+def test_variants_omit_loss_cost_eps_by_default(build):
+    """``loss_cost_eps`` is left to gtopt's default (0.1 $/MWh): not
+    emitted in model_options nor on any line."""
+    assert '"loss_cost_eps"' not in json.dumps(build(_case()))

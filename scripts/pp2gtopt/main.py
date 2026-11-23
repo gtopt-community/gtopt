@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import numpy as np
 import pandas as pd
@@ -138,7 +138,7 @@ _PATH_ARGS: tuple[str, ...] = (
 )
 
 
-def _list_networks_and_exit() -> None:
+def _list_networks_and_exit() -> NoReturn:
     """Print available networks and exit."""
     print("Available pandapower test networks:")
     for name, fn in sorted(_NETWORKS.items()):
@@ -716,7 +716,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.list_networks:
         _list_networks_and_exit()
-        return 0
 
     net_file = args.file if args.file is not None else args.matpower
     if net_file is not None:

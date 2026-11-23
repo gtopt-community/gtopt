@@ -132,3 +132,31 @@ def test_extract_bundle_5bus_layout(require_sienna_5bus):
 def test_extract_bundle_cached(require_sienna_5bus):
     """Second call returns the same dir (lru_cache contract)."""
     assert extract_bundle("5bus") == require_sienna_5bus
+
+
+def test_cli_unavailable_bundle_exits_cleanly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Offline + uncached bundle: exit 2 with a message, no traceback."""
+    from sienna_to_gtopt.__main__ import main  # noqa: PLC0415
+
+    _bundle.extract_bundle.cache_clear()  # earlier tests may have cached it
+    monkeypatch.setenv("GTOPT_OFFLINE", "1")
+    monkeypatch.setenv("GTOPT_SIENNA_DATA_DIR", str(tmp_path / "empty"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    rc = main(["hvdc", "-o", str(tmp_path / "x.json")])
+    assert rc == 2
+    assert "not cached" in capsys.readouterr().err
+    assert not (tmp_path / "x.json").exists()
+    _bundle.extract_bundle.cache_clear()
+
+
+def test_cli_rejects_unknown_bundle(tmp_path: Path) -> None:
+    """An unknown ``--bundle`` is an argparse usage error (exit 2)."""
+    from sienna_to_gtopt.__main__ import main  # noqa: PLC0415
+
+    with pytest.raises(SystemExit) as exc:
+        main(["hvdc", "--bundle", "nope", "-o", str(tmp_path / "x.json")])
+    assert exc.value.code == 2

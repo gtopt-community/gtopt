@@ -36,7 +36,7 @@ from pathlib import Path
 
 try:
     import zstandard
-except ImportError:  # pragma: no cover — zstandard is in scripts/pyproject.toml
+except ImportError:  # zstandard is in scripts/pyproject.toml; guarded for bare installs
     zstandard = None  # type: ignore[assignment]
 
 #: Upstream repository (``NREL-Sienna/...`` redirects here) and the

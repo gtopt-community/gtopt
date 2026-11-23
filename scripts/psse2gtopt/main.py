@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from gtopt_config import add_color_argument
+from gtopt_shared.operator import add_operator_argument, select_operator
 from gtopt_shared.cli_signals import (
     install_termination_handlers,
     signal_handler as _signal_handler,  # noqa: F401  re-export for tests
@@ -179,6 +180,7 @@ def make_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    add_operator_argument(parser)
     return parser
 
 
@@ -206,6 +208,7 @@ def main(argv: list[str] | None = None) -> None:
     input_path = _resolve_input(args)
     if input_path is None:
         parser.error("input is required: pass it positionally or via -i")
+    select_operator(args.operator, "psse", input_path, args)
 
     options = {
         "input": input_path,
@@ -236,16 +239,9 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(0 if validate_psse_case(options) else 1)
 
     try:
-        critical = convert_psse_case(options) or 0
+        convert_psse_case(options)
     except (FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    if critical > 0:
-        print(
-            f"error: conversion completed with {critical} CRITICAL finding(s).",
-            file=sys.stderr,
-        )
         sys.exit(1)
 
 

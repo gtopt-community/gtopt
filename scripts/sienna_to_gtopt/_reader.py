@@ -181,10 +181,11 @@ def parse_hydro_upstream(path: Path) -> dict[str, list[str]]:
     with path.open(newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
-            unit = _strip(row.get("hydrounit", ""))
+            unit = _strip(row.get("hydrounit") or "")
             if not unit:
                 continue
-            up_raw = _strip(row.get("upstream", "")).strip("()")
+            # A short row leaves ``upstream`` as None (DictReader restval).
+            up_raw = _strip(row.get("upstream") or "").strip("()")
             ups = (
                 [_strip(piece) for piece in up_raw.split(",") if _strip(piece)]
                 if up_raw

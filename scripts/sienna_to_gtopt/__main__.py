@@ -21,7 +21,7 @@ from pathlib import Path
 
 from sienna_to_gtopt import VARIANTS
 from sienna_to_gtopt._battery_degeneracy import VALID_SUBCASES
-from sienna_to_gtopt._bundle import extract_bundle
+from sienna_to_gtopt._bundle import MANIFEST, BundleUnavailableError, extract_bundle
 from sienna_to_gtopt._reader import load_case
 
 
@@ -47,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--bundle",
         default="5bus",
+        choices=sorted(MANIFEST),
         help=(
             "Which Sienna data bundle to use (default: 5bus).  It is "
             "downloaded from the pinned upstream commit on first use and "
@@ -64,7 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    case_dir = extract_bundle(args.bundle)
+    try:
+        case_dir = extract_bundle(args.bundle)
+    except BundleUnavailableError as exc:
+        print(f"sienna_to_gtopt: error: {exc}", file=sys.stderr)
+        return 2
     case = load_case(case_dir)
     builder = VARIANTS[args.variant]
     if args.variant == "battery_degeneracy":

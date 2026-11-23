@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pandapower as pp
 from gtopt_config import add_common_arguments, configure_logging, get_version
 
 from gtopt2pp.convert import (
@@ -19,13 +20,6 @@ from gtopt2pp.convert import (
 __version__ = get_version()
 
 logger = logging.getLogger(__name__)
-
-try:
-    import pandapower as pp
-
-    _HAS_PP = True
-except ImportError:  # pragma: no cover
-    _HAS_PP = False
 
 
 def _parse_block_spec(spec: str) -> list[int]:

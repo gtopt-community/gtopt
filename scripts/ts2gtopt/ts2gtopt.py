@@ -1316,13 +1316,11 @@ def reconstruct_output_hours(
 
     written: dict[str, Path] = {}
     glob_patterns = ["**/*.csv", "**/*.parquet"]
-    seen: set[Path] = set()
 
+    # The two patterns are disjoint (one suffix each), so no path is
+    # visited twice.
     for pattern in glob_patterns:
         for src_path in sorted(output_dir.glob(pattern)):
-            if src_path in seen:
-                continue
-            seen.add(src_path)
             df = _read_output_table(src_path)
             if df is None:
                 continue

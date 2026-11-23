@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """Core conversion logic for the NREL-118 → gtopt port.
 
 Builds a **full-network, multi-block, multi-stage** gtopt case from the

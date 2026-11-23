@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """pp2gtopt monthly stages with representative blocks (hour-of-day / ldc),
 net.storage → Battery, and the SDDP / monolithic method choice."""
 

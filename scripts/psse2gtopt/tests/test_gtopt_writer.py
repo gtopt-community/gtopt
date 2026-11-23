@@ -215,3 +215,9 @@ def test_negative_load_becomes_fixed_injection(zip_planning: dict) -> None:
     assert g["gcost"] == pytest.approx(0.0)
     uids = [x["uid"] for x in gens]
     assert len(set(uids)) == len(uids)
+
+
+def test_planning_omits_loss_cost_eps_by_default(synthetic_planning: dict) -> None:
+    """``loss_cost_eps`` is left to gtopt's default (0.1 $/MWh): not
+    emitted in model_options nor on any line."""
+    assert '"loss_cost_eps"' not in json.dumps(synthetic_planning)

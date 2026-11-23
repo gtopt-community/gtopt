@@ -133,9 +133,9 @@ def build_pumped_storage(case: SiennaCase) -> dict[str, Any]:
             "name": "phes",
             "type": "pumped",
             # Pumped hydro: no lithium self-discharge — pin 0 so gtopt's
-            # 4 %/month battery default (model_options.battery_annual_loss)
+            # 4 %/month battery default (model_options.battery_annual_standing_loss)
             # does not apply.
-            "annual_loss": 0.0,
+            "annual_standing_loss": 0.0,
             "bus": primary_bus,
             "input_efficiency": DEFAULT_PUMP_EFF,
             "output_efficiency": DEFAULT_GEN_EFF,

@@ -525,6 +525,7 @@ class TestCascadeOptionKeys:
             "elastic_mode",
             # Chunked-aperture pass knobs (added to the C++ JSON binding;
             # this expected set was stale and never updated for them).
+            "aperture_chunk_mode",
             "aperture_chunk_size",
             "aperture_solve_mode",
             # Screened dual-shared re-solve budget (2026-07 stochastic

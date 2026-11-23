@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 """NREL-118 source data: on-demand download, cache layout and CSV readers.
 
 The NREL-118 CSVs live in the ``118-Bus/`` directory of
