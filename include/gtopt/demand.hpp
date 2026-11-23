@@ -36,6 +36,7 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
+#include <gtopt/fail_segment.hpp>
 #include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
@@ -72,6 +73,8 @@ struct DemandAttrs
                                  ///< file-backed schedule.  Mirrors UC.jl's
                                  ///< per-hour ``Revenue ($/MW)`` on
                                  ///< price-sensitive loads.
+  Array<FailSegment> fail_segments {};  ///< Stepwise VoLL curve; see
+                                        ///< ``Demand::fail_segments``.
   OptBool forced {};  ///< When true, load is fixed at lmax (PLP-style)
   OptTRealFieldSched
       emin {};  ///< Minimum energy that must be served per stage [MWh]
@@ -129,6 +132,12 @@ struct Demand
                                  ///< per-(stage, block); see
                                  ///< ``DemandAttrs::fcost`` for accepted
                                  ///< JSON shapes.
+  /// Stepwise demand-failure (VoLL) curve.  When non-empty it takes
+  /// precedence over ``fcost`` and the global defaults: the served load
+  /// is split into one LP column per segment (bounds
+  /// ``fraction_k × lmax``, cost ``cost_k``).  A single segment is
+  /// LP-identical to ``fcost``.  See ``FailSegment``.
+  Array<FailSegment> fail_segments {};
   OptBool forced {};  ///< When true, load is fixed at lmax (PLP-style)
   OptTRealFieldSched
       emin {};  ///< Minimum energy that must be served per stage [MWh]
@@ -164,6 +173,7 @@ struct Demand
     self.lmin = std::exchange(attrs.lmin, {});
     self.lossfactor = std::exchange(attrs.lossfactor, {});
     self.fcost = std::exchange(attrs.fcost, {});
+    self.fail_segments = std::exchange(attrs.fail_segments, {});
     self.forced = std::exchange(attrs.forced, {});
     self.emin = std::exchange(attrs.emin, {});
     self.ecost = std::exchange(attrs.ecost, {});

@@ -9,6 +9,11 @@
  * This module implements DemandLP construction and add_to_lp, which builds
  * LP variables and constraints for load, curtailment, and energy limits.
  */
+#include <algorithm>
+#include <format>
+#include <numeric>
+#include <stdexcept>
+
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -27,8 +32,49 @@ DemandLP::DemandLP(const Demand& pdemand, const InputContext& ic)
     , emin(ic, Element::class_name, id(), std::move(object().emin))
     , ecost(ic, Element::class_name, id(), std::move(object().ecost))
 {
+  auto& segs = object().fail_segments;
+  if (segs.size() > max_fail_segments) {
+    throw std::invalid_argument(
+        std::format("Demand '{}': fail_segments has {} segments (max {})",
+                    id().second,
+                    segs.size(),
+                    max_fail_segments));
+  }
+  if (!segs.empty()) {
+    own_seg_widths_ =
+        resolve_fail_segment_widths(std::span<const FailSegment> {segs});
+    seg_costs_.reserve(segs.size());
+    for (auto& seg : segs) {
+      seg_costs_.emplace_back(
+          ic, Element::class_name, id(), std::move(seg.cost));
+    }
+  }
   SPDLOG_DEBUG("DemandLP created: uid={} name='{}'", id().first, id().second);
 }
+
+namespace
+{
+/// One served-load tranche of a (possibly single-segment) failure curve
+/// at a given stage: width as a fraction of `lmax` and cost [$/MWh].
+struct FailTranche
+{
+  double width {1.0};
+  double cost {0.0};
+};
+
+/// Index of the most expensive tranche (ties -> the later one).  It
+/// absorbs the firm remainder and receives the served-load floor first.
+[[nodiscard]] std::size_t top_tranche(std::span<const FailTranche> t) noexcept
+{
+  std::size_t top = 0;
+  for (std::size_t k = 1; k < t.size(); ++k) {
+    if (t[k].cost >= t[top].cost) {
+      top = k;
+    }
+  }
+  return top;
+}
+}  // namespace
 
 double DemandLP::fail_sol_at(const ScenarioLP& scenario,
                              const StageLP& stage,
@@ -67,8 +113,25 @@ double DemandLP::fail_sol_at(const ScenarioLP& scenario,
   if (lc_block_it == lc_it->second.end()) {
     return 0.0;
   }
-  const double load_sol = col_sol[lc_block_it->second];
-  return std::max(0.0, lmax_block_it->second - load_sol);
+  // Σ over the tranche columns (stepwise curve) or the single load col.
+  double col_sum = 0.0;
+  if (const auto segs = load_segment_cols(scenario, stage, block.uid());
+      !segs.empty())
+  {
+    for (const auto& col : segs) {
+      col_sum += col_sol[col];
+    }
+  } else {
+    col_sum = col_sol[lc_block_it->second];
+  }
+  // Option C: the columns carry `served_k − u_k`, so `fail = −Σ col`.
+  if (const auto off_it = block_offset_values_.find(st_key);
+      off_it != block_offset_values_.end()
+      && off_it->second.contains(block.uid()))
+  {
+    return std::max(0.0, -col_sum);
+  }
+  return std::max(0.0, lmax_block_it->second - col_sum);
 }
 
 bool DemandLP::add_to_lp(SystemContext& sc,
@@ -113,9 +176,66 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  const bool is_forced = demand().forced.value_or(false);
+
+  // ── Stepwise failure curve (fail_segments) ───────────────────────
+  //
+  // Precedence (per demand): `forced` → no failure; own
+  // `Demand.fail_segments` → segments; own `Demand.fcost` → single
+  // tranche; global `model_options.demand_fail_segments` → segments;
+  // global `model_options.demand_fail_cost` → single tranche; else the
+  // load is unpenalized (no substitution).
+  //
+  // The curve is modelled by splitting the served load into K tranche
+  // columns `served_k ∈ [lb_k, u_k]`, `u_k = width_k × lmax`, each with
+  // cost `−cost_k` and the `+cost_k × u_k` baseline on the objective
+  // constant (the per-tranche version of the P0 substitution
+  // `fail_k = u_k − served_k`).  No extra rows: every tranche enters
+  // the bus-balance (and capacity) row with the same coefficient as the
+  // single load column.  With non-decreasing costs the LP curtails the
+  // cheapest tranche first, i.e. it realises the convex stepwise VoLL
+  // curve exactly.  K = 1 reproduces the single `load` column.
+  const auto global_segs = sc.options().demand_fail_segments();
+  const bool own_segs = !seg_costs_.empty();
+  const bool use_global_segs =
+      !own_segs && !fcost.has_value() && !global_segs.empty();
+  const bool segmented_curve = !is_forced && (own_segs || use_global_segs);
+  std::vector<FailTranche> stage_tranches;
+  double stage_firm = 0.0;
+  if (segmented_curve) {
+    if (own_segs) {
+      stage_firm = own_seg_widths_.firm;
+      stage_tranches.reserve(seg_costs_.size());
+      for (std::size_t k = 0; k < seg_costs_.size(); ++k) {
+        stage_tranches.push_back({
+            .width = own_seg_widths_.widths[k],
+            .cost =
+                seg_costs_[k]
+                    .optval(stage.uid())
+                    .value_or(sc.options().demand_fail_cost().value_or(0.0)),
+        });
+      }
+    } else {
+      const auto widths = resolve_fail_segment_widths(global_segs);
+      stage_firm = widths.firm;
+      stage_tranches.reserve(global_segs.size());
+      for (std::size_t k = 0; k < global_segs.size(); ++k) {
+        stage_tranches.push_back({
+            .width = widths.widths[k],
+            .cost = global_segs[k].cost.value_or(0.0),
+        });
+      }
+    }
+  }
+  const bool multi_tranche = stage_tranches.size() > 1;
+
   // adding the minimum energy constraint
   const auto stage_emin = emin.optval(stage.uid());
   auto stage_ecost = ecost.optval(stage.uid());
+  // ecost fallback under a stepwise curve: the most expensive segment.
+  if (!stage_ecost && !stage_tranches.empty()) {
+    stage_ecost = stage_tranches[top_tranche(stage_tranches)].cost;
+  }
   // ecost fallback: when `Demand.ecost` is unset, reuse `fcost` sampled
   // at the first block of the stage.  `fcost` is now per-(stage, block);
   // the stage-level emin/ecost feature is itself per-stage, so we sample
@@ -194,7 +314,13 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   BIndexHolder<double> block_offsets;  // Option C: AMPL offset map
                                        // = block_lmax so user constraints
                                        // resolve `demand.load` -> col + lmax
-  const bool is_forced = demand().forced.value_or(false);
+  BIndexHolder<std::vector<ColIndex>> scols;  // K ≥ 2 tranche cols
+  BIndexHolder<std::vector<double>> scaps;  // K ≥ 2 tranche caps u_k
+  // AMPL `demand.fail = Σ −col_k + offset` (Option A offset = lmax).
+  BIndexHolder<std::vector<std::pair<ColIndex, double>>> fail_terms;
+  BIndexHolder<double> fail_offsets;
+  // AMPL `demand.load = Σ col_k (+ lmax under Option C)` for K ≥ 2.
+  BIndexHolder<std::vector<std::pair<ColIndex, double>>> load_terms;
   // Option C (experimental, opt-in via
   // `model_options.demand_fail_rhs_shift`; legacy
   // `demand_option_c` accepted as alias via naming-dialects).
@@ -221,7 +347,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   // resolution happens inside the block loop via
   // `sc.demand_fail_cost(stage, block, fcost)`.
   const bool fail_substituted =
-      ((fcost.has_value() || sc.options().demand_fail_cost().has_value())
+      ((fcost.has_value() || sc.options().demand_fail_cost().has_value()
+        || segmented_curve)
        && !is_forced);
   const bool use_option_c = fail_substituted && option_c;
 
@@ -300,55 +427,130 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       // block.  Floor at 0 (no negative floors).
       const auto block_lmin =
           std::max(0.0, lmin.optval(stage.uid(), buid).value_or(0.0));
-      double col_lowb = std::max(block_lmin, is_forced ? block_lmax : 0.0);
-      double col_uppb = block_lmax;
-      double lcol_cost = 0.0;
+
+      // Tranche list for this block: the stage curve (K ≥ 1 segments)
+      // or a single tranche carrying the per-block `fcost` fallback.
+      std::vector<FailTranche> tranches;
+      double firm = 0.0;
       if (fail_substituted) {
-        const auto block_fcost = sc.demand_fail_cost(stage, block, fcost);
-        const auto block_ecost = CostHelper::block_ecost(
-            scenario, stage, block, block_fcost.value_or(0.0));
-        lcol_cost = -block_ecost;
-        if (block_ecost > 0.0) {
-          fail_penalized_ = true;
-        }
-        if (use_option_c) {
-          // Option C: col represents neg_fail ∈ [-lmax, 0].
-          col_lowb = -block_lmax;
-          col_uppb = 0.0;
+        if (!stage_tranches.empty()) {
+          tranches = stage_tranches;
+          firm = stage_firm;
         } else {
-          // Option A: col represents load ∈ [0, lmax].
-          // obj_constant carries the +fail_cost × ecost × lmax
-          // baseline so `get_obj_value()` matches the
-          // algebraically-original pre-substitution objective.
-          lp.add_obj_constant(block_ecost * block_lmax);
+          tranches.push_back({
+              .width = 1.0,
+              .cost = sc.demand_fail_cost(stage, block, fcost).value_or(0.0),
+          });
         }
+      } else {
+        // Unpenalized (forced, or no fcost anywhere): `load` column with
+        // zero cost.
+        tranches.push_back({.width = 1.0, .cost = 0.0});
       }
-      const auto lcol = lp.add_col({
-          .lowb = col_lowb,
-          .uppb = col_uppb,
-          .cost = lcol_cost,
-          .class_name = Element::class_name.full_name(),
-          .variable_name = LoadName,
-          .variable_uid = uid(),
-          .context = block_ctx,
-      });
+      const auto ntr = tranches.size();
+      const auto top = top_tranche(tranches);
+
+      // Tranche upper bounds `u_k`; the firm remainder rides on the
+      // most expensive tranche so Σ u_k == lmax.
+      std::vector<double> caps(ntr);
+      for (std::size_t k = 0; k < ntr; ++k) {
+        caps[k] = tranches[k].width * block_lmax;
+      }
+      caps[top] += firm * block_lmax;
+
+      // Served-load floor `F = max(lmin, firm × lmax, forced ? lmax : 0)`
+      // distributed greedily from the most expensive tranche down —
+      // exact for a convex curve, since tranches are perfect
+      // substitutes in every row and the LP curtails the cheapest first.
+      const double floor_load = std::max(
+          {block_lmin, firm * block_lmax, is_forced ? block_lmax : 0.0});
+      std::vector<double> lows(ntr, 0.0);
+      if (ntr == 1) {
+        lows[0] = floor_load;
+      } else {
+        std::vector<std::size_t> order(ntr);
+        std::ranges::iota(order, std::size_t {0});
+        std::ranges::stable_sort(order,
+                                 [&](std::size_t a, std::size_t b)
+                                 {
+                                   if (tranches[a].cost != tranches[b].cost) {
+                                     return tranches[a].cost > tranches[b].cost;
+                                   }
+                                   return a > b;
+                                 });
+        double rest = floor_load;
+        for (const auto k : order) {
+          lows[k] = std::min(rest, caps[k]);
+          rest -= lows[k];
+        }
+        lows[top] += std::max(0.0, rest);  // lmin > lmax: keep infeasible
+      }
+
+      std::vector<ColIndex> tcols;
+      tcols.reserve(ntr);
+      auto& fterms = fail_terms[buid];
+      fterms.reserve(ntr);
+      for (std::size_t k = 0; k < ntr; ++k) {
+        double col_lowb = lows[k];
+        double col_uppb = caps[k];
+        double col_cost = 0.0;
+        if (fail_substituted) {
+          const auto block_ecost =
+              CostHelper::block_ecost(scenario, stage, block, tranches[k].cost);
+          col_cost = -block_ecost;
+          if (block_ecost > 0.0) {
+            fail_penalized_ = true;
+          }
+          if (use_option_c) {
+            // Option C: col represents `served_k − u_k ∈ [lb_k − u_k, 0]`.
+            col_lowb = (k == 0 && ntr == 1) ? -block_lmax : lows[k] - caps[k];
+            col_uppb = 0.0;
+          } else {
+            // Option A: col represents served_k ∈ [lb_k, u_k].
+            // obj_constant carries the +fail_cost × ecost × u_k
+            // baseline so `get_obj_value()` matches the
+            // algebraically-original pre-substitution objective.
+            lp.add_obj_constant(block_ecost * caps[k]);
+          }
+        }
+        const auto tcol = lp.add_col({
+            .lowb = col_lowb,
+            .uppb = col_uppb,
+            .cost = col_cost,
+            .class_name = Element::class_name.full_name(),
+            .variable_name = (k == 0) ? LoadName : LoadSegName,
+            .variable_uid = uid(),
+            .context = (k == 0)
+                ? LpContext {block_ctx}
+                : LpContext {make_block_context(scenario.uid(),
+                                                stage.uid(),
+                                                block.uid(),
+                                                static_cast<int>(k + 1))},
+        });
+        tcols.push_back(tcol);
+        bus_brow[tcol] = -(1.0 + block_lossfactor);
+        fterms.emplace_back(tcol, -1.0);
+      }
+      const auto lcol = tcols.front();
 
       lcols[buid] = lcol;
       // Cache the post-capacity-clamp `lmax` so `add_to_output` can
       // reconstruct `load` / `fail` without re-walking `block_max_at`.
       block_lmaxs[buid] = block_lmax;
-      bus_brow[lcol] = -(1.0 + block_lossfactor);
+      if (!use_option_c) {
+        fail_offsets[buid] = block_lmax;
+      }
 
       if (use_option_c) {
         // AMPL offset = lmax so `demand.load = col + lmax` for
         // user constraints (see ResolvedCol::offset).
         block_offsets[buid] = block_lmax;
         // Bus balance RHS shift: +(1+loss)·lmax per elastic-demand
-        // block.  A strict balance is an equality row (default
-        // lowb == uppb == 0), so we shift both bounds equally.  Under
-        // `model_options.allow_oversupply` BusLP built the row as `≥`
-        // (uppb already unbounded); shifting only the lower bound keeps
-        // it `generation ≥ demand`, so guard the upper shift.
+        // block (Σ u_k == lmax).  A strict balance is an equality row
+        // (default lowb == uppb == 0), so we shift both bounds equally.
+        // Under `model_options.allow_oversupply` BusLP built the row as
+        // `≥` (uppb already unbounded); shifting only the lower bound
+        // keeps it `generation ≥ demand`, so guard the upper shift.
         const double bus_rhs_shift = (1.0 + block_lossfactor) * block_lmax;
         bus_brow.lowb += bus_rhs_shift;
         if (bus_brow.uppb < LinearProblem::DblMax) {
@@ -358,8 +560,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
       // adding the capacity constraint
       if (capacity_col) {
-        // Option C: `cap_col − neg_fail ≥ lmax` (RHS shift +lmax).
-        // Option A / non-substituted: `cap_col − load ≥ 0`.
+        // Option C: `cap_col − Σ col_k ≥ lmax` (RHS shift +lmax).
+        // Option A / non-substituted: `cap_col − Σ served_k ≥ 0`.
         const double crow_rhs = use_option_c ? block_lmax : 0.0;
         auto crow =
             SparseRow {
@@ -371,9 +573,21 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                 .greater_equal(crow_rhs);
 
         crow[*capacity_col] = 1.0;
-        crow[lcol] = -1.0;
+        for (const auto tcol : tcols) {
+          crow[tcol] = -1.0;
+        }
 
         crows[buid] = lp.add_row(std::move(crow));
+      }
+
+      if (multi_tranche) {
+        auto& lterms = load_terms[buid];
+        lterms.reserve(ntr);
+        for (const auto tcol : tcols) {
+          lterms.emplace_back(tcol, 1.0);
+        }
+        scaps[buid] = std::move(caps);
+        scols[buid] = std::move(tcols);
       }
     }
 
@@ -409,6 +623,32 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   if (!lcols.empty()) {
     load_cols[st_key] = std::move(lcols);
+    // `demand.fail` (always a virtual sum, no LP column): Σ −col_k plus
+    // the per-block offset `lmax` under Option A (0 under Option C).
+    if (fail_substituted) {
+      sc.add_ampl_variable(ampl_name,
+                           uid(),
+                           FailName,
+                           scenario,
+                           stage,
+                           fail_terms,
+                           fail_offsets);
+    }
+  }
+  if (!scols.empty()) {
+    // Stepwise curve (K ≥ 2): `demand.load` = Σ_k col_k (+ lmax under
+    // Option C) — a virtual sum over the tranche columns.
+    seg_cols_[st_key] = std::move(scols);
+    seg_caps_[st_key] = std::move(scaps);
+    sc.add_ampl_variable(
+        ampl_name,
+        uid(),
+        LoadName,
+        scenario,
+        stage,
+        load_terms,
+        use_option_c ? block_offsets : BIndexHolder<double> {});
+  } else if (load_cols.contains(st_key)) {
     if (!block_offsets.empty()) {
       // Option C: col represents `neg_fail = load − lmax`; register
       // the per-block offset so the AMPL resolver reports
@@ -438,16 +678,12 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   }
 
   // P0: `fail_cols` / `balance_rows` are gone — substituted away via
-  // `fail = lmax − load`.  The constant baseline is in
-  // `lp.add_obj_constant(...)` (per block, accumulated above); the
-  // `Demand/fail_sol.csv` output is reconstructed in `add_to_output`
-  // from `block_lmax_values_` and `load_cols`'s primal solution.
-  //
-  // `fail` is no longer registered as an AMPL variable either —
-  // user constraints that referenced `demand.fail` would need to be
-  // rewritten in terms of `demand.load` (or `lmax − demand.load`)
-  // post-substitution; no production user-constraint does this on
-  // the current corpus (grep, 2026-05-15).
+  // `fail = lmax − load` (per tranche: `fail_k = u_k − served_k`).  The
+  // constant baseline is in `lp.add_obj_constant(...)` (per block,
+  // accumulated above); `Demand/fail_sol` (and `fail_seg<k>_sol`) are
+  // reconstructed in `add_to_output` from the cached bounds and the
+  // tranche columns' primal solution.  `demand.fail` is exposed to
+  // user constraints as a virtual weighted sum (registered above).
 
   // `capainst` is registered centrally by CapacityBase::add_to_lp.
 
@@ -467,7 +703,11 @@ bool DemandLP::add_to_output(OutputContext& out) const
   // under Option C is the reduced cost of `neg_fail`, sign-flipped,
   // with no downstream consumer).
   const bool option_c_active = !block_offset_values_.empty();
-  if (!option_c_active) {
+  // Stepwise curve (K ≥ 2): `load` is the sum of the tranche columns,
+  // so it is reconstructed below rather than read off one column.
+  const bool segmented = !seg_cols_.empty();
+  const bool reconstruct_load = option_c_active || segmented;
+  if (!reconstruct_load) {
     out.add_col_sol(cname, LoadName, pid, load_cols);
     out.add_col_cost(cname, LoadName, pid, load_cols);
   }
@@ -503,6 +743,8 @@ bool DemandLP::add_to_output(OutputContext& out) const
   // emitted above via the direct add_col_sol path.
   STBIndexHolder<double> load_sol_values;
   STBIndexHolder<double> fail_sol_values;
+  // Per-segment failure `fail_k` (K ≥ 2 only), one holder per segment.
+  std::vector<STBIndexHolder<double>> fail_seg_values;
   for (const auto& [st_key, lmax_block] : block_lmax_values_) {
     const auto lc_it = load_cols.find(st_key);
     if (lc_it == load_cols.end()) {
@@ -510,17 +752,44 @@ bool DemandLP::add_to_output(OutputContext& out) const
     }
     const auto off_it = block_offset_values_.find(st_key);
     const bool has_offset = (off_it != block_offset_values_.end());
+    const auto sc_it = seg_cols_.find(st_key);
+    const bool has_segs = (sc_it != seg_cols_.end());
 
     BIndexHolder<double> load_block;
     BIndexHolder<double> fail_block;
     map_reserve(fail_block, lmax_block.size());
-    if (has_offset) {
+    if (has_offset || has_segs) {
       map_reserve(load_block, lmax_block.size());
     }
     for (const auto& [buid, block_lmax] : lmax_block) {
       const auto lc_block_it = lc_it->second.find(buid);
       if (lc_block_it == lc_it->second.end()) {
         continue;
+      }
+      if (has_segs) {
+        const auto bc_it = sc_it->second.find(buid);
+        if (bc_it != sc_it->second.end()) {
+          const auto& tcols = bc_it->second;
+          const auto& caps = seg_caps_.at(st_key).at(buid);
+          if (fail_seg_values.size() < tcols.size()) {
+            fail_seg_values.resize(tcols.size());
+          }
+          double served = 0.0;
+          double fail_total = 0.0;
+          for (std::size_t k = 0; k < tcols.size(); ++k) {
+            const double primal = out.primal(tcols[k]);
+            // Option A: col = served_k → fail_k = u_k − served_k.
+            // Option C: col = served_k − u_k → fail_k = −col.
+            const double fail_k =
+                std::max(0.0, has_offset ? -primal : caps[k] - primal);
+            served += has_offset ? primal + caps[k] : primal;
+            fail_total += fail_k;
+            fail_seg_values[k][st_key][buid] = fail_k;
+          }
+          load_block[buid] = std::max(0.0, served);
+          fail_block[buid] = fail_total;
+          continue;
+        }
       }
       const double col_primal = out.primal(lc_block_it->second);
       double offset = 0.0;
@@ -543,14 +812,14 @@ bool DemandLP::add_to_output(OutputContext& out) const
         fail_block[buid] = std::max(0.0, block_lmax - col_primal);
       }
     }
-    if (has_offset && !load_block.empty()) {
+    if (!load_block.empty()) {
       load_sol_values[st_key] = std::move(load_block);
     }
     if (!fail_block.empty()) {
       fail_sol_values[st_key] = std::move(fail_block);
     }
   }
-  if (option_c_active) {
+  if (reconstruct_load) {
     out.add_col_sol_values(cname, LoadName, pid, load_sol_values);
   }
   // Only emit fail_sol when failure is actually penalized.  An unpenalized
@@ -559,6 +828,9 @@ bool DemandLP::add_to_output(OutputContext& out) const
   // curtailment — emitting it pollutes Demand/fail_sol.
   if (fail_penalized_) {
     out.add_col_sol_values(cname, FailName, pid, fail_sol_values);
+    for (std::size_t k = 0; k < fail_seg_values.size(); ++k) {
+      out.add_col_sol_values(cname, FailSegNames[k], pid, fail_seg_values[k]);
+    }
   }
 
   return CapacityBase::add_to_output(out);

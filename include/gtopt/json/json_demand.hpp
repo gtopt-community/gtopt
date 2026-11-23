@@ -14,6 +14,7 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/demand.hpp>
+#include <gtopt/json/json_fail_segment.hpp>
 #include <gtopt/json/json_field_sched.hpp>
 #include <gtopt/json/json_single_id.hpp>
 
@@ -35,6 +36,9 @@ struct json_data_contract<DemandAttrs>
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
       json_variant_null<"fcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_array_null<"fail_segments",
+                      std::vector<gtopt::FailSegment>,
+                      gtopt::FailSegment>,
       json_bool_null<"forced", OptBool>,
       json_variant_null<"emin", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"ecost", OptTRealFieldSched, jvtl_TRealFieldSched>,
@@ -59,6 +63,7 @@ struct json_data_contract<DemandAttrs>
                                  attrs.lmin,
                                  attrs.lossfactor,
                                  attrs.fcost,
+                                 attrs.fail_segments,
                                  attrs.forced,
                                  attrs.emin,
                                  attrs.ecost,
@@ -90,6 +95,9 @@ struct json_data_contract<Demand>
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
       json_variant_null<"fcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_array_null<"fail_segments",
+                      std::vector<gtopt::FailSegment>,
+                      gtopt::FailSegment>,
       json_bool_null<"forced", OptBool>,
       json_variant_null<"emin", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"ecost", OptTRealFieldSched, jvtl_TRealFieldSched>,
@@ -117,6 +125,7 @@ struct json_data_contract<Demand>
                                  demand.lmin,
                                  demand.lossfactor,
                                  demand.fcost,
+                                 demand.fail_segments,
                                  demand.forced,
                                  demand.emin,
                                  demand.ecost,

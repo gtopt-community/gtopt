@@ -1,5 +1,9 @@
 #pragma once
 
+#include <array>
+#include <span>
+#include <vector>
+
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/bus_lp.hpp>
@@ -20,6 +24,30 @@ public:
   static constexpr std::string_view CapacityName {"capacity"};
   static constexpr std::string_view EminName {"emin"};
   static constexpr std::string_view LmanName {"lman"};
+  /// LP variable name of the served-load tranche columns k ≥ 2 of a
+  /// stepwise failure curve (`fail_segments`).  Tranche 1 keeps the
+  /// `load` name so a single-segment curve is LP-identical to `fcost`.
+  static constexpr std::string_view LoadSegName {"lseg"};
+  /// Per-segment failure output field names (`Demand/fail_seg<k>_sol`).
+  static constexpr std::array<std::string_view, max_fail_segments>
+      FailSegNames {
+          "fail_seg1",
+          "fail_seg2",
+          "fail_seg3",
+          "fail_seg4",
+          "fail_seg5",
+          "fail_seg6",
+          "fail_seg7",
+          "fail_seg8",
+          "fail_seg9",
+          "fail_seg10",
+          "fail_seg11",
+          "fail_seg12",
+          "fail_seg13",
+          "fail_seg14",
+          "fail_seg15",
+          "fail_seg16",
+      };
   /// Filter metadata keys published by `add_to_lp` for `sum(...)`
   /// predicate matching.
   static constexpr std::string_view TypeKey {"type"};
@@ -69,6 +97,35 @@ public:
     return find_or_empty_inner(load_cols, scenario, stage);
   }
 
+  /// True when the served load is split into K ≥ 2 tranche columns
+  /// (stepwise failure curve active).  Consumers that reference the
+  /// demand's load column must then use `load_segment_cols`.
+  [[nodiscard]] bool has_fail_segments() const noexcept
+  {
+    return !seg_cols_.empty();
+  }
+
+  /// All K tranche columns of (scenario, stage, block) when the demand
+  /// uses a stepwise failure curve (K ≥ 2); empty span otherwise (the
+  /// single `load_cols` column then carries the whole served load).
+  /// The physical served load is the plain sum of these columns
+  /// (Option A) — every row that references `load` must stamp each.
+  [[nodiscard]] std::span<const ColIndex> load_segment_cols(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    const auto it = seg_cols_.find({scenario.uid(), stage.uid()});
+    if (it == seg_cols_.end()) {
+      return {};
+    }
+    const auto bit = it->second.find(buid);
+    if (bit == it->second.end()) {
+      return {};
+    }
+    return bit->second;
+  }
+
   /// Reconstructed failure quantity at (scenario, stage, block).
   ///
   /// After the P0 demand-failure substitution (`fail = lmax − load`)
@@ -111,6 +168,20 @@ private:
 
   OptTRealSched emin;
   OptTRealSched ecost;
+
+  /// Own stepwise failure curve (`Demand.fail_segments`): resolved
+  /// widths (fractions of lmax) + firm remainder, and the per-segment
+  /// per-stage cost schedules.  Empty when the demand has no own curve.
+  FailSegmentWidths own_seg_widths_ {};
+  std::vector<OptTRealSched> seg_costs_ {};
+
+  /// Tranche columns per (scenario, stage, block) when K ≥ 2 (index 0
+  /// is the `load_cols` column).  Empty for unsegmented demands.
+  STBIndexHolder<std::vector<ColIndex>> seg_cols_;
+  /// Tranche upper bounds `u_k` [MW] per (scenario, stage, block),
+  /// parallel to `seg_cols_`; used to reconstruct per-segment failure
+  /// `fail_k = u_k − served_k` (Option A).
+  STBIndexHolder<std::vector<double>> seg_caps_;
 
   STBIndexHolder<ColIndex> load_cols;
   STBIndexHolder<RowIndex> capacity_rows;

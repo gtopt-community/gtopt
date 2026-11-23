@@ -95,7 +95,7 @@ namespace
 
 // ── Invariant 1 — Option C alone ─────────────────────────────────────
 
-TEST_CASE("Option C — obj_constant stays 0; raw obj == physical obj")
+TEST_CASE("Option C — obj_constant stays 0, raw obj == physical obj")
 {
   const auto simulation = make_single_block_simulation();
   const auto system = make_demand_gen_system(/*gen_capacity=*/300.0);
