@@ -473,7 +473,7 @@ TEST_CASE(
     // 1 binary + 3 SOS2 members pinned.
     CHECK(fix->fixed_columns == 4);
     REQUIRE(fix->status.has_value());
-    CHECK(*fix->status == 0);
+    CHECK(fix->status.value_or(-1) == 0);
     REQUIRE(li->is_optimal());
 
     // PUBLISHED primal must still be the incumbent: y = 1 and the λ
@@ -866,7 +866,7 @@ struct ForcedBailEnv
 /// `(scenario, stage, block, uid, value)` with float32 values under
 /// `output_round_decimals = 5`.
 [[nodiscard]] auto leaf_value_for_uid(const std::filesystem::path& dataset_dir,
-                                      uint16_t uid) -> std::optional<double>
+                                      int32_t uid) -> std::optional<double>
 {
   auto table_res =
       parquet_read_table(dataset_dir / "scene=0" / "phase=0" / "part");
@@ -878,7 +878,7 @@ struct ForcedBailEnv
     return std::nullopt;
   }
   const auto uid_col =
-      std::static_pointer_cast<arrow::UInt16Array>(table->column(3)->chunk(0));
+      std::static_pointer_cast<arrow::Int32Array>(table->column(3)->chunk(0));
   const auto val_col =
       std::static_pointer_cast<arrow::FloatArray>(table->column(4)->chunk(0));
   if (uid_col == nullptr || val_col == nullptr) {
@@ -1063,12 +1063,12 @@ TEST_CASE(
   const auto flow_out =
       leaf_value_for_uid(tmpdir / "Line" / "flow_sol.parquet", 1);
   REQUIRE(flow_out.has_value());
-  CHECK(*flow_out == doctest::Approx(flow_inc).epsilon(1e-4));
+  CHECK(flow_out.value_or(-1.0) == doctest::Approx(flow_inc).epsilon(1e-4));
 
   const auto gen_out =
       leaf_value_for_uid(tmpdir / "Generator" / "generation_sol.parquet", 1);
   REQUIRE(gen_out.has_value());
-  CHECK(*gen_out == doctest::Approx(gen_inc).epsilon(1e-4));
+  CHECK(gen_out.value_or(-1.0) == doctest::Approx(gen_inc).epsilon(1e-4));
 
   // Dual-dependent stems are ABSENT — skipped, not zero-filled.
   CHECK(!std::filesystem::exists(tmpdir / "Line" / "flow_cost.parquet"));
@@ -1129,7 +1129,7 @@ TEST_CASE(
   const auto flow14_out =
       leaf_value_for_uid(tmpdir / "Line" / "flow_sol.parquet", 4);
   REQUIRE(flow14_out.has_value());
-  CHECK(*flow14_out == doctest::Approx(f14).epsilon(1e-4));
+  CHECK(flow14_out.value_or(-1.0) == doctest::Approx(f14).epsilon(1e-4));
 
   CHECK(!std::filesystem::exists(tmpdir / "Line" / "flow_cost.parquet"));
   CHECK(!std::filesystem::exists(tmpdir / "Bus" / "balance_dual.parquet"));

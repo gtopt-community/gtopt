@@ -1267,6 +1267,10 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       // is always slack contributes no primal/dual to any stream.
       if (has_min_starts && min_starts_v > 0.0) {
         SparseRow lower_row {window_row};
+        // Distinct constraint_name: the upper and lower rows share the
+        // window context, so reusing ``max_starts`` collides in the
+        // LinearProblem row-metadata dedup when both bounds are set.
+        lower_row.constraint_name = MinStartsName;
         auto bound = std::move(lower_row).greater_equal(min_starts_v);
         // Capture the row index but don't store it in a dedicated
         // holder — sensitivity work on forced-commitment can read the

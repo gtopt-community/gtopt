@@ -698,7 +698,7 @@ TEST_CASE(
 
 TEST_CASE(
     "InertiaProvisionLP - one provider spans both zones with distinct "
-    "requirements; the tighter zone binds the provision")
+    "requirements, the tighter zone binds the provision")
 {
   // Single generator providing inertia to BOTH zones with the same
   // provision_factor.  The two zones have **different** requirements

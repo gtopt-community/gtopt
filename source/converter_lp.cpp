@@ -11,6 +11,8 @@
  */
 
 #include <algorithm>
+#include <format>
+#include <stdexcept>
 #include <tuple>
 #include <vector>
 
@@ -78,6 +80,14 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   // Tolerant lookup: a battery with pmax_charge = 0 in every block of the
   // stage has no load columns at all (P1 zero-lmax skip).
   auto&& demand_cols = dem_ptr->lookup_load_cols(scenario, stage);
+  if (dem_ptr->has_fail_segments()) {
+    throw std::runtime_error(std::format(
+        "Converter uid={}: demand uid={} uses a stepwise failure curve "
+        "(fail_segments); a converter charge demand must be a single "
+        "load column (set its fcost)",
+        uid(),
+        dem_ptr->uid()));
+  }
   auto&& finp_cols = bat_ptr->finp_cols_at(scenario, stage);
   auto&& fout_cols = bat_ptr->fout_cols_at(scenario, stage);
 

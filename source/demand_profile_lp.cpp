@@ -10,6 +10,9 @@
  * which applies time-varying profile factors to demand load variables.
  */
 
+#include <format>
+#include <stdexcept>
+
 #include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -37,6 +40,13 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
   }
 
   auto&& load_cols = demand.load_cols_at(scenario, stage);
+  if (demand.has_fail_segments()) {
+    throw std::runtime_error(std::format(
+        "DemandProfile uid={}: demand uid={} uses a stepwise failure curve "
+        "(fail_segments), not supported together with a DemandProfile",
+        uid(),
+        demand.uid()));
+  }
 
   const auto [opt_capacity, capacity_col] = demand.capacity_and_col(stage, lp);
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);

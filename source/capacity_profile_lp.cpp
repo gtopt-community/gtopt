@@ -7,6 +7,10 @@
  *            see LICENSING.md
  */
 
+#include <format>
+#include <stdexcept>
+#include <type_traits>
+
 #include <gtopt/capacity_profile_lp.hpp>
 #include <gtopt/capacity_profile_traits.hpp>
 #include <gtopt/system_context.hpp>
@@ -56,6 +60,16 @@ bool CapacityProfileLP::add_to_lp(const SystemContext& sc,
           return true;
         }
 
+        if constexpr (std::is_same_v<OwnerLP, DemandLP>) {
+          if (owner.has_fail_segments()) {
+            throw std::runtime_error(std::format(
+                "CapacityProfile uid={}: demand uid={} uses a stepwise "
+                "failure curve (fail_segments), not supported together "
+                "with a capacity profile",
+                uid(),
+                owner.uid()));
+          }
+        }
         auto&& element_cols = Traits::cols_at(owner, scenario, stage);
         // When the owner element has no columns for this (scenario, stage)
         // — e.g. a generator whose pmax is zero for every block because of
@@ -83,7 +97,8 @@ bool CapacityProfileLP::add_to_lp(const SystemContext& sc,
                                  Traits::slack_name,
                                  element_cols,
                                  capacity_col,
-                                 stage_capacity);
+                                 stage_capacity,
+                                 Traits::lp_mode);
       });
 }
 

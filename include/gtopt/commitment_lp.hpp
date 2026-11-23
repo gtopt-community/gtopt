@@ -50,6 +50,7 @@ public:
   static constexpr std::string_view ColdStartName {"cold_start"};
   static constexpr std::string_view StartupTypeName {"startup_type"};
   static constexpr std::string_view MaxStartsName {"max_starts"};
+  static constexpr std::string_view MinStartsName {"min_starts"};
 
   using Base = ObjectLP<Commitment>;
 

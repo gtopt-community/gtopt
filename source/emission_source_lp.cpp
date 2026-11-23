@@ -51,6 +51,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/warn_once.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -59,28 +60,31 @@ namespace gtopt
 namespace
 {
 /// Resolve an `OptTRealFieldSched` to a scalar.  Handles the scalar
-/// and per-stage-vector cases; falls back to 0 for FileSched (which
-/// requires the InputContext machinery — not threaded through here
-/// yet for `Generator.emission_captures[].rate/cost`).
+/// and per-stage-vector cases (0 past the end of the vector).  A
+/// FileSched needs the InputContext machinery, which is not threaded
+/// through here for `Generator.emission_captures[].rate/cost`: it
+/// resolves to 0 and logs a one-time warning.
 [[nodiscard]] double resolve_stage_scalar(const OptTRealFieldSched& field,
-                                          std::size_t stage_index) noexcept
+                                          std::size_t stage_index)
 {
   if (!field.has_value()) {
     return 0.0;
   }
   const auto& val = *field;
-  // Use get_if (non-throwing) so this noexcept helper can't trip
-  // bad_variant_access — the alternatives are already discriminated.
+  // get_if: the alternatives are discriminated without bad_variant_access.
   if (const auto* r = std::get_if<Real>(&val)) {
     return *r;
   }
   if (const auto* vec = std::get_if<std::vector<Real>>(&val)) {
-    if (stage_index < vec->size()) {
-      return (*vec)[stage_index];
-    }
+    return stage_index < vec->size() ? (*vec)[stage_index] : 0.0;
   }
-  // FileSched (string) path requires InputContext + Schedule and is
-  // not yet wired for inline emission_captures.  TODO.
+  if (const auto* file = std::get_if<FileSched>(&val)) {
+    static WarnOnceFlag warned_file_sched;
+    warn_once(warned_file_sched,
+              "Generator.emission_captures[].rate/cost given as a file "
+              "schedule ('{}') is not supported; it is treated as 0",
+              *file);
+  }
   return 0.0;
 }
 }  // namespace

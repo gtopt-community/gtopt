@@ -71,7 +71,7 @@
  * | battery.eini         | energy_scale (default 1.0)                     |
  * | battery.efin         | energy_scale (default 1.0)                     |
  * | battery.soft_emin    | energy_scale (default 1.0)                     |
- * | bus.theta            | 1 / scale_theta (default 1/1000)               |
+ * | bus.theta            | 1 / scale_theta (θ_LP = scale_theta · θ)       |
  * | all others           | 1.0 (no scaling)                               |
  *
  * ### Stage-level vs block-level attributes

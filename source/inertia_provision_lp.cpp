@@ -31,12 +31,8 @@ using namespace gtopt;
 auto make_izone_indexes(const InputContext& ic,
                         std::span<const SingleId> izones)
 {
-  // Typed-array form post-2026-05-16: each `SingleId` in `izones` is
-  // resolved directly via `ic.element_index`.  No string splitting,
-  // no Uid-vs-name discriminator, no per-element heap allocation.
-  // Replaces the colon-delimited `String` parser that lived here
-  // previously (`split` + `is_uid` + `str2uid` +
-  // `IZoneId{std::string(...)}` materialisation per zone).
+  // Each `SingleId` in `izones` is resolved directly via
+  // `ic.element_index`.
   using IZoneId = ObjectSingleId<InertiaZoneLP>;
   return std::ranges::to<std::vector>(
       izones

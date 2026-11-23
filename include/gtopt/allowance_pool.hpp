@@ -82,7 +82,7 @@ struct AllowancePool
   /// retirement of bank balances — e.g. the EU ETS Market
   /// Stability Reserve removes ~12 %/yr of any bank above its
   /// upper threshold.  Default unset = no decay.
-  OptTRealFieldSched annual_loss {};
+  OptTRealFieldSched annual_standing_loss {};
 
   // ── Allowance bounds (tCO₂) ─────────────────────────────────────
   OptTBRealFieldSched emin {};  ///< Minimum banked allowances [tCO₂].  Defaults

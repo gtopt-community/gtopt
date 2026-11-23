@@ -33,6 +33,7 @@
 #include <gtopt/capacity_profile.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/generator_lp.hpp>
+#include <gtopt/profile_object_lp.hpp>
 
 namespace gtopt
 {
@@ -46,6 +47,9 @@ struct CapacityProfileTraits<GeneratorLP>
   static constexpr ProfileOwnerKind kind = ProfileOwnerKind::Generator;
   static constexpr std::string_view slack_name = "spillover";
   static constexpr LPClassName output_class_name {"GeneratorProfile"};
+  /// Spillover is bounded by the generation range and folded away when
+  /// it carries no cost (see `ProfileLPMode`).
+  static constexpr ProfileLPMode lp_mode = generator_profile_lp_mode;
   static constexpr std::string_view capacity_warning =
       "GeneratorProfile requires that Generator defines capacity or expansion";
 
@@ -80,6 +84,10 @@ struct CapacityProfileTraits<DemandLP>
   static constexpr ProfileOwnerKind kind = ProfileOwnerKind::Demand;
   static constexpr std::string_view slack_name = "unserved";
   static constexpr LPClassName output_class_name {"DemandProfile"};
+  /// Unserved demand keeps its (penalised) slack column and is not
+  /// clamped by `lmax`: curtailment of profile·capacity above the load
+  /// limit is still unserved energy.
+  static constexpr ProfileLPMode lp_mode {};
   static constexpr std::string_view capacity_warning =
       "DemandProfile requires that Demand defines capacity or expansion";
 

@@ -59,7 +59,8 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
                            SpilloverName,
                            generation_cols,
                            capacity_col,
-                           stage_capacity);
+                           stage_capacity,
+                           generator_profile_lp_mode);
 }
 
 bool GeneratorProfileLP::add_to_output(OutputContext& out) const

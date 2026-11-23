@@ -397,7 +397,7 @@ namespace
           "capacity": 100}}],
       "battery_array": [{{"uid": 1, "name": "bat", "bus": "b1",
         "input_efficiency": 1, "output_efficiency": 1,
-        "annual_loss": 0, "daily_cycle": false, "eini": 0,
+        "annual_standing_loss": 0, "daily_cycle": false, "eini": 0,
         "pmax_charge": 1000, "pmax_discharge": 1000,
         "capacity": 0, "expcap": 1, "expmod": 1000, "capmax": 1000,
         "annual_capcost": 8760,
