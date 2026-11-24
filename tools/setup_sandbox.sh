@@ -24,8 +24,8 @@
 #                    installed -- it needs a licensed CPLEX)
 #
 # Dependency groups (see also BUILDING.md):
-#   required  compilers (Clang 21 / GCC 14 fallback), clang-format-21,
-#             clang-tidy-21 + clang-tidy-22 (CI clang-tidy job), ccache,
+#   required  compilers (Clang 22 / GCC 14 fallback), clang-format-22,
+#             clang-tidy-22, ccache,
 #             lld, ninja, COIN-OR CBC/CLP, Arrow/Parquet, Boost, spdlog,
 #             LAPACK/BLAS, jemalloc, zlib/zstd/lz4/snappy, lcov,
 #             Graphviz (dot/neato: gtopt_diagram tests), cairo
@@ -69,7 +69,7 @@
 #   • Clang 21 is the preferred compiler (same as CI).  If the LLVM APT
 #     repository is unreachable, GCC 14 is used as a fallback.  Both produce
 #     a fully working build; the summary at the end reports which was chosen.
-#   • clang-22 packages are not yet available on apt.llvm.org; use version 21.
+#   • Clang 22 (apt.llvm.org / Ubuntu 26.04) is the default toolchain.
 #   • The clang-tidy DB lives in build-tidy/ (git-ignored, machine-local
 #     paths); run the pre-commit tidy step with tools/run_tidy.sh.
 
@@ -89,7 +89,7 @@ WITH_JULIA=false
 DO_CONFIGURE=false
 DO_BUILD=false
 BUILD_TYPE=CIFast
-CLANG_VERSION=21
+CLANG_VERSION=22
 TIDY_DB=true
 
 # ── Argument parsing ──────────────────────────────────────────────────────────

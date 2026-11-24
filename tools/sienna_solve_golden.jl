@@ -48,6 +48,18 @@ const SLUG_TO_CASE = Dict{String, String}(
     "pumped_storage"     => "c_sys5_hydro_pump_energy",
     "interruptible_load" => "c_sys5_il",
     "fuel_cost_ts"       => "c_sys5_re_fuel_cost",
+    # Reserve benchmarks (extended reserve model): the 5-bus UC systems
+    # built with ``add_reserves = true`` — VariableReserve up / down
+    # (RangeReserve) plus the ReserveDemandCurve ORDC (StepwiseCostReserve)
+    # when PSCB adds one.  Thermal-only and thermal + renewable.
+    "reserves_uc"        => "c_sys5_uc",
+    "reserves_uc_re"     => "c_sys5_uc_re",
+)
+
+# Extra ``build_system`` keyword arguments per slug.
+const SLUG_BUILD_KWARGS = Dict{String, Any}(
+    "reserves_uc"    => (add_reserves = true,),
+    "reserves_uc_re" => (add_reserves = true,),
 )
 
 # Battery degeneracy subcases b..f → batt_test_case_<l>_sys.
@@ -76,6 +88,25 @@ function has_component(sys::PSY.System, type_sym::Symbol)
     end
     T === nothing && return (false, nothing)
     return (!isempty(get_components(T, sys)), T)
+end
+
+"""
+    add_reserve_services!(template, sys)
+
+Register a ServiceModel for every reserve service type the system
+carries: ``VariableReserve{ReserveUp|ReserveDown}`` → ``RangeReserve``
+(requirement time series, contributing devices' headroom) and
+``ReserveDemandCurve{ReserveUp}`` → ``StepwiseCostReserve`` (ORDC).
+"""
+function add_reserve_services!(template, sys::PSY.System)
+    for (T, F) in ((VariableReserve{ReserveUp}, RangeReserve),
+                   (VariableReserve{ReserveDown}, RangeReserve),
+                   (ReserveDemandCurve{ReserveUp}, StepwiseCostReserve))
+        if !isempty(get_components(T, sys))
+            set_service_model!(template, ServiceModel(T, F))
+        end
+    end
+    return template
 end
 
 function build_template(slug::AbstractString, sys::PSY.System)
@@ -136,6 +167,9 @@ function build_template(slug::AbstractString, sys::PSY.System)
                 StorageSystemsSimulations.StorageDispatchWithReserves)
         end
     end
+
+    # Reserve services (only present when built with add_reserves).
+    add_reserve_services!(template, sys)
 
     # Interruptible / controllable load — needed for c_sys5_il.
     have, T = has_component(sys, :InterruptiblePowerLoad)
@@ -227,7 +261,8 @@ end
 # ---------------------------------------------------------------------------
 function solve_one(slug::AbstractString, case_name::AbstractString)
     println(stderr, "  building system  $case_name ...")
-    sys = build_system(PSITestSystems, case_name)
+    sys = build_system(PSITestSystems, case_name;
+        get(SLUG_BUILD_KWARGS, slug, (;))...)
 
     println(stderr, "  building template for $slug ...")
     template = build_template(slug, sys)
@@ -300,6 +335,18 @@ function solve_one(slug::AbstractString, case_name::AbstractString)
             pluck_all(vars, "ActivePowerInVariable")
         payload["storage_discharge_mw"] =
             pluck_all(vars, "ActivePowerOutVariable")
+
+        # Reserves: per-(service, device) provision, the requirement
+        # parameter and the shortage slack (RangeReserve / ORDC).
+        payload["reserve_provision_mw"] =
+            pluck_all(vars, "ActivePowerReserveVariable")
+        payload["reserve_slack_mw"] =
+            pluck_all(vars, "ReserveRequirementSlack")
+        payload["reserve_requirement_mw"] =
+            pluck_all(params, "RequirementTimeSeriesParameter")
+        payload["reserve_services"] = Dict(
+            string(PSY.get_name(s)) => string(typeof(s))
+            for s in get_components(PSY.Service, sys))
 
         # Line flows (when network model isn't copperplate; under
         # CopperPlate we end up with an empty dict — fine).

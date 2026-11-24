@@ -218,8 +218,7 @@ falls back to the full selection on `workflow_dispatch` (input
 `full_run`, default on), on schedules, on the first push of a branch, or
 when the base commit cannot be fetched (force-push).  Workflows using it:
 `ubuntu.yml` (doctest + integration subset through
-`ctest --tests-from-file`; full when coverage is enabled), `tsan.yml`
-(pushes only; the daily schedule stays full), `scripts.yml` (direct
+`ctest --tests-from-file`; full when coverage is enabled), `scripts.yml` (direct
 targets with coverage, dependents through testmon with the database
 cached via `actions/cache` keyed on the commit, scoped pylint / mypy,
 integration job limited to the selected converters) and `guiservice.yml`

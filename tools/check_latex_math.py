@@ -13,6 +13,8 @@ Checks for common issues that break GitHub's math rendering:
    GitHub may parse these as Markdown list items, breaking the formula.
 
 4. Inline math ``$...$`` spanning multiple lines — not supported by GitHub.
+   Inline code spans (also when they wrap onto the next line) are ignored:
+   ``$VAR`` in code is a shell variable, not math.
 
 5. Unbalanced ``\\left`` / ``\\right`` pairs inside a single ``$$`` block.
 
@@ -231,6 +233,42 @@ def _build_line_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
     return in_fence, in_display
 
 
+_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+
+
+def _mask_code_spans(lines: list[str], in_fence: list[bool]) -> list[str]:
+    """Return *lines* with inline code spans blanked out (same lengths).
+
+    Code spans follow CommonMark: a run of N backticks closed by the next
+    run of exactly N backticks, possibly on a later line of the same
+    paragraph (a blank line or a code fence ends the paragraph).  Their
+    content is literal text -- ``$HOME``, ``$GTOPT_CONFIG`` or a ``$`` in
+    a shell snippet is never math -- so the ``$`` checks must not see it.
+    """
+    masked = list(lines)
+    para: list[int] = []
+
+    def flush() -> None:
+        if not para:
+            return
+        text = "\n".join(lines[j] for j in para)
+        text = _CODE_SPAN.sub(
+            lambda m: "".join("\n" if c == "\n" else " " for c in m.group()),
+            text,
+        )
+        for j, new in zip(para, text.split("\n"), strict=True):
+            masked[j] = new
+        para.clear()
+
+    for i, line in enumerate(lines):
+        if in_fence[i] or not line.strip():
+            flush()
+            continue
+        para.append(i)
+    flush()
+    return masked
+
+
 def check_file(filepath: Path) -> list[str]:
     """Return a list of diagnostic messages for *filepath*."""
     diagnostics: list[str] = []
@@ -275,15 +313,14 @@ def check_file(filepath: Path) -> list[str]:
     # Uses the _find_inline_math parser to find matched $...$ spans, then
     # checks for leftover unmatched $ that could indicate broken inline math.
     # Currency symbols ($20, $/MWh) in plain text are ignored.
-    for i, line in enumerate(lines):
+    code_masked = _mask_code_spans(lines, in_fence)
+    for i, line in enumerate(code_masked):
         if in_fence[i] or in_display[i]:
             continue
-        stripped = line.strip()
+        stripped = lines[i].strip()
         # Remove escaped \$ (odd number of backslashes before $) and $$
         cleaned = re.sub(r"(?<!\\)(\\\\)*\\\$", lambda m: " " * len(m.group()), line)
         cleaned = re.sub(r"\$\$", "  ", cleaned)
-        # Remove backtick-quoted spans
-        cleaned = re.sub(r"`[^`]*`", lambda m: " " * len(m.group()), cleaned)
         # Find matched inline math spans and mask them out
         spans = _find_inline_math(cleaned)
         for start, end in reversed(spans):
