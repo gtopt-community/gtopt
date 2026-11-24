@@ -112,8 +112,9 @@ done
 curl -sf "${GUI_URL}/api/solve/ping" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('status') == 'ok'"
 curl -sf "${GUI_URL}/api/solve/logs?lines=20" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'lines' in d"
 
-curl -sf -X POST "${GUI_URL}/api/case/upload" -F "file=@${CASE_ZIP}" > "${TMPDIR}/case.json"
+curl -sf -X POST "${GUI_URL}/api/case/upload" -H "X-GTOpt-GUI: 1" -F "file=@${CASE_ZIP}" > "${TMPDIR}/case.json"
 curl -sf -X POST "${GUI_URL}/api/solve/submit" \
+  -H "X-GTOpt-GUI: 1" \
   -H "Content-Type: application/json" \
   --data-binary @"${TMPDIR}/case.json" > "${TMPDIR}/submit.json"
 TOKEN="$(python3 -c "import json; d=json.load(open('${TMPDIR}/submit.json')); print(d.get('token',''))")"
