@@ -241,6 +241,10 @@ TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
       .min_iterations = 2,
       .current_pass = 1,
       .scenes_done = 4,
+      .aperture_solves = 72,
+      .aperture_infeasible = 5,
+      .aperture_failed = 1,
+      .aperture_dropped_last_iteration = 2,
   };
 
   std::vector<SDDPIterationResult> results;
@@ -273,6 +277,7 @@ TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
       .converged = false,
       .cuts_added = 2,
       .feasibility_issue = false,
+      .apertures_dropped = 3,
       .forward_pass_s = 0.4,
       .backward_pass_s = 0.2,
       .iteration_s = 0.6,
@@ -324,6 +329,13 @@ TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
   CHECK(content.find("\"history\"") != std::string::npos);
   CHECK(content.find("\"iteration\": 1") != std::string::npos);
   CHECK(content.find("\"iteration\": 2") != std::string::npos);
+  // Per-iteration dropped-aperture count (issue #551).
+  CHECK(content.find("\"apertures_dropped\": 0") != std::string::npos);
+  CHECK(content.find("\"apertures_dropped\": 3") != std::string::npos);
+  CHECK(content.find("\"aperture_summary\": {\"solves\": 72, "
+                     "\"infeasible\": 5, \"failed\": 1, "
+                     "\"dropped_last_iteration\": 2}")
+        != std::string::npos);
 
   // Verify realtime monitoring block is present
   CHECK(content.find("\"realtime\"") != std::string::npos);

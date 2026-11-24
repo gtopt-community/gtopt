@@ -8,7 +8,6 @@
  */
 
 #include <algorithm>
-#include <filesystem>
 #include <format>
 #include <stdexcept>
 #include <thread>
@@ -22,6 +21,7 @@
 #include <Highs.h>
 #include <gtopt/hardware_info.hpp>
 #include <gtopt/log_and_throw.hpp>
+#include <gtopt/solver_cfg.hpp>
 #include <gtopt/solver_options.hpp>
 
 namespace gtopt
@@ -156,22 +156,18 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
 
     // Optional user override: a `highs_warmstart.opts` sibling next to the
     // case's main param file (`opts.param_file`).  Mirrors the CPLEX plugin's
-    // `apply_cplex_warmstart`, which loads a `cplex_warmstart.prm` sibling of
-    // the case's `cplex.prm` after the in-code warm defaults.  HiGHS options
-    // files are plain `key = value` / `key value` text (the same format the
-    // HiGHS CLI consumes via `--options_file`); `.opts` is the conventional
-    // extension.  `Highs::readOptions` parses it and applies every listed
-    // option.  Loaded LAST so its values win over the in-code warm defaults
-    // (`solver=simplex` / `presolve=off` / `run_crossover=off` /
-    // `simplex_strategy`) set just above.  Inert when `param_file` is unset
-    // (the default) — no behaviour change.
-    if (opts.param_file.has_value() && !opts.param_file->empty()) {
-      const std::filesystem::path sibling =
-          std::filesystem::path {*opts.param_file}.parent_path()
-          / "highs_warmstart.opts";
-      std::error_code ec;
-      if (std::filesystem::exists(sibling, ec) && !ec) {
-        highs.readOptions(sibling.string());
+    // `apply_cplex_warmstart` (`cplex_warmstart.prm`).  Plain `key = value`
+    // text (the HiGHS `--options_file` format), parsed ONCE per process
+    // (`cached_sibling_param_file`) and applied with the string
+    // `setOptionValue` (HiGHS converts to the option's type), so a warm
+    // solve neither re-reads nor re-stats the file.  Applied LAST so its
+    // values win over the in-code warm defaults set just above.  Inert when
+    // `param_file` is unset or the sibling does not exist.
+    if (const auto* warm =
+            cached_sibling_param_file(opts.param_file, "highs_warmstart.opts"))
+    {
+      for (const auto& [name, value] : *warm) {
+        highs.setOptionValue(name, value);
       }
     }
   } else if (opts.force_barrier_crossover) {
@@ -777,6 +773,11 @@ void HighsSolverBackend::initial_solve()
   const auto status = m_highs_->run();
   m_last_effort_.seconds = m_highs_->getRunTime() - t0;
   m_last_effort_.ticks = m_last_effort_.seconds;
+  {
+    const auto& info = m_highs_->getInfo();
+    m_last_effort_.iterations =
+        std::max<long>(info.simplex_iteration_count, info.ipm_iteration_count);
+  }
   if (status == HighsStatus::kError) {
     gtopt::log_and_throw("HiGHS: solver error during initial_solve");
   }
@@ -795,6 +796,11 @@ void HighsSolverBackend::resolve()
   const auto status = m_highs_->run();
   m_last_effort_.seconds = m_highs_->getRunTime() - t0;
   m_last_effort_.ticks = m_last_effort_.seconds;
+  {
+    const auto& info = m_highs_->getInfo();
+    m_last_effort_.iterations =
+        std::max<long>(info.simplex_iteration_count, info.ipm_iteration_count);
+  }
   if (status == HighsStatus::kError) {
     gtopt::log_and_throw("HiGHS: solver error during resolve");
   }

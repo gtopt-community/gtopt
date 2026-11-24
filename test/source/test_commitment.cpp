@@ -379,7 +379,7 @@ TEST_CASE("CommitmentLP basic UC dispatch with LP relaxation")
   CHECK(result.value() == 0);
 }
 
-TEST_CASE("CommitmentLP non-chronological stage skip")
+TEST_CASE("CommitmentLP non-chronological stage: block formulation")
 {
   auto tc = TestCase::make_basic(/*chronological=*/false);  // non-chronological
 
@@ -403,14 +403,15 @@ TEST_CASE("CommitmentLP non-chronological stage skip")
 
   auto&& li = system_lp.linear_interface();
 
-  // Non-chronological: commitment should be skipped.
-  // Post-P0 demand-failure substitution: `fail` col and demand
-  // balance row are gone (folded into lcol cost / obj_constant).
-  // Columns: demand(4) + g1(4) + g2(4) = 12 (no u/v/w, no fail)
-  CHECK(li.get_numcols() == 12);
+  // Non-chronological: block formulation — one u per block, no v / w,
+  // startup / no-load cost ignored.  Post-P0 demand-failure
+  // substitution: no `fail` col / demand balance row.
+  // Columns: demand(4) + g1(4) + g2(4) + u(4) = 16 (no v / w, no fail)
+  CHECK(li.get_numcols() == 16);
 
-  // Rows: bus balance(4) = 4 (demand balance row substituted away)
-  CHECK(li.get_numrows() == 4);
+  // Rows: bus balance(4) + gen_upper(4) + gen_lower(4) = 12 (no logic,
+  // exclusion, ramp or min up/down rows)
+  CHECK(li.get_numrows() == 12);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());

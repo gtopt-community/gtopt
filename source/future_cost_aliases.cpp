@@ -65,7 +65,7 @@ class AliasFolder
 {
 public:
   explicit AliasFolder(System& system)
-      : m_system_(system)
+      : m_system_(&system)
   {
   }
 
@@ -124,9 +124,9 @@ private:
   [[nodiscard]] FutureCost& element()
   {
     if (m_index_.has_value()) {
-      return m_system_.future_cost_array[*m_index_];
+      return m_system_->future_cost_array[*m_index_];
     }
-    auto& arr = m_system_.future_cost_array;
+    auto& arr = m_system_->future_cost_array;
     const auto it = std::ranges::find_if(arr, is_active);
     if (it != arr.end()) {
       m_index_ = static_cast<std::size_t>(std::distance(arr.begin(), it));
@@ -141,8 +141,7 @@ private:
     return arr.back();
   }
 
-  System&
-      m_system_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  System* m_system_;  ///< never null (bound in the constructor)
   std::optional<std::size_t> m_index_ {};
   std::map<std::string, std::string, std::less<>> m_origin_ {};
 };

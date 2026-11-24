@@ -160,15 +160,18 @@ TEST_CASE(
         ::_exit(4);
       }
       const pid_t self = ::getpid();
-      (void)::write(pid_pipe[1], &self, sizeof(self));
+      // ``(void)`` does not silence warn_unused_result under
+      // _FORTIFY_SOURCE (g++ Release builds): bind the results instead.
+      [[maybe_unused]] const auto n_pid =
+          ::write(pid_pipe[1], &self, sizeof(self));
       const char c = 1;
-      (void)::write(armed_pipe[1], &c, 1);
+      [[maybe_unused]] const auto n_armed = ::write(armed_pipe[1], &c, 1);
       while (true) {
         ::pause();
       }
     }
     char c = 0;
-    (void)::read(armed_pipe[0], &c, 1);
+    [[maybe_unused]] const auto n_read = ::read(armed_pipe[0], &c, 1);
     ::_exit(grandchild > 0 ? 0 : 1);  // parent dies -> PDEATHSIG fires
   }
   ::close(pid_pipe[1]);

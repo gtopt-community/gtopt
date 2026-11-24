@@ -1,28 +1,20 @@
 /**
  * @file      simple_commitment.hpp
- * @brief     Simplified commitment data for generator min-output enforcement
+ * @brief     Deprecated SimpleCommitment input alias
  * @date      2026-04-13
  * @author    marcelo
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *
- * Defines the SimpleCommitment structure which specifies a simplified
- * unit commitment constraint for a generator: if dispatched (u=1), the
- * generator must produce at least dispatch_pmin MW.  Unlike the full
- * Commitment model, SimpleCommitment:
- * - Uses only one binary variable u (no startup/shutdown tracking)
- * - Does not require chronological stages
- * - Has no no-load cost, ramp, or minimum up/down time constraints
+ * DEPRECATED: `simple_commitment_array` is only an input alias.  Each
+ * element is folded into a plain `Commitment` before the LP is built
+ * (`System::fold_legacy_simple_commitments`): `dispatch_pmin` becomes
+ * `Commitment.pmin`, and the generator's own `pmin` — which the legacy
+ * element made conditional — moves onto the commitment.  A Commitment on
+ * a non-chronological stage uses the per-block formulation the old
+ * element provided (u per block, p <= Pmax*u, p >= pmin*u).
  *
- * Constraints:
- * - p <= Pmax * u  (upper generation limit)
- * - p >= dispatch_pmin * u  (minimum output when dispatched)
- *
- * When `relax` is true, u is continuous in [0,1], providing the LP
- * relaxation used by PLP-style inertia formulations.
- *
- * @see SimpleCommitmentLP for the LP formulation
- * @see Generator for the linked generation unit
+ * @see Commitment, CommitmentLP
  */
 
 #pragma once
@@ -35,20 +27,12 @@ namespace gtopt
 
 /**
  * @struct SimpleCommitment
- * @brief Simplified commitment parameters for a generator
- *
- * Links to a Generator and creates a single binary variable u per block:
- * - u = 1: generator is dispatched, p in [dispatch_pmin, Pmax]
- * - u = 0: generator is off, p = 0
+ * @brief Deprecated alias of a Commitment (input only, see file docs)
  */
 struct SimpleCommitment
 {
-  /// Canonical class-name constant used in LP row labels and config
-  /// fields like `VariableScale::class_name`.  Single source of truth —
-  /// `SimpleCommitmentLP` exposes no separate `ClassName` member;
-  /// callers reach the constant via `SimpleCommitment::class_name`
-  /// directly (or `SimpleCommitmentLP::Element::class_name` in generic
-  /// contexts).
+  /// Legacy class name (diagnostics only; the folded element is a
+  /// `Commitment`).
   static constexpr LPClassName class_name {"SimpleCommitment"};
 
   Uid uid {unknown_uid};  ///< Unique identifier

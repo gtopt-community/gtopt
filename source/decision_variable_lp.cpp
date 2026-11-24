@@ -124,6 +124,21 @@ DecisionVariableLP::DecisionVariableLP(const DecisionVariable& pdv,
   m_integer_ = pdv.integer.value_or(false);
   m_relax_ = pdv.relax.value_or(false);
 
+  // ── Guard: `nonanticipative` is a property of the whole-horizon value ────
+  // Sharing across scenes is done by merging the scenes into one LP (see
+  // scene_merge.hpp), which only gives a single column to a `global`
+  // variable; a finer scope would still be one column per scenario.
+  if (pdv.nonanticipative.value_or(false)
+      && m_scope_ != ConstraintScope::Global)
+  {
+    throw std::runtime_error(
+        std::format("decision_variable '{}': `nonanticipative: true` "
+                    "requires `scope: \"global\"` (got scope '{}') — only a "
+                    "single whole-horizon value can be shared across scenes",
+                    pdv.name,
+                    enum_name(m_scope_)));
+  }
+
   // ── Guard: `block_state` and the coarse `state` are mutually exclusive ───
   // They are two different state mechanisms (per-block storage volume vs. one
   // coarse end-of-phase column); enabling both is a modelling error.

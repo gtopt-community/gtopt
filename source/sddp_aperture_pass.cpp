@@ -31,6 +31,7 @@
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
+#include <gtopt/sddp_forward_crossover.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <spdlog/spdlog.h>
@@ -191,6 +192,30 @@ namespace gtopt
   return std::span<const Aperture> {owned};
 }
 
+bool SDDPMethod::aperture_cuts_effective() const
+{
+  if (!m_options_.apertures_requested()) {
+    return false;
+  }
+  const auto& sim = planning_lp().simulation();
+  Array<Aperture> owned;
+  return resolve_effective_apertures(sim.apertures(),
+                                     sim.scenarios(),
+                                     m_options_.apertures,
+                                     owned,
+                                     "SDDP aperture check")
+      .has_value();
+}
+
+std::string_view SDDPMethod::apertures_label() const
+{
+  if (!m_options_.apertures_requested()) {
+    return "disabled";
+  }
+  return aperture_cuts_effective() ? "enabled"
+                                   : "none (Benders cuts from forward duals)";
+}
+
 // ── Helper: install Benders cut on src_li with bcut fallback ────────────────
 
 auto SDDPMethod::install_aperture_backward_cut(
@@ -242,12 +267,16 @@ auto SDDPMethod::install_aperture_backward_cut(
                                      ceps);
     dt_add_row += elapsed_s(t_add_row);
 
-    // Re-solve src_li only when there is a further backward step that
-    // will consume its state.  At src_phase_index == 0 there is no
-    // earlier phase, so we trust the cut (it came from a valid aperture
-    // solve) and skip the resolve.
+    // Optional optimality check (`aperture_cut_resolve`, default off):
+    // re-solve src_li with the new cut and fall back to the bcut when it
+    // goes non-optimal.  Nothing downstream reads src_li's post-cut
+    // solution — the next aperture step clones it and seeds from the
+    // forward basis, the next forward pass re-solves it — so by default
+    // the aperture-built cut is trusted (as PLP does) and the extra LP
+    // solve per step is skipped.  At src_phase_index == 0 there is no
+    // earlier phase and the check never runs.
     bool keep_expected_cut = true;
-    if (src_phase_index) {
+    if (src_phase_index && m_options_.aperture_cut_resolve) {
       src_li.set_log_tag(sddp_log("Backward",
                                   gtopt::uid_of(iteration_index),
                                   uid_of(scene_index),
@@ -345,6 +374,7 @@ auto SDDPMethod::install_aperture_backward_cut(
   // reads ``forward_full_obj_physical`` cached from the forward
   // pass) needs the refresh.
   double Z = target_state.forward_full_obj_physical;
+  bool interior = target_state.forward_interior;
   if (m_options_.backward_resolve_target) {
     auto& tgt_sys = planning_lp().system(scene_index, phase_index);
     tgt_sys.ensure_lp_built();
@@ -358,11 +388,13 @@ auto SDDPMethod::install_aperture_backward_cut(
     dt_resolve += elapsed_s(t_tgt_resolve);
     if (r.has_value() && tgt_li.is_optimal()) {
       Z = tgt_li.get_obj_value();
+      interior = is_interior_solve(opts);
       const auto sol_phys = tgt_li.get_col_sol();
       const auto rc = tgt_li.get_col_cost_raw();
       capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
-      m_scene_phase_states_[scene_index][phase_index]
-          .forward_full_obj_physical = Z;
+      auto& refreshed = m_scene_phase_states_[scene_index][phase_index];
+      refreshed.forward_full_obj_physical = Z;
+      refreshed.forward_interior = interior;
       update_max_kappa(scene_index, phase_index, tgt_li, iteration_index);
     } else {
       SPDLOG_DEBUG(
@@ -377,8 +409,12 @@ auto SDDPMethod::install_aperture_backward_cut(
   }
 
   const auto t_build = Clock::now();
-  auto fallback_cut = build_benders_cut_physical(
-      src_alpha_col, src_state.outgoing_links, Z, scale_obj, ceps);
+  auto fallback_cut =
+      build_benders_cut_physical(src_alpha_col,
+                                 src_state.outgoing_links,
+                                 guarded_cut_intercept(Z, interior),
+                                 scale_obj,
+                                 ceps);
   sddp_bcut_tag.apply_to(fallback_cut);
   fallback_cut.variable_uid = uid_of(src_phase_index);
   fallback_cut.context = make_iteration_context(uid_of(scene_index),
@@ -644,6 +680,14 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   Basis captured_basis;
   const Basis* seed_ptr = nullptr;
   Basis* capture_ptr = nullptr;
+  // Backward → forward: the aperture chain's last optimal basis already
+  // prices this iteration's cuts on α — the seed for next iteration's
+  // forward solve of this cell (see SDDPForwardPass).
+  Basis* const last_basis_ptr = vertex_mode
+          && (m_options_.basis_cross_mode == BasisCrossMode::backward_to_forward
+              || m_options_.basis_cross_mode == BasisCrossMode::full_cross)
+      ? &phase_states[phase_index].backward_basis
+      : nullptr;
   if (reuse_forward) {
     const auto& fb = phase_states[phase_index].forward_basis;
     seed_ptr = fb.empty() ? nullptr : &fb;
@@ -684,7 +728,9 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_options_.aperture_solve_mode,
       seed_ptr,
       capture_ptr,
-      m_options_.aperture_screen_count);
+      m_options_.aperture_screen_count,
+      last_basis_ptr,
+      &m_aperture_drops_);
 
   if (capture_ptr != nullptr && !captured_basis.empty()) {
     warm_basis_slot = std::move(captured_basis);
@@ -941,6 +987,12 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     Basis captured_basis;
     const Basis* seed_ptr = nullptr;
     Basis* capture_ptr = nullptr;
+    Basis* const last_basis_ptr = vertex_mode
+            && (m_options_.basis_cross_mode
+                    == BasisCrossMode::backward_to_forward
+                || m_options_.basis_cross_mode == BasisCrossMode::full_cross)
+        ? &phase_states[phase_index].backward_basis
+        : nullptr;
     if (reuse_forward) {
       const auto& fb = phase_states[phase_index].forward_basis;
       seed_ptr = fb.empty() ? nullptr : &fb;
@@ -981,7 +1033,9 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_options_.aperture_solve_mode,
         seed_ptr,
         capture_ptr,
-        m_options_.aperture_screen_count);
+        m_options_.aperture_screen_count,
+        last_basis_ptr,
+        &m_aperture_drops_);
 
     if (capture_ptr != nullptr && !captured_basis.empty()) {
       warm_basis_slot = std::move(captured_basis);

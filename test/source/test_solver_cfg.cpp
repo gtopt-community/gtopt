@@ -15,12 +15,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #include <array>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <optional>
 #include <string>
 
 #include <doctest/doctest.h>
 #include <gtopt/solver_cfg.hpp>
+#include <unistd.h>
 
 using namespace gtopt;
 
@@ -183,5 +185,88 @@ TEST_CASE("solver_cfg load: absent param_file or files yield empty")  // NOLINT
   const auto dir = make_scratch_dir("none");
   const std::optional<std::string> param_file = (dir / "cplex.prm").string();
   CHECK(load_solver_cfg(param_file, "cuopt", fake_enum_keys).empty());
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE(  // NOLINT
+    "solver param file: native formats parse to name/value pairs")
+{
+  const auto dir =
+      make_scratch_dir(std::format("native_{}", static_cast<int>(::getpid())));
+  write_file(dir / "cplex_warmstart.prm",
+             "CPLEX Parameter File Version 22.1.1.0\n"
+             "# comment\n"
+             "\n"
+             "CPXPARAM_LPMethod                1\n"
+             "CPXPARAM_WorkDir   \"/tmp/a b\"  \n"
+             "; another comment\n"
+             "// and another\n"
+             "NameOnly\n");
+  write_file(dir / "highs_warmstart.opts",
+             "solver = simplex\n"
+             "presolve=off\n"
+             "simplex_strategy  =  4\n");
+
+  const auto cplex = parse_solver_param_file(dir / "cplex_warmstart.prm");
+  REQUIRE(cplex.has_value());
+  const SolverCfgPairs expected_cplex {
+      {"CPXPARAM_LPMethod", "1"},
+      {"CPXPARAM_WorkDir", "/tmp/a b"},
+  };
+  CHECK(cplex.value_or(SolverCfgPairs {}) == expected_cplex);
+
+  const auto highs = parse_solver_param_file(dir / "highs_warmstart.opts");
+  const SolverCfgPairs expected_highs {
+      {"solver", "simplex"},
+      {"presolve", "off"},
+      {"simplex_strategy", "4"},
+  };
+  CHECK(highs.value_or(SolverCfgPairs {}) == expected_highs);
+
+  CHECK_FALSE(parse_solver_param_file(dir / "missing.prm").has_value());
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE(  // NOLINT
+    "solver param file: read once per process, missing file cached")
+{
+  const auto dir =
+      make_scratch_dir(std::format("cached_{}", static_cast<int>(::getpid())));
+  const auto path = dir / "gurobi_warmstart.prm";
+  write_file(path, "Method 0\n");
+  const std::optional<std::string> param_file = (dir / "cplex.prm").string();
+
+  const auto* first =
+      cached_sibling_param_file(param_file, "gurobi_warmstart.prm");
+  REQUIRE(first != nullptr);
+  CHECK(first->size() == 1);
+
+  // Rewriting (or deleting) the file mid-run does not trigger a re-read:
+  // the hot path returns the same cached object without touching the disk.
+  write_file(path, "Method 1\nPresolve 0\n");
+  CHECK(cached_sibling_param_file(param_file, "gurobi_warmstart.prm") == first);
+  std::filesystem::remove(path);
+  CHECK(cached_sibling_param_file(param_file, "gurobi_warmstart.prm") == first);
+  CHECK(first->front().second == "0");
+
+  // A missing sibling is cached as missing (no stat per call later).
+  CHECK(cached_sibling_param_file(param_file, "mindopt_warmstart.prm")
+        == nullptr);
+  write_file(dir / "mindopt_warmstart.prm", "Method 0\n");
+  CHECK(cached_sibling_param_file(param_file, "mindopt_warmstart.prm")
+        == nullptr);
+
+  CHECK(cached_sibling_param_file(std::nullopt, "x.prm") == nullptr);
+  CHECK(cached_sibling_param_file(std::string {}, "x.prm") == nullptr);
+
+  // cuOpt's tuning-file loader: same once-per-process contract.
+  write_file(dir / "cuopt.prm", "method pdlp\n");
+  const auto cfg1 = load_solver_cfg_cached(param_file, "cuopt", fake_enum_keys);
+  write_file(dir / "cuopt.prm", "method barrier\n");
+  const auto cfg2 = load_solver_cfg_cached(param_file, "cuopt", fake_enum_keys);
+  REQUIRE(cfg1.size() == 1);
+  CHECK(cfg1 == cfg2);
+  CHECK(load_solver_cfg_cached(std::nullopt, "cuopt", fake_enum_keys).empty());
+
   std::filesystem::remove_all(dir);
 }

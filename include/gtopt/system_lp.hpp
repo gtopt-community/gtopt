@@ -71,7 +71,6 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
-#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
@@ -224,7 +223,6 @@ static_assert(AddToLP<FuelLP>);
 static_assert(AddToLP<EmissionZoneLP>);
 static_assert(AddToLP<EmissionSourceLP>);
 static_assert(AddToLP<CommitmentLP>);
-static_assert(AddToLP<SimpleCommitmentLP>);
 static_assert(AddToLP<InertiaZoneLP>);
 static_assert(AddToLP<InertiaProvisionLP>);
 
@@ -420,11 +418,11 @@ public:
   /// stage loop, so it never participates in the operational build order.
   // NOTE: this tuple ordering governs the LP-construction order via
   // `visit_elements`.  ConverterLP intentionally runs AFTER
-  // CommitmentLP / SimpleCommitmentLP so that the battery's
+  // CommitmentLP so that the battery's
   // synthesized u_commit columns (created by `expand_batteries`)
   // are already stamped on the LP and reusable for charge-side
-  // gating — "one true source for u_commit".  CommitmentLP /
-  // SimpleCommitmentLP also run BEFORE FuelLP / EmissionSourceLP so the
+  // gating — "one true source for u_commit".  CommitmentLP
+  // also runs BEFORE FuelLP / EmissionSourceLP so the
   // no-load fuel burn (`Commitment.noload_fuel · u`) can join the fuel
   // offtake and emission rows.  Keep in sync with
   // `lp_element_types_t` in `lp_element_types.hpp`.
@@ -448,7 +446,6 @@ public:
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<CommitmentLP>,
-                                   Collection<SimpleCommitmentLP>,
                                    Collection<FuelLP>,
                                    Collection<EmissionLP>,
                                    Collection<EmissionZoneLP>,

@@ -761,11 +761,14 @@ inline constexpr int default_sddp_aperture_screen_count = 2;
  * - `forward_to_backward`: the forward solve's basis seeds the backward
  *   dual/aperture solve of the same (scene, phase).
  * - `backward_to_forward`: the backward basis seeds the next forward solve.
+ *   On the aperture path that is the cell's aperture chain's last optimal
+ *   basis (it already prices the cuts just added on α); on the
+ *   non-aperture path, the post-cut target re-solve basis.
  * - `full_cross` (**effective default** — an unset option resolves to
  *   `full_cross` in `PlanningOptionsLP::sddp_basis_cross_mode()`, and
- *   plp2gtopt emits it explicitly): forward→forward + both cross directions
- *   (forward seed prefers its own forward basis, falling back to the
- *   backward basis on iteration 1).
+ *   plp2gtopt emits it explicitly): both cross directions + forward→forward
+ *   (the forward seed prefers the backward basis, falling back to its own
+ *   previous forward basis when no backward basis was captured).
  */
 enum class BasisCrossMode : uint8_t
 {

@@ -70,6 +70,9 @@ struct SolveEffort
 {
   double seconds {0.0};
   double ticks {0.0};
+  /// Simplex (or barrier) iteration count of the solve; 0 when the
+  /// backend does not report one.
+  long iterations {0};
 };
 
 /// Process-global accumulator of solve effort across every backend solve
@@ -83,11 +86,43 @@ public:
     static SolveEffortTotals totals;
     return totals;
   }
-  void add(double seconds, double ticks) noexcept
+  void add(double seconds, double ticks, long iterations = 0) noexcept
   {
     m_seconds_.fetch_add(seconds, std::memory_order_relaxed);
     m_ticks_.fetch_add(ticks, std::memory_order_relaxed);
+    m_iterations_.fetch_add(iterations, std::memory_order_relaxed);
     m_count_.fetch_add(1, std::memory_order_relaxed);
+  }
+  /// Snapshot of all counters (for per-pass deltas in progress logs).
+  struct Snapshot
+  {
+    double seconds {0.0};
+    double ticks {0.0};
+    long iterations {0};
+    long count {0};
+
+    [[nodiscard]] constexpr Snapshot operator-(const Snapshot& o) const noexcept
+    {
+      return {
+          .seconds = seconds - o.seconds,
+          .ticks = ticks - o.ticks,
+          .iterations = iterations - o.iterations,
+          .count = count - o.count,
+      };
+    }
+  };
+  [[nodiscard]] Snapshot snapshot() const noexcept
+  {
+    return {
+        .seconds = seconds(),
+        .ticks = ticks(),
+        .iterations = iterations(),
+        .count = count(),
+    };
+  }
+  [[nodiscard]] long iterations() const noexcept
+  {
+    return m_iterations_.load(std::memory_order_relaxed);
   }
   [[nodiscard]] double seconds() const noexcept
   {
@@ -106,15 +141,17 @@ private:
   SolveEffortTotals() = default;
   ~SolveEffortTotals()
   {
-    std::fprintf(
-        stderr,
-        "GTOPT_SOLVE_EFFORT solver_time=%.3f s ticks=%.1f solves=%ld\n",
-        seconds(),
-        ticks(),
-        count());
+    std::fprintf(stderr,
+                 "GTOPT_SOLVE_EFFORT solver_time=%.3f s ticks=%.1f solves=%ld "
+                 "iterations=%ld\n",
+                 seconds(),
+                 ticks(),
+                 count(),
+                 iterations());
   }
   std::atomic<double> m_seconds_ {0.0};
   std::atomic<double> m_ticks_ {0.0};
+  std::atomic<long> m_iterations_ {0};
   std::atomic<long> m_count_ {0};
 };
 

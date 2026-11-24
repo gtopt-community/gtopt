@@ -186,22 +186,12 @@ void InertiaZoneLP::add_credits(const SystemContext& sc,
   const bool continuous_phase =
       sc.simulation().phases()[stage.phase_index()].is_continuous();
 
-  // Status column of a generator at one block: Commitment (3-bin) or
-  // SimpleCommitment; nullopt when the unit has no commitment here.
+  // Status column of a generator at one block; nullopt when the unit has
+  // no commitment here.
   const auto status_col = [&](const ElementIndex<GeneratorLP>& gi,
                               BlockUid buid) -> std::optional<ColIndex>
   {
     for (const auto& cm : sc.elements<CommitmentLP>()) {
-      if (sc.element_index(cm.generator_sid()) != gi) {
-        continue;
-      }
-      if (const auto* ucols = cm.find_status_cols(scenario, stage)) {
-        if (const auto it = ucols->find(buid); it != ucols->end()) {
-          return it->second;
-        }
-      }
-    }
-    for (const auto& cm : sc.elements<SimpleCommitmentLP>()) {
       if (sc.element_index(cm.generator_sid()) != gi) {
         continue;
       }
@@ -271,23 +261,19 @@ void InertiaZoneLP::check_credit_generators(const SystemContext& sc,
   credits_checked_ = true;
 
   // A credit counts the status `u` of its generators.  A generator with NO
-  // Commitment / SimpleCommitment element has no status column anywhere, so
+  // Commitment element has no status column anywhere, so
   // its share of the credit can never be earned: the relief silently
   // vanishes and the zone keeps the full exogenous requirement.  That is a
   // modelling error, not an intentional omission (unlike a committed unit
   // whose status column is absent at one block — an inactive commitment or
-  // a non-chronological stage — where "no relief there" is the defined
+  // — where "no relief there" is the defined
   // result).  strict / debug: abort; normal: warn once and drop the term.
   const auto has_commitment = [&](const ElementIndex<GeneratorLP>& gi)
   {
     return std::ranges::any_of(
-               sc.elements<CommitmentLP>(),
-               [&](const auto& cm)
-               { return sc.element_index(cm.generator_sid()) == gi; })
-        || std::ranges::any_of(
-               sc.elements<SimpleCommitmentLP>(),
-               [&](const auto& cm)
-               { return sc.element_index(cm.generator_sid()) == gi; });
+        sc.elements<CommitmentLP>(),
+        [&](const auto& cm)
+        { return sc.element_index(cm.generator_sid()) == gi; });
   };
 
   const auto mode = sc.options().constraint_mode();
@@ -303,7 +289,7 @@ void InertiaZoneLP::check_credit_generators(const SystemContext& sc,
       const auto& gen = sc.element(gi);
       const auto msg = std::format(
           "InertiaZone '{}': requirement_credits[{}] counts generator '{}', "
-          "which has no Commitment / SimpleCommitment (no status column) — "
+          "which has no Commitment (no status column) — "
           "its share of the credit can never be earned",
           inertia_zone().name,
           k,

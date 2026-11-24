@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #include <algorithm>
+#include <limits>
 #include <ranges>
+#include <span>
 #include <string>
 
 #include <doctest/doctest.h>
@@ -119,6 +121,66 @@ TEST_CASE("validate_planning - stage count_block == 0 is an error")  // NOLINT
   p.simulation.stage_array[0].count_block = 0;
   auto result = validate_planning(p);
   CHECK_FALSE(result.ok());
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - stage block range outside block_array is an error")
+{
+  using namespace gtopt;
+
+  const auto has_stage_error = [](const ValidationResult& r)
+  {
+    return std::ranges::any_of(r.errors,
+                               [](const std::string& e)
+                               { return e.starts_with("Stage uid=1:"); });
+  };
+
+  SUBCASE("first_block past the end")
+  {
+    auto p = make_minimal_planning();
+    p.simulation.stage_array[0].first_block = 100000;
+    p.simulation.stage_array[0].count_block = 50;
+    const auto result = validate_planning(p);
+    CHECK_FALSE(result.ok());
+    CHECK(has_stage_error(result));
+  }
+
+  SUBCASE("count_block overruns the array")
+  {
+    auto p = make_minimal_planning();
+    p.simulation.stage_array[0].count_block = 3;
+    const auto result = validate_planning(p);
+    CHECK_FALSE(result.ok());
+    CHECK(has_stage_error(result));
+  }
+
+  SUBCASE("huge values do not wrap around")
+  {
+    auto p = make_minimal_planning();
+    p.simulation.stage_array[0].first_block = 1;
+    p.simulation.stage_array[0].count_block =
+        std::numeric_limits<Size>::max() - 1;
+    const auto result = validate_planning(p);
+    CHECK_FALSE(result.ok());
+    CHECK(has_stage_error(result));
+  }
+
+  SUBCASE("unset count_block with first_block at the end")
+  {
+    auto p = make_minimal_planning();
+    p.simulation.stage_array[0].first_block = 1;
+    p.simulation.stage_array[0].count_block = std::dynamic_extent;
+    const auto result = validate_planning(p);
+    CHECK_FALSE(result.ok());
+    CHECK(has_stage_error(result));
+  }
+
+  SUBCASE("unset count_block inside the array is valid")
+  {
+    auto p = make_minimal_planning();
+    p.simulation.stage_array[0].count_block = std::dynamic_extent;
+    CHECK(validate_planning(p).ok());
+  }
 }
 
 TEST_CASE(
@@ -2240,4 +2302,39 @@ TEST_CASE(  // NOLINT
       r.warnings,
       [](const std::string& w)
       { return w.contains("aperture_drop_fcuts is deprecated and ignored"); }));
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - exclusive_charge_discharge without commitment warns")
+{
+  const auto has_warning = [](const auto& r)
+  {
+    return std::ranges::any_of(
+        r.warnings,
+        [](const std::string& w)
+        { return w.contains("exclusive_charge_discharge = true is ignored"); });
+  };
+
+  auto p = make_minimal_planning();
+  p.system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bess",
+          .exclusive_charge_discharge = true,
+      },
+  };
+  CHECK(has_warning(validate_planning(p)));
+
+  SUBCASE("no warning with commitment = true")
+  {
+    p.system.battery_array.front().commitment = true;
+    CHECK_FALSE(has_warning(validate_planning(p)));
+  }
+  SUBCASE("no warning when unset or false")
+  {
+    p.system.battery_array.front().exclusive_charge_discharge = false;
+    CHECK_FALSE(has_warning(validate_planning(p)));
+    p.system.battery_array.front().exclusive_charge_discharge.reset();
+    CHECK_FALSE(has_warning(validate_planning(p)));
+  }
 }

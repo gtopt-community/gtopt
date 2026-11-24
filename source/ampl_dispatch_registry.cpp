@@ -57,7 +57,7 @@
 #include <gtopt/reservoir_discharge_limit_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_seepage_lp.hpp>
-#include <gtopt/simple_commitment_lp.hpp>
+#include <gtopt/simple_commitment.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
@@ -1010,13 +1010,15 @@ void register_ampl_iterator_dispatchers(SimulationLP& sim)
                          &iter_class<EmissionZoneLP>);
   sim.register_ampl_iter(EmissionSource::class_name.snake_case(),
                          &iter_class<EmissionSourceLP>);
-  // Commitment family: Commitment exposes status/startup/shutdown PAMPL
-  // variables, SimpleCommitment exposes status — both have to be iterable
-  // for `sum(commitment(all).status)` / `sum(simple_commitment(all).status)`.
+  // Commitment exposes status/startup/shutdown PAMPL variables and must be
+  // iterable for `sum(commitment(all).status)` (the deprecated
+  // `simple_commitment(...)` spelling is folded onto it by the parser).
   sim.register_ampl_iter(Commitment::class_name.snake_case(),
                          &iter_class<CommitmentLP>);
+  // Deprecated alias (the parser folds it onto `commitment`; registered so
+  // the Python PAMPL validator and the runtime agree on accepted names).
   sim.register_ampl_iter(SimpleCommitment::class_name.snake_case(),
-                         &iter_class<SimpleCommitmentLP>);
+                         &iter_class<CommitmentLP>);
   // Inertia: zone-level requirement column + per-generator provision
   // columns; both register AMPL variables on every (scenario, stage).
   sim.register_ampl_iter(InertiaZone::class_name.snake_case(),

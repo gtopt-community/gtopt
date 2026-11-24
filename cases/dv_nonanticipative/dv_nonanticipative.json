@@ -1,0 +1,76 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": true,
+      "scale_objective": 1,
+      "demand_fail_cost": 10000
+    }
+  },
+  "simulation": {
+    "block_array": [
+      { "uid": 1, "duration": 1.0 },
+      { "uid": 2, "duration": 1.0 },
+      { "uid": 3, "duration": 1.0 }
+    ],
+    "stage_array": [
+      { "uid": 1, "first_block": 0, "count_block": 3 }
+    ],
+    "scenario_array": [
+      { "uid": 1, "name": "wet", "probability_factor": 0.5 },
+      { "uid": 2, "name": "dry", "probability_factor": 0.5 }
+    ],
+    "scene_array": [
+      { "uid": 1, "name": "wet", "first_scenario": 0, "count_scenario": 1 },
+      { "uid": 2, "name": "dry", "first_scenario": 1, "count_scenario": 1 }
+    ]
+  },
+  "system": {
+    "name": "dv_nonanticipative",
+    "bus_array": [ { "uid": 1, "name": "b1" } ],
+    "junction_array": [
+      { "uid": 1, "name": "j_top" },
+      { "uid": 2, "name": "j_bot", "drain": true }
+    ],
+    "waterway_array": [
+      { "uid": 1, "name": "ww_turb", "junction_a": 1, "junction_b": 2,
+        "fmin": 0.0, "fmax": 100.0 },
+      { "uid": 2, "name": "ww_spill", "junction_a": 1, "junction_b": 2,
+        "fmin": 0.0, "fmax": 10000.0 }
+    ],
+    "reservoir_array": [
+      { "uid": 1, "name": "rsv", "junction": 1, "capacity": 200.0,
+        "emin": 0.0, "emax": 200.0, "eini": 50.0,
+        "flow_conversion_rate": 3.6 }
+    ],
+    "flow_array": [
+      { "uid": 1, "name": "inflow", "direction": 1, "junction": 1,
+        "discharge": [[[60.0, 60.0, 60.0]], [[20.0, 20.0, 20.0]]] }
+    ],
+    "generator_array": [
+      { "uid": 1, "name": "hydro", "bus": 1, "gcost": 0.0, "capacity": 100.0 },
+      { "uid": 2, "name": "lng", "bus": 1, "gcost": 10.0, "capacity": 200.0 },
+      { "uid": 3, "name": "peaker", "bus": 1, "gcost": 100.0,
+        "capacity": 200.0 }
+    ],
+    "turbine_array": [
+      { "uid": 1, "name": "t", "waterway": 1, "generator": 1,
+        "production_factor": 1.0 }
+    ],
+    "demand_array": [
+      { "uid": 1, "name": "d1", "bus": 1, "lmax": 100.0 }
+    ],
+    "decision_variable_array": [
+      { "uid": 1, "name": "cargo", "lower_bound": 0, "upper_bound": 100,
+        "cost": 150.0, "cost_type": "energy", "scope": "global",
+        "nonanticipative": true }
+    ],
+    "user_constraint_array": [
+      { "uid": 1, "name": "lng_cap",
+        "expression":
+          "generator('lng').generation <= decision_variable('cargo').value" }
+    ]
+  }
+}

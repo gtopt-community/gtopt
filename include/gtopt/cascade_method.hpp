@@ -23,7 +23,9 @@
 #pragma once
 
 #include <expected>
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -33,6 +35,7 @@
 #include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/planning_options.hpp>
+#include <gtopt/sddp_aperture_drops.hpp>
 #include <gtopt/sddp_method.hpp>
 
 namespace gtopt
@@ -60,6 +63,8 @@ struct CascadeLevelStats
   /// LP build options of the PlanningLP this level solved (inherited from
   /// the caller's PlanningLP when the level rebuilt its LP).
   LpMatrixOptions lp_options {};
+  /// Backward-pass aperture statistics of this level (all of its solves).
+  ApertureSummary apertures {};
 };
 
 // ─── CascadePlanningMethod ──────────────────────────────────────────────────
@@ -109,6 +114,14 @@ public:
   }
 
 protected:
+  /// Audit every active level against a nonanticipative scene merge of
+  /// @p sim: the level's effective SDDP options
+  /// (`validate_nonanticipative_sddp`) and its cut transition.  nullopt
+  /// when nothing conflicts (or there is no merge).
+  [[nodiscard]] auto validate_nonanticipative_levels(const SimulationLP& sim,
+                                                     int remaining_budget) const
+      -> std::optional<Error>;
+
   /// Build SDDPOptions for a level, overriding base with level solver opts.
   /// @param level_solver      Per-level solver configuration (may be absent).
   /// @param remaining_budget  Global iteration budget remaining (-1 = no cap).
@@ -140,6 +153,9 @@ private:
   /// of level N so the owned LP and solver can be released before level
   /// N+1 allocates its own LP.  Consumed by the next level.
   std::string m_prev_cuts_file_ {};
+  /// Private (mkdtemp, 0700) directory holding the level-to-level cut
+  /// files; created on first use, removed when solve() returns.
+  std::filesystem::path m_tmp_dir_ {};
 };
 
 }  // namespace gtopt

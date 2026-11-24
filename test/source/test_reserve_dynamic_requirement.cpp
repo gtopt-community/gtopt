@@ -1216,7 +1216,7 @@ TEST_CASE("Inertia requirement credits: Guacolda commitment steps")  // NOLINT
     // is covered in test_reserve_coverage_gaps.cpp.
     c.inertia_zones = zone(true);
     CHECK_THROWS_WITH_AS(PlanningLP(parse_planning_json(c.str())),
-                         doctest::Contains("no Commitment / SimpleCommitment"),
+                         doctest::Contains("no Commitment (no status column)"),
                          std::runtime_error);
   }
 }

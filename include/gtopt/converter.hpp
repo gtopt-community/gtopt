@@ -106,6 +106,13 @@ struct Converter
   /// enabled.
   OptBool commitment {};
 
+  /// Charge/discharge exclusivity constraint ``u_charge + u_discharge
+  /// ≤ 1`` per block (row ``charge_discharge_exclusive``).  Only used
+  /// with ``commitment = true``; unset means true.  Set by
+  /// ``System::expand_batteries()`` from
+  /// ``Battery.exclusive_charge_discharge``.
+  OptBool exclusive_charge_discharge {};
+
   /// Fixed storage duration [h] of the linked battery: per stage
   /// ``battery capainst = energy_power_ratio × converter capainst``
   /// (added only when both capacity columns exist).  Set by

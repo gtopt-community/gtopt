@@ -51,6 +51,7 @@ namespace
   sddp_opts.forward_fail_stop = options.sddp_forward_fail_stop();
   sddp_opts.forward_infeas_rollback = options.sddp_forward_infeas_rollback();
   sddp_opts.backward_resolve_target = options.sddp_backward_resolve_target();
+  sddp_opts.aperture_cut_resolve = options.sddp_aperture_cut_resolve();
 
   // Simulation mode: forward-only evaluation, no training, no cut saving
   const bool simulation_mode = options.sddp_simulation_mode();

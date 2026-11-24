@@ -421,6 +421,25 @@ struct System
    */
   void fold_legacy_profiles();
 
+  /**
+   * @brief Fold the deprecated `simple_commitment_array` into
+   *        `commitment_array` (one-time deprecation warning).
+   *
+   * A SimpleCommitment becomes a plain Commitment (`uid`, `name`,
+   * `active`, `generator`, `relax`, `must_run` kept; `dispatch_pmin` →
+   * `pmin`).  The legacy element turned its generator's `pmin` into a
+   * conditional minimum (it zeroed the generation column bound), while
+   * `Generator.pmin` is an always-on floor for a Commitment.  To keep the
+   * old results this alias path — and only it — moves the generator's
+   * `pmin` onto the commitment (when `dispatch_pmin` is unset) and
+   * clears it on the generator.  A soft `pmin` (`pmin_fcost` set) is left
+   * on the generator, as the legacy element did not use it either.  A
+   * uid already taken by a Commitment is replaced by the next free one.
+   *
+   * Idempotent (the legacy array is cleared).
+   */
+  void fold_legacy_simple_commitments();
+
   void setup_reference_bus(const class PlanningOptionsLP& options);
 };
 

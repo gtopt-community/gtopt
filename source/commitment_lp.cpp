@@ -35,207 +35,6 @@
 namespace gtopt
 {
 
-/// Make the ReserveProvision rows of a committed generator conditional
-/// on its status u (CommitmentLP and SimpleCommitmentLP):
-///   up headroom    g + r_up ≤ Pmax   →  g + r_up − Pmax·u ≤ 0
-///   down headroom  g − r_dn ≥ Pmin   →  g − r_dn − Pmin·u ≥ 0
-///   min provision  r ≥ rmin (column bound)  →  r − rmin·u ≥ 0
-/// plus the offline (cold) up reserve `r_up ≤ urmax·(1 − u)`.
-/// ReserveProvisionLP builds before the commitment elements, from the
-/// generator column bounds as they were (pmin on the column lower bound).
-void gate_reserve_provisions_by_status(
-    const SystemContext& sc,
-    const ScenarioLP& scenario,
-    const StageLP& stage,
-    LinearProblem& lp,
-    ElementIndex<GeneratorLP> generator_index,
-    const GeneratorLP& generator_lp,
-    const BIndexHolder<ColIndex>& generation_cols,
-    const BIndexHolder<ColIndex>& block_ucol)
-{
-  if (block_ucol.empty()) {
-    return;
-  }
-  const auto& blocks = stage.blocks();
-  const auto gen_capacity_col = generator_lp.capacity_col_at(stage);
-  for (const auto& rprov : sc.elements<ReserveProvisionLP>()) {
-    // Pair by resolved element index: a raw SingleId compare missed
-    // `5` vs `"g5"` (same generator) and skipped the u-gating.
-    if (sc.element_index(rprov.generator_sid()) != generator_index) {
-      continue;
-    }
-    for (const auto& block : blocks) {
-      const auto buid = block.uid();
-      const auto ucol_it = block_ucol.find(buid);
-      if (ucol_it == block_ucol.end()) {
-        continue;
-      }
-      const auto ucol = ucol_it->second;
-
-      // Offline (cold) up reserve, minuta (A.19): offered only while
-      // the unit is OFF — `r_up ≤ urmax · (1 − u)`, i.e.
-      // `r_up + urmax · u ≤ urmax`.  It has no headroom row.
-      if (rprov.offline()) {
-        if (const auto up_col =
-                rprov.lookup_up_provision_col(scenario, stage, buid))
-        {
-          // Big-M = the provision's physical ceiling.  An unbounded
-          // ceiling (no urmax, unbounded generator) would put a 1e20+
-          // coefficient into the row: reject it.
-          const auto urmax = lp.get_col_uppb(*up_col);
-          if (!std::isfinite(urmax) || urmax >= 1e19
-              || is_infinity(urmax, lp.infinity()))
-          {
-            throw std::runtime_error(std::format(
-                "ReserveProvision '{}': offline (cold) up reserve needs a "
-                "finite ceiling (set urmax or a finite generator pmax); "
-                "got {}",
-                rprov.object().name,
-                urmax));
-          }
-          auto orow =
-              SparseRow {
-                  .class_name = ReserveProvisionLP::Element::class_name,
-                  .constraint_name = ReserveProvisionLP::OfflineUpProvisionName,
-                  .variable_uid = rprov.uid(),
-                  .context = make_block_context(
-                      scenario.uid(), stage.uid(), block.uid()),
-              }
-                  .less_equal(urmax);
-          orow[*up_col] = 1.0;
-          orow[ucol] = urmax;
-          std::ignore = lp.add_row(std::move(orow));
-        }
-      }
-
-      // Modify up-provision row: add -Pmax on u, change RHS to 0
-      if (const auto urow =
-              rprov.lookup_up_provision_row(scenario, stage, buid))
-      {
-        if (gen_capacity_col) {
-          // Expandable generator: the headroom row is already
-          // `g + r − capacity ≤ 0` (RHS 0, no Pmax to move onto u —
-          // pre-fix this stamped `−0·u` and an off-line unit still
-          // offered reserve).  Keep that row and add a separate
-          // u-gated copy without the capacity term:
-          //   g + Σ r − Pmax·u ≤ 0,   Pmax = gen column upper bound
-          // (the same big-M as the C2 `gen_upper` row).
-          const auto gcol_it = generation_cols.find(buid);
-          if (gcol_it != generation_cols.end()) {
-            const auto gen_pmax = lp.get_col_uppb(gcol_it->second);
-            auto grow =
-                SparseRow {
-                    .class_name = ReserveProvisionLP::Element::class_name,
-                    .constraint_name =
-                        ReserveProvisionLP::CommitUpProvisionName,
-                    .variable_uid = rprov.uid(),
-                    .context = make_block_context(
-                        scenario.uid(), stage.uid(), block.uid()),
-                }
-                    .less_equal(0.0);
-            for (const auto& [col, coef] : lp.row_at(*urow).cmap) {
-              if (col != *gen_capacity_col) {
-                grow[col] = coef;
-              }
-            }
-            grow[ucol] = -gen_pmax;
-            std::ignore = lp.add_row(std::move(grow));
-          }
-        } else {
-          auto& row = lp.row_at(*urow);
-          const auto pmax = row.uppb;  // original Pmax was stored as uppb
-          lp.set_coeff(*urow, ucol, -pmax);
-          row.uppb = 0.0;
-        }
-      }
-
-      // Modify down-provision row: add -Pmin on u, change RHS to 0
-      if (const auto drow =
-              rprov.lookup_dn_provision_row(scenario, stage, buid))
-      {
-        auto& row = lp.row_at(*drow);
-        const auto pmin = row.lowb;  // original Pmin was stored as lowb
-        lp.set_coeff(*drow, ucol, -pmin);
-        row.lowb = 0.0;
-      }
-
-      // ── PLEXOS Min Provision linkage (urmin/drmin) ──
-      //
-      // ARCHITECTURAL DEBT (queued for refactor): per the
-      // "consumer pulls from owner" principle, this transform
-      // should live in ``ReserveProvisionLP::add_to_lp``, looking
-      // up the gen's CommitmentLP via ``sc.elements<CommitmentLP>()``
-      // and constructing the linkage row at provision creation time.
-      // Implementing that requires (a) reordering ``collections_t``
-      // so CommitmentLP precedes ReserveProvisionLP and (b) saving
-      // the original gen-col bounds before CommitmentLP resets
-      // ``gcol.lowb = 0`` (consumers like inertia_provision_lp.cpp
-      // and the dprov_row helper in reserve_provision_lp.cpp:298
-      // currently read ``lp.get_col_lowb(gcol)`` expecting the
-      // original pmin).  This block keeps the legacy "CommitmentLP
-      // transforms ReserveProvisionLP-owned rows" pattern that's
-      // already pre-existing (see the urmax/drmax × u transform
-      // a few lines above).
-      //
-      // ReserveProvisionLP::add_to_lp creates the provision column
-      // with ``lowb = urmin`` as a hard floor (when PLEXOS
-      // ``ReserveGenerators.Min Provision`` is set on the
-      // membership).  Per PLEXOS docs (ReserveGenerators.MinProvision)
-      // the floor is gated by ``Available Units`` — i.e. should
-      // collapse to 0 when the gen is not committed.  Here, since
-      // this gen has a commitment, transform the hard col-lowb
-      // into a conditional linkage row:
-      //   provision_col - urmin·u >= 0
-      // and reset the col lowb to 0 so the LP only enforces the
-      // floor when u = 1.
-      if (const auto up_col_opt =
-              rprov.lookup_up_provision_col(scenario, stage, buid))
-      {
-        const auto up_col = *up_col_opt;
-        auto& col = lp.col_at(up_col);
-        if (col.lowb > 0.0) {
-          const auto urmin = col.lowb;
-          auto urow =
-              SparseRow {
-                  .class_name = ReserveProvisionLP::Element::class_name,
-                  .constraint_name = ReserveProvisionLP::MinUpProvisionName,
-                  .variable_uid = rprov.uid(),
-                  .context = make_block_context(
-                      scenario.uid(), stage.uid(), block.uid()),
-              }
-                  .greater_equal(0);
-          urow[up_col] = 1.0;
-          urow[ucol] = -urmin;
-          std::ignore = lp.add_row(std::move(urow));
-          col.lowb = 0.0;
-        }
-      }
-      if (const auto dn_col_opt =
-              rprov.lookup_dn_provision_col(scenario, stage, buid))
-      {
-        const auto dn_col = *dn_col_opt;
-        auto& col = lp.col_at(dn_col);
-        if (col.lowb > 0.0) {
-          const auto drmin = col.lowb;
-          auto drow =
-              SparseRow {
-                  .class_name = ReserveProvisionLP::Element::class_name,
-                  .constraint_name = ReserveProvisionLP::MinDnProvisionName,
-                  .variable_uid = rprov.uid(),
-                  .context = make_block_context(
-                      scenario.uid(), stage.uid(), block.uid()),
-              }
-                  .greater_equal(0);
-          drow[dn_col] = 1.0;
-          drow[ucol] = -drmin;
-          std::ignore = lp.add_row(std::move(drow));
-          col.lowb = 0.0;
-        }
-      }
-    }
-  }
-}
-
 CommitmentLP::CommitmentLP(const Commitment& commitment, const InputContext& ic)
     : Base(commitment, ic, Element::class_name)
     , generator_index_(ic.element_index(generator_sid()))
@@ -255,6 +54,18 @@ CommitmentLP::CommitmentLP(const Commitment& commitment, const InputContext& ic)
 {
 }
 
+bool CommitmentLP::has_chronological_data() const noexcept
+{
+  const auto& c = commitment();
+  return startup_cost_.has_value() || shutdown_cost_.has_value()
+      || ramp_up_.has_value() || ramp_down_.has_value()
+      || startup_ramp_.has_value() || shutdown_ramp_.has_value()
+      || c.min_up_time.has_value() || c.min_down_time.has_value()
+      || c.hot_start_cost.has_value() || c.warm_start_cost.has_value()
+      || c.cold_start_cost.has_value() || c.max_starts.has_value()
+      || c.min_starts.has_value() || c.commitment_period.has_value();
+}
+
 bool CommitmentLP::add_to_lp(SystemContext& sc,
                              const ScenarioLP& scenario,
                              const StageLP& stage,
@@ -264,10 +75,16 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
-  // UC constraints only apply to chronological stages
-  if (!stage.is_chronological()) {
-    return true;
-  }
+  // The formulation follows the stage.  A chronological stage gets the
+  // full intertemporal model (logic u − u₋₁ − v + w, startup/shutdown,
+  // ramps, min up/down, start tiers and counts).  A non-chronological
+  // (block / representative) stage has no block order, so it gets the
+  // block formulation: one status u per block with only the C2 rows
+  // ``g ≤ Pmax·u`` and ``g ≥ Commitment.pmin·u`` (same pmin as the full
+  // model); startup / shutdown / no-load / ramp / min up-down /
+  // commitment_period data is ignored there.  Reserve gating, inertia
+  // and PAMPL accessors are shared by both.
+  const bool chronological = stage.is_chronological();
 
   auto&& generator_lp = sc.element(generator_index_);
   if (!generator_lp.is_active(stage)) {
@@ -313,10 +130,22 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
+  if (!chronological && !block_note_logged_ && has_chronological_data()) {
+    block_note_logged_ = true;
+    spdlog::info(
+        "Commitment '{}': non-chronological stage {} uses the per-block "
+        "formulation; startup/shutdown/ramp/min up-down data is ignored "
+        "there (no-load cost / fuel is charged per block)",
+        commitment().name,
+        stage.uid());
+  }
+
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto cuid = uid();
 
   // Resolve commitment parameters
+  // No-load cost applies in both formulations: noload·u·duration per
+  // period (one block per period on the block formulation).
   const auto noload = commitment().noload_cost.value_or(0.0);
   // Startup / shutdown costs are now per-(stage, block) schedules
   // (``OptTBRealSched``), resolved at the period's representative block
@@ -356,10 +185,10 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // same constant on every block, preserving the legacy ``OptReal``
   // behaviour byte-for-byte.  The per-block ``value_or(gen_pmax)``
   // "unset ⇒ pmax (no limit)" fallback is applied inside the loop.
-  const auto has_ramp_up = ramp_up_.has_value();
-  const auto has_ramp_down = ramp_down_.has_value();
-  const auto has_startup_ramp = startup_ramp_.has_value();
-  const auto has_shutdown_ramp = shutdown_ramp_.has_value();
+  const auto has_ramp_up = chronological && ramp_up_.has_value();
+  const auto has_ramp_down = chronological && ramp_down_.has_value();
+  const auto has_startup_ramp = chronological && startup_ramp_.has_value();
+  const auto has_shutdown_ramp = chronological && shutdown_ramp_.has_value();
 
   // Resolve piecewise heat rate curve.
   //
@@ -393,8 +222,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // The tier block prices starts only when every field is given and the
   // windows are ordered; otherwise the plain startup cost applies (before,
   // an incomplete or inverted tier set made every start free).
-  const bool has_startup_tiers =
-      all_tiers && opt_cold_time.value_or(0.0) >= opt_hot_time.value_or(0.0);
+  const bool has_startup_tiers = chronological && all_tiers
+      && opt_cold_time.value_or(0.0) >= opt_hot_time.value_or(0.0);
   // Fallback for an unusable tier set: `startup_cost`, else the largest
   // given tier cost (never a free start).
   const std::optional<double> tier_fallback_cost =
@@ -409,7 +238,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
     return c;
   }();
-  if (any_tier && !has_startup_tiers && !tier_warned_) {
+  if (chronological && any_tier && !has_startup_tiers && !tier_warned_) {
     tier_warned_ = true;
     spdlog::warn(
         "Commitment '{}': startup cost tiers need hot/warm/cold_start_cost "
@@ -431,7 +260,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // cumulative duration fits within commitment_period hours.
   // Default: one period per block (commitment_period not set).
   const auto opt_period = commitment().commitment_period;
-  const auto period_hours = opt_period.value_or(0.0);  // 0 = per-block
+  // 0 = per-block (always on the block formulation)
+  const auto period_hours = chronological ? opt_period.value_or(0.0) : 0.0;
 
   // Period grouping: each entry is the index of the first block in a period.
   // period_starts[k] = index into blocks[] where period k begins.
@@ -578,6 +408,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
                            rep_buid,
                            std::span<const BlockUid> {period_block_uids[p]});
     ucols[rep_buid] = ucol;
+
+    // Block formulation (non-chronological stage): u alone, one per
+    // block — no startup / shutdown columns, no logic or exclusion row.
+    if (!chronological) {
+      block_ucol[rep_buid] = ucol;
+      continue;
+    }
 
     // ── Create v (startup) and w (shutdown) variables ──
     //
@@ -930,15 +767,30 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  // ── Reserve-UC integration ── (shared with SimpleCommitmentLP)
-  gate_reserve_provisions_by_status(sc,
-                                    scenario,
-                                    stage,
-                                    lp,
-                                    generator_index_,
-                                    generator_lp,
-                                    generation_cols,
-                                    block_ucol);
+  // ── Reserve-UC integration ──
+  // Gate this generator's reserve headroom rows with u (same rows on the
+  // chronological and block formulations, see
+  // gate_reserve_provisions_by_status).  The
+  // down-reserve floor is the committed minimum: ``Commitment.pmin``
+  // when set (the documented pattern is ``Generator.pmin = 0`` plus a
+  // conditional ``Commitment.pmin``), never below the always-on
+  // ``Generator.pmin`` stored as the row's lowb.
+  if (!block_ucol.empty()) {
+    gate_reserve_provisions_by_status(
+        sc,
+        scenario,
+        stage,
+        lp,
+        generator_index_,
+        block_ucol,
+        generation_cols,
+        generator_lp.capacity_col_at(stage),
+        [&](BlockUid buid, double gen_floor)
+        {
+          return std::max(gen_floor,
+                          pmin_.optval(stage.uid(), buid).value_or(gen_floor));
+        });
+  }
 
   // Inertia/Reserve u_commit linkage: NOT done here.  Architectural
   // principle (consumer pulls from owner): each provision LP class
@@ -950,9 +802,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // ``collections_t`` so CommitmentLP precedes the provision LPs
   // (so u_commit columns exist when consumers look them up).
   //
-  // The legacy reserve-headroom block above (urmax × u, drmax × u,
-  // and the urmin/drmin x u floors) still lives here for back-compat
-  // and is on the deferred-refactor list.  Same for the Battery
+  // The reserve-headroom gating above (urmax × u, drmax × u, the
+  // urmin/drmin × u floors) is pushed from here via
+  // gate_reserve_provisions_by_status.  Same for the Battery
   // pmin_charge/discharge gating in ConverterLP — Battery LP should
   // pull from Converter LP rather than have Converter own the
   // binaries.
@@ -1500,6 +1352,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   if (!ucols.empty()) {
     status_cols_[st_key] = std::move(ucols);
   }
+  if (!block_ucol.empty()) {
+    block_status_cols_[st_key] = block_ucol;
+  }
   if (!vcols.empty()) {
     startup_cols_[st_key] = std::move(vcols);
   }
@@ -1596,6 +1451,33 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, WarmStartName, pid, warm_start_rows_);
 
   return true;
+}
+
+auto find_unit_commitment(const SystemContext& sc,
+                          ElementIndex<GeneratorLP> gen_index,
+                          const StageLP& stage) -> const CommitmentLP*
+{
+  for (const auto& cm : sc.elements<CommitmentLP>()) {
+    if (cm.is_active(stage)
+        && sc.element_index(cm.generator_sid()) == gen_index)
+    {
+      return &cm;
+    }
+  }
+  return nullptr;
+}
+
+auto committed_pmin(const CommitmentLP* cmt,
+                    const GeneratorLP& gen,
+                    StageUid stage_uid,
+                    BlockUid block_uid) -> double
+{
+  const auto gen_pmin = gen.param_pmin(stage_uid, block_uid).value_or(0.0);
+  if (cmt == nullptr) {
+    return gen_pmin;
+  }
+  return std::max(gen_pmin,
+                  cmt->committed_pmin(stage_uid, block_uid).value_or(0.0));
 }
 
 auto find_noload_fuel_commitment(const SystemContext& sc,

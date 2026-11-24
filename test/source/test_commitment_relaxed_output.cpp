@@ -11,7 +11,6 @@
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/planning_options_lp.hpp>
-#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
@@ -62,6 +61,7 @@ namespace
         .relax = true,
     }};
   }
+  sys.fold_legacy_simple_commitments();
   return sys;
 }
 
@@ -160,7 +160,7 @@ TEST_CASE("Relaxed SimpleCommitment status_sol keeps the LP value")  // NOLINT
   auto&& li = system_lp.linear_interface();
   REQUIRE(li.resolve().has_value());
 
-  const auto& cm = system_lp.elements<SimpleCommitmentLP>().front();
+  const auto& cm = system_lp.elements<CommitmentLP>().front();
   const auto& scenario = simulation_lp.scenarios().front();
   const auto& stage = simulation_lp.stages().front();
   const auto ucol = cm.lookup_status_col(
@@ -174,7 +174,7 @@ TEST_CASE("Relaxed SimpleCommitment status_sol keeps the LP value")  // NOLINT
                    system_lp.phase().uid(),
                    system_lp.phase().is_continuous());
   REQUIRE(cm.add_to_output(oc));
-  const auto values = status_output(system_lp, oc, "SimpleCommitment");
+  const auto values = status_output(system_lp, oc, "Commitment");
   // u ∈ [0.3, 0.75] here (no cost on u); whatever the LP picks is written
   // unrounded.
   if (u != 0.0) {

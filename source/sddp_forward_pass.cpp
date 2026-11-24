@@ -30,6 +30,7 @@
 #include <gtopt/pricing_mode.hpp>
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_common.hpp>
+#include <gtopt/sddp_forward_crossover.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -387,27 +388,31 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     // copy keeps `advanced_basis` from leaking to phases that were not seeded.
     //
     // Source selection by mode:
-    //   * warm / full_cross      → this cell's OWN forward basis from the
-    //     previous iteration (forward→forward same-direction reuse — the LP
-    //     differs only by appended cut rows, the closest seed there is).
+    //   * warm                   → this cell's OWN forward basis from the
+    //     previous iteration (forward→forward same-direction reuse).
     //   * backward_to_forward    → the backward basis (cross reuse).
-    //   * full_cross             → prefer forward→forward, fall back to the
-    //     backward basis on the first iteration (forward basis still empty).
+    //   * full_cross             → prefer the backward basis, fall back to
+    //     forward→forward.  The backward basis (last aperture of the cell's
+    //     chain, or the post-cut target re-solve) was optimal for this very
+    //     LP with this iteration's cuts on α already priced, whereas the
+    //     previous forward basis predates them: on a large hydrothermal case
+    //     the forward→forward seed took several times more dual pivots per
+    //     solve (worse than a cold presolved solve) than the backward basis.
     auto fwd_opts = effective_opts;
     {
       const auto bcm = m_options_.basis_cross_mode;
       const Basis* seed = nullptr;
-      if ((bcm == BasisCrossMode::warm || bcm == BasisCrossMode::full_cross)
-          && !state.forward_basis.empty())
-      {
-        seed = &state.forward_basis;  // forward → forward
-      }
-      if (seed == nullptr
-          && (bcm == BasisCrossMode::backward_to_forward
-              || bcm == BasisCrossMode::full_cross)
+      if ((bcm == BasisCrossMode::backward_to_forward
+           || bcm == BasisCrossMode::full_cross)
           && !state.backward_basis.empty())
       {
         seed = &state.backward_basis;  // backward → forward (cross)
+      }
+      if (seed == nullptr
+          && (bcm == BasisCrossMode::warm || bcm == BasisCrossMode::full_cross)
+          && !state.forward_basis.empty())
+      {
+        seed = &state.forward_basis;  // forward → forward
       }
       if (seed != nullptr && li.set_basis(*seed)) {
         // Warm start off the installed basis.  Auto-select DUAL simplex and
@@ -1229,6 +1234,30 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // alpha started carrying inherited-cut weight.
       const auto obj_physical = li.get_obj_value();
       state.forward_full_obj_physical = obj_physical;
+      state.forward_interior = is_interior_solve(fwd_opts);
+      if (state.forward_interior) {
+        // Cut validity rests on dual feasibility: log how far the interior
+        // duals are from it (the intercept guard only covers the gap).
+        const auto di = dual_infeasibility(li.get_col_low_raw(),
+                                           li.get_col_upp_raw(),
+                                           li.get_col_cost_raw(),
+                                           li.get_col_sol_raw(),
+                                           li.get_row_low_raw(),
+                                           li.get_row_upp_raw(),
+                                           li.get_row_dual_raw(),
+                                           0.5 * li.infinity());
+        spdlog::info(
+            "SDDP Forward [i{} s{} p{}]: interior duals — max dual "
+            "infeasibility col {:.3e} row {:.3e}, Σ viol·max(1,|x|) {:.3e} "
+            "(raw LP units; cut guard {:.3e})",
+            gtopt::uid_of(iteration_index),
+            uid_of(scene_index),
+            uid_of(phase_index),
+            di.max_col,
+            di.max_row,
+            di.weighted,
+            interior_cut_rel_gap * std::max(1.0, std::abs(obj_physical)));
+      }
 
       // Physical-space, optimal-only bound-clamped view (see
       // `LinearInterface::get_col_sol`) — scrubs at-bound solver noise

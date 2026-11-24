@@ -162,6 +162,12 @@ auto SDDPMethod::save_all_scene_cuts(const std::string& directory) const
 auto SDDPMethod::load_cuts(const std::string& filepath)
     -> std::expected<CutLoadResult, Error>
 {
+  if (auto err = nonanticipative_cut_load_error(
+          planning_lp().simulation(),
+          std::format("loading cuts from '{}'", filepath)))
+  {
+    return std::unexpected(std::move(*err));
+  }
   // Ensure ``m_cut_store_`` is sized before passing it as the
   // ``cut_store`` argument to ``load_cuts_parquet`` — without this,
   // callers that invoke ``load_cuts`` directly on a freshly-constructed
@@ -201,6 +207,12 @@ auto SDDPMethod::load_cuts(const std::string& filepath)
 auto SDDPMethod::load_scene_cuts_from_directory(const std::string& directory)
     -> std::expected<CutLoadResult, Error>
 {
+  if (auto err = nonanticipative_cut_load_error(
+          planning_lp().simulation(),
+          std::format("loading cuts from directory '{}'", directory)))
+  {
+    return std::unexpected(std::move(*err));
+  }
   return gtopt::load_scene_cuts_from_directory_parquet(planning_lp(),
                                                        directory,
                                                        m_options_.scale_alpha,
@@ -211,6 +223,12 @@ auto SDDPMethod::load_scene_cuts_from_directory(const std::string& directory)
 auto SDDPMethod::load_boundary_cuts(const std::string& filepath)
     -> std::expected<CutLoadResult, Error>
 {
+  if (auto err = nonanticipative_cut_load_error(
+          planning_lp().simulation(),
+          std::format("boundary cuts '{}'", filepath)))
+  {
+    return std::unexpected(std::move(*err));
+  }
   return load_boundary_cuts_csv(planning_lp(),
                                 filepath,
                                 m_options_,

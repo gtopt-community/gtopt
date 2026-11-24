@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <semaphore>
 #include <string>
 #include <thread>
@@ -28,6 +29,8 @@
 #include <arrow/util/compression.h>
 #include <gtopt/map_reserve.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/simulation_lp.hpp>
+#include <gtopt/system_context.hpp>
 #include <parquet/arrow/writer.h>
 #include <parquet/types.h>
 #include <spdlog/spdlog.h>
@@ -664,12 +667,76 @@ void OutputContext::write() const
   const auto fmt = options().output_format();
   const auto zfmt = options().output_compression();
   const auto round_digits = options().output_round_decimals();
-  auto path_tables = create_tables(fmt,
-                                   m_scene_uid_,
-                                   m_phase_uid_,
-                                   options().output_directory(),
-                                   field_vector_map,
-                                   round_digits);
+  // A nonanticipative scene merge solves several input scenes as ONE LP
+  // scene; split this cell's rows back into the original scenes so the
+  // `scene=<uid>` partitions (CSV `_s<uid>` shards) keep the layout of an
+  // unmerged run.  Streams without a scenario axis (stage-only) go to every
+  // original scene, as each scene LP would have written its own copy.
+  const auto& scene_merge = sc.get().simulation().scene_merge();
+  auto path_tables = [&]
+  {
+    if (!scene_merge.has_value()
+        || scene_merge->merged_scene.uid != m_scene_uid_.value())
+    {
+      return create_tables(fmt,
+                           m_scene_uid_,
+                           m_phase_uid_,
+                           options().output_directory(),
+                           field_vector_map,
+                           round_digits);
+    }
+    decltype(create_tables(fmt,
+                           m_scene_uid_,
+                           m_phase_uid_,
+                           options().output_directory(),
+                           field_vector_map,
+                           round_digits)) all_tables;
+    for (const auto& scene : scene_merge->original_scenes) {
+      const auto keep = [&](Uid scenario_uid)
+      {
+        const auto it = scene_merge->scene_of_scenario.find(scenario_uid);
+        return it != scene_merge->scene_of_scenario.end()
+            && it->second == scene.uid;
+      };
+      FieldVectorMap scene_map;
+      for (const auto& [key, fields] : field_vector_map) {
+        FieldVector scene_fields;
+        for (const auto& field : fields) {
+          if (field.prelude == nullptr || field.prelude->scenario_uids.empty())
+          {
+            scene_fields.push_back(field);
+            continue;
+          }
+          const auto& scenario_uids = field.prelude->scenario_uids;
+          SparseEntries entries;
+          for (const auto& entry : field.entries) {
+            const auto slot = entry.first;
+            if (slot < scenario_uids.size() && keep(scenario_uids[slot])) {
+              entries.push_back(entry);
+            }
+          }
+          if (!entries.empty()) {
+            scene_fields.push_back(FieldEntry {
+                .name = field.name,
+                .entries = std::move(entries),
+                .prelude = field.prelude,
+            });
+          }
+        }
+        if (!scene_fields.empty()) {
+          scene_map.emplace(key, std::move(scene_fields));
+        }
+      }
+      auto tables = create_tables(fmt,
+                                  make_uid<Scene>(scene.uid),
+                                  m_phase_uid_,
+                                  options().output_directory(),
+                                  scene_map,
+                                  round_digits);
+      std::ranges::move(tables, std::back_inserter(all_tables));
+    }
+    return all_tables;
+  }();
 
   SPDLOG_DEBUG(
       "  Writing {} output tables to '{}' "

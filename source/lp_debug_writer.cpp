@@ -9,15 +9,22 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include <fcntl.h>  // O_RDONLY, O_WRONLY
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/work_pool.hpp>
+#include <spawn.h>  // posix_spawn
 #include <spdlog/spdlog.h>
+#include <sys/wait.h>  // waitpid
+#include <unistd.h>  // access, environ
 #include <zlib.h>
 #include <zstd.h>
 
@@ -27,51 +34,168 @@ namespace gtopt
 namespace
 {
 
-/// Find a command on PATH by checking the filesystem.
-/// Returns true if the command is accessible.
-bool command_available(const char* cmd) noexcept
+/// Locate @p name on PATH without involving a shell.  Empty and relative
+/// PATH entries are skipped so a binary in the current working directory
+/// is never picked up by accident.  Returns an empty string when the
+/// command is not found.
+[[nodiscard]] std::string find_executable(std::string_view name)
 {
-  // Use popen to ask the shell (portable and safe for availability checks)
+  const char* path_env = std::getenv("PATH");  // NOLINT(concurrency-mt-unsafe)
+  if (path_env == nullptr) {
+    return {};
+  }
+  std::string_view rest {path_env};
+  while (true) {
+    const auto colon = rest.find(':');
+    const auto dir = rest.substr(0, colon);
+    if (!dir.empty() && dir.front() == '/') {
+      const auto candidate = std::filesystem::path(dir) / name;
+      std::error_code ec;
+      if (std::filesystem::is_regular_file(candidate, ec)
+          && ::access(candidate.c_str(), X_OK) == 0)
+      {
+        return candidate.string();
+      }
+    }
+    if (colon == std::string_view::npos) {
+      break;
+    }
+    rest.remove_prefix(colon + 1);
+  }
+  return {};
+}
+
+/// RAII wrapper for posix_spawn_file_actions_t.
+struct LpSpawnActions
+{
+  posix_spawn_file_actions_t value {};
+  LpSpawnActions() noexcept { ::posix_spawn_file_actions_init(&value); }
+  ~LpSpawnActions() noexcept { ::posix_spawn_file_actions_destroy(&value); }
+  LpSpawnActions(const LpSpawnActions&) = delete;
+  LpSpawnActions(LpSpawnActions&&) = delete;
+  auto operator=(const LpSpawnActions&) -> LpSpawnActions& = delete;
+  auto operator=(LpSpawnActions&&) -> LpSpawnActions& = delete;
+};
+
+/// Run the executable @p bin with the argument vector @p args (no shell is
+/// involved: every element reaches the child verbatim).  stdin/stdout/
+/// stderr are bound to /dev/null.  Returns true when the child exits 0.
+bool run_external(const std::string& bin,
+                  const std::vector<std::string>& args) noexcept
+{
   try {
-    // "command -v" is POSIX; "which" is not guaranteed but widely available.
-    const std::string probe =
-        std::string("command -v ") + cmd + " >/dev/null 2>&1";
-    // NOLINTNEXTLINE(bugprone-command-processor)
-    return std::system(probe.c_str()) == 0;
+    std::vector<std::string> arg_strings;
+    arg_strings.reserve(args.size() + 1);
+    arg_strings.push_back(bin);
+    arg_strings.insert(arg_strings.end(), args.begin(), args.end());
+
+    std::vector<char*> argv;
+    argv.reserve(arg_strings.size() + 1);
+    for (auto& a : arg_strings) {
+      argv.push_back(a.data());
+    }
+    argv.push_back(nullptr);
+
+    LpSpawnActions fa;
+    for (const int fd : {STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO}) {
+      const int flags = (fd == STDIN_FILENO) ? O_RDONLY : O_WRONLY;
+      if (::posix_spawn_file_actions_addopen(
+              &fa.value, fd, "/dev/null", flags, 0)
+          != 0)
+      {
+        return false;
+      }
+    }
+
+    pid_t pid = 0;
+    if (::posix_spawn(
+            &pid,
+            bin.c_str(),
+            &fa.value,
+            nullptr,
+            argv.data(),
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+            environ)
+        != 0)
+    {
+      return false;
+    }
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0) {
+      if (errno != EINTR) {
+        return false;
+      }
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
   } catch (...) {
     return false;
   }
 }
 
-/// Run an external command with a single file argument.
-/// Returns true when the command exits with code 0.
-bool run_external(const char* cmd, const std::string& arg) noexcept
+/// Absolute form of @p path, so it can never be mistaken for a command-line
+/// option by the external tool (a relative path may start with '-').
+[[nodiscard]] std::string absolute_arg(const std::string& path)
 {
-  try {
-    const std::string full = std::string(cmd) + " " + arg + " >/dev/null 2>&1";
-    // NOLINTNEXTLINE(bugprone-command-processor)
-    return std::system(full.c_str()) == 0;
-  } catch (...) {
-    return false;
-  }
+  std::error_code ec;
+  auto abs = std::filesystem::absolute(path, ec);
+  return ec ? path : abs.string();
 }
 
 /// Codec table — maps codec names to binary commands and output extensions.
+/// `flags` are the tool options placed before the (absolute) file path.
 struct CodecInfo
 {
-  const char* name;
-  const char* cmd;
-  const char* ext;
+  std::string_view name;
+  std::array<std::string_view, 4> flags;
+  std::string_view ext;
 };
 constexpr std::array<CodecInfo, 5> kCodecs {
     {
-        {.name = "gzip", .cmd = "gzip -f", .ext = ".gz"},
-        {.name = "zstd", .cmd = "zstd --rm -f -q", .ext = ".zst"},
-        {.name = "lz4", .cmd = "lz4 -f --rm -q", .ext = ".lz4"},
-        {.name = "bzip2", .cmd = "bzip2 -f", .ext = ".bz2"},
-        {.name = "xz", .cmd = "xz -f", .ext = ".xz"},
+        {.name = "gzip", .flags = {"-f"}, .ext = ".gz"},
+        {.name = "zstd", .flags = {"--rm", "-f", "-q"}, .ext = ".zst"},
+        {.name = "lz4", .flags = {"-m", "-f", "--rm", "-q"}, .ext = ".lz4"},
+        {.name = "bzip2", .flags = {"-f"}, .ext = ".bz2"},
+        {.name = "xz", .flags = {"-f"}, .ext = ".xz"},
     },
 };
+
+/// Run codec @p entry on @p src_path through its external binary.
+/// Returns the compressed path on success, empty otherwise.
+[[nodiscard]] std::string run_codec_binary(const CodecInfo& entry,
+                                           const std::string& src_path)
+{
+  const auto bin = find_executable(entry.name);
+  if (bin.empty()) {
+    spdlog::debug("LpDebugWriter: {} binary not found", entry.name);
+    return {};
+  }
+  std::vector<std::string> args;
+  for (const auto flag : entry.flags) {
+    if (!flag.empty()) {
+      args.emplace_back(flag);
+    }
+  }
+  args.push_back(absolute_arg(src_path));
+  if (run_external(bin, args)) {
+    std::string out = src_path + std::string(entry.ext);
+    if (std::filesystem::exists(out)) {
+      spdlog::debug("LpDebugWriter: compressed {} via {} → {}",
+                    src_path,
+                    entry.name,
+                    out);
+      return out;
+    }
+  }
+  spdlog::debug("LpDebugWriter: {} failed for {}", entry.name, src_path);
+  return {};
+}
+
+/// Table entry for a codec known to be in kCodecs.
+[[nodiscard]] const CodecInfo& codec_entry(std::string_view name) noexcept
+{
+  const auto* const it = std::ranges::find(kCodecs, name, &CodecInfo::name);
+  return (it != kCodecs.end()) ? *it : kCodecs.front();
+}
 
 /// Try a named codec directly.  Returns the compressed path on success, or
 /// an empty string when the binary is unavailable or the command fails.
@@ -83,21 +207,8 @@ std::string try_codec(const std::string& src_path, const std::string& codec)
     return {};  // codec not in table
   }
 
-  const auto& entry = *it;
-  if (command_available(entry.name)) {
-    if (run_external(entry.cmd, src_path)) {
-      const std::string out = src_path + entry.ext;
-      if (std::filesystem::exists(out)) {
-        spdlog::debug("LpDebugWriter: compressed {} via {} → {}",
-                      src_path,
-                      entry.name,
-                      out);
-        return out;
-      }
-    }
-    spdlog::debug("LpDebugWriter: {} failed for {}", entry.name, src_path);
-  } else {
-    spdlog::debug("LpDebugWriter: {} binary not found", entry.name);
+  if (auto out = run_codec_binary(*it, src_path); !out.empty()) {
+    return out;
   }
 
   // Named binary unavailable or failed — try inline library fallback.
@@ -129,19 +240,20 @@ std::string try_codec(const std::string& src_path, const std::string& codec)
 std::string try_gtopt_compress_lp(const std::string& src_path,
                                   const std::string& codec_hint)
 {
-  if (!command_available("gtopt_compress_lp")) {
+  const auto bin = find_executable("gtopt_compress_lp");
+  if (bin.empty()) {
     return {};
   }
 
-  // Build command: gtopt_compress_lp --quiet [--codec <hint>] <path>
-  std::string cmd = "gtopt_compress_lp --quiet";
+  // argv: gtopt_compress_lp --quiet [--codec <hint>] <absolute path>
+  std::vector<std::string> args {"--quiet"};
   if (!codec_hint.empty()) {
-    cmd += " --codec " + codec_hint;
+    args.emplace_back("--codec");
+    args.push_back(codec_hint);
   }
-  cmd += " " + src_path + " >/dev/null 2>&1";
+  args.push_back(absolute_arg(src_path));
 
-  // NOLINTNEXTLINE(bugprone-command-processor)
-  if (std::system(cmd.c_str()) != 0) {
+  if (!run_external(bin, args)) {
     spdlog::debug("LpDebugWriter: gtopt_compress_lp returned non-zero for {}",
                   src_path);
     return {};
@@ -305,14 +417,9 @@ std::string compress_lp_file(const std::string& src_path,
   }
 
   // ── 3. zstd binary ───────────────────────────────────────────────────────
-  if (command_available("zstd")) {
-    if (run_external("zstd --rm -f -q", src_path)) {
-      const std::string zst = src_path + ".zst";
-      if (std::filesystem::exists(zst)) {
-        spdlog::debug("LpDebugWriter: compressed {} via zstd", src_path);
-        return zst;
-      }
-    }
+  if (auto out = run_codec_binary(codec_entry("zstd"), src_path); !out.empty())
+  {
+    return out;
   }
 
   // ── 4. Inline libzstd — statically linked, always available ──────────────
@@ -326,14 +433,9 @@ std::string compress_lp_file(const std::string& src_path,
   }
 
   // ── 5. gzip binary ───────────────────────────────────────────────────────
-  if (command_available("gzip")) {
-    if (run_external("gzip -f", src_path)) {
-      const std::string gz = src_path + ".gz";
-      if (std::filesystem::exists(gz)) {
-        spdlog::debug("LpDebugWriter: compressed {} via gzip", src_path);
-        return gz;
-      }
-    }
+  if (auto out = run_codec_binary(codec_entry("gzip"), src_path); !out.empty())
+  {
+    return out;
   }
 
   // ── 6. Inline zlib — secondary fallback ──────────────────────────────────

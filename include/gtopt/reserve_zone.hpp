@@ -184,7 +184,7 @@ struct ReserveZone
   /// is always commitment-based):
   ///  - `"commitment"` (default, CEN minuta Anexo B.1): `I = Σ_c I_c·u_c`
   ///    over the inertia provisions of `inertia_zone`, `u_c` the unit's
-  ///    Commitment / SimpleCommitment status, `I_c` its inertia when on
+  ///    Commitment status, `I_c` its inertia when on
   ///    (`H·S`, or `provision_factor · min(provision_max, pmax)`).  A unit
   ///    with no status column counts only when it is forced on
   ///    (`pmin > 0`).  With a relaxed Commitment it can price a bus

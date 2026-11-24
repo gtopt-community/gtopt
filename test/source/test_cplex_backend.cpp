@@ -29,6 +29,9 @@
 #include <barrier>
 #include <cmath>
 #include <filesystem>
+#include <format>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -39,6 +42,7 @@
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
+#include <unistd.h>
 
 using namespace gtopt;
 
@@ -615,4 +619,138 @@ TEST_CASE("CPLEX backend: parallel create+load+clone is race-free")  // NOLINT
 
   CHECK(ok.load() == num_threads);
   CHECK(bad.load() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "CPLEX apply_options re-applies after a change and skips identical "
+    "bundles")
+{
+  auto backend = make_cplex_or_skip();
+  if (!backend) {
+    return;
+  }
+  CplexTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+
+  SolverOptions a;
+  a.algorithm = LPAlgo::dual;
+  a.presolve = false;
+  SolverOptions b = a;
+  b.algorithm = LPAlgo::primal;
+  b.presolve = true;
+  REQUIRE(a == a);
+  REQUIRE_FALSE(a == b);
+
+  // A → A (skipped: identical) → B → A: the accessors and the solve must
+  // always reflect the last bundle requested.
+  backend->apply_options(a);
+  backend->apply_options(a);
+  CHECK(backend->get_algorithm() == LPAlgo::dual);
+  CHECK_FALSE(backend->get_presolve());
+  backend->apply_options(b);
+  CHECK(backend->get_algorithm() == LPAlgo::primal);
+  CHECK(backend->get_presolve());
+  backend->apply_options(a);
+  CHECK(backend->get_algorithm() == LPAlgo::dual);
+  CHECK_FALSE(backend->get_presolve());
+
+  // A direct parameter change (robust mode) invalidates the cache: the
+  // identical bundle is applied again and the LP still solves.
+  backend->engage_robust_solve();
+  backend->disengage_robust_solve();
+  backend->apply_options(a);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+  // Re-solving with the same bundle reuses the optimal basis.
+  backend->apply_options(a);
+  backend->resolve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->last_solve_effort().iterations == 0);
+}
+
+// ---------------------------------------------------------------------------
+// D. Parameter files: warm-start overrides keep every other setting
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "CPLEX warm-start .prm keeps the main .prm and typed options")
+{
+  // Regression: `apply_cplex_warmstart` used to load `cplex_warmstart.prm`
+  // with `CPXreadcopyparam`, which RESETS every CPLEX parameter to its
+  // default before applying the file — every advanced-basis solve silently
+  // dropped the main `.prm` (Gomory cuts) and all typed gtopt options
+  // (Threads 1 -> 0 = all cores, tolerances, presolve).  CPLEX logs the
+  // non-default parameters at the start of each optimization, so the log
+  // shows what the solve actually ran with.
+  auto backend = make_cplex_or_skip();
+  if (!backend) {
+    return;
+  }
+  namespace fs = std::filesystem;
+  const auto dir = fs::temp_directory_path()
+      / std::format("gtopt_cplex_warm_prm_{}", ::getpid());
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  {
+    std::ofstream f {dir / "cplex.prm"};
+    f << "CPLEX Parameter File Version 22.1.1.0\n";
+    f << "CPXPARAM_MIP_Cuts_Gomory                        2\n";
+    f << "CPXPARAM_LPMethod                               4\n";
+  }
+  {
+    std::ofstream f {dir / "cplex_warmstart.prm"};
+    f << "CPLEX Parameter File Version 22.1.1.0\n";
+    f << "CPXPARAM_LPMethod                               1\n";
+    f << "CPXPARAM_Advance                                1\n";
+  }
+  const auto base = dir / "warm";
+  backend->set_log_filename(base.string(), 1);
+
+  SolverOptions opts;
+  opts.param_file = (dir / "cplex.prm").string();
+  opts.threads = 1;
+  opts.optimal_eps = 1e-7;
+  opts.presolve = false;
+  opts.advanced_basis = true;
+  opts.log_level = 1;
+  backend->apply_options(opts);
+
+  CplexTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+  backend->clear_log_filename();
+
+  std::string log;
+  {
+    std::ifstream in {fs::path {base.string() + ".log"}};
+    log.assign(std::istreambuf_iterator<char> {in},
+               std::istreambuf_iterator<char> {});
+  }
+  // Lines look like "CPXPARAM_Threads                                 1".
+  const auto has_param = [&](std::string_view name, double value)
+  {
+    for (std::size_t pos = log.find(name); pos != std::string::npos;
+         pos = log.find(name, pos + 1))
+    {
+      const auto eol = log.find('\n', pos);
+      const auto line = log.substr(pos, eol - pos);
+      const auto v = std::stod(line.substr(line.find_last_of(" \t") + 1));
+      if (v == doctest::Approx(value)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  INFO(log);
+  CHECK(has_param("CPXPARAM_Threads", 1.0));  // typed option
+  CHECK(has_param("CPXPARAM_Simplex_Tolerances_Optimality", 1e-7));
+  CHECK(has_param("CPXPARAM_Preprocessing_Presolve", 0.0));
+  CHECK(has_param("CPXPARAM_MIP_Cuts_Gomory", 2.0));  // main .prm
+  CHECK(has_param("CPXPARAM_LPMethod", 1.0));  // warm-start .prm wins
+  CHECK_FALSE(has_param("CPXPARAM_LPMethod", 4.0));
+
+  fs::remove_all(dir);
 }

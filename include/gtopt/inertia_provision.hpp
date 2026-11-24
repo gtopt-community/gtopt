@@ -21,8 +21,13 @@
  *   computes FE = H * S / Pmin automatically.
  * - `provision_factor` directly [MWs/MW].
  *
- * When a SimpleCommitment exists for the same generator, the binary
- * coupling (p >= Pmin*u) already ensures r_inertia → 0 when u = 0.
+ * Pmin is the unit's committed minimum: max(Generator.pmin,
+ * Commitment.pmin) with a Commitment, else Generator.pmin.  It is also
+ * the default `provision_max`.  When it is 0 both defaults fall back to
+ * the generator's Pmax.
+ *
+ * When a Commitment exists for the same generator, the coupling
+ * (p >= Pmin*u) already ensures r_inertia → 0 when u = 0.
  * When relaxed (u continuous), this gives PLP's Model B automatically.
  *
  * @see InertiaZone for zone-level requirements

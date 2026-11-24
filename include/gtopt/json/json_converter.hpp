@@ -36,6 +36,8 @@ struct json_data_contract<Converter>
       json_bool_null<"commitment", OptBool>,  ///< Gate inner gen/demand
                                               ///< floors with per-block
                                               ///< integer u (MIP)
+      json_bool_null<"exclusive_charge_discharge",
+                     OptBool>,  ///< u_charge + u_discharge ≤ 1
       json_number_null<"energy_power_ratio", OptReal>>;
 
   constexpr static auto to_json_data(Converter const& converter)
@@ -55,6 +57,7 @@ struct json_data_contract<Converter>
                                  converter.annual_derating,
                                  converter.integer_expmod,
                                  converter.commitment,
+                                 converter.exclusive_charge_discharge,
                                  converter.energy_power_ratio);
   }
 };

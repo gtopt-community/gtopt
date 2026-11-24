@@ -1,7 +1,7 @@
 {
   "// description": [
     "CLP-specific golden for sddp_hydro_3phase at MAX_ITERATIONS=3.",
-    "The test fixture converges within 3 iterations, so this matches the",
+    "The test fixture's bounds meet within 3 iterations, so this matches the",
     "iter=50 fully-converged state under CLP.  See `golden_iter50_clp.json`",
     "for the rationale behind the reduced pin set (alternate-optimum",
     "dispatch across solvers + low_memory modes)."
@@ -11,8 +11,9 @@
     "rel": 1.0e-4
   },
   "objective_value": 323100.0,
+  "// solver_status": "converged = false: 3 iterations cannot fill the default stationary_window (4 own iterations with cuts), although the bounds already meet (gap 0).",
   "solver_status": {
-    "converged": true,
+    "converged": false,
     "lower_bound": 323100.0,
     "upper_bound": 323100.0,
     "gap": 0.0

@@ -245,7 +245,10 @@ struct Battery
   OptTBRealFieldSched
       pmin_discharge {};  ///< Minimum discharging power [MW] per-(stage,
                           ///< block).  HARD floor on the synthetic
-                          ///< discharge ``Generator.pmin``.  Mirrors
+                          ///< discharge ``Generator.pmin``; with
+                          ///< ``commitment`` set it becomes the
+                          ///< when-discharging ``Commitment.pmin`` of
+                          ///< ``uc_<bat>_gen`` instead.  Mirrors
                           ///< UC.jl ``Minimum discharge rate (MW)`` and
                           ///< PLEXOS ``Battery.Min Generation``.
   OptTBRealFieldSched
@@ -316,11 +319,13 @@ struct Battery
   /// ``Converter``.  When unset (default), ``pmin_charge`` /
   /// ``pmin_discharge`` are HARD floors that fire every block — correct
   /// for must-run batteries and LP-only solves.  When set, the
-  /// ``Converter`` LP adds per-block binaries ``u_charge`` /
-  /// ``u_discharge`` and the C2-style rows ``load ≥ lmin × u_charge``,
-  /// ``load ≤ lmax × u_charge`` (and the analogous pair on the
-  /// discharge side), so the floor only fires WHEN the battery is
-  /// actively charging/discharging.  Mirrors UC.jl's conditional
+  /// ``Converter`` LP adds a per-block charge-mode binary ``u_charge``
+  /// with the C2-style rows ``load ≥ lmin × u_charge``,
+  /// ``load ≤ lmax × u_charge``; the discharge side gets the analogous
+  /// pair on the status ``u`` of the synthesised ``uc_<bat>_gen``
+  /// commitment.  The two mode binaries are independent, so each
+  /// floor only fires WHEN the battery is actively charging /
+  /// discharging.  Mirrors UC.jl's conditional
   /// ``Minimum charge/discharge rate (MW)`` semantics and PLEXOS
   /// ``Battery.Commitment Status``.  Always introduces integer
   /// columns — if you need LP-relax behaviour leave ``commitment``
@@ -328,6 +333,20 @@ struct Battery
   /// Propagated by ``System::expand_batteries()`` onto
   /// ``Converter.commitment``.
   OptBool commitment {};
+
+  /// Charge/discharge exclusivity constraint — only meaningful with
+  /// ``commitment = true``.  When true (the default when unset) the
+  /// synthetic ``Converter`` adds, per block, ``u_charge + u_discharge
+  /// ≤ 1`` on the two mode binaries (``u_discharge`` is the status of
+  /// the synthesised ``uc_<bat>_gen`` commitment), so the battery is
+  /// never charging and discharging in the same block (PLEXOS / UC.jl
+  /// storage semantics).  ``false`` drops the row: both modes may be on
+  /// at once, limited only by the power envelope.  Ignored when
+  /// ``commitment`` is unset (no mode binaries; ``validate_planning``
+  /// warns when it is set to true there).  Propagated by
+  /// ``System::expand_batteries()`` onto
+  /// ``Converter.exclusive_charge_discharge``.
+  OptBool exclusive_charge_discharge {};
 
   /// @name Native BESS reserve deliverability (opt-in)
   /// @{

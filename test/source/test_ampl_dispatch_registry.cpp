@@ -221,7 +221,7 @@ TEST_CASE(  // NOLINT
       // (status / startup / shutdown / req / provision) — the iter is
       // needed so `sum(class(all).attribute)` can resolve them.
       "commitment",
-      "simple_commitment",
+      "simple_commitment",  // deprecated alias of commitment
       "inertia_zone",
       "inertia_provision",
       // Free continuous decision variable referenced via
@@ -292,6 +292,7 @@ TEST_CASE(  // NOLINT
       {"emission_source_array", "emission_source"},
       // ── Commitment ────────────────────────────────────────────
       {"commitment_array", "commitment"},
+      // Deprecated alias folded into commitment_array.
       {"simple_commitment_array", "simple_commitment"},
       // ── Hydro ─────────────────────────────────────────────────
       {"junction_array", "junction"},

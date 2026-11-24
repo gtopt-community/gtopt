@@ -39,6 +39,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -265,6 +267,142 @@ inline constexpr auto cfg_bool_entries = std::to_array<EnumEntry<int>>({
     }
   }
   return pairs;
+}
+
+/**
+ * @brief Once-per-process cached @ref load_solver_cfg.
+ *
+ * The cuOpt plugin consults its tuning file on every solve; the file is
+ * read (and its warnings logged) only the first time a given
+ * (directory, solver) pair is requested.  Edits to the file during a run
+ * are not picked up — tuning files are run inputs, not live controls.
+ */
+[[nodiscard]] inline SolverCfgPairs load_solver_cfg_cached(
+    const std::optional<std::string>& param_file,
+    std::string_view solver_name,
+    std::span<const SolverCfgEnumKey> enum_keys)
+{
+  if (!param_file.has_value() || param_file->empty()) {
+    return {};
+  }
+  static std::mutex mutex;
+  static std::map<std::string, SolverCfgPairs, std::less<>> cache;
+  auto key = (std::filesystem::path {*param_file}.parent_path()
+              / std::string {solver_name})
+                 .string();
+  const std::scoped_lock lock {mutex};
+  auto it = cache.find(key);
+  if (it == cache.end()) {
+    it = cache
+             .emplace(std::move(key),
+                      load_solver_cfg(param_file, solver_name, enum_keys))
+             .first;
+  }
+  return it->second;
+}
+
+/**
+ * @brief Parse a solver-NATIVE parameter file into (name, value) pairs.
+ *
+ * Accepts the line formats of the native parameter files gtopt ships next
+ * to a case (``solvers/``): CPLEX ``.prm`` (``CPXPARAM_Name  value``, with
+ * the ``CPLEX Parameter File Version …`` header line skipped), Gurobi /
+ * MindOpt ``.prm`` (``Name value``) and HiGHS ``.opts`` (``name = value``).
+ * Blank lines and ``#`` / ``;`` / ``//`` comment lines are skipped.  The
+ * value is the rest of the line, trimmed, with one pair of surrounding
+ * double quotes removed (CPLEX writes string parameters quoted).  Values are
+ * NOT translated — the plugin applies them with its typed setters.
+ *
+ * @return the pairs in file order, or @c std::nullopt when the file cannot
+ *         be opened.
+ */
+[[nodiscard]] inline std::optional<SolverCfgPairs> parse_solver_param_file(
+    const std::filesystem::path& path)
+{
+  std::ifstream in {path};
+  if (!in) {
+    return std::nullopt;
+  }
+  constexpr std::string_view ws = " \t\r\n";
+  SolverCfgPairs pairs;
+  std::string line;
+  while (std::getline(in, line)) {
+    std::string_view rest {line};
+    const auto first = rest.find_first_not_of(ws);
+    if (first == std::string_view::npos) {
+      continue;
+    }
+    rest.remove_prefix(first);
+    if (rest.front() == '#' || rest.front() == ';' || rest.starts_with("//")
+        || rest.starts_with("CPLEX Parameter File"))
+    {
+      continue;
+    }
+    const auto name_end = rest.find_first_of(" \t=");
+    if (name_end == std::string_view::npos) {
+      continue;  // a name without a value
+    }
+    const auto name = rest.substr(0, name_end);
+    rest.remove_prefix(name_end);
+    const auto vstart = rest.find_first_not_of(" \t");
+    if (vstart != std::string_view::npos && rest[vstart] == '=') {
+      rest.remove_prefix(vstart + 1);
+    }
+    const auto b = rest.find_first_not_of(ws);
+    if (b == std::string_view::npos) {
+      continue;
+    }
+    auto value = rest.substr(b, rest.find_last_not_of(ws) - b + 1);
+    if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
+      value = value.substr(1, value.size() - 2);
+    }
+    pairs.emplace_back(std::string {name}, std::string {value});
+  }
+  return pairs;
+}
+
+/**
+ * @brief Once-per-process cached @ref parse_solver_param_file.
+ *
+ * Thread-safe.  Returns the file's pairs, or @c nullptr when the file cannot
+ * be read; the pointer stays valid for the life of the process (map nodes
+ * are never erased).  A missing file is cached too, so a hot path never
+ * even re-stats it.  Plugins use this instead of the solvers' own file
+ * readers (``CPXreadcopyparam``, ``GRBreadparams``, ``Highs::readOptions``,
+ * ``MDOreadparams``), which hit the disk on every call — once per new env /
+ * clone / warm-start solve.
+ */
+[[nodiscard]] inline const SolverCfgPairs* cached_solver_param_file(
+    const std::filesystem::path& path)
+{
+  static std::mutex mutex;
+  static std::map<std::string, std::optional<SolverCfgPairs>, std::less<>>
+      cache;
+  const std::scoped_lock lock {mutex};
+  auto it = cache.find(path.string());
+  if (it == cache.end()) {
+    it = cache.emplace(path.string(), parse_solver_param_file(path)).first;
+  }
+  return it->second.has_value() ? &*it->second : nullptr;
+}
+
+/**
+ * @brief Cached pairs of a sibling file next to @p param_file.
+ *
+ * Resolves ``<dir of param_file>/<sibling_name>`` (e.g.
+ * ``cplex_warmstart.prm``, ``highs_warmstart.opts``) through
+ * @ref cached_solver_param_file.  Returns @c nullptr when @p param_file is
+ * unset/empty or the sibling does not exist.
+ */
+[[nodiscard]] inline const SolverCfgPairs* cached_sibling_param_file(
+    const std::optional<std::string>& param_file, std::string_view sibling_name)
+{
+  if (!param_file.has_value() || param_file->empty()) {
+    return nullptr;
+  }
+  return cached_solver_param_file(
+      std::filesystem::path {*param_file}.parent_path()
+      / std::string {sibling_name});
 }
 
 }  // namespace gtopt

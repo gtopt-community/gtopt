@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <exception>
+#include <filesystem>
 #include <format>
 #include <ostream>
 #include <set>
@@ -21,6 +22,7 @@
 
 #include <gtopt/build_info.hpp>
 #include <gtopt/check_solvers.hpp>
+#include <gtopt/config_file.hpp>
 #include <gtopt/gtopt_cli.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json_schema.hpp>
@@ -418,9 +420,24 @@ void configure_cli_logging(const cli::variables_map& vm,
   // (when stdout is not a TTY) knows where the resolved output/log
   // directory lives.
   auto main_opts = parse_main_options(vm, std::move(system_files));
+  // Config file: an explicit `--config FILE` (must exist), otherwise
+  // $GTOPT_CONFIG / ~/.gtopt.conf.  The current directory is never
+  // searched implicitly (see find_config_file).
+  std::filesystem::path config_path;
+  if (const auto explicit_config = get_opt<std::string>(vm, "config")) {
+    config_path = *explicit_config;
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(config_path, ec)) {
+      err << std::format("ERROR: --config file '{}' does not exist\n",
+                         config_path.string());
+      return 1;
+    }
+  } else {
+    config_path = find_config_file();
+  }
   // Config-file values sit BELOW the planning JSON and `--set` (see
   // MainOptions::config_defaults); only runtime-only keys are merged here.
-  split_config_defaults(main_opts, load_gtopt_config());
+  split_config_defaults(main_opts, load_gtopt_config_from(config_path));
 
   const auto quiet = get_opt<bool>(vm, "quiet").value_or(false);
   configure_cli_logging(vm, args, quiet);
@@ -443,6 +460,19 @@ void configure_cli_logging(const cli::variables_map& vm,
   }
 
   spdlog::info("starting gtopt {}", build_info().version_string());
+  if (config_path.empty()) {
+    spdlog::info("config file: none loaded");
+  } else {
+    std::error_code ec;
+    const auto shown = std::filesystem::absolute(config_path, ec);
+    spdlog::info("config file: {}", (ec ? config_path : shown).string());
+  }
+  if (has_ignored_cwd_config(config_path)) {
+    spdlog::warn(
+        "ignoring ./.gtopt.conf in the current directory: it is no longer "
+        "read implicitly; pass --config ./.gtopt.conf (or set "
+        "$GTOPT_CONFIG) to use it");
+  }
 
   auto result = gtopt_main(main_opts);
   if (result.has_value()) {

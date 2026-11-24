@@ -43,6 +43,7 @@
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scene.hpp>
+#include <gtopt/sddp_aperture_drops.hpp>
 #include <gtopt/sddp_common.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
@@ -701,6 +702,23 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
 ///                         default is the shared
 ///                         `default_sddp_aperture_screen_count` constant
 ///                         (sddp_enums.hpp).
+/// @param last_basis_out  (out) When non-null, the optimal basis left
+///                         resident by the first chunk's LAST successful
+///                         solve is written here after the futures join.
+///                         It already prices this iteration's cuts on α,
+///                         so it is a far better seed for the next
+///                         forward solve of the cell than that cell's own
+///                         previous forward basis.  Unset ⇒ not captured.
+/// @param drop_tracker     Optional cross-iteration record of dropped
+///                         (infeasible / timed-out) apertures.  When
+///                         non-null every drop of this cell is recorded
+///                         under (scene_uid_val, phase_uid_val,
+///                         iteration_index); the tracker escalates one
+///                         "persistent aperture infeasibility" warning
+///                         per triple and feeds the per-iteration drop
+///                         count that blocks SDDP convergence.  `nullptr`
+///                         (unit-test callers) keeps the legacy per-cell
+///                         warning only.
 [[nodiscard]] auto solve_apertures_for_phase(
     SceneIndex scene_index,
     PhaseIndex phase_index,
@@ -732,7 +750,8 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
     ApertureSolveMode aperture_solve_mode = ApertureSolveMode::reduced_cost,
     const Basis* seed_basis = nullptr,
     Basis* captured_basis_out = nullptr,
-    int aperture_screen_count = default_sddp_aperture_screen_count)
-    -> std::optional<SparseRow>;
+    int aperture_screen_count = default_sddp_aperture_screen_count,
+    Basis* last_basis_out = nullptr,
+    ApertureDropTracker* drop_tracker = nullptr) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

@@ -11,11 +11,13 @@
 ///
 ///   * Without commitment: the static col floors fire every block
 ///     (load ≥ lmin, gen ≥ pmin), even when the unit would prefer to
-///     be idle — this is the pre-2026-05-18 hard-floor behaviour.
-///   * With commitment: per-block ``u_charge`` / ``u_discharge``
-///     integer binaries gate the floors; the LP can idle the
-///     battery by driving the binaries to 0 (load = 0, gen = 0)
-///     even when ``lmin`` / ``pmin`` are positive.
+///     be idle.
+///   * With commitment: per-mode binaries gate the floors — the
+///     converter's ``u_charge`` on the charge side, the synthesised
+///     ``uc_<bat>_gen`` status on the discharge side.  The LP can idle
+///     the battery (load = 0, gen = 0) even when ``lmin`` / ``pmin``
+///     are positive, and the two modes are independent (charging does
+///     not force the discharge floor and vice versa).
 
 #include <cmath>
 
@@ -297,10 +299,11 @@ TEST_CASE(  // NOLINT
   // With Battery.commitment=true AND pmin_discharge set, expand_batteries
   // synthesizes a Commitment("uc_bat1_gen") whose CommitmentLP creates
   // the per-block `status` (u_commit) columns.  ConverterLP must look
-  // that CommitmentLP up by generator_sid() and gate the charge-side
-  // demand with the SAME u_commit — NOT create separate `u_charge` /
-  // `u_discharge` cols.  This test verifies the "one true source for
-  // u_commit" wiring.
+  // that CommitmentLP up by generator_sid() and NOT create its own
+  // `u_discharge` cols (the status is the discharge-mode binary).  The
+  // charge side keeps its own `u_charge` mode binary — sharing the
+  // status would force both floors at once (see the independent-modes
+  // test below).
   Battery battery {
       .uid = Uid {1},
       .name = "bat1",
@@ -387,8 +390,8 @@ TEST_CASE(  // NOLINT
     }
   }
   CHECK(n_status == 2);  // one per block of the 1-stage 2-block sim
-  CHECK(n_u_charge == 0);
-  CHECK(n_u_discharge == 0);
+  CHECK(n_u_charge == 2);  // charge mode: own binary per block
+  CHECK(n_u_discharge == 0);  // discharge mode: the commitment status
 }
 
 TEST_CASE("Converter.commitment skipped when pmin/lmin = 0")  // NOLINT
@@ -430,4 +433,277 @@ TEST_CASE("Converter.commitment skipped when pmin/lmin = 0")  // NOLINT
   const auto rc = lp.resolve();
   REQUIRE(rc.has_value());
   REQUIRE(rc.value() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "Battery.pmin_discharge without commitment is a hard floor")
+{
+  // Regression: with Battery.commitment unset, pmin_discharge was routed
+  // only to the synthesised (LP-relaxed) Commitment.pmin.  The rows
+  // gen ≥ 2·u, gen ≤ 10·u with continuous u ∈ [0, 1] admit any
+  // gen ∈ [0, 10] (u = gen/10), so the floor vanished: the LP idled the
+  // battery (gen = 0) although pmin_charge — the charge-side twin — is a
+  // hard Demand.lmin floor.  Discharging is uneconomic here (cost 100 vs
+  // g1 at 10), so only a hard floor makes gen ≥ 2.
+  Battery battery {
+      .uid = Uid {1},
+      .name = "bat1",
+      .bus = Uid {1},
+      .input_efficiency = 0.95,
+      .output_efficiency = 0.95,
+      .emin = 0.0,
+      .emax = 100.0,
+      .eini = 50.0,
+      .pmax_charge = 10.0,
+      .pmax_discharge = 10.0,
+      .pmin_discharge = 2.0,
+      .discharge_cost = 100.0,
+      // .commitment intentionally unset
+  };
+  auto system = make_system(std::move(battery));
+  system.expand_batteries();
+  const auto simulation = make_two_block_simulation();
+  PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 1000.0;
+  PlanningOptionsLP options {opts};
+  SimulationLP sim_lp(simulation, options);
+  SystemLP sys_lp(system, sim_lp);
+
+  auto&& lp = sys_lp.linear_interface();
+  const auto rc = lp.resolve();
+  REQUIRE(rc.has_value());
+  REQUIRE(rc.value() == 0);
+
+  const auto col_low = lp.get_col_low();
+  const auto col_sol = lp.get_col_sol();
+  auto&& gen_cols = discharge_gen_cols(sys_lp, sim_lp);
+  REQUIRE(gen_cols.size() == 2);
+  for (const auto& [buid, gcol] : gen_cols) {
+    CHECK(col_low[gcol] == doctest::Approx(2.0));
+    CHECK(col_sol[gcol] >= 2.0 - 1e-6);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "Battery.commitment: charge and discharge floors are independent modes")
+{
+  // Regression: with Battery.commitment = true the charge demand was
+  // gated by the DISCHARGE commitment status u, so u = 1 required
+  // load ≥ pmin_charge AND gen ≥ pmin_discharge in the same block.
+  //
+  // g1: 50 MW @ 10 $/MWh.  Demand: 40 MW (block 1), 56 MW (block 2).
+  // Lossless battery (η = 1, no self-discharge, no daily-cycle scaling),
+  // eini = 0 and closing efin = eini, ratings 10/10 MW, floors 6/6 MW.
+  //
+  // Correct optimum: block 1 charge c ∈ [6, 10] (g1 = 40 + c), block 2
+  // discharge c (g1 = 56 − c ≤ 50 ⇒ c ≥ 6):
+  //   obj = 10·(40 + c) + 10·(56 − c) = 960 $.
+  // Shared-u bug: operating in a block needs c ≥ 6 and d ≥ 6 together,
+  // which the power envelope c/10 + d/10 ≤ 1 forbids ⇒ u ≡ 0, the
+  // battery idles and block 2 sheds 6 MWh at 1000 $/MWh:
+  //   obj = 400 + 500 + 6000 = 6900 $.
+  Battery battery {
+      .uid = Uid {1},
+      .name = "bat1",
+      .bus = Uid {1},
+      .input_efficiency = 1.0,
+      .output_efficiency = 1.0,
+      .annual_standing_loss = 0.0,
+      .emin = 0.0,
+      .emax = 100.0,
+      .eini = 0.0,
+      .pmax_charge = 10.0,
+      .pmax_discharge = 10.0,
+      .pmin_charge = 6.0,
+      .pmin_discharge = 6.0,
+      .daily_cycle = false,
+      .commitment = true,
+  };
+  System system {
+      .name = "IndependentModes",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "d1",
+                  .bus = Uid {1},
+                  .lmax = std::vector<std::vector<double>> {{40.0, 56.0}},
+              },
+          },
+      .generator_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "g1",
+                  .bus = Uid {1},
+                  .gcost = 10.0,
+                  .capacity = 50.0,
+              },
+          },
+      .battery_array = {std::move(battery)},
+  };
+  system.expand_batteries();
+  const auto simulation = make_two_block_simulation();
+  PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
+  PlanningOptionsLP options {opts};
+  SimulationLP sim_lp(simulation, options);
+  SystemLP sys_lp(system, sim_lp);
+
+  auto&& lp = sys_lp.linear_interface();
+  const auto rc = lp.resolve();
+  REQUIRE(rc.has_value());
+  REQUIRE(rc.value() == 0);
+
+  CHECK(lp.get_obj_value() == doctest::Approx(960.0).epsilon(1e-6));
+
+  const auto col_sol = lp.get_col_sol();
+  auto&& load_cols = charge_load_cols(sys_lp, sim_lp);
+  auto&& gen_cols = discharge_gen_cols(sys_lp, sim_lp);
+  REQUIRE(load_cols.size() == 2);
+  REQUIRE(gen_cols.size() == 2);
+  // Block 1: charging only; block 2: discharging only.
+  CHECK(col_sol[load_cols.at(make_uid<Block>(1))] >= 6.0 - 1e-6);
+  CHECK(col_sol[gen_cols.at(make_uid<Block>(1))] == doctest::Approx(0.0));
+  CHECK(col_sol[load_cols.at(make_uid<Block>(2))] == doctest::Approx(0.0));
+  CHECK(col_sol[gen_cols.at(make_uid<Block>(2))] >= 6.0 - 1e-6);
+}
+
+namespace
+{
+
+/// Negative-price burn case for the charge/discharge exclusivity
+/// constraint.  One 1-h block, g1 at −10 $/MWh (capacity 100), demand
+/// 50 MW.  Lossy battery (η_in = η_out = 0.5, no self-discharge, no
+/// daily-cycle scaling), eini = 0 with the closing efin = eini row,
+/// ratings 10/10 MW, commitment = true, no floors.
+///
+/// Closing SoC: 0.5·c − d/0.5 = 0 ⇒ c = 4d.  Simultaneous operation
+/// absorbs c − d = 0.75c MW that g1 is paid (−10 $/MWh) to produce;
+/// the power envelope c/10 + d/10 ≤ 1 caps it at c = 8, d = 2:
+///   g1 = 56, obj = −560 $.
+/// With u_charge + u_discharge ≤ 1 only one mode is on ⇒ c = 4d forces
+/// c = d = 0:  g1 = 50, obj = −500 $.
+struct BurnResult
+{
+  double obj;
+  double charge;
+  double discharge;
+};
+
+BurnResult solve_burn_case(OptBool exclusive)
+{
+  Battery battery {
+      .uid = Uid {1},
+      .name = "bat1",
+      .bus = Uid {1},
+      .input_efficiency = 0.5,
+      .output_efficiency = 0.5,
+      .annual_standing_loss = 0.0,
+      .emin = 0.0,
+      .emax = 100.0,
+      .eini = 0.0,
+      .pmax_charge = 10.0,
+      .pmax_discharge = 10.0,
+      .daily_cycle = false,
+      .commitment = true,
+      .exclusive_charge_discharge = exclusive,
+  };
+  System system {
+      .name = "BurnCase",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array =
+          {{.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .lmax = 50.0}},
+      .generator_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "g1",
+                  .bus = Uid {1},
+                  .gcost = -10.0,
+                  .capacity = 100.0,
+              },
+          },
+      .battery_array = {std::move(battery)},
+  };
+  system.expand_batteries();
+  const Simulation simulation {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
+  PlanningOptionsLP options {opts};
+  SimulationLP sim_lp(simulation, options);
+  SystemLP sys_lp(system, sim_lp);
+
+  auto&& lp = sys_lp.linear_interface();
+  const auto rc = lp.resolve();
+  REQUIRE(rc.has_value());
+  REQUIRE(rc.value() == 0);
+
+  const auto col_sol = lp.get_col_sol();
+  auto&& load_cols = charge_load_cols(sys_lp, sim_lp);
+  auto&& gen_cols = discharge_gen_cols(sys_lp, sim_lp);
+  REQUIRE(load_cols.size() == 1);
+  REQUIRE(gen_cols.size() == 1);
+  return {
+      .obj = lp.get_obj_value(),
+      .charge = col_sol[load_cols.begin()->second],
+      .discharge = col_sol[gen_cols.begin()->second],
+  };
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "Battery.exclusive_charge_discharge forbids same-block charge+discharge")
+{
+  SUBCASE("unset behaves as true (default)")
+  {
+    const auto r = solve_burn_case({});
+    CHECK(r.obj == doctest::Approx(-500.0).epsilon(1e-6));
+    CHECK(r.charge == doctest::Approx(0.0));
+    CHECK(r.discharge == doctest::Approx(0.0));
+  }
+  SUBCASE("explicit true")
+  {
+    const auto r = solve_burn_case(true);
+    CHECK(r.obj == doctest::Approx(-500.0).epsilon(1e-6));
+    CHECK(r.charge == doctest::Approx(0.0));
+    CHECK(r.discharge == doctest::Approx(0.0));
+  }
+  SUBCASE("false restores simultaneous operation (round-trip burn)")
+  {
+    const auto r = solve_burn_case(false);
+    CHECK(r.obj == doctest::Approx(-560.0).epsilon(1e-6));
+    CHECK(r.charge == doctest::Approx(8.0));
+    CHECK(r.discharge == doctest::Approx(2.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "expand_batteries propagates exclusive_charge_discharge to Converter")
+{
+  System system;
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .bus = Uid {1},
+          .pmax_charge = 10.0,
+          .pmax_discharge = 10.0,
+          .commitment = true,
+          .exclusive_charge_discharge = false,
+      },
+  };
+  system.expand_batteries();
+  REQUIRE(system.converter_array.size() == 1);
+  CHECK_FALSE(
+      system.converter_array.front().exclusive_charge_discharge.value_or(true));
 }

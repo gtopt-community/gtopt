@@ -46,6 +46,7 @@
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
+#include <gtopt/sddp_forward_crossover.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -548,6 +549,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       const auto rc = tgt_li.get_col_cost_raw();
       capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
       phase_states[phase_index].forward_full_obj_physical = obj_phys;
+      phase_states[phase_index].forward_interior = is_interior_solve(tgt_opts);
       // Read kappa before `update_max_kappa` so the per-step value is
       // logged regardless of whether it raises the recorded maximum.
       const auto kappa_val = tgt_li.get_kappa().value_or(0.0);
@@ -715,11 +717,13 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
 
   auto cut = strengthened.has_value()
       ? std::move(strengthened->row)
-      : build_benders_cut_physical(src_alpha_col,
-                                   src_state.outgoing_links,
-                                   target_state.forward_full_obj_physical,
-                                   scale_obj,
-                                   ceps);
+      : build_benders_cut_physical(
+            src_alpha_col,
+            src_state.outgoing_links,
+            guarded_cut_intercept(target_state.forward_full_obj_physical,
+                                  target_state.forward_interior),
+            scale_obj,
+            ceps);
   sddp_scut_tag.apply_to(cut);
   cut.variable_uid = uid_of(prev_phase_index);
   cut.context = make_iteration_context(uid_of(scene_index),
@@ -1196,8 +1200,7 @@ auto SDDPMethod::run_forward_pass_all_scenes(
       num_scenes,
       num_phases,
       enum_name(m_options_.cut_sharing),
-      !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
-                                                              : "disabled");
+      apertures_label());
 
   const auto fwd_start = std::chrono::steady_clock::now();
   // Snapshot total stored cuts before the pass.  Forward passes only
@@ -1483,8 +1486,7 @@ auto SDDPMethod::run_backward_pass_all_scenes(
       "(cut_sharing=none, apertures={})",
       gtopt::uid_of(iteration_index),
       num_scenes,
-      !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
-                                                              : "disabled");
+      apertures_label());
 
   const auto bwd_start = std::chrono::steady_clock::now();
   std::vector<std::future<std::expected<int, Error>>> futures;
@@ -1501,7 +1503,7 @@ auto SDDPMethod::run_backward_pass_all_scenes(
     if (scene_feasible[scene_index] == 0U) {
       continue;
     }
-    const bool use_ap = !m_options_.apertures || !m_options_.apertures->empty();
+    const bool use_ap = m_options_.apertures_requested();
     futures.push_back(use_ap
                           ? coord.run_driver(
                                 [this, scene_index, &bwd_opts, iteration_index]
@@ -1575,8 +1577,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
       num_scenes,
       num_phases - 1,
       enum_name(m_options_.cut_sharing),
-      !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
-                                                              : "disabled");
+      apertures_label());
 
   const auto bwd_start = std::chrono::steady_clock::now();
   BackwardPassOutcome out;
@@ -1585,8 +1586,7 @@ auto SDDPMethod::run_backward_pass_synchronized(
   std::vector<int> per_scene_cut_count(static_cast<std::size_t>(num_scenes), 0);
 
   // Apertures enabled unless explicitly set to empty array
-  const bool use_apertures =
-      !m_options_.apertures || !m_options_.apertures->empty();
+  const bool use_apertures = m_options_.apertures_requested();
 
   // Aggregate per-scene cut-receive counts across the whole pass so
   // we can tell, at end-of-pass, whether infeasible scenes (which
@@ -2253,6 +2253,7 @@ void SDDPMethod::maybe_write_api_status(
   // Read the 5 per-iteration metrics from a single coherent snapshot
   // so `iteration` can never come from a different step than `gap`.
   const auto metrics = live_metrics_();
+  const auto apertures = m_aperture_drops_.summary();
   const SolverStatusSnapshot snapshot {
       .iteration_index = metrics->iteration,
       .gap = metrics->gap,
@@ -2267,6 +2268,10 @@ void SDDPMethod::maybe_write_api_status(
       .method = "sddp",
       .final_status = std::string {final_status},
       .phase_grid = &m_phase_grid_,
+      .aperture_solves = apertures.solves,
+      .aperture_infeasible = apertures.infeasible,
+      .aperture_failed = apertures.failed,
+      .aperture_dropped_last_iteration = apertures.dropped_in_last_iteration,
   };
   write_solver_status(status_file, results, elapsed, snapshot, monitor);
 }

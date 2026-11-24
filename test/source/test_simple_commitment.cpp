@@ -2,11 +2,11 @@
 #include <filesystem>
 
 #include <doctest/doctest.h>
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/simple_commitment.hpp>
-#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
@@ -125,13 +125,14 @@ TEST_CASE("SimpleCommitmentLP - binary mode basic")
   // guard in LinearInterface::load_flat.
   opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
 
-  const System system = {
+  System system = {
       .name = "SimpleCommitTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .simple_commitment_array = simple_commitment_array,
   };
+  system.fold_legacy_simple_commitments();
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -177,13 +178,14 @@ TEST_CASE("SimpleCommitmentLP - relaxed mode")
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1000.0;
 
-  const System system = {
+  System system = {
       .name = "RelaxedCommitTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .simple_commitment_array = simple_commitment_array,
   };
+  system.fold_legacy_simple_commitments();
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -223,13 +225,14 @@ TEST_CASE("SimpleCommitmentLP - must run")
   // Binary commitment → integer columns; MIP-capable pin (see above).
   opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
 
-  const System system = {
+  System system = {
       .name = "MustRunTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .simple_commitment_array = simple_commitment_array,
   };
+  system.fold_legacy_simple_commitments();
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -242,7 +245,7 @@ TEST_CASE("SimpleCommitmentLP - must run")
 
   // must_run = true clamps the status column to 1 via lower bound =
   // upper bound = 1.  Verify the resolved value is exactly 1.
-  const auto& sc_lps = system_lp.elements<SimpleCommitmentLP>();
+  const auto& sc_lps = system_lp.elements<CommitmentLP>();
   REQUIRE(sc_lps.size() == 1);
   const auto& sc_lp = sc_lps.front();
   const auto& scenario_lp = simulation_lp.scenarios().front();
@@ -281,13 +284,14 @@ TEST_CASE("SimpleCommitmentLP - dispatch_pmin defaults to generator pmin")
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1000.0;
 
-  const System system = {
+  System system = {
       .name = "DefaultPminTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .simple_commitment_array = simple_commitment_array,
   };
+  system.fold_legacy_simple_commitments();
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -332,13 +336,14 @@ TEST_CASE("SimpleCommitmentLP - add_to_output via write_out")  // NOLINT
   opts.model_options.demand_fail_cost = 1000.0;
   opts.output_directory = tmpdir.string();
 
-  const System system = {
+  System system = {
       .name = "SimpleCommitmentOutputTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .simple_commitment_array = simple_commitment_array,
   };
+  system.fold_legacy_simple_commitments();
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -351,7 +356,7 @@ TEST_CASE("SimpleCommitmentLP - add_to_output via write_out")  // NOLINT
 
   // Verify the status col: demand=100 MW, generator capacity=100 MW, so
   // the generator must be dispatched → status u should be 1.0 (relaxed).
-  const auto& sc_lps = system_lp.elements<SimpleCommitmentLP>();
+  const auto& sc_lps = system_lp.elements<CommitmentLP>();
   REQUIRE(sc_lps.size() == 1);
   const auto& sc_lp = sc_lps.front();
   const auto& scenario_lp = simulation_lp.scenarios().front();
@@ -418,13 +423,14 @@ TEST_CASE(  // NOLINT
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1000.0;
 
-  const System system = {
+  System system = {
       .name = "SimpleCommitMIPTest",
       .bus_array = bus_array,
       .demand_array = small_demand_array,
       .generator_array = generator_array,
       .simple_commitment_array = simple_commitment_array,
   };
+  system.fold_legacy_simple_commitments();
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -452,7 +458,7 @@ TEST_CASE(  // NOLINT
   auto&& lp = system_lp.linear_interface();
 
   // The status column must be marked integer (binary) since relax=false.
-  const auto& sc_lps = system_lp.elements<SimpleCommitmentLP>();
+  const auto& sc_lps = system_lp.elements<CommitmentLP>();
   REQUIRE(sc_lps.size() == 1);
   const auto& sc_lp = sc_lps.front();
   const auto& scenario_lp = simulation_lp.scenarios().front();
@@ -559,13 +565,14 @@ TEST_CASE(  // NOLINT
             .capacity = demand_mw,
         },
     };
-    const System system = {
+    System system = {
         .name = "OffOrMinTest",
         .bus_array = bus_array,
         .demand_array = dem,
         .generator_array = generator_array,
         .simple_commitment_array = simple_commitment_array,
     };
+    system.fold_legacy_simple_commitments();
     SystemLP system_lp(system, simulation_lp, flat_opts);
     auto&& lp = system_lp.linear_interface();
     auto result = lp.resolve();
@@ -573,7 +580,7 @@ TEST_CASE(  // NOLINT
     REQUIRE(result.value() == 0);
 
     // Find the u_status col + the gen col.
-    const auto& sc_lps = system_lp.elements<SimpleCommitmentLP>();
+    const auto& sc_lps = system_lp.elements<CommitmentLP>();
     REQUIRE(sc_lps.size() == 1);
     const auto& sc_lp = sc_lps.front();
     const auto& scenario_lp = simulation_lp.scenarios().front();

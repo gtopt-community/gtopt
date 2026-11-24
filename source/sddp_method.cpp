@@ -629,6 +629,123 @@ bool SDDPMethod::should_stop() const
       || check_api_stop_request();
 }
 
+// ── Nonanticipative scene merge vs SDDP options ────────────────────────────
+
+namespace
+{
+
+[[nodiscard]] auto nonanticipative_error(const SceneMerge& merge,
+                                         std::string_view option,
+                                         std::string_view why) -> Error
+{
+  return Error {
+      .code = ErrorCode::InvalidInput,
+      .message = std::format(
+          "decision_variable '{}': `nonanticipative: true` merges {} scenes "
+          "into one LP scene, which is incompatible with {} — {} (not "
+          "supported; drop the option or the flag)",
+          merge.variables.front(),
+          merge.original_scenes.size(),
+          option,
+          why),
+  };
+}
+
+}  // namespace
+
+auto nonanticipative_cut_load_error(const SimulationLP& sim,
+                                    std::string_view what)
+    -> std::optional<Error>
+{
+  const auto& merge = sim.scene_merge();
+  if (!merge.has_value()) {
+    return std::nullopt;
+  }
+  return nonanticipative_error(
+      *merge,
+      what,
+      "a cut file identifies each state coefficient by (class, variable, "
+      "uid) without its scenario, so it cannot address the per-scenario "
+      "state columns of the merged scene");
+}
+
+auto validate_nonanticipative_sddp(const SimulationLP& sim,
+                                   const SDDPOptions& opts)
+    -> std::optional<Error>
+{
+  const auto& merge = sim.scene_merge();
+  if (!merge.has_value()) {
+    return std::nullopt;
+  }
+
+  // Backward apertures.  The deterministic backward pass re-solves the
+  // merged LP, so its cuts are exact over the joint state of every
+  // scenario; the aperture pass perturbs only the scene's FIRST scenario
+  // (`scenarios().front()` base convention) and would build cuts for a
+  // different process.  Apertures are active exactly when they are not
+  // switched off (`apertures = []` / `num_apertures = 0`) and
+  // `resolve_effective_apertures` yields a non-empty pool;
+  // `aperture_selection_mode` and `aperture_chunk_mode` only subselect /
+  // group that pool.
+  Array<Aperture> owned;
+  const auto effective = opts.apertures_requested()
+      ? resolve_effective_apertures(
+            sim.apertures(), sim.scenarios(), opts.apertures, owned, "SDDP")
+      : std::nullopt;
+  if (effective.has_value() && !effective->empty()) {
+    const auto source = opts.apertures.has_value()
+        ? std::format("sddp_options.apertures ({} apertures)",
+                      effective->size())
+        : std::format(
+              "SDDP backward apertures (aperture_array: {} "
+              "apertures, selected per phase by Phase.apertures / "
+              "num_apertures)",
+              effective->size());
+    return nonanticipative_error(
+        *merge,
+        source,
+        "the aperture pass perturbs only the first scenario of a scene, so "
+        "its cuts would not represent the merged scenes; set "
+        "sddp_options.apertures = [] or num_apertures = 0 (pure Benders "
+        "backward pass)");
+  }
+
+  if (opts.cut_sharing == CutSharingMode::markov) {
+    return nonanticipative_error(
+        *merge,
+        "cut_sharing_mode = markov",
+        "markov_states assigns one Markov state per original scene, but "
+        "the merged run has a single scene");
+  }
+
+  if (!opts.boundary_cuts_file.empty()
+      && opts.boundary_cuts_mode != BoundaryCutsMode::noload)
+  {
+    return nonanticipative_error(
+        *merge,
+        std::format("boundary cuts ('{}')", opts.boundary_cuts_file),
+        "the cut alpha of a scene LP is tied to its first scenario's state, "
+        "so the future cost of the other merged scenarios would be lost");
+  }
+
+  if (opts.recovery_mode >= RecoveryMode::cuts) {
+    if (!opts.cuts_input_file.empty()) {
+      return nonanticipative_cut_load_error(
+          sim, std::format("cuts_input_file '{}'", opts.cuts_input_file));
+    }
+    if (opts.cut_recovery_mode != HotStartMode::none
+        && !opts.cuts_output_file.empty())
+    {
+      return nonanticipative_cut_load_error(
+          sim,
+          std::format("cut_recovery_mode = {} (hot start from '{}')",
+                      enum_name(opts.cut_recovery_mode),
+                      opts.cuts_output_file));
+    }
+  }
+  return std::nullopt;
+}
+
 // ── Coefficient updates ─────────────────────────────────────────────────────
 
 auto SDDPMethod::validate_inputs() const -> std::optional<Error>
@@ -646,7 +763,7 @@ auto SDDPMethod::validate_inputs() const -> std::optional<Error>
         .message = "SDDP requires at least 2 phases",
     };
   }
-  return std::nullopt;
+  return validate_nonanticipative_sddp(sim, m_options_);
 }
 
 void SDDPMethod::populate_future_cost_output()
@@ -673,6 +790,14 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   if (m_initialized_) {
     SPDLOG_DEBUG("SDDP: already initialized, skipping re-initialization");
     return {};
+  }
+
+  // `ensure_initialized()` (cascade cut inheritance) reaches here without
+  // `solve()`'s validate_inputs(): re-check the nonanticipative merge.
+  if (auto err =
+          validate_nonanticipative_sddp(planning_lp().simulation(), m_options_))
+  {
+    return std::unexpected(std::move(*err));
   }
 
   SPDLOG_INFO("SDDP: initializing solver (no initial solve pass)");
@@ -814,7 +939,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // except on aperture-resolution fallbacks.  Tell the user (soundness
   // review §3b).
   if (m_options_.integer_cuts == IntegerCutsMode::strengthened
-      && m_options_.apertures.has_value() && !m_options_.apertures->empty())
+      && m_options_.apertures.has_value() && m_options_.apertures_requested())
   {
     spdlog::info(
         "SDDP: integer_cuts=strengthened applies only to the pure-Benders "
@@ -1637,6 +1762,7 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
     // Count only training iterations (all but the final simulation pass).
     const auto n = std::ssize(m_last_results_);
     const auto training_iters = n > 1 ? n - 1 : n;
+    const auto apertures = sddp.aperture_drop_tracker().summary();
     planning_lp.set_sddp_summary({
         .gap = last.gap,
         .gap_change = last.gap_change,
@@ -1647,6 +1773,10 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
         .converged = last.converged,
         .stationary_converged = last.stationary_converged,
         .statistical_converged = last.statistical_converged,
+        .aperture_solves = apertures.solves,
+        .aperture_infeasible = apertures.infeasible,
+        .aperture_failed = apertures.failed,
+        .aperture_dropped_last_iteration = apertures.dropped_in_last_iteration,
     });
   }
 

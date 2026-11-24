@@ -43,7 +43,8 @@ struct ValidationResult
  *      (generator.bus, demand.bus, line.bus_a/bus_b, turbine.waterway,
  *      turbine.generator, flow.junction, waterway.junction_a/junction_b,
  *      converter.battery/generator/demand, reservoir.junction)
- *   2. Range checks: block duration > 0, stage count_block > 0,
+ *   2. Range checks: block duration > 0, stage count_block > 0 and
+ *      first_block/count_block inside block_array,
  *      generator capacity non-negative
  *   3. Completeness: at least one bus, block, and stage
  *   4. Probability checks: scenario probability_factor values per scene

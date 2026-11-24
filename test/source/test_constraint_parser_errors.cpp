@@ -97,3 +97,52 @@ TEST_CASE("ConstraintParser errors - token names in expect messages")  // NOLINT
   cpe_reject("sum(generator(all : type in { 'a' ).generation) <= 1",
              "expected");
 }
+
+TEST_CASE("ConstraintParser errors - nesting depth limit")  // NOLINT
+{
+  const auto nested = [](int depth, std::string_view open)
+  {
+    std::string expr;
+    for (int i = 0; i < depth; ++i) {
+      expr += open;
+    }
+    expr += "generator('g').generation";
+    if (open == "(") {
+      expr += std::string(static_cast<std::size_t>(depth), ')');
+    }
+    expr += " <= 1";
+    return expr;
+  };
+
+  // Moderate nesting still parses.
+  CHECK_NOTHROW((void)ConstraintParser::parse(nested(100, "(")));
+  CHECK_NOTHROW((void)ConstraintParser::parse(nested(100, "- ")));
+
+  // Pathological nesting is a clean parse error, not a stack overflow.
+  cpe_reject(nested(200'000, "("), "nested too deeply");
+  cpe_reject(nested(200'000, "- "), "nested too deeply");
+}
+
+TEST_CASE("ConstraintParser errors - index set size limit")  // NOLINT
+{
+  // An INT_MAX upper bound used to overflow the range loop and try to
+  // reserve gigabytes; both forms must fail fast with a clear message.
+  cpe_reject("generator('g').generation <= 1, for(block in {0..2147483647})",
+             "index set too large");
+  cpe_reject("generator('g').generation <= 1, for(block in 0..2147483647)",
+             "index set too large");
+  // The cap applies to the whole set, not just one range.
+  cpe_reject(
+      "generator('g').generation <= 1, "
+      "for(block in {1..600000, 600001..1200000})",
+      "index set too large");
+  // Literals beyond int are a parse error rather than std::out_of_range.
+  cpe_reject("generator('g').generation <= 1, for(block in {99999999999})",
+             "out of range");
+
+  // Ranges up to the cap are accepted, including the INT_MAX edge.
+  const auto ok = ConstraintParser::parse(
+      "generator('g').generation <= 1, "
+      "for(block in {2147483646..2147483647})");
+  CHECK(ok.domain.blocks.values.size() == 2);
+}

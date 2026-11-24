@@ -26,6 +26,7 @@
 #include <gtopt/arrow_index_cache.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/stage_lp.hpp>
 #include <gtopt/utils.hpp>
 
 namespace gtopt
@@ -43,8 +44,7 @@ auto create_block_array(const Simulation& simulation)
           [&](const Stage& stage)
           {
             return std::ranges::to<std::vector>(
-                std::span(simulation.block_array)
-                    .subspan(stage.first_block, stage.count_block)
+                stage_block_span(simulation.block_array, stage)
                 | std::views::transform([&](const Block& block)
                                         { return BlockLP {block, index++}; }));
           })
@@ -123,8 +123,17 @@ auto create_phase_array(const Simulation& simulation,
           }));
 }
 
-auto create_scene_array(const Simulation& simulation)
+auto create_scene_array(const Simulation& simulation,
+                        const std::optional<SceneMerge>& scene_merge)
 {
+  // Nonanticipative merge: ONE LP scene spanning every original active
+  // scene (see scene_merge.hpp).
+  if (scene_merge.has_value()) {
+    return std::vector<SceneLP> {
+        SceneLP {scene_merge->merged_scene, simulation, SceneIndex {0}},
+    };
+  }
+
   // When scene_array is empty, use a single default Scene with uid=0 so that
   // file names produced by write_lp() are always based on valid UIDs.
   static const Array<Scene> default_scenes {
@@ -181,14 +190,15 @@ std::shared_ptr<ArrowIndexCache> SimulationLP::arrow_index_cache_ptr() const
 
 SimulationLP::SimulationLP(const Simulation& simulation,
                            const PlanningOptionsLP& options,
-                           std::shared_ptr<ArrowIndexCache> shared_index_cache)
+                           std::shared_ptr<ArrowIndexCache> shared_index_cache,
+                           std::optional<SceneMerge> scene_merge)
     : m_simulation_(simulation)
     , m_options_(options)
     , m_block_array_(create_block_array(simulation))
     , m_stage_array_(create_stage_array(simulation, options))
     , m_phase_array_(create_phase_array(simulation, options))
     , m_scenario_array_(create_scenario_array(simulation))
-    , m_scene_array_(create_scene_array(simulation))
+    , m_scene_array_(create_scene_array(simulation, scene_merge))
     , m_global_variable_map_(std::ranges::to<global_variable_map_t>(
           iota_range<Size>(0, m_scene_array_.size())
           | std::views::transform(
@@ -229,6 +239,7 @@ SimulationLP::SimulationLP(const Simulation& simulation,
                 return StrongIndexVector<PhaseIndex, AmplLpCell>(
                     m_phase_array_.size());
               })))
+    , m_scene_merge_(std::move(scene_merge))
 {
   // Adopt a shared, run-lived arrow-index cache when the caller supplies one
   // (the cascade passes the same cache to every per-level PlanningLP so the

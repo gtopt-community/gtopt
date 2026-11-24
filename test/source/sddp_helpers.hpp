@@ -2683,6 +2683,99 @@ inline auto make_2scene_10phase_two_reservoir_planning() -> Planning
   };
 }
 
+/// Four-aperture variant of `make_2scene_10phase_two_reservoir_planning`
+/// (issue #551 fixture).  Adds scenarios 3 (~25 % drier) and 4 (~25 %
+/// wetter), rebalances all four to probability 0.25, and gives every
+/// phase an explicit 4-entry aperture list (one aperture per scenario,
+/// equal weight).
+///
+/// @param soft_efin  true → `efin_cost = 1000` on both reservoirs
+///   (relatively complete recourse: every aperture stays feasible and
+///   SDDP converges to LB = UB = 18220).  false → the base fixture's
+///   HARD `efin = 150`: the dry aperture (scenario 3) is infeasible at
+///   the low-storage trial states the forward pass picks, so it is
+///   dropped on every backward pass and the LB stalls on a rescaled
+///   distribution.
+inline auto make_4aperture_10phase_two_reservoir_planning(bool soft_efin)
+    -> Planning
+{
+  auto planning = make_2scene_10phase_two_reservoir_planning();
+
+  constexpr int num_phases = 10;
+  auto make_inflow = [&](double base, double phase0_boost)
+  {
+    std::vector<std::vector<double>> inflow_2d;
+    inflow_2d.reserve(static_cast<std::size_t>(num_phases));
+    for (int st = 0; st < num_phases; ++st) {
+      inflow_2d.push_back(std::vector<double> {st == 0 ? phase0_boost : base});
+    }
+    return inflow_2d;
+  };
+
+  // Add scenarios 3 and 4 (already-existing 1, 2 are kept).
+  planning.simulation.scenario_array.push_back(Scenario {
+      .uid = Uid {3},
+      .probability_factor = 0.25,
+  });
+  planning.simulation.scenario_array.push_back(Scenario {
+      .uid = Uid {4},
+      .probability_factor = 0.25,
+  });
+  // Re-balance the existing two so all four sum to 1.
+  planning.simulation.scenario_array[0].probability_factor = OptReal {0.25};
+  planning.simulation.scenario_array[1].probability_factor = OptReal {0.25};
+
+  // Extend the discharge of each inflow Flow to cover scenarios 3 and 4:
+  // scenario 3 is ~25 % drier, scenario 4 ~25 % wetter than the base.
+  // `discharge` holds the 3-D form (scenario × stage × block).
+  using Vec3D = std::vector<std::vector<std::vector<double>>>;
+  for (auto& flow : planning.system.flow_array) {
+    if (!flow.discharge.has_value()) {
+      continue;
+    }
+    auto* vec3d = std::get_if<Vec3D>(&*flow.discharge);
+    if (vec3d == nullptr) {
+      continue;
+    }
+    vec3d->push_back(make_inflow(/*base=*/15.0, /*phase0_boost=*/60.0));
+    vec3d->push_back(make_inflow(/*base=*/25.0, /*phase0_boost=*/100.0));
+  }
+
+  if (soft_efin) {
+    for (auto& rsv : planning.system.reservoir_array) {
+      rsv.efin_cost = 1000.0;
+    }
+  }
+
+  planning.simulation.aperture_array = Array<Aperture> {
+      Aperture {
+          .uid = Uid {1},
+          .source_scenario = Uid {1},
+          .probability_factor = 0.25,
+      },
+      Aperture {
+          .uid = Uid {2},
+          .source_scenario = Uid {2},
+          .probability_factor = 0.25,
+      },
+      Aperture {
+          .uid = Uid {3},
+          .source_scenario = Uid {3},
+          .probability_factor = 0.25,
+      },
+      Aperture {
+          .uid = Uid {4},
+          .source_scenario = Uid {4},
+          .probability_factor = 0.25,
+      },
+  };
+  for (auto& phase : planning.simulation.phase_array) {
+    phase.apertures = {Uid {1}, Uid {2}, Uid {3}, Uid {4}};
+  }
+
+  return planning;
+}
+
 // ─── Helper: default-constructed PhaseStateInfo grid ───────────────────────
 //
 // `load_boundary_cuts_csv` and similar SDDP cut-loading entry points

@@ -22,7 +22,6 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simple_commitment.hpp>
-#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
@@ -379,13 +378,14 @@ TEST_CASE(  // NOLINT
       opts.model_options.demand_fail_cost = 1000.0;
       opts.lp_matrix_options.solver_name = solver_name;
 
-      const System system = {
+      System system = {
           .name = "MipSimpleCommit_" + solver_name,
           .bus_array = single_bus,
           .demand_array = small_demand_array,
           .generator_array = generator_array,
           .simple_commitment_array = simple_commitment_array,
       };
+      system.fold_legacy_simple_commitments();
 
       LpMatrixOptions flat_opts;
       flat_opts.solver_name = solver_name;
@@ -395,7 +395,7 @@ TEST_CASE(  // NOLINT
 
       auto&& lp = system_lp.linear_interface();
 
-      const auto& sc_lps = system_lp.elements<SimpleCommitmentLP>();
+      const auto& sc_lps = system_lp.elements<CommitmentLP>();
       REQUIRE(sc_lps.size() == 1);
       const auto& sc_lp = sc_lps.front();
       const auto& scenario_lp = simulation_lp.scenarios().front();

@@ -1483,6 +1483,7 @@ void PlanningLP::build_aperture_systems(const LpMatrixOptions& flat_opts)
     sys.expand_emission_sources();
     sys.fold_legacy_emission_rate();
     sys.fold_legacy_profiles();
+    sys.fold_legacy_simple_commitments();
     sys.setup_reference_bus(m_options_);
     return m_aperture_owned_systems_.emplace(key, std::move(sys)).first->second;
   };
@@ -1569,6 +1570,7 @@ auto PlanningLP::create_systems(System& system,
   system.expand_emission_sources();
   system.fold_legacy_emission_rate();
   system.fold_legacy_profiles();
+  system.fold_legacy_simple_commitments();
   system.setup_reference_bus(options);
 
   // Enable per-cell AMPL variable registration when user constraints

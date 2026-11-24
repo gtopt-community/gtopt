@@ -30,21 +30,6 @@
 namespace gtopt
 {
 
-/// Make the ReserveProvision rows of a committed generator conditional on
-/// its status columns @p block_ucol (one per block): headroom rows get the
-/// `Pmax·u` / `Pmin·u` terms, Min-Provision floors become `r ≥ rmin·u`,
-/// offline (cold) up reserve gets `r_up ≤ urmax·(1 − u)`.  Shared by
-/// CommitmentLP and SimpleCommitmentLP.
-void gate_reserve_provisions_by_status(
-    const SystemContext& sc,
-    const ScenarioLP& scenario,
-    const StageLP& stage,
-    LinearProblem& lp,
-    ElementIndex<GeneratorLP> generator_index,
-    const GeneratorLP& generator_lp,
-    const BIndexHolder<ColIndex>& generation_cols,
-    const BIndexHolder<ColIndex>& block_ucol);
-
 class CommitmentLP : public ObjectLP<Commitment>
 {
 public:
@@ -95,6 +80,17 @@ public:
     return it != status_cols_.end() ? &it->second : nullptr;
   }
 
+  /// Status (u) column of block @p buid — every block of a commitment
+  /// period maps to the period's column — or nullopt when the element
+  /// built none there.
+  [[nodiscard]] std::optional<ColIndex> lookup_status_col(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    return lookup_inner(block_status_cols_, scenario, stage, buid);
+  }
+
   /// No-load fuel burn leg ``(u_col, noload_fuel)`` [fuel-unit / h per
   /// unit of status] for block @p buid, or ``std::nullopt`` when
   /// ``noload_fuel`` is unset / zero or the status column does not exist.
@@ -102,6 +98,8 @@ public:
       const ScenarioLP& scenario, const StageLP& stage, BlockUid buid) const
   {
     const auto burn = commitment().noload_fuel.value_or(0.0);
+    // Both formulations burn no-load fuel while committed (u per block on
+    // a non-chronological stage, per period on a chronological one).
     if (burn == 0.0) {
       return std::nullopt;
     }
@@ -136,14 +134,13 @@ public:
     return it != shutdown_cols_.end() ? &it->second : nullptr;
   }
 
-  /// Minimum stable level when committed (``Commitment.pmin``) [MW] for
-  /// block @p buid of @p stage_uid, or ``std::nullopt`` when unset there.
-  /// Used by ``InertiaProvisionLP`` to derive ``H·S / Pmin`` from the
-  /// committed floor instead of the (zero) generation column lower bound.
-  [[nodiscard]] std::optional<Real> pmin_at(StageUid stage_uid,
-                                            BlockUid buid) const
+  /// Scheduled ``Commitment.pmin`` [MW] at (stage, block), or nullopt
+  /// when unset (the LP then uses ``Generator.pmin``).  See the free
+  /// function ``committed_pmin``.
+  [[nodiscard]] std::optional<double> committed_pmin(StageUid stage_uid,
+                                                     BlockUid block_uid) const
   {
-    return pmin_.optval(stage_uid, buid);
+    return pmin_.optval(stage_uid, block_uid);
   }
 
   [[nodiscard]] bool add_to_lp(SystemContext& sc,
@@ -163,6 +160,15 @@ private:
   OptTBRealSched shutdown_cost_;
   /// One warning per element for an unusable startup-tier set.
   bool tier_warned_ {false};
+  /// One info note per element when chronological-only data is ignored
+  /// on a non-chronological (block-formulation) stage.
+  bool block_note_logged_ {false};
+
+  /// True when the element carries data only the chronological
+  /// formulation uses (startup / shutdown costs, ramps, min up / down
+  /// times, start tiers or counts, commitment_period).  No-load cost and
+  /// fuel apply in both formulations.
+  [[nodiscard]] bool has_chronological_data() const noexcept;
   /// Per-(stage, block) forced commitment schedule.  When set at a
   /// given block, the u column's bounds are pinned to that value
   /// (interpreted as 0 = off, 1 = on); blocks where the schedule has
@@ -183,6 +189,7 @@ private:
   OptTBRealSched shutdown_ramp_;  ///< Max output in shutdown block [MW]
 
   STBIndexHolder<ColIndex> status_cols_;
+  STBIndexHolder<ColIndex> block_status_cols_;  ///< every block → its u
   STBIndexHolder<ColIndex> startup_cols_;
   STBIndexHolder<ColIndex> shutdown_cols_;
   STBIndexHolder<RowIndex> logic_rows_;
@@ -218,6 +225,25 @@ private:
 // CSV outputs depend on the exact string `"Commitment"`).
 static_assert(CommitmentLP::Element::class_name == LPClassName {"Commitment"},
               "Commitment::class_name must remain \"Commitment\"");
+
+/// The Commitment of generator @p gen_index active at @p stage, or
+/// nullptr.
+[[nodiscard]] const CommitmentLP* find_unit_commitment(
+    const SystemContext& sc,
+    ElementIndex<GeneratorLP> gen_index,
+    const StageLP& stage);
+
+/// Committed minimum stable output of @p gen at (stage, block) [MW]: the
+/// floor the unit holds while ON, ``max(Generator.pmin,
+/// Commitment.pmin)``, or ``Generator.pmin`` without a commitment
+/// (@p cmt null).  Read from the input parameters, never from the
+/// generation column's lower bound: with the documented UC pattern
+/// ``Generator.pmin = 0`` that bound carries no committed minimum.
+/// Unset values read 0.  Same value on chronological and block stages.
+[[nodiscard]] double committed_pmin(const CommitmentLP* cmt,
+                                    const GeneratorLP& gen,
+                                    StageUid stage_uid,
+                                    BlockUid block_uid);
 
 /// The CommitmentLP of @p gen that carries a no-load fuel burn
 /// (``Commitment.noload_fuel > 0``), or nullptr.  CommitmentLP is built

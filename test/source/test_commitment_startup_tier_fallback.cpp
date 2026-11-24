@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 /**
  * @file      test_commitment_startup_tier_fallback.cpp
- * @brief     Startup-tier pricing of the first start, the fallback for an
- *            unusable tier set, and the non-chronological-stage warning
+ * @brief     Startup-tier pricing of the first start and the fallback for
+ *            an unusable tier set
  * @date      2026-11-23
  *
  * One unit (pmin = pmax = load = 10 MW, so even the relaxed u must be 1
@@ -10,7 +10,6 @@
  * loaded block: the LP objective is exactly its start cost.
  */
 
-#include <algorithm>
 #include <format>
 #include <string>
 #include <string_view>
@@ -19,7 +18,6 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/system_lp.hpp>
-#include <gtopt/validate_planning.hpp>
 
 using namespace gtopt;
 
@@ -121,20 +119,4 @@ TEST_CASE("Startup tiers: an unusable tier set never makes starts free")
     CHECK(stf_obj(R"(, "startup_cost": 25, "initial_hours": 8)")
           == doctest::Approx(25.0));
   }
-}
-
-TEST_CASE("Commitment on a non-chronological stage is reported")  // NOLINT
-{
-  const auto has_warning = [](bool chronological)
-  {
-    auto planning = parse_planning_json(
-        stf_json(R"(, "startup_cost": 25, "initial_hours": 8)", chronological));
-    const auto r = validate_planning(planning);
-    CHECK(r.errors.empty());
-    return std::ranges::any_of(r.warnings,
-                               [](const std::string& w)
-                               { return w.contains("IGNORED on stage(s) 1"); });
-  };
-  CHECK(has_warning(false));
-  CHECK_FALSE(has_warning(true));
 }

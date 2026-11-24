@@ -38,6 +38,7 @@
 #include <gtopt/position_vector.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
+#include <gtopt/scene_merge.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/state_variable.hpp>
@@ -85,14 +86,25 @@ public:
   explicit SimulationLP(
       const Simulation& simulation,
       const PlanningOptionsLP& options,
-      std::shared_ptr<ArrowIndexCache> shared_index_cache = {});
+      std::shared_ptr<ArrowIndexCache> shared_index_cache = {},
+      std::optional<SceneMerge> scene_merge = {});
 
   /// SimulationLP stores a reference to `simulation`; reject temporaries
   /// at compile time (they dangle as soon as the full expression ends).
   SimulationLP(Simulation&& simulation,
                const PlanningOptionsLP& options,
-               std::shared_ptr<ArrowIndexCache> shared_index_cache = {}) =
-      delete;
+               std::shared_ptr<ArrowIndexCache> shared_index_cache = {},
+               std::optional<SceneMerge> scene_merge = {}) = delete;
+
+  /// The scene merge applied for nonanticipative DecisionVariables (see
+  /// scene_merge.hpp): when set, `scenes()` holds ONE LP scene spanning
+  /// the original active scenes, and the output writer splits each cell's
+  /// shards back into `original_scenes`.  `nullopt` ⇒ no merge.
+  [[nodiscard]] constexpr const std::optional<SceneMerge>& scene_merge()
+      const noexcept
+  {
+    return m_scene_merge_;
+  }
 
   // Accessors
   /**
@@ -1539,6 +1551,11 @@ private:
   // no per-cell mutex is needed.  Allocated once in the constructor
   // with shape `[m_scene_array_.size()][m_phase_array_.size()]`.
   ampl_lp_registry_t m_ampl_lp_cells_;
+
+  /// Nonanticipative scene merge (see `scene_merge()`).  Declared after
+  /// `m_scene_array_`, which is built from the constructor argument.
+  std::optional<SceneMerge> m_scene_merge_;
+
   /// Thread-safe "ever registered" indices backing the user-constraint
   /// silent-zero checks (`find_ampl_variable_for_element`,
   /// `find_ampl_class_attribute`).  Keys are OWNED strings

@@ -239,12 +239,19 @@ struct SolverOptions
    *  fields above (so the typed gtopt fields keep priority on conflict).
    *
    *  Backend mapping:
-   *  - CPLEX: ``CPXreadcopyparam(env, path)`` — reads the standard
-   *    CPLEX ``.prm`` format (one ``CPX_PARAM_<NAME> <value>`` pair
-   *    per line, ``#`` for comments).  Lets users pin the full ~150
-   *    CPLEX parameter surface without growing this struct further.
+   *  - CPLEX: the standard CPLEX ``.prm`` format (one
+   *    ``CPXPARAM_<Name> <value>`` pair per line, ``#`` for comments),
+   *    parsed once per run and applied like ``CPXreadcopyparam`` (every
+   *    parameter reset to its CPLEX default, then the file's values).
+   *    Lets users pin the full ~150 CPLEX parameter surface without
+   *    growing this struct further.
    *  - HiGHS / MindOpt / CLP: ignored (each has its own native parser
    *    that we may wire later via the same field).
+   *
+   *  Warm-start siblings (``cplex_warmstart.prm``, ``highs_warmstart.opts``,
+   *  ``gurobi_warmstart.prm``, ``mindopt_warmstart.prm``) are applied LAST
+   *  on advanced-basis solves and override only the keys they list.  Every
+   *  file is read once per run (later edits are not picked up).
    *
    *  Unset (``nullopt``, default) ⇒ no file is read, backend defaults
    *  apply as before.
@@ -336,6 +343,11 @@ struct SolverOptions
    *  `MIP/MaxSols`, SCIP `limits/solutions`, CBC
    *  `CbcModel::setMaximumSolutions`; ignored by LP-only backends. */
   std::optional<int> mip_solution_limit {};
+
+  /// Member-wise equality.  Lets a backend skip re-applying an identical
+  /// option bundle (e.g. CPLEX re-reading the `.prm` file before every
+  /// solve).
+  [[nodiscard]] constexpr bool operator==(const SolverOptions&) const = default;
 
   /** @brief Effective `mip_polish` (unset ⇒ enabled). */
   [[nodiscard]] constexpr bool mip_polish_enabled() const noexcept

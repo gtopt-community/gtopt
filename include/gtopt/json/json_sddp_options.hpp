@@ -106,6 +106,7 @@ struct SddpOptionsConstructor
       OptBool forward_fail_stop,
       OptBool forward_infeas_rollback,
       OptBool backward_resolve_target,
+      OptBool aperture_cut_resolve,
       OptInt backward_max_fallbacks,
       OptInt max_async_spread,
       OptReal pool_max_process_swap_mb,
@@ -242,6 +243,7 @@ struct SddpOptionsConstructor
     opts.forward_fail_stop = forward_fail_stop;
     opts.forward_infeas_rollback = forward_infeas_rollback;
     opts.backward_resolve_target = backward_resolve_target;
+    opts.aperture_cut_resolve = aperture_cut_resolve;
     opts.backward_max_fallbacks = backward_max_fallbacks;
     opts.max_async_spread = max_async_spread;
     opts.pool_max_process_swap_mb = pool_max_process_swap_mb;
@@ -327,6 +329,7 @@ struct json_data_contract<SddpOptions>
       json_bool_null<"forward_fail_stop", OptBool>,
       json_bool_null<"forward_infeas_rollback", OptBool>,
       json_bool_null<"backward_resolve_target", OptBool>,
+      json_bool_null<"aperture_cut_resolve", OptBool>,
       json_number_null<"backward_max_fallbacks", OptInt>,
       json_number_null<"max_async_spread", OptInt>,
       json_number_null<"pool_max_process_swap_mb", OptReal>,
@@ -408,6 +411,7 @@ struct json_data_contract<SddpOptions>
         opt.forward_fail_stop,
         opt.forward_infeas_rollback,
         opt.backward_resolve_target,
+        opt.aperture_cut_resolve,
         opt.backward_max_fallbacks,
         opt.max_async_spread,
         opt.pool_max_process_swap_mb,

@@ -310,14 +310,14 @@ TEST_CASE(
     CHECK(expr.terms[0].element.value_or(ElementRef {}).element_type
           == "commitment");
   }
-  SUBCASE("simple_commitment resolves as element type")
+  SUBCASE("simple_commitment is folded onto commitment")
   {
     const auto expr =
         ConstraintParser::parse(R"(simple_commitment("S1").status <= 1)");
     REQUIRE(expr.terms.size() == 1);
     REQUIRE(expr.terms[0].element.has_value());
     CHECK(expr.terms[0].element.value_or(ElementRef {}).element_type
-          == "simple_commitment");
+          == "commitment");
   }
 }
 

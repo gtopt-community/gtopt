@@ -372,7 +372,9 @@ TEST_CASE("expand_batteries redirects file schedules to the battery")  // NOLINT
   CHECK(file_of(dem.fcost) == "Battery@ccost#7");
   CHECK(file_of(conv.active) == "Battery@act#7");
   CHECK(file_of(cmt.active) == "Battery@act#7");
-  CHECK(file_of(cmt.pmin) == "Battery@pmind#7");
+  // No Battery.commitment → pmin_discharge is the hard Generator.pmin.
+  CHECK(file_of(gen.pmin) == "Battery@pmind#7");
+  CHECK(file_of(cmt.pmin) == "<unset>");
   // The battery itself keeps its own (unredirected) reference.
   CHECK(file_of(system.battery_array.front().active) == "act");
 }

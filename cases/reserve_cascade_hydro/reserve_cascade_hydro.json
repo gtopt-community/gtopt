@@ -202,19 +202,19 @@
     "capacity": 200
    }
   ],
-  "simple_commitment_array": [
+  "commitment_array": [
    {
     "uid": 1,
-    "name": "sc_tha",
+    "name": "uc_tha",
     "generator": "tha",
-    "dispatch_pmin": 20,
+    "pmin": 20,
     "relax": true
    },
    {
     "uid": 2,
-    "name": "sc_thb",
+    "name": "uc_thb",
     "generator": "thb",
-    "dispatch_pmin": 20,
+    "pmin": 20,
     "relax": true
    }
   ],

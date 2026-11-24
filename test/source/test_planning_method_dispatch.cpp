@@ -205,7 +205,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.stationary_tol == doctest::Approx(0.005));
     CHECK(so.stationary_window == 4);  // PlanningOptionsLP default
     CHECK(so.convergence_confidence == doctest::Approx(0.0));
-    CHECK(so.stationary_gap_ceiling == doctest::Approx(0.05));
+    CHECK(so.stationary_gap_ceiling == doctest::Approx(0.02));
     CHECK(so.terminal_failure_threshold == 2);
 
     // ── Advanced tuning ──

@@ -5,7 +5,7 @@
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
  *            see LICENSING.md
  *
- * `compress_lp_file` shells out to whatever compressors happen to be on
+ * `compress_lp_file` spawns whatever compressors happen to be on
  * PATH, so `test_lp_debug_writer.cpp` exercises a host-dependent subset
  * of the cascade.  These tests replace PATH with a temp dir holding fake
  * `gtopt_compress_lp` / `zstd` / `gzip` / `lz4` scripts (or nothing at
@@ -224,4 +224,70 @@ TEST_CASE(  // NOLINT
   const auto missing = (sb.bin() / "nope.lp").string();
   // Every rung fails; the original path is returned unchanged.
   CHECK(compress_lp_file(missing, "") == missing);
+}
+
+TEST_CASE(  // NOLINT
+    "compress_lp_file - shell metacharacters in the path are inert")
+{
+  LdwpPathSandbox sb;
+  // A compressor that works like the real one: the file is its last arg.
+  sb.tool("zstd",
+          R"(for f; do :; done; /bin/cat "$f" > "$f.zst" && /bin/rm "$f")");
+
+  // The marker lives beside bin/ so the payload can name it absolutely
+  // (PATH only holds the sandbox bin, so `touch` must be spelled out).
+  const auto root = sb.bin().parent_path();
+  const auto marker = root / "PWNED";
+  const auto marker2 = root / "PWNED2";
+
+  for (const auto& dir_name :
+       {
+           "dbg;/bin/touch " + marker.string() + ";#",
+           "a b'\"$(/bin/touch " + marker2.string() + ")`x`",
+       })
+  {
+    CAPTURE(dir_name);
+    const auto dir = root / dir_name;
+    std::filesystem::create_directories(dir);
+    const auto lp = (dir / "gtopt_lp_scene_0_phase_0.lp").string();
+    {
+      std::ofstream out(lp);
+      out << "Minimize\n obj: x\nSubject To\n c1: x >= 1\nEnd\n";
+    }
+
+    const auto out = compress_lp_file(lp, "zstd");
+    CHECK(out == lp + ".zst");
+    CHECK(std::filesystem::exists(out));
+    CHECK_FALSE(std::filesystem::exists(lp));
+  }
+  CHECK_FALSE(std::filesystem::exists(marker));
+  CHECK_FALSE(std::filesystem::exists(marker2));
+}
+
+TEST_CASE(  // NOLINT
+    "compress_lp_file - relative PATH entries are ignored")
+{
+  LdwpPathSandbox sb;
+  // A compressor reachable only through a relative PATH entry must not run.
+  const auto root = sb.bin().parent_path();
+  const auto rel_bin = root / "rel";
+  std::filesystem::create_directories(rel_bin);
+  {
+    std::ofstream out(rel_bin / "zstd");
+    out << "#!/bin/sh\n/bin/touch " << (root / "RAN").string() << "\n";
+  }
+  std::filesystem::permissions(rel_bin / "zstd",
+                               std::filesystem::perms::owner_all,
+                               std::filesystem::perm_options::replace);
+  const auto old_cwd = std::filesystem::current_path();
+  std::filesystem::current_path(root);
+  // NOLINTNEXTLINE(concurrency-mt-unsafe)
+  ::setenv("PATH", ("rel::" + sb.bin().string()).c_str(), 1);
+
+  const auto lp = sb.lp_file();
+  const auto out = compress_lp_file(lp, "zstd");
+  std::filesystem::current_path(old_cwd);
+
+  CHECK(out == lp + ".zst");  // inline libzstd fallback
+  CHECK_FALSE(std::filesystem::exists(root / "RAN"));
 }

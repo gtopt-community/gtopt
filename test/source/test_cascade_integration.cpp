@@ -856,7 +856,10 @@ TEST_CASE(  // NOLINT
           .name = OptName {"level_0"},
           .sddp_options =
               CascadeLevelMethod {
-                  .max_iterations = OptInt {5},
+                  // A cold level needs stationary_window (4) own
+                  // iterations with cuts after its cut-less first one
+                  // before a stationary stop.
+                  .max_iterations = OptInt {10},
                   .convergence_tol = OptReal {0.05},
               },
       },

@@ -793,6 +793,11 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// the full rationale and cost analysis.
   bool backward_resolve_target {true};
 
+  /// Re-solve the source LP after installing an aperture backward cut
+  /// (optimality check only; default false).  See
+  /// `SddpOptions::aperture_cut_resolve`.
+  bool aperture_cut_resolve {false};
+
   /// Save cuts after each training iteration (default: true).
   /// When false, cuts are only saved at the end of the solve or on stop.
   bool save_per_iteration {true};
@@ -971,6 +976,17 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// `Phase::apertures` first, then each surviving UID is resolved
   /// against the (possibly whitelisted) aperture pool.
   std::optional<int> num_apertures {};
+
+  /// True unless the backward apertures are switched off explicitly:
+  /// `apertures = []` or `num_apertures = 0` (documented as "no
+  /// apertures", i.e. the deterministic Benders backward pass).  Whether
+  /// an aperture pool exists at all is decided later by
+  /// `resolve_effective_apertures`.
+  [[nodiscard]] constexpr bool apertures_requested() const noexcept
+  {
+    return (!apertures.has_value() || !apertures->empty())
+        && num_apertures.value_or(-1) != 0;
+  }
 
   /// Selection rule used by `num_apertures` to pick a subset from
   /// each phase's `Phase::apertures` list.
@@ -1176,13 +1192,15 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///
   ///  * ΔUB stationarity ENABLED (``stationarity_enabled()``: mode is
   ///    not ``gap_only``, ``stationary_tol > 0`` and
-  ///    ``stationary_window > 0``) — stationarity is the SOLE
-  ///    convergence signal (plus the opt-in statistical CI test); the
-  ///    gap is reported but never stops the run, because under
-  ///    multi-cut / aperture overshoot the signed gap zero-crosses
-  ///    before the policy has stabilised:
+  ///    ``stationary_window > 0``) — stationarity is the stop
+  ///    signal (plus the opt-in statistical CI test); the gap test
+  ///    itself never stops the run, because under multi-cut / aperture
+  ///    overshoot the signed gap zero-crosses before the policy has
+  ///    stabilised:
   ///      gap_change = |UB[i] - UB[i - window]| / max(1e-10, |UB[i - window]|)
-  ///      gap_change < stationary_tol -> converged
+  ///      converged  <- gap_change < stationary_tol
+  ///                    AND >= window own iterations with cuts
+  ///                    AND signed gap < stationary_gap_ceiling
   ///  * stationarity DISABLED — the primary gap test
   ///    ``sddp_gap_converged(gap, convergence_tol)`` (band
   ///    ``(-kSddpGapFpEpsilon, convergence_tol)``) is the stop signal.
@@ -1212,23 +1230,23 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
         && stationary_window > 0;
   }
 
-  /// Absolute gap ceiling above which the secondary tests (stationary +
-  /// statistical CI) are SUPPRESSED.  Even when ``gap_change <
-  /// stationary_tol`` or the CI bound passes, convergence will NOT be
-  /// declared while ``gap >= stationary_gap_ceiling`` — only the primary
-  /// ``convergence_tol`` test can close the run at high gaps.
+  /// Signed relative-gap ceiling for the ΔUB-stationary (and
+  /// statistical + stationary) stop: such a stop is accepted only while
+  /// ``effective_gap() < stationary_gap_ceiling``.  One-sided — a
+  /// negative gap (multi-cut / aperture overshoot) always passes; only a
+  /// large POSITIVE gap keeps the run iterating (up to
+  /// ``max_iterations``).  The stationary stop additionally needs
+  /// ``stationary_window`` iterations of the solve's OWN with cuts (seeded
+  /// cascade bounds do not count).
   ///
-  /// Defends against two known pathologies:
-  ///  * Frozen-LB (LB stuck near 0, UB > 0 → gap = 1 flat) where
-  ///    gap_change = 0 used to spuriously declare convergence at 100 %.
-  ///  * Heterogeneous-scene σ explosion where the CI threshold z·σ
-  ///    swallows the absolute gap even at 25 % relative (large-case run
-  ///    2026-05-02 trace_28 — see ``z_score_for_alpha`` doc).
+  /// Defends against premature stops: a cold cascade level seeded with
+  /// the previous level's bounds that declared "stationary" at its first
+  /// iteration with a 40 % gap, large-case cascade levels that stopped
+  /// with a gap of several percent, and frozen-LB states (gap = 1 flat,
+  /// ΔUB = 0).
   ///
-  /// Default: 0.05 (5 %) — refuse to declare "converged via stationary
-  /// or CI" until we are at least within 5 %.  Set to 1.0 to disable
-  /// the ceiling (legacy behaviour).
-  double stationary_gap_ceiling {0.05};
+  /// Default: 0.02 (2 %).  Set to 1.0 (or more) to disable the ceiling.
+  double stationary_gap_ceiling {0.02};
 
   /// Confidence level for statistical convergence criterion (0-1).
   /// When > 0 and multiple scenes exist, convergence is also checked
@@ -1470,7 +1488,8 @@ struct SDDPIterationResult
   /// True once a convergence criterion fired: ΔUB stationarity (when
   /// enabled), the primary gap test (only when stationarity is
   /// disabled — see `SDDPOptions::stationarity_enabled`), or the
-  /// statistical CI test.
+  /// statistical CI test — and the iteration's backward pass dropped no
+  /// aperture (`apertures_dropped == 0`).
   bool converged {};
   /// True when convergence was declared by the stationary-gap criterion
   /// (gap_change < stationary_tol) rather than the primary criterion.
@@ -1481,6 +1500,13 @@ struct SDDPIterationResult
   bool statistical_converged {};
   int cuts_added {};  ///< Number of Benders cuts added this iteration
   bool feasibility_issue {};  ///< True if elastic filter was activated
+  /// Backward-pass aperture solves dropped this iteration (infeasible,
+  /// timed out or abandoned), summed over every (scene, phase) cell.
+  /// The expected cut of each affected cell was renormalised over the
+  /// remaining apertures, so the LB describes a rescaled distribution:
+  /// an iteration with `apertures_dropped > 0` never sets `converged`
+  /// (issue #551).  0 without apertures.
+  int apertures_dropped {};
 
   /// Wall-clock time in seconds for the forward pass (all scenes).
   double forward_pass_s {};
@@ -2033,6 +2059,10 @@ struct PhaseStateInfo
   /// boundary-cut gap diagnostics); recorded even when the UB does not
   /// strip it (`phi_expectation`).
   double forward_future_cost {0.0};
+  /// The cut data above come from an interior solve (barrier without
+  /// crossover): cuts built from them get the interior intercept guard
+  /// (`guarded_cut_intercept`).
+  bool forward_interior {false};
   /// Cross-iteration warm-start seed: the simplex basis captured from this
   /// cell's FIRST backward aperture last iteration.  Empty until first
   /// captured; only populated/consumed when `aperture_seed_basis` is on.

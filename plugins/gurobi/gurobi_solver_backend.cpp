@@ -19,6 +19,7 @@
 
 #include <gtopt/log_and_throw.hpp>
 #include <gtopt/scoped_stdout_silencer.hpp>
+#include <gtopt/solver_cfg.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 #include <gurobi_c.h>
@@ -159,19 +160,17 @@ void apply_options_to_env(GRBenv* env, const SolverOptions& opts)
 
     // Optional user override: a `gurobi_warmstart.prm` sibling next to the
     // case's main param file (`opts.param_file`).  Mirrors the CPLEX backend's
-    // `apply_cplex_warmstart`, which loads a `cplex_warmstart.prm` sibling via
-    // `CPXreadcopyparam`.  Gurobi reads the SAME `.prm` text format through its
-    // native `GRBreadparams(env, filename)`.  Loaded LAST so its values win
-    // over the in-code Method default set just above.  Inert when
-    // `opts.param_file` is unset (the current default state) — no behaviour
-    // change for callers that never set a param file.
-    if (opts.param_file.has_value() && !opts.param_file->empty()) {
-      const std::filesystem::path sibling =
-          std::filesystem::path {*opts.param_file}.parent_path()
-          / "gurobi_warmstart.prm";
-      std::error_code ec;
-      if (std::filesystem::exists(sibling, ec) && !ec) {
-        GRBreadparams(env, sibling.string().c_str());
+    // `apply_cplex_warmstart` (`cplex_warmstart.prm`).  Same `Name value`
+    // text format as `GRBreadparams`, but parsed ONCE per process
+    // (`cached_sibling_param_file`) and applied by name with `GRBsetparam`,
+    // so a warm solve neither re-reads nor re-stats the file.  Applied LAST
+    // so its values win over the in-code Method default set just above.
+    // Inert when `opts.param_file` is unset or the sibling does not exist.
+    if (const auto* warm =
+            cached_sibling_param_file(opts.param_file, "gurobi_warmstart.prm"))
+    {
+      for (const auto& [name, value] : *warm) {
+        GRBsetparam(env, name.c_str(), value.c_str());
       }
     }
   }

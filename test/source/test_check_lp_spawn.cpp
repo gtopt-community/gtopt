@@ -112,7 +112,9 @@ TEST_CASE("run_check_lp_diagnostic forwards solver options")  // NOLINT
   SUBCASE("defaults, extension appended")
   {
     const auto out = run_check_lp_diagnostic("/x/model", 0);
-    CHECK(out.find("--quiet --no-color --no-ai --timeout 0")
+    // --no-ai / --no-neos: the automatic diagnostic never sends the LP
+    // to an AI provider or the public NEOS server.
+    CHECK(out.find("--quiet --no-color --no-ai --no-neos --timeout 0")
           != std::string::npos);
     CHECK(out.find("/x/model.lp") != std::string::npos);
     // stderr is captured too.

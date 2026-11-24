@@ -315,21 +315,24 @@ std::string run_check_lp_diagnostic(const std::string& lp_file,
   const std::string lp_path = lp_file.contains('.') ? lp_file : lp_file + ".lp";
 
   // Effective command:
-  //   [timeout <N>] gtopt_check_lp --quiet --no-color --no-ai --timeout <N>
-  //                                [--algo <algo>]
+  //   [timeout <N>] gtopt_check_lp --quiet --no-color --no-ai --no-neos
+  //                                --timeout <N> [--algo <algo>]
   //                                [--optimal-eps <v>] [--feasible-eps <v>]
   //                                [--barrier-eps <v>]
   //                                <file>
   //
   // --quiet ensures the child never blocks for user input and always exits
-  // with code 0 (tries every available solver, falls back to NEOS if an
-  // e-mail is configured, warns on failures instead of erroring out).
-  // --no-ai avoids hanging on network calls to AI providers when the
-  // diagnostic is captured programmatically for logging.
+  // with code 0 (tries every available solver, warns on failures instead of
+  // erroring out).
+  // --no-ai and --no-neos keep the automatic diagnostic local: the LP and
+  // its summary are never sent to an AI provider or uploaded to the public
+  // NEOS server (even when a NEOS e-mail is configured), and the capture
+  // never hangs on network calls.
   std::vector<std::string> args {
       "--quiet",
       "--no-color",
       "--no-ai",
+      "--no-neos",
       "--timeout",
       std::to_string(timeout_seconds),
   };

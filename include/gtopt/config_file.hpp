@@ -132,8 +132,12 @@ using IniData = std::map<std::string, std::map<std::string, std::string>>;
  * @brief Find the `.gtopt.conf` file following the standard search order.
  *
  * 1. `$GTOPT_CONFIG` (if set and file exists)
- * 2. `./.gtopt.conf` (current directory)
- * 3. `~/.gtopt.conf` (home directory)
+ * 2. `~/.gtopt.conf` (home directory)
+ *
+ * The current working directory is deliberately NOT searched: a
+ * `.gtopt.conf` shipped inside a case bundle (or an uploaded archive)
+ * must not silently change how gtopt runs.  Use `gtopt --config FILE` or
+ * `$GTOPT_CONFIG` to opt in to a project-local file.
  *
  * @return Path to the config file, or empty path if none found.
  */
@@ -146,24 +150,16 @@ using IniData = std::map<std::string, std::map<std::string, std::string>>;
       return p;
     }
     // An explicit override that points nowhere is almost always a typo;
-    // say so instead of silently falling back to ./ or ~/.
+    // say so instead of silently falling back to ~/.
     if (*env != '\0') {
       spdlog::warn(
           "$GTOPT_CONFIG='{}' does not exist; falling back to "
-          "./.gtopt.conf and ~/.gtopt.conf",
+          "~/.gtopt.conf",
           env);
     }
   }
 
-  // 2. Current directory
-  {
-    std::filesystem::path p = ".gtopt.conf";
-    if (std::filesystem::exists(p)) {
-      return p;
-    }
-  }
-
-  // 3. Home directory
+  // 2. Home directory
   if (const char* home = std::getenv("HOME")) {
     std::filesystem::path p = std::filesystem::path(home) / ".gtopt.conf";
     if (std::filesystem::exists(p)) {
@@ -172,6 +168,22 @@ using IniData = std::map<std::string, std::map<std::string, std::string>>;
   }
 
   return {};
+}
+
+/**
+ * @brief True when the current directory holds a `.gtopt.conf` that is not
+ *        @p loaded — i.e. a file that older releases would have read and
+ *        that is now ignored.  Used only to tell the user about it.
+ */
+[[nodiscard]] inline bool has_ignored_cwd_config(
+    const std::filesystem::path& loaded)
+{
+  std::error_code ec;
+  const std::filesystem::path cwd_conf = ".gtopt.conf";
+  if (!std::filesystem::exists(cwd_conf, ec)) {
+    return false;
+  }
+  return loaded.empty() || !std::filesystem::equivalent(cwd_conf, loaded, ec);
 }
 
 }  // namespace gtopt

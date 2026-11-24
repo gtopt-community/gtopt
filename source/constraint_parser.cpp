@@ -11,6 +11,7 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <iterator>
 #include <memory>
@@ -524,6 +525,17 @@ bool ConstraintParser::Parser::match(TokenType type)
   return false;
 }
 
+/// Deprecated element-type spellings folded onto their canonical type:
+/// ``simple_commitment`` elements are Commitments since the merge, so
+/// ``simple_commitment("x").status`` reads ``commitment("x").status``.
+std::string ConstraintParser::Parser::canonical_element_type(std::string name)
+{
+  if (name == "simple_commitment") {
+    return "commitment";
+  }
+  return name;
+}
+
 bool ConstraintParser::Parser::is_element_type(const std::string& name)
 {
   return name == "generator" || name == "demand" || name == "line"
@@ -997,8 +1009,25 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_mul_expr()
   return terms;
 }
 
+ConstraintParser::Parser::DepthGuard::DepthGuard(Parser& parser)
+    : m_parser_(parser)
+{
+  if (++m_parser_.m_depth_ > max_nesting_depth) {
+    const auto message =
+        std::format("expression nested too deeply (more than {} levels)",
+                    max_nesting_depth);
+    --m_parser_.m_depth_;
+    m_parser_.error_at_current(message,
+                               "simplify the expression or split it into "
+                               "several constraints");
+  }
+}
+
 std::vector<ConstraintTerm> ConstraintParser::Parser::parse_unary()
 {
+  // Every recursive cycle of the grammar (parentheses, unary signs and
+  // the abs/min/max/if/sum bodies) passes through here.
+  const DepthGuard depth_guard(*this);
   if (m_current_.type == TokenType::PLUS) {
     advance();
     return parse_unary();
@@ -1101,7 +1130,7 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
   // Element reference or bare parameter
   if (m_current_.type == TokenType::IDENT) {
     if (is_element_type(m_current_.value)) {
-      auto type_name = std::move(m_current_.value);
+      auto type_name = canonical_element_type(std::move(m_current_.value));
       auto ref = parse_element_ref(std::move(type_name));
       return {
           ConstraintTerm {
@@ -1237,7 +1266,7 @@ ConstraintTerm ConstraintParser::Parser::parse_sum_expr()
   }
 
   SumElementRef sum_ref;
-  sum_ref.element_type = std::move(m_current_.value);
+  sum_ref.element_type = canonical_element_type(std::move(m_current_.value));
   advance();
 
   expect(TokenType::LPAREN);
@@ -1601,7 +1630,7 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_state_expr()
              "use `state(<element>(\"id\").attr)`, e.g. "
              "state(reservoir(\"R1\").efin)");
   }
-  auto type_name = std::move(m_current_.value);
+  auto type_name = canonical_element_type(std::move(m_current_.value));
   auto ref = parse_element_ref(std::move(type_name));
   ref.state_wrapped = true;
 
@@ -1637,7 +1666,7 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_prev_expr()
              "use `prev(<element>(\"id\").attr)`, e.g. "
              "prev(decision_variable(\"vol\").value)");
   }
-  auto type_name = std::move(m_current_.value);
+  auto type_name = canonical_element_type(std::move(m_current_.value));
   auto ref = parse_element_ref(std::move(type_name));
   ref.prev_wrapped = true;
 
@@ -2004,6 +2033,51 @@ ConstraintDomain ConstraintParser::Parser::parse_for_clause()
   return domain;
 }
 
+int ConstraintParser::Parser::parse_index_value()
+{
+  const auto& text = m_current_.value;
+  int value = 0;
+  const auto [ptr, ec] =
+      std::from_chars(text.data(), text.data() + text.size(), value);
+  if (ec == std::errc::result_out_of_range) {
+    error_at_current(std::format("index '{}' is out of range", text),
+                     "indices must fit in a 32-bit signed integer");
+  }
+  if (ec != std::errc {} || ptr == text.data()) {
+    error_at_current(std::format("invalid index '{}'", text),
+                     "use integer indices like `{1, 2, 5..8}`");
+  }
+  return value;
+}
+
+void ConstraintParser::Parser::append_index_range(IndexRange& range,
+                                                  int start,
+                                                  int end,
+                                                  std::size_t column)
+{
+  if (end < start) {
+    return;  // empty range (historical behaviour)
+  }
+  // 64-bit arithmetic: `end - start + 1` cannot overflow here.
+  const auto count = static_cast<std::size_t>(
+      static_cast<std::int64_t>(end) - static_cast<std::int64_t>(start) + 1);
+  if (count > max_index_set_size
+      || range.values.size() > max_index_set_size - count)
+  {
+    error_at(column,
+             std::format("index set too large ({}..{} expands past the "
+                         "limit of {} indices)",
+                         start,
+                         end,
+                         max_index_set_size),
+             "use a smaller range or `all`");
+  }
+  range.values.reserve(range.values.size() + count);
+  for (std::int64_t i = start; i <= end; ++i) {
+    range.values.push_back(static_cast<int>(i));
+  }
+}
+
 IndexRange ConstraintParser::Parser::parse_index_set()
 {
   IndexRange range;
@@ -2031,7 +2105,8 @@ IndexRange ConstraintParser::Parser::parse_index_set()
                 m_current_.value.empty() ? "end of input" : m_current_.value),
             "use integer indices like `{1, 2, 5..8}`");
       }
-      const int start = std::stoi(m_current_.value);
+      const auto start_col = m_current_.start_pos;
+      const int start = parse_index_value();
       advance();
 
       if (m_current_.type == TokenType::DOTDOT) {
@@ -2044,17 +2119,11 @@ IndexRange ConstraintParser::Parser::parse_index_set()
                   m_current_.value.empty() ? "end of input" : m_current_.value),
               "range requires upper bound, e.g. `1..10`");
         }
-        const int end = std::stoi(m_current_.value);
+        const int end = parse_index_value();
         advance();
-        if (end >= start) {
-          range.values.reserve(range.values.size()
-                               + static_cast<size_t>(end - start) + 1);
-          for (int i = start; i <= end; ++i) {
-            range.values.push_back(i);
-          }
-        }
+        append_index_range(range, start, end, start_col);
       } else {
-        range.values.push_back(start);
+        append_index_range(range, start, start, start_col);
       }
 
       if (m_current_.type == TokenType::COMMA) {
@@ -2068,7 +2137,8 @@ IndexRange ConstraintParser::Parser::parse_index_set()
 
   // Single number or bare range: N or N..M
   if (m_current_.type == TokenType::NUMBER) {
-    const int start = std::stoi(m_current_.value);
+    const auto start_col = m_current_.start_pos;
+    const int start = parse_index_value();
     advance();
 
     if (m_current_.type == TokenType::DOTDOT) {
@@ -2078,14 +2148,9 @@ IndexRange ConstraintParser::Parser::parse_index_set()
         throw std::invalid_argument(std::format(
             "Expected number after '..', got '{}'", m_current_.value));
       }
-      const int end = std::stoi(m_current_.value);
+      const int end = parse_index_value();
       advance();
-      if (end >= start) {
-        range.values.reserve(static_cast<size_t>(end - start) + 1);
-        for (int i = start; i <= end; ++i) {
-          range.values.push_back(i);
-        }
-      }
+      append_index_range(range, start, end, start_col);
     } else {
       range.values.push_back(start);
     }

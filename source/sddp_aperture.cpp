@@ -311,7 +311,9 @@ auto solve_apertures_for_phase(
     ApertureSolveMode aperture_solve_mode,
     const Basis* seed_basis,
     Basis* captured_basis_out,
-    int aperture_screen_count) -> std::optional<SparseRow>
+    int aperture_screen_count,
+    Basis* last_basis_out,
+    ApertureDropTracker* drop_tracker) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
@@ -336,6 +338,9 @@ auto solve_apertures_for_phase(
   // Written only by the first chunk's task, read only after every future has
   // joined (happens-before via the future) — no synchronisation needed.
   std::optional<Basis> captured_first_basis;
+  // Same contract for the chain's LAST optimal basis (first chunk only):
+  // the cut-aware seed for next iteration's forward solve of this cell.
+  std::optional<Basis> captured_last_basis;
 
   // Apply aperture timeout to solver options if configured.
   // Crossover policy (see `ApertureSolveMode`):
@@ -538,8 +543,9 @@ auto solve_apertures_for_phase(
     // Only the first chunk (which owns the cell's first aperture) captures
     // the basis to persist for next iteration's seed.
     const bool do_capture = capture_basis && chunk_idx == 0;
+    const bool do_capture_last = last_basis_out != nullptr && chunk_idx == 0;
     futures.push_back(submit_fn(
-        [&, chunk, clone_mutex, use_manual_clone, do_capture]()
+        [&, chunk, clone_mutex, use_manual_clone, do_capture, do_capture_last]()
             -> ApertureChunkResult
         {
           const auto chunk_start = std::chrono::steady_clock::now();
@@ -634,6 +640,9 @@ auto solve_apertures_for_phase(
             cold_opts.force_barrier_crossover = true;
           }
           bool clone_has_basis = false;
+          // Whether the most recent actual solve on `clone` was optimal,
+          // i.e. its resident basis is an optimal basis worth persisting.
+          bool last_solve_feasible = false;
 
           // Marks the chunk's first actual solve.  The cross-iteration seed
           // (`set_basis`) and the cold anchor are applied to this first solve
@@ -1034,6 +1043,7 @@ auto solve_apertures_for_phase(
                                               - solve_t0)
                     .count();
             const bool feasible = clone.is_optimal();
+            last_solve_feasible = feasible;
             if (use_warm) {
               warm_solve_s += solve_s;
               ++n_warm_solves;
@@ -1282,6 +1292,14 @@ auto solve_apertures_for_phase(
                 cold_avg_ms > 0.0 ? warm_avg_ms / cold_avg_ms : 0.0);
           }
 
+          // Persist the chain's last optimal basis (first chunk only) as
+          // the next forward solve's seed.  The resident basis here already
+          // prices this iteration's cuts on α, unlike the cell's previous
+          // forward basis.
+          if (do_capture_last && last_solve_feasible) {
+            captured_last_basis = clone.get_basis();
+          }
+
           return results;
         }));
   }
@@ -1294,6 +1312,8 @@ auto solve_apertures_for_phase(
   int n_infeasible = 0;
   int n_timed_out = 0;
   double dropped_weight = 0.0;
+  int n_solved = 0;  // aperture results collected (feasible + dropped)
+  std::vector<ApertureDrop> dropped_apertures;
 
   // Each future yields a chunk's worth of per-aperture results
   // (1..K elements depending on chunk_size).  Flatten as we collect.
@@ -1311,11 +1331,16 @@ auto solve_apertures_for_phase(
     for (auto& fut : futures) {
       auto chunk_results = fut.get();
       for (auto& result : chunk_results) {
+        ++n_solved;
         if (!result.feasible) {
           ++n_infeasible;
           dropped_weight += result.weight;
           const auto kind = classify_aperture_failure(
               result.status, result.solve_s, aperture_timeout);
+          dropped_apertures.push_back(ApertureDrop {
+              .aperture_uid = result.ap_uid,
+              .infeasible = kind == ApertureFailureKind::infeasible,
+          });
           if (kind == ApertureFailureKind::timed_out) {
             ++n_timed_out;
             spdlog::warn(
@@ -1380,6 +1405,9 @@ auto solve_apertures_for_phase(
   if (captured_basis_out != nullptr && captured_first_basis.has_value()) {
     *captured_basis_out = std::move(*captured_first_basis);
   }
+  if (last_basis_out != nullptr && captured_last_basis.has_value()) {
+    *last_basis_out = std::move(*captured_last_basis);
+  }
 
   // Log summary — ONE line per (iter, scene, phase) at INFO so it
   // pairs symmetrically with the forward-pass per-phase line.
@@ -1417,11 +1445,49 @@ auto solve_apertures_for_phase(
   // Dropped apertures change the expected cut: the remaining weights are
   // renormalised below, so make every drop visible at WARNING level with
   // the share of aperture weight that was lost.
+  //
+  // Cross-iteration bookkeeping (issue #551): the tracker escalates ONE
+  // "persistent aperture infeasibility" warning per (scene, phase,
+  // aperture) once it has been dropped in `warn_after` consecutive
+  // iterations, and the per-cell message below is demoted to DEBUG once
+  // every aperture it reports is already known-persistent, so a model
+  // without relatively complete recourse does not flood the log with the
+  // same drop every iteration.
+  ApertureDropRecord drop_record;
+  if (drop_tracker != nullptr) {
+    drop_record = drop_tracker->record(scene_uid_val,
+                                       phase_uid_val,
+                                       iteration_index,
+                                       n_solved,
+                                       dropped_apertures);
+    for (const auto& pd : drop_record.newly_persistent) {
+      spdlog::warn(
+          "{}: persistent aperture infeasibility — aperture a{} dropped in "
+          "{} consecutive iterations (scene {}, phase {}, aperture {}).  The "
+          "model lacks relatively complete recourse for this aperture (e.g. "
+          "a hard `efin` without `efin_cost`): its cut is renormalised away "
+          "every iteration, the LB is computed over a rescaled distribution "
+          "and the run will not be reported as converged while it is "
+          "dropped.  See docs/methods/sddp.md (Infeasible apertures).",
+          sddp_log("Aperture",
+                   gtopt::uid_of(iteration_index),
+                   scene_uid_val,
+                   phase_uid_val),
+          pd.aperture_uid,
+          pd.consecutive,
+          scene_uid_val,
+          phase_uid_val,
+          pd.aperture_uid);
+    }
+  }
+
   if (n_infeasible > 0) {
     const double all_weight = total_weight + dropped_weight;
     const double dropped_share =
         all_weight > 0.0 ? dropped_weight / all_weight : 0.0;
-    spdlog::warn(
+    spdlog::log(
+        drop_record.all_already_persistent ? spdlog::level::debug
+                                           : spdlog::level::warn,
         "{}: {} of {} apertures dropped ({} timed out at the {:.1f}s "
         "aperture_timeout); {:.1f}% of the aperture weight lost, expected "
         "cut renormalised over the {} remaining (dropped apertures are solved "

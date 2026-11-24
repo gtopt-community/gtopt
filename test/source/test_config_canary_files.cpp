@@ -17,7 +17,8 @@
  * Negative canaries put the same file where gtopt must NOT look.
  *
  * Sources covered here:
- *   - `.gtopt.conf` ([gtopt] + [solver.<name>]): $GTOPT_CONFIG > ./ > ~/
+ *   - `.gtopt.conf` ([gtopt] + [solver.<name>]): --config > $GTOPT_CONFIG
+ *     > ~/ (the cwd is only read when named with --config)
  *   - naming / unit dialect override files (env only; cwd/HOME ignored)
  *   - solver selection: --solver / config `solver` / $GTOPT_SOLVER
  *   - solver plugin search path ($GTOPT_PLUGIN_DIR first, exe-relative)
@@ -90,20 +91,20 @@ using namespace config_canary_files_test;
 // ── .gtopt.conf: resolver search order ───────────────────────────────────
 
 TEST_CASE(  // NOLINT
-    ".gtopt.conf canary - search order env > cwd > HOME, case dir ignored")
+    ".gtopt.conf canary - search order env > HOME, cwd and case dir ignored")
 {
   const cfg::RunTree t {"conf-order"};
   cfg::write_text(t.envdir / "my.conf", canary_conf_with(101));
+  // Negative canaries: neither the cwd, the case dir nor an unrelated dir
+  // is on the implicit search path.
   cfg::write_text(t.cwd / ".gtopt.conf", canary_conf_with(202));
   cfg::write_text(t.home / ".gtopt.conf", canary_conf_with(303));
-  // Negative canaries: neither the case dir nor an unrelated dir is on
-  // the search path.
   cfg::write_text(t.case_dir / ".gtopt.conf", canary_conf_with(404));
   cfg::write_text(t.elsewhere / ".gtopt.conf", canary_conf_with(505));
 
   const cfg::ScopedEnv home {"HOME", t.home.string()};
 
-  SUBCASE("$GTOPT_CONFIG wins over ./ and ~/")
+  SUBCASE("$GTOPT_CONFIG wins over ~/")
   {
     const cfg::ScopedEnv env {"GTOPT_CONFIG", (t.envdir / "my.conf").string()};
     const cfg::ScopedCwd cwd {t.cwd};
@@ -112,14 +113,15 @@ TEST_CASE(  // NOLINT
     CHECK(load_gtopt_config().sddp_max_iterations.value_or(-1) == 101);
   }
 
-  SUBCASE("./.gtopt.conf wins over ~/ when no env override")
+  SUBCASE("./.gtopt.conf is NOT read implicitly")
   {
     const cfg::ScopedEnv env {"GTOPT_CONFIG", std::nullopt};
     const cfg::ScopedCwd cwd {t.cwd};
     const auto found = find_config_file();
     REQUIRE_FALSE(found.empty());
-    CHECK(fs::equivalent(found, t.cwd / ".gtopt.conf"));
-    CHECK(load_gtopt_config().sddp_max_iterations.value_or(-1) == 202);
+    CHECK(fs::equivalent(found, t.home / ".gtopt.conf"));
+    CHECK(load_gtopt_config().sddp_max_iterations.value_or(-1) == 303);
+    CHECK(has_ignored_cwd_config(found));
   }
 
   SUBCASE("~/.gtopt.conf is the last resort")
@@ -130,6 +132,17 @@ TEST_CASE(  // NOLINT
     REQUIRE_FALSE(found.empty());
     CHECK(fs::equivalent(found, t.home / ".gtopt.conf"));
     CHECK(load_gtopt_config().sddp_max_iterations.value_or(-1) == 303);
+    CHECK_FALSE(has_ignored_cwd_config(found));
+  }
+
+  SUBCASE("only the cwd has a file: nothing is loaded")
+  {
+    const cfg::ScopedEnv env {"GTOPT_CONFIG", std::nullopt};
+    const cfg::ScopedEnv no_home {"HOME", t.out.string()};
+    const cfg::ScopedCwd cwd {t.cwd};
+    CHECK(find_config_file().empty());
+    CHECK_FALSE(load_gtopt_config().sddp_max_iterations.has_value());
+    CHECK(has_ignored_cwd_config({}));
   }
 
   SUBCASE("the case directory is NOT searched")
@@ -141,7 +154,7 @@ TEST_CASE(  // NOLINT
     CHECK_FALSE(load_gtopt_config().sddp_max_iterations.has_value());
   }
 
-  SUBCASE("a missing $GTOPT_CONFIG warns and falls back")
+  SUBCASE("a missing $GTOPT_CONFIG warns and falls back to ~/")
   {
     const cfg::ScopedEnv env {"GTOPT_CONFIG",
                               (t.envdir / "nope.conf").string()};
@@ -151,7 +164,7 @@ TEST_CASE(  // NOLINT
     CHECK(logs.contains("GTOPT_CONFIG"));
     CHECK(logs.contains("nope.conf"));
     REQUIRE_FALSE(found.empty());
-    CHECK(fs::equivalent(found, t.cwd / ".gtopt.conf"));
+    CHECK(fs::equivalent(found, t.home / ".gtopt.conf"));
   }
 }
 
@@ -214,7 +227,7 @@ TEST_CASE(  // NOLINT
                                              t.out.generic_string())));
   // Canary: output-format = csv (default is parquet) and a distinctive
   // sddp max-iterations, both visible in the pre-solve snapshot.
-  cfg::write_text(t.cwd / ".gtopt.conf",
+  cfg::write_text(t.home / ".gtopt.conf",
                   canary_conf_with(4242, "output-format = csv\n"));
 
   const cfg::ScopedEnv env {"GTOPT_CONFIG", std::nullopt};
@@ -231,6 +244,41 @@ TEST_CASE(  // NOLINT
           == DataFormat::csv);
     CHECK(fs::exists(t.out / "Generator" / "generation_sol_s0_p0.csv"));
     CHECK_FALSE(fs::exists(t.out / "Generator" / "generation_sol.parquet"));
+  }
+
+  SUBCASE("./.gtopt.conf is ignored unless named with --config")
+  {
+    cfg::write_text(t.cwd / ".gtopt.conf", canary_conf_with(5151));
+    REQUIRE(canary_run_cli({json.string(), "--quiet", "--no-async-logger"})
+            == 0);
+    CHECK(cfg::read_planning(t.out / "gtopt_state.json")
+              .options.sddp_options.max_iterations.value_or(-1)
+          == 4242);  // from ~/.gtopt.conf, not ./.gtopt.conf
+
+    REQUIRE(canary_run_cli({
+                json.string(),
+                "--quiet",
+                "--no-async-logger",
+                "--config",
+                "./.gtopt.conf",
+            })
+            == 0);
+    CHECK(cfg::read_planning(t.out / "gtopt_state.json")
+              .options.sddp_options.max_iterations.value_or(-1)
+          == 5151);
+    fs::remove(t.cwd / ".gtopt.conf");
+  }
+
+  SUBCASE("--config naming a missing file is an error")
+  {
+    CHECK(canary_run_cli({
+              json.string(),
+              "--quiet",
+              "--no-async-logger",
+              "--config",
+              (t.cwd / "missing.conf").string(),
+          })
+          != 0);
   }
 
   SUBCASE("an explicit CLI flag beats the config file")
@@ -279,7 +327,7 @@ TEST_CASE(  // NOLINT
                   cfg::case_json(std::format(R"("output_directory": "{}",
                  "output_compression": "uncompressed")",
                                              t.out.generic_string())));
-  cfg::write_text(t.cwd / ".gtopt.conf", canary_conf_with(4242));
+  cfg::write_text(t.home / ".gtopt.conf", canary_conf_with(4242));
   const cfg::ScopedEnv env {"GTOPT_CONFIG", std::nullopt};
   const cfg::ScopedEnv home {"HOME", t.home.string()};
   const cfg::ScopedCwd cwd {t.cwd};
@@ -317,7 +365,7 @@ TEST_CASE(  // NOLINT
   write_case("");
   // Canary: a distinctive optimality tolerance only in the clp section;
   // a different one in an unrelated solver's section.
-  cfg::write_text(t.cwd / ".gtopt.conf",
+  cfg::write_text(t.home / ".gtopt.conf",
                   "[gtopt]\n"
                   "[solver.clp]\n"
                   "optimal-eps = 1.2345e-07\n"
@@ -498,12 +546,12 @@ TEST_CASE(  // NOLINT
   SUBCASE("config-file `solver` beats $GTOPT_SOLVER")
   {
     // The config value is a default for --solver, so it outranks the env.
-    cfg::write_text(t.cwd / ".gtopt.conf", "[gtopt]\nsolver = highs\n");
+    cfg::write_text(t.home / ".gtopt.conf", "[gtopt]\nsolver = highs\n");
     const cfg::ScopedEnv solver {"GTOPT_SOLVER", "clp"};
     REQUIRE(canary_run_cli({json.string(), "--quiet"}) == 0);
     CHECK(used("highs"));
     CHECK_FALSE(used("clp"));
-    fs::remove(t.cwd / ".gtopt.conf");
+    fs::remove(t.home / ".gtopt.conf");
   }
 
   SUBCASE("gtopt_state.json records the solver; a JSON pin beats the conf")
@@ -516,7 +564,7 @@ TEST_CASE(  // NOLINT
 
     // Replaying a snapshot that pins highs ignores $GTOPT_SOLVER=clp and a
     // config-file `solver = clp` (JSON > .gtopt.conf > env).
-    cfg::write_text(t.cwd / ".gtopt.conf", "[gtopt]\nsolver = clp\n");
+    cfg::write_text(t.home / ".gtopt.conf", "[gtopt]\nsolver = clp\n");
     cfg::write_text(json,
                     cfg::case_json(std::format(R"("output_directory": "{}",
                    "log_directory": "{}",
@@ -530,7 +578,7 @@ TEST_CASE(  // NOLINT
     REQUIRE(canary_run_cli({json.string(), "--quiet"}) == 0);
     CHECK(used("highs"));
     CHECK_FALSE(used("clp"));
-    fs::remove(t.cwd / ".gtopt.conf");
+    fs::remove(t.home / ".gtopt.conf");
   }
 }
 

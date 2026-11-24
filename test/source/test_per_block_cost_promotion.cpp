@@ -528,6 +528,31 @@ TEST_CASE(
   CHECK(pbcp_alt<Real>(bat.pmin_discharge) == doctest::Approx(2.0));
 }
 
+TEST_CASE(
+    "Battery.exclusive_charge_discharge — JSON parses and round-trips")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "b1",
+    "bus": 1,
+    "commitment": true,
+    "exclusive_charge_discharge": false
+  })";
+  const auto bat = daw::json::from_json<Battery>(json_data);
+  CHECK(bat.commitment.value_or(false));
+  REQUIRE(bat.exclusive_charge_discharge.has_value());
+  CHECK_FALSE(bat.exclusive_charge_discharge.value_or(true));
+
+  const auto out = daw::json::to_json(bat);
+  CHECK(out.contains(R"("exclusive_charge_discharge":false)"));
+  const auto back = daw::json::from_json<Battery>(out);
+  CHECK_FALSE(back.exclusive_charge_discharge.value_or(true));
+
+  const auto unset =
+      daw::json::from_json<Battery>(R"({"uid": 2, "name": "b2", "bus": 1})");
+  CHECK_FALSE(unset.exclusive_charge_discharge.has_value());
+}
+
 TEST_CASE("Battery.pmin_charge — 2-D per-block JSON parses as TB")  // NOLINT
 {
   constexpr std::string_view json_data = R"({

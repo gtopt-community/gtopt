@@ -62,7 +62,7 @@ namespace gtopt
  * 13 400 / 9 500 / 7 500 MWs for 0–1 / 2–3 / ≥ 4 Guacolda units =
  * requirement 13 400 with credits {units 2, credit 3 900} and
  * {units 4, credit 2 000}.  Every listed generator must have a Commitment
- * or SimpleCommitment (its status `u` is what the credit counts): a
+ * (its status `u` is what the credit counts): a
  * generator without one is an error under `constraint_mode` strict / debug
  * (the default) and a warning under `normal`, where it is dropped from the
  * credit (a credit left with no generator applies no relief and the

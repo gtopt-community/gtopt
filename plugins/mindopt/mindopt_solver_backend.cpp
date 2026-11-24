@@ -8,6 +8,7 @@
  */
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -17,6 +18,7 @@
 #include <numeric>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -26,6 +28,7 @@
 #include <dlfcn.h>
 #include <gtopt/log_and_throw.hpp>
 #include <gtopt/scoped_stdout_silencer.hpp>
+#include <gtopt/solver_cfg.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 #include <unistd.h>
@@ -117,6 +120,47 @@ void ensure_milp_path()
         // concurrently-set user value.
         ::setenv("LIBMILP_PATH", libdir.c_str(), 0);
       });
+}
+
+/// Set one MindOpt parameter from its text value, dispatching on the
+/// parameter's type (int / double / string) as `MDOreadparams` does.
+void set_mindopt_param(MDOenv* env,
+                       const std::string& name,
+                       const std::string& value)
+{
+  const auto* first = value.data();
+  const auto* last =
+      std::next(first, static_cast<std::ptrdiff_t>(value.size()));
+  int ival = 0;
+  int imin = 0;
+  int imax = 0;
+  int idef = 0;
+  if (MDOgetintparaminfo(env, name.c_str(), &ival, &imin, &imax, &idef) == 0) {
+    if (const auto [ptr, ec] = std::from_chars(first, last, ival);
+        ec == std::errc {} && ptr == last)
+    {
+      MDOsetintparam(env, name.c_str(), ival);
+      return;
+    }
+  } else {
+    double dval = 0.0;
+    double dmin = 0.0;
+    double dmax = 0.0;
+    double ddef = 0.0;
+    if (MDOgetdblparaminfo(env, name.c_str(), &dval, &dmin, &dmax, &ddef) != 0)
+    {
+      MDOsetstrparam(env, name.c_str(), value.c_str());
+      return;
+    }
+    if (const auto [ptr, ec] = std::from_chars(first, last, dval);
+        ec == std::errc {} && ptr == last)
+    {
+      MDOsetdblparam(env, name.c_str(), dval);
+      return;
+    }
+  }
+  spdlog::warn(
+      "MindOpt: invalid value '{}' for parameter '{}' — ignored", value, name);
 }
 
 /// Apply every SolverOptions field onto a *fresh* MindOpt env.
@@ -224,20 +268,17 @@ void apply_options_to_env(MDOenv* env, const SolverOptions& opts)
     // Optional user override of the warm pass: a `mindopt_warmstart.prm`
     // sibling next to the case's main `.prm` (the file named by
     // `opts.param_file`).  Counterpart to the CPLEX `cplex_warmstart.prm`
-    // path — the single shared warm-start param file, here in MindOpt's
-    // native `.prm` format (one `ParamName Value` pair per line, the same
-    // format `MDOwriteparams` emits and `MDOreadparams` consumes; `.gz` /
-    // `.bz2` compression suffixes are accepted by the reader).  Loaded LAST
-    // via `MDOreadparams` so its values win over the in-code Method /
-    // Presolve defaults set just above.  Inert when `opts.param_file` is
-    // unset (no file is read; the in-code warm defaults stand).
-    if (opts.param_file.has_value() && !opts.param_file->empty()) {
-      const std::filesystem::path sibling =
-          std::filesystem::path {*opts.param_file}.parent_path()
-          / "mindopt_warmstart.prm";
-      std::error_code ec;
-      if (std::filesystem::exists(sibling, ec) && !ec) {
-        MDOreadparams(env, sibling.string().c_str());
+    // path, in MindOpt's native `ParamName Value` format.  Parsed ONCE per
+    // process (`cached_sibling_param_file`) and applied by name with the
+    // typed setters (`set_mindopt_param`), so a warm solve neither re-reads
+    // nor re-stats the file (`MDOreadparams` did both).  Applied LAST so its
+    // values win over the in-code Method / Presolve defaults set just above.
+    // Inert when `opts.param_file` is unset or the sibling does not exist.
+    if (const auto* warm =
+            cached_sibling_param_file(opts.param_file, "mindopt_warmstart.prm"))
+    {
+      for (const auto& [name, value] : *warm) {
+        set_mindopt_param(env, name, value);
       }
     }
   }

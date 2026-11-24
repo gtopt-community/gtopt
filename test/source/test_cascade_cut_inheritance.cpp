@@ -1512,3 +1512,92 @@ TEST_CASE(  // NOLINT
   // on the value function, and L1 only adds more cuts on top.
   CHECK(s1.lower_bound >= (s0.lower_bound * 0.999) - 1e-3);
 }
+
+TEST_CASE(  // NOLINT
+    "Cascade cut transfer uses a private temp dir, not a predictable path")
+{
+  // The level-to-level cut file used to be
+  // `$TMPDIR/cascade_cuts_<pid>_<level>.parquet`: a name another local
+  // user can predict and pre-plant as a symlink.  Plant exactly that
+  // symlink and check the write never follows it, the cuts still
+  // transfer, and the private directory is gone after solve().
+  const auto root = std::filesystem::temp_directory_path()
+      / std::format("gtopt_cascade_tmp_test_{}", ::getpid());
+  std::filesystem::remove_all(root);
+  const auto out_dir = root / "out";
+  std::filesystem::create_directories(out_dir);
+
+  const auto victim = root / "victim.txt";
+  {
+    std::ofstream ofs(victim);
+    ofs << "untouched";
+  }
+  const auto planted = std::filesystem::temp_directory_path()
+      / std::format("cascade_cuts_{}_{}.parquet", ::getpid(), 1);
+  std::filesystem::remove(planted);
+  std::filesystem::create_symlink(victim, planted);
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  planning.options.output_directory = out_dir.string();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base;
+  base.max_iterations = 20;
+  base.convergence_tol = 1e-4;
+  base.apertures = std::vector<Uid> {};
+
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"level0"},
+          .model_options = ModelOptions {.use_single_bus = OptBool {true}},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .apertures = Array<Uid> {},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"level1_cuts"},
+          .model_options = ModelOptions {.use_single_bus = OptBool {true}},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .apertures = Array<Uid> {},
+              },
+          .transition =
+              CascadeTransition {.inherit_optimality_cuts = OptInt {-1}},
+      },
+  };
+
+  const gtopt::test::LogCapture logs {100'000};
+  CascadePlanningMethod solver(std::move(base), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+  REQUIRE(result.has_value());
+
+  // The cuts still went through the (private) file.
+  CHECK(logs.contains("serialized"));
+  CHECK(logs.contains("transferred"));
+  REQUIRE(solver.level_stats().size() == 2);
+  CHECK(solver.level_stats()[1].iterations
+        <= solver.level_stats()[0].iterations);
+
+  // The planted symlink was neither followed nor consumed.
+  {
+    std::ifstream ifs(victim);
+    std::string content;
+    std::getline(ifs, content);
+    CHECK(content == "untouched");
+  }
+  CHECK(std::filesystem::is_symlink(planted));
+
+  // No private temp dir is left behind in the output directory.
+  for (const auto& entry : std::filesystem::directory_iterator(out_dir)) {
+    CAPTURE(entry.path().string());
+    CHECK_FALSE(entry.path().filename().string().starts_with("gtopt_cascade_"));
+  }
+
+  std::filesystem::remove(planted);
+  std::filesystem::remove_all(root);
+}

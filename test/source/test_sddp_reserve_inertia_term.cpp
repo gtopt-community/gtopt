@@ -4,7 +4,7 @@
  * @brief     SDDP with each ReserveZone.inertia_term mode
  * @date      2026-11-23
  *
- * Case: xres_sddp_case.hpp (hydro + thermals with relaxed SimpleCommitment
+ * Case: xres_sddp_case.hpp (hydro + thermals with relaxed Commitment
  * + BESS, three requirement planes on `cpf`, the middle one with
  * inertia_coef −0.002).  For every inertia_term mode
  *   endogenous (PLEXOS-compat, I = Σ pf·r), commitment (I = Σ I_c·u),

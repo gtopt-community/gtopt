@@ -10,13 +10,13 @@ time instead.
 
 ## How the data is obtained
 
-[`scripts/sienna_to_gtopt/_bundle.py`](../../scripts/sienna_to_gtopt/_bundle.py)
+[`scripts/sienna2gtopt/_bundle.py`](../../scripts/sienna2gtopt/_bundle.py)
 contains the manifest:
 
 | Bundle | Upstream files | Consumer |
 |---|---|---|
-| `sienna_5bus` | `5-Bus/{branch,bus,gen,reserves,storage,Hydro_Upstream_Input}.csv`, `5-Bus/{generator_mapping,user_descriptors,user_descriptors_var_cost}.yaml`, `5-Bus/modifier.jl`, `5-Bus/timeseries_pointers_{da,rt}.json`, `psy_data/data_5bus_pu.jl` | `scripts/sienna_to_gtopt` (all variants) |
-| `sienna_14bus` | `psy_data/data_14bus_pu.jl` | `scripts/sienna_to_gtopt` |
+| `sienna_5bus` | `5-Bus/{branch,bus,gen,reserves,storage,Hydro_Upstream_Input}.csv`, `5-Bus/{generator_mapping,user_descriptors,user_descriptors_var_cost}.yaml`, `5-Bus/modifier.jl`, `5-Bus/timeseries_pointers_{da,rt}.json`, `psy_data/data_5bus_pu.jl` | `scripts/sienna2gtopt` (all variants) |
+| `sienna_14bus` | `psy_data/data_14bus_pu.jl` | `scripts/sienna2gtopt` |
 
 - Upstream repository: `Sienna-Platform/PowerSystemsTestData`
 - Pinned commit: `a2ecae9ff3cfe6d219744f1b10e4edd4eeecabc9`
@@ -36,13 +36,13 @@ the cache directory:
 `extract_bundle(name)` extracts the cached archive into a process-local
 temp directory (`$TMPDIR` or `~/tmp`).  With `GTOPT_OFFLINE=1` (or no
 network) a missing archive raises `BundleUnavailableError` and the
-`sienna_to_gtopt` tests that need the data are skipped.
+`sienna2gtopt` tests that need the data are skipped.
 
 To prime the cache by hand:
 
 ```bash
 cd scripts
-python -c "from sienna_to_gtopt import fetch_bundle; fetch_bundle('5bus'); fetch_bundle('14bus')"
+python -c "from sienna2gtopt import fetch_bundle; fetch_bundle('5bus'); fetch_bundle('14bus')"
 ```
 
 The 6.4 MB `PJM_5_BUS_7_DAYS.h5` time-series file from upstream `5-Bus/`
@@ -60,4 +60,8 @@ is not used.
 
 `scripts/nrel118_to_gtopt/` (Sienna `118-Bus/`) and
 `scripts/rts_gmlc_to_gtopt/` (GridMod RTS-GMLC) likewise download their
-data on first use into `~/.cache/gtopt/<port>/`.
+data on first use into `~/.cache/gtopt/<port>/`.  `scripts/cucdata2gtopt/`
+(the unlicensed [CUC-data](https://github.com/datejada/CUC-data) clustered
+UC benchmark, pinned commit `624abbbd…` + SHA-256 manifest in
+`_source.py`) caches into `~/.cache/gtopt/cucdata/` (or
+`$GTOPT_CUCDATA_DIR`); `cucdata2gtopt --fetch-only` primes it.

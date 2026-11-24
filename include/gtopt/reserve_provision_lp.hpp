@@ -12,6 +12,9 @@
 
 #pragma once
 
+#include <functional>
+#include <optional>
+
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
@@ -232,5 +235,29 @@ private:
 static_assert(ReserveProvisionLP::Element::class_name
                   == LPClassName {"ReserveProvision"},
               "ReserveProvision::class_name must remain \"ReserveProvision\"");
+
+/// Gate the online reserve headroom of every ReserveProvision of
+/// generator @p gen_index with the unit's commitment status u (per block
+/// in @p status_cols).  Called by CommitmentLP (chronological and block
+/// formulations alike), which runs after ReserveProvisionLP and so finds
+/// the rows built with the generator's plain bounds:
+///  - up:      ``g + r_up ≤ Pmax``  →  ``g + r_up − Pmax·u ≤ 0`` (an
+///    expandable generator keeps its capacity row and gets a u-gated
+///    copy ``commit_up_provision``);
+///  - down:    ``g − r_dn ≥ lowb``  →  ``g − r_dn − floor·u ≥ 0`` with
+///    ``floor = committed_floor(buid, lowb)`` (the committed minimum);
+///  - offline (cold) up reserve: ``r_up ≤ urmax·(1 − u)``;
+///  - PLEXOS Min Provision: the ``urmin`` / ``drmin`` column floors
+///    become ``r − rmin·u ≥ 0``.
+void gate_reserve_provisions_by_status(
+    const SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    LinearProblem& lp,
+    ElementIndex<GeneratorLP> gen_index,
+    const BIndexHolder<ColIndex>& status_cols,
+    const BIndexHolder<ColIndex>& generation_cols,
+    std::optional<ColIndex> gen_capacity_col,
+    const std::function<double(BlockUid, double)>& committed_floor);
 
 }  // namespace gtopt

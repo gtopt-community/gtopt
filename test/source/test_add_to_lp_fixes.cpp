@@ -94,7 +94,11 @@ double a2lp_solve_json(std::string_view json,
                        int nstages = 2,
                        const PlanningOptions& popts = a2lp_options())
 {
-  return a2lp_solve(daw::json::from_json<System>(json), nstages, popts);
+  auto sys = daw::json::from_json<System>(json);
+  // SystemLP rejects a raw simple_commitment_array: fold it onto
+  // Commitment as PlanningLP does.
+  sys.fold_legacy_simple_commitments();
+  return a2lp_solve(sys, nstages, popts);
 }
 
 }  // namespace

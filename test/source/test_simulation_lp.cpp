@@ -7,6 +7,9 @@
  *            see LICENSING.md
  */
 
+#include <stdexcept>
+#include <utility>
+
 #include <doctest/doctest.h>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -272,4 +275,45 @@ TEST_CASE(
   const auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
   CHECK(*result == 1);  // 1 scene resolved
+}
+
+TEST_CASE(  // NOLINT
+    "SimulationLP - stage block range outside block_array throws")
+{
+  const PlanningOptions options = {};
+  const PlanningOptionsLP options_lp(options);
+
+  // Each case would make an unchecked subspan read past block_array.
+  for (const auto& [first, count] :
+       {
+           std::pair<Size, Size> {100000, 50},
+           std::pair<Size, Size> {0, 3},
+           std::pair<Size, Size> {2, std::dynamic_extent},
+       })
+  {
+    CAPTURE(first);
+    CAPTURE(count);
+    const Simulation simulation = {
+        .block_array = {{.uid = Uid {1}, .duration = 1}},
+        .stage_array = {{
+            .uid = Uid {7},
+            .first_block = first,
+            .count_block = count,
+        }},
+        .scenario_array = {{.uid = Uid {0}}},
+    };
+    CHECK_THROWS_WITH_AS(SimulationLP(simulation, options_lp),
+                         doctest::Contains("Stage uid=7"),
+                         std::out_of_range);
+  }
+
+  // The default count_block (every remaining block) stays valid.
+  const Simulation ok_sim = {
+      .block_array = {{.uid = Uid {1}, .duration = 1},
+                      {.uid = Uid {2}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const SimulationLP sim_lp(ok_sim, options_lp);
+  CHECK(sim_lp.stages().front().blocks().size() == 1);
 }

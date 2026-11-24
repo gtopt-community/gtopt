@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <mutex>
 #include <set>
 
 #include <gtopt/as_label.hpp>
@@ -165,6 +166,8 @@ void System::expand_batteries()
           sched, Battery::class_name.full_name(), bat_uid);
     };
     const auto active = inherit(battery.active);
+    // Floors gated by mode binaries (true) vs hard every-block floors.
+    const bool battery_commitment = battery.commitment.value_or(false);
 
     const auto gen_name = battery.name + "_gen";
     const auto dem_name = battery.name + "_dem";
@@ -211,14 +214,18 @@ void System::expand_batteries()
     // Discharge generator: power injected into the external bus.
     //
     // ``pmax_discharge`` (TB) → ``Generator.pmax`` — per-(stage,
-    // block) operational ceiling.  ``Generator.pmin`` stays unset
-    // (0) on purpose: the per-unit min stable level flows through
-    // the synthesised ``Commitment.pmin`` below, and ConverterLP
-    // looks up the resulting ``u_commit`` from CommitmentLP for
-    // both discharge and charge gating ("one true source for
-    // u_commit").  Putting a positive ``Generator.pmin`` here would
-    // re-introduce a hard always-on floor that conflicts with the
-    // commitment-conditional row ``gen ≥ Commitment.pmin × u``.
+    // block) operational ceiling.  ``pmin_discharge`` (TB) goes to
+    // exactly ONE place, chosen by ``Battery.commitment``:
+    //
+    //   * unset / false: ``Generator.pmin`` — the HARD per-block floor
+    //     (mirror of ``pmin_charge`` → ``Demand.lmin``).  It must NOT
+    //     go to the synthesised ``Commitment.pmin``: that commitment is
+    //     LP-relaxed here, and ``gen ≥ pmin·u`` / ``gen ≤ pmax·u`` with
+    //     a continuous ``u ∈ [0, 1]`` admit every ``gen ∈ [0, pmax]``
+    //     (take ``u = gen / pmax``), silently dropping the floor.
+    //   * true: ``Commitment.pmin`` (below) — the when-discharging
+    //     floor ``gen ≥ pmin·u``.  ``Generator.pmin`` stays unset, or
+    //     the always-on col floor would defeat the gating.
     //
     // ``Generator.capacity`` is left unset: the default capacity
     // sentinel is ``numeric_limits<double>::max()`` (unlimited), so
@@ -230,6 +237,8 @@ void System::expand_batteries()
         .name = gen_name,
         .active = active,
         .bus = *battery.bus,
+        .pmin = battery_commitment ? OptTBRealFieldSched {}
+                                   : inherit(battery.pmin_discharge),
         .pmax = inherit(battery.pmax_discharge),
         .gcost = inherit(battery.discharge_cost),
     });
@@ -268,18 +277,11 @@ void System::expand_batteries()
     });
 
     // Converter linking battery, generator, and demand.  The
-    // ``commitment`` flag still propagates (legacy path: ConverterLP
-    // generates its own u_charge / u_discharge binaries).  In
-    // parallel we now ALSO synthesise a ``Commitment`` element on
-    // ``<bat>_gen`` (see below) so the gen-side u is reachable via
-    // the standard CommitmentLP discovery — same machinery that
-    // already powers reserve / inertia / urmin-drmin gating for
-    // thermal units.  The single-source-of-truth migration (drop
-    // Converter.commitment, have ConverterLP look up the gen's
-    // CommitmentLP) is in progress; until that lands the duplication
-    // is harmless because ConverterLP only creates binaries when
-    // ``Converter.commitment = true``, and the legacy code path
-    // tests assume that semantic.
+    // ``commitment`` flag propagates: with it, ConverterLP gates the
+    // charge demand with its own ``u_charge`` mode binary, while the
+    // discharge side is gated by the synthesised ``Commitment`` on
+    // ``<bat>_gen`` (see below) — the same u that powers reserve /
+    // inertia / urmin-drmin gating for thermal units.
     converter_array.push_back(Converter {
         .uid = conv_uid++,
         .name = conv_name,
@@ -295,6 +297,7 @@ void System::expand_batteries()
         .annual_capcost = inherit(battery.power_annual_capcost),
         .annual_derating = inherit(battery.power_annual_derating),
         .commitment = battery.commitment,
+        .exclusive_charge_discharge = battery.exclusive_charge_discharge,
         .energy_power_ratio = battery.energy_power_ratio,
     });
 
@@ -327,17 +330,19 @@ void System::expand_batteries()
         .generator = Name {gen_name},
         // Honour an explicit MIP request; otherwise stay LP-relaxed
         // so the always-on synthesis adds no integer columns.
-        .relax = OptBool {!battery.commitment.value_or(false)},
+        .relax = OptBool {!battery_commitment},
     };
-    // Carry the discharge-side floor as the commitment pmin (the
-    // gen-side per-unit min stable level).  Charge-side gating is
-    // applied by ConverterLP using the same u column.
+    // With ``Battery.commitment`` set, carry the discharge-side floor
+    // as the commitment pmin (the per-unit min level WHEN
+    // discharging; without it the floor is the hard
+    // ``Generator.pmin`` above).  The charge side gets its own mode
+    // binary in ConverterLP — the two floors must not share this u.
     //
     // Both ``Commitment.pmin`` and ``Battery.pmin_discharge`` are
     // ``OptTBRealFieldSched`` (variant of scalar / per-block vector /
     // file), so the discharge floor — scalar or full per-block
     // schedule — carries over verbatim.
-    if (battery.pmin_discharge.has_value()) {
+    if (battery_commitment && battery.pmin_discharge.has_value()) {
       bat_commit.pmin = inherit(battery.pmin_discharge);
     }
     commitment_array.push_back(std::move(bat_commit));
@@ -1010,6 +1015,74 @@ void System::merge(System&& sys)
       user_constraint_files.push_back(std::move(f));
     }
   }
+}
+
+void System::fold_legacy_simple_commitments()
+{
+  if (simple_commitment_array.empty()) {
+    return;
+  }
+  static std::once_flag warned;
+  std::call_once(
+      warned,
+      []
+      {
+        spdlog::warn(
+            "simple_commitment_array is deprecated: each SimpleCommitment is "
+            "read as a Commitment (dispatch_pmin -> pmin; the generator's "
+            "pmin becomes the commitment's conditional minimum).  Use "
+            "commitment_array; on non-chronological stages a Commitment "
+            "uses the same per-block formulation");
+      });
+
+  Uid next_uid {0};
+  std::set<Uid> taken;
+  for (const auto& c : commitment_array) {
+    taken.insert(c.uid);
+    next_uid = std::max(next_uid, c.uid);
+  }
+
+  commitment_array.reserve(commitment_array.size()
+                           + simple_commitment_array.size());
+  for (auto& sc : simple_commitment_array) {
+    auto pmin = std::move(sc.dispatch_pmin);
+    for (auto& gen : generator_array) {
+      if (!refers_to(sc.generator, gen.uid, gen.name)) {
+        continue;
+      }
+      if (gen.pmin.has_value() && !gen.pmin_fcost.has_value()) {
+        if (!pmin.has_value()) {
+          pmin = std::move(gen.pmin);
+        }
+        gen.pmin.reset();
+      }
+      break;
+    }
+
+    auto uid = sc.uid;
+    if (taken.contains(uid)) {
+      uid = ++next_uid;
+      spdlog::warn(
+          "SimpleCommitment '{}': uid {} is already used by a Commitment; "
+          "folded with uid {}",
+          sc.name,
+          sc.uid,
+          uid);
+    }
+    taken.insert(uid);
+    next_uid = std::max(next_uid, uid);
+
+    commitment_array.push_back(Commitment {
+        .uid = uid,
+        .name = std::move(sc.name),
+        .active = std::move(sc.active),
+        .generator = std::move(sc.generator),
+        .pmin = std::move(pmin),
+        .relax = sc.relax,
+        .must_run = sc.must_run,
+    });
+  }
+  simple_commitment_array.clear();
 }
 
 }  // namespace gtopt

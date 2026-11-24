@@ -6,6 +6,7 @@
 // former `.at()` crash site of the add_to_lp audit (family P0-9/P0-10).
 
 #include <doctest/doctest.h>
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
 #include <gtopt/hydrogen_demand_lp.hpp>
@@ -13,7 +14,6 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/reservoir_discharge_limit_lp.hpp>
 #include <gtopt/reservoir_seepage_lp.hpp>
-#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
@@ -315,6 +315,7 @@ TEST_CASE("SimpleCommitment: generator with every block elided")  // NOLINT
           .relax = true,
       },
   };
+  system.fold_legacy_simple_commitments();
   build_and_solve(system);
 }
 

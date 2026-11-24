@@ -142,6 +142,19 @@ struct DecisionVariable
   /// decouple the phases.  Ignored when ``state`` is unset / ``false``.
   OptBool link {};
 
+  /// **Nonanticipative** flag for a ``scope = global`` variable.  gtopt
+  /// builds one LP per (scene, phase) cell, so a global column is shared
+  /// by the scenarios of a scene but may differ between scenes.  When
+  /// ``true`` the value is ONE decision for every scene (taken before the
+  /// scene — e.g. the hydrology — is known): the active scenes are solved
+  /// as ONE extensive-form LP per phase in which this variable is a
+  /// single column (each scenario keeps its own data, probability and
+  /// state).  Its probability-weighted cost uses the total probability
+  /// mass, charged once.  Requires ``scope = global`` (hard error
+  /// otherwise).  Default unset ⇒ ``false``.  See
+  /// docs/user-constraints.md ("Nonanticipative across scenes").
+  OptBool nonanticipative {};
+
   /// Per-block storage-state flag — makes this `block`-scoped variable behave
   /// like a reservoir volume: the per-block columns are storage volumes, a
   /// cross-phase INCOMING column (`value_in`) is created and pinned by the

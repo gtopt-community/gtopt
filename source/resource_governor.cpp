@@ -30,12 +30,11 @@ namespace
   // getenv: read once under the governor lock.
   // NOLINTNEXTLINE(concurrency-mt-unsafe)
   if (const char* env = std::getenv("GTOPT_GPU_CONCURRENCY"); env != nullptr) {
-    int value = 0;
     const std::string_view text {env};
-    if (const auto [ptr, ec] =
-            std::from_chars(text.data(), text.data() + text.size(), value);
-        ec == std::errc {} && value > 0)
-    {
+    int value = 0;
+    const auto [ptr, ec] =
+        std::from_chars(text.data(), text.data() + text.size(), value);
+    if (ec == std::errc {} && ptr == text.data() + text.size() && value > 0) {
       return value;
     }
   }

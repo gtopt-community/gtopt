@@ -439,7 +439,7 @@ public:
   //
   // The "no integer column without `IntegerVariable`" invariant of the
   // commitment layout is enforced here: every
-  // producer of an integer LP column (`Commitment`, `SimpleCommitment`,
+  // producer of an integer LP column (`Commitment`,
   // `Converter`, `CapacityObject`, future `Battery` / `Pump` /
   // `ReserveProvision`) routes through `add_integer_col` so cut
   // audits, integer-feasibility checks, and the Phase-2 binding stack
@@ -480,7 +480,7 @@ public:
   /// column continuous (`is_integer = false`).  The producer is
   /// responsible for the relax precedence: per-element `relax` flag
   /// wins over the global option, which wins over the call-site
-  /// default — `Commitment.relax` and `SimpleCommitment.relax` are
+  /// default — `Commitment.relax` is
   /// already resolved before this call.
   ///
   /// `blocks` is the per-block fan-out for the registry's

@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdint>
+#include <cstdlib>  // mkdtemp
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -21,6 +21,7 @@
 #include <vector>
 
 #include <daw/daw_read_file.h>
+#include <fcntl.h>  // open, O_*
 #include <gtopt/arrow_index_cache.hpp>
 #include <gtopt/as_label.hpp>
 #include <gtopt/cascade_method.hpp>
@@ -37,7 +38,8 @@
 #include <gtopt/system_file_loader.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
-#include <unistd.h>
+#include <sys/stat.h>  // S_IRUSR, S_IWUSR
+#include <unistd.h>  // close
 
 namespace gtopt
 {
@@ -185,6 +187,55 @@ void CascadePlanningMethod::clear_all_cuts(PlanningLP& planning_lp,
   SPDLOG_INFO("Cascade: cleared {} cut rows from LPs", total_removed);
 }
 
+// ─── Nonanticipative merge vs cascade levels ────────────────────────────────
+
+auto CascadePlanningMethod::validate_nonanticipative_levels(
+    const SimulationLP& sim, int remaining_budget) const -> std::optional<Error>
+{
+  const auto& merge = sim.scene_merge();
+  if (!merge.has_value()) {
+    return std::nullopt;
+  }
+  for (std::size_t i = 0; i < m_cascade_opts_.level_array.size(); ++i) {
+    const auto& level = m_cascade_opts_.level_array[i];
+    if (!level.active.value_or(true)) {
+      continue;
+    }
+    const auto level_name = level.name.value_or(as_label("level", i));
+    const auto opts =
+        build_level_sddp_opts(level.sddp_options, remaining_budget);
+    if (auto err = validate_nonanticipative_sddp(sim, opts)) {
+      err->message = std::format("cascade level '{}' (level_array[{}]): {}",
+                                 level_name,
+                                 i,
+                                 err->message);
+      return err;
+    }
+    if (i > 0 && level.transition
+        && level.transition->inherit_optimality_cuts.value_or(0) != 0)
+    {
+      return Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "cascade level '{}' (level_array[{}]): decision_variable "
+              "'{}': `nonanticipative: true` merges {} scenes into one LP "
+              "scene, which is incompatible with "
+              "transition.inherit_optimality_cuts = {} — inherited cuts are "
+              "stored per (class, variable, uid) without the scenario and "
+              "cannot address the per-scenario state columns of the merged "
+              "scene (not supported; set inherit_optimality_cuts = 0 or "
+              "drop the flag)",
+              level_name,
+              i,
+              merge->variables.front(),
+              merge->original_scenes.size(),
+              level.transition->inherit_optimality_cuts.value_or(0)),
+      };
+    }
+  }
+  return std::nullopt;
+}
+
 // ─── Main solve orchestration ───────────────────────────────────────────────
 
 namespace
@@ -233,20 +284,84 @@ void write_cascade_levels_csv(const std::filesystem::path& dir,
     return;
   }
   ofs << "level,name,iterations,lower_bound,upper_bound,gap,converged,"
-         "cuts_added,elapsed_s\n";
+         "cuts_added,elapsed_s,aperture_solves,aperture_infeasible,"
+         "aperture_failed,aperture_dropped_last_iteration\n";
   for (const auto& [i, ls] : std::views::enumerate(stats)) {
-    ofs << std::format("{},{},{},{:.17g},{:.17g},{:.17g},{},{},{:.3f}\n",
-                       i,
-                       ls.name,
-                       ls.iterations,
-                       ls.lower_bound,
-                       ls.upper_bound,
-                       ls.gap,
-                       ls.converged ? 1 : 0,
-                       ls.cuts_added,
-                       ls.elapsed_s);
+    ofs << std::format(
+        "{},{},{},{:.17g},{:.17g},{:.17g},{},{},{:.3f},{},{},{},{}\n",
+        i,
+        ls.name,
+        ls.iterations,
+        ls.lower_bound,
+        ls.upper_bound,
+        ls.gap,
+        ls.converged ? 1 : 0,
+        ls.cuts_added,
+        ls.elapsed_s,
+        ls.apertures.solves,
+        ls.apertures.infeasible,
+        ls.apertures.failed,
+        ls.apertures.dropped_in_last_iteration);
   }
 }
+
+/// Create a fresh private (0700) directory `<parent>/gtopt_cascade_XXXXXX`
+/// with mkdtemp(3).  The name is unpredictable and creation is atomic, so a
+/// pre-planted file or symlink cannot be reused.  Returns an empty path on
+/// failure.
+[[nodiscard]] std::filesystem::path make_private_temp_dir(
+    const std::filesystem::path& parent)
+{
+  std::error_code ec;
+  std::filesystem::create_directories(parent, ec);
+  auto templ = (parent / "gtopt_cascade_XXXXXX").string();
+  if (::mkdtemp(templ.data()) == nullptr) {
+    return {};
+  }
+  return std::filesystem::path {templ};
+}
+
+/// Create @p path as a new, empty regular file (O_EXCL | O_NOFOLLOW, 0600)
+/// so the following write can never land on a pre-existing file or follow
+/// a symlink.  Returns false when the path already exists.
+[[nodiscard]] bool create_exclusive_file(const std::filesystem::path& path)
+{
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+  const int fd = ::open(path.c_str(),
+                        O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                        S_IRUSR | S_IWUSR);
+  if (fd < 0) {
+    return false;
+  }
+  ::close(fd);
+  return true;
+}
+
+/// Removes the cascade's private temp directory when solve() returns.
+class CascadeTempDirCleanup
+{
+public:
+  explicit CascadeTempDirCleanup(std::filesystem::path& dir) noexcept
+      : m_dir_(dir)
+  {
+  }
+  ~CascadeTempDirCleanup() noexcept
+  {
+    if (!m_dir_.empty()) {
+      std::error_code ec;
+      std::filesystem::remove_all(m_dir_, ec);
+      m_dir_.clear();
+    }
+  }
+  CascadeTempDirCleanup(const CascadeTempDirCleanup&) = delete;
+  CascadeTempDirCleanup(CascadeTempDirCleanup&&) = delete;
+  auto operator=(const CascadeTempDirCleanup&)
+      -> CascadeTempDirCleanup& = delete;
+  auto operator=(CascadeTempDirCleanup&&) -> CascadeTempDirCleanup& = delete;
+
+private:
+  std::filesystem::path& m_dir_;
+};
 
 }  // namespace
 
@@ -262,6 +377,9 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
   const std::filesystem::path base_output_dir {
       std::string(planning_lp.options().output_directory()),
   };
+  // Private temp dir for level-to-level cut files: created on first use
+  // (see below), removed when solve() returns.
+  const CascadeTempDirCleanup tmp_dir_cleanup {m_tmp_dir_};
   PlanningLP* current_lp = nullptr;
   // One arrow-index cache shared across every per-level PlanningLP so the
   // (cname, fname, uid) -> (Stage, Block) input index is built once for the
@@ -448,6 +566,18 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     m_prev_cuts_file_ = std::move(resume_inherited_cuts_file);
   }
 
+  // ── Nonanticipative scene merge: fail fast, before level 0 solves ──
+  // Every level's effective SDDP options (incl. per-level aperture
+  // overrides) and every cut transition are audited against the merged
+  // scene of the caller's LP.  Levels that swap the system are re-checked
+  // at their own start (their merge may differ).
+  if (auto err = validate_nonanticipative_levels(planning_lp.simulation(),
+                                                 remaining_budget))
+  {
+    return std::unexpected(std::move(*err));
+  }
+  bool prev_level_merged = false;
+
   for (std::size_t level_idx = 0;
        level_idx < m_cascade_opts_.level_array.size();
        ++level_idx)
@@ -575,6 +705,30 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // ── 3. Build SDDPOptions and create solver ──
     auto level_opts =
         build_level_sddp_opts(level.sddp_options, remaining_budget);
+
+    // Backstop for levels whose (swapped) system merges differently from
+    // the caller's: inherited cuts cannot cross a merged scene layout.
+    {
+      const auto& merge = current_lp->simulation().scene_merge();
+      const bool inherits = level_idx > 0 && level.transition
+          && level.transition->inherit_optimality_cuts.value_or(0) != 0;
+      if (inherits && (merge.has_value() || prev_level_merged)) {
+        return std::unexpected(Error {
+            .code = ErrorCode::InvalidInput,
+            .message = std::format(
+                "cascade level '{}': transition.inherit_optimality_cuts "
+                "crosses a nonanticipative scene merge (this level {}, "
+                "previous level {}) — inherited cuts are stored per "
+                "(class, variable, uid) without the scenario and cannot "
+                "address a merged scene (not supported; set "
+                "inherit_optimality_cuts = 0 or drop the flag)",
+                level_name,
+                merge.has_value() ? "merged" : "not merged",
+                prev_level_merged ? "merged" : "not merged"),
+        });
+      }
+      prev_level_merged = merge.has_value();
+    }
 
     // Route each level's output to a level-specific subdirectory so
     // per-scene cut files and state files don't collide between levels.
@@ -768,6 +922,9 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     if (!result.has_value()) {
       return std::unexpected(result.error());
     }
+    // Backward-pass aperture statistics of this level (the tracker is
+    // reset by every solve(), so a phase-2 re-solve is accumulated below).
+    auto level_apertures = current_solver->aperture_drop_tracker().summary();
 
     // Phase-1 accumulators — folded into level_iterations / total_cuts
     // below so the per-level summary log reports the FULL level work
@@ -849,6 +1006,8 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       if (!result.has_value()) {
         return std::unexpected(result.error());
       }
+      level_apertures.accumulate(
+          current_solver->aperture_drop_tracker().summary());
     }
 
     const double level_elapsed = std::chrono::duration<double>(
@@ -941,6 +1100,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         .elapsed_s = level_elapsed,
         .cuts_added = total_cuts,
         .lp_options = current_lp->flat_options(),
+        .apertures = level_apertures,
     });
     if (write_levels) {
       write_cascade_levels_csv(base_output_dir, m_level_stats_);
@@ -956,6 +1116,44 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       pslot.converged = last.converged;
       pslot.status = CascadeLevelStatus::done;
     }
+    // Why the level stopped — scan for the iteration that converged (the
+    // tail may be the simulation pass).
+    const auto conv_it = std::ranges::find_if(
+        *result, [](const SDDPIterationResult& r) { return r.converged; });
+    const std::string stop_why = [&]() -> std::string
+    {
+      if (conv_it != result->end()) {
+        if (conv_it->statistical_converged) {
+          return "converged: statistical CI";
+        }
+        if (conv_it->stationary_converged) {
+          return "converged: UB stationary, gap below "
+                 "stationary_gap_ceiling";
+        }
+        return "converged: gap below convergence_tol";
+      }
+      // Issue #551: a criterion may have been met while the last
+      // backward pass dropped infeasible apertures — say so, the level's
+      // LB is then over a rescaled distribution.
+      const int last_dropped = level_iterations > 0
+          ? (*result)[static_cast<std::size_t>(level_iterations - 1)]
+                .apertures_dropped
+          : 0;
+      const auto drop_note = last_dropped > 0
+          ? std::format(
+                "; {} aperture(s) infeasible in the last backward pass, "
+                "the LB is over a rescaled distribution",
+                last_dropped)
+          : std::string {};
+      if (remaining_budget >= 0 && level_iterations >= remaining_budget) {
+        return std::format(
+            "global iteration budget exhausted (not converged){}", drop_note);
+      }
+      return std::format("max_iterations={} reached (not converged){}",
+                         level_opts.max_iterations,
+                         drop_note);
+    }();
+    SPDLOG_INFO("Cascade [{}]: stopped — {}", level_name, stop_why);
     SPDLOG_INFO(
         "Cascade [{}]: {} iters, lb={}, ub={}, "
         "gap={:.4g}{}, new_cuts={}, {:.3f}s{}",
@@ -1107,12 +1305,29 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
               n_other,
               filtered.size());
           if (!filtered.empty()) {
-            const auto cuts_tmp = std::filesystem::temp_directory_path()
-                / std::format("cascade_cuts_{}_{}.parquet",
-                              static_cast<std::int64_t>(::getpid()),
-                              level_idx + 1);
-            auto save_result =
-                save_cuts_parquet(filtered, *current_lp, cuts_tmp.string());
+            // Private (mkdtemp, 0700) directory under the output
+            // directory (or $TMPDIR), and an exclusively created file in
+            // it: never a predictable, shared /tmp name.
+            if (m_tmp_dir_.empty()) {
+              m_tmp_dir_ = make_private_temp_dir(
+                  base_output_dir.empty()
+                      ? std::filesystem::temp_directory_path()
+                      : base_output_dir);
+            }
+            const auto cuts_tmp = m_tmp_dir_.empty() ? std::filesystem::path {}
+                                                     : m_tmp_dir_
+                    / std::format("cascade_cuts_{}.parquet", level_idx + 1);
+            std::expected<void, Error> save_result = std::unexpected(Error {
+                .code = ErrorCode::FileIOError,
+                .message = std::format(
+                    "cannot create a private temp file for the cuts "
+                    "of level {}",
+                    level_idx + 1),
+            });
+            if (!cuts_tmp.empty() && create_exclusive_file(cuts_tmp)) {
+              save_result =
+                  save_cuts_parquet(filtered, *current_lp, cuts_tmp.string());
+            }
             if (save_result.has_value()) {
               m_prev_cuts_file_ = cuts_tmp.string();
               SPDLOG_INFO("Cascade [{}]: serialized {} cuts for next level",
@@ -1369,6 +1584,24 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
               m_level_stats_.size(),
               m_all_results_.size(),
               converged);
+
+  // ── Backward-pass aperture statistics: per level + cascade total ──
+  ApertureSummary total_apertures;
+  for (const auto& ls : m_level_stats_) {
+    if (ls.apertures.solves > 0) {
+      SPDLOG_INFO(
+          "  [{}] apertures: {} LP(s), {} infeasible, {} failed ({:.2f}% "
+          "dropped), {} still dropped in the last iteration",
+          ls.name,
+          ls.apertures.solves,
+          ls.apertures.infeasible,
+          ls.apertures.failed,
+          100.0 * ls.apertures.dropped_fraction(),
+          ls.apertures.dropped_in_last_iteration);
+    }
+    total_apertures.accumulate(ls.apertures);
+  }
+  log_aperture_summary(total_apertures, "Cascade [total]");
 
   return converged ? 1 : 0;
 }

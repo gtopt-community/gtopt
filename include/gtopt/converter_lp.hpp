@@ -48,6 +48,11 @@ public:
   static constexpr std::string_view ChargeLowerName {"charge_lower"};
   static constexpr std::string_view DischargeUpperName {"discharge_upper"};
   static constexpr std::string_view DischargeLowerName {"discharge_lower"};
+  /// Charge/discharge exclusivity row ``u_charge + u_discharge ≤ 1``
+  /// per block (``Converter.exclusive_charge_discharge``, default on
+  /// with ``commitment``).
+  static constexpr std::string_view ChargeDischargeExclusiveName {
+      "charge_discharge_exclusive"};
   /// Battery power-envelope valid inequality (default ON,
   /// ``model_options.battery_power_envelope``):
   /// ``p_charge/Pc_max + p_discharge/Pd_max ≤ 1`` per block, emitted

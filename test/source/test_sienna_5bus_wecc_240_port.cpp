@@ -10,7 +10,7 @@
 // gtopt has no PSS/E .raw parser, so the converter ships a
 // SYNTHETIC scalability proxy with the same topology SIZES (240
 // buses, 100 generators, 120 demands, 320 lines) — see
-// ``scripts/sienna_to_gtopt/_wecc_240.py`` docstring for the design
+// ``scripts/sienna2gtopt/_wecc_240.py`` docstring for the design
 // rationale.
 //
 // This port verifies the LP can build and solve a 240-bus

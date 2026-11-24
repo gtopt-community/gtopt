@@ -309,8 +309,9 @@ TEST_CASE("SDDPMethod API - iteration callback")  // NOLINT
   // The callback should have been called for each iteration (not the final
   // forward pass).  results includes the final forward pass as the last entry.
   CHECK(callback_results.size() + 1 == results->size());
-  // The solver should have stopped after 3 iterations + 1 final forward pass
-  CHECK(results->size() <= 4);
+  // The callback stops at iteration index 3 (4 training iterations) at
+  // the latest; + 1 final forward pass.
+  CHECK(results->size() <= 5);
   // Callback iteration numbers should be sequential
   for (size_t i = 0; i < callback_results.size(); ++i) {
     CHECK(callback_results[i].iteration_index

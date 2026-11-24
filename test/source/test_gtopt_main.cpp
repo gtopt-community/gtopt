@@ -972,6 +972,44 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
   std::filesystem::remove_all(log_dir);
 }
 
+TEST_CASE(  // NOLINT
+    "gtopt_main - lp_debug log_directory with shell metacharacters")
+{
+  // The LP debug file path (derived from log_directory) must never reach a
+  // shell: the directory name below must be treated as plain text, and the
+  // compressed debug LP must still be written inside it.
+  const auto stem = write_tmp_json("gtopt_main_lp_debug_meta", minimal_json);
+  const auto base =
+      std::filesystem::temp_directory_path() / "gtopt_main_lp_debug_meta";
+  std::filesystem::remove_all(base);
+  std::filesystem::create_directories(base);
+  const auto marker = base / "PWNED";
+  const auto log_dir = base / ("dbg;touch " + marker.string() + ";#");
+
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .use_single_bus = true,
+      .lp_debug = true,
+      .lp_compression = "zstd",
+      .log_directory = log_dir.string(),
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+  CHECK_FALSE(std::filesystem::exists(marker));
+
+  bool found_zst = false;
+  if (std::filesystem::exists(log_dir)) {
+    for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
+      const auto name = entry.path().filename().string();
+      if (name.starts_with("gtopt_lp") && name.ends_with(".lp.zst")) {
+        found_zst = true;
+      }
+    }
+  }
+  CHECK(found_zst);
+  std::filesystem::remove_all(base);
+}
+
 TEST_CASE("gtopt_main - unknown JSON fields cause hard failure")  // NOLINT
 {
   // With UseExactMappingsByDefault=yes on StrictParsePolicy, any unknown JSON

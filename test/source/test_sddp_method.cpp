@@ -237,7 +237,9 @@ TEST_CASE("SDDPMethod - 3-phase hydro+thermal converges")  // NOLINT
   }
 
   SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 5;
+  // Default ΔUB stationarity needs stationary_window (4) own iterations
+  // with cuts after the cut-less first one before it may stop.
+  sddp_opts.max_iterations = 8;
   sddp_opts.convergence_tol = 1e-3;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
@@ -652,85 +654,21 @@ TEST_CASE(  // NOLINT
     "SDDPMethod - 10-phase 2-rsv 4-aperture: K=1 (full parallel) ≡ "
     "K=4 (full serial)")
 {
+  // Relatively complete recourse (issue #551).  With the base fixture's
+  // HARD `efin = 150` the dry aperture (scenario 3) is infeasible at the
+  // low-storage trial states the forward pass picks (it only ever sees
+  // the base hydrology, and many storage trajectories tie at the same
+  // cost, so the solver/basis path decides which one).  The backward
+  // pass then drops that aperture and renormalises the expected cut over
+  // the 3 feasible ones, which feeds no information back to the policy:
+  // the LB stalls at a level that depends on the tie-break (per_aperture
+  // 16959 vs per_scene 17890, UB 18220) instead of converging.  The
+  // soft terminal target (`efin_cost = 1000`, well above the thermal
+  // cost) keeps every aperture feasible without changing the optimum
+  // (LB = UB = 18220 in every grouping/backend).  The hard variant is
+  // exercised by test_sddp_aperture_drops.cpp.
   auto build_planning = []
-  {
-    auto planning = make_2scene_10phase_two_reservoir_planning();
-
-    // The base fixture already has two identical-hydrology scenarios
-    // {uid 1, uid 2}.  Add two more with progressively wetter flows
-    // so the 4 apertures span a real range (drier → wetter).
-    constexpr int num_phases = 10;
-    auto make_inflow = [&](double base, double phase0_boost)
-    {
-      std::vector<std::vector<double>> inflow_2d;
-      inflow_2d.reserve(static_cast<std::size_t>(num_phases));
-      for (int st = 0; st < num_phases; ++st) {
-        inflow_2d.push_back(
-            std::vector<double> {st == 0 ? phase0_boost : base});
-      }
-      return inflow_2d;
-    };
-
-    // Add scenarios 3 and 4 (already-existing 1, 2 are kept).
-    planning.simulation.scenario_array.push_back(Scenario {
-        .uid = Uid {3},
-        .probability_factor = 0.25,
-    });
-    planning.simulation.scenario_array.push_back(Scenario {
-        .uid = Uid {4},
-        .probability_factor = 0.25,
-    });
-    // Re-balance the existing two so all four sum to 1.
-    planning.simulation.scenario_array[0].probability_factor = OptReal {0.25};
-    planning.simulation.scenario_array[1].probability_factor = OptReal {0.25};
-
-    // Extend the discharge of each inflow Flow (uids 1 and 2) to
-    // cover scenarios 3 and 4 with distinct inflows: scenario 3 is
-    // ~25 % drier, scenario 4 is ~25 % wetter than the base.
-    auto& flow_array = planning.system.flow_array;
-    REQUIRE(flow_array.size() == 2);
-    for (auto& flow : flow_array) {
-      // discharge is STBRealFieldSched = std::variant<double, vec3d,
-      // FileSched>; the base fixture stores the 3-D form (scenario × stage ×
-      // block). Append two more scenarios.
-      using Vec3D = std::vector<std::vector<std::vector<double>>>;
-      REQUIRE(flow.discharge.has_value());
-      auto& vec3d = std::get<Vec3D>(*flow.discharge);
-      vec3d.push_back(make_inflow(/*base=*/15.0, /*phase0_boost=*/60.0));
-      vec3d.push_back(make_inflow(/*base=*/25.0, /*phase0_boost=*/100.0));
-    }
-
-    // Explicit aperture_array: 4 apertures, one per scenario, equal weight.
-    planning.simulation.aperture_array = Array<Aperture> {
-        Aperture {
-            .uid = Uid {1},
-            .source_scenario = Uid {1},
-            .probability_factor = 0.25,
-        },
-        Aperture {
-            .uid = Uid {2},
-            .source_scenario = Uid {2},
-            .probability_factor = 0.25,
-        },
-        Aperture {
-            .uid = Uid {3},
-            .source_scenario = Uid {3},
-            .probability_factor = 0.25,
-        },
-        Aperture {
-            .uid = Uid {4},
-            .source_scenario = Uid {4},
-            .probability_factor = 0.25,
-        },
-    };
-    // Each phase references all 4 apertures so the backward pass
-    // iterates the full set on every (scene, phase) cell.
-    for (auto& phase : planning.simulation.phase_array) {
-      phase.apertures = {Uid {1}, Uid {2}, Uid {3}, Uid {4}};
-    }
-
-    return planning;
-  };
+  { return make_4aperture_10phase_two_reservoir_planning(/*soft_efin=*/true); };
 
   const auto pinned_solver = pick_non_mindopt_solver();
   if (pinned_solver.empty()) {
@@ -808,13 +746,13 @@ TEST_CASE(  // NOLINT
   CHECK(ub_k4_warm_seed == doctest::Approx(ub_k1).epsilon(1e-3));
 
   // Named aperture_chunk_mode (2026-11): the default (mode unset →
-  // per_scene, warm solve mode) and per_aperture (one cold clone per
+  // per_scene, warm solve mode) and per_aperture (one clone per
   // aperture) must CONVERGE to the same bounds.  The grouping changes
-  // only scheduling and the simplex path, never the value function — but
-  // on this degenerate fixture the shared clone lands on a different
-  // (equally valid) dual vertex, so the per-iteration LB trajectories
-  // differ; compare the converged LB and UB instead.  Also pins the
-  // resolved grouping and that the input fields stay untouched.
+  // only scheduling and the simplex path, never the value function, so
+  // the per-iteration trajectories may differ (different dual / primal
+  // vertices on this degenerate fixture) but the converged LB and UB
+  // must agree.  Also pins the resolved grouping and that the input
+  // fields stay untouched.
   struct Bounds
   {
     double lb {};
@@ -861,10 +799,17 @@ TEST_CASE(  // NOLINT
   const auto def = run_mode(std::nullopt, ApertureChunkMode::per_scene, 4);
   const auto per_ap = run_mode(
       ApertureChunkMode::per_aperture, ApertureChunkMode::per_aperture, 1);
+  // Issue #551: with the hard `efin` the dry aperture was dropped as
+  // infeasible on every iteration and the LB stalled at a
+  // tie-break-dependent level (per_aperture 16959 / per_scene 17890 vs
+  // UB 18220).  With relatively complete recourse (soft efin above)
+  // both groupings close the gap and agree on both bounds.
   CHECK(def.converged);
   CHECK(per_ap.converged);
   CHECK(def.ub == doctest::Approx(per_ap.ub).epsilon(1e-3));
   CHECK(def.lb == doctest::Approx(per_ap.lb).epsilon(1e-3));
+  CHECK(def.lb == doctest::Approx(def.ub).epsilon(1e-3));
+  CHECK(per_ap.lb == doctest::Approx(per_ap.ub).epsilon(1e-3));
 }
 
 // ─── Unit tests for free utility functions ─────────────────────────────────
@@ -5309,7 +5254,7 @@ TEST_CASE(  // NOLINT
 // ``ir.stationary_converged`` on the returned results.
 TEST_CASE(  // NOLINT
     "SDDPMethod - stationary convergence requires ΔUB stationarity "
-    "(gap_ceiling gate removed 2026-06-16)")
+    "and a gap below the ceiling")
 {
   constexpr int kMaxIters = 12;
   constexpr int kMinIters = 4;
@@ -5388,40 +5333,28 @@ TEST_CASE(  // NOLINT
     }
   }
 
-  SUBCASE(
-      "stationarity alone converges — gap_ceiling no longer gates "
-      "(removed 2026-06-16)")
+  SUBCASE("a gap above stationary_gap_ceiling blocks the stationary stop")
   {
-    // The ``|gap| < stationary_gap_ceiling`` AND-leg was removed from
-    // the convergence predicate: ΔUB stationarity is the sole signal.
-    // A NEGATIVE ceiling (``-1.0``) used to force the old ``gap_ok`` leg
-    // permanently false and block convergence; now it is ignored, so a
-    // loose ``stationary_tol`` must STILL drive ``stationary_converged``
-    // to fire on the cleanly-converging 3-phase fixture.  This pins the
-    // new contract: a stationary state converges regardless of the
-    // (signed or magnitude) gap — the whole point of removing the
-    // ceiling so multicut-overshoot stationary states can converge.
+    // The ceiling is back (2026-11), one-sided: a stationary UB is
+    // accepted only while the signed gap is below the ceiling.  A
+    // NEGATIVE ceiling (-1.0) is never met by this fixture's gap (>= 0),
+    // so no stationary stop may fire although ΔUB is flat.
     const auto results = run_with(/*stationary_tol=*/0.5,
                                   /*stationary_gap_ceiling=*/-1.0);
     const bool fired = std::ranges::any_of(
         results, [](const auto& ir) { return ir.stationary_converged; });
-    CHECK(fired);
+    CHECK_FALSE(fired);
   }
 }
 
-// ─── stationary_gap_ceiling convergence gate REMOVED (2026-06-16) ──────────
+// ─── stationary_gap_ceiling (removed 2026-06-16, reinstated 2026-11) ───────
 //
-// The former "SDDPMethod - stationary_gap_ceiling is SYMMETRIC" TEST_CASE was
-// deleted along with the gate it pinned.  ``|gap| < stationary_gap_ceiling``
-// used to be AND'd into the stationary convergence predicate, which blocked
-// stationary multicut-overshoot states (large persistent NEGATIVE gap, LB >
-// UB because shared cuts don't perfectly match each scene's value function)
-// from ever converging.  ΔUB stationarity is now the sole signal — once the
-// upper bound stops moving the level has converged regardless of the residual
-// signed-gap magnitude.  The new contract (stationarity alone converges,
-// ignoring the gap ceiling) is pinned by the "stationarity alone converges"
-// subcase in the TEST_CASE above.  ``stationary_gap_ceiling`` remains a
-// parsed SDDPOptions field for back-compat but no longer affects convergence.
+// The symmetric ``|gap| < stationary_gap_ceiling`` gate was removed on
+// 2026-06-16 because it refused stationary multicut-overshoot states
+// (large NEGATIVE gap).  It is back in one-sided form (signed gap <
+// ceiling, so overshoot passes), together with the own-iteration window,
+// after cold cascade levels stopped "stationary" with 40 % gaps.  Pinned
+// by the TEST_CASE above and test_sddp_stop_reasons.cpp.
 
 // ─── Phase B safety-net (pin behaviors across the sddp_method.cpp split) ───
 //
@@ -6740,13 +6673,14 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPOptions - stationary_gap_ceiling default is 0.05")
+    "SDDPOptions - stationary_gap_ceiling default is 0.02")
 {
-  // Pin the default value documented in sddp_types.hpp.
-  // If someone accidentally changes the default, all integration tests
-  // that rely on the 5% ceiling will silently behave differently.
+  // Pin the default value documented in sddp_types.hpp (and the
+  // PlanningOptionsLP default it must agree with).
   const SDDPOptions opts;
-  CHECK(opts.stationary_gap_ceiling == doctest::Approx(0.05));
+  CHECK(opts.stationary_gap_ceiling == doctest::Approx(0.02));
+  CHECK(PlanningOptionsLP::default_sddp_stationary_gap_ceiling
+        == doctest::Approx(opts.stationary_gap_ceiling));
 }
 
 TEST_CASE(  // NOLINT

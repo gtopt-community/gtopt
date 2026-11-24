@@ -410,7 +410,7 @@ TEST_CASE(
   // Pin the --no-mip shortcut at the apply_cli_options layer.  The flag
   // must materialise as `model_options.continuous_phases = "all"`, which
   // SimulationLP::create_phase_array then propagates to every phase
-  // (`p.continuous = true`), causing CommitmentLP / SimpleCommitmentLP /
+  // (`p.continuous = true`), causing CommitmentLP /
   // CapacityObjectLP to skip integer-variable setup.  The same path is
   // taken by every PlanningMethod (monolithic, sddp, cascade), so this
   // single CLI hook covers all three.

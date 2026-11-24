@@ -728,20 +728,16 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * Default: 0.95 (95% CI).  Set to 0.0 to disable. */
   OptReal convergence_confidence {};
 
-  /** @brief Absolute gap ceiling for the secondary convergence tests.
+  /** @brief Signed gap ceiling for the stationary convergence stop.
    *
-   * Hard guard against premature convergence: when ``gap >=
-   * stationary_gap_ceiling`` (relative gap), neither the stationary nor
-   * the statistical CI test can fire — only the primary
-   * ``convergence_tol`` test is allowed to declare convergence.
+   * A ΔUB-stationary (or statistical + stationary) stop is accepted only
+   * while the signed relative gap is below this ceiling; a negative gap
+   * (cut overshoot) always passes.  Above it the run keeps iterating up
+   * to ``max_iterations``.  The stationary stop also needs
+   * ``stationary_window`` iterations of the level's OWN with cuts
+   * (bounds seeded from a previous cascade level do not count).
    *
-   * Defends against heterogeneous-scene σ explosion (large-case run
-   * 2026-05-02 declared CI convergence at iter 2 with gap = 25 %
-   * because σ ≈ 77 M dominated the 38 M absolute gap).  Tightening
-   * this option to e.g. 0.05 forces the solver to keep iterating
-   * until the gap closes below 5 %.
-   *
-   * Default: 0.5 (50 %).  Set to 1.0 to disable the ceiling. */
+   * Default: 0.02 (2 %).  Set to 1.0 to disable the ceiling. */
   OptReal stationary_gap_ceiling {};
 
   /** @brief Consecutive structural failures before terminal-skip kicks in.
@@ -832,6 +828,21 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *  recovered by needing 5-10× fewer iterations to converge. */
   OptBool backward_resolve_target {};
 
+  /** @brief Re-solve the source phase LP after installing each aperture
+   *  backward cut, as an optimality check (default: false).
+   *
+   *  The aperture path builds the expected cut on α_{t-1} from the
+   *  aperture clones and installs it on LP_{t-1}.  Nothing downstream
+   *  reads LP_{t-1}'s post-cut solution: the next backward step clones
+   *  LP_{t-1} and seeds its apertures from the forward basis, and the
+   *  next forward pass re-solves it anyway.  The re-solve only guards
+   *  against a numerically broken cut (non-optimal → revert the row and
+   *  install the forward-data bcut instead).  It costs one extra LP
+   *  solve per (scene, phase) per iteration — a sizeable share of the
+   *  backward pass on large cases — and PLP has no equivalent step.
+   *  Set true to restore the check. */
+  OptBool aperture_cut_resolve {};
+
   /** @brief Maximum algorithm fallback attempts for backward-pass and
    *  aperture solves.
    *
@@ -921,7 +932,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// and `SDDP_OPTION_KEYS` in `scripts/gtopt_shared/options_meta.py`
   /// (a schema-parity pytest enforces the Python side; a `static_assert`
   /// in `json_sddp_options.hpp` enforces the tuple against this count).
-  static constexpr std::size_t json_field_count = 73;
+  static constexpr std::size_t json_field_count = 74;
 
   void merge(SddpOptions&& opts)
   {
@@ -991,6 +1002,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(forward_fail_stop, opts.forward_fail_stop);
     merge_opt(forward_infeas_rollback, opts.forward_infeas_rollback);
     merge_opt(backward_resolve_target, opts.backward_resolve_target);
+    merge_opt(aperture_cut_resolve, opts.aperture_cut_resolve);
     merge_opt(backward_max_fallbacks, opts.backward_max_fallbacks);
     merge_opt(max_async_spread, opts.max_async_spread);
     merge_opt(pool_cpu_factor, opts.pool_cpu_factor);

@@ -22,6 +22,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #include <array>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -31,6 +32,7 @@
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
+#include <unistd.h>
 
 using namespace gtopt;
 
@@ -369,19 +371,25 @@ TEST_CASE("cuOpt tuning file: cfg named values and legacy prm")  // NOLINT
     return;
   }
   namespace fs = std::filesystem;
-  const auto dir = fs::temp_directory_path() / "gtopt_cuopt_prm_test";
-  // Fresh per-subcase directory: doctest re-enters the case per SUBCASE and
-  // a leftover cuopt.cfg would shadow the prm-dialect subcase.
-  fs::remove_all(dir);
-  fs::create_directories(dir);
-
+  // One directory PER SUBCASE: the plugin reads a tuning file once per
+  // process (`load_solver_cfg_cached`), so the prm-dialect subcase must not
+  // reuse the cfg subcase's directory (its cached pairs would be returned).
+  fs::path dir;
   SolverOptions opts {};
-  // param_file itself need not exist — only its DIRECTORY anchors the
-  // cuopt.cfg / cuopt.prm sibling lookup.
-  opts.param_file = (dir / "cplex.prm").string();
+  const auto use_dir = [&](std::string_view tag)
+  {
+    dir = fs::temp_directory_path()
+        / std::format("gtopt_cuopt_prm_test_{}_{}", tag, ::getpid());
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    // param_file itself need not exist — only its DIRECTORY anchors the
+    // cuopt.cfg / cuopt.prm sibling lookup.
+    opts.param_file = (dir / "cplex.prm").string();
+  };
 
   SUBCASE("cfg with named presolve + section is accepted; solve exact")
   {
+    use_dir("cfg");
     {
       std::ofstream out {dir / "cuopt.cfg"};
       out << "# cuopt.cfg test — named values\n";
@@ -399,6 +407,7 @@ TEST_CASE("cuOpt tuning file: cfg named values and legacy prm")  // NOLINT
 
   SUBCASE("legacy prm 'warmstart false' disables the auto seed; exact")
   {
+    use_dir("prm");
     {
       std::ofstream out {dir / "cuopt.prm"};
       out << "warmstart false\n";

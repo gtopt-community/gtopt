@@ -172,3 +172,51 @@ TEST_CASE("SDDPMethod - basis_cross_mode is bound-invariant vs off")  // NOLINT
     CHECK(lb == doctest::Approx(lb0).epsilon(kParityTol));
   }
 }
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod - basis_cross_mode is bound-invariant on the aperture path")
+{
+  // The aperture chain's last optimal basis seeds the next forward solve
+  // (backward_to_forward / full_cross) and the forward basis seeds the
+  // first aperture (forward_to_backward / full_cross).  Seeds are warm
+  // starts only, so every mode must converge to the bounds of `off`.
+  constexpr int kIters = 8;
+  constexpr double kParityTol = 1e-6;
+
+  const auto run_with_mode =
+      [&](BasisCrossMode mode) -> std::pair<double, double>
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = kIters;
+    sddp_opts.convergence_tol = 1e-9;
+    sddp_opts.stationary_tol = 0.0;
+    sddp_opts.cut_sharing = CutSharingMode::multicut;
+    sddp_opts.apertures = std::vector<Uid> {Uid {1}, Uid {2}};
+    sddp_opts.aperture_solve_mode = ApertureSolveMode::warm;
+    sddp_opts.enable_api = false;
+    sddp_opts.basis_cross_mode = mode;
+
+    SDDPMethod sddp(planning_lp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    const auto& last = results->back();
+    return {last.upper_bound, last.lower_bound};
+  };
+
+  const auto [ub0, lb0] = run_with_mode(BasisCrossMode::off);
+
+  for (const auto mode : {BasisCrossMode::warm,
+                          BasisCrossMode::forward_to_backward,
+                          BasisCrossMode::backward_to_forward,
+                          BasisCrossMode::full_cross})
+  {
+    CAPTURE(static_cast<int>(mode));
+    const auto [ub, lb] = run_with_mode(mode);
+    CHECK(ub == doctest::Approx(ub0).epsilon(kParityTol));
+    CHECK(lb == doctest::Approx(lb0).epsilon(kParityTol));
+  }
+}

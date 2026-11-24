@@ -712,21 +712,20 @@ TEST_CASE("expand_batteries wires pmin_* onto synthetic gen/demand")  // NOLINT
 
   REQUIRE(system.generator_array.size() == 1);
   const auto& gen = system.generator_array.back();
-  // Generator.pmin is intentionally unset on the synthesized discharge
-  // generator — `Commitment.pmin` carries the per-unit min stable
-  // level as a u-gated row, so the always-on `Generator.pmin` floor
-  // would clash with that conditional bound.  See
-  // `source/system.cpp::expand_batteries` for the rationale.
-  CHECK_FALSE(gen.pmin.has_value());
+  // Battery.commitment unset → pmin_discharge is the HARD floor
+  // `Generator.pmin` (mirror of pmin_charge → Demand.lmin).  It must
+  // not be routed to the synthesized Commitment, which is LP-relaxed
+  // here: `gen ≥ pmin·u` with continuous u would drop the floor.
+  REQUIRE(gen.pmin.has_value());
+  CHECK(std::get<Real>(gen.pmin.value_or(RealFieldSched2 {0.0})) == 2.0);
   // pmax_discharge → Generator.pmax
   REQUIRE(gen.pmax.has_value());
   CHECK(std::get<Real>(gen.pmax.value_or(RealFieldSched2 {0.0})) == 10.0);
 
-  // pmin_discharge → Commitment.pmin (synthesized for the discharge gen)
   REQUIRE(system.commitment_array.size() == 1);
   const auto& cmt = system.commitment_array.back();
-  REQUIRE(cmt.pmin.has_value());
-  CHECK(std::get<double>(cmt.pmin.value_or(0.0)) == doctest::Approx(2.0));
+  CHECK(cmt.relax.value_or(false));
+  CHECK_FALSE(cmt.pmin.has_value());
 
   REQUIRE(system.demand_array.size() == 1);
   const auto& dem = system.demand_array.back();
@@ -789,9 +788,9 @@ TEST_CASE(
 //   * `Battery.pmin_charge` set
 //   * `Battery.commitment = true`
 //
-// The 16fbdde45 refactor centralized this: one CommitmentLP owns the
-// `u_commit` column, both Generator (discharge) and Demand (charge)
-// share it via `find_status_cols`.  Pin that even when all three
+// One CommitmentLP owns the discharge `u_commit` column (found via
+// `find_status_cols`); the charge side has its own `u_charge` mode
+// binary in ConverterLP.  Pin that even when all three
 // triggers fire AT ONCE we still get exactly ONE synthesized
 // Commitment (no duplicates).  Catches the kind of regression that
 // would silently produce two competing `u` columns.
@@ -825,9 +824,13 @@ TEST_CASE(
   // fired.  Name is `uc_<gen_name>` = `uc_bat_gen`.
   REQUIRE(system.commitment_array.size() == 1);
   CHECK(system.commitment_array.front().name == "uc_bat_gen");
-  // Commitment.pmin carries the discharge-side floor.
+  // Commitment.pmin carries the discharge-side floor (when-discharging);
+  // Generator.pmin stays unset so the always-on col floor cannot
+  // defeat the gating.
   CHECK(std::get<double>(system.commitment_array.front().pmin.value_or(-1.0))
         == doctest::Approx(2.0));
+  REQUIRE(system.generator_array.size() == 1);
+  CHECK_FALSE(system.generator_array.front().pmin.has_value());
   // Converter sees the same `commitment = true` flag.
   REQUIRE(system.converter_array.size() == 1);
   CHECK(system.converter_array.front().commitment.value_or(false) == true);

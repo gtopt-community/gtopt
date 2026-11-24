@@ -38,6 +38,8 @@
 #include <barrier>
 #include <cmath>
 #include <filesystem>
+#include <format>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -49,6 +51,7 @@
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
+#include <unistd.h>
 
 using namespace gtopt;
 
@@ -535,4 +538,52 @@ TEST_CASE("HiGHS backend: parallel create+load+clone is race-free")  // NOLINT
 
   CHECK(ok.load() == num_threads);
   CHECK(bad.load() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "HiGHS highs_warmstart.opts is applied only to advanced-basis solves")
+{
+  // The `highs_warmstart.opts` sibling of `param_file` is parsed once per
+  // process and applied by name (no `readOptions` disk read per solve).
+  // Pin that its keys still reach HiGHS: an iteration limit of 0 stops the
+  // warm solve, while a cold solve (no advanced_basis) ignores the file.
+  auto backend = make_highs_or_skip();
+  if (!backend) {
+    return;
+  }
+  namespace fs = std::filesystem;
+  const auto dir = fs::temp_directory_path()
+      / std::format("gtopt_highs_warm_opts_{}", ::getpid());
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  {
+    std::ofstream f {dir / "highs_warmstart.opts"};
+    f << "# warm-start overrides\n";
+    f << "simplex_iteration_limit = 0\n";
+  }
+  SolverOptions opts;
+  opts.param_file = (dir / "cplex.prm").string();  // anchors the sibling
+
+  SUBCASE("cold solve ignores the warm file")
+  {
+    HighsTrivialLP2 lp {backend->infinity()};
+    lp.load_into(*backend);
+    // After load_problem (HiGHS `clear()` resets options), as
+    // LinearInterface does before every solve.
+    backend->apply_options(opts);
+    backend->initial_solve();
+    CHECK(backend->is_proven_optimal());
+  }
+
+  SUBCASE("advanced-basis solve honours the warm file")
+  {
+    opts.advanced_basis = true;
+    HighsTrivialLP2 lp {backend->infinity()};
+    lp.load_into(*backend);
+    backend->apply_options(opts);
+    backend->initial_solve();
+    CHECK_FALSE(backend->is_proven_optimal());
+  }
+
+  fs::remove_all(dir);
 }

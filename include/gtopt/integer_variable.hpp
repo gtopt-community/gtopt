@@ -11,7 +11,7 @@
  * a group of blocks (or a stage / phase singleton).  Every producer of
  * an integer column in gtopt — `CommitmentLP` (`status`, `startup`,
  * `shutdown`, `hot_start`, `warm_start`, `cold_start`),
- * `SimpleCommitmentLP` (`status`), `ConverterLP` (`mode`, `dir`),
+ * `ConverterLP` (`mode`, `dir`),
  * `CapacityObjectLP` (`expmod`), and future producers
  * (`Battery` on/off, `Pump` on/off, binary AGC reserves) — routes its
  * column through `SystemContext::add_integer_variable` (or

@@ -347,7 +347,7 @@ TEST_CASE("InertiaProvisionLP with SimpleCommitment - unified model")
   opts.model_options.demand_fail_cost = 1000.0;
   opts.model_options.reserve_shortage_cost = 10000.0;
 
-  const System system = {
+  System system = {
       .name = "InertiaCommitmentTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
@@ -356,6 +356,7 @@ TEST_CASE("InertiaProvisionLP with SimpleCommitment - unified model")
       .inertia_zone_array = inertia_zone_array,
       .inertia_provision_array = inertia_provision_array,
   };
+  system.fold_legacy_simple_commitments();
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -471,7 +472,7 @@ TEST_CASE(  // NOLINT
             .relax = true,
         },
     };
-    const System system = {
+    System system = {
         .name = "InertiaSimpleCommitmentPmin",
         .bus_array = bus_array,
         .demand_array = demand_array,
@@ -480,6 +481,8 @@ TEST_CASE(  // NOLINT
         .inertia_zone_array = inertia_zone_array,
         .inertia_provision_array = inertia_provision_array,
     };
+    // The legacy array is read as Commitment (dispatch_pmin -> pmin).
+    system.fold_legacy_simple_commitments();
     check_provision(system, 8.0, 50.0);
   }
 

@@ -232,7 +232,9 @@ TEST_CASE(  // NOLINT
   const auto k_conv = first_converged(*results);
   REQUIRE(k_conv >= 0);
   CHECK(k_conv > k_gap);
-  CHECK(k_conv == kSeedDepth);  // first window clear of the seed
+  // First window of OWN iterations with cuts: the cold start's cut-less
+  // iteration 0 does not count, so the window (4) fills at index 5.
+  CHECK(k_conv == kSeedDepth + 1);
   const auto& ir = (*results)[static_cast<std::size_t>(k_conv)];
   CHECK(ir.stationary_converged);
   CHECK(ir.gap_change < opts.stationary_tol);

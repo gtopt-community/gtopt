@@ -134,6 +134,9 @@ struct json_data_contract<Battery>
       json_bool_null<"commitment", OptBool>,  ///< Conditional rate floors
                                               ///< via Converter integer
                                               ///< binary
+      json_bool_null<"exclusive_charge_discharge",
+                     OptBool>,  ///< u_charge + u_discharge ≤ 1 per
+                                ///< block (default true with commitment)
       json_number_null<"reserve_sustain_hours",
                        OptReal>,  ///< Native BESS reserve rows (T [h])
       json_bool_null<"reserve_discharge_credit",
@@ -204,6 +207,7 @@ struct json_data_contract<Battery>
                                  battery.daily_cycle,
                                  battery.max_cycles_day,
                                  battery.commitment,
+                                 battery.exclusive_charge_discharge,
                                  battery.reserve_sustain_hours,
                                  battery.reserve_discharge_credit,
                                  battery.reserve_energy_usage_up,

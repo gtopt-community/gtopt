@@ -1471,16 +1471,16 @@ public:
   /** @brief Default absolute gap ceiling for the secondary convergence
    * tests (stationary + statistical CI).
    *
-   * Refuse to declare convergence via stationarity or CI while the
-   * relative gap is at or above 5 % — only the primary
-   * ``convergence_tol`` test (1 %) can close the run at high gaps.
+   * Refuse a stationary (ΔUB or statistical + stationary) stop while
+   * the signed relative gap is at or above 2 %; the run keeps iterating
+   * to ``max_iterations``.  Negative gaps (cut overshoot) pass.
    *
    * Defends against heterogeneous-scene σ explosion (large-case trace_28:
    * gap = 25 % declared converged at iter 2 because σ ≈ 77 M
    * dominated the 38 M absolute gap) and frozen-LB pathologies (LB
    * stuck at 0, gap = 1 flat → gap_change = 0).  Set to 1.0 to
    * disable the ceiling (legacy behaviour). */
-  static constexpr Real default_sddp_stationary_gap_ceiling = 0.05;
+  static constexpr Real default_sddp_stationary_gap_ceiling = 0.02;
   /** @brief Default consecutive-structural-failures threshold before a
    * scene is marked terminal.  See
    * ``SDDPMethod::SceneRetryState::terminal`` and
@@ -1532,6 +1532,11 @@ public:
   /// fall back to the cheaper forward-cached cut data.  See
   /// `SDDPOptions::backward_resolve_target` for the cost trade-off.
   static constexpr Bool default_sddp_backward_resolve_target = true;
+
+  /// Default for `SddpOptions::aperture_cut_resolve`: skip the post-cut
+  /// source re-solve on the aperture path (PLP parity, saves one LP
+  /// solve per backward step).
+  static constexpr Bool default_sddp_aperture_cut_resolve = false;
 
   /**
    * @brief Gets the SDDP cut sharing mode as a string name
@@ -1751,6 +1756,17 @@ public:
   {
     return m_options_.sddp_options.backward_resolve_target.value_or(
         default_sddp_backward_resolve_target);
+  }
+
+  /**
+   * @brief Whether the aperture backward path re-solves the source LP
+   *        after installing its cut (optimality check).
+   * @return aperture_cut_resolve (default: false).
+   */
+  [[nodiscard]] constexpr auto sddp_aperture_cut_resolve() const
+  {
+    return m_options_.sddp_options.aperture_cut_resolve.value_or(
+        default_sddp_aperture_cut_resolve);
   }
 
   /**

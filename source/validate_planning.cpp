@@ -1090,62 +1090,13 @@ void check_offline_provisions(ValidationResult& result,
     if (!committed) {
       auto msg = std::format(
           "ReserveProvision '{}': offline (cold) up reserve needs a "
-          "Commitment / SimpleCommitment on its generator — without a "
+          "Commitment on its generator — without a "
           "status column the reserve is offered whether the unit is on or "
           "off",
           rp.name);
       (strict ? result.errors : result.warnings).push_back(std::move(msg));
     }
   }
-}
-
-/// A Commitment builds its unit-commitment rows only on stages with
-/// `"chronological": true` (min up / down times, ramps and start-up
-/// logic need ordered blocks); on any other stage it is ignored.  That
-/// used to happen silently: report it (warning) with the stages affected.
-void check_commitment_stages(ValidationResult& result, const Planning& planning)
-{
-  const auto& commitments = planning.system.commitment_array;
-  const auto active = [](const Commitment& c)
-  {
-    return !c.active.has_value() || !std::holds_alternative<IntBool>(*c.active)
-        || std::get<IntBool>(*c.active) != 0;
-  };
-  const auto n_active = std::ranges::count_if(commitments, active);
-  if (n_active == 0) {
-    return;
-  }
-  std::string stages;
-  std::size_t n_stages = 0;
-  for (const auto& st : planning.simulation.stage_array) {
-    if (st.chronological.value_or(false)) {
-      continue;
-    }
-    ++n_stages;
-    if (n_stages <= 5) {
-      stages += std::format("{}{}", stages.empty() ? "" : ", ", st.uid);
-    }
-  }
-  if (n_stages == 0) {
-    return;
-  }
-  if (n_stages > 5) {
-    stages += std::format(", … ({} stages)", n_stages);
-  }
-  std::string first;
-  for (const auto& c : commitments) {
-    if (active(c)) {
-      first = c.name;
-      break;
-    }
-  }
-  result.warnings.push_back(std::format(
-      "{} Commitment(s) (e.g. '{}') are IGNORED on stage(s) {}: unit "
-      "commitment needs \"chronological\": true on the stage — set it, or "
-      "use SimpleCommitment for a non-chronological stage",
-      n_active,
-      first,
-      stages));
 }
 
 void check_heat_rate(ValidationResult& result, const System& sys)
@@ -2326,11 +2277,30 @@ void check_ranges(ValidationResult& result, const Planning& planning)
     }
   }
 
-  // Stage count_block > 0
+  // Stage count_block > 0 and [first_block, first_block + count_block)
+  // inside block_array (count_block unset = every remaining block).
+  const auto n_blocks = sim.block_array.size();
   for (const auto& stg : sim.stage_array) {
     if (stg.count_block == 0) {
       result.errors.push_back(
           std::format("Stage uid={}: count_block must be > 0", stg.uid));
+    } else if (stg.first_block >= n_blocks) {
+      result.errors.push_back(
+          std::format("Stage uid={}: first_block ({}) is out of range: "
+                      "block_array has {} block(s)",
+                      stg.uid,
+                      stg.first_block,
+                      n_blocks));
+    } else if (stg.count_block != std::dynamic_extent
+               && stg.count_block > n_blocks - stg.first_block)
+    {
+      result.errors.push_back(
+          std::format("Stage uid={}: first_block ({}) + count_block ({}) "
+                      "exceeds block_array size ({})",
+                      stg.uid,
+                      stg.first_block,
+                      stg.count_block,
+                      n_blocks));
     }
   }
 
@@ -2986,6 +2956,25 @@ void check_state_storage_activation(ValidationResult& result,
   }
 }
 
+/// ``Battery.exclusive_charge_discharge = true`` without
+/// ``commitment = true`` has no mode binaries to act on — it is ignored
+/// at the LP; warn so the modeller notices.
+void check_battery_exclusive_modes(ValidationResult& result,
+                                   const Planning& planning)
+{
+  for (const auto& bat : planning.system.battery_array) {
+    if (bat.exclusive_charge_discharge.value_or(false)
+        && !bat.commitment.value_or(false))
+    {
+      result.warnings.push_back(std::format(
+          "Battery '{}': exclusive_charge_discharge = true is ignored "
+          "without commitment = true (no u_charge / u_discharge mode "
+          "binaries to exclude).",
+          bat.name));
+    }
+  }
+}
+
 void check_storage_activation(ValidationResult& result,
                               const Planning& planning)
 {
@@ -3474,8 +3463,8 @@ void check_coupler_activation(ValidationResult& result,
   check_heat_rate(result, planning.system);
   check_reserve_planes(result, planning);
   check_offline_provisions(result, planning);
-  check_commitment_stages(result, planning);
   check_storage_activation(result, planning);
+  check_battery_exclusive_modes(result, planning);
   check_water_right_sources(result, planning);
   check_coupler_activation(result, planning);
   check_fail_segments(result, planning);

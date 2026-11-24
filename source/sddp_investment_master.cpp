@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <limits>
 #include <optional>
 #include <ranges>
@@ -21,6 +22,7 @@
 #include <gtopt/field_sched.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/scene_merge.hpp>
 #include <gtopt/sddp_capacity_cuts.hpp>
 #include <gtopt/sddp_investment_master.hpp>
 #include <gtopt/sddp_method.hpp>
@@ -544,6 +546,24 @@ auto solve_investment_master(const Planning& planning,
                              const InvestmentMasterOptions& opts)
     -> std::expected<InvestmentMasterResult, Error>
 {
+  // The master keeps one α column per ORIGINAL scene and maps operational
+  // results back by scene; a nonanticipative merge folds the scenes into
+  // one LP scene, so all but one α would never receive a cut.
+  if (const auto merge = plan_nonanticipative_scene_merge(planning);
+      merge.has_value())
+  {
+    return std::unexpected(Error {
+        .code = ErrorCode::InvalidInput,
+        .message = std::format(
+            "decision_variable '{}': `nonanticipative: true` merges {} "
+            "scenes into one LP scene, which is incompatible with the SDDP "
+            "investment master — it keeps one alpha per original scene "
+            "(not supported; drop the flag)",
+            merge->variables.front(),
+            merge->original_scenes.size()),
+    });
+  }
+
   const auto candidates = find_expansion_candidates(planning);
   if (candidates.empty()) {
     return std::unexpected(Error {

@@ -1,7 +1,7 @@
 {
   "// description": [
     "Golden reference for sddp_hydro_3phase at MAX_ITERATIONS=3 —",
-    "the small fixture converges in under 3 iterations, so the",
+    "the small fixture's bounds meet in under 3 iterations, so the",
     "converged physical state matches golden_iter50.json.",
     "",
     "Reduced pin set (2026-07-08): this fixture's optimum is PRIMAL",
@@ -26,8 +26,9 @@
     "rel": 1.0e-4
   },
   "objective_value": 323100.0,
+  "// solver_status": "converged = false: 3 iterations cannot fill the default stationary_window (4 own iterations with cuts), although the bounds already meet (gap 0).",
   "solver_status": {
-    "converged": true,
+    "converged": false,
     "lower_bound": 323100.0,
     "upper_bound": 323100.0,
     "gap": 0.0

@@ -419,8 +419,7 @@ public:
   /// (e.g. 0.058, 0.629) even on a MIP solved to a zero gap.  Snap each value
   /// to ``int(round(v))`` after the standard ``add_field`` collection so the
   /// output parquet carries clean 0/1 integers, matching the LP variable's
-  /// declared type.  Calling site for ``SimpleCommitmentLP`` /
-  /// ``CommitmentLP``.
+  /// declared type.  Calling site for ``CommitmentLP``.
   ///
   /// LP-relax gate: when the phase is solved as a continuous LP (via
   /// ``model_options.continuous_phases`` or per-phase ``continuous:
@@ -433,7 +432,7 @@ public:
   /// the solver was asked to enforce integrality on this phase".
   ///
   /// Element-level relax gate: @p relaxed is the element's own LP-relax
-  /// flag (`Commitment.relax`, `SimpleCommitment.relax`,
+  /// flag (`Commitment.relax`,
   /// `LineCommitment.relax`).  A relaxed element's columns are continuous
   /// in `[0, 1]` even in a MIP phase, so its fractional LP value IS the
   /// solution and is written unrounded (rounding would, e.g., report a

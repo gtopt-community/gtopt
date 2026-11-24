@@ -13,7 +13,10 @@
 
 #pragma once
 
+#include <format>
 #include <span>
+#include <stdexcept>
+#include <string>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/block.hpp>
@@ -25,13 +28,40 @@
 namespace gtopt
 {
 
+/// The blocks of @p stage inside @p block_array.  Throws
+/// std::out_of_range (naming the stage) when `first_block` / `count_block`
+/// do not fit in the array, so
+/// malformed input can never read out of bounds even when `validate_planning`
+/// was skipped.
+[[nodiscard]] constexpr auto stage_block_span(
+    std::span<const Block> block_array, const Stage& stage)
+    -> std::span<const Block>
+{
+  const auto size = block_array.size();
+  if (stage.first_block > size
+      || (stage.count_block != std::dynamic_extent
+          && stage.count_block > size - stage.first_block))
+  {
+    throw std::out_of_range(std::format(
+        "Stage uid={}: first_block ({}) / count_block ({}) out of range "
+        "for block_array of size {}",
+        stage.uid,
+        stage.first_block,
+        stage.count_block == std::dynamic_extent
+            ? std::string {"all"}
+            : std::to_string(stage.count_block),
+        size));
+  }
+  return block_array.subspan(stage.first_block, stage.count_block);
+}
+
 namespace detail
 {
 [[nodiscard]] constexpr auto create_block_array(
     std::span<const Block> block_array, const Stage& stage)
 {
   return std::ranges::to<std::vector>(
-      block_array.subspan(stage.first_block, stage.count_block)
+      stage_block_span(block_array, stage)
       | std::ranges::views::transform([](const Block& b)
                                       { return BlockLP {b}; }));
 }

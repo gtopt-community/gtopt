@@ -9,21 +9,30 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
 #include <format>
+#include <map>
+#include <mutex>
 #include <numeric>
+#include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "cplex_solver_backend.hpp"
 
 #include <gtopt/log_and_throw.hpp>
+#include <gtopt/solver_cfg.hpp>
 #include <gtopt/solver_options.hpp>
 #include <ilcplex/cplex.h>
 #include <spdlog/spdlog.h>
@@ -115,6 +124,124 @@ double cplex_row_ub(char sense, double rhs, double range, double cpx_inf)
   }
 }
 
+/// One parameter of a CPLEX `.prm` file, resolved to its CPLEX number and
+/// converted to its typed value.
+struct CplexParam
+{
+  int num {};
+  std::variant<int, CPXLONG, double, std::string> value;
+};
+using CplexParams = std::vector<CplexParam>;
+
+/// Resolve the `.prm` file at @p path into typed CPLEX parameters — ONCE per
+/// process and path (thread-safe; the text comes from the shared
+/// `cached_solver_param_file`).  Unknown names and unparsable values are
+/// warned about once, here, and dropped.  Returns nullptr when the file
+/// cannot be read (also warned once).
+///
+/// This replaces `CPXreadcopyparam`, which (a) re-read the file from disk
+/// for every new env / clone / warm-start solve, and (b) RESETS every CPLEX
+/// parameter to its default before applying the file — verified on CPLEX
+/// 22.1.1: Threads 1→0, EpOpt 1e-7→1e-6, PreInd 0→1, TiLim 123→1e75 after
+/// reading a file containing only `CPXPARAM_LPMethod 1`.
+[[nodiscard]] const CplexParams* cached_cplex_params(cpxenv* env,
+                                                     const std::string& path)
+{
+  static std::mutex mutex;
+  static std::map<std::string, std::optional<CplexParams>, std::less<>> cache;
+  const std::scoped_lock lock {mutex};
+  if (const auto it = cache.find(path); it != cache.end()) {
+    return it->second.has_value() ? &*it->second : nullptr;
+  }
+  auto& slot = cache[path];
+  const auto* pairs = cached_solver_param_file(path);
+  if (pairs == nullptr) {
+    spdlog::warn(
+        "CPLEX: CANNOT READ parameter file '{}' — solving with CPLEX/gtopt "
+        "DEFAULT parameters, NOT the case's tuning",
+        path);
+    return nullptr;
+  }
+  CplexParams params;
+  params.reserve(pairs->size());
+  for (const auto& [name, text] : *pairs) {
+    int num = 0;
+    int type = CPX_PARAMTYPE_NONE;
+    if (CPXgetparamnum(env, name.c_str(), &num) != 0
+        || CPXgetparamtype(env, num, &type) != 0)
+    {
+      spdlog::warn(
+          "CPLEX: unknown parameter '{}' in '{}' — ignored", name, path);
+      continue;
+    }
+    const auto* first = text.data();
+    const auto* last =
+        std::next(first, static_cast<std::ptrdiff_t>(text.size()));
+    const auto parse = [&]<typename T>() -> std::optional<CplexParam>
+    {
+      T v {};
+      const auto [ptr, ec] = std::from_chars(first, last, v);
+      if (ec != std::errc {} || ptr != last) {
+        return std::nullopt;
+      }
+      return CplexParam {.num = num, .value = v};
+    };
+    std::optional<CplexParam> param;
+    switch (type) {
+      case CPX_PARAMTYPE_INT:
+        param = parse.template operator()<int>();
+        break;
+      case CPX_PARAMTYPE_LONG:
+        param = parse.template operator()<CPXLONG>();
+        break;
+      case CPX_PARAMTYPE_DOUBLE:
+        param = parse.template operator()<double>();
+        break;
+      case CPX_PARAMTYPE_STRING:
+        param = CplexParam {.num = num, .value = text};
+        break;
+      default:
+        break;
+    }
+    if (param.has_value()) {
+      params.push_back(std::move(*param));
+    } else {
+      spdlog::warn(
+          "CPLEX: invalid value '{}' for parameter '{}' in '{}' — ignored",
+          text,
+          name,
+          path);
+    }
+  }
+  slot = std::move(params);
+  spdlog::info(
+      "CPLEX: loaded parameter file '{}' ({} parameters)", path, slot->size());
+  return &*slot;
+}
+
+/// Apply resolved parameters onto @p env — memory only, never resets the
+/// parameters the file does not list.
+void apply_cplex_params(cpxenv* env, const CplexParams& params)
+{
+  for (const auto& p : params) {
+    std::visit(
+        [&](const auto& v)
+        {
+          using T = std::decay_t<decltype(v)>;
+          if constexpr (std::is_same_v<T, int>) {
+            CPXsetintparam(env, p.num, v);
+          } else if constexpr (std::is_same_v<T, CPXLONG>) {
+            CPXsetlongparam(env, p.num, v);
+          } else if constexpr (std::is_same_v<T, double>) {
+            CPXsetdblparam(env, p.num, v);
+          } else {
+            CPXsetstrparam(env, p.num, v.c_str());
+          }
+        },
+        p.value);
+  }
+}
+
 /// Configure a warm (advanced-basis) simplex re-solve on `env`.  Shared by
 /// the two warm-start paths so they stay in lock-step:
 ///   1. the `SolverOptions::advanced_basis` option (SDDP aperture
@@ -153,14 +280,21 @@ void apply_cplex_warmstart(cpxenv* env, const SolverOptions& opts)
   // to its main `cplex.prm`) — the single shared warm-start param file
   // (`LPMethod 1` primal + `Advance 1`), shipped by plp2gtopt / plexos2gtopt
   // and used by BOTH the fixed-MILP dual pass and the aperture warm-start.
-  // Loaded last so it wins over the in-code defaults above.
+  // Loaded last so it wins over the in-code defaults above.  Applies ONLY
+  // the keys the file lists (parsed once per process): the old
+  // `CPXreadcopyparam` here reset every other parameter to its CPLEX
+  // default, silently dropping the main `.prm` and every typed gtopt option
+  // (threads, tolerances, presolve, time limit, …) on every warm solve.
   if (opts.param_file.has_value() && !opts.param_file->empty()) {
-    const std::filesystem::path sibling =
-        std::filesystem::path {*opts.param_file}.parent_path()
-        / "cplex_warmstart.prm";
-    std::error_code ec;
-    if (std::filesystem::exists(sibling, ec) && !ec) {
-      CPXreadcopyparam(env, sibling.string().c_str());
+    const auto warm_path =
+        (std::filesystem::path {*opts.param_file}.parent_path()
+         / "cplex_warmstart.prm")
+            .string();
+    // The existence check is cached too: no stat per warm solve.
+    if (cached_solver_param_file(warm_path) != nullptr) {
+      if (const auto* params = cached_cplex_params(env, warm_path)) {
+        apply_cplex_params(env, *params);
+      }
     }
   }
 }
@@ -171,38 +305,28 @@ void apply_cplex_warmstart(cpxenv* env, const SolverOptions& opts)
 /// (live in-place tweaks).
 void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
 {
-  // Read the user-supplied .prm FIRST so it forms the BASE that the typed
+  // Apply the user-supplied .prm FIRST so it forms the BASE that the typed
   // gtopt SolverOptions below OVERRIDE — matching the field doc
   // ("param_file applied before the fields above, so the typed gtopt fields
-  // keep priority on conflict").  This ordering is load-bearing:
-  // ``CPXreadcopyparam`` RESETS every parameter to its CPLEX default before
-  // applying the file, so any typed value set BEFORE it is silently wiped.
-  // The old order put this read LAST, which is why
-  // ``--set solver_options.presolve=false`` (and scaling, threads, …) had no
-  // effect whenever a ``.prm`` was pinned.  Params the .prm does not mention
-  // (e.g. the tuned LPMethod / Gomory cuts in the bundled cplex.prm) survive,
-  // provided gtopt does not also set them — see the ``default_algo`` case
-  // below, which deliberately leaves LPMethod to the .prm.
+  // keep priority on conflict").  The file is parsed ONCE per process
+  // (`cached_cplex_params`) instead of `CPXreadcopyparam` re-reading it for
+  // every new env / clone.  `CPXreadcopyparam`'s semantics are kept: reset
+  // every parameter to its CPLEX default (`CPXsetdefaults`), then apply the
+  // file — so a reused env never carries a residual setting (warm-start
+  // LPMethod, a previous time limit, …) into the next solve.  The screen
+  // indicator and clone-log setting are env plumbing, not tuning: they are
+  // kept across the reset.  Params the .prm does not mention (e.g. the
+  // tuned LPMethod / Gomory cuts in the bundled cplex.prm) survive, provided
+  // gtopt does not also set them — see the ``default_algo`` case below,
+  // which deliberately leaves LPMethod to the .prm.
   if (opts.param_file.has_value() && !opts.param_file->empty()) {
-    const int rc = CPXreadcopyparam(env, opts.param_file->c_str());
-    if (rc != 0) {
-      // Loud on purpose: a missing .prm silently changes the solve (the
-      // case's tuned LPMethod / MIP emphasis / tolerances are lost).  gtopt
-      // resolves relative paths against input_directory before the plugin
-      // sees them (`resolve_solver_param_files`), so reaching here means
-      // the file really is missing or unreadable.
-      spdlog::warn(
-          "CPLEX: CANNOT READ parameter file '{}' (CPXreadcopyparam status "
-          "{}{}) — solving with CPLEX/gtopt DEFAULT parameters, NOT the "
-          "case's tuning",
-          *opts.param_file,
-          rc,
-          rc == CPXERR_FAIL_OPEN_READ ? ": cannot open file" : "");
-    } else {
-      spdlog::info(
-          "CPLEX: read parameter file '{}' (typed gtopt options below override "
-          "its values)",
-          *opts.param_file);
+    if (const auto* params = cached_cplex_params(env, *opts.param_file)) {
+      int scrind = CPX_OFF;
+      CPXgetintparam(env, CPX_PARAM_SCRIND, &scrind);
+      CPXsetdefaults(env);
+      CPXsetintparam(env, CPX_PARAM_SCRIND, scrind);
+      CPXsetintparam(env, CPX_PARAM_CLONELOG, -1);
+      apply_cplex_params(env, *params);
     }
   }
 
@@ -479,6 +603,8 @@ CplexSolverBackend::~CplexSolverBackend() = default;
 void CplexSolverBackend::reset_env_lp()
 {
   m_env_lp_ = CplexEnvLp {m_prep_};
+  // The ctor applied `*m_prep_.options` to the fresh env.
+  m_env_options_current_ = m_prep_.options.has_value();
 }
 
 std::string_view CplexSolverBackend::solver_name() const noexcept
@@ -1181,6 +1307,7 @@ int CplexSolverBackend::relax_all_integers()
 int CplexSolverBackend::fix_mip_and_resolve_duals(
     const SolverOptions& opts, const std::span<const int> sos_member_cols)
 {
+  m_env_options_current_ = false;  // sets ADVIND / LPMETHOD directly
   auto* env = m_env_lp_.env();
   auto* lp = m_env_lp_.lp();
 
@@ -1389,6 +1516,7 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(
   CPXsetintparam(env, CPX_PARAM_LPMETHOD, saved_lpmethod);
   CPXsetintparam(env, CPX_PARAM_ADVIND, saved_advance);
   CPXsetintparam(env, CPX_PARAM_STARTALG, saved_startalg);
+  m_env_options_current_ = false;
 
   // 8. Bail (restoring the live MILP + incumbent) if the fixed-LP solve
   //    still produced no usable dual solution.
@@ -2009,10 +2137,17 @@ namespace
 // SolveEffort accounting (SolveEffortTotals, accumulated in LinearInterface)
 // reads this via last_solve_effort().
 [[nodiscard]] SolveEffort capture_cplex_effort(const cpxenv* env,
+                                               const cpxlp* lp,
                                                double t0_ticks,
                                                double t0_secs)
 {
   SolveEffort e;
+  // Simplex iterations (phase I + II) of the last optimization; barrier
+  // iterations when the barrier ran without crossover pivots.
+  e.iterations = CPXgetitcnt(env, lp);
+  if (e.iterations == 0) {
+    e.iterations = CPXgetbaritcnt(env, lp);
+  }
   double t1 = 0.0;
   if (CPXgetdettime(env, &t1) == 0) {
     e.ticks = t1 - t0_ticks;
@@ -2037,7 +2172,8 @@ void CplexSolverBackend::initial_solve()
   } else {
     m_solve_status_ = CPXlpopt(m_env_lp_.env(), m_env_lp_.lp());
   }
-  m_last_effort_ = capture_cplex_effort(m_env_lp_.env(), t0, s0);
+  m_last_effort_ =
+      capture_cplex_effort(m_env_lp_.env(), m_env_lp_.lp(), t0, s0);
 }
 
 void CplexSolverBackend::resolve()
@@ -2053,7 +2189,8 @@ void CplexSolverBackend::resolve()
     // CPXlpopt respects CPX_PARAM_LPMETHOD set by apply_options().
     m_solve_status_ = CPXlpopt(m_env_lp_.env(), m_env_lp_.lp());
   }
-  m_last_effort_ = capture_cplex_effort(m_env_lp_.env(), t0, s0);
+  m_last_effort_ =
+      capture_cplex_effort(m_env_lp_.env(), m_env_lp_.lp(), t0, s0);
 }
 
 SolveEffort CplexSolverBackend::last_solve_effort() const
@@ -2063,6 +2200,7 @@ SolveEffort CplexSolverBackend::last_solve_effort() const
 
 void CplexSolverBackend::engage_robust_solve()
 {
+  m_env_options_current_ = false;
   auto* env = m_env_lp_.env();
   if (env == nullptr) {
     return;
@@ -2116,6 +2254,7 @@ void CplexSolverBackend::engage_robust_solve()
 
 void CplexSolverBackend::disengage_robust_solve() noexcept
 {
+  m_env_options_current_ = false;
   if (!m_saved_robust_state_.has_value()) {
     return;
   }
@@ -2254,12 +2393,16 @@ SolverOptions CplexSolverBackend::optimal_options() const
 
 void CplexSolverBackend::apply_options(const SolverOptions& opts)
 {
+  if (m_env_options_current_ && m_prep_.options == opts) {
+    return;  // env already holds exactly these parameters
+  }
   m_prep_.options = opts;
   m_algorithm_ = opts.algorithm;
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
   apply_options_to_env(m_env_lp_.env(), opts);
+  m_env_options_current_ = true;
 }
 
 std::optional<double> CplexSolverBackend::get_kappa() const
@@ -2279,18 +2422,21 @@ std::optional<double> CplexSolverBackend::get_kappa() const
 
 void CplexSolverBackend::open_log(FILE* /*file*/, int level)
 {
+  m_env_options_current_ = false;
   CPXsetintparam(
       m_env_lp_.env(), CPX_PARAM_SCRIND, level > 0 ? CPX_ON : CPX_OFF);
 }
 
 void CplexSolverBackend::close_log()
 {
+  m_env_options_current_ = false;
   CPXsetintparam(m_env_lp_.env(), CPX_PARAM_SCRIND, CPX_OFF);
 }
 
 void CplexSolverBackend::set_log_filename(const std::string& filename,
                                           int level)
 {
+  m_env_options_current_ = false;
   // Only enable file logging when the caller actually wants it.  Otherwise
   // leave CPLEX silent — critical for avoiding a spurious cplex.log in the
   // working directory.
@@ -2303,6 +2449,7 @@ void CplexSolverBackend::set_log_filename(const std::string& filename,
 
 void CplexSolverBackend::clear_log_filename()
 {
+  m_env_options_current_ = false;
   m_prep_.log_filename.clear();
   m_prep_.log_level = 0;
   CPXsetlogfilename(m_env_lp_.env(), nullptr, nullptr);

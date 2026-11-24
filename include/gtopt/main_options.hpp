@@ -226,6 +226,12 @@ template<typename T>
        "cplex > highs > mindopt > cbc > clp).  "
        "Use --solvers to list backends compiled into the current build.")
       //
+      ("config",
+       po::value<std::string>(),
+       "read option defaults from this .gtopt.conf-style file instead of "
+       "$GTOPT_CONFIG / ~/.gtopt.conf.  A .gtopt.conf in the current "
+       "directory is only used when named here (e.g. --config "
+       "./.gtopt.conf)")  //
       ("verbose,v", "enable maximum log verbosity (trace level)")  //
       ("quiet,q",
        po::value<bool>().implicit_value(/*v=*/true),
@@ -1707,7 +1713,7 @@ template<typename T>
  * @brief Load a MainOptions from the `[gtopt]` section of `.gtopt.conf`.
  *
  * Reads the config file found by @c find_config_file() (`$GTOPT_CONFIG`,
- * then `./.gtopt.conf`, then `~/.gtopt.conf`) via
+ * then `~/.gtopt.conf`; the current directory is not searched) via
  * @c load_gtopt_config_from().
  */
 [[nodiscard]] inline MainOptions load_gtopt_config()

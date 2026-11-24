@@ -1,7 +1,11 @@
+#include <cmath>
 #include <expected>
+#include <format>
+#include <functional>
 #include <optional>
 #include <ranges>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <tuple>
 #include <utility>
@@ -149,13 +153,13 @@ std::expected<void, Error> add_provision(
     // PLEXOS Min Provision floor — when set, clamp the provision col's
     // lower bound to the per-block value.  This seeds the floor as an
     // unconditional ``provision ≥ urmin`` (the col ``lowb``).  For a
-    // generator that HAS a commitment, ``CommitmentLP::add_to_lp`` then
-    // rewrites it into the commitment-CONDITIONAL linkage row
+    // generator that HAS a (simple) commitment, the commitment element
+    // then rewrites it into the commitment-CONDITIONAL linkage row
     // ``provision − urmin·u ≥ 0`` and resets ``lowb = 0`` (see
-    // commitment_lp.cpp "PLEXOS Min Provision linkage"), so the floor
-    // only binds when the unit is committed (``u = 1``) — matching
-    // PLEXOS's "Min Provision gated by Available Units" semantic.  This
-    // mechanism is exercised when ``urmin``/``drmin`` is set on the input.
+    // ``gate_reserve_provisions_by_status``), so the floor only binds
+    // when the unit is committed (``u = 1``) — matching PLEXOS's "Min
+    // Provision gated by Available Units" semantic.  This mechanism
+    // is exercised when ``urmin``/``drmin`` is set on the input.
     // NOTE: the plexos2gtopt converter currently does NOT emit urmin/drmin
     // — even gated on commitment and clamped to the per-block urmax cap, a
     // flat PLEXOS Min Provision can exceed the *dynamic* generator headroom
@@ -610,6 +614,187 @@ bool ReserveProvisionLP::add_to_output(OutputContext& out) const
   }
 
   return true;
+}
+
+void gate_reserve_provisions_by_status(
+    const SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    LinearProblem& lp,
+    ElementIndex<GeneratorLP> gen_index,
+    const BIndexHolder<ColIndex>& status_cols,
+    const BIndexHolder<ColIndex>& generation_cols,
+    std::optional<ColIndex> gen_capacity_col,
+    const std::function<double(BlockUid, double)>& committed_floor)
+{
+  const auto& blocks = stage.blocks();
+  for (const auto& rprov : sc.elements<ReserveProvisionLP>()) {
+    // Pair by resolved element index: a raw SingleId compare missed
+    // `5` vs `"g5"` (same generator) and skipped the u-gating.
+    if (sc.element_index(rprov.generator_sid()) != gen_index) {
+      continue;
+    }
+    for (const auto& block : blocks) {
+      const auto buid = block.uid();
+      const auto ucol_it = status_cols.find(buid);
+      if (ucol_it == status_cols.end()) {
+        continue;
+      }
+      const auto ucol = ucol_it->second;
+
+      // Offline (cold) up reserve, minuta (A.19): offered only while
+      // the unit is OFF — `r_up ≤ urmax · (1 − u)`, i.e.
+      // `r_up + urmax · u ≤ urmax`.  It has no headroom row.
+      if (rprov.offline()) {
+        if (const auto up_col =
+                rprov.lookup_up_provision_col(scenario, stage, buid))
+        {
+          // Big-M = the provision's physical ceiling.  An unbounded
+          // ceiling (no urmax, unbounded generator) would put a 1e20+
+          // coefficient into the row: reject it.
+          const auto urmax = lp.get_col_uppb(*up_col);
+          if (!std::isfinite(urmax) || urmax >= 1e19
+              || is_infinity(urmax, lp.infinity()))
+          {
+            throw std::runtime_error(std::format(
+                "ReserveProvision '{}': offline (cold) up reserve needs a "
+                "finite ceiling (set urmax or a finite generator pmax); "
+                "got {}",
+                rprov.object().name,
+                urmax));
+          }
+          auto orow =
+              SparseRow {
+                  .class_name = ReserveProvisionLP::Element::class_name,
+                  .constraint_name = ReserveProvisionLP::OfflineUpProvisionName,
+                  .variable_uid = rprov.uid(),
+                  .context = make_block_context(
+                      scenario.uid(), stage.uid(), block.uid()),
+              }
+                  .less_equal(urmax);
+          orow[*up_col] = 1.0;
+          orow[ucol] = urmax;
+          std::ignore = lp.add_row(std::move(orow));
+        }
+      }
+
+      // Modify up-provision row: add -Pmax on u, change RHS to 0
+      if (const auto urow =
+              rprov.lookup_up_provision_row(scenario, stage, buid))
+      {
+        if (gen_capacity_col) {
+          // Expandable generator: the headroom row is already
+          // `g + r − capacity ≤ 0` (RHS 0, no Pmax to move onto u —
+          // pre-fix this stamped `−0·u` and an off-line unit still
+          // offered reserve).  Keep that row and add a separate
+          // u-gated copy without the capacity term:
+          //   g + Σ r − Pmax·u ≤ 0,   Pmax = gen column upper bound
+          // (the same big-M as the C2 `gen_upper` row).
+          const auto gcol_it = generation_cols.find(buid);
+          if (gcol_it != generation_cols.end()) {
+            const auto gen_pmax = lp.get_col_uppb(gcol_it->second);
+            auto grow =
+                SparseRow {
+                    .class_name = ReserveProvisionLP::Element::class_name,
+                    .constraint_name =
+                        ReserveProvisionLP::CommitUpProvisionName,
+                    .variable_uid = rprov.uid(),
+                    .context = make_block_context(
+                        scenario.uid(), stage.uid(), block.uid()),
+                }
+                    .less_equal(0.0);
+            for (const auto& [col, coef] : lp.row_at(*urow).cmap) {
+              if (col != *gen_capacity_col) {
+                grow[col] = coef;
+              }
+            }
+            grow[ucol] = -gen_pmax;
+            std::ignore = lp.add_row(std::move(grow));
+          }
+        } else {
+          auto& row = lp.row_at(*urow);
+          const auto pmax = row.uppb;  // original Pmax was stored as uppb
+          lp.set_coeff(*urow, ucol, -pmax);
+          row.uppb = 0.0;
+        }
+      }
+
+      // Modify down-provision row: add -Pmin on u, change RHS to 0
+      if (const auto drow =
+              rprov.lookup_dn_provision_row(scenario, stage, buid))
+      {
+        auto& row = lp.row_at(*drow);
+        // Floor below which down reserve cannot be offered: the
+        // committed minimum, chosen by the caller.
+        const auto pmin = committed_floor(buid, row.lowb);
+        lp.set_coeff(*drow, ucol, -pmin);
+        row.lowb = 0.0;
+      }
+
+      // ── PLEXOS Min Provision linkage (urmin/drmin) ──
+      //
+      // The commitment elements run after ReserveProvisionLP, so the
+      // provision rows/columns already exist here; this helper is the
+      // single place that gates them (CommitmentLP calls it on both
+      // its chronological and block formulations).
+      //
+      // ReserveProvisionLP::add_to_lp creates the provision column
+      // with ``lowb = urmin`` as a hard floor (when PLEXOS
+      // ``ReserveGenerators.Min Provision`` is set on the
+      // membership).  Per PLEXOS docs (ReserveGenerators.MinProvision)
+      // the floor is gated by ``Available Units`` — i.e. should
+      // collapse to 0 when the gen is not committed.  Here, since
+      // this gen has a (simple) commitment, transform the hard col-lowb
+      // into a conditional linkage row:
+      //   provision_col - urmin·u >= 0
+      // and reset the col lowb to 0 so the LP only enforces the
+      // floor when u = 1.
+      if (const auto up_col_opt =
+              rprov.lookup_up_provision_col(scenario, stage, buid))
+      {
+        const auto up_col = *up_col_opt;
+        auto& col = lp.col_at(up_col);
+        if (col.lowb > 0.0) {
+          const auto urmin = col.lowb;
+          auto urow =
+              SparseRow {
+                  .class_name = ReserveProvisionLP::Element::class_name,
+                  .constraint_name = ReserveProvisionLP::MinUpProvisionName,
+                  .variable_uid = rprov.uid(),
+                  .context = make_block_context(
+                      scenario.uid(), stage.uid(), block.uid()),
+              }
+                  .greater_equal(0);
+          urow[up_col] = 1.0;
+          urow[ucol] = -urmin;
+          std::ignore = lp.add_row(std::move(urow));
+          col.lowb = 0.0;
+        }
+      }
+      if (const auto dn_col_opt =
+              rprov.lookup_dn_provision_col(scenario, stage, buid))
+      {
+        const auto dn_col = *dn_col_opt;
+        auto& col = lp.col_at(dn_col);
+        if (col.lowb > 0.0) {
+          const auto drmin = col.lowb;
+          auto drow =
+              SparseRow {
+                  .class_name = ReserveProvisionLP::Element::class_name,
+                  .constraint_name = ReserveProvisionLP::MinDnProvisionName,
+                  .variable_uid = rprov.uid(),
+                  .context = make_block_context(
+                      scenario.uid(), stage.uid(), block.uid()),
+              }
+                  .greater_equal(0);
+          drow[dn_col] = 1.0;
+          drow[ucol] = -drmin;
+          std::ignore = lp.add_row(std::move(drow));
+          col.lowb = 0.0;
+        }
+      }
+    }
+  }
 }
 
 }  // namespace gtopt

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <format>
 #include <fstream>
 #include <optional>
 #include <sstream>
@@ -18,6 +19,7 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
+#include <gtopt/constraint_parser.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/pampl_parser.hpp>
 #include <gtopt/user_constraint_enums.hpp>
@@ -191,9 +193,45 @@ public:
     return expr;
   }
 
+  /// Enter one nesting level of the param value evaluator; throws once
+  /// the depth exceeds ConstraintParser::max_nesting_depth.
+  void enter_value_nesting()
+  {
+    if (m_value_depth_ >= ConstraintParser::max_nesting_depth) {
+      throw std::invalid_argument(
+          std::format("PAMPL: param value expression nested too deeply "
+                      "(more than {} levels)",
+                      ConstraintParser::max_nesting_depth));
+    }
+    ++m_value_depth_;
+  }
+  void leave_value_nesting() noexcept { --m_value_depth_; }
+
 private:
   std::string_view m_src_;
   std::size_t m_pos_ {0};
+  int m_value_depth_ {0};
+};
+
+/// RAII recursion guard for the param value evaluator: rejects input nested
+/// deeper than ConstraintParser::max_nesting_depth instead of overflowing
+/// the stack.
+class ValueDepthGuard
+{
+public:
+  explicit ValueDepthGuard(Scanner& sc)
+      : m_sc_(sc)
+  {
+    m_sc_.enter_value_nesting();
+  }
+  ~ValueDepthGuard() noexcept { m_sc_.leave_value_nesting(); }
+  ValueDepthGuard(const ValueDepthGuard&) = delete;
+  ValueDepthGuard(ValueDepthGuard&&) = delete;
+  auto operator=(const ValueDepthGuard&) -> ValueDepthGuard& = delete;
+  auto operator=(ValueDepthGuard&&) -> ValueDepthGuard& = delete;
+
+private:
+  Scanner& m_sc_;
 };
 
 // ── Param value parsing ──────────────────────────────────────────────────────
@@ -231,6 +269,7 @@ double parse_value_expr(Scanner& sc, const std::vector<UserParam>& params);
 
 double parse_value_factor(Scanner& sc, const std::vector<UserParam>& params)
 {
+  const ValueDepthGuard depth_guard(sc);
   sc.skip_ws_comments();
   const char c = sc.peek_char();
   // Unary sign on a factor (covers ``-(a/4)`` and ``-ident`` where

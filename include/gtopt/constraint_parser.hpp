@@ -105,6 +105,15 @@ public:
    */
   [[nodiscard]] static ConstraintExpr parse(std::string_view expression);
 
+  /// Maximum nesting depth of an expression (parentheses, unary signs,
+  /// `abs(`/`min(`/`max(`/`if`/`sum` bodies).  Deeper input is rejected
+  /// with a parse error instead of exhausting the stack.
+  static constexpr int max_nesting_depth = 256;
+
+  /// Maximum number of indices an index set (`{a..b, ...}` or `a..b`) may
+  /// expand to.  Larger ranges are rejected with a parse error.
+  static constexpr std::size_t max_index_set_size = 1'000'000;
+
 private:
   // ── Token types and lexer ─────────────────────────────────────────────
 
@@ -176,6 +185,7 @@ private:
     void expect(TokenType type, std::string_view hint);
     [[nodiscard]] bool match(TokenType type);
     [[nodiscard]] static bool is_element_type(const std::string& name);
+    [[nodiscard]] static std::string canonical_element_type(std::string name);
     [[nodiscard]] static bool is_singleton_class(const std::string& name);
 
     [[noreturn]] void error_at(std::size_t column,
@@ -240,10 +250,35 @@ private:
     [[nodiscard]] SumPredicate parse_one_predicate();
     [[nodiscard]] ConstraintDomain parse_for_clause();
     [[nodiscard]] IndexRange parse_index_set();
+    /// Parse the current NUMBER token as an `int` index, rejecting
+    /// values outside the `int` range with a parse error.
+    [[nodiscard]] int parse_index_value();
+    /// Append `[start, end]` to @p range, enforcing max_index_set_size.
+    void append_index_range(IndexRange& range,
+                            int start,
+                            int end,
+                            std::size_t column);
+
+    /// RAII nesting-depth counter: throws a parse error once the
+    /// depth exceeds max_nesting_depth.
+    class DepthGuard
+    {
+    public:
+      explicit DepthGuard(Parser& parser);
+      ~DepthGuard() noexcept { --m_parser_.m_depth_; }
+      DepthGuard(const DepthGuard&) = delete;
+      DepthGuard(DepthGuard&&) = delete;
+      auto operator=(const DepthGuard&) -> DepthGuard& = delete;
+      auto operator=(DepthGuard&&) -> DepthGuard& = delete;
+
+    private:
+      Parser& m_parser_;
+    };
 
     Lexer m_lexer_;
     Token m_current_;
     std::string_view m_raw_source_;  // original expression for diagnostics
+    int m_depth_ {0};  // current recursion depth (see DepthGuard)
   };
 
   /// @brief Strip comments from expression before parsing

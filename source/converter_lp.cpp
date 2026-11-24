@@ -234,10 +234,11 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     // battery charges and discharges simultaneously at full power — the
     // cheapest way for a lossy (η < 1) battery to "burn" surplus energy.
     // Partial simultaneous operation inside the envelope (e.g. 50 %/50 %)
-    // is still LP-feasible; only binaries forbid it entirely (none of the
-    // existing commitment paths do — ``u_commit`` gates both directions
-    // with the SAME u, and the legacy ``u_charge``/``u_discharge`` carry
-    // no exclusivity row — so the envelope is emitted for them too).
+    // is still LP-feasible; only the mode binaries with the
+    // charge/discharge exclusivity row (``commitment`` +
+    // ``exclusive_charge_discharge``, default on) forbid it entirely.
+    // The envelope is emitted for those too: it is redundant there but
+    // still tightens a relaxed (continuous-phase) u.
     //
     // Expansion: the converter's expandable ``capacity`` already adds
     // ``p_charge + p_discharge ≤ capacity`` (the linear valid inequality
@@ -317,24 +318,32 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   // bounds with per-block binaries.  Mirrors PLEXOS
   // ``Battery.Commitment Status``.
   //
-  // "One true source for u_commit" — when the generator side has a
-  // CommitmentLP (always true for batteries via
-  // ``System::expand_batteries()`` synthesis), the discharge
-  // gating ``gen ≤ pmax × u`` / ``gen ≥ Commitment.pmin × u`` is
-  // already emitted by ``CommitmentLP::add_to_lp``.  ConverterLP
-  // then reuses that same ``u_commit`` column to gate the
-  // charge-side demand bounds — no duplicate ``u_discharge`` /
-  // ``u_charge`` cols are introduced.
+  // Discharge side: when the generator has a CommitmentLP (always true
+  // for batteries via ``System::expand_batteries()`` synthesis), its
+  // ``u_commit`` status IS the discharge-mode binary and the gating
+  // ``gen ≤ pmax × u`` / ``gen ≥ Commitment.pmin × u`` is already
+  // emitted by ``CommitmentLP::add_to_lp`` — nothing to add here.
+  // Fallback (legacy, user-built converters without a Commitment):
+  // a local ``u_discharge`` binary gating the ``Generator.pmin`` /
+  // ``pmax`` col bounds.
   //
-  // Fallback (legacy, kept for non-synthesized cases): when no
-  // CommitmentLP matches the converter's generator, fall back to
-  // creating local ``u_charge`` / ``u_discharge`` binaries (integer
-  // by convention — the original ``Converter.commitment`` API).
+  // Charge side: always its OWN ``u_charge`` mode binary.  It must not
+  // reuse the discharge ``u_commit``: with one shared u, a committed
+  // block would have to honour ``load ≥ pmin_charge`` AND ``gen ≥
+  // pmin_discharge`` at once — charge and discharge simultaneously or
+  // idle — and a discharge floor above the discharge rating (u ≡ 0)
+  // would also lock out charging.  PLEXOS Min Charge / Min Discharge
+  // Level and UC.jl min charge / discharge rates are per-mode floors.
+  //
+  // Charge/discharge exclusivity constraint (default on,
+  // ``Converter.exclusive_charge_discharge``): ``u_charge + u_discharge
+  // ≤ 1`` per block on the two mode binaries, so the battery is never
+  // in both modes in the same block.
   if (converter().commitment.value_or(false)) {
+    const bool exclusive =
+        converter().exclusive_charge_discharge.value_or(true);
     // Look up the CommitmentLP that points at this converter's
-    // discharge generator.  The synthesized commitment (uid named
-    // ``uc_<bat>_gen``) ``relax = true`` by default — fractional u
-    // is fine for an LP-only run.
+    // discharge generator.
     const BIndexHolder<ColIndex>* shared_ucol = nullptr;
     // Pair by resolved element index (uid and name references alike).
     const auto gen_index = sc.element_index(generator_sid());
@@ -347,6 +356,11 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
         break;
       }
     }
+    // Same LP-relaxation rule as CommitmentLP for a continuous phase.
+    const auto mode_domain =
+        sc.simulation().phases()[stage.phase_index()].is_continuous()
+        ? IntegerDomain::Relaxed
+        : IntegerDomain::Binary;
 
     for (const auto& block : blocks) {
       const auto buid = block.uid();
@@ -363,56 +377,20 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       const auto block_pmax = lp.get_col_uppb(gcol);
       const auto block_lmin = lp.get_col_lowb(dcol);
       const auto block_lmax = lp.get_col_uppb(dcol);
-
-      // ── Shared-u_commit path ────────────────────────────────────
+      // Discharge / charge mode binaries of this block (when present).
+      std::optional<ColIndex> u_dis_col;
+      std::optional<ColIndex> u_chg_col;
       if (shared_ucol != nullptr) {
-        const auto uc_it = shared_ucol->find(buid);
-        if (uc_it == shared_ucol->end()) {
-          continue;
+        if (const auto it = shared_ucol->find(buid); it != shared_ucol->end()) {
+          u_dis_col = it->second;
         }
-        const auto ucol = uc_it->second;
-
-        // Discharge side is already gated by CommitmentLP via
-        // ``gen_upper`` / ``gen_lower`` rows; nothing to add here.
-        // Charge side: mirror the discharge gating onto the
-        // synthetic demand col using the same shared u_commit.
-        if (block_lmax > 0.0) {
-          lp.col_at(dcol).lowb = 0.0;
-          {
-            auto row =
-                SparseRow {
-                    .class_name = Element::class_name.full_name(),
-                    .constraint_name = ChargeUpperName,
-                    .variable_uid = uid(),
-                    .context = block_ctx,
-                }
-                    .less_equal(0.0);
-            row[dcol] = 1.0;
-            row[ucol] = -block_lmax;
-            static_cast<void>(lp.add_row(std::move(row)));
-          }
-          if (block_lmin > 0.0) {
-            auto row =
-                SparseRow {
-                    .class_name = Element::class_name.full_name(),
-                    .constraint_name = ChargeLowerName,
-                    .variable_uid = uid(),
-                    .context = block_ctx,
-                }
-                    .greater_equal(0.0);
-            row[dcol] = 1.0;
-            row[ucol] = -block_lmin;
-            static_cast<void>(lp.add_row(std::move(row)));
-          }
-        }
-        continue;
       }
 
-      // ── Legacy fallback (no CommitmentLP) ──────────────────────
-      // Discharge side: migrate ``Generator.pmin`` from a static col
-      // floor to a u-gated row.  ``u_discharge`` exists only when the
-      // discharge envelope is non-degenerate (pmax > 0).
-      if (block_pmax > 0.0) {
+      // ── Legacy discharge fallback (no CommitmentLP) ────────────
+      // Migrate ``Generator.pmin`` from a static col floor to a
+      // u-gated row.  ``u_discharge`` exists only when the discharge
+      // envelope is non-degenerate (pmax > 0).
+      if (shared_ucol == nullptr && block_pmax > 0.0) {
         lp.col_at(gcol).lowb = 0.0;
         const std::array<BlockUid, 1> u_disc_blocks {buid};
         const auto u_disc = sc.add_integer_col(
@@ -433,10 +411,11 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
                 .variable_uid = uid(),
                 .context = block_ctx,
             },
-            IntegerDomain::Binary,
+            mode_domain,
             IntegerScope::Block,
             buid,
             std::span<const BlockUid> {u_disc_blocks});
+        u_dis_col = u_disc;
         {
           auto row =
               SparseRow {
@@ -465,7 +444,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
         }
       }
 
-      // Charge side fallback: mirror the discharge gating onto the
+      // ── Charge side: own ``u_charge`` mode binary gating the
       // synthetic ``Demand.lmin`` / ``Demand.lmax``.
       if (block_lmax > 0.0) {
         lp.col_at(dcol).lowb = 0.0;
@@ -488,10 +467,11 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
                 .variable_uid = uid(),
                 .context = block_ctx,
             },
-            IntegerDomain::Binary,
+            mode_domain,
             IntegerScope::Block,
             buid,
             std::span<const BlockUid> {u_chg_blocks});
+        u_chg_col = u_chg;
         {
           auto row =
               SparseRow {
@@ -518,6 +498,21 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
           row[u_chg] = -block_lmin;
           static_cast<void>(lp.add_row(std::move(row)));
         }
+      }
+
+      // ── Charge/discharge exclusivity: u_charge + u_discharge ≤ 1 ──
+      if (exclusive && u_chg_col && u_dis_col) {
+        auto row =
+            SparseRow {
+                .class_name = Element::class_name.full_name(),
+                .constraint_name = ChargeDischargeExclusiveName,
+                .variable_uid = uid(),
+                .context = block_ctx,
+            }
+                .less_equal(1.0);
+        row[*u_chg_col] = 1.0;
+        row[*u_dis_col] = 1.0;
+        static_cast<void>(lp.add_row(std::move(row)));
       }
     }
   }

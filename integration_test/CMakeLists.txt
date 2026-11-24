@@ -352,6 +352,11 @@ add_e2e_case(line_loss_envelope line_loss_envelope.json)
 # cases/line_loss_overflow_sink/README.md.
 add_e2e_case(line_loss_overflow_sink line_loss_overflow_sink.json)
 
+# Nonanticipative global DecisionVariable (an LNG cargo decided before the
+# hydrology is known): two hydrology scenes merged into one extensive-form
+# LP, per-scenario reservoir state, output split back per scene.
+add_e2e_case(dv_nonanticipative dv_nonanticipative.json)
+
 # CEN SSCC reserve models (formulation §5.9 / §5.17): max-of-planes CPF
 # requirement with the exogenous (default) and the PLEXOS-compat
 # endogenous load term (zero vs negative curtailment-hour prices),

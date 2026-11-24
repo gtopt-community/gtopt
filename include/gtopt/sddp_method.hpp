@@ -63,7 +63,9 @@
 #include <expected>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -97,6 +99,37 @@ namespace gtopt
 // <gtopt/sddp_types.hpp> — included above.
 
 // ─── SDDPMethod ─────────────────────────────────────────────────────────────
+
+/**
+ * @brief Refuse SDDP options that cannot honour a nonanticipative merge.
+ *
+ * A `nonanticipative: true` DecisionVariable folds the scenes into ONE LP
+ * scene (`SimulationLP::scene_merge()`).  The SDDP machinery that assumes
+ * one LP per ORIGINAL scene, or one scenario per state column, would give
+ * a silently wrong answer on that scene, so it is a hard error instead:
+ *  - active backward apertures (`aperture_array`, `apertures`,
+ *    `num_apertures` …) — the aperture pass perturbs only the scene's
+ *    first scenario;
+ *  - `cut_sharing_mode = markov` — one Markov state per original scene;
+ *  - boundary cuts (`boundary_cuts_file`) — one α tied to the first
+ *    scenario's state;
+ *  - loading cuts from a file (`cuts_input_file`, `cut_recovery_mode`
+ *    under `--recover`) — cut files identify a state coefficient by
+ *    (class, variable, uid) without the scenario, so they cannot address
+ *    the per-scenario state columns of a merged scene.
+ *
+ * @return nullopt when there is no merge or nothing conflicts; otherwise an
+ *         `InvalidInput` Error naming the decision variable and the option.
+ */
+[[nodiscard]] auto validate_nonanticipative_sddp(const SimulationLP& sim,
+                                                 const SDDPOptions& opts)
+    -> std::optional<Error>;
+
+/// Error returned when cuts are loaded from a file into a merged scene
+/// (nullopt when the simulation has no nonanticipative merge).
+[[nodiscard]] auto nonanticipative_cut_load_error(const SimulationLP& sim,
+                                                  std::string_view what)
+    -> std::optional<Error>;
 
 /**
  * @class SDDPMethod
@@ -333,15 +366,13 @@ public:
   /// at ``sddp_iteration.cpp:1846`` walk a combined index over
   /// ``[seed... | results...]`` to resolve the lookback target.
   ///
-  /// **Convergence safety**: a tiny seed-vs-iter-1 Δgap can fall
-  /// below ``stationary_tol`` on a level whose inherited envelope
-  /// nearly matches the prior level's UB.  Pair this seed with
-  /// ``min_iterations >= 2`` at the level (plp2gtopt enables this
-  /// on L0/L1/L2) so the stationary check cannot fire on iter 1
-  /// alone.  Without the min-iter guard, an L0→L1 transition where
-  /// the multi-aperture solve happens to land at L0's UB would
-  /// converge L1 immediately, defeating the whole cascade
-  /// refinement.
+  /// **Convergence safety**: the seed only feeds the reported Δgap.
+  /// A stationary STOP needs ``stationary_window`` iterations of the
+  /// level's own with cuts (and the gap below
+  /// ``stationary_gap_ceiling``), so a seed-vs-iter-1 Δgap can never
+  /// stop a level by itself — previously a cold level seeded with the
+  /// prior level's bounds declared "stationary" at iter 1 with a 40 %
+  /// gap.
   void seed_prior_bounds(std::vector<PriorIterBounds> history) noexcept
   {
     m_seed_prior_history_ = std::move(history);
@@ -437,6 +468,16 @@ public:
   [[nodiscard]] constexpr auto aperture_chunk_size() const noexcept
   {
     return m_aperture_chunk_.chunk_size;
+  }
+
+  /// Cross-iteration record of backward-pass apertures dropped as
+  /// infeasible (issue #551): per-iteration drop counts (copied into
+  /// `SDDPIterationResult::apertures_dropped`) and the persistent-drop
+  /// escalations.  Reset at the start of every `solve()`.
+  [[nodiscard]] constexpr auto aperture_drop_tracker() const noexcept
+      -> const ApertureDropTracker&
+  {
+    return m_aperture_drops_;
   }
 
   /// Mutable options access (for cascade orchestration between solve() calls).
@@ -1002,6 +1043,16 @@ private:
                                                 IterationIndex iteration_index)
       -> std::expected<int, Error>;
 
+  /// True when the backward pass builds its cuts from apertures: the
+  /// `apertures` option is not `[]` AND an aperture set resolves
+  /// (`aperture_array`, or requested scenario UIDs).  Otherwise every
+  /// backward step is a plain Benders cut from the forward duals.
+  [[nodiscard]] bool aperture_cuts_effective() const;
+
+  /// Banner label: "enabled" / "disabled" / "none (Benders from forward
+  /// duals)" when the option is on but no aperture set resolves.
+  [[nodiscard]] std::string_view apertures_label() const;
+
   /// Process a single backward-pass phase step (pi → pi-1) with apertures.
   /// @return Number of optimality cuts added during this step.
   /// @param scene_index      Scene being processed.
@@ -1167,6 +1218,8 @@ private:
   /// Resolved aperture task grouping (see `aperture_chunk_mode()`).
   ApertureChunkResolution m_aperture_chunk_ {};
   ApertureDataCache m_aperture_cache_;
+  /// Dropped-aperture bookkeeping (see `aperture_drop_tracker()`).
+  ApertureDropTracker m_aperture_drops_ {};
   LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
   SDDPCutManager m_cut_store_;

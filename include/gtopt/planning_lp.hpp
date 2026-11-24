@@ -13,6 +13,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -314,8 +315,10 @@ public:
               return std::forward<PlanningT>(planning);
             }())
       , m_options_(m_planning_.options)
-      , m_simulation_(
-            m_planning_.simulation, m_options_, std::move(shared_index_cache))
+      , m_simulation_(m_planning_.simulation,
+                      m_options_,
+                      std::move(shared_index_cache),
+                      plan_nonanticipative_scene_merge(m_planning_))
       , m_flat_opts_(inheritable_flat_options(flat_opts))
       , m_name_store_(make_name_store(flat_opts, m_options_))
       , m_systems_(create_systems(
@@ -586,6 +589,14 @@ public:
     bool statistical_converged {
         false,
     };  ///< True if CI-based statistical criterion triggered convergence
+    /// Backward-pass aperture LPs solved / dropped as infeasible /
+    /// dropped for another non-optimal status, and the distinct
+    /// (scene, phase, aperture) triples still dropped in the last
+    /// iteration (all 0 without apertures).
+    std::int64_t aperture_solves {0};
+    std::int64_t aperture_infeasible {0};
+    std::int64_t aperture_failed {0};
+    int aperture_dropped_last_iteration {0};
   };
 
   /** @brief Populate the SDDP summary (called by the SDDP solver). */

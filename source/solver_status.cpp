@@ -243,6 +243,17 @@ std::string build_iteration_status_json(
     json += "  },\n";
   }
 
+  // ── Backward-pass aperture totals (SDDP with apertures only) ──
+  if (snapshot.aperture_solves > 0) {
+    json += "  \"aperture_summary\": {";
+    json += std::format("\"solves\": {}, ", snapshot.aperture_solves);
+    json += std::format("\"infeasible\": {}, ", snapshot.aperture_infeasible);
+    json += std::format("\"failed\": {}, ", snapshot.aperture_failed);
+    json += std::format("\"dropped_last_iteration\": {}",
+                        snapshot.aperture_dropped_last_iteration);
+    json += "},\n";
+  }
+
   // ── Iteration history ──
   json += "  \"history\": [\n";
   for (const auto& [i, r] : enumerate(results)) {
@@ -260,6 +271,8 @@ std::string build_iteration_status_json(
     json += std::format("      \"cuts_added\": {},\n", r.cuts_added);
     json += std::format("      \"infeasible_cuts_added\": {},\n",
                         r.infeasible_cuts_added);
+    json +=
+        std::format("      \"apertures_dropped\": {},\n", r.apertures_dropped);
     json +=
         std::format("      \"forward_pass_s\": {:.4f},\n", r.forward_pass_s);
     json +=

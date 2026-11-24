@@ -754,6 +754,16 @@ void create_collections(const auto& system_context,
   // InputContext::element_index — that path goes back into
   // system_lp.m_collections_ (i.e., colls), so the earlier entries must already
   // be present.
+  // The deprecated SimpleCommitment has no LP class: it is folded into
+  // a Commitment (System::fold_legacy_simple_commitments, run by
+  // PlanningLP) before any SystemLP is built.
+  if (!sys.simple_commitment_array.empty()) {
+    throw std::invalid_argument(
+        "System has an unfolded simple_commitment_array: call "
+        "System::fold_legacy_simple_commitments() before building a "
+        "SystemLP");
+  }
+
   InputContext ic(system_context);
 
   std::get<Collection<BusLP>>(colls) =
@@ -804,11 +814,9 @@ void create_collections(const auto& system_context,
       make_collection<EmissionSourceLP>(ic, sys.emission_source_array);
   std::get<Collection<CommitmentLP>>(colls) =
       make_collection<CommitmentLP>(ic, sys.commitment_array);
-  std::get<Collection<SimpleCommitmentLP>>(colls) =
-      make_collection<SimpleCommitmentLP>(ic, sys.simple_commitment_array);
   std::get<Collection<LineCommitmentLP>>(colls) =
       make_collection<LineCommitmentLP>(ic, sys.line_commitment_array);
-  // ConverterLP runs after CommitmentLP/SimpleCommitmentLP so the
+  // ConverterLP runs after CommitmentLP so the
   // battery's synthesized u_commit columns (created by
   // `expand_batteries`) are already stamped on the LP and can be
   // reused for charge-side gating — "one true source for u_commit".
@@ -980,7 +988,6 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<ReserveProvisionLP>(sim, sys.reserve_provision_array);
   register_element_names<ReserveZoneLP>(sim, sys.reserve_zone_array);
   register_element_names<CommitmentLP>(sim, sys.commitment_array);
-  register_element_names<SimpleCommitmentLP>(sim, sys.simple_commitment_array);
   register_element_names<LineCommitmentLP>(sim, sys.line_commitment_array);
   register_element_names<InertiaZoneLP>(sim, sys.inertia_zone_array);
   register_element_names<InertiaProvisionLP>(sim, sys.inertia_provision_array);
@@ -1995,6 +2002,10 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
             .uid = element<GeneratorLP>(comm.generator_sid()).uid(),
         };
         for (const auto& stage : phase().stages()) {
+          // Block-formulation stages carry no logic / min up-down rows.
+          if (!stage.is_chronological()) {
+            continue;
+          }
           const auto* ucols = comm.find_status_cols(scenario, stage);
           if (ucols == nullptr) {
             continue;

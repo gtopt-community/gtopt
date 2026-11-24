@@ -227,7 +227,7 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     }
 
     // Create binary status variable u_l.  IntegerScope::Block matches
-    // the per-block grouping used by SimpleCommitment.
+    // the per-block grouping of a block-formulation Commitment.
     const auto u_domain =
         is_relax ? IntegerDomain::Relaxed : IntegerDomain::Binary;
     const std::array<BlockUid, 1> u_blocks {buid};

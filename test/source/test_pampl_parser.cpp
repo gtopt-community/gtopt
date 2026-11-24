@@ -7,6 +7,8 @@
  *            see LICENSING.md
  */
 
+#include <stdexcept>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -662,5 +664,32 @@ constraint gen_cap:
     REQUIRE(result.constraints[0].slack_name.has_value());
     CHECK(test_support::require_value(result.constraints[0].slack_name)
           == "slack_X");
+  }
+}
+
+TEST_CASE("PamplParser - deeply nested param value is rejected")  // NOLINT
+{
+  // Moderate nesting is fine.
+  {
+    const std::string src = "param p = " + std::string(100, '(') + "1"
+        + std::string(100, ')') + ";";
+    const auto r = PamplParser::parse(src);
+    REQUIRE(r.params.size() == 1);
+    CHECK(r.params[0].value.value_or(0) == doctest::Approx(1.0));
+  }
+
+  // Pathological nesting is a clean error, not a stack overflow.
+  for (const char open : {'(', '-'}) {
+    CAPTURE(open);
+    std::string src = "param p = ";
+    src.append(200'000, open);
+    src += "1";
+    if (open == '(') {
+      src.append(200'000, ')');
+    }
+    src += ";";
+    CHECK_THROWS_WITH_AS((void)PamplParser::parse(src),
+                         doctest::Contains("nested too deeply"),
+                         std::invalid_argument);
   }
 }

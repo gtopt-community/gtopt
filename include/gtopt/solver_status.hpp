@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -89,6 +90,19 @@ struct SolverStatusSnapshot
   double avg_lp_task_cpu_pct {};
   /// Average RSS delta (MB) per LP task.
   double avg_lp_task_rss_delta_mb {};
+
+  // ── Backward-pass aperture totals (SDDP; all 0 without apertures) ──
+
+  /// Aperture LPs solved so far in this solve.
+  std::int64_t aperture_solves {};
+  /// Aperture LPs dropped as proven infeasible.
+  std::int64_t aperture_infeasible {};
+  /// Aperture LPs dropped for another non-optimal status (time limit,
+  /// numerical abort, non-optimal).
+  std::int64_t aperture_failed {};
+  /// Distinct (scene, phase, aperture) triples dropped in the last
+  /// recorded iteration.
+  int aperture_dropped_last_iteration {};
 };
 
 /// Build the ITERATION portion of the solver-status JSON document.

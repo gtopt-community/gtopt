@@ -57,7 +57,7 @@ namespace
   const auto eff = backend.last_solve_effort();
   const double seconds = eff.seconds > 0.0 ? eff.seconds : wall;
   const double ticks = eff.ticks > 0.0 ? eff.ticks : seconds;
-  SolveEffortTotals::instance().add(seconds, ticks);
+  SolveEffortTotals::instance().add(seconds, ticks, eff.iterations);
   return ticks;
 }
 

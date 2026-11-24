@@ -673,7 +673,8 @@ void CuOptSolverBackend::solve_()
   //     cuOptAddMIPStart is unsupported with presolve on, and the MIP start
   //     is explicit gtopt machinery (seed pipelines) that must not be
   //     silently broken by a tuning file.
-  auto prm_pairs = load_solver_cfg(
+  // Read ONCE per process (`load_solver_cfg_cached`), not on every solve.
+  auto prm_pairs = load_solver_cfg_cached(
       m_options_.param_file, solver_name(), cuopt_cfg_enum_keys);
   const bool has_mip_start = !m_mip_start_.empty();
   std::optional<bool> prm_warmstart;

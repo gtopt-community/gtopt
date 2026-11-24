@@ -424,22 +424,17 @@ TEST_CASE("Review 5.7: offline (cold) provision guards")  // NOLINT
   SUBCASE("offline with no urmax and no capacity: finite big-M")
   {
     // No urmax, no capacity: the big-M must not be the 1e20/DblMax
-    // sentinel (or the gating must be skipped with a diagnostic).
-    PlanningLP plp(
-        parse_planning_json(rvg_offline_case("", "", /*commitment=*/true)));
-    auto& li = plp.systems().front().front().linear_interface();
-    double max_abs = 0.0;
-    for (Index r = 0; r < li.get_numrows(); ++r) {
-      const auto* lbl = li.row_label_at(RowIndex {r});
-      if (lbl == nullptr) {
-        continue;
-      }
-      for (Index c = 0; c < li.get_numcols(); ++c) {
-        max_abs = std::max(max_abs,
-                           std::abs(li.get_coeff(RowIndex {r}, ColIndex {c})));
-      }
+    // sentinel.  The gating rejects it with a diagnostic (the stage is
+    // non-chronological, so the Commitment builds its block formulation —
+    // before the merge it was skipped and this guard never ran).
+    std::string what;
+    try {
+      PlanningLP plp(
+          parse_planning_json(rvg_offline_case("", "", /*commitment=*/true)));
+    } catch (const std::exception& e) {
+      what = e.what();
     }
-    CHECK(max_abs < 1.0e9);
+    CHECK(what.find("needs a finite ceiling") != std::string::npos);
   }
 }
 

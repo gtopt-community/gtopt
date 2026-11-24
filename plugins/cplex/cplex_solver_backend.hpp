@@ -317,6 +317,12 @@ private:
   LPAlgo m_algorithm_ {LPAlgo::default_algo};
   int m_threads_ {0};
   bool m_presolve_ {true};
+  /// True while the env's parameters are exactly `*m_prep_.options` as
+  /// applied by `apply_options` (or the env ctor).  Lets `apply_options`
+  /// skip an identical re-apply — notably the `.prm` re-read
+  /// (`CPXreadcopyparam`) that used to run before EVERY solve.
+  /// Cleared by every path that changes env parameters directly.
+  bool m_env_options_current_ {false};
   int m_log_level_ {0};
   /// Native objective offset (raw/scaled units).  Absolute value set via
   /// `set_obj_offset`; re-applied after `CPXcopylp` (which resets it) and

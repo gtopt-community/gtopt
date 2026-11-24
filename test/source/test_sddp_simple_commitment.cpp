@@ -41,6 +41,7 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/json/json_options.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -51,7 +52,6 @@
 #include <gtopt/sddp_options.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/simple_commitment.hpp>
-#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/utils.hpp>
 
 #include "require_value.hpp"
@@ -365,7 +365,7 @@ struct ScDispatchSample
           gen_lps, [](const auto& g) { return g.uid() == Uid {2}; });
       REQUIRE(gen_it != gen_lps.end());
 
-      const auto& sc_lps = sys.template elements<SimpleCommitmentLP>();
+      const auto& sc_lps = sys.template elements<CommitmentLP>();
       REQUIRE(sc_lps.size() == 1);
       const auto& sc_lp = sc_lps.front();
 

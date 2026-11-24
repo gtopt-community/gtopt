@@ -13,8 +13,13 @@
 
 #include <array>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <format>
 #include <limits>
 #include <ranges>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -25,8 +30,10 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_common.hpp>
 #include <gtopt/sddp_cut_io.hpp>
+#include <gtopt/sddp_forward_crossover.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_pool.hpp>
+#include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_stats.hpp>
 #include <gtopt/solver_status.hpp>
 #include <gtopt/strong_index_vector.hpp>
@@ -93,6 +100,36 @@ void log_backward_timing_breakdown(IterationIndex iteration_index,
       delta.bwd_kappa_s);
 }
 
+/// Emit one INFO line with the backend solve effort of an SDDP pass:
+/// number of LP solves, simplex iterations, solver-reported seconds
+/// (summed over threads) and deterministic ticks — the per-LP numbers
+/// needed to compare against another SDDP code (e.g. PLP) on the same
+/// machine.  `wall_s` is the pass wall time, so solver_s / wall_s is
+/// the effective solver parallelism.
+void log_solve_effort(IterationIndex iteration_index,
+                      std::string_view pass,
+                      const SolveEffortTotals::Snapshot& d,
+                      double wall_s)
+{
+  if (d.count <= 0) {
+    return;
+  }
+  const auto n = static_cast<double>(d.count);
+  SPDLOG_INFO(
+      "SDDP Effort [i{}] {}: {} solve(s), {:.0f} simplex it/solve, "
+      "{:.1f} ms/solve, solver={:.1f}s ({:.1f}x of {:.1f}s wall), "
+      "{:.0f} ticks/solve",
+      gtopt::uid_of(iteration_index),
+      pass,
+      d.count,
+      static_cast<double>(d.iterations) / n,
+      1000.0 * d.seconds / n,
+      d.seconds,
+      wall_s > 0.0 ? d.seconds / wall_s : 0.0,
+      wall_s,
+      d.ticks / n);
+}
+
 /// Slack added to each ``alpha`` bucket boundary in
 /// ``kZScoreTable`` so that user-supplied round confidence levels —
 /// which round-trip through ``1.0 - p`` to e.g.
@@ -142,6 +179,65 @@ inline constexpr std::array<ZScoreBucket, 4> kZScoreTable {
   return kZScoreTable.back().z;  // unreachable: ∞ row matches everything.
 }
 
+/// Why the training loop of one SDDP solve ended (logged once).
+enum class StopReason : std::uint8_t
+{
+  max_iterations,  ///< ran the full `max_iterations` budget
+  gap_tol,  ///< primary gap test (`convergence_tol`, stationarity off)
+  stationary,  ///< ΔUB stationary over the own window, gap below ceiling
+  statistical,  ///< statistical CI test
+  stop_requested,  ///< sentinel / API / programmatic stop
+  callback,  ///< iteration callback asked to stop
+};
+
+/// Suffix for the stop-reason lines when the last backward pass dropped
+/// apertures: the bounds then describe a rescaled distribution, which
+/// is why the run is not reported as converged (issue #551).
+[[nodiscard]] auto aperture_drop_stop_note(int apertures_dropped) -> std::string
+{
+  if (apertures_dropped <= 0) {
+    return {};
+  }
+  return std::format(
+      "; not converged: {} aperture(s) infeasible in the last backward "
+      "pass, the LB is over a rescaled distribution",
+      apertures_dropped);
+}
+
+void log_stop_reason(StopReason reason,
+                     const std::vector<SDDPIterationResult>& results)
+{
+  const auto n = results.size();
+  const double gap = results.empty() ? 1.0 : results.back().effective_gap();
+  const int dropped = results.empty() ? 0 : results.back().apertures_dropped;
+  const std::string_view why = [reason]
+  {
+    switch (reason) {
+      case StopReason::max_iterations:
+        return "max_iterations reached (not converged)";
+      case StopReason::gap_tol:
+        return "converged by convergence_tol";
+      case StopReason::stationary:
+        return "converged: UB stationary with gap below "
+               "stationary_gap_ceiling";
+      case StopReason::statistical:
+        return "converged by the statistical CI test";
+      case StopReason::stop_requested:
+        return "stop requested";
+      case StopReason::callback:
+        return "iteration callback requested stop";
+    }
+    return "unknown";
+  }();
+  SPDLOG_INFO(
+      "SDDP: training stopped after {} iteration(s) — {}{} "
+      "(final signed gap {:.4f})",
+      n,
+      why,
+      aperture_drop_stop_note(dropped),
+      gap);
+}
+
 /// Decomposition of the SDDP convergence test into its individual
 /// signals plus a combined verdict.  Used by both the synchronous
 /// ``SDDPMethod::iterate()`` and asynchronous
@@ -155,65 +251,106 @@ inline constexpr std::array<ZScoreBucket, 4> kZScoreTable {
 ///
 ///   1. ``past_min_iterations`` — caller's iter index has cleared the
 ///      ``SDDPOptions::min_iterations`` bootstrap floor.
-///   2. ``stationary_ok`` (stationarity ENABLED) — relative ΔUB
-///      lookback is below ``stationary_tol`` (carried in
-///      ``SDDPIterationResult::gap_change`` — see field comment).
-///      This is then the SOLE signal (2026-05-14 rewrite): the gap is
-///      not consulted, because under multi-cut / aperture overshoot
-///      the signed gap zero-crosses before the policy stabilises.
-///      Guarded only against the ``1.0`` default sentinel so an
-///      uninitialised iter cannot trigger.  **No window-fill guard**:
-///      under the multi-cut overshoot regime UB stabilises long
-///      before LB does, and waiting for a full window just wastes
-///      wall time at expensive levels (the large hydrothermal case ≈ 13 min
-///      per iter).
+///   2. ``stationary_ok`` (stationarity ENABLED) — ALL of:
+///      * ``stationary_signal``: the relative ΔUB lookback is below
+///        ``stationary_tol`` (carried in ``SDDPIterationResult::
+///        gap_change``; guarded against the ``1.0`` default sentinel);
+///      * ``window_full``: this solve has done at least
+///        ``stationary_window`` iterations of its OWN with cuts — the
+///        lookback never reaches into bounds seeded from a previous
+///        cascade level (``seed_prior_bounds``), and a level that started
+///        with no cut at all does not count its cut-less first iteration;
+///      * ``below_ceiling``: the signed (effective) gap is below
+///        ``stationary_gap_ceiling``.  A negative gap (multi-cut /
+///        aperture overshoot, LB above UB) passes, so the 2026-06-16
+///        concern — refusing stationary overshoot states — still holds;
+///        only a large POSITIVE gap blocks the stop.
+///      The gap test is not consulted otherwise: under multi-cut /
+///      aperture overshoot the signed gap zero-crosses before the policy
+///      stabilises.
+///   4. ``apertures_ok`` — the iteration's backward pass dropped no
+///      aperture (``SDDPIterationResult::apertures_dropped == 0``).  A
+///      dropped (infeasible / timed-out) aperture is renormalised out of
+///      the expected cut, so the LB is computed over a rescaled
+///      distribution; on a model without relatively complete recourse
+///      the same aperture is dropped every iteration and the bounds can
+///      meet on the wrong problem (issue #551).  Gates every criterion,
+///      including the statistical CI test.
 ///   3. ``gap_ok`` (stationarity DISABLED: ``stationary_tol <= 0``,
 ///      ``stationary_window <= 0`` or ``convergence_mode == gap_only``)
 ///      — the signed relative gap lies in the converged band
 ///      ``(-kSddpGapFpEpsilon, convergence_tol)``
-///      (``sddp_gap_converged``).  Without it the 2026-05-14 rewrite
-///      left such runs with no exit at all: bounds met exactly
-///      (``gap = ±0.0000 %``) yet the loop ran to ``max_iterations``.
-///      A negative ``convergence_tol`` disables it.
+///      (``sddp_gap_converged``).  A negative ``convergence_tol``
+///      disables it.
 ///
-/// The former ``|ir.gap| < stationary_gap_ceiling`` clause was REMOVED
-/// (2026-06-16): it was AND'd into ``converged()`` and so acted as a
-/// hard gate that refused stationary multicut-overshoot states.
+/// History: the ceiling clause was removed on 2026-06-16 (it was a
+/// symmetric ``|gap|`` gate that refused stationary overshoot states) and
+/// reinstated one-sided in 2026-11 together with the own-iteration
+/// window: without them a cold cascade level seeded with the previous
+/// level's bounds declared "ΔUB stationary" at its first iteration with
+/// a 40 % gap, and large-case cascade levels stopped with a gap of
+/// several percent.
 struct ConvergenceCheck
 {
   bool past_min_iterations {false};
   bool gap_ok {false};
+  bool stationary_signal {false};
+  bool window_full {false};
+  bool below_ceiling {false};
   bool stationary_ok {false};
+  bool apertures_ok {true};
 
   /// The canonical stop predicate.
   [[nodiscard]] auto converged() const noexcept -> bool
   {
-    return past_min_iterations && (gap_ok || stationary_ok);
+    return apertures_ok && past_min_iterations && (gap_ok || stationary_ok);
+  }
+
+  /// A gap / stationary criterion is met but the stop is refused because
+  /// the backward pass dropped apertures.
+  [[nodiscard]] auto apertures_blocked() const noexcept -> bool
+  {
+    return !apertures_ok && past_min_iterations && (gap_ok || stationary_ok);
+  }
+
+  /// ΔUB is stationary but the stop is refused (window or ceiling).
+  [[nodiscard]] auto stationary_blocked() const noexcept -> bool
+  {
+    return past_min_iterations && stationary_signal && !stationary_ok;
   }
 };
 
+/// @param own_iterations  iterations already completed by THIS solve
+///        (excluding the current one; seeded cascade bounds not counted).
+/// @param first_cut_iteration  0 when the solve started with cuts loaded
+///        (hot start, inherited cascade cuts, boundary cuts), else 1 — the
+///        first iteration of a cut-less start is not a policy iterate.
 [[nodiscard]] inline auto evaluate_convergence_check(
     const SDDPIterationResult& ir,
     IterationIndex iteration_index,
     IterationIndex iteration_offset,
-    const SDDPOptions& opts) noexcept -> ConvergenceCheck
+    const SDDPOptions& opts,
+    std::size_t own_iterations,
+    std::size_t first_cut_iteration) noexcept -> ConvergenceCheck
 {
   ConvergenceCheck c;
 
   c.past_min_iterations = iteration_index
       >= iteration_offset + IterationIndex {opts.min_iterations - 1};
+  c.apertures_ok = ir.apertures_dropped == 0;
 
   if (!opts.stationarity_enabled()) {
     // `effective_gap()` = corrected gap (UB + E[Φ'(v_T)] − LB) when
     // boundary cuts are loaded, the raw gap otherwise.
     c.gap_ok = sddp_gap_converged(ir.effective_gap(), opts.convergence_tol);
   } else {
-    // ΔUB stationarity fires as soon as the lookback Δ drops below
-    // tol.  The ``< 1.0`` sentinel guard still blocks the very first
-    // iter (when ``ir.gap_change`` keeps its default).  No
-    // ``results_count >= window`` guard — see ConvergenceCheck docs.
-    c.stationary_ok =
+    c.stationary_signal =
         (ir.gap_change < opts.stationary_tol && ir.gap_change < 1.0);
+    c.window_full =
+        own_iterations >= static_cast<std::size_t>(opts.stationary_window)
+            + first_cut_iteration;
+    c.below_ceiling = ir.effective_gap() < opts.stationary_gap_ceiling;
+    c.stationary_ok = c.stationary_signal && c.window_full && c.below_ceiling;
   }
 
   return c;
@@ -261,8 +398,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   auto sddp_pool = make_sddp_work_pool(
       pool_cpu_factor, m_options_.pool_memory_limit_mb, cell_task_headroom);
   const bool need_aux_pool =
-      (!m_options_.apertures || !m_options_.apertures->empty())
-      || !m_options_.log_directory.empty();
+      m_options_.apertures_requested() || !m_options_.log_directory.empty();
   auto aux_pool = need_aux_pool
       ? make_solver_work_pool(
             /*cpu_factor=*/2.0,
@@ -291,31 +427,31 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
   // Compute per-pass solver options: forward/backward options override
   // the base lp_opts when configured in SDDPOptions.
-  // Forward pass crossover.  The INTENT is barrier WITHOUT crossover (none) —
-  // fast interior solves, vertex duals recovered later only where needed.
-  // But the no-aperture Benders path consumes this solve's duals DIRECTLY as
-  // the cut, and the interior (analytic-center) duals there make some
-  // SDDP/cascade runs overshoot (LB>UB) — see test_cascade_integration and
-  // test_sddp_async.  Until that cut path recovers VERTEX duals (a crossover
-  // or dual-simplex re-solve), the forward stays `automatic` (CPLEX crosses
-  // over → vertex duals), which is also the real pre-fix behaviour (the old
-  // `crossover=false` → `BarCrossAlg=-1` was silently rejected by CPLEX).
-  // `none` remains available opt-in via `forward_solver_options`.
-  auto fwd_opts = m_options_.forward_solver_options.value_or(lp_opts);
-  // Crossover is only meaningful — and only needed for vertex duals — when the
-  // forward LP is solved by BARRIER (or the solver's default, which picks
-  // barrier on these LPs).  The simplex methods (primal/dual) already produce
-  // a vertex basis with vertex duals, so forcing crossover on them is a no-op
-  // at best and, by pinning `automatic`, would suppress a warm dual-simplex
-  // resolve.  Force crossover only for the barrier/default case; respect an
-  // explicit `forward_solver_options.algorithm = primal|dual` (settable via
-  // `--set sddp_options.forward_solver_options.algorithm=dual`), which is what
-  // the basis warm-start (`basis_cross_mode`) needs to actually exploit the
-  // seeded basis.
-  if (fwd_opts.algorithm == LPAlgo::barrier
-      || fwd_opts.algorithm == LPAlgo::default_algo)
-  {
-    fwd_opts.crossover = CrossoverMode::automatic;
+  // Forward pass crossover (see sddp_forward_crossover.hpp): a vertex
+  // solution only where something consumes it — the plain Benders
+  // backward pass builds its cut from the forward duals when no aperture
+  // set resolves, and basis_cross_mode warm / forward_to_backward /
+  // full_cross capture the forward basis.  Otherwise barrier without
+  // crossover.  An explicit non-`auto` forward_solver_options.crossover
+  // always wins; simplex algorithms are left untouched.  Per cascade
+  // level automatically: each level builds its own SDDPMethod.
+  const bool aperture_cuts = aperture_cuts_effective();
+  const auto fwd_opts = resolve_forward_solver_options(
+      m_options_.forward_solver_options.value_or(lp_opts),
+      m_options_.forward_solver_options.has_value(),
+      /*duals_feed_cuts=*/!aperture_cuts,
+      m_options_.basis_cross_mode);
+  SPDLOG_INFO(
+      "SDDP: forward crossover = {} (aperture cuts {}, basis_cross_mode {})",
+      enum_name(fwd_opts.crossover),
+      aperture_cuts ? "on" : "off",
+      enum_name(m_options_.basis_cross_mode));
+  if (!aperture_cuts && is_interior_solve(fwd_opts)) {
+    spdlog::warn(
+        "SDDP: forward_solver_options.crossover = none while the cuts come "
+        "from the forward duals (no apertures) — interior duals; cut "
+        "intercepts are lowered by {} relative",
+        interior_cut_rel_gap);
   }
   const auto bwd_opts = m_options_.backward_solver_options.value_or(lp_opts);
 
@@ -329,6 +465,17 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
   std::vector<SDDPIterationResult> results;
   results.reserve(static_cast<std::size_t>(m_options_.max_iterations) + 1);
+
+  // Whether this solve starts with a value-function approximation (hot
+  // start, inherited cascade cuts, boundary cuts).  A cut-less start's
+  // first iteration is not a policy iterate, so the stationarity window
+  // only starts counting after it (see `evaluate_convergence_check`).
+  const std::size_t first_cut_iteration =
+      (num_stored_cuts() > 0 || m_boundary_cuts_loaded_) ? 0 : 1;
+  StopReason stop_reason = StopReason::max_iterations;
+
+  // Dropped-aperture bookkeeping is per solve (cascade levels re-solve).
+  m_aperture_drops_.reset();
 
   // ── Async scene execution ──
   // When scenes are independent (no cut sharing) and max_async_spread > 0,
@@ -357,6 +504,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       const auto iteration_start_time = std::chrono::steady_clock::now();
 
       if (should_stop()) {
+        stop_reason = StopReason::stop_requested;
         SPDLOG_INFO(
             "SDDP Iter [i{}]: stop requested, halting after {}"
             " iterations",
@@ -380,8 +528,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // ── Forward pass ──
       SPDLOG_DEBUG("SDDP Forward [i{}]: starting forward pass",
                    gtopt::uid_of(iteration_index));
+      const auto effort_fwd_before = SolveEffortTotals::instance().snapshot();
       auto fwd =
           run_forward_pass_all_scenes(*sddp_pool, fwd_opts, iteration_index);
+      const auto effort_fwd_after = SolveEffortTotals::instance().snapshot();
       planning_lp().log_lp_memory_breakdown("post-forward");
       if (!fwd.has_value()) {
         monitor.stop();
@@ -394,6 +544,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         // discarded (no backward pass, no bounds, no cut rollback) and
         // control falls through to the simulation pass + output tail,
         // exactly as a stop caught at the top of the loop.
+        stop_reason = StopReason::stop_requested;
         SPDLOG_INFO(
             "SDDP Iter [i{}]: stop requested during forward pass, halting "
             "after {} completed iteration(s)",
@@ -453,6 +604,17 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       ir.cuts_added = bwd.total_cuts;
       ir.infeasible_cuts_added = m_benders_cut_.infeasible_cut_count();
       ir.backward_pass_s = bwd.elapsed_s;
+      ir.apertures_dropped =
+          m_aperture_drops_.drops_in_iteration(iteration_index);
+      if (ir.apertures_dropped > 0) {
+        SPDLOG_INFO(
+            "SDDP Backward [i{}]: {} aperture solve(s) dropped as "
+            "infeasible (expected cuts renormalised; {} persistent "
+            "(scene, phase, aperture) triple(s) so far)",
+            gtopt::uid_of(iteration_index),
+            ir.apertures_dropped,
+            m_aperture_drops_.persistent_count());
+      }
       if (bwd.has_feasibility_issue) {
         ir.feasibility_issue = true;
         // "LP-level infeasibility" — aperture solves failed at
@@ -485,6 +647,15 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         bwd_delta -= bwd_stats_before;
         log_backward_timing_breakdown(iteration_index, bwd_delta);
       }
+      log_solve_effort(iteration_index,
+                       "fwd",
+                       effort_fwd_after - effort_fwd_before,
+                       fwd->elapsed_s);
+      log_solve_effort(
+          iteration_index,
+          "bwd",
+          SolveEffortTotals::instance().snapshot() - effort_fwd_after,
+          bwd.elapsed_s);
 
       // ── Cut sharing ──
       // Cut sharing across scenes happens inside the synchronized
@@ -539,8 +710,12 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
       const auto mode = m_options_.convergence_mode;
 
-      const auto check = evaluate_convergence_check(
-          ir, iteration_index, m_iteration_offset_, m_options_);
+      const auto check = evaluate_convergence_check(ir,
+                                                    iteration_index,
+                                                    m_iteration_offset_,
+                                                    m_options_,
+                                                    results.size(),
+                                                    first_cut_iteration);
       const bool past_min_iterations = check.past_min_iterations;
       const bool gap_is_stationary = check.stationary_ok;
 
@@ -548,6 +723,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         ir.converged = true;
         update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
         if (check.gap_ok) {
+          stop_reason = StopReason::gap_tol;
           SPDLOG_INFO(
               "SDDP Iter [i{}]: gap convergence "
               "(gap={:.3e} < convergence_tol={:.3e}) [CONVERGED]",
@@ -555,15 +731,44 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
               ir.effective_gap(),
               m_options_.convergence_tol);
         } else {
+          stop_reason = StopReason::stationary;
           ir.stationary_converged = true;
           SPDLOG_INFO(
               "SDDP Iter [i{}]: ΔUB stationary convergence "
-              "(ΔUB={:.6f} < tol={:.6f}; signed gap={:.4f}) [CONVERGED]",
+              "(ΔUB={:.6f} < tol={:.6f} over {} own iteration(s); "
+              "signed gap={:.4f} < stationary_gap_ceiling={:.4f}) "
+              "[CONVERGED]",
               gtopt::uid_of(iteration_index),
               ir.gap_change,
               m_options_.stationary_tol,
-              ir.gap);
+              m_options_.stationary_window,
+              ir.effective_gap(),
+              m_options_.stationary_gap_ceiling);
         }
+      } else if (check.apertures_blocked()) {
+        SPDLOG_INFO(
+            "SDDP Iter [i{}]: {} criterion met but not converged — {} "
+            "aperture(s) infeasible in this backward pass, the LB is over a "
+            "rescaled distribution; continuing",
+            gtopt::uid_of(iteration_index),
+            check.gap_ok ? "gap" : "ΔUB stationary",
+            ir.apertures_dropped);
+      } else if (check.stationary_blocked()) {
+        SPDLOG_INFO(
+            "SDDP Iter [i{}]: ΔUB stationary (ΔUB={:.6f} < tol={:.6f}) "
+            "but not converged — {}; continuing",
+            gtopt::uid_of(iteration_index),
+            ir.gap_change,
+            m_options_.stationary_tol,
+            !check.window_full
+                ? std::format("only {} own iteration(s) with cuts, "
+                              "stationary_window={}",
+                              results.size() + 1 - first_cut_iteration,
+                              m_options_.stationary_window)
+                : std::format("signed gap {:.4f} >= "
+                              "stationary_gap_ceiling {:.4f}",
+                              ir.effective_gap(),
+                              m_options_.stationary_gap_ceiling));
       }
 
       // ── Statistical CI convergence ──
@@ -609,7 +814,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // within the standard error of the mean.
       if (!ir.converged && mode == ConvergenceMode::statistical
           && m_options_.convergence_confidence > 0.0
-          && ir.scene_upper_bounds.size() > 1 && past_min_iterations)
+          && ir.scene_upper_bounds.size() > 1 && past_min_iterations
+          && check.apertures_ok)
       {
         // Probability-weighted feasible-only mean and variance.  Sum
         // of probabilities is renormalised to the feasible subset so
@@ -704,6 +910,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         // overshoot states.  The CI test (``gap_abs <= ci_threshold``)
         // and the negative-gap FP guard remain.
         if (gap_abs > -kSddpGapFpEpsilon && gap_abs <= ci_threshold) {
+          stop_reason = StopReason::statistical;
           ir.converged = true;
           ir.statistical_converged = true;
           update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
@@ -728,6 +935,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         // removed 2026-06-16 — see the ConvergenceCheck docs).
         else if (gap_is_stationary)
         {
+          stop_reason = StopReason::stationary;
           ir.converged = true;
           ir.statistical_converged = true;
           ir.stationary_converged = true;
@@ -832,15 +1040,19 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             gtopt::log::pct(bd.overestimation_vs_opex()),
             bd.terminal_in_ub ? "  [E[Φ'] in ub]" : "");
       }
-      SPDLOG_INFO("    iter {}  time  total={}  (fwd={} + bwd={})  cuts={}{}",
-                  iter_id,
-                  gtopt::log::dur(ir.iteration_s),
-                  gtopt::log::dur(ir.forward_pass_s),
-                  gtopt::log::dur(ir.backward_pass_s),
-                  ir.cuts_added,
-                  ir.infeasible_cuts_added > 0
-                      ? std::format(" (+{} feas)", ir.infeasible_cuts_added)
-                      : std::string {});
+      SPDLOG_INFO(
+          "    iter {}  time  total={}  (fwd={} + bwd={})  cuts={}{}{}",
+          iter_id,
+          gtopt::log::dur(ir.iteration_s),
+          gtopt::log::dur(ir.forward_pass_s),
+          gtopt::log::dur(ir.backward_pass_s),
+          ir.cuts_added,
+          ir.infeasible_cuts_added > 0
+              ? std::format(" (+{} feas)", ir.infeasible_cuts_added)
+              : std::string {},
+          ir.apertures_dropped > 0
+              ? std::format("  apertures_dropped={}", ir.apertures_dropped)
+              : std::string {});
 
       // ── Post-iteration housekeeping (timed) ──
       // Single INFO line at the end summarises the breakdown so the
@@ -912,6 +1124,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
           dt_callback);
 
       if (callback_requested_stop) {
+        stop_reason = StopReason::callback;
         SPDLOG_INFO("SDDP Iter [i{}]: callback requested stop",
                     gtopt::uid_of(iteration_index));
         break;
@@ -921,6 +1134,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         break;
       }
     }
+    log_stop_reason(stop_reason, results);
+    log_aperture_summary(m_aperture_drops_.summary(), "SDDP");
   }
 
   // ── Simulation pass ──
@@ -1298,6 +1513,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                              const SolverOptions& bwd_opts)
     -> std::expected<std::vector<SDDPIterationResult>, Error>
 {
+  // See `solve()`: a cut-less start's first iteration is not counted in
+  // the stationarity window.
+  const std::size_t async_first_cut_iteration =
+      (num_stored_cuts() > 0 || m_boundary_cuts_loaded_) ? 0 : 1;
   const auto num_scenes = planning_lp().simulation().scene_count();
   const auto num_phases = planning_lp().simulation().phase_count();
   const auto max_spread = m_options_.max_async_spread;
@@ -1371,8 +1590,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       static_cast<std::size_t>(m_options_.max_iterations) + 1, 0);
 
   auto next_converge_iteration_index = m_iteration_offset_;
-  const bool use_apertures =
-      !m_options_.apertures || !m_options_.apertures->empty();
+  const bool use_apertures = m_options_.apertures_requested();
 
   // Probability mode for scene weights
   const auto prob_mode =
@@ -1430,7 +1648,19 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // async per-scene path was added later and missed it.
       const bool gap_in_window =
           sddp_gap_converged(scene_gap, m_options_.convergence_tol);
-      if (gap_in_window && past_min) {
+      // Issue #551: a scene whose backward pass dropped apertures has an
+      // LB over a rescaled distribution — never mark it converged.
+      const int scene_drops = m_aperture_drops_.scene_drops_in_iteration(
+          uid_of(scene_index), iteration_index);
+      if (gap_in_window && past_min && scene_drops > 0) {
+        SPDLOG_INFO(
+            "{}: gap criterion met but not converged — {} aperture(s) "
+            "infeasible in this backward pass",
+            sddp_log(
+                "Async", gtopt::uid_of(iteration_index), uid_of(scene_index)),
+            scene_drops);
+      }
+      if (gap_in_window && past_min && scene_drops == 0) {
         tracker.mark_converged(scene_index, iteration_index);
         SPDLOG_INFO(
             "{}: converged (gap={:.6f})",
@@ -2043,6 +2273,20 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // Async-specific: record per-scene iteration snapshot
       ir.scene_iterations = tracker.scene_iterations();
 
+      // Dropped apertures of this iteration, summed over every scene
+      // (each scene's backward pass for this iteration has completed).
+      ir.apertures_dropped =
+          m_aperture_drops_.drops_in_iteration(next_converge_iteration_index);
+      if (ir.apertures_dropped > 0) {
+        SPDLOG_INFO(
+            "SDDP Async [i{}]: {} aperture solve(s) dropped as infeasible "
+            "(expected cuts renormalised; {} persistent (scene, phase, "
+            "aperture) triple(s) so far)",
+            gtopt::uid_of(next_converge_iteration_index),
+            ir.apertures_dropped,
+            m_aperture_drops_.persistent_count());
+      }
+
       // Convergence gap
       ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
       // Primary gap test in the async path is applied PER SCENE by
@@ -2088,11 +2332,21 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
               evaluate_convergence_check(ir,
                                          next_converge_iteration_index,
                                          m_iteration_offset_,
-                                         m_options_);
-          if (!ir.converged && check.past_min_iterations && check.stationary_ok)
+                                         m_options_,
+                                         results.size(),
+                                         async_first_cut_iteration);
+          if (!ir.converged && check.past_min_iterations && check.stationary_ok
+              && check.apertures_ok)
           {
             ir.converged = true;
             ir.stationary_converged = true;
+          } else if (check.apertures_blocked()) {
+            SPDLOG_INFO(
+                "SDDP Async [i{}]: ΔUB stationary but not converged — {} "
+                "aperture(s) infeasible in this backward pass, the LB is "
+                "over a rescaled distribution; continuing",
+                gtopt::uid_of(next_converge_iteration_index),
+                ir.apertures_dropped);
           }
         }
       }
@@ -2112,7 +2366,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // early-exit; treating its terminal state as aggregate
       // convergence keeps the two dispatch paths semantically
       // aligned.
-      if (!ir.converged && tracker.all_converged()) {
+      if (!ir.converged && tracker.all_converged() && ir.apertures_dropped == 0)
+      {
         ir.converged = true;
       }
 
@@ -2250,6 +2505,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         const auto min_ci = tracker.min_completed_iteration();
         const auto max_ci = tracker.max_completed_iteration();
         const auto metrics = live_metrics_();
+        const auto apertures = m_aperture_drops_.summary();
         const SolverStatusSnapshot snapshot {
             .iteration_index = metrics->iteration,
             .gap = metrics->gap,
@@ -2277,6 +2533,11 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             .lp_tasks_dispatched = pool_stats.lp_tasks_dispatched,
             .avg_lp_task_cpu_pct = pool_stats.avg_task_cpu_pct,
             .avg_lp_task_rss_delta_mb = pool_stats.avg_task_rss_delta_mb,
+            .aperture_solves = apertures.solves,
+            .aperture_infeasible = apertures.infeasible,
+            .aperture_failed = apertures.failed,
+            .aperture_dropped_last_iteration =
+                apertures.dropped_in_last_iteration,
         };
         write_solver_status(status_file, results, elapsed, snapshot, monitor);
       }
@@ -2354,12 +2615,15 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
   SPDLOG_INFO(
       "SDDP async: complete — {} aggregate results, "
-      "converged_scenes={}/{}, spread=[{},{}]",
+      "converged_scenes={}/{}, spread=[{},{}]{}",
       results.size(),
       tracker.num_converged(),
       num_scenes,
       tracker.min_completed_iteration(),
-      tracker.max_completed_iteration());
+      tracker.max_completed_iteration(),
+      aperture_drop_stop_note(
+          results.empty() ? 0 : results.back().apertures_dropped));
+  log_aperture_summary(m_aperture_drops_.summary(), "SDDP async");
 
   // Discard simulation feasibility cuts (same as synchronous path).
   // `sim_before_scene_sizes[si]` carries the post-training cut count

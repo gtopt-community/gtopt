@@ -16,7 +16,7 @@
  *  - hydro: reservoir `rsv` (eini 200, emax 400, inflow 15 /h) feeding
  *    `hydro` (0 $/MWh, 120 MW) — the cross-phase state SDDP must price;
  *  - thermal: `tha` (40 $/MWh), `thb` (60 $/MWh), both with a relaxed
- *    SimpleCommitment (dispatch_pmin 20), and `peaker` (150 $/MWh);
+ *    Commitment (pmin 20), and `peaker` (150 $/MWh);
  *  - BESS `bess` (40/40 MW, 100 MWh, eini 50, η 0.95, deployment energy
  *    0.1 MWh/MW/h) — a second cross-phase state;
  *  - InertiaZone `sen`: 6 000 MWs, relieved by a 2 000 MWs credit once both
@@ -157,11 +157,11 @@ inline constexpr std::array<std::array<double, 4>, 3> kXresLoad {{
       {{"uid": 3, "name": "thb", "bus": 1, "gcost": 60, "capacity": 150}},
       {{"uid": 4, "name": "peaker", "bus": 1, "gcost": 150,
         "capacity": 200}}],
-    "simple_commitment_array": [
-      {{"uid": 1, "name": "sc_tha", "generator": "tha",
-        "dispatch_pmin": 20, "relax": true}},
-      {{"uid": 2, "name": "sc_thb", "generator": "thb",
-        "dispatch_pmin": 20, "relax": true}}],
+    "commitment_array": [
+      {{"uid": 1, "name": "uc_tha", "generator": "tha",
+        "pmin": 20, "relax": true}},
+      {{"uid": 2, "name": "uc_thb", "generator": "thb",
+        "pmin": 20, "relax": true}}],
     "junction_array": [
       {{"uid": 1, "name": "j_up"}},
       {{"uid": 2, "name": "j_down", "drain": true}}],

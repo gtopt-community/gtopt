@@ -4,7 +4,8 @@ One bus, 3 phases × 1 stage × 4 one-hour blocks.  The same system as the
 doctest fixture `test/source/xres_sddp_case.hpp`:
 
 - reservoir `rsv` (eini 200, inflow 15/h) feeding a free 120 MW hydro unit,
-  two thermals with a relaxed `SimpleCommitment` and a peaker;
+  two thermals with a relaxed `Commitment` (pmin 20; per-block
+  formulation, the stages are not chronological) and a peaker;
 - BESS (40/40 MW, 100 MWh) offering capped two-sided reserve (split
   columns) with 0.1 MWh/MW deployment energy;
 - InertiaZone `sen` (6 000 MWs, 2 000 MWs credit with both thermals on);
