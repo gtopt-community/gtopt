@@ -25,7 +25,7 @@ most directly are credited first, in section 1.
 | [SDDP.jl](https://github.com/odow/SDDP.jl) | MPL-2.0 | Oscar Dowson and SDDP.jl contributors | Hydro-thermal and hydro-valley examples adapted as cases and tests; reference values of the SDDP literature benchmarks |
 | [PSRClassesInterface.jl](https://github.com/psrenergy/PSRClassesInterface.jl) | MPL-2.0 | PSR | Sample PSR SDDP cases used to test `sddp2gtopt` |
 | [UnitCommitment.jl](https://github.com/ANL-CEEESA/UnitCommitment.jl) | BSD-3-Clause style (UChicago Argonne open-source licence) | UChicago Argonne, LLC | Unit-commitment benchmark instances and reference solutions (`tools/test_data/`) |
-| [NREL Sienna](https://github.com/NREL-Sienna): PowerSimulations.jl, PowerSystemCaseBuilder.jl, PowerSystemsTestData | BSD-3-Clause (PowerSimulations.jl, PowerSystemCaseBuilder.jl); PowerSystemsTestData has no licence file and is therefore **not redistributed**: `scripts/sienna_to_gtopt` fetches it from upstream at a pinned commit at test/run time (see section 2) | Alliance for Sustainable Energy, LLC | Reference results (`tools/sienna_goldens/`, produced by our own PowerSimulations.jl runs) and the test systems read by `scripts/sienna_to_gtopt` |
+| [NREL Sienna](https://github.com/NREL-Sienna): PowerSimulations.jl, PowerSystemCaseBuilder.jl, PowerSystemsTestData | BSD-3-Clause (PowerSimulations.jl, PowerSystemCaseBuilder.jl); PowerSystemsTestData has no licence file and is therefore **not redistributed**: `scripts/sienna2gtopt` fetches it from upstream at a pinned commit at test/run time (see section 2) | Alliance for Sustainable Energy, LLC | Reference results (`tools/sienna_goldens/`, produced by our own PowerSimulations.jl runs) and the test systems read by `scripts/sienna2gtopt` |
 | [plexos-coad](https://github.com/Computational-Energy/plexos-coad) | BSD-3-Clause | National Renewable Energy Laboratory | Public PLEXOS test models for `plexos2gtopt` |
 | [PyPSA](https://github.com/PyPSA/PyPSA) | MIT | PyPSA developers | Reference for the cycle-basis Kirchhoff formulation (Hörsch et al., 2018) and the CO2-constraint example restated in `test/source/test_emission_pypsa_port.cpp`. No PyPSA code is included. |
 | [GenX](https://github.com/GenXProject/GenX) | GPL-2.0 | GenX contributors | Its documented `1_three_zones` example was used only as a cross-check for `test/source/test_emission_three_zone_ngcc.cpp`, an independent test built from public factual parameters (EPA natural-gas CO2 factor, EIA / NREL ATB heat rates, O&M and fuel prices; cited in the file). No GenX code, data files or tables are included. |
@@ -75,7 +75,7 @@ their vendors; see [`LICENSE-EXCEPTION.md`](LICENSE-EXCEPTION.md).
 | `scripts/cen2gtopt/tests/data/`, `share/gtopt/cogen/`, `share/gtopt/emissions/cen_chile.json`, `scripts/plexos2gtopt/data/` | Small samples and lists taken from the public data of the Chilean system operator, [Coordinador Eléctrico Nacional](https://www.coordinador.cl) (CEN) | Public information of the CEN, cited in each file |
 
 The converters `scripts/rts_gmlc_to_gtopt`, `scripts/nrel118_to_gtopt`,
-`scripts/sienna_to_gtopt`, `tools/ucjl2gtopt.py`, `scripts/cen2gtopt`
+`scripts/sienna2gtopt`, `scripts/cucdata2gtopt`, `tools/ucjl2gtopt.py`, `scripts/cen2gtopt`
 and `scripts/plexos2gtopt` read third-party datasets that are **not**
 included in this repository (for example
 [RTS-GMLC](https://github.com/GridMod/RTS-GMLC) and the NREL-118 data);
@@ -83,14 +83,23 @@ obtain them from their upstream projects under their own terms.
 
 The Sienna
 [PowerSystemsTestData](https://github.com/Sienna-Platform/PowerSystemsTestData)
-files used by `scripts/sienna_to_gtopt` (`5-Bus/`,
+files used by `scripts/sienna2gtopt` (`5-Bus/`,
 `psy_data/data_5bus_pu.jl`, `psy_data/data_14bus_pu.jl`; the 5-bus
 system is the PJM 5-bus case of F. Li and R. Bo, 2010) are **fetched
 from upstream at build/test time and not redistributed**: that
-repository has no licence. `scripts/sienna_to_gtopt/_bundle.py` records
+repository has no licence. `scripts/sienna2gtopt/_bundle.py` records
 the upstream repository, the pinned commit and the SHA-256 of every
 file, and caches the downloaded files under `~/.cache/gtopt/sienna/`
 (see `integration_test/data/README.md`).
+
+The clustered unit-commitment benchmark data of G. Morales-España and
+D. A. Tejada-Arango ([CUC-data](https://github.com/datejada/CUC-data):
+`CUC_IEEE39-busSystem.xlsx`, `CUC_IEEE118-busSystem.xlsx`,
+`StarGenLite_Clustered-UC.gms`) read by `scripts/cucdata2gtopt` are
+likewise **fetched from upstream on demand and not redistributed**: that
+repository has no licence. `scripts/cucdata2gtopt/_source.py` records the
+pinned commit and the SHA-256 of every file and caches them under
+`~/.cache/gtopt/cucdata/` (see `docs/scripts/cucdata2gtopt.md`).
 
 ## 3. Dependencies fetched at build time (not vendored)
 

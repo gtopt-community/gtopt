@@ -281,7 +281,9 @@ column: the cell column is built before any block or stage row.
 shared by *all scenarios of a scene*, so it cannot adapt to the scenario: it
 is a first-stage decision in the stochastic-programming sense. Put the
 scenarios in one scene (the default when `scene_array` is omitted) and give
-the decision `scope: "global"` — no `nonanticipative` flag is needed. A
+the decision `scope: "global"` — no `nonanticipative` flag is needed. When
+the scenarios are split into several scenes (e.g. one scene per hydrology),
+add `"nonanticipative": true` (see *Nonanticipative across scenes* below). A
 `stage` (or `block`) column is per scenario (wait-and-see). A probability-
 weighted cost (`cost_type: "energy"` / `"power"`) on a shared column is
 weighted by the scene's total probability, not one scenario's.
@@ -289,7 +291,8 @@ weighted by the scene's total probability, not one scenario's.
 **Limits of a "global" column.**
 
 - *Across scenes*: each scene is a separate LP, so each scene has its own
-  copy. Non-anticipativity holds within a scene, never across scenes.
+  copy. Non-anticipativity holds within a scene, but not across scenes —
+  unless the variable sets `"nonanticipative": true` (below).
 - *Across phases* (SDDP, cascade, multi-phase monolithic): each phase LP has
   its own copy, and gtopt chains them so a `global` variable is still ONE
   value for the whole horizon. Without an explicit `state`, a `global`
@@ -333,6 +336,93 @@ With all hydrology scenarios in one scene, `cargo` is shared by every
 scenario (non-anticipative) and, through the implicit state, by every
 phase: one here-and-now decision that SDDP optimises against the
 expected cost of all scenarios and phases.
+
+**Nonanticipative across scenes (`"nonanticipative": true`).** A `global`
+variable with this flag is ONE value for every scene: a here-and-now
+decision taken before the scene (the hydrology, …) is known. gtopt then
+builds the active scenes as **one extensive-form LP per phase**: the scenes
+are folded into a single LP scene whose scenarios are the union of theirs.
+Each scenario keeps its own data, probability and state columns
+(reservoirs, batteries, …), so the dispatch still adapts per scenario; only
+the variable is a single shared column. A probability-weighted cost
+(`cost_type: "energy"`) uses the total probability mass and is charged
+once; a `raw` cost is charged once at face value (the anticipative run
+charges it once per scene). One INFO line names the merged scenes:
+`nonanticipative decision variable(s) 'cargo': scenes [1 'wet', 2 'dry']
+merged into one LP scene (uid 1, 2 scenarios) — one shared value across
+them`.
+
+```json
+"scene_array": [
+  { "uid": 1, "name": "wet", "first_scenario": 0, "count_scenario": 1 },
+  { "uid": 2, "name": "dry", "first_scenario": 1, "count_scenario": 1 }
+],
+"decision_variable_array": [
+  { "uid": 1, "name": "cargo", "lower_bound": 0, "upper_bound": 100,
+    "cost": 50.0, "cost_type": "energy", "scope": "global",
+    "nonanticipative": true }
+]
+```
+
+What changes with the merge:
+
+- *Everything scene-level is shared.* Every other `phase`/`global`
+  variable and the capacity-expansion columns (one per scene LP) also
+  become one column across the merged scenes, i.e. nonanticipative too.
+- *Output.* Element results still come out per original scene
+  (`scene=<uid>` partition / `_s<uid>` CSV shard), each holding only its
+  own scenarios' rows; stage-only streams are written to every original
+  scene. The shared variable itself is one column: its value and cost are
+  written once, in the shard of the first merged scene. `solution.csv` has
+  one row per phase for the merged LP (uid of the first merged scene).
+- *Monolithic.* Exact for one phase. With several phases monolithic is
+  sequential (myopic, see the method notes above), but every phase still
+  uses one value shared by all scenes.
+- *SDDP / cascade.* Supported with the deterministic backward pass (no
+  apertures): the merged LP is re-solved, so the cuts are exact over the
+  joint state of every scenario and the first-phase value is carried to
+  later phases as the implicit state. Every combination that cannot honour
+  the merge is a hard error before anything is solved (see the table).
+- *Errors* (hard, naming the variable): the flag on a non-`global` scope;
+  on the FutureCost user α (α is a per-scene cost-to-go); a run with
+  FutureCost **boundary cuts** (the cut α of a scene LP is tied to its first
+  scenario's state, so the other scenarios' future cost would be lost); and
+  active scenes whose scenarios are not one contiguous range of
+  `scenario_array`.
+- `"state": false` keeps its meaning: one independent copy per phase, each
+  shared by all the merged scenes.
+
+*`nonanticipative` × method / option.* "Error" rows fail fast with an
+`InvalidInput` error naming the variable and the option (cascade: also the
+level), each covered by a test. "Supported" rows are covered by a test that
+checks the optimum, except those marked "generic" (no merge-specific code
+path; not separately tested).
+
+| Method / option | Status | Why |
+|-----------------|--------|-----|
+| monolithic, one phase | supported | exact extensive form |
+| monolithic, several phases | supported | sequential (myopic), one shared value per phase |
+| monolithic `mip_start` / MIP | supported (generic) | the merged LP is an ordinary LP/MIP |
+| SDDP, no apertures (`apertures: []`, `num_apertures: 0`, or no `aperture_array`) | supported | deterministic backward pass re-solves the merged LP |
+| `Phase.apertures` without `aperture_array` | supported | inert (no aperture pool) |
+| backward apertures: `aperture_array`, `sddp_options.apertures`, `num_apertures` > 0, `aperture_selection_mode`, `aperture_chunk_mode` | **error** | the aperture pass perturbs only a scene's first scenario |
+| cascade `level_array[N].sddp_options.apertures` / `num_apertures` > 0 (e.g. default L1 = 8); `num_apertures = 0` is supported | **error** | same, checked for every level before level 0 runs |
+| `cut_sharing_mode = none` / `multicut` | supported | one scene: sharing is a no-op |
+| `cut_sharing_mode = markov` | **error** | `markov_states` has one entry per original scene |
+| `forward_sampling_mode = resampled` | supported | one scene: no-op |
+| scene probabilities (`probability_factor`) | supported | each scenario keeps its own weight |
+| multi-phase `"state": false` | supported | independent per-phase copies, each shared by all scenes |
+| `low_memory_mode = compress` | supported | per-cell snapshots, unchanged |
+| `basis_cross_mode` | supported | per-cell basis reuse, unchanged |
+| `elastic_mode`, feasibility cuts, `update_lp_skip`, `simulation_mode` without loaded cuts | supported (generic) | act on the merged LP's own columns |
+| FutureCost boundary cuts (`cuts_file`, `boundary_cuts_file`) | **error** | one cut α tied to the first scenario's state |
+| hot start: `cuts_input_file`, `cut_recovery_mode` under `--recover` | **error** | cut files store (class, variable, uid) without the scenario |
+| cascade `transition.inherit_optimality_cuts` ≠ 0 (incl. `--recover` resume) | **error** | same cut-file round trip |
+| cascade without cut inheritance | supported | every level re-merges the same scenes |
+| SDDP investment master (`solve_investment_master`) | **error** | one master α per original scene |
+| FutureCost user α marked `nonanticipative` | **error** | α is a per-scene cost-to-go |
+| non-`global` scope; non-contiguous active scenes | **error** | see above |
+| `lp_debug_scene_min/max`, per-scene SDDP logs | supported (generic) | address the merged scene (uid of the first merged scene) |
 
 **Unreachable columns.** If a term names a scope-restricted variable that
 has no column at the row's (scenario, stage, block) — e.g. a `block: 1`

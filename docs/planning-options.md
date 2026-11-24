@@ -259,7 +259,7 @@ files).
 | phantom reward | `FlowRight.uvalue > 0`, `FlowRight.fcost < 0` or `model_options.hydro_use_value` above `reward_fail_cost_ratio` × demand fail cost (global `demand_fail_cost`, else the cheapest per-demand `fcost`) — the LP sheds load to collect it (Maule Res. 105: reward 1100 > deficit 1000 gave −2.1 G\$ of phantom reward) |
 | coupled phantom reward | a `FlowRight` with `uvalue > 0` that shares a user constraint (inline or loaded from PAMPL) with a right whose shortfall penalty (`fcost > 0`, or `uvalue < 0` on a target-0 deficit right) is below `reward_fail_cost_ratio` × the reward — the LP books shortfall to collect the reward (Maule Res. 105, review R3: reward 1100 vs `deficit_Melado` 1000) |
 | profile range | `GeneratorProfile` / `DemandProfile` / `CapacityProfile` values outside `[0, 1]` (per-unit factors) |
-| dead commitment | generators with `pmax` (or `capacity`, no `expcap`) `<= 0` over the whole horizon that still have a `Commitment` / `SimpleCommitment` or `pmin > 0`; batteries with zero `pmax_charge` and `pmax_discharge` that keep `commitment` or a `pmin_*` |
+| dead commitment | generators with `pmax` (or `capacity`, no `expcap`) `<= 0` over the whole horizon that still have a `Commitment` or `pmin > 0`; batteries with zero `pmax_charge` and `pmax_discharge` that keep `commitment` or a `pmin_*` |
 | line X/R | `|X| / R > line_xr_max` |
 | line x p.u. | `100·|X|/V² > line_x_pu_max` (100 MVA base; lines with `voltage` set) |
 | line x outlier | `|X|/V²` more than `line_x_outlier_factor` times off the median of its kV class (bus voltage, else line voltage; both bus voltages set and different = `transformer` class) — mistyped kV, impedance read in the wrong unit |
@@ -299,6 +299,7 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 | `convergence_mode` | string | `"statistical"` | Criterion mode: `"gap_only"`, `"gap_stationary"`, `"statistical"` |
 | `stationary_tol` | float | `0.01` | Tolerance for stationary-gap convergence (0 = disabled) |
 | `stationary_window` | int | `10` | Look-back window for stationary-gap check |
+| `stationary_gap_ceiling` | float | `0.02` | A stationary stop needs signed gap below this (negative passes) and `stationary_window` own iterations with cuts; `1.0` disables |
 | `convergence_confidence` | float | `0.95` | Confidence level for PLP-style statistical convergence (0 = disabled) |
 
 ### Cuts and Recovery
@@ -348,6 +349,20 @@ The FCF boundary cuts are configured on the FutureCost element
 | `save_aperture_lp` | bool | `false` | Save LP files for infeasible apertures to log directory |
 | `aperture_chunk_mode` | string | `"per_scene"` | Backward aperture grouping into pool tasks: `"per_scene"` (all apertures of a (scene, phase) in series on one LP clone, warm-start reuse; parallelism capped at the scene count), `"per_aperture"` (one task per aperture, fresh clone, cold solve), `"chunked"` (`aperture_chunk_size` = K per task). CLI: `--aperture-chunk-mode` (see `docs/methods/sddp.md`, "Aperture task grouping") |
 | `aperture_chunk_size` | int | -- | K apertures per task for `aperture_chunk_mode = "chunked"` (unset = auto formula). Deprecated as a mode selector when no mode is set: `-1` → `per_scene`, `1` → `per_aperture`, `K > 1` → `chunked` (warning logged); `0` → default `per_scene`. CLI: `--aperture-chunk-size` |
+| `aperture_cut_resolve` | bool | `false` | Re-solve the source phase LP after installing each aperture-built cut (an optimality check only; nothing reads that solution). Off by default since 1.2.0 |
+
+**Infeasible apertures.**  An infeasible (or timed-out) aperture is
+dropped and the expected cut renormalised over the remaining ones.  With
+a hard terminal target (`efin` without `efin_cost`) the model lacks
+relatively complete recourse and the same aperture is dropped every
+iteration: the LB is then over a rescaled distribution.  gtopt warns once
+per (scene, phase, aperture) after 3 consecutive drops, reports
+`apertures_dropped` per iteration, and never reports `converged` for an
+iteration that dropped apertures.  For aperture runs prefer a soft `efin`
+(`efin_cost`) — but a meaningful penalty may not be available, and with a
+soft target the solution may never reach `efin` (it just pays the
+penalty, so the target is silently unmet).  Details:
+[SDDP §4.4, *Infeasible apertures*](methods/sddp.md#infeasible-apertures-drop-and-rescale).
 
 ### LP Updates and State Variables
 
@@ -392,6 +407,35 @@ this run; the host-wide swap I/O rate is not used.
 |-------|------|-------------|
 | `forward_solver_options` | `SolverOptions` | LP solver overrides for SDDP forward pass |
 | `backward_solver_options` | `SolverOptions` | LP solver overrides for SDDP backward pass |
+
+#### Forward-pass crossover
+
+With a barrier (or solver-default) forward algorithm, the forward pass
+runs crossover (`auto`) only where its vertex solution is consumed:
+
+- **Benders cuts from the forward duals**: no aperture set resolves
+  (`apertures: []`, or no `aperture_array` / per-phase apertures), so
+  the backward pass builds the cut from the forward reduced costs;
+- **forward basis capture**: `basis_cross_mode` is `warm`,
+  `forward_to_backward` or `full_cross` (the default).
+
+Otherwise (aperture cuts with `basis_cross_mode` `off` or
+`backward_to_forward`) the forward pass is barrier with `crossover:
+none`.  An explicit non-`auto` crossover (`primal` / `dual` / `none`)
+in `forward_solver_options` — or in the global `solver_options`, which
+the forward options inherit — always wins; simplex algorithms are left
+untouched.  With `basis_cross_mode` `warm` / `full_cross` the forward
+pass is seeded from a captured basis from iteration 2 on and solved by
+warm dual simplex (a vertex anyway); an interior forward solve leaves
+no basis to capture, so `crossover: none` there only affects cold
+solves — pair it with `basis_cross_mode: off` to run the forward pass
+by barrier throughout.  The final simulation pass always crosses over (output duals).
+The rule applies per cascade level.
+
+Cuts built from interior forward data — the aperture pass's fallback
+cut, or Benders cuts under an explicit `crossover: none` — have their
+intercept lowered by `1e-8 · max(1, |z|)` (the barrier relative gap), so
+primal–dual gap noise cannot lift the lower bound above the upper bound.
 
 ## Solver Options Precedence
 

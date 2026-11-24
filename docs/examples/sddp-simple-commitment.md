@@ -1,15 +1,17 @@
-# SimpleCommitment under SDDP — a worked use case
+# Per-block commitment under SDDP — a worked use case
 
-This example shows how to run a unit on/off commitment
-(`SimpleCommitment`) inside an SDDP planning study, what the solver
-does with the binary columns in the forward and backward passes, and
-when to turn on `integer_cuts_mode = "strengthened"`.
+This example shows how to run a unit on/off commitment inside an SDDP
+planning study, what the solver does with the binary columns in the
+forward and backward passes, and when to turn on
+`integer_cuts_mode = "strengthened"`.
 
-Scope: the *simple* commitment variant only — one binary status `u`
-per block with `pmin·u ≤ g ≤ pmax·u`.  No minimum up/down times, no
-ramping, no startup/shutdown costs (those belong to the full
-`Commitment` element; see
+Scope: a `Commitment` on non-chronological stages, i.e. the per-block
+formulation — one binary status `u` per block with
+`pmin·u ≤ g ≤ pmax·u`.  No minimum up/down times, no ramping, no
+startup/shutdown costs (those apply on chronological stages; see
 [§5.15–5.16 of the formulation](../formulation/mathematical-formulation.md)).
+The deprecated `simple_commitment_array` (`dispatch_pmin`) is read as
+such a Commitment.
 
 The numbers below are reproduced by
 `test/source/test_sddp_simple_commitment.cpp`.
@@ -23,7 +25,7 @@ stage of four 1-hour blocks each) and 2 hydrological scenes:
 | Element | Data |
 |---------|------|
 | Hydro   | 50 MW, $5/MWh, reservoir box [0, 200] dam³, eini = 100 |
-| Thermal | 200 MW, $50/MWh, `dispatch_pmin` = 40 MW (binary `u`) |
+| Thermal | 200 MW, $50/MWh, `Commitment.pmin` = 40 MW (binary `u`) |
 | Demand  | 60 MW constant, `demand_fail_cost` = $1000/MWh |
 | Inflows | wet scene 28 dam³/h (p = 0.6), dry scene 22 dam³/h (p = 0.4) |
 
@@ -40,12 +42,12 @@ JSON fragment (element + options):
     }
   },
   "system": {
-    "simple_commitment_array": [
+    "commitment_array": [
       {
         "uid": 1,
         "name": "sc_thermal",
         "generator": 2,
-        "dispatch_pmin": 40.0,
+        "pmin": 40.0,
         "relax": false
       }
     ]
@@ -141,14 +143,14 @@ persistent-process UB, which is not ordered in general (see
   Expect the LB to stall an integrality gap below the UB on
   commitment-heavy systems; `strengthened` recovers part of that gap
   at one extra MIP per backward cut.
-- **`dispatch_pmin = 0`** (or `relax: true` with `pmin = 0`) makes
+- **`pmin = 0`** (or `relax: true` with `pmin = 0`) makes
   the element inert: the SDDP run reproduces the no-commitment twin
   bit-for-bit — a useful A/B switch when calibrating.
 
 ## Cross-references
 
 - [Mathematical formulation §5.16](../formulation/mathematical-formulation.md)
-  — the SimpleCommitment LP rows.
+  — the per-block commitment LP rows.
 - [SDDP method guide](../methods/sddp.md) — options reference
   (`sddp_options` table) and algorithm walk-through.
 - [SDDP cut-validity theorem doc](../formulation/sddp-cut-validity.md)

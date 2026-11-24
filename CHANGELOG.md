@@ -7,896 +7,384 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added
+## [1.2.0] - 2026-11-24
 
-- Line losses: `loss_overflow_cost` (`model_options` and per line,
-  default: the case's own global `demand_fail_cost`, e.g. the PLEXOS
-  VoLL 467.19 $/MWh in CEN PCP cases, itself 1000 $/MWh when unset;
-  1000 with a warning when it is an explicit 0; `0` disables) prices
-  the overflow tier past a decoupled `loss_envelope`.  Without it, flow headroom past the envelope
-  turned the tier into a free energy sink of up to `R·tmax²/V²` MW per
-  line under negative bus prices (200 MW instead of 2 MW on a 10×
-  headroom line).  Each overflow column now costs the price times the
-  loss it adds (`tangent_signed_flow` |f| ladder and SOS2 λ weights,
-  `bidirectional` / `piecewise` overflow segments, the split overflow
-  loss of the `tangent` layout, and `piecewise_direct`, which now honours
-  `loss_envelope` with the same priced ladder).  Results without an
-  incentive and within the envelope are unchanged; genuine overloads keep
-  their flow and physical loss but pay the price on their loss above
-  `R·env²/V²` (receiver price up by ≈ 2·price·R·|f|/V²).  The `midpoint`
-  layout's loss row is now two-sided (it left the loss column free up to
-  its bound).  `linear` with `tmax > loss_envelope` stays exposed and is
-  warned about.
+GTOpt 1.2.0 adds natural-gas networks, a much richer reserve and
+unit-commitment model, and an SDDP solver that is faster and stricter
+about when it reports convergence.  A systematic review of how the
+optimisation model is built also found and fixed many cases where an
+element was cheaper, freer or more constrained than intended.  Several
+defaults changed, so results of existing cases can move: read *Changes
+that affect your results* before comparing with 1.1.0.
 
-- Pricing modes for unit-commitment runs: `model_options.pricing_mode`
-  (CLI `--pricing-mode`) = `fixed` (default, integers fixed at the
-  incumbent), `relaxed` (LP relaxation of the MIP) or `fast_start`
-  (fixed except fast-start commitments, relaxed to [0, 1]; PJM / NYISO
-  style).  The pricing LP runs after the MIP and only replaces the duals;
-  dispatch is unchanged.  A non-optimal pricing LP falls back to `fixed`
-  with a warning.  New `Commitment.fast_start` (unset = auto rule
-  min up / down ≤ `model_options.fast_start_max_hours`, default 1) and
-  output `pricing.csv`.  `plexos2gtopt` emits `fast_start` from
-  `Run Up Rate` vs `Min Stable Level`.  New tool `gtopt_pricing_uplift`
-  computes make-whole + lost-opportunity uplift and price statistics to
-  compare the modes.  E2E cases `uc_pricing_{fixed,relaxed,fast_start}`.
-  Literature benchmarks (`test_pricing_literature.cpp`,
-  `cases/uc_pricing_lit_*`, `gtopt_pricing_uplift` `test_literature.py`):
-  Scarf / O'Neill et al. 2005 / Hogan & Ring 2003, Gribik-Hogan-Pope
-  2007, PJM 2017 fast-start pricing, Hua & Baldick 2017 and
-  Eldridge-O'Neill-Hobbs 2018; results table in
-  `docs/unit-commitment.md` §11.1.
+### Highlights
 
-- MIP start: new default `dive` generator (`monolithic_options.mip_start.dive`)
-  that produces a FEASIBLE start for unit-commitment MIPs instead of a
-  rounded candidate the backend rejects.  A relaxation-guided
-  fix-and-propagate dive (activity-based bound propagation over every LP
-  row, integral cells first) satisfies configuration exclusivity,
-  config ⇒ unit, min up/down, logic and `u <= 0` rows by construction; the
-  fixed-integer LP then verifies the start and reports its true cost
-  (`start_obj`); when it is infeasible an elastic LP names the integer cells
-  to move (`repair_rounds`, default 3) and a bounded sub-MIP over those cells
-  is the last resort (`sub_mip`, `sub_mip_time_limit`).  A verified start is
-  injected with `effort=solve_fixed`.  Solver-agnostic (every MIP backend);
-  `dive.enabled=false` restores the legacy round + domain-rules generator.
+- **Gas and power in one model.** Gas nodes, pipelines with line pack,
+  compressors, supplies, demands and gas-fired turbines can be optimised
+  together with the electrical system, with nodal gas prices next to the
+  electricity prices.
+- **Realistic reserve requirements.** Reserve needs can follow load,
+  system inertia, the largest contingency and line flows, block by block,
+  and batteries can only offer reserve they can actually deliver.
+- **Better prices from unit-commitment runs.** Choose how prices are
+  derived from a commitment schedule (fixed, relaxed or fast-start
+  pricing) and compute the matching uplift payments.
+- **SDDP you can trust.** Faster backward passes, and the solver no
+  longer reports convergence on a large gap, on bounds inherited from a
+  previous cascade level, or while some hydrology samples are
+  infeasible.
+- **Losses without phantom flows.** Loss modelling now resists the
+  artificial loss "burning" that negative nodal prices can induce, and
+  very low-impedance branches are modelled as ideal ties.
+- **Value of lost load as a curve.** Load shedding can be priced in
+  steps, as in operator and regulatory practice.
+- **More systems to read.** PLEXOS 8.1 to 10.0 models, the AEMO ISP as a
+  monthly expansion model, the clustered unit-commitment benchmarks, and
+  reserve test systems from Sienna and RTS-GMLC.
 
-- `gtopt_state.json` (pre-solve snapshot) now records the solver the run
-  resolved (`lp_matrix_options.solver_name`, new JSON field; `--solver` >
-  JSON pin > `.gtopt.conf` `solver` > `$GTOPT_SOLVER` > plugin priority)
-  and the resolved parameter file (`solver_options.param_file`, including
-  an auto-discovered `solvers/<solver>.prm`), so a replay of the snapshot
-  uses the same backend and tuning.  A warning now says when
-  `param_file` is set but the active backend ignores it (only cplex and
-  cuopt read the main parameter file).
+### Changes that affect your results
 
-- Data-quality (sanity) warnings in `validate_planning`, never errors:
-  water-right rewards above the demand fail cost (phantom reward),
-  profiles outside `[0, 1]`, zero-capacity units that keep commitment
-  binaries or `pmin > 0`, implausible line impedance (X/R, p.u. ceiling,
-  per-kV-class outliers of `|X|/V²`), reservoirs without `emin` whose
-  volume drives an agreement `bound_rule` reserve level, and rewards above
-  the shortfall penalty (`fcost > 0` or `uvalue < 0`) of a right tied to
-  them by a user constraint (Maule Res. 105, review R3).  One summary
-  line per category with the top offenders (details at debug level);
-  thresholds in the new `options.sanity_options` sub-object
-  (`docs/planning-options.md` → SanityOptions).
-- Post-conversion data-quality report, `gtopt_shared.sanity_report`, run
-  at the end of `plp2gtopt`, `plexos2gtopt`, `sddp2gtopt`, `pp2gtopt` and
-  `psse2gtopt` (with the post-conversion check) and standalone via
-  `python -m gtopt_shared.sanity_report case.json`.  It reads the written
-  JSON plus its Parquet/CSV tables and logs one summary line per category:
-  per-kV-class `|X|/V²` / `R/V²` distribution (median/p5/p95) and lines
-  below the tie threshold, kV-class impedance outliers, X/R, non-standard
-  and mistyped bus kV (`692` copied from the `ESC-692` name), zero-rated
-  units (and those still committed), profiles outside `[0, 1]`, reservoirs
-  with `emin = 0` under an agreement reserve level, water-right rewards
-  above the demand fail cost, and rewards above the shortfall penalty
-  (`fcost > 0` or `uvalue < 0`) of a right tied to them by a user
-  constraint (inline or PAMPL) — the Maule Res. 105 phantom reward (R3).  `--sanity-report PATH` also writes it as
-  JSON.  On the Guatemala NCP case built before the `dcirc.dat` %-vs-Ω fix
-  it flags the 105 sub-threshold lines and 114 kV-class outliers.
-- `plexos2gtopt --scale-theta FACTOR` (same opt-in flag as `plp2gtopt`,
-  now shared as `gtopt_shared.cli_flags.add_scale_theta_argument`): the LP
-  angle is FACTOR × θ (1 = radians, 1000 = milliradians).  Default unset:
-  nothing is emitted and gtopt's C++ auto-scaling (1/(3·median(X/V²))) picks
-  the scale; an explicit value is written to `model_options.scale_theta`
-  and always wins over auto (`theta_max` is still auto-computed).  The
-  same manual override works on any case with
-  `--set model_options.scale_theta=1000`.
-- `cases/reservoir_water_value/`: e2e cases (monolithic and SDDP) that
-  pin the water value of a spilling reservoir: 0 with a free exit, −c/fcr
-  when every exit is priced (`spillway_cost`, `Junction.drain_cost`,
-  `Waterway.fcost`), −ecost × remaining blocks with `ecost`, and >0 when
-  dry.  Checked against hand-derived values by
-  `tools/check_expected_values.py` (`add_expected_values_case`).
+#### Costs and penalties
 
-- `plp2gtopt --falla-segments {first,all}`, default `first` (output
-  unchanged).  `all` keeps every PLP failure tier: each demand on a bus
-  with several `FALLA_<bus>_k` centrals is split into `<demand>_falla<k>`
-  demands with `lmax` = tier share of the demand (from `plpmance.dat`)
-  and `fcost` = tier cost, so rationing follows PLP's cost curve.
-- `sddp2gtopt --deficit-segments {first,all}`, default `first` (output
-  unchanged).  `all` keeps the whole `sddp.dat` "Costo Deficit" curve on
-  SDDP block studies: each demand becomes `<demand>_deficit<k>` demands
-  with `lmax` = segment % of the demand (last segment takes the rest) and
-  `fcost` = segment cost.  Both converters now share the split helpers in
-  `gtopt_shared/demand_tiers.py` and the flag registrar
-  `gtopt_shared.cli_flags.add_demand_tier_segments_argument`.
-- `sddp_options.aperture_chunk_mode` (CLI `--aperture-chunk-mode`, cascade
-  per-level `sddp_options.aperture_chunk_mode`): names how backward-pass
-  apertures are grouped into tasks — `per_scene` (default),
-  `per_aperture`, or `chunked` (`aperture_chunk_size` = K per task).  The
-  setup log shows the resolved mode, e.g.
-  `SDDP Aperture: chunk_mode=per_scene chunk_size=16`.  A size that
-  contradicts the mode (e.g. `per_scene` with `aperture_chunk_size: 4`)
-  is ignored with a warning.  `plp2gtopt` and `run_gtopt` accept and check
-  the new name.
-- Native stepwise demand-failure (VoLL) curve: `Demand.fail_segments`
-  (`[{fraction, cost}]`, per-stage schedulable cost, open last segment,
-  firm remainder) and the global default
-  `model_options.demand_fail_segments`.  The LP splits the served load
-  into one column per segment with plain bounds (K − 1 extra columns per
-  block, no extra rows; one segment is LP-identical to `fcost`).  New
-  outputs `Demand/fail_seg<k>_sol`; `demand('x').fail` is now available
-  to user constraints.  Validation in gtopt and `gtopt_check_json`
-  (`demand_fail_segments` check); `gtopt_check_output` prices load
-  shedding per segment.
-- `scripts/tests/test_public_cli.py`: every console script in
-  `[project.scripts]` must pass `--help` and an end-to-end run on a tiny
-  case (converters also solve the result with gtopt when a binary is
-  available); a new public tool without a case fails CI.
-- `tools/affected_tests.py`: selects the C++ (doctest files, integration
-  CTest entries), Python (pytest dirs / files, pytest-testmon for reverse
-  dependencies), guiservice and tools tests plus the lint targets
-  affected by a git change, explains every pick, escalates to the full
-  suite for core headers, build files and packaging config, and runs the
-  selection (`--run`, `--lint`).  CI uses it through the
-  `.github/actions/affected-tests` action: `ubuntu.yml`, `tsan.yml`
-  (pushes), `scripts.yml` and `guiservice.yml` run only the affected
-  tests against the PR base / previous push, fall back to the full suite
-  without a usable base, and keep a `full_run` `workflow_dispatch` input
-  (default on).  In affected runs the Python coverage gate applies per
-  package to the packages whose own tests ran.  `guiservice.yml` now also
-  triggers on `scripts/**` and skips itself when the change cannot reach
-  guiservice.
-- Cascade per-level outputs: `cascade_options.write_level_outputs: true`
-  makes every intermediate cascade level run its simulation pass and
-  write a full output set (element solution, `solution.csv`, its cuts,
-  `solver_status.json`, `level_summary.json`) to
-  `<output_directory>/<level name>/`; `cascade_levels.csv` in the output
-  directory summarises bounds, gap, iterations and time per level.
-- `gtopt-net reduce --bus-group-regex REGEX` / `--bus-groups CSV`: fixed
-  zonal reduction (one bus per group, e.g. one per country) with the
-  inter-group lines aggregated, for coarse cascade levels.
-- `gtopt-net reduce --protect-line UID`: keep a given line (e.g. an
-  interconnector) intact in the reduced network.
-- `docs/methods/cascade.md` documents reduced networks per cascade level
-  (`CascadeLevel.system_file`), the state-variable keyed cut transfer and
-  when inherited cuts from a reduced level are valid lower bounds.
-- Native BESS reserve deliverability: `Battery.reserve_sustain_hours`
-  (and `reserve_discharge_credit`) add per-block power-headroom and
-  SoC-sufficiency rows for the battery's reserve provisions, with no
-  reserve term in any bus balance, so they cannot pin negative bus
-  prices.  Off by default in gtopt.
-- `plexos2gtopt --bess-reserve {native,uc}`, default `native`: CEN's
-  "BESS SSCC Constraints" (`UP/DOWNStorageBound_*`, `*_CF_{GEN,LOAD}_COMP`
-  and the fictitious `*_AUX` battery) map to the native rows.  `uc`
-  keeps the previous UserConstraint mapping.  See
-  `docs/studies/sscc_battery_constraint.md`.
-- `gtopt --version`, the `--help` header and the `starting gtopt` log
-  line show the git revision the binary was built from, e.g.
-  `1.1.0 (v1.1.0-20-g5a4fd2ef8abc)`.  A clean build of exactly the
-  release tag prints just `1.1.0`; a build without git prints the
-  version alone.
-- `solution.csv` gains two trailing columns, `gtopt_version` and
-  `gtopt_revision`, and `solver_status.json` the same two keys, so every
-  run records which gtopt produced it.  `run_gtopt` shows it in its
-  post-run summary.  The golden comparator ignores both columns.
-- Development versions: between releases `master` carries the next
-  version with a marker (`GTOPT_VERSION_SUFFIX "-dev"` in
-  `CMakeLists.txt`, `X.Y.Z.dev0` in `scripts/pyproject.toml`), so a
-  master build reports e.g. `1.2.0-dev (v1.1.0-23-g...)`.  After a tag
-  produces its draft release, the release workflow opens the PR that
-  starts the next development version; the tag check now also requires
-  an empty suffix.  See `docs/releasing.md`.
-- `gtopt_check_topology` checks the network per stage.  It honours
-  `Bus.active`, `Line.active` and `tmax_ab = tmax_ba = 0`, and reports
-  topology periods (stage ranges with the same islands).  Each island
-  shows its zone (bus `zone` field or name prefix such as `CL_`) and
-  the elements on its buses with their MW.  Inter-zone lines are
-  listed with the stages they are in service.  New
-  `--expect-islands N` / `--expect-zones CL,PE` exit with code 3 when
-  a stage has more islands with elements than expected.  See
-  `docs/scripts/gtopt_check_topology.md`.
-- PAMPL `scope` header clause (`constraint NAME scope stage: ...`) sets
-  `UserConstraint.scope`, so `.pampl` files can declare stage-average
-  rows with `sum{b in stage}`.
-- **`plexos2gtopt.aemo_isp --odp-augmentations <outlook.xlsx>`**
-  (`--odp-cdp`, default `CDP4`): REZ / group limits whose capacity terms
-  reference network augmentations add the MW built in that ISP
-  development path — Timings-sheet options in full from their in-service
-  financial year, other buildable REZ augmentations sized to the REZ's
-  installed generation in the workbook.  E.g. `ExportLimit_N7_Tumut`
-  becomes 380.5 MW from 2027-07-01 (0 MW without the option).
+- **Unserved energy is priced at 1000 $/MWh by default.** A case that
+  did not set `demand_fail_cost` used to shed load for free; it now
+  serves it.  Set `demand_fail_cost: 0` for the old behaviour.
+- **Penalties are weighted like every other cost.** Soft user-constraint
+  penalties, water-right deficit costs and junction drain costs are now
+  multiplied by scenario probability, discount factor and block duration.
+  Multi-scenario, discounted or multi-hour-block cases see different
+  trade-offs; single-scenario hourly cases do not change.
+- **Met reserve requirements no longer lower the objective.** The
+  reported total cost is the real operating cost; dispatch and prices do
+  not change.
+- **Start-up cost in the first hour** follows how long the unit has been
+  off (hot, warm or cold start) instead of always being a cold start.
 
-### Changed
+#### Network and losses
 
-- **Soft UserConstraint penalties are weighted like every other cost
-  (behaviour change, P0-16)**: the slack of a soft constraint (`penalty`
-  set) is now priced `penalty × probability × discount × block duration`
-  (`CostHelper::block_ecost`) on per-block rows, and
-  `penalty × probability × discount` on rows that span several blocks
-  (`daily_sum` day rows, `stage` / `phase` / `global` scope rows, which are
-  already span totals); `penalty_class = hydro_flow` keeps its
-  `× 3600 × hours` conversion.  `penalty` is therefore \$ per row unit per
-  hour of violation, and the dual of a binding soft `power` row reads back
-  as the penalty.  Before, the slack carried the raw `penalty`: with S
-  equiprobable scenarios a violation weighed S times more than in a
-  single-scenario run, it was not discounted, and a 4 h block weighed it 4
-  times less than the energy next to it.  **Results change** for
-  multi-scenario, discounted or > 1 h-block cases with soft user
-  constraints; single-scenario, 1 h, undiscounted cases (e.g. CEN PCP) are
-  unchanged (LP identical).  Converter penalties (plexos2gtopt `Penalty
-  Price` per interval, AEMO `daily_sum` rows in $/MWh) already follow
-  these units.
+- **Losses carry a small cost** (`loss_cost_eps`, now 0.1 $/MWh).  This
+  removes simultaneous flow in both directions and the loss "burning"
+  that small negative prices can cause; total losses are practically
+  unchanged.  Set it to 0 for the old formulation.
+- **Flow beyond the loss envelope is priced** (`loss_overflow_cost`,
+  default: the case's unserved-energy cost), so overloaded lines cannot
+  absorb energy as fictitious losses.
+- **Zero- or near-zero-reactance branches are ideal ties** (equal
+  voltage angles at both ends) instead of uncontrolled DC links that
+  could act as free phase shifters.  `tiny_reactance_mode: dc` restores
+  the old treatment.
+- **Angle scaling is back to its documented meaning** (`scale_theta`
+  multiplies the angle; 1000 = milliradians).  Cases that carry a very
+  small value such as `1e-4` get a warning and should invert it or drop
+  it.  Angle limits are now derived from the network whenever they are
+  not set, so they can no longer cap line flows by accident.
+- `piecewise_direct` losses charge the full transmission toll per MWh.
 
-- **`model_options.demand_fail_cost` defaults to 1000 $/MWh (behaviour
-  change)**: it now resolves to **1000 $/MWh** when
-  unset (`PlanningOptionsLP::default_demand_fail_cost`), as the docs
-  already claimed.  Before, an unset value behaved like `0`: demands
-  without their own `fcost` could be shed at no cost.  **Results change
-  for cases that did not set `demand_fail_cost`** (and whose demands
-  have no `fcost`): unserved load is now priced at 1000 $/MWh, so such
-  cases serve load they previously dropped.  To keep the old behaviour
-  set `demand_fail_cost: 0` explicitly (an explicit `0` still means
-  unpenalized load).  Hard, non-sheddable demand is requested per
-  demand with `Demand.forced = true`.  All converters already write an
-  explicit value, so converted cases are unaffected.  Dispatchable
-  sinks must carry `fcost: 0` to stay flexible (as the C++ battery
-  expansion and `plexos2gtopt --aemo-isp` pump loads already do);
-  `plp2gtopt` battery charge demands and `gtopt_expand` pumped-storage
-  pump loads now do too.  `gtopt_check_json`
-  and `gtopt_check_output` resolve an unset value to 1000 as well.
+#### Unit commitment and storage
 
-- **`HydrogenStorage` / `ThermalStorage` carry their level across stages
-  by default (behaviour change)**: `use_state_variable` now defaults to
-  `true`, like `AmmoniaStorage` and `Reservoir` (issue #546).  The old
-  default `false` added a closed-cycle row `efin == eini` on every stage,
-  so any `efin` above `eini` was infeasible.  Cases that relied on the
-  closed cycle must set `"use_state_variable": false` (or
-  `daily_cycle: true`) explicitly.  Being state-carrying, such stores
-  without an explicit setting now also fall under the storage-activation
-  check (one contiguous active period, see below).  `Battery` keeps its
-  daily-cycle default.
+- **Commitment on non-chronological stages.** Units with a commitment
+  now get an on/off status and minimum stable level in every block of
+  load-duration or representative-block stages (start-up, ramps and
+  minimum up/down need chronology and are skipped there).  The former
+  simple commitment element is merged into the regular one.
+- **Reserve and inertia from committed units** respect the unit's
+  minimum stable level and its on/off status, so an off unit cannot
+  offer reserve and down reserve is no longer free at minimum load.
+- **Battery minimum discharge** is a hard floor again for batteries
+  without commitment.
+- **Batteries with commitment cannot charge and discharge in the same
+  block** (`exclusive_charge_discharge`, default on), so they cannot burn
+  surplus energy through round-trip losses under negative prices.  Set it
+  to `false` to allow simultaneous operation.
+- **Hydrogen and thermal storage carry their level between stages** by
+  default instead of closing a cycle in every stage (#546).
+- **Fuel limits count the real fuel burn**, including piecewise and
+  hourly heat rates and no-load fuel (#545).
+- **Existing capacity of an expandable unit is no longer bought again**
+  in its first expansion stage, which lowers the objective of such
+  expansion cases.
 
-- **State-carrying storage may be retired**: `validate_planning` now
-  accepts a per-stage `active` vector `off* on* off*` for storage with a
-  state variable — commissioning (inactive -> active) and retirement
-  (active -> inactive) each once.  Only re-activation after a gap
-  (on -> off -> on) is an error, reported at the stage where the element
-  switches back on.  Retirement simply drops the state (no link into the
-  inactive stages / phases).  Before, any active -> inactive switch was
-  rejected.
+#### Hydro and water rights
 
-- **Dual output files are dense (behaviour change)**: `*_dual` tables
-  (e.g. `Bus/balance_dual`) now carry every (scenario, stage, block, uid)
-  cell of the LP rows, zeros included, so per-block price averages and
-  counts need no gap filling.  `*_sol` / `*_cost` tables still omit exact
-  zeros (a missing row means zero).  Dual tables use the same writer and
-  `output_compression` codec as every other output table.
+- A reservoir without an explicit flow-to-volume conversion now uses
+  0.0036 hm³ per m³/s·h, as documented (the JSON default was 1000 times
+  larger).  Set `flow_conversion_rate` if your case relied on it.
+- Global spill and use values apply only to the water rights they are
+  meant for; usage-cost rights are no longer capped at zero flow; rule
+  curves read the stage-start volume; the pass-through arc of a flow
+  right exists only when requested (`use_bypass`) and appears in the
+  output.
 
-- **plexos2gtopt: commitments without a real UC decision ship LP-relaxed
-  (behaviour change)**.  New `--uc-relax {auto,plexos,none}` (default
-  `auto`) emits `Commitment.relax = true` for units PLEXOS solves as Linear
-  Relaxation (`Unit Commitment Optimality = 0` in the run Model) and for
-  cost-free units: zero energy cost, no start / no-load cost, no min up /
-  down, no start limit, no ramp (e.g. `ABANICO`, `TALINAY`,
-  `VALDIVIA_BL1_EUCA`).  Pins and PAMPL `commitment(...).status`
-  references are kept.  On the 14 CEN PCP weeks this removes 76 % of
-  the integer status columns (1.82 M → 0.44 M; 04-22: 122 100 → 33 855).
-  `--uc-relax none` restores the previous all-integer output.
+#### SDDP and cascade
 
-- **SDDP α floor (behaviour change)**: the future-cost variable α is no
-  longer floored at 0 when a cell installs its first cut — the floor is
-  derived from the cuts actually installed (see *Fixed*).  **Models with
-  only non-negative costs that relied on the implicit first-cut `α ≥ 0`
-  should set `sddp_options.alpha_min = 0`**; without it the trial
-  trajectory of the first iterations (and where a fixed-iteration run
-  stops) can change.  Models with negative costs or rebased FCFs need no
-  action — they were the ones reporting an invalid lower bound.
-- A relative `solver_options.param_file` (e.g. the `"solvers/cplex.prm"`
-  the converters pin) resolves against `input_directory` first — the case
-  directory wins — and against the working directory only when the case
-  has no such file; the log names the location used.  An auto-discovered
-  `<input_directory>/solvers/<solver>.prm` is recorded as an absolute
-  path.
-- `solver_options.time_limit` is a wall-clock budget for the whole solve
-  of one LP/MIP: MIP-start stages and the algorithm-fallback retries share
-  it (each retry gets what is left; retries stop once < 1 s remains).  A
-  MIP that hit its limit used to be re-run up to `max_fallbacks` more
-  times with the full limit each.
+- **Stricter convergence.** A "stationary" stop now needs the run's own
+  iterations and a gap below 2 % (was 5 %), and an iteration in which
+  some hydrology samples were infeasible is never declared converged
+  (#551).  Short runs may run a few more iterations; the end-of-run
+  summary reports how many samples were dropped and where.
+- **Hydrology samples are solved scene by scene** by default, reusing
+  each solve's basis; bounds are the same, the backward pass is much
+  faster (`aperture_chunk_mode: per_aperture` restores the old grouping).
+- **The future-cost floor comes from the cuts.** Models with only
+  non-negative costs that relied on an implicit floor of zero should set
+  `alpha_min: 0`.
+- **Cuts built with Ruiz scaling had wrong slopes**, so bounds could
+  cross.  Cut files saved by such runs should be regenerated.
+- Setting the number of hydrology samples to 0 now means none (a
+  deterministic backward pass), and the per-sample time limit is 30 s.
 
-- Option precedence is now *the more explicit, the closer to the run,
-  wins*: CLI flag > `--set` > planning JSON (last `-s` wins) >
-  `.gtopt.conf` > built-in default.  `.gtopt.conf` `[gtopt]` values used
-  to be merged as if they were CLI flags, so they silently beat both the
-  planning JSON and an explicit `--set` of the same option (e.g.
-  `sddp-max-iterations` in `~/.gtopt.conf` overrode
-  `--set sddp_options.max_iterations=…`).  They now fill only options the
-  JSON, `--set` and the CLI left unset; relative directories from the
-  config file stay CWD-relative.  Same rule as the Python tools' own
-  config sections.  Documented in `docs/usage.md`, `--help` (`--set`) and
-  `docs/templates/gtopt.conf.sample`.  **Behaviour change** for runs whose
-  config file and planning JSON set the same option.
+#### Outputs
 
-- Auto `scale_theta` (θ_LP = scale_theta · θ, when unset) is now
-  `1 / (3 · median(X/V²))` instead of `1 / median(X/V²)`.  θ is a node
-  potential accumulating ~D line drops to the reference bus (D ≈ 8-10 on
-  the Chilean system), so the old rule left θ_LP ~8× the line flows;
-  dividing by ≈√D = 3 balances the KVL-row θ coefficient against the θ_LP
-  magnitude.  On CEN cl5y it gives ≈1039, next to the empirically best
-  1000 (y24_S2_perf, CPLEX, 2 SDDP iterations: radians κ 1.56e8 / 1.137M
-  ticks; old auto ≈3116 κ 1.12e7 / 1.086M; 1000 κ 1.12e7 / 1.071M).
-  Explicit values (e.g. `--set model_options.scale_theta=1000`) are
-  honoured unchanged.
-- `sddp2gtopt` no longer pins `model_options.tiny_reactance_mode = "dc"`:
-  PSR coupler circuits below `dc_line_reactance_threshold` (1e-3 p.u.)
-  now use gtopt's default `tie` (zero-impedance tie, equal bus angles)
-  like every other converter.  `--set model_options.tiny_reactance_mode=dc`
-  restores the KVL-free DC-link treatment.  (The ~9 GWh GUA curtailment
-  originally blamed on the couplers was the `dcirc.dat` units bug listed
-  under *Fixed*, not a tie effect.)
-- SDDP: the backward-pass apertures are now grouped **per scene** by
-  default — every aperture of a (scene, phase) is solved in series on one
-  LP clone, each warm-started off the previous basis.  Before, the
-  default ("auto", which resolved to 1) gave one task per aperture with a
-  fresh clone and a cold solve.  On a 16-scene × 16-aperture
-  hydrothermal case the backward pass is several times faster, with the
-  same bounds and peak memory.  Results
-  are numerically the same up to solver tolerances.  Backward
-  parallelism is now capped at the number of scenes; set
-  `sddp_options.aperture_chunk_mode = "per_aperture"` (or
-  `--aperture-chunk-mode per_aperture`) to get the previous behaviour.
-  `plp2gtopt` now writes `aperture_chunk_mode: "per_scene"` instead of
-  `aperture_chunk_size: 0`.
-- **Result-changing for JSON cases that omit it**: an unset
-  `Reservoir.flow_conversion_rate` now resolves to
-  `Reservoir::default_flow_conversion_rate` = 0.0036 hm³/(m³/s·h), the
-  value the C++ struct default and the docs already stated.  The JSON
-  path fell back to 3.6 (the dam³ convention, 1000× larger).  The
-  converters always set it explicitly; the SDDP.jl fixtures
-  `fast_hydro_thermal`, `hydro_thermal_sddpjl` and
-  `hydro_valley_sddpjl` now pin `flow_conversion_rate: 3.6` so their
-  goldens are unchanged.  Cases that relied on the implicit 3.6 must
-  set it.
+- Dual (price) tables list every block, zeros included.
+- Element and block identifiers in Parquet outputs are 32-bit integers;
+  large identifiers were previously wrapped.
+- Renewable spillover is computed from availability minus dispatch;
+  availability is capped at the unit's maximum output.
 
-- **Result-changing for cases with line losses and no explicit
-  `loss_cost_eps`**: `model_options.loss_cost_eps` now defaults to
-  `0.1` $/MWh in gtopt (was `0`; constant
-  `PlanningOptionsLP::default_loss_cost_eps`).  It prices the loss
-  columns of the `piecewise` / `bidirectional` / `adaptive` /
-  `tangent_signed_flow` modes (inert for `none`, `linear`,
-  `piecewise_direct`), breaking bidirectional-flow degeneracy and the
-  small negative-LMP loss arbitrage; on a CEN 5-year SDDP it shrank
-  small negative LMPs ~8x vs `1.0` with identical total losses.
-  Per-line `Line.loss_cost_eps` still overrides; set `0` explicitly to
-  restore the old formulation.  `plp2gtopt` and `plexos2gtopt` no longer
-  impose their own default (`1.0`): `--loss-cost-eps` is unset by
-  default (key not emitted, gtopt's `0.1` applies) and any explicit
-  value, including `0`, is emitted.
-- **GeneratorProfile formulation: no spillover column, availability capped
-  at pmax.**  The profile row is now `gen ≤ A` with
-  `A = min(capacity·profile, pmax_block)` (expansion:
-  `gen − min(profile, 1)·C ≤ 0`); spillover `A − gen` is reconstructed at
-  output time into the same `GeneratorProfile/spillover_sol` file,
-  `spillover_dual` is the dual of the `≤` row (same sign as before) and
-  `spillover_cost` is `−dual`.  One LP column fewer per profiled
-  generator × block.  A profile with a non-zero `scost` keeps the slack
-  column, now bounded `0 ≤ spill ≤ A`.  DemandProfile keeps its
-  `unserved` column (bounded by `profile·capacity`, not clamped by
-  `lmax`).  gtopt warns once per element when a profile value is > 1
-  (profiles are per-unit of capacity, not MW).
+#### Configuration
 
-- Public Python tools: `pip install ./scripts` no longer installs
-  developer tools as commands.  `gtopt_field_extractor`,
-  `cen2gtopt.marginal_units` and `cen2gtopt.pcp_validate` remain
-  available as `python -m <module>` from `scripts/`.  The aliases
-  `sddp_monitor` (use `gtopt_monitor`) and `gtopt_irrigation` (use
-  `gtopt_expand`) were removed.  `docs/scripts-guide.md` lists every
-  public tool in one table.
+- A `.gtopt.conf` in the working directory is no longer read; pass it
+  with `--config`.  Options in the config file now only fill values the
+  case and the command line leave unset.
+- `annual_loss` is renamed `annual_standing_loss` (self-discharge while
+  stored); the old name still works with a warning.
 
-- `FlowRight` pass-through `bypass` arc (`junction_a` → `junction_b`) is
-  now opt-in: it is built only with `use_bypass: true` (or, for older
-  JSON, when `bypass_cost` / the new `bypass_fmax` is set).  It is
-  bounded by `bypass_fmax` and written to the output as
-  `FlowRight/bypass_sol` (PAMPL: `flow_right('x').bypass`).  Before, any
-  right with `junction_b` got a free, unbounded arc that the output did
-  not show, so junction balances could not be closed from the results
-  (up to 828 m³/s on a Laja carry-mode diversion).  `plexos2gtopt` and
-  `gtopt_expand` pmin-as-FlowRight now emit `use_bypass` explicitly;
-  validation warns when a consumptive right sets `junction_b` without a
-  bypass.
+#### Converted cases
 
-- `plp2gtopt --soft-emin-cost` now defaults to 0 instead of 0.1.  The
-  `plpminembh.dat` soft minimum volume uses only the file's per-stage
-  cost; stages with cost 0 (a free slack in PLP, i.e. no effect) are no
-  longer emitted with an invented 0.1 price.  Results change for cases
-  with zero-cost `plpminembh.dat` rows: those floors disappear, as in
-  PLP.  Pass `--soft-emin-cost 0.1` for the old behaviour.  A zero
-  fallback no longer suppresses the file's positive costs; use a
-  negative value (e.g. `--soft-emin-cost -1`) to ignore the file.
-- `plexos2gtopt` no longer turns a Waterway `Max Flow Penalty` into a
-  per-unit flow cost when `Max Flow` is unbounded.  PLEXOS charges the
-  penalty only on flow above `Max Flow`, so it never applies there.
-  CEN PCP: `Post_Isla` loses its 3.6 $/(m³/s·h) `fcost`; the `Vert_*`
-  spillways (`Max Flow = 0`) keep theirs.  Results change slightly
-  around Isla / Curillinque.
-- SDDP `low_memory = compress` uses less memory:
-  - The in-memory flat-LP snapshots of the scenes of a phase are
-    deduplicated. Each cell stores a compressed XOR delta against one
-    shared base per phase, and the restore is bit-exact. On the CEN
-    2-year case the delta is about 3% of a full snapshot.
-  - The default in-memory codec (`sddp_options.memory_codec: auto`) is
-    now zstd level 1 instead of lz4. Snapshots are about 30% smaller,
-    and decompression stays about 0.1% of SDDP CPU time. Set
-    `memory_codec: lz4` to get the previous codec back.
-  - When the solution already lies inside its bounds, the cached
-    column bounds are dropped as the solver is released.
-- The storage loss field `annual_loss` is renamed `annual_standing_loss`
-  on every storage element (Battery, Reservoir, LngTerminal,
-  HydrogenStorage, AmmoniaStorage, ThermalStorage, AllowancePool,
-  VolumeRight), and `model_options.battery_annual_loss` is renamed
-  `model_options.battery_annual_standing_loss`.  The name follows PyPSA's
-  `standing_loss` and makes clear it is the loss while stored, not the
-  round-trip efficiency.  The old keys stay accepted as deprecated
-  aliases (JSON input and `--set`), with a one-time warning; setting both
-  spellings on one object is an error.  All converters now write the new
-  key.
+- **PLEXOS:** units without a real commitment decision are LP-relaxed
+  (`--uc-relax none` for all-integer); reserves are modelled with the
+  native reserve requirements (`--reserve-model uc` for the old
+  emulation); constraints without a penalty price are hard, as in
+  PLEXOS; lines PLEXOS does not enforce get non-binding limits; lossless
+  transformers get a correct per-unit susceptance (flows and prices
+  change); fuel transport charges scale with heat rate; battery
+  self-discharge comes from the PLEXOS data.
+- **PLP:** a battery charged by a co-located plant no longer curtails
+  that plant (the plant stays on the grid and the battery charge is
+  limited to its output); lines PLP treats as lossless stay lossless;
+  solar and wind profiles are written per unit (re-convert affected
+  cases); zero-cost soft minimum volumes are no longer emitted.
+- **PSR SDDP:** branch impedances are read as % on 100 MVA (they were
+  read as ohms, turning real circuits into ideal ties), and imports are
+  unavailable in hours without an offer.
 
-### Deprecated
+### New modelling capabilities
 
-- `sddp_options.aperture_drop_fcuts` is deprecated and ignored.  It was
-  re-added to the JSON contract and to the `plp2gtopt` output (default
-  `true`) on 2026-05-12, but no solver code ever read it, and the backward
-  pass never adds feasibility cuts, so it had no effect.  It is still
-  parsed (old cases load); setting it logs a validation warning.  The
-  default is now unset and `plp2gtopt` no longer writes it.
+#### Network and losses
 
-- `sddp_options.aperture_chunk_size` as a mode selector.  When
-  `aperture_chunk_mode` is not set, the old integers still work and log a
-  deprecation warning: `-1` → `per_scene`, `1` → `per_aperture`, `K > 1` →
-  `chunked` with K.  `0` / unset (formerly "auto", which resolved to 1)
-  now means the new default `per_scene`, without a warning.  Keep
-  `aperture_chunk_size` only as K for `aperture_chunk_mode: "chunked"`.
+- Branches with zero or tiny impedance can be modelled as ideal ties or
+  as DC links (`tiny_reactance_mode`).
+- A priced overflow tier for losses beyond a line's loss envelope
+  (`loss_overflow_cost`, per case or per line).
 
-### Fixed
+#### Unit commitment and reserves
 
-- InertiaProvision: the unit Pmin behind the default inertia factor
-  `H·S/Pmin` and the default `provision_max` is now the commitment's
-  minimum stable level (`Commitment.pmin` / `SimpleCommitment.dispatch_pmin`)
-  when the unit has one, falling back to the generation column lower
-  bound.  Converters put the committed floor on the commitment and leave
-  `Generator.pmin = 0`, so the factor silently fell back to `H·S/Pmax`
-  and the provision ceiling to `Pmax`.
+- **Pricing modes** for commitment runs (`pricing_mode`: `fixed`,
+  `relaxed`, `fast_start`), with automatic fast-start classification and
+  a `gtopt_pricing_uplift` tool for make-whole and lost-opportunity
+  payments.  Validated against the classic pricing literature examples.
+- **Dynamic reserve requirements**: the requirement in each block is the
+  largest of several planes combining load, inertia, the largest
+  contingency and line flows; load enters from forecast data so reserves
+  do not distort energy prices.  Equality requirements, surplus prices
+  and per-plane prices are available.
+- **Contingency candidates** (generators, loads or lines whose loss sets
+  the requirement), **inertia credits** when enough units of a group are
+  on, **cold (offline) reserve**, symmetric up/down offers, shared
+  headroom and per-zone effectiveness factors.
+- A check that lists every way a reserve requirement depends on dispatch
+  and could create negative price credits (`reserve_coupling`).
+- **Feasible commitment starting points** for large MIPs, and every MIP
+  that stops at a time limit is re-solved with its commitment fixed, so
+  costs, dispatch and prices are consistent.
 
-- Storage commissioned after the first stage (P0-8): a state-carrying
-  storage inactive in the previous stage now starts with its initial-state
-  column fixed at `eini` and no SDDP state link, in the same LP and across
-  a phase boundary.  Before, the column was free in `[emin, emax]` (same LP,
-  `eini` unset) or an unlinked `sini` (SDDP, even with `eini` set), so the
-  new unit started with free stored energy and the cost was under-stated
-  (repro: 5000 instead of 10000).  A battery without `eini` starts at `emin`
-  with a `validate_planning` warning; for every other state-carrying class
-  (Reservoir, LngTerminal, ThermalStorage, HydrogenStorage, AmmoniaStorage,
-  VolumeRight, AllowancePool) a missing `eini` at commissioning is a
-  validation error.  Storage active from the first stage, and cyclic storage
-  (`daily_cycle` / no state variable, which never reads `eini`), are
-  unchanged.
+#### Storage and batteries
 
-- `gas_options.linepack_cyclic = false` with line-pack pipes and more
-  than one stage is rejected by validation (P0-14): the line pack is not
-  a state variable (every stage restarts from `linepack_ini`), so an open
-  pack refilled for free at each stage boundary.  Single-stage runs (all
-  gasnet2gtopt cases) are unaffected.
+- **Battery reserve deliverability**: reserve offers are backed by power
+  headroom and enough state of charge to sustain them, and deployment
+  energy is charged to the battery itself.
+- **Battery power expansion**, with an optional fixed energy-to-power
+  ratio for new storage.
+- Storage can be **retired** during the horizon; a unit commissioned
+  later starts from its stated initial level.
 
-- `Waterway` (closed, `fmin = fmax = 0`) and `Demand` (`lmax = 0`)
-  blocks are elided only under `model_options.lp_reduction`, like every
-  other element (§9 of the add_to_lp audit).  With the flag off (the
-  default) they keep a fixed [0, 0] column, so outputs and coupled
-  elements see the same cells whatever the data; a zero-lmax block
-  ignores `lmin`, exactly as when elided.  A negative `lmax` block (a
-  UC.jl bus with net injection) is a zero-load block too — before this
-  follow-up it became an infeasible `[0, lmax < 0]` column.  Optimum
-  unchanged; LPs with such blocks gain fixed columns (none of the
-  regression cases).
+#### Demand
 
-- `SimpleCommitment` now gates its generator's reserve rows by the
-  status `u`, as `Commitment` does (P1-18): the down-headroom row kept the
-  generator `pmin` (`g − r_dn ≥ pmin`), forcing an off unit on (or making
-  the LP infeasible), and an off unit could offer up reserve
-  (`g + r_up ≤ pmax`).  CEN-style `reserve_*_hydro` cases change their LP
-  rows but not their optimum.
+- **Stepwise value of lost load** per demand (`fail_segments`) or for the
+  whole case (`demand_fail_segments`), with one shedding output per step.
 
-- `LineCommitment.fixed_status` pins the breaker only for values in
-  `[0, 1]`, like `Commitment.fixed_status` (P1-17).  Before, any value
-  pinned it, so UC.jl's `-1` "un-pinned" marker opened the line
-  (regression test: 100000 of load shed instead of 1000).
+#### Gas and emissions
 
-- Option C (`model_options.demand_fail_rhs_shift`) with batteries or
-  pumps (P0-25): the Converter (battery charge) and Pump rows read the
-  demand column as `load`, but Option C stores `load − lmax` in it, so
-  charging drew nothing from the bus (regression test: 16000 instead of
-  500).  Demands coupled to a Converter or Pump now always stay on
-  Option A; every other demand keeps Option C.
+- **Gas networks**: nodes with pressure limits and gas prices, pipelines
+  (Weymouth flow with optional line pack and elevation), compressors
+  (gas- or electric-driven, with fuel use), supplies with volume
+  allotments, demands, and gas turbines linked to their generators with a
+  minimum supply pressure.  Meshed networks are solved by successive
+  linearisation.
+- **No-load fuel** for committed units, fuel-based emission rates, and
+  emission zones limited to a set of buses (#545).
 
-- Cycle-basis KVL with a block line outage (P0-24): a block with a line
-  out of service (`in_service = 0`) dropped every fundamental cycle
-  through that line, losing the KVL rows of loops that survive the outage
-  (only reachable as combinations of the dropped cycles), so flow split
-  freely there.  Those blocks now get a cycle basis rebuilt on their own
-  surviving lines (one rebuild per distinct outage set); blocks without
-  outages are unchanged.  Regression test: the 4-bus square with an out
-  diagonal matched `node_angle` only after the fix (2000 vs 5600).
+#### Decision variables and user constraints
 
-- An expandable `CarrierConverter` now pays for the capacity it uses
-  (P0-4): its input was bounded only by `capmax`, with no
-  `input ≤ installed capacity` row, so unbuilt capacity was free
-  (regression test: −30000 instead of 0).  New `capacity` row and dual
-  output per block.
+- **Here-and-now decisions** that take one value across all hydrology
+  scenarios (`nonanticipative`), for example an LNG cargo plan fixed
+  before inflows are known.
+- Case-wide decisions that span all planning phases, integer decision
+  variables, user constraints active only in some stages, and
+  stage-average constraints in PAMPL files.
 
-- Storages and carrier converters out of service build nothing (P0-2,
-  P0-3).  `Battery` and the carrier storages created their charge /
-  discharge columns before the active check, and the carrier storages
-  stamped `fout` into an active node balance with no energy balance
-  behind it (free heat / hydrogen / ammonia; regression test: −40000
-  instead of 0).  `CarrierConverter` had no active check at all: an
-  inactive electrolyser kept converting, and an inactive endpoint node
-  made the build throw.
+#### Converters
 
-- `DecisionVariable` with `obj_constant` (an α-rebased column) now
-  defaults free below in `stage` / `block` scope too, as documented and as
-  the `global` path already did (P0-18).  Before, an unset `lower_bound`
-  clamped the column at 0 there, so a rebased variable below its mean was
-  cut off (regression test: objective 200 instead of 190).
+- **PLEXOS**: versions 8.1, 9.0 and 10.0; native reserve and battery
+  reserve mapping; inflexible LNG tanks; horizon truncation with end
+  conditions; emission tracking of imports; initial generation for ramp
+  limits; AEMO ISP network augmentations by development path and a new
+  monthly multi-year expansion model of the AEMO ISP (prototype).
+- **PLP**: all failure (falla) tiers as a value-of-lost-load curve
+  (`--falla-segments all`); loss tangent count selection
+  (`--loss-tangents`, default `double` = one tangent per PLP loss
+  segment in each flow direction).
+- **PSR SDDP**: the full deficit cost curve (`--deficit-segments all`).
+- **New converters and inputs**: `cucdata2gtopt` (the clustered
+  unit-commitment benchmarks on the IEEE 39- and 118-bus systems),
+  `gasnet2gtopt` (gas networks and published benchmarks), Sienna reserve
+  test systems, and RTS-GMLC reserves and inertia.
 
-- A MIP stopped at a limit (time, node, solution, memory, abort) reported
-  its raw incumbent: no integer-fixed LP re-solve ran, so the objective
-  could be far above what the incumbent's integers allow (CEN PCP
-  2026-04-22: incumbent 3.06e9, fixed-integer LP 1.58e9) and no duals
-  were written.  gtopt now **polishes** every MIP that holds a feasible
-  incumbent — integers fixed, LP re-solved, objective / primal / duals
-  taken from the fixed LP — whether or not duals are requested, on every
-  MIP backend (new `SolverBackend::has_mip_incumbent()`, plugin ABI 17).
-  The polish is charged to `time_limit` (min(5 %, 300 s) reserved, at
-  least 10 s).  A limit stop stays non-optimal: exit 1, `solution.csv`
-  status `5` / `limit_polished`, and the log shows incumbent vs polished
-  objective.  If the fixed LP fails the incumbent is kept with a
-  warning.  Opt out with `solver_options.mip_polish: false`.
-- `gtopt-net reduce` on cases with parquet-stem Line fields (e.g.
-  `"tmax_ab": "cl_tmax_ab"`): stems are now resolved, so a scheduled
-  capacity no longer reads as 0 MW and a scheduled reactance no longer
-  turns the line into a DC link; lines active in no stage are dropped.
-- `gtopt-net reduce` kept the cluster representative's own bus `active`
-  schedule, so a representative from an old network vintage switched off
-  (islanded) a cluster whose other buses are in service later; the
-  cluster is now in service whenever any member is.
+#### Tools
 
-- A relative `solver_options.param_file` was handed verbatim to the
-  backend, so a run started outside the case directory
-  (`--set input_directory=<case>`) failed to open `solvers/cplex.prm`
-  (CPLEX error 1423) and silently solved with solver defaults; sibling
-  files derived from its directory (`cplex_warmstart.prm`, `cuopt.cfg`,
-  …) were lost the same way.  Every `SolverOptions` bundle (global,
-  monolithic, MIP-start relax, SDDP forward/backward, cascade) is now
-  resolved before any plugin sees it; a file found nowhere is a WARN.
-- `plexos2gtopt`: a battery whose `BAT_<name>` `Gen_Rating` series is
-  0 MW over the whole horizon is out of service — `pmax_charge =
-  pmax_discharge = 0`, written explicitly — instead of a working battery
-  sized by the 2 MW static `Max Power` placeholder.  Partially de-rated
-  units keep their rating series.
-- `Junction.drain_cost` is now priced like `Waterway.fcost` and
-  `Reservoir.spillway_cost` ($/(m³/s)·h through `CostHelper::block_ecost`,
-  i.e. × probability × discount × block duration).  It entered the
-  objective raw, so with 2 h blocks a costed junction drain cost half of
-  the equivalent `_ver` waterway and the water value of a spilling
-  reservoir came out at −c/(fcr·duration) instead of −c/fcr.
-- `sddp2gtopt`: a negative PSR water value is kept as a boundary-cut
-  slope (it was dropped together with the `efin`/`efin_cost` target,
-  which stays positive-only).
-- **plp2gtopt: GeneratorProfile written in MW instead of per-unit.**
-  Profile-mode pasada centrals (solar / wind / CSP under
-  `--pasada-mode auto|profile`) wrote the raw `plpaflce.dat` value
-  (MW-equivalent) as `GeneratorProfile/profile`, so
-  `capacity × profile` reached ~capacity² (e.g. FINIS_TERRAE_FV
-  281.8 × 63.6 MW ≈ 17 900 MW of "available" energy and spillover up to
-  2.5e4).  The profile is now `aflce × Rendi / PotMax` clipped to [0, 1]
-  (PLP bounds the pasada flow by `min(aflce, PMax/Rendi)`,
-  `plp-fijamues.f`); the scalar `afluent` path is fixed likewise.
-  Dispatch was unaffected (pmax still capped generation) but
-  spillover outputs and LP RHS magnitudes were wrong.  **PLP-derived
-  cases converted with profile-mode pasadas must be regenerated**; in
-  gtopt-cases the affected ones (profile max > 1) are
-  `chile/medium_long_term/cen_long_term_1y`,
-  `chile/medium_long_term/plp_23y/case` and
-  `chile/medium_long_term/archive/scripts_cases_2y/gtopt_case_2y`
-  (Peru / Guatemala profiles are already per-unit), plus derived cases
-  such as the cl-pe interconnection merges.
+- **Data-quality checks** after every conversion and before every solve:
+  implausible line impedances and voltage levels, profiles outside 0-1,
+  zero-capacity units with commitment, rewards above failure costs.
+- **Topology check per stage**: electrical islands, zones and
+  interconnectors as the network changes over time.
+- **Network reduction** to zones (for example one bus per country) while
+  keeping chosen interconnectors.
+- `gtopt-fetch` downloads and verifies public operator data.
+- SDDP and cascade runs can write full results for every cascade level.
 
-- Parquet solution output: the `scenario`, `stage`, `block` and `uid` key
-  columns are now `int32` (the `Uid` type) instead of `uint16`.  Element
-  uids >= 65536 were silently wrapped mod 65536 (reservoir uid 101333 was
-  written as 35797, colliding with other elements), and block uids of long
-  hourly horizons overflowed after ~7 years.  Readers that cast the key
-  columns to `uint16` must accept `int32`.
+### Improvements
 
-- Naming / unit dialect dictionaries: a stale installed
-  `naming_dialects.json` / `unit_dialects.json` (e.g. an old
-  `~/.local/share/gtopt/` copy) no longer shadows the running binary's
-  dictionary.  The copy compiled into the binary is now the default;
-  an external file is read only through `$GTOPT_NAMING_DIALECTS_FILE` /
-  `$GTOPT_UNIT_DIALECTS_FILE` (logged, with a warning when the override
-  lacks entries of the built-in dictionary).  Install and user share
-  dirs are never probed.  Fixes the `annual_loss` deprecated-alias tests
-  failing on machines with an older install.
-- Phase-local and global positions are distinct types.  `StageLP` no
-  longer has an `index()`: `stage_index()` is the GLOBAL position
-  (`SimulationLP::stages()`), `phase_stage_index()` the new
-  `PhaseStageIndex` (position inside `PhaseLP::stages()`); likewise
-  `ScenarioLP::scenario_index()` / `scene_scenario_index()`
-  (`SceneScenarioIndex`).  The simulation, phase and scene arrays are now
-  `PositionVector<IndexT, T>`, whose `operator[]` rejects any other strong
-  index at compile time, so indexing a global array with a local position
-  (the `prev_stage` bug above) no longer compiles.  Bugs this surfaced: the
-  capacity `prev_phase_publishes` scan compared global with local stage
-  positions (expansion built in an intermediate phase was dropped at the
-  next phase boundary) and `Generator.emission_captures[].rate/cost`
-  vectors were read at the phase-local position (every later phase used
-  the first stages' values).
+- The SDDP log explains why each run stopped and how much solver effort
+  each pass took, and reports the upper bound net of irrigation
+  agreement rewards and the effect of end-of-horizon cuts on the gap.
+- Unknown option or mode names are errors instead of silently falling
+  back to a default formulation; invalid couplings between elements
+  (for example a turbine active while its generator is not) are reported
+  before the solve.
+- `gtopt --version` and every result file record the exact program
+  version that produced them.
+- Settings priority is clear: command line, then `--set`, then the case
+  file, then `.gtopt.conf`, then defaults.
+- Solver parameter files are found next to the case, follow the solver
+  actually used, and are recorded for reproducible re-runs; a solve time
+  limit is one budget per solve.
+- The installer can select and auto-detect solvers.
 
-- `update_lp` state readers no longer substitute the case `eini` for a
-  solved state that is merely unavailable.  `physical_efin_from_cache`
-  (`vfin` of the bound-rule `(vini + vfin) / 2` axis) returned the case
-  `eini` whenever the LP was not optimal — always under
-  `--memory-saving compress`, where the trial pin, a cut row or a
-  reconstruct clears the optimal flag right before `update_lp` — so a
-  volume rule saw `(v0 + eini) / 2` and compress diverged from off.  The
-  readers now take the solved `efin` from its StateVariable (written after
-  every forward solve, mode-independent), then the optimal LP, and fall
-  back to `eini` only before the first solve (warning once otherwise).
-  Also: `physical_eini_from_cache` read the previous PHASE's efin for the
-  second and later stages of a multi-stage phase (now the previous stage
-  via `SimulationLP::prev_stage`), returned an unset StateVariable's 0 as a
-  volume, and `build_time_reservoir_volume` took a predecessor drained to
-  exactly 0 for "unset" (new `StateVariable::has_col_sol()`); the
-  VolumeRight incoming state (`volume_right_incoming_state`) uses the same
-  chain.
-- Expansion capacity built in an intermediate phase is carried to the
-  later phases.  `CapacityObjectBase::add_to_lp` decided whether the
-  previous phase publishes `capainst`/`capacost` by scanning the global
-  stages while `s.index() <= prev_stage->index()` — a phase-LOCAL bound
-  — so from the third phase on (or after a multi-stage phase) the scan
-  stopped early, an expansion stage of an intermediate phase was
-  missed, and the built capacity (and its carried CAPEX) vanished at the
-  next boundary.  Monolithic and SDDP, single-stage phases included: 4
-  stages with a build allowed only in stage 2, phases {1,1,1,1}, gave
-  31.1 k instead of 13.3 k.  Same index mix-up in `EmissionSourceLP`:
-  per-stage `emission_captures[].rate/cost` vectors were read at the
-  phase-local position, so every phase after the first used the first
-  stages' values.  The unused (and equally wrong)
-  `SimulationLP::previous_stage` is removed.
+### Fixes
 
-- Multi-stage phases after the first one keep their stage chain.
-  `SimulationLP::prev_stage` indexed the GLOBAL stage array with the
-  stage's phase-LOCAL index, so in phase 2+ the second and later stages
-  got a stage of an earlier phase as predecessor: storage restarted from
-  `eini` (free water; a 3-stage hydro case with phases {1, 2} reported
-  LB = UB = 1.4 M instead of 6.5 M) and every other `prev_stage` user
-  (capacity, flow, volume-right and decision-variable chains) saw the
-  wrong stage.  Single-stage phases and the first phase were not
-  affected.
+#### Network and losses
 
-- SDDP: cuts loaded onto a multi-stage phase now bind to the phase's
-  LAST-stage state column.  A multi-stage phase registers one `efin` per
-  stage under the same `(class, uid, col_name)`; the boundary-cut loader
-  (`load_boundary_cuts_csv`, incl. the mean-shift target) and the Parquet
-  hot-start loader took the first registry match — the end volume of the
-  phase's FIRST stage.  Terminal FCFs on the monolithic single-phase LP and
-  on multi-stage last phases, and reloaded cuts on multi-stage phases,
-  therefore priced the wrong column (a 3-phase hydro case: monolithic
-  800 k instead of 6.5 M; reloaded LB 1.7 M instead of 6.5 M).  New helper
-  `find_phase_state_col` (`sddp_cut_io.hpp`).
+- Kirchhoff's voltage law is kept on all surviving loops when a line is
+  out of service in some blocks.
+- A line's loss envelope no longer caps its flow.
 
-- SDDP: the α floor is derived after the cut row is installed.  Every
-  install site (`add_cut_row`, cut sharing, Parquet reload) floored α
-  before adding the row, so a cell's first cut was floored from an empty
-  cut set — the `α ≥ 0` fallback.  With a negative cost-to-go
-  (negative-cost units, rebased FCFs) this reported an invalid LB above
-  the optimum for one iteration (3.75 M vs the 0.825 M optimum).  The floor
-  is now the documented cut-derived box floor from the first cut on.
-  Non-negative-cost models that relied on the implicit first-cut `α ≥ 0`
-  should set `sddp_options.alpha_min = 0` (the trial trajectory, and
-  where a fixed-iteration run stalls, can change without it).
+#### Unit commitment and reserves
 
-- `.gtopt.conf`: an unknown key or an unparsable value (number, boolean,
-  algorithm) in `[gtopt]` or `[solver.<name>]` now logs one warning naming
-  the file, the section and the key; it used to be dropped silently.
-  Numbers must be whole tokens (`threads = 4x` was read as 4).  The Python
-  tools' sections are not checked.
+- Reserve rows of units referenced by name and by number now match;
+  units with both a minimum and a maximum number of starts build
+  correctly; relaxed commitments report their actual status.
+- Inertia contributions use the committed minimum output and are capped
+  at the unit rating.
 
-- JSON `solver_options.log_mode` and `solver_options.scaling` accept the
-  names documented for them (`"detailed"`, `"aggressive"`, …); the parser
-  only took the numeric codes, which still work.  An unknown name or code
-  is an error naming the option and the valid values.  Output JSON keeps
-  writing the numeric codes.
+#### Storage and batteries
 
-- A JSON / `--set` `lp_debug` or `lp_error` now enables LP row/column
-  names like the `--lp-debug` / `--lp-error` flags do; only the CLI flags
-  did, so a JSON-only `"lp_debug": true` dumped LPs with generic names.
+- Storage commissioned after the first stage no longer starts with free
+  stored energy; out-of-service storage and converters no longer produce
+  energy, heat or hydrogen; expandable converters pay for the capacity
+  they use.
+- Batteries with commitment have separate charge and discharge decisions
+  again, so they can operate with both minimum charge and discharge
+  levels.
 
-- Cascade levels that rebuild their LP (model-option overrides or a
-  `system_file` swap) now inherit the caller's full `LpMatrixOptions`
-  (solver, `matrix_eps`, LP names for `--lp-file` / `lp_debug` /
-  `lp_error`, `compute_stats`, equilibration, coefficient-ratio
-  threshold).  They were rebuilt with `LpMatrixOptions{}`, so e.g.
-  `lp_debug` dumps and error LPs of those levels had no names.
-  `PlanningLP::flat_options()` exposes the options; each level's are in
-  `CascadeLevelStats::lp_options`.
+#### Hydro and irrigation
 
-- The solver parameter file's optimality tolerance is no longer silently
-  replaced: with `scale_objective != 1` every solve set a typed
-  `optimal_eps = 1e-6 / scale_objective`, which CPLEX applies after the
-  `.prm`, so a case's `CPXPARAM_Simplex_Tolerances_Optimality` never took
-  effect.  The order is now: `solver_options.optimal_eps` (used as given;
-  it used to be divided by `scale_objective` too) > the parameter file's
-  value > the `scale_objective`-derived default.  One info line reports
-  the value used and why.  **Result-changing** for runs that set
-  `optimal_eps` or a `.prm` tolerance with `scale_objective != 1`.
+- The water value of a spilling reservoir is correct with multi-hour
+  blocks; water-right ledgers debit and credit in the documented
+  direction.
+- Irrigation agreements follow the PLP rules more closely (Laja
+  withdrawal cap at the stage-start filtration, no reward for undelivered
+  water).
+- Converted PLP seepage no longer caps the upstream reservoir when the
+  downstream outlets are too small.
 
-- Unknown per-element mode strings are now a validation error naming the
-  element, the field, the bad value and the valid values:
-  `Line.line_losses_mode`, `Line.loss_pwl_layout`,
-  `Line.loss_allocation_mode`, `Generator.cogen_mode`,
-  `FlowRight.flow_mode`, `DecisionVariable.cost_type` and
-  `UserConstraint.constraint_type`.  They used to fall back silently to the
-  global / default setting (`FlowRight.flow_mode` with a log line only).
+#### SDDP and cascade
 
-- Unknown names in the string-typed `model_options` enums
-  (`line_losses_mode`, `kirchhoff_mode`, `tiny_reactance_mode`,
-  `objective_mode`), globally or in a cascade level, are now a validation
-  error.  They used to fall back to the default formulation silently
-  (e.g. `"line_losses_mode": "linaer"` ran the adaptive loss model).
+- Phases with several stages keep their storage chain after the first
+  phase (storage used to restart from its initial level, giving free
+  water); capacity built mid-horizon is carried to later phases.
+- Loaded cuts apply to the end-of-phase volume; the first cut of each
+  cell no longer gives an invalid lower bound with negative costs.
+- With model reduction on, each hydrology sample sees its own inflows.
+- The run status file always ends with a final status.
 
-- `$GTOPT_CONFIG` pointing at a missing file now logs a warning instead of
-  silently falling back to `./.gtopt.conf` / `~/.gtopt.conf`.
+#### Gas and emissions
 
-- `--solver` is kept by cascade levels that rebuild their LP (model-option
-  overrides): those levels used to fall back to the default solver
-  (`GTOPT_SOLVER` / plugin priority).
+- Gas line pack cannot be refilled for free between stages; emission
+  and fuel penalty costs are reported on the right basis.
 
-- The `.gtopt.conf` `[solver.<name>]` section and the auto-discovered
-  `<input_directory>/solvers/<name>.prm` now follow the solver the LP is
-  actually built with (`--solver`, else `GTOPT_SOLVER` / plugin priority).
-  Both were applied only with an explicit `--solver`, so a default-solver
-  run (e.g. CPLEX picked by priority) silently ignored the case's
-  `solvers/cplex.prm`.
+#### Converters
 
-- `--lp-error` is applied on its own: it was only honoured together with
-  `--lp-debug`, and `--lp-debug` alone reset a JSON `lp_error: true`.
+- **PLEXOS:** batteries with zero rating are out of service, charge
+  power uses the real rating, hourly bound and minimum-volume files are
+  aligned to the right dates, and restarts after outages are allowed.
+- **PLP:** the first boundary cut of the PLP cut file is kept; reduced
+  cascade networks load correctly.
+- **PSR SDDP:** negative water values are kept in the boundary cuts.
+- **Sienna:** thermal minimum output applies only when committed (units
+  were forced on all day).  The converter is now `sienna2gtopt`;
+  `sienna_to_gtopt` still works as a deprecated alias.
 
-- `options.lp_matrix_options` is now resolved in one place
-  (`PlanningOptionsLP::resolve_lp_matrix_options`, applied by
-  `SystemLP::create_lp`) instead of only through the `LpMatrixOptions`
-  argument the `gtopt` runner builds.  Before, a `PlanningLP` constructed
-  directly (unit tests, embedders) and every **cascade level rebuilt with a
-  new LP** ignored the JSON `equilibration_method` and the topology
-  default (ruiz for multi-bus Kirchhoff) and ran with `row_max`; and the
-  JSON fields `ruiz_max_iterations`, `ruiz_tolerance`, `fast_sqrt_method`
-  and `validation` were ignored on every path, including the binary.
-  An explicit `LpMatrixOptions` field still wins when it is set.  The
-  equilibration default is unchanged (ruiz for multi-bus Kirchhoff, else
-  `row_max`) and now also follows a cascade level's own `model_options`
-  (e.g. a single-bus level 0 uses `row_max`, not the base case's ruiz).
-  **Result-changing** for cascade levels ≥ 1 on multi-bus Kirchhoff cases
-  (now ruiz) and for runs that set the Ruiz knobs / validation in JSON.
-  `LpMatrixOptions::ruiz_max_iterations` / `ruiz_tolerance` are now
-  optional (unset = 5 / 1e-3).  The pre-solve "Key options" log now
-  prints the effective `use_kirchhoff` (was `false` when unset, though the
-  default is `true`) and `scale_objective` (was 1000 for SDDP/cascade,
-  whose default is 1).
-- SDDP optimality cuts under `equilibration_method: ruiz` (the default
-  for multi-bus Kirchhoff cases) had wrong slopes: the next-phase
-  `sini` reduced cost was divided by the scale of the current-phase
-  `efin` column instead of its own.  Ruiz scales the two columns
-  differently, so every state-variable slope was off by
-  `col_scale(sini) / col_scale(efin)` and the lower bound could exceed
-  the upper bound and the true optimum.  `StateVariable` now stores the
-  dependent column's scale with its reduced cost.  **Result-changing**
-  for every SDDP / cascade run with ruiz (bounds, cuts, saved cut files,
-  dispatch); `row_max` and `none` runs are unaffected.  Cut files saved
-  by ruiz runs before this fix carry the wrong slopes and should be
-  regenerated rather than hot-started from.
-- `sddp2gtopt` (NCP/`.dat` front-end): `dcirc.dat` `RESIS`/`REACT` are
-  now read as **% on the 100 MVA base** (`x_pu = X/100`, `r_pu = R/100`),
-  as the JSON/CSV front-end already did, instead of ohms converted with
-  the `Volt.dat` bus voltage (`X·100/kV²`).  The ohm reading shrank 69 kV
-  reactances ~50x (and ~5000x on buses whose `Volt.dat` kV copies the
-  name suffix, e.g. 692/691/342/232), so on the Guatemala NCP case 62
-  real circuits (47 at 69 kV, 10 at 230 kV, 5 at 34.5 kV) fell below
-  `dc_line_reactance_threshold` (105 "ties" instead of the 52 real
-  couplers) and were modelled as zero-impedance ties; that, not the
-  couplers, caused the 9160 MWh curtailment previously attributed to
-  `tiny_reactance_mode`.
-  Mistyped `Volt.dat` voltages (non-standard kV equal to the bus-name
-  suffix) are corrected with a warning (692 → 69, 342 → 34.5, 232 → 230,
-  132 → 13.8); they now only affect the `Bus.voltage` metadata.
+#### Interfaces
 
-- `VolumeRight.right_reservoir`: the `direction` sign was inverted —
-  a child "withdrawal" (`direction = -1`, the default) credited the
-  parent ledger.  It now debits it, as documented; `+1` credits it.
-- `plp2gtopt`: a seepage (`plpfilemb.dat`) whose receiving junction's
-  outlets cannot carry the largest flow of the seepage line on
-  `[emin, emax]` gets a free drain at that junction, bounded by that
-  excess.  Before, the outlet
-  capacity capped the source reservoir volume and priced the junction
-  negatively (CIPRESES → FILT_CIPRESES, outlet 20.1 m³/s).  PLP has the
-  same cap; `--plp-legacy` keeps it and only warns.
+- Result summary and time-series export tools read the current output
+  layout; the topology checker handles lines defined in data files; the
+  monitor exits when a run ends.
 
-- SDDP / cascade with `lp_reduction`: fixed-discharge inflows are no
-  longer folded into the junction-balance RHS.  The fold removed the
-  inflow column, so the aperture backward pass and sampled forward
-  realizations (`update_aperture`) silently kept the base scenario's
-  inflow at every folded junction — on converted PLP cases all
-  reservoir/junction inflows.  Monolithic runs still fold.
+### Performance
 
-- `gtopt_check_topology` no longer crashes on cases whose line fields
-  name input files (e.g. `"reactance": "cl_reactance"`).  Scheduled
-  fields (scalars, inline per-stage / per-block arrays and
-  `<input_directory>/<Class>/<name>` tables) are resolved per stage
-  with the new shared `gtopt_shared.field_sched.StageSchedResolver`.
-  Static checks run on the union of in-service lines with min |X|.
-  An isolated bus without demand no longer causes exit code 2.
+- SDDP backward pass much faster by default (hydrology samples solved in
+  sequence on one model with basis reuse), forward solves start from the
+  latest backward basis, and a redundant re-solve after each cut is
+  skipped.
+- Lower memory use for large SDDP cases (shared, compressed model
+  snapshots across scenarios).
+- Solver warm starts keep the case's solver settings (threads,
+  tolerances, time limits), and parameter files are read once per run.
 
-- `gtopt_results_summary` and `gtopt_timeseries_export` read the current
-  gtopt output layout (`<field>_sol_s<k>_p<k>.csv` shards and
-  hive-partitioned Parquet); they reported all-zero KPIs and a single
-  `phase=0_part` sheet before.
-- `gtopt_monitor --no-gui` exits when a monolithic run reports `done`.
-- `gtopt_check_pampl` no longer warns on `param`/`var` declarations.
-- `sienna_to_gtopt` and `gtopt_check_fingerprint` exit with a clear
-  message instead of a traceback on an unavailable bundle / missing file.
+### Security
 
-- plexos2gtopt AEMO ISP (weekly and expansion): pumped hydro (PHES)
-  written as a Battery now carries `annual_standing_loss: 0`, so it no
-  longer inherits the Li-ion self-discharge default
-  (`model_options.battery_annual_standing_loss`).
-- In-memory decompression (`low_memory = compress` LP snapshots) now
-  checks that every codec (zstd, gzip, lz4, snappy, uncompressed)
-  produces exactly the recorded original size.  A corrupt, truncated or
-  mismatched buffer used to be zero-padded and loaded as a garbage LP;
-  a snappy stream whose embedded length exceeded the recorded size
-  overran the output buffer.  The cross-scene XOR-delta restore checks
-  the base size too, and the snapshot restore validates the flat-LP
-  metadata against the buffer size and leaves the snapshot empty on
-  failure.
-- Laja agreement: the irrigation withdrawal cap (`laja_retiro_maximo`)
-  now evaluates the lake filtration at the stage-initial volume, as PLP
-  does, instead of the historical filtration: a new carrier
-  `laja_qfilt` (fixed at `min(C, QFilt(V0))` through a `bound_rule` on
-  the lake's seepage curve) is subtracted from `laja_qdefm`, which now
-  holds `C = min(QP - QHoya, QFiltHist) + QN + QS + QE`.  The static form
-  understated the requirement by about 25 m³/s in Dec–Mar on the CEN
-  data.  The cap is a stage-average row (`scope stage`), and the netted
-  district targets use the same forward-scenario mean of the
-  hoya-intermedia inflows as the cap (they used the first scenario).
-- `sddp2gtopt`: interconnection imports are unavailable in hours with no
-  offer.  With `PRECIOSMEX.csv`, an hour priced blank or 0 for an import
-  unit (or the regional `INTER-SAL` series it inherits) closes that unit
-  for the hour; the Guatemala daily programs price only the billed days,
-  so the look-ahead days had free, uncapped imports.  Without
-  `PRECIOSMEX.csv`, an import unit whose fuel cost is 0 has no offer and
-  is left out.  RESTMEX fixed or floor schedules keep a unit available,
-  and their unscheduled hours now fall back to the hourly cap instead of
-  the installed capacity.  `--import-limit` stays an opt-in cap.
+- LP debug compression no longer goes through a shell; the external
+  compressors are started directly with an argument list.
+- Stages whose block range falls outside the block list, very deeply
+  nested constraint expressions and very large index sets are rejected
+  with an error instead of being processed.
+- `.gtopt.conf` is no longer read from the current working directory
+  (search order `--config`, `$GTOPT_CONFIG`, `~/.gtopt.conf`).
+- Builds are hardened by default (stack protection, control-flow
+  protection, fortified library calls, read-only relocations), and the
+  binary and plugins no longer search the current directory or the home
+  directory for libraries.
+- Cascade cut files are written to a private temporary directory.
+- The GUI service accepts only loopback or explicitly allowed host names
+  (`GTOPT_GUI_ALLOWED_HOSTS`), requires its own header on write
+  requests, and escapes case values it displays.
+- Automatic LP diagnostics never send a model to the public NEOS server.
+- The binary download helper accepts only verified artifacts of this
+  repository.
+- Operator API keys are read only from environment variables and are
+  never written to logs.
+- Python dependency minimums raised to versions without known
+  advisories.
 
 ## [1.1.0] - 2026-11-20
 
@@ -1522,6 +1010,7 @@ listed below.
   tests for `sddp_cut_io`, `sddp_monitor`, battery expansion, reservoir
   efficiency, variable scaling, and enum options.
 
-[Unreleased]: https://github.com/gtopt-community/gtopt/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/gtopt-community/gtopt/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/gtopt-community/gtopt/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/gtopt-community/gtopt/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/gtopt-community/gtopt/releases/tag/v1.0.0

@@ -20,6 +20,7 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
   - [psse2gtopt](#psse2gtopt) · [full docs](scripts/psse2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
   - [nrel118_to_gtopt](#nrel118_to_gtopt) · [full docs](scripts/nrel118_to_gtopt.md)
+  - [cucdata2gtopt](#cucdata2gtopt) · [full docs](scripts/cucdata2gtopt.md)
   - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
   - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel template](templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
   - [cvs2parquet](#cvs2parquet) · [full docs](scripts/cvs2parquet.md)
@@ -124,7 +125,8 @@ One line per console script installed by `pip install ./scripts`:
 | `pp2gtopt` | pandapower network → gtopt JSON | [pp2gtopt](scripts/pp2gtopt.md) |
 | `gtopt2pp` | gtopt JSON → pandapower network | [gtopt2pp](#gtopt2pp) |
 | `nrel118_to_gtopt` | NREL-118 test system → multi-stage gtopt case | [nrel118_to_gtopt](scripts/nrel118_to_gtopt.md) |
-| `sienna_to_gtopt` | Sienna (PowerSimulations.jl) reference systems → gtopt JSON | — |
+| `sienna2gtopt` | Sienna (PowerSimulations.jl) reference systems → gtopt JSON | — |
+| `cucdata2gtopt` | Clustered-UC benchmark (Morales-España & Tejada-Arango 2019, IEEE 39/118-bus) → gtopt IUC case | [cucdata2gtopt](scripts/cucdata2gtopt.md) |
 | `igtopt` | Excel workbook → gtopt JSON (and `--make-template`) | [igtopt](scripts/igtopt.md) |
 | `cvs2parquet` | CSV → Parquet converter for gtopt input tables | [cvs2parquet](scripts/cvs2parquet.md) |
 | `ts2gtopt` | Project time series onto a gtopt block horizon | [ts2gtopt](scripts/ts2gtopt.md) |
@@ -180,7 +182,8 @@ may apply at once and an unsupported one is ignored with a warning.
 | `pp2gtopt` | pandapower | `2.13`, `2.14`, `3.0`–`3.5` | `3.4`, `3.5` | `net.version` | log, `pp2gtopt_state.json` (time-series mode) |
 | `cen2gtopt` | CEN SIP API | `4` | `4` (recorded fixtures) | endpoint versions in a `--cache` fetch cache | log, `manifest.json` |
 | `rts_gmlc_to_gtopt` | RTS-GMLC release | `0.2.3` | `0.2.3` (slow CTest) | `SOURCE_VERSION` marker of a fresh cache | log, summary line |
-| `sienna_to_gtopt` | PowerSystemsTestData commit | `a2ecae9…` | `a2ecae9…` | bundle files matching the manifest SHA-256 | log |
+| `sienna2gtopt` | PowerSystemsTestData commit | `a2ecae9…` | `a2ecae9…` | bundle files matching the manifest SHA-256 | log |
+| `cucdata2gtopt` | CUC-data commit | `624abbb…` | `624abbb…` (synthetic workbook + cached data) | files matching the manifest SHA-256 | log |
 | `nrel118_to_gtopt` | PowerSystemsTestData commit | `a2ecae9…` | none | `SOURCE_REF` marker of a fresh cache, or a checkout's `HEAD` | log, `nrel118_to_gtopt_state.json` |
 | `gasnet2gtopt` | `*.gasnet.json` schema | `1` | `1` | optional top-level `schema_version` | log, `.meta.json` |
 
@@ -725,6 +728,25 @@ gtopt -s gtopt_case/gtopt_case.json -d out  # solve DC OPF
 ```
 
 ---
+
+## cucdata2gtopt
+
+> **[→ Full documentation](scripts/cucdata2gtopt.md)**
+
+Converts the case studies of Morales-España & Tejada-Arango, "Modeling
+the hidden flexibility of clustered unit commitment" (IEEE TPWRS 2019)
+— modified IEEE 39-bus (90 units) and 118-bus (540 units) systems, 24 h,
+DC network, up/down reserve — into gtopt individual-unit UC cases.  The
+data ([CUC-data](https://github.com/datejada/CUC-data)) has no licence:
+it is fetched from a pinned commit into `~/.cache/gtopt/cucdata/` and
+never committed.
+
+```bash
+cucdata2gtopt --fetch-only                       # prime the cache
+cucdata2gtopt --system 39 --reserve 10 -o cuc/   # cuc/cuc39_r10_s10.json
+cucdata2gtopt --system 118 --reserve 2.5 --scale 10 -o cuc/
+gtopt cuc/cuc39_r10_s10.json --mip-gap 1e-4
+```
 
 ## nrel118_to_gtopt
 

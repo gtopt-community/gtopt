@@ -140,15 +140,25 @@ flags all override them (see [Precedence](#precedence)).
 
 ### Search order
 
-1. `$GTOPT_CONFIG` environment variable (exact path)
-2. `./.gtopt.conf` (current working directory)
+1. `--config FILE` on the command line (exact path; an error if the file
+   does not exist)
+2. `$GTOPT_CONFIG` environment variable (exact path)
 3. `~/.gtopt.conf` (home directory)
 
-The first file found is used.  When `$GTOPT_CONFIG` is set but names a
-file that does not exist, gtopt logs a warning
-(`$GTOPT_CONFIG='…' does not exist; falling back to ./.gtopt.conf and
-~/.gtopt.conf`) and continues with the next locations — a typo in the
-path no longer switches the configuration silently.
+The first file found is used, and the startup log names it
+(`config file: /path/to/.gtopt.conf`, or `config file: none loaded`).
+
+The current working directory is **not** searched: a `.gtopt.conf`
+shipped inside a case bundle or an uploaded archive must not change how
+gtopt runs behind your back.  To use a project-local file, name it
+explicitly, e.g. `gtopt case.json --config ./.gtopt.conf` (or export
+`GTOPT_CONFIG=$PWD/.gtopt.conf`).  When a `./.gtopt.conf` exists but is
+not the file in use, gtopt logs a warning saying it was ignored.
+
+When `$GTOPT_CONFIG` is set but names a file that does not exist, gtopt
+logs a warning (`$GTOPT_CONFIG='…' does not exist; falling back to
+~/.gtopt.conf`) and continues with the home file — a typo in the path no
+longer switches the configuration silently.
 
 ### Format
 
@@ -516,7 +526,7 @@ gtopt system_c0.json --set output_directory=/tmp/c0_results
 On success, GTOpt logs its progress and exits with code 0:
 
 ```text
-[info] starting gtopt 1.1.0
+[info] starting gtopt 1.2.0
 [info] parsing input file system_c0.json
 [info] parsing all json files 0.001s
 [info] creating lp 0.002s
@@ -557,11 +567,11 @@ One row per solved `(scene, phase)` cell:
   (`obj_value / scale_objective` is the LP-raw objective).  SDDP and
   cascade default to 1; monolithic defaults to 1000.
 - **`gtopt_version`**, **`gtopt_revision`**: the gtopt build that wrote the
-  file, the same on every row: its version (`1.1.0`, or `1.2.0-dev`
+  file, the same on every row: its version (`1.2.0`, or `1.3.0-dev`
   between releases) and the `git describe --always --dirty` of its source
   tree (`unknown` for a build outside a git checkout).  `gtopt --version`
-  prints the same pair as `1.1.0 (v1.1.0-20-g5a4fd2ef8abc)`, or just
-  `1.1.0` for a clean build of the release tag.
+  prints the same pair as `1.2.0 (v1.2.0-20-g5a4fd2ef8abc)`, or just
+  `1.2.0` for a clean build of the release tag.
 
 New columns are only ever appended.  The e2e golden comparison
 (`tools/gtopt_compare_csv.py`) compares only the columns present in the

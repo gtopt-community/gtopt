@@ -113,6 +113,8 @@ plp2gtopt -i input/ -l DEBUG
 | `-b, --use-single-bus` | off | Use single-bus (copper-plate) mode |
 | `--use-line-losses` | gtopt default | Model transmission line losses |
 | `--loss-cost-eps EPS` | not set (gtopt: `0.1`) | $/MWh on line-loss columns (`model_options.loss_cost_eps`); `0` disables |
+| `--line-losses-mode MODE` | `tangent_signed_flow` | Line-loss formulation (`model_options.line_losses_mode`); see [Line losses](#line-losses-plpcnflidat).  `piecewise_direct` replicates PLP's LP but is **not arbitrage-safe** |
+| `--loss-tangents SPEC` | `double` | Tangent count K per lossy line under `tangent_signed_flow`: `double` (K = 2·Num.Tramos, one tangent per PLP tramo per flow direction), `tramos` (K = Num.Tramos), or an integer K ≥ 2; see [Line losses](#line-losses-plpcnflidat) |
 | `--demand-fail-cost COST` | `1000.0` | Cost penalty for demand curtailment ($/MWh) |
 | `--reserve-fail-cost COST` | not set | Cost penalty for reserve shortfall ($/MWh) |
 | `--falla-segments {first,all,split}` | `first` | PLP failure tiers: `first` = cheapest tier as the demand `fcost`; `all` = native `Demand.fail_segments` curve; `split` = one `<demand>_falla<k>` demand per tier (see [Demand](#demand-plpdemdat-plpcoscedat)) |
@@ -217,28 +219,57 @@ treated as unspecified and the gtopt lithium default applies.  To reproduce
 a lossless PLP run exactly, set
 `model_options.battery_annual_standing_loss = 0` in the generated case (or `--set model_options.battery_annual_standing_loss=0`).
 
-### Generation-coupled battery (`source_generator`)
+### Co-located storage (plant + battery)
 
-When a battery (BESS or ESS) is coupled to a co-located generation asset
-(e.g. a solar plant that directly charges the battery), plp2gtopt sets the
-`source_generator` field on the battery JSON element.
+A storage whose charge comes from a co-located plant (a PV / wind farm with
+its own battery) is converted to a **standalone** gtopt battery on its own
+bus plus one user constraint per battery:
 
-- **`plpess.dat`** — when `DCMod = 1` and `CenCarga` (cenpc) is non-empty,
-  that central is set as `source_generator`.
-- **`plpcenbat.dat`** — when `NIny > 0` (injection centrals present), the
-  first injection central name is set as `source_generator`.
+```text
+<battery>_charge_source:
+  demand('<battery>_dem').load - generator('<plant>').generation <= 0
+```
 
-`System::expand_batteries()` then creates an internal bus for the charge path
-so that:
-- The **discharge Generator** connects to the external battery bus.
-- The **charge Demand** connects to the internal bus.
-- The **source generator** is rewired to the internal bus.
+The plant keeps its own grid bus.  It can inject directly to the grid
+**and** charge the battery; the charge can never exceed what the plant
+produces.  The plant is not curtailed when its MW exceed the battery
+charge rating.
 
-This models the configuration where a renewable plant (solar, wind) feeds
-directly into the battery rather than exporting to the grid bus.
+- **`plpess.dat`** (ESS model, the reference) — `DCMod = 1` with a
+  `CenCarga`.  This is PLP's own ESS row (`genpdess.f`, GenPDEssBloA):
+  `ren_cp·P_cp − ren_ess·dc ≥ 0` with RHS 0 (`plp-pdmatld.f`).  The ESS
+  charge `dc` is a load at the ESS bus (`genpdess.f`) and the plant injects
+  all its output at its own bus.  Per-block `DCMod` from `plpmaness.dat`
+  is honoured with a `for(block in {...})` domain (a `plpmaness` row
+  without the DCMod field means `DCMod = 1`, as in LeeManEss).  A
+  `CenCarga` that is not a central makes the ESS `DCMod = 0`, as in PLP.
+  With DC maintenance (legacy multi-element battery) the charge demand is
+  `<battery>_chrg`.
+- **`plpcenbat.dat`** (battery model) — the first injection central when it
+  is a real plant (not the battery itself, another battery or a
+  `<battery>_LOAD` grid-charge phantom).  Only the topology is taken from
+  PLP (`genpdbaterias.f`: plant output = direct injection + charge, never
+  forced through the battery); everything else follows gtopt's battery
+  semantics (see deviations below).
+- A plant that is missing from `generator_array` drops the coupling with
+  a warning.  Standalone batteries (no plant, `DCMod = 0`) charge freely
+  from the grid.
 
-For standalone batteries (no injection central, `DCMod = 0`), both charge
-and discharge connect to the same external bus.
+Deliberate deviations from PLP:
+
+- `plpcenbat.dat` storages use gtopt's battery model: efficiencies,
+  `emin` / `emax` in MWh, `pmax_charge` (= the BAT central pmax) and
+  standing loss.  PLP's battery model has no charge-rate limit on the
+  injected energy, scales the SoC bound by `edur/24`
+  (`genpdbaterias.f` GenPDBatBloFO) and reports `EnIny` in MWh × 3.6; none
+  of that is reproduced.
+- The charge is drawn at the battery bus.  When the plant sits on another
+  bus (a few CEN plpcenbat.dat batteries) the
+  charging energy crosses the network; PLP's battery model moves it
+  without a network path.
+- `Battery.source_generator` (internal bus with the battery charge as the
+  plant's only outlet) is no longer emitted: it forced all plant output
+  through the battery and curtailed it at `pmax_charge`.
 
 ### Regulation tanks (`DCMod = 2` → hydro Reservoir)
 
@@ -360,6 +391,49 @@ uniform split; override with `-p`.
 | `FFalla`                          | (informational)        | Forced-outage flag                             |
 | `Tmax_AB / Tmax_BA`               | `Line.tmax_ab/ba`      | Time-varying via `plpmanli.dat` / `mantlin.csv` |
 | `Resist`, `Reactanc`              | `Line.resistance / reactance` | Used when `--use-kirchhoff` is on       |
+| `Mod.Perd.` × header `FPerdTram` | `Line.use_line_losses` | `true` only when both are `T`, else `false` (PLP models no loss) |
+| `Num.Tramos`                      | `Line.loss_segments`   | See [Line losses](#line-losses-plpcnflidat)    |
+
+#### Line losses (`plpcnfli.dat`)
+
+PLP models a line's losses only when the header flag `FPerdTram` and the
+line's `Mod.Perd.` are both `T` (`leecnfli.f:213-215` otherwise forces
+`LinNFlu = 1`, and `genpdlin.f:105` stamps no loss factor).  `Num.Tramos`
+(`LinNFlu`) is the number of equal-width flow tramos **per direction**
+(`leecnfli.f:217-218`: `ΔF = F.Max / LinNFlu`): `genpdlin.f` creates
+`2·LinNFlu` flow columns per line and block and folds the secant loss slope
+`R·(2k−1)·ΔF/V²` of tramo `k` into the bus-balance coefficients — no loss
+rows.
+
+plp2gtopt writes `use_line_losses: false` on every line PLP keeps lossless
+(gtopt's default is losses on), and, for lossy lines with `Num.Tramos ≥ 2`,
+a per-line `loss_segments`.  Under the default `tangent_signed_flow` mode
+(one signed flow column, K tangent rows below the quadratic, a chord row
+above it, `loss_cost_eps` against loss arbitrage), K follows
+`--loss-tangents`:
+
+| `--loss-tangents` | K | Loss rows per line-block | Worst loss under-estimate |
+|---|---|---|---|
+| `tramos` | `Num.Tramos` | K (K − 1 when K is odd: the zero-slope tangent at f = 0 is dropped) + 3 | `R·fmax²/(V²·K²)` |
+| `double` (default) | `2·Num.Tramos` | 2·Num.Tramos + 3 | `R·fmax²/(4·V²·Num.Tramos²)` (= PLP's secant over-estimate) |
+| integer `K` | `K` | as above | `R·fmax²/(V²·K²)` |
+
+The `+ 3` are fixed: two `|f|` rows and the chord upper bound; each lossy
+line-block also has 3 columns (flow, loss, `|f|`).  The default `double`
+places one tangent per PLP tramo in each flow direction (PLP's
+`Num.Tramos` counts tramos per direction), so its worst-case loss error
+equals PLP's secant error; `tramos` halves the tangent rows at 4× that
+error (for 3 tramos: 5 loss rows per line-block against 9).  The KVL row of each line is common to every mode and to PLP.
+
+`--line-losses-mode piecewise_direct` (bundled by `--plp-legacy`) reproduces
+PLP's own formulation: `2·Num.Tramos` segment columns, no loss rows, the
+smallest LP.  Use it **only** for PLP-replication / LP-diff studies: with no
+loss rows, a negative bus price makes the LP send flow both ways on a line
+and burn energy as fictitious losses, which also hides negative marginal
+costs.  `tangent_signed_flow` keeps a single signed flow, so it cannot do
+that, and `loss_cost_eps` blocks the remaining loss inflation as long as it
+exceeds half the (negative) price sum of the line's two buses
+(`plp2gtopt/tests/test_integration_loss_tangents.py`).
 
 ### Centrales (`plpcnfce.dat`) — the heaviest mapping
 
@@ -692,7 +766,7 @@ unit tests, the integration suite, and the smoke tests:
 | `plp_min_reservoir/`          | Reservoir-only flow path                                             |
 | `plp_min_battery/`            | Standalone battery (`plpcenbat.dat`)                                 |
 | `plp_min_bess/`               | BESS via `plpess.dat` (DCMod = 0)                                    |
-| `plp_min_ess/`                | Source-coupled ESS (DCMod = 1)                                       |
+| `plp_min_ess/`                | ESS via `plpess.dat` (DCMod = 0)                                     |
 | `plp_min_cenre/`              | Renewable profile generator                                          |
 | `plp_min_filemb/`             | Reservoir filtration curves                                          |
 | `plp_min_mance/` `_manli/`    | Maintenance schedules for centrals / lines                           |

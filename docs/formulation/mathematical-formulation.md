@@ -209,7 +209,7 @@ scenarios, stages, and blocks.
 | $\text{SD}_g^{\text{ramp}}$ | `shutdown_ramp` | Ramp allowance at shutdown | MW |
 | $T_g^{\text{up}}$ | `min_up_time` | Minimum up time | h |
 | $T_g^{\text{dn}}$ | `min_down_time` | Minimum down time | h |
-| $\underline{P}_g^d$ | `dispatch_pmin` | Simple-commitment dispatch floor | MW |
+| $\underline{P}_g^d$ | `dispatch_pmin` | Deprecated SimpleCommitment floor (read as `Commitment.pmin`) | MW |
 | $H_g$ | `inertia_constant` | Synchronous-machine inertia constant | s |
 | $S_g$ | `rated_power` | Rated apparent power | MVA |
 | $\Phi_p$ | `provision_factor` | Inertia conversion factor (MWs delivered per MW provided) | s |
@@ -1572,6 +1572,65 @@ synthesised from a battery, `Battery.power_capacity` / `power_expcap` /
 own `capainst` / `capacost` SDDP state columns), while the battery's own
 `capacity` / `expcap` / … expand the energy axis $\bar{E}_{e,t}$.
 
+#### Charge / Discharge Rate Floors (`pmin_charge`, `pmin_discharge`)
+
+For a battery with floors $\underline{P}^{\text{in}}_{e,t,b}$
+(`pmin_charge`) and $\underline{P}^{\text{out}}_{e,t,b}$
+(`pmin_discharge`) and ratings $\overline{P}^{\text{in}}_{e,t,b}$ /
+$\overline{P}^{\text{out}}_{e,t,b}$ (`pmax_charge` / `pmax_discharge`),
+`Battery.commitment` selects between two regimes.
+
+**Hard floors** (`commitment` unset, default) — the synthetic charge
+demand and discharge generator columns carry the floors as bounds every
+block:
+
+$$
+\underline{P}^{\text{in}}_{e,t,b} \le \ell_{d,s,t,b} \le \overline{P}^{\text{in}}_{e,t,b},
+\qquad
+\underline{P}^{\text{out}}_{e,t,b} \le p_{g,s,t,b} \le \overline{P}^{\text{out}}_{e,t,b}
+$$
+
+**Per-mode floors** (`commitment = true`) — one binary per mode and
+block, $u^{\text{in}}_{e,s,t,b}$ (converter `u_charge`) and
+$u^{\text{out}}_{e,s,t,b}$ (the status $u$ of the synthesised commitment
+`uc_<bat>_gen`, §5.15/§5.16, whose `pmin` is
+$\underline{P}^{\text{out}}$):
+
+$$
+\underline{P}^{\text{in}}_{e,t,b}\, u^{\text{in}}_{e,s,t,b}
+\le \ell_{d,s,t,b} \le
+\overline{P}^{\text{in}}_{e,t,b}\, u^{\text{in}}_{e,s,t,b},
+\qquad
+\underline{P}^{\text{out}}_{e,t,b}\, u^{\text{out}}_{e,s,t,b}
+\le p_{g,s,t,b} \le
+\overline{P}^{\text{out}}_{e,t,b}\, u^{\text{out}}_{e,s,t,b}
+$$
+
+The two modes have separate binaries: a floor fires only while the
+battery is in that mode (PLEXOS *Min Charge / Min Discharge Level*,
+UC.jl minimum charge / discharge rate).  A single shared $u$ would force
+both floors at once whenever the battery operates.
+
+**Charge/discharge exclusivity constraint** (row
+`charge_discharge_exclusive`, `Battery.exclusive_charge_discharge`,
+default `true` when unset) — the battery is never in both modes in the
+same block:
+
+$$
+u^{\text{in}}_{e,s,t,b} + u^{\text{out}}_{e,s,t,b} \;\le\; 1
+\qquad \forall \; s, t, b
+$$
+
+With `exclusive_charge_discharge = false` the row is omitted and
+simultaneous partial operation is limited only by the power envelope
+$\ell/\overline{P}^{\text{in}} + p/\overline{P}^{\text{out}} \le 1$.  The
+option is ignored when `commitment` is unset (no mode binaries;
+`validate_planning` warns if it is set to `true` there).  In a
+continuous phase both binaries are LP-relaxed and the row is still
+emitted on the relaxed $u$'s; the floors then no longer bind (any
+$p \in [0, \overline{P}]$ is reachable with $u = p/\overline{P}$).
+<!-- source: source/system.cpp (expand_batteries), source/converter_lp.cpp -->
+
 #### Fixed Storage Duration (Optional)
 
 When `Battery.energy_power_ratio` $= H_e$ [h] is set and both axes have an
@@ -1650,14 +1709,14 @@ p_{g,s,t,b} + r_{p,s,t,b}^{\text{up}} \;\leq\; \bar{C}_{g,t}
 \qquad \forall \; p \in \mathcal{P},\; s, t, b
 $$
 
-With a `Commitment` on the generator the up row is gated by the status
-$u$: $p + r^{\text{up}} \le \bar{P}\,u$.  When the generator is
-expandable the headroom row has the capacity-column form
+With a `Commitment` on the generator the up
+row is gated by the status $u$: $p + r^{\text{up}} \le \bar{P}\,u$.
+When the generator is expandable the headroom row has the capacity-column form
 $p + r^{\text{up}} - \bar{C}_{g,t} \le 0$; it is kept and a separate
 u-gated row $p + \sum_p r_p^{\text{up}} - \bar{P}\,u \le 0$ is added
 ($\bar{P}$ = generation column upper bound, the same big-M as the
 `gen_upper` row), so a de-committed unit offers no reserve.
-<!-- source: source/commitment_lp.cpp (Reserve-UC integration) -->
+<!-- source: source/reserve_provision_lp.cpp (gate_reserve_provisions_by_status) -->
 
 Down-reserve provision is limited by the generator's operating range:
 
@@ -1665,6 +1724,13 @@ $$
 p_{g,s,t,b} - r_{p,s,t,b}^{\text{dn}} \;\geq\; \underline{P}_{g,t,b}
 \qquad \forall \; p \in \mathcal{P},\; s, t, b
 $$
+
+With a commitment the floor becomes the committed minimum gated by the
+status: $p - r^{\text{dn}} - \underline{P}^{c}_{g,t,b}\,u \ge 0$, with
+$\underline{P}^{c} = \max(\underline{P}_g, \texttt{Commitment.pmin})$ for a
+`Commitment` (both formulations).  Offline (cold) up reserve
+becomes $r^{\text{up}} \le \overline{R}^{\text{up}}(1-u)$ and the
+`urmin` / `drmin` floors $r - \underline{R}\,u \ge 0$.
 
 #### Native BESS Reserve Deliverability (opt-in)
 
@@ -1904,7 +1970,7 @@ $I_c = \mathrm{pf}_c \cdot \min($`provision_max`$, p_{\max})$
 when on, summed over
 the InertiaProvisions of `inertia_zone`.  `"commitment"` is the CEN
 definition (minuta Anexo B, (B.1): Inercia $= \sum_c I_c\,u_c$): $u_c$
-is the unit's Commitment / SimpleCommitment status; a unit with no
+is the unit's Commitment status; a unit with no
 status column counts only when it is forced on ($\mathcal{F}$:
 $p_{\min} > 0$), never through its dispatch.  `"exogenous"` puts a
 given schedule on the plane RHS; without `system_inertia` it uses the
@@ -2625,6 +2691,33 @@ $c^{\text{uc}}_k$, without probability, discount or duration.)
 > **See also**: [`INPUT_DATA.md`](../input-data.md) for the JSON
 > format specification of user constraints.
 
+#### Nonanticipative global decision variables
+
+A `scope: "global"` DecisionVariable $x$ is one column per (scene, phase)
+LP, shared by the scenarios $s \in S_c$ of scene $c$; across scenes the
+copies $x_c$ are independent (each scene is its own LP). With
+`nonanticipative: true` the active scenes $c \in \mathcal{C}$ are built
+as one extensive-form LP per phase, which imposes
+
+$$
+x_c = x \qquad \forall\, c \in \mathcal{C},
+$$
+
+by construction (a single column), while every other variable keeps its
+scenario index. The objective of the merged LP is
+
+$$
+\min \; \sum_{s \in \bigcup_c S_c} p_s \, \mathrm{OPEX}_s
+  \;+\; c_x \Big( \sum_{s \in \bigcup_c S_c} p_s \Big)\, \delta_t \, x
+$$
+
+for an `energy` cost $c_x$ (discount $\delta_t$; a `raw` cost is charged
+once at face value), i.e. the decision is paid once with the total
+probability mass instead of once per scene with $\sum_{s \in S_c} p_s$.
+Scene-level columns (other coarse decision variables, capacity
+expansion) become shared as well. In multi-phase runs $x$ is then carried
+across phases as an implicit state variable.
+
 ### 5.13 Water Rights (FlowRight and VolumeRight)
 
 Hydro-dominated systems often operate under legally-binding irrigation
@@ -3238,58 +3331,43 @@ $\sum_g \text{MWP}_g + \text{LOC}_g$ is the criterion for comparing
 pricing modes: the lower it is, the better the prices support the
 dispatch (`scripts/gtopt_pricing_uplift`).
 
-### 5.16 Simple Commitment
+### 5.16 Commitment on Non-Chronological Stages (Block Formulation)
 
-A `SimpleCommitment` element attaches to a generator $g \in \mathcal{SC}$
-and provides a **stripped-down** commitment variant: one binary status
-variable per block, no startup/shutdown bookkeeping, no ramp
-constraints, no min up/down time.
-
-#### Variable
-
-$$
-\begin{aligned}
-u_{g,s,t,b}^{\text{sc}} \;\in\; \{0,1\}
-\qquad \forall \; g \in \mathcal{SC},\; s,t,b
-\end{aligned}
-$$
-<!-- source: source/simple_commitment_lp.cpp:86-96 -->
-
-When `must_run = true`, the column is clamped to $1$ via
-$\underline{u}^{\text{sc}} = 1$ (i.e. $u_{g,s,t,b}^{\text{sc}} = 1$).
-When `relax = true` or in SDDP continuous phases the integrality is
-dropped.
-
-#### Generation Bounds
+The formulation of §5.15 needs ordered blocks.  On a stage with
+`"chronological": false` (load-duration / representative blocks) a
+`Commitment` builds the **block formulation** instead: one status
+variable per block, no startup / shutdown variables, no logic,
+exclusion, ramp or min up/down rows.
 
 $$
 \begin{aligned}
-p_{g,s,t,b} \;-\; \overline{P}_{g,t,b}\,u_{g,s,t,b}^{\text{sc}} \;\leq\; 0
-\qquad \forall \; g,\; s,t,b
+u_{g,s,t,b} &\in \{0,1\} \\
+p_{g,s,t,b} - \overline{P}_{g,t,b}\,u_{g,s,t,b} &\le 0 \\
+p_{g,s,t,b} - \underline{P}^{c}_{g,t,b}\,u_{g,s,t,b} &\ge 0
+\qquad \forall \; g \in \mathcal{UC},\; s,t,b
 \end{aligned}
 $$
-<!-- source: source/simple_commitment_lp.cpp:102-115 -->
 
-$$
-\begin{aligned}
-p_{g,s,t,b} \;-\; \underline{P}_{g,t,b}^{d}\,u_{g,s,t,b}^{\text{sc}} \;\geq\; 0
-\qquad \forall \; g,\; s,t,b
-\end{aligned}
-$$
-<!-- source: source/simple_commitment_lp.cpp:117-130 -->
+with the no-load cost $\sum_{b} \pi_{s}\,\delta_{t}\,
+c^{\text{nl}}_{g}\,\Delta_b\,u_{g,s,t,b}$ in the objective (same
+probability / discount factors as §5.15; `noload_fuel` adds
+$\texttt{noload\_fuel}\cdot u$ to the fuel and emission balances as there).
+<!-- source: source/commitment_lp.cpp (add_to_lp, `chronological`) -->
 
-where $\underline{P}_{g,t,b}^{d}$ (`dispatch_pmin`) defaults to the
-generator's own $\underline{P}_g$ when unset.
+$\underline{P}^{c}$ is the same `Commitment.pmin` (per stage and block)
+as in the chronological formulation, and `Generator.pmin` stays an
+always-on floor on the generation column in both.  `relax`, `must_run`
+and `fixed_status` apply as in §5.15; startup / shutdown costs, ramps,
+min up/down times, start tiers / counts and `commitment_period` need
+chronology and are ignored on such a stage (one info note per element).  Reserve gating (§5.9) and inertia (§5.17) use the same rows
+in both formulations; on a chronological stage with one period per
+block and no startup / shutdown / ramp / min up-down data the two give
+the same optimum.
 
-#### Reserve Coupling
-
-The generator's `ReserveProvision` rows follow $u^{\text{sc}}$ exactly as
-under `Commitment` (§5.9): the headroom rows become
-$p + r^{\uparrow} - \overline{P}\,u^{\text{sc}} \le 0$ and
-$p - r^{\downarrow} - \underline{P}\,u^{\text{sc}} \ge 0$, and a
-Min-Provision floor becomes $r \ge r^{\min} u^{\text{sc}}$, so a unit
-that is off neither offers reserve nor is forced on by it.
-<!-- source: source/commitment_lp.cpp (gate_reserve_provisions_by_status) -->
+The deprecated `simple_commitment_array` is read as plain
+`Commitment`s: `dispatch_pmin` becomes `pmin`, and the generator's own
+`pmin` — which the legacy element made conditional — moves onto the
+commitment (`System::fold_legacy_simple_commitments`).
 
 ### 5.17 Inertia Zone and Provision
 
@@ -3330,14 +3408,13 @@ $\overline{R}^{H}$ is the row RHS.
 #### Provision Coupling (InertiaProvision)
 
 Each provision creates a column $r_{p,s,t,b}^{H}$ with upper bound
-`provision_max` (falling back to the unit's minimum stable level
-$\underline{P}_g$ when unset, else to its $\overline{P}_g$) and an
-explicit cost.  $\underline{P}_g$ is read from the unit's commitment
-element when it has one -- `Commitment.pmin` or
-`SimpleCommitment.dispatch_pmin` -- since the converters put the
-committed floor there and leave the generation column's lower bound at
-0; without a commitment (or with the field unset) it is the generation
-column's lower bound (`Generator.pmin`):
+`provision_max` (falling back to the unit's committed minimum stable
+level $\underline{P}^{c}_{g,t,b}$ when unset, else to its
+$\overline{P}_g$) and an explicit cost.  $\underline{P}^{c}$ is read
+from the unit's commitment element when it has one (see Provision
+Factor below), since the converters put the committed floor there and
+leave the generation column's lower bound at 0; without a commitment it
+is `Generator.pmin`:
 
 $$
 \begin{aligned}
@@ -3366,14 +3443,18 @@ conversion factor
 $$
 \Phi_{p,t} \;=\; \begin{cases}
 \text{provision\_factor}_{p,t} & \text{(explicit schedule)} \\[2pt]
-H_p \cdot S_p / \underline{P}_g & \text{if } H_p,\,S_p \text{ set and } \underline{P}_g > 0 \\[2pt]
-H_p \cdot S_p / \overline{P}_g & \text{if } H_p,\,S_p \text{ set, } \underline{P}_g = 0 \text{ and } \overline{P}_g > 0 \\[2pt]
+H_p \cdot S_p / \underline{P}^{c}_{g,t,b} & \text{if } H_p,\,S_p \text{ set and } \underline{P}^{c}_{g,t,b} > 0 \\[2pt]
+H_p \cdot S_p / \overline{P}_{g,t,b} & \text{if } H_p,\,S_p \text{ set and } \underline{P}^{c}_{g,t,b} = 0 \\[2pt]
 1 & \text{otherwise}
 \end{cases}
 $$
 
 is injected as the coefficient on $r_{p,s,t,b}^{H}$ in every linked
-zone's requirement row.
+zone's requirement row.  $\underline{P}^{c}_{g,t,b}$ is the unit's
+committed minimum: $\max(\underline{P}_g, \texttt{Commitment.pmin})$ with
+a `Commitment`, else $\underline{P}_g$ —
+read from the input, not from the generation column bound.  The default
+`provision_max` is $\underline{P}^{c}$ (or $\overline{P}$ when it is 0).
 <!-- source: source/inertia_provision_lp.cpp:127-138,175-191 -->
 
 #### Commitment-Dependent Relief (`requirement_credits`)
@@ -3388,7 +3469,7 @@ $$
 k_j\, y_j \;\le\; \sum_{g \in \mathcal{G}_j} u_g
 $$
 
-with $u_g$ the Commitment / SimpleCommitment status.  This is the
+with $u_g$ the Commitment status.  This is the
 PLEXOS PCP form (2026-11-07): `InertiaNRMin_D` = Σ H·units + 2 900·y ≥
 14 900 (day hours), `InertiaCommitGuacolda2` = Σ units(Guacolda) − 3 y
 ≥ 0, with `InertiaGuacolda2` ∈ [0, 1] **continuous**; until 2025-11-15
@@ -4766,14 +4847,14 @@ mathematical symbols used in this formulation.
 | `commitment_array[].cold_start_cost` | — | Startup cost when long offline (\$/start) |
 | `commitment_array[].hot_start_time` | — | Max offline hours for hot start (h) |
 | `commitment_array[].cold_start_time` | — | Min offline hours for cold start (h) |
-| `simple_commitment_array[].uid` | — | Unique identifier |
+| `simple_commitment_array[].uid` | — | Unique identifier (deprecated alias of `commitment_array`, §5.16) |
 | `simple_commitment_array[].name` | — | Human-readable name |
 | `simple_commitment_array[].active` | — | Activation schedule (bool\|array\|string) |
 | `simple_commitment_array[].generator` | — | FK to the committed generator |
-| `simple_commitment_array[].dispatch_pmin` | $\underline{P}_g^d$ | Dispatch minimum when committed (MW) |
+| `simple_commitment_array[].dispatch_pmin` | $\underline{P}_g^d$ | Dispatch minimum when committed (MW), read as `Commitment.pmin` |
 | `simple_commitment_array[].relax` | — | LP relaxation: binary → continuous |
 | `simple_commitment_array[].must_run` | — | Force committed: $u = 1$ always |
-| `stage_array[].chronological` | — | `true` when blocks are hourly-consecutive (enables UC) |
+| `stage_array[].chronological` | — | `true` when blocks are hourly-consecutive (full UC; `false` = block formulation, §5.16) |
 
 ### Inertia Zone and Provision
 

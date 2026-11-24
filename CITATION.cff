@@ -17,8 +17,8 @@ authors:
     email: mmatus@blackbeareng.cl
 repository-code: "https://github.com/gtopt-community/gtopt"
 license: AGPL-3.0-or-later
-version: "1.1.0"
-date-released: "2026-11-20"
+version: "1.2.0"
+date-released: "2026-11-24"
 keywords:
   - power systems
   - expansion planning

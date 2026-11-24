@@ -503,6 +503,71 @@ the expected cut weighted by scenario probabilities.  The GTOpt implementation
 follows the same pattern: clone the LP, update scenario-dependent bounds,
 solve, collect cuts, and compute the probability-weighted average.
 
+#### Infeasible apertures (drop-and-rescale)
+
+An aperture LP that is infeasible (or times out / is abandoned, see
+§4.11) is **dropped**: the expected cut of that (scene, phase) is the
+probability-weighted average over the remaining feasible apertures, with
+their weights renormalised to sum to one.  The dropped aperture is
+solved again at the next iteration.
+
+This is only safe when the model has **relatively complete recourse**:
+every aperture LP must be feasible at every trial state the forward
+pass can produce.  A **hard terminal target** (`efin` without
+`efin_cost`, on a reservoir or battery) usually breaks it: the forward
+pass sees only its own hydrology, and a dry aperture cannot reach
+`efin` from a low-storage trial state.  The cut then carries no
+feasibility signal, the policy never moves off that trajectory, and the
+same aperture is dropped on every iteration.  The LB freezes at a
+tie-break-dependent level and describes a **rescaled (typically
+wetter) distribution** rather than the declared one.
+
+gtopt makes this visible and refuses to call it convergence:
+
+- every (scene, phase, aperture) dropped in 3 consecutive iterations
+  gets **one** `persistent aperture infeasibility` warning (scene, phase
+  and aperture uids, consecutive count); afterwards the per-cell
+  "apertures dropped" line for that cell drops to DEBUG, and each
+  iteration logs one INFO summary with its drop count;
+- `apertures_dropped` (per iteration, summed over every cell) is
+  reported in the iteration log line and in the solver-status `history`;
+- an iteration whose backward pass dropped any aperture is **never**
+  `converged` — neither by the gap test, ΔUB stationarity, the
+  statistical CI test, nor (async mode) the per-scene gap test; the
+  run continues to `max_iterations` and the stop line reads
+  `not converged: N aperture(s) infeasible in the last backward pass,
+  the LB is over a rescaled distribution` (cascade levels likewise);
+- every SDDP solve ends with an aperture summary block (INFO, next to the
+  stop-reason line): aperture LPs solved, how many were dropped as
+  **infeasible** vs **failed** (time limit / numerical / non-optimal),
+  the dropped fraction, first / last iteration counts, distinct (scene,
+  phase, aperture) triples ever dropped, how many are still dropped in
+  the last iteration, how many were escalated as persistent, and the
+  phases / apertures with the most drops.  A cascade prints one line per
+  level and a `Cascade [total]` block; `cascade_levels.csv` gains
+  `aperture_solves`, `aperture_infeasible`, `aperture_failed` and
+  `aperture_dropped_last_iteration` columns, and the solver-status JSON an
+  `aperture_summary` object.
+
+**Recommendation for aperture runs**: give terminal targets
+relatively complete recourse with a soft `efin` — set `efin_cost` on
+the reservoir / battery so the LP can miss `efin` at a price instead of
+going infeasible.  Two caveats:
+
+- a **meaningful `efin_cost` may not be available**.  It has to be well
+  above the marginal value of the stored energy for the target to bind
+  in practice (e.g. above the thermal cost it displaces), yet it also
+  enters the objective, the cuts and the duals; there is often no
+  defensible number for it;
+- with a soft target **the solution may never actually reach `efin`**:
+  the LP simply pays the penalty whenever that is cheaper, so the
+  constraint can be silently unmet.  Check the `efin` slack in the
+  output (and its cost in the objective) before reading the policy as
+  one that honours the terminal target.
+
+The principled fix — **feasibility cuts** for infeasible backward
+apertures instead of drop-and-rescale — is planned.
+
 ### 4.5 Convergence Check
 
 Convergence is evaluated at the end of each **training iteration** (a
@@ -549,20 +614,49 @@ window:
 
 ```
 gap_change = |UB[iter] - UB[iter - window]| / max(1e-10, |UB[iter - window]|)
-if gap_change < stationary_tol AND iter >= min_iterations:
+if gap_change < stationary_tol                 # UB has stopped moving
+   AND own_iters_with_cuts >= stationary_window
+   AND signed_gap < stationary_gap_ceiling     # default 0.02
+   AND iter >= min_iterations:
     converged = true
     stationary_converged = true
 ```
 
-The window shrinks to the available history in the first iterations
-(no window-fill wait).  While stationarity is enabled this is the
-**sole** signal: the gap is reported but never stops the run, because
-under multi-cut / aperture overshoot the signed gap zero-crosses (LB
-can settle above UB) before the policy has stabilised.  Consequently a
-run whose gap already reached zero keeps iterating until UB is stable
-over the window — with the defaults (`stationary_tol = 0.005`,
-`stationary_window = 4`) typically a few more iterations.  The
-per-iteration log prints `gap_change` as `Δgap`.
+Three guards make a stationary stop meaningful:
+
+- **Own window.** The lookback must lie entirely in iterations of the
+  current solve that had cuts. Bounds seeded from the previous cascade
+  level (`seed_prior_bounds`) are shown in `Δgap` but never satisfy the
+  test, and a solve that starts without any cut (no hot start, no
+  inherited or boundary cuts) does not count its first, cut-less
+  iteration.
+- **Gap ceiling** (`stationary_gap_ceiling`, default `0.02`). A stationary
+  UB with a large *positive* gap means the lower bound has not caught
+  up; the run keeps iterating (to `max_iterations`, or the cascade
+  level's budget). The ceiling is one-sided: a negative gap (multi-cut /
+  aperture overshoot, LB above UB) passes. Set it to `1.0` to disable.
+- `min_iterations`, as before.
+
+The gap test itself (`convergence_tol`) does not stop the run while
+stationarity is enabled, because under multi-cut / aperture overshoot the
+signed gap zero-crosses (LB can settle above UB) before the policy has
+stabilised. A run whose gap already reached zero therefore keeps
+iterating until UB is stable over the window. The per-iteration log
+prints `gap_change` as `Δgap`; an iteration where UB is stationary but
+the stop is refused logs why (`only N own iteration(s) with cuts` or
+`signed gap … >= stationary_gap_ceiling …`). Every solve ends with one
+line naming the reason: `SDDP: training stopped after N iteration(s) —
+converged: UB stationary with gap below stationary_gap_ceiling` /
+`converged by convergence_tol` / `converged by the statistical CI test` /
+`max_iterations reached (not converged)` / `stop requested`.
+
+> **History.** The 2026-06-16 rewrite removed the gap ceiling (then a
+> symmetric `|gap|` gate that refused stationary overshoot states) and
+> the window-fill wait. In 2026-11 both came back in the form above:
+> without them a cold cascade level seeded with the previous level's
+> bounds declared "stationary" at its first iteration with a 40 % gap,
+> and the levels of a large hydrothermal cascade stopped with a gap of
+> several percent after a few iterations.
 
 #### Gap test (stationarity disabled)
 
@@ -607,7 +701,8 @@ cuts `gap* = gap` and the behaviour is unchanged.
 | `gap` | Relative optimality gap: $(UB - LB) / \max(1, \lvert UB \rvert)$ |
 | `boundary.*` | Boundary-cut gap accounting (only with boundary cuts) — see §4.14.1 |
 | `gap_change` | Relative change in UB over the look-back window (1.0 if not yet checked) |
-| `converged` | `true` if the live criterion (or the statistical CI test) was met |
+| `converged` | `true` if the live criterion (or the statistical CI test) was met **and** no aperture was dropped in that iteration's backward pass |
+| `apertures_dropped` | Backward-pass aperture solves dropped (infeasible / timed out) in the iteration, summed over every (scene, phase); `> 0` blocks `converged` (see §4.4, *Infeasible apertures*) |
 | `stationary_converged` | `true` if convergence was declared by the stationary criterion |
 
 ### 4.5.1 Simulation Pass
@@ -1103,7 +1198,8 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `max_stored_cuts` | int | 0 | Max stored cuts per scene (0 = unlimited) |
 | `simulation_mode` | bool | false | Skip training (force `max_iterations=0`), run simulation pass only, disable cut saving |
 | `stationary_tol` | double | 0.005 | ΔUB stationarity tolerance — the sole stop criterion while > 0; `0` disables it and makes `convergence_tol` the stop criterion (§4.5) |
-| `stationary_window` | int | 4 | Look-back window (iterations) for ΔUB stationarity; `<= 0` disables stationarity |
+| `stationary_window` | int | 4 | Look-back window (iterations) for ΔUB stationarity; also the minimum number of the solve's own iterations with cuts before a stationary stop; `<= 0` disables stationarity |
+| `stationary_gap_ceiling` | double | 0.02 | A stationary stop is refused while the signed gap is at or above this value (negative gaps pass); `1.0` disables (§4.5) |
 | `save_simulation_cuts` | bool | false | Persist feasibility cuts from the simulation pass (see S4.5.1) |
 
 ### 5.2 Options (JSON)
@@ -1172,6 +1268,7 @@ prefix, since the section name already provides the namespace).
 | `aperture_chunk_size` | int | unset | K apertures per task for `aperture_chunk_mode = "chunked"` (unset = auto formula). Deprecated as a mode selector when `aperture_chunk_mode` is unset: `-1` → `per_scene`, `1` → `per_aperture`, `K > 1` → `chunked`, `0` → default (warning logged). CLI: `--aperture-chunk-size` |
 | `aperture_solve_mode` | string | `"warm"` | Per-aperture solve / cut recovery: `"cold"` (barrier + crossover, exact vertex duals), `"warm"` (chunk-resident basis re-optimize; engages under `per_scene` / `chunked` K > 1), `"reduced_cost"` (barrier without crossover, ~35% faster per aperture on big LPs), `"dual_shared"` (representative solve + Lemma AP2 synthesis; see §4.4), `"screened"` (`dual_shared` + top-\|corr\| exact re-solves) |
 | `aperture_screen_count` | int | 2 | Synthesized cuts re-solved exactly under `aperture_solve_mode = "screened"` (picked by largest \|intercept correction\|); ignored by every other mode |
+| `aperture_cut_resolve` | bool | false | Re-solve the source phase LP after installing each aperture-built cut, as an optimality check (non-optimal → revert and install the forward-data cut). Off by default: nothing reads the post-cut solution and the check costs one extra LP solve per backward step (PLP has no such step) |
 | `aperture_seed_basis` | bool | false | Seed each iteration's first backward aperture from the previous iteration's basis (dual warm start; acts only under `cold`/`warm` modes) |
 | `basis_cross_mode` | string | `"off"` | Cross-pass basis reuse between forward and backward solves of the same (scene, phase); correctness-neutral, CPLEX/HiGHS only |
 | `aperture_directory` | string | `""` | Directory for aperture-specific scenario data |
@@ -1186,7 +1283,8 @@ prefix, since the section name already provides the namespace).
 | `simulation_mode` | bool | `false` | Skip training, run simulation pass only (S4.5.1) |
 | `save_simulation_cuts` | bool | `false` | Save feasibility cuts from simulation pass |
 | `stationary_tol` | double | 0.005 | ΔUB stationarity tolerance — the sole stop criterion while > 0; `0` disables it and makes `convergence_tol` the stop criterion (§4.5) |
-| `stationary_window` | int | 4 | Look-back window (iterations) for ΔUB stationarity; `<= 0` disables stationarity |
+| `stationary_window` | int | 4 | Look-back window (iterations) for ΔUB stationarity; also the minimum number of the solve's own iterations with cuts before a stationary stop; `<= 0` disables stationarity |
+| `stationary_gap_ceiling` | double | 0.02 | A stationary stop is refused while the signed gap is at or above this value (negative gaps pass); `1.0` disables (§4.5) |
 
 > **Note**: the boundary cuts live on the FutureCost element
 > (`system.future_cost_array`).  The `boundary_*` / `missing_cut_var_mode`

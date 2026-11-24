@@ -77,9 +77,11 @@ faster solution times and smaller integrality gaps in practice.
   while keeping generation at fine granularity
 - **LP relaxation control**: per-element and per-phase relaxation for
   benchmarking and gap analysis
-- **Chronological gating**: UC constraints only apply on stages marked as
-  chronological; non-chronological stages (load-duration curves) dispatch
-  normally
+- **Formulation follows the stage**: chronological stages get the full
+  intertemporal model; non-chronological stages (load-duration curves,
+  representative blocks) get the per-block formulation — one status `u`
+  per block with `p ≤ Pmax·u` and `p ≥ pmin·u`, same `Commitment.pmin`,
+  same reserve / inertia gating (see §10.2)
 
 ---
 
@@ -120,8 +122,9 @@ Use UC when your system includes:
 
 Do **not** use UC for:
 
-- **Long-term expansion planning** with representative blocks (use
-  non-chronological stages — UC is automatically skipped)
+- **Long-term expansion planning** with representative blocks if you do
+  not want even the per-block on/off status (drop the Commitment; on
+  non-chronological stages it is the per-block formulation, see §10.2)
 - **Hydro-only systems** where generation is fully flexible (no startup costs
   or minimum up times)
 - **Screening studies** where approximate dispatch is sufficient
@@ -807,9 +810,22 @@ to exactly one generator via a foreign key.
 | `chronological` | boolean | `false` | Blocks are consecutive time periods |
 
 When `chronological = true`, blocks in this stage represent sequential hours
-(or sub-hours) and UC constraints are applied.  When `false` (default),
-blocks may represent duration-weighted representative periods (load-duration
-curves) where temporal ordering is meaningless — UC is skipped silently.
+(or sub-hours) and the full UC formulation is applied.  When `false`
+(default), blocks may represent duration-weighted representative periods
+(load-duration curves) where temporal ordering is meaningless: the
+Commitment then uses the **block formulation** — one status `u` per block,
+`p ≤ Pmax·u` and `p ≥ Commitment.pmin·u` (the same `pmin`; `Generator.pmin`
+stays an always-on floor), `relax` / `must_run` / `fixed_status` honoured,
+reserve and inertia gating unchanged, and the no-load cost (and
+`noload_fuel`) charged per block (`noload_cost · u · duration`).  Startup /
+shutdown costs, ramps, min up/down times, start tiers / counts and
+`commitment_period` need chronology and are ignored there (one info note
+per element).
+
+The deprecated `simple_commitment_array` is read as plain Commitments
+(`dispatch_pmin` → `pmin`; the generator's own `pmin`, which the legacy
+element made conditional, moves onto the commitment) with a one-time
+deprecation warning.
 
 ### 10.3 Generator — Emissions
 

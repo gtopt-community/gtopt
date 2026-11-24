@@ -180,7 +180,7 @@ over the corresponding `solver_options` sub-fields.
 | `log_mode`     | string  | `"nolog"`   | Solver log-file policy: `"nolog"` (no files) or `"detailed"` (one file per scene/phase/aperture, `<solver>_sc<N>_ph<N>[_ap<N>].log`); numeric `0` / `1` also accepted |
 | `time_limit`   | number  | solver default | Per-LP wall-clock time limit in seconds. Exceeding it aborts the solve; caller must check `is_optimal()` |
 | `scaling`      | string  | solver default | Internal solver scaling strategy: `"none"`, `"automatic"`, `"aggressive"` (or `0` / `1` / `2`). See `SolverScaling` enum |
-| `crossover`    | boolean | `true`      | When `algorithm == barrier`, convert the interior-point solution to a simplex basis (required for duals). SDDP forward pass sets it false for speed |
+| `crossover`    | string  | `auto`      | `auto` / `primal` / `dual` / `none`. When `algorithm == barrier`, convert the interior-point solution to a simplex basis (vertex duals). The SDDP forward pass uses `none` only when nothing consumes its vertex solution (see [planning options](planning-options.md#forward-pass-crossover)) |
 | `max_fallbacks`| integer | `2`         | On non-optimal exit, cycle through barrier → dual → primal up to this many times. `0` disables fallback |
 
 **Example:**
@@ -936,8 +936,13 @@ be defined manually (see §3.6 Converter).
 | `ecost`             | number\|array\|string| $/MWh       | No       | Storage usage cost (penalty) |
 | `eini`              | number              | MWh          | No       | Initial state of charge |
 | `efin`              | number              | MWh          | No       | Terminal state of charge |
+| `efin_cost`         | number              | $/MWh        | No       | Penalty per MWh of `efin` shortfall; makes `efin` soft (see the reservoir note on [terminal targets and SDDP apertures](#terminal-targets-and-sddp-apertures)) |
 | `pmax_charge`       | number\|array\|string| MW          | No       | Max charging power (unified definition) |
 | `pmax_discharge`    | number\|array\|string| MW          | No       | Max discharging power (unified definition) |
+| `pmin_charge`       | number\|array\|string| MW          | No       | Min charging power: hard floor every block, or the when-charging floor with `commitment` |
+| `pmin_discharge`    | number\|array\|string| MW          | No       | Min discharging power: hard floor every block (`Generator.pmin`), or the when-discharging floor (`Commitment.pmin`) with `commitment` |
+| `commitment`        | boolean             | —            | No       | Gate `pmin_charge` / `pmin_discharge` with per-block charge / discharge mode binaries (MIP). See formulation §5.8 *Charge / Discharge Rate Floors* |
+| `exclusive_charge_discharge` | boolean    | —            | No       | With `commitment`: charge/discharge exclusivity constraint `u_charge + u_discharge ≤ 1` per block. **Default when absent: `true`**; `false` allows both modes in one block. Ignored without `commitment` (warning if `true`) |
 | `gcost`             | number\|array\|string| $/MWh       | No       | Discharge generation cost (unified definition) |
 | `capacity`          | number\|array\|string| MWh         | No       | Installed energy capacity |
 | `expcap`            | number\|array\|string| MWh         | No       | Energy capacity per expansion module |
@@ -1074,6 +1079,9 @@ Links a battery to a discharge generator and a charge demand.
 | `capmax`           | number\|array\|string| MW              | No       | Absolute maximum power capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year       | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year       | No       | Annual capacity derating factor |
+| `commitment`       | boolean             | —               | No       | Gate the charge demand / discharge generator bounds with per-block mode binaries (set from `Battery.commitment`) |
+| `exclusive_charge_discharge` | boolean   | —               | No       | With `commitment`: add `u_charge + u_discharge ≤ 1` per block (row `charge_discharge_exclusive`). Default `true` |
+| `energy_power_ratio` | number            | h               | No       | Fixed storage duration (set from `Battery.energy_power_ratio`) |
 
 ### 3.7 Junction
 
@@ -1123,6 +1131,7 @@ A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10�
 | `ecost`                | number\|array\|string| $/hm³     | No       | Water value (shadow cost of stored water) |
 | `eini`                 | number              | hm³        | No       | Initial stored volume |
 | `efin`                 | number              | hm³        | No       | Target final stored volume |
+| `efin_cost`            | number              | $/hm³      | No       | Penalty per hm³ of `efin` shortfall; makes `efin` soft (`vol_end + slack >= efin`, slack priced at `efin_cost`) |
 | `fmin`                 | number              | m³/s        | No       | Minimum net inflow |
 | `fmax`                 | number              | m³/s        | No       | Maximum net inflow |
 | `flow_conversion_rate` | number              | hm³/(m³/s·h)| No     | Converts m³/s × hours to hm³ (default: 0.0036) |
@@ -1131,6 +1140,21 @@ A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10�
 | `soft_emin_cost`       | number\|array\|string| $/hm³     | No       | Penalty cost per unit of `soft_emin` slack violation |
 | `use_state_variable`   | boolean             | —           | No       | Enable stage/phase coupling of the reservoir state variable |
 | `daily_cycle`          | boolean             | —           | No       | Enforce daily cycling (initial volume equals final volume each day) |
+
+#### Terminal targets and SDDP apertures
+
+A hard `efin` (no `efin_cost`) is a terminal constraint every SDDP
+backward-pass aperture must be able to meet from the forward trial
+state.  When a dry aperture cannot, it is dropped and the expected cut is
+renormalised over the feasible apertures; if that repeats every iteration
+the LB is over a rescaled (wetter) distribution and gtopt does not report
+the run as converged (see
+[SDDP §4.4, *Infeasible apertures*](methods/sddp.md#infeasible-apertures-drop-and-rescale)).
+A soft target (`efin_cost`) restores feasibility, with two caveats: a
+meaningful penalty may not be available (it must exceed the value of the
+stored water to bind, yet it enters the objective and the cuts), and the
+solution may then never reach `efin` — it pays the penalty instead, so
+the target is silently unmet.  Check the `efin` slack in the output.
 
 All reservoir costs are opt-in: gtopt adds none by default.  A positive
 `spillway_cost` (or `ecost`, or a cost on every outflow path) makes the
@@ -1426,6 +1450,19 @@ never changes the requirement (no negative LMPs); see CEN Minuta
 GM-DPRO Nº05-2026
 (<https://www.coordinador.cl/wp-content/uploads/2026/06/Minuta_GM-DPRO_No05-2026_Modelacion_y_Asignacion_de_SSCC_CF-ISSCC2026.pdf>).
 
+**Stepwise reserve demand curve (ORDC).**  There is no dedicated
+demand-curve element: a priced zone (`urreq` + `urcost`) is one ORDC step
+exactly — its requirement column $0 \le s \le$ `urreq` costs $-c$, i.e.
+the step's value, and the zone adds $+c \cdot$ `urreq` as an objective
+constant so the reported objective is the shortage penalty.  A concave
+ORDC with steps (width $w_k$, price $c_k$, decreasing) is therefore one
+zone per step, `urreq` $= w_k$, `urcost` $= c_k$, and one provision per
+eligible unit and step, all with `shared_headroom`.  The objective equals
+the welfare form ($\text{cost} - \sum_k c_k s_k$) plus the constant
+$\sum_t \sum_k c_k w_k \Delta t$.  `sienna2gtopt reserves` maps
+PowerSimulations' `StepwiseCostReserve` this way and is cross-checked
+against it (`tools/test_sienna_vs_gtopt.py`).
+
 ### 3.18 Reserve Provision
 
 A generator's contribution to reserve zones.
@@ -1566,9 +1603,13 @@ Named scalar parameters usable in user constraint expressions.
 
 Unit commitment parameters for a generator.  Each entry links to exactly one
 generator and enables binary on/off scheduling with startup/shutdown costs,
-ramp constraints, and minimum up/down times.  Requires the associated stage
-to have `chronological: true`: on any other stage the Commitment is ignored,
-and `validate_planning` warns with the stages affected.
+ramp constraints, and minimum up/down times on stages with
+`chronological: true`.  On a non-chronological stage the same element
+uses the per-block formulation (status `u` per block, `p ≤ Pmax·u`,
+`p ≥ pmin·u`, no-load cost per block; startup / shutdown / ramp / min
+up-down data ignored).  The
+deprecated `simple_commitment_array` (`dispatch_pmin` → `pmin`) is read as
+Commitments.
 
 > **Full documentation**: See [Unit Commitment Guide](unit-commitment.md)
 > for the mathematical formulation, worked examples, and advanced features.
