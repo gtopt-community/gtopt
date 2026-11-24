@@ -127,6 +127,8 @@ The GUI service is configured through environment variables:
 |----------|---------|-------------|
 | `GTOPT_WEBSERVICE_URL` | `http://localhost:3000` | URL of the GTOpt webservice for remote solving |
 | `GTOPT_GUI_HOST` | `127.0.0.1` | Bind address of `app.py` / `gtopt_guisrv` |
+| `GTOPT_GUI_PORT` | `5001` | Port of the GUI service; loopback `Host` headers must use it |
+| `GTOPT_GUI_ALLOWED_HOSTS` | *(empty)* | Extra `Host` header values (`host` or `host:port`, comma-separated) accepted besides loopback (DNS-rebinding guard) |
 | `GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS` | *(empty)* | Extra non-loopback webservice hosts (`host` or `host:port`, comma-separated) accepted by `POST /api/solve/config` |
 | `GTOPT_WEBSERVICE_API_TOKEN` | *(unset)* | Token forwarded to the webservice as `Authorization: Bearer` |
 | `GTOPT_GUI_SHUTDOWN_TOKEN` | *(unset)* | Secret that authorises `POST /api/shutdown` from non-loopback clients |
@@ -148,7 +150,7 @@ Webservice panel) or via the API.  Non-loopback hosts must be listed in
 ```bash
 GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS=my-server python app.py &
 curl -X POST http://localhost:5001/api/solve/config \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "X-GTOpt-GUI: 1" \
   -d '{"webservice_url": "http://my-server:3000"}'
 ```
 
@@ -304,12 +306,12 @@ requires a running webservice instance (see
 ```bash
 # Set the webservice URL
 curl -X POST http://localhost:5001/api/solve/config \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "X-GTOpt-GUI: 1" \
   -d '{"webservice_url": "http://localhost:3000"}'
 
 # Submit a case (requires JSON case data)
 curl -X POST http://localhost:5001/api/solve/submit \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "X-GTOpt-GUI: 1" \
   -d @case_data.json
 # Returns: {"token":"<job-token>","status":"pending",...}
 
@@ -453,7 +455,18 @@ single-user tool.
   `http`/`https` URLs without credentials, query or fragment whose host is
   loopback, the host of `GTOPT_WEBSERVICE_URL`, or listed in
   `GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS` (comma-separated `host` or
-  `host:port` entries, e.g. `solver.lan,10.0.0.7:3000`).
+  `host:port` entries, e.g. `solver.lan,10.0.0.7:3000`).  Loopback URLs
+  are limited to the port of `GTOPT_WEBSERVICE_URL` (default 3000) or a
+  loopback `host:port` listed there, so another local user cannot redirect
+  the GUI (and the forwarded API token) to a port of their own.
+- **Host header (DNS rebinding guard).** Requests whose `Host` is not
+  `localhost` / `127.0.0.1` / `[::1]` (on the GUI port), the concrete
+  `GTOPT_GUI_HOST` bind address, or an entry of `GTOPT_GUI_ALLOWED_HOSTS`
+  (comma-separated `host` or `host:port`) get `403`.  When serving under
+  another name (reverse proxy, LAN hostname) list it there.
+- **CSRF header.** Every non-GET/HEAD/OPTIONS request must carry
+  `X-GTOpt-GUI` (the bundled UIs send it); scripted clients add
+  `-H "X-GTOpt-GUI: 1"`.
 - **Webservice API token.** When `GTOPT_WEBSERVICE_API_TOKEN` is set, the GUI
   forwards it to the webservice as `Authorization: Bearer <token>`.
 - **`POST /api/shutdown`** is accepted either with the secret configured in

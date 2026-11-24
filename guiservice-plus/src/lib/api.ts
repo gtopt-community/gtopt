@@ -77,13 +77,20 @@ export type JobInfo = {
   [key: string]: unknown;
 };
 
+/**
+ * Header the Flask guiservice requires on every state-changing request
+ * (CSRF guard: browsers cannot add it cross-origin without a preflight).
+ */
+export const GUI_REQUEST_HEADERS = { 'X-GTOpt-GUI': '1' } as const;
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...GUI_REQUEST_HEADERS,
       ...(init?.headers ?? {}),
     },
-    ...init,
   });
   if (!res.ok) {
     const text = await res.text();

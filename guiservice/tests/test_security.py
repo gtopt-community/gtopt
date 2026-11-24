@@ -2,6 +2,7 @@
 
 # pylint: disable=protected-access
 
+import io
 import os
 import signal
 import subprocess
@@ -10,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from flask.testing import FlaskClient
 
 import guiservice.app as gui_app
 import guiservice.gtopt_guisrv as guisrv
@@ -31,6 +33,11 @@ def client(monkeypatch):
     gui_app._webservice_url = saved
 
 
+def _plain_client():
+    """A test client that does NOT add the X-GTOpt-GUI header."""
+    return FlaskClient(app, app.response_class, use_cookies=True)
+
+
 def _set_url(client, url):
     return client.post("/api/solve/config", json={"webservice_url": url})
 
@@ -47,7 +54,6 @@ class TestWebserviceUrlSsrf:
             "http://localhost:3000",
             "http://127.0.0.1:3000",
             "http://127.0.0.2:3000/",
-            "https://localhost",
             "http://[::1]:3000",
         ],
     )
@@ -184,7 +190,8 @@ class TestShutdownAuth:
     @patch("os.kill")
     def test_loopback_without_gui_header_rejected(self, mock_kill, client):
         """A cross-site form POST from the user's browser cannot add the header."""
-        resp = client.post("/api/shutdown")
+        del client  # env cleanup only
+        resp = _plain_client().post("/api/shutdown")
         assert resp.status_code == 403
         mock_kill.assert_not_called()
 
@@ -338,3 +345,202 @@ class TestBindHost:
         assert result.returncode == 0
         assert "127.0.0.1" in result.stdout
         assert "0.0.0.0" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Loopback webservice URLs are pinned to the configured port
+# ---------------------------------------------------------------------------
+
+
+class TestLoopbackWebservicePort:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://localhost:4444",
+            "http://127.0.0.1:22",
+            "http://[::1]:8080",
+            "https://localhost",
+            "http://localhost",
+        ],
+    )
+    def test_other_loopback_ports_rejected(self, client, url):
+        before = gui_app._webservice_url
+        resp = _set_url(client, url)
+        assert resp.status_code == 400
+        assert "port" in resp.get_json()["error"]
+        assert gui_app._webservice_url == before
+
+    def test_env_url_port_allowed(self, client, monkeypatch):
+        monkeypatch.setenv("GTOPT_WEBSERVICE_URL", "http://127.0.0.1:3456")
+        assert _set_url(client, "http://localhost:3456").status_code == 200
+        assert _set_url(client, "http://localhost:3000").status_code == 400
+
+    def test_env_url_default_scheme_port(self, client, monkeypatch):
+        monkeypatch.setenv("GTOPT_WEBSERVICE_URL", "https://localhost")
+        assert _set_url(client, "https://127.0.0.1").status_code == 200
+        assert _set_url(client, "https://127.0.0.1:443").status_code == 200
+        assert _set_url(client, "http://127.0.0.1").status_code == 400
+
+    def test_unparsable_env_url_falls_back_to_listed_ports(self, client, monkeypatch):
+        monkeypatch.setenv("GTOPT_WEBSERVICE_URL", "http://localhost:99999")
+        monkeypatch.setenv("GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS", "localhost:3001")
+        assert _set_url(client, "http://localhost:3001").status_code == 200
+        assert _set_url(client, "http://localhost:3000").status_code == 400
+
+    def test_allowlisted_loopback_port(self, client, monkeypatch):
+        monkeypatch.setenv(
+            "GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS", "example.org, , 127.0.0.1:3001, x:bad"
+        )
+        assert _set_url(client, "http://127.0.0.1:3001").status_code == 200
+        assert _set_url(client, "http://localhost:3001").status_code == 200
+        assert _set_url(client, "http://localhost:3002").status_code == 400
+
+    def test_bare_loopback_allowlist_entry_allows_any_port(self, client, monkeypatch):
+        monkeypatch.setenv("GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS", "localhost")
+        assert _set_url(client, "http://127.0.0.1:4444").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Host allowlist (DNS rebinding) and X-GTOpt-GUI on state-changing requests
+# ---------------------------------------------------------------------------
+
+
+class TestHostAllowlist:
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        monkeypatch.delenv("GTOPT_GUI_ALLOWED_HOSTS", raising=False)
+        monkeypatch.delenv("GTOPT_GUI_HOST", raising=False)
+        monkeypatch.setenv("GTOPT_GUI_PORT", "5001")
+        monkeypatch.delitem(app.config, "GTOPT_GUI_PORT", raising=False)
+
+    @pytest.mark.parametrize(
+        "host",
+        ["localhost", "localhost:5001", "127.0.0.1:5001", "[::1]:5001", "LOCALHOST:5001"],
+    )
+    def test_loopback_hosts_accepted(self, client, host):
+        resp = client.get("/api/solve/config", headers={"Host": host})
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "attacker.example:5001",
+            "attacker.example",
+            "localhost:5002",
+            "127.0.0.1:81",
+            "10.0.0.1:5001",
+            "localhost:notaport",
+            ":5001",
+        ],
+    )
+    def test_foreign_hosts_rejected(self, client, host):
+        resp = client.get("/api/solve/config", headers={"Host": host})
+        assert resp.status_code == 403
+        assert "GTOPT_GUI_ALLOWED_HOSTS" in resp.get_json()["error"]
+
+    def test_rejected_on_post_too(self, client):
+        resp = client.post("/api/case/validate", json={}, headers={"Host": "evil.example:5001"})
+        assert resp.status_code == 403
+
+    def test_extra_hosts_from_env(self, client, monkeypatch):
+        monkeypatch.setenv("GTOPT_GUI_ALLOWED_HOSTS", "gui.lan, 10.0.0.7:8000, [fd00::1]")
+        assert client.get("/api/solve/config", headers={"Host": "gui.lan:5001"}).status_code == 200
+        assert client.get("/api/solve/config", headers={"Host": "10.0.0.7:8000"}).status_code == 200
+        assert client.get("/api/solve/config", headers={"Host": "10.0.0.7:9000"}).status_code == 403
+        assert (
+            client.get("/api/solve/config", headers={"Host": "[fd00::1]:5001"}).status_code == 200
+        )
+
+    def test_concrete_bind_host_accepted(self, client, monkeypatch):
+        monkeypatch.setenv("GTOPT_GUI_HOST", "192.168.0.5")
+        assert (
+            client.get("/api/solve/config", headers={"Host": "192.168.0.5:5001"}).status_code == 200
+        )
+
+    def test_wildcard_bind_host_not_a_free_pass(self, client, monkeypatch):
+        monkeypatch.setenv("GTOPT_GUI_HOST", "0.0.0.0")
+        assert client.get("/api/solve/config", headers={"Host": "0.0.0.0:5001"}).status_code == 403
+
+    def test_app_config_port_wins(self, client, monkeypatch):
+        monkeypatch.setitem(app.config, "GTOPT_GUI_PORT", 6000)
+        assert client.get("/", headers={"Host": "localhost:6000"}).status_code == 200
+        assert client.get("/", headers={"Host": "localhost:5001"}).status_code == 403
+
+    def test_no_configured_port_accepts_any_loopback_port(self, client, monkeypatch):
+        monkeypatch.delenv("GTOPT_GUI_PORT", raising=False)
+        assert client.get("/", headers={"Host": "127.0.0.1:43210"}).status_code == 200
+
+    def test_bad_configured_port_ignored(self, client, monkeypatch):
+        monkeypatch.setenv("GTOPT_GUI_PORT", "abc")
+        assert client.get("/", headers={"Host": "127.0.0.1:43210"}).status_code == 200
+
+    def test_host_header_allowed_helper(self):
+        assert gui_app.host_header_allowed("localhost:5001")
+        assert not gui_app.host_header_allowed("")
+        assert not gui_app.host_header_allowed(None)
+
+
+class TestGuiHeaderRequired:
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/solve/config",
+            "/api/case/validate",
+            "/api/case/upload",
+            "/api/results/upload",
+            "/api/solve/stop/abc",
+            "/api/solve/submit",
+            "/api/shutdown",
+        ],
+    )
+    def test_post_without_header_rejected(self, client, path):
+        del client  # env cleanup only
+        resp = _plain_client().post(path, json={"webservice_url": "http://localhost:3000"})
+        assert resp.status_code == 403
+        assert "X-GTOpt-GUI" in resp.get_json()["error"]
+
+    def test_post_with_header_reaches_route(self, client):
+        del client
+        resp = _plain_client().post(
+            "/api/solve/config",
+            json={"webservice_url": "http://localhost:3000"},
+            headers={"X-GTOpt-GUI": "1"},
+        )
+        assert resp.status_code == 200
+
+    def test_get_without_header_allowed(self, client):
+        del client
+        assert _plain_client().get("/api/solve/config").status_code == 200
+
+    def test_multipart_upload_without_header_rejected_before_parsing(self, client):
+        del client
+        with patch("guiservice.app._parse_uploaded_zip") as parse:
+            resp = _plain_client().post(
+                "/api/case/upload",
+                data={"file": (io.BytesIO(b"PK"), "case.zip")},
+                content_type="multipart/form-data",
+            )
+        assert resp.status_code == 403
+        parse.assert_not_called()
+
+    @patch("os.kill")
+    def test_shutdown_token_client_needs_no_gui_header(self, mock_kill, client, monkeypatch):
+        del client
+        monkeypatch.setenv("GTOPT_GUI_SHUTDOWN_TOKEN", "s3cret")
+        resp = _plain_client().post(
+            "/api/shutdown",
+            headers={"X-GTOpt-Shutdown-Token": "s3cret"},
+            environ_base={"REMOTE_ADDR": "10.1.2.3"},
+        )
+        assert resp.status_code == 200
+        mock_kill.assert_called_once()
+
+    def test_frontend_sends_header(self):
+        """The bundled UI adds the header to every same-origin fetch."""
+        app_js = (_GUISERVICE_DIR / "static" / "js" / "app.js").read_text(encoding="utf-8")
+        assert 'const GUI_REQUEST_HEADER = "X-GTOpt-GUI";' in app_js
+        assert "window.fetch = function guiFetch(" in app_js
+        api_ts = (_GUISERVICE_DIR.parent / "guiservice-plus" / "src" / "lib" / "api.ts").read_text(
+            encoding="utf-8"
+        )
+        assert "'X-GTOpt-GUI': '1'" in api_ts

@@ -133,3 +133,30 @@ def fixture_fake_home() -> Path:
 def fixture_real_home() -> Path:
     """The user's real home directory (read-only use in tests!)."""
     return _REAL_HOME
+
+
+@pytest.fixture(autouse=True)
+def _gui_request_header(monkeypatch):
+    """Make Flask test clients send ``X-GTOpt-GUI`` like the bundled UI.
+
+    The service rejects state-changing requests without that header (CSRF
+    guard).  Tests of the guard itself build a plain ``FlaskClient``.
+    """
+    # pylint: disable=import-outside-toplevel
+    try:
+        from flask.testing import FlaskClient
+
+        from guiservice.app import GUI_REQUEST_HEADER, app
+    except ImportError:  # flask / app deps missing: nothing to patch
+        yield
+        return
+
+    environ_key = "HTTP_" + GUI_REQUEST_HEADER.upper().replace("-", "_")
+
+    class _GuiTestClient(FlaskClient):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.environ_base[environ_key] = "1"
+
+    monkeypatch.setattr(app, "test_client_class", _GuiTestClient)
+    yield

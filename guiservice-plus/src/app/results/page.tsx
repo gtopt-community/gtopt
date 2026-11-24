@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useStore } from '@/lib/store';
+import { GUI_REQUEST_HEADERS } from '@/lib/api';
 import {
   Card,
   CardContent,
@@ -34,6 +35,7 @@ export default function ResultsPage() {
     formData.append('file', file);
     const res = await fetch('/flask/api/results/upload', {
       method: 'POST',
+      headers: GUI_REQUEST_HEADERS,
       body: formData,
     });
     if (!res.ok) {

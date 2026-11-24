@@ -1,6 +1,24 @@
 /* GTOpt GUI Service – Main Application Logic */
 
 // ---------------------------------------------------------------------------
+// Request header: the service rejects state-changing requests without
+// X-GTOpt-GUI (CSRF guard).  Add it to every same-origin fetch.
+// ---------------------------------------------------------------------------
+
+const GUI_REQUEST_HEADER = "X-GTOpt-GUI";
+const _nativeFetch = window.fetch.bind(window);
+
+window.fetch = function guiFetch(input, init = {}) {
+  const url = typeof input === "string" ? input : (input && input.url) || "";
+  const sameOrigin = (url.startsWith("/") && !url.startsWith("//"))
+    || url.startsWith(window.location.origin + "/");
+  if (!sameOrigin) return _nativeFetch(input, init);
+  const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+  headers.set(GUI_REQUEST_HEADER, "1");
+  return _nativeFetch(input, { ...init, headers });
+};
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
@@ -263,9 +281,9 @@ function renderBlocksTable() {
   blocks.forEach((b, i) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><input type="number" value="${b.uid}" onchange="updateBlock(${i},'uid',this.value)"></td>
-      <td><input type="text" value="${b.name || ""}" onchange="updateBlock(${i},'name',this.value)"></td>
-      <td><input type="number" step="any" value="${b.duration}" onchange="updateBlock(${i},'duration',this.value)"></td>
+      <td><input type="number" value="${escapeHtml(b.uid)}" onchange="updateBlock(${i},'uid',this.value)"></td>
+      <td><input type="text" value="${escapeHtml(b.name || "")}" onchange="updateBlock(${i},'name',this.value)"></td>
+      <td><input type="number" step="any" value="${escapeHtml(b.duration)}" onchange="updateBlock(${i},'duration',this.value)"></td>
       <td><button class="btn-danger" onclick="removeBlock(${i})">Remove</button></td>`;
     tbody.appendChild(tr);
   });
@@ -300,11 +318,11 @@ function renderStagesTable() {
   stages.forEach((s, i) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><input type="number" value="${s.uid}" onchange="updateStage(${i},'uid',this.value)"></td>
-      <td><input type="text" value="${s.name || ""}" onchange="updateStage(${i},'name',this.value)"></td>
-      <td><input type="number" value="${s.first_block}" onchange="updateStage(${i},'first_block',this.value)"></td>
-      <td><input type="number" value="${s.count_block}" onchange="updateStage(${i},'count_block',this.value)"></td>
-      <td><input type="number" step="any" value="${s.discount_factor != null ? s.discount_factor : ""}" onchange="updateStage(${i},'discount_factor',this.value)"></td>
+      <td><input type="number" value="${escapeHtml(s.uid)}" onchange="updateStage(${i},'uid',this.value)"></td>
+      <td><input type="text" value="${escapeHtml(s.name || "")}" onchange="updateStage(${i},'name',this.value)"></td>
+      <td><input type="number" value="${escapeHtml(s.first_block)}" onchange="updateStage(${i},'first_block',this.value)"></td>
+      <td><input type="number" value="${escapeHtml(s.count_block)}" onchange="updateStage(${i},'count_block',this.value)"></td>
+      <td><input type="number" step="any" value="${escapeHtml(s.discount_factor != null ? s.discount_factor : "")}" onchange="updateStage(${i},'discount_factor',this.value)"></td>
       <td><select onchange="updateStage(${i},'active',this.value)">
         <option value="1" ${s.active !== 0 ? "selected" : ""}>Yes</option>
         <option value="0" ${s.active === 0 ? "selected" : ""}>No</option>
@@ -349,9 +367,9 @@ function renderScenariosTable() {
   scenarios.forEach((sc, i) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><input type="number" value="${sc.uid}" onchange="updateScenario(${i},'uid',this.value)"></td>
-      <td><input type="text" value="${sc.name || ""}" onchange="updateScenario(${i},'name',this.value)"></td>
-      <td><input type="number" step="any" value="${sc.probability_factor != null ? sc.probability_factor : 1}" onchange="updateScenario(${i},'probability_factor',this.value)"></td>
+      <td><input type="number" value="${escapeHtml(sc.uid)}" onchange="updateScenario(${i},'uid',this.value)"></td>
+      <td><input type="text" value="${escapeHtml(sc.name || "")}" onchange="updateScenario(${i},'name',this.value)"></td>
+      <td><input type="number" step="any" value="${escapeHtml(sc.probability_factor != null ? sc.probability_factor : 1)}" onchange="updateScenario(${i},'probability_factor',this.value)"></td>
       <td><select onchange="updateScenario(${i},'active',this.value)">
         <option value="1" ${sc.active !== 0 ? "selected" : ""}>Yes</option>
         <option value="0" ${sc.active === 0 ? "selected" : ""}>No</option>
@@ -449,7 +467,7 @@ function renderElements() {
 
     const headerHtml = `
       <div class="element-card-header">
-        <strong>${schema.label} #${el.uid || i + 1}${el.name ? " — " + escapeHtml(String(el.name)) : ""}</strong>
+        <strong>${escapeHtml(schema.label)} #${escapeHtml(el.uid || i + 1)}${escapeHtml(el.name ? " — " + el.name : "")}</strong>
         <button class="btn-danger" onclick="removeElement(${i})">Remove</button>
       </div>`;
 
@@ -459,27 +477,27 @@ function renderElements() {
       const displayVal = val != null ? val : "";
 
       if (field.type === "boolean") {
-        fieldsHtml += `<label>${field.name}
-          <select onchange="updateElementField(${i},'${field.name}',this.value,'boolean')">
+        fieldsHtml += `<label>${escapeHtml(field.name)}
+          <select onchange="updateElementField(${i},${jsAttrString(field.name)},this.value,'boolean')">
             <option value="" ${val == null ? "selected" : ""}>—</option>
             <option value="true" ${val === true ? "selected" : ""}>Yes</option>
             <option value="false" ${val === false ? "selected" : ""}>No</option>
           </select></label>`;
       } else if (field.type === "integer") {
-        fieldsHtml += `<label>${field.name}${field.required ? " *" : ""}
-          <input type="number" value="${displayVal}" onchange="updateElementField(${i},'${field.name}',this.value,'integer')"></label>`;
+        fieldsHtml += `<label>${escapeHtml(field.name)}${field.required ? " *" : ""}
+          <input type="number" value="${escapeHtml(displayVal)}" onchange="updateElementField(${i},${jsAttrString(field.name)},this.value,'integer')"></label>`;
       } else if (field.type === "number") {
-        fieldsHtml += `<label>${field.name}${field.required ? " *" : ""}
-          <input type="number" step="any" value="${displayVal}" onchange="updateElementField(${i},'${field.name}',this.value,'number')"></label>`;
+        fieldsHtml += `<label>${escapeHtml(field.name)}${field.required ? " *" : ""}
+          <input type="number" step="any" value="${escapeHtml(displayVal)}" onchange="updateElementField(${i},${jsAttrString(field.name)},this.value,'number')"></label>`;
       } else if (field.type === "number_or_file") {
-        fieldsHtml += `<label>${field.name}${field.required ? " *" : ""}
-          <input type="text" value="${displayVal}" placeholder="number or filename"
-            onchange="updateElementField(${i},'${field.name}',this.value,'number_or_file')"></label>`;
+        fieldsHtml += `<label>${escapeHtml(field.name)}${field.required ? " *" : ""}
+          <input type="text" value="${escapeHtml(displayVal)}" placeholder="number or filename"
+            onchange="updateElementField(${i},${jsAttrString(field.name)},this.value,'number_or_file')"></label>`;
       } else {
         // string or ref
-        fieldsHtml += `<label>${field.name}${field.required ? " *" : ""}
-          <input type="text" value="${escapeHtml(String(displayVal))}"
-            onchange="updateElementField(${i},'${field.name}',this.value,'string')"></label>`;
+        fieldsHtml += `<label>${escapeHtml(field.name)}${field.required ? " *" : ""}
+          <input type="text" value="${escapeHtml(displayVal)}"
+            onchange="updateElementField(${i},${jsAttrString(field.name)},this.value,'string')"></label>`;
       }
     }
     fieldsHtml += "</div>";
@@ -1180,13 +1198,13 @@ function renderMonitorStats(data) {
   const solverType = data._solver_type || "monolithic";
   let html = "<table class='monitor-stats-table'><tbody>";
   html += `<tr><td>Status</td><td><strong>${escapeHtml(String(data.status || "—"))}</strong></td></tr>`;
-  html += `<tr><td>Elapsed</td><td>${data.elapsed_s != null ? Number(data.elapsed_s).toFixed(1) + " s" : "—"}</td></tr>`;
+  html += `<tr><td>Elapsed</td><td>${escapeHtml(data.elapsed_s != null ? Number(data.elapsed_s).toFixed(1) + " s" : "—")}</td></tr>`;
   if (solverType === "sddp") {
-    html += `<tr><td>Iteration</td><td>${data.iteration != null ? data.iteration : "—"} / ${data.max_iterations != null ? data.max_iterations : "—"}</td></tr>`;
-    html += `<tr><td>Upper Bound</td><td>${data.upper_bound != null ? Number(data.upper_bound).toFixed(4) : "—"}</td></tr>`;
-    html += `<tr><td>Lower Bound</td><td>${data.lower_bound != null ? Number(data.lower_bound).toFixed(4) : "—"}</td></tr>`;
+    html += `<tr><td>Iteration</td><td>${escapeHtml(data.iteration != null ? data.iteration : "—")} / ${escapeHtml(data.max_iterations != null ? data.max_iterations : "—")}</td></tr>`;
+    html += `<tr><td>Upper Bound</td><td>${escapeHtml(data.upper_bound != null ? Number(data.upper_bound).toFixed(4) : "—")}</td></tr>`;
+    html += `<tr><td>Lower Bound</td><td>${escapeHtml(data.lower_bound != null ? Number(data.lower_bound).toFixed(4) : "—")}</td></tr>`;
     const gap = data.gap != null ? (Number(data.gap) * 100).toFixed(2) + "%" : "—";
-    html += `<tr><td>Gap</td><td>${gap}</td></tr>`;
+    html += `<tr><td>Gap</td><td>${escapeHtml(gap)}</td></tr>`;
     html += `<tr><td>Converged</td><td>${data.converged ? "✔ Yes" : "✖ No"}</td></tr>`;
     // Per-scene bounds (last iteration)
     const history = data.history || [];
@@ -1197,13 +1215,13 @@ function renderMonitorStats(data) {
       if (sceneUbs.length > 1) {
         html += "<tr><td colspan='2'><em>Per-scene (last iteration)</em></td></tr>";
         for (let i = 0; i < sceneUbs.length; i++) {
-          html += `<tr><td>&nbsp;&nbsp;Scene ${i} UB</td><td>${Number(sceneUbs[i]).toFixed(4)}</td></tr>`;
-          html += `<tr><td>&nbsp;&nbsp;Scene ${i} LB</td><td>${Number(sceneLbs[i]).toFixed(4)}</td></tr>`;
+          html += `<tr><td>&nbsp;&nbsp;Scene ${i} UB</td><td>${escapeHtml(Number(sceneUbs[i]).toFixed(4))}</td></tr>`;
+          html += `<tr><td>&nbsp;&nbsp;Scene ${i} LB</td><td>${escapeHtml(Number(sceneLbs[i]).toFixed(4))}</td></tr>`;
         }
       }
     }
   } else {
-    html += `<tr><td>Scenes Done</td><td>${data.scenes_done != null ? data.scenes_done : "—"} / ${data.total_scenes != null ? data.total_scenes : "—"}</td></tr>`;
+    html += `<tr><td>Scenes Done</td><td>${escapeHtml(data.scenes_done != null ? data.scenes_done : "—")} / ${escapeHtml(data.total_scenes != null ? data.total_scenes : "—")}</td></tr>`;
   }
   html += "</tbody></table>";
   el.innerHTML = html;
@@ -1944,8 +1962,8 @@ async function shutdownService() {
     return;
   }
   try {
-    // The X-GTOpt-GUI header is required by the server (CSRF guard).
-    await fetch("/api/shutdown", { method: "POST", headers: { "X-GTOpt-GUI": "1" } });
+    // guiFetch adds the X-GTOpt-GUI header the server requires (CSRF guard).
+    await fetch("/api/shutdown", { method: "POST" });
   } catch (e) {
     // Connection will likely be lost immediately – that's expected.
   }
@@ -1956,10 +1974,29 @@ async function shutdownService() {
 // Utilities
 // ---------------------------------------------------------------------------
 
+const _HTML_ESCAPES = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+/**
+ * Escape a value for HTML text *and* quoted-attribute contexts.
+ * null/undefined render as "".  Every `${...}` interpolated into an
+ * innerHTML template must go through this (or jsAttrString).
+ */
 function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
+  return String(str ?? "").replace(/[&<>"']/g, (c) => _HTML_ESCAPES[c]);
+}
+
+/**
+ * Encode a value as a JavaScript string literal safe to embed inside a
+ * double-quoted inline event-handler attribute (e.g. onchange="f(${...})").
+ */
+function jsAttrString(str) {
+  return escapeHtml(JSON.stringify(String(str ?? "")));
 }
 
 // ---------------------------------------------------------------------------

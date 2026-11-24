@@ -137,6 +137,13 @@ tool.
   in debug mode on a non-loopback host.
 - `POST /api/solve/config` rejects non-`http(s)` URLs and hosts that are not
   loopback or allowlisted in `GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS` (SSRF guard).
+  Loopback URLs are limited to the port of `GTOPT_WEBSERVICE_URL` (default
+  3000) or a loopback `host:port` entry of that list.
+- Requests with a `Host` header other than `localhost` / `127.0.0.1` /
+  `[::1]`, the `GTOPT_GUI_HOST` bind address, or an entry of
+  `GTOPT_GUI_ALLOWED_HOSTS` are rejected (DNS-rebinding guard).
+- Every non-GET/HEAD/OPTIONS request must send the `X-GTOpt-GUI` header
+  (the bundled UIs do; add `-H "X-GTOpt-GUI: 1"` to scripted calls).
 - `POST /api/shutdown` requires a direct loopback client sending the
   `X-GTOpt-GUI` header (as the bundled UI does), or the secret configured in
   `GTOPT_GUI_SHUTDOWN_TOKEN`.

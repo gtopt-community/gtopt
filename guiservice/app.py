@@ -195,9 +195,6 @@ def _check_failure(check: str) -> dict[str, str]:
     }
 
 
-# Default webservice URL (can be overridden via env or API)
-_webservice_url = os.environ.get("GTOPT_WEBSERVICE_URL", "http://localhost:3000")
-
 # ---------------------------------------------------------------------------
 # Security helpers
 # ---------------------------------------------------------------------------
@@ -219,6 +216,25 @@ GUI_REQUEST_HEADER = "X-GTOpt-GUI"
 
 #: Token forwarded to the webservice (``Authorization: Bearer``).
 WEBSERVICE_API_TOKEN_ENV = "GTOPT_WEBSERVICE_API_TOKEN"
+
+#: Comma-separated extra values (``host`` or ``host:port``) accepted in the
+#: ``Host`` header besides loopback names (DNS-rebinding guard).
+ALLOWED_HOSTS_ENV = "GTOPT_GUI_ALLOWED_HOSTS"
+
+#: Port the GUI listens on; loopback ``Host`` headers must carry this port.
+GUI_PORT_ENV = "GTOPT_GUI_PORT"
+
+#: Default webservice URL when ``GTOPT_WEBSERVICE_URL`` is unset.
+DEFAULT_WEBSERVICE_URL = "http://localhost:3000"
+
+# Current webservice URL (env default, can be changed via the config API)
+_webservice_url = os.environ.get("GTOPT_WEBSERVICE_URL", DEFAULT_WEBSERVICE_URL)
+
+#: Methods that never change state and therefore skip the CSRF header check.
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+_LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+_WILDCARD_BIND_HOSTS = frozenset({"", "0.0.0.0", "::"})
 
 # Job tokens are opaque path segments: never allow '/', '..', '?', '#', '%'.
 _JOB_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -261,12 +277,55 @@ def _allowed_webservice_hosts() -> set[str]:
     return allowed
 
 
+def _effective_port(scheme: str, port: int | None) -> int:
+    """Return *port*, or the scheme default (443 for https, else 80)."""
+    if port is not None:
+        return port
+    return 443 if scheme == "https" else 80
+
+
+def _allowed_loopback_webservice_ports() -> set[int] | None:
+    """Ports a loopback webservice URL may use; ``None`` means any port.
+
+    Always the port of ``GTOPT_WEBSERVICE_URL`` (default
+    ``http://localhost:3000``), plus the port of every loopback
+    ``host:port`` entry of ``GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS``.  A bare
+    loopback host in that list is an explicit operator opt-in to any port.
+    Pinning the port stops another local user from redirecting the GUI
+    (and the bearer token it forwards) to a listener of their own.
+    """
+    ports: set[int] = set()
+    env_url = os.environ.get("GTOPT_WEBSERVICE_URL", "") or DEFAULT_WEBSERVICE_URL
+    try:
+        parts = urlsplit(env_url)
+        ports.add(_effective_port(parts.scheme, parts.port))
+    except ValueError:
+        pass
+    for item in os.environ.get(ALLOWED_WEBSERVICE_HOSTS_ENV, "").split(","):
+        item = item.strip().lower()
+        if not item:
+            continue
+        try:
+            parts = urlsplit(f"//{item}")
+            port = parts.port
+        except ValueError:
+            continue
+        if not is_loopback_host(parts.hostname):
+            continue
+        if port is None:
+            return None
+        ports.add(port)
+    return ports
+
+
 def validate_webservice_url(raw: Any) -> tuple[str | None, str | None]:  # pylint: disable=too-many-return-statements
     """Validate a client-supplied webservice URL (SSRF guard).
 
     Only ``http``/``https`` URLs without credentials, query or fragment are
     accepted, and the host must be loopback or listed in
     ``GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS`` (as ``host`` or ``host:port``).
+    Loopback URLs are further limited to the configured webservice port
+    (see :func:`_allowed_loopback_webservice_ports`).
 
     Returns ``(normalized_url, None)`` on success or ``(None, error)``.
     """
@@ -289,7 +348,15 @@ def validate_webservice_url(raw: Any) -> tuple[str | None, str | None]:  # pylin
     if parts.query or parts.fragment:
         return None, "webservice_url must not include a query or fragment"
     host = parts.hostname.lower()
-    if not is_loopback_host(host):
+    if is_loopback_host(host):
+        ports = _allowed_loopback_webservice_ports()
+        if ports is not None and _effective_port(parts.scheme, port) not in ports:
+            return None, (
+                f"loopback webservice port {_effective_port(parts.scheme, port)} is "
+                f"not allowed; use the configured webservice port or list "
+                f"'localhost:<port>' in {ALLOWED_WEBSERVICE_HOSTS_ENV}"
+            )
+    else:
         allowed = _allowed_webservice_hosts()
         host_port = f"{host}:{port}" if port is not None else host
         if host not in allowed and host_port not in allowed:
@@ -347,6 +414,77 @@ def shutdown_allowed() -> tuple[bool, str]:
     if not request.headers.get(GUI_REQUEST_HEADER):
         return False, f"missing {GUI_REQUEST_HEADER} header"
     return True, "loopback"
+
+
+def _configured_gui_port() -> int | None:
+    """Port the GUI serves on (``app.config`` first, then the env var)."""
+    raw = app.config.get(GUI_PORT_ENV) or os.environ.get(GUI_PORT_ENV, "")
+    try:
+        return int(raw) if raw else None
+    except (TypeError, ValueError):
+        return None
+
+
+def host_header_allowed(host_header: str | None) -> bool:
+    """Return True when *host_header* names this service (DNS-rebinding guard).
+
+    Accepted: ``localhost`` / ``127.0.0.1`` / ``[::1]`` with no port or the
+    configured GUI port (any port when none is configured); the bind
+    address in ``GTOPT_GUI_HOST`` when it is a concrete address; and every
+    ``host`` / ``host:port`` listed in ``GTOPT_GUI_ALLOWED_HOSTS``.
+    """
+    if not host_header:
+        return False
+    try:
+        parts = urlsplit(f"//{host_header.strip()}")
+        host = (parts.hostname or "").lower()
+        port = parts.port
+    except ValueError:
+        return False
+    if not host:
+        return False
+    if host in _LOOPBACK_NAMES:
+        gui_port = _configured_gui_port()
+        return port is None or gui_port is None or port == gui_port
+    allowed = {
+        item.strip().lower()
+        for item in os.environ.get(ALLOWED_HOSTS_ENV, "").split(",")
+        if item.strip()
+    }
+    bind_host = os.environ.get("GTOPT_GUI_HOST", "").strip().lower()
+    if bind_host not in _WILDCARD_BIND_HOSTS:
+        allowed.add(bind_host)
+    netloc_host = f"[{host}]" if ":" in host else host
+    host_port = f"{netloc_host}:{port}" if port is not None else netloc_host
+    return bool({host, netloc_host, host_port} & allowed)
+
+
+@app.before_request
+def _request_guards():
+    """Reject foreign ``Host`` headers and state changes without the GUI header.
+
+    * ``Host`` allowlist: a page on another domain that re-resolves to
+      127.0.0.1 (DNS rebinding) still sends its own name in ``Host``.
+    * ``X-GTOpt-GUI`` on every non-GET/HEAD/OPTIONS request: browsers can
+      only add a custom header cross-origin after a CORS preflight, which
+      this service never grants.  ``POST /api/shutdown`` with a shutdown
+      token is left to :func:`shutdown_allowed` (scripted clients).
+    """
+    if not host_header_allowed(request.host):
+        app.logger.warning("Rejected request with Host header %r", request.host)
+        return jsonify(
+            {
+                "error": "Host not allowed; add it to "
+                f"{ALLOWED_HOSTS_ENV} if this is a trusted name for this service"
+            }
+        ), 403
+    if request.method in _SAFE_METHODS:
+        return None
+    if request.headers.get(GUI_REQUEST_HEADER):
+        return None
+    if request.path == "/api/shutdown" and _presented_shutdown_token():
+        return None
+    return jsonify({"error": f"missing {GUI_REQUEST_HEADER} header"}), 403
 
 
 # ---------------------------------------------------------------------------
@@ -1526,6 +1664,7 @@ def main():
     if error:
         print(f"Error: {error}", file=sys.stderr)
         sys.exit(2)
+    app.config[GUI_PORT_ENV] = port
     app.run(host=host, port=port, debug=debug)
 
 

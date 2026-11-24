@@ -446,7 +446,18 @@ single-user tool.
   `http`/`https` URLs without credentials, query or fragment whose host is
   loopback, the host of `GTOPT_WEBSERVICE_URL`, or listed in
   `GTOPT_GUI_ALLOWED_WEBSERVICE_HOSTS` (comma-separated `host` or
-  `host:port` entries, e.g. `solver.lan,10.0.0.7:3000`).
+  `host:port` entries, e.g. `solver.lan,10.0.0.7:3000`).  Loopback URLs
+  are limited to the port of `GTOPT_WEBSERVICE_URL` (default 3000) or a
+  loopback `host:port` listed there, so another local user cannot redirect
+  the GUI (and the forwarded API token) to a port of their own.
+- **Host header (DNS rebinding guard).** Requests whose `Host` is not
+  `localhost` / `127.0.0.1` / `[::1]` (on the GUI port), the concrete
+  `GTOPT_GUI_HOST` bind address, or an entry of `GTOPT_GUI_ALLOWED_HOSTS`
+  (comma-separated `host` or `host:port`) get `403`.  When serving under
+  another name (reverse proxy, LAN hostname) list it there.
+- **CSRF header.** Every non-GET/HEAD/OPTIONS request must carry
+  `X-GTOpt-GUI` (the bundled UIs send it); scripted clients add
+  `-H "X-GTOpt-GUI: 1"`.
 - **Webservice API token.** When `GTOPT_WEBSERVICE_API_TOKEN` is set, the GUI
   forwards it to the webservice as `Authorization: Bearer <token>`.
 - **`POST /api/shutdown`** is accepted either with the secret configured in
