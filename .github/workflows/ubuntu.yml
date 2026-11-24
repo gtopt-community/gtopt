@@ -84,6 +84,12 @@ env:
   CC: gcc-14
   CXX: g++-14
   GCOV_TOOL: gcov-14
+  # Every gtopt run in this workflow (ctest shards, e2e goldens, the SDDP
+  # validator's per-solver golden lookup, webservice / GUI integration
+  # jobs) uses the pinned HiGHS only: install-apt-deps runs with
+  # coinor 'false', so libgtopt_solver_highs.so is the only solver plugin
+  # built and shipped.
+  GTOPT_SOLVER: highs
   # Set to 'true' to enable code coverage instrumentation and collection.
   # Leave 'false' for faster builds without coverage overhead.
   # Can also be enabled via workflow_dispatch input `run_coverage: true`.
@@ -143,6 +149,8 @@ jobs:
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
         with:
+          # No COIN-OR: HiGHS is the only solver plugin (see GTOPT_SOLVER).
+          coinor: 'false'
           # Ninja instead of Make: Make builds target by target, so no test
           # object started until libgtopt.a was linked (~4 min of the build
           # on 4 cores, with idle cores during the library's slow tail).
@@ -217,6 +225,14 @@ jobs:
             grep -i highs configure.log || true
             exit 1
           fi
+          # HiGHS must be the ONLY solver plugin, so no test can silently
+          # run on another backend.
+          if grep -E 'Solver plugin: .* enabled' configure.log \
+              | grep -vq 'HiGHS enabled'; then
+            echo "::error::a solver plugin other than HiGHS was configured"
+            grep 'Solver plugin:' configure.log
+            exit 1
+          fi
         env:
           CC: ${{ env.CC }}
           CXX: ${{ env.CXX }}
@@ -270,18 +286,12 @@ jobs:
         if: env.ENABLE_COVERAGE == 'true'
         run: |
           set -o pipefail
+          ulimit -c unlimited
           cd build
-          # Pin the active LP solver to CLP so that:
-          #   - the SDDP validator's per-solver golden lookup picks
-          #     `golden_iter*_clp.json` (see tools/validate_sddp_output.py),
-          #   - gtopt's auto-priority resolver deterministically uses CLP
-          #     regardless of which other COIN-OR plugins got built on the
-          #     runner (CBC occasionally loads first and hits different
-          #     degenerate optima).
-          # Removing the export here would require the validator to
-          # auto-detect the solver from solver_status.json — only
-          # produced for iter>0 runs, so not a drop-in replacement.
-          export GTOPT_SOLVER=clp
+          # GTOPT_SOLVER=highs (workflow env): the SDDP validator's
+          # per-solver golden lookup picks `golden_iter*_highs.json`
+          # (tools/validate_sddp_output.py) and the e2e cases compare
+          # against output_highs/ where present (compare_csv.cmake).
           # --build-config is only meaningful for multi-config generators
           # (Ninja Multi-Config, Visual Studio); ignored by single-config
           # Ninja/Make runs, which is what this workflow uses.  Left here
@@ -293,18 +303,6 @@ jobs:
           PASSED=$(grep -c "Passed" ctest_output.log || echo 0)
           FAILED=$(grep -c "Failed" ctest_output.log || echo 0)
           echo "Total: $TOTAL | Passed: $PASSED | Failed: $FAILED"
-
-      # The main run pins CLP, so the output_highs/ goldens were never
-      # compared in CI.  Re-run the (small) e2e golden cases against the
-      # pinned HiGHS so they are, strictly, with the version they were
-      # generated with (see .github/actions/install-highs).
-      - name: e2e goldens with pinned HiGHS
-        run: |
-          set -o pipefail
-          ulimit -c unlimited
-          cd build
-          GTOPT_SOLVER=highs ctest -R '^e2e_' --output-on-failure \
-            -j"$(nproc)" 2>&1 | tee ctest_highs_e2e.log
 
       # Surface the failing test names as a check-run annotation so they
       # are visible from the checks API (and the PR UI) without opening
@@ -323,7 +321,7 @@ jobs:
           # Re-run the failed tests serially and annotate their output so
           # the exact failing assertions are visible from the checks API.
           cd build
-          export GTOPT_SOLVER=clp
+          ulimit -c unlimited
           ctest --rerun-failed --output-on-failure > rerun_failed.log 2>&1 || true
           DETAIL=$(grep -vE "^\s+\[[0-9]{4}-" rerun_failed.log | head -120)
           printf '::error title=failing test output::%s\n' "$(printf '%s' "$DETAIL" | tr '\n' '\r' | sed 's/\r/%0A/g' | cut -c1-60000)"
@@ -379,6 +377,17 @@ jobs:
       - name: package build tree for test shards
         if: env.ENABLE_COVERAGE != 'true'
         run: |
+          # The HiGHS plugin's DT_NEEDED libhighs.so.1 lives in the pinned
+          # prefix ($HOME/opt/highs-*, install-highs), which the test shards
+          # do not have.  Ship it next to the plugin: the plugin's RUNPATH
+          # starts with $ORIGIN (cmake_local/InstallRpath.cmake), so a
+          # sibling copy resolves without installing HiGHS in every shard.
+          highs_so=$(find "$HOME"/opt/highs-*/lib -name 'libhighs.so.1' 2>/dev/null | head -n1)
+          if [ -z "$highs_so" ]; then
+            echo "::error::pinned libhighs.so.1 not found under \$HOME/opt/highs-*/lib"
+            exit 1
+          fi
+          cp -L "$highs_so" build/plugins/libhighs.so.1
           tar -cf - \
             --exclude='*.o' --exclude='*.gch' --exclude='*.pch' \
             --exclude='*.a' --exclude='*.d' \
@@ -535,6 +544,8 @@ jobs:
 
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
+        with:
+          coinor: 'false'
 
       # Same Python as `build`: the Python CTest entries call the absolute
       # interpreter path recorded at configure time.
@@ -558,10 +569,10 @@ jobs:
       - name: test
         run: |
           set -o pipefail
+          ulimit -c unlimited
           cd build
-          # Pin the active LP solver to CLP (golden files are per solver;
-          # see the coverage path of the `build` job for details).
-          export GTOPT_SOLVER=clp
+          # GTOPT_SOLVER=highs comes from the workflow env (golden files
+          # are per solver; see the coverage path of the `build` job).
           # Shard selection: see the matrix above.
           ctest --output-on-failure -j$(nproc) ${{ matrix.ctest-args }} \
             2>&1 | tee ctest_output.log
@@ -586,7 +597,7 @@ jobs:
           # Re-run the failed tests serially and annotate their output so
           # the exact failing assertions are visible from the checks API.
           cd build
-          export GTOPT_SOLVER=clp
+          ulimit -c unlimited
           ctest --rerun-failed --output-on-failure > rerun_failed.log 2>&1 || true
           DETAIL=$(grep -vE "^\s+\[[0-9]{4}-" rerun_failed.log | head -120)
           printf '::error title=failing test output (shard ${{ matrix.shard }})::%s\n' "$(printf '%s' "$DETAIL" | tr '\n' '\r' | sed 's/\r/%0A/g' | cut -c1-60000)"
@@ -610,6 +621,8 @@ jobs:
 
       - name: install gtopt runtime dependencies
         uses: ./.github/actions/install-apt-deps
+        with:
+          coinor: 'false'
 
       - name: make gtopt executable
         run: chmod +x gtopt-install/bin/gtopt
@@ -679,6 +692,8 @@ jobs:
 
       - name: install gtopt runtime dependencies
         uses: ./.github/actions/install-apt-deps
+        with:
+          coinor: 'false'
 
       - name: download gtopt binary
         uses: actions/download-artifact@v8
@@ -709,6 +724,9 @@ jobs:
           # Copy the shared spdlog so the binary/plugins resolve their
           # DT_NEEDED libspdlog.so.1.15 via $ORIGIN (apt only ships 1.12).
           cp ${{ runner.temp }}/gtopt-bin/libspdlog.so.* $HOME/gtopt-install/bin/ 2>/dev/null || true
+          # ...and the pinned libhighs.so.1 (DT_NEEDED of the HiGHS plugin,
+          # the only solver plugin; the runner has no system HiGHS).
+          cp ${{ runner.temp }}/gtopt-bin/libhighs.so.* "$HOME/gtopt-install/bin/" 2>/dev/null || true
           chmod +x $HOME/gtopt-install/bin/gtopt
 
       - name: cache Next.js build

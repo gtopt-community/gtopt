@@ -7,12 +7,11 @@ description: >
 inputs:
   coinor:
     description: >
-      Install coinor-libcbc-dev ('true'/'false').  On by default because
-      the ubuntu.yml build/test jobs still compare the CLP goldens; every
-      other workflow solves with the pinned HiGHS only
-      (./.github/actions/install-highs) and passes 'false', so the
-      optional OSI (CLP/CBC) plugin is not built there.  clang-tidy turns
-      it on only when it analyses the OSI plugin.
+      Install coinor-libcbc-dev ('true'/'false').  On by default only for
+      release.yml; every CI test workflow (ubuntu.yml included) solves
+      with the pinned HiGHS only (./.github/actions/install-highs) and
+      passes 'false', so the optional OSI (CLP/CBC) plugin is not built
+      there.  clang-tidy turns it on only when it analyses the OSI plugin.
     default: 'true'
   extra-packages:
     description: >
