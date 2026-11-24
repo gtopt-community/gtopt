@@ -118,6 +118,9 @@ include(Ccache)
 # ---- Sanitizers / static analysis (optional) ----
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/tools.cmake")
 
+# ---- Hardening flags (stack protector, FORTIFY, RELRO/BIND_NOW, PIE) ----
+include(Hardening)
+
 # ---- gtopt library ----
 # Build (or locate) the gtopt library exactly once, before any component
 # sub-project is processed.  This guarantees a single compiled copy shared by

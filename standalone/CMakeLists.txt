@@ -21,6 +21,7 @@ option(ENABLE_TEST_COVERAGE "Enable coverage instrumentation for the gtopt binar
 # ---- Compiler checks and tools ----
 include(CompilerCheck)
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/tools.cmake")
+include(Hardening)
 
 # ---- Dependencies ----
 option(CPM_USE_LOCAL_PACKAGES "Try find_package first" ON)
@@ -32,12 +33,6 @@ endif()
 
 include(ClangFormat)
 
-# ---- RPATH configuration ----
-# INSTALL_RPATH_USE_LINK_PATH adds all linker search paths to the installed
-# binary's RPATH so that non-system shared libraries (Arrow, Parquet, …)
-# are found at runtime after installation.
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-
 # ---- Executable ----
 file(GLOB sources CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
@@ -46,8 +41,9 @@ file(GLOB sources CONFIGURE_DEPENDS
 add_executable(${PROJECT_NAME} ${sources})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "gtopt")
 # NOTE: the install RPATH (incl. `$ORIGIN/../lib` so bin/gtopt resolves the
-# shipped libspdlog.so.1.15 in <prefix>/lib) is set by configure_install_rpath()
-# below — do NOT set INSTALL_RPATH here, it would be overwritten.
+# shipped libspdlog.so.1.15 in <prefix>/lib, plus the non-system Arrow/Parquet
+# … directories) is set by configure_install_rpath() below — do NOT set
+# INSTALL_RPATH here, it would be overwritten.
 
 target_link_libraries(
   ${PROJECT_NAME}
@@ -97,7 +93,34 @@ include(InstallRpath)
 configure_install_rpath(${PROJECT_NAME} gtopt)
 
 # ---- Install ----
-install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
+# Not install(TARGETS): see gtopt_install_with_rpath() in InstallRpath.cmake.
+gtopt_install_with_rpath(${PROJECT_NAME} bin)
+
+# ---- ELF security check (ctest) ----
+# Inspects the built binary and solver plugins with readelf: RUNPATH (no
+# empty entry, no $ORIGIN/../.. on the executable), PIE, RELRO,
+# BIND_NOW, non-executable stack, stack protector and (optimised builds)
+# FORTIFY.  See cmake_local/CheckElfSecurity.cmake.
+if(CMAKE_READELF AND NOT APPLE AND NOT WIN32)
+  set(_elf_plugins "")
+  foreach(plugin IN ITEMS osi cplex highs mindopt gurobi scip cuopt)
+    if(TARGET gtopt_solver_${plugin})
+      list(APPEND _elf_plugins "$<TARGET_FILE:gtopt_solver_${plugin}>")
+    endif()
+  endforeach()
+  list(JOIN _elf_plugins "|" _elf_plugins)
+  set(_elf_optimized "$<CONFIG:Release,RelWithDebInfo,MinSizeRel>")
+  if(USE_SANITIZER MATCHES "Address|Memory")
+    set(_elf_optimized 0)
+  endif()
+  add_test(
+    NAME gtopt_elf_security
+    COMMAND
+      ${CMAKE_COMMAND} "-DREADELF=${CMAKE_READELF}"
+      "-DEXE=$<TARGET_FILE:${PROJECT_NAME}>" "-DPLUGINS=${_elf_plugins}"
+      "-DHARDENING=${GTOPT_HARDENING}" "-DOPTIMIZED=${_elf_optimized}" -P
+      "${CMAKE_CURRENT_LIST_DIR}/../cmake_local/CheckElfSecurity.cmake")
+endif()
 
 # ---- Plugin build dependency ----
 # Ensure solver plugins are built alongside the standalone binary so that

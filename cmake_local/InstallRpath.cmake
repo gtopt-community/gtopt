@@ -10,10 +10,11 @@ Usage::
 
   include(InstallRpath)
   configure_install_rpath(<target> [<lib_target> ...])
+  gtopt_install_with_rpath(<target> <destination>)
 
 ``<target>``
-  The executable (or shared-library) target whose ``INSTALL_RPATH`` will be
-  set.
+  The executable (or MODULE / shared-library plugin) target whose
+  ``INSTALL_RPATH`` / ``BUILD_RPATH`` will be set.
 
 ``<lib_target>``
   One or more library targets whose ``LINK_LIBRARIES`` property is inspected
@@ -22,8 +23,25 @@ Usage::
 
 The function walks every item in the ``LINK_LIBRARIES`` property of each
 *lib_target* (falling back to *target* itself), resolves imported-target
-locations, filters out well-known system directories, and sets the result
-as the target's ``INSTALL_RPATH``.
+locations and filters out well-known system directories.
+
+Search paths (never an empty entry, which ld.so treats as the current
+working directory):
+
+* executable (``<prefix>/bin``): ``$ORIGIN``, ``$ORIGIN/../lib``;
+* plugin (``<prefix>/lib/gtopt/plugins``): ``$ORIGIN``, ``$ORIGIN/../..``
+  (= ``<prefix>/lib``);
+
+followed by the absolute non-system library directories.  The executable
+deliberately has no ``$ORIGIN/../..`` entry: for ``~/.local/bin/gtopt`` it
+would make ``$HOME`` a library search directory.
+
+``gtopt_install_with_rpath()`` installs the target with ``install(PROGRAMS)``
+and sets the install ``RUNPATH`` with ``file(RPATH_SET)``.  It replaces
+``install(TARGETS)`` because CMake's install-time RPATH rewrite pads the
+build-tree RPATH with a trailing ``:`` (an empty entry, i.e. the current
+directory) for every installable target.  The build-tree ``BUILD_RPATH`` is
+therefore kept at least as long as the install value.
 
 #]=======================================================================]
 
@@ -140,20 +158,67 @@ function(configure_install_rpath _target)
   list(FILTER _install_rpaths EXCLUDE REGEX "^$")
   list(REMOVE_DUPLICATES _install_rpaths)
 
-  # Always include $ORIGIN so the consumer can find sibling libraries when
-  # relocated (e.g. packaged alongside solver libs), plus the relative paths
-  # that reach the shared libspdlog.so.1.15 shipped into <prefix>/lib from the
-  # two install layouts that use this helper: `$ORIGIN/../lib` for the binary in
-  # <prefix>/bin, and `$ORIGIN/../..` for a plugin in <prefix>/lib/gtopt/plugins.
-  # The non-applicable entry is a harmless dead RPATH on each consumer.  (The
-  # build-tree spdlog dir collected above is absolute and is gone after install.)
-  list(PREPEND _install_rpaths "$ORIGIN" "$ORIGIN/../lib" "$ORIGIN/../..")
+  # Layout-relative entries: `$ORIGIN` (sibling libraries, e.g. the CI
+  # artifact that ships libspdlog / libhighs next to the binary and plugins)
+  # plus the path from the install location to <prefix>/lib, where the
+  # shared libspdlog.so.1.15 is installed.
+  get_target_property(_type ${_target} TYPE)
+  if(_type STREQUAL "EXECUTABLE")
+    set(_relative "$ORIGIN" "$ORIGIN/../lib")  # <prefix>/bin
+  else()
+    set(_relative "$ORIGIN" "$ORIGIN/../..")  # <prefix>/lib/gtopt/plugins
+  endif()
 
-  if(_install_rpaths)
-    set_target_properties(${_target} PROPERTIES
-      INSTALL_RPATH "${_install_rpaths}"
-      # Also bake RPATH into the build-tree binary (not just install).
-      BUILD_RPATH "${_install_rpaths}"
-    )
+  # Install value: build-tree directories (e.g. a from-source spdlog) are
+  # meaningless after install and are dropped.
+  set(_absolute_install "")
+  foreach(_dir IN LISTS _install_rpaths)
+    cmake_path(IS_PREFIX CMAKE_BINARY_DIR "${_dir}" NORMALIZE _in_build)
+    if(NOT _in_build)
+      list(APPEND _absolute_install "${_dir}")
+    endif()
+  endforeach()
+  set(_install_value ${_relative} ${_absolute_install})
+
+  # Build-tree value: `$ORIGIN` plus absolute directories only, padded with
+  # build-tree directories so file(RPATH_SET) at install time always fits.
+  set(_build_value "$ORIGIN" "${CMAKE_BINARY_DIR}/lib" ${_install_rpaths})
+  list(JOIN _install_value ":" _install_str)
+  list(JOIN _build_value ":" _build_str)
+  string(LENGTH "${_install_str}" _install_len)
+  string(LENGTH "${_build_str}" _build_len)
+  set(_pad 0)
+  while(_build_len LESS _install_len)
+    math(EXPR _pad "${_pad} + 1")
+    list(APPEND _build_value "${CMAKE_BINARY_DIR}/lib/rpath-pad-${_pad}")
+    list(JOIN _build_value ":" _build_str)
+    string(LENGTH "${_build_str}" _build_len)
+  endwhile()
+
+  set_target_properties(${_target} PROPERTIES
+    INSTALL_RPATH "${_install_value}"
+    BUILD_RPATH "${_build_value}"
+  )
+endfunction()
+
+# Install <target> into <destination> (relative to CMAKE_INSTALL_PREFIX) and
+# set its RUNPATH to the INSTALL_RPATH computed by configure_install_rpath().
+# See the module documentation for why install(TARGETS) is not used.
+function(gtopt_install_with_rpath _target _destination)
+  install(PROGRAMS "$<TARGET_FILE:${_target}>" DESTINATION "${_destination}")
+
+  get_target_property(_rpath ${_target} INSTALL_RPATH)
+  if(NOT _rpath)
+    return()
+  endif()
+  list(JOIN _rpath ":" _rpath_str)
+  string(REPLACE "$" "\\$" _rpath_esc "${_rpath_str}")
+  set(_file "\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${_destination}/$<TARGET_FILE_NAME:${_target}>")
+  install(CODE "file(RPATH_SET FILE \"${_file}\" NEW_RPATH \"${_rpath_esc}\")")
+  if(CMAKE_STRIP)
+    install(CODE "
+      if(CMAKE_INSTALL_DO_STRIP)
+        execute_process(COMMAND \"${CMAKE_STRIP}\" \"${_file}\")
+      endif()")
   endif()
 endfunction()

@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(
   gtopt
-  VERSION 1.1.0
+  VERSION 1.2.0
   DESCRIPTION
     "GTOpt - Generation, Transmission and storage Optimization: optimization and analysis of power-system generation, transmission and storage"
   LANGUAGES CXX
@@ -69,6 +69,9 @@ include(Ccache)
 
 # ---- Sanitizers / static analysis (optional) ----
 include(cmake/tools.cmake)
+
+# ---- Hardening flags (no-op when already included by all/) ----
+include(Hardening)
 
 include(cmake/ClangFormat.cmake)
 

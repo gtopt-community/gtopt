@@ -521,6 +521,21 @@ LP solver backends are selected at runtime via `--lp-solver`, not at build
 time. All detected solver plugins (`libgtopt_solver_*.so`) are built
 automatically when their dependencies are found.
 
+### Hardening flags
+
+`cmake_local/Hardening.cmake` applies the same hardening to the core, the
+binary, the solver plugins and the tests, whatever the toolchain defaults:
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `GTOPT_HARDENING` | `ON` | `-fstack-protector-strong`, `-fstack-clash-protection`, `-fcf-protection=full` (x86), `_FORTIFY_SOURCE=3` in optimised builds (`Release`, `RelWithDebInfo`, `MinSizeRel`; not under ASan/MSan), PIE, `-z relro -z now -z noexecstack` |
+| `GTOPT_GLIBCXX_ASSERTIONS` | `AUTO` | libstdc++ bounds checks (`_GLIBCXX_ASSERTIONS`): `AUTO` = every configuration except `Release`; `ON` / `OFF` force it |
+
+`Release` leaves the libstdc++ assertions off to keep the LP-assembly inner
+loops branch-free; CI and developer builds (`CIFast`, `Debug`) and
+`RelWithDebInfo` keep them on.  The `gtopt_elf_security` ctest checks the
+built binary and plugins with `readelf`.
+
 ## Installing
 
 ### Non-root user install (default)

@@ -106,17 +106,14 @@ function(gtopt_add_solver_plugin)
   set_target_properties(${_P_NAME} PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins"
     PREFIX "lib"
-    INSTALL_RPATH_USE_LINK_PATH TRUE
   )
 
   # Preserve RPATH to non-system solver libraries.
   configure_install_rpath(${_P_NAME})
 
-  # Install to the standard plugin directory.
-  install(
-    TARGETS ${_P_NAME}
-    LIBRARY DESTINATION lib/gtopt/plugins
-  )
+  # Install to the standard plugin directory (not install(TARGETS): see
+  # gtopt_install_with_rpath() in InstallRpath.cmake).
+  gtopt_install_with_rpath(${_P_NAME} lib/gtopt/plugins)
 endfunction()
 
 #[=======================================================================[
