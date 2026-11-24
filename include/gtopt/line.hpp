@@ -269,6 +269,26 @@ struct Line
   /// ``test_line_losses_negative_lmp_kvl.cpp``.
   OptReal loss_cost_eps {};
 
+  /// Price [$/MWh] on the loss carried by this line's OVERFLOW tier,
+  /// i.e. flow between ``loss_envelope`` and the flow cap ``tmax``.
+  /// Every overflow column (|f| ladder column, secant segment, λ
+  /// breakpoint or the split overflow loss column of the ``tangent``
+  /// layout) is charged ``loss_overflow_cost`` per MWh of loss it adds
+  /// above ``R·loss_envelope²/V²``.  This is what stops the tier from
+  /// acting as a free energy sink under negative bus prices: burning a
+  /// MWh there costs ``loss_overflow_cost``, so only an incentive above
+  /// it can buy fictitious loss (the in-envelope residual ``≤ R·env²/V²``
+  /// stays governed by ``loss_cost_eps`` / SOS2).  A GENUINE overload
+  /// pays the same price on its loss above the envelope — a marginal
+  /// LMP spread of ``loss_overflow_cost · 2·R·|f|/V²`` across the line —
+  /// which is the minimum any pure-LP guard must charge (see the
+  /// formulation doc).  Unset → ``model_options.loss_overflow_cost``,
+  /// itself defaulting to the case's effective ``demand_fail_cost`` (1000
+  /// $/MWh when unset; 1000 with a warning when it is 0); ``0`` disables
+  /// the guard on this line.
+  /// Inert when ``loss_envelope`` is unset or ≥ the flow cap.
+  OptReal loss_overflow_cost {};
+
   /// Soft (normal) flow threshold in the B→A direction [MW].  When set
   /// and `overload_penalty > 0`, the LP allows `flown` up to `tmax_ba`
   /// (the hard cap, unchanged) but adds a per-MWh cost

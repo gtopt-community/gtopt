@@ -172,6 +172,19 @@ struct LossConfig
   /// ``SolverBackend::add_sos2`` for the support matrix.  Inert
   /// outside ``tangent_signed_flow`` mode or when ``nseg_secant ≤ 1``.
   bool use_sos2 {false};
+  /// Price [$/MWh] on the loss carried by the OVERFLOW tier past a
+  /// decoupled ``loss_envelope`` (flow in ``(envelope, fmax]``).  Each
+  /// overflow column is charged this price times its marginal loss —
+  /// ``c·(b_{j−1}+b_j)`` per MW on |f| ladder columns and overflow
+  /// secant segments, ``c·(b²−envelope²)`` per unit on SOS2 λ weights,
+  /// ``1`` per MW on the split overflow loss column of the ``tangent``
+  /// layout — so the tier costs exactly this price per MWh of loss
+  /// above ``c·envelope²``.  Closes the overflow energy sink (see
+  /// ``Line.loss_overflow_cost``).  ``0.0`` (default here; ``LineLP``
+  /// passes the resolved value, default the case's
+  /// ``demand_fail_cost``) disables it.  Inert when
+  /// there is no overflow tier (no envelope or ``fmax ≤ envelope``).
+  double loss_overflow_cost {0.0};
 };
 
 // ─── PWL geometry (exposed for unit testing) ────────────────────────
@@ -505,7 +518,8 @@ struct BlockResult
                                      double loss_envelope = 0.0,
                                      double loss_cost_eps = 0.0,
                                      int nseg_secant = 1,
-                                     bool use_sos2 = false);
+                                     bool use_sos2 = false,
+                                     double loss_overflow_cost = 0.0);
 
 // ─── LP construction ────────────────────────────────────────────────
 

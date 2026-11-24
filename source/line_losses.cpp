@@ -151,7 +151,8 @@ LossConfig make_config(LineLossesMode mode,
                        double loss_envelope,
                        double loss_cost_eps,
                        int nseg_secant,
-                       bool use_sos2)
+                       bool use_sos2,
+                       double loss_overflow_cost)
 {
   const double V2 = voltage * voltage;
   // Honour the caller's ``loss_segments`` verbatim (no ``max(1, …)``
@@ -320,6 +321,41 @@ LossConfig make_config(LineLossesMode mode,
               nseg_secant_eff);
   }
 
+  // Overflow-sink exposure (see ``Line.loss_overflow_cost``).  A flow cap
+  // above a decoupled envelope opens an overflow tier; without its price
+  // the tier is a free energy sink of up to ``R·fmax²/V²`` MW whenever a
+  // bus price goes negative.  ``linear`` has no loss column to price
+  // (its sink is circulation ``λ·(fp + fn)`` up to ``2·tmax``), so it is
+  // exposed whatever the guard; warn once in both situations.
+  const bool has_overflow_tier = loss_envelope > 0.0
+      && fmax > loss_envelope * (1.0 + 1e-9) && std::isfinite(fmax)
+      && fmax < LinearProblem::DblMax;
+  if (has_overflow_tier && mode == LineLossesMode::linear) {
+    static WarnOnceFlag warned_linear_overflow;
+    warn_once(warned_linear_overflow,
+              "line_losses: line '{}' uses 'linear' losses with tmax {:.6g} "
+              "> loss_envelope {:.6g}.  Linear losses have no loss column, "
+              "so neither loss_cost_eps nor loss_overflow_cost applies: under "
+              "negative bus prices the LP can circulate fp = fn up to tmax "
+              "and burn lossfactor·(fp + fn) MW of fictitious loss.  Use "
+              "tangent_signed_flow / bidirectional, or tmax ≤ loss_envelope.",
+              line.name,
+              fmax,
+              loss_envelope);
+  }
+  if (has_overflow_tier && loss_overflow_cost <= 0.0
+      && mode != LineLossesMode::none && mode != LineLossesMode::linear)
+  {
+    static WarnOnceFlag warned_free_overflow;
+    warn_once(warned_free_overflow,
+              "line_losses: line '{}' has tmax {:.6g} > loss_envelope {:.6g} "
+              "with loss_overflow_cost = 0: the overflow tier is a FREE "
+              "energy sink of up to R·tmax²/V² MW under negative bus prices.",
+              line.name,
+              fmax,
+              loss_envelope);
+  }
+
   return {
       .mode = mode,
       .allocation = allocation,
@@ -333,6 +369,8 @@ LossConfig make_config(LineLossesMode mode,
       .loss_cost_eps = (loss_cost_eps > 0.0) ? loss_cost_eps : 0.0,
       .nseg_secant = nseg_secant_eff,
       .use_sos2 = use_sos2_eff,
+      .loss_overflow_cost =
+          (loss_overflow_cost > 0.0) ? loss_overflow_cost : 0.0,
   };
 }
 
@@ -508,6 +546,33 @@ constexpr int kMaxOverflowBreakpoints = 16;
   }
   out.push_back(fmax);  // exact last breakpoint
   return out;
+}
+
+/// Objective cost of ONE unit of an overflow-tier column that adds
+/// ``marginal_loss`` MW of loss per unit (``c·(b_{j−1}+b_j)`` for an |f|
+/// ladder column or overflow secant segment, ``c·(b²−env²)`` for an SOS2
+/// λ weight, ``1`` for the split overflow loss column of the ``tangent``
+/// layout): ``loss_overflow_cost · marginal_loss``, block-duration
+/// weighted like any energy cost.  Zero when the guard is disabled.
+///
+/// Why: a pure-LP loss hull that reaches ``±fmax`` on the quadratic
+/// contains ``(f, c·fmax²)`` for every ``|f| ≤ fmax`` (midpoint of the two
+/// extreme points), so no chord can stop the overflow tier from burning
+/// energy under a negative bus price.  Pricing the tier at
+/// ``loss_overflow_cost`` per MWh of loss it carries makes every burned
+/// MWh cost that much — and, by the same midpoint argument, it is the
+/// least a genuine overload must pay for such a guard to hold.
+[[nodiscard]] double overflow_unit_cost(const LossConfig& config,
+                                        const ScenarioLP& scenario,
+                                        const StageLP& stage,
+                                        const BlockLP& block,
+                                        double marginal_loss)
+{
+  if (config.loss_overflow_cost <= 0.0 || marginal_loss <= 0.0) {
+    return 0.0;
+  }
+  return CostHelper::block_ecost(
+      scenario, stage, block, config.loss_overflow_cost * marginal_loss);
 }
 
 /// Add piecewise-linear segment variables to linking and loss rows.
@@ -840,6 +905,10 @@ void add_segments(LinearProblem& lp,
     lossrow[seg_col] = -scaled_loss;
   }
 }
+
+/// Column / row label of the split overflow loss of the ``tangent``
+/// layout (``add_piecewise_shared``).
+inline constexpr std::string_view loss_overflow_name = "loss_overflow";
 
 /// Labels for one direction of the bidirectional model.
 struct DirLabels
@@ -1274,6 +1343,9 @@ BlockResult add_piecewise_shared(const LossConfig& config,
   // for a separate sum-of-segments link row.  See ``add_tangents``
   // for the math.
   if (config.pwl_layout == LinePwlLayout::tangent) {
+    const std::vector<double> overflow_bp = decoupled_envelope
+        ? overflow_breakpoints(effective_fmax, fmax)
+        : std::vector<double> {};
     add_tangents(lp,
                  scenario,
                  stage,
@@ -1287,8 +1359,44 @@ BlockResult add_piecewise_shared(const LossConfig& config,
                  result.fp_col,
                  result.fn_col,
                  config.loss_row_scale,
-                 decoupled_envelope ? overflow_breakpoints(effective_fmax, fmax)
-                                    : std::vector<double> {});
+                 overflow_bp);
+
+    // Overflow price.  The tangent rows only LOWER-bound ``loss``; its
+    // sole upper bound is the column bound ``c·fmax²``, so with headroom
+    // past the envelope the column is a sink of up to ``c·fmax²`` MW at
+    // ANY flow under a negative bus price.  Split off the loss above the
+    // envelope level into ``loss_ov`` priced at ``loss_overflow_cost``:
+    //   s·loss − s·loss_ov ≤ s·c·env²,   loss_ov ∈ [0, c·(fmax² − env²)].
+    // A genuine overload pays ``loss_overflow_cost`` on its loss above
+    // ``c·env²`` — the same price as the other modes' overflow tier.
+    const double k_loss =
+        (config.V2 > 0.0) ? config.resistance / config.V2 : 0.0;
+    if (!overflow_bp.empty() && config.loss_overflow_cost > 0.0 && k_loss > 0.0
+        && loss_ub < LinearProblem::DblMax)
+    {
+      const double env_loss = k_loss * effective_fmax * effective_fmax;
+      const auto ov_col = lp.add_col({
+          .lowb = 0,
+          .uppb = std::max(0.0, loss_ub - env_loss),
+          .cost = overflow_unit_cost(config, scenario, stage, block, 1.0),
+          .class_name = Line::class_name.full_name(),
+          .variable_name = loss_overflow_name,
+          .variable_uid = uid,
+          .context = block_ctx,
+      });
+      auto ovrow =
+          SparseRow {
+              .class_name = Line::class_name.full_name(),
+              .constraint_name = loss_overflow_name,
+              .variable_uid = uid,
+              .context = block_ctx,
+          }
+              .less_equal(env_loss * config.loss_row_scale);
+      ovrow.reserve(2);
+      ovrow[loss_col] = +config.loss_row_scale;
+      ovrow[ov_col] = -config.loss_row_scale;
+      [[maybe_unused]] auto idx = lp.add_row(std::move(ovrow));
+    }
     return result;
   }
 
@@ -1325,8 +1433,10 @@ BlockResult add_piecewise_shared(const LossConfig& config,
       .variable_uid = uid,
       .context = block_ctx,
   };
+  // Ranged for ``midpoint`` (secant upper bound kept; see
+  // ``add_direction``).
   auto lossrow =
-      debias ? lossrow_proto.greater_equal(debias_rhs) : lossrow_proto.equal(0);
+      debias ? lossrow_proto.bound(debias_rhs, 0.0) : lossrow_proto.equal(0);
   lossrow.reserve(loss_reserve_sz);
   lossrow[loss_col] = +config.loss_row_scale;
 
@@ -1526,8 +1636,14 @@ DirResult add_direction(const LossConfig& config,
       .variable_uid = uid,
       .context = block_ctx,
   };
+  // ``midpoint`` keeps the secant as an UPPER bound too (ranged row
+  // ``−s·offset ≤ s·loss − Σ s·loss_k·seg_k ≤ 0``): a one-sided ``≥``
+  // leaves ``loss`` free up to its column bound, an energy sink of
+  // ``R·m²/V²`` MW at any flow under a negative receiver price.  With
+  // ``loss`` minimised the upper side is never active, so results
+  // without a negative price are unchanged.
   auto lossrow =
-      debias ? lossrow_proto.greater_equal(debias_rhs) : lossrow_proto.equal(0);
+      debias ? lossrow_proto.bound(debias_rhs, 0.0) : lossrow_proto.equal(0);
   lossrow.reserve(reserve_sz);
   lossrow[loss_col] = +config.loss_row_scale;
 
@@ -1549,7 +1665,10 @@ DirResult add_direction(const LossConfig& config,
 
   // Overflow secant segments past a decoupled envelope (see above).
   // Segment index ``K + j`` keeps the column names distinct from the
-  // inner ``1..K``.
+  // inner ``1..K``.  Each is priced at ``loss_overflow_cost`` per MWh of
+  // the loss it carries (``overflow_unit_cost``): otherwise a phantom
+  // circulation ``fp = fn`` past the envelope is a free sink of up to
+  // ``2·R·tmax²/V²`` MW under a negative bus price.
   {
     const double k_loss = config.resistance / config.V2;
     double lo = effective_envelope;
@@ -1559,6 +1678,8 @@ DirResult add_direction(const LossConfig& config,
       const auto ocol = lp.add_col({
           .lowb = 0,
           .uppb = hi - lo,
+          .cost = overflow_unit_cost(
+              config, scenario, stage, block, k_loss * (lo + hi)),
           .class_name = Line::class_name.full_name(),
           .variable_name = labels.seg,
           .variable_uid = uid,
@@ -1680,9 +1801,16 @@ BlockResult add_bidirectional(const LossConfig& config,
 /// uses the signed `f` column directly with a single `+x_τ`
 /// coefficient — no `fp/fn` decomposition needed.
 ///
-/// Phantom flow IMPOSSIBLE by construction: there is no way to
-/// represent simultaneous bidirectional flow on a line because the
-/// LP carries one (signed) variable per (line, block).
+/// Phantom BIDIRECTIONAL flow is impossible by construction (one signed
+/// variable per (line, block)), but FICTITIOUS LOSS is not: the chord
+/// anchors ``ℓ`` to the |f| proxy ``v``, which is only lower-bounded by
+/// ``±f``.  Under a negative bus price the LP inflates ``v`` past ``|f|``
+/// and burns energy in ``ℓ`` — up to ``c·env²`` in the in-envelope tier
+/// (closed only by ``loss_cost_eps`` above the incentive or by SOS2) and
+/// up to ``c·fmax²`` through the overflow tier unless that tier is priced
+/// (``loss_overflow_cost``, default the case's ``demand_fail_cost``; see
+/// ``overflow_unit_cost``).  No pure-LP chord can do better: the hull of
+/// ``(±fmax, c·fmax²)`` contains ``(0, c·fmax²)``.
 ///
 /// LP size: 2 cols + (K + 1) rows + 1 col upper-bound (the quadratic
 /// envelope).  At K = 5 → 2 + 6 = 8 non-zero matrix entries per
@@ -2035,10 +2163,18 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
     std::vector<ColIndex> lambda_cols;
     lambda_cols.reserve(static_cast<std::size_t>(lambda_count));
     for (int l = 0; l < lambda_count; ++l) {
+      // Breakpoints past the envelope are priced at ``loss_overflow_cost``
+      // per MWh of loss above ``c·env²`` (``overflow_unit_cost``), so the
+      // LP RELAXATION — which can mix ``±b_M`` at ``f = 0`` and reach
+      // ``c·fmax²`` — cannot use the overflow tier as a free sink either.
+      const double b_l = bps[static_cast<std::size_t>(l)];
+      const double over_loss = std::abs(b_l) > effective_fmax * (1.0 + 1e-9)
+          ? k_loss * ((b_l * b_l) - (effective_fmax * effective_fmax))
+          : 0.0;
       lambda_cols.push_back(lp.add_col({
           .lowb = 0.0,
           .uppb = 1.0,
-          .cost = 0.0,
+          .cost = overflow_unit_cost(config, scenario, stage, block, over_loss),
           // SOS2 lambda weight — keep the [0,1] convex weight scale-exempt
           // (pin_scale) so Ruiz/equilibration cannot expand its bound and
           // distort the SOS2 ladder.
@@ -2202,7 +2338,14 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
         v_cols.push_back(lp.add_col({
             .lowb = 0.0,
             .uppb = hi - lo,
-            .cost = v_cost,
+            // Overflow price (``overflow_unit_cost``): ``u_j`` carries
+            // ``c·(b_{j−1}+b_j)`` MW of chord loss per MW, so burning
+            // through an inflated ``u_j`` costs ``loss_overflow_cost``
+            // per MWh; a genuine overload pays the same on its loss above
+            // ``c·env²``.  Rising prices also fix the bottom-up fill.
+            .cost = v_cost
+                + overflow_unit_cost(
+                        config, scenario, stage, block, k_loss * (lo + hi)),
             .pin_scale = true,
             .class_name = Line::class_name.full_name(),
             .variable_name = LineLP::FlowAbsName,
@@ -2494,12 +2637,28 @@ BlockResult add_piecewise(const LossConfig& config,
   // bound, keeping the loss coefficients identical to the EL=1 case
   // so flipping the EL value doesn't alter the PWL approximation.
   // See ``add_piecewise`` for the rationale.
-  const double seg_width = block_tmax / nseg;
+  //
+  // DECOUPLED ENVELOPE with headroom (``loss_envelope < block_tmax``,
+  // cap enforced): the K segments cover ``[0, envelope]`` and the
+  // geometric overflow ladder (``overflow_breakpoints``) covers
+  // ``[envelope, block_tmax]`` with secant loss factors
+  // ``c·(b_{j−1}+b_j)``, each priced at ``loss_overflow_cost`` per MWh of
+  // the loss it carries (``overflow_unit_cost``) — otherwise a phantom
+  // circulation over the full ``tmax`` is a free sink of ``2·c·tmax²``.
+  // Σ widths = ``block_tmax``, so the flow cap is unchanged.  Without
+  // headroom the legacy ``tmax``-anchored segments are kept.
+  const std::vector<double> overflow_bp =
+      (config.loss_envelope > 0.0 && enforce_capacity)
+      ? overflow_breakpoints(config.loss_envelope, block_tmax)
+      : std::vector<double> {};
+  const double inner_envelope =
+      overflow_bp.empty() ? block_tmax : config.loss_envelope;
+  const double seg_width = inner_envelope / nseg;
   const double seg_tcost = block_tcost;
   const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
   std::vector<ColIndex> seg_cols;
-  seg_cols.reserve(static_cast<size_t>(nseg));
+  seg_cols.reserve(static_cast<size_t>(nseg) + overflow_bp.size());
 
   for (const auto k : iota_range(1, nseg + 1)) {
     const double lf_k = seg_width * config.resistance
@@ -2532,6 +2691,32 @@ BlockResult add_piecewise(const LossConfig& config,
         sending_brow, receiving_brow, seg_col, lf_k, config.allocation);
     seg_cols.push_back(seg_col);
     lf_out.push_back(lf_k);
+  }
+
+  {
+    const double k_loss = config.resistance / config.V2;
+    double lo = inner_envelope;
+    int j = 0;
+    for (const double hi : overflow_bp) {
+      ++j;
+      const double lf_j = k_loss * (lo + hi);
+      const auto ocol = lp.add_col({
+          .lowb = 0,
+          .uppb = hi - lo,
+          .cost = seg_tcost
+              + overflow_unit_cost(config, scenario, stage, block, lf_j),
+          .class_name = Line::class_name.full_name(),
+          .variable_name = labels.seg,
+          .variable_uid = uid,
+          .context = make_block_context(
+              scenario.uid(), stage.uid(), block.uid(), nseg + j),
+      });
+      apply_linear_allocation(
+          sending_brow, receiving_brow, ocol, lf_j, config.allocation);
+      seg_cols.push_back(ocol);
+      lf_out.push_back(lf_j);
+      lo = hi;
+    }
   }
 
   return seg_cols;

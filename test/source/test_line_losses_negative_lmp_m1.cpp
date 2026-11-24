@@ -21,9 +21,9 @@
 //       fixes loss = Σ λ_k·seg_k but not WHICH segments fill; with a
 //       negative receiver the LP fills the steepest first, booking up
 //       to (2K−1)× the true loss at low flow.
-//   (C) midpoint free sink — the midpoint layout's loss row is `≥`
-//       only, so any pi_recv < −ε pins ℓ at its column cap c·env²
-//       INDEPENDENT of flow.
+//   (C) midpoint free sink — CLOSED: the midpoint layout's loss row
+//       was `≥` only, so any pi_recv < −ε pinned ℓ at its column cap
+//       c·env² INDEPENDENT of flow; it is now ranged (≤ the secant).
 //   (C') tangent-layout shared path — same shape as (C): the legacy
 //       shared loss column has only tangent `≥` rows below and the
 //       c·env² column cap above.
@@ -418,19 +418,19 @@ TEST_CASE(
 // ── Channel C: midpoint free sink ─────────────────────────────────────
 
 TEST_CASE(
-    "negative-LMP M1 midpoint layout: loss column pinned at its cap "
-    "independent of flow (DEFECT)")  // NOLINT
+    "negative-LMP M1 midpoint layout: the loss column is tied to the "
+    "dispatched flow (GUARD)")  // NOLINT
 {
-  // DEFECT-DOCUMENTING TEST — channel (C), mode `piecewise` +
+  // REGRESSION GUARD — channel (C), mode `piecewise` +
   // `loss_pwl_layout = midpoint`, ε = 0.
   //
-  // The midpoint de-bias turns the loss row into an INEQUALITY
-  // `loss ≥ Σ λ_k·seg_k − offset` (line_losses.cpp add_direction,
-  // debias branch), so nothing ties ℓ from above except its column
-  // cap c·env².  Any pi_recv < −ε pins ℓ = cap regardless of the
-  // dispatched flow — the documented ~6× system-wide `loss_sol`
-  // inflation on a large national test case (line_enums.hpp:289-300).
-  // Activation: pi_recv < −ε.
+  // The midpoint de-bias used to turn the loss row into a one-sided
+  // `loss ≥ Σ λ_k·seg_k − offset`, so nothing tied ℓ from above except
+  // its column cap c·env²: any pi_recv < −ε pinned ℓ = cap regardless of
+  // the dispatched flow.  The row is now RANGED
+  // (`−offset ≤ loss − Σ λ_k·seg_k ≤ 0`, line_losses.cpp add_direction),
+  // so each direction's loss is at most the secant of its own flow,
+  // filled top-down (channel B, the remaining pure-LP residual).
   TwoBusNegFixture fix("piecewise", -100.0, "midpoint");
   auto& li = fix.lp();
   auto result = li.resolve();
@@ -438,21 +438,32 @@ TEST_CASE(
   REQUIRE(result.value() == 0);
 
   const auto sol = li.get_col_sol_raw();
-  const double fp =
-      sol[static_cast<std::size_t>(value_of(find_col(li, "line_flowp_1_0_")))];
-  const double lossp =
-      sol[static_cast<std::size_t>(value_of(find_col(li, "line_lossp_1_")))];
-  const double lossn =
-      sol[static_cast<std::size_t>(value_of(find_col(li, "line_lossn_1_")))];
+  const auto val = [&](std::string_view name)
+  { return sol[static_cast<std::size_t>(value_of(find_col(li, name)))]; };
+  const double fp = val("line_flowp_1_0_");
+  const double fn = val("line_flown_1_0_");
+  const double lossp = val("line_lossp_1_");
+  const double lossn = val("line_lossn_1_");
   CAPTURE(fp);
+  CAPTURE(fn);
   CAPTURE(lossp);
   CAPTURE(lossn);
 
-  // Both per-direction loss columns sit at the cap (both receivers
-  // negative): a 4 MW booked loss on a line whose physical worst case
-  // is 2 MW at FULL rating.
-  CHECK(lossp > 0.95 * kLossCap);
-  CHECK(lossn > 0.95 * kLossCap);
+  // Top-down fill: the steepest segments first — the largest loss a
+  // flow can carry through the secant upper bound.
+  const auto top_down_loss = [](double flow)
+  {
+    double loss = 0.0;
+    double remaining = flow;
+    for (int k = kSegs; k >= 1 && remaining > 0.0; --k) {
+      const double seg = std::min(remaining, kSegWidth);
+      loss += lambda_k(k) * seg;
+      remaining -= seg;
+    }
+    return loss;
+  };
+  CHECK(lossp <= top_down_loss(fp) + 1e-6);
+  CHECK(lossn <= top_down_loss(fn) + 1e-6);
 }
 
 // ── Channel C-analog: legacy shared path (tangent layout) ─────────────

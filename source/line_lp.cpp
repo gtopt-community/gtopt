@@ -10,6 +10,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/utils.hpp>
+#include <gtopt/warn_once.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -131,6 +132,25 @@ namespace
   // when unset).  An explicit ``0.0`` disables the loss-column cost.
   const double loss_cost_eps =
       raw_line.loss_cost_eps.value_or(sc.options().loss_cost_eps());
+  // Overflow-tier price (decoupled envelope only): per-line override
+  // beats ``model_options.loss_overflow_cost``, which defaults to the
+  // case's global ``demand_fail_cost`` (1000 $/MWh fallback).
+  const double loss_overflow_cost =
+      raw_line.loss_overflow_cost.value_or(sc.options().loss_overflow_cost());
+  if (!raw_line.loss_overflow_cost.has_value()
+      && sc.options().loss_overflow_cost_is_fallback()
+      && explicit_envelope > 0.0)
+  {
+    static WarnOnceFlag warned_overflow_fallback;
+    warn_once(warned_overflow_fallback,
+              "line_losses: loss_overflow_cost is unset and demand_fail_cost "
+              "is 0; the overflow tier of lines with a "
+              "loss_envelope (first: '{}') is priced at the fallback {:.6g} "
+              "$/MWh.  Set model_options.loss_overflow_cost or "
+              "demand_fail_cost explicitly.",
+              raw_line.name,
+              PlanningOptionsLP::default_demand_fail_cost);
+  }
 
   // L-secant chord controls (issue #504): per-line override wins,
   // falling back to the global default.  ``loss_use_sos2 = true``
@@ -154,7 +174,8 @@ namespace
                                   explicit_envelope,
                                   loss_cost_eps,
                                   nseg_secant,
-                                  use_sos2);
+                                  use_sos2,
+                                  loss_overflow_cost);
 }
 
 }  // namespace

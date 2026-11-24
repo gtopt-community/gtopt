@@ -79,6 +79,13 @@ struct EnvCase
   double envelope {kRating};
   double tmax {kTmax};
   double demand {kDemand};
+  /// ``Line.loss_overflow_cost``.  0 here: this suite pins the price-free
+  /// ladder geometry (objective = generation cost + ε·loss, receiver
+  /// priced at the loss-adjusted generator cost).  The default 1000 $/MWh
+  /// overflow price adds ``E·c·(b_{j−1}+b_j)`` to the marginal transfer
+  /// cost past the envelope; that guarded behaviour (same flow and loss,
+  /// higher receiver price) is pinned in test_line_losses_penalty_sink.cpp.
+  double overflow_cost {0.0};
 };
 
 [[nodiscard]] bool sos2_available()
@@ -192,6 +199,7 @@ private:
     ln.loss_secant_segments = c.secant_segments;
     ln.loss_use_sos2 = c.use_sos2;
     ln.loss_cost_eps = c.loss_cost_eps;
+    ln.loss_overflow_cost = c.overflow_cost;
     return ln;
   }
 

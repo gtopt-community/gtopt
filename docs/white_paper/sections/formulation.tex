@@ -320,6 +320,25 @@ with a type-2 special ordered set makes the upper bound tight at the
 breakpoints, with a worst-case error of
 $c_\ell \overline{F}_\ell^2/(4L^2)$.
 
+\paragraph{Decoupled envelope and the overflow price.}
+A line may place its loss resolution on a loss envelope
+$E_\ell < \overline{F}_\ell$ (for instance its rating, when the flow cap
+is lifted ten-fold); past $E_\ell$ a geometric ladder of tangents and
+secant segments keeps the loss within about 3\% of the quadratic up to
+$\overline{F}_\ell$.  Any convex set that contains the exact points
+$(\pm\overline{F}_\ell, c_\ell \overline{F}_\ell^2)$ also contains
+$(0, c_\ell \overline{F}_\ell^2)$, so under a negative bus price this
+overflow tier can burn up to $c_\ell \overline{F}_\ell^2$ at any flow
+and no chord can prevent it.  Each overflow column is therefore priced
+at $\kappa_\ell$ times the loss it adds (by default
+$\kappa_\ell$ is the case's value of lost load, the demand-failure cost;
+weighted by $\omega_{s,t,b}$), so the tier
+costs $\kappa_\ell$ per MWh of loss above $c_\ell E_\ell^2$.  Fictitious
+loss is bought only for an incentive above $\kappa_\ell$; a genuine
+overload stays feasible with a physical loss, at a marginal price spread
+of about $2\kappa_\ell c_\ell |f|$, which is the least any linear guard
+must charge.
+
 \subsection{Battery Energy Storage}
 \label{sec:battery}
 
