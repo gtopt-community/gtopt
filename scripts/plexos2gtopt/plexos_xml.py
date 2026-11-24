@@ -157,6 +157,10 @@ class PlexosDb:
     #: decoded).  ``None`` when the bundle carries no Horizon date.  Used to
     #: resolve dated property overrides (see :class:`PlexosDataRow`).
     horizon_start: datetime | None = None
+    #: ``Transmission`` class attributes (``{name -> value}``, first
+    #: Transmission object), e.g. ``Constraint Voltage Threshold`` [kV]:
+    #: PLEXOS enforces an EL=1 line only at or above that voltage.
+    transmission_attrs: dict[str, float] = field(default_factory=dict)
     #: ``t_band`` index — ``{data_id -> band_id}``.  Rows without a band
     #: entry are band 1.  Multi-band properties (e.g. DSP bid quantities)
     #: carry one ``t_data`` row per band.
@@ -232,19 +236,28 @@ class PlexosDb:
         PLEXOS distinguishes "Node From" vs "Node To", "Head Storage"
         vs "Tail Storage", "Fuels" vs "Start Fuels" only by the
         collection's ``name``. Use this helper when the directional or
-        semantic distinction matters.
+        semantic distinction matters.  Names that changed between PLEXOS
+        versions fall back to their older spelling
+        (:data:`._plexos_versions.COLLECTION_ALIASES`).
         """
+        # pylint: disable=import-outside-toplevel
+        from ._plexos_versions import COLLECTION_ALIASES
+
         pcid = self.class_id(parent_class)
         ccid = self.class_id(child_class)
         if pcid is None or ccid is None:
             return None
-        for c in self.collections:
-            if (
-                c.parent_class_id == pcid
-                and c.child_class_id == ccid
-                and c.name == name
-            ):
-                return c
+        for candidate in (
+            name,
+            *COLLECTION_ALIASES.get((parent_class, child_class, name), ()),
+        ):
+            for c in self.collections:
+                if (
+                    c.parent_class_id == pcid
+                    and c.child_class_id == ccid
+                    and c.name == candidate
+                ):
+                    return c
         return None
 
     def memberships_of(self, collection_id: int) -> list[PlexosMembership]:
@@ -625,6 +638,36 @@ def _parse_horizon_start(root: ET.Element) -> datetime | None:
     return None
 
 
+def _parse_class_attributes(root: ET.Element, class_name: str) -> dict[str, float]:
+    """``{attribute name -> value}`` of the first object of ``class_name``."""
+    cids = {
+        _findtext_int(c, "class_id")
+        for c in root.findall(f"{NS}t_class")
+        if (c.findtext(f"{NS}name") or "") == class_name
+    }
+    oids = sorted(
+        oid
+        for o in root.findall(f"{NS}t_object")
+        if _findtext_int(o, "class_id") in cids
+        and (oid := _findtext_int(o, "object_id")) is not None
+    )
+    if not oids:
+        return {}
+    names = {
+        _findtext_int(a, "attribute_id"): a.findtext(f"{NS}name") or ""
+        for a in root.findall(f"{NS}t_attribute")
+    }
+    out: dict[str, float] = {}
+    for ad in root.findall(f"{NS}t_attribute_data"):
+        if _findtext_int(ad, "object_id") != oids[0]:
+            continue
+        value = _findtext_float(ad, "value")
+        name = names.get(_findtext_int(ad, "attribute_id"), "")
+        if value is not None and name:
+            out[name] = value
+    return out
+
+
 #: PLEXOS class_id for the ``Timeslice`` class — the home of the recurring
 #: hour-of-day / day-of-week pattern tags that scope individual ``t_data``
 #: rows (separate from the dated ``t_date_from``/``t_date_to`` mechanism).
@@ -764,7 +807,7 @@ def load_xml(path: Path | str) -> PlexosDb:
         raise FileNotFoundError(f"PLEXOS XML not found: {p}")
     root = _load_root_cached(str(p.resolve()))
     classes_by_id, classes_by_name = _parse_classes(root)
-    return PlexosDb(
+    db = PlexosDb(
         path=p,
         classes_by_id=classes_by_id,
         classes_by_name=classes_by_name,
@@ -782,7 +825,15 @@ def load_xml(path: Path | str) -> PlexosDb:
         band_for_data=_parse_band_map(root),
         text_for_data=_parse_texts(root),
         horizon_start=_parse_horizon_start(root),
+        transmission_attrs=_parse_class_attributes(root, "Transmission"),
     )
+    # PLEXOS 8.x keys constraint terms Constraint -> X; re-key them as the
+    # X -> Constraint layout (9+) every extractor reads.
+    # pylint: disable-next=import-outside-toplevel
+    from ._plexos_versions import mirror_constraint_memberships
+
+    mirror_constraint_memberships(db)
+    return db
 
 
 __all__ = [

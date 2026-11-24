@@ -156,6 +156,14 @@ def test_user_layout_inline_blank_tokens() -> None:
     assert pbl.parse_user_block_layout("{2:2,,1:1}") == ((1,), (2, 3))
 
 
+def test_user_layout_long_inline_list_is_not_a_path() -> None:
+    # A one-hour-per-block list for a long horizon exceeds NAME_MAX, so
+    # Path.is_file() raises ENAMETOOLONG (Python < 3.14): it must be
+    # parsed as an inline list, not crash.
+    spec = ",".join(["1"] * 168)
+    assert pbl.parse_user_block_layout(spec) == tuple((h,) for h in range(1, 169))
+
+
 # ---------------------------------------------------------------------------
 # RES zip extraction
 # ---------------------------------------------------------------------------

@@ -195,6 +195,25 @@ def test_build_decision_variable_array_omits_unset_fields() -> None:
     assert set(out[2].keys()) == {"uid", "name"}
 
 
+def test_build_decision_variable_array_integer_flags() -> None:
+    """``integer`` emits only on integer specs; ``relax`` only under lp_relax."""
+    specs = (
+        DecisionVariableSpec(
+            name="reserve_units_G", lower_bound=0.0, upper_bound=1.0, integer=True
+        ),
+        DecisionVariableSpec(name="DV2"),
+    )
+    out = build_decision_variable_array(specs)
+    assert out[0]["integer"] is True
+    assert "relax" not in out[0]
+    assert "integer" not in out[1]
+
+    relaxed = build_decision_variable_array(specs, lp_relax=True)
+    assert relaxed[0]["integer"] is True
+    assert relaxed[0]["relax"] is True
+    assert "relax" not in relaxed[1]
+
+
 # ---------------------------------------------------------------------------
 # extract_user_constraints with DV references
 # ---------------------------------------------------------------------------

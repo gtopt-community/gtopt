@@ -300,7 +300,7 @@ def test_reserve_units_kept_when_battery_is_member(tmp_path: Path) -> None:
     )
     expr = by_name[name].expression
     assert 'reserve_provision("provision_BAT_X_gen__CSF_LW_BESS").dn' in expr
-    assert 'commitment("uc_BAT_X_gen").status' in expr
+    assert 'decision_variable("reserve_units_BAT_X_gen_dn").value' in expr
     assert stats["battery_zero_provision_terms"] == 0
 
 

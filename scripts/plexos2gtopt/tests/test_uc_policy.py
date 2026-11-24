@@ -20,6 +20,8 @@ from plexos2gtopt._uc_policy import (
     HYDRO_SOFT,
     RESERVE_PROV_SUM,
     classify,
+    classify_legacy,
+    is_softened_unpenalised,
 )
 from plexos2gtopt.entities import ConstraintDirective
 
@@ -40,8 +42,13 @@ def _call(
     is_inactive: bool = False,
     hard_set: frozenset[str] = _HARD,
 ):
-    """Tiny adapter so each test case reads as a single assert line."""
-    return classify(
+    """Tiny adapter so each test case reads as a single assert line.
+
+    Exercises the legacy CEN soft ladder (:func:`classify_legacy`), which
+    is what ``--soft-unpenalised-constraints`` re-enables; the default
+    PLEXOS-semantics wrapper is pinned in :class:`TestPlexosSemantics`.
+    """
+    return classify_legacy(
         constraint_name=name,
         expression=expression,
         op=op,
@@ -347,3 +354,117 @@ class TestPolicyInvariants:
         first = classify(**kwargs)
         second = classify(**kwargs)
         assert first == second
+
+
+# ── PLEXOS semantics: no Penalty Price ⇒ HARD (default) ────────────────────
+_MIXED = '1 * line("L").flow - 57.5 * commitment("G").status <= 1870'
+
+
+def _new(name="X", expression=_MIXED, op="<=", plexos_penalty=0.0, **kw):
+    return classify(
+        constraint_name=name,
+        expression=expression,
+        op=op,
+        plexos_penalty=plexos_penalty,
+        is_inactive=kw.get("is_inactive", False),
+        hard_set=_HARD,
+        soft_unpenalised=kw.get("soft_unpenalised"),
+    )
+
+
+class TestPlexosSemantics:
+    """``classify`` defaults to HARD for rows without a Penalty Price."""
+
+    def test_mixed_line_commitment_is_hard(self):
+        # PandeAzucar_Polpaico_CC shape: legacy ladder softened it at 10.
+        assert classify_legacy(
+            constraint_name="PandeAzucar_Polpaico_CC",
+            expression=_MIXED,
+            op="<=",
+            plexos_penalty=0.0,
+            is_inactive=False,
+            hard_set=_HARD,
+        ).penalty == pytest.approx(HYDRO_SOFT)
+        out = _new("PandeAzucar_Polpaico_CC")
+        assert out.penalty == 0.0
+        assert out.directive is None
+
+    def test_reserve_aggregate_hard_keeps_family_tag(self):
+        expr = (
+            '1 * reserve_provision("R1").up + 1 * reserve_provision("R2").up'
+            ' + 1 * reserve_provision("R3").up >= 100'
+        )
+        legacy = classify_legacy(
+            constraint_name="CPF_UpMinProvision",
+            expression=expr,
+            op=">=",
+            plexos_penalty=0.0,
+            is_inactive=False,
+            hard_set=_HARD,
+        )
+        assert legacy.penalty == pytest.approx(RESERVE_PROV_SUM)
+        out = _new("CPF_UpMinProvision", expression=expr, op=">=")
+        assert out.penalty == 0.0
+        assert out.directive is not None
+        assert out.directive.kind == legacy.directive.kind
+        assert out.directive.penalty is None
+
+    def test_explicit_penalty_price_kept(self):
+        out = _new(plexos_penalty=467.19)
+        assert out.penalty == pytest.approx(467.19)
+
+    def test_explicit_penalty_price_kept_with_opt_in(self):
+        out = _new(plexos_penalty=467.19, soft_unpenalised=5.0)
+        assert out.penalty == pytest.approx(467.19)
+
+    def test_inactive_passthrough(self):
+        assert _new(is_inactive=True).penalty == 0.0
+
+    def test_opt_in_softens_with_given_penalty(self):
+        out = _new("PandeAzucar_Polpaico_CC", soft_unpenalised=10000.0)
+        assert out.penalty == pytest.approx(10000.0)
+
+    def test_opt_in_rewrites_directive_penalty(self):
+        out = _new(
+            "Gas_MaxOpDay1_Enel",
+            expression='1 * generator("G").generation <= 5',
+            soft_unpenalised=250.0,
+        )
+        assert out.penalty == pytest.approx(250.0)
+        assert out.directive is not None
+        assert out.directive.penalty == pytest.approx(250.0)
+
+    def test_opt_in_keeps_legacy_hard_rows_hard(self):
+        out = _new(
+            "LINE_ONLY",
+            expression='1 * line("L").flow <= 5',
+            soft_unpenalised=250.0,
+        )
+        assert out.penalty == 0.0
+
+    def test_is_softened_unpenalised(self):
+        kw = {
+            "op": "<=",
+            "is_inactive": False,
+            "hard_set": _HARD,
+        }
+        assert is_softened_unpenalised(
+            constraint_name="X", expression=_MIXED, plexos_penalty=0.0, **kw
+        )
+        assert not is_softened_unpenalised(
+            constraint_name="X", expression=_MIXED, plexos_penalty=5.0, **kw
+        )
+        assert not is_softened_unpenalised(
+            constraint_name="X",
+            expression='1 * line("L").flow <= 5',
+            plexos_penalty=0.0,
+            **kw,
+        )
+        assert not is_softened_unpenalised(
+            constraint_name="X",
+            expression=_MIXED,
+            plexos_penalty=0.0,
+            op="<=",
+            is_inactive=True,
+            hard_set=_HARD,
+        )

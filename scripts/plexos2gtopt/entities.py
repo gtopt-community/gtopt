@@ -193,6 +193,10 @@ class FuelSpec:
     #: series genuinely varies; constant / absent series collapse to the
     #: scalar :attr:`price`.  Empty tuple ⇒ no profile (scalar only).
     price_profile: tuple[float, ...] = ()
+    #: ``price_profile`` is already a complete series whose zeros are real
+    #: values (a gas-band tank's residual price, ``--gas-bands-as-tanks``):
+    #: the writer must NOT fill the zeros forward as undefined periods.
+    price_profile_complete: bool = False
 
 
 @dataclass(frozen=True)
@@ -308,6 +312,31 @@ def generator_has_fuel_cost(gen: "GeneratorSpec") -> bool:
     )
 
 
+def fuel_transport_per_mwh(gen: "GeneratorSpec") -> float:
+    """PLEXOS fuel ``Transport Charge`` of *gen* expressed in $/MWh.
+
+    ``Gen_FuelTransportCharge.csv`` (Generator.Fuels ``Transport Charge``)
+    is a **fuel-price adder in $/fuel-unit**, not a $/MWh charge: PLEXOS
+    prices the burnt fuel at ``price + transport`` and multiplies by the
+    heat rate.  Verified on the CEN PCP 2025-11-09 RES: NUEVA_RENCA-TG+TV
+    GN_A reports SRMC 44.65 = 226.43·0.1881 + 3.034 + (−5.19)·0.1881,
+    whereas adding the −5.19 directly would give 40.44.
+
+    A generator that burns no fuel (``heat_rate == 0`` and no piecewise
+    segments) pays no transport.  A piecewise unit uses the mean segment
+    slope — gtopt's ``gcost`` is a single adder, so the exact per-segment
+    term cannot be represented.
+    """
+    if gen.fuel_transport == 0.0:
+        return 0.0
+    if gen.heat_rate > 0.0:
+        return gen.fuel_transport * gen.heat_rate
+    if gen.heat_rate_segments:
+        segs = gen.heat_rate_segments
+        return gen.fuel_transport * (sum(segs) / len(segs))
+    return 0.0
+
+
 def generator_is_zero_pmax(gen: "GeneratorSpec") -> bool:
     """True when *gen* can NEVER dispatch — ``pmax`` is 0 across the whole
     horizon (scalar and profile) and there is no piecewise capacity.
@@ -390,6 +419,9 @@ class LineSpec:
     # PLEXOS itself runs hardest.  Carries PLEXOS-like over-flow for free
     # yet can't teleport.
     soft_cap_lifted: bool = False
+    # ``--el0-lines unenforced``: a PLEXOS EL=0 line whose rating is not
+    # enforced (non-binding cap, no penalty; see ``build_line_array``).
+    unenforced: bool = False
     # Per-period in-service flag from PLEXOS ``Lin_Units.csv`` (1 = in
     # service, 0 = out for maintenance / forced outage).  Length =
     # ``bundle.n_days × 24``; empty ⇒ always in service.  The writer
@@ -503,11 +535,20 @@ class BatterySpec:
     # native``): written as ``Battery.reserve_sustain_hours``; ``None``
     # (default) keeps gtopt's generic generator reserve rows.
     reserve_sustain_hours: float | None = None
-    # Explicit self-discharge [p.u./year] for gtopt ``Battery.annual_standing_loss``.
-    # ``None`` ⇒ field omitted ⇒ gtopt's lithium default (0.48 p.u./year =
-    # 4 %/month, ``model_options.battery_annual_standing_loss``) applies.  Pumped
-    # storage rewritten as a Battery sets ``0.0`` (no electrochemical
-    # self-discharge; evaporation is negligible over a dispatch week).
+    # Expected reserve deployment energy [MWh/MW/h] charged to the SoC
+    # (``Battery.reserve_energy_usage_up/down``; ``--bess-reserve native``
+    # maps CEN's ``<bat>_CF_LOAD_COMP`` / ``_CF_GEN_COMP`` coefficients).
+    reserve_energy_usage_up: float | None = None
+    reserve_energy_usage_down: float | None = None
+    # Per-hour usable capacity [MWh] when a dated PLEXOS ``Capacity``
+    # applies inside the horizon (maintenance de-rating); empty => the
+    # scalar ``emax``.
+    emax_profile: tuple[float, ...] = field(default_factory=tuple)
+    # Self-discharge [p.u./year] for gtopt ``Battery.annual_standing_loss``:
+    # PLEXOS ``Self Discharge Rate`` (%/h) × 87.6.  ``None`` ⇒ the bundle ships
+    # no rate ⇒ the writer emits the PLEXOS default 0 (or the opt-in
+    # ``--default-storage-loss`` figure), never gtopt's 4 %/month lithium
+    # default.  Pumped storage rewritten as a Battery sets ``0.0``.
     annual_standing_loss: float | None = None
     # Optional gtopt ``Battery.type`` tag (``""`` ⇒ writer default).
     storage_type: str = ""
@@ -762,6 +803,133 @@ class ReserveSpec:
     # to ``0.0``.
     urcost: float = 0.0
     drcost: float = 0.0
+    # ── Native dynamic requirement (``--reserve-model native``) ──────────
+    # Set only for the zones :mod:`._native_reserve` builds from CEN's CPF
+    # regression rows; the PLEXOS ``Reserve`` objects keep the defaults.
+    #: Affine requirement planes (``R >= max_k plane_k``).  When a
+    #: direction has planes its ``*_requirement`` profile is the floor.
+    urreq_planes: tuple[ReservePlaneSpec, ...] = field(default_factory=tuple)
+    drreq_planes: tuple[ReservePlaneSpec, ...] = field(default_factory=tuple)
+    #: ``"exogenous"`` / ``"endogenous_generation"`` (empty = gtopt default).
+    load_term: str = ""
+    #: Given system load [MW] per hour (exogenous ``D``; overrides Σ lmax).
+    system_load: tuple[float, ...] = field(default_factory=tuple)
+    demand_load_factor: float | None = None
+    inertia_zone: str = ""
+    #: ``"exogenous"`` / ``"endogenous"`` plane inertia term (empty = gtopt
+    #: default, exogenous).  ``"commitment"`` is never emitted.
+    inertia_term: str = ""
+    #: Given system inertia [MWs] per hour (exogenous ``I``).
+    system_inertia: tuple[float, ...] = field(default_factory=tuple)
+    contingency_generators: tuple[str, ...] = field(default_factory=tuple)
+    contingency_demands: tuple[str, ...] = field(default_factory=tuple)
+    flow_lines: tuple[str, ...] = field(default_factory=tuple)
+    #: General contingency candidates (PLEXOS ``*_Comparison`` rows).
+    urcontingencies: tuple[ReserveContingencySpec, ...] = field(default_factory=tuple)
+    drcontingencies: tuple[ReserveContingencySpec, ...] = field(default_factory=tuple)
+    #: ``"eq"`` for PLEXOS Sense-0 (equality) balance rows; empty = ``>=``.
+    requirement_sense: str = ""
+    #: Surplus penalty of an ``"eq"`` balance [$/MW] (PLEXOS ``*_Slack``).
+    ursurplus_cost: float | None = None
+    drsurplus_cost: float | None = None
+    #: Free-text provenance written to ``ReserveZone.description``.
+    description: str = ""
+    #: ``True`` when the zone has no fixed ``urreq``/``drreq`` vector of its
+    #: own (dynamic zones): the writer then emits only non-empty profiles.
+    omit_zero_requirement: bool = False
+    #: ``False`` for a PLEXOS Reserve with ``Include in ST Schedule = 0``:
+    #: its requirement profile only feeds the RHS of the rows that use it
+    #: (``*_MinProvision``); the zone itself carries no requirement.
+    in_st_schedule: bool = True
+
+
+#: A plane coefficient: unset (``None``), a scalar, or a per-hour profile
+#: (``n_days × 24`` values; the writer averages it into the block layout).
+PlaneValue = float | tuple[float, ...] | None
+
+
+@dataclass(frozen=True)
+class ReserveContingencySpec:
+    """One contingency candidate of a dynamic requirement (gtopt units).
+
+    ``C >= Σ a_g·p_g + Σ a_d·load_d + Σ a_l·flow_l + offset`` — mirrors
+    ``gtopt::ReserveContingency`` (one PLEXOS ``<unit>_Comparison`` row).
+    Coefficient tuples are parallel to the name tuples.
+    """
+
+    name: str = ""
+    generators: tuple[str, ...] = ()
+    generator_coefs: tuple[float, ...] = ()
+    demands: tuple[str, ...] = ()
+    demand_coefs: tuple[float, ...] = ()
+    lines: tuple[str, ...] = ()
+    line_coefs: tuple[float, ...] = ()
+    offset: float = 0.0
+
+
+@dataclass(frozen=True)
+class ReservePlaneSpec:
+    """One affine plane of a dynamic reserve requirement (gtopt units).
+
+    ``alpha + demand_coef·D + inertia_coef·I + contingency_coef·C +
+    flow_coef·F`` with ``D`` [MW], ``I`` [MWs], ``C`` [MW] — mirrors
+    ``gtopt::ReserveRequirementPlane``.
+    """
+
+    alpha: PlaneValue = None
+    demand_coef: PlaneValue = None
+    inertia_coef: PlaneValue = None
+    contingency_coef: PlaneValue = None
+    flow_coef: PlaneValue = None
+    #: PLEXOS row the plane comes from (provenance only, not written).
+    source: str = ""
+
+
+@dataclass(frozen=True)
+class InertiaZoneSpec:
+    """A gtopt ``InertiaZone`` (system inertia aggregate, ``[MWs]``)."""
+
+    name: str
+    #: Minimum inertia [MWs]: a scalar or a per-hour profile.
+    requirement: PlaneValue = None
+    cost: float | None = None
+    #: Commitment-dependent relief (``InertiaZone.requirement_credits``).
+    requirement_credits: tuple[InertiaCreditSpec, ...] = ()
+
+
+@dataclass(frozen=True)
+class InertiaCreditSpec:
+    """One ``gtopt::InertiaRequirementCredit``.
+
+    ``Σ pf·r + credit·y >= requirement``, ``units·y <= Σ_g u_g``,
+    ``0 <= y <= 1`` (continuous unless ``integer``).
+    """
+
+    name: str
+    generators: tuple[str, ...]
+    units: float
+    #: Scalar or per-hour profile; never unset (gtopt requires it).
+    credit: float | tuple[float, ...]
+    integer: bool | None = None
+
+    def __post_init__(self) -> None:
+        if self.credit is None:
+            raise ValueError(f"InertiaCreditSpec {self.name!r}: credit is required")
+
+
+@dataclass(frozen=True)
+class InertiaProvisionSpec:
+    """A gtopt ``InertiaProvision``: ``pf · r`` with ``r <= min(p, pmax)``.
+
+    With ``provision_max = P_ref <= Pmin`` and ``provision_factor =
+    H·S / P_ref`` a committed unit contributes exactly ``H·S`` [MWs].
+    """
+
+    name: str
+    generator: str
+    inertia_zones: tuple[str, ...]
+    provision_factor: float
+    provision_max: float
 
 
 @dataclass(frozen=True)
@@ -776,12 +944,17 @@ class DecisionVariableSpec:
     which materialises one column per (scenario, stage, block) with
     optional bounds and cost — and registers it for AMPL/UserConstraint
     resolution as ``decision_variable("X").value``.
+
+    ``integer`` marks the columns integer (gtopt ``DecisionVariable.integer``)
+    — used for the PLEXOS ``Reserve Units`` variables, which PLEXOS treats
+    as an integer number of units.
     """
 
     name: str
     lower_bound: float | None = None
     upper_bound: float | None = None
     cost: float = 0.0
+    integer: bool = False
 
 
 @dataclass(frozen=True)
@@ -1072,6 +1245,20 @@ class CommitmentSpec:
     # +∞ on the cap side, 0 on the floor side).
     min_starts: int = 0
     starts_scope: str = ""  # "hour" | "day" | "week" | "horizon" (shared)
+    # PLEXOS ``Generator.Unit Commitment Optimality`` effective for the run
+    # Model (scenario-tagged rows resolved against the Model's Scenarios):
+    # 0 = Linear Relaxation, 1 = Rounded Relaxation, 2 = Integer Optimal.
+    # ``None`` = unset / ``-1`` (the Production object's default applies).
+    # Read by :mod:`plexos2gtopt._commitment_policy`: a Linear-Relaxation
+    # unit ships ``Commitment.relax = true``.
+    uc_optimality: int | None = None
+    # Where this commitment comes from.  ``"generator"``: the unit's own
+    # PLEXOS UC parameters (``extract_commitments``).  ``"hydro_min_max"``:
+    # synthesised from a PLEXOS ``<plant>min`` / ``<plant>max`` Constraint
+    # (``_auto_promote_hydro_min_max_to_commitments``) — the binary then
+    # encodes a PLEXOS constraint, so the commitment policy never relaxes
+    # it.
+    origin: str = "generator"
 
 
 @dataclass(frozen=True)
@@ -1135,6 +1322,29 @@ class ReserveProvisionSpec:
     # emit one provision per (battery, ``*_BESS`` zone) without colliding
     # on the shared ``<battery>_gen`` generator name.
     name: str = ""
+    # Per-zone effectiveness factors parallel to ``reserve_zones``
+    # (``ReserveProvision.ur_zone_factors`` / ``dr_zone_factors``).  Empty
+    # => every zone counts the column at 1.0 (gtopt default).
+    ur_zone_factors: tuple[float, ...] = field(default_factory=tuple)
+    dr_zone_factors: tuple[float, ...] = field(default_factory=tuple)
+    # Per-side BESS response caps [MW per hour] (PLEXOS ``Max Response`` /
+    # ``Max Charge Response``, ``--bess-reserve native``): written as
+    # ``ReserveProvision.{ur,dr}max_response`` / ``…_charge_response``.
+    # Empty => unset (no cap on that side).
+    urmax_response: tuple[float, ...] = field(default_factory=tuple)
+    urmax_charge_response: tuple[float, ...] = field(default_factory=tuple)
+    drmax_response: tuple[float, ...] = field(default_factory=tuple)
+    drmax_charge_response: tuple[float, ...] = field(default_factory=tuple)
+    # Per-provision BESS deployment energy [MWh per MW·h] (PLEXOS
+    # ``<bat>_CF_LOAD_COMP`` / ``_CF_GEN_COMP`` coefficient of the reserve):
+    # ``ReserveProvision.ur_energy_usage`` / ``dr_energy_usage``; overrides
+    # ``Battery.reserve_energy_usage_*``.  ``None`` = unset.
+    ur_energy_usage: float | None = None
+    dr_energy_usage: float | None = None
+    # Extended SSCC provision flags (``None`` = unset, gtopt default).
+    shared_headroom: bool | None = None
+    offline: bool | None = None
+    symmetric: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -1208,6 +1418,8 @@ class PlexosCase:
     flows: tuple[FlowSpec, ...] = field(default_factory=tuple)
     reserves: tuple[ReserveSpec, ...] = field(default_factory=tuple)
     reserve_provisions: tuple[ReserveProvisionSpec, ...] = field(default_factory=tuple)
+    inertia_zones: tuple[InertiaZoneSpec, ...] = field(default_factory=tuple)
+    inertia_provisions: tuple[InertiaProvisionSpec, ...] = field(default_factory=tuple)
     commitments: tuple[CommitmentSpec, ...] = field(default_factory=tuple)
     flow_rights: tuple[FlowRightSpec, ...] = field(default_factory=tuple)
     decision_variables: tuple[DecisionVariableSpec, ...] = field(default_factory=tuple)

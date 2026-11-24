@@ -47,6 +47,12 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
+from plexos2gtopt._plexos_versions import (
+    canonical_property_map,
+    canonicalize_keys,
+    find_solution_db,
+)
+
 
 # Cache schema version — bump on ANY signature / field change to the
 # ``compute_plexos_*`` functions so stale pickles are invalidated.
@@ -440,12 +446,48 @@ def _load_case_bundle(case_dir: Path) -> dict[str, Any]:
     return bundle
 
 
-def _mdb_dump(accdb_path: Path, table: str) -> list[dict[str, str]]:
+def _mdb_dump_raw(accdb_path: Path, table: str) -> list[dict[str, str]]:
     """Live ``mdb-export <accdb> <table>`` parsed into CSV dict rows."""
     import subprocess
 
     out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
     return list(csv.DictReader(io.StringIO(out)))
+
+
+_PROPERTY_ID_MAPS: dict[tuple[str, int], dict[str, str]] = {}
+
+
+def _property_id_map(accdb_path: Path) -> dict[str, str]:
+    """``{db property_id: canonical (10.000) id}`` for one solution DB.
+
+    Property ids move between PLEXOS versions (Node ``Price`` is 1285 in
+    8.100, 1412 in 10.000); the ``PLEXOS_PROP_*`` constants are the
+    10.000 ids, so every other version's ``t_key`` is rewritten onto
+    them, resolved by class / collection / property NAME.  Cached per
+    (path, mtime): every extractor reads ``t_key`` once.
+    """
+    try:
+        key = (str(accdb_path), accdb_path.stat().st_mtime_ns)
+    except OSError:
+        key = None
+    if key is not None and key in _PROPERTY_ID_MAPS:
+        return _PROPERTY_ID_MAPS[key]
+    id_map = canonical_property_map(
+        _mdb_dump_raw(accdb_path, "t_class"),
+        _mdb_dump_raw(accdb_path, "t_collection"),
+        _mdb_dump_raw(accdb_path, "t_property"),
+    )
+    if key is not None:
+        _PROPERTY_ID_MAPS[key] = id_map
+    return id_map
+
+
+def _mdb_dump(accdb_path: Path, table: str) -> list[dict[str, str]]:
+    """``mdb-export`` rows; ``t_key`` property ids are version-canonical."""
+    rows = _mdb_dump_raw(accdb_path, table)
+    if table == "t_key":
+        return canonicalize_keys(rows, _property_id_map(accdb_path))
+    return rows
 
 
 def _plexos_block_durations_from_accdb(
@@ -503,12 +545,9 @@ def _extract_accdb_from_res_zip(res_zip: Path, scratch: Path) -> Path:
             fout.write(fin.read())
 
     with zipfile.ZipFile(outer_zip) as outer:
-        nested = next(
-            (n for n in outer.namelist() if n.endswith(".accdb")),
-            None,
-        )
+        nested = find_solution_db(outer.namelist())
         if nested is None:
-            raise FileNotFoundError(f"no .accdb inside {outer_zip}")
+            raise FileNotFoundError(f"no .accdb / .mdb inside {outer_zip}")
         outer.extract(nested, scratch)
         return scratch / nested
 
@@ -720,12 +759,12 @@ def _compute_line_losses_analytic_mwh(
     fn_path = case_dir / "output" / "Line" / "flown_sol.parquet"
     if not f_path.exists() and (not fp_path.exists() or not fn_path.exists()):
         return 0.0
-    # Per-line R/V² constants from the bundle.  Voltage defaults to 1.0
-    # (gtopt convention: ``resistance`` is already p.u. normalised when
-    # ``voltage`` is absent — matches PLEXOS Line.Resistance on the CEN
-    # PCP bundle, where 36 of 317 lines carry no voltage and the rest
-    # use 1.0 implicitly).  Lines without ``resistance`` are lossless
-    # by definition (treat as zero contribution).
+    # Per-line R/V² constants from the bundle.  plexos2gtopt writes
+    # ``voltage = 10`` (√S_base, S_base = 100 MVA) on every line with an
+    # impedance, so R [p.u.] / V² is the per-MW loss coefficient; a line
+    # without ``voltage`` falls back to gtopt's V = 1.0 default (the
+    # value gtopt itself used in the solve).  Lines without
+    # ``resistance`` are lossless by definition (zero contribution).
     r_by_uid: dict[int, float] = {}
     v_by_uid: dict[int, float] = {}
     for line in bundle["system"].get("line_array", []):

@@ -18,7 +18,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import Any
 
 from gtopt_shared.bus_kv import parse_bus_kv
@@ -37,6 +37,12 @@ from gtopt_shared.water_values import (
     default_water_fail_value,
 )
 
+from ._commitment_policy import (
+    REASON_COST_FREE,
+    REASON_PLEXOS_LINEAR,
+    CommitmentRelaxPlan,
+    plan_commitment_relaxation,
+)
 from .entities import (
     BatterySpec,
     BoundaryCutSpec,
@@ -47,9 +53,12 @@ from .entities import (
     FlowRightSpec,
     FlowSpec,
     FuelSpec,
+    fuel_transport_per_mwh,
     GeneratorSpec,
     generator_has_fuel_cost,
     generator_is_zero_pmax,
+    InertiaProvisionSpec,
+    InertiaZoneSpec,
     JunctionSpec,
     LineSpec,
     NodeSpec,
@@ -57,14 +66,18 @@ from .entities import (
     PlexosCase,
     ReservoirProductionFactorSpec,
     ReservoirSpec,
+    ReserveContingencySpec,
+    ReservePlaneSpec,
     ReserveProvisionSpec,
     ReserveSpec,
     TurbineSpec,
     UserConstraintSpec,
     WaterwaySpec,
 )
+from ._numfmt import fmt_exact
 from .parsers import (
     _PMAX_DEGENERATE_FLOOR_MW,
+    LINE_UNENFORCED_FACTOR,
     FUEL_FAMILY_RENEWABLE,
     FUEL_FAMILY_THERMAL,
     RENEWABLE_FAMILIES,
@@ -116,6 +129,19 @@ _LINE_SOFT_NORMAL_FACTOR = 3.0
 _LINE_SOFT_HARD_FACTOR = 6.0
 _LINE_LIFTED_NORMAL_FACTOR = 3.0
 _LINE_LIFTED_HARD_FACTOR = 6.0
+
+#: ``Line.voltage`` for PLEXOS per-unit impedances: √S_base with
+#: S_base = 100 MVA, so ``X/V²`` and ``R/V²`` come out per MW.
+_PU_LINE_VOLTAGE = 10.0
+
+# ``--el0-lines unenforced`` (the default): PLEXOS leaves the line uncapped.
+# gtopt bounds every flow column (``line_lp.cpp``: a free column is
+# ill-posed for the loss rows), so the cap is set far above the rating
+# instead: non-binding for any flow PLEXOS itself runs, no penalty.  A flow
+# AT this cap is a DC-OPF artefact to inspect, not a limit.  The loss
+# envelope stays at the rating: ``Line.loss_envelope`` is documented to
+# extrapolate the last segment past the envelope.
+_LINE_UNENFORCED_FACTOR = LINE_UNENFORCED_FACTOR
 # The soft-cap overload penalty ($/MWh on flow between the 3× free band and
 # the 6× hard cap) is COMPUTED per bundle, not hard-coded: it is
 # ``_compute_default_slack_cost(demands, gens) / _LINE_OVERLOAD_DIVISOR``,
@@ -535,7 +561,7 @@ def build_generator_array(
                 segments_scaled = gen.heat_rate_segments
             entry["pmax_segments"] = list(gen.pmax_segments)
             entry["heat_rate_segments"] = list(segments_scaled)
-            entry["gcost"] = gen.vom_charge + gen.fuel_transport
+            entry["gcost"] = gen.vom_charge + fuel_transport_per_mwh(gen)
         elif primary_fuel is not None:
             # Scalar path WITH a known Fuel — emit the explicit FK so
             # gtopt's ``FuelLP::add_to_lp`` can find this generator when
@@ -566,7 +592,7 @@ def build_generator_array(
             entry["fuel"] = primary_fuel
             if gen.heat_rate > 0.0:
                 entry["heat_rate"] = _heat_rate_field(gen, block_layout)
-            entry["gcost"] = gen.vom_charge + gen.fuel_transport
+            entry["gcost"] = gen.vom_charge + fuel_transport_per_mwh(gen)
         else:
             # Legacy baked-gcost path: ``primary_fuel is None`` —
             # genuine renewables, virtual-priced units (118-Bus), or
@@ -580,7 +606,11 @@ def build_generator_array(
             # None`` even with ``heat_rate == 0``, the elif above now
             # captures the case so the FK is preserved for emissions
             # — gap #1 from the emission-computability audit.)
-            gcost = gen.heat_rate * primary_price + gen.vom_charge + gen.fuel_transport
+            gcost = (
+                gen.heat_rate * primary_price
+                + gen.vom_charge
+                + fuel_transport_per_mwh(gen)
+            )
             entry["gcost"] = gcost
             # Preserve the PLEXOS heat-rate signal as informational
             # metadata for the ~46 CEN-PCP CCGT mode-variants
@@ -734,13 +764,16 @@ def build_generator_array(
                 if has_fuel_cost:
                     forced_entries.append(entry)
 
-        # PLEXOS ``Generator.Initial Generation`` is captured in
-        # ``GeneratorSpec.initial_generation`` for downstream tooling
-        # but NOT emitted to the gtopt JSON: the Generator schema has
-        # no ``initial_generation`` field yet (rolling-horizon /
-        # cascade-state work is a follow-up).  Emitting it here
-        # triggers gtopt's strict daw::json "Could not find member"
-        # failure at LP build.
+        # PLEXOS ``Generator.Initial Generation`` (Gen_IniGeneration.csv)
+        # → gtopt ``Generator.initial_generation``: the t = 0⁻ dispatch
+        # that ``generator(...).generation_prev`` reads at the first
+        # block of the horizon, so hard ramp user constraints
+        # (``gen − gen_prev ≤ R``) see the real starting point instead of
+        # a cold start (PANGUEramp: PANGUE_U1 starts at 80 MW with
+        # R = 60 — infeasible at h1 against gen_prev = 0).  Emitted only
+        # when non-zero: 0 is the gtopt default (cold start).
+        if gen.initial_generation:
+            entry["initial_generation"] = gen.initial_generation
 
         # PLEXOS ``Generator.Units`` (Gen_IniUnits.csv) → gtopt
         # ``Generator.uini`` (informational round-trip — the LP-side
@@ -1328,11 +1361,33 @@ def build_line_array(
                     envelope_factor = hard_f if _extend_overload else 1.0
                     entry["loss_envelope"] = orig_env * envelope_factor
                 entry["overload_penalty"] = overload_penalty
+            elif getattr(line, "unenforced", False):
+                # EL=0 under ``--el0-lines unenforced``: non-binding cap at
+                # ``_LINE_UNENFORCED_FACTOR`` × rating, no soft band, no
+                # penalty; the loss envelope stays at the rating.
+                orig_env = 0.0
+                for key in ("tmax_ab", "tmax_ba"):
+                    if key in entry:
+                        orig_env = max(orig_env, _tmax_peak(entry[key]))
+                        entry[key] = _scale_tmax(entry[key], _LINE_UNENFORCED_FACTOR)
+                if orig_env > 0.0:
+                    entry["loss_envelope"] = orig_env
         # PLEXOS Reactance 0 / unset = no KVL (DC-like transport line):
         # omit the key.  An explicit ``reactance: 0`` would be read by
         # gtopt as a zero-impedance tie (equal bus angles), not as DC.
         if line.reactance > 0.0:
             entry["reactance"] = line.reactance
+        # PLEXOS ships Reactance AND Resistance in per-unit on the 100 MVA
+        # system base.  gtopt reads ``x = X / V²`` (KVL: θ_a − θ_b = x·f)
+        # and ``P_loss = R · f² / V²`` with f in MW, so both need
+        # V = √S_base = 10 (x = X_pu / 100).  Emit it for EVERY line with
+        # an impedance — not only lossy ones: a lossless transformer
+        # (``Resistance 0``) left at the default V = 1 would carry a 100×
+        # too-large x, i.e. a 100× too-weak susceptance (CEN PCP
+        # ``Capricorn220->Capricorn110`` X = 0.129 p.u.; PLP models it
+        # as 62.436 Ω at 220 kV = 0.00129).
+        if line.reactance > 0.0 or line.resistance > 0.0:
+            entry["voltage"] = _PU_LINE_VOLTAGE
         # PLEXOS Resistance (pid 1888) → gtopt Line.resistance +
         # piecewise loss mode.  PLEXOS-CEN ships R in per-unit on
         # the system MVA base (same convention as Reactance), and
@@ -1348,7 +1403,8 @@ def build_line_array(
         # the noise of PLEXOS's own approximation.
         if line.resistance > 0.0:
             entry["resistance"] = line.resistance
-            # Voltage chosen for unit consistency, NOT physical V.
+            # ``voltage`` (set above) is chosen for unit consistency,
+            # NOT physical V.
             # gtopt's loss formula is `P_loss = R · f² / V²`.  We
             # have R in p.u. on a 100 MVA base and f in MW.  For the
             # output to come out in MW we need V² = S_base = 100,
@@ -1362,7 +1418,6 @@ def build_line_array(
             #   P_loss = 0.0554 × 175² / 100 ≈ 17 MW at max flow
             #   (~10% loss at max flow — a physically plausible
             #    magnitude for that corridor)
-            entry["voltage"] = 10.0  # √S_base, S_base = 100 MVA
             # Loss mode: piecewise with 3 segments ONLY for lines
             # with an enforced capacity (EL=2 → tmax_ab present).
             # Lines with PLEXOS Enforce Limits ∈ {0, 1} have no
@@ -1498,6 +1553,7 @@ def _per_block_field_value(
     block_layout: tuple[tuple[int, ...], ...],
     *,
     reducer: str = "mean",
+    fill_forward: bool = True,
 ) -> Any:
     """Resolve a per-(stage, block) field value from a PLEXOS series.
 
@@ -1505,10 +1561,11 @@ def _per_block_field_value(
     fill-forwarding zero-padding) genuinely varies across blocks; else
     the constant ``scalar`` (back-compat).  Shared by ``Fuel.price`` and
     ``Turbine.production_factor`` so both upgrade consistently.
+    ``fill_forward=False`` keeps zeros as real values (a complete series).
     """
     if not block_layout or not profile:
         return scalar
-    filled = _fill_forward_defined(profile)
+    filled = _fill_forward_defined(profile) if fill_forward else list(profile)
     # Defined values constant ⇒ no real time variation ⇒ keep scalar.
     if (max(filled) - min(filled)) <= 1.0e-9:
         return scalar
@@ -1662,6 +1719,15 @@ def _battery_power_field(
     return scalar
 
 
+def _battery_profile_blocks(
+    profile: tuple[float, ...], block_layout: tuple[tuple[int, ...], ...]
+) -> list[float]:
+    """Per-hour capacity profile → per-block (min: a capacity is a cap)."""
+    if block_layout:
+        return _aggregate_to_blocks(list(profile), block_layout, reducer="min")
+    return list(profile)
+
+
 def build_battery_array(
     batteries: tuple[BatterySpec, ...],
     block_layout: tuple[tuple[int, ...], ...] = (),
@@ -1728,12 +1794,18 @@ def build_battery_array(
         # the LP-relax dual cascade is cured for all batteries.
         # ``daily_cycle = False`` disables gtopt's auto-anchor.
         emin_field: Any = bat.emin
-        emax_field: Any = bat.emax
-        use_cycle_anchor = (
-            bat.max_cycles_day > 0.0
-            and bat.emax > 0.0
-            and block_layout  # need to know n_blocks per stage
+        emax_field: Any = (
+            [_battery_profile_blocks(bat.emax_profile, block_layout)]
+            if bat.emax_profile
+            else bat.emax
         )
+        # The anchor does NOT depend on the block layout: under
+        # ``--horizon-mode hourly`` the layout is empty, and gating on it
+        # left every battery on gtopt's daily-cycle default (a HARD
+        # ``energy[N] == eini`` close) -- infeasible for a battery that
+        # self-discharges and cannot recharge (PCP 2024-12-15 day 1,
+        # BAT_ALFALFAL_VR2).  Hourly and plexos modes emit the same flags.
+        use_cycle_anchor = bat.max_cycles_day > 0.0 and bat.emax > 0.0
         # Soft-efin (reservoir-like) batteries do NOT pin block 1 (or block N)
         # via the emin/emax profile.  The initial SoC is the ``eini`` FIELD
         # (the C++ sini column); the end is the SOFT ``vol_end + slack >=
@@ -1849,17 +1921,23 @@ def build_battery_array(
         # Self-discharge.  gtopt applies a DEFAULT of 0.48 p.u./year
         # (4 %/month, lithium cell + BMS;
         # ``model_options.battery_annual_standing_loss``) to every Battery
-        # whose ``annual_standing_loss`` is ABSENT, so a real BESS needs
-        # nothing here.  Non-lithium storage emitted as a Battery (pumped
-        # hydro rewritten by ``plexos_model._rewrite_pumped_storage``)
-        # carries an explicit ``bat.annual_standing_loss = 0.0`` that must
-        # be written so the lithium default does not apply.
+        # whose ``annual_standing_loss`` is ABSENT, but PLEXOS's
+        # ``Self Discharge Rate`` defaults to 0: a battery the bundle leaves
+        # unset holds its energy in PLEXOS (e.g. CEN's
+        # ``BAT_ANDES_2A_FV_Export`` keeps SoC at Capacity for hours with
+        # charging off — infeasible under the gtopt default).  Mirror PLEXOS:
+        # write the parsed rate when shipped, else 0 (the opt-in synthetic
+        # figure below replaces the 0 on cycle-limited BESS).
         if bat.annual_standing_loss is not None:
             entry["annual_standing_loss"] = bat.annual_standing_loss
         if bat.storage_type:
             entry["type"] = bat.storage_type
         if bat.reserve_sustain_hours is not None:
             entry["reserve_sustain_hours"] = bat.reserve_sustain_hours
+        if bat.reserve_energy_usage_up is not None:
+            entry["reserve_energy_usage_up"] = bat.reserve_energy_usage_up
+        if bat.reserve_energy_usage_down is not None:
+            entry["reserve_energy_usage_down"] = bat.reserve_energy_usage_down
         # OPT-IN (``--default-storage-loss``, default OFF): the legacy
         # synthetic 2 %/month (``1 − 0.98^12 ≈ 0.215`` p.u./year, LFP
         # mid-range per BU-802b / NREL) written explicitly.  Since gtopt
@@ -1869,6 +1947,7 @@ def build_battery_array(
         if apply_default_loss and bat.max_cycles_day > 0.0 and bat.emax > 0.0:
             if "annual_standing_loss" not in entry:
                 entry["annual_standing_loss"] = 0.215  # 2%/month → 21.5%/year
+        entry.setdefault("annual_standing_loss", 0.0)
         out.append(entry)
     return out
 
@@ -1911,7 +1990,11 @@ def build_fuel_array(
         # per-period price (``fuel.price × heat_rate`` per block).
         # Otherwise carry the constant scalar.
         price_value = _per_block_field_value(
-            fuel.price, fuel.price_profile, block_layout, reducer="mean"
+            fuel.price,
+            fuel.price_profile,
+            block_layout,
+            reducer="mean",
+            fill_forward=not fuel.price_profile_complete,
         )
         entry: dict[str, Any] = {
             "uid": i + 1,
@@ -2831,8 +2914,25 @@ def build_reserve_zone_array(
             padded.extend([0.0] * (target_len - len(padded)))
             return padded
 
-        entry["urreq"] = [_shape(rsv.ur_requirement)]
-        entry["drreq"] = [_shape(rsv.dr_requirement)]
+        if rsv.description:
+            entry["description"] = rsv.description
+        if not rsv.in_st_schedule:
+            # Excluded from the ST run: the profile is the RHS of the
+            # ``*_MinProvision`` rows, not a requirement of this zone; the
+            # zero vectors keep its provision columns.
+            entry["urreq"] = [zero_profile]
+            entry["drreq"] = [zero_profile]
+        elif not rsv.omit_zero_requirement:
+            entry["urreq"] = [_shape(rsv.ur_requirement)]
+            entry["drreq"] = [_shape(rsv.dr_requirement)]
+        else:
+            # Dynamic (plane-based) zone: a requirement profile is only the
+            # floor of the planes, so emit it only when one was given.
+            if rsv.ur_requirement:
+                entry["urreq"] = [_shape(rsv.ur_requirement)]
+            if rsv.dr_requirement:
+                entry["drreq"] = [_shape(rsv.dr_requirement)]
+        _add_dynamic_requirement(entry, rsv, _shape)
         # Static Min-Provision floor (scalar MW): the LP enforces
         # ``Σ pf·prov ≥ max(urreq, urmin)``, so the time-varying urreq/drreq
         # above mirror PLEXOS's reported RHS while the floor still binds on
@@ -2852,13 +2952,172 @@ def build_reserve_zone_array(
     return out
 
 
+def _plane_value(
+    value: float | tuple[float, ...] | None,
+    shape: Callable[[tuple[float, ...]], list[float]],
+) -> float | list[list[float]] | None:
+    """Scalar plane coefficient as is; a per-hour profile as ``[[blocks]]``."""
+    if value is None or isinstance(value, (int, float)):
+        return value
+    return [shape(value)]
+
+
+def _plane_dict(
+    plane: ReservePlaneSpec,
+    shape: Callable[[tuple[float, ...]], list[float]],
+) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key in (
+        "alpha",
+        "demand_coef",
+        "inertia_coef",
+        "contingency_coef",
+        "flow_coef",
+    ):
+        val = _plane_value(getattr(plane, key), shape)
+        if val is not None:
+            out[key] = val
+    return out
+
+
+def _add_dynamic_requirement(
+    entry: dict[str, Any],
+    rsv: ReserveSpec,
+    shape: Callable[[tuple[float, ...]], list[float]],
+) -> None:
+    """Emit the plane-based (dynamic) requirement fields of a zone.
+
+    See ``gtopt::ReserveZone`` (``urreq_planes`` / ``drreq_planes``,
+    ``load_term``, ``system_load``, ``demand_load_factor``, ``demands``,
+    ``inertia_zone``, ``contingency_*``, ``flow_lines``).  Nothing is
+    written for the plain PLEXOS ``Reserve`` zones.
+    """
+    if rsv.urreq_planes:
+        entry["urreq_planes"] = [_plane_dict(p, shape) for p in rsv.urreq_planes]
+    if rsv.drreq_planes:
+        entry["drreq_planes"] = [_plane_dict(p, shape) for p in rsv.drreq_planes]
+    if rsv.load_term:
+        entry["load_term"] = rsv.load_term
+    if rsv.system_load:
+        entry["system_load"] = [shape(rsv.system_load)]
+    if rsv.demand_load_factor is not None:
+        entry["demand_load_factor"] = rsv.demand_load_factor
+    if rsv.inertia_zone:
+        entry["inertia_zone"] = rsv.inertia_zone
+    if rsv.inertia_term:
+        entry["inertia_term"] = rsv.inertia_term
+    if rsv.system_inertia:
+        entry["system_inertia"] = [shape(rsv.system_inertia)]
+    for key in ("contingency_generators", "contingency_demands", "flow_lines"):
+        names = getattr(rsv, key)
+        if names:
+            entry[key] = list(names)
+    if rsv.urcontingencies:
+        entry["urcontingencies"] = [_contingency_dict(c) for c in rsv.urcontingencies]
+    if rsv.drcontingencies:
+        entry["drcontingencies"] = [_contingency_dict(c) for c in rsv.drcontingencies]
+    if rsv.requirement_sense:
+        entry["requirement_sense"] = rsv.requirement_sense
+    if rsv.ursurplus_cost is not None:
+        entry["ursurplus_cost"] = rsv.ursurplus_cost
+    if rsv.drsurplus_cost is not None:
+        entry["drsurplus_cost"] = rsv.drsurplus_cost
+
+
+def _contingency_dict(cand: ReserveContingencySpec) -> dict[str, Any]:
+    """``gtopt::ReserveContingency`` JSON; unit coefficients of 1 omitted."""
+    out: dict[str, Any] = {}
+    if cand.name:
+        out["name"] = cand.name
+    for names_key, coefs_key in (
+        ("generators", "generator_coefs"),
+        ("demands", "demand_coefs"),
+        ("lines", "line_coefs"),
+    ):
+        names = getattr(cand, names_key)
+        if not names:
+            continue
+        out[names_key] = list(names)
+        coefs = getattr(cand, coefs_key)
+        if any(c != 1.0 for c in coefs):
+            out[coefs_key] = list(coefs)
+    if cand.offset != 0.0:
+        out["offset"] = cand.offset
+    return out
+
+
+def build_inertia_zone_array(
+    zones: tuple[InertiaZoneSpec, ...],
+    block_layout: tuple[tuple[int, ...], ...] = (),
+) -> list[dict[str, Any]]:
+    """One gtopt ``InertiaZone`` per :class:`InertiaZoneSpec`.
+
+    ``InertiaZone`` / ``InertiaProvision`` carry no ``type`` /
+    ``description`` fields in the gtopt schema, so provenance stays in
+    the conversion log.  Per-hour requirement / credit profiles become
+    ``[[blocks]]`` (hour means per block when a layout is given).
+    """
+
+    def _shape(profile: tuple[float, ...]) -> list[float]:
+        if block_layout:
+            return _aggregate_to_blocks(list(profile), block_layout, reducer="mean")
+        return list(profile)
+
+    out: list[dict[str, Any]] = []
+    for i, z in enumerate(zones):
+        entry: dict[str, Any] = {"uid": i + 1, "name": z.name}
+        requirement = _plane_value(z.requirement, _shape)
+        if requirement is not None:
+            entry["requirement"] = requirement
+        if z.cost is not None:
+            entry["cost"] = z.cost
+        if z.requirement_credits:
+            credit_list: list[dict[str, Any]] = []
+            for c in z.requirement_credits:
+                item: dict[str, Any] = {
+                    "name": c.name,
+                    "generators": list(c.generators),
+                    "units": c.units,
+                    "credit": _plane_value(c.credit, _shape),
+                }
+                if c.integer is not None:
+                    item["integer"] = c.integer
+                credit_list.append(item)
+            entry["requirement_credits"] = credit_list
+        out.append(entry)
+    return out
+
+
+def build_inertia_provision_array(
+    provisions: tuple[InertiaProvisionSpec, ...],
+) -> list[dict[str, Any]]:
+    """One gtopt ``InertiaProvision`` per :class:`InertiaProvisionSpec`."""
+    out: list[dict[str, Any]] = []
+    for i, p in enumerate(provisions):
+        entry: dict[str, Any] = {
+            "uid": i + 1,
+            "name": p.name,
+            "generator": p.generator,
+            "inertia_zones": list(p.inertia_zones),
+            "provision_factor": p.provision_factor,
+            "provision_max": p.provision_max,
+        }
+        out.append(entry)
+    return out
+
+
 def build_decision_variable_array(
     decision_variables: tuple[DecisionVariableSpec, ...],
+    *,
+    lp_relax: bool = False,
 ) -> list[dict[str, Any]]:
     """One ``DecisionVariable`` per :class:`DecisionVariableSpec`.
 
     Bounds emit only when set on the spec (``None`` leaves the LP
     column free in that direction); cost emits only when non-zero.
+    ``integer: true`` emits for an integer spec (the PLEXOS ``Reserve
+    Units`` variables), plus ``relax: true`` under ``lp_relax`` (CLI
+    ``--lp-relax``) — the same switch that relaxes the commitments.
 
     No ``cost_type`` is emitted: the C++ default is ``"raw"`` (face-value
     $, NOT probability/discount/duration-weighted), which is correct for the
@@ -2886,6 +3145,10 @@ def build_decision_variable_array(
             entry["upper_bound"] = dv.upper_bound
         if dv.cost != 0.0:
             entry["cost"] = dv.cost
+        if dv.integer:
+            entry["integer"] = True
+            if lp_relax:
+                entry["relax"] = True
         out.append(entry)
     return out
 
@@ -3183,14 +3446,48 @@ def _zero_pmax_generator_names(
     return frozenset(g.name for g in generators if generator_is_zero_pmax(g))
 
 
+def _commitment_relax_plan(case: PlexosCase, mode: str) -> CommitmentRelaxPlan:
+    """Commitment relaxation plan (``--uc-relax``) for *case*, logged once.
+
+    Covers the commitments :func:`build_commitment_array` emits (the
+    phantom ``pmax = 0`` ones it skips are left out of the counts).
+    """
+    skipped = _zero_pmax_generator_names(case.generators)
+    plan = plan_commitment_relaxation(
+        (c for c in case.commitments if c.generator_name not in skipped),
+        case.generators,
+        case.fuels,
+        mode,
+    )
+    if plan.reasons:
+        logger.info(
+            "commitment policy (--uc-relax %s): %d of %d commitment(s) "
+            "LP-relaxed — %d PLEXOS Linear Relaxation, %d cost-free "
+            "(zero energy cost, no start-up cost / min up-down / ramp)",
+            mode,
+            len(plan.reasons),
+            plan.total,
+            plan.count(REASON_PLEXOS_LINEAR),
+            plan.count(REASON_COST_FREE),
+        )
+    return plan
+
+
 def build_commitment_array(
     commitments: tuple[CommitmentSpec, ...],
     *,
     lp_relax: bool = False,
     block_layout: tuple[tuple[int, ...], ...] = (),
     skip_generators: frozenset[str] = frozenset(),
+    relax_generators: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """One ``Commitment`` per :class:`CommitmentSpec`.
+
+    ``relax_generators`` (generator name -> reason, from
+    :func:`plexos2gtopt._commitment_policy.plan_commitment_relaxation`)
+    lists the commitments that ship ``relax: true`` even in MIP mode:
+    PLEXOS Linear-Relaxation units and cost-free commitments (zero-cost
+    units with no start-up cost, min up / down, ramp or start limit).
 
     ``relax: true`` is emitted only when ``lp_relax=True`` (CLI:
     ``--lp-relax``).  Default is MIP — commitments ship without the
@@ -3220,7 +3517,9 @@ def build_commitment_array(
             "name": f"uc_{c.generator_name}",
             "generator": c.generator_name,
         }
-        if lp_relax:
+        if lp_relax or (
+            relax_generators is not None and c.generator_name in relax_generators
+        ):
             entry["relax"] = True
         # Start / shutdown cost: per-block ``[[stage_blocks]]`` matrix
         # when the PLEXOS series genuinely varies (after fill-forwarding
@@ -3441,8 +3740,43 @@ def build_reserve_provision_array(
         # reserve-provision floor (future C++ work).  Until then, reserve
         # provision stays in ``[0, urmax]`` — the safe, feasible model the
         # converter shipped before.
-        _ = p.urmin
-        _ = p.drmin
+        #
+        # PLEXOS treats these per-generator minima as SEMI-CONTINUOUS
+        # (provision = 0 or >= min), not as floors of committed units:
+        # RES 2026-11-07 day 1 has 12 positive CSF_RS provisions out of
+        # 11,088 (gen, hour) pairs, all >= 5 (Min Regulation Provision 5),
+        # CTF ones all >= 10, while most committed units provide 0.  A
+        # faithful model needs a binary "providing" indicator y <= u with
+        # ``urmin·y <= provision <= urmax·y`` (C++), vacuous under
+        # ``--lp-relax``; gtopt's ``provision >= urmin·u`` would instead
+        # force every committed unit into every reserve.  So ``p.urmin`` /
+        # ``p.drmin`` are deliberately not emitted.
+        # Extended SSCC fields (``--reserve-model native``).
+        if p.ur_zone_factors:
+            entry["ur_zone_factors"] = list(p.ur_zone_factors)
+        if p.dr_zone_factors:
+            entry["dr_zone_factors"] = list(p.dr_zone_factors)
+        for key in (
+            "urmax_response",
+            "urmax_charge_response",
+            "drmax_response",
+            "drmax_charge_response",
+        ):
+            profile = getattr(p, key)
+            if profile and all(v == profile[0] for v in profile):
+                entry[key] = profile[0]
+                continue
+            cap = _reserve_cap(profile, 0.0, block_layout)
+            if cap is not None:
+                entry[key] = cap
+        for key in ("ur_energy_usage", "dr_energy_usage"):
+            usage = getattr(p, key)
+            if usage is not None:
+                entry[key] = usage
+        for flag in ("shared_headroom", "offline", "symmetric"):
+            val = getattr(p, flag)
+            if val is not None:
+                entry[flag] = val
         out.append(entry)
     return out
 
@@ -3718,6 +4052,7 @@ def build_planning(  # pylint: disable=too-many-arguments
     name: str,
     default_uc_penalty: float | None = None,
     lp_relax: bool = False,
+    uc_relax: str = "auto",
     soft_storage_bounds: bool = True,
     soft_penalty_override: float | None = None,
     default_storage_loss: bool = False,
@@ -3854,11 +4189,18 @@ def build_planning(  # pylint: disable=too-many-arguments
             case.reserve_provisions,
             block_layout=case.bundle.block_layout,
         ),
+        "inertia_zone_array": build_inertia_zone_array(
+            case.inertia_zones, block_layout=case.bundle.block_layout
+        ),
+        "inertia_provision_array": build_inertia_provision_array(
+            case.inertia_provisions
+        ),
         "commitment_array": build_commitment_array(
             case.commitments,
             lp_relax=lp_relax,
             block_layout=case.bundle.block_layout,
             skip_generators=_zero_pmax_generator_names(case.generators),
+            relax_generators=_commitment_relax_plan(case, uc_relax).reasons,
         ),
         "flow_right_array": build_flow_right_array(
             case.flow_rights,
@@ -3868,7 +4210,7 @@ def build_planning(  # pylint: disable=too-many-arguments
             waterways=case.waterways,
         ),
         "decision_variable_array": build_decision_variable_array(
-            case.decision_variables
+            case.decision_variables, lp_relax=lp_relax
         ),
         "plant_array": build_plant_array(case.plants),
         "user_constraint_array": build_user_constraint_array(
@@ -4647,7 +4989,9 @@ def write_user_constraint_pampl(
         ]
         if pens:
             lines.append("# Penalty tiers — per-unit slack cost [$/unit]:")
-            lines.extend(f"param {_penalty_param_name(p)} = {p:g};" for p in pens)
+            lines.extend(
+                f"param {_penalty_param_name(p)} = {fmt_exact(p)};" for p in pens
+            )
             lines.append("")
         # Visible-slack declarations: one ``var slack_<ident>;`` per soft
         # UC, grouped in a single block at the top of the file so a
@@ -4698,7 +5042,7 @@ def write_user_constraint_pampl(
                 # Rows whose ``rhs`` has no vector form were routed to
                 # ``json_remaining`` above, so the vector always exists here.
                 assert rhs_vec is not None
-                rhs_txt = " rhs [" + ", ".join(f"{v:g}" for v in rhs_vec) + "]"
+                rhs_txt = " rhs [" + ", ".join(fmt_exact(v) for v in rhs_vec) + "]"
             lines.append(f"{prefix}constraint {ident}{pen_txt}{rhs_txt}:")
             lines.append(f"  {uc['expression']};")
             lines.append("")

@@ -127,6 +127,30 @@ def test_generator_uini_omitted_when_csv_skips_gen(tmp_path: Path) -> None:
     assert "uini" not in entries[0]
 
 
+# ─── GeneratorSpec.initial_generation round-trip ─────────────────────────
+
+
+def test_generator_initial_generation_emitted(tmp_path: Path) -> None:
+    """Gen_IniGeneration.csv VALUE > 0 → ``initial_generation`` on the gen."""
+    bundle, xml_path = _write_xml(tmp_path)
+    _write_ini_units(tmp_path / "Gen_IniGeneration.csv", ("GEN_A", 80))
+    db = load_xml(xml_path)
+    gens = extract_generators(db, bundle)
+    assert gens[0].initial_generation == 80.0
+    entries = build_generator_array(gens)
+    assert entries[0]["initial_generation"] == 80.0
+
+
+def test_generator_initial_generation_omitted_when_zero(tmp_path: Path) -> None:
+    """No Gen_IniGeneration.csv (cold start, 0) → field not emitted."""
+    bundle, xml_path = _write_xml(tmp_path)
+    db = load_xml(xml_path)
+    gens = extract_generators(db, bundle)
+    assert gens[0].initial_generation == 0.0
+    entries = build_generator_array(gens)
+    assert "initial_generation" not in entries[0]
+
+
 # ─── CommitmentSpec.ini_hours_up / ini_hours_down round-trip ─────────────
 
 

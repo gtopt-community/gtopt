@@ -42,9 +42,11 @@ PLEXOS semantics used:
   skipped); node ``Load`` → constant moved to the RHS; purchaser
   ``Load`` → electrolyser input; fuel ``Offtake`` → the fuel's
   generators' aux-adjusted heat-rate × generation terms.
-  ``Installed Capacity`` (Units × Max Capacity) and battery ``Generation
-  Capacity`` (Units × Max Power) on the start day are constants moved to
-  the RHS; ``Capacity Built`` / ``Units Built in Year`` are 0 (no
+  ``Installed Capacity`` (Units × Max Capacity, plus the network
+  augmentation built in an ISP development path with
+  ``--odp-augmentations``, see :mod:`plexos2gtopt.aemo_isp_odp`) and
+  battery ``Generation Capacity`` (Units × Max Power) on the start day
+  are constants moved to the RHS; ``Capacity Built`` / ``Units Built in Year`` are 0 (no
   expansion).  Terms on objects absent from the case (``Units`` 0,
   candidates, skipped categories) are dropped; ``Pump Load`` terms are
   dropped (pumping itself is modelled by :mod:`aemo_isp`, but in the 2026
@@ -69,8 +71,11 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ._numfmt import fmt_exact
+
 if TYPE_CHECKING:
     from .aemo_isp import IspResolver, _Row
+    from .aemo_isp_odp import OdpOutlook
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +202,9 @@ class ConstraintOptions:
     #: Generator ``Min Load`` / ``Mark-up`` / ``Min Capacity Factor Year``
     #: (see :func:`plexos2gtopt.aemo_isp.build_dispatch_case`).
     generator_extras: bool = True
+    #: Augmentation builds of an ISP development path (``--odp-augmentations``;
+    #: see :mod:`plexos2gtopt.aemo_isp_odp`).  ``None`` folds the XML Units.
+    odp: OdpOutlook | None = None
 
     @property
     def h2_efficiency(self) -> float:
@@ -290,6 +298,9 @@ class CaseView:
     #: expansion candidates with a ``capainst`` column in this window
     #: (generator name → gtopt class reference prefix, e.g. ``generator``)
     expansion: frozenset[str] = frozenset()
+
+    #: augmentation generator oid → MW built in the ODP (added to Units × cap)
+    aug_built: dict[int, float] = field(default_factory=dict)
 
     def res_oid(self, name: str) -> int:
         """Object id of the constraint called ``name``."""
@@ -747,9 +758,10 @@ def _add_term(  # pylint: disable=too-many-branches,too-many-return-statements
         if prop == "Installed Capacity Coefficient":
             units = res.scalar(parent, "Units", view.day0, default=0.0) or 0.0
             cap = res.scalar(parent, "Max Capacity", view.day0, default=0.0) or 0.0
+            mw = units * cap + view.aug_built.get(parent, 0.0)
             assert ev.const is not None
-            ev.const += np.asarray(c) * units * cap
-            ev.dropped["capacity_folded" if units * cap else "capacity_zero"] += 1
+            ev.const += np.asarray(c) * mw
+            ev.dropped["capacity_folded" if mw else "capacity_zero"] += 1
             return
         if prop in ("Capacity Built Coefficient", "Units Built in Year Coefficient"):
             if (
@@ -910,7 +922,7 @@ def _simplify(c: float | np.ndarray) -> float | np.ndarray:
 
 
 def _fmt(v: float) -> str:
-    return f"{v:.10g}"
+    return fmt_exact(v)
 
 
 def lhs_text(terms: list[Term]) -> str:
@@ -955,6 +967,10 @@ def apply(  # pylint: disable=too-many-locals,too-many-branches,too-many-stateme
 
     if opts.purchasers:
         build_purchasers(view, index, opts, stats)
+    if opts.odp is not None and opts.constraints:
+        from .aemo_isp_odp import resolve_builds  # pylint: disable=import-outside-toplevel
+
+        resolve_builds(view, index, opts, stats)
     if opts.emissions:
         build_emissions(view, index, opts, stats, groups, notes)
 
@@ -1045,7 +1061,15 @@ def apply(  # pylint: disable=too-many-locals,too-many-branches,too-many-stateme
 
     stats["constraint_groups"] = {k: dict(v) for k, v in sorted(groups.items())}
     stats["constraint_notes"] = notes
-    stats["approximations"] = APPROXIMATIONS
+    stats["approximations"] = APPROXIMATIONS + (
+        [
+            f"network augmentations built in {opts.odp.cdp} (outlook workbook "
+            "Timings; other buildable REZ augmentations sized so the REZ's "
+            "installed generation can export) are added to the folded capacity"
+        ]
+        if opts.odp is not None and opts.constraints
+        else []
+    )
     n_split = _emit_split_flows(view, ucs)
     if n_split:
         stats["directional_flow_variables"] = n_split

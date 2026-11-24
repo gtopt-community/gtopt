@@ -176,9 +176,12 @@ def _patch_materialise(monkeypatch: pytest.MonkeyPatch, horizon: Any) -> list[An
         return SimpleNamespace(name=str(xml_path.parent)), _Report()
 
     monkeypatch.setattr(plexos_model, "materialise_bundle_dir", _mat)
-    monkeypatch.setattr(
-        plexos_xml, "load_xml", lambda _p: SimpleNamespace(horizon_start=horizon)
-    )
+
+    def _load(_p: Any) -> Any:
+        return SimpleNamespace(horizon_start=horizon)
+
+    monkeypatch.setattr(plexos_xml, "load_xml", _load)
+    monkeypatch.setattr(p2g, "load_xml", _load)
     return seen
 
 

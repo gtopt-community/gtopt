@@ -94,7 +94,7 @@ def test_plant_cap_ucs_profiles_commit_mutex_and_single_active() -> None:
         ("Q_Uniq", frozenset({"Q-TG_GN_A", "Q-TG_GN_B"})),
     )
     by = {u.name: u for u in P._build_plant_cap_ucs(case, mutex)}
-    assert by["PlantCap_P"].expression.endswith("<= 120.000000")
+    assert by["PlantCap_P"].expression.endswith("<= 120")
     assert by["PlantCommit_P"].expression.endswith("<= 1")
     assert "PlantCap_Q" not in by
     assert not P._build_plant_cap_ucs(

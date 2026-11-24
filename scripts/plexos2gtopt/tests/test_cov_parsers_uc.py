@@ -296,6 +296,33 @@ def test_reserve_requirement_profile_rhs(tmp_path: Path) -> None:
     assert prof[:2] == (4.0, 2.0)
 
 
+def test_reserve_definition_keeps_plexos_rhs(tmp_path: Path) -> None:
+    """``Σ r − X = 0`` (``CSF_RS_Def``) keeps RHS 0 and the equality.
+
+    The requirement enters through the DV ``X``; overlaying the reserve
+    requirement profile on its RHS would double count it.
+    """
+    kit = UcKit()
+    g1 = kit.obj("Generator", "G1")
+    up = kit.obj("Reserve", "CSF_RS")
+    kit.mem("Reserve", "Generator", up, g1, coll_name="Generators")
+    req = kit.obj("Decision Variable", "CSF_RS_Requirement")
+    con = kit.con("CSF_RS_Def", sense=None, rhs=0.0)
+    kit.term("Reserve", up, con, "Provision Coefficient", 1.0)
+    kit.term("Decision Variable", req, con, "Value Coefficient", -1.0)
+    reserves = (ReserveSpec(object_id=up, name="CSF_RS", ur_requirement=(5.0, 6.0)),)
+    out = _ucs(
+        kit,
+        tmp_path,
+        reserves=reserves,
+        emitted_names={"DecisionVariable": frozenset({"CSF_RS_Requirement"})},
+    )
+    uc = out["CSF_RS_Def"]
+    assert 'decision_variable("CSF_RS_Requirement")' in uc.expression
+    assert uc.rhs_profile == ()
+    assert uc.expression.rstrip().endswith("= 0")
+
+
 # --------------------------------------------------------------------------
 # battery / reserve memberships
 # --------------------------------------------------------------------------
@@ -336,6 +363,39 @@ def test_bess_reserve_expansion_and_battery_members(tmp_path: Path) -> None:
     assert 'reserve_provision("provision_B1_gen__ZONE_X").up' in expr
     assert 'reserve_provision("provision_B1_gen__CPF_LW_BESS").dn' in expr
     assert "CSF_RS_BESS" not in expr
+
+
+def test_reserve_provision_counts_every_battery_provider(tmp_path: Path) -> None:
+    """No Battery members: a Reserve coefficient takes all its batteries.
+
+    ``CSF_UpMinProvision = 1·CSF_RS + 1·CSF_RS_BESS`` sums the whole
+    Provision of each reserve, so every battery provider of
+    ``CSF_RS_BESS`` (AUX mapped to its main battery, once) enters.
+    """
+    kit = UcKit()
+    b1 = kit.obj("Battery", "B1")
+    b1_aux = kit.obj("Battery", "B1_AUX")
+    b2 = kit.obj("Battery", "B2")
+    b3 = kit.obj("Battery", "B3")
+    z_rs = kit.obj("Reserve", "CSF_RS_BESS")
+    for b in (b1, b1_aux, b2, b3):
+        kit.mem("Reserve", "Battery", z_rs, b, coll_name="Batteries")
+    con = kit.con("CSF_UpMinProvision", sense=None, rhs=130.0)
+    kit.term("Reserve", z_rs, con, "Provision Coefficient", 1.0)
+    out = _ucs(
+        kit,
+        tmp_path,
+        emitted_names={
+            "Battery": frozenset({"B1", "B2", "B3"}),
+            "ReserveProvision": frozenset(
+                {"provision_B1_gen__CSF_RS_BESS", "provision_B2_gen__CSF_RS_BESS"}
+            ),
+        },
+    )
+    expr = out["CSF_UpMinProvision"].expression
+    assert expr.count('reserve_provision("provision_B1_gen__CSF_RS_BESS").up') == 1
+    assert 'reserve_provision("provision_B2_gen__CSF_RS_BESS").up' in expr
+    assert "B3" not in expr
 
 
 def test_drop_batteries_drops_battery_terms(tmp_path: Path) -> None:

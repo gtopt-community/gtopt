@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import csv
 import logging
+from datetime import date, timedelta
 from pathlib import Path
+from typing import TextIO
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +33,20 @@ logger = logging.getLogger(__name__)
 
 # Canonical PCP horizon: 24 hourly periods (1..24).
 DEFAULT_PERIODS = 24
+
+
+def sniff_delimiter(fh: TextIO) -> str:
+    """The field delimiter of an open CSV, from its header line.
+
+    PLEXOS accepts ``;``- as well as ``,``-separated Data Files, and the
+    CEN 2021 (PLEXOS 8.100) bundles ship ``Nod_Load.csv`` with ``;``
+    (decimal point unchanged).  The header decides: more ``;`` than
+    ``,`` means ``;``.  The stream position is restored.
+    """
+    pos = fh.tell()
+    header = fh.readline()
+    fh.seek(pos)
+    return ";" if header.count(";") > header.count(",") else ","
 
 
 def read_long(
@@ -75,7 +91,7 @@ def read_long(
     defined: dict[str, list[bool]] = {}
     day_keys_seen: dict[tuple[str, str, str], int] = {}
     with Path(path).open("r", encoding="utf-8", newline="") as fh:
-        reader = csv.DictReader(fh)
+        reader = csv.DictReader(fh, delimiter=sniff_delimiter(fh))
         # CEN CSVs sometimes ship a BOM on the first header column.
         if reader.fieldnames:
             reader.fieldnames = [h.lstrip("﻿") for h in reader.fieldnames]
@@ -131,6 +147,61 @@ def read_long(
     return out
 
 
+def read_long_stepped(
+    path: Path | str,
+    *,
+    start: date | None,
+    n_hours: int,
+    periods: int = DEFAULT_PERIODS,
+) -> dict[str, list[float]]:
+    """Long-format Data File as an hourly step function from ``start``.
+
+    PLEXOS applies a dated Data File value from its ``(date, PERIOD)``
+    until the next row of the same ``NAME`` ("carries forward").  Each
+    returned list has ``n_hours`` values: hour ``h`` (0-based) of the
+    horizon takes the value of the LATEST row at or before
+    ``(start + h // periods, h % periods + 1)``; hours before the first
+    row take the first row.  Rows dated before ``start`` therefore only
+    seed the opening value (CEN ships the day before the horizon first,
+    e.g. ``Hydro_AntucoBounds.csv`` 2021-10-23 for a 2021-10-24 run), and
+    intra-day ``PERIOD`` rows step within their day.  ``start=None``
+    falls back to the first date in the file.
+    """
+    rows: dict[str, list[tuple[date, int, float]]] = {}
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh, delimiter=sniff_delimiter(fh))
+        for row in reader:
+            row = {(k or "").strip().upper(): v for k, v in row.items()}
+            name = (row.get("NAME") or "").strip()
+            if not name:
+                continue
+            try:
+                when = date(int(row["YEAR"]), int(row["MONTH"]), int(row["DAY"]))
+                period = int(row.get("PERIOD") or 1)
+                value = float(row.get("VALUE") or "")
+            except (KeyError, TypeError, ValueError):
+                continue
+            rows.setdefault(name, []).append((when, period, value))
+    if not rows:
+        return {}
+    if start is None:
+        start = min(r[0] for rs in rows.values() for r in rs)
+    out: dict[str, list[float]] = {}
+    for name, rs in rows.items():
+        rs.sort(key=lambda r: (r[0], r[1]))
+        vals: list[float] = []
+        i = 0
+        cur = rs[0][2]
+        for h in range(n_hours):
+            key = (start + timedelta(days=h // periods), h % periods + 1)
+            while i < len(rs) and (rs[i][0], rs[i][1]) <= key:
+                cur = rs[i][2]
+                i += 1
+            vals.append(cur)
+        out[name] = vals
+    return out
+
+
 def read_wide(
     path: Path | str,
     *,
@@ -173,7 +244,7 @@ def read_wide(
     meta_cols = {"YEAR", "MONTH", "DAY", "PERIOD", "BAND"}
     day_keys_seen: dict[tuple[str, str, str], int] = {}
     with Path(path).open("r", encoding="utf-8", newline="") as fh:
-        reader = csv.DictReader(fh)
+        reader = csv.DictReader(fh, delimiter=sniff_delimiter(fh))
         if reader.fieldnames is None:
             return out
         # Strip BOM and identify data columns once.
@@ -223,3 +294,81 @@ def read_wide(
 
 
 __all__ = ["DEFAULT_PERIODS", "read_long", "read_wide"]
+
+
+_DATE_COLS = ("YEAR", "MONTH", "DAY", "PERIOD")
+
+
+def densify_dated_csv(
+    src: Path | str,
+    dst: Path | str,
+    *,
+    start: date,
+    n_days: int,
+    periods: int = DEFAULT_PERIODS,
+) -> bool:
+    """Rewrite a change-point Data File as a dense, horizon-aligned one.
+
+    PLEXOS reads a dated Data File row as "this value from (date,
+    period) on, until the next row of the same series".  The CEN 2021
+    (PLEXOS 8.100) bundles rely on that: ``Gen_Rating.csv`` lists only
+    the change points, and every file starts the day BEFORE the horizon.
+    :func:`read_long` / :func:`read_wide` instead take the first date in
+    the file as day 0 and leave missing periods at 0, which is right for
+    the dense, horizon-aligned 2024+ files only.
+
+    This writes ``dst`` with one row per series and horizon slot
+    (``start`` .. ``start + n_days - 1``, periods ``1..periods``) holding
+    the value in force at that slot (the last change point at or before
+    it); a series with no change point yet at a slot has no row there.
+    Rows are slot-major, so the first date in ``dst`` is ``start``.
+    Series are keyed by ``NAME`` (long format) and ``BAND``; a wide
+    file's rows are one series.  ``dst`` is ``,``-delimited whatever the
+    source used.
+
+    Returns ``False`` (and writes nothing) for a file without the
+    ``YEAR, MONTH, DAY, PERIOD`` columns.
+    """
+    with Path(src).open("r", encoding="utf-8-sig", newline="") as fh:
+        rows = [r for r in csv.reader(fh, delimiter=sniff_delimiter(fh)) if r]
+    if not rows:
+        return False
+    head = [h.strip() for h in rows[0]]
+    upper = [h.upper() for h in head]
+    if not set(_DATE_COLS) <= set(upper):
+        return False
+    iy, im, iday, iper = (upper.index(c) for c in _DATE_COLS)
+    key_idx = [upper.index(c) for c in ("NAME", "BAND") if c in upper]
+    series: dict[tuple[str, ...], list[tuple[tuple[date, int], list[str]]]] = {}
+    for row in rows[1:]:
+        row = row + [""] * (len(head) - len(row))
+        try:
+            when = (date(int(row[iy]), int(row[im]), int(row[iday])), int(row[iper]))
+        except ValueError:
+            continue
+        key = tuple(row[i].strip() for i in key_idx)
+        series.setdefault(key, []).append((when, row))
+    slots = [
+        (start + timedelta(days=d), p)
+        for d in range(n_days)
+        for p in range(1, periods + 1)
+    ]
+    out: list[tuple[int, int, list[str]]] = []
+    for order, points in enumerate(series.values()):
+        points.sort(key=lambda t: t[0])  # stable: last duplicate wins
+        j = -1
+        for s, (day, period) in enumerate(slots):
+            while j + 1 < len(points) and points[j + 1][0] <= (day, period):
+                j += 1
+            if j < 0:
+                continue
+            row = list(points[j][1])
+            row[iy], row[im], row[iday] = str(day.year), str(day.month), str(day.day)
+            row[iper] = str(period)
+            out.append((s, order, row))
+    out.sort(key=lambda t: (t[0], t[1]))
+    with Path(dst).open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(head)
+        writer.writerows(r for _s, _o, r in out)
+    return True

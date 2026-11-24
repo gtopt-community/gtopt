@@ -208,8 +208,12 @@ def test_118_bus_xml_xz_direct_snapshot_matches_t_data(tmp_path: Path) -> None:
     assert len(system["demand_array"]) == 99  # 19 nodes carry Load = 0
     assert sum(g["pmax"] for g in system["generator_array"]) == pytest.approx(9966.2)
     assert all(g.get("pmin", 0.0) == 0.0 for g in system["generator_array"])
-    assert {line["tmax_ab"] for line in system["line_array"]} == {9900.0}
-    assert {line["tmax_ba"] for line in system["line_array"]} == {9900.0}
+    # No Line sets ``Enforce Limits`` (PLEXOS default 0, never enforced): the
+    # default ``--el0-lines unenforced`` writes a non-binding 10x cap and
+    # keeps the 9900 MW rating as the loss envelope.
+    assert {line["tmax_ab"] for line in system["line_array"]} == {99000.0}
+    assert {line["tmax_ba"] for line in system["line_array"]} == {99000.0}
+    assert {line["loss_envelope"] for line in system["line_array"]} == {9900.0}
 
     # Generator 001: Max Capacity 100, Heat Rate Incr 40, Incr2 0.01.
     # Marginal cost 40 + 2·0.01·P → secant slopes over [0,50], [50,100]

@@ -34,6 +34,7 @@ typed path.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -250,8 +251,79 @@ def classify(
     plexos_penalty: float,
     is_inactive: bool,
     hard_set: frozenset[str],
+    soft_unpenalised: float | None = None,
 ) -> _Outcome:
     """Map a PLEXOS Constraint onto ``(emitted_penalty, directive)``.
+
+    PLEXOS semantics: an active Constraint with no positive ``Penalty
+    Price`` (absent, or the PLEXOS default ``-1``) is HARD, and that is what
+    this returns by default.  ``soft_unpenalised`` (CLI
+    ``--soft-unpenalised-constraints PENALTY``) is the opt-in feasibility
+    aid: the rows that :func:`classify_legacy` softens (operational
+    ``HYDRO_SOFT`` / reserve ``RESERVE_PROV_SUM`` tiers) get that penalty
+    instead.  Rows with a PLEXOS ``Penalty Price`` always keep it.
+    """
+    legacy = classify_legacy(
+        constraint_name=constraint_name,
+        expression=expression,
+        op=op,
+        plexos_penalty=plexos_penalty,
+        is_inactive=is_inactive,
+        hard_set=hard_set,
+    )
+    if is_inactive or plexos_penalty > 0.0 or legacy.penalty <= 0.0:
+        return legacy
+    directive = legacy.directive
+    if soft_unpenalised is None:
+        # HARD; keep the family tag (a directive without a penalty falls
+        # back to the scalar penalty 0 on the C++ side).
+        if directive is not None:
+            directive = dataclasses.replace(directive, penalty=None)
+        return _Outcome(penalty=0.0, directive=directive)
+    if directive is not None and directive.penalty is not None:
+        directive = dataclasses.replace(directive, penalty=soft_unpenalised)
+    return _Outcome(penalty=soft_unpenalised, directive=directive)
+
+
+def is_softened_unpenalised(
+    *,
+    constraint_name: str,
+    expression: str,
+    op: str,
+    plexos_penalty: float,
+    is_inactive: bool,
+    hard_set: frozenset[str],
+) -> bool:
+    """True when the row has no PLEXOS Penalty Price and the legacy ladder
+    would soften it, i.e. it is HARD only because of PLEXOS semantics."""
+    if is_inactive or plexos_penalty > 0.0:
+        return False
+    return (
+        classify_legacy(
+            constraint_name=constraint_name,
+            expression=expression,
+            op=op,
+            plexos_penalty=plexos_penalty,
+            is_inactive=is_inactive,
+            hard_set=hard_set,
+        ).penalty
+        > 0.0
+    )
+
+
+def classify_legacy(
+    *,
+    constraint_name: str,
+    expression: str,
+    op: str,
+    plexos_penalty: float,
+    is_inactive: bool,
+    hard_set: frozenset[str],
+) -> _Outcome:
+    """The CEN-calibrated soft ladder (pre-PLEXOS-semantics default).
+
+    Softens unpenalised rows to survive LP-relaxation data inconsistencies;
+    now only reachable through ``--soft-unpenalised-constraints``.
 
     Encodes the entire regex+penalty ladder previously inlined in
     :func:`parsers.extract_user_constraints`.  The classification is
@@ -358,4 +430,6 @@ __all__ = [
     "RESERVE_PROV_SUM",
     "TIER_NAMES",
     "classify",
+    "classify_legacy",
+    "is_softened_unpenalised",
 ]

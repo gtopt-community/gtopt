@@ -16,9 +16,13 @@ from pathlib import Path
 from typing import Any
 
 from gtopt_shared.future_cost import set_future_cost_fields
+from gtopt_shared.sanity_report import run_sanity_report
 
 from ._comparison import compare_plexos_bundle
 from ._defaults import resolve_default_emissions_file
+from ._horizon import HorizonOptions, apply_horizon
+from ._plexos_versions import detect_version, is_solution_db, resolve_version
+from ._native_reserve import NativeReserveOptions, apply_native_reserve
 from .gtopt_writer import (
     build_planning,
     build_provenance,
@@ -29,8 +33,19 @@ from .gtopt_writer import (
     write_provenance,
     write_user_constraint_pampl,
 )
-from .parsers import extract_case
-from .plexos_loader import locate_bundle
+from ._reserve_load import (
+    LoadFactorEstimate,
+    parse_case_date,
+    resolve_reserve_load_factor,
+)
+from .parsers import (
+    el0_lines_mode,
+    extract_case,
+    prune_unreferenced_reserve_units,
+)
+from .plexos_loader import PlexosBundle, locate_bundle
+from .plexos_solution import PlexosSolution, open_solution
+from .plexos_xml import PlexosDb, load_xml
 
 
 logger = logging.getLogger(__name__)
@@ -157,6 +172,14 @@ def _maybe_patch_with_plp_embalses(
     return patch_case_with_plp_embalses(case, embalses_path)
 
 
+def _load_reserve_db(bundle: PlexosBundle) -> PlexosDb | None:
+    """Parsed PLEXOS XML for the dated reserve coefficients (``None`` if absent)."""
+    path = getattr(bundle, "xml_path", None)
+    if path is None or not Path(path).is_file():
+        return None
+    return load_xml(path)
+
+
 def _materialise_plexos_model(bundle: Any, options: dict[str, Any]) -> None:
     """Swap ``bundle`` to a materialised copy of ``options['plexos_model']``.
 
@@ -169,7 +192,6 @@ def _materialise_plexos_model(bundle: Any, options: dict[str, Any]) -> None:
         materialise_bundle_dir,
         parse_start_date,
     )
-    from .plexos_xml import load_xml  # pylint: disable=import-outside-toplevel
 
     start_raw = options.get("plexos_start_date")
     if start_raw:
@@ -223,6 +245,75 @@ def _resolve_output_paths(
     return output_dir, output_file, planning_name
 
 
+def _prepare_solution_consumers(
+    options: dict[str, Any],
+    bundle: Any,
+    case: Any,
+    input_path: Path,
+    resolved_accdb: Path | None,
+) -> tuple[HorizonOptions, PlexosSolution | None, LoadFactorEstimate | None]:
+    """Horizon options, the PLEXOS solution (if any consumer needs it) and
+    the ``--reserve-load-factor auto`` estimate (written back to
+    ``options['reserve_load_factor']``)."""
+    from .plexos_block_layout import (  # pylint: disable=import-outside-toplevel
+        infer_horizon_days_from_input,
+    )
+
+    n_days = int(bundle.n_days or 1)
+    xml_path = getattr(bundle, "xml_path", None)
+    full_days = infer_horizon_days_from_input(xml_path) if xml_path else None
+    horizon_opts = HorizonOptions.from_options(
+        options, horizon_days=n_days, full_days=full_days
+    )
+    wants_auto_factor = str(options.get("reserve_load_factor", "")).lower() == "auto"
+    solution: PlexosSolution | None = None
+    if horizon_opts.needs_solution or wants_auto_factor:
+        solution = open_solution(
+            accdb=resolved_accdb or options.get("plexos_solution_accdb"),
+            input_bundle=input_path,
+        )
+    load_est = resolve_reserve_load_factor(
+        options,
+        (d.lmax_profile for d in case.demands),
+        hours=24 * n_days,
+        case_date=parse_case_date(case.bundle.bundle_date),
+        solution=solution,
+    )
+    if load_est is not None:
+        options["reserve_load_factor"] = load_est.factor
+    return horizon_opts, solution, load_est
+
+
+def _densify_change_point_csvs(bundle: PlexosBundle) -> None:
+    """Align a change-point bundle's Data Files on its horizon (PLEXOS 8.x).
+
+    Needs the Horizon ``Date From``; without it the files are left as
+    they are (and a warning says so).
+    """
+    from .plexos_block_layout import (  # pylint: disable=import-outside-toplevel
+        infer_horizon_days_from_input,
+    )
+
+    start = load_xml(bundle.xml_path).horizon_start
+    if start is None:
+        logger.warning(
+            "PLEXOS 8.x change-point Data Files but no Horizon 'Date From': "
+            "CSVs read as-is (first date in each file = day 1)"
+        )
+        return
+    days = max(
+        infer_horizon_days_from_input(bundle.xml_path) or 1, int(bundle.n_days or 1)
+    )
+    done = bundle.normalize_dated_csvs(start.date(), days)
+    logger.info(
+        "PLEXOS change-point Data Files densified onto the horizon "
+        "(%s, %d days): %d files",
+        start.date(),
+        days,
+        len(done),
+    )
+
+
 def convert_plexos_bundle(options: dict[str, Any]) -> int:
     """Convert a PLEXOS bundle to gtopt JSON.
 
@@ -265,6 +356,16 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 "static properties",
                 bundle.xml_name,
             )
+        # PLEXOS version: XML t_config, or --source-version / --plexos-version
+        # (logged + recorded by gtopt_shared.source_versions).
+        version_provenance: dict[str, Any] = {}
+        plexos_version = resolve_version(
+            detect_version(bundle.xml_path),
+            options.get("plexos_version"),
+            provenance=version_provenance,
+        )
+        if plexos_version.profile.change_point_csvs:
+            _densify_change_point_csvs(bundle)
         # Resolve horizon mode + day count + block layout.
         horizon_mode = options.get("horizon_mode") or "plexos"
         horizon_days_opt = options.get("horizon_days")
@@ -304,7 +405,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                         from .plexos_block_layout import load_block_layout_from_accdb
 
                         block_layout = load_block_layout_from_accdb(resolved_accdb)
-            elif Path(accdb_path).suffix == ".accdb":
+            elif is_solution_db(accdb_path):
                 from .plexos_block_layout import load_block_layout_from_accdb
 
                 resolved_accdb = Path(accdb_path)
@@ -440,6 +541,19 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             lax_uc_refs=bool(options.get("lax_uc_refs")),
             plexos_legacy=bool(options.get("plexos_legacy")),
             period_rhs_mode=str(options.get("plexos_period_rhs") or "prorate"),
+            # PLEXOS Sense 0 is an equality; written ``=`` only in native
+            # mode (its balances carry both slacks), ``>=`` in uc mode.
+            sense_zero_op=(
+                ">=" if options.get("reserve_model", "native") == "uc" else "="
+            ),
+            lng_inflexible_mode=str(options.get("lng_inflexible_mode") or "storage"),
+            lng_value_source=str(options.get("lng_inflexible_value") or "bundle"),
+            lng_diesel_cost=options.get("lng_inflexible_diesel_cost"),
+            lng_cuts_file=options.get("lng_inflexible_cuts"),
+            gas_bands_as_tanks=str(options.get("gas_bands_as_tanks") or "off"),
+            gas_refill=str(options.get("gas_refill") or "instant"),
+            gas_usable=str(options.get("gas_usable") or "capacity"),
+            soft_unpenalised_constraints=options.get("soft_unpenalised_constraints"),
         )
         # Cross-reference PLP's ``embalses.csv`` to patch any reservoir
         # the PLEXOS XML omits but a water-value slope still references
@@ -447,10 +561,25 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         # ``--plexos-legacy`` is on (strict PLEXOS semantics — no
         # cross-bundle mixing) or when ``--no-plp-embalses`` is set.
         case = _maybe_patch_with_plp_embalses(case, options, input_path)
+        # --horizon-days N / --reserve-load-factor auto: both may read the
+        # PLEXOS solution (RES bundle); opened once, only when needed.
+        horizon_opts, solution, load_est = _prepare_solution_consumers(
+            options, bundle, case, input_path, resolved_accdb
+        )
         if options.get("bess_reserve", "native") == "native":
             from ._bess_reserve import apply_native_bess_reserve
 
             case = apply_native_bess_reserve(case, bundle)
+        # --reserve-model native (no-op for 'uc'): CPF regressions ->
+        # ReserveZone requirement planes.
+        case = apply_native_reserve(
+            case,
+            NativeReserveOptions.from_options(options),
+            db_loader=lambda: _load_reserve_db(bundle),
+        )
+        # Reserve Units variables whose rows were replaced (native) or
+        # dropped are held only by their own linking rows: remove them.
+        case = prune_unreferenced_reserve_units(case)
         # The block layout (if any) rides on the bundle_spec so the
         # writer can pick it up.  ``extract_case`` already populated
         # the bundle_spec; we patch the layout in.
@@ -486,6 +615,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             name=planning_name,
             default_uc_penalty=options.get("default_uc_penalty"),
             lp_relax=bool(options.get("lp_relax", False)),
+            uc_relax=str(options.get("uc_relax") or "auto"),
             soft_storage_bounds=soft_storage_bounds,
             soft_penalty_override=options.get("soft_penalty_cost"),
             default_storage_loss=bool(options.get("default_storage_loss", False)),
@@ -515,13 +645,21 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             model_opts["scale_theta"] = float(options["scale_theta"])
 
         output_dir.mkdir(parents=True, exist_ok=True)
+        horizon_report = apply_horizon(planning, horizon_opts, solution)
         # End-of-horizon future-cost (boundary) cut from
         # ``Hydro_StoWaterValues.csv`` (FCF intercept + per-reservoir
         # water-value slopes).  Emitted as ``boundary_cuts.csv`` and
         # wired via the FutureCost element
         # (``system.future_cost_array[0].cuts_file``) so every method
         # values terminal storage exactly like PLEXOS's FCF.
-        if case.boundary_cut is not None:
+        if horizon_report.boundary_cut == "drop" and case.boundary_cut is not None:
+            logger.info(
+                "horizon: FCF boundary cut dropped (--horizon-days %d of %s; "
+                "the cut values the end of the PLEXOS week)",
+                horizon_opts.horizon_days,
+                horizon_opts.full_days,
+            )
+        elif case.boundary_cut is not None:
             reservoir_names = frozenset(
                 r["name"] for r in planning["system"].get("reservoir_array", [])
             )
@@ -741,10 +879,20 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
 
         # Conversion-provenance sidecar (F5): documents each gtopt
         # element class's PLEXOS source, units, and transforms.
-        write_provenance(
-            build_provenance(planning, source_bundle=input_path.name),
-            output_file.with_suffix(".provenance.json"),
+        provenance = build_provenance(planning, source_bundle=input_path.name)
+        provenance.update(version_provenance)  # "source_format" (shared)
+        provenance["plexos_profile"] = plexos_version.as_dict()
+        # How unenforced PLEXOS line ratings were modelled (--el0-lines).
+        provenance["el0_lines"] = el0_lines_mode()
+        # PLEXOS constraints without a Penalty Price: HARD (null) unless
+        # --soft-unpenalised-constraints PENALTY re-softened them.
+        provenance["soft_unpenalised_constraints"] = options.get(
+            "soft_unpenalised_constraints"
         )
+        provenance["horizon"] = horizon_report.as_dict()
+        if load_est is not None:
+            provenance["reserve_load_factor"] = load_est.as_dict()
+        write_provenance(provenance, output_file.with_suffix(".provenance.json"))
         model_report = options.get("_plexos_model_report")
         if model_report:
             import json  # pylint: disable=import-outside-toplevel
@@ -843,6 +991,11 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
     if options.get("run_check", True):
         from ._comparison import run_post_check  # noqa: PLC0415
 
+        # Data-quality report on the case as written (after auto-lift):
+        # warnings only; ``--sanity-report PATH`` also writes the JSON.
+        run_sanity_report(
+            output_file, json_path=options.get("sanity_report"), log=logger
+        )
         return run_post_check(planning, case, output_dir=output_dir)
     return 0
 

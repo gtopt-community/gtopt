@@ -33,6 +33,12 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from ._plexos_versions import (
+    canonical_property_map,
+    canonicalize_keys,
+    find_solution_db,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -252,7 +258,11 @@ def parse_user_block_layout(spec: str) -> tuple[tuple[int, ...], ...]:
     """
     durations: list[float] = []
     path = Path(spec)
-    if path.is_file():
+    try:
+        is_file = path.is_file()
+    except OSError:  # e.g. ENAMETOOLONG for a long inline "1,1,...,1" list
+        is_file = False
+    if is_file:
         with path.open("r", encoding="utf-8", newline="") as fh:
             reader = csv.DictReader(fh)
             cols = {(c or "").strip().lower(): c for c in (reader.fieldnames or [])}
@@ -303,7 +313,7 @@ def parse_user_block_layout(spec: str) -> tuple[tuple[int, ...], ...]:
         raise ValueError(f"block-layout spec {spec!r} yielded no positive durations")
     logger.info(
         "Loaded USER block layout from %s: %d blocks across %d hours",
-        "CSV" if path.is_file() else "inline spec",
+        "CSV" if is_file else "inline spec",
         len(layout),
         sum(len(b) for b in layout),
     )
@@ -336,12 +346,10 @@ def extract_accdb_from_res_zip(res_zip_path: Path) -> Path | None:
 
     try:
         with zipfile.ZipFile(plain_zip) as zf:
-            accdb_name = next(
-                (n for n in zf.namelist() if n.endswith(".accdb")),
-                None,
-            )
+            # PLEXOS >= 9 writes .accdb, 8.x an Access 2000 .mdb.
+            accdb_name = find_solution_db(zf.namelist())
             if accdb_name is None:
-                logger.warning("no .accdb found in %s", res_zip_path)
+                logger.warning("no .accdb / .mdb found in %s", res_zip_path)
                 return None
             zf.extract(accdb_name, scratch)
     except (zipfile.BadZipFile, OSError) as exc:
@@ -387,6 +395,9 @@ _CACHED_PLEXOS_TABLES = (
     "t_phase_3",
     "t_period_0",
     "t_unit",
+    # name-based property ids (version-stable lookups) + version stamp
+    "t_collection",
+    "t_config",
 )
 
 
@@ -490,7 +501,29 @@ def _read_cached_csv(cache_dir: Path, table: str) -> list[dict[str, str]] | None
     ) as exc:
         logger.warning("zstd -dc %s failed: %s", path, exc)
         return None
-    return list(csv.DictReader(io.StringIO(proc.stdout)))
+    rows = list(csv.DictReader(io.StringIO(proc.stdout)))
+    if table == "t_key":
+        return canonicalize_keys(rows, _cached_property_id_map(cache_dir))
+    return rows
+
+
+def _cached_property_id_map(cache_dir: Path) -> dict[str, str]:
+    """Version-canonical property-id map of a cached solution DB.
+
+    The readers below look properties up by their PLEXOS 10.000 id
+    (``646`` End Volume, ``2`` Generation, ``7`` Units Generating);
+    an 8.100 solution stores them as 343 / 1 / 4.  Resolved by name from
+    the cached ``t_class`` / ``t_collection`` / ``t_property``; an older
+    cache without ``t_collection`` keeps the raw ids.
+    """
+    tables = [
+        _read_cached_csv(cache_dir, t)
+        for t in ("t_class", "t_collection", "t_property")
+    ]
+    if any(t is None for t in tables):
+        return {}
+    cls, coll, prop = (t or [] for t in tables)
+    return canonical_property_map(cls, coll, prop)
 
 
 def extract_storage_solution_efin(

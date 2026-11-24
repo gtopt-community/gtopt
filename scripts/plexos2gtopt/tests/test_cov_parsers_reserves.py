@@ -11,6 +11,7 @@ import pytest
 
 from plexos2gtopt import parsers as P
 from plexos2gtopt.entities import BatterySpec, GeneratorSpec, ReserveSpec
+from plexos2gtopt.gtopt_writer import build_reserve_zone_array
 from plexos2gtopt.tests.cov_parsers_kit import DbKit, bundle
 
 
@@ -62,6 +63,35 @@ def test_extract_reserves_timeslice_and_dangling_eligibility(tmp_path: Path) -> 
     (spec,) = P.extract_reserves(kit.db, b)
     assert spec.eligible_generators == ("G",)
     assert spec.ur_requirement[0] == pytest.approx(11.0)
+
+
+def test_extract_reserves_excluded_from_st(tmp_path: Path) -> None:
+    """``Include in ST Schedule = 0`` drops the static Min Provision floor.
+
+    CEN PCP: CTF_RS (Min Provision 305, excluded from ST) provides 77 MW in
+    PLEXOS; its Res_Requirement profile stays (the RHS of the
+    ``CTF_UpMinProvision`` row).
+    """
+    kit = DbKit()
+    for name, in_st in (("CTF_RS", 0.0), ("CSF_RS", -1.0)):
+        oid = kit.obj("Reserve", name)
+        kit.sysprop("Reserve", oid, "Min Provision", 300.0)
+        kit.sysprop("Reserve", oid, "Include in ST Schedule", in_st)
+    body = "NAME,PATTERN,VALUE\n" + "".join(
+        f"{n},H1,50\n" for n in ("CTF_RS", "CSF_RS")
+    )
+    b = bundle(tmp_path, {"Res_Requirement.csv": body})
+    out = {r.name: r for r in P.extract_reserves(kit.db, b)}
+    assert out["CTF_RS"].ur_requirement[0] == pytest.approx(50.0)
+    assert out["CTF_RS"].ur_min_provision == 0.0
+    assert out["CSF_RS"].ur_requirement[0] == pytest.approx(50.0)
+    assert out["CSF_RS"].ur_min_provision == pytest.approx(300.0)
+    assert not out["CTF_RS"].in_st_schedule
+    assert out["CSF_RS"].in_st_schedule
+    zones = {z["name"]: z for z in build_reserve_zone_array(tuple(out.values()))}
+    assert set(zones["CTF_RS"]["urreq"][0]) == {0.0}
+    assert "urmin" not in zones["CTF_RS"]
+    assert zones["CSF_RS"]["urreq"][0][0] == pytest.approx(50.0)
 
 
 def test_uc_reserve_provision_gens() -> None:

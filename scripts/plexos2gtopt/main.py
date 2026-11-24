@@ -26,6 +26,7 @@ from gtopt_shared.cli_flags import (
     add_use_single_bus_argument,
 )
 from gtopt_shared.operator import add_operator_argument, select_operator
+from gtopt_shared.sanity_report import add_sanity_report_argument
 from gtopt_shared.cli_signals import (
     install_termination_handlers,
     signal_handler as _signal_handler,  # noqa: F401  re-export for back-compat / tests
@@ -34,10 +35,34 @@ from gtopt_shared.state_snapshot import (
     write_plexos2gtopt_readme,
     write_state_snapshot,
 )
+from gtopt_shared.source_versions import add_source_version_argument
 
+from ._commitment_policy import UC_RELAX_MODES
+from ._horizon import BOUNDARY_CUT_MODES, END_TARGET_MODES, parse_constraint_rules
+from ._plexos_versions import SOURCE_FORMAT, versions_help
+from ._reserve_load import reserve_load_factor_arg
 from .auto_lift_lines import DEFAULT_THRESHOLD
+from ._native_reserve import (
+    DEFAULT_RESERVE_LOAD_FACTOR,
+    RESERVE_INERTIA_TERMS,
+    RESERVE_LOAD_TERMS,
+    RESERVE_MODELS,
+)
+from ._gas_tanks import GAS_TANK_MODES, GAS_USABLE_MODES
+from ._lng_inflexible import (
+    DEFAULT_LNG_INFLEXIBLE_MODE,
+    DEFAULT_LNG_VALUE_SOURCE,
+    LNG_INFLEXIBLE_MODES,
+    LNG_VALUE_SOURCES,
+)
 from .info_display import display_plexos_info
-from .parsers import PERIOD_RHS_MODES, UnresolvedConstraintReferenceError
+from .parsers import (
+    EL0_LINES_DEFAULT,
+    EL0_LINES_MODES,
+    LINE_UNENFORCED_FACTOR,
+    PERIOD_RHS_MODES,
+    UnresolvedConstraintReferenceError,
+)
 from .plexos2gtopt import (
     _resolve_output_paths,
     compare_plexos_bundle,
@@ -61,12 +86,17 @@ reservoirs, waterways, turbines, flow rights, reserve zones, user
 constraints, commitments — the full PLEXOS object catalog).
 """
 
-_EPILOG = """\
+_EPILOG = (
+    """\
 Examples:
   plexos2gtopt --info  pcp_2026-04-22/source/DATOS20260422.zip.xz
   plexos2gtopt --validate pcp_2026-04-22/source/
   plexos2gtopt -i pcp_2026-04-22/source/PLEXOS20260422.zip -o gtopt_PLEXOS20260422
+
 """
+    + versions_help()
+    + "\n"
+)
 
 
 # ``_signal_handler`` is re-exported from gtopt_shared.cli_signals at the
@@ -91,6 +121,112 @@ def _parse_cogen_must_run(raw: str | None) -> tuple[frozenset[str], bool]:
     if any(t.lower() == "all" for t in tokens):
         return frozenset(), True
     return frozenset(tokens), False
+
+
+def _positive_float(raw: str) -> float:
+    """argparse ``type`` for a strictly positive float."""
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not a number: {raw!r}") from exc
+    if value <= 0.0:
+        raise argparse.ArgumentTypeError(f"must be > 0: {raw!r}")
+    return value
+
+
+def _add_reserve_arguments(parser: argparse.ArgumentParser) -> None:
+    """``--reserve-*``: CEN CPF requirement → gtopt native reserve model."""
+    parser.add_argument(
+        "--reserve-model",
+        choices=RESERVE_MODELS,
+        default="native",
+        help=(
+            "How CEN's reserve-requirement constraints are converted.  "
+            "'native' (default): the CPF regressions "
+            "(CPF_Up10Calculation_*, CPF_Up5Calculation, CPF_DownCalculation "
+            "+ *MinProvision) become gtopt ReserveZone requirement planes "
+            "(R >= max_k plane_k) with inertia, contingency and load terms, "
+            "per-unit zone factors and dated coefficient schedules; pure "
+            "provision-sum rows (CSF/CTF *MinProvision) become fixed-"
+            "requirement zones.  'uc': legacy UserConstraint + "
+            "DecisionVariable emulation (PLEXOS-faithful, endogenous "
+            "Generation_SEN)."
+        ),
+    )
+    parser.add_argument(
+        "--reserve-load-term",
+        choices=RESERVE_LOAD_TERMS,
+        default="exogenous",
+        help=(
+            "Load term D of the native planes.  'exogenous' (default): D is "
+            "a parameter, --reserve-load-factor x the hourly demand (or "
+            "--reserve-system-load), moved to the row RHS: the requirement "
+            "no longer credits generation and the LMP stays energy-only "
+            "(CEN's criterion up to ISSCC 2021).  'endogenous': D = "
+            "generation - BESS charge as an LP column, as PLEXOS' "
+            "Generation_SEN (every MWh of demand earns sum(beta*mu)/1000: "
+            "negative LMPs) -- for reconciliation with the PLEXOS solution."
+        ),
+    )
+    parser.add_argument(
+        "--reserve-inertia-term",
+        choices=RESERVE_INERTIA_TERMS,
+        default="commitment",
+        help=(
+            "Inertia term I of the native planes.  'commitment' (default): "
+            "I = sum of H*S times the unit status, from the Inertia_SEN "
+            "InertiaProvisions and the Commitments.  'exogenous': I is "
+            "data, the must-run inertia (sum of H*S of the units PLEXOS "
+            "forces on, Gen_Commit = 1) per hour, written as "
+            "ReserveZone.system_inertia (conservative: a larger "
+            "requirement).  'endogenous': I = sum of the dispatch-based "
+            "inertia provisions, as PLEXOS' Inertia_SEN (PLEXOS-compatible, "
+            "for reconciliation)."
+        ),
+    )
+    parser.add_argument(
+        "--reserve-load-factor",
+        type=reserve_load_factor_arg,
+        default=None,
+        metavar="F|auto",
+        help=(
+            "Exogenous load term D = F x sum of demand lmax (default "
+            f"{DEFAULT_RESERVE_LOAD_FACTOR}: transmission losses; "
+            "PLEXOS Generation_SEN/demand is 1.022-1.046 over the CEN "
+            "PCP 2024-2026 history).  'auto' estimates F from the case: "
+            "PLEXOS Generation_SEN (or summed generation) / demand over the "
+            "converted hours when the RES solution bundle is present, else "
+            "a monthly table from the PCP history.  The factor used is "
+            "logged and recorded in the provenance sidecar.  Ignored, with "
+            "a warning, with --reserve-system-load or --reserve-load-term "
+            "endogenous."
+        ),
+    )
+    parser.add_argument(
+        "--reserve-system-load",
+        type=Path,
+        default=None,
+        metavar="CSV",
+        help=(
+            "Exogenous load term from a per-hour CSV instead of F x demand: "
+            "column 'system_load' or 'value' [MW] (or 'generation_sen' [GW], "
+            "e.g. PLEXOS' own Generation_SEN solution), optional 'hour' "
+            "column for ordering.  Exactly one finite value > 0 per horizon "
+            "hour (no padding or tiling); ignored with the endogenous load "
+            "term."
+        ),
+    )
+    parser.add_argument(
+        "--reserve-north-special",
+        action="store_true",
+        default=False,
+        help=(
+            "Also convert CEN's northern-corridor rows SpecialCPF/CSF/CTF"
+            "North(LW) (Include in ST Schedule = 0 in PCP, off by default) "
+            "into reserve zones with the scheduled (dated RHS) requirement; "
+            "the corridor-flow coupling is never emitted."
+        ),
+    )
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -304,6 +440,105 @@ def make_parser() -> argparse.ArgumentParser:
             "inactive and count BESS SSCC provisions at gross value."
         ),
     )
+    _add_reserve_arguments(parser)
+    parser.add_argument(
+        "--lng-inflexible-mode",
+        choices=LNG_INFLEXIBLE_MODES,
+        default=DEFAULT_LNG_INFLEXIBLE_MODE,
+        help=(
+            "How inflexible-LNG cargo tanks are converted (2024 CEN PCP "
+            "bundles: a PLEXOS Storage whose Head Storage generators are "
+            "all fuel-fed thermal units, e.g. ENGIE_MEJILLONES_GNL_INF).  "
+            "Both modes emit the tank as a gtopt Reservoir (eini = cargo, "
+            "emax schedule from Hydro_MaxVolume incl. the drop to 0 at the "
+            "deadline, state variable across SDDP phases) drained by one "
+            "turbine per unit with production_factor = 1/heat_rate.  "
+            "'storage' (default, PLEXOS-faithful): spill at the PLEXOS "
+            "Vert_* penalty (7200 $/fuel unit) and the units pay the fuel "
+            "price.  'offtake' (take-or-pay, sunk gas): gas left at the "
+            "deadline is lost at no cost (free spill) and the tank's fuel "
+            "price is 0 (units keep VOM + transport only); the gas "
+            "opportunity cost is the reservoir's water_value_dual."
+        ),
+    )
+    parser.add_argument(
+        "--lng-inflexible-value",
+        choices=LNG_VALUE_SOURCES,
+        default=DEFAULT_LNG_VALUE_SOURCE,
+        help=(
+            "--lng-inflexible-mode offtake: terminal value of the gas left "
+            "in a tank whose deadline lies BEYOND the horizon (added to the "
+            "boundary future-cost cut like a water value; a tank emptied "
+            "inside the horizon gets none).  'bundle' (default): the "
+            "bundle's own tank-fuel price x 24 per volume unit (the CEN "
+            "weekly LNG opportunity cost).  'cuts': the tank's column of "
+            "--lng-inflexible-cuts (medium-term boundary cuts).  'diesel': "
+            "the displaced diesel, --lng-inflexible-diesel-cost (default: "
+            "median diesel SRMC of the bundle) / min heat rate x 24."
+        ),
+    )
+    parser.add_argument(
+        "--lng-inflexible-cuts",
+        default=None,
+        metavar="CSV",
+        help=(
+            "boundary_cuts.csv-format file (scene,rhs,<state>...) from a "
+            "medium-term run; its column named after the tank is the "
+            "tank's terminal-value coefficient (--lng-inflexible-value cuts)."
+        ),
+    )
+    parser.add_argument(
+        "--lng-inflexible-diesel-cost",
+        type=float,
+        default=None,
+        metavar="USD_PER_MWH",
+        help=(
+            "Reference diesel cost [$/MWh] for --lng-inflexible-value "
+            "diesel (default: median SRMC of the bundle's diesel units)."
+        ),
+    )
+    parser.add_argument(
+        "--gas-bands-as-tanks",
+        choices=GAS_TANK_MODES,
+        default="off",
+        help=(
+            "Model every capped gas Fuel band (Fuel_MaxOfftakeWeek) as a "
+            "tank: a Reservoir 'gastank_<fuel>' drained by the band's units "
+            "(pf = 1/HR), the units carry no fuel price, and the leftover "
+            "is valued at the band price in the boundary future-cost cut "
+            "(state variable across SDDP phases).  'horizon': one allotment "
+            "for the horizon (= the Fuel model minus the constant "
+            "sum price*allotment).  'period': one inflow per gas week "
+            "(Thursday-Wednesday, from the CSV dates); INF bands lose the "
+            "remainder at each week end.  Default: off."
+        ),
+    )
+    parser.add_argument(
+        "--gas-usable",
+        choices=GAS_USABLE_MODES,
+        default="capacity",
+        help=(
+            "Leftover a gas tank's future value applies to.  Each tank whose "
+            "gas outlives the horizon gets its own future-cost variable "
+            "alpha_gas_<tank> >= g*(V_usable - T), >= 0 (separate from the "
+            "hydro boundary cut).  'capacity' (default): V_usable = min(emax "
+            "at the horizon end, units' burn rate x hours until the "
+            "deadline / gas-week end) — gas that cannot be burnt in time is "
+            "worth 0.  'full': V_usable = emax (no saturation)."
+        ),
+    )
+    parser.add_argument(
+        "--gas-refill",
+        default="instant",
+        metavar="{instant,ramp:<hours>}",
+        help=(
+            "--gas-bands-as-tanks period: shape of each new allotment "
+            "(next ship) entering the tank at the sub-period start.  "
+            "'instant' (default; the bundles only give the volume): all of "
+            "it in the first hour.  'ramp:<hours>': a constant unloading "
+            "rate over that many hours."
+        ),
+    )
     add_use_single_bus_argument(parser, dialect="store_true")
     add_scale_theta_argument(parser)
     add_color_argument(parser)
@@ -334,6 +569,21 @@ def make_parser() -> argparse.ArgumentParser:
             "Soft-cap diagnostic: keeps the LP feasible so the solver "
             "reports per-constraint violations instead of returning "
             "infeasible. Typical: 10000."
+        ),
+    )
+    parser.add_argument(
+        "--soft-unpenalised-constraints",
+        type=float,
+        default=None,
+        metavar="PENALTY",
+        help=(
+            "opt-in feasibility aid: emit the PLEXOS constraints that carry "
+            "no Penalty Price (absent or -1) and that the CEN-calibrated "
+            "ladder used to soften (operational floors, mixed "
+            "line+commitment rows such as PandeAzucar_Polpaico_CC, reserve "
+            "aggregates) as soft at PENALTY $/unit.  Default: off, i.e. "
+            "they are HARD, as in PLEXOS.  Rows with a PLEXOS Penalty Price "
+            "always keep it."
         ),
     )
     parser.add_argument(
@@ -552,10 +802,10 @@ def make_parser() -> argparse.ArgumentParser:
             "emit the converter's SYNTHETIC default annual self-discharge / "
             "evaporation loss on storage that PLEXOS leaves unset: batteries "
             "21.5%%/yr (2%%/month Li-ion, BU/NREL/IEA) and reservoirs 4%%/yr "
-            "(ICOLD/World Bank Andean mid-range).  Default OFF.  Note: gtopt "
-            "itself defaults every battery without annual_standing_loss to 4%%/month "
-            "(model_options.battery_annual_standing_loss), so this flag LOWERS BESS "
-            "loss to 2%%/month; reservoirs stay lossless without it.  Enable to "
+            "(ICOLD/World Bank Andean mid-range).  Default OFF: batteries "
+            "without a PLEXOS Self Discharge Rate are written lossless "
+            "(annual_standing_loss 0, the PLEXOS default) and reservoirs "
+            "stay lossless.  Enable to "
             "gently regularise the storage-balance chain (LP conditioning) "
             "and document the physical loss explicitly."
         ),
@@ -865,21 +1115,25 @@ def make_parser() -> argparse.ArgumentParser:
     add_no_lift_lines_argument(parser, dialect="plexos")
     parser.add_argument(
         "--el0-lines",
-        choices=("extended", "strict"),
-        default="strict",
+        choices=EL0_LINES_MODES,
+        default=EL0_LINES_DEFAULT,
         help=(
-            "How to model PLEXOS EL=0 ('Never enforce') transmission lines:\n"
-            "  'strict' (DEFAULT): treat EL=0 like EL=2 — a plain hard cap at "
-            "the nominal rating (no free band, no headroom).  Only a minority of "
-            "EL=0 lines ever need to run above their rating, so the default "
-            "enforces the rating and LIFTs only the known exceptions via "
-            "--lift-line-caps (whose default ships that set).\n"
-            "  'extended' (a.k.a. relaxed): soft cap — flow is free up to the "
-            "rating, penalised between the rating and a headroom multiple, "
-            "hard-capped at that multiple.  Lets EVERY EL=0 line run over "
-            "rating at a penalty; use for a new bundle whose lift set isn't "
-            "curated yet.  (Lines named in --lift-line-caps stay soft, and "
-            "lines in --no-lift-lines stay hard, regardless of this mode.)"
+            "How to model PLEXOS lines whose rating PLEXOS does not enforce "
+            "(EL=0 'Never enforce', and EL=1 lines below the Transmission "
+            "'Constraint Voltage Threshold'):\n"
+            "  'unenforced' (DEFAULT, mirrors PLEXOS): the rating is never "
+            "enforced and carries no penalty.  GTOpt bounds every flow "
+            f"column, so the cap is {LINE_UNENFORCED_FACTOR:g}x the rating "
+            "(a flow AT that cap is a DC-OPF artefact, not a limit); the "
+            "loss envelope stays at the rating.  Overrides --lift-line-caps "
+            "for these lines; only --no-lift-lines still pins one to a hard "
+            "cap.\n"
+            "  'enforced' (alias 'strict', opt-in): treat EL=0 like EL=2, a "
+            "hard cap at the rating; --lift-line-caps (whose default ships a "
+            "curated set) lifts the known exceptions to a soft cap.\n"
+            "  'extended' (opt-in): soft cap for every EL=0 line, free up to "
+            "the rating, penalised up to a headroom multiple, hard there.\n"
+            "The mode is recorded in the provenance sidecar ('el0_lines')."
         ),
     )
     parser.add_argument(
@@ -1030,15 +1284,77 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--horizon-end-targets",
+        choices=END_TARGET_MODES,
+        default="auto",
+        help=(
+            "end-of-horizon storage targets when --horizon-days N cuts the "
+            "PLEXOS horizon short.  'plexos': efin = the PLEXOS solution "
+            "state at the end of day N (Storage End Volume, Battery "
+            "Energy; needs the RES bundle).  'eini': efin = eini.  'free': "
+            "no efin.  'auto' (default): 'plexos' when the RES solution "
+            "is found, else 'eini' (warned); no change on a full horizon.  "
+            "Targets are clamped into [emin, emax]; batteries always get "
+            "a soft target and no hard daily-cycle close."
+        ),
+    )
+    parser.add_argument(
+        "--horizon-boundary-cut",
+        choices=BOUNDARY_CUT_MODES,
+        default="auto",
+        help=(
+            "FCF boundary cut (end-of-week future cost) under --horizon-days "
+            "N.  'auto' (default): drop it on a truncated horizon with "
+            "plexos/eini targets, keep it otherwise.  'keep' / 'drop' force."
+        ),
+    )
+    parser.add_argument(
+        "--horizon-constraint-rules",
+        default=None,
+        metavar="FAMILY=RULE[,...]",
+        help=(
+            "multi-day constraint rules on a truncated horizon.  Families "
+            "(default first): fuel_max_offtake=prorate|full|drop, "
+            "fuel_min_offtake=prorate|drop, period_rhs=prorate|drop, "
+            "day_indexed=keep|drop.  'prorate' keeps the weekly budget "
+            "scaled to N days, 'full' allows the whole weekly budget, "
+            "'drop' removes / deactivates the rows."
+        ),
+    )
+    parser.add_argument(
+        "--horizon-pin-lng-tanks",
+        action="store_true",
+        default=False,
+        help=(
+            "also pin LNG tanks (LNG terminals, *_GNL* storages, storages "
+            "feeding fuel-burning units) to their end-of-day-N target.  "
+            "Default: left free -- their end level is the take-or-pay "
+            "decision, priced by the gas terminal value."
+        ),
+    )
+    parser.add_argument(
         "--plexos-solution-accdb",
         type=Path,
         default=None,
         help=(
-            "path to the PLEXOS solution ``.accdb`` (used to extract "
-            "the block layout under ``--horizon-mode plexos``).  When "
-            "omitted, the converter auto-discovers a sibling "
-            "``RES<date>.zip[.xz]`` next to the input bundle and "
-            "extracts the nested .accdb from it."
+            "path to the PLEXOS solution ``.accdb`` (PLEXOS >= 9) or "
+            "``.mdb`` (PLEXOS 8.x), used to extract the block layout "
+            "under ``--horizon-mode plexos``.  When omitted, the "
+            "converter auto-discovers a sibling ``RES<date>.zip[.xz]`` "
+            "next to the input bundle and extracts the nested database."
+        ),
+    )
+    # Shared --source-version (help generated from SOURCE_FORMAT); the
+    # version detected from the XML t_config 'Version' is the default.
+    add_source_version_argument(parser, SOURCE_FORMAT, dest="plexos_version")
+    parser.add_argument(
+        "--plexos-version",
+        dest="plexos_version",
+        default=None,
+        metavar="X",
+        help=(
+            "alias of --source-version (per-version differences are "
+            "listed at the end of --help)"
         ),
     )
     parser.add_argument(
@@ -1132,12 +1448,30 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--uc-relax",
+        choices=UC_RELAX_MODES,
+        default="auto",
+        help=(
+            "which commitments ship LP-relaxed (``Commitment.relax = true``, "
+            "continuous u) in MIP mode.  'auto' (default): units PLEXOS "
+            "solves as Linear Relaxation (Generator 'Unit Commitment "
+            "Optimality' = 0 in the run Model) plus cost-free commitments "
+            "(zero energy cost, no start-up / shut-down / no-load cost, no "
+            "min up / down time, no start limit, no ramp limit — e.g. solar, "
+            "wind, run-of-river with only a Min Stable Level).  'plexos': "
+            "only the PLEXOS Linear-Relaxation units.  'none': every "
+            "commitment integer.  Forced blocks (Gen_Commit) stay pinned "
+            "either way.  See docs/scripts/plexos2gtopt.md"
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
     )
     add_operator_argument(parser)
+    add_sanity_report_argument(parser)
     return parser
 
 
@@ -1192,12 +1526,18 @@ def main(argv: list[str] | None = None) -> None:
         )
     select_operator(args.operator, "plexos", bundle, args)
 
+    try:
+        parse_constraint_rules(getattr(args, "horizon_constraint_rules", None))
+    except ValueError as exc:
+        parser.error(str(exc))
+
     options: dict[str, Any] = {
         "input_bundle": bundle,
         "output_dir": args.output_dir,
         "use_single_bus": args.use_single_bus,
         "scale_theta": args.scale_theta,
         "default_uc_penalty": args.default_uc_penalty,
+        "soft_unpenalised_constraints": args.soft_unpenalised_constraints,
         "pampl_uc_mode": args.pampl_uc_mode,
         "pampl_uc_only": args.pampl_uc_only,
         "pampl_uc_off": args.pampl_uc_off,
@@ -1243,20 +1583,45 @@ def main(argv: list[str] | None = None) -> None:
         "el0_lines": args.el0_lines,
         "horizon_mode": args.horizon_mode,
         "horizon_days": args.horizon_days,
+        "horizon_end_targets": getattr(args, "horizon_end_targets", "auto"),
+        "horizon_boundary_cut": getattr(args, "horizon_boundary_cut", "auto"),
+        "horizon_constraint_rules": getattr(args, "horizon_constraint_rules", None),
+        "horizon_pin_lng_tanks": getattr(args, "horizon_pin_lng_tanks", False),
         "block_layout": args.block_layout,
         "plexos_solution_accdb": args.plexos_solution_accdb,
+        "plexos_version": getattr(args, "plexos_version", None),
         "lp_relax": args.lp_relax,
+        "uc_relax": getattr(args, "uc_relax", "auto"),
         "plexos_model": getattr(args, "plexos_model", None),
         "plexos_start_date": getattr(args, "plexos_start_date", None),
         "plexos_sample": getattr(args, "plexos_sample", 1),
         "plexos_period_rhs": getattr(args, "plexos_period_rhs", "prorate"),
         "plexos_data_dirs": tuple(getattr(args, "plexos_data_dir", None) or ()),
         "run_check": args.run_check,
+        "sanity_report": getattr(args, "sanity_report", None),
         "reservoir_flow_estimate": args.reservoir_flow_estimate,
         "compare_json": args.compare_json,
         "lax_uc_refs": args.lax_uc_refs,
         "plexos_legacy": args.plexos_legacy,
         "bess_reserve": getattr(args, "bess_reserve", "native"),
+        "reserve_model": getattr(args, "reserve_model", "native"),
+        "reserve_load_term": getattr(args, "reserve_load_term", "exogenous"),
+        "reserve_inertia_term": getattr(args, "reserve_inertia_term", "commitment"),
+        # ``None`` = not given (the default 1.05 applies; no "ignored" warning).
+        "reserve_load_factor": getattr(args, "reserve_load_factor", None),
+        "reserve_system_load": getattr(args, "reserve_system_load", None),
+        "reserve_north_special": getattr(args, "reserve_north_special", False),
+        "lng_inflexible_mode": getattr(
+            args, "lng_inflexible_mode", DEFAULT_LNG_INFLEXIBLE_MODE
+        ),
+        "lng_inflexible_value": getattr(
+            args, "lng_inflexible_value", DEFAULT_LNG_VALUE_SOURCE
+        ),
+        "lng_inflexible_cuts": getattr(args, "lng_inflexible_cuts", None),
+        "gas_bands_as_tanks": getattr(args, "gas_bands_as_tanks", "off"),
+        "gas_refill": getattr(args, "gas_refill", "instant"),
+        "gas_usable": getattr(args, "gas_usable", "capacity"),
+        "lng_inflexible_diesel_cost": getattr(args, "lng_inflexible_diesel_cost", None),
         "plp_embalses": args.plp_embalses,
         "no_plp_embalses": args.no_plp_embalses,
         # Emission infrastructure (cli_flags.add_emissions_arguments).

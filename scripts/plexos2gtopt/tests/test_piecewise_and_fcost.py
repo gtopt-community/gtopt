@@ -7,6 +7,8 @@ import lzma
 import shutil
 from pathlib import Path
 
+import pytest
+
 from plexos2gtopt.entities import (
     BundleSpec,
     FlowRightSpec,
@@ -132,8 +134,8 @@ def test_legacy_baked_path_preserves_heat_rate_metadata() -> None:
     entry = out[0]
     assert entry["heat_rate"] == 0.21
     assert "fuel" not in entry
-    # gcost = HR × price + vom + transport = 0.21·300 + 2 + 0.5 = 65.5
-    assert entry["gcost"] == 65.5
+    # gcost = HR × (price + transport) + vom = 0.21·300 + 0.21·0.5 + 2
+    assert entry["gcost"] == pytest.approx(65.105)
 
 
 def test_legacy_baked_path_skips_heat_rate_for_renewables() -> None:
@@ -226,8 +228,6 @@ def test_118_bus_piecewise_end_to_end(tmp_path: Path) -> None:
     bundle_dir.mkdir()
     src = _FIXTURES / "118-Bus.xml.xz"
     if not src.is_file():
-        import pytest
-
         pytest.skip(f"fixture not vendored: {src}")
     with (
         lzma.open(src, "rb") as fin,

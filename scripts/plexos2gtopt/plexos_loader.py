@@ -29,7 +29,10 @@ import re
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
+
+from .plexos_csv import densify_dated_csv
 
 
 logger = logging.getLogger(__name__)
@@ -95,6 +98,9 @@ class PlexosBundle:
     #: (e.g. ``Gen_HeatRate.csv``).
     materialised_model: str | None = None
     _extra_cleanup: list[tempfile.TemporaryDirectory[str]] = field(default_factory=list)
+    #: ``{basename -> path}`` CSVs served instead of the bundle's own
+    #: (see :meth:`normalize_dated_csvs`).
+    csv_overrides: dict[str, Path] = field(default_factory=dict)
 
     @property
     def xml_path(self) -> Path:
@@ -124,14 +130,36 @@ class PlexosBundle:
         Args:
             name: Basename (e.g. ``"Gen_Rating.csv"``).
         """
-        path = self.root / name
+        path = self.csv_overrides.get(name, self.root / name)
         if not path.is_file():
             raise FileNotFoundError(f"{name} not found in bundle {self.source}")
         return path
 
     def has(self, name: str) -> bool:
         """Return ``True`` when ``name`` exists at the bundle root."""
-        return (self.root / name).is_file()
+        return self.csv_overrides.get(name, self.root / name).is_file()
+
+    def normalize_dated_csvs(self, start: date, n_days: int) -> list[str]:
+        """Serve every dated top-level CSV densified onto the horizon.
+
+        For bundles whose Data Files are PLEXOS change-point series that
+        start before the horizon (PLEXOS 8.100 / CEN 2021, see
+        :func:`plexos_csv.densify_dated_csv`).  The rewritten copies live
+        in a private tempdir; the bundle's own files are not touched.
+        Returns the basenames rewritten.
+        """
+        # released by close() with the bundle
+        tmp = tempfile.TemporaryDirectory(  # pylint: disable=consider-using-with
+            prefix="plexos_dense_"
+        )
+        self._extra_cleanup.append(tmp)
+        done = []
+        for path in self.csv_paths():
+            dst = Path(tmp.name) / path.name
+            if densify_dated_csv(path, dst, start=start, n_days=n_days):
+                self.csv_overrides[path.name] = dst
+                done.append(path.name)
+        return done
 
     def close(self) -> None:
         """Release the extraction tempdir (no-op for directory inputs)."""

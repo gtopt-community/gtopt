@@ -62,7 +62,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ._numfmt import fmt_exact
 from . import aemo_isp_constraints as isp_c
+from . import aemo_isp_odp as odp_mod
 from .isp_traces import (
     TimesliceCalendar,
     TraceLocator,
@@ -822,7 +824,7 @@ def _min_cf_year_uc(  # pylint: disable=too-many-arguments,too-many-positional-a
     return {
         "name": f"min_cf_year_{_slug(o.name)}",
         "expression": f'sum{{b in stage}} dur[b] * (generator("{o.name}")'
-        f".generation) >= {floor:.6g}",
+        f".generation) >= {fmt_exact(floor)}",
         "scope": "stage",
         "constraint_type": "energy",
         "description": f"PLEXOS Min Capacity Factor Year {cf:g} % pro-rated to "
@@ -836,7 +838,7 @@ _TINY = 1e-9
 def _daily_energy_uc(gen: str, mwh_per_day: float, source: str) -> dict[str, Any]:
     return {
         "name": f"energy_day_{_slug(gen)}",
-        "expression": f'generator("{gen}").generation <= {mwh_per_day:.6g}',
+        "expression": f'generator("{gen}").generation <= {fmt_exact(mwh_per_day)}',
         "daily_sum": True,
         "constraint_type": "energy",
         "description": f"PLEXOS {source} → daily energy budget [MWh/day]",
@@ -1388,6 +1390,22 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         "default: take it from the AEMO IASR workbook, not redistributable; "
         "see `gtopt-fetch aemo info iasr_workbook`)",
     )
+    g.add_argument(
+        "--odp-augmentations",
+        type=Path,
+        default=None,
+        metavar="XLSX",
+        help="published ISP outlook workbook (e.g. '2026 ISP - Step Change - "
+        "Core.xlsx', read only): add the network augmentations built in the "
+        "--odp-cdp development path by the week's financial year to the REZ / "
+        "group limits (default: XML Units, i.e. none built)",
+    )
+    g.add_argument(
+        "--odp-cdp",
+        default=odp_mod.DEFAULT_CDP,
+        help="candidate development path read from --odp-augmentations "
+        "(default %(default)s, the 2026 ISP optimal development path)",
+    )
     p.add_argument("-l", "--log-level", default="INFO")
     return p.parse_args(argv)
 
@@ -1421,6 +1439,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             long_periods=args.long_periods,
             electrolyser_kwh_per_kg=args.electrolyser_kwh_per_kg,
             generator_extras=not args.legacy,
+            odp=(
+                odp_mod.load_outlook(args.odp_augmentations, args.odp_cdp)
+                if args.odp_augmentations is not None
+                else None
+            ),
         ),
     )
     case = build_dispatch_case(opts)

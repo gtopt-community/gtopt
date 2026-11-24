@@ -1,8 +1,11 @@
 [
   {
+    "annual_standing_loss": 0.0,
     "bus": "ARICA",
     "capacity": 2.0,
+    "daily_cycle": false,
     "efin": 0.5,
+    "efin_cost": 100.0,
     "eini": 0.5,
     "emax": 2.0,
     "emin": 0.0,
@@ -12,6 +15,7 @@
     "output_efficiency": 0.95,
     "pmax_charge": 50.0,
     "pmax_discharge": 50.0,
-    "uid": 1
+    "uid": 1,
+    "use_state_variable": true
   }
 ]

@@ -235,3 +235,36 @@ def test_tighten_decision_variable_bigm(caplog: pytest.LogCaptureFixture) -> Non
     assert "50 * decision_variable" in out[0].expression
     assert out[1] is ucs[1]
     assert "tightened decision-variable big-M on 1" in caplog.text
+
+
+def test_horizon_value_latest_date_from_wins() -> None:
+    """Overlapping dated rows: the latest ``date_from`` wins.
+
+    An open-ended ``date_from`` stays in force until a later one
+    supersedes it, and resumes once that later window has closed.
+    """
+    old_open = _row(9, 1.0, date_from=datetime(2026, 1, 1))
+    newer_open = _row(2, 2.0, date_from=datetime(2026, 3, 1))
+    window = _row(
+        1, 3.0, date_from=datetime(2026, 4, 20), date_to=datetime(2026, 4, 21)
+    )
+    rows = [old_open, newer_open, window]
+    assert P._horizon_value(rows, datetime(2026, 2, 1)) == pytest.approx(1.0)
+    assert P._horizon_value(rows, datetime(2026, 3, 5)) == pytest.approx(2.0)
+    assert P._horizon_value(rows, datetime(2026, 4, 20, 12)) == pytest.approx(3.0)
+    assert P._horizon_value(rows, datetime(2026, 4, 22)) == pytest.approx(2.0)
+    # prefer_min only chooses among rows of the latest date_from.
+    assert P._horizon_value(rows, datetime(2026, 3, 5), prefer_min=True) == (
+        pytest.approx(2.0)
+    )
+
+
+def test_date_overlay_latest_date_from_wins() -> None:
+    """Per-block overlay: a later ``date_from`` overrides an earlier one."""
+    start = datetime(2026, 4, 22)
+    base = _row(1, 100.0)
+    late = _row(2, 30.0, date_from=datetime(2026, 4, 22, 12))
+    early = _row(3, 50.0, date_from=datetime(2026, 4, 1))
+    prof = P._build_rhs_date_overlay_profile([base, late, early], 0.0, start, 24)
+    assert prof[:12] == (50.0,) * 12
+    assert prof[12:] == (30.0,) * 12

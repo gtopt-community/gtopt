@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from ._numfmt import fmt_exact
 from .entities import PUMPED_STORAGE_BATTERY_SUFFIX
 from .plexos_xml import NS
 
@@ -218,6 +219,22 @@ def pattern_is_month_only(pattern: str) -> bool:
             return False
         kind = m.group(1).upper() or kind
         if kind != "M":
+            return False
+    return True
+
+
+def pattern_is_hour_only(pattern: str) -> bool:
+    """True when ``pattern`` restricts only hours (no M/W/D terms)."""
+    kind = ""
+    for raw in pattern.strip().lstrip("!").split(","):
+        term = raw.strip()
+        if not term:
+            continue
+        m = _TERM_RE.match(term)
+        if m is None:
+            return False
+        kind = m.group(1).upper() or kind
+        if kind != "H":
             return False
     return True
 
@@ -778,7 +795,7 @@ def _write_wide(
 
 
 def _fmt(v: float) -> str:
-    return f"{v:.10g}"
+    return fmt_exact(v)
 
 
 def _const(values: list[float]) -> bool:

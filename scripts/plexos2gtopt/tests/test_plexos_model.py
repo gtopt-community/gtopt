@@ -672,8 +672,9 @@ def test_pumped_storage_battery_no_lithium_self_discharge(materialised) -> None:
     """Pumped storage rewritten as a Battery pins ``annual_standing_loss = 0``.
 
     gtopt defaults every Battery without ``annual_standing_loss`` to 4 %/month
-    (lithium); the pumped-hydro Battery must not inherit it, while the
-    real BESS keeps the field absent so the default applies.
+    (lithium); no PLEXOS battery inherits it: the pumped-hydro Battery is
+    pinned at parse time, and a real BESS without a PLEXOS
+    ``Self Discharge Rate`` is written with the PLEXOS default 0.
     """
     # pylint: disable=import-outside-toplevel
     from plexos2gtopt.gtopt_writer import build_battery_array
@@ -692,5 +693,40 @@ def test_pumped_storage_battery_no_lithium_self_discharge(materialised) -> None:
     assert entries["HEAD pumped storage"]["type"] == "pumped_hydro"
     for name, entry in entries.items():
         if name != "HEAD pumped storage":
-            assert "annual_standing_loss" not in entry
+            assert entry["annual_standing_loss"] == 0.0
             assert specs[name].annual_standing_loss is None
+
+
+def test_battery_self_discharge_rate_maps_to_annual_loss(
+    materialised, monkeypatch
+) -> None:
+    """PLEXOS ``Self Discharge Rate`` [%/h] → ``r / 100 × 8760`` p.u./year."""
+    # pylint: disable=import-outside-toplevel
+    from plexos2gtopt.gtopt_writer import build_battery_array
+    from plexos2gtopt.parsers import extract_batteries
+    from plexos2gtopt.plexos_loader import PlexosBundle
+    from plexos2gtopt.plexos_xml import PlexosDb
+
+    out, _report = materialised
+    db = load_xml(out / "model.xml")
+    real = PlexosDb.static_property
+
+    def fake(self, child_class, child_object_id, property_name, **kw):
+        if child_class == "Battery" and property_name == "Self Discharge Rate":
+            return 0.01
+        return real(self, child_class, child_object_id, property_name, **kw)
+
+    monkeypatch.setattr(PlexosDb, "static_property", fake)
+    specs = {
+        b.name: b for b in extract_batteries(db, PlexosBundle(root=out, source=out))
+    }
+    bess = [b for n, b in specs.items() if n != "HEAD pumped storage"]
+    assert bess
+    for b in bess:
+        assert b.annual_standing_loss == pytest.approx(0.876)
+    assert specs["HEAD pumped storage"].annual_standing_loss == 0.0
+    entries = build_battery_array(tuple(bess))
+    assert all(e["annual_standing_loss"] == pytest.approx(0.876) for e in entries)
+    # The opt-in synthetic loss never overrides a shipped rate.
+    entries = build_battery_array(tuple(bess), apply_default_loss=True)
+    assert all(e["annual_standing_loss"] == pytest.approx(0.876) for e in entries)

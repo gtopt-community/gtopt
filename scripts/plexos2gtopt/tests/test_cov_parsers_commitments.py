@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from plexos2gtopt import parsers as P
-from plexos2gtopt.entities import GeneratorSpec, TurbineSpec
+from plexos2gtopt.entities import GeneratorSpec
 from plexos2gtopt.tests.cov_parsers_kit import DbKit, bundle
 
 _HDR = "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
@@ -101,59 +101,6 @@ def test_noload_only_generator_has_no_commitment(tmp_path: Path) -> None:
     kit.sysprop("Generator", ids["G"], "Heat Rate Base", 2.0)
     gen = _spec(ids["G"], "G", pmax=10.0, fuel_price_override=3.0)
     assert not P.extract_commitments(kit.db, bundle(tmp_path), (gen,))
-
-
-# --------------------------------------------------------------------------
-# Hydro discharge UCs
-# --------------------------------------------------------------------------
-
-
-def _bounds(rows: list[str]) -> str:
-    return "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\n" + "".join(r + "\n" for r in rows)
-
-
-def test_discharge_ucs_edges(tmp_path: Path) -> None:
-    """Bad rows, dangling / non-member / unknown-suffix constraints."""
-    kit = DbKit()
-    g1 = kit.obj("Generator", "U1")
-    g2 = kit.obj("Generator", "U2")
-    c_max = kit.obj("Constraint", "PLANTmax")
-    c_mid = kit.obj("Constraint", "PLANTmid")
-    kit.obj("Constraint", "LONEmin")
-    c_other = kit.obj("Constraint", "OTHER")
-    for g in (g1, g2):
-        kit.mem("Generator", "Constraint", g, c_max, coll_name="Constraints")
-    kit.mem("Generator", "Constraint", g1, c_mid, coll_name="Constraints")
-    kit.mem("Generator", "Constraint", g1, c_other, coll_name="Constraints")
-    kit.mem("Generator", "Constraint", g1, 9999, coll_name="Constraints")
-    csv_body = _bounds(
-        [
-            "PLANTmax,2026,1,1,1,60",
-            "PLANTmax,2026,1,2,1,70",
-            "PLANTmid,2026,1,1,1,5",
-            "LONEmin,2026,1,1,1,5",
-            "BAD,2026,1,1,1,abc",
-            "SHORT,2026",
-        ]
-    )
-    turbines = (
-        TurbineSpec(generator_name="U1", reservoir_name="R", production_factor=2.0),
-    )
-    b = bundle(tmp_path, {"Hydro_AntucoBounds.csv": csv_body})
-    (uc,) = P.extract_hydro_discharge_user_constraints(kit.db, b, turbines)
-    assert uc.name == "discharge_PLANTmax"
-    assert uc.expression.startswith('0.5 * generator("U1")')
-    assert uc.expression.endswith("<= 60")
-    assert len(uc.rhs_profile) == 48
-
-
-def test_discharge_ucs_short_circuits(tmp_path: Path) -> None:
-    """Only-bad rows -> empty; no Generator->Constraint collection -> empty."""
-    kit = DbKit()
-    b = bundle(tmp_path, {"Hydro_AntucoBounds.csv": _bounds(["X,2026,1,1,1,bad"])})
-    assert not P.extract_hydro_discharge_user_constraints(kit.db, b, ())
-    b = bundle(tmp_path, {"Hydro_AntucoBounds.csv": _bounds(["Xmax,2026,1,1,1,4"])})
-    assert not P.extract_hydro_discharge_user_constraints(kit.db, b, ())
 
 
 # --------------------------------------------------------------------------

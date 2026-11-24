@@ -16,6 +16,7 @@ import pytest
 from plexos2gtopt.entities import BundleSpec
 from plexos2gtopt.entities import GeneratorSpec, LineSpec, PlexosCase
 from plexos2gtopt.parsers import (
+    EL0_LINES_DEFAULT,
     FUEL_FAMILY_BIOGAS,
     FUEL_FAMILY_BIOMASA,
     FUEL_FAMILY_CARBON,
@@ -39,6 +40,7 @@ from plexos2gtopt.parsers import (
     extract_demands,
     extract_fuels,
     extract_generators,
+    el0_lines_mode,
     extract_lines,
     extract_nodes,
     extract_reservoirs,
@@ -619,13 +621,16 @@ def test_extract_fuels_min_offtake_week_default_penalty(
     """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
     xml_path.write_text(_build_min_offtake_xml(weekly_value=2000.0))
-    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path, n_days=7)
     db = load_xml(xml_path)
     with caplog.at_level("WARNING", logger="plexos2gtopt.parsers"):
         fuels = extract_fuels(db, bundle)
-    # n_days defaults to 7 → horizon_hours = 168 → windows_in_horizon
-    # for the weekly bucket = 168 / 168 = 1, so contribution = 2000.0
+    # 7-day bundle → horizon_hours = 168 → windows_in_horizon for the
+    # weekly bucket = 168 / 168 = 1, so contribution = 2000.0
     assert fuels[0].min_offtake == 2000.0
+    # A 1-day cut gets 1/7 of the weekly floor (not the whole week).
+    one_day = extract_fuels(db, PlexosBundle(root=tmp_path, source=tmp_path))
+    assert one_day[0].min_offtake == pytest.approx(2000.0 / 7.0)
     # PLEXOS soft-by-default → 1000 $/fuel-unit injected by the parser.
     assert fuels[0].min_offtake_cost == 1000.0
     # WARNING is emitted so the first real bundle to ship a non-zero
@@ -646,7 +651,7 @@ def test_extract_fuels_min_offtake_week_explicit_penalty(
     xml_path.write_text(
         _build_min_offtake_xml(weekly_value=2000.0, explicit_penalty=250.0)
     )
-    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path, n_days=7)
     db = load_xml(xml_path)
     fuels = extract_fuels(db, bundle)
     assert fuels[0].min_offtake == 2000.0
@@ -1484,6 +1489,26 @@ def test_extract_demands(tmp_path: Path) -> None:
     assert by_bus["bus_north"].fcost == 0.0
 
 
+def test_extract_demands_skips_non_node_total_column(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A ``total`` column (PCP 2025-02-17 bundle) is not a Node: skipped."""
+    bundle, xml_path = _build_bundle(tmp_path)
+    _write_csv(
+        tmp_path,
+        "Nod_Load.csv",
+        "YEAR,MONTH,DAY,PERIOD,bus_north,bus_south,total\n"
+        "2026,1,1,1,50,30,80\n"
+        "2026,1,1,2,55,32,87\n",
+    )
+    db = load_xml(xml_path)
+    with caplog.at_level("WARNING"):
+        demands = extract_demands(db, bundle)
+    assert {d.bus_name for d in demands} == {"bus_north", "bus_south"}
+    assert "not PLEXOS Nodes" in caplog.text
+    assert "total" in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # Per-Region VoLL → per-Demand fcost routing (literature audit #3)
 # ---------------------------------------------------------------------------
@@ -1945,6 +1970,105 @@ def test_extract_lines_el0_rating_suppresses_auto_lift(
     assert explicit.soft_cap_lifted is True
 
 
+def test_extract_lines_el0_rating_default_list_member_is_lifted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rated EL=0 line NAMED in the shipped default lift list is lifted.
+
+    The default list is the curated set of EL=0 corridors PLEXOS runs above
+    rating (``S-Km6100->Salar110`` up to 1.5×).  Strict mode must not pin
+    them to a hard cap: that congestion produced false negative LMPs at
+    Salar110 in every CEN PCP case.
+    """
+    from gtopt_shared import cli_flags
+
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_EL0_LINE_XML)
+    _write_csv(
+        tmp_path,
+        "Lin_MaxRating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\nCABLE,2026,1,1,1,1,90\n",
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    # Make CABLE a member of the shipped default list, active as the default.
+    monkeypatch.setattr(cli_flags, "DEFAULT_LIFT_LINE_CAPS_PLEXOS", "CABLE,OTHER")
+    monkeypatch.setenv("GTOPT_LIFT_LINE_CAPS", "CABLE,OTHER")
+    monkeypatch.setenv("GTOPT_EL0_LINES", "strict")
+    monkeypatch.delenv("GTOPT_NO_LIFT_LINES", raising=False)
+
+    lifted = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+    assert lifted.enforce_limits == 1
+    assert lifted.soft_cap is True
+    assert lifted.soft_cap_lifted is True
+
+
+def _el1_voltage_xml(node_kv: float) -> str:
+    """``_EL0_LINE_XML`` with HARDLINE at EL=1, node voltages and a
+    Transmission ``Constraint Voltage Threshold`` of 160 kV."""
+    extra = f"""
+  <t_class><class_id>70</class_id><name>Transmission</name></t_class>
+  <t_object><object_id>70</object_id><class_id>70</class_id><name>tx</name></t_object>
+  <t_attribute><attribute_id>7001</attribute_id><class_id>70</class_id>
+    <name>Constraint Voltage Threshold</name></t_attribute>
+  <t_attribute_data><object_id>70</object_id><attribute_id>7001</attribute_id>
+    <value>160</value></t_attribute_data>
+  <t_collection>
+    <collection_id>401</collection_id><parent_class_id>1</parent_class_id>
+    <child_class_id>22</child_class_id><name>Nodes</name>
+  </t_collection>
+  <t_property>
+    <property_id>1700</property_id><collection_id>401</collection_id>
+    <name>Voltage</name>
+  </t_property>
+  <t_membership>
+    <membership_id>960</membership_id><collection_id>401</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>10</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>961</membership_id><collection_id>401</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>11</child_object_id>
+  </t_membership>
+  <t_data><data_id>10010</data_id><membership_id>960</membership_id>
+    <property_id>1700</property_id><value>{node_kv}</value></t_data>
+  <t_data><data_id>10011</data_id><membership_id>961</membership_id>
+    <property_id>1700</property_id><value>{node_kv}</value></t_data>
+</MasterDataSet>
+"""
+    xml = _EL0_LINE_XML.replace(
+        "<property_id>1881</property_id><value>2</value>",
+        "<property_id>1881</property_id><value>1</value>",
+    )
+    return xml.replace("</MasterDataSet>\n", extra)
+
+
+@pytest.mark.parametrize(("node_kv", "unenforced"), [(110.0, True), (220.0, False)])
+def test_extract_lines_el1_below_voltage_threshold_unenforced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, node_kv: float, unenforced: bool
+) -> None:
+    """PLEXOS enforces an EL=1 line only at >= Constraint Voltage Threshold.
+
+    Under ``--el0-lines unenforced`` a 110 kV EL=1 line (threshold 160 kV,
+    e.g. Capricornio110->LaNegra110) is not enforced; a 220 kV one is.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_el1_voltage_xml(node_kv))
+    _write_csv(
+        tmp_path,
+        "Lin_MaxRating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\nHARDLINE,2026,1,1,1,1,76\n",
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    assert db.transmission_attrs["Constraint Voltage Threshold"] == 160.0
+    monkeypatch.setenv("GTOPT_EL0_LINES", "unenforced")
+    monkeypatch.delenv("GTOPT_LIFT_LINE_CAPS", raising=False)
+    monkeypatch.delenv("GTOPT_NO_LIFT_LINES", raising=False)
+    line = {ln.name: ln for ln in extract_lines(db, bundle)}["HARDLINE"]
+    assert line.unenforced is unenforced
+    assert line.enforce_limits == (0 if unenforced else 1)
+
+
 def test_warn_if_series_varies(caplog: pytest.LogCaptureFixture) -> None:
     """Structural guard: warns only on genuine variation among DEFINED periods.
 
@@ -1975,13 +2099,15 @@ def test_warn_if_series_varies(caplog: pytest.LogCaptureFixture) -> None:
     assert "G" in caplog.text
 
 
-def test_extract_lines_el0_default_strict(
+def test_extract_lines_el0_default_unenforced(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The DEFAULT EL=0 mode is ``strict`` — a plain hard cap.
+    """The DEFAULT EL=0 mode is ``unenforced`` — PLEXOS semantics.
 
-    With no ``GTOPT_EL0_LINES`` / list env set, an EL=0 line is hard-capped
-    (``enforce_limits=2``, ``soft_cap=False``) at its rating; only lines named
+    With no ``GTOPT_EL0_LINES`` / list env set, an EL=0 line keeps EL=0 and
+    is flagged ``unenforced`` (the writer emits a non-binding cap): PLEXOS
+    never enforces an EL=0 rating.  The opt-in ``enforced`` (alias
+    ``strict``) mode hard-caps it at the rating instead, and only lines named
     in ``--lift-line-caps`` get the soft over-rating band.
     """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
@@ -2003,20 +2129,56 @@ def test_extract_lines_el0_default_strict(
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)
     db = load_xml(xml_path)
 
-    # Clean slate: no mode, no lists → default strict.
+    # Clean slate: no mode, no lists → default unenforced.
     monkeypatch.delenv("GTOPT_EL0_LINES", raising=False)
     monkeypatch.delenv("GTOPT_LIFT_LINE_CAPS", raising=False)
     monkeypatch.delenv("GTOPT_NO_LIFT_LINES", raising=False)
-    strict = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
-    assert strict.enforce_limits == 2  # EL=0 → hard cap by default
-    assert strict.soft_cap is False
+    default = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+    assert default.unenforced is True
+    assert default.enforce_limits == 0
+    assert default.soft_cap is False
+    assert default.tmax_ab == 90.0
 
-    # A line in the lift list IS lifted to a soft cap, overriding strict.
-    monkeypatch.setenv("GTOPT_LIFT_LINE_CAPS", "CABLE")
-    lifted = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
-    assert lifted.enforce_limits == 1
-    assert lifted.soft_cap is True
-    assert lifted.soft_cap_lifted is True
+    for mode in ("enforced", "strict"):
+        monkeypatch.setenv("GTOPT_EL0_LINES", mode)
+        monkeypatch.delenv("GTOPT_LIFT_LINE_CAPS", raising=False)
+        strict = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+        assert strict.unenforced is False
+        assert strict.enforce_limits == 2  # EL=0 → hard cap when opted in
+        assert strict.soft_cap is False
+
+        # A line in the lift list IS lifted to a soft cap, overriding strict.
+        monkeypatch.setenv("GTOPT_LIFT_LINE_CAPS", "CABLE")
+        lifted = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+        assert lifted.enforce_limits == 1
+        assert lifted.soft_cap is True
+        assert lifted.soft_cap_lifted is True
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, "unenforced"),
+        ("", "unenforced"),
+        ("unenforced", "unenforced"),
+        ("Enforced", "strict"),
+        (" strict ", "strict"),
+        ("extended", "extended"),
+        ("bogus", "unenforced"),
+    ],
+)
+def test_el0_lines_mode_resolution(
+    monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: str
+) -> None:
+    """``el0_lines_mode`` reads the env, normalises ``enforced`` → ``strict``
+    and falls back to the PLEXOS-mirroring default."""
+    if raw is None:
+        monkeypatch.delenv("GTOPT_EL0_LINES", raising=False)
+    else:
+        monkeypatch.setenv("GTOPT_EL0_LINES", raw)
+    assert el0_lines_mode() == expected
+    assert el0_lines_mode("enforced") == "strict"
+    assert EL0_LINES_DEFAULT == "unenforced"
 
 
 # ---------------------------------------------------------------------------
@@ -2517,6 +2679,128 @@ def test_extract_reservoirs_finite_water_value_is_passthrough(tmp_path: Path) ->
     assert res.water_value == 10000.0
 
 
+_STORAGE_DUP_INI_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>8</class_id><name>Storage</name></t_class>
+  <t_object>
+    <object_id>1</object_id><class_id>1</class_id><name>SEN</name>
+  </t_object>
+  <t_object>
+    <object_id>30</object_id><class_id>8</class_id><name>BAT_X</name>
+  </t_object>
+  <t_collection>
+    <collection_id>93</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>8</child_class_id>
+    <name>Storages</name>
+  </t_collection>
+  <t_property>
+    <property_id>201</property_id><collection_id>93</collection_id>
+    <name>Initial Volume</name>
+  </t_property>
+  <t_property>
+    <property_id>202</property_id><collection_id>93</collection_id>
+    <name>Min Volume</name>
+  </t_property>
+  <t_property>
+    <property_id>203</property_id><collection_id>93</collection_id>
+    <name>Max Volume</name>
+  </t_property>
+  <t_membership>
+    <membership_id>520</membership_id>
+    <collection_id>93</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>30</child_object_id>
+  </t_membership>
+  <t_data><data_id>1</data_id><membership_id>520</membership_id>
+    <property_id>201</property_id><value>0.06182</value></t_data>
+  <t_data><data_id>2</data_id><membership_id>520</membership_id>
+    <property_id>201</property_id><value>0.6182</value></t_data>
+  <t_data><data_id>3</data_id><membership_id>520</membership_id>
+    <property_id>202</property_id><value>0.6182</value></t_data>
+  <t_data><data_id>4</data_id><membership_id>520</membership_id>
+    <property_id>203</property_id><value>2.6182</value></t_data>
+</MasterDataSet>
+"""
+
+
+@pytest.mark.parametrize("with_csv", [True, False])
+def test_extract_reservoirs_hydro_bess_eini_from_bess_inivalue(
+    tmp_path: Path, with_csv: bool
+) -> None:
+    """A hydro-emulated BESS Storage takes eini from ``BESS_IniValue.csv``.
+
+    The XML carries two ``Initial Volume`` rows (BAT_ARICA in the CEN PCP
+    2025 bundles: 0.06182 and 0.6182); the lowest data_id one is below Min
+    Volume and made the LP infeasible.  PLEXOS uses the CSV value.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_STORAGE_DUP_INI_XML)
+    if with_csv:
+        _write_csv(
+            tmp_path,
+            "BESS_IniValue.csv",
+            "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\nBAT_X,2025,4,27,1,0.6182\n",
+        )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    res = {r.name: r for r in extract_reservoirs(db, bundle)}["BAT_X"]
+    assert res.eini == pytest.approx(0.6182 if with_csv else 0.06182)
+
+
+def test_extract_reservoirs_hourly_min_volume_data_file_overrides_static(
+    tmp_path: Path,
+) -> None:
+    """Hourly mode (no block layout): Hydro_MinVolume.csv overrides Min Volume.
+
+    Regression (POLCURA, PCP 2024-10-03): static Min Volume 3.998, CSV Min
+    2.221 and CSV Max 3.814.  Only the Max Data File was applied, so the
+    storage got emin 3.998 > emax 3.814 (empty domain, infeasible LP).
+    PLEXOS solved with min 2.221 / max 3.814.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_STORAGE_DUP_INI_XML)  # static Min 0.6182, Max 2.6182
+
+    def wide(v: float) -> str:
+        rows = "".join(f"2024,10,3,{h},{v}\n" for h in range(1, 25))
+        return "YEAR,MONTH,DAY,PERIOD,BAT_X\n" + rows
+
+    _write_csv(tmp_path, "Hydro_MinVolume.csv", wide(0.35))
+    _write_csv(tmp_path, "Hydro_MaxVolume.csv", wide(0.5))
+    _write_csv(
+        tmp_path,
+        "Hydro_InitialVolume.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\nBAT_X,2024,10,3,1,0.45\n",
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    assert not getattr(bundle, "block_layout", ())
+    db = load_xml(xml_path)
+    res = {r.name: r for r in extract_reservoirs(db, bundle)}["BAT_X"]
+    assert res.emax == pytest.approx(0.5)
+    assert res.emin == pytest.approx(0.35)
+    assert res.emin <= res.emax
+    assert res.eini == pytest.approx(0.45)
+
+
+def test_extract_reservoirs_zero_min_volume_data_file_means_zero(
+    tmp_path: Path,
+) -> None:
+    """A Hydro_MinVolume.csv column of zeros is Min Volume 0, not "no data".
+
+    Regression (ELTORO, PCP 2024-10-03): CSV 0, static Min Volume 3031;
+    PLEXOS solved with min_volume 0 but the converter fell back to 3031.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_STORAGE_DUP_INI_XML)  # static Min 0.6182
+    rows = "".join(f"2024,10,3,{h},0\n" for h in range(1, 25))
+    _write_csv(tmp_path, "Hydro_MinVolume.csv", "YEAR,MONTH,DAY,PERIOD,BAT_X\n" + rows)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    res = {r.name: r for r in extract_reservoirs(db, bundle)}["BAT_X"]
+    assert res.emin == 0.0
+
+
 def test_build_plant_cap_ucs_uniq_mutex_group_config_exclusivity() -> None:
     """F1: a PLEXOS ``*_Uniq`` mutex group caps Σ over ALL config × band
     variants of one physical plant at the largest config's pmax (config
@@ -2547,7 +2831,7 @@ def test_build_plant_cap_ucs_uniq_mutex_group_config_exclusivity() -> None:
     expr = by_name["PlantCap_P"].expression
     for n in ("P-TG_GN_A", "P-TG_GN_B", "P-TG+TV_GN_A", "P-TG+TV_GN_B"):
         assert f'generator("{n}").generation' in expr
-    assert expr.endswith("<= 250.000000")
+    assert expr.endswith("<= 250")
 
     # The P variants are capped by exactly ONE UC (no fuel-band double-cap).
     assert sum(1 for u in ucs if "P-TG_GN_A" in u.expression) == 1
@@ -2562,7 +2846,7 @@ def test_build_plant_cap_ucs_uniq_mutex_group_config_exclusivity() -> None:
 
     # Plant Q (no _Uniq) still gets a fuel-band fallback cap at its pmax 50.
     assert "PlantCap_Q" in by_name
-    assert by_name["PlantCap_Q"].expression.endswith("<= 50.000000")
+    assert by_name["PlantCap_Q"].expression.endswith("<= 50")
 
 
 def test_build_plant_cap_ucs_no_mutex_falls_back_to_fuel_bands() -> None:
@@ -3423,3 +3707,36 @@ def test_sos2_policy_empty_stamp_set_returns_input() -> None:
     for ln in out:
         assert ln.loss_use_sos2 is False
         assert ln.loss_secant_segments == 0
+
+
+def test_extract_lines_el0_unenforced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--el0-lines unenforced``: an EL=0 line keeps EL=0, no soft cap.
+
+    PLEXOS never enforces an EL=0 Max Flow, so the line is flagged
+    ``unenforced`` (the writer emits a non-binding cap) whatever the lift
+    lists say; only ``--no-lift-lines`` still pins it to a hard cap.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_EL0_LINE_XML)
+    _write_csv(
+        tmp_path,
+        "Lin_MaxRating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\nCABLE,2026,1,1,1,1,90\n",
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    monkeypatch.setenv("GTOPT_EL0_LINES", "unenforced")
+    monkeypatch.setenv("GTOPT_LIFT_LINE_CAPS", "CABLE")
+    monkeypatch.delenv("GTOPT_NO_LIFT_LINES", raising=False)
+    line = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+    assert line.unenforced is True
+    assert line.enforce_limits == 0
+    assert line.soft_cap is False
+    assert line.tmax_ab == 90.0
+
+    monkeypatch.setenv("GTOPT_NO_LIFT_LINES", "CABLE")
+    pinned = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+    assert pinned.unenforced is False
+    assert pinned.enforce_limits == 2

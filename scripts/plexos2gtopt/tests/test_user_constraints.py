@@ -255,10 +255,32 @@ def test_extract_user_constraints_corridor_le(tmp_path: Path) -> None:
     assert 'line("L1").flow' in expr
     assert 'battery("B1").charge' in expr  # from Load Coefficient
     assert 'battery("B1").discharge' in expr  # from Generation Coefficient
-    # No explicit Penalty Price in XML; the code's soft-default
-    # ($10/MWh) applies because the constraint references generator
-    # and battery terms (not pure line flow or commitment refs).
-    assert by_name["CORRIDOR_LE"].penalty == 10.0
+    # No explicit Penalty Price in XML ⇒ HARD (PLEXOS semantics).
+    assert by_name["CORRIDOR_LE"].penalty == 0.0
+
+
+def test_extract_user_constraints_soft_unpenalised_opt_in(
+    tmp_path: Path,
+) -> None:
+    """``--soft-unpenalised-constraints P`` re-softens rows without a
+    Penalty Price at P; rows with one keep their PLEXOS price."""
+    bundle, xml_path = _build_bundle(tmp_path)
+    db = load_xml(xml_path)
+    stats: dict[str, int] = {}
+    hard = {c.name: c for c in extract_user_constraints(db, bundle, stats_out=stats)}
+    assert hard["CORRIDOR_LE"].penalty == 0.0
+    assert hard["HARD_EQ"].penalty == 100.0
+    assert stats["unpenalised_hard"] >= 1
+    soft_stats: dict[str, int] = {}
+    soft = {
+        c.name: c
+        for c in extract_user_constraints(
+            db, bundle, soft_unpenalised=10000.0, stats_out=soft_stats
+        )
+    }
+    assert soft["CORRIDOR_LE"].penalty == 10000.0
+    assert soft["HARD_EQ"].penalty == 100.0
+    assert soft_stats["unpenalised_hard"] == 0
 
 
 def test_extract_user_constraints_materialised_model_is_hard(
@@ -1021,7 +1043,7 @@ def test_extract_user_constraints_battery_reserve_units_forwards_to_gen_commit(
     assert "BATT_RU" in by_name
     expr = by_name["BATT_RU"].expression
     # Forwarded onto the synthetic generator's Commitment status.
-    assert 'commitment("uc_bess_a_gen").status' in expr
+    assert 'decision_variable("reserve_units_bess_a_gen").value' in expr
     # No direct battery("…") term lands on the LHS.
     assert 'battery("bess_a")' not in expr
     # Sense=-1 → "<="; RHS=1.
@@ -1063,7 +1085,7 @@ def test_battery_units_term_survives_with_emitted_names_no_commitment_spec(
     assert "BATT_RU" in by_name
     expr = by_name["BATT_RU"].expression
     # The forwarded battery-commitment term survives validation.
-    assert 'commitment("uc_bess_a_gen").status' in expr
+    assert 'decision_variable("reserve_units_bess_a_gen").value' in expr
     assert expr.endswith("<= 1")
 
 
@@ -1566,7 +1588,7 @@ def test_extract_user_constraints_battery_commitment_recognized_with_allow(
     by_name = {c.name: c for c in out}
     assert "BATT_RU" in by_name
     expr = by_name["BATT_RU"].expression
-    assert 'commitment("uc_bess_a_gen").status' in expr
+    assert 'decision_variable("reserve_units_bess_a_gen").value' in expr
 
 
 def test_reserve_provision_writer_emits_provision_factor_and_max() -> None:
@@ -1686,11 +1708,10 @@ def test_extract_user_constraints_rhs_custom_transform(tmp_path: Path) -> None:
     desc = spec.description
     assert "consolidated" in desc.lower()
     assert "(File: DBSEN_PRGDIARIO.xml)" in desc or "PLEXOS" in desc
-    # Soft at $1000/MWh — same tier as reserve_provision_sum.  PLEXOS
-    # treats these caps as soft, so going genuinely hard would risk
-    # presolve infeasibility from the internal-Big-M PLEXOS uses but we
-    # cannot reproduce.
-    assert spec.penalty == 1000.0
+    # No PLEXOS Penalty Price ⇒ HARD by default (PLEXOS semantics); the
+    # old $1000 soft tier is only reachable via
+    # ``--soft-unpenalised-constraints``.
+    assert spec.penalty == 0.0
     # Step 4b (#54): typed ``daily_budget`` directive carries the
     # constraint-family classification + the PLEXOS fuel-owner scope.
     # The directive is what any downstream JSON consumer / gtopt-side
@@ -2695,3 +2716,114 @@ class TestBuildUserConstraintArraySlackName:
         assert all(c.isalnum() or c == "_" for c in slack), (
             f"slack_name must be a valid identifier: {slack!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Storage ``End Volume Coefficient`` → per-block reservoir volume
+# ---------------------------------------------------------------------------
+
+_STORAGE_XML = _UC_XML.replace(
+    "  <t_class><class_id>70</class_id><name>Constraint</name></t_class>",
+    "  <t_class><class_id>70</class_id><name>Constraint</name></t_class>\n"
+    "  <t_class><class_id>80</class_id><name>Storage</name></t_class>",
+).replace(
+    "</MasterDataSet>",
+    """  <t_object><object_id>50</object_id><class_id>80</class_id><name>RES1</name></t_object>
+  <t_object><object_id>103</object_id><class_id>70</class_id><name>CFRS_X</name></t_object>
+  <t_collection>
+    <collection_id>810</collection_id>
+    <parent_class_id>80</parent_class_id>
+    <child_class_id>70</child_class_id>
+    <name>Constraints</name>
+  </t_collection>
+  <t_property>
+    <property_id>8101</property_id><collection_id>810</collection_id>
+    <name>End Volume Coefficient</name>
+  </t_property>
+  <t_membership>
+    <membership_id>700004</membership_id><collection_id>700</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>103</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>810001</membership_id><collection_id>810</collection_id>
+    <parent_object_id>50</parent_object_id><child_object_id>103</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>32004</membership_id><collection_id>32</collection_id>
+    <parent_object_id>20</parent_object_id><child_object_id>103</child_object_id>
+  </t_membership>
+  <t_data>
+    <data_id>10008</data_id><membership_id>700004</membership_id>
+    <property_id>4369</property_id><value>-1</value>
+  </t_data>
+  <t_data>
+    <data_id>10009</data_id><membership_id>700004</membership_id>
+    <property_id>4384</property_id><value>5714.41</value>
+  </t_data>
+  <t_data>
+    <data_id>20007</data_id><membership_id>810001</membership_id>
+    <property_id>8101</property_id><value>29.53</value>
+  </t_data>
+  <t_data>
+    <data_id>20008</data_id><membership_id>32004</membership_id>
+    <property_id>393</property_id><value>-3.73</value>
+  </t_data>
+</MasterDataSet>""",
+)
+
+
+def test_storage_end_volume_maps_to_per_block_volume(tmp_path: Path) -> None:
+    """PLEXOS ``End Volume Coefficient`` is the end-of-PERIOD volume: it
+    must become the per-block ``reservoir(...).volume`` column, never the
+    horizon-final ``efin`` (every hourly row would then constrain the
+    day-end volume -- the CFRS_COLBUN 2026-04-22 infeasibility)."""
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_STORAGE_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    by_name = {c.name: c for c in extract_user_constraints(load_xml(xml_path), bundle)}
+    expr = by_name["CFRS_X"].expression
+    assert '29.53 * reservoir("RES1").volume' in expr
+    assert ".efin" not in expr
+    assert '-3.73 * generator("G1").generation' in expr
+    assert expr.endswith("<= 5714.41")
+
+
+_PROV_KINDS = (
+    (3931, "Raise Reserve Provision Coefficient"),
+    (3932, "Regulation Raise Reserve Provision Coefficient"),
+    (3933, "Replacement Reserve Provision Coefficient"),
+)
+_DUP_PROV_XML = _UC_XML.replace(
+    "  <!-- Properties on Line→Constraints -->",
+    "".join(
+        f"  <t_property><property_id>{pid}</property_id>"
+        f"<collection_id>32</collection_id><name>{name}</name></t_property>\n"
+        for pid, name in _PROV_KINDS
+    )
+    + "  <!-- Properties on Line→Constraints -->",
+).replace(
+    "</MasterDataSet>",
+    "".join(
+        f"  <t_data><data_id>{30000 + i}</data_id><membership_id>32001"
+        f"</membership_id><property_id>{pid}</property_id><value>1</value>"
+        "</t_data>\n"
+        for i, (pid, _) in enumerate(_PROV_KINDS)
+    )
+    + "</MasterDataSet>",
+)
+
+
+def test_generator_provision_kinds_collapse_to_one_term(tmp_path: Path) -> None:
+    """Raise + Regulation Raise + Replacement coefficients of one generator
+    all address the same aggregate ``provision_<gen>.up`` column: PLEXOS
+    counts the unit's raise provision ONCE (CFRS_COLBUN 2026-04-22), so the
+    term is emitted once with its coefficient, not three times."""
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_DUP_PROV_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    stats: dict[str, int] = {}
+    out = extract_user_constraints(load_xml(xml_path), bundle, stats_out=stats)
+    expr = {c.name: c for c in out}["CORRIDOR_LE"].expression
+    assert expr.count('reserve_provision("provision_G1").up') == 1
+    assert '1 * reserve_provision("provision_G1").up' in expr
+    assert stats["dup_provision_terms"] == 2

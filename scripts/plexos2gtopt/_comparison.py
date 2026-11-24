@@ -26,7 +26,7 @@ from typing import Any
 from gtopt_check_json._info import SystemCounts
 from gtopt_shared.json_utils import strip_internal_keys
 
-from .entities import PlexosCase, generator_has_fuel_cost
+from .entities import PlexosCase, fuel_transport_per_mwh, generator_has_fuel_cost
 from .uc_families import UC_FAMILY_ORDER, uc_family
 
 logger = logging.getLogger(__name__)
@@ -447,7 +447,7 @@ def _plexos_indicators(case: PlexosCase) -> dict[str, float]:
     heat_rates: list[float] = []
     for g in case.generators:
         hr = g.heat_rate
-        base = g.vom_charge + g.fuel_transport
+        base = g.vom_charge + fuel_transport_per_mwh(g)
         has_fuel = bool(g.fuel_names) or g.fuel_price_override > 0.0
         if has_fuel and hr > 0.0:
             price = (

@@ -94,7 +94,7 @@ parser auto-discovers Line / Reserve / Constraint by walking
 | `Gen_FixedLoad.csv` | per-unit must-run | `Generator.pmin_factor` |
 | `Gen_FuelTransportCharge.csv` | per-unit fuel transport adder | folded into `gcost` |
 | `Gen_UnitsOut.csv` | forced-outage schedule | `Generator.pmax_factor` |
-| `Gen_IniGeneration.csv` | initial dispatch | `Generator.pini` |
+| `Gen_IniGeneration.csv` | initial dispatch | `Generator.initial_generation` (raw) |
 | `Gen_IniHoursUp/Down.csv` | initial commitment status | `Commitment.initial_hours` / `initial_status` |
 | `Gen_IniUnits.csv` | initial number of units online | `Generator.uini` |
 | `Gen_Commit.csv` | commitment override | `Commitment.must_run` |

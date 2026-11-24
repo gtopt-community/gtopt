@@ -135,8 +135,14 @@ def _ccase(tmp_path: Path) -> tuple[Path, Path]:
     return _make_ccase(tmp_path)
 
 
-def _make_ccase(tmp_path: Path, gt_aux: float = 0.0) -> tuple[Path, Path]:
-    """Write the synthetic model; ``gt_aux`` = GT1 ``Aux Incr`` [%]."""
+def _make_ccase(
+    tmp_path: Path, gt_aux: float = 0.0, odp_aug: bool = False
+) -> tuple[Path, Path]:
+    """Write the synthetic model; ``gt_aux`` = GT1 ``Aux Incr`` [%].
+
+    ``odp_aug`` adds two network augmentations to ``ExportLimit_S1``: a
+    discrete ``S1 Option 1`` (10 MW) and a linear one (up to 200 MW).
+    """
     x = _CXml()
     nth = x.obj("Node", "NTH")
     sth = x.obj("Node", "STH")
@@ -186,6 +192,19 @@ def _make_ccase(tmp_path: Path, gt_aux: float = 0.0) -> tuple[Path, Path]:
     rez = _constraint(x, "ExportLimit_S1", "REZ Network Export Constraints", RHS=50)
     x.data("Constraint", rez, "RHS", 60, tags=(summer,))
     x.coef("Generator", wind, rez, "Generation Coefficient", 1.0)
+    if odp_aug:
+        for aname, mub in (("S1_S1 Option 1", 10), ("S1_Linear Augmentation 1", 200)):
+            aug = x.cobj("Generator", aname, "Network Augmentation Single REZ")
+            x.data("Generator", aug, "Units", 0)
+            x.data("Generator", aug, "Max Capacity", 1)
+            x.data(
+                "Generator",
+                aug,
+                "Max Units Built",
+                mub,
+                date_from="2026-07-01T00:00:00",
+            )
+            x.coef("Generator", aug, rez, "Installed Capacity Coefficient", -1.0)
     # group constraint, soft, dated RHS: GT1 + flow ≤ 120 from 2027
     grp = _constraint(x, "Group1", "Group Constraints", sense=-1, penalty=500)
     x.data("Constraint", grp, "RHS", 999, date_from="2025-07-01T00:00:00")

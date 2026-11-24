@@ -309,6 +309,38 @@ def test_el0_strict_acts_like_el2_hard_cap() -> None:
     assert "enforce_level" not in out[0]  # EL=2 is the schema default
 
 
+def test_el0_unenforced_non_binding_cap() -> None:
+    """--el0-lines unenforced: 10x rating cap, no band, no penalty.
+
+    The loss envelope stays at the rating so the loss PWL keeps its
+    resolution over the real loading band.
+    """
+    from plexos2gtopt.gtopt_writer import _LINE_UNENFORCED_FACTOR
+
+    lines = (
+        LineSpec(
+            object_id=5,
+            name="el0_free",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=29.0,
+            tmin_ab=-20.0,
+            units=1,
+            resistance=0.01,
+            reactance=0.05,
+            enforce_limits=0,
+            unenforced=True,
+        ),
+    )
+    out = build_line_array(lines)[0]
+    assert out["tmax_ab"] == 29.0 * _LINE_UNENFORCED_FACTOR
+    assert out["tmax_ba"] == 20.0 * _LINE_UNENFORCED_FACTOR
+    assert out["loss_envelope"] == 29.0
+    assert "tmax_normal_ab" not in out
+    assert "overload_penalty" not in out
+    assert out["enforce_level"] == 0
+
+
 def test_battery_emits_efficiency_and_power() -> None:
     """P2: build_battery_array writes pmax_charge / input_efficiency."""
     batts = (
@@ -782,7 +814,8 @@ def test_thermal_generator_emits_fuel_fk_for_offtake_cap_binding() -> None:
     assert gen_out[0]["fuel"] == "Gas_Quintero_A"
     assert gen_out[0]["heat_rate"] == 2.0
     # Non-fuel cost only.
-    assert gen_out[0]["gcost"] == 1.5 + 0.3
+    # transport is $/fuel-unit: 0.3 × heat_rate 2.0 = 0.6 $/MWh.
+    assert gen_out[0]["gcost"] == pytest.approx(1.5 + 0.3 * 2.0)
     # Fuel side ships the cap; gtopt will sum the heat_rate-weighted
     # generation across this gen (and any others with the same fuel)
     # and bound by `max_offtake`.
@@ -834,7 +867,8 @@ def test_generator_with_fuel_but_zero_heat_rate_still_emits_fk() -> None:
     # gcost is the non-fuel part only — when heat_rate is unset,
     # gtopt's ``primary_slope_cost_at`` (generator_lp.cpp:151-154)
     # collapses to just gcost, so no double-counting risk.
-    assert entry["gcost"] == 2.0 + 0.5
+    # No fuel burnt (heat_rate 0) → no fuel transport cost.
+    assert entry["gcost"] == pytest.approx(2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -932,6 +966,54 @@ def test_build_line_array_dlr_emits_matrix_and_loss_mode() -> None:
     # Default layout (post-2026-05) is `midpoint` (de-biased secant);
     # emitted only when non-`uniform` so the JSON stays minimal.
     assert out[0].get("loss_pwl_layout") == "midpoint"
+
+
+def test_build_line_array_lossless_transformer_gets_pu_voltage() -> None:
+    """A lossless line (PLEXOS ``Resistance 0``) with a per-unit
+    ``Reactance`` still gets ``voltage = √S_base = 10``.
+
+    Regression for the CEN PCP transformers (``Capricorn220->Capricorn110``
+    X = 0.129 p.u., R = 0): without the anchor gtopt read V = 1 and used
+    x = X/V² = 0.129 instead of 0.00129 — a 100× too-weak susceptance.
+    The effective ``x`` must match a lossy line on the same base.
+    """
+    lines = (
+        LineSpec(
+            object_id=1,
+            name="xfmr",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=600.0,
+            reactance=0.129,
+        ),
+        LineSpec(
+            object_id=2,
+            name="line",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=300.0,
+            reactance=0.0136,
+            resistance=0.0027,
+        ),
+        LineSpec(
+            object_id=3,
+            name="dc_link",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=100.0,
+        ),
+    )
+    out = build_line_array(lines, line_losses_mode="piecewise")
+    assert len(out) == 3
+    xfmr, line, dc_link = out[0], out[1], out[2]
+    assert "resistance" not in xfmr
+    assert xfmr["voltage"] == 10.0
+    assert xfmr["reactance"] / xfmr["voltage"] ** 2 == pytest.approx(1.29e-3)
+    assert line["voltage"] == 10.0
+    assert line["reactance"] / line["voltage"] ** 2 == pytest.approx(1.36e-4)
+    # No impedance at all (DC transport link): no reactance, no voltage.
+    assert "reactance" not in dc_link
+    assert "voltage" not in dc_link
 
 
 def test_build_line_array_constant_profile_keeps_scalar_tmax() -> None:
@@ -1393,14 +1475,13 @@ def test_generator_no_fixed_load_omits_zero_pmin() -> None:
     assert "pmin" not in out[0]
 
 
-def test_generator_initial_generation_not_emitted_to_json() -> None:
-    """``GeneratorSpec.initial_generation`` is captured for downstream
-    diagnostic tooling but intentionally NOT emitted to the gtopt
-    JSON: the Generator schema has no ``initial_generation`` field
-    yet (rolling-horizon state continuity is a follow-up), and
-    emitting an unknown member trips daw::json's strict reader.
-    Pin the omission so a future refactor doesn't accidentally
-    re-introduce the strict-reader regression.
+def test_generator_initial_generation_emitted_to_json() -> None:
+    """``GeneratorSpec.initial_generation`` (PLEXOS ``Initial Generation``)
+    is emitted RAW as ``Generator.initial_generation``: gtopt reads it as
+    ``generation_prev`` at the first horizon block, so PLEXOS hard ramp
+    user constraints are feasible at h1.  The value is not trimmed like
+    ``Commitment.initial_power`` (no fixed-load override, no pmax cap).
+    A zero value is omitted (0 is the gtopt default).
     """
     gens = (
         GeneratorSpec(
@@ -1408,11 +1489,19 @@ def test_generator_initial_generation_not_emitted_to_json() -> None:
             name="warm_start_diag",
             bus_name="bus_a",
             pmax=100.0,
-            initial_generation=42.5,
+            initial_generation=142.5,
+        ),
+        GeneratorSpec(
+            object_id=14,
+            name="cold",
+            bus_name="bus_a",
+            pmax=100.0,
+            initial_generation=0.0,
         ),
     )
     out = build_generator_array(gens, fuels=())
-    assert "initial_generation" not in out[0]
+    assert out[0]["initial_generation"] == 142.5
+    assert "initial_generation" not in out[1]
 
 
 def test_commitment_initial_power_emitted_when_nonzero() -> None:
@@ -1926,9 +2015,11 @@ def test_scalar_path_cost_decomposition_invariant(heat_rate: float) -> None:
     # gcost is the non-fuel part only — NEVER pre-bakes ``heat_rate ×
     # fuel.price`` regardless of the heat_rate value.  This is the
     # decomposition invariant the test exists to lock down.
-    assert entry["gcost"] == pytest.approx(vom_charge + fuel_transport), (
+    # Fuel transport is a $/fuel-unit price adder → × heat_rate.
+    expected = vom_charge + fuel_transport * heat_rate
+    assert entry["gcost"] == pytest.approx(expected), (
         f"gcost must be non-fuel only at heat_rate={heat_rate}; "
-        f"got {entry['gcost']}, expected {vom_charge + fuel_transport}"
+        f"got {entry['gcost']}, expected {expected}"
     )
     # heat_rate emitted iff > 0 (zero is omitted as redundant noise).
     if heat_rate > 0.0:
@@ -1941,3 +2032,30 @@ def test_scalar_path_cost_decomposition_invariant(heat_rate: float) -> None:
         assert "heat_rate" not in entry, (
             "heat_rate must be omitted when == 0 (gap-#1 contract)"
         )
+
+
+def test_fuel_transport_is_a_fuel_price_adder() -> None:
+    """PLEXOS ``Transport Charge`` is $/fuel-unit and scales with heat rate.
+
+    CEN PCP 2025-11-09 RES, NUEVA_RENCA-TG+TV_GN_A: PLEXOS reports
+    SRMC 44.65 = 226.43458·0.188102803 + 3.034 + (−5.19192)·0.188102803.
+    Adding the charge as $/MWh would give 40.44.
+    """
+    from plexos2gtopt.entities import fuel_transport_per_mwh
+
+    hr, price, vom, tc = 0.188102803, 226.43458, 3.034, -5.19192
+    gen = GeneratorSpec(
+        object_id=1,
+        name="NUEVA_RENCA-TG+TV_GN_A",
+        bus_name="Renca110",
+        pmax=320.0,
+        heat_rate=hr,
+        vom_charge=vom,
+        fuel_transport=tc,
+        fuel_names=("Gas_NuevaRenca_GN_A",),
+    )
+    assert fuel_transport_per_mwh(gen) == pytest.approx(tc * hr)
+    entry = build_generator_array(
+        (gen,), (FuelSpec(object_id=2, name="Gas_NuevaRenca_GN_A", price=price),)
+    )[0]
+    assert price * entry["heat_rate"] + entry["gcost"] == pytest.approx(44.65, abs=0.01)
