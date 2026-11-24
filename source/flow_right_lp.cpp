@@ -51,38 +51,22 @@ namespace gtopt
 namespace
 {
 
-/// LP time-resolution mode for a FlowRight, resolved from the
-/// `flow_mode` JSON field (with `use_average` as legacy alias).
-enum class FlowMode : std::uint8_t
-{
-  per_block,  ///< Per-block flow column, per-block kink.
-  stage_average,  ///< Per-block flow column + stage qeh column; kink on qeh.
-  stage_uniform,  ///< Single stage qeh column, used in every block balance.
-};
+using FlowMode = FlowRightMode;
 
-/// Resolve the FlowMode from the JSON fields.  Explicit `flow_mode`
-/// always wins; falls back to the legacy `use_average` boolean
-/// (`true` → `stage_average`, `false` → `per_block`); unknown strings
-/// log a warning and fall back to the legacy path.
+/// Resolve the FlowMode once, at construction.  An unknown explicit
+/// `flow_mode` is a validate_planning error; when validation is bypassed
+/// the LP keeps the historical fallback (legacy `use_average` /
+/// per_block) with one warning.
 [[nodiscard]] FlowMode resolve_flow_mode(const FlowRight& fr)
 {
-  if (fr.flow_mode.has_value()) {
-    const auto& m = *fr.flow_mode;
-    if (m == "per_block") {
-      return FlowMode::per_block;
-    }
-    if (m == "stage_average") {
-      return FlowMode::stage_average;
-    }
-    if (m == "stage_uniform") {
-      return FlowMode::stage_uniform;
-    }
-    SPDLOG_WARN(
-        "FlowRight uid={}: unknown flow_mode '{}'; falling back "
-        "to use_average / per_block",
-        fr.uid,
-        m);
+  if (const auto mode = fr.flow_mode_enum()) {
+    return *mode;
   }
+  SPDLOG_WARN(
+      "FlowRight uid={}: unknown flow_mode '{}'; falling back "
+      "to use_average / per_block",
+      fr.uid,
+      fr.flow_mode.value_or(""));
   return fr.use_average.value_or(false) ? FlowMode::stage_average
                                         : FlowMode::per_block;
 }
@@ -365,6 +349,7 @@ FlowRightLP::FlowRightLP(const FlowRight& pflow, const InputContext& ic)
     , fcost(ic, Element::class_name, id(), std::move(flow_right().fcost))
     , uvalue_sched(
           ic, Element::class_name, id(), std::move(flow_right().uvalue))
+    , m_flow_mode_(resolve_flow_mode(flow_right()))
 {
 }
 
@@ -482,7 +467,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   };
 
   // Resolve the time-resolution mode (see `FlowMode` doc).
-  const auto mode = resolve_flow_mode(flow_right());
+  const auto mode = m_flow_mode_;
   const bool emit_block_flow = (mode != FlowMode::stage_uniform);
   const bool emit_stage_qeh = (mode != FlowMode::per_block);
   const bool block_kink_active = (mode == FlowMode::per_block);
@@ -1193,7 +1178,7 @@ int FlowRightLP::update_lp(SystemLP& sys,
   // reload while `state.current_bound` survives (see
   // reservoir_discharge_limit_lp.cpp::update_lp).
   int total = 0;
-  const auto mode = resolve_flow_mode(flow_right());
+  const auto mode = m_flow_mode_;
   const bool re_clamp_blocks = (mode != FlowMode::stage_uniform);
   const bool re_clamp_qeh = (mode != FlowMode::per_block);
 

@@ -20,6 +20,7 @@
 #include <gtopt/gas_pipe_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
@@ -250,6 +251,19 @@ bool GasPipeLP::add_to_lp(SystemContext& sc,
         0.25
         * (node_a.pmin_at(stage_uid) + pmax_a + node_b.pmin_at(stage_uid)
            + pmax_b));
+    // P0-13: pr = 0 (nodes without pmax / pmin and no explicit
+    // linepack_pressure_ref) would put c / 0 = inf in the matrix.
+    if (!(pr > 0.0)) {
+      fail_lp(*this,
+              scenario,
+              stage,
+              {
+                  .field = "linepack_pressure_ref",
+                  .value = std::format("{}", pr),
+                  .expected = "> 0 (set it, or give the end nodes a "
+                              "pressure range)",
+              });
+    }
     lp_alpha = c / (4.0 * pr);
     lp_beta = c * pr / 2.0;
     if (pipe.linepack_ini) {

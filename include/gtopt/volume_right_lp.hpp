@@ -76,6 +76,13 @@ public:
         VolumeRight::default_flow_conversion_rate);
   }
 
+  /// Energy (hm³) column scale of this right, resolved from the input data
+  /// only: the VolumeRight scale-map entry, else the source reservoir's,
+  /// else the parent right's (recursively).  Never reads a per-cell
+  /// scalar written by another element's add_to_lp.
+  [[nodiscard]] double resolve_energy_scale(const SystemContext& sc,
+                                            int depth = 0) const;
+
   [[nodiscard]] bool add_to_lp(SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
@@ -144,6 +151,10 @@ private:
   double fail_cost {0.0};
   STBIndexHolder<ColIndex> extraction_cols_;
   STBIndexHolder<ColIndex> saving_cols_;
+  /// Stage demand-deficit column and demand-satisfaction row per
+  /// (scenario, stage); present only where `demand > 0`.
+  STIndexHolder<ColIndex> fail_cols_;
+  STIndexHolder<RowIndex> demand_rows_;
 
   /// Cached bound rule evaluation per (scenario, stage).
   ///

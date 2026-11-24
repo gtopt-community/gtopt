@@ -57,6 +57,7 @@ private:
   OptTRealSched cost_;
 
   STBIndexHolder<ColIndex> flow_cols_;
+  STIndexHolder<RowIndex> volume_rows_;  ///< Stage `volume` cap rows
 };
 
 using GasSupplyLPId = ObjectId<class GasSupplyLP>;

@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <string_view>
 #include <vector>
 
 #include <gtopt/emission_source.hpp>
@@ -40,6 +41,15 @@ class EmissionSourceLP : public ObjectLP<EmissionSource>
 {
 public:
   using Base = ObjectLP<EmissionSource>;
+
+  /// Output stream / PAMPL attribute names.
+  static constexpr std::string_view EmissionsName {"emissions"};
+  static constexpr std::string_view CombustionName {"combustion"};
+  static constexpr std::string_view UpstreamName {"upstream"};
+  static constexpr std::string_view CapturedName {"captured"};
+  static constexpr std::string_view RateName {"rate"};
+  static constexpr std::string_view UpstreamRateName {"upstream_rate"};
+  static constexpr std::string_view FuelRateName {"fuel_rate"};
 
   explicit EmissionSourceLP(const EmissionSource& src, const InputContext& ic);
 

@@ -11,8 +11,8 @@
 
 #pragma once
 
+#include <gtopt/carrier_node_lp.hpp>
 #include <gtopt/hydrogen_node.hpp>
-#include <gtopt/object_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/utils.hpp>
@@ -20,45 +20,15 @@
 namespace gtopt
 {
 
-class HydrogenNodeLP : public ObjectLP<HydrogenNode>
+class HydrogenNodeLP : public CarrierNodeLP<HydrogenNode>
 {
 public:
-  static constexpr std::string_view BalanceName {"balance"};
-
-  explicit HydrogenNodeLP(const HydrogenNode& phn, const InputContext& ic)
-      : ObjectLP<HydrogenNode>(phn, ic, Element::class_name)
-  {
-  }
+  using CarrierNodeLP<HydrogenNode>::CarrierNodeLP;
 
   [[nodiscard]] constexpr auto&& hydrogen_node(this auto&& self) noexcept
   {
     return self.object();
   }
-
-  bool add_to_lp(const SystemContext& sc,
-                 const ScenarioLP& scenario,
-                 const StageLP& stage,
-                 LinearProblem& lp);
-
-  bool add_to_output(OutputContext& out) const;
-
-  [[nodiscard]] const auto& balance_rows_at(const ScenarioLP& scenario,
-                                            const StageLP& stage) const
-  {
-    return balance_rows.at({scenario.uid(), stage.uid()});
-  }
-
-  /// Non-throwing `balance_rows_at`: nullptr when (scenario, stage) was
-  /// not built (node inactive in the stage).  See `active_ref.hpp`.
-  [[nodiscard]] const BIndexHolder<RowIndex>* find_balance_rows(
-      const ScenarioLP& scenario, const StageLP& stage) const noexcept
-  {
-    const auto it = balance_rows.find({scenario.uid(), stage.uid()});
-    return it != balance_rows.end() ? &it->second : nullptr;
-  }
-
-private:
-  STBIndexHolder<RowIndex> balance_rows;
 };
 
 using HydrogenNodeLPId = ObjectId<class HydrogenNodeLP>;

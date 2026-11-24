@@ -26,7 +26,7 @@
 
 #pragma once
 
-#include <gtopt/object_lp.hpp>
+#include <gtopt/carrier_node_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/thermal_node.hpp>
@@ -35,36 +35,15 @@
 namespace gtopt
 {
 
-class ThermalNodeLP : public ObjectLP<ThermalNode>
+class ThermalNodeLP : public CarrierNodeLP<ThermalNode>
 {
 public:
-  static constexpr std::string_view BalanceName {"balance"};
-
-  explicit ThermalNodeLP(const ThermalNode& ptn, const InputContext& ic)
-      : ObjectLP<ThermalNode>(ptn, ic, Element::class_name)
-  {
-  }
+  using CarrierNodeLP<ThermalNode>::CarrierNodeLP;
 
   [[nodiscard]] constexpr auto&& thermal_node(this auto&& self) noexcept
   {
     return self.object();
   }
-
-  bool add_to_lp(const SystemContext& sc,
-                 const ScenarioLP& scenario,
-                 const StageLP& stage,
-                 LinearProblem& lp);
-
-  bool add_to_output(OutputContext& out) const;
-
-  [[nodiscard]] const auto& balance_rows_at(const ScenarioLP& scenario,
-                                            const StageLP& stage) const
-  {
-    return balance_rows.at({scenario.uid(), stage.uid()});
-  }
-
-private:
-  STBIndexHolder<RowIndex> balance_rows;
 };
 
 using ThermalNodeLPId = ObjectId<class ThermalNodeLP>;

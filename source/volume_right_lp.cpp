@@ -140,6 +140,35 @@ VolumeRightLP::VolumeRightLP(const VolumeRight& pvol, const InputContext& ic)
 {
 }
 
+double VolumeRightLP::resolve_energy_scale(const SystemContext& sc,
+                                           int depth) const
+{
+  // Pure function of the input data (no per-cell scalar): an explicit
+  // VolumeRight scale wins; otherwise inherit from the source reservoir's
+  // scale map entry, else from the parent right (recursively).  The parent
+  // chain is bounded to guard against a malformed `right_reservoir` cycle.
+  static constexpr int max_depth = 64;
+  const auto& vsm = sc.options().variable_scale_map();
+  const auto vs = vsm.lookup(
+      Element::class_name.full_name(), StorageBase::EnergyName, uid());
+  if (vs != 1.0) {
+    return vs;
+  }
+  if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
+    const auto& rsv = sc.element<ReservoirLP>(ReservoirLPSId(*r_ref));
+    return vsm.lookup(ReservoirLP::Element::class_name.full_name(),
+                      StorageBase::EnergyName,
+                      rsv.uid());
+  }
+  if (const auto& rr_ref = volume_right().right_reservoir;
+      rr_ref.has_value() && depth < max_depth)
+  {
+    return sc.element(VolumeRightLPSId(*rr_ref))
+        .resolve_energy_scale(sc, depth + 1);
+  }
+  return 1.0;
+}
+
 bool VolumeRightLP::add_to_lp(SystemContext& sc,
                               const ScenarioLP& scenario,
                               const StageLP& stage,
@@ -154,26 +183,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
   auto&& blocks = stage.blocks();
 
-  // Resolve energy_scale from VariableScaleMap. When not set explicitly,
-  // inherit from source reservoir or parent VolumeRight.
-  const double energy_scale = [&]
-  {
-    const auto vs = sc.options().variable_scale_map().lookup(
-        "VolumeRight", "energy", uid());
-    if (vs != 1.0) {
-      return vs;
-    }
-    if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
-      const ReservoirLPSId r_sid(*r_ref);
-      return sc.element<ReservoirLP>(r_sid).energy_scale();
-    }
-    if (const auto& rr_ref = volume_right().right_reservoir; rr_ref.has_value())
-    {
-      const VolumeRightLPSId vr_sid(*rr_ref);
-      return sc.element(vr_sid).energy_scale();
-    }
-    return 1.0;
-  }();
+  const double energy_scale = resolve_energy_scale(sc);
 
   // Evaluate initial bound rule if present.  Axis dispatch lives in
   // `resolve_bound_rule_axis_value`; the reservoir lookup is wrapped in
@@ -399,6 +409,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       eini_col.lowb = 0.0;
       eini_col.uppb = LinearProblem::DblMax;
       auto drow = SparseRow {
+          // Stock row (hm³): Energy readback of its dual.
+          .cost_scale_type = ConstraintScaleType::Energy,
           .class_name = Element::class_name.full_name(),
           .constraint_name = ResetDebitName,
           .variable_uid = uid(),
@@ -575,7 +587,10 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
 
     // Demand satisfaction constraint in physical units:
     // sum_b [fcr × duration × extraction(b)] + fail >= demand
+    // Stage-volume (stock) row: its dual is a $/hm³ right value, read
+    // back without the block-duration term (Energy).
     SparseRow drow {
+        .cost_scale_type = ConstraintScaleType::Energy,
         .class_name = Element::class_name.full_name(),
         .constraint_name = DemandName,
         .variable_uid = uid(),
@@ -591,7 +606,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     }
     drow[fail_col] = 1.0;
 
-    [[maybe_unused]] const auto row_idx =
+    fail_cols_[st_key] = fail_col;
+    demand_rows_[st_key] =
         lp.add_row(std::move(drow.greater_equal(*stage_demand)));
   }
 
@@ -603,6 +619,15 @@ bool VolumeRightLP::add_to_output(OutputContext& out) const
   static constexpr const auto& cname = Element::class_name;
 
   StorageBase::add_to_output(out, cname);
+
+  const auto pid = id();
+  out.add_col_sol(cname, ExtractionName, pid, extraction_cols_);
+  out.add_col_cost(cname, ExtractionName, pid, extraction_cols_);
+  out.add_col_sol(cname, SavingName, pid, saving_cols_);
+  out.add_col_sol(cname, FailName, pid, fail_cols_);
+  out.add_col_cost(cname, FailName, pid, fail_cols_);
+  out.add_row_dual(cname, DemandName, pid, demand_rows_);
+  out.add_row_dual(cname, ResetDebitName, pid, reset_debit_rows_);
 
   return true;
 }

@@ -29,6 +29,15 @@ public:
   static constexpr std::string_view DcapacityName {"dcapacity"};
   /// Symmetry row `r_up − r_dn = 0` (`symmetric: true`).
   static constexpr std::string_view SymmetryName {"symmetry"};
+  /// Rows written by CommitmentLP into this provision's LP (u-gated
+  /// reserve limits): offline (cold) up reserve cap and the reserve
+  /// headroom under min-up / min-down time.
+  static constexpr std::string_view OfflineUpProvisionName {
+      "offline_up_provision"};
+  static constexpr std::string_view MinUpProvisionName {"min_up_provision"};
+  static constexpr std::string_view MinDnProvisionName {"min_dn_provision"};
+  static constexpr std::string_view CommitUpProvisionName {
+      "commit_up_provision"};
   /// PAMPL-visible aliases for the up/down provision columns.
   /// Exposed under canonical short names so user constraints can write
   /// `reserve_provision("P").up` instead of the verbose `uprovision`.

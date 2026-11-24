@@ -221,7 +221,7 @@ template<typename SystemLPT>
                                         stage,
                                         reservoir_class_name,
                                         rc.rsv_uid,
-                                        "efin",
+                                        ReservoirLP::EfinName,
                                         rc.efin_col))
   {
     return *v;
@@ -231,7 +231,7 @@ template<typename SystemLPT>
                                 stage,
                                 reservoir_class_name,
                                 rc.rsv_uid,
-                                "efin",
+                                ReservoirLP::EfinName,
                                 rc.default_volume);
 }
 
@@ -342,7 +342,7 @@ template<typename SystemLPT>
                                           *prev_stage,
                                           reservoir_class_name,
                                           rc.rsv_uid,
-                                          "efin"))
+                                          ReservoirLP::EfinName))
     {
       return *v;
     }
@@ -386,8 +386,12 @@ template<typename SystemContextT>
     return def;
   }
   static constexpr auto reservoir_class_name = ReservoirLP::Element::class_name;
-  const auto svar_opt = sc.simulation().state_variable(StateVariable::key(
-      scenario, *prev_stg, reservoir_class_name, rsv.uid(), "efin"));
+  const auto svar_opt =
+      sc.simulation().state_variable(StateVariable::key(scenario,
+                                                        *prev_stg,
+                                                        reservoir_class_name,
+                                                        rsv.uid(),
+                                                        ReservoirLP::EfinName));
   // `has_col_sol()`, not `v > 0`: a predecessor drained to exactly 0 is a
   // solved state, not "unset" (the old guard rebuilt it from the case
   // eini under low_memory).

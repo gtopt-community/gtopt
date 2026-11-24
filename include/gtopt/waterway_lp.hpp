@@ -116,6 +116,10 @@ private:
   OptTRealSched fcost;
 
   STBIndexHolder<ColIndex> flow_cols;
+  /// Soft-`fmin` shortfall columns and floor rows (only blocks with
+  /// `fmin > 0` and `fmin_fcost > 0`).
+  STBIndexHolder<ColIndex> fmin_unserved_cols;
+  STBIndexHolder<RowIndex> fmin_soft_rows;
 };
 
 using WaterwayLPId = ObjectId<class WaterwayLP>;

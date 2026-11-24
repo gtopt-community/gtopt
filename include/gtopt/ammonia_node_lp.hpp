@@ -12,7 +12,7 @@
 #pragma once
 
 #include <gtopt/ammonia_node.hpp>
-#include <gtopt/object_lp.hpp>
+#include <gtopt/carrier_node_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/utils.hpp>
@@ -20,36 +20,15 @@
 namespace gtopt
 {
 
-class AmmoniaNodeLP : public ObjectLP<AmmoniaNode>
+class AmmoniaNodeLP : public CarrierNodeLP<AmmoniaNode>
 {
 public:
-  static constexpr std::string_view BalanceName {"balance"};
-
-  explicit AmmoniaNodeLP(const AmmoniaNode& pan, const InputContext& ic)
-      : ObjectLP<AmmoniaNode>(pan, ic, Element::class_name)
-  {
-  }
+  using CarrierNodeLP<AmmoniaNode>::CarrierNodeLP;
 
   [[nodiscard]] constexpr auto&& ammonia_node(this auto&& self) noexcept
   {
     return self.object();
   }
-
-  bool add_to_lp(const SystemContext& sc,
-                 const ScenarioLP& scenario,
-                 const StageLP& stage,
-                 LinearProblem& lp);
-
-  bool add_to_output(OutputContext& out) const;
-
-  [[nodiscard]] const auto& balance_rows_at(const ScenarioLP& scenario,
-                                            const StageLP& stage) const
-  {
-    return balance_rows.at({scenario.uid(), stage.uid()});
-  }
-
-private:
-  STBIndexHolder<RowIndex> balance_rows;
 };
 
 using AmmoniaNodeLPId = ObjectId<class AmmoniaNodeLP>;

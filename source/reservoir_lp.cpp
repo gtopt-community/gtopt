@@ -79,8 +79,8 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const auto fmax = reservoir().fmax.value_or(LinearProblem::DblMax);
 
   // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
-  const double energy_scale =
-      sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
+  const double energy_scale = sc.options().variable_scale_map().lookup(
+      Element::class_name.full_name(), StorageBase::EnergyName, uid());
 
   BIndexHolder<ColIndex> rcols;
   map_reserve(rcols, blocks.size());

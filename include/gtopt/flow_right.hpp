@@ -52,6 +52,12 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <span>
+
+#include <gtopt/enum_option.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
@@ -59,6 +65,33 @@
 
 namespace gtopt
 {
+
+/**
+ * @brief Time resolution of a FlowRight (``flow_mode``).
+ *
+ * - `per_block` (default): per-block flow column, per-block kink.
+ * - `stage_average`: per-block flow column + stage `qeh` column; the kink
+ *   and costs apply to `qeh`.
+ * - `stage_uniform`: one stage `qeh` column used in every block balance.
+ */
+enum class FlowRightMode : std::uint8_t
+{
+  per_block = 0,
+  stage_average = 1,
+  stage_uniform = 2,
+};
+
+inline constexpr auto flow_right_mode_entries =
+    std::to_array<EnumEntry<FlowRightMode>>({
+        {.name = "per_block", .value = FlowRightMode::per_block},
+        {.name = "stage_average", .value = FlowRightMode::stage_average},
+        {.name = "stage_uniform", .value = FlowRightMode::stage_uniform},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(FlowRightMode /*tag*/) noexcept
+{
+  return std::span {flow_right_mode_entries};
+}
 
 /**
  * @brief Flow-based water right (derechos de caudal)
@@ -154,6 +187,20 @@ struct FlowRight
   ///  - `false` → `flow_mode = "per_block"`
   /// Ignored when `flow_mode` is set explicitly.
   OptBool use_average {};
+
+  /// Parsed ``flow_mode``: the explicit name when set (``std::nullopt``
+  /// for an unknown name, reported by validate_planning), else the
+  /// legacy ``use_average`` mapping (``true`` → `stage_average`,
+  /// unset / ``false`` → `per_block`).
+  [[nodiscard]] constexpr auto flow_mode_enum() const noexcept
+      -> std::optional<FlowRightMode>
+  {
+    if (flow_mode.has_value()) {
+      return enum_from_name<FlowRightMode>(*flow_mode);
+    }
+    return use_average.value_or(false) ? FlowRightMode::stage_average
+                                       : FlowRightMode::per_block;
+  }
 
   /// Penalty cost for unmet flow below `target` [$/m³/s·h].
   /// Analogous to Demand::fcost for electrical load curtailment.

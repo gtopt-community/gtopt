@@ -22,69 +22,42 @@
 
 #pragma once
 
-#include <gtopt/capacity_object_lp.hpp>
+#include <gtopt/carrier_storage_lp.hpp>
 #include <gtopt/hydrogen_storage.hpp>
-#include <gtopt/storage_lp.hpp>
 
 namespace gtopt
 {
+class HydrogenNodeLP;
 using HydrogenStorageLPId = ObjectId<class HydrogenStorageLP>;
 using HydrogenStorageLPSId = ObjectSingleId<class HydrogenStorageLP>;
 
-class HydrogenStorageLP : public StorageLP<CapacityObjectLP<HydrogenStorage>>
+/**
+ * @class HydrogenStorageLP
+ * @brief LP representation of a hydrogen storage element.
+ *
+ * All numerical accounting is inherited from ``StorageLP<>``; the
+ * charge / discharge columns and the ``HydrogenNode`` coupling from
+ * ``CarrierStorageLP`` (carrier_storage_lp.hpp).
+ */
+class HydrogenStorageLP
+    : public CarrierStorageLP<HydrogenStorage,
+                              HydrogenNodeLP,
+                              &HydrogenStorage::hydrogen_node,
+                              storage_state_defaults::hydrogen_storage>
 {
 public:
-  static constexpr std::string_view FinpName {"finp"};
-  static constexpr std::string_view FoutName {"fout"};
-  static constexpr std::string_view ChargeName {"charge"};
-  static constexpr std::string_view DischargeName {"discharge"};
-  static constexpr std::string_view TypeKey {"type"};
+  using CarrierBase =
+      CarrierStorageLP<HydrogenStorage,
+                       HydrogenNodeLP,
+                       &HydrogenStorage::hydrogen_node,
+                       storage_state_defaults::hydrogen_storage>;
+  using CarrierBase::CarrierBase;
 
-  using CapacityBase = CapacityObjectLP<HydrogenStorage>;
-  using StorageBase = StorageLP<CapacityObjectLP<HydrogenStorage>>;
-
+  /// Access the underlying ``HydrogenStorage`` object.
   [[nodiscard]] constexpr auto&& hydrogen_storage(this auto&& self) noexcept
   {
     return self.object();
   }
-
-  explicit HydrogenStorageLP(const HydrogenStorage& phs,
-                             const InputContext& ic);
-
-  bool add_to_lp(SystemContext& sc,
-                 const ScenarioLP& scenario,
-                 const StageLP& stage,
-                 LinearProblem& lp);
-
-  bool add_to_output(OutputContext& out) const;
-
-  [[nodiscard]] constexpr auto&& finp_cols_at(const ScenarioLP& scenario,
-                                              const StageLP& stage) const
-  {
-    return finp_cols.at({scenario.uid(), stage.uid()});
-  }
-
-  [[nodiscard]] constexpr auto&& fout_cols_at(const ScenarioLP& scenario,
-                                              const StageLP& stage) const
-  {
-    return fout_cols.at({scenario.uid(), stage.uid()});
-  }
-
-  [[nodiscard]] auto param_input_efficiency(StageUid s, BlockUid b) const
-  {
-    return input_efficiency.at(s, b);
-  }
-  [[nodiscard]] auto param_output_efficiency(StageUid s, BlockUid b) const
-  {
-    return output_efficiency.at(s, b);
-  }
-
-private:
-  OptTBRealSched input_efficiency;
-  OptTBRealSched output_efficiency;
-
-  STBIndexHolder<ColIndex> finp_cols;
-  STBIndexHolder<ColIndex> fout_cols;
 };
 
 static_assert(HydrogenStorageLP::Element::class_name

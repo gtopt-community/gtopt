@@ -375,7 +375,7 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     // `sum(b in blocks) emission_source("X").emissions`.
     static constexpr auto ampl_name = Element::class_name.snake_case();
     sc.add_ampl_variable(
-        ampl_name, uid(), "emissions", scenario, stage, blk_weighted_emit);
+        ampl_name, uid(), EmissionsName, scenario, stage, blk_weighted_emit);
 
     block_emissions_[st_key] = std::move(blk_emissions);
     rate_values_[st_key] = std::move(blk_rate_value);
@@ -433,24 +433,24 @@ bool EmissionSourceLP::add_to_output(OutputContext& out) const
     }
   }
 
-  out.add_col_sol_values(cname, "emissions", pid, emissions_values);
-  out.add_col_sol_values(cname, "combustion", pid, combustion_values);
+  out.add_col_sol_values(cname, EmissionsName, pid, emissions_values);
+  out.add_col_sol_values(cname, CombustionName, pid, combustion_values);
   if (any_upstream) {
-    out.add_col_sol_values(cname, "upstream", pid, upstream_values);
+    out.add_col_sol_values(cname, UpstreamName, pid, upstream_values);
   }
   if (any_captured) {
-    out.add_col_sol_values(cname, "captured", pid, captured_values);
+    out.add_col_sol_values(cname, CapturedName, pid, captured_values);
   }
 
   // Per-MWh rate streams (raw input coefficient broadcast across blocks).
   if (!rate_values_.empty()) {
-    out.add_col_sol_values(cname, "rate", pid, rate_values_);
+    out.add_col_sol_values(cname, RateName, pid, rate_values_);
   }
   if (!upstream_rate_values_.empty()) {
-    out.add_col_sol_values(cname, "upstream_rate", pid, upstream_rate_values_);
+    out.add_col_sol_values(cname, UpstreamRateName, pid, upstream_rate_values_);
   }
   if (!fuel_rate_values_.empty()) {
-    out.add_col_sol_values(cname, "fuel_rate", pid, fuel_rate_values_);
+    out.add_col_sol_values(cname, FuelRateName, pid, fuel_rate_values_);
   }
 
   return true;

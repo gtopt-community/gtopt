@@ -72,7 +72,10 @@ bool GasSupplyLP::add_to_lp(SystemContext& sc,
 
   if (const auto& vol = gas_supply().volume) {
     // volume: Σ_b Δt_b f_b ≤ volume over the stage.
+    // Stage-volume (stock) row: its dual is a $/volume-unit commodity
+    // price, read back without the block-duration term (Energy).
     SparseRow row {
+        .cost_scale_type = ConstraintScaleType::Energy,
         .class_name = cname,
         .constraint_name = VolumeName,
         .variable_uid = uid(),
@@ -81,7 +84,8 @@ bool GasSupplyLP::add_to_lp(SystemContext& sc,
     for (const auto& block : blocks) {
       row[cols.at(block.uid())] = block.duration();
     }
-    std::ignore = lp.add_row(std::move(row).less_equal(*vol));
+    volume_rows_[{scen_uid, stage_uid}] =
+        lp.add_row(std::move(row).less_equal(*vol));
   }
 
   const auto st_key = std::tuple {scen_uid, stage_uid};
@@ -96,6 +100,7 @@ bool GasSupplyLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = Element::class_name.full_name();
   out.add_col_sol(cname, FlowName, id(), flow_cols_);
   out.add_col_cost(cname, FlowName, id(), flow_cols_);
+  out.add_row_dual(cname, VolumeName, id(), volume_rows_);
   return true;
 }
 

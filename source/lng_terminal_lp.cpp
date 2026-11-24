@@ -58,8 +58,8 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
   const auto fcr = flow_conversion_rate();
 
   // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
-  const double energy_scale =
-      sc.options().variable_scale_map().lookup("LngTerminal", "energy", uid());
+  const double energy_scale = sc.options().variable_scale_map().lookup(
+      Element::class_name.full_name(), StorageBase::EnergyName, uid());
 
   // ── Delivery inflow columns ───────────────────────────────────────────
   // Delivery is total m³ per stage. Convert to a constant rate [m³/h]

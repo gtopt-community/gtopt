@@ -297,6 +297,8 @@ private:
   OptTBRealSched fcost;
   /// Resolved uvalue schedule for per-(stage, block) excess bonus.
   OptTBRealSched uvalue_sched;
+  /// Time-resolution mode, parsed once from `flow_mode` / `use_average`.
+  FlowRightMode m_flow_mode_ {FlowRightMode::per_block};
 
   /// Per-block primary flow column `flow_b ∈ [fmin_b, fmax_b]`.
   STBIndexHolder<ColIndex> flow_cols;

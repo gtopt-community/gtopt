@@ -57,7 +57,7 @@ bool AllowancePoolLP::add_to_lp(SystemContext& sc,
   }
 
   const auto energy_scale = sc.options().variable_scale_map().lookup(
-      "AllowancePool", "energy", uid());
+      Element::class_name.full_name(), StorageBase::EnergyName, uid());
 
   // ── Free-allocation inflow columns ────────────────────────────────────
   // Total tCO₂ delivered per stage = ``delivery``.  Convert to a
