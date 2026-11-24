@@ -18,6 +18,7 @@
 
 #include <gtopt/constraint_expr.hpp>
 #include <gtopt/constraint_parser.hpp>
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/element_column_resolver.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/label_maker.hpp>
@@ -1085,6 +1086,44 @@ namespace
   return base_penalty;  // unreachable (switch is exhaustive)
 }
 
+/// Objective coefficient of a soft slack on a PER-BLOCK row (P0-16).
+///
+/// The slack is in row units (a rate, like a generator's MW) and the
+/// penalty is $/unit per hour of violation, so it is weighted exactly
+/// like every other per-block cost: `rate · prob · discount · Δt_b`
+/// (`CostHelper::block_ecost`).  `hydro_flow` converts $/m³ to $/(m³/s)·h
+/// first (`× 3600`); the block duration then comes from `block_ecost`, so
+/// the coefficient is the historical `penalty · Δt · 3600` times
+/// `prob · discount`.
+[[nodiscard]] double block_soft_slack_cost(Real penalty,
+                                           PenaltyClass penalty_class,
+                                           const ScenarioLP& scenario,
+                                           const StageLP& stage,
+                                           const BlockLP& block)
+{
+  const Real rate = resolve_block_soft_penalty(
+      penalty, penalty_class, /*block_duration_hours=*/1.0);
+  return CostHelper::block_ecost(scenario, stage, block, rate);
+}
+
+/// Objective coefficient of a soft slack on a row that spans more than one
+/// block (a `daily_sum` day row, or a `stage` / `phase` / `global` scope
+/// row).  The row is built over the whole span (Δt-weighted energy, or an
+/// explicit `sum{...}` aggregate), so its slack is already a span total:
+/// it is weighted by `prob · discount` (`CostHelper::cost_factor`, the
+/// stage-stock helper), with the `penalty_class` conversion over the span
+/// (@p span_hours) as before.  Read back with the Energy basis.
+[[nodiscard]] double span_soft_slack_cost(Real penalty,
+                                          PenaltyClass penalty_class,
+                                          Real span_hours,
+                                          const ScenarioLP& scenario,
+                                          const StageLP& stage)
+{
+  return resolve_block_soft_penalty(penalty, penalty_class, span_hours)
+      * CostHelper::cost_factor(scenario.probability_factor(),
+                                stage.discount_factor());
+}
+
 }  // namespace
 
 UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
@@ -1485,12 +1524,13 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
       // keyed at the day-ending block.  The conversion mirrors the
       // per-block path but uses the whole day's duration for HydroFlow.
       if (is_soft) {
-        const auto day_penalty =
-            resolve_block_soft_penalty(penalty, m_penalty_class_, day_hours);
+        const auto day_penalty = span_soft_slack_cost(
+            penalty, m_penalty_class_, day_hours, scenario, stage);
         const auto day_ctx =
             make_block_context(scenario.uid(), stage.uid(), day_end_block);
         const auto slack_col = lp.add_col(SparseCol {
             .cost = day_penalty,
+            .cost_scale_type = ConstraintScaleType::Energy,
             .class_name = Element::class_name.full_name(),
             .variable_name =
                 soft_needs_neg ? slack_pos_col_name : slack_col_name,
@@ -1515,6 +1555,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
         if (soft_needs_neg) {
           const auto slack_neg_col = lp.add_col(SparseCol {
               .cost = day_penalty,
+              .cost_scale_type = ConstraintScaleType::Energy,
               .class_name = Element::class_name.full_name(),
               .variable_name = slack_neg_col_name,
               .variable_uid = uid(),
@@ -1674,8 +1715,8 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     // because `PenaltyClass::HydroFlow` converts $/m³ → $/(m³/s) via
     // `× duration[h] × 3600`, and block duration is per-block.
     if (is_soft) {
-      const auto block_penalty = resolve_block_soft_penalty(
-          penalty, m_penalty_class_, block.duration());
+      const auto block_penalty = block_soft_slack_cost(
+          penalty, m_penalty_class_, scenario, stage, block);
       const auto block_ctx =
           make_block_context(scenario.uid(), stage.uid(), block.uid());
       const auto slack_col = lp.add_col(SparseCol {
@@ -1890,12 +1931,13 @@ bool UserConstraintLP::build_coarse_row(const SystemContext& sc,
   BIndexHolder<ColIndex> block_slack_neg_cols;
 
   if (is_soft) {
-    const auto block_penalty =
-        resolve_block_soft_penalty(penalty, m_penalty_class_, block.duration());
+    const auto block_penalty = span_soft_slack_cost(
+        penalty, m_penalty_class_, block.duration(), scenario, stage);
     const auto block_ctx =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto slack_col = lp.add_col(SparseCol {
         .cost = block_penalty,
+        .cost_scale_type = ConstraintScaleType::Energy,
         .class_name = Element::class_name.full_name(),
         .variable_name = soft_needs_neg ? slack_pos_col_name : slack_col_name,
         .variable_uid = uid(),
@@ -1919,6 +1961,7 @@ bool UserConstraintLP::build_coarse_row(const SystemContext& sc,
     if (soft_needs_neg) {
       const auto slack_neg_col = lp.add_col(SparseCol {
           .cost = block_penalty,
+          .cost_scale_type = ConstraintScaleType::Energy,
           .class_name = Element::class_name.full_name(),
           .variable_name = slack_neg_col_name,
           .variable_uid = uid(),

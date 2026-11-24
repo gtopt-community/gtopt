@@ -33,6 +33,8 @@ class CarrierConverterLP : public CapacityObjectLP<CarrierConverter>
 {
 public:
   static constexpr std::string_view InputName {"input"};
+  /// Expansion row `capainst − input ≥ 0` (only when expandable).
+  static constexpr std::string_view CapacityName {"capacity"};
   static constexpr std::string_view TypeKey {"type"};
 
   using CapacityBase = CapacityObjectLP<CarrierConverter>;
@@ -52,10 +54,12 @@ public:
 
   bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] constexpr auto&& input_cols_at(const ScenarioLP& scenario,
-                                               const StageLP& stage) const
+  /// Input columns of a cell; empty when the converter (or one of its
+  /// nodes) is out of service there.
+  [[nodiscard]] const auto& input_cols_at(const ScenarioLP& scenario,
+                                          const StageLP& stage) const
   {
-    return input_cols.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(input_cols, scenario, stage);
   }
 
   /// @name Parameter accessors for PAMPL user-constraint resolution
@@ -75,6 +79,7 @@ private:
   OptTBRealSched ocost;
 
   STBIndexHolder<ColIndex> input_cols;
+  STBIndexHolder<RowIndex> capacity_rows;
 };
 
 static_assert(CarrierConverterLP::Element::class_name

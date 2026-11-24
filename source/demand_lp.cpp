@@ -14,10 +14,13 @@
 #include <numeric>
 #include <stdexcept>
 
+#include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/pump_lp.hpp>
+#include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -132,6 +135,27 @@ double DemandLP::fail_sol_at(const ScenarioLP& scenario,
     return std::max(0.0, -col_sum);
   }
   return std::max(0.0, lmax_block_it->second - col_sum);
+}
+
+bool DemandLP::is_coupled_load(const SystemContext& sc)
+{
+  if (!m_coupled_load_.has_value()) {
+    const auto is_self = [&](const auto& sid)
+    {
+      try {
+        return &sc.element<DemandLP>(sid) == this;
+      } catch (const std::exception&) {
+        return false;  // partner not in this LP
+      }
+    };
+    m_coupled_load_ = std::ranges::any_of(sc.elements<ConverterLP>(),
+                                          [&](const auto& c)
+                                          { return is_self(c.demand_sid()); })
+        || std::ranges::any_of(sc.elements<PumpLP>(),
+                               [&](const auto& p)
+                               { return is_self(p.demand_sid()); });
+  }
+  return *m_coupled_load_;
 }
 
 bool DemandLP::add_to_lp(SystemContext& sc,
@@ -335,12 +359,13 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   // so user constraints referencing `demand.load` resolve to
   // `(col + lmax)` physically (via `param_shift`).
   //
-  // **Caveat**: LP-side consumers that reference the demand column
-  // directly (Converter, Battery interactions) assume the col
-  // carries `load`, not `neg_fail`.  Enabling Option C with a
-  // converter-tied demand produces a mathematically wrong row.
-  // Audit before enabling on a model with Converter elements.
-  const bool option_c = sc.options().demand_fail_rhs_shift();
+  // Coupled loads (a Converter's battery-charge demand, a Pump's
+  // demand) stay on Option A: those elements write rows on the load
+  // column itself (`load = rate · finp`, `cap ≥ g + load`, envelope
+  // and u-gating rows built from the column bounds), so the column
+  // must carry `load`, not `load − lmax`.
+  const bool option_c =
+      sc.options().demand_fail_rhs_shift() && !is_coupled_load(sc);
   // `fcost` is now per-(stage, block); every non-forced demand is
   // substituted because the global `model_options.demand_fail_cost`
   // fallback always resolves (default 1000 $/MWh).  Per-block
@@ -370,12 +395,13 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
     const auto block_lossfactor =
         lossfactor.optval(stage.uid(), buid).value_or(0.0);
-    const bool has_load = block_lmax > 0.0;
+    // `lp_reduction`: when block_lmax == 0 the load column is fixed at
+    // zero and is not built; when, in addition, no emin (lman) work is
+    // needed for this block, the entire iteration is degenerate (lcol,
+    // fcol, frow, crow all collapse) and is skipped eagerly.  Off (the
+    // default) the [0, 0] load column stays, like every other element's.
+    const bool has_load = block_lmax > 0.0 || !sc.options().lp_reduction();
     const bool has_lman = stage_emin && emin_row;
-    // P1 LP-size: when block_lmax == 0 AND no emin (lman) work is
-    // needed for this block, the entire iteration is degenerate
-    // (lcol, fcol, frow, crow all collapse).  Skip eagerly so we
-    // don't even fetch the bus balance row.
     if (!has_load && !has_lman) [[unlikely]] {
       continue;
     }
@@ -422,8 +448,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       // used to propagate ``Battery.pmin_charge`` onto the synthetic
       // charge demand so the LP must charge at least that rate every
       // block.  Floor at 0 (no negative floors).
-      const auto block_lmin =
-          std::max(0.0, lmin.optval(stage.uid(), buid).value_or(0.0));
+      // A zero-lmax block serves nothing, whatever `lmin` says (exactly
+      // as when `lp_reduction` elides it).
+      const auto block_lmin = block_lmax > 0.0
+          ? std::max(0.0, lmin.optval(stage.uid(), buid).value_or(0.0))
+          : 0.0;
 
       // Tranche list for this block: the stage curve (K ≥ 1 segments)
       // or a single tranche carrying the per-block `fcost` fallback.

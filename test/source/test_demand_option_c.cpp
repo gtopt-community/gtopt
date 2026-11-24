@@ -24,10 +24,9 @@
 //      under both flag values, even though the LP column means
 //      different things internally.
 //
-// Battery/Converter interactions are NOT covered because Option C
-// is not yet safe for those (the converter row references the
-// demand col as `load`, which under Option C is `neg_fail` — see
-// the deferred-follow-up note in the Commit 2 message).
+// Battery/Converter interactions: a demand coupled to a Converter or
+// Pump stays on Option A (its column must carry `load`); see the
+// P0-25 test in test_add_to_lp_fixes.cpp.
 
 #include <doctest/doctest.h>
 #include <gtopt/demand.hpp>

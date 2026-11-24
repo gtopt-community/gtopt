@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/schedule.hpp>
 #include <gtopt/simple_commitment.hpp>
@@ -61,6 +63,16 @@ public:
       BlockUid buid) const noexcept
   {
     return lookup_inner(status_cols_, scenario, stage, buid);
+  }
+
+  /// Minimum output when dispatched (``SimpleCommitment.dispatch_pmin``)
+  /// [MW] for block @p buid of @p stage_uid, or ``std::nullopt`` when
+  /// unset there.  Read by ``InertiaProvisionLP`` (see
+  /// ``CommitmentLP::pmin_at``).
+  [[nodiscard]] std::optional<Real> dispatch_pmin_at(StageUid stage_uid,
+                                                     BlockUid buid) const
+  {
+    return dispatch_pmin_.optval(stage_uid, buid);
   }
 
 private:

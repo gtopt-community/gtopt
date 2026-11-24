@@ -446,6 +446,9 @@ def test_build_case_commitment_and_single_bus(mini: Path, tmp_path: Path):
     ucs = {u["name"]: u for u in planning["system"]["commitment_array"]}
     cc = ucs["CC NG 01_uc"]
     assert cc["pmin"] == pytest.approx(40.0)
+    # the committed unit's floor is on the Commitment, not the Generator
+    gens = {g["uid"]: g for g in planning["system"]["generator_array"]}
+    assert gens[cc["generator"]].get("pmin", 0.0) == 0.0
     assert cc["ramp_up"] == pytest.approx(120.0)  # 2 MW/min × 60
     assert cc["min_up_time"] == pytest.approx(8.0)
     assert cc["startup_cost"] == pytest.approx(3000.0)

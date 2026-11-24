@@ -30,8 +30,10 @@
 
 #include <gtopt/enum_option.hpp>
 #include <gtopt/field_sched.hpp>
+#include <gtopt/gas_enums.hpp>
 #include <gtopt/generator_enums.hpp>
 #include <gtopt/line_enums.hpp>
+#include <gtopt/pricing_mode.hpp>
 #include <gtopt/storage_state_defaults.hpp>
 #include <gtopt/user_constraint_enums.hpp>
 #include <gtopt/utils.hpp>
@@ -2669,6 +2671,17 @@ void check_model_option_names(ValidationResult& result,
   {
     bad("objective_mode", *om, "cost, emissions");
   }
+  if (mo.pricing_mode && !enum_from_name<PricingMode>(*mo.pricing_mode)) {
+    bad("pricing_mode",
+        *mo.pricing_mode,
+        names(std::type_identity<PricingMode> {}));
+  }
+  if (mo.fast_start_max_hours && *mo.fast_start_max_hours < 0.0) {
+    result.errors.push_back(
+        std::format("{}.fast_start_max_hours: must be >= 0 (got {})",
+                    where,
+                    *mo.fast_start_max_hours));
+  }
 }
 
 void check_model_options(ValidationResult& result, const Planning& planning)
@@ -2750,17 +2763,8 @@ void check_element_mode_names(ValidationResult& result, const System& sys)
         result, "Generator", gen, "cogen_mode", gen.cogen_mode);
   }
   for (const auto& fr : sys.flow_right_array) {
-    if (fr.flow_mode && *fr.flow_mode != "per_block"
-        && *fr.flow_mode != "stage_average" && *fr.flow_mode != "stage_uniform")
-    {
-      result.errors.push_back(
-          std::format("FlowRight '{}' (uid {}): flow_mode: unknown value '{}' "
-                      "(expected one of: per_block, stage_average, "
-                      "stage_uniform)",
-                      fr.name,
-                      fr.uid,
-                      *fr.flow_mode));
-    }
+    check_element_enum<FlowRightMode>(
+        result, "FlowRight", fr, "flow_mode", fr.flow_mode);
   }
   for (const auto& dv : sys.decision_variable_array) {
     check_element_enum<ConstraintScaleType>(
@@ -2777,6 +2781,101 @@ void check_element_mode_names(ValidationResult& result, const System& sys)
 namespace
 {
 
+/// Gas-network elements: everything that depends only on the input data
+/// is rejected here, all errors together, instead of one at a time from
+/// inside `add_to_lp` (or, worse, as a silent clamp / an `inf` matrix
+/// coefficient).
+void check_gas_elements(ValidationResult& result, const System& sys)
+{
+  const auto err = [&](std::string_view cls,
+                       const auto& elem,
+                       std::string_view field,
+                       const std::string& what)
+  {
+    result.errors.push_back(std::format(
+        "{} '{}' (uid {}): {}: {}", cls, elem.name, elem.uid, field, what));
+  };
+
+  for (const auto& pipe : sys.gas_pipe_array) {
+    static constexpr std::string_view cls = "GasPipe";
+    check_element_enum<GasWeymouthMode>(
+        result, cls, pipe, "weymouth_mode", pipe.weymouth_mode);
+    check_element_enum<GasLinearization>(
+        result, cls, pipe, "linearization", pipe.linearization);
+    check_element_enum<gas::TangentLayout>(
+        result, cls, pipe, "tangent_layout", pipe.tangent_layout);
+    if (!pipe.fmax.has_value()) {
+      err(cls, pipe, "fmax", "is required (the pipe capacity)");
+    } else if (const auto v = try_scalar_value(pipe.fmax); v && *v < 0.0) {
+      err(cls, pipe, "fmax", std::format("{} < 0 (expected >= 0)", *v));
+    }
+    if (pipe.linepack.value_or(false)) {
+      if (const auto pr = pipe.linepack_pressure_ref; pr && !(*pr > 0.0)) {
+        err(cls,
+            pipe,
+            "linepack_pressure_ref",
+            std::format("{} (expected > 0: the line-pack linearisation "
+                        "divides by it)",
+                        *pr));
+      }
+    }
+  }
+
+  for (const auto& cs : sys.gas_compressor_array) {
+    static constexpr std::string_view cls = "GasCompressor";
+    check_element_enum<GasCompressorFuelModel>(
+        result, cls, cs, "fuel_model", cs.fuel_model);
+    check_element_enum<GasCompressorDrive>(result, cls, cs, "drive", cs.drive);
+    if (!cs.fmax.has_value()) {
+      err(cls, cs, "fmax", "is required (the compressor capacity)");
+    }
+    const auto model =
+        cs.fuel_model_enum().value_or(GasCompressorFuelModel::none);
+    if (cs.bidirectional.value_or(false)
+        && (cs.max_ratio.value_or(1.0) > 1.0 + 1e-12
+            || model != GasCompressorFuelModel::none))
+    {
+      err(cls,
+          cs,
+          "bidirectional",
+          "an open valve needs max_ratio 1 and fuel_model 'none'");
+    }
+    if (cs.drive_enum() == GasCompressorDrive::electric
+        && model != GasCompressorFuelModel::none && !cs.bus.has_value())
+    {
+      err(cls, cs, "bus", "drive 'electric' needs a bus");
+    }
+  }
+}
+
+/// P0-14: the line pack is not a state variable — every stage restarts
+/// from `linepack_ini`.  `gas_options.linepack_cyclic = false` lets a
+/// stage draw the pack down to its pressure floor, so over several stages
+/// the pack would refill for free at every stage boundary.  Allowed only
+/// with a single stage.
+void check_gas_linepack_horizon(ValidationResult& result,
+                                const Planning& planning)
+{
+  if (planning.options.gas_options.linepack_cyclic.value_or(true)
+      || planning.simulation.stage_array.size() <= 1)
+  {
+    return;
+  }
+  for (const auto& pipe : planning.system.gas_pipe_array) {
+    if (pipe.linepack.value_or(false)) {
+      result.errors.push_back(std::format(
+          "GasPipe '{}' (uid {}): linepack: gas_options.linepack_cyclic = "
+          "false needs a single stage ({} stages given): the line pack is "
+          "not carried between stages, each one restarts from "
+          "linepack_ini, so an open (non-cyclic) pack would refill for "
+          "free at every stage boundary",
+          pipe.name,
+          pipe.uid,
+          planning.simulation.stage_array.size()));
+    }
+  }
+}
+
 /// State-carrying storage: one contiguous active period.
 ///
 /// A storage element that carries a state variable across stages /
@@ -2788,14 +2887,18 @@ namespace
 /// (the "teleporting state" of the add_to_lp audit).  Every offending
 /// element is reported, with the stage / phase where it switches back
 /// on.  Storage without a state variable (daily-cycle / per-stage
-/// cyclic) may toggle freely.  Per-stage vectors are checked; scalar
-/// `active` cannot toggle and file schedules are not resolved here.
+/// cyclic) may toggle freely.  A storage commissioned after the first
+/// stage needs `eini` (the LP fixes its initial state there): missing
+/// it is an error, except for a battery (@p eini_defaults_to_emin),
+/// which gets one warning and starts at `emin`.  Per-stage vectors are checked;
+/// scalar `active` cannot toggle and file schedules are not resolved here.
 template<typename StorageElement>
 void check_state_storage_activation(ValidationResult& result,
                                     const Planning& planning,
                                     std::span<const StorageElement> elements,
                                     std::string_view class_name,
-                                    StorageStateDefaults defaults)
+                                    StorageStateDefaults defaults,
+                                    bool eini_defaults_to_emin = false)
 {
   const auto& stages = planning.simulation.stage_array;
   const auto& phases = planning.simulation.phase_array;
@@ -2825,6 +2928,36 @@ void check_state_storage_activation(ValidationResult& result,
     bool retired = false;
     for (std::size_t i = 0; i < flags->size(); ++i) {
       const bool is_active = (*flags)[i] != 0;
+      if (is_active && !was_active && i > 0 && !e.eini.has_value()) {
+        // Commissioned after the first stage: the LP pins the initial
+        // state at `eini`.  Only a battery may default it to `emin`.
+        const auto stage_uid =
+            i < stages.size() ? std::format("{}", stages[i].uid) : "?";
+        if (eini_defaults_to_emin) {
+          result.warnings.push_back(std::format(
+              "{} uid={} '{}': state-carrying storage is commissioned at "
+              "stage uid={} (stage index {}) with no 'eini'; its initial "
+              "state is fixed at 'emin'.  Set 'eini' to state the initial "
+              "level explicitly",
+              class_name,
+              e.uid,
+              e.name,
+              stage_uid,
+              i));
+        } else {
+          result.errors.push_back(std::format(
+              "{} uid={} '{}': state-carrying storage is commissioned at "
+              "stage uid={} (stage index {}, its first active stage) but "
+              "has no 'eini'; the initial state at commissioning cannot be "
+              "inherited from an earlier stage and must be given "
+              "explicitly",
+              class_name,
+              e.uid,
+              e.name,
+              stage_uid,
+              i));
+        }
+      }
       if (was_active && !is_active) {
         retired = true;
       }
@@ -2867,7 +3000,8 @@ void check_storage_activation(ValidationResult& result,
                                  planning,
                                  std::span {sys.battery_array},
                                  Battery::class_name.full_name(),
-                                 sd::battery);
+                                 sd::battery,
+                                 /*eini_defaults_to_emin=*/true);
   check_state_storage_activation(result,
                                  planning,
                                  std::span {sys.lng_terminal_array},
@@ -3326,6 +3460,8 @@ void check_coupler_activation(ValidationResult& result,
   check_ranges(result, planning);
   check_model_options(result, planning);
   check_element_mode_names(result, planning.system);
+  check_gas_elements(result, planning.system);
+  check_gas_linepack_horizon(result, planning);
   if (planning.options.sddp_options.aperture_drop_fcuts.has_value()) {
     result.warnings.emplace_back(
         "sddp_options.aperture_drop_fcuts is deprecated and ignored (no "

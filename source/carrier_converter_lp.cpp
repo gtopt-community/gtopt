@@ -8,6 +8,7 @@
  */
 
 #include <stdexcept>
+#include <utility>
 
 #include <gtopt/ammonia_node_lp.hpp>
 #include <gtopt/bus_lp.hpp>
@@ -30,6 +31,45 @@ namespace
 /// against the matching XxxNodeLP collection in the SystemContext.
 /// Returns a const reference — every carrier-node LP exposes its
 /// per-(scenario, stage) row map via the same shape.
+/// Call @p fn with the balance-node LP element of @p carrier named by
+/// @p sid (BusLP, JunctionLP, ThermalNodeLP, HydrogenNodeLP or
+/// AmmoniaNodeLP).
+template<typename Fn>
+decltype(auto) visit_node(const SystemContext& sc,
+                          Carrier carrier,
+                          const SingleId& sid,
+                          Fn&& fn)
+{
+  switch (carrier) {
+    case Carrier::Electric:
+      return std::forward<Fn>(fn)(sc.element<BusLP>(BusLPSId {sid}));
+    case Carrier::Water:
+      return std::forward<Fn>(fn)(sc.element<JunctionLP>(JunctionLPSId {sid}));
+    case Carrier::Thermal:
+      return std::forward<Fn>(fn)(
+          sc.element<ThermalNodeLP>(ThermalNodeLPSId {sid}));
+    case Carrier::Hydrogen:
+      return std::forward<Fn>(fn)(
+          sc.element<HydrogenNodeLP>(HydrogenNodeLPSId {sid}));
+    case Carrier::Ammonia:
+      return std::forward<Fn>(fn)(
+          sc.element<AmmoniaNodeLP>(AmmoniaNodeLPSId {sid}));
+  }
+  throw std::invalid_argument {std::format(
+      "CarrierConverterLP: unknown carrier {}", static_cast<int>(carrier))};
+}
+
+[[nodiscard]] bool node_is_active(const SystemContext& sc,
+                                  Carrier carrier,
+                                  const SingleId& sid,
+                                  const StageLP& stage)
+{
+  return visit_node(sc,
+                    carrier,
+                    sid,
+                    [&](const auto& node) { return node.is_active(stage); });
+}
+
 [[nodiscard]] const BIndexHolder<RowIndex>& balance_rows_for(
     const SystemContext& sc,
     Carrier carrier,
@@ -37,24 +77,11 @@ namespace
     const ScenarioLP& scenario,
     const StageLP& stage)
 {
-  switch (carrier) {
-    case Carrier::Electric:
-      return sc.element<BusLP>(BusLPSId {sid}).balance_rows_at(scenario, stage);
-    case Carrier::Water:
-      return sc.element<JunctionLP>(JunctionLPSId {sid})
-          .balance_rows_at(scenario, stage);
-    case Carrier::Thermal:
-      return sc.element<ThermalNodeLP>(ThermalNodeLPSId {sid})
-          .balance_rows_at(scenario, stage);
-    case Carrier::Hydrogen:
-      return sc.element<HydrogenNodeLP>(HydrogenNodeLPSId {sid})
-          .balance_rows_at(scenario, stage);
-    case Carrier::Ammonia:
-      return sc.element<AmmoniaNodeLP>(AmmoniaNodeLPSId {sid})
-          .balance_rows_at(scenario, stage);
-  }
-  throw std::invalid_argument {std::format(
-      "CarrierConverterLP: unknown carrier {}", static_cast<int>(carrier))};
+  return visit_node(sc,
+                    carrier,
+                    sid,
+                    [&](const auto& node) -> const BIndexHolder<RowIndex>&
+                    { return node.balance_rows_at(scenario, stage); });
 }
 
 }  // namespace
@@ -79,6 +106,20 @@ bool CarrierConverterLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
+  // Out of service, or an endpoint node out of service: no conversion
+  // in this stage (no columns, nothing stamped).  Before this gate an
+  // inactive converter kept converting and an inactive endpoint node
+  // threw from its balance-row lookup.
+  const auto& cc = carrier_converter();
+  if (!is_active(stage)
+      || (cc.from_node.has_value()
+          && !node_is_active(sc, cc.from_carrier, *cc.from_node, stage))
+      || (cc.to_node.has_value()
+          && !node_is_active(sc, cc.to_carrier, *cc.to_node, stage)))
+  {
+    return true;
+  }
+
   if (const auto& t = carrier_converter().type) {
     AmplElementMetadata metadata;
     metadata.emplace_back(TypeKey, *t);
@@ -95,11 +136,11 @@ bool CarrierConverterLP::add_to_lp(SystemContext& sc,
   const auto ocost_at = [&](BlockUid b)
   { return ocost.optval(stage.uid(), b).value_or(0.0); };
 
-  const auto& cc = carrier_converter();
   const bool has_from = cc.from_node.has_value();
   const bool has_to = cc.to_node.has_value();
 
   BIndexHolder<ColIndex> inputs;
+  BIndexHolder<RowIndex> crows;
   map_reserve(inputs, blocks.size());
 
   for (auto&& block : blocks) {
@@ -115,10 +156,31 @@ bool CarrierConverterLP::add_to_lp(SystemContext& sc,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
+
+    // Expandable converter: `input ≤ capainst` (the column bound above
+    // only caps it by `capmax`).  Same row as GeneratorLP's capacity
+    // row.
+    if (capacity_col) {
+      auto crow =
+          SparseRow {
+              .class_name = Element::class_name.full_name(),
+              .constraint_name = CapacityName,
+              .variable_uid = uid(),
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          }
+              .greater_equal(0);
+      crow[*capacity_col] = 1;
+      crow[inputs[buid]] = -1;
+      crows[buid] = lp.add_row(std::move(crow));
+    }
   }
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   input_cols[st_key] = std::move(inputs);
+  if (!crows.empty()) {
+    capacity_rows[st_key] = std::move(crows);
+  }
   const auto& inputs_at = input_cols.at(st_key);
 
   // Stamp into the from-node balance row: −1 × input (withdrawal).
@@ -154,6 +216,7 @@ bool CarrierConverterLP::add_to_output(OutputContext& out) const
   static constexpr const auto& cname = Element::class_name;
   out.add_col_sol(cname, InputName, id(), input_cols);
   out.add_col_cost(cname, InputName, id(), input_cols);
+  out.add_row_dual(cname, CapacityName, id(), capacity_rows);
   return CapacityBase::add_to_output(out);
 }
 

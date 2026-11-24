@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 #include <filesystem>
+#include <tuple>
 
 #include <doctest/doctest.h>
+#include <gtopt/commitment.hpp>
 #include <gtopt/inertia_provision.hpp>
 #include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/inertia_zone.hpp>
@@ -366,6 +368,133 @@ TEST_CASE("InertiaProvisionLP with SimpleCommitment - unified model")
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "InertiaProvisionLP - unit Pmin comes from the commitment element")
+{
+  // Converters put the minimum stable level on the commitment element
+  // and leave Generator.pmin = 0, so the generation column lower bound
+  // is 0.  The inertia factor H·S / Pmin and the default provision_max
+  // must then use the commitment's Pmin (50 MW), not fall back to the
+  // generator's pmax (200 MW):
+  //   with commitment:    pf = 4·100/50  = 8,  provision_max = 50
+  //   without commitment: pf = 4·100/200 = 2,  provision_max = 200
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 30.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<InertiaZone> inertia_zone_array = {
+      {
+          .uid = Uid {1},
+          .name = "iz1",
+          .requirement = 500.0,
+          .cost = 10000.0,
+      },
+  };
+  const Array<InertiaProvision> inertia_provision_array = {
+      {
+          .uid = Uid {1},
+          .name = "ip1",
+          .generator = Uid {1},
+          .inertia_zones = {SingleId {Uid {1}}},
+          .inertia_constant = 4.0,
+          .rated_power = 100.0,
+      },
+  };
+
+  const auto check_provision =
+      [&](const System& system, double expected_pf, double expected_max)
+  {
+    PlanningOptions opts;
+    opts.model_options.demand_fail_cost = 1000.0;
+    opts.model_options.reserve_shortage_cost = 10000.0;
+    const PlanningOptionsLP options(opts);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+
+    const auto& scenario_lp = simulation_lp.scenarios().front();
+    const auto& stage_lp = simulation_lp.stages().front();
+    const auto buid = simulation_lp.blocks().front().uid();
+
+    const auto& ip_lp = system_lp.elements<InertiaProvisionLP>().front();
+    const auto r_col = ip_lp.lookup_provision_col(scenario_lp, stage_lp, buid);
+    REQUIRE(r_col.has_value());
+    CHECK(lp.get_col_upp()[*r_col] == doctest::Approx(expected_max));
+
+    const auto& iz_lp = system_lp.elements<InertiaZoneLP>().front();
+    const auto& req_rows = iz_lp.requirement_rows();
+    const auto st_it =
+        req_rows.find(std::tuple {scenario_lp.uid(), stage_lp.uid()});
+    REQUIRE(st_it != req_rows.end());
+    const auto row_it = st_it->second.find(buid);
+    REQUIRE(row_it != st_it->second.end());
+    CHECK(lp.get_coeff(row_it->second, *r_col) == doctest::Approx(expected_pf));
+  };
+
+  SUBCASE("Commitment.pmin")
+  {
+    const Array<Commitment> commitment_array = {
+        {
+            .uid = Uid {1},
+            .name = "uc1",
+            .generator = Uid {1},
+            .pmin = 50.0,
+        },
+    };
+    const System system = {
+        .name = "InertiaCommitmentPmin",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .commitment_array = commitment_array,
+        .inertia_zone_array = inertia_zone_array,
+        .inertia_provision_array = inertia_provision_array,
+    };
+    check_provision(system, 8.0, 50.0);
+  }
+
+  SUBCASE("SimpleCommitment.dispatch_pmin")
+  {
+    const Array<SimpleCommitment> simple_commitment_array = {
+        {
+            .uid = Uid {1},
+            .name = "sc1",
+            .generator = Uid {1},
+            .dispatch_pmin = 50.0,
+            .relax = true,
+        },
+    };
+    const System system = {
+        .name = "InertiaSimpleCommitmentPmin",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .simple_commitment_array = simple_commitment_array,
+        .inertia_zone_array = inertia_zone_array,
+        .inertia_provision_array = inertia_provision_array,
+    };
+    check_provision(system, 8.0, 50.0);
+  }
+
+  SUBCASE("no commitment falls back to the column bounds")
+  {
+    const System system = {
+        .name = "InertiaNoCommitment",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .inertia_zone_array = inertia_zone_array,
+        .inertia_provision_array = inertia_provision_array,
+    };
+    check_provision(system, 2.0, 200.0);
+  }
 }
 
 TEST_CASE("InertiaProvisionLP - multi-zone provision")

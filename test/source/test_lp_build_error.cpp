@@ -212,6 +212,7 @@ TEST_CASE(
         .name = std::format("r{}", uid),
         .junction = Uid {1},
         .emax = 100.0,
+        .eini = 50.0,  // required when commissioned after stage 1 (P0-8)
     };
     r.active = std::move(active);
     return r;
@@ -409,6 +410,7 @@ TEST_CASE("validate_planning: water rights need an active source")  // NOLINT
   {
     VolumeRight vr {.uid = Uid {7}, .name = "vr7", .reservoir = Uid {1}};
     vr.active = std::vector<IntBool> {False, True};
+    vr.eini = 0.0;  // required when commissioned after stage 1 (P0-8)
     planning.system.volume_right_array = {vr};
     const auto r = validate_planning(planning);
     CHECK_FALSE(has_error(r, "VolumeRight uid=7"));

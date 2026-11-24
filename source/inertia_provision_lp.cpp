@@ -115,30 +115,44 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
       }
     }
 
-    // Commitment status of this unit (Commitment or SimpleCommitment),
-    // used by the `"commitment"` / `"exogenous"` plane inertia terms.
+    // Commitment element of this unit (Commitment or SimpleCommitment):
+    // its minimum stable level is the unit's Pmin for the H·S / Pmin
+    // factor and the default provision ceiling (converters put the
+    // committed floor there and leave the generation column lower bound
+    // at 0), and its status column drives the `"commitment"` /
+    // `"exogenous"` plane inertia terms.
     const CommitmentLP* commitment = nullptr;
     const SimpleCommitmentLP* simple_commitment = nullptr;
-    if (!plane_zones.empty()) {
-      for (const auto& cm : sc.elements<CommitmentLP>()) {
+    for (const auto& cm : sc.elements<CommitmentLP>()) {
+      if (cm.is_active(stage)
+          && sc.element_index(cm.generator_sid()) == generator_index_)
+      {
+        commitment = &cm;
+        break;
+      }
+    }
+    if (commitment == nullptr) {
+      for (const auto& cm : sc.elements<SimpleCommitmentLP>()) {
         if (cm.is_active(stage)
             && sc.element_index(cm.generator_sid()) == generator_index_)
         {
-          commitment = &cm;
+          simple_commitment = &cm;
           break;
         }
       }
-      if (commitment == nullptr) {
-        for (const auto& cm : sc.elements<SimpleCommitmentLP>()) {
-          if (cm.is_active(stage)
-              && sc.element_index(cm.generator_sid()) == generator_index_)
-          {
-            simple_commitment = &cm;
-            break;
-          }
-        }
-      }
     }
+    // Unit Pmin for block @p buid: the commitment's minimum stable level
+    // when set, else the generation column lower bound.
+    const auto unit_pmin = [&](BlockUid buid, double col_lowb) -> double
+    {
+      std::optional<Real> committed;
+      if (commitment != nullptr) {
+        committed = commitment->pmin_at(stage.uid(), buid);
+      } else if (simple_commitment != nullptr) {
+        committed = simple_commitment->dispatch_pmin_at(stage.uid(), buid);
+      }
+      return committed.value_or(col_lowb);
+    };
     const auto status_col = [&](BlockUid buid) -> std::optional<ColIndex>
     {
       if (commitment != nullptr) {
@@ -171,6 +185,7 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
 
       const auto gen_pmin = lp.get_col_lowb(gcol);
       const auto gen_pmax = lp.get_col_uppb(gcol);
+      const auto pmin = unit_pmin(buid, gen_pmin);
 
       // Resolve provision_factor for this block.  Per-(stage, block)
       // schedule wins; fallback chain is H × S / Pmin → 1.0.
@@ -179,8 +194,7 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
       if (block_pf) {
         pf_value = block_pf.value();
       } else if (ip.inertia_constant && ip.rated_power) {
-        const auto pmin_eff =
-            (gen_pmin > 0.0) ? gen_pmin : gen_pmax;  // fallback
+        const auto pmin_eff = (pmin > 0.0) ? pmin : gen_pmax;  // fallback
         if (pmin_eff > 0.0) {
           pf_value =
               ip.inertia_constant.value() * ip.rated_power.value() / pmin_eff;
@@ -191,9 +205,9 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
         continue;
       }
 
-      // Resolve provision_max: schedule > gen_pmin > gen_pmax
+      // Resolve provision_max: schedule > unit Pmin > gen_pmax
       auto block_pmax = provision_max_.optval(stage.uid(), buid)
-                            .value_or(gen_pmin > 0.0 ? gen_pmin : gen_pmax);
+                            .value_or(pmin > 0.0 ? pmin : gen_pmax);
 
       // LP-size: a zero provision ceiling fixes ``r_inertia`` at 0 — the
       // coupling row ``p − r_inertia ≥ 0`` reduces to ``p ≥ 0`` (already

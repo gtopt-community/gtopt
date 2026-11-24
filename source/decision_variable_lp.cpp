@@ -233,10 +233,12 @@ bool DecisionVariableLP::add_to_lp(SystemContext& sc,
   // (unbounded-below) LP column — free columns break GPU first-order /
   // heuristic solvers (cuOpt feasibility-jump, PDLP) which cannot project
   // an unbounded column.  The element opts out by setting `lower_bound`
-  // explicitly (free or negative).  (Unchanged from the original
-  // operational path — kept ADDITIVE: do not change legacy block/stage
-  // behaviour.)
-  const auto lower = decision_variable().lower_bound.value_or(0.0);
+  // explicitly (free or negative).  EXCEPTION (same rule as the global
+  // path below): an α-rebased column (`obj_constant` set) holds
+  // `value − obj_constant`, which is negative whenever the value is below
+  // its mean, so it defaults free below.
+  const auto lower = decision_variable().lower_bound.value_or(
+      decision_variable().obj_constant.has_value() ? -DblMax : 0.0);
   const auto upper = decision_variable().upper_bound.value_or(DblMax);
   const auto cost = decision_variable().cost.value_or(0.0);
 

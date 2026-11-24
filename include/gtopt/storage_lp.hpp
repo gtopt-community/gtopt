@@ -607,6 +607,9 @@ public:
     //  │ first phase         │ Bounds fixed to storage().eini.              │
     //  │                     │ Only one per scenario, in phase-0 LP only.   │
     //  ├─────────────────────┼──────────────────────────────────────────────┤
+    //  │ Commissioning stage │ "eini" col fixed at eini (emin if unset).    │
+    //  │ (inactive in prev)  │ Any phase; no state link is queued.          │
+    //  ├─────────────────────┼──────────────────────────────────────────────┤
     //  │ Same phase,         │ Reuse previous stage's efin col (shared LP). │
     //  │ later stage         │ Inter-stage connection – no new column.      │
     //  ├─────────────────────┼──────────────────────────────────────────────┤
@@ -619,22 +622,39 @@ public:
     // Global final condition ("efin") is an explicit named constraint row
     // added AFTER the block loop for the last stage of the last phase only.
     ColIndex eicol;
-    // A previous stage of the same phase where the element was inactive
-    // (e.g. a battery commissioned in this stage) has no efin column: the
-    // chain starts here, exactly like the first stage.
+    // Commissioning: a state-carrying storage that was inactive in the
+    // previous stage (e.g. a battery that enters service in this stage).
+    // There is no previous efin to inherit — in the same LP or across a
+    // phase boundary — so the chain starts here with the initial-state
+    // column FIXED at `eini` (`emin` when unset; validate_planning warns
+    // about the default) and no SDDP state link is queued.  The active
+    // schedule is input data, so the same predicate holds in every phase.
+    // Leaving the column free would let the LP pick a "free" initial
+    // charge and under-state the cost.  Storage without a state variable
+    // closes every stage with efin == eini, so its free start is harmless
+    // and keeps the historical behaviour.
+    const bool commissioning =
+        effective_usv && prev_stage != nullptr && !is_active(*prev_stage);
+    // A same-phase previous stage with no efin column (element skipped
+    // there) also starts the chain here.
     const bool prev_inactive_same_phase = prev_stage != nullptr
         && prev_phase == nullptr
         && !efin_cols.contains({scenario.uid(), prev_stage->uid()});
     const bool is_first_stage =
-        (prev_stage == nullptr) || prev_inactive_same_phase;
-    const bool is_cross_phase =
-        (prev_stage != nullptr && prev_phase != nullptr);
+        (prev_stage == nullptr) || prev_inactive_same_phase || commissioning;
+    const bool is_cross_phase = !is_first_stage && prev_phase != nullptr;
     if (is_first_stage) {
-      // Global initial condition – first stage of the first phase only.
+      // Global initial condition (first stage of the first phase) keeps the
+      // historical [emin, emax] range when eini is unset; a commissioning
+      // stage pins the column at eini (default emin).
       // eini bounds are in LP (scaled) units.
+      const double eini_lowb = storage().eini.value_or(stage_emin);
+      const double eini_uppb = commissioning
+          ? storage().eini.value_or(stage_emin)
+          : storage().eini.value_or(stage_emax);
       eicol = lp.add_col({
-          .lowb = storage().eini.value_or(stage_emin),
-          .uppb = storage().eini.value_or(stage_emax),
+          .lowb = eini_lowb,
+          .uppb = eini_uppb,
           .cost_scale_type = ConstraintScaleType::Energy,
           .scale = energy_scale,
           .class_name = opts.class_name,
@@ -1265,6 +1285,10 @@ public:
 
     out.add_row_dual(cname, CapacityName, pid, capacity_rows);
     out.add_row_dual(cname, EfinName, pid, efin_rows);
+    // Soft-`efin` slack (present only with `efin_cost > 0`): the shortfall
+    // below the end-of-stage target and its reduced cost (Energy basis).
+    out.add_col_sol(cname, EfinSlackName, pid, efin_slack_cols);
+    out.add_col_cost(cname, EfinSlackName, pid, efin_slack_cols);
 
     out.add_col_sol(cname, SoftEminName, pid, soft_emin_slack_cols);
     out.add_col_cost(cname, SoftEminName, pid, soft_emin_slack_cols);

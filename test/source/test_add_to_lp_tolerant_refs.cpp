@@ -113,10 +113,12 @@ System hydro_system()
 }
 
 /// Build (no throw) and solve; returns the SystemLP for inspection.
-void build_and_solve(const System& system)
+void build_and_solve(const System& system, bool lp_reduction = false)
 {
   const auto simulation = three_stage_simulation();
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.lp_reduction = lp_reduction;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   std::unique_ptr<SystemLP> system_lp;
   REQUIRE_NOTHROW(system_lp =
@@ -181,8 +183,10 @@ TEST_CASE("ReservoirSeepage: inactive waterway omits the row")  // NOLINT
 TEST_CASE("ReservoirSeepage: elided waterway flow (fmin=fmax=0)")  // NOLINT
 {
   auto system = hydro_system();
-  // Zero-capacity seepage waterway: its flow column is elided
-  // unconditionally (waterway_lp.cpp), which used to crash the seepage.
+  // Zero-capacity seepage waterway: under `lp_reduction` its flow column
+  // is elided (waterway_lp.cpp), which used to crash the seepage.  (With
+  // the flag off the column is a fixed 0 and the seepage row `0 = 1 +
+  // slope·V` is infeasible, as the data says.)
   system.waterway_array.push_back({
       .uid = Uid {2},
       .name = "ww_seep",
@@ -201,7 +205,7 @@ TEST_CASE("ReservoirSeepage: elided waterway flow (fmin=fmax=0)")  // NOLINT
           .constant = 1.0,
       },
   };
-  build_and_solve(system);
+  build_and_solve(system, /*lp_reduction=*/true);
 }
 
 TEST_CASE("ReservoirDischargeLimit: commissioned reservoir")  // NOLINT

@@ -79,6 +79,8 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
 
   BIndexHolder<ColIndex> fcols;
   map_reserve(fcols, blocks.size());
+  BIndexHolder<ColIndex> ucols;
+  BIndexHolder<RowIndex> srows;
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();
@@ -93,11 +95,15 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     const bool soft_fmin =
         block_fmin > 0.0 && block_fmin_fcost.value_or(0.0) > 0.0;
 
-    // P1 LP-size: when both bounds are zero the flow variable is
+    // `lp_reduction`: when both bounds are zero the flow variable is
     // fixed at zero — the LP column and the two `brow[...] = ...`
     // coefficient writes contribute nothing.  Skip the whole block
     // (saves 1 col per closed-flow block; balance rows are unchanged).
-    if (block_fmax == 0.0 && block_fmin == 0.0) [[unlikely]] {
+    // Off (the default) the [0, 0] column stays, like every other
+    // element's: consumers and outputs see the same cells either way.
+    if (sc.options().lp_reduction() && block_fmax == 0.0 && block_fmin == 0.0)
+        [[unlikely]]
+    {
       continue;
     }
 
@@ -158,7 +164,8 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
               .greater_equal(block_fmin);
       srow[fc] = 1.0;
       srow[uc] = 1.0;
-      [[maybe_unused]] const auto srow_idx = lp.add_row(std::move(srow));
+      ucols[buid] = uc;
+      srows[buid] = lp.add_row(std::move(srow));
     }
   }
 
@@ -173,6 +180,10 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     // Register PAMPL-visible columns.
     sc.add_ampl_variable(
         ampl_name, uid(), FlowName, scenario, stage, flow_cols.at(st_key));
+  }
+  if (!ucols.empty()) {
+    fmin_unserved_cols[st_key] = std::move(ucols);
+    fmin_soft_rows[st_key] = std::move(srows);
   }
 
   return true;
@@ -190,6 +201,11 @@ bool WaterwayLP::add_to_output(OutputContext& out) const
   // guiservice/ / integration_test/, 2026-05-14).  Mirrors the
   // bus.theta:cost / junction.drain:cost drops.
   out.add_col_sol(cname, FlowName, pid, flow_cols);
+  // Soft-`fmin` floor: shortfall, its reduced cost and the floor dual
+  // (only blocks with a priced floor; empty otherwise).
+  out.add_col_sol(cname, FminUnservedName, pid, fmin_unserved_cols);
+  out.add_col_cost(cname, FminUnservedName, pid, fmin_unserved_cols);
+  out.add_row_dual(cname, FminSoftName, pid, fmin_soft_rows);
 
   return true;
 }

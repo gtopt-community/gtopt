@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -184,6 +185,11 @@ public:
   /// @}
 
 private:
+  /// True when a Converter or Pump writes rows on this demand's load
+  /// column (cached on first use).  Such loads never use Option C.
+  [[nodiscard]] bool is_coupled_load(const SystemContext& sc);
+  std::optional<bool> m_coupled_load_ {};
+
   OptTBRealSched lmax;
   OptTBRealSched lmin;
   OptTBRealSched lossfactor;

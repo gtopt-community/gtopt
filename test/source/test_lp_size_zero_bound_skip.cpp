@@ -116,6 +116,7 @@ TEST_CASE("LP-size: WaterwayLP skips zero-flow blocks (P1)")
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
     SystemLP sys_lp(system, sim_lp);
@@ -262,6 +263,7 @@ TEST_CASE("LP-size: DemandLP skips zero-capacity blocks (P1)")
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 1000.0;
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -524,6 +526,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 10000.0;
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);

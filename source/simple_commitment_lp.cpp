@@ -12,6 +12,7 @@
  * - p - dispatch_pmin*u >= 0  (minimum output when dispatched)
  */
 
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/simple_commitment_lp.hpp>
@@ -156,6 +157,19 @@ bool SimpleCommitmentLP::add_to_lp(SystemContext& sc,
       glrows[buid] = lp.add_row(std::move(row));
     }
   }
+
+  // Reserve headroom / Min-Provision rows of this generator follow u,
+  // exactly as under Commitment.  Before, they kept the generator's pmin
+  // (`g − r_dn ≥ pmin` forced an off unit on) and let an off unit offer
+  // up reserve (`g + r_up ≤ pmax`).
+  gate_reserve_provisions_by_status(sc,
+                                    scenario,
+                                    stage,
+                                    lp,
+                                    generator_index_,
+                                    generator_lp,
+                                    generation_cols,
+                                    ucols);
 
   // Store index holders
   if (!ucols.empty()) {

@@ -65,7 +65,7 @@ namespace gtopt
  * gap reconstruction.
  *
  * - `LESS_EQUAL`    (`expr <= rhs`):  one slack column `slack`,
- *   row gets `-1.0 * slack`, cost `+penalty * slack`.
+ *   row gets `-1.0 * slack`, cost `+penalty * slack` (weighted, below).
  * - `GREATER_EQUAL` (`expr >= rhs`):  one slack column `slack`,
  *   row gets `+1.0 * slack`, cost `+penalty * slack`.
  * - `EQUAL`         (`expr =  rhs`):  two slack columns `slack_pos`,
@@ -76,11 +76,14 @@ namespace gtopt
  *
  * ### Penalty unit conversion (`penalty_class`)
  *
- * By default (`penalty_class` absent or `"raw"`) the `penalty` scalar is
- * fed directly into the slack column's LP objective coefficient.  When
- * `penalty_class` is set to `"hydro_flow"`, the `penalty` is interpreted
- * as $/m³ (volume) and converted to $/(m³/s) per block via
- * `× duration[h] × 3600`, mirroring how `hydro_fail_cost` is applied to
+ * `penalty` is $ per row unit per hour of violation and the slack cost is
+ * weighted like every other cost: `penalty × probability × discount ×
+ * duration[h]` on a per-block row, `penalty × probability × discount` on
+ * a row spanning several blocks (`daily_sum`, or `stage` / `phase` /
+ * `global` scope: the row is already a span total).  With `penalty_class`
+ * `"hydro_flow"` the `penalty` is interpreted as $/m³ (volume) and
+ * converted to $/(m³/s)·h via `× 3600` (`× 3600 × span hours` on a span
+ * row), mirroring how `hydro_fail_cost` is applied to
  * FlowRight fail columns.  This lets an irrigation balance authored with
  * `penalty = hydro_fail_cost` degrade gracefully without hard
  * infeasibility while still being priced in the same unit system as the

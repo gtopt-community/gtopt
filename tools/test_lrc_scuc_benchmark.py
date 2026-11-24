@@ -73,6 +73,9 @@ def test_to_gtopt_t() -> None:
     assert renew["wind2"]["pmin"] == [[96.0, 48.0]]  # 0.96 x 2 x 50 % x 100
     uc = system["commitment_array"][1]
     assert (uc["pmin"], uc["startup_cost"], uc["ramp_up"]) == (50.0, 2400.0, 400.0)
+    # the committed unit's floor is on the Commitment, not the Generator
+    gen = {g["name"]: g for g in system["generator_array"]}[uc["generator"]]
+    assert gen["pmin"] == 0
     assert uc["initial_status"] == 0
     assert system["line_array"][0]["reactance"] == pytest.approx(0.1)
     zone = system["reserve_zone_array"][0]

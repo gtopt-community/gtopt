@@ -69,7 +69,10 @@ struct GasOptions
   /// picks, among equal-cost LP vertices, the one nearest f₀.
   OptReal slp_proximal_cost {};
   /// Line pack closes each stage with at least its initial value
-  /// (default true); false lets the pack be drawn down.
+  /// (default true); false lets the pack be drawn down.  The pack is
+  /// not carried between stages (each stage restarts from
+  /// ``linepack_ini``), so ``false`` is accepted only with a single
+  /// stage (validate_planning rejects it otherwise).
   OptBool linepack_cyclic {};
 
   [[nodiscard]] constexpr double specific_gravity() const noexcept

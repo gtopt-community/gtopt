@@ -30,6 +30,21 @@
 namespace gtopt
 {
 
+/// Make the ReserveProvision rows of a committed generator conditional on
+/// its status columns @p block_ucol (one per block): headroom rows get the
+/// `Pmax·u` / `Pmin·u` terms, Min-Provision floors become `r ≥ rmin·u`,
+/// offline (cold) up reserve gets `r_up ≤ urmax·(1 − u)`.  Shared by
+/// CommitmentLP and SimpleCommitmentLP.
+void gate_reserve_provisions_by_status(
+    const SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    LinearProblem& lp,
+    ElementIndex<GeneratorLP> generator_index,
+    const GeneratorLP& generator_lp,
+    const BIndexHolder<ColIndex>& generation_cols,
+    const BIndexHolder<ColIndex>& block_ucol);
+
 class CommitmentLP : public ObjectLP<Commitment>
 {
 public:
@@ -119,6 +134,16 @@ public:
   {
     const auto it = shutdown_cols_.find({scenario.uid(), stage.uid()});
     return it != shutdown_cols_.end() ? &it->second : nullptr;
+  }
+
+  /// Minimum stable level when committed (``Commitment.pmin``) [MW] for
+  /// block @p buid of @p stage_uid, or ``std::nullopt`` when unset there.
+  /// Used by ``InertiaProvisionLP`` to derive ``H·S / Pmin`` from the
+  /// committed floor instead of the (zero) generation column lower bound.
+  [[nodiscard]] std::optional<Real> pmin_at(StageUid stage_uid,
+                                            BlockUid buid) const
+  {
+    return pmin_.optval(stage_uid, buid);
   }
 
   [[nodiscard]] bool add_to_lp(SystemContext& sc,

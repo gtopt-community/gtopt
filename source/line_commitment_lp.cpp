@@ -187,9 +187,12 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     // wins, else ``must_run`` covers the rest.  Per-block exogenous
     // outages (``Line.in_service = 0``) trump both — but that path
     // already skipped this block above (no flow column).
+    // Same rule as Commitment: only a value in [0, 1] pins (rounded at
+    // 0.5); anything else (UC.jl's `-1` for an un-pinned block) leaves
+    // the breaker free.
     const auto fixed =
         fixed_status_.at(stage.uid(), buid).value_or(LinearProblem::DblMax);
-    const bool has_fixed = fixed != LinearProblem::DblMax;
+    const bool has_fixed = fixed >= 0.0 && fixed <= 1.0;
     double u_lowb = 0.0;
     double u_uppb = 1.0;
     if (has_fixed) {

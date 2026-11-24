@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <map>
 #include <numbers>
 #include <optional>
 #include <queue>
@@ -301,7 +302,7 @@ std::size_t add_kvl_rows(const SystemContext& sc,
     }
     const double tau = line.param_tap_ratio(stage.uid()).value_or(1.0);
     const double x_tau =
-        (kind == LineKvlKind::tie) ? 0.0 : tau * x_opt.value() / (V * V);
+        (kind == LineKvlKind::tie) ? 0.0 : tau * x_opt.value_or(0.0) / (V * V);
     if (kind == LineKvlKind::ac && x_tau == 0.0) {
       resolved.push_back(rl);
       continue;
@@ -365,187 +366,235 @@ std::size_t add_kvl_rows(const SystemContext& sc,
   const double theta_max = sc.options().theta_max();
 
   std::size_t total_rows = 0;
-  std::size_t cycle_idx = 0;
-  for (const auto& cycle : cycles) {
-    // Per-cycle `M_C` base (block-invariant: depends only on the
-    // cycle's edges' `x_tau`s and `phi_rad`s, both stage-resolved).
+
+  // Big-M of the OTS disjunctive form for one cycle (block-invariant:
+  // depends only on the cycle's edges' `x_tau`s and `phi_rad`s, both
+  // stage-resolved).
+  const auto cycle_big_m = [&](const Cycle& cycle)
+  {
     double sum_abs_phi = 0.0;
     for (const auto& ce : cycle) {
       const auto& rl = resolved[ce.line_index];
       sum_abs_phi += std::abs(rl.phi_rad);
     }
-    const double M_C =
-        (2.0 * theta_max * static_cast<double>(cycle.size()) * row_scale)
+    return (2.0 * theta_max * static_cast<double>(cycle.size()) * row_scale)
         + (sum_abs_phi * row_scale);
+  };
 
-    for (const auto& block : blocks) {
-      const auto buid = block.uid();
+  // Emit the KVL row(s) of `cycle` (basis index `cycle_idx`) at `block`.
+  // Every edge of `cycle` must have a flow column at the block.
+  const auto emit_cycle_block = [&](const Cycle& cycle,
+                                    std::size_t cycle_idx,
+                                    double M_C,
+                                    const auto& block)
+  {
+    const auto buid = block.uid();
 
-      // If any line in this cycle is out of service for this block (no
-      // flow column emitted by LineLP — e.g. ``Line.in_service``=0 from
-      // ``Lin_Units.csv``), the loop is physically open and KVL does not
-      // apply: drop the entire cycle row for this block.  Summing the
-      // surviving branches instead would impose a spurious constraint on
-      // the now-radial path.  (A line out for all blocks is already
-      // excluded from the cycle topology via ``is_active``; this guard
-      // covers the per-block — intra-stage — maintenance window case.)
-      const bool cycle_intact = std::ranges::all_of(
-          cycle,
-          [&](const auto& ce)
-          {
-            const auto* edge_line = resolved[ce.line_index].line;
-            return edge_line->flowp_cols_at(scenario, stage).contains(buid)
-                || edge_line->flown_cols_at(scenario, stage).contains(buid)
-                || edge_line->flowp_seg_cols_at(scenario, stage).contains(buid)
-                || edge_line->flown_seg_cols_at(scenario, stage).contains(buid)
-                || edge_line->flows_cols_at(scenario, stage).contains(buid);
-          });
-      if (!cycle_intact) {
-        continue;
-      }
-
-      // ── Collect switchable lines on this cycle (OTS disjunctive
-      //    form is needed iff at least one u_l column exists).
-      std::vector<ColIndex> u_cols;
-      if (switchable_lookup) {
-        u_cols.reserve(cycle.size());
-        for (const auto& ce : cycle) {
-          if (auto sw = switchable_lookup(ce.line_index, buid)) {
-            u_cols.push_back(sw->u_col);
-          }
-        }
-      }
-      const bool disjunctive = !u_cols.empty();
-
-      double rhs = 0.0;
-      // Build a "core" sparse map of flow coefficients first (shared
-      // between upper and lower rows when disjunctive).  `flat_map` has
-      // no `reserve`; the inserts amortise.
-      SparseRow::cmap_t flow_coeffs;
-
+    // ── Collect switchable lines on this cycle (OTS disjunctive
+    //    form is needed iff at least one u_l column exists).
+    std::vector<ColIndex> u_cols;
+    if (switchable_lookup) {
+      u_cols.reserve(cycle.size());
       for (const auto& ce : cycle) {
-        const auto& rl = resolved[ce.line_index];
-        if (!rl.active) {
-          continue;  // defensive — should not happen for cycle members
-        }
-        const double coef_base = ce.sign * rl.x_tau * row_scale;
-        rhs += ce.sign * rl.phi_rad * row_scale;
-        if (coef_base == 0.0) {
-          continue;  // zero-impedance tie: no flow term, only φ
-        }
-
-        // Stamp flow cols.  In `piecewise_direct` line-loss mode the
-        // flowp / flown aggregators are absent and segments stamp
-        // directly with the same per-edge coefficient.
-        const auto& fpc = rl.line->flowp_cols_at(scenario, stage);
-        if (auto it = fpc.find(buid); it != fpc.end()) {
-          flow_coeffs[it->second] += coef_base;
-        }
-        const auto& fnc = rl.line->flown_cols_at(scenario, stage);
-        if (auto it = fnc.find(buid); it != fnc.end()) {
-          flow_coeffs[it->second] -= coef_base;
-        }
-        const auto& fpsegc = rl.line->flowp_seg_cols_at(scenario, stage);
-        if (auto it = fpsegc.find(buid); it != fpsegc.end()) {
-          for (const auto& col : it->second) {
-            flow_coeffs[col] += coef_base;
-          }
-        }
-        const auto& fnsegc = rl.line->flown_seg_cols_at(scenario, stage);
-        if (auto it = fnsegc.find(buid); it != fnsegc.end()) {
-          for (const auto& col : it->second) {
-            flow_coeffs[col] -= coef_base;
-          }
-        }
-        // ``tangent_signed_flow`` mode: single signed flow column carries
-        // its own sign, so use a single ``+`` stamp.
-        const auto& fsc = rl.line->flows_cols_at(scenario, stage);
-        if (auto it = fsc.find(buid); it != fsc.end()) {
-          flow_coeffs[it->second] += coef_base;
+        if (auto sw = switchable_lookup(ce.line_index, buid)) {
+          u_cols.push_back(sw->u_col);
         }
       }
+    }
+    const bool disjunctive = !u_cols.empty();
 
-      if (!disjunctive && flow_coeffs.empty()) {
-        // Cycle made only of zero-impedance ties: the row degenerates to
-        // `0 = Σ ε·φ`.  Consistent (Σ ε·φ = 0) ⇒ redundant; otherwise the
-        // tie loop imposes contradictory phase shifts and the row would
-        // make the LP infeasible — drop it either way, warn once per
-        // (cycle, stage) in the inconsistent case.
-        if (std::abs(rhs) > 1e-12 && block.uid() == blocks.front().uid()) {
-          spdlog::warn(
-              "kirchhoff::cycle_basis: cycle {} consists only of "
-              "zero-impedance ties with net phase shift {:.6g} rad ≠ 0 "
-              "(scenario={}, stage={}) — KVL row dropped",
-              cycle_idx,
-              rhs / row_scale,
-              scenario.uid(),
-              stage.uid());
-        }
-        continue;
+    double rhs = 0.0;
+    // Build a "core" sparse map of flow coefficients first (shared
+    // between upper and lower rows when disjunctive).  `flat_map` has
+    // no `reserve`; the inserts amortise.
+    SparseRow::cmap_t flow_coeffs;
+
+    for (const auto& ce : cycle) {
+      const auto& rl = resolved[ce.line_index];
+      if (!rl.active) {
+        continue;  // defensive — should not happen for cycle members
+      }
+      const double coef_base = ce.sign * rl.x_tau * row_scale;
+      rhs += ce.sign * rl.phi_rad * row_scale;
+      if (coef_base == 0.0) {
+        continue;  // zero-impedance tie: no flow term, only φ
       }
 
-      if (!disjunctive) {
-        // ── Standard equality row (no OTS in this cycle) ──
-        SparseRow row {
-            .cmap = std::move(flow_coeffs),
-            .class_name = class_name,
-            .constraint_name = constraint_name,
-            .variable_uid = Uid {static_cast<int>(cycle_idx)},
-            .context =
-                make_block_context(scenario.uid(), stage.uid(), block.uid()),
-        };
-        row.equal(-rhs);
-        [[maybe_unused]] const auto row_idx = lp.add_row(std::move(row));
-        ++total_rows;
-        continue;
+      // Stamp flow cols.  In `piecewise_direct` line-loss mode the
+      // flowp / flown aggregators are absent and segments stamp
+      // directly with the same per-edge coefficient.
+      const auto& fpc = rl.line->flowp_cols_at(scenario, stage);
+      if (auto it = fpc.find(buid); it != fpc.end()) {
+        flow_coeffs[it->second] += coef_base;
       }
-
-      // ── OTS disjunctive form ──
-      //   −Σ M_C · (1 − u_l)  ≤  LHS − (−rhs)  ≤  +Σ M_C · (1 − u_l)
-      //
-      // Expanded with `u_l` coefficients on the LHS:
-      //   LHS + Σ M_C · u_l  ≤  −rhs + |sw| · M_C        (upper)
-      //   LHS − Σ M_C · u_l  ≥  −rhs − |sw| · M_C        (lower)
-      const double slack = M_C * static_cast<double>(u_cols.size());
-
-      // Upper-side row: LHS + Σ M_C · u_l  ≤  −rhs + slack
-      {
-        SparseRow::cmap_t upper_coeffs = flow_coeffs;  // copy
-        for (const auto col : u_cols) {
-          upper_coeffs[col] += M_C;
-        }
-        SparseRow upper {
-            .cmap = std::move(upper_coeffs),
-            .class_name = class_name,
-            .constraint_name = constraint_name_upper,
-            .variable_uid = Uid {static_cast<int>(cycle_idx)},
-            .context =
-                make_block_context(scenario.uid(), stage.uid(), block.uid()),
-        };
-        upper.less_equal(-rhs + slack);
-        [[maybe_unused]] const auto upper_idx = lp.add_row(std::move(upper));
-        ++total_rows;
+      const auto& fnc = rl.line->flown_cols_at(scenario, stage);
+      if (auto it = fnc.find(buid); it != fnc.end()) {
+        flow_coeffs[it->second] -= coef_base;
       }
-      // Lower-side row: LHS − Σ M_C · u_l  ≥  −rhs − slack
-      {
-        SparseRow::cmap_t lower_coeffs = std::move(flow_coeffs);
-        for (const auto col : u_cols) {
-          lower_coeffs[col] -= M_C;
+      const auto& fpsegc = rl.line->flowp_seg_cols_at(scenario, stage);
+      if (auto it = fpsegc.find(buid); it != fpsegc.end()) {
+        for (const auto& col : it->second) {
+          flow_coeffs[col] += coef_base;
         }
-        SparseRow lower {
-            .cmap = std::move(lower_coeffs),
-            .class_name = class_name,
-            .constraint_name = constraint_name_lower,
-            .variable_uid = Uid {static_cast<int>(cycle_idx)},
-            .context =
-                make_block_context(scenario.uid(), stage.uid(), block.uid()),
-        };
-        lower.greater_equal(-rhs - slack);
-        [[maybe_unused]] const auto lower_idx = lp.add_row(std::move(lower));
-        ++total_rows;
+      }
+      const auto& fnsegc = rl.line->flown_seg_cols_at(scenario, stage);
+      if (auto it = fnsegc.find(buid); it != fnsegc.end()) {
+        for (const auto& col : it->second) {
+          flow_coeffs[col] -= coef_base;
+        }
+      }
+      // ``tangent_signed_flow`` mode: single signed flow column carries
+      // its own sign, so use a single ``+`` stamp.
+      const auto& fsc = rl.line->flows_cols_at(scenario, stage);
+      if (auto it = fsc.find(buid); it != fsc.end()) {
+        flow_coeffs[it->second] += coef_base;
+      }
+    }
+
+    if (!disjunctive && flow_coeffs.empty()) {
+      // Cycle made only of zero-impedance ties: the row degenerates to
+      // `0 = Σ ε·φ`.  Consistent (Σ ε·φ = 0) ⇒ redundant; otherwise the
+      // tie loop imposes contradictory phase shifts and the row would
+      // make the LP infeasible — drop it either way, warn once per
+      // (cycle, stage) in the inconsistent case.
+      if (std::abs(rhs) > 1e-12 && block.uid() == blocks.front().uid()) {
+        spdlog::warn(
+            "kirchhoff::cycle_basis: cycle {} consists only of "
+            "zero-impedance ties with net phase shift {:.6g} rad ≠ 0 "
+            "(scenario={}, stage={}) — KVL row dropped",
+            cycle_idx,
+            rhs / row_scale,
+            scenario.uid(),
+            stage.uid());
+      }
+      return;
+    }
+
+    if (!disjunctive) {
+      // ── Standard equality row (no OTS in this cycle) ──
+      SparseRow row {
+          .cmap = std::move(flow_coeffs),
+          .class_name = class_name,
+          .constraint_name = constraint_name,
+          .variable_uid = Uid {static_cast<int>(cycle_idx)},
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+      };
+      row.equal(-rhs);
+      [[maybe_unused]] const auto row_idx = lp.add_row(std::move(row));
+      ++total_rows;
+      return;
+    }
+
+    // ── OTS disjunctive form ──
+    //   −Σ M_C · (1 − u_l)  ≤  LHS − (−rhs)  ≤  +Σ M_C · (1 − u_l)
+    //
+    // Expanded with `u_l` coefficients on the LHS:
+    //   LHS + Σ M_C · u_l  ≤  −rhs + |sw| · M_C        (upper)
+    //   LHS − Σ M_C · u_l  ≥  −rhs − |sw| · M_C        (lower)
+    const double slack = M_C * static_cast<double>(u_cols.size());
+
+    // Upper-side row: LHS + Σ M_C · u_l  ≤  −rhs + slack
+    {
+      SparseRow::cmap_t upper_coeffs = flow_coeffs;  // copy
+      for (const auto col : u_cols) {
+        upper_coeffs[col] += M_C;
+      }
+      SparseRow upper {
+          .cmap = std::move(upper_coeffs),
+          .class_name = class_name,
+          .constraint_name = constraint_name_upper,
+          .variable_uid = Uid {static_cast<int>(cycle_idx)},
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+      };
+      upper.less_equal(-rhs + slack);
+      [[maybe_unused]] const auto upper_idx = lp.add_row(std::move(upper));
+      ++total_rows;
+    }
+    // Lower-side row: LHS − Σ M_C · u_l  ≥  −rhs − slack
+    {
+      SparseRow::cmap_t lower_coeffs = std::move(flow_coeffs);
+      for (const auto col : u_cols) {
+        lower_coeffs[col] -= M_C;
+      }
+      SparseRow lower {
+          .cmap = std::move(lower_coeffs),
+          .class_name = class_name,
+          .constraint_name = constraint_name_lower,
+          .variable_uid = Uid {static_cast<int>(cycle_idx)},
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+      };
+      lower.greater_equal(-rhs - slack);
+      [[maybe_unused]] const auto lower_idx = lp.add_row(std::move(lower));
+      ++total_rows;
+    }
+  };
+
+  // ── Per-block out-of-service edges ─────────────────────────────────
+  // A line active in the stage but without a flow column at a block
+  // (``Line.in_service`` = 0 for an intra-stage maintenance window) is
+  // an open branch there: KVL does not apply around any loop through it.
+  const auto edge_in_service = [&](const Edge& edge, BlockUid buid)
+  {
+    const auto* line = resolved[edge.line_index].line;
+    return line->flowp_cols_at(scenario, stage).contains(buid)
+        || line->flown_cols_at(scenario, stage).contains(buid)
+        || line->flowp_seg_cols_at(scenario, stage).contains(buid)
+        || line->flown_seg_cols_at(scenario, stage).contains(buid)
+        || line->flows_cols_at(scenario, stage).contains(buid);
+  };
+  std::vector<std::vector<std::size_t>> block_out(blocks.size());
+  for (std::size_t bi = 0; bi < blocks.size(); ++bi) {
+    for (std::size_t e = 0; e < edges.size(); ++e) {
+      if (!edge_in_service(edges[e], blocks[bi].uid())) {
+        block_out[bi].push_back(e);
+      }
+    }
+  }
+
+  // Blocks with every edge in service: the stage's fundamental basis.
+  std::size_t cycle_idx = 0;
+  for (const auto& cycle : cycles) {
+    const double M_C = cycle_big_m(cycle);
+    for (std::size_t bi = 0; bi < blocks.size(); ++bi) {
+      if (block_out[bi].empty()) {
+        emit_cycle_block(cycle, cycle_idx, M_C, blocks[bi]);
       }
     }
     ++cycle_idx;
+  }
+
+  // Blocks with an outage: rebuild the fundamental basis on the surviving
+  // edges, once per distinct outage pattern.  Dropping only the stage
+  // cycles that contain the open line would also drop loops that survive
+  // it (two cycles sharing the open line combine into one that avoids
+  // it), leaving the network under-constrained against `node_angle`.
+  std::map<std::vector<std::size_t>, std::vector<std::size_t>> outage_groups;
+  for (std::size_t bi = 0; bi < blocks.size(); ++bi) {
+    if (!block_out[bi].empty()) {
+      outage_groups[block_out[bi]].push_back(bi);
+    }
+  }
+  for (const auto& [out, group] : outage_groups) {
+    std::vector<Edge> live;
+    live.reserve(edges.size() - out.size());
+    for (std::size_t e = 0; e < edges.size(); ++e) {
+      if (!std::ranges::binary_search(out, e)) {
+        live.push_back(edges[e]);
+      }
+    }
+    const auto live_cycles =
+        build_fundamental_cycles(buses.elements().size(), live);
+    std::size_t live_idx = 0;
+    for (const auto& cycle : live_cycles) {
+      const double M_C = cycle_big_m(cycle);
+      for (const auto bi : group) {
+        emit_cycle_block(cycle, live_idx, M_C, blocks[bi]);
+      }
+      ++live_idx;
+    }
   }
 
   spdlog::debug(

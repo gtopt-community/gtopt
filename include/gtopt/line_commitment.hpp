@@ -148,7 +148,8 @@ struct LineCommitment
   /// Per-(stage, block) forced commitment status — pins ``u_l`` to a
   /// specific value at every (stage, block) where it is set.  ``1.0``
   /// ⇒ pinned closed, ``0.0`` ⇒ pinned open; blocks where the
-  /// schedule has no entry leave ``u_l`` free.  Mirrors
+  /// schedule has no entry, or a value outside ``[0, 1]`` (e.g. the
+  /// ``-1`` un-pinned marker), leave ``u_l`` free.  Mirrors
   /// ``Commitment.fixed_status`` semantics for line topology
   /// scheduling.  Overrides ``must_run`` per block when both are
   /// set.  When the underlying ``Line.in_service`` schedule resolves

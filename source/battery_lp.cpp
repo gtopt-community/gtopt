@@ -57,6 +57,13 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
+  // Out of service: no flow columns (StorageBase builds no energy balance
+  // for an inactive stage, so free charge / discharge columns would be
+  // unbounded energy for anything coupled to them).
+  if (!is_active(stage)) {
+    return true;
+  }
+
   // F9: register filter metadata for sum(...) predicates.  Battery `bus`
   // is optional (standalone batteries are decomposed by
   // `System::expand_batteries()`), so we only register `type`.
@@ -84,8 +91,8 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
 
   // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
   // add_col auto-resolves scale from metadata when class_name is set.
-  const auto es =
-      sc.options().variable_scale_map().lookup("Battery", "energy", uid());
+  const auto es = sc.options().variable_scale_map().lookup(
+      Element::class_name.full_name(), StorageBase::EnergyName, uid());
 
   // Create finp/fout variables for each time block.
   // Flow scale is resolved by add_col from VariableScaleMap metadata.

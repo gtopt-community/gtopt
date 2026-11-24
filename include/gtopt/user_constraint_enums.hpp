@@ -85,12 +85,16 @@ inline constexpr auto constraint_scale_type_entries =
  * using block duration.  `PenaltyClass` selects which conversion the slack
  * column's cost goes through:
  *
- * | Enum       | Accepted strings | Slack cost                        |
- * |------------|------------------|-----------------------------------|
- * | Raw        | `"raw"` (default)| `penalty` (no conversion)         |
- * | HydroFlow  | `"hydro_flow"`   | `penalty × duration[h] × 3600`    |
+ * | Enum       | Accepted strings | Slack cost (per-block row)              |
+ * |------------|------------------|-----------------------------------------|
+ * | Raw        | `"raw"` (default)| `penalty × w`                           |
+ * | HydroFlow  | `"hydro_flow"`   | `penalty × 3600 × w`                    |
  *
- * - **Raw** — penalty is used verbatim.  Appropriate for dimensionless or
+ * with `w = probability × discount × duration[h]` (`CostHelper::
+ * block_ecost`), as for every other cost.  A row spanning several blocks
+ * uses `w = probability × discount` and, for HydroFlow, `× span hours`.
+ *
+ * - **Raw** — no unit conversion.  Appropriate for dimensionless or
  *   already-converted coefficients, and for energy ($/MWh) constraints where
  *   the slack column is itself in MWh.  Default when `penalty_class` is
  *   absent (backwards-compatible with pre-2026-04 inputs).
@@ -102,8 +106,8 @@ inline constexpr auto constraint_scale_type_entries =
  */
 enum class PenaltyClass : uint8_t
 {
-  Raw = 0,  ///< Default — penalty used verbatim as slack cost
-  HydroFlow,  ///< $/m³ → $/(m³/s) via `× duration[h] × 3600`
+  Raw = 0,  ///< Default — penalty in row units (weighted like any cost)
+  HydroFlow,  ///< $/m³ → $/(m³/s)·h via `× 3600` (then weighted)
 };
 
 inline constexpr auto penalty_class_entries =
