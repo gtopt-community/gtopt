@@ -33,10 +33,14 @@
 #include <algorithm>
 #include <format>
 
+#include <gtopt/active_ref.hpp>
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/stage_month_guard.hpp>
+#include <gtopt/storage_state_defaults.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
@@ -51,14 +55,14 @@ namespace
 /// Read a VolumeRight's INCOMING volume at `stage` — the state its
 /// balance would start from before any reset provisioning:
 ///
-///   * in-phase predecessor (shared LP): the previous stage's efin
-///     column solution (post-solve; config `eini` before the first
-///     solve),
-///   * cross-phase boundary: the predecessor phase's `efin`
-///     StateVariable (`col_sol_physical()`, updated after every
-///     forward solve — the same channel `physical_eini_from_cache`
-///     uses for reservoirs),
-///   * horizon start / no information: the config `eini`.
+///   * the predecessor stage's (`SimulationLP::prev_stage`: same phase
+///     or the previous phase's last stage) solved `efin` via
+///     `solved_stage_state` — its StateVariable (written after every
+///     forward solve, identical under every low_memory mode), else this
+///     LP's optimal column for an in-phase predecessor,
+///   * horizon start: the config `eini`,
+///   * no solve yet: the config `eini` (`initial_state_fallback` warns
+///     once if a solve had happened and the value was dropped).
 ///
 /// Numeric (not an LP expression) — mirrors PLP's FijaMaule, which
 /// evaluates the compensation recompute from `VarMaulePrev` each
@@ -69,31 +73,33 @@ template<typename SystemLPT>
                                                const StageLP& stage,
                                                const VolumeRightLP& vr)
 {
+  static constexpr auto vr_class_name = VolumeRightLP::Element::class_name;
   const Real def = vr.volume_right().eini.value_or(0.0);
-  if (stage.index() > 0) {
-    const auto& stages = sys.phase().stages();
-    const auto& li = sys.linear_interface();
-    if (li.is_optimal()) {
-      return li
-          .get_col_sol()[vr.efin_col_at(scenario, stages[stage.index() - 1])];
-    }
-    return def;
+  const auto [prev_stage, prev_phase] =
+      sys.system_context().simulation().prev_stage(stage);
+  if (prev_stage == nullptr) {
+    return def;  // horizon start: the config eini IS the incoming state
   }
-  if (const auto* prev_sys = sys.prev_phase_sys()) {
-    const auto& prev_stages = prev_sys->phase().stages();
-    if (!prev_stages.empty()) {
-      auto svar_opt = sys.system_context().simulation().state_variable(
-          StateVariable::key(scenario,
-                             prev_stages.back(),
-                             VolumeRightLP::Element::class_name,
-                             vr.uid(),
-                             "efin"));
-      if (svar_opt.has_value()) {
-        return svar_opt->get().col_sol_physical();
-      }
-    }
+  // In-phase predecessor: its efin is a column of this LP.  Across a
+  // phase boundary only the state variable carries it.
+  // Tolerant: a predecessor stage in which `vr` was inactive has no efin
+  // column (nullopt → state-variable / fallback path below).
+  std::optional<ColIndex> local_col;
+  if (prev_phase == nullptr) {
+    local_col = vr.find_efin_col(scenario, *prev_stage);
   }
-  return def;
+  if (const auto v = solved_stage_state(sys,
+                                        scenario,
+                                        *prev_stage,
+                                        vr_class_name,
+                                        vr.uid(),
+                                        "efin",
+                                        local_col))
+  {
+    return *v;
+  }
+  return initial_state_fallback(
+      sys, scenario, stage, vr_class_name, vr.uid(), "efin", def);
 }
 
 }  // namespace
@@ -277,7 +283,8 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   }
 
   const StorageOptions opts {
-      .use_state_variable = volume_right().use_state_variable.value_or(true),
+      .use_state_variable = volume_right().use_state_variable.value_or(
+          storage_state_defaults::volume_right.use_state_variable),
       .daily_cycle = false,
       .skip_state_link = is_reset_stage && is_cross_phase,
       // In-phase reset: decouple this stage's initial state from the
@@ -360,22 +367,33 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     } else {
       provision = stage_cap;
     }
+    // PLP INICIOTEMP debit (genpdlajam.f:234-239): the December
+    // riego provision is reduced by the anticipado spending counter
+    // — as a ROW, not a numeric subtraction, so the linkage stays
+    // exact within the LP and across SDDP phases (the debit's
+    // incoming volume is its state-linked ``eini`` column):
+    //
+    //     eini + debit_eini = provision,   eini >= 0
+    //
+    // The referenced VolumeRight must have been added to the LP
+    // already (earlier in volume_right_array — same ordering
+    // contract as ``right_reservoir``).
+    //
+    // Tolerant reference (see active_ref.hpp): an inactive debit right
+    // has no eini column in this cell — the debit term is omitted and
+    // the provision is fixed directly (the `else` form below).
+    std::optional<ColIndex> debit_eini;
     if (const auto& debit_ref = volume_right().reset_debit_right;
         debit_ref.has_value())
     {
-      // PLP INICIOTEMP debit (genpdlajam.f:234-239): the December
-      // riego provision is reduced by the anticipado spending counter
-      // — as a ROW, not a numeric subtraction, so the linkage stays
-      // exact within the LP and across SDDP phases (the debit's
-      // incoming volume is its state-linked ``eini`` column):
-      //
-      //     eini + debit_eini = provision,   eini >= 0
-      //
-      // The referenced VolumeRight must have been added to the LP
-      // already (earlier in volume_right_array — same ordering
-      // contract as ``right_reservoir``).
       const auto& debit_lp = sc.element(VolumeRightLPSId(*debit_ref));
-      const auto debit_eini = debit_lp.eini_col_at(scenario, stage);
+      debit_eini = debit_lp.find_eini_col(scenario, stage);
+      if (!debit_eini) {
+        warn_ref_once(
+            cname.full_name(), uid(), "reset debit term", debit_lp.uid());
+      }
+    }
+    if (debit_eini) {
       const auto eini_idx = eini_col_at(scenario, stage);
       auto& eini_col = lp.col_at(eini_idx);
       eini_col.lowb = 0.0;
@@ -387,7 +405,7 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
           .context = make_stage_context(scenario.uid(), stage.uid()),
       };
       drow[eini_idx] = 1.0;
-      drow[debit_eini] = 1.0;
+      drow[*debit_eini] = 1.0;
       reset_debit_rows_[{scenario.uid(), stage.uid()}] =
           lp.add_row(std::move(drow.equal(provision)));
     } else {
@@ -452,34 +470,53 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // Store bound rule state for update_lp.  When the rule's axis consumes
   // reservoir state, capture the static reservoir refs here so update_lp
   // doesn't need `sys.element<ReservoirLP>(...)` on the current sys.
+  //
+  // Tolerant reference (see active_ref.hpp): a rule reservoir inactive in
+  // this cell has no eini / efin column, so the rule cannot be refreshed
+  // from its volume — the build-time bound stays (no state ⇒ `update_lp`
+  // no-op for the cell).
   if (opt_rule.has_value()) {
     BoundState bs {.current_bound = initial_rule_bound};
+    bool has_state = true;
     if (axis_uses_reservoir(opt_rule->axis)) {
       const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
       const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
-      bs.reservoir_cache = make_reservoir_ref_cache(rsv, scenario, stage);
+      if (auto cache = find_reservoir_ref_cache(rsv, scenario, stage)) {
+        bs.reservoir_cache = *cache;
+      } else {
+        warn_ref_once(cname.full_name(), uid(), "bound-rule update", rsv.uid());
+        has_state = false;
+      }
     }
-    m_bound_states_[st_key] = bs;
+    if (has_state) {
+      m_bound_states_[st_key] = bs;
+    }
   }
 
   // Couple to parent VolumeRight's energy balance if linked
   if (const auto& rr_ref = volume_right().right_reservoir; rr_ref.has_value()) {
     const VolumeRightLPSId vr_sid(*rr_ref);
     const auto& vr_lp = sc.element(vr_sid);
-    const auto& vr_erows = vr_lp.energy_rows_at(scenario, stage);
-    const double dir = volume_right().direction.value_or(-1);
-
-    for (auto&& block : blocks) {
-      const auto buid = block.uid();
-      // The parent's energy row follows the storage convention
-      // `E_b = E_{b-1} − coef·x`: a POSITIVE coefficient is an outflow
-      // (same sign as the physical-reservoir coupling below).  So a
-      // withdrawal (`direction = −1`, the default) must enter with
-      // `+fcr·dur` and a supply (`direction = +1`) with `−fcr·dur`,
-      // i.e. `coef = −direction·fcr·dur`.
-      // flatten() applies col_scale to both flow and energy columns.
-      const auto coeff = -flow_conversion_rate() * block.duration() * dir;
-      lp.row_at(vr_erows.at(buid))[extraction_cols.at(buid)] = coeff;
+    // Tolerant reference (see active_ref.hpp): an inactive parent right
+    // has no energy row in this cell — the parent debit is omitted.
+    const auto* vr_erows = vr_lp.find_energy_rows(scenario, stage);
+    if (vr_erows == nullptr) {
+      warn_ref_once(
+          cname.full_name(), uid(), "parent-right debit", vr_lp.uid());
+    } else {
+      const double dir = volume_right().direction.value_or(-1);
+      for (auto&& block : blocks) {
+        const auto buid = block.uid();
+        // The parent's energy row follows the storage convention
+        // `E_b = E_{b-1} − coef·x`: a POSITIVE coefficient is an outflow
+        // (same sign as the physical-reservoir coupling below).  So a
+        // withdrawal (`direction = −1`, the default) must enter with
+        // `+fcr·dur` and a supply (`direction = +1`) with `−fcr·dur`,
+        // i.e. `coef = −direction·fcr·dur`.
+        // flatten() applies col_scale to both flow and energy columns.
+        const auto coeff = -flow_conversion_rate() * block.duration() * dir;
+        lp.row_at(vr_erows->at(buid))[extraction_cols.at(buid)] = coeff;
+      }
     }
   }
 
@@ -489,12 +526,27 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   if (const auto& r_ref = volume_right().reservoir; r_ref.has_value()) {
     const ReservoirLPSId r_sid(*r_ref);
     const auto& r_lp = sc.element(r_sid);
-    const auto& r_erows = r_lp.energy_rows_at(scenario, stage);
-
-    for (auto&& block : blocks) {
-      const auto buid = block.uid();
-      const auto coeff = +flow_conversion_rate() * block.duration();
-      lp.row_at(r_erows.at(buid))[extraction_cols.at(buid)] = coeff;
+    // A reservoir inactive in this cell has no energy row: withdrawing
+    // from it would serve the right with water that is not in the system.
+    // Rejected up front by validate_planning (check_water_right_sources);
+    // this is the backstop with full context instead of an opaque .at().
+    const auto* r_erows = r_lp.find_energy_rows(scenario, stage);
+    if (r_erows == nullptr) {
+      fail_lp(*this,
+              scenario,
+              stage,
+              {
+                  .field = "reservoir",
+                  .value = std::format("uid={} (inactive)", r_lp.uid()),
+                  .expected = "an active reservoir wherever the right is "
+                              "active",
+              });
+    } else {
+      for (auto&& block : blocks) {
+        const auto buid = block.uid();
+        const auto coeff = +flow_conversion_rate() * block.duration();
+        lp.row_at(r_erows->at(buid))[extraction_cols.at(buid)] = coeff;
+      }
     }
   }
 
@@ -504,10 +556,16 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // and a constraint row.
   const auto stage_demand = demand.at(stage.uid());
   if (stage_demand.has_value() && *stage_demand > 0.0) {
-    // Deficit variable — physical cost, flatten() applies col_scale.
+    // Deficit variable [hm³] — a stage stock, priced like every other
+    // stage penalty: fail_cost [$/hm³] · probability · discount (no
+    // duration) with the Energy readback basis.  flatten() applies
+    // col_scale.
     const auto stage_ctx = make_stage_context(scenario.uid(), stage.uid());
     const auto fail_col = lp.add_col(SparseCol {
-        .cost = fail_cost,
+        .cost = fail_cost
+            * CostHelper::cost_factor(scenario.probability_factor(),
+                                      stage.discount_factor()),
+        .cost_scale_type = ConstraintScaleType::Energy,
         .scale = energy_scale,
         .class_name = Element::class_name.full_name(),
         .variable_name = FailName,
@@ -558,6 +616,11 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   if (!opt_rule.has_value() && !credit_ref.has_value()) {
     return 0;
   }
+  // `SystemLP::update_lp` visits every (scenario, stage), including the
+  // stages in which this right is inactive (nothing was built there).
+  if (!is_active(stage)) {
+    return 0;
+  }
 
   auto& li = sys.linear_interface();
 
@@ -569,7 +632,8 @@ int VolumeRightLP::update_lp(SystemLP& sys,
     const bool is_credit_reset =
         matches_reset_month(stage, "reset_month (credit update)");
     if (is_credit_reset
-        && (stage.index() > 0 || sys.prev_phase_sys() != nullptr))
+        && (stage.phase_stage_index() > first_phase_stage_index()
+            || sys.prev_phase_sys() != nullptr))
     {
       const auto& credit_lp =
           sys.system_context().template element<VolumeRightLP>(
@@ -593,8 +657,15 @@ int VolumeRightLP::update_lp(SystemLP& sys,
     }
   }
 
+  // No cached state ⇒ the cell was not built or its rule reservoir was
+  // inactive (see add_to_lp): keep the build-time bound.
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
-  auto& state = m_bound_states_.at(st_key);
+  const auto state_it = m_bound_states_.find(st_key);
+  const auto extr_it = extraction_cols_.find(st_key);
+  if (state_it == m_bound_states_.end() || extr_it == extraction_cols_.end()) {
+    return 0;
+  }
+  auto& state = state_it->second;
 
   // Resolve the rule's axis input via the dispatcher.  Reservoir axes
   // route through `state.reservoir_cache` (populated in add_to_lp);
@@ -605,7 +676,13 @@ int VolumeRightLP::update_lp(SystemLP& sys,
       stage.month(),
       [&]() -> Real
       {
-        return average_volume_from_cache(
+        // Stage-start volume, as PLP's FijaMaule regime test
+        // (`VolMauleUtil = VarMaulePrev(IVMUTIL)`, genpdmaule.f:757).
+        // The (vini + vfin) / 2 average read the stage's own previous
+        // vfin — or the case eini when the LP was not optimal (e.g.
+        // reconstructed under memory_saving) — and opened a zone gate
+        // the stage-start state does not reach.
+        return physical_eini_from_cache(
             sys, scenario, stage, state.reservoir_cache);
       });
 
@@ -616,7 +693,7 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   // construction time on every reload while `state.current_bound`
   // survives, so an equality skip would silently keep stale bounds.
   int total = 0;
-  const auto& my_extraction_cols = extraction_cols_.at(st_key);
+  const auto& my_extraction_cols = extr_it->second;
   const auto rate_cap = rule_rate_cap(new_bound, stage);
 
   for (const auto& [buid, col] : my_extraction_cols) {
@@ -676,6 +753,30 @@ int VolumeRightLP::update_lp(SystemLP& sys,
 
   state.current_bound = new_bound;
 
+  return total;
+}
+
+double VolumeRightLP::reward_objective(const ScenarioLP& scenario,
+                                       const StageLP& stage,
+                                       const LinearInterface& li) const
+{
+  const auto obj = li.get_obj_coeff();
+  const auto sol = li.get_col_sol();
+  const double scale_obj = li.scale_objective();
+  double total = 0.0;
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  for (const auto* holder : {&extraction_cols_, &saving_cols_}) {
+    const auto it = holder->find(st_key);
+    if (it == holder->end()) {
+      continue;
+    }
+    for (const auto& [buid, col] : it->second) {
+      const double c_raw = obj[static_cast<std::size_t>(col)];
+      if (c_raw < 0.0) {
+        total += scale_obj * c_raw * sol[col] / li.get_col_scale(col);
+      }
+    }
+  }
   return total;
 }
 

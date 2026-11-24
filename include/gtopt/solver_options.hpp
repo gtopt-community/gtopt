@@ -124,9 +124,10 @@ struct SolverOptions
    *  solver status / incumbent is kept).  For a monolithic solve the
    *  MIP-start pipeline (LP relaxation, repair) also draws from the same
    *  budget: the MIP itself gets what the warm-start stages left over.
-   *  The fix-integers dual-recovery LP that runs after a successful MIP is
-   *  not charged against it.  The caller should check `is_optimal()` after
-   *  solve to detect timeouts.
+   *  The post-MIP polish LP (`mip_polish`) is charged too: the MIP runs
+   *  under the budget minus the polish reserve and the polish gets the
+   *  rest (at least `min_mip_polish_time_slice_s`).  The caller should
+   *  check `is_optimal()` after solve to detect timeouts.
    */
   std::optional<double> time_limit {};
 
@@ -293,6 +294,55 @@ struct SolverOptions
    */
   std::optional<bool> memory_emphasis {};
 
+  /** @brief Polish a MIP incumbent: fix its integers and re-solve the LP.
+   *
+   *  After every MIP solve that holds an integer-feasible incumbent —
+   *  proven optimal OR stopped early by `time_limit`, a node / memory /
+   *  solution limit or an abort — gtopt pins every integer column (and
+   *  SOS2 member) to the incumbent, relaxes integrality and re-solves the
+   *  resulting LP.  The reported objective, primal and duals are those of
+   *  that fixed-integer LP: the best dispatch for the incumbent's
+   *  commitment decisions.  A MIP stopped at its limit typically returns
+   *  an incumbent whose CONTINUOUS part is far from optimal for its own
+   *  integers (heuristic incumbents are not re-optimised), so without the
+   *  polish the published dispatch and cost can be much worse than the
+   *  commitment deserves.
+   *
+   *  The polish shares the `time_limit` budget: when a limit is set the
+   *  MIP gets the budget minus a polish reserve
+   *  (`mip_polish_reserve_fraction` of the limit, at most
+   *  `max_mip_polish_reserve_s`), and the polish LP gets what is left —
+   *  never less than `min_mip_polish_time_slice_s`.  A polish that fails
+   *  (fixed LP not solved) falls back to the incumbent with a warning.
+   *  A non-optimal MIP stays reported as non-optimal (solution.csv status
+   *  `limit_polished`).
+   *
+   *  - `nullopt` / `true` (default): polish.
+   *  - `false`: publish the solver's incumbent untouched; the fixed-LP
+   *    pass then only runs to recover duals of a proven-optimal MIP when
+   *    dual / reduced-cost output is requested (the pre-polish
+   *    behaviour).
+   *
+   *  No effect on pure LPs. */
+  std::optional<bool> mip_polish {};
+
+  /** @brief Stop a MIP after this many integer-feasible solutions.
+   *  Internal (not JSON-exposed): a deterministic way to make a MIP stop
+   *  at a limit while holding an incumbent — used by the `mip_polish`
+   *  tests on every MIP backend.  Unset ⇒ the backend's default (no limit).
+   *
+   *  Backend mapping: CPLEX `CPX_PARAM_INTSOLLIM`, HiGHS
+   *  `mip_max_improving_sols`, Gurobi `SolutionLimit`, MindOpt
+   *  `MIP/MaxSols`, SCIP `limits/solutions`, CBC
+   *  `CbcModel::setMaximumSolutions`; ignored by LP-only backends. */
+  std::optional<int> mip_solution_limit {};
+
+  /** @brief Effective `mip_polish` (unset ⇒ enabled). */
+  [[nodiscard]] constexpr bool mip_polish_enabled() const noexcept
+  {
+    return mip_polish.value_or(true);
+  }
+
   /**
    * @brief Merge another SolverOptions into this one (first-value-wins for
    * optional fields).
@@ -312,6 +362,8 @@ struct SolverOptions
     merge_opt(log_mode, other.log_mode);
     merge_opt(scaling, other.scaling);
     merge_opt(memory_emphasis, other.memory_emphasis);
+    merge_opt(mip_polish, other.mip_polish);
+    merge_opt(mip_solution_limit, other.mip_solution_limit);
     merge_opt(param_file, other.param_file);
   }
 
@@ -376,6 +428,8 @@ struct SolverOptions
     merge_opt(log_mode, user.log_mode);
     merge_opt(scaling, user.scaling);
     merge_opt(memory_emphasis, user.memory_emphasis);
+    merge_opt(mip_polish, user.mip_polish);
+    merge_opt(mip_solution_limit, user.mip_solution_limit);
     merge_opt(param_file, user.param_file);
   }
 };
@@ -385,6 +439,33 @@ struct SolverOptions
 /// progress on a large LP / MIP in under a second, and a zero / negative
 /// limit is "no limit" for several backends).
 inline constexpr double min_retry_time_slice_s = 1.0;
+
+/// Share of `SolverOptions::time_limit` held back from the MIP for the
+/// post-MIP polish LP (see `SolverOptions::mip_polish`), capped at
+/// `max_mip_polish_reserve_s`.
+inline constexpr double mip_polish_reserve_fraction = 0.05;
+
+/// Upper bound, in seconds, of the polish reserve taken from the MIP.
+inline constexpr double max_mip_polish_reserve_s = 300.0;
+
+/// The polish LP always gets at least this many seconds, even when the MIP
+/// consumed the whole `time_limit` budget (a fixed-integer LP warm-started
+/// from the incumbent basis is usually a few pivots; a cold barrier on a
+/// large UC needs more — the reserve above is what normally covers it).
+inline constexpr double min_mip_polish_time_slice_s = 10.0;
+
+/// Polish reserve for a MIP solve under @p time_limit:
+/// `min(mip_polish_reserve_fraction * limit, max_mip_polish_reserve_s)`,
+/// or 0 when no limit is set.
+[[nodiscard]] constexpr double mip_polish_reserve(
+    std::optional<double> time_limit) noexcept
+{
+  if (!time_limit.has_value() || *time_limit <= 0.0) {
+    return 0.0;
+  }
+  const double share = mip_polish_reserve_fraction * *time_limit;
+  return share < max_mip_polish_reserve_s ? share : max_mip_polish_reserve_s;
+}
 
 /// Remaining wall-clock budget of @p time_limit after @p elapsed_s seconds.
 ///

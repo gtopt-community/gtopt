@@ -138,6 +138,8 @@ struct json_data_contract<Battery>
                        OptReal>,  ///< Native BESS reserve rows (T [h])
       json_bool_null<"reserve_discharge_credit",
                      OptBool>,  ///< Credit discharge in down headroom
+      json_number_null<"reserve_energy_usage_up", OptReal>,
+      json_number_null<"reserve_energy_usage_down", OptReal>,
       json_variant_null<"power_capacity",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
@@ -204,6 +206,8 @@ struct json_data_contract<Battery>
                                  battery.commitment,
                                  battery.reserve_sustain_hours,
                                  battery.reserve_discharge_credit,
+                                 battery.reserve_energy_usage_up,
+                                 battery.reserve_energy_usage_down,
                                  battery.power_capacity,
                                  battery.power_expcap,
                                  battery.power_expmod,

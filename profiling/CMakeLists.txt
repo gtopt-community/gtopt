@@ -34,8 +34,26 @@ Options
   Absolute path to the test-case directory.  Must contain at least one
   ``*.json`` file.  Defaults to ``<repo_root>/cases/ieee_9b_ori``.
 
+``PROFILING_CASE_JSON``
+  Explicit case JSON file (absolute path).  Default empty: the first
+  ``*.json`` in ``PROFILING_CASE`` (alphabetical — set this when the case
+  directory also holds golden / variant JSON files).
+
+``PROFILING_GTOPT_ARGS``
+  Extra gtopt command-line arguments (CMake list) appended to every
+  profiled run (callgrind, perf, timing), e.g.
+  ``--solver;highs;-d;/tmp/out`` to pin the solver and keep the outputs
+  out of the case directory.
+
+``PROFILING_COMPILER``
+  ``clang`` (default) or ``gcc`` (picks ``g++-15``/``g++-14``/``g++``) for
+  the RelWithDebInfo build.
+
+``PROFILING_JOBS``
+  Parallel jobs for the gtopt build (default: all processors).
+
 ``PROFILING_BUILD_LP``
-  ``ON`` (default) — inject ``"build_lp": true`` into the case JSON so
+  ``ON`` (default) — inject ``"lp_only": true`` into the case JSON so
   that only the LP creation time is measured (no solver overhead).
   Set to ``OFF`` to measure the full solve.
 
@@ -145,6 +163,28 @@ set(PROFILING_PLP_CASE
     CACHE STRING "Subdirectory under scripts/cases/ to profile with plp2gtopt"
 )
 
+set(PROFILING_CASE_JSON
+    ""
+    CACHE FILEPATH
+    "Explicit case JSON to profile (default: first *.json in PROFILING_CASE)"
+)
+
+set(PROFILING_GTOPT_ARGS
+    ""
+    CACHE STRING "Extra gtopt CLI args (CMake list) for every profiled run"
+)
+
+set(PROFILING_COMPILER
+    "clang"
+    CACHE STRING "Compiler family for the RelWithDebInfo build (clang or gcc)"
+)
+set_property(CACHE PROFILING_COMPILER PROPERTY STRINGS clang gcc)
+
+set(PROFILING_JOBS
+    ""
+    CACHE STRING "Parallel jobs for the gtopt build (default: all processors)"
+)
+
 set(PROFILING_CMAKE_PREFIX_PATH
     ""
     CACHE PATH
@@ -170,6 +210,11 @@ if(NOT VALGRIND_EXECUTABLE)
     "profiling-perf and profiling-timing remain available.")
 endif()
 
+# callgrind_annotate (ships with valgrind) turns callgrind.out into the
+# per-function Ir tables of the report; without it the report has no
+# hot-function section.
+find_program(CALLGRIND_ANNOTATE_EXECUTABLE NAMES callgrind_annotate)
+
 find_program(GNU_TIME_EXECUTABLE NAMES time PATHS /usr/bin NO_DEFAULT_PATH)
 if(NOT GNU_TIME_EXECUTABLE)
   find_program(GNU_TIME_EXECUTABLE NAMES time)
@@ -190,7 +235,11 @@ find_program(PYTHON3_EXECUTABLE NAMES python3 python)
 find_program(PERF_EXECUTABLE NAMES perf)
 
 # ---- Find the case JSON file at configure time --------------------------
-file(GLOB _case_json_files "${PROFILING_CASE}/*.json")
+if(PROFILING_CASE_JSON)
+  set(_case_json_files "${PROFILING_CASE_JSON}")
+else()
+  file(GLOB _case_json_files "${PROFILING_CASE}/*.json")
+endif()
 if(NOT _case_json_files)
   message(WARNING "No .json files found in PROFILING_CASE=${PROFILING_CASE}")
   set(_case_json_src "")
@@ -224,18 +273,18 @@ if(PROFILING_BUILD_LP AND _case_json_src)
     else()
       # Best-effort cmake JSON injection
       string(JSON _json_content SET "${_json_content}" "options" "{}")
-      string(JSON _json_content SET "${_json_content}" "options" "build_lp" "true")
+      string(JSON _json_content SET "${_json_content}" "options" "lp_only" "true")
       file(WRITE "${_work_json}" "${_json_content}")
     endif()
   else()
-    string(JSON _json_content SET "${_json_content}" "options" "build_lp" "true")
+    string(JSON _json_content SET "${_json_content}" "options" "lp_only" "true")
     # Override input_directory so external Parquet/CSV files are found
     # relative to the case directory rather than an absolute /tmp path.
     string(JSON _json_content SET "${_json_content}" "options" "input_directory"
            "\"${PROFILING_CASE}\"")
     file(WRITE "${_work_json}" "${_json_content}")
   endif()
-  message(STATUS "Profiling JSON (with build_lp=true): ${_work_json}")
+  message(STATUS "Profiling JSON (with lp_only=true): ${_work_json}")
 elseif(_case_json_src)
   set(_work_json "${_case_json_src}")
 endif()
@@ -261,6 +310,21 @@ ProcessorCount(_nproc)
 if(NOT _nproc OR _nproc EQUAL 0)
   set(_nproc 4)
 endif()
+if(PROFILING_JOBS)
+  set(_nproc ${PROFILING_JOBS})
+endif()
+
+# ---- Compiler -----------------------------------------------------------
+if(PROFILING_COMPILER STREQUAL "gcc")
+  find_program(_prof_cxx NAMES g++-15 g++-14 g++)
+  find_program(_prof_cc NAMES gcc-15 gcc-14 gcc)
+elseif(PROFILING_COMPILER STREQUAL "clang")
+  set(_prof_cxx clang++)
+  set(_prof_cc clang)
+else()
+  message(FATAL_ERROR
+    "PROFILING_COMPILER must be 'clang' or 'gcc' (got '${PROFILING_COMPILER}')")
+endif()
 
 # ---- Print status -------------------------------------------------------
 message(STATUS "=== gtopt Profiling Configuration ===")
@@ -269,7 +333,9 @@ message(STATUS "  callgrind_annotate: ${CALLGRIND_ANNOTATE_EXECUTABLE}")
 message(STATUS "  perf:        ${PERF_EXECUTABLE}")
 message(STATUS "  /usr/bin/time: ${GNU_TIME_EXECUTABLE}")
 message(STATUS "  python3:     ${PYTHON3_EXECUTABLE}")
+message(STATUS "  Compiler:    ${_prof_cxx} (jobs ${_nproc})")
 message(STATUS "  Case:        ${PROFILING_CASE}")
+message(STATUS "  gtopt args:  ${PROFILING_GTOPT_ARGS}")
 message(STATUS "  JSON:        ${_work_json}")
 message(STATUS "  build_lp: ${PROFILING_BUILD_LP}")
 message(STATUS "  Reps:        ${PROFILING_REPS}")
@@ -280,8 +346,8 @@ set(_configure_args
   -S "${_all_dir}"
   -B "${_profiling_build_dir}"
   -DCMAKE_BUILD_TYPE=RelWithDebInfo
-  -DCMAKE_C_COMPILER=clang
-  -DCMAKE_CXX_COMPILER=clang++
+  "-DCMAKE_C_COMPILER=${_prof_cc}"
+  "-DCMAKE_CXX_COMPILER=${_prof_cxx}"
   -DCMAKE_C_COMPILER_LAUNCHER=ccache
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 )
@@ -341,21 +407,31 @@ if(_work_json)
     set(_case_work_dir "${PROFILING_CASE}")
   endif()
 
-  add_custom_target(
-    profiling-callgrind
-    COMMAND
-      ${VALGRIND_EXECUTABLE}
-      --tool=callgrind
-      "--callgrind-out-file=${_callgrind_out}"
-      --collect-systime=yes
-      --simulate-cache=yes
-      "${_gtopt_binary}"
-      "${_work_json}"
-    WORKING_DIRECTORY "${PROFILING_CASE}"
-    COMMENT "Profiling with valgrind/callgrind (slow — this can take minutes)..."
-    USES_TERMINAL
-    VERBATIM
-  )
+  if(VALGRIND_EXECUTABLE)
+    add_custom_target(
+      profiling-callgrind
+      COMMAND
+        ${VALGRIND_EXECUTABLE}
+        --tool=callgrind
+        "--callgrind-out-file=${_callgrind_out}"
+        --collect-systime=yes
+        --simulate-cache=yes
+        "${_gtopt_binary}"
+        "${_work_json}"
+        ${PROFILING_GTOPT_ARGS}
+      WORKING_DIRECTORY "${PROFILING_CASE}"
+      COMMENT "Profiling with valgrind/callgrind (slow — this can take minutes)..."
+      USES_TERMINAL
+      VERBATIM
+    )
+  else()
+    add_custom_target(
+      profiling-callgrind
+      COMMAND ${CMAKE_COMMAND} -E echo
+        "Skipping profiling-callgrind: valgrind not found (sudo apt install valgrind)"
+      COMMENT "profiling-callgrind skipped (valgrind unavailable)"
+    )
+  endif()
   add_dependencies(profiling-callgrind profiling-build)
 
   # ---- Target: profiling-timing -----------------------------------------
@@ -372,13 +448,14 @@ set(_outfile "@_timing_file@")
 set(_reps   "@PROFILING_REPS@")
 set(_time   "@GNU_TIME_EXECUTABLE@")
 set(_case_dir "@PROFILING_CASE@")
+set(_args   "@PROFILING_GTOPT_ARGS@")
 
 file(WRITE "${_outfile}" "")
 message(STATUS "Running ${_reps} timing repetitions...")
 foreach(_i RANGE 1 ${_reps})
   message(STATUS "  Repetition ${_i}/${_reps}")
   execute_process(
-    COMMAND "${_time}" -v "${_gtopt}" "${_json}"
+    COMMAND "${_time}" -v "${_gtopt}" "${_json}" ${_args}
     WORKING_DIRECTORY "${_case_dir}"
     OUTPUT_VARIABLE _out
     ERROR_VARIABLE  _err
@@ -426,6 +503,7 @@ set(_case_dir "@PROFILING_CASE@")
 set(_data     "@_perf_data@")
 set(_report   "@_perf_report@")
 set(_annotate "@_perf_annotate@")
+set(_args     "@PROFILING_GTOPT_ARGS@")
 
 # Prefer the precise hardware event, then a plain hardware event, then the
 # task-clock software event (needs no PMU — works in containers / CI VMs).
@@ -434,7 +512,7 @@ foreach(_ev IN ITEMS "cycles:pp" "cycles" "task-clock")
   message(STATUS "profiling-perf: perf record -e ${_ev} --call-graph dwarf ...")
   execute_process(
     COMMAND "${_perf}" record --quiet -e "${_ev}" --call-graph dwarf
-            -o "${_data}" "${_gtopt}" "${_json}"
+            -o "${_data}" "${_gtopt}" "${_json}" ${_args}
     WORKING_DIRECTORY "${_case_dir}"
     RESULT_VARIABLE _rc
     ERROR_VARIABLE  _err
@@ -542,7 +620,7 @@ if(PROFILING_PYTHON AND PYTHON3_EXECUTABLE AND IS_DIRECTORY "${_plp_case_dir}")
     COMMAND
       ${PYTHON3_EXECUTABLE} -m cProfile
       -o "${_py_pstats}"
-      -m plp2gtopt
+      -m plp2gtopt.main
       --input-dir "${_plp_case_dir}"
       --output-dir "${_py_output_dir_plp}"
     COMMAND

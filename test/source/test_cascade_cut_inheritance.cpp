@@ -50,10 +50,10 @@
 #include <unistd.h>  // ::getpid()
 
 #include "log_capture.hpp"
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ───────────────────────────────────────────────────────────────────────────
 // Layer 1 — JSON parsing of inherit_optimality_cuts
@@ -71,7 +71,7 @@ TEST_CASE("CascadeTransition JSON: inherit_optimality_cuts=-1 is parsed")
   const auto tr = daw::json::from_json<CascadeTransition>(json_data);
 
   REQUIRE(tr.inherit_optimality_cuts.has_value());
-  CHECK(*tr.inherit_optimality_cuts == -1);
+  CHECK(test_support::require_value(tr.inherit_optimality_cuts) == -1);
 }
 
 TEST_CASE("CascadeTransition JSON: missing field -> nullopt (NOT zero)")
@@ -120,8 +120,12 @@ TEST_CASE(
 
   REQUIRE(rt.level_array.size() == 2);
   REQUIRE(rt.level_array[1].transition.has_value());
-  REQUIRE(rt.level_array[1].transition->inherit_optimality_cuts.has_value());
-  CHECK(*rt.level_array[1].transition->inherit_optimality_cuts == -1);
+  REQUIRE(test_support::require_value(rt.level_array[1].transition)
+              .inherit_optimality_cuts.has_value());
+  CHECK(test_support::require_value(
+            test_support::require_value(rt.level_array[1].transition)
+                .inherit_optimality_cuts)
+        == -1);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1508,5 +1512,3 @@ TEST_CASE(  // NOLINT
   // on the value function, and L1 only adds more cuts on top.
   CHECK(s1.lower_bound >= (s0.lower_bound * 0.999) - 1e-3);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

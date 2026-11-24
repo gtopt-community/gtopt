@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <type_traits>
 
 #include <doctest/doctest.h>
 #include <gtopt/basis.hpp>
@@ -137,16 +138,22 @@ TEST_CASE("basis_io rejects an out-of-range status byte")  // NOLINT
   // whose single status byte (0xFF) is not a defined BasisStatus.
   {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    const std::array<char, 4> magic = {'G', 'B', 'A', 'S'};
-    out.write(magic.data(), magic.size());
-    const auto write_pod = [&out](auto value)
+    const auto write_raw = [&out](const auto& value)
     {
-      const auto bytes = std::bit_cast<std::array<char, sizeof(value)>>(value);
-      out.write(bytes.data(), bytes.size());
+      const auto bytes = std::bit_cast<
+          std::array<char, sizeof(std::remove_cvref_t<decltype(value)>)>>(
+          value);
+      out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     };
-    write_pod(uint32_t {1});  // version
-    write_pod(uint64_t {1});  // ncols
-    write_pod(uint64_t {0});  // nrows
+    write_raw(std::array {
+        'G',
+        'B',
+        'A',
+        'S',
+    });
+    write_raw(uint32_t {1});  // version
+    write_raw(uint64_t {1});  // ncols
+    write_raw(uint64_t {0});  // nrows
     const auto bad = static_cast<char>(0xFF);
     out.write(&bad, 1);
   }

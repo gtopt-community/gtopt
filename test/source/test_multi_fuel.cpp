@@ -28,6 +28,8 @@ using namespace gtopt;
 
 namespace test_multi_fuel
 {
+namespace
+{
 
 Simulation make_3block_simulation()
 {
@@ -130,6 +132,7 @@ System make_two_fuel_system(bool enable_per_block_override)
   return sys;
 }
 
+}  // namespace
 }  // namespace test_multi_fuel
 
 TEST_CASE("Generator.fuel_per_block default is unset")  // NOLINT
@@ -151,7 +154,8 @@ TEST_CASE("Generator.fuel_per_block JSON round-trip — matrix form")  // NOLINT
   })";
   const auto g = daw::json::from_json<Generator>(js);
   REQUIRE(g.fuel_per_block.has_value());
-  const auto& mat = std::get<std::vector<std::vector<Uid>>>(*g.fuel_per_block);
+  const auto sched = g.fuel_per_block.value_or(TBUidSched {});
+  const auto& mat = std::get<std::vector<std::vector<Uid>>>(sched);
   REQUIRE(mat.size() == 1);
   REQUIRE(mat[0].size() == 3);
   CHECK(mat[0][0] == Uid {1});

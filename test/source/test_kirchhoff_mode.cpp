@@ -25,8 +25,9 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ── Enum string round-trip ────────────────────────────────────────
 
@@ -37,8 +38,8 @@ TEST_CASE("KirchhoffMode enum parsing")
     for (const auto& entry : kirchhoff_mode_entries) {
       const auto parsed = enum_from_name<KirchhoffMode>(entry.name);
       REQUIRE(parsed.has_value());
-      CHECK(*parsed == entry.value);
-      CHECK(enum_name(*parsed) == entry.name);
+      CHECK(test_support::require_value(parsed) == entry.value);
+      CHECK(enum_name(test_support::require_value(parsed)) == entry.name);
     }
   }
 
@@ -51,9 +52,9 @@ TEST_CASE("KirchhoffMode enum parsing")
   SUBCASE("expected entries present")
   {
     CHECK(kirchhoff_mode_entries.size() == 2);
-    CHECK(enum_from_name<KirchhoffMode>("node_angle").value()
+    CHECK(enum_from_name<KirchhoffMode>("node_angle")
           == KirchhoffMode::node_angle);
-    CHECK(enum_from_name<KirchhoffMode>("cycle_basis").value()
+    CHECK(enum_from_name<KirchhoffMode>("cycle_basis")
           == KirchhoffMode::cycle_basis);
   }
 }
@@ -240,9 +241,11 @@ struct SolveResult
   REQUIRE(!systems.front().empty());
   const auto& li = systems.front().front().linear_interface();
 
-  return {.obj = li.get_obj_value_raw(),
-          .n_cols = li.get_numcols(),
-          .n_theta_cols = 0};
+  return {
+      .obj = li.get_obj_value_raw(),
+      .n_cols = li.get_numcols(),
+      .n_theta_cols = 0,
+  };
 }
 
 }  // namespace
@@ -309,7 +312,7 @@ TEST_CASE(  // NOLINT
     const auto reason = sim_lp.find_ampl_suppression(
         Bus::class_name.snake_case(), BusLP::ThetaName);
     REQUIRE(reason.has_value());
-    CHECK(reason.value() == "kirchhoff_mode=cycle_basis");
+    CHECK(test_support::require_value(reason) == "kirchhoff_mode=cycle_basis");
   }
 
   SUBCASE("no theta col was ever added to the LP")
@@ -442,5 +445,3 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove_all(tmpdir);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

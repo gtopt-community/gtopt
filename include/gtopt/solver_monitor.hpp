@@ -307,6 +307,21 @@ public:
     m_have_status_.store(true, std::memory_order_release);
   }
 
+  /// Write the terminal status document and stop periodic refreshes.
+  ///
+  /// Appends the realtime block to @p iteration_json (a partial document
+  /// from `build_iteration_status_json()`), writes it, and marks the
+  /// monitor final so `do_periodic_write()` never overwrites it — both
+  /// writers hold `m_write_mutex_`, so a refresh that already copied the
+  /// previous ("running") document cannot land after this one.
+  void write_final_status(std::string iteration_json, const std::string& path)
+  {
+    const std::scoped_lock wlock(m_write_mutex_);
+    m_final_written_ = true;
+    build_realtime_status_json(iteration_json);
+    write_status(iteration_json, path);
+  }
+
   /// Write content atomically to path (write tmp, rename).
   static void write_status(const std::string& content,
                            const std::string& path) noexcept
@@ -400,6 +415,10 @@ private:
     if (!m_have_status_.load(std::memory_order_acquire)) {
       return;
     }
+    const std::scoped_lock wlock(m_write_mutex_);
+    if (m_final_written_) {
+      return;  // the terminal status is already on disk; never overwrite
+    }
     std::string doc;
     std::string path;
     {
@@ -427,6 +446,11 @@ private:
   std::string m_iteration_json_;
   std::string m_status_path_;
   std::atomic<bool> m_have_status_ {false};
+
+  // Serialises the periodic refresh against `write_final_status()`.
+  // Lock order: m_write_mutex_ → m_status_mutex_ / m_mutex_.
+  std::mutex m_write_mutex_;
+  bool m_final_written_ {false};  ///< Guarded by m_write_mutex_
 };
 
 }  // namespace gtopt

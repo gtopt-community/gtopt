@@ -1,6 +1,7 @@
 /**
  * @file      decision_variable.hpp
- * @brief     Free continuous Decision Variable referenced by UserConstraints
+ * @brief     Decision Variable (continuous or integer) referenced by
+ * UserConstraints
  * @date      Mon May 19 21:55:00 2026
  * @author    marcelo
  * @copyright Copyright (c) 2024-2026 Marcelo Matus. Dual-licensed,
@@ -121,7 +122,12 @@ struct DecisionVariable
   /// (``scope`` = ``stage`` / ``phase`` / ``global``) — one column per
   /// (scene, phase) cell — NEVER per ``block`` (a per-block column has no
   /// single end-of-phase value to propagate).  It also REQUIRES ``link``:
-  /// see below.  Default unset ⇒ ``false`` (a plain free column).
+  /// see below.  Default unset ⇒ ``false`` (a plain free column) —
+  /// EXCEPT for ``scope = global`` in a run with more than one phase, where
+  /// unset means an implicit ``state: true, link: true`` (one value for the
+  /// whole horizon, cost charged in the first phase only); an explicit
+  /// ``false`` there opts out (independent per-phase copies, with a
+  /// warning).  See docs/user-constraints.md.
   OptBool state {};
 
   /// Cross-phase **link** flag for a ``state`` variable (piece 5).  When
@@ -154,15 +160,40 @@ struct DecisionVariable
 
   /// Optional objective constant for a mean-shifted (rebased) variable.
   /// When the variable is α-rebased as ``value = value' + obj_constant``
-  /// (the LP column holds ``value'``), the objective loses the constant
-  /// term ``cost · obj_constant``.  When set, the LP adds that term back
-  /// via ``LinearProblem::add_obj_constant`` (using the column's resolved
-  /// cost coefficient, so the discount is applied correctly), keeping the
-  /// reported objective algebraically equal to the un-rebased model.
-  /// Intended for single-``block`` columns (added once per created
-  /// column); the FCF cost-to-go ``alpha_fcf`` sets it to the mean cut
-  /// RHS.
+  /// (the LP column holds ``value'``), the objective loses a constant
+  /// term.  When set (and ``cost != 0``), the LP adds ``obj_constant``
+  /// back AS GIVEN via ``LinearProblem::add_obj_constant`` — a physical $
+  /// amount, NOT multiplied by ``cost`` nor by the scenario probability /
+  /// discount factor (the caller passes the already-weighted value), once
+  /// per created column; a ``global`` column over several phases adds it
+  /// in the first phase only.  The FCF cost-to-go ``alpha_fcf`` sets it to
+  /// the mean cut RHS.
   OptReal obj_constant {};
+
+  /// Integrality flag.  When ``true`` every ``value`` column this variable
+  /// creates is an INTEGER LP column (``SparseCol::is_integer``), created
+  /// through ``SystemContext::add_integer_col`` so it is also registered in
+  /// the integer-variable registry (cut audits, MIP-start, integer checks).
+  /// The domain is ``Binary`` when the resolved bounds are exactly
+  /// ``[0, 1]`` and ``Integer`` otherwise.  Applies to every scope: one
+  /// ``Block``-scoped integer per block, one ``Stage``-scoped integer per
+  /// (scenario, stage), one ``Phase``-scoped integer per (scene, phase)
+  /// cell; a coarse ``state`` column is registered as BOTH a state and an
+  /// integer variable (like a capacity-expansion ``expmod``).  For a
+  /// ``block_state`` variable only the per-block ``value`` (volume) columns
+  /// are integer — the cross-phase INCOMING ``value_in`` column, pinned by
+  /// the SDDP forward pass, stays continuous.  Default unset ⇒ ``false``
+  /// (a continuous column, the legacy behaviour).
+  OptBool integer {};
+
+  /// LP-relaxation flag for an ``integer`` variable (mirrors
+  /// ``Commitment.relax``).  When ``true`` the columns stay continuous over
+  /// their bounds (registered with domain ``Relaxed``).  A continuous phase
+  /// (``Phase.continuous`` / ``model_options.continuous_phases`` / the
+  /// ``--no-mip`` CLI shortcut) relaxes them too: the effective relax is
+  /// ``relax || phase.is_continuous()``.  Ignored when ``integer`` is unset
+  /// / ``false``.
+  OptBool relax {};
 };
 
 }  // namespace gtopt

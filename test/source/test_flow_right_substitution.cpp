@@ -595,7 +595,7 @@ TEST_CASE("FlowRight target-0 with no costs — plain band back-compat")
 //
 // One FlowRight per sub-case: editing LP bounds invalidates the
 // solved state, so only the first element updated after a solve sees
-// the moved average-volume axis — a shared fixture would leave the
+// the solved reservoir state — a shared fixture would leave the
 // later elements untested.
 
 namespace
@@ -603,9 +603,9 @@ namespace
 
 // Backbone with a deterministic 25 m3/s hydro draw (50 MW demand,
 // pf 2.0, free hydro vs 100 $/MWh thermal): after one solve the
-// reservoir efin is 100 - 25*fcr*1h and the average volume moves off
-// the build-time 100 hm3, so the 0.3 x V rule re-evaluates from 30
-// to 0.3 x (100 + efin) / 2 and the re-clamp fires.
+// reservoir efin is 100 - 25*fcr*1h; the 0.3 x V rule is
+// re-evaluated at the stage-start volume (100 hm3 -> 30) and the
+// re-clamp still rewrites the bounds (no in-memory short-circuit).
 [[nodiscard]] System make_reclamp_system(const FlowRight& fr)
 {
   return {
@@ -661,8 +661,9 @@ namespace
   };
 }
 
-constexpr double kReclampNewFmax =
-    0.3 * ((100.0 + (100.0 - 25.0 * 0.0036)) / 2.0);
+// The re-clamp evaluates the rule at the STAGE-START volume (PLP
+// VarMaulePrev / VolIni), so the solved vfin does not move it.
+constexpr double kReclampNewFmax = 0.3 * 100.0;
 
 }  // namespace
 
@@ -695,7 +696,7 @@ TEST_CASE("FlowRight re-clamp keeps fcost-only uppb at the cached target")
   REQUIRE(li.is_optimal());
   CHECK(system_lp.update_lp() > 0);
 
-  // Rule moved 30 -> ~29.99 but the target clamp must survive.
+  // Rule re-applied (30) but the target clamp must survive.
   CHECK(li.get_col_upp()[fcol] == doctest::Approx(10.0));
   CHECK(li.get_col_low()[fcol] == doctest::Approx(0.0));
 }

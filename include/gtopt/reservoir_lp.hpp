@@ -36,6 +36,11 @@ class ReservoirLP : public StorageLP<ObjectLP<Reservoir>>
 {
 public:
   static constexpr std::string_view ExtractionName {"extraction"};
+  /// User-constraint (PAMPL) alias of the storage `energy` column: for a
+  /// reservoir the stored quantity is a water volume, so
+  /// `reservoir("R").volume` resolves to the same per-block columns as
+  /// `reservoir("R").energy` (docs/user-constraints.md).
+  static constexpr std::string_view VolumeName {"volume"};
 
   /// Parquet stem for the per-block volume-balance dual.  Industry
   /// convention names this quantity "water value" (PLEXOS Water

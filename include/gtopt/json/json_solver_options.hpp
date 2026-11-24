@@ -103,7 +103,8 @@ struct SolverOptionsConstructor
                            OptInt max_fallbacks,
                            OptBool memory_emphasis,
                            const OptName& param_file,
-                           OptBool advanced_basis) const
+                           OptBool advanced_basis,
+                           OptBool mip_polish) const
   {
     LPAlgo algorithm = LPAlgo::barrier;
     if (algorithm_str.has_value()) {
@@ -138,6 +139,7 @@ struct SolverOptionsConstructor
         .param_file = param_file,
         .max_fallbacks = max_fallbacks.value_or(2),
         .memory_emphasis = memory_emphasis,
+        .mip_polish = mip_polish,
     };
   }
 };
@@ -164,7 +166,8 @@ struct json_data_contract<SolverOptions>
       json_number_null<"max_fallbacks", OptInt>,
       json_bool_null<"memory_emphasis", OptBool>,
       json_string_null<"param_file", OptName>,
-      json_bool_null<"advanced_basis", OptBool>>;
+      json_bool_null<"advanced_basis", OptBool>,
+      json_bool_null<"mip_polish", OptBool>>;
 
   static auto to_json_data(SolverOptions const& opt)
   {
@@ -185,7 +188,8 @@ struct json_data_contract<SolverOptions>
         OptInt {opt.max_fallbacks},
         opt.memory_emphasis,
         opt.param_file,
-        OptBool {opt.advanced_basis});
+        OptBool {opt.advanced_basis},
+        opt.mip_polish);
   }
 };
 

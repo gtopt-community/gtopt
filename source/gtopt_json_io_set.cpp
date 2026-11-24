@@ -279,6 +279,9 @@ solver_field_setters()
           {"memory_emphasis",
            [](SolverOptions& o, std::string_view n, const std::string& v)
            { o.memory_emphasis = require_bool(n, v); }},
+          {"mip_polish",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.mip_polish = require_bool(n, v); }},
           {"optimal_eps",
            [](SolverOptions& o, std::string_view, const std::string& v)
            { o.optimal_eps = std::stod(v); }},

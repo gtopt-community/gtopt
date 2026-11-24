@@ -171,14 +171,17 @@ auto make_array(Values&& values, Valids&& valids = {})
 // scenarios × blocks slots per element-field stream, i.e.
 // O(cells × whole grid) per write-out flush).
 //
-// Sign convention: an exact zero is dropped.  Absence of a row means "no
-// contribution from this uid in this cell", which is the natural reader
-// semantic (sums and min/max aggregations are invariant under dropped
-// zeros).  Wide output was removed — convert long files externally if a real
-// zero must be materialised per cell.
+// Sign convention: for primal (`_sol`) and cost (`_cost`) files an exact
+// zero is dropped.  Absence of a row means "no contribution from this uid
+// in this cell", which is the natural reader semantic (sums and min/max
+// aggregations are invariant under dropped zeros).  Dual (`_dual`) files
+// keep their zeros (`keep_zeros`): a zero marginal price is information
+// (an uncongested bus, a slack constraint), and readers that average or
+// count prices per (scenario, stage, block) must see every cell.
 template<typename Type = double, typename FieldVector>
 auto make_field_arrays_long(const FieldVector& field_vector,
-                            int round_digits = 0)
+                            int round_digits = 0,
+                            bool keep_zeros = false)
 {
   // Identifier columns use `int32_t`, the underlying type of `Uid`
   // (`uid_t`), so every element / scenario / stage / block uid
@@ -247,7 +250,7 @@ auto make_field_arrays_long(const FieldVector& field_vector,
       // semantic implications.  Invalid grid slots never reach this
       // loop at all: the sparse entries carry only the holder's own
       // samples (that sparsity IS the long form's `valid` semantic).
-      if (v == Type {0}) {
+      if (v == Type {0} && !keep_zeros) {
         continue;
       }
       // `Uid` is `int32_t`: the scenario / stage / block uids are stored
@@ -318,14 +321,17 @@ auto make_field_arrays_long(const FieldVector& field_vector,
 }
 
 template<typename Type = double, typename FieldVector>
-auto make_table(const FieldVector& field_vector, int round_digits = 0)
+auto make_table(const FieldVector& field_vector,
+                int round_digits = 0,
+                bool keep_zeros = false)
     -> arrow::Result<std::shared_ptr<arrow::Table>>
 {
-  // Output is long-only: one row per non-zero (scenario, stage, block, uid)
-  // cell.  Wide output is no longer supported — convert long files externally
-  // if a wide shape is needed.
+  // Output is long-only: one row per (scenario, stage, block, uid) cell —
+  // non-zero cells only unless `keep_zeros` (dual files).  Wide output is no
+  // longer supported — convert long files externally if a wide shape is
+  // needed.
   auto [fields, arrays] =
-      make_field_arrays_long<Type>(field_vector, round_digits);
+      make_field_arrays_long<Type>(field_vector, round_digits, keep_zeros);
 
   return arrow::Table::Make(arrow::schema(std::move(fields)),
                             std::move(arrays));
@@ -544,7 +550,10 @@ auto create_tables(std::string_view fmt,
     const auto& cname = class_fname[0];
     const auto fname_stem =
         std::format("{}_{}", class_fname[1], class_fname[2]);
-    const auto mtable = make_table<Type>(vfields, round_digits);
+    // Dual files are dense: every (scenario, stage, block, uid) cell of
+    // a row that exists in the LP is written, zeros included.
+    const bool keep_zeros = class_fname[2] == "dual";
+    const auto mtable = make_table<Type>(vfields, round_digits, keep_zeros);
 
     const auto cname_dir = dirpath / cname;
 

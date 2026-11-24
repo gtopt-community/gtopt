@@ -62,6 +62,21 @@ std::shared_ptr<OsiSolverInterface> make_osi_solver(
   }
 }
 
+#ifdef GTOPT_OSI_HAS_CBC
+/// The CLP interface wrapped by an OsiCbcSolverInterface, or nullptr.
+///
+/// `OsiCbcSolverInterface::getRealSolverPtr()` dereferences the CbcModel
+/// pointer unconditionally, so check `getModelPtr()` first (flagged by
+/// clang-analyzer-core.CallAndMessage).
+OsiClpSolverInterface* real_clp_of(OsiCbcSolverInterface* cbc)
+{
+  if (cbc == nullptr || cbc->getModelPtr() == nullptr) {
+    return nullptr;
+  }
+  return dynamic_cast<OsiClpSolverInterface*>(cbc->getRealSolverPtr());
+}
+#endif
+
 /// Try to get the underlying OsiClpSolverInterface for CLP-specific ops
 OsiClpSolverInterface* as_clp(OsiSolverInterface* solver,
                               OsiSolverBackend::OsiSolverType type)
@@ -71,10 +86,7 @@ OsiClpSolverInterface* as_clp(OsiSolverInterface* solver,
   }
 #ifdef GTOPT_OSI_HAS_CBC
   if (type == OsiSolverBackend::OsiSolverType::cbc) {
-    auto* cbc = dynamic_cast<OsiCbcSolverInterface*>(solver);
-    if (cbc != nullptr) {
-      return dynamic_cast<OsiClpSolverInterface*>(cbc->getRealSolverPtr());
-    }
+    return real_clp_of(dynamic_cast<OsiCbcSolverInterface*>(solver));
   }
 #endif
   return nullptr;
@@ -120,6 +132,15 @@ void apply_options_to_solver(OsiSolverInterface* solver,
       {
         if (auto* model = cbc->getModelPtr(); model != nullptr) {
           model->setAllowableFractionGap(*gap);
+        }
+      }
+    }
+    if (const auto sols = opts.mip_solution_limit; sols && *sols > 0) {
+      if (auto* cbc = dynamic_cast<OsiCbcSolverInterface*>(solver);
+          cbc != nullptr)
+      {
+        if (auto* model = cbc->getModelPtr(); model != nullptr) {
+          model->setMaximumSolutions(*sols);
         }
       }
     }
@@ -436,10 +457,8 @@ void OsiSolverBackend::add_cols(int num_cols,
   auto* osi_clp = dynamic_cast<OsiClpSolverInterface*>(m_solver_.get());
 #ifdef GTOPT_OSI_HAS_CBC
   if (osi_clp == nullptr) {
-    if (auto* osi_cbc = dynamic_cast<OsiCbcSolverInterface*>(m_solver_.get())) {
-      osi_clp =
-          dynamic_cast<OsiClpSolverInterface*>(osi_cbc->getRealSolverPtr());
-    }
+    osi_clp =
+        real_clp_of(dynamic_cast<OsiCbcSolverInterface*>(m_solver_.get()));
   }
 #endif
   if (osi_clp != nullptr) {
@@ -543,10 +562,8 @@ void OsiSolverBackend::add_rows(int num_rows,
   auto* osi_clp = dynamic_cast<OsiClpSolverInterface*>(m_solver_.get());
 #ifdef GTOPT_OSI_HAS_CBC
   if (osi_clp == nullptr) {
-    if (auto* osi_cbc = dynamic_cast<OsiCbcSolverInterface*>(m_solver_.get())) {
-      osi_clp =
-          dynamic_cast<OsiClpSolverInterface*>(osi_cbc->getRealSolverPtr());
-    }
+    osi_clp =
+        real_clp_of(dynamic_cast<OsiCbcSolverInterface*>(m_solver_.get()));
   }
 #endif
   if (osi_clp != nullptr) {
@@ -924,6 +941,29 @@ void OsiSolverBackend::disengage_robust_solve() noexcept
 bool OsiSolverBackend::is_proven_optimal() const
 {
   return m_solver_->isProvenOptimal();
+}
+
+bool OsiSolverBackend::has_mip_incumbent() const
+{
+#ifdef GTOPT_OSI_HAS_CBC
+  // Only CBC solves MIPs on this bridge (CLP is LP-only).  CbcModel keeps
+  // its best integer solution in `bestSolution()` on every stop that found
+  // one (optimal, node / time / solution limit) and copies it into the
+  // solver's column solution at the end of `branchAndBound()`.
+  if (m_type_ != OsiSolverType::cbc || m_solver_ == nullptr
+      || m_solver_->getNumIntegers() <= 0)
+  {
+    return false;
+  }
+  if (auto* cbc = dynamic_cast<OsiCbcSolverInterface*>(m_solver_.get());
+      cbc != nullptr)
+  {
+    if (const auto* model = cbc->getModelPtr(); model != nullptr) {
+      return model->bestSolution() != nullptr;
+    }
+  }
+#endif
+  return false;
 }
 
 bool OsiSolverBackend::is_abandoned() const

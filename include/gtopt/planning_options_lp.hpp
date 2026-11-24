@@ -224,6 +224,15 @@ public:
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
   static constexpr Real default_annual_discount_rate = 0.0;
+  /**
+   * @brief Default penalty for unserved demand [$/MWh] (value of lost load)
+   *
+   * Applied when `model_options.demand_fail_cost` is unset.  A per-demand
+   * `Demand.fcost` always overrides it.  An explicit `demand_fail_cost: 0`
+   * keeps its literal meaning (unpenalized, freely sheddable load); a hard,
+   * non-sheddable demand is requested per element with `Demand.forced`.
+   */
+  static constexpr Real default_demand_fail_cost = 1'000;
 
   // ── Fallback helpers ─────────────────────────────────────────────────
   // Three-tier resolution: flat → model_options → compiled default.
@@ -277,10 +286,12 @@ public:
     return m_options_.input_format.value_or(default_input_format);
   }
 
-  /// @brief Gets the demand failure cost from model_options.
-  [[nodiscard]] constexpr auto demand_fail_cost() const
+  /// @brief Gets the demand failure cost [$/MWh] from model_options,
+  /// falling back to `default_demand_fail_cost` (1000 $/MWh) when unset.
+  [[nodiscard]] constexpr auto demand_fail_cost() const noexcept -> Real
   {
-    return m_options_.model_options.demand_fail_cost;
+    return m_options_.model_options.demand_fail_cost.value_or(
+        default_demand_fail_cost);
   }
 
   /// @brief Global default stepwise demand-failure curve (empty span
@@ -568,6 +579,22 @@ public:
   [[nodiscard]] constexpr auto scale_theta() const
   {
     return m_options_.model_options.scale_theta.value_or(1.0);
+  }
+
+  /// @brief Post-equilibration factor `c` for a node-angle KVL row of a line
+  /// with `x_tau = X/V^2` (see `LpMatrixOptions::kvl_row_scale`).  1 when the
+  /// option is off or no reference is available.
+  [[nodiscard]] double kvl_row_factor(double x_tau) const
+  {
+    const auto& lm = m_options_.lp_matrix_options;
+    if (!(lm.kvl_row_scale.value_or(false) || lm.kvl_x_ref.has_value())
+        || !lm.kvl_x_ref || !(x_tau > 0.0))
+    {
+      return 1.0;
+    }
+    const double k =
+        lm.kvl_row_clamp.value_or(LpMatrixOptions::default_kvl_row_clamp);
+    return std::clamp(*lm.kvl_x_ref / x_tau, 1.0 / k, k);
   }
 
   /// @brief Gets the row-scale factor for the line-loss linking row.
@@ -858,6 +885,12 @@ public:
     return m_options_.lp_scales.value_or(LpScalesLevel::none);
   }
 
+  /// Network-level gas properties (``options.gas_options``).
+  [[nodiscard]] constexpr auto gas_options() const noexcept -> const GasOptions&
+  {
+    return m_options_.gas_options;
+  }
+
   /// Solver backend pinned at the planning level via
   /// ``options.lp_matrix_options.solver_name`` (programmatic API — the
   /// field is not JSON-mapped).  Empty = no pin; callers fall through to
@@ -1077,11 +1110,11 @@ private:
 
 public:
   /** @brief Aperture LP timeout in seconds.
-   * @return Aperture timeout (default 15s)
+   * @return Aperture timeout in seconds (default 30 s; 0 = no limit)
    */
   [[nodiscard]] constexpr auto sddp_aperture_timeout() const
   {
-    return m_options_.sddp_options.aperture_timeout.value_or(15.0);
+    return m_options_.sddp_options.aperture_timeout.value_or(30.0);
   }
 
   /** @brief Whether to save LP files for infeasible apertures.
@@ -2056,6 +2089,21 @@ public:
   [[nodiscard]] const auto& cascade_sddp_options() const noexcept
   {
     return m_options_.cascade_options.sddp_options;
+  }
+
+  /// Whether intermediate cascade levels write their own output set
+  /// (`cascade_options.write_level_outputs`, default `false`).
+  [[nodiscard]] constexpr auto cascade_write_level_outputs() const noexcept
+  {
+    return m_options_.cascade_options.write_level_outputs.value_or(false);
+  }
+
+  /// Redirect every subsequent output write (`write_out`, per-cell
+  /// sim-pass emission) to @p dir.  Used by the cascade method to route
+  /// an intermediate level's output into its own subdirectory.
+  void set_output_directory(std::string dir)
+  {
+    m_options_.output_directory = std::move(dir);
   }
 
   // ── Enum-typed accessors ──────────────────────────────────────────────────

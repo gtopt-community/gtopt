@@ -361,6 +361,16 @@ struct Battery
   /// down-reserve negative-price channel (a unit must inject to offer
   /// down reserve).  Only read when ``reserve_sustain_hours`` is set.
   OptBool reserve_discharge_credit {};
+
+  /// Expected reserve deployment energy [MWh per MW of provision per
+  /// hour], charged to this battery's own state of charge:
+  /// `e_b = … − (a_up/ηd)·Δ·Σr_up + a_dn·ηc·Δ·Σr_dn`.  The physical
+  /// replacement for CEN's PLEXOS `BAT_*_CF_GEN_COMP` /
+  /// `BAT_*_CF_LOAD_COMP` (an AUX battery whose generation / load =
+  /// 0.3 × provision, i.e. a bus injection): here no term enters a bus
+  /// balance.  Only read when ``reserve_sustain_hours`` is set.
+  OptReal reserve_energy_usage_up {};
+  OptReal reserve_energy_usage_down {};  ///< Down analogue [MWh/MW/h]
   /// @}
 
   // ── Power-axis expansion ─────────────────────────────────────────────

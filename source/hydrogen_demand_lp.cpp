@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include <gtopt/active_ref.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/hydrogen_demand_lp.hpp>
 #include <gtopt/hydrogen_node_lp.hpp>
@@ -66,8 +67,20 @@ bool HydrogenDemandLP::add_to_lp(SystemContext& sc,
   const auto& node_ref = hydrogen_demand().hydrogen_node;
   const BIndexHolder<RowIndex>* brows = nullptr;
   if (node_ref.has_value()) {
-    brows = &sc.element<HydrogenNodeLP>(HydrogenNodeLPSId {node_ref.value()})
-                 .balance_rows_at(scenario, stage);
+    // Tolerant reference (see active_ref.hpp).  An inactive node has no
+    // balance row in this cell; a load column without it would be served
+    // (and valued at `price`) from nothing, so the demand is not built in
+    // this cell — the same as a Demand on an inactive Bus.
+    const HydrogenNodeLPSId node_sid {node_ref.value()};
+    const auto* node = active_ref(sc, node_sid, stage);
+    if (node != nullptr) {
+      brows = node->find_balance_rows(scenario, stage);
+    }
+    if (brows == nullptr) {
+      warn_ref_once(
+          cname, uid(), "hydrogen demand (node)", sc.element(node_sid).uid());
+      return true;
+    }
   }
 
   BIndexHolder<ColIndex> cols;
@@ -119,6 +132,7 @@ bool HydrogenDemandLP::add_to_lp(SystemContext& sc,
           .cost = pen
               * CostHelper::cost_factor(scenario.probability_factor(),
                                         stage.discount_factor()),
+          .cost_scale_type = ConstraintScaleType::Energy,
           .class_name = cname,
           .variable_name = MinEnergySlackName,
           .variable_uid = uid(),

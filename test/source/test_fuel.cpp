@@ -87,13 +87,15 @@ TEST_CASE("Fuel construction and JSON round-trip")  // NOLINT
     CHECK(f.uid == 7);
     CHECK(f.name == "natural_gas");
     REQUIRE(f.price.has_value());
-    CHECK(std::get<Real>(*f.price) == doctest::Approx(8.5));
+    CHECK((f.price && std::get<Real>(*f.price) == doctest::Approx(8.5)));
     REQUIRE(f.combustion_emission_factor.has_value());
-    CHECK(std::get<Real>(*f.combustion_emission_factor)
-          == doctest::Approx(0.0561));
+    CHECK((f.combustion_emission_factor
+           && std::get<Real>(*f.combustion_emission_factor)
+               == doctest::Approx(0.0561)));
     REQUIRE(f.upstream_emission_factor.has_value());
-    CHECK(std::get<Real>(*f.upstream_emission_factor)
-          == doctest::Approx(0.0094));
+    CHECK((f.upstream_emission_factor
+           && std::get<Real>(*f.upstream_emission_factor)
+               == doctest::Approx(0.0094)));
   }
 
   SUBCASE("JSON round-trip via System.fuel_array")
@@ -142,9 +144,9 @@ TEST_CASE("Fuel construction and JSON round-trip")  // NOLINT
     CHECK(f.uid == 11);
     CHECK(f.name == "Gas_Colbun_A");
     REQUIRE(f.type.has_value());
-    CHECK(*f.type == "gas");
+    CHECK((f.type && *f.type == "gas"));
     REQUIRE(f.subtype.has_value());
-    CHECK(*f.subtype == "lng");
+    CHECK((f.subtype && *f.subtype == "lng"));
   }
 
   SUBCASE("JSON omits subtype when absent (back-compat)")
@@ -159,7 +161,7 @@ TEST_CASE("Fuel construction and JSON round-trip")  // NOLINT
     const auto f = daw::json::from_json<Fuel>(json);
     CHECK(f.name == "Diesel_Collahuasi");
     REQUIRE(f.type.has_value());
-    CHECK(*f.type == "diesel");
+    CHECK((f.type && *f.type == "diesel"));
     CHECK_FALSE(f.subtype.has_value());
   }
 }
@@ -261,7 +263,7 @@ TEST_CASE(
   REQUIRE(result.has_value());
 
   const auto obj = lp.get_obj_value();
-  const auto expected = (fuel_price * hr + gcost_adder) * demand_val * dur;
+  const auto expected = ((fuel_price * hr) + gcost_adder) * demand_val * dur;
   CHECK(obj == doctest::Approx(expected).epsilon(1e-6));
 }
 
@@ -370,8 +372,8 @@ TEST_CASE(
   REQUIRE(result.has_value());
 
   const auto obj = lp.get_obj_value();
-  const auto expected = (100.0 * (5.0 * 7.0 + 1.0)) + (50.0 * (5.0 * 8.5 + 1.0))
-      + (20.0 * (5.0 * 10.0 + 1.0));
+  const auto expected = (100.0 * ((5.0 * 7.0) + 1.0))
+      + (50.0 * ((5.0 * 8.5) + 1.0)) + (20.0 * ((5.0 * 10.0) + 1.0));
   CHECK(obj == doctest::Approx(expected).epsilon(1e-6));
 
   // Verify the LP picked segments in convex order: s_1 = 70, s_2 = 20.
@@ -987,9 +989,10 @@ TEST_CASE("FuelEmissionFactor JSON round-trip")  // NOLINT
   const auto f = daw::json::from_json<FuelEmissionFactor>(src);
   CHECK(std::get<Name>(f.emission) == "co2");
   REQUIRE(f.combustion.has_value());
-  CHECK(std::get<Real>(*f.combustion) == doctest::Approx(0.0561));
+  CHECK((f.combustion
+         && std::get<Real>(*f.combustion) == doctest::Approx(0.0561)));
   REQUIRE(f.upstream.has_value());
-  CHECK(std::get<Real>(*f.upstream) == doctest::Approx(0.0094));
+  CHECK((f.upstream && std::get<Real>(*f.upstream) == doctest::Approx(0.0094)));
 }
 
 TEST_CASE("Fuel.emission_factors[] JSON round-trip")  // NOLINT
@@ -1006,8 +1009,9 @@ TEST_CASE("Fuel.emission_factors[] JSON round-trip")  // NOLINT
   const auto f = daw::json::from_json<Fuel>(src);
   REQUIRE(f.emission_factors.size() == 2);
   CHECK(std::get<Name>(f.emission_factors[0].emission) == "co2");
-  CHECK(std::get<Real>(*f.emission_factors[0].upstream)
-        == doctest::Approx(0.0094));
+  const auto& co2_upstream = f.emission_factors[0].upstream;
+  CHECK((co2_upstream
+         && std::get<Real>(*co2_upstream) == doctest::Approx(0.0094)));
   CHECK(std::get<Name>(f.emission_factors[1].emission) == "ch4");
   CHECK_FALSE(f.emission_factors[1].upstream.has_value());
 }
@@ -1039,9 +1043,11 @@ TEST_CASE(
   const auto& fef = sys.fuel_array.front().emission_factors.front();
   CHECK(std::get<Uid>(fef.emission) == co2_uid);
   REQUIRE(fef.combustion.has_value());
-  CHECK(std::get<Real>(*fef.combustion) == doctest::Approx(0.0561));
+  CHECK((fef.combustion
+         && std::get<Real>(*fef.combustion) == doctest::Approx(0.0561)));
   REQUIRE(fef.upstream.has_value());
-  CHECK(std::get<Real>(*fef.upstream) == doctest::Approx(0.0094));
+  CHECK((fef.upstream
+         && std::get<Real>(*fef.upstream) == doctest::Approx(0.0094)));
 
   // Legacy fields cleared.
   CHECK_FALSE(sys.fuel_array.front().combustion_emission_factor.has_value());
@@ -1098,9 +1104,11 @@ TEST_CASE(
   CHECK(std::get<Uid>(es.zone) == Uid {1});
   CHECK(std::get<Uid>(es.emission) == Uid {1});
   REQUIRE(es.rate.has_value());
-  CHECK(std::get<Real>(*es.rate) == doctest::Approx(8.0 * 0.05));  // 0.40
+  CHECK((es.rate
+         && std::get<Real>(*es.rate) == doctest::Approx(8.0 * 0.05)));  // 0.40
   REQUIRE(es.upstream_rate.has_value());
-  CHECK(std::get<Real>(*es.upstream_rate) == doctest::Approx(8.0 * 0.01));
+  CHECK((es.upstream_rate
+         && std::get<Real>(*es.upstream_rate) == doctest::Approx(8.0 * 0.01)));
 
   // Idempotent — same names → skipped on re-run.
   sys.expand_fuel_emission_sources();
@@ -1242,9 +1250,10 @@ TEST_CASE(
   REQUIRE(planning.system.emission_source_array.size() == 1);
   const auto& es = planning.system.emission_source_array.front();
   REQUIRE(es.rate.has_value());
-  CHECK(std::get<Real>(*es.rate) == doctest::Approx(0.40));
+  CHECK((es.rate && std::get<Real>(*es.rate) == doctest::Approx(0.40)));
   REQUIRE(es.upstream_rate.has_value());
-  CHECK(std::get<Real>(*es.upstream_rate) == doctest::Approx(0.08));
+  CHECK((es.upstream_rate
+         && std::get<Real>(*es.upstream_rate) == doctest::Approx(0.08)));
 }
 
 // ── More fold / expand edge cases ──────────────────────────────────
@@ -1276,8 +1285,8 @@ TEST_CASE(
   sys.expand_fuel_emission_sources();
 
   REQUIRE(sys.emission_source_array.size() == 1);
-  CHECK(std::get<Real>(*sys.emission_source_array.front().rate)
-        == doctest::Approx(0.40));
+  const auto& rate = sys.emission_source_array.front().rate;
+  CHECK((rate && std::get<Real>(*rate) == doctest::Approx(0.40)));
 }
 
 TEST_CASE(
@@ -1420,9 +1429,11 @@ TEST_CASE(
   REQUIRE(sys.fuel_array.front().emission_factors.size() == 1);
   const auto& fef = sys.fuel_array.front().emission_factors.front();
   REQUIRE(fef.combustion.has_value());
-  CHECK(std::get<Real>(*fef.combustion) == doctest::Approx(0.0561));
+  CHECK((fef.combustion
+         && std::get<Real>(*fef.combustion) == doctest::Approx(0.0561)));
   REQUIRE(fef.upstream.has_value());
-  CHECK(std::get<Real>(*fef.upstream) == doctest::Approx(0.0094));
+  CHECK((fef.upstream
+         && std::get<Real>(*fef.upstream) == doctest::Approx(0.0094)));
   // Legacy field cleared.
   CHECK_FALSE(sys.fuel_array.front().upstream_emission_factor.has_value());
 }
@@ -1448,9 +1459,9 @@ TEST_CASE(
 
   REQUIRE(sys.fuel_array.front().emission_factors.size() == 1);
   // New-style value preserved.
-  CHECK(std::get<Real>(
-            *sys.fuel_array.front().emission_factors.front().combustion)
-        == doctest::Approx(0.0561));
+  const auto& combustion =
+      sys.fuel_array.front().emission_factors.front().combustion;
+  CHECK((combustion && std::get<Real>(*combustion) == doctest::Approx(0.0561)));
 }
 
 TEST_CASE(
@@ -1523,48 +1534,60 @@ TEST_CASE(
   // Use Approx(...) on every check, so the table can be read as
   // "literature value × heat-rate ≈ expected".
   const std::array benchmarks {
-      Bench {.fuel_name = "coal_subcrit",
-             .fuel_uid = Uid {1},
-             .combustion = 0.0946,
-             .plant_name = "coal_pc_subcrit",
-             .plant_uid = Uid {1},
-             .heat_rate = 10.5,
-             .expected_rate = 0.99330},
-      Bench {.fuel_name = "coal_supercrit",
-             .fuel_uid = Uid {2},
-             .combustion = 0.0946,
-             .plant_name = "coal_pc_supercrit",
-             .plant_uid = Uid {2},
-             .heat_rate = 9.0,
-             .expected_rate = 0.85140},
-      Bench {.fuel_name = "natural_gas",
-             .fuel_uid = Uid {3},
-             .combustion = 0.0561,
-             .plant_name = "ccgt",
-             .plant_uid = Uid {3},
-             .heat_rate = 7.5,
-             .expected_rate = 0.42075},
-      Bench {.fuel_name = "natural_gas_ocgt",
-             .fuel_uid = Uid {4},
-             .combustion = 0.0561,
-             .plant_name = "ocgt",
-             .plant_uid = Uid {4},
-             .heat_rate = 10.0,
-             .expected_rate = 0.56100},
-      Bench {.fuel_name = "diesel",
-             .fuel_uid = Uid {5},
-             .combustion = 0.0741,
-             .plant_name = "diesel_peaker",
-             .plant_uid = Uid {5},
-             .heat_rate = 10.5,
-             .expected_rate = 0.77805},
-      Bench {.fuel_name = "residual_oil",
-             .fuel_uid = Uid {6},
-             .combustion = 0.0774,
-             .plant_name = "oil_steam",
-             .plant_uid = Uid {6},
-             .heat_rate = 11.0,
-             .expected_rate = 0.85140},
+      Bench {
+          .fuel_name = "coal_subcrit",
+          .fuel_uid = Uid {1},
+          .combustion = 0.0946,
+          .plant_name = "coal_pc_subcrit",
+          .plant_uid = Uid {1},
+          .heat_rate = 10.5,
+          .expected_rate = 0.99330,
+      },
+      Bench {
+          .fuel_name = "coal_supercrit",
+          .fuel_uid = Uid {2},
+          .combustion = 0.0946,
+          .plant_name = "coal_pc_supercrit",
+          .plant_uid = Uid {2},
+          .heat_rate = 9.0,
+          .expected_rate = 0.85140,
+      },
+      Bench {
+          .fuel_name = "natural_gas",
+          .fuel_uid = Uid {3},
+          .combustion = 0.0561,
+          .plant_name = "ccgt",
+          .plant_uid = Uid {3},
+          .heat_rate = 7.5,
+          .expected_rate = 0.42075,
+      },
+      Bench {
+          .fuel_name = "natural_gas_ocgt",
+          .fuel_uid = Uid {4},
+          .combustion = 0.0561,
+          .plant_name = "ocgt",
+          .plant_uid = Uid {4},
+          .heat_rate = 10.0,
+          .expected_rate = 0.56100,
+      },
+      Bench {
+          .fuel_name = "diesel",
+          .fuel_uid = Uid {5},
+          .combustion = 0.0741,
+          .plant_name = "diesel_peaker",
+          .plant_uid = Uid {5},
+          .heat_rate = 10.5,
+          .expected_rate = 0.77805,
+      },
+      Bench {
+          .fuel_name = "residual_oil",
+          .fuel_uid = Uid {6},
+          .combustion = 0.0774,
+          .plant_name = "oil_steam",
+          .plant_uid = Uid {6},
+          .heat_rate = 11.0,
+          .expected_rate = 0.85140,
+      },
   };
 
   System sys;
@@ -1605,8 +1628,9 @@ TEST_CASE(
         });
     REQUIRE(it != sys.emission_source_array.end());
     REQUIRE(it->rate.has_value());
-    CHECK(std::get<Real>(*it->rate)
-          == doctest::Approx(b.expected_rate).epsilon(1e-4));
+    CHECK((it->rate
+           && std::get<Real>(*it->rate)
+               == doctest::Approx(b.expected_rate).epsilon(1e-4)));
   }
 }
 

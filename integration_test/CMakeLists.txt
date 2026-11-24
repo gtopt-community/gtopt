@@ -336,6 +336,49 @@ add_e2e_case(exp_gen_4b exp_gen_4b.json)
 add_e2e_case(exp_bat_4b exp_bat_4b.json)
 add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 
+# Decoupled ``Line.loss_envelope`` (rating 100 MW, tmax 1000 MW) with
+# demand forcing flow to 0.5x / 3x / 8x the envelope on a
+# tangent_signed_flow line and a bidirectional line.  Pins that the
+# envelope never caps the flow (no demand failure) and that losses past
+# it stay quadratic (R*f^2/V^2 within the 2.8 % overflow-ladder error).
+# See cases/line_loss_envelope/README.md.
+add_e2e_case(line_loss_envelope line_loss_envelope.json)
+
+# CEN SSCC reserve models (formulation §5.9 / §5.17): max-of-planes CPF
+# requirement with the exogenous (default) and the PLEXOS-compat
+# endogenous load term (zero vs negative curtailment-hour prices),
+# contingency + inertia + commitment-dependent inertia credit, and
+# CPF/CSF/CTF with shared headroom, cold CTF and a two-sided BESS.
+# Golden values agree across HiGHS, CLP and CBC.
+add_e2e_case(reserve_cpf_planes reserve_cpf_planes.json)
+add_e2e_case(reserve_cpf_planes_endogenous
+             reserve_cpf_planes_endogenous.json)
+add_e2e_case(reserve_cpf_contingency_inertia
+             reserve_cpf_contingency_inertia.json)
+add_e2e_case(reserve_sscc_full reserve_sscc_full.json)
+# Multi-bus, 2-day chronological case with relaxed commitment: CPF
+# (dynamic planes + inertia + contingency), CSF (eq sense), CTF (cold
+# offline offer), an InertiaZone with a commitment credit and a BESS
+# with capped CPF and CSF provisions.
+add_e2e_case(reserve_sscc_multiday reserve_sscc_multiday.json)
+# The extended reserve model under SDDP (3 phases; reservoir + BESS SoC
+# states) and a 2-level cascade with per-level reserve_shortage_cost.
+# Goldens pin the converged objective / bounds and the reserve prices.
+add_sddp_case(reserve_sddp_hydro_off reserve_sddp_hydro.json
+  CASE_DIR reserve_sddp_hydro MAX_ITERATIONS 200 LOW_MEMORY off
+  GOLDEN golden.json)
+add_sddp_case(reserve_sddp_hydro_compress reserve_sddp_hydro.json
+  CASE_DIR reserve_sddp_hydro MAX_ITERATIONS 200 LOW_MEMORY compress
+  GOLDEN golden.json)
+add_sddp_case(reserve_cascade_hydro reserve_cascade_hydro.json
+  CASE_DIR reserve_cascade_hydro MAX_ITERATIONS 200
+  GOLDEN golden.json)
+# Benchmark: MATPOWER t_case30_userfcns (BSD-3) DC OPF with two
+# overlapping fixed reserve zones and two interface-flow limits.  The
+# reference (t_opf_userfcns.m) is R = [25 15 0 0 16.9 3.1], zone prices
+# 2 / 3.5, reserve cost 179.05; see test_reserve_bench_matpower_case30.cpp.
+add_e2e_case(matpower_case30_reserves matpower_case30_reserves.json)
+
 # Hydro / thermal benchmarks derived from SDDP.jl reference examples
 # (MIT-licensed, https://github.com/odow/SDDP.jl).  These cover the
 # Reservoir / Waterway / Turbine / Junction cascade that the IEEE
@@ -367,6 +410,13 @@ endforeach()
 add_e2e_case(psri_case2_via_sddp2gtopt system_psri_case2_via_sddp2gtopt.json)
 add_e2e_case(psri_case3_via_sddp2gtopt system_psri_case3_via_sddp2gtopt.json)
 
+# ``Generator.initial_generation`` feeding ``generation_prev`` at h1: the
+# CEN PCP PANGUEramp pattern (pmin 80, ramp 60, initial 80), which is
+# infeasible with the legacy cold-start ``gen_prev = 0``.  The golden pins
+# PANGUE_U1 = 140 / 200 / 200 / 150 (both ramp rows bind) and obj 6450.
+# See cases/generation_prev_initial/README.md.
+add_e2e_case(generation_prev_initial generation_prev_initial.json)
+
 # IEEE 24-bus Reliability Test System converted from pandapower's
 # `case24_ieee_rts` via `pp2gtopt`.  Exercises gtopt's demand-fail
 # accounting path: pp's case ships under-sized generation (1509 MW
@@ -386,6 +436,90 @@ add_e2e_case(ieee_24b_rts ieee_24b_rts.json)
 # with an empty `output/` (solve + validate_solution only, no
 # compare_solution).  See cases/case3375wp/README.md.
 add_e2e_case(case3375wp case3375wp.json)
+
+# ---- Gas network (GasNode / GasPipe / GasCompressor / GasTurbine) ----
+# Small native gas cases with goldens from an independent scipy LP / NLP
+# (see each case README): the gasnet2gtopt tiny variants, the GasModels.jl
+# case-6 loop (tangent LP vs the published exact optimum), the Hu & Ryan
+# 6-bus/7-node coupled system and the 0 -> 2000 -> 4000 m elevation chain.
+foreach(_gas_case IN ITEMS gas_mini3 gas_cmp_off gas_cmp_fixed gas_cmp_sald
+        gas_lp_steady gas_lp_pack gas_plant_none gas_plant_hard
+        gas_plant_booster gas_plant_booster_gas gas_plant_derate
+        gas_plant_derate_booster gas_saldarriaga_fig2_2 gas_gaslib11_radial
+        gas_belgian_a1_radial gas_case6 gas_hu_ryan_6b7n gas_elevation_chain
+        gas_case6_meshed)
+  add_e2e_case(${_gas_case} ${_gas_case}.json)
+endforeach()
+
+# Central-Chile Renca 22.7 bar cases (booster off / on): their gas network
+# lives in the external case repository (chile/gas_network/
+# central_chile_renca, see its README), so they are registered only when
+# GTOPT_CASES_DIR has it.
+gtopt_find_external_case(_gas_renca "chile/gas_network/central_chile_renca")
+if(_gas_renca)
+  foreach(_gas_case IN ITEMS gas_cc_renca227_bstoff gas_cc_renca227_bston)
+    add_e2e_case(${_gas_case} ${_gas_case}.json
+      CASE_DIR "${_gas_renca}/case/${_gas_case}")
+  endforeach()
+else()
+  message(STATUS "gas_cc_renca227_*: chile/gas_network/central_chile_renca "
+                 "not found under GTOPT_CASES_DIR='${GTOPT_CASES_DIR}' -- "
+                 "not registered")
+endif()
+
+# Tier-3 gas integration (scripts/gasnet2gtopt/tests/test_gtopt_integration.py):
+# central-Chile Renca minimum-pressure sensitivities x Quillota compressor x
+# booster x derate and multi-day line pack, native elements vs the
+# prototype's DecisionVariable/UserConstraint form solved by the same
+# binary; tiny + literature cases vs the scipy expected values; benchmark
+# cases (case-6, Hu-Ryan 6b7n/24b20n, Ratha 24el-12ng) radial and SLP.
+# The central-Chile and Peru/Camisea networks live in the external case
+# repository (chile/gas_network/central_chile_renca,
+# peru/gas_network/camisea); their groups are registered only when
+# GTOPT_CASES_DIR has them.
+execute_process(
+  COMMAND ${Python3_EXECUTABLE} -c "import pytest, xdist"
+  RESULT_VARIABLE _gas_pytest_rc OUTPUT_QUIET ERROR_QUIET)
+if(_gas_pytest_rc EQUAL 0)
+  set(_gas_scripts "${CMAKE_CURRENT_LIST_DIR}/../scripts")
+  set(_gas_groups tiny_native literature benchmark)
+  if(_gas_renca)
+    list(APPEND _gas_groups central_chile_renca multi_day_linepack)
+  endif()
+  gtopt_find_external_case(_gas_camisea "peru/gas_network/camisea")
+  if(_gas_camisea)
+    list(APPEND _gas_groups peru_camisea)
+  else()
+    message(STATUS "gas_integration_peru_camisea: peru/gas_network/camisea "
+                   "not found under GTOPT_CASES_DIR='${GTOPT_CASES_DIR}' -- "
+                   "not registered")
+  endif()
+  foreach(_gas_group IN LISTS _gas_groups)
+    add_test(NAME gas_integration_${_gas_group}
+      COMMAND ${CMAKE_COMMAND} -E env
+        "GTOPT_BIN=${GTOPT_EXECUTABLE_FILE}"
+        "GTOPT_CASES_DIR=${GTOPT_CASES_DIR}"
+        ${Python3_EXECUTABLE} -m pytest -q -p no:cacheprovider -n 0
+        -m integration -k ${_gas_group}
+        gasnet2gtopt/tests/test_gtopt_integration.py
+      WORKING_DIRECTORY "${_gas_scripts}")
+    set_tests_properties(gas_integration_${_gas_group} PROPERTIES
+      LABELS "gas;integration" TIMEOUT 1800)
+  endforeach()
+  # 13-day KP-43 rupture on Peru / Camisea (312 blocks): slow tier.
+  if(GTOPT_SLOW_TESTS AND _gas_camisea)
+    add_test(NAME gas_integration_peru_kp43
+      COMMAND ${CMAKE_COMMAND} -E env
+        "GTOPT_BIN=${GTOPT_EXECUTABLE_FILE}"
+        "GTOPT_CASES_DIR=${GTOPT_CASES_DIR}"
+        ${Python3_EXECUTABLE} -m pytest -q -p no:cacheprovider -n 0
+        -m "integration and slow" -k peru_kp43
+        gasnet2gtopt/tests/test_gtopt_integration.py
+      WORKING_DIRECTORY "${_gas_scripts}")
+    set_tests_properties(gas_integration_peru_kp43 PROPERTIES
+      LABELS "gas;integration;slow" TIMEOUT 3600)
+  endif()
+endif()
 
 # ---- SDDP test cases ----
 # To add a new SDDP case, place it under cases/<name>/ with a system JSON file
@@ -513,6 +647,32 @@ if(GTOPT_SLOW_TESTS)
     message(STATUS "GTOPT_SLOW_TESTS: gtopt_case_2y not found under "
                    "GTOPT_CASES_DIR='${GTOPT_CASES_DIR}' -- not registered")
   endif()
+  # Equilibration invariance on a medium case WITH external boundary cuts
+  # (the small analytic cases live in test_sddp_cut_exactness.cpp): the
+  # same SDDP iterations under none / row_max / ruiz must report the same
+  # LB and UB.  The boundary_cuts.csv of gtopt_case_2y is the PLP planos
+  # FCF, i.e. foreign cuts.  Measured (2 iterations): iteration-0 LB
+  # bit-identical; UB spread 2.1e-4 (iter 0) and
+  # LB spread 3.6e-4 (iter 1) relative — different but equally optimal
+  # forward trajectories in degenerate phases, so the bound is 1e-3.
+  if(_case_2y)
+    set(_eq_dirs "")
+    foreach(_eq none row_max ruiz)
+      add_sddp_case(gtopt_case_2y_eq_${_eq} gtopt_case_2y.json
+        CASE_DIR "${_case_2y}"
+        MAX_ITERATIONS 2 TIMEOUT 1800 LABELS slow
+        EXTRA_SET "lp_matrix_options.equilibration_method=${_eq}")
+      list(APPEND _eq_dirs
+        "${CMAKE_CURRENT_BINARY_DIR}/test_output/gtopt_case_2y_eq_${_eq}_sddp")
+    endforeach()
+    string(REPLACE ";" "\\;" _eq_dirs_arg "${_eq_dirs}")
+    add_test(NAME e2e_gtopt_case_2y_equilibration_invariance
+      COMMAND ${CMAKE_COMMAND} -DOUTPUT_DIRS=${_eq_dirs_arg} -DREL_TOL=1e-3
+        -P ${CMAKE_SCRIPTS_DIR}/compare_sddp_bounds.cmake)
+    set_tests_properties(e2e_gtopt_case_2y_equilibration_invariance
+      PROPERTIES LABELS "sddp;slow"
+      DEPENDS "e2e_gtopt_case_2y_eq_none_sddp_solve;e2e_gtopt_case_2y_eq_row_max_sddp_solve;e2e_gtopt_case_2y_eq_ruiz_sddp_solve")
+  endif()
   gtopt_find_external_case(_case_2y_fs
     "chile/medium_long_term/gtopt_case_2y_fs")
   if(_case_2y_fs)
@@ -523,7 +683,70 @@ if(GTOPT_SLOW_TESTS)
     message(STATUS "GTOPT_SLOW_TESTS: gtopt_case_2y_fs not found under "
                    "GTOPT_CASES_DIR='${GTOPT_CASES_DIR}' -- not registered")
   endif()
+  # PCP 2026-11-07, day 1, exogenous native reserves: Polpaico mean CMg
+  # >= 0 and CPF@10s within 5 MW of PLEXOS.  How to build the case:
+  # integration_test/README_pcp_reserve_day1.md.
+  gtopt_find_external_case(_pcp1107_d1
+    "chile/daily_scheduling/pcp_2026-11-07_d1_exo")
+  if(_pcp1107_d1)
+    add_test(NAME slow_pcp_2026_11_07_d1_exo
+      COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_LIST_DIR}/../tools/check_pcp_reserve_day1.py"
+        --gtopt "${GTOPT_EXECUTABLE_FILE}"
+        --case-dir "${_pcp1107_d1}/case"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/test_output/pcp_2026_11_07_d1_exo")
+    set_tests_properties(slow_pcp_2026_11_07_d1_exo PROPERTIES
+      LABELS slow TIMEOUT 3600 RUN_SERIAL TRUE)
+  else()
+    message(STATUS "GTOPT_SLOW_TESTS: pcp_2026-11-07_d1_exo not found under "
+                   "GTOPT_CASES_DIR='${GTOPT_CASES_DIR}' -- not registered")
+  endif()
+  # RTS-GMLC day 200 (public, downloaded on first run into
+  # ~/.cache/gtopt/rts_gmlc): rts_gmlc_to_gtopt --timeseries --reserves
+  # --inertia, then every reserve product and the 20 000 MWs inertia
+  # requirement must be covered in every hour.
+  add_test(NAME slow_rts_gmlc_reserves_inertia
+    COMMAND ${Python3_EXECUTABLE}
+      "${CMAKE_CURRENT_LIST_DIR}/../tools/check_rts_gmlc_reserves.py"
+      --gtopt "${GTOPT_EXECUTABLE_FILE}"
+      --work-dir "${CMAKE_CURRENT_BINARY_DIR}/test_output/rts_gmlc_reserves")
+  set_tests_properties(slow_rts_gmlc_reserves_inertia PROPERTIES
+    LABELS slow TIMEOUT 1800 RUN_SERIAL TRUE)
+  # LRC-SCUC (Tuo & Li, TPWRS 2023; rpglab/LRC_SCUC, CC BY 4.0, data
+  # downloaded at a pinned commit into ~/.cache/gtopt/lrc_scuc): the
+  # T-SCUC (N-1 reserve) and ERC-SCUC (+ RoCoF user constraints) MIPs
+  # must reproduce the repository models' optimum.
+  foreach(_lrc_variant T ERC)
+    add_test(NAME slow_lrc_scuc_${_lrc_variant}
+      COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_LIST_DIR}/../tools/lrc_scuc_benchmark.py"
+        --variant ${_lrc_variant}
+        --gtopt "${GTOPT_EXECUTABLE_FILE}"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/test_output/lrc_scuc")
+    set_tests_properties(slow_lrc_scuc_${_lrc_variant} PROPERTIES
+      LABELS slow TIMEOUT 3600 RUN_SERIAL TRUE)
+  endforeach()
 endif()
+
+# ---- LP-scaling invariance smoke (tools/check_equilibration_invariance.sh) --
+# Runs sddp_hydro_3phase for 3 SDDP iterations under equilibration
+# none / row_max / ruiz × scale_objective 1 / 1000 and checks that LB, UB,
+# the first-phase objective and the first-iteration cuts (physical a, β)
+# coincide.  Skips (77) without pyarrow; the solver is gtopt's auto-detect.
+add_test(
+  NAME tool_check_equilibration_invariance
+  COMMAND bash "${CMAKE_CURRENT_LIST_DIR}/../tools/check_equilibration_invariance.sh"
+    --gtopt "${GTOPT_EXECUTABLE_FILE}"
+    --iterations 3 --scale-objective 1,1000
+    --work-dir "${CMAKE_CURRENT_BINARY_DIR}/test_output/eq_invariance"
+    "${CASES_DIR}/sddp_hydro_3phase/sddp_hydro_3phase.json"
+)
+set_tests_properties(tool_check_equilibration_invariance PROPERTIES
+  ENVIRONMENT "PYTHON=${Python3_EXECUTABLE}"
+  TIMEOUT 300
+  SKIP_RETURN_CODE 77
+  LABELS "sddp;tools"
+)
 
 # ---- LP conditioning (kappa) on a real, badly conditioned case ----
 # Off by default: each variant builds and solves a ~42k x 57k LP of the

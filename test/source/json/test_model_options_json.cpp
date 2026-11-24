@@ -11,8 +11,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_model_options.hpp>
 
+#include "../require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("ModelOptions JSON - Full deserialization")
 {
@@ -31,23 +32,28 @@ TEST_CASE("ModelOptions JSON - Full deserialization")
   const auto opts = daw::json::from_json<ModelOptions>(json_data);
 
   REQUIRE(opts.use_single_bus.has_value());
-  CHECK(*opts.use_single_bus == true);
+  CHECK(test_support::require_value(opts.use_single_bus) == true);
   REQUIRE(opts.use_kirchhoff.has_value());
-  CHECK(*opts.use_kirchhoff == false);
+  CHECK(test_support::require_value(opts.use_kirchhoff) == false);
   REQUIRE(opts.use_line_losses.has_value());
-  CHECK(*opts.use_line_losses == true);
+  CHECK(test_support::require_value(opts.use_line_losses) == true);
   REQUIRE(opts.kirchhoff_threshold.has_value());
-  CHECK(*opts.kirchhoff_threshold == doctest::Approx(110.0));
+  CHECK(test_support::require_value(opts.kirchhoff_threshold)
+        == doctest::Approx(110.0));
   REQUIRE(opts.loss_segments.has_value());
-  CHECK(*opts.loss_segments == 3);
+  CHECK(test_support::require_value(opts.loss_segments) == 3);
   REQUIRE(opts.scale_objective.has_value());
-  CHECK(*opts.scale_objective == doctest::Approx(500.0));
+  CHECK(test_support::require_value(opts.scale_objective)
+        == doctest::Approx(500.0));
   REQUIRE(opts.scale_theta.has_value());
-  CHECK(*opts.scale_theta == doctest::Approx(2000.0));
+  CHECK(test_support::require_value(opts.scale_theta)
+        == doctest::Approx(2000.0));
   REQUIRE(opts.demand_fail_cost.has_value());
-  CHECK(*opts.demand_fail_cost == doctest::Approx(5000.0));
+  CHECK(test_support::require_value(opts.demand_fail_cost)
+        == doctest::Approx(5000.0));
   REQUIRE(opts.reserve_shortage_cost.has_value());
-  CHECK(*opts.reserve_shortage_cost == doctest::Approx(3000.0));
+  CHECK(test_support::require_value(opts.reserve_shortage_cost)
+        == doctest::Approx(3000.0));
 }
 
 TEST_CASE("ModelOptions JSON - Missing fields stay nullopt")
@@ -60,9 +66,10 @@ TEST_CASE("ModelOptions JSON - Missing fields stay nullopt")
   const auto opts = daw::json::from_json<ModelOptions>(json_data);
 
   REQUIRE(opts.use_kirchhoff.has_value());
-  CHECK(*opts.use_kirchhoff == true);
+  CHECK(test_support::require_value(opts.use_kirchhoff) == true);
   REQUIRE(opts.scale_objective.has_value());
-  CHECK(*opts.scale_objective == doctest::Approx(1000.0));
+  CHECK(test_support::require_value(opts.scale_objective)
+        == doctest::Approx(1000.0));
 
   CHECK_FALSE(opts.use_single_bus.has_value());
   CHECK_FALSE(opts.use_line_losses.has_value());
@@ -107,5 +114,3 @@ TEST_CASE("ModelOptions JSON - Empty object")
   CHECK_FALSE(opts.demand_fail_cost.has_value());
   CHECK_FALSE(opts.has_any());
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

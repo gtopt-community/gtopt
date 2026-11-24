@@ -30,10 +30,10 @@
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_types.hpp>  // register_alpha_variables
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE(  // NOLINT
     "load_boundary_cuts_csv — reservoir state vars resolve via "
@@ -114,7 +114,8 @@ TEST_CASE(  // NOLINT
     // Physical coefficient on the reservoir column should be -coeff
     // (the cut is α >= rhs - Σ coeff×x, encoded as α + Σ -coeff×x >=
     // rhs in row form).
-    const double phys_coeff_in_lp = last_li.get_coeff(cut_row, *rsv_col);
+    const double phys_coeff_in_lp =
+        last_li.get_coeff(cut_row, test_support::require_value(rsv_col));
     CAPTURE(phys_coeff_in_lp);
     CHECK(phys_coeff_in_lp
           == doctest::Approx(-phys_coeff)
@@ -145,7 +146,8 @@ TEST_CASE(  // NOLINT
     CHECK(last_li.get_numrows() == pre_load_numrows + 1);
 
     const auto cut_row = RowIndex {static_cast<Index>(pre_load_numrows)};
-    const double phys_coeff_in_lp = last_li.get_coeff(cut_row, *rsv_col);
+    const double phys_coeff_in_lp =
+        last_li.get_coeff(cut_row, test_support::require_value(rsv_col));
     CAPTURE(phys_coeff_in_lp);
     // Post-fix: -phys_coeff.  Pre-fix: 0.0 (silent drop).
     CHECK(phys_coeff_in_lp
@@ -224,5 +226,3 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove(tmp_file);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

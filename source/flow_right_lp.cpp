@@ -33,10 +33,12 @@
  * `flow_right().junction_a` is set.
  */
 
+#include <gtopt/active_ref.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/system_context.hpp>
@@ -85,6 +87,15 @@ enum class FlowMode : std::uint8_t
                                         : FlowMode::per_block;
 }
 
+/// True for a set, strictly positive requirement.  The global
+/// `hydro_spill_cost` / `hydro_use_value` fallbacks only apply to
+/// such blocks (or, for the use value, to a withdrawing right).
+[[nodiscard]] constexpr bool has_positive_target(
+    std::optional<Real> target) noexcept
+{
+  return target.has_value() && *target > 0.0;
+}
+
 struct ResolvedBounds
 {
   Real fmin {0.0};
@@ -97,7 +108,17 @@ struct ResolvedBounds
 ///   - `fmin` defaults to 0.  When `target` is set and no slack cost is
 ///     active (neither fcost nor uvalue), `fmin` defaults to `target`
 ///     so the column collapses to a forced-exact `[target, target]`.
-///   - `fmax` defaults to `target` when set, else `fmin`.
+///   - `fmax` defaults to `target` when set, else `fmin` -- EXCEPT for a
+///     per-unit usage cost (`target == 0`, negative `uvalue`, no
+///     `fcost`; `usage_cost == true`), whose `fmax` defaults to
+///     unbounded (`LinearProblem::DblMax`).  Such a flow is a priced
+///     use of water (PLP CostoCanelon / CQVar: a positive FO coefficient
+///     on an otherwise unbounded column, genpdmaule.f:186-202), not a
+///     requirement; defaulting its cap to the zero target silently
+///     forbade the flow (and, through an anchor row, the physical arc
+///     it prices).  Rewards (`uvalue > 0`) and fcost kinks keep the
+///     `target` default -- an unbounded reward would make the LP
+///     unbounded, and a target used as the cap stays a cap.
 ///   - The `rule_cap` parameter clamps fmax (and pulls target / fmin
 ///     down with it when they exceed the cap).  Pass `LinearProblem::
 ///     DblMax` to skip the cap.
@@ -115,7 +136,8 @@ ResolvedBounds resolve_bounds(std::optional<Real> raw_fmin,
                               std::optional<Real> raw_fmax,
                               Real rule_cap,
                               bool fcost_active,
-                              bool uvalue_active)
+                              bool uvalue_active,
+                              bool usage_cost = false)
 {
   std::optional<Real> target = raw_target;
   if (target.has_value() && *target == 0.0 && !fcost_active && !uvalue_active) {
@@ -125,7 +147,10 @@ ResolvedBounds resolve_bounds(std::optional<Real> raw_fmin,
   const Real fmin_default =
       (target.has_value() && !any_slack_cost) ? *target : 0.0;
   Real fmin = raw_fmin.value_or(fmin_default);
-  Real fmax = raw_fmax.value_or(target.value_or(fmin));
+  const bool unbounded_usage_cost =
+      usage_cost && target.has_value() && *target == 0.0;
+  Real fmax = raw_fmax.value_or(unbounded_usage_cost ? LinearProblem::DblMax
+                                                     : target.value_or(fmin));
 
   fmax = std::min(fmax, rule_cap);
   if (target.has_value()) {
@@ -399,14 +424,39 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   // "active"; a literal `0.0` global (e.g. test fixtures explicitly
   // zeroing `hydro_spill_cost`) leaves the kink machinery dormant —
   // preserving the legacy `stage_fcost_val > 0.0` decision boundary.
+  //
+  // The GLOBAL fallbacks are scoped (Maule review R2):
+  //   * `hydro_spill_cost` prices an unmet REQUIREMENT, so it only
+  //     applies to blocks whose target is > 0.  On a target-0 right it
+  //     made the target a hard zero cap (fcost-only kink substitution),
+  //     pinning every anchored physical arc to 0.
+  //   * `hydro_use_value` values water actually USED, so it only
+  //     applies to a right that withdraws water (`junction_a` set) or
+  //     carries a requirement (target > 0).  On a target-0
+  //     accounting-only right it paid for flow with no water behind
+  //     it.
+  // Explicit per-element `fcost` / `uvalue` cells are unaffected.
   const auto global_fc_opt = options.hydro_spill_cost();
   const bool global_fc_nonzero =
       global_fc_opt.has_value() && global_fc_opt.value() != 0.0;
-  const bool fcost_active = fcost.has_value() || global_fc_nonzero;
+  const auto global_fc_applies = [&](const BlockLP& b) -> bool
+  {
+    return global_fc_nonzero
+        && has_positive_target(target_sched.at(stage.uid(), b.uid()));
+  };
 
   const auto global_uv_opt = options.hydro_use_value();
-  const bool uvalue_active = uvalue_sched.has_value()
-      || (global_uv_opt.has_value() && global_uv_opt.value() != 0.0);
+  const bool global_uv_nonzero =
+      global_uv_opt.has_value() && global_uv_opt.value() != 0.0;
+  const bool withdraws = flow_right().junction_a.has_value();
+  const auto global_uv_applies = [&](const BlockLP& b) -> bool
+  {
+    return global_uv_nonzero
+        && (withdraws
+            || has_positive_target(target_sched.at(stage.uid(), b.uid())));
+  };
+  const auto block_uvalue_active = [&](const BlockLP& b) -> bool
+  { return uvalue_sched.has_value() || global_uv_applies(b); };
 
   // Per-block fcost / uvalue resolver.  Mirrors the per-stage logic
   // (×3600 lift for the global-fallback case, raw value for explicit
@@ -418,17 +468,17 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     if (fc_cell.has_value()) {
       return *fc_cell;
     }
-    return global_fc_nonzero ? *global_fc_opt * 3600.0 : 0.0;
+    return global_fc_applies(b) ? *global_fc_opt * 3600.0 : 0.0;
   };
+  const auto block_fcost_active = [&](const BlockLP& b) -> bool
+  { return fcost.has_value() || global_fc_applies(b); };
   const auto block_uvalue_at = [&](const BlockLP& b) -> Real
   {
     const auto uv_cell = uvalue_sched.optval(stage.uid(), b.uid());
     if (uv_cell.has_value()) {
       return *uv_cell;
     }
-    return (global_uv_opt.has_value() && global_uv_opt.value() != 0.0)
-        ? *global_uv_opt * 3600.0
-        : 0.0;
+    return global_uv_applies(b) ? *global_uv_opt * 3600.0 : 0.0;
   };
 
   // Resolve the time-resolution mode (see `FlowMode` doc).
@@ -457,12 +507,15 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     const auto raw_fmax_block = fmax_sched.at(stage.uid(), buid);
     const auto raw_target_block = target_sched.at(stage.uid(), buid);
 
-    const auto rb = resolve_bounds(raw_fmin_block,
-                                   raw_target_block,
-                                   raw_fmax_block,
-                                   initial_rule_bound,
-                                   fcost_active,
-                                   uvalue_active);
+    const bool fcost_active = block_fcost_active(block);
+    const auto rb =
+        resolve_bounds(raw_fmin_block,
+                       raw_target_block,
+                       raw_fmax_block,
+                       initial_rule_bound,
+                       fcost_active,
+                       block_uvalue_active(block),
+                       !fcost_active && block_uvalue_at(block) < 0.0);
 
     // Accumulate stage-aggregate triple (used by `stage_average` and
     // `stage_uniform` modes).  Any infinite `fmax_b` propagates
@@ -567,14 +620,26 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   }
 
   // Store bound rule state for `update_lp`.
+  //
+  // Tolerant reference (see active_ref.hpp): a rule reservoir inactive in
+  // this cell has no eini / efin column — the build-time bound stays (no
+  // state ⇒ `update_lp` no-op for the cell).
   if (opt_rule.has_value()) {
     BoundState bs {.current_bound = initial_rule_bound};
+    bool has_state = true;
     if (axis_uses_reservoir(opt_rule->axis)) {
       const auto rsv_sid = ReservoirLPSId(opt_rule->reservoir);
       const auto& rsv = sc.element<ReservoirLP>(rsv_sid);
-      bs.reservoir_cache = make_reservoir_ref_cache(rsv, scenario, stage);
+      if (auto cache = find_reservoir_ref_cache(rsv, scenario, stage)) {
+        bs.reservoir_cache = *cache;
+      } else {
+        warn_ref_once(cname, uid(), "bound-rule update", rsv.uid());
+        has_state = false;
+      }
     }
-    m_bound_states_[st_key] = bs;
+    if (has_state) {
+      m_bound_states_[st_key] = bs;
+    }
   }
 
   // ── Stage-scope qeh (stage_average / stage_uniform modes) ────────
@@ -590,10 +655,12 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     // single representative cost per scope.
     const auto stage_target =
         has_target_e ? std::optional<Real> {target_e} : std::optional<Real> {};
-    const Real sn_cost_cf = (fcost_active && fcost_e > 0.0)
+    // `fcost_e` is already zero when neither an explicit cell nor the
+    // (target > 0) global fallback applies to any block.
+    const Real sn_cost_cf = (fcost_e > 0.0)
         ? CostHelper::scenario_stage_ecost(scenario, stage, fcost_e)
         : 0.0;
-    const Real sp_cost_cf = (uvalue_active && uvalue_e != 0.0)
+    const Real sp_cost_cf = (uvalue_e != 0.0)
         ? -CostHelper::scenario_stage_ecost(scenario, stage, uvalue_e)
         : 0.0;
     const auto fa = attach_flow(lp,
@@ -661,7 +728,25 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   if (const auto& j_ref = flow_right().junction_a; j_ref.has_value()) {
     const JunctionLPSId j_sid(*j_ref);
     const auto& j_lp = sc.element(j_sid);
-    const auto& j_brows = j_lp.balance_rows_at(scenario, stage);
+    // A `junction_a` inactive in this cell has no balance row: the right
+    // would be served without water (and a return credit to `junction_b`
+    // would create it).  Rejected up front by validate_planning
+    // (check_water_right_sources); this is the backstop with full context
+    // instead of an opaque .at().
+    static const BIndexHolder<RowIndex> no_rows {};
+    const auto* j_brows_ptr = j_lp.find_balance_rows(scenario, stage);
+    if (j_brows_ptr == nullptr) {
+      fail_lp(*this,
+              scenario,
+              stage,
+              {
+                  .field = "junction_a",
+                  .value = std::format("uid={} (inactive)", j_lp.uid()),
+                  .expected = "an active source junction wherever the right "
+                              "is active",
+              });
+    }
+    const auto& j_brows = *j_brows_ptr;
 
     // Non-consumptive mode: the served flow is NOT lost at `junction_a` —
     // it is also credited (+1) to `junction_b`, so the right keeps the
@@ -671,6 +756,18 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     // pure-consumer behaviour.  Requires `junction_b`.
     const auto& ret_ref = flow_right().junction_b;
     const bool return_flow = !flow_right().consumptive.value_or(true);
+    // An inactive `junction_b` has no balance row: the credit is omitted
+    // (the water leaves at `junction_a`, never created).
+    const auto ret_rows = [&]() -> const BIndexHolder<RowIndex>&
+    {
+      const auto& ret_lp = sc.element(JunctionLPSId(*ret_ref));
+      const auto* rows = ret_lp.find_balance_rows(scenario, stage);
+      if (rows == nullptr) {
+        warn_ref_once(cname, uid(), "junction_b return credit", ret_lp.uid());
+        return no_rows;
+      }
+      return *rows;
+    };
 
     if (mode == FlowMode::stage_uniform) {
       // Same qeh column subtracted from every block's balance row —
@@ -685,9 +782,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
           }
         }
         if (return_flow && ret_ref.has_value()) {
-          const JunctionLPSId ret_sid(*ret_ref);
-          const auto& ret_brows =
-              sc.element(ret_sid).balance_rows_at(scenario, stage);
+          const auto& ret_brows = ret_rows();
           for (auto&& block : blocks) {
             const auto rit = ret_brows.find(block.uid());
             if (rit != ret_brows.end()) {
@@ -707,9 +802,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         }
       }
       if (return_flow && ret_ref.has_value()) {
-        const JunctionLPSId ret_sid(*ret_ref);
-        const auto& ret_brows =
-            sc.element(ret_sid).balance_rows_at(scenario, stage);
+        const auto& ret_brows = ret_rows();
         for (auto&& block : blocks) {
           const auto buid = block.uid();
           auto rit = ret_brows.find(buid);
@@ -740,8 +833,20 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     const JunctionLPSId dst_sid(*bypass_ref);
     const auto& src_lp = sc.element(src_sid);
     const auto& dst_lp = sc.element(dst_sid);
-    const auto& src_brows = src_lp.balance_rows_at(scenario, stage);
-    const auto& dst_brows = dst_lp.balance_rows_at(scenario, stage);
+    // Tolerant references (see active_ref.hpp): the bypass is an arc, so
+    // it needs BOTH ends — with either junction inactive in this cell the
+    // arc is not built (one-sided it would create or destroy water).
+    const auto* src_rows = src_lp.find_balance_rows(scenario, stage);
+    const auto* dst_rows = dst_lp.find_balance_rows(scenario, stage);
+    if (src_rows == nullptr || dst_rows == nullptr) {
+      warn_ref_once(cname,
+                    uid(),
+                    "bypass arc",
+                    src_rows == nullptr ? src_lp.uid() : dst_lp.uid());
+      return true;
+    }
+    const auto& src_brows = *src_rows;
+    const auto& dst_brows = *dst_rows;
     const Real bypass_cost_raw = flow_right().bypass_cost.value_or(0.0);
     const Real bypass_uppb =
         flow_right().bypass_fmax.value_or(LinearProblem::DblMax);
@@ -1040,8 +1145,14 @@ int FlowRightLP::update_lp(SystemLP& sys,
   auto& li = sys.linear_interface();
   const auto& options = sys.options();
 
+  // No cached state ⇒ the cell was not built (right inactive) or its rule
+  // reservoir was inactive (see add_to_lp): keep the build-time bound.
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
-  auto& state = m_bound_states_.at(st_key);
+  const auto state_it = m_bound_states_.find(st_key);
+  if (state_it == m_bound_states_.end()) {
+    return 0;
+  }
+  auto& state = state_it->second;
 
   // Re-resolve the fcost / uvalue activity flags the same way
   // add_to_lp does (only used to drive resolve_bounds's defaults —
@@ -1049,21 +1160,29 @@ int FlowRightLP::update_lp(SystemLP& sys,
   // re-clamp).  Both fields are now per-(stage, block); the schedule
   // is "active" when any cell is set OR the global fallback is
   // present AND non-zero.
+  // Same scoping of the global fallbacks as add_to_lp: the spill cost
+  // only on target > 0 blocks, the use value only on a right that
+  // withdraws water (`junction_a`) or has a target > 0.
   const auto global_fc = options.hydro_spill_cost();
   const bool global_fc_nonzero =
       global_fc.has_value() && global_fc.value() != 0.0;
-  const bool fcost_active = fcost.has_value() || global_fc_nonzero;
 
   const auto global_uv = options.hydro_use_value();
-  const bool uvalue_active = uvalue_sched.has_value()
-      || (global_uv.has_value() && global_uv.value() != 0.0);
+  const bool global_uv_nonzero =
+      global_uv.has_value() && global_uv.value() != 0.0;
+  const bool withdraws = flow_right().junction_a.has_value();
 
   const auto axis_value = resolve_bound_rule_axis_value(
       *opt_rule,
       stage.month(),
       [&]() -> Real
       {
-        return average_volume_from_cache(
+        // Stage-start volume, as PLP's FijaMaule zone test
+        // (`VolMauleUtil = VarMaulePrev(IVMUTIL)`, genpdmaule.f:757).
+        // The (vini + vfin) / 2 average read the stage's own previous
+        // vfin — or the case eini when the LP was not optimal — and
+        // opened gates the stage-start state does not reach.
+        return physical_eini_from_cache(
             sys, scenario, stage, state.reservoir_cache);
       });
 
@@ -1085,12 +1204,24 @@ int FlowRightLP::update_lp(SystemLP& sys,
   Real fmax_e = 0.0;
   for (auto&& block : stage.blocks()) {
     const auto buid = block.uid();
+    // Same per-unit usage-cost test as add_to_lp (explicit cell, else
+    // the ×3600-lifted global hydro_use_value).
+    const auto raw_target = target_sched.at(stage.uid(), buid);
+    const bool global_uv_applies =
+        global_uv_nonzero && (withdraws || has_positive_target(raw_target));
+    const Real global_uv_lifted = global_uv_applies ? *global_uv * 3600.0 : 0.0;
+    const Real block_uvalue =
+        uvalue_sched.optval(stage.uid(), buid).value_or(global_uv_lifted);
+    const bool uvalue_active = uvalue_sched.has_value() || global_uv_applies;
+    const bool fcost_active = fcost.has_value()
+        || (global_fc_nonzero && has_positive_target(raw_target));
     const auto rb = resolve_bounds(fmin_sched.at(stage.uid(), buid),
-                                   target_sched.at(stage.uid(), buid),
+                                   raw_target,
                                    fmax_sched.at(stage.uid(), buid),
                                    new_bound,
                                    fcost_active,
-                                   uvalue_active);
+                                   uvalue_active,
+                                   !fcost_active && block_uvalue < 0.0);
     if (re_clamp_qeh) {
       const auto dur_ratio = block.duration() / stage.duration();
       fmin_e += dur_ratio * rb.fmin;
@@ -1164,6 +1295,68 @@ int FlowRightLP::update_lp(SystemLP& sys,
       new_bound);
 
   state.current_bound = new_bound;
+  return total;
+}
+
+double FlowRightLP::reward_objective(const ScenarioLP& scenario,
+                                     const StageLP& stage,
+                                     const LinearInterface& li) const
+{
+  const auto obj = li.get_obj_coeff();
+  const auto sol = li.get_col_sol();
+  const double scale_obj = li.scale_objective();
+  // Physical-$ contribution of a negatively priced column measured
+  // from `base` (the cached target of a uvalue-only substitution, else
+  // 0): obj_phys = c_raw * scale_obj, x_raw = x_phys / col_scale.
+  const auto term = [&](ColIndex col, double base) -> double
+  {
+    const double c_raw = obj[static_cast<std::size_t>(col)];
+    if (c_raw >= 0.0) {
+      return 0.0;
+    }
+    return scale_obj * c_raw * (sol[col] - base) / li.get_col_scale(col);
+  };
+
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  double total = 0.0;
+
+  if (const auto fit = flow_cols.find(st_key); fit != flow_cols.end()) {
+    const auto tgt_it = block_target_values_.find(st_key);
+    for (const auto& [buid, col] : fit->second) {
+      double base = 0.0;
+      if (tgt_it != block_target_values_.end()) {
+        if (const auto t = tgt_it->second.find(buid); t != tgt_it->second.end())
+        {
+          if (block_fcost_only_.at(st_key).at(buid) != 0) {
+            continue;  // refunded shortfall penalty, not a reward
+          }
+          base = t->second;
+        }
+      }
+      total += term(col, base);
+    }
+  }
+  if (const auto eit = excess_cols.find(st_key); eit != excess_cols.end()) {
+    for (const auto& [buid, col] : eit->second) {
+      total += term(col, 0.0);
+    }
+  }
+  if (const auto qit = qeh_cols.find(st_key); qit != qeh_cols.end()) {
+    double base = 0.0;
+    bool skip = false;
+    if (const auto t = qeh_target_values_.find(st_key);
+        t != qeh_target_values_.end())
+    {
+      skip = qeh_fcost_only_.at(st_key) != 0;
+      base = t->second;
+    }
+    if (!skip) {
+      total += term(qit->second, base);
+    }
+  }
+  if (const auto sit = qeh_sp_cols.find(st_key); sit != qeh_sp_cols.end()) {
+    total += term(sit->second, 0.0);
+  }
   return total;
 }
 

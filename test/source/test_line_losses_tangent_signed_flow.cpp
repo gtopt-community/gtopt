@@ -227,8 +227,6 @@ private:
 }  // namespace tangent_signed_flow_test
 }  // namespace
 
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
-
 using tangent_signed_flow_test::count_cols_containing;
 using tangent_signed_flow_test::count_rows_containing;
 using tangent_signed_flow_test::find_col;
@@ -1387,7 +1385,5 @@ TEST_CASE(
   const double constant_ub = k_loss * tmax * tmax;
   CHECK(loss < constant_ub);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)
 
 }  // namespace test_line_losses_tangent_signed_flow_ns

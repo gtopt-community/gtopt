@@ -1484,6 +1484,13 @@ ColIndex LinearInterface::emit_col_to_backend(const SparseCol& col)
   m_backend_->add_col(lowb, uppb, col.cost * col.scale / m_scale_objective_);
   invalidate_cached_optimal_on_mutation();
 
+  // Honour `SparseCol::is_integer` the same way `load_flat` honours the
+  // flat LP's `colint` list.  An LP-only backend keeps the flag but
+  // relaxes the column (`set_integer` warns once).
+  if (col.is_integer) {
+    set_integer(ColIndex {index});
+  }
+
   return ColIndex {index};
 }
 
@@ -1839,6 +1846,15 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols,
                        colub.data(),
                        colobj.data());
   invalidate_cached_optimal_on_mutation();
+
+  // Integrality, as in the singular `emit_col_to_backend`.
+  auto int_idx = first_col_index;
+  for (const auto& col : cols) {
+    if (col.is_integer) {
+      set_integer(int_idx);
+    }
+    ++int_idx;
+  }
 
   return first_col_index;
 }
@@ -3072,6 +3088,7 @@ void LinearInterface::set_row_bounds_raw(const RowIndex row,
   // A mutation issued after ``release_backend()`` would null-deref
   // ``m_backend_`` (flagged by clang-analyzer-core.CallAndMessage).
   ensure_backend();
+  assert(m_backend_ != nullptr);
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = bound_note_guard(m_backend_->infinity());
     if (std::abs(lowb) < infy_guard) {

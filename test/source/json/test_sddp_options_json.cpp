@@ -16,8 +16,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_sddp_options.hpp>
 
+#include "../require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("SddpOptions JSON - Full deserialization")
 {
@@ -69,76 +70,89 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   const auto opts = daw::json::from_json<SddpOptions>(json_data);
 
   REQUIRE(opts.cut_sharing_mode.has_value());
-  CHECK(*opts.cut_sharing_mode == CutSharingMode::multicut);
+  CHECK(test_support::require_value(opts.cut_sharing_mode)
+        == CutSharingMode::multicut);
   REQUIRE(opts.cut_directory.has_value());
-  CHECK(*opts.cut_directory == "my_cuts");
+  CHECK(test_support::require_value(opts.cut_directory) == "my_cuts");
   REQUIRE(opts.api_enabled.has_value());
-  CHECK(*opts.api_enabled == true);
+  CHECK(test_support::require_value(opts.api_enabled) == true);
   REQUIRE(opts.update_lp_skip.has_value());
-  CHECK(*opts.update_lp_skip == 2);
+  CHECK(test_support::require_value(opts.update_lp_skip) == 2);
   REQUIRE(opts.max_iterations.has_value());
-  CHECK(*opts.max_iterations == 200);
+  CHECK(test_support::require_value(opts.max_iterations) == 200);
   REQUIRE(opts.min_iterations.has_value());
-  CHECK(*opts.min_iterations == 5);
+  CHECK(test_support::require_value(opts.min_iterations) == 5);
   REQUIRE(opts.convergence_tol.has_value());
-  CHECK(*opts.convergence_tol == doctest::Approx(1e-3));
+  CHECK(test_support::require_value(opts.convergence_tol)
+        == doctest::Approx(1e-3));
   REQUIRE(opts.elastic_penalty.has_value());
-  CHECK(*opts.elastic_penalty == doctest::Approx(1e5));
+  CHECK(test_support::require_value(opts.elastic_penalty)
+        == doctest::Approx(1e5));
   REQUIRE(opts.cut_recovery_mode.has_value());
-  CHECK(*opts.cut_recovery_mode == HotStartMode::append);
+  CHECK(test_support::require_value(opts.cut_recovery_mode)
+        == HotStartMode::append);
   REQUIRE(opts.recovery_mode.has_value());
-  CHECK(*opts.recovery_mode == RecoveryMode::cuts);
+  CHECK(test_support::require_value(opts.recovery_mode) == RecoveryMode::cuts);
   REQUIRE(opts.save_per_iteration.has_value());
-  CHECK(*opts.save_per_iteration == false);
+  CHECK(test_support::require_value(opts.save_per_iteration) == false);
   REQUIRE(opts.cuts_input_file.has_value());
-  CHECK(*opts.cuts_input_file == "init.csv");
+  CHECK(test_support::require_value(opts.cuts_input_file) == "init.csv");
   REQUIRE(opts.sentinel_file.has_value());
-  CHECK(*opts.sentinel_file == "stop.flag");
+  CHECK(test_support::require_value(opts.sentinel_file) == "stop.flag");
   REQUIRE(opts.elastic_mode.has_value());
-  CHECK(*opts.elastic_mode == ElasticFilterMode::multi_cut);
+  CHECK(test_support::require_value(opts.elastic_mode)
+        == ElasticFilterMode::multi_cut);
   REQUIRE(opts.multi_cut_threshold.has_value());
-  CHECK(*opts.multi_cut_threshold == 20);
+  CHECK(test_support::require_value(opts.multi_cut_threshold) == 20);
   REQUIRE(opts.apertures.has_value());
-  REQUIRE(opts.apertures->size() == 3);
-  CHECK((*opts.apertures)[0] == 1);
-  CHECK((*opts.apertures)[1] == 2);
-  CHECK((*opts.apertures)[2] == 3);
+  REQUIRE(test_support::require_value(opts.apertures).size() == 3);
+  CHECK(test_support::require_value(opts.apertures)[0] == 1);
+  CHECK(test_support::require_value(opts.apertures)[1] == 2);
+  CHECK(test_support::require_value(opts.apertures)[2] == 3);
   REQUIRE(opts.aperture_directory.has_value());
-  CHECK(*opts.aperture_directory == "ap_data");
+  CHECK(test_support::require_value(opts.aperture_directory) == "ap_data");
   REQUIRE(opts.aperture_timeout.has_value());
-  CHECK(*opts.aperture_timeout == doctest::Approx(30.0));
+  CHECK(test_support::require_value(opts.aperture_timeout)
+        == doctest::Approx(30.0));
   REQUIRE(opts.save_aperture_lp.has_value());
-  CHECK(*opts.save_aperture_lp == true);
+  CHECK(test_support::require_value(opts.save_aperture_lp) == true);
   REQUIRE(opts.boundary_cuts_file.has_value());
-  CHECK(*opts.boundary_cuts_file == "boundary.csv");
+  CHECK(test_support::require_value(opts.boundary_cuts_file) == "boundary.csv");
   REQUIRE(opts.boundary_cuts_mode.has_value());
-  CHECK(*opts.boundary_cuts_mode == BoundaryCutsMode::combined);
+  CHECK(test_support::require_value(opts.boundary_cuts_mode)
+        == BoundaryCutsMode::combined);
   REQUIRE(opts.boundary_max_iterations.has_value());
-  CHECK(*opts.boundary_max_iterations == 50);
+  CHECK(test_support::require_value(opts.boundary_max_iterations) == 50);
   REQUIRE(opts.max_cuts_per_phase.has_value());
-  CHECK(*opts.max_cuts_per_phase == 100);
+  CHECK(test_support::require_value(opts.max_cuts_per_phase) == 100);
   REQUIRE(opts.cut_prune_interval.has_value());
-  CHECK(*opts.cut_prune_interval == 5);
+  CHECK(test_support::require_value(opts.cut_prune_interval) == 5);
   REQUIRE(opts.prune_dual_threshold.has_value());
-  CHECK(*opts.prune_dual_threshold == doctest::Approx(1e-6));
+  CHECK(test_support::require_value(opts.prune_dual_threshold)
+        == doctest::Approx(1e-6));
   REQUIRE(opts.single_cut_storage.has_value());
-  CHECK(*opts.single_cut_storage == true);
+  CHECK(test_support::require_value(opts.single_cut_storage) == true);
   REQUIRE(opts.max_stored_cuts.has_value());
-  CHECK(*opts.max_stored_cuts == 500);
+  CHECK(test_support::require_value(opts.max_stored_cuts) == 500);
   REQUIRE(opts.simulation_mode.has_value());
-  CHECK(*opts.simulation_mode == true);
+  CHECK(test_support::require_value(opts.simulation_mode) == true);
   REQUIRE(opts.stationary_tol.has_value());
-  CHECK(*opts.stationary_tol == doctest::Approx(0.01));
+  CHECK(test_support::require_value(opts.stationary_tol)
+        == doctest::Approx(0.01));
   REQUIRE(opts.stationary_window.has_value());
-  CHECK(*opts.stationary_window == 15);
+  CHECK(test_support::require_value(opts.stationary_window) == 15);
   REQUIRE(opts.forward_solver_options.has_value());
-  CHECK(opts.forward_solver_options->algorithm == LPAlgo::barrier);
-  CHECK(opts.forward_solver_options->threads == 4);
-  CHECK(opts.forward_solver_options->presolve == true);
+  CHECK(test_support::require_value(opts.forward_solver_options).algorithm
+        == LPAlgo::barrier);
+  CHECK(test_support::require_value(opts.forward_solver_options).threads == 4);
+  CHECK(test_support::require_value(opts.forward_solver_options).presolve
+        == true);
   REQUIRE(opts.backward_solver_options.has_value());
-  CHECK(opts.backward_solver_options->algorithm == LPAlgo::dual);
-  CHECK(opts.backward_solver_options->threads == 1);
-  CHECK(opts.backward_solver_options->presolve == false);
+  CHECK(test_support::require_value(opts.backward_solver_options).algorithm
+        == LPAlgo::dual);
+  CHECK(test_support::require_value(opts.backward_solver_options).threads == 1);
+  CHECK(test_support::require_value(opts.backward_solver_options).presolve
+        == false);
 }
 
 TEST_CASE("SddpOptions JSON - Missing fields stay nullopt")
@@ -151,9 +165,10 @@ TEST_CASE("SddpOptions JSON - Missing fields stay nullopt")
   const auto opts = daw::json::from_json<SddpOptions>(json_data);
 
   REQUIRE(opts.max_iterations.has_value());
-  CHECK(*opts.max_iterations == 50);
+  CHECK(test_support::require_value(opts.max_iterations) == 50);
   REQUIRE(opts.elastic_mode.has_value());
-  CHECK(*opts.elastic_mode == ElasticFilterMode::single_cut);
+  CHECK(test_support::require_value(opts.elastic_mode)
+        == ElasticFilterMode::single_cut);
 
   CHECK_FALSE(opts.cut_sharing_mode.has_value());
   CHECK_FALSE(opts.min_iterations.has_value());
@@ -172,7 +187,7 @@ TEST_CASE("SddpOptions JSON - Empty apertures array")
   const auto opts = daw::json::from_json<SddpOptions>(json_data);
 
   REQUIRE(opts.apertures.has_value());
-  CHECK(opts.apertures->empty());
+  CHECK(test_support::require_value(opts.apertures).empty());
 }
 
 TEST_CASE("SddpOptions JSON - Round-trip serialization")
@@ -201,9 +216,9 @@ TEST_CASE("SddpOptions JSON - Round-trip serialization")
   CHECK(rt.convergence_tol == original.convergence_tol);
   CHECK(rt.elastic_mode == original.elastic_mode);
   REQUIRE(rt.apertures.has_value());
-  REQUIRE(rt.apertures->size() == 2);
-  CHECK((*rt.apertures)[0] == 10);
-  CHECK((*rt.apertures)[1] == 20);
+  REQUIRE(test_support::require_value(rt.apertures).size() == 2);
+  CHECK(test_support::require_value(rt.apertures)[0] == 10);
+  CHECK(test_support::require_value(rt.apertures)[1] == 20);
   CHECK(rt.stationary_tol == original.stationary_tol);
   CHECK(rt.stationary_window == original.stationary_window);
 
@@ -244,14 +259,17 @@ TEST_CASE("SddpOptions JSON - Forward/backward solver options round-trip")
   const auto rt = daw::json::from_json<SddpOptions>(json);
 
   REQUIRE(rt.max_iterations.has_value());
-  CHECK(*rt.max_iterations == 100);
+  CHECK(test_support::require_value(rt.max_iterations) == 100);
   REQUIRE(rt.forward_solver_options.has_value());
-  CHECK(rt.forward_solver_options->algorithm == LPAlgo::barrier);
-  CHECK(rt.forward_solver_options->threads == 4);
-  CHECK(rt.forward_solver_options->presolve == true);
+  CHECK(test_support::require_value(rt.forward_solver_options).algorithm
+        == LPAlgo::barrier);
+  CHECK(test_support::require_value(rt.forward_solver_options).threads == 4);
+  CHECK(test_support::require_value(rt.forward_solver_options).presolve
+        == true);
   REQUIRE(rt.backward_solver_options.has_value());
-  CHECK(rt.backward_solver_options->algorithm == LPAlgo::dual);
-  CHECK(rt.backward_solver_options->threads == 1);
+  CHECK(test_support::require_value(rt.backward_solver_options).algorithm
+        == LPAlgo::dual);
+  CHECK(test_support::require_value(rt.backward_solver_options).threads == 1);
 }
 
 TEST_CASE("SddpOptions JSON - cut_coeff_eps parsing and round-trip")
@@ -297,7 +315,8 @@ TEST_CASE(  // NOLINT
   const auto opts = daw::json::from_json<SddpOptions>(json_data);
 
   REQUIRE(opts.low_memory_mode.has_value());
-  CHECK(*opts.low_memory_mode == LowMemoryMode::compress);
+  CHECK(test_support::require_value(opts.low_memory_mode)
+        == LowMemoryMode::compress);
 }
 
 TEST_CASE(  // NOLINT
@@ -319,7 +338,7 @@ TEST_CASE(  // NOLINT
         std::string {R"({"low_memory_mode": ")"} + name + R"("})";
     const auto opts = daw::json::from_json<SddpOptions>(json_data);
     REQUIRE(opts.low_memory_mode.has_value());
-    CHECK(*opts.low_memory_mode == expected);
+    CHECK(test_support::require_value(opts.low_memory_mode) == expected);
   }
 }
 
@@ -337,5 +356,3 @@ TEST_CASE("SddpOptions JSON - removed cut_sharing_mode names hard-error")
     CHECK_THROWS(std::ignore = daw::json::from_json<SddpOptions>(json_data));
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

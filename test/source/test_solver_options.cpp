@@ -1101,8 +1101,7 @@ TEST_CASE(  // NOLINT
     "SolverOptions - PlanningOptionsLP applies SDDP max_fallbacks defaults")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access,
-  // modernize-return-braced-init-list)
+  // NOLINTBEGIN(modernize-return-braced-init-list)
 
   SUBCASE("defaults: forward=2, backward=0")
   {
@@ -1148,5 +1147,4 @@ TEST_CASE(  // NOLINT
   }
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access,
-// modernize-return-braced-init-list)
+// NOLINTEND(modernize-return-braced-init-list)

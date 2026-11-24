@@ -13,8 +13,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_solver_options.hpp>
 
+#include "../require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("SolverOptions JSON basic parsing")
 {
@@ -99,7 +100,7 @@ TEST_CASE("SolverOptions JSON empty object uses defaults")
   CHECK_FALSE(opts.time_limit.has_value());
   // scaling defaults to automatic when not specified in JSON
   REQUIRE(opts.scaling.has_value());
-  CHECK(*opts.scaling == SolverScaling::automatic);
+  CHECK(test_support::require_value(opts.scaling) == SolverScaling::automatic);
 }
 
 TEST_CASE("SolverOptions JSON scaling field round-trip")
@@ -113,7 +114,8 @@ TEST_CASE("SolverOptions JSON scaling field round-trip")
 
   const SolverOptions roundtrip = daw::json::from_json<SolverOptions>(json);
   REQUIRE(roundtrip.scaling.has_value());
-  CHECK(*roundtrip.scaling == SolverScaling::aggressive);
+  CHECK(test_support::require_value(roundtrip.scaling)
+        == SolverScaling::aggressive);
 
   // Construct with nullopt scaling
   SolverOptions no_scale;
@@ -123,7 +125,7 @@ TEST_CASE("SolverOptions JSON scaling field round-trip")
   const SolverOptions rt2 = daw::json::from_json<SolverOptions>(json2);
   // JSON round-trip: nullopt serializes as null → constructor applies default
   REQUIRE(rt2.scaling.has_value());
-  CHECK(*rt2.scaling == SolverScaling::automatic);
+  CHECK(test_support::require_value(rt2.scaling) == SolverScaling::automatic);
 }
 
 TEST_CASE("SolverOptions JSON scaling explicit values")
@@ -133,20 +135,22 @@ TEST_CASE("SolverOptions JSON scaling explicit values")
   const SolverOptions opts_none =
       daw::json::from_json<SolverOptions>(json_none);
   REQUIRE(opts_none.scaling.has_value());
-  CHECK(*opts_none.scaling == SolverScaling::none);
+  CHECK(test_support::require_value(opts_none.scaling) == SolverScaling::none);
 
   // scaling=1 → automatic
   const std::string_view json_auto = R"({"scaling": 1})";
   const SolverOptions opts_auto =
       daw::json::from_json<SolverOptions>(json_auto);
   REQUIRE(opts_auto.scaling.has_value());
-  CHECK(*opts_auto.scaling == SolverScaling::automatic);
+  CHECK(test_support::require_value(opts_auto.scaling)
+        == SolverScaling::automatic);
 
   // scaling=2 → aggressive
   const std::string_view json_agg = R"({"scaling": 2})";
   const SolverOptions opts_agg = daw::json::from_json<SolverOptions>(json_agg);
   REQUIRE(opts_agg.scaling.has_value());
-  CHECK(*opts_agg.scaling == SolverScaling::aggressive);
+  CHECK(test_support::require_value(opts_agg.scaling)
+        == SolverScaling::aggressive);
 }
 
 TEST_CASE("SolverOptions JSON partial object uses defaults for missing")
@@ -235,7 +239,6 @@ TEST_CASE("SolverOptions JSON max_fallbacks parsing and round-trip")
   }
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access)
 TEST_CASE("SolverOptions JSON log_mode / scaling accept names or numbers")
 {
   SUBCASE("names")

@@ -149,8 +149,6 @@ struct PerBlockPmaxFixture
 
 }  // namespace
 
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
-
 TEST_CASE(  // NOLINT
     "UC resolver — generator.generation on pmax=0 block contributes 0")
 {
@@ -252,6 +250,9 @@ TEST_CASE(  // NOLINT
 // with ``pmax = 0`` and no ``pmax_profile`` whose name appears in a
 // reservoir / fuel-cap user constraint LHS.
 // ─────────────────────────────────────────────────────────────────────────────
+
+namespace
+{
 
 /// Two-generator fixture for the LP-attr-dormant test.  ``g_off`` has
 /// ``pmax = 0`` on every block (no column ever materialised); ``g_on``
@@ -357,6 +358,8 @@ struct AllZeroPmaxFixture
   }
 };
 
+}  // namespace
+
 TEST_CASE(  // NOLINT
     "UC resolver — generator.generation on all-zero-pmax gen contributes 0 "
     "(LP-attr-dormant)")
@@ -445,5 +448,3 @@ TEST_CASE(  // NOLINT
       SystemLP(fix.system, sim_lp, AllZeroPmaxFixture::build_matrix_opts()),
       std::runtime_error);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

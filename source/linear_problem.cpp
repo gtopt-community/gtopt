@@ -547,6 +547,56 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     }
   }
 
+  // ── Post-equilibration dual conditioning (SparseRow::post_scale /
+  // dual_hint) ──────────────────────────────────────────────────────
+  // Multiply the equilibrated row by c and divide its stored scale by c:
+  //   LP dual = y_LP / c,   physical = LP dual * scale_obj / row_scale
+  // (c cancels).  Applied after equilibration because row_max / ruiz
+  // would otherwise renormalise the row and undo the factor.
+  {
+    const double target = opts.water_dual_target.value_or(0.0);
+    const double clamp_k = opts.water_dual_clamp.value_or(
+        LpMatrixOptions::default_water_dual_clamp);
+    std::vector<double> cfac;
+    for (const auto& [i, row] : enumerate(rows)) {
+      double c = 1.0;
+      if (row.post_scale != 1.0 && row.post_scale > 0.0) {
+        c = row.post_scale;
+      } else if (target > 0.0 && row.dual_hint > 0.0) {
+        const double rs = row_scales_vec.empty() ? 1.0 : row_scales_vec[i];
+        const double y_lp = row.dual_hint * rs / opts.scale_objective;
+        c = std::clamp(y_lp / target, 1.0 / clamp_k, clamp_k);
+      }
+      if (c != 1.0) {
+        if (cfac.empty()) {
+          cfac.assign(nrows, 1.0);
+        }
+        cfac[i] = c;
+      }
+    }
+    if (!cfac.empty()) {
+      for (size_t k = 0; k < matval.size(); ++k) {
+        matval[k] *= cfac[static_cast<size_t>(matind[k])];
+      }
+      if (row_scales_vec.empty()) {
+        row_scales_vec.assign(nrows, 1.0);
+      }
+      for (size_t i = 0; i < nrows; ++i) {
+        const double c = cfac[i];
+        if (c == 1.0) {
+          continue;
+        }
+        if (rowlb[i] > -inf_lim && rowlb[i] < inf_lim) {
+          rowlb[i] *= c;
+        }
+        if (rowub[i] > -inf_lim && rowub[i] < inf_lim) {
+          rowub[i] *= c;
+        }
+        row_scales_vec[i] /= c;
+      }
+    }
+  }
+
   if (!row_scales_vec.empty() && do_stats) {
     // Recompute coefficient stats after equilibration so the reported
     // ratio reflects the actual matrix sent to the solver.

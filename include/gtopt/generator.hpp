@@ -156,6 +156,20 @@ struct GeneratorAttrs
   /// consume it directly.  Unset → no information published.
   OptReal uini {};
 
+  /// Initial generation [MW] at ``t = 0⁻`` — the dispatch of the unit
+  /// in the period just before the planning horizon (PLEXOS
+  /// ``Initial Generation``).  It is the value of
+  /// ``generator("X").generation_prev`` at the FIRST block of the
+  /// HORIZON (first block of the first stage of the first phase), where
+  /// no prior LP column exists, so ramp user constraints such as
+  /// ``gen − gen_prev ≤ R`` see the real starting point instead of a
+  /// cold start.  Also the fallback ``p_prev`` of the native
+  /// ``Commitment`` ramp rows at the horizon start when
+  /// ``Commitment.initial_power`` is unset.  Later stages / phases
+  /// never read it (they use the previous block's column within the
+  /// same LP).  Unset → 0 (cold start, legacy behaviour).
+  OptReal initial_generation {};
+
   /// Cogeneration mode tag — see ``CogenMode`` in ``generator_enums.hpp``
   /// for the full enumeration and semantics.  Stored as a string for
   /// JSON portability; parse to the typed enum via
@@ -249,6 +263,10 @@ struct Generator
   /// ``Gen_IniUnits.csv`` by the plexos2gtopt converter.
   OptReal uini {};
 
+  /// Initial generation [MW] at ``t = 0⁻``.  See
+  /// ``GeneratorAttrs::initial_generation`` for semantics.
+  OptReal initial_generation {};
+
   /// Cogeneration mode tag.  See ``GeneratorAttrs::cogen_mode`` for
   /// the authoritative semantics + value enumeration
   /// (``"dispatched"`` | ``"must_run"`` | unset).
@@ -315,6 +333,7 @@ struct Generator
     self.annual_derating = std::exchange(attrs.annual_derating, {});
     self.integer_expmod = std::exchange(attrs.integer_expmod, {});
     self.uini = std::exchange(attrs.uini, {});
+    self.initial_generation = std::exchange(attrs.initial_generation, {});
     self.cogen_mode = std::exchange(attrs.cogen_mode, {});
 
     return self;

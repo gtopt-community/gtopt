@@ -144,6 +144,29 @@ public:
                                    const BlockLP& block,
                                    const ScaledView& col_sol) const noexcept;
 
+  /// Post-capacity-clamp `lmax` [MW] of (scenario, stage, block), i.e.
+  /// the exogenous demand the LP must serve; nullopt when the block has
+  /// no load path (zero lmax).  Read by `ReserveZoneLP` to build the
+  /// exogenous system demand of a plane-based reserve requirement.
+  [[nodiscard]] std::optional<double> block_lmax_at(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    return lookup_inner(block_lmax_values_, scenario, stage, buid);
+  }
+
+  /// Constant offset of the served load over its LP column:
+  /// `load = col + offset`.  Non-zero only under the Option C failure
+  /// substitution (the column then carries `load − lmax`).
+  [[nodiscard]] double load_col_offset(const ScenarioLP& scenario,
+                                       const StageLP& stage,
+                                       BlockUid buid) const noexcept
+  {
+    return lookup_inner(block_offset_values_, scenario, stage, buid)
+        .value_or(0.0);
+  }
+
   /// @name Parameter accessors for user constraint resolution
   /// @{
   [[nodiscard]] auto param_lmax(StageUid s, BlockUid b) const

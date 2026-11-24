@@ -5,7 +5,8 @@
  *
  * Covers the path-resolution and external-Planning-JSON loading used by the
  * cascade `system_file` and SDDP `aperture_system_file` features:
- *   - resolve_system_file: absolute / CWD-relative / input_directory fallback
+ *   - resolve_system_file: absolute / CWD-relative / input_directory
+ *     (sub-directory kept, then bare-filename) fallback
  *     / not-found fall-through (no throw);
  *   - load_system_with_model_options: extracts `.system` + `.options.
  *     model_options`, ignores `.simulation`, throws on a missing file.
@@ -96,6 +97,27 @@ TEST_CASE(
   // back to <input_directory>/<filename>.
   const auto resolved = resolve_system_file("reduced.json", dir.string());
   CHECK(resolved == dir / "reduced.json");
+  CHECK(std::filesystem::exists(resolved));
+
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE(
+    "resolve_system_file: sub-directory path resolves under input_directory")
+{
+  const auto dir = sfl_make_unique_dir("subdir");
+  std::filesystem::create_directories(dir / "reduced");
+  const auto file = dir / "reduced" / "L0.json";
+  {
+    std::ofstream out(file);
+    out << "{}";
+  }
+
+  // "reduced/L0.json" is relative to the input directory: the
+  // sub-directory must be kept (the bare-filename fallback would look
+  // for <input_directory>/L0.json and miss it).
+  const auto resolved = resolve_system_file("reduced/L0.json", dir.string());
+  CHECK(resolved == dir / "reduced" / "L0.json");
   CHECK(std::filesystem::exists(resolved));
 
   std::filesystem::remove_all(dir);

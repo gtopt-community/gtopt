@@ -17,6 +17,7 @@
 #include <span>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/position_vector.hpp>
 #include <gtopt/scenario.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene.hpp>
@@ -34,14 +35,23 @@ namespace detail
 {
   auto scenarios =
       scenario_array.subspan(scene.first_scenario, scene.count_scenario);
+  // Global position = active scenarios before this scene + local position
+  // (`SimulationLP::scenarios()` holds the active scenarios only).
+  const auto global_offset = static_cast<Index>(std::ranges::count_if(
+      scenario_array.first(scene.first_scenario), &Scenario::is_active));
 
-  return std::ranges::to<std::vector>(
-      enumerate_active<ScenarioIndex>(scenarios)
+  return std::ranges::to<PositionVector<SceneScenarioIndex, ScenarioLP>>(
+      enumerate_active<SceneScenarioIndex>(scenarios)
       | std::ranges::views::transform(
-          [scene_index](const auto& is)
+          [scene_index, global_offset](const auto& is)
           {
-            auto&& [scenario_index, scenario] = is;
-            return ScenarioLP {scenario, scenario_index, scene_index};
+            auto&& [scene_scenario_index, scenario] = is;
+            return ScenarioLP {
+                scenario,
+                ScenarioIndex {global_offset + Index {scene_scenario_index}},
+                scene_index,
+                scene_scenario_index,
+            };
           }));
 }
 
@@ -111,7 +121,7 @@ public:
    * @return Span of ScenarioLP elements
    */
   [[nodiscard]] constexpr auto scenarios() const
-      -> const std::vector<ScenarioLP>&
+      -> const PositionVector<SceneScenarioIndex, ScenarioLP>&
   {
     return m_scenarios_;
   }
@@ -143,7 +153,8 @@ public:
 
 private:
   Scene m_scene_;  ///< The underlying scene
-  std::vector<ScenarioLP> m_scenarios_;  ///< Span of ScenarioLP elements
+  /// Scenarios of this scene, addressed by scene-LOCAL position.
+  PositionVector<SceneScenarioIndex, ScenarioLP> m_scenarios_;
   SceneIndex m_index_ {unknown_index};
 };
 

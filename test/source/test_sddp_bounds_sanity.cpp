@@ -33,6 +33,7 @@
 #include <gtopt/sddp_types.hpp>
 
 #include "log_capture.hpp"
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
@@ -402,22 +403,22 @@ TEST_CASE(
     if (sc.type != CutType::Optimality) {
       continue;
     }
-    const auto scene = scene_pos_of(sc.scene_uid);
-    const auto phase = phase_pos_of(sc.phase_uid);
-    REQUIRE(scene.has_value());
-    REQUIRE(phase.has_value());
+    const auto scene_opt = scene_pos_of(sc.scene_uid);
+    const auto phase_opt = phase_pos_of(sc.phase_uid);
+    const auto scene = test_support::require_value(scene_opt);
+    const auto phase = test_support::require_value(phase_opt);
 
-    const auto mstate = opts.markov.state_of(*scene);
+    const auto mstate = opts.markov.state_of(scene);
     const auto other_state = 1 - mstate;
     const auto* expected_svar = find_alpha_state_var(
         sim,
-        *scene,
-        *phase,
+        scene,
+        phase,
         /*source_scene=*/SceneIndex {static_cast<Index>(mstate)});
     const auto* other_svar = find_alpha_state_var(
         sim,
-        *scene,
-        *phase,
+        scene,
+        phase,
         /*source_scene=*/SceneIndex {static_cast<Index>(other_state)});
     REQUIRE(expected_svar != nullptr);
     REQUIRE(other_svar != nullptr);

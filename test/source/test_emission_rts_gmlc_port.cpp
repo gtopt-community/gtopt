@@ -469,7 +469,7 @@ constexpr Uid kZoneMulti {2};
     const System& sys, std::string_view gen_name, Uid pollutant_uid)
 {
   for (const auto& src : sys.emission_source_array) {
-    if (src.name.find(gen_name) == std::string::npos || !src.rate.has_value()) {
+    if (!src.name.contains(gen_name) || !src.rate.has_value()) {
       continue;
     }
     if (!std::holds_alternative<Uid>(src.emission)
@@ -519,15 +519,18 @@ TEST_CASE(  // NOLINT
   // Spot-check three named sources (CO2, zone = global_co2).
   const auto coal_rate = source_rate_for_generator(sys, "101_STEAM_3");
   REQUIRE(coal_rate.has_value());
-  CHECK(*coal_rate == doctest::Approx(co2_rate(kGenSteam3)).epsilon(0.05));
+  CHECK((coal_rate
+         && *coal_rate == doctest::Approx(co2_rate(kGenSteam3)).epsilon(0.05)));
 
   const auto oil_rate = source_rate_for_generator(sys, "101_CT_1");
   REQUIRE(oil_rate.has_value());
-  CHECK(*oil_rate == doctest::Approx(co2_rate(kGenCT1)).epsilon(0.05));
+  CHECK((oil_rate
+         && *oil_rate == doctest::Approx(co2_rate(kGenCT1)).epsilon(0.05)));
 
   const auto gas_rate = source_rate_for_generator(sys, "118_CC_1");
   REQUIRE(gas_rate.has_value());
-  CHECK(*gas_rate == doctest::Approx(co2_rate(kGenCC1)).epsilon(0.05));
+  CHECK((gas_rate
+         && *gas_rate == doctest::Approx(co2_rate(kGenCC1)).epsilon(0.05)));
 
   // Nuclear / biomass CO2 sources were skipped — confirm.
   CHECK_FALSE(source_rate_for_generator(sys, "118_NUC_1").has_value());
@@ -654,90 +657,130 @@ TEST_CASE(  // NOLINT
   // the expand pass MUST skip the source — assert non-existence too.
   const std::array<Expected, 20> cases = {{
       // Coal — all 5 pollutants present.
-      {.name = "101_STEAM_3",
-       .pollutant = kEmissionCO2,
-       .expected_rate = co2_rate(kGenSteam3),
-       .should_exist = true},
-      {.name = "101_STEAM_3",
-       .pollutant = kEmissionSO2,
-       .expected_rate = so2_rate(kGenSteam3),
-       .should_exist = true},
-      {.name = "101_STEAM_3",
-       .pollutant = kEmissionNOx,
-       .expected_rate = nox_rate(kGenSteam3),
-       .should_exist = true},
-      {.name = "101_STEAM_3",
-       .pollutant = kEmissionCH4,
-       .expected_rate = ch4_rate(kGenSteam3),
-       .should_exist = true},
-      {.name = "101_STEAM_3",
-       .pollutant = kEmissionN2O,
-       .expected_rate = n2o_rate(kGenSteam3),
-       .should_exist = true},
+      {
+          .name = "101_STEAM_3",
+          .pollutant = kEmissionCO2,
+          .expected_rate = co2_rate(kGenSteam3),
+          .should_exist = true,
+      },
+      {
+          .name = "101_STEAM_3",
+          .pollutant = kEmissionSO2,
+          .expected_rate = so2_rate(kGenSteam3),
+          .should_exist = true,
+      },
+      {
+          .name = "101_STEAM_3",
+          .pollutant = kEmissionNOx,
+          .expected_rate = nox_rate(kGenSteam3),
+          .should_exist = true,
+      },
+      {
+          .name = "101_STEAM_3",
+          .pollutant = kEmissionCH4,
+          .expected_rate = ch4_rate(kGenSteam3),
+          .should_exist = true,
+      },
+      {
+          .name = "101_STEAM_3",
+          .pollutant = kEmissionN2O,
+          .expected_rate = n2o_rate(kGenSteam3),
+          .should_exist = true,
+      },
       // Oil CT — all 5 pollutants present.
-      {.name = "101_CT_1",
-       .pollutant = kEmissionCO2,
-       .expected_rate = co2_rate(kGenCT1),
-       .should_exist = true},
-      {.name = "101_CT_1",
-       .pollutant = kEmissionSO2,
-       .expected_rate = so2_rate(kGenCT1),
-       .should_exist = true},
-      {.name = "101_CT_1",
-       .pollutant = kEmissionNOx,
-       .expected_rate = nox_rate(kGenCT1),
-       .should_exist = true},
-      {.name = "101_CT_1",
-       .pollutant = kEmissionCH4,
-       .expected_rate = ch4_rate(kGenCT1),
-       .should_exist = true},
-      {.name = "101_CT_1",
-       .pollutant = kEmissionN2O,
-       .expected_rate = n2o_rate(kGenCT1),
-       .should_exist = true},
+      {
+          .name = "101_CT_1",
+          .pollutant = kEmissionCO2,
+          .expected_rate = co2_rate(kGenCT1),
+          .should_exist = true,
+      },
+      {
+          .name = "101_CT_1",
+          .pollutant = kEmissionSO2,
+          .expected_rate = so2_rate(kGenCT1),
+          .should_exist = true,
+      },
+      {
+          .name = "101_CT_1",
+          .pollutant = kEmissionNOx,
+          .expected_rate = nox_rate(kGenCT1),
+          .should_exist = true,
+      },
+      {
+          .name = "101_CT_1",
+          .pollutant = kEmissionCH4,
+          .expected_rate = ch4_rate(kGenCT1),
+          .should_exist = true,
+      },
+      {
+          .name = "101_CT_1",
+          .pollutant = kEmissionN2O,
+          .expected_rate = n2o_rate(kGenCT1),
+          .should_exist = true,
+      },
       // Gas CC — only CO2/SO2/NOx (CH4 + N2O zero in CSV row).
-      {.name = "118_CC_1",
-       .pollutant = kEmissionCO2,
-       .expected_rate = co2_rate(kGenCC1),
-       .should_exist = true},
-      {.name = "118_CC_1",
-       .pollutant = kEmissionSO2,
-       .expected_rate = so2_rate(kGenCC1),
-       .should_exist = true},
-      {.name = "118_CC_1",
-       .pollutant = kEmissionNOx,
-       .expected_rate = nox_rate(kGenCC1),
-       .should_exist = true},
-      {.name = "118_CC_1",
-       .pollutant = kEmissionCH4,
-       .expected_rate = 0.0,
-       .should_exist = false},
-      {.name = "118_CC_1",
-       .pollutant = kEmissionN2O,
-       .expected_rate = 0.0,
-       .should_exist = false},
+      {
+          .name = "118_CC_1",
+          .pollutant = kEmissionCO2,
+          .expected_rate = co2_rate(kGenCC1),
+          .should_exist = true,
+      },
+      {
+          .name = "118_CC_1",
+          .pollutant = kEmissionSO2,
+          .expected_rate = so2_rate(kGenCC1),
+          .should_exist = true,
+      },
+      {
+          .name = "118_CC_1",
+          .pollutant = kEmissionNOx,
+          .expected_rate = nox_rate(kGenCC1),
+          .should_exist = true,
+      },
+      {
+          .name = "118_CC_1",
+          .pollutant = kEmissionCH4,
+          .expected_rate = 0.0,
+          .should_exist = false,
+      },
+      {
+          .name = "118_CC_1",
+          .pollutant = kEmissionN2O,
+          .expected_rate = 0.0,
+          .should_exist = false,
+      },
       // Nuclear — NO sources at all.
-      {.name = "118_NUC_1",
-       .pollutant = kEmissionCO2,
-       .expected_rate = 0.0,
-       .should_exist = false},
-      {.name = "118_NUC_1",
-       .pollutant = kEmissionSO2,
-       .expected_rate = 0.0,
-       .should_exist = false},
+      {
+          .name = "118_NUC_1",
+          .pollutant = kEmissionCO2,
+          .expected_rate = 0.0,
+          .should_exist = false,
+      },
+      {
+          .name = "118_NUC_1",
+          .pollutant = kEmissionSO2,
+          .expected_rate = 0.0,
+          .should_exist = false,
+      },
       // Biomass — non-CO2 pollutants only.
-      {.name = "113_BIO_1",
-       .pollutant = kEmissionCO2,
-       .expected_rate = 0.0,
-       .should_exist = false},
-      {.name = "113_BIO_1",
-       .pollutant = kEmissionSO2,
-       .expected_rate = so2_rate(kGenBiomass),
-       .should_exist = true},
-      {.name = "113_BIO_1",
-       .pollutant = kEmissionNOx,
-       .expected_rate = nox_rate(kGenBiomass),
-       .should_exist = true},
+      {
+          .name = "113_BIO_1",
+          .pollutant = kEmissionCO2,
+          .expected_rate = 0.0,
+          .should_exist = false,
+      },
+      {
+          .name = "113_BIO_1",
+          .pollutant = kEmissionSO2,
+          .expected_rate = so2_rate(kGenBiomass),
+          .should_exist = true,
+      },
+      {
+          .name = "113_BIO_1",
+          .pollutant = kEmissionNOx,
+          .expected_rate = nox_rate(kGenBiomass),
+          .should_exist = true,
+      },
   }};
 
   for (const auto& e : cases) {
@@ -748,7 +791,7 @@ TEST_CASE(  // NOLINT
                       e.name,
                       " pollutant uid=",
                       static_cast<int>(e.pollutant));
-      CHECK(*got == doctest::Approx(e.expected_rate).epsilon(0.05));
+      CHECK((got && *got == doctest::Approx(e.expected_rate).epsilon(0.05)));
     } else {
       CHECK_FALSE(got.has_value());
     }
@@ -760,14 +803,14 @@ TEST_CASE(  // NOLINT
   const auto coal_co2 =
       source_rate_for_gen_pollutant(sys, "101_STEAM_3", kEmissionCO2);
   REQUIRE(coal_co2.has_value());
-  CHECK(*coal_co2 == doctest::Approx(1.264).epsilon(0.05));
+  CHECK((coal_co2 && *coal_co2 == doctest::Approx(1.264).epsilon(0.05)));
 
   // And for coal SO2: 1.7 lb/MMBtu × 13.27 MMBtu/MWh × 0.4536e-3 t/lb
   // ≈ 0.01023 tSO2/MWh.
   const auto coal_so2 =
       source_rate_for_gen_pollutant(sys, "101_STEAM_3", kEmissionSO2);
   REQUIRE(coal_so2.has_value());
-  CHECK(*coal_so2 == doctest::Approx(0.01023).epsilon(0.05));
+  CHECK((coal_so2 && *coal_so2 == doctest::Approx(0.01023).epsilon(0.05)));
 }
 
 }  // namespace test_emission_rts_gmlc_port

@@ -14,6 +14,7 @@
  * the reservoir volume via update_lp().
  */
 
+#include <gtopt/active_ref.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -53,12 +54,27 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  const auto& waterway = sc.element<WaterwayLP>(waterway_sid());
-  const auto& reservoir = sc.element<ReservoirLP>(reservoir_sid());
+  // Tolerant references (see active_ref.hpp): an inactive waterway or
+  // reservoir has no flow / efin column in this cell, so there is no
+  // seepage relation to write — omit the row instead of throwing.
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  const auto* waterway = active_ref(sc, waterway_sid(), stage);
+  if (waterway == nullptr) {
+    warn_ref_once(
+        cname, uid(), "seepage row", sc.element(waterway_sid()).uid());
+    return true;
+  }
+  const auto& reservoir = sc.element(reservoir_sid());
+  const auto reservoir_cache =
+      find_reservoir_ref_cache(reservoir, scenario, stage);
+  if (!reservoir_cache) {
+    warn_ref_once(cname, uid(), "seepage row", reservoir.uid());
+    return true;
+  }
 
-  const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
-  const auto eini_col = reservoir.eini_col_at(scenario, stage);
-  const auto efin_col = reservoir.efin_col_at(scenario, stage);
+  const auto& flow_cols = waterway->flow_cols_at(scenario, stage);
+  const auto eini_col = reservoir_cache->eini_col;
+  const auto efin_col = reservoir_cache->efin_col;
 
   // Determine effective slope and intercept (RHS).
   // Priority: piecewise segments (volume-dependent) > per-stage schedule >
@@ -85,7 +101,16 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();
-    const auto fcol = flow_cols.at(buid);
+    // The waterway elides its flow column for a block whose flow is fixed
+    // at 0 (fmin = fmax = 0, waterway_lp.cpp).  No seepage flow ⇒ no
+    // seepage relation for that block: omit the row.
+    const auto fcol_it = flow_cols.find(buid);
+    if (fcol_it == flow_cols.end()) {
+      warn_ref_once(
+          cname, uid(), "seepage row (elided flow block)", waterway->uid());
+      continue;
+    }
+    const auto fcol = fcol_it->second;
 
     auto frow =
         SparseRow {
@@ -138,7 +163,7 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
       .efin_col = efin_col,
       .current_slope = effective_slope,
       .current_rhs = effective_rhs,
-      .reservoir_cache = make_reservoir_ref_cache(reservoir, scenario, stage),
+      .reservoir_cache = *reservoir_cache,
   };
 
   return true;
@@ -166,8 +191,15 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
 
   auto& li = sys.linear_interface();
 
+  // Cells that `add_to_lp` did not build (seepage, waterway or reservoir
+  // inactive in the stage) have no state and no rows: nothing to update.
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
-  auto& state = m_states_.at(st_key);
+  const auto state_it = m_states_.find(st_key);
+  const auto frows_it = seepage_rows.find(st_key);
+  if (state_it == m_states_.end() || frows_it == seepage_rows.end()) {
+    return 0;
+  }
+  auto& state = state_it->second;
 
   // Segment selection uses the *start-of-stage* volume (vini), which by
   // the time `update_lp` runs has already been propagated from the
@@ -206,7 +238,7 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   // cost (one solver-side O(1) write each) is negligible against
   // the LP solve, and correctness in both modes is restored.
   int total = 0;
-  const auto& frows = seepage_rows.at(st_key);
+  const auto& frows = frows_it->second;
 
   for (const auto& [buid, row] : frows) {
     // Anchor on efin only — see add_to_lp() above for rationale.

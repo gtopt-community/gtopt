@@ -25,7 +25,8 @@ TEST_CASE("Flow JSON basic parsing")
   REQUIRE(flow.junction.has_value());
   CHECK((flow.junction && std::get<Uid>(*flow.junction) == 10));
   REQUIRE(flow.discharge.has_value());
-  CHECK(std::get<Real>(*flow.discharge) == doctest::Approx(25.5));
+  CHECK((flow.discharge
+         && std::get<Real>(*flow.discharge) == doctest::Approx(25.5)));
 }
 
 TEST_CASE("Flow JSON default values")
@@ -65,7 +66,8 @@ TEST_CASE("Flow JSON round-trip serialization")
   REQUIRE(roundtrip.junction.has_value());
   CHECK((roundtrip.junction && std::get<Uid>(*roundtrip.junction) == 3));
   REQUIRE(roundtrip.discharge.has_value());
-  CHECK(std::get<Real>(*roundtrip.discharge) == doctest::Approx(42.0));
+  CHECK((roundtrip.discharge
+         && std::get<Real>(*roundtrip.discharge) == doctest::Approx(42.0)));
 }
 
 TEST_CASE("Flow JSON array parsing")

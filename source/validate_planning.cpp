@@ -13,6 +13,9 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <functional>
+#include <iterator>
+#include <map>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -21,6 +24,7 @@
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -28,6 +32,7 @@
 #include <gtopt/field_sched.hpp>
 #include <gtopt/generator_enums.hpp>
 #include <gtopt/line_enums.hpp>
+#include <gtopt/storage_state_defaults.hpp>
 #include <gtopt/user_constraint_enums.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/validate_planning.hpp>
@@ -118,16 +123,17 @@ private:
 /// generator that ``System::expand_batteries`` will materialise at LP-build
 /// time (it is absent from ``generator_array`` during pre-build validation).
 /// Only name-form ids can match; uid-form ids never name a synthetic gen.
-[[nodiscard]] inline auto synthetic_battery_gen_exists(
-    const SingleId& sid, const Array<Battery>& batteries) -> bool
+[[nodiscard]] inline auto synthetic_battery_member_exists(
+    const SingleId& sid,
+    const Array<Battery>& batteries,
+    std::string_view suffix) -> bool
 {
   return std::visit(
-      [&batteries](const auto& val) -> bool
+      [&batteries, suffix](const auto& val) -> bool
       {
         if constexpr (std::is_same_v<std::decay_t<decltype(val)>, Uid>) {
           return false;
         } else {
-          constexpr std::string_view suffix {"_gen"};
           const std::string_view name {val};
           if (!name.ends_with(suffix)) {
             return false;
@@ -138,6 +144,12 @@ private:
         }
       },
       sid);
+}
+
+[[nodiscard]] inline auto synthetic_battery_gen_exists(
+    const SingleId& sid, const Array<Battery>& batteries) -> bool
+{
+  return synthetic_battery_member_exists(sid, batteries, "_gen");
 }
 
 /// Validate referential integrity of all components.
@@ -453,6 +465,118 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
     }
   }
 
+  // ReserveZone dynamic-requirement references (planes mode).  The
+  // contingency sets accept the synthetic ``<battery>_gen`` /
+  // ``<battery>_dem`` elements created by ``expand_batteries``.
+  for (const auto& rz : sys.reserve_zone_array) {
+    const auto check_unit = [&](const SingleId& sid,
+                                const auto& arr,
+                                std::string_view suffix,
+                                std::string_view field,
+                                std::string_view target)
+    {
+      if (!cache.index_for(arr).contains(sid)
+          && !synthetic_battery_member_exists(sid, sys.battery_array, suffix))
+      {
+        result.errors.push_back(
+            std::format("ReserveZone '{}': {} references non-existent {} ({})",
+                        rz.name,
+                        field,
+                        target,
+                        format_single_id(sid)));
+      }
+    };
+    for (const auto& sid : rz.contingency_generators) {
+      check_unit(sid,
+                 sys.generator_array,
+                 "_gen",
+                 "contingency_generators",
+                 "Generator");
+    }
+    for (const auto& sid : rz.contingency_demands) {
+      check_unit(
+          sid, sys.demand_array, "_dem", "contingency_demands", "Demand");
+    }
+    for (const auto& sid : rz.demands) {
+      check_unit(sid, sys.demand_array, "_dem", "demands", "Demand");
+    }
+    for (const auto& sid : rz.flow_lines) {
+      check_ref(result,
+                sid,
+                sys.line_array,
+                "ReserveZone",
+                rz.name,
+                "flow_lines",
+                "Line");
+    }
+    for (const auto* groups : {&rz.urcontingencies, &rz.drcontingencies}) {
+      for (const auto& cg : *groups) {
+        for (const auto& sid : cg.generators) {
+          check_unit(sid,
+                     sys.generator_array,
+                     "_gen",
+                     "contingency generators",
+                     "Generator");
+        }
+        for (const auto& sid : cg.demands) {
+          check_unit(
+              sid, sys.demand_array, "_dem", "contingency demands", "Demand");
+        }
+        for (const auto& sid : cg.lines) {
+          check_ref(result,
+                    sid,
+                    sys.line_array,
+                    "ReserveZone",
+                    rz.name,
+                    "contingency lines",
+                    "Line");
+        }
+      }
+    }
+    if (const auto& iz = rz.inertia_zone; iz.has_value()) {
+      check_ref(result,
+                iz.value(),
+                sys.inertia_zone_array,
+                "ReserveZone",
+                rz.name,
+                "inertia_zone",
+                "InertiaZone");
+    }
+    if (const auto sense = rz.requirement_sense.value_or("ge");
+        sense != "ge" && sense != "eq")
+    {
+      result.errors.push_back(
+          std::format("ReserveZone '{}': requirement_sense '{}' must be 'ge' "
+                      "or 'eq'",
+                      rz.name,
+                      sense));
+    }
+    if (const auto load_term = rz.load_term.value_or("exogenous");
+        load_term != "exogenous" && load_term != "endogenous_generation")
+    {
+      result.errors.push_back(
+          std::format("ReserveZone '{}': load_term '{}' must be 'exogenous' or "
+                      "'endogenous_generation'",
+                      rz.name,
+                      load_term));
+    }
+  }
+
+  // InertiaZone.requirement_credits[].generators -> Generator.
+  for (const auto& iz : sys.inertia_zone_array) {
+    for (const auto& cr : iz.requirement_credits) {
+      for (const auto& sid : cr.generators) {
+        check_ref(result,
+                  sid,
+                  sys.generator_array,
+                  "InertiaZone",
+                  iz.name,
+                  "requirement_credits generators",
+                  "Generator");
+      }
+    }
+  }
+
   // InertiaProvision.generator -> Generator (required).
   // `inertia_zones` is the analogous array reference.
   for (const auto& ip : sys.inertia_provision_array) {
@@ -672,6 +796,356 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
 /// must have equal length), and strict-increasing convexity on the
 /// piecewise slopes (so the LP picks the cheapest segment first by
 /// construction — see `GeneratorAttrs::heat_rate_segments` docstring).
+/// Every value a (stage, block) real schedule can take, when it is given
+/// inline (scalar or nested array); a file-backed schedule yields nothing.
+[[nodiscard]] std::vector<double> inline_values(const OptTBRealFieldSched& f)
+{
+  std::vector<double> out;
+  if (!f.has_value()) {
+    return out;
+  }
+  if (const auto* r = std::get_if<Real>(&*f)) {
+    out.push_back(*r);
+  } else if (const auto* v = std::get_if<std::vector<std::vector<Real>>>(&*f)) {
+    for (const auto& row : *v) {
+      out.insert(out.end(), row.begin(), row.end());
+    }
+  }
+  return out;
+}
+
+/// True when the schedule is set and not identically 0 (a file-backed
+/// schedule counts as non-zero).
+[[nodiscard]] bool nonzero_sched(const OptTBRealFieldSched& f)
+{
+  if (!f.has_value()) {
+    return false;
+  }
+  if (std::holds_alternative<FileSched>(*f)) {
+    return true;
+  }
+  return std::ranges::any_of(inline_values(f),
+                             [](double x) { return x != 0.0; });
+}
+
+/// ReserveZone plane-based requirements:
+///  - support: a plane term whose support is missing (inertia_coef with no
+///    inertia source, contingency_coef with no candidate, flow_coef with
+///    no flow_lines) would silently vanish — an error under
+///    constraint_mode strict / debug, a warning otherwise;
+///  - contingency_coef must be ≥ 0;
+///  - `requirement_sense: "eq"` with planes: R absorbs any excess, so a
+///    surplus cost has no effect (the column is not built) — warning;
+///  - dispatch coupling (`model_options.reserve_coupling`).
+void check_reserve_planes(ValidationResult& result, const Planning& planning)
+{
+  const auto& sys = planning.system;
+  const auto cmode =
+      planning.options.constraint_mode.value_or(ConstraintMode::strict);
+  const bool strict = cmode != ConstraintMode::normal;
+  const auto coupling =
+      planning.options.model_options.reserve_coupling.value_or("warn");
+  if (coupling != "warn" && coupling != "error" && coupling != "off") {
+    result.errors.push_back(
+        std::format("model_options.reserve_coupling '{}' must be 'warn', "
+                    "'error' or 'off'",
+                    coupling));
+  }
+  const auto support_issue = [&](std::string msg)
+  {
+    msg += strict ? " (constraint_mode=strict; the term would be dropped)"
+                  : " — the term is dropped (constraint_mode=normal)";
+    (strict ? result.errors : result.warnings).push_back(std::move(msg));
+  };
+
+  for (const auto& rz : sys.reserve_zone_array) {
+    if (!rz.has_dynamic_requirement()) {
+      continue;
+    }
+    const auto any_plane = [&](auto member)
+    {
+      const auto in = [&](const auto& planes)
+      {
+        return std::ranges::any_of(planes,
+                                   [&](const ReserveRequirementPlane& p)
+                                   { return nonzero_sched(p.*member); });
+      };
+      return in(rz.urreq_planes) || in(rz.drreq_planes);
+    };
+
+    // ── Support ─────────────────────────────────────────────────────
+    const auto inertia_term = rz.inertia_term.value_or("commitment");
+    const bool exo_given =
+        inertia_term == "exogenous" && rz.system_inertia.has_value();
+    if (any_plane(&ReserveRequirementPlane::inertia_coef) && !exo_given) {
+      bool has_provision = false;
+      if (rz.inertia_zone.has_value()) {
+        for (const auto& ip : sys.inertia_provision_array) {
+          for (const auto& z : ip.inertia_zones) {
+            const auto matches = [&](const auto& a, const auto& b)
+            {
+              if (a.index() == b.index()) {
+                return a == b;
+              }
+              return true;  // name vs uid: resolved later, assume present
+            };
+            if (matches(z, *rz.inertia_zone)) {
+              has_provision = true;
+            }
+          }
+        }
+      }
+      if (!has_provision) {
+        support_issue(std::format(
+            "ReserveZone '{}': a requirement plane sets inertia_coef but the "
+            "zone has no inertia source ({})",
+            rz.name,
+            rz.inertia_zone.has_value()
+                ? "its inertia_zone has no InertiaProvision"
+                : "no inertia_zone, and no system_inertia with "
+                  "inertia_term 'exogenous'"));
+      }
+    }
+    const auto any_dir =
+        [&](const Array<ReserveRequirementPlane>& planes, auto member)
+    {
+      return std::ranges::any_of(planes,
+                                 [&](const ReserveRequirementPlane& p)
+                                 { return nonzero_sched(p.*member); });
+    };
+    if (any_dir(rz.urreq_planes, &ReserveRequirementPlane::contingency_coef)
+        && rz.contingency_generators.empty() && rz.urcontingencies.empty())
+    {
+      support_issue(std::format(
+          "ReserveZone '{}': an up-requirement plane sets contingency_coef "
+          "but there is no up contingency candidate "
+          "(contingency_generators / urcontingencies)",
+          rz.name));
+    }
+    if (any_dir(rz.drreq_planes, &ReserveRequirementPlane::contingency_coef)
+        && rz.contingency_demands.empty() && rz.drcontingencies.empty())
+    {
+      support_issue(std::format(
+          "ReserveZone '{}': a down-requirement plane sets contingency_coef "
+          "but there is no down contingency candidate "
+          "(contingency_demands / drcontingencies)",
+          rz.name));
+    }
+    if (any_plane(&ReserveRequirementPlane::flow_coef) && rz.flow_lines.empty())
+    {
+      support_issue(std::format(
+          "ReserveZone '{}': a requirement plane sets flow_coef but the zone "
+          "lists no flow_lines",
+          rz.name));
+    }
+
+    // ── contingency_coef ≥ 0 ────────────────────────────────────────
+    for (const auto* planes : {&rz.urreq_planes, &rz.drreq_planes}) {
+      for (const auto& p : *planes) {
+        const auto vals = inline_values(p.contingency_coef);
+        if (std::ranges::any_of(vals, [](double x) { return x < 0.0; })) {
+          result.errors.push_back(std::format(
+              "ReserveZone '{}': contingency_coef must be >= 0 (a negative "
+              "coefficient turns the largest unit into a requirement "
+              "credit)",
+              rz.name));
+        }
+      }
+    }
+
+    // ── eq sense with planes ────────────────────────────────────────
+    if (rz.requirement_sense.value_or("ge") == "eq"
+        && (rz.ursurplus_cost.has_value() || rz.drsurplus_cost.has_value()))
+    {
+      result.warnings.push_back(std::format(
+          "ReserveZone '{}': requirement_sense 'eq' with requirement planes: "
+          "the requirement R is a free column above its planes and absorbs "
+          "any excess provision, so ursurplus_cost / drsurplus_cost has no "
+          "effect (no surplus column is built)",
+          rz.name));
+    }
+
+    // ── Dispatch coupling ───────────────────────────────────────────
+    if (coupling == "off") {
+      continue;
+    }
+    std::vector<std::string> channels;
+    if (rz.load_term.value_or("exogenous") == "endogenous_generation"
+        && any_plane(&ReserveRequirementPlane::demand_coef))
+    {
+      channels.emplace_back(
+          "load_term 'endogenous_generation' (D = Σ generation)");
+    }
+    if (any_plane(&ReserveRequirementPlane::flow_coef)
+        && !rz.flow_lines.empty())
+    {
+      channels.emplace_back("flow_coef on flow_lines (corridor flow)");
+    }
+    if (inertia_term == "endogenous"
+        && any_plane(&ReserveRequirementPlane::inertia_coef))
+    {
+      channels.emplace_back(
+          "inertia_term 'endogenous' (I = Σ pf·r with r ≤ p)");
+    }
+    if (inertia_term == "commitment"
+        && any_plane(&ReserveRequirementPlane::inertia_coef)
+        && (std::ranges::any_of(sys.commitment_array,
+                                [](const Commitment& c)
+                                { return c.relax.value_or(false); })
+            || std::ranges::any_of(sys.simple_commitment_array,
+                                   [](const SimpleCommitment& c)
+                                   { return c.relax.value_or(false); })))
+    {
+      channels.emplace_back(
+          "inertia_term 'commitment' (the default) with a relaxed "
+          "Commitment (u is continuous: pmin·u ≤ p earns I_c/pmin per MW; "
+          "remedy: inertia_term \"exogenous\" with system_inertia, or an "
+          "integer Commitment)");
+    }
+    const auto uses_cont =
+        any_plane(&ReserveRequirementPlane::contingency_coef);
+    if (uses_cont) {
+      const bool line_cont = std::ranges::any_of(rz.urcontingencies,
+                                                 [](const ReserveContingency& c)
+                                                 { return !c.lines.empty(); })
+          || std::ranges::any_of(rz.drcontingencies,
+                                 [](const ReserveContingency& c)
+                                 { return !c.lines.empty(); });
+      if (line_cont) {
+        channels.emplace_back("line contingencies (signed line flow)");
+      }
+      if (rz.contingency_includes_reserve.value_or(false)) {
+        channels.emplace_back("contingency_includes_reserve (C ≥ a·(p + r))");
+      }
+    }
+    if (channels.empty()) {
+      continue;
+    }
+    std::string list;
+    for (const auto& c : channels) {
+      list += list.empty() ? c : "; " + c;
+    }
+    auto msg = std::format(
+        "ReserveZone '{}': the requirement couples to dispatch through {}.  "
+        "The plane dual μ then enters the LMP of every bus that reaches the "
+        "coupled column as a β·μ $/MWh credit (β = plane coefficient × "
+        "column sensitivity), which can price buses negative.  See "
+        "docs/formulation/mathematical-formulation.md §5.9 (requirement "
+        "coupling).  Set model_options.reserve_coupling to 'off' to silence "
+        "or 'error' to reject.",
+        rz.name,
+        list);
+    (coupling == "error" ? result.errors : result.warnings)
+        .push_back(std::move(msg));
+  }
+}
+
+/// Offline (cold) up reserve (`ReserveProvision.offline`): the gate
+/// `r ≤ urmax·(1 − u)` lives on the unit's commitment status, so a unit
+/// without Commitment / SimpleCommitment would offer it unconditionally
+/// (error in strict / debug, warning otherwise); a Min-Provision floor
+/// `urmin > 0` (which needs u = 1) contradicts it (error).
+void check_offline_provisions(ValidationResult& result,
+                              const Planning& planning)
+{
+  const auto& sys = planning.system;
+  const bool strict =
+      planning.options.constraint_mode.value_or(ConstraintMode::strict)
+      != ConstraintMode::normal;
+  const auto gen_uid = [&](const SingleId& sid) -> std::optional<Uid>
+  {
+    for (const auto& g : sys.generator_array) {
+      if ((std::holds_alternative<Uid>(sid) && std::get<Uid>(sid) == g.uid)
+          || (std::holds_alternative<Name>(sid)
+              && std::get<Name>(sid) == g.name))
+      {
+        return g.uid;
+      }
+    }
+    return std::nullopt;
+  };
+  for (const auto& rp : sys.reserve_provision_array) {
+    if (!rp.offline.value_or(false)) {
+      continue;
+    }
+    if (nonzero_sched(rp.urmin)) {
+      result.errors.push_back(std::format(
+          "ReserveProvision '{}': offline (cold) up reserve is offered only "
+          "while the unit is off, but urmin > 0 forces it on — infeasible",
+          rp.name));
+    }
+    const auto gu = gen_uid(rp.generator);
+    if (!gu) {
+      continue;  // dangling reference: reported elsewhere
+    }
+    const bool committed =
+        std::ranges::any_of(sys.commitment_array,
+                            [&](const auto& c)
+                            { return gen_uid(c.generator) == gu; })
+        || std::ranges::any_of(sys.simple_commitment_array,
+                               [&](const auto& c)
+                               { return gen_uid(c.generator) == gu; });
+    if (!committed) {
+      auto msg = std::format(
+          "ReserveProvision '{}': offline (cold) up reserve needs a "
+          "Commitment / SimpleCommitment on its generator — without a "
+          "status column the reserve is offered whether the unit is on or "
+          "off",
+          rp.name);
+      (strict ? result.errors : result.warnings).push_back(std::move(msg));
+    }
+  }
+}
+
+/// A Commitment builds its unit-commitment rows only on stages with
+/// `"chronological": true` (min up / down times, ramps and start-up
+/// logic need ordered blocks); on any other stage it is ignored.  That
+/// used to happen silently: report it (warning) with the stages affected.
+void check_commitment_stages(ValidationResult& result, const Planning& planning)
+{
+  const auto& commitments = planning.system.commitment_array;
+  const auto active = [](const Commitment& c)
+  {
+    return !c.active.has_value() || !std::holds_alternative<IntBool>(*c.active)
+        || std::get<IntBool>(*c.active) != 0;
+  };
+  const auto n_active = std::ranges::count_if(commitments, active);
+  if (n_active == 0) {
+    return;
+  }
+  std::string stages;
+  std::size_t n_stages = 0;
+  for (const auto& st : planning.simulation.stage_array) {
+    if (st.chronological.value_or(false)) {
+      continue;
+    }
+    ++n_stages;
+    if (n_stages <= 5) {
+      stages += std::format("{}{}", stages.empty() ? "" : ", ", st.uid);
+    }
+  }
+  if (n_stages == 0) {
+    return;
+  }
+  if (n_stages > 5) {
+    stages += std::format(", … ({} stages)", n_stages);
+  }
+  std::string first;
+  for (const auto& c : commitments) {
+    if (active(c)) {
+      first = c.name;
+      break;
+    }
+  }
+  result.warnings.push_back(std::format(
+      "{} Commitment(s) (e.g. '{}') are IGNORED on stage(s) {}: unit "
+      "commitment needs \"chronological\": true on the stage — set it, or "
+      "use SimpleCommitment for a non-chronological stage",
+      n_active,
+      first,
+      stages));
+}
+
 void check_heat_rate(ValidationResult& result, const System& sys)
 {
   for (const auto& gen : sys.generator_array) {
@@ -1943,7 +2417,45 @@ void check_completeness(ValidationResult& result, const Planning& planning)
 /// Tolerance for probability sum comparison.
 constexpr double prob_tolerance = 1e-6;
 
-/// Check and optionally rescale scenario probabilities per scene.
+/// A probability total outside [0.5, 2] is far enough from 1.0 to look
+/// like representative-period weights (e.g. day counts) rather than
+/// probabilities.
+constexpr double prob_far_low = 0.5;
+constexpr double prob_far_high = 2.0;
+
+/// Format relative scene weights as "w1/w2/..." (first few scenes only).
+[[nodiscard]] std::string format_scene_weights(std::span<const double> sums,
+                                               double total)
+{
+  constexpr std::size_t max_shown = 8;
+  std::string out;
+  for (const auto [i, s] : std::views::enumerate(sums)) {
+    if (std::cmp_greater_equal(i, max_shown)) {
+      out += std::format("/... ({} scenes)", sums.size());
+      break;
+    }
+    out += std::format("{}{:.6f}", i == 0 ? "" : "/", s / total);
+  }
+  return out;
+}
+
+/// Check and optionally rescale scenario probabilities.
+///
+/// Scenario `probability_factor` values are GLOBAL probabilities: the
+/// weight of a scene is the sum of its scenarios' factors (see
+/// `compute_scene_weights` / `SceneLP::probability_factor`).  When the
+/// total over all scenes is not 1.0 a warning is always emitted and,
+/// unless `probability_rescale = none`, the values are rescaled:
+///
+///  1. total ~ 1.0: valid global distribution, left untouched;
+///  2. every scene sums to ~1.0 (more than one scene): the input is read
+///     as conditional per-scene probabilities and the scenes get equal
+///     weight (every factor divided by the number of scenes);
+///  3. any other total: every factor is divided by the global total,
+///     which preserves the relative scene weights but scales the
+///     expected OPEX relative to CAPEX.
+///
+/// Rescaling never turns into an error.
 void check_scenario_probabilities(ValidationResult& result, Planning& planning)
 {
   const auto mode = planning.simulation.probability_rescale.value_or(
@@ -1957,124 +2469,143 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
     return;
   }
 
-  // When there are no explicit scenes, all scenarios form one implicit scene.
-  // Check that the total probability sums to 1.0.
+  // Resolve each scene's scenario range first (reporting out-of-range
+  // scenes).  Without explicit scenes all scenarios form one implicit
+  // scene.
+  struct SceneRange
+  {
+    std::size_t first {};
+    std::size_t count {};
+  };
+  std::vector<SceneRange> ranges;
   if (scenes.empty()) {
-    double total = 0.0;
-    for (const auto& sc : scenarios) {
-      total += sc.probability_factor.value_or(1.0);
-    }
+    ranges.push_back({
+        .first = 0,
+        .count = scenarios.size(),
+    });
+  } else {
+    ranges.reserve(scenes.size());
+    for (const auto& scene : scenes) {
+      const auto first = scene.first_scenario;
+      const auto count = (scene.count_scenario == std::dynamic_extent)
+          ? (scenarios.size() - std::min(first, scenarios.size()))
+          : scene.count_scenario;
 
-    if (std::abs(total - 1.0) > prob_tolerance) {
-      result.warnings.push_back(std::format(
-          "Scenario probability_factor values sum to {:.6f} (expected 1.0)",
-          total));
-
-      if (do_rescale && total > 0.0) {
-        for (auto& sc : scenarios) {
-          const double p = sc.probability_factor.value_or(1.0);
-          sc.probability_factor = p / total;
-        }
-        result.warnings.push_back(std::format(
-            "Rescaled {} scenario probability_factor values to sum 1.0",
+      if (first + count > scenarios.size()) {
+        result.errors.push_back(std::format(
+            "Scene '{}': first_scenario ({}) + count_scenario ({}) exceeds "
+            "scenario_array size ({})",
+            scene.name.value_or("?"),
+            first,
+            count,
             scenarios.size()));
+        continue;
       }
+      ranges.push_back({
+          .first = first,
+          .count = count,
+      });
     }
+  }
+  if (ranges.empty()) {
     return;
   }
 
-  // Per-scene: check that scenario probabilities within each scene sum to 1.0.
-  // Skip scenes with a single scenario — they are trivially normalised and
-  // their probability_factor represents the global weight used for
-  // cross-scene aggregation (e.g. SDDP with one scenario per scene).
-  for (const auto& scene : scenes) {
-    const auto first = scene.first_scenario;
-    const auto count = (scene.count_scenario == std::dynamic_extent)
-        ? (scenarios.size() - first)
-        : scene.count_scenario;
-
-    if (first + count > scenarios.size()) {
-      result.errors.push_back(std::format(
-          "Scene '{}': first_scenario ({}) + count_scenario ({}) exceeds "
-          "scenario_array size ({})",
-          scene.name.value_or("?"),
-          first,
-          count,
-          scenarios.size()));
-      continue;
+  std::vector<double> sums;
+  sums.reserve(ranges.size());
+  for (const auto& r : ranges) {
+    double s = 0.0;
+    for (std::size_t i = r.first; i < r.first + r.count; ++i) {
+      s += scenarios[i].probability_factor.value_or(1.0);
     }
+    sums.push_back(s);
+  }
+  const double total = std::ranges::fold_left(sums, 0.0, std::plus {});
 
-    // Single-scenario scenes need no intra-scene normalisation.
-    if (count <= 1) {
-      continue;
-    }
+  // Case 1: an already globally normalised distribution is valid as is:
+  // the per-scene sums ARE the scene weights and must not be touched.
+  if (std::abs(total - 1.0) <= prob_tolerance) {
+    return;
+  }
 
-    double total = 0.0;
-    for (std::size_t i = first; i < first + count; ++i) {
-      total += scenarios[i].probability_factor.value_or(1.0);
-    }
+  const auto num_scenes = ranges.size();
+  const bool far_from_one = total > prob_far_high || total < prob_far_low;
+  const std::string_view period_hint = far_from_one
+      ? "  The values look like representative-period weights (e.g. day "
+        "counts); in gtopt such weights belong in the block/stage "
+        "durations, not in Scenario probability_factor"
+      : "";
 
-    if (std::abs(total - 1.0) > prob_tolerance) {
-      result.warnings.push_back(std::format(
-          "Scene '{}': scenario probability_factor values sum to {:.6f} "
-          "(expected 1.0)",
-          scene.name.value_or("?"),
-          total));
+  result.warnings.push_back(
+      std::format("Scenario probability_factor values sum to {:.6f} across "
+                  "{} scene(s) (expected 1.0)",
+                  total,
+                  num_scenes));
 
-      if (do_rescale && total > 0.0) {
-        for (std::size_t i = first; i < first + count; ++i) {
-          const double p = scenarios[i].probability_factor.value_or(1.0);
-          scenarios[i].probability_factor = p / total;
-        }
-        result.warnings.push_back(std::format(
-            "Rescaled scenario probabilities in scene '{}' to sum 1.0",
-            scene.name.value_or("?")));
+  const auto divide_all = [&](double divisor)
+  {
+    for (const auto& r : ranges) {
+      for (std::size_t i = r.first; i < r.first + r.count; ++i) {
+        const double p = scenarios[i].probability_factor.value_or(1.0);
+        scenarios[i].probability_factor = p / divisor;
       }
     }
+  };
+
+  // Case 2 test: every scene sums to 1.0 -> conditional per-scene
+  // probabilities.
+  const bool conditional =
+      num_scenes > 1
+      && std::ranges::all_of(
+          sums, [](double s) { return std::abs(s - 1.0) <= prob_tolerance; });
+
+  if (!do_rescale) {
+    result.warnings.push_back(std::format(
+        "probability_rescale = none: probability_factor values left "
+        "unchanged, so the expected OPEX is weighted by a total probability "
+        "of {:.6f} relative to CAPEX.{}",
+        total,
+        conditional ? "  Every scene sums to 1.0 (conditional per-scene "
+                      "probabilities); enable probability_rescale to give "
+                      "the scenes equal weight"
+                    : period_hint));
+    return;
   }
 
-  // Check that scene-level probability totals sum to 1.0 across all scenes.
-  double scene_total = 0.0;
-  for (const auto& scene : scenes) {
-    const auto first = scene.first_scenario;
-    const auto count = (scene.count_scenario == std::dynamic_extent)
-        ? (scenarios.size() - first)
-        : scene.count_scenario;
-    if (first + count > scenarios.size()) {
-      continue;  // already reported above
-    }
-    for (std::size_t i = first; i < first + count; ++i) {
-      scene_total += scenarios[i].probability_factor.value_or(1.0);
-    }
+  if (total <= 0.0) {
+    result.warnings.emplace_back(
+        "Scenario probability_factor total is not positive: probabilities "
+        "were not rescaled");
+    return;
   }
 
-  if (std::abs(scene_total - 1.0) > prob_tolerance) {
-    result.warnings.push_back(
-        std::format("Total scene probability sums to {:.6f} across {} scenes "
-                    "(expected 1.0)",
-                    scene_total,
-                    scenes.size()));
-
-    if (do_rescale && scene_total > 0.0) {
-      for (const auto& scene : scenes) {
-        const auto first = scene.first_scenario;
-        const auto count = (scene.count_scenario == std::dynamic_extent)
-            ? (scenarios.size() - first)
-            : scene.count_scenario;
-        if (first + count > scenarios.size()) {
-          continue;
-        }
-        for (std::size_t i = first; i < first + count; ++i) {
-          const double p = scenarios[i].probability_factor.value_or(1.0);
-          scenarios[i].probability_factor = p / scene_total;
-        }
-      }
-      result.warnings.push_back(
-          std::format("Rescaled all scenario probabilities across {} scenes to "
-                      "sum 1.0",
-                      scenes.size()));
-    }
+  // Case 2: conditional per-scene probabilities -> equal scene weights.
+  if (conditional) {
+    divide_all(static_cast<double>(num_scenes));
+    result.warnings.push_back(std::format(
+        "Every scene's scenario probability_factor values sum to 1.0: the "
+        "input was interpreted as CONDITIONAL per-scene probabilities and "
+        "all probability_factor values were divided by the number of scenes "
+        "({}), so each scene gets equal weight {:.6f}.  If the scenes should "
+        "have different weights, give global probabilities that sum to 1.0 "
+        "over all scenes",
+        num_scenes,
+        1.0 / static_cast<double>(num_scenes)));
+    return;
   }
+
+  // Case 3: any other total -> divide by the global total, preserving the
+  // relative scene weights.
+  divide_all(total);
+  result.warnings.push_back(std::format(
+      "Rescaled scenario probability_factor values: all were divided by "
+      "their total {:.6f} so they sum to 1.0 (relative scene weights "
+      "preserved: {}).  This changes the expected OPEX relative to CAPEX "
+      "by a factor 1/{:.6f}.{}",
+      total,
+      format_scene_weights(sums, total),
+      total,
+      period_hint));
 }
 
 }  // namespace
@@ -2243,6 +2774,550 @@ void check_element_mode_names(ValidationResult& result, const System& sys)
 
 }  // namespace
 
+namespace
+{
+
+/// State-carrying storage: one contiguous active period.
+///
+/// A storage element that carries a state variable across stages /
+/// phases (`storage_carries_state`, the same predicate the LP uses) may
+/// be commissioned once (inactive → active) and retired once (active →
+/// inactive), i.e. its per-stage `active` vector must read
+/// `off* on* off*`.  Re-activation after a gap (on → off → on) is
+/// rejected: the state dropped at retirement would re-enter unlinked
+/// (the "teleporting state" of the add_to_lp audit).  Every offending
+/// element is reported, with the stage / phase where it switches back
+/// on.  Storage without a state variable (daily-cycle / per-stage
+/// cyclic) may toggle freely.  Per-stage vectors are checked; scalar
+/// `active` cannot toggle and file schedules are not resolved here.
+template<typename StorageElement>
+void check_state_storage_activation(ValidationResult& result,
+                                    const Planning& planning,
+                                    std::span<const StorageElement> elements,
+                                    std::string_view class_name,
+                                    StorageStateDefaults defaults)
+{
+  const auto& stages = planning.simulation.stage_array;
+  const auto& phases = planning.simulation.phase_array;
+  const auto phase_uid_of = [&](std::size_t stage_index) -> std::optional<Uid>
+  {
+    for (const auto& ph : phases) {
+      const auto first = static_cast<std::size_t>(ph.first_stage);
+      const auto count = static_cast<std::size_t>(ph.count_stage);
+      if (stage_index >= first
+          && (count == std::dynamic_extent || stage_index - first < count))
+      {
+        return ph.uid;
+      }
+    }
+    return std::nullopt;
+  };
+
+  for (const auto& e : elements) {
+    if (!e.active.has_value() || !storage_carries_state(e, defaults)) {
+      continue;
+    }
+    const auto* flags = std::get_if<std::vector<IntBool>>(&*e.active);
+    if (flags == nullptr) {
+      continue;
+    }
+    bool was_active = false;
+    bool retired = false;
+    for (std::size_t i = 0; i < flags->size(); ++i) {
+      const bool is_active = (*flags)[i] != 0;
+      if (was_active && !is_active) {
+        retired = true;
+      }
+      if (retired && is_active) {
+        const auto stage_uid =
+            i < stages.size() ? std::format("{}", stages[i].uid) : "?";
+        const auto phase_uid = phase_uid_of(i);
+        result.errors.push_back(std::format(
+            "{} uid={} '{}': state-carrying storage becomes active again "
+            "at stage uid={} (stage index {}{}) after having been retired; "
+            "a storage with a state variable may be commissioned once "
+            "(inactive -> active) and retired once (active -> inactive), "
+            "but not switched back on (its state would re-enter "
+            "unlinked).  Set use_state_variable=false / daily_cycle=true "
+            "for a cyclic storage, or split it into two elements",
+            class_name,
+            e.uid,
+            e.name,
+            stage_uid,
+            i,
+            phase_uid ? std::format(", phase uid={}", *phase_uid) : ""));
+        break;
+      }
+      was_active = was_active || is_active;
+    }
+  }
+}
+
+void check_storage_activation(ValidationResult& result,
+                              const Planning& planning)
+{
+  namespace sd = storage_state_defaults;
+  const auto& sys = planning.system;
+  check_state_storage_activation(result,
+                                 planning,
+                                 std::span {sys.reservoir_array},
+                                 Reservoir::class_name.full_name(),
+                                 sd::reservoir);
+  check_state_storage_activation(result,
+                                 planning,
+                                 std::span {sys.battery_array},
+                                 Battery::class_name.full_name(),
+                                 sd::battery);
+  check_state_storage_activation(result,
+                                 planning,
+                                 std::span {sys.lng_terminal_array},
+                                 LngTerminal::class_name.full_name(),
+                                 sd::lng_terminal);
+  check_state_storage_activation(result,
+                                 planning,
+                                 std::span {sys.thermal_storage_array},
+                                 ThermalStorage::class_name.full_name(),
+                                 sd::thermal_storage);
+  check_state_storage_activation(result,
+                                 planning,
+                                 std::span {sys.hydrogen_storage_array},
+                                 HydrogenStorage::class_name.full_name(),
+                                 sd::hydrogen_storage);
+  check_state_storage_activation(result,
+                                 planning,
+                                 std::span {sys.ammonia_storage_array},
+                                 AmmoniaStorage::class_name.full_name(),
+                                 sd::ammonia_storage);
+  check_state_storage_activation(result,
+                                 planning,
+                                 std::span {sys.volume_right_array},
+                                 VolumeRight::class_name.full_name(),
+                                 sd::volume_right);
+  check_state_storage_activation(result,
+                                 planning,
+                                 std::span {sys.allowance_pool_array},
+                                 AllowancePool::class_name.full_name(),
+                                 sd::allowance_pool);
+}
+
+/// Activity of an element in stage @p i: nullopt when it cannot be decided
+/// here (file schedule, vector shorter than the stage list).
+[[nodiscard]] std::optional<bool> active_at(const OptActive& active,
+                                            std::size_t i)
+{
+  if (!active.has_value()) {
+    return true;
+  }
+  if (const auto* flag = std::get_if<IntBool>(&*active)) {
+    return *flag != 0;
+  }
+  if (const auto* flags = std::get_if<std::vector<IntBool>>(&*active)) {
+    if (i < flags->size()) {
+      return (*flags)[i] != 0;
+    }
+  }
+  return std::nullopt;
+}
+
+template<typename Element>
+[[nodiscard]] const Element* find_by_sid(const std::vector<Element>& elements,
+                                         const SingleId& sid)
+{
+  for (const auto& e : elements) {
+    const bool match = std::holds_alternative<Uid>(sid)
+        ? e.uid == std::get<Uid>(sid)
+        : e.name == std::get<Name>(sid);
+    if (match) {
+      return &e;
+    }
+  }
+  return nullptr;
+}
+
+/// Water rights must not draw on a water source that is not in the
+/// system: a VolumeRight whose `reservoir` is inactive, or a FlowRight
+/// whose `junction_a` (source) is inactive, in a stage where the right is
+/// active would be served without physical water (and a non-consumptive
+/// right would credit `junction_b` with water debited nowhere).  Reported
+/// once per (right, first offending stage).
+void check_water_right_sources(ValidationResult& result,
+                               const Planning& planning)
+{
+  const auto& stages = planning.simulation.stage_array;
+  const auto& phases = planning.simulation.phase_array;
+  const auto& sys = planning.system;
+  const auto where = [&](std::size_t i)
+  {
+    std::string text = std::format("stage uid={}", stages[i].uid);
+    for (const auto& ph : phases) {
+      const auto first = static_cast<std::size_t>(ph.first_stage);
+      const auto count = static_cast<std::size_t>(ph.count_stage);
+      if (i >= first && (count == std::dynamic_extent || i - first < count)) {
+        text += std::format(", phase uid={}", ph.uid);
+        break;
+      }
+    }
+    return text;
+  };
+  const auto first_conflict =
+      [&](const OptActive& right_active,
+          const OptActive& source_active) -> std::optional<std::size_t>
+  {
+    for (std::size_t i = 0; i < stages.size(); ++i) {
+      if (active_at(right_active, i).value_or(false)
+          && !active_at(source_active, i).value_or(true))
+      {
+        return i;
+      }
+    }
+    return std::nullopt;
+  };
+
+  for (const auto& vr : sys.volume_right_array) {
+    if (!vr.reservoir.has_value()) {
+      continue;
+    }
+    const auto* rsv = find_by_sid(sys.reservoir_array, *vr.reservoir);
+    if (rsv == nullptr) {
+      continue;  // unresolved reference: reported by referential integrity
+    }
+    if (const auto i = first_conflict(vr.active, rsv->active)) {
+      result.errors.push_back(std::format(
+          "VolumeRight uid={} '{}': its reservoir uid={} '{}' is inactive "
+          "at {} while the right is active; the right would withdraw "
+          "water that is not in the system.  Deactivate the right there or "
+          "keep the reservoir active",
+          vr.uid,
+          vr.name,
+          rsv->uid,
+          rsv->name,
+          where(*i)));
+    }
+  }
+
+  for (const auto& fr : sys.flow_right_array) {
+    if (!fr.junction_a.has_value()) {
+      continue;
+    }
+    const auto* ja = find_by_sid(sys.junction_array, *fr.junction_a);
+    if (ja == nullptr) {
+      continue;  // unresolved reference: reported by referential integrity
+    }
+    if (const auto i = first_conflict(fr.active, ja->active)) {
+      const bool consumptive = fr.consumptive.value_or(true);
+      result.errors.push_back(std::format(
+          "FlowRight uid={} '{}': its source junction_a uid={} '{}' is "
+          "inactive at {} while the right is active; the right would be "
+          "served without water{}.  Deactivate the right there or keep "
+          "the junction active",
+          fr.uid,
+          fr.name,
+          ja->uid,
+          ja->name,
+          where(*i),
+          consumptive ? ""
+                      : " (and its return flow would create water at "
+                        "junction_b)"));
+    }
+  }
+}
+
+/// "stage uid=…, phase uid=…" label for global stage index @p i.
+[[nodiscard]] std::string stage_phase_label(const Planning& planning,
+                                            std::size_t i)
+{
+  const auto& stages = planning.simulation.stage_array;
+  std::string text = std::format("stage uid={}", stages[i].uid);
+  for (const auto& ph : planning.simulation.phase_array) {
+    const auto first = static_cast<std::size_t>(ph.first_stage);
+    const auto count = static_cast<std::size_t>(ph.count_stage);
+    if (i >= first && (count == std::dynamic_extent || i - first < count)) {
+      text += std::format(", phase uid={}", ph.uid);
+      break;
+    }
+  }
+  return text;
+}
+
+/// First stage where the coupler (@p coupler_active) and its partner
+/// (@p partner_active) disagree.  With @p both_ways false only "coupler
+/// active, partner inactive" counts (shared partners — a junction, a gas
+/// node, a bus — are legitimately active without this coupler).  Stages
+/// whose activity cannot be decided here (file schedules) are skipped.
+[[nodiscard]] std::optional<std::size_t> first_coupling_divergence(
+    std::size_t nstages,
+    const OptActive& coupler_active,
+    const OptActive& partner_active,
+    bool both_ways)
+{
+  for (std::size_t i = 0; i < nstages; ++i) {
+    const auto c = active_at(coupler_active, i);
+    const auto p = active_at(partner_active, i);
+    if (!c || !p) {
+      continue;
+    }
+    if ((*c && !*p) || (both_ways && !*c && *p)) {
+      return i;
+    }
+  }
+  return std::nullopt;
+}
+
+/// Couplers (Turbine, GasTurbine, Converter, Pump, electric
+/// GasCompressor) are the only path through which their partner converts
+/// a resource.  A coupled pair with divergent `active` schedules leaves a
+/// stage where the conversion row cannot be written: the LP closes the
+/// partner's producing column there (fail-closed backstop, see
+/// coupler_fail_closed.hpp), but the input is inconsistent and is
+/// reported here.  Also rejected: two turbines on one generator, and a
+/// `must_run` commitment whose unit's coupler is inactive (the backstop
+/// would make it infeasible).
+void check_coupler_activation(ValidationResult& result,
+                              const Planning& planning)
+{
+  const auto& sys = planning.system;
+  const auto nstages = planning.simulation.stage_array.size();
+
+  const auto check_pair = [&](std::string_view cls,
+                              Uid uid,
+                              std::string_view name,
+                              const OptActive& active,
+                              std::string_view role,
+                              std::string_view pcls,
+                              const auto* partner,
+                              bool both_ways)
+  {
+    if (partner == nullptr) {
+      return;  // unresolved reference: reported by referential integrity
+    }
+    const auto i =
+        first_coupling_divergence(nstages, active, partner->active, both_ways);
+    if (!i) {
+      return;
+    }
+    const bool coupler_on = active_at(active, *i).value_or(true);
+    result.errors.push_back(std::format(
+        "{} uid={} '{}': its {} {} uid={} '{}' is {} at {} while the {} is "
+        "{}; a coupler and its partner must share the active schedule "
+        "(the conversion row cannot be written there)",
+        cls,
+        uid,
+        name,
+        role,
+        pcls,
+        partner->uid,
+        partner->name,
+        coupler_on ? "inactive" : "active",
+        stage_phase_label(planning, *i),
+        cls,
+        coupler_on ? "active" : "inactive"));
+  };
+
+  // generator → turbines feeding it (two turbines on one generator).
+  // Keyed by array index so the report order is deterministic.
+  std::map<std::size_t, std::vector<const Turbine*>> gen_turb;
+  for (const auto& t : sys.turbine_array) {
+    const auto cls = Turbine::class_name.full_name();
+    const auto* gen = find_by_sid(sys.generator_array, t.generator);
+    if (gen != nullptr) {
+      const auto gidx = static_cast<std::size_t>(
+          std::distance(sys.generator_array.data(), gen));
+      gen_turb[gidx].push_back(&t);
+    }
+    check_pair(
+        cls, t.uid, t.name, t.active, "generator", "Generator", gen, true);
+    if (t.flow) {
+      check_pair(cls,
+                 t.uid,
+                 t.name,
+                 t.active,
+                 "flow",
+                 "Flow",
+                 find_by_sid(sys.flow_array, *t.flow),
+                 true);
+    }
+    if (t.waterway) {
+      check_pair(cls,
+                 t.uid,
+                 t.name,
+                 t.active,
+                 "waterway",
+                 "Waterway",
+                 find_by_sid(sys.waterway_array, *t.waterway),
+                 false);
+    }
+    if (t.junction_a) {
+      check_pair(cls,
+                 t.uid,
+                 t.name,
+                 t.active,
+                 "junction_a",
+                 "Junction",
+                 find_by_sid(sys.junction_array, *t.junction_a),
+                 false);
+    }
+    if (t.junction_b) {
+      check_pair(cls,
+                 t.uid,
+                 t.name,
+                 t.active,
+                 "junction_b",
+                 "Junction",
+                 find_by_sid(sys.junction_array, *t.junction_b),
+                 false);
+    }
+  }
+  for (const auto& [gidx, turbs] : gen_turb) {
+    if (turbs.size() > 1) {
+      const auto& gen = sys.generator_array[gidx];
+      std::string names;
+      for (const auto* t : turbs) {
+        names += std::format(
+            "{}uid={} '{}'", names.empty() ? "" : ", ", t->uid, t->name);
+      }
+      result.errors.push_back(std::format(
+          "Generator uid={} '{}' is fed by {} turbines ({}); a generator "
+          "has at most one turbine",
+          gen.uid,
+          gen.name,
+          turbs.size(),
+          names));
+    }
+  }
+
+  for (const auto& gt : sys.gas_turbine_array) {
+    const auto cls = GasTurbine::class_name.full_name();
+    check_pair(cls,
+               gt.uid,
+               gt.name,
+               gt.active,
+               "generator",
+               "Generator",
+               find_by_sid(sys.generator_array, gt.generator),
+               true);
+    check_pair(cls,
+               gt.uid,
+               gt.name,
+               gt.active,
+               "gas_node",
+               "GasNode",
+               find_by_sid(sys.gas_node_array, gt.gas_node),
+               false);
+  }
+
+  for (const auto& cv : sys.converter_array) {
+    const auto cls = Converter::class_name.full_name();
+    check_pair(cls,
+               cv.uid,
+               cv.name,
+               cv.active,
+               "battery",
+               "Battery",
+               find_by_sid(sys.battery_array, cv.battery),
+               true);
+    check_pair(cls,
+               cv.uid,
+               cv.name,
+               cv.active,
+               "generator",
+               "Generator",
+               find_by_sid(sys.generator_array, cv.generator),
+               true);
+  }
+
+  for (const auto& pm : sys.pump_array) {
+    const auto cls = Pump::class_name.full_name();
+    check_pair(cls,
+               pm.uid,
+               pm.name,
+               pm.active,
+               "waterway",
+               "Waterway",
+               find_by_sid(sys.waterway_array, pm.waterway),
+               true);
+    check_pair(cls,
+               pm.uid,
+               pm.name,
+               pm.active,
+               "load demand",
+               "Demand",
+               find_by_sid(sys.demand_array, pm.demand),
+               true);
+  }
+
+  for (const auto& cs : sys.gas_compressor_array) {
+    if (cs.drive_enum() != GasCompressorDrive::electric) {
+      continue;
+    }
+    const auto& bus_sid = cs.bus;
+    if (!bus_sid.has_value()) {
+      continue;
+    }
+    check_pair(GasCompressor::class_name.full_name(),
+               cs.uid,
+               cs.name,
+               cs.active,
+               "motor bus",
+               "Bus",
+               find_by_sid(sys.bus_array, *bus_sid),
+               false);
+  }
+
+  // must_run unit whose coupler is inactive while unit + commitment are on.
+  for (const auto& cm : sys.commitment_array) {
+    if (!cm.must_run.value_or(false)) {
+      continue;
+    }
+    const auto* gen = find_by_sid(sys.generator_array, cm.generator);
+    if (gen == nullptr) {
+      continue;
+    }
+    const auto report = [&](std::string_view ccls,
+                            Uid cuid,
+                            std::string_view cname,
+                            const OptActive& cactive)
+    {
+      for (std::size_t i = 0; i < nstages; ++i) {
+        if (active_at(cm.active, i).value_or(false)
+            && active_at(gen->active, i).value_or(false)
+            && !active_at(cactive, i).value_or(true))
+        {
+          result.errors.push_back(std::format(
+              "Commitment uid={} '{}': must_run unit Generator uid={} '{}' "
+              "has its {} uid={} '{}' inactive at {}; the unit cannot "
+              "produce there, so must_run is infeasible",
+              cm.uid,
+              cm.name,
+              gen->uid,
+              gen->name,
+              ccls,
+              cuid,
+              cname,
+              stage_phase_label(planning, i)));
+          return;
+        }
+      }
+    };
+    for (const auto& t : sys.turbine_array) {
+      if (find_by_sid(sys.generator_array, t.generator) == gen) {
+        report(Turbine::class_name.full_name(), t.uid, t.name, t.active);
+      }
+    }
+    for (const auto& gt : sys.gas_turbine_array) {
+      if (find_by_sid(sys.generator_array, gt.generator) == gen) {
+        report(GasTurbine::class_name.full_name(), gt.uid, gt.name, gt.active);
+      }
+    }
+    for (const auto& cv : sys.converter_array) {
+      if (find_by_sid(sys.generator_array, cv.generator) == gen) {
+        report(Converter::class_name.full_name(), cv.uid, cv.name, cv.active);
+      }
+    }
+  }
+}
+
+}  // namespace
+
 [[nodiscard]] ValidationResult validate_planning(Planning& planning)
 {
   ValidationResult result;
@@ -2261,11 +3336,18 @@ void check_element_mode_names(ValidationResult& result, const System& sys)
   check_flow_right_anchoring(result, planning.system);
   check_bound_rules(result, planning.system);
   check_heat_rate(result, planning.system);
+  check_reserve_planes(result, planning);
+  check_offline_provisions(result, planning);
+  check_commitment_stages(result, planning);
+  check_storage_activation(result, planning);
+  check_water_right_sources(result, planning);
+  check_coupler_activation(result, planning);
   check_fail_segments(result, planning);
   check_piecewise_feasibility(result, planning);
   check_aperture_references(result, planning);
   check_completeness(result, planning);
   check_scenario_probabilities(result, planning);
+  check_model_sanity(result, planning);
 
   // Gates for Optimal Transmission Switching (issue #509).  Count the
   // active LineCommitment rows once; both the method gate (rejects

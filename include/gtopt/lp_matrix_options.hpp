@@ -92,6 +92,31 @@ struct LpMatrixOptions
   OptInt ruiz_max_iterations {};
   OptReal ruiz_tolerance {};
 
+  /// Target magnitude of the LP-space dual of rows that carry a
+  /// `SparseRow::dual_hint` (reservoir energy balances).  Unset / <= 0 = off
+  /// (bit-identical LP).  Rows are multiplied AFTER equilibration by
+  /// `c = clamp(expected|y_LP| / target, 1/clamp, clamp)`; physical duals,
+  /// cuts and outputs are unchanged (the stored row scale absorbs `c`).
+  OptReal water_dual_target {};
+  /// Symmetric clamp `c in [1/k, k]` for the factor above (default 1e3).
+  OptReal water_dual_clamp {};
+  static constexpr double default_water_dual_clamp = 1e3;
+
+  /// EXPERIMENTAL.  Post-equilibration conditioning of the node-angle KVL
+  /// rows (`Line.theta`).  The KVL dual is `dLMP / x_tau`, up to 1e6-1e7
+  /// on congested low-impedance corridors.  When true, each KVL row is
+  /// multiplied after equilibration by
+  /// `c = clamp(x_ref / x_tau, 1/kvl_row_clamp, kvl_row_clamp)` with
+  /// `x_ref` = median(X/V^2) of the network (the LP dual becomes `y / c`;
+  /// physical duals, cuts and outputs unchanged).  Default off.
+  OptBool kvl_row_scale {};
+  OptReal kvl_row_clamp {};  ///< k in c in [1/k, k] (default 100)
+  static constexpr double default_kvl_row_clamp = 100.0;
+  /// Reference x_tau.  Unset: `PlanningLP::auto_scale_theta` fills it with
+  /// median(X/V^2) when `kvl_row_scale` is true.  An explicit value (also
+  /// enables the scaling) overrides the median.
+  OptReal kvl_x_ref {};
+
   double scale_objective {1.0};  ///< Global divisor for all objective
                                  ///< coefficients (numerical conditioning).
                                  ///< Applied uniformly during flatten().
@@ -189,6 +214,11 @@ struct LpMatrixOptions
     merge_opt(compute_stats, other.compute_stats);
     merge_opt(ruiz_max_iterations, other.ruiz_max_iterations);
     merge_opt(ruiz_tolerance, other.ruiz_tolerance);
+    merge_opt(water_dual_target, other.water_dual_target);
+    merge_opt(water_dual_clamp, other.water_dual_clamp);
+    merge_opt(kvl_row_scale, other.kvl_row_scale);
+    merge_opt(kvl_row_clamp, other.kvl_row_clamp);
+    merge_opt(kvl_x_ref, other.kvl_x_ref);
     validation.merge(other.validation);
     if (!other.solver_name.empty()) {
       solver_name = other.solver_name;
@@ -210,6 +240,11 @@ struct LpMatrixOptions
     compute_stats = merged.compute_stats;
     ruiz_max_iterations = merged.ruiz_max_iterations;
     ruiz_tolerance = merged.ruiz_tolerance;
+    water_dual_target = merged.water_dual_target;
+    water_dual_clamp = merged.water_dual_clamp;
+    kvl_row_scale = merged.kvl_row_scale;
+    kvl_row_clamp = merged.kvl_row_clamp;
+    kvl_x_ref = merged.kvl_x_ref;
     validation = merged.validation;
   }
 };

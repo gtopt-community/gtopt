@@ -35,6 +35,9 @@ using namespace gtopt;
 namespace uc_diagnostics_test  // unique outer namespace (unity-build safe)
 {
 
+namespace
+{
+
 // Build a PlanningLP from JSON and return the exception message, or an
 // empty string if no exception was thrown.  Construction triggers LP
 // build (UserConstraintLP ctor parses; add_to_lp lowers the rows), so
@@ -89,6 +92,8 @@ namespace uc_diagnostics_test  // unique outer namespace (unity-build safe)
   }})json";
   return std::format(tmpl, uc_name, expr);
 }
+
+}  // namespace
 // clang-format on
 
 TEST_CASE(  // NOLINT

@@ -123,8 +123,9 @@ TEST_CASE(
     CHECK(iv.domain() == IntegerDomain::Binary);
     CHECK(iv.scope() == IntegerScope::Block);
     CHECK(iv.group_uid() == GroupUid {7});
-    REQUIRE(iv.blocks().has_value());
-    CHECK(iv.blocks().value().size() == 1);
+    const auto iv_blocks = iv.blocks();
+    REQUIRE(iv_blocks.has_value());
+    CHECK((iv_blocks && iv_blocks->size() == 1));
   }
 
   SUBCASE("Integer scope Group — multi-block fan-out")
@@ -141,8 +142,9 @@ TEST_CASE(
                         grp_blocks};
     CHECK(iv.domain() == IntegerDomain::Integer);
     CHECK(iv.scope() == IntegerScope::Group);
-    REQUIRE(iv.blocks().has_value());
-    CHECK(iv.blocks().value().size() == 2);
+    const auto iv_blocks = iv.blocks();
+    REQUIRE(iv_blocks.has_value());
+    CHECK((iv_blocks && iv_blocks->size() == 2));
   }
 
   SUBCASE("Relaxed scope Stage — stage fan-out")
@@ -327,8 +329,9 @@ TEST_CASE("SimulationLP add_integer_variable: registry round-trip")  // NOLINT
     CHECK(iv.col() == col_idx);
     CHECK(iv.domain() == IntegerDomain::Binary);
     CHECK(iv.scope() == IntegerScope::Block);
-    REQUIRE(iv.blocks().has_value());
-    CHECK(iv.blocks().value().size() == 1);
+    const auto iv_blocks = iv.blocks();
+    REQUIRE(iv_blocks.has_value());
+    CHECK((iv_blocks && iv_blocks->size() == 1));
   }
 
   SUBCASE("idempotent re-registration (same col) is a no-op — no throw")
@@ -380,8 +383,8 @@ TEST_CASE("SimulationLP add_integer_variable: registry round-trip")  // NOLINT
                                     std::span<const BlockUid>(blocks));
     const auto opt = sim_lp.integer_variable(key);
     REQUIRE(opt.has_value());
-    CHECK(opt.value().get().col() == col_idx);
-    CHECK(opt.value().get().domain() == IntegerDomain::Binary);
+    CHECK((opt && opt->get().col() == col_idx));
+    CHECK((opt && opt->get().domain() == IntegerDomain::Binary));
   }
 
   SUBCASE("lookup for unregistered key returns nullopt")
@@ -651,8 +654,9 @@ TEST_CASE(
       // Relaxed (per add_integer_col logic).
       CHECK(iv.scope() == IntegerScope::Block);
       CHECK(iv.domain() == IntegerDomain::Relaxed);
-      REQUIRE(iv.blocks().has_value());
-      CHECK(iv.blocks().value().size() == 1);
+      const auto iv_blocks = iv.blocks();
+      REQUIRE(iv_blocks.has_value());
+      CHECK((iv_blocks && iv_blocks->size() == 1));
     }
   }
   // Two blocks in the stage, identity layout → 2 status entries.

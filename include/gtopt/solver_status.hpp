@@ -47,6 +47,13 @@ struct SolverStatusSnapshot
   int scenes_done {};  ///< Scenes completed in current pass
   std::string solver {};  ///< Solver identity ("name/version")
   std::string method {};  ///< Planning method ("sddp", "monolithic", …)
+  /// Terminal status label written once the solve has ended
+  /// ("converged", "max_iterations", "stopped", "error").  Empty
+  /// while the solve is live: the label is then derived from `converged`
+  /// / `iteration_index` ("initializing" / "running" / "converged").  A
+  /// non-empty value also makes `write_solver_status()` the LAST write
+  /// (the monitor's periodic refresh is disabled afterwards).
+  std::string final_status {};
   const PhaseGridRecorder* phase_grid {};  ///< Non-owning; null if no grid
 
   // ── Async scene execution fields (populated only in async mode) ──

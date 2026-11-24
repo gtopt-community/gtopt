@@ -11,6 +11,9 @@
 #include <charconv>
 #include <format>
 #include <functional>
+#include <optional>
+#include <string_view>
+#include <tuple>
 #include <utility>
 
 #include <gtopt/as_label.hpp>
@@ -104,12 +107,16 @@ namespace
   //   coef × gen[t] − coef × gen[t−1] ≤ rhs
   // The suffix is stripped here, the base attribute name reused for
   // the registry lookup, and ``buid`` redirected to the immediately
-  // preceding block in the stage's chronological ordering.  When
-  // the current block is the FIRST block (or the stage is not
-  // chronological), no prior LP column exists — return nullopt so
-  // the caller falls through to ``resolve_single_param``, which
-  // handles the boundary case via ``commitment.initial_status``.
+  // preceding block in the stage's chronological ordering.  At the
+  // FIRST block of a stage the previous block is the LAST block of the
+  // previous stage when that stage belongs to the SAME phase (same LP);
+  // otherwise — the horizon start, or the first stage of a later phase,
+  // whose predecessor lives in another LP — there is no prior column:
+  // return nullopt so the caller falls through to
+  // ``resolve_single_param``, which supplies the boundary constant
+  // (``initial_<attr>`` at the horizon start, else 0).
   std::string normalised_attr {ref.attribute};
+  StageUid lookup_suid = stage.uid();
   static constexpr std::string_view PREV_SUFFIX {"_prev"};
   // Convention shared with DecisionVariableLP: a `block_state` variable
   // registers its cross-phase incoming column under `<attr>` + this suffix
@@ -165,12 +172,26 @@ namespace
     const auto& blocks = stage.blocks();
     const auto it = std::ranges::find_if(
         blocks, [buid](const BlockLP& b) { return b.uid() == buid; });
-    if (it == blocks.end() || it == blocks.begin()) {
-      // First block (or block not in this stage) — let
-      // resolve_single_param emit the initial-state constant.
+    if (it == blocks.end()) {
       return std::nullopt;
     }
-    buid = std::prev(it)->uid();
+    if (it == blocks.begin()) {
+      // First block of the stage: chain to the last block of the
+      // previous stage when it is in the SAME phase (``prev_stage``
+      // returns a null phase pointer for a same-phase predecessor) and
+      // also chronological.  Horizon start / later-phase first stage →
+      // nullopt, and resolve_single_param emits the boundary constant.
+      const auto [prev_stage, prev_phase] = sc.simulation().prev_stage(stage);
+      if (prev_stage == nullptr || prev_phase != nullptr
+          || prev_stage->blocks().empty() || !prev_stage->is_chronological())
+      {
+        return std::nullopt;
+      }
+      lookup_suid = prev_stage->uid();
+      buid = prev_stage->blocks().back().uid();
+    } else {
+      buid = std::prev(it)->uid();
+    }
   }
 
   // 1. Convert element_id (Uid or Name) into a concrete Uid.  Names
@@ -208,7 +229,7 @@ namespace
                                         *uid_opt,
                                         normalised_attr,
                                         scenario.uid(),
-                                        stage.uid(),
+                                        lookup_suid,
                                         buid))
   {
     // Optional additive offset: physical = LP * scale + offset.
@@ -222,7 +243,7 @@ namespace
                                       *uid_opt,
                                       normalised_attr,
                                       scenario.uid(),
-                                      stage.uid(),
+                                      lookup_suid,
                                       buid),
     };
   }
@@ -478,8 +499,16 @@ namespace
       }
       // Registered for this (class, uid, attribute) here but no column
       // for THIS block (e.g. per-block pmax=0): a defined silent-zero —
-      // the element is known so the term legitimately contributes 0.
-      return {.emitted = false, .offset_shift = 0.0, .element_known = true};
+      // the element is known so the term legitimately contributes 0 —
+      // UNLESS the element is scope-restricted (a single-block
+      // DecisionVariable), whose missing column is a scope mismatch.
+      return {
+          .emitted = false,
+          .offset_shift = 0.0,
+          .element_known = true,
+          .unreachable_scope =
+              sc.find_ampl_scoped_element(ref.element_type, *uid_opt),
+      };
     }
   }
 
@@ -495,10 +524,16 @@ namespace
         .element_known = true,
     };
   }
+  // A scope-restricted element (coarse-scope / single-block DecisionVariable)
+  // whose column is not registered at this (scenario, stage, block) is a
+  // scope mismatch, never an implicit zero: flag it for the caller.
   return {
       .emitted = false,
       .offset_shift = 0.0,
       .element_known = element_known_silent_zero(),
+      .unreachable_scope = uid_opt.has_value()
+          ? sc.find_ampl_scoped_element(ref.element_type, *uid_opt)
+          : nullptr,
   };
 }
 }  // namespace
@@ -537,6 +572,7 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
   {
     ResolveColResult out;
     out.element_known = direct.element_known;
+    out.unreachable_scope = direct.unreachable_scope;
     for (const auto& leg : *legs) {
       ElementRef leg_ref = ref;
       leg_ref.attribute = std::string {leg.source_attribute};
@@ -630,22 +666,6 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     return std::nullopt;
   }
 
-  // ── "_prev" suffix at the boundary ─────────────────────────────────
-  // ``resolve_single_col`` strips a trailing ``_prev`` and looks up the
-  // SAME class+uid+base-attribute at the previous chronological block.
-  // It returns nullopt for the FIRST block (no prior column) and for
-  // non-chronological stages.  Both cases land here.  Treat the missing
-  // prior value as 0 (cold-start: the unit was off before t=0).  This
-  // makes ``coef × generation_prev`` cleanly vanish for the boundary,
-  // matching PLEXOS's default behaviour for ramp constraints at the
-  // start of a horizon.  A follow-up can read
-  // ``commitment.initial_status × pmax_at_block_0`` instead for warm
-  // starts; until then the cold-start assumption is conservative
-  // (no ramp budget is consumed against a phantom prior dispatch).
-  if (ref.attribute.ends_with("_prev")) {
-    return 0.0;
-  }
-
   const auto single_id = parse_element_id(ref.element_id);
   const auto suid = stage.uid();
   const auto buid = block.uid();
@@ -665,6 +685,39 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     }
     return std::nullopt;
   }();
+
+  // ── "_prev" suffix at the boundary ─────────────────────────────────
+  // ``resolve_single_col`` strips a trailing ``_prev`` and looks up the
+  // SAME class+uid+base-attribute at the previous chronological block —
+  // across a stage boundary too, when the previous stage is in the same
+  // phase (same LP).  It returns nullopt when no prior column exists:
+  //   * the FIRST block of the HORIZON (no predecessor stage at all):
+  //     the prior value is the element's initial condition
+  //     ``initial_<attr>`` when that parameter is registered and set
+  //     (``generator.initial_generation`` for ``generation_prev``,
+  //     PLEXOS ``Initial Generation``) — a constant folded into the row,
+  //     so ``gen − gen_prev ≤ R`` at h1 reads ``gen ≤ R + gen₀``;
+  //   * otherwise — no initial value, the first stage of a LATER phase
+  //     (its predecessor lives in another LP and ``_prev`` carries no
+  //     cross-phase state link), or a non-chronological stage — 0
+  //     (cold start, the legacy behaviour).  The initial value is NEVER
+  //     applied past the horizon start.
+  if (ref.attribute.ends_with("_prev")) {
+    const bool horizon_start = !stage.blocks().empty()
+        && stage.blocks().front().uid() == block.uid()
+        && sc.simulation().prev_stage(stage).first == nullptr;
+    if (horizon_start && uid_opt) {
+      std::string initial_attr {"initial_"};
+      initial_attr += std::string_view {ref.attribute}.substr(
+          0, ref.attribute.size() - std::string_view {"_prev"}.size());
+      if (const auto fn = sc.find_ampl_param(ref.element_type, initial_attr)) {
+        if (auto v = fn(sc, *uid_opt, suid, buid)) {
+          return v;
+        }
+      }
+    }
+    return 0.0;
+  }
 
   if (!uid_opt) {
     // Unknown element name on the parameter path.  nullopt flows back to
@@ -835,7 +888,8 @@ double collect_sum_cols(const SystemContext& sc,
                         const SumElementRef& sum_ref,
                         double base_coeff,
                         SparseRow& row,
-                        const LinearProblem& lp)
+                        const LinearProblem& lp,
+                        std::vector<UnreachableSumElement>* unreachable)
 {
   double offset_shift = 0.0;
   // Helper lambda: add one ElementRef to the row.  Uses the compound-aware
@@ -853,6 +907,13 @@ double collect_sum_cols(const SystemContext& sc,
     const auto res = resolve_col_to_row(
         sc, scenario, stage, block, ref, base_coeff, row, lp);
     offset_shift += res.offset_shift;
+    if (!res.emitted && unreachable != nullptr) {
+      unreachable->push_back(UnreachableSumElement {
+          .element_id = eid,
+          .scope = res.unreachable_scope,
+          .element_known = res.element_known,
+      });
+    }
   };
 
   if (sum_ref.all_elements) {
@@ -898,6 +959,117 @@ double collect_sum_cols(const SystemContext& sc,
     }
   }
   return offset_shift;
+}
+
+std::string_view dropped_term_kind_name(DroppedTermKind kind) noexcept
+{
+  switch (kind) {
+    case DroppedTermKind::suppressed:
+      return "suppressed by planning mode";
+    case DroppedTermKind::inactive:
+      return "inactive element";
+    case DroppedTermKind::prev_first_block:
+      return "prev at first block";
+    case DroppedTermKind::block_omitted:
+      return "no column at this block";
+    case DroppedTermKind::zero_capacity:
+      return "zero capacity";
+    case DroppedTermKind::not_materialised:
+      return "attribute not built for element";
+    case DroppedTermKind::scope_mismatch:
+      return "scope mismatch";
+  }
+  return "unknown";
+}
+
+std::optional<bool> element_ref_active(const SystemContext& sc,
+                                       const ScenarioLP& scenario,
+                                       const StageLP& stage,
+                                       const ElementRef& ref)
+{
+  const auto res = resolve_element_ref(sc, ref, scenario.uid(), stage.uid());
+  if (!res.uid) {
+    return std::nullopt;
+  }
+  if (const auto active_fn = sc.find_ampl_active(ref.element_type)) {
+    return active_fn(sc, *res.uid, stage);
+  }
+  return std::nullopt;
+}
+
+DroppedTermKind classify_dropped_term(const SystemContext& sc,
+                                      const ScenarioLP& scenario,
+                                      const StageLP& stage,
+                                      const BlockLP& block,
+                                      const ElementRef& ref,
+                                      bool suppressed)
+{
+  if (suppressed) {
+    return DroppedTermKind::suppressed;
+  }
+  const auto res = resolve_element_ref(sc, ref, scenario.uid(), stage.uid());
+  if (!res.uid) {
+    return DroppedTermKind::not_materialised;
+  }
+  const auto uid = *res.uid;
+
+  // `prev(x)` / `x_prev` at the first block of a stage with no incoming
+  // column (first stage of the horizon): nothing to lag.
+  const bool is_prev = ref.prev_wrapped || ref.attribute.ends_with("_prev");
+  if (is_prev && !stage.blocks().empty()
+      && stage.blocks().front().uid() == block.uid())
+  {
+    return DroppedTermKind::prev_first_block;
+  }
+
+  // Registered at this (scenario, stage) -- just not at this block (the
+  // per-block pmax = 0 omission).
+  if (res.var != nullptr) {
+    return DroppedTermKind::block_omitted;
+  }
+
+  if (const auto active_fn = sc.find_ampl_active(ref.element_type)) {
+    if (const auto active = active_fn(sc, uid, stage); active && !*active) {
+      return DroppedTermKind::inactive;
+    }
+  }
+
+  // Zero capacity at this block (GeneratorLP / DemandLP / LineLP skip the
+  // block's column under lp_reduction).
+  const auto param_at = [&](std::string_view attr) -> std::optional<double>
+  {
+    if (const auto fn = sc.find_ampl_param(ref.element_type, attr)) {
+      return fn(sc, uid, stage.uid(), block.uid());
+    }
+    return std::nullopt;
+  };
+  for (const auto attr : {std::string_view {"pmax"}, std::string_view {"lmax"}})
+  {
+    if (const auto v = param_at(attr); v && *v == 0.0) {
+      return DroppedTermKind::zero_capacity;
+    }
+  }
+  if (const auto ab = param_at("tmax_ab"); ab && *ab == 0.0) {
+    if (const auto ba = param_at("tmax_ba"); ba && *ba == 0.0) {
+      return DroppedTermKind::zero_capacity;
+    }
+  }
+
+  // Registered for THIS element at an earlier stage of the same LP (same
+  // scenario) but not here, while the element is active with capacity:
+  // the column was never registered where the row looks.
+  for (auto [prev, prev_phase] = sc.prev_stage(stage);
+       prev != nullptr && prev_phase == nullptr;
+       std::tie(prev, prev_phase) = sc.prev_stage(*prev))
+  {
+    if (sc.find_ampl_variable(
+            ref.element_type, uid, ref.attribute, scenario.uid(), prev->uid())
+        != nullptr)
+    {
+      return DroppedTermKind::scope_mismatch;
+    }
+  }
+  return DroppedTermKind::not_materialised;
 }
 
 }  // namespace gtopt

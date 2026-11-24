@@ -156,9 +156,7 @@ auto mps_names(const std::string& text) -> ModelNames
       } else if (f[0] != "N") {
         names.rows.insert(f[1]);
       }
-    } else if (section == "COLUMNS" && !f.empty()
-               && line.find("MARKER") == std::string::npos)
-    {
+    } else if (section == "COLUMNS" && !f.empty() && !line.contains("MARKER")) {
       names.cols.insert(f[0]);
     }
   }
@@ -544,8 +542,7 @@ TEST_CASE("write_lp mps keeps names and integer columns")  // NOLINT
     CHECK(text.find("ENDATA") != std::string::npos);
     // Integer columns: MARKER INTORG/INTEND sections, or BV bounds for
     // binaries (CoinMpsIO).
-    CHECK((text.find("MARKER") != std::string::npos
-           || text.find(" BV ") != std::string::npos));
+    CHECK((text.contains("MARKER") || text.contains(" BV ")));
     CHECK(text.find("generator") != std::string::npos);
     CHECK(text.find("commitment") != std::string::npos);
     std::filesystem::remove_all(dir);

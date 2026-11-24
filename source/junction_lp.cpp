@@ -34,7 +34,7 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
 
   const auto& blocks = stage.blocks();
   if (blocks.empty()) {
-    return false;
+    return true;  // nothing to build (not a failure)
   }
 
   // Reserve space for balance rows and drain columns

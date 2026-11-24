@@ -27,7 +27,7 @@ bool AmmoniaNodeLP::add_to_lp([[maybe_unused]] const SystemContext& sc,
 
   const auto& blocks = stage.blocks();
   if (blocks.empty()) {
-    return false;
+    return true;  // nothing to build (not a failure)
   }
 
   BIndexHolder<RowIndex> brows;

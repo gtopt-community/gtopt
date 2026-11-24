@@ -11,8 +11,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_monolithic_options.hpp>
 
+#include "../require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("MonolithicOptions JSON - Full deserialization")
 {
@@ -33,19 +34,23 @@ TEST_CASE("MonolithicOptions JSON - Full deserialization")
   const auto opts = daw::json::from_json<MonolithicOptions>(json_data);
 
   REQUIRE(opts.solve_mode.has_value());
-  CHECK(*opts.solve_mode == SolveMode::sequential);
+  CHECK(test_support::require_value(opts.solve_mode) == SolveMode::sequential);
   REQUIRE(opts.boundary_cuts_file.has_value());
-  CHECK(*opts.boundary_cuts_file == "boundary.csv");
+  CHECK(test_support::require_value(opts.boundary_cuts_file) == "boundary.csv");
   REQUIRE(opts.boundary_cuts_mode.has_value());
-  CHECK(*opts.boundary_cuts_mode == BoundaryCutsMode::combined);
+  CHECK(test_support::require_value(opts.boundary_cuts_mode)
+        == BoundaryCutsMode::combined);
   REQUIRE(opts.boundary_max_iterations.has_value());
-  CHECK(*opts.boundary_max_iterations == 10);
+  CHECK(test_support::require_value(opts.boundary_max_iterations) == 10);
   REQUIRE(opts.solver_options.has_value());
-  CHECK(opts.solver_options->algorithm == LPAlgo::primal);
-  CHECK(opts.solver_options->threads == 4);
-  REQUIRE(opts.solver_options->time_limit.has_value());
-  CHECK(opts.solver_options->time_limit.value_or(0.0)
-        == doctest::Approx(3600.0));
+  CHECK(test_support::require_value(opts.solver_options).algorithm
+        == LPAlgo::primal);
+  CHECK(test_support::require_value(opts.solver_options).threads == 4);
+  REQUIRE(
+      test_support::require_value(opts.solver_options).time_limit.has_value());
+  CHECK(
+      test_support::require_value(opts.solver_options).time_limit.value_or(0.0)
+      == doctest::Approx(3600.0));
 }
 
 TEST_CASE("MonolithicOptions JSON - Missing fields stay nullopt")
@@ -57,7 +62,7 @@ TEST_CASE("MonolithicOptions JSON - Missing fields stay nullopt")
   const auto opts = daw::json::from_json<MonolithicOptions>(json_data);
 
   REQUIRE(opts.solve_mode.has_value());
-  CHECK(*opts.solve_mode == SolveMode::monolithic);
+  CHECK(test_support::require_value(opts.solve_mode) == SolveMode::monolithic);
   CHECK_FALSE(opts.boundary_cuts_file.has_value());
   CHECK_FALSE(opts.boundary_cuts_mode.has_value());
   CHECK_FALSE(opts.boundary_max_iterations.has_value());
@@ -95,5 +100,3 @@ TEST_CASE("MonolithicOptions JSON - Empty object")
   CHECK_FALSE(opts.solve_mode.has_value());
   CHECK_FALSE(opts.boundary_cuts_file.has_value());
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

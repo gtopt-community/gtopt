@@ -63,11 +63,13 @@ TEST_CASE("solution_status_name maps CLP status codes")  // NOLINT
   CHECK(solution_status_name(2) == "unbounded");
   CHECK(solution_status_name(3) == "iteration_limit");
   CHECK(solution_status_name(4) == "error");
+  CHECK(solution_status_name(solution_status_limit_polished)
+        == "limit_polished");
 
   SUBCASE("out-of-range and the never-solved sentinel report unknown")
   {
     CHECK(solution_status_name(-1) == "unknown");
-    CHECK(solution_status_name(5) == "unknown");
+    CHECK(solution_status_name(6) == "unknown");
     CHECK(solution_status_name(99) == "unknown");
   }
 }

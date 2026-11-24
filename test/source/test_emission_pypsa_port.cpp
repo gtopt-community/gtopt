@@ -351,7 +351,8 @@ TEST_CASE(
 
   const Real coal_co2 = co2_per_el(kCoal);  // 0.96
   const Real gas_co2 = co2_per_el(kGas);  // 0.396
-  const Real coal_expected = (kCap - gas_co2 * kLoadMW) / (coal_co2 - gas_co2);
+  const Real coal_expected =
+      (kCap - (gas_co2 * kLoadMW)) / (coal_co2 - gas_co2);
   const Real gas_expected = kLoadMW - coal_expected;
   const Real obj_expected = (coal_expected * kCoal.marginal_cost)
       + (gas_expected * kGas.marginal_cost);

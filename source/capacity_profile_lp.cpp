@@ -13,6 +13,7 @@
 
 #include <gtopt/capacity_profile_lp.hpp>
 #include <gtopt/capacity_profile_traits.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/system_context.hpp>
 #include <spdlog/spdlog.h>
 
@@ -86,8 +87,17 @@ bool CapacityProfileLP::add_to_lp(const SystemContext& sc,
             opt_capacity.value_or(LinearProblem::DblMax);
 
         if (!capacity_col && !Traits::has_capacity(owner)) {
-          SPDLOG_WARN("{}", Traits::capacity_warning);
-          return false;
+          fail_lp(*this,
+                  scenario,
+                  stage,
+                  {
+                      .field = "owner.capacity",
+                      .value = "unset",
+                      .expected = "a capacity or an expansion on the owner",
+                      .detail = std::format("{} (owner uid={})",
+                                            Traits::capacity_warning,
+                                            owner.uid()),
+                  });
         }
 
         return add_profile_to_lp(Traits::output_class_name.full_name(),

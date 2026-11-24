@@ -33,6 +33,14 @@ function(add_case_lp_only_tests prefix cases_root)
     set(GTOPT_EXECUTABLE_FILE "$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>")
   endif()
 
+  # MIP-capable backend for the unit-commitment cases (see below).
+  set(_mip_solver "")
+  if(TARGET gtopt_solver_highs)
+    set(_mip_solver highs)
+  elseif(TARGET gtopt_solver_osi)
+    set(_mip_solver cbc)
+  endif()
+
   get_filename_component(_root "${cases_root}" ABSOLUTE)
   file(GLOB _jsons CONFIGURE_DEPENDS "${_root}/*/*.json")
   list(SORT _jsons)
@@ -61,12 +69,14 @@ function(add_case_lp_only_tests prefix cases_root)
     set(_out "${CMAKE_CURRENT_BINARY_DIR}/test_output/${_test}")
 
     # Unit-commitment cases carry integer columns, which an LP-only
-    # backend refuses even under --lp-only (CI exports GTOPT_SOLVER=clp):
-    # load them into a MIP-capable solver.
+    # backend (CLP) refuses even under --lp-only (e.g. a local
+    # GTOPT_SOLVER=clp run): load them into a MIP-capable solver that
+    # this build actually provides (HiGHS first -- the only plugin on CI
+    # -- then CBC via the OSI plugin; else leave it to auto-detection).
     set(_solver_args "")
     string(FIND "${_content}" "\"commitment_array\"" _has_uc)
-    if(NOT _has_uc EQUAL -1)
-      set(_solver_args --solver cbc)
+    if(NOT _has_uc EQUAL -1 AND _mip_solver)
+      set(_solver_args --solver ${_mip_solver})
     endif()
 
     add_test(

@@ -35,6 +35,7 @@
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/kirchhoff_cycle_basis.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/lp_fingerprint.hpp>
 #include <gtopt/lp_name_spill.hpp>
 #include <gtopt/map_reserve.hpp>
@@ -112,6 +113,53 @@ auto make_collection(InputContext& input_context,
 //
 //
 
+/// Run one element's `add_to_lp` under the LP-assembly failure policy
+/// (lp_build_error.hpp): every failure is fatal and carries the element
+/// context.  Bus and Line go through here like every other element.
+///
+///   * `LpBuildError` (raised via `fail_lp`) — already carries the
+///     element context; re-thrown as is.
+///   * any other `std::exception` (runtime / logic / bad_optional_access
+///     / bad_alloc …) — re-thrown as an `LpBuildError` with class, uid,
+///     name, scenario and stage and the original message, so a half-built
+///     element is never silently skipped.
+///   * `return false` — not a silent skip any more: it becomes an
+///     `LpBuildError` too.
+template<typename ElementLP>
+bool add_element_to_lp_or_throw(ElementLP& e,
+                                SystemContext& system_context,
+                                const ScenarioLP& scenario,
+                                const StageLP& stage,
+                                LinearProblem& lp)
+{
+  const auto context = [&](std::string message)
+  {
+    auto info = detail::lp_error_context(e);
+    info.scenario = scenario.uid();
+    info.stage = stage.uid();
+    info.detail = std::move(message);
+    return info;
+  };
+
+  bool ok = false;
+  try {
+    ok = e.add_to_lp(system_context, scenario, stage, lp);
+  } catch (const LpBuildError& ex) {
+    SPDLOG_ERROR("{}", ex.what());
+    throw;
+  } catch (const std::exception& ex) {
+    auto info = context(ex.what());
+    SPDLOG_ERROR("{}", format_lp_build_error(info));
+    throw LpBuildError {std::move(info)};
+  }
+  if (!ok) [[unlikely]] {
+    auto info = context("add_to_lp returned false without raising an error");
+    SPDLOG_ERROR("{}", format_lp_build_error(info));
+    throw LpBuildError {std::move(info)};
+  }
+  return true;
+}
+
 constexpr auto add_to_lp(auto& collections,
                          SystemContext& system_context,
                          const ScenarioLP& scenario,
@@ -134,63 +182,19 @@ constexpr auto add_to_lp(auto& collections,
     // skipped here and handled by their own pass).
     if constexpr (!HasAddToLp<T>) {
       return true;
-    } else if constexpr (std::is_same_v<T, BusLP>) {
-      return !use_single_bus || system_context.system().is_single_bus(e.id())
-          ? e.add_to_lp(system_context, scenario, stage, lp)
-          : true;
-    } else if constexpr (std::is_same_v<T, LineLP>) {
-      return !use_single_bus ? e.add_to_lp(system_context, scenario, stage, lp)
-                             : true;
     } else {
-      const auto log_failure = [&](const std::exception& ex)
-      {
-        SPDLOG_ERROR(
-            std::format("Error adding {} uid={} to LP "
-                        "(scenario={}, stage={}): {}",
-                        T::Element::class_name,
-                        e.uid(),
-                        scenario.uid(),
-                        stage.uid(),
-                        ex.what()));
-      };
-      try {
-        // For all other elements, just call their add_to_lp method
-        return e.add_to_lp(system_context, scenario, stage, lp);
-      } catch (const std::runtime_error& ex) {
-        // `std::runtime_error` is reserved for fail-fast schema/author
-        // errors (missing `stage.month` on a `reset_month` VR, monthly
-        // parameter out of range, etc.) and always propagates so the
-        // caller cannot silently produce a wrong LP.
-        log_failure(ex);
-        throw;
-      } catch (const std::logic_error& ex) {
-        // `std::logic_error` (and subclasses: `std::out_of_range`,
-        // `std::invalid_argument`, `std::domain_error`, etc.) signals
-        // a programmer/data bug — `flat_map::at` on a missing key, a
-        // sentinel array indexed past its size, etc.  These are NOT
-        // transient noise that "log and continue" can paper over: the
-        // LP being built is structurally wrong and continuing produces
-        // either a malformed solve or a downstream cascade of thousands
-        // of identical errors that bury the root cause.  Fail fast so
-        // the caller (gtopt_main) returns a clean non-zero exit with
-        // one diagnostic on stderr instead of a 6k-error log file.
-        log_failure(ex);
-        throw;
-      } catch (const std::exception& ex) {
-        log_failure(ex);
-        // Any other failure is logged and the element skipped, except
-        // for user constraints in strict/debug mode: those propagate so
-        // the caller can surface non-convex rejections, unknown
-        // parameters, and similar author errors instead of silently
-        // dropping the constraint.
-        if constexpr (std::is_same_v<T, UserConstraintLP>) {
-          const auto mode = system_context.options().constraint_mode();
-          if (mode == ConstraintMode::strict || mode == ConstraintMode::debug) {
-            throw;
-          }
+      // Bus / Line are skipped under the single-bus override (only the
+      // single bus itself is built); every other element always builds.
+      if constexpr (std::is_same_v<T, BusLP>) {
+        if (use_single_bus && !system_context.system().is_single_bus(e.id())) {
+          return true;
         }
-        return false;
+      } else if constexpr (std::is_same_v<T, LineLP>) {
+        if (use_single_bus) {
+          return true;
+        }
       }
+      return add_element_to_lp_or_throw(e, system_context, scenario, stage, lp);
     }
   };
 
@@ -248,6 +252,57 @@ constexpr auto add_to_planning_lp(
   const auto phase_count = visit_elements(collections, phase_visitor);
   const auto global_count = visit_elements(collections, global_visitor);
   return phase_count + global_count;
+}
+
+/// @brief Coarse-scope column pre-pass for one (scene, phase) cell.  Runs
+/// once, BEFORE the per-(scenario, stage) `add_to_lp` loop, so the single
+/// cell column of a `phase` / `global`-scoped DecisionVariable is already
+/// registered with the AMPL resolver when block- and stage-scoped user
+/// constraints are assembled.  (Built in the planning pass instead, those
+/// terms used to be dropped as 0 — the row then read e.g. `x <= 0`.)
+///
+/// @return participating-element count.
+constexpr auto add_cell_cols_to_lp(auto& collections,
+                                   SystemContext& system_context,
+                                   const SceneLP& scene,
+                                   const PhaseLP& phase,
+                                   LinearProblem& lp)
+{
+  auto visitor = [&](auto& e) -> bool
+  {
+    using T = std::decay_t<decltype(e)>;
+    if constexpr (HasAddCellCols<T>) {
+      // A failed pre-pass would leave every reference to the cell column
+      // unresolved: fail loudly with the element named, instead of the
+      // silently discarded `false` / context-free exception of before.
+      bool ok = false;
+      try {
+        ok = e.add_cell_cols(system_context, scene, phase, lp);
+      } catch (const std::exception& ex) {
+        throw std::runtime_error(
+            std::format("{} uid={}: coarse-scope column pre-pass failed "
+                        "(scene {}, phase {}): {}",
+                        T::Element::class_name.full_name(),
+                        e.uid(),
+                        scene.uid(),
+                        phase.uid(),
+                        ex.what()));
+      }
+      if (!ok) {
+        throw std::runtime_error(
+            std::format("{} uid={}: coarse-scope column pre-pass failed "
+                        "(scene {}, phase {})",
+                        T::Element::class_name.full_name(),
+                        e.uid(),
+                        scene.uid(),
+                        phase.uid()));
+      }
+      return true;
+    } else {
+      return true;
+    }
+  };
+  return visit_elements(collections, visitor);
 }
 
 /// @brief Pin orphaned theta variables in disconnected bus islands.
@@ -451,6 +506,10 @@ constexpr auto flatten_from_collections(auto& collections,
                  enum_name(sc_opts.kirchhoff_mode()),
                  is_cycle_basis ? "yes" : "no");
   }
+
+  // Coarse-scope cell columns first (see add_cell_cols_to_lp), so every
+  // operational row below can reference them.
+  add_cell_cols_to_lp(collections, system_context, scene, phase, lp);
 
   // Process all active stages in phase
   for (auto&& stage : phase.stages()) {
@@ -787,6 +846,18 @@ void create_collections(const auto& system_context,
   // Fuel storage
   std::get<Collection<LngTerminalLP>>(colls) =
       make_collection<LngTerminalLP>(ic, sys.lng_terminal_array);
+  std::get<Collection<GasNodeLP>>(colls) =
+      make_collection<GasNodeLP>(ic, sys.gas_node_array);
+  std::get<Collection<GasSupplyLP>>(colls) =
+      make_collection<GasSupplyLP>(ic, sys.gas_supply_array);
+  std::get<Collection<GasDemandLP>>(colls) =
+      make_collection<GasDemandLP>(ic, sys.gas_demand_array);
+  std::get<Collection<GasPipeLP>>(colls) =
+      make_collection<GasPipeLP>(ic, sys.gas_pipe_array);
+  std::get<Collection<GasCompressorLP>>(colls) =
+      make_collection<GasCompressorLP>(ic, sys.gas_compressor_array);
+  std::get<Collection<GasTurbineLP>>(colls) =
+      make_collection<GasTurbineLP>(ic, sys.gas_turbine_array);
 
   // DecisionVariableLP sits just before UserConstraintLP so its free
   // columns are registered with the AMPL resolver before any user
@@ -848,6 +919,20 @@ void create_collections(const auto& system_context,
 /// `SystemLP` is built through `PlanningLP::create_systems` (parallel
 /// across scenes) or directly by tests that construct one `SimulationLP`
 /// + `SystemLP` pair.
+/// `AmplActiveFn` for one LP class: the element's own `is_active(stage)`,
+/// or nullopt when the uid is not in this cell's collection.
+template<typename LP>
+std::optional<bool> ampl_element_active(const SystemContext& sc,
+                                        Uid element_uid,
+                                        const StageLP& stage)
+{
+  try {
+    return sc.get_element(ObjectSingleId<LP> {element_uid}).is_active(stage);
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+}
+
 template<typename LP, typename Array>
 void register_element_names(SimulationLP& sim, const Array& arr)
 {
@@ -855,6 +940,7 @@ void register_element_names(SimulationLP& sim, const Array& arr)
   for (const auto& obj : arr) {
     sim.register_ampl_element(class_name, obj.name, obj.uid);
   }
+  sim.register_ampl_active(class_name, &ampl_element_active<LP>);
 }
 
 void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
@@ -878,6 +964,12 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<FlowLP>(sim, sys.flow_array);
   register_element_names<DecisionVariableLP>(sim, sys.decision_variable_array);
   register_element_names<FlowRightLP>(sim, sys.flow_right_array);
+  register_element_names<GasNodeLP>(sim, sys.gas_node_array);
+  register_element_names<GasSupplyLP>(sim, sys.gas_supply_array);
+  register_element_names<GasDemandLP>(sim, sys.gas_demand_array);
+  register_element_names<GasPipeLP>(sim, sys.gas_pipe_array);
+  register_element_names<GasCompressorLP>(sim, sys.gas_compressor_array);
+  register_element_names<GasTurbineLP>(sim, sys.gas_turbine_array);
   register_element_names<FuelLP>(sim, sys.fuel_array);
   register_element_names<GeneratorLP>(sim, sys.generator_array);
   register_element_names<JunctionLP>(sim, sys.junction_array);
@@ -914,6 +1006,21 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
       for (const auto& uc : um.constraint_array) {
         sim.register_ampl_element(uc_class, uc.name, uc.uid);
       }
+    }
+
+    // Scope-restricted DecisionVariables (coarse `scope` or single-`block`
+    // selector): a user-constraint term that finds no column for one of
+    // these at its (scenario, stage, block) is a scope mismatch, never the
+    // implicit-zero leniency — see `register_ampl_scoped_element`.
+    const auto register_scoped = [&](const DecisionVariable& dv)
+    {
+      if (auto desc = decision_variable_scope_restriction(dv)) {
+        sim.register_ampl_scoped_element(dv_class, dv.uid, std::move(*desc));
+      }
+    };
+    std::ranges::for_each(sys.decision_variable_array, register_scoped);
+    for (const auto& um : sys.user_model_array) {
+      std::ranges::for_each(um.variable_array, register_scoped);
     }
   }
 
@@ -1812,6 +1919,26 @@ void SystemLP::accumulate_convergence_indicators(SceneIndex scene_index,
       stats.efin_deficit);
 }
 
+double SystemLP::agreement_rewards_objective() const
+{
+  const auto& li = linear_interface();
+  if (!li.is_optimal()) {
+    return 0.0;
+  }
+  double total = 0.0;
+  for (auto&& [scenario, stage] :
+       std::views::cartesian_product(scene().scenarios(), phase().stages()))
+  {
+    for (const auto& f : elements<FlowRightLP>()) {
+      total += f.reward_objective(scenario, stage, li);
+    }
+    for (const auto& v : elements<VolumeRightLP>()) {
+      total += v.reward_objective(scenario, stage, li);
+    }
+  }
+  return total;
+}
+
 auto SystemLP::write_lp(const std::string& filename,
                         LpFileFormat format,
                         LpFormatFallback fallback) const
@@ -2112,8 +2239,105 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
           *budgeted.time_limit);
     }
   }
+  // ── MIP polish reserve ────────────────────────────────────────────────
+  //
+  // With `mip_polish` on (default) every MIP stop that holds an incumbent
+  // is followed by the fixed-integer LP (`LinearInterface::polish_mip`).
+  // That LP draws from the same `time_limit` budget: hold a reserve back
+  // from the MIP so a MIP stopped by its limit still leaves the polish
+  // room inside the budget.
+  const bool has_discrete = li.sos2_set_count() > 0 || li.has_integer_cols();
+  const bool polish_on = solver_options.mip_polish_enabled() && has_discrete;
+  if (polish_on && budgeted.time_limit.has_value()
+      && *budgeted.time_limit > 0.0)
+  {
+    if (const double reserve = mip_polish_reserve(solver_options.time_limit);
+        reserve > 0.0)
+    {
+      budgeted.time_limit =
+          std::max(*budgeted.time_limit - reserve, min_retry_time_slice_s);
+      spdlog::info(
+          "SystemLP::resolve [scene={} phase={}]: MIP time limit {:.1f}s "
+          "({:.1f}s of the {:.1f}s budget reserved for the MIP polish LP)",
+          scene().uid(),
+          phase().uid(),
+          *budgeted.time_limit,
+          reserve,
+          solver_options.time_limit.value_or(0.0));
+    }
+  }
+
+  // Options of the polish / dual-recovery LP.  Enable crossover so a
+  // barrier backend produces clean vertex duals — `automatic` lets CPLEX
+  // pick the cheaper of primal/dual crossover.  With the polish on, the LP
+  // gets whatever is left of the `time_limit` budget (at least
+  // `min_mip_polish_time_slice_s`); with it off, the legacy dual-recovery
+  // pass keeps the caller's limit.
+  const auto polish_options = [&]
+  {
+    auto lp_opts = solver_options;
+    lp_opts.crossover = CrossoverMode::automatic;
+    if (polish_on) {
+      const double elapsed = std::chrono::duration<double>(
+                                 std::chrono::steady_clock::now() - solve_t0)
+                                 .count();
+      if (const auto remaining =
+              remaining_time_limit(solver_options.time_limit, elapsed))
+      {
+        lp_opts.time_limit = std::max(*remaining, min_mip_polish_time_slice_s);
+      }
+    }
+    return lp_opts;
+  };
+
   auto result = li.resolve(budgeted);
   if (!result) {
+    // The MIP stopped without proving optimality (time / node / memory
+    // limit, abort).  When it still holds an incumbent, polish it: the
+    // incumbent's continuous part can be far from the best dispatch for
+    // its own integer decisions.  The cell stays reported as NON-optimal
+    // (the error is returned unchanged in kind; only its message records
+    // the polish), and its published objective / primal / duals become
+    // those of the fixed-integer LP.
+    if (polish_on) {
+      auto pol = li.polish_mip(polish_options());
+      if (!pol) {
+        spdlog::warn(
+            "SystemLP::resolve [scene={} phase={}]: MIP polish after a "
+            "non-optimal stop failed: {} (keeping the solver incumbent)",
+            scene().uid(),
+            phase().uid(),
+            pol.error().message);
+      } else if (pol->polished) {
+        spdlog::info(
+            "SystemLP::resolve [scene={} phase={}]: MIP stopped non-optimal "
+            "(status {}) — polished incumbent: objective {:.6g} -> {:.6g} "
+            "({:+.3g}%, {} column(s) fixed)",
+            scene().uid(),
+            phase().uid(),
+            result.error().status,
+            pol->incumbent_obj,
+            pol->polished_obj,
+            pol->incumbent_obj != 0.0
+                ? 100.0 * (pol->polished_obj - pol->incumbent_obj)
+                    / std::abs(pol->incumbent_obj)
+                : 0.0,
+            pol->fixed_columns);
+        result.error().message += std::format(
+            " (limit reached, incumbent polished: objective {:.6g} -> {:.6g})",
+            pol->incumbent_obj,
+            pol->polished_obj);
+      } else if (pol->bailed) {
+        spdlog::warn(
+            "SystemLP::resolve [scene={} phase={}]: MIP polish after a "
+            "non-optimal stop could not solve the fixed-integer LP — "
+            "keeping the solver incumbent (objective {:.6g}); duals "
+            "unavailable",
+            scene().uid(),
+            phase().uid(),
+            pol->incumbent_obj);
+      }
+    }
     return result;
   }
 
@@ -2191,13 +2415,16 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
   // a barrier backend produces clean vertex duals — `automatic` lets CPLEX
   // pick the cheaper of primal/dual crossover (the monolithic dual-recovery
   // pass does not need a specific algorithm, only a basic/vertex solution).
+  //
+  // With `mip_polish` on (default) the pass runs whether or not duals were
+  // requested: it is also the polish of the incumbent — for a MIP solved
+  // within its gap the fixed-integer LP can still improve the continuous
+  // part of a heuristic incumbent.
   const auto sel = options().write_out();
   const bool wants_duals = has_flag(sel.atoms, OutputFlags::dual)
       || has_flag(sel.atoms, OutputFlags::reduced_cost);
-  if (wants_duals && (li.sos2_set_count() > 0 || li.has_integer_cols())) {
-    auto lp_opts = solver_options;
-    lp_opts.crossover = CrossoverMode::automatic;
-    auto fix = li.fix_integers_and_resolve(lp_opts);
+  if ((wants_duals || polish_on) && has_discrete) {
+    auto fix = li.polish_mip(polish_options());
     if (!fix) {
       // The MIP solve already succeeded; a failed dual-recovery re-solve
       // should not fail the whole cell.  Warn and keep the MIP result
@@ -2229,14 +2456,33 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
           phase().uid());
       return result;  // original MIP status, incumbent primal intact
     }
-    if (fix->fixed_columns > 0) {
-      SPDLOG_DEBUG(
-          "SystemLP::resolve [scene={} phase={}]: fixed {} integer "
-          "column(s) and re-solved LP for duals (status {})",
-          scene().uid(),
-          phase().uid(),
-          fix->fixed_columns,
-          fix->status.value_or(0));
+    if (fix->polished) {
+      // Log the incumbent vs polished objective.  INFO only when the
+      // polish actually moved the objective (a heuristic incumbent of a
+      // gap-optimal MIP); a no-op polish stays at DEBUG.
+      const double delta = fix->polished_obj - fix->incumbent_obj;
+      const double rel = fix->incumbent_obj != 0.0
+          ? delta / std::abs(fix->incumbent_obj)
+          : delta;
+      if (std::abs(rel) > 1e-9) {
+        spdlog::info(
+            "SystemLP::resolve [scene={} phase={}]: MIP polish: objective "
+            "{:.6g} -> {:.6g} ({:+.3g}%, {} column(s) fixed)",
+            scene().uid(),
+            phase().uid(),
+            fix->incumbent_obj,
+            fix->polished_obj,
+            100.0 * rel,
+            fix->fixed_columns);
+      } else {
+        SPDLOG_DEBUG(
+            "SystemLP::resolve [scene={} phase={}]: fixed {} integer "
+            "column(s) and re-solved LP (objective unchanged {:.6g})",
+            scene().uid(),
+            phase().uid(),
+            fix->fixed_columns,
+            fix->polished_obj);
+      }
     }
   }
 

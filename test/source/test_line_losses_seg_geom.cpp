@@ -26,8 +26,6 @@ constexpr double kEps = 1e-12;
 
 }  // namespace
 
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
-
 TEST_CASE("loss_segment_geometry: uniform partition with K=1 = whole envelope")
 {
   // K=1 ⇒ one segment covers [0, B].  Chord slope on [0, B] of f² is
@@ -272,5 +270,3 @@ TEST_CASE(  // NOLINT
                                              /*loss_row_scale=*/7.0);
   CHECK(cfg_nofmax.loss_row_scale == doctest::Approx(7.0).epsilon(kEps));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

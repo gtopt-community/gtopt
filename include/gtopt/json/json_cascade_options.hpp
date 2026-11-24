@@ -111,12 +111,15 @@ struct json_data_contract<CascadeOptions>
   using type = json_member_list<
       json_class_null<"model_options", ModelOptions>,
       json_class_null<"sddp_options", SddpOptions>,
-      json_array_null<"level_array", gtopt::Array<CascadeLevel>, CascadeLevel>>;
+      json_array_null<"level_array", gtopt::Array<CascadeLevel>, CascadeLevel>,
+      json_bool_null<"write_level_outputs", OptBool>>;
 
   constexpr static auto to_json_data(CascadeOptions const& opt)
   {
-    return std::forward_as_tuple(
-        opt.model_options, opt.sddp_options, opt.level_array);
+    return std::forward_as_tuple(opt.model_options,
+                                 opt.sddp_options,
+                                 opt.level_array,
+                                 opt.write_level_outputs);
   }
 };
 

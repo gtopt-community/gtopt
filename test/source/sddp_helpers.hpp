@@ -18,9 +18,9 @@
 #include <gtopt/solver_registry.hpp>
 
 #include "fixture_helpers.hpp"
+#include "require_value.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
@@ -2172,7 +2172,8 @@ inline auto make_backtracking_no_recovery_planning() -> Planning
   // ``Reservoir.emin`` is ``OptTBRealFieldSched`` (per-(stage, block));
   // we store one block per stage so phase 7 (index 6) inner[0] is the
   // value the LP reads.
-  auto& emin_var = planning.system.reservoir_array[0].emin.value();
+  auto& emin_var =
+      test_support::require_value(planning.system.reservoir_array[0].emin);
   auto& emin_mat = std::get<std::vector<std::vector<double>>>(emin_var);
   emin_mat[6] = {
       220.0,
@@ -2778,5 +2779,3 @@ inline auto make_2scene_backtracking_recovery_two_reservoir_planning(
 
   return planning;
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

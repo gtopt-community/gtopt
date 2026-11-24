@@ -370,6 +370,21 @@ public:
   }
 
   /**
+   * @brief Redirect all subsequent output (per-cell sim-pass emission,
+   *        `write_out()`) to @p dir.
+   *
+   * The systems read `output_directory()` through a reference to this
+   * object at write time, so the change takes effect immediately.  Used
+   * by the cascade method (`cascade_options.write_level_outputs`) to give
+   * each intermediate level its own output subdirectory.  Must not be
+   * called while a solve or write-out is in flight.
+   */
+  void set_output_directory(std::string dir)
+  {
+    m_options_.set_output_directory(std::move(dir));
+  }
+
+  /**
    * @brief Gets the underlying planning data
    * @return Const reference to Planning
    */

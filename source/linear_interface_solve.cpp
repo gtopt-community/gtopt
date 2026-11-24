@@ -226,6 +226,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
   // A new solve supersedes any bailed dual-recovery state (the latch
   // and the incumbent republished through the LI cache).
   clear_dual_recovery_bail_state();
+  m_last_mip_polish_ = {};
 
   ++m_solver_stats_.initial_solve_calls;
   m_solver_stats_.total_ncols += get_numcols();
@@ -366,6 +367,7 @@ std::expected<int, Error> LinearInterface::resolve(
   // A new solve supersedes any bailed dual-recovery state (the latch
   // and the incumbent republished through the LI cache).
   clear_dual_recovery_bail_state();
+  m_last_mip_polish_ = {};
 
   ++m_solver_stats_.resolve_calls;
   m_solver_stats_.total_ncols += get_numcols();
@@ -597,6 +599,54 @@ LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
       .fixed_columns = Index {fixed},
       .status = 0,
   };
+}
+
+bool LinearInterface::has_mip_incumbent() const
+{
+  if (m_backend_released_ || m_backend_ == nullptr) {
+    return false;
+  }
+  try {
+    return m_backend_->has_mip_incumbent();
+  } catch (...) {
+    return false;
+  }
+}
+
+std::expected<LinearInterface::MipPolishOutcome, Error>
+LinearInterface::polish_mip(const SolverOptions& opts)
+{
+  ensure_backend();
+
+  MipPolishOutcome out {};
+  if (sos2_set_count() == 0 && !has_integer_cols()) {
+    return out;  // pure LP — nothing to polish
+  }
+
+  out.mip_optimal = is_optimal();
+  if (!out.mip_optimal && !has_mip_incumbent()) {
+    // Stopped (limit / failure) without an integer-feasible point: there
+    // are no integer values to fix.
+    out.no_incumbent = true;
+    m_last_mip_polish_ = out;
+    return out;
+  }
+
+  out.incumbent_obj = get_obj_value();
+  auto fix = fix_integers_and_resolve(opts);
+  if (!fix) {
+    return std::unexpected(std::move(fix.error()));
+  }
+  out.attempted = true;
+  out.fixed_columns = fix->fixed_columns;
+  if (fix->bailed) {
+    out.bailed = true;
+  } else if (fix->fixed_columns > 0) {
+    out.polished = true;
+    out.polished_obj = get_obj_value();
+  }
+  m_last_mip_polish_ = out;
+  return out;
 }
 
 }  // namespace gtopt

@@ -22,8 +22,11 @@ namespace gtopt
 // The initial-MIP-solution (warm-start) pipeline runs as a sequence of cleanly
 // separated stages immediately before the monolithic MIP solve:
 //
-//   relax → round → domain_rules → [scip_repair] → inject
+//   relax → dive (propagate → verify → repair) → [scip_repair] → inject
 //
+// The default `dive` generator (MipStartDive) produces a VERIFIED feasible
+// start; `dive.enabled=false` restores the legacy round → domain_rules
+// candidate.
 // `enabled` is the master on/off switch (replaces the old `method != none`).
 // Stage 0 (relax) ALSO runs when `relax.check` is true on its own, for a
 // diagnosis-only pass with no injection.  `from_file` swaps the round+rules
@@ -169,6 +172,54 @@ struct MipStartScipRepair
   }
 };
 
+/// STAGES 1-3 (default generator): relaxation-guided propagation DIVE +
+/// fixed-integer LP verification + elastic / sub-MIP repair.  Replaces the
+/// legacy round → domain-rules candidate, which on real UC MIPs (combined-cycle
+/// configuration exclusivity, operational `u <= 0` rows, min up/down windows)
+/// produced starts the backend rejected outright.  The dive is generic: it
+/// fixes the integer columns one at a time in relaxation-confidence order and
+/// runs activity-based bound propagation over EVERY LP row (no element names,
+/// no PAMPL knowledge), so any pure-integer structure — exclusivity, plant
+/// configuration ⇒ unit, min up/down, logic, fixed status — is satisfied by
+/// construction; the fixed-integer LP then checks the mixed rows.
+struct MipStartDive
+{
+  /** @brief Use the dive generator (default true).  false ⇒ legacy
+   * round + domain-rules candidate. */
+  OptBool enabled {};
+  /** @brief Bound propagation during the dive (default true; needs the
+   * retained flat LP, otherwise the dive degrades to round + rules). */
+  OptBool propagate {};
+  /** @brief Solve the fixed-integer LP of the candidate to verify it and to
+   * complete the continuous dispatch (default true). */
+  OptBool verify {};
+  /** @brief Elastic repair rounds when the fixed-integer LP is infeasible
+   * (default 3; 0 disables). */
+  OptInt repair_rounds {};
+  /** @brief Bounded sub-MIP over the still-violating integer cells when the
+   * repair rounds fail (default true). */
+  OptBool sub_mip {};
+  /** @brief Wall-clock limit [s] of the repair sub-MIP (default 120). */
+  OptReal sub_mip_time_limit {};
+  /** @brief Elastic deviation penalty in RAW objective units per unit of
+   * integer deviation, added to the original objective.  Unset (default) ⇒
+   * a pure feasibility elastic LP (deviation only, original costs ignored),
+   * which is better conditioned and warm-starts primal feasible. */
+  OptReal penalty {};
+
+  void merge(MipStartDive&& opts)
+  {
+    merge_opt(enabled, opts.enabled);
+    merge_opt(propagate, opts.propagate);
+    merge_opt(verify, opts.verify);
+    merge_opt(repair_rounds, opts.repair_rounds);
+    merge_opt(sub_mip, opts.sub_mip);
+    merge_opt(sub_mip_time_limit, opts.sub_mip_time_limit);
+    merge_opt(penalty, opts.penalty);
+    auto _ = std::move(opts);
+  }
+};
+
 /// STAGE 5: inject the candidate as a backend MIP start.
 struct MipStartInject
 {
@@ -199,6 +250,8 @@ struct MipStartOptions
   MipStartRound round {};
   /** @brief STAGE 2 — power-system domain commitment-repair rules. */
   MipStartDomainRules domain_rules {};
+  /** @brief STAGES 1-3 — propagation dive + verify + repair (default). */
+  MipStartDive dive {};
   /** @brief STAGE 4 (optional) — SCIP feasibility repair. */
   MipStartScipRepair scip_repair {};
   /** @brief STAGE 5 — inject the candidate as a backend MIP start. */
@@ -258,6 +311,7 @@ struct MipStartOptions
     relax.merge(std::move(opts.relax));
     round.merge(std::move(opts.round));
     domain_rules.merge(std::move(opts.domain_rules));
+    dive.merge(std::move(opts.dive));
     scip_repair.merge(std::move(opts.scip_repair));
     inject.merge(std::move(opts.inject));
     merge_opt(from_file, std::move(opts.from_file));

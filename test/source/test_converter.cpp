@@ -11,12 +11,13 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 TEST_CASE("Converter construction and default values")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
   const Converter converter;
 
   CHECK(converter.uid == Uid {unknown_uid});
@@ -319,11 +320,10 @@ TEST_CASE("ConverterLP - capainst column primal at lower bound")
 
   // capainst = capacity + expcap * expmod = 10 + 40 = 50 when one
   // module is chosen (the existing 10 MW is not bought as a build).
-  const auto cap_val = lp.get_col_sol()[*cap_col];
+  const auto cap_val = lp.get_col_sol()[test_support::require_value(cap_col)];
   CHECK(cap_val == doctest::Approx(50.0).epsilon(1e-6));
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access)
 TEST_CASE(  // NOLINT
     "ConverterLP - battery not yet commissioned (zero pmax stage) builds")
 {

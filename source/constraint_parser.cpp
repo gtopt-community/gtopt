@@ -539,7 +539,11 @@ bool ConstraintParser::Parser::is_element_type(const std::string& name)
       // Multi-carrier family (hydrogen economy): electrolyser input,
       // hydrogen storage flows and hydrogen offtake columns.
       || name == "carrier_converter" || name == "hydrogen_storage"
-      || name == "hydrogen_demand";
+      || name == "hydrogen_demand"
+      // Gas network: node pressure, supply / pipe / compressor
+      // flows and shedding columns.
+      || name == "gas_node" || name == "gas_supply" || name == "gas_demand"
+      || name == "gas_pipe" || name == "gas_compressor";
 }
 
 bool ConstraintParser::Parser::is_singleton_class(const std::string& name)

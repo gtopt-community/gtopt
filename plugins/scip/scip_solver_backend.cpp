@@ -68,6 +68,9 @@ SCIP_RETCODE apply_options_to_scip(SCIP* scip, const SolverOptions& opts)
   if (const auto agap = opts.mip_gap_abs; agap && *agap >= 0.0) {
     SCIP_CALL(SCIPsetRealParam(scip, "limits/absgap", *agap));
   }
+  if (const auto sols = opts.mip_solution_limit; sols && *sols > 0) {
+    SCIP_CALL(SCIPsetIntParam(scip, "limits/solutions", *sols));
+  }
   if (const auto feps = opts.feasible_eps; feps && *feps > 0.0) {
     SCIP_CALL(SCIPsetRealParam(scip, "numerics/feastol", *feps));
   }
@@ -917,6 +920,15 @@ bool ScipSolverBackend::is_proven_optimal() const
 {
   return m_sol_.solved
       && m_sol_.status == static_cast<int>(SCIP_STATUS_OPTIMAL);
+}
+
+bool ScipSolverBackend::has_mip_incumbent() const
+{
+  // `m_sol_.solved` is set iff `SCIPgetBestSol` returned a solution, which
+  // SCIP keeps on every stop that found one (optimal, time / node / gap /
+  // solution limit, user interrupt).
+  return m_sol_.solved
+      && std::ranges::find(m_model_.col_type, 'I') != m_model_.col_type.end();
 }
 
 bool ScipSolverBackend::is_abandoned() const

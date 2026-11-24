@@ -12,6 +12,9 @@
 #include <format>
 #include <ranges>
 #include <stdexcept>
+#include <string>
+#include <unordered_set>
+#include <vector>
 
 #include <gtopt/constraint_expr.hpp>
 #include <gtopt/constraint_parser.hpp>
@@ -176,8 +179,164 @@ struct LowerCtx
   /// shared across the block loop so each term resolves once, not per block.
   /// Null in contexts with no cache (the resolver then resolves fresh).
   AmplResolveCache* resolve_cache {nullptr};
+  /// Lax-mode dedup set for the unreachable-column warning (owned by the
+  /// `UserConstraintLP`; null => warn on every occurrence).
+  std::unordered_set<std::string>* warned_unreachable {nullptr};
 };
 // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
+
+// A term names a scope-restricted element (a coarse-scope or single-block
+// DecisionVariable) whose column exists, but not at this row's (scenario,
+// stage, block).  Unlike the pmax = 0 implicit-zero leniency this is a
+// modelling error the user must see: strict / debug mode throws; normal
+// (lax) mode warns once per term reference and the term contributes 0.
+void report_unreachable_column(LowerCtx& ctx,
+                               std::string_view element_type,
+                               std::string_view element_id,
+                               std::string_view attribute,
+                               const std::string& scope)
+{
+  // A scope-restricted element that is INACTIVE at this stage has no column
+  // by design (an implicit 0, counted like any other inactive element), not
+  // a scope mismatch.
+  ElementRef ref;
+  ref.element_type = std::string {element_type};
+  ref.element_id = std::string {element_id};
+  ref.attribute = std::string {attribute};
+  if (const auto active =
+          element_ref_active(ctx.sc, ctx.scenario, ctx.stage, ref);
+      active && !*active)
+  {
+    if (!ctx.sc.silent_flatten_pass()) {
+      ctx.sc.simulation().record_dropped_term(
+          ctx.uc.name, dropped_term_kind_name(DroppedTermKind::inactive));
+    }
+    return;
+  }
+  const auto msg = std::format(
+      "user_constraint '{}': term '{}({}).{}' has no LP column at "
+      "(scenario {}, stage {}, block {}) — the {} has {}, so its column is "
+      "not reachable from this row",
+      ctx.uc.name,
+      element_type,
+      element_id,
+      attribute,
+      ctx.scenario.uid(),
+      ctx.stage.uid(),
+      ctx.block.uid(),
+      element_type,
+      scope);
+  if (ctx.is_strict) {
+    throw std::runtime_error(
+        msg
+        + " (constraint_mode=strict; use constraint_mode=normal to drop the "
+          "term with a warning)");
+  }
+  if (ctx.warned_unreachable != nullptr) {
+    auto key = std::format(
+        "{}({}).{}@{}", element_type, element_id, attribute, ctx.uc.name);
+    if (!ctx.warned_unreachable->insert(std::move(key)).second) {
+      return;  // already warned for this term reference
+    }
+  }
+  spdlog::warn("{} — term contributes 0 (constraint_mode=normal)", msg);
+}
+
+// A KNOWN element reference resolved to no column at this block.  Classify
+// it (see `DroppedTermKind`): an intentional absence (inactive element,
+// zero capacity, `_prev` at the first block, per-block omission, …) is an
+// implicit 0, counted for the per-constraint INFO summary; a registration /
+// scope mismatch (element active here, column registered at an earlier
+// stage of this LP but not here) is an error in strict / debug mode and a
+// once-per-term warning otherwise.
+void handle_dropped_term(LowerCtx& ctx, const ElementRef& ref, bool suppressed)
+{
+  const auto kind = classify_dropped_term(
+      ctx.sc, ctx.scenario, ctx.stage, ctx.block, ref, suppressed);
+  if (kind != DroppedTermKind::scope_mismatch) {
+    SPDLOG_DEBUG(
+        "user_constraint '{}': dropping term '{}({}).{}' (block {}) — {} — "
+        "term contributes 0 to LHS",
+        ctx.uc.name,
+        ref.element_type,
+        ref.element_id,
+        ref.attribute,
+        ctx.block.uid(),
+        dropped_term_kind_name(kind));
+    if (!ctx.sc.silent_flatten_pass()) {
+      ctx.sc.simulation().record_dropped_term(ctx.uc.name,
+                                              dropped_term_kind_name(kind));
+    }
+    return;
+  }
+  const auto msg = std::format(
+      "user_constraint '{}': term '{}({}).{}' has no LP column at (scenario "
+      "{}, stage {}, block {}) although the {} is active there and its "
+      "column was registered at an earlier stage of this LP — a "
+      "registration / scope mismatch, not an implicit 0",
+      ctx.uc.name,
+      ref.element_type,
+      ref.element_id,
+      ref.attribute,
+      ctx.scenario.uid(),
+      ctx.stage.uid(),
+      ctx.block.uid(),
+      ref.element_type);
+  if (ctx.is_strict) {
+    throw std::runtime_error(
+        msg
+        + " (constraint_mode=strict; use constraint_mode=normal to drop the "
+          "term with a warning)");
+  }
+  if (ctx.sc.silent_flatten_pass()) {
+    return;
+  }
+  if (ctx.warned_unreachable != nullptr) {
+    auto key = std::format("{}({}).{}@{}#mismatch",
+                           ref.element_type,
+                           ref.element_id,
+                           ref.attribute,
+                           ctx.uc.name);
+    if (!ctx.warned_unreachable->insert(std::move(key)).second) {
+      return;
+    }
+  }
+  spdlog::warn("{} — term contributes 0 (constraint_mode=normal)", msg);
+}
+
+// An explicit id inside `sum(...)` that names no known element / attribute.
+// A single-term typo throws unconditionally; inside a sum the id list is
+// often generated, so it is a warning (once per id and constraint) and the
+// id contributes 0.
+void warn_unknown_sum_id(LowerCtx& ctx,
+                         std::string_view element_type,
+                         std::string_view element_id,
+                         std::string_view attribute)
+{
+  if (ctx.sc.silent_flatten_pass()) {
+    return;
+  }
+  if (ctx.warned_unreachable != nullptr) {
+    auto key = std::format("{}({}).{}@{}#unknown",
+                           element_type,
+                           element_id,
+                           attribute,
+                           ctx.uc.name);
+    if (!ctx.warned_unreachable->insert(std::move(key)).second) {
+      return;
+    }
+  }
+  spdlog::warn(
+      "user_constraint '{}': sum({}(...).{}) names '{}', which is not a "
+      "known {} with an LP attribute '{}' — the id contributes 0 (typo or "
+      "deleted element?)",
+      ctx.uc.name,
+      element_type,
+      attribute,
+      element_id,
+      element_type,
+      attribute);
+}
 
 /// Sign constraint for an auxiliary lowering column.
 enum class AuxSign : std::uint8_t
@@ -476,57 +635,40 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
               *pval,
               coef);
         }
+      } else if (res.unreachable_scope != nullptr) {
+        // Scope mismatch — NOT the implicit-zero leniency below.
+        report_unreachable_column(ctx,
+                                  term.element->element_type,
+                                  term.element->element_id,
+                                  term.element->attribute,
+                                  *res.unreachable_scope);
       } else if (const auto suppression = ctx.sc.find_ampl_suppression(
                      term.element->element_type, term.element->attribute);
                  suppression.has_value() || res.element_known)
       {
         // ── The DEFINED silent-zero cases ──────────────────────────────
-        // All legitimately contribute 0 to the LHS — they are NOT
-        // errors and must stay silent regardless of constraint_mode:
+        // The element is known (or the class/attribute is suppressed by
+        // the planning mode) but has no LP column at this block.  Typical
+        // intentional absences — all an implicit 0, never an error:
         //
-        //  (a) suppressed-by-mode: the class or (class, attribute) pair
-        //      was explicitly marked unavailable by the active planning
-        //      mode (e.g. `line` under `use_single_bus`, `bus.theta`
-        //      when Kirchhoff is disabled).  The user configured the
-        //      mode; the reference is not a typo, it simply does not
-        //      apply.
+        //  (a) suppressed-by-mode: `line` under `use_single_bus`,
+        //      `bus.theta` without Kirchhoff, …;
+        //  (b) element-known-but-offline: a generator with `pmax = 0` on
+        //      this block (GeneratorLP omits the column) or on EVERY block
+        //      (LP-attr-dormant), an inactive element, `_prev` at the first
+        //      block.  This was the root cause of the CEN PCP weekly LNG
+        //      over-dispatch fix and of the strict-resolver throw on
+        //      PANGUE_U1 reservoir constraints.
         //
-        //  (b) element-known-but-offline: the element IS registered as
-        //      an LP variable somewhere (res.element_known == true) but
-        //      has no LP column for THIS specific (scenario, stage,
-        //      block) — typically a generator with `pmax = 0` on this
-        //      block (GeneratorLP omits the column), or a generator
-        //      with `pmax = 0` on EVERY block such that no column is
-        //      created at all (LP-attr-dormant — element_known is set
-        //      via `find_ampl_class_attribute` in that sub-case).  The
-        //      underlying variable is implicitly 0, so the term
-        //      contributes 0 and the constraint stays well-formed
-        //      without per-block expressions.  This was the root cause
-        //      of the CEN PCP weekly LNG over-dispatch fix (per-
-        //      block case) and the strict-resolver throw on PANGUE_U1
-        //      reservoir constraints (all-horizon case).
-        //
-        // Critically, this is the ONLY leniency: an UNKNOWN /
-        // UNDEFINED reference (res.element_known == false AND not
-        // suppressed) falls through to the unconditional throw below.
-        // Traced at DEBUG so diagnostics are available when needed; the
-        // reason is folded into a single string so this branch carries
-        // exactly one trace statement (no clone-able if/else split).
-        const std::string_view reason = suppression.has_value()
-            ? std::string_view {"suppressed by planning mode"}
-            : std::string_view {
-                  "no LP column for this block "
-                  "(inactive: pmax=0 or similar)"};
-        SPDLOG_DEBUG(
-            "user_constraint '{}': dropping term '{}({}).{}' (block {}) — "
-            "{} — term contributes 0 to LHS",
-            ctx.uc.name,
-            term.element->element_type,
-            term.element->element_id,
-            term.element->attribute,
-            ctx.block.uid(),
-            reason);
-        (void)reason;  // unused when SPDLOG_DEBUG compiles out (CIFast)
+        // These are counted per constraint and reported once at INFO
+        // (`SimulationLP::log_dropped_term_summary`).  The one exception
+        // is a registration / scope mismatch — the element is active here
+        // and its column was registered at an earlier stage of this LP but
+        // not here — which `handle_dropped_term` reports as an error
+        // (strict) or a warning (normal).  An UNKNOWN / UNDEFINED reference
+        // (res.element_known == false AND not suppressed) still falls
+        // through to the unconditional throw below.
+        handle_dropped_term(ctx, *term.element, suppression.has_value());
       } else {
         // The element ref resolved neither as an LP column (no matching
         // variable in the AMPL registry) nor as a data parameter — a
@@ -548,15 +690,52 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
     }
 
     if (term.sum_ref) {
+      const auto& sum_ref = *term.sum_ref;
       const std::size_t before = row.size();
+      std::vector<UnreachableSumElement> unreachable;
       const double sum_offset_shift = collect_sum_cols(ctx.sc,
                                                        ctx.scenario,
                                                        ctx.stage,
                                                        ctx.block,
-                                                       *term.sum_ref,
+                                                       sum_ref,
                                                        coef,
                                                        row,
-                                                       ctx.lp);
+                                                       ctx.lp,
+                                                       &unreachable);
+      for (const auto& miss : unreachable) {
+        if (miss.scope != nullptr && sum_ref.all_elements) {
+          // `sum(class(all).attr)` over a mix of scopes (e.g. block-scoped
+          // and single-block DecisionVariables): members with no column at
+          // this block are skipped and counted, never an error.
+          if (!ctx.sc.silent_flatten_pass()) {
+            ctx.sc.simulation().record_dropped_term(
+                ctx.uc.name, "scope-restricted member of sum(all)");
+          }
+          continue;
+        }
+        if (miss.scope != nullptr) {
+          report_unreachable_column(ctx,
+                                    sum_ref.element_type,
+                                    miss.element_id,
+                                    sum_ref.attribute,
+                                    *miss.scope);
+          continue;
+        }
+        const bool suppressed =
+            ctx.sc
+                .find_ampl_suppression(sum_ref.element_type, sum_ref.attribute)
+                .has_value();
+        if (!miss.element_known && !suppressed && !sum_ref.all_elements) {
+          warn_unknown_sum_id(
+              ctx, sum_ref.element_type, miss.element_id, sum_ref.attribute);
+          continue;
+        }
+        ElementRef ref;
+        ref.element_type = sum_ref.element_type;
+        ref.element_id = miss.element_id;
+        ref.attribute = sum_ref.attribute;
+        handle_dropped_term(ctx, ref, suppressed);
+      }
       if (row.size() > before) {
         out.has_vars = true;
         // Fold the per-element offset sum (Option C demand etc.)
@@ -642,6 +821,7 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
             .block_ordinal = ord,
             .aux_counter = ctx.aux_counter,
             .resolve_cache = ctx.resolve_cache,
+            .warned_unreachable = ctx.warned_unreachable,
         };
         const auto inner_res =
             build_row_from_terms(inner_ctx, agg.inner, coef * weight, row);
@@ -1240,6 +1420,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
           .lp = lp,
           .block_ordinal = this_ordinal,
           .resolve_cache = &resolve_cache,
+          .warned_unreachable = &m_warned_unreachable_,
       };
       const auto build_res =
           build_row_from_terms(lctx, expr.terms, 1.0, block_row);
@@ -1437,6 +1618,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
         .lp = lp,
         .block_ordinal = this_ordinal,
         .resolve_cache = &resolve_cache,
+        .warned_unreachable = &m_warned_unreachable_,
     };
 
     const auto build_res = build_row_from_terms(lctx, expr.terms, 1.0, row);
@@ -1669,6 +1851,7 @@ bool UserConstraintLP::build_coarse_row(const SystemContext& sc,
       .is_strict = is_strict,
       .lp = lp,
       .block_ordinal = 0,
+      .warned_unreachable = &m_warned_unreachable_,
   };
 
   const auto build_res = build_row_from_terms(lctx, expr.terms, 1.0, row);

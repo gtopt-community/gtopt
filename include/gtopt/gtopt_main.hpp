@@ -403,7 +403,8 @@ struct MainOptions
    *
    * Bound to the CLI flag `--mip-start` (a bool toggle, default true when given
    * without a value).  Forwards to `monolithic_options.mip_start.enabled`.  The
-   * staged controls (relax.*, round.threshold, domain_rules.*, scip_repair.*,
+   * staged controls (relax.*, round.threshold, dive.*, domain_rules.*,
+   * scip_repair.*,
    * inject.effort, from_file, dump_file) are set via
    * `--set monolithic_options.mip_start.<stage>.<field>=<value>`. */
   std::optional<bool> mip_start_enable {};
@@ -554,13 +555,14 @@ void flush_default_logger_best_effort() noexcept;
  * @brief Return true when the planning has no demand-shedding penalty.
  *
  * A shedding penalty can come from one of three places:
- *   - the global `model_options.demand_fail_cost` option,
+ *   - the global `model_options.demand_fail_cost` option (defaults to
+ *     1000 $/MWh when unset, so only an explicit `0` disables it),
  *   - a per-demand `fcost` field (curtailment cost, $/MWh), or
  *   - a per-demand `ecost` field (energy-shortage cost, $/MWh).
  *
  * `gtopt_main` uses this to gate the "no demand-shedding penalty"
  * warning so it does not fire on planning JSONs that set per-demand
- * `fcost`/`ecost` but leave the global default at 0 (PLP-converted-case style).
+ * `fcost`/`ecost` but set the global `demand_fail_cost` to 0.
  */
 [[nodiscard]] bool has_no_shedding_penalty(const Planning& planning) noexcept;
 

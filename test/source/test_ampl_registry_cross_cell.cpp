@@ -82,7 +82,7 @@ TEST_CASE(  // NOLINT
   const PlanningOptions popts;
   const PlanningOptionsLP options(popts);
   SimulationLP sim_lp(sim, options);
-  sim_lp.set_need_ampl_variables(true);
+  sim_lp.set_need_ampl_variables(/*v=*/true);
 
   sim_lp.add_ampl_variable(SceneIndex {0},
                            PhaseIndex {3},
@@ -117,7 +117,7 @@ TEST_CASE(  // NOLINT
   const PlanningOptions popts;
   const PlanningOptionsLP options(popts);
   SimulationLP sim_lp(sim, options);
-  sim_lp.set_need_ampl_variables(true);
+  sim_lp.set_need_ampl_variables(/*v=*/true);
 
   // Writers: one thread per (scene, phase) cell, each repeatedly
   // releasing and re-registering its own cell (what the parallel

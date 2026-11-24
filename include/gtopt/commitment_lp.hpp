@@ -136,6 +136,8 @@ private:
   /// cost byte-for-byte.  Resolved block-by-block in ``add_to_lp``.
   OptTBRealSched startup_cost_;
   OptTBRealSched shutdown_cost_;
+  /// One warning per element for an unusable startup-tier set.
+  bool tier_warned_ {false};
   /// Per-(stage, block) forced commitment schedule.  When set at a
   /// given block, the u column's bounds are pinned to that value
   /// (interpreted as 0 = off, 1 = on); blocks where the schedule has

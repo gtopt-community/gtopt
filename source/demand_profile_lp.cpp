@@ -17,6 +17,7 @@
 #include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/output_context.hpp>
 #include <spdlog/spdlog.h>
 
@@ -39,7 +40,6 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& load_cols = demand.load_cols_at(scenario, stage);
   if (demand.has_fail_segments()) {
     throw std::runtime_error(std::format(
         "DemandProfile uid={}: demand uid={} uses a stepwise failure curve "
@@ -47,14 +47,30 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
         uid(),
         demand.uid()));
   }
+  // Tolerant lookup (see active_ref.hpp): a demand whose every block was
+  // elided (lmax = 0, e.g. not yet energized) has no load columns in this
+  // cell — nothing for the profile to bound.
+  auto&& load_cols = demand.lookup_load_cols(scenario, stage);
+  if (load_cols.empty()) {
+    return true;
+  }
 
   const auto [opt_capacity, capacity_col] = demand.capacity_and_col(stage, lp);
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
   if (!capacity_col && !demand.demand().capacity) {
-    SPDLOG_WARN(
-        "DemandProfile requires that Demand defines capacity or expansion");
-    return false;
+    fail_lp(*this,
+            scenario,
+            stage,
+            {
+                .field = "demand.capacity",
+                .value = "unset",
+                .expected = "a capacity or an expansion on the demand",
+                .detail = std::format(
+                    "DemandProfile needs the capacity of demand uid={} to "
+                    "scale the profile",
+                    demand.uid()),
+            });
   }
 
   return add_profile_to_lp(Element::class_name.full_name(),

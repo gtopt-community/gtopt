@@ -22,10 +22,10 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ─── Free-function unit tests ───────────────────────────────────────────────
 
@@ -690,9 +690,10 @@ TEST_CASE(  // NOLINT
 
   auto elastic = elastic_filter_solve(li, links, 1e6, {});
   REQUIRE(elastic.has_value());
-  REQUIRE(elastic->clone.is_optimal());
+  REQUIRE(test_support::require_value(elastic).clone.is_optimal());
 
-  const auto multi = build_multi_cuts(*elastic, links, {}, 1e-6, 0);
+  const auto multi = build_multi_cuts(
+      test_support::require_value(elastic), links, {}, 1e-6, 0);
   REQUIRE_FALSE(multi.empty());
   // Verify the cut has a meaningful coefficient and its RHS corresponds
   // to `dep_clone_phys ≈ 50` (the elastic-activated target), NOT clamped
@@ -757,7 +758,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(elastic.has_value());
   // Feasible base LP → elastic clone should also be feasible at the
   // original trial, slacks at zero, dx ≈ 0.  No cut should be emitted.
-  const auto multi = build_multi_cuts(*elastic, links, {}, 1e-6, 0);
+  const auto multi = build_multi_cuts(
+      test_support::require_value(elastic), links, {}, 1e-6, 0);
   CHECK(multi.empty());
 }
 
@@ -823,9 +825,10 @@ TEST_CASE(  // NOLINT
   REQUIRE(elastic.has_value());
   // Elastic clone must solve cleanly under the ruiz-like col_scale.
   // Pre-fix this failed with status 2 (relaxed clone infeasible).
-  REQUIRE(elastic->clone.is_optimal());
+  REQUIRE(test_support::require_value(elastic).clone.is_optimal());
 
-  const auto multi = build_multi_cuts(*elastic, links, {}, 1e-6, 0);
+  const auto multi = build_multi_cuts(
+      test_support::require_value(elastic), links, {}, 1e-6, 0);
   REQUIRE_FALSE(multi.empty());
   // Implied cut bound should reflect dep_clone_phys ≈ 50 physical
   // (5 LP × col_scale=10), NOT 5 (LP alone) nor 0.5 (dx/10).
@@ -1145,5 +1148,3 @@ TEST_CASE("BendersCut - set_pool updates pool reference")  // NOLINT
   bc.set_pool(nullptr);
   CHECK(bc.pool() == nullptr);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

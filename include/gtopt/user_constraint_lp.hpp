@@ -31,6 +31,8 @@
 #pragma once
 
 #include <optional>
+#include <string>
+#include <unordered_set>
 
 #include <gtopt/constraint_expr.hpp>
 #include <gtopt/index_holder.hpp>
@@ -219,6 +221,10 @@ private:
   /// passes store the single per-cell row here keyed at the cell's first
   /// (scenario, stage, block) so `add_to_output` reads it uniformly.
   STBIndexHolder<RowIndex> m_rows_ {};
+  /// Lax-mode (`constraint_mode: normal`) dedup set for the "term has no
+  /// reachable column" warning: one WARN per offending term reference
+  /// instead of one per block.  Unused in strict mode (it throws).
+  std::unordered_set<std::string> m_warned_unreachable_ {};
   /// Per-(scenario, stage) slack columns for soft constraints.
   /// Used by `LESS_EQUAL` / `GREATER_EQUAL` (single slack) and as the
   /// `+` slack for soft `EQUAL` constraints.  Empty when `penalty` is

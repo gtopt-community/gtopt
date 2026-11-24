@@ -17,6 +17,7 @@
 #include <gtopt/generator_profile_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <spdlog/spdlog.h>
@@ -39,17 +40,31 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  auto&& generation_cols = generator.generation_cols_at(scenario, stage);
+  // Tolerant lookup (see active_ref.hpp): a generator whose every block
+  // was elided (pmax = 0, e.g. maintenance or not yet commissioned) has no
+  // generation columns in this cell — nothing for the profile to bound.
+  auto&& generation_cols = generator.lookup_generation_cols(scenario, stage);
+  if (generation_cols.empty()) {
+    return true;
+  }
 
   const auto [opt_capacity, capacity_col] =
       generator.capacity_and_col(stage, lp);
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
   if (!capacity_col && !generator.generator().capacity) {
-    SPDLOG_WARN(
-        "GeneratorProfile requires that Generator defines capacity or "
-        "expansion");
-    return false;
+    fail_lp(*this,
+            scenario,
+            stage,
+            {
+                .field = "generator.capacity",
+                .value = "unset",
+                .expected = "a capacity or an expansion on the generator",
+                .detail = std::format(
+                    "GeneratorProfile needs the capacity of generator "
+                    "uid={} to scale the profile",
+                    generator.uid()),
+            });
   }
 
   return add_profile_to_lp(Element::class_name.full_name(),

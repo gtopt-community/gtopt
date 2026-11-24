@@ -18,6 +18,7 @@
 #include <string_view>
 #include <vector>
 
+#include <gtopt/planning.hpp>
 #include <gtopt/solver_registry.hpp>
 
 namespace gtopt::solver_test
@@ -64,6 +65,20 @@ namespace gtopt::solver_test
     }
   }
   return {};
+}
+
+/// `planning` pinned to `first_mip_solver()` when the ambient default
+/// solver (`GTOPT_SOLVER`, e.g. clp in CI) cannot handle integer columns;
+/// unchanged otherwise, so LP-only fixtures keep the ambient solver.
+[[nodiscard]] inline Planning with_mip_solver(Planning planning)
+{
+  auto& reg = SolverRegistry::instance();
+  if (planning.options.lp_matrix_options.solver_name.empty()
+      && !reg.supports_mip(reg.default_solver()))
+  {
+    planning.options.lp_matrix_options.solver_name = first_mip_solver();
+  }
+  return planning;
 }
 
 /// Run `body` for solver `name`; returns true when it ran to completion,

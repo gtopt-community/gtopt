@@ -29,6 +29,7 @@
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_status.hpp>
+#include <unistd.h>
 
 using namespace gtopt;
 
@@ -558,4 +559,61 @@ TEST_CASE(
     std::this_thread::sleep_for(1ms);
     CHECK(pool.calls.load() == calls_at_destruction);
   }
+}
+
+TEST_CASE(  // NOLINT
+    "write_solver_status final_status is terminal: label written and "
+    "never overwritten by the periodic refresh")
+{
+  using namespace gtopt;
+  using namespace std::chrono_literals;
+
+  const auto tmp_file =
+      (std::filesystem::temp_directory_path()
+       / std::format("gtopt_test_sddp_status_final_{}.json", ::getpid()))
+          .string();
+
+  FakeMonitorPool pool;
+  SolverMonitor monitor(SolverMonitor::Interval {0});
+  monitor.start(pool, std::chrono::steady_clock::now(), "TestMonitor");
+
+  const std::vector<SDDPIterationResult> results;
+  const SolverStatusSnapshot live {
+      .iteration_index = IterationIndex {3},
+      .converged = false,
+      .max_iterations = 3,
+  };
+  write_solver_status(tmp_file, results, 1.0, live, monitor);
+
+  const auto read_file = [&tmp_file]
+  {
+    const std::ifstream ifs(tmp_file);
+    std::ostringstream oss;
+    oss << ifs.rdbuf();
+    return oss.str();
+  };
+  CHECK(read_file().find("\"status\": \"running\"") != std::string::npos);
+
+  const SolverStatusSnapshot final_snap {
+      .iteration_index = IterationIndex {3},
+      .converged = false,
+      .max_iterations = 3,
+      .final_status = "max_iterations",
+  };
+  write_solver_status(tmp_file, results, 2.0, final_snap, monitor);
+
+  // Let the sampler run several more ticks: the terminal document must
+  // survive them (it used to be replaced by the cached "running" one).
+  const int calls_after_final = pool.calls.load();
+  while (pool.calls.load() < calls_after_final + 5) {
+    std::this_thread::sleep_for(100us);
+  }
+  monitor.stop();
+
+  const auto content = read_file();
+  CHECK(content.find("\"status\": \"max_iterations\"") != std::string::npos);
+  CHECK(content.find("\"status\": \"running\"") == std::string::npos);
+  CHECK(content.find("\"converged\": false") != std::string::npos);
+
+  std::filesystem::remove(tmp_file);
 }

@@ -13,6 +13,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/pampl_parser.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 TEST_SUITE("PamplParser")
@@ -117,6 +119,56 @@ TEST_SUITE("PamplParser")
     }
   }
 
+  // ── Header: scope clause → row granularity ───────────────────────────────
+  TEST_CASE("constraint header with scope clause sets UserConstraint.scope")
+  {
+    using namespace gtopt;
+
+    SUBCASE("scope stage with a sum{b in stage} body")
+    {
+      const auto& ucs =
+          PamplParser::parse(
+              "constraint cap \"stage-average cap\" scope stage:\n"
+              "  sum{b in stage} dur[b] * flow_right('q').flow <= 100;")
+              .constraints;
+      REQUIRE(ucs.size() == 1);
+      CHECK(ucs[0].name == "cap");
+      CHECK(ucs[0].scope.value_or("") == "stage");
+      CHECK(ucs[0].expression.find("sum{b in stage}") != std::string::npos);
+    }
+
+    SUBCASE("scope combines with penalty in any order")
+    {
+      const auto& ucs =
+          PamplParser::parse(
+              "constraint c scope block penalty 7: line('L1').flow <= 0;")
+              .constraints;
+      REQUIRE(ucs.size() == 1);
+      CHECK(ucs[0].scope.value_or("") == "block");
+      CHECK(ucs[0].penalty.value_or(-1.0) == doctest::Approx(7.0));
+    }
+
+    SUBCASE("no scope clause leaves scope unset (block default)")
+    {
+      const auto& ucs =
+          PamplParser::parse("constraint c: line('L1').flow <= 1;").constraints;
+      REQUIRE(ucs.size() == 1);
+      CHECK_FALSE(ucs[0].scope.has_value());
+    }
+
+    SUBCASE("unknown scope raises")
+    {
+      CHECK_THROWS((void)PamplParser::parse(
+          "constraint c scope weekly: line('L1').flow <= 1;"));
+    }
+
+    SUBCASE("duplicate scope clause raises")
+    {
+      CHECK_THROWS((void)PamplParser::parse(
+          "constraint c scope stage scope block: line('L1').flow <= 1;"));
+    }
+  }
+
   // ── Header: rhs clause → per-block (scheduled) RHS ───────────────────────
   TEST_CASE("constraint header with rhs clause sets per-block schedule")
   {
@@ -132,9 +184,9 @@ TEST_SUITE("PamplParser")
       CHECK(ucs[0].name == "ramp_cap");
       REQUIRE(ucs[0].rhs.has_value());
       REQUIRE(std::holds_alternative<std::vector<std::vector<double>>>(
-          ucs[0].rhs.value()));
-      const auto& mat =
-          std::get<std::vector<std::vector<double>>>(ucs[0].rhs.value());
+          ucs[0].rhs.value_or(TBRealFieldSched {})));
+      const auto mat = std::get<std::vector<std::vector<double>>>(
+          ucs[0].rhs.value_or(TBRealFieldSched {}));
       REQUIRE(mat.size() == 1);
       REQUIRE(mat[0].size() == 4);
       CHECK(mat[0][0] == doctest::Approx(40.0));
@@ -152,8 +204,8 @@ TEST_SUITE("PamplParser")
       REQUIRE(ucs.size() == 1);
       CHECK(ucs[0].penalty.value_or(-1.0) == doctest::Approx(500.0));
       REQUIRE(ucs[0].rhs.has_value());
-      const auto& mat =
-          std::get<std::vector<std::vector<double>>>(ucs[0].rhs.value());
+      const auto mat = std::get<std::vector<std::vector<double>>>(
+          ucs[0].rhs.value_or(TBRealFieldSched {}));
       REQUIRE(mat[0].size() == 2);
       CHECK(mat[0][1] == doctest::Approx(2.5));
     }
@@ -177,8 +229,8 @@ TEST_SUITE("PamplParser")
               "constraint c rhs [cap, cap * 2]: line('L1').flow <= 0;")
               .constraints;
       REQUIRE(ucs.size() == 1);
-      const auto& mat =
-          std::get<std::vector<std::vector<double>>>(ucs[0].rhs.value());
+      const auto mat = std::get<std::vector<std::vector<double>>>(
+          ucs[0].rhs.value_or(TBRealFieldSched {}));
       CHECK(mat[0][0] == doctest::Approx(30.0));
       CHECK(mat[0][1] == doctest::Approx(60.0));
     }
@@ -467,10 +519,12 @@ constraint gen_limit:
     CHECK(result.params[0].name == "irr");
     CHECK_FALSE(result.params[0].value.has_value());
     REQUIRE(result.params[0].monthly.has_value());
-    CHECK(result.params[0].monthly->size() == 12);
-    CHECK((*result.params[0].monthly)[0] == doctest::Approx(0.0));
-    CHECK((*result.params[0].monthly)[3] == doctest::Approx(100.0));
-    CHECK((*result.params[0].monthly)[11] == doctest::Approx(0.0));
+    const auto monthly =
+        result.params[0].monthly.value_or(std::vector<double> {});
+    CHECK(monthly.size() == 12);
+    CHECK(monthly[0] == doctest::Approx(0.0));
+    CHECK(monthly[3] == doctest::Approx(100.0));
+    CHECK(monthly[11] == doctest::Approx(0.0));
   }
 
   TEST_CASE("Params and constraints mixed")
@@ -508,7 +562,6 @@ constraint gen_cap:
   TEST_CASE("Negative param values")
   {
     using namespace gtopt;
-    // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
     const auto result = PamplParser::parse("param offset = -42.5;");
     REQUIRE(result.params.size() == 1);
@@ -539,7 +592,8 @@ constraint gen_cap:
         "generator('G').generation >= 50;");
     REQUIRE(result.constraints.size() == 1);
     REQUIRE(result.constraints[0].slack_name.has_value());
-    CHECK(result.constraints[0].slack_name.value() == "slack_HYDRO_FLOOR");
+    CHECK(test_support::require_value(result.constraints[0].slack_name)
+          == "slack_HYDRO_FLOOR");
   }
 
   TEST_CASE("Multiple var idents in one declaration")
@@ -555,7 +609,7 @@ constraint gen_cap:
     REQUIRE(result.constraints.size() == 3);
     for (const auto& uc : result.constraints) {
       REQUIRE(uc.slack_name.has_value());
-      CHECK(uc.slack_name.value() == "slack_" + uc.name);
+      CHECK(test_support::require_value(uc.slack_name) == "slack_" + uc.name);
     }
   }
 
@@ -606,8 +660,7 @@ constraint gen_cap:
     CHECK(result.declared_vars[0] == "slack_X");
     REQUIRE(result.constraints.size() == 1);
     REQUIRE(result.constraints[0].slack_name.has_value());
-    CHECK(result.constraints[0].slack_name.value() == "slack_X");
+    CHECK(test_support::require_value(result.constraints[0].slack_name)
+          == "slack_X");
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

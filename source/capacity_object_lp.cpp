@@ -90,9 +90,16 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
       // allocate the dependent columns up-front and queue the
       // producer-side `add_dependent_variable` link to be resolved
       // later by `PlanningLP::tighten_scene_phase_links`.
+      //
+      // The scan runs over the GLOBAL stage list up to and including
+      // `prev_stage`, compared by GLOBAL position (`stage_index()`).  It
+      // used to compare with `prev_stage`'s position inside ITS phase,
+      // which stopped the scan too early for every phase after the
+      // second (an expansion stage of an intermediate phase was missed
+      // and the built capacity was dropped at the boundary).
       bool prev_phase_publishes = false;
       for (const auto& s : sc.simulation().stages()) {
-        if (s.index() > prev_stage->index()) {
+        if (s.stage_index() > prev_stage->stage_index()) {
           break;
         }
         const auto suid = s.uid();
@@ -100,6 +107,9 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
         const auto se_expmod = m_expmod_.at(suid).value_or(0.0);
         if (se_expcap * se_expmod > 0) {
           prev_phase_publishes = true;
+          break;
+        }
+        if (suid == prev_stage->uid()) {
           break;
         }
       }

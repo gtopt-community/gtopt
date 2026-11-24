@@ -18,7 +18,9 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
+#include <gtopt/enum_option.hpp>
 #include <gtopt/pampl_parser.hpp>
+#include <gtopt/user_constraint_enums.hpp>
 
 namespace gtopt
 {
@@ -404,6 +406,7 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
     std::string description;
     std::optional<double> penalty;
     std::optional<std::vector<double>> rhs_sched;
+    std::optional<std::string> scope;
     bool has_header = false;
 
     // Save position so we can rewind if "inactive"/"constraint" are not found
@@ -519,7 +522,15 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
       //       schedule does not cover.  Example:
       //         constraint ramp_cap rhs [40, 40, 60]: ... <= 0;
       //
-      //   constraint NAME ["desc"] [penalty 500] [rhs [...]] :
+      //   scope block|stage|phase|global
+      //       Row granularity (mirrors UserConstraint.scope).  `stage` emits
+      //       ONE row per (scenario, stage); per-block references must then
+      //       be wrapped in a `sum{b in stage}` time-aggregator.  Absent ⇒
+      //       block (one row per block).  Example:
+      //         constraint cap scope stage:
+      //           sum{b in stage} dur[b] * flow_right('q').flow <= 100;
+      //
+      //   constraint NAME ["desc"] [penalty 500] [rhs [...]] [scope S] :
       while (true) {
         sc.skip_ws_comments();
         if (sc.at_end() || sc.peek_char() == ':') {
@@ -558,10 +569,25 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
                 "PAMPL: 'rhs' clause on constraint '{}' has no values", name));
           }
           rhs_sched = std::move(values);
+        } else if (kw == "scope") {
+          if (scope.has_value()) {
+            throw std::invalid_argument(std::format(
+                "PAMPL: duplicate 'scope' clause on constraint '{}'", name));
+          }
+          sc.skip_ws_comments();
+          auto value = sc.read_ident();
+          if (!enum_from_name<ConstraintScope>(value).has_value()) {
+            throw std::invalid_argument(std::format(
+                "PAMPL: invalid scope '{}' on constraint '{}' (expected "
+                "block, stage, phase or global)",
+                value,
+                name));
+          }
+          scope = std::move(value);
         } else {
           throw std::invalid_argument(std::format(
-              "PAMPL: expected 'penalty', 'rhs' or ':' after constraint "
-              "name '{}', got '{}'",
+              "PAMPL: expected 'penalty', 'rhs', 'scope' or ':' after "
+              "constraint name '{}', got '{}'",
               name,
               kw));
         }
@@ -599,6 +625,9 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
       uc.active = false;
     }
     uc.penalty = penalty;  // unset ⇒ hard; set ⇒ soft slack cost
+    if (scope.has_value()) {
+      uc.scope = std::move(*scope);
+    }
     if (!description.empty()) {
       uc.description = std::move(description);
     }

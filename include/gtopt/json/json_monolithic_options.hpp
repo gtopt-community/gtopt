@@ -19,6 +19,7 @@ namespace daw::json
 {
 using gtopt::BoundaryCutSharingMode;
 using gtopt::BoundaryCutsMode;
+using gtopt::MipStartDive;
 using gtopt::MipStartDomainRules;
 using gtopt::MipStartEffort;
 using gtopt::MipStartInject;
@@ -193,6 +194,31 @@ struct json_data_contract<MipStartRound>
   }
 };
 
+// ── MipStartDive ────────────────────────────────────────────────────────────
+
+template<>
+struct json_data_contract<MipStartDive>
+{
+  using type = json_member_list<json_bool_null<"enabled", OptBool>,
+                                json_bool_null<"propagate", OptBool>,
+                                json_bool_null<"verify", OptBool>,
+                                json_number_null<"repair_rounds", OptInt>,
+                                json_bool_null<"sub_mip", OptBool>,
+                                json_number_null<"sub_mip_time_limit", OptReal>,
+                                json_number_null<"penalty", OptReal>>;
+
+  static auto to_json_data(MipStartDive const& opt)
+  {
+    return std::make_tuple(opt.enabled,
+                           opt.propagate,
+                           opt.verify,
+                           opt.repair_rounds,
+                           opt.sub_mip,
+                           opt.sub_mip_time_limit,
+                           opt.penalty);
+  }
+};
+
 // ── MipStartScipRepair ──────────────────────────────────────────────────────
 
 struct MipStartScipRepairConstructor
@@ -252,6 +278,7 @@ struct MipStartOptionsConstructor
       std::optional<MipStartRelax> relax,
       std::optional<MipStartRound> round,
       std::optional<MipStartDomainRules> domain_rules,
+      std::optional<MipStartDive> dive,
       std::optional<MipStartScipRepair> scip_repair,
       std::optional<MipStartInject> inject,
       OptName from_file,
@@ -265,6 +292,7 @@ struct MipStartOptionsConstructor
         .relax = relax.value_or(MipStartRelax {}),
         .round = round.value_or(MipStartRound {}),
         .domain_rules = domain_rules.value_or(MipStartDomainRules {}),
+        .dive = dive.value_or(MipStartDive {}),
         .scip_repair = scip_repair.value_or(MipStartScipRepair {}),
         .inject = inject.value_or(MipStartInject {}),
         .from_file = std::move(from_file),
@@ -286,6 +314,7 @@ struct json_data_contract<MipStartOptions>
                        json_class_null<"relax", MipStartRelax>,
                        json_class_null<"round", MipStartRound>,
                        json_class_null<"domain_rules", MipStartDomainRules>,
+                       json_class_null<"dive", MipStartDive>,
                        json_class_null<"scip_repair", MipStartScipRepair>,
                        json_class_null<"inject", MipStartInject>,
                        json_string_null<"from_file", OptName>,
@@ -301,6 +330,7 @@ struct json_data_contract<MipStartOptions>
         std::optional<MipStartRelax> {opt.relax},
         std::optional<MipStartRound> {opt.round},
         std::optional<MipStartDomainRules> {opt.domain_rules},
+        std::optional<MipStartDive> {opt.dive},
         std::optional<MipStartScipRepair> {opt.scip_repair},
         std::optional<MipStartInject> {opt.inject},
         opt.from_file,

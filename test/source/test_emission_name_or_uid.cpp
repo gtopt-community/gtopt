@@ -279,7 +279,7 @@ TEST_CASE(
   const auto result = lp.resolve();
   REQUIRE(result.has_value());
   REQUIRE(result.value() == 0);
-  CHECK(lp.get_obj_value() == doctest::Approx(50.0 * (10.0 + 20.0 * 0.5)));
+  CHECK(lp.get_obj_value() == doctest::Approx(50.0 * (10.0 + (20.0 * 0.5))));
 }
 
 TEST_CASE(

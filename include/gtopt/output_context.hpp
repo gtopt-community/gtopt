@@ -189,7 +189,10 @@ public:
   /// :func:`cost`; used by reconstruction sites that report the reduced
   /// cost of a substituted slack as `-dual` of the row it was folded into
   /// (e.g. the slack-free `GeneratorProfile` form).  Callers MUST check
-  /// `has_row_duals()` first.
+  /// `has_row_duals()` first.  The value is BEFORE the per-block
+  /// cost-factor unfolding (÷ probability · discount · duration) that
+  /// `add_row_dual` applies: combine such values linearly and emit them
+  /// through `add_dual_derived_values`, which applies the same unfolding.
   [[nodiscard]] constexpr double dual(RowIndex row) const noexcept
   {
     return row_dual_span[row];
@@ -210,6 +213,27 @@ public:
   [[nodiscard]] constexpr bool has_row_duals() const noexcept
   {
     return !row_dual_span.empty();
+  }
+
+  /// Emit `<col_name>_sol` values derived from row duals (see `dual`):
+  /// the holder carries linear combinations of folded duals and receives
+  /// the Power-family inverse cost factors, so the written value is on
+  /// the same $/MW(h) scale as the plane / bus duals.
+  constexpr void add_dual_derived_values(std::string_view cname,
+                                         std::string_view col_name,
+                                         const Id& id,
+                                         const STBIndexHolder<double>& holder)
+  {
+    if (!emit_solution(cname)) {
+      return;
+    }
+    add_field_values(cname,
+                     col_name,
+                     "sol",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     sc.get().block_icost_factors());
   }
 
   // ── Value-emit overloads (precomputed `(s,t,b) → double`) ────────
@@ -407,10 +431,18 @@ public:
   /// values, so col_sol is already integer-valued there and snapping
   /// would be a no-op; we still skip it to keep the policy "snap iff
   /// the solver was asked to enforce integrality on this phase".
+  ///
+  /// Element-level relax gate: @p relaxed is the element's own LP-relax
+  /// flag (`Commitment.relax`, `SimpleCommitment.relax`,
+  /// `LineCommitment.relax`).  A relaxed element's columns are continuous
+  /// in `[0, 1]` even in a MIP phase, so its fractional LP value IS the
+  /// solution and is written unrounded (rounding would, e.g., report a
+  /// unit at u = 0.6 as fully on).
   constexpr void add_col_sol_integer(std::string_view cname,
                                      std::string_view col_name,
                                      const Id& id,
-                                     const STBIndexHolder<ColIndex>& holder)
+                                     const STBIndexHolder<ColIndex>& holder,
+                                     bool relaxed = false)
   {
     if (!emit_solution(cname)) {
       return;
@@ -423,7 +455,7 @@ public:
               col_sol_span,
               &stb_prelude,
               block_factor_matrix_t {});
-    if (m_is_continuous_phase_) {
+    if (m_is_continuous_phase_ || relaxed) {
       return;
     }
     // Post-process: snap the just-appended entry's values to the

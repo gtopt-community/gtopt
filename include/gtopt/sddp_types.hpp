@@ -1335,6 +1335,103 @@ constexpr void apply_aperture_chunk_override(
   opts.aperture_chunk_size = *size;
 }
 
+// ─── Boundary-cut gap diagnostics ───────────────────────────────────────────
+
+/// Gap accounting under boundary (terminal FutureCost) cuts.
+///
+/// With boundary cuts the SDDP lower bound carries the terminal future
+/// cost Φ(v_T) through the master's α, while the forward-pass upper bound
+/// strips every α — including the terminal one — and so omits it.  The
+/// mean-shift rebase (`boundary_cuts_mean_shift`) moves the constant
+/// c̄ = mean(Φ) out of the cuts (Φ' = Φ − c̄) and into the first-phase
+/// objective, so it is present in BOTH bounds.  Hence, at convergence,
+///
+///     LB − UB  →  E[Φ'(v_T)] + (cut over-estimation)
+///
+/// and a negative raw gap is expected even with perfectly valid cuts
+/// (docs/formulation/sddp-cut-validity.md §9).  The corrected upper bound
+/// `UB* = UB + E[Φ'(v_T)]` = E[stage costs] + c̄ + E[Φ'(v_T)] =
+/// E[stage costs + Φ(v_T)] puts the terminal term back, so the residual
+/// `LB − UB*` isolates the over-estimation: ≈ 0 (or negative while the
+/// policy is still improving) with valid cuts, > 0 when some cut claims
+/// more future cost than the forward pass realises (e.g. cuts that are
+/// invalid for this system's phases).
+///
+/// Under `BoundaryCutsMode::phi_expectation` the forward pass does NOT
+/// strip the terminal φ_j columns (PLP `ZSPF` convention), so E[Φ'] is
+/// already inside the UB: `terminal_in_ub = true` and `UB* = UB`.
+///
+/// All amounts are in the bounds' units (physical $, scene probability
+/// folded in, summed over feasible scenes).
+struct BoundaryGapDiagnostics
+{
+  /// True when boundary cuts were loaded; every other field is 0 otherwise.
+  bool active {false};
+  /// True when the forward-pass UB already includes E[Φ'(v_T)]
+  /// (`phi_expectation`); the correction then adds nothing.
+  bool terminal_in_ub {false};
+  /// E[Φ'(v_T)]: the (rebased) terminal future cost at the forward pass's
+  /// final states — Σ_s of the last phase's weighted α / φ_j values.
+  double terminal_future_cost {0.0};
+  /// c̄ folded into the objective (Σ_s of the per-scene restitution).
+  double alpha_offset {0.0};
+  /// Expected stage cost (opex), EXCLUDING c̄ and the terminal term.  Can
+  /// be negative (net-reward cases); see `expected_abs_opex`.
+  double expected_opex {0.0};
+  /// Σ_s |opex_s| — scale for the over-estimation test that stays
+  /// meaningful when positive and negative scene opex cancel.
+  double expected_abs_opex {0.0};
+  /// UB* = UB + E[Φ'(v_T)] (= UB under `terminal_in_ub`).
+  double corrected_upper_bound {0.0};
+  /// (UB* − LB) / max(1, |UB*|), same normalisation as the raw gap.
+  double corrected_gap {0.0};
+  /// LB − UB*: cut over-estimation (> 0) beyond the terminal accounting.
+  double overestimation {0.0};
+
+  /// `overestimation` relative to |UB*| (0 when |UB*| < 1).
+  [[nodiscard]] constexpr double overestimation_vs_ub() const noexcept
+  {
+    const double d = corrected_upper_bound < 0.0 ? -corrected_upper_bound
+                                                 : corrected_upper_bound;
+    return d >= 1.0 ? overestimation / d : 0.0;
+  }
+
+  /// `overestimation` relative to E[|opex|] (0 when E[|opex|] < 1).
+  [[nodiscard]] constexpr double overestimation_vs_opex() const noexcept
+  {
+    return expected_abs_opex >= 1.0 ? overestimation / expected_abs_opex : 0.0;
+  }
+
+  /// True when the residual over-estimation exceeds `tol` relative to
+  /// BOTH |UB*| and E[|opex|] (i.e. `overestimation > tol · max(|UB*|,
+  /// E|opex|, 1)`), so a near-zero UB of a net-reward case cannot
+  /// trigger it on its own.
+  [[nodiscard]] constexpr bool overestimation_exceeds(double tol) const noexcept
+  {
+    const double ub_abs = corrected_upper_bound < 0.0 ? -corrected_upper_bound
+                                                      : corrected_upper_bound;
+    double scale = ub_abs > expected_abs_opex ? ub_abs : expected_abs_opex;
+    scale = scale > 1.0 ? scale : 1.0;
+    return active && overestimation > tol * scale;
+  }
+};
+
+/// Build the boundary-cut gap diagnostics from the aggregated bounds.
+///
+/// @param upper_bound          Raw SDDP UB (Σ feasible scenes).
+/// @param lower_bound          Raw SDDP LB.
+/// @param terminal_future_cost E[Φ'(v_T)] at the forward final states.
+/// @param alpha_offset         Σ_s c̄ restitution folded into the objective.
+/// @param expected_abs_opex    Σ_s |opex_s|.
+/// @param terminal_in_ub       UB already carries E[Φ'] (`phi_expectation`).
+[[nodiscard]] BoundaryGapDiagnostics compute_boundary_gap_diagnostics(
+    double upper_bound,
+    double lower_bound,
+    double terminal_future_cost,
+    double alpha_offset,
+    double expected_abs_opex,
+    bool terminal_in_ub) noexcept;
+
 // ─── Iteration result ───────────────────────────────────────────────────────
 
 /// Result of a single SDDP iteration (forward + backward pass)
@@ -1343,6 +1440,14 @@ struct SDDPIterationResult
   IterationIndex iteration_index {};  ///< Iteration number (0-based)
   double lower_bound {};  ///< Lower bound (phase 0 obj including a)
   double upper_bound {};  ///< Upper bound (sum of actual phase costs)
+  /// Objective contribution of the water-rights reward terms (positive
+  /// `uvalue`, e.g. irrigation-agreement delivery values) folded into
+  /// `upper_bound`, summed like it over feasible scenes.  <= 0; 0 when
+  /// no right is rewarded.  See `SystemLP::agreement_rewards_objective`.
+  double agreement_rewards {};
+  /// `upper_bound − agreement_rewards`: the UB as a pure cost, without
+  /// the agreement valuations.
+  double upper_bound_net {};
   double gap {};  ///< Relative gap: (UB - LB) / max(1, |UB|)
   /// Relative change in **UB** vs. ``stationary_window`` iterations ago:
   ///
@@ -1421,6 +1526,25 @@ struct SDDPIterationResult
   /// check was triggered.  Size = num_scenes when populated, empty
   /// otherwise.
   std::vector<int> scene_iterations {};
+
+  /// Boundary-cut gap accounting (`active == false` without boundary
+  /// cuts).  See `BoundaryGapDiagnostics`.
+  BoundaryGapDiagnostics boundary {};
+
+  /// The gap the convergence tests read: the corrected gap
+  /// `(UB* − LB)/max(1,|UB*|)` when boundary cuts are loaded (the raw gap
+  /// is then biased by −E[Φ'(v_T)]), the raw `gap` otherwise.
+  [[nodiscard]] constexpr double effective_gap() const noexcept
+  {
+    return boundary.active ? boundary.corrected_gap : gap;
+  }
+
+  /// UB the convergence tests read: `boundary.corrected_upper_bound` when
+  /// boundary cuts are loaded, the raw `upper_bound` otherwise.
+  [[nodiscard]] constexpr double effective_upper_bound() const noexcept
+  {
+    return boundary.active ? boundary.corrected_upper_bound : upper_bound;
+  }
 };
 
 // ─── Utility free functions (independently testable) ────────────────────────
@@ -1893,12 +2017,22 @@ struct PhaseStateInfo
   std::vector<StateVarLink> outgoing_links {};  ///< Links TO next phase
   size_t base_nrows {0};  ///< Row count before any Benders cuts
   double forward_objective {0.0};  ///< Opex from last forward pass
+  /// Water-rights reward terms inside `forward_objective` (<= 0), from
+  /// `SystemLP::agreement_rewards_objective` on the same solve.
+  double forward_agreement_rewards {0.0};
   /// Full objective from last forward solve (including α), in physical
   /// ($) space — i.e. `LinearInterface::get_obj_value()`, not
   /// the scaled LP raw value.  Cached here so the backward pass can
   /// call `build_benders_cut_physical` without re-querying the
   /// original LP.
   double forward_full_obj_physical {0.0};
+  /// Future-cost term of the last forward solve, in physical ($) space:
+  /// `Σ_r w_r · α_r` over the cell's α / φ_j columns with the same
+  /// weights the objective prices them at.  On the LAST phase with
+  /// boundary cuts this is the cell's Φ'(v_T) contribution (read by the
+  /// boundary-cut gap diagnostics); recorded even when the UB does not
+  /// strip it (`phi_expectation`).
+  double forward_future_cost {0.0};
   /// Cross-iteration warm-start seed: the simplex basis captured from this
   /// cell's FIRST backward aperture last iteration.  Empty until first
   /// captured; only populated/consumed when `aperture_seed_basis` is on.

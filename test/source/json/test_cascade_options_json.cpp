@@ -12,8 +12,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_cascade_options.hpp>
 
+#include "../require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ── CascadeTransition JSON ──────────────────────────────────────────────────
 
@@ -26,7 +27,7 @@ TEST_CASE("CascadeTransition JSON - Full deserialization")
   const auto tr = daw::json::from_json<CascadeTransition>(json_data);
 
   REQUIRE(tr.inherit_optimality_cuts.has_value());
-  CHECK(*tr.inherit_optimality_cuts == -1);
+  CHECK(test_support::require_value(tr.inherit_optimality_cuts) == -1);
 }
 
 TEST_CASE("CascadeTransition JSON - Round-trip")
@@ -60,24 +61,27 @@ TEST_CASE("CascadeLevelMethod JSON - Full deserialization")
   const auto m = daw::json::from_json<CascadeLevelMethod>(json_data);
 
   REQUIRE(m.max_iterations.has_value());
-  CHECK(*m.max_iterations == 50);
+  CHECK(test_support::require_value(m.max_iterations) == 50);
   REQUIRE(m.min_iterations.has_value());
-  CHECK(*m.min_iterations == 3);
+  CHECK(test_support::require_value(m.min_iterations) == 3);
   REQUIRE(m.apertures.has_value());
-  REQUIRE(m.apertures->size() == 2);
-  CHECK((*m.apertures)[0] == 1);
+  REQUIRE(test_support::require_value(m.apertures).size() == 2);
+  CHECK(test_support::require_value(m.apertures)[0] == 1);
   REQUIRE(m.convergence_tol.has_value());
-  CHECK(*m.convergence_tol == doctest::Approx(1e-3));
+  CHECK(test_support::require_value(m.convergence_tol)
+        == doctest::Approx(1e-3));
   REQUIRE(m.stationary_tol.has_value());
-  CHECK(*m.stationary_tol == doctest::Approx(0.04));
+  CHECK(test_support::require_value(m.stationary_tol) == doctest::Approx(0.04));
   REQUIRE(m.stationary_gap_ceiling.has_value());
-  CHECK(*m.stationary_gap_ceiling == doctest::Approx(0.30));
+  CHECK(test_support::require_value(m.stationary_gap_ceiling)
+        == doctest::Approx(0.30));
   REQUIRE(m.stationary_window.has_value());
-  CHECK(*m.stationary_window == 8);
+  CHECK(test_support::require_value(m.stationary_window) == 8);
   REQUIRE(m.elastic_mode.has_value());
-  CHECK(*m.elastic_mode == "multi_cut");
+  CHECK(test_support::require_value(m.elastic_mode) == "multi_cut");
   REQUIRE(m.elastic_penalty.has_value());
-  CHECK(*m.elastic_penalty == doctest::Approx(750.0));
+  CHECK(test_support::require_value(m.elastic_penalty)
+        == doctest::Approx(750.0));
 }
 
 TEST_CASE("CascadeLevelMethod JSON - Empty apertures")
@@ -90,7 +94,7 @@ TEST_CASE("CascadeLevelMethod JSON - Empty apertures")
   const auto m = daw::json::from_json<CascadeLevelMethod>(json_data);
 
   REQUIRE(m.apertures.has_value());
-  CHECK(m.apertures->empty());
+  CHECK(test_support::require_value(m.apertures).empty());
 }
 
 // ── CascadeLevel JSON ───────────────────────────────────────────────────────
@@ -116,16 +120,24 @@ TEST_CASE("CascadeLevel JSON - Full deserialization")
   const auto lv = daw::json::from_json<CascadeLevel>(json_data);
 
   REQUIRE(lv.uid.has_value());
-  CHECK(*lv.uid == 1);
+  CHECK(test_support::require_value(lv.uid) == 1);
   REQUIRE(lv.name.has_value());
-  CHECK(*lv.name == "coarse");
+  CHECK(test_support::require_value(lv.name) == "coarse");
   REQUIRE(lv.model_options.has_value());
-  CHECK(*lv.model_options->use_single_bus == true);
-  CHECK(*lv.model_options->scale_objective == doctest::Approx(500.0));
+  CHECK(test_support::require_value(
+            test_support::require_value(lv.model_options).use_single_bus)
+        == true);
+  CHECK(test_support::require_value(
+            test_support::require_value(lv.model_options).scale_objective)
+        == doctest::Approx(500.0));
   REQUIRE(lv.sddp_options.has_value());
-  CHECK(*lv.sddp_options->max_iterations == 30);
+  CHECK(test_support::require_value(
+            test_support::require_value(lv.sddp_options).max_iterations)
+        == 30);
   REQUIRE(lv.transition.has_value());
-  CHECK(*lv.transition->inherit_optimality_cuts == -1);
+  CHECK(test_support::require_value(
+            test_support::require_value(lv.transition).inherit_optimality_cuts)
+        == -1);
 }
 
 TEST_CASE(
@@ -139,9 +151,9 @@ TEST_CASE(
   const auto lv = daw::json::from_json<CascadeLevel>(json_data);
 
   REQUIRE(lv.uid.has_value());
-  CHECK(*lv.uid == 2);
+  CHECK(test_support::require_value(lv.uid) == 2);
   REQUIRE(lv.name.has_value());
-  CHECK(*lv.name == "fine");
+  CHECK(test_support::require_value(lv.name) == "fine");
   // json_class_null creates a default-constructed optional when absent
   // The inner objects are present but empty (all fields nullopt)
   if (lv.model_options.has_value()) {
@@ -189,19 +201,31 @@ TEST_CASE("CascadeOptions JSON - Full deserialization with levels")
   const auto opts = daw::json::from_json<CascadeOptions>(json_data);
 
   REQUIRE(opts.model_options.use_single_bus.has_value());
-  CHECK(*opts.model_options.use_single_bus == true);
+  CHECK(test_support::require_value(opts.model_options.use_single_bus) == true);
   REQUIRE(opts.sddp_options.max_iterations.has_value());
-  CHECK(*opts.sddp_options.max_iterations == 200);
+  CHECK(test_support::require_value(opts.sddp_options.max_iterations) == 200);
   REQUIRE(opts.level_array.size() == 2);
 
-  CHECK(*opts.level_array[0].name == "coarse");
-  CHECK(*opts.level_array[0].model_options->use_single_bus == true);
-  CHECK(*opts.level_array[0].sddp_options->max_iterations == 30);
+  CHECK(test_support::require_value(opts.level_array[0].name) == "coarse");
+  CHECK(test_support::require_value(
+            test_support::require_value(opts.level_array[0].model_options)
+                .use_single_bus)
+        == true);
+  CHECK(test_support::require_value(
+            test_support::require_value(opts.level_array[0].sddp_options)
+                .max_iterations)
+        == 30);
 
-  CHECK(*opts.level_array[1].name == "fine");
-  CHECK(*opts.level_array[1].model_options->use_single_bus == false);
+  CHECK(test_support::require_value(opts.level_array[1].name) == "fine");
+  CHECK(test_support::require_value(
+            test_support::require_value(opts.level_array[1].model_options)
+                .use_single_bus)
+        == false);
   REQUIRE(opts.level_array[1].transition.has_value());
-  CHECK(*opts.level_array[1].transition->inherit_optimality_cuts == -1);
+  CHECK(test_support::require_value(
+            test_support::require_value(opts.level_array[1].transition)
+                .inherit_optimality_cuts)
+        == -1);
 }
 
 TEST_CASE("CascadeOptions JSON - Empty level_array")
@@ -213,7 +237,7 @@ TEST_CASE("CascadeOptions JSON - Empty level_array")
   const auto opts = daw::json::from_json<CascadeOptions>(json_data);
 
   REQUIRE(opts.sddp_options.max_iterations.has_value());
-  CHECK(*opts.sddp_options.max_iterations == 100);
+  CHECK(test_support::require_value(opts.sddp_options.max_iterations) == 100);
   CHECK(opts.level_array.empty());
 }
 
@@ -243,11 +267,10 @@ TEST_CASE("CascadeOptions JSON - Round-trip serialization")
 
   const auto rt = daw::json::from_json<CascadeOptions>(json);
 
-  CHECK(*rt.model_options.use_single_bus == true);
-  CHECK(*rt.model_options.demand_fail_cost == doctest::Approx(5000.0));
-  CHECK(*rt.sddp_options.max_iterations == 150);
+  CHECK(test_support::require_value(rt.model_options.use_single_bus) == true);
+  CHECK(test_support::require_value(rt.model_options.demand_fail_cost)
+        == doctest::Approx(5000.0));
+  CHECK(test_support::require_value(rt.sddp_options.max_iterations) == 150);
   REQUIRE(rt.level_array.size() == 1);
-  CHECK(*rt.level_array[0].name == "level1");
+  CHECK(test_support::require_value(rt.level_array[0].name) == "level1");
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

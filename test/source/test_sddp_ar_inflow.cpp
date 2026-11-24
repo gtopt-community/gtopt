@@ -773,9 +773,11 @@ TEST_CASE("AR inflow — inflow_model JSON round-trip")  // NOLINT
 
   const auto flow = daw::json::from_json<Flow>(json);
   REQUIRE(flow.inflow_model.has_value());
-  CHECK(flow.inflow_model->type.value_or("") == "ar1");
-  CHECK(flow.inflow_model->phi.value_or(-1.0) == doctest::Approx(0.62));
-  CHECK(flow.inflow_model->sigma.value_or(-1.0) == doctest::Approx(14.3));
+  CHECK((flow.inflow_model && flow.inflow_model->type.value_or("") == "ar1"));
+  CHECK((flow.inflow_model
+         && flow.inflow_model->phi.value_or(-1.0) == doctest::Approx(0.62)));
+  CHECK((flow.inflow_model
+         && flow.inflow_model->sigma.value_or(-1.0) == doctest::Approx(14.3)));
 
   // Absent → nullopt (opt-out).
   constexpr std::string_view json_plain = R"({
@@ -790,7 +792,8 @@ TEST_CASE("AR inflow — inflow_model JSON round-trip")  // NOLINT
   // Round-trip preserves the model.
   const auto round = daw::json::from_json<Flow>(daw::json::to_json(flow));
   REQUIRE(round.inflow_model.has_value());
-  CHECK(round.inflow_model->phi.value_or(-1.0) == doctest::Approx(0.62));
+  CHECK((round.inflow_model
+         && round.inflow_model->phi.value_or(-1.0) == doctest::Approx(0.62)));
 }
 
 // ═════════════════════════════════════════════════════════════════════════

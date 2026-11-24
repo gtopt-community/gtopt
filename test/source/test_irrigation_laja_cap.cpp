@@ -14,7 +14,19 @@
  * the reservoir then raises qf, tightens the cap and forces thermal
  * generation: the reservoir's water value turns NEGATIVE.  These tests
  * pin the PLP form (value >= 0) against the seepage form (value < 0).
+ *
+ * PLP's filtration term is NUMERIC but volume-dependent: GetQsLajaM
+ * subtracts the filtration at the stage-initial volume, so qdefm =
+ * max(C - F(V0), 0) with C = min(QP - QHoya, QFiltHist) + QN + QS + QE.
+ * gtopt reproduces it with two fixed carriers — `laja_qdefm` = C and
+ * `laja_qfilt` = min(C, F(V0)) through a FlowRight bound_rule — so the
+ * cap tracks the lake volume WITHOUT a volume column in the row (the
+ * water value stays >= 0).  The cap is a STAGE-AVERAGE row (PLP's
+ * qdrh/qdmh/qgah are stage averages): riego charging may be shaped
+ * across blocks as long as its stage mean respects qdefm.
  */
+
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
@@ -222,6 +234,192 @@ struct LajaCapResult
 }
 
 }  // namespace
+
+namespace
+{
+
+/// Two-block (12 h + 12 h) stage with the El Toro demand only in block 1
+/// (100 MW ⇒ 50 m³/s at production factor 2); block 2 has no demand.
+[[nodiscard]] Simulation make_laja_cap_two_blocks()
+{
+  return {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 12,
+              },
+              {
+                  .uid = Uid {2},
+                  .duration = 12,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 2,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+}
+
+/// The PLP-faithful carriers: `laja_qdefm` fixed at @p c and
+/// `laja_qfilt` fixed at min(c, F(V0)) with F(V) = slope · V.
+void add_qdefm_carriers(System& system, Real c, Real filt_slope)
+{
+  system.flow_right_array.push_back({
+      .uid = Uid {2},
+      .name = "laja_qdefm",
+      .purpose = "carrier",
+      .fmin = c,
+      .fmax = c,
+  });
+  system.flow_right_array.push_back({
+      .uid = Uid {3},
+      .name = "laja_qfilt",
+      .purpose = "carrier",
+      .fmin = c,
+      .fmax = c,
+      .bound_rule =
+          RightBoundRule {
+              .reservoir = Uid {1},
+              .segments =
+                  {
+                      {
+                          .volume = 0.0,
+                          .slope = filt_slope,
+                          .constant = 0.0,
+                      },
+                  },
+          },
+  });
+}
+
+struct LajaCapRun
+{
+  std::vector<Real> riego;  ///< per-block riego charging [m3/s]
+  Real value {0.0};  ///< block-1 water value = −(raw energy-balance dual)
+};
+
+[[nodiscard]] LajaCapRun solve_laja_cap_carriers(const Simulation& sim,
+                                                 std::string cap_expression,
+                                                 Real c,
+                                                 Real filt_slope,
+                                                 Real eini,
+                                                 OptName scope = {})
+{
+  auto system = make_laja_cap_system(std::move(cap_expression));
+  system.reservoir_array.front().eini = eini;
+  add_qdefm_carriers(system, c, filt_slope);
+  system.user_constraint_array.back().scope = std::move(scope);
+  if (sim.block_array.size() == 2) {
+    system.demand_array.front().lmax =
+        std::vector<std::vector<Real>> {{100.0, 0.0}};
+  }
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(sim, options);
+  SystemLP system_lp(system, simulation_lp);
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  const auto& sc = system_lp.system_context();
+  const auto& rsv_lp = system_lp.elements<ReservoirLP>().front();
+  const auto& rows = rsv_lp.energy_rows_at(scenarios[0], stages[0]);
+  const auto duals = lp.get_row_dual();
+  const auto sol = lp.get_col_sol();
+
+  LajaCapRun run;
+  for (const auto& block : stages[0].blocks()) {
+    const auto col = sc.find_ampl_col("flow_right",
+                                      Uid {1},
+                                      "flow",
+                                      scenarios[0].uid(),
+                                      stages[0].uid(),
+                                      block.uid());
+    REQUIRE(col.has_value());
+    run.riego.push_back(col ? sol[*col] : 0.0);
+  }
+  run.value = -duals[rows.at(stages[0].blocks().front().uid())];
+  return run;
+}
+
+constexpr auto kCarrierCap =
+    R"(flow_right("laja_der_riego").flow <= flow_right("laja_qdefm").flow - flow_right("laja_qfilt").flow)";
+
+constexpr auto kCarrierCapStage =
+    R"(sum{b in stage} dur[b] * flow_right("laja_der_riego").flow - sum{b in stage} dur[b] * flow_right("laja_qdefm").flow + sum{b in stage} dur[b] * flow_right("laja_qfilt").flow <= 0)";
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "Laja cap - qdefm tracks the lake volume through the filtration carrier")
+{
+  // C = 30, F(V) = 0.02 V.  Demand wants 50 m3/s, so the cap binds at
+  // C - F(V0): 30 - 10 = 20 at V0 = 500 and 30 - 2 = 28 at V0 = 100.
+  SUBCASE("full lake: more filtration, tighter cap")
+  {
+    const auto r = solve_laja_cap_carriers(
+        make_laja_cap_day(), kCarrierCap, 30.0, 0.02, 500.0);
+    REQUIRE(r.riego.size() == 1);
+    CHECK(r.riego[0] == doctest::Approx(20.0));
+    CHECK(r.value >= -1e-9);  // numeric carrier: never a negative value
+  }
+  SUBCASE("low lake: less filtration, looser cap")
+  {
+    const auto r = solve_laja_cap_carriers(
+        make_laja_cap_day(), kCarrierCap, 30.0, 0.02, 100.0);
+    CHECK(r.riego[0] == doctest::Approx(28.0));
+    CHECK(r.value >= -1e-9);
+  }
+  SUBCASE("filtration above the requirement clamps qdefm at zero")
+  {
+    // F(500) = 10 > C = 4: qfilt is clamped to C, the cap is 0 (PLP's
+    // max(qdefm, 0)) and the row stays feasible.
+    const auto r = solve_laja_cap_carriers(
+        make_laja_cap_day(), kCarrierCap, 4.0, 0.02, 500.0);
+    CHECK(r.riego[0] == doctest::Approx(0.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "Laja cap - stage-average cap lets riego charging shape across blocks")
+{
+  // C - F(V0) = 30 - 10 = 20 m3/s.  Block 1 (12 h) carries the whole
+  // demand (50 m3/s), block 2 none.
+  SUBCASE("per-block cap: 20 in block 1")
+  {
+    const auto r = solve_laja_cap_carriers(
+        make_laja_cap_two_blocks(), kCarrierCap, 30.0, 0.02, 500.0);
+    REQUIRE(r.riego.size() == 2);
+    CHECK(r.riego[0] == doctest::Approx(20.0));
+  }
+  SUBCASE("stage-average cap (PLP qdrh): 40 in block 1, 0 in block 2")
+  {
+    const auto r = solve_laja_cap_carriers(make_laja_cap_two_blocks(),
+                                           kCarrierCapStage,
+                                           30.0,
+                                           0.02,
+                                           500.0,
+                                           OptName {"stage"});
+    REQUIRE(r.riego.size() == 2);
+    CHECK(r.riego[0] == doctest::Approx(40.0));
+    CHECK(r.riego[1] == doctest::Approx(0.0));
+    CHECK(r.value >= -1e-9);
+  }
+}
 
 TEST_CASE(  // NOLINT
     "Laja cap - PLP numeric qdefm cap keeps the water value non-negative")

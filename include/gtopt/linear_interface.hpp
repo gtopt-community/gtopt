@@ -847,7 +847,10 @@ public:
    *
    * Generates the column name lazily from structured metadata when
    * class_name and context are present; returns empty otherwise.
-   * Applies bounds, objective coefficient, and scale.
+   * Applies bounds, objective coefficient, scale and integrality
+   * (`col.is_integer` → `set_integer`; an LP-only backend relaxes it
+   * with a one-time warning).  `add_col_raw`, `add_cols` and
+   * `add_cols_raw` honour `is_integer` the same way.
    *
    * @param col The sparse column specification
    * @return The index of the newly added column
@@ -2062,6 +2065,69 @@ public:
   [[nodiscard]] std::expected<FixIntegersOutcome, Error>
   fix_integers_and_resolve(const SolverOptions& opts = {});
 
+  /**
+   * @brief Outcome of `polish_mip` (the post-MIP fixed-integer LP).
+   *
+   * - `attempted`: the LP had discrete structure and an incumbent, so the
+   *   fixed-integer LP pass ran (`fix_integers_and_resolve`).
+   * - `polished`: the pass succeeded — the published objective / primal /
+   *   duals are now those of the fixed-integer LP.
+   * - `bailed`: the pass ran but failed; the incumbent is republished
+   *   untouched and duals are unavailable (see `FixIntegersOutcome`).
+   * - `no_incumbent`: the MIP stopped without an integer-feasible point —
+   *   nothing to polish.
+   * - `mip_optimal`: the MIP itself was proven optimal (within its gap)
+   *   before the polish.  `polished && !mip_optimal` is the
+   *   "stopped at a limit, polished" status (`solution.csv` status
+   *   `limit_polished`).
+   * - `incumbent_obj` / `polished_obj`: physical objective of the MIP
+   *   incumbent and of the polished LP (`polished_obj` valid iff
+   *   `polished`).
+   */
+  struct MipPolishOutcome
+  {
+    bool attempted {false};
+    bool polished {false};
+    bool bailed {false};
+    bool no_incumbent {false};
+    bool mip_optimal {false};
+    double incumbent_obj {0.0};
+    double polished_obj {0.0};
+    Index fixed_columns {0};
+  };
+
+  /**
+   * @brief Polish the MIP incumbent: fix its discrete decisions and
+   *        re-solve the LP (objective, primal AND duals).
+   *
+   * Runs `fix_integers_and_resolve(opts)` after ANY MIP stop that holds an
+   * incumbent — proven optimal, or stopped at a time / node / memory /
+   * solution limit (`SolverBackend::has_mip_incumbent`).  A non-optimal
+   * incumbent's continuous part is often far from optimal for its own
+   * integer decisions; the fixed-integer LP returns the best dispatch for
+   * them, with consistent duals.  No-op (`attempted == false`) on a pure
+   * LP.  The outcome is also kept in `last_mip_polish()` until the next
+   * solve.
+   *
+   * @param opts Options for the fixed-integer LP (time limit = the polish
+   *             slice of the caller's budget).
+   */
+  [[nodiscard]] std::expected<MipPolishOutcome, Error> polish_mip(
+      const SolverOptions& opts);
+
+  /// Outcome of the last `polish_mip` since the last solve (default /
+  /// not attempted when none ran).
+  [[nodiscard]] const MipPolishOutcome& last_mip_polish() const noexcept
+  {
+    return m_last_mip_polish_;
+  }
+
+  /// True when the last solve was a MIP that holds an integer-feasible
+  /// incumbent (optimal or stopped at a limit) — see
+  /// `SolverBackend::has_mip_incumbent`.  False when the backend is
+  /// released or cannot tell.
+  [[nodiscard]] bool has_mip_incumbent() const;
+
   /// True iff at least one column is currently flagged integer.
   /// Cheap linear scan; short-circuits on the first integer column.
   /// Used to gate the fix-integers dual-recovery pass so pure-LP solves
@@ -3097,6 +3163,9 @@ private:
   /// `clear_dual_recovery_bail_state()` at the start of every solve
   /// entry point.
   bool m_duals_unavailable_ {false};
+
+  /// Outcome of the last `polish_mip` (reset at every solve entry point).
+  MipPolishOutcome m_last_mip_polish_ {};
 
   /// Reset the bail latch above before a new solve supersedes it; also
   /// drops the incumbent primal that the bail republished through the

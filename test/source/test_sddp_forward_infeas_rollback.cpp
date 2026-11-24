@@ -498,7 +498,7 @@ TEST_CASE(  // NOLINT
 
   base.merge(std::move(override_opts));
   REQUIRE(base.forward_infeas_rollback.has_value());
-  CHECK(*base.forward_infeas_rollback);
+  CHECK(base.forward_infeas_rollback.value_or(false));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -743,7 +743,7 @@ TEST_CASE(  // NOLINT
 
   base.merge(std::move(override_opts));
   REQUIRE(base.terminal_failure_threshold.has_value());
-  CHECK(*base.terminal_failure_threshold == 5);
+  CHECK(base.terminal_failure_threshold.value_or(-1) == 5);
 }
 
 TEST_CASE(  // NOLINT
@@ -834,7 +834,6 @@ TEST_CASE(  // NOLINT
     "SDDPMethod terminal-skip: scene un-terminals when global cut count grows")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Companion to the previous test: when fresh cuts arrive globally
   // (the snapshot stored at terminal-declaration is now stale), the
@@ -866,5 +865,3 @@ TEST_CASE(  // NOLINT
   // Restart hook cleared the terminal flag before dispatch.
   CHECK_FALSE(rs0.terminal);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

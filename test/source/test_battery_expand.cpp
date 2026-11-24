@@ -11,6 +11,8 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 TEST_CASE("Battery new fields default to nullopt")  // NOLINT
@@ -522,7 +524,6 @@ TEST_CASE(
     "BatteryLP — capainst primal col_sol binds at capmin lower bound")  // NOLINT
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Deterministic LP where the battery's own installed-capacity column
   // (`capainst`, owned by BatteryLP via CapacityObjectBase through
@@ -660,11 +661,9 @@ TEST_CASE(
   // value that just satisfies capainst >= capacity = 20, giving
   // capainst = expcap * expmod = 100 * 0.2 = 20.  The column therefore
   // binds at its lower bound.
-  const auto cap_val = lp.get_col_sol()[*cap_col];
+  const auto cap_val = lp.get_col_sol()[test_support::require_value(cap_col)];
   CHECK(cap_val == doctest::Approx(20.0).epsilon(1e-6));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)
 
 // --- New field wiring (pmin_*, lmin, commitment) ----------------------------
 
@@ -758,7 +757,7 @@ TEST_CASE("expand_batteries propagates commitment to Converter")  // NOLINT
   REQUIRE(system.converter_array.size() == 1);
   const auto& conv = system.converter_array.back();
   REQUIRE(conv.commitment.has_value());
-  CHECK(*conv.commitment == true);
+  CHECK((conv.commitment && *conv.commitment == true));
 }
 
 TEST_CASE(

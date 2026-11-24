@@ -26,10 +26,10 @@
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_types.hpp>  // register_alpha_variables
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -125,7 +125,8 @@ TEST_CASE(  // NOLINT
   // Capture the physical-space view of the row that we'll require
   // to be identical after a release/reload cycle.
   const double pre_row_low = last_li.get_row_low()[cut_row];
-  const double pre_phys_coeff = last_li.get_coeff(cut_row, *state_col);
+  const double pre_phys_coeff =
+      last_li.get_coeff(cut_row, test_support::require_value(state_col));
   CAPTURE(pre_row_low);
   CAPTURE(pre_phys_coeff);
   REQUIRE(pre_row_low
@@ -150,7 +151,8 @@ TEST_CASE(  // NOLINT
   // the replay path must not drop, duplicate, or re-scale the cut.
   REQUIRE(last_li.get_numrows() == pre_load_numrows + 1);
   const double post_row_low = last_li.get_row_low()[cut_row];
-  const double post_phys_coeff = last_li.get_coeff(cut_row, *state_col);
+  const double post_phys_coeff =
+      last_li.get_coeff(cut_row, test_support::require_value(state_col));
   CAPTURE(post_row_low);
   CAPTURE(post_phys_coeff);
   CHECK(post_row_low
@@ -162,5 +164,3 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove(tmp_file);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

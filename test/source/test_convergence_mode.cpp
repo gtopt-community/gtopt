@@ -88,7 +88,7 @@ TEST_CASE(  // NOLINT
   for (const auto name : names) {
     const auto parsed = enum_from_name<ConvergenceMode>(name);
     REQUIRE(parsed.has_value());
-    CHECK(enum_name(*parsed) == name);
+    CHECK((parsed && enum_name(*parsed) == name));
   }
 }
 
@@ -141,7 +141,8 @@ TEST_CASE(  // NOLINT
   base.merge(std::move(overlay));
 
   REQUIRE(base.convergence_mode.has_value());
-  CHECK(*base.convergence_mode == ConvergenceMode::statistical);
+  CHECK((base.convergence_mode
+         && *base.convergence_mode == ConvergenceMode::statistical));
   CHECK(base.convergence_tol.value_or(0.0) == doctest::Approx(1e-4));
   CHECK(base.stationary_tol.value_or(0.0) == doctest::Approx(0.01));
   CHECK(base.convergence_confidence.value_or(0.0) == doctest::Approx(0.95));
@@ -162,7 +163,8 @@ TEST_CASE(  // NOLINT
   base.merge(std::move(empty));
 
   REQUIRE(base.convergence_mode.has_value());
-  CHECK(*base.convergence_mode == ConvergenceMode::gap_stationary);
+  CHECK((base.convergence_mode
+         && *base.convergence_mode == ConvergenceMode::gap_stationary));
   CHECK(base.stationary_tol.value_or(0.0) == doctest::Approx(0.05));
   CHECK(base.stationary_window.value_or(0) == 20);
 }
@@ -173,7 +175,6 @@ TEST_CASE(  // NOLINT
     "SddpOptions construction with all convergence fields")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   const SddpOptions opts {
       .convergence_tol = 1e-4,
@@ -192,5 +193,3 @@ TEST_CASE(  // NOLINT
 }
 
 }  // namespace
-
-// NOLINTEND(bugprone-unchecked-optional-access)

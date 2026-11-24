@@ -28,6 +28,8 @@ using namespace gtopt;
 
 namespace test_allowance_pool_auction
 {
+namespace
+{
 
 Simulation make_2stage_24h_simulation()
 {
@@ -131,6 +133,7 @@ double solve_obj(const System& sys)
   return li.get_obj_value_raw();
 }
 
+}  // namespace
 }  // namespace test_allowance_pool_auction
 
 TEST_CASE(

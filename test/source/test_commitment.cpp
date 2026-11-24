@@ -25,6 +25,7 @@
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "require_value.hpp"
 #include "solver_test_helpers.hpp"
 
 using namespace gtopt;
@@ -277,8 +278,9 @@ TEST_CASE("Commitment JSON round-trip with max_starts fields")  // NOLINT
     const auto c = daw::json::from_json<Commitment>(json_str);
     CHECK(c.max_starts.value_or(-1) == 3);
     REQUIRE(c.starts_scope.has_value());
-    REQUIRE(std::holds_alternative<Name>(*c.starts_scope));
-    CHECK(std::get<Name>(*c.starts_scope) == "week");
+    const auto scope = c.starts_scope.value_or(Name {});
+    REQUIRE(std::holds_alternative<Name>(scope));
+    CHECK(std::get<Name>(scope) == "week");
     CHECK(c.starts_window_hours() == doctest::Approx(168.0));
   }
   SUBCASE("int scope: explicit 336 hours (fortnight)")
@@ -293,8 +295,9 @@ TEST_CASE("Commitment JSON round-trip with max_starts fields")  // NOLINT
     const auto c = daw::json::from_json<Commitment>(json_str);
     CHECK(c.max_starts.value_or(-1) == 7);
     REQUIRE(c.starts_scope.has_value());
-    REQUIRE(std::holds_alternative<Int>(*c.starts_scope));
-    CHECK(std::get<Int>(*c.starts_scope) == 336);
+    const auto scope = c.starts_scope.value_or(Name {});
+    REQUIRE(std::holds_alternative<Int>(scope));
+    CHECK(std::get<Int>(scope) == 336);
     CHECK(c.starts_window_hours() == doctest::Approx(336.0));
   }
   SUBCASE("two-sided bound: min_starts + max_starts share starts_scope")
@@ -1129,7 +1132,7 @@ TEST_CASE("Generator emission_rate JSON")
   const auto g = daw::json::from_json<Generator>(json_str);
   CHECK(g.uid == 1);
   REQUIRE(g.emission_rate.has_value());
-  CHECK(std::get<Real>(g.emission_rate.value()) == doctest::Approx(0.9));
+  CHECK(std::get<Real>(g.emission_rate.value_or(0.0)) == doctest::Approx(0.9));
 }
 
 // ── Audit-driven regression tests ──────────────────────────────────────
@@ -1496,8 +1499,8 @@ TEST_CASE("Hot start at t=0 with recent shutdown")
 {
   // Unit offline for 1h (initial_hours=1.0), hot_start_time=2.0.
   // Offline duration (1h) < hot_start_time (2h) → hot start available.
-  // g1 is much cheaper, starts up with hot start cost (100).
-  // Objective = hot_start(100) + dispatch(5×80×6=2400) = 2500.
+  // g1 is much cheaper, starts up at the hot start cost (100 per unit of
+  // the relaxed start).
 
   System sys;
   sys.name = "hot_start_t0";
@@ -1605,12 +1608,13 @@ TEST_CASE("Hot start at t=0 with recent shutdown")
   CHECK(result.value() == 0);
 
   const auto obj = li.get_obj_value_raw();
-  // The hot window constraint checks w[t-k]=1 for recent blocks,
-  // but there is no w event before the horizon for an initially
-  // offline unit.  The LP selects warm start (300) + a partial
-  // contribution yielding startup cost of 400.
-  // Total: dispatch(2400) + startup(400) = 2800, scaled = 2.8
-  CHECK(obj == doctest::Approx(2800.0 / 1000.0).epsilon(0.05));
+  // The 1 h initial outage (< hot_start_time 2 h) makes the first-block
+  // start hot.  The commitment is relaxed and g1 has pmin 0, so
+  // u = v = 80/100 = 0.8: startup 0.8 · 100 = 80.  (Before the fix the
+  // initial offline time was ignored at t = 0 and the start was priced
+  // as a warm/cold mix, 2.8.)
+  // Total: dispatch(2400) + startup(80) = 2480, scaled = 2.48
+  CHECK(obj == doctest::Approx(2480.0 / 1000.0));
 }
 
 TEST_CASE("Noload cost accumulates for committed blocks")
@@ -3011,7 +3015,7 @@ TEST_CASE(  // NOLINT
     "CommitmentLP — MIP u/v/w binary values for startup profile")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-argument-comment,bugprone-unchecked-optional-access)
+  // NOLINTBEGIN(bugprone-argument-comment)
 
   SolverRegistry& reg = SolverRegistry::instance();
   if (!reg.has_mip_solver()) {
@@ -3182,23 +3186,29 @@ TEST_CASE(  // NOLINT
   // active check that the tight formulation is in effect: flipping these
   // back to CHECK(lp.is_integer(...)) would mean the integrality-reduction
   // regressed.
-  CHECK(lp.is_integer(*u0));
-  CHECK(lp.is_integer(*u1));
-  CHECK(lp.is_integer(*u2));
-  CHECK(!lp.is_integer(*v1));
-  CHECK(!lp.is_integer(*v2));
-  CHECK(!lp.is_integer(*w2));
+  CHECK(lp.is_integer(test_support::require_value(u0)));
+  CHECK(lp.is_integer(test_support::require_value(u1)));
+  CHECK(lp.is_integer(test_support::require_value(u2)));
+  CHECK(!lp.is_integer(test_support::require_value(v1)));
+  CHECK(!lp.is_integer(test_support::require_value(v2)));
+  CHECK(!lp.is_integer(test_support::require_value(w2)));
 
   // Correctness of the reduction: even though v/w are continuous, the
   // optimal solution still takes clean integer values — unit off at block
   // 0, starts at block 1, stays on at 2.  If the propagation ever broke,
   // these would go fractional.
-  CHECK(sol[*u0] == doctest::Approx(0.0).epsilon(1e-4));
-  CHECK(sol[*u1] == doctest::Approx(1.0).epsilon(1e-4));
-  CHECK(sol[*u2] == doctest::Approx(1.0).epsilon(1e-4));
-  CHECK(sol[*v1] == doctest::Approx(1.0).epsilon(1e-4));
-  CHECK(sol[*v2] == doctest::Approx(0.0).epsilon(1e-4));
-  CHECK(sol[*w2] == doctest::Approx(0.0).epsilon(1e-4));
+  CHECK(sol[test_support::require_value(u0)]
+        == doctest::Approx(0.0).epsilon(1e-4));
+  CHECK(sol[test_support::require_value(u1)]
+        == doctest::Approx(1.0).epsilon(1e-4));
+  CHECK(sol[test_support::require_value(u2)]
+        == doctest::Approx(1.0).epsilon(1e-4));
+  CHECK(sol[test_support::require_value(v1)]
+        == doctest::Approx(1.0).epsilon(1e-4));
+  CHECK(sol[test_support::require_value(v2)]
+        == doctest::Approx(0.0).epsilon(1e-4));
+  CHECK(sol[test_support::require_value(w2)]
+        == doctest::Approx(0.0).epsilon(1e-4));
 }
 
 // ── Legacy Commitment JSON rejection (2026-05-20) ──────────────────────────
@@ -3299,4 +3309,4 @@ TEST_CASE("Commitment JSON — `pmin` field accepted (new in 2026-05-20)")
   CHECK(std::get<double>(c.pmin.value_or(-1.0)) == doctest::Approx(25.0));
 }
 
-// NOLINTEND(bugprone-argument-comment,bugprone-unchecked-optional-access)
+// NOLINTEND(bugprone-argument-comment)

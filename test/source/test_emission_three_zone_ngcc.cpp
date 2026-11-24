@@ -453,7 +453,7 @@ TEST_CASE(
   // comment block above the includes.
   const Real ct_expected = kCapCT;  // 100 MW (cheapest, hit upper bound)
   const Real ma_expected =
-      (kCap - co2_rate(kCT_NGCC) * ct_expected) / co2_rate(kMA_NGCC);
+      (kCap - (co2_rate(kCT_NGCC) * ct_expected)) / co2_rate(kMA_NGCC);
   // ma_expected = (45 − 37.779) / 0.39423 ≈ 18.31407 MW
 
   CHECK(generation_of(system_lp, "CT_NGCC").value_or(-1.0)

@@ -1188,9 +1188,9 @@ TEST_CASE(  // NOLINT
 
   for (int i = 0; i < n_threads; ++i) {
     CAPTURE(i);
-    REQUIRE(obj_values[static_cast<size_t>(i)].has_value());
-    CHECK(*obj_values[static_cast<size_t>(i)]
-          == doctest::Approx(expected).epsilon(1e-9));
+    const auto& obj_i = obj_values[static_cast<size_t>(i)];
+    REQUIRE(obj_i.has_value());
+    CHECK((obj_i && *obj_i == doctest::Approx(expected).epsilon(1e-9)));
   }
 }
 
@@ -1255,7 +1255,7 @@ TEST_CASE(  // NOLINT
     "Borrow-from-source replay leaves source's replay buffer untouched")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access,readability-trailing-comma)
+  // NOLINTBEGIN(readability-trailing-comma)
 
   auto fix = make_sddp_like_source(LowMemoryMode::compress);
   auto& src = fix.src;
@@ -1285,4 +1285,4 @@ TEST_CASE(  // NOLINT
   CHECK(src.replay_buf().pending_col_bounds_size() == pending_before);
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access,readability-trailing-comma)
+// NOLINTEND(readability-trailing-comma)

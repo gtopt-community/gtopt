@@ -227,7 +227,7 @@ TEST_SUITE("ScenarioLP")
 
     SUBCASE("index")
     {
-      CHECK(scenario_lp.index() == ScenarioIndex {1});
+      CHECK(scenario_lp.scenario_index() == ScenarioIndex {1});
     }
 
     SUBCASE("scene_index")
@@ -371,7 +371,7 @@ TEST_SUITE("StageLP")
     SUBCASE("Basic properties")
     {
       CHECK(stage_lp.stage().uid == 42);
-      CHECK(stage_lp.index() == StageIndex {1});
+      CHECK(stage_lp.stage_index() == StageIndex {1});
       CHECK(stage_lp.phase_index() == PhaseIndex {2});
       CHECK(stage_lp.is_active() == true);
       CHECK(stage_lp.uid() == make_uid<Stage>(42));

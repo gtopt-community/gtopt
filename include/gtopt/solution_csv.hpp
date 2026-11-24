@@ -61,10 +61,18 @@ struct SolutionRow
   std::string_view gtopt_revision {};
 };
 
+/// solution.csv status of a MIP that stopped at a limit (time / node /
+/// memory) WITHOUT proving optimality and whose incumbent was then
+/// polished (integers fixed, LP re-solved — `SolverOptions::mip_polish`).
+/// The published objective / primal / duals are the polished LP's, but the
+/// cell is not optimal for the MIP: it gets its own code rather than 0.
+inline constexpr int solution_status_limit_polished = 5;
+
 /// CLP status-code → human name.  Values follow the CLP convention
 /// (0=optimal, 1=primal infeasible, 2=dual infeasible/unbounded,
-/// 3=iteration limit, 4=error); anything else (incl. the -1 never-solved
-/// sentinel) reports "unknown".
+/// 3=iteration limit, 4=error), plus gtopt's 5=limit_polished (see
+/// `solution_status_limit_polished`); anything else (incl. the -1
+/// never-solved sentinel) reports "unknown".
 [[nodiscard]] constexpr std::string_view solution_status_name(
     int status) noexcept
 {
@@ -79,6 +87,8 @@ struct SolutionRow
       return "iteration_limit";
     case 4:
       return "error";
+    case solution_status_limit_polished:
+      return "limit_polished";
     default:
       return "unknown";
   }

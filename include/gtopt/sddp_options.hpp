@@ -284,7 +284,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *
    * When an aperture LP exceeds this time, it is treated as infeasible
    * (skipped), a WARNING is logged, and the solver continues with the
-   * remaining apertures.  Default 15 seconds.  0 = no timeout.
+   * remaining apertures.  Default 30 seconds.  0 = no timeout.
    */
   OptReal aperture_timeout {};
 

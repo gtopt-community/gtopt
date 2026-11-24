@@ -57,6 +57,20 @@ struct SparseRow
   double uppb {0};  ///< Physical upper bound (default: 0)
   cmap_t cmap {};  ///< Sparse coefficient map (physical values)
   double scale {1.0};  ///< Row scale: LP = physical / scale (default: 1.0)
+  /// Post-equilibration dual-conditioning factor `c` (default 1 = off).
+  /// `flatten()` multiplies the already-equilibrated row (coefficients and
+  /// bounds) by `c` and divides the stored row scale by `c`, so the LP dual
+  /// becomes `y_LP / c` while the physical dual
+  /// (`dual_LP * scale_objective / row_scale`) is unchanged.  Unlike `scale`
+  /// it is applied AFTER equilibration (row_max / ruiz would otherwise cancel
+  /// it).  Explicit values win over `dual_hint`.
+  double post_scale {1.0};
+  /// Expected magnitude of this row's dual in "folded physical" units
+  /// (prob*disc-folded `$ / row-unit`, i.e. the dual of the row with
+  /// `scale = 1`, `scale_objective = 1`, no equilibration).  0 = unknown.
+  /// When `LpMatrixOptions::water_dual_target > 0` and `post_scale == 1`,
+  /// `flatten()` picks `c` so the expected `|y_LP|` equals the target.
+  double dual_hint {0.0};
   /// Optional pivot column for cut-row equilibration.  When set
   /// (`!= unknown_index`), `LinearInterface::add_row` will normalize
   /// step-3 row equilibration by `elements[pivot_col]` instead of by

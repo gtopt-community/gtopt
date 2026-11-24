@@ -4,6 +4,9 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
+#include <ranges>
+#include <span>
+#include <vector>
 
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/cost_helper.hpp>
@@ -435,18 +438,77 @@ constexpr double kLossCoeffTolerance = 1e-6;
 /// Rationale: a coefficient below this magnitude in the constraint
 /// matrix sits in LP solver presolve noise and adds nothing the dual
 /// can distinguish, but it does bloat the matrix coefficient range
-/// (min/max ratio drives κ).  Started conservative at 1e-6 (same
-/// order as the pre-scale physical-noise floor `kLossCoeffTolerance`
-/// — only catches truly-degenerate seg/tangent stamps after scaling);
-/// can be tightened upward (1e-5, 1e-4, …) if κ-driven measurements
-/// show measurable headroom against the LP residual tolerance.
+/// (min/max ratio drives κ).  Raised from 1e-6 to 5e-5 after the CEN
+/// PCP LPs (2024–2025) showed the smallest matrix entries were
+/// tangent slopes of ~3.5e-5 on short, nearly lossless lines; with
+/// the largest loss-row entries ~1.3 that alone set a 3.6e4 range.
 ///
 /// The pre-scale `kLossCoeffTolerance` check already catches the
 /// truly-zero physical case; this is a separate LP-numerical-noise
 /// floor that fires AFTER `loss_row_scale` is applied (so it scales
 /// with the chosen row scaling and doesn't require retuning per
 /// case).
-constexpr double kLossLpRowTolerance = 1e-6;
+constexpr double kLossLpRowTolerance = 5e-5;
+
+/// Maximum ratio between consecutive OVERFLOW breakpoints past a
+/// decoupled ``loss_envelope`` (see ``overflow_breakpoints``).  For a
+/// convex quadratic ``c·f²`` the tangent lower envelope between two
+/// tangent points ``a < b`` is worst at ``(a+b)/2`` with relative error
+/// ``((b−a)/(b+a))²``, and the secant upper envelope on ``[a, b]`` has
+/// the same worst relative error.  A ratio of 1.4 bounds both at
+/// ``(0.4/2.4)² ≈ 2.8 %`` of the true loss at every flow past the
+/// envelope.
+constexpr double kOverflowBreakpointRatio = 1.4;
+
+/// Cap on the number of overflow breakpoints per (line, block).  Only
+/// reached for ``fmax / envelope > 1.4^16 ≈ 218`` (the ratio then widens
+/// uniformly in log space; still a valid outer approximation).
+constexpr int kMaxOverflowBreakpoints = 16;
+
+/// Overflow breakpoints past a DECOUPLED loss envelope.
+///
+/// ``Line.loss_envelope`` concentrates the K loss-PWL segments over the
+/// realistic loading range ``[0, envelope]`` while the flow cap stays at
+/// ``fmax`` (e.g. PLEXOS ``Enforce Limits = 0`` lines emitted with
+/// ``tmax = 10 × rating`` and ``loss_envelope = rating``).  The envelope
+/// must NOT cap the flow, and losses past it must stay QUADRATIC (PLEXOS
+/// keeps ``R·f²/V²`` above the rating — a linear extrapolation on the
+/// last segment's slope under-states the loss by ~2× at 3× rating).
+///
+/// Returns the geometric ladder ``b_1 < … < b_M = fmax`` with
+/// ``b_j = envelope · (fmax/envelope)^(j/M)`` and
+/// ``M = ⌈log(fmax/envelope) / log(kOverflowBreakpointRatio)⌉`` (capped
+/// at ``kMaxOverflowBreakpoints``), so every ratio ``b_j / b_{j−1}`` is
+/// ≤ ``kOverflowBreakpointRatio`` (``b_0 = envelope``).  The loss
+/// emitters use it for extra tangent points (lower envelope) and extra
+/// secant segments / λ breakpoints (upper envelope) over
+/// ``[envelope, fmax]``.  Empty when ``fmax ≤ envelope`` (no headroom:
+/// the LP is then byte-identical to the non-decoupled formulation) or
+/// when either bound is non-finite.
+[[nodiscard]] std::vector<double> overflow_breakpoints(double envelope,
+                                                       double fmax)
+{
+  std::vector<double> out;
+  if (!(envelope > 0.0) || !(fmax > envelope * (1.0 + 1e-9))
+      || fmax >= LinearProblem::DblMax || !std::isfinite(fmax))
+  {
+    return out;
+  }
+  const double log_ratio = std::log(fmax / envelope);
+  const int m = std::clamp(
+      static_cast<int>(
+          std::ceil((log_ratio / std::log(kOverflowBreakpointRatio)) - 1e-9)),
+      1,
+      kMaxOverflowBreakpoints);
+  out.reserve(static_cast<std::size_t>(m));
+  for (int j = 1; j < m; ++j) {
+    out.push_back(envelope
+                  * std::exp(log_ratio * static_cast<double>(j)
+                             / static_cast<double>(m)));
+  }
+  out.push_back(fmax);  // exact last breakpoint
+  return out;
+}
 
 /// Add piecewise-linear segment variables to linking and loss rows.
 ///
@@ -606,7 +668,8 @@ void add_tangents(LinearProblem& lp,
                   ColIndex loss_col,
                   std::optional<ColIndex> fp_col,
                   std::optional<ColIndex> fn_col,
-                  double loss_row_scale)
+                  double loss_row_scale,
+                  std::span<const double> overflow_points = {})
 {
   const double k_loss = resistance / V2;
   if (k_loss < kLossCoeffTolerance / std::max(envelope, 1.0)) {
@@ -617,9 +680,26 @@ void add_tangents(LinearProblem& lp,
     // LP's natural optimum for an unconstrained minimised variable).
     return;
   }
-  for (const auto k : iota_range(1, nseg + 1)) {
-    const double t_k = envelope * static_cast<double>((2 * k) - 1)
-        / (2.0 * static_cast<double>(nseg));
+  // Tangent points on |f|: the K inner points ``t_k`` (k = 1..K) and,
+  // for a DECOUPLED envelope with headroom (``overflow_points`` non-
+  // empty, see ``overflow_breakpoints``), the envelope itself plus the
+  // geometric overflow ladder up to the flow cap — tangent index
+  // ``K + 1 + j``.  The extra rows keep ``ℓ`` on the quadratic past the
+  // envelope (within ≈ 2.8 %) instead of extrapolating the last inner
+  // tangent linearly.
+  const int n_extra = overflow_points.empty()
+      ? 0
+      : static_cast<int>(overflow_points.size()) + 1;
+  for (const auto k : iota_range(1, nseg + n_extra + 1)) {
+    double t_k = 0.0;
+    if (k <= nseg) {
+      t_k = envelope * static_cast<double>((2 * k) - 1)
+          / (2.0 * static_cast<double>(nseg));
+    } else if (k == nseg + 1) {
+      t_k = envelope;
+    } else {
+      t_k = overflow_points[static_cast<std::size_t>(k - nseg - 2)];
+    }
     // Per-tangent dropout, analogous to ``add_segments``'s per-segment
     // ``|loss_k| < kLossCoeffTolerance`` skip (see ``add_segments``
     // docstring + the ``kLossCoeffTolerance`` comment).  The slope of
@@ -697,7 +777,9 @@ void add_segments(LinearProblem& lp,
     //     ``geom.width`` (tighter than ``seg_uppb`` for non-uniform).
     //
     // (b) Unbounded caller (``seg_uppb == DblMax`` — EL=0 OR
-    //     ``decoupled_envelope = true`` for a lifted / soft-cap line):
+    //     ``decoupled_envelope = true`` WITHOUT headroom past the
+    //     envelope; with headroom ``add_direction`` caps every inner
+    //     segment and appends the quadratic overflow segments instead):
     //     ONLY the last segment (``k == nseg``) keeps ``DblMax`` so it
     //     can absorb any flow past ``envelope`` at its steep slope.
     //     Segments 1..K−1 are STILL capped at ``geom.width`` to
@@ -747,7 +829,7 @@ void add_segments(LinearProblem& lp,
       //   * pre-scale `kLossCoeffTolerance` (1e-6) — physical-noise
       //     floor: R/V² × seg_width below this is a virtually-
       //     lossless line (transformer / busbar / data outlier).
-      //   * post-scale `kLossLpRowTolerance` (1e-3) — LP-coefficient
+      //   * post-scale `kLossLpRowTolerance` (5e-5) — LP-coefficient
       //     noise floor: `loss_k × loss_row_scale` below this would
       //     add a sub-millis. matrix entry that the solver presolve
       //     drops anyway and that bloats κ via min/max coef spread.
@@ -1086,11 +1168,12 @@ BlockResult add_piecewise_shared(const LossConfig& config,
   // ``enforce_level``-lifted line whose ``fmax`` flow cap is inflated),
   // spread the K loss segments over THAT range instead of ``fmax``.
   // The flow cap (``fp``/``fn`` upper bounds, capacity rows) stays on
-  // ``fmax`` — only the loss approximation tightens.  Flow past the
-  // envelope keeps accruing loss on the steepest (last) segment's slope
-  // (the natural convex-quadratic extrapolation): the per-segment
-  // ``seg_uppb`` is released to DblMax in that case so the topmost seg
-  // absorbs the overflow.
+  // ``fmax`` — only the loss approximation tightens.  This function is
+  // reached only for the ``tangent`` layout (every other layout routes
+  // through ``add_bidirectional``), where flow past the envelope is
+  // handled by the overflow tangents passed to ``add_tangents`` and the
+  // ``max(fmax, envelope)`` loss bound below.  (The secant branch
+  // further down keeps the legacy ``seg_uppb = DblMax`` overflow.)
   const bool decoupled_envelope = config.loss_envelope > 0.0;
   const double effective_fmax =
       decoupled_envelope ? config.loss_envelope : fmax;
@@ -1160,9 +1243,16 @@ BlockResult add_piecewise_shared(const LossConfig& config,
   // approximations that do not prevent over-estimation when the solver
   // benefits from absorbing power (loss acts as a free energy sink
   // under split/sender allocation).
+  //
+  // With a DECOUPLED envelope the bound uses ``m = max(fmax,
+  // envelope)``: flow may run past the envelope up to ``fmax`` and the
+  // (overflow) tangent rows then force ``ℓ`` above ``R·envelope²/V²``;
+  // anchoring the bound at the envelope would re-cap the flow there.
+  // Not decoupled ⇒ ``m = fmax`` (unchanged).
+  const double loss_ub_flow = std::max(fmax, effective_fmax);
   const double loss_ub =
       (config.resistance > 0.0 && config.V2 > 0.0 && effective_fmax > 0.0)
-      ? config.resistance * effective_fmax * effective_fmax / config.V2
+      ? config.resistance * loss_ub_flow * loss_ub_flow / config.V2
       : LinearProblem::DblMax;
   const auto loss_col = lp.add_col({
       .lowb = 0,
@@ -1196,7 +1286,9 @@ BlockResult add_piecewise_shared(const LossConfig& config,
                  loss_col,
                  result.fp_col,
                  result.fn_col,
-                 config.loss_row_scale);
+                 config.loss_row_scale,
+                 decoupled_envelope ? overflow_breakpoints(effective_fmax, fmax)
+                                    : std::vector<double> {});
     return result;
   }
 
@@ -1333,11 +1425,28 @@ DirResult add_direction(const LossConfig& config,
   // The flow cap stays on ``block_tmax``; only the loss approximation
   // tightens.  Overflow past the envelope accrues on the steepest
   // segment, so release ``seg_uppb`` to DblMax under decoupling.
+  //
+  // Past the envelope the loss must stay QUADRATIC (PLEXOS keeps
+  // ``R·f²/V²`` above the rating), so when the flow cap leaves headroom
+  // (``block_tmax > envelope``) the overflow ``[envelope, block_tmax]``
+  // is covered by extra secant segments on the geometric ladder of
+  // ``overflow_breakpoints`` (slope ``(R/V²)·(b_{j−1} + b_j)``, width
+  // ``b_j − b_{j−1}``), and ALL K inner segments keep their width cap.
+  // Convex slopes ⇒ the LP fills them in order, so ``loss`` tracks the
+  // secant of ``R·f²/V²`` within ≈ 2.8 % up to the flow cap.  With no
+  // headroom (``envelope ≥ block_tmax``) or EL=0 (``enforce_capacity =
+  // false``, legacy no-op path) the last inner segment keeps ``DblMax``
+  // as before.
   const bool decoupled_envelope = config.loss_envelope > 0.0;
   const double effective_envelope =
       decoupled_envelope ? config.loss_envelope : block_tmax;
   const double seg_width = effective_envelope / nseg;
-  const double seg_uppb = (enforce_capacity && !decoupled_envelope)
+  const std::vector<double> overflow_bp =
+      (decoupled_envelope && enforce_capacity)
+      ? overflow_breakpoints(effective_envelope, block_tmax)
+      : std::vector<double> {};
+  const double seg_uppb =
+      (enforce_capacity && (!decoupled_envelope || !overflow_bp.empty()))
       ? seg_width
       : LinearProblem::DblMax;
 
@@ -1364,10 +1473,14 @@ DirResult add_direction(const LossConfig& config,
   const double loss_block_cost = config.loss_cost_eps > 0.0
       ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
       : 0.0;
-  // Cap loss at the physical maximum for this direction: R × fmax² / V².
+  // Cap loss at the physical maximum for this direction: R × m² / V²
+  // with ``m = max(fmax, envelope)`` — the secant PWL can only reach
+  // ``R·envelope²/V²`` when a decoupled envelope exceeds the flow cap,
+  // and ``m = fmax`` otherwise (unchanged when not decoupled).
+  const double loss_ub_flow = std::max(block_tmax, effective_envelope);
   const double dir_loss_ub =
       (config.resistance > 0.0 && config.V2 > 0.0 && block_tmax > 0.0)
-      ? config.resistance * block_tmax * block_tmax / config.V2
+      ? config.resistance * loss_ub_flow * loss_ub_flow / config.V2
       : LinearProblem::DblMax;
   const auto loss_col = lp.add_col({
       .lowb = 0,
@@ -1433,6 +1546,36 @@ DirResult add_direction(const LossConfig& config,
                config.loss_row_scale,
                seg_uppb,
                config.pwl_layout);
+
+  // Overflow secant segments past a decoupled envelope (see above).
+  // Segment index ``K + j`` keeps the column names distinct from the
+  // inner ``1..K``.
+  {
+    const double k_loss = config.resistance / config.V2;
+    double lo = effective_envelope;
+    int j = 0;
+    for (const double hi : overflow_bp) {
+      ++j;
+      const auto ocol = lp.add_col({
+          .lowb = 0,
+          .uppb = hi - lo,
+          .class_name = Line::class_name.full_name(),
+          .variable_name = labels.seg,
+          .variable_uid = uid,
+          .context = make_block_context(
+              scenario.uid(), stage.uid(), block.uid(), nseg + j),
+      });
+      linkrow[ocol] = -1.0;
+      const double loss_j = k_loss * (lo + hi);
+      const double scaled_loss = loss_j * config.loss_row_scale;
+      if (std::abs(loss_j) >= kLossCoeffTolerance
+          && std::abs(scaled_loss) >= kLossLpRowTolerance)
+      {
+        lossrow[ocol] = -scaled_loss;
+      }
+      lo = hi;
+    }
+  }
 
   [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
   [[maybe_unused]] auto lossrow_idx = lp.add_row(std::move(lossrow));
@@ -1812,6 +1955,36 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   const int L = std::max(1, config.nseg_secant);
   const double seg_width = effective_fmax / static_cast<double>(L);
 
+  // ── Overflow past a DECOUPLED envelope ─────────────────────────────
+  // ``loss_envelope`` only shapes the loss approximation; it must never
+  // cap the flow.  The regimes above build their |f| ladder on
+  // ``[0, effective_fmax]`` only, so with ``effective_fmax <
+  // fmax_phys`` they need an extension over ``[envelope, fmax_phys]``
+  // (``overflow_bp`` = geometric ladder ``b_1 < … < b_M = fmax_phys``,
+  // ``b_0 = envelope``, ratio ≤ 1.4, see ``overflow_breakpoints``):
+  //   * segment form (A/B): M extra |f| columns ``u_j ∈ [0, b_j −
+  //     b_{j−1}]`` in both abs rows, with chord slope ``c·(b_{j−1} +
+  //     b_j)`` = the SECANT of ``c·f²`` on ``[b_{j−1}, b_j]``;
+  //   * λ-form (C): breakpoints ``±b_j`` with chord ``c·b_j²``;
+  //   * tangent rows at ``±envelope`` and ``±b_j``.
+  // LP validity: slopes increase, so for any ``|f|`` the SMALLEST chord
+  // value reachable by a feasible (v, u) is the bottom-up fill = the
+  // piecewise secant, which lies ABOVE ``c·f²`` and therefore above
+  // every tangent row — the chord can never conflict with the tangent
+  // lower envelope (no infeasibility for any |f| ≤ fmax_phys).  Losses
+  // past the envelope stay within ≈ 2.8 % of the true quadratic on both
+  // sides (PLEXOS keeps ``R·f²/V²`` above the rating; a linear
+  // extrapolation would under-state it ~2× at 3× rating).  With no
+  // headroom (``fmax_phys ≤ envelope``) or no decoupling, ``overflow_bp``
+  // is empty and the LP is byte-identical to the legacy formulation.
+  // ``enforce_capacity = false`` (retired EL=0 path) keeps the ladder
+  // at ``fmax_phys``: the loss column bound ``c·fmax_phys²`` already
+  // limits the free flow column there.
+  const std::vector<double> overflow_bp = decoupled_envelope
+      ? overflow_breakpoints(effective_fmax, fmax_phys)
+      : std::vector<double> {};
+  const auto n_over = static_cast<int>(overflow_bp.size());
+
   // Regime dispatch — see the doc block above for (A)/(B)/(C):
   //   * L = 1                  → segment-form, single secant (regime A)
   //   * L > 1 && !use_sos2     → segment-form, ε-rely (regime B)
@@ -1843,7 +2016,22 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
     // under this regime (no segment col exists); downstream consumers
     // that need ``|f|`` should sum the SOS2-active lambdas weighted
     // by ``|b_l|``.
-    const int lambda_count = (2 * L) + 1;
+    // Breakpoint ladder: ``−b_M … −b_1`` (overflow, B→A), the inner
+    // ``(l − L)·w`` for ``l = 0..2L``, then ``b_1 … b_M`` (overflow,
+    // A→B).  Without overflow this is exactly the legacy ``2L+1``
+    // ladder (same values, same column order).
+    std::vector<double> bps;
+    bps.reserve((2 * static_cast<std::size_t>(L + n_over)) + 1);
+    for (const double b : std::views::reverse(overflow_bp)) {
+      bps.push_back(-b);
+    }
+    for (int l = 0; l <= 2 * L; ++l) {
+      bps.push_back(static_cast<double>(l - L) * seg_width);
+    }
+    for (const double b : overflow_bp) {
+      bps.push_back(b);
+    }
+    const auto lambda_count = static_cast<int>(bps.size());
     std::vector<ColIndex> lambda_cols;
     lambda_cols.reserve(static_cast<std::size_t>(lambda_count));
     for (int l = 0; l < lambda_count; ++l) {
@@ -1894,7 +2082,7 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
               .equal(0.0);
       frow.reserve(static_cast<std::size_t>(lambda_count) + 1);
       for (int l = 0; l < lambda_count; ++l) {
-        const double b_l = static_cast<double>(l - L) * seg_width;
+        const double b_l = bps[static_cast<std::size_t>(l)];
         if (std::abs(b_l) > 0.0) {
           frow[lambda_cols[static_cast<std::size_t>(l)]] = b_l;
         }
@@ -1920,7 +2108,7 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
               .greater_equal(0.0);
       ubrow.reserve(static_cast<std::size_t>(lambda_count) + 1);
       for (int l = 0; l < lambda_count; ++l) {
-        const double b_l = static_cast<double>(l - L) * seg_width;
+        const double b_l = bps[static_cast<std::size_t>(l)];
         const double coef = k_loss * b_l * b_l;
         if (coef > 0.0) {
           ubrow[lambda_cols[static_cast<std::size_t>(l)]] =
@@ -2002,6 +2190,30 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
     // segment family on L > 1).
     result.f_abs_col = v_cols.front();
 
+    // Overflow |f| columns past a decoupled envelope (see the
+    // ``overflow_bp`` block above): ``u_j ∈ [0, b_j − b_{j−1}]``,
+    // context index ``L + j`` (distinct from the inner ``v_l``).  They
+    // join ``v_cols`` so the abs rows and the chord row below pick them
+    // up; their chord slope is set from ``overflow_bp``.
+    {
+      double lo = effective_fmax;
+      for (int j = 1; j <= n_over; ++j) {
+        const double hi = overflow_bp[static_cast<std::size_t>(j - 1)];
+        v_cols.push_back(lp.add_col({
+            .lowb = 0.0,
+            .uppb = hi - lo,
+            .cost = v_cost,
+            .pin_scale = true,
+            .class_name = Line::class_name.full_name(),
+            .variable_name = LineLP::FlowAbsName,
+            .variable_uid = uid,
+            .context = make_block_context(
+                scenario.uid(), stage.uid(), block.uid(), L + j),
+        }));
+        lo = hi;
+      }
+    }
+
     // Helper: emit one abs row ``Σ v_l + flow_sign · f ≥ 0``.
     //   flow_sign = -1  ⇒  Σ v_l ≥ +f  (seg tag 1)
     //   flow_sign = +1  ⇒  Σ v_l ≥ −f  (seg tag 2)
@@ -2016,7 +2228,7 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
                   scenario.uid(), stage.uid(), block.uid(), seg_tag),
           }
               .greater_equal(0.0);
-      row.reserve(static_cast<std::size_t>(L) + 1);
+      row.reserve(v_cols.size() + 1);
       for (const auto vc : v_cols) {
         row[vc] = +1.0;
       }
@@ -2043,12 +2255,20 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
                   scenario.uid(), stage.uid(), block.uid(), nseg + 1),
           }
               .greater_equal(0.0);
-      ubrow.reserve(static_cast<std::size_t>(L) + 1);
+      ubrow.reserve(v_cols.size() + 1);
       for (int l = 1; l <= L; ++l) {
         const double chord_slope =
             k_loss * seg_width * static_cast<double>((2 * l) - 1);
         ubrow[v_cols[static_cast<std::size_t>(l - 1)]] =
             +chord_slope * config.loss_row_scale;
+      }
+      // Overflow columns: secant slope ``c·(b_{j−1} + b_j)``.
+      double lo = effective_fmax;
+      for (int j = 1; j <= n_over; ++j) {
+        const double hi = overflow_bp[static_cast<std::size_t>(j - 1)];
+        ubrow[v_cols[static_cast<std::size_t>(L + j - 1)]] =
+            +k_loss * (lo + hi) * config.loss_row_scale;
+        lo = hi;
       }
       ubrow[loss_col] = -config.loss_row_scale;
       [[maybe_unused]] auto idx = lp.add_row(std::move(ubrow));
@@ -2070,9 +2290,33 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   // or post-scale numerical noise floor, the row degenerates to
   // ``loss ≥ −k_loss·f_k² ≤ 0`` (always satisfied by ``loss ≥ 0``).
   // Stamping it just pollutes the coefficient-range statistics.
+  //
+  // Overflow tangents (decoupled envelope with headroom): extra points
+  // ``±envelope`` and ``±b_j`` (``overflow_bp``), context index after
+  // the chord row's ``K + 1``.  They keep ``ℓ`` on the quadratic past
+  // the envelope instead of extrapolating the outermost inner tangent
+  // linearly.
+  std::vector<double> tangent_points;
+  tangent_points.reserve(static_cast<std::size_t>(nseg)
+                         + (2 * static_cast<std::size_t>(n_over + 1)));
   for (const auto k : iota_range(1, nseg + 1)) {
-    const double f_k = effective_fmax * static_cast<double>((2 * k) - nseg - 1)
-        / static_cast<double>(nseg);
+    tangent_points.push_back(effective_fmax
+                             * static_cast<double>((2 * k) - nseg - 1)
+                             / static_cast<double>(nseg));
+  }
+  if (n_over > 0) {
+    tangent_points.push_back(-effective_fmax);
+    tangent_points.push_back(+effective_fmax);
+    for (const double b : overflow_bp) {
+      tangent_points.push_back(-b);
+      tangent_points.push_back(+b);
+    }
+  }
+  for (const auto [ti, f_k] : std::views::enumerate(tangent_points)) {
+    const int k = static_cast<int>(ti) + 1;
+    // Context index: inner tangents keep ``k = 1..K``; overflow ones
+    // skip ``K + 1`` (the chord row).
+    const int ctx_k = (k <= nseg) ? k : k + 1;
     const double slope_coef = 2.0 * k_loss * f_k;
     const double scaled_slope = slope_coef * config.loss_row_scale;
     if (std::abs(slope_coef) < kLossCoeffTolerance
@@ -2085,8 +2329,8 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
             .class_name = Line::class_name.full_name(),
             .constraint_name = loss_link_constraint_name,
             .variable_uid = uid,
-            .context =
-                make_block_context(scenario.uid(), stage.uid(), block.uid(), k),
+            .context = make_block_context(
+                scenario.uid(), stage.uid(), block.uid(), ctx_k),
         }
             .greater_equal(-k_loss * f_k * f_k * config.loss_row_scale);
     trow.reserve(2);
@@ -2213,11 +2457,11 @@ BlockResult add_piecewise(const LossConfig& config,
 /// recovered without an explicit equality row.  This is what halves the
 /// row count vs the older `piecewise` mode, and matches PLP exactly.
 ///
-/// Per-segment transmission cost: split the line tcost across segments
-/// (`tcost_k = block_tcost / K`) so `Σ tcost_k · seg_k = tcost · |f|`
-/// after the segments saturate left-to-right.  At the optimum, segments
-/// fill in order of increasing loss factor, so the cost stays consistent
-/// with the legacy aggregator-based formulation.
+/// Per-segment transmission cost: every segment carries the FULL per-MWh
+/// line tcost (`tcost_k = block_tcost`).  Since `Σ_k seg_k = |f|`, the
+/// charged cost is `Σ_k tcost · seg_k = tcost · |f|`, the same as the
+/// aggregator-based modes (fp/fn columns carry `block_tcost`).  Dividing
+/// by K here (pre-fix) charged only `tcost · |f| / K`.
 /// @param lf_out  Out-param filled (cleared first) with the per-segment
 ///                physical loss factor `lf_k`, parallel to the returned
 ///                segment columns.  Used by `add_piecewise_direct` so
@@ -2251,7 +2495,7 @@ BlockResult add_piecewise(const LossConfig& config,
   // so flipping the EL value doesn't alter the PWL approximation.
   // See ``add_piecewise`` for the rationale.
   const double seg_width = block_tmax / nseg;
-  const double seg_tcost = block_tcost / nseg;
+  const double seg_tcost = block_tcost;
   const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
   std::vector<ColIndex> seg_cols;

@@ -17,6 +17,8 @@ using namespace gtopt;
 // names with another test file's mocks.
 namespace test_syslp_caps
 {
+namespace
+{
 
 /// Common operational element (Generator / Line / Reservoir shape):
 /// per-(scenario, stage) build + output, no planning scope.
@@ -71,6 +73,8 @@ struct BothPlanningMock
 struct DataOnlyMock
 {
 };
+
+}  // namespace
 
 // ── Stage-only: the operational default ───────────────────────────────────
 static_assert(HasAddToLp<StageOnlyMock>);

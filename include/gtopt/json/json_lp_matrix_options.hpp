@@ -28,6 +28,11 @@ struct LpMatrixOptionsConstructor
                                            OptName fast_sqrt_method_name,
                                            OptInt ruiz_max_iterations,
                                            OptReal ruiz_tolerance,
+                                           OptReal water_dual_target,
+                                           OptReal water_dual_clamp,
+                                           OptBool kvl_row_scale,
+                                           OptReal kvl_row_clamp,
+                                           OptReal kvl_x_ref,
                                            OptBool compute_stats,
                                            LpValidationOptions validation,
                                            OptName solver_name) const
@@ -48,6 +53,11 @@ struct LpMatrixOptionsConstructor
     // the consumer applies LpMatrixOptions::default_ruiz_* (5 / 1e-3).
     opts.ruiz_max_iterations = ruiz_max_iterations;
     opts.ruiz_tolerance = ruiz_tolerance;
+    opts.water_dual_target = water_dual_target;
+    opts.water_dual_clamp = water_dual_clamp;
+    opts.kvl_row_scale = kvl_row_scale;
+    opts.kvl_row_clamp = kvl_row_clamp;
+    opts.kvl_x_ref = kvl_x_ref;
     opts.compute_stats = compute_stats;
     opts.validation = validation;
     return opts;
@@ -65,6 +75,11 @@ struct json_data_contract<LpMatrixOptions>
                        json_string_null<"fast_sqrt_method", OptName>,
                        json_number_null<"ruiz_max_iterations", OptInt>,
                        json_number_null<"ruiz_tolerance", OptReal>,
+                       json_number_null<"water_dual_target", OptReal>,
+                       json_number_null<"water_dual_clamp", OptReal>,
+                       json_bool_null<"kvl_row_scale", OptBool>,
+                       json_number_null<"kvl_row_clamp", OptReal>,
+                       json_number_null<"kvl_x_ref", OptReal>,
                        json_bool_null<"compute_stats", OptBool>,
                        json_class_null<"validation", LpValidationOptions>,
                        json_string_null<"solver_name", OptName>>;
@@ -83,6 +98,11 @@ struct json_data_contract<LpMatrixOptions>
         sqrt_name,
         opt.ruiz_max_iterations,
         opt.ruiz_tolerance,
+        opt.water_dual_target,
+        opt.water_dual_clamp,
+        opt.kvl_row_scale,
+        opt.kvl_row_clamp,
+        opt.kvl_x_ref,
         opt.compute_stats,
         opt.validation,
         opt.solver_name.empty() ? OptName {} : OptName {opt.solver_name});

@@ -20,6 +20,8 @@ using namespace gtopt;
 
 namespace test_carrier_converter_lp_smoke
 {
+namespace
+{
 
 Simulation make_chrono_2h_simulation()
 {
@@ -45,6 +47,7 @@ Simulation make_chrono_2h_simulation()
   };
 }
 
+}  // namespace
 }  // namespace test_carrier_converter_lp_smoke
 
 TEST_CASE(

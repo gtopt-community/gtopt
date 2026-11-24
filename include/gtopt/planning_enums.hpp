@@ -274,7 +274,7 @@ inline constexpr auto boundary_cuts_valuation_entries =
 /**
  * @brief Controls when scenario/scene probabilities are rescaled to sum 1.0.
  *
- * Scenario `probability_factor` values within each scene should sum to 1.0.
+ * Scenario `probability_factor` values should sum to 1.0 over all scenes.
  * When they do not, a warning is always emitted.  This option controls
  * whether (and when) the solver normalizes the values automatically.
  *
@@ -283,8 +283,24 @@ inline constexpr auto boundary_cuts_valuation_entries =
  *               expected-cost computations if probabilities do not sum
  *               to 1.0.
  * - `build`:    Rescale at build time (during validation, before LP
- *               construction).  Probabilities are normalized to sum 1.0
- *               per scene and across all scenes.
+ *               construction).  Scenario factors are GLOBAL
+ *               probabilities (a scene's weight is the sum of its
+ *               scenarios' factors).  Rules, always reported as
+ *               warnings (never errors):
+ *               1. total ~ 1.0: left untouched (scene weights kept);
+ *               2. every scene sums to ~1.0 (two or more scenes; a
+ *                  single-scenario scene qualifies with factor 1.0): the
+ *                  input is read as CONDITIONAL per-scene probabilities
+ *                  and every factor is divided by the number of scenes,
+ *                  so the scenes get equal weight;
+ *               3. any other total: every factor is divided by the
+ *                  global total, preserving the relative scene weights
+ *                  (single-scenario scenes keep their factor as their
+ *                  relative weight).  This scales the expected OPEX
+ *                  relative to CAPEX; when the total is outside
+ *                  [0.5, 2] the warning suggests the values are
+ *                  representative-period weights (e.g. day counts),
+ *                  which belong in block/stage durations instead.
  * - `runtime`:  Rescale at build time AND at runtime.  In addition to
  *               build-time normalization, scene weights are re-normalized
  *               during SDDP when a scene becomes infeasible, so the

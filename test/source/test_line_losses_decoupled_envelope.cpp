@@ -332,6 +332,11 @@ namespace adaptive_integration_test_ns
 namespace
 {
 
+/// Shadows the file-scope `kGcost`: in a unity batch that also includes
+/// test_line_loss_envelope.cpp, its `using namespace` makes the
+/// file-scope name ambiguous here.
+constexpr double kGcost = 10.0;
+
 /// Generalised single-line solve: same shape as ``solve()`` above, but
 /// the line's R / V / fmax are parameters instead of fixture constants.
 ///

@@ -9,17 +9,23 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
+#include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <exception>
 #include <format>
 #include <ranges>
 #include <stdexcept>
 #include <string_view>
+#include <thread>
 
 #include <dlfcn.h>
 #include <gtopt/solver_registry.hpp>
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/details/null_mutex.h>
+#include <spdlog/sinks/base_sink.h>
 #include <spdlog/spdlog.h>
+#include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -334,6 +340,93 @@ bool SolverRegistry::is_gpu_backed(std::string_view solver_name)
       && desc->resource_class == static_cast<int>(ResourceClass::gpu);
 }
 
+namespace
+{
+
+/// Post-fork stderr sink: formats under a `null_mutex` (the fork child is
+/// single-threaded) and writes with a raw `::write(2, ...)`.  Unlike
+/// `stderr_color_sink_mt` it takes neither spdlog's static console mutex
+/// nor the `stderr` `FILE*` lock — both are process-wide and may have been
+/// held by another parent thread at `fork()` time, which would leave the
+/// child blocked in `futex_wait` forever.
+class Fd2Sink final
+    : public spdlog::sinks::base_sink<spdlog::details::null_mutex>
+{
+protected:
+  void sink_it_(const spdlog::details::log_msg& msg) override
+  {
+    spdlog::memory_buf_t buf;
+    formatter_->format(msg, buf);
+    const char* data = buf.data();
+    auto left = buf.size();
+    while (left > 0) {
+      const auto n = ::write(STDERR_FILENO, data, left);
+      if (n < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        return;  // best effort
+      }
+      data += n;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      left -= static_cast<std::size_t>(n);
+    }
+  }
+
+  void flush_() override {}
+};
+
+}  // namespace
+
+bool SolverRegistry::arm_child_parent_death_signal(pid_t parent_pid) noexcept
+{
+  // Die with the parent: if `gtopt --solvers` is killed (e.g. by a caller's
+  // subprocess timeout) a hung validation child must not linger as an
+  // orphan.  PDEATHSIG fires when the parent *thread* exits; the probe runs
+  // on the main thread of a CLI process, which is what we want.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+  (void)::prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
+  // The parent may already be gone before the prctl took effect: then we
+  // were reparented (to init or a subreaper) and must exit ourselves.
+  return ::getppid() == parent_pid;
+}
+
+std::optional<int> SolverRegistry::wait_child_with_timeout(
+    pid_t pid, std::chrono::milliseconds timeout) noexcept
+{
+  using clock = std::chrono::steady_clock;
+  const auto deadline = clock::now() + timeout;
+  auto backoff = std::chrono::milliseconds {1};
+  constexpr auto max_backoff = std::chrono::milliseconds {50};
+
+  while (true) {
+    int status = 0;
+    const pid_t r = ::waitpid(pid, &status, WNOHANG);
+    if (r == pid) {
+      return status;
+    }
+    if (r == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
+      // ECHILD etc.: nothing to wait for.  Matches the historic blocking
+      // waitpid() whose ignored failure left status = 0.
+      return 0;
+    }
+    // r == 0: child still running.
+    if (clock::now() >= deadline) {
+      break;
+    }
+    std::this_thread::sleep_for(backoff);
+    backoff = std::min(backoff * 2, max_backoff);
+  }
+
+  // Timed out: kill and reap so no zombie / orphan survives.
+  (void)::kill(pid, SIGKILL);
+  int status = 0;
+  while (::waitpid(pid, &status, 0) == -1 && errno == EINTR) {}
+  return std::nullopt;
+}
+
 void SolverRegistry::reset_default_logger_after_fork() noexcept
 {
   // Order matters: spdlog::drop_all() clears the registry AND resets the
@@ -345,7 +438,9 @@ void SolverRegistry::reset_default_logger_after_fork() noexcept
   // 0x40) on every run that validated an unavailable plugin (e.g. MindOpt).
   try {
     spdlog::drop_all();
-    auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+    // Fd2Sink, NOT stderr_color_sink_mt: the latter locks spdlog's static
+    // console mutex, which a parent thread may have held at fork() time.
+    auto sink = std::make_shared<Fd2Sink>();
     auto child_logger =
         std::make_shared<spdlog::logger>("gtopt_child_validator", sink);
     child_logger->set_level(spdlog::level::warn);
@@ -356,9 +451,12 @@ void SolverRegistry::reset_default_logger_after_fork() noexcept
   }
 }
 
-bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
-                                                const std::string& solver_name)
+bool SolverRegistry::validate_solver_subprocess(
+    const PluginHandle& plugin,
+    const std::string& solver_name,
+    std::chrono::milliseconds timeout)
 {
+  const pid_t parent_pid = ::getpid();
   // Fork a child process to test the solver backend.
   // This isolates the parent from SEGFAULTs caused by ABI mismatches
   // in the underlying solver library (e.g. COIN-OR compiled with GCC
@@ -373,6 +471,11 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
   }
 
   if (pid == 0) {
+    // Die with the parent; bail out if it is already gone (orphan guard).
+    if (!SolverRegistry::arm_child_parent_death_signal(parent_pid)) {
+      ::_exit(4);
+    }
+
     // Child process: create a backend and exercise it end-to-end.
     // Any crash here (SIGSEGV, SIGABRT, etc.) terminates only the child.
     // This catches both vtable ABI mismatches AND solvers that crash during
@@ -459,9 +562,24 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
     }
   }
 
-  // Parent: wait for the child to finish.
-  int status = 0;
-  ::waitpid(pid, &status, 0);
+  // Parent: wait for the child, bounded.  This timeout exists ONLY for this
+  // administrative startup probe: a child that inherited a lock held at
+  // fork() time would otherwise block `gtopt --solvers` forever.
+  const auto waited = wait_child_with_timeout(pid, timeout);
+  if (!waited.has_value()) {
+    const auto secs =
+        std::chrono::duration_cast<std::chrono::seconds>(timeout).count();
+    SPDLOG_WARN(
+        "Validation of solver '{}' (plugin '{}') did not finish in {} "
+        "(child pid {}), treating as unavailable.",
+        solver_name,
+        plugin.plugin_name,
+        secs > 0 ? std::format("{} s", secs)
+                 : std::format("{} ms", timeout.count()),
+        pid);
+    return false;
+  }
+  const int status = *waited;
 
   //  - POSIX macros use bitwise ops
   if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {

@@ -47,8 +47,11 @@ bool SimpleCommitmentLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
+  // Tolerant lookup (see active_ref.hpp): a generator whose every block
+  // was elided (pmax = 0) has no generation columns in this cell — no
+  // status / limit rows to write (the per-block loop finds nothing).
   const auto& generation_cols =
-      generator_lp.generation_cols_at(scenario, stage);
+      generator_lp.lookup_generation_cols(scenario, stage);
   const auto& blocks = stage.blocks();
 
   if (blocks.empty()) {
@@ -180,12 +183,14 @@ bool SimpleCommitmentLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
+  // A relaxed element is continuous in [0, 1]: write the LP value as is.
+  const bool relaxed = simple_commitment().relax.value_or(false);
 
   // ``status`` is a binary LP variable — emit via the
   // integer-snapping overload so the output parquet carries
   // exact 0/1 values instead of a sub-percent tail of fractional
   // reports leaking through the float32 grid + decimal rounding.
-  out.add_col_sol_integer(cname, StatusName, pid, status_cols_);
+  out.add_col_sol_integer(cname, StatusName, pid, status_cols_, relaxed);
   out.add_col_cost(cname, StatusName, pid, status_cols_);
 
   out.add_row_dual(cname, GenUpperName, pid, gen_upper_rows_);

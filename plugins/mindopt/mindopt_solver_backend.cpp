@@ -15,6 +15,7 @@
 #include <format>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -23,8 +24,8 @@
 
 #include <Mindopt.h>
 #include <dlfcn.h>
-#include <fcntl.h>
 #include <gtopt/log_and_throw.hpp>
+#include <gtopt/scoped_stdout_silencer.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 #include <unistd.h>
@@ -156,6 +157,9 @@ void apply_options_to_env(MDOenv* env, const SolverOptions& opts)
   // knob.  Ignored on continuous LPs.
   if (const auto gap = opts.mip_gap; gap && *gap > 0) {
     MDOsetdblparam(env, MDO_DBL_PAR_MIP_GAP_REL, *gap);
+  }
+  if (const auto sols = opts.mip_solution_limit; sols && *sols > 0) {
+    MDOsetintparam(env, MDO_INT_PAR_MIP_MAX_SOLS, *sols);
   }
   if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
     MDOsetdblparam(env, MDO_DBL_PAR_MAX_TIME, *tl);
@@ -293,14 +297,13 @@ MindOptSolverBackend::MindOptSolverBackend()
 {
   ensure_milp_path();
 
-  // Redirect stdout to /dev/null before any MindOpt calls.
+  // Redirect stdout to /dev/null around the MindOpt env creation:
   // MindOpt prints a banner to stdout that cannot be suppressed via API.
-  const int saved_stdout = ::dup(STDOUT_FILENO);  // NOLINT(android-cloexec-dup)
-  const int devnull = ::open("/dev/null", O_WRONLY);  // NOLINT
-  if (devnull >= 0) {
-    ::dup2(devnull, STDOUT_FILENO);
-    ::close(devnull);
-  }
+  // The RAII silencer is thread-safe (concurrent ctors used to swap the
+  // saved fd and leave stdout pointing at /dev/null for good) and
+  // restores stdout on every exit path, including the throws below.
+  std::optional<ScopedStdoutSilencer> silence_stdout;
+  silence_stdout.emplace();
 
   // MDOstartenv re-validates the license file on every call.  Under heavy
   // parallel load (e.g. ctest -j20 with each process spinning up several
@@ -314,11 +317,7 @@ MindOptSolverBackend::MindOptSolverBackend()
   for (unsigned attempt = 0;; ++attempt) {
     rc = MDOemptyenv(&m_env_);
     if (rc != MDO_OKAY) {
-      // Restore stdout before throwing
-      if (saved_stdout >= 0) {
-        ::dup2(saved_stdout, STDOUT_FILENO);
-        ::close(saved_stdout);
-      }
+      silence_stdout.reset();  // restore stdout before logging the error
       gtopt::log_and_throw(
           std::format("MindOpt: MDOemptyenv failed (rc={})", rc));
     }
@@ -335,11 +334,7 @@ MindOptSolverBackend::MindOptSolverBackend()
     std::this_thread::sleep_for(std::chrono::milliseconds(50U << attempt));
   }
 
-  // Restore stdout
-  if (saved_stdout >= 0) {
-    ::dup2(saved_stdout, STDOUT_FILENO);
-    ::close(saved_stdout);
-  }
+  silence_stdout.reset();  // restore stdout
   if (rc != MDO_OKAY) {
     const char* msg = MDOexplainerror(rc);
     MDOfreeenv(m_env_);
@@ -1201,6 +1196,28 @@ int mdo_get_status(MDOmodel* model)
 bool MindOptSolverBackend::is_proven_optimal() const
 {
   return mdo_get_status(m_model_) == MDO_OPTIMAL;
+}
+
+bool MindOptSolverBackend::has_mip_incumbent() const
+{
+  if (m_model_ == nullptr) {
+    return false;
+  }
+  // `SolCount > 0` on a model with integer columns: MindOpt keeps the
+  // incumbent in `X` on every MIP stop that found one.
+  int sol_count = 0;
+  if (MDOgetintattr(m_model_, MDO_INT_ATTR_SOL_COUNT, &sol_count) != 0
+      || sol_count <= 0)
+  {
+    return false;
+  }
+  const int ncols = get_num_cols();
+  for (int i = 0; i < ncols; ++i) {
+    if (is_integer(i)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool MindOptSolverBackend::is_abandoned() const

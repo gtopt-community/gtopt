@@ -68,14 +68,18 @@ public:
    * @param blocks              Collection of blocks
    * @param annual_discount_rate Annual discount rate for time value
    * calculations
-   * @param stage_index         Index of this stage in the parent container
+   * @param stage_index         GLOBAL position (in `SimulationLP::stages()`)
    * @param phase_index         Index of the parent phase
+   * @param phase_stage_index   Position inside the parent phase (unknown
+   *                            for the flat global copies)
    */
-  explicit StageLP(Stage stage,
-                   std::span<const Block> blocks = {},
-                   double annual_discount_rate = 0.0,
-                   StageIndex stage_index = StageIndex {unknown_index},
-                   PhaseIndex phase_index = PhaseIndex {unknown_index})
+  explicit StageLP(
+      Stage stage,
+      std::span<const Block> blocks = {},
+      double annual_discount_rate = 0.0,
+      StageIndex stage_index = StageIndex {unknown_index},
+      PhaseIndex phase_index = PhaseIndex {unknown_index},
+      PhaseStageIndex phase_stage_index = PhaseStageIndex {unknown_index})
       : m_stage_(std::move(stage))
       , m_blocks_(detail::create_block_array(blocks, m_stage_))
       , m_timeinit_(std::ranges::fold_left(
@@ -92,6 +96,7 @@ public:
             annual_discount_factor(annual_discount_rate, m_timeinit_))
       , m_index_(stage_index)
       , m_phase_index_(phase_index)
+      , m_phase_stage_index_(phase_stage_index)
   {
   }
 
@@ -142,8 +147,38 @@ public:
     return make_uid<Stage>(stage().uid);
   }
 
-  /// @return Index of this stage in the parent container
-  [[nodiscard]] constexpr auto index() const noexcept { return m_index_; }
+  /// @return GLOBAL position of this stage (in `SimulationLP::stages()`,
+  /// active stages only).  There is deliberately no plain `index()`: a
+  /// stage has two positions and the caller must say which one.
+  [[nodiscard]] constexpr auto stage_index() const noexcept -> StageIndex
+  {
+    return m_index_;
+  }
+
+  /// @return Position of this stage inside its phase
+  /// (`PhaseLP::stages()`); unknown for the flat global copies held by
+  /// `SimulationLP::stages()`.
+  [[nodiscard]] constexpr auto phase_stage_index() const noexcept
+      -> PhaseStageIndex
+  {
+    return m_phase_stage_index_;
+  }
+
+  /// @return true for the first stage of the first phase (the horizon
+  /// start, where the case `eini` IS the incoming state).  Only phase
+  /// copies (`PhaseLP::stages()`) know this; the flat global copies carry
+  /// no phase position and answer false, as the pre-typed check did.
+  [[nodiscard]] constexpr bool is_horizon_first() const noexcept
+  {
+    return m_phase_stage_index_ == first_phase_stage_index()
+        && m_phase_index_ == PhaseIndex {0};
+  }
+
+  /// @return true for the first stage of its phase.
+  [[nodiscard]] constexpr bool is_phase_first() const noexcept
+  {
+    return m_phase_stage_index_ == first_phase_stage_index();
+  }
 
   [[nodiscard]] constexpr auto phase_index() const noexcept
   {
@@ -174,6 +209,7 @@ private:
 
   StageIndex m_index_ {unknown_index};
   PhaseIndex m_phase_index_ {unknown_index};
+  PhaseStageIndex m_phase_stage_index_ {unknown_index};
 };
 
 }  // namespace gtopt

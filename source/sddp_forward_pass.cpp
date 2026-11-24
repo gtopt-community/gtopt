@@ -1226,6 +1226,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // directly — its `var_scale = 1` so the raw LP value is already
       // physical, with NO `× scale_alpha`.  Compress-safe element read.
       double alpha_val = 0.0;
+      // Weighted future-cost term of this cell (physical $).  Equal to
+      // `alpha_val` except under `phi_expectation` on the last phase,
+      // where it is recorded for the boundary-cut gap diagnostics but
+      // NOT stripped from the UB.
+      double future_val = 0.0;
       const bool phi_terminal =
           m_options_.boundary_cuts_mode == BoundaryCutsMode::phi_expectation
           && phase_index == planning_lp().simulation().last_phase_index();
@@ -1233,17 +1238,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         const auto* ua_svar = find_user_alpha_state_var(
             planning_lp().simulation(), scene_index, phase_index, *ua_uid);
         alpha_val = (ua_svar != nullptr) ? ua_svar->col_sol() : 0.0;
-      } else if (phi_terminal) {
-        // `BoundaryCutsMode::phi_expectation`: do NOT strip the terminal
-        // future term.  PLP's per-sim UB (`ZSPF`, `getprim.f`) keeps the
-        // full Z at the LAST stage (`ZSPFAdd`), i.e. the terminal
-        // Φ = (1/NVarPhi) Σ_j φ_j evaluated at the REALIZED terminal
-        // volumes rides in the UB.  Leaving `alpha_val = 0` here makes
-        // `forward_objective` = full terminal objective
-        // = p_s·(stage cost) + (p_s/NVarPhi)·Σ_j φ_j(V_end), so the
-        // scene UB — and the reported gap — carry the same terminal FCF
-        // the LB carries through α (theorem doc §9 "phi_expectation").
-        // Intermediate phases strip normally (branch below).
+        future_val = alpha_val;
       } else {
         const auto sa = m_options_.scale_alpha;
         const auto& sim = planning_lp().simulation();
@@ -1251,12 +1246,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // order; the layout length then selects the pricing rule via
         // the shared accessor (uniform M4 for none/multicut and for
         // the terminal phase, MK1 per-state weights for non-terminal
-        // markov phases) — the strip and the registration pricing read
-        // the identical weights by construction.  The walk stops at the
+        // markov phases, `p_s/NVarPhi` for the φ-expectation terminal
+        // layout) — the strip and the registration pricing read the
+        // identical weights by construction.  The walk stops at the
         // first uid gap and is NOT capped at `scene_count()` (the
-        // φ-expectation terminal layout — not stripped, see above — has
-        // NVarPhi > scene_count columns; keep the walk shape identical
-        // to `alpha_cols_on_cell`).
+        // φ-expectation terminal layout has NVarPhi > scene_count
+        // columns; keep the walk shape identical to `alpha_cols_on_cell`).
         std::vector<double> alpha_sols;
         for (SceneIndex src {0};; ++src) {
           const auto* alpha_svar =
@@ -1272,11 +1267,26 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                               &m_options_.markov,
                               scene_index,
                               alpha_sols.size(),
-                              phase_index == sim.last_phase_index());
+                              phase_index == sim.last_phase_index(),
+                              phi_terminal ? m_boundary_phi_count_ : 0);
         for (const auto& [r, w] : enumerate(weights)) {
-          alpha_val += w * alpha_sols[r] * sa;
+          future_val += w * alpha_sols[r] * sa;
+        }
+        // `BoundaryCutsMode::phi_expectation`: do NOT strip the terminal
+        // future term.  PLP's per-sim UB (`ZSPF`, `getprim.f`) keeps the
+        // full Z at the LAST stage (`ZSPFAdd`), i.e. the terminal
+        // Φ = (1/NVarPhi) Σ_j φ_j evaluated at the REALIZED terminal
+        // volumes rides in the UB.  Leaving `alpha_val = 0` here makes
+        // `forward_objective` = full terminal objective
+        // = p_s·(stage cost) + (p_s/NVarPhi)·Σ_j φ_j(V_end), so the
+        // scene UB — and the reported gap — carry the same terminal FCF
+        // the LB carries through α (theorem doc §9 "phi_expectation").
+        // Intermediate phases strip normally.
+        if (!phi_terminal) {
+          alpha_val = future_val;
         }
       }
+      state.forward_future_cost = future_val;
       state.forward_objective = obj_physical - alpha_val;
 
       // Convergence indicators: read the (sparse) slack column values
@@ -1288,6 +1298,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // `li.get_col_sol()` for ~O(reservoirs + flow-rights + demands)
       // sparse lookups and the live backend serves them cheapest.
       system.accumulate_convergence_indicators(scene_index, phase_index);
+      // Agreement reward terms of this solve (UB_net reporting); same
+      // live-backend precondition as the indicators above.
+      state.forward_agreement_rewards = system.agreement_rewards_objective();
 
       // Capture this forward solve's simplex basis for reuse.  It seeds the
       // NEXT iteration's forward solve of this cell (forward→forward, modes

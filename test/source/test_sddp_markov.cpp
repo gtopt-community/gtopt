@@ -107,7 +107,7 @@ TEST_CASE("validate_markov_config rejection branches")  // NOLINT
   {
     const auto err = validate_markov_config(make_markov_config({}, {}), 2);
     REQUIRE(err.has_value());
-    CHECK(err->contains("num_states"));
+    CHECK((err && err->contains("num_states")));
   }
 
   SUBCASE("non-square transition length")
@@ -117,14 +117,14 @@ TEST_CASE("validate_markov_config rejection branches")  // NOLINT
     config.num_states = 2;
     const auto err = validate_markov_config(config, 2);
     REQUIRE(err.has_value());
-    CHECK(err->contains("perfect square"));
+    CHECK((err && err->contains("perfect square")));
   }
 
   SUBCASE("wrong markov_states length")
   {
     const auto err = validate_markov_config(two_state_singleton_config(), 3);
     REQUIRE(err.has_value());
-    CHECK(err->contains("scene"));
+    CHECK((err && err->contains("scene")));
   }
 
   SUBCASE("assignment out of range")
@@ -136,7 +136,7 @@ TEST_CASE("validate_markov_config rejection branches")  // NOLINT
     };
     const auto err = validate_markov_config(config, 2);
     REQUIRE(err.has_value());
-    CHECK(err->contains("out of range"));
+    CHECK((err && err->contains("out of range")));
   }
 
   SUBCASE("empty state (zero mass would divide the pricing)")
@@ -148,7 +148,7 @@ TEST_CASE("validate_markov_config rejection branches")  // NOLINT
     };
     const auto err = validate_markov_config(config, 2);
     REQUIRE(err.has_value());
-    CHECK(err->contains("no assigned scene"));
+    CHECK((err && err->contains("no assigned scene")));
   }
 
   SUBCASE("row sum != 1")
@@ -166,7 +166,7 @@ TEST_CASE("validate_markov_config rejection branches")  // NOLINT
                                                 }),
                                             2);
     REQUIRE(err.has_value());
-    CHECK(err->contains("sums to"));
+    CHECK((err && err->contains("sums to")));
   }
 
   SUBCASE("negative entry")
@@ -184,7 +184,7 @@ TEST_CASE("validate_markov_config rejection branches")  // NOLINT
                                                 }),
                                             2);
     REQUIRE(err.has_value());
-    CHECK(err->contains(">= 0"));
+    CHECK((err && err->contains(">= 0")));
   }
 }
 

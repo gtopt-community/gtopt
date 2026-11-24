@@ -208,11 +208,29 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       // In monolithic there is one LP per scene, so the last phase IS the
       // whole LP.  Offsets are zero when the shift is disabled, making this
       // a no-op then.
+      //
+      // Restitution factor = Σ (terminal α column weights), exactly as in
+      // `SDDPMethod::initialize_solver`: 1 for the single-α layout, but
+      // `p_s` under the `phi_expectation` φ_j layout (NVarPhi columns
+      // priced `p_s/NVarPhi`), where shifting every cut by c lowers the
+      // objective by only `p_s·c`.  Folding the full c there overstated
+      // the objective by Σ_s (1 − p_s)·c_s (multi-scene cases only).
       const auto& offsets = bc_result->alpha_offsets_per_scene;
       const auto last_phase = planning_lp.simulation().last_phase_index();
+      const bool phi_terminal = terminal_phi_count > 0;
+      const auto masses = phi_terminal
+          ? scene_probability_masses(planning_lp.simulation())
+          : std::vector<double> {};
+      double mass_total = 0.0;
+      for (const double m : masses) {
+        mass_total += m;
+      }
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
         const auto si = to_size(scene_index);
-        const double c = (si < offsets.size()) ? offsets[scene_index] : 0.0;
+        double c = (si < offsets.size()) ? offsets[scene_index] : 0.0;
+        if (phi_terminal && mass_total > 0.0) {
+          c *= (si < masses.size() ? masses[si] : 0.0) / mass_total;
+        }
         if (c != 0.0) {
           planning_lp.system(scene_index, last_phase)
               .linear_interface()

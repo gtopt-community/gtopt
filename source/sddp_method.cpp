@@ -357,6 +357,33 @@ double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
   return (upper_bound - lower_bound) / denom;
 }
 
+BoundaryGapDiagnostics compute_boundary_gap_diagnostics(
+    double upper_bound,
+    double lower_bound,
+    double terminal_future_cost,
+    double alpha_offset,
+    double expected_abs_opex,
+    bool terminal_in_ub) noexcept
+{
+  // UB = E[stage costs] + c̄ (+ E[Φ'] when the terminal term is not
+  // stripped).  UB* = E[stage costs] + c̄ + E[Φ'] = E[stage costs + Φ].
+  const double corrected_ub =
+      terminal_in_ub ? upper_bound : upper_bound + terminal_future_cost;
+  const double opex = upper_bound - alpha_offset
+      - (terminal_in_ub ? terminal_future_cost : 0.0);
+  return BoundaryGapDiagnostics {
+      .active = true,
+      .terminal_in_ub = terminal_in_ub,
+      .terminal_future_cost = terminal_future_cost,
+      .alpha_offset = alpha_offset,
+      .expected_opex = opex,
+      .expected_abs_opex = expected_abs_opex,
+      .corrected_upper_bound = corrected_ub,
+      .corrected_gap = compute_convergence_gap(corrected_ub, lower_bound),
+      .overestimation = lower_bound - corrected_ub,
+  };
+}
+
 // ─── Markov-chain SDDP configuration (cut_sharing = markov) ─────────────────
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp> —
@@ -1153,6 +1180,10 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // `cuts_input_file` at a cut file cost a full study run to diagnose.
   std::string cold_reason;
   std::size_t boundary_count = 0;
+  // Boundary-cut gap diagnostics state (re-derived on every initialize).
+  m_boundary_cuts_loaded_ = false;
+  m_scene_alpha_restitution_.assign(
+      static_cast<std::size_t>(planning_lp().simulation().scene_count()), 0.0);
 
   // `resolve_input` is defined above the α-scale block (it is also used to
   // locate the boundary-cut file for scale_alpha).
@@ -1427,7 +1458,9 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
               .system(scene_index, master_phase)
               .linear_interface()
               .add_obj_constant(restitution);
+          m_scene_alpha_restitution_[scene_index] = restitution;
         }
+        m_boundary_cuts_loaded_ = result->count > 0;
 
         SPDLOG_INFO("SDDP: loaded {} boundary cuts from FutureCost '{}' ({})",
                     result->count,

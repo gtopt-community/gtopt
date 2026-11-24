@@ -151,7 +151,7 @@ function(add_sddp_case case_name system_json)
   # The validator reads `$GTOPT_SOLVER` at runtime to pick a
   # solver-specific golden variant (`golden_iter50_clp.json`, etc.)
   # when one is checked in.  ctest inherits the calling shell's
-  # environment, so setting `GTOPT_SOLVER=clp` before `ctest` is
+  # environment, so setting `GTOPT_SOLVER=highs` before `ctest` is
   # enough; no explicit ENVIRONMENT property needed.  Falls back to
   # the shared golden when no variant file exists.
   set_tests_properties(e2e_${case_name}_sddp_validate PROPERTIES

@@ -204,7 +204,9 @@ struct ConvergenceCheck
       >= iteration_offset + IterationIndex {opts.min_iterations - 1};
 
   if (!opts.stationarity_enabled()) {
-    c.gap_ok = sddp_gap_converged(ir.gap, opts.convergence_tol);
+    // `effective_gap()` = corrected gap (UB + E[Φ'(v_T)] − LB) when
+    // boundary cuts are loaded, the raw gap otherwise.
+    c.gap_ok = sddp_gap_converged(ir.effective_gap(), opts.convergence_tol);
   } else {
     // ΔUB stationarity fires as soon as the lookback Δ drops below
     // tol.  The ``< 1.0`` sentinel guard still blocks the very first
@@ -383,6 +385,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       planning_lp().log_lp_memory_breakdown("post-forward");
       if (!fwd.has_value()) {
         monitor.stop();
+        maybe_write_api_status(
+            status_file, results, solve_start, monitor, "error");
         return std::unexpected(std::move(fwd.error()));
       }
       if (fwd->cancelled) {
@@ -548,7 +552,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
               "SDDP Iter [i{}]: gap convergence "
               "(gap={:.3e} < convergence_tol={:.3e}) [CONVERGED]",
               gtopt::uid_of(iteration_index),
-              ir.gap,
+              ir.effective_gap(),
               m_options_.convergence_tol);
         } else {
           ir.stationary_converged = true;
@@ -676,7 +680,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         // instead of 2.576 (large-case run 2026-05-02 trace_28).
         const auto z_score = z_score_for_alpha(alpha);
 
-        const auto gap_abs = ir.upper_bound - ir.lower_bound;
+        // Corrected UB (UB + E[Φ'(v_T)]) under boundary cuts — the raw
+        // UB omits the terminal FCF the LB carries.
+        const auto gap_abs = ir.effective_upper_bound() - ir.lower_bound;
         // Standard error of the mean: σ̂ / √N_feasible (textbook
         // CI of a sample mean).  Skip this branch entirely if
         // N_feasible < 2 — the variance estimator is undefined and
@@ -806,6 +812,26 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
                   gtopt::log::pct(ir.gap_change),
                   kappa_clause,
                   feasibility_clause);
+      if (const auto& bd = ir.boundary; bd.active) {
+        // Boundary-cut gap accounting: LB − UB → E[Φ'(v_T)] + cut
+        // over-estimation.  ub* = ub + E[Φ'] (= ub under phi_expectation,
+        // whose UB already carries the terminal φ), gap* is the gap the
+        // convergence tests read, over = LB − ub*.
+        SPDLOG_INFO(
+            "    iter {}  bcut  E[Φ']={}  c̄={}  opex={}  E|opex|={}  "
+            "ub*={}  gap*={}  over={} ({} of |ub*|, {} of E|opex|){}",
+            iter_id,
+            gtopt::log::money(bd.terminal_future_cost),
+            gtopt::log::money(bd.alpha_offset),
+            gtopt::log::money(bd.expected_opex),
+            gtopt::log::money(bd.expected_abs_opex),
+            gtopt::log::money(bd.corrected_upper_bound),
+            gtopt::log::pct(bd.corrected_gap),
+            gtopt::log::money(bd.overestimation),
+            gtopt::log::pct(bd.overestimation_vs_ub()),
+            gtopt::log::pct(bd.overestimation_vs_opex()),
+            bd.terminal_in_ub ? "  [E[Φ'] in ub]" : "");
+      }
       SPDLOG_INFO("    iter {}  time  total={}  (fwd={} + bwd={})  cuts={}{}",
                   iter_id,
                   gtopt::log::dur(ir.iteration_s),
@@ -992,6 +1018,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             *sddp_pool, sim_opts, final_iteration_index);
         if (!fwd.has_value()) {
           monitor.stop();
+          maybe_write_api_status(
+              status_file, results, solve_start, monitor, "error");
           return std::unexpected(std::move(fwd.error()));
         }
         p1_total_elapsed += fwd->elapsed_s;
@@ -1212,6 +1240,14 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   const auto t_after_cuts = TailClock::now();
 
   monitor.stop();
+  // Terminal status: without this the file kept the last periodic
+  // "running" document when the run ended by max_iterations / stop.
+  // A simulation-only run (max_iterations = 0) never trained, so it
+  // keeps emitting no status file (validators then read solution.csv).
+  if (m_options_.max_iterations > 0) {
+    maybe_write_api_status(
+        status_file, results, solve_start, monitor, terminal_api_status());
+  }
   const auto t_after_monitor = TailClock::now();
 
   m_lp_debug_writer_.drain();
@@ -1352,7 +1388,21 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                                            double lb) -> bool
   {
     if (!tracker.is_converged(scene_index)) {
-      const double scene_gap = compute_convergence_gap(ub, lb);
+      // Boundary cuts: the scene UB strips the terminal α its LB carries,
+      // so test the corrected per-scene gap (UB + Φ'_s(v_T) − LB), as the
+      // aggregate / synchronous paths do (`effective_gap`).  Under
+      // `phi_expectation` the UB already keeps the terminal φ.
+      double ub_eff = ub;
+      if (m_boundary_cuts_loaded_
+          && m_options_.boundary_cuts_mode != BoundaryCutsMode::phi_expectation)
+      {
+        const auto& states = m_scene_phase_states_[scene_index];
+        const auto last = planning_lp().simulation().last_phase_index();
+        if (to_size(last) < states.size()) {
+          ub_eff += states[last].forward_future_cost;
+        }
+      }
+      const double scene_gap = compute_convergence_gap(ub_eff, lb);
       const bool past_min =
           (iteration_index >= m_iteration_offset_
                + IterationIndex {m_options_.min_iterations - 1});
@@ -1985,6 +2035,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       }
       ir.upper_bound = sum_upper;
       ir.lower_bound = sum_lower;
+      // Boundary-cut gap accounting (no-op without boundary cuts).  Each
+      // scene's last-phase future cost comes from its own most recent
+      // forward pass — the same snapshot its `b.upper_bound` comes from.
+      compute_boundary_gap(ir, scene_feasible);
 
       // Async-specific: record per-scene iteration snapshot
       ir.scene_iterations = tracker.scene_iterations();
@@ -2130,6 +2184,20 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                     gtopt::log::pct(ir.gap),
                     gtopt::log::pct(ir.gap_change),
                     kappa_clause_async);
+        if (const auto& bd = ir.boundary; bd.active) {
+          SPDLOG_INFO(
+              "    iter {}  bcut    E[Φ']={}  c̄={}  opex={}  E|opex|={}  "
+              "ub*={}  gap*={}  over={}{}",
+              iter_id_async,
+              gtopt::log::money(bd.terminal_future_cost),
+              gtopt::log::money(bd.alpha_offset),
+              gtopt::log::money(bd.expected_opex),
+              gtopt::log::money(bd.expected_abs_opex),
+              gtopt::log::money(bd.corrected_upper_bound),
+              gtopt::log::pct(bd.corrected_gap),
+              gtopt::log::money(bd.overestimation),
+              bd.terminal_in_ub ? "  [E[Φ'] in ub]" : "");
+        }
         SPDLOG_INFO(
             "    iter {}  scenes  spread=[{},{}]  conv={}/{}  "
             "pool(active={} pending={} cpu={:.0f}%)",
@@ -2432,6 +2500,14 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
   const auto t_after_cuts = TailClock::now();
 
   monitor.stop();
+  // Terminal status: without this the file kept the last periodic
+  // "running" document when the run ended by max_iterations / stop.
+  // A simulation-only run (max_iterations = 0) never trained, so it
+  // keeps emitting no status file (validators then read solution.csv).
+  if (m_options_.max_iterations > 0) {
+    maybe_write_api_status(
+        status_file, results, solve_start, monitor, terminal_api_status());
+  }
   const auto t_after_monitor = TailClock::now();
 
   m_lp_debug_writer_.drain();

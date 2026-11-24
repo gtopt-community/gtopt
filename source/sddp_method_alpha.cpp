@@ -662,6 +662,33 @@ void apply_alpha_floor(PlanningLP& planning_lp,
   sys.ensure_lp_built();
   auto& li = sys.linear_interface();
 
+  // Columns of this cell pinned by an INCOMING state link (the dependent
+  // columns of the previous phase's state variables).  Their LP bounds are
+  // the forward trial value, not the variable's box.  A hydro cut never
+  // references them (it is written on `efin`, the dependent is `sini`),
+  // but an implicit cross-phase state such as a `global` DecisionVariable
+  // uses ONE column per phase as both the dependent of phase p−1 and the
+  // source of phase p+1, so its cuts do.  Flooring α from the trial
+  // value would freeze the cut's value at that point as α's lower bound
+  // for every later trial (LB above the optimum), so such a column is
+  // treated as unbounded and the cut contributes no floor.  The aperture
+  // LP is a clone of the forward one, so the column indices coincide.
+  std::vector<ColIndex> pinned_cols;
+  if (phase_index > PhaseIndex {0}) {
+    for (const auto& svar :
+         sim.state_variables(scene_index, previous(phase_index))
+             | std::views::values)
+    {
+      for (const auto& dep : svar.dependent_variables()) {
+        if (dep.phase_index() == phase_index
+            && dep.scene_index() == scene_index)
+        {
+          pinned_cols.push_back(dep.col());
+        }
+      }
+    }
+  }
+
   for (const auto& [alpha_col, alpha_uid] : alpha_cols) {
     // Re-read the bounds on every α column: the set_col_upp/low calls at
     // the end of this body invalidate the LpCache, and the *_raw spans
@@ -689,6 +716,11 @@ void apply_alpha_floor(PlanningLP& planning_lp,
       bool inf_unbounded = false;
       for (const auto& [col, coef_phys] : cut.cmap) {
         if (col == skip_col || coef_phys == 0.0) {
+          continue;
+        }
+        if (std::ranges::contains(pinned_cols, col)) {
+          sup_unbounded = true;
+          inf_unbounded = true;
           continue;
         }
         const double v_min_phys = col_low_phys[col];

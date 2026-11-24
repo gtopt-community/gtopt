@@ -24,6 +24,8 @@ using namespace gtopt;
 
 namespace test_fuel_offtake
 {
+namespace
+{
 
 Simulation make_2block_simulation()
 {
@@ -49,6 +51,7 @@ Simulation make_2block_simulation()
   };
 }
 
+}  // namespace
 }  // namespace test_fuel_offtake
 
 TEST_CASE("Fuel.max_offtake + max_offtake_cost defaults are unset")  // NOLINT
@@ -70,7 +73,8 @@ TEST_CASE("Fuel.max_offtake JSON round-trip — hard + soft cap")  // NOLINT
     })";
     const Fuel f = daw::json::from_json<Fuel>(js);
     REQUIRE(f.max_offtake.has_value());
-    CHECK(std::get<Real>(*f.max_offtake) == doctest::Approx(500.0));
+    CHECK(std::get<Real>(f.max_offtake.value_or(0.0))
+          == doctest::Approx(500.0));
     CHECK_FALSE(f.max_offtake_cost.has_value());
   }
   SUBCASE("soft cap (both fields set)")
@@ -85,7 +89,8 @@ TEST_CASE("Fuel.max_offtake JSON round-trip — hard + soft cap")  // NOLINT
     const Fuel f = daw::json::from_json<Fuel>(js);
     REQUIRE(f.max_offtake.has_value());
     REQUIRE(f.max_offtake_cost.has_value());
-    CHECK(std::get<Real>(*f.max_offtake_cost) == doctest::Approx(1000.0));
+    CHECK(std::get<Real>(f.max_offtake_cost.value_or(0.0))
+          == doctest::Approx(1000.0));
   }
 }
 

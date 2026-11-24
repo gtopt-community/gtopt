@@ -7,6 +7,7 @@
  *            see LICENSING.md
  */
 
+#include <array>
 #include <cmath>
 #include <expected>
 #include <filesystem>
@@ -1674,7 +1675,14 @@ TEST_CASE(  // NOLINT
 
   // CLP is a pure LP solver: loading a MIP into it used to "succeed" and
   // later produce a silent zero-dispatch status -1 solution.  It must now
-  // fail loudly at load time.
+  // fail loudly at load time.  Needs the OSI (CLP) plugin; skips where it
+  // is absent (CI builds only the HiGHS plugin).
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  if (!reg.has_solver("clp")) {
+    MESSAGE("clp not available; skipping the LP-only rejection check");
+    return;
+  }
   LinearInterface li {"clp"};
   CHECK_THROWS_WITH_AS(
       li.load_flat(flat_lp), doctest::Contains("LP-only"), std::runtime_error);
@@ -2726,4 +2734,62 @@ TEST_CASE("LinearInterface — obj_constant propagates across clone()")
   auto cloned = src.clone(LinearInterface::CloneKind::deep);
   REQUIRE(cloned.resolve().has_value());
   CHECK(cloned.get_obj_value() == doctest::Approx(99.0));
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface - add_col/add_cols honour SparseCol::is_integer")
+{
+  // Integrality must survive the SparseCol entry points (singular and
+  // bulk), exactly as `load_flat` honours the flat LP's `colint`.  MIP
+  // solve → HiGHS (never CLP for integer columns).
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  if (!reg.has_solver("highs")) {
+    MESSAGE("highs plugin not available; skipping");
+    return;
+  }
+
+  LinearInterface li {"highs"};
+
+  // max x + y  (min −x − y)  s.t.  x + y <= 2.5,  x, y in [0, 2.5]
+  const auto x = li.add_col(SparseCol {
+      .uppb = 2.5,
+      .cost = -1.0,
+      .is_integer = true,
+  });
+  const std::array<SparseCol, 2> bulk {
+      SparseCol {
+          .uppb = 2.5,
+          .cost = -1.0,
+          .is_integer = true,
+      },
+      SparseCol {
+          .uppb = 2.5,
+          .cost = 0.0,
+      },
+  };
+  const auto y = li.add_cols(bulk);
+  auto z = y;
+  ++z;
+
+  CHECK(li.is_integer(x));
+  CHECK(li.is_integer(y));
+  CHECK_FALSE(li.is_integer(z));
+
+  SparseRow row;
+  row[x] = 1.0;
+  row[y] = 1.0;
+  row.uppb = 2.5;
+  (void)li.add_row(row);
+
+  const SolverOptions options;
+  const auto result = li.initial_solve(options);
+  REQUIRE(result.has_value());
+  REQUIRE(li.is_optimal());
+
+  // LP relaxation would reach 2.5; the MIP optimum is 2 (integral x, y).
+  CHECK(-li.get_obj_value_raw() == doctest::Approx(2.0));
+  const auto sol = li.get_col_sol();
+  CHECK(std::abs(sol[x] - std::round(sol[x])) < 1e-6);
+  CHECK(std::abs(sol[y] - std::round(sol[y])) < 1e-6);
 }

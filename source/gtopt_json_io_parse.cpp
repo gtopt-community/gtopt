@@ -10,10 +10,15 @@
  * StrictParsePolicy, which rejects unknown JSON fields (exact mapping).
  */
 
+#include <algorithm>
+#include <cstddef>
 #include <expected>
 #include <filesystem>
+#include <format>
+#include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <daw/daw_read_file.h>
@@ -59,6 +64,52 @@ namespace
   return fpath;
 }
 
+/// Render a `daw::json::json_exception` with the line / column and the
+/// up-to-50 characters that precede the error position in `document`.
+///
+/// Replaces `daw::json::to_formatted_string`, which (daw_json_link
+/// v3.31) starts its context window at
+/// `parse_location - min(50, distance(doc, parse_location + 1))`, i.e.
+/// ONE BYTE BEFORE the document whenever the error lies in its first 50
+/// characters (e.g. `{ this is not valid JSON }`).  That out-of-bounds
+/// read was reported by ThreadSanitizer as a heap-use-after-free and by
+/// valgrind as "1 bytes before a block".  Here every access stays inside
+/// `document`, and a parse location outside it (a pointer into some
+/// other buffer) is never dereferenced.
+[[nodiscard]] std::string format_json_error(
+    const daw::json::json_exception& jex, std::string_view document)
+{
+  std::string result = "reason: " + jex.reason();
+  const char* const loc = jex.parse_location();
+  const char* const first = document.data();
+  const char* const last = first + document.size();
+  const std::less<const char*> before {};
+  if (loc == nullptr || first == nullptr || before(loc, first)
+      || before(last, loc))
+  {
+    return result;
+  }
+  const auto offset = static_cast<std::size_t>(loc - first);
+  const auto head = document.substr(0, offset);
+  const auto line_no = 1 + std::ranges::count(head, '\n');
+  const auto last_nl = head.rfind('\n');
+  const auto col_no =
+      offset - (last_nl == std::string_view::npos ? 0 : last_nl + 1) + 1;
+  constexpr std::size_t max_context = 50;
+  const auto ctx_begin = offset > max_context ? offset - max_context : 0;
+  const auto ctx_end = std::min(offset + 1, document.size());
+  std::string context;
+  context.reserve(ctx_end - ctx_begin);
+  for (const char c : document.substr(ctx_begin, ctx_end - ctx_begin)) {
+    if (c != '\n' && c != '\r') {
+      context.push_back(c);
+    }
+  }
+  result += std::format(
+      " \nlocation: near line: {} col: {}\n\"{}\"", line_no, col_no, context);
+  return result;
+}
+
 }  // namespace
 
 Planning parse_planning_json(std::string_view json_content)
@@ -100,10 +151,10 @@ std::expected<Planning, std::string> parse_planning_files(
 
       // `canonical` must outlive the catch block: `daw::json::json_exception`
       // carries raw pointers into the buffer it was parsed from, and
-      // `to_formatted_string` walks back from the error position looking
+      // `format_json_error` walks back from the error position looking
       // for the surrounding line.  Passing a different buffer (the
-      // pre-canonicalisation source) causes that walk to segfault when
-      // the canonicalisation shifted byte offsets — see the
+      // pre-canonicalisation source) made daw's `to_formatted_string`
+      // segfault when the canonicalisation shifted byte offsets — see the
       // `BAT_ALICANTO` reproducer on the `plp_2y` case (gtopt-cases).
       const auto canonical =
           canonicalize_json_keys(json_result.value(), enforce_dialect);
@@ -115,7 +166,7 @@ std::expected<Planning, std::string> parse_planning_files(
         return std::unexpected(
             std::format("JSON parsing error in file '{}': {}",
                         fpath.string(),
-                        to_formatted_string(jex, canonical.c_str())));
+                        format_json_error(jex, canonical)));
       }
 
     } catch (const std::exception& ex) {

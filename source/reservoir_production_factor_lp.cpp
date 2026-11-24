@@ -11,12 +11,14 @@
  * generalized `update_lp()` hook used by the SDDP solver.
  */
 
+#include <gtopt/active_ref.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/warn_once.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -38,8 +40,10 @@ bool ReservoirProductionFactorLP::add_to_lp(const SystemContext& sc,
   try {
     turbine_ptr = &sc.element<TurbineLP>(turbine_sid());
   } catch (const std::exception&) {
-    SPDLOG_WARN(
-        "ReservoirProductionFactor uid={}: turbine not found in LP; skipping.",
+    warn_once_per_key(
+        std::format("ReservoirProductionFactor:{}:no_turbine", uid()),
+        "ReservoirProductionFactor uid={}: turbine not found in LP; "
+        "skipping.  Logged once per element.",
         uid());
     return true;
   }
@@ -50,7 +54,16 @@ bool ReservoirProductionFactorLP::add_to_lp(const SystemContext& sc,
   // turbine's own conversion row, so read the turbine's flow columns with
   // no Waterway fallback.  (A coupling turbine that owns no flow column
   // yields an empty map; the per-block ``contains`` guard below skips it.)
-  const auto& conv_rows = turbine.conversion_rows_at(scenario, stage);
+  //
+  // Tolerant reference (see active_ref.hpp): an inactive turbine has no
+  // conversion row in this cell, so there is no coefficient to update.
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  const auto* conv_rows_ptr = turbine.find_conversion_rows(scenario, stage);
+  if (conv_rows_ptr == nullptr) {
+    warn_ref_once(cname, uid(), "production-factor update", turbine.uid());
+    return true;
+  }
+  const auto& conv_rows = *conv_rows_ptr;
   const auto& flow_cols = turbine.flow_cols_at(scenario, stage);
   const auto eff = turbine.stage_efficiency(stage.uid());
 
@@ -77,10 +90,15 @@ bool ReservoirProductionFactorLP::add_to_lp(const SystemContext& sc,
   // `eini.has_value()` guard the original `update_lp` used as an early exit.
   // Storing the cache only when `eini` is set means a missing entry in
   // `update_lp` is the no-op signal — no separate flag needed.
+  // An inactive reservoir (no eini / efin column in this cell) leaves the
+  // cache absent too: the coefficient keeps its build-time value.
   const auto& reservoir = sc.element<ReservoirLP>(reservoir_sid());
   if (reservoir.reservoir().eini.has_value()) {
-    m_reservoir_caches_[st_key] =
-        make_reservoir_ref_cache(reservoir, scenario, stage);
+    if (auto cache = find_reservoir_ref_cache(reservoir, scenario, stage)) {
+      m_reservoir_caches_[st_key] = *cache;
+    } else {
+      warn_ref_once(cname, uid(), "production-factor update", reservoir.uid());
+    }
   }
 
   return true;

@@ -184,6 +184,7 @@ public:
 
   // ---- status ----
   [[nodiscard]] bool is_proven_optimal() const override;
+  [[nodiscard]] bool has_mip_incumbent() const override;
   [[nodiscard]] bool is_abandoned() const override;
   [[nodiscard]] bool is_proven_primal_infeasible() const override;
   [[nodiscard]] bool is_proven_dual_infeasible() const override;

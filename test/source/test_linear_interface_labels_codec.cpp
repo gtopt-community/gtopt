@@ -23,6 +23,15 @@ using namespace gtopt;
 
 namespace
 {
+// GCC 14 at -O3 reports a false -Wstringop-overflow inside std::variant's
+// move constructor when the SparseColLabel temporaries below are
+// push_back'ed (the inlined variant index store is attributed to a
+// zero-sized region).  Silence it for this helper only.
+#if defined(__GNUC__) && !defined(__clang__)
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
+
 // Build a vector of column labels covering every `LpContext` variant arm
 // plus a bare monostate entry.  Each label uses distinct strings so that
 // the deserializer's per-entry string-pool indexing is also exercised.
@@ -84,6 +93,10 @@ std::vector<SparseColLabel> make_col_labels()
   });
   return v;
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#  pragma GCC diagnostic pop
+#endif
 
 std::vector<SparseRowLabel> make_row_labels()
 {

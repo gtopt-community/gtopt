@@ -105,23 +105,30 @@ bool UserModelLP::add_to_lp(SystemContext& sc,
   return true;
 }
 
+bool UserModelLP::add_cell_cols(SystemContext& sc,
+                                const SceneLP& scene,
+                                const PhaseLP& phase,
+                                LinearProblem& lp)
+{
+  // A coarse `phase` / `global` variable (incl. an AMPL `state` α) builds its
+  // single (scene, phase) column here, before the operational sweep, so every
+  // constraint scope can reference it; block/stage variables no-op.
+  for (auto& dv : m_variables_) {
+    if (!dv.add_cell_cols(sc, scene, phase, lp)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool UserModelLP::add_to_phase_lp(SystemContext& sc,
                                   const SceneLP& scene,
                                   const PhaseLP& phase,
                                   LinearProblem& lp)
 {
-  // Variables FIRST so a phase/global-scoped constraint that references a
-  // phase/global-scoped (e.g. `state`) variable resolves the column the
-  // variable just registered — reproducing the standalone collection order
-  // (DecisionVariableLP → UserConstraintLP) inside the planning pass.  A
-  // coarse `phase`-scope variable (incl. an AMPL `state` α) builds its single
-  // (scene, phase) column here; block/stage-scoped variables already built in
-  // `add_to_lp` and no-op here.
-  for (auto& dv : m_variables_) {
-    if (!dv.add_to_phase_lp(sc, scene, phase, lp)) {
-      return false;
-    }
-  }
+  // Bundled variables were all built earlier (block/stage in `add_to_lp`,
+  // phase/global in the `add_cell_cols` pre-pass); only the coarse
+  // constraint rows are emitted here.
   for (auto& uc : m_constraints_) {
     if (!uc.add_to_phase_lp(sc, scene, phase, lp)) {
       return false;
@@ -135,11 +142,6 @@ bool UserModelLP::add_to_global_lp(SystemContext& sc,
                                    const PhaseLP& phase,
                                    LinearProblem& lp)
 {
-  for (auto& dv : m_variables_) {
-    if (!dv.add_to_global_lp(sc, scene, phase, lp)) {
-      return false;
-    }
-  }
   for (auto& uc : m_constraints_) {
     if (!uc.add_to_global_lp(sc, scene, phase, lp)) {
       return false;

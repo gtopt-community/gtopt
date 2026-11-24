@@ -1292,6 +1292,8 @@ auto solve_apertures_for_phase(
   std::vector<double> aperture_weights;
   double total_weight = 0.0;
   int n_infeasible = 0;
+  int n_timed_out = 0;
+  double dropped_weight = 0.0;
 
   // Each future yields a chunk's worth of per-aperture results
   // (1..K elements depending on chunk_size).  Flatten as we collect.
@@ -1311,9 +1313,11 @@ auto solve_apertures_for_phase(
       for (auto& result : chunk_results) {
         if (!result.feasible) {
           ++n_infeasible;
+          dropped_weight += result.weight;
           const auto kind = classify_aperture_failure(
               result.status, result.solve_s, aperture_timeout);
           if (kind == ApertureFailureKind::timed_out) {
+            ++n_timed_out;
             spdlog::warn(
                 "SDDP Aperture [i{} s{} p{} a{}]: timed out ({:.1f}s, "
                 "limit {:.1f}s, status {}), treating as infeasible",
@@ -1409,6 +1413,30 @@ auto solve_apertures_for_phase(
       n_skipped,
       phase_elapsed,
       std::hash<std::thread::id> {}(caller_tid) % 10000);
+
+  // Dropped apertures change the expected cut: the remaining weights are
+  // renormalised below, so make every drop visible at WARNING level with
+  // the share of aperture weight that was lost.
+  if (n_infeasible > 0) {
+    const double all_weight = total_weight + dropped_weight;
+    const double dropped_share =
+        all_weight > 0.0 ? dropped_weight / all_weight : 0.0;
+    spdlog::warn(
+        "{}: {} of {} apertures dropped ({} timed out at the {:.1f}s "
+        "aperture_timeout); {:.1f}% of the aperture weight lost, expected "
+        "cut renormalised over the {} remaining (dropped apertures are solved "
+        "again in the next iteration)",
+        sddp_log("Aperture",
+                 gtopt::uid_of(iteration_index),
+                 scene_uid_val,
+                 phase_uid_val),
+        n_infeasible,
+        n_total,
+        n_timed_out,
+        aperture_timeout,
+        100.0 * dropped_share,
+        n_feasible);
+  }
 
   if (aperture_cuts.empty()) {
     return std::nullopt;

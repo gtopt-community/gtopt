@@ -40,6 +40,7 @@
 #include <utility>
 #include <vector>
 
+#include <gtopt/active_ref.hpp>
 #include <gtopt/allowance_pool_lp.hpp>
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/cost_helper.hpp>
@@ -48,6 +49,7 @@
 #include <gtopt/emission_zone_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -71,7 +73,8 @@ namespace
     return 0.0;
   }
   const auto& val = *field;
-  // get_if: the alternatives are discriminated without bad_variant_access.
+  // get_if: the alternatives are already discriminated.  (Not noexcept:
+  // the one-time FileSched warning formats a string.)
   if (const auto* r = std::get_if<Real>(&val)) {
     return *r;
   }
@@ -112,8 +115,14 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
 
   const auto& src = emission_source();
   if (!src.generator.has_value()) {
-    SPDLOG_WARN("EmissionSource uid={} has no generator FK — skipping", uid());
-    return false;
+    fail_lp(*this,
+            scenario,
+            stage,
+            {
+                .field = "generator",
+                .value = "unset",
+                .expected = "a generator reference",
+            });
   }
 
   // Combustion (TTW) + optional upstream (WTT) rates [t/MWh].  Both
@@ -160,9 +169,10 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     }
   }
   if (!emission_in_zone) {
-    SPDLOG_WARN(
+    warn_once_per_key(
+        std::format("EmissionSource:{}:pollutant_not_in_zone", uid()),
         "EmissionSource uid={} targets zone uid={} but the zone does not "
-        "list pollutant — skipping",
+        "list pollutant — skipping.  Logged once per element.",
         uid(),
         zone.uid());
     return true;
@@ -179,7 +189,9 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   // a per-ton objective adder `capture_cost` on the captured tonnage.
   double capture_rate = 0.0;
   double capture_cost = 0.0;
-  const auto stage_index = static_cast<std::size_t>(stage.index());
+  // Per-stage vectors are laid out over the GLOBAL (active) stage list,
+  // like every other stage schedule (`uididx_traits`).
+  const auto stage_index = to_size(stage.stage_index());
   for (const auto& cap : gen.generator().emission_captures) {
     if (same_emission(cap.emission, src.emission, emissions, as_emission)) {
       capture_rate = resolve_stage_scalar(cap.rate, stage_index);
@@ -225,8 +237,16 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   const auto pool_fk = zone.emission_zone().allowance_pool;
   const STBIndexHolder<RowIndex>::mapped_type* pool_energy_rows = nullptr;
   if (pool_fk.has_value()) {
+    // Tolerant reference (see active_ref.hpp): an inactive pool has no
+    // energy row in this cell — the pool debit is omitted there.
     auto&& pool = sc.element<AllowancePoolLP>(AllowancePoolLPSId {*pool_fk});
-    pool_energy_rows = &pool.energy_rows_at(scenario, stage);
+    pool_energy_rows = pool.find_energy_rows(scenario, stage);
+    if (pool_energy_rows == nullptr) {
+      warn_ref_once(Element::class_name.full_name(),
+                    uid(),
+                    "allowance-pool debit",
+                    pool.uid());
+    }
   }
 
   const bool fuel_basis = (fuel_rate + upstream_fuel) != 0.0;

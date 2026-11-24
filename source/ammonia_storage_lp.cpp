@@ -14,6 +14,7 @@
 #include <gtopt/ammonia_storage_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/storage_state_defaults.hpp>
 
 namespace gtopt
 {
@@ -84,8 +85,10 @@ bool AmmoniaStorageLP::add_to_lp(SystemContext& sc,
     fs = lp.get_col_scale(finps[buid]);
   }
   const StorageOptions opts {
-      .use_state_variable = ammonia_storage().use_state_variable.value_or(true),
-      .daily_cycle = ammonia_storage().daily_cycle.value_or(false),
+      .use_state_variable = ammonia_storage().use_state_variable.value_or(
+          storage_state_defaults::ammonia_storage.use_state_variable),
+      .daily_cycle = ammonia_storage().daily_cycle.value_or(
+          storage_state_defaults::ammonia_storage.daily_cycle),
       .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),
       .energy_scale = es,

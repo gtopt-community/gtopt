@@ -66,17 +66,17 @@ struct LoggerResetListener : doctest::IReporter
   }
 
   // Remaining IReporter hooks are unused.
-  void report_query(const doctest::QueryData& /*data*/) override {}
+  void report_query(const doctest::QueryData& /*query*/) override {}
   void test_run_start() override {}
   void test_run_end(const doctest::TestRunStats& /*stats*/) override {}
   void test_case_end(const doctest::CurrentTestCaseStats& /*stats*/) override {}
   void test_case_exception(const doctest::TestCaseException& /*exc*/) override
   {
   }
-  void subcase_start(const doctest::SubcaseSignature& /*sig*/) override {}
+  void subcase_start(const doctest::SubcaseSignature& /*signature*/) override {}
   void subcase_end() override {}
-  void log_assert(const doctest::AssertData& /*data*/) override {}
-  void log_message(const doctest::MessageData& /*data*/) override {}
+  void log_assert(const doctest::AssertData& /*assert_data*/) override {}
+  void log_message(const doctest::MessageData& /*message*/) override {}
   void test_case_skipped(const doctest::TestCaseData& /*data*/) override {}
 };
 

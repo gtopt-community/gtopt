@@ -15,6 +15,7 @@
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/storage_state_defaults.hpp>
 
 namespace gtopt
 {
@@ -111,8 +112,10 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
     fs = lp.get_col_scale(finps[buid]);
   }
   const StorageOptions opts {
-      .use_state_variable = battery().use_state_variable.value_or(false),
-      .daily_cycle = battery().daily_cycle.value_or(true),
+      .use_state_variable = battery().use_state_variable.value_or(
+          storage_state_defaults::battery.use_state_variable),
+      .daily_cycle = battery().daily_cycle.value_or(
+          storage_state_defaults::battery.daily_cycle),
       .max_cycles_day = battery().max_cycles_day.value_or(0.0),
       .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),

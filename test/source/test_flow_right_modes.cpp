@@ -612,8 +612,8 @@ TEST_CASE("FlowRight per_block LP shape")  // NOLINT
       REQUIRE(fail_col.has_value());
       REQUIRE(excess_col.has_value());
       const auto dur = block.duration();
-      CHECK(obj[*fail_col] == doctest::Approx(100.0 * dur));
-      CHECK(obj[*excess_col] == doctest::Approx(-80.0 * dur));
+      CHECK((fail_col && obj[*fail_col] == doctest::Approx(100.0 * dur)));
+      CHECK((excess_col && obj[*excess_col] == doctest::Approx(-80.0 * dur)));
     }
     // With abundant supply and a positive uvalue the LP drives flow to
     // fmax; excess_sol_at must report excess = fmax - target = 20.

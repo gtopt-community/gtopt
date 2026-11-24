@@ -120,21 +120,29 @@ TEST_CASE("MipStartOptions parses from a monolithic_options block")  // NOLINT
   })";
   const auto mono = daw::json::from_json<MonolithicOptions>(json);
   REQUIRE(mono.mip_start.has_value());
-  CHECK(mono.mip_start->enabled.value_or(false) == true);
-  CHECK(
-      mono.mip_start->inject.effort.value_or(MipStartEffort::check_feasibility)
-      == MipStartEffort::solve_fixed);
-  CHECK(
-      mono.mip_start->relax.on_infeasible.value_or(RelaxInfeasibleAction::stop)
-      == RelaxInfeasibleAction::warn);
-  CHECK(mono.mip_start->relax.check.value_or(false) == true);
+  const auto ms = mono.mip_start.value_or(MipStartOptions {});
+  CHECK(ms.enabled.value_or(false) == true);
+  CHECK(ms.inject.effort.value_or(MipStartEffort::check_feasibility)
+        == MipStartEffort::solve_fixed);
+  CHECK(ms.relax.on_infeasible.value_or(RelaxInfeasibleAction::stop)
+        == RelaxInfeasibleAction::warn);
+  CHECK(ms.relax.check.value_or(false) == true);
 }
 
 TEST_CASE("make_mip_start_generator factory")  // NOLINT
 {
-  SUBCASE("default (no from_file) yields the round+rules generator")
+  SUBCASE("default (no from_file) yields the dive generator")
   {
     MipStartOptions opts;
+    auto gen = make_mip_start_generator(opts);
+    REQUIRE(gen != nullptr);
+    CHECK(gen->name() == "dive");
+  }
+
+  SUBCASE("dive.enabled=false yields the legacy round+rules generator")
+  {
+    MipStartOptions opts;
+    opts.dive.enabled = false;
     auto gen = make_mip_start_generator(opts);
     REQUIRE(gen != nullptr);
     CHECK(gen->name() == "warmstart");
@@ -189,12 +197,16 @@ TEST_CASE("MipStart warmstart rounds integer columns by threshold")  // NOLINT
 
   const std::array<int, 2> int_cols {0, 1};
   const SolverOptions relax_opts {.log_level = 0};
-  auto gen = make_mip_start_generator(MipStartOptions {});
+  // The legacy round + rules generator (the default is now `dive`).
+  MipStartOptions legacy;
+  legacy.dive.enabled = false;
+  auto gen = make_mip_start_generator(legacy);
   REQUIRE(gen != nullptr);
 
   SUBCASE("threshold 0.5 — 0.7 rounds up, 0.2 rounds down")
   {
     MipStartOptions opts;
+    opts.dive.enabled = false;
     opts.round.threshold = 0.5;
     MipStartContext ctx {.li = li,
                          .relax_opts = relax_opts,
@@ -202,17 +214,18 @@ TEST_CASE("MipStart warmstart rounds integer columns by threshold")  // NOLINT
                          .opts = opts,
                          .commitments = {},
                          .injections = {}};
-    const auto start = gen->generate(ctx);
-    REQUIRE(start.has_value());
-    REQUIRE(start->size() == 3);
-    CHECK((*start)[0] == doctest::Approx(1.0));  // 0.7 → 1
-    CHECK((*start)[1] == doctest::Approx(0.0));  // 0.2 → 0
-    CHECK((*start)[2] == doctest::Approx(3.0));  // continuous, untouched
+    const auto start = gen->generate(ctx).value_or(std::vector<double> {});
+    REQUIRE(!start.empty());
+    REQUIRE(start.size() == 3);
+    CHECK(start[0] == doctest::Approx(1.0));  // 0.7 → 1
+    CHECK(start[1] == doctest::Approx(0.0));  // 0.2 → 0
+    CHECK(start[2] == doctest::Approx(3.0));  // continuous, untouched
   }
 
   SUBCASE("threshold 0.8 — 0.7 now rounds down")
   {
     MipStartOptions opts;
+    opts.dive.enabled = false;
     opts.round.threshold = 0.8;
     MipStartContext ctx {.li = li,
                          .relax_opts = relax_opts,
@@ -220,10 +233,10 @@ TEST_CASE("MipStart warmstart rounds integer columns by threshold")  // NOLINT
                          .opts = opts,
                          .commitments = {},
                          .injections = {}};
-    const auto start = gen->generate(ctx);
-    REQUIRE(start.has_value());
-    CHECK((*start)[0] == doctest::Approx(0.0));  // 0.7 < 0.8 → 0
-    CHECK((*start)[1] == doctest::Approx(0.0));  // 0.2 → 0
+    const auto start = gen->generate(ctx).value_or(std::vector<double> {});
+    REQUIRE(!start.empty());
+    CHECK(start[0] == doctest::Approx(0.0));  // 0.7 < 0.8 → 0
+    CHECK(start[1] == doctest::Approx(0.0));  // 0.2 → 0
   }
 }
 
@@ -254,6 +267,7 @@ TEST_CASE(
       .durations = {1.0, 1.0, 1.0, 1.0},
   }};
   MipStartOptions opts;
+  opts.dive.enabled = false;
   opts.round.threshold = 0.5;
   const SolverOptions relax_opts {.log_level = 0};
   MipStartContext ctx {.li = li,
@@ -264,12 +278,12 @@ TEST_CASE(
                        .injections = {}};
 
   auto gen = make_mip_start_generator(opts);
-  const auto start = gen->generate(ctx);
-  REQUIRE(start.has_value());
-  CHECK((*start)[0] == doctest::Approx(1.0));
-  CHECK((*start)[1] == doctest::Approx(1.0));
-  CHECK((*start)[2] == doctest::Approx(0.0));
-  CHECK((*start)[3] == doctest::Approx(0.0));  // min-down repair flipped 1→0
+  const auto start = gen->generate(ctx).value_or(std::vector<double> {});
+  REQUIRE(!start.empty());
+  CHECK(start[0] == doctest::Approx(1.0));
+  CHECK(start[1] == doctest::Approx(1.0));
+  CHECK(start[2] == doctest::Approx(0.0));
+  CHECK(start[3] == doctest::Approx(0.0));  // min-down repair flipped 1→0
 }
 
 // ── apply_mip_start orchestrator ──────────────────────────────────────────
@@ -327,8 +341,11 @@ TEST_CASE("apply_mip_start: warmstart injects on a feasible MIP relaxation")
   CHECK(rep->relaxation_solved);
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
-  CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
-  CHECK(rep->source == "warmstart");  // a start was produced
+  CHECK(rep->relax_obj.value_or(-1.0) == doctest::Approx(0.6));
+  CHECK(rep->source == "dive");  // a start was produced
+  // x >= 0.6 with x integer in [0,1]: the dive's verified start is x = 1.
+  CHECK(rep->start_verified);
+  CHECK(rep->start_obj.value_or(0.0) == doctest::Approx(1.0));
   // Integrality is re-established before returning (restore_integers) —
   // also guards the CPLEX restore_integers fix in the orchestrator path.
   CHECK(li.is_integer(x));
@@ -428,7 +445,7 @@ TEST_CASE(  // NOLINT
   CHECK(rep->relaxation_solved);
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
-  CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
+  CHECK(rep->relax_obj.value_or(-1.0) == doctest::Approx(0.6));
   CHECK_FALSE(rep->injected);  // diagnosis-only run
   // Integrality restored after the diagnosis-only run.
   CHECK(li.is_integer(x));
@@ -459,7 +476,7 @@ TEST_CASE(  // NOLINT
   CHECK(rep->relaxation_solved);
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
-  CHECK(rep->relax_obj.value() == doctest::Approx(0.4));
+  CHECK(rep->relax_obj.value_or(-1.0) == doctest::Approx(0.4));
   CHECK_FALSE(rep->injected);  // not enabled → nothing injected
   CHECK(li.is_integer(x));  // integrality re-established before return
 }
@@ -495,8 +512,8 @@ TEST_CASE(  // NOLINT
   CHECK(rep->relaxation_solved);
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
-  CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
-  CHECK(rep->source == "warmstart");
+  CHECK(rep->relax_obj.value_or(-1.0) == doctest::Approx(0.6));
+  CHECK(rep->source == "dive");
   CHECK(li.is_integer(x));
 }
 
@@ -547,12 +564,12 @@ TEST_CASE(
 
   auto gen = make_mip_start_generator(opts);
   REQUIRE(gen != nullptr);
-  const auto start = gen->generate(ctx);
-  REQUIRE(start.has_value());
-  REQUIRE(start->size() == 3);
-  CHECK((*start)[0] == doctest::Approx(1.0));  // from the dump
-  CHECK((*start)[1] == doctest::Approx(0.0));  // from the dump
-  CHECK((*start)[2] == doctest::Approx(2.0));  // dst continuous, untouched
+  const auto start = gen->generate(ctx).value_or(std::vector<double> {});
+  REQUIRE(!start.empty());
+  REQUIRE(start.size() == 3);
+  CHECK(start[0] == doctest::Approx(1.0));  // from the dump
+  CHECK(start[1] == doctest::Approx(0.0));  // from the dump
+  CHECK(start[2] == doctest::Approx(2.0));  // dst continuous, untouched
 
   std::filesystem::remove(path);
 }
@@ -639,11 +656,11 @@ TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
                        .injections = {}};
   auto gen = make_mip_start_generator(opts);
   REQUIRE(gen != nullptr);
-  const auto start = gen->generate(ctx);
-  REQUIRE(start.has_value());
-  CHECK((*start)[0] == doctest::Approx(1.0));  // dumped MIP value
-  CHECK((*start)[1] == doctest::Approx(0.0));  // dumped MIP value
-  CHECK((*start)[2] == doctest::Approx(3.0));  // dumped continuous value —
+  const auto start = gen->generate(ctx).value_or(std::vector<double> {});
+  REQUIRE(!start.empty());
+  CHECK(start[0] == doctest::Approx(1.0));  // dumped MIP value
+  CHECK(start[1] == doctest::Approx(0.0));  // dumped MIP value
+  CHECK(start[2] == doctest::Approx(3.0));  // dumped continuous value —
   // the complete dump wins over the dst relaxation (2.0): replaying it must
   // reconstruct the SOURCE solution, not an integers-over-relaxation mix.
 

@@ -43,6 +43,12 @@
 #include <gtopt/flow_right.hpp>
 #include <gtopt/fuel.hpp>
 #include <gtopt/future_cost.hpp>
+#include <gtopt/gas_compressor.hpp>
+#include <gtopt/gas_demand.hpp>
+#include <gtopt/gas_node.hpp>
+#include <gtopt/gas_pipe.hpp>
+#include <gtopt/gas_supply.hpp>
+#include <gtopt/gas_turbine.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/hydrogen_demand.hpp>
@@ -148,6 +154,14 @@ struct System
 
   // ── Fuel storage ────────────────────────────────────────────────────────
   Array<LngTerminal> lng_terminal_array {};  ///< LNG storage terminals
+
+  // ── Natural-gas network (radial, squared-pressure LP) ───────────────────
+  Array<GasNode> gas_node_array {};  ///< Nodes: π = p² + gas balance
+  Array<GasSupply> gas_supply_array {};  ///< Fields / imports / regas
+  Array<GasDemand> gas_demand_array {};  ///< Gas loads with shedding
+  Array<GasPipe> gas_pipe_array {};  ///< Weymouth pipes (+ line pack)
+  Array<GasCompressor> gas_compressor_array {};  ///< Compressor stations
+  Array<GasTurbine> gas_turbine_array {};  ///< Generator fuel-gas links
 
   // ── Reserve modeling ────────────────────────────────────────────────────
   Array<ReserveZone>

@@ -7,6 +7,7 @@
  *            see LICENSING.md
  */
 
+#include <algorithm>
 #include <filesystem>
 #include <format>
 #include <stdexcept>
@@ -65,6 +66,9 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
   // continuous LPs.
   if (const auto gap = opts.mip_gap; gap && *gap > 0) {
     highs.setOptionValue("mip_rel_gap", *gap);
+  }
+  if (const auto sols = opts.mip_solution_limit; sols && *sols > 0) {
+    highs.setOptionValue("mip_max_improving_sols", *sols);
   }
   if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
     highs.setOptionValue("time_limit", *tl);
@@ -895,6 +899,22 @@ void HighsSolverBackend::disengage_robust_solve() noexcept
 bool HighsSolverBackend::is_proven_optimal() const
 {
   return m_highs_->getModelStatus() == HighsModelStatus::kOptimal;
+}
+
+bool HighsSolverBackend::has_mip_incumbent() const
+{
+  if (m_highs_ == nullptr) {
+    return false;
+  }
+  // A MIP (some non-continuous integrality entry) whose last run left a
+  // FEASIBLE primal solution — HiGHS reports the incumbent there on every
+  // MIP stop (optimal, time / node / solution limit, interrupt).
+  const auto& integrality = m_highs_->getLp().integrality_;
+  const bool is_mip = std::ranges::any_of(
+      integrality,
+      [](HighsVarType t) { return t != HighsVarType::kContinuous; });
+  return is_mip
+      && m_highs_->getInfo().primal_solution_status == kSolutionStatusFeasible;
 }
 
 bool HighsSolverBackend::is_abandoned() const

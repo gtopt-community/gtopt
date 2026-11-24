@@ -20,6 +20,8 @@
 #include <gtopt/solver_resource.hpp>
 #include <gtopt/work_pool.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 namespace resource_governor_test
@@ -191,9 +193,9 @@ TEST_CASE(
   CHECK_FALSE(mon.device(probed).has_value());
   if (probed > 0) {
     const auto st = mon.device(0);
-    REQUIRE(st.has_value());
-    CHECK(st->index == 0);
-    CHECK(st->vram_total_mib > 0.0);
+    const auto& dev = test_support::require_value(st);
+    CHECK(dev.index == 0);
+    CHECK(dev.vram_total_mib > 0.0);
     CHECK(mon.least_loaded_device().has_value());
   } else {
     CHECK_FALSE(mon.least_loaded_device().has_value());
@@ -220,11 +222,11 @@ TEST_CASE("SolverRegistry - resource descriptor plumbing")  // NOLINT
       return;  // plugin not built/loadable on this host — skip
     }
     const auto desc = reg.resource_descriptor("cuopt");
-    REQUIRE(desc.has_value());
-    CHECK(desc->struct_version == k_solver_resource_desc_version);
-    CHECK(desc->resource_class == static_cast<int>(ResourceClass::gpu));
-    CHECK(desc->recommended_max_concurrency == 1);
-    CHECK(desc->est_vram_mib_base > 0.0);
+    const auto& descriptor = test_support::require_value(desc);
+    CHECK(descriptor.struct_version == k_solver_resource_desc_version);
+    CHECK(descriptor.resource_class == static_cast<int>(ResourceClass::gpu));
+    CHECK(descriptor.recommended_max_concurrency == 1);
+    CHECK(descriptor.est_vram_mib_base > 0.0);
     CHECK(reg.is_gpu_backed("cuopt"));
   }
 }

@@ -67,4 +67,20 @@ using ScenarioIndex = StrongPositionIndexType<struct Scenario>;
   return ScenarioIndex {0};
 }
 
+/**
+ * @brief Position of a scenario INSIDE its scene (0 = the scene's first
+ *        active scenario).  Distinct from the global `ScenarioIndex`
+ *        (position in `SimulationLP::scenarios()`); `SceneLP::scenarios()`
+ *        is addressed by this type.
+ */
+struct SceneScenarioTag;
+using SceneScenarioIndex = StrongPositionIndexType<SceneScenarioTag>;
+
+/// @brief First scenario of a scene.
+[[nodiscard]] constexpr auto first_scene_scenario_index() noexcept
+    -> SceneScenarioIndex
+{
+  return SceneScenarioIndex {0};
+}
+
 }  // namespace gtopt

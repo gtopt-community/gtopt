@@ -144,9 +144,17 @@ struct Line
                                         ///< the lifted cap.  When unset
                                         ///< (default), the envelope falls back
                                         ///< to `fmax = max(tmax_ab, tmax_ba)`
-                                        ///< (backward compatible).  Flow past
-                                        ///< the envelope extrapolates on the
-                                        ///< last segment's slope.
+                                        ///< (backward compatible).  The
+                                        ///< envelope never caps the flow:
+                                        ///< flow may run past it up to
+                                        ///< `tmax_ab`/`tmax_ba`, and losses
+                                        ///< there stay QUADRATIC (`R·f²/V²`,
+                                        ///< as PLEXOS) — coarser geometric
+                                        ///< tangent points / secant segments
+                                        ///< (ratio ≤ 1.4, error ≤ ≈ 2.8 %)
+                                        ///< cover `[loss_envelope, tmax]`,
+                                        ///< while the K fine segments stay
+                                        ///< on `[0, loss_envelope]`.
 
   /// Parse line_losses_mode string to enum (nullopt = inherit from global).
   [[nodiscard]] constexpr std::optional<LineLossesMode> line_losses_mode_enum()

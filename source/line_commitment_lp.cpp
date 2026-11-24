@@ -1021,11 +1021,13 @@ bool LineCommitmentLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
+  // A relaxed element is continuous in [0, 1]: write the LP value as is.
+  const bool relaxed = line_commitment().relax.value_or(false);
 
   // ``status`` is a binary LP variable — emit via the integer-snapping
   // overload so the output Parquet carries exact 0/1 values instead
   // of a sub-percent tail of fractional reports.
-  out.add_col_sol_integer(cname, StatusName, pid, status_cols_);
+  out.add_col_sol_integer(cname, StatusName, pid, status_cols_, relaxed);
   out.add_col_cost(cname, StatusName, pid, status_cols_);
 
   out.add_row_dual(cname, CapacityPName, pid, capacity_p_rows_);
@@ -1034,9 +1036,9 @@ bool LineCommitmentLP::add_to_output(OutputContext& out) const
   // u/v/w decomposition outputs (v1.1).  All empty when startup_cost
   // and shutdown_cost are both zero — ``add_col_sol_*`` / ``add_row_dual``
   // are no-ops on empty STBIndexHolders.
-  out.add_col_sol_integer(cname, StartupName, pid, startup_cols_);
+  out.add_col_sol_integer(cname, StartupName, pid, startup_cols_, relaxed);
   out.add_col_cost(cname, StartupName, pid, startup_cols_);
-  out.add_col_sol_integer(cname, ShutdownName, pid, shutdown_cols_);
+  out.add_col_sol_integer(cname, ShutdownName, pid, shutdown_cols_, relaxed);
   out.add_col_cost(cname, ShutdownName, pid, shutdown_cols_);
   out.add_row_dual(cname, LogicName, pid, logic_rows_);
   out.add_row_dual(cname, ExclusionName, pid, exclusion_rows_);
@@ -1049,11 +1051,11 @@ bool LineCommitmentLP::add_to_output(OutputContext& out) const
 
   // v1.3 startup-tier outputs.  All empty when ``has_startup_tiers()``
   // is false on the schema.
-  out.add_col_sol_integer(cname, HotStartName, pid, hot_start_cols_);
+  out.add_col_sol_integer(cname, HotStartName, pid, hot_start_cols_, relaxed);
   out.add_col_cost(cname, HotStartName, pid, hot_start_cols_);
-  out.add_col_sol_integer(cname, WarmStartName, pid, warm_start_cols_);
+  out.add_col_sol_integer(cname, WarmStartName, pid, warm_start_cols_, relaxed);
   out.add_col_cost(cname, WarmStartName, pid, warm_start_cols_);
-  out.add_col_sol_integer(cname, ColdStartName, pid, cold_start_cols_);
+  out.add_col_sol_integer(cname, ColdStartName, pid, cold_start_cols_, relaxed);
   out.add_col_cost(cname, ColdStartName, pid, cold_start_cols_);
   out.add_row_dual(cname, TierSelectName, pid, tier_select_rows_);
   out.add_row_dual(cname, HotWindowName, pid, hot_window_rows_);

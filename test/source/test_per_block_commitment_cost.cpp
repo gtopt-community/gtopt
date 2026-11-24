@@ -34,6 +34,9 @@ using namespace gtopt;
 namespace per_block_commitment_cost_test  // NOLINT
 {
 
+namespace
+{
+
 // One chronological stage, two unit-duration blocks (uids 0, 1).
 [[nodiscard]] Simulation make_pbcc_two_block_simulation()
 {
@@ -97,6 +100,8 @@ namespace per_block_commitment_cost_test  // NOLINT
 {
   return OptTBRealFieldSched {std::vector<std::vector<Real>> {{b0, b1}}};
 }
+
+}  // namespace
 
 }  // namespace per_block_commitment_cost_test
 

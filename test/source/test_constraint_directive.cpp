@@ -34,7 +34,7 @@ TEST_CASE("DirectiveKind NamedEnum round-trip")  // NOLINT
     for (const auto& entry : directive_kind_entries) {
       const auto round = enum_from_name<DirectiveKind>(entry.name);
       REQUIRE(round.has_value());
-      CHECK(*round == entry.value);
+      CHECK((round && *round == entry.value));
       CHECK(enum_name(entry.value) == entry.name);
     }
   }
@@ -284,10 +284,11 @@ TEST_CASE("UserConstraint JSON round-trip — directive sibling field")  // NOLI
 
     const auto round = daw::json::from_json<UserConstraint>(json);
     REQUIRE(round.directive.has_value());
-    CHECK(round.directive->kind == DirectiveKind::RegRange);
-    CHECK(round.directive->penalty.value_or(-1.0) == doctest::Approx(1000.0));
-    CHECK_FALSE(round.directive->scope.has_value());
-    CHECK_FALSE(round.directive->window_hours.has_value());
+    const auto dir = round.directive.value_or(ConstraintDirective {});
+    CHECK(dir.kind == DirectiveKind::RegRange);
+    CHECK(dir.penalty.value_or(-1.0) == doctest::Approx(1000.0));
+    CHECK_FALSE(dir.scope.has_value());
+    CHECK_FALSE(dir.window_hours.has_value());
   }
 
   SUBCASE("DailyBudget directive round-trips with scope")
@@ -305,11 +306,12 @@ TEST_CASE("UserConstraint JSON round-trip — directive sibling field")  // NOLI
     const auto json = daw::json::to_json(uc);
     const auto round = daw::json::from_json<UserConstraint>(json);
     REQUIRE(round.directive.has_value());
-    CHECK(round.directive->kind == DirectiveKind::DailyBudget);
-    CHECK(round.directive->scope.value_or("") == "fuel:GAS");
-    CHECK_FALSE(round.directive->penalty.has_value());
-    CHECK_FALSE(round.directive->window_hours.has_value());
-    CHECK(round.directive->implies_daily_sum());
+    const auto dir = round.directive.value_or(ConstraintDirective {});
+    CHECK(dir.kind == DirectiveKind::DailyBudget);
+    CHECK(dir.scope.value_or("") == "fuel:GAS");
+    CHECK_FALSE(dir.penalty.has_value());
+    CHECK_FALSE(dir.window_hours.has_value());
+    CHECK(dir.implies_daily_sum());
   }
 
   SUBCASE("MaxStartsWindow directive round-trips with window_hours")
@@ -327,9 +329,10 @@ TEST_CASE("UserConstraint JSON round-trip — directive sibling field")  // NOLI
     const auto json = daw::json::to_json(uc);
     const auto round = daw::json::from_json<UserConstraint>(json);
     REQUIRE(round.directive.has_value());
-    CHECK(round.directive->kind == DirectiveKind::MaxStartsWindow);
-    CHECK(round.directive->window_hours.value_or(-1) == 24);
-    CHECK(round.directive->implies_daily_sum());
+    const auto dir = round.directive.value_or(ConstraintDirective {});
+    CHECK(dir.kind == DirectiveKind::MaxStartsWindow);
+    CHECK(dir.window_hours.value_or(-1) == 24);
+    CHECK(dir.implies_daily_sum());
   }
 }
 

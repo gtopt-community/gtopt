@@ -72,6 +72,17 @@ struct MipStartReport
   bool injected {false};  ///< a start was accepted by the backend
   std::optional<double> relax_obj {};  ///< LP-relaxation objective (if solved)
   std::string source {};  ///< generator name that produced the start
+  /// The injected start was VERIFIED feasible (its fixed-integer LP solved to
+  /// optimality) — only the `dive` generator verifies.
+  bool start_verified {false};
+  /// Physical objective of the verified start (its fixed-integer LP).
+  std::optional<double> start_obj {};
+  int repair_rounds {0};  ///< dive elastic-repair rounds run
+  bool sub_mip_used {false};  ///< the dive's repair sub-MIP produced the start
+  /// Violated pure-integer rows of the plain rounded relaxation / of the dive
+  /// candidate (−1 = not checked: no retained flat LP).
+  int violated_int_rows_rounded {-1};
+  int violated_int_rows_dive {-1};
 };
 
 /// Context handed to a generator.  Precondition: `li` holds an OPTIMAL
@@ -118,7 +129,9 @@ public:
 
 /// Factory: build the candidate generator for these options.  When
 /// `opts.from_file` is set, the file-replay generator; otherwise the default
-/// round + domain-rules generator.  Never returns `nullptr`.
+/// `dive` generator (propagation dive + verify + repair, see
+/// mip_start_dive.hpp), or the legacy round + domain-rules `warmstart`
+/// generator when `opts.dive.enabled` is false.  Never returns `nullptr`.
 [[nodiscard]] std::unique_ptr<MipStartGenerator> make_mip_start_generator(
     const MipStartOptions& opts);
 

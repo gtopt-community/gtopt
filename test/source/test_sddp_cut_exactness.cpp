@@ -47,19 +47,32 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_types.hpp>
+#include <unistd.h>
 
 using namespace gtopt;
 
 namespace
 {
+
+/// Per-process scratch directory: concurrent ctest runs on one host share
+/// TMPDIR, and fixed file names let one run delete another's cut file.
+[[nodiscard]] auto test_tmp_dir() -> std::filesystem::path
+{
+  const auto dir = std::filesystem::temp_directory_path()
+      / std::format("gtopt_test_cut_exactness_{}", ::getpid());
+  std::filesystem::create_directories(dir);
+  return dir;
+}
 
 constexpr double kDur = 1000.0;  ///< stage duration [h]
 /// First of the two blocks of every stage [h].  Long, unequal blocks
@@ -152,6 +165,12 @@ struct Knobs
   /// Backward pass over one aperture per scenario (needs `probs`).
   bool apertures {false};
   CutSharingMode cut_sharing {CutSharingMode::none};
+  /// `lp_matrix_options.water_dual_target` (0 = off) and the per-reservoir
+  /// `water_value_hint` [$/hm3] / explicit `dual_scale` row factor.
+  double water_target {0.0};
+  double water_hint {0.0};
+  double dual_scale {1.0};
+  bool kvl_row_scale {false};  ///< lp_matrix_options.kvl_row_scale
 };
 
 [[nodiscard]] auto stage_sched(const std::vector<double>& v) -> std::string
@@ -287,7 +306,7 @@ struct Knobs
     reservoirs += std::format(
         R"({{"uid":{},"name":"{}","junction":{},"capacity":{},"emin":0.0,)"
         R"("emax":{},"eini":{},"fmin":{},"fmax":{},)"
-        R"("flow_conversion_rate":{}}},)",
+        R"("flow_conversion_rate":{}{}}},)",
         kRsvUid + ii,
         h.name,
         100 + (2 * ii),
@@ -296,7 +315,10 @@ struct Knobs
         h.v0,
         -kBig,
         kBig,
-        kFcr);
+        kFcr,
+        std::format(R"(,"water_value_hint":{},"dual_scale":{})",
+                    k.water_hint * h.rho / 250.0,
+                    k.dual_scale));
     std::string discharge;
     for (std::size_t sc = 0; sc < std::max<std::size_t>(1, c.probs.size());
          ++sc)
@@ -429,7 +451,7 @@ struct Knobs
 
   return std::format(
       R"({{"options":{{"method":"{}","model_options":{{{}}},)"
-      R"("lp_matrix_options":{{"equilibration_method":"{}"}}{}}},)"
+      R"("lp_matrix_options":{{"equilibration_method":"{}"{}}}{}}},)"
       R"("simulation":{{"block_array":[{}],"stage_array":[{}],)"
       R"("scenario_array":[{}],"phase_array":[{}]}},)"
       R"("system":{{"name":"cut_exact","bus_array":[{}],)"
@@ -437,6 +459,12 @@ struct Knobs
       single_lp ? "monolithic" : "sddp",
       model,
       k.eq,
+      (k.water_target > 0.0
+           ? std::format(R"(,"water_dual_target":{})", k.water_target)
+           : std::string {})
+          + (k.kvl_row_scale
+                 ? std::string {R"(,"kvl_row_scale":true,"kvl_x_ref":0.02)"}
+                 : std::string {}),
       extra_options,
       blocks,
       stages,
@@ -1032,6 +1060,68 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
+    "SDDP cut exactness - water-row dual conditioning is exact")
+{
+  // Same two reservoirs (water values 2.25e4 and 3.6e6 $/hm3).  The
+  // energy-balance rows are re-scaled post-equilibration (explicit
+  // `dual_scale` 1e3 / 1e-2, or auto from `water_value_hint` towards a
+  // `water_dual_target`); optimum, cuts and policy must not move under
+  // any equilibration.
+  const auto c = make_pooled_case({
+      {
+          .name = "R1",
+          .bus = "b1",
+          .rho = 250.0,
+          .vmax = 1000.0,
+          .v0 = 400.0,
+          .inflow = {0.0, 0.0, 0.0},
+          .pmax = {1000.0, 1000.0, 1000.0},
+      },
+      {
+          .name = "R2",
+          .bus = "b1",
+          .rho = 40000.0,
+          .vmax = 3.0,
+          .v0 = 1.25,
+          .inflow = {0.0, 0.0, 0.0},
+          .pmax = {1000.0, 1000.0, 1000.0},
+      },
+  });
+  const auto truth = pooled_truth(c, {}, {});
+  std::vector<Cut> ref_active;
+  for (const auto eq : kEquilibrations) {
+    for (const auto& [wt, wh, ds] : {std::tuple {0.0, 0.0, 1.0},
+                                     std::tuple {0.0, 0.0, 1.0e3},
+                                     std::tuple {0.0, 0.0, 1.0e-2},
+                                     std::tuple {10.0, 22500.0, 1.0}})
+    {
+      const Knobs k {
+          .eq = eq,
+          .scale_objective = 1000.0,
+          .water_target = wt,
+          .water_hint = wh,
+          .dual_scale = ds,
+      };
+      CAPTURE(eq);
+      CAPTURE(wt);
+      CAPTURE(ds);
+      CHECK(monolithic_optimum(c, k) == doctest::Approx(kOptP).epsilon(1e-8));
+      const auto run = run_sddp(c, k);
+      check_bounds(run, kOptP, 0);
+      check_cuts(run, truth, kOptP);
+      for (std::size_t p = 0; p < truth.size(); ++p) {
+        const auto& act = active_cut(run.cuts[p], run.efin[p]);
+        if (ref_active.size() <= p) {
+          ref_active.push_back(act);
+          continue;
+        }
+        CHECK(act.a == doctest::Approx(ref_active[p].a).epsilon(1e-8));
+      }
+    }
+  }
+}
+
+TEST_CASE(  // NOLINT
     "SDDP cut exactness - 2 reservoirs of very different size and head")
 {
   // R1: ρ = 250 MWh/hm³, 400 hm³ (100 GWh); R2: ρ = 40000 MWh/hm³,
@@ -1353,6 +1443,41 @@ TEST_CASE(  // NOLINT
         {std::nullopt, std::optional {1.0}, std::optional {1000.0}});
 }
 
+TEST_CASE(  // NOLINT
+    "SDDP cut exactness - KVL row conditioning (kvl_row_scale) is exact")
+{
+  const auto c = make_network_case();
+  const std::vector<PhaseTruth> truth {{
+      .vf =
+          {
+              .f = network_v2,
+              .breaks = {0.0, 30.0 * kDur, 165.0 * kDur},
+              .rho = {250.0},
+              .vmax = {1000.0},
+          },
+      .v_star = {280.0},
+      .e_star = 70.0 * kDur,
+      .lambda = 20.0,
+  }};
+  const double opt = 15400.0 * kDur;
+  for (const auto eq : kEquilibrations) {
+    for (const auto& th : {std::optional<double> {}, std::optional {1.0}}) {
+      const Knobs k {
+          .eq = eq,
+          .scale_objective = 1000.0,
+          .scale_theta = th,
+          .kvl_row_scale = true,
+      };
+      CAPTURE(eq);
+      CAPTURE(th.value_or(-1.0));
+      CHECK(monolithic_optimum(c, k) == doctest::Approx(opt).epsilon(1e-8));
+      const auto run = run_sddp(c, k);
+      check_bounds(run, opt, 0);
+      check_cuts(run, truth, opt);
+    }
+  }
+}
+
 // ─── Persistence: save under one scaling, load under another ───────────
 //
 // Two phase layouts of Case P: one stage per phase, and phase 1 holding
@@ -1372,8 +1497,7 @@ TEST_CASE(  // NOLINT
       .inflow = {0.0, 0.0, 0.0},
       .pmax = {1000.0, 1000.0, 1000.0},
   }});
-  const auto dir =
-      std::filesystem::temp_directory_path() / "gtopt_test_cut_exactness";
+  const auto dir = test_tmp_dir() / "gtopt_test_cut_exactness";
   std::filesystem::create_directories(dir);
 
   for (const auto& layout : {std::vector<int> {}, std::vector<int> {2, 1}}) {
@@ -1546,9 +1670,8 @@ TEST_CASE(  // NOLINT
   REQUIRE_FALSE(fcf.empty());
 
   const auto two = truncate_to_two(full);
-  const auto file = (std::filesystem::temp_directory_path()
-                     / "gtopt_test_cut_exactness_fcf_self.csv")
-                        .string();
+  const auto file =
+      (test_tmp_dir() / "gtopt_test_cut_exactness_fcf_self.csv").string();
   write_fcf(file, two, fcf);
 
   // Phase costs of the optimal policy: 2000 + 3000 k$; Φ(v₂* = 280) =
@@ -1623,9 +1746,8 @@ TEST_CASE(  // NOLINT
       {.a = 4.0e7, .beta = {-50000.0}},
       {.a = 2.5e7, .beta = {-10000.0}},
   };
-  const auto file = (std::filesystem::temp_directory_path()
-                     / "gtopt_test_cut_exactness_fcf_foreign.csv")
-                        .string();
+  const auto file =
+      (test_tmp_dir() / "gtopt_test_cut_exactness_fcf_foreign.csv").string();
   write_fcf(file, two, fcf);
 
   // Φ(v) = max(4e7 − 50000v, 2.5e7 − 10000v) [$]: the cuts cross at
@@ -1718,9 +1840,8 @@ TEST_CASE(  // NOLINT
         },
     });
     c.phase_stages = layout;
-    const auto file = (std::filesystem::temp_directory_path()
-                       / "gtopt_test_cut_exactness_fcf_phi.csv")
-                          .string();
+    const auto file =
+        (test_tmp_dir() / "gtopt_test_cut_exactness_fcf_phi.csv").string();
     {
       std::ofstream ofs(file);
       ofs << "iteration,scene,rhs,R1,R2\n";
@@ -1799,9 +1920,8 @@ TEST_CASE(  // NOLINT
       },
   });
   c.probs = {0.4, 0.6};
-  const auto file = (std::filesystem::temp_directory_path()
-                     / "gtopt_test_cut_exactness_fcf_phi2.csv")
-                        .string();
+  const auto file =
+      (test_tmp_dir() / "gtopt_test_cut_exactness_fcf_phi2.csv").string();
   {
     std::ofstream ofs(file);
     ofs << "iteration,scene,rhs,R1,R2\n";
@@ -1867,9 +1987,8 @@ TEST_CASE(  // NOLINT
       .inflow = {0.0, 0.0, 0.0},
       .pmax = {1000.0, 1000.0, 1000.0},
   }});
-  const auto file = (std::filesystem::temp_directory_path()
-                     / "gtopt_test_cut_exactness_fcf_ms.csv")
-                        .string();
+  const auto file =
+      (test_tmp_dir() / "gtopt_test_cut_exactness_fcf_ms.csv").string();
   {
     std::ofstream ofs(file);
     ofs << "iteration,scene,rhs,R1\n";
@@ -1903,6 +2022,365 @@ TEST_CASE(  // NOLINT
           CHECK(run.iters.back().upper_bound
                 == doctest::Approx(opt).epsilon(1e-8));
         }
+      }
+    }
+  }
+  std::filesystem::remove(file);
+}
+
+// ─── Boundary-cut gap diagnostics ─────────────────────────────────────
+//
+// `SDDPIterationResult::boundary`: with boundary cuts LB − UB →
+// E[Φ'(v_T)] + over-estimation; UB* = UB + E[Φ'] isolates the residual.
+
+TEST_CASE("Boundary gap diagnostics - pure accounting")  // NOLINT
+{
+  SUBCASE("terminal stripped from UB (single α / multicut)")
+  {
+    // stage costs 100, c̄ 30 ⇒ UB = 130; E[Φ'] = 20 ⇒ UB* = 150;
+    // LB = 165 ⇒ over-estimation 15.
+    const auto d = compute_boundary_gap_diagnostics(130.0,
+                                                    165.0,
+                                                    20.0,
+                                                    30.0,
+                                                    /*expected_abs_opex=*/100.0,
+                                                    /*terminal_in_ub=*/false);
+    CHECK(d.active);
+    CHECK(d.corrected_upper_bound == doctest::Approx(150.0));
+    CHECK(d.expected_opex == doctest::Approx(100.0));
+    CHECK(d.overestimation == doctest::Approx(15.0));
+    CHECK(d.corrected_gap == doctest::Approx(-15.0 / 150.0));
+    CHECK(d.overestimation_vs_ub() == doctest::Approx(0.1));
+    CHECK(d.overestimation_vs_opex() == doctest::Approx(0.15));
+    CHECK(d.overestimation_exceeds(0.05));
+    CHECK_FALSE(d.overestimation_exceeds(0.2));
+  }
+  SUBCASE("phi_expectation keeps E[Φ'] in UB")
+  {
+    // UB = 100 + 30 + 20 already; UB* = UB.
+    const auto d = compute_boundary_gap_diagnostics(
+        150.0, 150.0, 20.0, 30.0, 100.0, /*terminal_in_ub=*/true);
+    CHECK(d.corrected_upper_bound == doctest::Approx(150.0));
+    CHECK(d.expected_opex == doctest::Approx(100.0));
+    CHECK(d.overestimation == doctest::Approx(0.0));
+    CHECK(d.corrected_gap == doctest::Approx(0.0));
+    CHECK_FALSE(d.overestimation_exceeds(1e-9));
+  }
+  SUBCASE("net-reward case: E|opex| guards a near-zero UB")
+  {
+    // opex −50 (scene A −1050, scene B +1000) ⇒ |UB*| tiny, E|opex| big.
+    const auto d = compute_boundary_gap_diagnostics(
+        -50.0, -40.0, 0.0, 0.0, 2050.0, /*terminal_in_ub=*/false);
+    CHECK(d.overestimation == doctest::Approx(10.0));
+    CHECK(d.overestimation_vs_ub() == doctest::Approx(0.2));
+    // 10 > 0.01·50 but 10 < 0.01·2050: not flagged.
+    CHECK_FALSE(d.overestimation_exceeds(0.01));
+  }
+  SUBCASE("effective gap falls back to the raw gap without boundary cuts")
+  {
+    SDDPIterationResult ir {.upper_bound = 10.0, .gap = 0.25};
+    CHECK(ir.effective_gap() == doctest::Approx(0.25));
+    CHECK(ir.effective_upper_bound() == doctest::Approx(10.0));
+    ir.boundary = compute_boundary_gap_diagnostics(
+        10.0, 12.0, 2.0, 0.0, 10.0, /*terminal_in_ub=*/false);
+    CHECK(ir.effective_gap() == doctest::Approx(0.0));
+    CHECK(ir.effective_upper_bound() == doctest::Approx(12.0));
+  }
+}
+
+namespace
+{
+
+[[nodiscard]] auto one_reservoir_two_phase() -> Case
+{
+  return truncate_to_two(make_pooled_case({{
+      .name = "R1",
+      .bus = "b1",
+      .rho = 250.0,
+      .vmax = 1000.0,
+      .v0 = 600.0,
+      .inflow = {0.0, 0.0, 0.0},
+      .pmax = {1000.0, 1000.0, 1000.0},
+  }}));
+}
+
+/// Foreign terminal FCF of the overshooting-cut test above.
+[[nodiscard]] auto foreign_fcf() -> std::vector<Cut>
+{
+  return {
+      {.a = 4.0e7, .beta = {-50000.0}},
+      {.a = 2.5e7, .beta = {-10000.0}},
+  };
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "Boundary gap diagnostics - same-system cuts leave no over-estimation")
+{
+  const auto full = make_pooled_case({{
+      .name = "R1",
+      .bus = "b1",
+      .rho = 250.0,
+      .vmax = 1000.0,
+      .v0 = 600.0,
+      .inflow = {0.0, 0.0, 0.0},
+      .pmax = {1000.0, 1000.0, 1000.0},
+  }});
+  const auto trained = run_sddp(full, Knobs {.eq = "none"});
+  REQUIRE(trained.iters.back().converged);
+  const auto& fcf = trained.cuts[1];
+  const auto two = truncate_to_two(full);
+  const auto file =
+      (test_tmp_dir() / "gtopt_test_boundary_gap_self.csv").string();
+  write_fcf(file, two, fcf);
+  constexpr double phase_costs = 5000.0 * kDur;
+  constexpr double phi_star = 1500.0 * kDur;
+
+  for (const auto eq : kEquilibrations) {
+    for (const bool ms : {false, true}) {
+      CAPTURE(eq);
+      CAPTURE(ms);
+      const Knobs k {.eq = eq, .fcf_file = file, .mean_shift = ms};
+      const auto run = run_sddp(two, k, 12);
+      const double tol = 1e-8 * kOptP;
+      for (const auto& it : run.iters) {
+        CAPTURE(it.iteration_index.value_of());
+        REQUIRE(it.boundary.active);
+        CHECK_FALSE(it.boundary.terminal_in_ub);
+        // Valid cuts: LB ≤ optimum ≤ UB* on EVERY iteration.
+        CHECK(it.boundary.overestimation <= tol);
+        CHECK(it.effective_gap() == doctest::Approx(it.boundary.corrected_gap));
+      }
+      const auto& bd = run.iters.back().boundary;
+      CAPTURE(bd.terminal_future_cost);
+      CAPTURE(bd.alpha_offset);
+      CHECK(bd.alpha_offset == doctest::Approx(run.alpha_offset));
+      CHECK(bd.terminal_future_cost
+            == doctest::Approx(phi_star - run.alpha_offset).epsilon(1e-8));
+      CHECK(bd.expected_opex == doctest::Approx(phase_costs).epsilon(1e-8));
+      CHECK(bd.expected_abs_opex == doctest::Approx(phase_costs).epsilon(1e-8));
+      CHECK(bd.corrected_upper_bound == doctest::Approx(kOptP).epsilon(1e-8));
+      CHECK(std::abs(bd.overestimation) <= tol);
+      CHECK(std::abs(bd.corrected_gap) <= 1e-8);
+      CHECK_FALSE(bd.overestimation_exceeds(1e-6));
+      if (!ms) {
+        CHECK(run.iters.back().gap < -0.1);  // the raw gap stays negative
+      }
+    }
+  }
+  std::filesystem::remove(file);
+}
+
+TEST_CASE(  // NOLINT
+    "Boundary gap diagnostics - foreign FCF: corrected gap converges")
+{
+  // A foreign terminal FCF is just a different terminal condition: the
+  // SDDP cuts stay valid for the problem as posed, so the residual is 0
+  // and the corrected gap closes even though LB − UB = Φ(v_T) ≫ 0.  The
+  // gap-only test (stationarity off) used to refuse convergence here.
+  const auto two = one_reservoir_two_phase();
+  const auto fcf = foreign_fcf();
+  const auto file =
+      (test_tmp_dir() / "gtopt_test_boundary_gap_foreign.csv").string();
+  write_fcf(file, two, fcf);
+  constexpr double opt = 29812.5 * kDur;
+  constexpr double phi_end = 21250.0 * kDur;
+
+  for (const auto eq : kEquilibrations) {
+    CAPTURE(eq);
+    const Knobs k {.eq = eq, .fcf_file = file};
+    PlanningLP plp(parse_planning_json(make_json(two, k, /*single_lp=*/false)));
+    auto opts = sddp_options(20);
+    opts.convergence_mode = ConvergenceMode::gap_only;
+    opts.convergence_tol = 1.0e-6;
+    SDDPMethod sddp(plp, opts);
+    auto res = sddp.solve();
+    REQUIRE(res.has_value());
+    REQUIRE_FALSE(res->empty());
+    CHECK(sddp.boundary_cuts_loaded());
+    // Training iterations exclude the trailing simulation pass.
+    const auto conv = std::ranges::find_if(
+        *res, [](const SDDPIterationResult& r) { return r.converged; });
+    REQUIRE(conv != res->end());
+    CAPTURE(conv->gap);
+    CHECK(conv->gap < -0.5);  // raw gap: LB − UB = Φ(v_T)
+    CHECK(conv->lower_bound == doctest::Approx(opt).epsilon(1e-8));
+    const auto& bd = conv->boundary;
+    CHECK(bd.terminal_future_cost == doctest::Approx(phi_end).epsilon(1e-8));
+    CHECK(bd.corrected_upper_bound == doctest::Approx(opt).epsilon(1e-8));
+    CHECK(std::abs(bd.overestimation) <= 1e-8 * opt);
+  }
+  // Asynchronous dispatch: the per-scene gap test also reads the
+  // corrected gap, and the aggregate snapshot carries the diagnostics.
+  {
+    const Knobs k {.eq = "row_max", .fcf_file = file};
+    PlanningLP plp(parse_planning_json(make_json(two, k, /*single_lp=*/false)));
+    auto opts = sddp_options(20);
+    opts.convergence_mode = ConvergenceMode::gap_only;
+    opts.convergence_tol = 1.0e-6;
+    opts.max_async_spread = 2;
+    SDDPMethod sddp(plp, opts);
+    auto res = sddp.solve();
+    REQUIRE(res.has_value());
+    const auto conv = std::ranges::find_if(
+        *res, [](const SDDPIterationResult& r) { return r.converged; });
+    REQUIRE(conv != res->end());
+    CHECK(conv->lower_bound == doctest::Approx(opt).epsilon(1e-8));
+    REQUIRE(conv->boundary.active);
+    CHECK(conv->boundary.terminal_future_cost
+          == doctest::Approx(phi_end).epsilon(1e-8));
+    CHECK(conv->boundary.corrected_upper_bound
+          == doctest::Approx(opt).epsilon(1e-8));
+  }
+  std::filesystem::remove(file);
+}
+
+TEST_CASE(  // NOLINT
+    "Boundary gap diagnostics - over-estimating cuts: residual = excess")
+{
+  // Train the 2-phase case with the foreign FCF, then re-load its
+  // first-phase cuts lifted by a known Δ (a cut family that claims Δ
+  // more future cost than the system can realise) and run one
+  // iteration.  The uniform lift leaves the policy unchanged, so
+  //   LB = opt + Δ,  UB* = UB + E[Φ'] = opt  ⇒  residual = Δ exactly.
+  const auto two = one_reservoir_two_phase();
+  const auto fcf = foreign_fcf();
+  const auto dir = test_tmp_dir() / "gtopt_test_boundary_gap_over";
+  std::filesystem::create_directories(dir);
+  const auto fcf_file = (dir / "fcf.csv").string();
+  const auto cut_file = (dir / "lifted.parquet").string();
+  std::filesystem::remove(cut_file);
+  write_fcf(fcf_file, two, fcf);
+  constexpr double opt = 29812.5 * kDur;
+  constexpr double delta = 1.0e6;
+
+  const Knobs k {.eq = "row_max", .fcf_file = fcf_file};
+  {
+    PlanningLP plp(parse_planning_json(make_json(two, k, /*single_lp=*/false)));
+    SDDPMethod sddp(plp, sddp_options(12));
+    auto res = sddp.solve();
+    REQUIRE(res.has_value());
+    REQUIRE(res->back().lower_bound == doctest::Approx(opt).epsilon(1e-8));
+    const auto& sim = plp.simulation();
+    const auto first = first_phase_index();
+    const auto* alpha = find_alpha_state_var(sim, first_scene_index(), first);
+    REQUIRE(alpha != nullptr);
+    std::vector<StoredCut> lifted;
+    for (auto sc : sddp.stored_cuts()) {
+      if (sc.type != CutType::Optimality || sc.phase_uid != sim.uid_of(first)) {
+        continue;
+      }
+      // Row α·w + Σ cᵢvᵢ ≥ rhs  ⇒  α ≥ rhs/w − …: lift a by Δ.
+      for (const auto& [col, coef] : sc.coefficients) {
+        if (col == alpha->col()) {
+          sc.rhs += delta * coef;
+        }
+      }
+      lifted.push_back(std::move(sc));
+    }
+    REQUIRE_FALSE(lifted.empty());
+    REQUIRE(save_cuts_parquet(lifted, plp, cut_file).has_value());
+  }
+
+  PlanningLP plp(parse_planning_json(make_json(two, k, /*single_lp=*/false)));
+  auto opts = sddp_options(1);
+  opts.cuts_input_file = cut_file;
+  opts.recovery_mode = RecoveryMode::cuts;
+  SDDPMethod sddp(plp, opts);
+  auto res = sddp.solve();
+  REQUIRE(res.has_value());
+  REQUIRE_FALSE(res->empty());
+  const auto& it = res->front();
+  CAPTURE(it.lower_bound);
+  CAPTURE(it.upper_bound);
+  CHECK(it.lower_bound == doctest::Approx(opt + delta).epsilon(1e-8));
+  const auto& bd = it.boundary;
+  REQUIRE(bd.active);
+  CHECK(bd.corrected_upper_bound == doctest::Approx(opt).epsilon(1e-8));
+  CHECK(bd.overestimation == doctest::Approx(delta).epsilon(1e-6));
+  CHECK(bd.overestimation_vs_ub() == doctest::Approx(delta / opt));
+  CHECK(bd.overestimation_exceeds(1e-3));
+  CHECK(it.effective_gap() < -1e-3);  // refuses gap convergence
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE(  // NOLINT
+    "Boundary gap diagnostics - UB accounting per boundary-cut mode")
+{
+  // Whether the reported UB already contains the terminal FCF depends on
+  // the mode: single-α modes (separated / combined) strip the terminal α,
+  // phi_expectation keeps the φ_j term in the UB (PLP ZSPFAdd).  In every
+  // mode UB* must equal E[stage costs] + c̄ + E[Φ'] = E[stage + Φ(v_T)],
+  // and at convergence UB* = LB = the monolithic optimum — so a double
+  // count (adding E[Φ'] to a UB that already has it) would show up as
+  // UB* − LB = E[Φ'] here.  Two scenes, different inflows and
+  // probabilities, per-hydrology FCF planes, mean shift on / off.  The
+  // monolithic reference also guards the phi_expectation + mean-shift
+  // restitution (p_s·c̄, not c̄) in `MonolithicMethod`.
+  auto c = make_pooled_case({
+      {
+          .name = "R1",
+          .bus = "b1",
+          .rho = 250.0,
+          .vmax = 1000.0,
+          .v0 = 400.0,
+          .inflow = {0.0, 0.0, 0.0},
+          .pmax = {1000.0, 1000.0, 1000.0},
+          .inflow_by_scenario = {{0.0, 0.0, 0.0}, {10.0, 15.0, 5.0}},
+      },
+  });
+  c.probs = {0.4, 0.6};
+  const auto file =
+      (test_tmp_dir() / "gtopt_test_boundary_gap_modes.csv").string();
+  {
+    std::ofstream ofs(file);
+    ofs << "iteration,scene,rhs,R1\n";
+    ofs << "1,1,4.0e7,-50000\n";
+    ofs << "1,1,2.5e7,-10000\n";
+    ofs << "1,2,3.0e7,-30000\n";
+    ofs << "1,2,1.0e7,-5000\n";
+  }
+  for (const std::string_view mode :
+       {"separated", "combined", "phi_expectation"})
+  {
+    for (const bool ms : {false, true}) {
+      CAPTURE(mode);
+      CAPTURE(ms);
+      const Knobs k {
+          .eq = "row_max",
+          .fcf_file = file,
+          .mean_shift = ms,
+          .fcf_mode = mode,
+      };
+      const double mono = monolithic_optimum(c, k);
+      const auto run = run_sddp(c, k, 20);
+      const auto& it = run.iters.back();
+      const auto& bd = it.boundary;
+      CAPTURE(it.lower_bound);
+      CAPTURE(it.upper_bound);
+      CAPTURE(bd.terminal_future_cost);
+      CAPTURE(bd.alpha_offset);
+      REQUIRE(bd.active);
+      const bool phi = mode == "phi_expectation";
+      CHECK(bd.terminal_in_ub == phi);
+      const double tol = 1e-7 * std::max(1.0, std::abs(mono));
+      // UB* identity, mode by mode.
+      CHECK(bd.corrected_upper_bound
+            == doctest::Approx(it.upper_bound
+                               + (phi ? 0.0 : bd.terminal_future_cost)));
+      CHECK(bd.expected_opex + bd.alpha_offset + bd.terminal_future_cost
+            == doctest::Approx(bd.corrected_upper_bound));
+      // No double count: converged UB* = LB = monolithic optimum.
+      CHECK(it.lower_bound == doctest::Approx(mono).epsilon(1e-7));
+      CHECK(bd.corrected_upper_bound == doctest::Approx(mono).epsilon(1e-7));
+      CHECK(std::abs(bd.overestimation) <= tol);
+      if (!ms) {
+        CHECK(bd.terminal_future_cost > tol);  // the term is really there
+      }
+      if (phi) {
+        // phi_expectation: the raw UB already bounds the LB.
+        CHECK(it.lower_bound <= it.upper_bound + tol);
       }
     }
   }

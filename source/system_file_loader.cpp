@@ -26,8 +26,14 @@ std::filesystem::path resolve_system_file(std::string_view file,
     return p;
   }
   if (!input_directory.empty()) {
-    auto alt = std::filesystem::path(input_directory) / p.filename();
-    if (std::filesystem::exists(alt)) {
+    const std::filesystem::path dir(input_directory);
+    // Relative paths are relative to the input directory (keeping any
+    // sub-directory, e.g. "reduced/L0.json"); the bare file name is
+    // the legacy fallback.
+    if (auto rel = dir / p; std::filesystem::exists(rel)) {
+      return rel;
+    }
+    if (auto alt = dir / p.filename(); std::filesystem::exists(alt)) {
       return alt;
     }
   }

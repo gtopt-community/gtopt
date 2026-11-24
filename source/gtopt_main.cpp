@@ -391,8 +391,11 @@ void setup_trace_log(const MainOptions& opts)
 bool has_no_shedding_penalty(const Planning& planning) noexcept
 {
   // Global shedding penalty?
-  const auto dfc =
-      planning.options.model_options.demand_fail_cost.value_or(0.0);
+  // Unset resolves to `PlanningOptionsLP::default_demand_fail_cost`
+  // (1000 $/MWh), so only an explicit `demand_fail_cost: 0` can leave
+  // the model without a global shedding penalty.
+  const auto dfc = planning.options.model_options.demand_fail_cost.value_or(
+      PlanningOptionsLP::default_demand_fail_cost);
   if (dfc != 0.0) {
     return false;
   }

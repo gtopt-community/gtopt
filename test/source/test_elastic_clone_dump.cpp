@@ -32,8 +32,9 @@
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -105,8 +106,8 @@ TEST_CASE(
 
   const auto elastic = elastic_filter_solve(li, links, 1e6, SolverOptions {});
   REQUIRE(elastic.has_value());
-  REQUIRE(elastic->link_infos.size() == 1);
-  REQUIRE(elastic->link_infos[0].relaxed);
+  REQUIRE(test_support::require_value(elastic).link_infos.size() == 1);
+  REQUIRE(test_support::require_value(elastic).link_infos[0].relaxed);
 
   // Source `li` must NOT have been mutated by the shallow-clone
   // elastic path — disposable adds stay on the clone.  The clone
@@ -117,8 +118,8 @@ TEST_CASE(
   CHECK(li.col_labels_meta_use_count() == 2);
 
   // The clone has +2 slack cols (sup, sdn) and +1 fixing row.
-  CHECK(elastic->clone.get_numcols() == 4);
-  CHECK(elastic->clone.get_numrows() == 2);
+  CHECK(test_support::require_value(elastic).clone.get_numcols() == 4);
+  CHECK(test_support::require_value(elastic).clone.get_numrows() == 2);
 
   // Write the clone's LP and verify the labels.  Both production
   // cells (Gen, Demand) and disposable cells
@@ -127,7 +128,8 @@ TEST_CASE(
   const auto stem =
       (std::filesystem::temp_directory_path() / "test_elastic_clone_dump")
           .string();
-  REQUIRE(elastic->clone.write_lp(stem).has_value());
+  REQUIRE(
+      test_support::require_value(elastic).clone.write_lp(stem).has_value());
 
   const auto content = elastic_dump_read_file(stem + ".lp");
   // Production cols / row visible via shared metadata.
@@ -144,5 +146,3 @@ TEST_CASE(
   std::error_code ec;
   std::filesystem::remove(stem + ".lp", ec);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

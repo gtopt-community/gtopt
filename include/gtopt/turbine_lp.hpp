@@ -155,6 +155,15 @@ public:
     return conversion_rows.at({scenario.uid(), stage.uid()});
   }
 
+  /// Non-throwing `conversion_rows_at`: nullptr when (scenario, stage) was
+  /// not built (turbine inactive, or no conversion row in the cell).
+  [[nodiscard]] const BIndexHolder<RowIndex>* find_conversion_rows(
+      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  {
+    const auto it = conversion_rows.find({scenario.uid(), stage.uid()});
+    return it != conversion_rows.end() ? &it->second : nullptr;
+  }
+
   /// Access the turbine-owned flow columns (built-in waterway mode) for a
   /// (scenario, stage).  Returns an empty inner map when the turbine does not
   /// use junctions or every block was elided by the zero-bound skip.

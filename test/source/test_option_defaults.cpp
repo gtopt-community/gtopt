@@ -220,25 +220,28 @@ TEST_CASE(
 
 // ─── demand_fail_cost ───────────────────────────────────────────────────────
 
-TEST_CASE("PlanningOptions defaults: demand_fail_cost has no compiled default")
+TEST_CASE("PlanningOptions defaults: demand_fail_cost defaults to 1000")
 // NOLINT
 {
-  // *** FINDING ***
-  //
-  // Older developer notes documented
-  // the default as `1000`, but the actual code carries NO compiled-in
-  // default.  `ModelOptions::demand_fail_cost` is an `OptReal{}` and
-  // `PlanningOptionsLP::demand_fail_cost()` simply returns the raw
-  // optional.  Downstream callers (`gtopt_main.cpp:330`,
-  // `gtopt_lp_runner.cpp:243`) coerce to `0.0` via `value_or(0.0)`.
-  //
-  // This test pins the *current* behaviour so that any future change
-  // (either adding a real default of 1000 or fixing the docs) is
-  // caught.  See the report summary for the docstring-vs-code
-  // mismatch finding.
+  // `ModelOptions::demand_fail_cost` stays an `OptReal{}` (so JSON
+  // round-trips and merges can tell "unset" from "explicit"), but
+  // `PlanningOptionsLP::demand_fail_cost()` resolves an unset value to
+  // `default_demand_fail_cost` = 1000 $/MWh.
   const PlanningOptions opts;
+  CHECK_FALSE(opts.model_options.demand_fail_cost.has_value());
   const PlanningOptionsLP wrapper(opts);
-  CHECK(!wrapper.demand_fail_cost().has_value());
+  CHECK(PlanningOptionsLP::default_demand_fail_cost
+        == doctest::Approx(1'000.0));
+  CHECK(wrapper.demand_fail_cost() == doctest::Approx(1'000.0));
+}
+
+TEST_CASE("PlanningOptions defaults: explicit demand_fail_cost 0 is kept")
+// NOLINT
+{
+  PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 0.0;
+  const PlanningOptionsLP wrapper(opts);
+  CHECK(wrapper.demand_fail_cost() == doctest::Approx(0.0));
 }
 
 TEST_CASE(
@@ -248,7 +251,7 @@ TEST_CASE(
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1'234.5;
   const PlanningOptionsLP wrapper(opts);
-  CHECK(wrapper.demand_fail_cost().value_or(-1.0) == doctest::Approx(1'234.5));
+  CHECK(wrapper.demand_fail_cost() == doctest::Approx(1'234.5));
 }
 
 // ─── use_kirchhoff ──────────────────────────────────────────────────────────

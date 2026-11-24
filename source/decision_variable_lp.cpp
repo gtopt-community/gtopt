@@ -36,27 +36,66 @@
  *   - the StateVariable key uses a DEDICATED class name (`StateClassName`)
  *     so its identity round-trips through cut I/O without colliding with
  *     engine state (reservoir efin element class, the built-in α class).
+ *
+ * ── Integer variables ─────────────────────────────────────────────────────
+ * `integer: true` routes every `value` column through
+ * `SystemContext::add_integer_col` (the integer-variable choke-point), with
+ * scope `Block` (per-block column, group = block uid), `Stage` (stage
+ * scope) or `Phase` (the coarse cell column).  Domain: `Binary` for bounds
+ * exactly [0, 1], else `Integer`; `Relaxed` (continuous) when
+ * `relax || phase.is_continuous()` — the same precedence as
+ * `Commitment.relax` (`--no-mip` reaches it via `continuous_phases = all`).
+ * A coarse `state` column may be integer: it is registered as BOTH a state
+ * and an integer variable (orthogonal registries, like `expmod`).  For a
+ * `block_state` variable only the per-block volume columns are integer; the
+ * INCOMING `value_in` column is a pinned/fixed copy of a state and stays
+ * continuous.
  */
 
+#include <algorithm>
+#include <array>
 #include <format>
+#include <functional>
 #include <ranges>
+#include <span>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/decision_variable_lp.hpp>
 #include <gtopt/enum_option.hpp>
+#include <gtopt/future_cost.hpp>
+#include <gtopt/integer_variable.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/state_variable.hpp>
+#include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
 #include <gtopt/user_constraint_enums.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
+
+std::optional<std::string> decision_variable_scope_restriction(
+    const DecisionVariable& dv)
+{
+  if (dv.scope.has_value() && !dv.scope->empty()) {
+    const auto parsed = enum_from_name<ConstraintScope>(*dv.scope);
+    if (parsed.has_value() && *parsed != ConstraintScope::Block) {
+      return std::format("scope '{}'", enum_name(*parsed));
+    }
+  }
+  if (dv.block.has_value()) {
+    return std::format("single-block selector (block {})", *dv.block);
+  }
+  return std::nullopt;
+}
 
 DecisionVariableLP::DecisionVariableLP(const DecisionVariable& pdv,
                                        const InputContext& ic)
@@ -82,6 +121,8 @@ DecisionVariableLP::DecisionVariableLP(const DecisionVariable& pdv,
   m_is_state_ = pdv.state.value_or(false);
   m_link_ = pdv.link.value_or(false);
   m_block_state_ = pdv.block_state.value_or(false);
+  m_integer_ = pdv.integer.value_or(false);
+  m_relax_ = pdv.relax.value_or(false);
 
   // ── Guard: `block_state` and the coarse `state` are mutually exclusive ───
   // They are two different state mechanisms (per-block storage volume vs. one
@@ -152,6 +193,17 @@ DecisionVariableLP::DecisionVariableLP(const DecisionVariable& pdv,
   }
 }
 
+IntegerDomain DecisionVariableLP::integer_domain(bool phase_continuous,
+                                                 double lower,
+                                                 double upper) const noexcept
+{
+  if (!m_integer_ || m_relax_ || phase_continuous) {
+    return IntegerDomain::Relaxed;
+  }
+  return (lower == 0.0 && upper == 1.0) ? IntegerDomain::Binary
+                                        : IntegerDomain::Integer;
+}
+
 bool DecisionVariableLP::add_to_lp(SystemContext& sc,
                                    const ScenarioLP& scenario,
                                    const StageLP& stage,
@@ -215,6 +267,20 @@ bool DecisionVariableLP::add_to_lp(SystemContext& sc,
   const auto energy_factor = CostHelper::cost_factor(
       scenario.probability_factor(), stage.discount_factor());
 
+  const auto domain = integer_domain(
+      sc.simulation().phases()[stage.phase_index()].is_continuous(),
+      lower,
+      upper);
+  // Stage scope registers every block of the stage in the integer registry
+  // fan-out (`IntegerVariable::blocks()`); only built when needed.
+  std::vector<BlockUid> stage_block_uids;
+  if (m_integer_ && is_stage_scope) {
+    stage_block_uids.reserve(blocks.size());
+    for (auto&& b : blocks) {
+      stage_block_uids.push_back(b.uid());
+    }
+  }
+
   for (auto&& block : blocks) {
     if (scope_block && block.uid() != *scope_block) {
       continue;
@@ -233,7 +299,7 @@ bool DecisionVariableLP::add_to_lp(SystemContext& sc,
           break;
       }
     }
-    const auto col = lp.add_col({
+    SparseCol vcol {
         .lowb = lower,
         .uppb = upper,
         .cost = col_cost,
@@ -245,7 +311,32 @@ bool DecisionVariableLP::add_to_lp(SystemContext& sc,
             ? LpContext {make_stage_context(scenario.uid(), stage.uid())}
             : LpContext {make_block_context(
                   scenario.uid(), stage.uid(), block.uid())},
-    });
+    };
+    ColIndex col {unknown_index};
+    if (m_integer_) {
+      const auto int_scope =
+          is_stage_scope ? IntegerScope::Stage : IntegerScope::Block;
+      const auto group =
+          is_stage_scope ? unknown_group : GroupUid {block.uid()};
+      const std::array<BlockUid, 1> one_block {block.uid()};
+      col = sc.add_integer_col(
+          lp,
+          IntegerVariable::key(scenario,
+                               stage,
+                               Element::class_name,
+                               uid(),
+                               ValueName,
+                               int_scope,
+                               group),
+          std::move(vcol),
+          domain,
+          int_scope,
+          group,
+          is_stage_scope ? std::span<const BlockUid> {stage_block_uids}
+                         : std::span<const BlockUid> {one_block});
+    } else {
+      col = lp.add_col(std::move(vcol));
+    }
     vcols[block.uid()] = col;
 
     // Mean-shift (α-rebase) restitution — add the removed constant back.
@@ -421,6 +512,81 @@ bool DecisionVariableLP::build_cell_col(SystemContext& sc,
   }
   const auto& scenario = scenarios.front();
 
+  // A `global` column means ONE value for the whole horizon.  The LP is
+  // decomposed into one LP per (scene, phase) cell, so with several phases
+  // (SDDP / cascade / multi-phase monolithic) each phase LP holds its own
+  // copy.  Unless the user said otherwise, chain the copies as an IMPLICIT
+  // `state: true, link: true` variable: phase p's column is a cross-phase
+  // StateVariable linked to phase p−1's, so the forward pass pins every
+  // later copy to the first phase's value (equality coupling) and SDDP
+  // carries it in the cuts like any state.  The cost of the single decision
+  // is charged once, in the first phase.
+  //   - explicit `state: true`: unchanged (the user's own state + link).
+  //   - explicit `state: false`: opt-out — independent per-phase copies,
+  //     with a warning (that is what `scope: "phase"` says explicitly).
+  //   - FutureCost user α (`use_user_alpha` + `user_alpha_uid`): exempt — its
+  //     per-phase copy IS the per-phase cost-to-go the SDDP cuts bound.
+  const auto is_user_alpha = std::ranges::any_of(
+      sc.system().system().future_cost_array,
+      [this](const auto& fc)
+      {
+        return fc.use_user_alpha.value_or(false)
+            && fc.user_alpha_uid.value_or(unknown_uid) == uid();
+      });
+  const auto num_phases = sc.simulation().phases().size();
+  const bool global_multi_phase = m_scope_ == ConstraintScope::Global
+      && !m_is_state_ && !is_user_alpha && num_phases > 1;
+  const bool state_opt_out = decision_variable().state.has_value()
+      && !decision_variable().state.value_or(false);
+  const bool implicit_state = global_multi_phase && !state_opt_out;
+  const bool first_cell =
+      scene.index() == SceneIndex {0} && phase.index() == PhaseIndex {0};
+  if (global_multi_phase && first_cell) {
+    if (implicit_state
+        && sc.options().method_type_enum() == MethodType::monolithic)
+    {
+      // Monolithic multi-phase solves the phases in sequence with no
+      // cost-to-go: the first phase picks the value myopically.
+      SPDLOG_WARN(
+          "decision_variable '{}': scope 'global' across {} phases under "
+          "method 'monolithic' — the phases are solved in sequence, so the "
+          "first phase fixes the value myopically for the whole horizon "
+          "(use method 'sddp' for a value that sees later phases)",
+          decision_variable().name,
+          num_phases);
+    } else if (implicit_state) {
+      SPDLOG_INFO(
+          "decision_variable '{}': scope 'global' across {} phases — carried "
+          "as an implicit cross-phase state (state + link): one value for "
+          "the whole horizon, cost charged in the first phase",
+          decision_variable().name,
+          num_phases);
+    } else {
+      SPDLOG_WARN(
+          "decision_variable '{}': scope 'global' with `state: false` across "
+          "{} phases — each phase LP keeps an INDEPENDENT copy (use scope "
+          "'phase' to say so without this warning)",
+          decision_variable().name,
+          num_phases);
+    }
+  }
+  const bool as_state = m_is_state_ || implicit_state;
+  const bool as_link = m_link_ || implicit_state;
+  // Later phases of an implicit global state: the column is pinned to the
+  // first phase's value, so its cost (and α-rebase constant) is not charged
+  // again.
+  const bool charge_cost = !implicit_state || phase.index() == PhaseIndex {0};
+
+  // The cell column is SHARED by every scenario of the scene (that is what
+  // makes it non-anticipative), so a probability-weighted cost carries the
+  // scene's total probability mass, not just the first scenario's.
+  const double scene_probability = std::ranges::fold_left(
+      scenarios
+          | std::views::transform([](const auto& s)
+                                  { return s.probability_factor(); }),
+      0.0,
+      std::plus<> {});
+
   const auto lower = decision_variable().lower_bound.value_or(
       decision_variable().obj_constant.has_value() ? -DblMax : 0.0);
   const auto upper = decision_variable().upper_bound.value_or(DblMax);
@@ -430,9 +596,9 @@ bool DecisionVariableLP::build_cell_col(SystemContext& sc,
                               .value_or(ConstraintScaleType::Raw);
 
   double col_cost = 0.0;
-  if (cost != 0.0) {
+  if (cost != 0.0 && charge_cost) {
     const auto energy_factor = CostHelper::cost_factor(
-        scenario.probability_factor(), rep_stage->discount_factor());
+        scene_probability, rep_stage->discount_factor());
     switch (scale_type) {
       case ConstraintScaleType::Energy:
         col_cost = cost * energy_factor;
@@ -465,8 +631,14 @@ bool DecisionVariableLP::build_cell_col(SystemContext& sc,
       .context = cell_ctx,
   };
 
+  // Integer cell column: Phase scope, no per-block fan-out.  Relaxed under a
+  // continuous phase or an explicit `relax` (see `integer_domain`).
+  const auto domain = integer_domain(phase.is_continuous(), lower, upper);
+  if (m_integer_) {
+    col.is_integer = (domain != IntegerDomain::Relaxed);
+  }
   ColIndex col_idx {unknown_index};
-  if (m_is_state_) {
+  if (as_state) {
     // Register the cell column as a cross-phase StateVariable so it rides
     // the generic SDDP backward pass.  Use the DEDICATED state class name so
     // its key never collides with engine state in the cut-I/O registry.
@@ -484,7 +656,7 @@ bool DecisionVariableLP::build_cell_col(SystemContext& sc,
     // boundary; the previous phase's LAST stage is the producing key.  On
     // the first phase there is no previous phase, so no link is deferred
     // (the column is the initial state — free within its bounds).
-    if (m_link_) {
+    if (as_link) {
       const auto [prev_stage, prev_phase] = sc.prev_stage(stages.front());
       if (prev_phase != nullptr && prev_stage != nullptr) {
         sc.defer_state_link(
@@ -496,17 +668,31 @@ bool DecisionVariableLP::build_cell_col(SystemContext& sc,
   } else {
     col_idx = lp.add_col(std::move(col));
   }
+  // Register the integer cell column (state or not: the integer and state
+  // registries are orthogonal, like a capacity-expansion `expmod`).
+  if (m_integer_) {
+    sc.add_integer_variable(IntegerVariable::key(scenario,
+                                                 *rep_stage,
+                                                 Element::class_name,
+                                                 uid(),
+                                                 ValueName,
+                                                 IntegerScope::Phase),
+                            col_idx,
+                            domain,
+                            IntegerScope::Phase,
+                            unknown_group,
+                            std::span<const BlockUid> {});
+  }
 
-  if (cost != 0.0) {
+  if (cost != 0.0 && charge_cost) {
     if (const auto oc = decision_variable().obj_constant; oc.has_value()) {
       lp.add_obj_constant(oc.value());
     }
   }
 
   // Store the single cell column keyed at the representative (scenario,
-  // stage) so `add_to_output` emits it and AMPL references resolve it.  Every
-  // block of the representative stage aliases the one column (a stage with no
-  // blocks contributes nothing — the registration below is then skipped).
+  // stage) so `add_to_output` emits it exactly once.  Every block of the
+  // representative stage aliases the one column.
   BIndexHolder<ColIndex> vcols;
   for (auto&& b : rep_stage->blocks()) {
     vcols[b.uid()] = col_idx;
@@ -514,35 +700,38 @@ bool DecisionVariableLP::build_cell_col(SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), rep_stage->uid()};
   value_cols[st_key] = std::move(vcols);
 
-  if (!value_cols.at(st_key).empty()) {
-    sc.add_ampl_variable(ampl_name,
-                         uid(),
-                         ValueName,
-                         scenario,
-                         *rep_stage,
-                         value_cols.at(st_key));
+  // Register the cell column for the AMPL resolver at EVERY (scenario,
+  // stage, block) of the cell — not just the representative one — so a
+  // block- or stage-scoped user constraint anywhere in the cell resolves
+  // `decision_variable("X").value` to this single column.  Sharing one
+  // column across all the scene's scenarios is what makes a coarse-scope
+  // variable non-anticipative (a here-and-now decision).  The cell column
+  // is built by `add_cell_cols` BEFORE the operational sweep, so the
+  // block-scope rows find it.
+  for (auto&& stage : stages) {
+    const auto& blocks = stage.blocks();
+    if (blocks.empty()) {
+      continue;
+    }
+    BIndexHolder<ColIndex> alias;
+    map_reserve(alias, blocks.size());
+    for (auto&& b : blocks) {
+      alias[b.uid()] = col_idx;
+    }
+    for (auto&& scn : scenarios) {
+      sc.add_ampl_variable(ampl_name, uid(), ValueName, scn, stage, alias);
+    }
   }
 
   return true;
 }
 
-bool DecisionVariableLP::add_to_phase_lp(SystemContext& sc,
-                                         const SceneLP& scene,
-                                         const PhaseLP& phase,
-                                         LinearProblem& lp)
+bool DecisionVariableLP::add_cell_cols(SystemContext& sc,
+                                       const SceneLP& scene,
+                                       const PhaseLP& phase,
+                                       LinearProblem& lp)
 {
-  if (m_scope_ != ConstraintScope::Phase) {
-    return true;
-  }
-  return build_cell_col(sc, scene, phase, lp);
-}
-
-bool DecisionVariableLP::add_to_global_lp(SystemContext& sc,
-                                          const SceneLP& scene,
-                                          const PhaseLP& phase,
-                                          LinearProblem& lp)
-{
-  if (m_scope_ != ConstraintScope::Global) {
+  if (!scope_is_planning(m_scope_)) {
     return true;
   }
   return build_cell_col(sc, scene, phase, lp);

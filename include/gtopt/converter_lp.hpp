@@ -12,6 +12,9 @@
 
 #pragma once
 
+#include <optional>
+#include <vector>
+
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/converter.hpp>
@@ -21,6 +24,8 @@
 
 namespace gtopt
 {
+
+class ReserveProvisionLP;
 
 class ConverterLP : public CapacityObjectLP<Converter>
 {
@@ -59,6 +64,20 @@ public:
       "reserve_dn_headroom"};
   static constexpr std::string_view ReserveUpEnergyName {"reserve_up_energy"};
   static constexpr std::string_view ReserveDnEnergyName {"reserve_dn_energy"};
+  /// Per-side split of a native BESS provision (PLEXOS Max Response /
+  /// Max Charge Response): `r − r_dis − r_chg = 0` per provision (columns
+  /// and split row labelled `ReserveProvision` with the provision uid, so
+  /// several provisions of one battery stay distinct), then
+  /// the side headroom rows (up: `pd + Σr_dis ≤ Pd`, `Σr_chg − pc ≤ 0`;
+  /// down: `Σr_dis − pd ≤ 0`, `pc + Σr_chg ≤ Pc`).
+  static constexpr std::string_view ReserveUpSplitName {"reserve_up_split"};
+  static constexpr std::string_view ReserveDnSplitName {"reserve_dn_split"};
+  static constexpr std::string_view ReserveUpDischargeName {
+      "reserve_up_discharge"};
+  static constexpr std::string_view ReserveUpChargeName {"reserve_up_charge"};
+  static constexpr std::string_view ReserveDnDischargeName {
+      "reserve_dn_discharge"};
+  static constexpr std::string_view ReserveDnChargeName {"reserve_dn_charge"};
   /// PAMPL bidirectional flow compound: `flow = +discharge − charge`.
   /// Mirrors `line.flow = +flowp − flown`.  Resolves to the converter's
   /// signed net flow (positive when discharging the battery to the
@@ -108,6 +127,30 @@ private:
   STBIndexHolder<RowIndex> reserve_dn_headroom_rows;
   STBIndexHolder<RowIndex> reserve_up_energy_rows;
   STBIndexHolder<RowIndex> reserve_dn_energy_rows;
+  /// Per-provision split columns (one set per capped direction).
+  struct ReserveSplitCols
+  {
+    Uid uid {unknown_uid};
+    Id id;
+    STBIndexHolder<ColIndex> up_dis;
+    STBIndexHolder<ColIndex> up_chg;
+    STBIndexHolder<ColIndex> dn_dis;
+    STBIndexHolder<ColIndex> dn_chg;
+  };
+  std::vector<ReserveSplitCols> reserve_split_cols_;
+  ReserveSplitCols& split_cols_of(const ReserveProvisionLP& rp);
+
+  /// Per-side split of the native BESS provisions of one block.
+  void add_native_reserve_split(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid,
+      LinearProblem& lp,
+      bool upward,
+      const std::vector<const ReserveProvisionLP*>& provisions,
+      std::optional<ColIndex> gcol,
+      std::optional<ColIndex> dcol,
+      bool dn_credit);
 
   /// Emit the native BESS reserve rows for one (scenario, stage).
   void add_native_reserve_rows(const SystemContext& sc,

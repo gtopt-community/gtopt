@@ -75,6 +75,7 @@ namespace
 /// Six chronological 1-hour blocks so the commitment carries a status binary in
 /// every block; the low → high → low demand forces the peaking units on and
 /// off.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const Simulation uc_small_simulation = {
     .block_array =
         {

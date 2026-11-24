@@ -32,6 +32,7 @@
 #include <gtopt/json/json_flow_right.hpp>
 #include <gtopt/json/json_fuel.hpp>
 #include <gtopt/json/json_future_cost.hpp>
+#include <gtopt/json/json_gas_network.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
 #include <gtopt/json/json_hydrogen_demand.hpp>
@@ -111,6 +112,14 @@ struct json_data_contract<System>
                       Array<AllowancePool>,
                       AllowancePool>,
       json_array_null<"lng_terminal_array", Array<LngTerminal>, LngTerminal>,
+      json_array_null<"gas_node_array", Array<GasNode>, GasNode>,
+      json_array_null<"gas_supply_array", Array<GasSupply>, GasSupply>,
+      json_array_null<"gas_demand_array", Array<GasDemand>, GasDemand>,
+      json_array_null<"gas_pipe_array", Array<GasPipe>, GasPipe>,
+      json_array_null<"gas_compressor_array",
+                      Array<GasCompressor>,
+                      GasCompressor>,
+      json_array_null<"gas_turbine_array", Array<GasTurbine>, GasTurbine>,
       json_array_null<"reserve_zone_array", Array<ReserveZone>, ReserveZone>,
       json_array_null<"reserve_provision_array",
                       Array<ReserveProvision>,
@@ -185,6 +194,12 @@ struct json_data_contract<System>
                                  system.carrier_converter_array,
                                  system.allowance_pool_array,
                                  system.lng_terminal_array,
+                                 system.gas_node_array,
+                                 system.gas_supply_array,
+                                 system.gas_demand_array,
+                                 system.gas_pipe_array,
+                                 system.gas_compressor_array,
+                                 system.gas_turbine_array,
                                  system.reserve_zone_array,
                                  system.reserve_provision_array,
                                  system.fuel_array,

@@ -17,6 +17,8 @@
 #include <gtopt/stage.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 // ── Transformer (tap_ratio + phase_shift_deg) tests ──────────────────────
@@ -772,14 +774,14 @@ TEST_CASE("LineLP — capainst primal col_sol binds at capmin lower bound")
   const auto& stage_lp = simulation_lp.stages().front();
 
   const auto cap_col = line_lp.capacity_col_at(stage_lp);
-  REQUIRE(cap_col.has_value());
+  const auto& cap_idx = test_support::require_value(cap_col);
 
   // Without use_line_losses, the LineLP transport constraint is bounded
   // by tmax_ab/tmax_ba and the capacity_col is not tied to the flow row.
   // Positive annual_capcost then drives the LP to pin capainst at its
   // lower bound `stage_capacity = 10` (with expmod_col = 0.1 closing the
   // -capainst + expcap*expmod = 0 equality).
-  const auto cap_val = lp.get_col_sol()[*cap_col];
+  const auto cap_val = lp.get_col_sol()[cap_idx];
   CHECK(cap_val == doctest::Approx(10.0).epsilon(1e-6));
   CHECK(cap_val <= 110.0 + 1e-6);
 }
@@ -787,7 +789,6 @@ TEST_CASE("LineLP — capainst primal col_sol binds at capmin lower bound")
 TEST_CASE("LineLP — transport row dual equals congestion rent between buses")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // 2-bus system: a cheap generator at bus1 and an expensive generator at
   // bus2 serve a demand at bus2 across a line with limited tmax_ab.  The
@@ -930,5 +931,3 @@ TEST_CASE("LineLP — transport row dual equals congestion rent between buses")
   // agnostic to the sign convention.
   CHECK(std::abs(rent) == doctest::Approx(90.0).epsilon(1e-5));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

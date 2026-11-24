@@ -11,8 +11,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_lp_matrix_options.hpp>
 
+#include "../require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("LpMatrixOptions JSON - Full deserialization")
 {
@@ -23,7 +24,8 @@ TEST_CASE("LpMatrixOptions JSON - Full deserialization")
   const auto opts = daw::json::from_json<LpMatrixOptions>(json_data);
 
   REQUIRE(opts.lp_coeff_ratio_threshold.has_value());
-  CHECK(*opts.lp_coeff_ratio_threshold == doctest::Approx(1e8));
+  CHECK(test_support::require_value(opts.lp_coeff_ratio_threshold)
+        == doctest::Approx(1e8));
 }
 
 TEST_CASE("LpMatrixOptions JSON - Missing fields keep defaults")
@@ -55,7 +57,8 @@ TEST_CASE("LpMatrixOptions JSON - Ruiz tuning knobs deserialize")
   const auto opts = daw::json::from_json<LpMatrixOptions>(json_data);
 
   REQUIRE(opts.equilibration_method.has_value());
-  CHECK(*opts.equilibration_method == LpEquilibrationMethod::ruiz);
+  CHECK(test_support::require_value(opts.equilibration_method)
+        == LpEquilibrationMethod::ruiz);
   CHECK(opts.ruiz_max_iterations.value_or(-1) == 3);
   CHECK(opts.ruiz_tolerance.value_or(-1.0) == doctest::Approx(1e-2));
 }
@@ -73,10 +76,9 @@ TEST_CASE("LpMatrixOptions JSON - Round-trip serialization")
   const auto rt = daw::json::from_json<LpMatrixOptions>(json);
 
   REQUIRE(rt.lp_coeff_ratio_threshold.has_value());
-  CHECK(*rt.lp_coeff_ratio_threshold == doctest::Approx(5e6));
+  CHECK(test_support::require_value(rt.lp_coeff_ratio_threshold)
+        == doctest::Approx(5e6));
   // Set ruiz knobs are serialized → survive the round-trip.
   CHECK(rt.ruiz_max_iterations.value_or(-1) == 4);
   CHECK(rt.ruiz_tolerance.value_or(-1.0) == doctest::Approx(5e-4));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

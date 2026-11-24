@@ -144,8 +144,7 @@ constexpr Real kHrDiesel = 10.0;
 // ── Per-MWh combustion CO₂ rates ───────────────────────────────────────
 constexpr Real kRateCoal = kHrCoal * kEfCoal;  // 0.9933  tCO₂/MWh
 constexpr Real kRateGas = kHrGas * kEfGas;  //  0.42075 tCO₂/MWh
-[[maybe_unused]] constexpr Real kRateDiesel =
-    kHrDiesel * kEfDiesel;  // 0.7410  tCO₂/MWh
+// Diesel: kHrDiesel × kEfDiesel = 0.7410 tCO₂/MWh (not needed below).
 
 // ── Single-block stage ─────────────────────────────────────────────────
 constexpr Real kBlockDur = 1.0;

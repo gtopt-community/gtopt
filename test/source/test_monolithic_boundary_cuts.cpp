@@ -35,9 +35,10 @@
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace mono_bc
+{
+namespace
 {
 
 /// Write a single-scene boundary cut `α + (−coeff)·rsv1.efin ≥ rhs`.
@@ -78,6 +79,7 @@ auto set_future_cost(Planning& planning,
   };
 }
 
+}  // namespace
 }  // namespace mono_bc
 
 TEST_CASE(  // NOLINT
@@ -228,5 +230,3 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove(cuts_file);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

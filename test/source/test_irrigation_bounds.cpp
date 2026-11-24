@@ -1263,8 +1263,8 @@ TEST_CASE(  // NOLINT
       const auto excess = fr_lp.excess_col_at(s, t, block);
       REQUIRE(fail.has_value());
       REQUIRE(excess.has_value());
-      const auto fc = obj_coeffs[*fail];
-      const auto ec = obj_coeffs[*excess];
+      const auto fc = obj_coeffs[fail.value_or(ColIndex {})];
+      const auto ec = obj_coeffs[excess.value_or(ColIndex {})];
       if (doctest::Approx(fc).epsilon(1e-3) == expected_fcost_b1
           || doctest::Approx(fc).epsilon(1e-3) == expected_fcost_b2)
       {

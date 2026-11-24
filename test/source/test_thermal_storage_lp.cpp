@@ -21,6 +21,9 @@ using namespace gtopt;
 namespace test_thermal_storage_lp_smoke
 {
 
+namespace
+{
+
 Simulation make_chrono_4h_simulation()
 {
   return {
@@ -60,6 +63,8 @@ Simulation make_chrono_4h_simulation()
           },
   };
 }
+
+}  // namespace
 
 }  // namespace test_thermal_storage_lp_smoke
 

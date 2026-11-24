@@ -15,6 +15,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lng_terminal_lp.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/storage_state_defaults.hpp>
 #include <gtopt/system_context.hpp>
 #include <spdlog/spdlog.h>
 
@@ -107,7 +108,8 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
   const double lng_scost = stage_scost.value_or(1.0) * mpf;
 
   const StorageOptions opts {
-      .use_state_variable = terminal().use_state_variable.value_or(true),
+      .use_state_variable = terminal().use_state_variable.value_or(
+          storage_state_defaults::lng_terminal.use_state_variable),
       .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),
       .energy_scale = energy_scale,

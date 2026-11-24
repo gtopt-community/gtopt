@@ -38,6 +38,11 @@
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
+#include <gtopt/gas_compressor_lp.hpp>
+#include <gtopt/gas_demand_lp.hpp>
+#include <gtopt/gas_node_lp.hpp>
+#include <gtopt/gas_pipe_lp.hpp>
+#include <gtopt/gas_supply_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/hydrogen_demand_lp.hpp>
 #include <gtopt/hydrogen_node_lp.hpp>
@@ -115,6 +120,19 @@ std::optional<double> gen_param_emission_rate(const SystemContext& sc,
 {
   return sc.get_element(ObjectSingleId<GeneratorLP> {uid})
       .param_emission_rate(s, b);
+}
+/// ``generator.initial_generation`` — the scalar ``t = 0⁻`` dispatch
+/// (``Generator.initial_generation``), stage/block independent.  Read by
+/// the ``_prev`` boundary rule in ``resolve_single_param`` as the value
+/// of ``generation_prev`` at the horizon start (``initial_<attr>``).
+std::optional<double> gen_param_initial_generation(const SystemContext& sc,
+                                                   Uid uid,
+                                                   StageUid /*s*/,
+                                                   BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GeneratorLP> {uid})
+      .generator()
+      .initial_generation;
 }
 
 // Fuel
@@ -790,6 +808,8 @@ void register_ampl_param_dispatchers(SimulationLP& sim)
   sim.register_ampl_param(generator_cls, "heat_rate", &gen_param_heat_rate);
   sim.register_ampl_param(
       generator_cls, "emission_rate", &gen_param_emission_rate);
+  sim.register_ampl_param(
+      generator_cls, "initial_generation", &gen_param_initial_generation);
 
   constexpr auto fuel_cls = Fuel::class_name.snake_case();
   sim.register_ampl_param(fuel_cls, "price", &fuel_param_price);
@@ -1036,6 +1056,18 @@ void register_ampl_iterator_dispatchers(SimulationLP& sim)
   // AllowancePool — CO₂ cap-and-trade pool (PR #495 / #496).
   sim.register_ampl_iter(AllowancePool::class_name.snake_case(),
                          &iter_class<AllowancePoolLP>);
+
+  // Gas network: `sum(gas_supply(all).flow)` and friends.
+  sim.register_ampl_iter(GasNode::class_name.snake_case(),
+                         &iter_class<GasNodeLP>);
+  sim.register_ampl_iter(GasSupply::class_name.snake_case(),
+                         &iter_class<GasSupplyLP>);
+  sim.register_ampl_iter(GasDemand::class_name.snake_case(),
+                         &iter_class<GasDemandLP>);
+  sim.register_ampl_iter(GasPipe::class_name.snake_case(),
+                         &iter_class<GasPipeLP>);
+  sim.register_ampl_iter(GasCompressor::class_name.snake_case(),
+                         &iter_class<GasCompressorLP>);
 }
 
 }  // namespace gtopt

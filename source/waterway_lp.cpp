@@ -14,6 +14,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -55,7 +56,11 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
 
   const BIndexHolder<RowIndex>* balance_rows_b = nullptr;
   if (has_junction_b()) {
-    if (junction_a_sid() == junction_b_sid()) {
+    // Resolved element index, not the raw SingleId: `1` and `"j1"` name
+    // the same junction (a raw compare missed the self-loop).
+    if (sc.element_index(junction_a_sid())
+        == sc.element_index(junction_b_sid()))
+    {
       return true;
     }
     const auto& junction_b = sc.element<JunctionLP>(junction_b_sid());

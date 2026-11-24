@@ -48,8 +48,9 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -573,8 +574,10 @@ TEST_CASE(  // NOLINT
   const auto& lp = phase0_system.linear_interface();
   const auto col_low = lp.get_col_low();
   const auto col_upp = lp.get_col_upp();
-  CHECK(col_low[*eini_col] == doctest::Approx(500.0));
-  CHECK(col_upp[*eini_col] == doctest::Approx(500.0));
+  CHECK(col_low[test_support::require_value(eini_col)]
+        == doctest::Approx(500.0));
+  CHECK(col_upp[test_support::require_value(eini_col)]
+        == doctest::Approx(500.0));
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -618,8 +621,10 @@ TEST_CASE(  // NOLINT
 
   // Without bound_rule, provision == emax == 500.
   constexpr double provision = 500.0;
-  CHECK(col_low[*eini_col] == doctest::Approx(provision));
-  CHECK(col_upp[*eini_col] == doctest::Approx(provision));
+  CHECK(col_low[test_support::require_value(eini_col)]
+        == doctest::Approx(provision));
+  CHECK(col_upp[test_support::require_value(eini_col)]
+        == doctest::Approx(provision));
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -650,5 +655,3 @@ TEST_CASE(  // NOLINT
 
   CHECK_THROWS_AS(construct(), std::runtime_error);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

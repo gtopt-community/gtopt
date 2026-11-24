@@ -11,7 +11,9 @@
  * constraints and relationships with other system components.
  */
 
+#include <gtopt/coupler_fail_closed.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/turbine_lp.hpp>
@@ -47,7 +49,19 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
 {
   static constexpr auto ampl_name = Element::class_name.snake_case();
 
+  const auto& generator = sc.element<GeneratorLP>(generator_sid());
+
+  // Fail-closed coupler (R2): the generator's power exists only through
+  // this turbine.  When the turbine cannot write its conversion row
+  // (turbine inactive, inactive junction, missing flow / waterway column)
+  // the generation column is closed instead of being left free.
+  const auto close_generation = [&]
+  {
+    close_producing_cols(lp, generator.lookup_generation_cols(scenario, stage));
+  };
+
   if (!is_active(stage)) {
+    close_generation();
     return true;
   }
 
@@ -59,8 +73,6 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
   const auto stage_capacity = capacity.at(stage.uid());
 
   auto&& blocks = stage.blocks();
-
-  const auto& generator = sc.element<GeneratorLP>(generator_sid());
 
   BIndexHolder<RowIndex> rrows;
   BIndexHolder<RowIndex> crows;
@@ -87,7 +99,12 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto gcol_opt =
           generator.lookup_generation_col(scenario, stage, buid);
       const auto dcol_opt = flow_lp.lookup_flow_col(scenario, stage, buid);
-      if (!gcol_opt || !dcol_opt) {
+      if (!gcol_opt) {
+        continue;
+      }
+      if (!dcol_opt) {
+        // No flow column (flow inactive or without data): no water.
+        close_producing_col(lp, *gcol_opt);
         continue;
       }
       const auto gcol = *gcol_opt;
@@ -114,6 +131,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
     // separate penstock Waterway + the conversion row into one element.
     const auto& junction_a = sc.element<JunctionLP>(junction_a_sid());
     if (!junction_a.is_active(stage)) {
+      close_generation();
       return true;
     }
     const auto& balance_rows_a = junction_a.balance_rows_at(scenario, stage);
@@ -124,6 +142,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
     if (has_junction_b()) {
       const auto& junction_b = sc.element<JunctionLP>(junction_b_sid());
       if (!junction_b.is_active(stage)) {
+        close_generation();
         return true;
       }
       balance_rows_b = &junction_b.balance_rows_at(scenario, stage);
@@ -202,7 +221,12 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto fcol_opt = waterway.lookup_flow_col(scenario, stage, buid);
       const auto gcol_opt =
           generator.lookup_generation_col(scenario, stage, buid);
-      if (!fcol_opt || !gcol_opt) {
+      if (!gcol_opt) {
+        continue;
+      }
+      if (!fcol_opt) {
+        // Waterway elided (fmin = fmax = 0) or inactive: no water.
+        close_producing_col(lp, *gcol_opt);
         continue;
       }
       const auto fcol = *fcol_opt;
@@ -237,9 +261,15 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       }
     }
   } else {
-    SPDLOG_WARN("Turbine uid={}: no waterway, flow or junction_a reference",
-                uid());
-    return false;
+    fail_lp(*this,
+            scenario,
+            stage,
+            {
+                .field = "waterway/flow/junction_a",
+                .value = "unset",
+                .expected = "one of waterway, flow or junction_a",
+                .detail = "a turbine needs a water source",
+            });
   }
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};

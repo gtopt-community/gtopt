@@ -57,6 +57,8 @@ using namespace gtopt;
 
 namespace cost_scale_type_dual_test
 {
+namespace
+{
 
 /// Plain-old-data inputs.  Returned by value so each test owns its own
 /// `SystemLP` (moving one would leave its embedded `SystemContext`
@@ -73,7 +75,7 @@ struct Inputs
 /// make stored water valuable; a terminal `efin_cost` pins a constant
 /// marginal water value so the energy-balance dual is non-zero and (with
 /// the fix) duration-independent across the three blocks.
-inline Inputs make_inputs()
+Inputs make_inputs()
 {
   const Array<Bus> bus_array = {
       {
@@ -216,10 +218,10 @@ inline Inputs make_inputs()
 /// `(grid-slot, value)` entries in ascending slot order; with one
 /// scenario / one stage the grid slot IS the block position, so scatter
 /// the entries into a dense per-block vector for the assertions below.
-inline std::vector<double> field_values(const OutputContext& oc,
-                                        std::string_view cname,
-                                        std::string_view fname,
-                                        std::string_view sname)
+std::vector<double> field_values(const OutputContext& oc,
+                                 std::string_view cname,
+                                 std::string_view fname,
+                                 std::string_view sname)
 {
   const auto& fields = oc.fields();
   const OutputContext::ClassFieldName key {cname, fname, sname};
@@ -238,6 +240,7 @@ inline std::vector<double> field_values(const OutputContext& oc,
   return values;
 }
 
+}  // namespace
 }  // namespace cost_scale_type_dual_test
 
 TEST_CASE(  // NOLINT

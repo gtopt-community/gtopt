@@ -48,6 +48,7 @@ struct json_data_contract<GeneratorAttrs>
                         jvtl_TRealFieldSched>,
       json_bool_null<"integer_expmod", OptBool>,
       json_number_null<"uini", OptReal>,
+      json_number_null<"initial_generation", OptReal>,
       json_string_null<"cogen_mode", OptName>>;
 
   constexpr static auto to_json_data(GeneratorAttrs const& attrs)
@@ -71,6 +72,7 @@ struct json_data_contract<GeneratorAttrs>
                                  attrs.annual_derating,
                                  attrs.integer_expmod,
                                  attrs.uini,
+                                 attrs.initial_generation,
                                  attrs.cogen_mode);
   }
 };
@@ -119,6 +121,7 @@ struct json_data_contract<Generator>
                         jvtl_TRealFieldSched>,
       json_bool_null<"integer_expmod", OptBool>,
       json_number_null<"uini", OptReal>,
+      json_number_null<"initial_generation", OptReal>,
       json_string_null<"cogen_mode", OptName>,
       json_variant_null<"emission_rate",
                         OptTBRealFieldSched,
@@ -154,6 +157,7 @@ struct json_data_contract<Generator>
                                  generator.annual_derating,
                                  generator.integer_expmod,
                                  generator.uini,
+                                 generator.initial_generation,
                                  generator.cogen_mode,
                                  generator.emission_rate,
                                  generator.emissions,

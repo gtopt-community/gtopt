@@ -34,6 +34,9 @@ using namespace gtopt;
 namespace test_h2_nh3_chain_lp
 {
 
+namespace
+{
+
 Simulation make_chrono_4h_simulation()
 {
   return {
@@ -59,6 +62,8 @@ Simulation make_chrono_4h_simulation()
           },
   };
 }
+
+}  // namespace
 
 }  // namespace test_h2_nh3_chain_lp
 

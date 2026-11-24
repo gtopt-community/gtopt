@@ -14,6 +14,7 @@
 #include <gtopt/system_lp.hpp>
 
 #include "gtopt/simulation.hpp"
+#include "require_value.hpp"
 
 using namespace gtopt;
 
@@ -144,7 +145,6 @@ TEST_CASE("Bus serialization")
 TEST_CASE("BusLP construction and basic properties")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
   SUBCASE("Default construction")
   {
     const Bus bus;
@@ -491,15 +491,15 @@ TEST_CASE("BusLP - DC OPF solve, theta col_sol")
   const auto swing_theta_col =
       swing_bus->lookup_theta_col(scenario_lp, stage_lp, block_lp.uid());
   REQUIRE(swing_theta_col.has_value());
-  const auto swing_theta_val = lp.get_col_sol()[*swing_theta_col];
+  const auto swing_theta_val =
+      lp.get_col_sol()[test_support::require_value(swing_theta_col)];
   CHECK(swing_theta_val == doctest::Approx(0.0).epsilon(1e-6));
 
   // Load bus theta should settle at -1.0 rad per the derivation above.
   const auto load_theta_col =
       load_bus->lookup_theta_col(scenario_lp, stage_lp, block_lp.uid());
   REQUIRE(load_theta_col.has_value());
-  const auto load_theta_val = lp.get_col_sol()[*load_theta_col];
+  const auto load_theta_val =
+      lp.get_col_sol()[test_support::require_value(load_theta_col)];
   CHECK(load_theta_val == doctest::Approx(-1.0).epsilon(1e-4));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

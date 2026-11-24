@@ -115,7 +115,8 @@ namespace
   // spread over THAT range instead of the (possibly inflated) ``fmax``
   // flow cap — concentrating resolution in the realistic loading band.
   // Falls back to ``fmax`` when unset (backward compatible).  Flow past
-  // the envelope extrapolates on the last segment's slope.
+  // the envelope (up to the flow cap) keeps a quadratic loss via the
+  // coarse overflow ladder of ``line_losses::overflow_breakpoints``.
   // Pass the EXPLICIT per-line envelope only (0 when unset) so
   // ``make_config`` falls back to ``fmax`` internally — passing the
   // fmax-fallback here would mark every line as "decoupled" and release

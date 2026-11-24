@@ -10,7 +10,7 @@
  *     ==  sys.linear_interface().get_col_sol()[cache.eini_col]
  *           (when sys.linear_interface().is_optimal())
  *
- *   physical_efin_from_cache(sys, cache)
+ *   physical_efin_from_cache(sys, scenario, stage, cache)
  *     ==  sys.linear_interface().get_col_sol()[cache.efin_col]
  *           (when sys.linear_interface().is_optimal())
  *
@@ -35,6 +35,7 @@
 #include <array>
 
 #include <doctest/doctest.h>
+#include <gtopt/flow_right_lp.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/system_lp.hpp>
@@ -43,7 +44,6 @@
 #include "fixture_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
@@ -257,7 +257,7 @@ TEST_CASE(  // NOLINT
 
   const auto cache = make_reservoir_ref_cache(rsv, scenario, stage);
 
-  const auto via_cache = physical_efin_from_cache(sys0, cache);
+  const auto via_cache = physical_efin_from_cache(sys0, scenario, stage, cache);
   const auto direct = li0.get_col_sol()[cache.efin_col];
 
   CHECK(via_cache == doctest::Approx(direct));
@@ -379,12 +379,13 @@ TEST_CASE(  // NOLINT
   static constexpr auto reservoir_class_name = ReservoirLP::Element::class_name;
   auto svar_opt = planning_lp.simulation().state_variable(StateVariable::key(
       scenario1, stage0_last, reservoir_class_name, rsv0.uid(), "efin"));
-  REQUIRE(svar_opt.has_value());
+  auto* svar = svar_opt ? &svar_opt->get() : nullptr;
+  REQUIRE(svar != nullptr);
   // Set the predecessor's StateVariable col_sol to the raw
   // (LP-space) value — col_sol_physical() multiplies by var_scale
   // internally.
-  const auto var_scale = svar_opt->get().var_scale();
-  svar_opt->get().set_col_sol(prev_solved_efin / var_scale);
+  const auto var_scale = svar->var_scale();
+  svar->set_col_sol(prev_solved_efin / var_scale);
 
   // physical_eini_from_cache MUST return the predecessor's
   // StateVariable ``col_sol_physical()`` — i.e. the actual phase-0
@@ -442,9 +443,10 @@ TEST_CASE(  // NOLINT
   static constexpr auto reservoir_class_name = ReservoirLP::Element::class_name;
   auto svar_opt = planning_lp.simulation().state_variable(StateVariable::key(
       scenario1, stage0_last, reservoir_class_name, rsv0.uid(), "efin"));
-  REQUIRE(svar_opt.has_value());
-  const auto var_scale = svar_opt->get().var_scale();
-  svar_opt->get().set_col_sol(prev_solved_efin / var_scale);
+  auto* svar = svar_opt ? &svar_opt->get() : nullptr;
+  REQUIRE(svar != nullptr);
+  const auto var_scale = svar->var_scale();
+  svar->set_col_sol(prev_solved_efin / var_scale);
 
   const auto vini = physical_eini_from_cache(sys1, scenario1, stage1, cache);
   // The killer assertion: even though current LP isn't optimal yet,
@@ -559,8 +561,9 @@ TEST_CASE(  // NOLINT
   static constexpr auto reservoir_class_name = ReservoirLP::Element::class_name;
   auto svar_opt = planning_lp.simulation().state_variable(StateVariable::key(
       scenario1, stage0_last, reservoir_class_name, rsv0.uid(), "efin"));
-  REQUIRE(svar_opt.has_value());
-  svar_opt->get().set_col_sol(stale_sv_phys / svar_opt->get().var_scale());
+  auto* svar = svar_opt ? &svar_opt->get() : nullptr;
+  REQUIRE(svar != nullptr);
+  svar->set_col_sol(stale_sv_phys / svar->var_scale());
 
   // Pin the eini column to a DIFFERENT value (the "live" trial value).
   constexpr double pinned_phys = 7.5;
@@ -960,4 +963,143 @@ TEST_CASE(  // NOLINT
         == doctest::Approx(222.0));
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access)
+// ─── R5 (Maule review 2026-11-22): rights gates read the stage-start
+//     volume, and a solved volume of exactly 0 is a value, not "unset".
+//
+//     PLP FijaMaule / FijaLajaM evaluate the agreement regime with the
+//     stage-initial volume (`VolMauleUtil = VarMaulePrev(IVMUTIL)`,
+//     genpdmaule.f:757; `VolLajaM = VolIni(IVol)`, genpdlajam.f:575).
+
+namespace
+{
+
+[[nodiscard]] auto predecessor_efin_svar(PlanningLP& planning_lp,
+                                         const SystemLP& sys0,
+                                         const ScenarioLP& scenario)
+{
+  const auto& rsv0 = sys0.elements<ReservoirLP>().front();
+  const auto& stage0_last = sys0.phase().stages().back();
+  return planning_lp.simulation().state_variable(
+      StateVariable::key(scenario,
+                         stage0_last,
+                         ReservoirLP::Element::class_name,
+                         rsv0.uid(),
+                         "efin"));
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "build_time_reservoir_volume: a solved predecessor efin of 0 is used")
+{
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/100.0);
+  PlanningLP planning_lp(std::move(planning));
+  auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
+  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
+  const auto& rsv1 = sys1.elements<ReservoirLP>().front();
+  const auto& scenario1 = sys1.scene().scenarios().front();
+  const auto& stage1 = sys1.phase().stages().front();
+
+  auto svar_opt = predecessor_efin_svar(planning_lp, sys0, scenario1);
+  auto* svar = svar_opt ? &svar_opt->get() : nullptr;
+  REQUIRE(svar != nullptr);
+
+  SUBCASE("unsolved predecessor -> case eini")
+  {
+    CHECK(build_time_reservoir_volume(
+              sys1.system_context(), scenario1, stage1, rsv1)
+          == doctest::Approx(100.0));
+  }
+
+  SUBCASE("predecessor solved to an empty reservoir -> 0, not the eini")
+  {
+    svar->set_col_sol(0.0);
+    CHECK(build_time_reservoir_volume(
+              sys1.system_context(), scenario1, stage1, rsv1)
+          == doctest::Approx(0.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "physical_eini_from_cache: an unsolved predecessor StateVariable is "
+    "not read as 0")
+{
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/100.0);
+  PlanningLP planning_lp(std::move(planning));
+  auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
+  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
+  sys1.set_prev_phase_sys(&sys0);
+  REQUIRE_FALSE(sys1.linear_interface().is_optimal());
+
+  const auto& rsv1 = sys1.elements<ReservoirLP>().front();
+  const auto& scenario1 = sys1.scene().scenarios().front();
+  const auto& stage1 = sys1.phase().stages().front();
+  const auto cache = make_reservoir_ref_cache(rsv1, scenario1, stage1);
+
+  // No forward solve has written the predecessor's efin yet: the helper
+  // must fall through to the default volume instead of a phantom 0.
+  CHECK(physical_eini_from_cache(sys1, scenario1, stage1, cache)
+        == doctest::Approx(100.0));
+
+  sys1.set_prev_phase_sys(nullptr);
+}
+
+TEST_CASE(  // NOLINT
+    "FlowRight bound_rule gate reads the stage-start volume (PLP "
+    "VarMaulePrev), not the (vini + vfin) / 2 average")
+{
+  // Reservoir eini 400 (above the 129 gate).  The predecessor phase
+  // ends at 50 (below it).  Before phase 1 is solved, the average
+  // (50 + 400) / 2 = 225 would open the gate; PLP reads the
+  // stage-initial 50 and keeps it closed.
+  auto planning = make_two_phase_reservoir_planning(/*eini_value=*/400.0);
+  planning.system.flow_right_array = {
+      {
+          .uid = Uid {1},
+          .name = "q_ord",
+          .direction = -1,
+          .fmax = 30.0,
+          .target = 0.0,
+          .bound_rule =
+              RightBoundRule {
+                  .reservoir = Uid {1},
+                  .segments =
+                      {
+                          {
+                              .volume = 0.0,
+                              .slope = 0.0,
+                              .constant = 0.0,
+                          },
+                          {
+                              .volume = 129.0,
+                              .slope = 0.0,
+                              .constant = 30.0,
+                          },
+                      },
+              },
+      },
+  };
+  PlanningLP planning_lp(std::move(planning));
+  auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
+  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
+  sys1.set_prev_phase_sys(&sys0);
+  const auto& scenario1 = sys1.scene().scenarios().front();
+  const auto& stage1 = sys1.phase().stages().front();
+
+  auto svar_opt = predecessor_efin_svar(planning_lp, sys0, scenario1);
+  auto* svar = svar_opt ? &svar_opt->get() : nullptr;
+  REQUIRE(svar != nullptr);
+  svar->set_col_sol(50.0 / svar->var_scale());
+
+  auto& fr = sys1.elements<FlowRightLP>().front();
+  CHECK(fr.update_lp(sys1, scenario1, stage1) >= 0);
+
+  const auto& li1 = sys1.linear_interface();
+  const auto& cols = fr.flow_cols_at(scenario1, stage1);
+  REQUIRE_FALSE(cols.empty());
+  for (const auto& [buid, col] : cols) {
+    CHECK(li1.get_col_upp()[col] == doctest::Approx(0.0));
+  }
+
+  sys1.set_prev_phase_sys(nullptr);
+}

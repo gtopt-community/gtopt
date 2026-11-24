@@ -27,6 +27,8 @@ using namespace gtopt;
 
 namespace test_battery_cycle_limit_ns
 {
+namespace
+{
 
 /// Count rows whose constraint_name == "cycle_limit" in a built LP.
 [[nodiscard]] int count_cycle_rows(const LinearInterface& lp)
@@ -216,6 +218,7 @@ namespace test_battery_cycle_limit_ns
   return first_lp(planning_lp).get_obj_value_raw();
 }
 
+}  // namespace
 }  // namespace test_battery_cycle_limit_ns
 
 TEST_CASE(

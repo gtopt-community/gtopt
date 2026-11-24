@@ -153,7 +153,7 @@ if(COVERAGE_COMPILER STREQUAL "gcc")
   endif()
 elseif(COVERAGE_COMPILER STREQUAL "clang")
   set(_coverage_cxx "clang++")
-  find_program(LLVM_COV_EXECUTABLE NAMES llvm-cov llvm-cov-21 llvm-cov-20 llvm-cov-19)
+  find_program(LLVM_COV_EXECUTABLE NAMES llvm-cov-22 llvm-cov-21 llvm-cov llvm-cov-20)
   if(LLVM_COV_EXECUTABLE)
     # Write the gcov wrapper script needed by lcov
     set(_gcov_wrapper "${CMAKE_BINARY_DIR}/llvm-gcov.sh")
@@ -187,6 +187,11 @@ include(ProcessorCount)
 ProcessorCount(_nproc)
 if(NOT _nproc OR _nproc EQUAL 0)
   set(_nproc 4)
+endif()
+set(COVERAGE_JOBS "" CACHE STRING
+    "Parallel jobs for build/ctest/lcov (default: all processors)")
+if(COVERAGE_JOBS)
+  set(_nproc ${COVERAGE_JOBS})
 endif()
 
 # ---- Paths & directories ------------------------------------------------
@@ -248,11 +253,14 @@ endif()
 # We need ctest to NOT fail the pipeline when tests fail, because coverage
 # data (.gcda) is still produced by the tests that did run.  CMake custom
 # targets treat any non-zero exit code as a build failure, so we wrap ctest
-# in a shell script that always returns 0.
+# in a shell script that always returns 0.  Stale .gcda counters from a
+# previous run of a persistent build dir are removed first, so every run
+# measures only its own tests.
 set(_ctest_wrapper "${CMAKE_BINARY_DIR}/run-ctest.sh")
 file(
   WRITE "${_ctest_wrapper}"
   "#!/bin/sh\n"
+  "find \"${_coverage_build_dir}\" -name '*.gcda' -delete\n"
   "\"${CMAKE_CTEST_COMMAND}\" "
   "--test-dir \"${_coverage_build_dir}\" "
   "--output-on-failure "

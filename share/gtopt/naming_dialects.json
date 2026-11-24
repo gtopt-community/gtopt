@@ -111,7 +111,6 @@
     {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "CustoFaltaReserva",   "dialect": "sddp"},
 
     {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "hydro_fail_cost",      "dialect": "gtopt-legacy"},
-    {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "Hydro Spill Penalty",  "dialect": "plexos"},
 
     {"class": "model_options", "canonical": "state_violation_cost", "alt": "state_fail_cost",  "dialect": "gtopt-legacy"},
     {"class": "model_options", "canonical": "demand_fail_rhs_shift", "alt": "demand_option_c", "dialect": "gtopt-legacy"},
@@ -148,8 +147,7 @@
     {"class": "reservoir", "canonical": "efin", "alt": "VolFin",        "dialect": "plp"},
     {"class": "reservoir", "canonical": "efin", "alt": "Min End Volume","dialect": "plexos"},
 
-    {"class": "reservoir", "canonical": "spillway_cost", "alt": "Spill Penalty",  "dialect": "plexos"},
-    {"class": "reservoir", "canonical": "spillway_cost", "alt": "CustoVertimento","dialect": "sddp"},
+    {"class": "reservoir", "canonical": "spillway_cost", "alt": "Spill Penalty",  "dialect": "plexos", "_note": "NOT unit-1:1: PLEXOS Storage 'Spill Penalty' is $/GWh (energy model) and applies to spill to the sea, while spillway_cost is $/(m3/s)/h on the drain column.  plexos2gtopt converts with a productibility factor; a raw value rewritten by this alias is NOT converted (unit_dialects.json records the mismatch so --naming-dialect warns)."},
 
     {"class": "turbine", "canonical": "production_factor", "alt": "FactorH", "dialect": "plp"},
     {"class": "turbine", "canonical": "production_factor", "alt": "FacEner", "dialect": "plp"},

@@ -32,6 +32,8 @@
 #include <gtopt/lp_replay_buffer.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <parquet/file_reader.h>
+#include <parquet/metadata.h>
 
 using namespace gtopt;
 
@@ -453,6 +455,95 @@ TEST_CASE("SystemLP::total_write_ms / total_write_cells accumulate")  // NOLINT
 
   CHECK(SystemLP::total_write_cells() > cells_before);
   CHECK(SystemLP::total_write_ms() >= ms_before);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE("output long-form: dual files keep zero cells")  // NOLINT
+{
+  // Bus b2 is an island served by a free generator with spare capacity,
+  // so its balance dual is exactly 0 in both blocks.  Primal files stay
+  // sparse, but `balance_dual` must carry all 2 buses × 2 blocks cells.
+  auto [system, simulation] = make_tiny_system();
+  system.bus_array.push_back({
+      .uid = Uid {2},
+      .name = "b2",
+  });
+  system.generator_array.push_back({
+      .uid = Uid {3},
+      .name = "g_free",
+      .bus = Uid {2},
+      .gcost = 0.0,
+      .capacity = 100.0,
+  });
+  system.demand_array.push_back({
+      .uid = Uid {2},
+      .name = "d2",
+      .bus = Uid {2},
+      .capacity = 50.0,
+  });
+  const auto tmpdir = std::filesystem::temp_directory_path() / "gtopt_lf_dual";
+  std::filesystem::remove_all(tmpdir);
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 10000.0;
+  opts.model_options.use_kirchhoff = false;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = DataFormat::parquet;
+  opts.output_round_decimals = 10;  // float64 value column
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+  REQUIRE(system_lp.linear_interface().resolve().has_value());
+  system_lp.write_out();
+
+  const auto duals = read_long_leaf(tmpdir / "Bus" / "balance_dual.parquet");
+  REQUIRE(duals != nullptr);
+  CHECK(duals->num_rows() == 4);
+  const auto uid_col =
+      std::static_pointer_cast<arrow::Int32Array>(duals->column(3)->chunk(0));
+  const auto val_col =
+      std::static_pointer_cast<arrow::DoubleArray>(duals->column(4)->chunk(0));
+  REQUIRE(uid_col != nullptr);
+  REQUIRE(val_col != nullptr);
+  int zero_rows = 0;
+  for (int64_t i = 0; i < uid_col->length(); ++i) {
+    if (uid_col->Value(i) == 2) {
+      CHECK(val_col->Value(i) == doctest::Approx(0.0));
+      ++zero_rows;
+    } else {
+      CHECK(val_col->Value(i) > 0.0);
+    }
+  }
+  CHECK(zero_rows == 2);
+
+  // Dense dual files go through the same writer as `_sol` / `_cost`:
+  // every column chunk carries the `output_compression` codec (unset →
+  // `PlanningOptionsLP::default_output_compression`, zstd).
+  const auto dual_leaf = tmpdir / "Bus" / "balance_dual.parquet" / "scene=0"
+      / "phase=0" / "part.parquet";
+  REQUIRE(std::filesystem::exists(dual_leaf));
+  const auto reader = parquet::ParquetFileReader::OpenFile(dual_leaf.string());
+  const auto meta = reader->metadata();
+  REQUIRE(meta->num_row_groups() > 0);
+  const auto rg = meta->RowGroup(0);
+  for (int c = 0; c < rg->num_columns(); ++c) {
+    CHECK(rg->ColumnChunk(c)->compression() == parquet::Compression::ZSTD);
+  }
+
+  // The free generator's zero-cost column stays sparse in `_cost` /
+  // `_sol` files: g2 (uid 2, never dispatched) is still absent.
+  const auto gen =
+      read_long_leaf(tmpdir / "Generator" / "generation_sol.parquet");
+  REQUIRE(gen != nullptr);
+  const auto gen_uid =
+      std::static_pointer_cast<arrow::Int32Array>(gen->column(3)->chunk(0));
+  REQUIRE(gen_uid != nullptr);
+  for (int64_t i = 0; i < gen_uid->length(); ++i) {
+    CHECK(gen_uid->Value(i) != 2);
+  }
 
   std::filesystem::remove_all(tmpdir);
 }

@@ -83,6 +83,11 @@
     {"class": "waterway",  "canonical": "fmax",           "dialect": "plp",    "unit": "m3/s"},
     {"class": "waterway",  "canonical": "fmax",           "dialect": "sddp",   "unit": "m3/s"},
     {"class": "waterway",  "canonical": "fcost",          "dialect": "gtopt",  "unit": "USD/(m3/s)/h"},
+    {"class": "reservoir", "canonical": "spillway_cost",  "dialect": "gtopt",  "unit": "USD/(m3/s)/h"},
+    {"class": "reservoir", "canonical": "spillway_cost",  "dialect": "plexos", "unit": "USD/GWh"},
+    {"class": "reservoir", "canonical": "spillway_capacity", "dialect": "gtopt", "unit": "m3/s"},
+    {"class": "junction",  "canonical": "drain_cost",     "dialect": "gtopt",  "unit": "USD/(m3/s)/h"},
+    {"class": "junction",  "canonical": "drain_capacity", "dialect": "gtopt",  "unit": "m3/s"},
 
     {"class": "flow_right",   "canonical": "fmin",        "dialect": "gtopt",  "unit": "m3/s"},
     {"class": "flow_right",   "canonical": "fmax",        "dialect": "gtopt",  "unit": "m3/s"},

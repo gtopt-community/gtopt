@@ -37,6 +37,12 @@
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/future_cost_lp.hpp>
+#include <gtopt/gas_compressor_lp.hpp>
+#include <gtopt/gas_demand_lp.hpp>
+#include <gtopt/gas_node_lp.hpp>
+#include <gtopt/gas_pipe_lp.hpp>
+#include <gtopt/gas_supply_lp.hpp>
+#include <gtopt/gas_turbine_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
 #include <gtopt/hydrogen_demand_lp.hpp>
@@ -162,6 +168,19 @@ concept HasAddToGlobalLp = requires(T obj,
   } -> std::same_as<bool>;
 };
 
+/// Coarse-scope COLUMN pre-pass — builds an element's single (scene, phase)
+/// cell column BEFORE the per-(scenario, stage) operational sweep, so block-
+/// and stage-scoped rows can reference it (a `global` DecisionVariable used
+/// in a per-block UserConstraint).  Rows stay in the planning passes above.
+template<typename T>
+concept HasAddCellCols = requires(T obj,
+                                  SystemContext& system_context,
+                                  const SceneLP& scene,
+                                  const PhaseLP& phase,
+                                  LinearProblem& lp) {
+  { obj.add_cell_cols(system_context, scene, phase, lp) } -> std::same_as<bool>;
+};
+
 /// Planning-level participation in either coarse scope — the discriminator
 /// for the planning passes and the capability `FutureCostLP` / `UserModelLP`
 /// will advertise.  An element may provide phase-scope, global-scope, or both.
@@ -210,6 +229,12 @@ static_assert(AddToLP<InertiaZoneLP>);
 static_assert(AddToLP<InertiaProvisionLP>);
 
 static_assert(AddToLP<JunctionLP>);
+static_assert(AddToLP<GasNodeLP>);
+static_assert(AddToLP<GasSupplyLP>);
+static_assert(AddToLP<GasDemandLP>);
+static_assert(AddToLP<GasPipeLP>);
+static_assert(AddToLP<GasCompressorLP>);
+static_assert(AddToLP<GasTurbineLP>);
 static_assert(AddToLP<WaterwayLP>);
 static_assert(AddToLP<FlowLP>);
 static_assert(AddToLP<ReservoirLP>);
@@ -222,13 +247,12 @@ static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
 static_assert(AddToLP<LngTerminalLP>);
 static_assert(AddToLP<DecisionVariableLP>);
-// DecisionVariableLP also participates in the planning passes (piece 4/5):
-// `phase` / `global`-scoped columns (incl. the AMPL `state` α) are built once
-// per (scene, phase) cell via add_to_phase_lp / add_to_global_lp.  It keeps
-// the operational AddToLP for block/stage scope (every legacy bundle).
-static_assert(HasAddToPhaseLp<DecisionVariableLP>);
-static_assert(HasAddToGlobalLp<DecisionVariableLP>);
-static_assert(HasAddToPlanning<DecisionVariableLP>);
+// DecisionVariableLP builds its `phase` / `global`-scoped columns (incl. the
+// AMPL `state` α) once per (scene, phase) cell in the `add_cell_cols`
+// pre-pass, BEFORE the operational sweep, so every constraint scope can
+// reference them.  It keeps the operational AddToLP for block/stage scope.
+static_assert(HasAddCellCols<DecisionVariableLP>);
+static_assert(!HasAddToPlanning<DecisionVariableLP>);
 static_assert(AddToLP<PlantLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
@@ -242,6 +266,7 @@ static_assert(AddToLP<UserModelLP>);
 static_assert(HasAddToLp<UserModelLP>);
 static_assert(HasAddToOutput<UserModelLP>);
 static_assert(HasAddToPlanning<UserModelLP>);
+static_assert(HasAddCellCols<UserModelLP>);
 // Ordering: UserModelLP reuses the same resolver/registry as
 // UserConstraintLP and may reference reservoir/AMPL terminal columns, so it
 // sits AFTER UserConstraintLP in the type list (before the planning-only
@@ -444,6 +469,12 @@ public:
                                    Collection<FlowRightLP>,
                                    Collection<VolumeRightLP>,
                                    Collection<LngTerminalLP>,
+                                   Collection<GasNodeLP>,
+                                   Collection<GasSupplyLP>,
+                                   Collection<GasDemandLP>,
+                                   Collection<GasPipeLP>,
+                                   Collection<GasCompressorLP>,
+                                   Collection<GasTurbineLP>,
                                    Collection<DecisionVariableLP>,
                                    Collection<PlantLP>,
                                    Collection<UserConstraintLP>,
@@ -539,6 +570,17 @@ public:
   /// expected failure mode.
   void accumulate_convergence_indicators(SceneIndex scene_index,
                                          PhaseIndex phase_index);
+
+  /// Objective contribution [physical $, the space of
+  /// `linear_interface().get_obj_value()`] of the water-rights REWARD
+  /// terms in the last solution: the sum of
+  /// `FlowRightLP::reward_objective` and `VolumeRightLP::reward_objective`
+  /// over every (scenario, stage) of this (scene, phase).  Always <= 0;
+  /// 0 when no right carries a positive `uvalue`.  Agreement rewards
+  /// (e.g. PLP's ValorRiego on delivered irrigation) are valuations, not
+  /// costs: SDDP reports `UB_net = UB − rewards` next to the raw UB.
+  /// Same preconditions as `accumulate_convergence_indicators`.
+  [[nodiscard]] double agreement_rewards_objective() const;
 
   /**
    * @brief Get system options

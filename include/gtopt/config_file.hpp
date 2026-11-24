@@ -108,7 +108,10 @@ using IniData = std::map<std::string, std::map<std::string, std::string>>;
     }
 
     // Trim value
-    if (const auto s = val.find_first_not_of(" \t"); s != std::string::npos) {
+    // '\r' counts as whitespace so CRLF (Windows-edited) files do not
+    // turn an empty value into "\r".
+    if (const auto s = val.find_first_not_of(" \t\r\n"); s != std::string::npos)
+    {
       val = val.substr(s);
       if (const auto e = val.find_last_not_of(" \t\r\n");
           e != std::string::npos)

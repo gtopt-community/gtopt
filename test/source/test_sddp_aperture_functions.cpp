@@ -7,6 +7,7 @@
  */
 
 #include <limits>
+#include <span>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -402,8 +403,9 @@ TEST_CASE(
       "test");
 
   REQUIRE(result.has_value());
-  CHECK(result->size() == defs.size());
-  CHECK(result->data() == defs.data());  // aliases input, not `owned`
+  const auto effective = result.value_or(std::span<const Aperture> {});
+  CHECK(effective.size() == defs.size());
+  CHECK(effective.data() == defs.data());  // aliases input, not `owned`
   CHECK(owned.empty());
 }
 
@@ -453,11 +455,12 @@ TEST_CASE("resolve_effective_apertures — case D: filter defs by UID")  // NOLI
       "test");
 
   REQUIRE(result.has_value());
-  REQUIRE(result->size() == 2);
-  CHECK((*result)[0].uid == Uid {2});
-  CHECK((*result)[1].uid == Uid {4});
+  const auto effective = result.value_or(std::span<const Aperture> {});
+  REQUIRE(effective.size() == 2);
+  CHECK(effective[0].uid == Uid {2});
+  CHECK(effective[1].uid == Uid {4});
   // Returned span aliases `owned`, not the input defs.
-  CHECK(result->data() == owned.data());
+  CHECK(effective.data() == owned.data());
 }
 
 TEST_CASE(
@@ -482,12 +485,13 @@ TEST_CASE(
       "test");
 
   REQUIRE(result.has_value());
-  REQUIRE(result->size() == 2);
-  CHECK((*result)[0].uid == Uid {10});
-  CHECK((*result)[1].uid == Uid {20});
-  CHECK((*result)[0].probability_factor.value_or(0.0) == doctest::Approx(0.5));
-  CHECK((*result)[1].probability_factor.value_or(0.0) == doctest::Approx(0.5));
-  CHECK(result->data() == owned.data());
+  const auto effective = result.value_or(std::span<const Aperture> {});
+  REQUIRE(effective.size() == 2);
+  CHECK(effective[0].uid == Uid {10});
+  CHECK(effective[1].uid == Uid {20});
+  CHECK(effective[0].probability_factor.value_or(0.0) == doctest::Approx(0.5));
+  CHECK(effective[1].probability_factor.value_or(0.0) == doctest::Approx(0.5));
+  CHECK(effective.data() == owned.data());
 }
 
 TEST_CASE(
@@ -1086,28 +1090,21 @@ TEST_CASE(
   CHECK(enum_name(ApertureSelectionMode::tail) == "tail");
 
   CHECK((enum_from_name<ApertureSelectionMode>("head")
-         && *enum_from_name<ApertureSelectionMode>("head")
-             == ApertureSelectionMode::head));
+         == ApertureSelectionMode::head));
   CHECK((enum_from_name<ApertureSelectionMode>("stride")
-         && *enum_from_name<ApertureSelectionMode>("stride")
-             == ApertureSelectionMode::stride));
+         == ApertureSelectionMode::stride));
   CHECK((enum_from_name<ApertureSelectionMode>("tail")
-         && *enum_from_name<ApertureSelectionMode>("tail")
-             == ApertureSelectionMode::tail));
+         == ApertureSelectionMode::tail));
 
   // Aliases
   CHECK((enum_from_name<ApertureSelectionMode>("first")
-         && *enum_from_name<ApertureSelectionMode>("first")
-             == ApertureSelectionMode::head));
+         == ApertureSelectionMode::head));
   CHECK((enum_from_name<ApertureSelectionMode>("interleave")
-         && *enum_from_name<ApertureSelectionMode>("interleave")
-             == ApertureSelectionMode::stride));
+         == ApertureSelectionMode::stride));
   CHECK((enum_from_name<ApertureSelectionMode>("spread")
-         && *enum_from_name<ApertureSelectionMode>("spread")
-             == ApertureSelectionMode::stride));
+         == ApertureSelectionMode::stride));
   CHECK((enum_from_name<ApertureSelectionMode>("last")
-         && *enum_from_name<ApertureSelectionMode>("last")
-             == ApertureSelectionMode::tail));
+         == ApertureSelectionMode::tail));
 
   CHECK_FALSE(enum_from_name<ApertureSelectionMode>("unknown").has_value());
 }
@@ -1256,7 +1253,7 @@ TEST_CASE(
     "partition_apertures — N=4, K=2 yields two chunks of size 2")  // NOLINT
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-argument-comment,bugprone-unchecked-optional-access)
+  // NOLINTBEGIN(bugprone-argument-comment)
   ApertureBag bag {4};
   const auto chunks = partition_apertures(bag.entries, 2);
   REQUIRE(chunks.size() == 2);
@@ -1267,7 +1264,7 @@ TEST_CASE(
   CHECK(&chunks[1].front() == &bag.entries[2]);
 }
 
-// NOLINTEND(bugprone-argument-comment,bugprone-unchecked-optional-access)
+// NOLINTEND(bugprone-argument-comment)
 
 // ─── dual_shared_bound_correction (Lemma AP2) ───────────────────────────────
 
@@ -1280,7 +1277,7 @@ TEST_CASE(  // NOLINT
 
   const auto corr = dual_shared_bound_correction(rc, low, upp, low, upp);
   REQUIRE(corr.has_value());
-  CHECK(*corr == doctest::Approx(0.0));
+  CHECK((corr && *corr == doctest::Approx(0.0)));
 }
 
 TEST_CASE(  // NOLINT
@@ -1297,7 +1294,7 @@ TEST_CASE(  // NOLINT
   const auto corr =
       dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
   REQUIRE(corr.has_value());
-  CHECK(*corr == doctest::Approx(6.0));
+  CHECK((corr && *corr == doctest::Approx(6.0)));
 }
 
 TEST_CASE(  // NOLINT
@@ -1317,7 +1314,7 @@ TEST_CASE(  // NOLINT
     const auto corr =
         dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
     REQUIRE(corr.has_value());
-    CHECK(*corr == doctest::Approx(3.0));
+    CHECK((corr && *corr == doctest::Approx(3.0)));
   }
 
   SUBCASE("relaxed upper bound lowers the intercept")
@@ -1327,7 +1324,7 @@ TEST_CASE(  // NOLINT
     const auto corr =
         dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
     REQUIRE(corr.has_value());
-    CHECK(*corr == doctest::Approx(-3.0));
+    CHECK((corr && *corr == doctest::Approx(-3.0)));
   }
 }
 
@@ -1348,7 +1345,7 @@ TEST_CASE(  // NOLINT
       dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
   REQUIRE(corr.has_value());
   // 3.0 × (7−5) + (−2.0) × (7−5) = 6 − 4 = 2.
-  CHECK(*corr == doctest::Approx(2.0));
+  CHECK((corr && *corr == doctest::Approx(2.0)));
 }
 
 TEST_CASE(  // NOLINT
@@ -1365,7 +1362,7 @@ TEST_CASE(  // NOLINT
   const auto corr =
       dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
   REQUIRE(corr.has_value());
-  CHECK(*corr == doctest::Approx(0.0));
+  CHECK((corr && *corr == doctest::Approx(0.0)));
 }
 
 TEST_CASE(  // NOLINT
@@ -1407,7 +1404,7 @@ TEST_CASE(  // NOLINT
     const auto corr =
         dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
     REQUIRE(corr.has_value());
-    CHECK(*corr == doctest::Approx(0.0));
+    CHECK((corr && *corr == doctest::Approx(0.0)));
   }
 }
 
@@ -1468,7 +1465,7 @@ TEST_CASE(  // NOLINT
       dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
   REQUIRE(corr.has_value());
   // 2.0×1.5 + (−3.0)×(−1.0) + 0 + 0 = 3.0 + 3.0 = 6.0.
-  CHECK(*corr == doctest::Approx(6.0));
+  CHECK((corr && *corr == doctest::Approx(6.0)));
 }
 
 TEST_CASE(  // NOLINT
@@ -1521,7 +1518,7 @@ TEST_CASE(  // NOLINT
   // correction sees no delta at all.
   const auto corr = dual_shared_bound_correction(rc, low, upp, low, upp);
   REQUIRE(corr.has_value());
-  CHECK(*corr == doctest::Approx(0.0));
+  CHECK((corr && *corr == doctest::Approx(0.0)));
 
   // Exact dry-aperture solve: the objective moves by yᵀΔb = −4 …
   iface.set_row_bounds(r, 1.0, 1.0);
@@ -1533,5 +1530,5 @@ TEST_CASE(  // NOLINT
   // … so the synthesized intercept (z_rep + corr = 6) would sit STRICTLY
   // ABOVE the exact dry optimum (2): an invalid cut had the gate not
   // forced exact solves.
-  CHECK(z_rep + *corr > z_dry + 1.0);
+  CHECK((corr && z_rep + *corr > z_dry + 1.0));
 }

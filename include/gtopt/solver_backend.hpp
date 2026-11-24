@@ -44,7 +44,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 16;
+inline constexpr int k_solver_abi_version = 17;
 
 /// TEST-ONLY hook: true when the environment variable
 /// `GTOPT_TEST_FORCE_SOS_BAIL=1` is set.  Forces the dual-recovery pass
@@ -439,6 +439,12 @@ public:
   /// pinned to the incumbent), identical to the portable default path —
   /// only wall-clock differs.
   ///
+  /// Also the post-MIP POLISH: `LinearInterface::polish_mip` calls it
+  /// after ANY MIP stop that holds an incumbent (`has_mip_incumbent`),
+  /// not only after a proven-optimal one, so a MIP stopped by its time
+  /// limit reports the best dispatch for its incumbent's integer
+  /// decisions (the fixed-LP primal + objective) together with duals.
+  ///
   /// Default (portable) path: gather integer columns via `is_integer`,
   /// read the current column solution (`col_solution`), pin each integer
   /// column to `std::round(value)` on both bounds, pin each SOS-member
@@ -829,6 +835,25 @@ public:
   [[nodiscard]] virtual bool is_abandoned() const = 0;
   [[nodiscard]] virtual bool is_proven_primal_infeasible() const = 0;
   [[nodiscard]] virtual bool is_proven_dual_infeasible() const = 0;
+
+  /// True when the last solve was a MIP that stopped holding an
+  /// integer-feasible incumbent that `col_solution()` returns — whatever
+  /// the termination status: optimal, or stopped early by a time / node /
+  /// memory / solution limit or an abort with an incumbent in hand
+  /// (CPLEX `CPXMIP_TIME_LIM_FEAS`, HiGHS `primal_solution_status ==
+  /// feasible`, Gurobi / MindOpt `SolCount > 0`, SCIP best solution,
+  /// CBC best solution, cuOpt `FEASIBLE_FOUND`).
+  ///
+  /// Gates the post-MIP polish (`LinearInterface::polish_mip`): when a
+  /// MIP is NOT proven optimal its incumbent's continuous part can be far
+  /// from the best dispatch for the incumbent's integer decisions, so
+  /// gtopt fixes the integers and re-solves the LP.  Without an
+  /// incumbent there is nothing to fix.
+  ///
+  /// Default `false`: a backend that cannot tell keeps the legacy
+  /// behaviour (no polish after a non-optimal stop).  Pure-LP backends
+  /// never override it.
+  [[nodiscard]] virtual bool has_mip_incumbent() const { return false; }
 
   // ---- solver options ----
   // Replaces all #ifdef COIN_USE_* / OSI_EXTENDED blocks.

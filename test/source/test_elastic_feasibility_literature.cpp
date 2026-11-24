@@ -43,6 +43,8 @@
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/state_variable.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -171,21 +173,24 @@ TEST_CASE(  // NOLINT
 
   auto elastic =
       elastic_filter_solve(fx.li, fx.links, kUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
-  REQUIRE(elastic->link_infos.size() == 1);
-  REQUIRE(elastic->link_infos[0].relaxed);
+  auto& elastic_result = test_support::require_value(elastic);
+  REQUIRE(elastic_result.solved);
+  REQUIRE(elastic_result.link_infos.size() == 1);
+  REQUIRE(elastic_result.link_infos[0].relaxed);
 
   // Phase-1 SINF: obj = unit penalty x total slack activation = 3.
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(3.0));
+  CHECK(elastic_result.clone.get_obj_value() == doctest::Approx(3.0));
 
   // The clone moved y to the feasibility boundary y = -2.
-  CHECK(elastic->clone.get_col_sol_raw()[fx.y] == doctest::Approx(-2.0));
+  CHECK(elastic_result.clone.get_col_sol_raw()[fx.y] == doctest::Approx(-2.0));
 
   SUBCASE("aggregated feasibility cut == y >= -2")
   {
-    auto cut = build_feasibility_cut_physical(
-        fx.links, elastic->link_infos, elastic->clone, kCutCoeffEps, 0);
+    auto cut = build_feasibility_cut_physical(fx.links,
+                                              elastic_result.link_infos,
+                                              elastic_result.clone,
+                                              kCutCoeffEps,
+                                              0);
 
     REQUIRE(cut.cmap.contains(ColIndex {99}));
     const double pi = cut.cmap.at(ColIndex {99});
@@ -204,8 +209,8 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("per-link multi-cut agrees with the aggregated cut")
   {
-    auto cuts =
-        build_multi_cuts(*elastic, fx.links, {}, kCutCoeffEps, /*niter=*/0);
+    auto cuts = build_multi_cuts(
+        elastic_result, fx.links, {}, kCutCoeffEps, /*niter=*/0);
     REQUIRE(cuts.size() == 1);
     const auto& cut = cuts.front();
     REQUIRE(cut.cmap.contains(ColIndex {99}));
@@ -226,14 +231,17 @@ TEST_CASE(  // NOLINT
 
   auto elastic =
       elastic_filter_solve(fx.li, fx.links, kUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& elastic_result = test_support::require_value(elastic);
+  REQUIRE(elastic_result.solved);
 
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(3.0));
-  CHECK(elastic->clone.get_col_sol_raw()[fx.y] == doctest::Approx(2.0));
+  CHECK(elastic_result.clone.get_obj_value() == doctest::Approx(3.0));
+  CHECK(elastic_result.clone.get_col_sol_raw()[fx.y] == doctest::Approx(2.0));
 
-  auto cut = build_feasibility_cut_physical(
-      fx.links, elastic->link_infos, elastic->clone, kCutCoeffEps, 0);
+  auto cut = build_feasibility_cut_physical(fx.links,
+                                            elastic_result.link_infos,
+                                            elastic_result.clone,
+                                            kCutCoeffEps,
+                                            0);
 
   REQUIRE(cut.cmap.contains(ColIndex {99}));
   const double pi = cut.cmap.at(ColIndex {99});
@@ -359,15 +367,18 @@ TEST_CASE(  // NOLINT
 
   auto elastic =
       elastic_filter_solve(fx.li, fx.links, kUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& elastic_result = test_support::require_value(elastic);
+  REQUIRE(elastic_result.solved);
 
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(68.8));
+  CHECK(elastic_result.clone.get_obj_value() == doctest::Approx(68.8));
 
   SUBCASE("aggregated cut: sigma=(1,1) certificate, valid vs known region")
   {
-    auto cut = build_feasibility_cut_physical(
-        fx.links, elastic->link_infos, elastic->clone, kCutCoeffEps, 0);
+    auto cut = build_feasibility_cut_physical(fx.links,
+                                              elastic_result.link_infos,
+                                              elastic_result.clone,
+                                              kCutCoeffEps,
+                                              0);
 
     // gtopt's unit-penalty phase-1 gives sigma = (1, 1); B&L's
     // sigma = (3, 1) with rhs 123.2 is a different valid certificate
@@ -403,8 +414,8 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("multi-cut: PLP-style per-variable projections 27.2 / 41.6")
   {
-    auto cuts =
-        build_multi_cuts(*elastic, fx.links, {}, kCutCoeffEps, /*niter=*/0);
+    auto cuts = build_multi_cuts(
+        elastic_result, fx.links, {}, kCutCoeffEps, /*niter=*/0);
     REQUIRE(cuts.size() == 2);
 
     const SparseRow* c1 = nullptr;
@@ -586,13 +597,16 @@ TEST_CASE(  // NOLINT
     DinizTwoAreaFixture fx {44.0, 95.0};
     auto elastic =
         elastic_filter_solve(fx.li, fx.links, kUnitPenalty, SolverOptions {});
-    REQUIRE(elastic.has_value());
-    REQUIRE(elastic->solved);
+    auto& elastic_result = test_support::require_value(elastic);
+    REQUIRE(elastic_result.solved);
     // Minimum slack: move x1 44 -> 45, i.e. SINF = 1.
-    CHECK(elastic->clone.get_obj_value() == doctest::Approx(1.0));
+    CHECK(elastic_result.clone.get_obj_value() == doctest::Approx(1.0));
 
-    auto cut = build_feasibility_cut_physical(
-        fx.links, elastic->link_infos, elastic->clone, kCutCoeffEps, 0);
+    auto cut = build_feasibility_cut_physical(fx.links,
+                                              elastic_result.link_infos,
+                                              elastic_result.clone,
+                                              kCutCoeffEps,
+                                              0);
 
     // The cut is the pure x1 facet: no x2 involvement (x2's slack
     // stays at zero, so the PLP dx filter drops that link).
@@ -612,8 +626,8 @@ TEST_CASE(  // NOLINT
     }
 
     // Multi-cut form: exactly one per-link cut, same facet.
-    auto cuts =
-        build_multi_cuts(*elastic, fx.links, {}, kCutCoeffEps, /*niter=*/0);
+    auto cuts = build_multi_cuts(
+        elastic_result, fx.links, {}, kCutCoeffEps, /*niter=*/0);
     REQUIRE(cuts.size() == 1);
     CHECK(cuts.front().lowb / cuts.front().cmap.at(ColIndex {99})
           == doctest::Approx(45.0));
@@ -624,12 +638,15 @@ TEST_CASE(  // NOLINT
     DinizTwoAreaFixture fx {95.0, 9.0};
     auto elastic =
         elastic_filter_solve(fx.li, fx.links, kUnitPenalty, SolverOptions {});
-    REQUIRE(elastic.has_value());
-    REQUIRE(elastic->solved);
-    CHECK(elastic->clone.get_obj_value() == doctest::Approx(1.0));
+    auto& elastic_result = test_support::require_value(elastic);
+    REQUIRE(elastic_result.solved);
+    CHECK(elastic_result.clone.get_obj_value() == doctest::Approx(1.0));
 
-    auto cut = build_feasibility_cut_physical(
-        fx.links, elastic->link_infos, elastic->clone, kCutCoeffEps, 0);
+    auto cut = build_feasibility_cut_physical(fx.links,
+                                              elastic_result.link_infos,
+                                              elastic_result.clone,
+                                              kCutCoeffEps,
+                                              0);
 
     REQUIRE(cut.cmap.contains(ColIndex {100}));
     CHECK_FALSE(cut.cmap.contains(ColIndex {99}));
@@ -666,13 +683,16 @@ TEST_CASE(  // NOLINT
   DinizTwoAreaFixture fx {46.0, 48.0};
   auto elastic =
       elastic_filter_solve(fx.li, fx.links, kUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& elastic_result = test_support::require_value(elastic);
+  REQUIRE(elastic_result.solved);
   // Minimum slack = distance to the coupling facet = 1.
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(1.0));
+  CHECK(elastic_result.clone.get_obj_value() == doctest::Approx(1.0));
 
-  auto cut = build_feasibility_cut_physical(
-      fx.links, elastic->link_infos, elastic->clone, kCutCoeffEps, 0);
+  auto cut = build_feasibility_cut_physical(fx.links,
+                                            elastic_result.link_infos,
+                                            elastic_result.clone,
+                                            kCutCoeffEps,
+                                            0);
 
   // Must cut off the probe...
   CHECK(cuts_off(cut,
@@ -770,16 +790,19 @@ TEST_CASE(  // NOLINT
 
   auto elastic =
       elastic_filter_solve(fx.li, fx.links, kUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& elastic_result = test_support::require_value(elastic);
+  REQUIRE(elastic_result.solved);
 
   // Minimum slack: v 30 -> 50 (u >= 50 forced by g <= 100), SINF = 20.
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(20.0));
+  CHECK(elastic_result.clone.get_obj_value() == doctest::Approx(20.0));
 
   SUBCASE("aggregated cut == PLP `cf: vf 1.0 / rhsi: 50`")
   {
-    auto cut = build_feasibility_cut_physical(
-        fx.links, elastic->link_infos, elastic->clone, kCutCoeffEps, 0);
+    auto cut = build_feasibility_cut_physical(fx.links,
+                                              elastic_result.link_infos,
+                                              elastic_result.clone,
+                                              kCutCoeffEps,
+                                              0);
 
     REQUIRE(cut.cmap.contains(ColIndex {99}));
     CHECK(cut.cmap.at(ColIndex {99}) == doctest::Approx(1.0));
@@ -793,8 +816,8 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("multi-cut form: same single-variable bound")
   {
-    auto cuts =
-        build_multi_cuts(*elastic, fx.links, {}, kCutCoeffEps, /*niter=*/0);
+    auto cuts = build_multi_cuts(
+        elastic_result, fx.links, {}, kCutCoeffEps, /*niter=*/0);
     REQUIRE(cuts.size() == 1);
     const auto& cut = cuts.front();
     const double pi = cut.cmap.at(ColIndex {99});
@@ -814,16 +837,19 @@ TEST_CASE(  // NOLINT
 
   auto elastic =
       elastic_filter_solve(fx.li, fx.links, kUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(0.0));
+  auto& elastic_result = test_support::require_value(elastic);
+  REQUIRE(elastic_result.solved);
+  CHECK(elastic_result.clone.get_obj_value() == doctest::Approx(0.0));
 
-  auto cut = build_feasibility_cut_physical(
-      fx.links, elastic->link_infos, elastic->clone, kCutCoeffEps, 0);
+  auto cut = build_feasibility_cut_physical(fx.links,
+                                            elastic_result.link_infos,
+                                            elastic_result.clone,
+                                            kCutCoeffEps,
+                                            0);
   CHECK(cut.cmap.empty());
   CHECK(cut.lowb == doctest::Approx(0.0));
 
   auto cuts =
-      build_multi_cuts(*elastic, fx.links, {}, kCutCoeffEps, /*niter=*/0);
+      build_multi_cuts(elastic_result, fx.links, {}, kCutCoeffEps, /*niter=*/0);
   CHECK(cuts.empty());
 }

@@ -265,6 +265,18 @@ public:
   }
   /// @}
 
+  /// Objective contribution [physical $, same space as
+  /// `LinearInterface::get_obj_value()`] of this right's REWARD terms
+  /// at (scenario, stage) in the last solution of `li`: every flow /
+  /// surplus column priced with a negative objective coefficient
+  /// (positive `uvalue`).  A uvalue-only kink substitution counts the
+  /// reward beyond its cached target, `c · (x − target)`; an fcost-only
+  /// substitution (a refunded shortfall penalty, not a reward) is
+  /// skipped.  Always <= 0.  Requires a live, optimal backend.
+  [[nodiscard]] double reward_objective(const ScenarioLP& scenario,
+                                        const StageLP& stage,
+                                        const LinearInterface& li) const;
+
 private:
   /// Resolved fmin schedule (hard lower bound).
   /// Per-stage-block so hourly profiles (Demand::lmax-style) work; the

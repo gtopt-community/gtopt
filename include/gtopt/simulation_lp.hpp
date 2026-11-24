@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -34,6 +35,7 @@
 #include <gtopt/map_reserve.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/position_vector.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/simulation.hpp>
@@ -232,43 +234,45 @@ public:
     return m_simulation_.get().aperture_array;
   }
 
-  [[nodiscard]] constexpr auto previous_stage(const StageLP& stage)
-  {
-    if (!stage.index()) {
-      throw std::out_of_range("No previous stage for the first stage");
-    }
-    return m_stage_array_[previous(stage.index())];
-  }
-
+  /// Chronological predecessor of `stage`.
+  ///
+  /// For a phase stage (`stage.phase_stage_index()` known):
+  ///   * same-phase predecessor -> `{prev_stage, nullptr}` taken from the
+  ///     phase's OWN stage list (addressed by `PhaseStageIndex`);
+  ///   * first stage of a later phase -> `{last stage of the previous
+  ///     phase, previous phase}`;
+  ///   * first stage of the first phase -> `{nullptr, nullptr}`.
+  /// For a flat global copy (no phase position) the predecessor comes from
+  /// the global list (`StageIndex`) and the phase pointer is null.
+  ///
+  /// The two positions are distinct types: indexing the global array
+  /// with the phase-local position (the pre-fix bug, free water in every
+  /// non-first stage of a non-first phase) no longer compiles.
   [[nodiscard]] constexpr auto prev_stage(const StageLP& stage) const noexcept
       -> std::pair<const StageLP*, const PhaseLP*>
   {
-    if (!stage.index()) {
-      if (const auto phase_index = stage.phase_index(); !phase_index) {
+    const auto phase_stage_index = stage.phase_stage_index();
+    if (phase_stage_index == PhaseStageIndex {unknown_index}) {
+      if (!stage.stage_index()
+          || stage.stage_index() == StageIndex {unknown_index})
+      {
         return {nullptr, nullptr};
       }
-      auto&& prev_phase = phases()[previous(stage.phase_index())];
+      return {&m_stage_array_[previous(stage.stage_index())], nullptr};
+    }
+
+    const auto phase_index = stage.phase_index();
+    if (!phase_stage_index) {
+      if (!phase_index) {
+        return {nullptr, nullptr};
+      }
+      auto&& prev_phase = phases()[previous(phase_index)];
       auto&& prev_stage = prev_phase.stages().back();
       return {&prev_stage, &prev_phase};
     }
 
-    // `stage.index()` is the stage's position WITHIN its phase
-    // (`PhaseLP` builds its StageLPs with a phase-local index), so the
-    // same-phase predecessor must come from the phase's own stage list.
-    // Indexing the global `m_stage_array_` with it is only right for the
-    // first phase: in a later multi-stage phase it returned a stage of
-    // an EARLIER phase, the storage/capacity chain then found no efin
-    // column for it and restarted the stage from `eini` (free water /
-    // reset capacity in every non-first stage of a non-first phase).
-    const auto prev_stage_index = previous(stage.index());
-    if (const auto phase_index = stage.phase_index();
-        phase_index != PhaseIndex {unknown_index})
-    {
-      const auto& phase_stages = phases()[phase_index].stages();
-      return {&phase_stages[static_cast<std::size_t>(prev_stage_index)],
-              nullptr};
-    }
-    return {&m_stage_array_[prev_stage_index], nullptr};
+    const auto& phase_stages = phases()[phase_index].stages();
+    return {&phase_stages[previous(phase_stage_index)], nullptr};
   }
 
   // Get method with deducing this for automatic const handling
@@ -1314,6 +1318,40 @@ public:
     return std::nullopt;
   }
 
+  // ── Scope-restricted elements ────────────────────────────────────────
+  //
+  // Elements whose LP column lives at a COARSER (or narrower) granularity
+  // than the per-(scenario, stage, block) default — today only
+  // `DecisionVariable` with `scope` = stage / phase / global or a single
+  // `block` selector.  A user-constraint term that names such an element
+  // and finds no column at the row's (scenario, stage, block) is NOT the
+  // PLEXOS-faithful "implicitly zero" case (a generator with pmax = 0): the
+  // column exists, just not where the row looks.  The resolver consults
+  // this registry to turn that silent drop into a strict-mode error or a
+  // lax-mode warning.  Populated once in the `std::call_once` AMPL block;
+  // read-only thereafter.
+
+  /// Mark (class, uid) as scope-restricted.  @p description is a short
+  /// human-readable phrase ("scope 'global'", "single-block selector
+  /// (block 3)") surfaced in the diagnostic.
+  void register_ampl_scoped_element(std::string_view class_name,
+                                    Uid element_uid,
+                                    std::string description)
+  {
+    m_ampl_scoped_elements_.insert_or_assign(
+        std::pair {class_name, element_uid}, std::move(description));
+  }
+
+  /// Return the scope description when (class, uid) was registered via
+  /// `register_ampl_scoped_element`; nullptr otherwise.
+  [[nodiscard]] const std::string* find_ampl_scoped_element(
+      std::string_view class_name, Uid element_uid) const noexcept
+  {
+    const auto it =
+        m_ampl_scoped_elements_.find(std::pair {class_name, element_uid});
+    return it != m_ampl_scoped_elements_.end() ? &it->second : nullptr;
+  }
+
   // ── Class-level parameter dispatch table ─────────────────────────────
   //
   // Each `*LP` class registers its `param_*` accessors with the
@@ -1343,6 +1381,47 @@ public:
     const auto it = m_ampl_params_.find(
         AmplParamKey {.class_name = class_name, .attribute = attribute});
     return (it != m_ampl_params_.end()) ? it->second : nullptr;
+  }
+
+  /// Register the class-level activity probe (see `AmplActiveFn`).
+  /// Called once per class from `system_lp.cpp`'s AMPL call_once block.
+  void register_ampl_active(std::string_view class_name, AmplActiveFn fn)
+  {
+    m_ampl_active_.insert_or_assign(class_name, fn);
+  }
+
+  /// Look up the activity probe of a class; nullptr when unregistered.
+  [[nodiscard]] AmplActiveFn find_ampl_active(
+      std::string_view class_name) const noexcept
+  {
+    const auto it = m_ampl_active_.find(class_name);
+    return (it != m_ampl_active_.end()) ? it->second : nullptr;
+  }
+
+  // ── Dropped user-constraint terms: run summary ───────────────────────
+  //
+  // A user-constraint term whose element has no LP column at a block for
+  // an INTENTIONAL reason (inactive element, zero capacity, `_prev` at the
+  // first block, …) contributes 0.  Each such drop is counted here per
+  // (constraint, reason) — from every parallel cell build, hence the
+  // mutex — and `log_dropped_term_summary` reports one INFO line per
+  // constraint once the build is done.
+
+  void record_dropped_term(std::string_view constraint_name,
+                           std::string_view reason) const
+  {
+    const std::scoped_lock lock(m_dropped_terms_mtx_);
+    ++m_dropped_terms_[std::string {constraint_name}][std::string {reason}];
+  }
+
+  /// Log (INFO) the per-constraint drop summary, one line per constraint.
+  void log_dropped_term_summary() const;
+
+  /// Snapshot of the drop counts (tests).
+  [[nodiscard]] auto dropped_term_counts() const
+  {
+    const std::scoped_lock lock(m_dropped_terms_mtx_);
+    return m_dropped_terms_;
   }
 
   /// Register a class-level iterator function.  Called once per class
@@ -1407,11 +1486,11 @@ public:
 private:
   std::reference_wrapper<const Simulation> m_simulation_;
   std::reference_wrapper<const PlanningOptionsLP> m_options_;
-  std::vector<BlockLP> m_block_array_;
-  std::vector<StageLP> m_stage_array_;
-  std::vector<PhaseLP> m_phase_array_;
-  std::vector<ScenarioLP> m_scenario_array_;
-  std::vector<SceneLP> m_scene_array_;
+  PositionVector<BlockIndex, BlockLP> m_block_array_;
+  PositionVector<StageIndex, StageLP> m_stage_array_;
+  PositionVector<PhaseIndex, PhaseLP> m_phase_array_;
+  PositionVector<ScenarioIndex, ScenarioLP> m_scenario_array_;
+  PositionVector<SceneIndex, SceneLP> m_scene_array_;
 
   global_variable_map_t m_global_variable_map_;
 
@@ -1536,11 +1615,21 @@ private:
   flat_map<std::pair<std::string_view, std::string_view>, std::string_view>
       m_ampl_suppressed_attrs_;
 
+  // Scope-restricted elements (see `register_ampl_scoped_element`).  Keys
+  // view constexpr class-name literals; populated in the call_once block.
+  flat_map<std::pair<std::string_view, Uid>, std::string>
+      m_ampl_scoped_elements_;
+
   // Class-level parameter and iterator dispatch tables.  Populated
   // exactly once via `register_all_ampl_element_names`'s call_once
   // block; read-only thereafter, no synchronization needed.
   AmplParamMap m_ampl_params_;
   AmplIterMap m_ampl_iters_;
+  flat_map<std::string_view, AmplActiveFn> m_ampl_active_;
+
+  mutable std::mutex m_dropped_terms_mtx_;
+  mutable std::map<std::string, std::map<std::string, std::size_t>>
+      m_dropped_terms_;
 
   // Shared, scene/phase-invariant arrow input-index cache (pimpl).  The
   // (cname, fname, uid) -> (Stage, Block) row index built by the long-direct

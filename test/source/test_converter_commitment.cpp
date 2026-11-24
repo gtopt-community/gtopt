@@ -115,8 +115,6 @@ auto discharge_gen_cols(const SystemLP& sys_lp, const SimulationLP& sim_lp)
 
 }  // namespace
 
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
-
 TEST_CASE("Converter.commitment unset: hard static lmin/pmin floor")  // NOLINT
 {
   // Battery with pmin_charge=5 but NO commitment — the synthetic
@@ -433,5 +431,3 @@ TEST_CASE("Converter.commitment skipped when pmin/lmin = 0")  // NOLINT
   REQUIRE(rc.has_value());
   REQUIRE(rc.value() == 0);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

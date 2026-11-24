@@ -32,6 +32,8 @@ using namespace gtopt;
 
 namespace fcss
 {
+namespace
+{
 
 /// Three-iteration boundary-cut file for the 3-phase hydro fixture: one
 /// state-independent cut `α ≥ rhs` per source iteration (1, 2, 3).
@@ -95,6 +97,7 @@ auto write_three_iteration_cuts(const std::string& path) -> void
   return last_phase_cut_count(planning_lp);
 }
 
+}  // namespace
 }  // namespace fcss
 
 using namespace fcss;

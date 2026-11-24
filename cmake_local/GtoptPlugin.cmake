@@ -90,6 +90,13 @@ function(gtopt_add_solver_plugin)
     ${_P_LIBRARIES}
   )
 
+  # Coverage builds: the plugin embeds instrumented gtopt objects, so it
+  # must link the gcov runtime itself (otherwise dlopen fails with an
+  # undefined __gcov_merge_add and every solver test loses its plugins).
+  if(ENABLE_TEST_COVERAGE AND NOT MSVC)
+    target_link_options(${_P_NAME} PRIVATE --coverage)
+  endif()
+
   # Optional compile definitions.
   if(_P_DEFINITIONS)
     target_compile_definitions(${_P_NAME} PRIVATE ${_P_DEFINITIONS})

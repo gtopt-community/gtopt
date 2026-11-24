@@ -363,6 +363,17 @@ struct ModelOptions
   /// Set `false` to reproduce the pre-envelope LP.
   OptBool battery_power_envelope {};
 
+  /// How `validate_planning` treats a ReserveZone requirement that depends
+  /// on endogenous (dispatch) quantities — `load_term:
+  /// "endogenous_generation"`, plane `flow_coef` on `flow_lines`,
+  /// contingency candidates with lines (signed flow) or
+  /// `contingency_includes_reserve`, `inertia_term: "endogenous"`.  Such a
+  /// coupling puts `β·μ` (plane coefficient × reserve price) into the LMP
+  /// of every bus that reaches the coupled column, which can price buses
+  /// negative.  `"warn"` (default) logs a warning, `"error"` rejects the
+  /// case, `"off"` is silent.
+  OptName reserve_coupling {};
+
   void merge(const ModelOptions& opts)
   {
     merge_opt(use_single_bus, opts.use_single_bus);
@@ -398,6 +409,7 @@ struct ModelOptions
     merge_opt(allow_oversupply, opts.allow_oversupply);
     merge_opt(battery_annual_standing_loss, opts.battery_annual_standing_loss);
     merge_opt(battery_power_envelope, opts.battery_power_envelope);
+    merge_opt(reserve_coupling, opts.reserve_coupling);
   }
 
   /// True if any field is set.
@@ -420,7 +432,7 @@ struct ModelOptions
         || objective_mode.has_value() || strict_storage_emin.has_value()
         || lp_reduction.has_value() || allow_oversupply.has_value()
         || battery_annual_standing_loss.has_value()
-        || battery_power_envelope.has_value();
+        || battery_power_envelope.has_value() || reserve_coupling.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -464,7 +476,8 @@ struct ModelOptions
         && covers_opt(allow_oversupply, other.allow_oversupply)
         && covers_opt(battery_annual_standing_loss,
                       other.battery_annual_standing_loss)
-        && covers_opt(battery_power_envelope, other.battery_power_envelope);
+        && covers_opt(battery_power_envelope, other.battery_power_envelope)
+        && covers_opt(reserve_coupling, other.reserve_coupling);
   }
 };
 

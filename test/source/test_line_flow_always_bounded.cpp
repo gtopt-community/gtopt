@@ -185,8 +185,6 @@ private:
 
 }  // namespace
 
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
-
 TEST_CASE(
     "Line flow column never free — two-variable flowp/flown bounded by tmax")
 {
@@ -247,7 +245,5 @@ TEST_CASE(
   CHECK(low_fs > -kFreeThreshold);
   CHECK(upp_fs < kFreeThreshold);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)
 
 }  // namespace test_line_flow_always_bounded_ns

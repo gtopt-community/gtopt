@@ -13,6 +13,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/constraint_parser.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 TEST_SUITE("ConstraintParser")
@@ -252,9 +254,10 @@ TEST_SUITE("ConstraintParser")
     auto expr = ConstraintParser::parse(R"(2.5 * line("L1").flow <= 100)");
 
     REQUIRE(expr.terms.size() == 1);
-    REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->attribute == "flow");
-    CHECK(expr.terms[0].coefficient == doctest::Approx(2.5));
+    const auto& t = expr.terms[0];
+    REQUIRE(t.element.has_value());
+    CHECK((t.element && t.element->attribute == "flow"));
+    CHECK(t.coefficient == doctest::Approx(2.5));
   }
 
   TEST_CASE("Parse -line.flow keeps negative sign on single term")
@@ -264,9 +267,10 @@ TEST_SUITE("ConstraintParser")
     auto expr = ConstraintParser::parse(R"(-line("L1").flow <= 100)");
 
     REQUIRE(expr.terms.size() == 1);
-    REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->attribute == "flow");
-    CHECK(expr.terms[0].coefficient == doctest::Approx(-1.0));
+    const auto& t = expr.terms[0];
+    REQUIRE(t.element.has_value());
+    CHECK((t.element && t.element->attribute == "flow"));
+    CHECK(t.coefficient == doctest::Approx(-1.0));
   }
 
   TEST_CASE("Parse line.flow inside range constraint")
@@ -276,10 +280,11 @@ TEST_SUITE("ConstraintParser")
     auto expr = ConstraintParser::parse(R"(-50 <= line("L1").flow <= 50)");
 
     REQUIRE(expr.terms.size() == 1);
-    REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "line");
-    CHECK(expr.terms[0].element->attribute == "flow");
-    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+    const auto& t = expr.terms[0];
+    REQUIRE(t.element.has_value());
+    CHECK((t.element && t.element->element_type == "line"));
+    CHECK((t.element && t.element->attribute == "flow"));
+    CHECK(t.coefficient == doctest::Approx(1.0));
   }
 
   TEST_CASE("Parse sum(line(all).flow) preserves compound attribute")
@@ -289,11 +294,12 @@ TEST_SUITE("ConstraintParser")
     auto expr = ConstraintParser::parse(R"(sum(line(all).flow) <= 0)");
 
     REQUIRE(expr.terms.size() == 1);
-    REQUIRE(expr.terms[0].sum_ref.has_value());
-    CHECK(expr.terms[0].sum_ref->element_type == "line");
-    CHECK(expr.terms[0].sum_ref->attribute == "flow");
-    CHECK(expr.terms[0].sum_ref->all_elements);
-    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+    const auto& t = expr.terms[0];
+    REQUIRE(t.sum_ref.has_value());
+    CHECK((t.sum_ref && t.sum_ref->element_type == "line"));
+    CHECK((t.sum_ref && t.sum_ref->attribute == "flow"));
+    CHECK((t.sum_ref && t.sum_ref->all_elements));
+    CHECK(t.coefficient == doctest::Approx(1.0));
   }
 
   TEST_CASE("Parse sum(line(\"L1\",\"L2\").flow) preserves explicit id list")
@@ -303,12 +309,13 @@ TEST_SUITE("ConstraintParser")
     auto expr = ConstraintParser::parse(R"(sum(line("L1","L2").flow) <= 300)");
 
     REQUIRE(expr.terms.size() == 1);
-    REQUIRE(expr.terms[0].sum_ref.has_value());
-    CHECK(expr.terms[0].sum_ref->attribute == "flow");
-    CHECK(expr.terms[0].sum_ref->element_ids.size() == 2);
-    CHECK(expr.terms[0].sum_ref->element_ids[0] == "L1");
-    CHECK(expr.terms[0].sum_ref->element_ids[1] == "L2");
-    CHECK(expr.terms[0].coefficient == doctest::Approx(1.0));
+    const auto& t = expr.terms[0];
+    REQUIRE(t.sum_ref.has_value());
+    CHECK((t.sum_ref && t.sum_ref->attribute == "flow"));
+    CHECK((t.sum_ref && t.sum_ref->element_ids.size() == 2));
+    CHECK((t.sum_ref && t.sum_ref->element_ids[0] == "L1"));
+    CHECK((t.sum_ref && t.sum_ref->element_ids[1] == "L2"));
+    CHECK(t.coefficient == doctest::Approx(1.0));
   }
 
   TEST_CASE("Parse line.flowp and line.flown remain single terms")
@@ -319,13 +326,15 @@ TEST_SUITE("ConstraintParser")
     // triggers the expansion.
     auto flowp_expr = ConstraintParser::parse(R"(line("L1").flowp <= 100)");
     REQUIRE(flowp_expr.terms.size() == 1);
-    REQUIRE(flowp_expr.terms[0].element.has_value());
-    CHECK(flowp_expr.terms[0].element->attribute == "flowp");
+    const auto& tp = flowp_expr.terms[0];
+    REQUIRE(tp.element.has_value());
+    CHECK((tp.element && tp.element->attribute == "flowp"));
 
     auto flown_expr = ConstraintParser::parse(R"(line("L1").flown <= 100)");
     REQUIRE(flown_expr.terms.size() == 1);
-    REQUIRE(flown_expr.terms[0].element.has_value());
-    CHECK(flown_expr.terms[0].element->attribute == "flown");
+    const auto& tn = flown_expr.terms[0];
+    REQUIRE(tn.element.has_value());
+    CHECK((tn.element && tn.element->attribute == "flown"));
   }
 
   TEST_CASE("Parse battery energy constraint")
@@ -1746,7 +1755,7 @@ TEST_SUITE("ConstraintParser")
     REQUIRE(expr.terms.size() == 2);
     for (const auto& t : expr.terms) {
       REQUIRE(t.element.has_value());
-      if (t.element->element_id == "G1") {
+      if (t.element && t.element->element_id == "G1") {
         CHECK(t.coefficient == doctest::Approx(-1.0));
       } else {
         CHECK(t.coefficient == doctest::Approx(1.0));
@@ -1797,10 +1806,11 @@ TEST_SUITE("ConstraintParser")
     // `line.flow` stays as a single compound term; the outer coefficient
     // from the paren group is applied directly to it.
     REQUIRE(expr.terms.size() == 1);
-    REQUIRE(expr.terms[0].element.has_value());
-    CHECK(expr.terms[0].element->element_type == "line");
-    CHECK(expr.terms[0].element->attribute == "flow");
-    CHECK(expr.terms[0].coefficient == doctest::Approx(2.0));
+    const auto& t = expr.terms[0];
+    REQUIRE(t.element.has_value());
+    CHECK((t.element && t.element->element_type == "line"));
+    CHECK((t.element && t.element->attribute == "flow"));
+    CHECK(t.coefficient == doctest::Approx(2.0));
   }
 
   TEST_CASE("Parens: mismatched parens rejected")
@@ -2055,10 +2065,10 @@ TEST_SUITE("ConstraintParser")
     CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
     CHECK(expr.rhs == doctest::Approx(50.0));
     REQUIRE(expr.terms[0].abs_expr->inner.size() == 1);
-    REQUIRE(expr.terms[0].abs_expr->inner[0].element.has_value());
-    CHECK(expr.terms[0].abs_expr->inner[0].element->element_type
-          == "generator");
-    CHECK(expr.terms[0].abs_expr->inner[0].element->attribute == "generation");
+    const auto& inner = expr.terms[0].abs_expr->inner[0];
+    REQUIRE(inner.element.has_value());
+    CHECK((inner.element && inner.element->element_type == "generator"));
+    CHECK((inner.element && inner.element->attribute == "generation"));
   }
 
   TEST_CASE("F5: parse coeff * abs(linear) preserves outer coefficient")
@@ -2410,7 +2420,6 @@ TEST_SUITE("ConstraintParser")
   TEST_CASE("Phase 1e: state without parens is rejected")
   {
     using namespace gtopt;
-    // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(state reservoir("R1").efin <= 0)")),
@@ -2431,13 +2440,16 @@ TEST_SUITE("ConstraintParser")
     REQUIRE(expr.terms.size() == 1);
     const auto& t = expr.terms[0];
     REQUIRE(t.element.has_value());
-    CHECK(t.element->element_type == "generator");
-    CHECK(t.element->attribute == "generation");
+    CHECK(test_support::require_value(t.element).element_type == "generator");
+    CHECK(test_support::require_value(t.element).attribute == "generation");
     REQUIRE(t.coeff_profile.has_value());
-    REQUIRE(t.coeff_profile->size() == 3);
-    CHECK((*t.coeff_profile)[0] == doctest::Approx(1.0));
-    CHECK((*t.coeff_profile)[1] == doctest::Approx(2.0));
-    CHECK((*t.coeff_profile)[2] == doctest::Approx(3.0));
+    REQUIRE(test_support::require_value(t.coeff_profile).size() == 3);
+    CHECK(test_support::require_value(t.coeff_profile)[0]
+          == doctest::Approx(1.0));
+    CHECK(test_support::require_value(t.coeff_profile)[1]
+          == doctest::Approx(2.0));
+    CHECK(test_support::require_value(t.coeff_profile)[2]
+          == doctest::Approx(3.0));
 
     // coeff_at: per-block resolution (the exact function LP assembly uses)
     CHECK(t.coeff_at(0) == doctest::Approx(1.0));
@@ -2473,10 +2485,13 @@ TEST_SUITE("ConstraintParser")
     REQUIRE(expr.terms.size() == 1);
     const auto& t = expr.terms[0];
     REQUIRE(t.coeff_profile.has_value());
-    REQUIRE(t.coeff_profile->size() == 3);
-    CHECK((*t.coeff_profile)[0] == doctest::Approx(1.5));
-    CHECK((*t.coeff_profile)[1] == doctest::Approx(-0.5));
-    CHECK((*t.coeff_profile)[2] == doctest::Approx(2.0));
+    REQUIRE(test_support::require_value(t.coeff_profile).size() == 3);
+    CHECK(test_support::require_value(t.coeff_profile)[0]
+          == doctest::Approx(1.5));
+    CHECK(test_support::require_value(t.coeff_profile)[1]
+          == doctest::Approx(-0.5));
+    CHECK(test_support::require_value(t.coeff_profile)[2]
+          == doctest::Approx(2.0));
   }
 
   TEST_CASE("F9: leading unary minus negates the whole profile")
@@ -2489,10 +2504,13 @@ TEST_SUITE("ConstraintParser")
     REQUIRE(expr.terms.size() == 1);
     const auto& t = expr.terms[0];
     REQUIRE(t.coeff_profile.has_value());
-    REQUIRE(t.coeff_profile->size() == 3);
-    CHECK((*t.coeff_profile)[0] == doctest::Approx(-1.0));
-    CHECK((*t.coeff_profile)[1] == doctest::Approx(-2.0));
-    CHECK((*t.coeff_profile)[2] == doctest::Approx(-3.0));
+    REQUIRE(test_support::require_value(t.coeff_profile).size() == 3);
+    CHECK(test_support::require_value(t.coeff_profile)[0]
+          == doctest::Approx(-1.0));
+    CHECK(test_support::require_value(t.coeff_profile)[1]
+          == doctest::Approx(-2.0));
+    CHECK(test_support::require_value(t.coeff_profile)[2]
+          == doctest::Approx(-3.0));
   }
 
   TEST_CASE("F9: scalar folds into a profile multiplier")
@@ -2506,10 +2524,13 @@ TEST_SUITE("ConstraintParser")
     REQUIRE(expr.terms.size() == 1);
     const auto& t = expr.terms[0];
     REQUIRE(t.coeff_profile.has_value());
-    REQUIRE(t.coeff_profile->size() == 3);
-    CHECK((*t.coeff_profile)[0] == doctest::Approx(2.0));
-    CHECK((*t.coeff_profile)[1] == doctest::Approx(4.0));
-    CHECK((*t.coeff_profile)[2] == doctest::Approx(6.0));
+    REQUIRE(test_support::require_value(t.coeff_profile).size() == 3);
+    CHECK(test_support::require_value(t.coeff_profile)[0]
+          == doctest::Approx(2.0));
+    CHECK(test_support::require_value(t.coeff_profile)[1]
+          == doctest::Approx(4.0));
+    CHECK(test_support::require_value(t.coeff_profile)[2]
+          == doctest::Approx(6.0));
   }
 
   TEST_CASE("F9: profile on a sum aggregation term")
@@ -2523,9 +2544,11 @@ TEST_SUITE("ConstraintParser")
     const auto& t = expr.terms[0];
     REQUIRE(t.sum_ref.has_value());
     REQUIRE(t.coeff_profile.has_value());
-    REQUIRE(t.coeff_profile->size() == 2);
-    CHECK((*t.coeff_profile)[0] == doctest::Approx(10.0));
-    CHECK((*t.coeff_profile)[1] == doctest::Approx(20.0));
+    REQUIRE(test_support::require_value(t.coeff_profile).size() == 2);
+    CHECK(test_support::require_value(t.coeff_profile)[0]
+          == doctest::Approx(10.0));
+    CHECK(test_support::require_value(t.coeff_profile)[1]
+          == doctest::Approx(20.0));
   }
 
   TEST_CASE("F9: empty profile '[]' is rejected")
@@ -2566,5 +2589,3 @@ TEST_SUITE("ConstraintParser")
         std::invalid_argument);
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

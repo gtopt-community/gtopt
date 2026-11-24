@@ -449,7 +449,7 @@ TEST_CASE("RTS-24 PAMPL - parsed UserConstraint fields are populated correctly")
   CHECK(floor.description.value_or("") == "reserve floor");
   CHECK(floor.penalty.value_or(-1.0) == doctest::Approx(250.0));
   REQUIRE(floor.slack_name.has_value());
-  CHECK(floor.slack_name.value() == "slack_floor");
+  CHECK(floor.slack_name.value_or("") == "slack_floor");
 
   const auto& sched = parsed.constraints[1];
   CHECK(sched.name == "sched");

@@ -53,6 +53,12 @@ class EmissionZoneLP;
 class EmissionSourceLP;
 class FuelLP;
 class FutureCostLP;
+class GasNodeLP;
+class GasSupplyLP;
+class GasDemandLP;
+class GasPipeLP;
+class GasCompressorLP;
+class GasTurbineLP;
 class GeneratorLP;
 class InertiaProvisionLP;
 class InertiaZoneLP;
@@ -147,6 +153,12 @@ using lp_element_types_t = std::tuple<BusLP,
                                       FlowRightLP,
                                       VolumeRightLP,
                                       LngTerminalLP,
+                                      GasNodeLP,
+                                      GasSupplyLP,
+                                      GasDemandLP,
+                                      GasPipeLP,
+                                      GasCompressorLP,
+                                      GasTurbineLP,
                                       DecisionVariableLP,
                                       PlantLP,
                                       UserConstraintLP,

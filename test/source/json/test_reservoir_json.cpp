@@ -4,8 +4,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_reservoir.hpp>
 
+#include "../require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("Reservoir basic fields deserialization")
 {
@@ -232,8 +233,8 @@ TEST_CASE("Reservoir soft_emin JSON round-trip")  // NOLINT
     })";
     const Reservoir res = daw::json::from_json<Reservoir>(json_data);
     REQUIRE(res.soft_emin.has_value());
-    const auto& vec =
-        std::get<std::vector<std::vector<double>>>(*res.soft_emin);
+    const auto& vec = std::get<std::vector<std::vector<double>>>(
+        test_support::require_value(res.soft_emin));
     REQUIRE(vec.size() == 1);
     CHECK(vec[0].size() == 3);
     CHECK(vec[0][0] == doctest::Approx(100.0));
@@ -297,5 +298,3 @@ TEST_CASE("Reservoir daily_cycle JSON round-trip")  // NOLINT
     CHECK_FALSE(res.daily_cycle.has_value());
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

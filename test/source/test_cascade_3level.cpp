@@ -437,17 +437,19 @@ TEST_CASE(  // NOLINT
   // ── Hard variant: efin enforced as a strict bound (no soft cost) ──
   // Establishes the converged dual_max from the binding `vfin >= efin`
   // row.  Used as the reference for the dual±1 probes below.
-  const auto hard_stats = run_case(OptReal {});
-  REQUIRE(hard_stats.has_value());
-  REQUIRE(hard_stats->size() == 4);
+  const auto hard_stats_opt = run_case(OptReal {});
+  REQUIRE(hard_stats_opt.has_value());
+  const auto hard_stats =
+      hard_stats_opt.value_or(std::vector<CascadeLevelStats> {});
+  REQUIRE(hard_stats.size() == 4);
 
   SUBCASE("all 4 levels execute in order and produce valid bounds")
   {
-    CHECK((*hard_stats)[0].name == "warmup");
-    CHECK((*hard_stats)[1].name == "refine_1");
-    CHECK((*hard_stats)[2].name == "refine_2");
-    CHECK((*hard_stats)[3].name == "final");
-    for (const auto& ls : *hard_stats) {
+    CHECK(hard_stats[0].name == "warmup");
+    CHECK(hard_stats[1].name == "refine_1");
+    CHECK(hard_stats[2].name == "refine_2");
+    CHECK(hard_stats[3].name == "final");
+    for (const auto& ls : hard_stats) {
       CHECK(ls.iterations >= 1);
       CHECK(std::isfinite(ls.lower_bound));
       CHECK(std::isfinite(ls.upper_bound));
@@ -468,7 +470,7 @@ TEST_CASE(  // NOLINT
     // tighten the LB.  If transfer silently failed at any boundary,
     // the affected level would restart near the α-bootstrap floor and
     // produce LB ≪ predecessor LB.
-    const auto& s = *hard_stats;
+    const auto& s = hard_stats;
     const double tol = 1e-3;
     CHECK(s[1].lower_bound >= s[0].lower_bound - tol);
     CHECK(s[2].lower_bound >= s[1].lower_bound - tol);
@@ -494,7 +496,7 @@ TEST_CASE(  // NOLINT
     // The current assertion captures the original intent — "cuts saved
     // us from burning the per-level budget" — by checking each level's
     // iteration count stays strictly below its budget.
-    const auto& s = *hard_stats;
+    const auto& s = hard_stats;
     CHECK(s[0].iterations <= 4);  // warmup max_iter
     CHECK(s[1].iterations <= 6);  // refine_1 max_iter
     CHECK(s[2].iterations <= 8);  // refine_2 max_iter
@@ -507,11 +509,13 @@ TEST_CASE(  // NOLINT
     // identically to the hard case; the 4-level cascade must reach
     // essentially the same UB.  Probes the dual+1 direction of the
     // "dual±1" fixture used in test_sddp_method.cpp.
-    const auto soft_above = run_case(OptReal {1e6});
-    REQUIRE(soft_above.has_value());
-    REQUIRE(soft_above->size() == 4);
-    const double hard_ub = (*hard_stats)[3].upper_bound;
-    const double soft_ub = (*soft_above)[3].upper_bound;
+    const auto soft_above_opt = run_case(OptReal {1e6});
+    REQUIRE(soft_above_opt.has_value());
+    const auto soft_above =
+        soft_above_opt.value_or(std::vector<CascadeLevelStats> {});
+    REQUIRE(soft_above.size() == 4);
+    const double hard_ub = hard_stats[3].upper_bound;
+    const double soft_ub = soft_above[3].upper_bound;
     CHECK(soft_ub == doctest::Approx(hard_ub).epsilon(0.05));
   }
 
@@ -522,10 +526,12 @@ TEST_CASE(  // NOLINT
     // finite, structurally-valid UB on every level.  Probes the dual-1
     // direction; we only assert structural invariants, not magnitudes,
     // because the relaxed problem has a different optimum.
-    const auto soft_below = run_case(OptReal {1.0});
-    REQUIRE(soft_below.has_value());
-    REQUIRE(soft_below->size() == 4);
-    for (const auto& ls : *soft_below) {
+    const auto soft_below_opt = run_case(OptReal {1.0});
+    REQUIRE(soft_below_opt.has_value());
+    const auto soft_below =
+        soft_below_opt.value_or(std::vector<CascadeLevelStats> {});
+    REQUIRE(soft_below.size() == 4);
+    for (const auto& ls : soft_below) {
       CHECK(std::isfinite(ls.lower_bound));
       CHECK(std::isfinite(ls.upper_bound));
       const auto scale =

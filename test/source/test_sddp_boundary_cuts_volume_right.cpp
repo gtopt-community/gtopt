@@ -25,10 +25,10 @@
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_types.hpp>  // register_alpha_variables
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE(  // NOLINT
     "load_boundary_cuts_csv — VolumeRight state var resolves via "
@@ -105,7 +105,8 @@ TEST_CASE(  // NOLINT
   // The physical coefficient lands on the VolumeRight's state-var column
   // as -coeff (row form: α + Σ -coeff·x >= rhs).
   const auto cut_row = RowIndex {static_cast<Index>(pre_load_numrows)};
-  const double phys_coeff_in_lp = last_li.get_coeff(cut_row, *vr_col);
+  const double phys_coeff_in_lp =
+      last_li.get_coeff(cut_row, test_support::require_value(vr_col));
   CAPTURE(phys_coeff_in_lp);
   CHECK(phys_coeff_in_lp
         == doctest::Approx(-phys_coeff)
@@ -113,5 +114,3 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove(tmp_file);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

@@ -48,6 +48,8 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_types.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -215,7 +217,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.cut_coeff_eps == doctest::Approx(1e-8));
     CHECK(so.multi_cut_threshold == 100);
     CHECK(!so.apertures.has_value());
-    CHECK(so.aperture_timeout == doctest::Approx(15.0));
+    CHECK(so.aperture_timeout == doctest::Approx(30.0));
     CHECK(so.save_aperture_lp == false);
     CHECK(so.max_cuts_per_phase == 0);
     CHECK(so.cut_prune_interval == 10);
@@ -287,7 +289,8 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     REQUIRE(so.forward_solver_options.has_value());
     REQUIRE(so.backward_solver_options.has_value());
     // backward_max_fallbacks defaults to 0 in sddp_backward_solver_options().
-    CHECK(so.backward_solver_options->max_fallbacks == 0);
+    CHECK((so.backward_solver_options
+           && so.backward_solver_options->max_fallbacks == 0));
   }
 
   SUBCASE("user overrides across categories")
@@ -383,10 +386,10 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.elastic_filter_mode == ElasticFilterMode::multi_cut);
     CHECK(so.cut_coeff_eps == doctest::Approx(7.5e-9));
     CHECK(so.multi_cut_threshold == 23);
-    REQUIRE(so.apertures.has_value());
-    REQUIRE(so.apertures->size() == 2);
-    CHECK((*so.apertures)[0] == Uid {101});
-    CHECK((*so.apertures)[1] == Uid {202});
+    const auto& apertures = test_support::require_value(so.apertures);
+    REQUIRE(apertures.size() == 2);
+    CHECK(apertures[0] == Uid {101});
+    CHECK(apertures[1] == Uid {202});
     CHECK(so.aperture_timeout == doctest::Approx(31.5));
     CHECK(so.save_aperture_lp == true);
     CHECK(so.max_cuts_per_phase == 47);
@@ -444,9 +447,10 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     // ── Solver options ──
     // Forward time_limit=123.5 must propagate to solve_timeout.
     CHECK(so.solve_timeout == doctest::Approx(123.5));
-    REQUIRE(so.forward_solver_options.has_value());
-    REQUIRE(so.forward_solver_options->time_limit.has_value());
-    CHECK(*so.forward_solver_options->time_limit == doctest::Approx(123.5));
+    const auto& fwd_opts =
+        test_support::require_value(so.forward_solver_options);
+    REQUIRE(fwd_opts.time_limit.has_value());
+    CHECK(fwd_opts.time_limit.value_or(-1.0) == doctest::Approx(123.5));
     REQUIRE(so.backward_solver_options.has_value());
   }
 

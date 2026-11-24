@@ -388,6 +388,17 @@ using AmplParamFn = std::optional<double> (*)(const SystemContext& sc,
                                               StageUid stage_uid,
                                               BlockUid block_uid);
 
+class StageLP;  // forward
+
+/// Activity probe for one element of a class at a stage: `true` / `false`
+/// from the element's own `is_active(stage)`, `nullopt` when the element is
+/// not in this cell's collection (e.g. a UserModel-bundled variable).  Used
+/// by the user-constraint resolver to tell an INTENTIONALLY absent column
+/// (inactive element) from a registration / scope mismatch.
+using AmplActiveFn = std::optional<bool> (*)(const SystemContext& sc,
+                                             Uid element_uid,
+                                             const StageLP& stage);
+
 /// Key: (class_name, attribute) — same dispatcher serves every element
 /// of the class.  Element identity is supplied at call time via the
 /// `element_uid` argument to the function pointer.

@@ -57,7 +57,8 @@ struct json_data_contract<ModelOptions>
       json_bool_null<"lp_reduction", OptBool>,
       json_bool_null<"allow_oversupply", OptBool>,
       json_number_null<"battery_annual_standing_loss", OptReal>,
-      json_bool_null<"battery_power_envelope", OptBool>>;
+      json_bool_null<"battery_power_envelope", OptBool>,
+      json_string_null<"reserve_coupling", OptName>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -93,7 +94,8 @@ struct json_data_contract<ModelOptions>
                                  opt.lp_reduction,
                                  opt.allow_oversupply,
                                  opt.battery_annual_standing_loss,
-                                 opt.battery_power_envelope);
+                                 opt.battery_power_envelope,
+                                 opt.reserve_coupling);
   }
 };
 

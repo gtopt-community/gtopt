@@ -46,8 +46,8 @@ TEST_CASE("AllowancePool JSON round-trip — EU ETS full config")  // NOLINT
   CHECK(ap.type.value_or(Name {}) == "eu_ets");
 
   REQUIRE(ap.emission.has_value());
-  REQUIRE(std::holds_alternative<Name>(*ap.emission));
-  CHECK(std::get<Name>(*ap.emission) == "co2");
+  REQUIRE((ap.emission && std::holds_alternative<Name>(*ap.emission)));
+  CHECK((ap.emission && std::get<Name>(*ap.emission) == "co2"));
 
   CHECK(ap.eini.value_or(-1.0) == doctest::Approx(100000000.0));
   CHECK(ap.efin.value_or(-1.0) == doctest::Approx(50000000.0));
@@ -64,8 +64,8 @@ TEST_CASE("AllowancePool JSON: emission accepts uid-int form")  // NOLINT
   std::string_view js = R"({"uid":1,"name":"pool","emission":42})";
   const AllowancePool ap = daw::json::from_json<AllowancePool>(js);
   REQUIRE(ap.emission.has_value());
-  REQUIRE(std::holds_alternative<Uid>(*ap.emission));
-  CHECK(std::get<Uid>(*ap.emission) == Uid {42});
+  REQUIRE((ap.emission && std::holds_alternative<Uid>(*ap.emission)));
+  CHECK((ap.emission && std::get<Uid>(*ap.emission) == Uid {42}));
 }
 
 TEST_CASE("AllowancePool JSON: borrowing config (emin < 0)")  // NOLINT
@@ -77,5 +77,5 @@ TEST_CASE("AllowancePool JSON: borrowing config (emin < 0)")  // NOLINT
   })";
   const AllowancePool ap = daw::json::from_json<AllowancePool>(js);
   REQUIRE(ap.emin.has_value());
-  CHECK(std::get<Real>(*ap.emin) == doctest::Approx(-10000000.0));
+  CHECK((ap.emin && std::get<Real>(*ap.emin) == doctest::Approx(-10000000.0)));
 }

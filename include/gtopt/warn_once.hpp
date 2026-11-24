@@ -18,6 +18,9 @@
 #pragma once
 
 #include <atomic>
+#include <mutex>
+#include <set>
+#include <string>
 #include <utility>
 
 #include <spdlog/spdlog.h>
@@ -62,6 +65,34 @@ void warn_once(WarnOnceFlag& flag,
                Args&&... args)
 {
   if (flag.fire()) {
+    spdlog::warn(fmt, std::forward<Args>(args)...);
+  }
+}
+
+/// Process-wide one-shot latch keyed by string: true only for the first
+/// call (from any thread) that presents @p key.  A single registry shared
+/// by every caller (non-template inline function → one static instance).
+[[nodiscard]] inline bool first_time_key(std::string key)
+{
+  static std::mutex mutex;
+  static std::set<std::string, std::less<>> seen;
+  const std::scoped_lock lock {mutex};
+  return seen.insert(std::move(key)).second;
+}
+
+/// Keyed variant: emit `spdlog::warn(fmt, args...)` only the first time
+/// @p key is seen in this process.  Used for "once per element"
+/// warnings, where a function-local `WarnOnceFlag` would be once per
+/// call site (silencing every element after the first) and a member
+/// flag would repeat in every (scene, phase) cell.  Build the key from
+/// the class name, the element uid and the reason, e.g.
+/// `std::format("{}:{}:missing_waterway", cname, uid)`.
+template<typename... Args>
+void warn_once_per_key(std::string key,
+                       spdlog::format_string_t<Args...> fmt,
+                       Args&&... args)
+{
+  if (first_time_key(std::move(key))) {
     spdlog::warn(fmt, std::forward<Args>(args)...);
   }
 }

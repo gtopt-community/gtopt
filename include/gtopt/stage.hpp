@@ -99,4 +99,39 @@ using OptStageIndex = std::optional<StageIndex>;
   return --stage_index;
 }
 
+/**
+ * @brief Position of a stage INSIDE its phase (0 = the phase's first
+ *        active stage).
+ *
+ * Distinct from the global `StageIndex` (position in
+ * `SimulationLP::stages()`): `PhaseLP::stages()` is addressed by
+ * `PhaseStageIndex`, `SimulationLP::stages()` by `StageIndex`, and
+ * neither container accepts the other kind.  Mixing them was the root of
+ * the `SimulationLP::prev_stage`, capacity `prev_phase_publishes` and
+ * per-stage schedule bugs: the two coincide only in the first phase.
+ */
+struct PhaseStageTag;
+using PhaseStageIndex = StrongPositionIndexType<PhaseStageTag>;
+
+/// @brief First stage of a phase.
+[[nodiscard]] constexpr auto first_phase_stage_index() noexcept
+    -> PhaseStageIndex
+{
+  return PhaseStageIndex {0};
+}
+
+/// @brief Next phase-local stage position.
+[[nodiscard]] constexpr auto next(PhaseStageIndex index) noexcept
+    -> PhaseStageIndex
+{
+  return ++index;
+}
+
+/// @brief Previous phase-local stage position.
+[[nodiscard]] constexpr auto previous(PhaseStageIndex index) noexcept
+    -> PhaseStageIndex
+{
+  return --index;
+}
+
 }  // namespace gtopt

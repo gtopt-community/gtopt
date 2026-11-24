@@ -279,7 +279,8 @@ TEST_CASE("PlanningOptionsLP - Default construction")
         == PlanningOptionsLP::default_input_directory);
   CHECK(options_lp.input_format_enum()
         == PlanningOptionsLP::default_input_format);
-  CHECK_FALSE(options_lp.demand_fail_cost().has_value());
+  CHECK(options_lp.demand_fail_cost()
+        == doctest::Approx(PlanningOptionsLP::default_demand_fail_cost));
   CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
@@ -315,7 +316,8 @@ TEST_CASE("PlanningOptionsLP - Default construction 2")
         == PlanningOptionsLP::default_input_directory);
   CHECK(options_lp.input_format_enum()
         == PlanningOptionsLP::default_input_format);
-  CHECK_FALSE(options_lp.demand_fail_cost().has_value());
+  CHECK(options_lp.demand_fail_cost()
+        == doctest::Approx(PlanningOptionsLP::default_demand_fail_cost));
   CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
@@ -350,7 +352,8 @@ TEST_CASE("PlanningOptionsLP - Default construction 3")
         == PlanningOptionsLP::default_input_directory);
   CHECK(options_lp.input_format_enum()
         == PlanningOptionsLP::default_input_format);
-  CHECK_FALSE(options_lp.demand_fail_cost().has_value());
+  CHECK(options_lp.demand_fail_cost()
+        == doctest::Approx(PlanningOptionsLP::default_demand_fail_cost));
   CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
@@ -397,10 +400,7 @@ TEST_CASE("PlanningOptionsLP - Construction with Options")
   // Check custom values
   CHECK(options_lp.input_directory() == "custom_input");
   CHECK(options_lp.input_format() == "csv");
-  REQUIRE(options_lp.demand_fail_cost().has_value());
-  if (options_lp.demand_fail_cost()) {
-    CHECK(*options_lp.demand_fail_cost() == doctest::Approx(1000.0));
-  }
+  CHECK(options_lp.demand_fail_cost() == doctest::Approx(1000.0));
   CHECK(options_lp.use_kirchhoff() == false);  // Overridden
   CHECK(options_lp.scale_objective() == doctest::Approx(2000.0));  // Overridden
   CHECK(options_lp.output_directory() == "custom_output");
@@ -460,10 +460,7 @@ TEST_CASE("PlanningOptionsLP - Test all accessor methods")
   // Test all accessor methods
   CHECK(options_lp.input_directory() == "test_input");
   CHECK(options_lp.input_format() == "csv");
-  REQUIRE(options_lp.demand_fail_cost().has_value());
-  if (options_lp.demand_fail_cost()) {
-    CHECK(*options_lp.demand_fail_cost() == doctest::Approx(1500.0));
-  }
+  CHECK(options_lp.demand_fail_cost() == doctest::Approx(1500.0));
   REQUIRE(options_lp.reserve_shortage_cost().has_value());
 
   if (options_lp.reserve_shortage_cost()) {
@@ -630,7 +627,8 @@ TEST_CASE("Options - Solver options merge with scaling")  // NOLINT
   base.merge(std::move(overlay));
 
   REQUIRE(base.solver_options.scaling.has_value());
-  CHECK(*base.solver_options.scaling == SolverScaling::aggressive);
+  CHECK((base.solver_options.scaling
+         && *base.solver_options.scaling == SolverScaling::aggressive));
 
   // Overlay without scaling (nullopt) does NOT overwrite base
   PlanningOptions base2 {};
@@ -780,7 +778,6 @@ TEST_CASE(
     "PlanningOptionsLP - Solver options accessors with set values")  // NOLINT
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   const PlanningOptions options {
       .solver_options =
@@ -796,5 +793,3 @@ TEST_CASE(
   CHECK(options_lp.solver_options().threads == 4);
   CHECK(options_lp.solver_options().presolve == false);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

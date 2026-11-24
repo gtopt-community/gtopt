@@ -233,6 +233,17 @@ struct Reservoir
   /// Each entry needs only `turbine` and `segments`;
   /// `reservoir` is set automatically.
   Array<ReservoirProductionFactor> production_factor {};
+
+  /// Expected magnitude of the reservoir's water value `|dual|` [$/hm³]
+  /// (e.g. from PLP boundary cuts).  Only used when
+  /// `lp_matrix_options.water_dual_target > 0`: the energy-balance row is
+  /// multiplied post-equilibration by `c = expected|y_LP| / target` so its LP
+  /// dual lands near the target.  Unset = use the state-violation cost.
+  OptReal water_value_hint {};
+  /// Explicit post-equilibration row factor `c` for the energy-balance row
+  /// (overrides `water_value_hint` / auto).  LP dual becomes `y_LP / c`;
+  /// physical duals, cuts and outputs are unchanged.  Unset/1 = off.
+  OptReal dual_scale {};
 };
 
 }  // namespace gtopt

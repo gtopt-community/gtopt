@@ -19,8 +19,10 @@
 #include <gtopt/main_options.hpp>
 #include <gtopt/solver_options.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-argument-comment,bugprone-unchecked-optional-access)
+// NOLINTBEGIN(bugprone-argument-comment)
 
 // ---- Helper to parse command-line args into a variables_map ----
 namespace
@@ -416,7 +418,9 @@ TEST_CASE(
   apply_cli_options(planning, MainOptions {.no_mip = true});
 
   REQUIRE(planning.options.model_options.continuous_phases.has_value());
-  CHECK(planning.options.model_options.continuous_phases.value() == "all");
+  CHECK(test_support::require_value(
+            planning.options.model_options.continuous_phases)
+        == "all");
 }
 
 TEST_CASE(
@@ -446,7 +450,7 @@ TEST_CASE(
   apply_cli_options(planning, MainOptions {.mip_gap = 0.01});
 
   REQUIRE(planning.options.solver_options.mip_gap.has_value());
-  CHECK(planning.options.solver_options.mip_gap.value()
+  CHECK(test_support::require_value(planning.options.solver_options.mip_gap)
         == doctest::Approx(0.01));
 }
 
@@ -478,7 +482,7 @@ TEST_CASE(
   apply_cli_options(planning, MainOptions {.time_limit = 60.0});
 
   REQUIRE(planning.options.solver_options.time_limit.has_value());
-  CHECK(planning.options.solver_options.time_limit.value()
+  CHECK(test_support::require_value(planning.options.solver_options.time_limit)
         == doctest::Approx(60.0));
 }
 
@@ -730,7 +734,7 @@ TEST_CASE(
   REQUIRE(vm.contains("aperture-chunk-size"));
   const auto opts = parse_main_options(vm, {});
   REQUIRE(opts.sddp_aperture_chunk_size.has_value());
-  CHECK(*opts.sddp_aperture_chunk_size == 0);
+  CHECK(test_support::require_value(opts.sddp_aperture_chunk_size) == 0);
 }
 
 TEST_CASE("--aperture-chunk-size — integer literal parses directly")  // NOLINT
@@ -743,7 +747,7 @@ TEST_CASE("--aperture-chunk-size — integer literal parses directly")  // NOLIN
     REQUIRE(vm.contains("aperture-chunk-size"));
     const auto opts = parse_main_options(vm, {});
     REQUIRE(opts.sddp_aperture_chunk_size.has_value());
-    CHECK(*opts.sddp_aperture_chunk_size == 4);
+    CHECK(test_support::require_value(opts.sddp_aperture_chunk_size) == 4);
   }
 
   SUBCASE("K=-1 (fully serial)")
@@ -752,7 +756,7 @@ TEST_CASE("--aperture-chunk-size — integer literal parses directly")  // NOLIN
     REQUIRE(vm.contains("aperture-chunk-size"));
     const auto opts = parse_main_options(vm, {});
     REQUIRE(opts.sddp_aperture_chunk_size.has_value());
-    CHECK(*opts.sddp_aperture_chunk_size == -1);
+    CHECK(test_support::require_value(opts.sddp_aperture_chunk_size) == -1);
   }
 }
 
@@ -768,28 +772,28 @@ TEST_CASE("--algorithm - accepts name via CLI")  // NOLINT
     REQUIRE(vm.contains("algorithm"));
     const auto opts = parse_main_options(vm, {});
     REQUIRE(opts.algorithm.has_value());
-    CHECK(*opts.algorithm == LPAlgo::barrier);
+    CHECK(test_support::require_value(opts.algorithm) == LPAlgo::barrier);
   }
 
   SUBCASE("primal name")
   {
     auto vm = parse_args({"--algorithm", "primal"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(*opts.algorithm == LPAlgo::primal);
+    CHECK(test_support::require_value(opts.algorithm) == LPAlgo::primal);
   }
 
   SUBCASE("dual name")
   {
     auto vm = parse_args({"--algorithm", "dual"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(*opts.algorithm == LPAlgo::dual);
+    CHECK(test_support::require_value(opts.algorithm) == LPAlgo::dual);
   }
 
   SUBCASE("default name")
   {
     auto vm = parse_args({"--algorithm", "default"}, desc);
     const auto opts = parse_main_options(vm, {});
-    CHECK(*opts.algorithm == LPAlgo::default_algo);
+    CHECK(test_support::require_value(opts.algorithm) == LPAlgo::default_algo);
   }
 }
 
@@ -799,7 +803,7 @@ TEST_CASE("--algorithm - accepts numeric value via CLI")  // NOLINT
   auto vm = parse_args({"--algorithm", "2"}, desc);
   const auto opts = parse_main_options(vm, {});
   REQUIRE(opts.algorithm.has_value());
-  CHECK(*opts.algorithm == LPAlgo::dual);
+  CHECK(test_support::require_value(opts.algorithm) == LPAlgo::dual);
 }
 
 TEST_CASE("-a short option - accepts name")  // NOLINT
@@ -808,7 +812,7 @@ TEST_CASE("-a short option - accepts name")  // NOLINT
   auto vm = parse_args({"-a", "barrier"}, desc);
   const auto opts = parse_main_options(vm, {});
   REQUIRE(opts.algorithm.has_value());
-  CHECK(*opts.algorithm == LPAlgo::barrier);
+  CHECK(test_support::require_value(opts.algorithm) == LPAlgo::barrier);
 }
 
 TEST_CASE("--algorithm - invalid name throws at parse_main_options")  // NOLINT
@@ -1042,7 +1046,8 @@ TEST_CASE("apply_cli_options - --constraint-mode debug routes to options")
   };
   apply_cli_options(planning, opts);
   REQUIRE(planning.options.constraint_mode.has_value());
-  CHECK(planning.options.constraint_mode.value() == ConstraintMode::debug);
+  CHECK(test_support::require_value(planning.options.constraint_mode)
+        == ConstraintMode::debug);
 }
 
 TEST_CASE("apply_cli_options - --constraint-mode strict round-trips")
@@ -1056,7 +1061,8 @@ TEST_CASE("apply_cli_options - --constraint-mode strict round-trips")
   };
   apply_cli_options(planning, opts);
   REQUIRE(planning.options.constraint_mode.has_value());
-  CHECK(planning.options.constraint_mode.value() == ConstraintMode::strict);
+  CHECK(test_support::require_value(planning.options.constraint_mode)
+        == ConstraintMode::strict);
 }
 
 TEST_CASE("apply_cli_options - --constraint-mode normal round-trips")
@@ -1067,7 +1073,8 @@ TEST_CASE("apply_cli_options - --constraint-mode normal round-trips")
   };
   apply_cli_options(planning, opts);
   REQUIRE(planning.options.constraint_mode.has_value());
-  CHECK(planning.options.constraint_mode.value() == ConstraintMode::normal);
+  CHECK(test_support::require_value(planning.options.constraint_mode)
+        == ConstraintMode::normal);
 }
 
 TEST_CASE("apply_cli_options - --constraint-mode unknown throws")
@@ -1096,4 +1103,4 @@ TEST_CASE(
   CHECK(planning.options.constraint_mode.value() == ConstraintMode::debug);
 }
 
-// NOLINTEND(bugprone-argument-comment,bugprone-unchecked-optional-access)
+// NOLINTEND(bugprone-argument-comment)

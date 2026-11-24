@@ -239,7 +239,10 @@ void log_pre_solve_stats(
                       ? ""
                       : " (default)"));
   log_kv("demand_fail_cost",
-         std::format("{}", mo.demand_fail_cost.value_or(0.0)));
+         mo.demand_fail_cost.has_value()
+             ? std::format("{}", *mo.demand_fail_cost)
+             : std::format("{} (default)",
+                           PlanningOptionsLP::default_demand_fail_cost));
   log_kv("input_directory", plan_opts.input_directory.value_or("(default)"));
   log_kv("output_directory", plan_opts.output_directory.value_or("(default)"));
   log_kv("output_format",

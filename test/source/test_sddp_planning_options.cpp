@@ -6,10 +6,13 @@
  * @date      2026-04-05
  */
 
+#include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <stdexcept>
+#include <string>
 #include <tuple>
 
 #include <doctest/doctest.h>
@@ -23,6 +26,7 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
+#include <unistd.h>
 
 #include "sddp_helpers.hpp"
 
@@ -439,6 +443,45 @@ TEST_CASE("SDDPMethod API - status file contains timing fields")  // NOLINT
     CHECK(content.find("elapsed_s") != std::string::npos);
     CHECK(content.find("realtime") != std::string::npos);
   }
+
+  std::filesystem::remove_all(tmp_dir);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod API - final status is written when max_iterations ends "
+    "the run")
+{
+  // Regression: solver_status.json stayed "running" after an SDDP run
+  // that ended by exhausting max_iterations without converging.
+  const auto tmp_dir = std::filesystem::temp_directory_path()
+      / std::format("test_sddp_final_status_{}", ::getpid());
+  std::filesystem::remove_all(tmp_dir);
+  std::filesystem::create_directories(tmp_dir);
+  const auto status_file = (tmp_dir / "solver_status.json").string();
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.convergence_tol = 1e-12;
+  sddp_opts.enable_api = true;
+  sddp_opts.api_status_file = status_file;
+  sddp_opts.api_update_interval = std::chrono::milliseconds {1};
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  REQUIRE(std::filesystem::exists(status_file));
+  std::ifstream ifs(status_file);
+  const std::string content(std::istreambuf_iterator<char>(ifs), {});
+  const auto* expected =
+      results->back().converged ? "converged" : "max_iterations";
+  CHECK(content.find(std::format("\"status\": \"{}\"", expected))
+        != std::string::npos);
+  CHECK(content.find("\"status\": \"running\"") == std::string::npos);
 
   std::filesystem::remove_all(tmp_dir);
 }

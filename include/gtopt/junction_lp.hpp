@@ -104,6 +104,15 @@ public:
     return balance_rows.at({scenario.uid(), stage.uid()});
   }
 
+  /// Non-throwing `balance_rows_at`: nullptr when (scenario, stage) was
+  /// not built (junction inactive in the stage).  See `active_ref.hpp`.
+  [[nodiscard]] const BIndexHolder<RowIndex>* find_balance_rows(
+      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  {
+    const auto it = balance_rows.find({scenario.uid(), stage.uid()});
+    return it != balance_rows.end() ? &it->second : nullptr;
+  }
+
   /**
    * @brief Get drain variable columns for a scenario/stage combination
    * @param scenario Scenario identifier

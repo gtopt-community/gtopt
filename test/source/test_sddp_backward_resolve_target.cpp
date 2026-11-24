@@ -26,10 +26,10 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_options.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE(  // NOLINT
     "SddpOptions::backward_resolve_target defaults to nullopt")
@@ -77,7 +77,7 @@ TEST_CASE(  // NOLINT
 
   base.merge(std::move(override_opts));
   REQUIRE(base.backward_resolve_target.has_value());
-  CHECK(*base.backward_resolve_target);
+  CHECK(test_support::require_value(base.backward_resolve_target));
 }
 
 TEST_CASE(  // NOLINT
@@ -92,7 +92,5 @@ TEST_CASE(  // NOLINT
 
   base.merge(std::move(override_opts));
   REQUIRE(base.backward_resolve_target.has_value());
-  CHECK(*base.backward_resolve_target);
+  CHECK(test_support::require_value(base.backward_resolve_target));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

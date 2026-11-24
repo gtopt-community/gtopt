@@ -263,6 +263,9 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   if (const auto gap_abs = opts.mip_gap_abs; gap_abs && *gap_abs > 0.0) {
     CPXsetdblparam(env, CPX_PARAM_EPAGAP, *gap_abs);
   }
+  if (const auto sols = opts.mip_solution_limit; sols && *sols > 0) {
+    CPXsetlongparam(env, CPX_PARAM_INTSOLLIM, *sols);
+  }
   if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
     CPXsetdblparam(env, CPX_PARAM_TILIM, *tl);
   }
@@ -1189,11 +1192,12 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(
 
   // 2. Require an incumbent.  `CPXPROB_FIXEDMILP` needs the MIP to have
   //    found (and stored) an integer-feasible solution; without one there
-  //    is nothing to fix and the caller must keep the MIP result.
-  const int stat = CPXgetstat(env, lp);
-  const bool has_incumbent = stat == CPXMIP_OPTIMAL
-      || stat == CPXMIP_OPTIMAL_TOL || stat == CPXMIP_OPTIMAL_INFEAS;
-  if (!has_incumbent) {
+  //    is nothing to fix and the caller must keep the MIP result.  Any
+  //    stop that holds one qualifies — optimal, or a time / node / memory
+  //    / solution limit or abort with an incumbent (`CPXMIP_TIME_LIM_FEAS`
+  //    and friends): the polish of a non-optimal incumbent is exactly the
+  //    same fixed-LP pass (see `has_mip_incumbent`).
+  if (!has_mip_incumbent()) {
     return -1;
   }
 
@@ -2151,6 +2155,50 @@ bool CplexSolverBackend::is_proven_optimal() const
   double obj = 0.0;
   return CPXgetobjval(m_env_lp_.env(), m_env_lp_.lp(), &obj) == 0
       && std::isfinite(obj);
+}
+
+bool CplexSolverBackend::has_mip_incumbent() const
+{
+  auto* env = m_env_lp_.env();
+  auto* lp = m_env_lp_.lp();
+  if (env == nullptr || lp == nullptr) {
+    return false;
+  }
+  const int type = CPXgetprobtype(env, lp);
+  if (type != CPXPROB_MILP && type != CPXPROB_MIQP) {
+    return false;
+  }
+  // Every MIP termination status that leaves an integer-feasible
+  // incumbent stored on the problem object (CPLEX docs, "MIP solution
+  // status codes": the `*_FEAS` family plus the optimal / solution-limit
+  // stops).  The `*_INFEAS` / `*_NO_TREE`-without-incumbent counterparts
+  // and the infeasible / unbounded statuses carry none.
+  switch (CPXgetstat(env, lp)) {
+    case CPXMIP_OPTIMAL:
+    case CPXMIP_OPTIMAL_TOL:
+    case CPXMIP_OPTIMAL_INFEAS:
+    case CPXMIP_SOL_LIM:
+    case CPXMIP_NODE_LIM_FEAS:
+    case CPXMIP_TIME_LIM_FEAS:
+    case CPXMIP_DETTIME_LIM_FEAS:
+    case CPXMIP_FAIL_FEAS:
+    case CPXMIP_MEM_LIM_FEAS:
+    case CPXMIP_ABORT_FEAS:
+    case CPXMIP_FAIL_FEAS_NO_TREE:
+    case CPXMIP_FEASIBLE:
+      break;
+    default:
+      return false;
+  }
+  // Belt-and-braces: the status says an incumbent exists; confirm CPLEX
+  // can hand back a primal-feasible solution.
+  int method = 0;
+  int soln_type = CPX_NO_SOLN;
+  int primal_feas = 0;
+  int dual_feas = 0;
+  return CPXsolninfo(env, lp, &method, &soln_type, &primal_feas, &dual_feas)
+      == 0
+      && soln_type != CPX_NO_SOLN && primal_feas != 0;
 }
 
 bool CplexSolverBackend::is_abandoned() const

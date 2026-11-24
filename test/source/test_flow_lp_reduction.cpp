@@ -240,7 +240,7 @@ TEST_CASE(  // NOLINT
   CHECK(folded.obj == doctest::Approx(col_form.obj));
   CHECK(folded.n_flow_cols == 0);
   // Hand value: 3 one-hour blocks x (5 $/MWh * 10 MW + 80 $/MWh * 40 MW).
-  CHECK(folded.obj == doctest::Approx(3.0 * (5.0 * 10.0 + 80.0 * 40.0)));
+  CHECK(folded.obj == doctest::Approx(3.0 * ((5.0 * 10.0) + (80.0 * 40.0))));
   // The cap binds: without it the full 25 m3/s is turbined (cheaper).
   CHECK(test_flow_lp_reduction::solve(true, {}).obj < folded.obj - 1.0);
 }

@@ -394,7 +394,7 @@ TEST_CASE(  // NOLINT
 
   const auto val = fn(sc, Uid {1}, make_uid<Stage>(1), make_uid<Block>(1));
   REQUIRE(val.has_value());
-  CHECK(*val == doctest::Approx(25.0));
+  CHECK(val.value_or(-1.0) == doctest::Approx(25.0));
 
   // pmax is a soft-bound schedule.  Confirm it surfaces the 100.0 fixture.
   const auto pmax_fn = sc.find_ampl_param("generator", "pmax");
@@ -402,7 +402,7 @@ TEST_CASE(  // NOLINT
   const auto pmax_val =
       pmax_fn(sc, Uid {1}, make_uid<Stage>(1), make_uid<Block>(1));
   REQUIRE(pmax_val.has_value());
-  CHECK(*pmax_val == doctest::Approx(100.0));
+  CHECK(pmax_val.value_or(-1.0) == doctest::Approx(100.0));
 }
 
 TEST_CASE(  // NOLINT

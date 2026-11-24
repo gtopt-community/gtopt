@@ -56,6 +56,61 @@ std::string slurp(const std::filesystem::path& p)
   return ss.str();
 }
 
+/// RAII redirect of fd 1 (stdout) and fd 2 (stderr) into a file.
+///
+/// The destructor flushes and restores both descriptors, so an exception
+/// (or a failing REQUIRE) between redirect and restore can never leave the
+/// test binary writing its doctest summary into the capture file.
+class StdFdRedirect
+{
+public:
+  explicit StdFdRedirect(const std::string& path)
+  {
+    (void)std::fflush(stdout);
+    (void)std::fflush(stderr);
+    // NOLINTNEXTLINE(android-cloexec-fopen,cppcoreguidelines-owning-memory)
+    FILE* redir = std::fopen(path.c_str(), "w");
+    if (redir == nullptr) {
+      return;  // active() stays false; nothing redirected
+    }
+    m_saved_out_ = ::dup(1);  // NOLINT(android-cloexec-dup)
+    m_saved_err_ = ::dup(2);  // NOLINT(android-cloexec-dup)
+    (void)::dup2(::fileno(redir), 1);
+    (void)::dup2(::fileno(redir), 2);
+    (void)std::fclose(redir);  // NOLINT(cppcoreguidelines-owning-memory)
+  }
+
+  ~StdFdRedirect() { restore(); }
+
+  StdFdRedirect(const StdFdRedirect&) = delete;
+  StdFdRedirect& operator=(const StdFdRedirect&) = delete;
+  StdFdRedirect(StdFdRedirect&&) = delete;
+  StdFdRedirect& operator=(StdFdRedirect&&) = delete;
+
+  [[nodiscard]] bool active() const noexcept { return m_saved_out_ >= 0; }
+
+  /// Flush and restore the original descriptors (idempotent).
+  void restore() noexcept
+  {
+    (void)std::fflush(stdout);
+    (void)std::fflush(stderr);
+    if (m_saved_out_ >= 0) {
+      (void)::dup2(m_saved_out_, 1);
+      (void)::close(m_saved_out_);
+      m_saved_out_ = -1;
+    }
+    if (m_saved_err_ >= 0) {
+      (void)::dup2(m_saved_err_, 2);
+      (void)::close(m_saved_err_);
+      m_saved_err_ = -1;
+    }
+  }
+
+private:
+  int m_saved_out_ {-1};
+  int m_saved_err_ {-1};
+};
+
 }  // namespace
 
 }  // namespace test_fixedmilp_warmstart_ns
@@ -178,32 +233,19 @@ TEST_CASE("fix_mip_and_resolve_duals warm-starts on CPLEX")  // NOLINT
   // CPXPARAM_ScreenOutput 1) by redirecting BOTH stdout (fd 1, where CPLEX
   // routes its screen channel) and stderr (fd 2) into one file.
   const auto fixed_capture = (dir / "fixed_screen.txt").string();
-  (void)std::fflush(stdout);
-  (void)std::fflush(stderr);
-  const int saved_out = ::dup(1);  // NOLINT(android-cloexec-dup)
-  const int saved_err = ::dup(2);  // NOLINT(android-cloexec-dup)
+  // RAII: restored on every path, including an exception thrown by the
+  // fixed pass (otherwise the doctest summary would land in the file).
+  auto fix = [&]
   {
-    // NOLINTNEXTLINE(android-cloexec-fopen,cppcoreguidelines-owning-memory)
-    FILE* redir = std::fopen(fixed_capture.c_str(), "w");
-    REQUIRE(redir != nullptr);
-    (void)::dup2(::fileno(redir), 1);
-    (void)::dup2(::fileno(redir), 2);
-    (void)std::fclose(redir);  // NOLINT(cppcoreguidelines-owning-memory)
-  }
-
-  auto fix = lp.fix_integers_and_resolve(opts);
-
-  (void)std::fflush(stdout);
-  (void)std::fflush(stderr);
-  (void)::dup2(saved_out, 1);
-  (void)::dup2(saved_err, 2);
-  (void)::close(saved_out);
-  (void)::close(saved_err);
+    StdFdRedirect redirect {fixed_capture};
+    REQUIRE(redirect.active());
+    return lp.fix_integers_and_resolve(opts);
+  }();
 
   REQUIRE(fix.has_value());
   CHECK(fix->fixed_columns == S * D);
   REQUIRE(fix->status.has_value());
-  CHECK(*fix->status == 0);
+  CHECK(fix->status.value_or(-1) == 0);
   REQUIRE(lp.is_optimal());
 
   // Primal unchanged; duals now well-defined.

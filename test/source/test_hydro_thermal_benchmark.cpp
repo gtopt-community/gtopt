@@ -54,8 +54,6 @@
 
 using namespace gtopt;
 
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
-
 // ═════════════════════════════════════════════════════════════════════════
 //   SDDP.jl Hydro Valleys — 2 reservoirs in cascade
 // ═════════════════════════════════════════════════════════════════════════
@@ -1072,5 +1070,3 @@ TEST_CASE("Hydro thermal benchmark — Hydro_thermal loaded from JSON literal")
   const auto expected = 22.5 - (5.0 / 3.6);
   CHECK(li.get_obj_value() == doctest::Approx(expected).epsilon(1e-6));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

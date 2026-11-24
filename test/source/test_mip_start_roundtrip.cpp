@@ -507,6 +507,7 @@ namespace
 // (the same shape as test_mip_start_integration.cpp).  Demand (0, 60, 60)
 // with startup cost ⇒ status binaries (0, 1, 1).
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const Simulation rt_three_block_simulation = {
     .block_array =
         {

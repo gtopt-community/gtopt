@@ -273,26 +273,31 @@ TEST_CASE(
   // Diesel — heat_rate × combustion = 10.5 × 0.0741 = 0.77805
   const auto& es_diesel = find_by_gen(Uid {1});
   REQUIRE(es_diesel.rate.has_value());
-  CHECK(std::get<Real>(*es_diesel.rate)
-        == doctest::Approx(kDiesel.heat_rate * kDiesel.combustion_co2));
+  CHECK((es_diesel.rate
+         && std::get<Real>(*es_diesel.rate)
+             == doctest::Approx(kDiesel.heat_rate * kDiesel.combustion_co2)));
   REQUIRE(es_diesel.upstream_rate.has_value());
-  CHECK(std::get<Real>(*es_diesel.upstream_rate)
-        == doctest::Approx(kDiesel.heat_rate * kDiesel.upstream_co2));
+  CHECK((es_diesel.upstream_rate
+         && std::get<Real>(*es_diesel.upstream_rate)
+             == doctest::Approx(kDiesel.heat_rate * kDiesel.upstream_co2)));
 
   // Gas
   const auto& es_gas = find_by_gen(Uid {2});
   REQUIRE(es_gas.rate.has_value());
-  CHECK(std::get<Real>(*es_gas.rate)
-        == doctest::Approx(kGas.heat_rate * kGas.combustion_co2));
+  CHECK((es_gas.rate
+         && std::get<Real>(*es_gas.rate)
+             == doctest::Approx(kGas.heat_rate * kGas.combustion_co2)));
 
   // Coal — heat_rate × combustion = 9.5 × 0.0946 = 0.8987
   const auto& es_coal = find_by_gen(Uid {3});
   REQUIRE(es_coal.rate.has_value());
-  CHECK(std::get<Real>(*es_coal.rate)
-        == doctest::Approx(kCoal.heat_rate * kCoal.combustion_co2));
+  CHECK((es_coal.rate
+         && std::get<Real>(*es_coal.rate)
+             == doctest::Approx(kCoal.heat_rate * kCoal.combustion_co2)));
   REQUIRE(es_coal.upstream_rate.has_value());
-  CHECK(std::get<Real>(*es_coal.upstream_rate)
-        == doctest::Approx(kCoal.heat_rate * kCoal.upstream_co2));
+  CHECK((es_coal.upstream_rate
+         && std::get<Real>(*es_coal.upstream_rate)
+             == doctest::Approx(kCoal.heat_rate * kCoal.upstream_co2)));
 }
 
 // ── Uncapped — merit order is solar + wind + coal ───────────────────
@@ -377,7 +382,8 @@ TEST_CASE(
   // the LP solver returns up to ~1e-9 precision.
   const Real co2_coal = co2_rate(kCoal);  // 0.93860
   const Real co2_gas = co2_rate(kGas);  // 0.49133 (0.42075 + 0.07050)
-  const Real coal_expected = (kCap - co2_gas * (kDemand - kCapSolar - kCapWind))
+  const Real coal_expected =
+      (kCap - (co2_gas * (kDemand - kCapSolar - kCapWind)))
       / (co2_coal - co2_gas);
   const Real gas_expected = (kDemand - kCapSolar - kCapWind) - coal_expected;
 

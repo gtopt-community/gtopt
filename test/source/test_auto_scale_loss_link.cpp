@@ -11,8 +11,10 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access,readability-trailing-comma)
+// NOLINTBEGIN(readability-trailing-comma)
 
 namespace
 {
@@ -150,7 +152,8 @@ TEST_CASE("PlanningLP - auto_scale_loss_link picks median R/V² as power of 10")
   PlanningLP::auto_scale_loss_link(planning);
 
   REQUIRE(planning.options.model_options.scale_loss_link.has_value());
-  CHECK(*planning.options.model_options.scale_loss_link
+  CHECK(test_support::require_value(
+            planning.options.model_options.scale_loss_link)
         == doctest::Approx(1.0e5));
 }
 
@@ -466,4 +469,4 @@ TEST_CASE(
   CHECK_FALSE(planning.options.model_options.scale_loss_link.has_value());
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access,readability-trailing-comma)
+// NOLINTEND(readability-trailing-comma)

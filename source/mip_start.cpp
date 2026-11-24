@@ -20,6 +20,7 @@
 #include <gtopt/domain_rules.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/mip_start.hpp>
+#include <gtopt/mip_start_dive.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -150,6 +151,33 @@ public:
     }
     return start;
   }
+};
+
+/// Default generator: relaxation-guided propagation dive + fixed-integer LP
+/// verification + elastic / sub-MIP repair (mip_start_dive.hpp).  Produces a
+/// start that is FEASIBLE for the MIP whenever the repair succeeds, with the
+/// complete (integer + continuous) solution of its fixed-integer LP.
+class DiveGenerator final : public MipStartGenerator
+{
+public:
+  [[nodiscard]] std::string_view name() const noexcept override
+  {
+    return "dive";
+  }
+
+  [[nodiscard]] std::optional<std::vector<double>> generate(
+      MipStartContext& ctx) override
+  {
+    return dive_mip_start(ctx, m_summary_);
+  }
+
+  [[nodiscard]] const DiveSummary& summary() const noexcept
+  {
+    return m_summary_;
+  }
+
+private:
+  DiveSummary m_summary_ {};
 };
 
 /// File generator: replay a solution dumped by a previous solve
@@ -351,6 +379,9 @@ std::unique_ptr<MipStartGenerator> make_mip_start_generator(
   // round + domain-rules candidate.
   if (opts.from_file.has_value() && !opts.from_file->empty()) {
     return std::make_unique<FileMipStart>();
+  }
+  if (opts.dive.enabled.value_or(true)) {
+    return std::make_unique<DiveGenerator>();
   }
   return std::make_unique<WarmStartGenerator>();
 }
@@ -678,14 +709,27 @@ std::expected<MipStartReport, Error> apply_mip_start(
       .injections = injections,
       .flat_lp = flat_lp,
   };
-  auto start = gen->generate(ctx);  // stage 1 (round) + stage 2 (domain rules)
+  auto start = gen->generate(ctx);
   std::string source {gen->name()};
+  bool verified = false;
+  if (const auto* dive = dynamic_cast<const DiveGenerator*>(gen.get());
+      dive != nullptr)
+  {
+    const auto& sm = dive->summary();
+    verified = sm.verified;
+    report.start_verified = sm.verified;
+    report.start_obj = sm.start_obj;
+    report.repair_rounds = sm.repair_rounds;
+    report.sub_mip_used = sm.sub_mip_used;
+    report.violated_int_rows_rounded = sm.violated_int_rows_rounded;
+    report.violated_int_rows_dive = sm.violated_int_rows_dive;
+  }
 
   // Stage 4 (optional): SCIP repair.  Composable with any base candidate and
   // any active solver — turns the round+rules candidate into a genuinely
   // feasible integer solution via SCIP's completesol/repair.  On failure (no
   // SCIP plugin / no flat LP / nothing feasible) keep the pre-SCIP candidate.
-  if (start && opts.scip_repair.enabled.value_or(false)) {
+  if (start && !verified && opts.scip_repair.enabled.value_or(false)) {
     if (auto repaired = scip_repair_candidate(ctx, *start)) {
       start = std::move(repaired);
       source += "+scip";
@@ -712,9 +756,35 @@ std::expected<MipStartReport, Error> apply_mip_start(
   // lets the active backend mend those residuals (and on CPLEX this composes
   // with the SCIP stage as structural-then-numerical repair).  SystemLP then
   // runs the MIP solve (the "resolve").
-  const auto effort = opts.inject.effort.value_or(MipStartEffort::repair);
+  //
+  // A VERIFIED dive start is a complete, feasible solution: `solve_fixed`
+  // (the default then) lets the backend re-derive the dispatch from the
+  // integers alone, which is immune to tolerance noise in the continuous
+  // part; an unverified candidate keeps the legacy `repair` default.
+  const auto effort = opts.inject.effort.value_or(
+      verified ? MipStartEffort::solve_fixed : MipStartEffort::repair);
   report.injected = li.set_mip_start(*start, effort);
   report.source = source;
+  if (verified) {
+    const double relax = report.relax_obj.value_or(0.0);
+    const double sobj = report.start_obj.value_or(0.0);
+    const double gap =
+        (std::abs(sobj) > 0.0) ? 100.0 * (sobj - relax) / std::abs(sobj) : 0.0;
+    spdlog::info(
+        "MIP-start[{}]: {} VERIFIED start ({} integer cols, effort={}, "
+        "start_obj={:.10g}, relax_obj={:.10g}, gap={:.3f}%, repair_rounds={}, "
+        "sub_mip={})",
+        source,
+        report.injected ? "injected" : "backend declined",
+        int_cols.size(),
+        enum_name(effort),
+        sobj,
+        relax,
+        gap,
+        report.repair_rounds,
+        report.sub_mip_used);
+    return report;
+  }
   spdlog::info(
       "MIP-start[{}]: {} ({} integer cols, effort={}, relax_obj={:.6g})",
       source,

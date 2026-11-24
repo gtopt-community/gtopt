@@ -106,6 +106,7 @@ bool EmissionZoneLP::add_to_lp([[maybe_unused]] const SystemContext& sc,
     const auto slack = lp.add_col(SparseCol {
         .lowb = 0.0,
         .cost = slack_cost,
+        .cost_scale_type = ConstraintScaleType::Energy,
         .class_name = cname,
         .variable_name = CapSlackName,
         .variable_uid = uid(),

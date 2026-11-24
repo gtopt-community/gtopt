@@ -27,6 +27,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/warn_once.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -122,10 +123,12 @@ bool FlowLP::add_to_lp(SystemContext& sc,
       // The soft-band `fcost` slack semantics conflict with the AR
       // equality row (design doc §3): the flow would be both a costed
       // decision and an AR-determined quantity.  Unsupported in v1.
-      SPDLOG_WARN(
-          "Flow {}: inflow_model is ignored at stage {} because fcost "
-          "is set (unsupported combination, see "
-          "docs/formulation/sddp-ar-inflows.md §3)",
+      warn_once_per_key(
+          std::format("Flow:{}:inflow_model_ignored", uid()),
+          "Flow {}: inflow_model is ignored at stage {} (and every other "
+          "stage with fcost) because fcost is set (unsupported "
+          "combination, see docs/formulation/sddp-ar-inflows.md §3).  "
+          "Logged once per element.",
           uid(),
           stage.uid());
     } else {

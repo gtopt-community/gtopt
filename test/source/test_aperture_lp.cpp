@@ -1616,11 +1616,11 @@ TEST_CASE(
   using namespace gtopt;
 
   // Both approaches should produce valid results with cuts added.
-  auto planning_explicit = make_2phase_aperture_planning();
-
+  // Each SUBCASE builds its own planning (doctest re-runs the test body
+  // per subcase).
   SUBCASE("explicit aperture_array (apertures=nullopt)")
   {
-    PlanningLP plp(std::move(planning_explicit));
+    PlanningLP plp(make_2phase_aperture_planning());
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 10;
     sddp_opts.convergence_tol = 1e-3;
@@ -1641,9 +1641,7 @@ TEST_CASE(
 
   SUBCASE("apertures=[] disables apertures")
   {
-    // Each SUBCASE re-runs the test body, so the fixture is fresh here.
-    // NOLINTNEXTLINE(bugprone-use-after-move,hicpp-invalid-access-moved)
-    PlanningLP plp(std::move(planning_explicit));
+    PlanningLP plp(make_2phase_aperture_planning());
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 10;
     sddp_opts.convergence_tol = 1e-3;

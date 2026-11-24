@@ -33,6 +33,9 @@ using namespace gtopt;
 namespace per_block_fuel_turbine_test  // NOLINT
 {
 
+namespace
+{
+
 // One stage, two unit-duration blocks (uids 0, 1), one scenario.
 [[nodiscard]] Simulation make_pbft_two_block_simulation()
 {
@@ -77,6 +80,8 @@ namespace per_block_fuel_turbine_test  // NOLINT
   }
   return system_lp.linear_interface().get_col_sol()[col_it->second];
 }
+
+}  // namespace
 
 }  // namespace per_block_fuel_turbine_test
 

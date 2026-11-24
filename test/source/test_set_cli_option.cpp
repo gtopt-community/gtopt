@@ -27,8 +27,9 @@
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -370,6 +371,7 @@ TEST_CASE("--set solver_options: every settable field round-trips")  // NOLINT
                                 "solver_options.mip_gap=0.01",
                                 "solver_options.mip_gap_abs=5",
                                 "solver_options.memory_emphasis=true",
+                                "solver_options.mip_polish=false",
                                 "solver_options.param_file=solvers/cplex.prm",
                                 "solver_options.scaling=aggressive",
                             }));
@@ -380,6 +382,8 @@ TEST_CASE("--set solver_options: every settable field round-trips")  // NOLINT
   CHECK(so.mip_gap.value_or(-1.0) == doctest::Approx(0.01));
   CHECK(so.mip_gap_abs.value_or(-1.0) == doctest::Approx(5.0));
   CHECK(so.memory_emphasis.value_or(false) == true);
+  CHECK(so.mip_polish.value_or(true) == false);
+  CHECK_FALSE(so.mip_polish_enabled());
   CHECK(so.param_file.value_or("") == "solvers/cplex.prm");
   CHECK(so.scaling.value_or(SolverScaling::none) == SolverScaling::aggressive);
 }
@@ -860,7 +864,10 @@ TEST_CASE("--set monolithic_options.solver_options.threads lands via shortcut")
                             {"monolithic_options.solver_options.threads=8"}));
 
   REQUIRE(planning.options.monolithic_options.solver_options.has_value());
-  CHECK(planning.options.monolithic_options.solver_options->threads == 8);
+  CHECK(test_support::require_value(
+            planning.options.monolithic_options.solver_options)
+            .threads
+        == 8);
 }
 
 TEST_CASE("--set demand_fail_cost override in full solve")
@@ -916,8 +923,9 @@ TEST_CASE(
   // (2) target landed at index 0
   REQUIRE(
       planning.options.cascade_options.level_array[0].sddp_options.has_value());
-  CHECK(planning.options.cascade_options.level_array[0]
-            .sddp_options->max_iterations.value_or(-1)
+  CHECK(test_support::require_value(
+            planning.options.cascade_options.level_array[0].sddp_options)
+            .max_iterations.value_or(-1)
         == 99);
 
   // (2b) target's identity-bearing fields (name / model_options) survive
@@ -925,22 +933,25 @@ TEST_CASE(
         == "uninodal");
   REQUIRE(planning.options.cascade_options.level_array[0]
               .model_options.has_value());
-  CHECK(planning.options.cascade_options.level_array[0]
-            .model_options->use_single_bus.value_or(false)
+  CHECK(test_support::require_value(
+            planning.options.cascade_options.level_array[0].model_options)
+            .use_single_bus.value_or(false)
         == true);
 
   // (3) untouched siblings keep their base values
   REQUIRE(
       planning.options.cascade_options.level_array[1].sddp_options.has_value());
-  CHECK(planning.options.cascade_options.level_array[1]
-            .sddp_options->max_iterations.value_or(-1)
+  CHECK(test_support::require_value(
+            planning.options.cascade_options.level_array[1].sddp_options)
+            .max_iterations.value_or(-1)
         == 1);
   CHECK(planning.options.cascade_options.level_array[1].name.value_or("?")
         == "transport");
   REQUIRE(
       planning.options.cascade_options.level_array[2].sddp_options.has_value());
-  CHECK(planning.options.cascade_options.level_array[2]
-            .sddp_options->max_iterations.value_or(-1)
+  CHECK(test_support::require_value(
+            planning.options.cascade_options.level_array[2].sddp_options)
+            .max_iterations.value_or(-1)
         == 1);
   CHECK(planning.options.cascade_options.level_array[2].name.value_or("?")
         == "full_network");
@@ -959,17 +970,20 @@ TEST_CASE("--set cascade_options.level_array.N for middle/last index lands")
   CHECK(planning.options.cascade_options.level_array.size() == 3);
   REQUIRE(
       planning.options.cascade_options.level_array[2].sddp_options.has_value());
-  CHECK(planning.options.cascade_options.level_array[2]
-            .sddp_options->max_iterations.value_or(-1)
+  CHECK(test_support::require_value(
+            planning.options.cascade_options.level_array[2].sddp_options)
+            .max_iterations.value_or(-1)
         == 55);
   CHECK(planning.options.cascade_options.level_array[2].name.value_or("?")
         == "full_network");
   // Siblings untouched.
-  CHECK(planning.options.cascade_options.level_array[0]
-            .sddp_options->max_iterations.value_or(-1)
+  CHECK(test_support::require_value(
+            planning.options.cascade_options.level_array[0].sddp_options)
+            .max_iterations.value_or(-1)
         == 1);
-  CHECK(planning.options.cascade_options.level_array[1]
-            .sddp_options->max_iterations.value_or(-1)
+  CHECK(test_support::require_value(
+            planning.options.cascade_options.level_array[1].sddp_options)
+            .max_iterations.value_or(-1)
         == 1);
 }
 
@@ -993,14 +1007,17 @@ TEST_CASE(
       }));
 
   CHECK(planning.options.cascade_options.level_array.size() == 3);
-  CHECK(planning.options.cascade_options.level_array[0]
-            .sddp_options->max_iterations.value_or(-1)
+  CHECK(test_support::require_value(
+            planning.options.cascade_options.level_array[0].sddp_options)
+            .max_iterations.value_or(-1)
         == 3);
-  CHECK(planning.options.cascade_options.level_array[1]
-            .sddp_options->max_iterations.value_or(-1)
+  CHECK(test_support::require_value(
+            planning.options.cascade_options.level_array[1].sddp_options)
+            .max_iterations.value_or(-1)
         == 4);
-  CHECK(planning.options.cascade_options.level_array[2]
-            .sddp_options->max_iterations.value_or(-1)
+  CHECK(test_support::require_value(
+            planning.options.cascade_options.level_array[2].sddp_options)
+            .max_iterations.value_or(-1)
         == 5);
   // Identity fields survive all three merges.
   CHECK(planning.options.cascade_options.level_array[0].name.value_or("?")
@@ -1160,7 +1177,6 @@ TEST_CASE("--set legacy alias: non-legacy short key is NOT rewritten")
   Planning planning;
   REQUIRE(apply_set_options(planning, {"output_format=csv"}));
   REQUIRE(planning.options.output_format.has_value());
-  CHECK(*planning.options.output_format == DataFormat::csv);
+  CHECK(test_support::require_value(planning.options.output_format)
+        == DataFormat::csv);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

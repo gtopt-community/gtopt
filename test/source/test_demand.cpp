@@ -9,6 +9,8 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 TEST_CASE("Demand")
@@ -1225,7 +1227,7 @@ TEST_CASE("DemandLP - forced demand fixes load at lmax")
     CHECK(obj == doctest::Approx(15000.0));
   }
 
-  SUBCASE("elastic demand without fail cost serves zero load")
+  SUBCASE("elastic demand with explicit zero fail cost serves zero load")
   {
     const Array<Demand> demand_array = {
         {
@@ -1243,8 +1245,11 @@ TEST_CASE("DemandLP - forced demand fixes load at lmax")
         .generator_array = generator_array,
     };
 
-    // No demand_fail_cost: optimizer has no incentive to serve demand
-    const PlanningOptionsLP options;
+    // demand_fail_cost = 0 (explicit; unset now defaults to 1000):
+    // optimizer has no incentive to serve demand
+    PlanningOptions opts;
+    opts.model_options.demand_fail_cost = 0.0;
+    const PlanningOptionsLP options(opts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
 
@@ -1366,7 +1371,6 @@ TEST_CASE("DemandProfileLP - load bound by profile times capacity")
 TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Deterministic LP verifying that DemandLP (via CapacityObjectBase) exposes
   // a `capainst` column through `capacity_col_at(stage)` and that the primal
@@ -1468,7 +1472,8 @@ TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
   // capainst = capacity + expcap * expmod = 10 + 40 = 50 when one
   // module is chosen (the existing 10 MW is not bought as a build).
   const auto& sol = lp.get_col_sol();
-  CHECK(sol[*cap_col] == doctest::Approx(50.0).epsilon(1e-6));
+  CHECK(sol[test_support::require_value(cap_col)]
+        == doctest::Approx(50.0).epsilon(1e-6));
 }
 
 TEST_CASE(
@@ -1678,5 +1683,3 @@ TEST_CASE(
     CHECK(lp.get_obj_constant() == doctest::Approx(0.0));
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

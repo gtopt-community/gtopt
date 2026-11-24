@@ -16,6 +16,7 @@
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/storage_state_defaults.hpp>
 #include <gtopt/system_context.hpp>
 #include <spdlog/spdlog.h>
 
@@ -97,8 +98,10 @@ bool AllowancePoolLP::add_to_lp(SystemContext& sc,
   const BIndexHolder<ColIndex> empty_fout;
 
   const StorageOptions opts {
-      .use_state_variable = allowance_pool().use_state_variable.value_or(true),
-      .daily_cycle = allowance_pool().daily_cycle.value_or(false),
+      .use_state_variable = allowance_pool().use_state_variable.value_or(
+          storage_state_defaults::allowance_pool.use_state_variable),
+      .daily_cycle = allowance_pool().daily_cycle.value_or(
+          storage_state_defaults::allowance_pool.daily_cycle),
       .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),
       .energy_scale = energy_scale,
@@ -155,6 +158,7 @@ bool AllowancePoolLP::add_to_lp(SystemContext& sc,
         .lowb = 0.0,
         .uppb = cap,
         .cost = *price * disc_prob,
+        .cost_scale_type = ConstraintScaleType::Energy,
         .class_name = Element::class_name.full_name(),
         .variable_name = AuctionName,
         .variable_uid = uid(),

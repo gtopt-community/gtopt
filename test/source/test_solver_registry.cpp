@@ -6,8 +6,12 @@
  *            see LICENSING.md
  */
 
+#include <array>
 #include <atomic>
 #include <barrier>
+#include <cerrno>
+#include <chrono>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -19,6 +23,9 @@
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <spdlog/spdlog.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "solver_test_helpers.hpp"
 
@@ -58,6 +65,133 @@ TEST_CASE(
   CHECK(spdlog::default_logger_raw() != nullptr);
 
   spdlog::set_default_logger(std::move(saved));
+}
+
+// ─── validation-probe orphan hardening ───────────────────────────────────────
+//
+// 23 validation children were once found hung for 20 h in futex_wait,
+// orphaned (PPID 1) after the parent `gtopt --solvers` was killed.  The
+// probe now (a) bounds the parent's wait and kills the child on timeout and
+// (b) arms PR_SET_PDEATHSIG in the child.  These tests pin both helpers.
+
+TEST_CASE(
+    "SolverRegistry::wait_child_with_timeout reaps a fast child")  // NOLINT
+{
+  const pid_t pid = ::fork();
+  REQUIRE(pid != -1);
+  if (pid == 0) {
+    ::_exit(7);
+  }
+  const auto status = SolverRegistry::wait_child_with_timeout(
+      pid, std::chrono::milliseconds {1500});
+  REQUIRE(status.has_value());
+  CHECK(WIFEXITED(status.value_or(0)));
+  CHECK(WEXITSTATUS(status.value_or(0)) == 7);
+}
+
+TEST_CASE(
+    "SolverRegistry::wait_child_with_timeout kills a hung child")  // NOLINT
+{
+  const pid_t pid = ::fork();
+  REQUIRE(pid != -1);
+  if (pid == 0) {
+    while (true) {
+      ::pause();
+    }
+  }
+  const auto t0 = std::chrono::steady_clock::now();
+  const auto status = SolverRegistry::wait_child_with_timeout(
+      pid, std::chrono::milliseconds {150});
+  const auto elapsed = std::chrono::steady_clock::now() - t0;
+  CHECK_FALSE(status.has_value());
+  CHECK(elapsed >= std::chrono::milliseconds {150});
+  CHECK(elapsed < std::chrono::seconds {2});
+  // Killed AND reaped: no zombie left behind.
+  errno = 0;
+  CHECK(::kill(pid, 0) == -1);
+  CHECK(errno == ESRCH);
+}
+
+TEST_CASE(
+    "SolverRegistry::arm_child_parent_death_signal checks the parent "
+    "pid")  // NOLINT
+{
+  const pid_t parent = ::getpid();
+  for (const bool match : {true, false}) {
+    const pid_t pid = ::fork();
+    REQUIRE(pid != -1);
+    if (pid == 0) {
+      const bool ok = SolverRegistry::arm_child_parent_death_signal(
+          match ? parent : parent + 1000000);
+      ::_exit(ok ? 0 : 1);
+    }
+    const auto status = SolverRegistry::wait_child_with_timeout(
+        pid, std::chrono::milliseconds {1500});
+    REQUIRE(status.has_value());
+    CHECK(WIFEXITED(status.value_or(0)));
+    CHECK(WEXITSTATUS(status.value_or(0)) == (match ? 0 : 1));
+  }
+}
+
+TEST_CASE(
+    "SolverRegistry::arm_child_parent_death_signal kills the child "
+    "when its parent dies")  // NOLINT
+{
+  // Become a child subreaper so the orphaned grandchild is reparented to
+  // this test process (not init) and can be reaped/inspected here.
+  int was_subreaper = 0;
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+  REQUIRE(::prctl(PR_GET_CHILD_SUBREAPER, &was_subreaper, 0, 0, 0) == 0);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+  REQUIRE(::prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0);
+
+  std::array<int, 2> pid_pipe {-1, -1};  // grandchild pid -> test
+  std::array<int, 2> armed_pipe {-1, -1};  // grandchild armed -> middle
+  REQUIRE(::pipe(pid_pipe.data()) == 0);
+  REQUIRE(::pipe(armed_pipe.data()) == 0);
+
+  const pid_t middle = ::fork();
+  REQUIRE(middle != -1);
+  if (middle == 0) {
+    const pid_t me = ::getpid();
+    const pid_t grandchild = ::fork();
+    if (grandchild == 0) {
+      if (!SolverRegistry::arm_child_parent_death_signal(me)) {
+        ::_exit(4);
+      }
+      const pid_t self = ::getpid();
+      (void)::write(pid_pipe[1], &self, sizeof(self));
+      const char c = 1;
+      (void)::write(armed_pipe[1], &c, 1);
+      while (true) {
+        ::pause();
+      }
+    }
+    char c = 0;
+    (void)::read(armed_pipe[0], &c, 1);
+    ::_exit(grandchild > 0 ? 0 : 1);  // parent dies -> PDEATHSIG fires
+  }
+  ::close(pid_pipe[1]);
+  ::close(armed_pipe[0]);
+  ::close(armed_pipe[1]);
+
+  const auto mid_status = SolverRegistry::wait_child_with_timeout(
+      middle, std::chrono::milliseconds {1500});
+  CHECK(mid_status.has_value());
+
+  pid_t grandchild = -1;
+  const auto n = ::read(pid_pipe[0], &grandchild, sizeof(grandchild));
+  ::close(pid_pipe[0]);
+  REQUIRE(n == static_cast<ssize_t>(sizeof(grandchild)));
+
+  const auto gc_status = SolverRegistry::wait_child_with_timeout(
+      grandchild, std::chrono::milliseconds {1500});
+  REQUIRE(gc_status.has_value());  // died on its own, not via the timeout
+  CHECK(WIFSIGNALED(gc_status.value_or(0)));
+  CHECK(WTERMSIG(gc_status.value_or(0)) == SIGKILL);
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+  (void)::prctl(PR_SET_CHILD_SUBREAPER, was_subreaper, 0, 0, 0);
 }
 
 // ─── SolverRegistry singleton ───────────────────────────────────────────────

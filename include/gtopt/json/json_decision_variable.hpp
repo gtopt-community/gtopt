@@ -8,7 +8,8 @@
  *
  * Provides JSON serialization / deserialization for DecisionVariable
  * objects using DAW JSON.  Fields: uid, name, optional active,
- * optional lower_bound / upper_bound / cost.
+ * optional lower_bound / upper_bound / cost, scope/state flags and the
+ * integer / relax integrality flags.
  */
 
 #pragma once
@@ -40,7 +41,9 @@ struct json_data_contract<DecisionVariable>
                        json_bool_null<"link", OptBool>,
                        json_bool_null<"block_state", OptBool>,
                        json_number_null<"initial_value", OptReal>,
-                       json_number_null<"obj_constant", OptReal>>;
+                       json_number_null<"obj_constant", OptReal>,
+                       json_bool_null<"integer", OptBool>,
+                       json_bool_null<"relax", OptBool>>;
 
   constexpr static auto to_json_data(DecisionVariable const& dv)
   {
@@ -59,7 +62,9 @@ struct json_data_contract<DecisionVariable>
                                  dv.link,
                                  dv.block_state,
                                  dv.initial_value,
-                                 dv.obj_constant);
+                                 dv.obj_constant,
+                                 dv.integer,
+                                 dv.relax);
   }
 };
 

@@ -7,6 +7,8 @@
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 TEST_CASE("Generator set_attrs functionality")
@@ -508,7 +510,7 @@ TEST_CASE("GeneratorLP — capainst primal col_sol expands to meet demand")
   // for the 50 MW dispatch: expmod = 0.5 → capainst = 50.
   const auto cap_col = cheap_gen_lp.capacity_col_at(stage_lp);
   REQUIRE(cap_col.has_value());
-  const auto cap_val = col_sol[*cap_col];
+  const auto cap_val = col_sol[cap_col.value_or(ColIndex {})];
   CHECK(cap_val == doctest::Approx(50.0).epsilon(1e-6));
 
   // Cheap generator produces all 50 MW.
@@ -676,7 +678,6 @@ TEST_CASE("GeneratorLP — capacity row dual equals marginal cost minus gcost")
 TEST_CASE("GeneratorLP — integer_expmod MIP gives integer expansion modules")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Gate: this test requires a MIP-capable backend. When no MIP solver is
   // available (e.g., CLP-only sandbox), skip silently with a message.
@@ -790,7 +791,7 @@ TEST_CASE("GeneratorLP — integer_expmod MIP gives integer expansion modules")
   const auto& stage_lp = simulation_lp.stages().front();
   const auto expmod_col = gen_lp.expmod_col_at(stage_lp);
   REQUIRE(expmod_col.has_value());
-  CHECK(lp.is_integer(*expmod_col));
+  CHECK(lp.is_integer(test_support::require_value(expmod_col)));
 
   // Solve the MIP and check the integer optimum.
   auto result = lp.resolve();
@@ -798,13 +799,12 @@ TEST_CASE("GeneratorLP — integer_expmod MIP gives integer expansion modules")
   CHECK(result.value() == 0);
 
   const auto col_sol = lp.get_col_sol();
-  const auto expmod_val = col_sol[*expmod_col];
+  const auto expmod_val = col_sol[test_support::require_value(expmod_col)];
   CHECK(expmod_val == doctest::Approx(3.0).epsilon(1e-6));
 
   // capainst must equal 3 * 30 = 90 MW (enough to cover the 75 MW demand).
   const auto cap_col = gen_lp.capacity_col_at(stage_lp);
   REQUIRE(cap_col.has_value());
-  CHECK(col_sol[*cap_col] == doctest::Approx(90.0).epsilon(1e-6));
+  CHECK(col_sol[test_support::require_value(cap_col)]
+        == doctest::Approx(90.0).epsilon(1e-6));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

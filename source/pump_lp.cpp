@@ -11,6 +11,7 @@
  * constraints and relationships with other system components.
  */
 
+#include <gtopt/coupler_fail_closed.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/pump_lp.hpp>
@@ -53,7 +54,20 @@ bool PumpLP::add_to_lp(const SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
+  const auto& waterway = sc.element<WaterwayLP>(waterway_sid());
+
+  // Fail-closed coupler (R2): water is lifted through the pump waterway
+  // only by paying the pump load.  An inactive pump closes the pumping
+  // (positive) direction of its waterway; a reverse-flow lower bound is
+  // kept.
   if (!is_active(stage)) {
+    for (const auto& block : stage.blocks()) {
+      if (const auto fcol =
+              waterway.lookup_flow_col(scenario, stage, block.uid()))
+      {
+        close_producing_col(lp, *fcol);
+      }
+    }
     return true;
   }
 
@@ -68,7 +82,6 @@ bool PumpLP::add_to_lp(const SystemContext& sc,
 
   auto&& blocks = stage.blocks();
 
-  const auto& waterway = sc.element<WaterwayLP>(waterway_sid());
   const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
 
   const auto& demand = sc.element<DemandLP>(demand_sid());
@@ -85,15 +98,21 @@ bool PumpLP::add_to_lp(const SystemContext& sc,
     const auto buid = block.uid();
 
     // LP-size / robustness: the upstream waterway may have P1-elided a
-    // zero-flow block (waterway_lp zero-bound skip), and the synthetic
-    // pump demand may likewise be absent.  Without a flow column the
-    // conversion row ``rate · flow − load ≤ 0`` reduces to
-    // ``−load ≤ 0`` (always true) and the capacity row is vacuous —
-    // skip both rather than throwing on ``.at``.  Write-out rule: an
-    // absent conversion/capacity row has a 0 dual (never bound).
+    // zero-flow block (waterway_lp zero-bound skip): without a flow
+    // column the conversion row ``rate · flow − load ≤ 0`` reduces to
+    // ``−load ≤ 0`` (always true) and the capacity row is vacuous — skip
+    // both.  Write-out rule: an absent conversion/capacity row has a 0
+    // dual (never bound).
     const auto fcol_it = flow_cols.find(buid);
+    if (fcol_it == flow_cols.end()) {
+      continue;
+    }
+    // Fail-closed (R2): no pump load column (lmax = 0 or demand
+    // inactive) means no power to pump with — close the pumping
+    // direction instead of dropping the row (free lifted water).
     const auto lcol_it = load_cols.find(buid);
-    if (fcol_it == flow_cols.end() || lcol_it == load_cols.end()) {
+    if (lcol_it == load_cols.end()) {
+      close_producing_col(lp, fcol_it->second);
       continue;
     }
     const auto fcol = fcol_it->second;

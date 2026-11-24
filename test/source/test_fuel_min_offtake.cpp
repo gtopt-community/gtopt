@@ -29,6 +29,8 @@ using namespace gtopt;
 
 namespace test_fuel_min_offtake
 {
+namespace
+{
 
 Simulation make_2block_simulation()
 {
@@ -54,6 +56,7 @@ Simulation make_2block_simulation()
   };
 }
 
+}  // namespace
 }  // namespace test_fuel_min_offtake
 
 TEST_CASE(  // NOLINT
@@ -77,7 +80,8 @@ TEST_CASE("Fuel.min_offtake JSON round-trip — hard + soft floor")  // NOLINT
     })";
     const Fuel f = daw::json::from_json<Fuel>(js);
     REQUIRE(f.min_offtake.has_value());
-    CHECK(std::get<Real>(*f.min_offtake) == doctest::Approx(200.0));
+    CHECK((f.min_offtake
+           && std::get<Real>(*f.min_offtake) == doctest::Approx(200.0)));
     CHECK_FALSE(f.min_offtake_cost.has_value());
     CHECK_FALSE(f.min_offtake_per_block.has_value());
   }
@@ -94,7 +98,8 @@ TEST_CASE("Fuel.min_offtake JSON round-trip — hard + soft floor")  // NOLINT
     const Fuel f = daw::json::from_json<Fuel>(js);
     REQUIRE(f.min_offtake.has_value());
     REQUIRE(f.min_offtake_cost.has_value());
-    CHECK(std::get<Real>(*f.min_offtake_cost) == doctest::Approx(1000.0));
+    CHECK((f.min_offtake_cost
+           && std::get<Real>(*f.min_offtake_cost) == doctest::Approx(1000.0)));
     CHECK(f.min_offtake_per_block.value_or(false));
   }
   SUBCASE("both min and max coexist (ranged pair)")
@@ -109,8 +114,10 @@ TEST_CASE("Fuel.min_offtake JSON round-trip — hard + soft floor")  // NOLINT
     const Fuel f = daw::json::from_json<Fuel>(js);
     REQUIRE(f.min_offtake.has_value());
     REQUIRE(f.max_offtake.has_value());
-    CHECK(std::get<Real>(*f.min_offtake) == doctest::Approx(200.0));
-    CHECK(std::get<Real>(*f.max_offtake) == doctest::Approx(500.0));
+    CHECK((f.min_offtake
+           && std::get<Real>(*f.min_offtake) == doctest::Approx(200.0)));
+    CHECK((f.max_offtake
+           && std::get<Real>(*f.max_offtake) == doctest::Approx(500.0)));
   }
 }
 

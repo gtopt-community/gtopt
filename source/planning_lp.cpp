@@ -32,6 +32,7 @@
 #include <gtopt/build_info.hpp>
 #include <gtopt/bus.hpp>
 #include <gtopt/constraint_names.hpp>
+#include <gtopt/gas_slp.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/lng_terminal.hpp>
@@ -50,6 +51,7 @@
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_file_loader.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/warn_once.hpp>
 #include <gtopt/work_pool.hpp>
 #include <spdlog/spdlog.h>
 
@@ -820,6 +822,16 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   // Compute median x_tau = median(X/V²).
   std::ranges::sort(x_taus);
   const auto n = x_taus.size();
+  {
+    const double median_x_tau = (n % 2 == 0)
+        ? (x_taus[(n / 2) - 1] + x_taus[n / 2]) / 2.0
+        : x_taus[n / 2];
+    if (opts.lp_matrix_options.kvl_row_scale.value_or(false)
+        && !opts.lp_matrix_options.kvl_x_ref.has_value())
+    {
+      opts.lp_matrix_options.kvl_x_ref = median_x_tau;
+    }
+  }
   if (auto_scale_theta_value) {
     const double median_x_tau = (n % 2 == 0)
         ? (x_taus[(n / 2) - 1] + x_taus[n / 2]) / 2.0
@@ -1350,18 +1362,25 @@ void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
       } else {
         // Producer-side StateVariable was never registered: the previous
         // phase's element either didn't run or chose not to publish an
-        // efin/state column for this (scenario, stage).  Mirrors the
-        // build-time warning that lived in storage_lp.hpp before the
-        // deferred-linking refactor — kept here so cross-phase coupling
-        // gaps remain visible.
-        SPDLOG_WARN(
-            "tighten_scene_phase_links: no producer StateVariable for "
-            "deferred link (class='{}' col='{}' uid={} prev_stage_uid={} "
-            "scene={} prev_phase={}). Cross-phase state coupling will be "
-            "missing for this element.",
+        // efin/state column for this (scenario, stage).  The legitimate
+        // case is commissioning — a state-carrying storage that enters
+        // the system in this phase (`validate_planning` rejects the
+        // re-activation of a retired one).  Its incoming state is then not
+        // linked to any predecessor.  Once per element (every scene and
+        // aperture would repeat it).
+        warn_once_per_key(
+            std::format("state_link:{}:{}:{}",
+                        link.prev_key.class_name,
+                        link.prev_key.uid,
+                        link.prev_key.col_name),
+            "{} uid={}: no state from the previous phase for '{}' (first at "
+            "prev_stage_uid={} scene={} prev_phase={}) — the element enters "
+            "the system there (commissioning), so its initial state is not "
+            "linked to a predecessor: it is free within the element's "
+            "storage bounds.  Logged once per element.",
             link.prev_key.class_name,
-            link.prev_key.col_name,
             link.prev_key.uid,
+            link.prev_key.col_name,
             link.prev_key.stage_uid,
             link.prev_key.lp_key.scene_index,
             link.prev_key.lp_key.phase_index);
@@ -1968,6 +1987,11 @@ auto PlanningLP::create_systems(System& system,
     }
   }
 
+  // One INFO line per user constraint whose terms were dropped as an
+  // intentional implicit 0 (inactive element, zero capacity, …), summed
+  // over every cell just built.
+  simulation.log_dropped_term_summary();
+
   // INVARIANT: every element's ``add_to_lp`` is responsible for emitting
   // a valid LP on its own — no ``update_lp`` should be required to make
   // the freshly-built LP solvable / physically meaningful.  ``update_lp``
@@ -2503,7 +2527,15 @@ void PlanningLP::write_out()
       // mean the same thing semantically — the cell was never solved
       // — and differing values break solution.csv invariance across
       // the two modes.
-      const auto status = li.is_optimal() ? li.get_status() : -1;
+      //
+      // A MIP stopped at its limit whose incumbent was polished is
+      // reported as `limit_polished` (5), not optimal: the fixed LP solved
+      // to optimality, but the MIP did not.
+      const auto& polish = li.last_mip_polish();
+      auto status = li.is_optimal() ? li.get_status() : -1;
+      if (polish.polished && !polish.mip_optimal) {
+        status = solution_status_limit_polished;
+      }
       rows.push_back({
           .scene_uid = system.scene().uid(),
           .phase_uid = system.phase().uid(),
@@ -2638,6 +2670,16 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
     }
 
     SPDLOG_DEBUG("    Scene {} phase {} solved ok", scene_index, phase_index);
+
+    // Gas SLP: re-linearise `weymouth_mode: linearized` pipes at the
+    // solution through the standard `update_lp` dispatch and re-solve
+    // (no-op unless `gas_options.slp_iterations` > 0).
+    if (auto slp = gas_slp_refine(system_sp, lp_opts); !slp) {
+      auto error = std::move(slp.error());
+      error.message += std::format(
+          ", gas SLP at scene {} phase {}", scene_index, phase_index);
+      return std::unexpected(std::move(error));
+    }
 
     // Update state-variable dependents with the last solution.  Read
     // in physical space (`get_col_sol`) so `LinearInterface`'s optimal-

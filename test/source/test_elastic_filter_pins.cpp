@@ -39,6 +39,8 @@
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/state_variable.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -215,13 +217,12 @@ TEST_CASE(  // NOLINT
 
   auto elastic =
       elastic_filter_solve(fx.li, fx.links, kPinUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& el = test_support::require_value(elastic);
+  REQUIRE(el.solved);
   // Minimum slack: 90 + 90 to reach (100, 100).
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(180.0));
+  CHECK(el.clone.get_obj_value() == doctest::Approx(180.0));
 
-  auto cuts =
-      build_multi_cuts(*elastic, fx.links, {}, kPinCutCoeffEps, /*niter=*/0);
+  auto cuts = build_multi_cuts(el, fx.links, {}, kPinCutCoeffEps, /*niter=*/0);
   CHECK(cuts.empty());
 }
 
@@ -241,11 +242,11 @@ TEST_CASE(  // NOLINT
 
   auto elastic =
       elastic_filter_solve(fx.li, fx.links, kPinUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& el = test_support::require_value(elastic);
+  REQUIRE(el.solved);
 
   auto cut = build_feasibility_cut_physical(
-      fx.links, elastic->link_infos, elastic->clone, kPinCutCoeffEps, 0);
+      fx.links, el.link_infos, el.clone, kPinCutCoeffEps, 0);
 
   // No usable cut: an empty coefficient map is the no-op signal
   // callers check before installing.  Currently FAILS — the row comes
@@ -269,13 +270,12 @@ TEST_CASE(  // NOLINT
 
   auto elastic =
       elastic_filter_solve(fx.li, fx.links, kPinUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& el = test_support::require_value(elastic);
+  REQUIRE(el.solved);
   // Slack: A 10->100 (90) + B 10->50 (40) = 130.
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(130.0));
+  CHECK(el.clone.get_obj_value() == doctest::Approx(130.0));
 
-  auto cuts =
-      build_multi_cuts(*elastic, fx.links, {}, kPinCutCoeffEps, /*niter=*/0);
+  auto cuts = build_multi_cuts(el, fx.links, {}, kPinCutCoeffEps, /*niter=*/0);
 
   // Family not dropped.
   REQUIRE_FALSE(cuts.empty());
@@ -357,15 +357,15 @@ TEST_CASE(  // NOLINT
 
   auto elastic =
       elastic_filter_solve(li, links, kPinUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  auto& el = test_support::require_value(elastic);
+  REQUIRE(el.solved);
   // SINF = 10 (eini 30 -> 40 once `other` saturates at 50).
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(10.0));
+  CHECK(el.clone.get_obj_value() == doctest::Approx(10.0));
 
   SUBCASE("aggregated cut: pi > 0, rhs = pi * 40")
   {
     auto cut = build_feasibility_cut_physical(
-        links, elastic->link_infos, elastic->clone, kPinCutCoeffEps, 0);
+        links, el.link_infos, el.clone, kPinCutCoeffEps, 0);
 
     REQUIRE(cut.cmap.contains(ColIndex {99}));
     const double pi = cut.cmap.at(ColIndex {99});
@@ -376,8 +376,7 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("multi-cut: single cut with implied bound 40")
   {
-    auto cuts =
-        build_multi_cuts(*elastic, links, {}, kPinCutCoeffEps, /*niter=*/0);
+    auto cuts = build_multi_cuts(el, links, {}, kPinCutCoeffEps, /*niter=*/0);
     REQUIRE(cuts.size() == 1);
     const auto& cut = cuts.front();
     const double pi = cut.cmap.at(ColIndex {99});
@@ -402,16 +401,15 @@ TEST_CASE(  // NOLINT
 
   auto elastic =
       elastic_filter_solve(fx.li, fx.links, kPinUnitPenalty, SolverOptions {});
-  REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
-  CHECK(elastic->clone.get_obj_value() == doctest::Approx(0.0));
+  auto& el = test_support::require_value(elastic);
+  REQUIRE(el.solved);
+  CHECK(el.clone.get_obj_value() == doctest::Approx(0.0));
 
-  auto cuts =
-      build_multi_cuts(*elastic, fx.links, {}, kPinCutCoeffEps, /*niter=*/0);
+  auto cuts = build_multi_cuts(el, fx.links, {}, kPinCutCoeffEps, /*niter=*/0);
   CHECK(cuts.empty());
 
   auto cut = build_feasibility_cut_physical(
-      fx.links, elastic->link_infos, elastic->clone, kPinCutCoeffEps, 0);
+      fx.links, el.link_infos, el.clone, kPinCutCoeffEps, 0);
   CHECK(cut.cmap.empty());
   // The no-op row must be trivially satisfiable (0 >= 0), never a
   // poisoned RHS.

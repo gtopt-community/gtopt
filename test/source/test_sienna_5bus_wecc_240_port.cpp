@@ -127,7 +127,7 @@ constexpr int kNLine = 80;
   // Cross-chords (remaining kNLine - kNBus lines).
   for (int ci = 0; ci < kNLine - kNBus; ++ci) {
     int bus_a = ((ci * 31) % kNBus) + 1;
-    int bus_b = ((ci * 31 + kNBus / 3) % kNBus) + 1;
+    int bus_b = (((ci * 31) + (kNBus / 3)) % kNBus) + 1;
     if (bus_a == bus_b) {
       bus_b = (bus_b % kNBus) + 1;
     }

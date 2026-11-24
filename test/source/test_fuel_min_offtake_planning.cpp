@@ -82,7 +82,7 @@ TEST_CASE("Fuel.min_offtake - JSON parse hard floor")  // NOLINT
   REQUIRE(planning.system.fuel_array.size() == 1);
   const auto& f = planning.system.fuel_array[0];
   REQUIRE(f.min_offtake.has_value());
-  CHECK(std::get<Real>(*f.min_offtake) == doctest::Approx(200.0));
+  CHECK(std::get<Real>(f.min_offtake.value_or(0.0)) == doctest::Approx(200.0));
   // No cost ⇒ hard floor; per-block flag unset ⇒ per-stage SUM mode.
   CHECK_FALSE(f.min_offtake_cost.has_value());
   CHECK_FALSE(f.min_offtake_per_block.has_value());
@@ -117,7 +117,8 @@ TEST_CASE("Fuel.min_offtake - JSON parse soft floor")  // NOLINT
   const auto& f = planning.system.fuel_array[0];
   REQUIRE(f.min_offtake.has_value());
   REQUIRE(f.min_offtake_cost.has_value());
-  CHECK(std::get<Real>(*f.min_offtake_cost) == doctest::Approx(50.0));
+  CHECK(std::get<Real>(f.min_offtake_cost.value_or(0.0))
+        == doctest::Approx(50.0));
   CHECK(f.min_offtake_per_block.value_or(false));
 }
 
@@ -147,8 +148,8 @@ TEST_CASE("Fuel.min_offtake - JSON parse ranged pair (min + max)")  // NOLINT
   const auto& f = planning.system.fuel_array[0];
   REQUIRE(f.min_offtake.has_value());
   REQUIRE(f.max_offtake.has_value());
-  CHECK(std::get<Real>(*f.min_offtake) == doctest::Approx(200.0));
-  CHECK(std::get<Real>(*f.max_offtake) == doctest::Approx(500.0));
+  CHECK(std::get<Real>(f.min_offtake.value_or(0.0)) == doctest::Approx(200.0));
+  CHECK(std::get<Real>(f.max_offtake.value_or(0.0)) == doctest::Approx(500.0));
 }
 
 TEST_CASE("Fuel.min_offtake - PlanningLP solve, hard floor binds")  // NOLINT

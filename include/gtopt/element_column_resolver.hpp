@@ -13,8 +13,12 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/sparse_row.hpp>
@@ -133,7 +137,70 @@ struct ResolveColResult
   bool emitted {false};
   double offset_shift {0.0};
   bool element_known {false};
+  /// Set (non-null) when nothing was emitted AND the element is
+  /// scope-restricted (`SimulationLP::register_ampl_scoped_element` — a
+  /// coarse-scope or single-block `DecisionVariable`): its column exists,
+  /// but not at this (scenario, stage, block).  Points at the registry's
+  /// scope description.  This is NEVER the implicit-zero leniency — the
+  /// caller errors (strict) or warns (lax) instead of dropping the term.
+  const std::string* unreachable_scope {nullptr};
 };
+
+/// One element of a `sum(...)` that contributed no column at the row's
+/// (scenario, stage, block).  `scope` is set when the element is
+/// scope-restricted (see `ResolveColResult::unreachable_scope`);
+/// `element_known` mirrors `ResolveColResult::element_known` (false: the
+/// id resolves to no registered element / attribute).
+struct UnreachableSumElement
+{
+  std::string element_id;
+  const std::string* scope {nullptr};
+  bool element_known {false};
+};
+
+/// Why a KNOWN element reference resolved to no LP column at one
+/// (scenario, stage, block).  Every kind but `scope_mismatch` is an
+/// intentional absence: the term is an implicit 0.
+enum class DroppedTermKind : std::uint8_t
+{
+  suppressed,  ///< class/attribute disabled by the planning mode
+  inactive,  ///< element inactive at this stage
+  prev_first_block,  ///< `prev(...)` / `_prev` at the stage's first block
+  block_omitted,  ///< column registered at this stage, not this block
+  zero_capacity,  ///< pmax / lmax / tmax = 0 at this block
+  not_materialised,  ///< attribute never built for this element so far
+  /// The element is ACTIVE here and its column for this attribute was
+  /// registered at an earlier stage of this LP, but not at this one: a
+  /// registration / scope mismatch, never an implicit 0.
+  scope_mismatch,
+};
+
+/// `is_active(stage)` of the element @p ref names; nullopt when the
+/// reference does not resolve or the class has no activity probe.
+[[nodiscard]] std::optional<bool> element_ref_active(const SystemContext& sc,
+                                                     const ScenarioLP& scenario,
+                                                     const StageLP& stage,
+                                                     const ElementRef& ref);
+
+/// Short label of a `DroppedTermKind` (log summaries).
+[[nodiscard]] std::string_view dropped_term_kind_name(
+    DroppedTermKind kind) noexcept;
+
+/**
+ * @brief Classify a known element reference that produced no column.
+ *
+ * Called only on the silent-zero path (`!emitted && element_known`, or a
+ * planning-mode suppression).  Uses the element's own `is_active(stage)`
+ * (via `SimulationLP::find_ampl_active`), the AMPL registry of this
+ * (scenario, stage) and of the earlier stages of the same LP, and the
+ * capacity parameters `pmax` / `lmax` / `tmax_ab`+`tmax_ba`.
+ */
+[[nodiscard]] DroppedTermKind classify_dropped_term(const SystemContext& sc,
+                                                    const ScenarioLP& scenario,
+                                                    const StageLP& stage,
+                                                    const BlockLP& block,
+                                                    const ElementRef& ref,
+                                                    bool suppressed);
 
 /**
  * @brief Resolve an `ElementRef` into one or more `SparseRow` entries.
@@ -199,13 +266,20 @@ struct ResolveColResult
  * mechanism so shifted-variable encodings (Option C demand) compose
  * correctly under `sum(demand(all).load)` predicates.
  */
-[[nodiscard]] double collect_sum_cols(const SystemContext& sc,
-                                      const ScenarioLP& scenario,
-                                      const StageLP& stage,
-                                      const BlockLP& block,
-                                      const SumElementRef& sum_ref,
-                                      double base_coeff,
-                                      SparseRow& row,
-                                      const LinearProblem& lp);
+///
+/// When @p unreachable is non-null, every summed element that contributed no
+/// column at this block is appended to it (instead of vanishing silently),
+/// so the caller can classify it: error / warn on a scope mismatch or an
+/// unknown explicit id, count it as an implicit 0 otherwise.
+[[nodiscard]] double collect_sum_cols(
+    const SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    const BlockLP& block,
+    const SumElementRef& sum_ref,
+    double base_coeff,
+    SparseRow& row,
+    const LinearProblem& lp,
+    std::vector<UnreachableSumElement>* unreachable = nullptr);
 
 }  // namespace gtopt

@@ -17,8 +17,8 @@
 
 #include "gurobi_solver_backend.hpp"
 
-#include <fcntl.h>
 #include <gtopt/log_and_throw.hpp>
+#include <gtopt/scoped_stdout_silencer.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 #include <gurobi_c.h>
@@ -99,6 +99,9 @@ void apply_options_to_env(GRBenv* env, const SolverOptions& opts)
   // (e.g. 0.01 = 1 %).
   if (const auto gap = opts.mip_gap; gap && *gap > 0) {
     GRBsetdblparam(env, GRB_DBL_PAR_MIPGAP, *gap);
+  }
+  if (const auto sols = opts.mip_solution_limit; sols && *sols > 0) {
+    GRBsetintparam(env, GRB_INT_PAR_SOLUTIONLIMIT, *sols);
   }
   if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
     GRBsetdblparam(env, GRB_DBL_PAR_TIMELIMIT, *tl);
@@ -236,23 +239,17 @@ void apply_log_filename_to_env(GRBenv* env,
 
   GRBenv* env = nullptr;
 
-  const int saved_stdout = ::dup(STDOUT_FILENO);  // NOLINT(android-cloexec-dup)
-  const int devnull = ::open("/dev/null", O_WRONLY);  // NOLINT
-  if (devnull >= 0) {
-    ::dup2(devnull, STDOUT_FILENO);
-    ::close(devnull);
-  }
-
-  int rc = GRBemptyenv(&env);
-  if (rc == 0 && env != nullptr) {
-    GRBsetintparam(env, GRB_INT_PAR_OUTPUTFLAG, 0);
-    GRBsetintparam(env, GRB_INT_PAR_LOGTOCONSOLE, 0);
-    rc = GRBstartenv(env);
-  }
-
-  if (saved_stdout >= 0) {
-    ::dup2(saved_stdout, STDOUT_FILENO);
-    ::close(saved_stdout);
+  // Silence the Gurobi banner on stdout (thread-safe RAII redirect; see
+  // gtopt/scoped_stdout_silencer.hpp).
+  int rc = 0;
+  {
+    const ScopedStdoutSilencer silence_stdout;
+    rc = GRBemptyenv(&env);
+    if (rc == 0 && env != nullptr) {
+      GRBsetintparam(env, GRB_INT_PAR_OUTPUTFLAG, 0);
+      GRBsetintparam(env, GRB_INT_PAR_LOGTOCONSOLE, 0);
+      rc = GRBstartenv(env);
+    }
   }
 
   if (rc != 0) {
@@ -1272,6 +1269,24 @@ int grb_get_status(GRBmodel* model)
 bool GurobiSolverBackend::is_proven_optimal() const
 {
   return grb_get_status(m_model_) == GRB_OPTIMAL;
+}
+
+bool GurobiSolverBackend::has_mip_incumbent() const
+{
+  if (m_model_ == nullptr) {
+    return false;
+  }
+  // `IsMIP` + `SolCount > 0`: Gurobi keeps the incumbent in `X` on every
+  // MIP stop that found one (optimal, time / node / solution / work /
+  // memory limit, interrupt).
+  int is_mip = 0;
+  int sol_count = 0;
+  if (GRBgetintattr(m_model_, GRB_INT_ATTR_IS_MIP, &is_mip) != 0
+      || GRBgetintattr(m_model_, GRB_INT_ATTR_SOLCOUNT, &sol_count) != 0)
+  {
+    return false;
+  }
+  return is_mip != 0 && sol_count > 0;
 }
 
 bool GurobiSolverBackend::is_abandoned() const

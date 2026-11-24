@@ -18,6 +18,7 @@ using namespace gtopt;
 namespace
 {
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const Array<Bus> bus_array = {
     {
         .uid = Uid {1},
@@ -25,6 +26,7 @@ const Array<Bus> bus_array = {
     },
 };
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const Array<Demand> demand_array = {
     {
         .uid = Uid {1},
@@ -34,6 +36,7 @@ const Array<Demand> demand_array = {
     },
 };
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const Simulation simulation = {
     .block_array =
         {
@@ -248,7 +251,8 @@ TEST_CASE("SimpleCommitmentLP - must run")
   const auto u_col =
       sc_lp.lookup_status_col(scenario_lp, stage_lp, block_lp.uid());
   REQUIRE(u_col.has_value());
-  CHECK(lp.get_col_sol()[*u_col] == doctest::Approx(1.0).epsilon(0.001));
+  CHECK((u_col
+         && lp.get_col_sol()[*u_col] == doctest::Approx(1.0).epsilon(0.001)));
 }
 
 TEST_CASE("SimpleCommitmentLP - dispatch_pmin defaults to generator pmin")
@@ -356,7 +360,8 @@ TEST_CASE("SimpleCommitmentLP - add_to_output via write_out")  // NOLINT
   const auto u_col =
       sc_lp.lookup_status_col(scenario_lp, stage_lp, block_lp.uid());
   REQUIRE(u_col.has_value());
-  CHECK(lp.get_col_sol()[*u_col] == doctest::Approx(1.0).epsilon(0.001));
+  CHECK((u_col
+         && lp.get_col_sol()[*u_col] == doctest::Approx(1.0).epsilon(0.001)));
 
   // Exercises SimpleCommitmentLP::add_to_output (status_cols, gen_upper_rows,
   // gen_lower_rows)

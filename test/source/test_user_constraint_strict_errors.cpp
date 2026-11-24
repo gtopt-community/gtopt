@@ -36,6 +36,8 @@ using namespace gtopt;
 
 namespace uc_strict_errors_test  // unique outer namespace (unity-build safe)
 {
+namespace
+{
 
 // Build a PlanningLP from JSON and return the exception message, or an
 // empty string if no exception was thrown.  Construction triggers the LP
@@ -97,6 +99,8 @@ namespace uc_strict_errors_test  // unique outer namespace (unity-build safe)
 }
 
 // clang-format on
+
+}  // namespace
 
 TEST_CASE(  // NOLINT
     "UC strict — unknown element NAME throws with UC name + bad name + hint")

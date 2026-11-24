@@ -864,6 +864,9 @@ TEST_CASE(  // NOLINT
           .uid = Uid {1},
           .name = "pump_load",
           .bus = Uid {1},
+          // Dispatchable pump load: without fcost=0 it would inherit the
+          // default demand_fail_cost (1000) and pump at full capacity.
+          .fcost = 0.0,
           .capacity = 500.0,
       },
   };

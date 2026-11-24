@@ -107,6 +107,13 @@ namespace
 
 // Extensive-form optimum (cited: SDDP.jl CI @test; verified in-repo).
 constexpr double kA1PublishedLB = 8333.3333333333;
+// gtopt's converged aperture-SDDP A1 lower bounds (all VALID, below the
+// published value).  Which one is reached depends on the dual vertex the
+// LP backend returns at degenerate backward-pass optima: ~8055.6 on most
+// backends, ~8194.4 on HiGHS (1.12 and 1.15 alike, the CI solver), the
+// exact 8333.33 on CLP 1.17.10.
+constexpr double kA1GtoptLB = 8055.5556;
+constexpr double kA1GtoptHighsLB = 8194.4444;
 constexpr double kA1Emax = 200.0;
 constexpr double kA1Eini = 200.0;
 constexpr double kA1Demand = 150.0;
@@ -412,18 +419,18 @@ TEST_CASE(  // NOLINT
   // docs/examples/sddp-literature-benchmarks.md (A1) for the gap
   // analysis; closing it needs an exact-expectation backward pass (no
   // aperture resampling) — future work.
-  constexpr double kA1GtoptLB = 8055.5556;  // gtopt aperture-SDDP value
   const auto& last = results->back();
   CAPTURE(last.lower_bound);
   CAPTURE(last.upper_bound);
   CHECK(last.lower_bound <= kA1PublishedLB + valid_tol);  // valid LB
   WARN(last.lower_bound == doctest::Approx(kA1PublishedLB).epsilon(1.0e-4));
   // The converged aperture LB depends on the dual vertex the LP solver
-  // returns: most backends stop at ~8055.6, while CLP 1.17.10 (Ubuntu
-  // 26.04) reaches the exact published value.  Accept either; anything
-  // else is a behavioural change.
+  // returns: most backends stop at ~8055.6, HiGHS at ~8194.4, while CLP
+  // 1.17.10 (Ubuntu 26.04) reaches the exact published value.  Accept
+  // only these; anything else is a behavioural change.
   CHECK(
       (last.lower_bound == doctest::Approx(kA1GtoptLB).epsilon(1.0e-3)
+       || last.lower_bound == doctest::Approx(kA1GtoptHighsLB).epsilon(1.0e-4)
        || last.lower_bound == doctest::Approx(kA1PublishedLB).epsilon(1.0e-4)));
 }
 
@@ -700,9 +707,10 @@ TEST_CASE(  // NOLINT
   CHECK(shared <= kA1PublishedLB + lb_tol);
   CHECK(screened <= kA1PublishedLB + lb_tol);
   // cold pins gtopt's aperture-SDDP A1 value (regression guard).
-  // (8055.6 on most backends; CLP 1.17.10 reaches the exact 8333.33 —
-  // see the A1 test above.)
-  CHECK((cold == doctest::Approx(8055.5556).epsilon(1.0e-3)
+  // (8055.6 on most backends, 8194.4 on HiGHS; CLP 1.17.10 reaches the
+  // exact 8333.33 — see the A1 test above.)
+  CHECK((cold == doctest::Approx(kA1GtoptLB).epsilon(1.0e-3)
+         || cold == doctest::Approx(kA1GtoptHighsLB).epsilon(1.0e-4)
          || cold == doctest::Approx(kA1PublishedLB).epsilon(1.0e-4)));
   // Documented divergence: cut-for-cut parity is NOT expected here (it is
   // certified in test_sddp_dual_shared_literature.cpp + the degenerate

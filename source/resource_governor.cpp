@@ -8,7 +8,10 @@
  */
 
 #include <algorithm>
+#include <charconv>
 #include <cstdlib>
+#include <string_view>
+#include <system_error>
 
 #include <gtopt/gpu_monitor.hpp>
 #include <gtopt/resource_governor.hpp>
@@ -27,8 +30,12 @@ namespace
   // getenv: read once under the governor lock.
   // NOLINTNEXTLINE(concurrency-mt-unsafe)
   if (const char* env = std::getenv("GTOPT_GPU_CONCURRENCY"); env != nullptr) {
-    const int value = std::atoi(env);  // NOLINT(cert-err34-c)
-    if (value > 0) {
+    int value = 0;
+    const std::string_view text {env};
+    if (const auto [ptr, ec] =
+            std::from_chars(text.data(), text.data() + text.size(), value);
+        ec == std::errc {} && value > 0)
+    {
       return value;
     }
   }

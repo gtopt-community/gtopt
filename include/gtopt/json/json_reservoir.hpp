@@ -54,7 +54,9 @@ struct json_data_contract<Reservoir>
                       ReservoirDischargeLimit>,
       json_array_null<"production_factor",
                       Array<ReservoirProductionFactor>,
-                      ReservoirProductionFactor>>;
+                      ReservoirProductionFactor>,
+      json_number_null<"water_value_hint", OptReal>,
+      json_number_null<"dual_scale", OptReal>>;
 
   constexpr static auto to_json_data(Reservoir const& reservoir)
   {
@@ -86,7 +88,9 @@ struct json_data_contract<Reservoir>
                                  reservoir.daily_cycle,
                                  reservoir.seepage,
                                  reservoir.discharge_limit,
-                                 reservoir.production_factor);
+                                 reservoir.production_factor,
+                                 reservoir.water_value_hint,
+                                 reservoir.dual_scale);
   }
 };
 }  // namespace daw::json

@@ -139,7 +139,9 @@ std::string build_iteration_status_json(
 
   // Determine current state label
   const char* status_str = nullptr;
-  if (snapshot.converged) {
+  if (!snapshot.final_status.empty()) {
+    status_str = snapshot.final_status.c_str();
+  } else if (snapshot.converged) {
     status_str = "converged";
   } else if (snapshot.iteration_index == IterationIndex {0}) {
     status_str = "initializing";
@@ -164,6 +166,14 @@ std::string build_iteration_status_json(
   json += std::format("  \"iteration\": {},\n", snapshot.iteration_index);
   json += std::format("  \"lower_bound\": {:.6f},\n", snapshot.lower_bound);
   json += std::format("  \"upper_bound\": {:.6f},\n", snapshot.upper_bound);
+  // UB net of the water-rights agreement rewards (latest iteration;
+  // 0 / = upper_bound when no right is rewarded).
+  if (!results.empty()) {
+    json += std::format("  \"agreement_rewards\": {:.6f},\n",
+                        results.back().agreement_rewards);
+    json += std::format("  \"upper_bound_net\": {:.6f},\n",
+                        results.back().upper_bound_net);
+  }
   json += std::format("  \"gap\": {:.6f},\n", snapshot.gap);
   json += std::format("  \"converged\": {},\n",
                       snapshot.converged ? "true" : "false");
@@ -240,6 +250,10 @@ std::string build_iteration_status_json(
     json += std::format("      \"iteration\": {},\n", r.iteration_index);
     json += std::format("      \"lower_bound\": {:.6f},\n", r.lower_bound);
     json += std::format("      \"upper_bound\": {:.6f},\n", r.upper_bound);
+    json += std::format("      \"agreement_rewards\": {:.6f},\n",
+                        r.agreement_rewards);
+    json +=
+        std::format("      \"upper_bound_net\": {:.6f},\n", r.upper_bound_net);
     json += std::format("      \"gap\": {:.6f},\n", r.gap);
     json += std::format("      \"converged\": {},\n",
                         r.converged ? "true" : "false");
@@ -251,6 +265,26 @@ std::string build_iteration_status_json(
     json +=
         std::format("      \"backward_pass_s\": {:.4f},\n", r.backward_pass_s);
     json += std::format("      \"iteration_s\": {:.4f},\n", r.iteration_s);
+
+    // Boundary-cut gap accounting (only with boundary cuts loaded):
+    // LB − UB → E[Φ'(v_T)] + over-estimation; `corrected_gap` is the gap
+    // the convergence tests read.
+    if (const auto& bd = r.boundary; bd.active) {
+      json += "      \"boundary\": {";
+      json += std::format("\"terminal_future_cost\": {:.6f}, ",
+                          bd.terminal_future_cost);
+      json += std::format("\"alpha_offset\": {:.6f}, ", bd.alpha_offset);
+      json += std::format("\"expected_opex\": {:.6f}, ", bd.expected_opex);
+      json +=
+          std::format("\"expected_abs_opex\": {:.6f}, ", bd.expected_abs_opex);
+      json += std::format("\"corrected_upper_bound\": {:.6f}, ",
+                          bd.corrected_upper_bound);
+      json += std::format("\"corrected_gap\": {:.6f}, ", bd.corrected_gap);
+      json += std::format("\"overestimation\": {:.6f}, ", bd.overestimation);
+      json += std::format("\"terminal_in_ub\": {}",
+                          bd.terminal_in_ub ? "true" : "false");
+      json += "},\n";
+    }
 
     // Per-scene upper bounds
     json += "      \"scene_upper_bounds\": [";
@@ -309,6 +343,14 @@ void write_solver_status(const std::string& filepath,
   // and `phase_grid` are stable).
   std::string iteration_json =
       build_iteration_status_json(results, elapsed_seconds, snapshot);
+
+  // Terminal write: serialised against (and disabling) the monitor's
+  // periodic refresh so a stale "running" document can never be renamed
+  // over the final status afterwards.
+  if (!snapshot.final_status.empty()) {
+    monitor.write_final_status(std::move(iteration_json), filepath);
+    return;
+  }
 
   // Hand the prebuilt iteration string + path to the monitor so its
   // background thread keeps refreshing the realtime/pool block every

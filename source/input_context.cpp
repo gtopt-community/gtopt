@@ -41,6 +41,8 @@ auto InputContext::element_index(const ObjectSingleId<Element>& id) const
 // Add more types here if new components start calling ic.element_index().
 template auto InputContext::element_index(
     const ObjectSingleId<GeneratorLP>&) const -> ElementIndex<GeneratorLP>;
+template auto InputContext::element_index(const ObjectSingleId<DemandLP>&) const
+    -> ElementIndex<DemandLP>;
 template auto InputContext::element_index(
     const ObjectSingleId<ReserveZoneLP>&) const -> ElementIndex<ReserveZoneLP>;
 template auto InputContext::element_index(

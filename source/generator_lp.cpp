@@ -26,6 +26,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/warn_once.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -322,9 +323,11 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     // mutually exclusive — earlier validate_planning has already
     // emitted the user-facing error; defensively short-circuit here.
     if (has_pw && block_heat_rate > 0.0) [[unlikely]] {
-      SPDLOG_WARN(
+      warn_once_per_key(
+          std::format("Generator:{}:heat_rate_and_segments", uid()),
           "GeneratorLP uid={}: both `heat_rate` and `heat_rate_segments` "
-          "are set — using segments, ignoring scalar heat_rate.",
+          "are set — using segments, ignoring scalar heat_rate.  Logged "
+          "once per element.",
           uid());
     }
 

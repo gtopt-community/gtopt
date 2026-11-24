@@ -136,8 +136,10 @@ struct LossConfig
   /// the loss segments concentrate over THIS range rather than `fmax`.
   /// `0.0` (default) means "use the per-direction `fmax`/`block_tmax`"
   /// — i.e. the legacy flow-cap-anchored envelope, fully backward
-  /// compatible.  See `add_piecewise`/`add_direction` for how flow past
-  /// the envelope extrapolates on the last segment's slope.
+  /// compatible.  The envelope never caps the flow: past it (up to the
+  /// flow cap) every PWL mode adds a geometric ladder of extra tangent
+  /// points / secant segments (`overflow_breakpoints`, ratio ≤ 1.4) so
+  /// the loss stays within ≈ 2.8 % of the quadratic `R·f²/V²`.
   double loss_envelope {0.0};
   /// Per-MWh cost stamped on the per-direction loss columns
   /// (``loss_p`` / ``loss_n``) in ``piecewise``/``bidirectional`` modes.

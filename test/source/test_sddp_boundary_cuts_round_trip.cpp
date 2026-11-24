@@ -38,10 +38,10 @@
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_types.hpp>  // register_alpha_variables
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -177,7 +177,8 @@ void run_boundary_cut_round_trip(double scale_obj, double col_scale)
   // (and pre-divided by scale_obj), so get_coeff returned the
   // double-composed value (≠ -phys_coeff whenever col_scale != 1
   // OR scale_obj != 1).
-  const double phys_coeff_in_lp = last_li.get_coeff(cut_row, *state_col);
+  const double phys_coeff_in_lp =
+      last_li.get_coeff(cut_row, test_support::require_value(state_col));
   CAPTURE(phys_coeff_in_lp);
   CHECK(phys_coeff_in_lp
         == doctest::Approx(-phys_coeff)
@@ -215,5 +216,3 @@ TEST_CASE(  // NOLINT
     run_boundary_cut_round_trip(/*scale_obj=*/1000.0, /*col_scale=*/5.0);
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

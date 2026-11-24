@@ -29,8 +29,9 @@
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/state_variable.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -120,11 +121,11 @@ TEST_CASE("plp fcut: single shortfall emits one mid-box cut")  // NOLINT
   auto elastic = elastic_filter_solve(
       fx.li, fx.links, 1.0, SolverOptions {}, plp_policy());
   REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  REQUIRE(test_support::require_value(elastic).solved);
 
   constexpr double kFactEps = 1e-8;
-  auto res =
-      build_plp_feasibility_cuts(*elastic, fx.links, LpContext {}, kFactEps);
+  auto res = build_plp_feasibility_cuts(
+      test_support::require_value(elastic), fx.links, LpContext {}, kFactEps);
 
   CHECK(res.status == PlpCutStatus::cuts_added);
   REQUIRE(res.cuts.size() == 1);
@@ -224,9 +225,10 @@ TEST_CASE("plp fcut: rc tilt picks the cheap reservoir")  // NOLINT
   auto elastic =
       elastic_filter_solve(li, links, 1.0, SolverOptions {}, plp_policy());
   REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  REQUIRE(test_support::require_value(elastic).solved);
 
-  auto res = build_plp_feasibility_cuts(*elastic, links, LpContext {}, 1e-8);
+  auto res = build_plp_feasibility_cuts(
+      test_support::require_value(elastic), links, LpContext {}, 1e-8);
 
   CHECK(res.status == PlpCutStatus::cuts_added);
   REQUIRE(res.cuts.size() == 1);
@@ -284,9 +286,10 @@ TEST_CASE("plp fcut: holguras when repair is below dx tolerance")  // NOLINT
   auto elastic =
       elastic_filter_solve(li, links, 1.0, SolverOptions {}, plp_policy());
   REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  REQUIRE(test_support::require_value(elastic).solved);
 
-  auto res = build_plp_feasibility_cuts(*elastic, links, LpContext {}, 1e-3);
+  auto res = build_plp_feasibility_cuts(
+      test_support::require_value(elastic), links, LpContext {}, 1e-3);
 
   CHECK(res.status == PlpCutStatus::holguras);
   CHECK(res.cuts.empty());
@@ -303,9 +306,10 @@ TEST_CASE("plp fcut: fail when relaxed clone stays infeasible")  // NOLINT
   auto elastic = elastic_filter_solve(
       fx.li, fx.links, 1.0, SolverOptions {}, plp_policy());
   REQUIRE(elastic.has_value());
-  CHECK(!elastic->solved);
+  CHECK(!test_support::require_value(elastic).solved);
 
-  auto res = build_plp_feasibility_cuts(*elastic, fx.links, LpContext {}, 1e-8);
+  auto res = build_plp_feasibility_cuts(
+      test_support::require_value(elastic), fx.links, LpContext {}, 1e-8);
 
   CHECK(res.status == PlpCutStatus::fail);
   CHECK(res.cuts.empty());
@@ -318,11 +322,11 @@ TEST_CASE("plp fcut: RHS carries the exact FactEPS margin")  // NOLINT
   auto elastic = elastic_filter_solve(
       fx.li, fx.links, 1.0, SolverOptions {}, plp_policy());
   REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  REQUIRE(test_support::require_value(elastic).solved);
 
   constexpr double kFactEps = 1e-6;
-  auto res =
-      build_plp_feasibility_cuts(*elastic, fx.links, LpContext {}, kFactEps);
+  auto res = build_plp_feasibility_cuts(
+      test_support::require_value(elastic), fx.links, LpContext {}, kFactEps);
 
   CHECK(res.status == PlpCutStatus::cuts_added);
   REQUIRE(res.cuts.size() == 1);
@@ -331,9 +335,9 @@ TEST_CASE("plp fcut: RHS carries the exact FactEPS margin")  // NOLINT
 
   // Recompute nx from the clone's own slack activations (dep_scale = 1
   // on this unscaled fixture): nx = trial + (sdn − sup).
-  const auto& info = elastic->link_infos.front();
+  const auto& info = test_support::require_value(elastic).link_infos.front();
   REQUIRE(info.relaxed);
-  const auto sol = elastic->clone.get_col_sol_raw();
+  const auto sol = test_support::require_value(elastic).clone.get_col_sol_raw();
   const double dx = sol[info.sdn_col] - sol[info.sup_col];
   const double nx = CanutillarFixture::kTrial + dx;
   const double rhsi = ray * nx;
@@ -410,15 +414,17 @@ TEST_CASE("plp fcut: all-at-upper family is emitted, not dropped")  // NOLINT
   auto elastic =
       elastic_filter_solve(li, links, 1.0, SolverOptions {}, plp_policy());
   REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  REQUIRE(test_support::require_value(elastic).solved);
 
   // Contrast: build_multi_cuts drops the all-upper degenerate family.
-  auto mc = build_multi_cuts(*elastic, links, LpContext {}, 1e-8, 1);
+  auto mc = build_multi_cuts(
+      test_support::require_value(elastic), links, LpContext {}, 1e-8, 1);
   CHECK(mc.empty());
 
   // plp mode: both per-variable cuts are emitted, each implied bound
   // ≤ the previous-phase ub (bound-consistent, no clamp needed).
-  auto res = build_plp_feasibility_cuts(*elastic, links, LpContext {}, 0.0);
+  auto res = build_plp_feasibility_cuts(
+      test_support::require_value(elastic), links, LpContext {}, 0.0);
   CHECK(res.status == PlpCutStatus::cuts_added);
   REQUIRE(res.cuts.size() == 2);
 
@@ -529,22 +535,25 @@ TEST_CASE("plp fcut: mixed col_scale links repair in physical units")  // NOLINT
   auto elastic =
       elastic_filter_solve(li, links, 1.0, SolverOptions {}, plp_policy());
   REQUIRE(elastic.has_value());
-  REQUIRE(elastic->solved);
+  REQUIRE(test_support::require_value(elastic).solved);
 
   // Physical pricing pin: A's sdn slack costs (1 + tilt) × col_scale
   // = 1.1 × 10 = 11 per raw unit (= 1.1 per PHYSICAL unit); B's costs
   // 1.0 per raw = per physical unit.
-  const auto& info_a = elastic->link_infos.at(0);
-  const auto& info_b = elastic->link_infos.at(1);
+  const auto& info_a = test_support::require_value(elastic).link_infos.at(0);
+  const auto& info_b = test_support::require_value(elastic).link_infos.at(1);
   REQUIRE(info_a.relaxed);
   REQUIRE(info_b.relaxed);
-  CHECK(elastic->clone.get_obj_coeff()[info_a.sdn_col]
-        == doctest::Approx(11.0));
-  CHECK(elastic->clone.get_obj_coeff()[info_b.sdn_col] == doctest::Approx(1.0));
+  CHECK(
+      test_support::require_value(elastic).clone.get_obj_coeff()[info_a.sdn_col]
+      == doctest::Approx(11.0));
+  CHECK(
+      test_support::require_value(elastic).clone.get_obj_coeff()[info_b.sdn_col]
+      == doctest::Approx(1.0));
 
   constexpr double kFactEps = 1e-8;
-  auto res =
-      build_plp_feasibility_cuts(*elastic, links, LpContext {}, kFactEps);
+  auto res = build_plp_feasibility_cuts(
+      test_support::require_value(elastic), links, LpContext {}, kFactEps);
   CHECK(res.status == PlpCutStatus::cuts_added);
   REQUIRE(res.cuts.size() == 2);
 
@@ -580,5 +589,3 @@ TEST_CASE("plp fcut: mixed col_scale links repair in physical units")  // NOLINT
   // The joint repaired point restores the physical demand.
   CHECK(implied_sum >= 700.0 - 1e-6);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

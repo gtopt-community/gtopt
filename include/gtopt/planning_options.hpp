@@ -37,10 +37,12 @@
 #pragma once
 
 #include <gtopt/cascade_options.hpp>
+#include <gtopt/gas_options.hpp>
 #include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/model_options.hpp>
 #include <gtopt/monolithic_options.hpp>
 #include <gtopt/planning_enums.hpp>
+#include <gtopt/sanity_options.hpp>
 #include <gtopt/sddp_options.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/variable_scale.hpp>
@@ -251,6 +253,22 @@ struct PlanningOptions
    */
   LpMatrixOptions lp_matrix_options {};
 
+  /// Network-level gas properties of the gas-network elements
+  /// (``options.gas_options``).
+  GasOptions gas_options {};
+
+  // ── Data-quality (sanity) warnings ─────────────────────────────────────────
+  /** @brief Thresholds of the model-sanity warnings emitted by
+   * `validate_planning()` (phantom rewards, profiles outside [0, 1],
+   * zero-capacity committed units, implausible line impedance, agreement
+   * reserve levels without a reservoir floor).  Warnings only.
+   *
+   * ```json
+   * { "options": { "sanity_options": { "line_xr_max": 200 } } }
+   * ```
+   */
+  SanityOptions sanity_options {};
+
   // ── Variable scaling ──────────────────────────────────────────────────────
   /** @brief Per-class/variable LP scale overrides.
    *
@@ -353,6 +371,10 @@ struct PlanningOptions
 
     // Merge LP build options
     lp_matrix_options.merge(opts.lp_matrix_options);
+    gas_options.merge(opts.gas_options);
+
+    // Merge sanity-check thresholds
+    sanity_options.merge(opts.sanity_options);
 
     // Merge constraint mode
     merge_opt(constraint_mode, opts.constraint_mode);

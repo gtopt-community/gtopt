@@ -41,7 +41,7 @@ TEST_CASE("ReservoirDischargeLimit daw json test - basic")
   CHECK(ddl.uid == 1);
   CHECK(ddl.name == "ddl_ralco");
   REQUIRE(ddl.waterway.has_value());
-  CHECK(std::get<Uid>(ddl.waterway.value()) == Uid {10});
+  CHECK((ddl.waterway && std::get<Uid>(*ddl.waterway) == Uid {10}));
   CHECK(std::get<Uid>(ddl.reservoir) == Uid {20});
   REQUIRE(ddl.segments.size() == 2);
   CHECK(ddl.segments[0].volume == doctest::Approx(0.0));
@@ -67,7 +67,7 @@ TEST_CASE("ReservoirDischargeLimit daw json test - no segments")
   CHECK(ddl.uid == 2);
   CHECK(ddl.name == "ddl_empty");
   REQUIRE(ddl.waterway.has_value());
-  CHECK(std::get<Uid>(ddl.waterway.value()) == Uid {5});
+  CHECK((ddl.waterway && std::get<Uid>(*ddl.waterway) == Uid {5}));
   CHECK(std::get<Uid>(ddl.reservoir) == Uid {6});
   CHECK(ddl.segments.empty());
 }
@@ -89,7 +89,7 @@ TEST_CASE("ReservoirDischargeLimit daw json test - string IDs")
 
   CHECK(ddl.uid == 3);
   REQUIRE(ddl.waterway.has_value());
-  CHECK(std::get<Name>(ddl.waterway.value()) == "ww_ralco");
+  CHECK((ddl.waterway && std::get<Name>(*ddl.waterway) == "ww_ralco"));
   CHECK(std::get<Name>(ddl.reservoir) == "rsv_ralco");
   REQUIRE(ddl.segments.size() == 1);
 }
@@ -150,7 +150,8 @@ TEST_CASE("ReservoirDischargeLimit to_json and from_json round-trip")
   CHECK(roundtrip.uid == 42);
   CHECK(roundtrip.name == "ddl_roundtrip");
   REQUIRE(roundtrip.waterway.has_value());
-  CHECK(std::get<Uid>(roundtrip.waterway.value()) == Uid {101});
+  CHECK(
+      (roundtrip.waterway && std::get<Uid>(*roundtrip.waterway) == Uid {101}));
   CHECK(std::get<Uid>(roundtrip.reservoir) == Uid {201});
   REQUIRE(roundtrip.segments.size() == 2);
   CHECK(roundtrip.segments[0].slope == doctest::Approx(6.9868e-5));

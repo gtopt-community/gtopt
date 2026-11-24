@@ -46,6 +46,19 @@
 
 using namespace gtopt;
 
+namespace
+{
+/// Alternative `T` of an engaged optional field schedule.  Callers
+/// REQUIRE(opt.has_value()) first; the value_or fallback only keeps
+/// clang-tidy's optional-access analysis (which cannot see through
+/// REQUIRE) satisfied.
+template<typename T, typename Opt>
+[[nodiscard]] T pbcp_alt(const Opt& opt)
+{
+  return std::get<T>(opt.value_or(typename Opt::value_type {}));
+}
+}  // namespace
+
 TEST_CASE("Generator.gcost — 2-D per-block JSON parses as TB")  // NOLINT
 {
   constexpr std::string_view json_data = R"({
@@ -61,7 +74,7 @@ TEST_CASE("Generator.gcost — 2-D per-block JSON parses as TB")  // NOLINT
   REQUIRE(gen.gcost.has_value());
   // The 2-D variant is std::vector<std::vector<Real>>.  Each outer
   // index = stage, inner = block within stage.
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*gen.gcost);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(gen.gcost);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 3);
   CHECK(v[0][0] == doctest::Approx(10.0));
@@ -83,7 +96,7 @@ TEST_CASE("Generator.gcost — scalar still broadcasts (legacy)")  // NOLINT
   const auto gen = daw::json::from_json<Generator>(json_data);
   REQUIRE(gen.gcost.has_value());
   // Scalar variant — `double` (Real).
-  CHECK(std::get<Real>(*gen.gcost) == doctest::Approx(25.0));
+  CHECK(pbcp_alt<Real>(gen.gcost) == doctest::Approx(25.0));
 }
 
 TEST_CASE("Demand.fcost — 2-D per-block JSON parses as TB")  // NOLINT
@@ -98,7 +111,7 @@ TEST_CASE("Demand.fcost — 2-D per-block JSON parses as TB")  // NOLINT
 
   const auto dem = daw::json::from_json<Demand>(json_data);
   REQUIRE(dem.fcost.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*dem.fcost);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(dem.fcost);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 2);
   CHECK(v[0][0] == doctest::Approx(1000.0));
@@ -117,7 +130,7 @@ TEST_CASE("Demand.fcost — scalar still broadcasts (legacy)")  // NOLINT
 
   const auto dem = daw::json::from_json<Demand>(json_data);
   REQUIRE(dem.fcost.has_value());
-  CHECK(std::get<Real>(*dem.fcost) == doctest::Approx(1500.0));
+  CHECK(pbcp_alt<Real>(dem.fcost) == doctest::Approx(1500.0));
 }
 
 TEST_CASE("Battery.discharge_cost — 2-D per-block JSON parses as TB")  // NOLINT
@@ -135,7 +148,7 @@ TEST_CASE("Battery.discharge_cost — 2-D per-block JSON parses as TB")  // NOLI
 
   const auto bat = daw::json::from_json<Battery>(json_data);
   REQUIRE(bat.discharge_cost.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*bat.discharge_cost);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(bat.discharge_cost);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 3);
   CHECK(v[0][0] == doctest::Approx(2.5));
@@ -158,7 +171,7 @@ TEST_CASE("Battery.charge_cost — 2-D per-block JSON parses as TB")  // NOLINT
 
   const auto bat = daw::json::from_json<Battery>(json_data);
   REQUIRE(bat.charge_cost.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*bat.charge_cost);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(bat.charge_cost);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 2);
   CHECK(v[0][0] == doctest::Approx(1.0));
@@ -180,7 +193,7 @@ TEST_CASE("Battery.charge_cost — scalar still broadcasts (legacy)")  // NOLINT
 
   const auto bat = daw::json::from_json<Battery>(json_data);
   REQUIRE(bat.charge_cost.has_value());
-  CHECK(std::get<Real>(*bat.charge_cost) == doctest::Approx(4.2));
+  CHECK(pbcp_alt<Real>(bat.charge_cost) == doctest::Approx(4.2));
 }
 
 TEST_CASE("TBRealFieldSched 2-D construction direct")  // NOLINT
@@ -199,7 +212,7 @@ TEST_CASE("TBRealFieldSched 2-D construction direct")  // NOLINT
       }},
   };
   REQUIRE(gen.gcost.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*gen.gcost);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(gen.gcost);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 3);
   CHECK(v[0][0] == doctest::Approx(10.0));
@@ -221,7 +234,7 @@ TEST_CASE("Generator.heat_rate — 2-D per-block JSON parses as TB")  // NOLINT
   })";
   const auto gen = daw::json::from_json<Generator>(json_data);
   REQUIRE(gen.heat_rate.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*gen.heat_rate);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(gen.heat_rate);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 3);
   CHECK(v[0][2] == doctest::Approx(11.5));
@@ -239,7 +252,7 @@ TEST_CASE("Generator.lossfactor — 2-D per-block JSON parses as TB")  // NOLINT
   })";
   const auto gen = daw::json::from_json<Generator>(json_data);
   REQUIRE(gen.lossfactor.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*gen.lossfactor);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(gen.lossfactor);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 2);
   CHECK(v[0][0] == doctest::Approx(0.01));
@@ -259,7 +272,7 @@ TEST_CASE(
   })";
   const auto gen = daw::json::from_json<Generator>(json_data);
   REQUIRE(gen.emission_rate.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*gen.emission_rate);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(gen.emission_rate);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 3);
   CHECK(v[0][1] == doctest::Approx(0.4));
@@ -276,7 +289,7 @@ TEST_CASE("Demand.lossfactor — 2-D per-block JSON parses as TB")  // NOLINT
   })";
   const auto dem = daw::json::from_json<Demand>(json_data);
   REQUIRE(dem.lossfactor.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*dem.lossfactor);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(dem.lossfactor);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 2);
   CHECK(v[0][0] == doctest::Approx(0.05));
@@ -295,7 +308,7 @@ TEST_CASE("Generator.heat_rate — scalar still broadcasts (legacy)")  // NOLINT
   })";
   const auto gen = daw::json::from_json<Generator>(json_data);
   REQUIRE(gen.heat_rate.has_value());
-  CHECK(std::get<Real>(*gen.heat_rate) == doctest::Approx(9.5));
+  CHECK(pbcp_alt<Real>(gen.heat_rate) == doctest::Approx(9.5));
 }
 
 // ─── PR-C: per-block reserve / inertia / flow_right cost block ─────
@@ -311,8 +324,8 @@ TEST_CASE("ReserveZone.urcost/drcost — 2-D JSON parses as TB")  // NOLINT
   const auto rz = daw::json::from_json<ReserveZone>(json_data);
   REQUIRE(rz.urcost.has_value());
   REQUIRE(rz.drcost.has_value());
-  const auto& vu = std::get<std::vector<std::vector<Real>>>(*rz.urcost);
-  const auto& vd = std::get<std::vector<std::vector<Real>>>(*rz.drcost);
+  const auto vu = pbcp_alt<std::vector<std::vector<Real>>>(rz.urcost);
+  const auto vd = pbcp_alt<std::vector<std::vector<Real>>>(rz.drcost);
   REQUIRE(vu.size() == 1);
   REQUIRE(vu[0].size() == 2);
   CHECK(vu[0][0] == doctest::Approx(900.0));
@@ -330,7 +343,7 @@ TEST_CASE("ReserveZone.urcost — scalar still broadcasts (legacy)")  // NOLINT
   })";
   const auto rz = daw::json::from_json<ReserveZone>(json_data);
   REQUIRE(rz.urcost.has_value());
-  CHECK(std::get<Real>(*rz.urcost) == doctest::Approx(950.0));
+  CHECK(pbcp_alt<Real>(rz.urcost) == doctest::Approx(950.0));
 }
 
 TEST_CASE("ReserveProvision.{ur,dr}cost/provision_factor — 2-D JSON")  // NOLINT
@@ -352,12 +365,12 @@ TEST_CASE("ReserveProvision.{ur,dr}cost/provision_factor — 2-D JSON")  // NOLI
   REQUIRE(rp.drcost.has_value());
   REQUIRE(rp.ur_capacity_factor.has_value());
   REQUIRE(rp.ur_provision_factor.has_value());
-  const auto& vu = std::get<std::vector<std::vector<Real>>>(*rp.urcost);
+  const auto vu = pbcp_alt<std::vector<std::vector<Real>>>(rp.urcost);
   REQUIRE(vu[0].size() == 2);
   CHECK(vu[0][0] == doctest::Approx(5.0));
   CHECK(vu[0][1] == doctest::Approx(8.0));
-  const auto& vupf =
-      std::get<std::vector<std::vector<Real>>>(*rp.ur_provision_factor);
+  const auto vupf =
+      pbcp_alt<std::vector<std::vector<Real>>>(rp.ur_provision_factor);
   CHECK(vupf[0][1] == doctest::Approx(0.95));
 }
 
@@ -370,7 +383,7 @@ TEST_CASE("InertiaZone.cost — 2-D JSON parses as TB")  // NOLINT
   })";
   const auto iz = daw::json::from_json<InertiaZone>(json_data);
   REQUIRE(iz.cost.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*iz.cost);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(iz.cost);
   REQUIRE(v[0].size() == 2);
   CHECK(v[0][0] == doctest::Approx(50.0));
   CHECK(v[0][1] == doctest::Approx(75.0));
@@ -389,9 +402,9 @@ TEST_CASE("InertiaProvision.cost/provision_factor — 2-D JSON")  // NOLINT
   const auto ip = daw::json::from_json<InertiaProvision>(json_data);
   REQUIRE(ip.cost.has_value());
   REQUIRE(ip.provision_factor.has_value());
-  const auto& vc = std::get<std::vector<std::vector<Real>>>(*ip.cost);
-  const auto& vpf =
-      std::get<std::vector<std::vector<Real>>>(*ip.provision_factor);
+  const auto vc = pbcp_alt<std::vector<std::vector<Real>>>(ip.cost);
+  const auto vpf =
+      pbcp_alt<std::vector<std::vector<Real>>>(ip.provision_factor);
   CHECK(vc[0][1] == doctest::Approx(2.5));
   CHECK(vpf[0][0] == doctest::Approx(20.0));
 }
@@ -407,8 +420,8 @@ TEST_CASE("FlowRight.fcost/uvalue — 2-D JSON parses as TB")  // NOLINT
   const auto fr = daw::json::from_json<FlowRight>(json_data);
   REQUIRE(fr.fcost.has_value());
   REQUIRE(fr.uvalue.has_value());
-  const auto& vf = std::get<std::vector<std::vector<Real>>>(*fr.fcost);
-  const auto& vu = std::get<std::vector<std::vector<Real>>>(*fr.uvalue);
+  const auto vf = pbcp_alt<std::vector<std::vector<Real>>>(fr.fcost);
+  const auto vu = pbcp_alt<std::vector<std::vector<Real>>>(fr.uvalue);
   REQUIRE(vf[0].size() == 2);
   CHECK(vf[0][0] == doctest::Approx(5000.0));
   CHECK(vf[0][1] == doctest::Approx(5500.0));
@@ -424,7 +437,7 @@ TEST_CASE("FlowRight.fcost — scalar still broadcasts (legacy)")  // NOLINT
   })";
   const auto fr = daw::json::from_json<FlowRight>(json_data);
   REQUIRE(fr.fcost.has_value());
-  CHECK(std::get<Real>(*fr.fcost) == doctest::Approx(3000.0));
+  CHECK(pbcp_alt<Real>(fr.fcost) == doctest::Approx(3000.0));
 }
 
 // ─── PR-E: Battery efficiencies (input / output) → TB ──────────────
@@ -444,10 +457,10 @@ TEST_CASE(
   const auto bat = daw::json::from_json<Battery>(json_data);
   REQUIRE(bat.input_efficiency.has_value());
   REQUIRE(bat.output_efficiency.has_value());
-  const auto& vi =
-      std::get<std::vector<std::vector<Real>>>(*bat.input_efficiency);
-  const auto& vo =
-      std::get<std::vector<std::vector<Real>>>(*bat.output_efficiency);
+  const auto vi =
+      pbcp_alt<std::vector<std::vector<Real>>>(bat.input_efficiency);
+  const auto vo =
+      pbcp_alt<std::vector<std::vector<Real>>>(bat.output_efficiency);
   REQUIRE(vi[0].size() == 3);
   CHECK(vi[0][0] == doctest::Approx(0.95));
   CHECK(vi[0][2] == doctest::Approx(0.91));
@@ -469,8 +482,8 @@ TEST_CASE(
   })";
   const auto bat = daw::json::from_json<Battery>(json_data);
   REQUIRE(bat.input_efficiency.has_value());
-  CHECK(std::get<Real>(*bat.input_efficiency) == doctest::Approx(0.95));
-  CHECK(std::get<Real>(*bat.output_efficiency) == doctest::Approx(0.93));
+  CHECK(pbcp_alt<Real>(bat.input_efficiency) == doctest::Approx(0.95));
+  CHECK(pbcp_alt<Real>(bat.output_efficiency) == doctest::Approx(0.93));
 }
 
 // --- TB promotion of pmax_* + new pmin_* + commitment JSON parse ----------
@@ -486,13 +499,13 @@ TEST_CASE("Battery.pmax_charge — 2-D per-block JSON parses as TB")  // NOLINT
   })";
   const auto bat = daw::json::from_json<Battery>(json_data);
   REQUIRE(bat.pmax_charge.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*bat.pmax_charge);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(bat.pmax_charge);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 3);
   CHECK(v[0][0] == doctest::Approx(10.0));
   CHECK(v[0][2] == doctest::Approx(11.0));
   REQUIRE(bat.pmax_discharge.has_value());
-  const auto& w = std::get<std::vector<std::vector<Real>>>(*bat.pmax_discharge);
+  const auto w = pbcp_alt<std::vector<std::vector<Real>>>(bat.pmax_discharge);
   CHECK(w[0][1] == doctest::Approx(8.5));
 }
 
@@ -510,9 +523,9 @@ TEST_CASE(
   })";
   const auto bat = daw::json::from_json<Battery>(json_data);
   REQUIRE(bat.pmin_charge.has_value());
-  CHECK(std::get<Real>(*bat.pmin_charge) == doctest::Approx(5.0));
+  CHECK(pbcp_alt<Real>(bat.pmin_charge) == doctest::Approx(5.0));
   REQUIRE(bat.pmin_discharge.has_value());
-  CHECK(std::get<Real>(*bat.pmin_discharge) == doctest::Approx(2.0));
+  CHECK(pbcp_alt<Real>(bat.pmin_discharge) == doctest::Approx(2.0));
 }
 
 TEST_CASE("Battery.pmin_charge — 2-D per-block JSON parses as TB")  // NOLINT
@@ -527,7 +540,7 @@ TEST_CASE("Battery.pmin_charge — 2-D per-block JSON parses as TB")  // NOLINT
   })";
   const auto bat = daw::json::from_json<Battery>(json_data);
   REQUIRE(bat.pmin_charge.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*bat.pmin_charge);
+  const auto v = pbcp_alt<std::vector<std::vector<Real>>>(bat.pmin_charge);
   REQUIRE(v[0].size() == 4);
   CHECK(v[0][0] == doctest::Approx(5.0));
   CHECK(v[0][3] == doctest::Approx(5.3));
@@ -543,7 +556,7 @@ TEST_CASE("Battery.commitment — JSON parses as OptBool")  // NOLINT
   })";
   const auto bat = daw::json::from_json<Battery>(json_data);
   REQUIRE(bat.commitment.has_value());
-  CHECK(*bat.commitment == true);
+  CHECK(bat.commitment.value_or(false) == true);
 }
 
 TEST_CASE("Battery.commitment — JSON omission leaves nullopt")  // NOLINT
@@ -569,7 +582,7 @@ TEST_CASE("Converter.commitment — JSON parses as OptBool")  // NOLINT
   })";
   const auto conv = daw::json::from_json<Converter>(json_data);
   REQUIRE(conv.commitment.has_value());
-  CHECK(*conv.commitment == true);
+  CHECK(conv.commitment.value_or(false) == true);
 }
 
 TEST_CASE("Demand.lmin — JSON scalar + 2-D TB shapes parse")  // NOLINT
@@ -582,7 +595,7 @@ TEST_CASE("Demand.lmin — JSON scalar + 2-D TB shapes parse")  // NOLINT
     })";
     const auto dem = daw::json::from_json<Demand>(json_data);
     REQUIRE(dem.lmin.has_value());
-    CHECK(std::get<Real>(*dem.lmin) == doctest::Approx(30.0));
+    CHECK(pbcp_alt<Real>(dem.lmin) == doctest::Approx(30.0));
   }
   // Per-block 2-D
   {
@@ -593,7 +606,7 @@ TEST_CASE("Demand.lmin — JSON scalar + 2-D TB shapes parse")  // NOLINT
     })";
     const auto dem = daw::json::from_json<Demand>(json_data);
     REQUIRE(dem.lmin.has_value());
-    const auto& v = std::get<std::vector<std::vector<Real>>>(*dem.lmin);
+    const auto v = pbcp_alt<std::vector<std::vector<Real>>>(dem.lmin);
     REQUIRE(v[0].size() == 3);
     CHECK(v[0][0] == doctest::Approx(20.0));
     CHECK(v[0][2] == doctest::Approx(30.0));

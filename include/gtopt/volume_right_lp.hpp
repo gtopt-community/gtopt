@@ -115,6 +115,14 @@ public:
     return saving_cols_.at({scenario.uid(), stage.uid()});
   }
 
+  /// Objective contribution [physical $] of this right's reward
+  /// terms at (scenario, stage): extraction / saving columns priced
+  /// with a negative objective coefficient.  Always <= 0.  Requires a
+  /// live, optimal backend.  See `FlowRightLP::reward_objective`.
+  [[nodiscard]] double reward_objective(const ScenarioLP& scenario,
+                                        const StageLP& stage,
+                                        const LinearInterface& li) const;
+
   /// @name Parameter accessors for user constraint resolution
   /// @{
   [[nodiscard]] auto param_fmax(StageUid s, BlockUid b) const

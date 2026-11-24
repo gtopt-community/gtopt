@@ -13,8 +13,11 @@
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <ranges>
 #include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <daw/daw_read_file.h>
@@ -184,10 +187,81 @@ void CascadePlanningMethod::clear_all_cuts(PlanningLP& planning_lp,
 
 // ─── Main solve orchestration ───────────────────────────────────────────────
 
+namespace
+{
+
+/// Write `<dir>/level_summary.json` for one finished cascade level.
+void write_level_summary_json(const std::filesystem::path& dir,
+                              const CascadeLevelStats& ls,
+                              std::size_t level_idx,
+                              std::string_view system_file)
+{
+  std::ofstream ofs(dir / "level_summary.json");
+  if (!ofs) {
+    SPDLOG_WARN("Cascade: cannot write {}",
+                (dir / "level_summary.json").string());
+    return;
+  }
+  ofs << std::format(
+      "{{\n  \"level\": {},\n  \"name\": \"{}\",\n"
+      "  \"system_file\": \"{}\",\n  \"iterations\": {},\n"
+      "  \"lower_bound\": {:.17g},\n  \"upper_bound\": {:.17g},\n"
+      "  \"gap\": {:.17g},\n  \"converged\": {},\n"
+      "  \"cuts_added\": {},\n  \"elapsed_s\": {:.3f}\n}}\n",
+      level_idx,
+      ls.name,
+      system_file,
+      ls.iterations,
+      ls.lower_bound,
+      ls.upper_bound,
+      ls.gap,
+      ls.converged,
+      ls.cuts_added,
+      ls.elapsed_s);
+}
+
+/// (Re)write `<dir>/cascade_levels.csv` with one row per finished level.
+void write_cascade_levels_csv(const std::filesystem::path& dir,
+                              const std::vector<CascadeLevelStats>& stats)
+{
+  std::error_code ec;
+  std::filesystem::create_directories(dir, ec);
+  std::ofstream ofs(dir / "cascade_levels.csv");
+  if (!ofs) {
+    SPDLOG_WARN("Cascade: cannot write {}",
+                (dir / "cascade_levels.csv").string());
+    return;
+  }
+  ofs << "level,name,iterations,lower_bound,upper_bound,gap,converged,"
+         "cuts_added,elapsed_s\n";
+  for (const auto& [i, ls] : std::views::enumerate(stats)) {
+    ofs << std::format("{},{},{},{:.17g},{:.17g},{:.17g},{},{},{:.3f}\n",
+                       i,
+                       ls.name,
+                       ls.iterations,
+                       ls.lower_bound,
+                       ls.upper_bound,
+                       ls.gap,
+                       ls.converged ? 1 : 0,
+                       ls.cuts_added,
+                       ls.elapsed_s);
+  }
+}
+
+}  // namespace
+
 auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
                                   const SolverOptions& opts)
     -> std::expected<int, Error>
 {
+  // Per-level output routing (`cascade_options.write_level_outputs`):
+  // capture the caller's output directory once — the caller LP's own
+  // directory is temporarily redirected while it serves as an
+  // intermediate level and restored afterwards.
+  const bool write_levels = m_cascade_opts_.write_level_outputs.value_or(false);
+  const std::filesystem::path base_output_dir {
+      std::string(planning_lp.options().output_directory()),
+  };
   PlanningLP* current_lp = nullptr;
   // One arrow-index cache shared across every per-level PlanningLP so the
   // (cname, fname, uid) -> (Stage, Block) input index is built once for the
@@ -480,6 +554,24 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       SPDLOG_INFO("Cascade [{}]: built new PlanningLP", level_name);
     }
 
+    // Intermediate level with its own output set → route every write
+    // (sim-pass cells, write_out, cuts) into `<output>/<level name>/`.
+    // The last active level always writes to the base directory.
+    const bool write_this_level =
+        write_levels && level_idx != last_active_level_idx;
+    const auto level_output_dir = base_output_dir / level_name;
+    if (write_levels) {
+      current_lp->set_output_directory(write_this_level
+                                           ? level_output_dir.string()
+                                           : base_output_dir.string());
+      if (write_this_level) {
+        std::filesystem::create_directories(level_output_dir);
+        SPDLOG_INFO("Cascade [{}]: level output -> {}",
+                    level_name,
+                    level_output_dir.string());
+      }
+    }
+
     // ── 3. Build SDDPOptions and create solver ──
     auto level_opts =
         build_level_sddp_opts(level.sddp_options, remaining_budget);
@@ -496,6 +588,11 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
           std::filesystem::path(m_base_opts_.cuts_output_file).filename();
       if (is_last_level) {
         level_opts.cuts_output_file = m_base_opts_.cuts_output_file;
+      } else if (write_this_level) {
+        // Keep the level's cuts inside its own output directory.
+        const auto level_cut_dir = level_output_dir / "cuts";
+        std::filesystem::create_directories(level_cut_dir);
+        level_opts.cuts_output_file = (level_cut_dir / base_name).string();
       } else {
         const auto level_dir = base_dir / level_name;
         std::filesystem::create_directories(level_dir);
@@ -523,7 +620,8 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // separate subdirectories — opting back in to the previous
     // behaviour will then require a config flip rather than a code
     // change here.
-    level_opts.skip_simulation_pass = (level_idx != last_active_level_idx);
+    level_opts.skip_simulation_pass =
+        level_idx != last_active_level_idx && !write_this_level;
 
     // Seed the level's iteration counter past all iterations that prior
     // levels consumed.  Hot-start cuts loaded below (via load_cuts) may
@@ -844,6 +942,9 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         .cuts_added = total_cuts,
         .lp_options = current_lp->flat_options(),
     });
+    if (write_levels) {
+      write_cascade_levels_csv(base_output_dir, m_level_stats_);
+    }
 
     // Mark this level as `done` in the checkpoint.  The actual flush to
     // disk happens further below — AFTER cuts are persisted — so a
@@ -1026,6 +1127,48 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         }
       }
 
+      // ── Per-level output set (write_level_outputs) ──
+      // After the cut serialization above (which still reads the level's
+      // cells) and before the teardown below: flush the level's
+      // solution (cells not already emitted by the sim pass,
+      // solution.csv) into its own directory, then drop a copy of the
+      // solver status and a level summary next to it.
+      if (write_this_level) {
+        const auto t_wo = std::chrono::steady_clock::now();
+        try {
+          current_lp->write_out();
+        } catch (const std::exception& ex) {
+          SPDLOG_WARN("Cascade [{}]: level write_out failed: {}",
+                      level_name,
+                      ex.what());
+        }
+        std::error_code ec;
+        if (!m_base_opts_.api_status_file.empty()
+            && std::filesystem::exists(m_base_opts_.api_status_file, ec))
+        {
+          std::filesystem::copy_file(
+              m_base_opts_.api_status_file,
+              level_output_dir / "solver_status.json",
+              std::filesystem::copy_options::overwrite_existing,
+              ec);
+        }
+        if (!m_level_stats_.empty()) {
+          write_level_summary_json(level_output_dir,
+                                   m_level_stats_.back(),
+                                   level_idx,
+                                   level.system_file.value_or(""));
+        }
+        if (current_lp == &planning_lp) {
+          planning_lp.set_output_directory(base_output_dir.string());
+        }
+        SPDLOG_INFO("Cascade [{}]: level output written to {} ({:.1f}s)",
+                    level_name,
+                    level_output_dir.string(),
+                    std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - t_wo)
+                        .count());
+      }
+
       // ── EXPLICIT CLEANUP before next level allocates its LP ──
       // Drop the solver (frees aperture subproblems + scene_phase_states_)
       // and the owned LP (frees the per-cell LP matrices).  When the
@@ -1160,6 +1303,16 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
                     progress_path.string(),
                     save.error().message);
       }
+    }
+  }
+
+  // The caller's final write_out (and planning.json) always lands in the
+  // base output directory, even when the cascade stopped early at a
+  // level that had been redirected to its own subdirectory.
+  if (write_levels) {
+    planning_lp.set_output_directory(base_output_dir.string());
+    if (current_lp != nullptr) {
+      current_lp->set_output_directory(base_output_dir.string());
     }
   }
 

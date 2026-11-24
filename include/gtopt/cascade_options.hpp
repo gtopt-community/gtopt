@@ -260,6 +260,17 @@ struct CascadeOptions
   SddpOptions sddp_options {};
   /// Array of cascade level configurations.
   Array<CascadeLevel> level_array {};
+  /// When `true`, every active level except the last one also runs its
+  /// SDDP simulation pass and writes a complete output set into its own
+  /// subdirectory `<output_directory>/<level name>/`: per-element
+  /// Parquet solution, `solution.csv`, the level's cuts
+  /// (`cuts/`), a copy of `solver_status.json` and `level_summary.json`
+  /// (bounds, gap, iterations, cuts, elapsed time, `system_file`).  The
+  /// last active level keeps writing to `<output_directory>` itself.
+  /// A cascade-wide `cascade_levels.csv` summary is written to
+  /// `<output_directory>` regardless of this flag.  Default: `false`
+  /// (intermediate levels skip the simulation pass — cheaper).
+  OptBool write_level_outputs {};
 
   void merge(
       CascadeOptions&&
@@ -267,6 +278,7 @@ struct CascadeOptions
   {
     model_options.merge(opts.model_options);
     sddp_options.merge(std::move(opts.sddp_options));
+    merge_opt(write_level_outputs, opts.write_level_outputs);
 
     // level_array merge rules:
     //  - overlay empty                 → keep base (no change)

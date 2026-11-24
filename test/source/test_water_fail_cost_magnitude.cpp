@@ -176,7 +176,7 @@ TEST_CASE(  // NOLINT
   // ±$1 around the exact demand-fail price — the LP's optimum should
   // flip between these two cases despite their underlying $/MWh
   // anchor differing by only $2.
-  const std::array<Subcase, 2> subcases = {{
+  const std::array<Subcase, 2> subcases {{
       {
           .name =
               "anchor +$1 (= 569) -> ABOVE threshold, eos = eini, slack = 0",
@@ -309,7 +309,8 @@ TEST_CASE(  // NOLINT
       const auto slack_opt = rsv_lp.efin_slack_col_at(scenario_lp, stage_lp);
       REQUIRE(slack_opt.has_value());
 
-      const double slack_val = li.get_col_sol()[*slack_opt];
+      const double slack_val =
+          li.get_col_sol()[slack_opt.value_or(ColIndex {})];
       const double eos =
           rsv_lp.physical_efin(li, scenario_lp, stage_lp, /*default_efin=*/1.0);
 
@@ -357,8 +358,7 @@ TEST_CASE(  // NOLINT
     "FlowRight.fcost slack threshold (auto-water-fail-cost magnitude)")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access,
-  // cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,modernize-use-designated-initializers)
+  // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,modernize-use-designated-initializers)
 
   constexpr double kDemandFailCost = 568.0;  // max(falla.gcost) in this test
   constexpr double kProdFactor = 10.0;  // MW per m³/s
@@ -375,18 +375,16 @@ TEST_CASE(  // NOLINT
   // ±$1 around max(falla.gcost) — fail_cost = water_fail_cost × PF, so the
   // threshold of 5,680 $/(m³/s·h) is bracketed by 5,690 (above) and
   // 5,670 (below) — a $20-wide window around the LP's tipping point.
-  const std::array<Subcase, 2> subcases = {{
+  const std::array<Subcase, 2> subcases {{
       {
-          .name = "anchor +$1 (= 569) -> fail_cost 5690 ABOVE -> FR honored, "
-                  "slack = 0",
-          .water_fail_cost = kDemandFailCost + 1.0,
-          .below_threshold = false,
+          "anchor +$1 (= 569) -> fail_cost 5690 ABOVE -> FR honored, slack = 0",
+          kDemandFailCost + 1.0,
+          /*below_threshold=*/false,
       },
       {
-          .name = "anchor -$1 (= 567) -> fail_cost 5670 BELOW -> FR fails, "
-                  "slack > 0",
-          .water_fail_cost = kDemandFailCost - 1.0,
-          .below_threshold = true,
+          "anchor -$1 (= 567) -> fail_cost 5670 BELOW -> FR fails, slack > 0",
+          kDemandFailCost - 1.0,
+          /*below_threshold=*/true,
       },
   }};
 
@@ -545,5 +543,4 @@ TEST_CASE(  // NOLINT
   }
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access,
-// cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,modernize-use-designated-initializers)
+// NOLINTEND(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,modernize-use-designated-initializers)

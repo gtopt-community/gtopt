@@ -946,6 +946,12 @@ void System::merge(System&& sys)
   gtopt::merge(battery_array, std::move(sys.battery_array));
   gtopt::merge(converter_array, std::move(sys.converter_array));
   gtopt::merge(lng_terminal_array, std::move(sys.lng_terminal_array));
+  gtopt::merge(gas_node_array, std::move(sys.gas_node_array));
+  gtopt::merge(gas_supply_array, std::move(sys.gas_supply_array));
+  gtopt::merge(gas_demand_array, std::move(sys.gas_demand_array));
+  gtopt::merge(gas_pipe_array, std::move(sys.gas_pipe_array));
+  gtopt::merge(gas_compressor_array, std::move(sys.gas_compressor_array));
+  gtopt::merge(gas_turbine_array, std::move(sys.gas_turbine_array));
 
   gtopt::merge(reserve_zone_array, std::move(sys.reserve_zone_array));
   gtopt::merge(reserve_provision_array, std::move(sys.reserve_provision_array));

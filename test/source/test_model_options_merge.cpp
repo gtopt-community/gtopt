@@ -24,7 +24,7 @@ TEST_CASE(
   base.merge(override_empty);
 
   REQUIRE(base.naming_dialect.has_value());
-  CHECK(*base.naming_dialect == "plp");
+  CHECK(base.naming_dialect.value_or("") == "plp");
 }
 
 TEST_CASE(
@@ -42,7 +42,7 @@ TEST_CASE(
   base.merge(override_plexos);
 
   REQUIRE(base.naming_dialect.has_value());
-  CHECK(*base.naming_dialect == "plexos");
+  CHECK(base.naming_dialect.value_or("") == "plexos");
 }
 
 TEST_CASE(
@@ -70,7 +70,7 @@ TEST_CASE(
   base.merge(override_empty);
 
   REQUIRE(base.continuous_phases.has_value());
-  CHECK(*base.continuous_phases == "all");
+  CHECK(base.continuous_phases.value_or("") == "all");
 }
 
 TEST_CASE(

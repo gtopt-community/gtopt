@@ -105,6 +105,7 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
 
   BIndexHolder<RowIndex> trows;
   map_reserve(trows, blocks.size());
+  const double kvl_factor = is_tie ? 1.0 : sc.options().kvl_row_factor(x_tau);
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
@@ -141,6 +142,7 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
     const auto fn_seg_n =
         (fn_seg_it != fnsegcols.end()) ? fn_seg_it->second.size() : 0;
     trow.reserve(2 + fp_seg_n + fn_seg_n + 2);
+    trow.post_scale = kvl_factor;
 
     trow[theta_a_cols.at(buid)] = -1.0;
     trow[theta_b_cols.at(buid)] = +1.0;

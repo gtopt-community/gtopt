@@ -35,8 +35,10 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-argument-comment,bugprone-unchecked-optional-access)
+// NOLINTBEGIN(bugprone-argument-comment)
 
 namespace
 {
@@ -411,13 +413,13 @@ TEST_CASE(  // NOLINT
       const auto col = sc.find_ampl_col(
           "volume_right", vuid, "extraction", sc_uid, st_uid, bk_uid);
       REQUIRE(col.has_value());
-      cols.push_back(*col);
+      cols.push_back(test_support::require_value(col));
     }
     for (const auto fuid : fr_uids) {
       const auto col =
           sc.find_ampl_col("flow_right", fuid, "flow", sc_uid, st_uid, bk_uid);
       REQUIRE(col.has_value());
-      cols.push_back(*col);
+      cols.push_back(test_support::require_value(col));
     }
   }
 
@@ -508,9 +510,13 @@ TEST_CASE(  // NOLINT
     REQUIRE(m_vr.has_value());
     REQUIRE(l_vr.has_value());
 
-    CHECK(sol[*m_eco] == doctest::Approx(sol[*l_eco]).epsilon(1e-6));
-    CHECK(sol[*m_vr] == doctest::Approx(sol[*l_vr]).epsilon(1e-6));
+    CHECK(sol[test_support::require_value(m_eco)]
+          == doctest::Approx(sol[test_support::require_value(l_eco)])
+                 .epsilon(1e-6));
+    CHECK(sol[test_support::require_value(m_vr)]
+          == doctest::Approx(sol[test_support::require_value(l_vr)])
+                 .epsilon(1e-6));
   }
 }
 
-// NOLINTEND(bugprone-argument-comment,bugprone-unchecked-optional-access)
+// NOLINTEND(bugprone-argument-comment)

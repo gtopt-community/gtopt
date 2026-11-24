@@ -683,7 +683,8 @@ TEST_CASE("User constraint - stage.month metadata parses and solves")
   REQUIRE(planning.system.user_constraint_array.size() == 1);
   REQUIRE(planning.simulation.stage_array.size() == 1);
   REQUIRE(planning.simulation.stage_array[0].month.has_value());
-  CHECK(*planning.simulation.stage_array[0].month == MonthType::june);
+  CHECK(planning.simulation.stage_array[0].month.value_or(MonthType::january)
+        == MonthType::june);
 
   // The parser must accept `stage.month` as a singleton-class scalar
   // (no parens, no element id), producing an ElementRef with element_type
@@ -2575,7 +2576,6 @@ static constexpr std::string_view uc_coefficients_json = R"json(
 TEST_CASE("User constraint - non-unit coefficients and subtraction")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   auto planning = parse_planning_json(uc_coefficients_json);
   PlanningLP planning_lp(std::move(planning));
@@ -2583,5 +2583,3 @@ TEST_CASE("User constraint - non-unit coefficients and subtraction")
 
   REQUIRE(result.has_value());
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

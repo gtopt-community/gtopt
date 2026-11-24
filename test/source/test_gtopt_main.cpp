@@ -2191,14 +2191,15 @@ TEST_CASE("gtopt_main - has_no_shedding_penalty cross-checks demand_array")
     CHECK_FALSE(has_no_shedding_penalty(p));
   }
 
-  // ── (d) demand_fail_cost unset (nullopt) → behaves like 0 ──────
+  // ── (d) demand_fail_cost unset → default 1000 → no warning ─────
   {
     Planning p;
-    // demand_fail_cost left default (nullopt) — value_or(0.0) → 0.
+    // demand_fail_cost left unset — resolves to
+    // `PlanningOptionsLP::default_demand_fail_cost` (1000 $/MWh).
     p.system.demand_array = Array<Demand> {
         Demand {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 10.0},
     };
-    CHECK(has_no_shedding_penalty(p));
+    CHECK_FALSE(has_no_shedding_penalty(p));
   }
 
   // ── (e) global=0 but a demand has only ecost ────────────────────

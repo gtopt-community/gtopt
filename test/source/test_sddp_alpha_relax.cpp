@@ -36,22 +36,21 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_types.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
 
-/// Threshold below which a lower bound is considered "effectively
-/// −∞".  Solver backends (CPLEX, HiGHS, …) normalise gtopt's
+/// Threshold above which an upper bound is considered "effectively
+/// +∞".  Solver backends (CPLEX, HiGHS, …) normalise gtopt's
 /// `LinearProblem::DblMax` sentinel (`1.8e308`) to their own
-/// infinity representation on read-back — CPLEX returns `-1e20`,
-/// HiGHS `-1e30`, CBC `-1e30`.  Any raw value below `-1e15` is
+/// infinity representation on read-back — CPLEX returns `1e20`,
+/// HiGHS `1e30`, CBC `1e30`.  Any raw value above `1e15` is
 /// comfortably past any realistic scale_alpha * physical_cost
-/// product and confirms α is unbounded below.
-[[maybe_unused]] constexpr double kEffectivelyMinusInf = -1e15;
+/// product and confirms α is unbounded above.
 constexpr double kEffectivelyPlusInf = 1e15;
 
 /// Read α's current raw LP bounds at (scene, phase).  Returns
@@ -112,8 +111,10 @@ TEST_CASE("SDDPMethod::bound_alpha — live backend: 0/+∞ → -DblMax/+DblMax"
   {
     const auto bounds = alpha_bounds_raw(plp, scene, phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
+    CHECK(test_support::require_value(bounds).lowb
+          == doctest::Approx(sddp_alpha_bootstrap_min));
+    CHECK(test_support::require_value(bounds).uppb
+          == doctest::Approx(sddp_alpha_bootstrap_min));
   }
 
   SUBCASE("after bound_alpha, uppb released, lowb stays at 0")
@@ -122,8 +123,9 @@ TEST_CASE("SDDPMethod::bound_alpha — live backend: 0/+∞ → -DblMax/+DblMax"
 
     const auto bounds = alpha_bounds_raw(plp, scene, phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    CHECK(bounds->uppb > kEffectivelyPlusInf);
+    CHECK(test_support::require_value(bounds).lowb
+          == doctest::Approx(sddp_alpha_bootstrap_min));
+    CHECK(test_support::require_value(bounds).uppb > kEffectivelyPlusInf);
   }
 
   SUBCASE("bound_alpha is idempotent")
@@ -134,8 +136,9 @@ TEST_CASE("SDDPMethod::bound_alpha — live backend: 0/+∞ → -DblMax/+DblMax"
 
     const auto bounds = alpha_bounds_raw(plp, scene, phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    CHECK(bounds->uppb > kEffectivelyPlusInf);
+    CHECK(test_support::require_value(bounds).lowb
+          == doctest::Approx(sddp_alpha_bootstrap_min));
+    CHECK(test_support::require_value(bounds).uppb > kEffectivelyPlusInf);
   }
 }
 
@@ -162,8 +165,10 @@ TEST_CASE("SDDPMethod::bound_alpha — last phase has α and can be unbounded")
   {
     const auto bounds = alpha_bounds_raw(plp, scene, last);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
+    CHECK(test_support::require_value(bounds).lowb
+          == doctest::Approx(sddp_alpha_bootstrap_min));
+    CHECK(test_support::require_value(bounds).uppb
+          == doctest::Approx(sddp_alpha_bootstrap_min));
   }
 
   SUBCASE("bound_alpha on the last phase: uppb released, lowb=0")
@@ -172,8 +177,9 @@ TEST_CASE("SDDPMethod::bound_alpha — last phase has α and can be unbounded")
 
     const auto bounds = alpha_bounds_raw(plp, scene, last);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    CHECK(bounds->uppb > kEffectivelyPlusInf);
+    CHECK(test_support::require_value(bounds).lowb
+          == doctest::Approx(sddp_alpha_bootstrap_min));
+    CHECK(test_support::require_value(bounds).uppb > kEffectivelyPlusInf);
   }
 
   SUBCASE("bound_alpha on an intermediate phase: uppb released, lowb=0")
@@ -183,8 +189,9 @@ TEST_CASE("SDDPMethod::bound_alpha — last phase has α and can be unbounded")
 
     const auto bounds = alpha_bounds_raw(plp, scene, mid_phase);
     REQUIRE(bounds.has_value());
-    CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    CHECK(bounds->uppb > kEffectivelyPlusInf);
+    CHECK(test_support::require_value(bounds).lowb
+          == doctest::Approx(sddp_alpha_bootstrap_min));
+    CHECK(test_support::require_value(bounds).uppb > kEffectivelyPlusInf);
   }
 }
 
@@ -215,8 +222,9 @@ TEST_CASE(
   {
     const auto bounds = alpha_bounds_raw(plp, scene, phase);
     REQUIRE(bounds.has_value());
-    REQUIRE(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-    REQUIRE(bounds->uppb > kEffectivelyPlusInf);
+    REQUIRE(test_support::require_value(bounds).lowb
+            == doctest::Approx(sddp_alpha_bootstrap_min));
+    REQUIRE(test_support::require_value(bounds).uppb > kEffectivelyPlusInf);
   }
 
   // 2. Release+reload.  Bounds survive the cycle.
@@ -226,8 +234,9 @@ TEST_CASE(
 
   const auto bounds = alpha_bounds_raw(plp, scene, phase);
   REQUIRE(bounds.has_value());
-  CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-  CHECK(bounds->uppb > kEffectivelyPlusInf);
+  CHECK(test_support::require_value(bounds).lowb
+        == doctest::Approx(sddp_alpha_bootstrap_min));
+  CHECK(test_support::require_value(bounds).uppb > kEffectivelyPlusInf);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -285,8 +294,10 @@ TEST_CASE(
 
   const auto bounds = alpha_bounds_raw(plp, scene, phase);
   REQUIRE(bounds.has_value());
-  CHECK(bounds->lowb == doctest::Approx(sddp_alpha_bootstrap_min));
-  CHECK(bounds->uppb == doctest::Approx(sddp_alpha_bootstrap_min));
+  CHECK(test_support::require_value(bounds).lowb
+        == doctest::Approx(sddp_alpha_bootstrap_min));
+  CHECK(test_support::require_value(bounds).uppb
+        == doctest::Approx(sddp_alpha_bootstrap_min));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -475,5 +486,3 @@ TEST_CASE("SDDPMethod::solve can be re-entered on the same instance")
 }
 
 }  // namespace
-
-// NOLINTEND(bugprone-unchecked-optional-access)

@@ -33,6 +33,8 @@ using namespace gtopt::line_losses;
 
 namespace test_line_losses_midpoint  // NOLINT
 {
+namespace
+{
 
 // Geometric secant PWL loss for ``f`` (convex fill, lowest slope first).
 [[nodiscard]] double secant_loss(double f, double envelope, int nseg)
@@ -62,6 +64,8 @@ namespace test_line_losses_midpoint  // NOLINT
   return std::max(0.0, secant_loss(f, envelope, nseg) - offset);
 }
 
+}  // namespace
+
 constexpr double kEnvelope = 1.0;
 constexpr int kSamples = 4000;
 
@@ -70,7 +74,7 @@ TEST_CASE("line-loss midpoint: exact at the segment midpoints")  // NOLINT
   for (const int nseg : {4, 6, 8, 16}) {
     const double w = kEnvelope / nseg;
     for (int k = 1; k <= nseg; ++k) {
-      const double m_k = (2 * k - 1) * w / 2.0;  // segment midpoint
+      const double m_k = ((2 * k) - 1) * w / 2.0;  // segment midpoint
       const double truth = m_k * m_k;
       CHECK(midpoint_loss(m_k, kEnvelope, nseg)
             == doctest::Approx(truth).epsilon(1e-9));

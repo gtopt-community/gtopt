@@ -69,8 +69,6 @@ constexpr double kEps_tangent = 1e-12;
 
 }  // namespace
 
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
-
 TEST_CASE("loss_tangent_geometry: touch-point spacing = envelope·(2k−1)/(2K)")
 {
   // Pin the formula on a known envelope.  For K=4, envelope=80:
@@ -259,5 +257,3 @@ TEST_CASE(
     }
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

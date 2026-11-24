@@ -28,6 +28,8 @@ using namespace gtopt;
 // namespace so sibling anonymous-namespace helpers cannot collide.
 namespace solver_cfg_test
 {
+namespace
+{
 
 // A miniature "method"-style table standing in for a backend's own.
 inline constexpr auto fake_method_entries = std::to_array<EnumEntry<int>>({
@@ -41,8 +43,7 @@ inline constexpr auto fake_enum_keys = std::to_array<SolverCfgEnumKey>({
     {.key = "method", .entries = fake_method_entries},
 });
 
-[[nodiscard]] inline std::filesystem::path make_scratch_dir(
-    const std::string& tag)
+[[nodiscard]] std::filesystem::path make_scratch_dir(const std::string& tag)
 {
   auto dir = std::filesystem::temp_directory_path() / ("gtopt_scfg_" + tag);
   std::filesystem::remove_all(dir);
@@ -50,13 +51,13 @@ inline constexpr auto fake_enum_keys = std::to_array<SolverCfgEnumKey>({
   return dir;
 }
 
-inline void write_file(const std::filesystem::path& path,
-                       const std::string& content)
+void write_file(const std::filesystem::path& path, const std::string& content)
 {
   std::ofstream out {path};
   out << content;
 }
 
+}  // namespace
 }  // namespace solver_cfg_test
 
 using namespace solver_cfg_test;

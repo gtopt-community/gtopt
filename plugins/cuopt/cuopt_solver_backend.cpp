@@ -1064,6 +1064,23 @@ bool CuOptSolverBackend::is_proven_optimal() const
       && m_sol_.termination == CUOPT_TERMINATION_STATUS_OPTIMAL;
 }
 
+bool CuOptSolverBackend::has_mip_incumbent() const
+{
+  if (!m_sol_.solved
+      || std::ranges::find(m_model_.col_type, CUOPT_INTEGER)
+          == m_model_.col_type.end())
+  {
+    return false;
+  }
+  // cuOpt reports an aborted MIP that found an integer-feasible point as
+  // FEASIBLE_FOUND (time / iteration limit with an incumbent).
+  return m_sol_.termination == CUOPT_TERMINATION_STATUS_OPTIMAL
+#ifdef CUOPT_TERMINATION_STATUS_FEASIBLE_FOUND
+      || m_sol_.termination == CUOPT_TERMINATION_STATUS_FEASIBLE_FOUND
+#endif
+      ;
+}
+
 bool CuOptSolverBackend::is_abandoned() const
 {
   return m_sol_.solved

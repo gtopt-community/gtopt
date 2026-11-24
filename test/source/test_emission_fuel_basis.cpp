@@ -186,7 +186,7 @@ TEST_CASE("Piecewise heat rate — emission cap binds on the PWL burn")  // NOLI
   // at h₂ = 9 only 55.6 MW; skipping the unit — the old behaviour —
   // leaves the cap slack and gives 620 $.)
   const auto sys = efb_system(efb_piecewise(), efb_zone(25.0, {}));
-  CHECK(efb_solve(sys, 1) == doctest::Approx(500.0 + (40.0 / 3.0) * 100.0));
+  CHECK(efb_solve(sys, 1) == doctest::Approx(500.0 + ((40.0 / 3.0) * 100.0)));
 }
 
 TEST_CASE("Piecewise heat rate — carbon price on every burn leg")  // NOLINT
@@ -306,7 +306,7 @@ TEST_CASE("Fuel offtake cap — piecewise heat rate burn")  // NOLINT
   // (fuel 500 $) + 13.333 MW × 100 from the clean unit.  Total 1833.33.
   // (heat_rate × generation alone ignored piecewise units entirely.)
   const auto sys = efb_system(efb_piecewise(), efb_zone({}, {}), {}, 500.0);
-  CHECK(efb_solve(sys, 1) == doctest::Approx(500.0 + (40.0 / 3.0) * 100.0));
+  CHECK(efb_solve(sys, 1) == doctest::Approx(500.0 + ((40.0 / 3.0) * 100.0)));
 }
 
 TEST_CASE("Fuel offtake cap — per-block heat rate burn")  // NOLINT

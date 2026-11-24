@@ -126,6 +126,38 @@ TEST_CASE("parse_ini_file - Empty value")
   std::filesystem::remove(tmp);
 }
 
+TEST_CASE("parse_ini_file - CRLF line endings (Windows-edited config)")
+{
+  // A .gtopt.conf saved on Windows: every line ends in "\r\n".  Values,
+  // section names and keys must not carry the '\r' — in particular an
+  // empty value must stay empty (an "\r" value would be passed on as a
+  // non-empty option string).
+  const auto tmp = std::filesystem::temp_directory_path() / "test_ini_crlf.ini";
+  {
+    std::ofstream f(tmp, std::ios::binary);
+    f << "[gtopt]\r\n"
+      << "solver = highs\r\n"
+      << "empty =\r\n"
+      << "blank = \t\r\n"
+      << "\r\n"
+      << "# comment\r\n"
+      << "[sddp]\r\n"
+      << "max_iterations=7\r\n";
+  }
+
+  const auto data = parse_ini_file(tmp);
+
+  REQUIRE(data.contains("gtopt"));
+  REQUIRE(data.contains("sddp"));
+  CHECK(data.size() == 2);
+  CHECK(data.at("gtopt").at("solver") == "highs");
+  CHECK(data.at("gtopt").at("empty").empty());
+  CHECK(data.at("gtopt").at("blank").empty());
+  CHECK(data.at("sddp").at("max_iterations") == "7");
+
+  std::filesystem::remove(tmp);
+}
+
 TEST_CASE("load_gtopt_config - Reads [gtopt] section via GTOPT_CONFIG")
 {
   using namespace gtopt;
@@ -207,7 +239,6 @@ TEST_CASE("merge_config_defaults - CLI overrides config")
 TEST_CASE("merge_config_defaults - Empty config changes nothing")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   MainOptions cli_opts;
   cli_opts.solver = "clp";
@@ -218,8 +249,6 @@ TEST_CASE("merge_config_defaults - Empty config changes nothing")
   CHECK(*cli_opts.solver == "clp");
   CHECK_FALSE(cli_opts.threads.has_value());
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)
 
 TEST_CASE(  // NOLINT
     "split_config_defaults - runtime keys merge, planning keys are layered")

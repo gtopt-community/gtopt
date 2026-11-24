@@ -91,7 +91,7 @@ TEST_CASE(
     REQUIRE(fix.has_value());
     CHECK(fix->fixed_columns == 1);  // the single integer column y
     REQUIRE(fix->status.has_value());
-    CHECK(*fix->status == 0);
+    CHECK((fix->status && *fix->status == 0));
     REQUIRE(lp.is_optimal());
 
     // The integer column is now continuous (relaxed) but pinned by bounds.

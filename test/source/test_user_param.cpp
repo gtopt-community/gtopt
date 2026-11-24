@@ -88,8 +88,9 @@ TEST_CASE("UserParamMap lookup")
   CHECK_FALSE(params.contains("nonexistent"));
 
   CHECK(params["pct_elec"].value.value_or(0.0) == doctest::Approx(35.0));
-  REQUIRE(params["irr_seasonal"].monthly.has_value());
-  CHECK(params["irr_seasonal"].monthly->size() == 12);
+  const auto& seasonal = params["irr_seasonal"].monthly;
+  REQUIRE(seasonal.has_value());
+  CHECK((seasonal && seasonal->size() == 12));
 }
 
 TEST_CASE("UserParam with zero value")
@@ -108,7 +109,6 @@ TEST_CASE("UserParam with zero value")
 TEST_CASE("UserParam with negative value")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   const UserParam param {
       .name = "neg_param",
@@ -118,5 +118,3 @@ TEST_CASE("UserParam with negative value")
   REQUIRE(param.value.has_value());
   CHECK(param.value.value_or(0.0) == doctest::Approx(-42.5));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

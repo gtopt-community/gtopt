@@ -45,38 +45,51 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
       daw::json::from_json<PlanningOptions>(json_string, StrictParsePolicy);
 
   REQUIRE(options.input_directory.has_value());
-  CHECK(*options.input_directory == "input_dir");
+  CHECK((options.input_directory && *options.input_directory == "input_dir"));
   REQUIRE(options.input_format.has_value());
-  CHECK(*options.input_format == DataFormat::parquet);
+  CHECK((options.input_format && *options.input_format == DataFormat::parquet));
 
   REQUIRE(options.model_options.demand_fail_cost.has_value());
-  CHECK(*options.model_options.demand_fail_cost == doctest::Approx(1000.0));
+  CHECK(
+      (options.model_options.demand_fail_cost
+       && *options.model_options.demand_fail_cost == doctest::Approx(1000.0)));
   REQUIRE(options.model_options.reserve_shortage_cost.has_value());
-  CHECK(options.model_options.reserve_shortage_cost.value()
-        == doctest::Approx(500.0));
+  CHECK((options.model_options.reserve_shortage_cost
+         && options.model_options.reserve_shortage_cost.value()
+             == doctest::Approx(500.0)));
   REQUIRE(options.model_options.use_line_losses.has_value());
-  CHECK(*options.model_options.use_line_losses == true);
+  CHECK((options.model_options.use_line_losses
+         && *options.model_options.use_line_losses == true));
   REQUIRE(options.model_options.use_kirchhoff.has_value());
-  CHECK(*options.model_options.use_kirchhoff == false);
+  CHECK((options.model_options.use_kirchhoff
+         && *options.model_options.use_kirchhoff == false));
   REQUIRE(options.model_options.use_single_bus.has_value());
-  CHECK(*options.model_options.use_single_bus == true);
+  CHECK((options.model_options.use_single_bus
+         && *options.model_options.use_single_bus == true));
   REQUIRE(options.model_options.kirchhoff_threshold.has_value());
-  CHECK(*options.model_options.kirchhoff_threshold == doctest::Approx(0.01));
+  CHECK(
+      (options.model_options.kirchhoff_threshold
+       && *options.model_options.kirchhoff_threshold == doctest::Approx(0.01)));
   REQUIRE(options.model_options.scale_objective.has_value());
-  CHECK(*options.model_options.scale_objective == doctest::Approx(100.0));
+  CHECK((options.model_options.scale_objective
+         && *options.model_options.scale_objective == doctest::Approx(100.0)));
   REQUIRE(options.model_options.scale_theta.has_value());
-  CHECK(*options.model_options.scale_theta == doctest::Approx(10.0));
+  CHECK((options.model_options.scale_theta
+         && *options.model_options.scale_theta == doctest::Approx(10.0)));
 
   REQUIRE(options.output_directory.has_value());
-  CHECK(*options.output_directory == "output_dir");
+  CHECK(
+      (options.output_directory && *options.output_directory == "output_dir"));
   REQUIRE(options.output_format.has_value());
-  CHECK(*options.output_format == DataFormat::csv);
+  CHECK((options.output_format && *options.output_format == DataFormat::csv));
   REQUIRE(options.output_compression.has_value());
-  CHECK(*options.output_compression == CompressionCodec::gzip);
+  CHECK((options.output_compression
+         && *options.output_compression == CompressionCodec::gzip));
   REQUIRE(options.use_uid_fname.has_value());
-  CHECK(*options.use_uid_fname == false);
+  CHECK((options.use_uid_fname && *options.use_uid_fname == false));
   REQUIRE(options.annual_discount_rate.has_value());
-  CHECK(*options.annual_discount_rate == doctest::Approx(0.05));
+  CHECK((options.annual_discount_rate
+         && *options.annual_discount_rate == doctest::Approx(0.05)));
 }
 
 TEST_CASE(
@@ -96,11 +109,13 @@ TEST_CASE(
       daw::json::from_json<PlanningOptions>(json_string, StrictParsePolicy);
 
   REQUIRE(options.input_directory.has_value());
-  CHECK(*options.input_directory == "input_dir");
+  CHECK((options.input_directory && *options.input_directory == "input_dir"));
   REQUIRE(options.model_options.use_kirchhoff.has_value());
-  CHECK(*options.model_options.use_kirchhoff == true);
+  CHECK((options.model_options.use_kirchhoff
+         && *options.model_options.use_kirchhoff == true));
   REQUIRE(options.output_directory.has_value());
-  CHECK(*options.output_directory == "output_dir");
+  CHECK(
+      (options.output_directory && *options.output_directory == "output_dir"));
 
   CHECK_FALSE(options.input_format.has_value());
   CHECK_FALSE(options.model_options.demand_fail_cost.has_value());

@@ -134,14 +134,16 @@ public:
 
   /// Resolves a `Demand.fcost` (`OptTBRealSched`) at the (stage, block)
   /// grain, falling back to the global `model_options.demand_fail_cost`
-  /// when unset.  Returned in `[$/MWh]`.
+  /// when unset (which itself defaults to
+  /// `PlanningOptionsLP::default_demand_fail_cost`).  Returned in `[$/MWh]`.
   template<typename FailCost>
   [[nodiscard]] constexpr auto demand_fail_cost(const StageLP& stage,
                                                 const BlockLP& block,
                                                 const FailCost& fcost) const
+      -> Real
   {
-    const auto fc = fcost.optval(stage.uid(), block.uid());
-    return fc ? fc : options().demand_fail_cost();
+    return fcost.optval(stage.uid(), block.uid())
+        .value_or(options().demand_fail_cost());
   }
 
   /// Resolves a `ReserveZone.urcost` / `ReserveZone.drcost` /
@@ -769,6 +771,15 @@ public:
     return simulation().find_ampl_suppression(class_name, attribute);
   }
 
+  /// Scope description of a scope-restricted element (a coarse-scope or
+  /// single-block `DecisionVariable`), or nullptr.  See
+  /// `SimulationLP::register_ampl_scoped_element`.
+  [[nodiscard]] const std::string* find_ampl_scoped_element(
+      std::string_view class_name, Uid element_uid) const noexcept
+  {
+    return simulation().find_ampl_scoped_element(class_name, element_uid);
+  }
+
   /// Look up the class-level parameter resolver for (class, attribute).
   /// Returns nullptr when the pair is not registered — see
   /// `SimulationLP::register_ampl_param` for the population side.  Used
@@ -779,6 +790,14 @@ public:
       std::string_view class_name, std::string_view attribute) const noexcept
   {
     return simulation().find_ampl_param(class_name, attribute);
+  }
+
+  /// Class-level element activity probe (see `AmplActiveFn`); nullptr when
+  /// the class registered none.
+  [[nodiscard]] AmplActiveFn find_ampl_active(
+      std::string_view class_name) const noexcept
+  {
+    return simulation().find_ampl_active(class_name);
   }
 
   /// Look up the class-level iterator function for `class_name`.

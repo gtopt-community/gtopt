@@ -31,9 +31,9 @@ TEST_CASE("CarrierConverter JSON round-trip — electrolyser")  // NOLINT
   CHECK(cc.from_carrier == Carrier::Electric);
   CHECK(cc.to_carrier == Carrier::Hydrogen);
   REQUIRE(cc.from_node.has_value());
-  CHECK(std::get<Name>(*cc.from_node) == "b1");
+  CHECK((cc.from_node && std::get<Name>(*cc.from_node) == "b1"));
   REQUIRE(cc.to_node.has_value());
-  CHECK(std::get<Name>(*cc.to_node) == "h2_node");
+  CHECK((cc.to_node && std::get<Name>(*cc.to_node) == "h2_node"));
 }
 
 TEST_CASE("CarrierConverter JSON round-trip — Haber-Bosch")  // NOLINT

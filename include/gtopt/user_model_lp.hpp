@@ -76,7 +76,16 @@ public:
                                const StageLP& stage,
                                LinearProblem& lp);
 
-  /// Planning-level phase-scope build (one row/col per (scene, phase) cell)
+  /// Cell-column pre-pass: builds the single (scene, phase) column of every
+  /// bundled `phase` / `global`-scoped variable BEFORE the operational sweep,
+  /// so block/stage-scoped constraints (bundled or standalone) can reference
+  /// it.  Mirrors `DecisionVariableLP::add_cell_cols`.
+  [[nodiscard]] bool add_cell_cols(SystemContext& sc,
+                                   const SceneLP& scene,
+                                   const PhaseLP& phase,
+                                   LinearProblem& lp);
+
+  /// Planning-level phase-scope build (one row per (scene, phase) cell)
   /// for any bundled var/constraint declared with `scope: phase`.  Non-const
   /// `SystemContext&` because a bundled `state` variable registers a
   /// cross-phase `StateVariable` (a non-const registry mutation).

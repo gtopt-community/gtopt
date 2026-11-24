@@ -12,13 +12,16 @@
 
 #include <algorithm>
 #include <format>
+#include <optional>
 #include <stdexcept>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/converter_lp.hpp>
+#include <gtopt/coupler_fail_closed.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -49,17 +52,6 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
-  if (!is_active(stage)) [[unlikely]] {
-    return true;
-  }
-
-  const auto [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
-
-  const auto stage_conversion_rate =
-      conversion_rate.at(stage.uid()).value_or(1.0);
-
-  auto&& blocks = stage.blocks();
-
   // Tolerant element lookups: for expansion batteries with pmax=0
   // (active only in future stages), the synthetic generator, demand,
   // or battery LP elements may be absent or have no columns for this
@@ -75,6 +67,26 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   } catch (const std::exception&) {
     return true;  // element not in LP — skip silently
   }
+
+  // Fail-closed coupler (R2): the discharge generator and the battery
+  // flows exist only through this converter.  When the converter is
+  // inactive, or the battery is not in service, the coupling rows cannot
+  // be written — close the producing columns (discharge generation and
+  // both battery flows) instead of leaving them free (energy from
+  // nowhere).  The charge demand is a consumer and is left as is.
+  if (!is_active(stage) || !bat_ptr->is_active(stage)) [[unlikely]] {
+    close_producing_cols(lp, gen_ptr->lookup_generation_cols(scenario, stage));
+    close_producing_cols(lp, bat_ptr->finp_cols_at(scenario, stage));
+    close_producing_cols(lp, bat_ptr->fout_cols_at(scenario, stage));
+    return true;
+  }
+
+  const auto [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
+
+  const auto stage_conversion_rate =
+      conversion_rate.at(stage.uid()).value_or(1.0);
+
+  auto&& blocks = stage.blocks();
 
   auto&& gen_cols = gen_ptr->lookup_generation_cols(scenario, stage);
   // Tolerant lookup: a battery with pmax_charge = 0 in every block of the
@@ -324,8 +336,10 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     // ``uc_<bat>_gen``) ``relax = true`` by default — fractional u
     // is fine for an LP-only run.
     const BIndexHolder<ColIndex>* shared_ucol = nullptr;
+    // Pair by resolved element index (uid and name references alike).
+    const auto gen_index = sc.element_index(generator_sid());
     for (const auto& cmt : sc.elements<CommitmentLP>()) {
-      if (cmt.generator_sid() != generator_sid()) {
+      if (sc.element_index(cmt.generator_sid()) != gen_index) {
         continue;
       }
       shared_ucol = cmt.find_status_cols(scenario, stage);
@@ -545,6 +559,14 @@ bool ConverterLP::add_to_output(OutputContext& out) const
       cname, ReserveDnHeadroomName, id(), reserve_dn_headroom_rows);
   out.add_row_dual(cname, ReserveUpEnergyName, id(), reserve_up_energy_rows);
   out.add_row_dual(cname, ReserveDnEnergyName, id(), reserve_dn_energy_rows);
+  static constexpr auto rp_cname =
+      ReserveProvisionLP::Element::class_name.full_name();
+  for (const auto& sc : reserve_split_cols_) {
+    out.add_col_sol(rp_cname, ReserveUpDischargeName, sc.id, sc.up_dis);
+    out.add_col_sol(rp_cname, ReserveUpChargeName, sc.id, sc.up_chg);
+    out.add_col_sol(rp_cname, ReserveDnDischargeName, sc.id, sc.dn_dis);
+    out.add_col_sol(rp_cname, ReserveDnChargeName, sc.id, sc.dn_chg);
+  }
 
   return CapacityBase::add_to_output(out);
 }
@@ -619,6 +641,26 @@ void ConverterLP::add_native_reserve_rows(const SystemContext& sc,
     energy_cols = nullptr;
   }
 
+  // Battery-level default; a provision's `ur/dr_energy_usage` overrides.
+  const double usage_up = bat.battery().reserve_energy_usage_up.value_or(0.0);
+  const double usage_dn = bat.battery().reserve_energy_usage_down.value_or(0.0);
+  const bool any_usage = usage_up > 0.0 || usage_dn > 0.0
+      || std::ranges::any_of(provisions,
+                             [](const ReserveProvisionLP* rp)
+                             { return rp->has_energy_usage(); });
+  const BIndexHolder<RowIndex>* energy_rows = nullptr;
+  const BIndexHolder<ColIndex>* fout_cols = nullptr;
+  const BIndexHolder<ColIndex>* finp_cols = nullptr;
+  if (any_usage) {
+    try {
+      energy_rows = &bat.energy_rows_at(scenario, stage);
+      fout_cols = &bat.fout_cols_at(scenario, stage);
+      finp_cols = &bat.finp_cols_at(scenario, stage);
+    } catch (const std::exception&) {
+      energy_rows = nullptr;
+    }
+  }
+
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   const auto cname = Element::class_name.full_name();
 
@@ -644,8 +686,25 @@ void ConverterLP::add_native_reserve_rows(const SystemContext& sc,
     const bool has_d = dcol_it != demand_cols.end();
     const double pd_max = has_g ? lp.get_col_uppb(gcol_it->second) : 0.0;
     const double pc_max = has_d ? lp.get_col_uppb(dcol_it->second) : 0.0;
+    // An unrated side (the 1e20 / DblMax "no rating" sentinel) makes the
+    // headroom row vacuous: omit it rather than emit an infinite RHS.
+    const auto unrated = [&](double v)
+    { return v >= 1e19 || is_infinity(v, lp.infinity()); };
+    // With the per-side split (Max Response caps) the side rows imply the
+    // aggregate headroom row (their sum, via r = r_dis + r_chg): emitting
+    // both makes the rows linearly dependent and the headroom duals
+    // ambiguous, so the aggregate row is skipped for that direction.
+    const auto split_dir = [&](bool upward)
+    {
+      return !(upward ? ups : dns).empty()
+          && std::ranges::any_of(provisions,
+                                 [upward](const ReserveProvisionLP* rp)
+                                 { return rp->has_response_caps(upward); });
+    };
+    const bool split_up = split_dir(true);
+    const bool split_dn = split_dir(false);
 
-    if (!ups.empty()) {
+    if (!ups.empty() && !split_up && !unrated(pd_max)) {
       auto row =
           SparseRow {
               .class_name = cname,
@@ -665,7 +724,7 @@ void ConverterLP::add_native_reserve_rows(const SystemContext& sc,
       }
       reserve_up_headroom_rows[st_key][buid] = lp.add_row(std::move(row));
     }
-    if (!dns.empty()) {
+    if (!dns.empty() && !split_dn && !unrated(pc_max)) {
       auto row =
           SparseRow {
               .class_name = cname,
@@ -684,6 +743,98 @@ void ConverterLP::add_native_reserve_rows(const SystemContext& sc,
         row[c] += 1.0;
       }
       reserve_dn_headroom_rows[st_key][buid] = lp.add_row(std::move(row));
+    }
+
+    // PLEXOS Max Response / Max Charge Response: per-side split.
+    const auto gcol = has_g ? std::optional {gcol_it->second} : std::nullopt;
+    const auto dcol = has_d ? std::optional {dcol_it->second} : std::nullopt;
+    for (const bool upward : {true, false}) {
+      if (!(upward ? split_up : split_dn)) {
+        continue;
+      }
+      add_native_reserve_split(
+          scenario, stage, buid, lp, upward, provisions, gcol, dcol, dn_credit);
+    }
+
+    // Expected deployment energy charged to the SoC (replaces the PLEXOS
+    // CF_GEN_COMP / CF_LOAD_COMP AUX injection; no bus term).
+    if (energy_rows != nullptr) {
+      if (const auto erow_it = energy_rows->find(buid);
+          erow_it != energy_rows->end())
+      {
+        const auto erow = erow_it->second;
+        // Same coefficient as one MW of discharge ((1/ηd)·Δ) per MW of up
+        // reserve, and as one MW of charge (−ηc·Δ) per MW of down.
+        const auto unit_of =
+            [&](const BIndexHolder<ColIndex>* cols) -> std::optional<double>
+        {
+          if (cols == nullptr) {
+            return std::nullopt;
+          }
+          const auto it = cols->find(buid);
+          if (it == cols->end()) {
+            return std::nullopt;
+          }
+          return lp.get_coeff(erow, it->second);
+        };
+        const auto unit_up = unit_of(fout_cols);
+        const auto unit_dn = unit_of(finp_cols);
+        // Split side columns of one provision at this block (present when
+        // the direction has Max Response caps).
+        const auto split_of = [&](const ReserveProvisionLP& rp, bool upward)
+            -> std::pair<std::optional<ColIndex>, std::optional<ColIndex>>
+        {
+          const auto it = std::ranges::find(
+              reserve_split_cols_, rp.uid(), &ReserveSplitCols::uid);
+          if (it == reserve_split_cols_.end()) {
+            return {};
+          }
+          const auto at = [&](const STBIndexHolder<ColIndex>& h)
+          { return lookup_inner(h, scenario, stage, buid); };
+          return upward ? std::pair {at(it->up_dis), at(it->up_chg)}
+                        : std::pair {at(it->dn_dis), at(it->dn_chg)};
+        };
+        // Deployed energy per MW of reserve: up via more discharge
+        // (+Δ/ηd, the discharge unit) or via less charge (−(−ηc·Δ), the
+        // negated charge unit); down via more charge (−ηc·Δ) or via less
+        // discharge (−Δ/ηd).  Without the split the whole provision takes
+        // the primary side's coefficient.
+        for (const auto* rp : provisions) {
+          for (const bool upward : {true, false}) {
+            const auto primary = upward ? unit_up : unit_dn;
+            const auto other = upward ? unit_dn : unit_up;
+            if (!primary) {
+              continue;
+            }
+            const auto c = upward
+                ? rp->lookup_up_provision_col(scenario, stage, buid)
+                : rp->lookup_dn_provision_col(scenario, stage, buid);
+            if (!c) {
+              continue;
+            }
+            const double a = rp->energy_usage(upward, stage.uid(), buid)
+                                 .value_or(upward ? usage_up : usage_dn);
+            if (a <= 0.0) {
+              continue;
+            }
+            const auto [dis_c, chg_c] = split_of(*rp, upward);
+            if (!dis_c && !chg_c) {
+              lp.set_coeff(erow, *c, a * *primary);
+              continue;
+            }
+            // Up: discharge side = primary, charge side = −other.
+            // Down: charge side = primary, discharge side = −other.
+            const auto& primary_side = upward ? dis_c : chg_c;
+            const auto& other_side = upward ? chg_c : dis_c;
+            if (primary_side) {
+              lp.set_coeff(erow, *primary_side, a * *primary);
+            }
+            if (other_side && other) {
+              lp.set_coeff(erow, *other_side, -a * *other);
+            }
+          }
+        }
+      }
     }
 
     if (sustain_h <= 0.0 || energy_cols == nullptr) {
@@ -730,6 +881,128 @@ void ConverterLP::add_native_reserve_rows(const SystemContext& sc,
       reserve_dn_energy_rows[st_key][buid] = lp.add_row(std::move(row));
     }
   }
+}
+
+void ConverterLP::add_native_reserve_split(
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    BlockUid buid,
+    LinearProblem& lp,
+    bool upward,
+    const std::vector<const ReserveProvisionLP*>& provisions,
+    std::optional<ColIndex> gcol,
+    std::optional<ColIndex> dcol,
+    bool dn_credit)
+{
+  const auto cname = Element::class_name.full_name();
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  const auto ctx = make_block_context(scenario.uid(), stage.uid(), buid);
+  // Down reserve from the discharge side only with the credit flag.
+  const bool dis_side = upward || dn_credit;
+  const auto dis_name =
+      upward ? ReserveUpDischargeName : ReserveDnDischargeName;
+  const auto chg_name = upward ? ReserveUpChargeName : ReserveDnChargeName;
+  static constexpr auto rp_cname =
+      ReserveProvisionLP::Element::class_name.full_name();
+
+  // Side rows.  Up: pd + Σr_dis ≤ Pd, Σr_chg − pc ≤ 0.
+  //           Down: Σr_dis − pd ≤ 0, pc + Σr_chg ≤ Pc.
+  auto dis_row =
+      SparseRow {
+          .class_name = cname,
+          .constraint_name = dis_name,
+          .variable_uid = uid(),
+          .context = ctx,
+      }
+          .less_equal(upward && gcol ? lp.get_col_uppb(*gcol) : 0.0);
+  auto chg_row =
+      SparseRow {
+          .class_name = cname,
+          .constraint_name = chg_name,
+          .variable_uid = uid(),
+          .context = ctx,
+      }
+          .less_equal(!upward && dcol ? lp.get_col_uppb(*dcol) : 0.0);
+  if (gcol) {
+    dis_row[*gcol] = upward ? 1.0 : -1.0;
+  }
+  if (dcol) {
+    chg_row[*dcol] = upward ? -1.0 : 1.0;
+  }
+
+  bool any_dis = false;
+  for (const auto* rp : provisions) {
+    const auto rcol = upward
+        ? rp->lookup_up_provision_col(scenario, stage, buid)
+        : rp->lookup_dn_provision_col(scenario, stage, buid);
+    if (!rcol) {
+      continue;
+    }
+    const auto caps = rp->response_caps(upward, stage.uid(), buid);
+    auto& out_cols = split_cols_of(*rp);
+    // Labelled per provision: one battery may carry several capped
+    // provisions (CPF + CSF + CTF) in the same direction.
+    auto split =
+        SparseRow {
+            .class_name = rp_cname,
+            .constraint_name = upward ? ReserveUpSplitName : ReserveDnSplitName,
+            .variable_uid = rp->uid(),
+            .context = ctx,
+        }
+            .equal(0.0);
+    split[*rcol] = 1.0;
+    if (dis_side) {
+      const auto dcol_r = lp.add_col({
+          .uppb = caps.discharge.value_or(DblMax),
+          .class_name = rp_cname,
+          .variable_name = dis_name,
+          .variable_uid = rp->uid(),
+          .context = ctx,
+      });
+      split[dcol_r] = -1.0;
+      dis_row[dcol_r] = 1.0;
+      any_dis = true;
+      (upward ? out_cols.up_dis : out_cols.dn_dis)[st_key][buid] = dcol_r;
+    }
+    const auto ccol_r = lp.add_col({
+        .uppb = caps.charge.value_or(DblMax),
+        .class_name = rp_cname,
+        .variable_name = chg_name,
+        .variable_uid = rp->uid(),
+        .context = ctx,
+    });
+    split[ccol_r] = -1.0;
+    chg_row[ccol_r] = 1.0;
+    (upward ? out_cols.up_chg : out_cols.dn_chg)[st_key][buid] = ccol_r;
+    std::ignore = lp.add_row(std::move(split));
+  }
+  // A side row whose RHS is the unrated sentinel is vacuous: omit it.
+  const auto unrated = [&](const SparseRow& row)
+  { return row.uppb >= 1e19 || is_infinity(row.uppb, lp.infinity()); };
+  if (any_dis && !unrated(dis_row)) {
+    std::ignore = lp.add_row(std::move(dis_row));
+  }
+  if (!unrated(chg_row)) {
+    std::ignore = lp.add_row(std::move(chg_row));
+  }
+}
+
+ConverterLP::ReserveSplitCols& ConverterLP::split_cols_of(
+    const ReserveProvisionLP& rp)
+{
+  const auto it =
+      std::ranges::find(reserve_split_cols_, rp.uid(), &ReserveSplitCols::uid);
+  if (it != reserve_split_cols_.end()) {
+    return *it;
+  }
+  return reserve_split_cols_.emplace_back(ReserveSplitCols {
+      .uid = rp.uid(),
+      .id = rp.id(),
+      .up_dis = {},
+      .up_chg = {},
+      .dn_dis = {},
+      .dn_chg = {},
+  });
 }
 
 }  // namespace gtopt

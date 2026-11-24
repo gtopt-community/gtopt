@@ -212,8 +212,9 @@ TEST_CASE(
   // And the round-tripped expression still parses to a per-block profile.
   auto expr = ConstraintParser::parse(uc2.name, uc2.expression);
   REQUIRE(expr.terms.size() == 1);
-  REQUIRE(expr.terms[0].coeff_profile.has_value());
-  REQUIRE(expr.terms[0].coeff_profile->size() == 3);
+  const auto& profile = expr.terms[0].coeff_profile;
+  REQUIRE(profile.has_value());
+  REQUIRE((profile && profile->size() == 3));
   CHECK(expr.terms[0].coeff_at(0) == doctest::Approx(1.0));
   CHECK(expr.terms[0].coeff_at(1) == doctest::Approx(2.0));
   CHECK(expr.terms[0].coeff_at(2) == doctest::Approx(3.0));

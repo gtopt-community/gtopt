@@ -1949,11 +1949,19 @@ void SDDPMethod::compute_iteration_bounds(
 
   double upper = 0.0;
   double lower = 0.0;
+  double rewards = 0.0;
   for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
     if (scene_feasible[scene] == 0U) {
       continue;
     }
     upper += ir.scene_upper_bounds[scene];
+    // Phase states exist only for scenes the forward pass set up
+    // (some callers size the scene vectors before initialisation).
+    if (std::cmp_less(Index {scene}, m_scene_phase_states_.size())) {
+      for (const auto& st : m_scene_phase_states_[scene]) {
+        rewards += st.forward_agreement_rewards;
+      }
+    }
     // Per-scene LB = master.get_obj_value().  The α-rebase constant c̄ is
     // folded into this first-phase master LP's native objective offset at
     // boundary-cut load, so `get_obj_value()` already reflects the
@@ -1968,6 +1976,10 @@ void SDDPMethod::compute_iteration_bounds(
   }
   ir.upper_bound = upper;
   ir.lower_bound = lower;
+  ir.agreement_rewards = rewards;
+  ir.upper_bound_net = upper - rewards;
+
+  compute_boundary_gap(ir, scene_feasible);
 
   // Layer 3 diagnostic: fraction of original probability mass
   // missing from the bounds (i.e. mass on infeasible scenes).
@@ -1983,6 +1995,52 @@ void SDDPMethod::compute_iteration_bounds(
     }
   }
   ir.scene_probability_lost = (total_p > 0.0) ? lost_p / total_p : 0.0;
+}
+
+void SDDPMethod::compute_boundary_gap(
+    SDDPIterationResult& ir, std::span<const uint8_t> scene_feasible) const
+{
+  ir.boundary = {};
+  if (!m_boundary_cuts_loaded_) {
+    return;
+  }
+  // E[Φ'(v_T)] at the forward pass's final states: the last phase's
+  // weighted α / φ_j value recorded by the forward pass
+  // (`PhaseStateInfo::forward_future_cost`, physical $, p_s folded in),
+  // summed over feasible scenes — the same aggregation as UB / LB.
+  const auto& sim = planning_lp().simulation();
+  const auto last_phase = sim.last_phase_index();
+  const bool terminal_in_ub =
+      m_options_.boundary_cuts_mode == BoundaryCutsMode::phi_expectation;
+  double terminal = 0.0;
+  double c_bar = 0.0;
+  double abs_opex = 0.0;
+  for (const auto scene : iota_range<SceneIndex>(0, sim.scene_count())) {
+    if (scene_feasible[scene] == 0U
+        || to_size(scene) >= m_scene_phase_states_.size())
+    {
+      continue;
+    }
+    const auto& states = m_scene_phase_states_[scene];
+    const double phi_s = to_size(last_phase) < states.size()
+        ? states[last_phase].forward_future_cost
+        : 0.0;
+    const double cbar_s = to_size(scene) < m_scene_alpha_restitution_.size()
+        ? m_scene_alpha_restitution_[scene]
+        : 0.0;
+    const double ub_s = to_size(scene) < ir.scene_upper_bounds.size()
+        ? ir.scene_upper_bounds[scene]
+        : 0.0;
+    terminal += phi_s;
+    c_bar += cbar_s;
+    abs_opex += std::abs(ub_s - cbar_s - (terminal_in_ub ? phi_s : 0.0));
+  }
+  ir.boundary = compute_boundary_gap_diagnostics(ir.upper_bound,
+                                                 ir.lower_bound,
+                                                 terminal,
+                                                 c_bar,
+                                                 abs_opex,
+                                                 terminal_in_ub);
 }
 
 void SDDPMethod::finalize_iteration_result(
@@ -2063,7 +2121,34 @@ void SDDPMethod::finalize_iteration_result(
   // for users who set tol very small.
   const auto neg_gap_warn_threshold =
       std::max(kSddpGapFpEpsilon, 5.0 * std::abs(tol));
-  if (ir.gap < -neg_gap_warn_threshold) {
+  // With boundary (terminal FutureCost) cuts the raw gap is biased by
+  // −E[Φ'(v_T)] (the UB strips the terminal α the LB carries), so LB > UB
+  // is EXPECTED even with valid cuts.  The negative-gap test — and the
+  // gap-convergence tests downstream (`effective_gap`) — then read the
+  // corrected gap (UB* − LB)/max(1,|UB*|), UB* = UB + E[Φ'(v_T)]; only
+  // the residual over-estimation LB − UB* counts as an overshoot.
+  // Without boundary cuts `effective_gap() == gap` (old behaviour).
+  const auto& bd = ir.boundary;
+  const double eff_gap = ir.effective_gap();
+  if (bd.active) {
+    // The per-iteration accounting line is part of the iteration summary
+    // block (`iter N  bcut ...`, sddp_iteration.cpp).
+    if (bd.overestimation_exceeds(neg_gap_warn_threshold)) {
+      SPDLOG_WARN(
+          "SDDP Iter [i{}]: cut OVER-ESTIMATION beyond the terminal FCF "
+          "accounting: LB − (UB + E[Φ'(v_T)]) = {} = {:.4f} of |ub*| and "
+          "{:.4f} of E|opex| (threshold {:.2e}) — some cut claims more "
+          "future cost than the forward pass realises (invalid / foreign "
+          "cuts on intermediate phases, shared cuts across non-identical "
+          "scenes, or numerical overshoot).  Refusing to declare "
+          "[CONVERGED] until it resolves.",
+          gtopt::uid_of(iteration_index),
+          format_si(bd.overestimation),
+          bd.overestimation_vs_ub(),
+          bd.overestimation_vs_opex(),
+          neg_gap_warn_threshold);
+    }
+  } else if (eff_gap < -neg_gap_warn_threshold) {
     SPDLOG_WARN(
         "SDDP Iter [i{}]: SIGNIFICANT negative gap = {:.6f} "
         "(ub={}, lb={}) — lb > ub by more than {:.4f} of ub; "
@@ -2074,14 +2159,16 @@ void SDDPMethod::finalize_iteration_result(
         format_si(ir.upper_bound),
         format_si(ir.lower_bound),
         neg_gap_warn_threshold);
-  } else if (ir.gap < -kSddpGapFpEpsilon) {
+  }
+  if (eff_gap < -kSddpGapFpEpsilon && eff_gap >= -neg_gap_warn_threshold) {
     // Within the dual-noise band — log at DEBUG so post-mortem can
     // see it but normal operators don't get woken up by it.
     SPDLOG_DEBUG(
-        "SDDP Iter [i{}]: negative gap = {:.6f} within numerical noise "
+        "SDDP Iter [i{}]: negative {}gap = {:.6f} within numerical noise "
         "(threshold {:.4f}); treating as non-converging without WARN",
         gtopt::uid_of(iteration_index),
-        ir.gap,
+        bd.active ? "corrected " : "",
+        eff_gap,
         neg_gap_warn_threshold);
   }
   // ``ir.converged`` is intentionally left at its default ``false``
@@ -2089,6 +2176,16 @@ void SDDPMethod::finalize_iteration_result(
   // caller (``SDDPMethod::iterate()`` and ``solve_async()``) via
   // ``evaluate_convergence_check`` —
   // ``past_min_iter`` is recomputed inside that helper.
+
+  // Agreement valuations (positive-uvalue rights) ride in the UB as
+  // negative costs; report the UB net of them next to the raw UB.
+  if (ir.agreement_rewards != 0.0) {
+    SPDLOG_INFO("SDDP Iter [i{}]: ub={} agreement_rewards={} ub_net={}",
+                gtopt::uid_of(iteration_index),
+                format_si(ir.upper_bound),
+                format_si(ir.agreement_rewards),
+                format_si(ir.upper_bound_net));
+  }
 
   publish_live_metrics_(LiveMetrics {
       .iteration = iteration_index,
@@ -2118,11 +2215,25 @@ void SDDPMethod::finalize_iteration_result(
       ir.converged ? " [CONVERGED]" : "");
 }
 
+std::string_view SDDPMethod::terminal_api_status() const
+{
+  if (live_metrics_()->converged) {
+    return "converged";
+  }
+  if (m_stop_requested_.load() || check_sentinel_stop()
+      || check_api_stop_request())
+  {
+    return "stopped";
+  }
+  return "max_iterations";
+}
+
 void SDDPMethod::maybe_write_api_status(
     const std::string& status_file,
     const std::vector<SDDPIterationResult>& results,
     std::chrono::steady_clock::time_point solve_start,
-    SolverMonitor& monitor) const
+    SolverMonitor& monitor,
+    std::string_view final_status) const
 {
   if (!m_options_.enable_api || status_file.empty()) {
     return;
@@ -2154,6 +2265,7 @@ void SDDPMethod::maybe_write_api_status(
       .scenes_done = m_scenes_done_.load(),
       .solver = std::move(solver_id),
       .method = "sddp",
+      .final_status = std::string {final_status},
       .phase_grid = &m_phase_grid_,
   };
   write_solver_status(status_file, results, elapsed, snapshot, monitor);

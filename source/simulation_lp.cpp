@@ -18,6 +18,11 @@
  * - Multiple stages (time steps within phases)
  */
 
+#include <cstddef>
+#include <format>
+#include <map>
+#include <string>
+
 #include <gtopt/arrow_index_cache.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -260,6 +265,26 @@ SimulationLP::SimulationLP(const Simulation& simulation,
         m_phase_of_stage_.insert_or_assign(stage.uid(), phase.index());
       }
     }
+  }
+}
+
+void SimulationLP::log_dropped_term_summary() const
+{
+  const auto drops = dropped_term_counts();
+  for (const auto& [name, reasons] : drops) {
+    std::size_t total = 0;
+    std::string detail;
+    for (const auto& [reason, count] : reasons) {
+      total += count;
+      detail +=
+          std::format("{}{}: {}", detail.empty() ? "" : ", ", reason, count);
+    }
+    SPDLOG_INFO(
+        "user_constraint '{}': {} term occurrence(s) contribute 0 — the "
+        "element has no LP column there by design ({})",
+        name,
+        total,
+        detail);
   }
 }
 

@@ -13,6 +13,7 @@
 #pragma once
 
 #include <algorithm>
+#include <format>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -26,6 +27,7 @@
 #include <gtopt/object_lp.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/warn_once.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -185,10 +187,14 @@ public:
 
       const auto block_profile =
           profile.optval(scenario.uid(), stage.uid(), buid);
+      // Both skips below warn once per element (first occurrence), not
+      // once per (scenario, stage, block).
       if (!block_profile.has_value()) {
-        SPDLOG_WARN(
-            "{} uid={}: missing profile value for scenario={} stage={} "
-            "block={}; skipping block",
+        warn_once_per_key(
+            std::format("profile:{}:{}:missing_value", full_class_name, uid()),
+            "{} uid={}: missing profile value (first at scenario={} "
+            "stage={} block={}); such blocks are skipped.  Logged once per "
+            "element.",
             full_class_name,
             uid(),
             scenario.uid(),
@@ -199,9 +205,11 @@ public:
 
       const auto ecol_it = element_cols.find(buid);
       if (ecol_it == element_cols.end()) {
-        SPDLOG_WARN(
-            "{} uid={}: owner has no element column for scenario={} stage={} "
-            "block={}; skipping block",
+        warn_once_per_key(
+            std::format("profile:{}:{}:no_owner_col", full_class_name, uid()),
+            "{} uid={}: owner has no element column (first at scenario={} "
+            "stage={} block={}, elided block); such blocks are skipped.  "
+            "Logged once per element.",
             full_class_name,
             uid(),
             scenario.uid(),

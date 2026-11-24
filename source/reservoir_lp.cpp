@@ -14,6 +14,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_lp.hpp>
+#include <gtopt/storage_state_defaults.hpp>
 #include <gtopt/system_context.hpp>
 #include <spdlog/spdlog.h>
 
@@ -135,13 +136,17 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const double rsv_scost = stage_scost.value_or(1.0) * mpf;
 
   const StorageOptions opts {
-      .use_state_variable = reservoir().use_state_variable.value_or(true),
-      .daily_cycle = reservoir().daily_cycle.value_or(false),
+      .use_state_variable = reservoir().use_state_variable.value_or(
+          storage_state_defaults::reservoir.use_state_variable),
+      .daily_cycle = reservoir().daily_cycle.value_or(
+          storage_state_defaults::reservoir.daily_cycle),
       .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,
       .scost = rsv_scost,
+      .water_value_hint = reservoir().water_value_hint.value_or(rsv_scost),
+      .dual_scale = reservoir().dual_scale.value_or(1.0),
   };
   if (!StorageBase::add_to_lp(
           cname,
@@ -205,6 +210,14 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
                        scenario,
                        stage,
                        extraction_cols.at(st_key));
+  // `volume` is the reservoir-natural name of the storage `energy`
+  // column (documented PAMPL attribute); same columns, same scale.
+  sc.add_ampl_variable(ampl_name,
+                       uid(),
+                       VolumeName,
+                       scenario,
+                       stage,
+                       energy_cols_at(scenario, stage));
 
   return true;
 }

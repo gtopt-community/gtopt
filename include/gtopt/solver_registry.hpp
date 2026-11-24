@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -27,6 +28,7 @@
 #include <vector>
 
 #include <gtopt/solver_backend.hpp>
+#include <sys/types.h>
 
 namespace gtopt
 {
@@ -181,9 +183,44 @@ public:
    * `noexcept` and idempotent — safe to call across the fork barrier.
    * Public so the post-fork logging contract can be unit-tested.
    *
+   * The fresh sink writes straight to fd 2 with a `null_mutex`: it does
+   * NOT use spdlog's process-wide static console mutex (shared by every
+   * `stdout/stderr[_color]_sink_mt`) nor the `stderr` `FILE*` lock.  Either
+   * lock may have been held by another parent thread at `fork()` time and
+   * would then stay locked forever in the single-threaded child.
+   *
    * @post `spdlog::default_logger_raw() != nullptr`.
    */
   static void reset_default_logger_after_fork() noexcept;
+
+  /// Upper bound on how long the parent waits for one solver-validation
+  /// child (`validate_solver_subprocess`).  GPU backends (cuOpt) may take
+  /// several seconds to initialise, hence the generous default.  This is
+  /// an administrative startup probe ONLY — it never bounds a real solve.
+  static constexpr std::chrono::milliseconds default_validation_timeout {
+      std::chrono::seconds {60},
+  };
+
+  /** @brief Child-side hardening right after `fork()` in the validation
+   * probe: arm `PR_SET_PDEATHSIG(SIGKILL)` so the child dies with its
+   * parent, then compare `getppid()` with @p parent_pid (captured BEFORE
+   * the fork) to close the race where the parent died before the prctl.
+   *
+   * @return `true` when the child may proceed, `false` when it has already
+   *         been reparented (caller should `_exit`).
+   */
+  [[nodiscard]] static bool arm_child_parent_death_signal(
+      pid_t parent_pid) noexcept;
+
+  /** @brief Wait for child @p pid for at most @p timeout (polls
+   * `waitpid(WNOHANG)`).  On timeout the child is sent SIGKILL and reaped.
+   *
+   * @return the `waitpid` status when the child finished in time,
+   *         `std::nullopt` on timeout (child killed and reaped).  If
+   *         `waitpid` fails (e.g. ECHILD) the status is reported as 0.
+   */
+  [[nodiscard]] static std::optional<int> wait_child_with_timeout(
+      pid_t pid, std::chrono::milliseconds timeout) noexcept;
 
   ~SolverRegistry();
 
@@ -228,7 +265,9 @@ private:
   };
 
   [[nodiscard]] static bool validate_solver_subprocess(
-      const PluginHandle& plugin, const std::string& solver_name);
+      const PluginHandle& plugin,
+      const std::string& solver_name,
+      std::chrono::milliseconds timeout = default_validation_timeout);
 
   std::vector<PluginHandle> m_plugins_;
   std::vector<std::filesystem::path> m_pending_paths_;

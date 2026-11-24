@@ -12,7 +12,10 @@
  * type and verify the LP solves successfully with the constraints active.
  */
 
+#include <format>
+#include <string>
 #include <string_view>
+#include <utility>
 
 #include <doctest/doctest.h>
 #include <gtopt/gtopt_json_io.hpp>
@@ -1570,4 +1573,37 @@ TEST_CASE(  // NOLINT
   // Verify the LP is feasible and produces a non-negative objective.
   const auto obj = li.get_obj_value_raw();
   CHECK(obj >= 0.0);
+}
+
+TEST_CASE(  // NOLINT
+    "element_column_resolver - reservoir.volume is an alias of "
+    "reservoir.energy")
+{
+  // docs/user-constraints.md documents `reservoir.volume`; it must resolve
+  // to the same storage columns (and scale) as `reservoir.energy`.  Before
+  // the alias was registered the `volume` form was rejected as an unknown
+  // attribute.
+  const auto solve_with = [](std::string_view attr)
+  {
+    std::string json {resolver_scale_aware_json};
+    const std::string_view from = "reservoir('rsv1').energy <= 5000";
+    const auto pos = json.find(from);
+    REQUIRE(pos != std::string::npos);
+    json.replace(
+        pos, from.size(), std::format("reservoir('rsv1').{} <= 5000", attr));
+
+    Planning base;
+    base.merge(parse_planning_json(json));
+    PlanningLP planning_lp(std::move(base));
+    auto result = planning_lp.resolve();
+    REQUIRE(result.has_value());
+    const auto& li = planning_lp.systems().front().front().linear_interface();
+    REQUIRE(li.is_optimal());
+    return std::pair {li.get_numrows(), li.get_obj_value_raw()};
+  };
+
+  const auto [rows_energy, obj_energy] = solve_with("energy");
+  const auto [rows_volume, obj_volume] = solve_with("volume");
+  CHECK(rows_volume == rows_energy);
+  CHECK(obj_volume == doctest::Approx(obj_energy));
 }

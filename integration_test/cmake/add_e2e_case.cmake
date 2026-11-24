@@ -48,12 +48,16 @@ Example
    include(AddE2ECase)
    add_e2e_case(c0 system_c0.json)
 
+Pass ``CASE_DIR <dir>`` to read the case from ``<dir>`` instead of
+``${CASES_DIR}/<case>`` (e.g. a case of the external case repository
+found with ``gtopt_find_external_case``).
+
 #]=======================================================================]
 
 include_guard(GLOBAL)
 
 function(add_e2e_case case_name system_json)
-  cmake_parse_arguments(ARG "" "" "LABELS" ${ARGN})
+  cmake_parse_arguments(ARG "" "CASE_DIR" "LABELS" ${ARGN})
 
   # Resolve the gtopt binary reference.  Prefer GTOPT_EXECUTABLE_FILE (may
   # be a genex like $<TARGET_FILE:gtoptStandalone> or a literal path);
@@ -65,7 +69,11 @@ function(add_e2e_case case_name system_json)
     endif()
     set(GTOPT_EXECUTABLE_FILE "$<TARGET_FILE:${GTOPT_EXECUTABLE_TARGET}>")
   endif()
-  set(case_dir "${CASES_DIR}/${case_name}")
+  if(ARG_CASE_DIR)
+    set(case_dir "${ARG_CASE_DIR}")
+  else()
+    set(case_dir "${CASES_DIR}/${case_name}")
+  endif()
   set(input_file "${case_dir}/${system_json}")
   set(expected_dir "${case_dir}/output")
   set(test_output "${CMAKE_CURRENT_BINARY_DIR}/test_output/${case_name}")

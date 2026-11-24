@@ -14,6 +14,13 @@
  * `EmissionZoneLP`.
  */
 
+#include <algorithm>
+#include <cmath>
+#include <format>
+#include <optional>
+#include <stdexcept>
+#include <string>
+
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -125,7 +132,17 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // ``Initial power (MW)`` field) must set ``Commitment.initial_power``
   // explicitly for the first-block constraint to honor the
   // previous-block dispatch.
-  const auto initial_p = commitment().initial_power.value_or(0.0);
+  //
+  // When ``initial_power`` is unset, the generator's own
+  // ``Generator.initial_generation`` (the same ``t = 0⁻`` dispatch that
+  // ``generation_prev`` reads in user constraints) is the fallback — but
+  // ONLY at the horizon start (no predecessor stage).  A later stage /
+  // phase keeps the legacy 0 here, so the horizon initial condition is
+  // never re-applied mid-horizon.
+  const bool horizon_start = sc.simulation().prev_stage(stage).first == nullptr;
+  const auto initial_p = commitment().initial_power.value_or(
+      horizon_start ? generator_lp.generator().initial_generation.value_or(0.0)
+                    : 0.0);
   const auto is_relax = commitment().relax.value_or(false)
       || sc.simulation().phases()[stage.phase_index()].is_continuous();
   const auto is_must_run = commitment().must_run.value_or(false);
@@ -164,9 +181,44 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto opt_cold_cost = commitment().cold_start_cost;
   const auto opt_hot_time = commitment().hot_start_time;
   const auto opt_cold_time = commitment().cold_start_time;
-  const bool has_startup_tiers = opt_hot_cost.has_value()
-      && opt_warm_cost.has_value() && opt_cold_cost.has_value()
-      && opt_hot_time.has_value() && opt_cold_time.has_value();
+  const bool all_tiers = opt_hot_cost.has_value() && opt_warm_cost.has_value()
+      && opt_cold_cost.has_value() && opt_hot_time.has_value()
+      && opt_cold_time.has_value();
+  const bool any_tier = opt_hot_cost.has_value() || opt_warm_cost.has_value()
+      || opt_cold_cost.has_value() || opt_hot_time.has_value()
+      || opt_cold_time.has_value();
+  // The tier block prices starts only when every field is given and the
+  // windows are ordered; otherwise the plain startup cost applies (before,
+  // an incomplete or inverted tier set made every start free).
+  const bool has_startup_tiers =
+      all_tiers && opt_cold_time.value_or(0.0) >= opt_hot_time.value_or(0.0);
+  // Fallback for an unusable tier set: `startup_cost`, else the largest
+  // given tier cost (never a free start).
+  const std::optional<double> tier_fallback_cost =
+      [&]() -> std::optional<double>
+  {
+    if (!any_tier || has_startup_tiers) {
+      return std::nullopt;
+    }
+    double c = 0.0;
+    for (const auto& t : {opt_hot_cost, opt_warm_cost, opt_cold_cost}) {
+      c = std::max(c, t.value_or(0.0));
+    }
+    return c;
+  }();
+  if (any_tier && !has_startup_tiers && !tier_warned_) {
+    tier_warned_ = true;
+    spdlog::warn(
+        "Commitment '{}': startup cost tiers need hot/warm/cold_start_cost "
+        "and hot/cold_start_time with cold_start_time >= hot_start_time; "
+        "{} — pricing every start at {}",
+        commitment().name,
+        all_tiers ? "cold_start_time < hot_start_time" : "some are missing",
+        startup_cost_.has_value()
+            ? std::string {"startup_cost"}
+            : std::format("the largest tier cost ({})",
+                          tier_fallback_cost.value_or(0.0)));
+  }
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
 
@@ -347,7 +399,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     // block (a scalar/per-stage input broadcasts to the same value on
     // every block — full back-compat with the legacy per-stage cost).
     const auto block_startup_cost =
-        startup_cost_.optval(stage.uid(), rep_buid).value_or(0.0);
+        startup_cost_.optval(stage.uid(), rep_buid)
+            .value_or(tier_fallback_cost.value_or(0.0));
     const auto block_shutdown_cost =
         shutdown_cost_.optval(stage.uid(), rep_buid).value_or(0.0);
     const auto v_cost = has_startup_tiers ? 0.0
@@ -679,8 +732,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // Up-provision:   g + r_up ≤ Pmax      →  g + r_up - Pmax·u ≤ 0
   // Down-provision: g - r_dn ≥ Pmin      →  g - r_dn - Pmin·u ≥ 0
   if (!block_ucol.empty()) {
+    const auto gen_capacity_col = generator_lp.capacity_col_at(stage);
     for (const auto& rprov : sc.elements<ReserveProvisionLP>()) {
-      if (rprov.generator_sid() != generator_sid()) {
+      // Pair by resolved element index: a raw SingleId compare missed
+      // `5` vs `"g5"` (same generator) and skipped the u-gating.
+      if (sc.element_index(rprov.generator_sid()) != generator_index_) {
         continue;
       }
       for (const auto& block : blocks) {
@@ -691,14 +747,80 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         }
         const auto ucol = ucol_it->second;
 
+        // Offline (cold) up reserve, minuta (A.19): offered only while
+        // the unit is OFF — `r_up ≤ urmax · (1 − u)`, i.e.
+        // `r_up + urmax · u ≤ urmax`.  It has no headroom row.
+        if (rprov.offline()) {
+          if (const auto up_col =
+                  rprov.lookup_up_provision_col(scenario, stage, buid))
+          {
+            // Big-M = the provision's physical ceiling.  An unbounded
+            // ceiling (no urmax, unbounded generator) would put a 1e20+
+            // coefficient into the row: reject it.
+            const auto urmax = lp.get_col_uppb(*up_col);
+            if (!std::isfinite(urmax) || urmax >= 1e19
+                || is_infinity(urmax, lp.infinity()))
+            {
+              throw std::runtime_error(std::format(
+                  "ReserveProvision '{}': offline (cold) up reserve needs a "
+                  "finite ceiling (set urmax or a finite generator pmax); "
+                  "got {}",
+                  rprov.object().name,
+                  urmax));
+            }
+            auto orow =
+                SparseRow {
+                    .class_name = ReserveProvisionLP::Element::class_name,
+                    .constraint_name = "offline_up_provision",
+                    .variable_uid = rprov.uid(),
+                    .context = make_block_context(
+                        scenario.uid(), stage.uid(), block.uid()),
+                }
+                    .less_equal(urmax);
+            orow[*up_col] = 1.0;
+            orow[ucol] = urmax;
+            std::ignore = lp.add_row(std::move(orow));
+          }
+        }
+
         // Modify up-provision row: add -Pmax on u, change RHS to 0
         if (const auto urow =
                 rprov.lookup_up_provision_row(scenario, stage, buid))
         {
-          auto& row = lp.row_at(*urow);
-          const auto pmax = row.uppb;  // original Pmax was stored as uppb
-          lp.set_coeff(*urow, ucol, -pmax);
-          row.uppb = 0.0;
+          if (gen_capacity_col) {
+            // Expandable generator: the headroom row is already
+            // `g + r − capacity ≤ 0` (RHS 0, no Pmax to move onto u —
+            // pre-fix this stamped `−0·u` and an off-line unit still
+            // offered reserve).  Keep that row and add a separate
+            // u-gated copy without the capacity term:
+            //   g + Σ r − Pmax·u ≤ 0,   Pmax = gen column upper bound
+            // (the same big-M as the C2 `gen_upper` row).
+            const auto gcol_it = generation_cols.find(buid);
+            if (gcol_it != generation_cols.end()) {
+              const auto gen_pmax = lp.get_col_uppb(gcol_it->second);
+              auto grow =
+                  SparseRow {
+                      .class_name = ReserveProvisionLP::Element::class_name,
+                      .constraint_name = "commit_up_provision",
+                      .variable_uid = rprov.uid(),
+                      .context = make_block_context(
+                          scenario.uid(), stage.uid(), block.uid()),
+                  }
+                      .less_equal(0.0);
+              for (const auto& [col, coef] : lp.row_at(*urow).cmap) {
+                if (col != *gen_capacity_col) {
+                  grow[col] = coef;
+                }
+              }
+              grow[ucol] = -gen_pmax;
+              std::ignore = lp.add_row(std::move(grow));
+            }
+          } else {
+            auto& row = lp.row_at(*urow);
+            const auto pmax = row.uppb;  // original Pmax was stored as uppb
+            lp.set_coeff(*urow, ucol, -pmax);
+            row.uppb = 0.0;
+          }
         }
 
         // Modify down-provision row: add -Pmin on u, change RHS to 0
@@ -1107,6 +1229,21 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         st_rows[rep_buid] = lp.add_row(std::move(row));
       }
 
+      // Offline time at p if the unit has stayed off since before the
+      // horizon: the in-horizon time before p plus the initial offline
+      // hours.  It prices a start whose look-back window reaches the
+      // horizon start (in particular the FIRST block, where the in-horizon
+      // window is empty): before, the initial offline time was only
+      // consulted while p < hot_periods, which is never true at p = 0, so
+      // a first-block start was always priced cold.
+      double t_before_p = 0.0;
+      for (size_t q = 0; q < p; ++q) {
+        t_before_p += pdur[q];
+      }
+      const bool initially_off = initial_u < 0.5;
+      const double offline_since_initial =
+          initially_off ? t_before_p + initial_hours_offline : 0.0;
+
       // Count periods back from p that cover hot_time / cold_time hours
       double accum = 0.0;
       size_t hot_periods = 0;
@@ -1140,7 +1277,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             row[wcol_it->second] = -1.0;
           }
         }
-        if (p < hot_periods && initial_hours_offline < hot_time) {
+        if (initially_off && offline_since_initial < hot_time) {
           row.uppb = 1.0;
         }
         hr_rows[rep_buid] = lp.add_row(std::move(row));
@@ -1168,8 +1305,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
             row[wcol_it->second] = -1.0;
           }
         }
-        if (p < cold_periods && initial_hours_offline >= hot_time
-            && initial_hours_offline < cold_time)
+        if (initially_off && offline_since_initial >= hot_time
+            && offline_since_initial < cold_time)
         {
           row.uppb = 1.0;
         }
@@ -1364,16 +1501,18 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
 {
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
+  // A relaxed element is continuous in [0, 1]: write the LP value as is.
+  const bool relaxed = commitment().relax.value_or(false);
 
   // ``status`` / ``startup`` / ``shutdown`` are binary LP
   // variables — emit via the integer-snapping overload so the
   // output parquet carries exact 0/1 values.  See
   // ``OutputContext::add_col_sol_integer`` for the rationale.
-  out.add_col_sol_integer(cname, StatusName, pid, status_cols_);
+  out.add_col_sol_integer(cname, StatusName, pid, status_cols_, relaxed);
   out.add_col_cost(cname, StatusName, pid, status_cols_);
-  out.add_col_sol_integer(cname, StartupName, pid, startup_cols_);
+  out.add_col_sol_integer(cname, StartupName, pid, startup_cols_, relaxed);
   out.add_col_cost(cname, StartupName, pid, startup_cols_);
-  out.add_col_sol_integer(cname, ShutdownName, pid, shutdown_cols_);
+  out.add_col_sol_integer(cname, ShutdownName, pid, shutdown_cols_, relaxed);
   out.add_col_cost(cname, ShutdownName, pid, shutdown_cols_);
 
   // Max-starts cap row duals (one per scope window, indexed by the

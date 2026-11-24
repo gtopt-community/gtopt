@@ -14,9 +14,11 @@
 #include <gtopt/json/json_cascade_options.hpp>
 #include <gtopt/json/json_enum_option.hpp>
 #include <gtopt/json/json_field_sched.hpp>
+#include <gtopt/json/json_gas_options.hpp>
 #include <gtopt/json/json_lp_matrix_options.hpp>
 #include <gtopt/json/json_model_options.hpp>
 #include <gtopt/json/json_monolithic_options.hpp>
+#include <gtopt/json/json_sanity_options.hpp>
 #include <gtopt/json/json_sddp_options.hpp>
 #include <gtopt/json/json_solver_options.hpp>
 #include <gtopt/json/json_variable_scale.hpp>
@@ -74,6 +76,8 @@ struct PlanningOptionsConstructor
       CascadeOptions cascade_options,
       SolverOptions solver_options,
       LpMatrixOptions lp_matrix_options,
+      GasOptions gas_options,
+      SanityOptions sanity_options,
       gtopt::Array<VariableScale> variable_scales,
       OptName constraint_mode_str,
       OptName write_out_str) const
@@ -137,6 +141,8 @@ struct PlanningOptionsConstructor
     opts.cascade_options = std::move(cascade_options);
     opts.solver_options = solver_options;
     opts.lp_matrix_options = std::move(lp_matrix_options);
+    opts.gas_options = gas_options;
+    opts.sanity_options = sanity_options;
     opts.variable_scales = std::move(variable_scales);
     if (constraint_mode_str) {
       opts.constraint_mode = gtopt::require_enum<ConstraintMode>(
@@ -191,6 +197,8 @@ struct json_data_contract<PlanningOptions>
                        json_class_null<"cascade_options", CascadeOptions>,
                        json_class_null<"solver_options", SolverOptions>,
                        json_class_null<"lp_matrix_options", LpMatrixOptions>,
+                       json_class_null<"gas_options", GasOptions>,
+                       json_class_null<"sanity_options", SanityOptions>,
                        json_array_null<"variable_scales",
                                        gtopt::Array<VariableScale>,
                                        VariableScale>,
@@ -230,6 +238,8 @@ struct json_data_contract<PlanningOptions>
         opt.cascade_options,
         opt.solver_options,
         opt.lp_matrix_options,
+        opt.gas_options,
+        opt.sanity_options,
         opt.variable_scales,
         detail::enum_to_opt_name(opt.constraint_mode),
         opt.write_out.has_value()

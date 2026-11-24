@@ -62,6 +62,7 @@ namespace
   return {};
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const Array<Bus> single_bus = {
     {
         .uid = Uid {1},
@@ -71,6 +72,7 @@ const Array<Bus> single_bus = {
 
 // Three chronological 1-hour blocks so the commitment has a status binary in
 // each block (and run-length info would be populated when min-up/down is set).
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const Simulation three_block_simulation = {
     .block_array =
         {
@@ -263,12 +265,15 @@ TEST_CASE(  // NOLINT
   REQUIRE(u0.has_value());
   REQUIRE(u1.has_value());
   REQUIRE(u2.has_value());
-  CHECK(sol[static_cast<std::size_t>(static_cast<int>(*u0))]
-        == doctest::Approx(0.0).epsilon(1e-4));
-  CHECK(sol[static_cast<std::size_t>(static_cast<int>(*u1))]
-        == doctest::Approx(1.0).epsilon(1e-4));
-  CHECK(sol[static_cast<std::size_t>(static_cast<int>(*u2))]
-        == doctest::Approx(1.0).epsilon(1e-4));
+  CHECK((u0
+         && sol[static_cast<std::size_t>(static_cast<int>(*u0))]
+             == doctest::Approx(0.0).epsilon(1e-4)));
+  CHECK((u1
+         && sol[static_cast<std::size_t>(static_cast<int>(*u1))]
+             == doctest::Approx(1.0).epsilon(1e-4)));
+  CHECK((u2
+         && sol[static_cast<std::size_t>(static_cast<int>(*u2))]
+             == doctest::Approx(1.0).epsilon(1e-4)));
 }
 
 TEST_CASE(  // NOLINT

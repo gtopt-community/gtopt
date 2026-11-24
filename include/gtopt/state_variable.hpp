@@ -282,7 +282,19 @@ public:
   /// in **raw LP** space.  Multiply by `var_scale()` to obtain the
   /// physical value, or use `col_sol_physical()` below.
   [[nodiscard]] constexpr auto col_sol() const noexcept { return m_col_sol_; }
-  constexpr void set_col_sol(double v) const noexcept { m_col_sol_ = v; }
+  constexpr void set_col_sol(double v) const noexcept
+  {
+    m_col_sol_ = v;
+    m_has_col_sol_ = true;
+  }
+
+  /// True once a solve has written `col_sol` (see `set_col_sol`).  Lets
+  /// readers tell a genuine 0 (e.g. a drained reservoir) from "never
+  /// solved" instead of guessing from the value.
+  [[nodiscard]] constexpr bool has_col_sol() const noexcept
+  {
+    return m_has_col_sol_;
+  }
 
   /// Physical-space primal solution:  `LP × var_scale`.
   ///
@@ -393,6 +405,7 @@ private:
   std::vector<DependentVariable> m_dependent_variables_;
 
   mutable double m_col_sol_ {0.0};
+  mutable bool m_has_col_sol_ {false};
   mutable double m_reduced_cost_ {0.0};
   mutable double m_reduced_cost_col_scale_ {1.0};
   mutable double m_source_reduced_cost_ {0.0};

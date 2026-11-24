@@ -14,6 +14,7 @@
  * block-level row of the active stage from the current reservoir volume.
  */
 
+#include <gtopt/active_ref.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -51,13 +52,25 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
   // column (the new ``Turbine.junction_a/b`` mode that subsumes the penstock).
   // ReservoirDischargeLimit accepts ``waterway`` OR ``turbine`` (validated
   // exactly-one-of in `validate_planning.cpp`).
+  //
+  // Tolerant references (see active_ref.hpp): the flow accessors already
+  // return an empty map for an inactive / fully elided flow source (every
+  // block is then skipped below); an inactive reservoir has no efin
+  // column, so there is no volume-dependent limit to write.
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto& flow_cols = uses_turbine()
       ? sc.element<TurbineLP>(turbine_sid()).flow_cols_at(scenario, stage)
       : sc.element<WaterwayLP>(waterway_sid()).flow_cols_at(scenario, stage);
   const auto& reservoir = sc.element<ReservoirLP>(reservoir_sid());
+  const auto reservoir_cache =
+      find_reservoir_ref_cache(reservoir, scenario, stage);
+  if (!reservoir_cache) {
+    warn_ref_once(cname, uid(), "discharge-limit rows", reservoir.uid());
+    return true;
+  }
 
-  const auto eini_col = reservoir.eini_col_at(scenario, stage);
-  const auto efin_col = reservoir.efin_col_at(scenario, stage);
+  const auto eini_col = reservoir_cache->eini_col;
+  const auto efin_col = reservoir_cache->efin_col;
   // Select initial segment based on reservoir initial volume
   const auto eini_vol = reservoir.reservoir().eini.value_or(0.0);
   const auto coeffs = select_rdl_coeffs(ddl.segments, eini_vol);
@@ -136,7 +149,7 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
       .efin_col = efin_col,
       .current_slope = coeffs.slope,
       .current_rhs = coeffs.intercept,
-      .reservoir_cache = make_reservoir_ref_cache(reservoir, scenario, stage),
+      .reservoir_cache = *reservoir_cache,
   };
 
   return true;

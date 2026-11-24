@@ -15,8 +15,9 @@
 #include <gtopt/json/json_sddp_options.hpp>
 #include <gtopt/sddp_options.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("SddpOptions - Default construction")
 {
@@ -210,19 +211,23 @@ TEST_CASE("SddpOptions - Merge fills missing fields")
 
   // Base preserved
   REQUIRE(base.max_iterations.has_value());
-  CHECK(*base.max_iterations == 100);
+  CHECK(test_support::require_value(base.max_iterations) == 100);
   REQUIRE(base.convergence_tol.has_value());
-  CHECK(*base.convergence_tol == doctest::Approx(1e-4));
+  CHECK(test_support::require_value(base.convergence_tol)
+        == doctest::Approx(1e-4));
   REQUIRE(base.elastic_mode.has_value());
-  CHECK(*base.elastic_mode == ElasticFilterMode::single_cut);
+  CHECK(test_support::require_value(base.elastic_mode)
+        == ElasticFilterMode::single_cut);
 
   // New from overlay
   REQUIRE(base.cut_sharing_mode.has_value());
-  CHECK(*base.cut_sharing_mode == CutSharingMode::multicut);
+  CHECK(test_support::require_value(base.cut_sharing_mode)
+        == CutSharingMode::multicut);
   REQUIRE(base.min_iterations.has_value());
-  CHECK(*base.min_iterations == 5);
+  CHECK(test_support::require_value(base.min_iterations) == 5);
   REQUIRE(base.elastic_penalty.has_value());
-  CHECK(*base.elastic_penalty == doctest::Approx(1e6));
+  CHECK(test_support::require_value(base.elastic_penalty)
+        == doctest::Approx(1e6));
 }
 
 TEST_CASE("SddpOptions - Merge overwrites existing (overlay wins)")
@@ -241,9 +246,10 @@ TEST_CASE("SddpOptions - Merge overwrites existing (overlay wins)")
 
   // Overlay wins: set fields overwrite base
   REQUIRE(base.max_iterations.has_value());
-  CHECK(*base.max_iterations == 999);
+  CHECK(test_support::require_value(base.max_iterations) == 999);
   REQUIRE(base.elastic_mode.has_value());
-  CHECK(*base.elastic_mode == ElasticFilterMode::multi_cut);
+  CHECK(test_support::require_value(base.elastic_mode)
+        == ElasticFilterMode::multi_cut);
 }
 
 TEST_CASE("SddpOptions - Merge apertures replaces when set")
@@ -268,8 +274,8 @@ TEST_CASE("SddpOptions - Merge apertures replaces when set")
   base.merge(std::move(overlay));
 
   REQUIRE(base.apertures.has_value());
-  REQUIRE(base.apertures->size() == 3);
-  CHECK((*base.apertures)[0] == 10);
+  REQUIRE(test_support::require_value(base.apertures).size() == 3);
+  CHECK(test_support::require_value(base.apertures)[0] == 10);
 }
 
 TEST_CASE("SddpOptions - Merge apertures not replaced when overlay absent")
@@ -287,7 +293,7 @@ TEST_CASE("SddpOptions - Merge apertures not replaced when overlay absent")
   base.merge(std::move(overlay));
 
   REQUIRE(base.apertures.has_value());
-  CHECK(base.apertures->size() == 2);
+  CHECK(test_support::require_value(base.apertures).size() == 2);
 }
 
 TEST_CASE(
@@ -347,12 +353,17 @@ TEST_CASE("SddpOptions - Merge forward/backward solver_options")
     base.merge(std::move(overlay));
 
     REQUIRE(base.forward_solver_options.has_value());
-    CHECK(base.forward_solver_options->algorithm == LPAlgo::barrier);
-    REQUIRE(base.forward_solver_options->optimal_eps.has_value());
-    CHECK(base.forward_solver_options->optimal_eps.value_or(0.0)
+    CHECK(test_support::require_value(base.forward_solver_options).algorithm
+          == LPAlgo::barrier);
+    REQUIRE(test_support::require_value(base.forward_solver_options)
+                .optimal_eps.has_value());
+    CHECK(test_support::require_value(base.forward_solver_options)
+              .optimal_eps.value_or(0.0)
           == doctest::Approx(1e-8));
-    REQUIRE(base.forward_solver_options->feasible_eps.has_value());
-    CHECK(base.forward_solver_options->feasible_eps.value_or(0.0)
+    REQUIRE(test_support::require_value(base.forward_solver_options)
+                .feasible_eps.has_value());
+    CHECK(test_support::require_value(base.forward_solver_options)
+              .feasible_eps.value_or(0.0)
           == doctest::Approx(1e-7));
   }
 
@@ -370,7 +381,8 @@ TEST_CASE("SddpOptions - Merge forward/backward solver_options")
     base.merge(std::move(overlay));
 
     REQUIRE(base.backward_solver_options.has_value());
-    CHECK(base.backward_solver_options->algorithm == LPAlgo::dual);
+    CHECK(test_support::require_value(base.backward_solver_options).algorithm
+          == LPAlgo::dual);
   }
 
   SUBCASE("overlay has no forward_solver_options: base unchanged")
@@ -387,7 +399,8 @@ TEST_CASE("SddpOptions - Merge forward/backward solver_options")
     base.merge(std::move(overlay));
 
     REQUIRE(base.forward_solver_options.has_value());
-    CHECK(base.forward_solver_options->algorithm == LPAlgo::primal);
+    CHECK(test_support::require_value(base.forward_solver_options).algorithm
+          == LPAlgo::primal);
     CHECK_FALSE(base.backward_solver_options.has_value());
   }
 }
@@ -463,7 +476,7 @@ TEST_CASE("SddpOptions - aperture_screen_count default and merge")
     SddpOptions overlay {.aperture_screen_count = 4};
     base.merge(std::move(overlay));
     REQUIRE(base.aperture_screen_count.has_value());
-    CHECK(*base.aperture_screen_count == 4);
+    CHECK(test_support::require_value(base.aperture_screen_count) == 4);
   }
 
   SUBCASE("base kept when overlay absent")
@@ -472,7 +485,7 @@ TEST_CASE("SddpOptions - aperture_screen_count default and merge")
     SddpOptions overlay {};
     base.merge(std::move(overlay));
     REQUIRE(base.aperture_screen_count.has_value());
-    CHECK(*base.aperture_screen_count == 3);
+    CHECK(test_support::require_value(base.aperture_screen_count) == 3);
   }
 }
 
@@ -486,7 +499,8 @@ TEST_CASE("SddpOptions - aperture_solve_mode merge")
     };
     base.merge(std::move(overlay));
     REQUIRE(base.aperture_solve_mode.has_value());
-    CHECK(*base.aperture_solve_mode == ApertureSolveMode::reduced_cost);
+    CHECK(test_support::require_value(base.aperture_solve_mode)
+          == ApertureSolveMode::reduced_cost);
   }
 
   SUBCASE("base kept when overlay absent")
@@ -495,7 +509,8 @@ TEST_CASE("SddpOptions - aperture_solve_mode merge")
     SddpOptions overlay {};
     base.merge(std::move(overlay));
     REQUIRE(base.aperture_solve_mode.has_value());
-    CHECK(*base.aperture_solve_mode == ApertureSolveMode::warm);
+    CHECK(test_support::require_value(base.aperture_solve_mode)
+          == ApertureSolveMode::warm);
   }
 }
 
@@ -512,7 +527,7 @@ TEST_CASE("SddpOptions - aperture_seed_basis merge")  // NOLINT
     SddpOptions overlay {.aperture_seed_basis = true};
     base.merge(std::move(overlay));
     REQUIRE(base.aperture_seed_basis.has_value());
-    CHECK(*base.aperture_seed_basis);
+    CHECK(test_support::require_value(base.aperture_seed_basis));
   }
 
   SUBCASE("base kept when overlay absent")
@@ -521,7 +536,7 @@ TEST_CASE("SddpOptions - aperture_seed_basis merge")  // NOLINT
     SddpOptions overlay {};
     base.merge(std::move(overlay));
     REQUIRE(base.aperture_seed_basis.has_value());
-    CHECK(*base.aperture_seed_basis);
+    CHECK(test_support::require_value(base.aperture_seed_basis));
   }
 }
 
@@ -737,5 +752,3 @@ TEST_CASE("SddpOptions JSON - full-population round-trip")  // NOLINT
   const auto rt2 = daw::json::from_json<SddpOptions>(std::string_view {json2});
   CHECK(daw::json::to_json(rt2) == json2);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

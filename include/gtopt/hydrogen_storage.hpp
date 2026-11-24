@@ -100,6 +100,8 @@ struct HydrogenStorage
 
   // ── State-variable / cycle policy ───────────────────────────────
   OptBool use_state_variable {};  ///< SDDP-style cross-phase coupling.
+                                  ///< Default true — H₂ is a seasonal
+                                  ///< / multi-week store.
   OptBool daily_cycle {};  ///< PLP-style daily-cycle scaling.  Default
                            ///< false for H₂: hydrogen storage is the
                            ///< canonical seasonal / multi-week store.

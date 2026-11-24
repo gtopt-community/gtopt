@@ -34,8 +34,9 @@
 #include <gtopt/system.hpp>
 #include <gtopt/user_constraint.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ─── expand_reservoir_constraints tests ──────────────────────────────────────
 
@@ -411,7 +412,8 @@ TEST_CASE("System::merge — user_constraint_file carried over")
   sys_a.merge(std::move(sys_b));
 
   CHECK(sys_a.user_constraint_file.has_value());
-  CHECK(sys_a.user_constraint_file.value() == "extra_constraints.json");
+  CHECK(test_support::require_value(sys_a.user_constraint_file)
+        == "extra_constraints.json");
 }
 
 TEST_CASE("System::merge — user_constraint_files appended")
@@ -563,7 +565,6 @@ TEST_CASE("System::merge — user parameters and constraints are merged")
 
   CHECK(sys_a.user_constraint_array.size() == 2);
   CHECK(sys_a.user_constraint_file.has_value());
-  CHECK(sys_a.user_constraint_file.value() == "extra.json");
+  CHECK(test_support::require_value(sys_a.user_constraint_file)
+        == "extra.json");
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

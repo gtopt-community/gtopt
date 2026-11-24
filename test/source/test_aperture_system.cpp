@@ -40,10 +40,10 @@
 #include <gtopt/sddp_options.hpp>
 #include <gtopt/system_file_loader.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("aperture_system_file: data-model bindings round-trip")
 {
@@ -54,13 +54,15 @@ TEST_CASE("aperture_system_file: data-model bindings round-trip")
             "aperture_system_file": "laja_reduced.json"})";
     const auto ph = daw::json::from_json<Phase>(js);
     REQUIRE(ph.aperture_system_file.has_value());
-    CHECK(*ph.aperture_system_file == "laja_reduced.json");
+    CHECK(test_support::require_value(ph.aperture_system_file)
+          == "laja_reduced.json");
 
     // to_json → from_json identity preserves the field.
     const std::string round = daw::json::to_json(ph);
     const auto rt = daw::json::from_json<Phase>(std::string_view {round});
     REQUIRE(rt.aperture_system_file.has_value());
-    CHECK(*rt.aperture_system_file == "laja_reduced.json");
+    CHECK(test_support::require_value(rt.aperture_system_file)
+          == "laja_reduced.json");
   }
 
   SUBCASE("Phase without the field stays unset")
@@ -77,12 +79,14 @@ TEST_CASE("aperture_system_file: data-model bindings round-trip")
         R"({"aperture_system_file": "global_reduced.json"})";
     const auto so = daw::json::from_json<SddpOptions>(js);
     REQUIRE(so.aperture_system_file.has_value());
-    CHECK(*so.aperture_system_file == "global_reduced.json");
+    CHECK(test_support::require_value(so.aperture_system_file)
+          == "global_reduced.json");
 
     const std::string round = daw::json::to_json(so);
     const auto rt = daw::json::from_json<SddpOptions>(std::string_view {round});
     REQUIRE(rt.aperture_system_file.has_value());
-    CHECK(*rt.aperture_system_file == "global_reduced.json");
+    CHECK(test_support::require_value(rt.aperture_system_file)
+          == "global_reduced.json");
   }
 
   SUBCASE("CascadeLevel")
@@ -92,15 +96,15 @@ TEST_CASE("aperture_system_file: data-model bindings round-trip")
             "aperture_system_file": "bwd.json"})";
     const auto cl = daw::json::from_json<CascadeLevel>(js);
     REQUIRE(cl.system_file.has_value());
-    CHECK(*cl.system_file == "fwd.json");
+    CHECK(test_support::require_value(cl.system_file) == "fwd.json");
     REQUIRE(cl.aperture_system_file.has_value());
-    CHECK(*cl.aperture_system_file == "bwd.json");
+    CHECK(test_support::require_value(cl.aperture_system_file) == "bwd.json");
 
     const std::string round = daw::json::to_json(cl);
     const auto rt =
         daw::json::from_json<CascadeLevel>(std::string_view {round});
     REQUIRE(rt.aperture_system_file.has_value());
-    CHECK(*rt.aperture_system_file == "bwd.json");
+    CHECK(test_support::require_value(rt.aperture_system_file) == "bwd.json");
   }
 }
 
@@ -109,13 +113,14 @@ TEST_CASE("aperture_system_file: CascadeLevel.merge overlay wins")
   CascadeLevel base {.aperture_system_file = OptName {"base.json"}};
   base.merge(CascadeLevel {.aperture_system_file = OptName {"overlay.json"}});
   REQUIRE(base.aperture_system_file.has_value());
-  CHECK(*base.aperture_system_file == "overlay.json");
+  CHECK(test_support::require_value(base.aperture_system_file)
+        == "overlay.json");
 
   // Unset overlay leaves the base value intact.
   CascadeLevel keep {.aperture_system_file = OptName {"keep.json"}};
   keep.merge(CascadeLevel {});
   REQUIRE(keep.aperture_system_file.has_value());
-  CHECK(*keep.aperture_system_file == "keep.json");
+  CHECK(test_support::require_value(keep.aperture_system_file) == "keep.json");
 }
 
 TEST_CASE("aperture_system_file: nests inside a full Planning JSON")
@@ -135,12 +140,14 @@ TEST_CASE("aperture_system_file: nests inside a full Planning JSON")
   const auto planning = parse_planning_json(js);
 
   REQUIRE(planning.options.sddp_options.aperture_system_file.has_value());
-  CHECK(*planning.options.sddp_options.aperture_system_file
+  CHECK(test_support::require_value(
+            planning.options.sddp_options.aperture_system_file)
         == "global_reduced.json");
 
   REQUIRE(planning.simulation.phase_array.size() == 2);
   REQUIRE(planning.simulation.phase_array[0].aperture_system_file.has_value());
-  CHECK(*planning.simulation.phase_array[0].aperture_system_file
+  CHECK(test_support::require_value(
+            planning.simulation.phase_array[0].aperture_system_file)
         == "phase1_reduced.json");
   CHECK_FALSE(
       planning.simulation.phase_array[1].aperture_system_file.has_value());
@@ -157,14 +164,14 @@ TEST_CASE("resolve_aperture_system_file: Phase → global → none precedence")
   {
     const auto r = resolve_aperture_system_file(phase_file, global_file);
     REQUIRE(r.has_value());
-    CHECK(*r == "phase.json");
+    CHECK(test_support::require_value(r) == "phase.json");
   }
 
   SUBCASE("falls back to global when phase unset")
   {
     const auto r = resolve_aperture_system_file(unset, global_file);
     REQUIRE(r.has_value());
-    CHECK(*r == "global.json");
+    CHECK(test_support::require_value(r) == "global.json");
   }
 
   SUBCASE("neither set → empty (use regular forward system)")
@@ -176,7 +183,7 @@ TEST_CASE("resolve_aperture_system_file: Phase → global → none precedence")
   {
     const auto r = resolve_aperture_system_file(blank, global_file);
     REQUIRE(r.has_value());
-    CHECK(*r == "global.json");
+    CHECK(test_support::require_value(r) == "global.json");
 
     CHECK_FALSE(resolve_aperture_system_file(blank, blank).has_value());
   }
@@ -302,5 +309,3 @@ TEST_CASE("aperture_system build: parallel SystemLP + state registry")
 // genuinely-SIMPLIFIED (non-identical but state-topology-preserving) aperture
 // system that converges to a different-but-valid bound, and applying the loaded
 // file's `model_options` (single-bus / no-Kirchhoff backward model).
-
-// NOLINTEND(bugprone-unchecked-optional-access)

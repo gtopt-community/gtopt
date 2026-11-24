@@ -18,6 +18,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/position_vector.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/stage_lp.hpp>
@@ -48,21 +49,26 @@ namespace detail
     std::span<const Block> all_blocks)
 {
   auto stages = stage_array.subspan(phase.first_stage, phase.count_stage);
+  // Global position = active stages before this phase + local position
+  // (`SimulationLP::stages()` holds the active stages only).
+  const auto global_offset = static_cast<Index>(std::ranges::count_if(
+      stage_array.first(phase.first_stage), &Stage::is_active));
 
-  return std::ranges::to<std::vector>(enumerate_active<StageIndex>(stages)
-                                      | std::ranges::views::transform(
-                                          [&](auto&& is)
-                                          {
-                                            const auto& [stage_index, stage] =
-                                                is;
-                                            return StageLP {
-                                                stage,
-                                                all_blocks,
-                                                annual_discount_rate,
-                                                stage_index,
-                                                phase_index,
-                                            };
-                                          }));
+  return std::ranges::to<PositionVector<PhaseStageIndex, StageLP>>(
+      enumerate_active<PhaseStageIndex>(stages)
+      | std::ranges::views::transform(
+          [&](auto&& is)
+          {
+            const auto& [phase_stage_index, stage] = is;
+            return StageLP {
+                stage,
+                all_blocks,
+                annual_discount_rate,
+                StageIndex {global_offset + Index {phase_stage_index}},
+                phase_index,
+                phase_stage_index,
+            };
+          }));
 }
 }  // namespace detail
 
@@ -180,7 +186,8 @@ public:
 private:
   Phase m_phase_ {};  ///< The underlying Phase object
   PhaseIndex m_index_ {unknown_index};
-  std::vector<StageLP> m_stages_;  ///< Span of StageLP objects in this phase
+  /// StageLPs of this phase, addressed by phase-LOCAL position.
+  PositionVector<PhaseStageIndex, StageLP> m_stages_;
   double m_duration_ {0.0};  ///< Total duration of all stages in this phase
 };
 

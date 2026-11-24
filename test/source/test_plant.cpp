@@ -28,7 +28,6 @@
 #include <gtopt/plant.hpp>
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("Plant — default-constructed")
 {
@@ -334,5 +333,3 @@ TEST_CASE("Plant — without the cap row, both variants dispatch to peak")
     CHECK(sys_lp.elements<PlantLP>().empty());
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

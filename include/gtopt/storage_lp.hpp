@@ -108,6 +108,13 @@ struct StorageOptions
   /// apply per-variable penalty costs.  Default 0.0 = use global penalty.
   double scost {0.0};
 
+  /// Expected |water value| [$/physical_unit] used to set
+  /// `SparseRow::dual_hint` on the energy-balance row (0 = none).
+  double water_value_hint {0.0};
+  /// Explicit post-equilibration factor for the energy-balance row
+  /// (`SparseRow::post_scale`); 1.0 = off.
+  double dual_scale {1.0};
+
   /// Self-discharge [p.u./year] used for every stage where the element's
   /// own `annual_standing_loss` schedule has no value.  `0.0` (lossless) for
   /// all storages except Battery, which passes
@@ -221,6 +228,42 @@ public:
     // std::out_of_range is thrown if neither map has the key, which
     // indicates a programming error (stage was never added to the LP).
     return sini_cols.at(key);
+  }
+
+  /// Non-throwing `efin_col_at`: nullopt when (scenario, stage) was not
+  /// built (storage inactive in the stage).  See `active_ref.hpp`.
+  [[nodiscard]] constexpr std::optional<ColIndex> find_efin_col(
+      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  {
+    const auto it = efin_cols.find({scenario.uid(), stage.uid()});
+    if (it == efin_cols.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
+  /// Non-throwing `eini_col_at` (same eini → sini fallback): nullopt when
+  /// (scenario, stage) was not built (storage inactive in the stage).
+  [[nodiscard]] std::optional<ColIndex> find_eini_col(
+      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  {
+    const auto key = std::tuple {scenario.uid(), stage.uid()};
+    if (const auto it = eini_cols.find(key); it != eini_cols.end()) {
+      return it->second;
+    }
+    if (const auto it = sini_cols.find(key); it != sini_cols.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
+  /// Non-throwing `energy_rows_at`: nullptr when (scenario, stage) was not
+  /// built (storage inactive in the stage).
+  [[nodiscard]] constexpr const BIndexHolder<RowIndex>* find_energy_rows(
+      const ScenarioLP& scenario, const StageLP& stage) const noexcept
+  {
+    const auto it = energy_rows.find({scenario.uid(), stage.uid()});
+    return it != energy_rows.end() ? &it->second : nullptr;
   }
 
   [[nodiscard]] constexpr const auto& energy_cols_at(const ScenarioLP& scenario,
@@ -362,7 +405,7 @@ public:
                                      double default_eini,
                                      const SIdT& sid) const
   {
-    if (!stage.index() && !stage.phase_index()) {
+    if (stage.is_horizon_first()) {
       return default_eini;
     }
     // Priority chain:
@@ -401,7 +444,7 @@ public:
                                      const StageLP& stage,
                                      double default_eini) const
   {
-    if (!stage.index() && !stage.phase_index()) {
+    if (stage.is_horizon_first()) {
       return default_eini;
     }
     const auto col = eini_col_at(scenario, stage);
@@ -705,6 +748,12 @@ public:
               // STOCK constraint: its dual is the water value / energy
               // shadow price ($/stored-unit, e.g. $/CMD) — duration-
               // independent, read back WITHOUT the per-block 1/duration term.
+              .post_scale = opts.dual_scale,
+              .dual_hint = opts.water_value_hint > 0.0
+                  ? sc.scenario_stage_ecost(
+                        scenario, stage, opts.water_value_hint)
+                      / stage.duration()
+                  : 0.0,
               .cost_scale_type = ConstraintScaleType::Energy,
               .class_name = cname,
               .constraint_name = EnergyBalanceName,

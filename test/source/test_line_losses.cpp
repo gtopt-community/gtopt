@@ -13,8 +13,10 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access,readability-trailing-comma)
+// NOLINTBEGIN(readability-trailing-comma)
 
 namespace test_line_losses_ns
 {
@@ -30,8 +32,8 @@ TEST_CASE("LineLossesMode enum parsing")
     for (const auto& entry : line_losses_mode_entries) {
       const auto parsed = enum_from_name<LineLossesMode>(entry.name);
       REQUIRE(parsed.has_value());
-      CHECK(*parsed == entry.value);
-      CHECK(enum_name(*parsed) == entry.name);
+      CHECK(test_support::require_value(parsed) == entry.value);
+      CHECK(enum_name(test_support::require_value(parsed)) == entry.name);
     }
   }
 
@@ -58,7 +60,7 @@ TEST_CASE("Line line_losses_mode_enum accessor")
     line.line_losses_mode = "piecewise";
     auto m = line.line_losses_mode_enum();
     REQUIRE(m.has_value());
-    CHECK(*m == LineLossesMode::piecewise);
+    CHECK(test_support::require_value(m) == LineLossesMode::piecewise);
   }
 
   SUBCASE("invalid value returns nullopt")
@@ -2228,12 +2230,12 @@ TEST_CASE("IEEE 9-bus losses modes - lines have resistance defined")
     CAPTURE(line.name);
     // Resistance should be set (non-null, positive)
     REQUIRE(line.resistance.has_value());
-    auto r_val = std::get<double>(line.resistance.value());
+    auto r_val = std::get<double>(test_support::require_value(line.resistance));
     CHECK(r_val > 0.0);
 
     // Voltage should be set
     REQUIRE(line.voltage.has_value());
-    auto v_val = std::get<double>(line.voltage.value());
+    auto v_val = std::get<double>(test_support::require_value(line.voltage));
     CHECK(v_val > 0.0);
   }
 }
@@ -2241,4 +2243,4 @@ TEST_CASE("IEEE 9-bus losses modes - lines have resistance defined")
 }  // namespace
 }  // namespace test_line_losses_ns
 
-// NOLINTEND(bugprone-unchecked-optional-access,readability-trailing-comma)
+// NOLINTEND(readability-trailing-comma)

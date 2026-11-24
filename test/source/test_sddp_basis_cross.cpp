@@ -27,10 +27,10 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_options.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. Plumbing
@@ -74,7 +74,8 @@ TEST_CASE("SddpOptions::merge propagates basis_cross_mode override")  // NOLINT
 
   base.merge(std::move(override_opts));
   REQUIRE(base.basis_cross_mode.has_value());
-  CHECK(*base.basis_cross_mode == BasisCrossMode::full_cross);
+  CHECK(test_support::require_value(base.basis_cross_mode)
+        == BasisCrossMode::full_cross);
 }
 
 TEST_CASE(
@@ -88,7 +89,8 @@ TEST_CASE(
 
   base.merge(std::move(override_opts));
   REQUIRE(base.basis_cross_mode.has_value());
-  CHECK(*base.basis_cross_mode == BasisCrossMode::backward_to_forward);
+  CHECK(test_support::require_value(base.basis_cross_mode)
+        == BasisCrossMode::backward_to_forward);
 }
 
 TEST_CASE("BasisCrossMode - enum name parsing and aliases")  // NOLINT
@@ -170,5 +172,3 @@ TEST_CASE("SDDPMethod - basis_cross_mode is bound-invariant vs off")  // NOLINT
     CHECK(lb == doctest::Approx(lb0).epsilon(kParityTol));
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

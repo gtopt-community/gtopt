@@ -40,10 +40,10 @@
 #include <gtopt/sddp_types.hpp>
 #include <unistd.h>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -317,8 +317,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(alpha_svar != nullptr);
   const auto alpha_col = alpha_svar->col();
 
-  const auto source_fp =
-      CutRowFingerprint::capture(source_li, cut_row, alpha_col, *state_col);
+  const auto source_fp = CutRowFingerprint::capture(
+      source_li, cut_row, alpha_col, test_support::require_value(state_col));
   CAPTURE(source_fp.row_low);
   CAPTURE(source_fp.alpha_coeff);
   CAPTURE(source_fp.state_coeff);
@@ -337,8 +337,8 @@ TEST_CASE(  // NOLINT
 
   // 2) Boundary-cut row content: the targeted (α, state) coefficients
   //    plus the row's lower bound.
-  const auto clone_cut_fp =
-      CutRowFingerprint::capture(clone, cut_row, alpha_col, *state_col);
+  const auto clone_cut_fp = CutRowFingerprint::capture(
+      clone, cut_row, alpha_col, test_support::require_value(state_col));
   CHECK(clone_cut_fp.row_low
         == doctest::Approx(source_fp.row_low)
                .epsilon(PlanningOptionsLP::default_sddp_cut_coeff_eps));
@@ -427,8 +427,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(alpha_svar != nullptr);
   const auto alpha_col = alpha_svar->col();
 
-  const auto source_fp =
-      CutRowFingerprint::capture(source_li, cut_row, alpha_col, *state_col);
+  const auto source_fp = CutRowFingerprint::capture(
+      source_li, cut_row, alpha_col, test_support::require_value(state_col));
   CAPTURE(source_fp.row_low);
   CAPTURE(source_fp.alpha_coeff);
   CAPTURE(source_fp.state_coeff);
@@ -465,8 +465,8 @@ TEST_CASE(  // NOLINT
   //    so this fingerprint guards the second-order case: the cut row
   //    is present but `compose_physical` double-applied a scale
   //    factor.
-  const auto clone_cut_fp =
-      CutRowFingerprint::capture(clone, cut_row, alpha_col, *state_col);
+  const auto clone_cut_fp = CutRowFingerprint::capture(
+      clone, cut_row, alpha_col, test_support::require_value(state_col));
   CHECK(clone_cut_fp.row_low
         == doctest::Approx(source_fp.row_low)
                .epsilon(PlanningOptionsLP::default_sddp_cut_coeff_eps));
@@ -490,5 +490,3 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove(tmp_file);
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

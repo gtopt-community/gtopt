@@ -403,6 +403,11 @@ TEST_CASE("parse_planning_files: malformed JSON returns error")  // NOLINT
   REQUIRE_FALSE(result.has_value());
   // Error message mentions the offending file path.
   CHECK(result.error().contains("bad.json"));
+  // ... and the error position, rendered without reading outside the
+  // document (daw's to_formatted_string read 1 byte before it whenever
+  // the error was within the first 50 characters).
+  CHECK(result.error().contains("near line: 1 col: "));
+  CHECK(result.error().contains("\"{"));
 
   std::filesystem::remove_all(dir);
 }

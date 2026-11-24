@@ -119,6 +119,7 @@ void bfs_write_tb(const std::filesystem::path& dir,
   const std::vector<int32_t> stages {1, 1, 2, 2};
   const std::vector<int32_t> blocks {1, 2, 3, 4};
   std::vector<double> values;
+  values.reserve(blocks.size());
   for (const auto b : blocks) {
     values.push_back(base + b);
   }
@@ -403,7 +404,7 @@ TEST_CASE("Battery inline active reaches synthesized elements")  // NOLINT
 TEST_CASE("Battery file-backed active with commitment = true")  // NOLINT
 {
   const auto dir = bfs_tmpdir("act_uc");
-  bfs_write_active(dir, false, "act");
+  bfs_write_active(dir, /*csv=*/false, "act");
 
   auto bat = bfs_make_battery();
   bat.active = Active {FileSched {"act"}};

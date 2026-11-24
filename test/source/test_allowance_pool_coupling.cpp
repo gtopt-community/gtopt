@@ -27,6 +27,8 @@ using namespace gtopt;
 
 namespace test_allowance_pool_coupling
 {
+namespace
+{
 
 /// Two-stage chronological simulation (each stage = 24 hourly blocks).
 Simulation make_2stage_24h_simulation()
@@ -148,6 +150,7 @@ double solve_obj(const System& sys)
   return li.get_obj_value_raw();
 }
 
+}  // namespace
 }  // namespace test_allowance_pool_coupling
 
 TEST_CASE("EmissionZone JSON — allowance_pool FK round-trips")  // NOLINT
@@ -269,8 +272,8 @@ TEST_CASE("AllowancePool coupling: zone references pool by NAME")  // NOLINT
   })";
   const auto z = daw::json::from_json<EmissionZone>(js);
   REQUIRE(z.allowance_pool.has_value());
-  CHECK(std::holds_alternative<Name>(*z.allowance_pool));
-  CHECK(std::get<Name>(*z.allowance_pool) == "co2_pool");
+  CHECK((z.allowance_pool && std::holds_alternative<Name>(*z.allowance_pool)));
+  CHECK((z.allowance_pool && std::get<Name>(*z.allowance_pool) == "co2_pool"));
 
   auto sys = make_coupled_system(/*pool_eini=*/100.0);
   sys.emission_zone_array[0].allowance_pool = OptSingleId {Name {"co2_pool"}};

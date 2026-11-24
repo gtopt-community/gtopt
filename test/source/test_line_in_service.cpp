@@ -20,7 +20,6 @@
 #include <gtopt/planning_lp.hpp>
 
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -188,5 +187,3 @@ TEST_CASE(
     CHECK(solve_obj(l13_out_b2, mode) == doctest::Approx(served_both));
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

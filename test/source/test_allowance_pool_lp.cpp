@@ -23,6 +23,8 @@ using namespace gtopt;
 
 namespace test_allowance_pool_lp
 {
+namespace
+{
 
 /// Two-stage chronological simulation (each stage = 24 hourly
 /// blocks).  Used to verify cross-stage banking carry.
@@ -59,6 +61,7 @@ Simulation make_2stage_24h_simulation()
   return sim;
 }
 
+}  // namespace
 }  // namespace test_allowance_pool_lp
 
 TEST_CASE("AllowancePoolLP registers on SystemLP + LP assembles")  // NOLINT

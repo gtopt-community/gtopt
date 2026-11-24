@@ -18,9 +18,13 @@
 
 #pragma once
 
+#include <optional>
+#include <string>
+
 #include <gtopt/basic_types.hpp>
 #include <gtopt/decision_variable.hpp>
 #include <gtopt/index_holder.hpp>
+#include <gtopt/integer_variable.hpp>
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/user_constraint_enums.hpp>
@@ -31,6 +35,15 @@ class SceneLP;
 class PhaseLP;
 
 using DecisionVariableLPSId = ObjectSingleId<class DecisionVariableLP>;
+
+/// Describe why @p dv's LP column is NOT one-per-(scenario, stage, block):
+/// "scope '<stage|phase|global>'" for a coarse scope, "single-block selector
+/// (block N)" for a `block` selector; nullopt for a plain per-block
+/// variable.  Feeds `SimulationLP::register_ampl_scoped_element`, which lets
+/// the user-constraint resolver report an unreachable column instead of
+/// silently dropping the term.
+[[nodiscard]] std::optional<std::string> decision_variable_scope_restriction(
+    const DecisionVariable& dv);
 
 class DecisionVariableLP : public ObjectLP<DecisionVariable>
 {
@@ -76,24 +89,21 @@ public:
                                const StageLP& stage,
                                LinearProblem& lp);
 
-  /// Planning-level `phase`-scope build (piece 4/5): one column per
-  /// (scene, phase) cell.  No-op unless this variable's `scope` is `phase`.
-  /// Takes a NON-const `SystemContext&` (like ReservoirLP) because a `state`
-  /// variable registers a cross-phase `StateVariable` (a non-const registry
-  /// mutation).
-  [[nodiscard]] bool add_to_phase_lp(SystemContext& sc,
-                                     const SceneLP& scene,
-                                     const PhaseLP& phase,
-                                     LinearProblem& lp);
-
-  /// Planning-level `global`-scope build (piece 4/5): one un-indexed column
-  /// per (scene, phase) cell.  No-op unless this variable's `scope` is
-  /// `global`.  The user FCF α is a `global` `state` column.  Non-const
-  /// `SystemContext&` for the same state-registration reason.
-  [[nodiscard]] bool add_to_global_lp(SystemContext& sc,
-                                      const SceneLP& scene,
-                                      const PhaseLP& phase,
-                                      LinearProblem& lp);
+  /// Cell-column pre-pass for the coarse `phase` / `global` scopes: builds
+  /// the ONE column of this (scene, phase) cell and registers it with the
+  /// AMPL resolver at every (scenario, stage, block) of the cell.  No-op for
+  /// `block` / `stage` scope (built per (scenario, stage) in `add_to_lp`).
+  ///
+  /// Runs BEFORE the per-(scenario, stage) operational sweep (see
+  /// `add_cell_cols_to_lp` in system_lp.cpp) so block- and stage-scoped user
+  /// constraints can reference the coarse column — previously it was built
+  /// after them by the planning pass, and those terms were dropped as 0.
+  /// Takes a NON-const `SystemContext&` because a `state` variable registers
+  /// a cross-phase `StateVariable` (a non-const registry mutation).
+  [[nodiscard]] bool add_cell_cols(SystemContext& sc,
+                                   const SceneLP& scene,
+                                   const PhaseLP& phase,
+                                   LinearProblem& lp);
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
@@ -147,6 +157,14 @@ private:
                             double lower,
                             double upper);
 
+  /// Integer domain of this variable's `value` columns for a (possibly
+  /// continuous) phase: `Relaxed` when not `integer`, when `relax` is set,
+  /// or when the phase is continuous; else `Binary` for bounds exactly
+  /// `[0, 1]` and `Integer` otherwise.  Only meaningful when `m_integer_`.
+  [[nodiscard]] IntegerDomain integer_domain(bool phase_continuous,
+                                             double lower,
+                                             double upper) const noexcept;
+
   /// Per-(scenario, stage) per-block column index map; populated by
   /// :meth:`add_to_lp` and read by :meth:`add_to_output` to emit the
   /// ``DecisionVariable/value`` solution columns.
@@ -170,6 +188,14 @@ private:
   /// the cross-phase state.  Requires `link: true`; mutually exclusive with
   /// the coarse `state` flag.
   bool m_block_state_ {false};
+
+  /// Integrality flag — the `value` columns are created through
+  /// `SystemContext::add_integer_col` (see `DecisionVariable::integer`).
+  bool m_integer_ {false};
+
+  /// Per-element LP-relaxation flag for an integer variable
+  /// (`DecisionVariable::relax`, mirrors `Commitment.relax`).
+  bool m_relax_ {false};
 
   /// Per-(scenario, stage) INCOMING column for a `block_state` variable
   /// (the `value_in` / sini-equivalent).  Read within a phase to chain

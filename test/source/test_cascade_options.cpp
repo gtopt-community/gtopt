@@ -11,8 +11,10 @@
 #include <gtopt/cascade_options.hpp>
 #include <gtopt/json/json_cascade_options.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access,readability-trailing-comma)
+// NOLINTBEGIN(readability-trailing-comma)
 
 // ── CascadeTransition ───────────────────────────────────────────────────────
 
@@ -47,7 +49,7 @@ TEST_CASE("CascadeTransition - Merge (overlay wins)")
 
   // Overlay wins: set fields overwrite base
   REQUIRE(base.inherit_optimality_cuts.has_value());
-  CHECK(*base.inherit_optimality_cuts == 10);
+  CHECK(test_support::require_value(base.inherit_optimality_cuts) == 10);
 }
 
 TEST_CASE("CascadeTransition - Merge keeps base when overlay unset")
@@ -61,7 +63,7 @@ TEST_CASE("CascadeTransition - Merge keeps base when overlay unset")
   base.merge(overlay);
 
   REQUIRE(base.inherit_optimality_cuts.has_value());
-  CHECK(*base.inherit_optimality_cuts == -1);
+  CHECK(test_support::require_value(base.inherit_optimality_cuts) == -1);
 }
 
 // ── CascadeLevelMethod ──────────────────────────────────────────────────────
@@ -96,11 +98,12 @@ TEST_CASE("CascadeLevelMethod - Merge stationary_window/elastic overlay wins")
   };
   base.merge(overlay);
   REQUIRE(base.stationary_window.has_value());
-  CHECK(*base.stationary_window == 8);
+  CHECK(test_support::require_value(base.stationary_window) == 8);
   REQUIRE(base.elastic_mode.has_value());
-  CHECK(*base.elastic_mode == "multi_cut");
+  CHECK(test_support::require_value(base.elastic_mode) == "multi_cut");
   REQUIRE(base.elastic_penalty.has_value());
-  CHECK(*base.elastic_penalty == doctest::Approx(500.0));
+  CHECK(test_support::require_value(base.elastic_penalty)
+        == doctest::Approx(500.0));
 }
 
 TEST_CASE("CascadeLevelMethod - Merge stationary_tol overlay wins")
@@ -115,7 +118,8 @@ TEST_CASE("CascadeLevelMethod - Merge stationary_tol overlay wins")
   base.merge(overlay);
 
   REQUIRE(base.stationary_tol.has_value());
-  CHECK(*base.stationary_tol == doctest::Approx(0.01));
+  CHECK(test_support::require_value(base.stationary_tol)
+        == doctest::Approx(0.01));
 }
 
 TEST_CASE("CascadeLevelMethod - Merge stationary_gap_ceiling overlay wins")
@@ -130,7 +134,8 @@ TEST_CASE("CascadeLevelMethod - Merge stationary_gap_ceiling overlay wins")
   base.merge(overlay);
 
   REQUIRE(base.stationary_gap_ceiling.has_value());
-  CHECK(*base.stationary_gap_ceiling == doctest::Approx(0.05));
+  CHECK(test_support::require_value(base.stationary_gap_ceiling)
+        == doctest::Approx(0.05));
 }
 
 TEST_CASE("CascadeLevelMethod - Construction with all fields")
@@ -172,11 +177,12 @@ TEST_CASE("CascadeLevelMethod - Merge (overlay wins)")
 
   // Overlay wins
   REQUIRE(base.max_iterations.has_value());
-  CHECK(*base.max_iterations == 100);
+  CHECK(test_support::require_value(base.max_iterations) == 100);
   REQUIRE(base.min_iterations.has_value());
-  CHECK(*base.min_iterations == 2);
+  CHECK(test_support::require_value(base.min_iterations) == 2);
   REQUIRE(base.convergence_tol.has_value());
-  CHECK(*base.convergence_tol == doctest::Approx(1e-5));
+  CHECK(test_support::require_value(base.convergence_tol)
+        == doctest::Approx(1e-5));
 }
 
 TEST_CASE("CascadeLevelMethod - Merge apertures replaces when set")
@@ -199,8 +205,8 @@ TEST_CASE("CascadeLevelMethod - Merge apertures replaces when set")
   base.merge(overlay);
 
   REQUIRE(base.apertures.has_value());
-  REQUIRE(base.apertures->size() == 2);
-  CHECK((*base.apertures)[0] == 10);
+  REQUIRE(test_support::require_value(base.apertures).size() == 2);
+  CHECK(test_support::require_value(base.apertures)[0] == 10);
 }
 
 TEST_CASE("CascadeLevelMethod - Merge num_apertures overlay wins")
@@ -213,7 +219,7 @@ TEST_CASE("CascadeLevelMethod - Merge num_apertures overlay wins")
   };
   base.merge(overlay);
   REQUIRE(base.num_apertures.has_value());
-  CHECK(*base.num_apertures == 8);
+  CHECK(test_support::require_value(base.num_apertures) == 8);
 }
 
 TEST_CASE("CascadeLevelMethod - Merge aperture_solve_mode / chunk_size")
@@ -228,9 +234,10 @@ TEST_CASE("CascadeLevelMethod - Merge aperture_solve_mode / chunk_size")
   };
   base.merge(overlay);
   REQUIRE(base.aperture_solve_mode.has_value());
-  CHECK(*base.aperture_solve_mode == "reduced_cost");
+  CHECK(test_support::require_value(base.aperture_solve_mode)
+        == "reduced_cost");
   REQUIRE(base.aperture_chunk_size.has_value());
-  CHECK(*base.aperture_chunk_size == 0);
+  CHECK(test_support::require_value(base.aperture_chunk_size) == 0);
 
   // Overlay-unset keeps the base values.
   CascadeLevelMethod base2 {
@@ -239,9 +246,9 @@ TEST_CASE("CascadeLevelMethod - Merge aperture_solve_mode / chunk_size")
   };
   base2.merge(CascadeLevelMethod {.max_iterations = 50});
   REQUIRE(base2.aperture_solve_mode.has_value());
-  CHECK(*base2.aperture_solve_mode == "warm");
+  CHECK(test_support::require_value(base2.aperture_solve_mode) == "warm");
   REQUIRE(base2.aperture_chunk_size.has_value());
-  CHECK(*base2.aperture_chunk_size == -1);
+  CHECK(test_support::require_value(base2.aperture_chunk_size) == -1);
 
   // Named aperture_chunk_mode merges like the other per-level strings.
   CascadeLevelMethod base3 {.aperture_chunk_mode = "per_scene"};
@@ -262,7 +269,7 @@ TEST_CASE(
   };
   base.merge(overlay);
   REQUIRE(base.num_apertures.has_value());
-  CHECK(*base.num_apertures == 4);
+  CHECK(test_support::require_value(base.num_apertures) == 4);
 }
 
 TEST_CASE("CascadeLevelMethod - Merge num_apertures populates from unset")
@@ -273,7 +280,7 @@ TEST_CASE("CascadeLevelMethod - Merge num_apertures populates from unset")
   };
   base.merge(overlay);
   REQUIRE(base.num_apertures.has_value());
-  CHECK(*base.num_apertures == 8);
+  CHECK(test_support::require_value(base.num_apertures) == 8);
 }
 
 TEST_CASE("CascadeLevelMethod - num_apertures JSON round-trip")
@@ -286,7 +293,7 @@ TEST_CASE("CascadeLevelMethod - num_apertures JSON round-trip")
     const auto json = daw::json::to_json(m);
     const auto parsed = daw::json::from_json<CascadeLevelMethod>(json);
     REQUIRE(parsed.num_apertures.has_value());
-    CHECK(*parsed.num_apertures == 4);
+    CHECK(test_support::require_value(parsed.num_apertures) == 4);
   }
   // num_apertures absent from JSON (legacy / L2 case)
   {
@@ -302,7 +309,7 @@ TEST_CASE("CascadeLevelMethod - num_apertures JSON round-trip")
     const auto json = daw::json::to_json(m);
     const auto parsed = daw::json::from_json<CascadeLevelMethod>(json);
     REQUIRE(parsed.num_apertures.has_value());
-    CHECK(*parsed.num_apertures == 0);
+    CHECK(test_support::require_value(parsed.num_apertures) == 0);
   }
 }
 
@@ -350,9 +357,9 @@ TEST_CASE("CascadeLevel - active JSON round-trip")
     const auto json = daw::json::to_json(lv);
     const auto parsed = daw::json::from_json<CascadeLevel>(json);
     REQUIRE(parsed.active.has_value());
-    CHECK(*parsed.active == false);
+    CHECK(test_support::require_value(parsed.active) == false);
     REQUIRE(parsed.name.has_value());
-    CHECK(*parsed.name == "skip");
+    CHECK(test_support::require_value(parsed.name) == "skip");
   }
   // active = true explicit
   {
@@ -362,7 +369,7 @@ TEST_CASE("CascadeLevel - active JSON round-trip")
     const auto json = daw::json::to_json(lv);
     const auto parsed = daw::json::from_json<CascadeLevel>(json);
     REQUIRE(parsed.active.has_value());
-    CHECK(*parsed.active == true);
+    CHECK(test_support::require_value(parsed.active) == true);
   }
   // active absent from JSON
   {
@@ -384,9 +391,9 @@ TEST_CASE("CascadeLevel - system_file JSON round-trip")
     const auto json = daw::json::to_json(lv);
     const auto parsed = daw::json::from_json<CascadeLevel>(json);
     REQUIRE(parsed.system_file.has_value());
-    CHECK(*parsed.system_file == "case.K50.json");
+    CHECK(test_support::require_value(parsed.system_file) == "case.K50.json");
     REQUIRE(parsed.name.has_value());
-    CHECK(*parsed.name == "reduced_K50");
+    CHECK(test_support::require_value(parsed.name) == "reduced_K50");
   }
   // system_file absent → nullopt
   {
@@ -402,7 +409,7 @@ TEST_CASE("CascadeLevel - system_file JSON round-trip")
     const auto json = daw::json::to_json(lv);
     const auto parsed = daw::json::from_json<CascadeLevel>(json);
     REQUIRE(parsed.system_file.has_value());
-    CHECK(parsed.system_file->empty());
+    CHECK(test_support::require_value(parsed.system_file).empty());
   }
 }
 
@@ -416,7 +423,7 @@ TEST_CASE("CascadeLevel - system_file participates in merge()")
     };
     base.merge(std::move(ovl));
     REQUIRE(base.system_file.has_value());
-    CHECK(*base.system_file == "reduced.json");
+    CHECK(test_support::require_value(base.system_file) == "reduced.json");
   }
   // overlay overrides existing
   {
@@ -427,7 +434,7 @@ TEST_CASE("CascadeLevel - system_file participates in merge()")
         .system_file = std::string {"new.json"},
     };
     base.merge(std::move(ovl));
-    CHECK(*base.system_file == "new.json");
+    CHECK(test_support::require_value(base.system_file) == "new.json");
   }
   // overlay unset leaves existing intact
   {
@@ -437,7 +444,7 @@ TEST_CASE("CascadeLevel - system_file participates in merge()")
     CascadeLevel ovl {};
     base.merge(std::move(ovl));
     REQUIRE(base.system_file.has_value());
-    CHECK(*base.system_file == "keep.json");
+    CHECK(test_support::require_value(base.system_file) == "keep.json");
   }
 }
 
@@ -468,13 +475,14 @@ TEST_CASE("CascadeLevel - Construction with all fields")
   CHECK(*lv.name == "coarse");
   REQUIRE(lv.model_options.has_value());
   REQUIRE(lv.model_options->use_single_bus.has_value());
-  CHECK(*lv.model_options->use_single_bus == true);
+  CHECK(test_support::require_value(lv.model_options->use_single_bus) == true);
   REQUIRE(lv.sddp_options.has_value());
   REQUIRE(lv.sddp_options->max_iterations.has_value());
-  CHECK(*lv.sddp_options->max_iterations == 30);
+  CHECK(test_support::require_value(lv.sddp_options->max_iterations) == 30);
   REQUIRE(lv.transition.has_value());
   REQUIRE(lv.transition->inherit_optimality_cuts.has_value());
-  CHECK(*lv.transition->inherit_optimality_cuts == -1);
+  CHECK(test_support::require_value(lv.transition->inherit_optimality_cuts)
+        == -1);
 }
 
 // ── CascadeOptions ──────────────────────────────────────────────────────────
@@ -539,13 +547,22 @@ TEST_CASE("CascadeOptions - Construction with levels")
   CHECK(*opts.sddp_options.max_iterations == 200);
   REQUIRE(opts.level_array.size() == 2);
 
-  CHECK(*opts.level_array[0].name == "coarse");
-  CHECK(*opts.level_array[0].model_options->use_single_bus == true);
+  CHECK(test_support::require_value(opts.level_array[0].name) == "coarse");
+  CHECK(test_support::require_value(
+            test_support::require_value(opts.level_array[0].model_options)
+                .use_single_bus)
+        == true);
 
-  CHECK(*opts.level_array[1].name == "fine");
-  CHECK(*opts.level_array[1].model_options->use_single_bus == false);
+  CHECK(test_support::require_value(opts.level_array[1].name) == "fine");
+  CHECK(test_support::require_value(
+            test_support::require_value(opts.level_array[1].model_options)
+                .use_single_bus)
+        == false);
   REQUIRE(opts.level_array[1].transition.has_value());
-  CHECK(*opts.level_array[1].transition->inherit_optimality_cuts == -1);
+  CHECK(test_support::require_value(
+            test_support::require_value(opts.level_array[1].transition)
+                .inherit_optimality_cuts)
+        == -1);
 }
 
 TEST_CASE(
@@ -581,13 +598,15 @@ TEST_CASE(
   REQUIRE(base.model_options.use_single_bus.has_value());
   CHECK(*base.model_options.use_single_bus == false);
   REQUIRE(base.model_options.demand_fail_cost.has_value());
-  CHECK(*base.model_options.demand_fail_cost == doctest::Approx(5000.0));
+  CHECK(test_support::require_value(base.model_options.demand_fail_cost)
+        == doctest::Approx(5000.0));
 
   // sddp_options: overlay wins for set fields
   REQUIRE(base.sddp_options.max_iterations.has_value());
   CHECK(*base.sddp_options.max_iterations == 200);
   REQUIRE(base.sddp_options.convergence_tol.has_value());
-  CHECK(*base.sddp_options.convergence_tol == doctest::Approx(1e-3));
+  CHECK(test_support::require_value(base.sddp_options.convergence_tol)
+        == doctest::Approx(1e-3));
 }
 
 TEST_CASE("CascadeOptions - Merge level_array replaces when non-empty")
@@ -619,8 +638,8 @@ TEST_CASE("CascadeOptions - Merge level_array replaces when non-empty")
   base.merge(std::move(overlay));
 
   REQUIRE(base.level_array.size() == 2);
-  CHECK(*base.level_array[0].name == "new1");
-  CHECK(*base.level_array[1].name == "new2");
+  CHECK(test_support::require_value(base.level_array[0].name) == "new1");
+  CHECK(test_support::require_value(base.level_array[1].name) == "new2");
 }
 
 TEST_CASE("CascadeOptions - Merge empty level_array keeps base")
@@ -640,7 +659,7 @@ TEST_CASE("CascadeOptions - Merge empty level_array keeps base")
   base.merge(std::move(overlay));
 
   REQUIRE(base.level_array.size() == 1);
-  CHECK(*base.level_array[0].name == "keep");
+  CHECK(test_support::require_value(base.level_array[0].name) == "keep");
 }
 
 // ── Element-wise level_array merge (enables --set array-index overlays) ─────
@@ -660,12 +679,15 @@ TEST_CASE("CascadeLevel - merge empty overlay leaves base untouched")
   CascadeLevel overlay {};
   base.merge(std::move(overlay));
 
-  CHECK(*base.uid == Uid {1});
-  CHECK(*base.name == "base_name");
-  CHECK(*base.active == true);
+  CHECK(test_support::require_value(base.uid) == Uid {1});
+  CHECK(test_support::require_value(base.name) == "base_name");
+  CHECK(test_support::require_value(base.active) == true);
   REQUIRE(base.sddp_options.has_value());
-  REQUIRE(base.sddp_options->max_iterations.has_value());
-  CHECK(*base.sddp_options->max_iterations == 7);
+  REQUIRE(test_support::require_value(base.sddp_options)
+              .max_iterations.has_value());
+  CHECK(test_support::require_value(
+            test_support::require_value(base.sddp_options).max_iterations)
+        == 7);
 }
 
 TEST_CASE("CascadeLevel - merge overwrites only the fields set in overlay")
@@ -690,17 +712,23 @@ TEST_CASE("CascadeLevel - merge overwrites only the fields set in overlay")
   base.merge(std::move(overlay));
 
   // Unset overlay fields leave the base intact
-  CHECK(*base.uid == Uid {1});
-  CHECK(*base.name == "old_name");
-  CHECK(*base.active == true);
+  CHECK(test_support::require_value(base.uid) == Uid {1});
+  CHECK(test_support::require_value(base.name) == "old_name");
+  CHECK(test_support::require_value(base.active) == true);
 
   // Nested struct is recursively merged: max_iterations updated,
   // convergence_tol preserved
   REQUIRE(base.sddp_options.has_value());
-  REQUIRE(base.sddp_options->max_iterations.has_value());
-  CHECK(*base.sddp_options->max_iterations == 20);
-  REQUIRE(base.sddp_options->convergence_tol.has_value());
-  CHECK(*base.sddp_options->convergence_tol == doctest::Approx(1e-4));
+  REQUIRE(test_support::require_value(base.sddp_options)
+              .max_iterations.has_value());
+  CHECK(test_support::require_value(
+            test_support::require_value(base.sddp_options).max_iterations)
+        == 20);
+  REQUIRE(test_support::require_value(base.sddp_options)
+              .convergence_tol.has_value());
+  CHECK(test_support::require_value(
+            test_support::require_value(base.sddp_options).convergence_tol)
+        == doctest::Approx(1e-4));
 }
 
 TEST_CASE("CascadeLevel - merge adopts nested struct when base lacks one")
@@ -719,8 +747,12 @@ TEST_CASE("CascadeLevel - merge adopts nested struct when base lacks one")
   base.merge(std::move(overlay));
 
   REQUIRE(base.transition.has_value());
-  REQUIRE(base.transition->inherit_optimality_cuts.has_value());
-  CHECK(*base.transition->inherit_optimality_cuts == -1);
+  REQUIRE(test_support::require_value(base.transition)
+              .inherit_optimality_cuts.has_value());
+  CHECK(
+      test_support::require_value(
+          test_support::require_value(base.transition).inherit_optimality_cuts)
+      == -1);
 }
 
 TEST_CASE("CascadeOptions - same-size level_array is merged element-wise")
@@ -778,17 +810,28 @@ TEST_CASE("CascadeOptions - same-size level_array is merged element-wise")
   REQUIRE(base.level_array.size() == 3);
 
   // Level 0: max_iterations updated, identity preserved
-  CHECK(*base.level_array[0].uid == Uid {1});
-  CHECK(*base.level_array[0].name == "uninodal");
+  CHECK(test_support::require_value(base.level_array[0].uid) == Uid {1});
+  CHECK(test_support::require_value(base.level_array[0].name) == "uninodal");
   REQUIRE(base.level_array[0].sddp_options.has_value());
-  REQUIRE(base.level_array[0].sddp_options->max_iterations.has_value());
-  CHECK(*base.level_array[0].sddp_options->max_iterations == 20);
+  REQUIRE(test_support::require_value(base.level_array[0].sddp_options)
+              .max_iterations.has_value());
+  CHECK(test_support::require_value(
+            test_support::require_value(base.level_array[0].sddp_options)
+                .max_iterations)
+        == 20);
 
   // Levels 1, 2: untouched
-  CHECK(*base.level_array[1].name == "transport");
-  CHECK(*base.level_array[1].sddp_options->max_iterations == 1);
-  CHECK(*base.level_array[2].name == "full_network");
-  CHECK(*base.level_array[2].sddp_options->max_iterations == 1);
+  CHECK(test_support::require_value(base.level_array[1].name) == "transport");
+  CHECK(test_support::require_value(
+            test_support::require_value(base.level_array[1].sddp_options)
+                .max_iterations)
+        == 1);
+  CHECK(test_support::require_value(base.level_array[2].name)
+        == "full_network");
+  CHECK(test_support::require_value(
+            test_support::require_value(base.level_array[2].sddp_options)
+                .max_iterations)
+        == 1);
 }
 
 TEST_CASE("CascadeOptions - different-size level_array still replaces")
@@ -821,8 +864,8 @@ TEST_CASE("CascadeOptions - different-size level_array still replaces")
   base.merge(std::move(overlay));
 
   REQUIRE(base.level_array.size() == 1);
-  CHECK(*base.level_array[0].uid == Uid {99});
-  CHECK(*base.level_array[0].name == "only");
+  CHECK(test_support::require_value(base.level_array[0].uid) == Uid {99});
+  CHECK(test_support::require_value(base.level_array[0].name) == "only");
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access,readability-trailing-comma)
+// NOLINTEND(readability-trailing-comma)

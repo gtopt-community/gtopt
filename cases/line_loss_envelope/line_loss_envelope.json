@@ -1,0 +1,128 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": false,
+      "scale_objective": 1000,
+      "demand_fail_cost": 1000,
+      "loss_cost_eps": 0.1
+    }
+  },
+  "simulation": {
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 1
+      },
+      {
+        "uid": 2,
+        "duration": 1
+      },
+      {
+        "uid": 3,
+        "duration": 1
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 3,
+        "active": 1
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "line_loss_envelope",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1"
+      },
+      {
+        "uid": 2,
+        "name": "b2"
+      },
+      {
+        "uid": 3,
+        "name": "b3"
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "g1",
+        "bus": "b1",
+        "pmin": 0,
+        "pmax": 2000,
+        "gcost": 10,
+        "capacity": 2000
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "d2",
+        "bus": "b2",
+        "lmax": [
+          [
+            50.0,
+            300.0,
+            800.0
+          ]
+        ]
+      },
+      {
+        "uid": 2,
+        "name": "d3",
+        "bus": "b3",
+        "lmax": [
+          [
+            50.0,
+            300.0,
+            800.0
+          ]
+        ]
+      }
+    ],
+    "line_array": [
+      {
+        "uid": 1,
+        "name": "l12_tsf",
+        "bus_a": "b1",
+        "bus_b": "b2",
+        "voltage": 100,
+        "resistance": 1.0,
+        "line_losses_mode": "tangent_signed_flow",
+        "loss_segments": 5,
+        "loss_envelope": 100,
+        "tmax_ab": 1000,
+        "tmax_ba": 1000,
+        "capacity": 1000
+      },
+      {
+        "uid": 2,
+        "name": "l13_bidir",
+        "bus_a": "b1",
+        "bus_b": "b3",
+        "voltage": 100,
+        "resistance": 1.0,
+        "line_losses_mode": "bidirectional",
+        "loss_segments": 5,
+        "loss_envelope": 100,
+        "tmax_ab": 1000,
+        "tmax_ba": 1000,
+        "capacity": 1000
+      }
+    ]
+  }
+}

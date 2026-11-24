@@ -231,8 +231,11 @@ TEST_CASE(
   CAPTURE(vini);
   CAPTURE(vfin);
   REQUIRE(vfin < vini - 1.0);  // the forced release really drained it
-  const double expected = vr_lp.rule_rate_cap(
-      evaluate_bound_rule(identity_rule(), (vini + vfin) / 2.0), t);
+  // The rule reads the STAGE-START volume (PLP VarMaulePrev / VolIni),
+  // not the (vini + vfin) / 2 average: the drained vfin must not move
+  // the bound.
+  const double expected =
+      vr_lp.rule_rate_cap(evaluate_bound_rule(identity_rule(), vini), t);
 
   const auto updated = system_lp.update_lp();
   CHECK(updated >= 1);
@@ -242,8 +245,7 @@ TEST_CASE(
   {
     auto r2 = li.resolve();
     REQUIRE(r2.has_value());
-    // The extraction bound does not feed back into the reservoir, so the
-    // average volume and therefore the bound are identical.  update_lp
+    // The stage-start volume and therefore the bound are identical.  update_lp
     // deliberately does not short-circuit (under low_memory the LP is
     // rebuilt from the snapshot with build-time bounds), so the column
     // is rewritten with the same value.
@@ -347,14 +349,15 @@ TEST_CASE("FlowRightLP::update_lp keeps the fmax cap on the flow column")
     REQUIRE(r1.has_value());
     REQUIRE(li.is_optimal());
     const auto sol = li.get_col_sol();
-    const double vavg =
-        (sol[rsv_lp.eini_col_at(s, t)] + sol[rsv_lp.efin_col_at(s, t)]) / 2.0;
-    REQUIRE(vavg < kEini - 1.0);
+    const double vini = sol[rsv_lp.eini_col_at(s, t)];
+    // The stage's own vfin moved, but the rule reads the STAGE-START
+    // volume (PLP VarMaulePrev / VolIni), not (vini + vfin) / 2.
+    REQUIRE(sol[rsv_lp.efin_col_at(s, t)] < kEini - 1.0);
 
     CHECK(system_lp.update_lp() >= 1);
     CHECK(li.get_col_upp()[fcol]
           == doctest::Approx(
-              std::min(fmax_cap, evaluate_bound_rule(rule, vavg))));
+              std::min(fmax_cap, evaluate_bound_rule(rule, vini))));
   };
 
   SUBCASE("fmax binds (rule bound far above fmax)")

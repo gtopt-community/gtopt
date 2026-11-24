@@ -213,6 +213,8 @@ std::unique_ptr<PlanningMethod> make_planning_method(
       // Per-cascade extension: gather cascade-level options.
       CascadeOptions cascade_opts;
       cascade_opts.sddp_options = options.cascade_sddp_options();
+      cascade_opts.write_level_outputs =
+          OptBool {options.cascade_write_level_outputs()};
       if (options.has_cascade_levels()) {
         cascade_opts.level_array = {options.cascade_levels().begin(),
                                     options.cascade_levels().end()};

@@ -96,6 +96,9 @@ can be checked by hand.
 | [`bat_4b_24`](bat_4b_24/) | `bat_4b` over 24 hours: daily battery cycling. Also compared against pandapower. Used in [`docs/storage-and-water-values.md`](../docs/storage-and-water-values.md). |
 | [`exp_bat_4b`](exp_bat_4b/), [`exp_bat_4b_24`](exp_bat_4b_24/) | The battery cases with battery expansion: capacity starts at zero and is built if it pays off. |
 | [`uc_small`](uc_small/) | One bus, three units with unit commitment over six hours: minimum output, no-load and start-up costs, minimum up and down times and initial status. |
+| [`reserve_cpf_planes`](reserve_cpf_planes/), [`reserve_cpf_planes_endogenous`](reserve_cpf_planes_endogenous/) | Three buses, 24 hours, solar surplus: CEN CPF max-of-planes requirement with the exogenous (default) and the PLEXOS-compat endogenous load term — 0 vs −0.732 $/MWh at the curtailed hours. |
+| [`reserve_cpf_contingency_inertia`](reserve_cpf_contingency_inertia/) | Two buses, six hours: CPF planes with a contingency term, an inertia zone and a commitment-dependent inertia credit. |
+| [`reserve_sscc_full`](reserve_sscc_full/) | One bus, eight hours: CPF, CSF (equality) and CTF with shared headroom, cold CTF from a peaker and a BESS offering both sides with per-side caps. |
 | [`sddp_hydro_3phase`](sddp_hydro_3phase/) | One reservoir (150 hm³), a hydro and a thermal unit, three phases of 24 hours solved with SDDP. Regression case for SDDP: the `golden_iter*.json` files pin the results after 0, 3 and 50 iterations, also with the low-memory modes and hot start. |
 
 ## IEEE and standard test networks

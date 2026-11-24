@@ -24,8 +24,10 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-argument-comment,bugprone-unchecked-optional-access)
+// NOLINTBEGIN(bugprone-argument-comment)
 
 namespace
 {
@@ -153,9 +155,11 @@ TEST_CASE(  // NOLINT
   REQUIRE(saving_col.has_value());
 
   // `flow` is registered as an alias of `extraction` — same column.
-  CHECK(*extraction_col == *flow_col);
+  CHECK(test_support::require_value(extraction_col)
+        == test_support::require_value(flow_col));
   // `saving` must be a distinct column.
-  CHECK(*saving_col != *extraction_col);
+  CHECK(test_support::require_value(saving_col)
+        != test_support::require_value(extraction_col));
 }
 
 TEST_CASE(  // NOLINT
@@ -387,7 +391,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(col_s1.has_value());
   REQUIRE(col_s2.has_value());
   // Distinct stages must own distinct extraction columns.
-  CHECK(*col_s1 != *col_s2);
+  CHECK(test_support::require_value(col_s1)
+        != test_support::require_value(col_s2));
 }
 
-// NOLINTEND(bugprone-argument-comment,bugprone-unchecked-optional-access)
+// NOLINTEND(bugprone-argument-comment)

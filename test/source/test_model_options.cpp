@@ -9,8 +9,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/model_options.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("ModelOptions - Default construction")
 {
@@ -116,15 +117,17 @@ TEST_CASE("ModelOptions - Merge fills missing fields")
 
   // Base fields preserved
   REQUIRE(base.use_single_bus.has_value());
-  CHECK(*base.use_single_bus == true);
+  CHECK(test_support::require_value(base.use_single_bus) == true);
   REQUIRE(base.scale_objective.has_value());
-  CHECK(*base.scale_objective == doctest::Approx(1000.0));
+  CHECK(test_support::require_value(base.scale_objective)
+        == doctest::Approx(1000.0));
 
   // New fields from overlay
   REQUIRE(base.use_kirchhoff.has_value());
-  CHECK(*base.use_kirchhoff == false);
+  CHECK(test_support::require_value(base.use_kirchhoff) == false);
   REQUIRE(base.demand_fail_cost.has_value());
-  CHECK(*base.demand_fail_cost == doctest::Approx(5000.0));
+  CHECK(test_support::require_value(base.demand_fail_cost)
+        == doctest::Approx(5000.0));
 
   // Still unset fields
   CHECK_FALSE(base.use_line_losses.has_value());
@@ -148,9 +151,10 @@ TEST_CASE("ModelOptions - Merge overwrites existing values (overlay wins)")
 
   // Overlay wins: set fields overwrite base
   REQUIRE(base.use_single_bus.has_value());
-  CHECK(*base.use_single_bus == false);
+  CHECK(test_support::require_value(base.use_single_bus) == false);
   REQUIRE(base.scale_objective.has_value());
-  CHECK(*base.scale_objective == doctest::Approx(999.0));
+  CHECK(test_support::require_value(base.scale_objective)
+        == doctest::Approx(999.0));
 }
 
 TEST_CASE("ModelOptions - Merge empty into filled does nothing")
@@ -165,11 +169,12 @@ TEST_CASE("ModelOptions - Merge empty into filled does nothing")
   filled.merge(empty);
 
   REQUIRE(filled.use_single_bus.has_value());
-  CHECK(*filled.use_single_bus == true);
+  CHECK(test_support::require_value(filled.use_single_bus) == true);
   REQUIRE(filled.use_kirchhoff.has_value());
-  CHECK(*filled.use_kirchhoff == false);
+  CHECK(test_support::require_value(filled.use_kirchhoff) == false);
   REQUIRE(filled.demand_fail_cost.has_value());
-  CHECK(*filled.demand_fail_cost == doctest::Approx(2000.0));
+  CHECK(test_support::require_value(filled.demand_fail_cost)
+        == doctest::Approx(2000.0));
 }
 
 TEST_CASE("ModelOptions - Merge filled into empty copies all")
@@ -191,10 +196,8 @@ TEST_CASE("ModelOptions - Merge filled into empty copies all")
   empty.merge(filled);
 
   REQUIRE(empty.use_single_bus.has_value());
-  CHECK(*empty.use_single_bus == true);
+  CHECK(test_support::require_value(empty.use_single_bus) == true);
   REQUIRE(empty.loss_segments.has_value());
-  CHECK(*empty.loss_segments == 3);
+  CHECK(test_support::require_value(empty.loss_segments) == 3);
   CHECK(empty.has_any());
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

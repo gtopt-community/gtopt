@@ -413,6 +413,13 @@ public:
         : 0.0;
   }
 
+  /// True when boundary (terminal FutureCost) cuts were loaded by the last
+  /// `initialize_solver` — the boundary-cut gap diagnostics are then active.
+  [[nodiscard]] constexpr bool boundary_cuts_loaded() const noexcept
+  {
+    return m_boundary_cuts_loaded_;
+  }
+
   /// SDDP options (const)
   [[nodiscard]] constexpr auto& options() const noexcept { return m_options_; }
 
@@ -1091,6 +1098,12 @@ public:
                                 std::span<const uint8_t> scene_feasible,
                                 std::span<const double> weights) const;
 
+  /// Fill `ir.boundary` (boundary-cut gap diagnostics) from the aggregated
+  /// bounds and the forward pass's last-phase future-cost values.  No-op
+  /// (inactive diagnostics) when no boundary cuts were loaded.
+  void compute_boundary_gap(SDDPIterationResult& ir,
+                            std::span<const uint8_t> scene_feasible) const;
+
   /// Compute gap + gap_change, update convergence flag, update live-query
   /// atomics, log.  @p results carries the previous iterations so that
   /// gap_change can be evaluated against the look-back window before the
@@ -1102,10 +1115,21 @@ public:
       const std::vector<SDDPIterationResult>& results);
 
   /// Write the monitoring API status file if API is enabled.
+  ///
+  /// @param final_status  Empty while the solve is live.  At the end of
+  ///   the solve pass the terminal label (see `terminal_api_status()` or
+  ///   "error"); the write is then the last one for this solve.
   void maybe_write_api_status(const std::string& status_file,
                               const std::vector<SDDPIterationResult>& results,
                               std::chrono::steady_clock::time_point solve_start,
-                              SolverMonitor& monitor) const;
+                              SolverMonitor& monitor,
+                              std::string_view final_status = {}) const;
+
+  /// Terminal label for solver_status.json once the solve pass ends:
+  /// "converged", "stopped" (stop request / sentinel / callback),
+  /// or "max_iterations" (iteration budget exhausted without convergence).
+  /// Not written for simulation-only runs (max_iterations == 0).
+  [[nodiscard]] std::string_view terminal_api_status() const;
 
   /// Save cuts (combined + per-scene) after an iteration, handling infeasible
   /// scene renaming.
@@ -1159,6 +1183,18 @@ private:
   /// scene.  See `SDDPOptions::boundary_cuts_mean_shift` and the
   /// install loop in `source/sddp_boundary_cuts.cpp` for details.
   StrongIndexVector<SceneIndex, double> m_scene_alpha_offsets_;
+
+  /// Per-scene amount of c̄ actually folded into the first-phase objective
+  /// (`c̄` for single-α / multicut terminals, `p_s·c̄` for
+  /// `phi_expectation`) — i.e. the c̄ share carried by that scene's UB and
+  /// LB.  Read by the boundary-cut gap diagnostics
+  /// (`SDDPIterationResult::boundary`).  Zero-filled without mean shift.
+  StrongIndexVector<SceneIndex, double> m_scene_alpha_restitution_;
+
+  /// True when boundary (terminal FutureCost) cuts were loaded — turns on
+  /// the boundary-cut gap diagnostics and makes the convergence tests read
+  /// the corrected gap (`SDDPIterationResult::effective_gap`).
+  bool m_boundary_cuts_loaded_ {false};
 
   /// NVarPhi of `BoundaryCutsMode::phi_expectation` — the number of
   /// distinct plane hydrologies in the boundary-cut CSV, resolved by

@@ -9,6 +9,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/monolithic_options.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 TEST_CASE("MonolithicOptions - Default construction")
@@ -74,13 +76,13 @@ TEST_CASE("MonolithicOptions - Merge fills missing fields")
   base.merge(std::move(overlay));
 
   REQUIRE(base.solve_mode.has_value());
-  CHECK(*base.solve_mode == SolveMode::monolithic);
+  CHECK(base.solve_mode == SolveMode::monolithic);
   REQUIRE(base.boundary_cuts_file.has_value());
-  CHECK(*base.boundary_cuts_file == "cuts.csv");
+  CHECK(base.boundary_cuts_file == "cuts.csv");
   REQUIRE(base.boundary_cuts_mode.has_value());
-  CHECK(*base.boundary_cuts_mode == BoundaryCutsMode::separated);
+  CHECK(base.boundary_cuts_mode == BoundaryCutsMode::separated);
   REQUIRE(base.boundary_max_iterations.has_value());
-  CHECK(*base.boundary_max_iterations == 5);
+  CHECK(base.boundary_max_iterations == 5);
 }
 
 TEST_CASE("MonolithicOptions - Merge overwrites existing (overlay wins)")
@@ -101,15 +103,14 @@ TEST_CASE("MonolithicOptions - Merge overwrites existing (overlay wins)")
 
   // Overlay wins: set fields overwrite base
   REQUIRE(base.solve_mode.has_value());
-  CHECK(*base.solve_mode == SolveMode::monolithic);
+  CHECK(base.solve_mode == SolveMode::monolithic);
   REQUIRE(base.boundary_cuts_mode.has_value());
-  CHECK(*base.boundary_cuts_mode == BoundaryCutsMode::noload);
+  CHECK(base.boundary_cuts_mode == BoundaryCutsMode::noload);
 }
 
 TEST_CASE("MonolithicOptions - Merge nested solver_options")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   SUBCASE("both set: inner merge")
   {
@@ -132,12 +133,17 @@ TEST_CASE("MonolithicOptions - Merge nested solver_options")
     base.merge(std::move(overlay));
 
     REQUIRE(base.solver_options.has_value());
-    CHECK(base.solver_options->algorithm == LPAlgo::barrier);
-    REQUIRE(base.solver_options->optimal_eps.has_value());
-    CHECK(base.solver_options->optimal_eps.value_or(0.0)
+    CHECK(test_support::require_value(base.solver_options).algorithm
+          == LPAlgo::barrier);
+    REQUIRE(test_support::require_value(base.solver_options)
+                .optimal_eps.has_value());
+    CHECK(test_support::require_value(base.solver_options)
+              .optimal_eps.value_or(0.0)
           == doctest::Approx(1e-8));
-    REQUIRE(base.solver_options->feasible_eps.has_value());
-    CHECK(base.solver_options->feasible_eps.value_or(0.0)
+    REQUIRE(test_support::require_value(base.solver_options)
+                .feasible_eps.has_value());
+    CHECK(test_support::require_value(base.solver_options)
+              .feasible_eps.value_or(0.0)
           == doctest::Approx(1e-7));
   }
 
@@ -155,8 +161,7 @@ TEST_CASE("MonolithicOptions - Merge nested solver_options")
     base.merge(std::move(overlay));
 
     REQUIRE(base.solver_options.has_value());
-    CHECK(base.solver_options->algorithm == LPAlgo::dual);
+    CHECK(test_support::require_value(base.solver_options).algorithm
+          == LPAlgo::dual);
   }
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

@@ -26,8 +26,9 @@
 #include <gtopt/planning.hpp>
 #include <gtopt/planning_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -35,16 +36,18 @@ namespace
 [[nodiscard]] auto sched_scalar(const OptTBRealFieldSched& opt) -> double
 {
   REQUIRE(opt.has_value());
-  REQUIRE(std::holds_alternative<double>(*opt));
-  return std::get<double>(*opt);
+  REQUIRE(std::holds_alternative<double>(test_support::require_value(opt)));
+  return std::get<double>(test_support::require_value(opt));
 }
 
 [[nodiscard]] auto sched_matrix(const OptTBRealFieldSched& opt)
     -> std::vector<std::vector<double>>
 {
   REQUIRE(opt.has_value());
-  REQUIRE(std::holds_alternative<std::vector<std::vector<double>>>(*opt));
-  return std::get<std::vector<std::vector<double>>>(*opt);
+  REQUIRE(std::holds_alternative<std::vector<std::vector<double>>>(
+      test_support::require_value(opt)));
+  return std::get<std::vector<std::vector<double>>>(
+      test_support::require_value(opt));
 }
 
 [[nodiscard]] auto make_planning(Array<Generator> gens, Array<Line> lines)
@@ -207,5 +210,3 @@ TEST_CASE("validate_line_transmission clamps offending entries in 2-D schedule")
   REQUIRE(mat[1].size() == 1);
   CHECK(mat[1][0] == doctest::Approx(150.0));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

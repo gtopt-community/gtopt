@@ -65,6 +65,7 @@
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/utils.hpp>
 
+#include "require_value.hpp"
 #include "sddp_helpers.hpp"
 #include "solver_test_helpers.hpp"
 
@@ -79,8 +80,6 @@ constexpr int kBlocksPerStage = 4;
 constexpr double kEmax = 200.0;  // reservoir state box is [0, emax]
 constexpr double kEini = 100.0;
 constexpr double kBaseInflow = 8.0;
-[[maybe_unused]] constexpr double kWetInflow = 11.0;
-[[maybe_unused]] constexpr double kDryInflow = 5.0;
 
 // Binary thermal commitment (dispatch_pmin, relax = false).  Two
 // geometries are used below:
@@ -411,14 +410,16 @@ struct CutView
     }
   }
   REQUIRE_MESSAGE(phase.has_value(), "cut phase_uid not found in simulation");
+  const auto scene_idx = test_support::require_value(scene);
+  const auto phase_idx = test_support::require_value(phase);
 
   CutView view {
-      .scene_pos = static_cast<std::size_t>(*scene),
-      .phase_pos = static_cast<int>(static_cast<std::size_t>(*phase)),
+      .scene_pos = static_cast<std::size_t>(scene_idx),
+      .phase_pos = static_cast<int>(static_cast<std::size_t>(phase_idx)),
   };
   view.rhs = sc.rhs;
 
-  const auto& svars = sim.state_variables(*scene, *phase);
+  const auto& svars = sim.state_variables(scene_idx, phase_idx);
   bool alpha_seen = false;
   std::size_t n_state_coeffs = 0;
   for (const auto& [col, coeff] : sc.coefficients) {

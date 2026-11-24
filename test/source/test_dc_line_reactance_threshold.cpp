@@ -31,8 +31,9 @@
 #include <gtopt/planning_options.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -56,15 +57,18 @@ namespace
 [[nodiscard]] auto reactance_scalar(const Line& line) -> double
 {
   REQUIRE(line.reactance.has_value());
-  REQUIRE(std::holds_alternative<Real>(*line.reactance));
-  return std::get<Real>(*line.reactance);
+  REQUIRE(std::holds_alternative<Real>(
+      test_support::require_value(line.reactance)));
+  return std::get<Real>(test_support::require_value(line.reactance));
 }
 
 [[nodiscard]] auto reactance_vector(const Line& line) -> std::vector<double>
 {
   REQUIRE(line.reactance.has_value());
-  REQUIRE(std::holds_alternative<std::vector<Real>>(*line.reactance));
-  return std::get<std::vector<Real>>(*line.reactance);
+  REQUIRE(std::holds_alternative<std::vector<Real>>(
+      test_support::require_value(line.reactance)));
+  return std::get<std::vector<Real>>(
+      test_support::require_value(line.reactance));
 }
 
 }  // namespace
@@ -280,8 +284,8 @@ TEST_CASE("tiny_reactance_mode default is tie, names round-trip")
   for (const auto& entry : tiny_reactance_mode_entries) {
     const auto parsed = enum_from_name<TinyReactanceMode>(entry.name);
     REQUIRE(parsed.has_value());
-    CHECK(*parsed == entry.value);
-    CHECK(enum_name(*parsed) == entry.name);
+    CHECK(test_support::require_value(parsed) == entry.value);
+    CHECK(enum_name(test_support::require_value(parsed)) == entry.name);
   }
   CHECK_FALSE(enum_from_name<TinyReactanceMode>("short").has_value());
 
@@ -391,5 +395,3 @@ TEST_CASE(
   CHECK(reactance_scalar(planning.system.line_array[1])
         == doctest::Approx(1e-8));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

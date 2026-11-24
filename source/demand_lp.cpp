@@ -183,8 +183,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   // Precedence (per demand): `forced` → no failure; own
   // `Demand.fail_segments` → segments; own `Demand.fcost` → single
   // tranche; global `model_options.demand_fail_segments` → segments;
-  // global `model_options.demand_fail_cost` → single tranche; else the
-  // load is unpenalized (no substitution).
+  // global `model_options.demand_fail_cost` (default 1000 $/MWh) →
+  // single tranche.  Only a forced demand skips the substitution.
   //
   // The curve is modelled by splitting the served load into K tranche
   // columns `served_k ∈ [lb_k, u_k]`, `u_k = width_k × lmax`, each with
@@ -209,10 +209,9 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       for (std::size_t k = 0; k < seg_costs_.size(); ++k) {
         stage_tranches.push_back({
             .width = own_seg_widths_.widths[k],
-            .cost =
-                seg_costs_[k]
-                    .optval(stage.uid())
-                    .value_or(sc.options().demand_fail_cost().value_or(0.0)),
+            .cost = seg_costs_[k]
+                        .optval(stage.uid())
+                        .value_or(sc.options().demand_fail_cost()),
         });
       }
     } else {
@@ -242,11 +241,12 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   // a single representative value (matches legacy semantics for scalar
   // fcost; for true per-block fcost only the first block's value drives
   // ecost — the per-block cost still applies to the load column).
-  if (!stage_ecost && fcost.has_value() && !blocks.empty()) {
-    stage_ecost = fcost.optval(stage.uid(), blocks.front().uid())
-                      .or_else([&] { return sc.options().demand_fail_cost(); });
-  } else if (!stage_ecost && sc.options().demand_fail_cost().has_value()) {
-    stage_ecost = sc.options().demand_fail_cost();
+  // When `fcost` is unset too, fall back to the global
+  // `model_options.demand_fail_cost` (default 1000 $/MWh).
+  if (!stage_ecost) {
+    stage_ecost = (fcost.has_value() && !blocks.empty())
+        ? sc.demand_fail_cost(stage, blocks.front(), fcost)
+        : sc.options().demand_fail_cost();
   }
 
   // ── emin aggregator collapse ─────────────────────────────────────
@@ -341,15 +341,12 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   // converter-tied demand produces a mathematically wrong row.
   // Audit before enabling on a model with Converter elements.
   const bool option_c = sc.options().demand_fail_rhs_shift();
-  // `fcost` is now per-(stage, block); substitution is enabled when the
-  // field is set anywhere on the schedule grid OR the global
-  // `model_options.demand_fail_cost` fallback is set.  Per-block
+  // `fcost` is now per-(stage, block); every non-forced demand is
+  // substituted because the global `model_options.demand_fail_cost`
+  // fallback always resolves (default 1000 $/MWh).  Per-block
   // resolution happens inside the block loop via
   // `sc.demand_fail_cost(stage, block, fcost)`.
-  const bool fail_substituted =
-      ((fcost.has_value() || sc.options().demand_fail_cost().has_value()
-        || segmented_curve)
-       && !is_forced);
+  const bool fail_substituted = !is_forced;
   const bool use_option_c = fail_substituted && option_c;
 
   // Reserve only the holders that will actually be populated in this
@@ -439,12 +436,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         } else {
           tranches.push_back({
               .width = 1.0,
-              .cost = sc.demand_fail_cost(stage, block, fcost).value_or(0.0),
+              .cost = sc.demand_fail_cost(stage, block, fcost),
           });
         }
       } else {
-        // Unpenalized (forced, or no fcost anywhere): `load` column with
-        // zero cost.
+        // Forced demand: `load` column with zero cost (fixed at lmax).
         tranches.push_back({.width = 1.0, .cost = 0.0});
       }
       const auto ntr = tranches.size();

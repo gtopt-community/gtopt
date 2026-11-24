@@ -239,6 +239,8 @@ struct Commitment
   /// ``216_STEAM_1``: pmin = 62, ramp_up = 60, initial_power = 62 —
   /// without this field the first-block LP is infeasible because
   /// the pmin floor of 62 collides with the ramp-up cap of 60).
+  /// Unset → ``Generator.initial_generation`` at the horizon start
+  /// (first stage of the first phase), else 0.
   OptReal initial_power {};
 
   OptBool relax {};  ///< LP relaxation: u/v/w continuous in [0,1]

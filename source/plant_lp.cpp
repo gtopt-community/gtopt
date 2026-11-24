@@ -25,6 +25,7 @@
 #include <gtopt/plant_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/warn_once.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -39,11 +40,12 @@ PlantLP::PlantLP(const Plant& plant, const InputContext& ic)
       auto idx = ic.element_index(ObjectSingleId<GeneratorLP> {gname});
       generator_indices_.emplace_back(idx);
     } catch (const std::exception&) {
-      SPDLOG_WARN(
-          std::format("Plant '{}' references unknown generator '{}'; "
-                      "the variant will be skipped at LP build",
-                      this->plant().name,
-                      gname));
+      warn_once_per_key(
+          std::format("Plant:{}:unknown_generator:{}", uid(), gname),
+          "Plant '{}' references unknown generator '{}'; the variant will "
+          "be skipped at LP build.  Logged once per element.",
+          this->plant().name,
+          gname);
       generator_indices_.emplace_back();
     }
   }
