@@ -80,6 +80,20 @@ PYTHONPATH=. python -m sienna_to_gtopt monitored_line  -o ml.json
 PYTHONPATH=. python -m sienna_to_gtopt hvdc            -o hvdc.json
 ```
 
+## Supported source versions
+
+| PowerSystemsTestData commit | Supported | Tested | Notes |
+|-----------------------------|-----------|--------|-------|
+| `a2ecae9ff3cfe6d219744f1b10e4edd4eeecabc9` (default) | yes | yes — `tests/conftest.py::require_sienna_5bus` | The pinned commit of `_bundle.UPSTREAM_COMMIT` |
+
+**Detection**: an extracted bundle whose files all match their
+`_bundle.MANIFEST` SHA-256 is the pinned commit; anything else (e.g. a
+hand-staged archive with other contents) is undetectable.
+`--source-version X` overrides it (a 7+ character abbreviation matches);
+an unknown commit falls back to the pinned one with a warning.  The same
+list is printed by `--help`; see
+[Supported source versions](../../docs/scripts-guide.md#supported-source-versions).
+
 ## What the integration tests assert
 
 **Files**: `test/source/test_sienna_5bus_{cascading_hydro,monitored_line,hvdc}_port.cpp`

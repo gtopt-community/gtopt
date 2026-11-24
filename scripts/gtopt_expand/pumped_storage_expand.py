@@ -294,6 +294,11 @@ def expand_pumped_storage(
         "name": dem_element,
         "bus": bus,
         "capacity": pump_cap,
+        # Pumping is dispatchable, not curtailable load: fcost=0 keeps
+        # it in [0, capacity] instead of inheriting the global
+        # demand_fail_cost (gtopt default 1000 $/MWh), which would force
+        # the pump to run at full load.
+        "fcost": 0.0,
     }
     waterway_gen = {
         "uid": u + 2,

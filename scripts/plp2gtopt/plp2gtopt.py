@@ -19,6 +19,7 @@ from typing import Any
 
 from gtopt_shared.json_utils import strip_internal_keys
 from gtopt_shared.resources import REINSTALL_HINT, MissingDataFileError
+from gtopt_shared.sanity_report import run_sanity_report
 from plp2gtopt._progress import ConversionProgress, setup_file_logging
 from plp2gtopt.excel_writer import build_plp_excel
 from plp2gtopt.gtopt_writer import GTOptWriter
@@ -247,7 +248,7 @@ def _log_stats(
     rows.append(("use_kirchhoff", str(mo.get("use_kirchhoff", False))))
     rows.append(("use_single_bus", str(mo.get("use_single_bus", False))))
     rows.append(("scale_objective", str(mo.get("scale_objective", 1_000))))
-    rows.append(("demand_fail_cost", str(mo.get("demand_fail_cost", 0))))
+    rows.append(("demand_fail_cost", str(mo.get("demand_fail_cost", 1000))))
 
     # Features — plp2gtopt-level conversion toggles (soft constraints,
     # auto water-fail-cost, topology rewrites, expansion modes).  Only
@@ -900,6 +901,14 @@ def convert_plp_case(options: dict[str, Any]) -> int:
         if do_check:
             critical_count = run_post_check(
                 writer.planning, parser, output_dir=output_dir
+            )
+            # Data-quality report (warnings only; --sanity-report PATH
+            # also writes it as JSON).
+            run_sanity_report(
+                strip_internal_keys(writer.planning),
+                output_file.parent,
+                json_path=options.get("sanity_report"),
+                log=logger,
             )
 
         # Field tables now land in long layout DIRECTLY at write time

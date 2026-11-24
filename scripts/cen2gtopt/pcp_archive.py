@@ -130,6 +130,7 @@ Examples
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import logging
 import re
@@ -140,6 +141,7 @@ import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -169,6 +171,10 @@ LIST_URL = endpoint_url(_OPERATOR, "portal_list")
 
 #: Origin header the portal API expects.
 PORTAL_ORIGIN = endpoint_url(_OPERATOR, "portal_web")
+
+#: Per-file endpoint the portal's download button uses; signs a fresh
+#: S3 URL on every call (the index URLs expire after 12 h).
+DOWNLOAD_URL = endpoint_url(_OPERATOR, "portal_presign")
 
 #: On-disk index cache — the listFiles response is ~1 MB JSON.
 DEFAULT_INDEX_PATH = Path.home() / ".cache" / "gtopt" / "cen2gtopt" / "pcp_index.json"
@@ -312,6 +318,45 @@ def filter_files(
 # ---------------------------------------------------------------------------
 
 
+def fresh_download_url(
+    f: PcpFile,
+    *,
+    user_key: str | None = None,
+    timeout: int = 60,
+) -> str:
+    """Ask the portal for a freshly signed S3 URL for ``f``.
+
+    The ``enlaceDescarga`` in the listFiles index is signed when the file
+    is published and expires after 12 h; the portal does not always
+    re-sign it.  The SPA's download button instead calls
+    ``presigned-url-download?encodedKey=<base64(s3 key)>``, which signs a
+    new URL on every request.  Falls back to the indexed URL on failure.
+    """
+    key = urlparse(f.enlace_descarga).path.lstrip("/") or (f"{f.categoria}/{f.nombre}")
+    try:
+        if user_key is None:
+            user_key = operator_credential(_OPERATOR, _PORTAL_AUTH)
+        resp = requests.get(
+            DOWNLOAD_URL,
+            params={
+                "encodedKey": base64.b64encode(key.encode()).decode(),
+                "user_key": user_key,
+            },
+            headers={"Origin": PORTAL_ORIGIN},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        url = data.get("presignedUrlDownload") if isinstance(data, dict) else None
+        if url:
+            return str(url)
+    except (requests.RequestException, ValueError, MissingCredentialError) as exc:
+        _LOG.warning(
+            "fresh URL for %s failed (%s); using index URL", key, redact(str(exc))
+        )
+    return f.enlace_descarga
+
+
 def download_one(
     f: PcpFile,
     *,
@@ -329,7 +374,7 @@ def download_one(
     _LOG.info("download %s (%s) …", f.nombre, f.descripcion[:60])
     try:
         with requests.get(
-            f.enlace_descarga,
+            fresh_download_url(f),
             stream=True,
             timeout=timeout,
             verify=tls_verify_default(),

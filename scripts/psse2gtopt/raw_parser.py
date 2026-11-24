@@ -34,6 +34,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from gtopt_shared.source_versions import SourceFormat
+
 from .entities import (
     BranchSpec,
     BusSpec,
@@ -46,6 +48,48 @@ from .entities import (
 
 
 logger = logging.getLogger(__name__)
+
+#: PSS/E RAW revisions (the ``REV`` field of the case-identification
+#: line) the classic comma-separated reader accepts.  Rev 34+ (the
+#: ``@!``-headed / system-wide-data layout) is rejected by
+#: :func:`parse_raw`; rev <= 31 is parsed with a warning and treated as
+#: the oldest declared revision.  Both declared revisions are exercised by
+#: ``tests/data`` (``ieee14.raw`` rev 32, ``ieee39.raw`` / ``synthetic.raw``
+#: rev 33).
+SOURCE_FORMAT = SourceFormat(
+    name="PSS/E RAW",
+    supported=("32", "33"),
+    tested=("32", "33"),
+    default="33",
+)
+
+
+def detect_version(path: Path) -> str | None:
+    """RAW revision from the ``REV`` field of the case-id line, else ``None``.
+
+    Skips a leading ``@!`` column-header comment (PSS/E v35 export), so a
+    v35 file reports ``"35"``.  Returns ``None`` when the file cannot be
+    read or the case-id line carries no integer ``REV`` field.
+    """
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        read_text,
+    )
+
+    try:
+        lines = read_text(path, encoding="latin-1", errors="replace").splitlines()
+    except OSError:
+        return None
+    if lines and lines[0].lstrip().startswith("@!"):
+        lines = lines[1:]
+    if not lines:
+        return None
+    fields = _split(lines[0].split("/", 1)[0])
+    if len(fields) < 3:
+        return None
+    try:
+        return str(int(float(fields[2])))
+    except ValueError:
+        return None
 
 
 # Minimum |reactance| (p.u.) emitted for a branch.  PSS/E bus-tie

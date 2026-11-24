@@ -522,8 +522,13 @@ class MauleAgreement(_RightsAgreementBase):
         reset_month_riego = _hydro_month_name(riego_ini_hydro)
         v_extraord = cfg["v_reserva_extraord"]
         v_ordinaria = cfg["v_reserva_ordinaria"]
-        v_zone_extraord = v_extraord
-        v_zone_normal = v_extraord + v_ordinaria
+        # PLP's regime test reads the USEFUL volume
+        # (VolMauleUtil = vol - VEmbalseUtilMin, genpdmaule.f:1172),
+        # while the bound_rule axis is the raw LMAULE volume: shift
+        # the zone thresholds by VEmbalseUtilMin.
+        v_util_min = float(cfg.get("v_util_min", 0.0))
+        v_zone_extraord = v_util_min + v_extraord
+        v_zone_normal = v_util_min + v_extraord + v_ordinaria
 
         elec_day_max = cfg["gasto_elec_dia_max"]
         riego_max = cfg["gasto_riego_max"]
@@ -611,6 +616,11 @@ class MauleAgreement(_RightsAgreementBase):
             "qdrah_fmax": 2.0 * float(riego_max),
             "qdef_riego": None if qdef is None else self._to_tb_sched(qdef),
             "canelon_anchored": canelon_anchored,
+            # Physical cap of the priced Canelon intake: the generation
+            # arc's fmax (PLP central max flow), injected by plp2gtopt.
+            "canelon_qmax": (
+                None if cfg.get("canelon_qmax") is None else float(cfg["canelon_qmax"])
+            ),
             "cota_425": self._cota_425_context(),
             # Costs / penalties
             "penalizador_1": cfg.get("penalizador_1", 1500),
@@ -659,6 +669,18 @@ class MauleAgreement(_RightsAgreementBase):
         district_constraints: list[dict[str, Any]] = []
 
         cost_ns = float(cfg.get("costo_riego_ns_res105", 1000.0))
+        # PLP prices qa105 at -ValorRiego105 (genpdmaule.f:526) and each
+        # district shortfall qrhh at +CostoRiegoNS105 (:536).  Every
+        # unit of qa105 a district books as shortfall therefore earns
+        # ValorRiego105 - CostoRiegoNS105 — a net PROFIT whenever the
+        # reward exceeds the shortfall cost (plpmaulen: 1100 > 1000),
+        # i.e. the LP is paid for undelivered irrigation.  Pricing the
+        # shortfall at CostoRiegoNS105 + ValorRiego105 cancels the
+        # reward on the undelivered share: the objective becomes
+        # ValorRiego105 * (delivered) - CostoRiegoNS105 * (shortfall),
+        # which is what the agreement values.
+        valor_105 = max(float(cfg.get("valor_riego_res105", 0.0)), 0.0)
+        cost_shortfall = cost_ns + valor_105
         for district in cfg["districts"]:
             pct = district["percentage"]
 
@@ -698,7 +720,7 @@ class MauleAgreement(_RightsAgreementBase):
                         "direction": -1,
                         "target": 0,
                         "fmax": district_fmax,
-                        "uvalue": -cost_ns,
+                        "uvalue": -cost_shortfall,
                     }
                 )
                 lhs += f" + flow_right('{deficit_name}').flow"

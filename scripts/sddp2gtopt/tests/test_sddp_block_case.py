@@ -10,6 +10,7 @@ the loader in :mod:`sddp2gtopt.sddp_case` and the writer in
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -21,6 +22,7 @@ from sddp2gtopt.sddp_case_writer import build_sddp_planning
 from sddp2gtopt.sddp_dat_parsers import (
     fw_record,
     header_spans,
+    infer_kv_from_name,
     parse_block_profiles,
     parse_bus_load_factors,
     parse_circuit_mods,
@@ -460,3 +462,71 @@ def test_repeated_labels_kept() -> None:
     spans = header_spans("!Num .Vol1.. .Cota1. .Vol1..")
     rec = fw_record("   1     10.    700.     55.", spans)
     assert rec["Vol1"] == "10." and rec["Vol1@2"] == "55."
+
+
+# ───────────────────────── bus kV from the name ─────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("name", "kv"),
+    [
+        ("AGU-230", 230.0),
+        ("ESC-231", 230.0),  # section 1 of the 230 kV bus, not 23 kV
+        ("LUC-692", 69.0),
+        ("LUC-69", 69.0),
+        ("PAL-138T", 138.0),
+        ("HUE-13", 13.8),
+        ("HUE-132", 13.8),  # section 2 of 13.8 kV, not 132 kV
+        ("VBL-341", 34.5),
+        ("VBL-345", 345.0),
+        ("SUR 220", 220.0),
+        ("AGUAYTIA23", 23.0),
+        ("TND-B5", None),
+        ("AGUAYTIA_N", None),
+        ("X-0", None),
+    ],
+)
+def test_infer_kv_from_name(name: str, kv: float | None) -> None:
+    assert infer_kv_from_name(name) == kv
+
+
+def _x_r_per_v2(case_dir: Path) -> dict[int, tuple[float, float, float]]:
+    case = load_sddp_block_case(case_dir)
+    return {
+        ln.code: (
+            ln.voltage,
+            ln.reactance / ln.voltage**2,
+            ln.resistance / ln.voltage**2,
+        )
+        for ln in case.lines
+    }
+
+
+def test_zero_volt_dat_takes_kv_from_name_lp_invariant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``volt.dat`` at 0 kV (AMM Guatemala): the kV comes from the bus
+    name, and the LP coefficients ``X/V²`` and ``R/V²`` are identical to
+    the ``volt.dat`` case and to the name-less ``V = 100`` fallback."""
+    zero = tmp_path / "zero"
+    shutil.copytree(CASE, zero)
+    (zero / "volt.dat").write_text(
+        "(Bus) (...Nome...) O (.kV.)\n"
+        "    1 NORTE220            0\n"
+        "    2 CENTRO220           0\n"
+        "    3 SUR 220             0\n",
+        encoding="utf-8",
+    )
+    ref = _x_r_per_v2(CASE)
+    named = _x_r_per_v2(zero)
+    assert load_sddp_block_case(zero).bus_kv == {1: 220.0, 2: 220.0, 3: 220.0}
+    monkeypatch.setattr("sddp2gtopt.sddp_case.infer_kv_from_name", lambda _name: None)
+    fallback = _x_r_per_v2(zero)
+    assert ref.keys() == named.keys() == fallback.keys()
+    for code, (v_ref, x_ref, r_ref) in ref.items():
+        assert v_ref == 220.0
+        assert named[code][0] == 220.0
+        assert fallback[code][0] == 100.0
+        for got in (named[code], fallback[code]):
+            assert got[1] == pytest.approx(x_ref, rel=1e-12)
+            assert got[2] == pytest.approx(r_ref, rel=1e-12)

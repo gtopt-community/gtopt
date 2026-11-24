@@ -96,10 +96,19 @@ def test_inject_seepage_ref_variants() -> None:
         {"name": "POND", "emax": 100.0},
     ]
     w._inject_seepage_ref(cfg, "LAKE")  # pylint: disable=protected-access
-    assert cfg == {"seepage_ref": "S1", "seepage_flow_ub": pytest.approx(1.0)}
+    assert cfg == {
+        "seepage_ref": "S1",
+        "seepage_flow_ub": pytest.approx(1.0),
+        "filtration_segments": [{"volume": 0.0, "slope": -0.5, "constant": 1.0}],
+    }
     w._inject_seepage_ref(cfg, "POND")  # pylint: disable=protected-access
     assert cfg["seepage_ref"] == "S2"
     assert cfg["seepage_flow_ub"] == pytest.approx(4.0)
+    assert [seg["volume"] for seg in cfg["filtration_segments"]] == [
+        0.0,
+        50.0,
+        500.0,
+    ]
 
 
 def test_scenario_mean_series() -> None:

@@ -15,25 +15,30 @@ resolves to the right file.
 
 v1 scope (locked):
   * Aggregated: ``active`` (OR), ``tmax_ab`` / ``tmax_ba`` (gated sum),
-    ``voltage`` (capacity-weighted active), ``reactance`` (parallel
-    in per-unit), ``resistance`` (loss-energy preserving in per-unit).
+    ``reactance`` (parallel in per-unit), ``resistance`` (loss-energy
+    preserving in per-unit).  ``voltage`` is an input only: equivalent
+    lines carry the scalar ``voltage = √MVA_base`` (10), so their X/R
+    schedules are written in that convention and no voltage schedule
+    is emitted.
   * Unhandled (warned and skipped — reduced JSON keeps scalar):
     ``tcost``, ``lossfactor``, ``tap_ratio``, ``phase_shift_deg``,
     expansion fields, bool flags.
   * Unknown fields (no rule defined): warned and skipped.
 
-Per-unit pipeline (for V/X/R, gated by ``active``):
+Per-unit pipeline (for X/R, gated by ``active``; V defaults to 1.0, the
+gtopt default, when neither JSON nor parquet sets it):
 
     X_pu[i](s)  = X[i](s) · MVA_base / V[i](s)²
-    V_eq(s)     = Σ act·cap·V / Σ act·cap         (cap-weighted active)
     X_pu_eq(s)  = 1 / Σ (act[i] / X_pu[i](s))     (parallel over active)
     R_pu_eq(s)  = X_pu_eq(s)² · Σ act·R_pu / X_pu² (loss-energy)
-    X_eq(s)     = X_pu_eq(s) · V_eq(s)² / MVA_base
-    R_eq(s)     = R_pu_eq(s) · V_eq(s)² / MVA_base
+    X_eq(s)     = X_pu_eq(s) · V_eq² / MVA_base = X_pu_eq(s)   (V_eq = 10)
+    R_eq(s)     = R_pu_eq(s)
 
-When no V is scheduled and JSON voltage is 1.0 (pure p.u. mode), the
-pipeline degenerates to the simple parallel-X / loss-energy aggregator
-without any V-conversion (strict generalisation, no regression).
+so gtopt's ``X_eq/V_eq²`` is the parallel combination of the originals'
+``X[i]/V[i]²`` whatever convention each original uses (PLEXOS p.u. with
+V = 10, PLP / SDDP Ω with V in kV, bare V = 1).  A scheduled ``voltage``
+or ``reactance`` triggers a reactance schedule (and a resistance one
+when any member is lossy).
 """
 
 from __future__ import annotations
@@ -48,6 +53,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 from gtopt_reduce_network._aggregate import AggregatedLine
+from gtopt_reduce_network._topology import MVA_BASE, PU_LINE_VOLTAGE
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +61,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Rule registry
 # ---------------------------------------------------------------------------
-
-MVA_BASE = 100.0
 
 # Default V when neither JSON nor parquet specifies one — interpreted as
 # pure-per-unit mode (X, R already in p.u.).  In that mode the per-unit
@@ -67,7 +71,7 @@ _DEFAULT_V = 1.0
 # by (stage, block) tuple).  kind: dispatch key for _apply_rule.
 _RULES: dict[str, dict[str, str]] = {
     "active": {"axis": "stage", "kind": "or"},
-    "voltage": {"axis": "stage", "kind": "cap-weighted-active"},
+    "voltage": {"axis": "stage", "kind": "input-only"},
     "reactance": {"axis": "stage", "kind": "parallel-x-pu"},
     "resistance": {"axis": "stage", "kind": "r-pu"},
     "tmax_ab": {"axis": "stage-block", "kind": "gated-sum"},
@@ -355,146 +359,54 @@ def aggregate_line_schedules(
         eq_active = np.ones((n_eq, n_stages), dtype=int)
         computed["active"] = eq_active
 
-    # Voltage (needed by reactance/resistance pipelines).
-    if "voltage" in discovered:
-        V_mat = _per_orig_matrix_for(
-            discovered.get("voltage"),
-            scalars,
-            "voltage",
-            stage_axis,
-            n_stages,
-            aggregated_lines,
-        )
-        # We also need the act mat with the SAME (n_orig, n_stages) shape.
-        act_per_orig = _per_orig_matrix_for(
-            discovered.get("active"),
-            scalars,
-            "active",
-            stage_axis,
-            n_stages,
-            aggregated_lines,
-        )
-        eq_voltage = _eq_cap_weighted_active(
-            V_mat,
-            act_per_orig,
-            aggregated_lines,
-            scalars,
-        )
-        computed["voltage"] = eq_voltage
-    else:
-        eq_voltage = None
+    # Equivalent lines carry V = √MVA_BASE (``PU_LINE_VOLTAGE``, set as a
+    # scalar by ``_reduce._build_line_array``): X_eq / R_eq are written in
+    # that convention, so gtopt's X/V² equals the per-unit equivalent no
+    # matter how the originals mix V = 10 p.u., kV + Ω or V = 1.  A
+    # scheduled voltage therefore changes X_pu / R_pu per stage (it is an
+    # INPUT here) but is never emitted.
+    V_eq_per_stage = np.full((n_eq, n_stages), PU_LINE_VOLTAGE, dtype=float)
+    impedance_scheduled = bool({"voltage", "reactance"} & discovered.keys())
 
-    # Reactance.
-    if "reactance" in discovered:
-        X_mat = _per_orig_matrix_for(
-            discovered.get("reactance"),
+    def _orig(field: str) -> list[np.ndarray]:
+        return _per_orig_matrix_for(
+            discovered.get(field),
             scalars,
-            "reactance",
+            field,
             stage_axis,
             n_stages,
             aggregated_lines,
         )
-        V_mat_for_x = _per_orig_matrix_for(
-            discovered.get("voltage"),
-            scalars,
-            "voltage",
-            stage_axis,
-            n_stages,
-            aggregated_lines,
-        )
-        act_per_orig_x = _per_orig_matrix_for(
-            discovered.get("active"),
-            scalars,
-            "active",
-            stage_axis,
-            n_stages,
-            aggregated_lines,
-        )
-        V_eq_per_stage = computed.get("voltage")
-        if V_eq_per_stage is None:
-            # Voltage not scheduled — derive V_eq from JSON scalars per eq.
-            V_eq_per_stage = _eq_cap_weighted_active(
-                V_mat_for_x,
-                act_per_orig_x,
-                aggregated_lines,
-                scalars,
-            )
-        eq_reactance = _eq_parallel_x_pu(
-            X_mat,
-            V_mat_for_x,
-            act_per_orig_x,
-            V_eq_per_stage,
-        )
-        computed["reactance"] = eq_reactance
-    else:
-        eq_reactance = None
 
-    # Resistance.
-    if "resistance" in discovered:
-        R_mat = _per_orig_matrix_for(
-            discovered.get("resistance"),
-            scalars,
-            "resistance",
-            stage_axis,
-            n_stages,
-            aggregated_lines,
+    if impedance_scheduled or "resistance" in discovered:
+        X_mat = _orig("reactance")
+        V_mat = _orig("voltage")
+        act_per_orig_z = _orig("active")
+        X_eq_per_stage = _eq_parallel_x_pu(X_mat, V_mat, act_per_orig_z, V_eq_per_stage)
+        if impedance_scheduled:
+            computed["reactance"] = X_eq_per_stage
+        has_r = "resistance" in discovered or any(
+            scalars[u].resistance > 0.0
+            for eq in aggregated_lines
+            for u in eq.absorbed
+            if u in scalars
         )
-        X_mat_for_r = _per_orig_matrix_for(
-            discovered.get("reactance"),
-            scalars,
-            "reactance",
-            stage_axis,
-            n_stages,
-            aggregated_lines,
-        )
-        V_mat_for_r = _per_orig_matrix_for(
-            discovered.get("voltage"),
-            scalars,
-            "voltage",
-            stage_axis,
-            n_stages,
-            aggregated_lines,
-        )
-        act_per_orig_r = _per_orig_matrix_for(
-            discovered.get("active"),
-            scalars,
-            "active",
-            stage_axis,
-            n_stages,
-            aggregated_lines,
-        )
-        V_eq_per_stage = computed.get("voltage")
-        if V_eq_per_stage is None:
-            V_eq_per_stage = _eq_cap_weighted_active(
-                V_mat_for_r,
-                act_per_orig_r,
-                aggregated_lines,
-                scalars,
-            )
-        X_eq_per_stage = computed.get("reactance")
-        if X_eq_per_stage is None:
-            X_eq_per_stage = _eq_parallel_x_pu(
-                X_mat_for_r,
-                V_mat_for_r,
-                act_per_orig_r,
+        if has_r:
+            computed["resistance"] = _eq_resistance_pu(
+                _orig("resistance"),
+                X_mat,
+                V_mat,
+                act_per_orig_z,
                 V_eq_per_stage,
+                X_eq_per_stage,
             )
-        eq_resistance = _eq_resistance_pu(
-            R_mat,
-            X_mat_for_r,
-            V_mat_for_r,
-            act_per_orig_r,
-            V_eq_per_stage,
-            X_eq_per_stage,
-        )
-        computed["resistance"] = eq_resistance
-    else:
-        eq_resistance = None
 
     # 5. Stage-indexed outputs.
     results: dict[str, _AggResult] = {}
-    for field in ("active", "voltage", "reactance", "resistance"):
-        if field not in computed or field not in discovered:
+    for field in ("active", "reactance", "resistance"):
+        # ``active`` is emitted only when scheduled; reactance/resistance
+        # whenever an impedance input (V, X or R) is scheduled.
+        if field not in computed or (field == "active" and field not in discovered):
             continue
         mat = computed[field]  # shape (n_eq, n_stages)
         out_stem = f"{field}_{reduced_tag}"
@@ -662,48 +574,6 @@ def _eq_or(act_per_eq: list[np.ndarray]) -> np.ndarray:
         if mat.size == 0:
             continue
         out[i] = (mat.sum(axis=0) > 0).astype(int)
-    return out
-
-
-def _eq_cap_weighted_active(
-    V_per_eq: list[np.ndarray],
-    act_per_eq: list[np.ndarray],
-    aggregated_lines: list[AggregatedLine],
-    scalars: dict[int, _ScalarsFor],
-) -> np.ndarray:
-    """V_eq(s) = Σ act·cap·V / Σ act·cap (capacity-weighted active)."""
-    n_eq = len(V_per_eq)
-    n_stages = V_per_eq[0].shape[1] if (V_per_eq and V_per_eq[0].size) else 0
-    out = np.full((n_eq, n_stages), _DEFAULT_V, dtype=float)
-    for i, (V_mat, act_mat, eq) in enumerate(
-        zip(V_per_eq, act_per_eq, aggregated_lines)
-    ):
-        if V_mat.size == 0 or act_mat.size == 0:
-            continue
-        cap = np.asarray(
-            [
-                scalars.get(u, _ScalarsFor(0, 1.0, 1.0, 0, 0, 0, 1.0)).capacity
-                for u in eq.absorbed
-            ],
-            dtype=float,
-        )[:, None]
-        weight = act_mat * cap
-        num = (V_mat * weight).sum(axis=0)
-        den = weight.sum(axis=0)
-        v_eq = np.where(den > 0, num / np.where(den > 0, den, 1.0), _DEFAULT_V)
-        # Warn if V varies meaningfully across active originals.
-        max_v = (V_mat * (act_mat > 0)).max(axis=0)
-        min_v = np.where(act_mat > 0, V_mat, np.inf).min(axis=0)
-        bad = np.any(
-            np.where(min_v > 0, max_v / np.where(min_v > 0, min_v, 1.0), 1.0) > 1.05
-        )
-        if bad:
-            logger.warning(
-                "line-schedule: corridor uid=%d has mixed-voltage active "
-                "originals (max/min > 1.05) — V_eq is cap-weighted",
-                eq.uid,
-            )
-        out[i] = v_eq
     return out
 
 

@@ -326,6 +326,9 @@ def run_gui(status_file: Path, poll_interval: float) -> None:
 # ---------------------------------------------------------------------------
 
 
+_FINAL_STATUSES = frozenset({"done", "max_iterations", "stopped", "error"})
+
+
 def run_text(status_file: Path, poll_interval: float) -> None:
     """Poll the status file and print summaries to stdout."""
     print(f"Monitoring {status_file} (poll every {poll_interval:.1f}s)…")
@@ -343,10 +346,12 @@ def run_text(status_file: Path, poll_interval: float) -> None:
                 if status == "converged":
                     print("\n  Solver converged.")
                     break
-                if status == "done":
-                    # Final status of a monolithic solve (and of a
-                    # finished run): nothing more will be written.
-                    print("\n  Solver finished.")
+                if status in _FINAL_STATUSES:
+                    # Final status of a monolithic solve ("done") or of an
+                    # SDDP run that ended without converging
+                    # ("max_iterations" / "stopped" / "error"): nothing
+                    # more will be written.
+                    print(f"\n  Solver finished ({status}).")
                     break
             time.sleep(poll_interval)
     except KeyboardInterrupt:

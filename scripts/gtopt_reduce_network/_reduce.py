@@ -34,7 +34,12 @@ from gtopt_reduce_network._protected_lines import collect_protected_lines
 from gtopt_reduce_network._partition_nx import build_busmap_nx
 from gtopt_reduce_network._line_schedules import aggregate_line_schedules
 from gtopt_reduce_network._simplify import apply_loss_mode, apply_transport_only
-from gtopt_reduce_network._topology import LineGraph, build_line_graph
+from gtopt_reduce_network._topology import (
+    PU_LINE_VOLTAGE,
+    LineGraph,
+    LineScheduleResolver,
+    build_line_graph,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +79,9 @@ class ReduceConfig:
     # valid in the reduced case — essential when the reduced commitment is
     # used as a MIP warm-start seed for the full model.
     protect_constraint_lines: bool = False
+    # Line uids to keep intact (same treatment as constraint-referenced
+    # lines), e.g. an interconnector the study is about.
+    protected_line_uids: tuple[int, ...] = ()
     # --- Partition backend -------------------------------------------------
     partition: str = "hac"  # hac | louvain-mincut
     nx_weight: str = "capacity"  # capacity | susceptance (louvain-mincut only)
@@ -91,6 +99,15 @@ class ReduceConfig:
     # to the parent dir of the input JSON; the cascade-reduced flow
     # passes it explicitly.
     parquet_case_dir: str | None = None
+    # --- Fixed bus grouping (zonal / country equivalents) -----------------
+    # When non-empty, the partition is NOT computed: every bus uid is
+    # mapped to the named group given here (e.g. {"CL", "PE"} for a
+    # two-node interconnection model), local simplification is skipped,
+    # and ``target_buses`` is ignored (= number of groups).  The group
+    # representative bus is the smallest user anchor uid in the group,
+    # else the smallest bus uid.  Lines between groups are aggregated
+    # (capacities summed); lines inside a group vanish.
+    bus_groups: dict[int, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.loss_mode not in _LOSS_MODES:
@@ -140,6 +157,7 @@ class ReduceConfig:
             "dc_voltage_threshold": self.dc_voltage_threshold,
             "dc_power_threshold": self.dc_power_threshold,
             "protect_constraint_lines": self.protect_constraint_lines,
+            "protected_line_uids": list(self.protected_line_uids),
             "partition": self.partition,
             "nx_weight": self.nx_weight,
             "seed": self.seed,
@@ -149,6 +167,7 @@ class ReduceConfig:
             "loss_uplift_collision": self.loss_uplift_collision,
             "reduced_tag": self.reduced_tag,
             "parquet_case_dir": self.parquet_case_dir,
+            "bus_groups": {str(k): v for k, v in sorted(self.bus_groups.items())},
         }
 
 
@@ -167,11 +186,19 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     """Run the full reduction pipeline against ``case`` (not mutated)."""
     # Operate on a deep copy so the caller's Case is untouched.
     work = case.deepcopy()
+    schedules = None
+    bus_schedules = None
+    if config.parquet_case_dir:
+        input_directory = work.options.get("input_directory", ".") or "."
+        input_root = Path(config.parquet_case_dir) / str(input_directory)
+        schedules = LineScheduleResolver(input_root / "Line")
+        bus_schedules = LineScheduleResolver(input_root / "Bus")
     graph = build_line_graph(
         work,
         dc_reactance_threshold=config.dc_reactance_threshold,
         dc_voltage_threshold=config.dc_voltage_threshold,
         dc_power_threshold=config.dc_power_threshold,
+        schedules=schedules,
     )
     logger.info(
         "loaded %d buses, %d lines (%d skipped, %d DC)",
@@ -189,6 +216,17 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
         protected_line_uids, protected_bus_uids = collect_protected_lines(
             work, input_dir=input_dir
         )
+    if config.protected_line_uids:
+        by_uid = {int(ln["uid"]): ln for ln in work.array("line_array")}
+        for u in config.protected_line_uids:
+            ln = by_uid.get(int(u))
+            if ln is None:
+                raise ValueError(f"protected line uid {u} not in line_array")
+            protected_line_uids.add(int(u))
+            for end in ("bus_a", "bus_b"):
+                b = resolve_bus_ref(work, ln.get(end))
+                if b is not None:
+                    protected_bus_uids.add(int(b))
 
     # 1. Local simplify ----------------------------------------------------
     dc_mask = graph.line_is_dc
@@ -210,7 +248,7 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     eliminated_buses: list[int] = []
     parent_of_eliminated: dict[int, int] = {}
 
-    if not config.skip_local_simplify:
+    if not config.skip_local_simplify and not config.bus_groups:
         # DC lines are controllable devices, not impedances: exclude them
         # from the (exact-for-DC-OPF) X-based merges and pin their endpoint
         # buses so degree-2 elimination cannot swallow a converter station.
@@ -280,20 +318,29 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     anchor_uids = tuple(config.user_anchor_uids) + tuple(
         b for b in protected_bus_uids if b in set(simplified_buses)
     )
-    anchor_sel = select_anchors(
-        work,
-        target_buses=config.target_buses,
-        surviving_bus_uids=simplified_buses,
-        user_anchor_uids=anchor_uids,
-        min_load_mw=config.min_load_mw,
-        min_gen_capacity_mw=config.min_gen_capacity_mw,
-        include_reservoir_hosts=config.include_reservoir_hosts,
-    )
-    if config.partition == "louvain-mincut":
+    anchor_bus_uids: list[int] = list(config.user_anchor_uids)
+    if not config.bus_groups:
+        anchor_bus_uids = list(
+            select_anchors(
+                work,
+                target_buses=config.target_buses,
+                surviving_bus_uids=simplified_buses,
+                user_anchor_uids=anchor_uids,
+                min_load_mw=config.min_load_mw,
+                min_gen_capacity_mw=config.min_gen_capacity_mw,
+                include_reservoir_hosts=config.include_reservoir_hosts,
+            ).bus_uids
+        )
+    if config.bus_groups:
+        # Fixed groups: no anchor selection (the groups ARE the partition).
+        busmap = busmap_from_groups(
+            simplified_buses, config.bus_groups, config.user_anchor_uids
+        )
+    elif config.partition == "louvain-mincut":
         busmap = build_busmap_nx(
             sub_graph,
             target_buses=config.target_buses,
-            anchors=anchor_sel.bus_uids,
+            anchors=anchor_bus_uids,
             weight_mode=config.nx_weight,
             seed=config.seed,
         )
@@ -305,7 +352,7 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
             simplified_buses,
             distance,
             target_buses=config.target_buses,
-            anchors=anchor_sel.bus_uids,
+            anchors=anchor_bus_uids,
         )
     cluster_of_bus_simplified = {
         row.original_bus_uid: row.cluster_bus_uid for row in busmap
@@ -363,7 +410,11 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     original_line_array = list(work.system.get("line_array", []))
     cluster_bus_uids = sorted({row.cluster_bus_uid for row in full_busmap})
     work.system["bus_array"] = _build_bus_array(
-        work, cluster_bus_uids, work.bus_name_by_uid
+        work,
+        cluster_bus_uids,
+        work.bus_name_by_uid,
+        members=_members_of(full_busmap),
+        bus_schedules=bus_schedules,
     )
     reduced_lines = _build_line_array(agg_lines, work.bus_name_by_uid)
     # Re-emit protected lines UNCHANGED (original uid/name/reactance/tmax/
@@ -372,10 +423,26 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     # constraint — valid.  Bus refs are remapped to the endpoint's cluster
     # representative (itself, for an anchor) for robustness.
     if protected_line_uids:
-        # Protected uids were collected from this very line_array.
+        # Protected uids were collected from (or validated against) this
+        # very line_array.
         by_uid = {int(ln["uid"]): ln for ln in original_line_array}
         for u in sorted(protected_line_uids):
             src = by_uid[u]
+            if config.bus_groups:
+                ends = []
+                for end in ("bus_a", "bus_b"):
+                    try:
+                        b = resolve_bus_ref(work, src.get(end))
+                    except (KeyError, TypeError):
+                        b = None
+                    ends.append(cluster_of_bus_full.get(b, b))
+                if ends[0] == ends[1]:
+                    logger.warning(
+                        "protected line uid=%d lies inside one bus group; "
+                        "dropped (intra-group lines vanish)",
+                        u,
+                    )
+                    continue
             entry = dict(src)
             for end in ("bus_a", "bus_b"):
                 try:
@@ -459,13 +526,91 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
         aggregator=aggregator,
         aggregated_lines=agg_lines,
         eliminated_buses=eliminated_buses,
-        anchor_uids=anchor_sel.bus_uids,
+        anchor_uids=anchor_bus_uids,
     )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def busmap_from_groups(
+    bus_uids: list[int],
+    groups: dict[int, str],
+    anchor_uids: tuple[int, ...] = (),
+) -> list[BusmapRow]:
+    """Busmap for a fixed bus → group assignment.
+
+    Every bus in ``bus_uids`` must have a group.  The representative
+    (cluster) bus of a group is its smallest anchor uid, else its smallest
+    bus uid — so the reduced bus keeps a real bus identity/name.
+    """
+    missing = [u for u in bus_uids if u not in groups]
+    if missing:
+        raise ValueError(
+            f"{len(missing)} bus(es) have no group (first: {missing[:5]}); "
+            "every bus must be assigned when bus groups are given"
+        )
+    anchors = set(anchor_uids)
+    members: dict[str, list[int]] = {}
+    for u in bus_uids:
+        members.setdefault(groups[u], []).append(u)
+    rep_of: dict[str, int] = {}
+    for g, us in members.items():
+        g_anchors = sorted(a for a in us if a in anchors)
+        rep_of[g] = g_anchors[0] if g_anchors else min(us)
+    logger.info(
+        "bus groups: %s",
+        ", ".join(
+            f"{g}={len(us)} buses (rep {rep_of[g]})" for g, us in members.items()
+        ),
+    )
+    return [
+        BusmapRow(original_bus_uid=u, cluster_bus_uid=rep_of[groups[u]])
+        for u in bus_uids
+    ]
+
+
+def bus_groups_from_regex(case: Case, pattern: str) -> dict[int, str]:
+    """Group buses by a regex on the bus name (group 1, else whole match).
+
+    Buses whose name does not match are an error — the grouping must be
+    total so no bus silently forms its own node.
+    """
+    import re  # pylint: disable=import-outside-toplevel
+
+    rx = re.compile(pattern)
+    out: dict[int, str] = {}
+    unmatched: list[str] = []
+    for uid, name in case.bus_name_by_uid.items():
+        m = rx.search(str(name))
+        if m is None:
+            unmatched.append(str(name))
+            continue
+        out[int(uid)] = m.group(1) if m.groups() else m.group(0)
+    if unmatched:
+        raise ValueError(
+            f"--bus-group-regex {pattern!r} does not match {len(unmatched)} "
+            f"bus name(s) (first: {unmatched[:5]})"
+        )
+    return out
+
+
+def bus_groups_from_csv(case: Case, path: Path) -> dict[int, str]:
+    """Read a ``bus,group`` CSV (bus = uid or name) into a uid → group map."""
+    import csv  # pylint: disable=import-outside-toplevel
+
+    out: dict[int, str] = {}
+    with path.open("r", encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            ref: Any = row["bus"].strip()
+            if ref.lstrip("-").isdigit():
+                ref = int(ref)
+            uid = resolve_bus_ref(case, ref)
+            assert uid is not None
+            out[int(uid)] = row["group"].strip()
+    return out
 
 
 def _distance_matrix(graph: LineGraph, kind: str) -> np.ndarray:
@@ -560,23 +705,71 @@ def _eliminated_to_parent(
     return out
 
 
+def _members_of(busmap: list[BusmapRow]) -> dict[int, list[int]]:
+    out: dict[int, list[int]] = {}
+    for row in busmap:
+        out.setdefault(row.cluster_bus_uid, []).append(row.original_bus_uid)
+    return out
+
+
+def _bus_ever_active(
+    bus: dict[str, Any] | None, bus_schedules: LineScheduleResolver | None
+) -> bool | None:
+    """True/False when known whether ``bus`` is active in some stage.
+
+    None when the bus has a schedule-valued ``active`` that cannot be
+    resolved (no case dir) — treated as "possibly active" by the caller.
+    """
+    if bus is None or "active" not in bus:
+        return True
+    value = bus["active"]
+    if isinstance(value, str):
+        if bus_schedules is None:
+            return None
+        arr = bus_schedules.values(value, int(bus["uid"]))
+        return None if arr is None else bool(np.any(arr > 0))
+    if isinstance(value, list):
+        return bool(np.any(np.asarray(value, dtype=float) > 0))
+    return bool(value)
+
+
 def _build_bus_array(
-    case: Case, cluster_bus_uids: list[int], name_by_uid: dict[int, str]
+    case: Case,
+    cluster_bus_uids: list[int],
+    name_by_uid: dict[int, str],
+    members: dict[int, list[int]] | None = None,
+    bus_schedules: LineScheduleResolver | None = None,
 ) -> list[dict[str, Any]]:
-    # Preserve any optional fields (voltage, region, etc.) from the original
-    # entries when they survive; new aggregated buses get a minimal dict.
+    """Reduced bus_array: one entry per cluster representative.
+
+    Optional fields (voltage, region, ...) of a surviving representative
+    are preserved — except ``active``: a cluster is in service whenever
+    ANY member is (the same any-stage relaxation as the aggregated lines),
+    so the representative's own schedule is dropped when the cluster has
+    a member that is active in some stage.  Otherwise a representative
+    from an old network vintage (active only in early stages) would switch
+    off a cluster whose other members belong to the later network,
+    islanding its components.
+    """
     by_uid = {int(b["uid"]): b for b in case.array("bus_array")}
     out: list[dict[str, Any]] = []
     for u in cluster_bus_uids:
         if u in by_uid:
-            out.append(dict(by_uid[u]))
+            entry = dict(by_uid[u])
+            group = (members or {}).get(u, [u])
+            if "active" in entry and len(group) > 1:
+                ever = [_bus_ever_active(by_uid.get(m), bus_schedules) for m in group]
+                if any(e is not False for e in ever):
+                    del entry["active"]
+            out.append(entry)
         else:
             out.append({"uid": int(u), "name": name_by_uid.get(u, f"bus_{u}")})
     return out
 
 
 def _build_line_array(
-    agg_lines: list[AggregatedLine], name_by_uid: dict[int, str]
+    agg_lines: list[AggregatedLine],
+    name_by_uid: dict[int, str],
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for ln in agg_lines:
@@ -588,14 +781,19 @@ def _build_line_array(
             "tmax_ab": ln.tmax_ab,
             "tmax_ba": ln.tmax_ba,
         }
+        # Aggregated impedances are per-unit on MVA_BASE (see
+        # ``build_line_graph``); V = √MVA_BASE makes gtopt's X/V² and
+        # R/V² equal the originals' whatever their source convention.
         if ln.is_dc:
             # DC equivalent: no reactance — gtopt's KVL emitter skips the
             # line, leaving pure transport capacity (kirchhoff_node_angle).
             entry["type"] = "dc"
             if ln.resistance > 0.0:
                 entry["resistance"] = ln.resistance
+                entry["voltage"] = PU_LINE_VOLTAGE
         else:
             entry["reactance"] = ln.reactance
             entry["resistance"] = ln.resistance
+            entry["voltage"] = PU_LINE_VOLTAGE
         out.append(entry)
     return out

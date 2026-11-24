@@ -75,6 +75,39 @@ PYTHONPATH=. python -m rts_gmlc_to_gtopt --day N -o OUT.json
 
 `--day N` selects a 24-hour representative day from the annual series.
 
+### Reserves, day-ahead series and inertia
+
+```bash
+PYTHONPATH=. python -m rts_gmlc_to_gtopt --day 200 --timeseries \
+  --reserves --inertia --inertia-requirement 20000 -o rts_d200.json
+```
+
+| Flag | Source | gtopt |
+|---|---|---|
+| `--timeseries` | `timeseries_data_files/Load/DAY_AHEAD_regional_Load.csv` | hourly load = sum of the 3 areas on day-of-year N (2020) |
+| `--reserves` | `SourceData/reserves.csv` (+ `DAY_AHEAD_regional_<product>.csv` with `--timeseries`) | one `ReserveZone` per product (`urreq`/`drreq` + shortfall cost) and one `ReserveProvision` per eligible (sub-category, area) generator, `urmax`/`drmax = min(pmax, ramp × timeframe)`, `shared_headroom` |
+| `--inertia` | `Inertia MJ/MW` (H), `Base MVA` (S, pmax when blank) | one system `InertiaZone` + an `InertiaProvision` per unit with H > 0 |
+
+`--shortfall-cost` sets the reserve / inertia shortfall price (default
+1000).  The network stays single-bus.  Large integration test
+(`-DGTOPT_SLOW_TESTS=ON`): `slow_rts_gmlc_reserves_inertia` runs
+`tools/check_rts_gmlc_reserves.py` on day 200 and requires every product
+and the 20 000 MWs inertia requirement to be covered in every hour.
+
+## Supported source versions
+
+| RTS-GMLC release | Supported | Tested | Notes |
+|------------------|-----------|--------|-------|
+| `0.2.3` (default) | yes | yes — slow CTest `slow_rts_gmlc_reserves_inertia` | Downloads are pinned to tag `v0.2.3` (identical to `master` when pinned) |
+
+The CSVs carry no version: a cache filled from scratch gets a
+`SOURCE_VERSION` file naming the release, which is how it is detected
+(a cache filled by hand or before the marker existed is undetectable).
+`--source-version X` selects the release tag to download; an unknown
+release falls back to the closest supported one with a warning.  The
+same list is printed by `--help`; see
+[Supported source versions](../../docs/scripts-guide.md#supported-source-versions).
+
 ## What the integration test asserts
 
 **File**: `test/source/test_emission_rts_gmlc_port.cpp`

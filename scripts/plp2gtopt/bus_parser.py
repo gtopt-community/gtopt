@@ -9,11 +9,71 @@ Handles:
 """
 
 import re
+from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional
 
+from gtopt_shared.bus_kv import SEN_KV_LEVELS
 
 from .base_parser import BaseParser
+
+_DIGITS = re.compile(r"\d+")
+
+
+def _sen_suffix_kv(group: str) -> Optional[float]:
+    """Return the SEN level a digit ``group`` ends with, else ``None``.
+
+    ``"1220"`` (bus ``OGP1220``: unit 1 at 220 kV) → 220.  The longest
+    matching level wins (``"1500"`` → 500, not 0); the group must be
+    strictly longer than the level (an exact match is handled upstream).
+    """
+    for kv in sorted(SEN_KV_LEVELS, key=lambda k: -len(str(k))):
+        tag = str(kv)
+        if len(group) > len(tag) and group.endswith(tag):
+            return float(kv)
+    return None
+
+
+def resolve_bus_voltages(
+    buses: Iterable[MutableMapping[str, Any]],
+    lines: Iterable[Mapping[str, Any]],
+) -> int:
+    """Fix bus voltages the name did not give as a SEN level, in place.
+
+    ``plpbar.dat`` carries no voltage, so :class:`BusParser` reads it
+    from the bus name.  When that is not a SEN level (``OGP1220`` →
+    1220, ``Ancoa500auxS`` → none) the ``Tension`` of the incident
+    ``plpcnfli.dat`` lines is authoritative: a single incident level
+    wins; with several (a transformer bus), the one the name's digits
+    end with.  Buses whose name already gives a SEN level are left
+    untouched (transformer lines carry the HV-side ``Tension``, so the
+    name is the better source there).  Returns the number of buses
+    changed.
+    """
+    incident: dict[int, set[float]] = defaultdict(set)
+    for ln in lines:
+        kv = float(ln.get("voltage") or 0.0)
+        if kv > 0.0:
+            incident[int(ln["bus_a"])].add(kv)
+            incident[int(ln["bus_b"])].add(kv)
+    changed = 0
+    for bus in buses:
+        if bus.get("voltage") in SEN_KV_LEVELS:
+            continue
+        cands = incident.get(int(bus["number"]), set())
+        groups = _DIGITS.findall(str(bus["name"]))
+        if len(cands) > 1:
+            cands = {
+                kv for kv in cands if any(g.endswith(str(int(kv))) for g in groups)
+            }
+        if len(cands) == 1:
+            kv = next(iter(cands))
+        else:
+            continue
+        if kv != bus.get("voltage"):
+            bus["voltage"] = kv
+            changed += 1
+    return changed
 
 
 class BusParser(BaseParser):
@@ -72,6 +132,12 @@ class BusParser(BaseParser):
             )
             if voltage_match:
                 voltage = float(voltage_match.group(1))
+                if int(voltage) not in SEN_KV_LEVELS:
+                    # ``OGP1220`` (unit 1 at 220 kV): the greedy group
+                    # glues a unit index to the level.  Fall back to the
+                    # SEN level the group ends with; the incident lines
+                    # refine it later (:func:`resolve_bus_voltages`).
+                    voltage = _sen_suffix_kv(voltage_match.group(1)) or voltage
             else:
                 # Try alternative patterns like 'KV220' format
                 voltage_match = re.search(r"(?:kV|KV)(\d+)", name, re.IGNORECASE)

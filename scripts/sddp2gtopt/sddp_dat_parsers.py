@@ -784,6 +784,44 @@ def parse_volt(path: str | Path) -> dict[int, float]:
     return out
 
 
+#: Nominal voltages [kV] a PSR SDDP bus name may encode (Central and
+#: South America: 13.8/34.5/69/138/230/400 kV in Guatemala, 50/60/138/
+#: 220/500 kV in Peru, …).  Keyed by the integer digits written in the
+#: name; the decimal levels appear truncated (``HUE-13`` = 13.8 kV,
+#: ``VBL-34`` = 34.5 kV).  132 is deliberately absent: in the AMM names
+#: ``HUE-132`` is section 2 of the 13.8 kV bus, next to ``HUE-13``.
+NAME_KV_LEVELS: dict[int, float] = {
+    **{kv: float(kv) for kv in (23, 33, 46, 50, 60, 66, 69, 110, 115, 138)},
+    **{kv: float(kv) for kv in (154, 161, 220, 230, 345, 400, 500, 765)},
+    13: 13.8,
+    34: 34.5,
+}
+
+_NAME_KV = re.compile(r"(\d+)[A-Za-z]*\s*$")
+
+
+def infer_kv_from_name(name: str) -> float | None:
+    """Nominal kV encoded at the end of a PSR bus ``name``, else ``None``.
+
+    Used when ``volt.dat`` leaves a bus at 0 kV (the AMM Guatemala files
+    give 0 for every bus).  The trailing digit group (letters after it are
+    tolerated: ``PAL-138T``) is looked up in :data:`NAME_KV_LEVELS` as
+    is, then as a section-numbered level whose last digit indexes the bus
+    section: ``ESC-231`` → 230 (``23x`` read as ``230``), ``LUC-692`` →
+    69, ``HUE-132`` → 13.8.  The ``x0`` reading wins over dropping the
+    digit (``231`` is 230 kV, not 23 kV).  Names without such a group
+    (``TND-B5``, ``AGUAYTIA_N``) give ``None``.
+    """
+    m = _NAME_KV.search(name)
+    if m is None:
+        return None
+    group = m.group(1).lstrip("0") or "0"
+    for cand in (group, group[:-1] + "0", group[:-1]):
+        if cand and int(cand) in NAME_KV_LEVELS:
+            return NAME_KV_LEVELS[int(cand)]
+    return None
+
+
 @dataclass
 class SddpCircuit:
     """A PSR SDDP circuit (``dcirc`` v2, R/X in % on the 100 MVA base)."""
@@ -841,15 +879,38 @@ def parse_circuits(path: str | Path) -> list[SddpCircuit]:
     return out
 
 
+def _fixed_width_rx(
+    ln: str, start: int, x_at: int, end: int
+) -> tuple[float, float] | None:
+    """``(R %, X %)`` from the fixed-width ``.RESIS.REACT`` columns.
+
+    R is ``ln[start:x_at]`` and X ``ln[x_at:end]``; ``None`` when the
+    header has no ``.REACT`` mark or either non-blank half is not a
+    number (misaligned row: the caller falls back to blank tokens).
+    """
+    if x_at < 0:
+        return None
+    r_txt, x_txt = ln[start:x_at].strip(), ln[x_at:end].strip()
+    r_val, x_val = to_float(r_txt), to_float(x_txt)
+    if (r_txt and r_val is None) or (x_txt and x_val is None):
+        return None
+    return r_val or 0.0, x_val or 0.0
+
+
 def _circuits_from_header(header: str, lines: list[str]) -> list[SddpCircuit]:
     """Pre-``$version`` ``dcirc`` layout, columns located from the header.
 
     ``#BOR. #BDE. .RESIS.REACT Nome… (  MW)(MW) # I C`` — R and X share
-    the ``.RESIS.REACT`` header token (blank-separated in this layout).
+    the ``.RESIS.REACT`` header token.  They are fixed-width fields: X
+    is the 6 characters under ``.REACT`` and R everything left of it, so
+    a REACT of 100 % or more touches RESIS (``    0.100.25`` is R 0 %,
+    X 100.25 %; `` 71.72235.15`` is R 71.72 %, X 235.15 %).  Only a
+    non-numeric fixed-width split falls back to blank-separated tokens.
     """
     spans = header_spans(header.replace("#B", " B"))
     by = {sp.label: sp for sp in spans}
     rx = next((sp for sp in spans if sp.label.startswith("RESIS")), None)
+    x_at = header.find(".REACT", rx.start, rx.end) if rx is not None else -1
     # ``(  MW)`` may be glued to the neighbouring labels in one token.
     mw_end = header.find("MW)") + 3 if "MW)" in header else -1
     code_sp = spans[spans.index(by["I"]) - 1] if "I" in by else None
@@ -866,7 +927,10 @@ def _circuits_from_header(header: str, lines: list[str]) -> list[SddpCircuit]:
         if rx is not None:
             field_txt = ln[rx.num_start : rx.end]
             toks = field_txt.split()
-            if len(toks) >= 2:
+            fixed = _fixed_width_rx(ln, rx.num_start, x_at, rx.end)
+            if fixed is not None:
+                r_pct, x_pct = fixed
+            elif len(toks) >= 2:
                 r_pct, x_pct = to_float(toks[0]) or 0.0, to_float(toks[1]) or 0.0
             elif toks:
                 x_pct = to_float(toks[0]) or 0.0

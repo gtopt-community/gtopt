@@ -345,11 +345,15 @@ def test_populate_cache_downloads_missing_only(
 def test_main_downloads_into_cache(
     cache_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls: list[Path] = []
-    monkeypatch.setattr(cli, "populate_cache", calls.append)
+    calls: list[tuple[Path, bool]] = []
+    monkeypatch.setattr(
+        cli,
+        "populate_cache",
+        lambda d, timeseries=False, version=None: calls.append((d, timeseries)),
+    )
     out = tmp_path / "rts.json"
     assert cli.main(["--cache-dir", str(cache_dir), "-o", str(out)]) == 0
-    assert calls == [cache_dir]
+    assert calls == [(cache_dir, False)]
     assert out.exists()
 
 

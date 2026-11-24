@@ -161,6 +161,31 @@ def _qdefm_value(
     return max(min(qp - q_hoya - qfilt, 0.0) + qn + qs + qe, 0.0)
 
 
+def _qdefm_base(
+    qp: float,
+    qn: float,
+    qe: float,
+    qs: float,
+    q_hoya: float,
+    qfilt_hist: float,
+) -> float:
+    """Filtration-free part of the net Lago requirement (PLP GetQsLajaM).
+
+    PLP's ``QTLajaMin = min(QP − QHoya − QFilt, QFiltHist − QFilt)``
+    factors as ``min(QP − QHoya, QFiltHist) − QFilt``, so
+
+        qdefm(V) = max(C − QFilt(V), 0),
+        C = min(QP − QHoya, QFiltHist) + QN + QS + QE.
+
+    Returns ``max(C, 0)``: the ``laja_qdefm`` carrier value.  The
+    volume-dependent ``QFilt(V)`` (filtration at the stage-initial
+    volume) is applied by the ``laja_qfilt`` carrier's bound_rule,
+    clamped to this same value so ``qdefm − qfilt >= 0``.  Pure —
+    unit-testable without an agreement instance.
+    """
+    return max(min(qp - q_hoya, qfilt_hist) + qn + qs + qe, 0.0)
+
+
 def _netted_primary(gross: float, q_hoya: float, qfilt: float) -> float:
     """Netted primary delivery (PLP GetQsLajaM's QPRiego re-set).
 
@@ -550,7 +575,8 @@ class LajaAgreement(_RightsAgreementBase):
         # materialized; otherwise the cap falls back to the gross
         # district deliveries.
         qdefm_sched: Any = None
-        q_hoya = cfg.get("q_hoya_inter")
+        filtration_segments = cfg.get("filtration_segments") or []
+        q_hoya = self._hoya_series()
         if (
             q_hoya
             and self._stage_parser is not None
@@ -583,39 +609,27 @@ class LajaAgreement(_RightsAgreementBase):
                     qe = gross_e[i]
                     qs = gross_s[i]
                     qh = float(hoya_series[idx]) if idx < len(hoya_series) else 0.0
-                    # PLP's cap is NUMERIC (static FiltVals): a
-                    # volume-dependent seepage term in the row would
+                    # PLP's cap is NUMERIC: the filtration enters as a
+                    # value evaluated at the stage-initial volume, never
+                    # as a column — a seepage column in the row would
                     # make the reservoir water value negative when the
                     # cap binds (more volume -> more seepage -> less
                     # chargeable riego).
-                    vals.append(_qdefm_value(qp, qn, qe, qs, qh, qfilt))
+                    if filtration_segments:
+                        vals.append(_qdefm_base(qp, qn, qe, qs, qh, qfilt))
+                    else:
+                        vals.append(_qdefm_value(qp, qn, qe, qs, qh, qfilt))
                 return vals
 
-            by_scenario = cfg.get("q_hoya_inter_by_scenario")
-            if by_scenario and len(by_scenario) > 1:
-                # The carrier is a FlowRight ``fmin``/``fmax`` bound,
-                # which gtopt samples per (stage, block) only — the LP
-                # has no scenario axis for it (flow_right_lp
-                # ``fmin_sched.at(stage, block)``).  So the net Lago
-                # requirement, though it truly varies with each
-                # hydrology's tributary inflows, must be a single
-                # scenario-invariant series.  Use the per-stage MEAN of
-                # the hoya-intermedia inflows across scenarios — the
-                # least-biased representative of PLP's per-simulation
-                # qdefm (documented approximation, like static
-                # filtration).  A 3D [scenario][stage][block] schedule
-                # is NOT emitted: gtopt's TB field cannot parse it.
-                n_stg = len(self._get_stages())
-                mean_hoya = [
-                    sum(series[i] for series in by_scenario) / len(by_scenario)
-                    for i in range(n_stg)
-                ]
-                qdefm_sched = self._to_tb_sched(qdefm_series(mean_hoya))
-            else:
-                qdefm_sched = self._to_tb_sched(qdefm_series(q_hoya))
+            qdefm_sched = self._to_tb_sched(qdefm_series(q_hoya))
             # Expose to the .tampl renderer (it renders from the raw
             # config) so the cap switches to the netted carrier.
             self._cfg["use_qdefm_carrier"] = True
+            # Volume-dependent filtration (PLP FiltVals at VolIni): the
+            # laja_qfilt carrier is fixed at min(C, F(V0)) through a
+            # bound_rule on the lake volume, so the cap row reads
+            # qdefm - qfilt = max(C - F(V0), 0) with no volume column.
+            self._cfg["use_qfilt_carrier"] = bool(filtration_segments)
 
         # --- User constraint expressions ---
         expression_partition = (
@@ -676,10 +690,40 @@ class LajaAgreement(_RightsAgreementBase):
             "saving_rate_econ": cfg.get("qmax_elec", 200),
             # qdefm netting carrier (None -> omitted; gross cap fallback)
             "qdefm_sched": qdefm_sched,
+            # volume-dependent filtration carrier (empty -> static
+            # QFiltHist approximation folded into qdefm_sched)
+            "filtration_segments": (
+                filtration_segments if qdefm_sched is not None else []
+            ),
             # UserConstraint: partition balance
             "expression_partition": expression_partition,
             "description_partition": description_partition,
         }
+
+    def _hoya_series(self) -> list[float] | None:
+        """Per-stage hoya-intermedia inflow used by the qdefm netting.
+
+        The carriers and the district targets are FlowRight
+        ``fmin``/``fmax``/``target`` schedules, which gtopt samples per
+        (stage, block) only — the LP has no scenario axis for them.  So
+        the net Lago requirement, though it truly varies with each
+        hydrology's tributary inflows, must be a single
+        scenario-invariant series: the per-stage MEAN across the
+        forward scenarios (the least-biased representative of PLP's
+        per-simulation value), or the single series when only one was
+        injected.  The SAME series feeds the cap carrier and the netted
+        primary targets.
+        """
+        cfg = self._cfg
+        by_scenario = cfg.get("q_hoya_inter_by_scenario")
+        if by_scenario and len(by_scenario) > 1:
+            n = min(len(series) for series in by_scenario)
+            return [
+                sum(float(series[i]) for series in by_scenario) / len(by_scenario)
+                for i in range(n)
+            ]
+        q_hoya = cfg.get("q_hoya_inter")
+        return [float(v) for v in q_hoya] if q_hoya else None
 
     def _compute_district_flow_rights(
         self,
@@ -735,7 +779,7 @@ class LajaAgreement(_RightsAgreementBase):
         # Applied to the 1o_reg category only (PLP nets QPRiego;
         # QN/QE/QS stay gross), and only when plp2gtopt supplied the
         # inflow means.
-        q_hoya = cfg.get("q_hoya_inter")
+        q_hoya = self._hoya_series()
         qfilt = float(cfg.get("filtracion_laja", 0.0))
 
         result: list[dict[str, Any]] = []

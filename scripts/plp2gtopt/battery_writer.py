@@ -473,6 +473,11 @@ class BatteryWriter(BaseWriter):
                     "name": f"{entry['name']}_chrg",
                     "bus": entry["busc"],
                     "lmax": lmax_val,
+                    # Charging is dispatchable, not curtailable load:
+                    # pin fcost=0 so a positive global
+                    # ``demand_fail_cost`` (gtopt default 1000 $/MWh)
+                    # does not force the battery to charge at lmax.
+                    "fcost": 0.0,
                 }
             )
         return dems

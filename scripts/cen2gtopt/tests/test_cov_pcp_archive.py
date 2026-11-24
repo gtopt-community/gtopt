@@ -353,3 +353,27 @@ def test_cli_plp_in_force_download_and_extract(
     assert pa.main([*base, "--extract", str(dest)]) == 0
     assert "extracted 2 PLP input files" in capsys.readouterr().err
     assert sorted(p.name for p in dest.iterdir()) == ["plpblo.dat", "plpcnfce.dat"]
+
+
+def test_fresh_download_url_signed(http: dict[str, Any]) -> None:
+    http["payload"] = {"presignedUrlDownload": "https://s3.example/fresh"}
+    f = _files()[0]
+    assert pa.fresh_download_url(f) == "https://s3.example/fresh"
+    url, kw = http["calls"][-1]
+    assert url == pa.DOWNLOAD_URL
+    assert kw["params"]["user_key"] == "K"
+    assert kw["headers"] == {"Origin": pa.PORTAL_ORIGIN}
+
+
+def test_fresh_download_url_falls_back(
+    http: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    f = _files()[0]
+    # Index-shaped (non-dict) answer → index URL.
+    assert pa.fresh_download_url(f, user_key="K") == f.enlace_descarga
+    # Missing credential → index URL, no HTTP call.
+    monkeypatch.delenv("GTOPT_CEN_PORTAL_KEY")
+    monkeypatch.delenv("CEN_API_KEY", raising=False)
+    n = len(http["calls"])
+    assert pa.fresh_download_url(f) == f.enlace_descarga
+    assert len(http["calls"]) == n

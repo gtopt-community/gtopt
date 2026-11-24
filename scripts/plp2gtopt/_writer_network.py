@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict
 from gtopt_shared.demand_tiers import tier_uid_offset
 
 from .battery_writer import BatteryWriter
+from .bus_parser import resolve_bus_voltages
 from .bus_writer import BusWriter
 from .demand_writer import DemandWriter
 from .falla_segments import build_falla_tiers
@@ -166,6 +167,9 @@ class NetworkMixin:
         if not buses:
             return
 
+        lines = self.parser.parsed_data.get("line_parser", None)
+        if lines:
+            resolve_bus_voltages(buses.get_all(), lines.get_all())
         self.planning["system"]["bus_array"] = BusWriter(buses).to_json_array()
 
     def process_lines(self, options: Dict[str, Any]) -> None:

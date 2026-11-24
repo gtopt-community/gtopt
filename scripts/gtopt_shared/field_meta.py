@@ -561,6 +561,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         ("uini", _J_NUM, False, "Initial number of units online at t = 0.", None),
+        (
+            "initial_generation",
+            _J_NUM,
+            False,
+            "Initial generation [MW] at t = 0- (generation_prev at the horizon start).",
+            None,
+        ),
         ("cogen_mode", _J_STR, False, "Cogeneration mode tag.", None),
     ],
     "generator_profile_array": [
@@ -1284,6 +1291,20 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "(default false = charge-side only)",
             None,
         ),
+        (
+            "reserve_energy_usage_up",
+            _J_NUM,
+            False,
+            "Expected up-reserve deployment energy charged to the SoC [MWh/MW/h]",
+            None,
+        ),
+        (
+            "reserve_energy_usage_down",
+            _J_NUM,
+            False,
+            "Expected down-reserve deployment energy charged to the SoC [MWh/MW/h]",
+            None,
+        ),
         ("power_capacity", _J_SCHED, False, "Installed power capacity [MW]", None),
         ("power_expcap", _J_SCHED, False, "Power per expansion module [MW]", None),
         ("power_expmod", _J_SCHED, False, "Max number of power modules", None),
@@ -1452,6 +1473,183 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "JSON array of {generator, heat_rate} links "
             '(e.g. [{"generator": 10, "heat_rate": 0.18}])',
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # System — gas network (radial, squared-pressure LP)
+    # ------------------------------------------------------------------
+    "gas_node_array": [
+        ("uid", _J_INT, True, "Unique gas-node identifier", 1),
+        ("name", _J_STR, True, "Gas-node name", "santiago"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("pmin", _J_SCHED, False, "Minimum pressure [bar abs]", 30),
+        ("pmax", _J_SCHED, False, "Maximum pressure [bar abs]", 70),
+        (
+            "pressure_cost",
+            _J_SCHED,
+            False,
+            "Cost on squared pressure [$/(bar²·h)]; tiny negative = "
+            "highest-pressure tie-break",
+            None,
+        ),
+        ("p_init", _J_NUM, False, "Initial pressure for line pack [bar]", None),
+        ("elevation", _J_NUM, False, "Elevation above datum [m] (default 0)", None),
+    ],
+    "gas_supply_array": [
+        ("uid", _J_INT, True, "Unique gas-supply identifier", 1),
+        ("name", _J_STR, True, "Supply name", "lng_regas"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("type", _J_STR, False, "Tag, e.g. lng_regas / pipeline_import", None),
+        ("gas_node", _J_ID, True, "FK into gas_node_array", "quintero"),
+        ("fmin", _J_SCHED, False, "Minimum injection [km³/h]", None),
+        ("fmax", _J_SCHED, False, "Maximum injection [km³/h]", 1000),
+        ("cost", _J_SCHED, False, "Gas cost [$/km³]", 300),
+        (
+            "volume",
+            _J_NUM,
+            False,
+            "Volume per stage [km³]: Σ Δt·flow ≤ volume",
+            None,
+        ),
+    ],
+    "gas_demand_array": [
+        ("uid", _J_INT, True, "Unique gas-demand identifier", 1),
+        ("name", _J_STR, True, "Demand name", "city"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("gas_node", _J_ID, True, "FK into gas_node_array", "santiago"),
+        ("load", _J_SCHED, False, "Gas load [km³/h]", 60),
+        (
+            "fail_cost",
+            _J_SCHED,
+            False,
+            "Shedding cost [$/km³]; unset = hard load",
+            3000,
+        ),
+    ],
+    "gas_pipe_array": [
+        ("uid", _J_INT, True, "Unique gas-pipe identifier", 1),
+        ("name", _J_STR, True, "Pipe name", "qtr_qll"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("gas_node_a", _J_ID, True, "Inlet gas node (flow a → b)", "quintero"),
+        ("gas_node_b", _J_ID, True, "Outlet gas node", "quillota"),
+        (
+            "weymouth_k",
+            _J_NUM,
+            False,
+            "Weymouth constant [bar²/(km³/h)²]; default from geometry",
+            None,
+        ),
+        ("length", _J_NUM, False, "Length [km]", 50),
+        ("diameter", _J_NUM, False, "Inner diameter [mm]", 406),
+        ("efficiency", _J_NUM, False, "Pipeline efficiency (default 0.92)", None),
+        ("gravity", _J_NUM, False, "Gas specific gravity (default 0.6)", None),
+        ("temperature", _J_NUM, False, "Flow temperature [K]", None),
+        ("z", _J_NUM, False, "Compressibility factor (default 0.9)", None),
+        (
+            "elevation_exponent",
+            _J_NUM,
+            False,
+            "Elevation exponent s (default from node elevations)",
+            None,
+        ),
+        ("fmax", _J_SCHED, True, "Flow capacity [km³/h]", 300),
+        ("segments", _J_INT, False, "Weymouth tangents (default 8)", None),
+        (
+            "tangent_layout",
+            _J_STR,
+            False,
+            "uniform (default) or relative_pressure",
+            None,
+        ),
+        (
+            "weymouth_mode",
+            _J_STR,
+            False,
+            "radial (default), linearized (meshed, SLP) or none (capacity arc)",
+            None,
+        ),
+        (
+            "linearization",
+            _J_STR,
+            False,
+            "secant (default) or tangent (linearized mode)",
+            None,
+        ),
+        (
+            "reference_flow",
+            _J_NUM,
+            False,
+            "Signed reference flow f0 [km³/h] (linearized mode)",
+            None,
+        ),
+        ("linepack", _J_BOOL, False, "Model line pack (default false)", None),
+        ("linepack_coeff", _J_NUM, False, "Line pack per bar [km³/bar]", None),
+        (
+            "linepack_pressure_ref",
+            _J_NUM,
+            False,
+            "Linearisation pressure [bar] (default: mean node band)",
+            None,
+        ),
+        ("linepack_ini", _J_NUM, False, "Initial line pack [km³]", None),
+    ],
+    "gas_compressor_array": [
+        ("uid", _J_INT, True, "Unique compressor identifier", 1),
+        ("name", _J_STR, True, "Station name", "quillota_cs"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("type", _J_STR, False, "Tag, e.g. fuel_gas_booster", None),
+        ("gas_node_in", _J_ID, True, "Suction gas node", "quillota"),
+        ("gas_node_out", _J_ID, True, "Discharge gas node", "quillota_d"),
+        ("fmax", _J_SCHED, False, "Throughput capacity [km³/h]", 400),
+        ("max_ratio", _J_NUM, False, "Maximum pressure ratio", 1.35),
+        (
+            "fuel_model",
+            _J_STR,
+            False,
+            "none / fixed_fraction / saldarriaga",
+            "saldarriaga",
+        ),
+        ("fuel_fraction", _J_NUM, False, "Fixed fuel fraction of flow", None),
+        ("gamma", _J_NUM, False, "Saldarriaga γ (default adiabatic)", None),
+        ("alpha", _J_NUM, False, "(κ−1)/κ (default 0.2308)", None),
+        ("efficiency", _J_NUM, False, "Isentropic efficiency (0.80)", None),
+        ("driver_efficiency", _J_NUM, False, "Driver efficiency (0.33)", None),
+        ("op_flow", _J_NUM, False, "Taylor operating flow [km³/h]", None),
+        ("op_ratio", _J_STR, False, "JSON array of operating ratios", None),
+        ("op_suction_pressure", _J_NUM, False, "Operating suction [bar]", None),
+        ("allow_bypass", _J_BOOL, False, "Allow p_out < p_in (regulator)", None),
+        (
+            "bidirectional",
+            _J_BOOL,
+            False,
+            "Open valve: signed flow, p_out = p_in",
+            None,
+        ),
+        ("drive", _J_STR, False, "gas (default) or electric", None),
+        ("bus", _J_ID, False, "Electric bus of an electric drive", None),
+        ("motor_efficiency", _J_NUM, False, "Motor efficiency (0.95)", None),
+        ("power_max", _J_NUM, False, "Motor rating [MW]", None),
+    ],
+    "gas_turbine_array": [
+        ("uid", _J_INT, True, "Unique gas-turbine link identifier", 1),
+        ("name", _J_STR, True, "Link name", "nueva_renca_gas"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("type", _J_STR, False, "Optional element type/category tag", None),
+        ("generator", _J_ID, True, "FK into generator_array", "nueva_renca"),
+        ("gas_node", _J_ID, True, "Fuel-gas delivery node", "renca"),
+        ("heat_rate", _J_SCHED, False, "Fuel use [km³/MWh]", 0.21),
+        ("min_pressure", _J_NUM, False, "Minimum fuel-gas pressure [bar]", None),
+        ("pressure_band", _J_NUM, False, "Ramp band below it [bar] (0.5)", None),
+        ("nominal_pressure", _J_NUM, False, "Full-output pressure [bar]", None),
+        (
+            "derate_min_output",
+            _J_NUM,
+            False,
+            "Output share at min_pressure (default p_min/p_nom)",
             None,
         ),
     ],
@@ -1895,6 +2093,150 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("description", _J_STR, False, "Optional free-text description", None),
         ("urmin", _J_SCHED, False, "Up-reserve Min-Provision floor [MW]", None),
         ("drmin", _J_SCHED, False, "Down-reserve Min-Provision floor [MW]", None),
+        (
+            "urreq_planes",
+            "JSON array",
+            False,
+            "Dynamic up requirement R >= max_k plane_k (CEN CPF, minuta "
+            "Anexo B): JSON array of {alpha [MW], demand_coef [MW/MW], "
+            "inertia_coef [MW/MWs], contingency_coef [MW/MW], flow_coef "
+            "[MW/MW]} objects; each coefficient is a scalar|array|filename "
+            'schedule.  Example: [{"alpha":516,"demand_coef":-0.0366,'
+            '"inertia_coef":-0.0123,"contingency_coef":1.25}]',
+            None,
+        ),
+        (
+            "drreq_planes",
+            "JSON array",
+            False,
+            "Dynamic down requirement planes (same shape as urreq_planes)",
+            None,
+        ),
+        (
+            "load_term",
+            _J_STR,
+            False,
+            "System-load term of the planes: 'exogenous' (default, a "
+            "parameter on the RHS) or 'endogenous_generation' (PLEXOS-compat "
+            "only: sum of generation as a variable; creates negative LMPs)",
+            None,
+        ),
+        (
+            "system_load",
+            _J_SCHED,
+            False,
+            "Given system load D [MW] for the planes (overrides the demand sum)",
+            None,
+        ),
+        (
+            "demand_load_factor",
+            _J_NUM,
+            False,
+            "D = factor x sum of demand lmax (default 1.05, conservative; "
+            "CEN ratio 1.025-1.05)",
+            None,
+        ),
+        (
+            "demands",
+            _J_STR,
+            False,
+            "Demands summed into D (default: all except battery charge)",
+            None,
+        ),
+        (
+            "inertia_zone",
+            _J_ID,
+            False,
+            "InertiaZone whose provisions give the plane inertia I [MWs]",
+            None,
+        ),
+        (
+            "inertia_term",
+            _J_STR,
+            False,
+            "Plane inertia term I: 'commitment' (default: sum of I_c x u_c, "
+            "I_c = provision_factor x min(provision_max, pmax); a relaxed "
+            "Commitment can price negative, see reserve_coupling), "
+            "'exogenous' (the system_inertia schedule, or the must-run "
+            "units) or 'endogenous' (dispatch-based provisions, "
+            "PLEXOS-compat)",
+            None,
+        ),
+        (
+            "system_inertia",
+            _J_SCHED,
+            False,
+            "Given system inertia I [MWs] for inertia_term 'exogenous'",
+            None,
+        ),
+        (
+            "contingency_generators",
+            _J_STR,
+            False,
+            "Up contingency set: C_up >= generation of each listed generator",
+            None,
+        ),
+        (
+            "contingency_demands",
+            _J_STR,
+            False,
+            "Down contingency set: C_dn >= load of each listed demand "
+            "(e.g. '<bess>_dem' charge)",
+            None,
+        ),
+        (
+            "flow_lines",
+            _J_STR,
+            False,
+            "Lines whose signed flow sum enters the planes via flow_coef",
+            None,
+        ),
+        (
+            "urcontingencies",
+            "JSON array",
+            False,
+            "Up contingency candidates (PLEXOS *_Comparison): JSON array of "
+            "{name, generators, generator_coefs, demands, demand_coefs, lines, "
+            "line_coefs, offset}; C >= sum coef*term + offset per candidate",
+            None,
+        ),
+        (
+            "drcontingencies",
+            "JSON array",
+            False,
+            "Down contingency candidates (same shape as urcontingencies)",
+            None,
+        ),
+        (
+            "contingency_includes_reserve",
+            _J_BOOL,
+            False,
+            "C >= a*(p + r): the lost unit's own provision into this zone "
+            "counts in the contingency (default false = PLEXOS PCP)",
+            None,
+        ),
+        (
+            "requirement_sense",
+            _J_STR,
+            False,
+            "Provision balance sense: 'ge' (default) or 'eq' (PLEXOS "
+            "*MinProvision Sense 0)",
+            None,
+        ),
+        (
+            "ursurplus_cost",
+            _J_SCHED,
+            False,
+            "Up surplus penalty of an 'eq' balance [$/MW]",
+            None,
+        ),
+        (
+            "drsurplus_cost",
+            _J_SCHED,
+            False,
+            "Down surplus penalty of an 'eq' balance [$/MW]",
+            None,
+        ),
     ],
     "reserve_provision_array": [
         ("uid", _J_INT, True, "Unique reserve provision identifier", 1),
@@ -1962,6 +2304,81 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("drcost", _J_SCHED, False, "Down-reserve provision cost [$/MW]", None),
         ("type", _J_STR, False, "Optional element type/category tag", None),
         ("description", _J_STR, False, "Optional free-text description", None),
+        (
+            "ur_zone_factors",
+            "JSON array",
+            False,
+            "Per-zone up effectiveness factors, parallel to reserve_zones "
+            "(one up column, factor per requirement; default 1.0)",
+            None,
+        ),
+        (
+            "dr_zone_factors",
+            "JSON array",
+            False,
+            "Per-zone down effectiveness factors, parallel to reserve_zones",
+            None,
+        ),
+        (
+            "shared_headroom",
+            _J_BOOL,
+            False,
+            "Share one headroom row p + sum(r) <= Pmax with the generator's "
+            "other shared provisions (CPF + CSF + CTF)",
+            None,
+        ),
+        (
+            "offline",
+            _J_BOOL,
+            False,
+            "Offline (cold) up reserve: no headroom, r <= urmax*(1-u)",
+            None,
+        ),
+        ("symmetric", _J_BOOL, False, "Symmetric provision: r_up = r_dn", None),
+        (
+            "urmax_response",
+            _J_SCHED,
+            False,
+            "Native BESS: cap on the discharge-side up reserve [MW]",
+            None,
+        ),
+        (
+            "urmax_charge_response",
+            _J_SCHED,
+            False,
+            "Native BESS: cap on the charge-side up reserve [MW]",
+            None,
+        ),
+        (
+            "drmax_response",
+            _J_SCHED,
+            False,
+            "Native BESS: cap on the discharge-side down reserve [MW]",
+            None,
+        ),
+        (
+            "drmax_charge_response",
+            _J_SCHED,
+            False,
+            "Native BESS: cap on the charge-side down reserve [MW]",
+            None,
+        ),
+        (
+            "ur_energy_usage",
+            _J_SCHED,
+            False,
+            "Native BESS: up deployment energy of this provision charged to "
+            "the SoC [MWh/MW/h]; overrides Battery.reserve_energy_usage_up",
+            None,
+        ),
+        (
+            "dr_energy_usage",
+            _J_SCHED,
+            False,
+            "Native BESS: down deployment energy of this provision charged to "
+            "the SoC [MWh/MW/h]; overrides Battery.reserve_energy_usage_down",
+            None,
+        ),
     ],
     # ------------------------------------------------------------------
     # System — inertia (system-inertia requirements + provision links)
@@ -1982,6 +2399,16 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_SCHED,
             False,
             "Inertia shortage penalty [$/MWs] per-(stage, block).",
+            None,
+        ),
+        (
+            "requirement_credits",
+            "JSON array",
+            False,
+            "Commitment-dependent relief: JSON array of {name, generators, "
+            "units, credit [MWs], integer}; requirement drops by credit*y "
+            "with units*y <= sum u (y binary when integer, else continuous "
+            "as PLEXOS)",
             None,
         ),
     ],
@@ -2450,6 +2877,24 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Inline list of ReservoirProductionFactor rows scoped to this "
             "reservoir (folded into the top-level "
             "`reservoir_production_factor_array` at parse time).",
+            None,
+        ),
+        (
+            "water_value_hint",
+            _J_NUM,
+            False,
+            "Expected |water value| [$/hm³] used to condition the energy-"
+            "balance row when `lp_matrix_options.water_dual_target > 0` "
+            "(experimental; unset = state-violation cost).",
+            None,
+        ),
+        (
+            "dual_scale",
+            _J_NUM,
+            False,
+            "Explicit post-equilibration factor c of the energy-balance row "
+            "(LP dual = y / c; physical duals unchanged; experimental, "
+            "unset/1 = off).",
             None,
         ),
         ("type", _J_STR, False, "Optional element type/category tag", None),
@@ -3299,6 +3744,26 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_NUM,
             False,
             "Optional objective constant for a mean-shifted (rebased) variable.",
+            None,
+        ),
+        (
+            "integer",
+            _J_BOOL,
+            False,
+            (
+                "Integrality flag: the `value` columns are integer (Binary for "
+                "bounds [0, 1], else Integer). Default false (continuous)."
+            ),
+            None,
+        ),
+        (
+            "relax",
+            _J_BOOL,
+            False,
+            (
+                "LP-relaxation flag for an `integer` variable (like "
+                "`Commitment.relax`); a continuous phase / --no-mip also relaxes it."
+            ),
             None,
         ),
     ],

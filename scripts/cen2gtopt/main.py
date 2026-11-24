@@ -16,7 +16,14 @@ import os
 import sys
 from datetime import date as date_cls
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+
+from gtopt_shared.source_versions import (
+    add_source_version_argument,
+    apply_source_version,
+)
+
+from cen2gtopt.source_version import SOURCE_FORMAT, detect_version
 
 from cen2gtopt._cen_client import add_insecure_tls_argument, apply_insecure_tls_argument
 
@@ -99,6 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Topology JSON (CEN-format or GTOpt planning JSON).",
     )
+    add_source_version_argument(p, SOURCE_FORMAT)
     p.add_argument("-v", "--verbose", action="count", default=0)
     p.add_argument("-q", "--quiet", action="store_true")
     return p
@@ -157,6 +165,17 @@ def _run(args: argparse.Namespace) -> int:
         source = "sip" if api_key else "csv"
     _LOG.info("auth=%s source=%s", "sip" if api_key else "csv-fallback", source)
 
+    # SIP API generation: detected from --cache (endpoint paths embed the
+    # version), recorded in manifest.json["source_format"].
+    provenance: dict[str, Any] = {}
+    apply_source_version(
+        SOURCE_FORMAT,
+        detect_version(args.cache),
+        args.source_version,
+        provenance=provenance,
+        log=_LOG,
+    )
+
     # Topology — load if provided so the JSON parses correctly. The
     # actual write (using the loaded topology) is gated behind
     # CSV-fetch logic below; v1 raises before reaching it.
@@ -175,7 +194,7 @@ def _run(args: argparse.Namespace) -> int:
 
     # SIP path — live as of 2026-05-06.
     if source == "sip" and not args.manifest_only:
-        return _run_sip(args, api_key)
+        return _run_sip(args, api_key, provenance)
 
     # Manifest-only smoke test.
     if args.manifest_only:
@@ -191,6 +210,7 @@ def _run(args: argparse.Namespace) -> int:
                 "source": source,
                 "include": list(args.include or ()),
             },
+            **provenance,
         }
         (args.out / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
@@ -207,7 +227,11 @@ def _run(args: argparse.Namespace) -> int:
     )
 
 
-def _run_sip(args: argparse.Namespace, api_key: str | None) -> int:
+def _run_sip(
+    args: argparse.Namespace,
+    api_key: str | None,
+    provenance: dict[str, Any] | None = None,
+) -> int:
     """Fetch SIP data live and write a canonical operation feed.
 
     Implements master plan §9 Phase-2 path. Each ``--include`` keyword
@@ -382,6 +406,7 @@ def _run_sip(args: argparse.Namespace, api_key: str | None) -> int:
             "include": sorted(includes),
         },
         "row_counts": row_counts,
+        **(provenance or {}),
     }
     (out / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"

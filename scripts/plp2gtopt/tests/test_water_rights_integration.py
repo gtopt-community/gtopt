@@ -262,7 +262,9 @@ class TestWaterRightsIntegration:
         # The cap is PLP's numeric `qdrh + qdmh + qgah <= qdefm`: the
         # ELTORO seepage flow must NOT enter the row (it would make
         # the ELTORO water value negative when the cap binds).
-        assert "<= flow_right('laja_qdefm').flow;" in laja
+        assert "scope stage:" in laja
+        assert "+ sum{b in stage} dur[b] * flow_right('laja_qfilt').flow" in laja
+        assert "- sum{b in stage} dur[b] * flow_right('laja_qdefm').flow <= 0;" in laja
         assert "seepage('ELTORO_seepage_2').flow" not in laja
 
         maule = (out / "maule.pampl").read_text(encoding="utf-8")
@@ -499,14 +501,16 @@ class TestWaterRightsIntegration:
                 assert fr.get("consumptive") is False
             else:
                 assert fr.get("consumptive") is True
-        # +1: the `laja_qdefm` netting carrier (fixed column holding the
-        # per-stage net irrigation requirement for the attribution cap).
+        # +2: the `laja_qdefm` netting carrier (fixed column holding the
+        # per-stage net irrigation requirement for the attribution cap)
+        # and the `laja_qfilt` carrier (lake filtration at the
+        # stage-initial volume, subtracted from it).
         # plp_2y has RelaxInvern = T, so the Invernada level-rule rights
         # (embalsar / no_embalsar / holgura) are not emitted; Maule adds
         # qdrah (maule_deficit_riego), the QDefRiego carrier and the
         # Melado district deficit (PLP qrhh), plus the Cota 425 carrier
         # (IExtr425 = 2 -> COLBUN_extrac_1_*).
-        assert len(frs) == 40, f"Expected 40 total flow rights, got {len(frs)}"
+        assert len(frs) == 41, f"Expected 41 total flow rights, got {len(frs)}"
         assert "maule_cota_425" in {fr["name"] for fr in frs}
 
     def test_no_phantom_rewarded_flow_rights(self, converted_case):

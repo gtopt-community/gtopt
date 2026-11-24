@@ -9,6 +9,11 @@ from typing import Any
 
 from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_section
 from gtopt_shared.operator import add_operator_argument, select_operator
+from gtopt_shared.sanity_report import add_sanity_report_argument
+from gtopt_shared.source_versions import (
+    add_source_version_argument,
+    apply_source_variants,
+)
 from gtopt_shared.cli_signals import (  # pylint: disable=unused-import
     install_termination_handlers,
     signal_handler,  # noqa: F401  re-export for back-compat / tests
@@ -26,6 +31,7 @@ from .plp2gtopt import (
     validate_plp_case,
 )
 from .info_display import display_plp_info
+from .source_version import SOURCE_FORMAT, detect_version
 
 __version__ = get_version()
 
@@ -248,7 +254,9 @@ def make_parser() -> argparse.ArgumentParser:
             "See <output_dir>/README.md for the snapshot format."
         ),
     )
+    add_source_version_argument(parser, SOURCE_FORMAT)
     add_operator_argument(parser)
+    add_sanity_report_argument(parser)
 
     return parser
 
@@ -708,6 +716,7 @@ def build_options(args: argparse.Namespace) -> dict[str, Any]:
     if args.ror_as_reservoirs_file is not None:
         opts["ror_as_reservoirs_file"] = args.ror_as_reservoirs_file
     opts["run_check"] = args.run_check
+    opts["sanity_report"] = getattr(args, "sanity_report", None)
     # Technology detection
     opts["auto_detect_tech"] = args.auto_detect_tech
     if args.tech_overrides is not None:
@@ -824,6 +833,13 @@ def main(argv: list[str] | None = None) -> None:
     # exact same parsed-options dict (incl. resolved output_dir).
     select_operator(getattr(args, "operator", None), "plp", args.input_dir, args)
     _opts_for_snapshot = build_options(args)
+    apply_source_variants(
+        SOURCE_FORMAT,
+        detect_version(args.input_dir),
+        getattr(args, "source_version", None),
+        provenance=_opts_for_snapshot,
+        log=logging.getLogger("plp2gtopt"),
+    )
     try:
         critical_count = convert_plp_case(_opts_for_snapshot)
     except (RuntimeError, FileNotFoundError) as exc:

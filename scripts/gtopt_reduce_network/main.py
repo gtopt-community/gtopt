@@ -35,7 +35,12 @@ from gtopt_reduce_network._project_investment import (
     write_patch_json,
 )
 from gtopt_reduce_network._protected_lines import collect_protected_lines
-from gtopt_reduce_network._reduce import ReduceConfig, reduce_case
+from gtopt_reduce_network._reduce import (
+    ReduceConfig,
+    bus_groups_from_csv,
+    bus_groups_from_regex,
+    reduce_case,
+)
 from gtopt_reduce_network._user_constraints import filter_line_user_constraints
 
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -143,6 +148,29 @@ def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
         ),
     )
     p.add_argument(
+        "--bus-group-regex",
+        type=str,
+        default=None,
+        metavar="REGEX",
+        help=(
+            "fixed zonal reduction: group buses by a regex on the bus name "
+            "(capture group 1, else the whole match), e.g. '^(CL|PE)_' for "
+            "a two-node Chile/Peru model; one reduced bus per group, "
+            "inter-group lines aggregated, no clustering.  Replaces "
+            "-K/--bus-ratio"
+        ),
+    )
+    p.add_argument(
+        "--bus-groups",
+        type=Path,
+        default=None,
+        metavar="CSV",
+        help=(
+            "fixed zonal reduction from a 'bus,group' CSV (bus = uid or "
+            "name); same semantics as --bus-group-regex"
+        ),
+    )
+    p.add_argument(
         "--partition",
         choices=["hac", "louvain-mincut"],
         default="hac",
@@ -231,6 +259,19 @@ def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
             "the reduced case.  Essential when the reduced commitment is a "
             "MIP warm-start seed for the full model.  With --bus-ratio the "
             "ratio then applies to the REDUCIBLE (non-protected) buses only"
+        ),
+    )
+    p.add_argument(
+        "--protect-line",
+        type=int,
+        action="append",
+        default=[],
+        metavar="UID",
+        help=(
+            "keep this line INTACT (original uid/name/params, endpoints "
+            "pinned) — e.g. an interconnector the study is about; may be "
+            "passed multiple times.  Under --bus-ratio its endpoint buses "
+            "count as protected"
         ),
     )
     p.add_argument(
@@ -336,8 +377,29 @@ def _cmd_reduce(args: argparse.Namespace) -> None:
             case, input_dir=args.input.resolve().parent
         )
         n_protected_buses = len(protected_buses)
-    target_buses = _resolve_target_buses(args, case, n_protected_buses)
+    if args.protect_line:
+        extra = {
+            b
+            for ln in case.array("line_array")
+            if int(ln["uid"]) in set(args.protect_line)
+            for b in (ln.get("bus_a"), ln.get("bus_b"))
+        }
+        n_protected_buses += len(extra)
+    bus_groups: dict[int, str] = {}
+    if args.bus_group_regex is not None and args.bus_groups is not None:
+        raise ValueError("pass at most one of --bus-group-regex / --bus-groups")
+    if args.bus_group_regex is not None:
+        bus_groups = bus_groups_from_regex(case, args.bus_group_regex)
+    elif args.bus_groups is not None:
+        bus_groups = bus_groups_from_csv(case, args.bus_groups)
+    if bus_groups:
+        if args.target_buses is not None or args.bus_ratio is not None:
+            raise ValueError("bus groups replace -K/--target-buses/--bus-ratio")
+        target_buses = len(set(bus_groups.values()))
+    else:
+        target_buses = _resolve_target_buses(args, case, n_protected_buses)
     config = ReduceConfig(
+        bus_groups=bus_groups,
         target_buses=target_buses,
         distance=args.distance,
         reactance_rule=args.reactance_rule,
@@ -351,6 +413,7 @@ def _cmd_reduce(args: argparse.Namespace) -> None:
         dc_voltage_threshold=args.dc_voltage_threshold,
         dc_power_threshold=args.dc_power_threshold,
         protect_constraint_lines=args.protect_constraint_lines,
+        protected_line_uids=tuple(args.protect_line),
         partition=args.partition,
         nx_weight=args.nx_weight,
         seed=args.seed,

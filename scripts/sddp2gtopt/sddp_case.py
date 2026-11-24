@@ -59,6 +59,7 @@ from .sddp_dat_parsers import (
     parse_stage_profiles,
     span_keys,
     parse_system_suffix,
+    infer_kv_from_name,
     parse_volt,
     to_float,
     to_int,
@@ -418,6 +419,16 @@ def _load_network(
         gen_bus.update(parse_bus_connections(conn_path))
     volt_path = find_case_file(case_dir, "volt.dat", "Volt.dat")
     kv = parse_volt(volt_path) if volt_path else {}
+    # ``volt.dat`` may leave buses at 0 kV (every AMM Guatemala bus);
+    # recover the level from the name (``ESC-231`` → 230).  The line
+    # impedances are built from X % on the 100 MVA base with
+    # ``Z_base = V²/100``, so ``X/V²`` — what the LP uses — does not
+    # depend on the voltage: this only fixes the reported kV.
+    for num, name in buses.items():
+        if num not in kv:
+            named = infer_kv_from_name(name)
+            if named is not None:
+                kv[num] = named
     lines: list[SddpLine] = []
     circ_path = find_case_file(case_dir, "dcirc.dat")
     if circ_path is None:

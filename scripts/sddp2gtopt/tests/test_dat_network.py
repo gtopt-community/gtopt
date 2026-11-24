@@ -24,8 +24,13 @@ def _write(path: Path, text: str) -> Path:
 
 def test_split_reactance_region() -> None:
     assert _split_reactance_region("  0.58  3.02") == (0.58, 3.02)
-    assert _split_reactance_region("0.100.25") == (0.10, 0.25)  # merged columns
-    assert _split_reactance_region("0.118.23") == (0.11, 8.23)
+    # Fixed-width 6+6 fields: X >= 100 % touches R.
+    assert _split_reactance_region("    0.100.25") == (0.0, 100.25)
+    assert _split_reactance_region("    0.118.23") == (0.0, 118.23)
+    assert _split_reactance_region(" 71.72235.15") == (71.72, 235.15)
+    assert _split_reactance_region("1.246410.905") == (1.2464, 10.905)
+    # Misaligned (non-numeric 6-char halves) -> whitespace tokens.
+    assert _split_reactance_region("0.5 3.02    ") == (0.5, 3.02)
     assert _split_reactance_region("  0.10") == (0.10, 0.0)
 
 
@@ -59,7 +64,10 @@ def test_circuit_parser(tmp_path: Path) -> None:
     assert a.reactance_pu == pytest.approx(3.02)  # raw % until loader converts
     assert a.rating == pytest.approx(491.6)
     assert (b.from_bus, b.to_bus) == (1857, 16011)
-    assert b.resistance == pytest.approx(0.10) and b.reactance_pu == pytest.approx(0.25)
+    # Fixed-width RESIS/REACT: X >= 100 % touches R (R 0 %, X 100.25 %).
+    assert b.resistance == pytest.approx(0.0) and b.reactance_pu == pytest.approx(
+        100.25
+    )
 
 
 def test_volt_parser(tmp_path: Path) -> None:

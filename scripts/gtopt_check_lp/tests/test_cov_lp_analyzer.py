@@ -90,3 +90,19 @@ def test_report_with_missing_constraint_text(tmp_path: Path) -> None:
     report = la.format_static_report(tmp_path / "x.lp", stats)
     assert "con=ghost" in report
     assert report.count("con=ghost") == 2
+
+
+def test_coeff_stats_ignore_digits_in_names_and_rhs(tmp_path: Path) -> None:
+    """Digits inside names and the RHS are not coefficients (2.0e9 bug)."""
+    lp = tmp_path / "names.lp"
+    lp.write_text(
+        "Minimize\n obj: x1\n"
+        "Subject To\n"
+        " sd_2024092283_gx_1: 0.5 sd_2024092283_flow_1\n"
+        "   - 0.25 x1 <= 29.6364\n"
+        "Bounds\n x1 >= 0\nEnd\n"
+    )
+    stats = la.analyze_lp_file(lp)
+    assert stats.max_abs_coeff == 0.5
+    assert stats.min_abs_nonzero_coeff == 0.25
+    assert not stats.large_coeff_constraints

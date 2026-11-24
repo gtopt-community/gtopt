@@ -103,9 +103,24 @@ class _FakeBusTable:
         return _At()
 
 
-def _fake_pandapower(diag_result: Any, raise_on_from_json: bool = False) -> Any:
-    mod = types.ModuleType("pandapower")
-    created: dict[str, list[dict[str, Any]]] = {"trafo": [], "line": []}
+class _FakePandapowerModule(types.ModuleType):
+    """Fake ``pandapower`` module recording the created trafos / lines.
+
+    ``created`` is declared on the class so linters (pylint ``no-member``)
+    see it; a bare ``types.ModuleType`` with a dynamic attribute was
+    flagged depending on the pylint/astroid inference path.
+    """
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.created: dict[str, list[dict[str, Any]]] = {"trafo": [], "line": []}
+
+
+def _fake_pandapower(
+    diag_result: Any, raise_on_from_json: bool = False
+) -> _FakePandapowerModule:
+    mod = _FakePandapowerModule("pandapower")
+    created = mod.created
 
     def create_empty_network(name: str) -> Any:
         return SimpleNamespace(name=name, bus=_FakeBusTable())
@@ -131,13 +146,15 @@ def _fake_pandapower(diag_result: Any, raise_on_from_json: bool = False) -> Any:
             raise ValueError("bad json")
         return SimpleNamespace()
 
-    mod.create_empty_network = create_empty_network  # type: ignore[attr-defined]
-    mod.create_bus = create_bus  # type: ignore[attr-defined]
-    mod.create_transformer_from_parameters = create_transformer_from_parameters  # type: ignore[attr-defined]
-    mod.create_line_from_parameters = create_line_from_parameters  # type: ignore[attr-defined]
-    mod.diagnostic = diagnostic  # type: ignore[attr-defined]
-    mod.from_json = from_json  # type: ignore[attr-defined]
-    mod.created = created  # type: ignore[attr-defined]
+    for attr, fn in {
+        "create_empty_network": create_empty_network,
+        "create_bus": create_bus,
+        "create_transformer_from_parameters": create_transformer_from_parameters,
+        "create_line_from_parameters": create_line_from_parameters,
+        "diagnostic": diagnostic,
+        "from_json": from_json,
+    }.items():
+        setattr(mod, attr, fn)
     return mod
 
 

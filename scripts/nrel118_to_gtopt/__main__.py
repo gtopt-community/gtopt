@@ -23,6 +23,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.source_versions import (
+    add_source_version_argument,
+    apply_source_version,
+)
 from gtopt_shared.time_grid import parse_hour_range
 from nrel118_to_gtopt._converter import (
     COMMITMENT_MODES,
@@ -49,6 +53,8 @@ __all__ = [
     "make_parser",
     "populate_cache",
 ]
+
+from nrel118_to_gtopt.source_version import SOURCE_FORMAT, detect_version
 
 logger = logging.getLogger("nrel118_to_gtopt")
 
@@ -185,6 +191,7 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip the network round-trip; require the cache to be primed",
     )
+    add_source_version_argument(data, SOURCE_FORMAT)
     parser.add_argument(
         "--from-state",
         dest="from_state",
@@ -221,8 +228,17 @@ def _apply_from_state(
     return apply_state_to_args(parser, state_args, argv)
 
 
-def _write_state(args: argparse.Namespace, state_dir: Path, summary: Any) -> None:
-    """Write the state snapshot + README with paths relative to *state_dir*."""
+def _write_state(
+    args: argparse.Namespace,
+    state_dir: Path,
+    summary: Any,
+    provenance: dict[str, Any] | None = None,
+) -> None:
+    """Write the state snapshot + README with paths relative to *state_dir*.
+
+    *provenance* keys (the ``source_format`` record) are merged into the
+    snapshot's ``extra`` next to ``summary``.
+    """
     from gtopt_shared.state_snapshot import (  # noqa: PLC0415  pylint: disable=import-outside-toplevel
         write_nrel118_to_gtopt_readme,
         write_state_snapshot,
@@ -241,7 +257,7 @@ def _write_state(args: argparse.Namespace, state_dir: Path, summary: Any) -> Non
             output_dir=state_dir,
             tool_name="nrel118_to_gtopt",
             args=snap,
-            extra={"summary": summary},
+            extra={"summary": summary, **(provenance or {})},
         )
         write_nrel118_to_gtopt_readme(state_dir)
     except (OSError, ValueError) as exc:
@@ -282,6 +298,14 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         logger.error("NREL-118 cache %s lacks %s", cache_dir, ", ".join(missing))
         return 2
+    provenance: dict[str, Any] = {}
+    apply_source_version(
+        SOURCE_FORMAT,
+        detect_version(cache_dir),
+        args.source_version,
+        provenance=provenance,
+        log=logger,
+    )
 
     output = Path(args.output)
     try:
@@ -304,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("%s", exc)
         return 1
     write_json(output, planning)
-    _write_state(args, output.parent / output.stem, summary)
+    _write_state(args, output.parent / output.stem, summary, provenance)
 
     for note in summary["notes"]:
         logger.warning("%s", note)

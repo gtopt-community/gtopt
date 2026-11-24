@@ -22,9 +22,12 @@ from gtopt_shared.cli_signals import (
     signal_handler as _signal_handler,  # noqa: F401  re-export for back-compat / tests
 )
 from gtopt_shared.operator import add_operator_argument, select_operator
+from gtopt_shared.sanity_report import add_sanity_report_argument
+from gtopt_shared.source_versions import add_source_version_argument
 
 from .info_display import display_sddp_info
 from .sddp2gtopt import convert_sddp_case, validate_sddp_case
+from .source_version import SOURCE_FORMAT
 
 
 __version__ = "0.1.0"
@@ -158,7 +161,9 @@ def make_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    add_source_version_argument(parser, SOURCE_FORMAT)
     add_operator_argument(parser)
+    add_sanity_report_argument(parser)
     return parser
 
 
@@ -197,6 +202,8 @@ def main(argv: list[str] | None = None) -> None:
         "num_scenarios": args.num_scenarios,
         "method": args.method,
         "deficit_segments": args.deficit_segments,
+        "sanity_report": args.sanity_report,
+        "source_version": args.source_version,
     }
 
     if args.show_info:

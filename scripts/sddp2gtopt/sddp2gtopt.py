@@ -13,6 +13,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.sanity_report import run_sanity_report
+from gtopt_shared.source_versions import apply_source_version
+
 from .dat_loader import is_dat_case, load_dat_case
 from .sddp_case import is_sddp_block_case, load_sddp_block_case
 from .sddp_case_writer import write_sddp_case
@@ -25,6 +28,7 @@ from .parsers import (
     parse_thermal_plants,
 )
 from .psrclasses_loader import load_psrclasses
+from .source_version import SOURCE_FORMAT, detect_version
 
 
 logger = logging.getLogger(__name__)
@@ -156,6 +160,7 @@ def _convert_sddp_block_case(input_dir: Path, options: dict[str, Any]) -> int:
         case.num_blocks,
         len(case.scenarios),
     )
+    _sanity(Path(output_file), options)
     return 0
 
 
@@ -175,6 +180,9 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
               ``<output_dir>/<output_dir.name>.json``.
             * ``name`` — planning name (default: output dir name).
             * ``use_single_bus`` — overrides the default ``True``.
+            * ``source_version`` — ``--source-version`` override of the
+              detected SDDP layout generation (see
+              :data:`sddp2gtopt.source_version.SOURCE_FORMAT`).
 
     Returns:
         Number of CRITICAL findings raised by post-conversion
@@ -184,6 +192,12 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
     if raw_input is None:
         raise ValueError("convert_sddp_case: 'input_dir' option is required")
     input_dir = Path(raw_input)
+    apply_source_version(
+        SOURCE_FORMAT,
+        detect_version(input_dir),
+        options.get("source_version"),
+        log=logger,
+    )
 
     # PSR SDDP block study (monthly/weekly blocks, ``deme*.dat`` demand,
     # historical inflow series) → multi-scenario SDDP planning + Parquet.
@@ -277,4 +291,10 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
     # Auto-create the output dir even if no extra files are written so
     # downstream tools that mkdir-on-write don't surprise the user.
     output_dir.mkdir(parents=True, exist_ok=True)
+    _sanity(Path(output_file), options)
     return 0
+
+
+def _sanity(output_file: Path, options: dict[str, Any]) -> None:
+    """Post-conversion data-quality report (never fails the conversion)."""
+    run_sanity_report(output_file, json_path=options.get("sanity_report"), log=logger)

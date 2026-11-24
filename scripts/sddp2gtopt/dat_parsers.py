@@ -467,23 +467,29 @@ class VoltParser(BaseTextParser):
 
 
 def _split_reactance_region(region: str) -> tuple[float, float]:
-    """Split the fixed-width ``RESIS REACT`` region into ``(R, X)``.
+    """Split the ``RESIS REACT`` region ``line[17:29]`` into ``(R, X)``.
 
-    Normally two whitespace-separated tokens; when the columns touch the
-    text merges (e.g. ``0.100.25`` = R 0.10 + X 0.25).  Resistances have a
-    single integer digit, so the merged value is split one character
-    before its **second** decimal point.
+    The two fields are fixed-width, 6 characters each (``[17:23]`` and
+    ``[23:29]``), so a REACT of 100 % or more touches RESIS:
+    ``    0.100.25`` is R 0 % + X 100.25 %, ``1.246410.905`` is
+    R 1.2464 % + X 10.905 %.  A full-width region is therefore split at
+    column 6; only a short (truncated) or non-numeric region falls back
+    to whitespace tokens.
     """
+    if len(region) >= 12:
+        r_txt, x_txt = region[:6].strip(), region[6:12].strip()
+        try:
+            return (
+                float(r_txt) if r_txt else 0.0,
+                float(x_txt) if x_txt else 0.0,
+            )
+        except ValueError:
+            pass
     parts = region.split()
     if len(parts) >= 2:
         return float(parts[0]), float(parts[1])
     if len(parts) == 1:
-        s = parts[0]
-        dots = [i for i, c in enumerate(s) if c == "."]
-        if len(dots) >= 2:
-            cut = dots[1] - 1
-            return float(s[:cut]), float(s[cut:])
-        return float(s), 0.0
+        return float(parts[0]), 0.0
     return 0.0, 0.0
 
 

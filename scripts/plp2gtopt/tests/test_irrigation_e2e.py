@@ -345,11 +345,13 @@ class TestLajaE2E:
         assert (charged - delivered).max() <= _TOL * 100.0
 
     def test_cap_row_has_no_seepage_term(self, solved, variant):
-        """PLP's qdefm cap carries no filtration term (item 5)."""
+        """PLP's qdefm cap carries no filtration COLUMN (item 5): the
+        filtration enters only numerically, via the fixed laja_qfilt
+        carrier, never as a seepage/waterway flow."""
         text = (solved[variant].case / "laja.pampl").read_text("utf-8")
         row = re.search(r"constraint laja_retiro_maximo.*?;", text, flags=re.S)
         assert row is not None
-        assert not re.search(r"seepage|filtr|filt_", row.group(0), flags=re.I)
+        assert not re.search(r"seepage\(|waterway\(|filt_", row.group(0))
 
     def test_december_provision_from_zone_rule(self, solved, variant):
         """Dec eini(riego) = min(cap, rule(V)) - anticipado (Nov efin).

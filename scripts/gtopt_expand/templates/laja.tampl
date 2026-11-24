@@ -130,36 +130,44 @@ constraint laja_ledger_anticipado "Ledger: anticipado counter fills with qga":
 {% endif %}
 
 # ---------------------------------------------------------------------------
-# Attribution cap: riego-side charging <= delivered irrigation
+# Attribution cap: riego-side charging <= net irrigation requirement
 #
-# PLP caps the riego-side stage-average flows at the net irrigation
-# requirement (`qdrh + qdmh + qgah <= qdefm`, genpdlajam.f:290-296) so
-# generation water cannot be charged against the free riego ledgers —
-# without it the LP would burn the December provision on pure
-# generation releases and dodge the electric usage cost.
+# PLP caps the riego-side STAGE-AVERAGE flows at the net irrigation
+# requirement (`qdrh + qdmh + qgah <= qdefm`) so generation water cannot
+# be charged against the free riego ledgers — without it the LP would
+# burn the December provision on pure generation releases and dodge
+# the electric usage cost.  The row is stage-scoped (`scope stage`,
+# duration-weighted sums): riego charging may be shaped across the
+# stage's blocks as long as its stage mean respects the requirement,
+# like PLP's H-suffix averages.
 #
-# FIRST-PASS APPROXIMATION: the cap uses the GROSS modeled deliveries
-# (the district FlowRights, bounded by their demand targets) instead
-# of PLP's qdefm, which additionally nets out the hoya-intermedia
-# tributary inflows and filtration (GetQsLajaM, scenario-dependent).
-# The gross cap is looser by that netting but already ties riego
-# charging to actual irrigation demand.  Spills never enter this
-# accounting (the flows below are turbined-water partitions).
+#   qdefm(V0) = max(C - QFilt(V0), 0),
+#   C         = min(QP - QHoya, QFiltHist) + QN + QS + QE
+#
+# * laja_qdefm (carrier) holds max(C, 0) per stage (hoya-intermedia
+#   inflows: scenario mean);
+# * laja_qfilt (carrier, when the lake's seepage curve is known) holds
+#   min(C, QFilt(V0)) through a bound_rule on the lake volume — the
+#   filtration is NUMERIC (evaluated at the stage-initial volume), never
+#   a volume column, so the lake's water value cannot turn negative;
+# * without the seepage curve laja_qdefm already folds the static
+#   QFiltLaja = QFiltHist approximation;
+# * without hoya-intermedia data the cap falls back to the GROSS modeled
+#   district deliveries (looser by the netting).
+# Spills never enter this accounting (the flows below are turbined-water
+# partitions).
 # ---------------------------------------------------------------------------
+{% set _riego_side = ["laja_der_riego", "laja_der_mixto", "laja_gasto_anticipado"] %}
 {% if not (enable_attribution_cap | default(true)) %}
 {# Attribution cap disabled (enable_attribution_cap: false). #}
 {% elif use_qdefm_carrier | default(false) %}
-{# NETTED cap (static filtration): the laja_qdefm carrier holds PLP's
-   per-stage net requirement (GetQsLajaM) — primary demand minus
-   hoya-intermedia inflows and QFiltHist, plus the secondary
-   categories. #}
-constraint laja_retiro_maximo "Attribution cap: riego-side charging <= net requirement (qdefm)":
-  flow_right('laja_der_riego').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow <= flow_right('laja_qdefm').flow;
+constraint laja_retiro_maximo "Attribution cap: stage-average riego-side charging <= net requirement (qdefm)" scope stage:
+  {% for n in _riego_side %}sum{b in stage} dur[b] * flow_right('{{ n }}').flow{{ " + " if not loop.last else "" }}{% endfor %}{% if use_qfilt_carrier | default(false) %} + sum{b in stage} dur[b] * flow_right('laja_qfilt').flow{% endif %} - sum{b in stage} dur[b] * flow_right('laja_qdefm').flow <= 0;
 {% else %}
 {% set _district_names = district_fr_names | default([]) %}
 {% if _district_names %}
-constraint laja_retiro_maximo "Attribution cap: riego-side charging <= delivered irrigation":
-  flow_right('laja_der_riego').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow <= {% for n in _district_names %}flow_right('{{ n }}').flow{{ " + " if not loop.last else "" }}{% endfor %};
+constraint laja_retiro_maximo "Attribution cap: stage-average riego-side charging <= delivered irrigation" scope stage:
+  {% for n in _riego_side %}sum{b in stage} dur[b] * flow_right('{{ n }}').flow{{ " + " if not loop.last else "" }}{% endfor %}{% for n in _district_names %} - sum{b in stage} dur[b] * flow_right('{{ n }}').flow{% endfor %} <= 0;
 {% endif %}
 {% endif %}
 

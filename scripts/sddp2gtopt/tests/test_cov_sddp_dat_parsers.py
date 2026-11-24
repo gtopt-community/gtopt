@@ -193,3 +193,51 @@ def test_network_parsers_noise(tmp_path: Path) -> None:
         (6, 0.0, False),
     ]
     assert not parse_circuit_mods(_write(tmp_path / "m.dat", "   1 orphan\n"))
+
+
+_LEGACY_DCIRC_HDR = (
+    "#BOR.   #BDE.    .RESIS.REACT Nome........(MVAR)(Tmn)(Tmx)(  MW)(MW)   # I C\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("region", "r_pct", "x_pct"),
+    [
+        # Real glued rows of the AMM SDDP PLP databases 2021-2026 (X >= 100 %
+        # or a 4-decimal R touching X): blank-token splitting read them as
+        # one unparsable token -> R = X = 0.
+        ("    0.100.25", 0.0, 100.25),
+        (" 71.72235.15", 71.72, 235.15),
+        ("    0.666.67", 0.0, 666.67),
+        (" 0.1490.8601", 0.149, 0.8601),
+        ("8.973132.493", 8.9731, 32.493),
+        # Blank-separated and X-only rows keep their meaning.
+        ("  0.41  2.65", 0.41, 2.65),
+        ("         2.0", 0.0, 2.0),
+        # Misaligned row (non-numeric fixed-width halves) -> blank tokens.
+        ("0.5 3.02    ", 0.5, 3.02),
+    ],
+)
+def test_legacy_dcirc_resis_react_fixed_width(
+    tmp_path: Path, region: str, r_pct: float, x_pct: float
+) -> None:
+    assert len(region) == 12
+    row = f" 1978   12566    {region} HAGMIR_13.8A                   12.  13 350 0 0\n"
+    assert row[17:29] == region
+    circuits = parse_circuits(_write(tmp_path / "dcirc.dat", _LEGACY_DCIRC_HDR + row))
+    assert len(circuits) == 1
+    circ = circuits[0]
+    assert (circ.r_pct, circ.x_pct) == pytest.approx((r_pct, x_pct))
+    assert (circ.code, circ.rating) == (350, pytest.approx(12.0))
+
+
+def test_legacy_dcirc_header_without_react_mark(tmp_path: Path) -> None:
+    """A header lacking ``.REACT`` keeps the blank-token split."""
+    hdr = (
+        "#BOR.   #BDE.    .RESIS.XXXXX Nome........(MVAR)(Tmn)(Tmx)(  MW)(MW)   # I C\n"
+    )
+    row = (
+        " 1978   12566      0.41  2.65 HAGMIR_13.8A                   12.  13 350 0 0\n"
+    )
+    circuits = parse_circuits(_write(tmp_path / "dcirc.dat", hdr + row))
+    assert [(c.r_pct, c.x_pct) for c in circuits] == [(0.41, 2.65)]

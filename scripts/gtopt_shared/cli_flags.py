@@ -601,11 +601,13 @@ def add_loss_secant_segments_argument(
 
 
 #: Default ``--lift-line-caps`` set for the plexos dialect.  Under the
-#: ``--el0-lines strict`` DEFAULT every EL=0 ("Never enforce") line is a plain
-#: hard cap; this list LIFTS back to a soft cap (3× free / 6× hard band) the
-#: EL=0 radial / load-pocket feeders that need to run above their rating,
-#: plus the one EL=1 radial corridor (``Capricornio110->LaNegra110``).  The
-#: other EL=0 lines stay hard (see ``DEFAULT_NO_LIFT_LINES_PLEXOS`` for the cable kept hard even
+#: ``--el0-lines strict`` opt-in (the default ``unenforced`` mode ignores
+#: this list for EL=0 lines and sub-threshold EL=1 lines) every EL=0
+#: ("Never enforce") line is a plain hard cap; this list LIFTS back to a
+#: soft cap (3× free / 6× hard band) the EL=0 radial / load-pocket feeders
+#: that need to run above their rating, plus the one EL=1 radial corridor
+#: (``Capricornio110->LaNegra110``).  The other EL=0 lines stay hard (see
+#: ``DEFAULT_NO_LIFT_LINES_PLEXOS`` for the cable kept hard even
 #: under ``--el0-lines extended``).
 _DEFAULT_LIFT_LINES_PLEXOS: tuple[str, ...] = (
     "AJahuel220->AJahuel154",
@@ -696,7 +698,7 @@ def add_lift_line_caps_argument(
             help=(
                 "Comma-separated list of Line names to LIFT to a soft cap "
                 "(3x-free / 6x-hard band) instead of the plain hard cap that "
-                "is the default for both EL=0 ('Never enforce', under "
+                "is used for both EL=0 ('Never enforce', under "
                 "``--el0-lines strict``) and the demoted EL=1 corridors.  "
                 "Used for PLEXOS lines whose dispatched flow exceeds the "
                 "published rating (radial / load-pocket feeders with no "
@@ -719,8 +721,9 @@ def add_lift_line_caps_argument(
 
 
 #: Default ``--no-lift-lines`` list for the plexos dialect.  Under the
-#: ``--el0-lines strict`` DEFAULT every EL=0 line is already hard-capped, so
-#: this list mainly matters when a user opts back into ``--el0-lines
+#: ``--el0-lines strict`` opt-in every EL=0 line is already hard-capped, so
+#: this list matters under the default ``--el0-lines unenforced`` (it pins
+#: the named lines to a hard cap) and under ``--el0-lines
 #: extended`` (soft EL=0 everywhere): it keeps the named lines HARD even then.
 #: The Chacao submarine cable ``PMontt220->Chiloe110`` is the canonical entry —
 #: EL=0 in PLEXOS, yet a genuine physical limit (90 MW rating; Chiloé is a

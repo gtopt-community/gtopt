@@ -152,6 +152,7 @@ SOLVER_OPTION_KEYS: frozenset[str] = frozenset(
         "crossover",
         "mip_gap_abs",
         "memory_emphasis",
+        "mip_polish",
         "param_file",
         "advanced_basis",
     }
@@ -183,6 +184,7 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "tiny_reactance_mode",
         "dc_line_resistance_threshold",
         "scale_loss_link",
+        "reserve_coupling",
         "loss_cost_eps",
         "loss_secant_segments",
         "loss_use_sos2",
@@ -210,6 +212,11 @@ LP_MATRIX_OPTION_KEYS: frozenset[str] = frozenset(
         "fast_sqrt_method",
         "ruiz_max_iterations",
         "ruiz_tolerance",
+        "water_dual_target",
+        "water_dual_clamp",
+        "kvl_row_scale",
+        "kvl_row_clamp",
+        "kvl_x_ref",
         "compute_stats",
     }
 )

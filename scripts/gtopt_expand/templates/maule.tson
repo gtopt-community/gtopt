@@ -334,13 +334,14 @@
     {# ============================================================= #}
     {# FlowRight: maule_compensacion_elec (PLP: IQMCE)              #}
     {#                                                               #}
-    {# ENDESA compensation flow.  Compensates ENDESA for irrigation  #}
-    {# priority in the ordinary reserve zone.  No bound_rule — this  #}
-    {# is available regardless of zone (tracks cumulative volume     #}
-    {# via VolumeRight maule_vol_compensacion_elec).                 #}
-    {#                                                               #}
-    {# PLP: IQMCEH hourly aggregate, volume tracked by VolCompEND.   #}
-    {# No zone restriction — compensation can be drawn from any zone.#}
+    {# ENDESA compensation flow (volume tracked by the VolumeRight   #}
+    {# maule_vol_compensacion_elec).  Usable ONLY in the normal      #}
+    {# regime: PLP FijaMaule sets UppMaule(IQMCEH) = DINFTY when     #}
+    {# RegimenNormal (V_util >= VReservaExtraord + VReservaOrdinaria #}
+    {# = 581 hm3) and 0 otherwise (genpdmaule.f:818 / :827).  The    #}
+    {# bound_rule is the same 581 gate as maule_gasto_normal_elec.   #}
+    {# Above the gate PLP leaves the column unbounded (only the      #}
+    {# ledger caps it); gtopt keeps fmax = GastoElecDiaMax.          #}
     {# ============================================================= #}
     {
       "name": "maule_compensacion_elec",
@@ -348,7 +349,14 @@
       "direction": -1,
       "target": 0,
       "fmax": {{ elec_day_max }},
-      "use_average": true
+      "use_average": true,
+      "bound_rule": {
+        "reservoir": {{ res_maule }},
+        "segments": [
+          {"volume": 0, "slope": 0, "constant": 0},
+          {"volume": {{ v_zone_normal }}, "slope": 0, "constant": {{ elec_day_max }}}
+        ]
+      }
     },
 
     {# ============================================================= #}
@@ -494,6 +502,13 @@
     {# Canelon irrigation intake when water is diverted through it.  #}
     {# PLP: FO += CostoCanelon * BloDur/FPhi — a positive PENALTY,   #}
     {# emitted as NEGATIVE uvalue on the target-0 kink.              #}
+    {# PLP puts it on the Canelon central's generation column, whose #}
+    {# only upper bound is the central's max flow (UppBnd = DINFTY   #}
+    {# in GenPDMauleBloFO, genpdmaule.f:186-202).  fmax is therefore #}
+    {# the generation arc's fmax (canelon_qmax, resolved by          #}
+    {# plp2gtopt from the BCanelon _gen waterway).  Without it the   #}
+    {# C++ default for a target-0 usage cost is unbounded — never    #}
+    {# the zero target, which would forbid the anchored arc.         #}
     {#                                                               #}
     {# Conditional — only emitted when costo_canelon > 0.            #}
     {# ============================================================= #}
@@ -503,6 +518,7 @@
       "purpose": "irrigation",
       "direction": -1,
       "target": 0,
+      {% if canelon_qmax is not none %}"fmax": {{ canelon_qmax }},{% endif %}
       "uvalue": {{ -costo_canelon }}
     }
     {% endif %}

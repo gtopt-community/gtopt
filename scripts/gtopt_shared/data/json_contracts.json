@@ -36,7 +36,6 @@
   "CustoFaltaReservaDown",
   "CustoFaltaReservaUp",
   "CustoPartida",
-  "CustoVertimento",
   "Decision Variable",
   "DeficitCost",
   "Demanda",
@@ -72,7 +71,6 @@
   "Heat Rate Band Max",
   "Heat Rate Function",
   "Heat Rate Incr",
-  "Hydro Spill Penalty",
   "Include in LT Plan",
   "Include in MT Schedule",
   "Include in PASA",
@@ -483,6 +481,8 @@
     "commitment",
     "reserve_sustain_hours",
     "reserve_discharge_credit",
+    "reserve_energy_usage_up",
+    "reserve_energy_usage_down",
     "power_capacity",
     "power_expcap",
     "power_expmod",
@@ -530,6 +530,8 @@
     "power_expcap": "variant",
     "power_expmod": "variant",
     "reserve_discharge_credit": "bool",
+    "reserve_energy_usage_down": "number",
+    "reserve_energy_usage_up": "number",
     "reserve_sustain_hours": "number",
     "soft_emin": "variant",
     "soft_emin_cost": "variant",
@@ -714,13 +716,15 @@
    "fields": [
     "model_options",
     "sddp_options",
-    "level_array"
+    "level_array",
+    "write_level_outputs"
    ],
    "header": "json_cascade_options.hpp",
    "kinds": {
     "level_array": "array",
     "model_options": "class",
-    "sddp_options": "class"
+    "sddp_options": "class",
+    "write_level_outputs": "bool"
    },
    "nested": {
     "level_array": "CascadeLevel",
@@ -887,7 +891,9 @@
     "link",
     "block_state",
     "initial_value",
-    "obj_constant"
+    "obj_constant",
+    "integer",
+    "relax"
    ],
    "header": "json_decision_variable.hpp",
    "kinds": {
@@ -898,10 +904,12 @@
     "cost_type": "string",
     "description": "string",
     "initial_value": "number",
+    "integer": "bool",
     "link": "bool",
     "lower_bound": "number",
     "name": "string",
     "obj_constant": "number",
+    "relax": "bool",
     "scope": "string",
     "state": "bool",
     "type": "string",
@@ -1316,6 +1324,248 @@
    },
    "nested": {}
   },
+  "GasCompressor": {
+   "fields": [
+    "uid",
+    "name",
+    "active",
+    "type",
+    "gas_node_in",
+    "gas_node_out",
+    "fmax",
+    "max_ratio",
+    "fuel_model",
+    "fuel_fraction",
+    "gamma",
+    "alpha",
+    "efficiency",
+    "driver_efficiency",
+    "op_flow",
+    "op_ratio",
+    "op_suction_pressure",
+    "allow_bypass",
+    "bidirectional",
+    "drive",
+    "bus",
+    "motor_efficiency",
+    "power_max"
+   ],
+   "header": "json_gas_network.hpp",
+   "kinds": {
+    "active": "variant",
+    "allow_bypass": "bool",
+    "alpha": "number",
+    "bidirectional": "bool",
+    "bus": "variant",
+    "drive": "string",
+    "driver_efficiency": "number",
+    "efficiency": "number",
+    "fmax": "variant",
+    "fuel_fraction": "number",
+    "fuel_model": "string",
+    "gamma": "number",
+    "gas_node_in": "variant",
+    "gas_node_out": "variant",
+    "max_ratio": "number",
+    "motor_efficiency": "number",
+    "name": "string",
+    "op_flow": "number",
+    "op_ratio": "array",
+    "op_suction_pressure": "number",
+    "power_max": "number",
+    "type": "string",
+    "uid": "number"
+   },
+   "nested": {}
+  },
+  "GasDemand": {
+   "fields": [
+    "uid",
+    "name",
+    "active",
+    "type",
+    "gas_node",
+    "load",
+    "fail_cost"
+   ],
+   "header": "json_gas_network.hpp",
+   "kinds": {
+    "active": "variant",
+    "fail_cost": "variant",
+    "gas_node": "variant",
+    "load": "variant",
+    "name": "string",
+    "type": "string",
+    "uid": "number"
+   },
+   "nested": {}
+  },
+  "GasNode": {
+   "fields": [
+    "uid",
+    "name",
+    "active",
+    "type",
+    "pmin",
+    "pmax",
+    "pressure_cost",
+    "p_init",
+    "elevation"
+   ],
+   "header": "json_gas_network.hpp",
+   "kinds": {
+    "active": "variant",
+    "elevation": "number",
+    "name": "string",
+    "p_init": "number",
+    "pmax": "variant",
+    "pmin": "variant",
+    "pressure_cost": "variant",
+    "type": "string",
+    "uid": "number"
+   },
+   "nested": {}
+  },
+  "GasOptions": {
+   "fields": [
+    "gas_specific_gravity",
+    "gas_temperature",
+    "compressibility",
+    "slp_iterations",
+    "slp_tolerance",
+    "slp_damping",
+    "slp_min_flow",
+    "slp_initial_flow",
+    "slp_proximal_cost",
+    "linepack_cyclic"
+   ],
+   "header": "json_gas_options.hpp",
+   "kinds": {
+    "compressibility": "number",
+    "gas_specific_gravity": "number",
+    "gas_temperature": "number",
+    "linepack_cyclic": "bool",
+    "slp_damping": "number",
+    "slp_initial_flow": "number",
+    "slp_iterations": "number",
+    "slp_min_flow": "number",
+    "slp_proximal_cost": "number",
+    "slp_tolerance": "number"
+   },
+   "nested": {}
+  },
+  "GasPipe": {
+   "fields": [
+    "uid",
+    "name",
+    "active",
+    "type",
+    "gas_node_a",
+    "gas_node_b",
+    "weymouth_k",
+    "length",
+    "diameter",
+    "efficiency",
+    "gravity",
+    "temperature",
+    "z",
+    "elevation_exponent",
+    "fmax",
+    "segments",
+    "tangent_layout",
+    "weymouth_mode",
+    "linearization",
+    "reference_flow",
+    "linepack",
+    "linepack_coeff",
+    "linepack_pressure_ref",
+    "linepack_ini"
+   ],
+   "header": "json_gas_network.hpp",
+   "kinds": {
+    "active": "variant",
+    "diameter": "number",
+    "efficiency": "number",
+    "elevation_exponent": "number",
+    "fmax": "variant",
+    "gas_node_a": "variant",
+    "gas_node_b": "variant",
+    "gravity": "number",
+    "length": "number",
+    "linearization": "string",
+    "linepack": "bool",
+    "linepack_coeff": "number",
+    "linepack_ini": "number",
+    "linepack_pressure_ref": "number",
+    "name": "string",
+    "reference_flow": "number",
+    "segments": "number",
+    "tangent_layout": "string",
+    "temperature": "number",
+    "type": "string",
+    "uid": "number",
+    "weymouth_k": "number",
+    "weymouth_mode": "string",
+    "z": "number"
+   },
+   "nested": {}
+  },
+  "GasSupply": {
+   "fields": [
+    "uid",
+    "name",
+    "active",
+    "type",
+    "gas_node",
+    "fmin",
+    "fmax",
+    "cost",
+    "volume"
+   ],
+   "header": "json_gas_network.hpp",
+   "kinds": {
+    "active": "variant",
+    "cost": "variant",
+    "fmax": "variant",
+    "fmin": "variant",
+    "gas_node": "variant",
+    "name": "string",
+    "type": "string",
+    "uid": "number",
+    "volume": "number"
+   },
+   "nested": {}
+  },
+  "GasTurbine": {
+   "fields": [
+    "uid",
+    "name",
+    "active",
+    "type",
+    "generator",
+    "gas_node",
+    "heat_rate",
+    "min_pressure",
+    "pressure_band",
+    "nominal_pressure",
+    "derate_min_output"
+   ],
+   "header": "json_gas_network.hpp",
+   "kinds": {
+    "active": "variant",
+    "derate_min_output": "number",
+    "gas_node": "variant",
+    "generator": "variant",
+    "heat_rate": "variant",
+    "min_pressure": "number",
+    "name": "string",
+    "nominal_pressure": "number",
+    "pressure_band": "number",
+    "type": "string",
+    "uid": "number"
+   },
+   "nested": {}
+  },
   "Generator": {
    "fields": [
     "uid",
@@ -1342,6 +1592,7 @@
     "annual_derating",
     "integer_expmod",
     "uini",
+    "initial_generation",
     "cogen_mode",
     "emission_rate",
     "emissions",
@@ -1367,6 +1618,7 @@
     "gcost": "variant",
     "heat_rate": "variant",
     "heat_rate_segments": "array",
+    "initial_generation": "number",
     "integer_expmod": "bool",
     "lossfactor": "variant",
     "name": "string",
@@ -1404,6 +1656,7 @@
     "annual_derating",
     "integer_expmod",
     "uini",
+    "initial_generation",
     "cogen_mode"
    ],
    "header": "json_generator.hpp",
@@ -1421,6 +1674,7 @@
     "gcost": "variant",
     "heat_rate": "variant",
     "heat_rate_segments": "array",
+    "initial_generation": "number",
     "integer_expmod": "bool",
     "lossfactor": "variant",
     "pmax": "variant",
@@ -1595,13 +1849,32 @@
    },
    "nested": {}
   },
+  "InertiaRequirementCredit": {
+   "fields": [
+    "name",
+    "generators",
+    "units",
+    "credit",
+    "integer"
+   ],
+   "header": "json_inertia_zone.hpp",
+   "kinds": {
+    "credit": "variant",
+    "generators": "array",
+    "integer": "bool",
+    "name": "string",
+    "units": "number"
+   },
+   "nested": {}
+  },
   "InertiaZone": {
    "fields": [
     "uid",
     "name",
     "active",
     "requirement",
-    "cost"
+    "cost",
+    "requirement_credits"
    ],
    "header": "json_inertia_zone.hpp",
    "kinds": {
@@ -1609,9 +1882,12 @@
     "cost": "variant",
     "name": "string",
     "requirement": "variant",
+    "requirement_credits": "array",
     "uid": "number"
    },
-   "nested": {}
+   "nested": {
+    "requirement_credits": "InertiaRequirementCredit"
+   }
   },
   "InflowModel": {
    "fields": [
@@ -1874,6 +2150,11 @@
     "fast_sqrt_method",
     "ruiz_max_iterations",
     "ruiz_tolerance",
+    "water_dual_target",
+    "water_dual_clamp",
+    "kvl_row_scale",
+    "kvl_row_clamp",
+    "kvl_x_ref",
     "compute_stats",
     "validation",
     "solver_name"
@@ -1883,11 +2164,16 @@
     "compute_stats": "bool",
     "equilibration_method": "string",
     "fast_sqrt_method": "string",
+    "kvl_row_clamp": "number",
+    "kvl_row_scale": "bool",
+    "kvl_x_ref": "number",
     "lp_coeff_ratio_threshold": "number",
     "ruiz_max_iterations": "number",
     "ruiz_tolerance": "number",
     "solver_name": "string",
-    "validation": "class"
+    "validation": "class",
+    "water_dual_clamp": "number",
+    "water_dual_target": "number"
    },
    "nested": {
     "validation": "LpValidationOptions"
@@ -2104,6 +2390,28 @@
    },
    "nested": {}
   },
+  "MipStartDive": {
+   "fields": [
+    "enabled",
+    "propagate",
+    "verify",
+    "repair_rounds",
+    "sub_mip",
+    "sub_mip_time_limit",
+    "penalty"
+   ],
+   "header": "json_monolithic_options.hpp",
+   "kinds": {
+    "enabled": "bool",
+    "penalty": "number",
+    "propagate": "bool",
+    "repair_rounds": "number",
+    "sub_mip": "bool",
+    "sub_mip_time_limit": "number",
+    "verify": "bool"
+   },
+   "nested": {}
+  },
   "MipStartDomainRules": {
    "fields": [
     "min_up_down",
@@ -2136,6 +2444,7 @@
     "relax",
     "round",
     "domain_rules",
+    "dive",
     "scip_repair",
     "inject",
     "from_file",
@@ -2146,6 +2455,7 @@
    ],
    "header": "json_monolithic_options.hpp",
    "kinds": {
+    "dive": "class",
     "domain_rules": "class",
     "dump_file": "string",
     "enabled": "bool",
@@ -2159,6 +2469,7 @@
     "skip_relaxation": "bool"
    },
    "nested": {
+    "dive": "MipStartDive",
     "domain_rules": "MipStartDomainRules",
     "inject": "MipStartInject",
     "relax": "MipStartRelax",
@@ -2267,7 +2578,8 @@
     "lp_reduction",
     "allow_oversupply",
     "battery_annual_standing_loss",
-    "battery_power_envelope"
+    "battery_power_envelope",
+    "reserve_coupling"
    ],
    "header": "json_model_options.hpp",
    "kinds": {
@@ -2293,6 +2605,7 @@
     "lp_reduction": "bool",
     "naming_dialect": "string",
     "objective_mode": "string",
+    "reserve_coupling": "string",
     "reserve_shortage_cost": "number",
     "scale_loss_link": "number",
     "scale_objective": "number",
@@ -2408,6 +2721,8 @@
     "cascade_options",
     "solver_options",
     "lp_matrix_options",
+    "gas_options",
+    "sanity_options",
     "variable_scales",
     "constraint_mode",
     "write_out"
@@ -2418,6 +2733,7 @@
     "build_mode": "string",
     "cascade_options": "class",
     "constraint_mode": "string",
+    "gas_options": "class",
     "input_directory": "string",
     "input_format": "string",
     "log_directory": "string",
@@ -2439,6 +2755,7 @@
     "output_directory": "string",
     "output_format": "string",
     "output_round_decimals": "number",
+    "sanity_options": "class",
     "sddp_options": "class",
     "solver_options": "class",
     "use_uid_fname": "bool",
@@ -2447,9 +2764,11 @@
    },
    "nested": {
     "cascade_options": "CascadeOptions",
+    "gas_options": "GasOptions",
     "lp_matrix_options": "LpMatrixOptions",
     "model_options": "ModelOptions",
     "monolithic_options": "MonolithicOptions",
+    "sanity_options": "SanityOptions",
     "sddp_options": "SddpOptions",
     "solver_options": "SolverOptions",
     "variable_scales": "VariableScale"
@@ -2519,6 +2838,30 @@
    },
    "nested": {}
   },
+  "ReserveContingency": {
+   "fields": [
+    "name",
+    "generators",
+    "generator_coefs",
+    "demands",
+    "demand_coefs",
+    "lines",
+    "line_coefs",
+    "offset"
+   ],
+   "header": "json_reserve_zone.hpp",
+   "kinds": {
+    "demand_coefs": "array",
+    "demands": "array",
+    "generator_coefs": "array",
+    "generators": "array",
+    "line_coefs": "array",
+    "lines": "array",
+    "name": "string",
+    "offset": "variant"
+   },
+   "nested": {}
+  },
   "ReserveProvision": {
    "fields": [
     "uid",
@@ -2537,27 +2880,67 @@
     "ur_provision_factor",
     "dr_provision_factor",
     "urcost",
-    "drcost"
+    "drcost",
+    "ur_zone_factors",
+    "dr_zone_factors",
+    "shared_headroom",
+    "offline",
+    "symmetric",
+    "urmax_response",
+    "urmax_charge_response",
+    "drmax_response",
+    "drmax_charge_response",
+    "ur_energy_usage",
+    "dr_energy_usage"
    ],
    "header": "json_reserve_provision.hpp",
    "kinds": {
     "active": "variant",
     "description": "string",
     "dr_capacity_factor": "variant",
+    "dr_energy_usage": "variant",
     "dr_provision_factor": "variant",
+    "dr_zone_factors": "array",
     "drcost": "variant",
     "drmax": "variant",
+    "drmax_charge_response": "variant",
+    "drmax_response": "variant",
     "drmin": "variant",
     "generator": "variant",
     "name": "string",
+    "offline": "bool",
     "reserve_zones": "array",
+    "shared_headroom": "bool",
+    "symmetric": "bool",
     "type": "string",
     "uid": "number",
     "ur_capacity_factor": "variant",
+    "ur_energy_usage": "variant",
     "ur_provision_factor": "variant",
+    "ur_zone_factors": "array",
     "urcost": "variant",
     "urmax": "variant",
+    "urmax_charge_response": "variant",
+    "urmax_response": "variant",
     "urmin": "variant"
+   },
+   "nested": {}
+  },
+  "ReserveRequirementPlane": {
+   "fields": [
+    "alpha",
+    "demand_coef",
+    "inertia_coef",
+    "contingency_coef",
+    "flow_coef"
+   ],
+   "header": "json_reserve_zone.hpp",
+   "kinds": {
+    "alpha": "variant",
+    "contingency_coef": "variant",
+    "demand_coef": "variant",
+    "flow_coef": "variant",
+    "inertia_coef": "variant"
    },
    "nested": {}
   },
@@ -2573,23 +2956,64 @@
     "urmin",
     "drmin",
     "urcost",
-    "drcost"
+    "drcost",
+    "urreq_planes",
+    "drreq_planes",
+    "load_term",
+    "system_load",
+    "demand_load_factor",
+    "demands",
+    "inertia_zone",
+    "inertia_term",
+    "system_inertia",
+    "contingency_generators",
+    "contingency_demands",
+    "flow_lines",
+    "urcontingencies",
+    "drcontingencies",
+    "contingency_includes_reserve",
+    "requirement_sense",
+    "ursurplus_cost",
+    "drsurplus_cost"
    ],
    "header": "json_reserve_zone.hpp",
    "kinds": {
     "active": "variant",
+    "contingency_demands": "array",
+    "contingency_generators": "array",
+    "contingency_includes_reserve": "bool",
+    "demand_load_factor": "number",
+    "demands": "array",
     "description": "string",
+    "drcontingencies": "array",
     "drcost": "variant",
     "drmin": "variant",
     "drreq": "variant",
+    "drreq_planes": "array",
+    "drsurplus_cost": "variant",
+    "flow_lines": "array",
+    "inertia_term": "string",
+    "inertia_zone": "variant",
+    "load_term": "string",
     "name": "string",
+    "requirement_sense": "string",
+    "system_inertia": "variant",
+    "system_load": "variant",
     "type": "string",
     "uid": "number",
+    "urcontingencies": "array",
     "urcost": "variant",
     "urmin": "variant",
-    "urreq": "variant"
+    "urreq": "variant",
+    "urreq_planes": "array",
+    "ursurplus_cost": "variant"
    },
-   "nested": {}
+   "nested": {
+    "drcontingencies": "ReserveContingency",
+    "drreq_planes": "ReserveRequirementPlane",
+    "urcontingencies": "ReserveContingency",
+    "urreq_planes": "ReserveRequirementPlane"
+   }
   },
   "Reservoir": {
    "fields": [
@@ -2621,7 +3045,9 @@
     "daily_cycle",
     "seepage",
     "discharge_limit",
-    "production_factor"
+    "production_factor",
+    "water_value_hint",
+    "dual_scale"
    ],
    "header": "json_reservoir.hpp",
    "kinds": {
@@ -2631,6 +3057,7 @@
     "daily_cycle": "bool",
     "description": "string",
     "discharge_limit": "array",
+    "dual_scale": "number",
     "ecost": "variant",
     "efin": "number",
     "efin_cost": "number",
@@ -2653,7 +3080,8 @@
     "spillway_cost": "number",
     "type": "string",
     "uid": "number",
-    "use_state_variable": "bool"
+    "use_state_variable": "bool",
+    "water_value_hint": "number"
    },
    "nested": {
     "discharge_limit": "ReservoirDischargeLimit",
@@ -2794,6 +3222,30 @@
     "constant": "number",
     "slope": "number",
     "volume": "number"
+   },
+   "nested": {}
+  },
+  "SanityOptions": {
+   "fields": [
+    "enable",
+    "reward_fail_cost_ratio",
+    "profile_tolerance",
+    "line_x_outlier_factor",
+    "line_x_min_class_size",
+    "line_x_pu_max",
+    "line_xr_max",
+    "max_offenders"
+   ],
+   "header": "json_sanity_options.hpp",
+   "kinds": {
+    "enable": "bool",
+    "line_x_min_class_size": "number",
+    "line_x_outlier_factor": "number",
+    "line_x_pu_max": "number",
+    "line_xr_max": "number",
+    "max_offenders": "number",
+    "profile_tolerance": "number",
+    "reward_fail_cost_ratio": "number"
    },
    "nested": {}
   },
@@ -3086,7 +3538,8 @@
     "max_fallbacks",
     "memory_emphasis",
     "param_file",
-    "advanced_basis"
+    "advanced_basis",
+    "mip_polish"
    ],
    "header": "json_solver_options.hpp",
    "kinds": {
@@ -3101,6 +3554,7 @@
     "memory_emphasis": "bool",
     "mip_gap": "number",
     "mip_gap_abs": "number",
+    "mip_polish": "bool",
     "optimal_eps": "number",
     "param_file": "string",
     "presolve": "bool",
@@ -3157,6 +3611,12 @@
     "carrier_converter_array",
     "allowance_pool_array",
     "lng_terminal_array",
+    "gas_node_array",
+    "gas_supply_array",
+    "gas_demand_array",
+    "gas_pipe_array",
+    "gas_compressor_array",
+    "gas_turbine_array",
     "reserve_zone_array",
     "reserve_provision_array",
     "fuel_array",
@@ -3209,6 +3669,12 @@
     "flow_right_array": "array",
     "fuel_array": "array",
     "future_cost_array": "array",
+    "gas_compressor_array": "array",
+    "gas_demand_array": "array",
+    "gas_node_array": "array",
+    "gas_pipe_array": "array",
+    "gas_supply_array": "array",
+    "gas_turbine_array": "array",
     "generator_array": "array",
     "generator_profile_array": "array",
     "hydrogen_demand_array": "array",
@@ -3262,6 +3728,12 @@
     "flow_right_array": "FlowRight",
     "fuel_array": "Fuel",
     "future_cost_array": "FutureCost",
+    "gas_compressor_array": "GasCompressor",
+    "gas_demand_array": "GasDemand",
+    "gas_node_array": "GasNode",
+    "gas_pipe_array": "GasPipe",
+    "gas_supply_array": "GasSupply",
+    "gas_turbine_array": "GasTurbine",
     "generator_array": "Generator",
     "generator_profile_array": "GeneratorProfile",
     "hydrogen_demand_array": "HydrogenDemand",

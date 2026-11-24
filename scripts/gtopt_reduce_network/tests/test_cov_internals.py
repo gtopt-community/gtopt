@@ -669,7 +669,9 @@ def test_aggregate_schedules_all_fields_with_empty_corridor(tmp_path: Path):
         aggregated_lines=[_eq(90, [1, 2]), _eq(91, [])],
         original_line_array=[{"uid": 1, "tmax_ab": 7.0}, {"uid": 2, "tmax_ab": 8.0}],
     )
-    assert set(out) == {"active", "voltage", "reactance", "resistance", "tmax_ab"}
+    # voltage is an input only: equivalents carry the scalar V = 10.
+    assert set(out) == {"active", "reactance", "resistance", "tmax_ab"}
+    assert not (line_dir / "voltage_t.parquet").exists()
     tmax = pd.read_parquet(line_dir / "tmax_ab_t.parquet")
     assert tmax["uid:90"].tolist() == [13.0, 8.0]  # line 1 off in stage 2
     assert tmax["uid:91"].tolist() == [0.0, 0.0]

@@ -111,6 +111,7 @@ class CenfiParser(BaseParser):
             slope = 0.0
             constant = 0.0
             segments: List[Dict[str, float]] = []
+            layout = "legacy" if len(parts) >= 2 else "segmented"
 
             if len(parts) >= 2:
                 # Legacy format: slope constant on a single line
@@ -162,6 +163,7 @@ class CenfiParser(BaseParser):
                 "slope": slope,
                 "constant": constant,
                 "segments": segments,
+                "layout": layout,
             }
             self._append(entry)
 

@@ -18,6 +18,14 @@ from gtopt_config import (
     get_version,
 )
 from gtopt_shared.json_utils import strip_internal_keys
+from gtopt_shared.source_versions import (
+    add_source_version_argument,
+    apply_source_version,
+)
+from gtopt_shared.sanity_report import (
+    add_sanity_report_argument,
+    run_sanity_report,
+)
 from gtopt_shared.cli_flags import (
     add_demand_fail_cost_argument,
     add_scale_objective_argument,
@@ -54,6 +62,8 @@ from .profiles import (
     read_profile_table_with_times,
     resolve_profiles,
 )
+
+from .source_version import SOURCE_FORMAT, detect_version
 
 logger = logging.getLogger(__name__)
 
@@ -317,8 +327,10 @@ def make_parser() -> argparse.ArgumentParser:
     add_use_kirchhoff_argument(parser, default=True)
     add_use_single_bus_argument(parser, default=False, dialect="boolean_optional")
 
+    add_source_version_argument(parser, SOURCE_FORMAT)
     add_log_level_argument(parser)
     add_color_argument(parser)
+    add_sanity_report_argument(parser)
     return parser
 
 
@@ -524,8 +536,17 @@ def _apply_from_state(
     return apply_state_to_args(parser, state_args, argv)
 
 
-def _write_state(args: argparse.Namespace, state_dir: Path, summary: Any) -> None:
-    """Write ``pp2gtopt_state.json`` + README with paths relative to it."""
+def _write_state(
+    args: argparse.Namespace,
+    state_dir: Path,
+    summary: Any,
+    provenance: dict[str, Any] | None = None,
+) -> None:
+    """Write ``pp2gtopt_state.json`` + README with paths relative to it.
+
+    *provenance* keys (the ``source_format`` record) are merged into the
+    snapshot's ``extra`` next to ``summary``.
+    """
     from gtopt_shared.state_snapshot import (  # noqa: PLC0415  pylint: disable=import-outside-toplevel
         write_pp2gtopt_readme,
         write_state_snapshot,
@@ -545,7 +566,7 @@ def _write_state(args: argparse.Namespace, state_dir: Path, summary: Any) -> Non
             tool_name="pp2gtopt",
             args=snap,
             tool_version=__version__,
-            extra={"summary": summary},
+            extra={"summary": summary, **(provenance or {})},
         )
         write_pp2gtopt_readme(state_dir)
     except (OSError, ValueError) as exc:
@@ -732,6 +753,15 @@ def main(argv: list[str] | None = None) -> int:
         net = getattr(pn, fn_name)()
         name = network
 
+    provenance: dict[str, Any] = {}
+    apply_source_version(
+        SOURCE_FORMAT,
+        detect_version(net),
+        args.source_version,
+        provenance=provenance,
+        log=logger,
+    )
+
     output = args.output if args.output is not None else Path(f"{name}.json")
     ts_mode = args.profiles is not None or args.profiles_from_net
     timeseries: TimeSeriesData | None = None
@@ -768,10 +798,13 @@ def main(argv: list[str] | None = None) -> int:
     if timeseries is not None:
         _log_summary(timeseries.summary)
         args.output = output
-        _write_state(args, output.parent / output.stem, timeseries.summary)
+        _write_state(args, output.parent / output.stem, timeseries.summary, provenance)
 
     if args.run_check:
         run_post_check(planning)
+        run_sanity_report(
+            output, json_path=getattr(args, "sanity_report", None), log=logger
+        )
 
     return 0
 

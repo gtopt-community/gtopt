@@ -17,6 +17,8 @@ from pathlib import Path
 
 from gtopt_config import add_color_argument
 from gtopt_shared.operator import add_operator_argument, select_operator
+from gtopt_shared.sanity_report import add_sanity_report_argument
+from gtopt_shared.source_versions import add_source_version_argument
 from gtopt_shared.cli_signals import (
     install_termination_handlers,
     signal_handler as _signal_handler,  # noqa: F401  re-export for tests
@@ -24,6 +26,7 @@ from gtopt_shared.cli_signals import (
 
 from .info_display import display_psse_info
 from .psse2gtopt import convert_psse_case, validate_psse_case
+from .raw_parser import SOURCE_FORMAT
 
 
 __version__ = "0.1.0"
@@ -32,11 +35,11 @@ __version__ = "0.1.0"
 _DESCRIPTION = """\
 Convert a PSS(R)E RAW power-flow case to gtopt JSON format.
 
-Reads the classic comma-separated PSS/E ``.raw`` (revisions 32/33) and
-emits a single-snapshot multi-bus DC OPF planning that ``gtopt
---lp-only`` ingests directly: buses -> Bus, branches + transformers ->
-Line (per-unit reactance; 3-winding transformers expand to a star bus),
-generators -> Generator, loads -> Demand.
+Reads the classic comma-separated PSS/E ``.raw`` (revisions 32/33; see
+--source-version) and emits a single-snapshot multi-bus DC OPF planning
+that ``gtopt --lp-only`` ingests directly: buses -> Bus, branches +
+transformers -> Line (per-unit reactance; 3-winding transformers expand
+to a star bus), generators -> Generator, loads -> Demand.
 
 PSS/E RAW files hold no economic data, so every generator is assigned a
 single uniform ``--gcost``; tune ``--demand-fail-cost`` for the
@@ -180,7 +183,9 @@ def make_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+    add_source_version_argument(parser, SOURCE_FORMAT)
     add_operator_argument(parser)
+    add_sanity_report_argument(parser)
     return parser
 
 
@@ -225,6 +230,8 @@ def main(argv: list[str] | None = None) -> None:
         "ldm": args.ldm,
         "gen_costs": args.gen_costs,
         "line_limits": args.line_limits,
+        "sanity_report": args.sanity_report,
+        "source_version": args.source_version,
     }
 
     if args.show_info:

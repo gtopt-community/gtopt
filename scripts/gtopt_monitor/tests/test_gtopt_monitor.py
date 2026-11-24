@@ -243,6 +243,21 @@ class TestRunText:
         assert sleep.call_count == 0
         assert "Solver finished" in capsys.readouterr().out
 
+    @pytest.mark.parametrize("status", ["max_iterations", "stopped", "error"])
+    def test_non_converged_terminal_status_exits_loop(
+        self, status: str, capsys: pytest.CaptureFixture, tmp_path: Path
+    ) -> None:
+        """An SDDP run that ends without converging also ends --no-gui."""
+        fpath = tmp_path / "solver_status.json"
+        fpath.write_text(
+            json.dumps({"status": status, "method": "sddp"}),
+            encoding="utf-8",
+        )
+        with patch("gtopt_monitor.gtopt_monitor.time.sleep") as sleep:
+            run_text(fpath, poll_interval=0.1)
+        assert sleep.call_count == 0
+        assert f"Solver finished ({status})" in capsys.readouterr().out
+
     def test_keyboard_interrupt_stops(
         self, capsys: pytest.CaptureFixture, status_file: Path
     ) -> None:

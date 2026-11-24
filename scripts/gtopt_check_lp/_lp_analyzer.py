@@ -124,23 +124,14 @@ _SECTIONS_START: dict[str, str] = {
 }
 
 
+# A numeric literal that is not part of an identifier (``x2``, ``sd_2024_a``).
+_HAS_NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_.])\d+\.?\d*(?:[eE][+-]?\d+)?")
+
+
 def _strip_comments(line: str) -> str:
     """Remove LP-format inline comments (text after ``\\``)."""
     idx = line.find("\\")
     return line[:idx].strip() if idx >= 0 else line.strip()
-
-
-def _parse_coefficients(expr: str) -> list[float]:
-    """Extract all numeric coefficients from an LP constraint expression.
-
-    LP files may contain whitespace between a sign and the number
-    (e.g. ``- 0.9``).  We strip internal whitespace before calling
-    ``float()`` so that such tokens are parsed correctly.
-    """
-    return [
-        float(m.replace(" ", ""))
-        for m in re.findall(r"[+-]?\s*\d+\.?\d*(?:[eE][+-]?\d+)?", expr)
-    ]
 
 
 def _parse_coeff_var_pairs(expr: str) -> list[tuple[float, str]]:
@@ -235,8 +226,12 @@ def analyze_lp_file(lp_path: Path) -> LPStats:  # noqa: PLR0912, PLR0915
         # and trim excessive whitespace to keep it readable.
         stats.constraint_texts[name] = " ".join(expr.split())
         expr_part = expr.split(":")[1] if ":" in expr else expr
-        coeffs = _parse_coefficients(expr_part)
+        # Coefficients come from the (coefficient, variable) terms of the
+        # LHS only: a bare-number scan would also pick up the RHS and digits
+        # embedded in names (``sd_2024092283_...`` read as 2.0e9).
         pairs = _parse_coeff_var_pairs(expr_part)
+        has_number = _HAS_NUMBER_RE.search(expr_part) is not None
+        coeffs = [coeff for coeff, _ in pairs] if has_number else []
         if not coeffs:
             stats.empty_constraints.append(name)
         else:

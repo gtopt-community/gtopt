@@ -668,8 +668,8 @@ class TestGTOptWriterProcessMethods:
     def test_process_options_demand_fail_cost_ignores_falla_max(self):
         """The global stays 0 even when the case has priced falla centrals.
 
-        Python-emitted battery charge demands (``<name>_chrg``) carry no
-        ``fcost`` and rely on the 0 global to stay freely dispatchable.
+        PLP prices curtailment per demand (falla units); the global must
+        be written explicitly as 0 because gtopt's unset default is 1000.
         Regression guard for the former ``self.central_parser`` path
         (an attribute GTOptWriter never had) that pretended to default
         the global to ``max(falla.gcost)``.
@@ -900,6 +900,27 @@ class TestGTOptWriterProcessMethods:
         writer = GTOptWriter(mock_parser)
         writer.process_buses()  # should not raise
         assert "bus_array" not in writer.planning["system"]
+
+    def test_process_buses_takes_kv_from_incident_lines(self):
+        """``OGP1220`` / ``Ancoa500auxS`` get the plpcnfli ``Tension``."""
+        buses = MagicMock()
+        buses.get_all.return_value = [
+            {"number": 1, "name": "OGP1220", "voltage": 1220.0},
+            {"number": 2, "name": "Ancoa500auxS", "voltage": 1.0},
+            {"number": 3, "name": "Domeyko220", "voltage": 220.0},
+        ]
+        buses.items = buses.get_all.return_value
+        lines = MagicMock()
+        lines.get_all.return_value = [
+            {"bus_a": 1, "bus_b": 3, "voltage": 220.0},
+            {"bus_a": 2, "bus_b": 3, "voltage": 500.0},
+        ]
+        mock_parser = MagicMock()
+        mock_parser.parsed_data = {"bus_parser": buses, "line_parser": lines}
+        writer = GTOptWriter(mock_parser)
+        writer.process_buses()
+        kv = [b["voltage"] for b in writer.planning["system"]["bus_array"]]
+        assert kv == [220.0, 500.0, 220.0]
 
     def test_process_demands_empty(self):
         """process_demands handles missing demand_parser gracefully."""

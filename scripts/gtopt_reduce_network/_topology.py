@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -32,6 +33,60 @@ from scipy.sparse import csr_matrix
 from gtopt_reduce_network._io import Case, resolve_bus_ref
 
 logger = logging.getLogger(__name__)
+
+
+class LineScheduleResolver:
+    """Resolve string-valued (parquet-stem) Line fields to per-line arrays.
+
+    A Line field given as a string ``"<stem>"`` refers to
+    ``<line_dir>/<stem>.parquet``.  Both layouts gtopt reads are accepted:
+    long (``stage[, block], uid, value``) and wide (one ``uid:<N>``
+    column per line).  Tables are read once and cached.
+    """
+
+    def __init__(self, line_dir: Path) -> None:
+        self.line_dir = line_dir
+        self._long: dict[str, dict[int, np.ndarray]] = {}
+        self._missing: set[str] = set()
+
+    def values(self, stem: str, uid: int) -> np.ndarray | None:
+        """All scheduled values of line ``uid`` in ``stem`` (None if absent)."""
+        if stem in self._missing:
+            return None
+        if stem not in self._long:
+            path = self.line_dir / f"{stem}.parquet"
+            if not path.is_file():
+                logger.warning("line schedule %s not found", path)
+                self._missing.add(stem)
+                return None
+            import pyarrow.parquet as pq  # pylint: disable=import-outside-toplevel
+
+            df = pq.read_table(path).to_pandas()
+            per_uid: dict[int, np.ndarray] = {}
+            if "uid" in df.columns and "value" in df.columns:
+                for u, grp in df.groupby("uid"):
+                    per_uid[int(u)] = grp["value"].to_numpy(dtype=float)
+            else:
+                for col in df.columns:
+                    m = re.fullmatch(r"uid:(\d+)", str(col))
+                    if m:
+                        per_uid[int(m.group(1))] = df[col].to_numpy(dtype=float)
+            self._long[stem] = per_uid
+        return self._long[stem].get(int(uid))
+
+
+def _resolved(
+    line: dict[str, Any],
+    key: str,
+    schedules: LineScheduleResolver | None,
+) -> Any:
+    """Line field value with parquet stems expanded to a numpy array."""
+    value = line.get(key)
+    if isinstance(value, str) and schedules is not None:
+        arr = schedules.values(value, int(line["uid"]))
+        if arr is not None and arr.size:
+            return arr
+    return value
 
 
 @dataclass(slots=True)
@@ -50,8 +105,8 @@ class LineGraph:
     line_uids: list[int]
     line_a: np.ndarray  # shape (n_lines,), local bus index of endpoint A
     line_b: np.ndarray
-    line_x: np.ndarray  # reactance (p.u. or Ω); inf on DC lines
-    line_r: np.ndarray  # resistance, 0 when absent
+    line_x: np.ndarray  # reactance, p.u. on MVA_BASE (X·100/V²); inf on DC
+    line_r: np.ndarray  # resistance, p.u. on MVA_BASE (R·100/V²); 0 if absent
     line_fab: np.ndarray  # tmax_ab (MW)
     line_fba: np.ndarray  # tmax_ba (MW)
     skipped_line_uids: list[int] = field(default_factory=list)
@@ -82,8 +137,16 @@ def build_line_graph(
     dc_reactance_threshold: float = 1e-4,
     dc_voltage_threshold: float = 0.0,
     dc_power_threshold: float = 0.0,
+    schedules: LineScheduleResolver | None = None,
 ) -> LineGraph:
     """Extract the line-graph view from a Case.
+
+    With ``schedules``, string-valued (parquet-stem) fields are resolved
+    to a relaxation-oriented static value: a line is active when it is
+    active in ANY stage, ``tmax_ab`` / ``tmax_ba`` take their maximum,
+    and ``reactance`` / ``resistance`` the mean of their positive values.
+    Without it a stem-valued capacity reads as 0 and a stem-valued
+    reactance makes the line DC.
 
     A line is classified DC when ANY of:
 
@@ -137,7 +200,7 @@ def build_line_graph(
     skipped: list[int] = []
 
     for line in case.array("line_array"):
-        if not _line_active(line):
+        if not _line_active(line, schedules):
             continue
         uid = int(line["uid"])
         try:
@@ -150,9 +213,15 @@ def build_line_graph(
         if ua is None or ub is None or ua == ub:
             skipped.append(uid)
             continue
-        x = _scalar_or_none(line.get("reactance"))
-        fab = _max_scalar(line.get("tmax_ab")) or 0.0
-        fba = _max_scalar(line.get("tmax_ba")) or 0.0
+        # Normalise to per-unit on the MVA_BASE (100 MVA) system base:
+        # gtopt's KVL uses x = X/V² with f in MW (V defaults to 1), so
+        # x_pu = X·S_base/V² whatever the source convention — PLEXOS p.u.
+        # with V = √S_base = 10, PLP/SDDP Ω with V in kV, or bare V = 1.
+        v_line = _line_voltage(line, schedules)
+        x_raw = _scalar_or_none(_resolved(line, "reactance", schedules))
+        x = None if x_raw is None else x_raw * MVA_BASE / (v_line * v_line)
+        fab = _max_scalar(_resolved(line, "tmax_ab", schedules)) or 0.0
+        fba = _max_scalar(_resolved(line, "tmax_ba", schedules)) or 0.0
         # Voltage level from endpoint bus names (see docstring).
         kv_a = _bus_kv(case.bus_name_by_uid.get(ua))
         kv_b = _bus_kv(case.bus_name_by_uid.get(ub))
@@ -173,7 +242,8 @@ def build_line_graph(
         a_idx.append(bus_index[ua])
         b_idx.append(bus_index[ub])
         xs.append(np.inf if is_dc else float(x))  # type: ignore[arg-type]
-        rs.append(float(_scalar_or_none(line.get("resistance")) or 0.0))
+        r_raw = float(_scalar_or_none(_resolved(line, "resistance", schedules)) or 0.0)
+        rs.append(r_raw * MVA_BASE / (v_line * v_line))
         fabs.append(fab)
         fbas.append(fba)
         dcs.append(is_dc)
@@ -203,6 +273,38 @@ def build_line_graph(
         skipped_line_uids=skipped,
         line_is_dc=np.asarray(dcs, dtype=bool),
     )
+
+
+#: System base [MVA] of the reducer's internal per-unit impedances.
+MVA_BASE = 100.0
+
+#: ``Line.voltage`` written on equivalent lines: √MVA_BASE, so a p.u.
+#: impedance ``z`` gives gtopt ``z/V² = z/MVA_BASE`` (the same convention
+#: plexos2gtopt uses).
+PU_LINE_VOLTAGE = 10.0
+
+
+def _line_voltage(
+    line: dict[str, Any], schedules: LineScheduleResolver | None = None
+) -> float:
+    """Scalar ``Line.voltage`` (gtopt default 1.0 when unset).
+
+    A parquet-stem voltage is resolved through ``schedules`` (mean of its
+    positive values).  A voltage that still cannot be resolved (list, or
+    a stem without ``schedules``) falls back to the gtopt default and a
+    warning is logged.
+    """
+    raw = _resolved(line, "voltage", schedules)
+    v = _scalar_or_none(raw)
+    if v is None:
+        if raw is not None:
+            logger.warning(
+                "line uid=%s: non-scalar voltage %r; impedances read with V = 1",
+                line.get("uid"),
+                raw,
+            )
+        return 1.0
+    return v if v > 0.0 else 1.0
 
 
 def _line_type_is_dc(line: dict[str, Any]) -> bool:
@@ -255,10 +357,15 @@ def build_undirected_adjacency(graph: LineGraph) -> csr_matrix:
     return csr_matrix((data, (rows, cols)), shape=(n, n))
 
 
-def _line_active(line: dict[str, Any]) -> bool:
+def _line_active(
+    line: dict[str, Any], schedules: LineScheduleResolver | None = None
+) -> bool:
     if "active" not in line:
         return True
-    return bool(line["active"])
+    value = _resolved(line, "active", schedules)
+    if isinstance(value, np.ndarray):
+        return bool(np.any(value > 0))
+    return bool(value)
 
 
 def _scalar_or_none(value: Any) -> float | None:
@@ -268,6 +375,9 @@ def _scalar_or_none(value: Any) -> float | None:
         return None
     if isinstance(value, (int, float)):
         return float(value)
+    if isinstance(value, np.ndarray):
+        pos = value[np.isfinite(value) & (value > 0)]
+        return float(pos.mean()) if pos.size else None
     return None
 
 
@@ -282,6 +392,9 @@ def _max_scalar(value: Any) -> float | None:
         return None
     if isinstance(value, (int, float)):
         return float(value)
+    if isinstance(value, np.ndarray):
+        fin = value[np.isfinite(value)]
+        return float(fin.max()) if fin.size else None
     if isinstance(value, list):
         flat: list[float] = []
         stack: list[Any] = list(value)

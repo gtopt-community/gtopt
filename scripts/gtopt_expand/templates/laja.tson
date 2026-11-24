@@ -335,6 +335,33 @@
       "fmax": {{ qdefm_sched }}
     }
     {% endif %}
+
+    {# ============================================================= #}
+    {# FlowRight: laja_qfilt — Lago filtration at the stage-initial  #}
+    {# volume (PLP FiltVals in GetQsLajaM).                          #}
+    {#                                                               #}
+    {# PLP's qdefm = max(C - QFilt(V0), 0) with                      #}
+    {# C = min(QP - QHoya, QFiltHist) + QN + QS + QE (laja_qdefm).   #}
+    {# This carrier is fixed at min(C, QFilt(V0)): fmin = fmax = C   #}
+    {# and the bound_rule (the lake's seepage curve) clamps both to  #}
+    {# QFilt(V0).  The cap row subtracts it, so the cap follows the  #}
+    {# lake volume NUMERICALLY (no volume column in the row — the    #}
+    {# water value stays >= 0).  Emitted only when plp2gtopt found   #}
+    {# the lake's ReservoirSeepage curve; otherwise laja_qdefm       #}
+    {# carries the static QFiltLaja = QFiltHist approximation.       #}
+    {# ============================================================= #}
+    {% if qdefm_sched is not none and filtration_segments %}
+    ,{
+      "name": "laja_qfilt",
+      "purpose": "carrier",
+      "fmin": {{ qdefm_sched }},
+      "fmax": {{ qdefm_sched }},
+      "bound_rule": {
+        "reservoir": {{ central }},
+        "segments": {{ filtration_segments }}
+      }
+    }
+    {% endif %}
   ],
 
   "volume_right_array": [

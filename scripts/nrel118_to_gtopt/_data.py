@@ -45,6 +45,9 @@ RAW_URL_TEMPLATE = (
 )
 GITHUB_RAW_BASE = RAW_URL_TEMPLATE.format(ref=DEFAULT_REF)
 DEFAULT_CACHE_DIR = Path.home() / ".cache" / "gtopt" / "nrel118"
+#: Cache file naming the git ref a fresh cache was downloaded from (read by
+#: :func:`nrel118_to_gtopt.source_version.detect_version`).
+SOURCE_MARKER = "SOURCE_REF"
 
 REGIONS: tuple[str, ...] = ("R1", "R2", "R3")
 #: Row count of the upstream ``Hydro NN.csv`` files (8784 + 24 duplicates).
@@ -131,14 +134,18 @@ def populate_cache(
     Fetches :data:`CORE_FILES` first, then the per-unit profile file of
     every generator whose ``Rating`` column names one (wind, solar,
     run-of-river hydro).  *profile_names* overrides that list (tests).
-    Returns the number of files downloaded.
+    A cache that held none of :data:`CORE_FILES` is stamped with *ref*
+    (:data:`SOURCE_MARKER`).  Returns the number of files downloaded.
     """
     cache_dir.mkdir(parents=True, exist_ok=True)
+    fresh = not any(_cached(cache_dir, remote) for remote in CORE_FILES)
     fetched = 0
     for remote in CORE_FILES:
         if not _cached(cache_dir, remote):
             _download(remote, cache_dir / local_name(remote), ref)
             fetched += 1
+    if fresh:
+        (cache_dir / SOURCE_MARKER).write_text(f"{ref}\n", encoding="utf-8")
     if profile_names is None:
         profile_names = profile_generator_names(resolve(cache_dir, "Generators.csv"))
     for name in profile_names:

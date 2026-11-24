@@ -159,6 +159,9 @@ def test_demand_array(tmp_path):
     assert d["bus"] == 2
     # Without maintenance, lmax is a scalar (pmax_charge)
     assert isinstance(d["lmax"], float)
+    # Charging is dispatchable: fcost pinned to 0 so a positive global
+    # demand_fail_cost cannot force charging at lmax.
+    assert d["fcost"] == 0.0
 
 
 # ---------------------------------------------------------------------------

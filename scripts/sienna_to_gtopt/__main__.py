@@ -16,13 +16,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 
+from gtopt_shared.source_versions import (
+    add_source_version_argument,
+    apply_source_version,
+)
 from sienna_to_gtopt import VARIANTS
 from sienna_to_gtopt._battery_degeneracy import VALID_SUBCASES
 from sienna_to_gtopt._bundle import MANIFEST, BundleUnavailableError, extract_bundle
 from sienna_to_gtopt._reader import load_case
+from sienna_to_gtopt.source_version import SOURCE_FORMAT, detect_version
+
+logger = logging.getLogger("sienna_to_gtopt")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -63,13 +71,21 @@ def main(argv: list[str] | None = None) -> int:
             "(b/c/d/e/f) — only consumed by the battery_degeneracy variant."
         ),
     )
+    add_source_version_argument(parser, SOURCE_FORMAT)
     args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     try:
         case_dir = extract_bundle(args.bundle)
     except BundleUnavailableError as exc:
         print(f"sienna_to_gtopt: error: {exc}", file=sys.stderr)
         return 2
+    apply_source_version(
+        SOURCE_FORMAT,
+        detect_version(case_dir, args.bundle),
+        args.source_version,
+        log=logger,
+    )
     case = load_case(case_dir)
     builder = VARIANTS[args.variant]
     if args.variant == "battery_degeneracy":

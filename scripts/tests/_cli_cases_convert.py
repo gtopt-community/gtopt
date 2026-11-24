@@ -526,3 +526,37 @@ def case_zip_roundtrip(ctx: CliRun) -> None:
     assert (work / "DATOS20260101.zip.xz").is_file()
     ctx.run([*cfg, "--decompress", work])
     assert payload.read_bytes() == original
+
+
+# ---------------------------------------------------------------------------
+# gasnet2gtopt
+# ---------------------------------------------------------------------------
+
+
+def _gasnet2gtopt_tiny_plant(ctx: CliRun) -> Path:
+    out = ctx.tmp_path / "gas" / "tiny_plant.json"
+    ctx.run(
+        [
+            SCRIPTS_DIR / "gasnet2gtopt" / "cases" / "tiny_plant.gasnet.json",
+            "-o",
+            out,
+            "--nblocks",
+            "2",
+            "--booster",
+            "on",
+        ]
+    )
+    return out
+
+
+@e2e("gasnet2gtopt")
+def case_convert_tiny_plant(ctx: CliRun) -> None:
+    """Gas network + plant pressure gate -> native gas arrays."""
+    data = assert_planning_json(_gasnet2gtopt_tiny_plant(ctx))
+    assert data["system"]["gas_turbine_array"]
+
+
+@e2e("gasnet2gtopt", needs_gtopt=True)
+def case_roundtrip_tiny_plant(ctx: CliRun) -> None:
+    """Gas network -> native gtopt JSON -> optimal gtopt solve."""
+    assert_solved(ctx.run_gtopt(_gasnet2gtopt_tiny_plant(ctx)))

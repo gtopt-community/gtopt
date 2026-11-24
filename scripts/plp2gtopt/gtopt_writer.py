@@ -1173,14 +1173,17 @@ class GTOptWriter(
         # ``model_options.demand_fail_cost`` therefore only reaches
         # demands WITHOUT an explicit fcost, and the default is 0.
         #
-        # It must stay 0: the Python-emitted ESS/battery charge demands
-        # (``BatteryWriter.to_demand_array`` → ``<name>_chrg``) carry no
-        # ``fcost`` and rely on the 0 global to be freely dispatchable
-        # in [0, lmax].  A positive global would force them to charge
-        # at lmax.  (Commit 77a90e91 tried to default the global to
-        # ``max(falla.gcost)`` via ``self.central_parser``, an attribute
-        # GTOptWriter never had; the AttributeError was swallowed, so
-        # the global silently stayed 0 — the behaviour kept here.)
+        # It is written EXPLICITLY as 0 (gtopt's compiled default for an
+        # unset value is 1000 $/MWh): PLP has no global curtailment cost,
+        # and any plp2gtopt demand without an explicit fcost must stay
+        # freely dispatchable in [0, lmax].  The ESS/battery charge
+        # demands (``BatteryWriter.to_demand_array`` → ``<name>_chrg``)
+        # additionally pin ``fcost = 0`` so a user-supplied positive
+        # global cannot force them to charge at lmax.  (Commit 77a90e91
+        # tried to default the global to ``max(falla.gcost)`` via
+        # ``self.central_parser``, an attribute GTOptWriter never had;
+        # the AttributeError was swallowed, so the global silently stayed
+        # 0 — the behaviour kept here.)
         user_demand_fail = src_model.get("demand_fail_cost")
         effective_demand_fail = (
             user_demand_fail if user_demand_fail is not None else 0.0

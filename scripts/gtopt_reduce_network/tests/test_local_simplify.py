@@ -45,7 +45,8 @@ def test_parallel_merge_two_identical_lines() -> None:
     assert graph.n_lines == 2
     sr = simplify_local(graph, injection_bus_uids=[1, 2])
     assert len(sr.surviving_line_uids) == 1
-    assert sr.surviving_x[0] == pytest.approx(0.1)  # parallel of 0.2 || 0.2
+    # parallel of 0.2 || 0.2, in p.u. on 100 MVA (V = 1 → 100·X)
+    assert sr.surviving_x[0] == pytest.approx(10.0)
     assert sr.surviving_fab[0] == pytest.approx(110.0)
     assert sr.surviving_buses == [1, 2]
     # Both originals must point to the same equivalent line.

@@ -98,12 +98,14 @@ def test_admittance_excludes_dc(hvdc_tie_case: Case) -> None:
     # b2–b3 is the DC tie: zero susceptance coupling.
     assert bmat[1, 2] == pytest.approx(0.0)
     # AC entries present.
-    assert bmat[0, 1] == pytest.approx(-1.0 / 0.1)
+    assert bmat[0, 1] == pytest.approx(-1.0 / (0.1 * 100.0))  # p.u. (V = 1)
 
 
 def test_dc_reactance_threshold(hvdc_tie_case: Case) -> None:
     # Line 1 gets a tiny reactance below the threshold → DC; line 3 stays AC.
+    # 5e-4 p.u. (V = √S_base = 10, the plexos2gtopt convention).
     hvdc_tie_case.array("line_array")[0]["reactance"] = 5e-4
+    hvdc_tie_case.array("line_array")[0]["voltage"] = 10.0
     graph = build_line_graph(hvdc_tie_case, dc_reactance_threshold=1e-3)
     assert set(graph.dc_line_uids) == {1, 2}  # 1 (tiny X) + 2 (no X)
     # threshold=0 restores the old behaviour: only the X-less line 2 is DC.

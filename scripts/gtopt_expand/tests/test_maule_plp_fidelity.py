@@ -391,3 +391,97 @@ class TestCota425:
             agreement = MauleAgreement(_cfg(v_cota_425=1047.9))
         assert "maule_cota_425" not in _by_name(agreement.flow_rights)
         assert "Cota 425" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Canelon intake and ENDESA compensation (review 2026-11-22, R1 / R4)
+# ---------------------------------------------------------------------------
+
+
+class TestCanelonIntake:
+    """GenPDMauleBloFO (genpdmaule.f:186-202): CostoCanelon is a usage
+    cost on the Canelon generation column, which has no upper bound
+    other than the central's max flow."""
+
+    def test_fmax_is_the_generation_arc_capacity(self):
+        """With the arc fmax resolved, the priced intake carries it."""
+        agreement = MauleAgreement(
+            _cfg(
+                anchor_gen_ref_canelon="waterway('BCanelon_gen_25_26').flow",
+                canelon_qmax=180.0,
+            )
+        )
+        fr = _by_name(agreement.flow_rights)["maule_bocatoma_canelon"]
+        assert fr["fmax"] == pytest.approx(180.0)
+        assert fr["target"] == 0
+        assert fr["uvalue"] == pytest.approx(-10.0)
+
+    def test_no_zero_cap_without_qmax(self):
+        """Without a resolved qmax no fmax is emitted: the C++ default
+        for a target-0 usage cost is unbounded, never the target."""
+        agreement = MauleAgreement(
+            _cfg(anchor_gen_ref_canelon="turbine('BCanelon').flow")
+        )
+        fr = _by_name(agreement.flow_rights)["maule_bocatoma_canelon"]
+        assert "fmax" not in fr
+
+
+class TestCompensationGate:
+    """FijaMaule: UppMaule(IQMCEH) = DINFTY in the normal regime, 0 in
+    the reserve regime (genpdmaule.f:818 / :827)."""
+
+    def test_same_581_gate_as_normal_elec(self):
+        names = _by_name(MauleAgreement(_cfg()).flow_rights)
+        comp = names["maule_compensacion_elec"]
+        normal = names["maule_gasto_normal_elec"]
+        assert "bound_rule" in comp
+        assert comp["bound_rule"] == normal["bound_rule"]
+        segs = comp["bound_rule"]["segments"]
+        assert segs[0]["constant"] == 0
+        assert segs[-1]["volume"] == pytest.approx(581.0)
+        assert segs[-1]["constant"] == pytest.approx(30.0)
+        assert comp["bound_rule"]["reservoir"] == "LMAULE"
+
+
+class TestExtraordinaryReserveFloor:
+    """IVMUTIL (genpdmaule.f:324-326, :930-931): the Maule volume never
+    drops below VEmbalseUtilMin + VReservaExtraord."""
+
+    def test_hard_floor_on_maule_volume(self, tmp_path):
+        text = _pampl(MauleAgreement(_cfg()), tmp_path)
+        assert "constraint maule_reserva_extraordinaria" in text
+        assert "reservoir('LMAULE').energy >= 129.0;" in text
+
+    def test_floor_includes_v_util_min(self, tmp_path):
+        text = _pampl(MauleAgreement(_cfg(v_util_min=10.0)), tmp_path)
+        assert "reservoir('LMAULE').energy >= 139.0;" in text
+
+    def test_zone_gates_shift_by_v_util_min(self):
+        """FijaMaule compares VolMauleUtil = vol - VEmbalseUtilMin
+        (genpdmaule.f:1172) with the reserves; the rule axis is the raw
+        volume, so the gates move up by VEmbalseUtilMin."""
+        names = _by_name(MauleAgreement(_cfg(v_util_min=10.0)).flow_rights)
+        segs = names["maule_gasto_ordinario_riego"]["bound_rule"]["segments"]
+        assert segs[1]["volume"] == pytest.approx(139.0)
+        assert segs[2]["volume"] == pytest.approx(591.0)
+        normal = names["maule_gasto_normal_elec"]["bound_rule"]["segments"]
+        assert normal[-1]["volume"] == pytest.approx(591.0)
+
+
+class TestRes105ShortfallPricing:
+    """genpdmaule.f:526/:536: qa105 earns ValorRiego105 and a district
+    shortfall qrhh costs CostoRiegoNS105.  With 1100 > 1000 booking
+    shortfall was a net profit; the shortfall must also forfeit the
+    reward on the undelivered share."""
+
+    def test_shortfall_cost_cancels_reward(self):
+        names = _by_name(MauleAgreement(_cfg()).flow_rights)
+        deficit = names["deficit_Melado"]
+        assert deficit["uvalue"] == pytest.approx(-(1000.0 + 1100.0))
+        # The marginal value of booking one unit of qa105 entirely as
+        # shortfall must be a cost, never a profit.
+        assert 1100.0 + deficit["uvalue"] < 0.0
+
+    def test_no_reward_keeps_plain_shortfall_cost(self):
+        names = _by_name(MauleAgreement(_cfg(valor_riego_res105=0.0)).flow_rights)
+        assert names["deficit_Melado"]["uvalue"] == pytest.approx(-1000.0)

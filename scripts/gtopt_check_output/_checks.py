@@ -567,7 +567,10 @@ def compute_cost_breakdown(results_dir: Path, planning: dict) -> list[Finding]:
     if fail_ds is not None:
         model_opts = planning.get("options", {}).get("model_options", {})
         dfc = _scalar_from_planning_field(
-            model_opts.get("demand_fail_cost"), fallback=0.0
+            model_opts.get("demand_fail_cost"),
+            # gtopt resolves an unset demand_fail_cost to 1000 $/MWh
+            # (PlanningOptionsLP::default_demand_fail_cost).
+            fallback=1000.0,
         )
         single_coef, seg_coefs = demand_fail_cost_coefs(planning)
         # Uids absent from ``demand_array`` keep the global cost; the

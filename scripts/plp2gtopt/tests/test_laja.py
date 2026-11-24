@@ -773,7 +773,11 @@ class TestLajaWriter:
 
         writer.generate_pampl(tmp_path)
         text = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
-        assert "<= flow_right('laja_qdefm').flow;" in text
+        assert "- sum{b in stage} dur[b] * flow_right('laja_qdefm').flow <= 0;" in text
+        # Static filtration (no seepage curve): no laja_qfilt carrier.
+        assert not any(fr["name"] == "laja_qfilt" for fr in writer.flow_rights)
+        cap = text[text.index("constraint laja_retiro_maximo") :]
+        assert "flow_right('laja_qfilt')" not in cap[: cap.index(";")]
 
     def test_pure_netting_functions(self):
         """The GetQsLajaM arithmetic is exposed as pure functions."""
@@ -848,7 +852,75 @@ class TestLajaWriter:
         cap = text[text.index("constraint laja_retiro_maximo") :]
         cap = cap[: cap.index(";")]
         assert "seepage(" not in cap
-        assert "<= flow_right('laja_qdefm').flow" in cap
+        assert "- sum{b in stage} dur[b] * flow_right('laja_qdefm').flow" in cap
+
+    def test_qdefm_follows_lake_filtration(self, laja_config, tmp_path):
+        """With the lake's seepage curve, qdefm = max(C - QFilt(V0), 0).
+
+        PLP evaluates the filtration at the stage-initial volume, so
+        `min(QP-QHoya-QFilt, QFiltHist-QFilt) = min(QP-QHoya, QFiltHist)
+        - QFilt`: laja_qdefm carries C and laja_qfilt carries
+        min(C, QFilt(V0)) through a bound_rule on the lake volume.  The
+        cap is a stage-scoped, duration-weighted row."""
+
+        class _Stages:
+            def get_all(self):
+                return [
+                    {"number": 1, "month": 12, "count_block": 1},
+                    {"number": 2, "month": 6, "count_block": 1},
+                ]
+
+        segments = [
+            {"volume": 0.0, "slope": 0.04, "constant": 0.0},
+            {"volume": 400.0, "slope": 0.005, "constant": 14.0},
+        ]
+        cfg = dict(laja_config)
+        cfg["q_hoya_inter"] = [60.0, 60.0]
+        cfg["filtration_segments"] = segments
+        writer = LajaWriter(cfg, stage_parser=_Stages())
+        frs = {fr["name"]: fr for fr in writer.flow_rights}
+        # December: C = min(90 - 60, 47) + 53 + 3.5 + 0 = 86.5 (the
+        # static form subtracted QFiltHist = 47 -> 39.5).
+        qdefm = frs["laja_qdefm"]["fmax"]
+        assert qdefm[0][0] == pytest.approx(86.5)
+        assert qdefm[1][0] == pytest.approx(0.0)
+        qfilt = frs["laja_qfilt"]
+        assert qfilt["fmin"] == qdefm
+        assert qfilt["fmax"] == qdefm
+        assert qfilt["bound_rule"]["segments"] == segments
+        assert qfilt["bound_rule"]["reservoir"] == cfg["central_laja"]
+
+        writer.generate_pampl(tmp_path)
+        text = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
+        cap = text[text.index("constraint laja_retiro_maximo") :]
+        cap = cap[: cap.index(";")]
+        assert "scope stage:" in cap
+        assert "+ sum{b in stage} dur[b] * flow_right('laja_qfilt').flow" in cap
+        assert "- sum{b in stage} dur[b] * flow_right('laja_qdefm').flow" in cap
+        assert "seepage(" not in cap
+
+    def test_netted_targets_use_scenario_mean_hoya(self, laja_config):
+        """Cap carrier and netted primary targets share ONE hoya series:
+        the per-stage mean across the forward scenarios."""
+
+        class _Stages:
+            def get_all(self):
+                return [{"number": 1, "month": 12, "count_block": 1}]
+
+        cfg = dict(laja_config)
+        cfg["q_hoya_inter"] = [10.0]  # first scenario only
+        cfg["q_hoya_inter_by_scenario"] = [[10.0], [30.0]]
+        writer = LajaWriter(cfg, stage_parser=_Stages())
+        frs = {fr["name"]: fr for fr in writer.flow_rights}
+        # Mean hoya = 20: netted primary = min(90, 20 + 47) = 67 and
+        # RieTucapel takes 62.8 % of it.
+        target = frs["RieTucapel_1o_reg"]["target"]
+        first = target[0][0] if isinstance(target, list) else target
+        assert first == pytest.approx(0.628 * 67.0)
+        # Static qdefm with the mean: max(min(90-20-47, 0) + 53 + 3.5, 0).
+        qdefm = frs["laja_qdefm"]["fmax"]
+        first_q = qdefm[0][0] if isinstance(qdefm, list) else qdefm
+        assert first_q == pytest.approx(56.5)
 
     def test_feature_toggles_disable_couplings(self, laja_config, tmp_path):
         """The enable_* keys revert each coupling to the legacy shape."""

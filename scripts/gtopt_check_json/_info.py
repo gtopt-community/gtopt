@@ -974,7 +974,10 @@ def compute_indicators(
     total_up_prov = sum(_peak_scalar(p.get("urmax")) or 0.0 for p in provs)
     total_dn_prov = sum(_peak_scalar(p.get("drmax")) or 0.0 for p in provs)
     model_opts = opts.get("model_options", {}) if isinstance(opts, dict) else {}
-    demand_fail_cost = float(model_opts.get("demand_fail_cost", 0.0) or 0.0)
+    # Unset resolves to gtopt's compiled default (1000 $/MWh); an explicit
+    # 0 is kept (unpenalized shedding).
+    _dfc_raw = model_opts.get("demand_fail_cost")
+    demand_fail_cost = float(_dfc_raw) if _dfc_raw is not None else 1000.0
     # Renewable available energy (GWh): Σ capacity × duration over non-hydro
     # renewable generators (the must-take availability profiles).
     renew_energy = 0.0

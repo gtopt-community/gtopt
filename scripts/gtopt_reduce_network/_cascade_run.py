@@ -2,8 +2,10 @@
 """Thin orchestration wrapper: reduce → run gtopt on the reduced case →
 project results back to the nodal grid.
 
-Pure subprocess driver — no LP smarts. Useful as the v1 path while
-``CascadeLevel.system_override`` is unimplemented in C++.
+Pure subprocess driver — no LP smarts.  For SDDP cascades prefer the
+in-solver path: point ``cascade_options.level_array[i].system_file`` at a
+reduced JSON written by ``gtopt-net reduce`` (see docs/methods/cascade.md,
+"Reduced networks per level"), so cuts transfer between levels.
 """
 
 from __future__ import annotations

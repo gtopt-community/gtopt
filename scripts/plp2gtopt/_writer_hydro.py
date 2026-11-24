@@ -805,6 +805,27 @@ class HydroMixin:
                 return f"waterway('{name}').flow"
         return None
 
+    def _anchor_waterway_fmax(self, ref: str) -> float | None:
+        """Scalar ``fmax`` of the waterway named in an anchor reference.
+
+        ``ref`` is a fragment produced by :meth:`_anchor_flow_ref`
+        (``waterway('<name>').flow``).  Returns ``None`` for turbine
+        references, unknown waterways or non-scalar (parquet-scheduled)
+        bounds.
+        """
+        prefix = "waterway('"
+        if not ref.startswith(prefix):
+            return None
+        name = ref[len(prefix) :].split("'", 1)[0]
+        for ww in self.planning["system"].get("waterway_array", []):
+            if str(ww.get("name", "")) != name:
+                continue
+            fmax = ww.get("fmax")
+            if isinstance(fmax, (int, float)) and not isinstance(fmax, bool):
+                return float(fmax)
+            return None
+        return None
+
     def _inject_anchor_refs(self, cfg: Dict[str, Any], anchors: Dict[str, str]) -> None:
         """Add resolved anchor flow references to the agreement config.
 
@@ -918,7 +939,10 @@ class HydroMixin:
         * ``seepage_flow_ub`` — its piecewise evaluated at the
           reservoir's ``emax`` (the maximum possible seepage flow,
           used to keep the seepage-aware cap row feasible out of
-          season).
+          season), and
+        * ``filtration_segments`` — the piecewise curve itself, which
+          the Laja qdefm netting evaluates at the stage-initial lake
+          volume (``laja_qfilt`` carrier bound_rule).
 
         Skipped (static-filtration fallback) when the central has no
         seepage element in the merged system.
@@ -960,6 +984,17 @@ class HydroMixin:
         )
         cfg["seepage_ref"] = str(entity.get("name", ""))
         cfg["seepage_flow_ub"] = max(qf_ub, 0.0)
+        # The seepage curve itself: the Laja qdefm netting evaluates it
+        # NUMERICALLY at the stage-initial lake volume (PLP FiltVals)
+        # through the laja_qfilt carrier's bound_rule.
+        cfg["filtration_segments"] = [
+            {
+                "volume": float(seg.get("volume", 0.0)),
+                "slope": float(seg.get("slope", 0.0)),
+                "constant": float(seg.get("constant", 0.0)),
+            }
+            for seg in segments
+        ]
 
     def _inject_district_anchors(self, cfg: Dict[str, Any]) -> None:
         """Anchor agreement districts to their physical diversion offtakes.
@@ -1085,6 +1120,15 @@ class HydroMixin:
                     cfg,
                     {"anchor_gen_ref_canelon": str(cfg["bocatoma_canelon"])},
                 )
+                # PLP prices the Canelon generation column with no
+                # upper bound other than the central's max flow
+                # (genpdmaule.f:186-202): carry that arc fmax as the
+                # priced FlowRight's cap.
+                qmax = self._anchor_waterway_fmax(
+                    str(cfg.get("anchor_gen_ref_canelon", ""))
+                )
+                if qmax is not None:
+                    cfg["canelon_qmax"] = qmax
             self._inject_district_anchors(cfg)
             self._inject_maule_flow_refs(cfg)
             self._require_irrigation_refs(

@@ -11,6 +11,14 @@ RTS-GMLC ``RTS_Data/SourceData/gen.csv`` carries:
     Fuel Price $/MMBTU      — fuel price (single value)
     Emissions CO2 Lbs/MMBTU — fuel-side CO2 per unit fuel energy
 
+Optional extensions (see ``convert`` / ``to_gtopt_json`` flags):
+
+    reserves.csv            — reserve products → ReserveZone (+ one
+                              ReserveProvision per eligible generator)
+    DAY_AHEAD_regional_*    — hourly load (summed over the 3 areas) and
+                              per-product reserve requirements of a day
+    Inertia MJ/MW, Base MVA — InertiaProvision (H [s], S [MVA])
+
 Unit conversion:
 
     1 lb = 0.4536 kg = 0.0004536 t
@@ -25,6 +33,7 @@ tCO2/GJ.  Quick sanity: subbituminous coal at 210 lbs/MMBTU →
 from __future__ import annotations
 
 import csv
+import datetime
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,6 +72,40 @@ class RtsGen:
     combustion_tco2_per_gj: float
     pollutant_combustion: dict[str, float] = field(default_factory=dict)
     is_renewable: bool = False
+    category: str = ""
+    ramp_mw_per_min: float = 0.0
+    inertia_h: float = 0.0  # Inertia MJ/MW = H [s]
+    base_mva: float = 0.0
+
+    @property
+    def area(self) -> int:
+        """RTS-GMLC area: the hundreds digit of the bus id (1, 2, 3)."""
+        return self.bus_id // 100
+
+
+@dataclass(frozen=True)
+class RtsReserve:
+    """Parsed row from RTS-GMLC ``reserves.csv``."""
+
+    name: str
+    timeframe_s: float
+    requirement_mw: float
+    regions: tuple[int, ...]
+    categories: tuple[str, ...]
+    direction: str  # "Up" or "Down"
+
+    def eligible(self, gen: RtsGen) -> bool:
+        """Whether ``gen`` may provide this product (category and area)."""
+        return gen.category in self.categories and gen.area in self.regions
+
+    def cap_mw(self, gen: RtsGen) -> float:
+        """Deliverable MW within the timeframe: min(pmax, ramp · minutes).
+
+        A unit without a ramp rate (0 / blank) is capped by pmax only.
+        """
+        if gen.ramp_mw_per_min <= 0.0:
+            return gen.pmax
+        return min(gen.pmax, gen.ramp_mw_per_min * self.timeframe_s / 60.0)
 
 
 @dataclass
@@ -74,6 +117,9 @@ class Conversion:
     line_count: int
     total_load_mw: list[float]
     generators: list[RtsGen] = field(default_factory=list)
+    reserves: list[RtsReserve] = field(default_factory=list)
+    reserve_series: dict[str, list[float]] = field(default_factory=dict)
+    load_source: str = "synthetic"
 
 
 def _float_or(value: str, default: float = 0.0) -> float:
@@ -138,6 +184,14 @@ _RENEWABLE_UNIT_TYPES = {
 }
 
 
+def _cell(header_index: dict[str, int], row: list[str], col: str) -> str:
+    """Cell ``col`` of ``row`` or "" when the column is absent."""
+    idx = header_index.get(col)
+    if idx is None or idx >= len(row):
+        return ""
+    return row[idx].strip()
+
+
 def _parse_gen_row(header_index: dict[str, int], row: list[str]) -> RtsGen | None:
     name = row[header_index["GEN UID"]].strip()
     if not name:
@@ -184,6 +238,10 @@ def _parse_gen_row(header_index: dict[str, int], row: list[str]) -> RtsGen | Non
         combustion_tco2_per_gj=combustion_tco2_per_gj,
         pollutant_combustion=pollutant_combustion,
         is_renewable=is_renewable,
+        category=_cell(header_index, row, "Category"),
+        ramp_mw_per_min=_float_or(_cell(header_index, row, "Ramp Rate MW/Min")),
+        inertia_h=_float_or(_cell(header_index, row, "Inertia MJ/MW")),
+        base_mva=_float_or(_cell(header_index, row, "Base MVA")),
     )
 
 
@@ -262,16 +320,136 @@ def synthetic_day_load(peak_mw: float, day: int) -> list[float]:
     return [v * scale for v in pattern]
 
 
-def convert(cache_dir: Path, day: int = 1) -> Conversion:
+def _paren_list(text: str) -> list[str]:
+    """``"(a,b,c)"`` or ``"a"`` → ``["a", "b", "c"]`` / ``["a"]``."""
+    inner = text.strip().strip("()")
+    return [item.strip() for item in inner.split(",") if item.strip()]
+
+
+def parse_reserves(reserves_csv: Path) -> list[RtsReserve]:
+    """Reserve products of RTS-GMLC ``reserves.csv``."""
+    out: list[RtsReserve] = []
+    with reserves_csv.open(newline="") as fp:
+        for row in csv.DictReader(fp):
+            name = (row.get("Reserve Product") or "").strip()
+            if not name:
+                continue
+            direction = (row.get("Direction") or "Up").strip().capitalize()
+            if direction not in ("Up", "Down"):
+                raise ValueError(f"reserve {name}: unknown direction {direction!r}")
+            out.append(
+                RtsReserve(
+                    name=name,
+                    timeframe_s=_float_or(row.get("Timeframe (sec)") or ""),
+                    requirement_mw=_float_or(row.get("Requirement (MW)") or ""),
+                    regions=tuple(
+                        int(_float_or(r))
+                        for r in _paren_list(row.get("Eligible Regions") or "")
+                    ),
+                    categories=tuple(
+                        _paren_list(row.get("Eligible Device SubCategories") or "")
+                    ),
+                    direction=direction,
+                )
+            )
+    return out
+
+
+def day_date(day: int, year: int = 2020) -> datetime.date:
+    """Calendar date of day-of-year ``day`` (1-based) in the RTS year."""
+    first = datetime.date(year, 1, 1)
+    last = datetime.date(year, 12, 31)
+    date = first + datetime.timedelta(days=day - 1)
+    if not first <= date <= last:
+        raise ValueError(f"day {day} outside {year}")
+    return date
+
+
+def read_day_series(path: Path, day: int) -> dict[str, list[float]]:
+    """Hourly values of day ``day`` from an RTS-GMLC timeseries CSV.
+
+    Two layouts are used upstream:
+      long  ``Year,Month,Day,Period,<col>...`` — one row per hour, one or
+            more value columns (e.g. the three area loads);
+      wide  ``Year,Month,Day,1,...,24`` — one row per day, returned under
+            the key ``"value"``.
+    """
+    date = day_date(day)
+    key = (str(date.year), str(date.month), str(date.day))
+    with path.open(newline="") as fp:
+        reader = csv.reader(fp)
+        header = [h.strip() for h in next(reader)]
+        rows = [r for r in reader if r and tuple(c.strip() for c in r[:3]) == key]
+    if not rows:
+        raise ValueError(f"{path.name}: no rows for {date.isoformat()}")
+    if "Period" in header:
+        pcol = header.index("Period")
+        rows.sort(key=lambda r: int(_float_or(r[pcol])))
+        series = {
+            header[i]: [_float_or(r[i]) for r in rows]
+            for i in range(pcol + 1, len(header))
+        }
+    else:
+        series = {"value": [_float_or(c) for c in rows[0][3:]]}
+    for name, values in series.items():
+        if len(values) != 24:
+            raise ValueError(
+                f"{path.name}: {name} has {len(values)} values on "
+                f"{date.isoformat()}, expected 24"
+            )
+    return series
+
+
+LOAD_SERIES = "DAY_AHEAD_regional_Load.csv"
+
+
+def reserve_series_file(name: str) -> str:
+    """Cache file name of the day-ahead requirement series of a product."""
+    return f"DAY_AHEAD_regional_{name}.csv"
+
+
+def convert(
+    cache_dir: Path,
+    day: int = 1,
+    *,
+    timeseries: bool = False,
+    reserves: bool = False,
+) -> Conversion:
+    """Parse the cached RTS-GMLC sources for day ``day``.
+
+    ``timeseries``: the hourly load is the day-ahead regional load summed
+    over the three areas (``DAY_AHEAD_regional_Load.csv``) instead of the
+    synthetic shape; ``reserves``: parse ``reserves.csv`` and, with
+    ``timeseries``, each product's day-ahead requirement series (a product
+    without a cached series keeps its flat ``Requirement (MW)``).
+    """
     generators = parse_generators(cache_dir / "gen.csv")
     buses = parse_buses(cache_dir / "bus.csv")
     n_lines = _count_csv_rows(cache_dir / "branch.csv")
-    # Aggregate pmax of all thermals + renewables as the system peak ref.
-    aggregate_peak = sum(g.pmax for g in generators)
-    # RTS-GMLC actual peak load is ~2 850 MW; we want roughly 70% of
-    # the aggregate capacity for realistic dispatch tightness.
-    peak_load = min(aggregate_peak * 0.65, 8000.0)
-    total_load_mw = synthetic_day_load(peak_load, day)
+    load_source = "synthetic"
+    if timeseries:
+        areas = read_day_series(cache_dir / LOAD_SERIES, day)
+        total_load_mw = [sum(vals) for vals in zip(*areas.values(), strict=True)]
+        load_source = "timeseries"
+    else:
+        # Aggregate pmax of all thermals + renewables as the system peak ref.
+        aggregate_peak = sum(g.pmax for g in generators)
+        # RTS-GMLC actual peak load is ~2 850 MW; we want roughly 70% of
+        # the aggregate capacity for realistic dispatch tightness.
+        peak_load = min(aggregate_peak * 0.65, 8000.0)
+        total_load_mw = synthetic_day_load(peak_load, day)
+
+    products: list[RtsReserve] = []
+    series: dict[str, list[float]] = {}
+    if reserves:
+        products = parse_reserves(cache_dir / "reserves.csv")
+        for product in products:
+            path = cache_dir / reserve_series_file(product.name)
+            if timeseries and path.exists():
+                values = read_day_series(path, day)
+                series[product.name] = next(iter(values.values()))
+            else:
+                series[product.name] = [product.requirement_mw] * len(total_load_mw)
 
     return Conversion(
         day=day,
@@ -281,15 +459,101 @@ def convert(cache_dir: Path, day: int = 1) -> Conversion:
         line_count=n_lines,
         total_load_mw=total_load_mw,
         generators=generators,
+        reserves=products,
+        reserve_series=series,
+        load_source=load_source,
     )
+
+
+def reserve_elements(
+    conversion: Conversion,
+    gen_uid: dict[str, int],
+    shortfall_cost: float,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """ReserveZone / ReserveProvision arrays of the parsed products.
+
+    One zone per product (up: ``urreq`` + ``urcost``; down: ``drreq`` +
+    ``drcost``, the shortfall price); one provision per (eligible
+    generator, product) capped at ``RtsReserve.cap_mw``.  Provisions of the
+    same generator share its headroom (``shared_headroom``) so the
+    products never count the same MW twice.
+    """
+    zones: list[dict[str, Any]] = []
+    provisions: list[dict[str, Any]] = []
+    for zone_uid, product in enumerate(conversion.reserves, start=1):
+        side = "ur" if product.direction == "Up" else "dr"
+        req = conversion.reserve_series.get(
+            product.name, [product.requirement_mw] * conversion.n_hours
+        )
+        zones.append(
+            {
+                "uid": zone_uid,
+                "name": product.name,
+                f"{side}req": [req],
+                f"{side}cost": shortfall_cost,
+            }
+        )
+        for gen in conversion.generators:
+            if not product.eligible(gen):
+                continue
+            provisions.append(
+                {
+                    "uid": len(provisions) + 1,
+                    "name": f"{gen.name}_{product.name}",
+                    "generator": gen_uid[gen.name],
+                    "reserve_zones": [zone_uid],
+                    "shared_headroom": True,
+                    f"{side}max": product.cap_mw(gen),
+                    f"{side}_provision_factor": 1.0,
+                }
+            )
+    return zones, provisions
+
+
+def inertia_elements(
+    conversion: Conversion,
+    gen_uid: dict[str, int],
+    requirement_mws: float,
+    shortfall_cost: float,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """One system InertiaZone and an InertiaProvision per unit with H > 0.
+
+    ``inertia_constant`` is the ``Inertia MJ/MW`` column (H [s]) and
+    ``rated_power`` the ``Base MVA`` (pmax when blank), so a unit at full
+    output provides H·S [MWs].
+    """
+    zone = {
+        "uid": 1,
+        "name": "system",
+        "requirement": requirement_mws,
+        "cost": shortfall_cost,
+    }
+    providers = [g for g in conversion.generators if g.inertia_h > 0.0]
+    provisions = [
+        {
+            "uid": idx,
+            "name": f"{gen.name}_inertia",
+            "generator": gen_uid[gen.name],
+            "inertia_zones": ["system"],
+            "inertia_constant": gen.inertia_h,
+            "rated_power": gen.base_mva if gen.base_mva > 0.0 else gen.pmax,
+        }
+        for idx, gen in enumerate(providers, start=1)
+    ]
+    return [zone], provisions
 
 
 def to_gtopt_json(
     conversion: Conversion,
     include_pollutants: tuple[str, ...] = ("co2",),
+    *,
+    inertia: bool = False,
+    inertia_requirement_mws: float = 0.0,
+    shortfall_cost: float = 1000.0,
 ) -> dict[str, Any]:
     """Materialise a single-bus 24-hour gtopt JSON with per-gen CO2 (+ optional
-    multi-pollutant) accounting."""
+    multi-pollutant) accounting, the parsed reserve products and, with
+    ``inertia``, the units' inertia."""
 
     nh = conversion.n_hours
     bus = {"uid": 1, "name": "bus"}
@@ -377,6 +641,17 @@ def to_gtopt_json(
     }
     if demand_profile is not None:
         system["demand_profile_array"] = [demand_profile]
+    gen_uid = {g["name"]: g["uid"] for g in gens_json}
+    if conversion.reserves:
+        rzones, rprovs = reserve_elements(conversion, gen_uid, shortfall_cost)
+        system["reserve_zone_array"] = rzones
+        system["reserve_provision_array"] = rprovs
+    if inertia:
+        izones, iprovs = inertia_elements(
+            conversion, gen_uid, inertia_requirement_mws, shortfall_cost
+        )
+        system["inertia_zone_array"] = izones
+        system["inertia_provision_array"] = iprovs
     return {"simulation": sim, "system": system}
 
 

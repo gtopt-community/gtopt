@@ -529,8 +529,10 @@ def test_hydro_4b_gtopt_mono_solve(tmp_path, gtopt_bin):
     # has non-zero objective.  This case's free-hydro cascade can satisfy
     # all demand at gcost=0, so a trivial-zero solve emits empty duals
     # (the writer drops all-zero rows) — and that's mathematically correct,
-    # not a failure.
-    if (sol.get("obj_value") or 0.0) > 0.0:
+    # not a failure.  The threshold is a tolerance, not 0.0: a simplex
+    # solver may report round-off noise for that zero optimum (HiGHS
+    # gives ~6e-11 here, CLP exactly 0).
+    if (sol.get("obj_value") or 0.0) > 1e-6:
         dual_df = _read_output(results_dir, "Bus", "balance_dual")
         if dual_df is not None:
             assert len(dual_df) > 0, "No marginal cost data"

@@ -14,8 +14,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.sanity_report import run_sanity_report
+from gtopt_shared.source_versions import apply_source_version
+
 from .gtopt_writer import build_planning, write_planning
-from .raw_parser import parse_raw
+from .raw_parser import SOURCE_FORMAT, detect_version, parse_raw
 
 
 logger = logging.getLogger(__name__)
@@ -160,6 +163,9 @@ def convert_psse_case(options: dict[str, Any]) -> int:
     * ``single_bus`` — emit a copper-plate single-bus planning.
     * ``gen_costs`` / ``line_limits`` — optional CSV overlays with
       per-unit costs and per-branch ratings (see :mod:`psse2gtopt.overlay`).
+    * ``source_version`` — ``--source-version`` override of the RAW
+      revision detected from the case-id line (logged, see
+      :data:`psse2gtopt.raw_parser.SOURCE_FORMAT`).
 
     Returns:
         ``0`` on success.
@@ -169,6 +175,12 @@ def convert_psse_case(options: dict[str, Any]) -> int:
         raise ValueError("convert_psse_case: 'input' option is required")
     input_path = Path(raw_input)
     raw_file = resolve_raw_file(input_path, options.get("raw"))
+    source_version = apply_source_version(
+        SOURCE_FORMAT,
+        detect_version(raw_file),
+        options.get("source_version"),
+        log=logger,
+    )
 
     case = parse_raw(raw_file)
 
@@ -225,5 +237,12 @@ def convert_psse_case(options: dict[str, Any]) -> int:
 
     write_planning(planning, output_file)
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("converted %s → %s", raw_file, output_file)
+    logger.info(
+        "converted %s (%s rev %s) → %s",
+        raw_file,
+        SOURCE_FORMAT.name,
+        source_version,
+        output_file,
+    )
+    run_sanity_report(output_file, json_path=options.get("sanity_report"), log=logger)
     return 0

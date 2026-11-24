@@ -53,9 +53,11 @@ def test_reactance_shortest_path_chain() -> None:
     graph = build_line_graph(case)
     d = reactance_shortest_path_matrix(graph)
     assert d.shape == (3, 3)
-    assert d[0, 1] == pytest.approx(0.5)
-    assert d[1, 2] == pytest.approx(0.7)
-    assert d[0, 2] == pytest.approx(1.2)
+    # Lines without ``voltage`` (gtopt V = 1): the graph holds X in p.u.
+    # on the 100 MVA base, i.e. 100·X.
+    assert d[0, 1] == pytest.approx(50.0)
+    assert d[1, 2] == pytest.approx(70.0)
+    assert d[0, 2] == pytest.approx(120.0)
     assert (np.diag(d) == 0).all()
 
 
@@ -66,8 +68,8 @@ def test_zbus_distance_chain() -> None:
     assert d.shape == (3, 3)
     assert d[0, 0] == 0.0
     # Z-bus distance for a series chain equals the reactance sum.
-    assert d[0, 2] == pytest.approx(1.2, rel=1e-9)
-    assert d[0, 1] == pytest.approx(0.5, rel=1e-9)
+    assert d[0, 2] == pytest.approx(120.0, rel=1e-9)  # 100·X (V = 1)
+    assert d[0, 1] == pytest.approx(50.0, rel=1e-9)
 
 
 def test_ptdf_distance_returns_zero_self() -> None:

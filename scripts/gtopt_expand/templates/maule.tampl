@@ -281,13 +281,32 @@ constraint maule_anclaje_particion "Anchor: rights partition = physical Maule tu
 {% endif %}
 
 # La Invernada: deficit/no-deficit release accounting = physical
-# turbined flow at the Invernada central (PLP IQLINVE row,
-# genpdmaule.f:94-103 — gen only; spills are never charged to a
-# rights category).
+# turbined flow at the Invernada central.  PLP's IQLINVE row
+# (genpdmaule.f:94-103) also carries the Invernada vertimiento;
+# gtopt deliberately anchors to the generation arc only, as for the
+# Maule partition above (spills are never charged to a rights
+# category).
 {% if anchor_gen_ref_invernada is defined and enable_physical_anchoring | default(true) %}
 constraint invernada_anclaje "Anchor: Invernada releases = physical turbined flow":
   flow_right('invernada_deficit').flow + flow_right('invernada_sin_deficit').flow = {{ anchor_gen_ref_invernada }};
 {% endif %}
+
+# ---------------------------------------------------------------------------
+# Extraordinary reserve floor (PLP IVMUTIL, genpdmaule.f:324-326 and
+# :930-931) — HARD.
+#
+#   vol(LMAULE) - vmutil = VEmbalseUtilMin,   vmutil >= VReservaExtraord
+#
+# i.e. the Laguna del Maule volume never drops below
+# VEmbalseUtilMin + VReservaExtraord: the bottom of the lake is a
+# reserve no right may draw.  PLP's regime test is binary (normal at
+# V_util >= 581 hm3, ordinary otherwise) and does NOT close the
+# ordinary rights below 129 hm3 — the volume floor is what keeps the
+# lake out of the extraordinary zone.  gtopt applies it to every
+# block volume (PLP's stage has a single end-of-stage volume).
+# ---------------------------------------------------------------------------
+constraint maule_reserva_extraordinaria "IVMUTIL: Maule volume >= VEmbalseUtilMin + VReservaExtraord":
+  reservoir('{{ central_maule }}').energy >= {{ v_util_min | default(0.0) + v_reserva_extraord }};
 
 # ---------------------------------------------------------------------------
 # La Invernada level rule (PLP IQNINV + IQRNIN, genpdmaule.f:433-460,

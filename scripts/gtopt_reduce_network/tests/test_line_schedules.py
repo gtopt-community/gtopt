@@ -200,11 +200,14 @@ def test_tmax_ab_with_no_active_parquet_treats_all_active(tmp_path: Path) -> Non
     assert df.sort_values("block")["uid:99"].tolist() == [70.0, 130.0]
 
 
-# ─── Rule: voltage cap-weighted ────────────────────────────────────────
+# ─── voltage is an input: X/V² of the equivalent ───────────────────────
 
 
-def test_voltage_cap_weighted(tmp_path: Path) -> None:
-    """Two-line corridor: cap=100 @ 220 kV; cap=300 @ 500 kV → V_eq ≈ 430."""
+def test_voltage_schedule_drives_reactance(tmp_path: Path) -> None:
+    """Mixed kV + Ω originals: 48.4 Ω @ 220 kV and 250 Ω @ 500 kV are both
+    x = X/V² = 1e-3.  Only ``voltage`` is scheduled; the equivalent gets a
+    REACTANCE schedule in the V = 10 convention (X/100 = 5e-4, the parallel
+    of the two) and no voltage schedule."""
     case_dir = tmp_path / "case"
     line_dir = case_dir / "Line"
     _write_stage_parquet(
@@ -212,26 +215,29 @@ def test_voltage_cap_weighted(tmp_path: Path) -> None:
         stages=[1, 2],
         cols={1: [220.0, 220.0], 2: [500.0, 500.0]},
     )
-    aggregate_line_schedules(
+    out = aggregate_line_schedules(
         case_dir=case_dir,
         input_directory=".",
         reduced_tag="t",
         aggregated_lines=[_eq(99, absorbed=[1, 2])],
         original_line_array=[
-            _line(1, voltage=220.0, tmax_ab=100.0),
-            _line(2, voltage=500.0, tmax_ab=300.0),
+            _line(1, voltage=220.0, reactance=48.4, resistance=0.0, tmax_ab=100.0),
+            _line(2, voltage=500.0, reactance=250.0, resistance=0.0, tmax_ab=300.0),
         ],
     )
-    df = _read_parquet(line_dir / "voltage_t.parquet")
-    # cap-weighted: (100·220 + 300·500) / (100 + 300) = 430.0
-    assert df["uid:99"].tolist() == [pytest.approx(430.0), pytest.approx(430.0)]
+    assert out == {"reactance": "reactance_t"}
+    assert not (line_dir / "voltage_t.parquet").exists()
+    df = _read_parquet(line_dir / "reactance_t.parquet")
+    x_over_v2 = [x / 10.0**2 for x in df["uid:99"].tolist()]
+    assert x_over_v2 == [pytest.approx(5e-4), pytest.approx(5e-4)]
 
 
 # ─── Rule: parallel-X in p.u. ──────────────────────────────────────────
 
 
 def test_parallel_x_uniform_voltage(tmp_path: Path) -> None:
-    """Two parallel lines V=1, X=10, X=10 → X_eq=5 every stage."""
+    """Two parallel lines V=1, X=10, X=10 → X_eq/V_eq² = 5 every stage
+    (written as X_eq = 500 with the equivalent's V = 10)."""
     case_dir = tmp_path / "case"
     line_dir = case_dir / "Line"
     _write_stage_parquet(
@@ -250,7 +256,7 @@ def test_parallel_x_uniform_voltage(tmp_path: Path) -> None:
         ],
     )
     df = _read_parquet(line_dir / "reactance_t.parquet")
-    assert df["uid:99"].tolist() == [pytest.approx(5.0), pytest.approx(5.0)]
+    assert df["uid:99"].tolist() == [pytest.approx(500.0), pytest.approx(500.0)]
 
 
 def test_parallel_x_handles_maintenance(tmp_path: Path) -> None:
@@ -280,8 +286,9 @@ def test_parallel_x_handles_maintenance(tmp_path: Path) -> None:
         ],
     )
     df = _read_parquet(line_dir / "reactance_t.parquet")
-    # Stage 1, 3: 3 parallels of 6 → 2.0; stage 2: 2 parallels → 3.0
-    vals = df["uid:99"].tolist()
+    # X/V² — stage 1, 3: 3 parallels of 6 → 2.0; stage 2: 2 parallels → 3.0
+    # (the equivalent carries V = 10, so X_eq = 100 · X/V²)
+    vals = [x / 100.0 for x in df["uid:99"].tolist()]
     assert vals[0] == pytest.approx(2.0)
     assert vals[1] == pytest.approx(3.0)
     assert vals[2] == pytest.approx(2.0)
@@ -291,17 +298,11 @@ def test_parallel_x_handles_maintenance(tmp_path: Path) -> None:
 
 
 def test_resistance_follows_x_pu(tmp_path: Path) -> None:
-    """R_eq = X_eq² · Σ R·act/X² · V²/MVA_base.  For 2 equal parallels with
-    V=1, X=10, R=1, expect R_eq = 0.25 (= X_eq²·Σ R/X² = 25 · 2·1/100 = 0.5… no wait).
-
-    Let me re-derive for V=1, MVA_base=100:
-      X_pu = X · 100 / 1² = 1000  (huge)
-      R_pu = R · 100 / 1² = 100
-      X_pu_eq = 1 / (1/1000 + 1/1000) = 500
-      R_pu_eq = 500² · (100/1000² + 100/1000²) = 250000 · 0.0002 = 50
-      R_eq = R_pu_eq · 1 / 100 = 0.5
-
-    For two identical parallels of X=10, R=1, expected R_eq = 0.5.
+    """Two equal parallels with V = 1, X = 10, R = 1 (MVA_base = 100):
+      X_pu = 1000, R_pu = 100, X_pu_eq = 500,
+      R_pu_eq = 500² · 2 · 100/1000² = 50.
+    The equivalent carries V = 10, so R_eq = R_pu_eq = 50 and gtopt's
+    R_eq/V² = 0.5 — the parallel loss coefficient of the originals' R/V² = 1.
     """
     case_dir = tmp_path / "case"
     line_dir = case_dir / "Line"
@@ -326,7 +327,7 @@ def test_resistance_follows_x_pu(tmp_path: Path) -> None:
         ],
     )
     df = _read_parquet(line_dir / "resistance_t.parquet")
-    assert df["uid:99"].tolist() == [pytest.approx(0.5), pytest.approx(0.5)]
+    assert df["uid:99"].tolist() == [pytest.approx(50.0), pytest.approx(50.0)]
 
 
 # ─── Unknown / unhandled fields warned and skipped ─────────────────────
