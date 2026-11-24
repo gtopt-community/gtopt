@@ -926,10 +926,17 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("starts_scope", _J_STR, False, "Window-scope for ``max_starts``.", None),
     ],
     # ------------------------------------------------------------------
-    # System — simple_commitment (minimal UC: pmin gating)
+    # System — simple_commitment: DEPRECATED alias, folded into a
+    # Commitment (dispatch_pmin -> pmin; Generator.pmin moves onto it).
     # ------------------------------------------------------------------
     "simple_commitment_array": [
-        ("uid", _J_INT, True, "Unique simple-commitment identifier", 1),
+        (
+            "uid",
+            _J_INT,
+            True,
+            "Unique identifier (deprecated: use commitment_array)",
+            1,
+        ),
         ("name", _J_STR, True, "SimpleCommitment name", "sc1"),
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
         ("generator", _J_ID, True, "Generator uid or name", "g1"),
@@ -937,7 +944,8 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "dispatch_pmin",
             _J_SCHED,
             False,
-            "Minimum output when dispatched [MW] per-(stage, block).",
+            "Minimum output when dispatched [MW] per-(stage, block); "
+            "read as Commitment.pmin.",
             None,
         ),
         (
@@ -1230,8 +1238,18 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "commitment",
             _J_BOOL,
             False,
-            "When true, the synthetic Converter adds per-block binaries "
-            "u_charge / u_discharge to gate pmin_charge / pmin_discharge.",
+            "When true, pmin_charge / pmin_discharge become per-mode floors "
+            "gated by per-block binaries (converter u_charge; the "
+            "uc_<bat>_gen commitment status for discharge).",
+            None,
+        ),
+        (
+            "exclusive_charge_discharge",
+            _J_BOOL,
+            False,
+            "With commitment = true: add the charge/discharge exclusivity "
+            "constraint u_charge + u_discharge <= 1 per block (default "
+            "true when unset; ignored without commitment).",
             None,
         ),
         ("capacity", _J_SCHED, False, "Initial installed capacity [MWh]", None),
@@ -1388,6 +1406,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "When true, add per-block u_charge / u_discharge binaries to gate "
             "pmin_charge / pmin_discharge on the linked Battery.",
+            None,
+        ),
+        (
+            "exclusive_charge_discharge",
+            _J_BOOL,
+            False,
+            "With commitment = true: add u_charge + u_discharge <= 1 per "
+            "block (row charge_discharge_exclusive; default true when unset).",
             None,
         ),
         ("capacity", _J_SCHED, False, "Initial converter capacity [MW]", None),
@@ -3736,6 +3762,16 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_BOOL,
             False,
             "Cross-phase **link** flag for a ``state`` variable (piece 5).",
+            None,
+        ),
+        (
+            "nonanticipative",
+            _J_BOOL,
+            False,
+            (
+                "**Nonanticipative** flag for a ``scope = global`` variable: ONE value "
+                "across scenes (the active scenes are solved as one extensive-form LP)."
+            ),
             None,
         ),
         (

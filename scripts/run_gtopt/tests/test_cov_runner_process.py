@@ -532,7 +532,7 @@ def test_run_check_lp_invokes_checker(
     assert "  row 1 infeasible" in out
     assert "  warn" in out
     assert "(and 1 more)" in out
-    assert fake_sp.calls[0][0][-2:] == ["--quiet", "--no-ai"]
+    assert fake_sp.calls[0][0][-3:] == ["--quiet", "--no-ai", "--no-neos"]
 
 
 def test_check_solution_parquet_and_errors(tmp_path: Path) -> None:

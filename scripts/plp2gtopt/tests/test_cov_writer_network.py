@@ -110,13 +110,24 @@ def test_battery_extra_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 "demand_array": dem,
                 "converter_array": [{"uid": 2}],
                 "regulation_reservoirs": [{"uid": 3, "name": "R"}],
+                "charge_coupling_constraints": [
+                    {"name": "B_charge_source", "expression": "x"},
+                    {"name": "C_charge_source", "expression": "y"},
+                ],
             }
 
     monkeypatch.setattr(_writer_network, "BatteryWriter", _FakeBW)
     w = _writer({"battery_parser": object()})
     w.planning["system"]["reservoir_array"] = [{"uid": 1, "name": "L"}]
+    w.planning["system"]["user_constraint_array"] = [{"uid": 7, "name": "laja"}]
     w.process_battery({"output_dir": tmp_path})
     sysd = w.planning["system"]
     assert sysd["converter_array"] == [{"uid": 2}]
     assert [r["name"] for r in sysd["reservoir_array"]] == ["L", "R"]
     assert w.planning["_clamped_battery_warnings"] == ["clamped"]
+    # Charge couplings appended after existing user constraints, fresh uids.
+    assert [(u["uid"], u["name"]) for u in sysd["user_constraint_array"]] == [
+        (7, "laja"),
+        (8, "B_charge_source"),
+        (9, "C_charge_source"),
+    ]

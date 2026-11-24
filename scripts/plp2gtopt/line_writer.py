@@ -2,6 +2,7 @@
 
 """Writer for converting line data to JSON format."""
 
+import argparse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict, cast
 from .base_writer import BaseWriter
@@ -9,6 +10,73 @@ from .line_parser import LineParser
 from .manli_parser import ManliParser
 from .manli_writer import ManliWriter
 from .block_parser import BlockParser
+
+
+#: Default ``--loss-tangents`` policy: one tangent per PLP loss tramo per
+#: flow direction (``K = 2 * Num.Tramos``; Num.Tramos counts tramos per
+#: direction, ``leecnfli.f``).
+DEFAULT_LOSS_TANGENTS = "double"
+
+#: Symbolic ``--loss-tangents`` policies (an integer K >= 2 is also valid).
+LOSS_TANGENTS_POLICIES = ("tramos", "double")
+
+
+def parse_loss_tangents(value: str) -> str | int:
+    """Validate a ``--loss-tangents`` value (argparse ``type=`` hook).
+
+    Accepts ``tramos``, ``double`` or an integer K >= 2.
+    """
+    text = str(value).strip().lower()
+    if text in LOSS_TANGENTS_POLICIES:
+        return text
+    try:
+        k = int(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"invalid --loss-tangents {value!r}: expected one of "
+            f"{', '.join(LOSS_TANGENTS_POLICIES)} or an integer >= 2"
+        ) from exc
+    if k < 2:
+        raise argparse.ArgumentTypeError(
+            f"invalid --loss-tangents {value!r}: integer K must be >= 2"
+        )
+    return k
+
+
+def loss_segments_for(
+    losses_mode: Optional[str], num_sections: int, loss_tangents: str | int
+) -> int:
+    """Return the per-line ``loss_segments`` for a PLP line with losses.
+
+    PLP's Num.Tramos (``LinNFlu``, ``leecnfli.f``) is the number of
+    equal-width flow tramos PER DIRECTION: ``genpdlin.f`` creates
+    ``2 * LinNFlu`` flow columns (``fp_k`` / ``fn_k``) per line-block whose
+    bus-balance coefficient carries the secant loss slope
+    ``R * (2k - 1) * dF / V^2`` (``dF = tmax / LinNFlu``).
+
+    ``tangent_signed_flow`` places its K tangents over the SIGNED range
+    ``[-fmax, +fmax]``.  The tangent count follows ``loss_tangents``:
+
+    * ``"tramos"``: ``K = Num.Tramos`` — the smallest LP (half PLP's
+      tramo count over the signed range).  Max loss under-estimate
+      ``R * fmax^2 / (V^2 * K^2)``.
+    * ``"double"`` (default): ``K = 2 * Num.Tramos`` — Num.Tramos
+      tangents per flow direction, one per PLP tramo, the same worst-case error as PLP's secants
+      (``R * fmax^2 / (4 * V^2 * Num.Tramos^2)``) at twice the rows.
+    * an integer ``K``: that tangent count on every piecewise lossy
+      line (Num.Tramos >= 2).
+
+    Every other mode (``piecewise_direct`` PLP-replication runs,
+    ``piecewise``, ``bidirectional``, ``adaptive`` ...) keeps PLP's
+    per-direction count verbatim.
+    """
+    if losses_mode != "tangent_signed_flow":
+        return num_sections
+    if isinstance(loss_tangents, int):
+        return loss_tangents
+    if loss_tangents == "double":
+        return 2 * num_sections
+    return num_sections
 
 
 class Line(TypedDict, total=False):
@@ -66,6 +134,11 @@ class LineWriter(BaseWriter):
             (self.options or {}).get("model_options", {}).get("line_losses_mode")
         )
 
+        loss_tangents = (self.options or {}).get("loss_tangents", DEFAULT_LOSS_TANGENTS)
+        # PLP global FPerdTram (plpcnfli.dat header); mock parsers in
+        # tests may not carry it -> PLP default (losses on).
+        fperdtram = bool(getattr(self.line_parser, "loss_modeling_enabled", True))
+
         json_lines: List[Line] = []
         for line in items:
             line_name = line["name"]
@@ -114,24 +187,25 @@ class LineWriter(BaseWriter):
             elif reactance != 0.0 and not is_hvdc:
                 json_line["reactance"] = reactance
 
-            # Only include loss_segments when > 1 (piecewise-linear model).
-            # PLP's ``num_sections`` (Num.Tramos) counts segments PER
-            # DIRECTION, while tangent_signed_flow's K spans the SIGNED
-            # flow range [-tmax_ba, +tmax_ab] — so matching PLP's
-            # resolution needs K = 2 × num_sections.  2×n is automatically
-            # even, which matters: an odd K wastes the zero-slope middle
-            # tangent.  Every OTHER mode (piecewise_direct parity runs,
-            # piecewise, bidirectional, adaptive, …) keeps PLP's
-            # per-direction count verbatim.
-            if num_sections > 1:
-                if losses_mode == "tangent_signed_flow":
-                    json_line["loss_segments"] = 2 * num_sections
-                else:
-                    json_line["loss_segments"] = num_sections
-
-            # Include use_line_losses when explicitly set per-line
-            if mod_perdidas:
+            # PLP losses are ON for a line only when the global FPerdTram
+            # flag AND the per-line Mod.Perd. flag are both true
+            # (``leecnfli.f:213-215``: otherwise LinNFlu := 1, and
+            # ``genpdlin.f:105`` stamps no loss factor).  Mirror that explicitly: a PLP
+            # lossless line is emitted with ``use_line_losses = false``
+            # (gtopt's global default is losses ON, so leaving the key
+            # out would give an R > 0 line losses PLP never models).
+            plp_lossy = bool(mod_perdidas) and fperdtram
+            if plp_lossy:
                 json_line["use_line_losses"] = True
+                # Only include loss_segments when > 1 (piecewise-linear
+                # model); Num.Tramos = 1 keeps gtopt's linear fallback,
+                # which equals PLP's single-tramo secant R·tmax/V²·|f|.
+                if num_sections > 1:
+                    json_line["loss_segments"] = loss_segments_for(
+                        losses_mode, num_sections, loss_tangents
+                    )
+            else:
+                json_line["use_line_losses"] = False
 
             # Loss allocation mode from PLP global FPerdLin setting.
             # Only emit if different from gtopt default ("receiver").

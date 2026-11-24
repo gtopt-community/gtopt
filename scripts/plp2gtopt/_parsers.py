@@ -36,6 +36,7 @@ from gtopt_shared.cli_flags import (
 from gtopt_shared.resources import package_data_path
 
 from .falla_segments import DEFAULT_FALLA_SEGMENTS
+from .line_writer import DEFAULT_LOSS_TANGENTS, parse_loss_tangents
 
 
 # ---------------------------------------------------------------------------
@@ -716,15 +717,12 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         type=float,
         default=None,
         help=(
-            "Absolute gap ceiling (0-1) for the secondary convergence "
-            "tests (stationary + statistical CI).  When the relative gap "
-            "is at or above G, neither stationary nor CI convergence will "
-            "fire — only the primary `convergence_tol` test can declare "
-            "convergence.  Defends against heterogeneous-scene σ explosion "
-            "(large-case run 2026-05-02 converged at iter 2 with gap=25%% via the "
-            "CI test because σ=77 M dominated the 38 M absolute gap).  "
-            "Use 1.0 to disable the ceiling.  "
-            "(default: emit 0.05 when not set; GTOpt's own default is 0.5)"
+            "Signed gap ceiling (0-1) for a stationary stop: while the "
+            "relative gap (UB-LB)/|UB| is at or above G, a ΔUB-stationary "
+            "(or statistical + stationary) stop is refused and SDDP keeps "
+            "iterating; negative gaps (cut overshoot) pass.  Applies to "
+            "every cascade level.  Use 1.0 to disable the ceiling.  "
+            "(default: not emitted — gtopt's default 0.02 applies)"
         ),
     )
 
@@ -1125,10 +1123,14 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # plp2gtopt defaults to ``tangent_signed_flow`` (Coffrin-Van Hentenryck
     # outer approximation): one signed-flow column + K tangents + an |f|-aux
     # chord upper bracket — the strongest LP relaxation with no
-    # bidirectional-flow degeneracy by construction.  The PLP-faithful
-    # ``piecewise_direct`` (PLP ``genpdlin.f``) remains available via
-    # --line-losses-mode (and is bundled by --plp-legacy) for PLP LP-diff
-    # parity runs.
+    # bidirectional-flow degeneracy by construction; K per line follows
+    # --loss-tangents (default: 2 x the line's PLP Num.Tramos, i.e. one
+    # tangent per PLP tramo per flow direction).  The
+    # PLP-faithful ``piecewise_direct`` (PLP ``genpdlin.f``) remains
+    # available via --line-losses-mode (and is bundled by --plp-legacy)
+    # for PLP-replication / LP-diff runs ONLY: it has no loss rows, so a
+    # negative bus price makes the LP burn energy in fictitious losses
+    # (and hides negative CMg) — it is NOT arbitrage-safe.
     add_line_losses_mode_argument(parser, default="tangent_signed_flow")
     # ``loss_cost_eps``: UNSET by default — gtopt's built-in 0.1 $/MWh
     # applies (strictly breaks the PWL bidirectional-flow degeneracy and
@@ -1136,6 +1138,25 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # distortion).  An explicit value, including ``--loss-cost-eps 0``
     # to disable, is emitted as ``model_options.loss_cost_eps``.
     add_loss_cost_eps_argument(parser, dialect="plp")
+    parser.add_argument(
+        "--loss-tangents",
+        dest="loss_tangents",
+        metavar="SPEC",
+        type=parse_loss_tangents,
+        default=DEFAULT_LOSS_TANGENTS,
+        help=(
+            "tangent count K per lossy line for "
+            "--line-losses-mode tangent_signed_flow (the default mode). "
+            "'double' = K = 2*Num.Tramos (plpcnfli.dat Num.Tramos counts "
+            "tramos per flow direction), i.e. one tangent per PLP tramo "
+            "per direction (PLP-equal worst-case error); "
+            "'tramos' = K = Num.Tramos (smallest LP, half the loss rows, "
+            "max loss under-estimate R*fmax^2/(V^2*K^2)); "
+            "an integer K >= 2 = that count on every piecewise "
+            "lossy line.  Other modes keep Num.Tramos verbatim.  "
+            "(default: %(default)s)"
+        ),
+    )
     # ``loss_secant_segments`` default: UNSET (gtopt resolves S=1, the
     # single-secant chord).  Extra secants are inert in pure LP — the
     # chord is inactive at benign optima (accuracy is governed by the

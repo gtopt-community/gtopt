@@ -251,7 +251,9 @@ class TestGTOptWriterProcessMethods:
         # 2026-06-02 (final): cascade FLAT 1 % ladder.
         # ``stationary_tol`` = [1 %, 1 %, 1 %, 1 %] on L0..L3;
         # ``stationary_window`` = 2 on every level;
-        # ``stationary_gap_ceiling`` = 85 % on every level.
+        # ``stationary_gap_ceiling`` NOT emitted on any level (the gtopt
+        # default 2 % applies; the former flat 85 % let large cascade
+        # levels stop with a gap of several percent).
         # Rationale: the realised Δgap on production CEN IPLP runs plateaus once
         # cuts saturate, and heterogeneous-aperture transitions
         # re-tighten the bound regardless of the within-level exit
@@ -261,7 +263,7 @@ class TestGTOptWriterProcessMethods:
         expected_stationary_tol = [0.01, 0.01, 0.01, 0.01]
         for lvl, expected_tol in zip(levels, expected_stationary_tol):
             so = lvl["sddp_options"]
-            assert so["stationary_gap_ceiling"] == 0.85
+            assert "stationary_gap_ceiling" not in so
             assert so["stationary_window"] == 2
             assert so["stationary_tol"] == expected_tol
         # Level 0: warmup (single-bus, 1 head aperture → THE wettest hydrology).

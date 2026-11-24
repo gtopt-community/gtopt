@@ -645,15 +645,16 @@ def test_no_maintenance_no_parquet(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# source_generator — generation-coupled battery mode
+# co-located plant: standalone battery + ``charge <= plant`` coupling
 # ---------------------------------------------------------------------------
 
 
-def test_battery_cenbat_injection_sets_source_generator(tmp_path):
-    """plpcenbat.dat with injection central produces source_generator in battery.
+def test_battery_cenbat_injection_couples_charge_to_plant(tmp_path):
+    """plpcenbat.dat injection central → charge coupling, not source_generator.
 
-    When NIny > 0, the first injection central name is set as source_generator,
-    enabling generation-coupled mode in System::expand_batteries().
+    The plant keeps its own grid bus (PLP lets it split its output between
+    the grid and the battery); the battery is a standalone unified battery
+    and the coupling is a user constraint.
     """
     bp = _make_battery_parser(
         tmp_path,
@@ -664,11 +665,14 @@ def test_battery_cenbat_injection_sets_source_generator(tmp_path):
 
     assert len(bats) == 1
     b = bats[0]
-    # source_generator is set to the first injection central name
-    assert b.get("source_generator") == "SOLAR1"
+    assert "source_generator" not in b
     # Unified fields are still present (no DC maintenance)
     assert "bus" in b
     assert b["input_efficiency"] == pytest.approx(0.95)  # FPC from injection
+    ucs = writer.charge_coupling_constraints(writer._all_entries())  # noqa: SLF001
+    assert [uc["expression"] for uc in ucs] == [
+        "demand('BESS1_dem').load - generator('SOLAR1').generation <= 0"
+    ]
 
 
 def test_battery_cenbat_no_injection_no_source_generator(tmp_path):
@@ -714,27 +718,163 @@ def test_battery_cenbat_self_injection_no_source_generator(tmp_path):
     assert "bus" in b
 
 
-def test_ess_dcmod1_sets_source_generator(tmp_path):
-    """ESS with dcmod=1 and cenpc produces source_generator in battery.
+def test_ess_dcmod1_no_source_generator_but_charge_coupling(tmp_path):
+    """ESS dcmod=1 + cenpc: standalone battery + ``charge <= plant`` UC.
 
-    When dcmod=1, the cenpc (primary charge central) is set as
-    source_generator, enabling generation-coupled mode in
-    System::expand_batteries().
+    PLP ``genpdess.f``: the ESS charge is a load at the ESS bus bounded by
+    the CenCarga plant output; the plant keeps injecting all its output at
+    its own bus.  So no ``source_generator`` (no internal bus) — the
+    coupling is a user constraint on the synthetic ``<ESS>_dem``.
     """
     ep = _make_ess_parser(
         tmp_path,
-        " 1\n  ESS1  0.90  0.90  1.0  200.0  100.0  1  SOLAR1\n",
+        " 1\n  ESS1  0.90  0.90  1.0  200.0  10.0  1  SOLAR1\n",
     )
     writer = BatteryWriter(ess_parser=ep)
     bats = writer.to_battery_array()
 
     assert len(bats) == 1
     b = bats[0]
-    # source_generator is set to cenpc name
-    assert b.get("source_generator") == "SOLAR1"
-    # Unified fields present (no DC maintenance)
+    assert b.get("source_generator") is None
     assert "bus" in b
     assert "pmax_discharge" in b
+
+    ucs = writer.charge_coupling_constraints(writer._all_entries())  # noqa: SLF001
+    assert len(ucs) == 1
+    assert ucs[0]["name"] == "ESS1_charge_source"
+    assert ucs[0]["expression"] == (
+        "demand('ESS1_dem').load - generator('SOLAR1').generation <= 0"
+    )
+
+
+def test_ess_dcmod1_coupling_dropped_when_plant_has_no_generator(tmp_path):
+    """A CenCarga with no generator in generator_array drops the coupling."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.90  0.90  1.0  200.0  10.0  1  SOLAR1\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    entries = writer._all_entries()  # noqa: SLF001
+    assert not writer.charge_coupling_constraints(entries, {"OTHER"})
+    assert len(writer.charge_coupling_constraints(entries, {"SOLAR1"})) == 1
+
+
+def test_ess_dcmod0_no_charge_coupling(tmp_path):
+    """DCMod=0 with a CenCarga: free grid charging, no coupling."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.90  0.90  1.0  200.0  10.0  0  SOLAR1\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    assert not writer.charge_coupling_constraints(writer._all_entries())  # noqa: SLF001
+
+
+def test_ess_cencarga_unknown_central_is_dcmod0(tmp_path):
+    """PLP LeeEss: an unknown CenCarga silently becomes DCMod=0."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.90  0.90  1.0  200.0  10.0  1  NOPE\n",
+    )
+    cp = type(
+        "MockCentralParser",
+        (),
+        {
+            "centrals": [
+                {"name": "ESS1", "number": 5, "type": "bateria", "pmax": 10.0},
+                {"name": "BAT2", "number": 6, "type": "bateria", "pmax": 10.0},
+            ]
+        },
+    )()
+    writer = BatteryWriter(ess_parser=ep, central_parser=cp)
+    entries = writer._all_entries()  # noqa: SLF001
+    assert not writer.charge_coupling_constraints(entries)
+
+    # Another battery, or a ``<battery>_LOAD`` phantom, is not a plant.
+    for cenpc in ("BAT2", "ESS1_LOAD"):
+        ep2 = _make_ess_parser(
+            tmp_path,
+            f" 1\n  ESS1  0.90  0.90  1.0  200.0  10.0  1  {cenpc}\n",
+        )
+        w2 = BatteryWriter(ess_parser=ep2, central_parser=cp)
+        assert not w2.charge_coupling_constraints(w2._all_entries())  # noqa: SLF001
+
+
+def test_ess_maness_dcmod_restricts_coupling_blocks(tmp_path):
+    """plpmaness.dat DCMod per block selects the coupled blocks.
+
+    The DC-maintenance (legacy) path names the charge demand ``_chrg``.
+    """
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  0  SOLAR1\n",
+    )
+    # base DCMod=0; maness switches it on in block 2 (explicit) and
+    # block 3 (DCMod field absent → 1, LeeManEss default)
+    mp = _make_maness_parser(
+        tmp_path,
+        "1\n'ESS1'\n3\n1  0.0  200.0  0.0  40.0  0\n"
+        "2  0.0  200.0  0.0  40.0  1\n3  0.0  200.0  0.0  40.0\n",
+    )
+    writer = BatteryWriter(ess_parser=ep, maness_parser=mp)
+    ucs = writer.charge_coupling_constraints(writer._all_entries())  # noqa: SLF001
+    assert len(ucs) == 1
+    assert ucs[0]["expression"] == (
+        "demand('ESS1_chrg').load - generator('SOLAR1').generation <= 0"
+        ", for(block in {2, 3})"
+    )
+
+
+class _Blocks:  # pylint: disable=too-few-public-methods
+    """Minimal block-parser stand-in (``items`` with ``number``)."""
+
+    def __init__(self, n: int) -> None:
+        self.items = [{"number": i} for i in range(1, n + 1)]
+
+
+def test_ess_maness_dcmod_off_blocks_complement(tmp_path):
+    """Base DCMod=1 with maness DCMod=0 blocks → coupling on the rest."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.95  0.95  0.0  200.0  50.0  1  SOLAR1\n",
+    )
+    mp = _make_maness_parser(
+        tmp_path,
+        "1\n'ESS1'\n1\n2  0.0  200.0  0.0  40.0  0\n",
+    )
+    writer = BatteryWriter(
+        ess_parser=ep,
+        maness_parser=mp,
+        block_parser=_Blocks(4),  # type: ignore[arg-type]
+    )
+    ucs = writer.charge_coupling_constraints(writer._all_entries())  # noqa: SLF001
+    assert ucs[0]["expression"].endswith(", for(block in {1, 3, 4})")
+
+    # Unknown block list → coupling kept in every block (with a warning)
+    writer2 = BatteryWriter(ess_parser=ep, maness_parser=mp)
+    ucs2 = writer2.charge_coupling_constraints(writer2._all_entries())  # noqa: SLF001
+    assert "for(" not in ucs2[0]["expression"]
+
+    # maness rows that keep DCMod=1 everywhere → every block, no domain
+    mp_on = _make_maness_parser(
+        tmp_path,
+        "1\n'ESS1'\n1\n2  0.0  200.0  0.0  40.0  1\n",
+    )
+    writer3 = BatteryWriter(ess_parser=ep, maness_parser=mp_on)
+    ucs3 = writer3.charge_coupling_constraints(writer3._all_entries())  # noqa: SLF001
+    assert "for(" not in ucs3[0]["expression"]
+
+
+def test_process_emits_charge_coupling(tmp_path):
+    """process() returns the ESS couplings for plant generators it knows."""
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.90  0.90  1.0  200.0  10.0  1  SOLAR1\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    res = writer.process([{"uid": 1, "name": "SOLAR1", "bus": 1}], [], tmp_path)
+    assert len(res["charge_coupling_constraints"]) == 1
+    res2 = writer.process([], [], tmp_path)
+    assert "charge_coupling_constraints" not in res2
 
 
 def test_ess_dcmod0_no_source_generator(tmp_path):

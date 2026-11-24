@@ -40,7 +40,10 @@ Strategy (tried in order):
   3. Standard build-directory paths relative to the repository root.
   4. ``/tmp/gtopt-ci-bin/gtopt`` – previously downloaded artifact.
   5. Download ``gtopt-binary-debug`` artifact from the latest successful
-     ``ubuntu.yml`` CI run (requires ``GITHUB_TOKEN`` or ``gh`` CLI).
+     ``ubuntu.yml`` **push run on master** (requires ``GITHUB_TOKEN`` or
+     ``gh`` CLI).  Artifacts of ``pull_request`` runs (possibly built from
+     unreviewed fork code) are never used; the ZIP is checked against the
+     artifact's SHA-256 digest when the API reports one.
   6. Install build dependencies and build from source (``--build`` flag).
 
 Quick-start for agents
@@ -80,9 +83,12 @@ agents running inside CI don't need any extra configuration.
 
 .. code-block:: bash
 
-    # Find the latest non-expired artifact id
+    # Latest successful ubuntu.yml push run on master (never a PR run)
+    RUN_ID=$(gh run list -R gtopt-community/gtopt --workflow ubuntu.yml \\
+        --branch master --event push --status success --limit 1 \\
+        --json databaseId --jq '.[0].databaseId')
     ART_ID=$(gh api \\
-        "repos/gtopt-community/gtopt/actions/artifacts?name=gtopt-binary-debug" \\
+        "repos/gtopt-community/gtopt/actions/runs/${RUN_ID}/artifacts?name=gtopt-binary-debug" \\
         --jq '.artifacts | map(select(.expired|not)) | .[0].id')
 
     # Download and unzip to /tmp/gtopt-ci-bin/
@@ -157,6 +163,8 @@ from __future__ import annotations
 
 import argparse
 import glob as _glob
+import hashlib
+import hmac
 import json as _json
 import logging
 import multiprocessing
@@ -171,6 +179,13 @@ import zipfile
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent  # tools/../ = repo root
 _GITHUB_REPO = "gtopt-community/gtopt"
 _ARTIFACT_NAME = "gtopt-binary-debug"
+#: Workflow that uploads ``_ARTIFACT_NAME``; only its runs are trusted.
+_ARTIFACT_WORKFLOW = "ubuntu.yml"
+#: Only artifacts of ``push`` runs on this branch are downloaded.
+_TRUSTED_BRANCH = "master"
+_TRUSTED_EVENT = "push"
+#: How many recent trusted runs to scan for a non-expired artifact.
+_MAX_RUNS_SCANNED = 30
 _DEFAULT_CI_BIN_DIR = pathlib.Path("/tmp/gtopt-ci-bin")
 
 log = logging.getLogger(__name__)
@@ -278,15 +293,22 @@ def download_gtopt_from_ci(
             "Install the GitHub CLI or set GITHUB_TOKEN to download CI artifacts."
         )
 
-    # --- Step 1: resolve the latest non-expired artifact id -----------------
-    artifact_id = _resolve_artifact_id(gh, token, repo, artifact_name)
+    # --- Step 1: resolve the artifact of the latest trusted run -------------
+    artifact = _resolve_artifact(gh, token, repo, artifact_name)
+    artifact_id = str(artifact["id"])
 
     log.info(
-        "Downloading artifact %s (id=%s) from %s…", artifact_name, artifact_id, repo
+        "Downloading artifact %s (id=%s, run=%s, sha=%s) from %s…",
+        artifact_name,
+        artifact_id,
+        artifact.get("workflow_run", {}).get("id"),
+        artifact.get("workflow_run", {}).get("head_sha"),
+        repo,
     )
 
-    # --- Step 2: download the artifact ZIP ----------------------------------
+    # --- Step 2: download the artifact ZIP and verify its digest ------------
     _download_artifact_zip(gh, token, repo, artifact_id, zip_path)
+    _verify_artifact_digest(zip_path, artifact.get("digest"))
 
     # --- Step 3: extract and make executable --------------------------------
     with zipfile.ZipFile(zip_path, "r") as zf:
@@ -310,57 +332,125 @@ def download_gtopt_from_ci(
     return bin_path
 
 
-def _resolve_artifact_id(
-    gh: str | None, token: str, repo: str, artifact_name: str
-) -> str:
-    """Return the id of the latest non-expired artifact (as a string)."""
+def _api_get_json(gh: str | None, token: str, path: str) -> dict:
+    """GET ``https://api.github.com/<path>`` via ``gh api`` or ``GITHUB_TOKEN``."""
     if gh:
         try:
             result = subprocess.run(
-                [
-                    gh,
-                    "api",
-                    f"repos/{repo}/actions/artifacts?name={artifact_name}",
-                    "--jq",
-                    ".artifacts | map(select(.expired|not)) | .[0].id",
-                ],
+                [gh, "api", path],
                 capture_output=True,
                 text=True,
                 timeout=30,
                 check=True,
             )
-            artifact_id = result.stdout.strip()
         except subprocess.CalledProcessError as exc:
-            raise RuntimeError(
-                f"gh api failed while looking up artifact '{artifact_name}': "
-                f"{exc.stderr}"
-            ) from exc
-    else:
-        url = (
-            f"https://api.github.com/repos/{repo}/actions/artifacts"
-            f"?name={artifact_name}"
-        )
-        req = urllib.request.Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = _json.loads(resp.read())
-        valid = [a for a in data.get("artifacts", []) if not a.get("expired")]
-        if not valid:
-            raise RuntimeError(
-                f"No non-expired artifact '{artifact_name}' found in {repo}"
-            )
-        artifact_id = str(valid[0]["id"])
+            raise RuntimeError(f"gh api {path} failed: {exc.stderr}") from exc
+        return _json.loads(result.stdout or "{}")
+    req = urllib.request.Request(
+        f"https://api.github.com/{path}",
+        headers={"Accept": "application/vnd.github+json"},
+    )
+    # Unredirected: never forward the token to a redirect target.
+    req.add_unredirected_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return _json.loads(resp.read())
 
-    if not artifact_id or artifact_id == "null":
+
+def _is_trusted_run(run: dict) -> bool:
+    """True for a successful ``push`` run on the trusted branch.
+
+    The head repository must be the repository itself (compared by id, so a
+    renamed repository still matches), never a fork.
+    """
+    head_repo_id = (run.get("head_repository") or {}).get("id")
+    repo_id = (run.get("repository") or {}).get("id")
+    return (
+        run.get("event") == _TRUSTED_EVENT
+        and run.get("head_branch") == _TRUSTED_BRANCH
+        and run.get("conclusion") == "success"
+        and repo_id is not None
+        and head_repo_id == repo_id
+    )
+
+
+def _artifact_of_run(artifact: dict, run: dict) -> bool:
+    """True when non-expired *artifact* was produced by trusted *run*."""
+    wr = artifact.get("workflow_run") or {}
+    return (
+        not artifact.get("expired")
+        and wr.get("id") == run["id"]
+        and wr.get("head_branch") == _TRUSTED_BRANCH
+        and wr.get("head_sha") == run.get("head_sha")
+        and wr.get("head_repository_id") == wr.get("repository_id")
+    )
+
+
+def _resolve_artifact(
+    gh: str | None, token: str, repo: str, artifact_name: str
+) -> dict:
+    """Return the newest non-expired *artifact_name* of a trusted CI run.
+
+    Only successful ``push`` runs of ``_ARTIFACT_WORKFLOW`` on
+    ``_TRUSTED_BRANCH`` whose head repository is the repository itself are
+    considered, so an
+    artifact built by a ``pull_request`` run -- e.g. from an unreviewed fork
+    -- is never selected, even when it is the most recent one.  The run
+    filter is applied by the API query *and* re-checked on every returned
+    run.  The artifact must also point back at that run and its head SHA.
+    """
+    runs = _api_get_json(
+        gh,
+        token,
+        f"repos/{repo}/actions/workflows/{_ARTIFACT_WORKFLOW}/runs"
+        f"?branch={_TRUSTED_BRANCH}&event={_TRUSTED_EVENT}&status=success"
+        f"&per_page={_MAX_RUNS_SCANNED}",
+    ).get("workflow_runs", [])
+    for run in runs:
+        if not _is_trusted_run(run):
+            log.debug("skipping untrusted run %s", run.get("id"))
+            continue
+        artifacts = _api_get_json(
+            gh,
+            token,
+            f"repos/{repo}/actions/runs/{run['id']}/artifacts?name={artifact_name}",
+        ).get("artifacts", [])
+        for artifact in artifacts:
+            if artifact.get("name") == artifact_name and _artifact_of_run(
+                artifact, run
+            ):
+                return artifact
+    raise RuntimeError(
+        f"No non-expired artifact '{artifact_name}' from a successful "
+        f"{_TRUSTED_EVENT} run of {_ARTIFACT_WORKFLOW} on {_TRUSTED_BRANCH} "
+        f"found in {repo}."
+    )
+
+
+def _verify_artifact_digest(zip_path: pathlib.Path, digest: str | None) -> None:
+    """Check *zip_path* against the API ``digest`` (``sha256:<hex>``).
+
+    Artifacts uploaded by ``actions/upload-artifact`` v4+ carry a SHA-256
+    digest of the ZIP.  A mismatch deletes the file and raises; a missing
+    digest (older uploads) only logs a warning.
+    """
+    if not digest:
+        log.warning("Artifact has no digest; skipping integrity check")
+        return
+    algo, _, expected = digest.partition(":")
+    if algo != "sha256" or not expected:
+        zip_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Unsupported artifact digest format: {digest!r}")
+    h = hashlib.sha256()
+    with open(zip_path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    if not hmac.compare_digest(h.hexdigest(), expected.lower()):
+        zip_path.unlink(missing_ok=True)
         raise RuntimeError(
-            f"No non-expired artifact '{artifact_name}' found in {repo}."
+            f"Artifact digest mismatch: expected sha256:{expected}, "
+            f"got sha256:{h.hexdigest()}"
         )
-    return artifact_id
+    log.info("Artifact digest verified (sha256:%s)", expected)
 
 
 def _download_artifact_zip(
@@ -394,11 +484,11 @@ def _download_artifact_zip(
         url = f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip"
         req = urllib.request.Request(
             url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-            },
+            headers={"Accept": "application/vnd.github+json"},
         )
+        # The API answers with a redirect to a signed storage URL: keep the
+        # token off the redirected request.
+        req.add_unredirected_header("Authorization", f"Bearer {token}")
         with (
             urllib.request.urlopen(req, timeout=120) as resp,
             open(zip_path, "wb") as fh,
@@ -911,7 +1001,7 @@ def install_clang21() -> bool:
         log.info("LLVM 21 APT source already configured at %s", sources_path)
     else:
         try:
-            sources_path.write_text(apt_line)
+            sources_path.write_text(apt_line, encoding="utf-8")
         except PermissionError:
             if sudo:
                 tee = shutil.which("tee")

@@ -1,5 +1,5 @@
 #!/usr/bin/env julia
-# NREL-Sienna PowerSimulations.jl oracle driver for the sienna_to_gtopt
+# NREL-Sienna PowerSimulations.jl oracle driver for the sienna2gtopt
 # golden tests.  Mirrors tools/ucjl_solve_golden.jl in spirit:
 #
 #   * Picks up a Sienna case via PowerSystemCaseBuilder (PSITestSystems).
@@ -54,13 +54,25 @@ const SLUG_TO_CASE = Dict{String, String}(
     # when PSCB adds one.  Thermal-only and thermal + renewable.
     "reserves_uc"        => "c_sys5_uc",
     "reserves_uc_re"     => "c_sys5_uc_re",
+    # Same systems with the ORDC service left out of the template (no
+    # StepwiseCostReserve ServiceModel): the RangeReserve-only benchmark.
+    "reserves_uc_noordc"    => "c_sys5_uc",
+    "reserves_uc_re_noordc" => "c_sys5_uc_re",
 )
 
 # Extra ``build_system`` keyword arguments per slug.
 const SLUG_BUILD_KWARGS = Dict{String, Any}(
-    "reserves_uc"    => (add_reserves = true,),
-    "reserves_uc_re" => (add_reserves = true,),
+    "reserves_uc"           => (add_reserves = true,),
+    "reserves_uc_re"        => (add_reserves = true,),
+    "reserves_uc_noordc"    => (add_reserves = true,),
+    "reserves_uc_re_noordc" => (add_reserves = true,),
 )
+
+# Reserve benchmark slugs (MIP: solved to a 1e-9 relative gap).
+const RESERVE_SLUGS = Set(keys(SLUG_BUILD_KWARGS))
+
+# Slugs whose template omits the ReserveDemandCurve (ORDC) service.
+const SLUG_SKIP_ORDC = Set(["reserves_uc_noordc", "reserves_uc_re_noordc"])
 
 # Battery degeneracy subcases b..f → batt_test_case_<l>_sys.
 for sub in ("b", "c", "d", "e", "f")
@@ -98,10 +110,11 @@ carries: ``VariableReserve{ReserveUp|ReserveDown}`` → ``RangeReserve``
 (requirement time series, contributing devices' headroom) and
 ``ReserveDemandCurve{ReserveUp}`` → ``StepwiseCostReserve`` (ORDC).
 """
-function add_reserve_services!(template, sys::PSY.System)
+function add_reserve_services!(template, sys::PSY.System; skip_ordc::Bool = false)
     for (T, F) in ((VariableReserve{ReserveUp}, RangeReserve),
                    (VariableReserve{ReserveDown}, RangeReserve),
                    (ReserveDemandCurve{ReserveUp}, StepwiseCostReserve))
+        skip_ordc && F === StepwiseCostReserve && continue
         if !isempty(get_components(T, sys))
             set_service_model!(template, ServiceModel(T, F))
         end
@@ -169,7 +182,7 @@ function build_template(slug::AbstractString, sys::PSY.System)
     end
 
     # Reserve services (only present when built with add_reserves).
-    add_reserve_services!(template, sys)
+    add_reserve_services!(template, sys; skip_ordc = slug in SLUG_SKIP_ORDC)
 
     # Interruptible / controllable load — needed for c_sys5_il.
     have, T = has_component(sys, :InterruptiblePowerLoad)
@@ -256,6 +269,172 @@ function pluck_all(varmap::AbstractDict, want::AbstractString)
     return merged
 end
 
+"""
+    pluck_by_component(varmap, want) → {component => {device => [v per step]}}
+
+Like ``pluck_all`` but keyed by the component that owns each container:
+the last ``__`` segment of the key (``ActivePowerReserveVariable__
+VariableReserve__ReserveUp__Reserve1`` → ``Reserve1``;
+``ActivePowerTimeSeriesParameter__PowerLoad`` → ``PowerLoad``).  Keeps
+same-named devices of different services apart, which ``pluck_all``'s
+first-come bare-name / ``name@key`` disambiguation does not.
+"""
+function pluck_by_component(varmap::AbstractDict, want::AbstractString)
+    out = Dict{String, Dict{String, Vector{Float64}}}()
+    for (k, v) in varmap
+        ks = string(k)
+        occursin(want, ks) || continue
+        owner = String(last(split(ks, "__")))
+        out[owner] = df_to_dict(v)
+    end
+    return out
+end
+
+# Natural-unit ($/MWh) linear and quadratic terms of a CostCurve value curve.
+function _cost_terms(vc)
+    curve = PSY.get_value_curve(vc)
+    lin = PSY.get_proportional_term(curve)
+    quad = curve isa PSY.QuadraticCurve ? PSY.get_quadratic_term(curve) : 0.0
+    con = hasmethod(PSY.get_constant_term, Tuple{typeof(curve)}) ?
+        PSY.get_constant_term(curve) : 0.0
+    units = string(PSY.get_power_units(vc))
+    vom = try
+        PSY.get_proportional_term(PSY.get_vom_cost(vc))
+    catch
+        0.0
+    end
+    return Dict{String, Any}("linear" => lin, "quadratic" => quad,
+        "constant" => con, "power_units" => units, "vom" => vom)
+end
+
+_try(f, x, default = nothing) = try
+    f(x)
+catch
+    default
+end
+
+"""
+    dump_system_data(sys, params, skip_ordc) → Dict
+
+Everything the gtopt side of the cross-check needs, in natural units
+(MW, MW/min, \$/MWh, \$/start), so the Python converter never needs
+Julia: thermal unit data, the per-step MW series the model actually used
+(``ActivePowerTimeSeriesParameter`` per device type) and, per reserve
+service, its requirement series, contributing devices, participation /
+output fractions, time frame and the ORDC curve.  ``reserve_cost_per_mw``
+is PowerSimulations' ``DEFAULT_RESERVE_COST / base_power`` coefficient
+on the per-unit RangeReserve variable expressed per MW.
+"""
+function dump_system_data(sys::PSY.System, params::AbstractDict, skip_ordc::Bool)
+    base = PSY.get_base_power(sys)
+    PSY.set_units_base_system!(sys, "NATURAL_UNITS")
+    data = Dict{String, Any}("base_power" => base)
+
+    thermals = Dict{String, Any}()
+    for g in get_components(ThermalStandard, sys)
+        op = PSY.get_operation_cost(g)
+        lims = PSY.get_active_power_limits(g)
+        ramps = PSY.get_ramp_limits(g)
+        tl = PSY.get_time_limits(g)
+        thermals[PSY.get_name(g)] = Dict{String, Any}(
+            "bus" => PSY.get_number(PSY.get_bus(g)),
+            "available" => PSY.get_available(g),
+            "pmin_mw" => lims.min,
+            "pmax_mw" => lims.max,
+            "ramp_up_mw_per_min" => ramps === nothing ? nothing : ramps.up,
+            "ramp_down_mw_per_min" => ramps === nothing ? nothing : ramps.down,
+            "min_up_h" => tl === nothing ? nothing : tl.up,
+            "min_down_h" => tl === nothing ? nothing : tl.down,
+            "status" => PSY.get_status(g),
+            "active_power_mw" => PSY.get_active_power(g),
+            "variable_cost" => _cost_terms(PSY.get_variable(op)),
+            "fixed_cost" => PSY.get_fixed(op),
+            "start_up_cost" => PSY.get_start_up(op),
+            "shut_down_cost" => PSY.get_shut_down(op),
+        )
+    end
+    data["thermal"] = thermals
+
+    renewables = Dict{String, Any}()
+    for g in get_components(RenewableDispatch, sys)
+        op = PSY.get_operation_cost(g)
+        renewables[PSY.get_name(g)] = Dict{String, Any}(
+            "bus" => PSY.get_number(PSY.get_bus(g)),
+            "rating_mw" => PSY.get_rating(g),
+            "max_active_power_mw" => PSY.get_max_active_power(g),
+            "variable_cost" => _cost_terms(PSY.get_variable(op)),
+            "curtailment_cost" => _try(c -> _cost_terms(PSY.get_curtailment_cost(c)), op),
+        )
+    end
+    data["renewable"] = renewables
+
+    loads = Dict{String, Any}()
+    for l in get_components(PowerLoad, sys)
+        loads[PSY.get_name(l)] = Dict{String, Any}(
+            "bus" => PSY.get_number(PSY.get_bus(l)),
+            "max_active_power_mw" => PSY.get_max_active_power(l),
+        )
+    end
+    data["load"] = loads
+
+    iloads = Dict{String, Any}()
+    for l in get_components(InterruptiblePowerLoad, sys)
+        op = PSY.get_operation_cost(l)
+        iloads[PSY.get_name(l)] = Dict{String, Any}(
+            "bus" => PSY.get_number(PSY.get_bus(l)),
+            "max_active_power_mw" => PSY.get_max_active_power(l),
+            "variable_cost" => _cost_terms(PSY.get_variable(op)),
+            "fixed_cost" => PSY.get_fixed(op),
+        )
+    end
+    data["interruptible_load"] = iloads
+
+    # Per-step MW series the model used, by device type (signs as the
+    # parameter multiplier gives them: loads come out negative).
+    data["timeseries_mw"] =
+        pluck_by_component(params, "ActivePowerTimeSeriesParameter")
+
+    services = Dict{String, Any}()
+    for s in get_components(PSY.Service, sys)
+        name = PSY.get_name(s)
+        entry = Dict{String, Any}(
+            "type" => string(typeof(s)),
+            "direction" => occursin("ReserveDown", string(typeof(s))) ? "down" : "up",
+            "available" => PSY.get_available(s),
+            "contributing_devices" => sort([PSY.get_name(d)
+                for d in PSY.get_contributing_devices(sys, s)]),
+            "time_frame_min" => _try(PSY.get_time_frame, s),
+            "sustained_time_s" => _try(PSY.get_sustained_time, s),
+            "max_output_fraction" => _try(PSY.get_max_output_fraction, s),
+            "max_participation_factor" => _try(PSY.get_max_participation_factor, s),
+            "deployed_fraction" => _try(PSY.get_deployed_fraction, s),
+            # PSY keeps the requirement in system base even under
+            # NATURAL_UNITS; the per-step MW series is
+            # ``reserve_requirement_mw`` (requirement × time series).
+            "requirement_pu" => _try(PSY.get_requirement, s),
+            "requirement_mw" => _try(r -> PSY.get_requirement(r) * base, s),
+            "reserve_cost_per_mw" => PSI.DEFAULT_RESERVE_COST / base^2,
+        )
+        if s isa PSY.ReserveDemandCurve
+            entry["modelled"] = !skip_ordc
+            vc = PSY.get_variable(s)
+            if vc isa PSY.CostCurve
+                fd = PSY.get_function_data(PSY.get_value_curve(vc))
+                entry["ordc"] = Dict{String, Any}(
+                    "breakpoints_mw" => collect(PSY.get_x_coords(fd)),
+                    "slopes_per_mwh" => collect(PSY.get_y_coords(fd)),
+                    "power_units" => string(PSY.get_power_units(vc)),
+                )
+            end
+        else
+            entry["modelled"] = true
+        end
+        services[name] = entry
+    end
+    data["services"] = services
+    return data
+end
+
 # ---------------------------------------------------------------------------
 # Solve one case and return the golden-payload Dict.
 # ---------------------------------------------------------------------------
@@ -268,9 +447,16 @@ function solve_one(slug::AbstractString, case_name::AbstractString)
     template = build_template(slug, sys)
 
     println(stderr, "  building DecisionModel ...")
+    # The reserve benchmarks are MIPs (ThermalBasicUnitCommitment): close
+    # the gap so the golden objective is the optimum, not HiGHS's
+    # default 1e-4 relative-gap incumbent.
+    highs_attrs = Any["output_flag" => false]
+    if slug in RESERVE_SLUGS
+        push!(highs_attrs, "mip_rel_gap" => 1e-9)
+    end
     problem = DecisionModel(template, sys;
         optimizer = optimizer_with_attributes(HiGHS.Optimizer,
-            "output_flag" => false),
+            highs_attrs...),
         name = slug,
     )
 
@@ -336,10 +522,17 @@ function solve_one(slug::AbstractString, case_name::AbstractString)
         payload["storage_discharge_mw"] =
             pluck_all(vars, "ActivePowerOutVariable")
 
-        # Reserves: per-(service, device) provision, the requirement
-        # parameter and the shortage slack (RangeReserve / ORDC).
+        # Reserves: per-(service, device) provision
+        # (``{service => {device => [MW]}}``), the requirement parameter,
+        # the ORDC served requirement (ServiceRequirementVariable) and the
+        # shortage slack (RangeReserve / ORDC).
         payload["reserve_provision_mw"] =
-            pluck_all(vars, "ActivePowerReserveVariable")
+            pluck_by_component(vars, "ActivePowerReserveVariable")
+        payload["ordc_served_mw"] =
+            pluck_all(vars, "ServiceRequirementVariable")
+        # Controllable-load status (PowerLoadInterruption OnVariable).
+        payload["load_on"] =
+            pluck_all(vars, "OnVariable__InterruptiblePowerLoad")
         payload["reserve_slack_mw"] =
             pluck_all(vars, "ReserveRequirementSlack")
         payload["reserve_requirement_mw"] =
@@ -351,6 +544,11 @@ function solve_one(slug::AbstractString, case_name::AbstractString)
         # Line flows (when network model isn't copperplate; under
         # CopperPlate we end up with an empty dict — fine).
         payload["line_flow_mw"] = pluck_all(vars, "FlowActivePowerVariable")
+
+        # Input data for the converter (natural units; no Julia needed
+        # on the Python side).
+        payload["system_data"] =
+            dump_system_data(sys, params, slug in SLUG_SKIP_ORDC)
 
         # Records useful for debugging the Python cross-check.
         payload["variable_keys"] = sort([string(k) for k in keys(vars)])

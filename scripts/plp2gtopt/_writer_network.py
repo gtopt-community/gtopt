@@ -211,6 +211,7 @@ class NetworkMixin:
             manbat_parser=manbat,
             maness_parser=maness,
             options=options,
+            block_parser=self.parser.parsed_data.get("block_parser", None),
         )
 
         existing_gen = self.planning["system"].get("generator_array", [])
@@ -227,6 +228,14 @@ class NetworkMixin:
             )
         if "converter_array" in result:
             self.planning["system"]["converter_array"] = result["converter_array"]
+
+        # DCMod=1 ESS charge couplings → user constraints (fresh uids)
+        couplings = result.get("charge_coupling_constraints", [])
+        if couplings:
+            ucs = self.planning["system"].setdefault("user_constraint_array", [])
+            next_uid = 1 + max((int(u.get("uid", 0)) for u in ucs), default=0)
+            for i, uc in enumerate(couplings):
+                ucs.append({"uid": next_uid + i, **uc})
 
         # DCMod=2 regulation reservoirs: append to existing reservoir_array
         reg_reservoirs = result.get("regulation_reservoirs", [])

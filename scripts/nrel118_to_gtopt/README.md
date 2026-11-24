@@ -120,4 +120,4 @@ fueled-generator count.
 - Time grid shared with [pp2gtopt](../../docs/scripts/pp2gtopt.md):
   `gtopt_shared/time_grid.py`.
 - Sister ports: `scripts/rts_gmlc_to_gtopt/` (GridMod RTS-GMLC),
-  `scripts/sienna_to_gtopt/` (5-bus variants).
+  `scripts/sienna2gtopt/` (5-bus variants).

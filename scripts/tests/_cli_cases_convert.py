@@ -340,19 +340,19 @@ def case_roundtrip_ieee14(ctx: CliRun) -> None:
 
 
 # ---------------------------------------------------------------------------
-# sienna_to_gtopt -- the Sienna data is not redistributable; it is only
+# sienna2gtopt -- the Sienna data is not redistributable; it is only
 # used when already cached.  GTOPT_OFFLINE=1 forbids downloads here.
 # ---------------------------------------------------------------------------
 
 
 def _sienna_cached() -> bool:
     # pylint: disable-next=import-outside-toplevel
-    from sienna_to_gtopt._bundle import bundle_path
+    from sienna2gtopt._bundle import bundle_path
 
     return bundle_path("5bus").is_file()
 
 
-@e2e("sienna_to_gtopt")
+@e2e("sienna2gtopt")
 def case_convert_or_clean_offline_error(ctx: CliRun) -> None:
     """Convert ``hvdc`` when cached, else a clean offline error (exit 2)."""
     ctx.env["GTOPT_OFFLINE"] = "1"
@@ -366,7 +366,7 @@ def case_convert_or_clean_offline_error(ctx: CliRun) -> None:
         assert "not cached" in res.output
 
 
-@e2e("sienna_to_gtopt", needs_gtopt=True)
+@e2e("sienna2gtopt", needs_gtopt=True)
 def case_roundtrip_cascading_hydro(ctx: CliRun) -> None:
     """Sienna 5-bus cascading hydro -> gtopt JSON -> optimal solve."""
     if not _sienna_cached():
@@ -376,6 +376,21 @@ def case_roundtrip_cascading_hydro(ctx: CliRun) -> None:
     ctx.run(["cascading_hydro", "-o", case_json])
     assert_planning_json(case_json)
     assert_solved(ctx.run_gtopt(case_json))
+
+
+@e2e("sienna_to_gtopt")
+def case_legacy_alias_offline(ctx: CliRun) -> None:
+    """Deprecated alias: same converter, plus a deprecation note."""
+    ctx.env["GTOPT_OFFLINE"] = "1"
+    out = ctx.tmp_path / "hvdc.json"
+    if _sienna_cached():
+        res = ctx.run(["hvdc", "-o", out])
+        assert_planning_json(out)
+    else:
+        res = ctx.run(["hvdc", "-o", out], expect_rc=2)
+        assert "Traceback" not in res.output
+        assert "not cached" in res.output
+    assert "sienna_to_gtopt is deprecated" in res.output
 
 
 # ---------------------------------------------------------------------------
@@ -560,3 +575,33 @@ def case_convert_tiny_plant(ctx: CliRun) -> None:
 def case_roundtrip_tiny_plant(ctx: CliRun) -> None:
     """Gas network -> native gtopt JSON -> optimal gtopt solve."""
     assert_solved(ctx.run_gtopt(_gasnet2gtopt_tiny_plant(ctx)))
+
+
+# ---------------------------------------------------------------------------
+# cucdata2gtopt -- the CUC-data workbooks have no licence: the e2e cases use
+# the synthetic workbook of the package tests (same layout, made-up data).
+# ---------------------------------------------------------------------------
+
+
+def _cucdata2gtopt_synthetic(ctx: CliRun) -> Path:
+    # pylint: disable-next=import-outside-toplevel,import-error
+    from cucdata2gtopt.tests._synthetic import make_workbook
+
+    workbook = make_workbook(ctx.tmp_path / "CUC_synthetic.xlsx")
+    out_dir = ctx.tmp_path / "cuc"
+    ctx.run(["--input", workbook, "--reserve", "10", "-o", out_dir])
+    return out_dir / "cuc39_r10_s2.json"
+
+
+@e2e("cucdata2gtopt")
+def case_convert_synthetic(ctx: CliRun) -> None:
+    """Synthetic CUC workbook -> IUC planning JSON with GAMS user rows."""
+    data = assert_planning_json(_cucdata2gtopt_synthetic(ctx))
+    assert len(data["system"]["commitment_array"]) == 4
+    assert data["system"]["user_constraint_array"]
+
+
+@e2e("cucdata2gtopt", needs_gtopt=True)
+def case_roundtrip_synthetic(ctx: CliRun) -> None:
+    """Synthetic CUC workbook -> gtopt JSON -> optimal MIP solve."""
+    assert_solved(ctx.run_gtopt(_cucdata2gtopt_synthetic(ctx)))

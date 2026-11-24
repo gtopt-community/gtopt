@@ -625,7 +625,8 @@ def run_check_lp(lp_files: list[Path]) -> None:
         first_lp = lp_files[0]
         print(f"  Analysing first error LP: {first_lp.name}")
         print()
-        cmd = [check_bin, str(first_lp), "--quiet", "--no-ai"]
+        # Automatic diagnostic stays local: no AI provider, no NEOS upload.
+        cmd = [check_bin, str(first_lp), "--quiet", "--no-ai", "--no-neos"]
         log.info("running: %s", " ".join(cmd))
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         output = result.stdout + result.stderr

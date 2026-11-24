@@ -236,11 +236,19 @@ class PlanosParser(BaseParser):
             return
 
         idx = 0
-        # First non-empty line: boundary stage number (1-based)
-        self.boundary_stage = int(self._split_fields(lines[idx])[0])
-        idx += 1
-
         num_reservoirs = len(self.reservoir_names)
+        first_fields = self._split_fields(lines[idx])
+        if len(first_fields) == 1:
+            # Simple format: a lone boundary stage number (1-based) header.
+            self.boundary_stage = int(first_fields[0])
+            idx += 1
+        else:
+            # Header-less format (PLP's own CSV output: the comment header
+            # is stripped by `_read_lines`): the first line is already a
+            # cut row; its IEtapa is the boundary stage.  It used to be
+            # consumed as the header, silently dropping that first cut.
+            self.boundary_stage = int(first_fields[1])
+
         boundary_count = 0
         total_count = 0
 

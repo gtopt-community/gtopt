@@ -188,6 +188,32 @@ class TestPlanosParserCSVFormat:
         assert parser.reservoir_names == ["Rapel", "Colbun"]
 
 
+class TestPlanosParserHeaderlessCuts:
+    """plpplem2.dat as PLP writes it: a comment header, then cut rows only."""
+
+    def test_first_cut_row_is_not_consumed_as_header(self, tmp_path):
+        p1 = tmp_path / "plpplem1.dat"
+        p2 = tmp_path / "plpplem2.dat"
+        p1.write_text(
+            "1,LMAULE                  ,A,  0,  0,      0.00,1424293.60\n"
+            "2,COLBUN                  ,A,  0,  0,      0.00, 518000.00\n"
+        )
+        p2.write_text(
+            "#IPDNumIte, IEtapa, ISimul, LDPhiPrv, Emb  1, Emb  2\n"
+            "1,1,1,1.37E+09,-9.78E+01,-5.16E+02\n"
+            "1,1,2,1.33E+09,-9.78E+01,-2.89E+02\n"
+            "2,1,1,1.30E+09,-9.70E+01,-2.80E+02\n"
+        )
+
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        assert parser.boundary_stage == 1
+        assert len(parser.all_cuts) == 3
+        assert len(parser.cuts) == 3
+        assert parser.cuts[0]["rhs"] == pytest.approx(1.37e9)
+
+
 class TestPlanosParserAllCuts:
     """Tests for PlanosParser.all_cuts (all stages, not just boundary)."""
 

@@ -500,35 +500,17 @@ class GTOptWriter(
             :func:`aperture_writer.build_phase_apertures`).  Robust to
             per-case variations in aperture count.
 
-        Stationary-convergence settings per level (post-2026-05
-        rewrite — see ``sddp_iteration.cpp``).  ``stationary_tol``
-        is now the **ΔUB** stationarity threshold (relative iter-over-
-        iter change in the realised policy cost UB);
-        ``stationary_gap_ceiling`` is the signed (UB-LB)/|UB| ceiling.
-        Both AND'd: a level converges only when the policy has stopped
-        moving (ΔUB < tol) AND the bound width is acceptable (gap <
-        ceiling).  Negative gaps (multi-cut overshoot) automatically
-        satisfy the ceiling without penalty.
-          - L0 ``warmup``:       ``ΔUB < 0.005 %`` AND ``|gap| < 85 %``
-          - L1 ``uninodal``:     ``ΔUB < 0.01 %``  AND ``|gap| < 85 %``
-          - L2 ``transport``:    ``ΔUB < 0.25 %``  AND ``|gap| < 85 %``
-          - L3 ``full_network``: ``ΔUB < 1 %``     AND ``|gap| < 85 %``
-        ``stationary_tol`` is LOOSENED deeper into the cascade because
-        each level's iter is more expensive (L0 ~12 s/iter on
-        CEN-IPLP, L3 ~9 min/iter) — we demand the strictest policy
-        stability where iters are cheap and accept progressively
-        looser stability where each iter costs more.  L2/L3 were
-        loosened a further ×5 / ×10 on 2026-05-27 (0.05 %→0.25 %,
-        0.1 %→1 %) so the full-fidelity levels exit on ΔUB stationarity
-        rather than chasing sub-noise Δgap.
-        ``stationary_gap_ceiling`` is intentionally flat at 85 %
-        across all levels — the multi-cut + aperture-mode overshoot
-        on production cases (CEN-IPLP at uninodal) routinely
-        produces transient |gap| around 5-10 % that the AND-mode check
-        previously kept rejecting.  With the ceiling at 85 %,
-        the policy-stability signal (ΔUB) is the binding constraint
-        and the levels exit cleanly once the realised cost stops
-        moving.
+        Stationary-convergence settings per level.  ``stationary_tol``
+        is the **ΔUB** stationarity threshold (relative iter-over-iter
+        change in the realised policy cost UB), 1 % on every level.
+        ``stationary_gap_ceiling`` is NOT emitted: every level uses the
+        gtopt default (2 %, signed — negative overshoot gaps pass), so a
+        level only stops on stationarity once its own bounds have met;
+        above the ceiling it runs to its ``max_iterations``.  gtopt also
+        requires ``stationary_window`` iterations of the level's own with
+        cuts before a stationary stop (bounds seeded from the previous
+        level do not count).  The former flat 85 % ceiling let large cascade
+        levels stop with a gap of several percent.
 
         Each level inherits **all** optimality cuts from previous
         levels (``inherit_optimality_cuts = -1``).  The cut store
@@ -579,25 +561,15 @@ class GTOptWriter(
         }
 
         # ── Per-level SDDP options (see docstring §§2, 3) ──────────────
-        # Convergence settings per level — after the 2026-05 rewrite
-        # the two knobs measure different things and the stop
-        # condition is AND, not OR:
+        # Convergence settings per level:
         #
         #   * ``stationary_tol``         = ΔUB / UB threshold (policy
         #                                  stability — the realised cost
         #                                  has stopped moving by more
-        #                                  than this fraction iter-over-
-        #                                  iter; ``UB`` is the unbiased
-        #                                  Monte-Carlo estimate of the
-        #                                  policy cost).
-        #   * ``stationary_gap_ceiling`` = symmetric ``|gap|`` threshold
-        #                                  on the signed
-        #                                  ``(UB-LB)/|UB|`` gap (bound
-        #                                  quality — accepts mild
-        #                                  multi-cut / aperture
-        #                                  overshoot, rejects wild
-        #                                  overshoot beyond the ceiling
-        #                                  as a pathology signal).
+        #                                  than this fraction over the
+        #                                  window).
+        #   * ``stationary_gap_ceiling`` = not emitted; the gtopt default
+        #                                  (2 %, one-sided) applies.
         #
         # ``stationary_tol`` ladder — 0.005 % (L0 warmup) →
         # 0.01 % (L1 uninodal) → 0.25 % (L2 transport) →
@@ -631,11 +603,9 @@ class GTOptWriter(
         #     tighter floor would burn iters on Δgap differences that
         #     are sample-noise, not policy improvement.
         #
-        # ``stationary_gap_ceiling = 0.85`` stays flat across every
-        # level — the binding signal is policy stationarity, not
-        # bound width.  The ceiling exists to reject wild multi-cut
-        # overshoot (>85 %) as a pathology rather than to enforce a
-        # bound-quality target.
+        # ``stationary_gap_ceiling`` is left to the gtopt default (2 %):
+        # a stationary stop with a large positive gap is refused and the
+        # level runs on to its ``max_iterations`` budget.
         #
         # ``min_iterations`` per level: gtopt's default is 1 (just
         # enough to let the convergence check fire on a qualifying
@@ -676,7 +646,6 @@ class GTOptWriter(
             # the one that exits every level at the same noise regime
             # as the final L3 stationarity bar.
             "stationary_tol": 0.01,
-            "stationary_gap_ceiling": 0.85,
             "num_apertures": 1,
             "aperture_selection_mode": "head",
         }
@@ -695,7 +664,6 @@ class GTOptWriter(
             "stationary_window": 2,
             "convergence_tol": convergence_tol,
             "stationary_tol": 0.01,
-            "stationary_gap_ceiling": 0.85,
             "num_apertures": 4,
             "aperture_selection_mode": "stride",
         }
@@ -708,7 +676,6 @@ class GTOptWriter(
             "stationary_window": 2,
             "convergence_tol": convergence_tol,
             "stationary_tol": 0.01,
-            "stationary_gap_ceiling": 0.85,
             "num_apertures": 8,
             "aperture_selection_mode": "stride",
             # Transport inherits the base warm aperture config
@@ -742,10 +709,9 @@ class GTOptWriter(
             # Monte-Carlo noise floor is the widest of any level; a 1 %
             # per-iter stationarity bar lets the full-fidelity model
             # exit once ΔUB has flattened to sample noise instead of
-            # chasing sub-noise Δgap.  The absolute |gap| guard rises
-            # to 85 % via ``stationary_gap_ceiling`` below.
+            # chasing sub-noise Δgap.  The gap guard is the gtopt
+            # default ``stationary_gap_ceiling`` (2 %).
             "stationary_tol": 0.01,
-            "stationary_gap_ceiling": 0.85,
             # Full_network inherits the base warm aperture config
             # (aperture_solve_mode=warm, aperture_chunk_mode=per_scene, dual +
             # advanced_basis) — same as every other level, no reduced_cost
@@ -912,7 +878,6 @@ class GTOptWriter(
             "min_iterations": 3,
             "convergence_tol": convergence_tol,
             "stationary_tol": 0.05,
-            "stationary_gap_ceiling": 0.85,
             "num_apertures": 1,
             "aperture_selection_mode": "head",
         }
@@ -920,7 +885,6 @@ class GTOptWriter(
             "max_iterations": l1_iter,
             "convergence_tol": convergence_tol,
             "stationary_tol": 0.04,
-            "stationary_gap_ceiling": 0.85,
             "num_apertures": l1_num_apertures,
             "aperture_selection_mode": "stride",
         }
@@ -928,7 +892,6 @@ class GTOptWriter(
             "max_iterations": l2_iter,
             "convergence_tol": convergence_tol,
             "stationary_tol": 0.03,
-            "stationary_gap_ceiling": 0.85,
             "num_apertures": l2_num_apertures,
             "aperture_selection_mode": "stride",
         }
@@ -936,7 +899,6 @@ class GTOptWriter(
             "max_iterations": l3_iter,
             "convergence_tol": convergence_tol,
             "stationary_tol": 0.02,
-            "stationary_gap_ceiling": 0.85,
         }
 
         level_array: list[dict[str, Any]] = [
@@ -1107,7 +1069,7 @@ class GTOptWriter(
         # Secondary convergence knobs (stationary_tol, stationary_window,
         # stationary_gap_ceiling, convergence_confidence, min_iterations)
         # are *not* emitted by default — gtopt now ships a coherent set of
-        # defaults (1 % gap target, 0.5 % stationary tol, 5 % gap ceiling,
+        # defaults (1 % gap target, 0.5 % stationary tol, 2 % gap ceiling,
         # CI test disabled, 3-iter bootstrap) that match what plp2gtopt
         # used to override field-by-field.  Suppressing the default emits
         # keeps the JSON small and lets a future gtopt default change

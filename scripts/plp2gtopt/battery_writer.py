@@ -54,6 +54,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 from .base_writer import BaseWriter
 from .battery_parser import BatteryParser
 from .central_parser import CentralParser
+from .block_parser import BlockParser
 from .bus_parser import BusParser
 from .stage_parser import StageParser
 from .manbat_parser import ManbatParser
@@ -137,6 +138,7 @@ class BatteryWriter(BaseWriter):
         manbat_parser: Optional[ManbatParser] = None,
         maness_parser: Optional[ManessParser] = None,
         options: Optional[Dict[str, Any]] = None,
+        block_parser: Optional[BlockParser] = None,
     ) -> None:
         """Initialize the BatteryWriter with optional parsers and configuration options."""
         super().__init__(None, options)
@@ -145,6 +147,7 @@ class BatteryWriter(BaseWriter):
         self.central_parser = central_parser
         self.bus_parser = bus_parser
         self.stage_parser = stage_parser
+        self.block_parser = block_parser
         # Unified maintenance accessor: manbat for battery, maness for ESS
         self._man_parser = manbat_parser or maness_parser
         self._clamped_warnings: list[str] = []
@@ -165,6 +168,132 @@ class BatteryWriter(BaseWriter):
             return {}
         return {str(c["name"]): c for c in self.central_parser.centrals}
 
+    def _charge_source(
+        self, name: str, cenpc: str, batteries: Dict[str, Dict[str, Any]]
+    ) -> Optional[str]:
+        """Return the co-located plant that bounds the charge, or None.
+
+        ``cenpc`` is the ``plpess.dat`` CenCarga or the first
+        ``plpcenbat.dat`` injection central.  PLP (``genpdess.f`` LeeEss)
+        resolves CenCarga by name and silently treats the ESS as
+        ``DCMod = 0`` when it is not a known central.  Self-references,
+        other batteries and ``<battery>_LOAD`` grid-charge phantoms are not
+        a plant either.  Whether the coupling is active in a block is
+        decided separately (``_ess_charge_blocks``).
+        """
+        if not cenpc or cenpc == name:
+            return None
+        if cenpc.endswith("_LOAD") and cenpc[: -len("_LOAD")] in batteries:
+            return None
+        if cenpc in batteries:
+            return None
+        if self.central_parser and cenpc not in self._all_centrals_by_name():
+            _logger.warning(
+                "Battery '%s': charge plant '%s' is not a central; uncoupled",
+                name,
+                cenpc,
+            )
+            return None
+        return cenpc
+
+    def _ess_charge_blocks(
+        self,
+        dcmod: int,
+        charge_source: Optional[str],
+        man: Optional[Dict[str, Any]],
+    ) -> Optional[List[int]]:
+        """Blocks where an ESS charge is bounded by its ``CenCarga`` plant.
+
+        Returns ``None`` for "every block", a (possibly empty) list of PLP
+        block numbers otherwise.  ``plpess.dat`` sets the DCMod of every
+        block; ``plpmaness.dat`` overrides it for the listed blocks (a row
+        without the DCMod field means DCMod = 1, ``genpdess.f`` LeeManEss).
+        """
+        if charge_source is None:
+            return []
+        man_dcmod: Dict[int, int] = {}
+        if man is not None and "dcmod" in man:
+            man_dcmod = {
+                int(b): int(m)
+                for b, m in zip(man["block_index"], man["dcmod"], strict=True)
+            }
+        if not man_dcmod:
+            return None if dcmod >= 1 else []
+        if dcmod < 1:
+            return sorted(b for b, m in man_dcmod.items() if m >= 1)
+        off = {b for b, m in man_dcmod.items() if m < 1}
+        if not off:
+            return None
+        if self.block_parser is None or not self.block_parser.items:
+            _logger.warning(
+                "ESS coupled to '%s': plpmaness.dat switches DCMod off in"
+                " %d block(s) but the block list is unknown; coupling"
+                " applied to every block",
+                charge_source,
+                len(off),
+            )
+            return None
+        return sorted(
+            int(it["number"])
+            for it in self.block_parser.items
+            if int(it["number"]) not in off
+        )
+
+    def charge_coupling_constraints(
+        self,
+        entries: List[Dict[str, Any]],
+        generator_names: Optional[set[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Co-located charge limit as user constraints (no uid yet).
+
+        PLP ESS (``genpdess.f`` GenPDEssBloA) adds, per DCMod=1 block, the
+        row ``ren_cp · P_cp − ren_ess · dc ≥ 0`` (RHS 0, ``plp-pdmatld.f``):
+        the ESS charge ``dc`` — a load at the ESS bus — may not exceed the
+        output of its CenCarga plant, which itself injects all of its
+        output at its own bus.  In MW both sides are physical power, so the
+        gtopt equivalent is ``charge_demand.load <= plant.generation``.
+        The same row expresses the ``plpcenbat.dat`` co-located topology
+        (plant splits its output between grid and battery, never forced
+        through it), with gtopt's own battery semantics otherwise.
+
+        Args:
+            entries: Battery entries from ``_all_entries``.
+            generator_names: Names present in ``generator_array``.  A plant
+                missing there (filtered by the central writer) cannot be
+                referenced; the coupling is dropped with a warning.
+        """
+        ucs: List[Dict[str, Any]] = []
+        for entry in entries:
+            src = entry.get("charge_source")
+            blocks = entry.get("charge_blocks")
+            if not src or blocks == []:
+                continue
+            name = entry["name"]
+            if generator_names is not None and src not in generator_names:
+                _logger.warning(
+                    "Battery '%s': charge plant '%s' has no generator; charge"
+                    " coupling dropped",
+                    name,
+                    src,
+                )
+                continue
+            man = entry.get("man_data")
+            has_dc_man = man is not None and "dcmax" in man
+            dem = f"{name}_chrg" if has_dc_man else f"{name}_dem"
+            expr = f"demand('{dem}').load - generator('{src}').generation <= 0"
+            if blocks is not None:
+                expr += f", for(block in {{{', '.join(map(str, blocks))}}})"
+            ucs.append(
+                {
+                    "name": f"{name}_charge_source",
+                    "expression": expr,
+                    "description": (
+                        f"co-located storage: charge of {name} <= output of {src}"
+                    ),
+                }
+            )
+        return ucs
+
     def _all_entries(self) -> List[Dict[str, Any]]:
         """Build the unified list of battery entries.
 
@@ -175,7 +304,7 @@ class BatteryWriter(BaseWriter):
           number, name, bus, busc, nc, nd, emin, emax,
           pmax_charge, pmax_discharge, annual_standing_loss, has_maintenance,
           man_stages, man_pmax_charge, man_pmax_discharge,
-          source_generator.
+          charge_source, charge_blocks.
 
         Priority:
         1. plpess.dat entries matched to BAT centrals (ESS model)
@@ -209,9 +338,15 @@ class BatteryWriter(BaseWriter):
 
                 man = man_parser.get_item_by_name(name) if man_parser else None
 
-                # DCMod handling:
-                #   dcmod=0: standalone battery (no coupling)
-                #   dcmod=1: generation-coupled (cenpc charges via internal bus)
+                # DCMod handling (PLP ``genpdess.f``):
+                #   dcmod=0: standalone battery, free grid charging
+                #   dcmod=1: charge limited by the CenCarga plant output
+                #            (``ren_cp·P_cp − ren_ess·dc ≥ 0``); the charge
+                #            is a load at the ESS bus and the plant injects
+                #            ALL its output at its own bus.  Reproduced as a
+                #            standalone battery + a ``charge <= generation``
+                #            user constraint (see charge_coupling_constraints)
+                #            — NOT via ``source_generator``.
                 #   dcmod=2: regulation tank → mapped to hydro Reservoir, not Battery
                 dcmod = item.get("dcmod", 0)
                 cenpc = item.get("cenpc", "")
@@ -221,21 +356,7 @@ class BatteryWriter(BaseWriter):
                     # get_regulation_reservoirs() → hydro elements
                     continue
 
-                source_gen = cenpc if dcmod == 1 and cenpc else None
-                # Self-reference (cenpc == battery name) is not real
-                # generation coupling — see the matching guard in the
-                # plpcenbat path below for rationale.
-                if source_gen == name:
-                    source_gen = None
-                # ``<battery>_LOAD`` phantom centrals are PLP's charge-side
-                # artefacts — gtopt creates its own ``_dem`` element via
-                # ``expand_batteries()``, so drop the reference.
-                if (
-                    source_gen is not None
-                    and source_gen.endswith("_LOAD")
-                    and source_gen[: -len("_LOAD")] in batteries
-                ):
-                    source_gen = None
+                charge_source = self._charge_source(name, cenpc, batteries)
 
                 entries.append(
                     {
@@ -252,7 +373,10 @@ class BatteryWriter(BaseWriter):
                         "annual_standing_loss": mloss_to_annual_standing_loss(mloss),
                         "has_maintenance": man is not None,
                         "man_data": man,
-                        "source_generator": source_gen,
+                        "charge_source": charge_source,
+                        "charge_blocks": self._ess_charge_blocks(
+                            dcmod, charge_source, man
+                        ),
                     }
                 )
         elif self.battery_parser and self.battery_parser.batteries:
@@ -281,35 +405,19 @@ class BatteryWriter(BaseWriter):
 
                 man = man_parser.get_item_by_name(name) if man_parser else None
 
-                # When injection centrals (NIny > 0) are present, the first
-                # injection central is the source generator that directly
-                # charges the battery (generation-coupled mode).
-                #
-                # Self-reference exception: PLP cases sometimes list the
-                # battery itself as its own injection central (e.g.
-                # plp_min_bess `BESS1 → BESS1`).  That is the standalone /
-                # auto-expand pattern, not generation coupling — there is
-                # no external generator to reference.  Setting
-                # ``source_generator = <battery name>`` would dangle
-                # against ``System::expand_batteries`` (which creates the
-                # discharge generator at LP time, not in the JSON), so
-                # gtopt_check_json flags it as a CRITICAL broken
-                # reference.  Drop the self-reference so the unified
-                # auto-expand path runs cleanly.
-                source_gen = injections[0]["name"] if injections else None
-                if source_gen == name:
-                    source_gen = None
-                # ``<battery>_LOAD`` phantom centrals are PLP's charge-side
-                # artefacts — gtopt creates its own ``_dem`` element via
-                # ``expand_batteries()``, so these must not be referenced
-                # as ``source_generator`` (central_writer already filters
-                # them out of generator_array).
-                if (
-                    source_gen is not None
-                    and source_gen.endswith("_LOAD")
-                    and source_gen[: -len("_LOAD")] in batteries
-                ):
-                    source_gen = None
+                # Co-located plant (NIny > 0, first injection central).
+                # PLP ``genpdbaterias.f`` lets the plant split its output
+                # between its own grid bus and the battery (``g + EC <=
+                # PMax``), it never forces the output through the battery.
+                # gtopt: standalone battery on its bus + a ``charge <=
+                # plant generation`` user constraint (same physics as the
+                # plpess.dat DCMod=1 coupling, charge_coupling_constraints)
+                # — NOT ``source_generator``, whose internal bus would make
+                # the battery the plant's only outlet and curtail it at
+                # ``pmax_charge``.  Self-references (``BESS1 → BESS1``) and
+                # ``<battery>_LOAD`` grid-charge phantoms are not a plant.
+                cenpc = injections[0]["name"] if injections else ""
+                charge_source = self._charge_source(name, cenpc, batteries)
 
                 entries.append(
                     {
@@ -328,7 +436,8 @@ class BatteryWriter(BaseWriter):
                         "annual_standing_loss": None,
                         "has_maintenance": man is not None,
                         "man_data": man,
-                        "source_generator": source_gen,
+                        "charge_source": charge_source,
+                        "charge_blocks": None if charge_source else [],
                     }
                 )
 
@@ -344,10 +453,9 @@ class BatteryWriter(BaseWriter):
         are included so that ``System::expand_batteries()`` auto-generates
         the discharge Generator, charge Demand, and linking Converter.
 
-        When ``source_generator`` is set on the entry (generation-coupled
-        battery), it is included in the JSON so that
-        ``System::expand_batteries()`` creates an internal bus for the charge
-        path and connects the source generator to it.
+        Co-located plants are NOT wired through ``source_generator``: the
+        plant keeps its own grid bus and the coupling is emitted as a user
+        constraint (``charge_coupling_constraints``).
 
         Entries with DC-maintenance (``man_data`` containing ``dcmax``)
         omit the ``bus`` field; the caller must create separate Generator,
@@ -423,10 +531,6 @@ class BatteryWriter(BaseWriter):
                 # discharge `Generator.gcost` by
                 # `System::expand_batteries()`.
                 bat["discharge_cost"] = 0.0
-                # Generation-coupled mode: include source_generator reference
-                source_gen = entry.get("source_generator")
-                if source_gen:
-                    bat["source_generator"] = source_gen
 
             batteries.append(bat)
         return batteries
@@ -734,6 +838,13 @@ class BatteryWriter(BaseWriter):
                 dc_entries
             )
             result["demand_array"] = existing_dem + self.to_demand_array(dc_entries)
+
+        # DCMod=1 ESS: charge bounded by the CenCarga plant output
+        couplings = self.charge_coupling_constraints(
+            entries, {str(g.get("name")) for g in existing_gen}
+        )
+        if couplings:
+            result["charge_coupling_constraints"] = couplings
 
         # DCMod=2 regulation reservoirs (hydro elements, not batteries)
         if reg_reservoirs:

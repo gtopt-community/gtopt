@@ -92,6 +92,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "forward_fail_stop",
         "forward_infeas_rollback",
         "backward_resolve_target",
+        "aperture_cut_resolve",
         "backward_solver_options",
         "backward_max_fallbacks",
         "max_async_spread",
@@ -599,8 +600,8 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ),
     (
         "stationary_gap_ceiling",
-        "[sddp] Suppress stationary/CI convergence when gap >= this value "
-        "(default: 0.5 = 50 %; 1.0 disables)",
+        "[sddp] Refuse a stationary stop while the signed gap >= this "
+        "value (default: 0.02 = 2 %; negative gaps pass; 1.0 disables)",
         None,
     ),
     (

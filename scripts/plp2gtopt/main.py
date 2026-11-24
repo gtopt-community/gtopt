@@ -30,6 +30,7 @@ from .plp2gtopt import (
     print_variable_scales_template,
     validate_plp_case,
 )
+from .line_writer import DEFAULT_LOSS_TANGENTS
 from .info_display import display_plp_info
 from .source_version import SOURCE_FORMAT, detect_version
 
@@ -633,6 +634,8 @@ def build_options(args: argparse.Namespace) -> dict[str, Any]:
         # top-level opts dict (CLI plumbing); the writer threads it into
         # sddp_options.cut_sharing_mode.
         opts.setdefault("cut_sharing_mode", "multicut")
+    # Per-line tangent count policy for tangent_signed_flow (LineWriter).
+    opts["loss_tangents"] = getattr(args, "loss_tangents", DEFAULT_LOSS_TANGENTS)
     if getattr(args, "lift_line_caps", None):
         opts["lift_line_caps"] = _parse_lift_line_caps(args.lift_line_caps)
 

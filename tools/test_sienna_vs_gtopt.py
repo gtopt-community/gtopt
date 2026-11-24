@@ -1,12 +1,12 @@
 """Cross-check Sienna PowerSimulations.jl goldens against gtopt's solve.
 
 The Julia driver ``tools/sienna_solve_golden.jl`` solves each of the
-``sienna_to_gtopt`` 5-bus variants via the authentic Sienna stack
+``sienna2gtopt`` 5-bus variants via the authentic Sienna stack
 (PowerSimulations.jl + HiGHS) and dumps a compact JSON capturing the
 per-generator dispatch, storage SoC, etc.  This Python test layer then:
 
   1. Loads the Julia golden JSON for each slug.
-  2. Runs ``python -m sienna_to_gtopt <slug>`` to produce the gtopt
+  2. Runs ``python -m sienna2gtopt <slug>`` to produce the gtopt
      planning JSON.
   3. Solves it with the local ``gtopt`` binary.
   4. Compares per-generator aggregate dispatch (sum across blocks) and
@@ -69,7 +69,7 @@ SIENNA_SLUGS = (
 # The dispatch-total cross-check compares the **ratio** of generation to
 # load on each side (both Sienna and gtopt must satisfy an energy
 # balance), so the converter's optional MVA-base / per-unit rescale
-# (``scripts/sienna_to_gtopt/_common.py``) does NOT show up as a
+# (``scripts/sienna2gtopt/_common.py``) does NOT show up as a
 # spurious mismatch.  The variants below are excused because the energy
 # balance itself is not 1:1 on the Sienna side:
 #
@@ -119,7 +119,7 @@ def _load_golden(slug: str) -> dict[str, Any]:
 
 
 def _convert_slug(slug: str, out_path: Path) -> None:
-    """Run ``python -m sienna_to_gtopt <slug>``.
+    """Run ``python -m sienna2gtopt <slug>``.
 
     Battery subcases need ``--subcase <l>`` instead of a distinct
     variant name; we strip the ``_<l>`` suffix and add the flag.
@@ -134,7 +134,7 @@ def _convert_slug(slug: str, out_path: Path) -> None:
         variant = slug
         extra = []
     proc = subprocess.run(
-        [sys.executable, "-m", "sienna_to_gtopt", variant, "-o", str(out_path), *extra],
+        [sys.executable, "-m", "sienna2gtopt", variant, "-o", str(out_path), *extra],
         capture_output=True,
         text=True,
         check=False,
@@ -142,8 +142,7 @@ def _convert_slug(slug: str, out_path: Path) -> None:
         timeout=60,
     )
     assert proc.returncode == 0, (
-        f"sienna_to_gtopt {variant} failed:\n"
-        f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
+        f"sienna2gtopt {variant} failed:\nstdout: {proc.stdout}\nstderr: {proc.stderr}"
     )
 
 
@@ -168,7 +167,7 @@ def _solve_gtopt(gtopt_bin: str, json_path: Path, run_dir: Path) -> str:
 def _read_obj_value(run_dir: Path) -> float | None:
     """Return ``obj_value`` from ``output/solution.{csv,parquet}``.
 
-    The sienna_to_gtopt converter ships planning JSONs that leave
+    The sienna2gtopt converter ships planning JSONs that leave
     ``output_format`` at its default (parquet), so this reader has to
     handle both CSV and Parquet shapes.  Falls back to ``None`` when
     no recognised file is present.
@@ -464,3 +463,56 @@ def test_golden_versions_match_expected(tmp_path: Path) -> None:
             assert required in data, f"{path.name}: missing version field {required}"
     if not found:
         pytest.skip("no goldens generated yet")
+
+
+# ---------------------------------------------------------------------------
+# Reserve benchmarks: unit commitment + RangeReserve + ORDC.
+# ---------------------------------------------------------------------------
+#
+# Unlike the slugs above these need no Julia at test time: the golden
+# carries the PSCB system data (``system_data``) and ``sienna2gtopt
+# reserves`` converts it.  The comparison and its tolerances live in
+# ``tools/sienna_reserve_crosscheck.py``.  The case is a MIP: solved with
+# CPLEX when its plugin loads, else HiGHS (never CLP).
+
+sys.path.insert(0, str(_TOOLS_DIR))
+
+import sienna_reserve_crosscheck as src  # pylint: disable=wrong-import-position
+
+
+def _mip_solver(gtopt_bin: str) -> str | None:
+    """``cplex`` if gtopt lists it, else ``highs``, else ``None``."""
+    proc = subprocess.run(
+        [gtopt_bin, "--solvers"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    listing = (proc.stdout + proc.stderr).lower()
+    for solver in ("cplex", "highs"):
+        if solver in listing:
+            return solver
+    return None
+
+
+@pytest.mark.parametrize("slug", src.RESERVE_SLUGS)
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not reachable")
+def test_sienna_reserves_vs_gtopt(slug: str, tmp_path: Path) -> None:
+    """Objective, hourly totals, reserve requirement / ORDC served match.
+
+    Objective within ``OBJ_REL_TOL`` (after the data constant
+    ``objective_offset``), hourly total generation, RangeReserve
+    requirement and ORDC served requirement within ``MW_TOL``, every
+    RangeReserve covered.  Per-unit dispatch and commitment differences
+    (alternative optima) are reported, not asserted.
+    """
+    golden = _load_golden(slug)
+    if "system_data" not in golden:
+        pytest.skip(f"{slug}: golden predates the system_data dump")
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    solver = _mip_solver(gtopt_bin)
+    if solver is None:
+        pytest.skip("no MIP solver plugin (cplex / highs) available")
+    res = src.run_slug(gtopt_bin, slug, tmp_path, solver)
+    assert not src.failures(res), src.failures(res)
