@@ -1,0 +1,38 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {"use_single_bus": false, "use_kirchhoff": true, "scale_objective": 1, "demand_fail_cost": 10000, "pricing_mode": "fixed"}
+  },
+  "simulation": {
+    "block_array": [
+      {"uid": 1, "duration": 1},
+      {"uid": 2, "duration": 1},
+      {"uid": 3, "duration": 1}
+    ],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 3, "active": 1, "chronological": true}
+    ],
+    "scenario_array": [
+      {"uid": 1, "probability_factor": 1}
+    ]
+  },
+  "system": {
+    "name": "uc_pricing_lit_hb2_fixed",
+    "bus_array": [
+      {"uid": 1, "name": "b1"}
+    ],
+    "generator_array": [
+      {"uid": 1, "name": "unit1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 60, "capacity": 100},
+      {"uid": 2, "name": "unit2", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 56, "capacity": 100}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "load", "bus": "b1", "lmax": [[70, 100, 170]]}
+    ],
+    "commitment_array": [
+      {"uid": 1, "name": "unit1_uc", "generator": "unit1", "pmin": 0, "noload_cost": 0, "startup_cost": 0, "initial_status": 0, "initial_hours": 10, "ramp_up": 120, "startup_ramp": 120},
+      {"uid": 2, "name": "unit2_uc", "generator": "unit2", "pmin": 0, "noload_cost": 600, "startup_cost": 0, "initial_status": 0, "initial_hours": 10, "ramp_up": 60, "startup_ramp": 60}
+    ]
+  }
+}

@@ -448,6 +448,24 @@ Pinned cells (`Gen_Commit` 0 / 1, e.g. solar at night) are integer
 columns with fixed bounds that presolve removes.  The free-cell column
 therefore measures the real branching freedom.
 
+### Fast-start units (`fast_start`, for `--pricing-mode fast_start`)
+
+PLEXOS has no fast-start flag, so the converter writes
+`Commitment.fast_start` only when the data settle it
+(`gtopt_writer.plexos_fast_start`), and otherwise leaves it unset so
+gtopt's auto rule decides (min up and min down ≤
+`fast_start_max_hours`, default 1 h):
+
+| PLEXOS data | Emitted |
+|---|---|
+| Min Up Time or Min Down Time > 1 h | nothing (auto rule: not fast-start) |
+| `Run Up Rate` × 60 ≥ peak `Min Stable Level` | `fast_start: true` (reaches its floor within the start-up hour) |
+| `Run Up Rate` × 60 < peak `Min Stable Level` | `fast_start: false` (slow run-up the min up / down rule would miss) |
+| no `Run Up Rate` or no `Min Stable Level` | nothing (auto rule) |
+
+The flag only affects pricing under `--pricing-mode fast_start`; the
+dispatch is unchanged.
+
 ---
 
 ## 7. UserConstraint family taxonomy and PAMPL emission

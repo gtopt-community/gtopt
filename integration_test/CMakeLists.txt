@@ -344,6 +344,14 @@ add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 # See cases/line_loss_envelope/README.md.
 add_e2e_case(line_loss_envelope line_loss_envelope.json)
 
+# KVL triangle whose congested line drives an idle bus to a negative
+# price (-30 $/MWh, all-positive costs).  The lossy line at that bus has
+# a decoupled loss envelope with 10x headroom; the default
+# loss_overflow_cost keeps its loss physical instead of burning up to
+# R*tmax^2/V^2 through the overflow tier.  See
+# cases/line_loss_overflow_sink/README.md.
+add_e2e_case(line_loss_overflow_sink line_loss_overflow_sink.json)
+
 # CEN SSCC reserve models (formulation §5.9 / §5.17): max-of-planes CPF
 # requirement with the exogenous (default) and the PLEXOS-compat
 # endogenous load term (zero vs negative curtailment-hour prices),
@@ -416,6 +424,42 @@ add_e2e_case(psri_case3_via_sddp2gtopt system_psri_case3_via_sddp2gtopt.json)
 # PANGUE_U1 = 140 / 200 / 200 / 150 (both ramp rows bind) and obj 6450.
 # See cases/generation_prev_initial/README.md.
 add_e2e_case(generation_prev_initial generation_prev_initial.json)
+
+# Post-MIP pricing modes (model_options.pricing_mode) on one 2-bus UC toy:
+# a slow unit (min up/down 4 h, no-load 300 $/h) and a fast-start peaker
+# (pmin 40, start-up 1000 $).  Same MIP dispatch (100/80 + 40/0, obj 5400)
+# in every mode; only the prices change: fixed (10, 10) — the peaker's pmin
+# dual pushes the price below its cost; fast_start (60, 10) — the peaker's
+# average cost at pmax (50 + 1000/100) sets block 1; relaxed (60, 12.5) —
+# the slow unit's no-load also becomes divisible.  pricing.csv records the
+# applied mode.  See cases/uc_pricing_fixed/README.md.
+add_e2e_case(uc_pricing_fixed uc_pricing_fixed.json)
+add_e2e_case(uc_pricing_relaxed uc_pricing_relaxed.json)
+add_e2e_case(uc_pricing_fast_start uc_pricing_fast_start.json)
+
+# Pricing modes on published non-convex pricing examples (parameters typed
+# in from the papers; see cases/uc_pricing_lit_*/README.md and
+# test/source/test_pricing_literature.cpp):
+#   scarf : Scarf's example as adapted by Hogan & Ring (2003), demand 61 —
+#           fixed = O'Neill et al. IP price 3, relaxed = minimum-uplift
+#           (convex-hull) price 101/16 = 6.3125.
+#   hb1   : Hua & Baldick (2017) Ex. 1 — LMP 50, CHP 12, CHPq 52 (fast_start
+#           with only unit 1 fast-start).
+#   hb2   : Hua & Baldick (2017) Ex. 2, ramp-coupled 3 h — LMP 60; gtopt's
+#           relaxed hour-3 price 820/13 = 63.08 lies below the published
+#           convex-hull price 65.6 (expected: the LP relaxation of a
+#           ramp-constrained unit is not its convex hull).
+#   pjm1  : PJM (2017) fast-start pricing Ex. 1, 3-bus — restricted
+#           67.5 / 50 / 32.5, integer relaxation 117 / 76 / 35.
+add_e2e_case(uc_pricing_lit_scarf_fixed uc_pricing_lit_scarf_fixed.json)
+add_e2e_case(uc_pricing_lit_scarf_relaxed uc_pricing_lit_scarf_relaxed.json)
+add_e2e_case(uc_pricing_lit_hb1_fixed uc_pricing_lit_hb1_fixed.json)
+add_e2e_case(uc_pricing_lit_hb1_relaxed uc_pricing_lit_hb1_relaxed.json)
+add_e2e_case(uc_pricing_lit_hb1_fast_start uc_pricing_lit_hb1_fast_start.json)
+add_e2e_case(uc_pricing_lit_hb2_fixed uc_pricing_lit_hb2_fixed.json)
+add_e2e_case(uc_pricing_lit_hb2_relaxed uc_pricing_lit_hb2_relaxed.json)
+add_e2e_case(uc_pricing_lit_pjm1_fixed uc_pricing_lit_pjm1_fixed.json)
+add_e2e_case(uc_pricing_lit_pjm1_fast_start uc_pricing_lit_pjm1_fast_start.json)
 
 # IEEE 24-bus Reliability Test System converted from pandapower's
 # `case24_ieee_rts` via `pp2gtopt`.  Exercises gtopt's demand-fail

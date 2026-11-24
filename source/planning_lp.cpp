@@ -43,6 +43,7 @@
 #include <gtopt/memory_monitor.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
+#include <gtopt/pricing_mode.hpp>
 #include <gtopt/reservoir.hpp>
 #include <gtopt/solution_csv.hpp>
 #include <gtopt/solver_monitor.hpp>
@@ -2594,6 +2595,51 @@ void PlanningLP::write_out()
         row.max_kappa,
         row.gap,
         row.gap_change);
+  }
+
+  // ── pricing.csv: post-MIP pricing provenance (pricing_mode) ────────────
+  // One row per MIP cell whose duals were recovered (or whose mode was not
+  // the default), so a study can tell which method produced the published
+  // prices and whether a cell fell back to fixed prices.
+  struct PricingRow
+  {
+    Uid scene_uid;
+    Uid phase_uid;
+    PricingOutcome outcome;
+  };
+  std::vector<PricingRow> pricing_rows;
+  for (const auto& phase_systems : m_systems_) {
+    for (const auto& system : phase_systems) {
+      const auto& po = system.linear_interface().last_pricing();
+      if (pricing_outcome_reportable(po)) {
+        pricing_rows.push_back({
+            .scene_uid = system.scene().uid().value(),
+            .phase_uid = system.phase().uid().value(),
+            .outcome = po,
+        });
+      }
+    }
+  }
+  if (!pricing_rows.empty()) {
+    std::ranges::sort(pricing_rows,
+                      [](const PricingRow& a, const PricingRow& b)
+                      {
+                        if (a.scene_uid != b.scene_uid) {
+                          return a.scene_uid < b.scene_uid;
+                        }
+                        return a.phase_uid < b.phase_uid;
+                      });
+    const auto pricing_path = out_dir / "pricing.csv";
+    std::ofstream pricing_file(pricing_path.string(), std::ios::out);
+    if (!pricing_file) [[unlikely]] {
+      SPDLOG_ERROR("Cannot open pricing file '{}' for writing",
+                   pricing_path.string());
+      return;
+    }
+    pricing_file << pricing_csv_header();
+    for (const auto& r : pricing_rows) {
+      pricing_file << pricing_csv_line(r.scene_uid, r.phase_uid, r.outcome);
+    }
   }
 }
 

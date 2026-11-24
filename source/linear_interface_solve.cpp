@@ -17,6 +17,8 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
+#include <cstdlib>
 #include <exception>
 #include <expected>
 #include <format>
@@ -28,10 +30,13 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
+#include <gtopt/enum_option.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/pricing_mode.hpp>
 #include <gtopt/solver_options.hpp>
 #include <spdlog/spdlog.h>
 
@@ -227,6 +232,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
   // and the incumbent republished through the LI cache).
   clear_dual_recovery_bail_state();
   m_last_mip_polish_ = {};
+  m_last_pricing_ = {};
 
   ++m_solver_stats_.initial_solve_calls;
   m_solver_stats_.total_ncols += get_numcols();
@@ -368,6 +374,7 @@ std::expected<int, Error> LinearInterface::resolve(
   // and the incumbent republished through the LI cache).
   clear_dual_recovery_bail_state();
   m_last_mip_polish_ = {};
+  m_last_pricing_ = {};
 
   ++m_solver_stats_.resolve_calls;
   m_solver_stats_.total_ncols += get_numcols();
@@ -647,6 +654,196 @@ LinearInterface::polish_mip(const SolverOptions& opts)
   }
   m_last_mip_polish_ = out;
   return out;
+}
+
+namespace
+{
+
+/// TEST-ONLY: `GTOPT_TEST_FORCE_PRICING_FAIL=1` makes the pricing LP
+/// report failure so tests can exercise the fallback-to-fixed path end to
+/// end (relaxing integrality never makes a feasible MIP infeasible, so a
+/// real failure needs numerical trouble or a limit).  Read fresh on every
+/// call (cold path: once per MIP cell).
+[[nodiscard]] bool test_force_pricing_fail() noexcept
+{
+  // NOLINTNEXTLINE(concurrency-mt-unsafe)
+  const char* const v = std::getenv("GTOPT_TEST_FORCE_PRICING_FAIL");
+  return v != nullptr && v[0] == '1';
+}
+
+}  // namespace
+
+LinearInterface::PricingDuals LinearInterface::solve_pricing_lp(
+    PricingMode mode, const SolverOptions& opts)
+{
+  PricingDuals out;
+  out.outcome.requested = mode;
+  out.outcome.applied = PricingMode::fixed;
+  if (mode == PricingMode::fixed) {
+    return out;  // the fixed-integer polish IS the fixed pricing LP
+  }
+
+  const auto fallback = [&](std::string reason, int status = -1)
+  {
+    out.outcome.applied = PricingMode::fixed;
+    out.outcome.fallback = true;
+    out.outcome.status = status;
+    out.outcome.reason = std::move(reason);
+    out.row_dual_raw.clear();
+    out.col_cost_raw.clear();
+    return std::move(out);
+  };
+
+  try {
+    ensure_backend();
+    const auto ncols = static_cast<int>(get_numcols());
+
+    // Integer set of the MIP — read BEFORE the polish relaxes it.
+    std::vector<int> int_cols;
+    for (int c = 0; c < ncols; ++c) {
+      if (is_integer(ColIndex {c})) {
+        int_cols.push_back(c);
+      }
+    }
+    if (int_cols.empty()) {
+      // Pure LP (or SOS-only): no commitment to relax — the fixed pass
+      // already yields the only meaningful prices.
+      out.outcome.reason = "no integer columns";
+      return out;
+    }
+
+    const auto is_relaxed = [&](int c)
+    {
+      return mode == PricingMode::relaxed
+          || std::ranges::binary_search(m_fast_start_cols_, c);
+    };
+    const auto n_relaxed = std::ranges::count_if(int_cols, is_relaxed);
+    if (n_relaxed == 0) {
+      // fast_start without fast-start units: identical to fixed pricing.
+      out.outcome.reason = "no fast-start commitment columns";
+      return out;
+    }
+
+    if (!is_optimal() && !has_mip_incumbent()) {
+      return fallback("no MIP incumbent");
+    }
+
+    // Snapshot the incumbent before cloning (cache-first read).
+    const auto sol_span = get_col_sol_raw();
+    const std::vector<double> sol(sol_span.begin(), sol_span.end());
+    if (std::cmp_less(sol.size(), ncols)) {
+      return fallback("MIP incumbent unavailable");
+    }
+
+    auto pricing_lp = clone();
+
+    std::vector<ColIndex> idx;
+    std::vector<char> lu;
+    std::vector<double> val;
+    const auto pin = [&](int c, double v)
+    {
+      idx.emplace_back(c);
+      lu.push_back('B');
+      val.push_back(v);
+    };
+    for (const int c : int_cols) {
+      if (!is_relaxed(c)) {
+        // Integers may report a hair off the lattice under tolerance.
+        pin(c, std::round(sol[static_cast<std::size_t>(c)]));
+      }
+    }
+    const auto n_int_pinned = idx.size();
+    for (const int c : m_sos2_member_cols_) {
+      if (c >= 0 && c < ncols && !is_integer(ColIndex {c})) {
+        pin(c, sol[static_cast<std::size_t>(c)]);
+      }
+    }
+    pricing_lp.set_col_bounds_raw(idx, lu, val);
+    (void)pricing_lp.relax_integers();
+
+    out.outcome.relaxed_columns = static_cast<Index>(n_relaxed);
+    out.outcome.pinned_columns = static_cast<Index>(idx.size());
+    spdlog::debug(
+        "pricing LP [{}]: mode={} relaxed={} pinned_int={} pinned_sos={}",
+        get_prob_name(),
+        enum_name(mode),
+        n_relaxed,
+        n_int_pinned,
+        idx.size() - n_int_pinned);
+
+    auto solved = pricing_lp.resolve(opts);
+    if (!solved) {
+      return fallback(
+          std::format("pricing LP solve failed: {}", solved.error().message),
+          solved.error().status);
+    }
+    if (test_force_pricing_fail() || !pricing_lp.is_optimal()) {
+      return fallback(
+          std::format("pricing LP not optimal (status {}{})",
+                      pricing_lp.get_status(),
+                      test_force_pricing_fail() ? ", forced by test hook" : ""),
+          pricing_lp.get_status());
+    }
+
+    const auto duals = pricing_lp.get_row_dual_raw();
+    const auto rcs = pricing_lp.get_col_cost_raw();
+    if (duals.size() != static_cast<std::size_t>(get_numrows())
+        || std::cmp_not_equal(rcs.size(), ncols))
+    {
+      return fallback("pricing LP duals unavailable");
+    }
+    out.row_dual_raw.assign(duals.begin(), duals.end());
+    out.col_cost_raw.assign(rcs.begin(), rcs.end());
+    out.outcome.applied = mode;
+    out.outcome.attempted = true;
+    out.outcome.status = 0;
+    return out;
+  } catch (const std::exception& e) {
+    return fallback(std::format("pricing LP error: {}", e.what()));
+  }
+}
+
+void LinearInterface::install_pricing_duals(PricingDuals pricing)
+{
+  auto& outcome = pricing.outcome;
+  if (outcome.applied != PricingMode::fixed) {
+    const auto ncols = static_cast<std::size_t>(get_numcols());
+    const auto nrows = static_cast<std::size_t>(get_numrows());
+    if (m_duals_unavailable_) {
+      // The polish bailed: the primal is the raw incumbent and the
+      // pricing duals were computed for it, but keep the uniform
+      // "duals unavailable" contract of a bailed cell.
+      outcome.applied = PricingMode::fixed;
+      outcome.fallback = true;
+      outcome.reason = "fixed-integer polish bailed; duals unavailable";
+    } else if (pricing.row_dual_raw.size() != nrows
+               || pricing.col_cost_raw.size() != ncols)
+    {
+      outcome.applied = PricingMode::fixed;
+      outcome.fallback = true;
+      outcome.reason = "pricing dual size mismatch";
+    } else {
+      // Keep the current (polished MIP) primal: copy it out first — the
+      // span may alias the cache buffer resized below.
+      const auto sol_span = get_col_sol_raw();
+      const std::vector<double> sol(sol_span.begin(), sol_span.end());
+      if (m_cache_.col_low().size() != ncols
+          || m_cache_.col_upp().size() != ncols)
+      {
+        ensure_backend();
+        m_backend_->fill_col_lower(m_cache_.col_low_buffer(ncols));
+        m_backend_->fill_col_upper(m_cache_.col_upp_buffer(ncols));
+      }
+      std::ranges::copy(sol, m_cache_.col_sol_buffer(ncols).begin());
+      std::ranges::copy(pricing.col_cost_raw,
+                        m_cache_.col_cost_buffer(ncols).begin());
+      std::ranges::copy(pricing.row_dual_raw,
+                        m_cache_.row_dual_buffer(nrows).begin());
+      m_cache_.set_is_optimal(/*v=*/true);
+      m_pricing_installed_ = true;
+    }
+  }
+  m_last_pricing_ = std::move(outcome);
 }
 
 }  // namespace gtopt

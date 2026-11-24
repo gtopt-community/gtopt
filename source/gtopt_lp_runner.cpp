@@ -231,6 +231,14 @@ void log_pre_solve_stats(
              ? std::format("{:.6g}", *mo.loss_cost_eps)
              : std::format("{:.6g} (default)",
                            PlanningOptionsLP::default_loss_cost_eps));
+  log_kv("loss_overflow_cost",
+         mo.loss_overflow_cost.has_value()
+             ? std::format("{:.6g}", *mo.loss_overflow_cost)
+             : std::format("{:.6g} (default: {})",
+                           eff_opts.loss_overflow_cost(),
+                           eff_opts.loss_overflow_cost_is_fallback()
+                               ? "fallback, demand_fail_cost is 0"
+                               : "demand_fail_cost"));
   log_kv(
       "equilibration",
       std::format("{}{}",

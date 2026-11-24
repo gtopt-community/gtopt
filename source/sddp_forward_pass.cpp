@@ -15,8 +15,10 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <span>
 #include <thread>
+#include <utility>
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/benders_cut.hpp>
@@ -25,6 +27,7 @@
 #include <gtopt/iteration.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/pricing_mode.hpp>
 #include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_common.hpp>
 #include <gtopt/sddp_method.hpp>
@@ -463,7 +466,44 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // recovery pass must run (and pin the SOS support) exactly as for
       // integer columns — see SolverBackend::fix_mip_and_resolve_duals.
       if (wants_duals && (li.sos2_set_count() > 0 || li.has_integer_cols())) {
+        // Post-MIP pricing pass (`model_options.pricing_mode`): the
+        // relaxed / fast-start pricing LP is solved on a clone BEFORE the
+        // fix pass relaxes integrality, and its duals are published after
+        // it — the primal stays the MIP dispatch.  See
+        // `SystemLP::resolve` for the monolithic twin.
+        const auto pricing_mode = planning_lp().options().pricing_mode();
+        std::optional<LinearInterface::PricingDuals> pricing;
+        if (pricing_mode != PricingMode::fixed) {
+          pricing = li.solve_pricing_lp(pricing_mode, effective_opts);
+          if (pricing->outcome.fallback) {
+            SPDLOG_WARN(
+                "SDDP Forward [i{} s{} p{}]: pricing_mode={} pricing LP "
+                "failed ({}) — falling back to fixed prices",
+                gtopt::uid_of(iteration_index),
+                uid_of(scene_index),
+                uid_of(phase_index),
+                enum_name(pricing_mode),
+                pricing->outcome.reason);
+          }
+        }
         auto fix = li.fix_integers_and_resolve(effective_opts);
+        if (pricing.has_value()) {
+          if (!fix) {
+            pricing->outcome.applied = PricingMode::fixed;
+            pricing->outcome.fallback = true;
+            pricing->outcome.reason = "fixed-integer dual recovery failed";
+          }
+          li.install_pricing_duals(std::move(*pricing));
+        } else if (fix) {
+          li.set_last_pricing(PricingOutcome {
+              .requested = pricing_mode,
+              .applied = PricingMode::fixed,
+              .attempted = fix->fixed_columns > 0 && !fix->bailed,
+              .fallback = fix->bailed,
+              .pinned_columns = fix->fixed_columns,
+              .status = fix->bailed ? -1 : 0,
+          });
+        }
         if (!fix) {
           SPDLOG_WARN(
               "SDDP Forward [i{} s{} p{}]: fix-integers dual recovery "

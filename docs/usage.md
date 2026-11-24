@@ -80,6 +80,7 @@ Multiple system files can be provided and will be merged.
 | | `--swap-limit` | `arg` | Work-pool swap gate: throttle task dispatch while the process `VmSwap` is at/above this size **and still growing** (e.g. `2048`, `300M`, `5G`; `0` = off; default `2048` MB). A large but static `VmSwap` never throttles. Same as `--set sddp_options.pool_max_process_swap_mb=<MB>` |
 | | `--swap-growth` | `arg` | `VmSwap` growth per 5 s window that counts as active swapping for `--swap-limit` (e.g. `64`, `256M`; default `64` MB). Same as `--set sddp_options.pool_swap_growth_mb=<MB>` |
 | | `--cpu-factor` | `arg` | Work-pool thread over-commit factor (default: `4.0`) |
+| | `--pricing-mode` | `arg` | Nodal prices of a UC (MIP) run: `fixed` (default; integers fixed at the incumbent), `relaxed` (LP relaxation) or `fast_start` (fast-start units relaxed). Dispatch is unchanged; see `pricing.csv` and [Unit Commitment §11.1](unit-commitment.md#111-pricing-modes) |
 | | `--build-mode` | `arg` | LP build parallelism: `serial`, `scene-parallel` (default), `full-parallel`, `direct-parallel` |
 | | `--set` | `key=value` | Set any planning option (see below) |
 
@@ -580,6 +581,11 @@ Output is organized by component type. Each component produces solution
 `solution.csv` — overall optimization result (objective value, status, SDDP
 convergence metrics) and the gtopt version and git revision that produced
 it.
+
+`pricing.csv` — written for MIP runs: one row per (scene, phase) with
+the requested and applied `pricing_mode`, whether it fell back to
+`fixed`, the relaxed / pinned integer column counts, the pricing-LP
+status and the reason (see [Unit Commitment §11.1](unit-commitment.md#111-pricing-modes)).
 
 ### Generator output
 

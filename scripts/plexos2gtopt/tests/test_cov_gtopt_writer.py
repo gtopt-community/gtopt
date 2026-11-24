@@ -795,3 +795,27 @@ def test_water_value_resolver_positive_slope_has_no_cut_value() -> None:
         boundary_cut=BoundaryCutSpec(fcf=1.0, slopes={"R1": 5.0}),
     )
     assert resolver is not None
+
+
+def test_commitment_fast_start_flag() -> None:
+    """PLEXOS Run Up Rate vs Min Stable Level decides ``fast_start``."""
+    fast = CommitmentSpec(generator_name="GT", pmin=20.0, startup_ramp=60.0)
+    slow_ramp = CommitmentSpec(generator_name="CC", pmin=200.0, startup_ramp=60.0)
+    slow_mut = CommitmentSpec(
+        generator_name="COAL", pmin=20.0, startup_ramp=60.0, min_up_time=8.0
+    )
+    no_ramp = CommitmentSpec(generator_name="D", pmin=5.0)
+    profile = CommitmentSpec(
+        generator_name="P",
+        pmin_profile=(10.0, 80.0),
+        startup_ramp=60.0,
+        min_up_time=1.0,
+        min_down_time=1.0,
+    )
+    assert gw.plexos_fast_start(fast) is True
+    assert gw.plexos_fast_start(slow_ramp) is False
+    assert gw.plexos_fast_start(slow_mut) is None
+    assert gw.plexos_fast_start(no_ramp) is None
+    assert gw.plexos_fast_start(profile) is False  # peak floor 80 > 60
+    out = gw.build_commitment_array((fast, slow_ramp, slow_mut, no_ramp))
+    assert [e.get("fast_start") for e in out] == [True, False, None, None]

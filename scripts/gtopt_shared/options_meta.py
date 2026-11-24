@@ -177,6 +177,8 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "hydro_fail_cost",  # legacy alias (gtopt-legacy dialect)
         "hydro_use_value",
         "continuous_phases",
+        "pricing_mode",
+        "fast_start_max_hours",
         "naming_dialect",
         "kirchhoff_mode",
         "line_losses_mode",
@@ -186,6 +188,7 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "scale_loss_link",
         "reserve_coupling",
         "loss_cost_eps",
+        "loss_overflow_cost",
         "loss_secant_segments",
         "loss_use_sos2",
         "theta_max",
@@ -322,6 +325,21 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "continuous).  Syntax: 'all', 'none' (default), '0', '1,3:5,8:'.  "
         "Equivalent to --no-mip when set to 'all'.",
         None,
+    ),
+    (
+        "pricing_mode",
+        "[model] MIP only: LP that supplies the nodal prices after the MIP: "
+        "'fixed' (default, integers fixed at the incumbent), 'relaxed' "
+        "(LP relaxation of the MIP) or 'fast_start' (fixed except fast-start "
+        "commitments).  Dispatch is unchanged.",
+        "fixed",
+    ),
+    (
+        "fast_start_max_hours",
+        "[model] Auto fast-start rule: a commitment without an explicit "
+        "fast_start is fast-start when min_up_time and min_down_time are "
+        "both <= this many hours (default: 1)",
+        1.0,
     ),
     (
         "naming_dialect",

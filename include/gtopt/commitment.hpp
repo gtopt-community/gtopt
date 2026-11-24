@@ -246,6 +246,16 @@ struct Commitment
   OptBool relax {};  ///< LP relaxation: u/v/w continuous in [0,1]
   OptBool must_run {};  ///< Force committed: u = 1 always
 
+  /// Fast-start unit for `model_options.pricing_mode = "fast_start"`:
+  /// its u/v/w columns are relaxed to continuous [0,1] in the pricing LP
+  /// (the rest of the integers stay pinned at the MIP incumbent), so its
+  /// pmin / no-load / startup costs become divisible and can set the
+  /// price.  Explicit `true`/`false` wins; unset applies the auto rule
+  /// `min_up_time <= H && min_down_time <= H` with
+  /// `H = model_options.fast_start_max_hours` (default 1 h; unset min
+  /// up/down count as 0).  No effect on the MIP or the dispatch.
+  OptBool fast_start {};
+
   /// Per-(stage, block) forced commitment status — pins the ``u`` variable
   /// to a specific value at each (stage, block) where it is set.  Values
   /// are interpreted as ``1.0 → committed``, ``0.0 → not committed``;

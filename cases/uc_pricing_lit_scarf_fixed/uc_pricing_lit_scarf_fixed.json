@@ -1,0 +1,64 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {"use_single_bus": false, "use_kirchhoff": true, "scale_objective": 1, "demand_fail_cost": 10000, "pricing_mode": "fixed"}
+  },
+  "simulation": {
+    "block_array": [
+      {"uid": 1, "duration": 1}
+    ],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1, "chronological": true}
+    ],
+    "scenario_array": [
+      {"uid": 1, "probability_factor": 1}
+    ]
+  },
+  "system": {
+    "name": "uc_pricing_lit_scarf_fixed",
+    "bus_array": [
+      {"uid": 1, "name": "b1"}
+    ],
+    "generator_array": [
+      {"uid": 1, "name": "ss1", "bus": "b1", "pmin": 0, "pmax": 16, "gcost": 3, "capacity": 16},
+      {"uid": 2, "name": "ss2", "bus": "b1", "pmin": 0, "pmax": 16, "gcost": 3, "capacity": 16},
+      {"uid": 3, "name": "ss3", "bus": "b1", "pmin": 0, "pmax": 16, "gcost": 3, "capacity": 16},
+      {"uid": 4, "name": "ss4", "bus": "b1", "pmin": 0, "pmax": 16, "gcost": 3, "capacity": 16},
+      {"uid": 5, "name": "ss5", "bus": "b1", "pmin": 0, "pmax": 16, "gcost": 3, "capacity": 16},
+      {"uid": 6, "name": "ss6", "bus": "b1", "pmin": 0, "pmax": 16, "gcost": 3, "capacity": 16},
+      {"uid": 7, "name": "ht1", "bus": "b1", "pmin": 0, "pmax": 7, "gcost": 2, "capacity": 7},
+      {"uid": 8, "name": "ht2", "bus": "b1", "pmin": 0, "pmax": 7, "gcost": 2, "capacity": 7},
+      {"uid": 9, "name": "ht3", "bus": "b1", "pmin": 0, "pmax": 7, "gcost": 2, "capacity": 7},
+      {"uid": 10, "name": "ht4", "bus": "b1", "pmin": 0, "pmax": 7, "gcost": 2, "capacity": 7},
+      {"uid": 11, "name": "ht5", "bus": "b1", "pmin": 0, "pmax": 7, "gcost": 2, "capacity": 7},
+      {"uid": 12, "name": "mt1", "bus": "b1", "pmin": 0, "pmax": 6, "gcost": 7, "capacity": 6},
+      {"uid": 13, "name": "mt2", "bus": "b1", "pmin": 0, "pmax": 6, "gcost": 7, "capacity": 6},
+      {"uid": 14, "name": "mt3", "bus": "b1", "pmin": 0, "pmax": 6, "gcost": 7, "capacity": 6},
+      {"uid": 15, "name": "mt4", "bus": "b1", "pmin": 0, "pmax": 6, "gcost": 7, "capacity": 6},
+      {"uid": 16, "name": "mt5", "bus": "b1", "pmin": 0, "pmax": 6, "gcost": 7, "capacity": 6}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "load", "bus": "b1", "lmax": [[61]]}
+    ],
+    "commitment_array": [
+      {"uid": 1, "name": "ss1_uc", "generator": "ss1", "pmin": 0, "noload_cost": 53, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 2, "name": "ss2_uc", "generator": "ss2", "pmin": 0, "noload_cost": 53, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 3, "name": "ss3_uc", "generator": "ss3", "pmin": 0, "noload_cost": 53, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 4, "name": "ss4_uc", "generator": "ss4", "pmin": 0, "noload_cost": 53, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 5, "name": "ss5_uc", "generator": "ss5", "pmin": 0, "noload_cost": 53, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 6, "name": "ss6_uc", "generator": "ss6", "pmin": 0, "noload_cost": 53, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 7, "name": "ht1_uc", "generator": "ht1", "pmin": 0, "noload_cost": 30, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 8, "name": "ht2_uc", "generator": "ht2", "pmin": 0, "noload_cost": 30, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 9, "name": "ht3_uc", "generator": "ht3", "pmin": 0, "noload_cost": 30, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 10, "name": "ht4_uc", "generator": "ht4", "pmin": 0, "noload_cost": 30, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 11, "name": "ht5_uc", "generator": "ht5", "pmin": 0, "noload_cost": 30, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 12, "name": "mt1_uc", "generator": "mt1", "pmin": 2, "noload_cost": 0, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 13, "name": "mt2_uc", "generator": "mt2", "pmin": 2, "noload_cost": 0, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 14, "name": "mt3_uc", "generator": "mt3", "pmin": 2, "noload_cost": 0, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 15, "name": "mt4_uc", "generator": "mt4", "pmin": 2, "noload_cost": 0, "startup_cost": 0, "initial_status": 1, "initial_hours": 10},
+      {"uid": 16, "name": "mt5_uc", "generator": "mt5", "pmin": 2, "noload_cost": 0, "startup_cost": 0, "initial_status": 1, "initial_hours": 10}
+    ]
+  }
+}

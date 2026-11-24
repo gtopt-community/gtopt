@@ -124,6 +124,21 @@ struct ModelOptions
   /// arbitrage guard, at loss-scaled (≈2λ·ε) incidence; see the
   /// sizing guidance at ``Line.loss_cost_eps`` (line.hpp).
   OptReal loss_cost_eps {};
+  /// Global price [$/MWh] on the loss carried by the OVERFLOW tier of a
+  /// decoupled ``loss_envelope`` (flow between the envelope and the flow
+  /// cap).  Each overflow |f| column / secant segment / λ breakpoint
+  /// past the envelope is charged ``loss_overflow_cost × (its marginal
+  /// loss)``, so the tier costs exactly ``loss_overflow_cost`` per MWh
+  /// of loss it carries above ``R·envelope²/V²``.  Without it the tier
+  /// is a free energy sink of up to ``R·fmax²/V²`` MW per line whenever
+  /// a bus price goes negative (any pure-LP hull that reaches ±fmax on
+  /// the quadratic contains ``(0, R·fmax²/V²)``).  Unset resolves to the
+  /// case's global ``demand_fail_cost`` (per-demand ``fcost`` is not
+  /// consulted; itself 1000 when unset), or to 1000 $/MWh with a warning when
+  /// it is 0;
+  /// ``0`` disables the guard.  Per-line ``Line.loss_overflow_cost``
+  /// overrides.  Inert when the flow cap does not exceed the envelope.
+  OptReal loss_overflow_cost {};
   /// Global default for ``Line.loss_secant_segments`` (issue #504).
   /// When ``> 1`` and ``loss_use_sos2`` is enabled, the
   /// ``tangent_signed_flow`` loss model emits ``L`` segment columns
@@ -204,13 +219,10 @@ struct ModelOptions
   /// Option C eliminates the ~$105 B obj_constant baseline visible
   /// on CEN-scale runs — `get_obj_value()` matches
   /// `get_obj_value_raw() × scale_objective` exactly with no
-  /// large-magnitude cancellation noise.  Currently opt-in because
-  /// LP-side consumers that reference the demand column directly
-  /// (Converter, Battery interactions, etc.) are not yet
-  /// Option-C-aware — they assume the column carries `load`, not
-  /// `neg_fail`, so enabling this with a converter-tied demand
-  /// produces a mathematically wrong row.  See
-  /// `source/demand_lp.cpp` and the related deferred-follow-up note.
+  /// large-magnitude cancellation noise.  Demands whose load column
+  /// is coupled by another element (a Converter's battery-charge
+  /// demand, a Pump's demand) always stay on Option A: those rows
+  /// need the column to carry `load`.
   OptBool demand_fail_rhs_shift {};
 
   /// Phase range expression controlling which phases use LP relaxation
@@ -374,6 +386,31 @@ struct ModelOptions
   /// case, `"off"` is silent.
   OptName reserve_coupling {};
 
+  /// How nodal prices (bus balance duals, reduced costs) are recovered
+  /// after a MIP (unit-commitment) solve.  The reported dispatch is the
+  /// MIP solution in every mode; only the duals change.  Values (see
+  /// `PricingMode`, `include/gtopt/pricing_mode.hpp`):
+  ///   * `"fixed"` (default) — fix every integer at the MIP incumbent and
+  ///     re-solve the LP (the classic restricted / "IP" pricing).
+  ///   * `"relaxed"` — duals of the LP relaxation of the full MIP (all
+  ///     integers continuous in their bounds), solved as a separate
+  ///     pricing pass after the MIP.  Approximates convex-hull pricing
+  ///     when the UC formulation is tight.
+  ///   * `"fast_start"` — integers fixed at the incumbent EXCEPT the
+  ///     commitment u/v/w columns of fast-start units, which are relaxed
+  ///     to continuous [0,1] (PJM/NYISO "integer relaxation" fast-start
+  ///     pricing).
+  /// A pricing LP that is not optimal falls back to `"fixed"` prices
+  /// (warned and recorded in `pricing.csv`).  CLI: `--pricing-mode`.
+  OptName pricing_mode {};
+
+  /// Auto rule threshold [h] for `Commitment.fast_start`: a commitment
+  /// without an explicit `fast_start` is fast-start when both
+  /// `min_up_time` and `min_down_time` (unset = 0) are `<=` this value.
+  /// gtopt has no startup-time / notification-time field, so the rule
+  /// uses min up/down only.  Default 1 h.
+  OptReal fast_start_max_hours {};
+
   void merge(const ModelOptions& opts)
   {
     merge_opt(use_single_bus, opts.use_single_bus);
@@ -390,6 +427,7 @@ struct ModelOptions
     merge_opt(scale_theta, opts.scale_theta);
     merge_opt(scale_loss_link, opts.scale_loss_link);
     merge_opt(loss_cost_eps, opts.loss_cost_eps);
+    merge_opt(loss_overflow_cost, opts.loss_overflow_cost);
     merge_opt(loss_secant_segments, opts.loss_secant_segments);
     merge_opt(loss_use_sos2, opts.loss_use_sos2);
     merge_opt(theta_max, opts.theta_max);
@@ -410,6 +448,8 @@ struct ModelOptions
     merge_opt(battery_annual_standing_loss, opts.battery_annual_standing_loss);
     merge_opt(battery_power_envelope, opts.battery_power_envelope);
     merge_opt(reserve_coupling, opts.reserve_coupling);
+    merge_opt(pricing_mode, opts.pricing_mode);
+    merge_opt(fast_start_max_hours, opts.fast_start_max_hours);
   }
 
   /// True if any field is set.
@@ -423,16 +463,18 @@ struct ModelOptions
         || dc_line_resistance_threshold.has_value() || loss_segments.has_value()
         || scale_objective.has_value() || scale_theta.has_value()
         || scale_loss_link.has_value() || loss_cost_eps.has_value()
-        || loss_secant_segments.has_value() || loss_use_sos2.has_value()
-        || theta_max.has_value() || demand_fail_cost.has_value()
-        || demand_fail_segments.has_value() || reserve_shortage_cost.has_value()
-        || hydro_spill_cost.has_value() || hydro_use_value.has_value()
-        || state_violation_cost.has_value() || demand_fail_rhs_shift.has_value()
-        || continuous_phases.has_value() || naming_dialect.has_value()
-        || objective_mode.has_value() || strict_storage_emin.has_value()
-        || lp_reduction.has_value() || allow_oversupply.has_value()
+        || loss_overflow_cost.has_value() || loss_secant_segments.has_value()
+        || loss_use_sos2.has_value() || theta_max.has_value()
+        || demand_fail_cost.has_value() || demand_fail_segments.has_value()
+        || reserve_shortage_cost.has_value() || hydro_spill_cost.has_value()
+        || hydro_use_value.has_value() || state_violation_cost.has_value()
+        || demand_fail_rhs_shift.has_value() || continuous_phases.has_value()
+        || naming_dialect.has_value() || objective_mode.has_value()
+        || strict_storage_emin.has_value() || lp_reduction.has_value()
+        || allow_oversupply.has_value()
         || battery_annual_standing_loss.has_value()
-        || battery_power_envelope.has_value() || reserve_coupling.has_value();
+        || battery_power_envelope.has_value() || reserve_coupling.has_value()
+        || pricing_mode.has_value() || fast_start_max_hours.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -458,6 +500,7 @@ struct ModelOptions
         && covers_opt(scale_theta, other.scale_theta)
         && covers_opt(scale_loss_link, other.scale_loss_link)
         && covers_opt(loss_cost_eps, other.loss_cost_eps)
+        && covers_opt(loss_overflow_cost, other.loss_overflow_cost)
         && covers_opt(loss_secant_segments, other.loss_secant_segments)
         && covers_opt(loss_use_sos2, other.loss_use_sos2)
         && covers_opt(theta_max, other.theta_max)
@@ -477,7 +520,9 @@ struct ModelOptions
         && covers_opt(battery_annual_standing_loss,
                       other.battery_annual_standing_loss)
         && covers_opt(battery_power_envelope, other.battery_power_envelope)
-        && covers_opt(reserve_coupling, other.reserve_coupling);
+        && covers_opt(reserve_coupling, other.reserve_coupling)
+        && covers_opt(pricing_mode, other.pricing_mode)
+        && covers_opt(fast_start_max_hours, other.fast_start_max_hours);
   }
 };
 

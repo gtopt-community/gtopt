@@ -33,6 +33,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/memory_monitor.hpp>
 #include <gtopt/planning.hpp>
+#include <gtopt/pricing_mode.hpp>
 #include <gtopt/solver_options.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -457,6 +458,17 @@ template<typename T>
        "Recognised values: gtopt, plp, sddp, plexos, pypsa, pandapower "
        "(see naming_dialects.json for the authoritative list).  "
        "Shorthand for --set model_options.naming_dialect=<name>.")
+      //
+      ("pricing-mode",
+       po::value<std::string>(),
+       "Post-MIP pricing method for unit-commitment runs: `fixed` "
+       "(default; integers pinned at the MIP incumbent, LP re-solved), "
+       "`relaxed` (LP relaxation of the full MIP, ~convex-hull pricing) "
+       "or `fast_start` (fast-start units' commitment relaxed to [0,1], "
+       "the rest pinned).  The dispatch is always the MIP solution; only "
+       "the duals (LMPs) change.  A failed pricing LP falls back to "
+       "`fixed` (recorded in pricing.csv).  Shorthand for "
+       "--set model_options.pricing_mode=<name>.")
       //
       ("mip-gap",
        po::value<double>(),
@@ -1051,6 +1063,14 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.model_options.naming_dialect = opts.naming_dialect;
   }
 
+  if (opts.pricing_mode.has_value()) {
+    // Validate eagerly (a typo must not silently run `fixed`) and store
+    // the canonical name.
+    planning.options.model_options.pricing_mode =
+        OptName {std::string {enum_name(
+            require_enum<PricingMode>("pricing-mode", *opts.pricing_mode))}};
+  }
+
   if (opts.mip_gap.has_value()) {
     // CLI shortcut wins over any prior JSON setting — `--set
     // solver_options.mip_gap=…` is still available for full control,
@@ -1357,6 +1377,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .allow_oversupply = get_opt<bool>(vm, "allow-oversupply"),
       .no_mip = get_opt<bool>(vm, "no-mip"),
       .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
+      .pricing_mode = get_opt<std::string>(vm, "pricing-mode"),
       .mip_gap = get_opt<double>(vm, "mip-gap"),
       .time_limit = get_opt<double>(vm, "time-limit"),
       .mip_start_enable = get_opt<bool>(vm, "mip-start"),
@@ -1754,6 +1775,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.allow_oversupply, defaults.allow_oversupply);
   merge(opts.no_mip, defaults.no_mip);
   merge(opts.naming_dialect, defaults.naming_dialect);
+  merge(opts.pricing_mode, defaults.pricing_mode);
   merge(opts.mip_gap, defaults.mip_gap);
   merge(opts.time_limit, defaults.time_limit);
   merge(opts.memory_limit, defaults.memory_limit);

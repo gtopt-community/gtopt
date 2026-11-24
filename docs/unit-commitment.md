@@ -769,6 +769,7 @@ to exactly one generator via a foreign key.
 | `initial_hours` | real | no | — | hours | Hours in current state at $t = 0$ |
 | `relax` | boolean | no | `false` | — | LP relaxation: $u, v, w \in [0, 1]$ |
 | `must_run` | boolean | no | `false` | — | Force $u = 1$ at all times |
+| `fast_start` | boolean | no | auto | — | Fast-start unit for `pricing_mode = "fast_start"`; unset = auto rule (min up and min down ≤ `fast_start_max_hours`) |
 | `commitment_period` | real | no | — | hours | Coarser binary variable resolution |
 | `hot_start_cost` | real | no | — | $/start | Startup cost for hot start |
 | `warm_start_cost` | real | no | — | $/start | Startup cost for warm start |
@@ -851,6 +852,8 @@ The sources only report emissions until a zone they point to has a
 |-------|------|---------|------|-------------|
 | `continuous_phases` | string | `"none"` | — | Phase range expression for LP relaxation |
 | `objective_mode` | string | `"cost"` | — | `"emissions"` minimises emissions instead of cost ([§6.3](#63-combined-use)) |
+| `pricing_mode` | string | `"fixed"` | — | LP used for the nodal prices: `fixed`, `relaxed`, `fast_start` ([§11.1](#111-pricing-modes)) |
+| `fast_start_max_hours` | real | 1 | hours | Auto fast-start rule threshold |
 
 Emission prices and caps are not model options; they live on
 `EmissionZone` ([§6](#6-emission-cost-and-cap)).
@@ -890,6 +893,109 @@ the `output/Commitment/` directory:
 
 All files follow the standard GTOpt output format:
 `scenario, stage, block, uid:<commitment_uid>`.
+
+### 11.1 Pricing Modes
+
+The dispatch of a UC run is the MIP solution; the prices
+(`Bus/balance_dual`) come from a separate pricing LP chosen by
+`model_options.pricing_mode` (CLI `--pricing-mode`):
+
+| Mode | Prices from | Typical effect |
+|---|---|---|
+| `fixed` (default) | all integers fixed at the incumbent | a unit kept on at `pmin` prices below its cost (can be negative) |
+| `fast_start` | fixed, except fast-start units relaxed to [0, 1] | a committed peaker sets the price at its average cost |
+| `relaxed` | LP relaxation of the whole MIP | start-up / no-load costs of all units reflected; lowest uplift in practice |
+
+A commitment is fast-start when `fast_start: true`, or, when unset, if
+its `min_up_time` and `min_down_time` are both ≤
+`fast_start_max_hours` (default 1 h).  If the pricing LP is not optimal
+the `fixed` prices are kept and a warning is logged.  The output
+directory gets `pricing.csv`, one row per (scene, phase):
+
+```
+scene,phase,pricing_mode,applied_mode,fallback,attempted,relaxed_columns,pinned_columns,status,reason
+0,0,fast_start,fast_start,0,1,2,2,0,""
+```
+
+Compare modes with the uplift tool (make-whole + lost-opportunity):
+
+```bash
+for m in fixed relaxed fast_start; do
+  gtopt case.json --pricing-mode $m --output-directory out_$m
+done
+gtopt_pricing_uplift out_fixed out_relaxed out_fast_start --json-out uplift.json
+```
+
+The toy `cases/uc_pricing_*` (two units, two hours) gives prices
+(10, 10), (60, 12.5) and (60, 10) for `fixed`, `relaxed` and
+`fast_start`, with total uplift 3200, 1700 and 1900.
+
+#### Literature benchmarks
+
+The modes are checked against published non-convex pricing examples
+(`test/source/test_pricing_literature.cpp`, e2e cases
+`cases/uc_pricing_lit_*`, uplift in
+`scripts/gtopt_pricing_uplift/tests/test_literature.py`).  Parameters
+are typed in from the papers.  ✓ = matches the published value;
+≠ = expected difference, explained below the table.
+
+| Benchmark | Published | `fixed` | `relaxed` | `fast_start` |
+|---|---|---|---|---|
+| Scarf / O'Neill et al. [1] as adapted by Hogan & Ring [2], demands 1, 10, 22, 40, 61, 88, 145 | IP price 2 / 7 / 3 / 7 / 3 / 7 / 7; IP uplift (Σ start-up prices) 30 / −5 / 76 / −26 / 205 / −59 / −91; MinUP price 6.286 / 6.312 / 7; MinUP uplift e.g. 3.875 at 61 | ✓ prices, start-up prices (53 / 23 at 61) and Σ | ✓ exact convex hull 44/7, 101/16, 7; ✓ uplift | = `relaxed` (all units fast-start) ✓ |
+| Gribik, Hogan & Pope [3] two-plant example (figures only) | restricted / convex-hull / "dispatchable" MC curves | ✓ restricted MC 65 / 110 / 65 / 90 / 110 at 50 / 150 / 190 / 250 / 350 MW | ✓ convex hull 65 / 95 / 95 / 95 / 110; ≠ their dispatchable model (a) | = `relaxed` ✓ |
+| PJM [4] Ex. 1, 3 buses | restricted 67.5 / 50 / 32.5; integer relaxation 117 / 76 / 35; G2 uplift 2600 → 0 | ✓ ✓ | ✓ (same LP) | ✓ PJM pricing run |
+| PJM [4] Ex. 2 | restricted 75 / −15 / 30; integer relaxation 69.8 / 11 / 40.4 | ✓ bus 3, ≠ (b) bus 1 / 2 | ✓ | ✓ |
+| Hua & Baldick [5] Ex. 1 | LMP 50, CHP 12, CHPq 52; uplift 100 + 1900, 1430, 30 | ✓ 50; ✓ uplift | ✓ 12; ✓ uplift | ✓ 52 = CHPq with only unit 1 fast-start (c) |
+| Hua & Baldick [5] Ex. 2, ramp-coupled, 3 h | LMP 60 / 60 / 60 (U2 560); aCHP1 60 / 60 / 64; CHP 60 / 60 / 65.6 | ✓ prices, ✓ U2 560 | ≠ 60 / 60 / 63.08 (d) | = `relaxed` |
+| Eldridge, O'Neill & Hobbs [6] replicated example (N = 0) | LMP 25, idle Gen1 LOC 250 | ✓ 25, ✓ 250 | 15 (derived; not tabulated) | = `relaxed` |
+
+(a) GHP's "dispatchable" model spreads the fixed cost over the full
+capacity of each cost step (70 / 120 $/MWh for plant B).  gtopt gates
+every heat-rate kink row by `u` (`p − s_k ≤ P̄_k·u`), the perspective of
+the unit cost, so its relaxation of a single period is the convex hull
+(B at 95 $/MWh) — tighter than the dispatchable model.
+
+(b) Dual-degenerate: G1 is at its 450 MW maximum while line 1-2 binds,
+so every λ1 ≥ MC(450) supports the dispatch; PJM reports the bottom
+(75).  With the 1-MW secant piecewise cost used for the quadratic units
+the bottom is 74.975; the tests pin λ3 = 30 and λ1 + λ2 = 2·λ3.
+
+(c) Pinning the uncommitted unit 2 at 0 removes it from the pricing LP,
+which is exactly CHPq (and Eldridge et al.'s rCHP).  The uplift tool
+still reports unit 2's 2000 lost opportunity, which CHPq does not pay.
+
+(d) With ramp limits the LP relaxation of a unit is not the convex
+hull of its multi-period set (H&B add valid inequalities to reach it).
+gtopt's relaxed hour-3 price is 820/13 ≈ 63.08 $/MWh: the relaxation
+runs both units at fractional commitment and the fractional `u` also
+scales the start-up ramp.  The same LP written out by hand (scipy /
+HiGHS) gives the same duals.  So LMP 60 < gtopt 63.08 < aCHP1 64 <
+CHP 65.6.  The uplift tool also ignores ramps, so at the aCHP1 / CHP
+prices it reports \$360 for unit 2 instead of the published 160 / 0.
+
+PJM's per-unit uplift of its flexible units (Ex. 1: 619 + 31) comes
+from its settlement model (profit maximisation subject to the system
+constraints); those units carry no commitment and are outside the
+uplift tool.  MindOpt 2.3.0 crashes inside its own library on the PJM
+piecewise MIPs; the PJM tests run on CPLEX and HiGHS.
+
+[1] R. P. O'Neill et al., "Efficient market-clearing prices in markets
+with nonconvexities", EJOR 164(1):269-285, 2005,
+[doi:10.1016/j.ejor.2003.12.011](https://doi.org/10.1016/j.ejor.2003.12.011).
+[2] W. W. Hogan, B. J. Ring, "On Minimum-Uplift Pricing for Electricity
+Markets", HEPG, 2003,
+<https://lmpmarketdesign.com/papers/Hogan_Ring_minuplift_031903.pdf>.
+[3] P. R. Gribik, W. W. Hogan, S. L. Pope, "Market-Clearing Electricity
+Prices and Energy Uplift", HEPG, 2007,
+<https://lmpmarketdesign.com/papers/Gribik_Hogan_Pope_Price_Uplift_123107.pdf>.
+[4] PJM, "Proposed Enhancements to Energy Price Formation", 15 Nov
+2017, Appendix B (FERC docket EL18-34).
+[5] B. Hua, R. Baldick, "A Convex Primal Formulation for Convex Hull
+Pricing", IEEE TPWRS 32(5):3814-3823, 2017,
+[doi:10.1109/TPWRS.2016.2637718](https://doi.org/10.1109/TPWRS.2016.2637718).
+[6] B. Eldridge, R. O'Neill, B. F. Hobbs, "Pricing in Day-Ahead
+Electricity Markets with Near-Optimal Unit Commitment", EPRG WP 1840,
+2018, <https://www.jbs.cam.ac.uk/wp-content/uploads/2023/12/eprg-wp1840.pdf>.
 
 Piecewise heat-rate results are written by the generator
 (`Generator/srmc_sol` with the active-segment cost; the per-segment

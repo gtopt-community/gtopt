@@ -42,6 +42,7 @@
 #include <gtopt/lp_validation.hpp>
 #include <gtopt/matrix_stats.hpp>
 #include <gtopt/memory_compress.hpp>
+#include <gtopt/pricing_mode.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
@@ -2122,6 +2123,79 @@ public:
     return m_last_mip_polish_;
   }
 
+  /**
+   * @brief Duals of a post-MIP pricing LP, waiting to be published.
+   *
+   * Produced by `solve_pricing_lp` (on a clone, before the fixed-integer
+   * polish) and consumed by `install_pricing_duals` (after the polish).
+   * The vectors are raw (LP-space) and empty when `outcome.applied` is
+   * `PricingMode::fixed` (nothing to install — the polish duals stand).
+   */
+  struct PricingDuals
+  {
+    PricingOutcome outcome {};
+    std::vector<double> row_dual_raw {};
+    std::vector<double> col_cost_raw {};
+  };
+
+  /**
+   * @brief Solve the post-MIP pricing LP for @p mode on a clone.
+   *
+   * Pre-condition: a MIP solve just completed and holds an incumbent;
+   * call BEFORE `polish_mip` / `fix_integers_and_resolve` (the polish
+   * relaxes integrality on the live backend — CPLEX even switches the
+   * problem type — so the integer set must be read first).  This LP is
+   * never mutated: the pricing problem is built on a `clone()`:
+   *   - every integer column NOT relaxed by @p mode is pinned to its
+   *     rounded incumbent value;
+   *   - every SOS2 member is pinned to its incumbent value (an SOS
+   *     declaration is inert in a pure LP);
+   *   - integrality is dropped and the clone is solved as an LP.
+   * `relaxed` relaxes every integer column; `fast_start` relaxes the
+   * columns registered by `FlatLinearProblem::fast_start_cols`;
+   * `fixed` solves nothing (the polish IS the fixed pricing LP).
+   *
+   * A pricing LP that is not optimal (or a clone / solve error) yields
+   * `outcome.applied = fixed`, `outcome.fallback = true` and a reason —
+   * never an error: the caller keeps the fixed (polish) prices.
+   */
+  [[nodiscard]] PricingDuals solve_pricing_lp(PricingMode mode,
+                                              const SolverOptions& opts);
+
+  /**
+   * @brief Publish pricing duals while keeping the current primal.
+   *
+   * Call AFTER a successful `polish_mip`: the current primal (the MIP
+   * dispatch, polished) is kept and the row duals / reduced costs are
+   * replaced by @p pricing's.  The values are written to the LI solution
+   * cache, which every reader consults first (under
+   * `LowMemoryMode::off` this is a deliberate, pricing-scoped exception
+   * to I6, dropped again at the next solve entry point).  Always records
+   * `pricing.outcome` in `last_pricing()`; installs nothing when
+   * `outcome.applied` is `fixed` or the vector sizes do not match.
+   */
+  void install_pricing_duals(PricingDuals pricing);
+
+  /// Outcome of the last pricing pass (reset at every solve entry point).
+  [[nodiscard]] const PricingOutcome& last_pricing() const noexcept
+  {
+    return m_last_pricing_;
+  }
+
+  /// Record a pricing outcome without installing duals (e.g. the default
+  /// `fixed` mode, whose prices are the polish duals).
+  void set_last_pricing(PricingOutcome outcome) noexcept
+  {
+    m_last_pricing_ = std::move(outcome);
+  }
+
+  /// Integer columns relaxed by `pricing_mode = "fast_start"` (recorded at
+  /// `load_flat` from `FlatLinearProblem::fast_start_cols`, sorted).
+  [[nodiscard]] std::span<const int> fast_start_cols() const noexcept
+  {
+    return m_fast_start_cols_;
+  }
+
   /// True when the last solve was a MIP that holds an integer-feasible
   /// incumbent (optimal or stopped at a limit) — see
   /// `SolverBackend::has_mip_incumbent`.  False when the backend is
@@ -3155,6 +3229,19 @@ private:
   /// pin when the MIP is relaxed for dual recovery).
   std::vector<int> m_sos2_member_cols_;
 
+  /// Fast-start commitment columns (sorted), captured at ``load_flat``
+  /// from ``FlatLinearProblem::fast_start_cols`` — see `fast_start_cols()`.
+  std::vector<int> m_fast_start_cols_;
+
+  /// Outcome of the last pricing pass (`solve_pricing_lp` +
+  /// `install_pricing_duals` / `set_last_pricing`).
+  PricingOutcome m_last_pricing_ {};
+
+  /// True while the LI cache holds pricing duals installed by
+  /// `install_pricing_duals` (dropped at the next solve entry point under
+  /// `LowMemoryMode::off`, where the cache is otherwise unused).
+  bool m_pricing_installed_ {false};
+
   /// Latched by a BAILED `fix_integers_and_resolve` (see
   /// `FixIntegersOutcome::bailed` / `duals_unavailable()`): the MIP
   /// primal was preserved but no duals exist for it, so the dual /
@@ -3179,6 +3266,14 @@ private:
         m_cache_.drop_solution_caches();
       }
       m_duals_unavailable_ = false;
+    }
+    // Pricing duals installed in the LI cache (see
+    // `install_pricing_duals`) must not shadow the next solve either.
+    if (m_pricing_installed_) {
+      if (m_low_memory_mode_ == LowMemoryMode::off) {
+        m_cache_.clear_all_solution_vectors();
+      }
+      m_pricing_installed_ = false;
     }
   }
 

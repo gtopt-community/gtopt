@@ -956,6 +956,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       // majority of LPs, and bounded by the per-line K count for the
       // tangent_signed_flow L-secant path (issue #504).
       .sos2_sets = sos2_sets,
+      .fast_start_cols = fast_start_cols,
       .col_scales = std::move(col_scales),
       .row_scales = std::move(row_scales_vec),
       .equilibration_method = eq_method,

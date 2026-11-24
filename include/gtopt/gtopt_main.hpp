@@ -384,6 +384,12 @@ struct MainOptions
    * full semantics (input warn + output JSON rename). */
   std::optional<std::string> naming_dialect {};
 
+  /** @brief Post-MIP pricing method (CLI shortcut).
+   *
+   * Bound to the CLI flag `--pricing-mode <fixed|relaxed|fast_start>`.
+   * Forwards to `model_options.pricing_mode`; see the docstring there. */
+  std::optional<std::string> pricing_mode {};
+
   /** @brief Target relative MIP optimality gap (CLI shortcut).
    *
    * Bound to the CLI flag `--mip-gap <value>`.  Forwards to

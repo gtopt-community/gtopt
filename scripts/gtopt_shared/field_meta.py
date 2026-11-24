@@ -389,6 +389,16 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "loss_overflow_cost",
+            _J_NUM,
+            False,
+            (
+                "Price per MWh of loss carried by the overflow tier past "
+                "loss_envelope (default: demand_fail_cost; 0 disables)."
+            ),
+            None,
+        ),
+        (
             "loss_secant_segments",
             _J_INT,
             False,
@@ -825,6 +835,15 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         ("must_run", _J_BOOL, False, "Force committed: u = 1 always.", None),
+        (
+            "fast_start",
+            _J_BOOL,
+            False,
+            "Fast-start unit for pricing_mode = fast_start (status relaxed in "
+            "the pricing LP). Unset = auto rule: min_up_time and "
+            "min_down_time <= model_options.fast_start_max_hours.",
+            None,
+        ),
         (
             "fixed_status",
             _J_SCHED,

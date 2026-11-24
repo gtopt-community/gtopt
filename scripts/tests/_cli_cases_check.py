@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pandas as pd
 import pyarrow.parquet as pq
+import pytest
 
 from _cli_e2e import (
     CASES_DIR,
@@ -440,3 +441,33 @@ def case_reduce_and_solve(ctx: CliRun) -> None:
         ["reduce", CASES_DIR / "ieee_14b" / "ieee_14b.json", "-K", "4", "-o", reduced]
     )
     assert_solved(ctx.run_gtopt(reduced))
+
+
+@e2e("gtopt_pricing_uplift")
+def case_uplift_uc_pricing_fixed(ctx: CliRun) -> None:
+    """Uplift of the committed ``uc_pricing_fixed`` goldens (offline).
+
+    Hand-computed in ``cases/uc_pricing_fixed/README.md``: λ = 10 $/MWh in
+    both hours, make-whole 3200 $, no lost opportunity.
+    """
+    case = CASES_DIR / "uc_pricing_fixed"
+    report = ctx.tmp_path / "uplift.json"
+    csv = ctx.tmp_path / "uplift.csv"
+    res = ctx.run(
+        [
+            case / "output",
+            "--planning",
+            case / "uc_pricing_fixed.json",
+            "--json-out",
+            report,
+            "--csv-out",
+            csv,
+        ]
+    )
+    assert "TOTAL UPLIFT" in res.output, res.output[-2000:]
+    data = load_json(report)
+    assert data["pricing_mode"] == "fixed"
+    assert data["make_whole"] == pytest.approx(3200.0)
+    assert data["lost_opportunity"] == pytest.approx(0.0)
+    assert data["total_uplift"] == pytest.approx(3200.0)
+    assert not pd.read_csv(csv).empty

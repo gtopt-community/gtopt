@@ -25,8 +25,10 @@
 #include <optional>
 #include <ranges>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include <gtopt/ampl_dispatch_registry.hpp>
 #include <gtopt/basis_io.hpp>
@@ -42,6 +44,7 @@
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/mip_start.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/pricing_mode.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
@@ -2423,8 +2426,64 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
   const auto sel = options().write_out();
   const bool wants_duals = has_flag(sel.atoms, OutputFlags::dual)
       || has_flag(sel.atoms, OutputFlags::reduced_cost);
+  // ── Post-MIP pricing pass (`model_options.pricing_mode`) ──────────────
+  //
+  // `fixed` (default) prices ARE the polish duals below.  `relaxed` /
+  // `fast_start` solve a separate pricing LP on a clone — BEFORE the
+  // polish, which relaxes integrality on the live backend — and publish
+  // its duals after the polish, keeping the polished MIP dispatch as the
+  // primal.  A failed pricing LP falls back to the fixed prices (warned
+  // here, recorded in `pricing.csv`).
+  const auto pricing_mode = options().pricing_mode();
+  std::optional<LinearInterface::PricingDuals> pricing;
+  if (wants_duals && has_discrete && pricing_mode != PricingMode::fixed) {
+    pricing = li.solve_pricing_lp(pricing_mode, polish_options());
+    if (pricing->outcome.fallback) {
+      spdlog::warn(
+          "SystemLP::resolve [scene={} phase={}]: pricing_mode={} pricing "
+          "LP failed ({}) — falling back to fixed prices",
+          scene().uid(),
+          phase().uid(),
+          enum_name(pricing_mode),
+          pricing->outcome.reason);
+    }
+  }
+
   if ((wants_duals || polish_on) && has_discrete) {
     auto fix = li.polish_mip(polish_options());
+    if (pricing.has_value()) {
+      // Publish the pricing duals (or record the fallback) once the polish
+      // has settled the primal.  A failed / bailed polish leaves no duals:
+      // `install_pricing_duals` then records a fallback.
+      if (!fix) {
+        pricing->outcome.applied = PricingMode::fixed;
+        pricing->outcome.fallback = true;
+        pricing->outcome.reason = "fixed-integer polish failed";
+      }
+      li.install_pricing_duals(std::move(*pricing));
+      if (const auto& po = li.last_pricing(); po.attempted && !po.fallback) {
+        spdlog::info(
+            "SystemLP::resolve [scene={} phase={}]: pricing_mode={}: "
+            "published pricing-LP duals ({} integer column(s) relaxed, {} "
+            "pinned); dispatch = MIP solution",
+            scene().uid(),
+            phase().uid(),
+            enum_name(po.applied),
+            po.relaxed_columns,
+            po.pinned_columns);
+      }
+    } else if (wants_duals && fix) {
+      li.set_last_pricing(PricingOutcome {
+          .requested = pricing_mode,
+          .applied = PricingMode::fixed,
+          .attempted = fix->fixed_columns > 0 && !fix->bailed,
+          .fallback = fix->bailed,
+          .pinned_columns = fix->fixed_columns,
+          .status = fix->bailed ? -1 : 0,
+          .reason = fix->bailed ? std::string {"fixed-integer polish bailed"}
+                                : std::string {},
+      });
+    }
     if (!fix) {
       // The MIP solve already succeeded; a failed dual-recovery re-solve
       // should not fail the whole cell.  Warn and keep the MIP result

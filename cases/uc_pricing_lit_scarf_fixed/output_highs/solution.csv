@@ -1,0 +1,2 @@
+scene,phase,status,status_name,obj_value,kappa,max_kappa,gap,gap_change,solve_ticks,solve_time_s,solve_calls,infeasible_count,scale_objective,gtopt_version,gtopt_revision
+0,0,0,optimal,388,63.339563862928344,63.339563862928344,0,1,0.08236551284790039,0.082612672,2,0,1,1.1.0,0ac085ff60e6

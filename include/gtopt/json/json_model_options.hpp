@@ -37,6 +37,7 @@ struct json_data_contract<ModelOptions>
       json_number_null<"scale_theta", OptReal>,
       json_number_null<"scale_loss_link", OptReal>,
       json_number_null<"loss_cost_eps", OptReal>,
+      json_number_null<"loss_overflow_cost", OptReal>,
       json_number_null<"loss_secant_segments", OptInt>,
       json_bool_null<"loss_use_sos2", OptBool>,
       json_number_null<"theta_max", OptReal>,
@@ -58,7 +59,9 @@ struct json_data_contract<ModelOptions>
       json_bool_null<"allow_oversupply", OptBool>,
       json_number_null<"battery_annual_standing_loss", OptReal>,
       json_bool_null<"battery_power_envelope", OptBool>,
-      json_string_null<"reserve_coupling", OptName>>;
+      json_string_null<"reserve_coupling", OptName>,
+      json_string_null<"pricing_mode", OptName>,
+      json_number_null<"fast_start_max_hours", OptReal>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -76,6 +79,7 @@ struct json_data_contract<ModelOptions>
                                  opt.scale_theta,
                                  opt.scale_loss_link,
                                  opt.loss_cost_eps,
+                                 opt.loss_overflow_cost,
                                  opt.loss_secant_segments,
                                  opt.loss_use_sos2,
                                  opt.theta_max,
@@ -95,7 +99,9 @@ struct json_data_contract<ModelOptions>
                                  opt.allow_oversupply,
                                  opt.battery_annual_standing_loss,
                                  opt.battery_power_envelope,
-                                 opt.reserve_coupling);
+                                 opt.reserve_coupling,
+                                 opt.pricing_mode,
+                                 opt.fast_start_max_hours);
   }
 };
 

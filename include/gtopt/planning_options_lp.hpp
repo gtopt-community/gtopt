@@ -27,6 +27,7 @@
 #include <gtopt/line_enums.hpp>
 #include <gtopt/phase_range_set.hpp>
 #include <gtopt/planning_options.hpp>
+#include <gtopt/pricing_mode.hpp>
 #include <gtopt/variable_scale.hpp>
 
 namespace gtopt
@@ -561,6 +562,26 @@ public:
     return m_options_.model_options.battery_power_envelope.value_or(true);
   }
 
+  /// Post-MIP pricing method (`model_options.pricing_mode`).  Unset or an
+  /// unrecognised name resolves to `PricingMode::fixed` (validation
+  /// rejects unknown names up front).
+  [[nodiscard]] constexpr PricingMode pricing_mode() const
+  {
+    const auto& m = m_options_.model_options.pricing_mode;
+    if (!m.has_value()) {
+      return PricingMode::fixed;
+    }
+    return enum_from_name<PricingMode>(*m).value_or(PricingMode::fixed);
+  }
+
+  /// Auto-rule threshold [h] for fast-start commitments
+  /// (`model_options.fast_start_max_hours`, default 1 h).
+  [[nodiscard]] constexpr double fast_start_max_hours() const
+  {
+    return m_options_.model_options.fast_start_max_hours.value_or(
+        default_fast_start_max_hours);
+  }
+
   /// Returns the resolved threshold used by
   /// `PlanningLP::validate_line_resistance` when deciding whether a
   /// line's `|R/V²|` is small enough to warrant rewriting `R` to `0`
@@ -623,6 +644,40 @@ public:
   {
     return m_options_.model_options.loss_cost_eps.value_or(
         default_loss_cost_eps);
+  }
+
+  /// @brief Gets the price ($/MWh) on the loss carried by the overflow
+  /// tier of a decoupled ``loss_envelope``.
+  ///
+  /// Resolution: an explicit ``model_options.loss_overflow_cost``
+  /// (``0`` disables the guard) wins; unset → the case's own global
+  /// ``demand_fail_cost()`` (burning a MWh in the tier is then never
+  /// cheaper than shedding one — e.g. the PLEXOS VoLL 467.19 $/MWh in
+  /// CEN PCP cases; ``default_demand_fail_cost`` = 1000 $/MWh when
+  /// ``model_options.demand_fail_cost`` is unset); if that is ≤ 0 (an
+  /// explicit ``demand_fail_cost: 0``) → ``default_demand_fail_cost``
+  /// (1000 $/MWh; see ``loss_overflow_cost_is_fallback``).  Per-demand
+  /// ``Demand.fcost`` overrides are deliberately NOT consulted: the price
+  /// belongs to a line, not to any one demand, and the global value is the
+  /// case's reference VoLL.  Per-line ``Line.loss_overflow_cost`` overrides.
+  [[nodiscard]] constexpr double loss_overflow_cost() const
+  {
+    if (const auto& v = m_options_.model_options.loss_overflow_cost) {
+      return *v;
+    }
+    if (const double fc = demand_fail_cost(); fc > 0.0) {
+      return fc;
+    }
+    return default_demand_fail_cost;
+  }
+
+  /// @brief True when ``loss_overflow_cost()`` resolves to the 1000 $/MWh
+  /// fallback (no explicit value and an effective ``demand_fail_cost()``
+  /// that is not positive, i.e. an explicit ``demand_fail_cost: 0``).
+  [[nodiscard]] constexpr bool loss_overflow_cost_is_fallback() const
+  {
+    return !m_options_.model_options.loss_overflow_cost.has_value()
+        && !(demand_fail_cost() > 0.0);
   }
 
   /// @brief Gets the global default for ``Line.loss_secant_segments``

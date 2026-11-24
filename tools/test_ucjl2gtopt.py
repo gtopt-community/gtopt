@@ -671,6 +671,28 @@ def test_converter_emits_commitment_per_thermal(tmp_path: Path) -> None:
     assert commits["g2_uc"]["relax"] is True
 
 
+def test_converter_puts_committed_min_stable_level_on_commitment(
+    tmp_path: Path,
+) -> None:
+    """A committed unit's minimum stable level lives on ``Commitment.pmin``.
+
+    ``Generator.pmin`` is the always-on floor; leaving g1's 50 MW there
+    would force it on even when uncommitted.
+    """
+    ucjl = _write_ucjl(tmp_path)
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    system = json.loads(out.read_text())["system"]
+    gens = {g["name"]: g for g in system["generator_array"]}
+    commits = {c["name"]: c for c in system["commitment_array"]}
+    assert commits["g1_uc"]["pmin"] == pytest.approx(50.0)
+    assert gens["g1"].get("pmin", 0.0) == 0.0
+    assert "pmin" not in commits["g2_uc"]  # zero floor is not emitted
+    assert gens["g2"].get("pmin", 0.0) == 0.0
+
+
 def test_converter_handles_listoflist_cost_curve(tmp_path: Path) -> None:
     """v0.3 list-of-list cost curve → time-varying renewable profile.
 
@@ -1643,10 +1665,19 @@ def test_real_case118_initcond_topology_counts(tmp_path: Path) -> None:
 def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
     """LP-relax solve on the 118-bus benchmark (~26 K cols × ~29 K rows).
 
-    Pins ``obj = 2 082 550.73``.  A regression that drops generators
-    or mis-builds the piecewise cost matrix would shift this obj
-    materially; a regression in the reserve time-series path would
-    drop the reserve-credit term and push obj higher.
+    Pins ``obj = 6 018 377.79`` (HiGHS / CPLEX / CLP agree).  A
+    regression that drops generators or mis-builds the piecewise cost
+    matrix would shift this obj materially; a regression in the
+    reserve time-series path would leave the requirement unmet and
+    add ``urcost × shortfall`` on top.
+
+    History: the pin was ``3 425 747.79`` until 7fd5b5fbe ("objective
+    constant cancels the met soft-requirement valuation").  Before it,
+    a met soft reserve requirement reported a fictitious credit of
+    ``-urcost × Σ urreq`` = ``-1000 × 2 592.63 MWh`` = ``-2 592 630``;
+    now ``obj`` is the real operating cost.  The LP (dispatch,
+    commitment, duals) is unchanged: the shift is exactly that
+    constant.
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
@@ -1662,7 +1693,7 @@ def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(3_425_747.79, rel=1e-5)
+    assert obj == pytest.approx(6_018_377.79, rel=1e-5)
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")

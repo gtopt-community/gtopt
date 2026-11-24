@@ -966,6 +966,7 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // empty member record would silently skip the pin and republish the
   // freed-λ arbitrage vertex this record exists to prevent.
   cloned.m_sos2_member_cols_ = m_sos2_member_cols_;
+  cloned.m_fast_start_cols_ = m_fast_start_cols_;
   cloned.m_scaling_.equilibration_method = m_scaling_.equilibration_method;
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
@@ -1344,6 +1345,18 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     m_sos2_member_cols_.insert(
         m_sos2_member_cols_.end(), set.begin(), set.end());
     ++m_sos2_set_count_;
+  }
+
+  // Fast-start commitment columns for the `pricing_mode = "fast_start"`
+  // pricing LP (see `solve_pricing_lp`).  Sorted + deduplicated for the
+  // binary-search membership test; cleared first so a reconstruct-time
+  // reload does not accumulate duplicates.
+  m_fast_start_cols_.assign(flat_lp.fast_start_cols.begin(),
+                            flat_lp.fast_start_cols.end());
+  std::ranges::sort(m_fast_start_cols_);
+  {
+    const auto dup = std::ranges::unique(m_fast_start_cols_);
+    m_fast_start_cols_.erase(dup.begin(), dup.end());
   }
 
   // Build name maps — clear first so reconstruction doesn't accumulate

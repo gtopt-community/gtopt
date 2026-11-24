@@ -90,6 +90,13 @@ struct FlatLinearProblem
   /// majority of LPs; populated only by features that need SOS2
   /// (issue #504 line-loss L-secant chord).
   std::vector<std::vector<index_t>> sos2_sets;
+  /// Integer columns (u/v/w commitment columns of fast-start units)
+  /// relaxed to continuous in the `pricing_mode = "fast_start"` pricing
+  /// LP; every other integer stays pinned at the MIP incumbent.
+  /// Collected via ``LinearProblem::add_fast_start_cols`` and recorded by
+  /// ``LinearInterface::load_flat``.  Empty unless the LP has fast-start
+  /// commitments.
+  std::vector<index_t> fast_start_cols {};
   std::vector<double> col_scales;  ///< Per-column physical-to-LP scale factors
                                    ///< (physical = LP × scale; default 1.0)
   std::vector<double> row_scales;  ///< Per-row equilibration scale factors
@@ -732,6 +739,21 @@ public:
     add_sos2(std::span<const ColIndex> {columns.begin(), columns.size()});
   }
 
+  /// Register integer columns of a fast-start unit (its commitment
+  /// u/v/w) — see ``FlatLinearProblem::fast_start_cols``.
+  void add_fast_start_cols(std::span<const ColIndex> columns)
+  {
+    for (const auto& c : columns) {
+      fast_start_cols.push_back(static_cast<index_t>(c));
+    }
+  }
+
+  /// Fast-start columns registered so far (test / diagnostic accessor).
+  [[nodiscard]] std::span<const index_t> get_fast_start_cols() const noexcept
+  {
+    return fast_start_cols;
+  }
+
 private:
   /// Clamp a bound in-place: DblMax → +infinity, -DblMax → -infinity.
   constexpr void normalize_bound(double& value) const noexcept
@@ -753,6 +775,8 @@ private:
   /// to ``FlatLinearProblem::sos2_sets`` at ``flatten()`` and to
   /// ``SolverBackend::add_sos2`` at ``load_flat``.
   std::vector<std::vector<index_t>> sos2_sets;
+  /// Fast-start commitment columns (see ``add_fast_start_cols``).
+  std::vector<index_t> fast_start_cols {};
   double m_infinity_ {DblMax};  ///< Target infinity for bound normalization
   /// Physical-scale objective constant accumulated via
   /// `add_obj_constant`.  Forwarded into `FlatLinearProblem` by

@@ -3473,6 +3473,37 @@ def _commitment_relax_plan(case: PlexosCase, mode: str) -> CommitmentRelaxPlan:
     return plan
 
 
+#: Fast-start horizon [h]: gtopt's ``model_options.fast_start_max_hours``
+#: default — a fast-start unit can come online and reach its minimum
+#: stable level within one hour.
+FAST_START_MAX_HOURS = 1.0
+
+
+def plexos_fast_start(c: CommitmentSpec) -> bool | None:
+    """Explicit ``Commitment.fast_start`` from PLEXOS data, or ``None``.
+
+    PLEXOS has no fast-start flag, so the converter emits one only when the
+    data clearly decide it, and otherwise leaves the classification to
+    gtopt's auto rule (``min_up_time`` and ``min_down_time`` <=
+    ``fast_start_max_hours``, default 1 h):
+
+    * min up or min down > 1 h → ``None``: the auto rule already says
+      "not fast-start".
+    * ``Run Up Rate`` given (``startup_ramp`` = Run Up Rate × 60 MW in the
+      start-up hour) and a positive ``Min Stable Level`` → ``True`` when
+      the unit reaches its minimum stable level within the start-up hour
+      (GT / diesel / engine-like), ``False`` when it cannot — a slow
+      run-up the min up / down rule alone would miss.
+    * otherwise ``None`` (auto rule).
+    """
+    if c.min_up_time > FAST_START_MAX_HOURS or c.min_down_time > FAST_START_MAX_HOURS:
+        return None
+    floor = max(c.pmin_profile) if c.pmin_profile else c.pmin
+    if c.startup_ramp > 0.0 and floor > 0.0:
+        return c.startup_ramp >= floor
+    return None
+
+
 def build_commitment_array(
     commitments: tuple[CommitmentSpec, ...],
     *,
@@ -3565,6 +3596,13 @@ def build_commitment_array(
             entry["ramp_down"] = c.ramp_down
         if c.startup_ramp > 0.0:
             entry["startup_ramp"] = c.startup_ramp
+        # Fast-start pricing flag (``model_options.pricing_mode =
+        # "fast_start"``): emitted only when PLEXOS data settles it — see
+        # :func:`plexos_fast_start`.  Otherwise gtopt's auto rule
+        # (min up / down <= ``fast_start_max_hours``) decides.
+        fast_start = plexos_fast_start(c)
+        if fast_start is not None:
+            entry["fast_start"] = fast_start
         # initial_status / initial_hours: emit even when zero so the
         # LP knows the unit was offline at t=0.
         entry["initial_status"] = c.initial_status
