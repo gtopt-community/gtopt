@@ -1,0 +1,344 @@
+% ============================================================================
+% Section IV: Natural-Gas Network
+% ============================================================================
+
+\section{Natural-Gas Network}
+\label{sec:gas}
+
+Gas-fired units connect the power system to a pipeline network whose
+pressures, compressor stations and line pack limit how much fuel can
+reach each plant and when.  \gtopt{} represents this network with six
+native elements (gas nodes, supplies, demands, pipes, compressors and
+gas-turbine links) that are assembled into the same LP as the power
+system of Section~\ref{sec:formulation}.  The model is steady state per
+block, linear in the squared pressure, and contains no binary variable,
+so it can be used by every solution method of
+Section~\ref{sec:methods}.  Its compressor model follows
+Saldarriaga~\cite{saldarriaga2018phd}, and its pipe model the
+squared-pressure Weymouth form of De~Wolf and
+Smeers~\cite{dewolf2000gas} and Menon~\cite{menon2005gas}.
+
+\subsection{Sets, Units and Variables}
+
+\begin{itemize}
+  \item $\setN^{\mathrm{g}}$: gas nodes, indexed by $i, j$;
+  \item $\mathcal{A}$: pipes, indexed by $a$, from inlet $i_a$ to
+        outlet $j_a$;
+  \item $\mathcal{C}$: compressor stations, indexed by $c$, from
+        suction $i_c$ to discharge $j_c$;
+  \item $\mathcal{K}$: gas supplies (fields, pipeline imports, LNG
+        regasification), indexed by $k$, at node $i_k$;
+  \item $\setD^{\mathrm{g}}$: gas demands, indexed by $d$, at node $i_d$;
+  \item $\setG^{\mathrm{g}} \subseteq \setG$: gas-fired generators,
+        each linked to a delivery node $i_g$.
+\end{itemize}
+Flows are in thousands of standard cubic metres per hour
+[km\textsuperscript{3}/h], pressures in bar (absolute), line pack in
+km\textsuperscript{3}, gas costs in \$/km\textsuperscript{3} and heat
+rates in km\textsuperscript{3}/MWh.  The node pressure $\varrho_i$
+enters the LP only through its square,
+\begin{equation}
+\label{eq:gas_pi}
+\varpi_{i,s,t,b} = \varrho_{i,s,t,b}^2
+  \in \bigl[\underline{\varrho}_i^{\,2},\, \overline{\varrho}_i^{\,2}\bigr]
+  \quad \text{[bar\textsuperscript{2}]},
+\end{equation}
+which makes the steady-state pipe and compressor relations linear or
+convex.  The other variables are the supply $x_k$, the gas shed
+$y_d \in [0, L_d]$, the pipe flow $f^{\mathrm{g}}_a$ (or the inlet and
+outlet flows $f^{\mathrm{in}}_a, f^{\mathrm{out}}_a$ when the pipe
+stores gas), the line pack $v^{\mathrm{lp}}_a$, the compressor
+throughput $\psi_c$, its fuel $\phi_c$ and the power $p^{\mathrm{el}}_c$
+of an electric drive.  The scenario, stage and block indices are
+dropped below; every row holds for each $(s,t,b)$ unless stated
+otherwise.
+
+\subsection{Gas Balance and Nodal Gas Prices}
+
+Each node balances, in every block, injections against withdrawals:
+\begin{multline}
+\label{eq:gas_balance}
+\sum_{k:\,i_k=i} x_k
++ \sum_{a:\,j_a=i} f^{\mathrm{out}}_a
+- \sum_{a:\,i_a=i} f^{\mathrm{in}}_a
++ \sum_{c:\,j_c=i} \psi_c \\
+- \sum_{c:\,i_c=i} \chi_c \bigl[(1+\gamma^{\mathrm{ff}}_c)\psi_c
+  + \phi_c\bigr]
+- \sum_{c:\,i_c=i} (1-\chi_c)\,\psi_c \\
+- \sum_{g\in\setG^{\mathrm{g}}:\,i_g=i} h_g\, p_g
++ \sum_{d:\,i_d=i} y_d
+= \sum_{d:\,i_d=i} L_d ,
+\end{multline}
+where $f^{\mathrm{in}}_a = f^{\mathrm{out}}_a = f^{\mathrm{g}}_a$ for a
+pipe without line pack, $\chi_c = 1$ for a gas-driven station (its fuel
+is drawn at the suction node) and $0$ for an electric drive,
+$\gamma^{\mathrm{ff}}_c$ is a fixed fuel fraction (zero unless that fuel
+model is selected), $h_g$ is the heat rate of generator~$g$, and $L_d$
+the gas load.  Supplies cost $c_k$ and shed gas $c^{\mathrm{fail}}_d$,
+both weighted by $\omega_{s,t,b}$ as in~\eqref{eq:opcost}; a supply may
+also carry a stage volume
+\begin{equation}
+\label{eq:gas_volume}
+\sum_{b \in \setB_t} \Delta_b\, x_{k,s,t,b} \le V_{k,t},
+\end{equation}
+which represents an LNG cargo or a pipeline allotment.
+
+The dual $\mu_i$ of~\eqref{eq:gas_balance} is the nodal gas price
+[\$/km\textsuperscript{3}], the gas analogue of the LMP.  Because the
+fuel of a gas-fired unit enters~\eqref{eq:gas_balance} with coefficient
+$-h_g$ on the same column $p_g$ that enters the bus
+balance~\eqref{eq:balance}, the optimality conditions of a unit
+dispatched strictly between its bounds, with no other active coupling
+constraint, give
+\begin{equation}
+\label{eq:gas_price_link}
+\lambda_{n_g} = c_g + h_g\, \mu_{i_g} + \nu^{\mathrm{gate}}_g ,
+\end{equation}
+where $\lambda_{n_g}$ is the electricity price at its bus and
+$\nu^{\mathrm{gate}}_g \geq 0$ the dual of its pressure gate
+(Section~\ref{sec:gas_turbine}).  The gas price is therefore set by the
+gas supply when the network is uncongested, and by the electricity
+price, $(\lambda_{n_g} - c_g)/h_g$, when the delivery to the plant is
+limited.  For a flowing pipe without line pack, the reduced-cost
+condition of $f^{\mathrm{g}}_a$ gives
+$\mu_{j_a} - \mu_{i_a} = \sum_m 2K^e_a t_{a,m}\, \nu^{W}_{a,m}$ plus the
+capacity dual, with $\nu^{W}_{a,m} \geq 0$ the duals of the Weymouth
+rows~\eqref{eq:gas_weymouth}: the gas price rises along the flow only
+when pressure is scarce, i.e.\ when a pressure bound binds somewhere
+in the network.
+
+\subsection{Pipes: Weymouth Equation and its Tangent Approximation}
+
+The steady-state flow of a horizontal pipe follows the Weymouth
+equation in squared pressure,
+$\varpi_{i_a} - \varpi_{j_a} = K_a\, f^{\mathrm{g}}_a |f^{\mathrm{g}}_a|$,
+whose constant [bar\textsuperscript{2}/(km\textsuperscript{3}/h)\textsuperscript{2}]
+is either given or computed from the SI Weymouth formula of
+Menon~\cite[eq.~(2.62)]{menon2005gas}, converted from
+(m\textsuperscript{3}/d, kPa) to (km\textsuperscript{3}/h, bar):
+\begin{equation}
+\label{eq:gas_weymouth_k}
+K_a = \frac{G\, T_f\, L_a\, Z}
+  {\bigl(3.7435\cdot 10^{-3}\, E_a\, (T_b/P_b)\, D_a^{2.667}\bigr)^2}
+  \cdot \frac{24000^2}{10^4},
+\end{equation}
+with length $L_a$ [km], inner diameter $D_a$ [mm], pipeline efficiency
+$E_a$ (default 0.92), gas specific gravity $G$ (0.6), flowing
+temperature $T_f$ (288.15~K), compressibility $Z$ (0.9) and base
+conditions $T_b = 288.15$~K, $P_b = 101.325$~kPa.
+
+\paragraph{Radial networks.}
+When the flow direction of every pipe is known, as in a tree, the flow
+is $f^{\mathrm{g}}_a \in [0, \overline{F}_a]$, and the equality is
+relaxed to the convex $\varpi_{i_a} - \varpi_{j_a} \geq K_a (f^{\mathrm{g}}_a)^2$.
+This relaxation is replaced by $N_a$ tangent planes, the outer
+approximation used by Tomasgard et al.~\cite{tomasgard2007gas} and by
+Ordoudis et al.~\cite{ordoudis2019gas}, here written with the elevation
+term introduced below:
+\begin{equation}
+\label{eq:gas_weymouth}
+\varpi_{i_a} - e^{\zeta_a}\varpi_{j_a}
+  \geq K^e_a \bigl(2 t_{a,m}\, \tilde f_a - t_{a,m}^2\bigr),
+  \quad m = 1,\dots,N_a .
+\end{equation}
+Here $\tilde f_a$ is the pipe flow, or the mean
+$(f^{\mathrm{in}}_a + f^{\mathrm{out}}_a)/2$ when the pipe stores gas.
+With the default uniform layout, $t_{a,m} = (2m-1)\overline{F}_a/(2N_a)$,
+the squared-pressure error of the envelope is at most
+$K^e_a(\overline{F}_a/2N_a)^2$; an alternative layout places the
+tangents uniformly in $\arcsin(\sqrt{K_a} f / \overline{\varrho}_{i_a})$,
+which evens out the relative error of the outlet pressure.  The
+relaxation allows the LP to drop more pressure than the flow requires.
+On a radial network this slack is physically realisable by a pressure
+regulator at the pipe end and, since pressure carries no cost, the LP
+has no incentive to use it, unless an upper pressure bound downstream
+binds.  For every pipe and block, \gtopt{} reports the Weymouth gap
+$\varpi_{i_a} - e^{\zeta_a}\varpi_{j_a} - K^e_a \tilde f_a|\tilde f_a|$
+and the corresponding outlet-pressure error, and warns when the latter
+exceeds 0.1~bar.  The case of Section~\ref{sec:gas_bench} in which this
+happens is detected by that report.
+
+\paragraph{Elevation.}
+A pipe that climbs from $h_{i_a}$ to $h_{j_a}$ [m] follows the
+steady-state equation with gravity~\cite[\S 2.9]{menon2005gas},
+\begin{gather}
+\varpi_{i_a} - e^{\zeta_a}\varpi_{j_a} = K^e_a\, f|f|,
+\label{eq:gas_elevation} \\
+\zeta_a = \frac{2\,g\,M\,(h_{j_a} - h_{i_a})}{Z\,R\,T},
+\qquad
+K^e_a = K_a \frac{e^{\zeta_a} - 1}{\zeta_a},
+\nonumber
+\end{gather}
+with $M = G\, M_{\mathrm{air}}$, $g = 9.80665$~m/s\textsuperscript{2},
+$R = 8.314$~J/(mol\,K), and $K^e_a \to K_a$ as $\zeta_a \to 0$.  Both
+sides stay linear in $\varpi$, so~\eqref{eq:gas_weymouth} keeps its
+form.  The term matters for networks that cross mountain ranges: a
+rise of 4000~m gives $\zeta_a \approx 0.63$, i.e.\ the attainable
+outlet squared pressure is divided by $e^{\zeta_a} \approx 1.9$ before
+friction is accounted for.
+
+\paragraph{Meshed networks and sequential LP.}
+In a loop the flow direction is not known in advance and the equality
+is non-convex.  A pipe in \emph{linearized} mode therefore has a signed
+flow $f^{\mathrm{g}}_a \in [-\overline{F}_a, \overline{F}_a]$ and one
+equality per block, linearised at a reference flow $f^0_a$, either as
+the secant
+$\varpi_{i_a} - e^{\zeta_a}\varpi_{j_a} = K^e_a |f^0_a|\,\tilde f_a$
+or as the tangent
+$\varpi_{i_a} - e^{\zeta_a}\varpi_{j_a} = 2K^e_a|f^0_a|\,\tilde f_a
+- K^e_a f^0_a|f^0_a|$.
+Both are exact at $\tilde f_a = f^0_a$.  A sequential LP (SLP) repeats
+three steps after the first solve: it updates
+$f^0_a \leftarrow f^0_a + \omega (\tilde f_a - f^0_a)$ with damping
+$\omega$, re-issues the row coefficients through the same
+re-linearisation interface used by the volume-dependent hydro elements
+of Section~\ref{sec:hydro} (seepage and discharge limits), and
+re-solves.  It stops when the largest
+relative flow change falls below a tolerance.  When gas costs tie, the
+LP has several optimal vertices between which the iterates can
+alternate; a proximal row
+$\tilde f_a - d^+_a + d^-_a = f^0_a$, with a small cost on
+$d^+_a + d^-_a$, selects among them the vertex nearest $f^0_a$.  At the
+fixed point the rows satisfy the exact Weymouth equation; the point is
+stationary, but its global optimality is not certified.  The SLP runs
+with the monolithic method; under SDDP the rows are re-issued at the
+stored reference flows in every forward pass, but the reference flows
+are not updated.  A valve is an
+open connection with signed flow and $\varpi_{j_c} = \varpi_{i_c}$, and
+an arc without pressure coupling, $0 \leq f \leq \overline{F}$, models a
+delivery through a parallel system.
+
+\subsection{Line Pack}
+\label{sec:gas_linepack}
+
+A pipe with line pack splits its flow into inlet and outlet flows.  The
+stored gas $c_a(\varrho_{i_a} + \varrho_{j_a})/2$ is linearised at a
+reference pressure $\varrho^{r}_a$ through
+$\varrho \approx (\varpi + (\varrho^{r}_a)^2)/(2\varrho^{r}_a)$:
+\begin{align}
+v^{\mathrm{lp}}_{a,b}
+  &= \frac{c_a}{4\varrho^{r}_a}\bigl(\varpi_{i_a,b} + \varpi_{j_a,b}\bigr)
+   + \frac{c_a\,\varrho^{r}_a}{2},
+   \label{eq:gas_linepack_def} \\
+v^{\mathrm{lp}}_{a,b}
+  &= v^{\mathrm{lp}}_{a,b-1}
+   + \Delta_b\bigl(f^{\mathrm{in}}_{a,b} - f^{\mathrm{out}}_{a,b}\bigr),
+   \label{eq:gas_linepack_bal} \\
+v^{\mathrm{lp}}_{a,|\setB_t|} &\geq v^{\mathrm{lp},0}_a ,
+   \label{eq:gas_linepack_end}
+\end{align}
+where $c_a = \pi D_a^2 L_a/(4 Z P_b)\,(T_b/T)$ is the geometric
+capacity [km\textsuperscript{3}/bar] and $v^{\mathrm{lp},0}_a$ the
+initial pack, by default derived from the initial node pressures.  The
+pack thus plays the role of a storage whose level is tied to the
+pressures, and~\eqref{eq:gas_linepack_bal} has the same form as the
+storage balance of Section~\ref{sec:battery}.  The terminal
+condition~\eqref{eq:gas_linepack_end} closes a daily cycle; it can be
+dropped so that the pack is drawn down to the pressure bounds, e.g.\ in
+multi-day supply-interruption studies.  The linearisation overestimates
+the pressure by $(\varrho - \varrho^{r}_a)^2/(2\varrho^{r}_a)$, about
+5\% of the pack for a $\pm 20$~bar swing.  The line pack is held
+within each stage; it is not an SDDP state variable.
+
+\subsection{Compressor Stations}
+
+A station raises the pressure up to a maximum ratio
+$\overline{\beta}_c$:
+\begin{equation}
+\label{eq:gas_ratio}
+\varpi_{j_c} \leq \overline{\beta}_c^{\,2}\, \varpi_{i_c},
+\qquad
+\varpi_{j_c} \geq \varpi_{i_c},
+\qquad
+0 \leq \psi_c \leq \overline{F}_c .
+\end{equation}
+The second row is omitted for a station that may be bypassed, which
+then acts as a pressure regulator.  Three fuel models are available: no
+fuel; a fixed fraction $\phi_c = \gamma^{\mathrm{ff}}_c \psi_c$; and the
+model of Saldarriaga~\cite[eqs.~(2.70)--(2.72)]{saldarriaga2018phd},
+$\phi_c = \gamma_c(\beta_c^{\alpha} - 1)\psi_c$ with
+$\beta_c = \varrho_{j_c}/\varrho_{i_c}$ and
+$\alpha = (k-1)/k = 0.2308$ for an isentropic exponent $k = 1.3$.
+Written in squared pressure, this fuel is homogeneous of degree one in
+$\psi_c$ and zero in $\varpi$, so its first-order Taylor plane at an
+operating point $(\psi^0_c, \varpi^0_{i_c}, r^0_c\varpi^0_{i_c})$, with
+$r^0_c = (\beta^0_c)^2$, has no constant term:
+\begin{multline}
+\label{eq:gas_fuel_plane}
+\phi_c \geq \gamma_c\bigl((\beta^0_c)^{\alpha} - 1\bigr)\psi_c \\
++ \gamma_c \frac{\alpha}{2}\,\psi^0_c\,(r^0_c)^{\alpha/2 - 1}
+  \frac{\varpi_{j_c} - r^0_c\,\varpi_{i_c}}{(\varrho^0_{i_c})^2},
+\qquad \phi_c \geq 0 .
+\end{multline}
+One plane is added per operating ratio $\beta^0_c$, so that several
+planes form a piecewise-linear lower envelope.  The inequality is tight
+whenever the plane is positive, because fuel costs gas.  When not given,
+$\gamma_c$ is derived from the adiabatic compression head
+$H = \frac{Z R T_b}{M}\frac{k}{k-1}(\beta^{\alpha}-1)/\eta_c$ and the
+fuel $H/(\eta_{\mathrm{drv}}\,\mathrm{LHV})$, with compressor and driver
+efficiencies $\eta_c = 0.80$ and $\eta_{\mathrm{drv}} = 0.33$, which
+gives $\gamma_c \approx 0.043$.  The fixed fraction defaults to the same
+fuel at the maximum ratio, $\gamma_c(\overline{\beta}_c^{\,\alpha}-1)$.
+An electric drive does not burn gas; it adds a load
+$p^{\mathrm{el}}_c = \kappa^{\mathrm{el}}_c \phi_c \leq
+\overline{P}^{\mathrm{el}}_c$ to its bus balance~\eqref{eq:balance},
+with $\kappa^{\mathrm{el}}_c =
+\mathrm{LHV}\,\eta_{\mathrm{drv}}/\eta_{\mathrm{mot}} \approx 3.3$
+MW per km\textsuperscript{3}/h.  Compressor on/off decisions are not
+modelled.
+
+\subsection{Gas-Fired Units: Fuel, Pressure Gate and Boosters}
+\label{sec:gas_turbine}
+
+A gas-turbine link couples generator $g$ to its delivery node $i_g$.
+Its fuel $h_g p_g$ is withdrawn in~\eqref{eq:gas_balance}.  When the
+turbine requires a minimum fuel-gas pressure $\underline{\varrho}_g$,
+its capability is a concave piecewise-linear function of the squared
+pressure:
+\begin{align}
+p_g &\leq s^{(1)}_g\bigl(\varpi_{i_g}
+  - (\underline{\varrho}_g - \delta_g)^2\bigr),
+  \label{eq:gas_gate} \\
+p_g &\leq o_g\overline{P}_g
+  + s^{(2)}_g\bigl(\varpi_{i_g} - \underline{\varrho}_g^{\,2}\bigr),
+  \label{eq:gas_derate}
+\end{align}
+with $s^{(1)}_g = o_g\overline{P}_g/(\underline{\varrho}_g^{\,2}
+- (\underline{\varrho}_g - \delta_g)^2)$ and
+$s^{(2)}_g = (1 - o_g)\overline{P}_g/((\varrho^{\mathrm{nom}}_g)^2
+- \underline{\varrho}_g^{\,2})$.  The gate~\eqref{eq:gas_gate} ramps the
+output from zero at $(\underline{\varrho}_g - \delta_g)^2$ to
+$o_g\overline{P}_g$ at $\underline{\varrho}_g^{\,2}$, where $\delta_g$
+(default 0.5~bar) is a supply tolerance.  The derate
+line~\eqref{eq:gas_derate} is added when a nominal pressure
+$\varrho^{\mathrm{nom}}_g > \underline{\varrho}_g$ is given, and raises
+the output from $o_g\overline{P}_g$ (by default
+$o_g = \underline{\varrho}_g/\varrho^{\mathrm{nom}}_g$) to
+$\overline{P}_g$; it is dropped if it would make the capability
+non-concave.  Because the intercept of~\eqref{eq:gas_gate} is negative,
+the gate holds the delivery node above the bottom of the band even when
+the unit is off.  Switching the gate off below the band is a
+non-convex condition that requires a binary variable; it is not part of
+the LP.
+
+A fuel-gas booster is a compressor station between the end of the plant
+lateral and the turbine header, typically electrically driven and
+bypassable.  It lifts the delivery pressure above the gate at the cost
+of motor power, which enters the bus balance, and of compressor fuel,
+which enters the gas balance, so the LP decides when boosting is worth
+its cost.
+
+\subsection{LNG Supply}
+
+LNG enters the gas network as a supply tagged as regasification, whose
+rate is bounded by the send-out capacity and whose stage volume is
+bounded by~\eqref{eq:gas_volume}.  The tank inventory itself is the LNG
+terminal of Section~\ref{sec:lng}, which is coupled to the gas-fired
+units through their heat rates; linking its send-out to a gas node is
+not yet supported.  Gas supply described without a network, as priced
+fuel bands with offtake budgets, is also common in operation models.
+The \texttt{plexos2gtopt} converter keeps such bands either as fuels
+with budget constraints or as fuel tanks drained by their generators,
+with the leftover valued by a terminal future-cost variable; the tank
+is a state variable, so the gas opportunity cost is carried between
+SDDP phases like a water value.

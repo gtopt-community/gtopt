@@ -58,7 +58,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 
 | Field                  | Type    | Default   | Units         | Description |
 |------------------------|---------|-----------|---------------|-------------|
-| `demand_fail_cost`     | number  | *(none)*  | $/MWh         | Penalty cost for unserved demand (value of lost load) |
+| `demand_fail_cost`     | number  | `1000`    | $/MWh         | Penalty cost for unserved demand (value of lost load); see [Unserved-demand cost and hard demand](#unserved-demand-cost-and-hard-demand) |
 | `battery_annual_standing_loss`  | number  | `0.48`    | p.u./year     | Self-discharge for batteries without `annual_standing_loss` (4 %/month; `0` = legacy lossless). See [Battery self-discharge default](#battery-self-discharge-default) |
 | `battery_power_envelope` | boolean | `true`  | --            | Per-block valid inequality `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` on every battery; `false` restores the pre-envelope LP |
 | `reserve_fail_cost`    | number  | *(none)*  | $/MWh         | Penalty cost for unserved spinning reserve |
@@ -301,7 +301,7 @@ time with a warning.
 |-----------------------|-----------|-----------|-------------|
 | `apertures`           | int array | *(absent)*| Aperture UIDs for backward pass. Absent = use per-phase `apertures`. Empty `[]` = pure Benders. Non-empty = use exactly these UIDs |
 | `aperture_directory`  | string    | `""`      | Directory for aperture-specific scenario data (empty = use `input_directory`) |
-| `aperture_timeout`    | number    | `15.0`    | Timeout in seconds for individual aperture LP solves (0 = no timeout) |
+| `aperture_timeout`    | number    | `30.0`    | Timeout in seconds for individual aperture LP solves (0 = no timeout) |
 | `save_aperture_lp`    | boolean   | `false`   | Save LP files for infeasible apertures to `log_directory` |
 
 #### Timeouts and warm-start
@@ -379,7 +379,7 @@ fields:
 | `loss_segments`        | integer | `1`     | Number of piecewise-linear loss segments |
 | `scale_objective`      | number  | `1000`  | Divisor for objective coefficients |
 | `scale_theta`          | number  | auto    | Voltage-angle enlargement: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians |
-| `demand_fail_cost`     | number  | *(none)*| Penalty cost for unserved demand [$/MWh] |
+| `demand_fail_cost`     | number  | `1000`  | Penalty cost for unserved demand [$/MWh] |
 | `reserve_fail_cost`    | number  | *(none)*| Penalty cost for unserved reserve [$/MWh] |
 
 > **Note**: `annual_discount_rate` has moved to the `simulation`
@@ -625,6 +625,23 @@ A scenario represents a possible future realization (hydrology, demand level, et
 | `probability_factor`| number  | p.u.  | No       | Probability weight (values are normalised to sum to 1) |
 | `active`            | boolean | —     | No       | Whether the scenario is active |
 
+`probability_factor` values are **global** probabilities: a scene's weight
+is the sum of its scenarios' factors, and the total over all scenes should
+be 1.  When it is not, a warning is always logged and, unless
+`simulation.probability_rescale` is `none` (warn only), the values are
+rescaled at build time (`build`, and `runtime`, the default):
+
+1. total ≈ 1: left untouched;
+2. every scene sums to ≈ 1 (two or more scenes; a single-scenario scene
+   qualifies with factor 1): read as **conditional per-scene**
+   probabilities — every factor is divided by the number of scenes, so
+   the scenes get equal weight;
+3. any other total: every factor is divided by the total, keeping the
+   relative scene weights.  This changes the expected OPEX relative to
+   CAPEX.  A total outside [0.5, 2] usually means the values are
+   representative-period weights (e.g. day counts); in gtopt those belong
+   in the block/stage `duration`, not in `probability_factor`.
+
 ### 2.4 Phase
 
 A phase groups consecutive planning stages into a higher-level period.
@@ -753,6 +770,7 @@ A generation unit connected to a bus.
 | `emission_rate`  | number\|array\|string| tCO₂/MWh   | No       | **Legacy** CO₂ emission rate (scalar only), folded into a `co2` `EmissionSource`. Prefer `emissions` or `emission_source_array`; see [Emissions](#325-emissions) |
 | `emissions`      | array                | —            | No       | Inline `EmissionSource` rows (`zone`, `emission`, `rate`, `upstream_rate`) for this generator |
 | `emission_captures` | array             | —            | No       | CCS per pollutant: `emission`, capture fraction `rate` [p.u.], `cost` [$/t captured] |
+| `initial_generation` | number           | MW           | No       | Dispatch at `t = 0⁻` (PLEXOS *Initial Generation*). Value of `generation_prev` at the first block of the horizon, so ramp user constraints `gen − gen_prev ≤ R` see the real starting point. Also the native `Commitment` ramp `p_prev` there when `initial_power` is unset. Never applied past the horizon start. Unset → 0 (cold start) |
 
 > **Note:** Fields that accept `number|array|string` can be a numeric constant,
 > an inline array (indexed by `[stage][block]`), or a filename referencing an
@@ -770,8 +788,9 @@ An electrical demand (load) connected to a bus.
 | `active`           | boolean             | —            | No       | Whether the demand is active |
 | `lmax`             | number\|array\|string| MW          | No       | Maximum served load |
 | `lossfactor`       | number\|array\|string| p.u.        | No       | Network loss factor |
-| `fcost`            | number\|array\|string| $/MWh       | No       | Demand curtailment cost |
+| `fcost`            | number\|array\|string| $/MWh       | No       | Demand curtailment cost; falls back to `model_options.demand_fail_cost` (default 1000). `0` = freely dispatchable load |
 | `fail_segments`    | array of objects    | —            | No       | Stepwise curtailment (VoLL) curve `[{fraction, cost}, …]`; overrides `fcost` (see below) |
+| `forced`           | boolean             | —            | No       | When `true`, load is fixed at `lmax` (hard, non-sheddable demand; no curtailment) |
 | `emin`             | number\|array\|string| MWh         | No       | Minimum energy that must be served per stage |
 | `ecost`            | number\|array\|string| $/MWh       | No       | Energy-shortage cost |
 | `capacity`         | number\|array\|string| MW          | No       | Installed capacity |
@@ -904,7 +923,7 @@ be defined manually (see §3.6 Converter).
 |---------------------|---------------------|--------------|----------|-------------|
 | `uid`               | integer             | —            | Yes      | Unique identifier |
 | `name`              | string              | —            | Yes      | Battery name |
-| `active`            | boolean             | —            | No       | Whether the battery is active |
+| `active`            | boolean             | —            | No       | Whether the battery is active; a per-stage vector on a state-carrying battery must be one contiguous active period (see [State-carrying storage activation](#state-carrying-storage-activation)) |
 | `bus`               | integer\|string     | —            | No       | Bus connection (enables unified / coupled definition) |
 | `source_generator`  | integer\|string     | —            | No       | Source generator for generation-coupled mode (battery name or UID) |
 | `input_efficiency`  | number\|array\|string| p.u.        | No       | Charging efficiency |
@@ -929,6 +948,9 @@ be defined manually (see §3.6 Converter).
 | `soft_emin_cost`    | number\|array\|string| $/MWh       | No       | Penalty cost per unit of `soft_emin` slack violation |
 | `use_state_variable`| boolean             | —            | No       | Enable stage/phase coupling of the battery state variable |
 | `daily_cycle`       | boolean             | —            | No       | Enforce daily cycling (initial SoC equals final SoC each day) |
+| `reserve_sustain_hours` | number          | h            | No       | Native BESS reserve rows: two-sided power headroom and SoC sufficiency for $T$ hours (formulation §5.9) |
+| `reserve_discharge_credit` | boolean      | —            | No       | Credit discharge in the down-reserve headroom (default false) |
+| `reserve_energy_usage_up` / `reserve_energy_usage_down` | number | MWh/MW/h | No | Expected reserve deployment energy charged to the SoC (replaces the CEN AUX `CF_*_COMP`; no bus term) |
 
 #### File-backed battery schedules
 
@@ -946,6 +968,43 @@ general file-reference grammar is `"<field>"`, `"<Class>@<field>"` and
 A file-backed `charge_cost` must still hold the **negated** value (it
 lands on the charge demand's `fcost`, as for an inline cost the expansion
 negates it).
+
+#### Unserved-demand cost and hard demand
+
+Every demand is **soft** by default: served load may fall below `lmax`
+and each unserved MWh costs the demand's `fcost` or, when `fcost` is
+unset, the global `model_options.demand_fail_cost`, which defaults to
+**1000 $/MWh** when it is itself unset.
+
+| Want | Set |
+|------|-----|
+| Value of lost load for all demands | `model_options.demand_fail_cost` (default 1000) |
+| Different cost for one demand | `Demand.fcost` (scalar, per-(stage, block) array, or file) |
+| Freely dispatchable load (no penalty, e.g. a charging sink or the demand linked to a `Pump`) | `Demand.fcost = 0` (or the global `demand_fail_cost = 0`) |
+| Hard, non-sheddable demand | `Demand.forced = true` (load fixed at `lmax`; the LP is infeasible if it cannot be served) |
+
+An explicit `demand_fail_cost: 0` keeps its literal meaning (zero
+penalty, so unserved load is free) and gtopt warns when no demand carries
+its own `fcost`/`ecost` either.  Before the 1000 $/MWh default existed,
+leaving `demand_fail_cost` unset behaved like `0`; cases that relied on
+that must now set it to `0` explicitly.  Converters always write an
+explicit value (e.g. `plp2gtopt` writes `0` because PLP prices
+curtailment per demand through its falla units).
+
+#### State-carrying storage activation
+
+A storage element that carries a state variable across stages / phases
+(`use_state_variable` true and `daily_cycle` false: reservoirs, LNG
+terminals, H2 / thermal / ammonia storage, volume rights by default; a
+battery only when set explicitly) may be **commissioned** once
+(inactive -> active) and **retired** once (active -> inactive): its
+per-stage `active` vector must read `off* on* off*`.  At retirement the
+state is simply dropped (no link into the inactive stages or phases; an
+`efin` target in an inactive last stage does not apply).  Switching it
+back on after a gap (on -> off -> on) is rejected by validation at the
+stage where it reactivates, because the dropped state would re-enter
+unlinked.  For a cyclic store set `use_state_variable: false` or
+`daily_cycle: true`, or model the two periods as two elements.
 
 #### Battery self-discharge default
 
@@ -1051,7 +1110,7 @@ A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10�
 |------------------------|---------------------|-------------|----------|-------------|
 | `uid`                  | integer             | —           | Yes      | Unique identifier |
 | `name`                 | string              | —           | Yes      | Reservoir name |
-| `active`               | boolean             | —           | No       | Whether the reservoir is active |
+| `active`               | boolean             | —           | No       | Whether the reservoir is active; a per-stage vector on a state-carrying reservoir must be one contiguous active period (see [State-carrying storage activation](#state-carrying-storage-activation)) |
 | `junction`             | integer\|string     | —           | Yes      | Associated junction UID or name |
 | `spillway_capacity`    | number              | m³/s        | No       | Maximum uncontrolled spill capacity |
 | `spillway_cost`        | number              | $/(m³/s·h) | No       | Cost per unit of spilled flow; setting it (0 = free) creates the spill column |
@@ -1313,6 +1372,57 @@ A spinning-reserve requirement zone.
 | `drreq`  | number\|array\|string| MW    | No       | Down-reserve requirement |
 | `urcost` | number\|array\|string| $/MW  | No       | Up-reserve shortage penalty |
 | `drcost` | number\|array\|string| $/MW  | No       | Down-reserve shortage penalty |
+| `urmin` / `drmin` | number\|array\|string| MW | No | Requirement floor (Min-Provision) |
+| `urreq_planes` / `drreq_planes` | array of objects | — | No | Dynamic requirement $R \ge \max_k$ plane$_k$; each object has `alpha` [MW], `demand_coef` [MW/MW], `inertia_coef` [MW/MWs], `contingency_coef` [MW/MW], `flow_coef` [MW/MW], all scalar\|array\|filename schedules |
+| `load_term` | string | — | No | `"exogenous"` (default: load is a parameter) or `"endogenous_generation"` (PLEXOS-compat, creates negative LMPs) |
+| `system_load` | number\|array\|string | MW | No | Given plane load $D$ (overrides the demand sum) |
+| `demand_load_factor` | number | p.u. | No | $D$ = factor × Σ demand lmax (default **1.05**: conservative, over-sizes rather than under-sizes the reserve; CEN PCP ratio 1.025–1.05; `endogenous_generation` default 1) |
+| `demands` | array | — | No | Demands summed into $D$ (default: all but battery charge) |
+| `inertia_zone` | integer\|string | — | No | InertiaZone whose provisions give the inertia term |
+| `inertia_term` | string | — | No | Plane inertia $I$: `"commitment"` (default, CEN B.1: $\sum I_c u_c$ over the zone's provisions, $I_c = \mathrm{pf}\cdot\min$(`provision_max`, pmax); uncommitted units count only when forced on; with a relaxed Commitment it can price buses negative — `validate_planning` warns), `"exogenous"` (data: `system_inertia`, else the conservative must-run sum, with a warning; the remedy for that risk), `"endogenous" (PLEXOS-compat $\sum \mathrm{pf}\,r$, $r \le p$; couples dispatch, can price buses negative).  Only the CPF planes — an InertiaZone's own minimum stays commitment-based |
+| `system_inertia` | number\|array\|string | MWs | No | Given plane inertia $I$ for `inertia_term: "exogenous"` (missing blocks read 0, the most conservative value) |
+| `contingency_generators` | array | — | No | Up contingency: $C \ge p_g$ for each listed generator |
+| `contingency_demands` | array | — | No | Down contingency: $C \ge$ load of each listed demand (e.g. `bess_dem`) |
+| `urcontingencies` / `drcontingencies` | array of objects | — | No | Contingency candidates (PLEXOS `*_Comparison`): `{name, generators, generator_coefs, demands, demand_coefs, lines, line_coefs, offset}`, $C \ge \sum a\,x + $ offset (coefs default 1) |
+| `requirement_sense` | string | — | No | `"ge"` (default) or `"eq"`: equality provision balance (PLEXOS `*MinProvision` Sense 0) |
+| `ursurplus_cost` / `drsurplus_cost` | number\|array\|string | $/MW | No | Surplus penalty of an `"eq"` balance (no column when unset: provision pinned).  Ignored with planes: $R$ absorbs the excess (`validate_planning` warns) |
+| `contingency_includes_reserve` | boolean | — | No | $C \ge a(p + r)$: the lost unit's provision into this zone counts (default false, as PLEXOS) |
+| `flow_lines` | array | — | No | Lines whose signed flow sum is the `flow_coef` term.  **Couples dispatch into the requirement** (the term enters the LMP spread; `validate_planning` warns).  Decoupled alternative: an exogenous `alpha` schedule (expected flow or fixed MW contingency) |
+
+Example (CEN CPF+@10s, two of the twelve planes; see
+[formulation §5.9](formulation/mathematical-formulation.md)):
+
+```json
+{"uid": 1, "name": "cpf10s", "urcost": 5000,
+ "urreq_planes": [
+   {"alpha": 516.0, "demand_coef": -0.0366, "inertia_coef": -0.0123,
+    "contingency_coef": 1.25},
+   {"alpha": 219.16, "demand_coef": -0.02064, "inertia_coef": -0.003164,
+    "contingency_coef": 0.928}],
+ "demand_load_factor": 1.025, "inertia_zone": "sen",
+ "contingency_generators": ["unit_a", "unit_b", "bess_gen"]}
+```
+
+Outputs (planes mode, `ReserveZone/`): `urequirement_sol`, the plane
+duals `urplane<k>_dual`, `urplane_binding_sol`, `inertia_sol`, and the
+native requirement credit `reserve_credit_sol` [$/MWh] (the LMP shift
+$\ell \sum_k \delta^D_k \mu_k$ of the endogenous load term, the same at
+every bus; 0 with the exogenous default), `credit_transfer_sol` [\$]
+(credit × generated energy) and, with `flow_lines`, `flow_credit_sol`
+(the extra LMP spread across the corridor).
+
+A plane term whose support is missing (`inertia_coef` without an
+inertia source, `contingency_coef` without candidates, `flow_coef`
+without `flow_lines`) is an error under `constraint_mode` strict (both
+in `validate_planning` and when the LP is built) and a warning in normal
+mode, where the term is dropped; `contingency_coef` must be ≥ 0.  Every
+dispatch-coupling channel is reported by `validate_planning` according to
+`model_options.reserve_coupling` (`warn` default, `error`, `off`).
+
+The load term is exogenous by default so that a marginal MWh of demand
+never changes the requirement (no negative LMPs); see CEN Minuta
+GM-DPRO Nº05-2026
+(<https://www.coordinador.cl/wp-content/uploads/2026/06/Minuta_GM-DPRO_No05-2026_Modelacion_y_Asignacion_de_SSCC_CF-ISSCC2026.pdf>).
 
 ### 3.18 Reserve Provision
 
@@ -1333,6 +1443,38 @@ A generator's contribution to reserve zones.
 | `dr_provision_factor`  | number\|array\|string| p.u.  | No       | Down-reserve provision factor |
 | `urcost`               | number\|array\|string| $/MW  | No       | Up-reserve bid cost |
 | `drcost`               | number\|array\|string| $/MW  | No       | Down-reserve bid cost |
+| `ur_zone_factors` / `dr_zone_factors` | array of numbers | p.u. | No | Per-zone effectiveness factor, parallel to `reserve_zones` (default 1) |
+| `shared_headroom`      | boolean             | —      | No       | One headroom row shared by all flagged provisions of the generator |
+| `offline`              | boolean             | —      | No       | Cold up reserve: no headroom row, $r \le$ urmax·(1−u) |
+| `symmetric`            | boolean             | —      | No       | $r^{up} = r^{dn}$ |
+| `urmax_response` / `drmax_response` | number\|array\|string | MW | No | Native BESS only: cap on the discharge-side part (PLEXOS Max Response) |
+| `urmax_charge_response` / `drmax_charge_response` | number\|array\|string | MW | No | Native BESS only: cap on the charge-side part (PLEXOS Max Charge Response) |
+| `ur_energy_usage` / `dr_energy_usage` | number\|array\|string | MWh/MW/h | No | Native BESS only: deployment energy of this provision charged to the SoC; overrides the Battery `reserve_energy_usage_up/down` |
+
+---
+
+### 3.18 bis Inertia Zone (commitment-dependent requirement)
+
+Besides `uid`, `name`, `active`, `requirement` [MWs] and `cost`
+[$/MWs], an `inertia_zone_array` entry accepts:
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `requirement_credits` | array of objects | — | No | Relief steps `{name, generators, units, credit, integer}`: the requirement drops by `credit` [MWs]·y with `units·y ≤ Σ u_g` over `generators`; `integer: true` = exact step (binary y), default continuous as PLEXOS |
+
+Example (Norte Grande, 13 400 / 9 500 / 7 500 MWs for 0–1 / 2–3 / ≥ 4
+Guacolda units):
+
+```json
+{"uid": 2, "name": "norte_grande", "requirement": 13400,
+ "requirement_credits": [
+   {"generators": ["GUACOLDA_1", "GUACOLDA_2", "GUACOLDA_3",
+                   "GUACOLDA_4", "GUACOLDA_5"],
+    "units": 2, "credit": 3900, "integer": true},
+   {"generators": ["GUACOLDA_1", "GUACOLDA_2", "GUACOLDA_3",
+                   "GUACOLDA_4", "GUACOLDA_5"],
+    "units": 4, "credit": 2000, "integer": true}]}
+```
 
 ---
 
@@ -1423,7 +1565,8 @@ Named scalar parameters usable in user constraint expressions.
 Unit commitment parameters for a generator.  Each entry links to exactly one
 generator and enables binary on/off scheduling with startup/shutdown costs,
 ramp constraints, and minimum up/down times.  Requires the associated stage
-to have `chronological: true`.
+to have `chronological: true`: on any other stage the Commitment is ignored,
+and `validate_planning` warns with the stages affected.
 
 > **Full documentation**: See [Unit Commitment Guide](unit-commitment.md)
 > for the mathematical formulation, worked examples, and advanced features.
@@ -1466,8 +1609,13 @@ to have `chronological: true`.
 
 > **Startup tiers** require all five fields (`hot_start_cost`, `warm_start_cost`,
 > `cold_start_cost`, `hot_start_time`, `cold_start_time`) to be present.
-> If `cold_start_time < hot_start_time` (physically invalid), tiers are
-> skipped with a warning and the flat `startup_cost` is used instead.
+> If one is missing, or `cold_start_time < hot_start_time` (physically
+> invalid), tiers are skipped with a warning and every start is priced at
+> the flat `startup_cost` — or, when that is unset, at the largest given
+> tier cost (a start is never free).  The tier of a start is chosen from
+> the unit's offline time: for a unit off since before the horizon that is
+> the in-horizon time before the start plus `initial_hours`, so a
+> first-block start after a short initial outage is a hot start.
 
 ### 3.24 Model Options
 
@@ -1669,6 +1817,153 @@ python tools/migrate_future_cost.py [--method-rules] [--dry-run] FILE...
 
 `gtopt_check_json` reports each alias (check `future_cost_aliases`) as a
 warning and conflicting values as a critical finding.
+
+### 3.27 Gas Network
+
+A steady-state natural-gas network (radial tangents, or linearised pipes
+with a sequential LP for meshed networks) coupled to the dispatch
+(pure LP; formulation in
+[mathematical-formulation.md §5.19](formulation/mathematical-formulation.md);
+user guide and benchmark cases in [Gas Network](gas-network.md)).
+Units: flow km³/h (standard), pressure bar abs, gas cost $/km³, heat
+rate km³/MWh.  The converter `gasnet2gtopt` writes these arrays from a
+`*.gasnet.json` description (`--legacy` keeps the older
+DecisionVariable / UserConstraint form).
+
+Network gas properties live in `options.gas_options`:
+`gas_specific_gravity` (0.6), `gas_temperature` [K] (288.15) and
+`compressibility` (0.9).  They feed the Weymouth constant from geometry
+and the elevation exponent; a pipe's `gravity`, `temperature` and `z`
+override them.  The sequential LP of `weymouth_mode: linearized` pipes
+is controlled by `slp_iterations` (0 = single pass), `slp_tolerance`
+(1e-4, relative flow change), `slp_damping` (ω = 0.5), `slp_min_flow`
+(1e-3 · fmax), `slp_initial_flow` (0.1 · fmax) and `slp_proximal_cost`
+(ρ = 1e-6 \$ per km³/h per hour on |f̄ − f₀|).  The proximal term makes
+the SLP settle when the LP is degenerate: equal-cost vertices otherwise
+alternate between passes.  `linepack_cyclic` (default `true`) closes
+each stage with at least its initial line pack.  Set it to `false` for
+outage studies, so that the pack can be drawn down.
+
+| `gas_options` field | Default | Description |
+|---------------------|---------|-------------|
+| `gas_specific_gravity` | 0.6 | Gas specific gravity G (air = 1) |
+| `gas_temperature` | 288.15 | Flowing temperature T [K] |
+| `compressibility` | 0.9 | Compressibility factor Z |
+| `slp_iterations` | 0 | SLP passes after the first monolithic solve |
+| `slp_tolerance` | 1e-4 | Stop when the largest relative flow change is below it |
+| `slp_damping` | 0.5 | ω in f₀ ← f₀ + ω (f − f₀) |
+| `slp_min_flow` | 1e-3 | Floor on \|f₀\| as a fraction of `fmax` |
+| `slp_initial_flow` | 0.1 | First-pass \|f₀\| as a fraction of `fmax` (no `reference_flow`) |
+| `slp_proximal_cost` | 1e-6 | ρ on \|f̄ − f₀\| (0 = off) |
+| `linepack_cyclic` | true | Each stage closes with at least its initial line pack |
+
+Every gas element accepts the common fields `uid` (integer, required),
+`name` (string), `active` (boolean or per-stage array, default active)
+and `type` (free string tag, e.g. `lng_regas`, `fuel_gas_booster`,
+`ccgt`).  References to other elements (`gas_node`, `gas_node_a`,
+`generator`, `bus`, …) accept a uid or a name.
+
+**`gas_node_array`** — squared-pressure node with a gas balance per block.
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `uid`, `name` | integer, string | — | Yes | Identity |
+| `active` | boolean\|array | — | No | Activation status (default active) |
+| `type` | string | — | No | Free tag (e.g. `city_gate`) |
+| `pmin`, `pmax` | number\|array\|string | bar | No | Pressure band (π = p² ∈ [pmin², pmax²]) |
+| `pressure_cost` | number\|array\|string | $/(bar²·h) | No | Cost on π; a tiny negative value (−1e-4) selects the highest-pressure optimum |
+| `p_init` | number | bar | No | Initial pressure of adjacent line-pack pipes |
+| `elevation` | number | m | No | Elevation above datum (default 0); see `elevation_exponent` |
+
+**`gas_supply_array`** — source (field, import, LNG regasification).
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `gas_node` | uid\|name | — | Yes | Injection node |
+| `fmin`, `fmax` | number\|array\|string | km³/h | No | Injection limits |
+| `cost` | number\|array\|string | $/km³ | No | Gas cost |
+| `type` | string | — | No | Tag, e.g. `lng_regas` |
+| `volume` | number | km³ | No | Volume available over each stage: Σ Δt·flow ≤ volume (e.g. an LNG allotment); `fmax` stays the rate cap |
+
+**`gas_demand_array`** — non-power gas load.
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `gas_node` | uid\|name | — | Yes | Delivery node |
+| `load` | number\|array\|string | km³/h | No | Load per block |
+| `fail_cost` | number\|array\|string | $/km³ | No | Shedding cost; unset = hard load |
+
+**`gas_pipe_array`** — Weymouth pipe, flow `gas_node_a → gas_node_b`.
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `gas_node_a`, `gas_node_b` | uid\|name | — | Yes | Inlet / outlet |
+| `fmax` | number\|array\|string | km³/h | Yes | Capacity (tangents span [0, fmax]) |
+| `weymouth_k` | number | bar²/(km³/h)² | No | Weymouth constant; default from the geometry below (Menon SI Weymouth) |
+| `length` | number | km | No* | Pipe length (*needed without `weymouth_k`, or for line pack without `linepack_coeff`) |
+| `diameter` | number | mm | No* | Inner diameter (*as `length`) |
+| `efficiency` | number | p.u. | No | Pipeline efficiency E (0.92) |
+| `gravity`, `temperature`, `z` | number | —, K, — | No | Per-pipe overrides of `gas_options` |
+| `elevation_exponent` | number | — | No | Exponent `s` of the elevation term (π_a − e^s π_b = K_e f\|f\|); default from the end nodes' `elevation` |
+| `segments` | integer | — | No | Number of tangents (8) |
+| `tangent_layout` | string | — | No | `uniform` (default) or `relative_pressure` |
+| `weymouth_mode` | string | — | No | `radial` (default: fixed direction, tangents), `linearized` (meshed: signed flow, one equality per block, SLP) or `none` (capacity-only arc a → b, 0 ≤ f ≤ fmax, no pressure coupling: a transfer through a parallel system) |
+| `linearization` | string | — | No | `linearized` mode: `secant` (default) or `tangent` |
+| `reference_flow` | number | km³/h | No | `linearized` mode: signed first-pass reference flow f₀ (default `slp_initial_flow` · fmax) |
+| `linepack` | boolean | — | No | Model line pack (intra-stage cycle) |
+| `linepack_coeff` | number | km³/bar | No | Default: geometric volume / (Z·Pb) |
+| `linepack_pressure_ref` | number | bar | No | Linearisation pressure |
+| `linepack_ini` | number | km³ | No | Initial pack (default from the nodes' `p_init`) |
+
+**`gas_compressor_array`** — station / booster `gas_node_in → gas_node_out`.
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `gas_node_in`, `gas_node_out` | uid\|name | — | Yes | Suction / discharge node |
+| `fmax` | number\|array\|string | km³/h | Yes | Throughput capacity |
+| `max_ratio` | number | — | No | p_out ≤ max_ratio · p_in (default 1: no boost) |
+| `allow_bypass` | boolean | — | No | Allow p_out < p_in (regulator); default true except `saldarriaga` |
+| `bidirectional` | boolean | — | No | Open valve: signed flow, p_out = p_in; needs `max_ratio` 1 and `fuel_model` `none` (default false) |
+| `fuel_model` | string | — | No | `none`, `fixed_fraction` (default), `saldarriaga` |
+| `fuel_fraction` | number | — | No | Fixed fuel share of throughput |
+| `gamma`, `alpha` | number | — | No | Saldarriaga γ (adiabatic default) and (κ−1)/κ |
+| `efficiency`, `driver_efficiency` | number | — | No | 0.80 / 0.33 |
+| `op_flow`, `op_ratio`, `op_suction_pressure` | number, array, number | km³/h, —, bar | No | Taylor operating point(s); one fuel plane per `op_ratio` |
+| `drive` | string | — | No | `gas` (fuel from the suction node) or `electric` |
+| `bus`, `motor_efficiency`, `power_max` | uid\|name, number, number | —, —, MW | No | Electric drive: motor load on `bus` (motor efficiency 0.95; `power_max` unset = unbounded) |
+
+**`gas_turbine_array`** — link from a `Generator` to its fuel-gas node.
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `generator`, `gas_node` | uid\|name | — | Yes | Plant and delivery node |
+| `heat_rate` | number\|array\|string | km³/MWh | No | Fuel use in the node balance |
+| `min_pressure` | number | bar | No | Plant minimum fuel-gas pressure (gate) |
+| `pressure_band` | number | bar | No | Linear ramp below `min_pressure` (0.5) |
+| `nominal_pressure` | number | bar | No | Full output pressure (derate above `min_pressure`) |
+| `derate_min_output` | number | p.u. | No | Output share at `min_pressure` |
+
+```json
+"gas_node_array": [{"uid": 1, "name": "S", "pmin": 30, "pmax": 70},
+                   {"uid": 2, "name": "T", "pmin": 35, "pmax": 70}],
+"gas_supply_array": [{"uid": 1, "name": "LNG", "gas_node": "S",
+                      "fmax": 1000, "cost": 300, "type": "lng_regas"}],
+"gas_demand_array": [{"uid": 1, "name": "CITY", "gas_node": "T",
+                      "load": 60, "fail_cost": 3000}],
+"gas_pipe_array": [{"uid": 1, "name": "S_T", "gas_node_a": "S",
+                    "gas_node_b": "T", "length": 80, "diameter": 406,
+                    "fmax": 300}],
+"gas_turbine_array": [{"uid": 1, "name": "CCGT_gas", "generator": "CCGT",
+                       "gas_node": "T", "heat_rate": 0.2,
+                       "min_pressure": 30}]
+```
+
+Outputs: `GasNode/{pressure_sol, pi_sol, balance_dual}` (gas price
+$/km³), `GasSupply/flow_sol`, `GasDemand/{load_sol, fail_sol}`,
+`GasPipe/{flow_sol | flow_in_sol, flow_out_sol, linepack_sol}` and the
+exactness report `GasPipe/{weymouth_gap_sol, pressure_error_sol}`,
+`GasCompressor/{flow_sol, fuel_sol, ratio_sol, power_sol}`,
+`GasTurbine/{fuel_sol, pressure_gate_dual, derate_dual}`.
 
 ---
 

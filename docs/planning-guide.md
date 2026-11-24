@@ -1113,7 +1113,7 @@ In summary tables below, ✱ marks required fields.
 | `output_directory` | `"output"` | Root directory for result files |
 | `output_format` | `"parquet"` | Output file format (`"parquet"` or `"csv"`) |
 | `output_compression` | `"zstd"` | Parquet/CSV compression codec |
-| `model_options.demand_fail_cost` | — | Penalty $/MWh for unserved load (value of lost load) |
+| `model_options.demand_fail_cost` | `1000` | Penalty $/MWh for unserved load (value of lost load); `0` = free shedding, `Demand.forced` = hard demand |
 | `model_options.reserve_fail_cost` | — | Penalty $/MWh for unserved spinning reserve |
 | `model_options.use_kirchhoff` | `true` | Enable DC power-flow constraints |
 | `model_options.use_single_bus` | `false` | Copper-plate mode (no network constraints) |
@@ -1278,7 +1278,7 @@ output/
 |--------|-------------|
 | `obj_value` | Total cost in physical units (`scale_objective` already reversed) |
 | `kappa` | Basis condition number (`-1` when unavailable) |
-| `status` | 0 = optimal; 1 = infeasible; 2 = unbounded; -1 = not solved |
+| `status` | 0 = optimal; 1 = infeasible; 2 = unbounded; 5 = MIP limit reached, incumbent polished; -1 = not solved |
 | `scale_objective` | Objective scale factor of the LP (`obj_value / scale_objective` = LP-raw objective) |
 | `gtopt_version`, `gtopt_revision` | The gtopt build that wrote the file: version and `git describe` revision (same on every row) |
 

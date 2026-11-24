@@ -71,6 +71,12 @@ results that are checked in continuous integration.
     Polish \texttt{case3375wp} & 3\,375 buses & large-network DC OPF & \cite{zimmerman2011matpower} \\
     SDDP.jl examples (first steps, hydro valleys, FAST) & 1--2 reservoirs & SDDP vs.\ published bounds & \cite{dowson2020sddp_jl, cambier_fast} \\
     PSR SDDP sample cases & multi-system & \texttt{sddp2gtopt} hydrothermal & \cite{psrclasses} \\
+    Saldarriaga pipe chain & 4 gas nodes & Weymouth pressures & \cite{saldarriaga2018phd} \\
+    GasLib-11 & 11 gas nodes & radial gas network & \cite{schmidt2017gaslib, pfetsch2015nominations} \\
+    Belgian network (GasModels \texttt{A1}) & 24 gas nodes & radial gas network & \cite{dewolf2000gas, gasmodels} \\
+    GasModels \texttt{case-6} & 6 gas nodes & exact Weymouth, meshed SLP & \cite{gasmodels} \\
+    Hu--Ryan 6-bus/7-node, IEEE-24/Belgian-20 & 6--24 buses, 7--20 gas nodes & coupled gas--power & \cite{hu2019data} \\
+    Ratha et al.\ 24-bus/12-node & 24 buses, 12 gas nodes & meshed coupled gas--power & \cite{ratha2020data} \\
     CEN daily schedules (PLEXOS) & $\sim$250 buses & vs.\ official schedule & Section~\ref{sec:cases} \\
     Real systems of six countries & 3--3\,374 buses & UC, SDDP, OPF & Section~\ref{sec:gtopt_cases} \\
     \bottomrule
@@ -356,3 +362,91 @@ published reference values:
 In addition, the equivalence between the monolithic LP and SDDP is
 tested on multi-stage cases: with the same data, the converged SDDP
 bounds match the monolithic optimum within the convergence tolerance.
+
+\subsection{Natural-Gas Network Benchmarks}
+\label{sec:gas_bench}
+
+The gas network of Section~\ref{sec:gas} is checked in continuous
+integration on the cases of Table~\ref{tab:gas_bench}.  Each reference
+comes either from a published value or from an independent model built
+outside \gtopt{}: an LP of the same tangent formulation (SciPy with
+HiGHS~\cite{huangfu2018highs}) or an exact nonlinear Weymouth solve.
+The coupled cases are LP reductions of the published data (unit
+commitment relaxed, deterministic wind, gas storage as a capped
+supply), so their objectives are not comparable with the published
+stochastic results.
+
+\begin{table*}[t]
+  \centering
+  \caption{Gas network benchmarks: what each case validates and its
+    reference (objective in the case's own units)}
+  \label{tab:gas_bench}
+  \small
+  \begin{tabular}{@{}p{3.3cm}p{6.2cm}p{6.6cm}@{}}
+    \toprule
+    \textbf{Case} & \textbf{Validates} & \textbf{Reference} \\
+    \midrule
+    Saldarriaga Fig.~2.2(b)~\cite{saldarriaga2018phd}
+      & three pipes in series, 32 tangents
+      & published node pressures 90/70/50/30~bar within the tangent
+        bound (0.05~bar); objective of the independent LP \\
+    GasLib-11, valve closed~\cite{schmidt2017gaslib}
+      & radial network with compressors
+      & independent LP (295.41); exact Weymouth drop on the LP flows \\
+    Belgian \texttt{A1}~\cite{dewolf2000gas, gasmodels}
+      & 19 pipes and 4 stations after merging parallel arcs
+      & independent LP (8849.43); shedding only at the node whose
+        pressure floor cannot be met \\
+    GasModels \texttt{case-6}~\cite{gasmodels}
+      & loop with fixed orientation and 64 tangents; the same loop with
+        linearized pipes and SLP
+      & published exact optimum $-253.683$: the tangent LP is within
+        $1.6\cdot10^{-5}$ (relative); the SLP matches the exact NLP to
+        $10^{-5}$ \\
+    Hu--Ryan 6-bus/7-node~\cite{hu2019data}
+      & coupled radial system, 24~h
+      & independent LP; the exact Weymouth optimum is 0.68\% higher
+        because an upper pressure bound downstream binds, which the
+        exactness report flags on that pipe \\
+    Hu--Ryan IEEE-24/Belgian-20~\cite{hu2019data}
+      & coupled system, radial and SLP variants
+      & radial tangent LP within 0.0099\% of the exact optimum; the SLP
+        variant reaches the exact optimum \\
+    Ratha et al.\ 24-bus/12-node~\cite{ratha2020data}
+      & meshed coupled system, gas SLP, compressors as ratio-bounded
+        stations
+      & independent SLP, unchanged by a polish on the exact NLP, i.e.\
+        a local optimum of the exact problem \\
+    Elevation chain
+      & 0--2000--4000~m chain, term~\eqref{eq:gas_elevation}
+      & closed-form outlet pressures (56.747 and 44.673~bar) \\
+    Component cases
+      & compressor fuel models and drives, line pack, plant pressure
+        gate, booster and derate
+      & independent LP of each variant: objective to $10^{-5}$
+        (relative), pressures to 0.01~bar \\
+    \bottomrule
+  \end{tabular}
+\end{table*}
+
+The unit tests additionally check the Weymouth constant and the
+line-pack coefficient, the tangent envelope against the exact curve,
+the compressor-fuel planes against analytic derivatives, the
+convergence of the SLP on loops, under flow reversal and on degenerate
+splits, and the replay of the re-linearised rows when LP snapshots are
+compressed.
+
+\paragraph{Stylised Chilean studies.}
+The gas elements were also applied to stylised studies of the central
+Chilean network, in which LNG is regasified at the coast, piped to the
+capital region and delivered to combined-cycle plants whose turbines
+need a minimum fuel-gas pressure.  These studies explore the interaction
+between the minimum plant pressure, a compressor station on the trunk,
+an on-site fuel-gas booster, pressure derating and multi-day line pack,
+and they cross-check the native elements against an earlier formulation
+of the same LP built from generic user-defined variables and
+constraints.  The data are plausible values chosen for the study, not
+the parameters of the actual pipelines or plants.  Pipelines that cross
+the Andes, as in the north of the country, motivated the elevation
+term, which changes the attainable delivery pressure substantially on
+such routes.

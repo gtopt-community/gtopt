@@ -11,6 +11,7 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
 
 - [Installation](#installation)
 - [Public tools at a glance](#public-tools-at-a-glance)
+- [Supported source versions](#supported-source-versions)
 - **Data Preparation & Conversion**
   - [gtopt_diagram](#gtopt_diagram) · [full docs](scripts/gtopt_diagram.md)
   - [plp2gtopt](#plp2gtopt) · [full docs](scripts/plp2gtopt.md)
@@ -119,6 +120,7 @@ One line per console script installed by `pip install ./scripts`:
 | `plexos2gtopt-line-lifts` | Rank binding lines of a solved PLEXOS-derived case to choose `--lift-line-caps` | [plexos2gtopt](scripts/plexos2gtopt.md) |
 | `sddp2gtopt` | PSR SDDP/NCP case → gtopt JSON | [sddp2gtopt](scripts/sddp2gtopt.md) |
 | `psse2gtopt` | PSS®E RAW → gtopt DC OPF case | [psse2gtopt](scripts/psse2gtopt.md) |
+| `gasnet2gtopt` | `*.gasnet.json` gas network + power system → gtopt JSON with native gas elements | [gasnet2gtopt](scripts/gasnet2gtopt.md) |
 | `pp2gtopt` | pandapower network → gtopt JSON | [pp2gtopt](scripts/pp2gtopt.md) |
 | `gtopt2pp` | gtopt JSON → pandapower network | [gtopt2pp](#gtopt2pp) |
 | `nrel118_to_gtopt` | NREL-118 test system → multi-stage gtopt case | [nrel118_to_gtopt](scripts/nrel118_to_gtopt.md) |
@@ -156,6 +158,36 @@ One line per console script installed by `pip install ./scripts`:
 | `cen2gtopt-pcp-archive` | Download CEN PCP base / solution bundles (deprecated: use `gtopt-fetch cen`) | [review](scripts/cen_marginal_emissions_review.md) |
 | `cen2gtopt-pcp-inputs` | Read CEN PCP LP-input CSV bundles | [review](scripts/cen_marginal_emissions_review.md) |
 | `cen2gtopt-pcp-solution` | Read CEN PCP `.accdb` solution files (needs `mdbtools`) | [review](scripts/cen_marginal_emissions_review.md) |
+
+### Supported source versions
+
+Every input converter declares the versions of its source tool or format
+it supports and the subset the repository's tests or cases exercise
+(`SOURCE_FORMAT`, built on `gtopt_shared.source_versions`).  At run time it
+detects the input's version when the input carries one, logs the
+resolution (and records it in its provenance file where it has one), and
+warns on an untested version or an unknown one, which falls back to the
+closest supported version.  `--source-version X` overrides the detection;
+`--help` prints the list below for each tool.  `plp2gtopt`, whose
+source has no version numbers, declares known *variants* instead: several
+may apply at once and an unsupported one is ignored with a warning.
+
+| Converter | Source | Supported | Tested | Detected from | Recorded in |
+|-----------|--------|-----------|--------|---------------|-------------|
+| `plp2gtopt` | PLP Fortran `.dat` (known variants) | `CEN65`, `ESS`, `BESS`, `maule-agreement`, `laja-agreement`, `cenfi-legacy`, `cenfi-segmented`, `cuts-plpplaem`, `cuts-plpplem` | all | files present / layouts (`plpstrcen.dat` → unsupported `PLPv6.1-strcen`); several tags at once | log, `plp2gtopt_state.json` |
+| `sddp2gtopt` | PSR SDDP / NCP `.dat` | `16`, `17` | `16`, `17` | a `!Code,` CSV header → 17; else undetectable | log |
+| `psse2gtopt` | PSS®E RAW | `32`, `33` | `32`, `33` | `REV` field of the case-id line | log |
+| `pp2gtopt` | pandapower | `2.13`, `2.14`, `3.0`–`3.5` | `3.4`, `3.5` | `net.version` | log, `pp2gtopt_state.json` (time-series mode) |
+| `cen2gtopt` | CEN SIP API | `4` | `4` (recorded fixtures) | endpoint versions in a `--cache` fetch cache | log, `manifest.json` |
+| `rts_gmlc_to_gtopt` | RTS-GMLC release | `0.2.3` | `0.2.3` (slow CTest) | `SOURCE_VERSION` marker of a fresh cache | log, summary line |
+| `sienna_to_gtopt` | PowerSystemsTestData commit | `a2ecae9…` | `a2ecae9…` | bundle files matching the manifest SHA-256 | log |
+| `nrel118_to_gtopt` | PowerSystemsTestData commit | `a2ecae9…` | none | `SOURCE_REF` marker of a fresh cache, or a checkout's `HEAD` | log, `nrel118_to_gtopt_state.json` |
+| `gasnet2gtopt` | `*.gasnet.json` schema | `1` | `1` | optional top-level `schema_version` | log, `.meta.json` |
+
+`plexos2gtopt` adopts the same helper separately.  `ts2gtopt` and
+`cvs2parquet` read plain CSV / Parquet tables and gtopt's own JSON, which
+have no versioned source format.  Per-tool details: the "Supported source
+versions" section of each tool's page.
 
 ### Developer tools (not installed as commands)
 

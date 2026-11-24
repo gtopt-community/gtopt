@@ -82,6 +82,51 @@ for GTEP.  \gtopt{} supports BESS with detailed charge/discharge efficiency
 modeling, state-of-charge tracking across stages, and co-located
 generation-storage coupling via its converter mechanism.
 
+\subsection{Integrated Gas and Electricity Networks}
+\label{sec:lit_gas}
+
+Steady-state gas transmission is governed by the Weymouth equation,
+which is linear in the squared pressure and quadratic in the
+flow~\cite{menon2005gas}.  De~Wolf and Smeers~\cite{dewolf2000gas}
+solved the resulting gas transmission problem with an extension of the
+simplex algorithm, and Tomasgard et al.~\cite{tomasgard2007gas}
+approximated the Weymouth cone by tangent planes inside an LP of the
+gas value chain.  R\'ios-Mercado and
+Borraz-S\'anchez~\cite{riosmercado2015review} reviewed the optimization
+problems of gas transportation, and Borraz-S\'anchez et
+al.~\cite{borraz2016relaxations} proposed convex relaxations for
+expansion planning.  On the power side, Liu et al.~\cite{liu2009scuc_gas}
+added gas transmission constraints to security-constrained unit
+commitment, and Correa-Posada and
+S\'anchez-Mart\'in~\cite{correaposada2015gas} integrated both networks
+in short-term operation.  Ordoudis et al.~\cite{ordoudis2019gas} and
+Ratha et al.~\cite{ratha2020affine} cleared coupled electricity and gas
+markets with tangent-plane Weymouth constraints and line pack, Hu and
+Ryan~\cite{hu2019stochastic} compared stochastic and deterministic
+scheduling of a coupled system, and Bent et al.~\cite{bent2018joint}
+planned joint transmission expansion with market feedbacks.
+
+Saldarriaga~\cite{saldarriaga2013msc, saldarriaga2013holistic,
+saldarriaga2018phd, saldarriaga2019stochastic} developed integrated
+planning models for gas and electricity, from distribution networks to
+multi-stage stochastic transmission planning; his doctoral thesis
+derives the compressor-fuel model adopted in Section~\ref{sec:gas}.
+Later work of the same group addressed seasonal storage in integrated
+systems~\cite{martinez2022storage} and the LNG supply
+chain~\cite{ibarra2019gnl, restrepo2021gnl}.  Open tools and data
+support this line of research: GasModels.jl~\cite{gasmodels} and
+GasPowerModels.jl~\cite{gaspowermodels} implement exact and relaxed gas
+formulations in Julia, and GasLib~\cite{schmidt2017gaslib,
+pfetsch2015nominations} provides gas network instances.
+
+Most of these models are nonlinear or mixed-integer, or they treat the
+gas system as a separate market.  \gtopt{} instead keeps the gas
+network as a pure LP inside the same multi-stage hydrothermal model:
+exact tangent envelopes on radial networks, a sequential LP for meshed
+ones, and compressor fuel as Taylor planes in the squared pressure.
+The gas and power duals are therefore consistent, and the network can
+be solved by SDDP together with reservoirs and storage.
+
 \subsection{Open-Source Power System Tools}
 
 Table~\ref{tab:tool_comparison} compares \gtopt{} with the leading
@@ -115,6 +160,7 @@ excels at power flow analysis but does not support expansion planning.
     Water rights      & \checkmark & -- & -- & -- & -- & \checkmark \\
     Unit commitment   & \checkmark & \checkmark & \checkmark & \checkmark & -- & -- \\
     Emission caps     & \checkmark & \checkmark & \checkmark & -- & -- & -- \\
+    Gas network (pressure) & \checkmark & Transport & -- & -- & -- & -- \\
     Cut-coupled scales& \checkmark & -- & -- & -- & -- & Partial \\
     Parquet I/O       & \checkmark & -- & -- & -- & -- & -- \\
     Web GUI           & \checkmark & -- & -- & -- & \checkmark & -- \\

@@ -268,6 +268,7 @@ Solver and I/O settings:
 | `lp_matrix_options.fast_sqrt_method` | string | Approximate sqrt for Ruiz scaling (see `FastSqrtMethod`) |
 | `lp_matrix_options.ruiz_max_iterations` | int | Ruiz iteration cap (default 5) |
 | `lp_matrix_options.ruiz_tolerance` | float | Ruiz convergence tolerance (default 1e-3) |
+| `lp_matrix_options.water_dual_target` | float | Target LP dual magnitude for reservoir energy-balance rows (post-equilibration row factor; off when unset) |
 | `lp_matrix_options.compute_stats` | bool | Compute coefficient min/max/ratio during flatten |
 | `lp_matrix_options.lp_coeff_ratio_threshold` | float | Ratio threshold above which a per-scene/phase breakdown is printed (default 1e7) |
 | `output_format` | string | Output format: `"csv"` or `"parquet"` |
@@ -532,7 +533,12 @@ scene,phase,status,status_name,obj_value,kappa,max_kappa,gap,gap_change,solve_ti
 One row per solved `(scene, phase)` cell:
 
 - **`status`** / **`status_name`**: `0` / `optimal` when the cell solved;
-  `-1` / `unknown` for a cell that was never solved.
+  `5` / `limit_polished` when a MIP stopped at a limit (time, node,
+  solution, memory) with a feasible incumbent that was then polished —
+  integers fixed and the LP re-solved (`solver_options.mip_polish`), so
+  the objective, primal and duals are the fixed LP's but optimality of
+  the MIP is not proven; `-1` / `unknown` for a cell that was never
+  solved.
 - **`obj_value`**: cell objective in **physical cost units** — the LP
   objective with `scale_objective` reversed (LP-raw × `scale_objective`)
   and objective constants included.  The convention is the same for the
@@ -649,6 +655,14 @@ For large cases, Parquet format is more compact and faster to read:
 gtopt system_c0.json --set output_format=parquet
 gtopt system_c0.json --set output_format=parquet --set output_compression=zstd
 ```
+
+Every solution table is in long form: `scenario`, `stage`, `block`,
+`uid` (all `int32`) and `value`.  Primal (`*_sol`) and cost (`*_cost`)
+tables omit exact zeros — a missing row means zero.  Dual tables
+(`*_dual`, e.g. `Bus/balance_dual`) are dense: every cell of the LP rows
+is written, zeros included, so per-block price averages and counts need
+no gap filling.  Dense dual tables are compressed like every other
+table with `output_compression`.
 
 ### Export the LP model
 
@@ -945,7 +959,8 @@ GTOpt uses the following exit codes:
 | `3` | Internal error (unexpected exception, solver crash) |
 
 Check `solution.csv` (or `solution.parquet`) for the solver `status` field:
-`0` = optimal, `1` = infeasible, `2` = unbounded.
+`0` = optimal, `1` = infeasible, `2` = unbounded, `5` = MIP limit
+reached with a polished incumbent (exit code 1).
 
 ### Infeasible model (status=1)
 

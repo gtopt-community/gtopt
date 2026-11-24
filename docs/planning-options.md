@@ -19,6 +19,7 @@ MainOptions                    (CLI-only, not in JSON)
         +-- CascadeOptions         (JSON key: "cascade_options")
         +-- SolverOptions          (JSON key: "solver_options")
         +-- LpMatrixOptions        (JSON key: "lp_matrix_options")
+        +-- SanityOptions          (JSON key: "sanity_options")
         +-- VariableScale[]        (JSON key: "variable_scales")
 ```
 
@@ -118,6 +119,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `cascade_options` | `CascadeOptions` | Cascade solver settings |
 | `solver_options` | `SolverOptions` | Global LP solver configuration |
 | `lp_matrix_options` | `LpMatrixOptions` | LP assembly / equilibration / stats configuration |
+| `sanity_options` | `SanityOptions` | Thresholds of the data-quality warnings emitted at load time |
 | `variable_scales` | `VariableScale[]` | Per-class/variable LP scale overrides |
 
 > **Migration**: Model parameter fields (`use_kirchhoff`, `use_single_bus`,
@@ -146,9 +148,10 @@ solver configurations.
 | `loss_cost_eps` | float | `0.1` | $/MWh on line-loss columns (degeneracy breaker / negative-LMP arbitrage guard). Per-line `Line.loss_cost_eps` overrides; `0` disables. Inert for `none`/`linear`/`piecewise_direct` |
 | `scale_objective` | float | `1000` | Objective coefficient divisor |
 | `scale_theta` | float | auto | Voltage-angle enlargement: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians. `auto_scale = false` and unset ⇒ 1. Values < 1 shrink θ and log a warning (the meaning was inverted before 2026-11). A manual value always wins over auto (`theta_max` is still auto-computed); set it with `--set model_options.scale_theta=1000` or the converters' opt-in `--scale-theta FACTOR` (`plp2gtopt`, `plexos2gtopt`), which emit nothing by default |
-| `demand_fail_cost` | float | -- | Penalty $/MWh for unserved demand |
+| `demand_fail_cost` | float | `1000` | Penalty $/MWh for unserved demand (value of lost load) for every demand without its own `fcost`. `0` = unpenalized (freely sheddable) load; for non-sheddable load set `Demand.forced = true`. See [Unserved-demand cost](input-data.md#unserved-demand-cost-and-hard-demand) |
 | `demand_fail_segments` | array | -- | Default stepwise curtailment curve `[{fraction, cost}, …]` (scalar costs) for demands with neither `fcost` nor `fail_segments`; takes precedence over `demand_fail_cost`. See input-data §3.3 |
 | `battery_annual_standing_loss` | float | `0.48` | Self-discharge [p.u./year] for every Battery whose `annual_standing_loss` is unset (4 %/month, Li-ion cell + BMS; linear hourly drain = value/8760). `0` restores the legacy lossless default. Explicit per-battery values win; Reservoir/other storage unaffected |
+| `reserve_coupling` | string | `"warn"` | How `validate_planning` treats a ReserveZone requirement coupled to dispatch (endogenous load term, `flow_coef`, endogenous inertia, commitment inertia with a relaxed Commitment, line contingencies, `contingency_includes_reserve`): `"warn"`, `"error"` (reject the case) or `"off"`.  Such a coupling puts a $\beta\mu$ credit into the LMPs and can price buses negative (formulation §5.9) |
 | `battery_power_envelope` | bool | `true` | Emit `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` per block on every battery converter (`Converter/power_envelope`), cutting simultaneous full-power charge + discharge |
 | `reserve_fail_cost` | float | -- | Penalty $/MWh for unserved reserve |
 | `hydro_fail_cost` | float | -- | Default penalty $/m³ for unmet hydro rights (falls back to `0.0` when unset). Overridden by per-element `fail_cost` |
@@ -173,7 +176,8 @@ configures the LP backend.
 | `optimal_eps` | float | -- | Optimality (reduced-cost) tolerance, passed to the solver as given.  Unset: the solver parameter file's value if it sets one (e.g. `CPXPARAM_Simplex_Tolerances_Optimality` in `solvers/cplex.prm`), else `1e-6 / scale_objective` (clamped to [1e-9, 1e-1]) when `scale_objective != 1`, else the solver default.  The value used and why is logged once |
 | `feasible_eps` | float | -- | Feasibility tolerance (nullopt = solver default) |
 | `barrier_eps` | float | -- | Barrier convergence tolerance (nullopt = solver default) |
-| `time_limit` | float | -- | Wall-clock budget in seconds for the whole solve of one LP/MIP (0 = no limit): MIP-start stages and algorithm-fallback retries share it — each retry gets the remaining time and retries stop once < 1 s is left |
+| `time_limit` | float | -- | Wall-clock budget in seconds for the whole solve of one LP/MIP (0 = no limit): MIP-start stages and algorithm-fallback retries share it — each retry gets the remaining time and retries stop once < 1 s is left.  For a MIP with `mip_polish` on, min(5 % of the budget, 300 s) is reserved for the integer-fixed LP re-solve (the polish gets the remaining time, at least 10 s) |
+| `mip_polish` | bool | `true` | MIP only.  After the MIP stops — optimal, or non-optimal at a time / node / solution / memory limit or abort while holding a feasible incumbent — fix every integer column at its incumbent value and re-solve the remaining LP (CPLEX: `CPXPROB_FIXEDMILP`).  The reported objective, primal and duals are those of the fixed LP, which is never worse than the incumbent (on CEN PCP 2026-04-22 an incumbent of 3.06e9 polishes to 1.58e9).  Runs whether or not duals are written.  A limit stop stays non-optimal: the run still exits 1 and `solution.csv` reports status `5` / `limit_polished`; the log prints the incumbent and polished objectives.  If the fixed LP fails, the incumbent is kept and a warning is logged.  `false` reports the raw incumbent (and, on a limit stop, no duals) |
 | `scaling` | string | -- | Internal solver scaling strategy (nullopt = solver default): `"none"`, `"automatic"`, `"aggressive"` (or the codes `0` / `1` / `2`). See `SolverScaling` enum |
 | `crossover` | bool | `true` | Convert interior-point solution to a simplex basis for duals (only meaningful with `algorithm=barrier`) |
 | `max_fallbacks` | int | `2` | On non-optimal exit, cycle through barrier → dual → primal up to this many times. `0` disables fallback |
@@ -213,6 +217,11 @@ or JSON).
 | `fast_sqrt_method` | string | `"ieee_halve"` | Approximate sqrt used by Ruiz scaling; see `FastSqrtMethod` enum |
 | `ruiz_max_iterations` | int | `5` | Ruiz iteration cap |
 | `ruiz_tolerance` | float | `1e-3` | Ruiz convergence tolerance |
+| `water_dual_target` | float | unset (off) | Target `\|y_LP\|` for reservoir energy-balance rows; see below |
+| `water_dual_clamp` | float | `1e3` | Symmetric clamp `c in [1/k, k]` for the water-row factor |
+| `kvl_row_scale` | bool | off | EXPERIMENTAL: post-equilibration factor on node-angle KVL rows; see below |
+| `kvl_row_clamp` | float | `100` | Clamp `c in [1/k, k]` of the KVL row factor |
+| `kvl_x_ref` | float | median(X/V²) | Reference `x_tau` of the KVL factor `c = x_ref / x_tau` (setting it also enables the factor) |
 | `compute_stats` | bool | `false` | Compute and log coefficient min/max/ratio during `flatten()` |
 | `lp_coeff_ratio_threshold` | float | `1e7` | When global max/min coefficient ratio exceeds this, print a per-scene/phase breakdown |
 | `solver_name` | string | -- | Solver backend pin (`--solver` wins; beats `.gtopt.conf` `solver`, `$GTOPT_SOLVER` and plugin priority).  gtopt writes the solver it resolved here in `gtopt_state.json`, so replaying the snapshot uses the same backend |
@@ -231,6 +240,42 @@ to every level.
 > flag.  Pass `--lp-file <path>` or `--lp-debug` to have GTOpt enable all
 > four naming fields on `LpMatrixOptions` so the generated `.lp` dump is
 > human-readable.
+
+## SanityOptions Fields
+
+`validate_planning` runs data-quality checks on every case at load time.
+They **never** reject a case: each category emits ONE `Validation:
+Sanity: ...` warning with the count and the top offenders; the full list
+is logged at debug level (`--log-level debug`).  Only inline values are
+inspected — file-backed schedules resolve at LP-build time (the converters'
+post-conversion report, `gtopt_shared.sanity_report`, also reads the
+files).
+
+| Category | Flags |
+|----------|-------|
+| phantom reward | `FlowRight.uvalue > 0`, `FlowRight.fcost < 0` or `model_options.hydro_use_value` above `reward_fail_cost_ratio` × demand fail cost (global `demand_fail_cost`, else the cheapest per-demand `fcost`) — the LP sheds load to collect it (Maule Res. 105: reward 1100 > deficit 1000 gave −2.1 G\$ of phantom reward) |
+| coupled phantom reward | a `FlowRight` with `uvalue > 0` that shares a user constraint (inline or loaded from PAMPL) with a right whose shortfall penalty (`fcost > 0`, or `uvalue < 0` on a target-0 deficit right) is below `reward_fail_cost_ratio` × the reward — the LP books shortfall to collect the reward (Maule Res. 105, review R3: reward 1100 vs `deficit_Melado` 1000) |
+| profile range | `GeneratorProfile` / `DemandProfile` / `CapacityProfile` values outside `[0, 1]` (per-unit factors) |
+| dead commitment | generators with `pmax` (or `capacity`, no `expcap`) `<= 0` over the whole horizon that still have a `Commitment` / `SimpleCommitment` or `pmin > 0`; batteries with zero `pmax_charge` and `pmax_discharge` that keep `commitment` or a `pmin_*` |
+| line X/R | `|X| / R > line_xr_max` |
+| line x p.u. | `100·|X|/V² > line_x_pu_max` (100 MVA base; lines with `voltage` set) |
+| line x outlier | `|X|/V²` more than `line_x_outlier_factor` times off the median of its kV class (bus voltage, else line voltage; both bus voltages set and different = `transformer` class) — mistyped kV, impedance read in the wrong unit |
+| reserve level | a reservoir without `emin` (unset or 0) whose volume drives a `FlowRight` / `VolumeRight` `bound_rule` with a breakpoint above 0 (an agreement reserve level the LP may cross) |
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enable` | bool | `true` | Master switch |
+| `reward_fail_cost_ratio` | float | `1.0` | Reward / demand-fail-cost ratio above which a reward is flagged |
+| `profile_tolerance` | float | `1e-6` | Slack on `[0, 1]` |
+| `line_x_outlier_factor` | float | `50` | Allowed ratio to the kV-class median of `|X|/V²` |
+| `line_x_min_class_size` | int | `5` | Minimum lines in a kV class for the outlier test |
+| `line_x_pu_max` | float | `5.0` | Reactance ceiling [p.u., 100 MVA base] |
+| `line_xr_max` | float | `100` | X/R ceiling |
+| `max_offenders` | int | `5` | Offenders named per summary line |
+
+```json
+{ "options": { "sanity_options": { "line_xr_max": 200, "max_offenders": 10 } } }
+```
 
 ## SddpOptions Fields
 
@@ -296,7 +341,7 @@ The FCF boundary cuts are configured on the FutureCost element
 |-------|------|---------|-------------|
 | `apertures` | array of UIDs | -- | Aperture UIDs (absent = from Phase, `[]` = pure Benders) |
 | `aperture_directory` | string | -- | Alternate data directory for aperture scenarios |
-| `aperture_timeout` | float | `15.0` | Per-aperture LP solve timeout in seconds (0 = no limit) |
+| `aperture_timeout` | float | `30.0` | Per-aperture LP solve timeout in seconds (0 = no limit) |
 | `save_aperture_lp` | bool | `false` | Save LP files for infeasible apertures to log directory |
 | `aperture_chunk_mode` | string | `"per_scene"` | Backward aperture grouping into pool tasks: `"per_scene"` (all apertures of a (scene, phase) in series on one LP clone, warm-start reuse; parallelism capped at the scene count), `"per_aperture"` (one task per aperture, fresh clone, cold solve), `"chunked"` (`aperture_chunk_size` = K per task). CLI: `--aperture-chunk-mode` (see `docs/methods/sddp.md`, "Aperture task grouping") |
 | `aperture_chunk_size` | int | -- | K apertures per task for `aperture_chunk_mode = "chunked"` (unset = auto formula). Deprecated as a mode selector when no mode is set: `-1` → `per_scene`, `1` → `per_aperture`, `K > 1` → `chunked` (warning logged); `0` → default `per_scene`. CLI: `--aperture-chunk-size` |
@@ -524,3 +569,45 @@ files.
 - [SDDP Method](methods/sddp.md) -- SDDP solver configuration
 - [Cascade Method](methods/cascade.md) -- Cascade solver configuration
 - [Monolithic Method](methods/monolithic.md) -- Monolithic solver configuration
+
+
+### Water-row dual conditioning (`water_dual_target`) — EXPERIMENTAL
+
+**Experimental, off by default.**  Measured on CEN cl5y (3 SDDP iterations,
+CPLEX): exact (same LB at iteration 1, unit tests over none/row_max/ruiz) but
+no gain in kappa or solver effort with one factor per reservoir, and a
+clamp of 1e3 raises the coefficient ratio from ~5e5 to ~5e8.  Keep `k` small.
+
+Reservoir energy-balance rows carry the water value, typically 1e3-1e5
+`$/hm3` once boundary / Benders cuts are present, i.e. LP duals 2-3 decades
+above the `[1, 100]` band solvers handle best.  Row-max / Ruiz scale rows
+by their *coefficients*, not by dual size, and undo any pre-scaling, so the
+correction is applied **after equilibration**: the row is multiplied by `c`
+(coefficients and bounds) and its stored row scale divided by `c`.
+
+- LP dual becomes `y_LP / c`; the physical dual
+  `y_LP * scale_objective / row_scale`, SDDP cut coefficients, outputs and
+  saved cuts are unchanged (exactness tests in
+  `test_sddp_cut_exactness.cpp`).
+- `c = clamp(expected|y_LP| / water_dual_target, 1/k, k)` with
+  `expected|y_LP| = water_value_hint * prob*disc * row_scale / scale_objective`.
+- Per reservoir: `water_value_hint` (`$/hm3`, default = the state-violation
+  cost) and `dual_scale` (explicit `c`, overrides the auto rule).
+- Trade-off: the row's coefficients now have max `c` instead of 1 after
+  equilibration (spread vs. the junction rows grows by `c`); keep `k`
+  small (default 1e3 is an upper bound, 1e1-1e2 is safer).
+
+
+### KVL row dual conditioning (`kvl_row_scale`) — EXPERIMENTAL
+
+Node-angle KVL rows (`Line.theta`) have duals `dLMP / x_tau`
+(1e5-1e7 on congested 220/500 kV corridors).  With `kvl_row_scale` each row
+is multiplied after equilibration by `c = clamp(x_ref / x_tau, 1/k, k)`
+(same exact mechanism as `water_dual_target`: stored row scale divided by
+`c`, physical duals / cuts / outputs unchanged).  Because `y * x_tau` is
+invariant per flow column, shrinking the dual by `1/x_tau` inflates the
+row's coefficients by the same factor, so only a mild `x_ref` is useful.
+**Measured on cl5y the first-order lever is not this option but
+`scale_theta`: leave it UNSET (auto = 1 / (3 median(X/V²))).**  A case that
+pins `scale_theta: 1` (older plp2gtopt conversions) runs with ~10x higher
+kappa.

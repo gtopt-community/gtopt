@@ -63,6 +63,10 @@ The main contributions of this work are:
       \item unit commitment (three-binary formulation) with piecewise
         heat rates, reserves and synchronous inertia;
       \item LNG terminals and hydrogen, ammonia and heat chains;
+      \item a natural-gas network with Weymouth pipes in squared
+        pressure, elevation, compressor fuel, line pack, and
+        gas-fired units limited by their fuel-gas pressure, with
+        nodal gas prices (Section~\ref{sec:gas});
       \item multi-pollutant emission zones with caps, banking and
         carbon capture;
       \item multi-stage capacity expansion of generation, transmission,
@@ -89,8 +93,9 @@ The main contributions of this work are:
       \item command-line, browser and web-service interfaces.
     \end{itemize}
 
-  \item Validation on IEEE benchmark networks, pandapower and published
-    SDDP benchmarks (Section~\ref{sec:validation}), and a comparison of
+  \item Validation on IEEE benchmark networks, pandapower, published
+    SDDP benchmarks and open gas and gas--electric test systems
+    (Section~\ref{sec:validation}), and a comparison of
     GTOpt with the official daily schedule of the Chilean national
     system on 14 days, computed by the system operator with PLEXOS
     (Section~\ref{sec:cases}).
@@ -98,7 +103,8 @@ The main contributions of this work are:
 
 The remainder of this paper is organized as follows.
 Section~\ref{sec:literature} reviews the state of the art.
-Section~\ref{sec:formulation} presents the formulation.
+Section~\ref{sec:formulation} presents the formulation, and
+Section~\ref{sec:gas} its natural-gas network.
 Section~\ref{sec:methods} describes the solution methods and the
 multi-scale coupling.  Section~\ref{sec:architecture} details the
 software architecture.  Section~\ref{sec:validation} presents the

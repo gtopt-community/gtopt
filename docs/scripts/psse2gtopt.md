@@ -109,8 +109,33 @@ gtopt --lp-only -s gtopt_case/gtopt_case.json
 | `--single-bus`                | off      | Copper-plate single-bus planning (no lines)                   |
 | `--info`                      | off      | Print case summary and exit                                   |
 | `--validate`                  | off      | Run schema sanity checks and exit (0 = ok)                    |
+| `--sanity-report PATH` | not set | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` |
 | `-l, --log-level LEVEL`       | `INFO`   | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`           |
+| `--source-version X`          | detected | RAW revision to assume (`32`, `33`); see [Supported source versions](#supported-source-versions) |
 | `-V, --version`               | —        | Print version and exit                                        |
+
+---
+
+## Supported source versions
+
+| Revision | Supported | Tested | Notes |
+|----------|-----------|--------|-------|
+| `32` | yes | yes — `tests/data/ieee14.raw` | Classic comma-separated RAW |
+| `33` (default) | yes | yes — `tests/data/ieee39.raw`, `synthetic.raw` | Classic comma-separated RAW |
+| `34`, `35` | no | — | `@!` header / system-wide data block; rejected by the parser (export as v33) |
+| `<= 31` | no | — | Parsed with a warning; treated as `32` |
+
+**Detection**: the `REV` field of the case-identification line (after a
+leading `@!` header line, if any).  The resolution is logged by the
+converter.
+
+`--source-version X` overrides the detected version.  An unknown version
+(detected or given) falls back to the closest supported one with a
+warning; a supported but untested version is kept with a warning.  The
+same list is printed by `--help` (generated from `SOURCE_FORMAT` in
+`psse2gtopt/raw_parser.py`).  See
+[Supported source versions](../scripts-guide.md#supported-source-versions)
+for every converter.
 
 ---
 

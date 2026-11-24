@@ -20,8 +20,10 @@ and operating energy systems.  The main conclusions are:
   \item \textbf{A broad formulation.}  The model covers the network
     with Kirchhoff constraints, switching and line losses, storage and
     hydro cascades with water rights, unit commitment, reserves and
-    inertia, multi-carrier chains, emissions with caps and banking, and
-    expansion of generation, transmission, storage and demand.  Operating
+    inertia, multi-carrier chains, a natural-gas network with pressures,
+    compressors, line pack and nodal gas prices, emissions with caps and
+    banking, and expansion of generation, transmission, storage and
+    demand.  Operating
     rules beyond the element library are added through PAMPL.
 
   \item \textbf{Methods for large systems.}  The monolithic LP/MIP, SDDP
@@ -32,7 +34,10 @@ and operating energy systems.  The main conclusions are:
 
   \item \textbf{Validated and auditable.}  GTOpt reproduces IEEE
     benchmarks and pandapower DC OPF to solver tolerance and produces
-    valid bounds on published SDDP benchmarks.  On the Chilean daily
+    valid bounds on published SDDP benchmarks.  Its gas network matches
+    the exact Weymouth optimum of the open gas and gas--electric test
+    systems within the tangent error, or reaches it with the sequential
+    LP on meshed networks.  On the Chilean daily
     schedule, the comparison with the CEN's PLEXOS solutions shows that
     the line-loss model drives the largest differences, and that a
     tangent loss model with a small loss price removes fictitious

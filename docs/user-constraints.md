@@ -218,6 +218,21 @@ prev(decision_variable('vol').value)   -- vol at the block before this one
 - `prev(...)` may not be nested and takes a single element reference (no `sum`,
   no numeric argument).
 
+**`<attr>_prev`** (e.g. `generator('G').generation_prev`) is the lagged column
+of an ordinary LP attribute:
+
+- inside a chronological stage: the same attribute at block `b − 1`;
+- at the first block of a stage whose previous stage is in the **same phase**
+  (same LP): the previous stage's **last** block;
+- at the first block of the **horizon** (no previous stage): the constant
+  `initial_<attr>` when the element defines it — `Generator.initial_generation`
+  for `generation_prev` (PLEXOS *Initial Generation*) — folded into the row,
+  so `gen − gen_prev ≤ 60` with `initial_generation: 80` reads `gen ≤ 140`;
+  otherwise 0;
+- at the first block of a **later phase** (SDDP / cascade): 0 — the plain
+  attribute carries no cross-phase state, and the horizon initial value is
+  never reused there.
+
 **`block.duration`** — a singleton scalar giving the **current block's
 duration Δt (hours)**. Unlike `stage.duration` (the whole-stage total), it
 varies block to block, so it converts a per-block **rate** (power, flow) into
@@ -242,6 +257,154 @@ generator('g').generation * block.duration   -- MWh drawn over the block
 **state** column (a `DecisionVariable` with `"state": true` / `"block_state":
 true`). It is a typing hint that documents intent and is checked during
 resolution; it does not change the LP value.
+
+### Decision variables: `scope` and where a column is visible
+
+A `DecisionVariable` (`decision_variable('X').value`) gets one LP column per
+cell of its `scope`. A user constraint of any scope may reference it; every
+row resolves to the column of the cell that contains the row's
+(scenario, stage, block):
+
+| DV `scope` | Columns | Visible from |
+|------------|---------|--------------|
+| `block` (default) | one per (scenario, stage, block) | that block only |
+| `stage` | one per (scenario, stage) | every block of that stage, same scenario |
+| `phase` | one per (scene, phase) LP | every block, stage and scenario of the phase |
+| `global` | one per (scene, phase) LP | every block, stage and scenario of the phase |
+| `block: N` selector | one, on block `N` of each (scenario, stage) | block `N` only |
+
+So `x <= decision_variable('g').value` written as an ordinary per-block
+constraint with a `global` `g` bounds `x` on every block by the same single
+column: the cell column is built before any block or stage row.
+
+**Non-anticipative (here-and-now) decisions.** A `phase`/`global` column is
+shared by *all scenarios of a scene*, so it cannot adapt to the scenario: it
+is a first-stage decision in the stochastic-programming sense. Put the
+scenarios in one scene (the default when `scene_array` is omitted) and give
+the decision `scope: "global"` — no `nonanticipative` flag is needed. A
+`stage` (or `block`) column is per scenario (wait-and-see). A probability-
+weighted cost (`cost_type: "energy"` / `"power"`) on a shared column is
+weighted by the scene's total probability, not one scenario's.
+
+**Limits of a "global" column.**
+
+- *Across scenes*: each scene is a separate LP, so each scene has its own
+  copy. Non-anticipativity holds within a scene, never across scenes.
+- *Across phases* (SDDP, cascade, multi-phase monolithic): each phase LP has
+  its own copy, and gtopt chains them so a `global` variable is still ONE
+  value for the whole horizon. Without an explicit `state`, a `global`
+  variable in a run with more than one phase is carried as an **implicit
+  state variable** (`"state": true, "link": true`): phase *p*'s copy is
+  linked to phase *p−1*'s, the forward pass pins it to the first phase's
+  value (equality coupling), and SDDP carries it in every cut like a
+  reservoir volume. Its `cost` (and `obj_constant`) is charged **once**, in
+  the first phase. An explicit `"state": true` keeps the user's own
+  state + link (cost charged per phase LP, as for any state column). An
+  explicit `"state": false` opts out: each phase gets an independent copy
+  and a warning is logged — say `scope: "phase"` to request per-phase copies
+  without the warning. The FutureCost user α (`use_user_alpha` +
+  `user_alpha_uid`) is exempt: its per-phase copy is the per-phase
+  cost-to-go. The same rule applies to the variables bundled in a
+  `UserModel`.
+
+  Method notes: under SDDP the first-phase decision sees the later phases
+  through the cuts, so the converged bound equals the single-LP monolithic
+  optimum. Multi-phase *monolithic* solves the phases in sequence without
+  cuts, so the first phase decides myopically (later phases still share
+  its value).
+
+**Example — an LNG cargo calendar decided once.** The number of cargoes
+(or a delivery schedule) must be fixed before the weather and hydrology
+are known and cannot be revised later in the horizon:
+
+```json
+"decision_variable_array": [
+  { "uid": 1, "name": "cargo", "lower_bound": 0, "upper_bound": 100,
+    "cost": 1.0, "scope": "global" }
+],
+"user_constraint_array": [
+  { "uid": 1, "name": "lng_cap",
+    "expression":
+      "generator('lng').generation <= decision_variable('cargo').value" }
+]
+```
+
+With all hydrology scenarios in one scene, `cargo` is shared by every
+scenario (non-anticipative) and, through the implicit state, by every
+phase: one here-and-now decision that SDDP optimises against the
+expected cost of all scenarios and phases.
+
+**Unreachable columns.** If a term names a scope-restricted variable that
+has no column at the row's (scenario, stage, block) — e.g. a `block: 1`
+variable referenced on block 2, or a coarse variable whose anchor stage is
+inactive — the term is NOT treated as an implicit 0. `strict`/`debug` mode
+aborts with `... has no LP column at (scenario s, stage t, block b) — the
+decision_variable has single-block selector (block 1), so its column is not
+reachable from this row`; `normal` mode logs that warning once per term and
+drops the term. (The implicit-0 rule still applies to elements whose column
+is omitted because the element is idle, e.g. a generator with `pmax = 0` on
+that block.)
+
+**Terms with no column: implicit 0 vs. mismatch.** The same distinction
+applies to every element class. When a known element/attribute has no LP
+column at a row's block, gtopt classifies why:
+
+| Reason | Example | Handling |
+|--------|---------|----------|
+| inactive element | `active: [1, 0]`, referenced in stage 2 | implicit 0 |
+| zero capacity | generator `pmax = 0` (or demand `lmax = 0`, line `tmax_ab = tmax_ba = 0`) on that block | implicit 0 |
+| no column at this block | per-block omission inside a stage that has the column on other blocks | implicit 0 |
+| `prev` at first block | `prev(x)` / `x_prev` on a stage's first block with no incoming value | implicit 0 (but see `x_prev` below) |
+| attribute not built | e.g. `line.lossp` on a lossless line, a generator with `pmax = 0` on every block | implicit 0 |
+| suppressed by mode | `line(...)` under `use_single_bus`, `bus.theta` without Kirchhoff | implicit 0 |
+| **scope mismatch** | the element is **active** with capacity here and its column was registered at an **earlier stage of the same LP**, but not at this one (e.g. a `reserve_provision.up` whose zone is inactive in this stage) | `strict`/`debug`: error; `normal`: warning once per term, term dropped |
+
+Implicit-0 drops are counted per constraint and reported once, at the end
+of the LP build, as one INFO line per constraint:
+`user_constraint 'X': N term occurrence(s) contribute 0 — the element has
+no LP column there by design (inactive element: 3, zero capacity: 12)`.
+An explicit id inside `sum(...)` that names no known element/attribute
+(`sum(generator('g1', 'typo').generation)`) logs a warning once per id and
+contributes 0 (a single-term typo still aborts).
+
+Scope-restricted DecisionVariables follow the same rule: one that is
+**inactive** at the row's stage is an implicit 0 (not a scope error), and
+`sum(decision_variable(all).attr)` over a mix of scopes skips the members
+with no column at that block (counted as `scope-restricted member of
+sum(all)` in the INFO summary).  An explicit reference — single term or
+listed id — to an active single-block / coarse-scope variable that is not
+reachable from the row is still the error described above.
+
+### Integer decision variables
+
+A `DecisionVariable` with `"integer": true` creates integer LP columns
+(a MIP). With bounds exactly `[0, 1]` they are binary; with other bounds
+they are general integers. The flag works at every `scope`:
+
+| `scope` | Integer columns |
+|---------|-----------------|
+| `block` (default) | one per (scenario, stage, block) |
+| `stage` | one per (scenario, stage) |
+| `phase` / `global` | one per (scene, phase) cell |
+
+`"relax": true` keeps the columns continuous over their bounds, like
+`Commitment.relax`. A continuous phase (`Phase.continuous`,
+`model_options.continuous_phases`, or the `--no-mip` CLI flag) also relaxes
+them. The effective rule is `relax || phase.continuous`.
+
+A coarse `"state": true` variable may be integer: its column is then both
+a cross-phase state and an integer column. For a `"block_state": true`
+variable only the per-block volume columns are integer. The incoming
+`value_in` column is a pinned copy of the previous phase's state, so it
+stays continuous.
+
+```json
+{ "uid": 7, "name": "units_on", "lower_bound": 0, "upper_bound": 3,
+  "integer": true }
+```
+
+Integer columns need a MIP-capable solver (CPLEX, HiGHS, CBC, Gurobi, …);
+CLP solves only the LP relaxation.
 
 ### Element references
 
@@ -872,6 +1035,22 @@ constraint gen_limit "Combined generation limit":
 
 constraint seasonal_limit:
   generator('G1').generation <= pct_elec * seasonal[month];
+```
+
+Optional header clauses go between the name (or description) and the
+colon, in any order:
+
+| Clause | Effect |
+|--------|--------|
+| `penalty <value>` | Soft constraint with a per-unit slack cost (`UserConstraint.penalty`) |
+| `rhs [v0, v1, ...]` | Per-block scheduled right-hand side (`UserConstraint.rhs`) |
+| `scope block\|stage\|phase\|global` | Row granularity (`UserConstraint.scope`); `stage` emits one row per (scenario, stage) and per-block terms must be wrapped in `sum{b in stage}` |
+
+```pampl
+# Stage-average cap: mean of q over the stage <= mean of qmax
+constraint avg_cap "stage-average cap" scope stage:
+  sum{b in stage} dur[b] * flow_right('q').flow
+    - sum{b in stage} dur[b] * flow_right('qmax').flow <= 0;
 ```
 
 PAMPL files are loaded automatically when referenced:

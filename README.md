@@ -405,6 +405,9 @@ main entry points:
   the full LP/MIP model.
 - [SDDP](docs/methods/sddp.md) and [Cascade](docs/methods/cascade.md)
   methods.
+- [Gas Network Guide](docs/gas-network.md): natural-gas network elements
+  (Weymouth pipes, compressors, line pack, gas-fired units) and benchmark
+  cases with their sources and licences.
 - [Comparison with other tools](docs/tools/comparison.md): PLP, pandapower,
   PyPSA and GenX.
 - [White paper](docs/white_paper/main.pdf) ([LaTeX source](docs/white_paper/)):

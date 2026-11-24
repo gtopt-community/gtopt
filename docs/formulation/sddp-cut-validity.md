@@ -891,6 +891,21 @@ models; those should state A2 explicitly with `sddp_options.alpha_min = 0`
 (the SDDP.jl `lower_bound = 0` analogue, as the A1 literature benchmark
 now does).
 
+**Pinned state columns.**  The box in F1 is the state variable's own
+box, not the column's current LP bounds.  A column pinned by an
+incoming state link (a dependent of phase $p-1$) carries the forward
+trial value $[\hat x, \hat x]$ as bounds, and a floor computed from
+those bounds is the cut's value at $\hat x$.  It does not hold at the
+next trial, so it can push LB above the optimum.  Hydro cuts never
+reference a pinned column, since they are written on `efin` and the
+dependent is `sini`.  An implicit cross-phase state such as a `global`
+`DecisionVariable` uses one column per phase as both the dependent of
+$p-1$ and the source of $p+1$, so its cuts do.  `apply_alpha_floor`
+therefore treats every dependent column of the previous phase's state
+variables as unbounded: such a cut contributes no floor.  Before this
+fix, the 3-phase global-DV test converged to LB = UB = 1990 against a
+1980 optimum.
+
 **Caveat (zero fallback).**  When *no* referencing cut yields a
 bounded box-floor, the code writes floor $= 0.0$
 (`sddp_method_alpha.cpp:568, 622-628`) — this is *not* implied by the

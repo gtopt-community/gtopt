@@ -118,9 +118,47 @@ plp2gtopt -i input/ -l DEBUG
 | `--falla-segments {first,all,split}` | `first` | PLP failure tiers: `first` = cheapest tier as the demand `fcost`; `all` = native `Demand.fail_segments` curve; `split` = one `<demand>_falla<k>` demand per tier (see [Demand](#demand-plpdemdat-plpcoscedat)) |
 | `--scale-objective FACTOR` | `1000.0` | Objective function scaling factor |
 | `--scale-theta FACTOR` | not set | Voltage-angle scale: the LP angle is FACTOR × θ (1 = radians, 1000 = milliradians). Unset ⇒ nothing is emitted and gtopt picks 1/(3·median(X/V²)); an explicit value is written to `model_options.scale_theta` |
+| `--sanity-report PATH` | not set | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` (runs with the post-conversion check; skipped by `--no-check`) |
 | `-z, --zip` | off | Bundle JSON + data files into a ZIP archive |
 | `-l, --log-level LEVEL` | `INFO` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
+| `--source-version X` | detected | PLP variants to assume, `+`-separated (e.g. `CEN65+ESS`); see [Supported source variants](#supported-source-variants) |
 | `-V, --version` | — | Print version and exit |
+
+---
+
+## Supported source variants
+
+PLP `.dat` files carry no version stamp and PLP has no version history the
+parsers key on.  plp2gtopt instead declares the **known variants** its
+parsers handle: optional files and alternative layouts a case may combine.
+All detected variants are logged and recorded together (e.g.
+`CEN65 + ESS + maule-agreement`) in `plp2gtopt_state.json` under
+`extra.source_format` (`variants`, `detected_variants`, `warnings`).
+
+| Variant | Distinguishing files / layout | Parser code path | Tested by |
+|---------|-------------------------------|------------------|-----------|
+| `CEN65` (default) | Core file set `plpblo`, `plpeta`, `plpbar`, `plpcnfli`, `plpcnfce`, `plpdem`, `plpcosce`, `plpmance`, `plpmanli`, `plpaflce`, `plpextrac`, `plpmanem` (detected from `plpcnfce.dat`) | `plp_parser.py` required parsers | every `scripts/cases/plp_*` case |
+| `ESS` | `plpess.dat` + optional `plpmaness.dat` (Fortran `genpdess.f`, the "PLP v6.6 Colbun ESS" build); optional `[DCMod] [CenCarga]` columns and 5 or 6 `plpmaness` fields are accepted | `plp_parser.py` (`plpess` first), `ess_parser.py`, `maness_parser.py` | `plp_min_ess`, `plp_bat_4b_24` |
+| `BESS` | `plpcenbat.dat` + optional `plpmanbat.dat` (Fortran `genpdbaterias.f`); only read when `plpess.dat` is absent | `plp_parser.py` (`elif cenbat_path`) | `plp_min_battery`, `plp_min_bess` |
+| `maule-agreement` | `plpmaulen.dat`; the older layout without the second embalse flag or the trailing "Penalizadores Convenio" line is accepted (defaults 1500 / 1000) | `maule_parser.py` | `plp_min_irrigation`, `test_maule.py` |
+| `laja-agreement` | `plplajam.dat` | `laja_parser.py` | `plp_min_irrigation`, `test_laja.py` |
+| `cenfi-legacy` | `plpcenfi.dat` entries with one `slope constant` line | `cenfi_parser.py` (field count of the line after the reservoir) | `plp_min_cenre` fixture, `test_cenfi_parser.py` |
+| `cenfi-segmented` | `plpcenfi.dat` entries with a segment count + `idx volume slope constant` rows (may be mixed with legacy entries) | `cenfi_parser.py` | `test_cenfi_parser.py` |
+| `cuts-plpplaem` | Boundary cuts as `plpplaem1.dat` / `plpplaem2.dat` | `planos_parser.find_planos_files` | `test_planos.py` |
+| `cuts-plpplem` | Boundary cuts as `plpplem1.dat` / `plpplem2.dat` | `planos_parser.find_planos_files` | `plp_hydro_4b`, `plp_bat_4b_24` |
+
+**Not supported**: the `PLPv6.1_baterias` battery fork of PLP
+stores batteries in `plpstrcen.dat` (Fortran `leebesscen.f`).  No parser
+reads that file; it is detected as `PLPv6.1-strcen` and reported as an
+unsupported variant (warning), and its batteries are not converted.
+
+`--source-version X` replaces the detected set with a `+`-separated list
+(e.g. `--source-version CEN65+ESS`); unsupported tags are ignored with a
+warning.  `--help` prints the same list ("Supports the known PLP
+variants: ..."), generated from `SOURCE_FORMAT` in
+`plp2gtopt/source_version.py`.  See
+[Supported source versions](../scripts-guide.md#supported-source-versions)
+for every converter.
 
 ---
 

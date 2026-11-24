@@ -595,11 +595,17 @@ stationary_tol=… over stationary_window=…; gap=… is not a stop criterion
 while stationarity is enabled …)` or `(gap=… not in (-1e-09,
 convergence_tol=…); ΔUB stationarity disabled)`.
 
+With boundary cuts loaded the raw gap is replaced, in both tests, by
+the **corrected gap** `gap*` (see
+[§4.14.1](#4141-gap-accounting-with-boundary-cuts)); without boundary
+cuts `gap* = gap` and the behaviour is unchanged.
+
 #### Iteration result fields
 
 | Field | Description |
 |-------|-------------|
 | `gap` | Relative optimality gap: $(UB - LB) / \max(1, \lvert UB \rvert)$ |
+| `boundary.*` | Boundary-cut gap accounting (only with boundary cuts) — see §4.14.1 |
 | `gap_change` | Relative change in UB over the look-back window (1.0 if not yet checked) |
 | `converged` | `true` if the live criterion (or the statistical CI test) was met |
 | `stationary_converged` | `true` if convergence was declared by the stationary criterion |
@@ -691,13 +697,22 @@ delegating to `SystemLP::update_lp()` for each phase:
 3. **Discharge limits** (`ReservoirDischargeLimitLP`) — updates slope and
    RHS of volume-dependent discharge limit constraints.
 
-**Volume source by iteration**:
+**Volume source** (`include/gtopt/update_context.hpp`).  Rule axes read
+the stage's initial volume `vini` and final volume `vfin` (bound rules use
+`(vini + vfin) / 2`):
 
-| Iteration | Phase 0 | Phase > 0 |
-|-----------|---------|-----------|
-| Initial (0) | `eini` from reservoir | `eini` from reservoir |
-| First (1)   | `eini` from reservoir | `eini` from reservoir |
-| Subsequent  | `eini` from reservoir | Previous phase efin (via state variable) |
+| Quantity | Resolution order |
+|----------|------------------|
+| `vini` | horizon start: `eini`; eini column pinned by trial propagation: that value; else the predecessor stage's solved `efin` (same phase, or the previous phase's last stage); else this LP's optimal eini column |
+| `vfin` | the stage's own solved `efin`; else this LP's optimal efin column |
+| neither | `eini` — correct only before the first solve |
+
+"Solved `efin`" is the `efin` StateVariable written after every forward
+solve (`StateVariable::has_col_sol()`), so it is the same value under
+every `low_memory` mode: a compress reconstruct, a cut row or the trial
+pin clears the LP's optimal flag but not the state variable.  Falling
+back to `eini` after the LP has been solved means the value was lost; it
+logs a one-time warning with the element, scenario, stage and mode.
 
 **Skip count**: the `update_lp_skip` option in `sddp_options` controls
 how often the update is applied.  A skip of $N$ means "update every
@@ -762,7 +777,7 @@ Two timeout settings protect against runaway LP solves:
 `sddp_options.solve_timeout` key was removed and is now rejected) is the
 solver time limit applied to each forward-pass LP solve.
 
-**`aperture_timeout`** (default: 15 seconds) applies to individual
+**`aperture_timeout`** (default: 30 seconds) applies to individual
 aperture LP solves in the backward pass.  When an aperture LP exceeds
 this time, it is treated as infeasible (skipped), a WARNING is logged,
 and the solver continues with the remaining apertures for that phase.
@@ -910,6 +925,97 @@ most recent ones are relevant.  Set to `0` to load all cuts (default).
 }
 ```
 
+#### 4.14.1 Gap accounting with boundary cuts
+
+The forward-pass UB strips every future-cost column, including the
+terminal α that carries the boundary FCF Φ, while the LB carries Φ
+through the master's α.  With the mean shift
+(`boundary_cuts_mean_shift`) the constant c̄ = mean(Φ) is moved out of
+the cuts (Φ' = Φ − c̄) into the first-phase objective, where both
+bounds see it.  Hence, even with perfectly valid cuts,
+
+$$LB - UB \;\to\; \mathbb{E}[\Phi'(v_T)] \;+\; \text{(cut over-estimation)}$$
+
+and **LB > UB is expected** whenever Φ' is positive at the terminal
+volumes (`docs/formulation/sddp-cut-validity.md` §9).  gtopt therefore
+evaluates, every iteration and only when boundary cuts were loaded:
+
+| Quantity | Definition |
+|----------|-----------|
+| `E[Φ']` | Σ over feasible scenes of the last phase's weighted α / φ_j value at the forward pass's final states (physical cost units, scene probability folded in) |
+| `c̄` | Σ over scenes of the c̄ actually folded into the objective (`c̄`, or `p_s·c̄` under `phi_expectation`) |
+| `opex` | expected stage cost excluding c̄ and the terminal term (may be negative in net-reward cases) |
+| `E\|opex\|` | Σ_s \|opex_s\| — a scale that stays meaningful when positive and negative scene opex cancel |
+| `ub*` | `UB + E[Φ']` = E[stage costs + Φ(v_T)] (`= UB` under `phi_expectation`, whose UB already keeps the terminal φ, PLP `ZSPFAdd`) |
+| `gap*` | `(ub* − LB) / max(1, \|ub*\|)` — the gap the convergence tests read |
+| `over` | `LB − ub*` — the residual **cut over-estimation** |
+
+`over ≈ 0` (or negative while the policy still improves) means the
+negative raw gap is pure terminal accounting — including a *foreign*
+FCF, which is simply a different terminal condition.  `over > 0` means
+some cut claims more future cost than the forward pass realises: cuts
+invalid for this system's intermediate phases (foreign or hot-start
+cuts), cut sharing across non-identical scenes, or numerical overshoot.
+A WARN is emitted when `over > tol · max(|ub*|, E|opex|, 1)` with
+`tol = max(1e-9, 5·convergence_tol)`:
+
+```
+    iter 9  obj   ub=8.562500M  lb=30.812500M  gap=-259.8540%  Δgap=+100.0000%
+    iter 9  bcut  E[Φ']=21.250000M  c̄=0.000000  opex=8.562500M  E|opex|=8.562500M  ub*=29.812500M  gap*= -3.3543%  over=1000.000000K ( +3.3543% of |ub*|, +11.6788% of E|opex|)
+[warning] SDDP Iter [i9]: cut OVER-ESTIMATION beyond the terminal FCF accounting: LB − (UB + E[Φ'(v_T)]) = 1000.000000K = 0.0335 of |ub*| and 0.1168 of E|opex| (threshold 5.00e-09) — …
+```
+
+(from the unit test "Boundary gap diagnostics - over-estimating cuts":
+a foreign FCF plus first-phase cuts lifted by a known Δ = 1e6; the raw
+gap of −260 % is almost entirely terminal accounting, `over` isolates Δ.)
+
+The same fields are written per iteration to `solver_status.json`
+(`history[i].boundary = {terminal_future_cost, alpha_offset,
+expected_opex, expected_abs_opex, corrected_upper_bound, corrected_gap,
+overestimation, terminal_in_ub}`).  With boundary cuts the
+"SIGNIFICANT negative gap … Refusing to declare [CONVERGED]" WARN is
+replaced by the over-estimation WARN above, and the gap-only and
+statistical-CI convergence tests use `gap*` / `ub*` instead of the raw
+gap / UB, so a run whose LB > UB is explained by E[Φ'] can converge.
+Without boundary cuts nothing changes.  The asynchronous path
+(`max_async_spread > 0`) computes the same fields on its aggregate
+snapshot (`iter N  bcut ...` line, each scene contributing its latest
+forward pass) and its per-scene gap test uses the scene's corrected
+gap; the over-estimation WARN is emitted by the synchronous path only.
+
+#### 4.14.2 LP-scaling invariance check
+
+Equilibration (`lp_matrix_options.equilibration_method`) and
+`scale_objective` are LP-numerics knobs only: LB, UB, the objective and
+every cut in physical units must not depend on them.
+`tools/check_equilibration_invariance.sh` runs a case under several of
+them with one solver and compares the results:
+
+```bash
+tools/check_equilibration_invariance.sh -s highs -n 5 -o 1,1000 \
+    cases/sddp_hydro_3phase                         # SDDP, 3 eq × 2 so
+tools/check_equilibration_invariance.sh -m monolithic cases/ieee_9b/ieee_9b.json
+```
+
+Per variant it runs `gtopt` with `--set
+lp_matrix_options.equilibration_method=<eq>` (default list
+`none,row_max,ruiz`, `-e` to change), optionally `--set
+model_options.scale_objective=<so>` (`-o`), and for SDDP
+`min = max = N` iterations (`-n`, default 3) with per-iteration cut
+saving.  `tools/check_equilibration_invariance.py` then compares, against
+the first variant: LB / UB of every iteration (`solver_status.json`), the
+objective (`solution.csv`; SDDP: first phase only, since later phases'
+obj_value also carries α), and the first-iteration optimality cuts from
+`cuts/sddp_cuts.parquet`, normalised by the α coefficient into a physical
+intercept `a = rhs/w` and slopes `β = c/w`.  A pair passes when
+`|x − y| ≤ rtol · max(|x|, |y|, 1)` (`--rtol`, `--cut-rtol`, default
+1e-6).  Output is one `[ok]` / `[FAIL]` line per check and a
+`PASS: k/n checks` / `FAIL: …` summary; exit 0 = pass, 1 = fail,
+2 = run error, 77 = skipped (no gtopt binary or no pyarrow).  Extra
+`--set K=V` options are forwarded; `-w DIR -k` keeps the run directories.
+The CTest smoke test `tool_check_equilibration_invariance`
+(integration build) runs it on `sddp_hydro_3phase`.
+
 ### 4.15 Named Cuts (Multi-Phase Hot-Start)
 
 Named cuts extend boundary cuts to **all phases** (not just the last).
@@ -975,7 +1081,7 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `cut_sharing_mode` | CutSharingMode | none | Cut sharing strategy between scenes |
 | `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
 | `cut_recovery_mode` | string | `"none"` | Hot-start from saved cuts: `none`, `keep`, `append`, `replace` (replaces the removed `hot_start` flag; CLI `--hot-start`) |
-| `aperture_timeout` | double | 15.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
+| `aperture_timeout` | double | 30.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
 | `sentinel_file` | string | "" | Path to sentinel file for graceful stop |
 | `cuts_output_file` | string | "" | Path for saving cuts (CSV format) |
 | `cuts_input_file` | string | "" | Path for loading cuts (hot-start) |
@@ -1060,7 +1166,7 @@ prefix, since the section name already provides the namespace).
 | `cut_recovery_mode` | string | `"none"` | Hot-start from saved cuts (`none`, `keep`, `append`, `replace`); replaces the removed `hot_start` flag |
 | `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
 | `forward_solver_options` | object | — | Solver options for forward-pass solves; `time_limit` replaces the removed `solve_timeout` |
-| `aperture_timeout` | double | 15.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
+| `aperture_timeout` | double | 30.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
 | `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all) |
 | `aperture_chunk_mode` | string | `"per_scene"` | How backward apertures are grouped into pool tasks (each task clones the phase LP once and solves its apertures in series): `"per_scene"` (all apertures of a (scene, phase) in one task — warm-start chain, one clone per cell; parallelism capped at the scene count), `"per_aperture"` (one task per aperture, fresh clone, cold solve), `"chunked"` (`aperture_chunk_size` = K per task). See [Aperture task grouping](#aperture-task-grouping). CLI: `--aperture-chunk-mode` |
 | `aperture_chunk_size` | int | unset | K apertures per task for `aperture_chunk_mode = "chunked"` (unset = auto formula). Deprecated as a mode selector when `aperture_chunk_mode` is unset: `-1` → `per_scene`, `1` → `per_aperture`, `K > 1` → `chunked`, `0` → default (warning logged). CLI: `--aperture-chunk-size` |
@@ -1581,14 +1687,32 @@ during their `solve()` call.
   file (version and `git describe --always --dirty` of its source tree,
   `unknown` outside a git checkout); also in `solution.csv`
 - `"lower_bound"`, `"upper_bound"`, `"gap"`, `"converged"`, `"max_iterations"`
+- `"agreement_rewards"`, `"upper_bound_net"` (SDDP, latest iteration): the
+  objective contribution of water-right rewards (FlowRight / VolumeRight
+  columns priced with a positive `uvalue`, e.g. irrigation-agreement
+  delivery values; always <= 0) and `upper_bound − agreement_rewards`, the
+  UB as a pure cost.  A uvalue-only kink counts only the flow beyond its
+  target; fcost shortfall penalties and usage costs are not rewards.
+  When non-zero, each iteration also logs
+  `SDDP Iter [iN]: ub=… agreement_rewards=… ub_net=…`.
 - `"solver"`, `"method"`: runtime solver identity and planning method
-- `"history"`: per-iteration array with `lower_bound`, `upper_bound`, `gap`,
-  `converged`, `cuts_added`, `scene_upper_bounds`, `scene_lower_bounds`
+- `"history"`: per-iteration array with `lower_bound`, `upper_bound`,
+  `agreement_rewards`, `upper_bound_net`, `gap`, `converged`,
+  `cuts_added`, `scene_upper_bounds`, `scene_lower_bounds`
 - `"phase_grid"`: per-(iteration, scene, phase) activity grid for TUI display
 - `"async"`: async scene execution state (when `max_async_spread > 0`)
 - `"realtime"`: rolling arrays of `timestamps`, `cpu_loads`, `active_workers`
 
 Both SDDP and monolithic methods write to the same `solver_status.json` file.
+
+`"status"` is `initializing` / `running` / `converged` while the solve is
+live.  When an SDDP solve ends, one last write records the terminal state:
+`converged`, `max_iterations` (iteration budget exhausted without
+converging), `stopped` (stop request, sentinel file or callback) or
+`error` (a forward pass failed).  The periodic monitor refresh never
+overwrites that final document.  A simulation-only run
+(`max_iterations = 0`) writes no status file.  Monolithic solves end
+with `done`.
 
 The status file is written **atomically** (write to `.tmp`, then rename) to
 allow external tools to read it without seeing a partial write.

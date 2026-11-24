@@ -212,23 +212,84 @@ into the backend before branch-and-cut:
 | Stage | Sub-object | What it does |
 |-------|------------|--------------|
 | 0 | `relax` | Solve/diagnose the LP relaxation (`check`, `report_saturated`, `on_infeasible`: `stop` / `warn` / `feasopt`; own `solver_options` overlay) |
-| 1 | `round` | Round the relaxation's integer columns (`threshold`, default 0.5) |
-| 2 | `domain_rules` | Power-system commitment repair: `min_up_down`, `commitment_logic`, `peak_injection` (battery/hydro peak-window seeding) |
-| 4 | `scip_repair` | Optional SCIP `completesol` feasibility repair of the candidate (requires the SCIP plugin; self-skips when absent) |
-| 5 | `inject` | Hand the candidate to the backend (`effort`: `repair` default / `check_feasibility` / …) |
+| 1 | `round` | Rounding threshold of the dive targets (`threshold`, default 0.5) |
+| 1-3 | `dive` | **Default generator**: relaxation-guided propagation dive, fixed-integer LP verification, elastic / sub-MIP repair (see below) |
+| 2 | `domain_rules` | Legacy power-system commitment repair (`min_up_down`, `commitment_logic`, `peak_injection`); used when `dive.enabled=false` or no flat LP is retained |
+| 4 | `scip_repair` | Optional SCIP `completesol` feasibility repair of an UNVERIFIED candidate (requires the SCIP plugin; self-skips when absent or when the dive verified its start) |
+| 5 | `inject` | Hand the start to the backend (`effort`: `solve_fixed` default for a verified dive start, `repair` otherwise; `check_feasibility` / …) |
 
 ```json
 {
   "monolithic_options": {
     "mip_start": {
       "enabled": true,
-      "round": { "threshold": 0.5 },
-      "scip_repair": { "enabled": true },
-      "inject": { "effort": "repair" }
+      "dive": { "repair_rounds": 3, "sub_mip_time_limit": 120 },
+      "inject": { "effort": "solve_fixed" }
     }
   }
 }
 ```
+
+#### The dive generator (`mip_start.dive`)
+
+Rounding the LP relaxation cell by cell ignores the rows that couple the
+integer columns, so on real UC MIPs the rounded start is infeasible and the
+backend discards it (CPLEX: `No solution found from 1 MIP starts`).  On the
+PCP 2026-04-22 weekly UC the rounded start broke combined-cycle
+configuration exclusivity (`u_A + u_B <= 1`), plant-config ⇒ unit rows
+(`-cc + Σ u_unit >= 0`), operational `u <= 0` rows and min up/down windows.
+The dive replaces the round + rules candidate with three generic stages:
+
+1. **Propagation dive.**  The integer columns are fixed one at a time in
+   relaxation-confidence order — integral cells first, then fractional cells
+   by decreasing `|x - 1/2|` — to their rounded relaxation value.  After each
+   fixing, activity-based bound propagation runs over every row of the flat
+   LP (min/max row activity → implied column bounds; integer bounds rounded,
+   continuous bounds tightened only by significant steps).  A fixing that
+   propagates to a conflict is undone and the other value tried; a cell
+   where both values conflict is deferred.  Every pure-integer row —
+   exclusivity, config ⇒ unit, logic, min up/down, fixed status, `u <= 0` —
+   is therefore satisfied by construction, with no element names or PAMPL
+   knowledge.  Mixed rows (reserve gated by `u`, `Pmin·u <= p`) propagate
+   through the continuous bounds.  Rows longer than 2000 entries (aggregate
+   constraints) are not propagated, nor are columns appended to the live LP
+   after the flat snapshot (e.g. future-cost / boundary-cut columns): they
+   keep their bounds and are checked by the verify step.
+2. **Verify.**  Fix all integers to the candidate and solve the continuous
+   LP (cold barrier + crossover: with the integers fixed, presolve removes
+   most of the model, while a warm dual simplex cannot presolve).  Optimal
+   ⇒ the start is a feasible MIP solution; its objective is logged as the
+   start's true cost (`start_obj`), next to the relaxation bound.
+3. **Repair** (when the fixed LP is infeasible, up to `repair_rounds`).  An
+   *elastic* LP keeps integrality relaxed and minimises `|x - candidate|`
+   over the integer columns (warm primal simplex from the relaxation basis,
+   which is feasible for it); the cells it moves are re-targeted in the
+   direction of the move and re-dived first.  If the rounds run out, a
+   bounded **sub-MIP** frees only the moved cells and the integer columns
+   of the pure-integer rows the candidate still violates (so it also runs
+   with `repair_rounds = 0`), plus the integer columns sharing a short row
+   with them, keeps every other integer fixed, and runs
+   for at most `sub_mip_time_limit` seconds.  All solves go through the
+   generic `LinearInterface`, so the stage works on every MIP backend.
+
+| `dive` field | Default | Meaning |
+|--------------|---------|---------|
+| `enabled` | `true` | Use the dive; `false` restores the legacy round + domain-rules generator |
+| `propagate` | `true` | Bound propagation (needs the retained flat LP; otherwise round + rules) |
+| `verify` | `true` | Fixed-integer LP verification + repair |
+| `repair_rounds` | `3` | Elastic repair rounds (`0` disables) |
+| `sub_mip` | `true` | Bounded repair sub-MIP after the elastic rounds |
+| `sub_mip_time_limit` | `120` | Sub-MIP wall-clock limit [s] |
+| `penalty` | unset | Elastic deviation penalty in raw objective units, added to the original objective; unset ⇒ pure feasibility elastic LP (deviation only), better conditioned and primal feasible from the relaxation basis |
+
+The log reports the violated pure-integer rows of the plain rounding and of
+the dive (grouped by `class:constraint` label), the propagation counters,
+every repair round, and finally
+`MIP-start[dive]: injected VERIFIED start (... start_obj=…, relax_obj=…,
+gap=…%, repair_rounds=…, sub_mip=…)`.  A verified start is injected with
+`effort=solve_fixed` (the backend re-derives the dispatch from the integers,
+immune to tolerance noise in the continuous part).  The time spent counts
+against `solver_options.time_limit` like the other MIP-start stages.
 
 Three optional files extend the pipeline across runs and tools:
 

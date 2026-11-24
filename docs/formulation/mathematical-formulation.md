@@ -39,6 +39,7 @@
    - [5.16 Simple Commitment](#516-simple-commitment)
    - [5.17 Inertia Zone and Provision](#517-inertia-zone-and-provision)
    - [5.18 Hydrogen Carrier (Electrolyser, Node, Offtake)](#518-hydrogen-carrier-electrolyser-node-offtake)
+   - [5.19 Gas Network (Nodes, Pipes, Compressors, Gas Turbines)](#519-gas-network-nodes-pipes-compressors-gas-turbines)
 6. [Scaling and Solver Options](#6-scaling-and-solver-options)
    - [6.1 Objective Scaling](#61-objective-scaling)
    - [6.2 Voltage Angle Scaling](#62-voltage-angle-scaling)
@@ -524,14 +525,14 @@ $c_g^{\text{spill}} \cdot \omega_{s,t,b}$.
 
 #### Demand Balance
 
-When curtailment is allowed (i.e., `demand_fail_cost` is set):
+When curtailment is allowed (every demand not marked `forced`):
 
 $$
 \ell_{d,s,t,b} + q_{d,s,t,b} = \overline{L}_{d,t,b}
 \qquad \forall \; d, s, t, b
 $$
 
-When curtailment is **not** allowed, the load is fixed:
+For a hard demand (`forced = true`), the load is fixed:
 
 $$
 \ell_{d,s,t,b} = \overline{L}_{d,t,b}
@@ -546,6 +547,9 @@ incorporating any demand profile scaling.
 $$
 \text{cost}(q_{d,s,t,b}) = c_{d,t}^{\text{fail}} \cdot \omega_{s,t,b}
 $$
+
+where $c_{d,t}^{\text{fail}}$ is the demand's `fcost`, falling back to the
+global `demand_fail_cost` (default 1000 \$/MWh).
 
 #### Bus Balance Contribution
 
@@ -849,6 +853,56 @@ References: Beale & Tomlin 1970 (SOS2 piecewise-linear envelope);
 Coffrin & Van Hentenryck 2014 (signed-flow outer approximation);
 Aigner & Van Hentenryck 2022 arXiv:2112.10975.
 
+#### Decoupled Loss Envelope (`loss_envelope`)
+
+By default every PWL loss mode spreads its $K$ tangent points / secant
+segments (and the $L$ chord segments of `tangent_signed_flow`) over
+$[0, \overline{F}_l]$, the flow cap.  `Line.loss_envelope` $= E_l$
+decouples the two: the fine resolution is placed on the realistic
+loading range $[0, E_l]$ (typically the original rating of a line whose
+cap was lifted, e.g. PLEXOS `Enforce Limits = 0` lines emitted with
+$\overline{F}_l = 10\,E_l$), while the flow bound stays at
+$\overline{F}_l$.  The envelope **never caps the flow**, and the loss
+past it stays **quadratic** (PLEXOS keeps $\ell = c_l f^2$ above the
+rating; a linear extrapolation on the last segment's slope would
+under-state it by about $2\times$ at $3 E_l$).
+
+When $\overline{F}_l > E_l$, the range $[E_l, \overline{F}_l]$ is
+covered by a coarse geometric ladder
+
+$$ b_j = E_l \, (\overline{F}_l / E_l)^{j/M}, \quad j = 0, \dots, M,
+   \qquad M = \Bigl\lceil \frac{\ln(\overline{F}_l / E_l)}{\ln 1.4}
+   \Bigr\rceil \;(\le 16), $$
+
+so $b_j / b_{j-1} \le 1.4$.  Each emitter adds:
+
+* **Tangent rows** (`tangent_signed_flow`, `piecewise` + `tangent`
+  layout) at $\pm E_l$ and $\pm b_j$:
+  $\ell \ge 2 c_l b_j f - c_l b_j^2$.
+* **Secant segments** (`tangent_signed_flow` segment form, and the
+  per-direction `bidirectional` / `piecewise` secant layouts):
+  overflow columns $u_j \in [0, b_j - b_{j-1}]$ with chord/loss slope
+  $c_l (b_{j-1} + b_j)$; in `tangent_signed_flow` they join the
+  abs-rows $\sum v + \sum u \ge \pm f$, and in the per-direction
+  model they join the link row while the $K$ inner segments keep their
+  width cap.
+* **SOS2 breakpoints** ($\lambda$-form): extra breakpoints $\pm b_j$
+  with chord value $c_l b_j^2$.
+
+Between consecutive points $a < b$ both the tangent and the secant
+error of $c_l f^2$ peak at $f = (a+b)/2$ with relative size
+$\bigl((b-a)/(b+a)\bigr)^2 \le (0.4/2.4)^2 \approx 2.8\,\%$, so the
+loss past the envelope is within $\approx 2.8\,\%$ of $c_l f^2$ from
+both sides.  The construction is LP-valid: the slopes increase, so the
+smallest chord value reachable for a given $|f|$ is the bottom-up
+fill — the piecewise secant — which lies above $c_l f^2$ and therefore
+above every tangent row; the upper (chord) and lower (tangent) bounds
+never conflict for $|f| \le \overline{F}_l$.  The loss-column bound
+uses $c_l \max(\overline{F}_l, E_l)^2$.  With no headroom
+($\overline{F}_l \le E_l$) or `loss_envelope` unset, no overflow
+rows/columns are emitted and the LP is identical to the
+non-decoupled formulation.
+
 ### 5.6 Kirchhoff Voltage Law (DC OPF)
 
 When `use_kirchhoff = true` and `use_single_bus = false`, voltage angle
@@ -1041,6 +1095,12 @@ residual value is cost-free degenerate freedom.  Modes whose loss
 columns are already zeroed transitively (`bidirectional` / uniform
 equality chains) get a redundant but harmless row; columns that are
 vestigial (lossless) or unbounded are skipped.
+
+> **`piecewise_direct` transfer cost.**  Each of the $K$ per-direction
+> segment columns carries the full per-MWh cost $c_l$ (`tcost`), so with
+> $\sum_k \text{seg}_k = |f|$ the charged cost is $c_l\,|f|$, as in every
+> other loss mode (it was $c_l |f| / K$ before the fix).
+<!-- source: source/line_losses.cpp (add_direct_direction) -->
 
 > **`piecewise_direct` caveat.**  This mode carries flow only in
 > per-direction segment columns (no $f^+ / f^-$ aggregator), so
@@ -1354,6 +1414,36 @@ $$
 \qquad \forall \; s, t, b
 $$
 
+#### Non-Effective Coupler (Fail-Closed Rule)
+
+A *coupler* — Converter, Turbine (§5.10), Pump (§5.10 bis), GasTurbine
+and electric compressor (§5.19) — is the only path through which its
+partner turns one resource into another.  In a stage where the coupler
+is not *effective* (the coupler is inactive, or a reference it needs is
+inactive or has no column), its coupling row cannot be written, and the
+partner's producing column $x$ is **closed** instead of being left free:
+
+$$
+x \le \min(\bar{x}, 0), \qquad x \ge \min(\underline{x}, 0)
+$$
+
+(a negative, i.e. consuming / reverse, lower bound is kept).  For the
+converter: if the converter is inactive or the battery is not in
+service, $p_{g,s,t,b}$, $p^{\text{in}}_{e,s,t,b}$ and
+$p^{\text{out}}_{e,s,t,b}$ are closed (the charge demand is a consumer and
+is untouched).  Without this rule each of those stages produced energy
+from nothing.
+
+The closing is a *backstop*: `validate_planning` rejects the inconsistent
+inputs up front (class / uid / name and stage / phase in the message):
+a coupler whose one-to-one partner has a different `active` schedule
+(Turbine ↔ generator / flow, GasTurbine ↔ generator, Converter ↔
+battery / discharge generator, Pump ↔ waterway / load demand), a coupler
+active while a shared reference is inactive (Turbine junction / waterway,
+GasTurbine gas node, electric compressor motor bus), two turbines on one
+generator, and a `must_run` commitment whose unit's coupler is inactive.
+<!-- source: include/gtopt/coupler_fail_closed.hpp -->
+
 #### Converter Capacity
 
 When the converter has a capacity limit:
@@ -1406,6 +1496,39 @@ where:
   (curtailment) variables
 - $\overline{R}_{z,t,b}^{\text{up/dn}}$ is the reserve requirement (MW)
 
+**Soft requirement and the objective constant.**  With a shortage cost
+$c^{R}_{z,t,b}$ (`urcost` / `drcost`, fallback
+`model_options.reserve_shortage_cost`) the static requirement is built in
+the equivalent *served-requirement* form: a column
+$\rho_{z,s,t,b} = \overline{R}_{z,t,b} - q_{z,s,t,b} \in [0, \overline{R}_{z,t,b}]$
+with objective coefficient $-c^{R}\,\epsilon_{s,t,b}$ ($\epsilon$ = the block
+cost factor: probability × discount × duration) and the row
+$\sum_p \gamma_{p,t}\,r_{p,s,t,b} - \rho_{z,s,t,b} \geq 0$.  Substituting
+$\rho = \overline{R} - q$ gives the shortage form above plus the constant
+$+c^{R}\epsilon\,\overline{R}$, which gtopt adds to the LP-external
+objective constant (`LinearProblem::add_obj_constant`, the same mechanism as
+the demand-fail baseline):
+
+$$
+c^{R}\epsilon\,\overline{R}_{z,t,b} \;-\; c^{R}\epsilon\,\rho_{z,s,t,b}
+\;=\; c^{R}\epsilon\, q_{z,s,t,b}
+$$
+
+so the reported objective (`get_obj_value()`, SDDP upper/lower bounds) is
+the real operating cost: a met requirement contributes $0$, a short one
+$c^{R}\epsilon\,q$.  The LP rows, columns, costs and bounds are untouched
+(dispatch and duals are bit-identical to the form without the constant);
+the constant rides on the solver's native objective offset, is scaled by
+`scale_objective` like every column cost, and is reported per LP as
+`objective.constant` in the LP-scales JSON.  The SDDP feasibility
+(elastic) clone zeroes the constant; optimality cuts carry it as a
+state-independent intercept, exactly like the demand-fail baseline.  The
+plane-based (dynamic) requirement below has a *variable* requirement $R$
+and prices only the explicit shortage column $s \geq 0$, so it has no
+valuation term and needs no constant.  A hard requirement (no cost) moves
+$\overline{R}$ to the row RHS and has no column at all.
+<!-- source: source/reserve_zone_lp.cpp (add_requirement) -->
+
 #### Reserve–Generator Coupling
 
 Up-reserve provision is limited by the generator's headroom:
@@ -1414,6 +1537,15 @@ $$
 p_{g,s,t,b} + r_{p,s,t,b}^{\text{up}} \;\leq\; \bar{C}_{g,t}
 \qquad \forall \; p \in \mathcal{P},\; s, t, b
 $$
+
+With a `Commitment` on the generator the up row is gated by the status
+$u$: $p + r^{\text{up}} \le \bar{P}\,u$.  When the generator is
+expandable the headroom row has the capacity-column form
+$p + r^{\text{up}} - \bar{C}_{g,t} \le 0$; it is kept and a separate
+u-gated row $p + \sum_p r_p^{\text{up}} - \bar{P}\,u \le 0$ is added
+($\bar{P}$ = generation column upper bound, the same big-M as the
+`gen_upper` row), so a de-committed unit offers no reserve.
+<!-- source: source/commitment_lp.cpp (Reserve-UC integration) -->
 
 Down-reserve provision is limited by the generator's operating range:
 
@@ -1493,6 +1625,412 @@ when the battery itself has spare headroom; and the auxiliary tank
 creates (or, on the up side, destroys) $\alpha\,r$ MWh per hour.
 See `docs/studies/sscc_battery_constraint.md` and
 `test/source/test_bess_reserve_native.cpp`.
+
+**Per-side response caps** (PLEXOS `Max Response` / `Max Charge
+Response`).  When a provision of the battery sets `urmax_response`,
+`urmax_charge_response` (or the `dr` analogues), every provision of
+that direction is split $r_p = r_p^{\text{dis}} + r_p^{\text{chg}}$
+(`reserve_{up,dn}_split`), each part bounded by its cap
+($\le \overline{M}_p^{\text{dis}}$, $\le \overline{M}_p^{\text{chg}}$) and
+by its own side's headroom:
+
+$$
+p^{\text{out}} + \sum_p r_p^{\text{up,dis}} \le \overline{P}^{\text{out}},
+\quad
+\sum_p r_p^{\text{up,chg}} \le p^{\text{in}},
+\quad
+\sum_p r_p^{\text{dn,dis}} \le p^{\text{out}},
+\quad
+p^{\text{in}} + \sum_p r_p^{\text{dn,chg}} \le \overline{P}^{\text{in}}
+$$
+
+(the down discharge side exists only with `reserve_discharge_credit`).
+The split columns and rows belong to each provision (LP label
+`ReserveProvision`, provision uid; output
+`ReserveProvision/reserve_{up,dn}_{discharge,charge}_sol`), so a battery
+with several capped services (CPF, CSF, CTF) keeps one pair per
+provision while the side rows sum over all of them.  Summed, these imply
+the aggregate headroom rows, which stay.  Test: a
+40/40 MW BESS on a 60 MW up requirement covers 50 with a 10 MW
+charge-side cap (shortage 10), and needs a 35 MW charge with a 25 MW
+discharge-side cap.
+
+**Expected deployment energy** (`reserve_energy_usage_up/down`
+$= a^{\uparrow}, a^{\downarrow}$ [MWh/MW/h] on the Battery, overridden per
+provision by `ReserveProvision.ur_energy_usage` / `dr_energy_usage`, so
+$a$ is per provision: PLEXOS uses 0.3 for CSF and 0 for CPF/CTF).  The SoC balance (§5.7) gets
+the same coefficient as $a$ MW of discharge per MW of up reserve and $a$
+MW of charge per MW of down reserve:
+
+$$
+e_b = e_{b-1} + \eta^{\text{in}} \Delta_b\, (p^{\text{in}} +
+a^{\downarrow} \textstyle\sum r^{\text{dn}}) - \frac{\Delta_b}{\eta^{\text{out}}}
+(p^{\text{out}} + a^{\uparrow} \textstyle\sum r^{\text{up}})
+$$
+
+This is the physical counterpart of the PLEXOS `CF_GEN_COMP` /
+`CF_LOAD_COMP` AUX (which injects $a\,r$ into the bus balance): the
+energy moves the battery's own SoC and nothing enters a bus balance, so
+the price property above is kept.  Test: $a^{\uparrow} = 0.5$,
+$\eta^{\text{out}} = 0.8$, $r^{\text{up}} = 60$ lowers an idle SoC from
+100 to 62.5; $a^{\downarrow} = 0.5$, $\eta^{\text{in}} = 0.9$,
+$r^{\text{dn}} = 40$ raises it to 118.
+
+**CEN PCP BESS mapping** (2026-11-07, e.g. `BAT_ALFALFAL_VR2`):
+
+| PLEXOS | Structure | gtopt |
+|--------|-----------|-------|
+| `UPStorageBound_B` | $-0.95E + r^{\uparrow} \le 0$ | `reserve_up_energy`, $T = 1$ |
+| `DOWNStorageBound_B` | $E + 0.95 r^{\downarrow} \le 177$ | `reserve_dn_energy`, $T = 1$ |
+| `B_CF_GEN_COMP` | $-g^{\text{aux}} + 0.3\,r^{\text{CSF,LW}} = 0$ (CPF/CTF coef 0) | per provision `dr_energy_usage` (SoC, no bus term) |
+| `B_CF_LOAD_COMP` | $-l^{\text{aux}} + 0.3\,r^{\text{CSF,RS}} = 0$ | per provision `ur_energy_usage` |
+| `B_AUX` battery | 99 999 MWh, ±1000 MW, η = 1 | dropped |
+| Battery `Capacity` | 177 MWh, dated 6.6 (maintenance) | `Battery.emax` schedule |
+| `B_CapacityUp/Down` | $E \lessgtr 10\,000$ | inactive (never binding) |
+| `C*_BESS` `Max Response` / `Max Charge Response` | per reserve, CSV `*_MRU/MRD` | `ReserveProvision.{ur,dr}max_response`, `…_charge_response` |
+| `C*_BESS` `Min Provision` + `CSF_*_MIN_B` | $r - 5u \ge 0$ | `urmin` / `drmin` |
+
+#### Dynamic Requirement: Max of Planes (CEN CPF)
+
+A zone can set `urreq_planes` / `drreq_planes` instead of the fixed
+`urreq` / `drreq`.  The requirement is then a variable $R_{z,b}$ bounded
+below by the maximum of $K$ affine planes: the CEN Chile primary-reserve
+requirement (Minuta GM-DPRO Nº05-2026 [[20]](#ref20), Anexo B, eqs.
+(B.2)–(B.4)).  For each direction and block,
+
+$$
+R_{z,b} \;\ge\; \alpha_{k,b} + \delta^{D}_{k,b}\, D_{z,b} +
+ \delta^{I}_{k,b}\, I_{z,b} + \delta^{C}_{k,b}\, C_{z,b} +
+ \delta^{F}_{k,b}\, F_{z,b}
+\qquad \forall\, k = 1..K \qquad (\texttt{urplane}_k)
+$$
+
+$$
+R_{z,b} \;\ge\; \max\{0,\ \overline{R}_{z,b},\ \underline{R}_{z,b}\}
+\qquad\text{(column lower bound: \texttt{urreq} / \texttt{urmin} floors)}
+$$
+
+$$
+\sum_{p \in \mathcal{P}_z} \gamma_{p}\,\phi_{p,z}\, r_{p,b} +
+ q_{z,b} - R_{z,b} \;\ge\; 0,
+\qquad q_{z,b} \ge 0 \text{ priced at } c^{\text{rfail}}_z
+\qquad (\texttt{urequirement})
+$$
+
+with the terms
+
+| Symbol | Meaning | Kind | JSON |
+|--------|---------|------|------|
+| $D_{z,b}$ | system load, $\ell \sum_{d} \bar{\ell}_{d,b}$ or a given value | **parameter** | `demand_load_factor`, `demands`, `system_load` |
+| $I_{z,b}$ | online inertia $\sum_g H_g S_g u_{g,b}$ [MWs] | variable (commitment) or parameter | `inertia_zone` (its provisions, §5.17), `inertia_term`, `system_inertia` |
+| $C_{z,b}$ | contingency: $C \ge p_g\ \forall g \in \mathcal{G}^C$ (up), $C \ge \ell_d\ \forall d \in \mathcal{D}^C$ (down) | variable | `contingency_generators` / `contingency_demands` |
+| $F_{z,b}$ | signed flow sum on a corridor (**couples dispatch**, see below) | variable | `flow_lines` |
+
+The down direction is identical with `drreq_planes`, `drmin` and the
+down contingency set.  Every plane coefficient is a per-(stage, block)
+schedule, so a dated coefficient set (PLEXOS switched sets on 2024-01,
+2025-01, 2025-04-16, 2026-02-11 and 2026-07) is one schedule per field.
+The max over planes is exact in an LP: $R$ only appears in $R \ge \cdot$
+rows and in the balance row, so the optimum sits on the largest plane.
+
+**Why the load term must be exogenous.**  PLEXOS, and the minutas
+since ISSCC 2022 [[21]](#ref21), write the load term as total
+generation, $D = \sum_g p_g - \sum \text{charge}$
+(`Generation_Calculation`), a *variable*.  Since $\delta^D_k < 0$, each
+extra MWh served lowers the requirement by $|\delta^D_k|$ MW, and the
+generation columns pick up a credit $\sum_k |\delta^D_k|\,\mu_k$, where
+$\mu_k \ge 0$ are the duals of the binding plane rows.  A bus with
+spare cheap energy then clears at
+
+$$
+\lambda_n \;=\; c_{\text{marg}} \;-\; \sum_k |\delta^{D}_k|\,\mu_k ,
+$$
+
+which is negative whenever $c_{\text{marg}} \approx 0$ (curtailed
+solar): the LP serves load only to shrink the reserve requirement.  In
+PLEXOS PCP 2026-11-07 h14 the `Generation_Calculation` dual is
+$-0.366193$ \$/MWh, exactly
+$(10.75\cdot 12.114 + 20.64\cdot 9.421 + 4\cdot 10.378)/1000$ from the
+three binding requirement duals (CPF+@5m, CPF+@10s plane XI, CPF−).
+
+The requirement has to depend on the *forecast* load, which is how CEN
+first defined it: Minuta GM Nº34-2020 (ISSCC 2021) [[22]](#ref22)
+regressed on demand because "la demanda es un dato de entrada al
+problema de optimización" (CPF+@10s planes $515.89 - 18.99 D - 4.06 I$
+and $713.97 - 35.70 D - 5.77 I$, CPF+@5m $434.2 - 18.65 D$, in GW and
+GVAs).  Minuta GM Nº35-2021 then switched to generation as a "variable
+directa".  gtopt's default `load_term: "exogenous"` restores the 2021
+criterion: $D_{z,b}$ moves to the right-hand side and no bus-balance
+column enters a plane row, so a marginal MWh of demand changes neither
+$R$ nor any reserve dual, and the LMP is the energy-only marginal cost.
+The exogenous $D = \ell \sum_d \bar{\ell}_d$ uses `demand_load_factor`
+$\ell$ = **1.05** by default: the CEN PCP generation / demand ratio is
+1.025–1.032 historically and 1.044–1.052 on recent days, and the
+default sits at the top of that range on purpose, over-sizing rather
+than under-sizing the reserve.  The endogenous PLEXOS form keeps
+$\ell = 1$ by default (`Generation_Calculation` has no factor).
+The PLEXOS form is available as `load_term: "endogenous_generation"`
+for reconciliation only (a free column
+$D = \ell\,(\sum_g p_g - \sum \text{charge})$).  The contingency term $C$
+can still raise the price at the largest unit's bus
+($\lambda = c + \delta^C \mu$): that is a real N−1 security cost, not an
+arbitrage, and since $\delta^C > 0$ it never pushes a price negative.
+
+**The inertia term: commitment, exogenous or endogenous.**  The
+inertia inside the CPF planes (not the InertiaZone minimum, §5.17, which
+is always a commitment constraint) has three forms, chosen per zone by
+`inertia_term`:
+
+| `inertia_term` | $I_{z,b}$ | couples to |
+|----------------|-----------|------------|
+| `"commitment"` (default) | $\sum_{c} I_c\, u_{c,b} + \sum_{c \in \mathcal{F}} I_c$ | commitment status $u$ |
+| `"exogenous"` | `system_inertia`$_{b}$, else $\sum_{c \in \mathcal{M}} I_c$ | nothing (data) |
+| `"endogenous"` | $\sum_p \mathrm{pf}_p\, r^H_{p,b}$, $r^H_{p,b} \le p_{g(p),b}$ | dispatch $p$ |
+
+$I_c = \mathrm{pf}_c \cdot \min($`provision_max`$, p_{\max})$
+($= H_c S_c$ when pf defaults to $H S / P_{\min}$) is the unit's inertia
+when on, summed over
+the InertiaProvisions of `inertia_zone`.  `"commitment"` is the CEN
+definition (minuta Anexo B, (B.1): Inercia $= \sum_c I_c\,u_c$): $u_c$
+is the unit's Commitment / SimpleCommitment status; a unit with no
+status column counts only when it is forced on ($\mathcal{F}$:
+$p_{\min} > 0$), never through its dispatch.  `"exogenous"` puts a
+given schedule on the plane RHS; without `system_inertia` it uses the
+conservative must-run sum ($\mathcal{M}$: units whose status is pinned
+to 1 by `must_run` / `fixed_status`, or uncommitted units with
+$p_{\min} > 0$) and logs a warning.  Less inertia means a larger
+requirement ($\delta^I \le 0$), so the fallback over-sizes the reserve.
+`"commitment"` is the default.  On the CEN PCP 2026-11-07 day it
+gives a realistic requirement — the must-run-only `"exogenous"`
+fallback inflates it to 505 MW against 195 MW in PLEXOS — with the same
+negative-price exposure as `"exogenous"` (515 vs 509 negative
+bus-hours, none below $-0.1$ \$/MWh; a decomposition run puts the whole
+negative credit on the load term).  **Known risk**: with a RELAXED
+Commitment ($0 \le u \le 1$, the PCP setting), $u$ is itself an LP
+variable bounded only by $p_{\min} u \le p \le p_{\max} u$: a cheap unit
+behind a congested line can raise $u$ to $p / p_{\min}$ and collect
+$I_c |\delta^I| \mu / p_{\min}$ per MWh — larger than the endogenous
+credit, since $I_c / p_{\min} > \mathrm{pf}$.  In the 3-bus case of
+`test_reserve_inertia_term_default.cpp` relaxed `"commitment"` gives
+6 negative bus-hours (min $-7.05$ \$/MWh) against 0 for `"exogenous"`;
+with integer commitment both give 0 (the duals come from the fixed-$u$
+LP).  `validate_planning` reports that channel (`reserve_coupling`) and
+names the remedy: `inertia_term: "exogenous"` with a `system_inertia`
+schedule, or an integer Commitment.
+`"endogenous"` is the PLEXOS-compatible dispatch-based stamp: the
+coupling row $p - r^H \ge 0$ lets a zero-cost unit earn
+$\mathrm{pf}\,|\delta^I|\,\mu$ per MWh, and a curtailed hydro or solar
+bus then clears at $\lambda = -\mathrm{pf}\,|\delta^I|\,\mu < 0$ (test:
+pf = 10, $\delta^I = -0.0123$, $\mu = 100$ gives $\lambda = -12.3$,
+while `"commitment"` and `"exogenous"` keep $\lambda = 0$).  The LP
+works in GWs / GW for the $I$ and endogenous $D$ columns (column scale
+$10^3$) so the plane coefficients ($\sim 10^{-5}$ per MWs) and the
+definition rows stay within a narrow range; outputs are in MWs / MW.
+
+**The corridor-flow term couples dispatch too.**  A plane with
+`flow_coef` $\ne 0$ makes the requirement a function of an endogenous
+line flow, the same mechanism as the generation load term routed
+through the network: the flow column's reduced cost picks up
+$\delta^F \mu$, which opens a spread of $\delta^F\mu$ between the two
+ends of the corridor.  With a must-take injection on the exporting
+side, its price becomes $\lambda_S - \delta^F \mu$ and can be
+negative.  Test (`North special CPF`, 200 MW must-take solar in the
+north, 10 \$/MWh gas in the south, reserve at 30 \$/MW, plane
+$3 + F$): $\lambda_N = -20$, $\lambda_S = 10$; with the same 203 MW as
+an exogenous `alpha`, $\lambda_N = \lambda_S = 0$.  The term is kept
+for PLEXOS reconciliation, and `validate_planning` warns whenever a
+plane sets `flow_coef` on a zone with `flow_lines`.  The decoupled form
+is an exogenous requirement: a per-stage/block `alpha` schedule holding
+the expected corridor flow or a fixed MW contingency on the corridor.
+In the PCP the whole north-special chain (`SpecialCPFTxFlow`: Tx ≥ Σ
+southward flow on Jadresic→Cumbres, LosChangos→Cumbres,
+LosChangos→Jadresic; `SpecialCPF*North_Definition`: Req ≥ Tx + RHS;
+`SpecialCPF/CSF/CTFNorth(LW)`: provision equalities with unit factors
+0.2–0.69) has `Include in ST Schedule = 0`; its dated RHS values (3,
+−19.36, 163, 100.64, 101) cover only 2023-12-08/09, and no `Special*`
+row has a dual in the 2024–2026 history.  A time-varying north
+requirement is therefore a dated `alpha` schedule (test: `[[103],
+[-19.36]]` gives R = 103, then 0 after the floor).
+
+**Unit convention.**  CEN publishes $\beta, \gamma$ per GW and GVAs
+with the requirement in MW; gtopt's coefficients are per MW and MWs:
+`demand_coef` $= -\beta/1000$, `inertia_coef` $= -\gamma/1000$,
+`contingency_coef` $= \delta$, `alpha` $= \alpha$.
+
+**CPF+@10s set (B.2), used by PLEXOS since 2026-03**
+($\text{REQ} \ge \alpha - \beta\,\text{Gen} - \gamma\,I + \delta\, \text{MaxInj}$):
+
+| k | $\alpha$ | $\beta$ | $\gamma$ | $\delta$ |
+|---|---------:|--------:|---------:|---------:|
+| I | 516.000 | 36.600 | 12.300 | 1.250 |
+| II | 339.464 | 23.500 | 9.986 | 1.250 |
+| III | 315.500 | 26.733 | 5.000 | 1.000 |
+| IV | 184.750 | 17.071 | 3.886 | 1.000 |
+| V | 249.160 | 20.640 | 2.414 | 0.732 |
+| VI | 149.557 | 13.286 | 1.819 | 0.730 |
+| VII | 468.500 | 36.600 | 13.300 | 1.450 |
+| VIII | 291.964 | 23.500 | 10.986 | 1.450 |
+| IX | 280.500 | 26.733 | 6.000 | 1.200 |
+| X | 149.750 | 17.071 | 4.886 | 1.200 |
+| XI | 219.160 | 20.640 | 3.164 | 0.928 |
+| XII | 117.843 | 13.286 | 2.569 | 0.930 |
+
+CPF+@5m: $\text{REQ} \ge 4.125 - 10.75\,\text{Gen} + 1.0912\, \text{MaxInj}$
+(the printed (B.3) is superseded).  CPF−:
+$\text{REQ} \ge -80 - 4\,\text{Gen} + 0.96\,\text{MaxLoad}$ (since
+2026-07; MaxLoad over the listed BESS charges).  With the PLEXOS values
+of 2026-11-07 h14 (Gen 9.643 GW, I 37.697 GVAs, MaxInj 300 MW,
+MaxLoad 200 MW) the planes give 179.255 / 227.823 / 73.428 MW, the
+PLEXOS requirements (test
+`test_reserve_dynamic_requirement.cpp`).
+
+**Contingency candidates.**  Each candidate $j$ of `urcontingencies`
+(`drcontingencies`) gives one row
+
+$$
+C_{z,b} \;\ge\; \sum_{g} a_{jg}\, p_{g,b} + \sum_{d} a_{jd}\, \ell_{d,b} +
+ \sum_{l} a_{jl}\, f_{l,b} + o_{j,b}
+ \;\Big[\, + \sum_{g} a_{jg} \sum_{p \in \mathcal{P}_{g,z}} r_{p,b}
+ \Big]
+$$
+
+and `contingency_generators` / `contingency_demands` are singleton
+candidates.  This is the PLEXOS `<unit>_Comparison` row exactly: in PCP
+2026-11-07 every row is
+`MaxInjection_SEN − Σ_{modes} p − limited_generation_group ≥ RHS`
+(e.g. `NEHUENCO_1_GNL`: 21 mode generators, RHS 8.4; `TxJadresic`: the
+flow of `Jadresic500->Jadresic220`; `BAT_*_ComparisonUp`: battery
+generation), with `limited_generation_group` = Σ PMGD generation − BESS
+charge.  The bracketed term (the lost unit also loses the reserve it
+carries, $C \ge p + r$) is added only with
+`contingency_includes_reserve: true`; PLEXOS PCP has no provision term
+in any `*_Comparison` row, so it is off by default.  With it on, a unit's
+own reserve raises the requirement one-for-one and has no net value for
+that zone (test: 200 MW of cheap headroom on the largest unit drops from
+200 to 0 MW of provision).
+
+**Equality balance (`requirement_sense: "eq"`).**  The balance row
+becomes an equality, with a surplus column $e_{z,b} \ge 0$ priced at
+`ursurplus_cost` when given:
+
+$$
+\sum_{p} \gamma_p\,\phi_{p,z}\, r_{p,b} + q_{z,b} - e_{z,b}
+ \;=\; R_{z,b} \;(\text{or } \overline{R}_{z,b})
+$$
+
+This is PLEXOS `CPF_UpMinProvision` / `CPF_DownMinProvision` (Sense 0:
+provision + VoRS (10 000 \$/MW) − Requirement − Slack (1 \$/MW) = 0).
+With a fixed requirement it pins the provision (no surplus cost) or
+prices the excess (test: a 150 MW floor offer on a 100 MW requirement
+gives 50 MW surplus).  With planes, $R$ is a free column above its
+planes, so the excess lifts $R$ at no cost: `"eq"` is then equivalent
+to `"ge"`, exactly as in PLEXOS (whose requirement variable costs 0),
+and no surplus column is built (`validate_planning` warns when
+`ursurplus_cost` / `drsurplus_cost` is set on such a zone).  The CEN `CSF_{RS,LW}_Def` rows are not
+requirements but definitions (`CSF_RS_Requirement` := Σ provision,
+used by `MAXCSF_*` caps); they map to a UserConstraint or PAMPL
+expression, not to `requirement_sense`.
+
+**Outputs (planes mode).**  Besides `urequirement_sol` ($R$) and
+`urequirement_dual` ($\mu$, the reserve price of the balance row),
+`ReserveZone/` gets `urplane<k>_dual` (dual $\mu_k$ of plane row $k$,
+$k = 1..24$), `urplane_binding_sol` (1-based index of the plane with
+the largest value at the solution, 0 when the floor sets $R$),
+`urshortage_sol`, `urcontingency_sol`, `inertia_sol` and, in the
+PLEXOS-compat mode, `dsys_sol`; the down direction uses `dr*`.  Since
+$\sum_k \mu_k = \mu$ on the binding planes, the marginal requirement
+cost of any plane term $x$ is $\sum_k \delta^x_k \mu_k$; e.g. the
+`Generation_Calculation` credit of the PLEXOS form is
+$\sum_z \sum_k \beta_{z,k}\,\mu_{z,k}/1000$, read directly from the
+plane duals.
+
+**Requirement coupling and the reserve credit.**  A requirement that
+depends on an endogenous column $x$ puts $\sum_k \delta^x_k \mu_k$ into
+the reduced cost of every column that defines $x$, and from there into
+the LMP of every bus those columns inject at.  `validate_planning`
+reports each such channel of a zone with planes — `load_term:
+"endogenous_generation"`, `flow_coef` on `flow_lines`, `inertia_term:
+"endogenous"`, `inertia_term: "commitment"` when any Commitment is
+relaxed, line contingency candidates (signed flow) and
+`contingency_includes_reserve` — with a warning that it can produce a
+negative LMP credit ($\beta\,\mu$ per MWh).  `model_options.
+reserve_coupling` = `"warn"` (default) / `"error"` / `"off"` selects the
+handling.  The generator contingency $C \ge a\,p_g$ is not reported: it
+raises the largest unit's cost ($\delta^C > 0$).  The commitment
+inertia is reported only with a relaxed Commitment: an integer $u$ is
+fixed when the duals are computed, but a continuous $u$ is tied to the
+dispatch by $p_{\min} u \le p$.
+
+The credit is written natively per zone and block:
+
+$$
+\texttt{reserve\_credit}_{z,b} = \ell_z \sum_{k} \delta^D_{k,b}\,\mu_{k,b}
+\quad [\$/\text{MWh}],
+\qquad
+\texttt{flow\_credit}_{z,b} = \sum_{k} \delta^F_{k,b}\,\mu_{k,b},
+$$
+
+$$
+\texttt{credit\_transfer}_{z,b} = \texttt{reserve\_credit}_{z,b}
+ \cdot \frac{D_{z,b}}{\ell_z}\,\Delta t_b \quad [\$].
+$$
+
+`reserve_credit` is the uniform shift of every bus LMP produced by the
+endogenous load term ($D$ counts all generation, so the same value at
+every bus; the system total over zones is $\sum_z$
+`reserve_credit`$_z$); it is 0 with the default exogenous load term.
+`flow_credit` is the extra spread $\lambda_B - \lambda_A$ across each
+`flow_lines` corridor.  `credit_transfer` is the money moved through
+the credit (credit × generated energy).  Test: plane
+$516 - 0.0366\,D$, $\ell = 1.025$, $\mu = 20$: `reserve_credit`
+$= -0.0366 \cdot 1.025 \cdot 20 = -0.7503$ \$/MWh, equal to the LMP shift of
+the marginal 60 \$/MWh unit; 0 in the exogenous case.
+
+#### Extended Provision Model (CEN SSCC)
+
+- **Effectiveness factors** (minuta (A.3)–(A.12)): one up column $r_p$
+  enters each zone $z$ of `reserve_zones` with $\gamma_p\,\phi_{p,z}$,
+  $\phi_{p,z}$ = `ur_zone_factors[z]` (default 1; 0 skips the zone).
+  A single CPF+ variable serves the 5 min, 10 s and normal-operation
+  requirements with unit-specific factors.
+- **Shared headroom** (A.23)–(A.24): provisions of one generator
+  flagged `shared_headroom` share one pair of rows
+  $p + \sum_p r^{\text{up}}_p \le \bar{P}u$ and
+  $p - \sum_p r^{\text{dn}}_p \ge \underline{P}u$ (CPF + CSF + CTF).
+  Batteries use the native rows above (`reserve_sustain_hours`).
+- **Offline (cold) reserve** (A.19)–(A.22), CTF: `offline` drops the
+  headroom row and, with a Commitment, adds
+  $r^{\text{up}} + \bar{r}\,u \le \bar{r}$, i.e. $r \le \bar{r}(1-u)$.
+- **Symmetry** (A.13): `symmetric` adds $r^{\text{up}} - r^{\text{dn}} = 0$.
+- **Inertia minima** (B.1): an InertiaZone requirement (§5.17).  The
+  Norte Grande minimum that depends on the number of Guacolda units
+  online uses `requirement_credits` (§5.17, "Commitment-dependent
+  relief"), exactly as PLEXOS (`InertiaNRMin_D`,
+  `InertiaCommitGuacolda2`).
+
+#### Mapping: Minuta / PLEXOS → gtopt
+
+| Minuta eq. | PLEXOS family | gtopt element.field |
+|------------|---------------|---------------------|
+| (B.2) | `CPF_Up10Calculation_I..XII` | `ReserveZone.urreq_planes` (12 planes) |
+| (B.3) | `CPF_Up5Calculation` | `ReserveZone.urreq_planes` (1 plane) |
+| (B.4) | `CPF_DownCalculation` | `ReserveZone.drreq_planes` |
+| — | `Generation_Calculation` | `load_term`, `demand_load_factor` / `system_load` |
+| (B.1) | `Inertia_Calculation_e1/e2` | `ReserveZone.inertia_zone` + `InertiaProvision` |
+| (B.1) zonal | `InertiaNRMin_D/_N`, `InertiaCommitGuacolda(2)`, DV `InertiaGuacolda(2)` | `InertiaZone.requirement` + `requirement_credits` |
+| — | `*_Comparison`, `BAT_*_Comparison(Up)` | `urcontingencies` / `drcontingencies` (or `contingency_generators` / `contingency_demands`) |
+| — | `limited_generation_calculation` | members of every candidate (PMGD gens coef 1, BESS charge coef −1) |
+| (A.1)–(A.2) | `CPF_{Up,Down}MinProvision`, `CPFN_*` | `ReserveZone.urmin` / `drmin` / `urreq` |
+| (A.3)–(A.12) | `CPF_<unit>` coefficients | `ReserveProvision.ur_zone_factors` / `dr_zone_factors` |
+| (A.13) | — | `ReserveProvision.symmetric` |
+| (A.14)–(A.15) | Max Provision | `ReserveProvision.urmax` / `drmax` |
+| (A.16)–(A.17) | `CSF_*_Def` | ReserveZone (`urreq`) + provisions |
+| (A.18)–(A.22) | `CTF_*` | ReserveZone + provisions with `offline` |
+| (A.23)–(A.24) | headroom rows | `ReserveProvision.shared_headroom`; Battery `reserve_sustain_hours` |
+| — | `SpecialCPFTxFlow`, `SpecialCPF*North_Definition`, `SpecialCPF/CSF/CTFNorth(LW)` (all `Include in ST Schedule = 0` in PCP) | decoupled: a zone with a dated `alpha` schedule; PLEXOS-compat only: `flow_lines` + `flow_coef` |
+| — | Reserve VoRS | `ReserveZone.urcost` / `drcost` (shortage) |
+| — | `CPF_*MinProvision` Sense 0 + `*_Slack` | `requirement_sense: "eq"` + `ursurplus_cost` / `drsurplus_cost` |
+| — | provision price | `ReserveProvision.urcost` / `drcost` |
 
 #### Reserve Costs
 
@@ -1666,6 +2204,11 @@ The flow source $q_{u,s,t,b}$ depends on the turbine's connection mode:
 - `waterway` mode (legacy): $q_{u,s,t,b} = \varphi_{w,s,t,b}$ where $w$
   is the referenced `Waterway`.
 
+Fail-closed (§5.8): when the turbine is inactive, its junction is
+inactive, or the flow / waterway column $q_{u,s,t,b}$ does not exist
+(inactive, no data, or elided at $\underline{\varphi} = \bar\varphi = 0$),
+the generation $p_{g,s,t,b}$ is closed ($\le 0$), never left free.
+
 ##### Volume-Dependent Efficiency
 
 In practice, the conversion rate $\kappa_u$ is not constant — it depends
@@ -1760,6 +2303,12 @@ $$
 Equivalently, $\ell_{d,s,t,b} \geq (\phi_{h,t}/\eta_{h,t})\,\varphi_{w,s,t,b}$:
 the optimizer must supply enough electrical power through demand $d$ to
 sustain the water flow pumped through waterway $w$.
+
+Fail-closed (§5.8): when the pump is inactive, or the pump load
+$\ell_{d,s,t,b}$ has no column (demand inactive or `lmax` = 0), the
+pumping direction of the waterway is closed, $\varphi_{w,s,t,b} \le 0$
+(a negative `fmin` is kept), instead of dropping the conversion row
+(which lifted water for free).
 
 #### Waterway Capacity (Optional)
 
@@ -2085,8 +2634,10 @@ is the reservoir volume at the start of the phase (predecessor phase's
 <!-- source: source/volume_right_lp.cpp:117-137 -->
 
 **Optional stage demand.** When $D_o > 0$, a deficit
-$q_{o,s,t}^{\text{fail}} \geq 0$ with cost $c_o^f$ is added with the
-stage-integrated satisfaction row:
+$q_{o,s,t}^{\text{fail}} \geq 0$ [hm³] with objective cost
+$\pi_s\,\delta_t\,c_o^f$ (scenario probability × stage discount, no
+duration: the deficit is a stage volume, like every other stage
+penalty) is added with the stage-integrated satisfaction row:
 
 $$
 \begin{aligned}
@@ -2444,6 +2995,14 @@ p_{g,s,t,b-1} \;-\; p_{g,s,t,b} \;-\; R_g^{\text{dn}}\Delta_b\,u_{g,s,t,p(b)} \;
 $$
 <!-- source: source/commitment_lp.cpp:406-430 -->
 
+At the first block of a stage ($b = 0$) the lagged terms $p_{g,s,t,-1}$ and
+$u_{g,s,t,p(-1)}$ are the scalar boundary values $P_g^0$ and $U_g^0$
+(`initial_power`, `initial_status`), moved to the RHS.  When `initial_power`
+is unset, $P_g^0$ falls back to the generator's `initial_generation` at the
+horizon start (first stage of the first phase) and to 0 elsewhere.  The same
+$P_g^0$ = `initial_generation` is the value of `generation_prev` at the first
+horizon block in user constraints.
+
 #### C6 — Minimum Up/Down Time (Optional)
 
 When $T_g^{\text{up}} > 0$, for each period $p$ let $\mathcal{Q}(p)$
@@ -2530,31 +3089,30 @@ of this MWs requirement.
 
 #### Zone Requirement (InertiaZone)
 
-For each block a slack column $q_{z,s,t,b}^{H}$ is created, and the
-requirement row is written as a `>= 0` row with the slack contributing
-with coefficient $-1$ on the LHS. InertiaProvisions add their
-contributions through the zone requirement row.
-
-When the reserve-fail cost is finite, the slack has bounds
-$[0,\overline{R}_{z,t,b}^{H}]$ and a negative objective coefficient
-(penalty); when it is infinite, the slack is clamped
-($\overline{R}^{H} \leq q^{H} \leq \overline{R}^{H}$) forcing
-feasibility via provisions only.
+With a shortage cost $c^{H}_{z,t,b}$ (`InertiaZone.cost`, fallback
+`model_options.reserve_shortage_cost`) a served-requirement column
+$\rho^{H}_{z,s,t,b} \in [0, \overline{R}^{H}_{z,t,b}]$ with objective
+coefficient $-c^{H}\epsilon_{s,t,b}$ enters the requirement row with
+coefficient $-1$; InertiaProvisions (and commitment-dependent
+`requirement_credits`) add their contributions to the same row:
 
 $$
 \begin{aligned}
-\sum_{p \in \mathcal{P}_z} \Phi_{p,t}\,r_{p,s,t,b}^{H} \;-\; q_{z,s,t,b}^{H} \;\geq\; 0
+\sum_{p \in \mathcal{P}_z} \Phi_{p,t}\,r_{p,s,t,b}^{H} \;-\; \rho_{z,s,t,b}^{H} \;\geq\; 0
 \qquad \forall \; z \in \mathcal{IZ},\; s,t,b
 \end{aligned}
 $$
-<!-- source: source/inertia_zone_lp.cpp:56-86 -->
+<!-- source: source/inertia_zone_lp.cpp (add_requirement) -->
 <!-- source: source/inertia_provision_lp.cpp:175-191 (factor injection) -->
 
-Because the slack enforces $q_{z,s,t,b}^{H} \geq \overline{R}_{z,t,b}^{H}$
-(via its lower bound when penalised, or equality otherwise) and enters
-the row with $-1$, the net effect is
-$\sum_p \Phi_{p,t} r_{p,s,t,b}^{H} \geq \overline{R}_{z,t,b}^{H}$ —
-unserved inertia is absorbed by the priced slack.
+With the shortage $q^{H} = \overline{R}^{H} - \rho^{H} \geq 0$ this is
+$\sum_p \Phi_{p,t} r^{H} + q^{H} \geq \overline{R}^{H}$ priced at
+$c^{H}\epsilon\,q^{H}$: as for reserves (§5.9), the constant
+$+c^{H}\epsilon\,\overline{R}^{H}$ is added to the LP-external objective
+constant, so a met requirement contributes $0$ to the reported objective
+and only the unmet inertia is charged; the LP and its duals are unchanged.
+Without a cost the requirement is hard: no column, and
+$\overline{R}^{H}$ is the row RHS.
 
 #### Provision Coupling (InertiaProvision)
 
@@ -2598,6 +3156,45 @@ is injected as the coefficient on $r_{p,s,t,b}^{H}$ in every linked
 zone's requirement row.
 <!-- source: source/inertia_provision_lp.cpp:127-138,175-191 -->
 
+#### Commitment-Dependent Relief (`requirement_credits`)
+
+A zone requirement can be relieved when enough units of a set
+$\mathcal{G}_j$ are committed.  Each credit $j$ (relief $c_j$ MWs, unit
+count $k_j$) adds a selector $y_j \in [0, 1]$:
+
+$$
+\sum_p \Phi_p\, r^{H}_p + \sum_j c_j\, y_j \;\ge\; \overline{R}^{H},
+\qquad
+k_j\, y_j \;\le\; \sum_{g \in \mathcal{G}_j} u_g
+$$
+
+with $u_g$ the Commitment / SimpleCommitment status.  This is the
+PLEXOS PCP form (2026-11-07): `InertiaNRMin_D` = Σ H·units + 2 900·y ≥
+14 900 (day hours), `InertiaCommitGuacolda2` = Σ units(Guacolda) − 3 y
+≥ 0, with `InertiaGuacolda2` ∈ [0, 1] **continuous**; until 2025-11-15
+it was 13 400 with credits 3 900 (2 units) and 2 000 (3 units).
+
+- `integer: false` (default, = PLEXOS): the effective requirement is
+  $\overline{R}^H - \sum_j c_j \min(1, n_j/k_j)$, i.e.
+  $\max(\overline{R}^H - c_j n_j/k_j,\ \overline{R}^H - c_j)$ per
+  credit.  This is convex and decreasing in $n_j$, so an LP represents
+  it exactly, but at integer $n$ below $k_j$ it is a partial (linear)
+  relief, not a step.
+- `integer: true`: $y_j$ binary, an exact step (relief only when
+  $n_j \ge k_j$).  The 13 400 / 9 500 / 7 500 MWs staircase for
+  0–1 / 2–3 / ≥ 4 units is two binary credits {2, 3 900} and
+  {4, 2 000}.  A staircase is not convex in $n$ (slopes 0, −3 900, 0,
+  −2 000), so no max-of-lines form in $n$ is exact; its convex hull
+  (lines through (0, 13 400), (2, 9 500), (4, 7 500)) is a valid LP
+  relaxation only.
+- When none of the credit's generators has a status column in the
+  (scenario, stage) the credit is dropped and the exogenous
+  `requirement` applies.
+
+Test (`test_reserve_dynamic_requirement.cpp`, 3 must-run units, credits
+{2, 3 900}, {4, 2 000}): inertia bought = 9 500 (binary), 8 000
+(continuous: 3 900 + 2 000·3/4 relief), 13 400 (no commitment).
+
 ### 5.18 Hydrogen Carrier (Electrolyser, Node, Offtake)
 
 The hydrogen economy is a separate energy carrier measured in
@@ -2607,6 +3204,14 @@ power $x_{c,s,t,b}$ [MW$_e$] from its bus and injects
 $\eta_{c,t,b}\, x_{c,s,t,b}$ into the node; a `HydrogenStorage`
 behaves like a battery on the node; a `HydrogenDemand` $h$ withdraws
 $q_{h,s,t,b}$ [MW$_{\text{LHV}}$].
+
+Unlike a `Battery` (daily cycle, closed $e_{\text{fin}} = e_{\text{ini}}$
+per stage by default), `HydrogenStorage` and `ThermalStorage` default to
+`use_state_variable = true`, like `AmmoniaStorage` and `Reservoir`: the
+stored energy is carried across stages and phases, and the only terminal
+condition is $e_{s,T,\text{last}} \ge e_{\text{fin}}$.  Setting
+`use_state_variable = false` restores the closed-cycle row
+$e_{s,t,\text{last}} = e_{s,t,\text{ini}}$ on every stage.
 
 #### Node Balance
 
@@ -2649,6 +3254,343 @@ a per-block `lmin`/`lmax` profile to model storage explicitly.  The
 dual of the $E^{min}$ row is the stage marginal cost of hydrogen
 [\$/MWh$_{\text{LHV}}$].
 <!-- source: source/hydrogen_demand_lp.cpp -->
+
+### 5.19 Gas Network (Nodes, Pipes, Compressors, Gas Turbines)
+
+A steady-state natural-gas transmission network coupled to the power
+dispatch, as a pure LP on a **radial** network (fixed flow directions,
+$f \ge 0$).  Units: flow [km³/h, standard], pressure $p$ [bar abs],
+squared pressure $\varpi = p^2$ [bar²], line pack [km³], gas cost
+[\$/km³], heat rate [km³/MWh].  All rows are per block $b$ of stage
+$t$ and scenario $s$ (indices dropped below); $\Delta_b$ is the block
+duration.  The model follows the radial fast path of the gas-network
+study (Weymouth in squared pressure, outer approximation by tangents,
+De Wolf & Smeers [[23]](#ref23); compressor fuel after Saldarriaga
+[[25]](#ref25)).
+
+| Element | JSON array | Columns | Rows |
+|---------|------------|---------|------|
+| `GasNode` $n$ | `gas_node_array` | $\varpi_n$ | `balance` |
+| `GasSupply` $g$ | `gas_supply_array` | $x_g$ | `volume` |
+| `GasDemand` $d$ | `gas_demand_array` | $u_d$ (shedding) | — (balance RHS) |
+| `GasPipe` $\ell$ | `gas_pipe_array` | $f_\ell$ or $f^{in}_\ell, f^{out}_\ell, L_\ell$; $d^\pm_\ell$ (SLP) | `weymouth` ×N, `linepack_def`, `linepack_balance`, `linepack_end`, `slp_proximal` |
+| `GasCompressor` $c$ | `gas_compressor_array` | $\Psi_c$, $LC_c$, $P^{el}_c$ | `ratio`, `noexpand`, `fuel_plane`, `motor` |
+| `GasTurbine` $k$ | `gas_turbine_array` | — (uses the generator's $P_k$) | `pressure_gate`, `derate` |
+
+#### Node Pressure and Balance
+
+$$
+\underline{p}_n^2 \le \varpi_n \le \bar{p}_n^2,
+\qquad \text{cost } \pi_s\delta_t\Delta_b\, c^{\varpi}_n\, \varpi_n
+$$
+
+$$
+\sum_{g\in n} x_g +
+ \sum_{\ell:\,\to n} f^{out}_\ell - \sum_{\ell:\,n\to} f^{in}_\ell +
+ \sum_{c:\,\to n} \Psi_c - \sum_{c:\,n\to} (1+\gamma^{ff}_c)\Psi_c -
+ \sum_{c:\,n\to}^{\text{gas drive}} LC_c -
+ \sum_{k\in n} h_k P_k +
+ \sum_{d\in n} u_d
+\;=\; \sum_{d\in n} D_d
+$$
+
+The dual of the balance row is the nodal gas price $\lambda_n$
+[\$/km³].  $c^{\varpi}_n$ (`pressure_cost`) is a tiny *negative*
+tie-break (e.g. $-10^{-4}$ \$/(bar² h)): among the LP-optimal
+dispatches it selects the highest pressure profile, i.e. the pressures
+of the exact Weymouth equation from the sources down.  Supplies
+$x_g \in [\underline{x}_g, \bar{x}_g]$ cost
+$\pi_s\delta_t\Delta_b\, c_g x_g$; shedding $u_d \in [0, D_d]$ costs
+$\pi_s\delta_t\Delta_b\, c^{fail}_d u_d$ (no column when `fail_cost` is
+unset: hard load).  A supply with `volume` $V_g$ adds the stage row
+$\sum_b \Delta_b x_{g,b} \le V_g$ (an LNG or pipeline allotment).  A
+pipe with `weymouth_mode: none` is a capacity-only arc $0 \le f \le \bar F$
+that enters the two balances without any pressure row, such as a
+delivery through a parallel system.
+<!-- source: source/gas_node_lp.cpp, source/gas_supply_lp.cpp, source/gas_demand_lp.cpp -->
+
+#### Weymouth Pipe (Outer Approximation)
+
+Weymouth in squared pressure, $\varpi_a - \varpi_b = K f|f|$, is
+relaxed on a radial network to the convex $\varpi_a - \varpi_b \ge K f^2$ and
+replaced by $N$ (`segments`) tangent planes
+
+$$
+\varpi_a - \varpi_b - 2 K t_k \bar{f} \;\ge\; -K t_k^2,
+\qquad k = 1..N,\quad 0 \le f \le \bar{F}
+$$
+
+with $\bar f = f$ (steady state) or $\bar f = (f^{in}+f^{out})/2$ (line
+pack).  `tangent_layout`:
+
+- `uniform`: $t_k = (2k-1)\bar F/(2N)$ — the line-loss tangent
+  placement; the squared-pressure error is at most $K(\bar F/2N)^2$;
+- `relative_pressure`: breakpoints uniform in
+  $\theta = \arcsin(\sqrt{K} f / P)$, $b_k = (P/\sqrt K)\sin(k\theta_F/N)$,
+  $t_k = (b_{k-1}+b_k)/2$ ($P$ = inlet `pmax`), which evens out the
+  *relative* outlet-pressure error (denser tangents near capacity).
+
+$K$ [bar²/(km³/h)²] is `weymouth_k`, or the SI Weymouth (Menon [[24]](#ref24)
+eq. 2.62)
+$K = G T_f L Z / (3.7435\cdot10^{-3} E (T_b/P_b) D^{2.667})^2 \cdot 24000^2/10^4$ from `length` [km], `diameter` [mm], `efficiency`
+$E$ (0.92), `gravity` $G$ (0.6), `temperature` $T_f$ (288.15 K) and
+`z` (0.9).  The relaxation lets the LP drop more pressure than the flow
+needs; on a radial network the solution stays physically realisable
+(a regulator at the pipe end), and pressure carries no cost, so there is
+no gas-creating arbitrage.
+<!-- source: source/gas_pipe_lp.cpp, source/gas_physics.cpp -->
+
+#### Elevation
+
+A pipe climbing from $h_a$ to $h_b$ [m] follows the steady-state gas
+equation with gravity (Menon [[24]](#ref24) §2.9):
+
+$$
+\varpi_a - e^{s}\varpi_b = K_e\, f|f|,
+\qquad
+s = \frac{2 g M (h_b - h_a)}{Z R T},
+\qquad
+K_e = K\,\frac{e^{s}-1}{s}
+$$
+
+with $M = G\,M_{air}$ ($M_{air}$ = 0.028964 kg/mol), $g$ = 9.80665
+m/s², $R$ = 8.314 J/(mol K); $K_e \to K$ as $s \to 0$ (a series
+branch avoids the division).  Both sides stay linear in $\varpi$: the
+tangent rows become
+$\varpi_a - e^{s}\varpi_b - 2K_e t_k \bar f \ge -K_e t_k^2$.  An uphill
+pipe ($s > 0$) needs a higher inlet pressure for the same flow; downhill
+($s < 0$) gravity helps.  $h$ is `GasNode.elevation` (default 0); $G$,
+$T$ and $Z$ come from `options.gas_options` (`gas_specific_gravity`
+0.6, `gas_temperature` 288.15 K, `compressibility` 0.9), overridable per
+pipe (`gravity`, `temperature`, `z`); `elevation_exponent` sets $s$
+directly.  At 4000 m (Paso de Jama) $s \approx 0.63$, i.e. the outlet
+squared pressure is divided by $e^{s} \approx 1.9$ before friction.
+
+#### Exactness Report
+
+For every pipe and block the output carries the Weymouth gap
+$\varpi_a - e^{s}\varpi_b - K_e \bar f|\bar f|$ [bar²]
+(`GasPipe/weymouth_gap_sol`) and the outlet-pressure error
+$p_b - \sqrt{(\varpi_a - K_e \bar f|\bar f|)/e^{s}}$ [bar]
+(`GasPipe/pressure_error_sol`; positive = the LP outlet pressure is
+optimistic).  The tangent error alone is at most $K_e(\bar F/2N)^2$; a
+larger positive gap means the relaxation is not tight at that pipe (the
+LP drops more pressure than the flow needs — harmless on a radial
+network unless an upper pressure bound downstream binds, see the Hu &
+Ryan benchmark).  A warning is logged when the error exceeds 0.1 bar.
+
+#### Meshed Networks (Linearised Pipes and SLP)
+
+In a loop the flow direction is not known in advance. The equality
+$\varpi_a - \varpi_b = K f|f|$ is then non-convex, so the radial tangent
+rows do not apply. A pipe with `weymouth_mode: linearized` instead uses a
+signed flow $f \in [-\bar F, \bar F]$ and one equality per block,
+linearised at a reference flow $f_0$:
+
+$$
+\text{secant (default):}\;
+\varpi_a - e^{s}\varpi_b = K_e |f_0|\, \bar f,
+\qquad
+\text{tangent:}\;
+\varpi_a - e^{s}\varpi_b = 2K_e|f_0|\,\bar f - K_e f_0|f_0|
+$$
+
+(`linearization`). Both equal the exact equation at $\bar f = f_0$. The
+secant's coefficient $K_e|f_0|$ stays valid when the flow reverses. The
+tangent is the Newton step for $f|f|$.
+
+The reference flow $f_0$ is `reference_flow` when given. Otherwise it is
+`slp_initial_flow`·$\bar F$ (default 0.1), and a warning is logged when
+no SLP pass follows.
+
+**Sequential LP.** With `options.gas_options.slp_iterations` $= M > 0$,
+each monolithic (scene, phase) solve is followed by up to $M$ passes of
+three steps:
+
+1. Update every reference flow:
+   $f_0 \leftarrow f_0 + \omega(f - f_0)$, with $|f_0| \ge$
+   `slp_min_flow`·$\bar F$. The damping $\omega$ is `slp_damping`
+   (default 0.5).
+2. Re-issue the rows' coefficients through the standard `update_lp`
+   dispatch. This is the same mechanism as reservoir seepage and
+   discharge limits, and the LP replay buffer records the writes for
+   `low_memory: compress`.
+3. Re-solve.
+
+The loop stops when $\max|f - f_0| / \max(|f_0|, f_{min})$ falls below
+`slp_tolerance` (default 1e-4). A flow inside $\pm f_{min}$ on both
+passes counts as settled, because its sign is degenerate. At the fixed
+point $f = f_0$ the row is the exact Weymouth equation.
+
+**Proximal term.** When gas costs tie, the LP has several optimal
+vertices: the same cost can be met by different splits between sources
+or plants. The solver may then alternate between them from pass to pass.
+The fixed point is never reached, and the last iterate violates Weymouth
+by $K_e (f - f_0)^2$, which was 22 bar on the IEEE-24 + Belgian case. A
+proximal row is therefore added to every linearised pipe when
+$M > 0$:
+
+$$
+\bar f_{\ell,b} - d^+_{\ell,b} + d^-_{\ell,b} = f_{0,\ell,b},
+\qquad \text{cost } \rho\,(d^+ + d^-)
+$$
+
+Here $\rho$ is `slp_proximal_cost` (default $10^{-6}$), and the RHS is
+re-issued with $f_0$. Among equal-cost vertices the LP keeps the one
+nearest $f_0$, and $d^\pm \to 0$ at the fixed point. A hard trust region
+$|f - f_0| \le \Delta$ was rejected: combined with the re-linearised
+equalities it can make the LP infeasible.
+
+On a triangle loop, the undamped secant oscillates on the small loop
+flow, while $\omega$ = 0.5 converges in about 25 passes. The tangent
+form converges in about 4 passes undamped (`test_gas_network_slp.cpp`).
+SDDP re-issues the rows at the stored $f_0$ in every forward pass but
+does not move $f_0$.
+
+Compressors stay fixed-direction. A `GasCompressor` with
+`bidirectional: true` is an open valve: signed flow and
+$\varpi_{out} = \varpi_{in}$. It requires `max_ratio` 1 and
+`fuel_model: none`. The exactness report applies in both modes.
+
+#### Line Pack
+
+With `linepack: true`, $L_\ell = c\,(p_a+p_b)/2$ is linearised at
+$p_r$ (`linepack_pressure_ref`, default the mean of the end nodes'
+bands) through $p \approx (\varpi + p_r^2)/(2p_r)$:
+
+$$
+L_{\ell,b} - \tfrac{c}{4p_r}(\varpi_{a,b}+\varpi_{b,b}) = \tfrac{c\,p_r}{2},
+\qquad
+\Delta_b (f^{in}_{\ell,b} - f^{out}_{\ell,b}) - L_{\ell,b} + L_{\ell,b-1} = 0,
+\qquad
+L_{\ell,\text{last}} \ge L^{0}_\ell
+$$
+
+with $L_{\ell,0} = L^0_\ell$ (`linepack_ini`, default from the nodes'
+`p_init`) and $c$ [km³/bar] = `linepack_coeff` or the geometric volume
+$\pi D^2 L/4\,/(Z P_b)\cdot(T_b/T)$ ($T_b$ = 288.15 K, $P_b$ = 1.01325
+bar, $T$ the flowing temperature).  The line pack cycles within each
+stage (daily cycle); it is not an SDDP state variable.  The terminal row is dropped with
+`options.gas_options.linepack_cyclic: false`, so the pack may be drawn
+down to the pressure bounds (multi-day outage studies). The tangent-at-$p_r$ linearisation over-estimates $p$ by
+$(p-p_r)^2/(2p_r)$ (≈ 5 % of the absolute line pack for ±20 bar).
+<!-- source: source/gas_pipe_lp.cpp -->
+
+#### Compressor Station
+
+$$
+\varpi_{out} \le \bar\beta^2 \varpi_{in},
+\qquad
+\varpi_{out} \ge \varpi_{in} \;\;(\text{unless } \texttt{allow\_bypass}),
+\qquad 0 \le \Psi \le \bar F
+$$
+
+Fuel (`fuel_model`):
+
+- `none`: no fuel (with $\bar\beta = 1$ and `allow_bypass` the station
+  is a lossless regulator);
+- `fixed_fraction`: $LC = \gamma^{ff}\Psi$,
+  $\gamma^{ff}$ = `fuel_fraction` or $\gamma(\bar\beta^\alpha - 1)$;
+- `saldarriaga`: the fuel $LC = \gamma(\beta^\alpha-1)\Psi$ written in
+  $\varpi$ is $\gamma\Psi((\varpi_{out}/\varpi_{in})^{\alpha/2}-1)$,
+  homogeneous of degree 1 in $\Psi$ and 0 in $\varpi$, so its Taylor
+  plane at $(\Psi_0, \varpi_{in,0}, r_0\varpi_{in,0})$, $r_0 = \beta_0^2$, has
+  no constant term (Euler):
+
+$$
+LC \ge c_\Psi \Psi + c_\varpi(\varpi_{out} - r_0\varpi_{in}),
+\quad c_\Psi = \gamma(\beta_0^\alpha - 1),
+\quad c_\varpi = \gamma\tfrac{\alpha}{2}\Psi_0 r_0^{\alpha/2-1}/p_{in,0}^2,
+\quad LC \ge 0
+$$
+
+  one row per `op_ratio` value $\beta_0$ (max of planes).  The `≥`
+  (instead of the thesis' equality) is tight whenever the plane is
+  positive because fuel costs gas, and floors it at 0 where the plane
+  would create gas.  Defaults: $\alpha = (\kappa-1)/\kappa = 0.2308$;
+  $\gamma$ from the adiabatic head with `efficiency` 0.80 and
+  `driver_efficiency` 0.33 (≈ 0.043); $\Psi_0 = 0.6\bar F$,
+  $\beta_0 = 1 + (\bar\beta-1)/2$, $p_{in,0}$ = mid suction band.
+
+`drive: gas` draws $LC$ at the suction node; `drive: electric` adds
+$P^{el} \in [0, \bar P^{el}]$ (`power_max`) with coefficient $-1$ in
+the bus balance (§5.1) and $P^{el} = \kappa\, LC$,
+$\kappa = \text{LHV}\cdot\eta_{driver}/\eta_{motor}$ [MW per km³/h] (≈ 3.3).
+Fail-closed (§5.8): with the motor bus inactive, $\bar P^{el} = 0$, so
+the motor row forbids any compression work (no free power).
+<!-- source: source/gas_compressor_lp.cpp -->
+
+#### Gas Turbine (Generator Link)
+
+A `GasTurbine` links generator $k$ to its delivery node $n$: the fuel
+$h_k P_k$ enters the node balance, and with `min_pressure` $p_k$ the
+fuel-gas pressure need is the concave capability
+
+$$
+P_k \le s_1 \varpi_n - s_1 (p_k - \delta_k)^2,
+\qquad s_1 = \frac{o_k \bar P_k}{p_k^2 - (p_k-\delta_k)^2}
+$$
+
+($\delta_k$ = `pressure_band`, default 0.5 bar): zero output at
+$(p_k-\delta_k)^2$, rising to $o_k\bar P_k$ at $p_k^2$.  With
+`nominal_pressure` $p^{nom}_k > p_k$ a derate line from $(p_k^2, o_k\bar P_k)$
+to $((p^{nom}_k)^2, \bar P_k)$ is added
+($o_k$ = `derate_min_output`, default $p_k/p^{nom}_k$; without derate
+$o_k = 1$).  $\bar P_k$ is the generator's `pmax`.  The rows are upper
+bounds on $P_k$, but their intercept is negative, so even at $P_k = 0$
+they require $\varpi_n \ge (p_k-\delta_k)^2$.  "Off below the band"
+would be $P_k \le \max(0, \text{ramp})$, which is non-convex and needs a
+binary.  A plant with `min_pressure` therefore keeps its delivery node at
+least at the bottom of the band. A node whose `pmax` is below the band
+makes the LP infeasible; drop `min_pressure` for such a plant.
+Fail-closed (§5.8): when the gas turbine or its gas node is inactive the
+fuel term cannot be written and $P_k$ is closed ($\le 0$): a gas unit
+never generates without burning gas.
+<!-- source: source/gas_turbine_lp.cpp -->
+
+#### Outputs
+
+`GasNode/{pi_sol, pressure_sol, balance_dual}` (pressure $=\sqrt\varpi$,
+gas price \$/km³); `GasSupply/flow_sol`; `GasDemand/{load_sol,
+fail_sol}`; `GasPipe/{flow_sol}` or `{flow_in_sol, flow_out_sol,
+linepack_sol, linepack_balance_dual}`, plus `GasPipe/{weymouth_gap_sol,
+pressure_error_sol}`; `GasCompressor/{flow_sol,
+fuel_sol, ratio_sol, power_sol, ratio_dual}`; `GasTurbine/{fuel_sol,
+pressure_gate_dual, derate_dual}`.
+
+Out of scope (follow-ups): exact meshed optimisation (direction
+binaries / SOS2 on $f|f|$; the SLP above converges to a stationary
+point, not a certified global optimum), SLP inside SDDP iterations,
+line-pack state across stages and SDDP phases, compressor
+on/off binaries, `LngTerminal` send-out into a `GasNode`, adaptive
+tangents / operating points.
+
+#### Gas Prices and the Gas–Power Coupling
+
+The balance dual $\lambda_n$ [\$/km³] is the nodal gas price.  The fuel
+of a gas turbine enters the gas balance with coefficient $-h_k$ on the
+same column $P_k$ that enters the bus balance (§5.1) with $+1$, so the
+reduced-cost condition of a unit dispatched strictly between its bounds,
+with no other active coupling row, reads
+
+$$
+\lambda^{\text{bus}}_{n(k)} = c_k + h_k\,\lambda_{n} + |\nu^{\text{gate}}_k|
+$$
+
+where $\nu^{\text{gate}}_k$ is the dual of its `pressure_gate` (or
+`derate`) row.  The gas price is set by the marginal supply when the
+network is uncongested, and by the electricity price,
+$(\lambda^{\text{bus}} - c_k)/h_k$, when the delivery is limited
+(`test_gas_network.cpp`, "heat-rate link and price dual units": 220
+\$/MWh diesel / 0.2 km³/MWh = 1100 \$/km³).  For a flowing radial pipe
+without line pack, the reduced cost of $f_\ell$ gives
+$\lambda_b - \lambda_a = \sum_k 2K_e t_k\,\nu^{W}_{\ell,k}$ (plus the
+capacity dual), with $\nu^{W} \ge 0$ the duals of the tangent rows: the
+gas price rises along the flow only when a pressure bound binds
+somewhere.  A white-paper version of this section is in
+[`docs/white_paper/sections/gas_network.tex`](../white_paper/sections/gas_network.tex);
+the user guide with the benchmark cases is
+[Gas Network](../gas-network.md).
 
 > **Note on renumbering.** Capacity Expansion (§5.11) and User
 > Constraints (§5.12) retain their numbering even though §5.13–§5.17
@@ -2803,7 +3745,7 @@ Global options (`scale_theta`) take precedence over entries in
 | Objective scale | `scale_objective` | `1000` | Divides all cost coefficients |
 | Theta scale | `scale_theta` | auto | θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians |
 | Annual discount rate | `annual_discount_rate` | `0.0` | Multi-year cost discounting (now in `simulation`) |
-| Demand fail cost | `demand_fail_cost` | *(none)* | Enables load curtailment variables |
+| Demand fail cost | `demand_fail_cost` | `1000` | Load curtailment penalty for demands without `fcost` |
 | Reserve fail cost | `reserve_fail_cost` | *(none)* | Enables reserve shortage variables |
 | Input format | `input_format` | `"parquet"` | Time-series input format |
 | Output format | `output_format` | `"parquet"` | Solution output format |
@@ -3069,8 +4011,8 @@ where:
   $t{-}1$ and $t$
 - $\text{rc}_i^{(k)}$ is the reduced cost of the dependent column for
   state variable $i$ in phase $t$, unscaled with that column's own
-  scale: $\text{rc}_i = \text{rc}^{\text{LP}}_i \cdot \sigma /
-  \text{col\_scale}_{\text{dep}}$ (`StateVariable::reduced_cost_physical`,
+  scale:
+  $\text{rc}_i = \text{rc}^{\text{LP}}_i \cdot \sigma / \text{col\_scale}_{\text{dep}}$ (`StateVariable::reduced_cost_physical`,
   `include/gtopt/state_variable.hpp`).  The source column's scale must
   not be used: Ruiz equilibration scales the two columns independently
 - $x_{t-1,i}$ is the source column (decision variable) in phase $t{-}1$
@@ -3646,6 +4588,46 @@ were removed; their role is taken by a system-wide zone `price` and
 
 ---
 
+### Gas Network
+
+| JSON Path | Symbol | Description |
+|-----------|--------|-------------|
+| `options.gas_options.gas_specific_gravity` | $G$ | Gas specific gravity (air = 1, default 0.6) |
+| `options.gas_options.gas_temperature` | $T$, $T_f$ | Flowing temperature (K, default 288.15) |
+| `options.gas_options.compressibility` | $Z$ | Compressibility factor (default 0.9) |
+| `options.gas_options.slp_iterations` | $M$ | SLP passes (monolithic, default 0) |
+| `options.gas_options.slp_damping` | $\omega$ | SLP damping (default 0.5) |
+| `options.gas_options.slp_proximal_cost` | $\rho$ | Proximal cost on $d^\pm$ (default $10^{-6}$) |
+| `gas_node_array[].pmin`, `.pmax` | $\underline{p}_n$, $\bar p_n$ | Pressure band (bar); $\varpi_n \in [\underline{p}_n^2, \bar p_n^2]$ |
+| `gas_node_array[].pressure_cost` | $c^{\varpi}_n$ | Cost on $\varpi_n$ (\$/(bar² h)) |
+| `gas_node_array[].elevation` | $h$ | Elevation (m) |
+| `gas_supply_array[].fmin`, `.fmax` | $\underline{x}_g$, $\bar x_g$ | Injection bounds (km³/h) |
+| `gas_supply_array[].cost` | $c_g$ | Gas cost (\$/km³) |
+| `gas_supply_array[].volume` | $V_g$ | Stage volume (km³) |
+| `gas_demand_array[].load` | $D_d$ | Gas load (km³/h) |
+| `gas_demand_array[].fail_cost` | $c^{fail}_d$ | Shedding cost (\$/km³) |
+| `gas_pipe_array[].weymouth_k` | $K$ | Weymouth constant (bar²/(km³/h)²) |
+| `gas_pipe_array[].length`, `.diameter` | $L$, $D$ | Geometry (km, mm) |
+| `gas_pipe_array[].efficiency` | $E$ | Pipeline efficiency (default 0.92) |
+| `gas_pipe_array[].elevation_exponent` | $s$ | Elevation exponent |
+| `gas_pipe_array[].fmax` | $\bar F$ | Flow capacity (km³/h) |
+| `gas_pipe_array[].segments` | $N$ | Number of tangents (default 8) |
+| `gas_pipe_array[].reference_flow` | $f_0$ | First-pass reference flow (km³/h) |
+| `gas_pipe_array[].linepack_coeff` | $c$ | Line pack per bar (km³/bar) |
+| `gas_pipe_array[].linepack_pressure_ref` | $p_r$ | Linearisation pressure (bar) |
+| `gas_pipe_array[].linepack_ini` | $L^0_\ell$ | Initial line pack (km³) |
+| `gas_compressor_array[].fmax` | $\bar F$ | Throughput capacity (km³/h) |
+| `gas_compressor_array[].max_ratio` | $\bar\beta$ | Maximum pressure ratio |
+| `gas_compressor_array[].fuel_fraction` | $\gamma^{ff}$ | Fixed fuel fraction |
+| `gas_compressor_array[].gamma`, `.alpha` | $\gamma$, $\alpha$ | Saldarriaga fuel parameters |
+| `gas_compressor_array[].op_flow`, `.op_ratio`, `.op_suction_pressure` | $\Psi_0$, $\beta_0$, $p_{in,0}$ | Taylor operating point(s) |
+| `gas_compressor_array[].power_max` | $\bar P^{el}$ | Electric drive rating (MW) |
+| `gas_turbine_array[].heat_rate` | $h_k$ | Fuel per MWh (km³/MWh) |
+| `gas_turbine_array[].min_pressure` | $p_k$ | Minimum fuel-gas pressure (bar) |
+| `gas_turbine_array[].pressure_band` | $\delta_k$ | Gate band (bar, default 0.5) |
+| `gas_turbine_array[].nominal_pressure` | $p^{nom}_k$ | Full-output pressure (bar) |
+| `gas_turbine_array[].derate_min_output` | $o_k$ | Output share at `min_pressure` |
+
 ## 8. Cross-References
 
 - **[Planning Guide](../planning-guide.md)** — How to set up planning
@@ -3866,6 +4848,32 @@ URL: [https://en.wikipedia.org/wiki/Self-discharge](https://en.wikipedia.org/wik
 
 > Lists lithium-ion cells at 2–3 %/month at room temperature.
 
+### Ancillary Services (CEN Chile)
+
+<a id="ref20"></a>
+**[20]** Coordinador Eléctrico Nacional (2026). "Minuta GM-DPRO Nº05-2026:
+Modelación y Asignación de SSCC de Control de Frecuencia (ISSCC 2026)."
+URL: [https://www.coordinador.cl/wp-content/uploads/2026/06/Minuta_GM-DPRO_No05-2026_Modelacion_y_Asignacion_de_SSCC_CF-ISSCC2026.pdf](https://www.coordinador.cl/wp-content/uploads/2026/06/Minuta_GM-DPRO_No05-2026_Modelacion_y_Asignacion_de_SSCC_CF-ISSCC2026.pdf).
+
+> Anexo A: provision model (A.1)–(A.24); Anexo B: inertia (B.1) and the
+> CPF requirement planes (B.2)–(B.4).
+
+<a id="ref21"></a>
+**[21]** Coordinador Eléctrico Nacional (2021). "Minuta GM Nº35-2021:
+Modelación y Asignación de Servicios Complementarios de Control de
+Frecuencia (ISSCC 2022)."
+
+> First minuta to regress the requirement on total generation
+> ("variable directa del problema de optimización").
+
+<a id="ref22"></a>
+**[22]** Coordinador Eléctrico Nacional (2020). "Minuta GM Nº34-2020:
+Modelación y Asignación de Servicios Complementarios de Control de
+Frecuencia (ISSCC 2021)."
+
+> Regresses the requirement on demand, "un dato de entrada al problema
+> de optimización": the exogenous criterion gtopt uses by default.
+
 ### Solvers
 
 <a id="ref15"></a>
@@ -3878,6 +4886,101 @@ DOI: [10.1287/educ.1053.0020](https://doi.org/10.1287/educ.1053.0020).
 > its LP-only counterpart. When no solver is requested GTOpt picks the
 > first available backend in the order CPLEX > HiGHS > MindOpt > CBC >
 > CLP.
+
+### Natural-Gas Networks (§5.19)
+
+<a id="ref23"></a>
+**[23]** De Wolf, D. and Smeers, Y. (2000). "The Gas Transmission
+Problem Solved by an Extension of the Simplex Algorithm." *Management
+Science*, 46(11), pp. 1454–1465.
+DOI: [10.1287/mnsc.46.11.1454.12087](https://doi.org/10.1287/mnsc.46.11.1454.12087).
+
+> Weymouth equation in squared pressure; also the origin of the Belgian
+> network used by `cases/gas_belgian_a1_radial` and
+> `cases/gas_hu_ryan_24b20n`.
+
+<a id="ref24"></a>
+**[24]** Menon, E.S. (2005). *Gas Pipeline Hydraulics*. CRC Press, Boca
+Raton. DOI: [10.1201/9781420038224](https://doi.org/10.1201/9781420038224).
+
+> SI Weymouth equation (eq. 2.62) behind the default `weymouth_k`, and
+> the elevation correction (§2.9).
+
+<a id="ref25"></a>
+**[25]** Saldarriaga Cortés, C.A. (2018). *Planeamiento Integrado de
+Sistemas Energéticos: Un Enfoque Estocástico Multietapa*. Doctoral
+thesis (Doctorado en Ingeniería), Universidad Tecnológica de Pereira,
+Colombia. Advisor: H. Salazar Isaza. Submitted 29 Nov. 2018 (title
+page); repository record dated 2019.
+URL: [https://hdl.handle.net/11059/10887](https://hdl.handle.net/11059/10887).
+
+> Compressor fuel $LC = \gamma(\beta^\alpha - 1)\Psi$ and its Taylor
+> plane (eqs. 2.70–2.72), the "3–5 % of the compressed gas" check, and
+> the pipe chain of Fig. 2.2(b) (`cases/gas_saldarriaga_fig2_2`).
+
+<a id="ref26"></a>
+**[26]** Schmidt, M., Aßmann, D., Burlacu, R., Humpola, J., Joormann, I.,
+Kanelakis, N., Koch, T., Oucherif, D., Pfetsch, M.E., Schewe, L.,
+Schwarz, R., and Sirvent, M. (2017). "GasLib—A Library of Gas Network
+Instances." *Data*, 2(4), 40.
+DOI: [10.3390/data2040040](https://doi.org/10.3390/data2040040).
+Data: [https://gaslib.zib.de](https://gaslib.zib.de), CC BY 3.0.
+
+<a id="ref27"></a>
+**[27]** Pfetsch, M.E., Fügenschuh, A., Geißler, B., et al. (2015).
+"Validation of Nominations in Gas Network Optimization: Models, Methods,
+and Solutions." *Optimization Methods and Software*, 30(1), pp. 15–53.
+DOI: [10.1080/10556788.2014.888426](https://doi.org/10.1080/10556788.2014.888426).
+Earlier version: ZIB-Report 12-41 (2012), the citation the GasLib file
+headers require.
+
+<a id="ref28"></a>
+**[28]** Bent, R., Sundar, K., et al. *GasModels.jl* — steady-state gas
+network optimization in Julia/JuMP. Los Alamos National Laboratory,
+MICOT LA-CC-13-108, BSD-3-Clause.
+URL: [https://github.com/lanl-ansi/GasModels.jl](https://github.com/lanl-ansi/GasModels.jl).
+Companion: *GasPowerModels.jl*,
+[https://github.com/lanl-ansi/GasPowerModels.jl](https://github.com/lanl-ansi/GasPowerModels.jl).
+
+> Source of `case-6` (`cases/gas_case6`) and of the Belgian `A1` data.
+
+<a id="ref29"></a>
+**[29]** Hu, D. (2019). "Datasets for reliability unit commitment to
+manage natural gas cost in power system operations." Mendeley Data, V1,
+CC BY 4.0. DOI: [10.17632/ynb88g67xy.1](https://doi.org/10.17632/ynb88g67xy.1).
+Related paper: Hu, D. and Ryan, S.M. (2019). "Stochastic vs.
+deterministic scheduling of a combined natural gas and power system with
+uncertain wind energy." *Int. J. Electrical Power & Energy Systems*,
+108, pp. 303–313.
+DOI: [10.1016/j.ijepes.2018.12.047](https://doi.org/10.1016/j.ijepes.2018.12.047).
+
+<a id="ref30"></a>
+**[30]** Ratha, A., Schwele, A., Kazempour, J., Pinson, P., Shariat
+Torbaghan, S., and Virag, A. (2020). "Affine Policies for Flexibility
+Provision by Natural Gas Networks to Power Systems." *Electric Power
+Systems Research*, 189, 106565.
+DOI: [10.1016/j.epsr.2020.106565](https://doi.org/10.1016/j.epsr.2020.106565).
+Data: Zenodo, CC BY 4.0,
+DOI: [10.5281/zenodo.3755120](https://doi.org/10.5281/zenodo.3755120).
+
+<a id="ref31"></a>
+**[31]** Ordoudis, C., Pinson, P., and Morales, J.M. (2019). "An
+Integrated Market for Electricity and Natural Gas Systems with
+Stochastic Power Producers." *European Journal of Operational
+Research*, 272(2), pp. 642–654.
+DOI: [10.1016/j.ejor.2018.06.036](https://doi.org/10.1016/j.ejor.2018.06.036).
+Data: DOI [10.5281/zenodo.1174979](https://doi.org/10.5281/zenodo.1174979).
+
+> Origin of the IEEE-24 / 12-node gas system that [[30]](#ref30) extends.
+
+<a id="ref32"></a>
+**[32]** Tomasgard, A., Rømo, F., Fodstad, M., and Midthun, K. (2007).
+"Optimization Models for the Natural Gas Value Chain." In *Geometric
+Modelling, Numerical Simulation, and Optimization*, Springer,
+pp. 521–558.
+DOI: [10.1007/978-3-540-68783-2_16](https://doi.org/10.1007/978-3-540-68783-2_16).
+
+> Tangent-plane outer approximation of the Weymouth equation in an LP.
 
 ### Classification and Surveys
 

@@ -97,6 +97,7 @@ pp2gtopt -f network.xlsx -o network.json
 | `-o, --output FILE` | `<stem>.json` | Output JSON file path |
 | `--list-networks` | — | Print all available built-in network names and exit |
 | `-V, --version` | — | Print version and exit |
+| `--source-version X` | `net.version` | pandapower series to assume; see [Supported source versions](#supported-source-versions) |
 | `--profiles FILE` | — | Hourly profile table (`.csv`/`.parquet`, wide or long); enables time-series mode |
 | `--profiles-spec FILE` | — | JSON/YAML column → element mapping spec |
 | `--profiles-from-net` | off | Also use pandapower `ConstControl` profiles stored in the net |
@@ -116,9 +117,34 @@ pp2gtopt -f network.xlsx -o network.json
 | `--single-phase` | off | One phase for all stages (default: one phase per stage) |
 | `--output-format` | `csv` | gtopt solution output format (`csv`/`parquet`) |
 | `--from-state PATH` | — | Replay a `pp2gtopt_state.json`; other flags override it |
+| `--sanity-report PATH` | — | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` (runs with the post-conversion check) |
 
 > **Note**: `-f` and `-n` are mutually exclusive.  If neither is given, the
 > default `ieee30b` network is used.
+
+---
+
+## Supported source versions
+
+| pandapower series | Supported | Tested | Notes |
+|-------------------|-----------|--------|-------|
+| `2.13`, `2.14`, `3.0` – `3.3` | yes | no | Allowed by `pandapower>=2.13.0` (`scripts/pyproject.toml`) |
+| `3.4` | yes | yes | Data version of the bundled `pandapower.networks` cases |
+| `3.5` (default) | yes | yes | Networks built by the tests with the installed library |
+
+**Detection**: `net.version` of the loaded network (the writer of a
+`.json` / `.xlsx`, the bundled data version, or the running library for a
+MATPOWER import); `3.4.0` matches the `3.4` series.  The resolution is
+logged and, in time-series mode, stored in `pp2gtopt_state.json` under
+`extra.source_format`.
+
+`--source-version X` overrides the detected version.  An unknown version
+(detected or given) falls back to the closest supported one with a
+warning; a supported but untested version is kept with a warning.  The
+same list is printed by `--help` (generated from `SOURCE_FORMAT` in
+`pp2gtopt/source_version.py`).  See
+[Supported source versions](../scripts-guide.md#supported-source-versions)
+for every converter.
 
 ---
 

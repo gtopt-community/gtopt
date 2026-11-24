@@ -152,8 +152,8 @@ Indicators") makes this auditable in every run:
 | `Gen_HeatRate.csv` | heat rate (multi-band optional) | `Generator.heat_rate` + `heat_rate_segments` |
 | `Gen_VOMCharge.csv` | VOM ($/MWh) | folded into `Generator.gcost` |
 | `Gen_AuxUse.csv` | auxiliary station-service fraction | derates net capacity (folded into gcost) |
-| `Gen_FuelTransportCharge.csv` | per-unit fuel transport adder | folded into `Generator.gcost` |
-| `Gen_IniGeneration.csv` | dispatch at `t=0` | `Commitment.initial_power` |
+| `Gen_FuelTransportCharge.csv` | fuel transport adder in $/fuel-unit (PLEXOS prices fuel at `price + transport`) | folded into `Generator.gcost` as `transport × heat_rate` |
+| `Gen_IniGeneration.csv` | dispatch at `t=0` | `Commitment.initial_power` (trimmed) and `Generator.initial_generation` (raw) |
 | `Gen_IniUnits.csv` | units initially online | `Commitment.initial_status` |
 | `Gen_IniHoursUp.csv` / `Gen_IniHoursDown.csv` | hours up/down at `t=0` | `Commitment.initial_hours` |
 | `Gen_Commit.csv` | commit override (`-1` free / `0` off / `+1` on) | `Commitment.must_run` / `fixed_status` per block |
@@ -171,8 +171,8 @@ Indicators") makes this auditable in every run:
 | `Hydro_WaterFlows.csv` | natural inflow + forced flow profile | `Flow.discharge` + `Waterway.forced_flow_profile` |
 | `Hydro_EfficiencyIncr.csv` | turbine productibility | `Turbine.production_factor` (`fp_med`) |
 | `Hydro_StoWaterValues.csv` | water values + FCF intercept | `BoundaryCutSpec` + `alpha_fcf` / `boundary_cuts.csv` |
-| `Hydro_AntucoBounds.csv` | Laja irrigation envelopes | `FlowRight` overlays |
-| `Hydro_MaxRampDay.csv` | hydro daily-ramp limits | per-day RHS overlay on `*ramp*` UCs |
+| `Hydro_AntucoBounds.csv` | hourly RHS of `ANTUCOmin` / `ANTUCOmax` / `ELTOROmax` (MW) | per-block RHS of those UCs (rows aligned by date to the horizon start; `PERIOD` rows step within the day) |
+| `Hydro_MaxRampDay.csv` | hydro daily-ramp limits | per-day RHS overlay on `*ramp*` UCs (aligned by date to the horizon start) |
 | `Res_Requirement.csv` | reserve requirement (MW) | `ReserveZone.urreq` / `drreq` |
 | `Res_Timeslice.csv` | reserve day-type / hour mapping | per-day day-type selector for `Res_Requirement` |
 | `SSCC_Activation_BESS.csv` | BESS ancillary-services activation % | `ReserveProvision.ur_provision_factor` / `dr_provision_factor` |
@@ -299,6 +299,44 @@ N blocks of the chosen layout. `chronological: True` is **required**
 leaving `status`/`startup`/`shutdown` columns unbuilt and breaking
 every UserConstraint that references them.
 
+### Cutting the week short: `--horizon-days N`
+
+`--horizon-mode hourly --horizon-days N` with N below the PLEXOS
+horizon (7 for CEN PCP, read from the `Horizon` name) moves the end of
+the horizon to the end of day N.  Every end-of-horizon quantity of the
+weekly case is re-anchored there by one post-build pass
+(`_horizon.py`), reported in the log and in the provenance sidecar
+(`horizon`: per-element targets, per-family rules, warnings):
+
+| Item | Default rule | Override |
+|---|---|---|
+| Reservoir / gas-storage `efin` | PLEXOS Storage `End Volume` at the end of day N (RES bundle); `eini` with a warning when there is no solution or no value | `--horizon-end-targets {plexos,eini,free}` |
+| Battery `efin` | PLEXOS Battery `Energy` at the end of day N, soft (`efin_cost`), `daily_cycle: false`, `use_state_variable: true` | same |
+| LNG tanks (`lng_terminal_array`, `*_GNL*`, storages feeding fuel-burning units) | left free: their end level is the take-or-pay decision | `--horizon-pin-lng-tanks` |
+| FCF boundary cut | dropped with `plexos`/`eini` targets, kept with `free` (then the only terminal value) | `--horizon-boundary-cut {keep,drop}` |
+| `fuel_max_offtake` (`Fuel_MaxOfftakeWeek`) | `prorate`: weekly cap × days in the horizon / 7 | `full` (whole weekly budget), `drop` |
+| `fuel_min_offtake` (take-or-pay floor) | `prorate`: floor × horizon / window | `drop` |
+| `period_rhs` (`RHS Week/Month/Year` stage rows) | `prorate`: RHS × horizon hours / period hours | `drop` (inactive) |
+| `day_indexed` (`Gas_MaxOpDay` Day_X budgets) | `keep`: day d keeps its own Day_X cap | `drop` (inactive) |
+
+Families are overridden with `--horizon-constraint-rules
+fuel_max_offtake=full,period_rhs=drop`.  Targets are clamped into each
+element's `[emin, emax]` at the last block.  Rescaling the FCF cut is
+not offered: its slopes are marginal water values and its intercept a
+constant, so only keeping or dropping it changes the solution.
+Batteries get the soft cycle anchor in every horizon mode (an empty
+hourly block layout used to leave them on gtopt's hard daily-cycle
+close, infeasible for a battery that self-discharges and cannot
+recharge — PCP 2024-12-15, BAT_ALFALFAL_VR2).
+Battery self-discharge mirrors PLEXOS: the `Self Discharge Rate` property
+(% of stored energy lost per hour, default 0) maps to
+`annual_standing_loss = rate / 100 × 8760`, and a battery without it is
+written with `annual_standing_loss: 0`, never left to gtopt's 4 %/month
+lithium default (that default made CEN's `BAT_ANDES_2A_FV_Export` row,
+which holds SoC at Capacity for hours with charging off, infeasible on
+PCP 2026-11-03 / 11-09).  `--default-storage-loss` still writes its
+synthetic 2 %/month on cycle-limited BESS.
+
 ---
 
 ## 6. The GTOpt element catalogue: every class plexos2gtopt emits
@@ -311,7 +349,7 @@ every PLEXOS object lands on a gtopt-native LP class. The full set
 |---|---|---|---|
 | `Bus` | 247 | `t_class[Node]` (class_id 22) | Power-balance node |
 | `Generator` | 1 732 | `t_class[Generator]` (class_id 2) | Thermal (with `fuel`), renewable (Gen_Rating-driven), and hydro turbine (with `Storage` membership) |
-| `Fuel` | 221 | `t_class[Fuel]` (class_id 4) + virtual unit-price fuel | `Generator.fuel` reference, drives `gcost = HR · price + VOM + transport` |
+| `Fuel` | 221 | `t_class[Fuel]` (class_id 4) + virtual unit-price fuel | `Generator.fuel` reference, drives `cost = HR · (price + transport) + VOM` |
 | `Emission` | (when present) | `Fuel.CO2 Production Rate` or `Emission→Fuel` Production Rate | Per-fuel CO₂ factor |
 | `Battery` | 36 | `t_class[Battery]` (class_id 7) | Energy storage; GTOpt auto-instantiates `<bat>_gen` discharge + `<bat>_load` charge |
 | `Line` | 317 | `t_class[Line]` + Node-from/to memberships | Transmission with PWL losses; soft/hard cap pair (`tmax_normal_ab` / `tmax_ab`) drives the overload band |
@@ -323,10 +361,11 @@ every PLEXOS object lands on a gtopt-native LP class. The full set
 | `Flow` | 16 | natural-inflow rows in `Hydro_WaterFlows.csv` | Per-block discharge injected into a Junction |
 | `ReserveZone` | 12 | `t_class[Reserve]` | Up/down reserve product (RS = raise, LW = lower), with `urreq`/`drreq` per block |
 | `ReserveProvision` | 393 | Reserve → Generator/Battery memberships | Per-generator eligibility + per-block `ur`/`dn` provision column; SSCC BESS rows are emitted per (battery, `*_BESS` zone) |
+| `InertiaZone` / `InertiaProvision` | 3 / 259 | `Inertia_Calculation_e1`, `InertiaNRMin_D` / `_N` (`--reserve-model native`) | `Inertia_SEN` zone (CPF plane inertia; not emitted with `--reserve-inertia-term exogenous`) and the northern inertia minima; one provision per committed unit (`pf = H·S / P_ref`) |
 | `Commitment` | 1 578 | `Generator` thermal subset + auto-promoted hydro min/max UCs | Unit-commitment binaries (`status`/`startup`/`shutdown`) with `pmin`/`pmax`/`ramp`/`min_up_time`/`max_starts` |
 | `DecisionVariable` | 44 | `t_class[Decision Variable]` (class_id 72) + synthesized `alpha_fcf` | Free continuous LP column with optional bounds + cost; referenced via `decision_variable("X").value` |
 | `Plant` | (when present) | synthesised from multi-fuel-band generator families | Native plant-cap row `Σ generation ≤ pmax` per (stage, block) — replaces the legacy `PlantCap_*` UCs |
-| `FlowRight` | (when present) | `Hydro_AntucoBounds.csv` (Laja) | Soft irrigation / environmental flow envelope on a Junction |
+| `FlowRight` | (when present) | pinned forced-flow waterways | Soft irrigation / environmental flow envelope on a Junction |
 | `UserConstraint` | 3 595 (across 8 families, see §7) | `t_class[Constraint]` + synthesised hydro / plant / FCF rows | Generic AMPL-style LP row binding any combination of LP variables |
 | `BoundaryCut` | 1 | `Hydro_StoWaterValues.csv` | End-of-horizon FCF terminal-value cut on reservoir end volumes |
 
@@ -342,6 +381,72 @@ every PLEXOS object lands on a gtopt-native LP class. The full set
   by GTOpt's explicit `scenario_array` (single scenario in CEN PCP).
 * PLEXOS **wheeling / contract / charge / tariff** classes — skipped
   with a debug log (no current GTOpt equivalent).
+
+### Which commitments keep an integer status (`--uc-relax`)
+
+Every `Commitment` adds one binary status column `u` per block.  Most
+PCP commitments carry no unit-commitment decision worth a binary, so
+the converter emits them with `relax: true` (`u`, `v`, `w` continuous in
+[0, 1]) when either rule holds
+(`scripts/plexos2gtopt/_commitment_policy.py`):
+
+1. **PLEXOS Linear Relaxation** — the run Model's effective
+   `Generator.Unit Commitment Optimality` is `0`.  PLEXOS itself solves
+   those units with a continuous `Units Generating`, so this follows the
+   source model.  Rows are resolved like `Include in ST Schedule`: a row
+   tagged with an active scenario beats the untagged default, rows tagged
+   only with inactive scenarios are ignored (CEN's `SouthLinearUnits`,
+   `LinearGTs`, … are not in `PRGdia_Full_Definitivo`).
+2. **Cost-free** (`auto` only) — all of: zero energy cost
+   (`VO&M + transport + max heat rate × max fuel price ≤ 1e-6` $/MWh), no
+   start-up / shut-down / no-load cost or no-load fuel, no Min Up / Down
+   Time, no start-count limit, no ramp limit.  This catches zero-cost
+   renewables and run-of-river that PLEXOS marks Integer Optimal (`2`) or
+   leaves unset, e.g. `ABANICO`, `TALINAY_*`, `VALDIVIA_BL1_EUCA`.  The
+   only behaviour it changes is that such a unit may be curtailed into
+   (0, Min Stable Level).  For a unit with no cost or dynamics that
+   region has no economic consequence.
+
+A `Min Stable Level` or a `Gen_Commit` pin does not block the
+relaxation.  The commitment is still emitted, so forced blocks keep
+`fixed_status` / `must_run` and every `commitment("uc_X").status`
+reference in the PAMPL rows (inertia, reserves) stays valid.
+Commitments synthesised from hydro `<plant>min` / `<plant>max`
+Constraints are never relaxed.
+
+| `--uc-relax` | Effect |
+|---|---|
+| `auto` (default) | rules 1 + 2 |
+| `plexos` | rule 1 only (strictly PLEXOS's Unit Commitment Optimality) |
+| `none` | every commitment integer (the behaviour before 2026-11) |
+
+`--lp-relax` still relaxes every commitment.  The converter logs
+`commitment policy (--uc-relax auto): N of M commitment(s) LP-relaxed —
+X PLEXOS Linear Relaxation, Y cost-free`.  On the 14 published CEN PCP
+weeks only the `relax` flags change; the JSON and PAMPL are otherwise
+identical:
+
+| Week | Integer units | Integer `u` columns | Free (unpinned) `u` cells |
+|---|---|---|---|
+| 2025-10-05 | 1009 → 228 | 169 512 → 38 304 | 47 516 → 35 679 |
+| 2025-10-19 | 1001 → 217 | 107 107 → 23 219 | 29 600 → 21 571 |
+| 2025-11-09 | 1005 → 216 | 118 590 → 25 488 | 32 707 → 24 050 |
+| 2025-11-23 | 996 → 219 | 131 472 → 28 908 | 38 134 → 27 271 |
+| 2025-12-07 | 1020 → 235 | 134 640 → 31 020 | 38 483 → 29 315 |
+| 2025-12-21 | 1043 → 260 | 137 676 → 34 320 | 42 525 → 32 572 |
+| 2026-01-04 | 1026 → 237 | 135 432 → 31 284 | 39 425 → 29 568 |
+| 2026-01-18 | 1034 → 249 | 136 488 → 32 868 | 41 195 → 31 356 |
+| 2026-02-15 | 1008 → 229 | 133 056 → 30 228 | 38 598 → 28 585 |
+| 2026-03-15 | 1066 → 271 | 140 712 → 35 772 | 44 463 → 34 447 |
+| 2026-04-07 | 1047 → 247 | 116 217 → 27 417 | 34 268 → 25 738 |
+| 2026-04-12 | 1097 → 291 | 120 670 → 32 010 | 39 059 → 30 425 |
+| 2026-04-22 | 1100 → 305 | 122 100 → 33 855 | 41 521 → 32 328 |
+| 2026-05-17 | 1093 → 290 | 120 230 → 31 900 | 39 009 → 30 411 |
+| **Total** | | **1 823 902 → 436 593 (−76 %)** | **546 503 → 413 316 (−24 %)** |
+
+Pinned cells (`Gen_Commit` 0 / 1, e.g. solar at night) are integer
+columns with fixed bounds that presolve removes.  The free-cell column
+therefore measures the real branching freedom.
 
 ---
 
@@ -444,6 +549,129 @@ Two centrally-computed penalties drive every soft surface:
   UC floors, and natural-inflow slack columns. Matches plp2gtopt's
   default so PLEXOS- and PLP-derived JSONs use identical water-
   obligation pricing.
+
+### Native reserve requirements (`--reserve-model native`)
+
+CEN's PCP sizes the primary-frequency reserve (CPF) with linear
+regressions written as `Constraint` rows over `Decision Variable`s
+(minuta GM-DPRO Nº05-2026, Anexo B).  The default
+`--reserve-model native` turns them into gtopt's plane-based
+`ReserveZone` requirement (`R ≥ max_k plane_k`, see
+[§5.9 of the formulation](../formulation/mathematical-formulation.md#59-reserve-constraints))
+instead of emulating them with user constraints:
+
+| PLEXOS (CEN PCP) | gtopt (`--reserve-model native`) |
+|---|---|
+| `CPF_Up10Calculation_I..XII`, `CPF_Up5Calculation`, `CPF_DownCalculation`: `R + a·G + b·I − c·C ≥ RHS` | one `ReserveZone` per requirement DV (`CPF10s`, `CPF5mUp`, `CPF5mDown`), one plane per row in `urreq_planes` / `drreq_planes`: `demand_coef = −a/1000`, `inertia_coef = −b/1000`, `contingency_coef = c`, `alpha = RHS` + folded constants |
+| `Generation_Calculation` (`Σ gen − charge − 1000·Generation_SEN ≥ 0`) | the load term `D`: exogenous (default) or `load_term = endogenous_generation`; the row becomes an inactive stub when nothing else uses `Generation_SEN` |
+| `Inertia_Calculation_e1` (`Σ H·S·u − 1000·Inertia_SEN ≥ −854.8`) | the inertia term `I` of the planes; the constant (units without a gtopt commitment) folds into `alpha`.  Commitment (default) and endogenous: `InertiaZone` `Inertia_SEN` + one `InertiaProvision` per unit (`pf·provision_max = H·S`, `provision_max = P_ref` = the commitment's minimum stable level, else `Pmin`, else 1 MW), `inertia_term: "commitment"` / `"endogenous"`.  Exogenous: `inertia_term: "exogenous"`, `system_inertia` = Σ `H·S` of the units PLEXOS forces on (`Gen_Commit = 1`) per hour, no zone.  The row stays (`InertiaGlobalMin_New` still uses the DV) |
+| `InertiaNRMin_D` / `InertiaNRMin_N` (`Σ H·S·u [+ c·y] ≥ RHS`, coefficients of `Inertia_Calculation_e2`) | one `InertiaZone` per row: `requirement` = the (timesliced) RHS per hour, `cost` = the row penalty; units share the `InertiaProvision` of the same `H·S` (`inertia_zones` lists every zone) |
+| `InertiaCommitGuacolda2` (`Σ u_g − k·y ≥ 0`, `y ∈ [0, U]`) + `c·y` in `InertiaNRMin_D` | `InertiaZone.requirement_credits` `{name: y, generators, units: k·U/c_u, credit: c·U}`, continuous selector (as PLEXOS; `integer` unset); the commit row becomes an inactive stub |
+| `*_Comparison` (`k·C − Σ p_g − limited_generation_group ≥ offset`), DV lower bound 300 / 200 MW | one `urcontingencies` / `drcontingencies` candidate per row: plant modes summed, BESS discharge as `<bat>_gen`, charge as `<bat>_dem`, line flows, the constant as `offset`; the shared `limited_generation_group` DV is expanded through `limited_generation_calculation` (Σ PMGD gen − BESS charge); the bound becomes a second plane with `C` fixed at it; the rows themselves stay active (they also cap `C ≤ 400`) |
+| `CPF_*MinProvision` (`Σ f_g·r_g + VoRS − R − Slack = 0`, PLEXOS Sense 0 / unset) | `ur_zone_factors` / `dr_zone_factors` = `f_g` on each unit's existing `ReserveProvision`; `VoRS` cost → `urcost` / `drcost`; Sense 0 → `requirement_sense: "eq"`; the priced `Slack` is dropped with a warning: the requirement `R` is a column above its planes and absorbs any excess provision, so gtopt builds no surplus column for a plane zone |
+| `CPF10s_Requirement` cost (10 $/MW) | kept through the link row `<zone>_RequirementCost`: `R_dv − reserve_zone(Z).up = 0` |
+| `CSF_*MinProvision`, `CTF_*MinProvision` (`Σ c_g·r_g [+ VoRS] ≥ RHS`) | fixed-requirement zones (`urreq` / `drreq` = RHS profile, cost = penalty / VoRS cost; Sense 0 → `requirement_sense: "eq"`).  A Reserve-level `Provision Coefficient` means the reserve's whole provision, generators **and** every battery provider (`<bat>_gen__<reserve>`).  The extractor's `Reserve` zones the row sums (`CSF_RS`, `CSF_RS_BESS`, …) are retired: one zone per requirement, so the dual is not split between two zones (a retired zone a provision still needs stays with no requirement, floor or cost) |
+| Timesliced RHS (`M4-9,H10-17;M1-3,H9-19`, `;` = OR) | per-hour values (the tagged row overrides the base in the hours and date window it covers).  One grammar for the whole converter (`plexos_model.timeslice_matcher`): `M` month, `H` hour, `W` weekday (1 = Sunday), `D` day of month, a bare number continues the previous kind, `!` negates; a calendar tag without a horizon date falls back to the scalar RHS with a warning, never to "every hour" |
+| Dated coefficient sets (`Date From` / `Date To`) | per-hour plane schedules (latest `Date From` in force on the day wins, an open-ended `Date From` runs until superseded — the extractor uses the same rule; undated otherwise).  A `±1e30` value (RHS, coefficient or DV bound) is "no value / no limit", never a number |
+| `CSF_*_Def` (`Σ r − CSF_*_Requirement`, a definition read by `MAXCSF_*`) | stays a user constraint with the PLEXOS RHS 0 and Sense (unset = `=`): the extractor's requirement-profile RHS and `≥` are replaced |
+| `SpecialCPF/CSF/CTFNorth(LW)` | only with `--reserve-north-special`: a zone whose single plane is `alpha` = the dated RHS minus the requirement DVs at their dated `*_Definition` value (the `CPF_North_Tx` flow term dropped); never `flow_coef` |
+| Every other row with `Include in ST Schedule ≤ 0` — `*_Definition`, `SpecialCPFTxFlow`, `CPF_North_Tx`, `CPFN_*`, `TxJadresic_Comparison`, `CTFOFF_*` | never converted: they stay inactive provenance stubs (see below) |
+
+**Load term.**  With `--reserve-load-term exogenous` (default) `D` is a
+parameter: `--reserve-load-factor` (default 1.05) × the hourly
+demand, or `--reserve-system-load CSV` (exactly one finite value > 0
+per horizon hour; never padded or tiled; ignored, as is the factor,
+with a warning under the endogenous load term).
+`--reserve-load-factor auto` estimates the factor from the case
+(PLEXOS `Generation_SEN` / demand when the RES bundle is present:
+1.0443 on 2026-11-07 day 1; else the monthly table, Σ generator
+generation / (node load − BESS charge) per month of the 2024-01 →
+2026-11 PCP history).  The median
+`(Gen − BESS charge)/demand` over CEN PCP 2024–2026 is 1.025–1.032,
+but PLEXOS' `Generation_SEN`/demand reaches 1.044 (2026-11-07) and
+1.052 (2026-10-24), so the default errs on the larger side ("más vale
+que sobre"): every regression coefficient on `D` is negative, so a
+larger `D` gives a slightly *smaller* requirement, and the gap stays a
+few MW.  It moves to the row RHS, so
+the requirement no longer credits generation and the bus LMPs stay
+energy-only.  `--reserve-load-term endogenous` reproduces PLEXOS'
+endogenous `Generation_SEN`: every MWh of demand then earns
+`Σ_k a_k·μ_k / 1000` and LMPs go negative in hours where the reserve
+binds (or, with the 10 $/MW requirement cost, every hour).
+
+**Inertia term.**  With `--reserve-inertia-term commitment` (default)
+`I = Σ I_c·u_c`: each unit's `H·S` times its commitment status, through
+the `Inertia_SEN` provisions (gtopt `inertia_term: "commitment"`).  No
+dispatch column enters `I`.  On the CEN PCP 2026-11-07 day 1 (relaxed
+commitments, exogenous load term) it leaves 515 negative bus-hours, none
+below −0.1 $/MWh.  `--reserve-inertia-term exogenous` makes `I` data:
+`system_inertia` per hour = Σ `H·S` of the units PLEXOS forces on
+(`Gen_Commit = 1`), the minimum committed inertia.  Every plane carries
+`inertia_coef ≤ 0`, so this is the conservative bound: on the CEN PCP
+few units are forced on and CPF10s rises by about 310 MW.
+`--reserve-inertia-term endogenous` is the PLEXOS-compatible
+reconciliation mode: `I = Σ pf·r` over the `Inertia_SEN` provisions,
+`r ≤ p`.  The negative LMPs of PLEXOS come from the endogenous *load*
+term: its credit `Σ_k demand_coef_k·μ_k` reaches every bus, while the
+endogenous inertia term only lowers the requirement (and so `μ`); the
+load term therefore stays exogenous by default.
+
+**Plane support.**  The conversion fails when a plane term lacks the
+support gtopt requires in strict mode: an `inertia_coef` needs
+`system_inertia` or an `inertia_zone`, a `contingency_coef` needs a
+candidate in its direction and must be ≥ 0 (a negative one, a data
+error, is dropped with a warning before the check), and a `flow_coef`
+needs `flow_lines` (never emitted).
+
+**Objective.**  gtopt cancels the valuation of met soft requirements
+in the objective constant, so `obj_value` is directly the operating
+cost.  The per-zone credit of the coupled terms is written as
+`ReserveZone/reserve_credit_sol` (`Σ_k demand_coef_k·lf·μ_k`, zero
+with the exogenous load term), `flow_credit_sol` and
+`credit_transfer_sol` (credit × energy).
+
+**`Include in ST Schedule = 0` is always respected.**  The extractor
+already emits such rows with `active = False`, and the native transform
+only reads active rows, so none of them becomes a zone, a plane or a
+contingency candidate.  This matters for the northern-corridor family
+(`SpecialCPF/CSF/CTFNorth(LW)`, `*_Definition`, `SpecialCPFTxFlow`,
+`CPF_North_Tx`): it is disabled in the CEN PCP (no dual in 2024–2026,
+dated RHS only for 2023-12-08/09), and its requirement equals the
+endogenous southward corridor flow — emitting it would couple dispatch
+back into the requirement (north–south spread, possible negative
+northern LMPs).  The only exception is the opt-in
+`--reserve-north-special` (off by default): it emits the scheduled
+requirement — the dated RHS with the corridor flow dropped — as a plain
+`alpha` plane; the flow-coupled form (`flow_lines` + `flow_coef`) is
+never emitted.
+
+**PLEXOS Sense 0.**  Sense 0, or no Sense, is an equality in PLEXOS
+(`*MinProvision` balances, `*_Def` / `*Calculation_e*` definitions,
+`_ConfTGA*` plant links).  The native model writes those rows `=` (its
+balances become `"eq"` zones: a fixed zone has both a shortage and a
+surplus slack, a plane zone's requirement column absorbs the surplus); `--reserve-model uc` keeps the
+legacy `>=`, because there the balances are hard user constraints and
+the equalities were infeasible against the per-unit reserve caps.  In
+both modes a `*_Def` row keeps its PLEXOS RHS (0), not the
+reserve-requirement profile.
+
+**Reserve requirements.**  A PLEXOS `Reserve` with `Include in ST
+Schedule = 0` (CEN: `CTF_RS`, `CTF_LW`) drops its static `Min
+Provision` and gets no requirement of its own; its `Res_Requirement`
+profile is the hourly RHS of the `CTF_*MinProvision` rows.  The
+per-unit `Min Regulation / Spinning / Replacement Provision` is
+semi-continuous in PLEXOS (a unit provides 0 or at least the minimum)
+and is not emitted: gtopt's `provision >= urmin·u` would force every
+committed unit into every reserve.
+
+**Contingency units.**  A `*_Comparison` DV in GW (`1000·C ≥ p`) is
+scaled once: candidates are in MW (`k_C·C`) and the plane multiplies by
+`c/k_C`.  A `±1e30` DV bound is no bound: no floor plane, no
+inertia-credit selector.
+
+Every replaced row ships in the PAMPL as an inactive stub whose
+description names the replacing zone.  `--reserve-model uc` keeps the
+legacy UserConstraint + DecisionVariable emulation.
 
 ---
 
@@ -551,10 +779,31 @@ A complementary line-cap policy ships out of the box:
   `augment_el1_with_soft_caps` step at the end of `build_planning`;
   it's the LP's priced escape valve when PLEXOS itself dispatches a
   line above its stated rating.
-* **EL=0 ("Never enforce")** → `--el0-lines extended` (default):
-  free up to the rating, penalised between rating and a headroom
-  multiple, hard-capped at the headroom multiple. `--el0-lines
-  strict` treats it like EL=2.
+* **EL=0 ("Never enforce")** → `--el0-lines unenforced` (default)
+  mirrors PLEXOS, which never enforces an EL=0 rating. The CEN
+  bundles carry no line penalty or overload data (their Line
+  properties are only Enforce Limits, Max/Min Flow, Max/Min Rating,
+  Reactance, Resistance, Units and Units Out), so there is no soft
+  limit to mirror. The cap is 10× the rating, there is no penalty,
+  and the loss envelope stays at the rating. gtopt always bounds a
+  flow column, so a flow at that cap is a DC-OPF artefact to
+  inspect. Only `--no-lift-lines` still pins a line in this mode.
+  The mode also covers the EL=1 lines that PLEXOS skips: EL=1 is
+  enforced only when the line voltage (the larger node `Voltage` of
+  its ends) reaches the Transmission `Constraint Voltage Threshold`
+  (160 kV in the CEN PCP). On CEN PCP 2025-06-26 these are
+  Capricornio110->LaNegra110, Tocopilla110->S-AA100 and
+  Bocamina154->Coronel154. This is why PLEXOS carries 230–259 MW on
+  Capricornio's 76 MW rating: the 110 kV line is EL=1 (EL=0 in the
+  2021 bundles) below the threshold. Its rating has no scenario
+  override; the `Lin_MaxRating.csv` Data File gives 76 MW over the
+  static 137 MW Max Rating.
+  The opt-ins: `--el0-lines enforced` (alias `strict`) treats EL=0
+  like EL=2, a hard cap at the rating, with lines in
+  `--lift-line-caps` given the soft band. `--el0-lines extended`
+  frees flow up to the rating, penalises it between the rating and a
+  headroom multiple, and hard-caps it at that multiple. The mode
+  used is recorded as `el0_lines` in the provenance sidecar.
 * **`--lift-line-caps <names>`** (default
   `Capricornio110->LaNegra110`): demote a curated set of radial
   step-down corridors to EL=0 with a wider free band (4× rating)
@@ -795,6 +1044,10 @@ plexos2gtopt --compare GTOPT_JSON INPUT
 |---|---|---|
 | `--horizon-mode {plexos,hourly}` | `plexos` | `plexos` reproduces the PLEXOS-solved `t_phase_3` 111-block layout (needs `RES<date>.zip`); `hourly` emits `--horizon-days × 24` uniform blocks. |
 | `--horizon-days N` (1..7) | inferred from `Horizon` name (`*_7d` → 7) | Number of consecutive days. |
+| `--horizon-end-targets {auto,plexos,eini,free}` | `auto` | End-of-day-N storage targets on a cut horizon (`auto` = `plexos` when the RES solution exists, else `eini`).  See §5. |
+| `--horizon-boundary-cut {auto,keep,drop}` | `auto` | FCF cut on a cut horizon (`auto`: drop with pinned targets). |
+| `--horizon-constraint-rules FAMILY=RULE,...` | prorate / keep | Multi-day families `fuel_max_offtake`, `fuel_min_offtake`, `period_rhs`, `day_indexed`. |
+| `--horizon-pin-lng-tanks` | off | Pin LNG tanks too. |
 | `--plexos-solution-accdb PATH` | auto-discovered | Override of the .accdb path (block layout + optional table cache). |
 | `--block-layout CSV-OR-SPEC` | unset | User-defined layout for `plexos` mode when no .accdb is available. CSV (`duration` column) or inline `{uid:dur,…}` / `d1,d2,…`. |
 
@@ -861,10 +1114,17 @@ fuel unit.
 | `--uc-emit {pampl,inline}` | `pampl` | Modular `uc_<family>.pampl` files (default) vs inline `user_constraint_array`. |
 | `--pampl-uc-mode {hard,soft,off}` | `hard` | Keep PLEXOS penalties (`hard`), force a slack on every row (`soft`), drop UCs entirely (`off`). |
 | `--default-uc-penalty F` | unset | Fallback penalty for PLEXOS rows without `Penalty Price`. |
+| `--soft-unpenalised-constraints PENALTY` | unset (HARD) | PLEXOS constraints with no `Penalty Price` (absent or `-1`) are HARD, as in PLEXOS. Opt-in: re-soften the rows the old CEN ladder softened (operational floors, mixed line+commitment rows, reserve aggregates, `Gas_MaxOpDay`) at `PENALTY`. Rows with a `Penalty Price` keep it. Recorded in provenance. |
 | `--pampl-uc-only FAM1,FAM2,…` | unset | Emit ONLY these families. |
 | `--pampl-uc-off FAM1,FAM2,…` | unset | Drop these families (leave-one-out diagnostic). |
 | `--lax-uc-refs` | OFF | Downgrade unresolved-ref errors to warnings + silent drop. |
-| `--bess-reserve {uc,native}` | `native` | CEN "BESS SSCC Constraints" (`UP/DOWNStorageBound_<bat>`, `<bat>_CF_{GEN,LOAD}_COMP` + `<bat>_AUX`). `uc`: legacy UserConstraint mapping. `native`: set `Battery.reserve_sustain_hours` (recovered from the storage-bound coefficients), make those four rows inactive provenance stubs, keep `CSF_*_MIN_BAT_*`, and count BESS SSCC provisions at gross value. The native rows never put reserve energy in a bus balance, so they cannot pin a negative CMg; see `docs/studies/sscc_battery_constraint.md`. |
+| `--reserve-model {native,uc}` | `native` | CEN CPF requirement regressions (`CPF_*Calculation*` + `*MinProvision`) → `ReserveZone` requirement planes with inertia / contingency / load terms, dated coefficients as schedules; CSF/CTF provision-sum rows → fixed zones.  `uc`: legacy UserConstraint emulation.  See §7 "Native reserve requirements". |
+| `--reserve-load-term {exogenous,endogenous}` | `exogenous` | Load term `D` of the native planes: parameter on the RHS (no negative LMPs from reserves) or PLEXOS' endogenous `Generation_SEN` (`load_term = endogenous_generation`). |
+| `--reserve-inertia-term {commitment,exogenous,endogenous}` | `commitment` | Inertia term `I` of the native planes: `H·S` times the unit status through the `Inertia_SEN` provisions (`inertia_term = commitment`), the must-run `H·S` per hour as `system_inertia` (data, conservative), or PLEXOS' dispatch-based provisions (`inertia_term = endogenous`, reconciliation only). |
+| `--reserve-load-factor F\|auto` | `1.05` | Exogenous `D = F × Σ demand lmax`.  `auto`: PLEXOS `Generation_SEN` (or Σ Generator `Generation`) / Σ demand over the converted hours when the RES bundle is present, else the monthly table of the PCP history (`_reserve_load.MONTHLY_LOAD_FACTOR`, 1.022–1.046); the factor is logged and stored in the provenance. |
+| `--reserve-north-special` | off | Emit the `SpecialCPF/CSF/CTFNorth(LW)` rows (`Include in ST Schedule = 0` in CEN PCP) as zones with the scheduled, dated requirement (`alpha` only; the corridor-flow coupling is never emitted). |
+| `--reserve-system-load CSV` | unset | Exogenous `D` per hour from a CSV (`system_load`/`value` [MW] or `generation_sen` [GW], optional `hour`). |
+| `--bess-reserve {uc,native}` | `native` | CEN "BESS SSCC Constraints" (`UP/DOWNStorageBound_<bat>`, `<bat>_CF_{GEN,LOAD}_COMP` + `<bat>_AUX`). `uc`: legacy UserConstraint mapping. `native`: set `Battery.reserve_sustain_hours` (recovered from the storage-bound coefficients), make those four rows inactive provenance stubs, keep `CSF_*_MIN_BAT_*`, and count BESS SSCC provisions at gross value.  It also maps the `Reserve → Battery` `Max Response` / `Max Charge Response` (the row in force at the horizon start — dated sets and timesliced scalar rows resolved per hour — or the `CFdata\…\*_MRU/MRD.csv` data file read from the bundle, aligned by `YEAR,MONTH,DAY,PERIOD` and used only when it covers every horizon hour; a path with a drive, root or `..` is never read; `1e30` = no cap, per hour the physical range Pd + Pc) to `{ur,dr}max_response` / `{ur,dr}max_charge_response` (then `urmax`/`drmax` = Pd + Pc), the `Provision Coefficient` of the reserves on `<bat>_CF_LOAD_COMP` / `_CF_GEN_COMP` (0.3 CSF, 0 CPF/CTF) to each provision's `ur_energy_usage` (`_CF_LOAD_COMP`, raise) / `dr_energy_usage` (`_CF_GEN_COMP`, lower); only positive values are emitted (the split discharge / charge columns are reported under `ReserveProvision/reserve_{up,dn}_{discharge,charge}_sol`), and a dated battery `Capacity` to `emax` (scalar, or a per-block schedule); the `<bat>_AUX` battery is not emitted. The native rows never put reserve energy in a bus balance, so they cannot pin a negative CMg; see `docs/studies/sscc_battery_constraint.md`. |
 
 ### Soft-penalty policy
 
@@ -886,6 +1146,205 @@ fuel unit.
 | `--battery-efin-pin` / `--no-battery-efin-pin` | ON | Pin every battery's end-of-horizon SoC to its initial SoC. |
 | `--fcf-scale-alpha F` | 1000 (= `scale_objective`) | Column scale for `alpha_fcf` LP variable. |
 
+### Inflexible LNG tanks and 2024 hydro-emulated BESS
+
+CEN PCP bundles from 2024 model two things with PLEXOS hydro objects.
+The converter detects both from the model structure, not from object
+names.
+
+**Inflexible LNG (GNL inflexible) cargo.** This is a `Storage` whose
+`Head Storage` generators all have a `Fuel` membership (for example
+`ENGIE_MEJILLONES_GNL_INF`). The tank starts at the
+`Hydro_InitialVolume.csv` value. Its volume unit is fuel/24. Each unit
+drains the tank by `HeatRate · Generation / 24` per hour.
+`Hydro_MaxVolume.csv` drops to 0 at the cargo
+deadline. The only other way out is the `Vert_<tank>` spill, priced at
+7200 \$ per fuel unit. Memberless `*_GNL_INF` storages (2025+ bundles)
+are not tanks and are still dropped.
+
+| Flag | Default | Effect |
+|---|---|---|
+Both modes emit the tank as a gtopt Reservoir:
+
+* `eini` is the cargo, and the per-block `emax` comes from
+  `Hydro_MaxVolume.csv`, keeping the drop to 0 at the deadline (the next
+  ship's arrival).
+* `flow_conversion_rate = 1/24`, so the volume unit is fuel/24.
+* Each unit drains the tank through one Turbine with
+  `production_factor = 1/HeatRate`.
+* The reservoir is a state variable (gtopt default
+  `use_state_variable = true`), so under SDDP its level carries over
+  between phases. Its `Reservoir/water_value_dual` is the gas opportunity
+  cost in \$ per volume unit (divide by 24 for \$ per fuel unit).
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--lng-inflexible-mode {storage,offtake}` | `storage` | `storage` follows PLEXOS: the spill costs 7200 \$ per fuel unit (`spillway_cost`, the `Vert_*` penalty; with `flow_conversion_rate = 1/24`, 1 flow·h is 1 fuel unit), and the units pay the fuel price. `offtake` treats the cargo as take-or-pay, so the gas is a sunk cost. The tank fuel's price is set to 0, which leaves the units with VOM + transport only in `gcost`. If the fuel also feeds units outside the tank, its price is kept and a warning is logged. If a negative fuel Transport Charge would make a tank unit's variable cost (VOM + transport·HR) negative, it is clamped to 0, and an INFO line is logged. The other gas bands (`_A`/`_B`, the manageable gas) are ordinary fuels and keep their price. The spill is free (`spillway_cost = 0`), and no holding cost (`ecost`) is applied. Gas left at a deadline that falls inside the horizon is lost at zero cost, and the tank gets no terminal value. A tank whose deadline lies after the horizon gets a terminal value instead (see the next row). |
+| `--lng-inflexible-value {bundle,cuts,diesel}` | `bundle` | Sets that terminal value g, in \$ per volume unit (`offtake` only). It becomes the tank's own future-cost variable (see **Gas future value** below), not a slope in the hydro cut. `bundle`: the bundle's own price for the tank fuel × 24. This price is the opportunity cost from the CEN weekly LNG simulation (e.g. `Gas_Mejillones_INF` 231.0035 → 5544.08). `cuts`: the tank's column in `--lng-inflexible-cuts` (a medium-term boundary-cuts file); if the column is missing, it falls back to `bundle`. `diesel`: `--lng-inflexible-diesel-cost` (default: the median SRMC `HR·price + VOM` of the bundle's online diesel units) / the lowest HR among the tank's units × 24. |
+| `--lng-inflexible-cuts CSV` | unset | A `scene,rhs,<state>…` file, read for `--lng-inflexible-value cuts`. Only the first cut row is used. |
+| `--lng-inflexible-diesel-cost USD_PER_MWH` | median diesel SRMC | Reference diesel cost for `--lng-inflexible-value diesel`. |
+
+In both modes, a tank that starts empty sets its units to `pmax = 0`.
+
+**Gas bands as tanks (`--gas-bands-as-tanks {off,horizon,period}`).**
+By default, each CEN gas band (`Gas_<company>_<band>`) is a priced Fuel
+with a `max_offtake` budget taken from `Fuel_MaxOfftakeWeek.csv` (TJ ×
+1000, pro-rated by the days of each gas week inside the horizon).
+
+With the option, each capped band with gas type becomes a Reservoir
+`gastank_<fuel>`:
+
+* Its units drain it through Turbines with `production_factor = 1/HR`.
+  The volume unit is fuel/24, the same convention as the LNG tanks.
+* The units pay no fuel price, so `gcost` = VOM + transport, clamped at
+  ≥ 0.
+* The leftover is valued at the band price × 24 per volume unit, through
+  the tank's own future-cost variable (see **Gas future value** below).
+* A soft cap (`max_offtake_cost`) becomes a purchase Flow priced at
+  `price + max_offtake_cost`.
+* If the price varies over time, the units keep the residual
+  `p_t − p_ref`, where `p_ref` is the last price and is also the terminal
+  value. This keeps the cost exact.
+
+`horizon` uses a single allotment. With `--gas-usable full` its LP equals
+the Fuel model: `(p+c)·x + p·(V − T)` with `T = V + x − u` gives
+`p·u + c·x`. This was checked on 2026-05-25, where the objectives agree
+to within 6e-6 k\$.
+
+`period` follows the CSV's gas weeks (Thursday→Wednesday, taken from the
+row dates). The first week's share is `eini`. Each later week arrives as
+an inflow at its start. Every band, INF or manageable, must be empty and
+ready for the next allotment, so `emax = 0` on the block that ends each
+sub-period inside the horizon, and the remainder is lost at zero cost.
+The terminal value applies only when the band's last sub-period runs
+past the horizon:
+
+* a manageable band is valued at its price;
+* an INF band, in `offtake` mode, follows `--lng-inflexible-value`.
+
+A band whose last sub-period ends inside the horizon gets no terminal
+value.
+
+`--gas-refill {instant,ramp:<hours>}` sets the shape of that inflow. The
+default is `instant` (the whole allotment in the first hour), because
+the bundles give only volumes. `ramp:<hours>` spreads it at a constant
+unloading rate. `emax` is only a cap: volume enters only through the
+allotments.
+
+Some bands stay priced Fuels:
+
+* bands whose units burn several fuels;
+* bands with a fuel-price override;
+* bands whose units have a piecewise or time-varying heat rate;
+* bands with no online unit.
+
+A band drawn by a modelled 2024 LNG Storage keeps that Storage instead,
+and the band's cap is dropped so it is not counted twice.
+
+**Gas future value (`--gas-usable {capacity,full}`).** The PCP is
+solved as a single monolithic LP. Each gas tank whose gas outlives the
+horizon (an LNG tank in `offtake` mode with its deadline beyond the
+horizon, or a band tank) gets its own future-cost variable. This
+variable is separate from the hydro boundary cut, which keeps only the
+water values:
+
+```
+alpha_gas_<tank> + g · reservoir("<tank>").efin >= g · V_usable,
+    for(block in {<last block>});      alpha_gas_<tank> >= 0
+```
+
+`alpha_gas_<tank>` is a DecisionVariable with `raw` cost 1, so it enters
+the objective at face value, with no probability, discount or duration
+weighting. Its future cost is therefore `g · max(0, V_usable − T)`,
+where `T` is the tank volume at the end of the horizon. The value of `g`
+is:
+
+* a manageable band: its price × 24;
+* an INF band or LNG tank: `--lng-inflexible-value`.
+
+Each tank needs its own `α`. With a single shared `α`, a set of cuts
+gives the maximum of the cuts, not their sum. A slope merged into the
+hydro cut would also value every leftover unit, with no saturation.
+
+`V_usable` is the leftover that can still be burnt after the horizon:
+
+* `capacity` (default): `min(emax at the horizon end, Σ unit pmax·HR/24
+  × hours from the horizon end to the deadline / gas-week end)`. Gas the
+  units cannot burn in time is worth 0. If the deadline is unknown, emax
+  is used.
+* `full`: emax, with no saturation, so every leftover unit is worth `g`.
+
+A tank emptied inside the horizon gets no `α`. The CEN GNL storages
+carry no end target (`End Effects Method = 1`, no End Volume / Target,
+`Hydro_MinVolume` = 0), so no `efin` is set.
+
+**PLEXOS `Reserve Units`.** A Generator or Battery `Reserve Units
+Coefficient` counts the units that are *providing* reserve. That number
+is at most the units generating, and it can be 0 while a unit is on. It
+is therefore not the commitment status. The converter creates an
+integer (binary) `reserve_units_<owner>[_<dir>]` DecisionVariable in
+[0, 1] per block (`"integer": true`), with two hard rows:
+
+* `r ≤ commitment status`;
+* `provision.<dir> ≤ cap · r`, where `cap` is the provision's peak
+  max response in that direction, or else the owner's pmax.
+
+The owner is the generator, or `<bat>_gen` for a battery. The direction
+comes from the first of these that applies:
+
+1. the same owner's provision terms in the row;
+2. the constraint name (`LW`/`Down`/`Lower` → dn, `RS`/`_Up`/`Raise`
+   → up);
+3. otherwise both directions.
+
+A unit with no usable reserve provision has `r ≡ 0` (a fixed,
+continuous column). PLEXOS treats Reserve Units as an integer, and so
+does gtopt: `r` is a binary column. Under `--lp-relax` the converter
+also emits `"relax": true` on these variables, so they are relaxed
+together with the commitments; a continuous phase (`--no-mip`) relaxes
+them as well.
+
+**Hydro-emulated BESS (2024).** Each battery is built from these
+PLEXOS objects:
+
+* a storage `BAT_X` holding the stored MWh;
+* a discharge generator `BAT_X` (Head Storage `BAT_X`);
+* a charge generator `BAT_X_LOAD`, which draws from the co-located
+  plant's zero-volume pondage `X` (inflow = the plant's `Gen_Rating`)
+  into `BAT_X`;
+* the loss rows `BAT_X_GenLosses` (`a·gen − Loss_BAT_X_GEN = 0`) and
+  `BAT_X_LoadLosses` (`b·gen − Loss_BAT_X_LOAD = 0`).
+
+The converter turns each such group that has an online unit into a
+gtopt Battery:
+
+* `output_efficiency = 1/(1/eff_G + a)` and
+  `input_efficiency = 1/(1 + b·eff_L)`. COYA gives 0.970 / 0.980, which
+  matches both the PLEXOS solution and the 2025+ `Battery` data
+  (97 / 98 %).
+* `eini` comes from `BESS_IniValue.csv` (in MWh).
+* `max_cycles_day` comes from the charge unit's `Max Starts Day`.
+* A hard row `battery(BAT_X).charge − generator(X).generation <= 0` is
+  added, the same as PLEXOS 2025+ `CRCA_<bat>`.
+
+Other constraint rows that reference the BESS generators are rewritten:
+
+* The loss rows are absorbed into the efficiencies and logged at INFO.
+* `Generation(BAT_X)` becomes `battery(BAT_X).discharge`.
+* `Generation(BAT_X_LOAD)` becomes
+  `eff_L · input_efficiency · battery(BAT_X).charge`.
+* Rows with a commitment term on these generators (`*_Uniq`) have no
+  Battery equivalent. They are dropped with a WARNING.
+
+The pondage `X` is removed and the plant `X` becomes a plain generator.
+
+Groups whose units are offline for the whole horizon (`BAT_ARICA`,
+`BAT_NUEVA_IMPERIAL`, `BAT_ALFALFAL_VR1` on 2024-12-15) keep the legacy
+hydro emulation. Only their loss rows are skipped, with an INFO log.
+Those rows reduce to `0 = 0`, and they name loss waterways that are
+never emitted. A non-standard online group is left unchanged, so the
+strict unresolved-reference check still reports it.
+
 ### Loss model
 
 | Flag | Default | Effect |
@@ -902,7 +1361,7 @@ fuel unit.
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--el0-lines {extended,strict}` | `extended` | EL=0 line treatment (soft headroom band vs hard cap at rating). |
+| `--el0-lines {unenforced,enforced,strict,extended}` | `unenforced` | Lines PLEXOS does not enforce (EL=0, EL=1 below the voltage threshold): not enforced, mirroring PLEXOS (10× rating cap, no penalty); `enforced`/`strict` hard cap at rating; `extended` soft headroom band. |
 | `--lift-line-caps NAMES` | `Capricornio110->LaNegra110` | Demote to EL=0 with wider free band (4×) + 10× hard cap. Empty string activates a global soft-EL=1 mode. |
 | `--auto-lift-lines [THR]` | unset | After write, run DC OPF and patch `enforce_level = 0` on lines whose unlifted flow exceeds THR × rating. |
 | `--auto-lift-engine {pandapower,gtopt}` | `pandapower` | OPF engine for the auto-lift detector. |
@@ -918,6 +1377,7 @@ fuel unit.
 | Flag | Default | Effect |
 |---|---|---|
 | `--lp-relax` | OFF (since 2026-05-23) | Emit `Commitment.relax = true` on every commitment, LP-relaxing the binaries. Default is MIP. |
+| `--uc-relax {auto,plexos,none}` | `auto` | Per-commitment LP relaxation: PLEXOS Linear-Relaxation units (`plexos`) plus cost-free units (`auto`); `none` keeps every commitment integer. See §6 *Which commitments keep an integer status*. |
 
 ### Curve-fit / debug
 
@@ -927,6 +1387,7 @@ fuel unit.
 | `--use-plexos-gen-cap` | Per-period pmax hard-cap = PLEXOS `Generation` (hydro turbines only). |
 | `--use-plexos-efin` | Reservoir.efin = PLEXOS End Volume. |
 | `--no-check` | Skip the post-conversion comparison + JSON validation. |
+| `--sanity-report PATH` | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` (skipped by `--no-check`). |
 
 ---
 
@@ -1124,6 +1585,44 @@ Skipped, with the reason counted in `<name>.stats.json` →
   default.  A uniform weekly share of a seasonal target forced load
   shedding in the July and October weeks.
 - The electrolyser efficiency comes from the IASR workbook.
+
+#### Network augmentations of a development path (`--odp-augmentations`)
+
+REZ and flow-path augmentations are PLEXOS generators in a `Network
+Augmentation …` category with `Units` 0 and `Max Capacity` 1 MW; the
+long-term plan builds them (`Max Units Built`, dated).  A REZ export
+limit carries them as `−1 × Installed Capacity`, so with the XML
+`Units` the limit stays at its pre-augmentation RHS.  For example,
+`ExportLimit_N7_Tumut` is 0 MW until the HumeLink REZ augmentation is
+built, and it cannot be built before 2027-07-01.
+
+`--odp-augmentations <outlook.xlsx>` reads a published ISP outlook
+workbook (e.g. `2026 ISP - Step Change - Core.xlsx`; user-supplied,
+never copied into a repository) and adds the MW built in the
+`--odp-cdp` path (default `CDP4`, the optimal development path) by the
+week's financial year:
+
+1. **Timings sheet**: an augmentation whose option name (the object
+   name without the `<REZ>_` prefix and the ` Augmentation` suffix) is
+   a `Line` of the CDP is built in full (`Max Units Built × Max
+   Capacity`) from 1 July of the financial year before `StartFYE`.
+2. **REZ Generation Capacity sheet**: any other augmentation that is
+   buildable on the start day and appears in a REZ export limit gets
+   the smallest build that lets the REZ's installed generation in the
+   CDP for that financial year (electrolysers excluded) export at full
+   output: `max(0, G_REZ − min_t(RHS − folded capacity))`.  Builds are
+   filled in name order and each is capped at its `Max Units Built`.
+   The workbook does not publish per-object augmentation MW, so this is
+   the minimal build consistent with the ODP fleet, not the PLEXOS
+   build itself.
+
+The same per-object MW applies in every constraint that uses the
+object, including import and group limits.  `stats.json` lists
+`odp_augmentations` (object, rule, FY, MW) and `odp_unmatched` (DNSP
+and group-REZ objects, objects not buildable yet, objects with no
+timing that appear only in import or group limits), all of which keep
+the XML `Units`.  Shared-upgrade caps (e.g. N6 + N7 HumeLink ≤ 2200
+MW) are build conditions and are not checked.
 
 `--legacy` (or the individual `--no-isp-constraints`, `--no-purchasers`,
 `--no-emissions`, `--no-fuel-offtake`, `--no-rez-buses` flags)

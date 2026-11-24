@@ -110,11 +110,11 @@ the affected phases without apertures.
   SCIP, CBC, Gurobi or MindOpt.  LP-only backends (CLP) refuse
   integer columns at load time.  cuOpt's GPU branch-and-bound is not
   bit-exact and is excluded from the test pins.
-- CI runs with `GTOPT_SOLVER=clp`, so **every MIP-gated test skips
-  in CI** (`solver_test::first_mip_solver()` + `run_or_skip_license`
-  conventions).  The known mitigation idea is a nightly job pinned to
-  HiGHS that runs the MIP-gated suites; until that lands, run the
-  suites locally against HiGHS/CPLEX after touching this machinery:
+- CI runs with the pinned HiGHS only (`GTOPT_SOLVER=highs`, see
+  `.github/actions/install-highs`), so the MIP-gated tests
+  (`solver_test::first_mip_solver()` + `run_or_skip_license`
+  conventions) run in CI.  After touching this machinery, also run
+  the suites locally against CPLEX:
 
   ```bash
   ./build/test/gtoptTests -tc="*strengthened*,*commitment*,*expansion*"

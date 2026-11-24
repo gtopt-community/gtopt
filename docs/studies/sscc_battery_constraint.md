@@ -435,3 +435,19 @@ formulation for CEN is to drop `Energy Usage`, the CF rows and the AUX,
 and widen the energy bound (raise:
 $\eta_d E \ge (1 + u\,\Delta t)\,r^\uparrow$, analogously for lower).
 Recommendation 2 of §8 should wait for the H1/H2 test.
+
+## 10. gtopt primitives for the full CEN BESS set
+
+Besides the native rows of §4, gtopt now has the two pieces the CEN
+objects need (formulation §5.9, "Per-side response caps" and "Expected
+deployment energy", with the object-by-object mapping table):
+
+- `ReserveProvision.urmax_response` / `urmax_charge_response` (and
+  `dr…`): the PLEXOS `Max Response` / `Max Charge Response` CSVs
+  (`CSF_B_MRU.csv`, `CSF_B_MRD.csv`), applied to a split
+  $r = r^{\text{dis}} + r^{\text{chg}}$ with each side's own headroom.
+- `ReserveProvision.ur_energy_usage` / `dr_energy_usage` (default from
+  `Battery.reserve_energy_usage_up/down`): the `CF_*_COMP` coefficient of
+  each reserve (0.3 for CSF, 0 for CPF/CTF on 2026-11-07) charged to the
+  battery's own SoC instead of an AUX bus injection.  This is H2 of §9 made explicit
+  and price-safe; leaving it unset is the "drop Energy Usage" option.

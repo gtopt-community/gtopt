@@ -101,18 +101,94 @@ The `SDDPMethod` returns N+1 results: N training iterations + 1
 simulation pass.  Only the N training iterations count towards the
 global iteration budget.
 
-### 2.4 Named Transfer
+### 2.4 Keyed Transfer
 
-Cuts use LP **column names** (e.g.
-`Reservoir1_efin`) for cross-LP resolution.  When a level rebuilds the
-LP with a different formulation, the column indices may change (e.g.
-single-bus LP has no theta columns, but multi-bus LP does).  Named
-transfer resolves the correct column index in the target LP by matching
-column names, not indices.
+Cuts are serialized with a typed **state-variable key** per coefficient
+— `(class, variable, uid)`, e.g. `(Reservoir, efin, 7)` or
+`(Sddp, alpha, 1)` — never with a column index.  When a level rebuilds
+the LP with a different formulation or a different (reduced) network,
+column indices change (a 2-node LP has a handful of columns per block,
+the full network thousands), and the loader resolves each key against
+the new level's state-variable map.  No LP column names are needed.
 
-This requires LP names to be enabled (`use_lp_names >= 1`).  The
-cascade solver automatically enables LP names when building new LPs
-for a level.
+A coefficient whose key does not exist in the new LP is dropped with a
+warning (`coeff (...) not found in state variables`).  Reduced networks
+must therefore keep every state element (reservoirs, batteries, other
+storages) with its original `uid` — `gtopt-net reduce` does: it only
+rewrites buses and lines and re-points components to their cluster bus.
+
+### 2.5 Reduced Networks per Level
+
+`CascadeLevel.system_file` points a level at a JSON file whose `system`
+replaces the planning's system **for that level only** (its `options` and
+`simulation` blocks are ignored; the level's `model_options` stay
+authoritative).  The path is tried as given, then under
+`options.input_directory`.  A level with `system_file` always builds a
+fresh LP; a later level without `system_file` builds from the
+**original** system again.
+
+The reduced systems are produced by `gtopt-net reduce`
+(`scripts/gtopt_reduce_network`):
+
+| Level shape | Command |
+|-------------|---------|
+| Zonal / country nodes | `gtopt-net reduce case.json --bus-group-regex '^(CL\|PE)_' -o L0.json` (or `--bus-groups groups.csv`) |
+| X % of the buses | `gtopt-net reduce case.json --bus-ratio 0.3 --protect-constraint-lines -o L1.json` |
+
+Each run also writes `<out>.busmap.csv`, `.linemap.csv`, `.aggregator.csv`
+and `.reducer_config.json`; `gtopt-net project-results` maps a reduced
+level's output back to the original buses.
+
+`--protect-line UID` keeps a line (e.g. an interconnector) intact in every
+reduced level.  Parquet-stem line fields (`"tmax_ab": "<stem>"`) are
+resolved relaxation-wise: a line is present if active in any stage, its
+capacity is the maximum over the horizon, and a cluster bus is in service
+whenever any member bus is; X/R are re-expressed in Ω at the most common
+line voltage before merging, and equivalent lines carry that voltage.
+
+Fixed bus groups (`--bus-group-regex` / `--bus-groups`) skip the
+clustering: one bus per group (representative = smallest anchor uid in
+the group, else smallest bus uid), lines inside a group vanish, lines
+between groups are aggregated with their capacities summed (a single
+link, e.g. an interconnector, keeps its capacity).
+
+**Validity of inherited cuts.**  A reduced level whose network is a
+*relaxation* of the next level's — buses merged, inter-cluster
+capacities summed, no Kirchhoff, no losses — has a cost-to-go
+`Q_red(x) <= Q_full(x)` for every state `x`, so its Benders cuts are
+valid lower bounds for the full network and can be inherited forever
+(`inherit_optimality_cuts: -1`); the full level then converges to the
+full-network optimum (pinned by `test_cascade_reduced_levels.cpp`).  A
+reduced level **with** Kirchhoff on equivalent reactances, or with
+losses on equivalent resistances, is not a relaxation in general: its
+cuts can overestimate the full cost-to-go.  Inherit them with
+`inherit_optimality_cuts: N > 0` (forget after N iterations) when an
+exact final bound is required; with `-1` watch for a negative gap
+(LB > UB) at the full level, the signature of an over-tight
+inherited cut.
+
+### 2.6 Per-Level Outputs
+
+By default only the last active level writes a solution; intermediate
+levels skip their simulation pass.  With
+`cascade_options.write_level_outputs: true` every intermediate active
+level runs its simulation pass and writes a complete output set to
+`<output_directory>/<level name>/`:
+
+| File / directory | Content |
+|------------------|---------|
+| `<Element>/…` | Per-element solution (Parquet/CSV, as `output_format`) |
+| `solution.csv` | Per-(scene, phase) objective and status |
+| `cuts/` | The level's cuts (also the `--recover` checkpoint) |
+| `solver_status.json` | Copy of the solver status at the end of the level |
+| `level_summary.json` | Iterations, bounds, gap, cuts, elapsed time, `system_file` |
+
+The last active level keeps writing to `<output_directory>`, and
+`<output_directory>/cascade_levels.csv` gets one row per finished level
+(rewritten after every level).  For a reduced level, the busmap/linemap
+written next to its `system_file` project the level output back to the
+original network (`gtopt-net project-results`).  Cost: one extra
+forward (simulation) pass plus the write-out per intermediate level.
 
 ---
 
@@ -124,23 +200,22 @@ level 0, which has no predecessor).
 
 ### 3.1 Cut Inheritance
 
-When `inherit_optimality_cuts` is set to `true`, the solver serializes
-all stored optimality cuts from the previous level into a temporary CSV
-file using column names, then loads them into the new LP via name-based
-column resolution.  (Feasibility cuts are not carried across levels —
+When `inherit_optimality_cuts` is non-zero, the solver serializes all
+stored optimality cuts from the previous level into a temporary Parquet
+file keyed by state variable (Section 2.4), then loads them into the new
+LP.  (Feasibility cuts are not carried across levels —
 each level's forward pass regenerates them as needed.)
 
 The transfer process:
 
-1. After the previous level converges, `update_stored_cut_duals()` is
-   called to capture the current dual values for each stored cut.
-2. The stored cuts are serialized via `save_cuts_csv()`, which writes
-   each cut with its column names (not indices).
+1. At the end of the previous level (while its LP is still alive) the
+   stored optimality cuts are serialized via `save_cuts_parquet()`, with
+   one `(class, variable, uid)` key per coefficient.
+2. The previous level's LP and solver are released.
 3. At the next level, after the solver is initialized (so alpha
-   variables exist), `load_cuts_csv()` reads the CSV and resolves
-   column names to the new LP's column indices.
-4. Cuts whose names do not resolve (e.g. a theta column that does not
-   exist in a single-bus LP) are skipped.
+   variables exist), `load_cuts()` reads the file and resolves each key
+   against the new level's state-variable map.
+4. Coefficients whose key does not resolve are dropped with a warning.
 
 **Dual threshold filtering** (the former `optimality_dual_threshold`
 transition field) was removed: the main cell's row duals are stale for
@@ -220,6 +295,7 @@ The option resolution chain is:
 | `model_options` | ModelOptions | (none) | Global model defaults for all levels |
 | `sddp_options` | SddpOptions | (none) | Global SDDP defaults; `max_iterations` = global budget |
 | `level_array` | array | `[]` | Array of CascadeLevel objects |
+| `write_level_outputs` | bool | `false` | Write a full output set per intermediate level to `<output_directory>/<level name>/` (Section 2.6) |
 
 When `level_array` is empty, a single default level is created that
 passes through all options, making the cascade solver equivalent to a
@@ -231,7 +307,10 @@ plain SDDP solver.
 |-------|------|---------|-------------|
 | `uid` | int | (auto) | Unique level identifier |
 | `name` | string | `"level_N"` | Human-readable name (for logging) |
+| `active` | bool | `true` | `false` skips the level entirely |
 | `model_options` | ModelOptions | (absent) | LP formulation overrides; absent = reuse previous LP |
+| `system_file` | string | (absent) | JSON whose `system` replaces the network for this level (Section 2.5) |
+| `aperture_system_file` | string | (absent) | Simplified system for this level's backward-pass apertures |
 | `sddp_options` | CascadeLevelMethod | (absent) | Per-level solver parameters |
 | `transition` | CascadeTransition | (absent) | Transfer rules from previous level |
 
@@ -242,6 +321,9 @@ plain SDDP solver.
 | `max_iterations` | int | from global | Max training iterations for this level |
 | `min_iterations` | int | from global | Min iterations before convergence |
 | `apertures` | array of UIDs | from global | Aperture UIDs; `[]` = pure Benders, absent = inherit |
+| `num_apertures` | int | from global | First-N per-phase aperture selector |
+| `aperture_selection_mode` | string | from global | `head` (first N, i.e. the N wettest under the plp2gtopt order), `stride`, `tail` |
+| `aperture_chunk_size` | int | from global | Apertures per task; `-1` = serial per scene on one clone |
 | `convergence_tol` | real | from global | Relative gap tolerance |
 
 ### 4.5 CascadeTransition Fields
@@ -591,9 +673,10 @@ flowchart TD
 
 ### 7.6 Cut Save Policy
 
-Intermediate levels suppress per-iteration cut saving
-(`save_per_iteration = false`) to avoid writing partial cut files.
-Only the last level uses the base `save_per_iteration` setting.
+Intermediate levels save cuts every iteration (`save_per_iteration =
+true`) to `<cut dir>/<level name>/` — or `<output>/<level name>/cuts/`
+under `write_level_outputs` — so `--recover` can resume inside a level.
+The last level uses the base `save_per_iteration` setting and path.
 
 ---
 

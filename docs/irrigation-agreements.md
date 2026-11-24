@@ -97,7 +97,9 @@ zones** (PLP's `IVMUTIL` state tracks `vol(LMAULE)`,
 volume only drives the separate cota-425 extraction rule):
 
 1. **Reserva Extraordinaria** (bottom, 0–129 hm³): No extraction rights
-   for either party
+   for either party — PLP enforces it as a hard floor on the lake
+   volume (`vmutil ≥ VReservaExtraord`, `genpdmaule.f:930-931`), not by
+   closing the rights
 2. **Reserva Ordinaria** (middle, 129–581 hm³): Proportional allocation
    — typically 20% electric / 80% irrigation
 3. **Zona Normal** (top, above 581 hm³): Full extraction rights for both
@@ -173,12 +175,12 @@ modes:
 | Field | Type | Description |
 |-------|------|-------------|
 | `discharge` | STBRealFieldSched | Required flow [m³/s] per (scenario, stage, block) |
-| `fmax` | OptTBRealFieldSched | Maximum flow for variable mode [m³/s] |
+| `fmax` | OptTBRealFieldSched | Maximum flow for variable mode [m³/s].  Default: `target` when set, else `fmin`; for a per-unit usage cost (`target = 0`, `use_value < 0`, no `fail_cost`) the default is unbounded |
 | `junction` | OptSingleId | Physical junction coupling (consumptive withdrawal) |
 | `direction` | OptInt (+1/-1) | Sign in UserConstraint flow balance |
 | `use_average` | OptBool | Creates stage-average hourly flow variable (qeh) |
-| `fail_cost` | OptTBRealFieldSched | Penalty for unmet demand [$/m³/s·h] |
-| `use_value` | OptTBRealFieldSched | Benefit value for flow usage [$/m³/s·h] |
+| `fail_cost` | OptTBRealFieldSched | Penalty for unmet demand [$/m³/s·h].  When unset, the global `hydro_spill_cost` (alias `hydro_fail_cost`) applies only to blocks with `target > 0` |
+| `use_value` | OptTBRealFieldSched | Benefit value for flow usage [$/m³/s·h].  When unset, the global `hydro_use_value` applies only to a right that withdraws water (`junction_a` set) or to blocks with `target > 0` |
 | `bound_rule` | Optional | Volume-dependent dynamic bound on flow |
 | `junction_b` | OptSingleId | Return point: carry mode (`consumptive: false`) and/or the opt-in bypass |
 | `consumptive` | OptBool | `false` returns the served flow to `junction_b` |
@@ -247,8 +249,13 @@ reservoir volume to maximum allowed flow:
 }
 ```
 
-During `update_lp()`, the bound is re-evaluated using the current
-reservoir volume and flow column upper bounds are updated accordingly.
+During `update_lp()`, the bound is re-evaluated and the flow column
+bounds are updated accordingly.  FlowRight and VolumeRight evaluate the
+rule at the **stage-start** volume (the predecessor's solved `efin`, or
+the propagated `eini` bound) — the volume PLP's zone tests read
+(`VarMaulePrev(IVMUTIL)`, `genpdmaule.f:757`; `VolIni`,
+`genpdlajam.f:575`).  An unsolved predecessor state is never read as an
+empty reservoir: `StateVariable` carries an explicit "solved" flag.
 
 ---
 
@@ -739,7 +746,8 @@ coefficients are algebraically equivalent.
 | — (extraction) | — | m³/s | `vrt_extraction_{laja_vol_econ_polcura}` | **Match** |
 | IQRS/IQPR/IQNR/IQER/IQSR | `l_qrs`/`l_qpr`/`l_qnr`/`l_qer`/`l_qsr` | m³/s | — | **Not modeled** ¹ |
 | IQLAJA | `l_qlaja` | m³/s | — | **Not modeled** ² |
-| IQDEFM / IQHI | `l_qdefm`/`l_qhi` | m³/s | — | **Not modeled** ³ |
+| IQDEFM | `l_qdefm` | m³/s | carriers `laja_qdefm` − `laja_qfilt` | **Match** (scenario-mean hoya inflow) ⁴ |
+| IQHI | `l_qhi` | m³/s | — | **Not modeled** ³ |
 
 **Notes:**
 1. PLP decomposes irrigation rights into sub-categories (primary 80%,
@@ -750,6 +758,13 @@ coefficients are algebraically equivalent.
    in the hydro model.
 3. Minimum turbine flow and intermediate basin flow are handled by the
    hydro model, not the rights module.
+4. `qdefm = max(C − QFilt(V₀), 0)` with
+   `C = min(QP − QHoya, QFiltHist) + QN + QS + QE`.  `laja_qdefm` is
+   fixed at `max(C, 0)` per stage; `laja_qfilt` is fixed at
+   `min(C, QFilt(V₀))` through a `bound_rule` on the lake's seepage
+   curve, i.e. the filtration is evaluated numerically at the
+   stage-initial volume.  `QHoya` is the per-stage mean over the forward
+   scenarios (FlowRight schedules carry no scenario axis).
 
 ### 9.2 Laja — Row (Constraint) Comparison
 
@@ -763,6 +778,7 @@ coefficients are algebraically equivalent.
 | Deficit coupling | `flow + fail >= discharge` | FlowRight demand row | **Match** |
 | Supply partition | `IQRS = IQPR + IQNR + IQER + IQSR` | — | **Not modeled** ¹ |
 | Total discharge identity | `IQLAJA = IQGTH - filtration` | — | **Not modeled** ² |
+| Withdrawal cap (stage average) | `qdrh + qdmh + qgah ≤ qdefm` | UserConstraint `laja_retiro_maximo` (`scope stage`, `Σ_b dur_b ×`) | **Match** |
 
 ### 9.3 Maule — Column (Variable) Comparison
 
@@ -1013,7 +1029,12 @@ instead of soft equalities, spillage stays free.
 - **Res. 105 / districts** — `qa105 ≤ min(qarmr, QRiego105)`
   (`maule_armerillo_105`), each district `retiro + deficit = pct · qa105`
   (`dist_*`).  Melado is an equality with a deficit priced at
-  `CostoRiegoNS105`, not a `≤`.  `validate_planning` now rejects any
+  `CostoRiegoNS105 + ValorRiego105`, not a `≤`.  PLP prices qa105 at
+  `−ValorRiego105` (`genpdmaule.f:526`) and the shortfall at
+  `+CostoRiegoNS105` (`:536`); with 1100 > 1000 every unit booked as
+  shortfall was a net profit of 100 (plp_2y: ≈ −2.1 G\$ of phantom
+  reward in the objective).  Adding the reward to the shortfall price
+  leaves `ValorRiego105 · delivered − CostoRiegoNS105 · shortfall`.  `validate_planning` now rejects any
   FlowRight with `uvalue > 0` that has neither `junction_a` nor a
   UserConstraint reference (a rewarded flow with no physical tie).
 - **Manual years** — `pct_riego_manual` / `caudal_res105_manual` are read
@@ -1022,6 +1043,26 @@ instead of soft equalities, spillage stays free.
 - **Cota 425** — the `IExtr425`-th COLBUN extraction is capped through the
   `maule_cota_425` carrier (`bound_rule` on COLBUN: `ExtrMax` above
   `Vol425`, else 0) and the `maule_cota_425_anclaje` row.
+- **Canelón** — `maule_bocatoma_canelon` (target 0, `uvalue =
+  −CostoCanelon`) carries `fmax` = the BCanelon generation arc's fmax
+  (PLP prices an otherwise unbounded column, `genpdmaule.f:186-202`).
+  It had no `fmax`, and `fmax` defaulted to the zero target, so the
+  anchor row pinned the BCanelon generation to 0.  The C++ default is
+  also fixed (see §3.2).
+- **Extraordinary reserve** — `maule_reserva_extraordinaria` is a hard
+  floor `vol(LMAULE) ≥ VEmbalseUtilMin + VReservaExtraord` on every
+  block volume (PLP `IVMUTIL` row + `LowMaule(IVMUTIL)`,
+  `genpdmaule.f:324-326 / 930-931`).  PLP's regime test is binary
+  (normal at `V_util ≥ 581`, ordinary otherwise) and does not close the
+  ordinary rights below 129 hm³; without the floor the lake was drained
+  to 0 through them (plp_2y: 14 % of the cells).  The zone thresholds of
+  the `bound_rule`s are shifted by `VEmbalseUtilMin`, since PLP compares
+  the useful volume `vol − VEmbalseUtilMin` (`genpdmaule.f:1172`).
+- **ENDESA compensation** — `maule_compensacion_elec` carries the same
+  581 hm³ regime gate as `maule_gasto_normal_elec`: PLP opens `IQMCEH`
+  only in the normal regime (`genpdmaule.f:818 / 827`).  Above the gate
+  PLP leaves it unbounded (ledger-capped); gtopt keeps
+  `fmax = GastoElecDiaMax`.
 
 **Laja**
 
@@ -1029,6 +1070,26 @@ instead of soft equalities, spillage stays free.
   NUMERIC `qdefm` only.  The former `+ seepage(V)` term made the lake's
   water value negative when the cap was binding
   (`test_irrigation_laja_cap.cpp`).
+- The filtration inside `qdefm` follows the lake volume: it is the
+  seepage curve evaluated at the stage-initial volume (carrier
+  `laja_qfilt` with a `bound_rule`), not the historical filtration
+  `QFiltHist`.  The static form subtracted `QFiltHist` (47 m³/s on the
+  CEN data) while a half-empty lake filters 20–25 m³/s, so it
+  understated `qdefm` by ~25 m³/s in Dec–Mar and pushed El Toro onto the
+  costly electric rights.  The static form remains the fallback when the
+  lake has no seepage curve.
+- The cap row is a STAGE-AVERAGE row (`scope stage`, duration-weighted
+  sums), like PLP's `qdrh/qdmh/qgah`: riego charging may concentrate in
+  the peak blocks as long as its stage mean respects `qdefm`.
+- The netted primary targets and the cap share one hoya-intermedia
+  series (the forward-scenario mean); the targets previously used the
+  first scenario only.
+- The Tucapel district (`RieTucapel`) has no diversion central: it is a
+  sink node fed by the Canal Laja spill and the El Diuto turbine, and
+  its categories withdraw consumptively at that junction — the same
+  node accounting PLP uses for a retiro without injection.  Its 1st-
+  registry demand is the netted `min(QP, QHoya + QFiltHist)`, which does
+  not depend on the lake filtration.
 - The agreement costs are pinned to PLP (`plplajam.dat`) by default;
   `--no-pin-agreement-costs` lets the water-value resolver override them.
 - The economies (ENDESA, reserve, Alto Polcura) are emitted only under
@@ -1040,6 +1101,16 @@ instead of soft equalities, spillage stays free.
 
 **C++ primitives**
 
+- The global `hydro_spill_cost` / `hydro_use_value` fallbacks are
+  scoped.  The spill (fail) cost prices an unmet requirement and only
+  applies to blocks with `target > 0`: on a target-0 right it activated
+  the fcost-only kink substitution, whose cap `min(fmax, target) = 0`
+  pinned the Maule rights partition — and, through the anchor row, the
+  physical Maule turbine — to zero.  The use value only applies to a
+  right with `junction_a` or to blocks with `target > 0`: on a target-0
+  accounting-only right it paid for flow with no water behind it.  Explicit per-element `fcost` / `uvalue` are
+  unchanged.
+
 - `VolumeRight.bound_rule` yields a volume [hm³]; it is now converted to
   a rate cap `V / (0.0036 · stage_hours)` before bounding the extraction
   column (it was applied as a rate, off by the stage length).
@@ -1049,13 +1120,25 @@ instead of soft equalities, spillage stays free.
 - `update_lp` no longer skips the bound write when the rule value is
   unchanged: under `low_memory` the LP is rebuilt from the flat snapshot
   and the cached "current bound" was stale.
+- The FlowRight / VolumeRight `update_lp` gate reads the stage-start
+  volume instead of `(vini + vfin) / 2`.  The average used the stage's
+  own previous `vfin`, and when the LP held no optimal solution (an LP
+  reconstructed under `memory_saving`) it averaged against the case
+  `eini`: with an empty lake the gate saw `(0 + 683) / 2` and opened the
+  ordinary regime.  (The discharge-limit and production-factor rules
+  still use the average.)
+- `StateVariable::has_col_sol()` / `solved_col_sol_physical()`
+  distinguish "not solved yet" from a solved 0.  The build-time volume
+  used to treat any `efin ≤ 0` as unset (a drained reservoir read as the
+  case `eini`), and the update-time helpers read an unsolved
+  StateVariable as 0.
 
 ### 10.3 Penalty inventory (after the revision)
 
 | Penalty / reward | Value | Source |
 |------------------|-------|--------|
 | Maule `deficit_riego` (qdrah) | −`CostoRiegoNS` uvalue | PLP `genpdmaule.f` (+1000) |
-| Maule district deficits (qrhh) | −`CostoRiegoNS105` uvalue | PLP (+1000) |
+| Maule district deficits (qrhh) | −(`CostoRiegoNS105` + `ValorRiego105`) uvalue | PLP +1000, plus the qa105 reward so a shortfall never earns it |
 | Maule `resolucion_105` (qa105) reward | `valor_riego_res105` | PLP (−1100) |
 | Invernada `embalsar` / `no_embalsar` | 1500 / 1000 | PLP qhinv / qhnein; only when `RelaxInvern = F` (not on plp_2y) |
 | Maule Canelon | `costo_canelon` | PLP; only with an anchored Canelon central |
@@ -1065,6 +1148,14 @@ instead of soft equalities, spillage stays free.
 | Hydro `pmin_fcost` | water-value anchor (≈215 $/MWh on plp_2y) | gtopt `--soft-min-flows`, NOT PLP (PLP pmin is hard); `--no-soft-min-flows` restores the hard floor |
 
 Spillage carries no cost.
+
+The Res. 105 (`qa105`) and Maule riego rewards are kept as PLP prices
+them: `qa105` is bounded by the physical Armerillo flow, so it is a
+valuation of real water, not a phantom flow.  On plp_2y it is about
+−2.3 G\$, which dominates the raw SDDP upper bound.  SDDP therefore also
+reports the UB net of all water-right rewards (`agreement_rewards`,
+`upper_bound_net` in `solver_status.json` and the per-iteration log; see
+[SDDP](methods/sddp.md)).
 
 ### 10.4 Data Coverage
 

@@ -101,8 +101,32 @@ gtopt --lp-only -s gtopt_demo/gtopt_demo.json
 | `--deficit-segments {first,all,split}` | `first` | Block studies: `first` = one demand per bus priced at the first deficit segment; `all` = native `model_options.demand_fail_segments` curve; `split` = one `<demand>_deficit<k>` demand per segment (see [Deficit cost curve](#deficit-cost-curve---deficit-segments)) |
 | `--info`                      | off     | Print case summary and exit                       |
 | `--validate`                  | off     | Run schema sanity checks and exit                 |
+| `--sanity-report PATH` | not set | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` |
 | `-l, --log-level LEVEL`       | `INFO`  | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`|
+| `--source-version X`          | detected| SDDP layout generation (`16`, `17`); see [Supported source versions](#supported-source-versions) |
 | `-V, --version`               | —       | Print version and exit                            |
+
+---
+
+## Supported source versions
+
+| Version | Supported | Tested | Notes |
+|---------|-----------|--------|-------|
+| `16` (default) | yes | yes — `tests/data/dat_case` | Fixed-width layouts of SDDP releases before 17 (`dcirc` with or without `$version=`, header-located columns) |
+| `17` | yes | yes — `tests/data/sddp_block_case` | Adds the `!Code,` CSV layouts (`dcirc`, `mcirc`, `ccombu`, `gndsite`), per-table unit overrides, binary `blrenw` profiles |
+
+**Detection**: a `.dat` whose first three lines hold a `!Code,` header →
+`17`.  Otherwise undetectable (the 17 reader also accepts fixed-width
+files; `psrclasses.json` carries no release) and the default applies.  The
+resolution is logged by the converter.
+
+`--source-version X` overrides the detected version.  An unknown version
+(detected or given) falls back to the closest supported one with a
+warning; a supported but untested version is kept with a warning.  The
+same list is printed by `--help` (generated from `SOURCE_FORMAT` in
+`sddp2gtopt/source_version.py`).  See
+[Supported source versions](../scripts-guide.md#supported-source-versions)
+for every converter.
 
 ---
 

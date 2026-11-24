@@ -9,6 +9,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- MIP start: new default `dive` generator (`monolithic_options.mip_start.dive`)
+  that produces a FEASIBLE start for unit-commitment MIPs instead of a
+  rounded candidate the backend rejects.  A relaxation-guided
+  fix-and-propagate dive (activity-based bound propagation over every LP
+  row, integral cells first) satisfies configuration exclusivity,
+  config ⇒ unit, min up/down, logic and `u <= 0` rows by construction; the
+  fixed-integer LP then verifies the start and reports its true cost
+  (`start_obj`); when it is infeasible an elastic LP names the integer cells
+  to move (`repair_rounds`, default 3) and a bounded sub-MIP over those cells
+  is the last resort (`sub_mip`, `sub_mip_time_limit`).  A verified start is
+  injected with `effort=solve_fixed`.  Solver-agnostic (every MIP backend);
+  `dive.enabled=false` restores the legacy round + domain-rules generator.
+
 - `gtopt_state.json` (pre-solve snapshot) now records the solver the run
   resolved (`lp_matrix_options.solver_name`, new JSON field; `--solver` >
   JSON pin > `.gtopt.conf` `solver` > `$GTOPT_SOLVER` > plugin priority)
@@ -18,6 +31,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `param_file` is set but the active backend ignores it (only cplex and
   cuopt read the main parameter file).
 
+- Data-quality (sanity) warnings in `validate_planning`, never errors:
+  water-right rewards above the demand fail cost (phantom reward),
+  profiles outside `[0, 1]`, zero-capacity units that keep commitment
+  binaries or `pmin > 0`, implausible line impedance (X/R, p.u. ceiling,
+  per-kV-class outliers of `|X|/V²`), reservoirs without `emin` whose
+  volume drives an agreement `bound_rule` reserve level, and rewards above
+  the shortfall penalty (`fcost > 0` or `uvalue < 0`) of a right tied to
+  them by a user constraint (Maule Res. 105, review R3).  One summary
+  line per category with the top offenders (details at debug level);
+  thresholds in the new `options.sanity_options` sub-object
+  (`docs/planning-options.md` → SanityOptions).
+- Post-conversion data-quality report, `gtopt_shared.sanity_report`, run
+  at the end of `plp2gtopt`, `plexos2gtopt`, `sddp2gtopt`, `pp2gtopt` and
+  `psse2gtopt` (with the post-conversion check) and standalone via
+  `python -m gtopt_shared.sanity_report case.json`.  It reads the written
+  JSON plus its Parquet/CSV tables and logs one summary line per category:
+  per-kV-class `|X|/V²` / `R/V²` distribution (median/p5/p95) and lines
+  below the tie threshold, kV-class impedance outliers, X/R, non-standard
+  and mistyped bus kV (`692` copied from the `ESC-692` name), zero-rated
+  units (and those still committed), profiles outside `[0, 1]`, reservoirs
+  with `emin = 0` under an agreement reserve level, water-right rewards
+  above the demand fail cost, and rewards above the shortfall penalty
+  (`fcost > 0` or `uvalue < 0`) of a right tied to them by a user
+  constraint (inline or PAMPL) — the Maule Res. 105 phantom reward (R3).  `--sanity-report PATH` also writes it as
+  JSON.  On the Guatemala NCP case built before the `dcirc.dat` %-vs-Ω fix
+  it flags the 105 sub-threshold lines and 114 kV-class outliers.
 - `plexos2gtopt --scale-theta FACTOR` (same opt-in flag as `plp2gtopt`,
   now shared as `gtopt_shared.cli_flags.add_scale_theta_argument`): the LP
   angle is FACTOR × θ (1 = radians, 1000 = milliradians).  Default unset:
@@ -82,6 +121,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   package to the packages whose own tests ran.  `guiservice.yml` now also
   triggers on `scripts/**` and skips itself when the change cannot reach
   guiservice.
+- Cascade per-level outputs: `cascade_options.write_level_outputs: true`
+  makes every intermediate cascade level run its simulation pass and
+  write a full output set (element solution, `solution.csv`, its cuts,
+  `solver_status.json`, `level_summary.json`) to
+  `<output_directory>/<level name>/`; `cascade_levels.csv` in the output
+  directory summarises bounds, gap, iterations and time per level.
+- `gtopt-net reduce --bus-group-regex REGEX` / `--bus-groups CSV`: fixed
+  zonal reduction (one bus per group, e.g. one per country) with the
+  inter-group lines aggregated, for coarse cascade levels.
+- `gtopt-net reduce --protect-line UID`: keep a given line (e.g. an
+  interconnector) intact in the reduced network.
+- `docs/methods/cascade.md` documents reduced networks per cascade level
+  (`CascadeLevel.system_file`), the state-variable keyed cut transfer and
+  when inherited cuts from a reduced level are valid lower bounds.
 - Native BESS reserve deliverability: `Battery.reserve_sustain_hours`
   (and `reserve_discharge_credit`) add per-block power-headroom and
   SoC-sufficiency rows for the battery's reserve provisions, with no
@@ -117,8 +170,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `--expect-islands N` / `--expect-zones CL,PE` exit with code 3 when
   a stage has more islands with elements than expected.  See
   `docs/scripts/gtopt_check_topology.md`.
+- PAMPL `scope` header clause (`constraint NAME scope stage: ...`) sets
+  `UserConstraint.scope`, so `.pampl` files can declare stage-average
+  rows with `sum{b in stage}`.
+- **`plexos2gtopt.aemo_isp --odp-augmentations <outlook.xlsx>`**
+  (`--odp-cdp`, default `CDP4`): REZ / group limits whose capacity terms
+  reference network augmentations add the MW built in that ISP
+  development path — Timings-sheet options in full from their in-service
+  financial year, other buildable REZ augmentations sized to the REZ's
+  installed generation in the workbook.  E.g. `ExportLimit_N7_Tumut`
+  becomes 380.5 MW from 2027-07-01 (0 MW without the option).
 
 ### Changed
+
+- **`model_options.demand_fail_cost` defaults to 1000 $/MWh (behaviour
+  change)**: it now resolves to **1000 $/MWh** when
+  unset (`PlanningOptionsLP::default_demand_fail_cost`), as the docs
+  already claimed.  Before, an unset value behaved like `0`: demands
+  without their own `fcost` could be shed at no cost.  **Results change
+  for cases that did not set `demand_fail_cost`** (and whose demands
+  have no `fcost`): unserved load is now priced at 1000 $/MWh, so such
+  cases serve load they previously dropped.  To keep the old behaviour
+  set `demand_fail_cost: 0` explicitly (an explicit `0` still means
+  unpenalized load).  Hard, non-sheddable demand is requested per
+  demand with `Demand.forced = true`.  All converters already write an
+  explicit value, so converted cases are unaffected.  Dispatchable
+  sinks must carry `fcost: 0` to stay flexible (as the C++ battery
+  expansion and `plexos2gtopt --aemo-isp` pump loads already do);
+  `plp2gtopt` battery charge demands and `gtopt_expand` pumped-storage
+  pump loads now do too.  `gtopt_check_json`
+  and `gtopt_check_output` resolve an unset value to 1000 as well.
+
+- **`HydrogenStorage` / `ThermalStorage` carry their level across stages
+  by default (behaviour change)**: `use_state_variable` now defaults to
+  `true`, like `AmmoniaStorage` and `Reservoir` (issue #546).  The old
+  default `false` added a closed-cycle row `efin == eini` on every stage,
+  so any `efin` above `eini` was infeasible.  Cases that relied on the
+  closed cycle must set `"use_state_variable": false` (or
+  `daily_cycle: true`) explicitly.  Being state-carrying, such stores
+  without an explicit setting now also fall under the storage-activation
+  check (one contiguous active period, see below).  `Battery` keeps its
+  daily-cycle default.
+
+- **State-carrying storage may be retired**: `validate_planning` now
+  accepts a per-stage `active` vector `off* on* off*` for storage with a
+  state variable — commissioning (inactive -> active) and retirement
+  (active -> inactive) each once.  Only re-activation after a gap
+  (on -> off -> on) is an error, reported at the stage where the element
+  switches back on.  Retirement simply drops the state (no link into the
+  inactive stages / phases).  Before, any active -> inactive switch was
+  rejected.
+
+- **Dual output files are dense (behaviour change)**: `*_dual` tables
+  (e.g. `Bus/balance_dual`) now carry every (scenario, stage, block, uid)
+  cell of the LP rows, zeros included, so per-block price averages and
+  counts need no gap filling.  `*_sol` / `*_cost` tables still omit exact
+  zeros (a missing row means zero).  Dual tables use the same writer and
+  `output_compression` codec as every other output table.
+
+- **plexos2gtopt: commitments without a real UC decision ship LP-relaxed
+  (behaviour change)**.  New `--uc-relax {auto,plexos,none}` (default
+  `auto`) emits `Commitment.relax = true` for units PLEXOS solves as Linear
+  Relaxation (`Unit Commitment Optimality = 0` in the run Model) and for
+  cost-free units: zero energy cost, no start / no-load cost, no min up /
+  down, no start limit, no ramp (e.g. `ABANICO`, `TALINAY`,
+  `VALDIVIA_BL1_EUCA`).  Pins and PAMPL `commitment(...).status`
+  references are kept.  On the 14 CEN PCP weeks this removes 76 % of
+  the integer status columns (1.82 M → 0.44 M; 04-22: 122 100 → 33 855).
+  `--uc-relax none` restores the previous all-integer output.
 
 - **SDDP α floor (behaviour change)**: the future-cost variable α is no
   longer floored at 0 when a cell installs its first cut — the floor is
@@ -295,6 +414,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A MIP stopped at a limit (time, node, solution, memory, abort) reported
+  its raw incumbent: no integer-fixed LP re-solve ran, so the objective
+  could be far above what the incumbent's integers allow (CEN PCP
+  2026-04-22: incumbent 3.06e9, fixed-integer LP 1.58e9) and no duals
+  were written.  gtopt now **polishes** every MIP that holds a feasible
+  incumbent — integers fixed, LP re-solved, objective / primal / duals
+  taken from the fixed LP — whether or not duals are requested, on every
+  MIP backend (new `SolverBackend::has_mip_incumbent()`, plugin ABI 17).
+  The polish is charged to `time_limit` (min(5 %, 300 s) reserved, at
+  least 10 s).  A limit stop stays non-optimal: exit 1, `solution.csv`
+  status `5` / `limit_polished`, and the log shows incumbent vs polished
+  objective.  If the fixed LP fails the incumbent is kept with a
+  warning.  Opt out with `solver_options.mip_polish: false`.
+- `gtopt-net reduce` on cases with parquet-stem Line fields (e.g.
+  `"tmax_ab": "cl_tmax_ab"`): stems are now resolved, so a scheduled
+  capacity no longer reads as 0 MW and a scheduled reactance no longer
+  turns the line into a DC link; lines active in no stage are dropped.
+- `gtopt-net reduce` kept the cluster representative's own bus `active`
+  schedule, so a representative from an old network vintage switched off
+  (islanded) a cluster whose other buses are in service later; the
+  cluster is now in service whenever any member is.
+
 - A relative `solver_options.param_file` was handed verbatim to the
   backend, so a run started outside the case directory
   (`--set input_directory=<case>`) failed to open `solvers/cplex.prm`
@@ -352,6 +493,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   lacks entries of the built-in dictionary).  Install and user share
   dirs are never probed.  Fixes the `annual_loss` deprecated-alias tests
   failing on machines with an older install.
+- Phase-local and global positions are distinct types.  `StageLP` no
+  longer has an `index()`: `stage_index()` is the GLOBAL position
+  (`SimulationLP::stages()`), `phase_stage_index()` the new
+  `PhaseStageIndex` (position inside `PhaseLP::stages()`); likewise
+  `ScenarioLP::scenario_index()` / `scene_scenario_index()`
+  (`SceneScenarioIndex`).  The simulation, phase and scene arrays are now
+  `PositionVector<IndexT, T>`, whose `operator[]` rejects any other strong
+  index at compile time, so indexing a global array with a local position
+  (the `prev_stage` bug above) no longer compiles.  Bugs this surfaced: the
+  capacity `prev_phase_publishes` scan compared global with local stage
+  positions (expansion built in an intermediate phase was dropped at the
+  next phase boundary) and `Generator.emission_captures[].rate/cost`
+  vectors were read at the phase-local position (every later phase used
+  the first stages' values).
+
+- `update_lp` state readers no longer substitute the case `eini` for a
+  solved state that is merely unavailable.  `physical_efin_from_cache`
+  (`vfin` of the bound-rule `(vini + vfin) / 2` axis) returned the case
+  `eini` whenever the LP was not optimal — always under
+  `--memory-saving compress`, where the trial pin, a cut row or a
+  reconstruct clears the optimal flag right before `update_lp` — so a
+  volume rule saw `(v0 + eini) / 2` and compress diverged from off.  The
+  readers now take the solved `efin` from its StateVariable (written after
+  every forward solve, mode-independent), then the optimal LP, and fall
+  back to `eini` only before the first solve (warning once otherwise).
+  Also: `physical_eini_from_cache` read the previous PHASE's efin for the
+  second and later stages of a multi-stage phase (now the previous stage
+  via `SimulationLP::prev_stage`), returned an unset StateVariable's 0 as a
+  volume, and `build_time_reservoir_volume` took a predecessor drained to
+  exactly 0 for "unset" (new `StateVariable::has_col_sol()`); the
+  VolumeRight incoming state (`volume_right_incoming_state`) uses the same
+  chain.
+- Expansion capacity built in an intermediate phase is carried to the
+  later phases.  `CapacityObjectBase::add_to_lp` decided whether the
+  previous phase publishes `capainst`/`capacost` by scanning the global
+  stages while `s.index() <= prev_stage->index()` — a phase-LOCAL bound
+  — so from the third phase on (or after a multi-stage phase) the scan
+  stopped early, an expansion stage of an intermediate phase was
+  missed, and the built capacity (and its carried CAPEX) vanished at the
+  next boundary.  Monolithic and SDDP, single-stage phases included: 4
+  stages with a build allowed only in stage 2, phases {1,1,1,1}, gave
+  31.1 k instead of 13.3 k.  Same index mix-up in `EmissionSourceLP`:
+  per-stage `emission_captures[].rate/cost` vectors were read at the
+  phase-local position, so every phase after the first used the first
+  stages' values.  The unused (and equally wrong)
+  `SimulationLP::previous_stage` is removed.
+
 - Multi-stage phases after the first one keep their stage chain.
   `SimulationLP::prev_stage` indexed the GLOBAL stage array with the
   stage's phase-LOCAL index, so in phase 2+ the second and later stages
@@ -545,6 +733,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the base size too, and the snapshot restore validates the flat-LP
   metadata against the buffer size and leaves the snapshot empty on
   failure.
+- Laja agreement: the irrigation withdrawal cap (`laja_retiro_maximo`)
+  now evaluates the lake filtration at the stage-initial volume, as PLP
+  does, instead of the historical filtration: a new carrier
+  `laja_qfilt` (fixed at `min(C, QFilt(V0))` through a `bound_rule` on
+  the lake's seepage curve) is subtracted from `laja_qdefm`, which now
+  holds `C = min(QP - QHoya, QFiltHist) + QN + QS + QE`.  The static form
+  understated the requirement by about 25 m³/s in Dec–Mar on the CEN
+  data.  The cap is a stage-average row (`scope stage`), and the netted
+  district targets use the same forward-scenario mean of the
+  hoya-intermedia inflows as the cap (they used the first scenario).
 - `sddp2gtopt`: interconnection imports are unavailable in hours with no
   offer.  With `PRECIOSMEX.csv`, an hour priced blank or 0 for an import
   unit (or the regional `INTER-SAL` series it inherits) closes that unit

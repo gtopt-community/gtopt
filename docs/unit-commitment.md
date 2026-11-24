@@ -364,13 +364,18 @@ thresholds).
 Cold start is the residual: when neither hot nor warm is feasible, the
 optimizer is forced to use $y^{\text{cold}}$ (the most expensive tier).
 
-**Validation**: `cold_start_time` must be ≥ `hot_start_time`.  If this
-condition is violated, a warning is logged and startup tiers are skipped,
-falling back to the flat `startup_cost` on $v$.
+**Validation**: all five tier fields are required and `cold_start_time`
+must be ≥ `hot_start_time`.  Otherwise a warning is logged, the tiers are
+skipped, and $v$ is priced at the flat `startup_cost` — or, when that is
+unset, at the largest given tier cost, so a start is never free.
 
-**Initial conditions**: When `initial_status = 0` (offline at $t = 0$) and
-`initial_hours` is provided, the tier selection at $t = 0$ uses the initial
-offline duration to determine which tier window is active.
+**Initial conditions**: When `initial_status = 0` (offline at $t = 0$),
+a start in period $p$ that has stayed off since before the horizon has been
+offline $t_p + h_0$ hours ($t_p$ = in-horizon time before $p$, $h_0$ =
+`initial_hours`, default $10^6$).  The hot (warm) row's right-hand side is
+relaxed to 1 when $t_p + h_0 <$ `hot_start_time` (resp. in
+[`hot_start_time`, `cold_start_time`)), so a first-block start after a
+short initial outage is hot, not cold.
 
 ---
 

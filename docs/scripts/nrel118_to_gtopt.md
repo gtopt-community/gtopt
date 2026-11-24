@@ -79,6 +79,7 @@ is the bare stem, so the case directory can be moved as a unit.
 | `--cache-dir DIR` | `~/.cache/gtopt/nrel118` | Source CSVs: flat cache, a copy of `118-Bus/`, or a repo checkout |
 | `--ref REF` | pinned commit | PowerSystemsTestData git ref to download from |
 | `--no-download` | off | Never touch the network; require a primed cache |
+| `--source-version X` | detected | PowerSystemsTestData commit to assume; see [Supported source versions](#supported-source-versions) |
 | `--from-state PATH` | — | Replay a state snapshot |
 
 Exit codes: `0` success, `1` conversion error (e.g. bad `--hours`),
@@ -109,6 +110,30 @@ Readers normalise the upstream quirks: classic-Mac `\r` line endings,
 UTF-8 BOMs, padded header names, and the 24 duplicated rows of the
 8808-row hydro files (dropped at positions 1416-1439, as the
 NREL-Sienna loader `data_118bus.jl` does).
+
+---
+
+## Supported source versions
+
+| PowerSystemsTestData commit | Supported | Tested | Notes |
+|-----------------------------|-----------|--------|-------|
+| `a2ecae9ff3cfe6d219744f1b10e4edd4eeecabc9` (default, `--ref` default) | yes | no | Validated by hand; nothing in the repo runs the real `118-Bus` data, so every run warns "untested" |
+
+**Detection**: the `SOURCE_REF` file written into a cache filled from
+scratch (it names the `--ref` used), or the `HEAD` of a
+PowerSystemsTestData checkout given as `--cache-dir` (root or
+`118-Bus/`).  A cache filled by hand is undetectable.  Commit ids are not
+ordered: an unknown commit falls back to the pinned one; an abbreviation
+of 7+ characters matches.  The resolution is logged and stored in
+`nrel118_to_gtopt_state.json` under `extra.source_format`.
+
+`--source-version X` overrides the detected version.  An unknown version
+(detected or given) falls back to the closest supported one with a
+warning; a supported but untested version is kept with a warning.  The
+same list is printed by `--help` (generated from `SOURCE_FORMAT` in
+`nrel118_to_gtopt/source_version.py`).  See
+[Supported source versions](../scripts-guide.md#supported-source-versions)
+for every converter.
 
 ---
 
