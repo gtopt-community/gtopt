@@ -42,6 +42,46 @@ namespace gtopt
  * @see InertiaProvision for generator-to-zone linkage
  * @see InertiaZoneLP for the LP formulation
  */
+/**
+ * @struct InertiaRequirementCredit
+ * @brief Commitment-dependent relief of an inertia requirement
+ *
+ * Mirrors the PLEXOS PCP Guacolda rows (`InertiaNRMin_D`,
+ * `InertiaCommitGuacolda2`, decision variable `InertiaGuacolda2`):
+ *
+ *   Σ pf·r + credit·y ≥ requirement,   units·y ≤ Σ_{g ∈ generators} u_g,
+ *   0 ≤ y ≤ 1
+ *
+ * so the requirement drops by `credit` once `units` of the listed
+ * generators are committed.  With `integer = false` (default, as PLEXOS)
+ * `y` is continuous and the relief is linear in the committed count up
+ * to `units` — the requirement becomes max(req − credit·n/units,
+ * req − credit), a convex function of n that an LP represents exactly.
+ * `integer = true` makes `y` binary: an exact step (relief only when
+ * n ≥ units).  Several credits stack into a staircase, e.g. Norte Grande
+ * 13 400 / 9 500 / 7 500 MWs for 0–1 / 2–3 / ≥ 4 Guacolda units =
+ * requirement 13 400 with credits {units 2, credit 3 900} and
+ * {units 4, credit 2 000}.  Every listed generator must have a Commitment
+ * or SimpleCommitment (its status `u` is what the credit counts): a
+ * generator without one is an error under `constraint_mode` strict / debug
+ * (the default) and a warning under `normal`, where it is dropped from the
+ * credit (a credit left with no generator applies no relief and the
+ * exogenous `requirement` schedule holds).  A committed generator whose
+ * status column is absent at a block (inactive commitment, non-chronological
+ * stage) contributes no relief at that block, silently.
+ */
+struct InertiaRequirementCredit
+{
+  OptName name {};  ///< Optional label (provenance)
+  Array<SingleId> generators {};  ///< Units counted (status u)
+  OptReal units {};  ///< Committed units needed for the full credit
+  OptTBRealFieldSched credit {};  ///< Requirement relief [MWs]
+  OptBool integer {};  ///< Binary y (exact step); default continuous
+
+  [[nodiscard]] bool operator==(const InertiaRequirementCredit&) const =
+      default;
+};
+
 struct InertiaZone
 {
   /// Canonical class-name constant used in LP row labels and config
@@ -60,6 +100,8 @@ struct InertiaZone
                                 ///< per-(stage, block); accepts a scalar
                                 ///< (broadcasts), a 2-D nested array, or
                                 ///< a file-backed schedule.
+  /// Commitment-dependent relief steps (see InertiaRequirementCredit).
+  Array<InertiaRequirementCredit> requirement_credits {};
 };
 
 }  // namespace gtopt

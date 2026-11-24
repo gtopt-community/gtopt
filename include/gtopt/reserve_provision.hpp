@@ -95,6 +95,49 @@ struct ReserveProvision
                                   ///< per-(stage, block).
   OptTBRealFieldSched drcost {};  ///< Down-reserve bid cost [$/MW] —
                                   ///< per-(stage, block).
+
+  /// @name Extended (CEN SSCC) provision model
+  /// @{
+  /// Per-zone effectiveness factors, parallel to `reserve_zones`
+  /// (minuta (A.3)–(A.12)): the SAME up column enters zone `z`'s
+  /// requirement row with `ur_provision_factor · ur_zone_factors[z]`.
+  /// One CPF+ variable then serves the 5 min, 10 s and normal
+  /// requirements, each with its own factor.  Missing / short = 1.0.
+  Array<Real> ur_zone_factors {};
+  Array<Real> dr_zone_factors {};  ///< Down analogue of `ur_zone_factors`
+  /// Shared headroom (minuta (A.23)–(A.24)): every provision of the same
+  /// generator with this flag shares ONE pair of rows
+  /// `p + Σ r_up ≤ Pmax(·u)` and `p − Σ r_dn ≥ Pmin(·u)` instead of one
+  /// pair per provision (CPF + CSF + CTF on one unit).
+  OptBool shared_headroom {};
+  /// Offline (cold) up reserve (minuta (A.19), CTF "en frío"): the up
+  /// column needs no headroom and, when the generator has a Commitment,
+  /// is gated `r_up ≤ urmax · (1 − u)` (offered only while OFF).
+  OptBool offline {};
+  /// Symmetric provision (minuta (A.13)): `r_up = r_dn` every block.
+  OptBool symmetric {};
+  /// @}
+
+  /// @name Native BESS per-side response caps
+  /// PLEXOS `Max Response` / `Max Charge Response` of a battery in a
+  /// reserve.  Only read when the generator is the discharge generator
+  /// of a Battery with `reserve_sustain_hours`: the provision is split
+  /// `r = r_dis + r_chg`, the discharge side bounded by its headroom
+  /// (up: `Pd − pd`; down: `pd`, only with `reserve_discharge_credit`)
+  /// and the charge side by its own (up: `pc`; down: `Pc − pc`), each
+  /// capped by these schedules [MW].  Unset = no cap on that side.
+  /// @{
+  OptTBRealFieldSched urmax_response {};  ///< Up from more discharge
+  OptTBRealFieldSched urmax_charge_response {};  ///< Up from less charge
+  OptTBRealFieldSched drmax_response {};  ///< Down from less discharge
+  OptTBRealFieldSched drmax_charge_response {};  ///< Down from more charge
+  /// Expected deployment energy of THIS provision [MWh per MW per hour],
+  /// charged to the battery SoC; overrides
+  /// `Battery.reserve_energy_usage_up/down` (PLEXOS CF_*_COMP coefficient
+  /// per reserve, e.g. CSF 0.3, CPF/CTF 0).
+  OptTBRealFieldSched ur_energy_usage {};
+  OptTBRealFieldSched dr_energy_usage {};  ///< Down analogue
+  /// @}
 };
 
 }  // namespace gtopt

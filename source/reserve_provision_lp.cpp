@@ -3,14 +3,18 @@
 #include <ranges>
 #include <span>
 #include <string_view>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_build_error.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
+#include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 
 namespace
@@ -66,17 +70,23 @@ std::expected<void, Error> add_provision(
   // (scenario, stage).  If no zone qualifies, skip creating any
   // cols/rows for this provision — preserves the early-out from
   // the previous per-zone helper.
-  std::vector<const BIndexHolder<RowIndex>*> req_row_maps;
+  // Each zone carries its own effectiveness factor (`*_zone_factors`,
+  // minuta (A.8)–(A.12)); the provision column is shared by all zones.
+  std::vector<std::pair<const BIndexHolder<RowIndex>*, double>> req_row_maps;
   req_row_maps.reserve(reserve_zone_indexes.size());
-  for (auto&& rzi : reserve_zone_indexes) {
-    auto&& rz = sc.element(rzi);
+  for (std::size_t zi = 0; zi < reserve_zone_indexes.size(); ++zi) {
+    auto&& rz = sc.element(reserve_zone_indexes[zi]);
     if (!rz.is_active(stage)) {
       continue;
     }
+    // A zone factor of 0 keeps the provision column (UserConstraints may
+    // reference it) but stamps nothing into that zone's requirement row.
+    const double zone_factor =
+        zi < rp.zone_factors.size() ? rp.zone_factors[zi] : 1.0;
     const auto& requirement_rows = get_requirement_rows(rz);
     const auto rows_it = requirement_rows.find(st_k);
     if (rows_it != requirement_rows.end() && !rows_it->second.empty()) {
-      req_row_maps.push_back(&rows_it->second);
+      req_row_maps.emplace_back(&rows_it->second, zone_factor);
     }
   }
   if (req_row_maps.empty()) {
@@ -199,6 +209,7 @@ std::expected<void, Error> add_provision(
     if (auto prow = provision_row(
             gcol,
             prov_col,
+            buid,
             make_block_context(scenario.uid(), stage.uid(), block.uid())))
     {
       prov_rows[buid] = lp.add_row(std::move(*prow));
@@ -208,11 +219,15 @@ std::expected<void, Error> add_provision(
     // Inject the provision coefficient into every active zone's
     // requirement-balance row for this block.
     //
-    for (const auto* req_rows_ptr : req_row_maps) {
+    for (const auto& [req_rows_ptr, zone_factor] : req_row_maps) {
+      if (zone_factor == 0.0) {
+        continue;
+      }
       const auto req_row_it = req_rows_ptr->find(buid);
       if (req_row_it != req_rows_ptr->end()) {
-        lp.set_coeff(
-            req_row_it->second, prov_col, block_provision_factor.value());
+        lp.set_coeff(req_row_it->second,
+                     prov_col,
+                     block_provision_factor.value() * zone_factor);
       }
     }
   }
@@ -279,7 +294,38 @@ ReserveProvisionLP::ReserveProvisionLP(
     , generator_index(ic.element_index(generator_sid()))
     , reserve_zone_indexes(
           make_rzone_indexes(ic, reserve_provision().reserve_zones))
+    , shared_headroom_(reserve_provision().shared_headroom.value_or(false))
+    , offline_(reserve_provision().offline.value_or(false))
+    , symmetric_(reserve_provision().symmetric.value_or(false))
+    , up_response_caps_(
+          OptTBRealSched {ic,
+                          Element::class_name,
+                          id(),
+                          std::move(reserve_provision().urmax_response)},
+          OptTBRealSched {ic,
+                          Element::class_name,
+                          id(),
+                          std::move(reserve_provision().urmax_charge_response)})
+    , dn_response_caps_(
+          OptTBRealSched {ic,
+                          Element::class_name,
+                          id(),
+                          std::move(reserve_provision().drmax_response)},
+          OptTBRealSched {ic,
+                          Element::class_name,
+                          id(),
+                          std::move(reserve_provision().drmax_charge_response)})
+    , up_energy_usage_(ic,
+                       Element::class_name,
+                       id(),
+                       std::move(reserve_provision().ur_energy_usage))
+    , dn_energy_usage_(ic,
+                       Element::class_name,
+                       id(),
+                       std::move(reserve_provision().dr_energy_usage))
 {
+  up.zone_factors = std::exchange(reserve_provision().ur_zone_factors, {});
+  dp.zone_factors = std::exchange(reserve_provision().dr_zone_factors, {});
 }
 
 bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
@@ -299,7 +345,9 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  try {
+  // No try/catch: any failure propagates to the add_to_lp driver, which
+  // reports it with the element context (lp_build_error.hpp).
+  {
     // Use the tolerant lookup variant: when every block of the
     // (scenario, stage) was elided by the P1 zero-pmax optimization
     // (gen column never created — pmax=0 hours), the outer key in
@@ -328,10 +376,47 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
     // would force the battery to DISCHARGE to offer down reserve.
     const bool native_bess = is_native_bess_reserve_generator(sc, generator_lp);
 
-    auto uprov_row =
-        [&](auto gcol, auto rcol, auto context) -> std::optional<SparseRow>
+    // Shared headroom (minuta (A.23)–(A.24)): the first provision of
+    // this generator flagged `shared_headroom` owns the headroom row;
+    // later ones stamp their column into it instead of adding a row.
+    // Provisions are built in element order, so an earlier owner's row
+    // already exists here.  CommitmentLP later gates the owner's row
+    // with `u` exactly once.
+    const auto shared_owner_row = [&](BlockUid buid,
+                                      bool upward) -> std::optional<RowIndex>
     {
-      if (native_bess) {
+      if (!shared_headroom_) {
+        return std::nullopt;
+      }
+      for (const auto& other : sc.elements<ReserveProvisionLP>()) {
+        if (&other == this) {
+          break;
+        }
+        if (!other.shared_headroom()
+            || other.generator_index != generator_index)
+        {
+          continue;
+        }
+        if (auto row = upward
+                ? other.lookup_up_provision_row(scenario, stage, buid)
+                : other.lookup_dn_provision_row(scenario, stage, buid))
+        {
+          return row;
+        }
+      }
+      return std::nullopt;
+    };
+
+    auto uprov_row = [&](auto gcol, auto rcol, BlockUid buid, auto context)
+        -> std::optional<SparseRow>
+    {
+      // Offline (cold) reserve uses no online headroom; CommitmentLP
+      // gates it with `r ≤ urmax·(1 − u)`.
+      if (native_bess || offline_) {
+        return std::nullopt;
+      }
+      if (const auto owner = shared_owner_row(buid, true)) {
+        lp.set_coeff(*owner, rcol, 1.0);
         return std::nullopt;
       }
       auto rrow =
@@ -352,10 +437,14 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
       return rrow;
     };
 
-    auto dprov_row =
-        [&](auto gcol, auto rcol, auto context) -> std::optional<SparseRow>
+    auto dprov_row = [&](auto gcol, auto rcol, BlockUid buid, auto context)
+        -> std::optional<SparseRow>
     {
       if (native_bess) {
+        return std::nullopt;
+      }
+      if (const auto owner = shared_owner_row(buid, false)) {
+        lp.set_coeff(*owner, rcol, -1.0);
         return std::nullopt;
       }
       auto rrow =
@@ -396,10 +485,14 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
             uprov_row);
         !res)
     {
-      SPDLOG_WARN("add_provision (uprov) failed for uid={}: {}",
-                  uid(),
-                  res.error().message);
-      return false;
+      fail_lp(*this,
+              scenario,
+              stage,
+              {
+                  .field = "up_provision",
+                  .detail = std::format("add_provision (uprov) failed: {}",
+                                        res.error().message),
+              });
     }
     if (auto res = add_provision(
             cname,
@@ -420,16 +513,65 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
             dprov_row);
         !res)
     {
-      SPDLOG_WARN("add_provision (dprov) failed for uid={}: {}",
-                  uid(),
-                  res.error().message);
-      return false;
+      fail_lp(*this,
+              scenario,
+              stage,
+              {
+                  .field = "dn_provision",
+                  .detail = std::format("add_provision (dprov) failed: {}",
+                                        res.error().message),
+              });
     }
-  } catch (const std::exception& e) {
-    SPDLOG_ERROR("ReserveProvisionLP::add_to_lp exception for uid={}: {}",
-                 uid(),
-                 e.what());
-    return false;
+
+    // Lost-unit reserve (`contingency_includes_reserve`): in every zone
+    // of this provision, the contingency rows that contain this
+    // generator with coefficient a also get −a·r, i.e. C ≥ a·(p + r).
+    for (const auto& zi : reserve_zone_indexes) {
+      const auto& rz = sc.element(zi);
+      if (!rz.is_active(stage) || !rz.contingency_includes_reserve()) {
+        continue;
+      }
+      for (const auto& block : blocks) {
+        const auto buid = block.uid();
+        for (const bool upward : {true, false}) {
+          const auto rcol = upward
+              ? lookup_up_provision_col(scenario, stage, buid)
+              : lookup_dn_provision_col(scenario, stage, buid);
+          if (!rcol) {
+            continue;
+          }
+          for (const auto& ref :
+               rz.contingency_gen_refs(upward, scenario, stage, buid))
+          {
+            if (ref.generator == generator_index) {
+              lp.set_coeff(ref.row, *rcol, -ref.coef);
+            }
+          }
+        }
+      }
+    }
+
+    // Symmetric provision (minuta (A.13)): r_up − r_dn = 0.
+    if (symmetric_) {
+      const auto st = std::tuple {scenario.uid(), stage.uid()};
+      for (const auto& block : blocks) {
+        const auto buid = block.uid();
+        const auto ucol = lookup_up_provision_col(scenario, stage, buid);
+        const auto dcol = lookup_dn_provision_col(scenario, stage, buid);
+        if (!ucol || !dcol) {
+          continue;
+        }
+        auto srow = SparseRow {
+            .class_name = cname,
+            .constraint_name = SymmetryName,
+            .variable_uid = uid(),
+            .context = make_block_context(scenario.uid(), stage.uid(), buid),
+        };
+        srow[*ucol] = 1.0;
+        srow[*dcol] = -1.0;
+        symmetry_rows_[st][buid] = lp.add_row(std::move(srow.equal(0.0)));
+      }
+    }
   }
 
   // Register PAMPL-visible provision columns under the canonical
@@ -463,6 +605,9 @@ bool ReserveProvisionLP::add_to_output(OutputContext& out) const
   out.add_col_cost(cname, DprovisionName, pid, dp.provision_cols);
   out.add_row_dual(cname, DprovisionName, pid, dp.provision_rows);
   out.add_row_dual(cname, DcapacityName, pid, dp.capacity_rows);
+  if (!symmetry_rows_.empty()) {
+    out.add_row_dual(cname, SymmetryName, pid, symmetry_rows_);
+  }
 
   return true;
 }

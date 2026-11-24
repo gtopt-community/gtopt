@@ -1,0 +1,46 @@
+{
+  "// description": [
+    "Golden reference for reserve_sddp_hydro (SDDP, 3 phases, gap_only).",
+    "Captured with HiGHS and CPLEX (identical pinned values), low_memory",
+    "off and compress.  The converged objective equals the one-phase LP",
+    "optimum (test_sddp_reserve_extended.cpp).  Phases 2-3 obj_value tails",
+    "are the degenerate reservoir / SoC split across phases (they differ",
+    "between solvers and low_memory modes), so only their status is",
+    "pinned.  The cpf requirement dual (8 $/MW: the rp_peaker offer) is",
+    "unique and pinned in the first and last phase."
+  ],
+  "tolerance": {
+    "abs": 1.0e-3,
+    "rel": 1.0e-6
+  },
+  "objective_value": 62189.415211,
+  "solver_status": {
+    "converged": true,
+    "lower_bound": 62189.4152,
+    "upper_bound": 62189.415211,
+    "gap": 0.0
+  },
+  "solution_csv_rows": [
+    {"scene": 0, "phase": 1, "status": 0, "obj_value": 62189.415211},
+    {"scene": 0, "phase": 2, "status": 0},
+    {"scene": 0, "phase": 3, "status": 0}
+  ],
+  "element_samples": [
+    {
+      "// cpf up-requirement price, phase 1:": "",
+      "class": "ReserveZone",
+      "stem": "urequirement_dual",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:1",
+      "expected": 8.0
+    },
+    {
+      "// cpf up-requirement price, phase 3:": "",
+      "class": "ReserveZone",
+      "stem": "urequirement_dual",
+      "filter": {"scene": 0, "phase": 3, "stage": 3, "block": 12},
+      "value_column": "uid:1",
+      "expected": 8.0
+    }
+  ]
+}

@@ -35,9 +35,9 @@ TEST_CASE("InertiaProvision json — basic fields with Uid zone refs")
   CHECK(std::get<Uid>(ip.inertia_zones[0]) == Uid {1});
   CHECK(std::get<Uid>(ip.inertia_zones[1]) == Uid {2});
   REQUIRE(ip.inertia_constant.has_value());
-  CHECK(*ip.inertia_constant == doctest::Approx(5.0));
+  CHECK((ip.inertia_constant && *ip.inertia_constant == doctest::Approx(5.0)));
   REQUIRE(ip.rated_power.has_value());
-  CHECK(*ip.rated_power == doctest::Approx(120.0));
+  CHECK((ip.rated_power && *ip.rated_power == doctest::Approx(120.0)));
   REQUIRE(ip.provision_max.has_value());
   CHECK(std::get<double>(ip.provision_max.value_or(0.0))
         == doctest::Approx(100.0));
@@ -156,7 +156,8 @@ TEST_CASE("InertiaProvision array json roundtrip")
   CHECK(std::get<Uid>(roundtrip.inertia_zones[0]) == Uid {1});
   CHECK(std::get<Name>(roundtrip.inertia_zones[1]) == "ZONE_X");
   REQUIRE(roundtrip.inertia_constant.has_value());
-  CHECK(*roundtrip.inertia_constant == doctest::Approx(4.0));
+  CHECK((roundtrip.inertia_constant
+         && *roundtrip.inertia_constant == doctest::Approx(4.0)));
   REQUIRE(roundtrip.cost.has_value());
   CHECK(std::get<double>(roundtrip.cost.value_or(0.0))
         == doctest::Approx(250.0));

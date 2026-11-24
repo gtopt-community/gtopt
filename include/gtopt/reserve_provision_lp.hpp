@@ -27,6 +27,8 @@ public:
   static constexpr std::string_view DprovisionName {"dprovision"};
   static constexpr std::string_view UcapacityName {"ucapacity"};
   static constexpr std::string_view DcapacityName {"dcapacity"};
+  /// Symmetry row `r_up − r_dn = 0` (`symmetric: true`).
+  static constexpr std::string_view SymmetryName {"symmetry"};
   /// PAMPL-visible aliases for the up/down provision columns.
   /// Exposed under canonical short names so user constraints can write
   /// `reserve_provision("P").up` instead of the verbose `uprovision`.
@@ -146,16 +148,73 @@ public:
     OptTBRealSched cost;
     OptTBRealSched capacity_factor;
     OptTBRealSched provision_factor;
+    std::vector<double> zone_factors;  ///< per-zone effectiveness factors
     STBIndexHolder<ColIndex> provision_cols;
     STBIndexHolder<RowIndex> provision_rows;
     STBIndexHolder<RowIndex> capacity_rows;
   };
+
+  /// Shared-headroom provision (minuta (A.23)–(A.24)).
+  [[nodiscard]] bool shared_headroom() const noexcept
+  {
+    return shared_headroom_;
+  }
+  /// Offline (cold) up reserve, gated `r_up ≤ urmax·(1 − u)`.
+  [[nodiscard]] bool offline() const noexcept { return offline_; }
+  /// Symmetric provision `r_up = r_dn` (minuta (A.13)).
+  [[nodiscard]] bool symmetric() const noexcept { return symmetric_; }
+
+  /// Native BESS per-side caps of one block [MW] (nullopt = uncapped).
+  struct ResponseCaps
+  {
+    std::optional<double> discharge;
+    std::optional<double> charge;
+  };
+  /// Per-side response caps (`urmax_response` / `urmax_charge_response`
+  /// or the down analogues) for (stage, block).
+  [[nodiscard]] ResponseCaps response_caps(bool upward,
+                                           StageUid suid,
+                                           BlockUid buid) const
+  {
+    const auto& [dis, chg] = upward ? up_response_caps_ : dn_response_caps_;
+    return {
+        .discharge = dis.optval(suid, buid),
+        .charge = chg.optval(suid, buid),
+    };
+  }
+  /// Provision-level deployment energy [MWh/MW/h] (nullopt = use the
+  /// battery default).
+  [[nodiscard]] std::optional<double> energy_usage(bool upward,
+                                                   StageUid suid,
+                                                   BlockUid buid) const
+  {
+    return (upward ? up_energy_usage_ : dn_energy_usage_).optval(suid, buid);
+  }
+  [[nodiscard]] bool has_energy_usage() const noexcept
+  {
+    return up_energy_usage_.has_value() || dn_energy_usage_.has_value();
+  }
+  /// True when any per-side cap schedule is set for the direction.
+  [[nodiscard]] bool has_response_caps(bool upward) const noexcept
+  {
+    const auto& [dis, chg] = upward ? up_response_caps_ : dn_response_caps_;
+    return dis.has_value() || chg.has_value();
+  }
 
 private:
   Provision up;
   Provision dp;
   ElementIndex<GeneratorLP> generator_index;
   std::vector<ElementIndex<ReserveZoneLP>> reserve_zone_indexes;
+  bool shared_headroom_ {false};
+  bool offline_ {false};
+  bool symmetric_ {false};
+  STBIndexHolder<RowIndex> symmetry_rows_;
+  /// {discharge side, charge side} cap schedules per direction.
+  std::pair<OptTBRealSched, OptTBRealSched> up_response_caps_;
+  std::pair<OptTBRealSched, OptTBRealSched> dn_response_caps_;
+  OptTBRealSched up_energy_usage_;
+  OptTBRealSched dn_energy_usage_;
 };
 
 // Pin the data-struct constant value so an accidental rename of the

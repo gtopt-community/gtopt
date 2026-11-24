@@ -14,13 +14,18 @@
  * coefficient on r_inertia into the InertiaZone requirement row.
  */
 
+#include <algorithm>
 #include <ranges>
 #include <span>
 #include <vector>
 
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/reserve_zone_lp.hpp>
+#include <gtopt/simple_commitment_lp.hpp>
+#include <gtopt/system_lp.hpp>
 #include <spdlog/spdlog.h>
 
 namespace
@@ -80,7 +85,9 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  try {
+  // No try/catch: any failure propagates to the add_to_lp driver, which
+  // reports it with the element context (lp_build_error.hpp).
+  {
     // Tolerant lookup (mirrors reserve_provision_lp / emission_source_lp):
     // when every block was elided by the P1 zero-pmax optimization the
     // outer key is absent.  ``generation_cols_at`` would throw; the
@@ -96,6 +103,58 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
     const auto& ip = inertia_provision();
 
     const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+    // Reserve zones whose plane-based requirement uses one of this
+    // provision's inertia zones: their inertia definition row
+    // `I − Σ pf·r = 0` receives `−pf` (ReserveZoneLP runs first and has
+    // already resolved its inertia-zone reference).
+    std::vector<const ReserveZoneLP*> plane_zones;
+    for (const auto& rz : sc.elements<ReserveZoneLP>()) {
+      const auto& rz_iz = rz.inertia_zone_index();
+      if (rz_iz && std::ranges::contains(inertia_zone_indexes_, *rz_iz)) {
+        plane_zones.push_back(&rz);
+      }
+    }
+
+    // Commitment status of this unit (Commitment or SimpleCommitment),
+    // used by the `"commitment"` / `"exogenous"` plane inertia terms.
+    const CommitmentLP* commitment = nullptr;
+    const SimpleCommitmentLP* simple_commitment = nullptr;
+    if (!plane_zones.empty()) {
+      for (const auto& cm : sc.elements<CommitmentLP>()) {
+        if (cm.is_active(stage)
+            && sc.element_index(cm.generator_sid()) == generator_index_)
+        {
+          commitment = &cm;
+          break;
+        }
+      }
+      if (commitment == nullptr) {
+        for (const auto& cm : sc.elements<SimpleCommitmentLP>()) {
+          if (cm.is_active(stage)
+              && sc.element_index(cm.generator_sid()) == generator_index_)
+          {
+            simple_commitment = &cm;
+            break;
+          }
+        }
+      }
+    }
+    const auto status_col = [&](BlockUid buid) -> std::optional<ColIndex>
+    {
+      if (commitment != nullptr) {
+        if (const auto* ucols = commitment->find_status_cols(scenario, stage)) {
+          if (const auto it = ucols->find(buid); it != ucols->end()) {
+            return it->second;
+          }
+        }
+        return std::nullopt;
+      }
+      if (simple_commitment != nullptr) {
+        return simple_commitment->lookup_status_col(scenario, stage, buid);
+      }
+      return std::nullopt;
+    };
+
     BIndexHolder<ColIndex> pcols;
     BIndexHolder<RowIndex> crows;
     map_reserve(pcols, blocks.size());
@@ -192,6 +251,55 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
           lp.set_coeff(req_row_it->second, pcol, pf_value);
         }
       }
+
+      // CPF plane inertia term (ReserveZoneLP::inertia_term):
+      //  endogenous  I −= pf·r            (dispatch-based, PLEXOS-compat)
+      //  commitment  I −= I_c·u           (status), or K += I_c when the
+      //              unit has no status column but is forced on (pmin > 0)
+      //  exogenous   K += I_c for must-run units only (status pinned on,
+      //              or uncommitted with pmin > 0) — pure data
+      // I_c = pf · provision_max = H·S when on, capped by the unit's own
+      // pmax: a loose provision_max (harmless in the endogenous form, where
+      // r ≤ p ≤ pmax) must not inflate the status-based inertia.
+      const bool finite_pmax = gen_pmax > 0.0 && gen_pmax < 1e19
+          && !is_infinity(gen_pmax, lp.infinity());
+      const double unit_inertia = pf_value
+          * (finite_pmax ? std::min(block_pmax, gen_pmax) : block_pmax);
+      const auto ucol = status_col(buid);
+      const bool forced_on =
+          ucol ? lp.get_col_lowb(*ucol) >= 1.0 - 1e-9 : gen_pmin > 0.0;
+      for (const auto* rz : plane_zones) {
+        const auto irow = rz->lookup_inertia_row(scenario, stage, buid);
+        if (!irow) {
+          continue;
+        }
+        const auto kcol = rz->lookup_inertia_fixed_col(scenario, stage, buid);
+        const auto raise_fixed = [&]
+        {
+          if (kcol) {
+            const double k = lp.get_col_uppb(*kcol) + unit_inertia;
+            lp.set_col_lowb(*kcol, k);
+            lp.set_col_uppb(*kcol, k);
+          }
+        };
+        switch (rz->inertia_term()) {
+          case ReserveZoneLP::InertiaTerm::endogenous:
+            lp.set_coeff(*irow, pcol, -pf_value);
+            break;
+          case ReserveZoneLP::InertiaTerm::commitment:
+            if (ucol) {
+              lp.set_coeff(*irow, *ucol, -unit_inertia);
+            } else if (forced_on) {
+              raise_fixed();
+            }
+            break;
+          case ReserveZoneLP::InertiaTerm::exogenous:
+            if (forced_on) {
+              raise_fixed();
+            }
+            break;
+        }
+      }
     }
 
     // Store index holders
@@ -209,11 +317,6 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
       sc.add_ampl_variable(
           ampl_name, uid(), ProvName, scenario, stage, it->second);
     }
-  } catch (const std::exception& e) {
-    SPDLOG_ERROR("InertiaProvisionLP::add_to_lp exception for uid={}: {}",
-                 uid(),
-                 e.what());
-    return false;
   }
 
   return true;

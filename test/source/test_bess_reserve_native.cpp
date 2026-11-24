@@ -60,6 +60,8 @@ struct BessCase
   // CEN AUX compensation
   bool cen_aux {false};
   double alpha {0.5};
+  std::string rp_extra {};  ///< extra JSON fields of rp_bess
+  std::string extra_provisions {};  ///< more provisions (",{...}")
 };
 
 std::string make_json(const BessCase& c)
@@ -73,9 +75,11 @@ std::string make_json(const BessCase& c)
   std::string provisions = std::format(
       R"({{"uid": 1, "name": "rp_bess", "generator": "bess_gen",
           "reserve_zones": [1], "urmax": 1000, "drmax": 1000,
-          "ur_provision_factor": {}, "dr_provision_factor": {}}})",
+          "ur_provision_factor": {}, "dr_provision_factor": {}{}}})",
       c.urreq > 0.0 ? 1.0 : 0.0,
-      c.drreq > 0.0 ? 1.0 : 0.0);
+      c.drreq > 0.0 ? 1.0 : 0.0,
+      c.rp_extra);
+  provisions += c.extra_provisions;
   if (c.g1_down && c.drreq > 0.0) {
     provisions += R"(,
         {"uid": 2, "name": "rp_g1", "generator": "g1",
@@ -166,6 +170,9 @@ struct Result
   double r_dn {0.0};
   int native_rows {0};
   int generic_rows {0};
+  double r_up_dis {0.0};  ///< per-side split parts (caps active)
+  double r_up_chg {0.0};
+  int split_cols {0};
 };
 
 Result solve(const BessCase& c)
@@ -185,10 +192,10 @@ Result solve(const BessCase& c)
   const auto dual = li.get_row_dual();
 
   Result r;
-  // ReserveZoneLP prices the served requirement as a revenue
-  // (−rcost · served, served ≤ req), so add back rcost · req to report
-  // "operating cost + shortage penalty" — the hand-computed quantity.
-  r.obj = li.get_obj_value() + (c.shortage * (c.urreq + c.drreq));
+  // The reported objective is "operating cost + shortage penalty" — the
+  // hand-computed quantity: the met-requirement valuation (−rcost · req)
+  // is cancelled by ReserveZoneLP's objective constant.
+  r.obj = li.get_obj_value();
   const auto& bus = sys.elements<BusLP>().front();
   r.lambda = dual[bus.balance_rows_at(scenario, stage).at(buid)];
   for (const auto& g : sys.elements<GeneratorLP>()) {
@@ -223,6 +230,19 @@ Result solve(const BessCase& c)
         || rp.lookup_dn_provision_row(scenario, stage, buid))
     {
       ++r.generic_rows;
+    }
+  }
+  for (Index i = 0; i < li.get_numcols(); ++i) {
+    const auto* lbl = li.col_label_at(ColIndex {i});
+    if (lbl == nullptr) {
+      continue;
+    }
+    if (lbl->variable_name == ConverterLP::ReserveUpDischargeName) {
+      r.r_up_dis += sol[ColIndex {i}];
+      ++r.split_cols;
+    } else if (lbl->variable_name == ConverterLP::ReserveUpChargeName) {
+      r.r_up_chg += sol[ColIndex {i}];
+      ++r.split_cols;
     }
   }
   for (Index i = 0; i < li.get_numrows(); ++i) {
@@ -408,4 +428,248 @@ TEST_CASE("BESS reserve: down SoC room and discharge credit")  // NOLINT
     CHECK(cr.pd >= 30.0 - 1e-6);
     CHECK(cr.obj == doctest::Approx(0.0).epsilon(1e-9));
   }
+}
+
+TEST_CASE("BESS reserve: per-side response caps (PLEXOS Max Response)")
+// NOLINT
+{
+  // Same system as "up headroom credits curtailing the charge": demand
+  // 100 by g1 (50 $/MWh), BESS 40/40 MW, up requirement 60, T = 0.
+  // The provision splits r_up = r_dis + r_chg with r_dis ≤ 40 − pd and
+  // r_chg ≤ pc, each capped by the PLEXOS per-side schedule.
+  BessCase c;
+  c.pc_max = 40.0;
+  c.pd_max = 40.0;
+  c.emax = 200.0;
+  c.eini = 100.0;
+  c.mustrun = 0.0;
+  c.demand = 100.0;
+  c.urreq = 60.0;
+  c.drreq = 0.0;
+  c.native = R"("reserve_sustain_hours": 0.0,)";
+
+  SUBCASE("charge-side cap 10: r_up = 40 + 10, shortage 10")
+  {
+    c.rp_extra = R"(, "urmax_charge_response": 10)";
+    const auto r = solve(c);
+    CHECK(r.r_up == doctest::Approx(50.0));
+    CHECK(r.r_up_chg == doctest::Approx(10.0));
+    CHECK(r.r_up_dis == doctest::Approx(40.0));
+    CHECK(r.obj == doctest::Approx((110.0 * 50.0) + (10.0 * 1.0e4)));
+    CHECK(r.lambda == doctest::Approx(50.0));
+  }
+  SUBCASE("discharge-side cap 25: the charge side covers 35")
+  {
+    // r_chg = 35 needs a 35 MW gross charge; the power envelope
+    // pc/40 + pd/40 ≤ 1 then allows pd ≤ 5, so the cheapest point is
+    // pc = 35, pd = 5 (net charge 30, g1 = 130).
+    c.rp_extra = R"(, "urmax_response": 25)";
+    const auto r = solve(c);
+    CHECK(r.split_cols == 2);
+    CHECK(r.r_up == doctest::Approx(60.0));
+    CHECK(r.r_up_dis == doctest::Approx(25.0));
+    CHECK(r.r_up_chg == doctest::Approx(35.0));
+    CHECK(r.pc == doctest::Approx(35.0));
+    CHECK((r.pc - r.pd) == doctest::Approx(30.0));
+    CHECK(r.obj == doctest::Approx(130.0 * 50.0));
+  }
+  SUBCASE("no cap: unchanged native result (pc = 20)")
+  {
+    const auto r = solve(c);
+    CHECK(r.split_cols == 0);
+    CHECK(r.r_up == doctest::Approx(60.0));
+    CHECK(r.obj == doctest::Approx(120.0 * 50.0));
+  }
+}
+
+TEST_CASE("BESS reserve: expected deployment energy in the SoC")  // NOLINT
+{
+  // Replaces the CEN AUX compensation (CF_GEN/LOAD_COMP, α = 0.3–0.5)
+  // by a SoC term: no bus injection.  Idle BESS, no load, SoC 100/200.
+  BessCase c;
+  c.pc_max = 100.0;
+  c.pd_max = 100.0;
+  c.emax = 200.0;
+  c.eini = 100.0;
+  c.mustrun = 0.0;
+  c.demand = 0.0;
+  c.g1_down = false;
+  c.rp_extra = R"(, "urcost": 1, "drcost": 1)";
+
+  SUBCASE("up: e = 100 − (0.5/ηd)·60")
+  {
+    c.urreq = 60.0;
+    c.drreq = 0.0;
+    c.eta_d = 0.8;
+    c.native =
+        R"("reserve_sustain_hours": 0.0, "reserve_energy_usage_up": 0.5,)";
+    const auto r = solve(c);
+    CHECK(r.r_up == doctest::Approx(60.0));
+    CHECK(r.soc == doctest::Approx(100.0 - (0.5 * 60.0 / 0.8)));
+  }
+  SUBCASE("down: e = 100 + 0.5·ηc·40")
+  {
+    c.urreq = 0.0;
+    c.drreq = 40.0;
+    c.eta_c = 0.9;
+    c.native =
+        R"("reserve_sustain_hours": 0.0, "reserve_energy_usage_down": 0.5,)";
+    const auto r = solve(c);
+    CHECK(r.r_dn == doctest::Approx(40.0));
+    CHECK(r.soc == doctest::Approx(100.0 + (0.5 * 0.9 * 40.0)));
+    CHECK(r.lambda >= -1e-6);  // no forced injection
+  }
+  SUBCASE("unset: SoC untouched")
+  {
+    c.urreq = 60.0;
+    c.drreq = 0.0;
+    c.native = R"("reserve_sustain_hours": 0.0,)";
+    const auto r = solve(c);
+    CHECK(r.soc == doctest::Approx(100.0));
+  }
+}
+
+TEST_CASE("BESS reserve: two capped provisions on one battery (CPF + CTF)")
+// NOLINT
+{
+  // Regression: each provision gets its own split columns and row
+  // (labelled ReserveProvision/<uid>), so two capped provisions in the
+  // same direction no longer collide.  Charge caps 10 + 5 → charge side
+  // ≤ 15, discharge side ≤ 40 → 55 of the 60 MW requirement, shortage 5,
+  // g1 = 100 + 15.
+  BessCase c;
+  c.pc_max = 40.0;
+  c.pd_max = 40.0;
+  c.emax = 200.0;
+  c.eini = 100.0;
+  c.mustrun = 0.0;
+  c.demand = 100.0;
+  c.urreq = 60.0;
+  c.drreq = 0.0;
+  c.native = R"("reserve_sustain_hours": 0.0,)";
+  c.rp_extra = R"(, "urmax_charge_response": 10)";
+  c.extra_provisions = R"(,
+      {"uid": 3, "name": "rp_bess_ctf", "generator": "bess_gen",
+       "reserve_zones": [1], "urmax": 1000, "ur_provision_factor": 1,
+       "urmax_charge_response": 5})";
+  const auto r = solve(c);
+  CHECK(r.split_cols == 4);
+  CHECK(r.r_up_chg == doctest::Approx(15.0));
+  CHECK(r.r_up_dis == doctest::Approx(40.0));
+  CHECK(r.obj == doctest::Approx((115.0 * 50.0) + (5.0 * 1.0e4)));
+}
+
+TEST_CASE("BESS reserve: per-provision deployment energy overrides")
+// NOLINT
+{
+  // Battery default a_up = 0.5.  rp_cpf (1 $/MW, ≤ 20 MW) inherits it;
+  // rp_bess (2 $/MW) takes the other 40 MW.  Idle BESS, SoC 100, η = 1.
+  BessCase c;
+  c.pc_max = 100.0;
+  c.pd_max = 100.0;
+  c.emax = 200.0;
+  c.eini = 100.0;
+  c.mustrun = 0.0;
+  c.demand = 0.0;
+  c.g1_down = false;
+  c.urreq = 60.0;
+  c.drreq = 0.0;
+  c.native = R"("reserve_sustain_hours": 0.0, "reserve_energy_usage_up": 0.5,)";
+  c.extra_provisions = R"(,
+      {"uid": 3, "name": "rp_cpf", "generator": "bess_gen",
+       "reserve_zones": [1], "urmax": 20, "ur_provision_factor": 1,
+       "urcost": 1})";
+  SUBCASE("rp_bess overrides to 0 (PLEXOS CPF/CTF): only rp_cpf uses SoC")
+  {
+    c.rp_extra = R"(, "urcost": 2, "ur_energy_usage": 0)";
+    const auto r = solve(c);
+    CHECK(r.r_up == doctest::Approx(40.0));
+    CHECK(r.soc == doctest::Approx(100.0 - (0.5 * 20.0)));
+  }
+  SUBCASE("no override: both use the battery default")
+  {
+    c.rp_extra = R"(, "urcost": 2)";
+    const auto r = solve(c);
+    CHECK(r.soc == doctest::Approx(100.0 - (0.5 * 60.0)));
+  }
+  SUBCASE("override 0.3 on rp_bess (PLEXOS CSF)")
+  {
+    c.rp_extra = R"(, "urcost": 2, "ur_energy_usage": 0.3)";
+    const auto r = solve(c);
+    CHECK(r.soc == doctest::Approx(100.0 - (0.5 * 20.0) - (0.3 * 40.0)));
+  }
+}
+
+TEST_CASE("BESS reserve: split replaces the aggregate headroom row")
+// NOLINT
+{
+  // With per-side caps the side rows imply the aggregate up headroom row;
+  // emitting both made them linearly dependent (review P2-1).
+  BessCase c;
+  c.pc_max = 40.0;
+  c.pd_max = 40.0;
+  c.emax = 200.0;
+  c.eini = 100.0;
+  c.mustrun = 0.0;
+  c.demand = 100.0;
+  c.urreq = 60.0;
+  c.drreq = 0.0;
+  c.native = R"("reserve_sustain_hours": 0.0,)";
+  const auto headroom_rows = [](const BessCase& bc)
+  {
+    PlanningLP plp(parse_planning_json(make_json(bc)));
+    REQUIRE(plp.resolve().has_value());
+    const auto& li = plp.systems().front().front().linear_interface();
+    int n = 0;
+    for (Index i = 0; i < li.get_numrows(); ++i) {
+      const auto* lbl = li.row_label_at(RowIndex {i});
+      if (lbl != nullptr
+          && lbl->constraint_name == ConverterLP::ReserveUpHeadroomName)
+      {
+        ++n;
+      }
+    }
+    return n;
+  };
+  CHECK(headroom_rows(c) == 1);
+  c.rp_extra = R"(, "urmax_charge_response": 10)";
+  CHECK(headroom_rows(c) == 0);
+  // Same optimum as before the change (side rows carry the headroom).
+  const auto r = solve(c);
+  CHECK(r.r_up == doctest::Approx(50.0));
+  CHECK(r.obj == doctest::Approx((110.0 * 50.0) + (10.0 * 1.0e4)));
+}
+
+TEST_CASE("BESS reserve: charge-side deployment energy uses eta_c")
+// NOLINT
+{
+  // Up reserve served entirely from the charge side (discharge cap 0):
+  // deploying it means charging less, which saves ηc·Δ of SoC per MW —
+  // not Δ/ηd as for the discharge side (review P2-2).
+  //   r_chg = 30, a = 0.5, ηc = 0.9, ηd = 0.8: the deployment term is
+  //   −0.5·0.9·30 = −13.5  (was −0.5·30/0.8 = −18.75).
+  BessCase c;
+  c.pc_max = 100.0;
+  c.pd_max = 100.0;
+  c.emax = 200.0;
+  c.eini = 100.0;
+  c.eta_c = 0.9;
+  c.eta_d = 0.8;
+  c.mustrun = 0.0;
+  c.demand = 0.0;
+  c.g1_down = false;
+  c.g1_cost = 1.0;
+  c.urreq = 30.0;
+  c.drreq = 0.0;
+  c.native = R"("reserve_sustain_hours": 0.0, "reserve_energy_usage_up": 0.5,)";
+  c.rp_extra = R"(, "urmax_response": 0)";
+  const auto r = solve(c);
+  CHECK(r.r_up == doctest::Approx(30.0));
+  CHECK(r.r_up_chg == doctest::Approx(30.0));
+  CHECK(r.pc == doctest::Approx(30.0));
+  // The LP may also discharge (pd) to displace g1; the deployment term is
+  // the ηc·Δ part only:  e = 100 + ηc·pc − pd/ηd − a·ηc·r_chg.
+  CHECK(r.soc
+        == doctest::Approx(100.0 + (0.9 * r.pc) - (r.pd / 0.8)
+                           - (0.5 * 0.9 * 30.0)));
 }

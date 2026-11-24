@@ -1,0 +1,304 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": true,
+      "scale_objective": 1000,
+      "demand_fail_cost": 1000
+    }
+  },
+  "simulation": {
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 1
+      },
+      {
+        "uid": 2,
+        "duration": 1
+      },
+      {
+        "uid": 3,
+        "duration": 1
+      },
+      {
+        "uid": 4,
+        "duration": 1
+      },
+      {
+        "uid": 5,
+        "duration": 1
+      },
+      {
+        "uid": 6,
+        "duration": 1
+      },
+      {
+        "uid": 7,
+        "duration": 1
+      },
+      {
+        "uid": 8,
+        "duration": 1
+      },
+      {
+        "uid": 9,
+        "duration": 1
+      },
+      {
+        "uid": 10,
+        "duration": 1
+      },
+      {
+        "uid": 11,
+        "duration": 1
+      },
+      {
+        "uid": 12,
+        "duration": 1
+      },
+      {
+        "uid": 13,
+        "duration": 1
+      },
+      {
+        "uid": 14,
+        "duration": 1
+      },
+      {
+        "uid": 15,
+        "duration": 1
+      },
+      {
+        "uid": 16,
+        "duration": 1
+      },
+      {
+        "uid": 17,
+        "duration": 1
+      },
+      {
+        "uid": 18,
+        "duration": 1
+      },
+      {
+        "uid": 19,
+        "duration": 1
+      },
+      {
+        "uid": 20,
+        "duration": 1
+      },
+      {
+        "uid": 21,
+        "duration": 1
+      },
+      {
+        "uid": 22,
+        "duration": 1
+      },
+      {
+        "uid": 23,
+        "duration": 1
+      },
+      {
+        "uid": 24,
+        "duration": 1
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 24,
+        "active": 1
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "reserve_cpf_planes_endogenous",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "north"
+      },
+      {
+        "uid": 2,
+        "name": "center"
+      },
+      {
+        "uid": 3,
+        "name": "south"
+      }
+    ],
+    "line_array": [
+      {
+        "uid": 1,
+        "name": "north_center",
+        "bus_a": "north",
+        "bus_b": "center",
+        "reactance": 0.05,
+        "tmax_ab": 400,
+        "tmax_ba": 400,
+        "capacity": 400
+      },
+      {
+        "uid": 2,
+        "name": "center_south",
+        "bus_a": "center",
+        "bus_b": "south",
+        "reactance": 0.05,
+        "tmax_ab": 700,
+        "tmax_ba": 700,
+        "capacity": 700
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "solar_north",
+        "bus": "north",
+        "gcost": 0,
+        "capacity": 700
+      },
+      {
+        "uid": 2,
+        "name": "ccgt_south",
+        "bus": "south",
+        "gcost": 60,
+        "capacity": 500
+      },
+      {
+        "uid": 3,
+        "name": "ocgt_south",
+        "bus": "south",
+        "gcost": 120,
+        "capacity": 200
+      }
+    ],
+    "generator_profile_array": [
+      {
+        "uid": 1,
+        "name": "solar_north_profile",
+        "generator": "solar_north",
+        "profile": [
+          [
+            [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.2588,
+              0.5,
+              0.7071,
+              0.866,
+              0.9659,
+              1.0,
+              0.9659,
+              0.866,
+              0.7071,
+              0.5,
+              0.2588,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          ]
+        ]
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "load_center",
+        "bus": "center",
+        "lmax": [
+          [
+            320,
+            300,
+            290,
+            285,
+            290,
+            310,
+            350,
+            390,
+            420,
+            430,
+            440,
+            445,
+            440,
+            435,
+            430,
+            430,
+            440,
+            470,
+            500,
+            490,
+            460,
+            420,
+            380,
+            340
+          ]
+        ],
+        "capacity": 600
+      }
+    ],
+    "reserve_zone_array": [
+      {
+        "uid": 1,
+        "name": "cpf10s",
+        "urcost": 5000,
+        "load_term": "endogenous_generation",
+        "urreq_planes": [
+          {
+            "alpha": 140,
+            "demand_coef": -0.0366
+          },
+          {
+            "alpha": 120,
+            "demand_coef": -0.02064
+          }
+        ]
+      }
+    ],
+    "reserve_provision_array": [
+      {
+        "uid": 1,
+        "name": "rp_ccgt",
+        "generator": "ccgt_south",
+        "reserve_zones": [
+          "cpf10s"
+        ],
+        "urmax": 200,
+        "ur_provision_factor": 1,
+        "urcost": 20
+      },
+      {
+        "uid": 2,
+        "name": "rp_ocgt",
+        "generator": "ocgt_south",
+        "reserve_zones": [
+          "cpf10s"
+        ],
+        "urmax": 200,
+        "ur_provision_factor": 1,
+        "urcost": 35
+      }
+    ]
+  }
+}

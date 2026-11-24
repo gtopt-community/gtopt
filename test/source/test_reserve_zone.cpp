@@ -8,12 +8,13 @@
 #include <gtopt/stage.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "require_value.hpp"
+
 using namespace gtopt;
 
 TEST_CASE("ReserveZone construction and default values")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access)
   const ReserveZone reserve_zone;
 
   // Check default values
@@ -1014,7 +1015,8 @@ TEST_CASE("ReserveZoneLP - reserve fail cost with insufficient provision")
 
   const auto col_sol = lp.get_col_sol();
   REQUIRE(ur_col.has_value());
-  const auto ur_sol = col_sol[static_cast<size_t>(ur_col.value())];
+  const auto ur_sol =
+      col_sol[static_cast<size_t>(test_support::require_value(ur_col))];
   // Reserve requirement is 50, but only 20 MW headroom (120-100)
   // So urequirement_sol should be less than the full 50 MW requirement
   // (the fail cost variable absorbs some of it)
@@ -1157,7 +1159,8 @@ TEST_CASE("ReserveZoneLP - no reserve_fail_cost (fixed requirement)")
   const auto up_col = rp_lp.lookup_up_provision_col(scenario, stage, buid);
   REQUIRE(up_col.has_value());
   const auto col_sol = lp.get_col_sol();
-  CHECK(col_sol[static_cast<size_t>(up_col.value())] == doctest::Approx(40.0));
+  CHECK(col_sol[static_cast<size_t>(test_support::require_value(up_col))]
+        == doctest::Approx(40.0));
 }
 
 TEST_CASE(
@@ -1277,7 +1280,8 @@ TEST_CASE(
 
   // Down provision should have a non-negative solution
   const auto col_sol = lp.get_col_sol();
-  CHECK(col_sol[static_cast<size_t>(dn_col.value())] >= doctest::Approx(0.0));
+  CHECK(col_sol[static_cast<size_t>(test_support::require_value(dn_col))]
+        >= doctest::Approx(0.0));
 }
 
 TEST_CASE("ReserveZoneLP - multiple blocks with reserve duals")
@@ -2028,7 +2032,8 @@ TEST_CASE(
     if (inner_it == outer_it->second.end()) {
       continue;
     }
-    const auto coeff = lp.get_coeff(inner_it->second, *up_col);
+    const auto coeff =
+        lp.get_coeff(inner_it->second, test_support::require_value(up_col));
     if (std::abs(coeff - 1.0) < 1e-9) {
       ++injected_zones;
     }
@@ -2122,7 +2127,7 @@ TEST_CASE(
   REQUIRE(up_col.has_value());
 
   const auto col_sol = lp.get_col_sol();
-  CHECK(col_sol[static_cast<std::size_t>(up_col.value())]
+  CHECK(col_sol[static_cast<std::size_t>(test_support::require_value(up_col))]
         == doctest::Approx(40.0));
 }
 
@@ -2189,8 +2194,6 @@ TEST_CASE(
   const auto dn_col = rp_lp.lookup_dn_provision_col(scenario, stage, buid);
   REQUIRE(dn_col.has_value());
   const auto col_sol = lp.get_col_sol();
-  CHECK(col_sol[static_cast<std::size_t>(dn_col.value())]
+  CHECK(col_sol[static_cast<std::size_t>(test_support::require_value(dn_col))]
         == doctest::Approx(30.0));
 }
-
-// NOLINTEND(bugprone-unchecked-optional-access)

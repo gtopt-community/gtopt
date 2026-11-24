@@ -1,0 +1,265 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": true,
+      "scale_objective": 1000,
+      "demand_fail_cost": 1000
+    }
+  },
+  "simulation": {
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 1
+      },
+      {
+        "uid": 2,
+        "duration": 1
+      },
+      {
+        "uid": 3,
+        "duration": 1
+      },
+      {
+        "uid": 4,
+        "duration": 1
+      },
+      {
+        "uid": 5,
+        "duration": 1
+      },
+      {
+        "uid": 6,
+        "duration": 1
+      },
+      {
+        "uid": 7,
+        "duration": 1
+      },
+      {
+        "uid": 8,
+        "duration": 1
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 8,
+        "active": 1,
+        "chronological": true
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "reserve_sscc_full",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1"
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "ccgt",
+        "bus": "b1",
+        "gcost": 55,
+        "capacity": 450
+      },
+      {
+        "uid": 2,
+        "name": "peaker",
+        "bus": "b1",
+        "gcost": 140,
+        "capacity": 120
+      },
+      {
+        "uid": 3,
+        "name": "solar",
+        "bus": "b1",
+        "gcost": 0,
+        "capacity": 250
+      }
+    ],
+    "generator_profile_array": [
+      {
+        "uid": 1,
+        "name": "solar_profile",
+        "generator": "solar",
+        "profile": [
+          [
+            [
+              0.0,
+              0.2,
+              0.7,
+              1.0,
+              0.9,
+              0.5,
+              0.1,
+              0.0
+            ]
+          ]
+        ]
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "load",
+        "bus": "b1",
+        "lmax": [
+          [
+            250,
+            230,
+            300,
+            380,
+            420,
+            400,
+            450,
+            330
+          ]
+        ],
+        "capacity": 500
+      }
+    ],
+    "battery_array": [
+      {
+        "uid": 1,
+        "name": "bess",
+        "bus": "b1",
+        "input_efficiency": 0.95,
+        "output_efficiency": 0.95,
+        "emin": 0,
+        "emax": 200,
+        "capacity": 200,
+        "eini": 100,
+        "pmax_charge": 50,
+        "pmax_discharge": 50,
+        "reserve_sustain_hours": 1.0,
+        "reserve_energy_usage_up": 0.3,
+        "reserve_energy_usage_down": 0.3
+      }
+    ],
+    "commitment_array": [
+      {
+        "uid": 1,
+        "name": "uc_peaker",
+        "generator": "peaker",
+        "pmin": 40,
+        "relax": true,
+        "initial_status": 0
+      }
+    ],
+    "reserve_zone_array": [
+      {
+        "uid": 1,
+        "name": "cpf",
+        "urreq": 30,
+        "drreq": 20,
+        "urcost": 5000,
+        "drcost": 5000
+      },
+      {
+        "uid": 2,
+        "name": "csf",
+        "urreq": 60,
+        "drreq": 40,
+        "urcost": 5000,
+        "drcost": 5000,
+        "requirement_sense": "eq",
+        "ursurplus_cost": 1,
+        "drsurplus_cost": 1
+      },
+      {
+        "uid": 3,
+        "name": "ctf",
+        "urreq": 80,
+        "urcost": 3000
+      }
+    ],
+    "reserve_provision_array": [
+      {
+        "uid": 1,
+        "name": "ccgt_cpf",
+        "generator": "ccgt",
+        "reserve_zones": [
+          "cpf"
+        ],
+        "urmax": 60,
+        "drmax": 60,
+        "ur_provision_factor": 1,
+        "dr_provision_factor": 1,
+        "urcost": 4,
+        "drcost": 2,
+        "shared_headroom": true
+      },
+      {
+        "uid": 2,
+        "name": "ccgt_csf",
+        "generator": "ccgt",
+        "reserve_zones": [
+          "csf"
+        ],
+        "urmax": 80,
+        "drmax": 80,
+        "ur_provision_factor": 1,
+        "dr_provision_factor": 1,
+        "urcost": 6,
+        "drcost": 3,
+        "shared_headroom": true
+      },
+      {
+        "uid": 3,
+        "name": "ccgt_ctf",
+        "generator": "ccgt",
+        "reserve_zones": [
+          "ctf"
+        ],
+        "urmax": 100,
+        "ur_provision_factor": 1,
+        "urcost": 3,
+        "shared_headroom": true
+      },
+      {
+        "uid": 4,
+        "name": "peaker_ctf_cold",
+        "generator": "peaker",
+        "reserve_zones": [
+          "ctf"
+        ],
+        "urmax": 120,
+        "ur_provision_factor": 1,
+        "urcost": 1,
+        "offline": true
+      },
+      {
+        "uid": 5,
+        "name": "bess_csf",
+        "generator": "bess_gen",
+        "reserve_zones": [
+          "csf"
+        ],
+        "urmax": 50,
+        "drmax": 50,
+        "ur_provision_factor": 1,
+        "dr_provision_factor": 1,
+        "urcost": 2,
+        "drcost": 1,
+        "urmax_response": 30,
+        "urmax_charge_response": 30,
+        "drmax_charge_response": 40
+      }
+    ]
+  }
+}

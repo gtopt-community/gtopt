@@ -42,7 +42,34 @@ struct json_data_contract<ReserveProvision>
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
       json_variant_null<"urcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
-      json_variant_null<"drcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
+      json_variant_null<"drcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_array_null<"ur_zone_factors",
+                      gtopt::Array<gtopt::Real>,
+                      json_number_no_name<gtopt::Real>>,
+      json_array_null<"dr_zone_factors",
+                      gtopt::Array<gtopt::Real>,
+                      json_number_no_name<gtopt::Real>>,
+      json_bool_null<"shared_headroom", OptBool>,
+      json_bool_null<"offline", OptBool>,
+      json_bool_null<"symmetric", OptBool>,
+      json_variant_null<"urmax_response",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"urmax_charge_response",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"drmax_response",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"drmax_charge_response",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"ur_energy_usage",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"dr_energy_usage",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>>;
 
   constexpr static auto to_json_data(ReserveProvision const& obj)
   {
@@ -62,7 +89,18 @@ struct json_data_contract<ReserveProvision>
                                  obj.ur_provision_factor,
                                  obj.dr_provision_factor,
                                  obj.urcost,
-                                 obj.drcost);
+                                 obj.drcost,
+                                 obj.ur_zone_factors,
+                                 obj.dr_zone_factors,
+                                 obj.shared_headroom,
+                                 obj.offline,
+                                 obj.symmetric,
+                                 obj.urmax_response,
+                                 obj.urmax_charge_response,
+                                 obj.drmax_response,
+                                 obj.drmax_charge_response,
+                                 obj.ur_energy_usage,
+                                 obj.dr_energy_usage);
   }
 };
 

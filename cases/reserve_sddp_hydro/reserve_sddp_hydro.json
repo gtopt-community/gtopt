@@ -1,0 +1,390 @@
+{
+ "options": {
+  "annual_discount_rate": 0.0,
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": true,
+   "demand_fail_cost": 10000.0,
+   "scale_objective": 1.0
+  },
+  "method": "sddp",
+  "sddp_options": {
+   "apertures": [],
+   "convergence_tol": 1e-08,
+   "max_iterations": 200,
+   "cut_sharing_mode": "none",
+   "convergence_mode": "gap_only"
+  }
+ },
+ "simulation": {
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 1
+   },
+   {
+    "uid": 2,
+    "duration": 1
+   },
+   {
+    "uid": 3,
+    "duration": 1
+   },
+   {
+    "uid": 4,
+    "duration": 1
+   },
+   {
+    "uid": 5,
+    "duration": 1
+   },
+   {
+    "uid": 6,
+    "duration": 1
+   },
+   {
+    "uid": 7,
+    "duration": 1
+   },
+   {
+    "uid": 8,
+    "duration": 1
+   },
+   {
+    "uid": 9,
+    "duration": 1
+   },
+   {
+    "uid": 10,
+    "duration": 1
+   },
+   {
+    "uid": 11,
+    "duration": 1
+   },
+   {
+    "uid": 12,
+    "duration": 1
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 4
+   },
+   {
+    "uid": 2,
+    "first_block": 4,
+    "count_block": 4
+   },
+   {
+    "uid": 3,
+    "first_block": 8,
+    "count_block": 4
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1.0
+   }
+  ],
+  "phase_array": [
+   {
+    "uid": 1,
+    "first_stage": 0,
+    "count_stage": 1
+   },
+   {
+    "uid": 2,
+    "first_stage": 1,
+    "count_stage": 1
+   },
+   {
+    "uid": 3,
+    "first_stage": 2,
+    "count_stage": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "xres_sddp",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "b1"
+   }
+  ],
+  "demand_array": [
+   {
+    "uid": 1,
+    "name": "d1",
+    "bus": 1,
+    "lmax": [
+     [
+      120,
+      160,
+      200,
+      150
+     ],
+     [
+      130,
+      170,
+      210,
+      160
+     ],
+     [
+      110,
+      150,
+      190,
+      140
+     ]
+    ]
+   }
+  ],
+  "generator_array": [
+   {
+    "uid": 1,
+    "name": "hydro",
+    "bus": 1,
+    "gcost": 0,
+    "capacity": 120
+   },
+   {
+    "uid": 2,
+    "name": "tha",
+    "bus": 1,
+    "gcost": 40,
+    "capacity": 150
+   },
+   {
+    "uid": 3,
+    "name": "thb",
+    "bus": 1,
+    "gcost": 60,
+    "capacity": 150
+   },
+   {
+    "uid": 4,
+    "name": "peaker",
+    "bus": 1,
+    "gcost": 150,
+    "capacity": 200
+   }
+  ],
+  "simple_commitment_array": [
+   {
+    "uid": 1,
+    "name": "sc_tha",
+    "generator": "tha",
+    "dispatch_pmin": 20,
+    "relax": true
+   },
+   {
+    "uid": 2,
+    "name": "sc_thb",
+    "generator": "thb",
+    "dispatch_pmin": 20,
+    "relax": true
+   }
+  ],
+  "junction_array": [
+   {
+    "uid": 1,
+    "name": "j_up"
+   },
+   {
+    "uid": 2,
+    "name": "j_down",
+    "drain": true
+   }
+  ],
+  "waterway_array": [
+   {
+    "uid": 1,
+    "name": "ww1",
+    "junction_a": 1,
+    "junction_b": 2,
+    "fmin": 0,
+    "fmax": 200
+   }
+  ],
+  "reservoir_array": [
+   {
+    "uid": 1,
+    "name": "rsv",
+    "junction": 1,
+    "capacity": 400,
+    "emin": 0,
+    "emax": 400,
+    "eini": 200,
+    "fmin": -1000,
+    "fmax": 1000,
+    "flow_conversion_rate": 1.0
+   }
+  ],
+  "flow_array": [
+   {
+    "uid": 1,
+    "name": "inflow",
+    "direction": 1,
+    "junction": 1,
+    "discharge": 15
+   }
+  ],
+  "turbine_array": [
+   {
+    "uid": 1,
+    "name": "tur",
+    "waterway": 1,
+    "generator": 1,
+    "production_factor": 1.0
+   }
+  ],
+  "battery_array": [
+   {
+    "uid": 1,
+    "name": "bess",
+    "bus": 1,
+    "input_efficiency": 0.95,
+    "output_efficiency": 0.95,
+    "emin": 0,
+    "emax": 100,
+    "capacity": 100,
+    "eini": 50,
+    "pmax_charge": 40,
+    "pmax_discharge": 40,
+    "reserve_sustain_hours": 0.0,
+    "reserve_energy_usage_up": 0.1,
+    "reserve_energy_usage_down": 0.1,
+    "use_state_variable": true,
+    "daily_cycle": false
+   }
+  ],
+  "inertia_zone_array": [
+   {
+    "uid": 1,
+    "name": "sen",
+    "requirement": 6000,
+    "cost": 50,
+    "requirement_credits": [
+     {
+      "name": "both_thermals",
+      "generators": [
+       "tha",
+       "thb"
+      ],
+      "units": 2,
+      "credit": 2000,
+      "integer": false
+     }
+    ]
+   }
+  ],
+  "inertia_provision_array": [
+   {
+    "uid": 1,
+    "name": "ip_hydro",
+    "generator": "hydro",
+    "inertia_zones": [
+     "sen"
+    ],
+    "provision_factor": 50,
+    "provision_max": 6000
+   },
+   {
+    "uid": 2,
+    "name": "ip_tha",
+    "generator": "tha",
+    "inertia_zones": [
+     "sen"
+    ],
+    "provision_factor": 80,
+    "provision_max": 12000
+   }
+  ],
+  "reserve_zone_array": [
+   {
+    "uid": 1,
+    "name": "cpf",
+    "urcost": 5000,
+    "urreq_planes": [
+     {
+      "alpha": 40,
+      "demand_coef": 0.1
+     },
+     {
+      "alpha": 80,
+      "demand_coef": 0.05,
+      "inertia_coef": -0.002
+     },
+     {
+      "contingency_coef": 1.0
+     }
+    ],
+    "load_term": "exogenous",
+    "demand_load_factor": 1.0,
+    "inertia_zone": "sen",
+    "inertia_term": "endogenous",
+    "contingency_generators": [
+     "thb"
+    ]
+   },
+   {
+    "uid": 2,
+    "name": "cpf_dn",
+    "drreq": 20,
+    "drcost": 5000
+   }
+  ],
+  "reserve_provision_array": [
+   {
+    "uid": 1,
+    "name": "rp_tha",
+    "generator": "tha",
+    "reserve_zones": [
+     1,
+     2
+    ],
+    "urmax": 60,
+    "drmax": 40,
+    "ur_provision_factor": 1,
+    "dr_provision_factor": 1,
+    "urcost": 3,
+    "drcost": 2
+   },
+   {
+    "uid": 2,
+    "name": "rp_peaker",
+    "generator": "peaker",
+    "reserve_zones": [
+     1
+    ],
+    "urmax": 200,
+    "ur_provision_factor": 1,
+    "urcost": 8
+   },
+   {
+    "uid": 3,
+    "name": "rp_bess",
+    "generator": "bess_gen",
+    "reserve_zones": [
+     1,
+     2
+    ],
+    "urmax": 50,
+    "drmax": 50,
+    "ur_provision_factor": 1,
+    "dr_provision_factor": 1,
+    "urcost": 1,
+    "drcost": 1,
+    "urmax_response": 15,
+    "urmax_charge_response": 10,
+    "drmax_response": 10,
+    "drmax_charge_response": 15
+   }
+  ]
+ }
+}

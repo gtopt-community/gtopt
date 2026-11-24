@@ -1,0 +1,288 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": true,
+      "scale_objective": 1000,
+      "demand_fail_cost": 1000
+    }
+  },
+  "simulation": {
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 1
+      },
+      {
+        "uid": 2,
+        "duration": 1
+      },
+      {
+        "uid": 3,
+        "duration": 1
+      },
+      {
+        "uid": 4,
+        "duration": 1
+      },
+      {
+        "uid": 5,
+        "duration": 1
+      },
+      {
+        "uid": 6,
+        "duration": 1
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 6,
+        "active": 1,
+        "chronological": true
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "reserve_cpf_contingency_inertia",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1"
+      },
+      {
+        "uid": 2,
+        "name": "b2"
+      }
+    ],
+    "line_array": [
+      {
+        "uid": 1,
+        "name": "l12",
+        "bus_a": "b1",
+        "bus_b": "b2",
+        "reactance": 0.05,
+        "tmax_ab": 500,
+        "tmax_ba": 500,
+        "capacity": 500
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "coal_big",
+        "bus": "b1",
+        "gcost": 30,
+        "capacity": 300
+      },
+      {
+        "uid": 2,
+        "name": "gas_a",
+        "bus": "b2",
+        "gcost": 70,
+        "capacity": 200
+      },
+      {
+        "uid": 3,
+        "name": "gas_b",
+        "bus": "b2",
+        "gcost": 75,
+        "capacity": 200
+      },
+      {
+        "uid": 4,
+        "name": "solar",
+        "bus": "b1",
+        "gcost": 0,
+        "capacity": 150
+      }
+    ],
+    "generator_profile_array": [
+      {
+        "uid": 1,
+        "name": "solar_profile",
+        "generator": "solar",
+        "profile": [
+          [
+            [
+              0.0,
+              0.4,
+              0.9,
+              1.0,
+              0.6,
+              0.1
+            ]
+          ]
+        ]
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "load",
+        "bus": "b2",
+        "lmax": [
+          [
+            300,
+            380,
+            460,
+            520,
+            440,
+            340
+          ]
+        ],
+        "capacity": 600
+      }
+    ],
+    "commitment_array": [
+      {
+        "uid": 1,
+        "name": "uc_coal",
+        "generator": "coal_big",
+        "pmin": 120,
+        "relax": true,
+        "initial_status": 1
+      },
+      {
+        "uid": 2,
+        "name": "uc_gas_a",
+        "generator": "gas_a",
+        "pmin": 60,
+        "relax": true,
+        "initial_status": 0
+      },
+      {
+        "uid": 3,
+        "name": "uc_gas_b",
+        "generator": "gas_b",
+        "pmin": 60,
+        "relax": true,
+        "initial_status": 0
+      }
+    ],
+    "inertia_zone_array": [
+      {
+        "uid": 1,
+        "name": "sen",
+        "requirement": 3000,
+        "cost": 50,
+        "requirement_credits": [
+          {
+            "name": "both_gas",
+            "generators": [
+              "gas_a",
+              "gas_b"
+            ],
+            "units": 2,
+            "credit": 1500
+          }
+        ]
+      }
+    ],
+    "inertia_provision_array": [
+      {
+        "uid": 1,
+        "name": "ip_coal",
+        "generator": "coal_big",
+        "inertia_zones": [
+          "sen"
+        ],
+        "provision_factor": 10,
+        "provision_max": 3000,
+        "cost": 0
+      },
+      {
+        "uid": 2,
+        "name": "ip_gas_a",
+        "generator": "gas_a",
+        "inertia_zones": [
+          "sen"
+        ],
+        "provision_factor": 6,
+        "provision_max": 1200,
+        "cost": 0
+      },
+      {
+        "uid": 3,
+        "name": "ip_gas_b",
+        "generator": "gas_b",
+        "inertia_zones": [
+          "sen"
+        ],
+        "provision_factor": 6,
+        "provision_max": 1200,
+        "cost": 0
+      }
+    ],
+    "reserve_zone_array": [
+      {
+        "uid": 1,
+        "name": "cpf",
+        "urcost": 5000,
+        "inertia_zone": "sen",
+        "inertia_term": "endogenous",
+        "contingency_generators": [
+          "coal_big",
+          "gas_a",
+          "gas_b"
+        ],
+        "urreq_planes": [
+          {
+            "alpha": 40,
+            "contingency_coef": 0.5,
+            "inertia_coef": -0.005
+          },
+          {
+            "alpha": 30,
+            "contingency_coef": 0.3
+          }
+        ]
+      }
+    ],
+    "reserve_provision_array": [
+      {
+        "uid": 1,
+        "name": "rp_gas_a",
+        "generator": "gas_a",
+        "reserve_zones": [
+          "cpf"
+        ],
+        "urmax": 100,
+        "ur_provision_factor": 1,
+        "urcost": 10
+      },
+      {
+        "uid": 2,
+        "name": "rp_gas_b",
+        "generator": "gas_b",
+        "reserve_zones": [
+          "cpf"
+        ],
+        "urmax": 100,
+        "ur_provision_factor": 1,
+        "urcost": 12
+      },
+      {
+        "uid": 3,
+        "name": "rp_coal",
+        "generator": "coal_big",
+        "reserve_zones": [
+          "cpf"
+        ],
+        "urmax": 60,
+        "ur_provision_factor": 1,
+        "urcost": 8
+      }
+    ]
+  }
+}

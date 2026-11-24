@@ -13,6 +13,9 @@
 
 #pragma once
 
+#include <vector>
+
+#include <gtopt/generator_lp.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/inertia_zone.hpp>
 #include <gtopt/object_lp.hpp>
@@ -28,6 +31,9 @@ public:
   static constexpr std::string_view RequirementName {"requirement"};
   /// PAMPL-visible alias for the requirement columns.
   static constexpr std::string_view ReqName {"req"};
+  /// Commitment-credit selector column `y` and its link row
+  /// `units·y − Σ u ≤ 0` (`requirement_credits`).
+  static constexpr std::string_view CreditName {"credit"};
 
   using Base = ObjectLP<InertiaZone>;
 
@@ -60,6 +66,30 @@ public:
   }
 
 private:
+  /// Resolved InertiaRequirementCredit.
+  struct Credit
+  {
+    std::vector<ElementIndex<GeneratorLP>> generators;
+    double units {1.0};
+    OptTBRealSched credit;
+    bool integer {false};
+  };
+
+  /// Adds the credit columns / link rows of one (scenario, stage) and
+  /// stamps `credit·y` into the requirement rows.
+  void add_credits(const SystemContext& sc,
+                   const ScenarioLP& scenario,
+                   const StageLP& stage,
+                   LinearProblem& lp);
+
+  /// Validates (once) that every credit generator has a commitment
+  /// element; strict mode throws, normal mode warns.
+  void check_credit_generators(const SystemContext& sc, const StageLP& stage);
+
+  std::vector<Credit> credits_;
+  bool credits_checked_ {false};
+  STBIndexHolder<std::vector<ColIndex>> credit_cols_;
+
   struct Requirement
   {
     Requirement(const InputContext& ic,
