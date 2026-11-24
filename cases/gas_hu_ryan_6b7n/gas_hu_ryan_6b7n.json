@@ -1,0 +1,540 @@
+{
+ "options": {
+  "annual_discount_rate": 0.0,
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": false,
+   "use_kirchhoff": true,
+   "scale_objective": 1000,
+   "demand_fail_cost": 1000.0
+  }
+ },
+ "simulation": {
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 1
+   },
+   {
+    "uid": 2,
+    "duration": 1
+   },
+   {
+    "uid": 3,
+    "duration": 1
+   },
+   {
+    "uid": 4,
+    "duration": 1
+   },
+   {
+    "uid": 5,
+    "duration": 1
+   },
+   {
+    "uid": 6,
+    "duration": 1
+   },
+   {
+    "uid": 7,
+    "duration": 1
+   },
+   {
+    "uid": 8,
+    "duration": 1
+   },
+   {
+    "uid": 9,
+    "duration": 1
+   },
+   {
+    "uid": 10,
+    "duration": 1
+   },
+   {
+    "uid": 11,
+    "duration": 1
+   },
+   {
+    "uid": 12,
+    "duration": 1
+   },
+   {
+    "uid": 13,
+    "duration": 1
+   },
+   {
+    "uid": 14,
+    "duration": 1
+   },
+   {
+    "uid": 15,
+    "duration": 1
+   },
+   {
+    "uid": 16,
+    "duration": 1
+   },
+   {
+    "uid": 17,
+    "duration": 1
+   },
+   {
+    "uid": 18,
+    "duration": 1
+   },
+   {
+    "uid": 19,
+    "duration": 1
+   },
+   {
+    "uid": 20,
+    "duration": 1
+   },
+   {
+    "uid": 21,
+    "duration": 1
+   },
+   {
+    "uid": 22,
+    "duration": 1
+   },
+   {
+    "uid": 23,
+    "duration": 1
+   },
+   {
+    "uid": 24,
+    "duration": 1
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 24
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "hu_ryan_6b7n",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "b1"
+   },
+   {
+    "uid": 2,
+    "name": "b2"
+   },
+   {
+    "uid": 3,
+    "name": "b3"
+   },
+   {
+    "uid": 4,
+    "name": "b4"
+   },
+   {
+    "uid": 5,
+    "name": "b5"
+   },
+   {
+    "uid": 6,
+    "name": "b6"
+   }
+  ],
+  "generator_array": [
+   {
+    "uid": 1,
+    "name": "G1",
+    "bus": "b1",
+    "pmax": 220.0,
+    "capacity": 220.0,
+    "gcost": 0.0
+   },
+   {
+    "uid": 2,
+    "name": "G2",
+    "bus": "b2",
+    "pmax": 100.0,
+    "capacity": 100.0,
+    "gcost": 56.558
+   },
+   {
+    "uid": 3,
+    "name": "G3",
+    "bus": "b6",
+    "pmax": 20.0,
+    "capacity": 20.0,
+    "gcost": 0.0
+   },
+   {
+    "uid": 4,
+    "name": "W",
+    "bus": "b1",
+    "pmax": [
+     [
+      126.76714073445129,
+      112.58756102738272,
+      101.63447251114412,
+      92.80407556782,
+      87.62470812990873,
+      82.36043302908088,
+      77.01125026533644,
+      71.91679049034175,
+      72.08660581617491,
+      77.77541923158564,
+      90.42666100615581,
+      102.39864147739334,
+      112.41774570154956,
+      118.78582042029294,
+      126.76714073445129,
+      137.46550626194013,
+      150.03184037359372,
+      155.1263001485884,
+      150.96582466567608,
+      137.5504139248567,
+      124.21991084695394,
+      112.84228401613245,
+      104.0967947357249,
+      97.38908936531521
+     ]
+    ],
+    "capacity": 400.0,
+    "gcost": 0.0
+   }
+  ],
+  "demand_array": [
+   {
+    "uid": 1,
+    "name": "d3",
+    "bus": "b3",
+    "lmax": [
+     [
+      35.038000000000004,
+      33.03,
+      31.733999999999998,
+      30.945999999999998,
+      31.012,
+      32.096,
+      34.678,
+      38.080000000000005,
+      41.112,
+      43.44,
+      45.72200000000001,
+      47.22,
+      48.43600000000001,
+      48.72,
+      49.772000000000006,
+      51.158,
+      51.2,
+      49.348000000000006,
+      47.194,
+      47.47,
+      47.462,
+      45.428,
+      40.21000000000001,
+      39.35
+     ]
+    ]
+   },
+   {
+    "uid": 2,
+    "name": "d4",
+    "bus": "b4",
+    "lmax": [
+     [
+      70.07600000000001,
+      66.06,
+      63.467999999999996,
+      61.891999999999996,
+      62.024,
+      64.192,
+      69.356,
+      76.16000000000001,
+      82.224,
+      86.88,
+      91.44400000000002,
+      94.44,
+      96.87200000000001,
+      97.44,
+      99.54400000000001,
+      102.316,
+      102.4,
+      98.69600000000001,
+      94.388,
+      94.94,
+      94.924,
+      90.856,
+      80.42000000000002,
+      78.7
+     ]
+    ]
+   },
+   {
+    "uid": 3,
+    "name": "d5",
+    "bus": "b5",
+    "lmax": [
+     [
+      70.07600000000001,
+      66.06,
+      63.467999999999996,
+      61.891999999999996,
+      62.024,
+      64.192,
+      69.356,
+      76.16000000000001,
+      82.224,
+      86.88,
+      91.44400000000002,
+      94.44,
+      96.87200000000001,
+      97.44,
+      99.54400000000001,
+      102.316,
+      102.4,
+      98.69600000000001,
+      94.388,
+      94.94,
+      94.924,
+      90.856,
+      80.42000000000002,
+      78.7
+     ]
+    ]
+   }
+  ],
+  "line_array": [
+   {
+    "uid": 1,
+    "name": "l1_2",
+    "bus_a": "b1",
+    "bus_b": "b2",
+    "reactance": 0.17,
+    "tmax_ab": 200.0,
+    "tmax_ba": 200.0
+   },
+   {
+    "uid": 2,
+    "name": "l1_4",
+    "bus_a": "b1",
+    "bus_b": "b4",
+    "reactance": 0.258,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0
+   },
+   {
+    "uid": 3,
+    "name": "l2_4",
+    "bus_a": "b2",
+    "bus_b": "b4",
+    "reactance": 0.197,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0
+   },
+   {
+    "uid": 4,
+    "name": "l5_6",
+    "bus_a": "b5",
+    "bus_b": "b6",
+    "reactance": 0.14,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0
+   },
+   {
+    "uid": 5,
+    "name": "l2_3",
+    "bus_a": "b2",
+    "bus_b": "b3",
+    "reactance": 0.037,
+    "tmax_ab": 150.0,
+    "tmax_ba": 150.0
+   },
+   {
+    "uid": 6,
+    "name": "l4_5",
+    "bus_a": "b4",
+    "bus_b": "b5",
+    "reactance": 0.037,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0
+   },
+   {
+    "uid": 7,
+    "name": "l3_6",
+    "bus_a": "b3",
+    "bus_b": "b6",
+    "reactance": 0.018,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0
+   }
+  ],
+  "gas_node_array": [
+   {
+    "uid": 1,
+    "name": "N1",
+    "pmin": 105.0,
+    "pmax": 150.0
+   },
+   {
+    "uid": 2,
+    "name": "N2",
+    "pmin": 140.0,
+    "pmax": 170.0
+   },
+   {
+    "uid": 3,
+    "name": "N3",
+    "pmin": 150.0,
+    "pmax": 195.0
+   },
+   {
+    "uid": 4,
+    "name": "N4",
+    "pmin": 70.0,
+    "pmax": 100.0
+   },
+   {
+    "uid": 5,
+    "name": "N5",
+    "pmin": 150.0,
+    "pmax": 200.0
+   },
+   {
+    "uid": 6,
+    "name": "N6",
+    "pmin": 160.0,
+    "pmax": 240.0
+   },
+   {
+    "uid": 7,
+    "name": "N7",
+    "pmin": 100.0,
+    "pmax": 140.0
+   }
+  ],
+  "gas_supply_array": [
+   {
+    "uid": 1,
+    "name": "SUP1",
+    "gas_node": "N7",
+    "fmax": 5300.0,
+    "cost": 1.68
+   },
+   {
+    "uid": 2,
+    "name": "SUP2",
+    "gas_node": "N6",
+    "fmax": 6000.0,
+    "cost": 2.28
+   },
+   {
+    "uid": 3,
+    "name": "STOR1",
+    "gas_node": "N1",
+    "fmax": 750.0,
+    "cost": 3.0
+   }
+  ],
+  "gas_demand_array": [
+   {
+    "uid": 1,
+    "name": "GD2",
+    "gas_node": "N2",
+    "load": 6400.0,
+    "fail_cost": 50.0
+   },
+   {
+    "uid": 2,
+    "name": "GD4",
+    "gas_node": "N4",
+    "load": 3200.0,
+    "fail_cost": 50.0
+   }
+  ],
+  "gas_pipe_array": [
+   {
+    "uid": 1,
+    "name": "P1_2",
+    "gas_node_a": "N2",
+    "gas_node_b": "N1",
+    "weymouth_k": 0.0003905700760830508,
+    "fmax": 6765.089430303194,
+    "segments": 16
+   },
+   {
+    "uid": 2,
+    "name": "P2_5",
+    "gas_node_a": "N5",
+    "gas_node_b": "N2",
+    "weymouth_k": 0.0007111111111111111,
+    "fmax": 5356.071321407137,
+    "segments": 16
+   },
+   {
+    "uid": 3,
+    "name": "P5_6",
+    "gas_node_a": "N6",
+    "gas_node_b": "N5",
+    "weymouth_k": 0.0004873080615372621,
+    "fmax": 8486.952279823423,
+    "segments": 16
+   },
+   {
+    "uid": 4,
+    "name": "P3_5",
+    "gas_node_a": "N5",
+    "gas_node_b": "N3",
+    "weymouth_k": 0.0005284713964856652,
+    "fmax": 5754.509101565485,
+    "segments": 16
+   },
+   {
+    "uid": 5,
+    "name": "P4_7",
+    "gas_node_a": "N7",
+    "gas_node_b": "N4",
+    "weymouth_k": 0.00039840478723192336,
+    "fmax": 6074.3021821440525,
+    "segments": 16
+   }
+  ],
+  "gas_compressor_array": [
+   {
+    "uid": 1,
+    "name": "C4_2",
+    "gas_node_in": "N4",
+    "gas_node_out": "N2",
+    "fmax": 100000.0,
+    "max_ratio": 1.5,
+    "fuel_model": "none",
+    "allow_bypass": false
+   }
+  ],
+  "gas_turbine_array": [
+   {
+    "uid": 1,
+    "name": "G1_gas",
+    "generator": "G1",
+    "gas_node": "N1",
+    "heat_rate": 17.72847
+   },
+   {
+    "uid": 2,
+    "name": "G3_gas",
+    "generator": "G3",
+    "gas_node": "N3",
+    "heat_rate": 19.72847
+   }
+  ]
+ }
+}

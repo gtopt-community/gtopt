@@ -1,0 +1,594 @@
+{
+ "options": {
+  "annual_discount_rate": 0.0,
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": false,
+   "use_kirchhoff": true,
+   "scale_objective": 1000,
+   "demand_fail_cost": 1000
+  }
+ },
+ "simulation": {
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 1
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 1,
+    "active": 1,
+    "chronological": true
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "belgian_a1_radial_winter_series",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "B"
+   }
+  ],
+  "generator_array": [],
+  "demand_array": [],
+  "line_array": [],
+  "gas_node_array": [
+   {
+    "uid": 1,
+    "name": "Zeebrugge_1",
+    "pmin": 1.0,
+    "pmax": 77.0,
+    "p_init": 77.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 2,
+    "name": "Dudzele_2",
+    "pmin": 1.0,
+    "pmax": 77.0,
+    "p_init": 77.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 3,
+    "name": "Brugge_3",
+    "pmin": 30.0,
+    "pmax": 80.0,
+    "p_init": 80.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 4,
+    "name": "Zomergem_4",
+    "pmin": 1.0,
+    "pmax": 80.0,
+    "p_init": 80.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 5,
+    "name": "Loenhout_5",
+    "pmin": 1.0,
+    "pmax": 77.0,
+    "p_init": 77.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 6,
+    "name": "Antwerpen_6",
+    "pmin": 30.0,
+    "pmax": 80.0,
+    "p_init": 80.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 7,
+    "name": "Gent_7",
+    "pmin": 30.0,
+    "pmax": 80.0,
+    "p_init": 80.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 8,
+    "name": "Voeren_8",
+    "pmin": 50.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 9,
+    "name": "Berneau_9",
+    "pmin": 1.0,
+    "pmax": 59.851968,
+    "p_init": 59.851968,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 10,
+    "name": "Liege_10",
+    "pmin": 30.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 11,
+    "name": "Warnand_11",
+    "pmin": 1.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 12,
+    "name": "Namur_12",
+    "pmin": 1.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 13,
+    "name": "Anderlues_13",
+    "pmin": 1.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 14,
+    "name": "Peronnes_14",
+    "pmin": 1.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 15,
+    "name": "Mons_15",
+    "pmin": 1.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 16,
+    "name": "Blaregnies_16",
+    "pmin": 50.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 17,
+    "name": "Wanze_17",
+    "pmin": 1.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 18,
+    "name": "Sinsin_18",
+    "pmin": 1.0,
+    "pmax": 63.0,
+    "p_init": 63.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 19,
+    "name": "Arlon_19",
+    "pmin": 1.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 20,
+    "name": "Petange_20",
+    "pmin": 25.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 21,
+    "name": "AUX_41",
+    "pmin": 1.0,
+    "pmax": 80.0,
+    "p_init": 80.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 22,
+    "name": "AUX_51",
+    "pmin": 1.0,
+    "pmax": 77.0,
+    "p_init": 77.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 23,
+    "name": "AUX_81",
+    "pmin": 1.0,
+    "pmax": 59.851968,
+    "p_init": 59.851968,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 24,
+    "name": "AUX_171",
+    "pmin": 1.0,
+    "pmax": 66.2,
+    "p_init": 66.2,
+    "pressure_cost": -0.0001
+   }
+  ],
+  "gas_supply_array": [
+   {
+    "uid": 1,
+    "name": "IN_Zeebrugge_1",
+    "gas_node": "Zeebrugge_1",
+    "fmax": 583.6897289080968,
+    "cost": 1.0
+   },
+   {
+    "uid": 2,
+    "name": "IN_Dudzele_2",
+    "gas_node": "Dudzele_2",
+    "fmax": 449.33355140326165,
+    "cost": 1.0
+   },
+   {
+    "uid": 3,
+    "name": "IN_Loenhout_5",
+    "gas_node": "Loenhout_5",
+    "fmax": 150.60156000286526,
+    "cost": 1.0
+   },
+   {
+    "uid": 4,
+    "name": "IN_Voeren_8",
+    "gas_node": "Voeren_8",
+    "fmax": 1177.5385420825673,
+    "cost": 1.0
+   },
+   {
+    "uid": 5,
+    "name": "IN_Anderlues_13",
+    "gas_node": "Anderlues_13",
+    "fmax": 64.20358209784867,
+    "cost": 1.0
+   },
+   {
+    "uid": 6,
+    "name": "IN_Peronnes_14",
+    "gas_node": "Peronnes_14",
+    "fmax": 51.34456102194313,
+    "cost": 1.0
+   }
+  ],
+  "gas_demand_array": [
+   {
+    "uid": 1,
+    "name": "OUT_Brugge_3",
+    "gas_node": "Brugge_3",
+    "load": 209.58831504500847,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 2,
+    "name": "OUT_Antwerpen_6",
+    "gas_node": "Antwerpen_6",
+    "load": 215.8118981991834,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 3,
+    "name": "OUT_Gent_7",
+    "gas_node": "Gent_7",
+    "load": 281.1595213180201,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 4,
+    "name": "OUT_Liege_10",
+    "gas_node": "Liege_10",
+    "load": 340.5123694868795,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 5,
+    "name": "OUT_Namur_12",
+    "gas_node": "Namur_12",
+    "load": 113.3973460003343,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 6,
+    "name": "OUT_Mons_15",
+    "gas_node": "Mons_15",
+    "load": 366.32193492036964,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 7,
+    "name": "OUT_Blaregnies_16",
+    "gas_node": "Blaregnies_16",
+    "load": 835.3787535254651,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 8,
+    "name": "OUT_Arlon_19",
+    "gas_node": "Arlon_19",
+    "load": 11.898026618275592,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 9,
+    "name": "OUT_Petange_20",
+    "gas_node": "Petange_20",
+    "load": 102.64336040304673,
+    "fail_cost": 1000.0
+   }
+  ],
+  "gas_pipe_array": [
+   {
+    "uid": 1,
+    "name": "P1_2",
+    "gas_node_a": "Zeebrugge_1",
+    "gas_node_b": "Dudzele_2",
+    "weymouth_k": 9.773543922703792e-06,
+    "fmax": 876.5345933621453,
+    "segments": 32
+   },
+   {
+    "uid": 2,
+    "name": "P2_3",
+    "gas_node_a": "Dudzele_2",
+    "gas_node_b": "Brugge_3",
+    "weymouth_k": 1.4660315884055689e-05,
+    "fmax": 1550.5349204670379,
+    "segments": 32
+   },
+   {
+    "uid": 3,
+    "name": "P3_4",
+    "gas_node_a": "Brugge_3",
+    "gas_node_b": "Zomergem_4",
+    "weymouth_k": 0.0002541121419902987,
+    "fmax": 1236.152447899525,
+    "segments": 32
+   },
+   {
+    "uid": 4,
+    "name": "P6_7",
+    "gas_node_a": "Gent_7",
+    "gas_node_b": "Antwerpen_6",
+    "weymouth_k": 0.002401527583536643,
+    "fmax": 98.8155072944772,
+    "segments": 32
+   },
+   {
+    "uid": 5,
+    "name": "P7_4",
+    "gas_node_a": "Zomergem_4",
+    "gas_node_b": "Gent_7",
+    "weymouth_k": 0.0015734146236964215,
+    "fmax": 520.5547892715074,
+    "segments": 32
+   },
+   {
+    "uid": 6,
+    "name": "P9_10",
+    "gas_node_a": "Berneau_9",
+    "gas_node_b": "Liege_10",
+    "weymouth_k": 0.00015537617940946584,
+    "fmax": 1767.307813123851,
+    "segments": 32
+   },
+   {
+    "uid": 7,
+    "name": "P10_11",
+    "gas_node_a": "Liege_10",
+    "gas_node_b": "Warnand_11",
+    "weymouth_k": 0.0001942202242618323,
+    "fmax": 1256.5392588935317,
+    "segments": 32
+   },
+   {
+    "uid": 8,
+    "name": "P11_12",
+    "gas_node_a": "Warnand_11",
+    "gas_node_b": "Namur_12",
+    "weymouth_k": 0.0004104888447535594,
+    "fmax": 1084.7271783615483,
+    "segments": 32
+   },
+   {
+    "uid": 9,
+    "name": "P12_13",
+    "gas_node_a": "Namur_12",
+    "gas_node_b": "Anderlues_13",
+    "weymouth_k": 0.00039094175690815194,
+    "fmax": 914.6311593610469,
+    "segments": 32
+   },
+   {
+    "uid": 10,
+    "name": "P13_14",
+    "gas_node_a": "Anderlues_13",
+    "gas_node_b": "Peronnes_14",
+    "weymouth_k": 4.8867719613518966e-05,
+    "fmax": 1010.9365325078198,
+    "segments": 32
+   },
+   {
+    "uid": 11,
+    "name": "P14_15",
+    "gas_node_a": "Peronnes_14",
+    "gas_node_b": "Mons_15",
+    "weymouth_k": 9.773543922703799e-05,
+    "fmax": 1803.551032668752,
+    "segments": 32
+   },
+   {
+    "uid": 12,
+    "name": "P15_16",
+    "gas_node_a": "Mons_15",
+    "gas_node_b": "Blaregnies_16",
+    "weymouth_k": 0.0002443385980675949,
+    "fmax": 1254.0681302881976,
+    "segments": 32
+   },
+   {
+    "uid": 13,
+    "name": "P11_17",
+    "gas_node_a": "Warnand_11",
+    "gas_node_b": "Wanze_17",
+    "weymouth_k": 0.006937049197705568,
+    "fmax": 172.8120805319835,
+    "segments": 32
+   },
+   {
+    "uid": 14,
+    "name": "P18_19",
+    "gas_node_a": "Sinsin_18",
+    "gas_node_b": "Arlon_19",
+    "weymouth_k": 0.21019954484098433,
+    "fmax": 172.8120805319835,
+    "segments": 32
+   },
+   {
+    "uid": 15,
+    "name": "P19_20",
+    "gas_node_a": "Arlon_19",
+    "gas_node_b": "Petange_20",
+    "weymouth_k": 0.012869359888223533,
+    "fmax": 154.9650406045701,
+    "segments": 32
+   },
+   {
+    "uid": 16,
+    "name": "P51_6",
+    "gas_node_a": "AUX_51",
+    "gas_node_b": "Antwerpen_6",
+    "weymouth_k": 0.0035608857273129544,
+    "fmax": 226.90234000429788,
+    "segments": 32
+   },
+   {
+    "uid": 17,
+    "name": "P41_14",
+    "gas_node_a": "AUX_41",
+    "gas_node_b": "Peronnes_14",
+    "weymouth_k": 0.0005375449157487087,
+    "fmax": 716.5976586280176,
+    "segments": 32
+   },
+   {
+    "uid": 18,
+    "name": "P81_9",
+    "gas_node_a": "AUX_81",
+    "gas_node_b": "Berneau_9",
+    "weymouth_k": 3.884404485236646e-05,
+    "fmax": 1767.307813123851,
+    "segments": 32
+   },
+   {
+    "uid": 19,
+    "name": "P171_18",
+    "gas_node_a": "AUX_171",
+    "gas_node_b": "Sinsin_18",
+    "weymouth_k": 0.055767226182301975,
+    "fmax": 172.8120805319835,
+    "segments": 32
+   }
+  ],
+  "gas_compressor_array": [
+   {
+    "uid": 1,
+    "name": "C5_51",
+    "gas_node_in": "Loenhout_5",
+    "gas_node_out": "AUX_51",
+    "fmax": 2745.69845037129,
+    "max_ratio": 2.0,
+    "fuel_model": "saldarriaga",
+    "alpha": 0.23076923076923078,
+    "gamma": 0.04333528512949229,
+    "op_flow": 150.60156000286526,
+    "op_ratio": [
+     1.05
+    ],
+    "op_suction_pressure": 39.0,
+    "allow_bypass": false
+   },
+   {
+    "uid": 2,
+    "name": "C4_41",
+    "gas_node_in": "Zomergem_4",
+    "gas_node_out": "AUX_41",
+    "fmax": 2745.69845037129,
+    "max_ratio": 2.0,
+    "fuel_model": "saldarriaga",
+    "alpha": 0.23076923076923078,
+    "gamma": 0.04333528512949229,
+    "op_flow": 477.06510575201173,
+    "op_ratio": [
+     1.05
+    ],
+    "op_suction_pressure": 40.5,
+    "allow_bypass": false
+   },
+   {
+    "uid": 3,
+    "name": "C8_81",
+    "gas_node_in": "Voeren_8",
+    "gas_node_out": "AUX_81",
+    "fmax": 5491.39690074258,
+    "max_ratio": 2.0,
+    "fuel_model": "saldarriaga",
+    "alpha": 0.23076923076923078,
+    "gamma": 0.04333528512949229,
+    "op_flow": 1177.5385420825673,
+    "op_ratio": [
+     1.05
+    ],
+    "op_suction_pressure": 58.1,
+    "allow_bypass": false
+   },
+   {
+    "uid": 4,
+    "name": "C17_171",
+    "gas_node_in": "Wanze_17",
+    "gas_node_out": "AUX_171",
+    "fmax": 2745.69845037129,
+    "max_ratio": 2.0,
+    "fuel_model": "saldarriaga",
+    "alpha": 0.23076923076923078,
+    "gamma": 0.04333528512949229,
+    "op_flow": 114.54138702132232,
+    "op_ratio": [
+     1.05
+    ],
+    "op_suction_pressure": 33.6,
+    "allow_bypass": false
+   }
+  ]
+ }
+}

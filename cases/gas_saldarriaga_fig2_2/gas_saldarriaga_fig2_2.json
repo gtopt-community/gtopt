@@ -1,0 +1,143 @@
+{
+ "options": {
+  "annual_discount_rate": 0.0,
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": false,
+   "use_kirchhoff": true,
+   "scale_objective": 1000,
+   "demand_fail_cost": 1000
+  }
+ },
+ "simulation": {
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 1
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 1,
+    "active": 1,
+    "chronological": true
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "saldarriaga_phd_fig2_2_winter_series",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "B"
+   }
+  ],
+  "generator_array": [],
+  "demand_array": [],
+  "line_array": [],
+  "gas_node_array": [
+   {
+    "uid": 1,
+    "name": "N1",
+    "pmin": 90,
+    "pmax": 90,
+    "p_init": 90,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 2,
+    "name": "N2",
+    "pmin": 30,
+    "pmax": 90,
+    "p_init": 70,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 3,
+    "name": "N3",
+    "pmin": 30,
+    "pmax": 90,
+    "p_init": 50,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 4,
+    "name": "N4",
+    "pmin": 30,
+    "pmax": 90,
+    "p_init": 30,
+    "pressure_cost": -0.0001
+   }
+  ],
+  "gas_supply_array": [
+   {
+    "uid": 1,
+    "name": "INJ_N1",
+    "gas_node": "N1",
+    "fmax": 1250.0,
+    "cost": 1.0
+   }
+  ],
+  "gas_demand_array": [
+   {
+    "uid": 1,
+    "name": "D_N2",
+    "gas_node": "N2",
+    "load": 101.049969,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 2,
+    "name": "D_N3",
+    "gas_node": "N3",
+    "load": 119.863931,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 3,
+    "name": "D_N4",
+    "gas_node": "N4",
+    "load": 533.333333,
+    "fail_cost": 1000.0
+   }
+  ],
+  "gas_pipe_array": [
+   {
+    "uid": 1,
+    "name": "P12",
+    "gas_node_a": "N1",
+    "gas_node_b": "N2",
+    "weymouth_k": 0.005625000000000001,
+    "fmax": 833.3333333333333,
+    "segments": 32
+   },
+   {
+    "uid": 2,
+    "name": "P23",
+    "gas_node_a": "N2",
+    "gas_node_b": "N3",
+    "weymouth_k": 0.005625000000000001,
+    "fmax": 833.3333333333333,
+    "segments": 32
+   },
+   {
+    "uid": 3,
+    "name": "P34",
+    "gas_node_a": "N3",
+    "gas_node_b": "N4",
+    "weymouth_k": 0.005625000000000001,
+    "fmax": 833.3333333333333,
+    "segments": 32
+   }
+  ]
+ }
+}

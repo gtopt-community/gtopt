@@ -1,0 +1,39 @@
+{
+  "_comment": "3-node radial validation instance S -> M -> T (flat 24 h, single power bus).",
+  "name": "mini3",
+  "profiles": {},
+  "gas_network": {
+    "network_model": "radial",
+    "gas_node_array": [
+      {"uid": 1, "name": "S", "pmin": 30, "pmax": 70, "p_init": 70},
+      {"uid": 2, "name": "M", "pmin": 30, "pmax": 70, "p_init": 60},
+      {"uid": 3, "name": "T", "pmin": 35, "pmax": 70, "p_init": 45}
+    ],
+    "gas_pipeline_array": [
+      {"uid": 1, "name": "S_M", "node_a": "S", "node_b": "M", "length": 50,
+       "diameter": 406, "fmax": 300, "segments": 8},
+      {"uid": 2, "name": "M_T", "node_a": "M", "node_b": "T", "length": 80,
+       "diameter": 406, "fmax": 300, "segments": 8}
+    ],
+    "gas_source_array": [
+      {"uid": 1, "name": "SUPPLY", "node": "S", "fmax": 1000, "cost": 300.0}
+    ],
+    "gas_demand_array": [
+      {"uid": 1, "name": "CITY", "node": "T", "load": 60, "fail_cost": 3000.0}
+    ],
+    "generator_gas_link_array": [
+      {"generator": "G_M", "gas_node": "M", "heat_rate": 0.2},
+      {"generator": "G_T", "gas_node": "T", "heat_rate": 0.2}
+    ]
+  },
+  "power_system": {
+    "bus_array": [{"uid": 1, "name": "B"}],
+    "generator_array": [
+      {"uid": 1, "name": "G_M", "bus": "B", "pmax": 500, "capacity": 500, "gcost": 0},
+      {"uid": 2, "name": "G_T", "bus": "B", "pmax": 600, "capacity": 600, "gcost": 0},
+      {"uid": 3, "name": "DIESEL", "bus": "B", "pmax": 2000, "capacity": 2000, "gcost": 220}
+    ],
+    "demand_array": [{"uid": 1, "name": "D", "bus": "B", "lmax": 900}],
+    "line_array": []
+  }
+}

@@ -1,0 +1,116 @@
+{
+ "_comment": [
+  "Saldarriaga PhD (UTP 2018), sec. 2.3.1, Fig. 2.2(b): 3 identical pipes in series,",
+  "C = 0.32 Mm3/(day bar) (Psi^2 = C^2 (rho_in^2 - rho_out^2)), node 1 at 90 bar, node 4 at its 30 bar limit.",
+  "Units converted to km3/h: 1 Mm3/d = 41.6667 km3/h, so K = 1/C^2 / 41.6667^2 bar^2/(km3/h)^2.",
+  "Demands are the differences of the pipe flows implied by the published pressures (90/70/50/30 bar):",
+  "18.102 / 15.677 / 12.800 Mm3/d; the text rounds them to 18.1 / 15.7 / 12.8."
+ ],
+ "name": "saldarriaga_phd_fig2_2",
+ "profiles": {},
+ "gas_network": {
+  "network_model": "radial",
+  "gas_node_array": [
+   {
+    "uid": 1,
+    "name": "N1",
+    "pmin": 90,
+    "pmax": 90,
+    "p_init": 90
+   },
+   {
+    "uid": 2,
+    "name": "N2",
+    "pmin": 30,
+    "pmax": 90,
+    "p_init": 70
+   },
+   {
+    "uid": 3,
+    "name": "N3",
+    "pmin": 30,
+    "pmax": 90,
+    "p_init": 50
+   },
+   {
+    "uid": 4,
+    "name": "N4",
+    "pmin": 30,
+    "pmax": 90,
+    "p_init": 30
+   }
+  ],
+  "gas_pipeline_array": [
+   {
+    "uid": 1,
+    "name": "P12",
+    "node_a": "N1",
+    "node_b": "N2",
+    "weymouth_k": 0.005625000000000001,
+    "fmax": 833.3333333333333,
+    "segments": 32
+   },
+   {
+    "uid": 2,
+    "name": "P23",
+    "node_a": "N2",
+    "node_b": "N3",
+    "weymouth_k": 0.005625000000000001,
+    "fmax": 833.3333333333333,
+    "segments": 32
+   },
+   {
+    "uid": 3,
+    "name": "P34",
+    "node_a": "N3",
+    "node_b": "N4",
+    "weymouth_k": 0.005625000000000001,
+    "fmax": 833.3333333333333,
+    "segments": 32
+   }
+  ],
+  "gas_source_array": [
+   {
+    "uid": 1,
+    "name": "INJ_N1",
+    "node": "N1",
+    "fmax": 1250.0,
+    "cost": 1.0
+   }
+  ],
+  "gas_demand_array": [
+   {
+    "uid": 1,
+    "name": "D_N2",
+    "node": "N2",
+    "load": 101.049969,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 2,
+    "name": "D_N3",
+    "node": "N3",
+    "load": 119.863931,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 3,
+    "name": "D_N4",
+    "node": "N4",
+    "load": 533.333333,
+    "fail_cost": 1000.0
+   }
+  ]
+ },
+ "power_system": {
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "B"
+   }
+  ],
+  "generator_array": [],
+  "demand_array": [],
+  "line_array": []
+ }
+}

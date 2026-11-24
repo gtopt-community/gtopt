@@ -1,0 +1,246 @@
+{
+ "name": "gaslib11_radial",
+ "profiles": {},
+ "gas_network": {
+  "network_model": "radial",
+  "gas_node_array": [
+   {
+    "uid": 1,
+    "name": "entry01",
+    "pmin": 40.0,
+    "pmax": 70.0,
+    "p_init": 70.0
+   },
+   {
+    "uid": 2,
+    "name": "entry03",
+    "pmin": 40.0,
+    "pmax": 70.0,
+    "p_init": 70.0
+   },
+   {
+    "uid": 3,
+    "name": "entry02",
+    "pmin": 40.0,
+    "pmax": 70.0,
+    "p_init": 70.0
+   },
+   {
+    "uid": 4,
+    "name": "exit01",
+    "pmin": 40.0,
+    "pmax": 70.0,
+    "p_init": 70.0
+   },
+   {
+    "uid": 5,
+    "name": "exit02",
+    "pmin": 40.0,
+    "pmax": 60.0,
+    "p_init": 60.0
+   },
+   {
+    "uid": 6,
+    "name": "exit03",
+    "pmin": 40.0,
+    "pmax": 60.0,
+    "p_init": 60.0
+   },
+   {
+    "uid": 7,
+    "name": "N01",
+    "pmin": 40.0,
+    "pmax": 70.0,
+    "p_init": 70.0
+   },
+   {
+    "uid": 8,
+    "name": "N02",
+    "pmin": 40.0,
+    "pmax": 70.0,
+    "p_init": 70.0
+   },
+   {
+    "uid": 9,
+    "name": "N03",
+    "pmin": 40.0,
+    "pmax": 70.0,
+    "p_init": 70.0
+   },
+   {
+    "uid": 10,
+    "name": "N04",
+    "pmin": 40.0,
+    "pmax": 70.0,
+    "p_init": 70.0
+   },
+   {
+    "uid": 11,
+    "name": "N05",
+    "pmin": 40.0,
+    "pmax": 70.0,
+    "p_init": 70.0
+   }
+  ],
+  "gas_pipeline_array": [
+   {
+    "uid": 1,
+    "name": "pipe01_entry01_entry03",
+    "node_a": "entry01",
+    "node_b": "entry03",
+    "weymouth_k": 0.020818491089620188,
+    "fmax": 241.0,
+    "segments": 32
+   },
+   {
+    "uid": 2,
+    "name": "pipe02_N01_N02",
+    "node_a": "N01",
+    "node_b": "N02",
+    "weymouth_k": 0.020818491089620188,
+    "fmax": 241.0,
+    "segments": 32
+   },
+   {
+    "uid": 3,
+    "name": "pipe03_entry02_N03",
+    "node_a": "entry02",
+    "node_b": "N03",
+    "weymouth_k": 0.020818491089620188,
+    "fmax": 211.0,
+    "segments": 32
+   },
+   {
+    "uid": 4,
+    "name": "pipe04_N02_exit01",
+    "node_a": "N02",
+    "node_b": "exit01",
+    "weymouth_k": 0.020818491089620188,
+    "fmax": 151.0,
+    "segments": 32
+   },
+   {
+    "uid": 5,
+    "name": "pipe05_N02_N04",
+    "node_a": "N02",
+    "node_b": "N04",
+    "weymouth_k": 0.020818491089620188,
+    "fmax": 91.0,
+    "segments": 32
+   },
+   {
+    "uid": 6,
+    "name": "pipe06_N03_N04",
+    "node_a": "N03",
+    "node_b": "N04",
+    "weymouth_k": 0.020818491089620188,
+    "fmax": 211.0,
+    "segments": 32
+   },
+   {
+    "uid": 7,
+    "name": "pipe07_N05_exit02",
+    "node_a": "N05",
+    "node_b": "exit02",
+    "weymouth_k": 0.020818491089620188,
+    "fmax": 181.0,
+    "segments": 32
+   },
+   {
+    "uid": 8,
+    "name": "pipe08_N05_exit03",
+    "node_a": "N05",
+    "node_b": "exit03",
+    "weymouth_k": 0.020818491089620188,
+    "fmax": 121.0,
+    "segments": 32
+   }
+  ],
+  "compressor_station_array": [
+   {
+    "uid": 1,
+    "name": "CS01_entry03_N01",
+    "node_in": "entry03",
+    "node_out": "N01",
+    "max_ratio": 1.75,
+    "fmax": 1100.0,
+    "fuel_model": "saldarriaga",
+    "op_flow": 160.0,
+    "op_ratio": 1.05
+   },
+   {
+    "uid": 2,
+    "name": "CS02_N04_N05",
+    "node_in": "N04",
+    "node_out": "N05",
+    "max_ratio": 1.75,
+    "fmax": 1100.0,
+    "fuel_model": "saldarriaga",
+    "op_flow": 200.0,
+    "op_ratio": 1.05
+   }
+  ],
+  "gas_source_array": [
+   {
+    "uid": 1,
+    "name": "IN_entry01",
+    "node": "entry01",
+    "fmax": 160.0,
+    "cost": 1.0
+   },
+   {
+    "uid": 2,
+    "name": "IN_entry02",
+    "node": "entry02",
+    "fmax": 140.0,
+    "cost": 1.0
+   }
+  ],
+  "gas_demand_array": [
+   {
+    "uid": 1,
+    "name": "OUT_exit01",
+    "node": "exit01",
+    "load": 100.0,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 2,
+    "name": "OUT_exit02",
+    "node": "exit02",
+    "load": 120.0,
+    "fail_cost": 1000.0
+   },
+   {
+    "uid": 3,
+    "name": "OUT_exit03",
+    "node": "exit03",
+    "load": 80.0,
+    "fail_cost": 1000.0
+   }
+  ]
+ },
+ "power_system": {
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "B"
+   }
+  ],
+  "generator_array": [],
+  "demand_array": [],
+  "line_array": []
+ },
+ "_tree_flows_km3h": {
+  "pipe08_N05_exit03": 80.0,
+  "pipe07_N05_exit02": 120.0,
+  "CS02_N04_N05": 200.0,
+  "pipe04_N02_exit01": 100.0,
+  "pipe03_entry02_N03": 140.0,
+  "pipe06_N03_N04": 140.0,
+  "pipe05_N02_N04": 60.0,
+  "pipe02_N01_N02": 160.0,
+  "CS01_entry03_N01": 160.0,
+  "pipe01_entry01_entry03": 160.0
+ }
+}

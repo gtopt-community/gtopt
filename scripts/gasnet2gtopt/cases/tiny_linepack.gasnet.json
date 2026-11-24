@@ -1,0 +1,37 @@
+{
+  "_comment": "Tiny line-pack case: S -> T, 4 hourly blocks with a city peak in block 3; packing the pipe before the peak keeps the plant at T running.",
+  "name": "tiny_linepack",
+  "profiles": {
+    "city": [40, 40, 160, 40],
+    "power": [500, 500, 500, 500]
+  },
+  "gas_network": {
+    "network_model": "radial",
+    "gas_node_array": [
+      {"uid": 1, "name": "S", "pmin": 30, "pmax": 60, "p_init": 55},
+      {"uid": 2, "name": "T", "pmin": 35, "pmax": 60, "p_init": 40}
+    ],
+    "gas_pipeline_array": [
+      {"uid": 1, "name": "S_T", "node_a": "S", "node_b": "T", "length": 80,
+       "diameter": 406, "fmax": 300, "segments": 8, "linepack": true}
+    ],
+    "gas_source_array": [
+      {"uid": 1, "name": "SUPPLY", "node": "S", "fmax": 1000, "cost": 300.0}
+    ],
+    "gas_demand_array": [
+      {"uid": 1, "name": "CITY", "node": "T", "load": "city", "fail_cost": 3000.0}
+    ],
+    "generator_gas_link_array": [
+      {"generator": "G_T", "gas_node": "T", "heat_rate": 0.2}
+    ]
+  },
+  "power_system": {
+    "bus_array": [{"uid": 1, "name": "B"}],
+    "generator_array": [
+      {"uid": 1, "name": "G_T", "bus": "B", "pmax": 600, "capacity": 600, "gcost": 0},
+      {"uid": 2, "name": "DIESEL", "bus": "B", "pmax": 2000, "capacity": 2000, "gcost": 220}
+    ],
+    "demand_array": [{"uid": 1, "name": "D", "bus": "B", "lmax": "power"}],
+    "line_array": []
+  }
+}

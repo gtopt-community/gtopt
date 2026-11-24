@@ -1,0 +1,156 @@
+{
+ "options": {
+  "annual_discount_rate": 0.0,
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": false,
+   "use_kirchhoff": true,
+   "scale_objective": 1000,
+   "demand_fail_cost": 1000
+  }
+ },
+ "simulation": {
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 1
+   },
+   {
+    "uid": 2,
+    "duration": 1
+   },
+   {
+    "uid": 3,
+    "duration": 1
+   },
+   {
+    "uid": 4,
+    "duration": 1
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 4,
+    "active": 1,
+    "chronological": true
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "tiny_linepack_winter_off_lp",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "B"
+   }
+  ],
+  "generator_array": [
+   {
+    "uid": 1,
+    "name": "G_T",
+    "bus": "B",
+    "pmax": 600,
+    "capacity": 600,
+    "gcost": 0
+   },
+   {
+    "uid": 2,
+    "name": "DIESEL",
+    "bus": "B",
+    "pmax": 2000,
+    "capacity": 2000,
+    "gcost": 220
+   }
+  ],
+  "demand_array": [
+   {
+    "uid": 1,
+    "name": "D",
+    "bus": "B",
+    "lmax": [
+     [
+      500.0,
+      500.0,
+      500.0,
+      500.0
+     ]
+    ]
+   }
+  ],
+  "line_array": [],
+  "gas_node_array": [
+   {
+    "uid": 1,
+    "name": "S",
+    "pmin": 30,
+    "pmax": 60,
+    "p_init": 55,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 2,
+    "name": "T",
+    "pmin": 35,
+    "pmax": 60,
+    "p_init": 40,
+    "pressure_cost": -0.0001
+   }
+  ],
+  "gas_supply_array": [
+   {
+    "uid": 1,
+    "name": "SUPPLY",
+    "gas_node": "S",
+    "fmax": 1000.0,
+    "cost": 300.0
+   }
+  ],
+  "gas_demand_array": [
+   {
+    "uid": 1,
+    "name": "CITY",
+    "gas_node": "T",
+    "load": [
+     [
+      40.0,
+      40.0,
+      160.0,
+      40.0
+     ]
+    ],
+    "fail_cost": 3000.0
+   }
+  ],
+  "gas_pipe_array": [
+   {
+    "uid": 1,
+    "name": "S_T",
+    "gas_node_a": "S",
+    "gas_node_b": "T",
+    "length": 80,
+    "diameter": 406,
+    "fmax": 300,
+    "segments": 8,
+    "linepack": true
+   }
+  ],
+  "gas_turbine_array": [
+   {
+    "uid": 1,
+    "name": "G_T_gas",
+    "generator": "G_T",
+    "gas_node": "T",
+    "heat_rate": 0.2
+   }
+  ]
+ }
+}

@@ -1,0 +1,299 @@
+{
+ "mini3_N8": {
+  "objective": 94323.5851,
+  "pressure": {
+   "S": [
+    70.0
+   ],
+   "M": [
+    48.3686
+   ],
+   "T": [
+    35.0
+   ]
+  },
+  "generation": [
+   260.4723
+  ],
+  "gas_price_node": "T",
+  "gas_price": [
+   1100.0
+  ]
+ },
+ "cmp_off": {
+  "objective": 103300.1334,
+  "pressure": {
+   "S": [
+    60.0
+   ],
+   "A": [
+    59.9055
+   ],
+   "B": [
+    59.9055
+   ],
+   "T": [
+    40.0
+   ]
+  },
+  "generation": [
+   410.6164
+  ],
+  "gas_price_node": "T",
+  "gas_price": [
+   1100.0
+  ]
+ },
+ "cmp_fixed": {
+  "objective": 73177.078,
+  "pressure": {
+   "S": [
+    60.0
+   ],
+   "A": [
+    59.8423
+   ],
+   "B": [
+    70.0
+   ],
+   "T": [
+    40.0965
+   ]
+  },
+  "generation": [
+   600.0
+  ],
+  "gas_price_node": "T",
+  "gas_price": [
+   301.0536
+  ]
+ },
+ "cmp_sald": {
+  "objective": 73079.0759,
+  "pressure": {
+   "S": [
+    60.0
+   ],
+   "A": [
+    59.8429
+   ],
+   "B": [
+    69.9448
+   ],
+   "T": [
+    40.0
+   ]
+  },
+  "generation": [
+   600.0
+  ],
+  "gas_price_node": "T",
+  "gas_price": [
+   302.6834
+  ]
+ },
+ "lp_steady": {
+  "objective": 282729.2305,
+  "pressure": {
+   "S": [
+    60.0,
+    60.0,
+    60.0,
+    60.0
+   ],
+   "T": [
+    42.6688,
+    42.6688,
+    35.0,
+    42.6688
+   ]
+  },
+  "generation": [
+   500.0,
+   500.0,
+   7.9291,
+   500.0
+  ],
+  "gas_price_node": "T",
+  "gas_price": [
+   300.0024,
+   300.0024,
+   1100.0,
+   300.0024
+  ]
+ },
+ "lp_pack": {
+  "objective": 271755.0835,
+  "pressure": {
+   "S": [
+    60.0,
+    60.0,
+    60.0,
+    55.9352
+   ],
+   "T": [
+    38.3326,
+    40.8889,
+    35.0,
+    38.6814
+   ]
+  },
+  "generation": [
+   500.0,
+   500.0,
+   76.5184,
+   500.0
+  ],
+  "gas_price_node": "T",
+  "gas_price": [
+   464.5079,
+   638.7375,
+   1100.0,
+   300.0
+  ]
+ },
+ "plant_none": {
+  "objective": 91161.8452,
+  "pressure": {
+   "S": [
+    45.0
+   ],
+   "T": [
+    20.0
+   ],
+   "RL": [
+    18.4144
+   ],
+   "R": [
+    18.4144
+   ]
+  },
+  "generation": [
+   367.7365
+  ],
+  "gas_price_node": "R",
+  "gas_price": [
+   1100.0
+  ]
+ },
+ "plant_hard": {
+  "objective": 108578.9034,
+  "pressure": {
+   "S": [
+    45.0
+   ],
+   "T": [
+    30.2642
+   ],
+   "RL": [
+    29.7599
+   ],
+   "R": [
+    29.7599
+   ]
+  },
+  "generation": [
+   258.8789
+  ],
+  "gas_price_node": "R",
+  "gas_price": [
+   1087.1034
+  ]
+ },
+ "plant_booster": {
+  "objective": 91690.7872,
+  "pressure": {
+   "S": [
+    45.0
+   ],
+   "T": [
+    20.2189
+   ],
+   "RL": [
+    18.6667
+   ],
+   "R": [
+    29.8667
+   ]
+  },
+  "generation": [
+   365.8963
+  ],
+  "gas_price_node": "R",
+  "gas_price": [
+   1096.3387
+  ]
+ },
+ "plant_booster_gas": {
+  "objective": 91805.9964,
+  "pressure": {
+   "S": [
+    45.0
+   ],
+   "T": [
+    20.2181
+   ],
+   "RL": [
+    18.6657
+   ],
+   "R": [
+    29.8651
+   ]
+  },
+  "generation": [
+   364.3084
+  ],
+  "gas_price_node": "R",
+  "gas_price": [
+   1096.3285
+  ]
+ },
+ "plant_derate": {
+  "objective": 108678.8212,
+  "pressure": {
+   "S": [
+    45.0
+   ],
+   "T": [
+    30.2994
+   ],
+   "RL": [
+    29.798
+   ],
+   "R": [
+    29.798
+   ]
+  },
+  "generation": [
+   258.2544
+  ],
+  "gas_price_node": "R",
+  "gas_price": [
+   1085.2047
+  ]
+ },
+ "plant_derate_booster": {
+  "objective": 91730.9497,
+  "pressure": {
+   "S": [
+    45.0
+   ],
+   "T": [
+    20.2484
+   ],
+   "RL": [
+    18.7007
+   ],
+   "R": [
+    29.9211
+   ]
+  },
+  "generation": [
+   365.6467
+  ],
+  "gas_price_node": "R",
+  "gas_price": [
+   1095.7923
+  ]
+ }
+}

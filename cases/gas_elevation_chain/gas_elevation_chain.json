@@ -1,0 +1,112 @@
+{
+ "options": {
+  "annual_discount_rate": 0.0,
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": true,
+   "scale_objective": 1
+  },
+  "gas_options": {
+   "gas_specific_gravity": 0.6,
+   "gas_temperature": 288.15,
+   "compressibility": 0.9
+  }
+ },
+ "simulation": {
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 1
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 1
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "gas_elevation_chain",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "B"
+   }
+  ],
+  "gas_node_array": [
+   {
+    "uid": 1,
+    "name": "S",
+    "pmin": 70.0,
+    "pmax": 70.0,
+    "elevation": 0.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 2,
+    "name": "M",
+    "pmin": 1.0,
+    "pmax": 70.0,
+    "elevation": 2000.0,
+    "pressure_cost": -0.0001
+   },
+   {
+    "uid": 3,
+    "name": "T",
+    "pmin": 1.0,
+    "pmax": 70.0,
+    "elevation": 4000.0,
+    "pressure_cost": -0.0001
+   }
+  ],
+  "gas_supply_array": [
+   {
+    "uid": 1,
+    "name": "SUP",
+    "gas_node": "S",
+    "fmax": 1000.0,
+    "cost": 300.0
+   }
+  ],
+  "gas_demand_array": [
+   {
+    "uid": 1,
+    "name": "CITY",
+    "gas_node": "T",
+    "load": 60.0,
+    "fail_cost": 3000.0
+   }
+  ],
+  "gas_pipe_array": [
+   {
+    "uid": 1,
+    "name": "S_M",
+    "gas_node_a": "S",
+    "gas_node_b": "M",
+    "length": 100.0,
+    "diameter": 406.0,
+    "fmax": 120.0,
+    "segments": 1
+   },
+   {
+    "uid": 2,
+    "name": "M_T",
+    "gas_node_a": "M",
+    "gas_node_b": "T",
+    "length": 100.0,
+    "diameter": 406.0,
+    "fmax": 120.0,
+    "segments": 1
+   }
+  ]
+ }
+}

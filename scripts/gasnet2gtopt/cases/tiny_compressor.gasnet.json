@@ -1,0 +1,43 @@
+{
+  "_comment": "Tiny compressor case: S -> A ==CS==> B -> T; the station relieves the T pressure limit. Expected results in 'expected' (24 identical blocks; see tests/).",
+  "name": "tiny_compressor",
+  "profiles": {},
+  "gas_network": {
+    "network_model": "radial",
+    "gas_node_array": [
+      {"uid": 1, "name": "S", "pmin": 30, "pmax": 60, "p_init": 60},
+      {"uid": 2, "name": "A", "pmin": 30, "pmax": 60, "p_init": 60},
+      {"uid": 3, "name": "B", "pmin": 30, "pmax": 70, "p_init": 60},
+      {"uid": 4, "name": "T", "pmin": 40, "pmax": 70, "p_init": 50}
+    ],
+    "gas_pipeline_array": [
+      {"uid": 1, "name": "S_A", "node_a": "S", "node_b": "A", "length": 5,
+       "diameter": 610, "fmax": 300, "segments": 8},
+      {"uid": 2, "name": "B_T", "node_a": "B", "node_b": "T", "length": 100,
+       "diameter": 406, "fmax": 300, "segments": 8}
+    ],
+    "compressor_station_array": [
+      {"uid": 1, "name": "CS", "node_in": "A", "node_out": "B", "max_ratio": 1.4,
+       "fmax": 300, "fuel_model": "fixed_fraction",
+       "op_flow": 170, "op_ratio": 1.2, "op_suction_pressure": 58}
+    ],
+    "gas_source_array": [
+      {"uid": 1, "name": "SUPPLY", "node": "S", "fmax": 1000, "cost": 300.0}
+    ],
+    "gas_demand_array": [
+      {"uid": 1, "name": "CITY", "node": "T", "load": 50, "fail_cost": 3000.0}
+    ],
+    "generator_gas_link_array": [
+      {"generator": "G_T", "gas_node": "T", "heat_rate": 0.2}
+    ]
+  },
+  "power_system": {
+    "bus_array": [{"uid": 1, "name": "B"}],
+    "generator_array": [
+      {"uid": 1, "name": "G_T", "bus": "B", "pmax": 600, "capacity": 600, "gcost": 0},
+      {"uid": 2, "name": "DIESEL", "bus": "B", "pmax": 2000, "capacity": 2000, "gcost": 220}
+    ],
+    "demand_array": [{"uid": 1, "name": "D", "bus": "B", "lmax": 700}],
+    "line_array": []
+  }
+}

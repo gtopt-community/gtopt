@@ -1,0 +1,46 @@
+{
+  "_comment": "Tiny plant-delivery case: S -> T (city gate, pmin 20) -> RL (lateral end) ==BOOSTER==> R (plant header); plant G_R needs 30 bar abs at R while burning.",
+  "name": "tiny_plant",
+  "profiles": {},
+  "gas_network": {
+    "network_model": "radial",
+    "gas_node_array": [
+      {"uid": 1, "name": "S", "pmin": 30, "pmax": 45, "p_init": 45},
+      {"uid": 2, "name": "T", "pmin": 20, "pmax": 45, "p_init": 35},
+      {"uid": 3, "name": "RL", "pmin": 5, "pmax": 45, "p_init": 35},
+      {"uid": 4, "name": "R", "pmin": 5, "pmax": 60, "p_init": 35}
+    ],
+    "gas_pipeline_array": [
+      {"uid": 1, "name": "S_T", "node_a": "S", "node_b": "T", "length": 80,
+       "diameter": 406, "fmax": 300, "segments": 8},
+      {"uid": 2, "name": "T_RL", "node_a": "T", "node_b": "RL", "length": 10,
+       "diameter": 406, "fmax": 150, "segments": 8}
+    ],
+    "compressor_station_array": [
+      {"uid": 1, "name": "BOOSTER", "node_in": "RL", "node_out": "R",
+       "role": "fuel_gas_booster", "allow_bypass": true, "max_ratio": 1.6,
+       "fmax": 150, "fuel_model": "saldarriaga", "drive": "electric",
+       "bus": "B", "motor_efficiency": 0.95, "rating_mw": 5,
+       "op_flow": 80, "op_ratio": 1.3, "op_suction_pressure": 25}
+    ],
+    "gas_source_array": [
+      {"uid": 1, "name": "SUPPLY", "node": "S", "fmax": 1000, "cost": 300.0}
+    ],
+    "gas_demand_array": [
+      {"uid": 1, "name": "CITY", "node": "T", "load": 60, "fail_cost": 3000.0}
+    ],
+    "generator_gas_link_array": [
+      {"generator": "G_R", "gas_node": "R", "heat_rate": 0.2,
+       "min_pressure": 30.0, "pressure_band": 0.5, "derate_nominal_factor": 1.15}
+    ]
+  },
+  "power_system": {
+    "bus_array": [{"uid": 1, "name": "B"}],
+    "generator_array": [
+      {"uid": 1, "name": "G_R", "bus": "B", "pmax": 500, "capacity": 500, "gcost": 0},
+      {"uid": 2, "name": "DIESEL", "bus": "B", "pmax": 2000, "capacity": 2000, "gcost": 220}
+    ],
+    "demand_array": [{"uid": 1, "name": "D", "bus": "B", "lmax": 600}],
+    "line_array": []
+  }
+}

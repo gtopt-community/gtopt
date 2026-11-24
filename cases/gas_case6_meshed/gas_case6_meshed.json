@@ -1,0 +1,194 @@
+{
+ "options": {
+  "annual_discount_rate": 0.0,
+  "output_format": "csv",
+  "output_compression": "uncompressed",
+  "model_options": {
+   "use_single_bus": true,
+   "scale_objective": 1
+  },
+  "gas_options": {
+   "slp_iterations": 100,
+   "slp_tolerance": 1e-07,
+   "slp_damping": 0.5
+  }
+ },
+ "simulation": {
+  "block_array": [
+   {
+    "uid": 1,
+    "duration": 1
+   }
+  ],
+  "stage_array": [
+   {
+    "uid": 1,
+    "first_block": 0,
+    "count_block": 1
+   }
+  ],
+  "scenario_array": [
+   {
+    "uid": 1,
+    "probability_factor": 1
+   }
+  ]
+ },
+ "system": {
+  "name": "gas_case6_meshed",
+  "bus_array": [
+   {
+    "uid": 1,
+    "name": "B"
+   }
+  ],
+  "gas_node_array": [
+   {
+    "uid": 1,
+    "name": "N1",
+    "pmin": 30.0,
+    "pmax": 60.0
+   },
+   {
+    "uid": 2,
+    "name": "N2",
+    "pmin": 30.0,
+    "pmax": 60.0
+   },
+   {
+    "uid": 3,
+    "name": "N3",
+    "pmin": 30.0,
+    "pmax": 60.0
+   },
+   {
+    "uid": 4,
+    "name": "N4",
+    "pmin": 30.0,
+    "pmax": 60.0
+   },
+   {
+    "uid": 5,
+    "name": "N5",
+    "pmin": 30.0,
+    "pmax": 60.0
+   },
+   {
+    "uid": 6,
+    "name": "N6",
+    "pmin": 30.0,
+    "pmax": 60.0
+   }
+  ],
+  "gas_supply_array": [
+   {
+    "uid": 1,
+    "name": "R1",
+    "gas_node": "N1",
+    "fmax": 1000.0,
+    "cost": 1.5
+   }
+  ],
+  "gas_demand_array": [
+   {
+    "uid": 1,
+    "name": "LDC_A",
+    "gas_node": "N2",
+    "load": 30,
+    "fail_cost": 3.0
+   },
+   {
+    "uid": 2,
+    "name": "LDC_B",
+    "gas_node": "N3",
+    "load": 40,
+    "fail_cost": 4.0
+   },
+   {
+    "uid": 3,
+    "name": "LDC_C",
+    "gas_node": "N4",
+    "load": 20,
+    "fail_cost": 5.0
+   },
+   {
+    "uid": 4,
+    "name": "PP_A",
+    "gas_node": "N3",
+    "load": 30,
+    "fail_cost": 2.5
+   },
+   {
+    "uid": 5,
+    "name": "PP_B",
+    "gas_node": "N4",
+    "load": 10,
+    "fail_cost": 3.0
+   }
+  ],
+  "gas_pipe_array": [
+   {
+    "uid": 1,
+    "name": "P1",
+    "gas_node_a": "N5",
+    "gas_node_b": "N2",
+    "weymouth_k": 0.14399111147754046,
+    "fmax": 130.0,
+    "weymouth_mode": "linearized",
+    "linearization": "tangent"
+   },
+   {
+    "uid": 2,
+    "name": "P2",
+    "gas_node_a": "N2",
+    "gas_node_b": "N3",
+    "weymouth_k": 0.23038577836406474,
+    "fmax": 130.0,
+    "weymouth_mode": "linearized",
+    "linearization": "tangent"
+   },
+   {
+    "uid": 3,
+    "name": "P3",
+    "gas_node_a": "N6",
+    "gas_node_b": "N4",
+    "weymouth_k": 0.23038577836406474,
+    "fmax": 130.0,
+    "weymouth_mode": "linearized",
+    "linearization": "tangent"
+   },
+   {
+    "uid": 4,
+    "name": "P4",
+    "gas_node_a": "N4",
+    "gas_node_b": "N3",
+    "weymouth_k": 7.3723449076500716,
+    "fmax": 130.0,
+    "weymouth_mode": "linearized",
+    "linearization": "tangent"
+   }
+  ],
+  "gas_compressor_array": [
+   {
+    "uid": 1,
+    "name": "C1",
+    "gas_node_in": "N1",
+    "gas_node_out": "N5",
+    "fmax": 1000.0,
+    "max_ratio": 2.0,
+    "fuel_model": "none",
+    "allow_bypass": false
+   },
+   {
+    "uid": 2,
+    "name": "C2",
+    "gas_node_in": "N2",
+    "gas_node_out": "N6",
+    "fmax": 1000.0,
+    "max_ratio": 2.0,
+    "fuel_model": "none",
+    "allow_bypass": false
+   }
+  ]
+ }
+}

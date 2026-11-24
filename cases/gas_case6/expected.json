@@ -1,0 +1,32 @@
+{
+ "published": {
+  "wp_objective": -253.683,
+  "wp_receipt": 123.68219,
+  "lrwp_objective": -260.001,
+  "lrwp_receipt": 130.0004
+ },
+ "welfare_offset": 455.0,
+ "pipe_orientation": [
+  "N5->N2",
+  "N2->N3",
+  "N6->N4",
+  "N4->N3"
+ ],
+ "exact": {
+  "objective": -253.68219265359338,
+  "receipt": 123.68219265359336,
+  "pressure": {
+   "N1": 30.0,
+   "N2": 37.38083682847201,
+   "N3": 30.0,
+   "N4": 55.554361500847676,
+   "N5": 60.0,
+   "N6": 60.0
+  }
+ },
+ "tangent_lp": {
+  "objective": -253.68624026677858,
+  "receipt": 123.6862402667786,
+  "gtopt_objective": 201.31375973322142
+ }
+}
