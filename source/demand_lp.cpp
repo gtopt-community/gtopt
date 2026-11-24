@@ -392,7 +392,11 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
-    const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
+    // A negative `lmax` (e.g. a UC.jl bus with net injection) serves
+    // nothing: it is a zero-load block, never an `[0, lmax < 0]` column
+    // (an infeasible bound pair) — the same optimum as its elision.
+    const auto block_lmax =
+        std::max(0.0, sc.block_max_at(stage, block, lmax, stage_capacity));
     const auto block_lossfactor =
         lossfactor.optval(stage.uid(), buid).value_or(0.0);
     // `lp_reduction`: when block_lmax == 0 the load column is fixed at

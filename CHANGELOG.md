@@ -504,8 +504,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   other element (§9 of the add_to_lp audit).  With the flag off (the
   default) they keep a fixed [0, 0] column, so outputs and coupled
   elements see the same cells whatever the data; a zero-lmax block
-  ignores `lmin`, exactly as when elided.  Optimum unchanged; LPs with
-  such blocks gain fixed columns (none of the regression cases).
+  ignores `lmin`, exactly as when elided.  A negative `lmax` block (a
+  UC.jl bus with net injection) is a zero-load block too — before this
+  follow-up it became an infeasible `[0, lmax < 0]` column.  Optimum
+  unchanged; LPs with such blocks gain fixed columns (none of the
+  regression cases).
 
 - `SimpleCommitment` now gates its generator's reserve rows by the
   status `u`, as `Commitment` does (P1-18): the down-headroom row kept the

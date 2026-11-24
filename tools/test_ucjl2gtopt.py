@@ -418,7 +418,17 @@ def _solve(
         # scripts-ucjl2gtopt-integration alongside the C++ tests).
         timeout=600,
     )
-    return proc.returncode, proc.stdout + proc.stderr
+    log = proc.stdout + proc.stderr
+    if proc.returncode != 0:
+        # The console shows only the final [error] line; the cause
+        # (validation error, "non-optimal ... status: 2", infeasible
+        # count) is in the run log — append its warnings/errors.
+        for run_log in sorted((tmp_run / "output" / "logs").glob("*.log")):
+            lines = run_log.read_text(errors="replace").splitlines()
+            notable = [ln for ln in lines if "[warning]" in ln or "[error]" in ln]
+            log += f"\n--- {run_log.name} (warnings/errors) ---\n"
+            log += "\n".join(notable[-40:])
+    return proc.returncode, log
 
 
 # ---------------------------------------------------------------------------
@@ -1538,7 +1548,10 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
     ``Last period max/min level (MWh)`` started promoting su1's
     ``emax`` / ``emin`` to a per-block 2-D schedule — su1's tighter
     final-block bounds (``emax = 80`` / ``emin = 20`` on block T)
-    shift the optimum vs the old flat-scalar emission).
+    shift the optimum vs the old flat-scalar emission).  Moved by
+    exactly +498 000 to ``139 284.82`` when 7fd5b5fbe added the met
+    soft-reserve valuation ``urcost × urreq`` to the objective constant
+    (r1 1000 × 400 + r2 -5 × 400 + r3 500 × 200 MWh); dispatch unchanged.
 
     Skipped when no MIP solver plugin is loaded.
     """
@@ -1565,7 +1578,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
     # solver can pick equally-optimal integer corners that float slightly
     # around the original-formulation incumbent.  See the matching comment
     # on ``test_real_case14_flex_mip_full_network``.
-    assert obj == pytest.approx(-358_715.18, rel=1e-3)
+    assert obj == pytest.approx(139_284.82, rel=1e-3)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
@@ -1733,7 +1746,9 @@ def test_real_case118_initcond_mip_clean_binary(tmp_path: Path) -> None:
     assert status == 0
     # CPLEX MIP picks among multiple optimal integer corners — pin the obj
     # within ~0.1 % of the LP-relax bound rather than a tight tolerance.
-    assert obj == pytest.approx(3_426_941.14, abs=2000.0)
+    # +2 592 630 (met soft spinning-reserve valuation in the objective
+    # constant, 7fd5b5fbe) — same shift as the LP-relax pin above.
+    assert obj == pytest.approx(6_019_571.14, abs=2000.0)
 
     # Clean-binary invariant across all 1944 (54 gens × 36 hours) values.
     for gen_uid in range(1, 55):

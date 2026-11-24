@@ -594,6 +594,45 @@ TEST_CASE(
   }
 }
 
+TEST_CASE("§9 Demand with negative lmax is a zero-load block")  // NOLINT
+{
+  // A negative `lmax` (UC.jl bus with net injection, e.g. the vendored
+  // base_with_storage instance) serves nothing.  Before §9 such a block
+  // was elided; after it, with lp_reduction off, the load column was
+  // built as [0, lmax < 0] and the LP was primal infeasible.  It is now
+  // a [0, 0] column (elided under lp_reduction): stage 2 costs nothing.
+  constexpr std::string_view json = R"({
+   "name":"neg_lmax","bus_array":[{"uid":1,"name":"b1"}],
+   "generator_array":[{"uid":1,"name":"g1","bus":"b1","pmax":100,
+     "capacity":100,"gcost":10}],
+   "demand_array":[{"uid":1,"name":"d1","bus":"b1","lmax":[[50],[-5]]}]})";
+  const auto sys = daw::json::from_json<System>(json);
+  for (const bool reduce : {false, true}) {
+    CAPTURE(reduce);
+    auto popts = a2lp_options();
+    popts.model_options.lp_reduction = reduce;
+    const auto simulation = a2lp_stages(2);
+    const PlanningOptionsLP options(popts);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(sys, simulation_lp);
+    const auto& scenario = system_lp.scene().scenarios().front();
+    const auto& stages = system_lp.phase().stages();
+    const auto& dem = system_lp.elements<DemandLP>().front();
+    const std::size_t expected = reduce ? 0 : 1;
+    const auto& cols = dem.lookup_load_cols(scenario, stages[1]);
+    REQUIRE(cols.size() == expected);
+    auto&& li = system_lp.linear_interface();
+    for (const auto& [buid, col] : cols) {
+      CHECK(li.get_col_low()[col] == doctest::Approx(0.0));
+      CHECK(li.get_col_upp()[col] == doctest::Approx(0.0));
+    }
+    const auto result = li.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value_or(-1) == 0);
+    CHECK(li.get_obj_value() == doctest::Approx(500.0));
+  }
+}
+
 // ─── P0-14: open line pack over several stages is rejected ─────────────────
 
 namespace

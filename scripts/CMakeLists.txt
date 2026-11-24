@@ -655,6 +655,18 @@ if(EXISTS "${_tools_dir}/test_ucjl2gtopt.py")
     PROCESSORS "${_GTOPT_PYTEST_PROCESSORS}"
     LABELS "integration;script;ucjl"
   )
+  # Pin the binary of THIS build: without it the test falls back to
+  # <repo>/build/standalone/gtopt or a stale `gtopt` on PATH, so a
+  # scratch / worktree build validated an old binary.
+  if(TARGET gtoptStandalone)
+    set_tests_properties(scripts-ucjl2gtopt-integration PROPERTIES
+      ENVIRONMENT "GTOPT_BIN=$<TARGET_FILE:gtoptStandalone>"
+    )
+  elseif(DEFINED GTOPT_BINARY_PATH AND GTOPT_BINARY_PATH)
+    set_tests_properties(scripts-ucjl2gtopt-integration PROPERTIES
+      ENVIRONMENT "GTOPT_BIN=${GTOPT_BINARY_PATH}"
+    )
+  endif()
 endif()
 
 endif() # GTOPT_REGISTER_PYTHON_TESTS
