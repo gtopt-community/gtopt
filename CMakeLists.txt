@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.31.6)
 
 project(
   gtopt
-  VERSION 1.2.0
+  VERSION 1.3.0
   DESCRIPTION
     "GTOpt - Generation, Transmission and storage Optimization: optimization and analysis of power-system generation, transmission and storage"
   LANGUAGES CXX
@@ -15,7 +15,7 @@ project(
 # carries `VERSION X.Y.0` plus the suffix "-dev" (scripts/pyproject.toml:
 # "X.Y.0.dev0").  A release has an empty suffix; release.yml checks it.
 # See docs/releasing.md.
-set(GTOPT_VERSION_SUFFIX "")
+set(GTOPT_VERSION_SUFFIX "-dev")
 
 # ---- Ninja job pools (limit parallelism to avoid OOM) ----
 # cmake -j still controls the *default* pool; these pools cap the maximums.
