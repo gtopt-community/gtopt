@@ -9,6 +9,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Line losses: `loss_overflow_cost` (`model_options` and per line,
+  default: the case's own global `demand_fail_cost`, e.g. the PLEXOS
+  VoLL 467.19 $/MWh in CEN PCP cases, itself 1000 $/MWh when unset;
+  1000 with a warning when it is an explicit 0; `0` disables) prices
+  the overflow tier past a decoupled `loss_envelope`.  Without it, flow headroom past the envelope
+  turned the tier into a free energy sink of up to `R·tmax²/V²` MW per
+  line under negative bus prices (200 MW instead of 2 MW on a 10×
+  headroom line).  Each overflow column now costs the price times the
+  loss it adds (`tangent_signed_flow` |f| ladder and SOS2 λ weights,
+  `bidirectional` / `piecewise` overflow segments, the split overflow
+  loss of the `tangent` layout, and `piecewise_direct`, which now honours
+  `loss_envelope` with the same priced ladder).  Results without an
+  incentive and within the envelope are unchanged; genuine overloads keep
+  their flow and physical loss but pay the price on their loss above
+  `R·env²/V²` (receiver price up by ≈ 2·price·R·|f|/V²).  The `midpoint`
+  layout's loss row is now two-sided (it left the loss column free up to
+  its bound).  `linear` with `tmax > loss_envelope` stays exposed and is
+  warned about.
+
+- Pricing modes for unit-commitment runs: `model_options.pricing_mode`
+  (CLI `--pricing-mode`) = `fixed` (default, integers fixed at the
+  incumbent), `relaxed` (LP relaxation of the MIP) or `fast_start`
+  (fixed except fast-start commitments, relaxed to [0, 1]; PJM / NYISO
+  style).  The pricing LP runs after the MIP and only replaces the duals;
+  dispatch is unchanged.  A non-optimal pricing LP falls back to `fixed`
+  with a warning.  New `Commitment.fast_start` (unset = auto rule
+  min up / down ≤ `model_options.fast_start_max_hours`, default 1) and
+  output `pricing.csv`.  `plexos2gtopt` emits `fast_start` from
+  `Run Up Rate` vs `Min Stable Level`.  New tool `gtopt_pricing_uplift`
+  computes make-whole + lost-opportunity uplift and price statistics to
+  compare the modes.  E2E cases `uc_pricing_{fixed,relaxed,fast_start}`.
+  Literature benchmarks (`test_pricing_literature.cpp`,
+  `cases/uc_pricing_lit_*`, `gtopt_pricing_uplift` `test_literature.py`):
+  Scarf / O'Neill et al. 2005 / Hogan & Ring 2003, Gribik-Hogan-Pope
+  2007, PJM 2017 fast-start pricing, Hua & Baldick 2017 and
+  Eldridge-O'Neill-Hobbs 2018; results table in
+  `docs/unit-commitment.md` §11.1.
+
 - MIP start: new default `dive` generator (`monolithic_options.mip_start.dive`)
   that produces a FEASIBLE start for unit-commitment MIPs instead of a
   rounded candidate the backend rejects.  A relaxation-guided
@@ -182,6 +220,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   becomes 380.5 MW from 2027-07-01 (0 MW without the option).
 
 ### Changed
+
+- **Soft UserConstraint penalties are weighted like every other cost
+  (behaviour change, P0-16)**: the slack of a soft constraint (`penalty`
+  set) is now priced `penalty × probability × discount × block duration`
+  (`CostHelper::block_ecost`) on per-block rows, and
+  `penalty × probability × discount` on rows that span several blocks
+  (`daily_sum` day rows, `stage` / `phase` / `global` scope rows, which are
+  already span totals); `penalty_class = hydro_flow` keeps its
+  `× 3600 × hours` conversion.  `penalty` is therefore \$ per row unit per
+  hour of violation, and the dual of a binding soft `power` row reads back
+  as the penalty.  Before, the slack carried the raw `penalty`: with S
+  equiprobable scenarios a violation weighed S times more than in a
+  single-scenario run, it was not discounted, and a 4 h block weighed it 4
+  times less than the energy next to it.  **Results change** for
+  multi-scenario, discounted or > 1 h-block cases with soft user
+  constraints; single-scenario, 1 h, undiscounted cases (e.g. CEN PCP) are
+  unchanged (LP identical).  Converter penalties (plexos2gtopt `Penalty
+  Price` per interval, AEMO `daily_sum` rows in $/MWh) already follow
+  these units.
 
 - **`model_options.demand_fail_cost` defaults to 1000 $/MWh (behaviour
   change)**: it now resolves to **1000 $/MWh** when
@@ -413,6 +470,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `aperture_chunk_size` only as K for `aperture_chunk_mode: "chunked"`.
 
 ### Fixed
+
+- InertiaProvision: the unit Pmin behind the default inertia factor
+  `H·S/Pmin` and the default `provision_max` is now the commitment's
+  minimum stable level (`Commitment.pmin` / `SimpleCommitment.dispatch_pmin`)
+  when the unit has one, falling back to the generation column lower
+  bound.  Converters put the committed floor on the commitment and leave
+  `Generator.pmin = 0`, so the factor silently fell back to `H·S/Pmax`
+  and the provision ceiling to `Pmax`.
+
+- Storage commissioned after the first stage (P0-8): a state-carrying
+  storage inactive in the previous stage now starts with its initial-state
+  column fixed at `eini` and no SDDP state link, in the same LP and across
+  a phase boundary.  Before, the column was free in `[emin, emax]` (same LP,
+  `eini` unset) or an unlinked `sini` (SDDP, even with `eini` set), so the
+  new unit started with free stored energy and the cost was under-stated
+  (repro: 5000 instead of 10000).  A battery without `eini` starts at `emin`
+  with a `validate_planning` warning; for every other state-carrying class
+  (Reservoir, LngTerminal, ThermalStorage, HydrogenStorage, AmmoniaStorage,
+  VolumeRight, AllowancePool) a missing `eini` at commissioning is a
+  validation error.  Storage active from the first stage, and cyclic storage
+  (`daily_cycle` / no state variable, which never reads `eini`), are
+  unchanged.
+
+- `gas_options.linepack_cyclic = false` with line-pack pipes and more
+  than one stage is rejected by validation (P0-14): the line pack is not
+  a state variable (every stage restarts from `linepack_ini`), so an open
+  pack refilled for free at each stage boundary.  Single-stage runs (all
+  gasnet2gtopt cases) are unaffected.
+
+- `Waterway` (closed, `fmin = fmax = 0`) and `Demand` (`lmax = 0`)
+  blocks are elided only under `model_options.lp_reduction`, like every
+  other element (§9 of the add_to_lp audit).  With the flag off (the
+  default) they keep a fixed [0, 0] column, so outputs and coupled
+  elements see the same cells whatever the data; a zero-lmax block
+  ignores `lmin`, exactly as when elided.  Optimum unchanged; LPs with
+  such blocks gain fixed columns (none of the regression cases).
+
+- `SimpleCommitment` now gates its generator's reserve rows by the
+  status `u`, as `Commitment` does (P1-18): the down-headroom row kept the
+  generator `pmin` (`g − r_dn ≥ pmin`), forcing an off unit on (or making
+  the LP infeasible), and an off unit could offer up reserve
+  (`g + r_up ≤ pmax`).  CEN-style `reserve_*_hydro` cases change their LP
+  rows but not their optimum.
+
+- `LineCommitment.fixed_status` pins the breaker only for values in
+  `[0, 1]`, like `Commitment.fixed_status` (P1-17).  Before, any value
+  pinned it, so UC.jl's `-1` "un-pinned" marker opened the line
+  (regression test: 100000 of load shed instead of 1000).
+
+- Option C (`model_options.demand_fail_rhs_shift`) with batteries or
+  pumps (P0-25): the Converter (battery charge) and Pump rows read the
+  demand column as `load`, but Option C stores `load − lmax` in it, so
+  charging drew nothing from the bus (regression test: 16000 instead of
+  500).  Demands coupled to a Converter or Pump now always stay on
+  Option A; every other demand keeps Option C.
+
+- Cycle-basis KVL with a block line outage (P0-24): a block with a line
+  out of service (`in_service = 0`) dropped every fundamental cycle
+  through that line, losing the KVL rows of loops that survive the outage
+  (only reachable as combinations of the dropped cycles), so flow split
+  freely there.  Those blocks now get a cycle basis rebuilt on their own
+  surviving lines (one rebuild per distinct outage set); blocks without
+  outages are unchanged.  Regression test: the 4-bus square with an out
+  diagonal matched `node_angle` only after the fix (2000 vs 5600).
+
+- An expandable `CarrierConverter` now pays for the capacity it uses
+  (P0-4): its input was bounded only by `capmax`, with no
+  `input ≤ installed capacity` row, so unbuilt capacity was free
+  (regression test: −30000 instead of 0).  New `capacity` row and dual
+  output per block.
+
+- Storages and carrier converters out of service build nothing (P0-2,
+  P0-3).  `Battery` and the carrier storages created their charge /
+  discharge columns before the active check, and the carrier storages
+  stamped `fout` into an active node balance with no energy balance
+  behind it (free heat / hydrogen / ammonia; regression test: −40000
+  instead of 0).  `CarrierConverter` had no active check at all: an
+  inactive electrolyser kept converting, and an inactive endpoint node
+  made the build throw.
+
+- `DecisionVariable` with `obj_constant` (an α-rebased column) now
+  defaults free below in `stage` / `block` scope too, as documented and as
+  the `global` path already did (P0-18).  Before, an unset `lower_bound`
+  clamped the column at 0 there, so a rebased variable below its mean was
+  cut off (regression test: objective 200 instead of 190).
 
 - A MIP stopped at a limit (time, node, solution, memory, abort) reported
   its raw incumbent: no integer-fixed LP re-solve ran, so the objective

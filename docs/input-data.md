@@ -69,6 +69,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `line_losses_mode`     | string  | `"adaptive"` | --         | Line-loss model: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
 | `loss_segments`        | integer | `1`       | --            | Number of piecewise-linear segments for quadratic line losses (1 = linear) |
 | `loss_cost_eps`        | number  | `0.1`     | $/MWh         | Cost on the line-loss columns: breaks bidirectional-flow degeneracy and blocks loss arbitrage under negative LMPs. Per-line `Line.loss_cost_eps` overrides; `0` disables. Inert for `none`/`linear`/`piecewise_direct` |
+| `loss_overflow_cost`   | number  | `demand_fail_cost` | $/MWh         | Price on the loss carried by the overflow tier past a decoupled `Line.loss_envelope` (flow between the envelope and `tmax`): closes the overflow energy sink under negative bus prices; genuine overloads pay it on their loss above `R·env²/V²`. Per-line `Line.loss_overflow_cost` overrides; `0` disables. Unset default: the case's `demand_fail_cost` (global `model_options` value; per-demand `fcost` is not consulted), itself 1000 when unset; 1000 with a warning when it is an explicit 0. |
 | `use_kirchhoff`        | boolean | `true`    | --            | Enable DC Kirchhoff voltage-law constraints |
 | `use_single_bus`       | boolean | `false`   | --            | Collapse network to a single bus (copper-plate model) |
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
@@ -846,6 +847,7 @@ A transmission line connecting two buses.
 | `reactance`        | number\|array\|string| Ω (p.u.)    | No       | Series reactance (DC power flow). Use Ω when voltage is in kV; p.u. when voltage is omitted. Susceptance: $B = V^2 / X$. Omit for a DC/HVDC link (no KVL). `0` or `\|X/V²\|` below `dc_line_reactance_threshold` is a zero-impedance tie forcing equal bus angles (unless `tiny_reactance_mode = "dc"`) |
 | `lossfactor`       | number\|array\|string| p.u.        | No       | Lumped loss factor |
 | `loss_cost_eps`    | number              | $/MWh        | No       | Per-line price on the line-loss columns; overrides `model_options.loss_cost_eps` (default 0.1). Set ≥ ½·\|π_a + π_b\| on corridors where the end-bus prices can sum negative to block loss arbitrage; `0` disables. Inert for `none`/`linear`/`piecewise_direct` |
+| `loss_overflow_cost` | number            | $/MWh        | No       | Per-line overflow-tier price; overrides `model_options.loss_overflow_cost` (default: the case's `demand_fail_cost`). Charged per MWh of loss carried between `loss_envelope` and `tmax`; `0` disables. Inert when `tmax ≤ loss_envelope` |
 | `type`             | string              | —            | No       | Element type tag; use `"transformer"` for transformers |
 | `tap_ratio`        | number\|array\|string| p.u.        | No       | Off-nominal tap ratio τ (default 1.0). A tap-changing transformer with τ ≠ 1 has effective susceptance $B/\tau$. Supports per-stage schedule. |
 | `phase_shift_deg`  | number\|array\|string| degrees     | No       | Phase-shift angle φ in degrees (default 0). Models a Phase-Shifting Transformer (PST); shifts the Kirchhoff constraint RHS by $-\sigma_\theta \cdot \phi_{\text{rad}}$. |
@@ -1593,6 +1595,7 @@ and `validate_planning` warns with the stages affected.
 | `initial_hours` | number | hours | No | Hours in current state at t=0 |
 | `relax` | boolean | — | No | LP relaxation: u,v,w ∈ [0,1] instead of {0,1} |
 | `must_run` | boolean | — | No | Force u = 1 at all times |
+| `fast_start` | boolean | — | No | Fast-start unit for `pricing_mode = "fast_start"` (unset = auto: min up and min down ≤ `fast_start_max_hours`) |
 | `commitment_period` | number | hours | No | Coarser binary variable resolution |
 | `hot_start_cost` | number | $/start | No | Startup cost for hot start |
 | `warm_start_cost` | number | $/start | No | Startup cost for warm start |

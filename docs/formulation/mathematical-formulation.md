@@ -888,6 +888,10 @@ so $b_j / b_{j-1} \le 1.4$.  Each emitter adds:
   width cap.
 * **SOS2 breakpoints** ($\lambda$-form): extra breakpoints $\pm b_j$
   with chord value $c_l b_j^2$.
+* **Direct segments** (`piecewise_direct`): the $K$ segments cover
+  $[0, E_l]$ and overflow segments $[b_{j-1}, b_j]$ with loss factor
+  $c_l (b_{j-1} + b_j)$ cover the rest, so the widths sum to
+  $\overline{F}_l$ and the flow cap is unchanged.
 
 Between consecutive points $a < b$ both the tangent and the secant
 error of $c_l f^2$ peak at $f = (a+b)/2$ with relative size
@@ -902,6 +906,72 @@ uses $c_l \max(\overline{F}_l, E_l)^2$.  With no headroom
 ($\overline{F}_l \le E_l$) or `loss_envelope` unset, no overflow
 rows/columns are emitted and the LP is identical to the
 non-decoupled formulation.
+
+#### Overflow-Tier Price (`loss_overflow_cost`)
+
+The overflow tier is an energy sink unless it is priced.  Under a
+negative bus price (a reserve requirement that falls with generation,
+curtailment, or KVL congestion with all-positive costs) the LP inflates
+the overflow columns past $|f|$ (or circulates $f^+ = f^-$ past $E_l$)
+and rides the loss up to $c_l \overline{F}_l^2$ at **any** flow: a
+$(\overline{F}_l / E_l)^2$-fold larger sink than the in-envelope
+residual $c_l E_l^2$ (100× for the PLEXOS $10\times$ case).  No chord
+can close it: any convex (pure-LP) set that contains the two exact
+points $(\pm \overline{F}_l, c_l \overline{F}_l^2)$ also contains their
+midpoint $(0, c_l \overline{F}_l^2)$.
+
+gtopt therefore prices the tier.  With $\kappa_l$ the overflow price
+[\$/MWh] (JSON `loss_overflow_cost`, per line or via `model_options`;
+an explicit `0` disables it; unset, it defaults to the case's own global
+`demand_fail_cost`, e.g. the PLEXOS VoLL 467.19 \$/MWh of CEN PCP cases,
+itself $1000$ \$/MWh when unset, and falls back to $1000$ \$/MWh with a warning when it is an explicit 0;
+per-demand `fcost` overrides are not consulted, since the price belongs
+to a line and the global value is the case's reference VoLL), every overflow
+column carries the objective cost $\kappa_l$ times the loss it adds:
+
+| Mode | Overflow column | Cost per unit |
+|------|-----------------|---------------|
+| `tangent_signed_flow` (segment form) | $u_j$ | $\kappa_l\, c_l (b_{j-1} + b_j)$ |
+| `tangent_signed_flow` + SOS2 | $\lambda_j$ at $\pm b_j$ | $\kappa_l\, c_l (b_j^2 - E_l^2)$ |
+| `bidirectional`, `piecewise` (secant layouts) | overflow segment $j$ | $\kappa_l\, c_l (b_{j-1} + b_j)$ |
+| `piecewise_direct` | overflow segment $j$ | $\kappa_l\, c_l (b_{j-1} + b_j)$ (+ `tcost`) |
+| `piecewise` + `tangent` layout | $\ell^{\text{ov}} \ge \ell - c_l E_l^2$ | $\kappa_l$ |
+
+all weighted by $\omega_{s,t,b}$.  In every mode the tier then costs
+exactly $\kappa_l$ per MWh of loss above $c_l E_l^2$:
+
+* **Fictitious loss** through the tier costs $\kappa_l$ per MWh, so it
+  is bought only when a bus incentive exceeds $\kappa_l$.  The sink cap
+  returns to the in-envelope residual $c_l E_l^2$ (itself governed by
+  $\varepsilon_l$ or SOS2, as before the ladder existed).  In the SOS2
+  form the price also protects the LP relaxation.
+* **Genuine overload** ($|f| > E_l$) pays
+  $\kappa_l\,\bigl(\text{chord}(|f|) - c_l E_l^2\bigr)$: the flow stays
+  feasible, the loss stays within $\approx 2.8\,\%$ of $c_l f^2$, and
+  the marginal LMP spread across the line grows by
+  $\kappa_l \cdot c_l (b_{j-1} + b_j) \approx 2\kappa_l c_l |f|$.  This
+  distortion is unavoidable for any LP guard: by the midpoint argument
+  the sink point costs the average of the two genuine extreme points,
+  so blocking an incentive $I$ requires charging genuine overloads at
+  least $I$ per MWh of loss above the envelope.  $\kappa_l$ trades the
+  largest incentive blocked against that distortion; the default
+  ($\kappa_l$ = the case's `demand_fail_cost`) makes burning a MWh in
+  the tier never cheaper than shedding one.
+* **No change** when $|f| \le E_l$ and no incentive exists: the tier is
+  then idle (the rising prices also fix its bottom-up fill), so the
+  optimum is the unguarded one.
+
+The `midpoint` layout's de-biased loss row is two-sided,
+
+$$
+{-s\,(w/2)^2 c_l} \le s\,\ell - \sum_k s\,\text{loss}_k\,\text{seg}_k \le 0 ;
+$$
+
+the one-sided form left $\ell$ free up to its column bound (a
+sink of $c_l \max(\overline{F}_l, E_l)^2$ per direction at any flow).
+`linear` has no loss column and remains exposed to circulation
+$f^+ = f^-$ up to $\overline{F}_l$; gtopt warns when a `linear` line
+has $\overline{F}_l > E_l$.
 
 ### 5.6 Kirchhoff Voltage Law (DC OPF)
 
@@ -1051,6 +1121,25 @@ Kirchhoff constraints are added when **all** of:
 - The system has more than `kirchhoff_threshold` buses (default 0)
 - Line has a defined `reactance` value (a zero or sub-threshold value
   yields a zero-impedance tie, see above; an absent value a DC link)
+
+#### Loop-Flow (Cycle-Basis) Form
+
+With `kirchhoff_mode = cycle_basis` (the default) the angles are
+eliminated: for every fundamental cycle $C$ of the in-service network
+(BFS spanning tree, one cycle per co-tree edge) one row per block
+
+$$
+\sum_{l \in C} o_{l,C} \, \chi_l \left(f_{l,s,t,b}^{+} - f_{l,s,t,b}^{-}\right)
+= -\sum_{l \in C} o_{l,C} \, \sigma_\theta \, \varphi_{l,\text{rad}}
+$$
+
+with $o_{l,C} = \pm 1$ the orientation of line $l$ around $C$.  The
+basis is built per stage on the lines in service; a block in which a
+line is out (`Line.in_service = 0`) gets a basis rebuilt on its own
+surviving lines (blocks sharing the same outage set share one rebuild),
+so every loop that survives the outage keeps its KVL row.  (Before
+2026-11 a block outage simply dropped the base cycles through the line,
+losing the loops that only exist through other cycles' combination.)
 
 #### Optimal Transmission Switching (issue #509)
 
@@ -1394,6 +1483,29 @@ The final SoC of stage $t$ links to the initial SoC of stage $t+1$:
 $$
 e_{e,s,t+1,b_0} = e_{e,s,t,b_{\text{last}}}
 $$
+
+#### Commissioning After the First Stage
+
+A state-carrying storage (any class with `use_state_variable` on and no
+daily cycle) that is inactive in stage $t-1$ and active in stage $t$ has
+no previous SoC to inherit, within one LP or across an SDDP phase
+boundary.  Its initial-state column is then **fixed** and no state link is
+queued:
+
+$$
+e^{\text{ini}}_{e,s,t} = E_e^{\text{ini}}
+$$
+
+Before this rule the column was free in
+$[\underline{E}_e, \overline{E}_e]$ (same LP) or an unlinked SDDP `sini`,
+so the model could start the new unit with free stored energy.  Only a
+**battery** may omit `eini` here: it then starts at $\underline{E}_e$ and
+`validate_planning` emits one warning.  For reservoirs, LNG terminals,
+thermal / hydrogen / ammonia storage, volume rights and allowance pools a
+missing `eini` at commissioning is a validation error.  The global first
+stage keeps the rule above (free in the stage bounds when `eini` is
+unset).  Storage without a state variable closes every stage with
+$e^{\text{fin}} = e^{\text{ini}}$ and keeps its free start.
 
 ### 5.8 Converter Constraints
 
@@ -2484,6 +2596,32 @@ User constraints are added to the LP after all built-in constraints and
 can reference any LP variable (generator output, line flow, battery SoC,
 etc.).
 
+**Soft constraints.** A constraint with a `penalty` $c^{\text{uc}}_k$
+gets a non-negative slack $z_{k,s,t,b}$ (two, $z^{+}$ and $z^{-}$, for an
+equality) that relaxes the row; the penalty is \$ per row unit per hour
+of violation and is weighted **exactly like every other cost**
+(`CostHelper`):
+
+$$
+\text{per-block row:}\quad
+\pi_s \cdot \delta_t \cdot \Delta_b \cdot \kappa_k \cdot c^{\text{uc}}_k
+\cdot z_{k,s,t,b},
+\qquad
+\text{span row:}\quad
+\pi_s \cdot \delta_t \cdot \kappa_k(H) \cdot c^{\text{uc}}_k \cdot z_{k,s,t}
+$$
+
+where $\kappa_k = 1$ for `penalty_class = raw` and $\kappa_k = 3600$
+(\$/m³ → \$/(m³/s)·h) for `hydro_flow`.  A *span row* covers more than
+one block — a `daily_sum` day row or a `stage` / `phase` / `global` scope
+row — and is already built as a span total, so its slack carries no
+further $\Delta_b$ ($\kappa_k(H) = 3600\,H$ for `hydro_flow` over the
+$H$ hours of the span).  Per-block slacks read back like a generator cost
+(÷ $\pi_s \delta_t \Delta_b$), span slacks with the Energy basis
+(÷ $\pi_s \delta_t$), so the reported dual of a binding `power` soft row equals
+$c^{\text{uc}}_k$.  (Before 2026-11 the slack carried the raw
+$c^{\text{uc}}_k$, without probability, discount or duration.)
+
 > **See also**: [`INPUT_DATA.md`](../input-data.md) for the JSON
 > format specification of user constraints.
 
@@ -3035,6 +3173,71 @@ $$
 per-event).
 <!-- source: source/commitment_lp.cpp:216-267 -->
 
+#### Pricing of a Unit-Commitment MIP (`pricing_mode`)
+
+A MIP has no duals, so the nodal prices $\lambda_{n,s,t,b}$ (bus balance
+duals, §5.1) of a UC run come from an LP derived from the solved MIP.
+The dispatch (primal) is the polished MIP solution in every mode; only
+the LP that supplies the duals changes.  Let $\hat x$ be the MIP
+incumbent and $\mathcal{I}$ the integer columns (the status $u$ of every
+non-relaxed commitment; $v, w$ are continuous and made binary by C1/C3).
+
+| `pricing_mode` | Pricing LP | Integer columns |
+|---|---|---|
+| `fixed` (default) | the polish LP | $x_i = \hat x_i$ for all $i \in \mathcal{I}$ |
+| `relaxed` | LP relaxation of the full MIP | $x_i$ continuous within its bounds for all $i \in \mathcal{I}$ |
+| `fast_start` | fixed, except fast-start units | $u_g \in [0,1]$ for $g \in \mathcal{F}$; $x_i = \hat x_i$ otherwise |
+
+**`fixed`** gives $\lambda = c_g - \mu^{\text{pmin}}_g$ for a committed
+unit at its minimum: a unit kept on for reliability or by a min-up time
+then sets a price *below* its own cost, which on CEN can be negative.
+**`relaxed`** (convex-hull-like pricing) lets the start-up and no-load
+costs of the committed units enter $\lambda$ through the relaxed $u$; it
+minimises uplift in practice, but its prices depend on how tight the
+formulation is.  **`fast_start`** (PJM / NYISO practice) relaxes only
+the units that can be started and stopped within the pricing interval,
+so a peaker committed at $P^{\min}$ prices at its average cost
+$c_g + (\text{SU}_g + \text{NL}_g T)/(P^{\min}_g T)$ while slow units
+stay fixed.
+
+A commitment $g$ is fast-start ($g \in \mathcal{F}$) when
+`Commitment.fast_start` is `true`; when it is unset, by the auto rule
+
+$$
+T^{\text{up}}_g \le H \;\wedge\; T^{\text{down}}_g \le H,
+\qquad H = \texttt{fast\_start\_max\_hours}\ (\text{default } 1\,\text{h}),
+$$
+
+with an unset min up / down counting as 0.  gtopt has no start-up-time
+field, so the rule uses min up / down only.  Relaxed commitments are
+never registered (they have no integer columns).
+
+Algorithm (per (scene, phase), after the MIP and before the polish):
+clone the solved MIP, pin $x_i = \operatorname{round}(\hat x_i)$ for the
+columns kept fixed, relax integrality, re-solve.  The polish then fixes
+all integers and re-solves as usual, and the pricing LP's row duals and
+reduced costs replace the polish duals in the solution.  If the pricing
+LP is not optimal (infeasible, unbounded, or the polish failed) a
+warning is logged and the `fixed` duals are kept (*fallback*).  Each
+(scene, phase) with integer columns writes one row of `pricing.csv`
+(`pricing_mode, applied_mode, fallback, attempted, relaxed_columns,
+pinned_columns, status, reason`).  The SDDP simulation pass applies the
+same step around its integer fix.
+<!-- source: source/linear_interface_solve.cpp (solve_pricing_lp, install_pricing_duals), source/system_lp.cpp (SystemLP::resolve), source/commitment_lp.cpp (fast_start registration) -->
+
+**Uplift.** With price $\lambda$ at the unit's bus, the unit's profit
+over the horizon is
+$\pi_g = \sum_t \bigl[(\lambda_t - c_{g,t}) p_{g,t} - \text{NL}_g u_{g,t}\bigr] T_t - \text{SU}_g v_{g,t} - \text{SD}_g w_{g,t}$.
+The make-whole payment is $\text{MWP}_g = \max(0, -\pi_g)$ and the
+lost-opportunity cost is
+$\text{LOC}_g = \max(0, \pi^*_g - (\pi_g + \text{MWP}_g))$, where
+$\pi^*_g$ is the profit of the unit's price-taking self-schedule at
+$\lambda$ (single-unit DP with its min up / down, pmin / pmax and
+commitment costs; ramps ignored).  Total uplift
+$\sum_g \text{MWP}_g + \text{LOC}_g$ is the criterion for comparing
+pricing modes: the lower it is, the better the prices support the
+dispatch (`scripts/gtopt_pricing_uplift`).
+
 ### 5.16 Simple Commitment
 
 A `SimpleCommitment` element attaches to a generator $g \in \mathcal{SC}$
@@ -3078,6 +3281,16 @@ $$
 where $\underline{P}_{g,t,b}^{d}$ (`dispatch_pmin`) defaults to the
 generator's own $\underline{P}_g$ when unset.
 
+#### Reserve Coupling
+
+The generator's `ReserveProvision` rows follow $u^{\text{sc}}$ exactly as
+under `Commitment` (§5.9): the headroom rows become
+$p + r^{\uparrow} - \overline{P}\,u^{\text{sc}} \le 0$ and
+$p - r^{\downarrow} - \underline{P}\,u^{\text{sc}} \ge 0$, and a
+Min-Provision floor becomes $r \ge r^{\min} u^{\text{sc}}$, so a unit
+that is off neither offers reserve nor is forced on by it.
+<!-- source: source/commitment_lp.cpp (gate_reserve_provisions_by_status) -->
+
 ### 5.17 Inertia Zone and Provision
 
 Mirroring the reserve-zone formulation (§5.9), GTOpt models
@@ -3117,8 +3330,14 @@ $\overline{R}^{H}$ is the row RHS.
 #### Provision Coupling (InertiaProvision)
 
 Each provision creates a column $r_{p,s,t,b}^{H}$ with upper bound
-`provision_max` (falling back to the generator's own $\underline{P}_g$
-when unset) and an explicit cost:
+`provision_max` (falling back to the unit's minimum stable level
+$\underline{P}_g$ when unset, else to its $\overline{P}_g$) and an
+explicit cost.  $\underline{P}_g$ is read from the unit's commitment
+element when it has one -- `Commitment.pmin` or
+`SimpleCommitment.dispatch_pmin` -- since the converters put the
+committed floor there and leave the generation column's lower bound at
+0; without a commitment (or with the field unset) it is the generation
+column's lower bound (`Generator.pmin`):
 
 $$
 \begin{aligned}
@@ -3148,6 +3367,7 @@ $$
 \Phi_{p,t} \;=\; \begin{cases}
 \text{provision\_factor}_{p,t} & \text{(explicit schedule)} \\[2pt]
 H_p \cdot S_p / \underline{P}_g & \text{if } H_p,\,S_p \text{ set and } \underline{P}_g > 0 \\[2pt]
+H_p \cdot S_p / \overline{P}_g & \text{if } H_p,\,S_p \text{ set, } \underline{P}_g = 0 \text{ and } \overline{P}_g > 0 \\[2pt]
 1 & \text{otherwise}
 \end{cases}
 $$
@@ -3225,8 +3445,13 @@ $$
 The electrolyser input $x_{c,s,t,b} \in [0, \bar{X}_c]$ enters the bus
 balance (§5.1) with coefficient $-1$ and carries the operating cost
 $\pi_s \delta_t \Delta_b\, o_{c,t,b}$ (a negative `ocost` represents a
-bid that values the load).
-<!-- source: source/carrier_converter_lp.cpp, source/hydrogen_node_lp.cpp -->
+bid that values the load).  An expandable converter (`expcap` /
+`expmod`) adds, per block, the capacity row
+$x_{c,s,t,b} \le \bar{X}^{\text{inst}}_{c,t}$ on its installed-capacity
+column, as generators do; $\bar{X}_c$ alone is only the `capmax` bound.
+The converter builds nothing in a stage where it, or either endpoint
+node, is out of service.
+<!-- source: source/carrier_converter_lp.cpp, source/carrier_node_lp.cpp -->
 
 #### Hydrogen Offtake (`HydrogenDemand`)
 
