@@ -1,10 +1,19 @@
 name: Install APT build dependencies
 description: >
-  Installs C++ build dependencies (COIN-OR, Boost, spdlog) and Apache
-  Arrow/Parquet from the official Apache Arrow APT repository.
+  Installs C++ build dependencies (Boost, spdlog, optionally COIN-OR) and
+  Apache Arrow/Parquet from the official Apache Arrow APT repository.
   Sets DEBIAN_FRONTEND=noninteractive for the Arrow repository bootstrap step.
 
 inputs:
+  coinor:
+    description: >
+      Install coinor-libcbc-dev ('true'/'false').  On by default because
+      the ubuntu.yml build/test jobs still compare the CLP goldens; every
+      other workflow solves with the pinned HiGHS only
+      (./.github/actions/install-highs) and passes 'false', so the
+      optional OSI (CLP/CBC) plugin is not built there.  clang-tidy turns
+      it on only when it analyses the OSI plugin.
+    default: 'true'
   extra-packages:
     description: >
       Space-separated list of additional apt packages to install alongside the
@@ -16,10 +25,22 @@ runs:
   steps:
     - name: install base packages
       shell: bash
+      env:
+        COINOR: ${{ inputs.coinor }}
       run: |
-        sudo apt-get update -q
-        sudo apt-get install -y --no-install-recommends \
-          ccache lld coinor-libcbc-dev libboost-container-dev libspdlog-dev \
+        coinor=()
+        if [ "$COINOR" = "true" ]; then
+          coinor=(coinor-libcbc-dev)
+        fi
+        # Mirrors are intermittently unreachable: Acquire::Retries for
+        # single downloads, plus a loop around the whole update.
+        for attempt in 1 2 3; do
+          sudo apt-get -o Acquire::Retries=3 update -q && break
+          echo "Attempt $attempt/3: apt-get update failed, retrying in 15s..."
+          sleep 15
+        done
+        sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+          ccache lld "${coinor[@]}" libboost-container-dev libspdlog-dev \
           liblapack-dev libblas-dev liblapack3 libblas3 lcov \
           libjemalloc-dev \
           zlib1g-dev libzstd-dev zstd liblz4-dev libsnappy-dev \
@@ -48,13 +69,13 @@ runs:
           echo "Attempt $attempt/3: wget failed, retrying in 15s..."
           sleep 15
         done
-        sudo apt-get install -y -q --no-install-recommends \
+        sudo apt-get -o Acquire::Retries=3 install -y -q --no-install-recommends \
           "./apache-arrow-apt-source-latest-${CODENAME}.deb"
         # Full update after adding Arrow repo — Arrow packages depend on
         # system packages whose versions may have changed since the runner
         # image was built.
         for attempt in 1 2 3; do
-          sudo apt-get update -q && break
+          sudo apt-get -o Acquire::Retries=3 update -q && break
           echo "Attempt $attempt/3: apt-get update failed, retrying in 15s..."
           sleep 15
         done
@@ -62,4 +83,4 @@ runs:
     - name: install Arrow and Parquet
       shell: bash
       run: |
-        sudo apt-get install -y --no-install-recommends libarrow-dev libparquet-dev
+        sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends libarrow-dev libparquet-dev

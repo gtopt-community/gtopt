@@ -35,6 +35,8 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
   CCACHE_BASEDIR: ${{ github.workspace }}
+  # CI solves with the pinned HiGHS only (see ubuntu.yml / install-highs).
+  GTOPT_SOLVER: highs
   # Sloppiness is managed in ccache.conf by cmake_local/Ccache.cmake —
   # do NOT set CCACHE_SLOPPINESS here (env var would override the conf).
 
@@ -79,12 +81,15 @@ jobs:
 
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
+        with:
+          # HiGHS only: no COIN-OR, so the OSI plugin is not built.
+          coinor: 'false'
 
       # Default coverage compiler is the regular g++ (matches local dev and the
       # main Ubuntu build).  gcc-15 is not in the noble archive, so pull it from
-      # the toolchain PPA.  NOTE: do NOT default this to clang here — the only
-      # clang the coverage runtime pins is clang-21, which is a GH-sandbox-only
-      # toolchain and mis-compiles `views::join | std::ranges::to<...>()`.
+      # the toolchain PPA.  NOTE: do NOT default this to clang here — the
+      # apt.llvm.org clang pinned for coverage is a GH-sandbox-only toolchain
+      # (clang-21 mis-compiled `views::join | std::ranges::to<...>()`).
       - name: setup gcc
         if: ${{ (inputs.compiler || 'gcc') == 'gcc' }}
         uses: ./.github/actions/install-gcc
@@ -93,13 +98,20 @@ jobs:
           toolchain-ppa: 'true'
 
       # Opt-in only (manual workflow_dispatch with compiler=clang).  install-clang
-      # pins clang-21 (sandbox toolchain); prefer gcc for scheduled runs.
+      # pins clang-22 (sandbox toolchain); prefer gcc for scheduled runs.
       - name: install clang
         if: ${{ (inputs.compiler || 'gcc') == 'clang' }}
         uses: ./.github/actions/install-clang
         with:
-          version: 21
+          version: 22
           install-coverage-runtime: 'true'
+
+      # Pinned HiGHS (see .github/actions/install-highs), the ONLY LP/MIP
+      # solver here: install-apt-deps runs with coinor 'false', so the OSI
+      # (CLP/CBC) plugin is not built.  Same version + cache as ubuntu.yml.
+      - name: install HiGHS (pinned)
+        id: highs
+        uses: ./.github/actions/install-highs
 
       - name: Set up Python with uv
         uses: ./.github/actions/setup-python-uv
@@ -113,10 +125,15 @@ jobs:
           cmake -S coverage -B build-coverage \
             -DCOVERAGE_COMPILER="${COMPILER}" \
             -DCOVERAGE_OUTPUT_DIR="${PWD}/reports/coverage" \
-            -DCOVERAGE_PYTHON=ON
+            -DCOVERAGE_PYTHON=ON \
+            "-DCOVERAGE_EXTRA_CMAKE_ARGS=-DHIGHS_ROOT_DIR=${HIGHS_PREFIX}"
+        env:
+          HIGHS_PREFIX: ${{ steps.highs.outputs.prefix }}
 
       - name: Run full coverage analysis
-        run: cmake --build build-coverage -j$(nproc)
+        run: |
+          ulimit -c unlimited
+          cmake --build build-coverage -j"$(nproc)"
 
       - name: Upload C++ coverage HTML report
         uses: actions/upload-artifact@v7

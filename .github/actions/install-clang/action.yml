@@ -7,14 +7,16 @@ description: >
   clang-format, clang-tidy, llvm-cov, llvm-profdata, etc. are all reachable
   without a version suffix.
 
-  NOTE: apt.llvm.org now ships clang-22 (llvm-toolchain-<codename>-22);
-  the clang-tidy workflow uses it; the other workflows keep their own
-  pinned version.
+  NOTE: every GitHub workflow uses clang 22 (llvm-toolchain-<codename>-22
+  from apt.llvm.org): clang-tidy-22, clang-format-22, the clang build /
+  coverage / profile / TSan jobs.  apt-get runs with Acquire::Retries and
+  the repository bootstrap retries, as apt.llvm.org is intermittently
+  unreachable.
 
 inputs:
   version:
     description: LLVM major version to install
-    default: '21'
+    default: '22'
   install-coverage-runtime:
     description: >
       Set to 'true' to also install libclang-rt-N-dev, which provides
@@ -55,7 +57,7 @@ runs:
         # system packages (e.g. libipt2) whose versions have changed since the
         # runner image was built.
         for attempt in 1 2 3; do
-          sudo apt-get update -q && break
+          sudo apt-get -o Acquire::Retries=3 update -q && break
           echo "Attempt $attempt/3: apt-get update failed, retrying in 15s..."
           sleep 15
         done
@@ -65,7 +67,7 @@ runs:
       shell: bash
       run: |
         VER=${{ inputs.version }}
-        sudo apt-get install -y --no-install-recommends \
+        sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
           clang-${VER} \
           clang-tools-${VER} \
           clang-format-${VER} \
@@ -101,7 +103,7 @@ runs:
       if: ${{ inputs.packages != '' }}
       shell: bash
       run: |
-        sudo apt-get install -y --no-install-recommends ${{ env.LLVM_VERSIONED_PKGS }}
+        sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends ${{ env.LLVM_VERSIONED_PKGS }}
 
     - name: register unversioned LLVM/Clang alternatives
       shell: bash
@@ -119,5 +121,5 @@ runs:
       if: ${{ inputs.install-coverage-runtime == 'true' }}
       shell: bash
       run: |
-        sudo apt-get install -y --no-install-recommends \
+        sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
           libclang-rt-${{ inputs.version }}-dev

@@ -37,6 +37,11 @@ concurrency:
 permissions:
   contents: read
 
+# The GUI tests mock gtopt; pinned anyway so any real solve on CI uses
+# HiGHS only, like every other workflow (see ubuntu.yml).
+env:
+  GTOPT_SOLVER: highs
+
 jobs:
   # Incremental testing (tools/affected_tests.py): skip the guiservice jobs
   # when the change cannot reach guiservice (e.g. a scripts/ package it

@@ -48,6 +48,8 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
   CCACHE_BASEDIR: ${{ github.workspace }}
+  # CI solves with the pinned HiGHS only (see ubuntu.yml / install-highs).
+  GTOPT_SOLVER: highs
   # Sloppiness is managed in ccache.conf by cmake_local/Ccache.cmake —
   # do NOT set CCACHE_SLOPPINESS here (env var would override the conf).
 
@@ -91,13 +93,22 @@ jobs:
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
         with:
+          # HiGHS only: no COIN-OR, so the OSI plugin is not built.
+          coinor: 'false'
           extra-packages: valgrind time linux-perf
 
       - name: install clang
         uses: ./.github/actions/install-clang
         with:
-          version: 21
+          version: 22
           install-coverage-runtime: 'false'
+
+      # Pinned HiGHS (see .github/actions/install-highs), the ONLY LP/MIP
+      # solver here: install-apt-deps runs with coinor 'false', so the OSI
+      # (CLP/CBC) plugin is not built.  Same version + cache as ubuntu.yml.
+      - name: install HiGHS (pinned)
+        id: highs
+        uses: ./.github/actions/install-highs
 
       - name: Set up Python with uv
         uses: ./.github/actions/setup-python-uv
@@ -117,10 +128,15 @@ jobs:
             "-DPROFILING_JUST_BUILD_LP=${JUST_LP}" \
             "-DPROFILING_REPS=${REPS}" \
             "-DPROFILING_PLP_CASE=${PLP_CASE}" \
-            -DPROFILING_PYTHON=ON
+            -DPROFILING_PYTHON=ON \
+            "-DPROFILING_EXTRA_CMAKE_ARGS=-DHIGHS_ROOT_DIR=${HIGHS_PREFIX}"
+        env:
+          HIGHS_PREFIX: ${{ steps.highs.outputs.prefix }}
 
       - name: Run full profiling analysis
-        run: cmake --build build-profiling -j$(nproc)
+        run: |
+          ulimit -c unlimited
+          cmake --build build-profiling -j"$(nproc)"
 
       # Best-effort: the profiling-perf target is not part of the default
       # `profiling` build (perf's hardware PMU is usually unavailable on

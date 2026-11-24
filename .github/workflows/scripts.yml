@@ -39,6 +39,10 @@ permissions:
   contents: read
   actions: read  # needed to download the gtopt-binary-debug CI artifact
 
+# CI solves with the pinned HiGHS only (see ubuntu.yml / install-highs).
+env:
+  GTOPT_SOLVER: highs
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -181,7 +185,7 @@ jobs:
           PYLINT: ${{ steps.affected.outputs.pylint }}
         run: |
           if [ "$MODE" = "full" ] || [ "$PY" = "full" ]; then
-            pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt sddp2gtopt plexos2gtopt
+            pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt gtopt2pp gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_solvers gtopt_compress_lp gtopt_config run_gtopt sddp2gtopt plexos2gtopt gasnet2gtopt
           elif [ -n "$PYLINT" ]; then
             # shellcheck disable=SC2086
             pylint --jobs=0 $PYLINT
@@ -199,7 +203,7 @@ jobs:
           MYPY: ${{ steps.affected.outputs.mypy }}
         run: |
           if [ "$MODE" = "full" ] || [ "$PY" = "full" ]; then
-            mypy cen2gtopt cen_demanda cvs2parquet gtopt2pbi gtopt2pp gtopt_canonical_feed gtopt_check_cases gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_check_topology gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_expand gtopt_field_extractor gtopt_marginal_units gtopt_monitor gtopt_operators gtopt_reduce_network gtopt_results_summary gtopt_shared gtopt_timeseries_export igtopt nrel118_to_gtopt plexos2gtopt plexos_compress_case plp2gtopt plp_compress_case pp2gtopt psse2gtopt rts_gmlc_to_gtopt run_gtopt sddp2gtopt sienna_to_gtopt ts2gtopt --ignore-missing-imports
+            mypy cen2gtopt cen_demanda cvs2parquet gtopt2pbi gtopt2pp gtopt_canonical_feed gtopt_check_cases gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_check_topology gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_expand gtopt_field_extractor gasnet2gtopt gtopt_marginal_units gtopt_monitor gtopt_operators gtopt_reduce_network gtopt_results_summary gtopt_shared gtopt_timeseries_export igtopt nrel118_to_gtopt plexos2gtopt plexos_compress_case plp2gtopt plp_compress_case pp2gtopt psse2gtopt rts_gmlc_to_gtopt run_gtopt sddp2gtopt sienna_to_gtopt ts2gtopt --ignore-missing-imports
           elif [ -n "$MYPY" ]; then
             # shellcheck disable=SC2086
             mypy $MYPY --ignore-missing-imports
@@ -348,16 +352,12 @@ jobs:
       - name: Install solver runtime dependencies
         if: steps.targets.outputs.targets != ''
         run: |
-          # The gtopt solver plugins (libgtopt_solver_osi.so) need COIN-OR
-          # runtime libraries.  Install them before downloading the binary
-          # so that _ensure_binary_libs() succeeds without needing sudo.
-          # Note: HiGHS is not packaged in Ubuntu 24.04; if the HiGHS plugin
-          # is present in the artifact, it will fail to load gracefully and
-          # the OSI plugin (CLP/CBC) will be used instead.
+          # The ubuntu.yml artifact ships the HiGHS plugin with the pinned
+          # libhighs.so.1 (resolved via $ORIGIN); CI solves with HiGHS
+          # only (GTOPT_SOLVER=highs), so no COIN-OR runtime is installed
+          # and the OSI (CLP/CBC) plugin, if shipped, is skipped at load.
           sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends \
-            coinor-libclp1 coinor-libosi1v5 coinor-libcoinutils3v5 \
-            liblapack3 libblas3
+          sudo apt-get install -y --no-install-recommends liblapack3 libblas3
 
       - name: Download gtopt binary and install runtime libraries
         if: steps.targets.outputs.targets != ''
@@ -403,6 +403,7 @@ jobs:
           TARGETS: ${{ steps.targets.outputs.targets }}
           GTOPT_BIN: ${{ env.GTOPT_BIN }}
         run: |
+          ulimit -c unlimited
           # shellcheck disable=SC2086
           pytest $TARGETS -v -m integration --tb=short
 

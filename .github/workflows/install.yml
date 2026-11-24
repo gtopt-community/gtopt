@@ -13,7 +13,8 @@ name: Installer
 # Each cell runs the installer, re-runs it (idempotency), then checks
 # `gtopt --version`, that `gtopt --solvers` finds HiGHS and CBC/CLP from
 # the install prefix (no GTOPT_PLUGIN_DIR), and solves cases/ieee_4b_ori
-# with HiGHS.  The --prefix ~/.local --python mode also checks the
+# with HiGHS (the only solver any CI test solves with; the CBC/CLP check
+# only verifies the installer delivers its default plugin set).  The --prefix ~/.local --python mode also checks the
 # Python tools on PATH.
 #
 # The `unit` job (seconds) checks option parsing, solver selection and
@@ -119,6 +120,10 @@ jobs:
           solvers=$(env -u GTOPT_PLUGIN_DIR gtopt --solvers)
           echo "$solvers"
           grep -qi highs <<<"$solvers"
+          # Packaging check only: install.sh promises users HiGHS AND the
+          # CBC/CLP plugin by default, so verify both were installed.  No
+          # LP/MIP is ever solved with CBC/CLP here -- the solve below
+          # pins HiGHS, like every other CI workflow.
           grep -qiE 'cbc|clp' <<<"$solvers"
           work=$(mktemp -d)
           cp /repo/cases/ieee_4b_ori/ieee_4b_ori.json "$work/"
