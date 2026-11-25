@@ -53,7 +53,8 @@ María del Pilar Buitrago Villada, Carlos Enrique García Bujanda, Erick
 Sierra Baeza and Marcelo Matus.
 *2022 IEEE Kansas Power and Energy Conference (KPEC)*, Manhattan, KS,
 USA, April 2022, pp. 1–5.
-DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781)
+DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781) ·
+Open access: [ResearchGate](https://www.researchgate.net/publication/358423681_Optimal_Expansion_and_Reliable_Renewable_Energy_Integration_in_Long-Term_Planning_Using_FESOP)
 
 > Presents the FESOP framework on which GTOpt is based and applies it to
 > the optimal expansion of the Aysén electric system (Chile) over a
@@ -93,6 +94,14 @@ DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.981
   payment allocation in hydrothermal power systems with high shares of
   renewable energies," *E3S Web of Conferences*, vol. 140, 11008, 2019.
   DOI: [10.1051/e3sconf/201914011008](https://doi.org/10.1051/e3sconf/201914011008)
+- M. Matus, D. Sáez, M. Favley, C. Suazo-Martínez, J. Moya,
+  G. Jiménez-Estévez, R. Palma-Behnke, G. Olguín and P. Jorquera,
+  "Identification of Critical Spans for Monitoring Systems in Dynamic
+  Thermal Rating," *IEEE Transactions on Power Delivery*, vol. 27, no. 2,
+  pp. 1002–1009, April 2012.
+  DOI: [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254)
+  The critical-span method is the basis of GTOpt's dynamic line rating
+  model (in development).
 - M. Matus, N. Cáceres, S. Puschel-Lovengreen and R. Moreno, "Chebyshev
   based continuous time power system operation approach," *2015 IEEE
   Power & Energy Society General Meeting*, pp. 1–5, 2015.
