@@ -99,7 +99,8 @@ Open access: [ResearchGate](https://www.researchgate.net/publication/358423681_O
   "Identification of Critical Spans for Monitoring Systems in Dynamic
   Thermal Rating," *IEEE Transactions on Power Delivery*, vol. 27, no. 2,
   pp. 1002–1009, April 2012.
-  DOI: [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254)
+  DOI: [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254) ·
+  Open access: [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)
   The critical-span method is the basis of GTOpt's dynamic line rating
   model (in development).
 - M. Matus, N. Cáceres, S. Puschel-Lovengreen and R. Moreno, "Chebyshev
