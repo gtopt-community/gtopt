@@ -39,7 +39,10 @@ function entryKind(entry: yauzl.Entry): "file" | "dir" | "other" {
   // archive was created on a Unix host (versionMadeBy >> 8 === 3).
   const madeByUnix = entry.versionMadeBy >> 8 === 3;
   const mode = (entry.externalFileAttributes >>> 16) & 0xffff;
-  if (madeByUnix && mode !== 0) {
+  // A file-type field of 0 carries no type: Python's ZipFile.writestr()
+  // (used by the GUI service) stores only the permission bits (0o600), so
+  // such an entry is a plain file or directory, decided by its name.
+  if (madeByUnix && (mode & S_IFMT) !== 0) {
     const fmt = mode & S_IFMT;
     if (fmt === S_IFDIR) return "dir";
     if (fmt === S_IFREG) return isDirName ? "dir" : "file";

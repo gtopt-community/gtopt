@@ -119,6 +119,18 @@ describe("safeExtractZip", () => {
     await expect(fs.access(path.join(tmp, "evil.txt"))).rejects.toThrow();
   });
 
+  it("extracts entries with permission bits only (Python writestr)", async () => {
+    // zipfile.ZipFile.writestr() stores 0o600 with no file-type bits.
+    const zip = await writeZip([
+      { name: "ieee_9b.json", data: "{}", mode: 0o600 },
+      { name: "data/", mode: 0o700 },
+      { name: "data/demand.csv", data: "a\n", mode: 0o600 },
+    ]);
+    await safeExtractZip(zip, dest);
+    expect(await fs.readFile(path.join(dest, "ieee_9b.json"), "utf8")).toBe("{}");
+    expect(await fs.readFile(path.join(dest, "data", "demand.csv"), "utf8")).toBe("a\n");
+  });
+
   it("enforces the uncompressed size limit", async () => {
     const zip = await writeZip([{ name: "big.txt", data: "x".repeat(1000) }]);
     await expect(
