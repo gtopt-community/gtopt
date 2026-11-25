@@ -25,6 +25,7 @@
 #include <vector>
 
 #include <gtopt/lp_context.hpp>
+#include <gtopt/sha256.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
@@ -69,8 +70,8 @@ struct LpFingerprint
   FingerprintStats stats;
 };
 
-/// Compute SHA-256 hash of a string, returning a 64-character hex string.
-[[nodiscard]] auto sha256_hex(std::string_view input) -> std::string;
+// sha256_hex() (FIPS 180-4) lives in <gtopt/sha256.hpp>, included below
+// for the callers that used it from here.
 
 /// Map an LpContext variant to its human-readable type name.
 /// Returns "monostate" for context-free entries.

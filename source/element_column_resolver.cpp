@@ -178,9 +178,14 @@ namespace
     if (it == blocks.begin()) {
       // First block of the stage: chain to the last block of the
       // previous stage when it is in the SAME phase (``prev_stage``
-      // returns a null phase pointer for a same-phase predecessor) and
-      // also chronological.  Horizon start / later-phase first stage →
-      // nullopt, and resolve_single_param emits the boundary constant.
+      // returns a null phase pointer for a same-phase predecessor), also
+      // chronological, and ``model_options.prev_stage_link = stage``
+      // (default; ``none`` keeps the legacy 0).  Horizon start /
+      // later-phase first stage → nullopt, and resolve_single_param
+      // emits the boundary constant.
+      if (sc.options().prev_stage_link() != PrevStageLink::stage) {
+        return std::nullopt;
+      }
       const auto [prev_stage, prev_phase] = sc.simulation().prev_stage(stage);
       if (prev_stage == nullptr || prev_phase != nullptr
           || prev_stage->blocks().empty() || !prev_stage->is_chronological())
@@ -699,9 +704,11 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
   //     so ``gen − gen_prev ≤ R`` at h1 reads ``gen ≤ R + gen₀``;
   //   * otherwise — no initial value, the first stage of a LATER phase
   //     (its predecessor lives in another LP and ``_prev`` carries no
-  //     cross-phase state link), or a non-chronological stage — 0
-  //     (cold start, the legacy behaviour).  The initial value is NEVER
-  //     applied past the horizon start.
+  //     cross-phase state link; the caller logs a WARN per constraint),
+  //     a later stage of the same phase under
+  //     ``model_options.prev_stage_link = none``, or a non-chronological
+  //     stage — 0 (cold start, the legacy behaviour).  The initial value
+  //     is NEVER applied past the horizon start.
   if (ref.attribute.ends_with("_prev")) {
     const bool horizon_start = !stage.blocks().empty()
         && stage.blocks().front().uid() == block.uid()

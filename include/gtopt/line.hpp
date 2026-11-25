@@ -50,6 +50,7 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
+#include <gtopt/line_dlr.hpp>
 #include <gtopt/line_enums.hpp>
 #include <gtopt/lp_class_name.hpp>
 
@@ -252,8 +253,8 @@ struct Line
   ///
   /// SIZING for negative-price exposure: ε lands on the LOSS columns
   /// in every mode — in ``tangent_signed_flow`` the abs-flow proxy
-  /// ``v`` carries only an internal 1e-6 degeneracy pin (activated
-  /// when ε > 0) — so its incidence is loss-scaled: overhead
+  /// ``v`` carries only the ``loss_flow_abs_cost`` degeneracy pin
+  /// (activated when ε > 0) — so its incidence is loss-scaled: overhead
   /// ≈ ε·2λ per marginal MWh (λ = R·fmax/V², a few %), NOT a flow
   /// toll.  Loss dumping earns |π_a + π_b|/2 per MWh whenever the
   /// bus-dual pair-sum goes negative (KVL congestion or curtailment
@@ -268,6 +269,18 @@ struct Line
   /// (``loss_use_sos2`` + ``loss_secant_segments ≥ 2``).  See
   /// ``test_line_losses_negative_lmp_kvl.cpp``.
   OptReal loss_cost_eps {};
+
+  /// Per-MWh degeneracy pin [$/MWh, real cost units] on this line's
+  /// ``tangent_signed_flow`` abs-flow proxy columns ``v_l``
+  /// (``Σ v_l ≥ |f|``).  Makes ``Σ v_l = |f|`` at the LP optimum so the
+  /// secant chord upper bound on the loss stays anchored.  It acts as a
+  /// tiny transport toll: the LMP difference across the line shifts by
+  /// at most ≈ ``loss_flow_abs_cost`` in the flow direction.  Unset →
+  /// ``model_options.loss_flow_abs_cost`` (default 0.001 $/MWh); ``0``
+  /// disables the pin; ``1e-6`` reproduces the pre-option internal
+  /// constant.  Applied only when the resolved ``loss_cost_eps > 0``.
+  /// Inert outside ``tangent_signed_flow``.
+  OptReal loss_flow_abs_cost {};
 
   /// Price [$/MWh] on the loss carried by this line's OVERFLOW tier,
   /// i.e. flow between ``loss_envelope`` and the flow cap ``tmax``.
@@ -366,6 +379,51 @@ struct Line
   /// pre-#504 single-secant chord).  Inert outside
   /// ``tangent_signed_flow`` mode or when ``loss_secant_segments ≤ 1``.
   OptBool loss_use_sos2 {};
+
+  /// How the thermal limit (`tmax_ab` / `tmax_ba`, and the installed
+  /// capacity of an expandable line) treats the loss: `"flow"` (limit on
+  /// the flow variable only), `"sending"` (limit on the sending-end
+  /// power `f + a_s·ℓ`, `a_s` = sending-bus share of the loss under
+  /// `loss_allocation_mode`) or `"full"` (limit on `f + ℓ`).  See
+  /// `LineThermalLimitMode` (line_enums.hpp).  Unset → inherits
+  /// `model_options.line_thermal_limit_mode` (default `"flow"`).
+  OptName line_thermal_limit_mode {};
+
+  /// Dynamic line rating through critical spans (see `line_dlr.hpp`).
+  /// When set, the per-block flow limit is `min(tmax, DLR rating)`
+  /// computed from each span's weather with IEEE Std 738.
+  OptLineDlr dlr {};
+
+  /// Upper bound of the overload slack: `"thermal"` (`min(hard − normal,
+  /// max_overload_ratio × normal)`, the thermal headroom capped by the
+  /// ratio; ratio only without a finite hard cap), `"ratio"`
+  /// (`max_overload_ratio × normal`) or `"unbounded"`.
+  /// Unset → `model_options.overload_slack_bound` (default `"thermal"`).
+  OptName overload_slack_bound {};
+  /// Overload headroom as a fraction of the normal threshold, used by
+  /// `overload_slack_bound = "ratio"` (and the `"thermal"` fallback).
+  /// Unset → `model_options.max_overload_ratio` (default 1.5).
+  OptReal max_overload_ratio {};
+
+  /// Parse overload_slack_bound (nullopt = inherit from global).
+  [[nodiscard]] constexpr std::optional<LineOverloadSlackBound>
+  overload_slack_bound_enum() const noexcept
+  {
+    if (overload_slack_bound.has_value()) {
+      return enum_from_name<LineOverloadSlackBound>(*overload_slack_bound);
+    }
+    return std::nullopt;
+  }
+
+  /// Parse line_thermal_limit_mode (nullopt = inherit from global).
+  [[nodiscard]] constexpr std::optional<LineThermalLimitMode>
+  line_thermal_limit_mode_enum() const noexcept
+  {
+    if (line_thermal_limit_mode.has_value()) {
+      return enum_from_name<LineThermalLimitMode>(*line_thermal_limit_mode);
+    }
+    return std::nullopt;
+  }
 };
 
 }  // namespace gtopt

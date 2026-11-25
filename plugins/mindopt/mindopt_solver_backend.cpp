@@ -817,6 +817,30 @@ bool MindOptSolverBackend::is_integer(int index) const
 
 // ── cache helpers ────────────────────────────────────────────────────────
 
+void MindOptSolverBackend::release_scratch() const noexcept
+{
+  // Swap with empties: `clear()` would keep the capacity.  The problem-data
+  // caches are invalidated too so the next getter refills from the solver.
+  invalidate_problem_data();
+  std::vector<double> {}.swap(m_collb_);
+  std::vector<double> {}.swap(m_colub_);
+  std::vector<double> {}.swap(m_obj_);
+  std::vector<double> {}.swap(m_rowlb_);
+  std::vector<double> {}.swap(m_rowub_);
+  std::vector<double> {}.swap(m_col_solution_);
+  std::vector<double> {}.swap(m_reduced_cost_);
+  std::vector<double> {}.swap(m_row_price_);
+}
+
+std::size_t MindOptSolverBackend::scratch_bytes() const noexcept
+{
+  return (m_collb_.capacity() + m_colub_.capacity() + m_obj_.capacity()
+          + m_rowlb_.capacity() + m_rowub_.capacity()
+          + m_col_solution_.capacity() + m_reduced_cost_.capacity()
+          + m_row_price_.capacity())
+      * sizeof(double);
+}
+
 void MindOptSolverBackend::invalidate_problem_data() const noexcept
 {
   m_collb_cached_ = false;

@@ -117,13 +117,27 @@ struct ModelOptions
   /// Per-line ``Line.loss_cost_eps`` overrides this global default.
   /// Inert for ``none``, ``linear`` and ``piecewise_direct`` (no loss
   /// column).  In ``tangent_signed_flow`` ε prices the LOSS column
-  /// (the abs-flow proxy ``v`` gets an internal 1e-6 degeneracy pin
-  /// when ε > 0), and ε > 0 is REQUIRED when
+  /// (the abs-flow proxy ``v`` gets the ``loss_flow_abs_cost``
+  /// degeneracy pin when ε > 0), and ε > 0 is REQUIRED when
   /// ``loss_secant_segments > 1`` without SOS2.  Sized
   /// ≥ ½·|worst credible bus-dual pair-sum| it is the pure-LP
   /// arbitrage guard, at loss-scaled (≈2λ·ε) incidence; see the
   /// sizing guidance at ``Line.loss_cost_eps`` (line.hpp).
   OptReal loss_cost_eps {};
+  /// Global per-MWh cost [$/MWh, real cost units before
+  /// ``scale_objective``] on the ``tangent_signed_flow`` abs-flow proxy
+  /// columns ``v_l`` (``Σ v_l ≥ |f|``).  A degeneracy pin: it makes
+  /// ``Σ v_l = |f|`` at the LP optimum, which keeps the secant chord
+  /// upper bound on the loss anchored.  Its LMP footprint is bounded:
+  /// at most ≈ ``loss_flow_abs_cost`` $/MWh of extra price difference
+  /// across each lossy line, in the flow direction.  Unset resolves to
+  /// ``PlanningOptionsLP::default_loss_flow_abs_cost`` (0.001 $/MWh);
+  /// ``0`` disables the pin; ``1e-6`` reproduces the pre-option
+  /// internal constant exactly.  Applied only when the line's resolved
+  /// ``loss_cost_eps > 0`` (an explicit ε = 0 keeps the legacy no-pin
+  /// formulation).  Per-line ``Line.loss_flow_abs_cost`` overrides.
+  /// Inert outside ``tangent_signed_flow``.
+  OptReal loss_flow_abs_cost {};
   /// Global price [$/MWh] on the loss carried by the OVERFLOW tier of a
   /// decoupled ``loss_envelope`` (flow between the envelope and the flow
   /// cap).  Each overflow |f| column / secant segment / λ breakpoint
@@ -411,6 +425,42 @@ struct ModelOptions
   /// uses min up/down only.  Default 1 h.
   OptReal fast_start_max_hours {};
 
+  /// How a line's thermal limit (`tmax_ab` / `tmax_ba`, and the
+  /// installed capacity of expandable lines) interacts with its loss
+  /// variable.  See `LineThermalLimitMode` (line_enums.hpp):
+  ///   * `"flow"` (default) — the limit applies to the flow variable
+  ///     only (no extra constraint; historical behaviour);
+  ///   * `"sending"` — the sending-end power, i.e. the flow plus the
+  ///     share of the loss the line's `loss_allocation_mode` books at
+  ///     the sending bus, stays within the limit;
+  ///   * `"full"` — flow plus the whole loss stays within the limit
+  ///     (`f + p_loss ≤ tmax` per direction).
+  /// Per-line `Line.line_thermal_limit_mode` overrides this default.
+  OptName line_thermal_limit_mode {};
+
+  /// What a user-constraint `<attr>_prev` term reads at the first block
+  /// of a stage whose predecessor is in the same phase.  See
+  /// `PrevStageLink` (planning_enums.hpp):
+  ///   * `"stage"` (default) — the previous stage's last block;
+  ///   * `"none"` — the constant 0 (legacy behaviour).
+  OptName prev_stage_link {};
+
+  /// Global switch for the dynamic line rating (`Line.dlr`).  Default
+  /// (unset) `true`: every line that carries a `dlr` block is limited by
+  /// its critical-span ratings.  `false` ignores every `dlr` block (the
+  /// lines keep their static `tmax`) — handy for static-vs-DLR runs.
+  OptBool use_line_dlr {};
+
+  /// Default `Line.overload_slack_bound`: `"thermal"` (default;
+  /// `min(hard − normal, max_overload_ratio × normal)`), `"ratio"` or
+  /// `"unbounded"`.
+  OptName overload_slack_bound {};
+  /// Default `Line.max_overload_ratio` (default 1.5: the slack is at most
+  /// +150 % of the normal threshold, flow ≤ 2.5 × normal — a guard rail
+  /// well above reported DLR gains: +10–25 % typical, ~40 % at windy
+  /// sites, 50–72 % outliers).
+  OptReal max_overload_ratio {};
+
   void merge(const ModelOptions& opts)
   {
     merge_opt(use_single_bus, opts.use_single_bus);
@@ -427,6 +477,7 @@ struct ModelOptions
     merge_opt(scale_theta, opts.scale_theta);
     merge_opt(scale_loss_link, opts.scale_loss_link);
     merge_opt(loss_cost_eps, opts.loss_cost_eps);
+    merge_opt(loss_flow_abs_cost, opts.loss_flow_abs_cost);
     merge_opt(loss_overflow_cost, opts.loss_overflow_cost);
     merge_opt(loss_secant_segments, opts.loss_secant_segments);
     merge_opt(loss_use_sos2, opts.loss_use_sos2);
@@ -450,6 +501,11 @@ struct ModelOptions
     merge_opt(reserve_coupling, opts.reserve_coupling);
     merge_opt(pricing_mode, opts.pricing_mode);
     merge_opt(fast_start_max_hours, opts.fast_start_max_hours);
+    merge_opt(line_thermal_limit_mode, opts.line_thermal_limit_mode);
+    merge_opt(prev_stage_link, opts.prev_stage_link);
+    merge_opt(use_line_dlr, opts.use_line_dlr);
+    merge_opt(overload_slack_bound, opts.overload_slack_bound);
+    merge_opt(max_overload_ratio, opts.max_overload_ratio);
   }
 
   /// True if any field is set.
@@ -463,18 +519,21 @@ struct ModelOptions
         || dc_line_resistance_threshold.has_value() || loss_segments.has_value()
         || scale_objective.has_value() || scale_theta.has_value()
         || scale_loss_link.has_value() || loss_cost_eps.has_value()
-        || loss_overflow_cost.has_value() || loss_secant_segments.has_value()
-        || loss_use_sos2.has_value() || theta_max.has_value()
-        || demand_fail_cost.has_value() || demand_fail_segments.has_value()
-        || reserve_shortage_cost.has_value() || hydro_spill_cost.has_value()
-        || hydro_use_value.has_value() || state_violation_cost.has_value()
-        || demand_fail_rhs_shift.has_value() || continuous_phases.has_value()
-        || naming_dialect.has_value() || objective_mode.has_value()
-        || strict_storage_emin.has_value() || lp_reduction.has_value()
-        || allow_oversupply.has_value()
+        || loss_flow_abs_cost.has_value() || loss_overflow_cost.has_value()
+        || loss_secant_segments.has_value() || loss_use_sos2.has_value()
+        || theta_max.has_value() || demand_fail_cost.has_value()
+        || demand_fail_segments.has_value() || reserve_shortage_cost.has_value()
+        || hydro_spill_cost.has_value() || hydro_use_value.has_value()
+        || state_violation_cost.has_value() || demand_fail_rhs_shift.has_value()
+        || continuous_phases.has_value() || naming_dialect.has_value()
+        || objective_mode.has_value() || strict_storage_emin.has_value()
+        || lp_reduction.has_value() || allow_oversupply.has_value()
         || battery_annual_standing_loss.has_value()
         || battery_power_envelope.has_value() || reserve_coupling.has_value()
-        || pricing_mode.has_value() || fast_start_max_hours.has_value();
+        || pricing_mode.has_value() || fast_start_max_hours.has_value()
+        || line_thermal_limit_mode.has_value() || prev_stage_link.has_value()
+        || use_line_dlr.has_value() || overload_slack_bound.has_value()
+        || max_overload_ratio.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -500,6 +559,7 @@ struct ModelOptions
         && covers_opt(scale_theta, other.scale_theta)
         && covers_opt(scale_loss_link, other.scale_loss_link)
         && covers_opt(loss_cost_eps, other.loss_cost_eps)
+        && covers_opt(loss_flow_abs_cost, other.loss_flow_abs_cost)
         && covers_opt(loss_overflow_cost, other.loss_overflow_cost)
         && covers_opt(loss_secant_segments, other.loss_secant_segments)
         && covers_opt(loss_use_sos2, other.loss_use_sos2)
@@ -522,7 +582,12 @@ struct ModelOptions
         && covers_opt(battery_power_envelope, other.battery_power_envelope)
         && covers_opt(reserve_coupling, other.reserve_coupling)
         && covers_opt(pricing_mode, other.pricing_mode)
-        && covers_opt(fast_start_max_hours, other.fast_start_max_hours);
+        && covers_opt(fast_start_max_hours, other.fast_start_max_hours)
+        && covers_opt(line_thermal_limit_mode, other.line_thermal_limit_mode)
+        && covers_opt(prev_stage_link, other.prev_stage_link)
+        && covers_opt(use_line_dlr, other.use_line_dlr)
+        && covers_opt(overload_slack_bound, other.overload_slack_bound)
+        && covers_opt(max_overload_ratio, other.max_overload_ratio);
   }
 };
 

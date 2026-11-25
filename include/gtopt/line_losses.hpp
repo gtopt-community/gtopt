@@ -80,6 +80,7 @@
 
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include <gtopt/line.hpp>
@@ -153,6 +154,14 @@ struct LossConfig
   /// ``none``, ``linear``,
   /// ``piecewise_direct``, and ``tangent`` layouts.
   double loss_cost_eps {0.0};
+  /// Per-MWh pin [$/MWh] on the ``tangent_signed_flow`` abs-flow proxy
+  /// columns ``v_l``; stamped (via ``CostHelper::block_ecost``) only
+  /// when ``loss_cost_eps > 0``.  ``LineLP`` passes the resolved value
+  /// (per-line ``Line.loss_flow_abs_cost``, else
+  /// ``model_options.loss_flow_abs_cost``, else 0.001 $/MWh).  ``0``
+  /// here (the struct default, used by direct ``make_config`` callers)
+  /// means no pin.  Inert outside ``tangent_signed_flow``.
+  double loss_flow_abs_cost {0.0};
   /// Number of L-secant segment columns ``v_l`` emitted per (line,
   /// block) by ``add_tangent_signed_flow`` when the L-secant chord
   /// upper bound is active (issue #504).  ``1`` (default) preserves
@@ -185,6 +194,14 @@ struct LossConfig
   /// ``demand_fail_cost``) disables it.  Inert when
   /// there is no overflow tier (no envelope or ``fmax ≤ envelope``).
   double loss_overflow_cost {0.0};
+  /// How the thermal limit treats the loss (see ``LineThermalLimitMode``,
+  /// line_enums.hpp).  ``flow`` (default) leaves the LP untouched;
+  /// ``sending`` / ``full`` bound ``f_dir + a·ℓ_dir ≤ T_dir`` per
+  /// direction (``a`` = sending-bus loss share, resp. ``1``) and fold
+  /// the same ``a·ℓ_dir`` into the capacity rows of expandable lines.
+  /// ``LineLP`` resolves it (per-line override, else
+  /// ``model_options.line_thermal_limit_mode``, else ``flow``).
+  LineThermalLimitMode thermal_limit {LineThermalLimitMode::flow};
 };
 
 // ─── PWL geometry (exposed for unit testing) ────────────────────────
@@ -463,7 +480,36 @@ struct BlockResult
   /// to the linear-in-`|f|` chord `(R·fmax/V²) · v` (with `v ≥ |f|`).
   /// Internal to the loss model — KVL / bus balance do NOT stamp it.
   std::optional<ColIndex> f_abs_col;
+  /// Thermal-limit rows ``f_dir + a·ℓ_dir ≤ T_dir`` added under
+  /// ``LineThermalLimitMode::sending`` / ``full`` (A→B / B→A).  Empty
+  /// under ``flow``, for lossless lines, when the coefficient ``a`` is 0
+  /// or when ``T_dir`` is not finite.  ``linear`` mode never adds a row:
+  /// it tightens the flow-column bound to ``T_dir / (1 + a·λ)`` instead.
+  std::optional<RowIndex> thermalp_row;
+  std::optional<RowIndex> thermaln_row;
 };
+
+// ─── Thermal limit with losses ──────────────────────────────────────
+
+/// Share ``a`` of a direction's loss counted against its thermal limit
+/// (``f_dir + a·ℓ_dir``): ``full`` → 1; ``sending`` → the loss share
+/// booked at the sending bus (``receiver`` 0, ``split`` ½, ``sender`` 1;
+/// ``tangent_signed_flow`` always ½); ``flow`` and ``none`` mode → 0.
+[[nodiscard]] double thermal_loss_share(const LossConfig& config) noexcept;
+
+/// Linear terms ``Σ coef·col`` of the loaded quantity ``f_dir + a·ℓ_dir``
+/// of one direction (``forward`` = A→B) for the columns ``add_block``
+/// produced, with ``a = thermal_loss_share(config)``:
+///   * directional flow + loss columns: ``{(f, 1), (ℓ, a)}`` (``ℓ`` the
+///     shared loss column for the ``tangent`` layout);
+///   * ``tangent_signed_flow``: ``{(f, ±1), (ℓ, a)}``;
+///   * ``piecewise_direct``: ``{(seg_k, 1 + a·lf_k)}``;
+///   * ``linear``: ``{(f, 1 + a·λ)}``.
+/// Loss terms are omitted when ``a = 0``, so the ``flow`` mode yields
+/// the bare flow.  Empty when the direction has no flow column (e.g.
+/// ``tmax_dir = 0``).  Used by the soft-cap (overload) band rows.
+[[nodiscard]] std::vector<std::pair<ColIndex, double>> limit_terms(
+    const LossConfig& config, const BlockResult& result, bool forward);
 
 // ─── Mode resolution ────────────────────────────────────────────────
 
@@ -519,7 +565,8 @@ struct BlockResult
                                      double loss_cost_eps = 0.0,
                                      int nseg_secant = 1,
                                      bool use_sos2 = false,
-                                     double loss_overflow_cost = 0.0);
+                                     double loss_overflow_cost = 0.0,
+                                     double loss_flow_abs_cost = 0.0);
 
 // ─── LP construction ────────────────────────────────────────────────
 

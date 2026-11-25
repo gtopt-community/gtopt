@@ -97,17 +97,43 @@ inline constexpr int solution_status_limit_polished = 5;
 /// The single source of truth for the CSV column order/names (trailing
 /// newline included).  Its comma count MUST equal the field count emitted by
 /// `solution_csv_line`; `test_solution_csv` pins that invariant.
-[[nodiscard]] constexpr std::string_view solution_csv_header() noexcept
+///
+/// @p with_kappa = false (`kappa_mode = off` everywhere) drops the `kappa`
+/// and `max_kappa` columns: kappa is neither queried nor printed.
+[[nodiscard]] constexpr std::string_view solution_csv_header(
+    bool with_kappa = true) noexcept
 {
-  return "scene,phase,status,status_name,obj_value,kappa,max_kappa,"
-         "gap,gap_change,solve_ticks,solve_time_s,solve_calls,"
-         "infeasible_count,scale_objective,gtopt_version,gtopt_revision\n";
+  return with_kappa
+      ? "scene,phase,status,status_name,obj_value,kappa,max_kappa,"
+        "gap,gap_change,solve_ticks,solve_time_s,solve_calls,"
+        "infeasible_count,scale_objective,gtopt_version,gtopt_revision\n"
+      : "scene,phase,status,status_name,obj_value,"
+        "gap,gap_change,solve_ticks,solve_time_s,solve_calls,"
+        "infeasible_count,scale_objective,gtopt_version,gtopt_revision\n";
 }
 
 /// Format one @p row as a CSV line (trailing newline included), matching the
 /// column order of `solution_csv_header`.
-[[nodiscard]] inline std::string solution_csv_line(const SolutionRow& row)
+[[nodiscard]] inline std::string solution_csv_line(const SolutionRow& row,
+                                                   bool with_kappa = true)
 {
+  if (!with_kappa) {
+    return std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+                       row.scene_uid,
+                       row.phase_uid,
+                       row.status,
+                       solution_status_name(row.status),
+                       row.obj_value,
+                       row.gap,
+                       row.gap_change,
+                       row.solve_ticks,
+                       row.solve_time_s,
+                       row.solve_calls,
+                       row.infeasible_count,
+                       row.scale_objective,
+                       row.gtopt_version,
+                       row.gtopt_revision);
+  }
   return std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
                      row.scene_uid,
                      row.phase_uid,

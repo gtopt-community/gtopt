@@ -324,6 +324,81 @@ configure_file(
 list(APPEND headers
      "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/units_builtin.hpp")
 
+# ---- Solver-plugin integrity check: compiled-in default mode ----
+# What a failed plugin integrity check does when neither `--plugin-check`
+# nor `$GTOPT_PLUGIN_CHECK` is given (precedence: CLI > env > this).
+# `error` refuses a plugin from another build tree, a stale install or a
+# shadowed solver library; `warning` logs and loads it anyway.  A cache
+# variable of the library project, so the `all/` super-project, the
+# standalone binary and the test suite all see one value.  See
+# docs/solvers.md, "Plugin integrity".
+set(GTOPT_PLUGIN_CHECK_DEFAULT "error" CACHE STRING
+    "Default solver-plugin integrity check mode: error or warning")
+set_property(CACHE GTOPT_PLUGIN_CHECK_DEFAULT PROPERTY STRINGS error warning)
+string(TOLOWER "${GTOPT_PLUGIN_CHECK_DEFAULT}" _gtopt_plugin_check_default)
+set(_gtopt_plugin_check_modes error warning)
+if(NOT _gtopt_plugin_check_default IN_LIST _gtopt_plugin_check_modes)
+  message(FATAL_ERROR
+    "GTOPT_PLUGIN_CHECK_DEFAULT must be 'error' or 'warning', got "
+    "'${GTOPT_PLUGIN_CHECK_DEFAULT}'")
+endif()
+# Normalise the cache entry, so every sub-project compares lowercase.
+set_property(CACHE GTOPT_PLUGIN_CHECK_DEFAULT
+             PROPERTY VALUE "${_gtopt_plugin_check_default}")
+set(GTOPT_PLUGIN_CHECK_DEFAULT_VALUE "${_gtopt_plugin_check_default}")
+message(STATUS "gtopt: solver-plugin check default: "
+               "${GTOPT_PLUGIN_CHECK_DEFAULT_VALUE}")
+# Full-library hash of the solver libraries (on top of the build-id check):
+# each plugin records the SHA-256 of every shared library it links, and
+# gtopt hashes the mapped file at load and refuses a different content.
+# Costs one hash of each solver library per process start.  See
+# docs/solvers.md, "Solver library identity".
+option(GTOPT_SOLVER_LIB_FULL_HASH
+       "Record and verify the SHA-256 of every linked solver library" OFF)
+if(GTOPT_SOLVER_LIB_FULL_HASH)
+  set(GTOPT_SOLVER_LIB_FULL_HASH_VALUE true)
+else()
+  set(GTOPT_SOLVER_LIB_FULL_HASH_VALUE false)
+endif()
+message(STATUS "gtopt: solver-library full hash: ${GTOPT_SOLVER_LIB_FULL_HASH_VALUE}")
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/gtopt/plugin_check_default.hpp.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/plugin_check_default.hpp"
+  @ONLY
+)
+list(APPEND headers
+     "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/plugin_check_default.hpp")
+
+# ---- Compiled-in default of solver_options.kappa_mode ----
+# Used when neither `solver_options.kappa_mode` (JSON / --set) nor
+# `$GTOPT_KAPPA_MODE` selects one.  `auto` (default) resolves at compile
+# time: `off` when NDEBUG is defined (Release, RelWithDebInfo,
+# MinSizeRel), `estimate` otherwise (Debug and CIFast).  Kappa is
+# telemetry; `estimate` costs a few solves per LP, `exact` is for
+# diagnostics only.  See docs/planning-options.md.
+set(GTOPT_KAPPA_MODE_DEFAULT "auto" CACHE STRING
+    "Default solver kappa mode: auto, off, estimate or exact")
+set_property(CACHE GTOPT_KAPPA_MODE_DEFAULT
+             PROPERTY STRINGS auto off estimate exact)
+string(TOLOWER "${GTOPT_KAPPA_MODE_DEFAULT}" _gtopt_kappa_mode_default)
+set(_gtopt_kappa_modes auto off estimate exact)
+if(NOT _gtopt_kappa_mode_default IN_LIST _gtopt_kappa_modes)
+  message(FATAL_ERROR
+    "GTOPT_KAPPA_MODE_DEFAULT must be auto, off, estimate or exact, got "
+    "'${GTOPT_KAPPA_MODE_DEFAULT}'")
+endif()
+set_property(CACHE GTOPT_KAPPA_MODE_DEFAULT
+             PROPERTY VALUE "${_gtopt_kappa_mode_default}")
+set(GTOPT_KAPPA_MODE_DEFAULT_VALUE "${_gtopt_kappa_mode_default}")
+message(STATUS "gtopt: kappa mode default: ${GTOPT_KAPPA_MODE_DEFAULT_VALUE}")
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/gtopt/kappa_mode_default.hpp.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/kappa_mode_default.hpp"
+  @ONLY
+)
+list(APPEND headers
+     "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/kappa_mode_default.hpp")
+
 # Move gtopt_main.cpp to the front of the source list so that Ninja
 # schedules its compilation before the unity batches.  It is the slowest
 # file (~209s) and compiles standalone (SKIP_UNITY_BUILD_INCLUSION ON),
@@ -339,12 +414,22 @@ list(PREPEND sources "${_priority_src}")
 # recompiles a single small file.
 set(GTOPT_GIT_REVISION_HEADER
     "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/git_revision.hpp")
+# Build-tree identity: a short hash of the build directory, compiler and
+# build type.  Together with the git revision it forms the "build tag" that
+# the host and every solver plugin embed, so SolverRegistry can tell a
+# plugin from this build apart from one picked up from another build tree
+# or a stale install (see docs/solvers.md, "Plugin integrity").
+string(SHA256 _gtopt_tree_hash
+  "${CMAKE_BINARY_DIR}|${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}|${CMAKE_BUILD_TYPE}"
+)
+string(SUBSTRING "${_gtopt_tree_hash}" 0 12 GTOPT_BUILD_TREE_ID)
 add_custom_target(
   gtopt_git_revision
   COMMAND
     ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
     -DTEMPLATE=${CMAKE_CURRENT_SOURCE_DIR}/include/gtopt/git_revision.hpp.in
-    -DOUTPUT=${GTOPT_GIT_REVISION_HEADER} -P
+    -DOUTPUT=${GTOPT_GIT_REVISION_HEADER}
+    -DBUILD_TREE_ID=${GTOPT_BUILD_TREE_ID} -P
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake_local/GitRevision.cmake
   BYPRODUCTS "${GTOPT_GIT_REVISION_HEADER}"
   COMMENT "Refreshing gtopt git revision"
@@ -472,6 +557,15 @@ set_source_files_properties(
   "${CMAKE_CURRENT_SOURCE_DIR}/source/gtopt_main.cpp"
   PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
 )
+# sha256.cpp hashes whole solver libraries at plugin load under
+# GTOPT_SOLVER_LIB_FULL_HASH (tens of MB): keep it optimised even in -O0
+# build types (CIFast / Debug), where it is ~10x slower.
+if(NOT MSVC)
+  set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/sha256.cpp"
+    PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON COMPILE_OPTIONS "-O2"
+  )
+endif()
 include(UnityBuild)
 target_enable_unity_build(${PROJECT_NAME})
 

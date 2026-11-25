@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include <gtopt/ampl_variable.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/gas_node_lp.hpp>
 #include <gtopt/gas_physics.hpp>
@@ -128,6 +129,16 @@ bool GasPipeLP::add_to_lp(SystemContext& sc,
   const auto& node_b = sc.element<GasNodeLP>(GasNodeLPSId {pipe.gas_node_b});
   if (!node_a.is_active(stage) || !node_b.is_active(stage)) {
     return true;
+  }
+  {
+    AmplElementMetadata metadata;
+    metadata.reserve(3);
+    if (pipe.type) {
+      metadata.emplace_back(GasNodeLP::TypeKey, *pipe.type);
+    }
+    metadata.emplace_back(GasNodeAKey, static_cast<double>(node_a.uid()));
+    metadata.emplace_back(GasNodeBKey, static_cast<double>(node_b.uid()));
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
   const auto& blocks = stage.blocks();
   if (blocks.empty()) {
@@ -488,6 +499,17 @@ bool GasPipeLP::add_to_lp(SystemContext& sc,
                          scenario,
                          stage,
                          linepack_cols_.at(st_key));
+    // With line pack the pipe has no single flow column: `flow` is the
+    // mean (f_in + f_out)/2 — the f̄ the Weymouth rows are written on.
+    BIndexHolder<std::vector<std::pair<ColIndex, double>>> mean_flow;
+    map_reserve(mean_flow, blocks.size());
+    const auto& fin_at = flow_in_cols_.at(st_key);
+    const auto& fout_at = flow_out_cols_.at(st_key);
+    for (const auto& [buid, fin] : fin_at) {
+      mean_flow[buid] = {{fin, 0.5}, {fout_at.at(buid), 0.5}};
+    }
+    sc.add_ampl_variable(
+        ampl_name, uid(), FlowName, scenario, stage, mean_flow);
   } else {
     flow_cols_[st_key] = std::move(fcols);
     sc.add_ampl_variable(

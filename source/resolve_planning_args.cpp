@@ -31,11 +31,15 @@ namespace gtopt
     const auto path = fs::path(pf);
 
     if (fs::is_directory(path)) {
-      auto dir_name = path.filename().string();
-      // Handle trailing slash: path("/foo/bar/").filename() == ""
-      if (dir_name.empty()) {
-        dir_name = path.parent_path().filename().string();
+      // Name the JSON after the directory itself: `.`, `..`, `../`
+      // and a trailing slash have no usable filename(), so take it
+      // from the absolute, normalised path (`gtopt .` inside
+      // `case/` -> `./case.json`).
+      auto norm = fs::absolute(path).lexically_normal();
+      if (norm.filename().empty()) {
+        norm = norm.parent_path();  // "/foo/bar/" -> "/foo/bar"
       }
+      const auto dir_name = norm.filename().string();
       const auto json_path = path / (dir_name + ".json");
       if (fs::exists(json_path)) {
         spdlog::info("directory argument '{}' -> planning file '{}'",

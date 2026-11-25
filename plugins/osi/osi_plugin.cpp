@@ -8,10 +8,17 @@
  */
 
 #include <cstring>
+#include <typeinfo>
 
+#include <coin/ClpConfig.h>
+#include <coin/Clp_C_Interface.h>
 #include <gtopt/solver_backend.hpp>
 
 #include "osi_solver_backend.hpp"
+#ifdef GTOPT_OSI_HAS_CBC
+#  include <coin/CbcConfig.h>
+#  include <coin/CbcModel.hpp>
+#endif
 
 namespace
 {
@@ -79,5 +86,44 @@ double gtopt_solver_infinity(const char* solver_name)  // NOLINT
     return gtopt::OsiSolverBackend::plugin_infinity();
   }
   return 0.0;
+}
+
+// Solver-library identity: CLP compiled (ClpConfig.h) vs the libClp loaded
+// (Clp_Version* from its C interface).  CBC has no runtime version query in
+// libCbc; its compiled version and the loaded libCbc path (via CbcModel's
+// typeinfo, which lives in libCbc) are reported, the version left unchecked.
+int gtopt_solver_build_info(const char* solver_name,  // NOLINT
+                            gtopt::SolverBuildInfo* out)
+{
+  if (out == nullptr) {
+    return 0;
+  }
+  if (std::strcmp(solver_name, "clp") == 0) {
+    *out = gtopt::SolverBuildInfo {
+        .struct_version = gtopt::k_solver_build_info_version,
+        .compiled_major = CLP_VERSION_MAJOR,
+        .compiled_minor = CLP_VERSION_MINOR,
+        .compiled_patch = CLP_VERSION_RELEASE,
+        .runtime_major = Clp_VersionMajor(),
+        .runtime_minor = Clp_VersionMinor(),
+        .runtime_patch = Clp_VersionRelease(),
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        .library_anchor = reinterpret_cast<const void*>(&Clp_VersionMajor),
+    };
+    return gtopt::k_solver_build_info_version;
+  }
+#ifdef GTOPT_OSI_HAS_CBC
+  if (std::strcmp(solver_name, "cbc") == 0) {
+    *out = gtopt::SolverBuildInfo {
+        .struct_version = gtopt::k_solver_build_info_version,
+        .compiled_major = CBC_VERSION_MAJOR,
+        .compiled_minor = CBC_VERSION_MINOR,
+        .compiled_patch = CBC_VERSION_RELEASE,
+        .library_anchor = static_cast<const void*>(&typeid(CbcModel)),
+    };
+    return gtopt::k_solver_build_info_version;
+  }
+#endif
+  return 0;
 }
 }

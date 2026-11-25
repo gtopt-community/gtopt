@@ -131,6 +131,12 @@ auto CascadePlanningMethod::build_level_sddp_opts(
     }
     opts.elastic_penalty =
         level_solver->elastic_penalty.value_or(opts.elastic_penalty);
+    // Per-level solver options: the level's optional fields win over the
+    // base (already pre-merged with the global solver_options).
+    CascadeLevelMethod::merge_solver_opts(opts.forward_solver_options,
+                                          level_solver->forward_solver_options);
+    CascadeLevelMethod::merge_solver_opts(
+        opts.backward_solver_options, level_solver->backward_solver_options);
   }
 
   // Cap max_iterations to the remaining global budget

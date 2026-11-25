@@ -29,7 +29,9 @@
 
 namespace daw::json
 {
+using gtopt::BarrierSolver;
 using gtopt::CrossoverMode;
+using gtopt::KappaMode;
 using gtopt::LPAlgo;
 using gtopt::OptName;
 using gtopt::OptReal;
@@ -104,7 +106,12 @@ struct SolverOptionsConstructor
                            OptBool memory_emphasis,
                            const OptName& param_file,
                            OptBool advanced_basis,
-                           OptBool mip_polish) const
+                           OptBool mip_polish,
+                           const OptName& barrier_solver_str,
+                           const OptName& mip_lp_algorithm_str,
+                           OptReal mip_heuristic_effort,
+                           const OptName& kappa_mode_str,
+                           OptBool cold_solve_without_basis) const
   {
     LPAlgo algorithm = LPAlgo::barrier;
     if (algorithm_str.has_value()) {
@@ -118,6 +125,21 @@ struct SolverOptionsConstructor
     if (crossover_str.has_value()) {
       crossover =
           gtopt::require_enum<CrossoverMode>("crossover", *crossover_str);
+    }
+    std::optional<BarrierSolver> barrier_solver;
+    if (barrier_solver_str.has_value()) {
+      barrier_solver = gtopt::require_enum<BarrierSolver>("barrier_solver",
+                                                          *barrier_solver_str);
+    }
+    std::optional<LPAlgo> mip_lp_algorithm;
+    if (mip_lp_algorithm_str.has_value()) {
+      mip_lp_algorithm = gtopt::require_enum<LPAlgo>("mip_lp_algorithm",
+                                                     *mip_lp_algorithm_str);
+    }
+    std::optional<KappaMode> kappa_mode;
+    if (kappa_mode_str.has_value()) {
+      kappa_mode =
+          gtopt::require_enum<KappaMode>("kappa_mode", *kappa_mode_str);
     }
     return SolverOptions {
         .algorithm = algorithm,
@@ -140,6 +162,11 @@ struct SolverOptionsConstructor
         .max_fallbacks = max_fallbacks.value_or(2),
         .memory_emphasis = memory_emphasis,
         .mip_polish = mip_polish,
+        .barrier_solver = barrier_solver,
+        .mip_lp_algorithm = mip_lp_algorithm,
+        .mip_heuristic_effort = mip_heuristic_effort,
+        .kappa_mode = kappa_mode,
+        .cold_solve_without_basis = cold_solve_without_basis,
     };
   }
 };
@@ -167,7 +194,12 @@ struct json_data_contract<SolverOptions>
       json_bool_null<"memory_emphasis", OptBool>,
       json_string_null<"param_file", OptName>,
       json_bool_null<"advanced_basis", OptBool>,
-      json_bool_null<"mip_polish", OptBool>>;
+      json_bool_null<"mip_polish", OptBool>,
+      json_string_null<"barrier_solver", OptName>,
+      json_string_null<"mip_lp_algorithm", OptName>,
+      json_number_null<"mip_heuristic_effort", OptReal>,
+      json_string_null<"kappa_mode", OptName>,
+      json_bool_null<"cold_solve_without_basis", OptBool>>;
 
   static auto to_json_data(SolverOptions const& opt)
   {
@@ -189,7 +221,18 @@ struct json_data_contract<SolverOptions>
         opt.memory_emphasis,
         opt.param_file,
         OptBool {opt.advanced_basis},
-        opt.mip_polish);
+        opt.mip_polish,
+        opt.barrier_solver
+            ? OptName {std::string {gtopt::enum_name(*opt.barrier_solver)}}
+            : OptName {},
+        opt.mip_lp_algorithm
+            ? OptName {std::string {gtopt::enum_name(*opt.mip_lp_algorithm)}}
+            : OptName {},
+        opt.mip_heuristic_effort,
+        opt.kappa_mode
+            ? OptName {std::string {gtopt::enum_name(*opt.kappa_mode)}}
+            : OptName {},
+        opt.cold_solve_without_basis);
   }
 };
 

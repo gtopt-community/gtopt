@@ -231,6 +231,11 @@ void log_pre_solve_stats(
              ? std::format("{:.6g}", *mo.loss_cost_eps)
              : std::format("{:.6g} (default)",
                            PlanningOptionsLP::default_loss_cost_eps));
+  log_kv("loss_flow_abs_cost",
+         mo.loss_flow_abs_cost.has_value()
+             ? std::format("{:.6g}", *mo.loss_flow_abs_cost)
+             : std::format("{:.6g} (default)",
+                           PlanningOptionsLP::default_loss_flow_abs_cost));
   log_kv("loss_overflow_cost",
          mo.loss_overflow_cost.has_value()
              ? std::format("{:.6g}", *mo.loss_overflow_cost)
@@ -239,6 +244,14 @@ void log_pre_solve_stats(
                            eff_opts.loss_overflow_cost_is_fallback()
                                ? "fallback, demand_fail_cost is 0"
                                : "demand_fail_cost"));
+  log_kv("line_thermal_limit",
+         mo.line_thermal_limit_mode.has_value()
+             ? std::string(enum_name(eff_opts.line_thermal_limit_mode()))
+             : "flow (default)");
+  log_kv("use_line_dlr",
+         mo.use_line_dlr.has_value()
+             ? std::string(eff_opts.use_line_dlr() ? "true" : "false")
+             : "true (default)");
   log_kv(
       "equilibration",
       std::format("{}{}",
@@ -308,13 +321,14 @@ void log_per_cell_solver_stats(const PlanningLP& planning_lp)
   }
   SPDLOG_DEBUG("  per-cell solver stats:");
   const auto& owner = resolve_owning_lp(planning_lp);
+  [[maybe_unused]] const bool with_kappa =
+      planning_lp.options().kappa_enabled();
   for (const auto& phase_systems : owner.systems()) {
     for (const auto& sys : phase_systems) {
       [[maybe_unused]] const auto& s = sys.solver_stats();
       SPDLOG_DEBUG(
           "    scene={} phase={}: load_problem={} solves={} (init={}, "
-          "resolve={}, fallback={}, crossover={}) infeas={} time={:.3f}s "
-          "kappa={:.3g}",
+          "resolve={}, fallback={}, crossover={}) infeas={} time={:.3f}s{}",
           sys.scene().uid(),
           sys.phase().uid(),
           s.load_problem_calls,
@@ -325,7 +339,8 @@ void log_per_cell_solver_stats(const PlanningLP& planning_lp)
           s.crossover_solves,
           s.infeasible_count,
           s.total_solve_time_s,
-          s.max_kappa);
+          with_kappa ? std::format(" kappa={:.3g}", s.max_kappa)
+                     : std::string {});
     }
   }
 }
@@ -350,7 +365,11 @@ void log_per_cell_solver_stats(const PlanningLP& planning_lp)
 void validate_low_memory_usage(const PlanningLP& planning_lp,
                                const SolverStats& agg)
 {
-  const auto mode = planning_lp.options().sddp_low_memory();
+  // The mode the run used: monolithic forces it off, so judging a
+  // monolithic run against the SDDP default (`compress`) warned "requested
+  // but not effective" on every monolithic run with more than one solve
+  // (e.g. a MIP plus its fixed-integer LP for the duals).
+  const auto mode = planning_lp.options().effective_low_memory();
   const auto& owner = resolve_owning_lp(planning_lp);
   std::size_t num_cells = 0;
   for (const auto& phase_systems : owner.systems()) {

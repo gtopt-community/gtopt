@@ -1,7 +1,10 @@
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <limits>
 #include <set>
+#include <utility>
+#include <vector>
 
 #include <gtopt/kirchhoff_node_angle.hpp>
 #include <gtopt/line_losses.hpp>
@@ -38,6 +41,14 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
     , phase_shift_deg(
           ic, Element::class_name, id(), std::move(line().phase_shift_deg))
 {
+  if (auto& dlr = line().dlr; dlr.has_value()) {
+    m_dlr_.emplace(std::move(dlr.value()),
+                   ic,
+                   Element::class_name,
+                   id().first,
+                   id().second);
+    line().dlr.reset();
+  }
   SPDLOG_DEBUG("LineLP created: uid={} name='{}'", id().first, id().second);
 }
 
@@ -65,7 +76,8 @@ namespace
     const OptTBRealSched& tmax_ab,
     const OptTBRealSched& tmax_ba,
     const std::optional<double>& opt_capacity,
-    bool has_expansion)
+    bool has_expansion,
+    double dlr_fmax_fallback)
 {
   const auto loss_mode =
       line_losses::resolve_mode(raw_line, sc.options(), has_expansion);
@@ -109,6 +121,12 @@ namespace
       fmax = std::max({fmax, tab, tba});
     }
   }
+  // Dynamic line rating without a static ``tmax`` / capacity: spread the
+  // loss PWL over the STAGE envelope of the DLR rating (never a per-block
+  // value, so the loss geometry stays block-independent).
+  if (!(fmax > 0.0) && dlr_fmax_fallback > 0.0) {
+    fmax = dlr_fmax_fallback;
+  }
 
   // Loss-PWL envelope (decoupled from the flow cap).  When the line
   // carries an explicit ``loss_envelope`` (e.g. the ORIGINAL rating of a
@@ -132,6 +150,11 @@ namespace
   // when unset).  An explicit ``0.0`` disables the loss-column cost.
   const double loss_cost_eps =
       raw_line.loss_cost_eps.value_or(sc.options().loss_cost_eps());
+  // ``tangent_signed_flow`` abs-flow pin ($/MWh): per-line override beats
+  // ``model_options.loss_flow_abs_cost`` (default 0.001 $/MWh).  Only
+  // stamped when ``loss_cost_eps > 0`` (see ``add_tangent_signed_flow``).
+  const double loss_flow_abs_cost =
+      raw_line.loss_flow_abs_cost.value_or(sc.options().loss_flow_abs_cost());
   // Overflow-tier price (decoupled envelope only): per-line override
   // beats ``model_options.loss_overflow_cost``, which defaults to the
   // case's global ``demand_fail_cost`` (1000 $/MWh fallback).
@@ -162,20 +185,27 @@ namespace
   const bool use_sos2 =
       raw_line.loss_use_sos2.value_or(sc.options().loss_use_sos2());
 
-  return line_losses::make_config(loss_mode,
-                                  raw_line,
-                                  allocation,
-                                  lf,
-                                  R,
-                                  V,
-                                  nseg,
-                                  fmax,
-                                  sc.options().scale_loss_link(),
-                                  explicit_envelope,
-                                  loss_cost_eps,
-                                  nseg_secant,
-                                  use_sos2,
-                                  loss_overflow_cost);
+  auto config = line_losses::make_config(loss_mode,
+                                         raw_line,
+                                         allocation,
+                                         lf,
+                                         R,
+                                         V,
+                                         nseg,
+                                         fmax,
+                                         sc.options().scale_loss_link(),
+                                         explicit_envelope,
+                                         loss_cost_eps,
+                                         nseg_secant,
+                                         use_sos2,
+                                         loss_overflow_cost,
+                                         loss_flow_abs_cost);
+  // Thermal limit vs losses: per-line override beats
+  // ``model_options.line_thermal_limit_mode`` (default ``flow``: the
+  // limit bounds the flow variable only).
+  config.thermal_limit = raw_line.line_thermal_limit_mode_enum().value_or(
+      sc.options().line_thermal_limit_mode());
+  return config;
 }
 
 }  // namespace
@@ -242,6 +272,37 @@ bool LineLP::add_to_lp(SystemContext& sc,
   // the block loop below — ``overload_penalty`` is per-(stage,
   // block) so time-varying penalties bind correctly.
   const bool soft_cap_enabled = overload_penalty.has_value();
+  // Overload slack bound: per-line value, else model_options.
+  const auto slack_mode = line().overload_slack_bound_enum().value_or(
+      sc.options().overload_slack_bound());
+  const double slack_ratio =
+      line().max_overload_ratio.value_or(sc.options().max_overload_ratio());
+
+  // ── Dynamic line rating (Line.dlr): per-block span ratings ─────────
+  // Evaluated once per (scenario, stage) here; the block loop below turns
+  // them into flow limits.  ``dlr_env`` is the stage envelope used as the
+  // static flow cap / loss-PWL range when the line has neither ``tmax``
+  // nor a capacity: 5 % above the largest per-block hard rating, so it
+  // never ties with (and never steals the dual of) a span limit.
+  // ``model_options.use_line_dlr = false`` turns every DLR block off.
+  const bool dlr_on = sc.options().use_line_dlr() && m_dlr_.has_value()
+      && !m_dlr_->spans().empty();
+  std::vector<LineDlrLP::BlockRatings> dlr_block;
+  double dlr_env = 0.0;
+  if (dlr_on) {
+    const double dlr_kv =
+        m_dlr_->voltage().value_or(param_voltage(stage.uid()).value_or(0.0));
+    dlr_block.resize(blocks.size());
+    for (const auto& [bi, block] : enumerate(blocks)) {
+      if (in_service.at(stage.uid(), block.uid()).value_or(True) == False) {
+        continue;
+      }
+      auto& br = dlr_block[static_cast<std::size_t>(bi)];
+      m_dlr_->ratings_at(scenario.uid(), stage.uid(), block.uid(), dlr_kv, br);
+      dlr_env = std::max(dlr_env, std::ranges::min(br.emergency));
+    }
+    dlr_env *= 1.05;
+  }
 
   const auto loss_config =
       resolve_loss_config(*this,
@@ -252,7 +313,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
                           tmax_ab,
                           tmax_ba,
                           opt_capacity,
-                          /*has_expansion=*/capacity_col.has_value());
+                          /*has_expansion=*/capacity_col.has_value(),
+                          /*dlr_fmax_fallback=*/dlr_env);
 
   // Per-block flow / capacity / loss / segment col maps assembled
   // here; moved into the persistent `STBIndexHolder` members at the
@@ -262,6 +324,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder<RowIndex> cprows;
   BIndexHolder<ColIndex> fncols;
   BIndexHolder<RowIndex> cnrows;
+  BIndexHolder<RowIndex> tprows;
+  BIndexHolder<RowIndex> tnrows;
   BIndexHolder<ColIndex> lpcols;
   BIndexHolder<ColIndex> lncols;
   // Per-direction linear loss factors, parallel to `fpcols` / `fncols`.
@@ -311,6 +375,13 @@ bool LineLP::add_to_lp(SystemContext& sc,
   map_reserve(fpsegloss, blocks.size());
   map_reserve(fnsegloss, blocks.size());
   map_reserve(fscols, blocks.size());
+  // DLR per-block bookkeeping (outputs + dual attribution).
+  BIndexHolder<double> dlr_rating_b;
+  BIndexHolder<double> dlr_rating_e_b;
+  BIndexHolder<double> critical_span_b;
+  BIndexHolder<std::vector<RowIndex>> span_rows_b;
+  BIndexHolder<std::vector<DlrDualRef>> dlr_refs_b;
+  std::vector<bool> span_critical(dlr_on ? m_dlr_->spans().size() : 0, false);
   if (soft_cap_enabled) {
     map_reserve(opcols, blocks.size());
     map_reserve(oncols, blocks.size());
@@ -318,7 +389,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
     map_reserve(onrows, blocks.size());
   }
 
-  for (const auto& block : blocks) {
+  for (const auto& [block_idx, block] : enumerate(blocks)) {
     const auto buid = block.uid();
     // Per-block in-service flag (PLEXOS ``Line.Units`` / ``Lin_Units.csv``).
     // A block resolving to ``0`` (False) means the line is out for that
@@ -349,10 +420,21 @@ bool LineLP::add_to_lp(SystemContext& sc,
     // (``enforce_limits=0`` in PLEXOS, ``tmax_ab/tmax_ba`` unset in
     // the JSON) trip CPLEX presolve infeasibility.  Discovered while
     // wiring the CEN PCP daily case (DATOS20260422) end-to-end.
-    const auto block_tmax_ab =
+    auto block_tmax_ab =
         tmax_ab.at(stage.uid(), block.uid()).value_or(stage_capacity);
-    const auto block_tmax_ba =
+    auto block_tmax_ba =
         tmax_ba.at(stage.uid(), block.uid()).value_or(stage_capacity);
+    // DLR without any static cap: the stage DLR envelope stands in as the
+    // static flow cap / loss-PWL range (the per-block rating is applied
+    // on top, after ``add_block``).
+    if (dlr_on) {
+      if (block_tmax_ab >= LinearProblem::DblMax) {
+        block_tmax_ab = dlr_env;
+      }
+      if (block_tmax_ba >= LinearProblem::DblMax) {
+        block_tmax_ba = dlr_env;
+      }
+    }
     // ``tcost`` is per-(stage, block); read its block-specific value
     // and let CostHelper apply the per-block duration scaling.
     const auto block_tcost_phys =
@@ -405,6 +487,219 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                          uid(),
                                          /*enforce_capacity=*/true);
 
+    // ── Dynamic line rating: per-block span limits ────────────────
+    // ``hard_*`` is the effective hard cap of each direction (the static
+    // cap passed to ``add_block`` tightened by the DLR rating) and
+    // ``dlr_soft`` the normal-tier threshold of the overload band when the
+    // emergency tier is active.  Without DLR both stay at the static
+    // values and nothing below changes the LP.
+    // Limit terms for DLR rows / bounds: ``limit_terms`` plus the B→A
+    // side of ``add_none``'s single SIGNED flow column (no ``flown``).
+    const auto dlr_terms = [&](bool forward)
+    {
+      auto terms = line_losses::limit_terms(loss_config, result, forward);
+      if (terms.empty() && !forward && result.fp_col && !result.fn_col
+          && lp.get_col_lowb(*result.fp_col) < 0.0)
+      {
+        terms.emplace_back(*result.fp_col, -1.0);
+      }
+      return terms;
+    };
+    double hard_ab = block_tmax_ab;
+    double hard_ba = block_tmax_ba;
+    std::optional<double> dlr_soft;
+    int dlr_k_norm = -1;
+    // Span whose emergency rating is the hard cap of each direction
+    // (−1: the static cap is lower, or no DLR emergency tier).
+    int dlr_k_hard_ab = -1;
+    int dlr_k_hard_ba = -1;
+    if (dlr_on) {
+      const auto& br = dlr_block[static_cast<std::size_t>(block_idx)];
+      const auto& spans = m_dlr_->spans();
+      const double pen = soft_cap_enabled
+          ? overload_penalty.at(stage.uid(), buid).value_or(0.0)
+          : 0.0;
+      // The emergency rating is the hard cap only when the overload band
+      // can price the excursion above the normal rating; otherwise the
+      // normal rating is the hard cap.
+      const bool emerg_tier = m_dlr_->has_emergency() && pen > 0.0;
+      const auto& hard_r = emerg_tier ? br.emergency : br.normal;
+      const auto argmin = [](const std::vector<double>& v)
+      {
+        return static_cast<int>(
+            std::distance(v.begin(), std::ranges::min_element(v)));
+      };
+      const int k_hard = argmin(hard_r);
+      dlr_k_norm = argmin(br.normal);
+      const double min_hard = hard_r[static_cast<std::size_t>(k_hard)];
+      const double min_norm = br.normal[static_cast<std::size_t>(dlr_k_norm)];
+      hard_ab = std::min(block_tmax_ab, min_hard);
+      hard_ba = std::min(block_tmax_ba, min_hard);
+      if (emerg_tier) {
+        dlr_soft = min_norm;
+        const double etol = 1e-9 * std::max(1.0, min_hard);
+        dlr_k_hard_ab = (block_tmax_ab < min_hard - etol) ? -1 : k_hard;
+        dlr_k_hard_ba = (block_tmax_ba < min_hard - etol) ? -1 : k_hard;
+      }
+
+      // Outputs: effective normal rating (A→B, static cap included),
+      // emergency rating, and the binding span (−1: static cap lower).
+      const double tie_tol = 1e-9 * std::max(1.0, min_norm);
+      dlr_rating_b[buid] = std::min(block_tmax_ab, min_norm);
+      if (m_dlr_->has_emergency()) {
+        dlr_rating_e_b[buid] =
+            std::min(block_tmax_ab, std::ranges::min(br.emergency));
+      }
+      critical_span_b[buid] = (block_tmax_ab < min_norm - tie_tol)
+          ? -1.0
+          : static_cast<double>(
+                spans[static_cast<std::size_t>(dlr_k_norm)].uid);
+
+      auto& refs = dlr_refs_b[buid];
+      const auto make_row_ref = [](int k, RowIndex row)
+      {
+        return DlrDualRef {
+            .span = k,
+            .is_row = true,
+            .index = static_cast<Index>(row),
+        };
+      };
+
+      if (m_dlr_->mode() == LineDlrSpanMode::min) {
+        // Tighten the limit exactly where ``tmax`` lives: an existing
+        // thermal row (sending / full) gets the lower RHS; a single-term
+        // limit (flow column, or ``linear`` with coefficient 1 + a·λ)
+        // gets the column bound ``T / coef``; a multi-term limit with no
+        // row (``piecewise_direct`` under ``flow``) gets a new thermal row.
+        const auto apply_cap =
+            [&](bool forward, double cap, int k) -> std::optional<DlrDualRef>
+        {
+          auto& trow = forward ? result.thermalp_row : result.thermaln_row;
+          if (trow) {
+            auto& row = lp.row_at(*trow);
+            row.uppb = std::min(row.uppb, cap);
+            return make_row_ref(k, *trow);
+          }
+          const auto terms = dlr_terms(forward);
+          if (terms.empty()) {
+            return std::nullopt;
+          }
+          if (terms.size() == 1) {
+            const auto [col, coef] = terms.front();
+            const double bound = cap / coef;
+            if (coef > 0.0) {
+              lp.set_col_uppb(col, std::min(lp.get_col_uppb(col), bound));
+            } else {
+              lp.set_col_lowb(col, std::max(lp.get_col_lowb(col), bound));
+            }
+            return DlrDualRef {
+                .span = k,
+                .is_row = false,
+                .index = static_cast<Index>(col),
+                .coef = coef,
+                .bound = bound,
+            };
+          }
+          auto row =
+              SparseRow {
+                  .class_name = Element::class_name.full_name(),
+                  .constraint_name = forward ? ThermalpName : ThermalnName,
+                  .variable_uid = uid(),
+                  .context = make_block_context(
+                      scenario.uid(), stage.uid(), block.uid()),
+              }
+                  .less_equal(cap);
+          for (const auto& [col, coef] : terms) {
+            row[col] = coef;
+          }
+          trow = lp.add_row(std::move(row));
+          return make_row_ref(k, *trow);
+        };
+        const double htol = 1e-9 * std::max(1.0, min_hard);
+        const int k_ab = (block_tmax_ab < min_hard - htol) ? -1 : k_hard;
+        const int k_ba = (block_tmax_ba < min_hard - htol) ? -1 : k_hard;
+        if (auto r = apply_cap(true, hard_ab, k_ab)) {
+          refs.push_back(*r);
+        }
+        if (auto r = apply_cap(false, hard_ba, k_ba)) {
+          refs.push_back(*r);
+        }
+        if (k_ab >= 0 || k_ba >= 0) {
+          span_critical[static_cast<std::size_t>(k_hard)] = true;
+        }
+      } else {
+        // ``rows``: one row per non-dominated span and direction,
+        // ``f_dir + a·ℓ_dir ≤ T_k``.  Spans above the effective cap of a
+        // direction (static cap included) are dominated there: no row.
+        auto& srows = span_rows_b[buid];
+        const auto add_span_rows = [&](bool forward, double cap)
+        {
+          const auto terms = dlr_terms(forward);
+          if (terms.empty()) {
+            return;
+          }
+          const double tol = 1e-9 * std::max(1.0, cap);
+          for (const auto& [k, tk] : enumerate(hard_r)) {
+            if (tk > cap + tol) {
+              continue;  // dominated in this block / direction
+            }
+            auto row =
+                SparseRow {
+                    .class_name = Element::class_name.full_name(),
+                    .constraint_name =
+                        forward ? SpanThermalpName : SpanThermalnName,
+                    .variable_uid = uid(),
+                    .context = make_block_context(scenario.uid(),
+                                                  stage.uid(),
+                                                  block.uid(),
+                                                  static_cast<Index>(k)),
+                }
+                    .less_equal(tk);
+            for (const auto& [col, coef] : terms) {
+              row[col] = coef;
+            }
+            const auto r = lp.add_row(std::move(row));
+            srows.push_back(r);
+            refs.push_back(make_row_ref(static_cast<int>(k), r));
+            span_critical[static_cast<std::size_t>(k)] = true;
+          }
+        };
+        add_span_rows(true, hard_ab);
+        add_span_rows(false, hard_ba);
+      }
+    }
+
+    // Soft-cap band terms per direction, captured before the result's
+    // segment vectors are moved into the holders below.  Loaded quantity:
+    // the bare flow column under ``line_thermal_limit_mode = flow``
+    // (historical LP, only for modes with a ``flowp``/``flown`` column),
+    // else the same ``f_dir + a·ℓ_dir`` terms as the hard thermal-limit
+    // row (``line_losses::limit_terms``), which also cover
+    // ``tangent_signed_flow`` (±f) and ``piecewise_direct`` (segments).
+    std::vector<std::pair<ColIndex, double>> band_p;
+    std::vector<std::pair<ColIndex, double>> band_n;
+    if (soft_cap_enabled) {
+      // DLR lines always use ``limit_terms`` (covers every loss mode,
+      // ``a = 0`` under ``flow``) so the emergency band reaches
+      // ``tangent_signed_flow`` / ``piecewise_direct`` too.
+      if (dlr_on) {
+        band_p = dlr_terms(/*forward=*/true);
+        band_n = dlr_terms(/*forward=*/false);
+      } else if (line_losses::thermal_loss_share(loss_config) > 0.0) {
+        band_p =
+            line_losses::limit_terms(loss_config, result, /*forward=*/true);
+        band_n =
+            line_losses::limit_terms(loss_config, result, /*forward=*/false);
+      } else {
+        if (result.fp_col) {
+          band_p.emplace_back(*result.fp_col, 1.0);
+        }
+        if (result.fn_col) {
+          band_n.emplace_back(*result.fn_col, 1.0);
+        }
+      }
+    }
+
     // Compress the eight near-identical "if present, store" clauses.
     const auto store_opt = [&](auto& dst, const auto& src)
     {
@@ -435,6 +730,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
     store_opt(lncols, result.lossn_col);
     store_opt(cprows, result.capp_row);
     store_opt(cnrows, result.capn_row);
+    store_opt(tprows, result.thermalp_row);
+    store_opt(tnrows, result.thermaln_row);
     store_vec(fpsegcols, result.seg_p_cols);
     store_vec(fnsegcols, result.seg_n_cols);
     store_vec(fpsegloss, result.seg_p_loss);
@@ -442,15 +739,16 @@ bool LineLP::add_to_lp(SystemContext& sc,
     store_opt(fscols, result.flow_col);
 
     // ── Soft cap / overload penalty ────────────────────────────────
-    // For each direction with a flow aggregator (fp_col / fn_col),
-    // when a per-block soft threshold `tmax_normal_*` is set strictly
-    // below the corresponding hard cap, emit a non-negative slack
-    // column `overload{p,n}` bounded by `(hard − soft)` and a row
-    //   `flow{p,n} − overload{p,n} ≤ tmax_normal_*`
-    // so the LP only pays the penalty for MW above the soft cap and
-    // can never exceed the hard cap (the existing flow-col upper
-    // bound still binds).  Disabled for `piecewise_direct` mode
-    // because there is no aggregator column to constrain.
+    // For each direction with band terms (``band_p`` / ``band_n``
+    // above), when a per-block soft threshold `tmax_normal_*` is set
+    // strictly below the corresponding hard cap, emit a non-negative
+    // slack column `overload{p,n}` bounded by `(hard − soft)` and a row
+    //   `f_dir + a·ℓ_dir − overload{p,n} ≤ tmax_normal_*`
+    // (``a = 0`` under ``line_thermal_limit_mode = flow``) so the LP only
+    // pays the penalty above the soft cap and can never exceed the hard
+    // cap (flow-col bound / thermal-limit row).  Under ``flow`` the band
+    // keeps its historical scope: modes with a ``flowp``/``flown``
+    // column only (not ``tangent_signed_flow`` / ``piecewise_direct``).
     if (soft_cap_enabled) {
       const auto block_ctx =
           make_block_context(scenario.uid(), stage.uid(), block.uid());
@@ -466,18 +764,24 @@ bool LineLP::add_to_lp(SystemContext& sc,
           scenario, stage, block, block_overload_penalty);
 
       const auto add_soft_cap_direction =
-          [&](std::optional<ColIndex> flow_col,
+          [&](const std::vector<std::pair<ColIndex, double>>& terms,
               const OptTBRealSched& tmax_normal_sched,
               double block_tmax_hard,
+              int k_hard_span,
               std::string_view ov_name,
               auto& ov_cols_dst,
               auto& ov_rows_dst,
               std::string_view row_constraint_name)
       {
-        if (!flow_col) {
+        if (terms.empty()) {
           return;
         }
-        const auto soft_at = tmax_normal_sched.at(stage.uid(), buid);
+        // Soft threshold: the static ``tmax_normal_*``, tightened by the
+        // DLR normal rating when the DLR emergency tier is active.
+        auto soft_at = tmax_normal_sched.at(stage.uid(), buid);
+        if (dlr_soft) {
+          soft_at = soft_at ? std::min(*soft_at, *dlr_soft) : *dlr_soft;
+        }
         if (!soft_at) {
           return;
         }
@@ -487,7 +791,37 @@ bool LineLP::add_to_lp(SystemContext& sc,
         if (!(block_tmax_soft < block_tmax_hard)) {
           return;
         }
-        const double slack_uppb = block_tmax_hard - block_tmax_soft;
+        // Slack upper bound (``overload_slack_bound``):
+        //   thermal   — min(hard − soft, ratio·soft): the thermal headroom
+        //               (DLR: emergency − normal IEEE 738 rating), never
+        //               above ``max_overload_ratio`` × normal; ratio·soft
+        //               alone without a finite hard cap;
+        //   ratio     — ratio·soft;
+        //   unbounded — DblMax (the hard cap lives in the flow bound /
+        //               thermal or span rows only).
+        // A finite bound may tie with the hard cap at the emergency
+        // rating; the span duals then also collect the slack's reduced
+        // cost (refs below), so ∂obj/∂T stays well defined.
+        const bool hard_finite = block_tmax_hard < LinearProblem::DblMax / 2;
+        const double ratio_bound = slack_ratio * block_tmax_soft;
+        double slack_uppb = LinearProblem::DblMax;
+        bool slack_thermal = false;  // bound = hard − soft
+        switch (slack_mode) {
+          case LineOverloadSlackBound::thermal:
+            if (hard_finite && block_tmax_hard - block_tmax_soft <= ratio_bound)
+            {
+              slack_uppb = block_tmax_hard - block_tmax_soft;
+              slack_thermal = true;
+            } else {
+              slack_uppb = ratio_bound;
+            }
+            break;
+          case LineOverloadSlackBound::ratio:
+            slack_uppb = ratio_bound;
+            break;
+          case LineOverloadSlackBound::unbounded:
+            break;
+        }
 
         const auto ov_col = lp.add_col({
             .lowb = 0.0,
@@ -506,22 +840,63 @@ bool LineLP::add_to_lp(SystemContext& sc,
             .variable_uid = uid(),
             .context = block_ctx,
         };
-        ov_row[*flow_col] = 1.0;
+        for (const auto& [col, coef] : terms) {
+          ov_row[col] = coef;
+        }
         ov_row[ov_col] = -1.0;
-        ov_rows_dst[buid] =
+        const auto ov_row_idx =
             lp.add_row(std::move(ov_row.less_equal(block_tmax_soft)));
+        ov_rows_dst[buid] = ov_row_idx;
+        // DLR emergency tier: the band row's dual prices the NORMAL
+        // rating of the argmin span (unless a lower static
+        // ``tmax_normal`` is the threshold).
+        if (dlr_soft && dlr_k_norm >= 0) {
+          const double tol = 1e-9 * std::max(1.0, *dlr_soft);
+          const int k_soft =
+              (block_tmax_soft < *dlr_soft - tol) ? -1 : dlr_k_norm;
+          dlr_refs_b[buid].push_back(DlrDualRef {
+              .span = k_soft,
+              .is_row = true,
+              .index = static_cast<Index>(ov_row_idx),
+          });
+          // Slack at its upper bound U: its reduced cost r prices U, and
+          // U depends on the ratings — thermal U = E − N (∂U/∂E = 1,
+          // ∂U/∂N = −1), ratio U = ρ·N (∂U/∂N = ρ).  The ref's
+          // ``rc / coef`` with coef = 1 / (∂U/∂T) adds r·∂U/∂T to the
+          // span dual.
+          if (slack_uppb < LinearProblem::DblMax) {
+            const auto push_col_ref = [&](int k, double coef)
+            {
+              dlr_refs_b[buid].push_back(DlrDualRef {
+                  .span = k,
+                  .is_row = false,
+                  .index = static_cast<Index>(ov_col),
+                  .coef = coef,
+                  .bound = slack_uppb,
+              });
+            };
+            if (slack_thermal) {
+              push_col_ref(k_hard_span, 1.0);
+              push_col_ref(k_soft, -1.0);
+            } else if (slack_ratio > 0.0) {
+              push_col_ref(k_soft, 1.0 / slack_ratio);
+            }
+          }
+        }
       };
 
-      add_soft_cap_direction(result.fp_col,
+      add_soft_cap_direction(band_p,
                              tmax_normal_ab,
-                             block_tmax_ab,
+                             hard_ab,
+                             dlr_k_hard_ab,
                              OverloadpName,
                              opcols,
                              oprows,
                              OverloadpName);
-      add_soft_cap_direction(result.fn_col,
+      add_soft_cap_direction(band_n,
                              tmax_normal_ba,
-                             block_tmax_ba,
+                             hard_ba,
+                             dlr_k_hard_ba,
                              OverloadnName,
                              oncols,
                              onrows,
@@ -552,6 +927,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   };
   cond_assign(capacityp_rows, std::move(cprows));
   cond_assign(capacityn_rows, std::move(cnrows));
+  cond_assign(thermalp_rows, std::move(tprows));
+  cond_assign(thermaln_rows, std::move(tnrows));
   cond_assign(flowp_cols, std::move(fpcols));
   cond_assign(flown_cols, std::move(fncols));
   cond_assign(flowp_lossfactor, std::move(fplossfac));
@@ -567,6 +944,42 @@ bool LineLP::add_to_lp(SystemContext& sc,
   cond_assign(overloadn_cols, std::move(oncols));
   cond_assign(overloadp_rows, std::move(oprows));
   cond_assign(overloadn_rows, std::move(onrows));
+  cond_assign(dlr_rating_values, std::move(dlr_rating_b));
+  cond_assign(dlr_rating_emergency_values, std::move(dlr_rating_e_b));
+  cond_assign(critical_span_values, std::move(critical_span_b));
+  cond_assign(span_rows, std::move(span_rows_b));
+  cond_assign(dlr_dual_refs, std::move(dlr_refs_b));
+
+  // ``rows`` mode: report spans that never bind in this (scenario,
+  // stage) — candidates to drop from the critical-span list.
+  if (dlr_on && m_dlr_->mode() == LineDlrSpanMode::rows) {
+    std::string never;
+    for (const auto& [k, crit] : enumerate(span_critical)) {
+      if (!crit) {
+        never += std::format("{}'{}'",
+                             never.empty() ? "" : ", ",
+                             m_dlr_->spans()[static_cast<std::size_t>(k)].name);
+      }
+    }
+    if (!never.empty()) {
+      if (!m_dlr_never_critical_logged_) {
+        m_dlr_never_critical_logged_ = true;
+        spdlog::info(
+            "Line '{}' dlr: span(s) {} never critical in scenario {} stage {} "
+            "(dominated in every block; no rows emitted)",
+            line().name,
+            never,
+            scenario.uid(),
+            stage.uid());
+      } else {
+        SPDLOG_DEBUG("Line '{}' dlr: span(s) {} never critical (s={} t={})",
+                     line().name,
+                     never,
+                     scenario.uid(),
+                     stage.uid());
+      }
+    }
+  }
 
   // ── Kirchhoff KVL rows ────────────────────────────────────────────
   // Dispatch by `kirchhoff_mode`:
@@ -1028,6 +1441,53 @@ bool LineLP::add_to_output(OutputContext& out) const
   // ``piecewise_direct`` modes; the helper is a no-op in those cases.
   if (!lossn_cols.empty()) {
     out.add_col_sol_extras(cname, LossnName, pid, lossn_cols);
+  }
+
+  // Shadow prices of the line limits [$/MWh, physical]: the expandable-
+  // line capacity rows ``capacity − f_dir (− a·ℓ_dir) ≥ 0`` and the
+  // thermal-limit rows ``f_dir + a·ℓ_dir ≤ T_dir`` of
+  // ``line_thermal_limit_mode = sending | full``.  Under those modes the
+  // congestion rent moves from the flow column's reduced cost
+  // (``flow_cost``) to these rows.  Empty holders (non-expandable line,
+  // ``flow`` mode) emit nothing.
+  out.add_row_dual(cname, CapacitypName, pid, capacityp_rows);
+  out.add_row_dual(cname, CapacitynName, pid, capacityn_rows);
+  out.add_row_dual(cname, ThermalpName, pid, thermalp_rows);
+  out.add_row_dual(cname, ThermalnName, pid, thermaln_rows);
+
+  // Dynamic line rating: effective rating, binding span and per-span
+  // rating duals ``∂obj/∂T_k`` (keyed by SPAN uid).  In ``min`` mode the
+  // dual of the effective cap (flow reduced cost / thermal row dual) is
+  // attributed to the argmin span; in ``rows`` mode each span row
+  // carries its own dual.  The overload-band row (emergency tier) adds
+  // its dual to the normal-tier argmin span in both modes.
+  if (m_dlr_) {
+    out.add_col_sol_values(cname, DlrRatingName, pid, dlr_rating_values);
+    out.add_col_sol_values(
+        cname, DlrRatingEmergencyName, pid, dlr_rating_emergency_values);
+    out.add_col_sol_values(cname, CriticalSpanName, pid, critical_span_values);
+    if (out.has_row_duals() && out.has_col_costs() && !dlr_dual_refs.empty()) {
+      const auto spans = m_dlr_->spans();
+      std::vector<STBIndexHolder<double>> per_span(spans.size());
+      for (const auto& [st, _] : dlr_dual_refs) {
+        const auto duals = span_duals(
+            st,
+            [&](ColIndex c) { return out.primal(c); },
+            [&](ColIndex c) { return out.cost(c); },
+            [&](RowIndex r) { return out.dual(r); });
+        for (const auto& [buid, v] : duals) {
+          for (const auto& [k, d] : enumerate(v)) {
+            per_span[static_cast<std::size_t>(k)][st][buid] = d;
+          }
+        }
+      }
+      for (const auto& [k, span] : enumerate(spans)) {
+        out.add_row_dual_values(cname,
+                                SpanThermalName,
+                                Id {span.uid, span.name},
+                                per_span[static_cast<std::size_t>(k)]);
+      }
+    }
   }
 
   // Overload-slack solutions and costs: only populated when the

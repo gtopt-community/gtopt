@@ -9,6 +9,7 @@
 
 #include <algorithm>
 
+#include <gtopt/ampl_variable.hpp>
 #include <gtopt/coupler_fail_closed.hpp>
 #include <gtopt/gas_node_lp.hpp>
 #include <gtopt/gas_physics.hpp>
@@ -41,6 +42,7 @@ bool GasTurbineLP::add_to_lp(SystemContext& sc,
                              LinearProblem& lp)
 {
   static constexpr std::string_view cname = Element::class_name.full_name();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   const auto& gt = gas_turbine();
   const auto& gen = sc.element<GeneratorLP>(GeneratorLPSId {gt.generator});
@@ -71,6 +73,8 @@ bool GasTurbineLP::add_to_lp(SystemContext& sc,
   BIndexHolder<double> hrs;
   BIndexHolder<RowIndex> grows;
   BIndexHolder<RowIndex> drows;
+  // PAMPL `gas_turbine.fuel = heat_rate · P` (weighted single leg).
+  BIndexHolder<std::vector<std::pair<ColIndex, double>>> fuel_terms;
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
@@ -82,6 +86,7 @@ bool GasTurbineLP::add_to_lp(SystemContext& sc,
     const double hr = heat_rate_.at(stage_uid, buid).value_or(0.0);
     hrs[buid] = hr;
     if (hr != 0.0) {
+      fuel_terms[buid] = {{*gcol, hr}};
       lp.row_at(bal.at(buid))[*gcol] = -hr;
     }
     if (!p_min) {
@@ -123,8 +128,23 @@ bool GasTurbineLP::add_to_lp(SystemContext& sc,
     }
   }
 
+  {
+    AmplElementMetadata metadata;
+    metadata.reserve(3);
+    if (gt.type) {
+      metadata.emplace_back(GasNodeLP::TypeKey, *gt.type);
+    }
+    metadata.emplace_back(GasNodeLP::GasNodeKey,
+                          static_cast<double>(node.uid()));
+    metadata.emplace_back(GeneratorKey, static_cast<double>(gen.uid()));
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
+
   gen_cols_[st_key] = std::move(gcols);
   heat_rates_[st_key] = std::move(hrs);
+  sc.add_ampl_variable(
+      ampl_name, uid(), GenerationName, scenario, stage, gen_cols_.at(st_key));
+  sc.add_ampl_variable(ampl_name, uid(), FuelName, scenario, stage, fuel_terms);
   if (!grows.empty()) {
     gate_rows_[st_key] = std::move(grows);
   }

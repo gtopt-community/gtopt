@@ -9,6 +9,7 @@
 
 #include <algorithm>
 
+#include <gtopt/ampl_variable.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/gas_node_lp.hpp>
 #include <gtopt/gas_supply_lp.hpp>
@@ -92,6 +93,16 @@ bool GasSupplyLP::add_to_lp(SystemContext& sc,
   flow_cols_[st_key] = std::move(cols);
   sc.add_ampl_variable(
       ampl_name, uid(), FlowName, scenario, stage, flow_cols_.at(st_key));
+  {
+    AmplElementMetadata metadata;
+    metadata.reserve(2);
+    if (const auto& t = gas_supply().type) {
+      metadata.emplace_back(GasNodeLP::TypeKey, *t);
+    }
+    metadata.emplace_back(GasNodeLP::GasNodeKey,
+                          static_cast<double>(node.uid()));
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
   return true;
 }
 

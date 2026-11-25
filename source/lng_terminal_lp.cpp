@@ -146,6 +146,9 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
   // We add:  + fcr × heat_rate × generation × dt
   // (positive = outflow from tank, same sign as fout)
   auto&& energy_rows_map = energy_rows_at(scenario, stage);
+  // PAMPL `lng_terminal.fuel = Σ_g fcr · heat_rate_g · generation_g`
+  // [m³/h] — the regasified send-out drawn by the linked generators.
+  BIndexHolder<std::vector<std::pair<ColIndex, double>>> fuel_terms;
 
   for (const auto& link : terminal().generators) {
     const auto gen_sid = GeneratorLPSId {link.generator};
@@ -184,6 +187,7 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
       // Since fcr=1.0 by default, this is heat_rate × generation × duration
       // The energy balance expects outflow as positive coefficient.
       erow[gen_col] = fcr * link.heat_rate * block.duration();
+      fuel_terms[buid].emplace_back(gen_col, fcr * link.heat_rate);
     }
   }
 
@@ -198,6 +202,15 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
                        scenario,
                        stage,
                        delivery_cols.at(st_key));
+  // `volume` — the tank level [m³] under its physical name; same
+  // columns as the storage `energy` attribute (cf. `reservoir.volume`).
+  sc.add_ampl_variable(ampl_name,
+                       uid(),
+                       VolumeName,
+                       scenario,
+                       stage,
+                       energy_cols_at(scenario, stage));
+  sc.add_ampl_variable(ampl_name, uid(), FuelName, scenario, stage, fuel_terms);
 
   return true;
 }

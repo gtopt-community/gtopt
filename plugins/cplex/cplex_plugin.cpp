@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include <gtopt/solver_backend.hpp>
+#include <ilcplex/cplex.h>
 
 #include "cplex_solver_backend.hpp"
 
@@ -60,5 +61,26 @@ double gtopt_solver_infinity(const char* solver_name)  // NOLINT
     return gtopt::CplexSolverBackend::plugin_infinity();
   }
   return 0.0;
+}
+
+// Solver-library identity.  CPLEX is linked statically (static_pic
+// libcplex.a), so the anchor resolves to this plugin and the runtime
+// version cannot differ from CPX_VERSION (VVRRMMFF, e.g. 22010100).
+int gtopt_solver_build_info(const char* solver_name,  // NOLINT
+                            gtopt::SolverBuildInfo* out)
+{
+  if (out == nullptr || std::strcmp(solver_name, "cplex") != 0) {
+    return 0;
+  }
+  constexpr int ver = CPX_VERSION;
+  *out = gtopt::SolverBuildInfo {
+      .struct_version = gtopt::k_solver_build_info_version,
+      .compiled_major = ver / 1000000,
+      .compiled_minor = (ver / 10000) % 100,
+      .compiled_patch = (ver / 100) % 100,
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      .library_anchor = reinterpret_cast<const void*>(&CPXopenCPLEX),
+  };
+  return gtopt::k_solver_build_info_version;
 }
 }

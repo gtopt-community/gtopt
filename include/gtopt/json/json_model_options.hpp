@@ -37,6 +37,7 @@ struct json_data_contract<ModelOptions>
       json_number_null<"scale_theta", OptReal>,
       json_number_null<"scale_loss_link", OptReal>,
       json_number_null<"loss_cost_eps", OptReal>,
+      json_number_null<"loss_flow_abs_cost", OptReal>,
       json_number_null<"loss_overflow_cost", OptReal>,
       json_number_null<"loss_secant_segments", OptInt>,
       json_bool_null<"loss_use_sos2", OptBool>,
@@ -61,7 +62,12 @@ struct json_data_contract<ModelOptions>
       json_bool_null<"battery_power_envelope", OptBool>,
       json_string_null<"reserve_coupling", OptName>,
       json_string_null<"pricing_mode", OptName>,
-      json_number_null<"fast_start_max_hours", OptReal>>;
+      json_number_null<"fast_start_max_hours", OptReal>,
+      json_string_null<"line_thermal_limit_mode", OptName>,
+      json_string_null<"prev_stage_link", OptName>,
+      json_bool_null<"use_line_dlr", OptBool>,
+      json_string_null<"overload_slack_bound", OptName>,
+      json_number_null<"max_overload_ratio", OptReal>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -79,6 +85,7 @@ struct json_data_contract<ModelOptions>
                                  opt.scale_theta,
                                  opt.scale_loss_link,
                                  opt.loss_cost_eps,
+                                 opt.loss_flow_abs_cost,
                                  opt.loss_overflow_cost,
                                  opt.loss_secant_segments,
                                  opt.loss_use_sos2,
@@ -101,7 +108,12 @@ struct json_data_contract<ModelOptions>
                                  opt.battery_power_envelope,
                                  opt.reserve_coupling,
                                  opt.pricing_mode,
-                                 opt.fast_start_max_hours);
+                                 opt.fast_start_max_hours,
+                                 opt.line_thermal_limit_mode,
+                                 opt.prev_stage_link,
+                                 opt.use_line_dlr,
+                                 opt.overload_slack_bound,
+                                 opt.max_overload_ratio);
   }
 };
 

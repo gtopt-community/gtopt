@@ -32,6 +32,8 @@ class GasDemandLP : public ObjectLP<GasDemand>
 public:
   static constexpr std::string_view LoadName {"load"};
   static constexpr std::string_view FailName {"fail"};
+  /// PAMPL-only: served gas ``load − fail`` (no LP column).
+  static constexpr std::string_view ServedName {"served"};
 
   explicit GasDemandLP(const GasDemand& demand, const InputContext& ic);
 
@@ -52,6 +54,19 @@ public:
   {
     return fail_cols_.at({scenario.uid(), stage.uid()});
   }
+
+  /// @name Parameter accessors for PAMPL user-constraint resolution
+  /// @{
+  /// Scheduled gas load [km³/h] (the JSON ``load`` field, pre-clamp).
+  [[nodiscard]] auto param_load(StageUid s, BlockUid b) const
+  {
+    return load_.at(s, b);
+  }
+  [[nodiscard]] auto param_fail_cost(StageUid s) const
+  {
+    return fail_cost_.at(s);
+  }
+  /// @}
 
 private:
   OptTBRealSched load_;

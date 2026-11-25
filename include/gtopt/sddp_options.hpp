@@ -353,6 +353,22 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool aperture_use_manual_clone {};
 
+  /** Under low_memory_mode = off, release each solver backend after its solve
+   * and rebuild it from an uncompressed flat-LP snapshot on the next visit,
+   * warm-starting from the saved basis (false: keep every LP live for the whole
+   * run). Under compress backends are always released. Default: false. */
+  OptBool release_backends {};
+
+  /** Free the CPLEX / Gurobi / MindOpt copy-out getter scratch after each solve
+   * under low_memory = off (false: keep it, the previous behaviour). Default:
+   * true. */
+  OptBool free_solver_scratch {};
+
+  /** Release each low-memory backend right after alpha registration (false:
+   * keep it live until the post-initialisation sweep, the previous behaviour).
+   * Default: true. */
+  OptBool release_after_alpha {};
+
   /** @brief DEPRECATED, ignored.  Was "drop feasibility cuts from aperture
    *  clone replay"; no solver code has read it since it was re-added to the
    *  JSON contract (2026-05-12), and the backward pass never adds
@@ -932,7 +948,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// and `SDDP_OPTION_KEYS` in `scripts/gtopt_shared/options_meta.py`
   /// (a schema-parity pytest enforces the Python side; a `static_assert`
   /// in `json_sddp_options.hpp` enforces the tuple against this count).
-  static constexpr std::size_t json_field_count = 74;
+  static constexpr std::size_t json_field_count = 77;
 
   void merge(SddpOptions&& opts)
   {
@@ -969,6 +985,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(aperture_timeout, opts.aperture_timeout);
     merge_opt(save_aperture_lp, opts.save_aperture_lp);
     merge_opt(aperture_use_manual_clone, opts.aperture_use_manual_clone);
+    merge_opt(release_backends, opts.release_backends);
+    merge_opt(free_solver_scratch, opts.free_solver_scratch);
+    merge_opt(release_after_alpha, opts.release_after_alpha);
     merge_opt(aperture_drop_fcuts, opts.aperture_drop_fcuts);
     merge_opt(aperture_chunk_mode, opts.aperture_chunk_mode);
     merge_opt(aperture_chunk_size, opts.aperture_chunk_size);

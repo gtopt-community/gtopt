@@ -2,3 +2,10 @@
 
 // Generated at build time by cmake_local/GitRevision.cmake.
 #define GTOPT_GIT_REVISION "@GTOPT_GIT_REVISION@"
+
+// Short hash of the build directory + compiler + build type (configure
+// time); distinguishes two build trees of the same revision.
+#define GTOPT_BUILD_TREE_ID "@BUILD_TREE_ID@"
+
+// Build tag shared by the host and its solver plugins.
+#define GTOPT_BUILD_TAG GTOPT_GIT_REVISION "+" GTOPT_BUILD_TREE_ID

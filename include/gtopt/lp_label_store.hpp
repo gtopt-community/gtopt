@@ -123,11 +123,16 @@ struct LpLabelStore
   /// decompressed strings live in `label_string_pool` — the pool is
   /// never cleared while `col_labels_meta` references it.  `mutable`
   /// because the lazy decompression flow is triggered from const methods.
-  mutable std::shared_ptr<std::vector<SparseColLabel>> col_labels_meta {
-      std::make_shared<std::vector<SparseColLabel>>(),
+  ///
+  /// Immutable once installed: `load_flat` ALIASES the flat LP's
+  /// `FlatLpMeta` (shared with the retained snapshot) instead of
+  /// deep-copying it, and every update replaces the pointer.  On the CEN
+  /// 2y case the deep copy duplicated ~1.6 GiB of label metadata.
+  mutable std::shared_ptr<const std::vector<SparseColLabel>> col_labels_meta {
+      std::make_shared<const std::vector<SparseColLabel>>(),
   };
-  mutable std::shared_ptr<std::vector<SparseRowLabel>> row_labels_meta {
-      std::make_shared<std::vector<SparseRowLabel>>(),
+  mutable std::shared_ptr<const std::vector<SparseRowLabel>> row_labels_meta {
+      std::make_shared<const std::vector<SparseRowLabel>>(),
   };
 
   /// Label-only metadata for the **post-flatten** portion of the LP —

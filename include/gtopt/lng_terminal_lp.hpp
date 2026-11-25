@@ -37,6 +37,10 @@ class LngTerminalLP : public StorageLP<ObjectLP<LngTerminal>>
 {
 public:
   static constexpr std::string_view DeliveryName {"delivery"};
+  /// PAMPL alias of the storage `energy` columns (tank level, m³).
+  static constexpr std::string_view VolumeName {"volume"};
+  /// PAMPL-only weighted reference: generator fuel draw [m³/h].
+  static constexpr std::string_view FuelName {"fuel"};
 
   using StorageBase = StorageLP<ObjectLP<LngTerminal>>;
 
@@ -76,6 +80,8 @@ public:
   /// Scheduled LNG delivery per stage [m³/stage]; the LP per-block
   /// inflow rate = ``delivery / stage_duration``.
   [[nodiscard]] auto param_delivery(StageUid s) const { return delivery.at(s); }
+  /// Tank level bounds / holding cost (StorageLP schedules) are exposed
+  /// as `emin` / `emax` / `ecost` through the inherited `param_*`.
   /// @}
 
 private:

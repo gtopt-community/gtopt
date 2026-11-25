@@ -51,6 +51,23 @@ public:
     return flow_cols_.at({scenario.uid(), stage.uid()});
   }
 
+  /// @name Parameter accessors for PAMPL user-constraint resolution
+  /// @{
+  [[nodiscard]] auto param_fmin(StageUid s, BlockUid b) const
+  {
+    return fmin_.at(s, b);
+  }
+  [[nodiscard]] auto param_fmax(StageUid s, BlockUid b) const
+  {
+    return fmax_.at(s, b);
+  }
+  [[nodiscard]] auto param_cost(StageUid s) const { return cost_.at(s); }
+  [[nodiscard]] std::optional<double> param_volume() const noexcept
+  {
+    return gas_supply().volume;
+  }
+  /// @}
+
 private:
   OptTBRealSched fmin_;
   OptTBRealSched fmax_;

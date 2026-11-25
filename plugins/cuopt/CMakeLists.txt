@@ -21,3 +21,18 @@ gtopt_add_solver_plugin(
   INCLUDES   "${CUOPT_INCLUDE_DIRS}"
   LIBRARIES  ${CUOPT_LIBRARIES}
 )
+
+# The cuOpt headers carry no version macros: hand the plugin the version
+# FindCuOpt read from the wheel's VERSION file, so gtopt_solver_build_info
+# can compare it with cuOptGetVersion() of the library loaded at runtime.
+if(CUOPT_VERSION MATCHES "^([0-9]+)\\.([0-9]+)(\\.([0-9]+))?")
+  set(_cuopt_patch "${CMAKE_MATCH_4}")
+  if(_cuopt_patch STREQUAL "")
+    set(_cuopt_patch -1)
+  endif()
+  target_compile_definitions(gtopt_solver_cuopt PRIVATE
+    GTOPT_CUOPT_COMPILED_VERSION_MAJOR=${CMAKE_MATCH_1}
+    GTOPT_CUOPT_COMPILED_VERSION_MINOR=${CMAKE_MATCH_2}
+    GTOPT_CUOPT_COMPILED_VERSION_PATCH=${_cuopt_patch}
+  )
+endif()

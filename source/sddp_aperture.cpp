@@ -1038,11 +1038,65 @@ auto solve_apertures_for_phase(
             const SolverOptions& solve_opts = *solve_opts_ptr;
             const auto solve_t0 = std::chrono::steady_clock::now();
             [[maybe_unused]] auto solve_result = clone.resolve(solve_opts);
-            const auto solve_s =
-                std::chrono::duration<double>(std::chrono::steady_clock::now()
-                                              - solve_t0)
-                    .count();
-            const bool feasible = clone.is_optimal();
+            auto solve_s = std::chrono::duration<double>(
+                               std::chrono::steady_clock::now() - solve_t0)
+                               .count();
+            bool feasible = clone.is_optimal();
+            bool retried_cold = false;
+
+            // Abandoned-solve recovery.  A solve can end abandoned or
+            // non-optimal (numerical trouble off the resident basis, a
+            // backend abort) without proving anything about the aperture.
+            // Dropping it as infeasible loses a valid cut, so retry ONCE
+            // from scratch: discard the resident basis (HiGHS would
+            // otherwise restart from it, skipping presolve) and solve
+            // barrier + crossover.  A proven-infeasible result (status 2)
+            // and a timeout are final: the first is the answer, and a
+            // retry of the second would double the time budget.
+            if (!feasible) {
+              const auto first_status = clone.get_status();
+              const auto first_kind = classify_aperture_failure(
+                  first_status, solve_s, aperture_timeout);
+              if (first_kind == ApertureFailureKind::abandoned
+                  || first_kind == ApertureFailureKind::non_optimal)
+              {
+                clone.clear_basis();
+                clone_has_basis = false;
+                SolverOptions retry_opts = aperture_opts;
+                retry_opts.algorithm = LPAlgo::barrier;
+                retry_opts.crossover = CrossoverMode::primal;
+                retry_opts.force_barrier_crossover = true;
+                retry_opts.advanced_basis = false;
+                retry_opts.presolve = true;
+                if (aperture_timeout > 0.0) {
+                  retry_opts.time_limit =
+                      std::max(aperture_timeout - solve_s, 1.0);
+                }
+                const auto retry_t0 = std::chrono::steady_clock::now();
+                [[maybe_unused]] auto retry_result = clone.resolve(retry_opts);
+                const auto retry_s =
+                    std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - retry_t0)
+                        .count();
+                solve_s += retry_s;
+                feasible = clone.is_optimal();
+                retried_cold = true;
+                spdlog::debug(
+                    "SDDP Aperture [i{} s{} p{} a{}]: {} solve status {} "
+                    "after {:.2f}s, cold barrier retry {} (status {}, "
+                    "{:.2f}s)",
+                    gtopt::uid_of(iteration_index),
+                    scene_uid_val,
+                    phase_uid_val,
+                    ap_uid,
+                    use_warm ? "warm" : "cold",
+                    first_status,
+                    solve_s - retry_s,
+                    feasible ? "recovered" : "failed",
+                    clone.get_status(),
+                    retry_s);
+              }
+            }
             last_solve_feasible = feasible;
             if (use_warm) {
               warm_solve_s += solve_s;
@@ -1092,6 +1146,7 @@ auto solve_apertures_for_phase(
                   .feasible = false,
                   .status = status,
                   .solve_s = solve_s,
+                  .retried_cold = retried_cold,
               });
               // Memo: future duplicates inside the chunk inherit the
               // infeasible status (and don't pay the resolve cost).
@@ -1158,6 +1213,7 @@ auto solve_apertures_for_phase(
                 .weight = weight,
                 .feasible = true,
                 .status = 0,
+                .retried_cold = retried_cold,
                 .cut = std::move(cut),
             });
             seen.push_back({.uid = ap_uid, .idx = results.size() - 1});
@@ -1313,6 +1369,8 @@ auto solve_apertures_for_phase(
   int n_timed_out = 0;
   double dropped_weight = 0.0;
   int n_solved = 0;  // aperture results collected (feasible + dropped)
+  int n_retried = 0;  // abandoned / non-optimal solves retried cold
+  int n_recovered = 0;  // ... of which the cold retry reached an optimum
   std::vector<ApertureDrop> dropped_apertures;
 
   // Each future yields a chunk's worth of per-aperture results
@@ -1332,6 +1390,10 @@ auto solve_apertures_for_phase(
       auto chunk_results = fut.get();
       for (auto& result : chunk_results) {
         ++n_solved;
+        if (result.retried_cold) {
+          ++n_retried;
+          n_recovered += result.feasible ? 1 : 0;
+        }
         if (!result.feasible) {
           ++n_infeasible;
           dropped_weight += result.weight;
@@ -1441,6 +1503,20 @@ auto solve_apertures_for_phase(
       n_skipped,
       phase_elapsed,
       std::hash<std::thread::id> {}(caller_tid) % 10000);
+
+  // Abandoned solves retried cold: visible only when one happened.
+  if (n_retried > 0) {
+    spdlog::info(
+        "{}: {} abandoned/non-optimal aperture solve(s) retried cold, {} "
+        "recovered, {} still dropped",
+        sddp_log("Aperture",
+                 gtopt::uid_of(iteration_index),
+                 scene_uid_val,
+                 phase_uid_val),
+        n_retried,
+        n_recovered,
+        n_retried - n_recovered);
+  }
 
   // Dropped apertures change the expected cut: the remaining weights are
   // renormalised below, so make every drop visible at WARNING level with

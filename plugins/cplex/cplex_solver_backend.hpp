@@ -190,6 +190,8 @@ public:
   [[nodiscard]] const double* reduced_cost() const override;
   [[nodiscard]] const double* row_price() const override;
   [[nodiscard]] double obj_value() const override;
+  void release_scratch() const noexcept override;
+  [[nodiscard]] std::size_t scratch_bytes() const noexcept override;
 
   // ---- solution access (span-out) ----
   // Override to call CPXgetx/CPXgetdj/CPXgetpi directly into the

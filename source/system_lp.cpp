@@ -652,6 +652,10 @@ constexpr auto create_linear_interface(auto& collections,
   // means validation runs by default for every (scene, phase) LP.
   li.set_validation_options(flat_opts.validation);
 
+  // `lp_matrix_options.share_label_meta` (default true): alias the label
+  // metadata with the flat-LP snapshot instead of deep-copying it.
+  li.set_share_label_meta(flat_opts.share_label_meta.value_or(true));
+
   // Branch on low_memory_mode:
   //
   //  * `off` (default): eagerly load the backend and stash the flat LP as
@@ -732,6 +736,29 @@ constexpr auto create_linear_interface(auto& collections,
       li.enable_compression();
     }
   } else {
+    // Names off: keep no label metadata at all, as the low-memory branch
+    // above does.  It exists only to synthesise names (write_lp, lp_debug,
+    // error dumps — every one of those turns names on) and for the
+    // index-tolerant MIP-start diagnostics, which print "unlabeled" /
+    // `r{i}` without it.  The SDDP investment master's capacity-row lookup
+    // opts back in to the row labels (`keep_row_label_meta`).
+    // `lp_matrix_options.label_meta_without_names = true` restores the
+    // previous behaviour (metadata always kept).
+    if (!flat_opts.col_with_names && !flat_opts.row_with_names
+        && !flat_opts.label_meta_without_names.value_or(false)
+        && flat_lp.label_meta != nullptr)
+    {
+      if (flat_opts.keep_row_label_meta) {
+        // One transient copy of the row labels; the old bundle is freed on
+        // reassignment (flatten is its only owner).
+        flat_lp.label_meta = std::make_shared<const FlatLpMeta>(FlatLpMeta {
+            .col_labels_meta = {},
+            .row_labels_meta = flat_lp.label_meta->row_labels_meta,
+        });
+      } else {
+        flat_lp.label_meta = nullptr;
+      }
+    }
     li.load_flat(flat_lp);
     // Retain the flat LP as an inert (uncompressed) snapshot.  Besides the
     // reconstruct/clone paths, the `scip_repair` MIP-start generator relies on
@@ -1261,10 +1288,10 @@ void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
 
 void SystemLP::clear_disposable_collections()
 {
-  // No-op under `LowMemoryMode::off` — collections must stay live so
-  // `release_backend` (also a no-op under off) leaves the live LP
-  // self-sufficient for read-back from any element accessor.
-  if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
+  // No-op under `LowMemoryMode::off` unless the build opted in
+  // (`drop_disposable_collections`, SDDP / cascade) — monolithic keeps
+  // the collections live for its post-solve readers.
+  if (!collections_droppable()) {
     return;
   }
   // No-op when collections are already empty (e.g. rebuild path that
@@ -1417,7 +1444,7 @@ void SystemLP::rebuild_collections_if_needed()
   // types' state is overwritten too but they receive identical
   // content from the same System data, so `update_lp`'s post-flatten
   // iteration sees the same indices.
-  if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
+  if (!collections_droppable()) {
     return;
   }
   if (m_collections_built_ && m_disposable_collections_built_) {
@@ -1594,7 +1621,10 @@ SystemLP::SystemLP(const System& system,
   m_collections_built_ = true;
   m_disposable_collections_built_ = true;
   create_lp(m_flat_opts_);
-  if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
+  if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress
+      || (m_flat_opts_.low_memory_mode == LowMemoryMode::off
+          && m_flat_opts_.drop_disposable_collections))
+  {
     // Per-element drop: keep HasUpdateLP collections alive (their
     // per-(scen, stg) state — `m_bound_states_`, `m_states_`,
     // `m_coeff_indices_` — must persist across SDDP iterations);
@@ -1749,11 +1779,11 @@ void SystemLP::write_out()
   using clock = std::chrono::steady_clock;
   const auto t_start = clock::now();
 
-  if (m_flat_opts_.low_memory_mode != LowMemoryMode::off) {
-    // Compress drops collections at release_backend() time, so on the
-    // write pass we need to re-populate the XLP per-element col/row
-    // indices via a throw-away flatten.  Under `off`, collections
-    // were never dropped and this is a no-op.
+  if (collections_droppable()) {
+    // Compress (and SDDP / cascade `off`) drop the disposable
+    // collections after the build, so on the write pass we need to
+    // re-populate the XLP per-element col/row indices via a throw-away
+    // flatten.  Monolithic `off` never drops them.
     rebuild_collections_if_needed();
   } else if (!m_collections_built_) {
     create_collections(m_system_context_, system(), m_collections_);

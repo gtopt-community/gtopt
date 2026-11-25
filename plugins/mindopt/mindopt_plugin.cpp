@@ -9,6 +9,8 @@
 
 #include <cstring>
 
+#include <Mindopt.h>
+#include <MindoptVersion.h>
 #include <gtopt/solver_backend.hpp>
 
 #include "mindopt_solver_backend.hpp"
@@ -58,5 +60,31 @@ double gtopt_solver_infinity(const char* solver_name)  // NOLINT
     return gtopt::MindOptSolverBackend::plugin_infinity();
   }
   return 0.0;
+}
+
+// Solver-library identity: MindoptVersion.h vs MDOversion() of the loaded
+// libmindopt.
+int gtopt_solver_build_info(const char* solver_name,  // NOLINT
+                            gtopt::SolverBuildInfo* out)
+{
+  if (out == nullptr || std::strcmp(solver_name, "mindopt") != 0) {
+    return 0;
+  }
+  int major = -1;
+  int minor = -1;
+  int technical = -1;
+  MDOversion(&major, &minor, &technical);
+  *out = gtopt::SolverBuildInfo {
+      .struct_version = gtopt::k_solver_build_info_version,
+      .compiled_major = MINDOPT_VERSION_MAJOR,
+      .compiled_minor = MINDOPT_VERSION_MINOR,
+      .compiled_patch = MINDOPT_VERSION_BUILD,
+      .runtime_major = major,
+      .runtime_minor = minor,
+      .runtime_patch = technical,
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      .library_anchor = reinterpret_cast<const void*>(&MDOversion),
+  };
+  return gtopt::k_solver_build_info_version;
 }
 }

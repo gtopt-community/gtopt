@@ -40,6 +40,20 @@ struct CascadeTransition
  */
 struct CascadeLevelMethod
 {
+  /// Layer @p b's optional fields onto @p a (creating it when unset).
+  static void merge_solver_opts(std::optional<SolverOptions>& a,
+                                const std::optional<SolverOptions>& b)
+  {
+    if (!b.has_value()) {
+      return;
+    }
+    if (a.has_value()) {
+      a->merge(*b);
+    } else {
+      a = b;
+    }
+  }
+
   /// Maximum iterations for this level.
   OptInt max_iterations {};
   /// Minimum iterations before convergence can be declared.
@@ -124,6 +138,16 @@ struct CascadeLevelMethod
   /// feasibility) and tighter at full_network (penalty must be
   /// commensurate with the physical-cost scale).
   OptReal elastic_penalty {};
+  /// Forward-pass solver options for this level, layered on the base
+  /// ``sddp_options.forward_solver_options`` with
+  /// ``SolverOptions::merge`` semantics: the OPTIONAL fields this level
+  /// sets win (tolerances, ``mip_gap``, ``time_limit``, ``scaling``,
+  /// ``barrier_solver``, ``mip_lp_algorithm``, ``mip_heuristic_effort``,
+  /// …); ``algorithm`` / ``threads`` / ``crossover`` are not
+  /// per-level (same as the base merge).  nullopt = inherit.
+  std::optional<SolverOptions> forward_solver_options {};
+  /// Backward-pass counterpart of ``forward_solver_options``.
+  std::optional<SolverOptions> backward_solver_options {};
 
   void merge(const CascadeLevelMethod& opts)
   {
@@ -138,6 +162,8 @@ struct CascadeLevelMethod
     merge_opt(aperture_screen_count, opts.aperture_screen_count);
     merge_opt(aperture_seed_basis, opts.aperture_seed_basis);
     merge_opt(convergence_tol, opts.convergence_tol);
+    merge_solver_opts(forward_solver_options, opts.forward_solver_options);
+    merge_solver_opts(backward_solver_options, opts.backward_solver_options);
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_gap_ceiling, opts.stationary_gap_ceiling);
     merge_opt(stationary_window, opts.stationary_window);

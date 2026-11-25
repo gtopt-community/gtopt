@@ -24,6 +24,7 @@
 #include <gtopt/bus.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/enum_option.hpp>
+#include <gtopt/kappa_mode.hpp>
 #include <gtopt/line_enums.hpp>
 #include <gtopt/phase_range_set.hpp>
 #include <gtopt/planning_options.hpp>
@@ -68,6 +69,25 @@ public:
    * ``linear``, ``piecewise_direct``).  Set ``loss_cost_eps = 0``
    * explicitly to disable. */
   static constexpr Real default_loss_cost_eps = 0.1;
+  /** @brief Default per-MWh cost ($/MWh, real units before
+   * ``scale_objective``) on the ``tangent_signed_flow`` abs-flow proxy
+   * columns (``model_options.loss_flow_abs_cost``).  A degeneracy pin
+   * forcing ``Σ v_l = |f|`` at the optimum; shifts LMP differences by
+   * at most ≈ 0.001 $/MWh per lossy line.  With ``scale_objective =
+   * 1000`` it lands at 1e-6 in the LP.  Set 0 to disable. */
+  static constexpr Real default_loss_flow_abs_cost = 0.001;
+  /** @brief Pre-option internal value of the abs-flow pin ($/MWh).
+   * Setting ``loss_flow_abs_cost = legacy_loss_flow_abs_cost``
+   * reproduces the old LP exactly (1e-9 in the LP after
+   * ``scale_objective = 1000``: below solver dual tolerances). */
+  static constexpr Real legacy_loss_flow_abs_cost = 1e-6;
+  /** @brief Default line thermal-limit mode: the limit bounds the flow
+   * variable only (``flow``, no extra constraint). */
+  static constexpr LineThermalLimitMode default_line_thermal_limit_mode =
+      LineThermalLimitMode::flow;
+  /** @brief Default ``<attr>_prev`` stage-boundary link: the previous
+   * stage's last block when it is in the same phase (``stage``). */
+  static constexpr PrevStageLink default_prev_stage_link = PrevStageLink::stage;
   /** @brief Default setting for Kirchhoff constraints */
   static constexpr Bool default_use_kirchhoff = true;
   /** @brief Default Kirchhoff Voltage Law formulation.
@@ -646,6 +666,73 @@ public:
         default_loss_cost_eps);
   }
 
+  /// @brief Gets the per-MWh pin cost on the ``tangent_signed_flow``
+  /// abs-flow proxy columns.
+  ///
+  /// Returns ``model_options.loss_flow_abs_cost`` ($/MWh) when set,
+  /// else ``default_loss_flow_abs_cost`` (0.001 $/MWh); ``0`` disables
+  /// the pin.  Per-line ``Line.loss_flow_abs_cost`` overrides.
+  [[nodiscard]] constexpr auto loss_flow_abs_cost() const
+  {
+    return m_options_.model_options.loss_flow_abs_cost.value_or(
+        default_loss_flow_abs_cost);
+  }
+
+  /// @brief Gets the global line thermal-limit mode.
+  ///
+  /// Priority: ``model_options.line_thermal_limit_mode`` (string) →
+  /// ``default_line_thermal_limit_mode`` (``flow``).  An unknown name
+  /// also resolves to the default.  Per-line
+  /// ``Line.line_thermal_limit_mode`` overrides this value.
+  [[nodiscard]] constexpr LineThermalLimitMode line_thermal_limit_mode() const
+  {
+    if (const auto& m = m_options_.model_options.line_thermal_limit_mode) {
+      return enum_from_name<LineThermalLimitMode>(*m).value_or(
+          default_line_thermal_limit_mode);
+    }
+    return default_line_thermal_limit_mode;
+  }
+  /// ``model_options.use_line_dlr`` (default ``true``): when ``false``
+  /// every ``Line.dlr`` block is ignored and the static ``tmax`` applies.
+  [[nodiscard]] constexpr bool use_line_dlr() const noexcept
+  {
+    return m_options_.model_options.use_line_dlr.value_or(true);
+  }
+
+  /// @brief Gets the ``<attr>_prev`` stage-boundary link.
+  ///
+  /// Priority: ``model_options.prev_stage_link`` (string) →
+  /// ``default_prev_stage_link`` (``stage``).  Unknown names are
+  /// rejected by ``validate_planning``.
+  [[nodiscard]] constexpr PrevStageLink prev_stage_link() const
+  {
+    if (const auto& m = m_options_.model_options.prev_stage_link) {
+      return enum_from_name<PrevStageLink>(*m).value_or(
+          default_prev_stage_link);
+    }
+    return default_prev_stage_link;
+  }
+
+  static constexpr double default_max_overload_ratio = 1.5;
+
+  /// ``model_options.overload_slack_bound`` (default ``thermal``).
+  [[nodiscard]] constexpr LineOverloadSlackBound overload_slack_bound()
+      const noexcept
+  {
+    if (const auto& m = m_options_.model_options.overload_slack_bound) {
+      return enum_from_name<LineOverloadSlackBound>(*m).value_or(
+          LineOverloadSlackBound::thermal);
+    }
+    return LineOverloadSlackBound::thermal;
+  }
+
+  /// ``model_options.max_overload_ratio`` (default 1.5).
+  [[nodiscard]] constexpr double max_overload_ratio() const noexcept
+  {
+    return m_options_.model_options.max_overload_ratio.value_or(
+        default_max_overload_ratio);
+  }
+
   /// @brief Gets the price ($/MWh) on the loss carried by the overflow
   /// tier of a decoupled ``loss_envelope``.
   ///
@@ -1020,6 +1107,14 @@ public:
     return explicit_opts;
   }
 
+  /// `lp_matrix_options.drop_element_collections` (default true): SDDP /
+  /// cascade under `low_memory = off` drop the disposable element
+  /// collections after the build and rebuild them for `write_out`.
+  [[nodiscard]] constexpr bool drop_element_collections() const noexcept
+  {
+    return m_options_.lp_matrix_options.drop_element_collections.value_or(true);
+  }
+
   /// Controls error handling for user constraint resolution.
   /// Default is `strict` — fail on any unresolved reference.
   [[nodiscard]] constexpr auto constraint_mode() const noexcept
@@ -1092,6 +1187,24 @@ public:
         opts.max_fallbacks);
     apply_sddp_pass_defaults(opts);
     return opts;
+  }
+
+  /**
+   * @brief Whether kappa is queried and reported at all.
+   *
+   * False only when every solve's `kappa_mode` resolves to `off`
+   * (`solver_options`, the SDDP forward / backward and the monolithic
+   * pass options; unset falls back to `$GTOPT_KAPPA_MODE`, then the
+   * compiled default).  Then no kappa column is written to
+   * `solution.csv`, and no kappa appears in logs or stats.
+   */
+  [[nodiscard]] bool kappa_enabled() const
+  {
+    const auto on = [](const SolverOptions& o)
+    { return resolve_kappa_mode(o.kappa_mode) != KappaMode::off; };
+    return on(m_options_.solver_options) || on(sddp_forward_solver_options())
+        || on(sddp_backward_solver_options())
+        || on(monolithic_solver_options());
   }
 
   /**
@@ -1207,6 +1320,32 @@ public:
    *         is the only condition where the manual route cannot run.
    *         Set to ``false`` to restore the legacy native-clone path.
    */
+  /// `sddp_options.release_after_alpha` (default true). Release each low-memory
+  /// backend right after alpha registration (false: keep it live until the
+  /// post-initialisation sweep, the previous behaviour).
+  [[nodiscard]] constexpr bool sddp_release_after_alpha() const noexcept
+  {
+    return m_options_.sddp_options.release_after_alpha.value_or(true);
+  }
+
+  /// `sddp_options.free_solver_scratch` (default true). Free the CPLEX / Gurobi
+  /// / MindOpt copy-out getter scratch after each solve under low_memory = off
+  /// (false: keep it, the previous behaviour).
+  [[nodiscard]] constexpr bool sddp_free_solver_scratch() const noexcept
+  {
+    return m_options_.sddp_options.free_solver_scratch.value_or(true);
+  }
+
+  /// `sddp_options.release_backends` (default false). Under low_memory_mode =
+  /// off, release each solver backend after its solve and rebuild it from an
+  /// uncompressed flat-LP snapshot on the next visit, warm-starting from the
+  /// saved basis (false: keep every LP live for the whole run). Under compress
+  /// backends are always released.
+  [[nodiscard]] constexpr bool sddp_release_backends() const noexcept
+  {
+    return m_options_.sddp_options.release_backends.value_or(false);
+  }
+
   [[nodiscard]] constexpr auto sddp_aperture_use_manual_clone() const
   {
     return m_options_.sddp_options.aperture_use_manual_clone.value_or(true);
@@ -1967,9 +2106,22 @@ public:
   /// of this header).
   [[nodiscard]] auto sddp_low_memory() const -> LowMemoryMode;
 
+  /// The low_memory mode the run actually uses: `off` for the monolithic
+  /// method (one solve sequence per cell — `PlanningLP` forces the mode off
+  /// there), `sddp_low_memory()` otherwise.  Post-solve diagnostics must
+  /// judge the run against this, not the SDDP default.
+  [[nodiscard]] auto effective_low_memory() const -> LowMemoryMode;
+
   /// In-memory compression codec for low_memory level 2.
-  [[nodiscard]] constexpr auto sddp_memory_codec() const
+  [[nodiscard]] auto sddp_memory_codec() const
   {
+    // `low_memory_mode = off` + `release_backends`: released like
+    // `compress`, snapshot kept uncompressed.
+    if (m_options_.sddp_options.low_memory_mode == LowMemoryMode::off
+        && sddp_release_backends())
+    {
+      return CompressionCodec::uncompressed;
+    }
     return m_options_.sddp_options.memory_codec.value_or(
         CompressionCodec::auto_select);
   }

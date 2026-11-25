@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include <gtopt/solver_backend.hpp>
+#include <gurobi_c.h>
 
 #include "gurobi_solver_backend.hpp"
 
@@ -58,5 +59,31 @@ double gtopt_solver_infinity(const char* solver_name)  // NOLINT
     return gtopt::GurobiSolverBackend::plugin_infinity();
   }
   return 0.0;
+}
+
+// Solver-library identity: GRB_VERSION_* vs GRBversion() of the loaded
+// libgurobi.
+int gtopt_solver_build_info(const char* solver_name,  // NOLINT
+                            gtopt::SolverBuildInfo* out)
+{
+  if (out == nullptr || std::strcmp(solver_name, "gurobi") != 0) {
+    return 0;
+  }
+  int major = -1;
+  int minor = -1;
+  int technical = -1;
+  GRBversion(&major, &minor, &technical);
+  *out = gtopt::SolverBuildInfo {
+      .struct_version = gtopt::k_solver_build_info_version,
+      .compiled_major = GRB_VERSION_MAJOR,
+      .compiled_minor = GRB_VERSION_MINOR,
+      .compiled_patch = GRB_VERSION_TECHNICAL,
+      .runtime_major = major,
+      .runtime_minor = minor,
+      .runtime_patch = technical,
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      .library_anchor = reinterpret_cast<const void*>(&GRBversion),
+  };
+  return gtopt::k_solver_build_info_version;
 }
 }

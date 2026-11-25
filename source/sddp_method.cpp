@@ -971,6 +971,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   m_infeasibility_counter_.resize(num_scenes);
   m_max_kappa_.resize(num_scenes);
   m_max_kappa_iter_.resize(num_scenes);
+  m_kappa_enabled_ = planning_lp().options().kappa_enabled();
   // Reset on every solve() — `forward_infeas_rollback` semantics start
   // fresh per call (`SceneRetryState{}` clears the
   // global_cuts_at_last_failure optional).

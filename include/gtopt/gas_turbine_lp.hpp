@@ -14,6 +14,12 @@
  *
  * No columns.  Outputs ``GasTurbine/fuel_sol`` (heat_rate · P, km³/h)
  * and ``pressure_gate_dual`` / ``derate_dual``.
+ *
+ * PAMPL: ``gas_turbine("X").generation`` (the linked generator column,
+ * MW) and ``gas_turbine("X").fuel`` (``heat_rate · P``, km³/h, a
+ * weighted reference — no aggregator column); param ``heat_rate``;
+ * metadata ``type`` / ``gas_node`` / ``generator`` for ``sum(...)``
+ * predicates.
  */
 
 #pragma once
@@ -35,6 +41,8 @@ class GasTurbineLP : public ObjectLP<GasTurbine>
 {
 public:
   static constexpr std::string_view FuelName {"fuel"};
+  static constexpr std::string_view GenerationName {"generation"};
+  static constexpr std::string_view GeneratorKey {"generator"};
   static constexpr std::string_view PressureGateName {"pressure_gate"};
   static constexpr std::string_view DerateName {"derate"};
 
@@ -57,6 +65,14 @@ public:
   {
     return gate_rows_.at({scenario.uid(), stage.uid()});
   }
+
+  /// @name Parameter accessors for PAMPL user-constraint resolution
+  /// @{
+  [[nodiscard]] auto param_heat_rate(StageUid s, BlockUid b) const
+  {
+    return heat_rate_.at(s, b);
+  }
+  /// @}
 
 private:
   OptTBRealSched heat_rate_;

@@ -38,25 +38,27 @@ struct json_data_contract<CascadeTransition>
 template<>
 struct json_data_contract<CascadeLevelMethod>
 {
-  using type =
-      json_member_list<json_number_null<"max_iterations", OptInt>,
-                       json_number_null<"min_iterations", OptInt>,
-                       json_array_null<"apertures",
-                                       std::optional<Array<Uid>>,
-                                       json_number_no_name<Uid>>,
-                       json_number_null<"num_apertures", OptInt>,
-                       json_string_null<"aperture_selection_mode", OptName>,
-                       json_string_null<"aperture_solve_mode", OptName>,
-                       json_string_null<"aperture_chunk_mode", OptName>,
-                       json_number_null<"aperture_chunk_size", OptInt>,
-                       json_number_null<"aperture_screen_count", OptInt>,
-                       json_bool_null<"aperture_seed_basis", OptBool>,
-                       json_number_null<"convergence_tol", OptReal>,
-                       json_number_null<"stationary_tol", OptReal>,
-                       json_number_null<"stationary_gap_ceiling", OptReal>,
-                       json_number_null<"stationary_window", OptInt>,
-                       json_string_null<"elastic_mode", OptName>,
-                       json_number_null<"elastic_penalty", OptReal>>;
+  using type = json_member_list<
+      json_number_null<"max_iterations", OptInt>,
+      json_number_null<"min_iterations", OptInt>,
+      json_array_null<"apertures",
+                      std::optional<Array<Uid>>,
+                      json_number_no_name<Uid>>,
+      json_number_null<"num_apertures", OptInt>,
+      json_string_null<"aperture_selection_mode", OptName>,
+      json_string_null<"aperture_solve_mode", OptName>,
+      json_string_null<"aperture_chunk_mode", OptName>,
+      json_number_null<"aperture_chunk_size", OptInt>,
+      json_number_null<"aperture_screen_count", OptInt>,
+      json_bool_null<"aperture_seed_basis", OptBool>,
+      json_number_null<"convergence_tol", OptReal>,
+      json_number_null<"stationary_tol", OptReal>,
+      json_number_null<"stationary_gap_ceiling", OptReal>,
+      json_number_null<"stationary_window", OptInt>,
+      json_string_null<"elastic_mode", OptName>,
+      json_number_null<"elastic_penalty", OptReal>,
+      json_class_null<"forward_solver_options", std::optional<SolverOptions>>,
+      json_class_null<"backward_solver_options", std::optional<SolverOptions>>>;
 
   constexpr static auto to_json_data(CascadeLevelMethod const& opt)
   {
@@ -75,7 +77,9 @@ struct json_data_contract<CascadeLevelMethod>
                                  opt.stationary_gap_ceiling,
                                  opt.stationary_window,
                                  opt.elastic_mode,
-                                 opt.elastic_penalty);
+                                 opt.elastic_penalty,
+                                 opt.forward_solver_options,
+                                 opt.backward_solver_options);
   }
 };
 

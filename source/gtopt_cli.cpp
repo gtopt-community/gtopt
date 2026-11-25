@@ -10,10 +10,12 @@
  * tested in-process (see test/source/test_gtopt_cli.cpp).
  */
 
+#include <algorithm>
 #include <cstddef>
 #include <exception>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <ostream>
 #include <set>
 #include <string>
@@ -26,8 +28,10 @@
 #include <gtopt/gtopt_cli.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/json_schema.hpp>
+#include <gtopt/kappa_mode.hpp>
 #include <gtopt/main_options.hpp>
 #include <gtopt/names_registry.hpp>
+#include <gtopt/plugin_check_default.hpp>
 #include <gtopt/resolve_planning_args.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/unit_registry.hpp>
@@ -155,6 +159,50 @@ record — `--quiet` further silences the log file too.
 )";
 }
 
+namespace
+{
+
+/// Identity of every loaded plugin: path, ELF build-id vs manifest, build
+/// tag vs this binary, and per solver the compiled/runtime library version
+/// and the solver library actually loaded.  Printed after a blank line so
+/// parsers of the name block above stop before it.
+void print_plugin_details(std::ostream& out, const SolverRegistry& registry)
+{
+  const auto host_tag = build_info().build_tag;
+  out << "\nPlugin details:\n";
+  for (const auto& rep : registry.plugin_reports()) {
+    out << std::format("  {}: {}\n", rep.plugin_name, rep.path.string());
+    out << std::format("    build-id   {} (manifest: {})\n",
+                       rep.build_id.empty() ? std::string("none")
+                                            : short_build_id(rep.build_id),
+                       rep.build_id_check.status);
+    out << std::format(
+        "    build tag  {} ({})\n",
+        rep.build_tag.empty() ? std::string("none") : rep.build_tag,
+        rep.build_tag_check.verdict == IntegrityVerdict::ok
+            ? std::string("matches this binary")
+            : std::format(
+                  "{}; this binary {}", rep.build_tag_check.status, host_tag));
+    for (const auto& lib : rep.solvers) {
+      out << std::format(
+          "    {:<10} {}\n", lib.solver, describe_solver_library(lib));
+    }
+  }
+  std::vector<std::string> refused;
+  std::ranges::copy_if(registry.load_errors(),
+                       std::back_inserter(refused),
+                       [](const std::string& e)
+                       { return e.contains(k_plugin_refused_marker); });
+  if (!refused.empty()) {
+    out << "\nRefused plugins:\n";
+    for (const auto& e : refused) {
+      out << "  " << e << '\n';
+    }
+  }
+}
+
+}  // namespace
+
 int print_available_solvers(std::ostream& out)
 {
   auto& registry = SolverRegistry::instance();
@@ -178,13 +226,25 @@ int print_available_solvers(std::ostream& out)
            "plugin libraries\n"
         << "  - Ensure solver plugins (osi and/or highs) are installed\n"
         << "  - Install COIN-OR (coinor-libcbc-dev) for CLP/CBC support\n"
-        << "  - Install HiGHS for HiGHS support\n";
+        << "  - Install HiGHS for HiGHS support\n"
+        << "  - Plugins from another build or a stale install are refused "
+           "in plugin check mode 'error'; rebuild/reinstall them, or use "
+           "--plugin-check=warning to load them anyway\n";
   } else {
+    // Keep this block one bare name per line: scripts parse it.
     out << "Available LP solvers:\n";
     for (const auto& s : solvers) {
       out << "  " << s << '\n';
     }
+    print_plugin_details(out, registry);
   }
+  const auto [mode, source] = SolverRegistry::effective_plugin_check();
+  out << '\n' << describe_plugin_check(mode, source) << '\n';
+  out << "Solver-library full hash (GTOPT_SOLVER_LIB_FULL_HASH): "
+      << (k_solver_lib_full_hash
+              ? "on (the SHA-256 of each loaded solver library is verified)"
+              : "off (build-id only)")
+      << '\n';
   return 0;
 }
 
@@ -375,8 +435,24 @@ void configure_cli_logging(const cli::variables_map& vm,
     return 0;
   }
 
+  // Before anything can load a plugin (--solvers, --check-solvers, a run).
+  if (vm.contains("plugin-check")) {
+    const auto text = get_opt<std::string>(vm, "plugin-check").value_or("");
+    const auto mode = parse_plugin_check_mode(text);
+    if (!mode) {
+      err << "ERROR: --plugin-check must be 'warning' or 'error', got '" << text
+          << "'\n";
+      return 1;
+    }
+    SolverRegistry::set_plugin_check_mode(mode);
+  }
+
   if (vm.contains("version")) {
-    out << build_info().version_string() << '\n';
+    // First line: the bare version (scripts read it with `head -1`).
+    const auto [mode, source] = SolverRegistry::effective_plugin_check();
+    out << build_info().version_string() << '\n'
+        << describe_plugin_check(mode, source) << '\n'
+        << describe_kappa_mode() << '\n';
     return 0;
   }
 

@@ -33,6 +33,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/memory_monitor.hpp>
 #include <gtopt/planning.hpp>
+#include <gtopt/plugin_integrity.hpp>
 #include <gtopt/pricing_mode.hpp>
 #include <gtopt/solver_options.hpp>
 
@@ -226,6 +227,17 @@ template<typename T>
        "cplex > highs > mindopt > cbc > clp).  "
        "Use --solvers to list backends compiled into the current build.")
       //
+      ("plugin-check",
+       po::value<std::string>(),
+       std::string(
+           "what a failed solver-plugin integrity check does (build-id vs "
+           "manifest, compiled vs runtime solver library version, "
+           "LD_LIBRARY_PATH shadowing, another gtopt build): 'warning' "
+           "(log and keep loading) or 'error' (refuse the plugin).  "
+           "Overrides $GTOPT_PLUGIN_CHECK.  Default: '")
+           + std::string(to_string(k_default_plugin_check_mode))
+           + "' (compiled in, CMake GTOPT_PLUGIN_CHECK_DEFAULT).")
+      //
       ("config",
        po::value<std::string>(),
        "read option defaults from this .gtopt.conf-style file instead of "
@@ -326,8 +338,10 @@ template<typename T>
       //
       ("sddp-num-apertures",
        po::value<int>(),
-       "SDDP backward-pass aperture count: 0=disabled (default), -1=all, "
-       "N=first N scenarios")  //
+       "SDDP backward-pass apertures per phase: unset (default) = every "
+       "aperture in the phase's list, 0 = none (deterministic Benders "
+       "backward pass), N > 0 = the first N of each phase's list; "
+       "shorthand for --set sddp_options.num_apertures=<n>")  //
       ("aperture-chunk-mode",
        po::value<std::string>(),
        "SDDP backward-pass aperture grouping: per_scene (default; all "

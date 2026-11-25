@@ -9,6 +9,7 @@
 
 #include <algorithm>
 
+#include <gtopt/ampl_variable.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/gas_demand_lp.hpp>
 #include <gtopt/gas_node_lp.hpp>
@@ -52,6 +53,9 @@ bool GasDemandLP::add_to_lp(SystemContext& sc,
   BIndexHolder<ColIndex> cols;
   BIndexHolder<double> loads;
   map_reserve(loads, blocks.size());
+  // PAMPL `gas_demand.served = load − fail`: the scheduled load rides as
+  // the per-block offset, the fail column (when built) as a −1 leg.
+  BIndexHolder<std::vector<std::pair<ColIndex, double>>> served_terms;
   for (const auto& block : blocks) {
     const auto buid = block.uid();
     const double load = std::max(0.0, load_.at(stage_uid, buid).value_or(0.0));
@@ -72,10 +76,23 @@ bool GasDemandLP::add_to_lp(SystemContext& sc,
       });
       cols[buid] = col;
       brow[col] = 1.0;
+      served_terms[buid] = {{col, -1.0}};
     }
   }
 
   const auto st_key = std::tuple {scen_uid, stage_uid};
+  sc.add_ampl_variable(
+      ampl_name, uid(), ServedName, scenario, stage, served_terms, loads);
+  {
+    AmplElementMetadata metadata;
+    metadata.reserve(2);
+    if (const auto& t = gas_demand().type) {
+      metadata.emplace_back(GasNodeLP::TypeKey, *t);
+    }
+    metadata.emplace_back(GasNodeLP::GasNodeKey,
+                          static_cast<double>(node.uid()));
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
   load_values_[st_key] = std::move(loads);
   if (!cols.empty()) {
     fail_cols_[st_key] = std::move(cols);

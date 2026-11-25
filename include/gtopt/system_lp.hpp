@@ -1067,6 +1067,15 @@ public:
   /// after the drop must first call `rebuild_collections_if_needed()`.
   void clear_disposable_collections();
 
+  /// True when the disposable collections may be dropped after the build
+  /// and rebuilt on demand: any low-memory mode, or `off` when the build
+  /// opted in via `LpMatrixOptions::drop_disposable_collections`.
+  [[nodiscard]] bool collections_droppable() const noexcept
+  {
+    return m_flat_opts_.low_memory_mode != LowMemoryMode::off
+        || m_flat_opts_.drop_disposable_collections;
+  }
+
   /// Memory-limited eviction: drop the ENTIRE collection tuple (disposable
   /// AND `HasUpdateLP` types) while keeping the LinearInterface snapshot +
   /// replay intact, so the cell can reconstruct on next touch.  Unlike

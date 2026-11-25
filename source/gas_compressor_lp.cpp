@@ -13,6 +13,7 @@
 #include <ranges>
 #include <stdexcept>
 
+#include <gtopt/ampl_variable.hpp>
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/gas_compressor_lp.hpp>
 #include <gtopt/gas_node_lp.hpp>
@@ -109,6 +110,16 @@ bool GasCompressorLP::add_to_lp(SystemContext& sc,
   const auto& node_out = sc.element<GasNodeLP>(GasNodeLPSId {cs.gas_node_out});
   if (!node_in.is_active(stage) || !node_out.is_active(stage)) {
     return true;
+  }
+  {
+    AmplElementMetadata metadata;
+    metadata.reserve(3);
+    if (cs.type) {
+      metadata.emplace_back(GasNodeLP::TypeKey, *cs.type);
+    }
+    metadata.emplace_back(GasNodeInKey, static_cast<double>(node_in.uid()));
+    metadata.emplace_back(GasNodeOutKey, static_cast<double>(node_out.uid()));
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
   const auto& blocks = stage.blocks();
   if (blocks.empty()) {

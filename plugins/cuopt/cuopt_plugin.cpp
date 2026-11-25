@@ -14,6 +14,12 @@
 
 #include "cuopt_solver_backend.hpp"
 
+#if __has_include(<cuopt/mathematical_optimization/cuopt_c.h>)
+#  include <cuopt/mathematical_optimization/cuopt_c.h>
+#else
+#  include <cuopt/linear_programming/cuopt_c.h>
+#endif
+
 namespace
 {
 
@@ -88,5 +94,35 @@ int gtopt_solver_resource_descriptor(  // NOLINT
       .spawns_host_threads = 1,
   };
   return gtopt::k_solver_resource_desc_version;
+}
+
+// Solver-library identity: the cuOpt headers carry no version macros, so
+// the compiled version comes from the wheel's VERSION file found by
+// FindCuOpt (GTOPT_CUOPT_COMPILED_VERSION_*), the runtime one from
+// cuOptGetVersion() of the loaded libcuopt.
+int gtopt_solver_build_info(const char* solver_name,  // NOLINT
+                            gtopt::SolverBuildInfo* out)
+{
+  if (out == nullptr || std::strcmp(solver_name, "cuopt") != 0) {
+    return 0;
+  }
+  cuopt_int_t major = -1;
+  cuopt_int_t minor = -1;
+  cuopt_int_t patch = -1;
+  cuOptGetVersion(&major, &minor, &patch);
+  *out = gtopt::SolverBuildInfo {
+      .struct_version = gtopt::k_solver_build_info_version,
+#ifdef GTOPT_CUOPT_COMPILED_VERSION_MAJOR
+      .compiled_major = GTOPT_CUOPT_COMPILED_VERSION_MAJOR,
+      .compiled_minor = GTOPT_CUOPT_COMPILED_VERSION_MINOR,
+      .compiled_patch = GTOPT_CUOPT_COMPILED_VERSION_PATCH,
+#endif
+      .runtime_major = static_cast<int>(major),
+      .runtime_minor = static_cast<int>(minor),
+      .runtime_patch = static_cast<int>(patch),
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      .library_anchor = reinterpret_cast<const void*>(&cuOptGetVersion),
+  };
+  return gtopt::k_solver_build_info_version;
 }
 }

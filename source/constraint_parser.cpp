@@ -555,7 +555,19 @@ bool ConstraintParser::Parser::is_element_type(const std::string& name)
       // Gas network: node pressure, supply / pipe / compressor
       // flows and shedding columns.
       || name == "gas_node" || name == "gas_supply" || name == "gas_demand"
-      || name == "gas_pipe" || name == "gas_compressor";
+      || name == "gas_pipe"
+      || name == "gas_compressor"
+      // Gas turbine: linked generation / fuel draw + heat_rate param.
+      || name == "gas_turbine"
+      // Remaining classes with registered AMPL variables, parameters
+      // or iterators (`ampl_dispatch_registry.cpp`); without them here
+      // their `class("x").attr` references could not be parsed at all.
+      || name == "thermal_node" || name == "thermal_storage"
+      || name == "hydrogen_node" || name == "ammonia_node"
+      || name == "ammonia_storage" || name == "allowance_pool"
+      || name == "inertia_zone" || name == "inertia_provision"
+      || name == "line_commitment" || name == "reservoir_discharge_limit"
+      || name == "user_constraint";
 }
 
 bool ConstraintParser::Parser::is_singleton_class(const std::string& name)

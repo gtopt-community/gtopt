@@ -191,6 +191,23 @@ struct LowerCtx
 // stage, block).  Unlike the pmax = 0 implicit-zero leniency this is a
 // modelling error the user must see: strict / debug mode throws; normal
 // (lax) mode warns once per term reference and the term contributes 0.
+/// True when ``ref`` is a ``<attr>_prev`` term evaluated at the FIRST
+/// block of a stage whose predecessor stage belongs to an EARLIER phase
+/// (another LP): the term then reads 0, not the previous phase's value.
+/// Silent-flatten passes are skipped (they rebuild the same rows).
+[[nodiscard]] bool is_later_phase_start_prev(const LowerCtx& ctx,
+                                             const ElementRef& ref)
+{
+  if (!ref.attribute.ends_with("_prev") || ctx.sc.silent_flatten_pass()) {
+    return false;
+  }
+  const auto& blocks = ctx.stage.blocks();
+  if (blocks.empty() || blocks.front().uid() != ctx.block.uid()) {
+    return false;
+  }
+  return ctx.sc.simulation().prev_stage(ctx.stage).second != nullptr;
+}
+
 void report_unreachable_column(LowerCtx& ctx,
                                std::string_view element_type,
                                std::string_view element_id,
@@ -534,6 +551,17 @@ void reject_nested_wrappers(const LowerCtx& ctx,
     if (!cands.empty()) {
       hint = std::format(" — did you mean: {}?", join_candidates(cands));
     }
+  } else if (ctx.sc.find_ampl_param(ref.element_type, ref.attribute) != nullptr)
+  {
+    // A registered parameter that resolved to no value: an optional
+    // input field left unset (e.g. `gas_supply.volume`) — say so rather
+    // than calling a valid attribute unknown.
+    what = std::format(
+        "parameter '{}' of {} '{}' has no value here (optional input "
+        "field not set)",
+        ref.attribute,
+        ref.element_type,
+        ref.element_id);
   } else {
     what = std::format("unknown attribute '{}' on {} '{}'",
                        ref.attribute,
@@ -627,6 +655,14 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
                      ctx.sc, ctx.scenario, ctx.stage, ctx.block, *term.element))
       {
         out.param_shift += coef * *pval;
+        if (is_later_phase_start_prev(ctx, *term.element)) {
+          ctx.sc.simulation().record_prev_at_phase_start(
+              ctx.uc.name,
+              std::format("{}({}).{}",
+                          term.element->element_type,
+                          term.element->element_id,
+                          term.element->attribute));
+        }
         if (ctx.is_debug) {
           spdlog::info(
               "  user_constraint '{}' block {}: "

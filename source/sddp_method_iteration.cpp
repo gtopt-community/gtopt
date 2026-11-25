@@ -63,6 +63,9 @@ void SDDPMethod::update_max_kappa(SceneIndex scene_index,
                                   const LinearInterface& li,
                                   IterationIndex iteration_index)
 {
+  if (!m_kappa_enabled_) {
+    return;  // kappa_mode = off: never queried, never logged
+  }
   const auto kappa_opt = li.get_kappa();
 
   // No value means the backend doesn't support the query (e.g. MindOpt)
@@ -552,15 +555,17 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       phase_states[phase_index].forward_interior = is_interior_solve(tgt_opts);
       // Read kappa before `update_max_kappa` so the per-step value is
       // logged regardless of whether it raises the recorded maximum.
-      const auto kappa_val = tgt_li.get_kappa().value_or(0.0);
       update_max_kappa(scene_index, phase_index, tgt_li, iteration_index);
 
       // Per-(scene, phase) INFO log mirroring the forward pass's
       // `[iN sM pK/T]` prefix; fires only when the optional re-solve
       // succeeds (the failure branch already logs at DEBUG below).
+      // Kappa only when enabled (read from the solve-time cache).
+      const auto kappa_clause = m_kappa_enabled_
+          ? std::format(", kappa={:.2e}", tgt_li.get_kappa().value_or(0.0))
+          : std::string {};
       spdlog::debug(
-          "SDDP Backward [i{} s{} p{}/{}]: tgt re-solve z={}->{} (delta={}, "
-          "kappa={:.2e})",
+          "SDDP Backward [i{} s{} p{}/{}]: tgt re-solve z={}->{} (delta={}{})",
           gtopt::uid_of(iteration_index),
           uid_of(scene_index),
           uid_of(phase_index),
@@ -568,7 +573,7 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
           format_si(z_old),
           format_si(obj_phys),
           format_si(obj_phys - z_old),
-          kappa_val);
+          kappa_clause);
     } else {
       SPDLOG_DEBUG(
           "{}: backward_resolve_target re-solve non-optimal "

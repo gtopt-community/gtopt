@@ -146,6 +146,7 @@ public:
   // ---- simplex basis (advanced warm start) ----
   [[nodiscard]] std::optional<Basis> get_basis() const override;
   bool set_basis(const Basis& basis) override;
+  void clear_basis() override;
 
   // ---- solve ----
   void initial_solve() override;
@@ -158,6 +159,8 @@ public:
 
   // ---- status ----
   [[nodiscard]] bool is_proven_optimal() const override;
+  /// True when the loaded model has an integer / binary column.
+  [[nodiscard]] bool model_is_mip() const;
   [[nodiscard]] bool has_mip_incumbent() const override;
   [[nodiscard]] bool is_abandoned() const override;
   [[nodiscard]] bool is_proven_primal_infeasible() const override;
@@ -198,6 +201,9 @@ private:
   bool m_presolve_ {true};
   int m_log_level_ {0};
   bool m_load_failed_ {};
+  /// The last `run()` returned `HighsStatus::kError`: the solve was
+  /// abandoned (reported through `is_abandoned()`), not proven anything.
+  bool m_run_error_ {};
   /// Native objective offset (raw/scaled units).  Absolute value set via
   /// `set_obj_offset`; applied onto `HighsLp::offset_` before `passModel`
   /// (load_problem + clone) and pushed live via `changeObjectiveOffset`.

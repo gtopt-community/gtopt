@@ -369,7 +369,36 @@ public:
    * The backend can be recreated by a subsequent call to
    * reconstruct_backend() or load_flat().
    */
+  /// Alias (true, default) or deep-copy (false) the label metadata of the
+  /// flat LP on every subsequent `load_flat`.
+  void set_share_label_meta(bool share) noexcept
+  {
+    m_share_label_meta_ = share;
+  }
+  [[nodiscard]] bool share_label_meta() const noexcept
+  {
+    return m_share_label_meta_;
+  }
+
   void release_backend() noexcept;
+
+  /// Free the backend's pointer-getter scratch buffers (see
+  /// `SolverBackend::release_scratch`).  Invalidates every span previously
+  /// returned by the raw getters (`get_col_sol_raw`, `get_col_low_raw`, …)
+  /// when they point into backend scratch.  Safe in every low-memory mode;
+  /// no-op when the backend is released or keeps no scratch.
+  void release_backend_scratch() const noexcept
+  {
+    if (m_backend_ != nullptr) {
+      m_backend_->release_scratch();
+    }
+  }
+
+  /// Bytes held by the backend's getter scratch buffers (0 when released).
+  [[nodiscard]] std::size_t backend_scratch_bytes() const noexcept
+  {
+    return m_backend_ != nullptr ? m_backend_->scratch_bytes() : 0;
+  }
 
   /// Drop the cached primal vectors (`col_sol`, `col_cost`) but keep
   /// `row_dual` (and the scalar caches).
@@ -1457,7 +1486,12 @@ public:
 
   [[nodiscard]] auto get_obj_coeff() const
   {
-    return std::span(backend().obj_coefficients(), get_numcols());
+    // `backend()` first: it may reconstruct a released backend, and
+    // only then is the count current (function-argument order is
+    // unspecified).
+    const double* const data = backend().obj_coefficients();
+    // NOLINTNEXTLINE(modernize-return-braced-init-list)
+    return std::span(data, get_numcols());
   }
 
   // ── Column bound setters (raw: LP/solver units) ──
@@ -1794,6 +1828,19 @@ public:
    * `has_value()` checks instead.
    */
   [[nodiscard]] std::optional<double> get_kappa() const;
+
+  /// Backend kappa queries since construction (testing / profiling:
+  /// pins the one-query-per-solve contract).
+  [[nodiscard]] std::size_t kappa_queries() const noexcept
+  {
+    return m_kappa_queries_;
+  }
+
+  /// Backend kappa queries made by every LinearInterface of the process.
+  /// All backend `get_kappa()` calls go through one LinearInterface choke
+  /// point, so a zero delta proves no backend was asked (`kappa_mode =
+  /// off`).
+  [[nodiscard]] static std::size_t total_kappa_queries() noexcept;
 
   /**
    * @brief Read-only access to this LP's cumulative solver counters.
@@ -2266,7 +2313,12 @@ public:
    */
   [[nodiscard]] auto get_row_low_raw() const
   {
-    return std::span(backend().row_lower(), get_numrows());
+    // `backend()` first: it may reconstruct a released backend, and
+    // only then is the count current (function-argument order is
+    // unspecified).
+    const double* const data = backend().row_lower();
+    // NOLINTNEXTLINE(modernize-return-braced-init-list)
+    return std::span(data, get_numrows());
   }
 
   /**
@@ -2275,7 +2327,12 @@ public:
    */
   [[nodiscard]] auto get_row_upp_raw() const
   {
-    return std::span(backend().row_upper(), get_numrows());
+    // `backend()` first: it may reconstruct a released backend, and
+    // only then is the count current (function-argument order is
+    // unspecified).
+    const double* const data = backend().row_upper();
+    // NOLINTNEXTLINE(modernize-return-braced-init-list)
+    return std::span(data, get_numrows());
   }
 
   // ── Row bound getters (physical: descaled) ──
@@ -2297,8 +2354,11 @@ public:
   // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_row_low() const noexcept
   {
+    // `backend()` before the count: it may reconstruct a released
+    // backend, after which the count is current.
+    const double* const data = backend().row_lower();
     const auto n = get_numrows();
-    return {backend().row_lower(),
+    return {data,
             n,
             m_scaling_.row_scales->data(),
             m_scaling_.row_scales->size(),
@@ -2312,8 +2372,11 @@ public:
   // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_row_upp() const noexcept
   {
+    // `backend()` before the count: it may reconstruct a released
+    // backend, after which the count is current.
+    const double* const data = backend().row_upper();
     const auto n = get_numrows();
-    return {backend().row_upper(),
+    return {data,
             n,
             m_scaling_.row_scales->data(),
             m_scaling_.row_scales->size(),
@@ -2345,8 +2408,12 @@ public:
     }
     // A braced {ptr, count} return narrows the signed get_numcols() (int32) to
     // span's unsigned size_type; the explicit span ctor is required.
+    // `backend()` first: it may reconstruct a released backend, and
+    // only then is the count current (function-argument order is
+    // unspecified).
+    const double* const data = backend().col_lower();
     // NOLINTNEXTLINE(modernize-return-braced-init-list)
-    return std::span(backend().col_lower(), get_numcols());
+    return std::span(data, get_numcols());
   }
 
   /**
@@ -2361,8 +2428,12 @@ public:
     }
     // A braced {ptr, count} return narrows the signed get_numcols() (int32) to
     // span's unsigned size_type; the explicit span ctor is required.
+    // `backend()` first: it may reconstruct a released backend, and
+    // only then is the count current (function-argument order is
+    // unspecified).
+    const double* const data = backend().col_upper();
     // NOLINTNEXTLINE(modernize-return-braced-init-list)
-    return std::span(backend().col_upper(), get_numcols());
+    return std::span(data, get_numcols());
   }
 
   // ── Column bound getters (physical: descaled) ──
@@ -2378,8 +2449,11 @@ public:
   // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_low() const noexcept
   {
+    // `backend()` before the count: it may reconstruct a released
+    // backend, after which the count is current.
+    const double* const data = backend().col_lower();
     const auto n = get_numcols();
-    return {backend().col_lower(),
+    return {data,
             n,
             m_scaling_.col_scales->data(),
             m_scaling_.col_scales->size(),
@@ -2396,8 +2470,11 @@ public:
   // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_upp() const noexcept
   {
+    // `backend()` before the count: it may reconstruct a released
+    // backend, after which the count is current.
+    const double* const data = backend().col_upper();
     const auto n = get_numcols();
-    return {backend().col_upper(),
+    return {data,
             n,
             m_scaling_.col_scales->data(),
             m_scaling_.col_scales->size(),
@@ -2918,6 +2995,11 @@ public:
   /// Returns `false` if the backend cannot accept a basis (a benign skip).
   bool set_basis(Basis basis);
 
+  /// Drop the basis resident on the live backend so the next `resolve`
+  /// starts cold (`SolverBackend::clear_basis`).  No-op when the backend
+  /// has been released (a snapshot holds no basis).
+  void clear_basis();
+
   /// Inject a starting integer (MIP-start / warm incumbent) solution into the
   /// backend.  `col_values` is a dense RAW-space vector (size `get_numcols()`)
   /// — build it from `get_col_sol_raw()`, never the descaled `get_col_sol()`.
@@ -3191,6 +3273,17 @@ private:
   /// DblMax bounds *before* the backend is repopulated.
   double m_cached_infinity_ {DblMax};
   SolverOptions m_last_solver_options_ {};  ///< Options from last solve
+  /// True once the current solve's kappa has been read from the backend
+  /// (and cached); reset at the start of every solve.  Keeps kappa to
+  /// ONE backend query per solve (`query_solve_kappa`).
+  bool m_solve_kappa_read_ {false};
+  mutable std::size_t m_kappa_queries_ {0};
+
+  /// Read this solve's kappa from the backend once (nothing under
+  /// `kappa_mode = off`), cache it and fold it into `max_kappa`.
+  void query_solve_kappa();
+  /// One backend kappa query honouring the last solve's `kappa_mode`.
+  [[nodiscard]] std::optional<double> backend_kappa() const;
   std::string m_log_file_ {};
   std::string m_log_tag_ {};  ///< Context tag prefixed to fallback warnings
   LabelMaker m_label_maker_ {};  ///< Label generator + level gate
@@ -3305,6 +3398,10 @@ private:
   // ── Low-memory state ──────────────────────────────────────────────────
 
   LowMemoryMode m_low_memory_mode_ {LowMemoryMode::off};
+  /// Alias the label metadata with the flat LP's `FlatLpMeta` on
+  /// `load_flat` (true, default) or deep-copy it (false, the previous
+  /// behaviour).  Set from `LpMatrixOptions::share_label_meta`.
+  bool m_share_label_meta_ {true};
 
   /// Set by `clone_from_flat(with_replay=true)` after the initial replay
   /// completes.  A throwaway clone is owned by a single chunk task (SDDP

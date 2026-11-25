@@ -32,6 +32,7 @@ BuildInfo build_info() noexcept
   return {
       .version = GTOPT_VERSION,
       .git_revision = GTOPT_GIT_REVISION,
+      .build_tag = GTOPT_BUILD_TAG,
   };
 }
 

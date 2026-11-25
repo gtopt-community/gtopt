@@ -499,6 +499,10 @@ struct ApertureCutResult
   /// Lets the failure log tell a real time-limit hit apart from other
   /// non-optimal outcomes that share a status code.
   double solve_s {0.0};
+  /// The first solve was abandoned / non-optimal (not proven infeasible,
+  /// not timed out) and was retried once cold (basis cleared, barrier +
+  /// crossover).  `feasible` is the retry's outcome.
+  bool retried_cold {false};
   std::optional<SparseRow> cut {};
 };
 

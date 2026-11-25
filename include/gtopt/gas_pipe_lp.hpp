@@ -72,6 +72,8 @@ public:
   static constexpr std::string_view ProxDownName {"slp_dev_down"};
   static constexpr std::string_view WeymouthGapName {"weymouth_gap"};
   static constexpr std::string_view PressureErrorName {"pressure_error"};
+  static constexpr std::string_view GasNodeAKey {"gas_node_a"};
+  static constexpr std::string_view GasNodeBKey {"gas_node_b"};
 
   explicit GasPipeLP(const GasPipe& pipe, const InputContext& ic);
 
@@ -171,6 +173,11 @@ public:
   {
     return tangents_.at({scenario.uid(), stage.uid()});
   }
+
+  /// @name Parameter accessors for PAMPL user-constraint resolution
+  /// @{
+  [[nodiscard]] auto param_fmax(StageUid s) const { return fmax_.at(s); }
+  /// @}
 
 private:
   OptTRealSched fmax_;

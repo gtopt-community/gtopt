@@ -37,6 +37,9 @@ else()
 endif()
 
 # ---- HiGHS plugin ----
+option(GTOPT_HIGHS_ALLOW_UNPINNED
+       "Build the HiGHS plugin against a HiGHS other than GTOPT_HIGHS_PIN_VERSION"
+       OFF)
 # Look for the header and library directly first (FindHiGHS.cmake).  The
 # Debian/Ubuntu libhighs-dev package ships a CMake config and a highs.pc
 # with wrong paths (prefix "/", "/usr/usr/include"), and the config even
@@ -159,6 +162,25 @@ if(highs_FOUND OR HIGHS_FOUND)
     set(HIGHS_INCLUDE_DIRS "${_highs_inc}" CACHE STRING "HiGHS include dirs")
     set(HIGHS_LIBRARIES highs::highs CACHE STRING "HiGHS libraries")
     set(HIGHS_FOUND TRUE)
+  endif()
+  if(NOT HIGHS_VERSION AND highs_VERSION)
+    set(HIGHS_VERSION "${highs_VERSION}")
+  endif()
+  if(HIGHS_VERSION AND GTOPT_HIGHS_PIN_VERSION
+     AND NOT HIGHS_VERSION VERSION_EQUAL GTOPT_HIGHS_PIN_VERSION)
+    string(CONCAT _highs_pin_msg
+        "HiGHS ${HIGHS_VERSION} found, but gtopt pins HiGHS "
+        "${GTOPT_HIGHS_PIN_VERSION} (the version CI builds and the goldens "
+        "are generated with: another HiGHS can end on another optimal vertex "
+        "and fail dual/cost comparisons).  Point -DHIGHS_ROOT_DIR (or "
+        "$HIGHS_ROOT_DIR) at a HiGHS ${GTOPT_HIGHS_PIN_VERSION} prefix, e.g. "
+        "~/opt/highs-${GTOPT_HIGHS_PIN_VERSION}, or pass "
+        "-DGTOPT_HIGHS_ALLOW_UNPINNED=ON to build against it anyway.")
+    if(GTOPT_HIGHS_ALLOW_UNPINNED)
+      message(WARNING "${_highs_pin_msg}")
+    else()
+      message(FATAL_ERROR "${_highs_pin_msg}")
+    endif()
   endif()
   if(HIGHS_VERSION)
     message(STATUS "Solver plugin: HiGHS enabled (${HIGHS_VERSION})")

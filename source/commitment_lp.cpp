@@ -1126,20 +1126,30 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       const double offline_since_initial =
           initially_off ? t_before_p + initial_hours_offline : 0.0;
 
-      // Count periods back from p that cover hot_time / cold_time hours
-      double accum = 0.0;
-      size_t hot_periods = 0;
-      for (size_t q = p; q > 0 && accum < hot_time; --q) {
-        accum += pdur[q - 1];
-        ++hot_periods;
-      }
-
-      accum = 0.0;
-      size_t cold_periods = 0;
-      for (size_t q = p; q > 0 && accum < cold_time; --q) {
-        accum += pdur[q - 1];
-        ++cold_periods;
-      }
+      // A shutdown in period q (w[q] = 1: off from the start of q) leaves
+      // the unit offline D(q) = Σ pdur[q .. p-1] hours when it starts at
+      // p.  The tiers use the same strict thresholds as the initial-
+      // offline relaxation below: hot when D < hot_time, warm when
+      // hot_time ≤ D < cold_time, cold otherwise.  So the hot window
+      // holds the shutdown periods with D < hot_time, the cold-time
+      // window those with D < cold_time, and the warm window their
+      // difference.  A shutdown whose D reaches a threshold exactly
+      // belongs to the next tier: the windows used to include it, which
+      // priced a start after exactly hot_time (cold_time) hours hot
+      // (warm) while the same outage carried in from before the horizon
+      // was priced warm (cold).
+      const auto periods_below = [&pdur, p](double limit)
+      {
+        double offline = 0.0;
+        size_t count = 0;
+        for (size_t q = p; q > 0 && offline + pdur[q - 1] < limit; --q) {
+          offline += pdur[q - 1];
+          ++count;
+        }
+        return count;
+      };
+      const size_t hot_periods = periods_below(hot_time);
+      const size_t cold_periods = periods_below(cold_time);
 
       // C9: y_hot[p] ≤ Σ w[q] for q in [p-hot_periods, p-1]
       {

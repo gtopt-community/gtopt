@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-gtopt-commercial
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <ranges>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include <gtopt/constraint_names.hpp>
@@ -34,17 +36,6 @@ namespace gtopt::line_losses
 
 namespace
 {
-
-/// Internal degeneracy pin on the tangent_signed_flow abs-flow proxy
-/// columns (``v``): forces ``Σ v_l = |f|`` at the LP optimum so the
-/// chord row stays anchored to the piecewise secant.  Deliberately NOT
-/// the user ``loss_cost_eps`` (which lands on the loss column only —
-/// the arbitrage guard): pricing ``v`` with the user ε makes ε a
-/// transport toll on all legitimate flow.  1e-6 $/MWh is well below
-/// LP optimality tolerance, so it never moves a dispatch decision.
-/// Activated only when ``loss_cost_eps > 0`` so an explicit ε = 0
-/// reproduces the legacy (no-pin) formulation byte-for-byte.
-constexpr double kFlowAbsPinEps = 1e-6;
 
 /// Map `adaptive` → piecewise/bidirectional; `dynamic` → piecewise;
 /// demote `piecewise_direct` → `piecewise` if expansion is active.
@@ -152,7 +143,8 @@ LossConfig make_config(LineLossesMode mode,
                        double loss_cost_eps,
                        int nseg_secant,
                        bool use_sos2,
-                       double loss_overflow_cost)
+                       double loss_overflow_cost,
+                       double loss_flow_abs_cost)
 {
   const double V2 = voltage * voltage;
   // Honour the caller's ``loss_segments`` verbatim (no ``max(1, …)``
@@ -286,8 +278,8 @@ LossConfig make_config(LineLossesMode mode,
   // inflates ``Σ v_l`` past ``|f|`` — collapsing the L-secant chord to
   // a loose constant ceiling — is killed by EITHER ``loss_use_sos2 =
   // true``  (lambda-form MIP, full envelope, no ε needed) OR
-  // ``loss_cost_eps > 0``  (which activates the INTERNAL
-  // ``kFlowAbsPinEps`` pin on ``Σ v_l``, making ``Σ v_l = |f|`` at
+  // ``loss_cost_eps > 0``  (which activates the
+  // ``loss_flow_abs_cost`` pin on ``Σ v_l``, making ``Σ v_l = |f|`` at
   // the LP optimum; the v distribution is then LP-indifferent because
   // the chord row is INACTIVE at optimum — the K-tangent lower bound
   // on ℓ binds first — but ``Σ v_l = |f|``  alone is enough to keep
@@ -367,6 +359,8 @@ LossConfig make_config(LineLossesMode mode,
       .pwl_layout = requested,
       .loss_envelope = (loss_envelope > 0.0) ? loss_envelope : 0.0,
       .loss_cost_eps = (loss_cost_eps > 0.0) ? loss_cost_eps : 0.0,
+      .loss_flow_abs_cost =
+          (loss_flow_abs_cost > 0.0) ? loss_flow_abs_cost : 0.0,
       .nseg_secant = nseg_secant_eff,
       .use_sos2 = use_sos2_eff,
       .loss_overflow_cost =
@@ -546,6 +540,44 @@ constexpr int kMaxOverflowBreakpoints = 16;
   }
   out.push_back(fmax);  // exact last breakpoint
   return out;
+}
+
+/// Analytic loss cap at the rated flow ``f`` of one direction: the
+/// LARGER of the true quadratic ``k·f²`` and the model's own secant PWL
+/// (``nseg`` equal chords on ``[0, envelope]``, ordered fill) evaluated
+/// at ``f``.
+///
+/// Every loss model in this file is a convex, non-decreasing function of
+/// ``|f|`` whose upper side is either the quadratic itself (tangent
+/// families: tangents lie BELOW ``k·f²``) or the secant PWL (secant
+/// families: chords lie ABOVE it, exact at the breakpoints; the
+/// geometric overflow ladder past a decoupled envelope ends exactly at
+/// the flow cap, so the secant there is ``k·f²``).  Capping the loss
+/// column at this value therefore never cuts a point the model reaches
+/// with ``|f| ≤ f`` and ordered (physical) segment fill, but it does cut
+/// fictitious loss — out-of-order segment fill or an inflated loss
+/// variable — beyond the loss the line can physically carry at its
+/// limit.  When the envelope is ≥ ``f`` this is tighter than the
+/// previous ``k·envelope²`` bound.
+[[nodiscard]] double rated_loss_cap(double k_loss,
+                                    double envelope,
+                                    int nseg,
+                                    double f) noexcept
+{
+  if (!(k_loss > 0.0) || !(f > 0.0) || !std::isfinite(f)
+      || f >= LinearProblem::DblMax)
+  {
+    return LinearProblem::DblMax;
+  }
+  const double quad = k_loss * f * f;
+  if (!(envelope > f) || nseg <= 0) {
+    return quad;  // f is a breakpoint of the (overflow) secant ladder
+  }
+  const double w = envelope / static_cast<double>(nseg);
+  const double m = std::floor(f / w);
+  const double b = m * w;
+  const double secant = k_loss * ((b * b) + (((2.0 * m) + 1.0) * w * (f - b)));
+  return std::max(quad, secant);
 }
 
 /// Objective cost of ONE unit of an overflow-tier column that adds
@@ -989,6 +1021,8 @@ BlockResult add_none(const ScenarioLP& scenario,
       .seg_n_loss = {},
       .flow_col = {},
       .f_abs_col = {},
+      .thermalp_row = {},
+      .thermaln_row = {},
   };
 }
 
@@ -1313,15 +1347,14 @@ BlockResult add_piecewise_shared(const LossConfig& config,
   // benefits from absorbing power (loss acts as a free energy sink
   // under split/sender allocation).
   //
-  // With a DECOUPLED envelope the bound uses ``m = max(fmax,
-  // envelope)``: flow may run past the envelope up to ``fmax`` and the
-  // (overflow) tangent rows then force ``ℓ`` above ``R·envelope²/V²``;
-  // anchoring the bound at the envelope would re-cap the flow there.
-  // Not decoupled ⇒ ``m = fmax`` (unchanged).
-  const double loss_ub_flow = std::max(fmax, effective_fmax);
+  // The bound is anchored at the FLOW cap ``fmax`` (not the envelope):
+  // the tangent rows only lower-bound ``loss`` by values ≤ ``R·f²/V²``, so
+  // ``R·fmax²/V²`` never cuts a reachable point, and a decoupled envelope
+  // above ``fmax`` no longer loosens it (``rated_loss_cap``).  Flow past a
+  // decoupled envelope below ``fmax`` still reaches ``R·fmax²/V²``.
   const double loss_ub =
       (config.resistance > 0.0 && config.V2 > 0.0 && effective_fmax > 0.0)
-      ? config.resistance * loss_ub_flow * loss_ub_flow / config.V2
+      ? rated_loss_cap(config.resistance / config.V2, 0.0, 0, fmax)
       : LinearProblem::DblMax;
   const auto loss_col = lp.add_col({
       .lowb = 0,
@@ -1396,6 +1429,32 @@ BlockResult add_piecewise_shared(const LossConfig& config,
       ovrow[loss_col] = +config.loss_row_scale;
       ovrow[ov_col] = -config.loss_row_scale;
       [[maybe_unused]] auto idx = lp.add_row(std::move(ovrow));
+    }
+    // Capacity rows (expandable lines): the tangent path returns before
+    // the segment path's rows below, so emit them here too — otherwise
+    // an expandable ``tangent``-layout line ignores its installed
+    // capacity.
+    if (capacity_col) {
+      if (result.fp_col) {
+        result.capp_row = add_capacity_row(lp,
+                                           scenario,
+                                           stage,
+                                           block,
+                                           LineLP::CapacitypName,
+                                           uid,
+                                           *capacity_col,
+                                           *result.fp_col);
+      }
+      if (result.fn_col) {
+        result.capn_row = add_capacity_row(lp,
+                                           scenario,
+                                           stage,
+                                           block,
+                                           LineLP::CapacitynName,
+                                           uid,
+                                           *capacity_col,
+                                           *result.fn_col);
+      }
     }
     return result;
   }
@@ -1583,14 +1642,16 @@ DirResult add_direction(const LossConfig& config,
   const double loss_block_cost = config.loss_cost_eps > 0.0
       ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
       : 0.0;
-  // Cap loss at the physical maximum for this direction: R × m² / V²
-  // with ``m = max(fmax, envelope)`` — the secant PWL can only reach
-  // ``R·envelope²/V²`` when a decoupled envelope exceeds the flow cap,
-  // and ``m = fmax`` otherwise (unchanged when not decoupled).
-  const double loss_ub_flow = std::max(block_tmax, effective_envelope);
-  const double dir_loss_ub =
-      (config.resistance > 0.0 && config.V2 > 0.0 && block_tmax > 0.0)
-      ? config.resistance * loss_ub_flow * loss_ub_flow / config.V2
+  // Cap loss at the loss this direction's model gives at its rated flow
+  // ``block_tmax`` (``rated_loss_cap``): ``R·tmax²/V²`` when the secant
+  // ladder ends at ``tmax`` (envelope = tmax, or a decoupled envelope
+  // below it plus the overflow segments), and the secant value at
+  // ``tmax`` when a decoupled envelope lies ABOVE the cap — tighter than
+  // the old ``R·envelope²/V²``, which out-of-order segment fill could
+  // reach as fictitious loss.
+  const double dir_loss_ub = (config.resistance > 0.0 && config.V2 > 0.0)
+      ? rated_loss_cap(
+            config.resistance / config.V2, effective_envelope, nseg, block_tmax)
       : LinearProblem::DblMax;
   const auto loss_col = lp.add_col({
       .lowb = 0,
@@ -1774,6 +1835,8 @@ BlockResult add_bidirectional(const LossConfig& config,
       .seg_n_loss = {},
       .flow_col = {},
       .f_abs_col = {},
+      .thermalp_row = {},
+      .thermaln_row = {},
   };
 }
 
@@ -1936,7 +1999,7 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   // (v-sink and chord residual alike) — and its incidence on
   // legitimate operation is loss-scaled (ε·dℓ/df ≈ 2λ·ε per marginal
   // MWh, centavos), NOT a flow toll.  ``v`` itself is kept at
-  // ``Σ v = |f|`` by the internal ``kFlowAbsPinEps`` degeneracy pin.
+  // ``Σ v = |f|`` by the ``loss_flow_abs_cost`` degeneracy pin.
   // Demonstrated in `test_line_losses_negative_lmp_kvl.cpp` and
   // `test_line_losses_commitment_leak.cpp`.
   // The exact fix is the SOS2 λ-form (``loss_use_sos2`` +
@@ -1964,18 +2027,18 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
       : 0.0;
 
   // Physical upper bound on ℓ instead of an unbounded (``DblMax``) column.
-  // The chord row above already drives ℓ to its tangent envelope, so this
-  // bound is NON-BINDING — ``ℓ ≤ (R/V²)·f²`` and ``|f| ≤ effective_fmax``
-  // give ``ℓ ≤ k_loss·m²`` with ``m = max(fmax_phys, effective_fmax)``,
-  // which dominates every secant/piecewise-secant chord value on
-  // ``[0, effective_fmax]`` for any ``nseg``.  Leaving it at +∞ instead
-  // hands first-order / dual-simplex solvers (cuOpt PDLP) an unboxed
+  // ℓ is only LOWER-bounded by the tangents (all ≤ ``(R/V²)·f²``) and
+  // ``|f| ≤ fmax_phys``, so ``ℓ ≤ k_loss·fmax_phys²`` (the loss at the
+  // rated flow, ``rated_loss_cap``) never cuts a reachable point — the
+  // chord / λ rows are upper bounds too.  A decoupled envelope ABOVE the
+  // flow cap no longer loosens it to ``k_loss·envelope²``: that headroom
+  // was pure fictitious-loss room (``v`` inflated past ``|f|``).  Leaving it at
+  // +∞ instead hands first-order / dual-simplex solvers (cuOpt PDLP) an unboxed
   // direction: the iterate escapes to ~1e22 and the solve diverges.  The
   // optimum and all duals are unchanged (CPLEX value identical).  When
   // ``k_loss == 0`` (lossless line) the bound is 0, pinning the vestigial
   // column at ℓ = 0, which the zero-slope chord already implies.
-  const double loss_fmax = std::max(fmax_phys, effective_fmax);
-  const double loss_uppb = k_loss * loss_fmax * loss_fmax;
+  const double loss_uppb = k_loss * fmax_phys * fmax_phys;
 
   const auto loss_col = lp.add_col({
       .lowb = 0.0,
@@ -2275,9 +2338,20 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
     // the loose constant ceiling).  L=1 also benefits but works
     // (loosely) without it.
     //
-    // The pin is the INTERNAL ``kFlowAbsPinEps`` (1e-6 $/MWh), NOT
-    // the user ε — the user ``loss_cost_eps`` lands on the LOSS
-    // column only (the arbitrage guard; see the chord comment).
+    // The pin is ``loss_flow_abs_cost`` (``Line`` /
+    // ``model_options``, default 0.001 $/MWh in real cost units, i.e.
+    // 1e-6 in the LP after ``scale_objective = 1000``), NOT the user ε
+    // — the user ``loss_cost_eps`` lands on the LOSS column only (the
+    // arbitrage guard; see the chord comment).  The pin value is a
+    // KNOWN toll: at an optimum with ``Σ v_l = |f|`` its marginal is
+    // the pin itself, so the LMP difference across the lossy line
+    // shifts by at most ≈ ``loss_flow_abs_cost`` in the flow
+    // direction.  It must stay ABOVE the solver dual tolerances after
+    // ``scale_objective`` to be effective: the pre-option internal
+    // constant 1e-6 $/MWh became 1e-9 in the LP (below every
+    // solver's optimality tolerance, and it stretched the objective
+    // range to 9 decades).  ``loss_flow_abs_cost = 1e-6`` reproduces
+    // that legacy LP exactly; ``0`` disables the pin.
     // Charging the user ε here (pre-2026-07 behaviour) turned it
     // into a transport toll of ε $/MWh per lossy line on ALL
     // legitimate flow — measured ≈0.8ε per lossy line crossed on
@@ -2287,8 +2361,10 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
     // loss-scaled).  Gated on ε > 0 so unset-ε cases stay
     // byte-identical to legacy; the L>1 foot-gun warning in
     // ``make_config`` keeps firing on ``L > 1 && ε == 0``.
-    const double v_cost = config.loss_cost_eps > 0.0
-        ? CostHelper::block_ecost(scenario, stage, block, kFlowAbsPinEps)
+    const double v_cost =
+        (config.loss_cost_eps > 0.0 && config.loss_flow_abs_cost > 0.0)
+        ? CostHelper::block_ecost(
+              scenario, stage, block, config.loss_flow_abs_cost)
         : 0.0;
 
     // Helper: build the context for v_col[l].  L = 1 uses the legacy
@@ -2802,6 +2878,8 @@ BlockResult add_piecewise_direct(const LossConfig& config,
       .seg_n_loss = std::move(seg_n_loss),
       .flow_col = {},
       .f_abs_col = {},
+      .thermalp_row = {},
+      .thermaln_row = {},
   };
 }
 
@@ -3149,21 +3227,300 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
   return out;
 }
 
+// ─── Thermal limit with losses ──────────────────────────────────────
+
+double thermal_loss_share(const LossConfig& config) noexcept
+{
+  if (config.mode == LineLossesMode::none) {
+    return 0.0;
+  }
+  switch (config.thermal_limit) {
+    case LineThermalLimitMode::full:
+      return 1.0;
+    case LineThermalLimitMode::sending:
+      if (config.mode == LineLossesMode::tangent_signed_flow) {
+        return 0.5;
+      }
+      switch (config.allocation) {
+        case LossAllocationMode::sender:
+          return 1.0;
+        case LossAllocationMode::split:
+          return 0.5;
+        case LossAllocationMode::receiver:
+        default:
+          return 0.0;
+      }
+    case LineThermalLimitMode::flow:
+    default:
+      return 0.0;
+  }
+}
+
+std::vector<std::pair<ColIndex, double>> limit_terms(const LossConfig& config,
+                                                     const BlockResult& result,
+                                                     bool forward)
+{
+  const double a = thermal_loss_share(config);
+  std::vector<std::pair<ColIndex, double>> terms;
+
+  // ``piecewise_direct``: Σ_k (1 + a·lf_k)·seg_k.
+  const auto& segs = forward ? result.seg_p_cols : result.seg_n_cols;
+  if (!segs.empty()) {
+    const auto& lfs = forward ? result.seg_p_loss : result.seg_n_loss;
+    terms.reserve(segs.size());
+    for (const auto [i, col] : std::views::enumerate(segs)) {
+      const auto idx = static_cast<std::size_t>(i);
+      const double lf = idx < lfs.size() ? lfs[idx] : 0.0;
+      terms.emplace_back(col, 1.0 + (a * lf));
+    }
+    return terms;
+  }
+
+  // Signed flow (``tangent_signed_flow``): ±f + a·ℓ.
+  if (result.flow_col) {
+    terms.emplace_back(*result.flow_col, forward ? +1.0 : -1.0);
+    if (a > 0.0 && result.lossp_col) {
+      terms.emplace_back(*result.lossp_col, a);
+    }
+    return terms;
+  }
+
+  const auto flow = forward ? result.fp_col : result.fn_col;
+  if (!flow) {
+    return terms;
+  }
+  // ``linear``: the loss is λ·f on the flow column itself.
+  const double lf = forward ? result.fp_loss : result.fn_loss;
+  if (config.mode == LineLossesMode::linear) {
+    terms.emplace_back(*flow, 1.0 + (a * lf));
+    return terms;
+  }
+  terms.emplace_back(*flow, 1.0);
+  // Per-direction loss column; the shared ``tangent`` layout has only
+  // ``lossp_col``, which serves both directions.
+  auto loss = result.lossp_col;
+  if (!forward && result.lossn_col) {
+    loss = result.lossn_col;
+  }
+  if (a > 0.0 && loss) {
+    terms.emplace_back(*loss, a);
+  }
+  return terms;
+}
+
+namespace
+{
+
+/// Add one thermal-limit row ``Σ coef_j · col_j ≤ tmax``.
+[[nodiscard]] RowIndex add_thermal_row(
+    LinearProblem& lp,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    const BlockLP& block,
+    std::string_view label,
+    Uid uid,
+    double tmax,
+    std::span<const std::pair<ColIndex, double>> terms)
+{
+  auto row =
+      SparseRow {
+          .class_name = Line::class_name.full_name(),
+          .constraint_name = label,
+          .variable_uid = uid,
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+      }
+          .less_equal(tmax);
+  row.reserve(terms.size());
+  for (const auto& [col, coef] : terms) {
+    row[col] = coef;
+  }
+  return lp.add_row(std::move(row));
+}
+
+/// Apply ``line_thermal_limit_mode = sending | full`` to the columns one
+/// ``add_*`` emitter produced for a block:
+///
+///   f_dir + a·ℓ_dir ≤ T_dir                      (each direction)
+///   capacity − f_dir − a·ℓ_dir ≥ 0               (expandable lines)
+///
+/// with ``a`` from ``thermal_loss_share``.  Per mode:
+///   * PWL modes with a per-direction loss column (``bidirectional``,
+///     ``piecewise``): one row per direction on ``fp + a·loss_p``;
+///   * shared-loss ``piecewise`` + ``tangent`` layout: the single loss
+///     column ``ℓ`` serves both directions (``fp + a·ℓ``, ``fn + a·ℓ``);
+///   * ``tangent_signed_flow``: ``+f + a·ℓ ≤ tmax_ab`` and
+///     ``−f + a·ℓ ≤ tmax_ba`` on the signed flow column;
+///   * ``piecewise_direct``: ``Σ_k (1 + a·lf_k)·seg_k ≤ T_dir``;
+///   * ``linear``: the loss is ``λ·f``, so the row collapses to a tighter
+///     flow bound ``f ≤ T_dir / (1 + a·λ)`` and capacity coefficient
+///     ``−(1 + a·λ)`` — no row;
+///   * ``none`` (and lossless lines): nothing.
+/// Directions whose limit is not finite (``T ≥ DblMax``) get no row.
+void apply_thermal_limit(const LossConfig& config,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage,
+                         const BlockLP& block,
+                         LinearProblem& lp,
+                         double block_tmax_ab,
+                         double block_tmax_ba,
+                         Uid uid,
+                         BlockResult& result)
+{
+  const double a = thermal_loss_share(config);
+  if (a <= 0.0 || config.mode == LineLossesMode::none) {
+    return;
+  }
+  const auto finite = [](double t)
+  { return t > 0.0 && t < LinearProblem::DblMax && std::isfinite(t); };
+
+  // ``linear``: f + a·λ·f ≤ T  ⇔  f ≤ T / (1 + a·λ).
+  if (config.mode == LineLossesMode::linear) {
+    const auto tighten = [&](std::optional<ColIndex> col,
+                             double lf,
+                             double tmax,
+                             std::optional<RowIndex> cap_row)
+    {
+      if (!col || lf <= 0.0) {
+        return;
+      }
+      const double k = 1.0 + (a * lf);
+      if (finite(tmax)) {
+        lp.set_col_uppb(*col, std::min(lp.get_col_uppb(*col), tmax / k));
+      }
+      if (cap_row) {
+        lp.set_coeff(*cap_row, *col, -k);
+      }
+    };
+    tighten(result.fp_col, result.fp_loss, block_tmax_ab, result.capp_row);
+    tighten(result.fn_col, result.fn_loss, block_tmax_ba, result.capn_row);
+    return;
+  }
+
+  // ``piecewise_direct``: no flow / loss column, the segments carry both.
+  if (config.mode == LineLossesMode::piecewise_direct) {
+    const auto direct_row =
+        [&](const std::vector<ColIndex>& segs,
+            const std::vector<double>& lfs,
+            double tmax,
+            std::string_view label) -> std::optional<RowIndex>
+    {
+      if (segs.empty() || !finite(tmax)) {
+        return std::nullopt;
+      }
+      std::vector<std::pair<ColIndex, double>> terms;
+      terms.reserve(segs.size());
+      for (const auto [i, col] : std::views::enumerate(segs)) {
+        const auto idx = static_cast<std::size_t>(i);
+        const double lf = idx < lfs.size() ? lfs[idx] : 0.0;
+        terms.emplace_back(col, 1.0 + (a * lf));
+      }
+      return add_thermal_row(
+          lp, scenario, stage, block, label, uid, tmax, terms);
+    };
+    result.thermalp_row = direct_row(result.seg_p_cols,
+                                     result.seg_p_loss,
+                                     block_tmax_ab,
+                                     LineLP::ThermalpName);
+    result.thermaln_row = direct_row(result.seg_n_cols,
+                                     result.seg_n_loss,
+                                     block_tmax_ba,
+                                     LineLP::ThermalnName);
+    return;
+  }
+
+  // Signed flow (``tangent_signed_flow``): ±f + a·ℓ ≤ T_dir.
+  if (result.flow_col) {
+    if (!result.lossp_col) {
+      return;
+    }
+    const auto f = *result.flow_col;
+    const auto l = *result.lossp_col;
+    if (finite(block_tmax_ab)) {
+      const std::array terms {std::pair {f, +1.0}, std::pair {l, a}};
+      result.thermalp_row = add_thermal_row(lp,
+                                            scenario,
+                                            stage,
+                                            block,
+                                            LineLP::ThermalpName,
+                                            uid,
+                                            block_tmax_ab,
+                                            terms);
+    }
+    if (finite(block_tmax_ba)) {
+      const std::array terms {std::pair {f, -1.0}, std::pair {l, a}};
+      result.thermaln_row = add_thermal_row(lp,
+                                            scenario,
+                                            stage,
+                                            block,
+                                            LineLP::ThermalnName,
+                                            uid,
+                                            block_tmax_ba,
+                                            terms);
+    }
+    if (result.capp_row) {
+      lp.set_coeff(*result.capp_row, l, -a);
+    }
+    if (result.capn_row) {
+      lp.set_coeff(*result.capn_row, l, -a);
+    }
+    return;
+  }
+
+  // Directional flow + loss columns (``bidirectional`` / ``piecewise``;
+  // the shared-loss ``tangent`` layout has only ``lossp_col``, which then
+  // serves both directions).
+  const auto dir_limit = [&](std::optional<ColIndex> flow,
+                             std::optional<ColIndex> loss,
+                             double tmax,
+                             std::optional<RowIndex> cap_row,
+                             std::string_view label) -> std::optional<RowIndex>
+  {
+    if (!flow || !loss) {
+      return std::nullopt;
+    }
+    if (cap_row) {
+      lp.set_coeff(*cap_row, *loss, -a);
+    }
+    if (!finite(tmax)) {
+      return std::nullopt;
+    }
+    const std::array terms {std::pair {*flow, 1.0}, std::pair {*loss, a}};
+    return add_thermal_row(lp, scenario, stage, block, label, uid, tmax, terms);
+  };
+  const auto lossn = result.lossn_col ? result.lossn_col : result.lossp_col;
+  result.thermalp_row = dir_limit(result.fp_col,
+                                  result.lossp_col,
+                                  block_tmax_ab,
+                                  result.capp_row,
+                                  LineLP::ThermalpName);
+  result.thermaln_row = dir_limit(result.fn_col,
+                                  lossn,
+                                  block_tmax_ba,
+                                  result.capn_row,
+                                  LineLP::ThermalnName);
+}
+
+}  // namespace
+
 // ─── Dispatcher ─────────────────────────────────────────────────────
 
-BlockResult add_block(const LossConfig& config,
-                      const ScenarioLP& scenario,
-                      const StageLP& stage,
-                      const BlockLP& block,
-                      LinearProblem& lp,
-                      SparseRow& brow_a,
-                      SparseRow& brow_b,
-                      double block_tmax_ab,
-                      double block_tmax_ba,
-                      double block_tcost,
-                      std::optional<ColIndex> capacity_col,
-                      Uid uid,
-                      bool enforce_capacity)
+namespace
+{
+
+BlockResult dispatch_block(const LossConfig& config,
+                           const ScenarioLP& scenario,
+                           const StageLP& stage,
+                           const BlockLP& block,
+                           LinearProblem& lp,
+                           SparseRow& brow_a,
+                           SparseRow& brow_b,
+                           double block_tmax_ab,
+                           double block_tmax_ba,
+                           double block_tcost,
+                           std::optional<ColIndex> capacity_col,
+                           Uid uid,
+                           bool enforce_capacity)
 {
   // ``nseg <= 0`` is a degenerate PWL configuration (no segments to
   // approximate the quadratic).  Rather than asserting deep in the
@@ -3314,6 +3671,51 @@ BlockResult add_block(const LossConfig& config,
                       uid,
                       enforce_capacity);
   }
+}
+
+}  // namespace
+
+BlockResult add_block(const LossConfig& config,
+                      const ScenarioLP& scenario,
+                      const StageLP& stage,
+                      const BlockLP& block,
+                      LinearProblem& lp,
+                      SparseRow& brow_a,
+                      SparseRow& brow_b,
+                      double block_tmax_ab,
+                      double block_tmax_ba,
+                      double block_tcost,
+                      std::optional<ColIndex> capacity_col,
+                      Uid uid,
+                      bool enforce_capacity)
+{
+  auto result = dispatch_block(config,
+                               scenario,
+                               stage,
+                               block,
+                               lp,
+                               brow_a,
+                               brow_b,
+                               block_tmax_ab,
+                               block_tmax_ba,
+                               block_tcost,
+                               capacity_col,
+                               uid,
+                               enforce_capacity);
+  // The thermal limit is a flow cap: only meaningful while the cap is
+  // enforced (``LineLP`` always enforces it).
+  if (enforce_capacity) {
+    apply_thermal_limit(config,
+                        scenario,
+                        stage,
+                        block,
+                        lp,
+                        block_tmax_ab,
+                        block_tmax_ba,
+                        uid,
+                        result);
+  }
+  return result;
 }
 
 }  // namespace gtopt::line_losses

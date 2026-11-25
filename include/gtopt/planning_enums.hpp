@@ -402,6 +402,44 @@ inline constexpr auto constraint_mode_entries =
   return std::span {constraint_mode_entries};
 }
 
+// --- PrevStageLink ----------------------------------------------------------
+
+/**
+ * @brief What a user-constraint ``<attr>_prev`` term reads at the FIRST
+ *        block of a stage whose predecessor stage is in the SAME phase.
+ *
+ * Inside a chronological stage ``x_prev`` is ``x`` at the previous block.
+ * At the first block of a stage the previous block belongs to the
+ * previous stage:
+ *
+ * - `stage` (default): when that stage is in the same phase (same LP)
+ *   and chronological, ``x_prev`` is ``x`` at its LAST block — ramp rows
+ *   stay continuous across stage boundaries.
+ * - `none`: the legacy behaviour — ``x_prev`` is the constant 0 at the
+ *   first block of every stage except the horizon start.
+ *
+ * Independent of this option: the first block of the HORIZON reads the
+ * element's ``initial_<attr>`` (``Generator.initial_generation``), and
+ * the first block of a LATER phase reads 0 (no cross-phase state).
+ * JSON / CLI: ``model_options.prev_stage_link``.
+ */
+enum class PrevStageLink : uint8_t
+{
+  none = 0,  ///< 0 at every stage start (legacy)
+  stage = 1,  ///< previous stage's last block, same phase (default)
+};
+
+inline constexpr auto prev_stage_link_entries =
+    std::to_array<EnumEntry<PrevStageLink>>({
+        {.name = "none", .value = PrevStageLink::none},
+        {.name = "stage", .value = PrevStageLink::stage},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(PrevStageLink /*tag*/) noexcept
+{
+  return std::span {prev_stage_link_entries};
+}
+
 // --- OutputFlags ------------------------------------------------------------
 
 /**

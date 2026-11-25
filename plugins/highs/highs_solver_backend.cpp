@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <format>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -23,6 +25,7 @@
 #include <gtopt/log_and_throw.hpp>
 #include <gtopt/solver_cfg.hpp>
 #include <gtopt/solver_options.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -52,6 +55,21 @@ auto make_quiet_highs() -> std::unique_ptr<Highs>
 /// to CPLEX `CPX_PARAM_MEMORYEMPHASIS` or any documented memory-compression
 /// setting, so the option is accepted but intentionally ignored here.  See
 /// solver_options.hpp: "HiGHS: no direct equivalent (ignored)".
+/// HiGHS `solver` / `mip_lp_solver` value of a barrier solve.
+[[nodiscard]] constexpr std::string_view highs_ipm_name(
+    std::optional<BarrierSolver> bs) noexcept
+{
+  switch (bs.value_or(BarrierSolver::automatic)) {
+    case BarrierSolver::ipx:
+      return "ipx";
+    case BarrierSolver::hipo:
+      return "hipo";
+    case BarrierSolver::automatic:
+      break;
+  }
+  return "ipm";
+}
+
 void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
 {
   if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
@@ -110,18 +128,77 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
         highs.setOptionValue("simplex_strategy", 1);  // dual
         break;
       case LPAlgo::barrier:
-        highs.setOptionValue("solver", "ipm");
+        // "ipm" (barrier_solver auto) = HiPO (the parallel
+        // factorisation-based IPM) when the HiGHS build ships it
+        // (`-DHIPO=ON`, libhighs_extras next to libhighs), otherwise the
+        // serial IPX.  HiGHS makes that choice per solve, so the plugin
+        // needs no build-time switch; "hipo" falls back to IPX the same
+        // way, "ipx" pins IPX.
+        // A HiGHS built without HiPO rejects "hipo" and keeps the
+        // previous `solver` value (simplex by default); pin IPX then so
+        // the request stays an interior-point solve.
+        if (highs.setOptionValue(
+                "solver", std::string {highs_ipm_name(opts.barrier_solver)})
+            != HighsStatus::kOk)
+        {
+          highs.setOptionValue("solver", "ipx");
+        }
         if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
           highs.setOptionValue("ipm_optimality_tolerance", *beps);
-        }
-        if (opts.crossover == CrossoverMode::none) {
-          highs.setOptionValue("run_crossover", "off");
         }
         break;
       case LPAlgo::last_algo:
         break;
     }
   }
+
+  // MIP root LP and IPM choice.  Set on every apply (HiGHS options
+  // persist across run() calls); unset = HiGHS's own default `choose`.
+  {
+    std::string_view mip_lp = "choose";
+    if (opts.mip_lp_algorithm.has_value()) {
+      switch (*opts.mip_lp_algorithm) {
+        case LPAlgo::primal:
+        case LPAlgo::dual:
+          mip_lp = "simplex";
+          break;
+        case LPAlgo::barrier:
+          mip_lp = highs_ipm_name(opts.barrier_solver);
+          break;
+        case LPAlgo::default_algo:
+        case LPAlgo::last_algo:
+          break;
+      }
+    }
+    if (highs.setOptionValue("mip_lp_solver", std::string {mip_lp})
+        != HighsStatus::kOk)
+    {
+      highs.setOptionValue("mip_lp_solver", "ipx");  // no HiPO in this build
+    }
+    const auto bs = opts.barrier_solver.value_or(BarrierSolver::automatic);
+    if (highs.setOptionValue("mip_ipm_solver",
+                             bs == BarrierSolver::automatic
+                                 ? std::string {"choose"}
+                                 : std::string {highs_ipm_name(bs)})
+        != HighsStatus::kOk)
+    {
+      highs.setOptionValue("mip_ipm_solver", "ipx");
+    }
+  }
+  // Only when set: unset leaves HiGHS's default (0.05) or the value a
+  // `mip_start_effort = repair` start raised it to (set_mip_start).
+  if (const auto he = opts.mip_heuristic_effort; he && *he >= 0.0) {
+    highs.setOptionValue("mip_heuristic_effort", std::min(*he, 1.0));
+  }
+
+  // Crossover is set on EVERY apply, in both directions.  The same Highs
+  // object is re-solved with different option bundles (SDDP forward
+  // with `crossover = none`, then backward / aperture with crossover on),
+  // and HiGHS options persist across run() calls, so setting only "off"
+  // left every later solve of that object without crossover: interior
+  // duals and no basis where the caller asked for a vertex.
+  highs.setOptionValue("run_crossover",
+                       opts.crossover == CrossoverMode::none ? "off" : "on");
 
   // Warm-start (advanced-basis) re-solve.  Applied LAST so it wins over the
   // `solver`/`simplex_strategy`/`presolve`/`run_crossover` settings chosen
@@ -136,7 +213,19 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
   // key is therefore: force SIMPLEX (the IPM/interior-point solver cannot
   // warm-start), and turn OFF presolve and crossover so HiGHS reuses the
   // resident basis rather than re-presolving from scratch.
-  if (opts.advanced_basis) {
+  //
+  // Only when there IS a resident basis, though (unless
+  // `cold_solve_without_basis = false`, the previous behaviour).  On a fresh
+  // model (the first SDDP forward solve of a cell, a reloaded backend without a
+  // basis) the "warm" solve is a cold one, and a cold dual simplex with
+  // presolve OFF is 2-3x slower than with presolve on (CEN 2y cell:
+  // 2.1 s / 12.5 k iterations vs 0.9 s / 8 k).  Without a basis the
+  // advanced-basis request therefore falls through to the normal cold
+  // settings chosen above (algorithm, presolve).
+  if (opts.advanced_basis
+      && (highs.getBasis().valid
+          || !opts.cold_solve_without_basis.value_or(true)))
+  {
     highs.setOptionValue("solver", "simplex");
     // Re-optimize off the resident basis: presolve would discard it and
     // re-reduce from scratch; crossover is a barrier-only post-step that
@@ -170,7 +259,7 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
         highs.setOptionValue(name, value);
       }
     }
-  } else if (opts.force_barrier_crossover) {
+  } else if (opts.force_barrier_crossover && !opts.advanced_basis) {
     // Cold-canonical anchor (no basis): force interior point + crossover so
     // the solve lands on a deterministic vertex basis (the SDDP
     // coordinated-seed first-aperture solve).  Mirrors the CPLEX plugin.
@@ -215,10 +304,12 @@ std::string_view HighsSolverBackend::solver_name() const noexcept
 
 std::string HighsSolverBackend::solver_version() const
 {
+  // Version of the libhighs actually loaded (not the HConfig.h macros the
+  // plugin was compiled with) so the run log names what really ran.
   return std::format("{}.{}.{}",
-                     HIGHS_VERSION_MAJOR,
-                     HIGHS_VERSION_MINOR,
-                     HIGHS_VERSION_PATCH);
+                     highsVersionMajor(),
+                     highsVersionMinor(),
+                     highsVersionPatch());
 }
 
 double HighsSolverBackend::plugin_infinity() noexcept
@@ -741,6 +832,18 @@ std::optional<Basis> HighsSolverBackend::get_basis() const
   return basis;
 }
 
+void HighsSolverBackend::clear_basis()
+{
+  if (m_highs_ == nullptr) {
+    return;
+  }
+  // Invalidates the resident basis and solution: the next run() presolves
+  // and solves from scratch instead of restarting from the basis an
+  // abandoned solve left behind.
+  m_highs_->clearSolver();
+  m_run_error_ = false;
+}
+
 bool HighsSolverBackend::set_basis(const Basis& basis)
 {
   const auto ncols = static_cast<std::size_t>(m_highs_->getNumCol());
@@ -778,8 +881,16 @@ void HighsSolverBackend::initial_solve()
     m_last_effort_.iterations =
         std::max<long>(info.simplex_iteration_count, info.ipm_iteration_count);
   }
-  if (status == HighsStatus::kError) {
-    gtopt::log_and_throw("HiGHS: solver error during initial_solve");
+  // kError is an abandoned solve (numerical trouble, a backend abort),
+  // not an exception: report it through `is_abandoned()` so the caller's
+  // algorithm-fallback cycle can retry instead of losing the LP to an
+  // exception that skips every fallback.
+  m_run_error_ = status == HighsStatus::kError;
+  if (m_run_error_) {
+    spdlog::debug(
+        "HiGHS: run() returned kError during initial_solve (model "
+        "status {}), reporting the solve as abandoned",
+        m_highs_->modelStatusToString(m_highs_->getModelStatus()));
   }
 }
 
@@ -801,8 +912,16 @@ void HighsSolverBackend::resolve()
     m_last_effort_.iterations =
         std::max<long>(info.simplex_iteration_count, info.ipm_iteration_count);
   }
-  if (status == HighsStatus::kError) {
-    gtopt::log_and_throw("HiGHS: solver error during resolve");
+  // kError is an abandoned solve (numerical trouble, a backend abort),
+  // not an exception: report it through `is_abandoned()` so the caller's
+  // algorithm-fallback cycle can retry instead of losing the LP to an
+  // exception that skips every fallback.
+  m_run_error_ = status == HighsStatus::kError;
+  if (m_run_error_) {
+    spdlog::debug(
+        "HiGHS: run() returned kError during resolve (model "
+        "status {}), reporting the solve as abandoned",
+        m_highs_->modelStatusToString(m_highs_->getModelStatus()));
   }
 }
 
@@ -904,7 +1023,8 @@ void HighsSolverBackend::disengage_robust_solve() noexcept
 
 bool HighsSolverBackend::is_proven_optimal() const
 {
-  return m_highs_->getModelStatus() == HighsModelStatus::kOptimal;
+  return !m_run_error_
+      && m_highs_->getModelStatus() == HighsModelStatus::kOptimal;
 }
 
 bool HighsSolverBackend::has_mip_incumbent() const
@@ -915,18 +1035,24 @@ bool HighsSolverBackend::has_mip_incumbent() const
   // A MIP (some non-continuous integrality entry) whose last run left a
   // FEASIBLE primal solution — HiGHS reports the incumbent there on every
   // MIP stop (optimal, time / node / solution limit, interrupt).
-  const auto& integrality = m_highs_->getLp().integrality_;
-  const bool is_mip = std::ranges::any_of(
-      integrality,
-      [](HighsVarType t) { return t != HighsVarType::kContinuous; });
-  return is_mip
+  return model_is_mip()
       && m_highs_->getInfo().primal_solution_status == kSolutionStatusFeasible;
+}
+
+bool HighsSolverBackend::model_is_mip() const
+{
+  if (m_highs_ == nullptr) {
+    return false;
+  }
+  return std::ranges::any_of(m_highs_->getLp().integrality_,
+                             [](HighsVarType t)
+                             { return t != HighsVarType::kContinuous; });
 }
 
 bool HighsSolverBackend::is_abandoned() const
 {
   const auto status = m_highs_->getModelStatus();
-  return status == HighsModelStatus::kSolveError
+  return m_run_error_ || status == HighsModelStatus::kSolveError
       || status == HighsModelStatus::kUnknown;
 }
 
@@ -964,7 +1090,11 @@ SolverOptions HighsSolverBackend::optimal_options() const
 {
   return {
       .algorithm = LPAlgo::default_algo,
-      .threads = 4,
+      // 0 = resolved in apply_options(): every physical core for a MIP
+      // (HiGHS >= 1.16 runs one tree-search worker per scheduler thread),
+      // kLpDefaultThreads for an LP (HiGHS simplex/IPX are serial, and
+      // SDDP runs many LPs at once).
+      .threads = 0,
       .presolve = true,
       .scaling = SolverScaling::automatic,
       .max_fallbacks = 2,
@@ -973,9 +1103,22 @@ SolverOptions HighsSolverBackend::optimal_options() const
 
 void HighsSolverBackend::apply_options(const SolverOptions& opts)
 {
-  m_prep_.options = opts;
-  m_algorithm_ = opts.algorithm;
-  m_threads_ = opts.threads;
+  // threads == 0 (no user value): a MIP gets every physical core, so
+  // HiGHS's parallel MIP (on by default since 1.16, one tree-search
+  // worker per scheduler thread) is not capped; an LP keeps a small
+  // pool, since HiGHS's simplex and IPX run serially anyway and SDDP
+  // solves many LPs concurrently.  An explicit user value always wins.
+  constexpr int kLpDefaultThreads = 4;
+  auto eff_opts = opts;
+  if (eff_opts.threads <= 0) {
+    eff_opts.threads = model_is_mip()
+        ? std::max(1, static_cast<int>(physical_concurrency()))
+        : kLpDefaultThreads;
+  }
+
+  m_prep_.options = eff_opts;
+  m_algorithm_ = eff_opts.algorithm;
+  m_threads_ = eff_opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
 
@@ -989,9 +1132,7 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
   // thread_local state tied to the *caller's* OS thread, not the Highs
   // instance.  The helper is side-effect-free w.r.t. thread_local state
   // so clone() on a different thread does not disturb the scheduler.
-  const int effective = opts.threads > 0
-      ? opts.threads
-      : std::max(1, static_cast<int>(physical_concurrency()));
+  const int effective = eff_opts.threads;
   static thread_local int tl_scheduler_threads {0};
   if (tl_scheduler_threads != 0 && tl_scheduler_threads != effective) {
     Highs::resetGlobalScheduler(/*blocking=*/true);
@@ -1001,18 +1142,31 @@ void HighsSolverBackend::apply_options(const SolverOptions& opts)
     tl_scheduler_threads = effective;
   }
 
-  apply_options_to_highs(*m_highs_, opts);
+  apply_options_to_highs(*m_highs_, eff_opts);
 }
 
 std::optional<double> HighsSolverBackend::get_kappa() const
 {
   double kappa = 0.0;
-  // Highs::getKappa(exact=true) computes the exact condition number of
-  // the basis matrix via forward/backward solve.  When HiGHS has no
-  // basis (e.g. IPM without crossover) it returns kWarning/kError; we
-  // propagate that as nullopt so callers never confuse "unavailable"
-  // with a legitimate kappa of 1.0.
-  if (m_highs_->getKappa(kappa, /*exact=*/true) != HighsStatus::kOk) {
+  // Highs::getKappa(exact=false) returns the Hager estimate of the basis
+  // condition number (a handful of FTRAN/BTRAN passes), the same kind of
+  // estimate CPLEX reports as CPX_KAPPA.  exact=true only under
+  // `kappa_mode = exact` (diagnostics): it runs one FTRAN per basis row
+  // (an explicit ||B^-1||_1), and LinearInterface asks for kappa after
+  // every solve — on the CEN SDDP cells (~10^4 rows) it was ~75% of all
+  // HiGHS CPU, several times the simplex itself.  `off` skips it.
+  // When HiGHS has no basis (e.g. IPM without crossover) it returns
+  // kWarning/kError; we propagate that as nullopt so callers never
+  // confuse "unavailable" with a legitimate kappa of 1.0.
+  const auto mode = m_prep_.options.has_value()
+      ? m_prep_.options->effective_kappa_mode()
+      : KappaMode::estimate;
+  if (mode == KappaMode::off) {
+    return std::nullopt;
+  }
+  if (m_highs_->getKappa(kappa, /*exact=*/mode == KappaMode::exact)
+      != HighsStatus::kOk)
+  {
     return std::nullopt;
   }
   return kappa;

@@ -35,6 +35,7 @@
 
 #include <gtopt/enum_option.hpp>
 #include <gtopt/error.hpp>
+#include <gtopt/kappa_mode.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/pricing_mode.hpp>
 #include <gtopt/solver_options.hpp>
@@ -233,6 +234,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
   clear_dual_recovery_bail_state();
   m_last_mip_polish_ = {};
   m_last_pricing_ = {};
+  m_solve_kappa_read_ = false;
 
   ++m_solver_stats_.initial_solve_calls;
   m_solver_stats_.total_ncols += get_numcols();
@@ -246,6 +248,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
     // the scale_objective-derived one (EPOPT scale-leak, see helper).
     scale_optimality_tol_for_objective(
         effective, solver_options, m_scale_objective_);
+    effective.kappa_mode = resolve_kappa_mode(effective.kappa_mode);
     m_last_solver_options_ = effective;
 
     m_backend_->apply_options(effective);
@@ -284,6 +287,17 @@ std::expected<int, Error> LinearInterface::initial_solve(
     const auto solve_t0 = Clock::now();
     timed_solve();
 
+    // Options of the last attempt that PROVED infeasibility (status 2).
+    // A later fallback attempt that merely gives up must not overwrite
+    // that verdict: e.g. HiGHS 1.15's IPX without presolve fails
+    // ("IPM failed", kError → abandoned) on an LP the dual simplex has
+    // already proven infeasible, which would turn a definitive
+    // "infeasible" into a solver failure.
+    std::optional<SolverOptions> proven_infeasible_opts;
+    if (get_status() == 2) {
+      proven_infeasible_opts = effective;
+    }
+
     if (!is_optimal() && effective.max_fallbacks > 0) {
       // Algorithm fallback cycle: try alternative algorithms
       auto fallback_opts = effective;
@@ -319,8 +333,22 @@ std::expected<int, Error> LinearInterface::initial_solve(
 
         ++m_solver_stats_.fallback_solves;
         timed_solve();
+        if (get_status() == 2) {
+          proven_infeasible_opts = fallback_opts;
+        }
 
         current_algo = next_algo;
+      }
+
+      // The cycle ended on a weaker verdict (abandoned / unknown) than an
+      // earlier attempt's proof of infeasibility: re-run that attempt so
+      // the backend state, `get_status()` and the stats report the proof.
+      if (!is_optimal() && get_status() != 2
+          && proven_infeasible_opts.has_value())
+      {
+        m_backend_->apply_options(*proven_infeasible_opts);
+        ++m_solver_stats_.fallback_solves;
+        timed_solve();
       }
     }
 
@@ -346,9 +374,7 @@ std::expected<int, Error> LinearInterface::initial_solve(
       });
     }
 
-    if (const auto k = m_backend_->get_kappa(); k.has_value()) {
-      m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, *k);
-    }
+    query_solve_kappa();
 
     const auto status = get_status();
     cache_and_release();
@@ -375,6 +401,7 @@ std::expected<int, Error> LinearInterface::resolve(
   clear_dual_recovery_bail_state();
   m_last_mip_polish_ = {};
   m_last_pricing_ = {};
+  m_solve_kappa_read_ = false;
 
   ++m_solver_stats_.resolve_calls;
   m_solver_stats_.total_ncols += get_numcols();
@@ -388,6 +415,7 @@ std::expected<int, Error> LinearInterface::resolve(
     // the scale_objective-derived one (EPOPT scale-leak, see helper).
     scale_optimality_tol_for_objective(
         effective, solver_options, m_scale_objective_);
+    effective.kappa_mode = resolve_kappa_mode(effective.kappa_mode);
     m_last_solver_options_ = effective;
 
     m_backend_->apply_options(effective);
@@ -427,6 +455,17 @@ std::expected<int, Error> LinearInterface::resolve(
     // attempt and every fallback below.
     const auto solve_t0 = Clock::now();
     timed_solve();
+
+    // Options of the last attempt that PROVED infeasibility (status 2).
+    // A later fallback attempt that merely gives up must not overwrite
+    // that verdict: e.g. HiGHS 1.15's IPX without presolve fails
+    // ("IPM failed", kError → abandoned) on an LP the dual simplex has
+    // already proven infeasible, which would turn a definitive
+    // "infeasible" into a solver failure.
+    std::optional<SolverOptions> proven_infeasible_opts;
+    if (get_status() == 2) {
+      proven_infeasible_opts = effective;
+    }
 
     if (!is_optimal() && effective.max_fallbacks > 0) {
       // Algorithm fallback cycle: try alternative algorithms
@@ -469,8 +508,22 @@ std::expected<int, Error> LinearInterface::resolve(
 
         ++m_solver_stats_.fallback_solves;
         timed_solve();
+        if (get_status() == 2) {
+          proven_infeasible_opts = fallback_opts;
+        }
 
         current_algo = next_algo;
+      }
+
+      // The cycle ended on a weaker verdict (abandoned / unknown) than an
+      // earlier attempt's proof of infeasibility: re-run that attempt so
+      // the backend state, `get_status()` and the stats report the proof.
+      if (!is_optimal() && get_status() != 2
+          && proven_infeasible_opts.has_value())
+      {
+        m_backend_->apply_options(*proven_infeasible_opts);
+        ++m_solver_stats_.fallback_solves;
+        timed_solve();
       }
     }
 
@@ -494,9 +547,7 @@ std::expected<int, Error> LinearInterface::resolve(
       });
     }
 
-    if (const auto k = m_backend_->get_kappa(); k.has_value()) {
-      m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, *k);
-    }
+    query_solve_kappa();
 
     const auto status = get_status();
     cache_and_release();
@@ -530,6 +581,7 @@ LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
   auto effective = m_backend_->optimal_options();
   effective.overlay(opts);
   scale_optimality_tol_for_objective(effective, opts, m_scale_objective_);
+  effective.kappa_mode = resolve_kappa_mode(effective.kappa_mode);
   m_last_solver_options_ = effective;
 
   // Snapshot the MIP incumbent primal BEFORE the backend mutates

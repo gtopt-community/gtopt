@@ -56,6 +56,21 @@ struct LpMatrixOptions
   bool row_with_name_map {false};  ///< Include row name mapping
   bool move_names {true};  ///< Move instead of copy names
   OptBool compute_stats {};  ///< Compute coefficient min/max/ratio
+  /// Keep the label metadata (`FlatLpMeta`) of every cell even when LP
+  /// names are off.  Default false: with names off no label metadata is
+  /// kept and diagnostics fall back to row / column indices.  True restores
+  /// the previous behaviour (metadata always resident).
+  OptBool label_meta_without_names {};
+  /// Share the label metadata between a cell's LinearInterface and its
+  /// retained flat-LP snapshot (one copy).  Default true; false restores
+  /// the previous per-LinearInterface deep copy.
+  OptBool share_label_meta {};
+  /// Drop the disposable (non-`HasUpdateLP`) element collections after the
+  /// build under `low_memory = off` for SDDP / cascade, rebuilding them for
+  /// `write_out` as `compress` does.  Default true; false keeps them
+  /// resident for the whole run (the previous behaviour).  Ignored by
+  /// monolithic (always keeps them) and by `compress` (always drops them).
+  OptBool drop_element_collections {};
   std::optional<LpEquilibrationMethod>
       equilibration_method {};  ///< Matrix equilibration method.
                                 ///< See LpEquilibrationMethod for options.
@@ -203,6 +218,24 @@ struct LpMatrixOptions
   /// carrier only — NOT merged, serialised, or compared.
   std::shared_ptr<FlatLpDedupRegistry> dedup_registry {};
 
+  /// Drop the disposable (non-`HasUpdateLP`) element collections after the
+  /// build even under `low_memory = off`, and rebuild them on demand for
+  /// `write_out` exactly as `compress` does.  Set by
+  /// `PlanningLP::create_systems` for SDDP / cascade (whose code already
+  /// follows the compress rebuild discipline); left false for monolithic,
+  /// whose post-solve paths (MIP start, investment master) read the
+  /// collections directly.  On the CEN 2y case the disposable wrappers
+  /// were ~10.7 GiB of the 26 GiB `off` peak.  Build-control carrier only
+  /// — NOT merged, serialised, or compared.
+  bool drop_disposable_collections {false};
+
+  /// Keep the structural ROW label metadata even with names off.  Only the
+  /// SDDP investment master needs it (it finds each candidate's capacity
+  /// row through `row_label_at`); every other names-off build keeps no
+  /// label metadata at all.  Build-control carrier only — NOT merged,
+  /// serialised, or compared.
+  bool keep_row_label_meta {false};
+
   /// Merge optional fields from another LpMatrixOptions.
   /// Non-optional fields (eps, col_with_names, etc.) are not merged —
   /// first-value-wins semantics like SolverOptions.
@@ -212,6 +245,9 @@ struct LpMatrixOptions
     merge_opt(equilibration_method, other.equilibration_method);
     merge_opt(fast_sqrt_method, other.fast_sqrt_method);
     merge_opt(compute_stats, other.compute_stats);
+    merge_opt(drop_element_collections, other.drop_element_collections);
+    merge_opt(share_label_meta, other.share_label_meta);
+    merge_opt(label_meta_without_names, other.label_meta_without_names);
     merge_opt(ruiz_max_iterations, other.ruiz_max_iterations);
     merge_opt(ruiz_tolerance, other.ruiz_tolerance);
     merge_opt(water_dual_target, other.water_dual_target);
@@ -238,6 +274,9 @@ struct LpMatrixOptions
     equilibration_method = merged.equilibration_method;
     fast_sqrt_method = merged.fast_sqrt_method;
     compute_stats = merged.compute_stats;
+    drop_element_collections = merged.drop_element_collections;
+    share_label_meta = merged.share_label_meta;
+    label_meta_without_names = merged.label_meta_without_names;
     ruiz_max_iterations = merged.ruiz_max_iterations;
     ruiz_tolerance = merged.ruiz_tolerance;
     water_dual_target = merged.water_dual_target;

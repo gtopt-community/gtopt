@@ -28,8 +28,21 @@ auto PlanningOptionsLP::sddp_low_memory() const -> LowMemoryMode
       return *forced;
     }
   }
-  return m_options_.sddp_options.low_memory_mode.value_or(
-      LowMemoryMode::compress);
+  const auto mode =
+      m_options_.sddp_options.low_memory_mode.value_or(LowMemoryMode::compress);
+  // `release_backends` under `off`: release every backend after its solve
+  // exactly as `compress` does, but keep the snapshot uncompressed (see
+  // `sddp_memory_codec`).
+  if (mode == LowMemoryMode::off && sddp_release_backends()) {
+    return LowMemoryMode::compress;
+  }
+  return mode;
+}
+
+auto PlanningOptionsLP::effective_low_memory() const -> LowMemoryMode
+{
+  return method_type_enum() == MethodType::monolithic ? LowMemoryMode::off
+                                                      : sddp_low_memory();
 }
 
 }  // namespace gtopt

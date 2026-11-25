@@ -1426,7 +1426,27 @@ public:
     ++m_dropped_terms_[std::string {constraint_name}][std::string {reason}];
   }
 
-  /// Log (INFO) the per-constraint drop summary, one line per constraint.
+  /// Count a user-constraint ``<attr>_prev`` term read at the FIRST block
+  /// of a LATER phase.  Its predecessor lives in another phase LP and a
+  /// plain attribute carries no cross-phase state, so the term is the
+  /// constant 0 there — a known limitation, reported as a WARN per
+  /// constraint by `log_dropped_term_summary`.
+  void record_prev_at_phase_start(std::string_view constraint_name,
+                                  std::string_view term) const
+  {
+    const std::scoped_lock lock(m_dropped_terms_mtx_);
+    ++m_prev_phase_start_[std::string {constraint_name}][std::string {term}];
+  }
+
+  /// Snapshot of the later-phase-start ``_prev`` counts (tests).
+  [[nodiscard]] auto prev_at_phase_start_counts() const
+  {
+    const std::scoped_lock lock(m_dropped_terms_mtx_);
+    return m_prev_phase_start_;
+  }
+
+  /// Log (INFO) the per-constraint drop summary, one line per constraint,
+  /// and (WARN) the later-phase-start ``_prev`` terms.
   void log_dropped_term_summary() const;
 
   /// Snapshot of the drop counts (tests).
@@ -1647,6 +1667,8 @@ private:
   mutable std::mutex m_dropped_terms_mtx_;
   mutable std::map<std::string, std::map<std::string, std::size_t>>
       m_dropped_terms_;
+  mutable std::map<std::string, std::map<std::string, std::size_t>>
+      m_prev_phase_start_;
 
   // Shared, scene/phase-invariant arrow input-index cache (pimpl).  The
   // (cname, fname, uid) -> (Stage, Block) row index built by the long-direct

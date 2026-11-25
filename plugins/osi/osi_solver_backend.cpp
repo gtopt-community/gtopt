@@ -20,6 +20,7 @@
 #include "osi_solver_backend.hpp"
 
 #include <coin/ClpConfig.h>
+#include <coin/Clp_C_Interface.h>
 #include <coin/CoinError.hpp>
 #include <coin/CoinLpIO.hpp>
 #include <coin/CoinMessageHandler.hpp>
@@ -317,7 +318,9 @@ std::string_view OsiSolverBackend::solver_name() const noexcept
 
 std::string OsiSolverBackend::solver_version() const
 {
-  return CLP_VERSION;
+  // Version of the libClp actually loaded (Clp C interface), not the
+  // ClpConfig.h string the plugin was compiled with.
+  return Clp_Version();
 }
 
 double OsiSolverBackend::plugin_infinity() noexcept
@@ -1025,6 +1028,13 @@ void OsiSolverBackend::apply_options(const SolverOptions& opts)
 
 std::optional<double> OsiSolverBackend::get_kappa() const
 {
+  // kappa_mode: off = none; estimate and exact both return the proxy
+  // below (CLP has no exact condition number in default builds).
+  if (m_prep_.options.has_value()
+      && m_prep_.options->effective_kappa_mode() == KappaMode::off)
+  {
+    return std::nullopt;
+  }
   // Return the largest dual error as a rough proxy for the condition
   // number.  ClpFactorization::conditionNumber() is only available when
   // CLP is built without CLP_MULTIPLE_FACTORIZATIONS; in multi-factorization

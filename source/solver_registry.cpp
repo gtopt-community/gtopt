@@ -9,18 +9,22 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <exception>
 #include <format>
+#include <iterator>
 #include <ranges>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 #include <thread>
 
 #include <dlfcn.h>
+#include <gtopt/build_info.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <spdlog/details/null_mutex.h>
 #include <spdlog/sinks/base_sink.h>
@@ -77,6 +81,44 @@ SolverRegistry::SolverRegistry()
 // plugin library before those destructors would cause segfaults.
 // The OS reclaims all resources on process exit anyway.
 SolverRegistry::~SolverRegistry() = default;
+
+namespace
+{
+/// CLI override of the plugin check mode (`--plugin-check`); 0 = unset,
+/// otherwise `PluginCheckMode` + 1.
+std::atomic<int>& plugin_check_override() noexcept
+{
+  static std::atomic<int> value {0};
+  return value;
+}
+}  // namespace
+
+void SolverRegistry::set_plugin_check_mode(
+    std::optional<PluginCheckMode> mode) noexcept
+{
+  plugin_check_override().store(mode.has_value() ? static_cast<int>(*mode) + 1
+                                                 : 0);
+}
+
+PluginIntegrityPolicy SolverRegistry::plugin_check_policy()
+{
+  return {.mode = effective_plugin_check().first};
+}
+
+std::pair<PluginCheckMode, PluginCheckSource>
+SolverRegistry::effective_plugin_check()
+{
+  // Precedence: --plugin-check > $GTOPT_PLUGIN_CHECK > compiled default.
+  const int v = plugin_check_override().load();
+  if (v != 0) {
+    return {static_cast<PluginCheckMode>(v - 1),
+            PluginCheckSource::command_line};
+  }
+  if (const auto env = plugin_check_mode_from_env()) {
+    return {*env, PluginCheckSource::environment};
+  }
+  return {k_default_plugin_check_mode, PluginCheckSource::compiled_default};
+}
 
 SolverRegistry& SolverRegistry::instance()
 {
@@ -148,8 +190,300 @@ void SolverRegistry::discover_plugins(const std::filesystem::path& dir)
   }
 }
 
+namespace
+{
+
+/// Log a non-ok integrity decision at the matching level.
+void log_decision(const IntegrityDecision& d)
+{
+  if (d.message.empty()) {
+    return;
+  }
+  if (d.verdict == IntegrityVerdict::refuse) {
+    SPDLOG_ERROR("{}", d.message);
+  } else if (d.verdict == IntegrityVerdict::warn) {
+    SPDLOG_WARN("{}", d.message);
+  }
+}
+
+/// INFO lines under "Loaded solver plugin": the plugin's own identity and,
+/// per solver, the solver library actually in use.
+void log_plugin_identity(const PluginReport& report,
+                         const std::vector<std::string>& solver_names)
+{
+  SPDLOG_INFO("    build-id {} (manifest: {}), build tag {} ({})",
+              report.build_id.empty() ? std::string("none")
+                                      : short_build_id(report.build_id),
+              report.build_id_check.status,
+              report.build_tag.empty() ? std::string("none") : report.build_tag,
+              report.build_tag_check.status);
+  for (const auto& lib : report.solvers) {
+    if (!std::ranges::contains(solver_names, lib.solver)) {
+      continue;
+    }
+    SPDLOG_INFO("    {}: {}", lib.solver, describe_solver_library(lib));
+  }
+}
+
+}  // namespace
+
+bool SolverRegistry::verify_plugin_file(const std::filesystem::path& path,
+                                        const PluginIntegrityPolicy& policy,
+                                        PluginReport& report)
+{
+  report.path = path;
+  const auto elf = read_elf_identity(path);
+  if (!elf) {
+    // Not a readable ELF: dlopen will fail with its own, clearer error.
+    SPDLOG_DEBUG("Plugin identity not checked: {}", elf.error());
+    return true;
+  }
+  report.build_id = elf->build_id;
+  const auto manifest = read_build_id_manifest(path);
+  report.build_id_check = check_plugin_build_id(
+      path.string(),
+      manifest ? std::optional<std::string_view> {*manifest} : std::nullopt,
+      report.build_id.empty()
+          ? std::nullopt
+          : std::optional<std::string_view> {report.build_id},
+      policy);
+  log_decision(report.build_id_check);
+  if (report.build_id_check.verdict == IntegrityVerdict::refuse) {
+    m_load_errors_.push_back(report.build_id_check.message);
+    return false;
+  }
+  return true;
+}
+
+void SolverRegistry::verify_loaded_plugin(void* handle,
+                                          const std::filesystem::path& path,
+                                          const PluginIntegrityPolicy& policy,
+                                          std::vector<std::string>& names,
+                                          PluginReport& report)
+{
+  // ── Build tag: same gtopt build as this binary? ──
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* tag_fn = reinterpret_cast<solver_plugin_build_tag_fn>(
+      ::dlsym(handle, "gtopt_plugin_build_tag"));
+  const char* tag = (tag_fn != nullptr) ? tag_fn() : nullptr;
+  if (tag != nullptr) {
+    report.build_tag = tag;
+  }
+  report.build_tag_check = check_plugin_build_tag(
+      path.string(),
+      build_info().build_tag,
+      tag != nullptr ? std::optional<std::string_view> {tag} : std::nullopt,
+      policy);
+  log_decision(report.build_tag_check);
+  if (report.build_tag_check.verdict == IntegrityVerdict::refuse) {
+    m_load_errors_.push_back(report.build_tag_check.message);
+    names.clear();
+    return;
+  }
+
+  // ── Solver library: compiled vs runtime version, real path ──
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* info_fn = reinterpret_cast<solver_plugin_build_info_fn>(
+      ::dlsym(handle, "gtopt_solver_build_info"));
+  // Optional: the solver release this gtopt pins (e.g. HiGHS 1.16.0).
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* pin_fn = reinterpret_cast<solver_plugin_version_pin_fn>(
+      ::dlsym(handle, "gtopt_solver_version_pin"));
+  // Optional: identity of the shared libraries the plugin was linked
+  // against (build-time record), for the solver-library identity check.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* linked_fn = reinterpret_cast<solver_plugin_linked_libraries_fn>(
+      ::dlsym(handle, "gtopt_plugin_linked_libraries"));
+  std::optional<std::vector<LinkedLibraryRecord>> linked;
+  if (linked_fn != nullptr) {
+    int version = 0;
+    const SolverLinkedLibrary* rows = nullptr;
+    const int count = linked_fn(&version, &rows);
+    if (version >= 1 && rows != nullptr && count >= 0) {
+      const auto str = [](const char* p)
+      { return std::string(p != nullptr ? p : ""); };
+      linked.emplace();
+      for (const auto& row : std::span(rows, static_cast<std::size_t>(count))) {
+        linked->push_back(LinkedLibraryRecord {
+            .soname = str(row.soname),
+            .build_id = str(row.build_id),
+            .sha256 = str(row.sha256),
+            .path = str(row.path),
+        });
+      }
+    }
+  }
+  // NOLINTBEGIN(concurrency-mt-unsafe)
+  const char* llp_env = std::getenv("LD_LIBRARY_PATH");
+  const char* preload_env = std::getenv("LD_PRELOAD");
+  // NOLINTEND(concurrency-mt-unsafe)
+
+  std::error_code ec;
+  const auto plugin_canon = std::filesystem::weakly_canonical(path, ec);
+  const auto plugin_elf = read_elf_identity(path);
+
+  std::erase_if(
+      names,
+      [&](const std::string& solver)
+      {
+        SolverLibraryReport lib {.solver = solver};
+        SolverBuildInfo info {};
+        if (info_fn != nullptr && info_fn(solver.c_str(), &info) > 0) {
+          lib.reported = true;
+          lib.compiled = {
+              .major = info.compiled_major,
+              .minor = info.compiled_minor,
+              .patch = info.compiled_patch,
+          };
+          lib.runtime = {
+              .major = info.runtime_major,
+              .minor = info.runtime_minor,
+              .patch = info.runtime_patch,
+          };
+          if (const auto obj = find_loaded_object(info.library_anchor)) {
+            lib.library_path = obj->path;
+            lib.library_build_id = obj->build_id;
+            lib.statically_linked = (obj->path == plugin_canon);
+          }
+        }
+
+        // Shadowing: would the plugin's own RUNPATH have picked another
+        // file?  (LD_LIBRARY_PATH beats DT_RUNPATH, and an already-loaded
+        // library with the same soname is reused.)
+        if (!lib.statically_linked && !lib.library_path.empty() && plugin_elf) {
+          if (const auto lib_elf = read_elf_identity(lib.library_path)) {
+            const auto expected =
+                resolve_in_runpath(lib_elf->soname,
+                                   plugin_elf->runpath,
+                                   plugin_canon.parent_path());
+            if (expected != lib.library_path) {
+              lib.runpath_library = expected;
+            }
+          }
+        }
+        // NOLINTNEXTLINE(concurrency-mt-unsafe)
+        const char* llp = std::getenv("LD_LIBRARY_PATH");
+        lib.shadow_check = check_runpath_shadowing(solver,
+                                                   lib.library_path,
+                                                   lib.runpath_library,
+                                                   llp != nullptr ? llp : "",
+                                                   policy);
+
+        lib.version_check = lib.reported
+            ? check_solver_version(solver,
+                                   lib.compiled,
+                                   lib.runtime,
+                                   lib.statically_linked,
+                                   lib.library_path.string(),
+                                   policy)
+            : integrity_finding(
+                  "unknown",
+                  std::format("Plugin {} does not report solver-library "
+                              "versions for '{}' (built by an older gtopt); "
+                              "the loaded solver library cannot be verified.",
+                              path.string(),
+                              solver),
+                  policy);
+        // Pin: is the runtime library the release this gtopt pins?
+        SolverVersionPin pin {};
+        if (pin_fn != nullptr && pin_fn(solver.c_str(), &pin) > 0) {
+          lib.pinned = {
+              .major = pin.pinned_major,
+              .minor = pin.pinned_minor,
+              .patch = pin.pinned_patch,
+          };
+          lib.pin_built_allow_unpinned = pin.allow_unpinned != 0;
+        }
+        const VersionPinOverrides overrides {
+            .built_allow_unpinned = lib.pin_built_allow_unpinned,
+            .env_allow_unpinned = solver_allow_unpinned_from_env(solver),
+        };
+
+        // Identity: is the mapped solver library the one the plugin was
+        // linked against?  (Build-id / SHA-256, not the self-reported
+        // version, so a fake reporting "1.16.0" is caught.)
+        LoadedLibraryIdentity loaded {
+            .path = lib.library_path,
+            .build_id = lib.library_build_id,
+            .ld_library_path = llp_env != nullptr ? llp_env : "",
+            .ld_preload = preload_env != nullptr ? preload_env : "",
+        };
+        if (!lib.statically_linked && !loaded.path.empty() && linked) {
+          if (const auto elf = read_elf_identity(loaded.path)) {
+            loaded.soname = elf->soname;
+          }
+          if (const auto* rec = match_linked_library(*linked, loaded)) {
+            lib.expected_library_path = rec->path;
+            // The record carries a SHA-256 when the library had no
+            // build-id, or always under GTOPT_SOLVER_LIB_FULL_HASH=ON:
+            // hash the file of the object actually mapped.
+            if (!rec->sha256.empty()) {
+              const auto t0 = std::chrono::steady_clock::now();
+              loaded.sha256 = sha256_file(loaded.path);
+              const auto ms = std::chrono::duration<double, std::milli>(
+                                  std::chrono::steady_clock::now() - t0)
+                                  .count();
+              SPDLOG_INFO("    {}: sha256 of {} in {:.1f} ms",
+                          solver,
+                          loaded.path.string(),
+                          ms);
+            }
+          }
+        }
+        // (The identity check ignores overrides.built_allow_unpinned.)
+        lib.identity_check =
+            check_solver_library_identity(solver,
+                                          linked ? &*linked : nullptr,
+                                          loaded,
+                                          lib.statically_linked,
+                                          overrides,
+                                          policy);
+
+        if (lib.pinned.known()) {
+          lib.pin_check = check_solver_version_pin(solver,
+                                                   lib.pinned,
+                                                   lib.runtime,
+                                                   lib.library_path.string(),
+                                                   overrides,
+                                                   policy);
+        }
+
+        if (lib.version_check.verdict == IntegrityVerdict::ok
+            && !lib.version_check.message.empty())
+        {
+          SPDLOG_INFO("    {}", lib.version_check.message);
+        }
+        log_decision(lib.shadow_check);
+        log_decision(lib.version_check);
+        log_decision(lib.pin_check);
+        log_decision(lib.identity_check);
+        bool refused = false;
+        for (const auto* check : {&lib.version_check,
+                                  &lib.shadow_check,
+                                  &lib.pin_check,
+                                  &lib.identity_check})
+        {
+          if (check->verdict == IntegrityVerdict::refuse) {
+            refused = true;
+            m_load_errors_.push_back(
+                std::format("Plugin {}: {}", path.string(), check->message));
+          }
+        }
+        report.solvers.push_back(std::move(lib));
+        return refused;
+      });
+}
+
 bool SolverRegistry::load_plugin(const std::filesystem::path& path)
 {
+  // Identity check BEFORE dlopen: a .so that does not match its build-id
+  // manifest never gets to run its static initialisers.
+  const auto policy = plugin_check_policy();
+  PluginReport report;
+  if (!verify_plugin_file(path, policy, report)) {
+    return false;
+  }
+
   // dlopen with RTLD_LOCAL so symbols don't leak between plugins
   auto* handle = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (handle == nullptr) {
@@ -245,6 +579,13 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
               plugin_name,
               path.string(),
               join_strings(solver_names, ", "));
+  report.plugin_name = plugin_name;
+  verify_loaded_plugin(handle, path, policy, solver_names, report);
+  if (solver_names.empty()) {
+    ::dlclose(handle);
+    return false;
+  }
+  log_plugin_identity(report, solver_names);
 
   m_plugins_.push_back(PluginHandle {
       .dl_handle = handle,
@@ -253,6 +594,7 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
       .resource_desc_fn = resource_desc_fn,  // may be nullptr (CPU solvers)
       .plugin_name = plugin_name,
       .solver_names = std::move(solver_names),
+      .report = std::move(report),
   });
 
   return true;
@@ -797,11 +1139,74 @@ std::unique_ptr<SolverBackend> SolverRegistry::create(
   // `load_all_plugins` / `available_solvers`.
   load_all_plugins();
   const auto available = available_solvers();
+  std::vector<std::string> errors;
+  {
+    const std::scoped_lock lock(m_mutex_);
+    errors = m_load_errors_;
+  }
   throw std::runtime_error(
-      std::format("Solver '{}' not available. Available solvers: {}",
-                  solver_name,
+      solver_unavailable_message(solver_name, available, errors));
+}
+
+std::vector<std::string> solver_load_errors(
+    std::string_view solver_name, const std::vector<std::string>& load_errors)
+{
+  const auto by_solver = std::format("Solver '{}'", solver_name);
+  const auto by_plugin = std::format("libgtopt_solver_{}", solver_name);
+  std::vector<std::string> out;
+  std::ranges::copy_if(
+      load_errors,
+      std::back_inserter(out),
+      [&](const std::string& e)
+      { return e.contains(by_solver) || e.contains(by_plugin); });
+  return out;
+}
+
+bool env_solver_must_fail(std::string_view solver_name,
+                          const std::vector<std::string>& load_errors,
+                          bool fallback_on_refused)
+{
+  if (fallback_on_refused) {
+    return false;
+  }
+  return std::ranges::any_of(solver_load_errors(solver_name, load_errors),
+                             [](const std::string& e)
+                             { return e.contains(k_plugin_refused_marker); });
+}
+
+bool solver_fallback_on_refused_from_env()
+{
+  // NOLINTNEXTLINE(concurrency-mt-unsafe)
+  const char* v =
+      std::getenv(std::string(k_solver_fallback_on_refused_env).c_str());
+  if (v == nullptr) {
+    return false;
+  }
+  const auto flag = parse_env_flag(v);
+  if (!flag) {
+    SPDLOG_WARN("Ignoring {}='{}': expected 1/true/yes/on or 0/false/no/off",
+                k_solver_fallback_on_refused_env,
+                v);
+  }
+  return flag.value_or(false);
+}
+
+std::string solver_unavailable_message(
+    std::string_view solver_name,
+    const std::vector<std::string>& available,
+    const std::vector<std::string>& load_errors)
+{
+  std::string out = std::format("Solver '{}' not available.", solver_name);
+  const auto why = solver_load_errors(solver_name, load_errors);
+  for (const auto& e : why) {
+    out += std::format("\n  {}", e);
+  }
+  out +=
+      std::format("{}Available solvers: {}",
+                  why.empty() ? " " : "\n",
                   available.empty() ? std::string("(none — no plugins loaded)")
-                                    : join_strings(available, ", ")));
+                                    : join_strings(available, ", "));
+  return out;
 }
 
 std::vector<std::string> SolverRegistry::available_solvers() const
@@ -829,7 +1234,21 @@ std::string_view SolverRegistry::default_solver()
     if (ensure_solver_loaded(env)) {
       return env;
     }
-    SPDLOG_WARN("GTOPT_SOLVER='{}' not available, falling back to auto", env);
+    // A REFUSED plugin (integrity / version / pin check) is an error, like
+    // an explicit --solver; only a solver with no plugin falls back.
+    // $GTOPT_SOLVER_FALLBACK_ON_REFUSED=1 restores "always fall back".
+    if (env_solver_must_fail(
+            env, m_load_errors_, solver_fallback_on_refused_from_env()))
+    {
+      load_all_plugins();
+      throw std::runtime_error(
+          solver_unavailable_message(env, available_solvers(), m_load_errors_));
+    }
+    const auto why = solver_load_errors(env, m_load_errors_);
+    SPDLOG_WARN("GTOPT_SOLVER='{}' not available, falling back to auto{}{}",
+                env,
+                why.empty() ? "" : ": ",
+                join_strings(why, "; "));
   }
 
   // Priority order: cplex > highs > mindopt > cbc > clp
@@ -904,6 +1323,22 @@ bool SolverRegistry::has_mip_solver()
   const auto solvers = available_solvers();
   return std::ranges::any_of(
       solvers, [this](const std::string& s) { return supports_mip(s); });
+}
+
+std::vector<PluginReport> SolverRegistry::plugin_reports() const
+{
+  const std::scoped_lock lock(m_mutex_);
+  std::vector<PluginReport> out;
+  out.reserve(m_plugins_.size());
+  for (const auto& plugin : m_plugins_) {
+    auto rep = plugin.report;
+    std::erase_if(
+        rep.solvers,
+        [&plugin](const SolverLibraryReport& s)
+        { return !std::ranges::contains(plugin.solver_names, s.solver); });
+    out.push_back(std::move(rep));
+  }
+  return out;
 }
 
 const std::vector<std::string>& SolverRegistry::searched_directories() const

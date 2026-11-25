@@ -43,6 +43,7 @@
 #include <gtopt/gas_node_lp.hpp>
 #include <gtopt/gas_pipe_lp.hpp>
 #include <gtopt/gas_supply_lp.hpp>
+#include <gtopt/gas_turbine_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/hydrogen_demand_lp.hpp>
 #include <gtopt/hydrogen_node_lp.hpp>
@@ -50,6 +51,7 @@
 #include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/junction_lp.hpp>
+#include <gtopt/line_commitment_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/lng_terminal_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
@@ -564,6 +566,152 @@ std::optional<double> lng_param_delivery(const SystemContext& sc,
   return sc.get_element(ObjectSingleId<LngTerminalLP> {uid}).param_delivery(s);
 }
 
+// LngTerminal — tank-level bounds and holding cost (StorageLP schedules).
+std::optional<double> lng_param_emin(const SystemContext& sc,
+                                     Uid uid,
+                                     StageUid s,
+                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LngTerminalLP> {uid}).param_emin(s, b);
+}
+
+std::optional<double> lng_param_emax(const SystemContext& sc,
+                                     Uid uid,
+                                     StageUid s,
+                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LngTerminalLP> {uid}).param_emax(s, b);
+}
+
+std::optional<double> lng_param_ecost(const SystemContext& sc,
+                                      Uid uid,
+                                      StageUid s,
+                                      BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<LngTerminalLP> {uid}).param_ecost(s, b);
+}
+
+// Gas network — node pressure limits [bar] and pressure cost.
+std::optional<double> gn_param_pmin(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GasNodeLP> {uid}).param_pmin(s);
+}
+
+std::optional<double> gn_param_pmax(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GasNodeLP> {uid}).param_pmax(s);
+}
+
+std::optional<double> gn_param_pressure_cost(const SystemContext& sc,
+                                             Uid uid,
+                                             StageUid s,
+                                             BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GasNodeLP> {uid}).param_pressure_cost(s);
+}
+
+// GasSupply — offtake limits [km³/h], unit cost, stage volume cap.
+std::optional<double> gs_param_fmin(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<GasSupplyLP> {uid}).param_fmin(s, b);
+}
+
+std::optional<double> gs_param_fmax(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<GasSupplyLP> {uid}).param_fmax(s, b);
+}
+
+std::optional<double> gs_param_cost(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GasSupplyLP> {uid}).param_cost(s);
+}
+
+std::optional<double> gs_param_volume(const SystemContext& sc,
+                                      Uid uid,
+                                      StageUid /*s*/,
+                                      BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GasSupplyLP> {uid}).param_volume();
+}
+
+// GasDemand — scheduled load [km³/h] and shedding cost.
+std::optional<double> gd_param_load(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<GasDemandLP> {uid}).param_load(s, b);
+}
+
+std::optional<double> gd_param_fail_cost(const SystemContext& sc,
+                                         Uid uid,
+                                         StageUid s,
+                                         BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GasDemandLP> {uid}).param_fail_cost(s);
+}
+
+// GasPipe — flow capacity [km³/h].
+std::optional<double> gp_param_fmax(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GasPipeLP> {uid}).param_fmax(s);
+}
+
+// GasCompressor — throughput cap, compression ratio, electric power cap.
+std::optional<double> gc_param_fmax(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GasCompressorLP> {uid}).param_fmax(s);
+}
+
+std::optional<double> gc_param_max_ratio(const SystemContext& sc,
+                                         Uid uid,
+                                         StageUid /*s*/,
+                                         BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GasCompressorLP> {uid})
+      .param_max_ratio();
+}
+
+std::optional<double> gc_param_power_max(const SystemContext& sc,
+                                         Uid uid,
+                                         StageUid /*s*/,
+                                         BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<GasCompressorLP> {uid})
+      .param_power_max();
+}
+
+// GasTurbine — heat rate [km³/MWh].
+std::optional<double> gt_param_heat_rate(const SystemContext& sc,
+                                         Uid uid,
+                                         StageUid s,
+                                         BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<GasTurbineLP> {uid})
+      .param_heat_rate(s, b);
+}
+
 // Storage peers (Battery / Reservoir already covered above) —
 // ThermalStorage / HydrogenStorage / AmmoniaStorage all derive
 // emin/emax/ecost from the StorageLP base + add
@@ -911,6 +1059,38 @@ void register_ampl_param_dispatchers(SimulationLP& sim)
   // LngTerminal — scheduled LNG delivery per stage.
   constexpr auto lng_terminal_cls = LngTerminal::class_name.snake_case();
   sim.register_ampl_param(lng_terminal_cls, "delivery", &lng_param_delivery);
+  sim.register_ampl_param(lng_terminal_cls, "emin", &lng_param_emin);
+  sim.register_ampl_param(lng_terminal_cls, "emax", &lng_param_emax);
+  sim.register_ampl_param(lng_terminal_cls, "ecost", &lng_param_ecost);
+
+  // Gas network (GasNode / GasSupply / GasDemand / GasPipe /
+  // GasCompressor / GasTurbine).
+  constexpr auto gas_node_cls = GasNode::class_name.snake_case();
+  sim.register_ampl_param(gas_node_cls, "pmin", &gn_param_pmin);
+  sim.register_ampl_param(gas_node_cls, "pmax", &gn_param_pmax);
+  sim.register_ampl_param(
+      gas_node_cls, "pressure_cost", &gn_param_pressure_cost);
+
+  constexpr auto gas_supply_cls = GasSupply::class_name.snake_case();
+  sim.register_ampl_param(gas_supply_cls, "fmin", &gs_param_fmin);
+  sim.register_ampl_param(gas_supply_cls, "fmax", &gs_param_fmax);
+  sim.register_ampl_param(gas_supply_cls, "cost", &gs_param_cost);
+  sim.register_ampl_param(gas_supply_cls, "volume", &gs_param_volume);
+
+  constexpr auto gas_demand_cls = GasDemand::class_name.snake_case();
+  sim.register_ampl_param(gas_demand_cls, "load", &gd_param_load);
+  sim.register_ampl_param(gas_demand_cls, "fail_cost", &gd_param_fail_cost);
+
+  constexpr auto gas_pipe_cls = GasPipe::class_name.snake_case();
+  sim.register_ampl_param(gas_pipe_cls, "fmax", &gp_param_fmax);
+
+  constexpr auto gas_compressor_cls = GasCompressor::class_name.snake_case();
+  sim.register_ampl_param(gas_compressor_cls, "fmax", &gc_param_fmax);
+  sim.register_ampl_param(gas_compressor_cls, "max_ratio", &gc_param_max_ratio);
+  sim.register_ampl_param(gas_compressor_cls, "power_max", &gc_param_power_max);
+
+  constexpr auto gas_turbine_cls = GasTurbine::class_name.snake_case();
+  sim.register_ampl_param(gas_turbine_cls, "heat_rate", &gt_param_heat_rate);
 
   // ThermalStorage — molten-salt TES (PR #483).
   constexpr auto thermal_storage_cls = ThermalStorage::class_name.snake_case();
@@ -1070,6 +1250,13 @@ void register_ampl_iterator_dispatchers(SimulationLP& sim)
                          &iter_class<GasPipeLP>);
   sim.register_ampl_iter(GasCompressor::class_name.snake_case(),
                          &iter_class<GasCompressorLP>);
+  sim.register_ampl_iter(GasTurbine::class_name.snake_case(),
+                         &iter_class<GasTurbineLP>);
+
+  // LineCommitment registers `status` per (scenario, stage); iterable so
+  // `sum(line_commitment(all).status)` resolves.
+  sim.register_ampl_iter(LineCommitment::class_name.snake_case(),
+                         &iter_class<LineCommitmentLP>);
 }
 
 }  // namespace gtopt

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cassert>
 #include <charconv>
@@ -24,6 +25,7 @@
 #include <utility>
 
 #include <gtopt/error.hpp>
+#include <gtopt/kappa_mode.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_interface_labels_codec.hpp>
 #include <gtopt/lp_equilibration.hpp>
@@ -133,7 +135,9 @@ void LinearInterface::cache_and_release()
   // `compress` modes (observed on CLP via OSI: `backend->get_kappa()`
   // returned 5e-18 at solve-time but 0 on a later re-query).
   m_cache_.set_obj_value(m_backend_->obj_value());
-  m_cache_.set_kappa(m_backend_->get_kappa());
+  if (!m_solve_kappa_read_) {
+    m_cache_.set_kappa(backend_kappa());
+  }
   m_cache_.set_numrows(get_numrows());
   m_cache_.set_numcols(get_numcols());
   m_cache_.set_is_optimal(/*v=*/true);
@@ -217,7 +221,9 @@ void LinearInterface::release_backend() noexcept
       // the existing cache is the source of truth — leave it alone.
       if (m_cache_.backend_solution_fresh()) {
         m_cache_.set_obj_value(m_backend_->obj_value());
-        m_cache_.set_kappa(m_backend_->get_kappa());
+        if (!m_solve_kappa_read_) {
+          m_cache_.set_kappa(backend_kappa());
+        }
 
         // Snapshot primal + dual + reduced-cost vectors directly via
         // the SolverBackend span-out API so that read-only consumers
@@ -1266,8 +1272,34 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // them from
   // `m_dynamic_cols_` / `m_active_cuts_` immediately after load_flat
   // returns.
-  detach_for_write(m_labels_.col_labels_meta) = flat_lp.col_labels_meta();
-  detach_for_write(m_labels_.row_labels_meta) = flat_lp.row_labels_meta();
+  //
+  // Alias, never copy: the vectors live in the flat LP's immutable
+  // `FlatLpMeta`, which the retained snapshot (off mode) also holds, so
+  // the LI and the snapshot share one copy.  The aliasing `shared_ptr`
+  // keeps the whole `FlatLpMeta` alive for as long as the LI needs it.
+  if (const auto& meta = flat_lp.label_meta;
+      meta != nullptr && !m_share_label_meta_)
+  {
+    // `share_label_meta = false`: the previous per-LI deep copy.
+    m_labels_.col_labels_meta =
+        std::make_shared<const std::vector<SparseColLabel>>(
+            meta->col_labels_meta);
+    m_labels_.row_labels_meta =
+        std::make_shared<const std::vector<SparseRowLabel>>(
+            meta->row_labels_meta);
+  } else if (meta != nullptr) {
+    m_labels_.col_labels_meta =
+        std::shared_ptr<const std::vector<SparseColLabel>>(
+            meta, &meta->col_labels_meta);
+    m_labels_.row_labels_meta =
+        std::shared_ptr<const std::vector<SparseRowLabel>>(
+            meta, &meta->row_labels_meta);
+  } else {
+    m_labels_.col_labels_meta =
+        std::make_shared<const std::vector<SparseColLabel>>();
+    m_labels_.row_labels_meta =
+        std::make_shared<const std::vector<SparseRowLabel>>();
+  }
   m_labels_.post_flatten_col_labels_meta.clear();
   m_labels_.post_flatten_row_labels_meta.clear();
   m_post_flatten_col_meta_index_.clear();
@@ -3371,13 +3403,49 @@ std::optional<double> LinearInterface::get_kappa() const
   // value) cannot perturb downstream readers.  Falls through to the
   // live backend only when the cache hasn't been populated yet
   // (pre-solve reads, LP under construction).
-  if (const auto& cached = m_cache_.kappa(); cached.has_value()) {
+  // After a solve the cache holds that solve's single query, even when
+  // it was nullopt (kappa_mode = off, or no kappa from this backend): no
+  // second backend query for the same solve.
+  if (const auto& cached = m_cache_.kappa();
+      cached.has_value() || m_solve_kappa_read_)
+  {
     return cached;
   }
   if (m_backend_released_) {
     return std::nullopt;
   }
+  return backend_kappa();
+}
+
+namespace
+{
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<std::size_t> g_total_kappa_queries {0};
+}  // namespace
+
+std::size_t LinearInterface::total_kappa_queries() noexcept
+{
+  return g_total_kappa_queries.load(std::memory_order_relaxed);
+}
+
+std::optional<double> LinearInterface::backend_kappa() const
+{
+  if (resolve_kappa_mode(m_last_solver_options_.kappa_mode) == KappaMode::off) {
+    return std::nullopt;
+  }
+  ++m_kappa_queries_;
+  g_total_kappa_queries.fetch_add(1, std::memory_order_relaxed);
   return m_backend_->get_kappa();
+}
+
+void LinearInterface::query_solve_kappa()
+{
+  const auto k = backend_kappa();
+  m_cache_.set_kappa(k);
+  m_solve_kappa_read_ = true;
+  if (k.has_value()) {
+    m_solver_stats_.max_kappa = std::max(m_solver_stats_.max_kappa, *k);
+  }
 }
 
 RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
@@ -3564,6 +3632,13 @@ bool LinearInterface::set_basis(Basis basis)
                   static_cast<std::size_t>(get_numcols()),
                   static_cast<std::size_t>(get_numrows()));
   return m_backend_->set_basis(basis);
+}
+
+void LinearInterface::clear_basis()
+{
+  if (m_backend_ != nullptr) {
+    m_backend_->clear_basis();
+  }
 }
 
 std::optional<std::vector<std::string>> LinearInterface::diagnose_infeasibility(

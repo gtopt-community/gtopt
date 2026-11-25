@@ -72,13 +72,34 @@ namespace
 /// so the per-iteration growth of each stage stays visible alongside the
 /// total backward-pass wall time.
 void log_backward_timing_breakdown(IterationIndex iteration_index,
-                                   const SolverStats& delta)
+                                   const SolverStats& delta,
+                                   bool kappa_enabled)
 {
   if (delta.bwd_step_count == 0) {
     return;
   }
   const auto n = static_cast<double>(delta.bwd_step_count);
   const auto to_ms = [n](double s_sum) noexcept { return 1000.0 * s_sum / n; };
+  if (!kappa_enabled) {
+    SPDLOG_INFO(
+        "SDDP Backward [i{}]: step-avg(ms) rebuild={:.2f} build={:.2f} "
+        "add_row={:.2f} store={:.2f} resolve={:.2f} — "
+        "{} step(s), total(s) rebuild={:.2f} build={:.2f} add_row={:.2f} "
+        "store={:.2f} resolve={:.2f}",
+        gtopt::uid_of(iteration_index),
+        to_ms(delta.bwd_lp_rebuild_s),
+        to_ms(delta.bwd_cut_build_s),
+        to_ms(delta.bwd_add_row_s),
+        to_ms(delta.bwd_store_cut_s),
+        to_ms(delta.bwd_resolve_s),
+        delta.bwd_step_count,
+        delta.bwd_lp_rebuild_s,
+        delta.bwd_cut_build_s,
+        delta.bwd_add_row_s,
+        delta.bwd_store_cut_s,
+        delta.bwd_resolve_s);
+    return;
+  }
   SPDLOG_INFO(
       "SDDP Backward [i{}]: step-avg(ms) rebuild={:.2f} build={:.2f} "
       "add_row={:.2f} store={:.2f} resolve={:.2f} kappa={:.2f} — "
@@ -645,7 +666,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       {
         auto bwd_delta = aggregate_backward_stats(planning_lp());
         bwd_delta -= bwd_stats_before;
-        log_backward_timing_breakdown(iteration_index, bwd_delta);
+        log_backward_timing_breakdown(
+            iteration_index, bwd_delta, m_kappa_enabled_);
       }
       log_solve_effort(iteration_index,
                        "fwd",
@@ -1094,13 +1116,21 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // has no solution to read.  `ensure_backend` restores the cached
       // primal/dual onto the live backend.  Cost: ~50 KB per cell.
       const auto t_release = PostClock::now();
-      if (m_options_.low_memory_mode != LowMemoryMode::off) {
+      {
+        // `compress`: release every backend.  `off`: the backend stays,
+        // but the plugin getter scratch the backward / aperture reads
+        // refilled is freed (no span outlives the iteration).
+        const bool release = m_options_.low_memory_mode != LowMemoryMode::off;
         const auto ns = planning_lp().simulation().scene_count();
         const auto np = planning_lp().simulation().phase_count();
         for (const auto si : iota_range<SceneIndex>(0, ns)) {
           for (const auto pi : iota_range<PhaseIndex>(0, np)) {
             auto& sys = planning_lp().system(si, pi);
-            sys.release_backend();
+            if (release) {
+              sys.release_backend();
+            } else if (m_options_.free_solver_scratch) {
+              sys.linear_interface().release_backend_scratch();
+            }
           }
         }
       }

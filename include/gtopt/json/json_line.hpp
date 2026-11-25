@@ -2,6 +2,7 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_field_sched.hpp>
+#include <gtopt/json/json_line_dlr.hpp>
 #include <gtopt/json/json_single_id.hpp>
 #include <gtopt/line.hpp>
 
@@ -42,6 +43,7 @@ struct json_data_contract<Line>
       json_number_null<"enforce_level", OptInt>,
       json_variant_null<"tcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_number_null<"loss_cost_eps", OptReal>,
+      json_number_null<"loss_flow_abs_cost", OptReal>,
       json_number_null<"loss_overflow_cost", OptReal>,
       json_variant_null<"tmax_normal_ba",
                         OptTBRealFieldSched,
@@ -68,7 +70,11 @@ struct json_data_contract<Line>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_number_null<"loss_secant_segments", OptInt>,
-      json_bool_null<"loss_use_sos2", OptBool>>;
+      json_bool_null<"loss_use_sos2", OptBool>,
+      json_string_null<"line_thermal_limit_mode", OptName>,
+      json_class_null<"dlr", gtopt::OptLineDlr>,
+      json_string_null<"overload_slack_bound", OptName>,
+      json_number_null<"max_overload_ratio", OptReal>>;
 
   constexpr static auto to_json_data(Line const& line)
   {
@@ -95,6 +101,7 @@ struct json_data_contract<Line>
                                  line.enforce_level,
                                  line.tcost,
                                  line.loss_cost_eps,
+                                 line.loss_flow_abs_cost,
                                  line.loss_overflow_cost,
                                  line.tmax_normal_ba,
                                  line.tmax_normal_ab,
@@ -109,7 +116,11 @@ struct json_data_contract<Line>
                                  line.tap_ratio,
                                  line.phase_shift_deg,
                                  line.loss_secant_segments,
-                                 line.loss_use_sos2);
+                                 line.loss_use_sos2,
+                                 line.line_thermal_limit_mode,
+                                 line.dlr,
+                                 line.overload_slack_bound,
+                                 line.max_overload_ratio);
   }
 };
 }  // namespace daw::json

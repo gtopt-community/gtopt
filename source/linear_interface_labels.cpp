@@ -62,8 +62,10 @@ void LinearInterface::generate_labels_from_maps(
     if (const LpLabelMeta* meta =
             m_labels_.name_store->load(m_labels_.spill_key))
     {
-      detach_for_write(m_labels_.col_labels_meta) = meta->col_labels;
-      detach_for_write(m_labels_.row_labels_meta) = meta->row_labels;
+      m_labels_.col_labels_meta =
+          std::make_shared<const std::vector<SparseColLabel>>(meta->col_labels);
+      m_labels_.row_labels_meta =
+          std::make_shared<const std::vector<SparseRowLabel>>(meta->row_labels);
     }
   }
 
@@ -277,15 +279,16 @@ void LinearInterface::compress_labels_meta_if_needed()
   // populated: they are tiny and survive across cycles in
   // m_post_flatten_*_meta_index_, which is per-instance and not
   // reseeded by load_flat.
+  //
+  // Drop this LI's reference only: the vectors may be aliased with the
+  // snapshot's `FlatLpMeta` or shared with clones, which keep theirs.
   if (!m_labels_.col_labels_meta->empty()) {
-    auto& cm = detach_for_write(m_labels_.col_labels_meta);
-    cm.clear();
-    cm.shrink_to_fit();
+    m_labels_.col_labels_meta =
+        std::make_shared<const std::vector<SparseColLabel>>();
   }
   if (!m_labels_.row_labels_meta->empty()) {
-    auto& rm = detach_for_write(m_labels_.row_labels_meta);
-    rm.clear();
-    rm.shrink_to_fit();
+    m_labels_.row_labels_meta =
+        std::make_shared<const std::vector<SparseRowLabel>>();
   }
 }
 

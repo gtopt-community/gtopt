@@ -34,6 +34,9 @@ struct LpMatrixOptionsConstructor
                                            OptReal kvl_row_clamp,
                                            OptReal kvl_x_ref,
                                            OptBool compute_stats,
+                                           OptBool label_meta_without_names,
+                                           OptBool share_label_meta,
+                                           OptBool drop_element_collections,
                                            LpValidationOptions validation,
                                            OptName solver_name) const
   {
@@ -59,6 +62,9 @@ struct LpMatrixOptionsConstructor
     opts.kvl_row_clamp = kvl_row_clamp;
     opts.kvl_x_ref = kvl_x_ref;
     opts.compute_stats = compute_stats;
+    opts.label_meta_without_names = label_meta_without_names;
+    opts.share_label_meta = share_label_meta;
+    opts.drop_element_collections = drop_element_collections;
     opts.validation = validation;
     return opts;
   }
@@ -81,6 +87,9 @@ struct json_data_contract<LpMatrixOptions>
                        json_number_null<"kvl_row_clamp", OptReal>,
                        json_number_null<"kvl_x_ref", OptReal>,
                        json_bool_null<"compute_stats", OptBool>,
+                       json_bool_null<"label_meta_without_names", OptBool>,
+                       json_bool_null<"share_label_meta", OptBool>,
+                       json_bool_null<"drop_element_collections", OptBool>,
                        json_class_null<"validation", LpValidationOptions>,
                        json_string_null<"solver_name", OptName>>;
 
@@ -104,6 +113,9 @@ struct json_data_contract<LpMatrixOptions>
         opt.kvl_row_clamp,
         opt.kvl_x_ref,
         opt.compute_stats,
+        opt.label_meta_without_names,
+        opt.share_label_meta,
+        opt.drop_element_collections,
         opt.validation,
         opt.solver_name.empty() ? OptName {} : OptName {opt.solver_name});
   }

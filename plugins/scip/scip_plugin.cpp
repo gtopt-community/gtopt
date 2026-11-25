@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include <gtopt/solver_backend.hpp>
+#include <scip/scip.h>
 
 #include "scip_solver_backend.hpp"
 
@@ -56,5 +57,38 @@ double gtopt_solver_infinity(const char* solver_name)  // NOLINT
     return gtopt::ScipSolverBackend::plugin_infinity();
   }
   return 0.0;
+}
+
+// Solver-library identity: compiled SCIP version (config.h of SCIP >= 9, or
+// the packed SCIP_VERSION of older releases) vs SCIP{major,minor,tech}Version()
+// of the loaded libscip.
+int gtopt_solver_build_info(const char* solver_name,  // NOLINT
+                            gtopt::SolverBuildInfo* out)
+{
+  if (out == nullptr || std::strcmp(solver_name, "scip") != 0) {
+    return 0;
+  }
+#if defined(SCIP_VERSION_MAJOR) && defined(SCIP_VERSION_MINOR) \
+    && defined(SCIP_VERSION_PATCH)
+  constexpr int c_major = SCIP_VERSION_MAJOR;
+  constexpr int c_minor = SCIP_VERSION_MINOR;
+  constexpr int c_patch = SCIP_VERSION_PATCH;
+#else
+  constexpr int c_major = SCIP_VERSION / 100;
+  constexpr int c_minor = (SCIP_VERSION / 10) % 10;
+  constexpr int c_patch = SCIP_VERSION % 10;
+#endif
+  *out = gtopt::SolverBuildInfo {
+      .struct_version = gtopt::k_solver_build_info_version,
+      .compiled_major = c_major,
+      .compiled_minor = c_minor,
+      .compiled_patch = c_patch,
+      .runtime_major = SCIPmajorVersion(),
+      .runtime_minor = SCIPminorVersion(),
+      .runtime_patch = SCIPtechVersion(),
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      .library_anchor = reinterpret_cast<const void*>(&SCIPmajorVersion),
+  };
+  return gtopt::k_solver_build_info_version;
 }
 }

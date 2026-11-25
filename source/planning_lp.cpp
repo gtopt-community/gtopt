@@ -1642,6 +1642,17 @@ auto PlanningLP::create_systems(System& system,
       resolved_opts.low_memory_mode = options.sddp_low_memory();
       resolved_opts.memory_codec = options.sddp_memory_codec();
     }
+    // SDDP / cascade under `off`: drop the disposable collections after
+    // each cell's build and rebuild them for write_out, as compress does.
+    if (resolved_opts.low_memory_mode == LowMemoryMode::off
+        && (method == MethodType::sddp || method == MethodType::cascade))
+    {
+      // `lp_matrix_options.drop_element_collections` (default true);
+      // false keeps them resident, the previous behaviour.
+      resolved_opts.drop_disposable_collections =
+          resolved_opts.drop_element_collections.value_or(
+              options.drop_element_collections());
+    }
   }
 
   PlanningLP::scene_phase_systems_t all_systems(scenes.size());
@@ -2583,18 +2594,17 @@ void PlanningLP::write_out()
     return;
   }
 
-  sol_file << solution_csv_header();
+  const bool with_kappa = options().kappa_enabled();
+  sol_file << solution_csv_header(with_kappa);
   for (const auto& row : rows) {
-    sol_file << solution_csv_line(row);
+    sol_file << solution_csv_line(row, with_kappa);
     SPDLOG_DEBUG(
         "  solution.csv: scene={} phase={} status={} obj_value={} "
-        "kappa={} max_kappa={} gap={} gap_change={}",
+        "gap={} gap_change={}",
         row.scene_uid,
         row.phase_uid,
         row.status,
         row.obj_value,
-        row.kappa,
-        row.max_kappa,
         row.gap,
         row.gap_change);
   }

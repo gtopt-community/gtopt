@@ -286,7 +286,13 @@ LpNameSpillStore::LpNameSpillStore(std::filesystem::path dir)
 
 LpNameSpillStore::~LpNameSpillStore()
 {
-  m_worker_.request_stop();
+  {
+    // Request the stop under the mutex the worker's predicate is evaluated
+    // with: otherwise the worker can test the predicate (false), lose the
+    // notify sent before it blocks, and sleep forever, deadlocking join().
+    const std::scoped_lock lock(m_mtx_);
+    m_worker_.request_stop();
+  }
   m_cv_.notify_all();
   if (m_worker_.joinable()) {
     m_worker_.join();  // no in-flight write survives this point

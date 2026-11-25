@@ -637,7 +637,11 @@ auto solve_investment_master(const Planning& planning,
     // oracle — design §7.2).
     Planning op_copy =
         make_operational_copy(planning, candidates, builds, /*pin=*/iter > 0);
-    PlanningLP plp(std::move(op_copy));
+    // `read_scene_cap_subgradients` finds each candidate's capacity row by
+    // its label: keep the row label metadata even though names are off.
+    LpMatrixOptions op_flat_opts;
+    op_flat_opts.keep_row_label_meta = true;
+    PlanningLP plp(std::move(op_copy), op_flat_opts);
 
     SDDPOptions sddp_opts = opts.sddp_options;
     sddp_opts.enable_api = false;

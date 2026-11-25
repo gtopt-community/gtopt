@@ -182,6 +182,13 @@ struct SolverOptions
    *  - HiGHS: none → `run_crossover="off"`, else `"on"`
    *  - MindOpt: none → `SolutionTarget=2`, else `SolutionTarget=0`
    *  - CLP: ignored (CLP barrier always does crossover)
+   *
+   *  Applied per solve: every solve (re-)sets the backend's crossover
+   *  switch from the options it is given, so a forward solve with `none`
+   *  does not leave later solves of the same backend without crossover
+   *  (HiGHS used to keep `none` until reloaded).  To keep crossover off
+   *  everywhere, set `none` in every pass's options (`solver_options`,
+   *  `forward_solver_options`, `backward_solver_options`).
    */
   CrossoverMode crossover {CrossoverMode::automatic};
 
@@ -344,6 +351,73 @@ struct SolverOptions
    *  `CbcModel::setMaximumSolutions`; ignored by LP-only backends. */
   std::optional<int> mip_solution_limit {};
 
+  /** @brief Interior-point implementation for `algorithm = barrier`.
+   *
+   *  Unset ⇒ `auto`.  See `BarrierSolver`.
+   *
+   *  Backend mapping:
+   *  - HiGHS: `solver` = `ipm` (auto) / `ipx` / `hipo` on barrier LP
+   *    solves, and `mip_ipm_solver` = `choose` / `ipx` / `hipo` for the
+   *    IPM a MIP falls back to (and for `mip_lp_algorithm = barrier`).
+   *  - Every other backend: ignored (one barrier implementation).
+   */
+  std::optional<BarrierSolver> barrier_solver {};
+
+  /** @brief LP algorithm of a MIP's root relaxation.
+   *
+   *  Unset ⇒ the backend's default (no parameter is touched).
+   *  `default` asks the backend to choose explicitly.
+   *
+   *  Backend mapping:
+   *  - HiGHS: `mip_lp_solver` = `choose` (default) / `simplex` (primal,
+   *    dual) / the `barrier_solver` IPM (`ipm`, `ipx`, `hipo`).  HiGHS
+   *    uses it only for the first LP solved without a basis (the root).
+   *  - CPLEX: `CPX_PARAM_STARTALG` = 0 / 1 / 2 / 4.
+   *  - Every other backend: ignored.
+   *  No effect on pure LPs.
+   */
+  std::optional<LPAlgo> mip_lp_algorithm {};
+
+  /** @brief Share of MIP effort spent in primal heuristics, in [0, 1].
+   *
+   *  Unset ⇒ the backend's default (HiGHS 0.05), except under
+   *  `mip_start_effort = repair`, where HiGHS gets 0.5 unless this is set.
+   *
+   *  Backend mapping:
+   *  - HiGHS: `mip_heuristic_effort`.
+   *  - Every other backend: ignored (their heuristic-effort parameters use
+   *    other scales; set them through `param_file`).
+   *  No effect on pure LPs.
+   */
+  std::optional<double> mip_heuristic_effort {};
+
+  /** @brief How kappa (basis condition number) is obtained.
+   *
+   *  Unset ⇒ `estimate`.  See `KappaMode` for the per-backend mapping.
+   */
+  std::optional<KappaMode> kappa_mode {};
+
+  /** @brief Advanced-basis request on a backend that holds no basis.
+   *
+   *  `advanced_basis` asks for a warm re-solve (HiGHS: simplex, presolve
+   *  off, crossover off, off the resident basis).  When the backend has
+   *  no basis yet (the first SDDP forward solve of a cell, a reloaded
+   *  backend):
+   *  - `true` / unset (default): solve cold with the normal settings
+   *    (`algorithm`, `presolve`).  CEN 2y cell: 0.9 s instead of 2.1 s.
+   *  - `false`: apply the warm settings anyway (presolve off, simplex) —
+   *    the behaviour before 2026-11.
+   *
+   *  HiGHS only (CPLEX decides this itself from ADVIND); other backends
+   *  ignore it.
+   */
+  std::optional<bool> cold_solve_without_basis {};
+
+  [[nodiscard]] constexpr KappaMode effective_kappa_mode() const noexcept
+  {
+    return kappa_mode.value_or(KappaMode::estimate);
+  }
+
   /// Member-wise equality.  Lets a backend skip re-applying an identical
   /// option bundle (e.g. CPLEX re-reading the `.prm` file before every
   /// solve).
@@ -376,6 +450,11 @@ struct SolverOptions
     merge_opt(memory_emphasis, other.memory_emphasis);
     merge_opt(mip_polish, other.mip_polish);
     merge_opt(mip_solution_limit, other.mip_solution_limit);
+    merge_opt(barrier_solver, other.barrier_solver);
+    merge_opt(mip_lp_algorithm, other.mip_lp_algorithm);
+    merge_opt(mip_heuristic_effort, other.mip_heuristic_effort);
+    merge_opt(kappa_mode, other.kappa_mode);
+    merge_opt(cold_solve_without_basis, other.cold_solve_without_basis);
     merge_opt(param_file, other.param_file);
   }
 
@@ -442,6 +521,11 @@ struct SolverOptions
     merge_opt(memory_emphasis, user.memory_emphasis);
     merge_opt(mip_polish, user.mip_polish);
     merge_opt(mip_solution_limit, user.mip_solution_limit);
+    merge_opt(barrier_solver, user.barrier_solver);
+    merge_opt(mip_lp_algorithm, user.mip_lp_algorithm);
+    merge_opt(mip_heuristic_effort, user.mip_heuristic_effort);
+    merge_opt(kappa_mode, user.kappa_mode);
+    merge_opt(cold_solve_without_basis, user.cold_solve_without_basis);
     merge_opt(param_file, user.param_file);
   }
 };

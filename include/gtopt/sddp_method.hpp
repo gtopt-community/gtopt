@@ -1281,6 +1281,9 @@ private:
   mutable StrongIndexVector<SceneIndex,
                             StrongIndexVector<PhaseIndex, IterationIndex>>
       m_max_kappa_iter_;
+  /// `planning_lp().options().kappa_enabled()`, cached per solve(): false
+  /// (`kappa_mode = off` everywhere) skips every kappa read and log.
+  bool m_kappa_enabled_ {true};
 
   /// Baseline kappa seeded by an earlier solver via :meth:`seed_max_kappa`
   /// — typically the warmup-level max in a cascade run.  Folded into

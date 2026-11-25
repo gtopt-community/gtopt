@@ -5,6 +5,9 @@
 # A source tree without its own `.git` (e.g. an unpacked release tarball)
 # stays "unknown" even when it sits inside some other git checkout.
 set(GTOPT_GIT_REVISION "unknown")
+if(NOT DEFINED BUILD_TREE_ID OR BUILD_TREE_ID STREQUAL "")
+  set(BUILD_TREE_ID "unknown")
+endif()
 find_package(Git QUIET)
 if(GIT_FOUND AND EXISTS "${SOURCE_DIR}/.git")
   execute_process(

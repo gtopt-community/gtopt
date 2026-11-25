@@ -839,6 +839,16 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
 ///  - `requirement_sense: "eq"` with planes: R absorbs any excess, so a
 ///    surplus cost has no effect (the column is not built) — warning;
 ///  - dispatch coupling (`model_options.reserve_coupling`).
+/// `model_options.prev_stage_link` must name a `PrevStageLink` value.
+void check_prev_stage_link(ValidationResult& result, const Planning& planning)
+{
+  const auto& link = planning.options.model_options.prev_stage_link;
+  if (link && !enum_from_name<PrevStageLink>(*link)) {
+    result.errors.push_back(std::format(
+        "model_options.prev_stage_link '{}' must be 'stage' or 'none'", *link));
+  }
+}
+
 void check_reserve_planes(ValidationResult& result, const Planning& planning)
 {
   const auto& sys = planning.system;
@@ -2711,6 +2721,339 @@ void check_element_enum(ValidationResult& result,
   }
 }
 
+/// Dynamic line rating (`Line.dlr`): everything that depends only on the
+/// input data — parameter ranges, missing weather, empty span list,
+/// inline-array dimensions, duplicate span uids — is rejected here, all
+/// errors together.  File-backed schedules are checked at load time
+/// (`LineDlrLP::ratings_at` throws on a missing cell).
+void check_line_dlr(ValidationResult& result, const Planning& planning)
+{
+  const auto& sim = planning.simulation;
+  const auto n_scen = sim.scenario_array.size();
+  const auto n_stage = sim.stage_array.size();
+  std::vector<std::size_t> stage_blocks;
+  stage_blocks.reserve(n_stage);
+  for (const auto& stg : sim.stage_array) {
+    const auto first = std::min(stg.first_block, sim.block_array.size());
+    stage_blocks.push_back(stg.count_block == std::dynamic_extent
+                               ? sim.block_array.size() - first
+                               : stg.count_block);
+  }
+
+  // Overload slack bound options (all lines, and the global default).
+  const auto check_slack_opts =
+      [&](std::string_view who, const OptName& mode, const OptReal& ratio)
+  {
+    if (mode && !enum_from_name<LineOverloadSlackBound>(*mode)) {
+      result.errors.push_back(
+          std::format("{}: unknown overload_slack_bound '{}' (expected: {})",
+                      who,
+                      *mode,
+                      enum_names_list<LineOverloadSlackBound>()));
+    }
+    if (ratio && (!std::isfinite(*ratio) || *ratio < 0.0)) {
+      result.errors.push_back(
+          std::format("{}: max_overload_ratio = {} must be >= 0", who, *ratio));
+    }
+  };
+  check_slack_opts("model_options",
+                   planning.options.model_options.overload_slack_bound,
+                   planning.options.model_options.max_overload_ratio);
+  for (const auto& line : planning.system.line_array) {
+    check_slack_opts(std::format("Line '{}'", line.name),
+                     line.overload_slack_bound,
+                     line.max_overload_ratio);
+  }
+
+  std::unordered_map<Uid, std::string> span_owner;
+  for (const auto& line : planning.system.line_array) {
+    if (!line.dlr) {
+      continue;
+    }
+    const auto& dlr = *line.dlr;
+    const auto err = [&](std::string msg)
+    {
+      result.errors.push_back(
+          std::format("Line '{}' dlr: {}", line.name, std::move(msg)));
+    };
+    const auto check_num =
+        [&](const OptReal& v, std::string_view field, double lo, bool lo_open)
+    {
+      if (v && (!std::isfinite(*v) || (lo_open ? !(*v > lo) : *v < lo))) {
+        err(std::format(
+            "{} = {} must be {} {}", field, *v, lo_open ? ">" : ">=", lo));
+      }
+    };
+    check_num(dlr.voltage, "voltage", 0.0, true);
+    check_num(dlr.v_pu, "v_pu", 0.0, true);
+    check_num(dlr.safety_factor, "safety_factor", 0.0, true);
+    check_num(dlr.power_factor, "power_factor", 0.0, true);
+    if (dlr.power_factor && *dlr.power_factor > 1.0) {
+      err(std::format("power_factor = {} must be <= 1", *dlr.power_factor));
+    }
+    check_num(dlr.tmax_conductor, "tmax_conductor", -273.0, true);
+    check_num(
+        dlr.tmax_conductor_emergency, "tmax_conductor_emergency", -273.0, true);
+    if (dlr.tmax_conductor_emergency
+        && *dlr.tmax_conductor_emergency < dlr.tmax_conductor.value_or(75.0))
+    {
+      err(std::format(
+          "tmax_conductor_emergency = {} must be >= tmax_conductor ({})",
+          *dlr.tmax_conductor_emergency,
+          dlr.tmax_conductor.value_or(75.0)));
+    }
+    if (dlr.span_mode && !enum_from_name<LineDlrSpanMode>(*dlr.span_mode)) {
+      err(std::format("unknown span_mode '{}' (expected: {})",
+                      *dlr.span_mode,
+                      enum_names_list<LineDlrSpanMode>()));
+    }
+    if (dlr.solar_mode && !enum_from_name<LineDlrSolarMode>(*dlr.solar_mode)) {
+      err(std::format("unknown solar_mode '{}' (expected: {})",
+                      *dlr.solar_mode,
+                      enum_names_list<LineDlrSolarMode>()));
+    }
+    check_num(dlr.low_wind_speed, "low_wind_speed", 0.0, false);
+    if (dlr.low_wind_angle
+        && (!std::isfinite(*dlr.low_wind_angle) || *dlr.low_wind_angle < 0.0
+            || *dlr.low_wind_angle > 90.0))
+    {
+      err(std::format("low_wind_angle = {} must be in [0, 90]",
+                      *dlr.low_wind_angle));
+    }
+    if (dlr.critical_spans.empty()) {
+      err("critical_spans is empty (give at least one span)");
+      continue;
+    }
+
+    const auto check_dims = [&](const OptSTBRealFieldSched& f,
+                                std::string_view span_name,
+                                std::string_view field)
+    {
+      if (!f || n_scen == 0) {
+        return;
+      }
+      const auto* vec =
+          std::get_if<std::vector<std::vector<std::vector<Real>>>>(&*f);
+      if (vec == nullptr) {
+        return;
+      }
+      bool ok = vec->size() == n_scen;
+      for (const auto& per_stage : *vec) {
+        ok = ok && per_stage.size() == n_stage;
+        for (const auto& [ti, blocks] : enumerate(per_stage)) {
+          ok = ok && static_cast<std::size_t>(ti) < stage_blocks.size()
+              && blocks.size() == stage_blocks[static_cast<std::size_t>(ti)];
+        }
+      }
+      if (!ok) {
+        err(std::format(
+            "span '{}': {} inline array must be [scenario][stage][block] = "
+            "[{}][{}][blocks per stage]",
+            span_name,
+            field,
+            n_scen,
+            n_stage));
+      }
+    };
+    const auto check_field_min = [&](const OptSTBRealFieldSched& f,
+                                     std::string_view span_name,
+                                     std::string_view field,
+                                     double lo)
+    {
+      if (!f) {
+        return;
+      }
+      bool bad = false;
+      const auto scan = [&](this const auto& self, const auto& val) -> void
+      {
+        using T = std::remove_cvref_t<decltype(val)>;
+        if constexpr (std::is_arithmetic_v<T>) {
+          const auto v = static_cast<double>(val);
+          bad = bad || !std::isfinite(v) || v < lo;
+        } else if constexpr (std::is_same_v<T, FileSched>) {
+          // Resolved at load time.
+        } else {
+          for (const auto& sub : val) {
+            self(sub);
+          }
+        }
+      };
+      std::visit(scan, *f);
+      if (bad) {
+        err(std::format(
+            "span '{}': {} has a value below {}", span_name, field, lo));
+      }
+    };
+
+    bool needs_conductor = false;
+    for (const auto& [pos, span] : enumerate(dlr.critical_spans)) {
+      const int position = static_cast<int>(pos) + 1;
+      const auto sname =
+          span.name.value_or(std::format("{}_s{}", line.name, position));
+      const Uid suid = span.uid.value_or((1000 * line.uid) + position);
+      if (const auto [it, ok] = span_owner.emplace(suid, line.name); !ok) {
+        err(std::format(
+            "span '{}' uid {} is already used by a span of line '{}' (span "
+            "uids key the weather files and outputs; give unique uids)",
+            sname,
+            suid,
+            it->second));
+      }
+      const auto per_span =
+          [&](const OptReal& v, std::string_view field, double lo, bool lo_open)
+      {
+        if (v && (!std::isfinite(*v) || (lo_open ? !(*v > lo) : *v < lo))) {
+          err(std::format("span '{}': {} = {} must be {} {}",
+                          sname,
+                          field,
+                          *v,
+                          lo_open ? ">" : ">=",
+                          lo));
+        }
+      };
+      per_span(span.tmax_conductor, "tmax_conductor", -273.0, true);
+      per_span(span.tmax_conductor_emergency,
+               "tmax_conductor_emergency",
+               -273.0,
+               true);
+      per_span(span.elevation, "elevation", -500.0, false);
+
+      for (const auto& [f, name] :
+           {std::pair {&span.ambient_temperature, "ambient_temperature"},
+            std::pair {&span.wind_speed, "wind_speed"},
+            std::pair {&span.wind_direction, "wind_direction"},
+            std::pair {&span.solar_irradiance, "solar_irradiance"},
+            std::pair {&span.rating, "rating"},
+            std::pair {&span.rating_emergency, "rating_emergency"}})
+      {
+        check_dims(*f, sname, name);
+      }
+      check_field_min(span.wind_speed, sname, "wind_speed", 0.0);
+      check_field_min(span.solar_irradiance, sname, "solar_irradiance", 0.0);
+      check_field_min(
+          span.ambient_temperature, sname, "ambient_temperature", -273.0);
+      check_field_min(span.rating, sname, "rating", 0.0);
+      check_field_min(span.rating_emergency, sname, "rating_emergency", 0.0);
+
+      if (span.rating_emergency && !span.rating) {
+        err(std::format(
+            "span '{}': rating_emergency needs a precomputed rating", sname));
+      }
+      if (span.rating) {
+        continue;  // precomputed: weather and conductor not needed
+      }
+      needs_conductor = true;
+      std::string missing;
+      for (const auto& [f, name] :
+           {std::pair {&span.ambient_temperature, "ambient_temperature"},
+            std::pair {&span.wind_speed, "wind_speed"},
+            std::pair {&span.wind_direction, "wind_direction"},
+            std::pair {&span.solar_irradiance, "solar_irradiance"}})
+      {
+        const bool optional_solar =
+            std::string_view {name} == "solar_irradiance"
+            && dlr.solar_mode_enum() == LineDlrSolarMode::none;
+        if (!f->has_value() && !optional_solar) {
+          missing += std::format("{}{}", missing.empty() ? "" : ", ", name);
+        }
+      }
+      if (!missing.empty()) {
+        err(
+            std::format("span '{}': missing weather field(s) {} and no "
+                        "precomputed 'rating'",
+                        sname,
+                        missing));
+      }
+    }
+
+    if (needs_conductor) {
+      if (!dlr.conductor) {
+        err("conductor is required to compute ratings from weather (or give "
+            "every span a precomputed 'rating')");
+      } else {
+        const auto& c = *dlr.conductor;
+        const auto req = [&](const OptReal& v, std::string_view field)
+        {
+          if (!v) {
+            err(std::format("conductor.{} is required", field));
+          } else if (!std::isfinite(*v) || !(*v > 0.0)) {
+            err(std::format("conductor.{} = {} must be > 0", field, *v));
+          }
+        };
+        req(c.diameter, "diameter");
+        // Resistance: r25 + r75, or r20 + alpha_r (+ ac_factor).
+        if (c.r20) {
+          if (c.r25 || c.r75) {
+            err("conductor: give either r25/r75 or r20/alpha_r, not both");
+          }
+          req(c.r20, "r20");
+          if (!c.alpha_r) {
+            err("conductor.alpha_r is required with r20");
+          } else if (!std::isfinite(*c.alpha_r) || *c.alpha_r < 0.0) {
+            err(std::format("conductor.alpha_r = {} must be >= 0", *c.alpha_r));
+          }
+          if (c.ac_factor
+              && (!std::isfinite(*c.ac_factor) || !(*c.ac_factor > 0.0)))
+          {
+            err(std::format("conductor.ac_factor = {} must be > 0",
+                            *c.ac_factor));
+          }
+        } else {
+          req(c.r25, "r25");
+          req(c.r75, "r75");
+        }
+        for (const auto& [v, field] :
+             {std::pair {&c.emissivity, "emissivity"},
+              std::pair {&c.absorptivity, "absorptivity"}})
+        {
+          if (*v && (!std::isfinite(**v) || **v < 0.0 || **v > 1.0)) {
+            err(std::format("conductor.{} = {} must be in [0, 1]", field, **v));
+          }
+        }
+        if (c.subconductors && *c.subconductors < 1) {
+          err(std::format("conductor.subconductors = {} must be >= 1",
+                          *c.subconductors));
+        }
+      }
+      // A→MW needs a kV voltage: dlr.voltage or a non-per-unit
+      // Line.voltage.
+      const bool line_kv = line.voltage.has_value()
+          && (!std::holds_alternative<Real>(*line.voltage)
+              || std::get<Real>(*line.voltage) > 1.0);
+      if (!dlr.voltage && !line_kv) {
+        err("the A→MW conversion needs a voltage in kV: set dlr.voltage (or "
+            "Line.voltage in kV)");
+      }
+    }
+
+    // DLR on a line that is never in service is inert.
+    if (line.in_service) {
+      bool any_on = false;
+      bool known = true;
+      const auto scan = [&](this const auto& self, const auto& val) -> void
+      {
+        using T = std::remove_cvref_t<decltype(val)>;
+        if constexpr (std::is_arithmetic_v<T>) {
+          any_on = any_on || static_cast<int>(val) != 0;
+        } else if constexpr (std::is_same_v<T, FileSched>) {
+          known = false;
+        } else {
+          for (const auto& sub : val) {
+            self(sub);
+          }
+        }
+      };
+      std::visit(scan, *line.in_service);
+      if (known && !any_on) {
+        result.warnings.push_back(
+            std::format("Line '{}' dlr: the line is out of service "
+                        "(in_service = 0) in every block; the DLR is inert",
+                        line.name));
+      }
+    }
+  }
+}
+
 /// Per-element mode strings (e.g. `Line.line_losses_mode`) are parsed
 /// lazily by the LP layer, which maps an unknown name to the default (or
 /// the global setting) with at most a log line, so a typo silently changed
@@ -3449,6 +3792,7 @@ void check_coupler_activation(ValidationResult& result,
   check_ranges(result, planning);
   check_model_options(result, planning);
   check_element_mode_names(result, planning.system);
+  check_line_dlr(result, planning);
   check_gas_elements(result, planning.system);
   check_gas_linepack_horizon(result, planning);
   if (planning.options.sddp_options.aperture_drop_fcuts.has_value()) {
@@ -3462,6 +3806,7 @@ void check_coupler_activation(ValidationResult& result,
   check_bound_rules(result, planning.system);
   check_heat_rate(result, planning.system);
   check_reserve_planes(result, planning);
+  check_prev_stage_link(result, planning);
   check_offline_provisions(result, planning);
   check_storage_activation(result, planning);
   check_battery_exclusive_modes(result, planning);

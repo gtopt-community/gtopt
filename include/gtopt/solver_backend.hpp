@@ -30,6 +30,7 @@
 
 #include <gtopt/basis.hpp>
 #include <gtopt/lp_file_format.hpp>
+#include <gtopt/solver_build_info.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_resource.hpp>
 
@@ -670,6 +671,23 @@ public:
   [[nodiscard]] virtual const double* row_price() const = 0;
   [[nodiscard]] virtual double obj_value() const = 0;
 
+  /// Free the scratch storage behind the pointer-getters above.
+  ///
+  /// Backends whose C API writes into a caller-owned buffer (CPLEX,
+  /// Gurobi, MindOpt) keep one `numcols` / `numrows` vector per getter so
+  /// the returned pointer outlives the call.  Those vectors are refilled on
+  /// every call and carry no state, but they stayed allocated for the
+  /// backend's lifetime: on the CEN 2y SDDP case (936 live cells under
+  /// `low_memory = off`) they held ~0.8 GiB.  `LinearInterface` calls this
+  /// once a pass has finished reading a cell; every pointer previously
+  /// returned by a getter is invalidated.  Default: no-op (OSI and HiGHS
+  /// return pointers into solver-owned memory and keep no scratch).
+  virtual void release_scratch() const noexcept {}
+
+  /// Bytes currently held by the getter scratch buffers (diagnostics and
+  /// tests).  Default 0 for backends without scratch.
+  [[nodiscard]] virtual std::size_t scratch_bytes() const noexcept { return 0; }
+
   // ---- solution access (span-out: write into caller-owned buffer) ----
   //
   // Span-out variants used by `LinearInterface::populate_solution_cache_`
@@ -809,6 +827,14 @@ public:
   ///
   /// Default: unsupported (`false`) — a benign skip, like `set_mip_start`.
   virtual bool set_basis(const Basis& /*basis*/) { return false; }
+
+  /// Discard any basis / solver state resident from earlier solves so the
+  /// next solve starts cold.  Needed after an abandoned solve: a backend
+  /// that warm-starts implicitly from its resident basis (HiGHS reuses it
+  /// and skips presolve) would otherwise restart from the same, possibly
+  /// corrupted, basis.  Default: no-op (backends that only warm-start on
+  /// request, e.g. CPLEX `ADVIND`, have nothing to drop).
+  virtual void clear_basis() {}
 
   // ---- infeasibility diagnosis ----
 

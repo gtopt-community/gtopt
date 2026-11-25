@@ -17,12 +17,17 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cmath>
+#include <optional>
+#include <tuple>
 #include <vector>
 
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/line_dlr_lp.hpp>
 #include <gtopt/system_context.hpp>
 
 namespace gtopt
@@ -95,6 +100,11 @@ public:
   static constexpr std::string_view LossName {"loss"};
   static constexpr std::string_view CapacitypName {"capacityp"};
   static constexpr std::string_view CapacitynName {"capacityn"};
+  /// Thermal-limit rows ``f_dir + a·ℓ_dir ≤ T_dir`` emitted only under
+  /// ``line_thermal_limit_mode = sending | full`` (see
+  /// ``LineThermalLimitMode``).
+  static constexpr std::string_view ThermalpName {"thermalp"};
+  static constexpr std::string_view ThermalnName {"thermaln"};
   static constexpr std::string_view ThetaName {"theta"};
   /// Overload-slack column emitted only when ``Line.tmax_normal_ab`` and
   /// ``Line.overload_penalty`` are configured.  Equals ``max(0, flowp −
@@ -102,6 +112,35 @@ public:
   static constexpr std::string_view OverloadpName {"overloadp"};
   /// B→A counterpart of ``overloadp``.
   static constexpr std::string_view OverloadnName {"overloadn"};
+  /// Dynamic line rating (``Line.dlr``) names.  ``span_thermalp`` /
+  /// ``span_thermaln`` label the per-span rows of ``span_mode = rows``
+  /// (block context carries the span position).  The output stems are
+  /// ``dlr_rating_sol`` (effective normal rating [MW]),
+  /// ``dlr_rating_emergency_sol`` (emergency tier), ``critical_span_sol``
+  /// (uid of the binding span, ``-1`` when the static ``tmax`` is lower)
+  /// and ``span_thermal_dual`` (per-span rating dual, keyed by SPAN uid).
+  static constexpr std::string_view SpanThermalpName {"span_thermalp"};
+  static constexpr std::string_view SpanThermalnName {"span_thermaln"};
+  static constexpr std::string_view SpanThermalName {"span_thermal"};
+  static constexpr std::string_view DlrRatingName {"dlr_rating"};
+  static constexpr std::string_view DlrRatingEmergencyName {
+      "dlr_rating_emergency"};
+  static constexpr std::string_view CriticalSpanName {"critical_span"};
+
+  /// One contribution to a span's rating dual: either a row whose dual
+  /// is ``∂obj/∂T`` directly, or a flow column bounded at ``T/coef``
+  /// whose reduced cost divided by ``coef`` is ``∂obj/∂T`` while the
+  /// column sits at that bound.  ``span < 0`` means the static ``tmax``
+  /// (not a span) is the binding cap.
+  struct DlrDualRef
+  {
+    int span {-1};
+    bool is_row {true};
+    Index index {};
+    double coef {1.0};
+    double bound {0.0};
+  };
+
   /// Filter metadata keys published by `add_to_lp` for `sum(...)`
   /// predicate matching.
   static constexpr std::string_view TypeKey {"type"};
@@ -221,6 +260,18 @@ public:
     return find_or_empty_inner(capacityn_rows, scenario, stage);
   }
 
+  [[nodiscard]] constexpr const auto& thermalp_rows_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return find_or_empty_inner(thermalp_rows, scenario, stage);
+  }
+
+  [[nodiscard]] constexpr const auto& thermaln_rows_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return find_or_empty_inner(thermaln_rows, scenario, stage);
+  }
+
   /// Overload-slack column accessors.  Return a reference to a static
   /// empty BIndexHolder when the soft-cap feature is not active for
   /// this `(scenario, stage)` (no `tmax_normal_*` + positive
@@ -237,6 +288,79 @@ public:
       const ScenarioLP& scenario, const StageLP& stage) const
   {
     return find_or_empty_inner(overloadn_cols, scenario, stage);
+  }
+
+  /// Dynamic line rating (``Line.dlr``), or nullptr when unset.
+  [[nodiscard]] constexpr const LineDlrLP* dlr() const noexcept
+  {
+    return m_dlr_ ? &*m_dlr_ : nullptr;
+  }
+
+  /// Per-block effective DLR normal rating [MW] (A→B, capped by the
+  /// static ``tmax_ab``).  Empty when DLR is off.
+  [[nodiscard]] constexpr const auto& dlr_rating_at(const ScenarioLP& scenario,
+                                                    const StageLP& stage) const
+  {
+    return find_or_empty_inner(dlr_rating_values, scenario, stage);
+  }
+
+  /// Per-block uid of the binding (argmin, normal tier) span; ``-1`` when
+  /// the static ``tmax_ab`` is strictly lower than every span.
+  [[nodiscard]] constexpr const auto& critical_span_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return find_or_empty_inner(critical_span_values, scenario, stage);
+  }
+
+  /// Per-block per-span rows of ``span_mode = rows`` (both directions).
+  [[nodiscard]] constexpr const auto& span_rows_at(const ScenarioLP& scenario,
+                                                   const StageLP& stage) const
+  {
+    return find_or_empty_inner(span_rows, scenario, stage);
+  }
+
+  /// Per-block, per-span rating duals ``∂obj/∂T_k`` (raw LP scale, i.e.
+  /// before the per-block cost-factor unfolding) evaluated from the
+  /// given primal / reduced-cost / row-dual accessors.  Index ``k`` of
+  /// each vector is the span position in ``dlr()->spans()``.
+  template<typename Primal, typename Cost, typename Dual>
+  [[nodiscard]] auto span_duals(const std::tuple<ScenarioUid, StageUid>& st,
+                                Primal&& primal,
+                                Cost&& cost,
+                                Dual&& dual) const
+      -> BIndexHolder<std::vector<double>>
+  {
+    BIndexHolder<std::vector<double>> out;
+    if (!m_dlr_) {
+      return out;
+    }
+    const auto it = dlr_dual_refs.find(st);
+    if (it == dlr_dual_refs.end()) {
+      return out;
+    }
+    const auto nspan = m_dlr_->spans().size();
+    for (const auto& [buid, refs] : it->second) {
+      auto& v = out[buid];
+      v.assign(nspan, 0.0);
+      for (const auto& r : refs) {
+        if (r.span < 0 || static_cast<std::size_t>(r.span) >= nspan) {
+          continue;
+        }
+        double d = 0.0;
+        if (r.is_row) {
+          d = dual(RowIndex {r.index});
+        } else {
+          const auto col = ColIndex {r.index};
+          const double p = primal(col);
+          const double tol = 1e-7 * std::max(1.0, std::abs(r.bound));
+          if (std::abs(p - r.bound) <= tol) {
+            d = cost(col) / r.coef;
+          }
+        }
+        v[static_cast<std::size_t>(r.span)] += d;
+      }
+    }
+    return out;
   }
 
   /// Check if this line created Kirchhoff (theta) rows for a given
@@ -354,8 +478,21 @@ private:
   STBIndexHolder<RowIndex> capacityn_rows;
   STBIndexHolder<RowIndex> overloadp_rows;
   STBIndexHolder<RowIndex> overloadn_rows;
+  /// Thermal-limit rows ``f_dir + a·ℓ_dir ≤ T_dir`` (``sending`` /
+  /// ``full`` only); duals written as ``thermalp_dual`` / ``thermaln_dual``.
+  STBIndexHolder<RowIndex> thermalp_rows;
+  STBIndexHolder<RowIndex> thermaln_rows;
 
   STBIndexHolder<RowIndex> theta_rows;
+
+  /// Dynamic line rating (``Line.dlr``); nullopt when unset.
+  std::optional<LineDlrLP> m_dlr_;
+  STBIndexHolder<double> dlr_rating_values;
+  STBIndexHolder<double> dlr_rating_emergency_values;
+  STBIndexHolder<double> critical_span_values;
+  STBIndexHolder<std::vector<RowIndex>> span_rows;
+  STBIndexHolder<std::vector<DlrDualRef>> dlr_dual_refs;
+  bool m_dlr_never_critical_logged_ {false};
 };
 
 // Pin the data-struct constant value so an accidental rename of the

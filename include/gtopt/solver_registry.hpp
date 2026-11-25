@@ -25,13 +25,51 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
+#include <gtopt/plugin_integrity.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <sys/types.h>
 
 namespace gtopt
 {
+
+/// Load errors that concern @p solver_name: those naming `Solver '<name>'`
+/// (library version / pin / shadowing refusals) or its plugin file
+/// `libgtopt_solver_<name>` (build-id, build tag, dlopen, ABI).
+[[nodiscard]] std::vector<std::string> solver_load_errors(
+    std::string_view solver_name, const std::vector<std::string>& load_errors);
+
+/// Error text for a solver that was requested by name but is not
+/// available: names it, lists why its plugin was refused (from
+/// @p load_errors, see solver_load_errors()) and the solvers available
+/// instead.  An explicit request never falls back to another solver.
+[[nodiscard]] std::string solver_unavailable_message(
+    std::string_view solver_name,
+    const std::vector<std::string>& available,
+    const std::vector<std::string>& load_errors);
+
+/// Environment variable: when true (`1/true/yes/on`), a `GTOPT_SOLVER`
+/// whose plugin was REFUSED falls back to the automatic choice with a
+/// warning (the old behaviour) instead of failing.
+inline constexpr std::string_view k_solver_fallback_on_refused_env =
+    "GTOPT_SOLVER_FALLBACK_ON_REFUSED";
+
+/// True when `$GTOPT_SOLVER_FALLBACK_ON_REFUSED` is true (an unparsable
+/// value logs a warning and counts as false).
+[[nodiscard]] bool solver_fallback_on_refused_from_env();
+
+/// Decide what an unavailable `GTOPT_SOLVER=<solver_name>` does: true
+/// (fail, like an explicit `--solver`) when its plugin was refused by an
+/// integrity check (a load error for it carries `k_plugin_refused_marker`)
+/// and @p fallback_on_refused is false; false (warn and fall back to the
+/// automatic choice) when the solver simply has no plugin, its plugin
+/// failed for another reason, or the override is set.
+[[nodiscard]] bool env_solver_must_fail(
+    std::string_view solver_name,
+    const std::vector<std::string>& load_errors,
+    bool fallback_on_refused);
 
 /**
  * @brief Singleton registry for dynamically loaded solver plugins.
@@ -114,8 +152,12 @@ public:
   /** @brief Return the best available solver name by priority.
    *
    * Loads plugins on demand until a suitable solver is found.
+   * `$GTOPT_SOLVER` names the solver to use; when it is unavailable the
+   * registry falls back to the priority order, except when its plugin was
+   * refused by an integrity check (see env_solver_must_fail()).
    * Priority order: cplex, highs, mindopt, cbc, clp.
-   * @throws std::runtime_error if no solver plugins are loaded.
+   * @throws std::runtime_error if no solver plugins are loaded, or
+   *         `$GTOPT_SOLVER`'s plugin was refused.
    */
   [[nodiscard]] std::string_view default_solver();
 
@@ -163,6 +205,34 @@ public:
    * no descriptor (CPU solvers) or the solver is unavailable.
    */
   [[nodiscard]] bool is_gpu_backed(std::string_view solver_name = {});
+
+  /** @brief Override the plugin check mode for this process (CLI
+   * `--plugin-check`).  `std::nullopt` clears the override, falling back to
+   * `GTOPT_PLUGIN_CHECK`, then to the compiled-in default
+   * `k_default_plugin_check_mode` (CMake `GTOPT_PLUGIN_CHECK_DEFAULT`).
+   * Applies to plugins loaded after the call.
+   */
+  static void set_plugin_check_mode(
+      std::optional<PluginCheckMode> mode) noexcept;
+
+  /** @brief Effective policy: CLI override, else `GTOPT_PLUGIN_CHECK`,
+   * else the compiled-in default. */
+  [[nodiscard]] static PluginIntegrityPolicy plugin_check_policy();
+
+  /** @brief Effective mode and where it came from (CLI, environment or
+   * compiled-in default). */
+  [[nodiscard]] static std::pair<PluginCheckMode, PluginCheckSource>
+  effective_plugin_check();
+
+  /** @brief Integrity / identity report of every loaded plugin.
+   *
+   * One entry per loaded plugin: its path, ELF build-id and manifest
+   * check, build tag vs the host's, and per solver the compiled vs runtime
+   * solver-library version, the loaded library path and its build-id.
+   * Only solvers still available (after validation) are listed.  Does not
+   * load anything — call load_all_plugins() first for a full listing.
+   */
+  [[nodiscard]] std::vector<PluginReport> plugin_reports() const;
 
   /** @brief Return the directories that were searched for plugins. */
   [[nodiscard]] const std::vector<std::string>& searched_directories() const;
@@ -262,7 +332,23 @@ private:
     solver_plugin_resource_desc_fn resource_desc_fn {};
     std::string plugin_name;
     std::vector<std::string> solver_names;
+    /// Identity checks done at load time (`--solvers`, run log).
+    PluginReport report;
   };
+
+  /// Pre-dlopen check of @p path against its build-id manifest.  Returns
+  /// false (and records the error) when the plugin must be refused.
+  bool verify_plugin_file(const std::filesystem::path& path,
+                          const PluginIntegrityPolicy& policy,
+                          PluginReport& report);
+
+  /// Post-dlopen checks: build tag and solver-library versions.  Removes
+  /// solvers whose library version check refuses them from @p names.
+  void verify_loaded_plugin(void* handle,
+                            const std::filesystem::path& path,
+                            const PluginIntegrityPolicy& policy,
+                            std::vector<std::string>& names,
+                            PluginReport& report);
 
   [[nodiscard]] static bool validate_solver_subprocess(
       const PluginHandle& plugin,

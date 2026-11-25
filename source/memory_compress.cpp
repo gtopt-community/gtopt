@@ -14,13 +14,17 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstring>
 #include <format>
+#include <iterator>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 #include <gtopt/low_memory_snapshot.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -143,18 +147,49 @@ void require_exact_size(std::string_view codec,
 
 // ── zstd (always available) ─────────────────────────────────────────────
 
+namespace
+{
+
+/// Worst-case output buffer for one compress call.  Allocated without
+/// value-initialisation (`make_unique_for_overwrite`), so the pages past the
+/// bytes the codec actually writes are never touched, and freed when the
+/// call returns.  The caller then copies the `rc` produced bytes into an
+/// exact-size vector: a `std::vector<char>(bound)` + `resize(rc)` used to
+/// keep the full bound as capacity (≈ the raw size), so every "compressed"
+/// snapshot stayed as large in memory as the uncompressed one.
+struct CompressScratch
+{
+  std::unique_ptr<char[]> buf;  // NOLINT(*-avoid-c-arrays)
+  std::size_t size {0};
+
+  explicit CompressScratch(std::size_t bound)
+      : buf(std::make_unique_for_overwrite<char[]>(  // NOLINT(*-avoid-c-arrays)
+            bound))
+      , size(bound)
+  {
+  }
+
+  [[nodiscard]] char* data() const noexcept { return buf.get(); }
+
+  /// Exact-size copy of the first @p n produced bytes (capacity == size).
+  [[nodiscard]] std::vector<char> take(std::size_t n) const
+  {
+    return {buf.get(), std::next(buf.get(), static_cast<std::ptrdiff_t>(n))};
+  }
+};
+
+}  // namespace
+
 std::vector<char> compress_zstd(std::span<const char> data)
 {
-  const auto bound = ZSTD_compressBound(data.size());
-  std::vector<char> out(bound);
+  const CompressScratch out {ZSTD_compressBound(data.size())};
   const auto rc = ZSTD_compress(
-      out.data(), out.size(), data.data(), data.size(), /*level=*/1);
+      out.data(), out.size, data.data(), data.size(), /*level=*/1);
   if (ZSTD_isError(rc) != 0) {
     throw std::runtime_error(std::string("zstd compress failed: ")
                              + ZSTD_getErrorName(rc));
   }
-  out.resize(rc);
-  return out;
+  return out.take(rc);
 }
 
 std::vector<char> decompress_zstd(std::span<const char> compressed,
@@ -175,8 +210,8 @@ std::vector<char> decompress_zstd(std::span<const char> compressed,
 
 std::vector<char> compress_gzip(std::span<const char> data)
 {
-  auto bound = compressBound(static_cast<uLong>(data.size()));
-  std::vector<char> out(bound);
+  const auto bound = compressBound(static_cast<uLong>(data.size()));
+  const CompressScratch out {static_cast<std::size_t>(bound)};
   auto out_len = static_cast<uLongf>(bound);
   // zlib's C API works in `Bytef` (unsigned char); casting our char
   // buffers to it is the standard, unavoidable interop pattern.
@@ -190,8 +225,7 @@ std::vector<char> compress_gzip(std::span<const char> data)
     throw std::runtime_error("gzip compress failed (zlib error "
                              + std::to_string(rc) + ")");
   }
-  out.resize(static_cast<size_t>(out_len));
-  return out;
+  return out.take(static_cast<std::size_t>(out_len));
 }
 
 std::vector<char> decompress_gzip(std::span<const char> compressed,
@@ -225,14 +259,13 @@ std::vector<char> compress_lz4(std::span<const char> data)
     throw std::runtime_error("lz4 compress: input exceeds LZ4_MAX_INPUT_SIZE");
   }
   const auto bound = LZ4_compressBound(static_cast<int>(data.size()));
-  std::vector<char> out(static_cast<size_t>(bound));
+  const CompressScratch out {static_cast<std::size_t>(bound)};
   const auto rc = LZ4_compress_default(
       data.data(), out.data(), static_cast<int>(data.size()), bound);
   if (rc <= 0) {
     throw std::runtime_error("lz4 compress failed");
   }
-  out.resize(static_cast<size_t>(rc));
-  return out;
+  return out.take(static_cast<std::size_t>(rc));
 }
 
 std::vector<char> decompress_lz4(std::span<const char> compressed,
@@ -264,10 +297,9 @@ std::vector<char> decompress_lz4(std::span<const char> compressed,
 std::vector<char> compress_snappy(std::span<const char> data)
 {
   size_t out_len = snappy::MaxCompressedLength(data.size());
-  std::vector<char> out(out_len);
+  const CompressScratch out {out_len};
   snappy::RawCompress(data.data(), data.size(), out.data(), &out_len);
-  out.resize(out_len);
-  return out;
+  return out.take(out_len);
 }
 
 std::vector<char> decompress_snappy(std::span<const char> compressed,

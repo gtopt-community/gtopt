@@ -198,6 +198,82 @@ inline constexpr auto crossover_mode_entries =
   return std::span {crossover_mode_entries};
 }
 
+// --- KappaMode ---------------------------------------------------------------
+
+/**
+ * @brief How the basis condition number (kappa) is obtained after a solve.
+ *
+ * gtopt reads kappa after every solve (logs, SDDP numerics monitoring).
+ *
+ * - `estimate` (default): the solver's cheap estimate.  HiGHS: Hager
+ *   estimate (`getKappa(exact=false)`); CPLEX: `CPX_KAPPA`.
+ * - `exact`: the exact value, for diagnostics.  HiGHS:
+ *   `getKappa(exact=true)`, one FTRAN per basis row (the plugin's
+ *   behaviour before 2026-11; ~75 % of HiGHS CPU on CEN SDDP cells);
+ *   CPLEX: `CPX_EXACT_KAPPA`.
+ * - `off`: never computed (kappa reported as unavailable).
+ *
+ * - Gurobi: `Kappa` / `KappaExact`.  OSI/CLP: estimate and exact both
+ *   return its dual-error proxy.  MindOpt, SCIP, cuOpt: no kappa query
+ *   (always unavailable).
+ *
+ * `off` is honoured above the backend too: LinearInterface does not call
+ * the backend at all.  With any mode, kappa is read once per solve.
+ */
+enum class KappaMode : uint8_t
+{
+  estimate = 0,  ///< Cheap estimate (default)
+  exact = 1,  ///< Exact condition number (expensive)
+  off = 2,  ///< Not computed
+};
+
+inline constexpr auto kappa_mode_entries = std::to_array<EnumEntry<KappaMode>>({
+    {.name = "estimate", .value = KappaMode::estimate},
+    {.name = "exact", .value = KappaMode::exact},
+    {.name = "off", .value = KappaMode::off},
+});
+
+/// ADL customization point for NamedEnum concept
+[[nodiscard]] constexpr auto enum_entries(KappaMode /*tag*/) noexcept
+{
+  return std::span {kappa_mode_entries};
+}
+
+// --- BarrierSolver -----------------------------------------------------------
+
+/**
+ * @brief Which interior-point implementation runs `algorithm = barrier`.
+ *
+ * Only backends that ship more than one IPM read it; the others ignore it.
+ *
+ * - `auto` (default): the backend's own choice.  HiGHS: HiPO, the parallel
+ *   factorisation-based IPM, when the HiGHS build has it (`-DHIPO=ON`),
+ *   otherwise IPX.
+ * - `ipx`: HiGHS IPX (serial, basis-preconditioned CG).  The barrier of a
+ *   HiGHS build without HiPO, and of gtopt before HiPO builds.
+ * - `hipo`: HiGHS HiPO (multithreaded).  Falls back to IPX, as `auto`
+ *   does, when the HiGHS build has no HiPO.
+ */
+enum class BarrierSolver : uint8_t
+{
+  automatic = 0,  ///< Backend default (HiGHS: HiPO if available, else IPX)
+  ipx = 1,  ///< HiGHS IPX
+  hipo = 2,  ///< HiGHS HiPO
+};
+
+inline constexpr auto barrier_solver_entries =
+    std::to_array<EnumEntry<BarrierSolver>>({
+        {.name = "auto", .value = BarrierSolver::automatic},
+        {.name = "ipx", .value = BarrierSolver::ipx},
+        {.name = "hipo", .value = BarrierSolver::hipo},
+    });
+
+/// ADL customization point for NamedEnum concept
+[[nodiscard]] constexpr auto enum_entries(BarrierSolver /*tag*/) noexcept
+{
+  return std::span {barrier_solver_entries};
+}
+
 // --- MipStartEffort ----------------------------------------------------------
 
 /**

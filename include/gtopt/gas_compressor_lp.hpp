@@ -51,6 +51,8 @@ public:
   static constexpr std::string_view NoExpandName {"noexpand"};
   static constexpr std::string_view FuelPlaneName {"fuel_plane"};
   static constexpr std::string_view MotorName {"motor"};
+  static constexpr std::string_view GasNodeInKey {"gas_node_in"};
+  static constexpr std::string_view GasNodeOutKey {"gas_node_out"};
 
   /// Kept as a nested alias for existing callers.
   using FuelModel = GasCompressorFuelModel;
@@ -102,6 +104,19 @@ public:
   {
     return power_cols_.at({scenario.uid(), stage.uid()});
   }
+
+  /// @name Parameter accessors for PAMPL user-constraint resolution
+  /// @{
+  [[nodiscard]] auto param_fmax(StageUid s) const { return fmax_.at(s); }
+  [[nodiscard]] std::optional<double> param_max_ratio() const noexcept
+  {
+    return gas_compressor().max_ratio;
+  }
+  [[nodiscard]] std::optional<double> param_power_max() const noexcept
+  {
+    return gas_compressor().power_max;
+  }
+  /// @}
 
 private:
   OptTRealSched fmax_;

@@ -37,6 +37,10 @@ struct BuildInfo
   /// `git describe --always --dirty` of the source tree at build time,
   /// or "unknown" when built outside a git checkout.
   std::string_view git_revision;
+  /// `<git_revision>+<build-tree id>`: identifies this build tree.  Every
+  /// solver plugin built alongside embeds the same tag
+  /// (`gtopt_plugin_build_tag`), see `SolverRegistry`.
+  std::string_view build_tag;
 
   /// `format_version_string(version, git_revision)`.
   [[nodiscard]] std::string version_string() const

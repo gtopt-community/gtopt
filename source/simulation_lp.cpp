@@ -297,6 +297,25 @@ void SimulationLP::log_dropped_term_summary() const
         total,
         detail);
   }
+
+  const auto prev_starts = prev_at_phase_start_counts();
+  for (const auto& [name, terms] : prev_starts) {
+    std::size_t total = 0;
+    std::string detail;
+    for (const auto& [term, count] : terms) {
+      total += count;
+      detail +=
+          std::format("{}{}: {}", detail.empty() ? "" : ", ", term, count);
+    }
+    SPDLOG_WARN(
+        "user_constraint '{}': {} `_prev` term(s) at the first block of a "
+        "later phase read 0 — the previous phase's value is not carried "
+        "across phases (known limitation; e.g. a ramp row is unconstrained "
+        "against the previous phase there) ({})",
+        name,
+        total,
+        detail);
+  }
 }
 
 }  // namespace gtopt

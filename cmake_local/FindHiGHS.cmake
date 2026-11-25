@@ -20,14 +20,35 @@ Cache variables
 ^^^^^^^^^^^^^^^
 
 ``HIGHS_ROOT_DIR``
-  Hint for the HiGHS installation prefix.
+  Hint for the HiGHS installation prefix.  Defaults to ``$ENV{HIGHS_ROOT_DIR}``,
+  else ``$HOME/opt/highs-<GTOPT_HIGHS_PIN_VERSION>`` when it exists, else
+  ``/opt/highs``.
+
+``GTOPT_HIGHS_PIN_VERSION``
+  The HiGHS release the goldens are generated with (CI builds exactly this
+  one, ``.github/actions/install-highs``).  ``plugins/CMakeLists.txt``
+  warns when another version is found: HiGHS may return another optimal
+  vertex, so dual and cost goldens of degenerate cases can differ.
 
 #]=======================================================================]
 
 include_guard(GLOBAL)
 
+set(GTOPT_HIGHS_PIN_VERSION
+    "1.16.0"
+    CACHE STRING "HiGHS release the goldens are generated with"
+)
+
+if(DEFINED ENV{HIGHS_ROOT_DIR})
+  set(_highs_root_default "$ENV{HIGHS_ROOT_DIR}")
+elseif(EXISTS "$ENV{HOME}/opt/highs-${GTOPT_HIGHS_PIN_VERSION}/include")
+  set(_highs_root_default "$ENV{HOME}/opt/highs-${GTOPT_HIGHS_PIN_VERSION}")
+else()
+  set(_highs_root_default "/opt/highs")
+endif()
+
 set(HIGHS_ROOT_DIR
-    "/opt/highs"
+    "${_highs_root_default}"
     CACHE PATH "HiGHS installation prefix"
 )
 

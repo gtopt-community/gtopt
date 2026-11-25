@@ -1406,6 +1406,13 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // arrays (no snapshot needed).  See `drop_sim_snapshots()` on
       // PlanningLP called by `SDDPMethod::simulation_pass`.
       system.release_backend();
+      // `off` keeps the backend; drop only the plugin's getter scratch
+      // (CPLEX/Gurobi/MindOpt copy-out buffers, ~0.8 MiB per CEN cell).
+      // Every value above is already captured into `state`, and later
+      // readers refill on demand.  No-op once the backend is released.
+      if (m_options_.free_solver_scratch) {
+        li.release_backend_scratch();
+      }
 
       // Guard against solver returning "optimal" with NaN values
       // (can happen when inherited cuts cause ill-conditioning).

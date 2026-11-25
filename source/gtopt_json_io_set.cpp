@@ -282,6 +282,21 @@ solver_field_setters()
           {"mip_polish",
            [](SolverOptions& o, std::string_view n, const std::string& v)
            { o.mip_polish = require_bool(n, v); }},
+          {"barrier_solver",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.barrier_solver = require_enum<BarrierSolver>(n, v); }},
+          {"mip_lp_algorithm",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.mip_lp_algorithm = require_enum<LPAlgo>(n, v); }},
+          {"mip_heuristic_effort",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.mip_heuristic_effort = std::stod(v); }},
+          {"kappa_mode",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.kappa_mode = require_enum<KappaMode>(n, v); }},
+          {"cold_solve_without_basis",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.cold_solve_without_basis = require_bool(n, v); }},
           {"optimal_eps",
            [](SolverOptions& o, std::string_view, const std::string& v)
            { o.optimal_eps = std::stod(v); }},

@@ -430,6 +430,27 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
         break;
     }
 
+    // MIP root-relaxation algorithm (`mip_lp_algorithm`).  Only when set:
+    // unset keeps whatever the .prm / CPLEX default says.
+    if (opts.mip_lp_algorithm.has_value()) {
+      int start_alg = CPX_ALG_AUTOMATIC;
+      switch (*opts.mip_lp_algorithm) {
+        case LPAlgo::primal:
+          start_alg = CPX_ALG_PRIMAL;
+          break;
+        case LPAlgo::dual:
+          start_alg = CPX_ALG_DUAL;
+          break;
+        case LPAlgo::barrier:
+          start_alg = CPX_ALG_BARRIER;
+          break;
+        case LPAlgo::default_algo:
+        case LPAlgo::last_algo:
+          break;
+      }
+      CPXsetintparam(env, CPX_PARAM_STARTALG, start_alg);
+    }
+
     // Crossover control needs TWO CPLEX parameters working together:
     //
     //   1. CPX_PARAM_SOLUTIONTYPE decides WHETHER to cross over.  NONBASIC
@@ -1584,6 +1605,30 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(
   return fixed + static_cast<int>(sos_member_cols.size());
 }
 
+void CplexSolverBackend::release_scratch() const noexcept
+{
+  // Swap with empties: `clear()` would keep the capacity.  The problem-data
+  // caches are invalidated too so the next getter refills from the solver.
+  invalidate_problem_data();
+  std::vector<double> {}.swap(m_collb_);
+  std::vector<double> {}.swap(m_colub_);
+  std::vector<double> {}.swap(m_obj_);
+  std::vector<double> {}.swap(m_rowlb_);
+  std::vector<double> {}.swap(m_rowub_);
+  std::vector<double> {}.swap(m_col_solution_);
+  std::vector<double> {}.swap(m_reduced_cost_);
+  std::vector<double> {}.swap(m_row_price_);
+}
+
+std::size_t CplexSolverBackend::scratch_bytes() const noexcept
+{
+  return (m_collb_.capacity() + m_colub_.capacity() + m_obj_.capacity()
+          + m_rowlb_.capacity() + m_rowub_.capacity()
+          + m_col_solution_.capacity() + m_reduced_cost_.capacity()
+          + m_row_price_.capacity())
+      * sizeof(double);
+}
+
 void CplexSolverBackend::invalidate_problem_data() const noexcept
 {
   m_collb_cached_ = false;
@@ -2412,8 +2457,18 @@ std::optional<double> CplexSolverBackend::get_kappa() const
   // status; we propagate that as nullopt.  We do NOT try to sniff the
   // solution method here — the CPXgetdblquality return code is the
   // authoritative signal.
+  const auto mode = m_prep_.options.has_value()
+      ? m_prep_.options->effective_kappa_mode()
+      : KappaMode::estimate;
+  if (mode == KappaMode::off) {
+    return std::nullopt;
+  }
   double kappa = 0.0;
-  if (CPXgetdblquality(m_env_lp_.env(), m_env_lp_.lp(), &kappa, CPX_KAPPA) != 0)
+  if (CPXgetdblquality(m_env_lp_.env(),
+                       m_env_lp_.lp(),
+                       &kappa,
+                       mode == KappaMode::exact ? CPX_EXACT_KAPPA : CPX_KAPPA)
+      != 0)
   {
     return std::nullopt;
   }

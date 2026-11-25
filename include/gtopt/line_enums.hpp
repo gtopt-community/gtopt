@@ -55,6 +55,155 @@ inline constexpr auto loss_allocation_mode_entries =
   return std::span {loss_allocation_mode_entries};
 }
 
+// ─── LineThermalLimitMode ────────────────────────────────────────────
+
+/**
+ * @brief How a line's thermal limit interacts with its loss variable.
+ *
+ * The thermal limit `T_dir` of one flow direction is `tmax_ab` /
+ * `tmax_ba` (and, on expandable lines, the installed capacity).  With
+ * losses the power entering the line at the sending bus and the power
+ * leaving it at the receiving bus differ by the loss `ℓ_dir`; which of
+ * them the limit applies to is what this mode selects:
+ *
+ * - `flow` (0, default): the limit bounds the flow variable only,
+ *   `f_dir ≤ T_dir` (column bound / capacity row).  No extra row.
+ *   Historical behaviour.  Under the default `receiver` loss allocation
+ *   the flow variable already IS the sending-end power, so this is the
+ *   physical sending-end limit there.
+ * - `sending` (1): the SENDING-END power stays within the limit,
+ *   `f_dir + a_s·ℓ_dir ≤ T_dir`, with `a_s` the share of the loss that
+ *   `loss_allocation_mode` books at the sending bus (`receiver` 0,
+ *   `split` ½, `sender` 1; `tangent_signed_flow` always books ½).
+ *   Exactly the physical limit on the larger (sending) end of the line
+ *   whatever the allocation; a no-op under `receiver` allocation.
+ * - `full` (2): flow plus the WHOLE loss stays within the limit,
+ *   `f_dir + ℓ_dir ≤ T_dir`.  Allocation-independent and the most
+ *   conservative variant (equals `sending` under `sender` allocation).
+ *
+ * The extra rows only apply to modes with a loss term (`linear`
+ * tightens the flow bound / capacity-row coefficient to `1 + a·λ`,
+ * the PWL modes add one row per direction and block, `none` is
+ * unaffected).  Resolution: per-line `Line.line_thermal_limit_mode`,
+ * else `model_options.line_thermal_limit_mode`, else `flow`.
+ */
+enum class LineThermalLimitMode : uint8_t
+{
+  flow = 0,  ///< limit on the flow variable only (default)
+  sending = 1,  ///< limit on the sending-end power f + a_s·ℓ
+  full = 2,  ///< limit on f + ℓ (whole loss)
+};
+
+inline constexpr auto line_thermal_limit_mode_entries =
+    std::to_array<EnumEntry<LineThermalLimitMode>>({
+        {.name = "flow", .value = LineThermalLimitMode::flow},
+        {.name = "sending", .value = LineThermalLimitMode::sending},
+        {.name = "full", .value = LineThermalLimitMode::full},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(LineThermalLimitMode /*tag*/) noexcept
+{
+  return std::span {line_thermal_limit_mode_entries};
+}
+
+// ─── LineDlrSpanMode ─────────────────────────────────────────────────
+
+/**
+ * @brief How the critical spans of a dynamic line rating (`Line.dlr`)
+ *        limit the line flow.
+ *
+ * - `min` (0, default): per block, the effective rating is the minimum
+ *   over the spans (and the static `tmax`), applied where `tmax` is
+ *   applied today (flow-column bound or thermal-limit row).  Smallest
+ *   LP; the argmin span is recorded.
+ * - `rows` (1): one thermal-limit row pair per critical span and block,
+ *   `f_dir + a·ℓ_dir ≤ T_k,b`.  Rows of spans dominated in a block are
+ *   dropped at build time.  Same optimum as `min`; the per-span duals
+ *   come straight from the solver.
+ */
+enum class LineDlrSpanMode : uint8_t
+{
+  min = 0,  ///< effective rating = min over spans (default)
+  rows = 1,  ///< one row pair per non-dominated span
+};
+
+inline constexpr auto line_dlr_span_mode_entries =
+    std::to_array<EnumEntry<LineDlrSpanMode>>({
+        {.name = "min", .value = LineDlrSpanMode::min},
+        {.name = "rows", .value = LineDlrSpanMode::rows},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(LineDlrSpanMode /*tag*/) noexcept
+{
+  return std::span {line_dlr_span_mode_entries};
+}
+
+// ─── LineDlrSolarMode ────────────────────────────────────────────────
+
+/**
+ * @brief How the DLR heat balance treats the `solar_irradiance` input.
+ *
+ * - `ghi` (0, default): the input is the global horizontal irradiance
+ *   and is used directly as the absorbed flux, `q_s = α·S·D` — the
+ *   conservative "full sun on the conductor" convention, shared with the
+ *   Python critical-span tooling (no sun-geometry model).
+ * - `none` (1): the solar gain is ignored, `q_s = 0` (night-time /
+ *   sensitivity runs); `solar_irradiance` becomes optional.
+ */
+enum class LineDlrSolarMode : uint8_t
+{
+  ghi = 0,  ///< q_s = α·S·D with S = GHI (default)
+  none = 1,  ///< q_s = 0
+};
+
+inline constexpr auto line_dlr_solar_mode_entries =
+    std::to_array<EnumEntry<LineDlrSolarMode>>({
+        {.name = "ghi", .value = LineDlrSolarMode::ghi},
+        {.name = "none", .value = LineDlrSolarMode::none},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(LineDlrSolarMode /*tag*/) noexcept
+{
+  return std::span {line_dlr_solar_mode_entries};
+}
+
+// ─── LineOverloadSlackBound ──────────────────────────────────────────
+
+/**
+ * @brief Upper bound of the overload slack (the `overload_penalty` band
+ *        between the normal threshold and the hard cap).
+ *
+ * - `thermal` (0, default): the conductor's thermal headroom capped by
+ *   the ratio, `min(hard − normal, max_overload_ratio × normal)` — on
+ *   DLR lines `hard` is the IEEE 738 emergency rating (at
+ *   `tmax_conductor_emergency`) and `normal` the rating at
+ *   `tmax_conductor`; on static lines `tmax` and `tmax_normal`.  Without
+ *   a finite hard cap (no emergency data) it is `ratio`.
+ * - `ratio` (1): `max_overload_ratio × normal` (default ratio 1.5, i.e.
+ *   slack ≤ +150 %, flow ≤ 2.5 × normal).
+ * - `unbounded` (2): no bound on the slack; the hard cap is enforced only
+ *   by the flow bound / thermal rows (previous DLR behaviour).
+ */
+enum class LineOverloadSlackBound : uint8_t
+{
+  thermal = 0,  ///< min(hard − normal, ratio × normal); default
+  ratio = 1,  ///< max_overload_ratio × normal
+  unbounded = 2,  ///< no slack bound
+};
+
+inline constexpr auto line_overload_slack_bound_entries =
+    std::to_array<EnumEntry<LineOverloadSlackBound>>({
+        {.name = "thermal", .value = LineOverloadSlackBound::thermal},
+        {.name = "ratio", .value = LineOverloadSlackBound::ratio},
+        {.name = "unbounded", .value = LineOverloadSlackBound::unbounded},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(
+    LineOverloadSlackBound /*tag*/) noexcept
+{
+  return std::span {line_overload_slack_bound_entries};
+}
+
 // ─── LineLossesMode ─────────────────────────────────────────────────
 
 /**

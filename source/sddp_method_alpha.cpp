@@ -73,7 +73,8 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
                                   /*register_as_state_variable=*/!suppress,
                                   &m_options_.markov,
                                   /*terminal_phi_count=*/
-                                  m_boundary_phi_count_);
+                                  m_boundary_phi_count_,
+                                  m_options_.release_after_alpha);
 
   // Bootstrap pin for the USER α (dynamic AmplFutureCost, piece 5 step 2c).
   // The built-in α is pinned `lowb = uppb = 0` until a cut frees it (see
@@ -252,7 +253,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
                               BoundaryCutSharingMode boundary_cut_sharing,
                               bool register_as_state_variable,
                               const MarkovChainConfig* markov,
-                              std::size_t terminal_phi_count)
+                              std::size_t terminal_phi_count,
+                              bool release_after)
 {
   auto& sim = planning_lp.simulation();
   const auto& phases = sim.phases();
@@ -405,6 +407,11 @@ void register_alpha_variables(PlanningLP& planning_lp,
                         SystemKind::aperture,
                         n_alpha,
                         col_weights);
+      // Low-memory: drop the backend this registration just loaded (the α
+      // columns are recorded for replay).  No-op under `off`.
+      if (release_after) {
+        ap_sys->release_backend();
+      }
     }
 
     if (find_alpha_state_var(sim, scene_index, pi) != nullptr) {
@@ -418,12 +425,22 @@ void register_alpha_variables(PlanningLP& planning_lp,
     // coefficient, α included) leaves α a free basic variable, contaminating
     // captured trial values and the bcut fallback's Z.  Phase 0's α is later
     // released by the backward pass's final `bound_alpha(scene, 0)` call.
-    register_alpha_on(planning_lp.system(scene_index, pi).linear_interface(),
+    auto& fwd_sys = planning_lp.system(scene_index, pi);
+    register_alpha_on(fwd_sys.linear_interface(),
                       pi,
                       phase.uid(),
                       SystemKind::forward,
                       n_alpha,
                       col_weights);
+    // Low-memory: `add_col` reconstructed this cell's backend; release it
+    // right away instead of keeping every cell of every scene live until
+    // the post-initialisation release sweep.  The α columns are recorded
+    // as dynamic columns and replayed on the next `ensure_backend`.  On
+    // the CEN 2y case (936 cells) this removes a ~1.7 GiB init-time peak
+    // under `compress`.  No-op under `off`.
+    if (release_after) {
+      fwd_sys.release_backend();
+    }
   }
 }
 
@@ -1114,6 +1131,13 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
         phase_index,
         state.outgoing_links.size(),
         sim.state_variables(scene_index, phase_index).size());
+
+    // Low-memory: reading the column bounds above reconstructed the
+    // backend; `col_lo` / `col_hi` are not used past this point, so drop
+    // it again (see `register_alpha_variables`).  No-op under `off`.
+    if (m_options_.release_after_alpha) {
+      planning_lp().system(scene_index, phase_index).release_backend();
+    }
   }
 }
 

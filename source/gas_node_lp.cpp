@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include <gtopt/ampl_variable.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/gas_node_lp.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -88,6 +89,11 @@ bool GasNodeLP::add_to_lp(SystemContext& sc,
   balance_rows_[st_key] = std::move(brows);
   sc.add_ampl_variable(
       ampl_name, uid(), PiName, scenario, stage, pi_cols_.at(st_key));
+  if (const auto& t = gas_node().type) {
+    AmplElementMetadata metadata;
+    metadata.emplace_back(TypeKey, *t);
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
   return true;
 }
 

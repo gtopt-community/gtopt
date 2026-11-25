@@ -73,6 +73,9 @@ struct SddpOptionsConstructor
       OptBool save_aperture_lp,
       OptName lp_debug_passes,
       OptBool aperture_use_manual_clone,
+      OptBool release_backends,
+      OptBool free_solver_scratch,
+      OptBool release_after_alpha,
       OptBool aperture_drop_fcuts,
       OptName aperture_chunk_mode_str,
       OptInt aperture_chunk_size,
@@ -178,6 +181,9 @@ struct SddpOptionsConstructor
     opts.save_aperture_lp = save_aperture_lp;
     opts.lp_debug_passes = std::move(lp_debug_passes);
     opts.aperture_use_manual_clone = aperture_use_manual_clone;
+    opts.release_backends = release_backends;
+    opts.free_solver_scratch = free_solver_scratch;
+    opts.release_after_alpha = release_after_alpha;
     opts.aperture_drop_fcuts = aperture_drop_fcuts;
     if (aperture_chunk_mode_str) {
       opts.aperture_chunk_mode = gtopt::require_enum<ApertureChunkMode>(
@@ -296,6 +302,9 @@ struct json_data_contract<SddpOptions>
       json_bool_null<"save_aperture_lp", OptBool>,
       json_string_null<"lp_debug_passes", OptName>,
       json_bool_null<"aperture_use_manual_clone", OptBool>,
+      json_bool_null<"release_backends", OptBool>,
+      json_bool_null<"free_solver_scratch", OptBool>,
+      json_bool_null<"release_after_alpha", OptBool>,
       json_bool_null<"aperture_drop_fcuts", OptBool>,
       json_string_null<"aperture_chunk_mode", OptName>,
       json_number_null<"aperture_chunk_size", OptInt>,
@@ -378,6 +387,9 @@ struct json_data_contract<SddpOptions>
         opt.save_aperture_lp,
         opt.lp_debug_passes,
         opt.aperture_use_manual_clone,
+        opt.release_backends,
+        opt.free_solver_scratch,
+        opt.release_after_alpha,
         opt.aperture_drop_fcuts,
         detail::enum_to_opt_name(opt.aperture_chunk_mode),
         opt.aperture_chunk_size,

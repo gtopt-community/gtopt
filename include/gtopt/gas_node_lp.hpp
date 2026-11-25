@@ -37,6 +37,9 @@ public:
   static constexpr std::string_view PiName {"pi"};
   static constexpr std::string_view PressureName {"pressure"};
   static constexpr std::string_view BalanceName {"balance"};
+  /// PAMPL `sum(...)` predicate keys shared by the gas element family.
+  static constexpr std::string_view TypeKey {"type"};
+  static constexpr std::string_view GasNodeKey {"gas_node"};
 
   explicit GasNodeLP(const GasNode& node, const InputContext& ic);
 
@@ -90,6 +93,10 @@ public:
   /// @{
   [[nodiscard]] auto param_pmin(StageUid s) const { return pmin_.at(s); }
   [[nodiscard]] auto param_pmax(StageUid s) const { return pmax_.at(s); }
+  [[nodiscard]] auto param_pressure_cost(StageUid s) const
+  {
+    return pressure_cost_.at(s);
+  }
   /// @}
 
 private:

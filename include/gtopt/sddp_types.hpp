@@ -1019,6 +1019,22 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// the native route.  Default: false (preserve legacy behaviour).
   bool aperture_use_manual_clone {false};
 
+  /// Under low_memory_mode = off, release each solver backend after its solve
+  /// and rebuild it from an uncompressed flat-LP snapshot on the next visit,
+  /// warm-starting from the saved basis (false: keep every LP live for the
+  /// whole run). Under compress backends are always released. Default: false.
+  bool release_backends {false};
+
+  /// Free the CPLEX / Gurobi / MindOpt copy-out getter scratch after each solve
+  /// under low_memory = off (false: keep it, the previous behaviour). Default:
+  /// true.
+  bool free_solver_scratch {true};
+
+  /// Release each low-memory backend right after alpha registration (false:
+  /// keep it live until the post-initialisation sweep, the previous behaviour).
+  /// Default: true.
+  bool release_after_alpha {true};
+
   /// How backward-pass apertures are grouped into work-pool tasks
   /// (`per_scene` / `per_aperture` / `chunked`).  `nullopt` = not set →
   /// `per_scene` unless the legacy integer `aperture_chunk_size` selects
@@ -1925,7 +1941,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
                                   BoundaryCutSharingMode::per_scene,
                               bool register_as_state_variable = true,
                               const MarkovChainConfig* markov = nullptr,
-                              std::size_t terminal_phi_count = 0);
+                              std::size_t terminal_phi_count = 0,
+                              bool release_after = true);
 
 /// Apply a derived lower-bound floor on α_T at the last phase by
 /// projecting every installed boundary cut onto the worst-case

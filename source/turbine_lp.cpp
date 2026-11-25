@@ -11,6 +11,8 @@
  * constraints and relationships with other system components.
  */
 
+#include <algorithm>
+
 #include <gtopt/coupler_fail_closed.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_build_error.hpp>
@@ -222,6 +224,17 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       const auto gcol_opt =
           generator.lookup_generation_col(scenario, stage, buid);
       if (!gcol_opt) {
+        // Generator elided (zero pmax, P1 skip): the conversion row
+        // `gen = rate * flow` with gen = 0 used to force the turbine flow
+        // to zero.  Keep that implication: without it the waterway turns
+        // into a free spillway and the solver may route water through an
+        // offline turbine (a tie that HiGHS 1.16 breaks that way).  A
+        // drain turbine (`gen <= rate * flow`) may still pass water.
+        if (fcol_opt && !use_drain && stage_conversion_rate > 0.0) {
+          auto& fc = lp.col_at(*fcol_opt);
+          fc.uppb = std::min(fc.uppb, 0.0);
+          fc.lowb = std::min(std::max(fc.lowb, 0.0), 0.0);
+        }
         continue;
       }
       if (!fcol_opt) {
