@@ -24,7 +24,9 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
       ``dr_provision_factor = 1``.
 
   Unknown types are skipped with a warning so the user can extend
-  the type set explicitly.
+  the type set explicitly.  A missing or negative ``Shortfall penalty``
+  is a hard requirement in UC.jl and becomes a zone without
+  ``urcost`` / ``drcost`` (gtopt's hard form).
 * **GeneratorProfile** — UC.jl v0.3 ships time-varying renewable
   availability as a list-of-lists inside ``Production cost curve
   (MW)`` (outer length 1 = single capacity segment, inner is the
@@ -122,6 +124,10 @@ from typing import Any
 # on Generator after the 16fbdde45 Commitment refactor.  Set Fuel.price=1
 # so heat_rate_segments[k] × 1.0 acts as the direct $/MWh slope cost.
 _UCJL_UNIT_FUEL_NAME = "_ucjl_unit"
+
+# UC.jl's default ``Flow limit penalty ($/MW)`` of a transmission line
+# (instance/read.jl: ``default = [5000.0 for t in 1:T]``).
+_UCJL_FLOW_LIMIT_PENALTY = 5000.0
 
 
 def _first_hour(value):
@@ -518,6 +524,146 @@ def _gen_bounds(gdata):
 # ---------------------------------------------------------------------------
 
 
+def _startup_tiers(costs: list, delays: list) -> dict:
+    """Map UC.jl ``Startup costs`` / ``Startup delays`` onto gtopt tiers.
+
+    UC.jl (MorLatRam2013 start-up costs) charges category ``s`` when the
+    unit has been offline ``D`` periods with ``d_s ≤ D < d_{s+1}``; the
+    last category covers ``D ≥ d_S``.  gtopt prices a start hot when
+    offline ``< hot_start_time``, warm when ``hot_start_time ≤ offline
+    < cold_start_time`` and cold otherwise.  So ``hot_start_time = d_2``
+    and ``cold_start_time = d_S``:
+
+    * 1 category: a flat ``startup_cost``.
+    * 2 categories: hot ``c_1`` below ``d_2``, cold ``c_2`` from ``d_2``;
+      ``hot_start_time = cold_start_time = d_2`` leaves the warm window
+      empty (its cost is set to ``c_1`` only to complete the tier set).
+    * 3 categories: exact.
+    * more: gtopt has three tiers, so categories ``2 … S−1`` share the
+      warm window and are priced at ``c_2`` (a warning is printed).
+
+    ``d_1`` is the shortest offline time UC.jl prices with ``c_1``; it is
+    1 period in every UC.jl fixture, i.e. no start is faster.
+    """
+    n = min(len(costs), len(delays)) if delays else min(len(costs), 1)
+    if n == 0:
+        return {}
+    if n == 1:
+        return {"startup_cost": float(costs[0])}
+    tiers = {
+        "hot_start_cost": float(costs[0]),
+        "warm_start_cost": float(costs[1] if n >= 3 else costs[0]),
+        "cold_start_cost": float(costs[n - 1]),
+        "hot_start_time": float(delays[1]),
+        "cold_start_time": float(delays[n - 1]),
+    }
+    if n > 3:
+        print(
+            f"  warning: {n} startup categories; gtopt has hot/warm/cold, "
+            f"categories 2..{n - 1} are priced at {costs[1]}"
+        )
+    return tiers
+
+
+def _pampl_sum(terms: list[tuple[float, str]]) -> str:
+    """``Σ coef · ref`` as PAMPL text, dropping zero coefficients."""
+    out = ""
+    for coef, ref in terms:
+        if coef == 0.0:
+            continue
+        sign = "-" if coef < 0 else "+"
+        mag = abs(coef)
+        body = ref if mag == 1.0 else f"{mag} * {ref}"
+        out += f" {sign} {body}" if out else (f"-{body}" if coef < 0 else body)
+    return out
+
+
+def _reserve_ramp_rows(
+    gname: str,
+    gdata: dict,
+    pmin: float,
+    pmax: float,
+    n_blocks: int,
+) -> list[dict]:
+    """UC.jl's reserve-aware startup / ramp limits as hard UserConstraints.
+
+    UnitCommitment.jl's default formulation adds the unit's spinning
+    reserve ``r`` to these rows (``p_above = p − Pmin·u``, the output
+    above the minimum):
+
+    * startup limit (``_add_startup_shutdown_limit_eqs!``, every block):
+      ``p_above + r ≤ (Pmax − Pmin)·u − max(0, Pmax − SU)·v``;
+    * ramp up (MorLatRam2013, ``RESERVES_WHEN_RAMP_UP``):
+      ``t = 1``, initially on: ``Pmin + p_above + r ≤ P0 + RU``;
+      ``t > 1``: ``p_above(t) + r(t) − p_above(t−1) ≤ RU``;
+    * ramp down (``RESERVES_WHEN_RAMP_DOWN``), ``t > 1``:
+      ``p_above(t−1) + r(t−1) − p_above(t) ≤ RD``.
+
+    gtopt's own ramp / startup-ramp rows bound ``p`` alone, so without
+    these a unit can sell reserve it could not deliver within its ramp.
+    The ramp limits are per period, as in UC.jl (not scaled by the block
+    duration).  A row is emitted only where it can bind: ``SU < Pmax``,
+    ``RU`` / ``RD < Pmax − Pmin``.
+    """
+    gen = f"generator('{gname}').generation"
+    up = f"reserve_provision('{gname}_rp').up"
+    u = f"commitment('{gname}_uc').status"
+    v = f"commitment('{gname}_uc').startup"
+    rows: list[dict] = []
+
+    su = gdata.get("Startup limit (MW)")
+    if su is not None and float(su) < pmax:
+        body = _pampl_sum([(1.0, gen), (1.0, up), (-pmax, u), (pmax - float(su), v)])
+        rows.append(
+            {"name": f"{gname}_startup_reserve_limit", "expression": f"{body} <= 0"}
+        )
+
+    p_above = [(1.0, gen), (-pmin, u)]
+    p_above_prev = [(-1.0, f"{gen}_prev"), (pmin, f"{u}_prev")]
+    later = f"for(block in 2..{n_blocks})"
+
+    ru = gdata.get("Ramp up limit (MW)")
+    if ru is not None and float(ru) < pmax - pmin:
+        ru = float(ru)
+        status_h = gdata.get("Initial status (h)")
+        p0 = gdata.get("Initial power (MW)")
+        if status_h is not None and status_h > 0 and p0 is not None:
+            rhs = float(p0) + ru - pmin
+            if rhs < pmax - pmin:
+                body = _pampl_sum([*p_above, (1.0, up)])
+                rows.append(
+                    {
+                        "name": f"{gname}_ramp_up_reserve_b1",
+                        "expression": f"{body} <= {rhs}, for(block in {{1}})",
+                    }
+                )
+        if n_blocks >= 2:
+            body = _pampl_sum([*p_above, (1.0, up), *p_above_prev])
+            rows.append(
+                {
+                    "name": f"{gname}_ramp_up_reserve",
+                    "expression": f"{body} <= {ru}, {later}",
+                }
+            )
+
+    rd = gdata.get("Ramp down limit (MW)")
+    if rd is not None and float(rd) < pmax - pmin and n_blocks >= 2:
+        body = _pampl_sum(
+            [
+                *[(-c, r) for c, r in p_above_prev],
+                (1.0, f"{up}_prev"),
+                *[(-c, r) for c, r in p_above],
+            ]
+        )
+        rows.append(
+            {
+                "name": f"{gname}_ramp_down_reserve",
+                "expression": f"{body} <= {float(rd)}, {later}",
+            }
+        )
+    return rows
+
+
 def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-branches
     ucjl_path,
     output_path=None,
@@ -677,7 +823,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         "regulation_down",
     }
     uc_reserves = data.get("Reserves", {}) or {}
-    reserve_zone_array = []
+    reserve_zone_array: list[dict] = []
     reserve_zone_name_to_uid: dict[str, int] = {}
     # Per-zone direction tag: "up" (urreq only) or "bidirectional" (urreq + drreq).
     reserve_zone_direction: dict[str, str] = {}
@@ -706,16 +852,26 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # with no explicit value).
         amount = zdata.get("Amount (MW)", 0.0)
         req_ts = _time_series(amount, T)
-        penalty = float(zdata.get("Shortfall penalty ($/MW)", 1000.0))
+        # UC.jl reads a missing penalty as -1 and caps the shortfall of
+        # any negative-penalty reserve at 0 (formulations/base/unit.jl):
+        # a HARD requirement.  gtopt's hard form is a zone without a
+        # shortage cost, so only a non-negative penalty becomes
+        # ``urcost`` / ``drcost``.
+        raw_penalty = zdata.get("Shortfall penalty ($/MW)")
+        penalty = None if raw_penalty is None else float(raw_penalty)
+        if penalty is not None and penalty < 0:
+            penalty = None
         zone_entry: dict = {
             "uid": zuid,
             "name": zname,
             "urreq": [req_ts],
-            "urcost": penalty,
         }
+        if penalty is not None:
+            zone_entry["urcost"] = penalty
         if direction == "bidirectional":
             zone_entry["drreq"] = [req_ts]
-            zone_entry["drcost"] = penalty
+            if penalty is not None:
+                zone_entry["drcost"] = penalty
         reserve_zone_array.append(zone_entry)
 
     # --- Generators + Commitments + ReserveProvisions ------------------------
@@ -729,6 +885,10 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     commitment_uid = 0
     provision_uid = 0
     profile_uid = 0
+    # UC.jl startup / ramp rows that couple spinning reserve with the
+    # unit's ramp envelope — emitted as UserConstraints below (see the
+    # ReserveProvision block in the generator loop).
+    reserve_ramp_rows: list[dict] = []
     # Shared synthetic Fuel for piecewise-cost gens. UC.jl's cost-curve
     # slopes are already in $/MWh, so we link a Fuel with `price = 1.0`
     # and let `generator_lp.cpp` multiply `heat_rate_segments[k] × 1.0`
@@ -891,6 +1051,13 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             val = gdata.get(ucjl_key)
             if val is not None:
                 c_entry[gtopt_key] = val
+        # UC.jl ramp limits are MW per time period, while gtopt's
+        # ``ramp_up`` / ``ramp_down`` are MW/h (multiplied by the block
+        # duration): rescale so a 30-min block keeps UC.jl's per-period
+        # limit.  Startup / shutdown limits are plain MW in both.
+        for gtopt_key in ("ramp_up", "ramp_down"):
+            if gtopt_key in c_entry and block_duration_h != 1.0:
+                c_entry[gtopt_key] = float(c_entry[gtopt_key]) / block_duration_h
 
         # ``Commitment status`` (UC.jl ``case14/fixed.json``): per-block
         # forced commitment.  Each element is a tri-state ``true`` /
@@ -958,22 +1125,12 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             c_entry["initial_power"] = float(init_p)
 
         # Startup costs: scalar single tier or tiered hot/warm/cold.
-        startup_costs = gdata.get("Startup costs ($)") or []
-        startup_delays = gdata.get("Startup delays (h)") or []
-        if len(startup_costs) >= 3 and len(startup_delays) >= 2:
-            c_entry["hot_start_cost"] = float(startup_costs[0])
-            c_entry["warm_start_cost"] = float(startup_costs[1])
-            c_entry["cold_start_cost"] = float(startup_costs[2])
-            c_entry["hot_start_time"] = float(startup_delays[0])
-            c_entry["cold_start_time"] = float(startup_delays[-1])
-        elif len(startup_costs) >= 2 and len(startup_delays) >= 1:
-            # 2-tier: hot vs cold (use last delay as cold threshold).
-            c_entry["hot_start_cost"] = float(startup_costs[0])
-            c_entry["cold_start_cost"] = float(startup_costs[-1])
-            c_entry["hot_start_time"] = float(startup_delays[0])
-            c_entry["cold_start_time"] = float(startup_delays[-1])
-        elif startup_costs:
-            c_entry["startup_cost"] = float(startup_costs[0])
+        c_entry.update(
+            _startup_tiers(
+                gdata.get("Startup costs ($)") or [],
+                gdata.get("Startup delays (h)") or [],
+            )
+        )
 
         # Piecewise heat-rate segmentation (when >=3 breakpoints).
         # After the 16fbdde45 Commitment refactor, piecewise cost segments
@@ -1054,6 +1211,16 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 provision_entry["drmax"] = pmax_box
                 provision_entry["dr_provision_factor"] = 1.0
             reserve_provision_array.append(provision_entry)
+
+            # UC.jl's startup and ramp limits carry the spinning reserve
+            # (see ``_reserve_ramp_rows``).  Only up-only zones: UC.jl's
+            # ``_total_reserves`` counts spinning reserve alone, and a
+            # bidirectional (flexiramp) provision's ``up`` column would
+            # also carry the flexiramp-up term UC.jl leaves out.
+            if not needs_dr:
+                reserve_ramp_rows.extend(
+                    _reserve_ramp_rows(gname, gdata, commitment_pmin, float(pmax), T)
+                )
 
     # --- Storage units (BESS) ------------------------------------------------
     # UC.jl ``Storage units`` map onto gtopt's unified ``Battery`` element:
@@ -1166,12 +1333,25 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # ``Generator.pmin/pmax`` (discharge) and ``Demand.lmin/lmax``
         # (charge).  Scalars stay scalar; per-hour UC.jl lists emit
         # as 2-D ``[[h0, h1, ...]]``.
-        for ucjl_key, gtopt_key in (
+        #
+        # The minimum rates are UC.jl's WHEN-charging / WHEN-discharging
+        # floors (``p ≥ pmin·y`` with a mode binary ``y``).  Under
+        # ``--mip`` they are gated by ``Battery.commitment`` (below).
+        # In an LP solve their relaxation (``y ∈ [0, 1]``) is ``p ≥ 0``,
+        # so they are dropped: emitting them as hard every-block floors
+        # forced simultaneous charge and discharge and made the "LP
+        # relaxation" dearer than the MIP (base_with_storage: 139 400
+        # vs 139 285).
+        rate_keys = [
             ("Maximum charge rate (MW)", "pmax_charge"),
             ("Maximum discharge rate (MW)", "pmax_discharge"),
-            ("Minimum charge rate (MW)", "pmin_charge"),
-            ("Minimum discharge rate (MW)", "pmin_discharge"),
-        ):
+        ]
+        if not relax_commitment:
+            rate_keys += [
+                ("Minimum charge rate (MW)", "pmin_charge"),
+                ("Minimum discharge rate (MW)", "pmin_discharge"),
+            ]
+        for ucjl_key, gtopt_key in rate_keys:
             value = sdata.get(ucjl_key)
             if value is None:
                 continue
@@ -1284,8 +1464,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # binary gating on the synthetic ``Converter`` so the floors only
         # fire when the corresponding binary is 1 — matching UC.jl.
         # Commitment binaries are always integer (introduces a true MIP);
-        # for LP-only solves leave ``Minimum charge/discharge rate`` out
-        # of the UC.jl input so the static floor stays unconditional.
+        # LP-only solves drop the floors instead (see the rate loop).
         if not relax_commitment and any(
             sdata.get(k) is not None
             for k in (
@@ -1369,6 +1548,12 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     uc_interfaces = data.get("Interfaces", {}) or {}
     user_constraint_array = []
     uc_uid = 0
+
+    # Hard (no penalty) UC.jl startup / ramp rows built in the generator
+    # loop (``_reserve_ramp_rows``).
+    for entry in reserve_ramp_rows:
+        uc_uid += 1
+        user_constraint_array.append({"uid": uc_uid, **entry})
 
     def _flow_expression(branches):
         """Build the ``Σ coeff * line('name').flow`` expression body."""
@@ -1472,7 +1657,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             if emerg is None:
                 emerg = ldata.get("Normal flow limit (MW)", 99999.0)
             line_emerg[lname] = float(_first_hour(emerg))
-            penalty = ldata.get("Flow limit penalty ($/MW)", 1000.0)
+            penalty = ldata.get("Flow limit penalty ($/MW)", _UCJL_FLOW_LIMIT_PENALTY)
             line_penalty[lname] = float(penalty)
 
         lodf_table = _compute_lodf(
@@ -1490,7 +1675,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             if out not in outaged_set:
                 continue
             emerg_mon = line_emerg.get(mon, 99999.0)
-            penalty = line_penalty.get(mon, 1000.0)
+            penalty = line_penalty.get(mon, _UCJL_FLOW_LIMIT_PENALTY)
             expr_body = (
                 f"1.0 * line('{mon}').flow + {lodf_coef:.6f} * line('{out}').flow"
             )

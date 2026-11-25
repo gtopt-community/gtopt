@@ -308,7 +308,7 @@ def _run_gtopt(
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n", maxsplit=1)[0])
     p.add_argument(
         "--gtopt",
         type=Path,

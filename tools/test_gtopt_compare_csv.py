@@ -170,3 +170,42 @@ def test_dropped_skip_column_is_not_an_error(tmp_path):
     errors, warnings = _compare(tmp_path, actual, golden, strict=True)
     assert not errors
     assert not warnings
+
+
+def test_tie_group_compares_group_sum(tmp_path):
+    """Equal-cost units: a different split of the same total passes."""
+    hdr = '"scenario","stage","block","uid","value"\n'
+    actual = tmp_path / "a.csv"
+    expected = tmp_path / "e.csv"
+    actual.write_text(hdr + "1,1,1,1,10\n1,1,1,5,124.92\n1,1,1,7,410\n")
+    expected.write_text(hdr + "1,1,1,1,10\n1,1,1,5,534.92\n")
+    errors, _ = gtopt_compare_csv.compare_csv(str(actual), str(expected), strict=True)
+    assert errors
+    errors, _ = gtopt_compare_csv.compare_csv(
+        str(actual), str(expected), strict=True, tie_groups=[[5, 7]]
+    )
+    assert not errors
+    # The group total is still checked strictly.
+    actual.write_text(hdr + "1,1,1,1,10\n1,1,1,5,124.92\n1,1,1,7,400\n")
+    errors, _ = gtopt_compare_csv.compare_csv(
+        str(actual), str(expected), strict=True, tie_groups=[[5, 7]]
+    )
+    assert errors
+
+
+def test_tie_group_cli_and_wide_layout(tmp_path):
+    hdr = '"scenario","stage","block","uid","value"\n'
+    actual = tmp_path / "a.csv"
+    expected = tmp_path / "e.csv"
+    actual.write_text(hdr + "1,1,1,5,0\n1,1,1,7,410\n")
+    expected.write_text(hdr + "1,1,1,5,410\n")
+    assert (
+        gtopt_compare_csv.main(
+            [str(actual), str(expected), "--strict", "--tie-group", "5,7"]
+        )
+        == 0
+    )
+    wide = tmp_path / "w.csv"
+    wide.write_text("scenario,stage,block,obj\n1,1,1,3\n")
+    errors, _ = gtopt_compare_csv.compare_csv(str(wide), str(wide), tie_groups=[[5, 7]])
+    assert errors

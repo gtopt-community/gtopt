@@ -5,15 +5,17 @@ description: >
   Ubuntu 24.04 (the runner) does not package HiGHS, and a system or newer
   HiGHS can return a different (equally optimal) vertex, which breaks
   golden comparisons that look at primal values.  The pin matches the tag
-  install.sh builds and the libhighs-dev that Ubuntu 26.04 / Debian 13
-  ship (1.12.0), i.e. what users get.  When bumping it, bump
+  install.sh builds (it only takes the distro libhighs-dev when that is at
+  least this version), i.e. what users get.  When bumping it, bump
   `install_highs ... tag=` in install.sh too and re-check the HiGHS
-  goldens.  A cache hit costs seconds; a cold build ~3-5 min.
+  goldens.  Built with HiPO (-DHIPO=ON, parallel interior point, the
+  `barrier` algorithm) and the OpenBLAS it needs (-DBUILD_OPENBLAS=ON).
+  A cache hit costs seconds; a cold build ~5-8 min.
 
 inputs:
   version:
     description: HiGHS release (git tag without the leading 'v')
-    default: '1.12.0'
+    default: '1.16.0'
   compiler:
     description: C++ compiler used to build HiGHS (match the gtopt build)
     default: 'g++-14'
@@ -42,7 +44,7 @@ runs:
       uses: actions/cache@v6
       with:
         path: ${{ steps.vars.outputs.prefix }}
-        key: highs-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.compiler }}-v1
+        key: highs-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.compiler }}-hipo-v2
 
     - name: build HiGHS ${{ inputs.version }} from source
       if: steps.cache.outputs.cache-hit != 'true'
@@ -59,6 +61,7 @@ runs:
           https://github.com/ERGO-Code/HiGHS.git "$src/HiGHS"
         cmake -S "$src/HiGHS" -B "$src/build" -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_SHARED_LIBS=ON -DFAST_BUILD=ON -DBUILD_TESTING=OFF \
+          -DHIPO=ON -DBUILD_OPENBLAS=ON \
           -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_PREFIX="$PREFIX"
         cmake --build "$src/build" -j"$(nproc)"
         cmake --install "$src/build"

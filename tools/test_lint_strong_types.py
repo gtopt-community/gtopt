@@ -94,25 +94,25 @@ def test_value_of_uid_no_arithmetic_clean():
     hits = _scan_uid_arithmetic(
         "auto x = value_of(phase_uid);  // OK — no arithmetic\n"
     )
-    assert hits == []
+    assert not hits
 
 
 def test_value_of_uid_in_equality_clean():
     """`if (value_of(uid) == 1)` is comparison, not arithmetic."""
     hits = _scan_uid_arithmetic("if (value_of(phase_uid) == 1) {}\n")
-    assert hits == []
+    assert not hits
 
 
 def test_nolint_suppression_clean():
     """`// NOLINT` opts a line out of the rule."""
     hits = _scan_uid_arithmetic("auto x = value_of(phase_uid) + 1;  // NOLINT\n")
-    assert hits == []
+    assert not hits
 
 
 def test_pure_comment_clean():
     """Pattern only inside a comment must not fire (comment stripping)."""
     hits = _scan_uid_arithmetic("// value_of(phase_uid) - 1 is a category error.\n")
-    assert hits == []
+    assert not hits
 
 
 def test_block_comment_clean():
@@ -120,19 +120,19 @@ def test_block_comment_clean():
     hits = _scan_uid_arithmetic(
         "/* value_of(phase_uid) - 1 is wrong, do not ship. */\n"
     )
-    assert hits == []
+    assert not hits
 
 
 def test_value_of_non_uid_identifier_clean():
     """`value_of(other_var) - 1` where the var doesn't end in 'uid'/'Uid' is fine."""
     hits = _scan_uid_arithmetic("auto x = value_of(some_var) - 1;\n")
-    assert hits == []
+    assert not hits
 
 
 def test_static_cast_index_no_arith_clean():
     """`static_cast<int>(some_uid)` without `± N` is not arithmetic."""
     hits = _scan_uid_arithmetic("int x = static_cast<int>(scene_uid);\n")
-    assert hits == []
+    assert not hits
 
 
 # ─── Sanity — multiple hits and mixed lines ──────────────────────────────────
@@ -230,13 +230,13 @@ def test_size_t_cast_outside_subscript_clean():
     hits = _scan_redundant_size_t_subscript(
         "vec.resize(static_cast<size_t>(idx) + 1);\n"
     )
-    assert hits == []
+    assert not hits
 
 
 def test_size_t_cast_on_loop_counter_clean():
     """`vec[static_cast<size_t>(i)]` — `i` is a generic int counter."""
     hits = _scan_redundant_size_t_subscript("auto x = vec[static_cast<size_t>(i)];\n")
-    assert hits == []
+    assert not hits
 
 
 def test_size_t_cast_on_size_call_clean():
@@ -244,19 +244,19 @@ def test_size_t_cast_on_size_call_clean():
     hits = _scan_redundant_size_t_subscript(
         "auto x = vec[static_cast<size_t>(count)];\n"
     )
-    assert hits == []
+    assert not hits
 
 
 def test_subscript_no_cast_clean():
     """`rin[row_idx]` — already idiomatic, must stay clean."""
     hits = _scan_redundant_size_t_subscript("auto x = rin[row_idx];\n")
-    assert hits == []
+    assert not hits
 
 
 def test_subscript_int_cast_clean_for_rule_14():
     """`vec[static_cast<int>(idx)]` is Rule 8's domain, not Rule 14."""
     hits = _scan_redundant_size_t_subscript("auto x = vec[static_cast<int>(idx)];\n")
-    assert hits == []
+    assert not hits
 
 
 def test_size_t_cast_subscript_nolint_clean():
@@ -264,7 +264,7 @@ def test_size_t_cast_subscript_nolint_clean():
     hits = _scan_redundant_size_t_subscript(
         "auto x = vec[static_cast<size_t>(index)];  // NOLINT\n"
     )
-    assert hits == []
+    assert not hits
 
 
 def test_size_t_cast_subscript_in_comment_clean():
@@ -272,4 +272,4 @@ def test_size_t_cast_subscript_in_comment_clean():
     hits = _scan_redundant_size_t_subscript(
         "// vec[static_cast<size_t>(index)] is the bad pattern\n"
     )
-    assert hits == []
+    assert not hits

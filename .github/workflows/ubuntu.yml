@@ -105,6 +105,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # A cold-ccache build (a large dev->public sync, or an evicted cache)
+    # plus building the pinned HiGHS took > 30 min on a 4-vCPU runner
+    # (public run 45133362961 was killed at 282/293 targets); warm runs
+    # stay at ~6-10 min.
     timeout-minutes: 60
 
     name: build
@@ -179,7 +183,7 @@ jobs:
         if: env.ACTIVE_COMPILER == 'clang'
         uses: ./.github/actions/install-clang
         with:
-          version: 21
+          version: 22
           install-coverage-runtime: ${{ env.ACTIVE_COMPILER == 'clang' && env.ENABLE_COVERAGE == 'true' }}
 
       # Set up Python with uv caching before cmake configure so that:
@@ -330,9 +334,12 @@ jobs:
         run: |
           # Copy solver plugin libraries next to the binary so that the
           # artifact is self-contained.  SolverRegistry discovers plugins
-          # in <exe_dir>/ automatically.
+          # in <exe_dir>/ automatically.  Each plugin travels with its
+          # `.so.build-id` manifest: without it the plugin integrity check
+          # (default mode `error`) refuses the plugin as unidentified.
           if ls build/plugins/libgtopt_solver_*.so >/dev/null 2>&1; then
             cp build/plugins/libgtopt_solver_*.so build/standalone/
+            cp build/plugins/libgtopt_solver_*.so.build-id build/standalone/
           fi
           # Ship the shared spdlog (SONAME libspdlog.so.1.15) alongside the
           # binary.  The core and every plugin carry a DT_NEEDED on
@@ -363,6 +370,7 @@ jobs:
           path: |
             build/standalone/gtopt
             build/standalone/libgtopt_solver_*.so
+            build/standalone/libgtopt_solver_*.so.build-id
             build/standalone/libspdlog.so.1.15
             build/standalone/libhighs.so.1
           retention-days: 7
@@ -721,6 +729,8 @@ jobs:
           cp ${{ runner.temp }}/gtopt-bin/gtopt $HOME/gtopt-install/bin/gtopt
           # Copy solver plugin libraries alongside the binary
           cp ${{ runner.temp }}/gtopt-bin/libgtopt_solver_*.so $HOME/gtopt-install/bin/ 2>/dev/null || true
+          # ...with their build-id manifests (plugin integrity check).
+          cp ${{ runner.temp }}/gtopt-bin/libgtopt_solver_*.so.build-id $HOME/gtopt-install/bin/ 2>/dev/null || true
           # Copy the shared spdlog so the binary/plugins resolve their
           # DT_NEEDED libspdlog.so.1.15 via $ORIGIN (apt only ships 1.12).
           cp ${{ runner.temp }}/gtopt-bin/libspdlog.so.* $HOME/gtopt-install/bin/ 2>/dev/null || true

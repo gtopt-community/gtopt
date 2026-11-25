@@ -31,14 +31,23 @@ Skipped when:
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
+
+# pyarrow is optional: the parquet readers return None without it.
+papq: ModuleType | None
+try:
+    import pyarrow.parquet as papq
+except ImportError:
+    papq = None
 
 _TOOLS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOLS_DIR.parent
@@ -174,29 +183,29 @@ def _read_obj_value(run_dir: Path) -> float | None:
     """
     csv = run_dir / "output" / "solution.csv"
     if csv.is_file():
-        lines = csv.read_text().splitlines()
-        if len(lines) < 2:
-            return None
-        header = lines[0].split(",")
-        if "obj_value" not in header:
-            return None
-        idx = header.index("obj_value")
-        try:
-            return float(lines[1].split(",")[idx])
-        except (ValueError, IndexError):
-            return None
+        return _read_obj_value_csv(csv)
     pq = run_dir / "output" / "solution.parquet"
-    if pq.is_file():
-        try:
-            import pyarrow.parquet as papq  # type: ignore[import-not-found]
-        except ImportError:
-            return None
+    if pq.is_file() and papq is not None:
         tbl = papq.read_table(pq)
-        if "obj_value" not in tbl.column_names:
-            return None
-        col = tbl.column("obj_value").to_pylist()
-        return float(col[0]) if col else None
+        if "obj_value" in tbl.column_names:
+            col = tbl.column("obj_value").to_pylist()
+            return float(col[0]) if col else None
     return None
+
+
+def _read_obj_value_csv(csv: Path) -> float | None:
+    """Return ``obj_value`` from a ``solution.csv`` (``None`` when absent)."""
+    lines = csv.read_text().splitlines()
+    if len(lines) < 2:
+        return None
+    header = lines[0].split(",")
+    if "obj_value" not in header:
+        return None
+    idx = header.index("obj_value")
+    try:
+        return float(lines[1].split(",")[idx])
+    except (ValueError, IndexError):
+        return None
 
 
 def _read_total_load(run_dir: Path) -> float | None:
@@ -209,9 +218,7 @@ def _read_total_load(run_dir: Path) -> float | None:
     """
     pq = run_dir / "output" / "Demand" / "load_sol.parquet"
     if pq.is_file():
-        try:
-            import pyarrow.parquet as papq  # type: ignore[import-not-found]
-        except ImportError:
+        if papq is None:
             return None
         tbl = papq.read_table(pq).to_pydict()
         if "value" in tbl:
@@ -230,11 +237,7 @@ def _read_partitioned_value_sum(dataset_dir: Path) -> float | None:
     across every part file, so a simple glob + sum is enough and avoids
     pulling in ``pyarrow.dataset``.
     """
-    if not dataset_dir.is_dir():
-        return None
-    try:
-        import pyarrow.parquet as papq  # type: ignore[import-not-found]
-    except ImportError:
+    if not dataset_dir.is_dir() or papq is None:
         return None
     total = 0.0
     found_any = False
@@ -266,6 +269,30 @@ def _read_partitioned_value_sum(dataset_dir: Path) -> float | None:
     return total if found_any else None
 
 
+def _sum_csv_dispatch(csv: Path) -> float | None:
+    """Σ generation over a legacy CSV (long ``value`` or wide uid columns)."""
+    lines = csv.read_text().splitlines()
+    if len(lines) < 2:
+        return None
+    header = lines[0].split(",")
+    if "value" in header:
+        keep_idx = [header.index("value")]
+    else:
+        skip = {"scenario", "stage", "block"}
+        keep_idx = [i for i, h in enumerate(header) if h not in skip]
+    total = 0.0
+    for row in lines[1:]:
+        parts = row.split(",")
+        for i in keep_idx:
+            if i >= len(parts) or not parts[i]:
+                continue
+            try:
+                total += float(parts[i])
+            except ValueError:
+                continue
+    return total
+
+
 def _read_total_dispatch(run_dir: Path) -> float | None:
     """Sum every generation cell across the LP output.
 
@@ -277,40 +304,10 @@ def _read_total_dispatch(run_dir: Path) -> float | None:
     """
     csv = run_dir / "output" / "Generator" / "generation_sol_s0_p0.csv"
     if csv.is_file():
-        lines = csv.read_text().splitlines()
-        if len(lines) < 2:
-            return None
-        header = lines[0].split(",")
-        if "value" in header:
-            v_idx = header.index("value")
-            total = 0.0
-            for row in lines[1:]:
-                parts = row.split(",")
-                if len(parts) <= v_idx or not parts[v_idx]:
-                    continue
-                try:
-                    total += float(parts[v_idx])
-                except ValueError:
-                    continue
-            return total
-        skip = {"scenario", "stage", "block"}
-        keep_idx = [i for i, h in enumerate(header) if h not in skip]
-        total = 0.0
-        for row in lines[1:]:
-            parts = row.split(",")
-            for i in keep_idx:
-                if i >= len(parts) or not parts[i]:
-                    continue
-                try:
-                    total += float(parts[i])
-                except ValueError:
-                    continue
-        return total
+        return _sum_csv_dispatch(csv)
     pq = run_dir / "output" / "Generator" / "generation_sol.parquet"
     if pq.is_file():
-        try:
-            import pyarrow.parquet as papq  # type: ignore[import-not-found]
-        except ImportError:
+        if papq is None:
             return None
         tbl = papq.read_table(pq).to_pydict()
         # Long form: a ``value`` column.
@@ -435,14 +432,12 @@ def test_sienna_vs_gtopt_objective_finite(slug: str, tmp_path: Path) -> None:
     gtopt_obj = _read_obj_value(run_dir)
 
     assert gtopt_obj is not None, "no obj_value in gtopt solution.csv"
-    import math
-
     assert math.isfinite(gtopt_obj), f"gtopt obj non-finite: {gtopt_obj}"
 
 
 @pytest.mark.julia_oracle
 @pytest.mark.skipif(shutil.which("julia") is None, reason="julia not on PATH")
-def test_golden_versions_match_expected(tmp_path: Path) -> None:
+def test_golden_versions_match_expected() -> None:
     """Sanity: every Julia golden records PSI/PSY/HiGHS versions.
 
     This is a metadata check on the goldens themselves — ensures the

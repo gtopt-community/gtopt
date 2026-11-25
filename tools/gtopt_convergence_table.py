@@ -347,8 +347,9 @@ LOG_ITER_VALS_RE = re.compile(
     r"[Uu][Bb]=(?P<ub>[\d.eE+\-]+[KMG]?)\s+"
     r"[Ll][Bb]=(?P<lb>[\d.eE+\-]+[KMG]?)\s+"
     r"[Gg]ap=\s*(?P<gap>[+\-]?[\d.]+)%\s+"
-    r"Δ[Gg]ap=\s*(?P<dgap>[+\-]?[\d.]+)%\s+"
-    r"kappa=(?P<k>[\d.eE+\-]+)"
+    r"Δ[Gg]ap=\s*(?P<dgap>[+\-]?[\d.]+)%"
+    # kappa is absent when gtopt runs with kappa_mode=off (or no value).
+    r"(?:\s+kappa=(?P<k>[\d.eE+\-]+))?"
 )
 LOG_LEVEL_SUMMARY_RE = re.compile(
     r"Cascade \[(?P<level>[^\]]+)\]:\s+(?P<n>\d+)\s+iters.*?"
@@ -507,7 +508,7 @@ def parse_log(log_file: Path) -> tuple[list[IterRow], list[dict]]:
                 delta_gap = None
             try:
                 kappa = float(m.group("k"))
-            except ValueError:
+            except (TypeError, ValueError):
                 kappa = None
             meta = last_iter_meta.get(i, {})
             ts = meta.get("ts") or _parse_log_timestamp(line)
@@ -650,7 +651,7 @@ def render_table(
         )
         out.append("")
 
-    bar = "═" * width
+    rule = "═" * width
     sep = "─" * width
     # Two Δgap columns:
     #   Δgap(gt)   = gtopt's WINDOWED stationary metric parsed from
@@ -711,7 +712,7 @@ def render_table(
     display_iter = stats[0].rows[0].iter
     for lvl in stats:
         c = lvl.cfg
-        out.append(f"  {bar}")
+        out.append(f"  {rule}")
         header_fields = []
         if c.max_iterations is not None:
             header_fields.append(f"max_iters={c.max_iterations}")

@@ -80,10 +80,13 @@ main() {
   say "Configuring (Release)"
   local -a solver_args=() solver_env=()
   solver_cmake_args
+  # User installs may take a distro HiGHS newer than the CI pin
+  # (install_highs accepts apt >= the pin); only CI/goldens need the pin.
   run env CC="$CC" CXX="$CXX" "${solver_env[@]}" \
     "$cmake" -S "$src/standalone" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
-    -DCMAKE_PREFIX_PATH="$prefix" "${solver_args[@]}"
+    -DCMAKE_PREFIX_PATH="$prefix" "${solver_args[@]}" \
+    -DGTOPT_HIGHS_ALLOW_UNPINNED=ON
   say "Building with $jobs jobs (this takes a while the first time)"
   run "$cmake" --build "$build" -j "$jobs"
 
@@ -293,27 +296,40 @@ find_cmake() {
   echo "$venv/bin/cmake"
 }
 
-# HiGHS: apt package where available (Ubuntu 25.04+, Debian 13+),
-# otherwise build the release from source into the install prefix.
+# HiGHS: the apt package when it is at least the pinned release, otherwise
+# build the pinned release from source into the install prefix (Ubuntu
+# 26.04 / Debian 13 package 1.12, older than the pin).
 # Keep tag= in sync with .github/actions/install-highs (CI pin, BUILDING.md).
 install_highs() {
-  local sudo=$1 cmake=$2 prefix=$3 jobs=$4 tag=v1.12.0
-  if apt-cache show libhighs-dev >/dev/null 2>&1; then
-    say "Installing HiGHS (apt)"
+  local sudo=$1 cmake=$2 prefix=$3 jobs=$4 tag=v1.16.0
+  local apt_ver
+  apt_ver=$(apt-cache policy libhighs-dev 2>/dev/null \
+    | awk '/Candidate:/ {print $2}')
+  if [[ -n $apt_ver && $apt_ver != "(none)" ]] \
+    && dpkg --compare-versions "$apt_ver" ge "${tag#v}"; then
+    say "Installing HiGHS $apt_ver (apt)"
     # `highs` provides the binary that the libhighs-dev CMake config requires.
     run $sudo apt-get install -y -q --no-install-recommends libhighs-dev highs
     return
   fi
-  if [[ -e $prefix/include/highs/Highs.h ]]; then
-    say "HiGHS already installed in $prefix"
+  local hdr=$prefix/include/highs/HConfig.h have=""
+  if [[ -e $hdr ]]; then
+    have=$(awk '/#define HIGHS_VERSION_(MAJOR|MINOR|PATCH) /{v=v (v?".":"") $3} END{print v}' "$hdr")
+  fi
+  if [[ $have == "${tag#v}" ]] && grep -q '^#define HIPO' "$hdr"; then
+    say "HiGHS $have (with HiPO) already installed in $prefix"
     return
   fi
   local tmp
   tmp=$(mktemp -d)
-  say "Building HiGHS $tag from source (not packaged for this release)"
+  say "Building HiGHS $tag from source (no package at or above ${tag#v})"
   run git clone -q --depth 1 --branch "$tag" https://github.com/ERGO-Code/HiGHS.git "$tmp/HiGHS"
+  # -DHIPO=ON: the parallel interior-point solver (gtopt's `barrier`
+  # algorithm); -DBUILD_OPENBLAS=ON fetches + builds the OpenBLAS it needs
+  # (installed next to libhighs, with the libhighs_extras plugin).
   run "$cmake" -S "$tmp/HiGHS" -B "$tmp/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON -DFAST_BUILD=ON -DBUILD_TESTING=OFF \
+    -DHIPO=ON -DBUILD_OPENBLAS=ON -DCMAKE_INSTALL_LIBDIR=lib \
     -DCMAKE_INSTALL_PREFIX="$prefix"
   run "$cmake" --build "$tmp/build" -j "$jobs"
   run $PSUDO "$cmake" --install "$tmp/build"
@@ -669,7 +685,7 @@ prune_plugins() {
     want "$s" && continue
     f="$prefix/lib/gtopt/plugins/$(plugin_file "$s")"
     if ((DRY)) || [[ -e $f ]]; then
-      run $psudo rm -f "$f"
+      run $psudo rm -f "$f" "$f.build-id"
     fi
   done
 }

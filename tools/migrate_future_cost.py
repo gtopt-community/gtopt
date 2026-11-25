@@ -35,7 +35,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 # pylint: disable=wrong-import-position
-from gtopt_shared.future_cost import (  # noqa: E402
+from gtopt_shared.future_cost import (
     LEGACY_ALIASES,
     ensure_future_cost,
     legacy_keys_present,

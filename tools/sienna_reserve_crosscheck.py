@@ -35,7 +35,15 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from typing import Any
+
+# stdlib zstd (Python 3.14+); older interpreters use the zstandard wheel.
+_zstd: ModuleType | None
+try:
+    from compression import zstd as _zstd  # type: ignore[import-not-found,unused-ignore]
+except ImportError:
+    _zstd = None
 
 _TOOLS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOLS_DIR.parent
@@ -133,19 +141,16 @@ def _read_text(path: Path) -> str:
     """Text of a gtopt CSV output, decompressing ``*.csv.zst`` (the default)."""
     if path.suffix != ".zst":
         return path.read_text()
-    try:
-        from compression import zstd  # type: ignore[import-not-found,unused-ignore]  # 3.14+
+    if _zstd is not None:
+        return _zstd.decompress(path.read_bytes()).decode()
+    import zstandard  # pylint: disable=import-outside-toplevel
 
-        return zstd.decompress(path.read_bytes()).decode()
-    except ImportError:
-        import zstandard  # pylint: disable=import-outside-toplevel
-
-        return (
-            zstandard.ZstdDecompressor()
-            .decompressobj()
-            .decompress(path.read_bytes())
-            .decode()
-        )
+    return (
+        zstandard.ZstdDecompressor()
+        .decompressobj()
+        .decompress(path.read_bytes())
+        .decode()
+    )
 
 
 def read_field(

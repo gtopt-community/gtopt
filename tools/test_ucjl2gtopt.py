@@ -177,7 +177,6 @@ def _run_converter(
         capture_output=True,
         text=True,
         check=False,
-        timeout=30,
     )
 
 
@@ -192,30 +191,64 @@ def _find_gtopt_binary() -> str | None:
     return shutil.which("gtopt")
 
 
-def _mip_solver_name(gtopt_bin: str) -> str | None:
-    """Return the first MIP-capable solver listed by ``gtopt --solvers``.
+# Solvers that can solve the integer commitment model.  CLP is LP-only and
+# is never used for a MIP (it would silently solve the relaxation).
+_MIP_SOLVERS = frozenset(
+    {"highs", "cplex", "gurobi", "mindopt", "scip", "cbc", "cuopt"}
+)
+# Fallback preference when ``GTOPT_SOLVER`` does not name a usable MIP
+# solver: HiGHS is the reference open-source MIP solver (parallel MIP by
+# default), CPLEX the commercial one the UC.jl goldens were solved with.
+_MIP_SOLVER_PREFERENCE = ("highs", "cplex", "gurobi", "mindopt", "scip", "cbc")
 
-    ``None`` when no CPLEX / Gurobi / MindOpt plugin is loaded.
+
+def _available_solvers(gtopt_bin: str) -> list[str]:
+    """Solver names listed by ``gtopt --solvers`` (empty when it fails).
+
+    The listing is the indented block after ``Available LP solvers:``;
+    plugin-load log lines (which also mention solver names in paths) are
+    ignored.  The 60 s limit guards this administrative probe only.
     """
     try:
         proc = subprocess.run(
             [gtopt_bin, "--solvers"],
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=60,
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return None
-    output = (proc.stdout + proc.stderr).lower()
-    for name in ("cplex", "gurobi", "mindopt"):
-        if name in output:
-            return name
-    return None
+        return []
+    names: list[str] = []
+    in_list = False
+    for line in (proc.stdout + proc.stderr).splitlines():
+        if line.strip().lower().startswith("available lp solvers"):
+            in_list = True
+            continue
+        if in_list:
+            if not line.startswith((" ", "\t")) or not line.strip():
+                break
+            names.append(line.strip().split()[0].lower())
+    return names
+
+
+def _mip_solver_name(gtopt_bin: str) -> str | None:
+    """MIP solver to pin for the integer tests, or ``None`` if there is none.
+
+    ``$GTOPT_SOLVER`` wins when it names a MIP-capable solver that is
+    loaded; otherwise the first loaded solver of
+    ``_MIP_SOLVER_PREFERENCE``.  An ambient ``GTOPT_SOLVER=clp`` (LP
+    only) falls through to the preference list.
+    """
+    available = _available_solvers(gtopt_bin)
+    env = os.environ.get("GTOPT_SOLVER", "").strip().lower()
+    if env in _MIP_SOLVERS and env in available:
+        return env
+    return next((n for n in _MIP_SOLVER_PREFERENCE if n in available), None)
 
 
 def _has_mip_solver(gtopt_bin: str) -> bool:
-    """``gtopt --solvers`` lists CPLEX / Gurobi when a MIP solver is loaded."""
+    """True when ``gtopt --solvers`` lists a MIP-capable solver."""
     return _mip_solver_name(gtopt_bin) is not None
 
 
@@ -230,7 +263,11 @@ def _require_mip_solver(gtopt_bin: str) -> str:
     """
     name = _mip_solver_name(gtopt_bin)
     if name is None:
-        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+        pytest.skip(
+            "no MIP solver plugin loaded (need one of "
+            + ", ".join(_MIP_SOLVER_PREFERENCE)
+            + ")"
+        )
     return name
 
 
@@ -309,69 +346,82 @@ def _read_uid_column_csv(
 
     # Long layout: header is `scenario, stage, block, uid, value`.
     if "uid" in header and "value" in header:
-        scn_idx = header.index("scenario") if "scenario" in header else -1
-        stg_idx = header.index("stage") if "stage" in header else -1
-        blk_idx = header.index("block") if "block" in header else -1
-        uid_idx = header.index("uid")
-        val_idx = header.index("value")
-
-        if expected_blocks is not None:
-            # gtopt's long output drops exact-zero ``(block)`` rows, and an
-            # entire block can be all-zero across every uid (no rows at all)
-            # — so the dense per-block grid must come from the known block
-            # count, not the file.  Blocks are 1-based per (scenario, stage);
-            # these ``*_s0_p0`` files hold a single scenario/stage.
-            vec = [0.0] * expected_blocks
-            for r in rows[1:]:
-                if not r[uid_idx] or not r[val_idx]:
-                    continue
-                if int(float(r[uid_idx])) != gen_uid:
-                    continue
-                blk = int(float(r[blk_idx])) if blk_idx >= 0 and r[blk_idx] else 1
-                if 1 <= blk <= expected_blocks:
-                    vec[blk - 1] = float(r[val_idx])
-            return vec
-
-        def _row_key(r: list[str]) -> tuple[int, int, int]:
-            return (
-                int(float(r[scn_idx])) if scn_idx >= 0 and r[scn_idx] else 0,
-                int(float(r[stg_idx])) if stg_idx >= 0 and r[stg_idx] else 0,
-                int(float(r[blk_idx])) if blk_idx >= 0 and r[blk_idx] else 0,
-            )
-
-        # Collect the union of `(scenario, stage, block)` tuples seen
-        # in the file (insertion order preserved via dict).  This gives
-        # us the full grid the writer would have emitted under wide
-        # form.  All-zero rows are dropped per uid, but at least one
-        # uid in any given cell must be non-zero — otherwise gtopt
-        # wouldn't have produced any rows for that cell either.
-        all_keys: dict[tuple[int, int, int], None] = {}
-        uid_values: dict[tuple[int, int, int], float] = {}
-        for r in rows[1:]:
-            if not r[uid_idx] or not r[val_idx]:
-                continue
-            key = _row_key(r)
-            all_keys[key] = None
-            if int(float(r[uid_idx])) == gen_uid:
-                uid_values[key] = float(r[val_idx])
-
-        if not all_keys:
-            return []
-        # ``all_keys`` is populated in CSV-row order, but gtopt's
-        # long-form writer is NOT required to emit rows sorted by
-        # ``(scenario, stage, block)`` — they're written in the
-        # iteration order of the underlying ``STBIndexHolder`` /
-        # ``GSTBIndexHolder`` (in practice grouped by uid, with each
-        # uid's rows in block-arrival order, which can put block-2
-        # rows before any block-1 row if block-1 was dropped as the
-        # exact-zero pad).  Walking the dict in insertion order
-        # would then return ``[block-2-value, block-1-value]`` for
-        # any uid whose dispatch is non-zero in block-2 only.
-        # Sort lexicographically by ``(scenario, stage, block)`` so
-        # the returned list is always block-ordered.
-        return [uid_values.get(k, 0.0) for k in sorted(all_keys)]
+        return _read_long_uid_rows(header, rows[1:], gen_uid, expected_blocks)
 
     return []
+
+
+def _read_long_uid_rows(
+    header: list[str],
+    body: list[list[str]],
+    gen_uid: int,
+    expected_blocks: int | None,
+) -> list[float]:
+    """Dense per-block values of ``gen_uid`` from a long-layout CSV body.
+
+    See ``_read_uid_column_csv`` for the zero-padding contract.
+    """
+    scn_idx = header.index("scenario") if "scenario" in header else -1
+    stg_idx = header.index("stage") if "stage" in header else -1
+    blk_idx = header.index("block") if "block" in header else -1
+    uid_idx = header.index("uid")
+    val_idx = header.index("value")
+
+    if expected_blocks is not None:
+        # gtopt's long output drops exact-zero ``(block)`` rows, and an
+        # entire block can be all-zero across every uid (no rows at all)
+        # — so the dense per-block grid must come from the known block
+        # count, not the file.  Blocks are 1-based per (scenario, stage);
+        # these ``*_s0_p0`` files hold a single scenario/stage.
+        vec = [0.0] * expected_blocks
+        for r in body:
+            if not r[uid_idx] or not r[val_idx]:
+                continue
+            if int(float(r[uid_idx])) != gen_uid:
+                continue
+            blk = int(float(r[blk_idx])) if blk_idx >= 0 and r[blk_idx] else 1
+            if 1 <= blk <= expected_blocks:
+                vec[blk - 1] = float(r[val_idx])
+        return vec
+
+    def _row_key(r: list[str]) -> tuple[int, int, int]:
+        return (
+            int(float(r[scn_idx])) if scn_idx >= 0 and r[scn_idx] else 0,
+            int(float(r[stg_idx])) if stg_idx >= 0 and r[stg_idx] else 0,
+            int(float(r[blk_idx])) if blk_idx >= 0 and r[blk_idx] else 0,
+        )
+
+    # Collect the union of `(scenario, stage, block)` tuples seen
+    # in the file (insertion order preserved via dict).  This gives
+    # us the full grid the writer would have emitted under wide
+    # form.  All-zero rows are dropped per uid, but at least one
+    # uid in any given cell must be non-zero — otherwise gtopt
+    # wouldn't have produced any rows for that cell either.
+    all_keys: dict[tuple[int, int, int], None] = {}
+    uid_values: dict[tuple[int, int, int], float] = {}
+    for r in body:
+        if not r[uid_idx] or not r[val_idx]:
+            continue
+        key = _row_key(r)
+        all_keys[key] = None
+        if int(float(r[uid_idx])) == gen_uid:
+            uid_values[key] = float(r[val_idx])
+
+    if not all_keys:
+        return []
+    # ``all_keys`` is populated in CSV-row order, but gtopt's
+    # long-form writer is NOT required to emit rows sorted by
+    # ``(scenario, stage, block)`` — they're written in the
+    # iteration order of the underlying ``STBIndexHolder`` /
+    # ``GSTBIndexHolder`` (in practice grouped by uid, with each
+    # uid's rows in block-arrival order, which can put block-2
+    # rows before any block-1 row if block-1 was dropped as the
+    # exact-zero pad).  Walking the dict in insertion order
+    # would then return ``[block-2-value, block-1-value]`` for
+    # any uid whose dispatch is non-zero in block-2 only.
+    # Sort lexicographically by ``(scenario, stage, block)`` so
+    # the returned list is always block-ordered.
+    return [uid_values.get(k, 0.0) for k in sorted(all_keys)]
 
 
 def _read_commitment_status(
@@ -406,17 +456,14 @@ def _solve(
         # GTOPT_SOLVER env) — used by MIP tests to stay MIP-capable
         # under CI's ambient clp export.
         cmd += ["--solver", solver]
+    # No timeout: a solve is compute (project rule) — a slow case is
+    # marked ``slow`` instead of being time-limited.
     proc = subprocess.run(
         cmd,
         cwd=str(tmp_run),
         capture_output=True,
         text=True,
         check=False,
-        # Generous: the RTS-GMLC MIP solves in seconds unloaded but has
-        # been observed past 180 s when the full ctest suite saturates
-        # every core around this entry (`ctest -j` runs
-        # scripts-ucjl2gtopt-integration alongside the C++ tests).
-        timeout=600,
     )
     log = proc.stdout + proc.stderr
     if proc.returncode != 0:
@@ -897,7 +944,10 @@ def test_real_case14_base_commitment_field_mapping(tmp_path: Path) -> None:
     assert c1["hot_start_cost"] == 1000.0
     assert c1["warm_start_cost"] == 1500.0
     assert c1["cold_start_cost"] == 2000.0
-    assert c1["hot_start_time"] == 1.0
+    # UC.jl delays [1, 2, 3]: category s covers d_s <= offline < d_{s+1},
+    # so hot is offline < d_2 = 2 and cold is offline >= d_3 = 3
+    # (``test_startup_tiers_follow_ucjl_delays``).
+    assert c1["hot_start_time"] == 2.0
     assert c1["cold_start_time"] == 3.0
     # Piecewise heat-rate segmentation moved to Generator after the
     # 16fbdde45 Commitment refactor.  The slopes are paired with a
@@ -1114,10 +1164,11 @@ def test_real_case14_base_mip_full_network_status_clean_binary(
       1. The MIP solves (no infeasible exit).
       2. Every ``status_sol`` value is a clean integer (within 1e-6 of 0
          or 1) — the smoking-gun pre-fix value was 0.947 caps.
-      3. The MIP objective matches the LP-relaxation objective for the
-         same case (both equal -372 186.71).  A non-matching obj would
-         indicate the MIP found a worse integer corner than the LP
-         bound, which would re-open the regression.
+      3. The MIP objective equals UC.jl's own optimum for the same case
+         (``31 713.29`` = UC.jl golden ``11 713.29`` + the ``20 000``
+         ps1 revenue baseline, see below).  A worse obj would indicate
+         the MIP landed on a worse integer corner, which would re-open
+         the regression.
 
     Skipped when no MIP solver plugin is loaded.
     """
@@ -1149,19 +1200,32 @@ def test_real_case14_base_mip_full_network_status_clean_binary(
                 f"bug in apply_ruiz_scaling has regressed"
             )
 
-    # Invariant: MIP optimum reaches the LP-relax bound (no integer gap).
-    # Pre-fix the MIP couldn't reach physical u = 1 on g1/g2 so the optimal
-    # MIP was a strictly worse integer corner with obj ≈ +4 079 092 (curtail
-    # 40 MW × $100 K/MW).  Post-fix the MIP attains the LP-relax obj.
-    # -372 186.71 since 99d4c146 (native set_obj_offset): the pre-offset
-    # MIP path terminated on a suboptimal incumbent that curtailed
-    # 32.5 MW and reported -370 323.33, 1 863.38 above the LP-relax
-    # bound; with the objective constant folded natively the MIP lands
-    # exactly on the LP-relax objective (zero integrality gap).
-    assert obj == pytest.approx(-372_186.71, abs=1.0), (
-        f"MIP obj = {obj}, expected ≈ -372 186.71 (matches LP-relax) — "
-        f"a positive obj near +4 M would indicate the integer-scaling "
-        f"regression where MIP can't commit g1/g2 and curtails instead"
+    # Invariant: the MIP reaches UC.jl's optimum.  Pre-fix the MIP
+    # couldn't reach physical u = 1 on g1/g2 so the optimal MIP was a
+    # strictly worse integer corner with obj ≈ +4 079 092 (curtail
+    # 40 MW × $100 K/MW).
+    #
+    # 31 713.29 = UC.jl golden objective 11 713.29 (CPLEX) + 20 000:
+    # UC.jl books the price-sensitive load ps1 (50 MW × 4 h at
+    # $100/MWh) as revenue −100·served, gtopt as a curtailment cost
+    # +100·unserved, so the two objectives differ by exactly
+    # 100 × 200 MWh.  Pin history:
+    #   * -372 186.71 until 7fd5b5fbe added the met soft-reserve
+    #     valuation (r1: 1000 $/MW × 100 MW × 4 h = +400 000) to the
+    #     objective constant;
+    #   * that pin also relied on g2's 2-tier start being FREE (the
+    #     converter emitted no warm_start_cost; gtopt skipped the tiers
+    #     until 8db823d0e priced such a start at the largest tier);
+    #   * once g2's start cost 4 000, gtopt's missing reserve term in
+    #     the startup limit let g3 start at 68 MW + 32 MW reserve
+    #     (UC.jl caps p + r at SU = 70 on a start), giving 29 576.67;
+    #     the converter now emits UC.jl's startup-limit row and gtopt
+    #     lands exactly on UC.jl's optimum.
+    assert obj == pytest.approx(31_713.29, abs=1.0), (
+        f"MIP obj = {obj}, expected ≈ 31 713.29 (UC.jl optimum + ps1 "
+        f"revenue baseline) — a positive obj near +4 M would indicate the "
+        f"integer-scaling regression where MIP can't commit g1/g2 and "
+        f"curtails instead"
     )
 
     # Invariant: g1 is committed in every block (matches UC.jl's pinned
@@ -1217,9 +1281,9 @@ def test_real_case14_base_mip_full_network_row_max_equilibration(
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0, f"MIP exit status = {status}, expected 0"
-    # -372 186.71 since 99d4c146 (native set_obj_offset) — see
+    # UC.jl optimum + ps1 revenue baseline — see
     # test_real_case14_base_mip_full_network_status_clean_binary.
-    assert obj == pytest.approx(-372_186.71, abs=1.0)
+    assert obj == pytest.approx(31_713.29, abs=1.0)
 
     for gen_uid in range(1, 7):
         status_per_block = _read_commitment_status(
@@ -1301,12 +1365,15 @@ def test_real_case14_congested_mip_full_network(tmp_path: Path) -> None:
       * Every ``status_sol`` value is a clean 0/1 integer (guards the
         column-scaling fix on a different load / cost profile from
         ``case14/base``).
-      * gtopt MIP obj = ``+29 126 081.23`` — the high positive value
-        reflects ``demand_fail`` curtailment that the tightened line
-        limits make unavoidable in single-scenario mode.  UC.jl's
-        stochastic test pairs this case with ``base.json`` and pins
-        per-scenario production patterns; we don't model the stochastic
-        coupling, so the single-scenario optimum is independent.
+      * gtopt MIP obj = ``47 090.64`` = UC.jl's own optimum
+        (golden ``27 090.64``) + the ``20 000`` ps1 revenue baseline
+        (UC.jl books ps1 as revenue −100·served, gtopt as curtailment
+        cost +100·unserved; 50 MW × 4 h × $100).  History: ``-356 537.79``
+        until 7fd5b5fbe added the met soft-reserve valuation (+400 000)
+        to the objective constant, with g2's 2-tier start still free
+        (fixed by 8db823d0e); the exact UC.jl match needs the
+        converter's UC.jl startup-limit row ``p + r ≤ SU`` on a start
+        (see ``test_real_case14_base_mip_full_network_status_clean_binary``).
 
     Skipped when no MIP solver plugin is loaded.
     """
@@ -1323,7 +1390,7 @@ def test_real_case14_congested_mip_full_network(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0, f"MIP exit status = {status}"
-    assert obj == pytest.approx(-356_537.79, rel=1e-5)
+    assert obj == pytest.approx(47_090.64, rel=1e-5)
 
     # Clean-binary invariant (column-scaling-fix regression anchor).
     for gen_uid in range(1, 7):
@@ -1349,14 +1416,14 @@ def test_real_case14_flex_mip_full_network(tmp_path: Path) -> None:
     which the converter maps to **bidirectional** ReserveZone +
     ReserveProvision (urreq = drreq = Amount, urcost = drcost =
     penalty; providers get both ur_provision_factor and
-    dr_provision_factor).  The LP then earns the symmetric reserve
-    credit on both directions, pushing the obj strongly negative.
+    dr_provision_factor).
 
     Pins:
 
       * Solver status 0.
       * Every ``status_sol`` is clean 0/1.
-      * gtopt MIP obj ≈ ``-1 061 114.62``.
+      * gtopt MIP obj ≈ ``43 918.10`` = UC.jl's own optimum (golden
+        ``23 918.10``) + the ``20 000`` ps1 revenue baseline.
       * g1 status = ``[1, 1, 1, 1]`` (consistent across base / flex —
         g1 is always the cheapest base-load commit on this topology).
 
@@ -1387,7 +1454,16 @@ def test_real_case14_flex_mip_full_network(tmp_path: Path) -> None:
     # ~$1 M objective).  Both corners satisfy the same problem; this
     # tolerance accepts whichever side of the degenerate optimum the
     # current branch-and-bound walk lands on.
-    assert obj == pytest.approx(-1_062_297.50, rel=1e-3)
+    #
+    # Was ``-1 062 297.50`` (a fictitious met-reserve credit) until
+    # 7fd5b5fbe added +urcost·req to the objective constant: r1
+    # 5000 × 96.42 MW·h + r2 1000 × 70 MW·h, up and down = +1 107 215.6
+    # exactly, dispatch unchanged.  The remaining -248.63 came from
+    # gtopt's startup pricing fixes (b75123e51 prices g3's first-block
+    # start warm, 2 000, from its 6 h offline instead of cold; 8db823d0e
+    # stops g2's 2-tier start being free), after which gtopt commits g3
+    # instead of g2 and lands exactly on UC.jl's optimum.
+    assert obj == pytest.approx(43_918.10, rel=1e-3)
 
     for gen_uid in range(1, 7):
         status_per_block = _read_commitment_status(
@@ -1489,6 +1565,54 @@ def test_real_base_with_storage_topology_counts(tmp_path: Path) -> None:
         assert bats[sname]["daily_cycle"] is False
 
 
+def _base_with_storage_soft_r2(tmp_path: Path) -> Path:
+    """base_with_storage with r2's shortfall penalty -5 replaced by +5.
+
+    UC.jl reads a negative ``Shortfall penalty`` as a HARD requirement,
+    and r2 (100 MW, only g2 eligible) cannot be met: the vendored fixture
+    is infeasible in UC.jl and in gtopt
+    (``test_real_base_with_storage_hard_r2_is_infeasible``).  The
+    storage / integer-scaling tests below need a feasible system, so
+    they use this soft variant.
+    """
+    data = json.loads(_VENDORED_BASE_WITH_STORAGE.read_text())
+    data["Reserves"]["r2"]["Shortfall penalty ($/MW)"] = 5.0
+    path = tmp_path / "base_with_storage_soft_r2.json"
+    path.write_text(json.dumps(data))
+    return path
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_BASE_WITH_STORAGE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_BASE_WITH_STORAGE}",
+)
+def test_real_base_with_storage_hard_r2_is_infeasible(tmp_path: Path) -> None:
+    """The vendored fixture's r2 (penalty -5) is hard and unmeetable.
+
+    UnitCommitment.jl + HiGHS on it (collapsed to one bus, as its PTDF
+    of the 15-bus network is singular) returns no solution; with r2 soft
+    it solves.  The converter used to emit ``urcost = -5``, a shortfall
+    that EARNED 5 $/MW, which made the system feasible and cheaper.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    mip_solver = _require_mip_solver(gtopt_bin)
+
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_BASE_WITH_STORAGE, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+    zones = {
+        z["name"]: z
+        for z in json.loads(out.read_text())["system"]["reserve_zone_array"]
+    }
+    assert "urcost" not in zones["r2"]
+    assert zones["r1"]["urcost"] == 1000.0
+
+    rc, _ = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
+    assert rc != 0
+
+
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
 @pytest.mark.skipif(
     not _VENDORED_BASE_WITH_STORAGE.is_file(),
@@ -1508,7 +1632,7 @@ def test_real_base_with_storage_solves_lprelax(tmp_path: Path) -> None:
     assert gtopt_bin is not None
 
     out = tmp_path / "g.json"
-    proc = _run_converter(_VENDORED_BASE_WITH_STORAGE, out)
+    proc = _run_converter(_base_with_storage_soft_r2(tmp_path), out)
     assert proc.returncode == 0, proc.stderr
 
     rc, log = _solve(gtopt_bin, out, tmp_path / "run")
@@ -1516,7 +1640,11 @@ def test_real_base_with_storage_solves_lprelax(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj is not None and math.isfinite(obj)
+    # A true relaxation of the MIP below (143 285.28): UC.jl's
+    # when-charging / when-discharging rate floors relax to p >= 0.
+    # When they were emitted as hard every-block floors this read
+    # 143 400.38, ABOVE the MIP.  HiGHS and CPLEX agree to 1e-9.
+    assert obj == pytest.approx(143_231.35, rel=1e-6)
 
     # Battery output dir confirms the LP build instantiated the BESS
     # variables (efin / efmax / charge / discharge cols + balance rows).
@@ -1552,6 +1680,9 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
     exactly +498 000 to ``139 284.82`` when 7fd5b5fbe added the met
     soft-reserve valuation ``urcost × urreq`` to the objective constant
     (r1 1000 × 400 + r2 -5 × 400 + r3 500 × 200 MWh); dispatch unchanged.
+    Now ``143 285.28`` on the soft-r2 variant: r2's -5 $/MW (a reward
+    for shortfall, really a hard requirement in UC.jl) became +5, i.e.
+    exactly +10 × 400 MWh of r2 shortfall = +4 000; dispatch unchanged.
 
     Skipped when no MIP solver plugin is loaded.
     """
@@ -1560,7 +1691,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
     mip_solver = _require_mip_solver(gtopt_bin)
 
     out = tmp_path / "g.json"
-    proc = _run_converter(_VENDORED_BASE_WITH_STORAGE, out, "--mip")
+    proc = _run_converter(_base_with_storage_soft_r2(tmp_path), out, "--mip")
     assert proc.returncode == 0, proc.stderr
 
     rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
@@ -1578,7 +1709,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
     # solver can pick equally-optimal integer corners that float slightly
     # around the original-formulation incumbent.  See the matching comment
     # on ``test_real_case14_flex_mip_full_network``.
-    assert obj == pytest.approx(139_284.82, rel=1e-3)
+    assert obj == pytest.approx(143_285.28, rel=1e-3)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
@@ -1613,8 +1744,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
 #
 # Resulting LP shape (LP-relax): ~25 800 vars × ~28 700 rows.  MIP
 # (with the integer-column-scaling fix in place) closes the integer
-# gap to ~0.86 % (LP obj 2 082 551, MIP obj 2 100 504) in well under
-# the 180-s timeout.
+# gap to ~0.86 % (LP obj 2 082 551, MIP obj 2 100 504) in seconds.
 #
 # This is the largest UC.jl fixture in the test suite — significantly
 # bigger than the case14 / 15-bus fixtures and a meaningful workload
@@ -1678,7 +1808,7 @@ def test_real_case118_initcond_topology_counts(tmp_path: Path) -> None:
 def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
     """LP-relax solve on the 118-bus benchmark (~26 K cols × ~29 K rows).
 
-    Pins ``obj = 6 018 377.79`` (HiGHS / CPLEX / CLP agree).  A
+    Pins ``obj = 6 018 946.19`` (HiGHS / CPLEX / CLP agree).  A
     regression that drops generators or mis-builds the piecewise cost
     matrix would shift this obj materially; a regression in the
     reserve time-series path would leave the requirement unmet and
@@ -1690,7 +1820,24 @@ def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
     ``-urcost × Σ urreq`` = ``-1000 × 2 592.63 MWh`` = ``-2 592 630``;
     now ``obj`` is the real operating cost.  The LP (dispatch,
     commitment, duals) is unchanged: the shift is exactly that
-    constant.
+    constant.  It then moved from ``6 018 377.79`` by +631.06 when the
+    converter started emitting UC.jl's startup-limit row
+    ``p + r ≤ Pmax·u − (Pmax − SU)·v`` (one per unit with spinning
+    reserve and ``SU < Pmax``; 54 here): it caps energy plus reserve
+    of a unit being started, which gtopt's own startup ramp did not,
+    so the relaxed bound tightens towards the MIP optimum
+    (≈ 6 019 571).  Then from ``6 019 008.85`` to ``6 018 946.19``
+    (HiGHS and CPLEX agree to 1e-9), in three separately measured steps:
+
+      * the reserve-aware ramp rows (108 here): 0 — not binding in the
+        relaxation;
+      * startup tiers mapped as UC.jl prices them (``hot_start_time =
+        d_2``, not ``d_1``; delays ``[1,2,4]`` / ``[2,4,8]`` /
+        ``[4,8,16]``): −148.21 — restarts offline ``d_1 ≤ D < d_2`` were
+        priced warm, UC.jl prices them hot;
+      * gtopt's in-horizon tier windows made strict like the
+        initial-outage rule (offline exactly ``hot_start_time`` is warm,
+        exactly ``cold_start_time`` cold): +85.56.
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
@@ -1706,7 +1853,7 @@ def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(6_018_377.79, rel=1e-5)
+    assert obj == pytest.approx(6_018_946.19, rel=1e-5)
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
@@ -2183,7 +2330,19 @@ def test_real_case14_interface_translates_to_user_constraints(
     assert proc.returncode == 0, proc.stderr
 
     system = json.loads(out.read_text())["system"]
-    ucs = system["user_constraint_array"]
+    all_ucs = system["user_constraint_array"]
+    # The six other rows are UC.jl's reserve-aware rows of the two
+    # spinning-reserve units g2 / g3: startup limit (``SU < Pmax``), ramp
+    # up and ramp down, pinned in
+    # ``test_startup_limit_couples_spinning_reserve`` and
+    # ``test_reserve_aware_ramp_rows_match_ucjl``.
+    ucs = [uc for uc in all_ucs if uc["name"].startswith("ifc")]
+    others = sorted(uc["name"] for uc in all_ucs if uc not in ucs)
+    assert others == sorted(
+        f"{g}_{row}"
+        for g in ("g2", "g3")
+        for row in ("startup_reserve_limit", "ramp_up_reserve", "ramp_down_reserve")
+    )
     # 2 (ifc1 scalar) + 5 (ifc2 = 4 per-block upper + 1 lower) = 7.
     assert len(ucs) == 7
 
@@ -2204,9 +2363,298 @@ def test_real_case14_interface_translates_to_user_constraints(
     assert "<= 55" in expr2
     assert "for(block in {1})" in expr2
 
-    # All emitted constraints carry the soft-violation penalty.
+    # All emitted interface constraints carry the soft-violation penalty.
     for uc in ucs:
         assert uc["penalty"] == 5000.0
+
+
+def test_startup_limit_couples_spinning_reserve(tmp_path: Path) -> None:
+    """UC.jl's startup limit caps energy PLUS spinning reserve.
+
+    UC.jl (``_add_startup_shutdown_limit_eqs!``) builds, every block,
+    ``p_above + r ≤ (Pmax − Pmin)·u − max(0, Pmax − SU)·v``.  gtopt's
+    startup ramp caps only ``p`` on a start, so the converter emits the
+    row as a hard UserConstraint per unit with an up-only spinning
+    reserve and ``SU < Pmax``.  Without it a unit started this block can
+    carry ``SU`` MW of energy and reserve up to Pmax on top: on
+    case14/base and case14/congested gtopt then starts g3 at 68–70 MW
+    with 30–32 MW reserve (UC.jl allows 70 MW in total) instead of
+    committing g2, and misses UC.jl's optimum.
+
+    Pins, on case14/congested: one row each for g2 (Pmax 140, SU 98)
+    and g3 (Pmax 100, SU 70), none for g4 / g5 / g6 (no startup limit),
+    no penalty (hard), and the exact coefficients.  The reserve-aware
+    ramp rows are pinned in ``test_reserve_aware_ramp_rows_*`` and the
+    startup tiers in ``test_startup_tiers_follow_ucjl_delays``.
+    """
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_CONGESTED, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+    system = json.loads(out.read_text())["system"]
+
+    rows = {
+        uc["name"]: uc
+        for uc in system["user_constraint_array"]
+        if uc["name"].endswith("_startup_reserve_limit")
+    }
+    assert sorted(rows) == ["g2_startup_reserve_limit", "g3_startup_reserve_limit"]
+    for row in rows.values():
+        assert "penalty" not in row
+    assert rows["g2_startup_reserve_limit"]["expression"] == (
+        "generator('g2').generation + reserve_provision('g2_rp').up"
+        " - 140.0 * commitment('g2_uc').status"
+        " + 42.0 * commitment('g2_uc').startup <= 0"
+    )
+    assert rows["g3_startup_reserve_limit"]["expression"] == (
+        "generator('g3').generation + reserve_provision('g3_rp').up"
+        " - 100.0 * commitment('g3_uc').status"
+        " + 30.0 * commitment('g3_uc').startup <= 0"
+    )
+
+
+def test_startup_tiers_follow_ucjl_delays(tmp_path: Path) -> None:
+    """UC.jl startup categories map onto gtopt hot / warm / cold tiers.
+
+    UC.jl charges category ``s`` when the unit has been offline
+    ``d_s ≤ D < d_{s+1}`` periods (the last one for ``D ≥ d_S``); gtopt
+    prices hot for offline ``< hot_start_time``, warm up to
+    ``cold_start_time``, cold beyond.  So ``hot_start_time = d_2`` and
+    ``cold_start_time = d_S`` — not ``d_1`` (the converter used to emit
+    ``d_1``, which priced a start after ``d_1 ≤ D < d_2`` hours warm
+    instead of hot, and one after exactly ``d_S − 1`` … ``d_S`` hours
+    with the wrong tier).  A 2-category unit gets an empty warm window
+    (``hot_start_time = cold_start_time = d_2``) and a complete tier set,
+    so gtopt neither skips the tiers nor falls back to pricing every
+    start at the largest cost.
+    """
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_CONGESTED, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+    commitments = {
+        c["name"]: c for c in json.loads(out.read_text())["system"]["commitment_array"]
+    }
+    fields = (
+        "hot_start_cost",
+        "warm_start_cost",
+        "cold_start_cost",
+        "hot_start_time",
+        "cold_start_time",
+    )
+    # g1: delays [1, 2, 3], costs [1000, 1500, 2000].
+    assert [commitments["g1_uc"][f] for f in fields] == [1000, 1500, 2000, 2, 3]
+    # g2: delays [1, 4], costs [3000, 4000] — 2 categories.
+    assert [commitments["g2_uc"][f] for f in fields] == [3000, 3000, 4000, 4, 4]
+    # g3: delays [1, 4, 8], costs [1000, 2000, 3000].
+    assert [commitments["g3_uc"][f] for f in fields] == [1000, 2000, 3000, 4, 8]
+    # g4..g6 carry no startup data.
+    for name in ("g4_uc", "g5_uc", "g6_uc"):
+        assert not any(f in commitments[name] for f in fields)
+        assert "startup_cost" not in commitments[name]
+
+
+def _ramp_case(loads: list[float], p0: float, ramp_up: float, ramp_down: float) -> dict:
+    """One-bus UC.jl case: cheap ramp-limited gA carries the reserve.
+
+    gA (10 $/MWh, spinning-reserve eligible) and gB (100 $/MWh, not
+    eligible) start online; the 20 MW spinning requirement sits on gA,
+    so UC.jl's reserve-aware ramp rows decide how much gA may move.
+    """
+    return {
+        "Parameters": {
+            "Version": "0.4",
+            "Time horizon (h)": len(loads),
+            "Power balance penalty ($/MW)": 1e6,
+        },
+        "Buses": {"b1": {"Load (MW)": loads}},
+        "Generators": {
+            "gA": {
+                "Bus": "b1",
+                "Type": "Thermal",
+                "Production cost curve (MW)": [0, 200],
+                "Production cost curve ($)": [0, 2000],
+                "Ramp up limit (MW)": ramp_up,
+                "Ramp down limit (MW)": ramp_down,
+                "Initial status (h)": 10,
+                "Initial power (MW)": p0,
+                "Reserve eligibility": ["r1"],
+            },
+            "gB": {
+                "Bus": "b1",
+                "Type": "Thermal",
+                "Production cost curve (MW)": [0, 200],
+                "Production cost curve ($)": [0, 20000],
+                "Initial status (h)": 10,
+                "Initial power (MW)": 0,
+            },
+        },
+        "Reserves": {
+            "r1": {
+                "Type": "Spinning",
+                "Amount (MW)": 20,
+                "Shortfall penalty ($/MW)": 1e5,
+            }
+        },
+    }
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.parametrize(
+    ("loads", "p0", "ramp_up", "ramp_down", "row", "expression", "ucjl_obj"),
+    [
+        # Ramp up 50 -> 100 MW with RU 60: p2 + r2 - p1 <= 60 holds gA
+        # at 90 MW, gB covers 10 MW (without the row gA ramps to 100).
+        (
+            [50.0, 100.0],
+            50.0,
+            60.0,
+            1000.0,
+            "gA_ramp_up_reserve",
+            (
+                "generator('gA').generation + reserve_provision('gA_rp').up"
+                " - generator('gA').generation_prev <= 60.0, for(block in 2..2)"
+            ),
+            2400.0,
+        ),
+        # Ramp down 100 -> 70 MW with RD 40: p1 + r1 - p2 <= 40 caps gA
+        # at 90 MW in block 1, gB covers 10 MW (without it gA does 100).
+        (
+            [100.0, 70.0],
+            100.0,
+            1000.0,
+            40.0,
+            "gA_ramp_down_reserve",
+            (
+                "generator('gA').generation_prev"
+                " + reserve_provision('gA_rp').up_prev"
+                " - generator('gA').generation <= 40.0, for(block in 2..2)"
+            ),
+            2600.0,
+        ),
+    ],
+    ids=["ramp_up", "ramp_down"],
+)
+def test_reserve_aware_ramp_rows_match_ucjl(
+    tmp_path: Path,
+    loads: list[float],
+    p0: float,
+    ramp_up: float,
+    ramp_down: float,
+    row: str,
+    expression: str,
+    ucjl_obj: float,
+) -> None:
+    """UC.jl's ramp limits include the spinning reserve; so must gtopt's.
+
+    UnitCommitment.jl (MorLatRam2013, ``RESERVES_WHEN_RAMP_UP/DOWN``)
+    bounds ``p_above(t) + r(t) − p_above(t−1) ≤ RU`` and
+    ``p_above(t−1) + r(t−1) − p_above(t) ≤ RD``.  gtopt's ramp rows
+    bound ``p`` alone, so the converter emits these as hard
+    UserConstraints.  ``ucjl_obj`` is UC.jl's own optimum for the same
+    JSON (UnitCommitment.jl + HiGHS: gA [50, 90] / gB [0, 10] →
+    2 400; gA [90, 70] / gB [10, 0] → 2 600); without the row gtopt
+    reaches the cheaper, UC.jl-infeasible 1 500 / 1 700.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    mip_solver = _require_mip_solver(gtopt_bin)
+
+    src = _write_ucjl(tmp_path, _ramp_case(loads, p0, ramp_up, ramp_down))
+    out = tmp_path / "g.json"
+    proc = _run_converter(src, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+    rows = {
+        uc["name"]: uc["expression"]
+        for uc in json.loads(out.read_text())["system"]["user_constraint_array"]
+    }
+    assert rows[row] == expression
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
+    assert rc == 0, log
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    # The reserve requirement is met, so its valuation cancels in the
+    # objective constant and gtopt's obj is the dispatch cost, as UC.jl's.
+    assert obj == pytest.approx(ucjl_obj, abs=1e-3)
+
+
+def _reserve_penalty_case(penalty: float | None) -> dict:
+    """One bus, 100 MW load, 150 MW spinning reserve only gA can carry.
+
+    gA (10 $/MWh, 200 MW, eligible) meets the full reserve only at
+    50 MW, leaving 50 MW to gB (2000 $/MWh): 100 500.  Short 50 MW of
+    reserve instead, gA serves the load alone: 1 000 + 50 × penalty.
+    """
+    reserve: dict = {"Type": "Spinning", "Amount (MW)": 150}
+    if penalty is not None:
+        reserve["Shortfall penalty ($/MW)"] = penalty
+    return {
+        "Parameters": {
+            "Version": "0.4",
+            "Time horizon (h)": 1,
+            "Power balance penalty ($/MW)": 1e6,
+        },
+        "Buses": {"b1": {"Load (MW)": [100.0]}},
+        "Generators": {
+            "gA": {
+                "Bus": "b1",
+                "Type": "Thermal",
+                "Production cost curve (MW)": [0, 200],
+                "Production cost curve ($)": [0, 2000],
+                "Initial status (h)": 10,
+                "Initial power (MW)": 100,
+                "Reserve eligibility": ["r1"],
+            },
+            "gB": {
+                "Bus": "b1",
+                "Type": "Thermal",
+                "Production cost curve (MW)": [0, 200],
+                "Production cost curve ($)": [0, 400000],
+                "Initial status (h)": 10,
+                "Initial power (MW)": 0,
+            },
+        },
+        "Reserves": {"r1": reserve},
+    }
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.parametrize(
+    ("penalty", "urcost", "ucjl_obj"),
+    [
+        (None, None, 100_500.0),  # UC.jl default -1: hard
+        (-5.0, None, 100_500.0),  # negative: hard
+        (1.0, 1.0, 1_050.0),  # soft, shortfall cheaper than gB
+    ],
+)
+def test_reserve_shortfall_penalty_hard_like_ucjl(
+    tmp_path: Path, penalty: float | None, urcost: float | None, ucjl_obj: float
+) -> None:
+    """A missing or negative UC.jl shortfall penalty is a HARD reserve.
+
+    UC.jl reads a missing ``Shortfall penalty ($/MW)`` as -1 and fixes
+    the shortfall of a negative-penalty reserve at 0
+    (``formulations/base/unit.jl``).  The converter used to default the
+    penalty to 1000 and pass negatives through: here 51 000 instead of
+    100 500 for the missing penalty, and 250 (a shortfall that EARNS
+    5 $/MW) for -5.  gtopt's hard form is a zone without ``urcost``.
+    ``ucjl_obj`` is UnitCommitment.jl + HiGHS on the same JSON.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    mip_solver = _require_mip_solver(gtopt_bin)
+
+    src = _write_ucjl(tmp_path, _reserve_penalty_case(penalty))
+    out = tmp_path / "g.json"
+    proc = _run_converter(src, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+    (zone,) = json.loads(out.read_text())["system"]["reserve_zone_array"]
+    assert zone.get("urcost") == urcost
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
+    assert rc == 0, log
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    assert obj == pytest.approx(ucjl_obj, rel=1e-6)
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
@@ -2349,12 +2797,27 @@ def test_real_case14_storage_battery_shape(tmp_path: Path) -> None:
     # ``Demand.{lmax,lmin}`` and discharge ``Generator.{pmax,pmin}``.
     # UC.jl per-hour lists round-trip as 2-D ``[[h0, h1, ...]]``.
     assert bats["su3"]["pmax_charge"] == [[10.0, 10.1, 10.2, 10.3]]
-    assert bats["su3"]["pmin_charge"] == [[5.0, 5.1, 5.2, 5.3]]
     assert bats["su3"]["pmax_discharge"] == [[8.0, 8.1, 8.2, 8.3]]
-    assert bats["su3"]["pmin_discharge"] == [[4.0, 4.1, 4.2, 4.3]]
+    # The minimum rates are UC.jl's when-charging / when-discharging
+    # floors: an LP solve drops them (their relaxation is p >= 0) ...
+    for sname in ("su1", "su2", "su3", "su4"):
+        assert "pmin_charge" not in bats[sname], sname
+        assert "pmin_discharge" not in bats[sname], sname
+        assert "commitment" not in bats[sname], sname
+    # ... and ``--mip`` emits them gated by ``Battery.commitment``.
+    out_mip = tmp_path / "g_mip.json"
+    proc = _run_converter(ucjl, out_mip, "--mip")
+    assert proc.returncode == 0, proc.stderr
+    bats_mip = {
+        b["name"]: b for b in json.loads(out_mip.read_text())["system"]["battery_array"]
+    }
+    assert bats_mip["su3"]["pmin_charge"] == [[5.0, 5.1, 5.2, 5.3]]
+    assert bats_mip["su3"]["pmin_discharge"] == [[4.0, 4.1, 4.2, 4.3]]
+    assert bats_mip["su3"]["commitment"] is True
     # su2 ships scalar rate floors → stay scalar.
-    assert bats["su2"]["pmin_charge"] == 5.0
-    assert bats["su2"]["pmin_discharge"] == 2.0
+    assert bats_mip["su2"]["pmin_charge"] == 5.0
+    assert bats_mip["su2"]["pmin_discharge"] == 2.0
+    assert bats_mip["su2"]["commitment"] is True
 
     # su2 ships scalar baselines + last-period overrides → 2-D schedule
     # with the broadcast baseline on the first T-1 blocks and the
@@ -2567,11 +3030,20 @@ def test_real_case14_contingency_emits_lodf_constraints(tmp_path: Path) -> None:
     )
 
     # Every UC carries the soft-violation penalty and the line.flow
-    # PAMPL syntax (no element-attribute typos).
+    # PAMPL syntax (no element-attribute typos).  The monitored line's
+    # own ``Flow limit penalty``, else UC.jl's default 5000 $/MW
+    # (instance/read.jl) — the converter used to default to 1000.
+    ucjl = json.loads(_VENDORED_CASE14_CONTINGENCY.read_text())
+    line_penalty = {
+        name: line.get("Flow limit penalty ($/MW)", 5000.0)
+        for name, line in ucjl["Transmission lines"].items()
+    }
     for uc in ucs:
         assert "line('" in uc["expression"]
         assert ".flow" in uc["expression"]
-        assert uc["penalty"] > 0.0
+        monitored = uc["expression"].split("line('", 1)[1].split("')", 1)[0]
+        assert uc["penalty"] == line_penalty[monitored]
+    assert {uc["penalty"] for uc in ucs} >= {5000.0}
 
     # ``--no-contingencies`` short-circuits the LODF pipeline entirely.
     out_off = tmp_path / "g_off.json"
@@ -2679,8 +3151,14 @@ def _run_ucjl_cross_check(
     block_mw_tol: float = 5.0,
     pinned_gens: tuple[str, ...] = (),
     forbidden_gens: tuple[str, ...] = (),
+    drop_keys: tuple[str, ...] = (),
 ) -> None:
-    """Shared body for per-fixture UC.jl golden cross-checks."""
+    """Shared body for per-fixture UC.jl golden cross-checks.
+
+    ``drop_keys`` removes top-level UC.jl sections before conversion —
+    for sections the UC.jl version that produced the golden does not
+    read, so both sides solve the same model.
+    """
     if not fixture.is_file():
         pytest.skip(f"vendored UC.jl fixture missing: {fixture}")
     golden = _load_ucjl_golden(stem)
@@ -2701,6 +3179,12 @@ def _run_ucjl_cross_check(
         ucjl_path.write_bytes(gzip.decompress(fixture.read_bytes()))
     else:
         ucjl_path = fixture
+    if drop_keys:
+        data = json.loads(ucjl_path.read_text())
+        for key in drop_keys:
+            data.pop(key, None)
+        ucjl_path = tmp_path / f"{fixture.stem}_kept.json"
+        ucjl_path.write_text(json.dumps(data))
 
     out = tmp_path / "g.json"
     proc = _run_converter(ucjl_path, out, "--mip", *extra_args)
@@ -2857,45 +3341,44 @@ def test_ucjl_golden_case14_sub_hourly(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Known divergence: gtopt's PAMPL UserConstraint for the interface "
-        "over-restricts flow (gtopt = 315 MW, UC.jl = 360 MW).  Likely the "
-        "converter's interface→UserConstraint encoding has a sign or "
-        "directional asymmetry that doesn't match UC.jl's native interface "
-        "constraint semantics."
-    ),
-)
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
 def test_ucjl_golden_case14_interface(tmp_path: Path) -> None:
-    """case14/interface: PAMPL UserConstraint enforces flow-group limit."""
+    """case14/interface: same model as the golden, i.e. without Interfaces.
+
+    The golden was solved by UnitCommitment.jl 0.4.3, whose reader has no
+    ``Interfaces`` support (``instance/read.jl`` never reads the key):
+    ``UnitCommitmentJl_case14_interface_ucjl_golden.json`` is identical to
+    the case14/congested golden, from which this fixture differs only by
+    ``Interfaces`` and the (also unread) ``Shunt devices``.  The former
+    xfail ("gtopt 315 MW vs UC.jl 360 MW, sign asymmetry in the
+    interface encoding") compared gtopt WITH the interface limits against
+    UC.jl WITHOUT them.  So the golden check drops ``Interfaces`` on the
+    gtopt side too; ``test_real_case14_interface_constraints_active_in_lp``
+    covers the interface rows themselves, and ``test_golden_case14_interface_is_unconstrained``
+    pins the golden's provenance.
+    """
     _run_ucjl_cross_check(
         tmp_path,
         "case14_interface",
         _VENDORED_CASE14_INTERFACE,
+        drop_keys=("Interfaces",),
     )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Known divergence (block 1: gtopt 340 MW thermal vs UC.jl "
-        "305 MW), now traced to a DIFFERENT root cause after the "
-        "``Converter.commitment`` conditional rate-floor landed.  The "
-        "battery side matches bit-for-bit: su2 idle in block 1 "
-        "(u_charge=u_discharge=0), su3 discharges 4 MW, etc.  The "
-        "remaining 35 MW gap comes from the price-sensitive load "
-        "``ps1`` (Revenue $100/MW, 50 MW max at b3): UC.jl partially "
-        "curtails ps1 (~35 MW unserved) because the marginal cost of "
-        "committing g3 to serve it exceeds $100/MW under UC.jl's "
-        "MIP optimum; gtopt's MIP commits g2 + maxes g4/g5 instead "
-        "and serves ps1 fully.  The objectives are within a few "
-        "hundred dollars but the dispatch patterns differ — degenerate "
-        "MIP optima on thermal commitment, not a wiring bug.  No "
-        "model-side fix; the test stays xfail as a known multi-optimum."
-    ),
-)
+def test_golden_case14_interface_is_unconstrained() -> None:
+    """The case14/interface golden is UC.jl's solution without Interfaces.
+
+    Guards the ``drop_keys`` above: if the golden is regenerated with a
+    UC.jl that enforces ``Interfaces``, it stops matching case14/congested
+    and the interface golden check must keep the interface rows again.
+    """
+    ifc = _load_ucjl_golden("case14_interface")
+    congested = _load_ucjl_golden("case14_congested")
+    if ifc is None or congested is None:
+        pytest.skip("case14 UC.jl goldens not generated")
+    assert ifc == congested
+
+
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
 def test_ucjl_golden_case14_storage(tmp_path: Path) -> None:
     """case14/storage: battery dispatch shifts thermal between blocks.
@@ -2903,6 +3386,13 @@ def test_ucjl_golden_case14_storage(tmp_path: Path) -> None:
     Looser MW tolerance because battery charge/discharge between
     blocks can vary across solvers while preserving the global energy
     balance.
+
+    Was xfail ("degenerate multi-optimum", block 1 gtopt 340 MW vs
+    UC.jl 305 MW).  It was not degenerate: gtopt's startup limit left
+    the spinning reserve out, so a unit being started could exceed
+    UC.jl's ``p + r ≤ SU``.  With the converter's UC.jl startup-limit
+    row block 1 is 305 MW as in UC.jl (335 MW without it), and the
+    check passes under CPLEX and HiGHS.
     """
     _run_ucjl_cross_check(
         tmp_path,
@@ -2978,9 +3468,15 @@ def test_ucjl_golden_base_with_storage(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
 def test_ucjl_golden_rts_gmlc(tmp_path: Path) -> None:
-    """rts_gmlc: large profile-heavy fixture; loose MW tolerance."""
+    """rts_gmlc: large profile-heavy fixture; loose MW tolerance.
+
+    ``slow``: the MIP takes seconds under CPLEX but many minutes under
+    HiGHS (the default MIP solver), so it runs only with
+    ``GTOPT_RUN_SLOW=1`` / ``-m slow`` rather than under a time limit.
+    """
     _run_ucjl_cross_check(
         tmp_path,
         "rts_gmlc",

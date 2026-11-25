@@ -146,7 +146,10 @@ APT_DOCS=(
   doxygen latexmk
   texlive-latex-base texlive-latex-recommended texlive-latex-extra
   texlive-science texlive-publishers texlive-pictures
-  texlive-fonts-recommended
+  texlive-fonts-recommended texlive-bibtex-extra
+  # --no-install-recommends drops these; the white papers need them
+  # (plain-generic macros pulled by tikz/xurl, cm-super T1 fonts).
+  texlive-plain-generic cm-super
 )
 # Graphviz >= 14 (Ubuntu 26.04+) ships the neato layout engine -- the
 # gtopt_diagram default -- as a separate plugin package; without it the

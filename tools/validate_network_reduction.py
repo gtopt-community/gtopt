@@ -70,6 +70,7 @@ try:
 except ImportError as exc:  # pragma: no cover
     sys.exit(f"pandapower required; install with `pip install pandapower>=2.13`: {exc}")
 
+# pylint: disable=wrong-import-position
 from gtopt2pp.convert import convert, load_gtopt_case
 from gtopt_reduce_network import load_case, save_case
 from gtopt_reduce_network._reduce import ReduceConfig, reduce_case
@@ -318,7 +319,7 @@ def run_compare(
             loss_mode="uplift",
             loss_uplift_pct=args.uplift_pct,
         )
-        results = []
+        results: dict[str, Indices | None] = {}
         for label, cfg in (("baseline", baseline_cfg), ("tu", tu_cfg)):
             red = reduce_case(case_obj, cfg)
             red_path = workdir / f"{label}_K{K}.json"
@@ -326,21 +327,19 @@ def run_compare(
             red_dict = load_gtopt_case(red_path)
             red_net = solve_dc_opf(red_dict)
             if red_net is None:
-                results.append(None)
+                results[label] = None
                 continue
-            results.append(
-                compute_indices(
-                    red,
-                    red_net,
-                    red_dict,
-                    orig_disp,
-                    orig_flow,
-                    orig_cost,
-                    orig_load,
-                    total_flow_mag,
-                )
+            results[label] = compute_indices(
+                red,
+                red_net,
+                red_dict,
+                orig_disp,
+                orig_flow,
+                orig_cost,
+                orig_load,
+                total_flow_mag,
             )
-        b, t = results
+        b, t = results["baseline"], results["tu"]
         if b is None or t is None:
             print(f"  K={K}: OPF failed in one branch")
             continue

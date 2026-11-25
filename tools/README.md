@@ -111,7 +111,11 @@ python tools/get_gtopt_binary.py --force-download
 2. `gtopt` on `PATH`.
 3. Standard build directories (`build/standalone/gtopt`, etc.).
 4. `/tmp/gtopt-ci-bin/gtopt` – previously downloaded CI artifact.
-5. Download `gtopt-binary-debug` CI artifact via `gh` CLI or `GITHUB_TOKEN`.
+5. Download the `gtopt-binary-debug` CI artifact via `gh` CLI or
+   `GITHUB_TOKEN`.  Only the artifact of the latest successful `ubuntu.yml`
+   **push** run on `master` of this repository is used (never a pull
+   request or fork build), and the downloaded archive must match the
+   SHA-256 digest the GitHub API reports for it.
 6. Build from source with `cmake` (requires build dependencies).
 
 See the full module docstring for detailed usage and CI artifact download
@@ -233,3 +237,22 @@ planning test that includes only `planning_lp.hpp`) is caught by the
 e2e smoke and the full runs, not by the unit subset.  Python
 tests that run the `gtopt` binary are not selected by C++ changes.
 
+---
+
+### `make_interface_screenshots.py`
+
+Regenerates the six screenshots of [`docs/interfaces.md`](../docs/interfaces.md)
+(`docs/images/screenshots/`): the `run_gtopt` dashboard and convergence
+view (an SDDP demo case built by `figures/make_sddp_demo_case.py`, replayed
+through the dashboard and recorded with Rich), the web service page and
+three GUI views of `cases/ieee_9b` (Playwright on local `127.0.0.1`
+services).  Open-source solver only (`--solver highs|clp|cbc`).
+
+```bash
+python tools/make_interface_screenshots.py --gtopt build/standalone/gtopt
+python tools/make_interface_screenshots.py tui     # one part: tui | webservice | gui
+```
+
+Needs `playwright` (Python package; the system Chrome is used), the
+scripts and GUI requirements, and a built `webservice/`
+(`npm ci && npm run build`).  See the last section of `docs/interfaces.md`.

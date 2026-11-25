@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 _NUMERIC_RE = re.compile(r"^-?[0-9]+(\.[0-9]+(e[+-]?[0-9]+)?)?$", re.IGNORECASE)
@@ -241,6 +242,31 @@ def _parse_long_keyed_values(
     return key_cols, out
 
 
+def _merge_tie_groups(
+    key_cols: list[str],
+    values: dict[tuple[int, ...], float],
+    tie_groups: Sequence[Sequence[int]],
+) -> dict[tuple[int, ...], float]:
+    """Sum the values of each tie group of uids into one key.
+
+    Equal-cost elements (e.g. generators with the same ``gcost``) form a
+    tie: any split of their total is optimal, and the solver's choice of
+    vertex changes with its version or the LP column order.  Comparing
+    the group total keeps the golden strict on what is determined (the
+    total) without pinning an arbitrary vertex.  The merged key uses the
+    smallest uid of the group.
+    """
+    if not tie_groups or "uid" not in key_cols:
+        return values
+    rep_of = {uid: min(group) for group in tie_groups for uid in group}
+    out: dict[tuple[int, ...], float] = {}
+    for key, val in values.items():
+        uid = key[-1]
+        new_key = (*key[:-1], rep_of.get(uid, uid))
+        out[new_key] = out.get(new_key, 0.0) + val
+    return out
+
+
 def _close_enough(a: float, b: float, tolerance: float) -> bool:
     """Tolerance check matching the loop in :func:`compare_csv`."""
     diff = abs(a - b)
@@ -257,6 +283,7 @@ def _compare_long_keyed(
     tolerance: float,
     strict: bool,
     verbose: bool,
+    tie_groups: Sequence[Sequence[int]] = (),
 ) -> tuple[list[str], list[str]]:
     """Compare two long-form CSVs by ``(scenario,stage,block,uid)`` key.
 
@@ -268,6 +295,8 @@ def _compare_long_keyed(
     """
     a_key_cols, a_map = _parse_long_keyed_values(actual_lines)
     e_key_cols, e_map = _parse_long_keyed_values(expected_lines)
+    a_map = _merge_tie_groups(a_key_cols, a_map, tie_groups)
+    e_map = _merge_tie_groups(e_key_cols, e_map, tie_groups)
     errors: list[str] = []
     warnings: list[str] = []
     # Project both maps to the common (intersection-ordered) key
@@ -564,6 +593,7 @@ def compare_csv(
     *,
     strict: bool = False,
     verbose: bool = False,
+    tie_groups: Sequence[Sequence[int]] = (),
 ) -> tuple[list[str], list[str]]:
     """Compare two CSV files.
 
@@ -582,6 +612,9 @@ def compare_csv(
     a missing key as the implicit zero the long encoding drops —
     line-count differences therefore become per-key numeric diffs
     rather than a fatal structural mismatch.
+
+    *tie_groups* lists groups of uids whose values are compared as one
+    sum (see :func:`_merge_tie_groups`); it needs the long layout.
     """
     with open(actual_path, encoding="utf-8") as f:
         actual_lines = f.read().splitlines()
@@ -622,10 +655,14 @@ def compare_csv(
             tolerance=tolerance,
             strict=strict,
             verbose=verbose,
+            tie_groups=tie_groups,
         )
 
     errors: list[str] = []
     warnings: list[str] = []
+    if tie_groups:
+        errors.append("--tie-group needs long-layout (scenario,...,uid,value) files")
+        return errors, warnings
 
     if len(actual_lines) != len(expected_lines):
         errors.append(
@@ -695,6 +732,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Treat numeric differences beyond tolerance as errors.",
     )
     parser.add_argument(
+        "--tie-group",
+        action="append",
+        default=[],
+        metavar="UID,UID[,...]",
+        help=(
+            "Compare the sum of these uids instead of each one (equal-cost "
+            "elements whose split is an arbitrary optimal vertex). Repeatable."
+        ),
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true", help="Show accepted numeric diffs."
     )
     args = parser.parse_args(argv)
@@ -713,6 +760,9 @@ def main(argv: list[str] | None = None) -> int:
         tolerance=args.tolerance,
         strict=args.strict,
         verbose=args.verbose,
+        tie_groups=[
+            [int(u) for u in grp.split(",") if u.strip()] for grp in args.tie_group
+        ],
     )
 
     for warn in warnings:

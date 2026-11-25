@@ -39,6 +39,8 @@ import json
 import math
 import os
 import sys
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -108,39 +110,35 @@ def read_table(directory: Path, stem: str) -> pd.DataFrame | None:
     """
     parquet_path = directory / f"{stem}.parquet"
     if parquet_path.is_dir() or parquet_path.is_file():
-        try:
-            return pd.read_parquet(parquet_path)
-        except Exception as exc:  # noqa: BLE001
-            print(
-                f"validate_sddp_output: failed to read {parquet_path}: {exc}",
-                file=sys.stderr,
-            )
-            return None
+        return _try_read(partial(pd.read_parquet, parquet_path), str(parquet_path))
 
     parent = directory / Path(stem).parent
     name = Path(stem).name
     for ext in (".csv", ".csv.zst", ".csv.gz"):
         shards = sorted(parent.glob(f"{name}_s*_p*{ext}"))
         if shards:
-            try:
-                return pd.concat([pd.read_csv(s) for s in shards], ignore_index=True)
-            except Exception as exc:  # noqa: BLE001
-                print(
-                    f"validate_sddp_output: failed to read {stem} CSV shards: {exc}",
-                    file=sys.stderr,
-                )
-                return None
+            return _try_read(partial(_concat_csv, shards), f"{stem} CSV shards")
         legacy = directory / f"{name}{ext}"
         if legacy.is_file():
-            try:
-                return pd.read_csv(legacy)
-            except Exception as exc:  # noqa: BLE001
-                print(
-                    f"validate_sddp_output: failed to read {legacy}: {exc}",
-                    file=sys.stderr,
-                )
-                return None
+            return _try_read(partial(pd.read_csv, legacy), str(legacy))
     return None
+
+
+def _concat_csv(shards: list[Path]) -> pd.DataFrame:
+    """Read every CSV shard and stack them into one DataFrame."""
+    return pd.concat([pd.read_csv(s) for s in shards], ignore_index=True)
+
+
+def _try_read(reader: Callable[[], pd.DataFrame], what: str) -> pd.DataFrame | None:
+    """Run ``reader``; on failure report ``what`` to stderr and return None."""
+    try:
+        return reader()
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"validate_sddp_output: failed to read {what}: {exc}",
+            file=sys.stderr,
+        )
+        return None
 
 
 def load_input_json(path: Path) -> dict[str, Any]:
@@ -211,7 +209,7 @@ def validate_solution_csv(output_dir: Path, *, allow_nonoptimal: bool) -> list[s
         errors.append(
             f"solution.csv: no optimal rows (statuses: {sorted(df['status'].unique())})"
         )
-    bad_obj = optimal[~optimal["obj_value"].apply(lambda v: pd.notna(v))]
+    bad_obj = optimal[~optimal["obj_value"].apply(pd.notna)]
     if not bad_obj.empty:
         errors.append(f"solution.csv: {len(bad_obj)} optimal row(s) with NaN obj_value")
     return errors

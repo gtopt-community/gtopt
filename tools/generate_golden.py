@@ -24,6 +24,15 @@ from pathlib import Path
 
 import pandapower as pp
 import pandapower.networks as pn
+from pandapower.converter.matpower.from_mpc import from_mpc
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+# pylint: disable=wrong-import-position
+from gtopt2pp.convert import convert as to_pandapower
+from gtopt2pp.convert import load_gtopt_case
+from pp2gtopt.convert import convert as to_gtopt_json
 
 # Reference linear costs ($/MWh) from pglib-opf for IEEE 118-bus
 PGLIB_118_COSTS = {
@@ -74,12 +83,12 @@ def write_golden_csv(output_dir, rel_path, entries):
     path.parent.mkdir(parents=True, exist_ok=True)
     keys = [f'"uid:{u}"' for u, v in entries]
     vals = [f"{v:.15g}" for u, v in entries]
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(f'"scenario","stage","block",{",".join(keys)}\n')
         f.write(f"1,1,1,{','.join(vals)}\n")
 
 
-def generate_from_network(net, name, output_dir):
+def generate_from_network(net, _name, output_dir):
     """Run DC OPF and write golden files from a pandapower network."""
     pp.rundcopp(net)
     add_default_costs(net, PGLIB_118_COSTS)
@@ -131,10 +140,10 @@ def generate_from_network(net, name, output_dir):
     )
 
     obj = float(net.get("res_cost", 0))
-    with open(output_dir / "solution.csv", "w") as f:
+    with open(output_dir / "solution.csv", "w", encoding="utf-8") as f:
         f.write('"scene","phase","status","obj_value"\n')
         f.write(f"0,0,0,{obj:.15g}\n")
-    with open(output_dir / "monolithic_status.json", "w") as f:
+    with open(output_dir / "monolithic_status.json", "w", encoding="utf-8") as f:
         json.dump({"status": "optimal", "obj_value": obj}, f, indent=2)
 
     print(f"  Objective: {obj:.2f}")
@@ -166,14 +175,8 @@ def main():
     )
     args = parser.parse_args()
 
-    repo_root = Path(__file__).resolve().parent.parent
-
     if args.gtopt_case:
         # Via gtopt2pp conversion (less accurate)
-        sys.path.insert(0, str(repo_root / "scripts" / "gtopt2pp"))
-        from convert import convert as to_pandapower
-        from convert import load_gtopt_case
-
         gtopt_case = load_gtopt_case(args.gtopt_case)
         net = to_pandapower(gtopt_case, scenario=1, block=1)
         output_dir = Path(args.output_dir or Path(args.gtopt_case).parent / "output")
@@ -187,8 +190,6 @@ def main():
         net = getattr(pn, f"case{args.case}")()
         add_default_costs(net, PGLIB_118_COSTS if args.case == 118 else None)
     elif args.matpower:
-        from pandapower.converter import from_mpc
-
         net = from_mpc(args.matpower)
         case_name = args.name
         add_default_costs(net)
@@ -197,10 +198,7 @@ def main():
         sys.exit(1)
 
     # Generate gtopt JSON via pp2gtopt
-    sys.path.insert(0, str(repo_root / "scripts" / "pp2gtopt"))
-    from convert import convert as to_gtopt_json
-
-    case_dir = repo_root / "cases" / case_name
+    case_dir = REPO_ROOT / "cases" / case_name
     case_dir.mkdir(parents=True, exist_ok=True)
 
     gtopt_case = to_gtopt_json(
