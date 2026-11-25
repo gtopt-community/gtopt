@@ -256,9 +256,12 @@ def format_result(r: dict[str, Any]) -> str:
     )
     if "solution" in r:
         sol = r["solution"] or {}
+        # No kappa column under kappa_mode=off: print nothing about it.
+        kappa = sol.get("kappa")
+        kappa_txt = f"kappa={kappa} " if kappa is not None else ""
         s += (
             f" | rc={r.get('solve_rc')} status={sol.get('status')} "
-            f"obj={sol.get('objective')} kappa={sol.get('kappa')} "
+            f"obj={sol.get('objective')} {kappa_txt}"
             f"obj_match={r.get('obj_match', 'n/a')}"
         )
     return s

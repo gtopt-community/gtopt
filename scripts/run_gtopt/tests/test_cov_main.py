@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import signal
 from pathlib import Path
 from typing import Any
@@ -130,8 +131,9 @@ def test_dunder_main_invokes_main(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_list_checks(rec: _Recorder, capsys: pytest.CaptureFixture[str]) -> None:
     main_mod.main(["--list-checks"])
     out = capsys.readouterr().out
-    assert "Pre-flight checks" in out
-    assert "Post-flight checks" in out
+    assert "CHECK         STAGE  DEFAULT  DESCRIPTION" in out
+    assert "check_json    pre    off" in out
+    assert "check_lp      post   on" in out
     assert "run_gtopt" not in rec.names()
 
 
@@ -193,9 +195,16 @@ def test_gtopt_case_full_run_cleans_sanitized_and_reports(
     rec: _Recorder, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     case = _gtopt_case(tmp_path)
-    stale = case / "results"
-    stale.mkdir()
-    (stale / "old.csv").write_text("x", encoding="utf-8")
+    # A previous run's results (and cuts) must survive; only the per-run
+    # status / stop-request files are dropped.
+    prev = case / "results"
+    prev.mkdir()
+    (prev / "old.csv").write_text("x", encoding="utf-8")
+    out = case / "output"
+    out.mkdir()
+    (out / "sddp_cuts.csv").write_text("cuts", encoding="utf-8")
+    (out / "solver_status.json").write_text("{}", encoding="utf-8")
+    (out / "sddp_stop_request.json").write_text("{}", encoding="utf-8")
     sanitized = tmp_path / "sanitized.json"
     sanitized.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(main_mod, "sanitize_json", rec.fake("sanitize", sanitized))
@@ -213,7 +222,10 @@ def test_gtopt_case_full_run_cleans_sanitized_and_reports(
         ]
     )
     assert code == 0
-    assert not stale.exists()
+    assert (prev / "old.csv").exists()
+    assert (out / "sddp_cuts.csv").exists()
+    assert not (out / "solver_status.json").exists()
+    assert not (out / "sddp_stop_request.json").exists()
     assert not sanitized.exists()
     args, _ = rec.get("run_gtopt")
     assert args[0] == "/bin/gtopt"
@@ -236,7 +248,7 @@ def test_gtopt_case_uses_results_planning_json_and_keeps_export(
     monkeypatch.setattr(main_mod, "sanitize_json", rec.fake("sanitize", sanitized))
 
     def _run(*args: Any, **_kw: Any) -> int:
-        res = case / "results"
+        res = case / "output"
         res.mkdir(exist_ok=True)
         (res / "planning.json").write_text("{}", encoding="utf-8")
         rec.calls.append(("run_gtopt", args, {}))
@@ -247,9 +259,11 @@ def test_gtopt_case_uses_results_planning_json_and_keeps_export(
     assert code == 3
     assert sanitized.exists()  # exported -> kept
     rargs, _ = rec.get("report_solution")
-    assert rargs[2] == case / "results" / "planning.json"
+    assert rargs[0] == case / "output"
+    assert rargs[2] == case / "output" / "planning.json"
     pargs, pkw = rec.get("run_postflight_checks")
-    assert pargs[1] == case / "results" / "planning.json"
+    assert pargs[0] == case / "output"
+    assert pargs[1] == case / "output" / "planning.json"
     assert pkw["gtopt_rc"] == 3
     assert "check_json" not in pkw["enabled"]
 
@@ -306,31 +320,51 @@ def test_gtopt_case_binary_missing(
     assert "gtopt binary not found" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize(
-    ("threads", "compression", "extra", "expect", "absent"),
-    [
-        ("8", "zstd", ["--", "--x"], ["--lp-threads 8", "zstd", "--x"], []),
-        ("0", "", [], [], ["--lp-threads", "--output-compression"]),
-    ],
-)
-def test_gtopt_case_dry_run_command(
+def test_gtopt_case_dry_run_prints_real_argv(
     rec: _Recorder,  # pylint: disable=unused-argument
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    threads: str,
-    compression: str,
-    extra: list[str],
-    expect: list[str],
-    absent: list[str],
+) -> None:
+    """--dry-run prints only real gtopt flags plus the sanitize diff."""
+    case = _gtopt_case(tmp_path)
+    main_mod.main(
+        [str(case), "--dry-run", "-t", "8", "-C", "zstd", "--", "--solver", "highs"]
+    )
+    out = capsys.readouterr().out
+    assert "--lp-threads" not in out
+    assert "--output-compression" not in out
+    assert "[dry-run] sanitize options.solver_options.threads: None -> 8" in out
+    assert "[dry-run] sanitize options.output_compression: None -> 'zstd'" in out
+    sanitized = case / "case_sanitized.json"
+    assert f"[dry-run] /bin/gtopt {sanitized} --solver highs" in out
+    assert not sanitized.exists()  # preview only
+
+
+def test_gtopt_case_dry_run_unchanged_json(
+    rec: _Recorder,  # pylint: disable=unused-argument
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = _gtopt_case(tmp_path)
-    main_mod.main([str(case), "--dry-run", "-t", threads, "-C", compression, *extra])
+    monkeypatch.setattr(main_mod, "sanitize_json", lambda p, **_k: p)
+    main_mod.main([str(case), "--dry-run"])
     out = capsys.readouterr().out
-    assert "[dry-run] /bin/gtopt" in out
-    for frag in expect:
-        assert frag in out
-    for frag in absent:
-        assert frag not in out
+    assert "sanitize" not in out
+    assert f"[dry-run] /bin/gtopt {case}" in out
+
+
+def test_gtopt_case_dry_run_without_json(
+    rec: _Recorder,  # pylint: disable=unused-argument
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = _gtopt_case(tmp_path)
+    (case / "case.json").unlink()
+    monkeypatch.setattr(main_mod, "detect_case_type", lambda _p: CaseType.GTOPT)
+    main_mod.main([str(case), "--dry-run"])
+    assert f"[dry-run] /bin/gtopt {case}" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -469,7 +503,7 @@ def test_passthrough_runs_gtopt(rec: _Recorder, tmp_path: Path) -> None:
     plan.write_text("{}", encoding="utf-8")
     assert _exit_code([str(plan), "-t", "2", "--", "--foo"]) == 0
     args, _ = rec.get("run_gtopt")
-    assert args == ("/bin/gtopt", plan, 2, "snappy", ["--foo"])
+    assert args == ("/bin/gtopt", plan, 2, None, ["--foo"])
 
 
 def test_argv_defaults_to_sys_argv(
@@ -479,7 +513,7 @@ def test_argv_defaults_to_sys_argv(
 ) -> None:
     monkeypatch.setattr(main_mod.sys, "argv", ["run_gtopt", "--list-checks"])
     main_mod.main()
-    assert "Pre-flight checks" in capsys.readouterr().out
+    assert "STAGE  DEFAULT" in capsys.readouterr().out
 
 
 def test_plexos_dry_run_without_extra_args(
@@ -490,3 +524,257 @@ def test_plexos_dry_run_without_extra_args(
     main_mod.main([str(plexos), "--dry-run", "--convert-only"])
     out = capsys.readouterr().out
     assert out.strip().endswith("gtopt_PLEXOS2026")
+
+
+@pytest.mark.parametrize(("argv", "expected"), [([], None), (["-C", "lz4"], "lz4")])
+def test_compression_only_forwarded_when_user_sets_it(
+    rec: _Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    argv: list[str],
+    expected: str | None,
+) -> None:
+    """No default -C: the case / gtopt codec stays unless the user asks."""
+    case = _gtopt_case(tmp_path)
+    monkeypatch.setattr(
+        main_mod, "sanitize_json", rec.fake("sanitize", case / "case.json")
+    )
+    assert _exit_code([str(case), *argv]) == 0
+    assert rec.get("sanitize")[1]["compression"] == expected
+
+
+def test_output_dir_follows_json_and_cli_override(
+    rec: _Recorder, tmp_path: Path
+) -> None:
+    """Report / postflight / run_gtopt all use gtopt's real output dir."""
+    case = tmp_path / "c"
+    case.mkdir()
+    (case / "c.json").write_text(
+        json.dumps({"options": {"output_directory": "results"}}), encoding="utf-8"
+    )
+    assert _exit_code([str(case), "--no-check"]) == 0
+    assert rec.get("run_gtopt")[1]["output_dir"] == case / "results"
+    assert rec.get("report_solution")[0][0] == case / "results"
+    rec.calls.clear()
+    other = tmp_path / "elsewhere"
+    assert _exit_code([str(case), "--no-check", "--", "-d", str(other)]) == 0
+    assert rec.get("run_gtopt")[1]["output_dir"] == other
+    assert rec.get("report_solution")[1]["since"] is not None
+
+
+def test_sanitize_preview_lists_only_changed_keys(tmp_path: Path) -> None:
+    plan = tmp_path / "p.json"
+    plan.write_text(
+        json.dumps({"options": {"method": "sddp", "solver_options": {"x": 1}}}),
+        encoding="utf-8",
+    )
+    target, changes = main_mod._sanitize_preview(plan, None, 4)  # pylint: disable=protected-access
+    assert target == tmp_path / "p_sanitized.json"
+    assert changes == ["options.solver_options.threads: None -> 4"]
+
+
+def test_header_gets_original_case_name(rec: _Recorder, tmp_path: Path) -> None:
+    case = _gtopt_case(tmp_path, name="ieee_9b")
+    assert _exit_code([str(case), "--no-check", "-t", "2"]) == 0
+    assert rec.get("run_gtopt")[1]["case_name"] == "ieee_9b"
+
+
+@pytest.mark.parametrize(
+    ("extra", "env", "solver"),
+    [
+        ([], None, "auto"),
+        ([], "cplex", "cplex"),
+        (["--solver", "highs"], "cplex", "highs"),
+        (["--solver=clp"], None, "clp"),
+        (["--solver"], None, "auto"),
+    ],
+)
+def test_run_summary_line(
+    monkeypatch: pytest.MonkeyPatch,
+    extra: list[str],
+    env: str | None,
+    solver: str,
+) -> None:
+    if env is None:
+        monkeypatch.delenv("GTOPT_SOLVER", raising=False)
+    else:
+        monkeypatch.setenv("GTOPT_SOLVER", env)
+    line = main_mod.run_summary("/bin/gtopt", "ieee_9b", 8, Path("/o"), extra)
+    assert line == (
+        f"gtopt /bin/gtopt | solver {solver} | 8 threads | case ieee_9b | output /o"
+    )
+
+
+def test_pre_run_chatter_is_debug(
+    rec: _Recorder,  # pylint: disable=unused-argument
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """At INFO only the one-line run summary is logged by main."""
+    case = _gtopt_case(tmp_path)
+    with caplog.at_level(logging.INFO, logger="run_gtopt.main"):
+        assert _exit_code([str(case), "--no-check"]) == 0
+    main_lines = [r.getMessage() for r in caplog.records if r.name == "run_gtopt.main"]
+    assert len(main_lines) == 1
+    assert main_lines[0].startswith("gtopt /bin/gtopt | solver")
+
+
+def test_short_l_is_deprecated_alias(
+    rec: _Recorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main_mod.main(["-l", "DEBUG", "--list-checks"])
+    assert "-l is deprecated" in capsys.readouterr().err
+    _, kw = rec.get("basicConfig")
+    assert kw["level"] == logging.DEBUG
+
+
+def test_log_level_long_form_no_warning(
+    rec: _Recorder,  # pylint: disable=unused-argument
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main_mod.main(["--log-level", "WARNING", "--list-checks"])
+    assert "deprecated" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["--solver", "highs"], ["--solver", "highs"]),
+        (["--solver", "highs", "--", "--stats"], ["--solver", "highs", "--stats"]),
+        (["--solver", "highs", "--", "--solver", "cplex"], ["--solver", "cplex"]),
+        (["--solver", "highs", "--", "--solver=cplex"], ["--solver=cplex"]),
+    ],
+)
+def test_solver_flag_forwarded(
+    rec: _Recorder, tmp_path: Path, argv: list[str], expected: list[str]
+) -> None:
+    case = _gtopt_case(tmp_path)
+    assert _exit_code([str(case), "--no-check", *argv]) == 0
+    assert rec.get("run_gtopt")[0][4] == expected
+
+
+@pytest.mark.parametrize("mode", ["off", "estimate", "exact"])
+def test_kappa_mode_flag_forwarded(rec: _Recorder, tmp_path: Path, mode: str) -> None:
+    case = _gtopt_case(tmp_path)
+    assert _exit_code([str(case), "--no-check", "--kappa-mode", mode]) == 0
+    assert rec.get("run_gtopt")[0][4] == [
+        "--set",
+        f"solver_options.kappa_mode={mode}",
+    ]
+
+
+def test_kappa_mode_flag_rejects_unknown() -> None:
+    with pytest.raises(SystemExit):
+        main_mod.make_parser().parse_args(["x", "--kappa-mode", "fast"])
+
+
+@pytest.mark.parametrize("flag", ["--convert-dir", "-o", "--output-dir"])
+def test_convert_dir_aliases(flag: str) -> None:
+    args = main_mod.make_parser().parse_args(["x", flag, "out"])
+    assert args.output_dir == Path("out")
+
+
+@pytest.mark.parametrize(
+    ("runs", "code", "attached", "msg"),
+    [
+        (["only"], 7, True, ""),
+        ([], 2, False, ""),
+        (["a", "b"], 2, False, "several live gtopt runs"),
+    ],
+)
+def test_attach_without_argument(
+    rec: _Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    runs: list[str],
+    code: int,
+    attached: bool,
+    msg: str,
+) -> None:
+    monkeypatch.setattr(main_mod, "list_runs", lambda: runs)
+    monkeypatch.setattr(main_mod, "print_run_list", rec.fake("print_run_list"))
+    monkeypatch.setattr(main_mod, "run_attach_loop", rec.fake("attach", 7))
+    assert _exit_code(["--attach"]) == code
+    assert ("attach" in rec.names()) is attached
+    assert ("print_run_list" in rec.names()) is not attached
+    assert msg in capsys.readouterr().err
+
+
+def test_ascii_flag_sets_env(rec: _Recorder, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GTOPT_TUI_ASCII", raising=False)
+    monkeypatch.setattr(main_mod, "list_runs", lambda: [])
+    monkeypatch.setattr(main_mod, "print_run_list", rec.fake("print_run_list"))
+    main_mod.main(["--ascii", "--list"])
+    # main() sets it directly; pop it (monkeypatch.delenv here would
+    # restore "1" at teardown and leak ASCII mode into later tests).
+    assert os.environ.pop("GTOPT_TUI_ASCII", None) == "1"
+
+
+def _status_writer(out: Path, status: dict[str, Any], rec: _Recorder) -> Any:
+    def _run(*args: Any, **_kw: Any) -> int:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "solver_status.json").write_text(json.dumps(status), encoding="utf-8")
+        rec.calls.append(("run_gtopt", args, {}))
+        return 0
+
+    return _run
+
+
+@pytest.mark.parametrize(
+    ("status", "flag", "code"),
+    [
+        ({"status": "max_iterations", "converged": False}, True, 4),
+        ({"status": "stopped"}, True, 4),
+        ({"status": "converged", "converged": True}, True, 0),
+        ({"status": "max_iterations"}, False, 0),
+    ],
+)
+def test_fail_on_not_converged(
+    rec: _Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    status: dict[str, Any],
+    flag: bool,
+    code: int,
+) -> None:
+    case = _gtopt_case(tmp_path)
+    monkeypatch.setattr(
+        main_mod, "sanitize_json", rec.fake("sanitize", case / "case.json")
+    )
+    monkeypatch.setattr(
+        main_mod, "run_gtopt", _status_writer(case / "output", status, rec)
+    )
+    argv = [str(case), "--no-check"] + (["--fail-on-not-converged"] if flag else [])
+    assert _exit_code(argv) == code
+    assert ("did not converge" in capsys.readouterr().err) is (code == 4)
+
+
+def test_fail_on_not_converged_direct_json(
+    rec: _Recorder, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    plan = tmp_path / "p.json"
+    plan.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        main_mod,
+        "run_gtopt",
+        _status_writer(tmp_path / "output", {"status": "max_iterations"}, rec),
+    )
+    assert _exit_code([str(plan), "--fail-on-not-converged"]) == 4
+
+
+def test_convergence_exit_code_edge_cases(tmp_path: Path) -> None:
+    fn = main_mod.convergence_exit_code
+    assert fn(3, tmp_path, 0.0) == 3
+    assert fn(0, None, 0.0) == 0
+    assert fn(0, tmp_path, 0.0) == 0  # no status file
+    status = tmp_path / "solver_status.json"
+    status.write_text(json.dumps({"status": "stopped"}), encoding="utf-8")
+    assert fn(0, tmp_path, status.stat().st_mtime + 10) == 0  # stale
+    # Written just after the run started, but the coarse mtime clock put it
+    # a few ms before ``since``: still this run's file.
+    assert fn(0, tmp_path, status.stat().st_mtime + 0.005) == 4
+    status.write_text("[1]", encoding="utf-8")
+    assert fn(0, tmp_path, 0.0) == 0
+    status.write_text("{bad", encoding="utf-8")
+    assert fn(0, tmp_path, 0.0) == 0

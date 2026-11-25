@@ -435,7 +435,7 @@ def run_preflight_checks(
     for name, func in _PRE_CHECKS.items():
         if enabled is not None and name not in enabled:
             continue
-        log.info("=== Pre-check: %s ===", name)
+        log.debug("=== Pre-check: %s ===", name)
         result = func(json_path)
         for err in result.errors:
             log.error("  CRITICAL: %s", err)
@@ -446,7 +446,7 @@ def run_preflight_checks(
         elif strict and result.warnings:
             ok = False
         elif not result.errors and not result.warnings:
-            log.info("  %s: OK", name)
+            log.debug("  %s: OK", name)
     return ok
 
 

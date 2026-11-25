@@ -1,5 +1,9 @@
 [MASTER]
 load-plugins=pylint.extensions.mccabe
+# Put <repo>/scripts on sys.path so tools/ modules that import the scripts
+# packages (sienna2gtopt, gtopt2pp, ...) after their own sys.path setup
+# resolve against the checkout, not a possibly stale installed copy.
+init-hook=import sys; from pylint.config import find_default_config_files as _f; _c = next(iter(_f()), None); _c and sys.path.insert(0, str(_c.parent / "scripts"))
 
 [MESSAGES CONTROL]
 disable=

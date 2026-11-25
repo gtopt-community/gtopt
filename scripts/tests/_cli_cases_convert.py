@@ -605,3 +605,70 @@ def case_convert_synthetic(ctx: CliRun) -> None:
 def case_roundtrip_synthetic(ctx: CliRun) -> None:
     """Synthetic CUC workbook -> gtopt JSON -> optimal MIP solve."""
     assert_solved(ctx.run_gtopt(_cucdata2gtopt_synthetic(ctx)))
+
+
+# ---------------------------------------------------------------------------
+# dlr2gtopt -- synthetic towers and weather (the package test helpers); no
+# network.  A gtopt solve round trip needs Line.dlr support in the binary.
+# ---------------------------------------------------------------------------
+
+
+@e2e("dlr2gtopt")
+def case_dlr_pipeline_synthetic(ctx: CliRun) -> None:
+    """Towers -> spans -> weather -> ampacity -> critical spans -> Line.dlr."""
+    # pylint: disable-next=import-outside-toplevel,import-error
+    from dlr2gtopt._spans import read_spans, write_towers
+
+    # pylint: disable-next=import-outside-toplevel,import-error
+    from dlr2gtopt.tests._synthetic import make_towers, make_weather
+
+    tmp = ctx.tmp_path
+    write_towers(tmp / "towers.csv", make_towers(11))
+    ctx.run(["spans", tmp / "towers.csv", "-o", tmp / "spans.csv"])
+    make_weather(read_spans(tmp / "spans.csv"), hours=48).write(tmp / "w.csv")
+    ctx.run(
+        [
+            "ampacity",
+            "--spans",
+            tmp / "spans.csv",
+            "--weather",
+            tmp / "w.csv",
+            "--conductor",
+            "flint",
+            "--tmax",
+            "55",
+            "-o",
+            tmp / "amp.csv",
+        ]
+    )
+    ctx.run(
+        ["critical-spans", tmp / "amp.csv", "--max-spans", "3", "-o", tmp / "crit.json"]
+    )
+    crit = json.loads((tmp / "crit.json").read_text(encoding="utf-8"))
+    assert 1 <= len(crit["critical_spans"]) <= 3
+    assert crit["trace"]
+    ctx.run(
+        [
+            "emit",
+            "--spans",
+            tmp / "spans.csv",
+            "--weather",
+            tmp / "w.csv",
+            "--critical",
+            tmp / "crit.json",
+            "--conductor",
+            "flint",
+            "--tmax",
+            "55",
+            "--block-hours",
+            "6",
+            "--format",
+            "csv",
+            "-o",
+            tmp / "case",
+        ]
+    )
+    dlr = json.loads((tmp / "case" / "dlr_line1.json").read_text(encoding="utf-8"))
+    assert len(dlr["dlr"]["critical_spans"]) == len(crit["critical_spans"])
+    rows = (tmp / "case" / "Line" / "dlr_wind_speed.csv").read_text(encoding="utf-8")
+    assert rows.startswith("scenario,stage,block,uid,value")

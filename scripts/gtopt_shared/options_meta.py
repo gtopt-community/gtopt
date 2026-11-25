@@ -54,6 +54,9 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "aperture_timeout",
         "save_aperture_lp",
         "aperture_use_manual_clone",
+        "release_backends",
+        "free_solver_scratch",
+        "release_after_alpha",
         "aperture_drop_fcuts",
         "aperture_chunk_mode",
         "aperture_chunk_size",
@@ -156,6 +159,11 @@ SOLVER_OPTION_KEYS: frozenset[str] = frozenset(
         "mip_polish",
         "param_file",
         "advanced_basis",
+        "barrier_solver",
+        "mip_lp_algorithm",
+        "mip_heuristic_effort",
+        "kappa_mode",
+        "cold_solve_without_basis",
     }
 )
 
@@ -189,9 +197,15 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "scale_loss_link",
         "reserve_coupling",
         "loss_cost_eps",
+        "loss_flow_abs_cost",
         "loss_overflow_cost",
         "loss_secant_segments",
         "loss_use_sos2",
+        "line_thermal_limit_mode",
+        "prev_stage_link",
+        "use_line_dlr",
+        "overload_slack_bound",
+        "max_overload_ratio",
         "theta_max",
         "auto_scale",
         "state_violation_cost",
@@ -222,6 +236,9 @@ LP_MATRIX_OPTION_KEYS: frozenset[str] = frozenset(
         "kvl_row_clamp",
         "kvl_x_ref",
         "compute_stats",
+        "label_meta_without_names",
+        "share_label_meta",
+        "drop_element_collections",
     }
 )
 

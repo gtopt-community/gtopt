@@ -691,7 +691,9 @@
     "stationary_gap_ceiling",
     "stationary_window",
     "elastic_mode",
-    "elastic_penalty"
+    "elastic_penalty",
+    "forward_solver_options",
+    "backward_solver_options"
    ],
    "header": "json_cascade_options.hpp",
    "kinds": {
@@ -702,9 +704,11 @@
     "aperture_selection_mode": "string",
     "aperture_solve_mode": "string",
     "apertures": "array",
+    "backward_solver_options": "class",
     "convergence_tol": "number",
     "elastic_mode": "string",
     "elastic_penalty": "number",
+    "forward_solver_options": "class",
     "max_iterations": "number",
     "min_iterations": "number",
     "num_apertures": "number",
@@ -712,7 +716,10 @@
     "stationary_tol": "number",
     "stationary_window": "number"
    },
-   "nested": {}
+   "nested": {
+    "backward_solver_options": "SolverOptions",
+    "forward_solver_options": "SolverOptions"
+   }
   },
   "CascadeOptions": {
    "fields": [
@@ -880,6 +887,38 @@
    },
    "nested": {}
   },
+  "CriticalSpan": {
+   "fields": [
+    "uid",
+    "name",
+    "azimuth",
+    "elevation",
+    "ambient_temperature",
+    "wind_speed",
+    "wind_direction",
+    "solar_irradiance",
+    "tmax_conductor",
+    "tmax_conductor_emergency",
+    "rating",
+    "rating_emergency"
+   ],
+   "header": "json_line_dlr.hpp",
+   "kinds": {
+    "ambient_temperature": "variant",
+    "azimuth": "number",
+    "elevation": "number",
+    "name": "string",
+    "rating": "variant",
+    "rating_emergency": "variant",
+    "solar_irradiance": "variant",
+    "tmax_conductor": "number",
+    "tmax_conductor_emergency": "number",
+    "uid": "number",
+    "wind_direction": "variant",
+    "wind_speed": "variant"
+   },
+   "nested": {}
+  },
   "DecisionVariable": {
    "fields": [
     "uid",
@@ -1041,6 +1080,32 @@
     "profile": "variant",
     "scost": "variant",
     "uid": "number"
+   },
+   "nested": {}
+  },
+  "DlrConductor": {
+   "fields": [
+    "diameter",
+    "r25",
+    "r75",
+    "r20",
+    "alpha_r",
+    "ac_factor",
+    "emissivity",
+    "absorptivity",
+    "subconductors"
+   ],
+   "header": "json_line_dlr.hpp",
+   "kinds": {
+    "absorptivity": "number",
+    "ac_factor": "number",
+    "alpha_r": "number",
+    "diameter": "number",
+    "emissivity": "number",
+    "r20": "number",
+    "r25": "number",
+    "r75": "number",
+    "subconductors": "number"
    },
    "nested": {}
   },
@@ -1972,6 +2037,7 @@
     "enforce_level",
     "tcost",
     "loss_cost_eps",
+    "loss_flow_abs_cost",
     "loss_overflow_cost",
     "tmax_normal_ba",
     "tmax_normal_ab",
@@ -1986,7 +2052,11 @@
     "tap_ratio",
     "phase_shift_deg",
     "loss_secant_segments",
-    "loss_use_sos2"
+    "loss_use_sos2",
+    "line_thermal_limit_mode",
+    "dlr",
+    "overload_slack_bound",
+    "max_overload_ratio"
    ],
    "header": "json_line.hpp",
    "kinds": {
@@ -1998,23 +2068,28 @@
     "capacity": "variant",
     "capmax": "variant",
     "description": "string",
+    "dlr": "class",
     "enforce_level": "number",
     "expcap": "variant",
     "expmod": "variant",
     "in_service": "variant",
     "integer_expmod": "bool",
     "line_losses_mode": "string",
+    "line_thermal_limit_mode": "string",
     "loss_allocation_mode": "string",
     "loss_cost_eps": "number",
     "loss_envelope": "variant",
+    "loss_flow_abs_cost": "number",
     "loss_overflow_cost": "number",
     "loss_pwl_layout": "string",
     "loss_secant_segments": "number",
     "loss_segments": "number",
     "loss_use_sos2": "bool",
     "lossfactor": "variant",
+    "max_overload_ratio": "number",
     "name": "string",
     "overload_penalty": "variant",
+    "overload_slack_bound": "string",
     "phase_shift_deg": "variant",
     "reactance": "variant",
     "resistance": "variant",
@@ -2029,7 +2104,9 @@
     "use_line_losses": "bool",
     "voltage": "variant"
    },
-   "nested": {}
+   "nested": {
+    "dlr": "LineDlr"
+   }
   },
   "LineCommitment": {
    "fields": [
@@ -2086,6 +2163,43 @@
     "warm_start_cost": "number"
    },
    "nested": {}
+  },
+  "LineDlr": {
+   "fields": [
+    "conductor",
+    "tmax_conductor",
+    "tmax_conductor_emergency",
+    "voltage",
+    "v_pu",
+    "power_factor",
+    "safety_factor",
+    "span_mode",
+    "use_emergency",
+    "low_wind_speed",
+    "low_wind_angle",
+    "solar_mode",
+    "critical_spans"
+   ],
+   "header": "json_line_dlr.hpp",
+   "kinds": {
+    "conductor": "class",
+    "critical_spans": "array",
+    "low_wind_angle": "number",
+    "low_wind_speed": "number",
+    "power_factor": "number",
+    "safety_factor": "number",
+    "solar_mode": "string",
+    "span_mode": "string",
+    "tmax_conductor": "number",
+    "tmax_conductor_emergency": "number",
+    "use_emergency": "bool",
+    "v_pu": "number",
+    "voltage": "number"
+   },
+   "nested": {
+    "conductor": "DlrConductor",
+    "critical_spans": "CriticalSpan"
+   }
   },
   "LngGeneratorLink": {
    "fields": [
@@ -2166,20 +2280,26 @@
     "kvl_row_clamp",
     "kvl_x_ref",
     "compute_stats",
+    "label_meta_without_names",
+    "share_label_meta",
+    "drop_element_collections",
     "validation",
     "solver_name"
    ],
    "header": "json_lp_matrix_options.hpp",
    "kinds": {
     "compute_stats": "bool",
+    "drop_element_collections": "bool",
     "equilibration_method": "string",
     "fast_sqrt_method": "string",
     "kvl_row_clamp": "number",
     "kvl_row_scale": "bool",
     "kvl_x_ref": "number",
+    "label_meta_without_names": "bool",
     "lp_coeff_ratio_threshold": "number",
     "ruiz_max_iterations": "number",
     "ruiz_tolerance": "number",
+    "share_label_meta": "bool",
     "solver_name": "string",
     "validation": "class",
     "water_dual_clamp": "number",
@@ -2570,6 +2690,7 @@
     "scale_theta",
     "scale_loss_link",
     "loss_cost_eps",
+    "loss_flow_abs_cost",
     "loss_overflow_cost",
     "loss_secant_segments",
     "loss_use_sos2",
@@ -2592,7 +2713,12 @@
     "battery_power_envelope",
     "reserve_coupling",
     "pricing_mode",
-    "fast_start_max_hours"
+    "fast_start_max_hours",
+    "line_thermal_limit_mode",
+    "prev_stage_link",
+    "use_line_dlr",
+    "overload_slack_bound",
+    "max_overload_ratio"
    ],
    "header": "json_model_options.hpp",
    "kinds": {
@@ -2612,14 +2738,19 @@
     "kirchhoff_mode": "string",
     "kirchhoff_threshold": "number",
     "line_losses_mode": "string",
+    "line_thermal_limit_mode": "string",
     "loss_cost_eps": "number",
+    "loss_flow_abs_cost": "number",
     "loss_overflow_cost": "number",
     "loss_secant_segments": "number",
     "loss_segments": "number",
     "loss_use_sos2": "bool",
     "lp_reduction": "bool",
+    "max_overload_ratio": "number",
     "naming_dialect": "string",
     "objective_mode": "string",
+    "overload_slack_bound": "string",
+    "prev_stage_link": "string",
     "pricing_mode": "string",
     "reserve_coupling": "string",
     "reserve_shortage_cost": "number",
@@ -2631,6 +2762,7 @@
     "theta_max": "number",
     "tiny_reactance_mode": "string",
     "use_kirchhoff": "bool",
+    "use_line_dlr": "bool",
     "use_line_losses": "bool",
     "use_single_bus": "bool"
    },
@@ -3344,6 +3476,9 @@
     "save_aperture_lp",
     "lp_debug_passes",
     "aperture_use_manual_clone",
+    "release_backends",
+    "free_solver_scratch",
+    "release_after_alpha",
     "aperture_drop_fcuts",
     "aperture_chunk_mode",
     "aperture_chunk_size",
@@ -3436,6 +3571,7 @@
     "forward_max_fallbacks": "number",
     "forward_sampling_mode": "string",
     "forward_solver_options": "class",
+    "free_solver_scratch": "bool",
     "integer_cuts_mode": "string",
     "low_memory_mode": "string",
     "lp_debug_passes": "string",
@@ -3454,6 +3590,8 @@
     "pool_swap_growth_mb": "number",
     "prune_dual_threshold": "number",
     "recovery_mode": "string",
+    "release_after_alpha": "bool",
+    "release_backends": "bool",
     "save_aperture_lp": "bool",
     "save_per_iteration": "bool",
     "scale_alpha": "number",
@@ -3557,21 +3695,31 @@
     "memory_emphasis",
     "param_file",
     "advanced_basis",
-    "mip_polish"
+    "mip_polish",
+    "barrier_solver",
+    "mip_lp_algorithm",
+    "mip_heuristic_effort",
+    "kappa_mode",
+    "cold_solve_without_basis"
    ],
    "header": "json_solver_options.hpp",
    "kinds": {
     "advanced_basis": "bool",
     "algorithm": "string",
     "barrier_eps": "number",
+    "barrier_solver": "string",
+    "cold_solve_without_basis": "bool",
     "crossover": "string",
     "feasible_eps": "number",
+    "kappa_mode": "string",
     "log_level": "number",
     "log_mode": "variant",
     "max_fallbacks": "number",
     "memory_emphasis": "bool",
     "mip_gap": "number",
     "mip_gap_abs": "number",
+    "mip_heuristic_effort": "number",
+    "mip_lp_algorithm": "string",
     "mip_polish": "bool",
     "optimal_eps": "number",
     "param_file": "string",

@@ -141,6 +141,7 @@ REQUIRED_DATA_FILES: tuple[tuple[str, str], ...] = (
     ("gtopt_expand", "templates/maule_machicura.tson"),
     ("gtopt_expand", "templates/ror_equivalence.csv"),
     ("gtopt_expand", "templates/pmin_as_flowright.csv"),
+    ("dlr2gtopt", "data/line_defaults.json"),
 )
 
 

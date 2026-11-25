@@ -328,7 +328,7 @@ def test_run_preflight_checks_outcomes(
         "fail": lambda _p: CheckResult(name="fail", passed=False, errors=["e"]),
     }
     monkeypatch.setattr(_checks, "_PRE_CHECKS", checks)
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.DEBUG):
         assert run_preflight_checks(tmp_path, enabled={"ok", "warn"}) is True
     assert "ok: OK" in caplog.text
     assert run_preflight_checks(tmp_path, strict=True, enabled={"warn"}) is False

@@ -92,6 +92,7 @@ sienna2gtopt               = "sienna2gtopt.__main__:main"
 # Deprecated alias (renamed in 1.2.0); prints a note and runs sienna2gtopt.
 sienna_to_gtopt            = "sienna2gtopt.__main__:legacy_main"
 cucdata2gtopt              = "cucdata2gtopt.__main__:main"
+dlr2gtopt                  = "dlr2gtopt.__main__:main"
 
 
 [project.optional-dependencies]
@@ -146,7 +147,7 @@ plot = [
     "matplotlib>=3.7",
 ]
 highs = [
-    "highspy>=1.7",
+    "highspy>=1.16",
 ]
 figures = [
     "matplotlib>=3.7",
@@ -174,7 +175,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "gtopt_check_cases*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_check_topology*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "gtopt_shared*", "igtopt*", "nrel118_to_gtopt*", "plp2gtopt*", "plp_compress_case*", "plexos_compress_case*", "plexos2gtopt*", "pp2gtopt*", "gtopt2pp*", "rts_gmlc_to_gtopt*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*", "cen_demanda*", "gtopt_results_summary*", "gtopt_pricing_uplift*", "gtopt_timeseries_export*", "sddp2gtopt*", "gasnet2gtopt*", "psse2gtopt*", "gtopt_canonical_feed*", "gtopt_marginal_units*", "cen2gtopt*", "gtopt_operators*", "gtopt_reduce_network*", "gtopt2pbi*", "sienna2gtopt*", "cucdata2gtopt*"]
+include = ["gtopt_compare*", "gtopt_check_cases*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_check_topology*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "gtopt_shared*", "igtopt*", "nrel118_to_gtopt*", "plp2gtopt*", "plp_compress_case*", "plexos_compress_case*", "plexos2gtopt*", "pp2gtopt*", "gtopt2pp*", "rts_gmlc_to_gtopt*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*", "cen_demanda*", "gtopt_results_summary*", "gtopt_pricing_uplift*", "gtopt_timeseries_export*", "sddp2gtopt*", "gasnet2gtopt*", "psse2gtopt*", "gtopt_canonical_feed*", "gtopt_marginal_units*", "cen2gtopt*", "gtopt_operators*", "gtopt_reduce_network*", "gtopt2pbi*", "sienna2gtopt*", "cucdata2gtopt*", "dlr2gtopt*"]
 
 [tool.setuptools.package-data]
 # Non-Python assets that must ship in wheels (pip install ./scripts).
@@ -209,6 +210,7 @@ include = ["gtopt_compare*", "gtopt_check_cases*", "cvs2parquet*", "gtopt_diagra
 "gtopt_operators.eor" = ["sources.toml"]
 "gtopt_operators.xm" = ["sources.toml"]
 "gtopt_expand.templates" = ["*.tampl", "*.tson", "*.md", "*.csv"]
+"dlr2gtopt" = ["data/*.json"]
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +259,7 @@ testpaths = [
     "plexos_compress_case/tests",
     "sienna2gtopt/tests",
     "cucdata2gtopt/tests",
+    "dlr2gtopt/tests",
     "cen_demanda/tests",
     "nrel118_to_gtopt/tests",
     "rts_gmlc_to_gtopt/tests",
@@ -281,6 +284,7 @@ source = [
     "cen_demanda",
     "cucdata2gtopt",
     "cvs2parquet",
+    "dlr2gtopt",
     "gtopt2pbi",
     "gtopt2pp",
     "gtopt_canonical_feed",
@@ -348,7 +352,7 @@ total_min = 95.0
 profile = "black"
 line_length = 88
 skip_gitignore = true
-known_first_party = ["cucdata2gtopt", "cvs2parquet", "gtopt_check_cases", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt2pbi", "gtopt_check_json", "gtopt_check_lp", "gtopt_check_output", "gtopt_check_pampl", "gtopt_check_solvers", "gtopt_compress_lp", "gtopt_config", "gtopt_check_fingerprint", "gtopt_expand", "gtopt_pricing_uplift", "gtopt_results_summary", "gtopt_timeseries_export", "igtopt", "plp2gtopt", "plp_compress_case", "plexos_compress_case", "plexos2gtopt", "pp2gtopt", "run_gtopt", "gtopt_monitor", "sddp2gtopt", "gasnet2gtopt", "psse2gtopt", "ts2gtopt", "gtopt_canonical_feed", "gtopt_marginal_units", "cen2gtopt", "gtopt_operators", "gtopt_reduce_network"]
+known_first_party = ["cucdata2gtopt", "cvs2parquet", "dlr2gtopt", "gtopt_check_cases", "gtopt_compare", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt2pbi", "gtopt_check_json", "gtopt_check_lp", "gtopt_check_output", "gtopt_check_pampl", "gtopt_check_solvers", "gtopt_compress_lp", "gtopt_config", "gtopt_check_fingerprint", "gtopt_expand", "gtopt_pricing_uplift", "gtopt_results_summary", "gtopt_timeseries_export", "igtopt", "plp2gtopt", "plp_compress_case", "plexos_compress_case", "plexos2gtopt", "pp2gtopt", "run_gtopt", "gtopt_monitor", "sddp2gtopt", "gasnet2gtopt", "psse2gtopt", "ts2gtopt", "gtopt_canonical_feed", "gtopt_marginal_units", "cen2gtopt", "gtopt_operators", "gtopt_reduce_network"]
 
 [tool.ruff]
 line-length = 88

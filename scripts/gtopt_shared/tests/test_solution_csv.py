@@ -135,3 +135,23 @@ def test_parse_keeps_build_columns():
     row = parse_solution_csv(text)
     assert row["gtopt_version"] == "1.1.0"
     assert row["gtopt_revision"] == "v1.1.0-3-gdeadbeef"
+
+
+_NO_KAPPA = (
+    "scene,phase,status,status_name,obj_value,gap,gap_change,"
+    "solve_ticks,solve_time_s,solve_calls,infeasible_count,scale_objective\n"
+    "0,0,0,optimal,23163.42,0,1,0.01,0.002,1,0,1000\n"
+)
+
+
+def test_parse_layout_without_kappa_columns():
+    """kappa_mode=off drops kappa/max_kappa; the rest parses by name."""
+    row = parse_solution_csv(_NO_KAPPA)
+    assert "kappa" not in row
+    assert "max_kappa" not in row
+    assert row["obj_value"] == "23163.42"
+    assert row["gap"] == "0"
+    assert row["scale_objective"] == "1000"
+    obj = resolve_objective(row)
+    assert obj is not None
+    assert obj.value == pytest.approx(23163.42)

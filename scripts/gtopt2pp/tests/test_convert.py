@@ -16,7 +16,9 @@ from gtopt2pp.convert import (
     _get_bus_uid_to_idx,
     _get_reference_bus_uid,
     _pu_to_ohm,
+    SchedIndex,
     _resolve_field_sched,
+    _sched_index,
     convert,
     convert_all_blocks,
     format_diagnostic,
@@ -162,29 +164,81 @@ class TestResolveFieldSched:
     """Test _resolve_field_sched for various FieldSched types."""
 
     def test_scalar(self) -> None:
-        assert _resolve_field_sched(42.0, 0, 0) == 42.0
-        assert _resolve_field_sched(0, 0, 0) == 0.0
+        idx = SchedIndex(0, 0, 0)
+        assert _resolve_field_sched(42.0, idx, "TB") == 42.0
+        assert _resolve_field_sched(0, idx, "STB") == 0.0
 
-    def test_flat_list(self) -> None:
-        assert _resolve_field_sched([10, 20, 30], 0, 1) == 20.0
-        assert _resolve_field_sched([10, 20, 30], 0, 0) == 10.0
+    def test_t_list_indexed_by_stage(self) -> None:
+        field = [10, 20, 30]
+        assert _resolve_field_sched(field, SchedIndex(0, 1, 0), "T") == 20.0
+        assert _resolve_field_sched(field, SchedIndex(1, 0, 2), "T") == 10.0
 
-    def test_nested_list(self) -> None:
+    def test_tb_matrix_indexed_by_stage_then_block(self) -> None:
         field = [[100, 200], [300, 400]]
-        assert _resolve_field_sched(field, 0, 0) == 100.0
-        assert _resolve_field_sched(field, 0, 1) == 200.0
-        assert _resolve_field_sched(field, 1, 0) == 300.0
-        assert _resolve_field_sched(field, 1, 1) == 400.0
+        assert _resolve_field_sched(field, SchedIndex(0, 0, 0), "TB") == 100.0
+        assert _resolve_field_sched(field, SchedIndex(0, 0, 1), "TB") == 200.0
+        assert _resolve_field_sched(field, SchedIndex(0, 1, 0), "TB") == 300.0
+        # The scenario does not index a TB field.
+        assert _resolve_field_sched(field, SchedIndex(1, 1, 1), "TB") == 400.0
+
+    def test_stb_matrix_indexed_by_scenario_stage_block(self) -> None:
+        field = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+        assert _resolve_field_sched(field, SchedIndex(0, 0, 1), "STB") == 2.0
+        assert _resolve_field_sched(field, SchedIndex(0, 1, 0), "STB") == 3.0
+        assert _resolve_field_sched(field, SchedIndex(1, 1, 1), "STB") == 8.0
+
+    def test_wrong_nesting_raises(self) -> None:
+        idx = SchedIndex(0, 0, 0)
+        with pytest.raises(ValueError, match="TB FieldSched needs 2"):
+            _resolve_field_sched([10, 20], idx, "TB")
+        with pytest.raises(ValueError, match="T FieldSched needs 1"):
+            _resolve_field_sched([[10, 20]], idx, "T")
 
     def test_none(self) -> None:
-        assert _resolve_field_sched(None, 0, 0) is None
+        assert _resolve_field_sched(None, SchedIndex(0, 0, 0), "TB") is None
 
     def test_string_file_sched(self) -> None:
-        assert _resolve_field_sched("profile.parquet", 0, 0) is None
+        assert (
+            _resolve_field_sched("profile.parquet", SchedIndex(0, 0, 0), "STB") is None
+        )
 
     def test_out_of_range(self) -> None:
-        assert _resolve_field_sched([10, 20], 0, 5) is None
-        assert _resolve_field_sched([[10]], 5, 0) is None
+        assert _resolve_field_sched([[10, 20]], SchedIndex(0, 0, 5), "TB") is None
+        assert _resolve_field_sched([[[10]]], SchedIndex(5, 0, 0), "STB") is None
+        assert _resolve_field_sched([10], SchedIndex(0, 3, 0), "T") is None
+
+
+class TestSchedIndex:
+    """Global block index → (stage, block-within-stage) position."""
+
+    def test_no_stage_array_is_one_stage(self) -> None:
+        assert _sched_index({}, 1, 4) == SchedIndex(1, 0, 4)
+
+    def test_block_located_in_its_stage(self) -> None:
+        sim = {
+            "stage_array": [
+                {"uid": 1, "first_block": 0, "count_block": 2},
+                {"uid": 2, "first_block": 2, "count_block": 3},
+            ],
+        }
+        assert _sched_index(sim, 0, 1) == SchedIndex(0, 0, 1)
+        assert _sched_index(sim, 0, 2) == SchedIndex(0, 1, 0)
+        assert _sched_index(sim, 2, 4) == SchedIndex(2, 1, 2)
+
+    def test_open_ended_last_stage(self) -> None:
+        sim = {
+            "stage_array": [
+                {"uid": 1, "first_block": 0, "count_block": 3},
+                {"uid": 2, "first_block": 3},
+            ],
+        }
+        assert _sched_index(sim, 0, 2) == SchedIndex(0, 0, 2)
+        assert _sched_index(sim, 0, 7) == SchedIndex(0, 1, 4)
+
+    def test_uncovered_block_raises(self) -> None:
+        sim = {"stage_array": [{"uid": 1, "first_block": 0, "count_block": 2}]}
+        with pytest.raises(ValueError, match="block index 2 is not covered"):
+            _sched_index(sim, 0, 2)
 
 
 class TestPuToOhm:
@@ -230,26 +284,26 @@ class TestProfileMaps:
     def test_gen_profile_map(self) -> None:
         system = {
             "generator_profile_array": [
-                {"generator": 3, "profile": [[0.5, 0.8]]},
+                {"generator": 3, "profile": [[[0.5, 0.8]]]},
             ],
         }
-        profiles = _build_gen_profile_map(system, 0, 0)
+        profiles = _build_gen_profile_map(system, SchedIndex(0, 0, 0))
         assert profiles[3] == pytest.approx(0.5)
-        profiles = _build_gen_profile_map(system, 0, 1)
+        profiles = _build_gen_profile_map(system, SchedIndex(0, 0, 1))
         assert profiles[3] == pytest.approx(0.8)
 
     def test_demand_profile_map(self) -> None:
         system = {
             "demand_profile_array": [
-                {"demand": 1, "profile": [[1.0, 0.9]]},
+                {"demand": 1, "profile": [[[1.0, 0.9]]]},
             ],
         }
-        profiles = _build_demand_profile_map(system, 0, 1)
+        profiles = _build_demand_profile_map(system, SchedIndex(0, 0, 1))
         assert profiles[1] == pytest.approx(0.9)
 
     def test_empty(self) -> None:
-        assert not _build_gen_profile_map({}, 0, 0)
-        assert not _build_demand_profile_map({}, 0, 0)
+        assert not _build_gen_profile_map({}, SchedIndex(0, 0, 0))
+        assert not _build_demand_profile_map({}, SchedIndex(0, 0, 0))
 
 
 class TestConvert:
@@ -858,7 +912,7 @@ class TestGeneratorProfileConversion:
                 ],
                 "line_array": [],
                 "generator_profile_array": [
-                    {"generator": 1, "profile": [[0.5, 0.8]]},
+                    {"generator": 1, "profile": [[[0.5, 0.8]]]},
                 ],
             },
         }

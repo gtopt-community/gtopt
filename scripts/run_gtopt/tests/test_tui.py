@@ -130,8 +130,19 @@ def test_sparkline_empty():
 
 
 def test_sparkline_single():
-    result = _sparkline([5.0])
-    assert len(result) == 1
+    # One sample is no trend: nothing, not a full block.
+    assert _sparkline([5.0]) == ""
+
+
+def test_sparkline_flat_fixed_scale_and_range():
+    assert _sparkline([3.0, 3.0, 3.0]) == "▄▄▄"
+    # Fixed 0..100 scale: low CPU stays low.
+    assert _sparkline([5.0, 6.0], lo=0.0, hi=100.0) == "▁▁"
+    assert _sparkline([0.0, 100.0], lo=0.0, hi=100.0) == "▁█"
+    from run_gtopt._tui import _spark_range  # pylint: disable=import-outside-toplevel
+
+    assert _spark_range([5.0]) == ""
+    assert _spark_range([5.0, 42.4, 7.0]) == "  5–42"
 
 
 def test_sparkline_rising():
@@ -160,18 +171,17 @@ def test_format_elapsed_zero():
 
 
 def test_format_number_large():
-    result = _format_number(1234567890.0)
-    assert "," in result  # thousands separators
+    assert _format_number(1234567890.0) == "1.23457G"
+    assert _format_number(-2.5e12) == "-2.5T"
 
 
 def test_format_number_medium():
-    result = _format_number(1234567.0)
-    assert "." in result
+    assert _format_number(1234567.0) == "1.23457M"
 
 
 def test_format_number_small():
-    result = _format_number(0.123)
-    assert result == "0.123000"
+    assert _format_number(0.123) == "0.123"
+    assert _format_number(0.0) == "0"
 
 
 # ---------------------------------------------------------------------------
@@ -1371,3 +1381,73 @@ def test_grid_load_from_status_legacy_string():
     assert tracker.get_cell(0, 0, 2) == _GRID_IDLE
     assert tracker.get_cell(0, 0, 4) == _GRID_ELASTIC
     assert tracker.get_cell(0, 0, 5) == _GRID_BACKWARD
+
+
+def test_print_final_failure_shows_solver_errors(tmp_path: Path, capsys):
+    """The TUI failure banner carries gtopt's error, output tail and paths."""
+    from run_gtopt._process import RunResult  # noqa: PLC0415
+
+    display = SolverDisplay(case_name="ieee9", case_dir=tmp_path)
+    display.print_final(
+        RunResult(
+            returncode=3,
+            errors=["gtopt: [critical] Directory 'ieee9' given but neither"],
+            tail=["loading", "gtopt: [critical] Directory 'ieee9' given but neither"],
+            capture_path=tmp_path / "run_gtopt_stderr_1.log",
+        )
+    )
+    out = capsys.readouterr().out
+    assert "exit code 3 (internal error)" in out
+    assert "Directory 'ieee9' given" in out
+    assert "loading" in out
+    assert "run_gtopt_stderr_1.log" in out
+
+
+def test_print_final_prefers_result_status(tmp_path: Path, capsys):
+    from run_gtopt._process import RunResult  # noqa: PLC0415
+
+    display = SolverDisplay(case_name="c", case_dir=tmp_path)
+    display._status = {"status": "running"}
+    display.print_final(
+        RunResult(returncode=0, status={"status": "max_iterations", "gap": 0.5})
+    )
+    assert "NOT converged" in capsys.readouterr().out
+
+
+def test_q_quits_at_once_early_in_the_run(tmp_path: Path):
+    display = SolverDisplay(case_name="c", case_dir=tmp_path)
+    display._handle_key("q")
+    assert display.quit_requested.is_set()
+
+
+def test_q_asks_confirmation_on_long_runs(tmp_path: Path):
+    display = SolverDisplay(case_name="c", case_dir=tmp_path, confirm_quit_after=0.0)
+    display._handle_key("q")
+    assert not display.quit_requested.is_set()
+    assert display._quit_pending
+    text = _render(display._build_display())
+    assert "Terminate gtopt now?" in text
+    assert "[y/N]" in text
+    display._handle_key("n")  # anything but y cancels
+    assert not display._quit_pending and not display.quit_requested.is_set()
+    display._handle_key("q")
+    display._handle_key("y")
+    assert display.quit_requested.is_set()
+
+
+def test_observer_mode_never_confirms(tmp_path: Path):
+    display = SolverDisplay(case_name="c", case_dir=tmp_path, confirm_quit_after=None)
+    display._start_time -= 3600
+    display._handle_key("Q")
+    assert display.quit_requested.is_set()
+
+
+def test_request_stop_and_shutdown_state(tmp_path: Path):
+    display = SolverDisplay(
+        case_name="c", case_dir=tmp_path, output_dir=tmp_path / "out"
+    )
+    assert display.request_stop() is True
+    assert (tmp_path / "out" / "sddp_stop_request.json").is_file()
+    display.set_shutdown_state("q (quit): stopping… sent SIGTERM to gtopt")
+    text = _render(display._build_display())
+    assert "stopping… sent SIGTERM" in text

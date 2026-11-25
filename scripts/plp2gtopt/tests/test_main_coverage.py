@@ -395,12 +395,11 @@ class TestBuildOptions:
 
     def test_sddp_fast_path_default_not_invariant(self):
         # Without --solver-invariant the default stays dual + warm-start, and
-        # memory mode defaults to OFF (the reference oracle: off never diverges;
-        # dual+warm is correct there).  compress is opt-in via --solver-invariant.
+        # no memory mode is written: gtopt's own default (compress) applies.
         args = self._make_args(method="sddp")
         opts = build_options(args)
         assert opts["sddp_options"]["forward_solver_options"]["algorithm"] == "dual"
-        assert opts["sddp_options"]["low_memory_mode"] == "off"
+        assert "low_memory_mode" not in opts["sddp_options"]
 
     def test_sddp_method_defaults_cut_sharing_multicut(self):
         # PLP-faithful sharing: sddp defaults cut_sharing_mode to multicut.

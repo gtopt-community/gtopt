@@ -26,6 +26,10 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ._process import RunResult
 
 log = logging.getLogger(__name__)
 
@@ -216,12 +220,15 @@ def run_attach_loop(info: RunInfo) -> int:
         case_name=info.case_name or case_dir.name,
         case_dir=case_dir,
         solver_hint=info.method or "",
+        output_dir=info.output_dir,
+        confirm_quit_after=None,  # q only detaches here
     )
     print(
         f"Attaching to gtopt pid={info.pid} "
         f"output={info.output_dir} (case={info.case_name})"
     )
     display.start()
+    finished = False
     try:
         # Loop until the user presses 'q', or the solver disappears.
         # The TUI thread does its own polling; we just monitor liveness
@@ -229,7 +236,7 @@ def run_attach_loop(info: RunInfo) -> int:
         # TUI running forever.
         while not display.quit_requested.is_set():
             if info.pid > 0 and not _pid_alive(info.pid):
-                print(f"\ngtopt pid={info.pid} exited; detaching.")
+                finished = True
                 break
             time.sleep(0.5)
     except KeyboardInterrupt:
@@ -238,10 +245,31 @@ def run_attach_loop(info: RunInfo) -> int:
     finally:
         display.stop()
         try:
-            display.print_final(0)
+            display.print_final(_attach_result(info, finished))
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             log.debug("print_final failed", exc_info=True)
     return 0
+
+
+def _attach_result(info: RunInfo, finished: bool) -> RunResult:
+    """Outcome inputs for an attached run: the exit code is unknown.
+
+    A run that ended while observed is classified from its final
+    ``solver_status.json`` and ``solution.csv`` (not "Success" by
+    default); leaving while it still runs is reported as detached.
+    """
+    from ._process import RunResult  # noqa: PLC0415
+    from ._runner import check_solution  # noqa: PLC0415
+
+    status = _load_status(_status_file_for(info.output_dir))
+    alive = info.pid > 0 and _pid_alive(info.pid)
+    return RunResult(
+        returncode=None,
+        output_dir=info.output_dir,
+        status=status,
+        solution={} if alive else check_solution(info.output_dir),
+        detached=alive and not finished,
+    )
 
 
 def print_run_list(runs: list[RunInfo]) -> None:

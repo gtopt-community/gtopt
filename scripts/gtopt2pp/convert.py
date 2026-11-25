@@ -35,8 +35,9 @@ Usage::
 
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandapower as pp
 
@@ -153,48 +154,109 @@ def _first_uid(
     return int(uid)
 
 
-def _resolve_field_sched(
-    field: Any,
+@dataclass(frozen=True)
+class SchedIndex:
+    """0-based position of one block in gtopt's inline FieldSched matrices.
+
+    gtopt lays inline schedules out per axis (``UidToVectorIdx`` in
+    ``include/gtopt/uididx_traits.hpp``): ``block`` counts from the owning
+    stage's ``first_block``, not from the start of ``block_array``.
+    """
+
+    scenario: int
+    stage: int
+    block: int
+
+
+SchedDims = Literal["T", "TB", "STB"]
+
+# Axes of each FieldSched flavour, outermost first (C++ ``TRealFieldSched``,
+# ``TBRealFieldSched`` and ``STBRealFieldSched``).
+_SCHED_AXES: dict[str, tuple[str, ...]] = {
+    "T": ("stage",),
+    "TB": ("stage", "block"),
+    "STB": ("scenario", "stage", "block"),
+}
+
+
+def _sched_index(
+    simulation: dict[str, Any],
     scenario_idx: int,
     block_idx: int,
+) -> SchedIndex:
+    """Locate global block *block_idx* in its stage.
+
+    Stages own ``count_block`` consecutive blocks from ``first_block``
+    (a missing ``count_block`` takes every remaining block, like the C++
+    ``std::dynamic_extent`` default).  Without a ``stage_array`` the whole
+    horizon is a single stage.
+
+    Raises
+    ------
+    ValueError
+        If no stage covers *block_idx*.
+    """
+    stages = simulation.get("stage_array")
+    if not stages:
+        return SchedIndex(scenario_idx, 0, block_idx)
+    for stage_idx, stage in enumerate(stages):
+        first = int(stage.get("first_block", 0))
+        count = stage.get("count_block")
+        if block_idx >= first and (count is None or block_idx < first + int(count)):
+            return SchedIndex(scenario_idx, stage_idx, block_idx - first)
+    raise ValueError(f"block index {block_idx} is not covered by any stage")
+
+
+def _resolve_field_sched(
+    field: Any,
+    idx: SchedIndex,
+    dims: SchedDims,
 ) -> float | None:
-    """Resolve a FieldSched value to a scalar for a given scenario/block.
+    """Resolve a FieldSched value to a scalar for one (scenario, stage, block).
 
     FieldSched can be:
     - A scalar (int/float) → return directly
-    - A nested list [[v1, v2, ...], ...] → index [scenario][block]
-    - A single list [v1, v2, ...] → index [block]
+    - An inline matrix nested per *dims* → ``[stage]`` (T),
+      ``[stage][block]`` (TB) or ``[scenario][stage][block]`` (STB)
     - A string (FileSched) → not supported, return None
     - None → return None
+
+    An index past the end of the matrix yields None (value not given).
+
+    Raises
+    ------
+    ValueError
+        If the inline matrix nesting does not match *dims*.
     """
-    if field is None:
+    if field is None or isinstance(field, str):
+        # str: FileSched (Parquet file reference) — cannot resolve without I/O
         return None
     if isinstance(field, (int, float)):
         return float(field)
-    if isinstance(field, str):
-        # FileSched (Parquet file reference) — cannot resolve without I/O
+    if not isinstance(field, list):
         return None
-    if isinstance(field, list):
-        if not field:
+    axes = _SCHED_AXES[dims]
+    value: Any = field
+    for axis in axes:
+        if not isinstance(value, list):
+            raise ValueError(
+                f"{dims} FieldSched needs {len(axes)} nested list level(s): {field!r}"
+            )
+        pos = getattr(idx, axis)
+        if pos >= len(value):
             return None
-        if isinstance(field[0], list):
-            # Nested: [[scenario_0_blocks], [scenario_1_blocks], ...]
-            if scenario_idx < len(field):
-                row = field[scenario_idx]
-                if isinstance(row, list) and block_idx < len(row):
-                    return float(row[block_idx])
-            return None
-        # Flat list: [block_0, block_1, ...]
-        if block_idx < len(field):
-            return float(field[block_idx])
-        return None
-    return None
+        value = value[pos]
+    if isinstance(value, list):
+        raise ValueError(
+            f"{dims} FieldSched needs {len(axes)} nested list level(s): {field!r}"
+        )
+    return float(value)
 
 
 def _resolve_field_sched_with_file(
     field: Any,
-    scenario_idx: int,
-    block_idx: int,
+    idx: SchedIndex,
+    dims: SchedDims,
     case_dir: str | None,
     input_dir: str,
     class_name: str,
@@ -215,7 +277,7 @@ def _resolve_field_sched_with_file(
     if isinstance(field, (int, float)):
         return float(field)
     if isinstance(field, list):
-        return _resolve_field_sched(field, scenario_idx, block_idx)
+        return _resolve_field_sched(field, idx, dims)
     if isinstance(field, str) and case_dir is not None:
         return _read_file_sched_value(
             case_dir,
@@ -405,18 +467,20 @@ def convert(
     if block is None:
         block = _first_uid(blocks, "block")
     block_idx = _uid_to_index(block, blocks, "block")
+    sched_idx = _sched_index(simulation, scenario_idx, block_idx)
 
     # Shorthand for resolving a FieldSched with file fallback
     def _rfs(
         field: Any,
+        dims: SchedDims,
         cls: str,
         elem_uid: int | None = None,
         elem_name: str | None = None,
     ) -> float | None:
         return _resolve_field_sched_with_file(
             field,
-            scenario_idx,
-            block_idx,
+            sched_idx,
+            dims,
             case_dir,
             input_dir,
             cls,
@@ -447,7 +511,7 @@ def convert(
         )
 
     # ── Generators ────────────────────────────────────────────────────────
-    gen_profiles = _build_gen_profile_map(system, scenario_idx, block_idx)
+    gen_profiles = _build_gen_profile_map(system, sched_idx)
 
     # Determine the reference bus index.  When no bus carries
     # ``reference_theta``, fall back to the bus of the first generator
@@ -472,10 +536,11 @@ def convert(
         if bus_idx is None:
             continue
 
-        pmax = _rfs(gen.get("pmax"), "Generator", gen_uid, gen_name)
+        pmax = _rfs(gen.get("pmax"), "TB", "Generator", gen_uid, gen_name)
         if pmax is None:
             cap_val = _rfs(
                 gen.get("capacity"),
+                "T",
                 "Generator",
                 gen_uid,
                 gen_name,
@@ -486,11 +551,11 @@ def convert(
         profile_factor = gen_profiles.get(gen_uid, 1.0)
         effective_pmax = pmax * profile_factor
 
-        pmin = _rfs(gen.get("pmin"), "Generator", gen_uid, gen_name)
+        pmin = _rfs(gen.get("pmin"), "TB", "Generator", gen_uid, gen_name)
         if pmin is None:
             pmin = 0.0
 
-        gcost_val = _rfs(gen.get("gcost"), "Generator", gen_uid, gen_name)
+        gcost_val = _rfs(gen.get("gcost"), "TB", "Generator", gen_uid, gen_name)
         gcost = gcost_val if gcost_val is not None else 0.0
 
         # Decide whether this generator becomes the ext_grid (slack).
@@ -550,7 +615,7 @@ def convert(
         pp.create_ext_grid(net, bus=0, name="slack")
 
     # ── Demands (loads) ───────────────────────────────────────────────────
-    demand_profiles = _build_demand_profile_map(system, scenario_idx, block_idx)
+    demand_profiles = _build_demand_profile_map(system, sched_idx)
 
     for dem in system.get("demand_array", []):
         dem_uid = int(dem["uid"])
@@ -569,9 +634,9 @@ def convert(
         # that lenient interpretation here so the pandapower DC OPF
         # sees the real load rather than silently dispatching against
         # a zero demand.
-        lmax = _rfs(dem.get("lmax"), "Demand", dem_uid, dem_name)
+        lmax = _rfs(dem.get("lmax"), "TB", "Demand", dem_uid, dem_name)
         if lmax is None:
-            lmax = _rfs(dem.get("capacity"), "Demand", dem_uid, dem_name)
+            lmax = _rfs(dem.get("capacity"), "T", "Demand", dem_uid, dem_name)
         if lmax is None:
             lmax = 0.0
 
@@ -600,6 +665,7 @@ def convert(
 
         x_pu_val = _rfs(
             line.get("reactance"),
+            "T",
             "Line",
             line_uid,
             line_name,
@@ -609,14 +675,16 @@ def convert(
         # Off-nominal tap ratio scales the effective reactance: gtopt's
         # Kirchhoff row encodes  -θ_a + θ_b + τ·x · (f_p − f_n) = −φ_rad,
         # so for the pandapower DC OPF we fold the tap into x.
-        tap_val = _rfs(line.get("tap_ratio"), "Line", line_uid, line_name)
+        tap_val = _rfs(line.get("tap_ratio"), "T", "Line", line_uid, line_name)
         tap_ratio = tap_val if (tap_val is not None and tap_val > 0.0) else 1.0
         x_pu_eff = tap_ratio * x_pu
 
         # Phase shift (degrees), zero when absent.  Non-zero phase shift
         # forces the pandapower mapping to be a transformer because the
         # `pp.create_line_from_parameters` API has no `shift_degree`.
-        shift_deg_val = _rfs(line.get("phase_shift_deg"), "Line", line_uid, line_name)
+        shift_deg_val = _rfs(
+            line.get("phase_shift_deg"), "T", "Line", line_uid, line_name
+        )
         phase_shift_deg = shift_deg_val if shift_deg_val is not None else 0.0
 
         line_type = line.get("type", "line")
@@ -641,6 +709,7 @@ def convert(
 
         tmax_ab_val = _rfs(
             line.get("tmax_ab"),
+            "TB",
             "Line",
             line_uid,
             line_name,
@@ -649,6 +718,7 @@ def convert(
 
         tmax_ba_val = _rfs(
             line.get("tmax_ba"),
+            "TB",
             "Line",
             line_uid,
             line_name,
@@ -724,8 +794,7 @@ def convert(
 
 def _build_gen_profile_map(
     system: dict[str, Any],
-    scenario_idx: int,
-    block_idx: int,
+    idx: SchedIndex,
 ) -> dict[int, float]:
     """Build a generator UID → profile factor map for the given block."""
     # Build name→uid map for generators so name-based references resolve
@@ -744,7 +813,7 @@ def _build_gen_profile_map(
         profile = gp.get("profile")
         if profile is None:
             continue
-        factor = _resolve_field_sched(profile, scenario_idx, block_idx)
+        factor = _resolve_field_sched(profile, idx, "STB")
         if factor is not None:
             profiles[gen_uid] = factor
     return profiles
@@ -752,8 +821,7 @@ def _build_gen_profile_map(
 
 def _build_demand_profile_map(
     system: dict[str, Any],
-    scenario_idx: int,
-    block_idx: int,
+    idx: SchedIndex,
 ) -> dict[int, float]:
     """Build a demand UID → profile factor map for the given block."""
     profiles: dict[int, float] = {}
@@ -762,7 +830,7 @@ def _build_demand_profile_map(
         profile = dp.get("profile")
         if profile is None:
             continue
-        factor = _resolve_field_sched(profile, scenario_idx, block_idx)
+        factor = _resolve_field_sched(profile, idx, "STB")
         if factor is not None:
             profiles[dem_uid] = factor
     return profiles

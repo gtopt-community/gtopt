@@ -19,6 +19,7 @@ from gtopt2pp.convert import (
     _first_uid,
     _read_file_sched_value,
     _resolve_bus_ref,
+    SchedIndex,
     _resolve_field_sched,
     _resolve_field_sched_with_file,
     _uid_to_index,
@@ -52,7 +53,7 @@ def _case() -> dict:
             "generator_array": [
                 {"uid": 1, "name": "g1", "bus": 1, "pmax": 100, "gcost": 10},
             ],
-            "demand_array": [{"uid": 1, "name": "d1", "bus": 2, "lmax": [40, 60]}],
+            "demand_array": [{"uid": 1, "name": "d1", "bus": 2, "lmax": [[40, 60]]}],
             "line_array": [
                 {
                     "uid": 1,
@@ -282,17 +283,20 @@ def test_uid_to_index_missing():
 
 
 def test_resolve_field_sched_edge_cases():
-    assert _resolve_field_sched([], 0, 0) is None
-    assert _resolve_field_sched([[1.0]], 3, 0) is None  # scenario out of range
-    assert _resolve_field_sched([[1.0]], 0, 5) is None  # block out of range
-    assert _resolve_field_sched({"x": 1}, 0, 0) is None  # unsupported type
+    assert _resolve_field_sched([], SchedIndex(0, 0, 0), "TB") is None
+    # scenario out of range
+    assert _resolve_field_sched([[[1.0]]], SchedIndex(3, 0, 0), "STB") is None
+    assert _resolve_field_sched([[1.0]], SchedIndex(0, 2, 0), "TB") is None  # stage
+    assert _resolve_field_sched([[1.0]], SchedIndex(0, 0, 5), "TB") is None  # block
+    # unsupported type
+    assert _resolve_field_sched({"x": 1}, SchedIndex(0, 0, 0), "TB") is None
 
 
 def test_resolve_field_sched_with_file_paths(tmp_path):
-    args = (0, 0, None, "input", "Generator", 1, "g1", 1, 1)
+    args = (SchedIndex(0, 0, 0), "TB", None, "input", "Generator", 1, "g1", 1, 1)
     assert _resolve_field_sched_with_file(None, *args) is None
     assert _resolve_field_sched_with_file(3, *args) == 3.0
-    assert _resolve_field_sched_with_file([4.0], *args) == 4.0
+    assert _resolve_field_sched_with_file([[4.0]], *args) == 4.0
     assert _resolve_field_sched_with_file("pmax", *args) is None  # no case_dir
     assert _resolve_field_sched_with_file({"a": 1}, *args) is None
 
@@ -310,7 +314,7 @@ def test_profile_maps_name_refs_and_missing_profiles():
     system = {
         "generator_array": [{"uid": 5, "name": "g5"}],
         "generator_profile_array": [
-            {"generator": "g5", "profile": [0.5, 0.7]},
+            {"generator": "g5", "profile": [[[0.5, 0.7]]]},
             {"generator": "unknown", "profile": 0.9},
             {"generator": 6},  # no profile -> skipped
             {"generator": 7, "profile": "file_ref"},  # unresolved -> skipped
@@ -318,11 +322,11 @@ def test_profile_maps_name_refs_and_missing_profiles():
         "demand_profile_array": [
             {"demand": 1},
             {"demand": 2, "profile": "file_ref"},
-            {"demand": 3, "profile": [0.25]},
+            {"demand": 3, "profile": [[[0.25]]]},
         ],
     }
-    assert _build_gen_profile_map(system, 0, 1) == {5: 0.7, 0: 0.9}
-    assert _build_demand_profile_map(system, 0, 0) == {3: 0.25}
+    assert _build_gen_profile_map(system, SchedIndex(0, 0, 1)) == {5: 0.7, 0: 0.9}
+    assert _build_demand_profile_map(system, SchedIndex(0, 0, 0)) == {3: 0.25}
 
 
 # ── _read_file_sched_value ───────────────────────────────────────────────
@@ -489,11 +493,43 @@ def test_convert_unlimited_line_without_thermal_limits():
 
 
 def test_convert_multiple_scenarios_by_uid():
+    # Scenarios index only STB fields (profiles); lmax is TB (stage, block).
     case = copy.deepcopy(_case())
     case["simulation"]["scenario_array"] = [{"uid": 3}, {"uid": 4}]
-    case["system"]["demand_array"][0]["lmax"] = [[10, 11], [20, 21]]
+    case["system"]["demand_array"][0]["lmax"] = [[100, 100]]
+    case["system"]["demand_profile_array"] = [
+        {"uid": 1, "demand": 1, "profile": [[[0.10, 0.11]], [[0.20, 0.21]]]},
+    ]
     net = convert(case, scenario=4, block=2)
     assert float(net.load["p_mw"].iloc[0]) == pytest.approx(21.0)
+
+
+def test_convert_stb_profile_ieee14b_shape():
+    """Regression: an STB profile ``[[[...]]]`` (cases/ieee_14b solar) used to
+    be indexed as a 2-level matrix, so ``float()`` got a list (TypeError)."""
+    case = copy.deepcopy(_case())
+    case["system"]["generator_array"][0]["pmax"] = [[100, 100]]
+    case["system"]["generator_profile_array"] = [
+        {"uid": 1, "name": "gp_solar", "generator": "g1", "profile": [[[0.25, 0.75]]]},
+    ]
+    net = convert(case, scenario=1, block=2)
+    assert float(net.ext_grid["max_p_mw"].iloc[0]) == pytest.approx(75.0)
+
+
+def test_convert_multi_stage_indexes_block_within_stage():
+    """TB / T fields are ``[stage][block-in-stage]`` / ``[stage]``."""
+    case = copy.deepcopy(_case())
+    case["simulation"]["block_array"].append({"uid": 3, "duration": 1})
+    case["simulation"]["stage_array"] = [
+        {"uid": 1, "first_block": 0, "count_block": 2},
+        {"uid": 2, "first_block": 2, "count_block": 1},
+    ]
+    case["system"]["demand_array"][0]["lmax"] = [[40, 60], [70]]
+    case["system"]["line_array"][0]["reactance"] = [0.1, 0.2]
+    net = convert(case, scenario=1, block=3)
+    assert float(net.load["p_mw"].iloc[0]) == pytest.approx(70.0)
+    net = convert(case, scenario=1, block=2)
+    assert float(net.load["p_mw"].iloc[0]) == pytest.approx(60.0)
 
 
 def test_read_file_wide_without_block_filter(tmp_path):

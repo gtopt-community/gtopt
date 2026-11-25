@@ -11,7 +11,6 @@ import io
 import json
 import signal
 import threading
-import time
 from pathlib import Path
 from types import SimpleNamespace
 from collections.abc import Callable
@@ -227,7 +226,7 @@ def test_resolve_log_dir_candidates_resolve_error(
 def test_resolve_log_dir_none_when_no_candidates(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(_runner, "_resolve_log_dir_candidates", lambda _c: [])
+    monkeypatch.setattr(_runner, "_resolve_log_dir_candidates", lambda _c, _o=None: [])
     assert _resolve_log_dir(tmp_path) is None
 
 
@@ -343,36 +342,64 @@ class _Recorder(io.StringIO):
     """stdout replacement that records writes (thread-safe enough here)."""
 
 
+def _fake_gtopt(tmp_path: Path, body: str) -> str:
+    """Write an executable stand-in for gtopt running *body* (sh)."""
+    script = tmp_path / "fake_gtopt"
+    script.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
+    script.chmod(0o755)
+    return str(script)
+
+
 def test_run_batch_tails_new_log(
-    fake_sp: _FakeSubprocess, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
     case = tmp_path / "case"
     case.mkdir()
     out = _Recorder()
+    err = _Recorder()
     monkeypatch.setattr(_runner.sys, "stdout", out)
-
-    def _on_run(_cmd: list[str]) -> None:
-        logs = case / "output" / "logs"
-        (logs / "gtopt_1.log").write_text("solving...\n", encoding="utf-8")
-        deadline = time.monotonic() + 10.0
-        while "solving" not in out.getvalue() and time.monotonic() < deadline:
-            time.sleep(0.01)
-
-    fake_sp.on_run = _on_run
-    fake_sp.returncode = 4
-    assert _run_batch(["gtopt", str(case)], {}, case) == 4
+    monkeypatch.setattr(_runner.sys, "stderr", err)
+    logs = case / "output" / "logs"
+    gtopt = _fake_gtopt(
+        tmp_path,
+        f"sleep 0.3; echo 'solving...' > {logs}/gtopt_1.log; sleep 0.3;"
+        " echo 'gtopt: [error] boom' >&2; exit 4",
+    )
+    rc = _run_batch([gtopt, str(case)], {}, case, case / "output")
+    assert rc == 4
     assert "solving...\n" in out.getvalue()
-    assert fake_sp.calls[0][1]["stdout"] == _FakeSubprocess.DEVNULL
+    text = err.getvalue()
+    assert "gtopt: [error] boom" in text  # echoed live
+    assert "run_gtopt: [XX] Failed" in text
+    assert "gtopt exit code 4" in text
+    assert "Solver stdout/stderr:" in text
+    assert f"gtopt log: {logs.resolve()}/gtopt_1.log" in text
+    captured = sorted(logs.glob("run_gtopt_stderr_*.log"))
+    assert captured and "boom" in captured[0].read_text(encoding="utf-8")
 
 
 def test_run_batch_without_log_dirs(
-    fake_sp: _FakeSubprocess, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(_runner, "_resolve_log_dir_candidates", lambda _c: [])
-    fake_sp.returncode = 2
-    assert _run_batch(["gtopt"], {"A": "1"}, tmp_path) == 2
-    assert "stdout" not in fake_sp.calls[0][1]
+    monkeypatch.setattr(_runner, "_resolve_log_dir_candidates", lambda _c, _o=None: [])
+    err = _Recorder()
+    monkeypatch.setattr(_runner.sys, "stderr", err)
+    gtopt = _fake_gtopt(tmp_path, "exit 0")
+    assert _run_batch([gtopt], {"A": "1"}, tmp_path) == 0
+    assert err.getvalue().startswith("run_gtopt: [??] Finished")
+
+
+def test_run_batch_signal_maps_to_shell_code(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(_runner, "_resolve_log_dir_candidates", lambda _c, _o=None: [])
+    err = _Recorder()
+    monkeypatch.setattr(_runner.sys, "stderr", err)
+    gtopt = _fake_gtopt(tmp_path, "kill -ABRT $$")
+    assert _run_batch([gtopt], {}, tmp_path) == 128 + signal.SIGABRT
+    assert "killed by SIGABRT" in err.getvalue()
+    assert "printed nothing" in err.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -399,37 +426,18 @@ class _FakeDisplay:
     def stop(self) -> None:
         self.events.append("stop")
 
-    def print_final(self, rc: int) -> None:
+    def set_log_path(self, path: Path) -> None:
+        self.events.append(("log_path", path))
+
+    def request_stop(self) -> bool:
+        self.events.append("request_stop")
+        return True
+
+    def set_shutdown_state(self, msg: str) -> None:
+        self.events.append(("shutdown", msg))
+
+    def print_final(self, rc: Any) -> None:
         self.events.append(("final", rc))
-
-
-class _FakeProc:
-    def __init__(self, polls: list[int | None], display_quit: bool = False):
-        self._polls = polls
-        self.returncode: int | None = None
-        self.signals: list[int] = []
-        self.display_quit = display_quit
-
-    def __enter__(self) -> _FakeProc:
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        return None
-
-    def poll(self) -> int | None:
-        val = self._polls.pop(0) if self._polls else 0
-        if val is not None:
-            self.returncode = val
-        elif self.display_quit:
-            _FakeDisplay.instances[-1].quit_requested.set()
-        return val
-
-    def send_signal(self, sig: int) -> None:
-        self.signals.append(sig)
-        self.returncode = -sig
-
-    def wait(self) -> int | None:
-        return self.returncode
 
 
 @pytest.fixture(name="fake_display")
@@ -441,7 +449,6 @@ def _fake_display(monkeypatch: pytest.MonkeyPatch) -> type[_FakeDisplay]:
 
 
 def test_run_interactive_normal_exit(
-    fake_sp: _FakeSubprocess,
     fake_display: type[_FakeDisplay],
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -449,34 +456,75 @@ def test_run_interactive_normal_exit(
     monkeypatch.chdir(tmp_path)
     case = tmp_path / "mycase"
     case.mkdir()
-    proc = _FakeProc([None, 0])
-    fake_sp.popen_factory = lambda _cmd: proc
-    rc = _run_interactive(["gtopt", str(case), "--solver", "highs"], {}, case)
+    logs = case / "output" / "logs"
+    gtopt = _fake_gtopt(
+        tmp_path,
+        f"echo hello-from-gtopt; sleep 0.3; echo '[info] solved' > {logs}/gtopt_1.log;"
+        " sleep 0.3; exit 0",
+    )
+    rc = _run_interactive([gtopt, str(case), "--solver", "highs"], {}, case)
     assert rc == 0
     disp = fake_display.instances[-1]
     assert disp.kwargs["case_name"] == "mycase"
     assert disp.kwargs["solver_hint"] == "highs"
-    assert disp.events == ["start", "stop", ("final", 0)]
-    assert not proc.signals
+    assert disp.events[:2] == ["start", ("log_path", (logs / "gtopt_1.log").resolve())]
+    assert disp.events[2] == "stop"
+    final = disp.events[3][1]
+    assert final.returncode == 0
+    assert final.tail == ["hello-from-gtopt"]
+    assert "hello-from-gtopt" in disp.lines  # shown live in the log panel
+    assert "[info] solved\n" in disp.lines  # tailed from gtopt_N.log
+    assert final.log_path == (logs / "gtopt_1.log").resolve()
 
 
-def test_run_interactive_quit_terminates(
-    fake_sp: _FakeSubprocess,
+def test_run_interactive_failure_carries_errors(
     fake_display: type[_FakeDisplay],
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(_runner, "_resolve_log_dir_candidates", lambda _c: [])
+    monkeypatch.chdir(tmp_path)
+    case = tmp_path / "ieee9"
+    case.mkdir()
+    out = tmp_path / "out"
+    gtopt = _fake_gtopt(
+        tmp_path,
+        "echo \"gtopt: [critical] Directory 'ieee9' given but neither exist\" >&2;"
+        " exit 3",
+    )
+    rc = _run_interactive([gtopt, str(case)], {}, case, out)
+    assert rc == 3
+    final = fake_display.instances[-1].events[-1][1]
+    assert final.returncode == 3
+    assert final.errors == [
+        "gtopt: [critical] Directory 'ieee9' given but neither exist"
+    ]
+    assert final.capture_path is not None
+    assert final.capture_path.parent == out / "logs"
+    assert final.output_dir == out
+
+
+def test_run_interactive_quit_terminates(
+    fake_display: type[_FakeDisplay],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(_runner, "_resolve_log_dir_candidates", lambda _c, _o=None: [])
     plan = tmp_path / "plan.json"
     plan.write_text("{}", encoding="utf-8")
-    proc = _FakeProc([None, None], display_quit=True)
-    fake_sp.popen_factory = lambda _cmd: proc
-    rc = _run_interactive(["gtopt", str(plan), "--solver"], {}, plan)
-    assert proc.signals == [signal.SIGTERM]
-    assert rc == -signal.SIGTERM
+    gtopt = _fake_gtopt(tmp_path, "exec sleep 30")
+
+    def _start(self: _FakeDisplay) -> None:
+        self.events.append("start")
+        self.quit_requested.set()
+
+    monkeypatch.setattr(_FakeDisplay, "start", _start)
+    rc = _run_interactive([gtopt, str(plan), "--solver"], {}, plan)
+    assert rc == 128 + signal.SIGTERM
     disp = fake_display.instances[-1]
     assert disp.kwargs["case_name"] == "plan"
     assert disp.kwargs["solver_hint"] == ""
+    assert disp.events[-1][1].forced == "terminated"
+    assert any(e[0] == "shutdown" for e in disp.events if isinstance(e, tuple))
 
 
 # ---------------------------------------------------------------------------
@@ -491,8 +539,14 @@ def test_run_gtopt_dispatch(
     seen: dict[str, Any] = {}
 
     def _runner_fn(name: str):
-        def _fn(cmd: list[str], env: dict[str, str], case: Path) -> int:
-            seen.update(name=name, cmd=cmd, env=env, case=case)
+        def _fn(
+            cmd: list[str],
+            env: dict[str, str],
+            case: Path,
+            out: Path | None,
+            *_rest: Any,
+        ) -> int:
+            seen.update(name=name, cmd=cmd, env=env, case=case, out=out)
             return 9
 
         return _fn
@@ -598,3 +652,35 @@ def test_tail_log_to_drains_after_stop(tmp_path: Path) -> None:
     lines: list[str] = []
     _tail_log_to(log, lines.append, _StopAfterWrite())  # type: ignore[arg-type]
     assert lines == ["first\n", "final\n"]
+
+
+def test_run_batch_reports_converged_outcome(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The batch banner is driven by this run's solver_status.json."""
+    monkeypatch.chdir(tmp_path)
+    case = tmp_path / "case"
+    case.mkdir()
+    out_dir = case / "output"
+    out_dir.mkdir()
+    stale = out_dir / "solver_status.json"
+    stale.write_text('{"status": "converged"}', encoding="utf-8")
+    import os  # noqa: PLC0415
+
+    os.utime(stale, (1.0, 1.0))  # older than the run -> ignored
+    err = _Recorder()
+    monkeypatch.setattr(_runner.sys, "stderr", err)
+    monkeypatch.setattr(_runner.sys, "stdout", _Recorder())
+    gtopt = _fake_gtopt(tmp_path, "exit 0")
+    assert _run_batch([gtopt], {}, case, out_dir) == 0
+    assert "[??] Finished" in err.getvalue()
+
+    err.truncate(0)
+    gtopt = _fake_gtopt(
+        tmp_path,
+        'echo \'{"status": "converged", "iteration": 3, "gap": 0.0}\''
+        f" > {out_dir}/solver_status.json",
+    )
+    assert _run_batch([gtopt], {}, case, out_dir) == 0
+    assert "run_gtopt: [OK] Converged" in err.getvalue()
+    assert "iteration 3, gap 0%" in err.getvalue()

@@ -16,11 +16,11 @@ The config (benchmarked to ~PLP parity on the CEN65 2-year case):
   scene warm-chained on one LP clone — 7.7x faster backward than
   ``per_aperture`` on the CEN y24 case, identical bounds)
 * forward/backward solver ``algorithm`` = ``dual`` (+ ``advanced_basis`` forward)
-* ``sddp_options.low_memory_mode``       = ``off`` (the reference oracle —
-  off never diverges, so the fast dual+warm config is correct there).
-  ``--solver-invariant`` flips this to ``compress`` and swaps in the
-  barrier/primal-crossover forward config (memory savings WITH
-  reproducibility).
+* ``sddp_options.low_memory_mode`` is NOT written: gtopt's ``compress``
+  default applies (5.8x less peak memory than ``off`` on the CEN 2y case at
+  the same wall time).  ``--solver-invariant`` pins ``compress`` explicitly
+  and swaps in the barrier/primal-crossover forward config (off == compress
+  bit-for-bit).
 
 The bundled ``cplex.prm`` is retuned to dual / no-presolve to match (see
 ``plp2gtopt.install_solver_param_files``).
@@ -117,18 +117,18 @@ def apply_iterative_fast_path(
         if src_mode is None and src_size is None:
             sddp_opts["aperture_chunk_mode"] = "per_scene"
 
-    # Memory mode default.  The fast dual+warm config is correct only under
-    # low_memory_mode=off (the reference oracle — off never diverges).  Under
-    # compress the same config diverges from off, so couple compress with the
-    # invariant solver config: default => OFF (fast + correct), and
-    # --solver-invariant => compress (memory savings WITH reproducibility,
-    # paired with the barrier/no-crossover forward config below).  Overridable
-    # by an explicit JSON low_memory_mode or by gtopt's --memory-saving (which,
-    # when passed, wins; when omitted, this JSON value stands).
-    sddp_opts.setdefault(
-        "low_memory_mode",
-        src_sddp.get("low_memory_mode") or ("compress" if invariant else "off"),
-    )
+    # Memory mode.  No default is written: gtopt's own SDDP/cascade default
+    # (``compress``) applies.  Measured on the CEN 2y case (CPLEX, 3 iters):
+    # compress peaks at 4.5 GiB RSS vs 26.3 GiB for ``off``, in the same wall
+    # time, and the bounds match ``off`` to ~1e-5 relative (dual simplex can
+    # pick a different equal-cost vertex under degeneracy, nothing more).  An
+    # explicit source ``low_memory_mode`` is passed through; --solver-invariant
+    # pins ``compress`` explicitly (its barrier/primal-crossover forward makes
+    # off and compress reproduce each other exactly).
+    if src_sddp.get("low_memory_mode"):
+        sddp_opts.setdefault("low_memory_mode", src_sddp["low_memory_mode"])
+    elif invariant:
+        sddp_opts.setdefault("low_memory_mode", "compress")
 
     fwd = sddp_opts.get("forward_solver_options")
     if fwd is None:

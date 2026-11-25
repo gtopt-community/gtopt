@@ -109,3 +109,35 @@ def test_main_without_gtopt_binary(tmp_path: Path, monkeypatch, capsys) -> None:
 @pytest.mark.parametrize("rc", [0])
 def test_has_problem_clean(rc: int) -> None:
     assert not checks.has_problem({"lp_rc": rc})
+
+
+def test_solution_without_kappa_columns(tmp_path: Path) -> None:
+    """kappa_mode=off writes no kappa/max_kappa columns: tolerated, not printed."""
+    (tmp_path / "solution.csv").write_text(
+        "scene,phase,status,status_name,obj_value,gap,gap_change,solve_ticks,"
+        "solve_time_s,solve_calls,infeasible_count,scale_objective,"
+        "gtopt_version,gtopt_revision\n"
+        "1,1,0,optimal,12.5,0,0,0,0.01,1,0,1,1.0.0,v1.0.0\n",
+        encoding="utf-8",
+    )
+    sol = checks.read_solution(tmp_path)
+    assert sol is not None
+    assert sol["status"] == "optimal"
+    assert sol["objective"] == pytest.approx(12.5)
+    assert sol["kappa"] is None
+    assert sol["max_kappa"] is None
+    res = {"id": "x", "lp_rc": 0, "lp": None, "solve_rc": 0, "solution": sol}
+    line = checks.format_result(res)
+    assert "kappa" not in line
+    assert "obj=12.5" in line
+
+
+def test_format_result_prints_kappa_when_present() -> None:
+    res = {
+        "id": "x",
+        "lp_rc": 0,
+        "lp": None,
+        "solve_rc": 0,
+        "solution": {"status": "optimal", "objective": 1.0, "kappa": 3.0},
+    }
+    assert "kappa=3.0" in checks.format_result(res)

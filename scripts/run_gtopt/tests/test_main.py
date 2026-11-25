@@ -15,7 +15,7 @@ def test_parser_defaults():
     args = parser.parse_args([])
     assert args.case is None
     assert args.threads is None
-    assert args.compression == "snappy"
+    assert args.compression is None  # leave the case / gtopt default
     assert args.check is True
 
 
@@ -68,3 +68,16 @@ def test_no_case_no_cwd_detection(tmp_path: Path):
         assert exc_info.value.code == 2
     finally:
         os.chdir(orig)
+
+
+def test_help_documents_passthrough_exit_codes_and_checks(capsys):
+    """--help lists the -- passthrough, Ctrl-C semantics and exit codes."""
+    with pytest.raises(SystemExit):
+        make_parser().parse_args(["--help"])
+    out = capsys.readouterr().out
+    assert 'Everything after a bare "--" goes to the gtopt binary' in out
+    assert "run_gtopt case -- --solver highs" in out
+    assert "1st Ctrl-C" in out and "2nd Ctrl-C" in out
+    assert "Exit status:" in out and "128+N" in out and "127" in out
+    # check_json is opt-in, and the help must say so.
+    assert "opt-in" in out and "--enable-check check_json" in out

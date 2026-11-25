@@ -539,6 +539,10 @@ class TestCascadeOptionKeys:
             "aperture_screen_count",
             # Cross-iteration first-aperture basis seed (orthogonal opt-in).
             "aperture_seed_basis",
+            # Per-level LP solver options for the forward / backward
+            # passes (HiGHS barrier / crossover per cascade level).
+            "forward_solver_options",
+            "backward_solver_options",
         }
         assert expected == cpp_fields, (
             f"CascadeLevelMethod fields mismatch: expected {expected}, got {cpp_fields}"

@@ -18,6 +18,11 @@ from gtopt_shared.future_cost import resolve_legacy_future_cost_keys
 
 log = logging.getLogger(__name__)
 
+# Codecs gtopt's CSV writer understands (``csv_write_table`` in
+# source/output_context.cpp); anything else is written uncompressed with a
+# warning per file.
+_CSV_CODECS = frozenset({"zstd", "gzip", "none", "uncompressed"})
+
 # ---------------------------------------------------------------------------
 # Option validation and auto-fix
 # ---------------------------------------------------------------------------
@@ -478,12 +483,26 @@ def sanitize_json(
             log.info("  %s", msg)
 
     # ── Compression codec ──
+    # Only an explicit user request (``run_gtopt -C``) reaches here; the
+    # case's own ``output_compression`` (or gtopt's built-in default) is
+    # left alone otherwise.  CSV output only understands a subset of the
+    # Parquet codecs, so an incompatible request is dropped with one
+    # warning instead of making gtopt log one per written file.
     if compression:
         current = opts.get("output_compression", "")
-        if current and current != compression:
+        out_format = str(opts.get("output_format", "parquet")).lower()
+        if out_format == "csv" and compression not in _CSV_CODECS:
+            log.warning(
+                "sanitize: compression '%s' is not supported for CSV output "
+                "(use one of: %s); keeping '%s'",
+                compression,
+                ", ".join(sorted(_CSV_CODECS)),
+                current or "gtopt default",
+            )
+        elif current != compression:
             log.info(
                 "sanitize: output_compression '%s' -> '%s'",
-                current,
+                current or "(default)",
                 compression,
             )
             opts["output_compression"] = compression
@@ -537,7 +556,7 @@ def sanitize_json(
             # ``raw`` is relative and ``resolved`` absolute, so they always
             # differ: every relative directory is rewritten.
             resolved = str((case_root / raw).resolve())
-            log.info("sanitize: %s '%s' -> '%s'", dir_key, raw, resolved)
+            log.debug("sanitize: %s '%s' -> '%s'", dir_key, raw, resolved)
             opts[dir_key] = resolved
             changed = True
 
@@ -550,5 +569,5 @@ def sanitize_json(
         json.dump(data, f, indent=2)
         f.write("\n")
 
-    log.info("sanitized JSON written to %s", out_path)
+    log.debug("sanitized JSON written to %s", out_path)
     return out_path

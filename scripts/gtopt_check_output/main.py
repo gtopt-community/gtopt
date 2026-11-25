@@ -32,6 +32,9 @@ Examples:
   gtopt_check_output -r results/ -j plan.json  # explicit paths
   gtopt_check_output gtopt_case_2y --quiet      # minimal output
   gtopt_check_output case --emit-overrides eps.json  # loss_cost_eps snippet
+  gtopt_check_output --numerics --case c --solver highs \\
+      --work-dir w --baselines b.json [--gtopt bin --case-json c.json]
+                                               # numerical-stability monitor
 """
 
 _SEVERITY_COLORS = {
@@ -217,6 +220,13 @@ def _init_config(config_path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and run output checks."""
+    raw = sys.argv[1:] if argv is None else argv
+    if "--numerics" in raw:
+        # Numerical-stability monitor: its own argument set (see _numerics).
+        from ._numerics import main as numerics_main  # noqa: PLC0415
+
+        sys.exit(numerics_main([a for a in raw if a != "--numerics"]))
+
     parser = make_parser()
     args = parser.parse_args(argv)
 

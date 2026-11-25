@@ -301,6 +301,25 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "overload_slack_bound",
+            _J_STR,
+            False,
+            (
+                "Overload slack bound: 'thermal' (min(hard - normal, ratio x "
+                "normal)), 'ratio' (max_overload_ratio x normal) or "
+                "'unbounded'; unset inherits "
+                "model_options (default 'thermal')."
+            ),
+            None,
+        ),
+        (
+            "max_overload_ratio",
+            _J_NUM,
+            False,
+            "Overload headroom as a fraction of the normal threshold (default 1.5).",
+            None,
+        ),
+        (
             "line_losses_mode",
             _J_STR,
             False,
@@ -389,6 +408,16 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "loss_flow_abs_cost",
+            _J_NUM,
+            False,
+            (
+                "Pin cost per MWh on the tangent_signed_flow |f| proxy "
+                "(default 0.001; 0 disables; 1e-6 = legacy)."
+            ),
+            None,
+        ),
+        (
             "loss_overflow_cost",
             _J_NUM,
             False,
@@ -415,6 +444,27 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             (
                 "Enable SOS2 enforcement on the ``L`` secant-segment columns emitted when "
                 "``loss_secant_segments > 1`` (issue #504)."
+            ),
+            None,
+        ),
+        (
+            "line_thermal_limit_mode",
+            _J_STR,
+            False,
+            (
+                "How the thermal limit treats losses: 'flow' (flow only), "
+                "'sending' (sending-end f + share·loss) or 'full' (f + loss); "
+                "unset inherits model_options."
+            ),
+            None,
+        ),
+        (
+            "dlr",
+            "JSON object",
+            False,
+            (
+                "Dynamic line rating through critical spans (IEEE 738 from "
+                "per-span weather, or precomputed per-span MW; see LineDlr)."
             ),
             None,
         ),

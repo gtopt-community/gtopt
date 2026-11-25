@@ -859,3 +859,56 @@ def test_future_cost_conflict_and_bad_mode_reported(tmp_path: Path, caplog):
         sanitize_json(p)
     assert "conflicting values" in caplog.text
     assert "mode='x'" in caplog.text
+
+
+def test_compression_set_when_case_has_none(tmp_path: Path):
+    """An explicit -C applies even when the case does not set a codec."""
+    p = _write_plan(tmp_path / "plan.json")
+    result = sanitize_json(p, compression="lz4")
+    assert result is not None and result != p
+    data = json.loads(result.read_text())
+    assert data["options"]["output_compression"] == "lz4"
+
+
+def test_compression_none_keeps_case_codec(tmp_path: Path):
+    """Without -C the case codec is never touched (no snappy injection)."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"output_format": "csv", "output_compression": "uncompressed"},
+    )
+    assert sanitize_json(p, compression=None) == p
+
+
+def test_compression_csv_incompatible_codec_dropped(tmp_path: Path, caplog):
+    """CSV output cannot take snappy: warn once, keep the case codec."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"output_format": "csv", "output_compression": "uncompressed"},
+    )
+    with caplog.at_level(logging.WARNING):
+        result = sanitize_json(p, compression="snappy")
+    assert result == p
+    assert "not supported for CSV output" in caplog.text
+    assert "keeping 'uncompressed'" in caplog.text
+
+
+def test_compression_csv_incompatible_codec_no_case_codec(tmp_path: Path, caplog):
+    p = _write_plan(tmp_path / "plan.json", {"output_format": "CSV"})
+    with caplog.at_level(logging.WARNING):
+        assert sanitize_json(p, compression="lz4") == p
+    assert "keeping 'gtopt default'" in caplog.text
+
+
+def test_compression_csv_compatible_codec_applied(tmp_path: Path):
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"output_format": "csv", "output_compression": "uncompressed"},
+    )
+    result = sanitize_json(p, compression="gzip")
+    assert result is not None and result != p
+    assert json.loads(result.read_text())["options"]["output_compression"] == "gzip"
+
+
+def test_compression_same_codec_no_change(tmp_path: Path):
+    p = _write_plan(tmp_path / "plan.json", {"output_compression": "zstd"})
+    assert sanitize_json(p, compression="zstd") == p

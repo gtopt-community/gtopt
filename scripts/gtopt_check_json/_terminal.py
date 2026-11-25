@@ -228,7 +228,9 @@ def print_table(
         Per-column minimum widths.  ``None`` entries use Rich auto-sizing.
     wraps
         Per-column wrap flag.  ``True`` allows Rich to wrap long text across
-        multiple lines.  Defaults to ``False`` (no wrapping) for all columns.
+        multiple lines (words longer than the column, e.g. paths, are
+        folded instead of cut with "…").  Defaults to ``False`` (no
+        wrapping) for all columns.
     show_lines
         Draw horizontal separators between rows (useful with wrapped text).
     width
@@ -268,6 +270,7 @@ def print_table(
             justify=_aligns[i],
             style=styles[i] or None,
             no_wrap=not wrap,
+            overflow="fold" if wrap else "ellipsis",
             min_width=mw,
         )
 

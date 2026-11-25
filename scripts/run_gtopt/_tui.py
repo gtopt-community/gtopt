@@ -34,17 +34,23 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import sys
 import threading
 import time
+import unicodedata
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._paths import write_stop_request
+
 if TYPE_CHECKING:
     from rich.console import Group
+
+    from ._process import RunResult
     from rich.panel import Panel
 
 log = logging.getLogger(__name__)
@@ -80,22 +86,48 @@ _MODE_NAMES = {
     _MODE_CONVERGENCE: "convergence",
 }
 
-# Convergence heatmap color ramp (green → yellow → red, 8 levels)
+# Convergence heatmap color ramp (green → yellow → red, 8 levels).
+# Only the 16 ANSI colours (+ bold / dim), so the ramp reads the same on
+# a 16-colour terminal or tmux without 256-colour support instead of
+# collapsing "dark_green" / "dark_orange" / "orange_red1" to arbitrary
+# neighbours; the block height carries the magnitude as well.
 _HEAT_BLOCKS = "▁▂▃▄▅▆▇█"
 _HEAT_STYLES = [
     "bold green",
     "green",
-    "dark_green",
+    "dim green",
+    "bright_yellow",
     "yellow",
-    "dark_orange",
-    "orange_red1",
+    "dim red",
     "red",
     "bold red",
 ]
 
+# Levels counted for the final summary's "N warning(s), M error(s)".
+_COUNTED_LEVELS = ("warning", "warn", "error", "err", "critical")
+# Timestamp / "gtopt:" echo prefixes, stripped to match a stderr copy of
+# a message with its log-file copy.
+_ECHO_PREFIX_RE = re.compile(r"^(?:\s*\[\d{4}-\d\d-\d\d [\d:.]+\]\s*|\s*gtopt:\s*)+")
+
+# Iteration rows kept in the persistent final summary.
+_SUMMARY_ITERATIONS = 10
+
+# gtopt's PlanningOptionsLP::default_sddp_convergence_tol.
+_DEFAULT_CONVERGENCE_TOL = 0.01
+
+# ``q`` terminates the solver; past this run age it asks y/N first.
+_CONFIRM_QUIT_AFTER_S = 60.0
+
 # Pass names from the C++ SolverStatusSnapshot::current_pass enum
 _PASS_NAMES = {0: "idle", 1: "forward", 2: "backward"}
 _PASS_STYLES = {0: "dim", 1: "bold green", 2: "bold magenta"}
+# Final ``solver_status.json`` states -> (label, style) for the progress bar.
+_FINAL_STATES = {
+    "converged": ("converged", "bold green"),
+    "max_iterations": ("iteration limit", "bold yellow"),
+    "stopped": ("stopped", "bold yellow"),
+    "done": ("done", "bold green"),
+}
 
 # The file name the C++ solver checks for graceful stop requests
 _STOP_REQUEST_FILE = "sddp_stop_request.json"
@@ -533,20 +565,163 @@ class SolverPhaseTracker:
 # ---------------------------------------------------------------------------
 
 
+#: ``--ui`` selection: ``auto`` (TUI on a capable TTY), ``tui``, ``plain``.
+UI_MODES = ("auto", "tui", "plain")
+_ui_mode = "auto"
+
+
+def set_ui_mode(mode: str) -> None:
+    """Select the display mode (``run_gtopt --ui`` / ``--no-tui``)."""
+    global _ui_mode  # noqa: PLW0603  # pylint: disable=global-statement
+    if mode not in UI_MODES:
+        raise ValueError(f"unknown UI mode {mode!r}")
+    _ui_mode = mode
+
+
 def is_interactive() -> bool:
-    """Return True when stdout is connected to an interactive terminal."""
+    """Return True when the live Rich dashboard should be used.
+
+    ``--ui plain`` / ``--no-tui`` always disable it and ``--ui tui``
+    forces it; ``auto`` uses it when stdout is a terminal that is not
+    ``TERM=dumb`` (emacs shell buffers, some CI ptys).
+    """
+    if _ui_mode == "plain":
+        return False
+    if _ui_mode == "tui":
+        return True
+    if os.environ.get("TERM") == "dumb":
+        return False
     return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
 
 
-def _sparkline(values: list[float], width: int = _SPARKLINE_WIDTH) -> str:
-    """Render a Unicode sparkline for the last *width* values."""
-    if not values:
-        return ""
-    blocks = " ▁▂▃▄▅▆▇█"
+def make_console(**kwargs: Any) -> Any:
+    """The Rich Console used by the dashboard and the banners.
+
+    ``GTOPT_TUI_WIDTH`` / ``GTOPT_TUI_HEIGHT`` override the detected
+    terminal size (handy under tmux / script(1) / screenshots).
+    """
+    from rich.console import Console  # noqa: PLC0415
+
+    for env, key in (("GTOPT_TUI_WIDTH", "width"), ("GTOPT_TUI_HEIGHT", "height")):
+        raw = os.environ.get(env, "")
+        if raw.isdigit() and int(raw) > 0 and key not in kwargs:
+            kwargs[key] = int(raw)
+    return Console(**kwargs)
+
+
+# --- ASCII fallback ---------------------------------------------------------
+# Glyphs the dashboard draws -> one ASCII stand-in of the same cell width.
+_ASCII_GLYPHS = {
+    "✓": "v",
+    "✗": "x",
+    "⚠": "!",
+    "⏸": "|",
+    "↪": ">",
+    "○": "o",
+    "━": "=",
+    "░": ".",
+    "…": "~",
+    "→": ">",
+    "·": ".",
+    "–": "-",
+    "—": "-",
+    "×": "x",
+    "Δ": "d",
+    "⚡": "**",
+    **dict(zip("▁▂▃▄▅▆▇█", "._-=+*#@", strict=True)),
+    **{ch: "|/-\\"[i % 4] for i, ch in enumerate("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")},
+}
+
+
+def _box_ascii(ch: str) -> str:
+    name = unicodedata.name(ch, "")
+    horizontal, vertical = "HORIZONTAL" in name, "VERTICAL" in name
+    if horizontal and not vertical:
+        return "-"
+    if vertical and not horizontal:
+        return "|"
+    return "+"
+
+
+_ASCII_TABLE = str.maketrans(
+    {
+        **{chr(c): _box_ascii(chr(c)) for c in range(0x2500, 0x2580)},
+        **_ASCII_GLYPHS,
+    }
+)
+
+
+def ascii_wanted(encoding: str | None = None) -> bool:
+    """True when the dashboard should draw ASCII only.
+
+    ``--ascii`` / ``GTOPT_TUI_ASCII=1`` force it; otherwise it is used
+    when the output encoding or the locale (``LC_ALL`` > ``LC_CTYPE`` >
+    ``LANG``, when set) is not UTF-8 — e.g. ``LANG=C`` over ssh, where
+    braille spinners and block glyphs print as garbage.
+    """
+    forced = os.environ.get("GTOPT_TUI_ASCII", "").lower()
+    if forced in ("1", "true", "yes", "on"):
+        return True
+    if forced in ("0", "false", "no", "off"):
+        return False
+    if encoding and not encoding.lower().replace("-", "").startswith("utf"):
+        return True
+    for var in ("LC_ALL", "LC_CTYPE", "LANG"):
+        value = os.environ.get(var)
+        if value:
+            return "utf" not in value.lower().replace("-", "")
+    return False
+
+
+class _AsciiRender:
+    """Render *renderable* with every non-ASCII glyph replaced."""
+
+    def __init__(self, renderable: Any) -> None:
+        self.renderable = renderable
+
+    def __rich_console__(self, console: Any, options: Any) -> Any:
+        from rich.segment import Segment  # noqa: PLC0415
+
+        for seg in console.render(self.renderable, options):
+            if seg.control or not seg.text:
+                yield seg
+            else:
+                yield Segment(seg.text.translate(_ASCII_TABLE), seg.style)
+
+
+def _sparkline(
+    values: list[float],
+    width: int = _SPARKLINE_WIDTH,
+    lo: float | None = None,
+    hi: float | None = None,
+) -> str:
+    """Render a Unicode sparkline for the last *width* values.
+
+    Scaled to the window's min..max, or to the fixed *lo*..*hi* (e.g.
+    0..100 for percentages, so 5 % never draws as a full block).  A
+    single sample is no trend and renders as ""; a flat series as a
+    mid-height line.
+    """
     vals = values[-width:]
-    mn, mx = min(vals), max(vals)
-    rng = mx - mn if mx > mn else 1.0
-    return "".join(blocks[min(8, int((v - mn) / rng * 8))] for v in vals)
+    if len(vals) < 2:
+        return ""
+    blocks = "▁▂▃▄▅▆▇█"
+    mn = min(vals) if lo is None else lo
+    mx = max(vals) if hi is None else hi
+    if mx <= mn:
+        return "▄" * len(vals)
+    top = len(blocks) - 1
+    return "".join(
+        blocks[max(0, min(top, round((v - mn) / (mx - mn) * top)))] for v in vals
+    )
+
+
+def _spark_range(values: list[float], fmt: str = "{:.0f}") -> str:
+    """ " min–max" label for a sparkline window."""
+    vals = values[-_SPARKLINE_WIDTH:]
+    if len(vals) < 2:
+        return ""
+    return f"  {fmt.format(min(vals))}–{fmt.format(max(vals))}"
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -556,15 +731,20 @@ def _format_elapsed(seconds: float) -> str:
     return f"{h:d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
 
+_NUMBER_SUFFIXES = ((1e12, "T"), (1e9, "G"), (1e6, "M"), (1e3, "k"))
+
+
 def _format_number(val: float) -> str:
-    """Human-readable number formatting for objective values."""
-    if abs(val) >= 1e9:
-        return f"{val:,.0f}"
-    if abs(val) >= 1e6:
-        return f"{val:,.2f}"
-    if abs(val) >= 1e3:
-        return f"{val:,.4f}"
-    return f"{val:.6f}"
+    """Objective values with an SI suffix and 6 significant digits.
+
+    ``1234567890.0`` -> ``1.23457G``; ``0.123`` -> ``0.123``.  Six digits
+    keep LB / UB distinguishable near convergence while the column stays
+    ~9 characters instead of 13+ with thousands separators.
+    """
+    for scale, suffix in _NUMBER_SUFFIXES:
+        if abs(val) >= scale:
+            return f"{val / scale:.6g}{suffix}"
+    return f"{val:.6g}"
 
 
 def _load_status(path: Path | None) -> dict[str, Any]:
@@ -589,7 +769,7 @@ def _load_status(path: Path | None) -> dict[str, Any]:
         return {}
 
 
-def _find_status_file(case_dir: Path) -> Path:
+def _find_status_file(case_dir: Path, output_dir: Path | None = None) -> Path:
     """Derive the expected status-file path from *case_dir*.
 
     The C++ solver writes ``solver_status.json`` under
@@ -604,6 +784,10 @@ def _find_status_file(case_dir: Path) -> Path:
     # one declared in the planning JSON (when discoverable) so we follow
     # what the solver actually wrote.
     candidate_dirs: list[Path] = []
+    # The resolved output dir (run_gtopt._paths.resolve_output_dir: CLI
+    # -d / --set / JSON / "output", like gtopt) wins when known.
+    if output_dir is not None:
+        candidate_dirs.append(output_dir)
     json_path = _find_planning_json(case_dir)
     if json_path is not None:
         try:
@@ -621,13 +805,13 @@ def _find_status_file(case_dir: Path) -> Path:
     for sub in ("output", "results"):
         candidate_dirs.append(base / sub)
 
-    for output_dir in candidate_dirs:
-        status = output_dir / "solver_status.json"
+    for cand in candidate_dirs:
+        status = cand / "solver_status.json"
         if status.is_file():
             return status
         # Legacy fallback for older gtopt builds
-        sddp = output_dir / "sddp_status.json"
-        mono = output_dir / "monolithic_status.json"
+        sddp = cand / "sddp_status.json"
+        mono = cand / "monolithic_status.json"
         if sddp.is_file():
             return sddp
         if mono.is_file():
@@ -694,6 +878,11 @@ def _load_system_stats(json_path: Path | None) -> dict[str, Any]:
 
     # Options summary
     method = options.get("method", "?")
+    sddp_opts = options.get("sddp_options") or {}
+    tol = sddp_opts.get("convergence_tol")
+    convergence_tol = (
+        float(tol) if isinstance(tol, (int, float)) else _DEFAULT_CONVERGENCE_TOL
+    )
     solver = options.get("solver", "")
     model_opts = options.get("model_options") or {}
     scale_obj = model_opts.get("scale_objective")
@@ -706,6 +895,7 @@ def _load_system_stats(json_path: Path | None) -> dict[str, Any]:
         "stages": len(stages),
         "blocks": len(blocks),
         "method": method,
+        "convergence_tol": convergence_tol,
         "solver": solver,
         "scale_objective": scale_obj,
         "use_kirchhoff": kirchhoff,
@@ -748,15 +938,63 @@ def _exit_cbreak(old_settings: Any) -> None:
         pass
 
 
+#: CSI / SS3 sequences (after ESC) for the navigation keys we map.
+_ESC_KEYS = {
+    "[A": "UP",
+    "[B": "DOWN",
+    "OA": "UP",
+    "OB": "DOWN",
+    "[5~": "PGUP",
+    "[6~": "PGDN",
+    "[H": "HOME",
+    "[F": "END",
+    "OH": "HOME",
+    "OF": "END",
+}
+
+
+#: Navigation keys mapped onto the vim-style grid scroll keys.
+_NAV_KEY_ALIASES = {
+    "UP": "k",
+    "DOWN": "j",
+    "PGUP": "K",
+    "PGDN": "J",
+    "HOME": "g",
+    "END": "G",
+}
+
+
+def _read_ready(sel: Any, timeout: float = 0.0) -> str | None:
+    if sel.select([sys.stdin], [], [], timeout)[0]:
+        return sys.stdin.read(1)
+    return None
+
+
 def _poll_key(cbreak_active: bool) -> str | None:
-    """Non-blocking single-key read.  Returns the key or None."""
+    """Non-blocking single-key read.  Returns the key or None.
+
+    Escape sequences are decoded so an arrow key is one key (``"UP"``,
+    ``"DOWN"``, ``"PGUP"``, ``"PGDN"``, ``"HOME"``, ``"END"``) instead of
+    ``[`` + ``A``; a lone ESC is returned as ``"ESC"`` and an unknown
+    sequence is swallowed (``""``).
+    """
     if not cbreak_active:
         return None
     try:
         import select as sel  # noqa: PLC0415
 
-        if sel.select([sys.stdin], [], [], 0)[0]:
-            return sys.stdin.read(1)
+        key = _read_ready(sel)
+        if key != "\x1b":
+            return key
+        seq = ""
+        while len(seq) < 3:
+            nxt = _read_ready(sel, 0.01)
+            if nxt is None:
+                break
+            seq += nxt
+            if seq in _ESC_KEYS:
+                return _ESC_KEYS[seq]
+        return "ESC" if not seq else ""
     except (OSError, ValueError):
         pass
     return None
@@ -772,7 +1010,10 @@ def _build_header(
     data: dict,
     elapsed: float,
     system_stats: dict | None = None,
+    compact: bool = False,
 ) -> Panel:
+    """Title panel; *compact* folds the status into the first row and
+    drops the subtitle (one row less for small terminals)."""
     from rich.panel import Panel  # noqa: PLC0415
     from rich.table import Table  # noqa: PLC0415
     from rich.text import Text  # noqa: PLC0415
@@ -814,12 +1055,16 @@ def _build_header(
     grid.add_column(ratio=1)
     grid.add_column(justify="center", ratio=1)
     grid.add_column(justify="right", ratio=1)
+    case_cell = Text(f"Case: {case_name}", style="bold")
+    if compact:
+        case_cell.append(f"  {status_str}", style=status_style)
     grid.add_row(
-        Text(f"Case: {case_name}", style="bold"),
+        case_cell,
         Text(info_text, style="dim"),
         Text(_format_elapsed(elapsed), style="bold cyan"),
     )
-    grid.add_row(Text(status_str, style=status_style), "", "")
+    if not compact:
+        grid.add_row(Text(status_str, style=status_style), "", "")
 
     # Always-visible LB / UB / gap line so operators see convergence
     # progress regardless of which display mode is active (Dashboard,
@@ -878,18 +1123,53 @@ def _build_header(
             bounds.append(f"   iter {it}/{max_it}", style="dim")
         grid.add_row(bounds, "", "")
 
+    subtitle = (
+        ""
+        if compact
+        else (" [dim]— Generation & Transmission Expansion Planning[/dim]")
+    )
     return Panel(
         grid,
-        title=(
-            "[bold cyan]⚡ gtopt[/bold cyan]"
-            " [dim]— Generation & Transmission Expansion Planning[/dim]"
-        ),
+        title=f"[bold cyan]⚡ gtopt[/bold cyan]{subtitle}",
         border_style="cyan",
         padding=(0, 1),
     )
 
 
-def _build_progress(data: dict) -> Panel:
+def _bar(fraction: float, width: int = _PROGRESS_BAR_WIDTH) -> str:
+    filled = max(0, min(width, round(fraction * width)))
+    return f"[cyan]{'━' * filled}[/cyan][dim]{'─' * (width - filled)}[/dim]"
+
+
+def _sddp_eta(data: dict) -> str | None:
+    """Rough time left to the iteration limit from recent iteration times.
+
+    Median of the last three ``iteration_s`` values times the remaining
+    iterations.  SDDP usually converges earlier, so this is an upper
+    bound and is labelled as such.
+    """
+    history = data.get("history") or []
+    times = sorted(r.get("iteration_s", 0.0) for r in history[-3:])
+    times = [t for t in times if t > 0]
+    remaining = data.get("max_iterations", 0) - data.get("iteration", 0)
+    if not times or remaining <= 0:
+        return None
+    median = times[len(times) // 2]
+    return f"≤ {_format_elapsed(median * remaining)} to iter limit"
+
+
+def _build_progress(
+    data: dict,
+    convergence_tol: float | None = None,
+    phase: tuple[int, int] | None = None,
+) -> Panel:
+    """Progress panel.
+
+    SDDP: the bar tracks the gap against the convergence tolerance
+    (full when gap <= tol; the iteration budget is shown as text with an
+    ETA to the limit), plus the phase being solved within the current
+    pass.  Monolithic: the scene count.  *phase* is ``(current, total)``.
+    """
     from rich.panel import Panel  # noqa: PLC0415
     from rich.text import Text  # noqa: PLC0415
 
@@ -897,29 +1177,52 @@ def _build_progress(data: dict) -> Panel:
     max_iter = data.get("max_iterations", 0)
     current_pass = data.get("current_pass", 0)
     scenes_done = data.get("scenes_done")
+    total_scenes = data.get("total_scenes")
     pass_name = _PASS_NAMES.get(current_pass, "?")
     pass_style = _PASS_STYLES.get(current_pass, "dim")
+    # A finished run is not "[idle]": show how it ended instead.
+    final = _FINAL_STATES.get(str(data.get("status", "")))
+    if final is None and data.get("converged"):
+        final = _FINAL_STATES["converged"]
+    if final is not None:
+        pass_name, pass_style = final
+    state = f"  [{pass_style}]\\[{pass_name}][/{pass_style}]"
 
     if max_iter > 0:
-        pct = min(100, iteration * 100 // max_iter)
-        filled = pct * _PROGRESS_BAR_WIDTH // 100
-        progress_bar = (
-            f"[cyan]{'━' * filled}[/cyan]"
-            f"[dim]{'─' * (_PROGRESS_BAR_WIDTH - filled)}[/dim]"
-        )
-        parts = [
-            f"  Iteration [bold]{iteration}[/bold]/{max_iter}  ",
-            progress_bar,
-            f"  {pct}%",
-        ]
-        if scenes_done is not None:
-            parts.append(f"  scenes: {scenes_done}")
-        parts.append(f"  [{pass_style}]\\[{pass_name}][/{pass_style}]")
+        gap = data.get("gap")
+        tol = convergence_tol or 0.0
+        parts = [f"  Iteration [bold]{iteration}[/bold]/{max_iter}"]
+        if isinstance(gap, (int, float)) and tol > 0:
+            frac = 1.0 if gap <= tol else tol / gap
+            if final is not None and data.get("converged"):
+                frac = 1.0
+            parts.append(f"  gap {100.0 * gap:.2f}% → tol {100.0 * tol:.2f}%  ")
+            parts.append(_bar(frac, _PROGRESS_BAR_WIDTH // 2))
+        else:
+            pct = 100 if final is not None else min(100, iteration * 100 // max_iter)
+            parts.append("  ")
+            parts.append(_bar(pct / 100.0, _PROGRESS_BAR_WIDTH // 2))
+            parts.append(f"  {pct}%")
+        parts.append(state)
+        if final is None:
+            if phase is not None and phase[1] > 0:
+                parts.append(f"  phase {phase[0]}/{phase[1]}")
+            elif scenes_done is not None:
+                parts.append(f"  scenes: {scenes_done}")
+            eta = _sddp_eta(data)
+            if eta:
+                parts.append(f"  [dim]{eta}[/dim]")
         text = Text.from_markup("".join(parts))
-    else:
+    elif total_scenes:
+        done = scenes_done or 0
+        frac = 1.0 if final is not None else done / total_scenes
         text = Text.from_markup(
-            f"  [bold]Solving...[/bold]  [{pass_style}]\\[{pass_name}][/{pass_style}]"
+            f"  [bold]Solving[/bold]  scenes {done}/{total_scenes}  "
+            + _bar(frac, _PROGRESS_BAR_WIDTH // 2)
+            + state
         )
+    else:
+        text = Text.from_markup(f"  [bold]Solving...[/bold]{state}")
 
     return Panel(text, border_style="dim cyan", padding=(0, 1))
 
@@ -1045,7 +1348,7 @@ def _build_stats(data: dict) -> Panel:
     )
 
 
-def _build_history(data: dict) -> Panel:
+def _build_history(data: dict, max_rows: int = _MAX_HISTORY_ROWS) -> Panel:
     from rich.panel import Panel  # noqa: PLC0415
     from rich.table import Table  # noqa: PLC0415
 
@@ -1071,8 +1374,8 @@ def _build_history(data: dict) -> Panel:
     # when the table is sliced to the last _MAX_HISTORY_ROWS.  Replaces the
     # former "Cuts" column — the per-iter gap movement is the convergence
     # signal operators actually track.
-    for idx, rec in enumerate(history[-_MAX_HISTORY_ROWS:]):
-        full_idx = max(0, len(history) - _MAX_HISTORY_ROWS) + idx
+    for idx, rec in enumerate(history[-max_rows:]):
+        full_idx = max(0, len(history) - max_rows) + idx
         g = rec.get("gap", 0.0)
         gap_style = "green" if g < 0.01 else "yellow" if g < 0.1 else "red"
         if full_idx > 0:
@@ -1182,14 +1485,13 @@ def _build_system(data: dict) -> Panel:
     # Right-column annotations: CPU row reports active workers; MEM row
     # reports gtopt's RSS plus system free memory (the user-visible
     # "headroom" before the OS starts pressuring the process).
-    cpu_right = Text(f"Workers: {worker_val}", style="cyan")
+    # "Workers: 0" only says the ring has no sample: show what is known.
+    right = [f"Workers: {worker_val}"] if worker_val else []
     if pool_active is not None or pool_pending is not None:
         a = pool_active if pool_active is not None else 0
         p = pool_pending if pool_pending is not None else 0
-        cpu_right = Text(
-            f"Workers: {worker_val}  Pool: {a} active  {p} pending",
-            style="cyan",
-        )
+        right.append(f"Pool: {a} active  {p} pending")
+    cpu_right = Text("  ".join(right), style="cyan")
 
     if free_val > 0.0:
         mem_right = Text(
@@ -1204,11 +1506,14 @@ def _build_system(data: dict) -> Panel:
         Text.from_markup(f"{cpu_bar} {cpu_val:.0f}%"),
         cpu_right,
     )
-    grid.add_row(
-        Text("MEM", style="bold"),
-        Text.from_markup(f"{mem_bar} {mem_val:.0f}%"),
-        mem_right,
-    )
+    # No memory reading at all (no ring, no pool snapshot): skip the row
+    # rather than draw an empty 0 % bar and "gtopt: 0 MB".
+    if mem_val > 0.0 or rss_val > 0.0 or free_val > 0.0:
+        grid.add_row(
+            Text("MEM", style="bold"),
+            Text.from_markup(f"{mem_bar} {mem_val:.0f}%"),
+            mem_right,
+        )
 
     # Staleness note.  A current gtopt rewrites the status file every ~0.5 s
     # (monitor periodic-write fix), so CPU/MEM stays live between iterations.
@@ -1227,19 +1532,19 @@ def _build_system(data: dict) -> Panel:
             "",
         )
 
-    cpu_spark = _sparkline(cpus) if cpus else ""
-    mem_spark = _sparkline(mem_pcts) if mem_pcts else ""
+    cpu_spark = _sparkline(cpus, lo=0.0, hi=100.0)
+    mem_spark = _sparkline(mem_pcts, lo=0.0, hi=100.0)
     if cpu_spark:
         grid.add_row(
             Text("Load", style="dim"),
             Text(cpu_spark, style="green"),
-            "",
+            Text(f"min–max{_spark_range(cpus)}%", style="dim"),
         )
     if mem_spark:
         grid.add_row(
             Text("Mem", style="dim"),
             Text(mem_spark, style="blue"),
-            "",
+            Text(f"min–max{_spark_range(mem_pcts)}%", style="dim"),
         )
 
     # LP task stats summary (from top-level JSON, not realtime)
@@ -1261,7 +1566,51 @@ def _build_system(data: dict) -> Panel:
     return Panel(grid, border_style="dim cyan", padding=(0, 1))
 
 
-def _build_log(lines: list[str]) -> Panel:
+# spdlog level token: "[warning]", "[error]", ... (first one on the line).
+_LOG_LEVEL_RE = re.compile(
+    r"\[(trace|debug|info|warning|warn|error|err|critical)\]", re.IGNORECASE
+)
+# Leading "[2026-11-25 02:36:16.304] " timestamp, ignored when deduping.
+_LOG_TS_RE = re.compile(r"^\[\d{4}-\d\d-\d\d [\d:.]+\]\s*")
+_LEVEL_STYLES = {
+    "critical": "bold red",
+    "error": "bold red",
+    "err": "bold red",
+    "warning": "yellow",
+    "warn": "yellow",
+    "debug": "dim",
+    "trace": "dim",
+}
+
+
+def log_line_level(line: str) -> str | None:
+    """spdlog level of *line* (``"warning"``, ``"error"``, ...) or None."""
+    m = _LOG_LEVEL_RE.search(line)
+    return m.group(1).lower() if m else None
+
+
+def _log_line_style(line: str) -> str:
+    """Style a log line by its spdlog level, not by substrings.
+
+    Matching "error"/"fail" anywhere coloured lines such as
+    ``error_lp=false`` or ``failed=0`` red; the level token decides now.
+    """
+    if line.startswith(">>>"):
+        return "bold yellow"
+    level = log_line_level(line)
+    if level in _LEVEL_STYLES:
+        return _LEVEL_STYLES[level]
+    lower = line.lower()
+    if "converge" in lower:
+        return "bold green"
+    if "iteration" in lower or "iter " in lower:
+        return "cyan"
+    return "dim" if level is None else ""
+
+
+def _build_log(
+    lines: list[str], max_lines: int = 10, log_path: Path | None = None
+) -> Panel:
     from rich.panel import Panel  # noqa: PLC0415
     from rich.text import Text  # noqa: PLC0415
 
@@ -1269,96 +1618,108 @@ def _build_log(lines: list[str]) -> Panel:
     if not lines:
         log_text.append("  Waiting for solver output...", style="dim")
     else:
-        for line in lines[-10:]:
-            lower = line.lower()
-            if "error" in lower or "fail" in lower:
-                style = "bold red"
-            elif "warn" in lower:
-                style = "yellow"
-            elif "converge" in lower:
-                style = "bold green"
-            elif "iteration" in lower or "iter " in lower:
-                style = "cyan"
-            else:
-                style = "dim"
-            log_text.append(f"  {line}\n", style=style)
+        for line in lines[-max_lines:]:
+            log_text.append(f"  {line}\n", style=_log_line_style(line))
 
+    title = "[bold]Output[/bold]"
+    if log_path is not None:
+        title += f" [dim]· {log_path.name}[/dim]"
     return Panel(
         log_text,
-        title="[bold]Output[/bold]",
+        title=title,
         border_style="dim cyan",
         padding=(0, 0),
     )
 
 
-def _build_command_bar(stop_sent: bool, mode: int = _MODE_DASHBOARD) -> Panel:
-    """Render the interactive command bar at the bottom of the display."""
-    from rich.panel import Panel  # noqa: PLC0415
+_MODE_SHORT = {
+    _MODE_DASHBOARD: "dash",
+    _MODE_GRID: "grid",
+    _MODE_CONVERGENCE: "conv",
+}
+
+
+def _build_command_bar(
+    stop_sent: bool,
+    mode: int = _MODE_DASHBOARD,
+    notice: str | None = None,
+    notice_style: str = "bold yellow",
+) -> Any:
+    """Render the key hints as a one-line footer (no border).
+
+    The old bordered panel used a literal "│" separator and wrapped at
+    80 columns, breaking the frame; the footer never wraps (it is cut
+    with "…" on very narrow terminals) and saves two rows.  *notice* (a
+    pending ``q`` confirmation, or the Ctrl-C / quit "stopping…" state)
+    gets its own line above it.
+    """
+    from rich.console import Group  # noqa: PLC0415
     from rich.text import Text  # noqa: PLC0415
 
-    text = Text()
+    keys = Text(no_wrap=True, overflow="ellipsis")
+    keys.append(" ")
+    for m in range(_MODE_COUNT):
+        current = m == mode
+        keys.append(str(m + 1), style="bold green" if current else "bold cyan")
+        keys.append(f" {_MODE_SHORT[m]}  ", style="bold green" if current else "dim")
+    keys.append("Tab", style="bold cyan")
+    keys.append(" cycle  ·  ", style="dim")
+    for key, label in (
+        ("s", "stop sent" if stop_sent else "stop"),
+        ("i", "stats"),
+        ("h", "help"),
+        ("q", "quit"),
+    ):
+        keys.append(key, style="bold cyan")
+        keys.append(f" {label}  ", style="dim" if label == "stop sent" else "")
+    if not notice:
+        return keys
+    # The notice may wrap: a cut "[y/N]" would hide the question.
+    return Group(Text(f" {notice}", style=notice_style), keys)
 
-    # Mode selector: [1] dashboard  [2] grid  [3] convergence  [Tab] cycle
+
+def _plan_step_text(text: Any, st: _PhaseState, frame: int) -> None:
     text.append("  ")
-    for m, label in _MODE_NAMES.items():
-        key = str(m + 1)
-        if m == mode:
-            text.append(f"[{key}]", style="bold green")
-            text.append(f" {label}", style="bold green")
-        else:
-            text.append(f"[{key}]", style="dim cyan")
-            text.append(f" {label}", style="dim")
-        text.append("  ")
-    text.append("[Tab]", style="dim cyan")
-    text.append(" cycle", style="dim")
-
-    # Separator
-    text.append("    │    ", style="dim")
-
-    # Action keys
-    text.append("[s]", style="bold cyan")
-    if stop_sent:
-        text.append(" stop sent", style="dim")
+    if st.status == "done":
+        text.append("✓", style="bold green")
+        text.append(f" {st.label}")
+        text.append(f"  ({st.elapsed:.1f}s)", style="dim")
+    elif st.status == "active":
+        spinner = _SPINNER[frame % len(_SPINNER)]
+        text.append(spinner, style="bold cyan")
+        text.append(f" {st.label}...")
+        if st.detail:
+            text.append(f"  ({st.detail})", style="cyan")
+        text.append(f"  ({st.elapsed:.1f}s)", style="dim")
     else:
-        text.append(" stop", style="")
-    text.append("  ")
-    text.append("[i]", style="bold cyan")
-    text.append(" stats", style="")
-    text.append("  ")
-    text.append("[h]", style="bold cyan")
-    text.append(" help", style="")
-    text.append("  ")
-    text.append("[q]", style="bold cyan")
-    text.append(" quit", style="")
-
-    return Panel(text, border_style="dim", padding=(0, 0))
+        text.append("○", style="dim")
+        text.append(f" {st.label}", style="dim")
 
 
-def _build_plan_panel(tracker: SolverPhaseTracker) -> Panel:
-    """Render the solver phase checklist (plan table)."""
+def _build_plan_panel(tracker: SolverPhaseTracker, compact: bool = False) -> Panel:
+    """Render the solver phase checklist (plan table).
+
+    *compact* (small terminals) shows only the active step — or the last
+    finished one — on one line, prefixed by a ``[k/N]`` step counter.
+    """
     from rich.panel import Panel as RPanel  # noqa: PLC0415
     from rich.text import Text  # noqa: PLC0415
 
     text = Text()
-    for key in tracker.order:
-        st = tracker.states[key]
-        if st.status == "skipped":
-            continue
-        text.append("  ")
-        if st.status == "done":
-            text.append("✓", style="bold green")
-            text.append(f" {st.label}")
-            text.append(f"  ({st.elapsed:.1f}s)", style="dim")
-        elif st.status == "active":
-            spinner = _SPINNER[tracker.frame % len(_SPINNER)]
-            text.append(spinner, style="bold cyan")
-            text.append(f" {st.label}...")
-            if st.detail:
-                text.append(f"  ({st.detail})", style="cyan")
-            text.append(f"  ({st.elapsed:.1f}s)", style="dim")
-        else:
-            text.append("○", style="dim")
-            text.append(f" {st.label}", style="dim")
+    keys = [k for k in tracker.order if tracker.states[k].status != "skipped"]
+    if compact:
+        states = [tracker.states[k] for k in keys]
+        active = [st for st in states if st.status == "active"]
+        done = [st for st in states if st.status == "done"]
+        shown = active or done[-1:] or states[:1]
+        position = len(done) + (1 if active else 0)
+        text.append(f"  [{position}/{len(states)}]", style="dim")
+        for current in shown[:1]:
+            _plan_step_text(text, current, tracker.frame)
+        return RPanel(text, border_style="dim cyan", padding=(0, 0))
+
+    for key in keys:
+        _plan_step_text(text, tracker.states[key], tracker.frame)
         text.append("\n")
 
     return RPanel(text, border_style="dim cyan", padding=(0, 0))
@@ -1371,7 +1732,7 @@ def _build_help_overlay() -> Panel:
     from rich.text import Text  # noqa: PLC0415
 
     table = Table(show_header=False, border_style="dim", padding=(0, 2), expand=True)
-    table.add_column("Key", style="bold cyan", width=8)
+    table.add_column("Key", style="bold cyan", width=18)
     table.add_column("Description")
 
     commands = [
@@ -1381,12 +1742,16 @@ def _build_help_overlay() -> Panel:
         ("Tab", "Cycle through display modes"),
         ("s", "Graceful stop — finish current iteration, save cuts, exit"),
         ("i", "Toggle system stats overlay (buses, generators, etc.)"),
-        ("h", "Toggle this help overlay"),
-        ("q", "Quit — terminate the solver immediately"),
-        ("Ctrl+C", "Same as quit"),
-        ("j / k", "Grid mode: scroll scenes down / up by 1"),
-        ("J / K", "Grid mode: scroll scenes down / up by 5 (page)"),
-        ("g / G", "Grid mode: jump to first / last scene"),
+        ("o", "Toggle paths overlay (output dir, gtopt log, status, error LPs)"),
+        ("h / ?", "Toggle this help overlay (Esc closes overlays)"),
+        ("q", "Quit — terminate the solver (asks y/N after the first minute)"),
+        (
+            "Ctrl+C",
+            "1st: graceful stop (like s) · 2nd: terminate · 3rd: kill",
+        ),
+        ("j / k  ↓ / ↑", "Grid mode: scroll scenes down / up by 1"),
+        ("J / K  PgDn / PgUp", "Grid mode: scroll scenes down / up by 5 (page)"),
+        ("g / G  Home / End", "Grid mode: jump to first / last scene"),
     ]
     for key, desc in commands:
         table.add_row(Text(key, style="bold cyan"), desc)
@@ -1397,6 +1762,19 @@ def _build_help_overlay() -> Panel:
         border_style="cyan",
         padding=(0, 1),
     )
+
+
+def _build_paths_overlay(entries: list[tuple[str, str]]) -> Panel:
+    """The ``o`` overlay: where this run's files are."""
+    from rich.panel import Panel  # noqa: PLC0415
+    from rich.table import Table  # noqa: PLC0415
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("What", style="bold")
+    table.add_column("Path", overflow="fold")
+    for label, value in entries:
+        table.add_row(label, value)
+    return Panel(table, title="[bold]Paths[/bold]", border_style="cyan", padding=(0, 1))
 
 
 def _build_stats_overlay(stats: dict[str, Any]) -> Panel:
@@ -1815,6 +2193,30 @@ def _build_convergence(data: dict) -> Panel:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _Layout:
+    compact: bool
+    log_lines: int
+    history_rows: int
+
+
+# Below either size the dashboard switches to the compact layout: a
+# one-line plan, no statistics / resource panels, 3 history rows and
+# 4 log lines, so the frame (and the command bar) fits a 40-row pane.
+_COMPACT_HEIGHT = 40
+_COMPACT_WIDTH = 100
+_TALL_HEIGHT = 60
+
+
+def layout_for(width: int, height: int) -> _Layout:
+    """Pick the panel budget for a *width* x *height* terminal."""
+    if height < _COMPACT_HEIGHT or width < _COMPACT_WIDTH:
+        return _Layout(compact=True, log_lines=4, history_rows=3)
+    if height >= _TALL_HEIGHT:
+        return _Layout(compact=False, log_lines=_MAX_LOG_LINES, history_rows=10)
+    return _Layout(compact=False, log_lines=10, history_rows=_MAX_HISTORY_ROWS)
+
+
 class SolverDisplay:
     """Rich-based live dashboard for gtopt solver monitoring.
 
@@ -1833,8 +2235,18 @@ class SolverDisplay:
         case_dir: Path,
         poll_interval: float = _POLL_INTERVAL,
         solver_hint: str = "",
+        output_dir: Path | None = None,
+        confirm_quit_after: float | None = _CONFIRM_QUIT_AFTER_S,
     ) -> None:
         self.case_name = case_name
+        self._output_dir = output_dir
+        # ``q`` asks y/N once the run is older than this (None = never;
+        # observer mode, where q only detaches).
+        self._confirm_quit_after = confirm_quit_after
+        self._quit_pending = False
+        self._shutdown_msg: str | None = None
+        # False when stdin is not a TTY (cbreak unavailable): no keys.
+        self._keys_enabled = True
         self.poll_interval = poll_interval
         self._status_file: Path | None = None
         self._case_dir = case_dir
@@ -1843,6 +2255,18 @@ class SolverDisplay:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._log_lines: deque[str] = deque(maxlen=_MAX_LOG_LINES)
+        self._last_log_key: str | None = None
+        self._last_log_repeat = 0
+        #: Counts and first distinct messages for the final summary.
+        self.warning_count = 0
+        self.error_count = 0
+        self.warnings: list[str] = []
+        # Counted warning/error messages per source whose copy from the
+        # other source (log file vs stderr echo) has not arrived yet.
+        self._uncounted_copies: dict[str, set[str]] = {"log": set(), "echo": set()}
+        #: The gtopt_N.log being tailed, once discovered.
+        self.log_path: Path | None = None
+        self._console: Any = None
         self._status: dict[str, Any] = {}
         self._start_time = time.monotonic()
         self._lock = threading.Lock()
@@ -1852,6 +2276,7 @@ class SolverDisplay:
         # Interactive command state
         self._show_help = False
         self._show_stats = False
+        self._show_paths = False
         self._display_mode = _MODE_DASHBOARD
         self._stop_sent = False
         self._system_stats: dict[str, Any] = {}
@@ -1865,6 +2290,19 @@ class SolverDisplay:
         self._grid_user_scrolled: bool = False
         self._grid_last_scene_count: int = 0
 
+    @property
+    def console(self) -> Any:
+        """One shared Rich Console (see :func:`make_console`)."""
+        if self._console is None:
+            self._console = make_console()
+        return self._console
+
+    def _render(self, renderable: Any) -> Any:
+        """*renderable*, ASCII-only when :func:`ascii_wanted`."""
+        if ascii_wanted(self.console.encoding):
+            return _AsciiRender(renderable)
+        return renderable
+
     # -- public API --------------------------------------------------------
 
     # Patterns to detect solver and method from gtopt log output
@@ -1872,11 +2310,49 @@ class SolverDisplay:
     _SDDP_RE = re.compile(r"SDDP[: ]")
     _MONO_RE = re.compile(r"Monolithic(?:Method|Solver):")
 
+    def set_log_path(self, path: Path) -> None:
+        """Record the gtopt log being tailed (shown in the Output title)."""
+        self.log_path = path
+
+    def _first_sighting(self, line: str) -> bool:
+        """False when *line* is the copy of a message already counted from
+        the other source: gtopt writes warnings / errors both to its log
+        file and to stderr (echoed here with a ``gtopt:`` prefix)."""
+        source = "echo" if line.startswith("gtopt:") else "log"
+        other = "log" if source == "echo" else "echo"
+        norm = _ECHO_PREFIX_RE.sub("", line).strip()
+        pending = self._uncounted_copies[other]
+        if norm in pending:
+            pending.discard(norm)
+            return False
+        self._uncounted_copies[source].add(norm)
+        return True
+
     def add_log_line(self, line: str) -> None:
-        """Append a solver output line (thread-safe)."""
+        """Append a solver output line (thread-safe).
+
+        A message identical to the previous one (timestamps ignored) is
+        collapsed into that line with a ``(×N)`` count; warnings are also
+        counted for the final summary.
+        """
         stripped = line.rstrip()
+        key = _LOG_TS_RE.sub("", stripped)
         with self._lock:
-            self._log_lines.append(stripped)
+            level = log_line_level(stripped)
+            if level in _COUNTED_LEVELS and self._first_sighting(stripped):
+                if level in ("warning", "warn"):
+                    self.warning_count += 1
+                    if key not in self.warnings and len(self.warnings) < 5:
+                        self.warnings.append(key)
+                else:
+                    self.error_count += 1
+            if key == self._last_log_key and self._log_lines:
+                self._last_log_repeat += 1
+                self._log_lines[-1] = f"{stripped}  (×{self._last_log_repeat})"
+            else:
+                self._last_log_key = key
+                self._last_log_repeat = 1
+                self._log_lines.append(stripped)
             self._phase_tracker.process_line(stripped)
             self._grid_tracker.process_line(stripped)
             # Detect solver from log output (e.g. "  Solver: cplex/22.1.1")
@@ -1929,55 +2405,133 @@ class SolverDisplay:
         if self._thread is not None:
             self._thread.join(timeout=5.0)
 
-    def print_final(self, return_code: int) -> None:
-        """Print a static completion banner after the live display ends."""
-        from rich.console import Console  # noqa: PLC0415
+    def print_final(self, result: RunResult | int) -> None:
+        """Print a static completion banner after the live display ends.
+
+        *result* is the :class:`~run_gtopt._process.RunResult` of the run
+        (a bare return code is accepted for callers without one).  On
+        failure the banner lists gtopt's critical/error lines, the last
+        lines it printed on stdout/stderr and where the full capture and
+        the gtopt log live.
+        """
         from rich.panel import Panel as RPanel  # noqa: PLC0415
         from rich.text import Text  # noqa: PLC0415
 
-        console = Console()
+        from ._process import (  # noqa: PLC0415
+            RunResult as _RunResult,
+            error_lp_hint,
+            failure_details,
+            run_paths,
+        )
+
+        if not isinstance(result, _RunResult):
+            result = _RunResult(returncode=result)
+        if not result.status:
+            result.status = dict(self._status)
+        outcome = result.outcome(stop_requested=self._stop_sent)
+        console = self.console
         elapsed = time.monotonic() - self._start_time
 
-        if return_code == 0:
-            status = self._status
-            converged = status.get("converged", False)
-            iteration = status.get("iteration", "?")
-            gap = status.get("gap")
+        style = outcome.style
+        text = Text(f"  Elapsed {_format_elapsed(elapsed)}", style=f"bold {style}")
+        for line in outcome.lines:
+            text.append(f"\n  {line}", style=style)
+        if outcome.kind in ("failed", "killed", "non_optimal"):
+            text.append("\n")
+            for line in failure_details(result):
+                text.append(
+                    f"\n  {line}",
+                    style="red" if line.startswith("  ") else "bold",
+                )
+        hint = error_lp_hint(result.output_dir)
+        if hint:
+            text.append("\n")
+            for line in hint:
+                text.append(f"\n  {line}", style="red" if "error LP" in line else "")
+        paths = run_paths(result)
+        if paths:
+            text.append("\n")
+            width = max(len(label) for label, _ in paths)
+            for label, path in paths:
+                text.append(f"\n  {label + ':':<{width + 1}} ", style="bold")
+                text.append(str(path), style="")
+        panel = RPanel(
+            text,
+            title=f"[bold {style}]{outcome.icon} gtopt — {outcome.title}[/bold {style}]",
+            border_style=style,
+            padding=(0, 1),
+        )
+        for renderable in self._final_summary(result):
+            console.print(self._render(renderable))
+        console.print(self._render(panel))
 
-            parts = [f"  Completed in {_format_elapsed(elapsed)}"]
-            if converged:
-                parts.append(f"  Converged at iteration {iteration}")
-            if gap is not None:
-                parts.append(f"  Final gap: {gap:.6f}")
-            text = Text("\n".join(parts), style="bold green")
-            panel = RPanel(
-                text,
-                title="[bold green]✓ gtopt — Success[/bold green]",
-                border_style="green",
+    def _final_summary(self, result: RunResult) -> list[Any]:
+        """What stays on screen after the dashboard: the last iterations,
+        step timings, warning/error counts and the first distinct
+        warnings.  Printed above the outcome banner."""
+        from rich.table import Table  # noqa: PLC0415
+        from rich.text import Text  # noqa: PLC0415
+
+        out: list[Any] = []
+        history = (result.status or {}).get("history") or []
+        if history:
+            table = Table(
+                title="Last iterations",
+                title_justify="left",
+                title_style="bold",
+                header_style="bold",
+                border_style="dim",
+                box=None,
                 padding=(0, 1),
             )
-        else:
-            msg = f"  Solver exited with code {return_code}\n"
-            if self._stop_sent:
-                msg += "  (graceful stop was requested — cuts should be saved)\n"
-            msg += f"  Elapsed: {_format_elapsed(elapsed)}"
-            style = "bold yellow" if self._stop_sent else "bold red"
-            title_label = "Stopped" if self._stop_sent else "Failed"
-            title_style = "yellow" if self._stop_sent else "red"
-            text = Text(msg, style=style)
-            panel = RPanel(
-                text,
-                title=f"[bold {title_style}]{'⏸' if self._stop_sent else '✗'}"
-                f" gtopt — {title_label}[/bold {title_style}]",
-                border_style=title_style,
-                padding=(0, 1),
-            )
-        console.print(panel)
+            for col in ("Iter", "Lower bound", "Upper bound", "Gap", "Fwd", "Bwd"):
+                table.add_column(col, justify="right")
+            for rec in history[-_SUMMARY_ITERATIONS:]:
+                table.add_row(
+                    str(rec.get("iteration", "")),
+                    _format_number(rec.get("lower_bound", 0.0)),
+                    _format_number(rec.get("upper_bound", 0.0)),
+                    f"{100.0 * rec.get('gap', 0.0):.2f}%",
+                    f"{rec.get('forward_pass_s', 0.0):.1f}s",
+                    f"{rec.get('backward_pass_s', 0.0):.1f}s",
+                )
+            out.append(table)
+        with self._lock:
+            steps = [
+                f"{st.label} {st.elapsed:.1f}s"
+                for key in self._phase_tracker.order
+                if (st := self._phase_tracker.states[key]).status == "done"
+            ]
+            warnings = list(self.warnings)
+            n_warn, n_err = self.warning_count, self.error_count
+        if steps:
+            out.append(Text("Steps: " + " · ".join(steps), style="dim"))
+        if n_warn or n_err:
+            counts = Text("Log: ")
+            counts.append(f"{n_warn} warning(s)", style="yellow" if n_warn else "")
+            counts.append(", ")
+            counts.append(f"{n_err} error(s)", style="red" if n_err else "")
+            out.append(counts)
+            for w in warnings:
+                out.append(Text(f"  {w}", style="yellow"))
+        return out
 
     # -- command handlers --------------------------------------------------
 
     def _handle_key(self, key: str) -> None:
         """Process a single-key command."""
+        if self._quit_pending:
+            # Answer to "Terminate gtopt? [y/N]": anything but y cancels.
+            self._quit_pending = False
+            if key in ("y", "Y"):
+                self.quit_requested.set()
+            return
+        if key == "ESC":  # close overlays
+            self._show_help = False
+            self._show_stats = False
+            self._show_paths = False
+            return
+        key = _NAV_KEY_ALIASES.get(key, key)
         if key in ("s", "S"):
             self._cmd_stop()
         elif key in ("i", "I"):
@@ -2002,8 +2556,20 @@ class SolverDisplay:
         elif key in ("h", "H", "?"):
             self._show_help = not self._show_help
             self._show_stats = False
+            self._show_paths = False
+        elif key in ("o", "O"):
+            self._show_paths = not self._show_paths
+            self._show_help = False
+            self._show_stats = False
         elif key in ("q", "Q"):
-            self.quit_requested.set()
+            elapsed = time.monotonic() - self._start_time
+            if (
+                self._confirm_quit_after is not None
+                and elapsed >= self._confirm_quit_after
+            ):
+                self._quit_pending = True
+            else:
+                self.quit_requested.set()
         elif self._display_mode == _MODE_GRID and key in (
             "j",
             "k",
@@ -2067,7 +2633,6 @@ class SolverDisplay:
         watch the scene currently being solved without having to keep
         pressing j.
         """
-        from rich.console import Console  # noqa: PLC0415
 
         scenes = self._grid_tracker.scenes
         n = len(scenes)
@@ -2077,7 +2642,7 @@ class SolverDisplay:
         # Console height — fall back to a sane default if Rich can't
         # detect the terminal (e.g. piped stdout).
         try:
-            height = Console().size.height
+            height = self.console.size.height
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             height = 40
         # Per-scene block height = scene header (1) + phase axis (1)
@@ -2128,27 +2693,74 @@ class SolverDisplay:
         # search keeps the behavior consistent for early stops issued
         # before the first status JSON appears.
         if self._status_file is not None:
-            stop_file = self._status_file.with_name(_STOP_REQUEST_FILE)
+            stop_dir = self._status_file.parent
         else:
-            stop_file = _find_status_file(self._case_dir).with_name(_STOP_REQUEST_FILE)
+            stop_dir = _find_status_file(self._case_dir, self._output_dir).parent
+        if write_stop_request(stop_dir, source="run_gtopt_tui") is None:
+            return
+        self._stop_sent = True
+        with self._lock:
+            self._log_lines.append(
+                ">>> Graceful stop requested — solver will finish "
+                "current iteration and save cuts"
+            )
+
+    def path_entries(self) -> list[tuple[str, str]]:
+        """Rows of the ``o`` overlay (output dir, log, status, error LPs)."""
+        status_file = self._status_file or _find_status_file(
+            self._case_dir, self._output_dir
+        )
+        out_dir = self._output_dir or status_file.parent
+        entries = [("Output", str(out_dir))]
+        entries.append(
+            ("gtopt log", str(self.log_path) if self.log_path else "(not found yet)")
+        )
+        entries.append(
+            (
+                "Status",
+                str(status_file) if status_file.is_file() else "(not written yet)",
+            )
+        )
         try:
-            stop_file.parent.mkdir(parents=True, exist_ok=True)
-            payload = {
-                "requested_at": time.time(),
-                "source": "run_gtopt_tui",
-            }
-            stop_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-            self._stop_sent = True
-            with self._lock:
-                self._log_lines.append(
-                    ">>> Graceful stop requested — solver will finish "
-                    "current iteration and save cuts"
-                )
-            log.info("created stop request: %s", stop_file)
-        except OSError as exc:
-            log.warning("failed to create stop request file: %s", exc)
+            error_lps = sorted((out_dir / "logs").glob("error*.lp*"))
+        except OSError:
+            error_lps = []
+        if error_lps:
+            entries.append((f"Error LPs ({len(error_lps)})", str(error_lps[0].parent)))
+        return entries
+
+    def request_stop(self) -> bool:
+        """Graceful stop (same as ``s``); True once the request is written."""
+        self._cmd_stop()
+        return self._stop_sent
+
+    def set_shutdown_state(self, message: str) -> None:
+        """Show a Ctrl-C / quit progress message ("stopping…") in the TUI."""
+        with self._lock:
+            self._shutdown_msg = message
+            self._log_lines.append(f">>> {message}")
 
     # -- internals ---------------------------------------------------------
+
+    def _layout(self) -> _Layout:
+        """Panel budget for the current terminal size."""
+        try:
+            size = self.console.size
+            width, height = size.width, size.height
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            width, height = 120, 50
+        return layout_for(width, height)
+
+    def _progress_panel(self, data: dict) -> Panel:
+        active = self._grid_tracker.active_cell
+        phase = (
+            (active[2], self._grid_tracker.max_phase) if active is not None else None
+        )
+        return _build_progress(
+            data,
+            convergence_tol=self._system_stats.get("convergence_tol"),
+            phase=phase,
+        )
 
     def _build_display(self) -> Group:
         from rich.console import Group  # noqa: PLC0415
@@ -2172,36 +2784,45 @@ class SolverDisplay:
                     )
             self._phase_tracker.tick()
 
+        layout = self._layout()
+        compact = layout.compact
         panels: list[Any] = [
-            _build_header(self.case_name, data, elapsed, self._system_stats)
+            _build_header(
+                self.case_name, data, elapsed, self._system_stats, compact=compact
+            )
         ]
-        panels.append(_build_plan_panel(self._phase_tracker))
+        panels.append(_build_plan_panel(self._phase_tracker, compact=compact))
 
         has_sddp = bool(data.get("max_iterations"))
         has_monolithic = data.get("total_scenes") is not None
 
         if mode == _MODE_DASHBOARD:
             # Full dashboard: stats, progress, history, system, log
+            # Compact layout drops the panels the header already
+            # summarises (LB/UB/gap) and the resource panel.
             if has_sddp:
-                panels.append(_build_progress(data))
-                panels.append(_build_stats(data))
+                panels.append(self._progress_panel(data))
+                if not compact:
+                    panels.append(_build_stats(data))
                 async_panel = _build_async_panel(data)
                 if async_panel is not None:
                     panels.append(async_panel)
                 if data.get("history"):
-                    panels.append(_build_history(data))
-                if _has_resource_telemetry(data):
+                    panels.append(_build_history(data, layout.history_rows))
+                if not compact and _has_resource_telemetry(data):
                     panels.append(_build_system(data))
             elif has_monolithic:
-                panels.append(_build_progress(data))
-                if _has_resource_telemetry(data):
+                panels.append(self._progress_panel(data))
+                if not compact and _has_resource_telemetry(data):
                     panels.append(_build_system(data))
-            panels.append(_build_log(log_lines))
+            panels.append(
+                _build_log(log_lines, layout.log_lines, log_path=self.log_path)
+            )
 
         elif mode == _MODE_GRID:
             # SDDP phase activity grid
             if has_sddp:
-                panels.append(_build_progress(data))
+                panels.append(self._progress_panel(data))
             if self._grid_tracker.has_data:
                 visible_budget, active_hint = self._grid_visible_window()
                 panels.append(
@@ -2212,12 +2833,14 @@ class SolverDisplay:
                         active_scene_hint=active_hint,
                     )
                 )
-            panels.append(_build_log(log_lines))
+            panels.append(
+                _build_log(log_lines, layout.log_lines, log_path=self.log_path)
+            )
 
         else:  # _MODE_CONVERGENCE (mode is always taken modulo _MODE_COUNT)
             # Per-scene convergence heatmap + sparklines
             if has_sddp:
-                panels.append(_build_progress(data))
+                panels.append(self._progress_panel(data))
             panels.append(_build_convergence(data))
 
         # Overlays (available in all modes)
@@ -2225,23 +2848,51 @@ class SolverDisplay:
             panels.append(_build_help_overlay())
         elif self._show_stats:
             panels.append(_build_stats_overlay(self._system_stats))
+        elif self._show_paths:
+            panels.append(_build_paths_overlay(self.path_entries()))
 
-        panels.append(_build_command_bar(self._stop_sent, mode))
+        if self._quit_pending:
+            notice: str | None = (
+                "Terminate gtopt now? Progress of the current iteration is "
+                "lost (use s for a graceful stop).  [y/N]"
+            )
+            notice_style = "bold red"
+        elif self._shutdown_msg:
+            notice = self._shutdown_msg
+            notice_style = "bold yellow"
+        elif self._grid_tracker.infeasible_count:
+            n_bad = self._grid_tracker.infeasible_count
+            notice = (
+                f"✗ {n_bad} infeasible solve(s) — error LPs in the output "
+                "logs/ dir (press o); gtopt_check_lp diagnoses them"
+            )
+            notice_style = "bold red"
+        elif not self._keys_enabled:
+            notice = (
+                "keys disabled (stdin is not a TTY) — Ctrl-C requests a graceful stop"
+            )
+            notice_style = "dim"
+        else:
+            notice = None
+            notice_style = "bold yellow"
+        panels.append(_build_command_bar(self._stop_sent, mode, notice, notice_style))
         return Group(*panels)
 
     def _run_loop(self) -> None:
-        from rich.console import Console  # noqa: PLC0415
         from rich.live import Live  # noqa: PLC0415
 
-        console = Console()
+        console = self.console
         old_settings = _enter_cbreak()
         cbreak_active = old_settings is not None
+        self._keys_enabled = cbreak_active
         try:
             with Live(
-                self._build_display(),
+                self._render(self._build_display()),
                 console=console,
                 refresh_per_second=_REFRESH_PER_SECOND,
-                transient=True,
+                # Keep the last frame on screen (no erase at exit); the
+                # final summary and banner are printed below it.
+                transient=False,
             ) as live:
                 # Decouple keyboard polling from status-file polling.
                 # Status reads are expensive (full JSON parse + JSON
@@ -2256,35 +2907,39 @@ class SolverDisplay:
                 last_status_refresh = 0.0
                 last_render = 0.0
                 # Render at most ``_REFRESH_PER_SECOND`` Hz to avoid
-                # flicker; key handlers force an immediate redraw so
-                # mode switches still feel snappy.
+                # flicker.  A key press latches ``dirty`` so the redraw
+                # happens on the first tick the throttle allows (≤ 0.5 s)
+                # instead of waiting for the next status poll.
                 render_interval = 1.0 / max(1, _REFRESH_PER_SECOND)
+                dirty = False
                 while not self._stop.wait(key_interval):
                     now = time.monotonic()
-                    needs_render = False
                     # Poll keyboard for interactive commands
                     key = _poll_key(cbreak_active)
-                    if key is not None:
+                    if key:
                         self._handle_key(key)
-                        needs_render = True
+                        dirty = True
                     # Refresh status no faster than poll_interval
                     if now - last_status_refresh >= self.poll_interval:
                         if self._status_file is None or not self._status_file.is_file():
-                            self._status_file = _find_status_file(self._case_dir)
+                            self._status_file = _find_status_file(
+                                self._case_dir, self._output_dir
+                            )
                         self._status = _load_status(self._status_file)
                         self._sync_stats_from_status()
                         last_status_refresh = now
-                        needs_render = True
-                    if needs_render and (now - last_render) >= render_interval:
-                        live.update(self._build_display())
+                        dirty = True
+                    if dirty and (now - last_render) >= render_interval:
+                        live.update(self._render(self._build_display()))
                         last_render = now
+                        dirty = False
 
                 # One final render
                 self._status = _load_status(self._status_file)
                 self._sync_stats_from_status()
                 with self._lock:
                     self._phase_tracker.finish_all()
-                live.update(self._build_display())
+                live.update(self._render(self._build_display()))
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             # Never let the TUI thread crash the solver
             log.debug("TUI render error", exc_info=True)

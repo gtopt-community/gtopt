@@ -200,21 +200,34 @@ def test_attach_loop_quits_on_q(
     assert disp is not None
     assert disp.kwargs["case_name"] == "case"
     assert disp.kwargs["solver_hint"] == "sddp"
-    assert disp.events == ["start", "stop", ("final", 0)]
+    assert disp.events[:2] == ["start", "stop"]
+    final = disp.events[2][1]
+    assert final.detached  # q while gtopt still runs = detach
+    assert final.outcome().kind == "detached"
     assert "Attaching to gtopt pid=42" in capsys.readouterr().out
 
 
 def test_attach_loop_solver_exits(
-    display: type[_FakeDisplay],  # pylint: disable=unused-argument
+    display: type[_FakeDisplay],
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(_attach, "_pid_alive", lambda _p: False)
     # output_dir parent missing -> case_dir falls back to output_dir.
-    info = RunInfo(pid=7, output_dir=tmp_path / "nope" / "out", case_name="x")
+    out = tmp_path / "nope" / "out"
+    out.mkdir(parents=True)
+    (out / "solver_status.json").write_text(
+        '{"status": "max_iterations", "iteration": 9, "max_iterations": 9}',
+        encoding="utf-8",
+    )
+    info = RunInfo(pid=7, output_dir=out, case_name="x")
     assert run_attach_loop(info) == 0
-    assert "exited; detaching" in capsys.readouterr().out
+    assert "Attaching" in capsys.readouterr().out
+    final = display.last.events[2][1]
+    assert not final.detached
+    # A finished run is classified from its status, never "Success".
+    assert final.outcome().kind == "not_converged"
 
 
 def test_attach_loop_ctrl_c_and_print_final_error(

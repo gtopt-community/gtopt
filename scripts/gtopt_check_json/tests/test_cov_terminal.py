@@ -110,3 +110,13 @@ def test_clean_formatter_debug() -> None:
 
 def test_fmt_num() -> None:
     assert tm.fmt_num(1395.254) == "1'395.25"
+
+
+def test_print_table_folds_long_words_in_wrapped_columns(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    tm.init(force_color=False)
+    path = "/very/long/" + "x" * 80 + "/END"
+    tm.print_table(["K", "V"], [["p", path]], wraps=[False, True], width=40)
+    err = capsys.readouterr().err
+    assert "END" in err and "…" not in err

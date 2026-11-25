@@ -399,7 +399,7 @@ def test_report_solution_all_rows(
         encoding="utf-8",
     )
     (res / "logs").mkdir()
-    (res / "logs" / "gtopt.log").write_text("x", encoding="utf-8")
+    (res / "logs" / "gtopt_1.log").write_text("x", encoding="utf-8")
     _status(res, {"realtime": {"cpu_loads": [10]}})
     indicators = {
         "scale_objective": 1.0,
@@ -439,7 +439,8 @@ def test_report_solution_all_rows(
     assert rows["Output files"].startswith("1 (")
     assert "CPU utilization" in rows
     assert rows["gtopt"].startswith("1.2.3")
-    assert rows["Log file"].endswith("gtopt.log")
+    assert rows["Log file"].endswith("gtopt_1.log")
+    assert rows["Status file"].endswith("solver_status.json")
 
 
 def test_report_solution_sparse_rows(
@@ -491,7 +492,7 @@ def test_report_solution_plain_variants(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _report_solution_plain(tmp_path)
-    assert "UNKNOWN (None)" in capsys.readouterr().out
+    assert "NO SOLUTION FILE" in capsys.readouterr().out
     (tmp_path / "solution.csv").write_text(_SOL_HEADER + "0,0,9,1,1\n", "utf-8")
     _report_solution_plain(tmp_path)
     assert "UNKNOWN (9)" in capsys.readouterr().out
@@ -512,3 +513,18 @@ def test_lmp_negative_values_and_empty_dual(tmp_path: Path) -> None:
     ind = _compute_energy_indicators(empty, None)
     assert "avg_lmp" not in ind
     assert "lmp_min" not in ind
+
+
+def test_report_table_fits_terminal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os  # pylint: disable=import-outside-toplevel
+
+    captured = _capture_table(monkeypatch)
+    monkeypatch.setattr(
+        _runner.shutil, "get_terminal_size", lambda _d: os.terminal_size((80, 24))
+    )
+    _runner.report_solution(tmp_path, tmp_path, tmp_path / "p.json")
+    assert captured["width"] == 80
+    assert captured["min_widths"][0] == max(len(r[0]) for r in captured["rows"])
+    assert captured["wraps"] == [False, True]

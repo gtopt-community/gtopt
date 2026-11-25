@@ -96,7 +96,7 @@ def test_report_solution_empty_dir(tmp_path: Path, capsys):
     report_solution(tmp_path)
     captured = capsys.readouterr()
     output = captured.out + captured.err
-    assert "no solution file found" in output or "UNKNOWN" in output
+    assert "NO SOLUTION FILE" in output
 
 
 def test_report_solution_optimal(tmp_path: Path, capsys):
@@ -112,22 +112,24 @@ def test_report_solution_optimal(tmp_path: Path, capsys):
     assert "500,000" not in output
 
 
-def test_run_gtopt_builds_command(tmp_path: Path):
+def test_run_gtopt_builds_command(tmp_path: Path, monkeypatch):
     """run_gtopt builds a minimal command (threads/compression are in JSON)."""
-    with (
-        patch("run_gtopt._runner.subprocess.run") as mock_run,
-        patch("run_gtopt._runner._resolve_log_dir_candidates", return_value=[]),
-    ):
-        mock_run.return_value.returncode = 0
-        rc = run_gtopt("/usr/bin/gtopt", tmp_path, threads=4, compression="zstd")
-        assert rc == 0
-        cmd = mock_run.call_args[0][0]
-        assert cmd[0] == "/usr/bin/gtopt"
-        assert str(tmp_path) in cmd
-        # threads and compression are baked into the sanitized JSON,
-        # not passed as CLI flags
-        assert "--lp-threads" not in cmd
-        assert "--output-compression" not in cmd
+    import run_gtopt._tui as tui  # noqa: PLC0415
+
+    monkeypatch.setattr(tui, "is_interactive", lambda: False)
+    args_file = tmp_path / "args.txt"
+    fake = tmp_path / "gtopt"
+    fake.write_text(f'#!/bin/sh\necho "$@" > {args_file}\n', encoding="utf-8")
+    fake.chmod(0o755)
+    with patch("run_gtopt._runner._resolve_log_dir_candidates", return_value=[]):
+        rc = run_gtopt(str(fake), tmp_path, threads=4, compression="zstd")
+    assert rc == 0
+    cmd = args_file.read_text(encoding="utf-8").split()
+    assert cmd == [str(tmp_path)]
+    # threads and compression are baked into the sanitized JSON,
+    # not passed as CLI flags
+    assert "--lp-threads" not in cmd
+    assert "--output-compression" not in cmd
 
 
 def test_run_plp2gtopt_builds_command(tmp_path: Path):

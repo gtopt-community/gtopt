@@ -6,11 +6,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from gtopt_shared.solution_csv import (
     GTOPT_REVISION,
@@ -18,6 +20,19 @@ from gtopt_shared.solution_csv import (
     default_scale_objective,
     format_gtopt_build,
     resolve_objective,
+)
+
+from ._heartbeat import BatchProgress
+from ._interrupt import InterruptController
+from ._paths import write_stop_request
+from ._process import (
+    ErrorCollector,
+    RunResult,
+    SolverProcess,
+    error_lp_hint,
+    failure_details,
+    run_paths,
+    shell_exit_code,
 )
 
 log = logging.getLogger(__name__)
@@ -189,7 +204,9 @@ def _resolve_log_dir(case_dir: Path) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def _resolve_log_dir_candidates(case_dir: Path) -> list[Path]:
+def _resolve_log_dir_candidates(
+    case_dir: Path, resolved_output_dir: Path | None = None
+) -> list[Path]:
     """Return every directory the tail thread should monitor for new
     ``gtopt_*.log`` files.
 
@@ -241,6 +258,10 @@ def _resolve_log_dir_candidates(case_dir: Path) -> list[Path]:
     raw_candidates: list[Path] = []
     if log_subdir is not None:
         raw_candidates.append(base / log_subdir)
+    if resolved_output_dir is not None:
+        # The resolved gtopt output dir (CLI -d / --set aware) is the
+        # most reliable guess after an explicit log_directory.
+        raw_candidates.append(resolved_output_dir / "logs")
     if output_dir is not None:
         raw_candidates.append(base / output_dir / "logs")
     raw_candidates.append(base / "output" / "logs")
@@ -391,6 +412,7 @@ def _watch_and_tail_multi(
     baselines: dict[Path, set[Path]],
     consume,
     stop_event: threading.Event,
+    found: list[Path] | None = None,
 ) -> None:
     """Wait for a new ``gtopt_*.log`` in any candidate dir, then tail it.
 
@@ -402,83 +424,219 @@ def _watch_and_tail_multi(
     log_path = _wait_for_new_log_multi(candidate_dirs, baselines, stop_event)
     if log_path is None:
         return
+    if found is not None:
+        found.append(log_path)
     _tail_log_to(log_path, consume, stop_event)
 
 
-def _run_batch(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
+def _capture_dir(output_dir: Path | None, candidate_dirs: list[Path]) -> Path | None:
+    """Directory for the captured solver stdout/stderr file."""
+    if output_dir is not None:
+        return output_dir / "logs"
+    return candidate_dirs[0] if candidate_dirs else None
+
+
+class _FoundLog(list):
+    """``found`` list for the tail thread that also notifies a callback."""
+
+    def __init__(self, on_found=None) -> None:
+        super().__init__()
+        self._on_found = on_found
+
+    def append(self, path: Path) -> None:
+        super().append(path)
+        if self._on_found is not None:
+            self._on_found(path)
+
+
+def _start_tail(
+    baselines: dict[Path, set[Path]],
+    consume,
+    stop_event: threading.Event,
+    found: list[Path],
+) -> threading.Thread | None:
+    """Start the thread that tails the new ``gtopt_N.log`` (if any dir).
+
+    *baselines* (``{dir: existing logs}``) must be taken before gtopt is
+    launched so a fast run's log is never mistaken for an old one.
+    """
+    if not baselines:
+        return None
+    candidate_dirs = list(baselines)
+    thread = threading.Thread(
+        target=_watch_and_tail_multi,
+        args=(candidate_dirs, baselines, consume, stop_event, found),
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def _final_state(
+    output_dir: Path | None, since: float
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Read the run's final ``solver_status.json`` and ``solution.csv``."""
+    if output_dir is None:
+        return {}, {}
+    from ._tui import _load_status  # noqa: PLC0415
+
+    status_path = output_dir / "solver_status.json"
+    try:
+        fresh = status_path.stat().st_mtime >= since
+    except OSError:
+        fresh = False
+    status = _load_status(status_path) if fresh else {}
+    return status, check_solution(output_dir, since=since)
+
+
+def _finish(
+    proc: SolverProcess,
+    found: list[Path],
+    output_dir: Path | None,
+    **kwargs: Any,
+) -> RunResult:
+    """Build the :class:`RunResult` of a finished gtopt process."""
+    status, solution = _final_state(output_dir, proc.started_wall)
+    return proc.result(
+        log_path=found[0] if found else None,
+        output_dir=output_dir,
+        status=status,
+        solution=solution,
+        **kwargs,
+    )
+
+
+def _print_batch_final(result: RunResult) -> None:
+    """Plain-text outcome block on stderr for non-TTY runs."""
+    outcome = result.outcome()
+    print(
+        f"run_gtopt: [{outcome.ascii_icon}] {outcome.title}",
+        file=sys.stderr,
+    )
+    for line in outcome.lines:
+        print(f"run_gtopt:      {line}", file=sys.stderr)
+    if outcome.kind in ("failed", "killed", "non_optimal"):
+        # The raw solver output was already echoed live on stderr.
+        for line in failure_details(result, include_tail=False):
+            print(f"run_gtopt: {line}", file=sys.stderr)
+    for line in error_lp_hint(result.output_dir):
+        print(f"run_gtopt: {line}", file=sys.stderr)
+    for label, path in run_paths(result):
+        print(f"run_gtopt: {label}: {path}", file=sys.stderr)
+
+
+def _run_batch(
+    cmd: list[str],
+    env: dict[str, str],
+    case_dir: Path,
+    output_dir: Path | None = None,
+) -> int:
     """Run gtopt and stream its log file to stdout.
 
-    The C++ binary detects non-TTY stdout (this Popen pipes nothing) and
-    writes its spdlog output to ``<case>/output/logs/gtopt_N.log`` via
-    ``setup_file_logging`` (with the same ``N`` as the matching
-    ``trace_N.log``).  We snapshot the directory before launch, wait for
-    the new ``gtopt_N.log`` to appear, then tail it line-by-line and
-    forward every line to stdout so an operator running ``run_gtopt``
-    from a CI / shell pipe still sees progress in real time.
+    The C++ binary detects non-TTY stdout and writes its spdlog output to
+    ``<output>/logs/gtopt_N.log`` via ``setup_file_logging``.  We snapshot
+    the log directories before launch, wait for the new ``gtopt_N.log``
+    to appear, then tail it line-by-line to stdout so an operator running
+    ``run_gtopt`` from a CI / shell pipe still sees progress in real time.
+    Whatever gtopt prints on its own stdout/stderr (early failures that
+    never reach the log file) is echoed to stderr and saved next to the
+    log (see :class:`SolverProcess`).
     """
     log.info("running: %s", " ".join(cmd))
-    candidate_dirs = _resolve_log_dir_candidates(case_dir)
-
-    if not candidate_dirs:
-        # Couldn't even create any log directory — fall back to letting
-        # the subprocess inherit our stdout (gtopt's TTY check will then
-        # produce normal stdout output).
-        result = subprocess.run(cmd, check=False, env=env)
-        return result.returncode
-
-    baselines = {d: _snapshot_gtopt_logs(d) for d in candidate_dirs}
-    stop_event = threading.Event()
+    candidate_dirs = _resolve_log_dir_candidates(case_dir, output_dir)
 
     def _emit(line: str) -> None:
         sys.stdout.write(line)
         sys.stdout.flush()
 
-    tail_thread = threading.Thread(
-        target=_watch_and_tail_multi,
-        args=(candidate_dirs, baselines, _emit, stop_event),
-        daemon=True,
-    )
-    tail_thread.start()
+    errors = ErrorCollector()
 
+    def _emit_log(line: str) -> None:
+        errors.feed(line)
+        _emit(line)
+
+    proc = SolverProcess(
+        cmd,
+        env,
+        capture_dir=_capture_dir(output_dir, candidate_dirs),
+        echo=sys.stderr,
+        errors=errors,
+    )
+    stop_event = threading.Event()
+    found: list[Path] = []
+    baselines = {d: _snapshot_gtopt_logs(d) for d in candidate_dirs}
     try:
-        # Let stderr pass through unchanged; nothing is captured on
-        # stdout because gtopt itself routes spdlog to the log file.
-        result = subprocess.run(  # noqa: S603
-            cmd, check=False, env=env, stdout=subprocess.DEVNULL
-        )
-        returncode = result.returncode
+        proc.start()
+    except OSError as exc:
+        print(f"run_gtopt: cannot start gtopt: {exc}", file=sys.stderr)
+        return 127
+    tail_thread = _start_tail(baselines, _emit_log, stop_event, found)
+
+    def _request_stop() -> bool:
+        return output_dir is not None and write_stop_request(output_dir) is not None
+
+    def _notify(msg: str) -> None:
+        print(f"\nrun_gtopt: {msg}", file=sys.stderr, flush=True)
+
+    ctl = InterruptController(proc, _request_stop, _notify)
+    progress = BatchProgress(output_dir, sys.stderr, since=proc.started_wall - 1.0)
+    try:
+        with ctl.installed():
+            while proc.poll() is None:
+                ctl.tick()
+                progress.tick()
+                time.sleep(0.1)
+        returncode = proc.wait()
+        progress.tick(force=True)  # iterations finished since the last poll
     finally:
         stop_event.set()
-        tail_thread.join(timeout=2.0)
+        if tail_thread is not None:
+            tail_thread.join(timeout=2.0)
 
-    return returncode
+    _print_batch_final(
+        _finish(
+            proc,
+            found,
+            output_dir,
+            forced=ctl.forced,
+            stop_requested=ctl.stop_requested,
+        )
+    )
+    return shell_exit_code(returncode)
 
 
-def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
+def _run_interactive(
+    cmd: list[str],
+    env: dict[str, str],
+    case_dir: Path,
+    output_dir: Path | None = None,
+    case_name: str | None = None,
+) -> int:
     """Run gtopt with a live Rich terminal dashboard.
 
     The dashboard runs in a background thread while the solver
     subprocess runs in the foreground.  The solver writes its log
-    directly to ``<case>/output/logs/gtopt_N.log`` (via the C++
-    file-only sink that activates when stdout is not a TTY — Popen
-    pipes nothing here), and a tail thread discovers the new
-    ``gtopt_N.log`` and forwards every line into the dashboard's log
-    panel.
+    directly to ``<output>/logs/gtopt_N.log`` (via the C++ file-only
+    sink that activates when stdout is not a TTY), and a tail thread
+    discovers the new ``gtopt_N.log`` and forwards every line into the
+    dashboard's log panel.  gtopt's own stdout/stderr is captured too
+    (:class:`SolverProcess`), shown in the log panel and, on failure,
+    in the final banner.
 
     Interactive commands (single-key):
       s  Graceful stop — create stop-request file (saves cuts)
       i  Toggle system stats overlay
       h  Toggle help overlay
-      q  Quit — terminate the solver process immediately
+      q  Quit — terminate the solver process
     """
-    import contextlib  # noqa: PLC0415
-    import signal  # noqa: PLC0415
-
     from ._tui import SolverDisplay  # noqa: PLC0415
 
     case_path = Path(case_dir)
-    case_name = case_path.stem if case_path.is_file() else case_path.name
-    candidate_dirs = _resolve_log_dir_candidates(case_path)
+    if case_name is None:
+        # The target may be the temporary "<name>_sanitized.json" copy.
+        case_name = case_path.stem if case_path.is_file() else case_path.name
+        case_name = case_name.removesuffix("_sanitized")
+    candidate_dirs = _resolve_log_dir_candidates(case_path, output_dir)
 
     # Extract --solver from command line for display
     solver_hint = ""
@@ -491,52 +649,62 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
         case_name=case_name,
         case_dir=case_path,
         solver_hint=solver_hint,
+        output_dir=output_dir,
     )
-    display.start()
+    errors = ErrorCollector()
 
+    def _log_line(line: str) -> None:
+        errors.feed(line)
+        display.add_log_line(line)
+
+    proc = SolverProcess(
+        cmd,
+        env,
+        capture_dir=_capture_dir(output_dir, candidate_dirs),
+        on_line=display.add_log_line,
+        errors=errors,
+    )
     log.info("running (interactive): %s", " ".join(cmd))
 
     stop_event = threading.Event()
-    tail_thread: threading.Thread | None = None
-    if candidate_dirs:
-        baselines = {d: _snapshot_gtopt_logs(d) for d in candidate_dirs}
-        tail_thread = threading.Thread(
-            target=_watch_and_tail_multi,
-            args=(candidate_dirs, baselines, display.add_log_line, stop_event),
-            daemon=True,
-        )
-        tail_thread.start()
-
-    with contextlib.ExitStack() as stack:
-        proc = stack.enter_context(
-            subprocess.Popen(  # noqa: S603
-                cmd,
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT,
+    found: list[Path] = _FoundLog(display.set_log_path)
+    # Launch gtopt before any of our threads exist (preexec_fn + fork).
+    baselines = {d: _snapshot_gtopt_logs(d) for d in candidate_dirs}
+    try:
+        proc.start()
+    except OSError as exc:
+        print(f"run_gtopt: cannot start gtopt: {exc}", file=sys.stderr)
+        return 127
+    tail_thread = _start_tail(baselines, _log_line, stop_event, found)
+    display.start()
+    ctl = InterruptController(proc, display.request_stop, display.set_shutdown_state)
+    try:
+        # Poll the TUI quit flag while the subprocess runs; Ctrl-C is
+        # handled by the controller (graceful stop -> SIGTERM -> SIGKILL).
+        with ctl.installed():
+            while proc.poll() is None:
+                ctl.tick()
+                if display.quit_requested.is_set() and ctl.forced is None:
+                    log.info("quit requested via TUI — terminating solver")
+                    ctl.terminate("q (quit)")
+                time.sleep(0.1)
+        proc.wait()
+    finally:
+        stop_event.set()
+        if tail_thread is not None:
+            tail_thread.join(timeout=2.0)
+        display.stop()
+        display.print_final(
+            _finish(
+                proc,
+                found,
+                output_dir,
+                forced=ctl.forced,
+                stop_requested=ctl.stop_requested,
             )
         )
-        try:
-            # Poll the TUI quit flag while the subprocess runs.  We
-            # don't read its stdout — the log is delivered via the tail
-            # thread reading the file gtopt writes.
-            while True:
-                if proc.poll() is not None:
-                    break
-                if display.quit_requested.is_set():
-                    log.info("quit requested via TUI — terminating solver")
-                    proc.send_signal(signal.SIGTERM)
-                    break
-                time.sleep(0.1)
-            proc.wait()
-        finally:
-            stop_event.set()
-            if tail_thread is not None:
-                tail_thread.join(timeout=2.0)
-            display.stop()
-            display.print_final(proc.returncode)
 
-        return proc.returncode
+    return shell_exit_code(proc.returncode)
 
 
 def run_gtopt(
@@ -545,8 +713,17 @@ def run_gtopt(
     threads: int | None = None,
     compression: str | None = None,
     extra_args: list[str] | None = None,
+    *,
+    output_dir: Path | None = None,
+    case_name: str | None = None,
 ) -> int:
     """Run the gtopt binary on a case directory.
+
+    *output_dir* is the directory gtopt writes to (see
+    :func:`run_gtopt._paths.resolve_output_dir`); it anchors the log
+    tail, the status / stop files and the captured solver stderr.
+    *case_name* is shown in the dashboard header (default: derived from
+    *case_dir*, without a ``_sanitized`` suffix).
 
     When stdout is an interactive terminal, a Rich live dashboard is
     shown in a background thread.  Otherwise the solver runs as a
@@ -560,7 +737,7 @@ def run_gtopt(
 
     env = os.environ.copy()
     env["LD_LIBRARY_PATH"] = _build_ld_library_path(gtopt_bin)
-    log.info("LD_LIBRARY_PATH=%s", env["LD_LIBRARY_PATH"])
+    log.debug("LD_LIBRARY_PATH=%s", env["LD_LIBRARY_PATH"])
 
     # jemalloc: run a background purge thread so freed pages return to the OS
     # off the allocating hot path.  Measured -28% peak RSS and -15% wall on the
@@ -571,8 +748,8 @@ def run_gtopt(
     env.setdefault("MALLOC_CONF", "background_thread:true")
 
     if is_interactive():
-        return _run_interactive(cmd, env, case_dir)
-    return _run_batch(cmd, env, case_dir)
+        return _run_interactive(cmd, env, case_dir, output_dir, case_name)
+    return _run_batch(cmd, env, case_dir, output_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -600,7 +777,6 @@ def run_check_lp(lp_files: list[Path]) -> None:
     Analyses the first error LP to give the user immediate feedback,
     then prints instructions for checking the remaining files manually.
     """
-    import shutil  # noqa: PLC0415
 
     if not lp_files:
         return
@@ -653,7 +829,11 @@ def run_check_lp(lp_files: list[Path]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def check_solution(results_dir: Path, fallback_scale: float | None = None) -> dict:
+def check_solution(
+    results_dir: Path,
+    fallback_scale: float | None = None,
+    since: float | None = None,
+) -> dict:
     """Parse solution.csv (or solution.parquet) from the results directory.
 
     Returns a dict with keys: ``status``, ``objective``,
@@ -675,6 +855,16 @@ def check_solution(results_dir: Path, fallback_scale: float | None = None) -> di
         src = sol_parquet
     else:
         return {}
+
+    # A solution file older than this run was left by a previous run
+    # (gtopt failed before writing a new one): never report it as ours.
+    if since is not None:
+        try:
+            mtime = src.stat().st_mtime
+        except OSError:
+            return {}
+        if mtime < since:
+            return {"stale": True, "stale_file": str(src)}
 
     try:
         if src.suffix == ".csv":
@@ -1271,15 +1461,20 @@ def report_solution(
     results_dir: Path,
     gtopt_dir: Path | None = None,
     planning_json: Path | None = None,
+    since: float | None = None,
 ) -> None:
-    """Print a Rich-formatted post-run results summary."""
+    """Print a Rich-formatted post-run results summary.
+
+    *since* (a ``time.time()`` stamp taken before gtopt started) marks a
+    ``solution.csv`` older than the run as stale instead of reporting it.
+    """
     try:
         from gtopt_check_json._terminal import (  # noqa: PLC0415
             print_table,
         )
     except ImportError:
         # Fallback: plain text
-        _report_solution_plain(results_dir, gtopt_dir)
+        _report_solution_plain(results_dir, gtopt_dir, since)
         return
 
     # ── Energy indicators (fast) ──
@@ -1288,13 +1483,13 @@ def report_solution(
     # ── Solution status ──
     # ``objective`` is already in physical units ($); the planning JSON's
     # scale_objective is only a fallback for legacy solution.csv files.
-    sol = check_solution(results_dir, fallback_scale=indicators.get("scale_objective"))
-    status: int | None = sol.get("status")
-    true_obj: float | None = sol.get("objective")
-    status_map = {0: "OPTIMAL", 1: "NON-OPTIMAL / INFEASIBLE"}
-    status_str = status_map.get(
-        status if status is not None else -1, f"UNKNOWN ({status})"
+    sol = check_solution(
+        results_dir,
+        fallback_scale=indicators.get("scale_objective"),
+        since=since,
     )
+    true_obj: float | None = sol.get("objective")
+    status_str = _solution_status_label(sol)
 
     # ── Build rows ──
     rows: list[tuple[str, str]] = []
@@ -1429,29 +1624,76 @@ def report_solution(
     if "gtopt_build" in sol:
         rows.append(("gtopt", sol["gtopt_build"]))
     rows.append(("Results", str(results_dir)))
-    log_path = results_dir / "logs" / "gtopt.log"
-    if log_path.is_file():
+    cwd = Path.cwd()
+    log_path = latest_gtopt_log(
+        results_dir,
+        since,
+        extra_dirs=(cwd / "output" / "logs", cwd / "results" / "logs"),
+    )
+    if log_path is not None:
         rows.append(("Log file", str(log_path)))
+    status_path = results_dir / "solver_status.json"
+    if status_path.is_file():
+        rows.append(("Status file", str(status_path)))
 
+    # The shared gtopt_check_json console is fixed at 120 columns; fit
+    # the table to the actual terminal so it does not wrap at 80.
     print_table(
         headers=["Property", "Value"],
         rows=rows,
         aligns=["left", "right"],
         title="Results Summary",
+        width=min(shutil.get_terminal_size((120, 24)).columns, 120),
+        # Keep the labels whole; long paths wrap in the value column.
+        min_widths=[max(len(label) for label, _ in rows), None],
+        wraps=[False, True],
     )
 
 
-def _report_solution_plain(results_dir: Path, gtopt_dir: Path | None = None) -> None:
-    """Fallback plain-text results summary."""
-    sol = check_solution(results_dir)
-    status_map = {0: "OPTIMAL", 1: "NON-OPTIMAL / INFEASIBLE"}
+def latest_gtopt_log(
+    results_dir: Path,
+    since: float | None = None,
+    extra_dirs: tuple[Path, ...] = (),
+) -> Path | None:
+    """Newest ``gtopt_N.log`` (the name gtopt writes) in
+    ``<results>/logs`` or any of *extra_dirs* (the same fallbacks the
+    tail thread watches: gtopt may resolve its log directory against its
+    CWD).  With *since*, a log older than the run is ignored.
+    """
+    candidates: list[tuple[float, Path]] = []
+    for logs in (results_dir / "logs", *extra_dirs):
+        try:
+            candidates.extend((p.stat().st_mtime, p) for p in logs.glob("gtopt_*.log"))
+        except OSError:
+            continue
+    if not candidates:
+        return None
+    mtime, path = max(candidates)
+    if since is not None and mtime < since:
+        return None
+    return path
+
+
+def _solution_status_label(sol: dict) -> str:
+    """Human label for the ``status`` read by :func:`check_solution`."""
+    if sol.get("stale"):
+        return "NO NEW SOLUTION (stale file from a previous run)"
     status: int | None = sol.get("status")
-    status_str = (
-        status_map.get(status, f"UNKNOWN ({status})")
-        if status is not None
-        else "UNKNOWN (None)"
+    if status is None:
+        return "NO SOLUTION FILE"
+    return {0: "OPTIMAL", 1: "NON-OPTIMAL / INFEASIBLE"}.get(
+        status, f"UNKNOWN ({status})"
     )
-    print(f"  Status: {status_str}")
+
+
+def _report_solution_plain(
+    results_dir: Path,
+    gtopt_dir: Path | None = None,
+    since: float | None = None,
+) -> None:
+    """Fallback plain-text results summary."""
+    sol = check_solution(results_dir, since=since)
+    print(f"  Status: {_solution_status_label(sol)}")
     obj = sol.get("objective")
     if obj is not None:
         print(f"  Objective: {obj:.6g}")
