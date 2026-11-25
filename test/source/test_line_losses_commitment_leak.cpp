@@ -605,7 +605,8 @@ TEST_CASE(
   // `ℓ − cap·u ≤ 0` pins ℓ = 0 at u = 0; v needs no gate of its own —
   // with ℓ pinned it feeds only the slack chord row, never a bus
   // balance, so any residual v value is cost-free degenerate freedom
-  // (at ε = 0 the internal pin is off too — do NOT assert on v here).
+  // (at ε = 0 the loss_flow_abs_cost pin is off too — do NOT assert on
+  // v here).
   RingFixture fix(LeakKnobs {.mode = "tangent_signed_flow"});
   auto& li = fix.lp();
   auto result = li.resolve();
@@ -652,7 +653,7 @@ TEST_CASE(
 
   const auto sol = li.get_col_sol_raw();
   CHECK(std::abs(col_val(li, sol, "line_flows_5_")) <= 1e-6);
-  // With ε > 0 the internal pin also drives v to |f| = 0, so both
+  // With ε > 0 the loss_flow_abs_cost pin also drives v to |f| = 0, so both
   // halves of the old sink are asserted here.
   CHECK(col_val(li, sol, "line_flow_abs_5_") <= 1e-4);
   CHECK(col_val(li, sol, "line_lossp_5_") <= 1e-4);

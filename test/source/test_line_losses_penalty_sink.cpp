@@ -306,13 +306,17 @@ TEST_CASE(
     CHECK(r.lambda1 == doctest::Approx(-kSinkIncentive));
 
     // Guard disabled (the ladder as merged): ε is a price FLOOR — the
-    // sink cures the requirement (100 MW burned) and pins λ1 + λ2 = −2ε.
+    // sink cures the requirement (100 MW burned) and pins λ1 + λ2 = −2ε,
+    // lowered (ε > 0 only) by the loss_flow_abs_cost pin: burning one
+    // more MWh of loss also raises v by 1/chord_slope, so the floor is
+    // −2·(ε + pin/slope) — about −2ε − 0.008 $/MWh here.
     const auto off =
         sink_solve({.eps = eps, .alpha = kSinkAlphaKink, .overflow_cost = 0.0});
     CHECK(off.burned == doctest::Approx(100.0).epsilon(1e-4));
     CHECK(off.fictitious() > 90.0);
-    CHECK(off.lambda1 + off.lambda2
-          == doctest::Approx(-2.0 * eps).epsilon(1e-3));
+    const double pin_floor = eps > 0.0 ? 0.01 : 1e-3;
+    CHECK(off.lambda1 + off.lambda2 <= (-2.0 * eps) + 1e-3);
+    CHECK(off.lambda1 + off.lambda2 >= (-2.0 * eps) - pin_floor);
   }
 
   // ε above the incentive (134 $/MWh) also closes the in-envelope

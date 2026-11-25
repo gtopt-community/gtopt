@@ -13,6 +13,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/sddp_forward_crossover.hpp>
 #include <gtopt/sddp_method.hpp>
+#include <gtopt/solver_registry.hpp>
 
 #include "sddp_helpers.hpp"
 
@@ -224,4 +225,45 @@ TEST_CASE(  // NOLINT
   CHECK(ok.max_col == 0.0);
   CHECK(ok.max_row == 0.0);
   CHECK(ok.weighted == 0.0);
+}
+
+TEST_CASE(  // NOLINT
+    "Forward crossover - HiGHS barrier forward, vertex backward: same bounds")
+{
+  using namespace forward_crossover_test;
+  // The HiGHS mapping of the SDDP pass options: forward barrier without
+  // crossover (HiPO, or IPX when HiGHS has no HiPO), backward barrier WITH
+  // crossover on the same cell backends.  `run_crossover` must flip back
+  // on for the backward pass (it used to stay "off" once set), and the
+  // bounds must match a dual-simplex run.
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  if (!reg.has_solver("highs")) {
+    return;
+  }
+  const auto highs_planning = []
+  {
+    auto planning = make_3phase_hydro_planning();
+    planning.options.lp_matrix_options.solver_name = "highs";
+    return planning;
+  };
+  SDDPOptions base;
+  base.max_iterations = 30;
+  base.convergence_tol = 1e-4;
+  base.apertures = std::vector<Uid> {};
+  base.enable_api = false;
+  base.basis_cross_mode = BasisCrossMode::off;
+  base.forward_solver_options = with(LPAlgo::dual, CrossoverMode::automatic);
+  base.backward_solver_options = with(LPAlgo::dual, CrossoverMode::automatic);
+  const auto simplex = run(highs_planning(), base);
+  CHECK(simplex.converged);
+
+  SDDPOptions ipm = base;
+  ipm.forward_solver_options = with(LPAlgo::barrier, CrossoverMode::none);
+  ipm.backward_solver_options = with(LPAlgo::barrier, CrossoverMode::automatic);
+  const auto bar = run(highs_planning(), ipm);
+  CHECK(bar.converged);
+  CHECK(bar.lb <= bar.ub);
+  CHECK(bar.ub == doctest::Approx(simplex.ub).epsilon(1e-4));
+  CHECK(bar.lb == doctest::Approx(simplex.lb).epsilon(1e-4));
 }

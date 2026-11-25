@@ -163,6 +163,32 @@ target_compile_definitions(
   PRIVATE GTOPT_TEST_SHARE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../share/gtopt"
 )
 
+# In-tree `cases/` for tests that build the canonical cases directly
+# (test_numerical_stability.cpp).
+target_compile_definitions(
+  ${PROJECT_NAME}
+  PRIVATE GTOPT_TEST_CASES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../cases"
+)
+
+# The configured GTOPT_PLUGIN_CHECK_DEFAULT (cache option of the library),
+# so test_plugin_integrity.cpp can check it reached the compiled code.
+if(DEFINED GTOPT_PLUGIN_CHECK_DEFAULT)
+  string(TOLOWER "${GTOPT_PLUGIN_CHECK_DEFAULT}" _gtopt_test_plugin_check)
+  target_compile_definitions(
+    ${PROJECT_NAME}
+    PRIVATE GTOPT_TEST_PLUGIN_CHECK_DEFAULT="${_gtopt_test_plugin_check}"
+  )
+endif()
+
+# The HiGHS pin baked into the HiGHS plugin (cmake_local/FindHiGHS.cmake),
+# so test_solver_version_pin.cpp can check it reached the plugin.
+if(GTOPT_HIGHS_PIN_VERSION)
+  target_compile_definitions(
+    ${PROJECT_NAME}
+    PRIVATE GTOPT_TEST_HIGHS_PIN_VERSION="${GTOPT_HIGHS_PIN_VERSION}"
+  )
+endif()
+
 # ---- Ensure solver plugins are rebuilt before running tests ----
 include(GtoptPlugin)
 gtopt_require_solver_plugins(${PROJECT_NAME})
@@ -202,6 +228,85 @@ set_tests_properties(
   PROPERTIES ENVIRONMENT "GTOPT_PLUGIN_DIR=${GTOPT_PLUGIN_DIR_CANARY}"
              TIMEOUT 120
 )
+
+# ---- Fake solver library: the identity check refuses it ----
+# A fake HiGHS that reports the pinned version (LD_PRELOAD interposer and a
+# libhighs.so.1 replacement for LD_LIBRARY_PATH), built only here, in the
+# build tree.  check_fake_solver_library.cmake runs the real gtopt with it
+# and requires exit code 3 with the solver-library identity refusal.
+if(TARGET gtopt_solver_highs AND TARGET gtoptStandalone AND NOT APPLE
+   AND NOT WIN32 AND GTOPT_HIGHS_PIN_VERSION MATCHES
+                     "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
+  set(_fake_defs GTOPT_FAKE_HIGHS_MAJOR=${CMAKE_MATCH_1}
+                 GTOPT_FAKE_HIGHS_MINOR=${CMAKE_MATCH_2}
+                 GTOPT_FAKE_HIGHS_PATCH=${CMAKE_MATCH_3})
+  set(_fake_dir "${CMAKE_CURRENT_BINARY_DIR}/fake_solver_lib")
+  set(_fake_src "${CMAKE_CURRENT_SOURCE_DIR}/fake_solver_lib")
+
+  add_library(gtopt_fake_highs_preload SHARED
+              "${_fake_src}/fake_highs_version.cpp")
+  add_library(gtopt_fake_highs_real_stub SHARED
+              "${_fake_src}/highs_real_stub.cpp")
+  add_library(gtopt_fake_highs_libhighs SHARED
+              "${_fake_src}/fake_highs_version.cpp")
+  # Keep the DT_NEEDED although no stub symbol is used (--as-needed).
+  target_link_options(gtopt_fake_highs_libhighs PRIVATE
+                      "LINKER:--no-as-needed")
+  target_link_libraries(gtopt_fake_highs_libhighs
+                        PRIVATE gtopt_fake_highs_real_stub)
+  foreach(_t gtopt_fake_highs_preload gtopt_fake_highs_libhighs)
+    target_compile_definitions(${_t} PRIVATE ${_fake_defs})
+    target_include_directories(${_t} SYSTEM PRIVATE
+      "$<TARGET_PROPERTY:gtopt_solver_highs,INCLUDE_DIRECTORIES>")
+  endforeach()
+  set_target_properties(gtopt_fake_highs_preload PROPERTIES
+    OUTPUT_NAME gtopt_fake_highs
+    LIBRARY_OUTPUT_DIRECTORY "${_fake_dir}/preload")
+  set_target_properties(gtopt_fake_highs_real_stub PROPERTIES
+    OUTPUT_NAME highs_real VERSION 1 SOVERSION 1
+    LIBRARY_OUTPUT_DIRECTORY "${_fake_dir}/stub")
+  set_target_properties(gtopt_fake_highs_libhighs PROPERTIES
+    OUTPUT_NAME highs VERSION 1 SOVERSION 1 SKIP_BUILD_RPATH ON
+    LIBRARY_OUTPUT_DIRECTORY "${_fake_dir}/libhighs")
+  add_dependencies(${PROJECT_NAME} gtopt_fake_highs_preload
+                   gtopt_fake_highs_libhighs)
+
+  foreach(_mode preload ldpath)
+    if(_mode STREQUAL "preload")
+      set(_fake "$<TARGET_FILE:gtopt_fake_highs_preload>")
+    else()
+      set(_fake "$<TARGET_FILE:gtopt_fake_highs_libhighs>")
+    endif()
+    add_test(
+      NAME gtopt.fake_solver_library.${_mode}
+      COMMAND ${CMAKE_COMMAND} "-DGTOPT=$<TARGET_FILE:gtoptStandalone>"
+              "-DPLUGIN=$<TARGET_FILE:gtopt_solver_highs>"
+              "-DCASE=${CMAKE_CURRENT_SOURCE_DIR}/../cases/ieee_4b_ori/ieee_4b_ori.json"
+              "-DFAKE=${_fake}" "-DMODE=${_mode}"
+              "-DWORK=${_fake_dir}/run_${_mode}"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/check_fake_solver_library.cmake"
+    )
+    set_tests_properties(gtopt.fake_solver_library.${_mode}
+                         PROPERTIES TIMEOUT 300 LABELS plugin_integrity)
+  endforeach()
+
+  # A modified copy of the real libhighs with its build-id note intact:
+  # refused only under -DGTOPT_SOLVER_LIB_FULL_HASH=ON, accepted otherwise.
+  if(CMAKE_OBJCOPY AND CMAKE_READELF)
+    add_test(
+      NAME gtopt.fake_solver_library.tampered
+      COMMAND ${CMAKE_COMMAND} "-DGTOPT=$<TARGET_FILE:gtoptStandalone>"
+              "-DPLUGIN=$<TARGET_FILE:gtopt_solver_highs>"
+              "-DCASE=${CMAKE_CURRENT_SOURCE_DIR}/../cases/ieee_4b_ori/ieee_4b_ori.json"
+              "-DOBJCOPY=${CMAKE_OBJCOPY}" "-DREADELF=${CMAKE_READELF}"
+              "-DFULL_HASH=${GTOPT_SOLVER_LIB_FULL_HASH}"
+              "-DWORK=${_fake_dir}/run_tampered"
+              -P "${CMAKE_CURRENT_SOURCE_DIR}/check_tampered_solver_library.cmake"
+    )
+    set_tests_properties(gtopt.fake_solver_library.tampered
+                         PROPERTIES TIMEOUT 300 LABELS plugin_integrity)
+  endif()
+endif()
 
 # ---- Coverage ----
 include(Coverage)

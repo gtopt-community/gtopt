@@ -3,9 +3,11 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -2690,6 +2692,91 @@ auto solve_and_read_solution_csv(double scale_objective)
   return csv;
 }
 }  // namespace
+
+namespace
+{
+/// Solve the write-out fixture with @p mode and return the solution.csv
+/// kappa column plus every cell's cached kappa.
+auto solve_with_kappa_mode(KappaMode mode)
+{
+  auto fx = make_write_out_dispatch_fixture();
+  const auto out_dir = std::filesystem::path(fx.tmp_dir)
+      / std::format("kappa_{}", static_cast<int>(mode));
+  std::filesystem::create_directories(out_dir);
+
+  PlanningOptions planning_options {};
+  planning_options.model_options.demand_fail_cost = 1000.0;
+  planning_options.output_directory = out_dir.string();
+  planning_options.solver_options.kappa_mode = mode;
+
+  const Planning planning = {
+      .options = std::move(planning_options),
+      .simulation = std::move(fx.simulation),
+      .system = std::move(fx.system),
+  };
+
+  PlanningLP planning_lp(planning);
+  // As gtopt_main: the planning's (monolithic) solver options drive the solve.
+  auto result =
+      planning_lp.resolve(planning_lp.options().monolithic_solver_options());
+  REQUIRE(result.has_value());
+  std::vector<std::optional<double>> cell_kappa;
+  std::size_t queries = 0;
+  for (const auto& phase_systems : planning_lp.systems()) {
+    for (const auto& sys : phase_systems) {
+      cell_kappa.push_back(sys.linear_interface().get_kappa());
+      queries += sys.linear_interface().kappa_queries();
+    }
+  }
+  planning_lp.write_out();
+
+  const auto [header, rows] = read_solution_csv(out_dir / "solution.csv");
+  // kappa_mode = off drops the kappa / max_kappa columns (empty result).
+  CHECK((std::ranges::find(header, std::string {"max_kappa"}) != header.end())
+        == (std::ranges::find(header, std::string {"kappa"}) != header.end()));
+  std::vector<double> csv_kappa;
+  if (const auto it = std::ranges::find(header, std::string {"kappa"});
+      it != header.end())
+  {
+    const auto i_kappa =
+        static_cast<std::size_t>(std::distance(header.begin(), it));
+    for (const auto& row : rows) {
+      REQUIRE(row.size() > i_kappa);
+      csv_kappa.push_back(std::stod(row[i_kappa]));
+    }
+  } else {
+    for (const auto& row : rows) {
+      CHECK(row.size() == header.size());
+    }
+  }
+  std::error_code ec;
+  std::filesystem::remove_all(fx.tmp_dir, ec);
+  return std::tuple {std::move(cell_kappa), std::move(csv_kappa), queries};
+}
+}  // namespace
+
+TEST_CASE(
+    "PlanningLP - kappa_mode off: no kappa queries, no csv column")  // NOLINT
+{
+  const auto [on_kappa, on_csv, on_queries] =
+      solve_with_kappa_mode(KappaMode::estimate);
+  const auto [off_kappa, off_csv, off_queries] =
+      solve_with_kappa_mode(KappaMode::off);
+
+  REQUIRE(off_kappa.size() == 6);
+  CHECK(off_csv.empty());  // no kappa column at all
+  CHECK(off_queries == 0);
+  for (const auto& k : off_kappa) {
+    CHECK_FALSE(k.has_value());
+  }
+  // estimate: one backend query per cell solve (the default solver may
+  // report no kappa at all, e.g. MindOpt; then the csv holds -1 too).
+  CHECK(on_queries == on_kappa.size());
+  REQUIRE(on_csv.size() == on_kappa.size());
+  for (std::size_t i = 0; i < on_kappa.size(); ++i) {
+    CHECK(on_csv[i] == doctest::Approx(on_kappa[i].value_or(-1.0)));
+  }
+}
 
 TEST_CASE(  // NOLINT
     "PlanningLP - solution.csv obj_value is physical for any scale_objective")

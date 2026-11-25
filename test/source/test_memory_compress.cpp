@@ -9,9 +9,13 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <numeric>
+#include <random>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -310,4 +314,177 @@ TEST_CASE("CompressedBuffer — per-buffer codec tag drives restore")  // NOLINT
     CHECK(base.decompress_data() == raw);
     CHECK(delta.decompress_data() == other);
   }
+}
+
+namespace  // NOLINT
+{
+
+constexpr std::array kInMemoryCodecs {
+    CompressionCodec::zstd,
+    CompressionCodec::gzip,
+    CompressionCodec::lz4,
+    CompressionCodec::snappy,
+};
+
+auto random_bytes(std::size_t n, unsigned seed) -> std::vector<char>
+{
+  std::mt19937 rng(seed);
+  std::uniform_int_distribution<int> dist(0, 255);
+  std::vector<char> v(n);
+  for (auto& c : v) {
+    c = static_cast<char>(dist(rng));
+  }
+  return v;
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "compress — result capacity is the compressed size, not the bound")
+{
+  // A highly compressible 4 MiB payload: the worst-case bound is ~4 MiB,
+  // the real output a few KiB.  The returned buffer must not keep the
+  // bound as capacity (it did: vector(bound) + resize(rc)), otherwise
+  // every "compressed" low-memory snapshot stays as large as the raw one.
+  const std::vector<char> raw(std::size_t {4} << 20U, 'x');
+  for (const auto codec : kInMemoryCodecs) {
+    if (!is_codec_available(codec)) {
+      continue;
+    }
+    CAPTURE(static_cast<int>(codec));
+    const auto out = compress(raw, codec);
+    REQUIRE_FALSE(out.empty());
+    CHECK(out.size() < raw.size() / 16);
+    CHECK(out.capacity() == out.size());
+    CHECK(decompress(out, raw.size(), codec) == raw);
+  }
+}
+
+TEST_CASE("compress — byte-exact round trip across input shapes")  // NOLINT
+{
+  const std::vector<std::pair<std::string, std::vector<char>>> inputs {
+      {
+          "empty",
+          {},
+      },
+      {
+          "one byte",
+          {
+              'z',
+          },
+      },
+      {
+          "tiny",
+          make_payload(7),
+      },
+      {
+          "incompressible random 64 KiB",
+          random_bytes(std::size_t {64} << 10U, 7),
+      },
+      {
+          "large patterned 8 MiB",
+          make_payload(std::size_t {8} << 20U),
+      },
+      {
+          "large random 2 MiB",
+          random_bytes(std::size_t {2} << 20U, 11),
+      },
+  };
+  for (const auto codec : kInMemoryCodecs) {
+    if (!is_codec_available(codec)) {
+      continue;
+    }
+    for (const auto& [name, raw] : inputs) {
+      CAPTURE(static_cast<int>(codec));
+      CAPTURE(name);
+      const auto out = compress(raw, codec);
+      // Exact-size result: never more capacity than bytes produced.
+      CHECK(out.capacity() == out.size());
+      const auto back = decompress(out, raw.size(), codec);
+      CHECK(back.size() == raw.size());
+      CHECK(back == raw);
+    }
+  }
+}
+
+TEST_CASE("compress_buffer — codec tag and original size preserved")  // NOLINT
+{
+  const auto raw = random_bytes(std::size_t {256} << 10U, 3);
+  for (const auto codec : kInMemoryCodecs) {
+    if (!is_codec_available(codec)) {
+      continue;
+    }
+    CAPTURE(static_cast<int>(codec));
+    const auto buf = compress_buffer(raw, codec);
+    CHECK(buf.codec == codec);
+    CHECK(buf.original_size == raw.size());
+    CHECK(buf.xor_base == nullptr);
+    CHECK(buf.data.capacity() == buf.data.size());
+    CHECK(buf.decompress_data() == raw);
+  }
+}
+
+TEST_CASE("FlatLpDedupRegistry — XOR delta round trips")  // NOLINT
+{
+  // Sibling cells: same length, a few bytes differ (the inflow bounds).
+  const auto base = random_bytes(std::size_t {512} << 10U, 5);
+  auto sibling = base;
+  sibling[10] = static_cast<char>(sibling[10] ^ 0x5A);
+  sibling[200000] = static_cast<char>(sibling[200000] ^ 0x01);
+  const auto& identical = base;
+  // Different length: must fall back to a plain buffer.
+  auto longer = base;
+  longer.push_back('q');
+  const std::vector<char> shorter(base.begin(), base.end() - 100);
+
+  for (const auto codec : kInMemoryCodecs) {
+    if (!is_codec_available(codec)) {
+      continue;
+    }
+    CAPTURE(static_cast<int>(codec));
+    FlatLpDedupRegistry reg;
+    const auto b0 = reg.compress("k", base, codec);
+    const auto b1 = reg.compress("k", sibling, codec);
+    const auto b2 = reg.compress("k", identical, codec);
+    const auto b3 = reg.compress("k", longer, codec);
+    const auto b4 = reg.compress("k", shorter, codec);
+
+    CHECK(b0.decompress_data() == base);
+    CHECK(b1.decompress_data() == sibling);
+    CHECK(b2.decompress_data() == identical);
+    CHECK(b3.decompress_data() == longer);
+    CHECK(b4.decompress_data() == shorter);
+
+    // The sibling is stored as a delta against the shared base and is
+    // tiny; identical content stores no bytes at all.
+    CHECK(b1.xor_base != nullptr);
+    CHECK(b1.data.size() < base.size() / 16);
+    CHECK(b1.data.capacity() == b1.data.size());
+    CHECK(b2.xor_base != nullptr);
+    CHECK(b2.data.empty());
+    // Length mismatch → plain, self-contained buffer.
+    CHECK(b3.xor_base == nullptr);
+    CHECK(b4.xor_base == nullptr);
+    CHECK(b3.codec == codec);
+    CHECK(reg.live_bases() == 1);
+  }
+}
+
+TEST_CASE("FlatLpDedupRegistry — bases are per key and freed")  // NOLINT
+{
+  const auto a = random_bytes(4096, 1);
+  const auto b = random_bytes(4096, 2);
+  FlatLpDedupRegistry reg;
+  {
+    const auto ba = reg.compress("p1", a, CompressionCodec::zstd);
+    const auto bb = reg.compress("p2", b, CompressionCodec::zstd);
+    CHECK(reg.live_bases() == 2);
+    // Mutating a decompressed copy never leaks into a sibling.
+    auto copy = ba.decompress_data();
+    copy[0] = static_cast<char>(copy[0] ^ 0x7F);
+    CHECK(ba.decompress_data() == a);
+    CHECK(bb.decompress_data() == b);
+  }
+  // Weakly held: once every buffer referencing a base is gone, so is it.
+  CHECK(reg.live_bases() == 0);
 }

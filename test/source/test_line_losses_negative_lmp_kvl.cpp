@@ -504,8 +504,8 @@ TEST_CASE(
 {
   // DEFECT-DOCUMENTING TEST — channel (D) threshold.
   //
-  // ε is loss-priced (the v columns carry only the internal 1e-6
-  // degeneracy pin), so the sink is profitable iff
+  // ε is loss-priced (the v columns carry only the 0.001 $/MWh
+  // loss_flow_abs_cost degeneracy pin), so the sink is profitable iff
   // |pi_a + pi_b|/2 > ε.  The plexos2gtopt production default
   // ε = 0.1 protects only up to a pair-sum of −0.2 $/MWh — a
   // −25 $/MWh congestion corridor blows straight through it: v
@@ -540,10 +540,10 @@ TEST_CASE(
   // DEFECT-DOCUMENTING TEST — channel (D), loss-priced ε semantics.
   //
   // Since the 2026-07 re-point, ε lands on the LOSS column only (the
-  // v columns carry the internal 1e-6 pin).  The single closure
-  // condition is ε > |pi_a + pi_b|/2 = 12.5 here; ε = 1.0 is far
-  // below it, so ℓ-dumping nets 11.5 $/MWh and the LP inflates v to
-  // the envelope and ℓ to the c·env² cap — same exposure as ε = 0.1.
+  // v columns carry the loss_flow_abs_cost pin, 0.001 $/MWh).  The single
+  // closure condition is ε > |pi_a + pi_b|/2 = 12.5 here; ε = 1.0 is far below
+  // it, so ℓ-dumping nets 11.5 $/MWh and the LP inflates v to the envelope and
+  // ℓ to the c·env² cap — same exposure as ε = 0.1.
   //
   // (Pre-re-point, ε = 1.0 > ε* ≈ 0.6 used to close the v-sink via
   // the flow toll while the chord residual ℓ = c·env·|f| ≈ 32×
@@ -569,7 +569,8 @@ TEST_CASE(
 
   // The corridor still carries real flow…
   CHECK(std::abs(f14) > 10.0);
-  // DEFECT: v inflates past |f| (the 1e-6 pin is no deterrent)…
+  // DEFECT: v inflates past |f| (the 0.001 $/MWh pin is no deterrent
+  // against an 11.5 $/MWh loss-dumping incentive)…
   CHECK(v14 > std::abs(f14) + 100.0);
   // …and ℓ sits at the cap, far above physics.
   CHECK(loss14 > 5.0);
@@ -607,12 +608,12 @@ TEST_CASE(
   CAPTURE(loss14);
 
   CHECK(std::abs(f14) > 10.0);
-  // v is pinned to |f| only by the internal 1e-6 $/MWh tie-break
-  // (kFlowAbsPinEps), i.e. 1e-9 in LP units at scale_objective 1000:
-  // below every solver's dual tolerance, so inflating v is optimal
-  // within tolerance (HiGHS 1.12 returns v = the 1000 MW envelope,
-  // 1.15 returns |f|).  Assert the abs row and that the pin is
-  // present, not the solver's tie-break.
+  // v is pinned to |f| by the loss_flow_abs_cost tie-break (0.001
+  // $/MWh, 1e-6 in LP units at scale_objective 1000).  Under the former
+  // internal 1e-6 $/MWh pin (1e-9 in the LP, below every solver's dual
+  // tolerance) HiGHS 1.12 returned v = the 1000 MW envelope.  Assert
+  // the abs row and that the pin is present, not the solver's
+  // tie-break.
   CHECK(v14 >= std::abs(f14) - 0.01);
   CHECK(li.get_obj_coeff()[static_cast<std::size_t>(
             value_of(find_col(li, "line_flow_abs_4_")))]

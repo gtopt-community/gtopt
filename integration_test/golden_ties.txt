@@ -1,0 +1,16 @@
+# Tie groups for integration_test/cmake/compare_csv.cmake.
+#
+# Equal-cost elements whose split is an arbitrary optimal vertex: the
+# solver's pick changes with its version or the LP column order, so a
+# golden that pins one vertex keeps flipping.  For each line the listed
+# uids are compared as ONE sum (still strict), for every solver:
+#
+#   <case> <csv path relative to output/> <uid,uid,...>   # reason
+#
+# Only list elements that really tie (same cost, no binding network or
+# ramp constraint separating them); the group total stays checked.
+
+# g1, g3, g5, g7 all cost 20 $/MWh, lines never bind: any split of
+# demand minus the 40 $/MWh units is optimal (CPLEX 22.1.1 has returned
+# g5=534.92/g7=0 and g5=124.92/g7=410 depending on column order).
+ieee_57b Generator/generation_sol.csv 1,3,5,7   # equal-cost units

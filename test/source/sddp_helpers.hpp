@@ -25,8 +25,9 @@ using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
 
-/// First available non-MindOpt LP solver backend, or "" when only MindOpt
-/// is available.
+/// The process-default solver (honouring `GTOPT_SOLVER` / `--solver`) when
+/// it is not MindOpt, else the first available non-MindOpt LP solver
+/// backend, or "" when only MindOpt is available.
 ///
 /// The dual±1 fixtures (deliberately degenerate ±1 state duals at the
 /// elastic feasibility boundary) can wedge the MindOpt simplex (it
@@ -38,6 +39,11 @@ using gtopt::test_fixtures::make_uniform_stages;
 {
   auto& reg = gtopt::SolverRegistry::instance();
   reg.load_all_plugins();
+  if (const auto def = reg.default_solver();
+      !def.empty() && def != "mindopt" && def != "cuopt" && reg.has_solver(def))
+  {
+    return std::string {def};
+  }
   for (const auto* candidate : {"cplex", "highs", "cbc", "clp", "scip"}) {
     if (reg.has_solver(candidate)) {
       return candidate;

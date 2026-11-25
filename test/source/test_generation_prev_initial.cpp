@@ -35,6 +35,7 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/validate_planning.hpp>
 
 using namespace gtopt;
 
@@ -53,7 +54,8 @@ constexpr std::string_view kRampUp =
                                     const std::vector<int>& layout,
                                     std::string_view gen_extra,
                                     std::string_view ramp_expr,
-                                    std::string_view system_extra = "")
+                                    std::string_view system_extra = "",
+                                    std::string_view model_extra = "")
 {
   std::string blocks;
   std::string stages;
@@ -92,7 +94,7 @@ constexpr std::string_view kRampUp =
       R"({{"options":{{"method":"monolithic","annual_discount_rate":0.0,)"
       R"("constraint_mode":"strict",)"
       R"("model_options":{{"use_single_bus":true,"demand_fail_cost":1000,)"
-      R"("scale_objective":1}}}},)"
+      R"("scale_objective":1{}}}}},)"
       R"("simulation":{{"block_array":[{}],"stage_array":[{}],)"
       R"("scenario_array":[{{"uid":1,"probability_factor":1}}],)"
       R"("phase_array":[{}]}},)"
@@ -102,6 +104,7 @@ constexpr std::string_view kRampUp =
       R"("lmax":[{}]}}],)"
       R"("generator_array":[{{"uid":1,"name":"g1","bus":"b1","gcost":10,)"
       R"("capacity":1000{}}}]{}{}}}}})",
+      model_extra,
       blocks,
       stages,
       phases,
@@ -280,4 +283,76 @@ TEST_CASE("generation_prev - initial_generation JSON round-trip")  // NOLINT
   CHECK(
       planning.system.generator_array.front().initial_generation.value_or(-1.0)
       == doctest::Approx(42.5));
+}
+
+TEST_CASE(  // NOLINT
+    "generation_prev - prev_stage_link = none restores the legacy stage-start "
+    "0")
+{
+  // Same 4-stage, one-phase case as the same-phase link test, with the
+  // stage link switched off: the horizon start still reads the initial
+  // value (s1 ≤ 80), but every later stage start reads 0 again:
+  //   s1 → 80 (20 unserved), s2 ≤ 60 → 60 (40), s3 ≤ 60 → 60 (140),
+  //   s4 ≤ 60 → 60 (140).
+  const std::vector<double> demand {100.0, 100.0, 200.0, 200.0};
+  const auto legacy = solve_total(ramp_case(demand,
+                                            {4},
+                                            R"(,"initial_generation":20)",
+                                            kRampUp,
+                                            "",
+                                            R"(,"prev_stage_link":"none")"));
+  REQUIRE(legacy.has_value());
+  CHECK(legacy.value_or(-1.0)
+        == doctest::Approx((10.0 * (80.0 + 60.0 + 60.0 + 60.0))
+                           + (1000.0 * (20.0 + 40.0 + 140.0 + 140.0))));
+
+  SUBCASE("explicit stage equals the default")
+  {
+    const auto linked = solve_total(ramp_case(demand,
+                                              {4},
+                                              R"(,"initial_generation":20)",
+                                              kRampUp,
+                                              "",
+                                              R"(,"prev_stage_link":"stage")"));
+    CHECK(linked.value_or(-1.0)
+          == doctest::Approx((10.0 * (80.0 + 100.0 + 160.0 + 200.0))
+                             + (1000.0 * (20.0 + 40.0))));
+  }
+
+  SUBCASE("an unknown value is a validation error")
+  {
+    auto planning = parse_planning_json(
+        ramp_case(demand, {4}, "", kRampUp, "", R"(,"prev_stage_link":"x")"));
+    const auto result = validate_planning(planning);
+    const auto hit = std::ranges::any_of(
+        result.errors,
+        [](const std::string& e) { return e.contains("prev_stage_link"); });
+    CHECK(hit);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "generation_prev - a later-phase start is counted for the WARN summary")
+{
+  const std::vector<double> demand {100.0, 100.0, 200.0, 200.0};
+  const auto counts = [&](const std::vector<int>& layout)
+  {
+    PlanningLP plp(parse_planning_json(
+        ramp_case(demand, layout, R"(,"initial_generation":20)", kRampUp)));
+    return plp.simulation().prev_at_phase_start_counts();
+  };
+
+  SUBCASE("two phases: the phase-2 start of 'ramp' is recorded")
+  {
+    const auto c = counts({2, 2});
+    REQUIRE(c.contains("ramp"));
+    const auto& terms = c.at("ramp");
+    REQUIRE(terms.size() == 1);
+    CHECK(terms.begin()->first == "generator(g1).generation_prev");
+    CHECK(terms.begin()->second >= 1);
+  }
+  SUBCASE("one phase: nothing is recorded")
+  {
+    CHECK(counts({4}).empty());
+  }
 }

@@ -447,15 +447,21 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("deep — clone_from_flat keeps independent metadata")
   {
+    // `load_flat` aliases the flat LP's label bundle, so the baseline
+    // also counts the flat LP / snapshot that share it.
+    const auto src_uc_before = src.col_labels_meta_use_count();
     const auto manual = src.clone_from_flat(LinearInterface::CloneKind::deep);
 
     REQUIRE(manual.get_numcols() == src.get_numcols());
     REQUIRE(manual.get_numrows() == src.get_numrows());
     // Deep contract: the manual clone owns a freshly-built copy of
-    // every metadata field.  use_count of the source's pointees is
-    // unaffected by the deep manual clone.
+    // every MUTABLE metadata field.
     const auto src_uc_after = src.col_labels_meta_use_count();
-    CHECK(src_uc_after == 1);
+    // The clone re-runs `load_flat` from the snapshot, so it aliases the
+    // snapshot's label bundle (+1 for col, +1 for row labels).  Sharing is
+    // safe: the bundle is immutable and every label update replaces the
+    // pointer instead of writing through it.
+    CHECK(src_uc_after == src_uc_before + 2);
   }
 
   SUBCASE("solve equivalence")

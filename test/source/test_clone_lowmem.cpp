@@ -97,9 +97,13 @@ TEST_CASE(
 
   // Shallow clone BEFORE the compression pass: the clone's
   // `m_labels_.col_labels_meta` etc. share the source's pointers
-  // (use_count == 2 on every wrapped member).
+  // (+1 per wrapped member; col and row labels alias ONE control block,
+  // so +2 here).  `load_flat` aliases the
+  // flat LP's `FlatLpMeta`, so the baseline also counts the flat LP and
+  // the snapshot copy that share it.
+  const auto base = src.col_labels_meta_use_count();
   auto cloned = src.clone(LinearInterface::CloneKind::shallow);
-  REQUIRE(src.col_labels_meta_use_count() == 2);
+  REQUIRE(src.col_labels_meta_use_count() == base + 2);
 
   // Trigger the compress pass on the source.  This call goes
   // through `compress_labels_meta_if_needed` which calls
@@ -107,10 +111,11 @@ TEST_CASE(
   // The clone must retain the pre-compress metadata.
   src.release_backend();
 
-  // After the detach, source uniquely owns its (now-cleared) copy,
-  // and the clone uniquely owns the original (still-populated) one.
+  // After the release, source uniquely owns its (now-empty) vector, and
+  // the clone keeps the original (still-populated) one, shared only with
+  // the flat LP / snapshot it was aliased from.
   CHECK(src.col_labels_meta_use_count() == 1);
-  CHECK(cloned.col_labels_meta_use_count() == 1);
+  CHECK(cloned.col_labels_meta_use_count() == base);
 
   // The clone can still produce a labelled LP file — proves its
   // metadata wasn't accidentally cleared by the source's compression.
@@ -277,10 +282,12 @@ TEST_CASE(
   src.set_low_memory(LowMemoryMode::compress);
   src.save_snapshot(FlatLinearProblem {flat});
 
+  const auto base = src.col_labels_meta_use_count();
   auto cloned = src.clone(LinearInterface::CloneKind::deep);
   // Deep clones have use_count = 1 on every wrapped meta member
-  // immediately after the clone — no sharing with the source.
-  CHECK(src.col_labels_meta_use_count() == 1);
+  // immediately after the clone — no sharing with the source, whose
+  // count is unchanged.
+  CHECK(src.col_labels_meta_use_count() == base);
   CHECK(cloned.col_labels_meta_use_count() == 1);
 
   src.release_backend();

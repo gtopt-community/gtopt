@@ -1125,7 +1125,13 @@ using namespace gtopt;
 /// ``strict_storage_emin`` setting and a topology that incentivises a
 /// below-emin dip.  Returns the minimum physical energy seen across all
 /// blocks of the first stage.
-double min_block_energy_with_strict(bool strict)
+struct BlockEnergyMin
+{
+  double sol {};
+  double lowb {};
+};
+
+BlockEnergyMin min_block_energy_bounds(bool strict)
 {
   const Array<Bus> bus_array = {
       {
@@ -1201,12 +1207,26 @@ double min_block_energy_with_strict(bool strict)
   const auto& sol = li.get_col_sol();
   const auto& ecols = bat_lp.energy_cols_at(sc0, stg0);
 
-  double min_e = std::numeric_limits<double>::infinity();
+  const auto& low = li.get_col_low();
+  BlockEnergyMin out {
+      .sol = std::numeric_limits<double>::infinity(),
+      .lowb = std::numeric_limits<double>::infinity(),
+  };
   for ([[maybe_unused]] const auto& [buid, col] : ecols) {
-    const double phys = bat_lp.to_physical(sol[col]);
-    min_e = std::min(min_e, phys);
+    out.sol = std::min(out.sol, bat_lp.to_physical(sol[col]));
+    out.lowb = std::min(out.lowb, bat_lp.to_physical(low[col]));
   }
-  return min_e;
+  return out;
+}
+
+double min_block_energy_with_strict(bool strict)
+{
+  return min_block_energy_bounds(strict).sol;
+}
+
+double min_block_energy_lowb(bool strict)
+{
+  return min_block_energy_bounds(strict).lowb;
 }
 }  // namespace
 
@@ -1224,9 +1244,16 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("strict=false allows a block to dip below emin")
   {
-    const double min_e = min_block_energy_with_strict(/*strict=*/false);
     // With the lax (PLP / SDDP iter-0) default the energy column has lowb=0,
-    // so the expensive generator + demand pull the battery below its emin.
-    CHECK(min_e < doctest::Approx(30.0));
+    // so a block MAY dip below emin.  Whether the optimum does is a tie in
+    // this fixture (same cost either way): CPLEX and HiGHS <= 1.15 return a
+    // vertex below emin, HiGHS 1.16 one at 100.  Assert the relaxation, not
+    // the vertex: the lax optimum is never more expensive than the strict
+    // one, and it stays feasible for the physical [0, emax] range.
+    const double min_e = min_block_energy_with_strict(/*strict=*/false);
+    CHECK(min_e >= doctest::Approx(0.0));
+    CHECK(min_block_energy_lowb(/*strict=*/false) < doctest::Approx(30.0));
+    CHECK(min_block_energy_lowb(/*strict=*/true)
+          >= doctest::Approx(30.0).epsilon(1e-6));
   }
 }

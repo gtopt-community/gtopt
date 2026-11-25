@@ -227,6 +227,14 @@ TEST_CASE(  // NOLINT
       // Free continuous decision variable referenced via
       // `decision_variable("X").value`.
       "decision_variable",
+      // Gas network + LNG terminal.
+      "gas_node",
+      "gas_supply",
+      "gas_demand",
+      "gas_pipe",
+      "gas_compressor",
+      "gas_turbine",
+      "line_commitment",
   });
 
   const PlanningOptionsLP options;
@@ -278,6 +286,23 @@ TEST_CASE(  // NOLINT
       {"battery_array", "battery"},
       {"converter_array", "converter"},
       {"lng_terminal_array", "lng_terminal"},
+      // ── Gas network ───────────────────────────────────────────
+      {"gas_node_array", "gas_node"},
+      {"gas_supply_array", "gas_supply"},
+      {"gas_demand_array", "gas_demand"},
+      {"gas_pipe_array", "gas_pipe"},
+      {"gas_compressor_array", "gas_compressor"},
+      {"gas_turbine_array", "gas_turbine"},
+      // ── Multi-carrier family ──────────────────────────────────
+      {"thermal_node_array", "thermal_node"},
+      {"thermal_storage_array", "thermal_storage"},
+      {"hydrogen_node_array", "hydrogen_node"},
+      {"hydrogen_storage_array", "hydrogen_storage"},
+      {"hydrogen_demand_array", "hydrogen_demand"},
+      {"ammonia_node_array", "ammonia_node"},
+      {"ammonia_storage_array", "ammonia_storage"},
+      {"carrier_converter_array", "carrier_converter"},
+      {"allowance_pool_array", "allowance_pool"},
       // ── Reserves / inertia ────────────────────────────────────
       {"reserve_zone_array", "reserve_zone"},
       {"reserve_provision_array", "reserve_provision"},
@@ -292,6 +317,7 @@ TEST_CASE(  // NOLINT
       {"emission_source_array", "emission_source"},
       // ── Commitment ────────────────────────────────────────────
       {"commitment_array", "commitment"},
+      {"line_commitment_array", "line_commitment"},
       // Deprecated alias folded into commitment_array.
       {"simple_commitment_array", "simple_commitment"},
       // ── Hydro ─────────────────────────────────────────────────
@@ -321,6 +347,13 @@ TEST_CASE(  // NOLINT
       {"user_param_array", nullptr},
       {"decision_variable_array", "decision_variable"},
       {"user_constraint_array", nullptr},
+      // UserModel bundles are expanded into DecisionVariable /
+      // UserConstraint sub-declarations (registered under those
+      // classes); FutureCost is a boundary-cut carrier and Plant a
+      // grouping tag — no per-instance PAMPL attribute surface.
+      {"user_model_array", nullptr},
+      {"future_cost_array", nullptr},
+      {"plant_array", nullptr},
   });
 
   // Cross-check against `system.hpp` at compile time — if the file
@@ -344,11 +377,11 @@ TEST_CASE(  // NOLINT
     CHECK(sc.find_ampl_iter(snake) != nullptr);
   }
 
-  // Cardinality pin: 34 arrays in System.hpp as of 2026-05-20.  When
+  // Cardinality pin: 53 arrays in System.hpp as of 2026-11-25.  When
   // someone adds a new `Array<X>` they must extend the inventory
   // above too (or the count moves, this assertion bites, and they
   // learn to think about whether the new class needs an iter).
-  static_assert(kInventory.size() == 34,
+  static_assert(kInventory.size() == 53,
                 "kInventory drifted vs include/gtopt/system.hpp — "
                 "every Array<X> in System must have an entry here, "
                 "either with a snake_case name (iter required) or "

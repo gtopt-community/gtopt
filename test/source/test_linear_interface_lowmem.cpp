@@ -3789,9 +3789,12 @@ TEST_CASE(  // NOLINT
   li.save_snapshot(FlatLinearProblem {flat});
   li.save_base_numrows();
 
+  // `load_flat` aliases the flat LP's `FlatLpMeta`: the baseline also
+  // counts the flat LP and the snapshot copy that share it.
+  const auto base = li.col_labels_meta_use_count();
   auto cloned = li.clone(LinearInterface::CloneKind::shallow);
-  REQUIRE(li.col_labels_meta_use_count() == 2);
-  REQUIRE(cloned.col_labels_meta_use_count() == 2);
+  REQUIRE(li.col_labels_meta_use_count() == base + 2);
+  REQUIRE(cloned.col_labels_meta_use_count() == base + 2);
 
   // Source-side post-flatten add.  Frozen vector stays shared.
   std::ignore = li.add_col(SparseCol {
@@ -3800,8 +3803,8 @@ TEST_CASE(  // NOLINT
       .variable_name = "alpha",
       .variable_uid = 0,
   });
-  CHECK(li.col_labels_meta_use_count() == 2);
-  CHECK(cloned.col_labels_meta_use_count() == 2);
+  CHECK(li.col_labels_meta_use_count() == base + 2);
+  CHECK(cloned.col_labels_meta_use_count() == base + 2);
 
   // Clone-side post-flatten add too.  Frozen still shared.
   std::ignore = cloned.add_col(SparseCol {
@@ -3810,8 +3813,8 @@ TEST_CASE(  // NOLINT
       .variable_name = "alpha_clone",
       .variable_uid = 1,
   });
-  CHECK(li.col_labels_meta_use_count() == 2);
-  CHECK(cloned.col_labels_meta_use_count() == 2);
+  CHECK(li.col_labels_meta_use_count() == base + 2);
+  CHECK(cloned.col_labels_meta_use_count() == base + 2);
 
   // Source has 1 post-flatten col, clone has 1 — they don't bleed
   // into each other's post-flatten vectors.

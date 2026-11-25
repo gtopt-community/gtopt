@@ -25,8 +25,15 @@ is then worth (30 − 10)/2 = 10 $/MWh to the LP, well above
 
 | | `l13` flow | `l13` loss | R·f²/V² | objective |
 |-|-----------|------------|---------|-----------|
-| guard on (default) | 60.05 MW | **0.10 MW** | 0.036 MW | 12 598.02 |
-| guard off (`loss_overflow_cost: 0`) | 65 MW | **10 MW** | 0.042 MW | 12 402.00 |
+| guard on (default) | 60.05 MW | **0.10 MW** | 0.036 MW | 12 598.22 |
+| guard off (`loss_overflow_cost: 0`) | 65 MW | **10 MW** | 0.042 MW | 12 404.00 |
+
+The objectives include the `loss_flow_abs_cost` pin (0.001 $/MWh) on
+the `l13` abs-flow proxy, which here sits at the envelope (100 MW, guard
+on) or the flow cap (1000 MW, guard off), not at |f|: the 10 $/MWh
+loss-dumping incentive beats both the pin and `loss_cost_eps`.  With
+`loss_flow_abs_cost: 1e-6` (the former internal value) the objectives
+are 12 598.02 and 12 402.00.
 
 What the goldens pin (guard on):
 

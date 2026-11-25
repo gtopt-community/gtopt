@@ -123,3 +123,29 @@ TEST_CASE("GTOPT_MEMORY_MODE env override of sddp_low_memory")  // NOLINT
           == LowMemoryMode::off);
   }
 }
+
+TEST_CASE("effective_low_memory is off for monolithic runs")  // NOLINT
+{
+  // The run-level mode post-solve diagnostics judge against: monolithic
+  // never releases its backend (PlanningLP forces low_memory off), so a
+  // monolithic run must not be reported as "low_memory requested but not
+  // effective" just because the SDDP default is `compress`.
+  const ScopedMemoryModeEnv env {nullptr};
+  for (const auto mode : {LowMemoryMode::off, LowMemoryMode::compress}) {
+    PlanningOptions p;
+    p.sddp_options.low_memory_mode = mode;
+
+    p.method = MethodType::monolithic;
+    CHECK(PlanningOptionsLP {p}.effective_low_memory() == LowMemoryMode::off);
+
+    p.method = MethodType::sddp;
+    CHECK(PlanningOptionsLP {p}.effective_low_memory() == mode);
+  }
+
+  PlanningOptions defaulted;  // method unset → monolithic
+  CHECK(PlanningOptionsLP {defaulted}.effective_low_memory()
+        == LowMemoryMode::off);
+  defaulted.method = MethodType::sddp;
+  CHECK(PlanningOptionsLP {defaulted}.effective_low_memory()
+        == LowMemoryMode::compress);
+}

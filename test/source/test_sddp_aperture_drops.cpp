@@ -280,8 +280,11 @@ TEST_CASE(  // NOLINT
     CHECK(iters_with_drops > 0);
     CHECK_FALSE(hard.results.back().converged);
 
-    // End-of-run aperture statistics: the dry aperture is infeasible
-    // (not a time-limit / numerical failure) and still dropped at the end.
+    // End-of-run aperture statistics: the dry aperture is PROVEN infeasible
+    // and still dropped at the end.  A warm solve the backend abandons
+    // (HiGHS 1.15 gives up on some warm dual re-solves here, where 1.12
+    // proves infeasibility) is retried cold, which proves it, so no drop is
+    // counted as a solver failure.
     const auto& sum = hard.summary;
     CHECK(sum.solves > 0);
     CHECK(sum.infeasible > 0);

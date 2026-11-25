@@ -339,11 +339,15 @@ Outcome solve_and_check(const EnvCase& c)
   CAPTURE(obj);
 
   // (1) Demand served in full: the objective is generation cost
-  // (gen = demand + losses) plus the loss-column ε — no demand-fail
-  // term.
+  // (gen = demand + losses) plus the loss-column ε plus, for the
+  // segment-form tangent_signed_flow with ε > 0, the
+  // ``loss_flow_abs_cost`` pin on Σ v = |f| — no demand-fail term.
+  const double pin = (signed_flow && !c.use_sos2 && c.loss_cost_eps > 0.0)
+      ? PlanningOptionsLP::default_loss_flow_abs_cost * std::abs(flow)
+      : 0.0;
   CHECK(obj
         == doctest::Approx((kGcost * (c.demand + loss))
-                           + (c.loss_cost_eps * loss))
+                           + (c.loss_cost_eps * loss) + pin)
                .epsilon(1e-6));
 
   // (2) Flow reaches past the envelope to (at least) the demand — the
@@ -400,7 +404,8 @@ Outcome solve_and_check(const EnvCase& c)
         CHECK(rc_of(col) <= (1e-6 * std::abs(pi1)) + 1e-9);
       }
     }
-    // |f| auxiliaries: only the 1e-6 $/MWh internal pin may show.
+    // |f| auxiliaries: only the loss_flow_abs_cost pin (0.001 $/MWh)
+    // may show.
     for (const auto& col : cols_containing(li, "line_flow_abs_")) {
       CHECK(rc_of(col) <= 0.01 * std::abs(pi1));
     }

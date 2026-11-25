@@ -1,0 +1,78 @@
+{
+  "cases": {
+    "cen_2y_phase1": {
+      "cplex": {
+        "bounds_decades": 6.03,
+        "kappa_log10": 7.69,
+        "matrix_decades": 5.75,
+        "objective_decades": 5.19,
+        "rhs_decades": 4.19
+      },
+      "highs": {
+        "bounds_decades": 6.03,
+        "kappa_log10": 9.68,
+        "matrix_decades": 5.75,
+        "objective_decades": 5.19,
+        "rhs_decades": 4.19
+      }
+    },
+    "ieee_14b": {
+      "cplex": {
+        "bounds_decades": 1.67,
+        "kappa_log10": 2.08,
+        "matrix_decades": 0.97,
+        "objective_decades": 1.7,
+        "rhs_decades": 1.7
+      },
+      "highs": {
+        "bounds_decades": 1.67,
+        "kappa_log10": 2.01,
+        "matrix_decades": 0.97,
+        "objective_decades": 1.7,
+        "rhs_decades": 1.7
+      }
+    },
+    "line_loss_envelope": {
+      "cplex": {
+        "bounds_decades": 2.0,
+        "kappa_log10": 1.59,
+        "matrix_decades": 2.7,
+        "objective_decades": 6.0,
+        "rhs_decades": 2.8
+      },
+      "highs": {
+        "bounds_decades": 2.0,
+        "kappa_log10": 2.75,
+        "matrix_decades": 2.7,
+        "objective_decades": 6.0,
+        "rhs_decades": 2.8
+      }
+    },
+    "sddp_hydro_3phase": {
+      "cplex": {
+        "bounds_decades": 2.0,
+        "cut_decades": 1.65,
+        "kappa_growth": 0.16,
+        "kappa_log10": 2.43,
+        "matrix_decades": 0.0,
+        "objective_decades": 2.3,
+        "rhs_decades": 0.0
+      },
+      "highs": {
+        "bounds_decades": 2.0,
+        "cut_decades": 1.65,
+        "kappa_growth": 0.65,
+        "kappa_log10": 2.24,
+        "matrix_decades": 0.0,
+        "objective_decades": 2.3,
+        "rhs_decades": 0.0
+      }
+    }
+  },
+  "notes": "Per case and solver; metrics in decades (log10). Recorded 2026-11-25 (HiGHS 1.16.0, CPLEX 22.1) with kappa_mode=exact. See docs/numerical-stability.md.",
+  "tolerances": {
+    "kappa": 1.0,
+    "kappa_growth": 1.0,
+    "range": 0.5
+  }
+}

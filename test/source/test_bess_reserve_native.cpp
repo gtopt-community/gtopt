@@ -33,6 +33,8 @@
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "lp_names_helpers.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -178,7 +180,8 @@ struct Result
 Result solve(const BessCase& c)
 {
   auto planning = parse_planning_json(make_json(c));
-  PlanningLP planning_lp(std::move(planning));
+  PlanningLP planning_lp(std::move(planning),
+                         test_support::names_on_flat_opts());
   auto status = planning_lp.resolve();
   REQUIRE(status.has_value());
 
@@ -617,7 +620,8 @@ TEST_CASE("BESS reserve: split replaces the aggregate headroom row")
   c.native = R"("reserve_sustain_hours": 0.0,)";
   const auto headroom_rows = [](const BessCase& bc)
   {
-    PlanningLP plp(parse_planning_json(make_json(bc)));
+    PlanningLP plp(parse_planning_json(make_json(bc)),
+                   test_support::names_on_flat_opts());
     REQUIRE(plp.resolve().has_value());
     const auto& li = plp.systems().front().front().linear_interface();
     int n = 0;

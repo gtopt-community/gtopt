@@ -717,6 +717,50 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
+    "CascadePlanningMethod build_level_sddp_opts per-level solver options")
+{
+  SDDPOptions base;
+  base.forward_solver_options = SolverOptions {
+      .algorithm = LPAlgo::dual,
+      .barrier_eps = 1e-8,
+      .barrier_solver = BarrierSolver::ipx,
+  };
+  TestableCascade solver(std::move(base), CascadeOptions {});
+
+  SUBCASE("no per-level options: the base is kept")
+  {
+    const auto opts = solver.test_build_level_sddp_opts(CascadeLevelMethod {});
+    REQUIRE(opts.forward_solver_options.has_value());
+    CHECK(opts.forward_solver_options.value_or(SolverOptions {}).barrier_solver
+          == BarrierSolver::ipx);
+    CHECK_FALSE(opts.backward_solver_options.has_value());
+  }
+
+  SUBCASE("the level's optional fields win; the rest is inherited")
+  {
+    CascadeLevelMethod level;
+    level.forward_solver_options = SolverOptions {
+        .barrier_solver = BarrierSolver::hipo,
+        .mip_lp_algorithm = LPAlgo::barrier,
+    };
+    level.backward_solver_options = SolverOptions {
+        .mip_heuristic_effort = 0.4,
+    };
+    const auto opts = solver.test_build_level_sddp_opts(level);
+    REQUIRE(opts.forward_solver_options.has_value());
+    const auto fwd = opts.forward_solver_options.value_or(SolverOptions {});
+    CHECK(fwd.barrier_solver == BarrierSolver::hipo);
+    CHECK(fwd.mip_lp_algorithm == LPAlgo::barrier);
+    CHECK(fwd.algorithm == LPAlgo::dual);  // base, not per-level
+    CHECK(fwd.barrier_eps.value_or(0.0) == doctest::Approx(1e-8));
+    REQUIRE(opts.backward_solver_options.has_value());
+    CHECK(opts.backward_solver_options.value_or(SolverOptions {})
+              .mip_heuristic_effort.value_or(-1.0)
+          == doctest::Approx(0.4));
+  }
+}
+
+TEST_CASE(  // NOLINT
     "CascadePlanningMethod build_level_sddp_opts aperture_chunk_mode by name")
 {
   SUBCASE("per-level chunked + K replaces the inherited per_scene")

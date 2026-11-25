@@ -1396,13 +1396,13 @@ TEST_CASE(
   CAPTURE(v[2]);
   CAPTURE(v[3]);
 
-  // Σ v_l = |f| = 75 is the core ε-rely invariant, but it is enforced
-  // only by the internal 1e-6 $/MWh pin (kFlowAbsPinEps), i.e. 1e-9 in
-  // LP units at scale_objective 1000 — below every solver's dual
-  // tolerance, so Σ v_l > |f| is optimal within tolerance (HiGHS 1.12
-  // returns v_l = w for every segment).  Assert the abs rows hold
+  // Σ v_l = |f| = 75 is the core ε-rely invariant, enforced by the
+  // ``loss_flow_abs_cost`` pin (default 0.001 $/MWh, 1e-6 in LP units
+  // at scale_objective 1000; the former internal 1e-6 $/MWh pin landed
+  // at 1e-9, below solver dual tolerances).  Assert the abs rows hold
   // (Σ v_l ≥ |f|) and that every v_l carries the pin; a lost ε term
-  // (the bug this test guards) zeroes the coefficient.
+  // (the bug this test guards) zeroes the coefficient.  The equality
+  // itself is pinned in test_line_losses_flow_abs_cost.cpp.
   const double sum_v = v[0] + v[1] + v[2] + v[3];
   CHECK(sum_v >= 75.0 - 1e-6);
   const auto obj = li.get_obj_coeff();

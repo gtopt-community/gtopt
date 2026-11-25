@@ -577,12 +577,34 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("advanced-basis solve honours the warm file")
   {
+    HighsTrivialLP2 lp {backend->infinity()};
+    lp.load_into(*backend);
+    backend->apply_options(opts);
+    backend->initial_solve();  // cold solve leaves a basis
+    REQUIRE(backend->is_proven_optimal());
+    REQUIRE(backend->get_basis().has_value());
+
+    // x >= 3 makes the resident basis primal infeasible: the warm solve
+    // needs a pivot, which the warm file's iteration limit 0 forbids.
+    backend->set_col_lower(0, 3.0);
+    opts.advanced_basis = true;
+    backend->apply_options(opts);
+    backend->resolve();
+    CHECK_FALSE(backend->is_proven_optimal());
+  }
+
+  SUBCASE("advanced-basis request without a resident basis solves cold")
+  {
+    // Nothing to warm-start from: the request falls back to the cold
+    // settings (presolve on), so neither the warm defaults nor the warm
+    // file apply and the solve completes.
     opts.advanced_basis = true;
     HighsTrivialLP2 lp {backend->infinity()};
     lp.load_into(*backend);
     backend->apply_options(opts);
     backend->initial_solve();
-    CHECK_FALSE(backend->is_proven_optimal());
+    CHECK(backend->is_proven_optimal());
+    CHECK(backend->obj_value() == doctest::Approx(2.0));
   }
 
   fs::remove_all(dir);

@@ -388,6 +388,137 @@ TEST_CASE("--set solver_options: every settable field round-trips")  // NOLINT
   CHECK(so.scaling.value_or(SolverScaling::none) == SolverScaling::aggressive);
 }
 
+TEST_CASE("--set solver_options: barrier / MIP-root options land")  // NOLINT
+{
+  auto planning = daw::json::from_json<Planning>(
+      std::string_view {set_test_json}, StrictParsePolicy);
+  const auto& so = planning.options.solver_options;
+  // Unset by default: the backend keeps its own behaviour.
+  CHECK_FALSE(so.barrier_solver.has_value());
+  CHECK_FALSE(so.mip_lp_algorithm.has_value());
+  CHECK_FALSE(so.mip_heuristic_effort.has_value());
+
+  for (const auto& [name, value] :
+       {
+           std::pair {"auto", BarrierSolver::automatic},
+           std::pair {"ipx", BarrierSolver::ipx},
+           std::pair {"hipo", BarrierSolver::hipo},
+       })
+  {
+    CAPTURE(name);
+    REQUIRE(apply_set_options(
+        planning, {std::format("solver_options.barrier_solver={}", name)}));
+    CHECK(so.barrier_solver == value);
+  }
+  for (const auto& [name, value] :
+       {
+           std::pair {"default", LPAlgo::default_algo},
+           std::pair {"primal", LPAlgo::primal},
+           std::pair {"dual", LPAlgo::dual},
+           std::pair {"barrier", LPAlgo::barrier},
+       })
+  {
+    CAPTURE(name);
+    REQUIRE(apply_set_options(
+        planning, {std::format("solver_options.mip_lp_algorithm={}", name)}));
+    CHECK(so.mip_lp_algorithm == value);
+  }
+  REQUIRE(
+      apply_set_options(planning, {"solver_options.mip_heuristic_effort=0.3"}));
+  CHECK(so.mip_heuristic_effort.value_or(-1.0) == doctest::Approx(0.3));
+
+  CHECK_FALSE(so.kappa_mode.has_value());
+  CHECK(so.effective_kappa_mode() == KappaMode::estimate);
+  for (const auto& [name, value] :
+       {
+           std::pair {"estimate", KappaMode::estimate},
+           std::pair {"exact", KappaMode::exact},
+           std::pair {"off", KappaMode::off},
+       })
+  {
+    CAPTURE(name);
+    REQUIRE(apply_set_options(
+        planning, {std::format("solver_options.kappa_mode={}", name)}));
+    CHECK(so.kappa_mode == value);
+  }
+  CHECK_FALSE(so.cold_solve_without_basis.has_value());
+  REQUIRE(apply_set_options(planning,
+                            {"solver_options.cold_solve_without_basis=false"}));
+  CHECK(so.cold_solve_without_basis == false);
+  REQUIRE(apply_set_options(planning,
+                            {"solver_options.cold_solve_without_basis=true"}));
+  CHECK(so.cold_solve_without_basis == true);
+
+  CHECK_FALSE(apply_set_options(planning, {"solver_options.kappa_mode=fast"}));
+  CHECK_FALSE(
+      apply_set_options(planning, {"solver_options.barrier_solver=mosek"}));
+  CHECK_FALSE(
+      apply_set_options(planning, {"solver_options.mip_lp_algorithm=pdlp"}));
+}
+
+TEST_CASE("--set barrier_solver per pass and per cascade level")  // NOLINT
+{
+  auto planning = daw::json::from_json<Planning>(
+      std::string_view {set_test_json}, StrictParsePolicy);
+  REQUIRE(apply_set_options(
+      planning,
+      {
+          "sddp_options.forward_solver_options.barrier_solver=ipx",
+          "sddp_options.backward_solver_options.mip_lp_algorithm=barrier",
+          "monolithic_options.solver_options.mip_heuristic_effort=0.2",
+          "cascade_options.level_array.0.sddp_options.forward_solver_options"
+          ".barrier_solver=hipo",
+      }));
+  const auto& sddp = planning.options.sddp_options;
+  CHECK(sddp.forward_solver_options.value_or(SolverOptions {}).barrier_solver
+        == BarrierSolver::ipx);
+  CHECK(sddp.backward_solver_options.value_or(SolverOptions {}).mip_lp_algorithm
+        == LPAlgo::barrier);
+  CHECK(planning.options.monolithic_options.solver_options
+            .value_or(SolverOptions {})
+            .mip_heuristic_effort.value_or(-1.0)
+        == doctest::Approx(0.2));
+  const auto& levels = planning.options.cascade_options.level_array;
+  REQUIRE_FALSE(levels.empty());
+  const auto lvl_sddp =
+      levels.front().sddp_options.value_or(CascadeLevelMethod {});
+  CHECK(
+      lvl_sddp.forward_solver_options.value_or(SolverOptions {}).barrier_solver
+      == BarrierSolver::hipo);
+}
+
+TEST_CASE(
+    "SolverOptions JSON round-trips barrier / MIP-root options")  // NOLINT
+{
+  const auto so = daw::json::from_json<SolverOptions>(std::string_view {
+      R"({"barrier_solver":"ipx","mip_lp_algorithm":"barrier",)"
+      R"("mip_heuristic_effort":0.25,"kappa_mode":"off",)"
+      R"("cold_solve_without_basis":false})"});
+  CHECK(so.kappa_mode == KappaMode::off);
+  CHECK(so.cold_solve_without_basis == false);
+  CHECK(so.barrier_solver == BarrierSolver::ipx);
+  CHECK(so.mip_lp_algorithm == LPAlgo::barrier);
+  CHECK(so.mip_heuristic_effort.value_or(-1.0) == doctest::Approx(0.25));
+  const auto back = daw::json::from_json<SolverOptions>(daw::json::to_json(so));
+  CHECK(back.barrier_solver == BarrierSolver::ipx);
+  CHECK(back.mip_lp_algorithm == LPAlgo::barrier);
+  CHECK(back.mip_heuristic_effort.value_or(-1.0) == doctest::Approx(0.25));
+  CHECK(back.kappa_mode == KappaMode::off);
+  CHECK(back.cold_solve_without_basis == false);
+
+  const auto unset =
+      daw::json::from_json<SolverOptions>(std::string_view {"{}"});
+  CHECK_FALSE(unset.barrier_solver.has_value());
+  CHECK_FALSE(unset.mip_lp_algorithm.has_value());
+  CHECK_FALSE(unset.mip_heuristic_effort.has_value());
+  const auto unset_back =
+      daw::json::from_json<SolverOptions>(daw::json::to_json(unset));
+  CHECK_FALSE(unset_back.barrier_solver.has_value());
+  CHECK_FALSE(unset_back.mip_lp_algorithm.has_value());
+  CHECK_FALSE(unset_back.kappa_mode.has_value());
+  CHECK_FALSE(unset_back.cold_solve_without_basis.has_value());
+}
+
 TEST_CASE("--set solver_options.crossover rejects an invalid value")  // NOLINT
 {
   auto planning = daw::json::from_json<Planning>(

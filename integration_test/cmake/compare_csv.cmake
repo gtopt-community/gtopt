@@ -113,11 +113,44 @@ if(NOT _python)
   message(FATAL_ERROR "Python interpreter not found")
 endif()
 
+# Tie groups (integration_test/golden_ties.txt): equal-cost elements
+# compared as one sum, for every solver and golden kind.
+set(_tie_args)
+if(DEFINED CASE_DIR AND DEFINED CSV_REL_PATH)
+  get_filename_component(_tie_case "${CASE_DIR}" NAME)
+  set(_ties_list "${_this_dir}/../golden_ties.txt")
+  if(EXISTS "${_ties_list}")
+    file(STRINGS "${_ties_list}" _tlines ENCODING UTF-8)
+    foreach(_tline IN LISTS _tlines)
+      string(REGEX REPLACE "#.*" "" _tline "${_tline}")
+      string(STRIP "${_tline}" _tline)
+      if(_tline STREQUAL "")
+        continue()
+      endif()
+      string(REGEX REPLACE "[ \t]+" ";" _tf "${_tline}")
+      list(LENGTH _tf _tn)
+      if(NOT _tn EQUAL 3)
+        message(FATAL_ERROR
+          "golden_ties.txt: malformed line '${_tline}' "
+          "(want '<case> <csv> <uid,uid,...>')")
+      endif()
+      list(GET _tf 0 _tc)
+      list(GET _tf 1 _tcsv)
+      list(GET _tf 2 _tuids)
+      if(_tc STREQUAL _tie_case AND _tcsv STREQUAL CSV_REL_PATH)
+        list(APPEND _tie_args --tie-group "${_tuids}")
+        message(STATUS "tie group: uids ${_tuids} compared as one sum")
+      endif()
+    endforeach()
+  endif()
+endif()
+
 execute_process(
   COMMAND "${_python}" "${_compare_tool}"
     "${ACTUAL_FILE}" "${_expected}"
     --tolerance "${TOLERANCE}"
     ${_strict}
+    ${_tie_args}
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _stdout
   ERROR_VARIABLE _stderr

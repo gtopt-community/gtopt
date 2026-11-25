@@ -23,6 +23,8 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
+#include "lp_names_helpers.hpp"
+
 using namespace gtopt;
 
 namespace test_battery_cycle_limit_ns
@@ -211,7 +213,7 @@ namespace
 {
   Planning base;
   base.merge(parse_planning_json(json));
-  PlanningLP planning_lp(std::move(base));
+  PlanningLP planning_lp(std::move(base), test_support::names_on_flat_opts());
   auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
   REQUIRE(result.value() == 1);
@@ -228,7 +230,7 @@ TEST_CASE(
 
   Planning base;
   base.merge(parse_planning_json(daily_cycle_json(1.0, /*set_cap=*/true)));
-  PlanningLP planning_lp(std::move(base));
+  PlanningLP planning_lp(std::move(base), test_support::names_on_flat_opts());
   auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
   REQUIRE(result.value() == 1);
@@ -265,7 +267,7 @@ TEST_CASE("BatteryLP cycle_limit — chronological emits one row per day")
 
   Planning base;
   base.merge(parse_planning_json(chronological_json(1.0, /*set_cap=*/true)));
-  PlanningLP planning_lp(std::move(base));
+  PlanningLP planning_lp(std::move(base), test_support::names_on_flat_opts());
   auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
   REQUIRE(result.value() == 1);
@@ -293,7 +295,7 @@ TEST_CASE("BatteryLP cycle_limit — unset ⇒ no row, objective unchanged")
   // Daily-cycle JSON with NO max_cycles_day field.
   Planning base;
   base.merge(parse_planning_json(daily_cycle_json(0.0, /*set_cap=*/false)));
-  PlanningLP planning_lp(std::move(base));
+  PlanningLP planning_lp(std::move(base), test_support::names_on_flat_opts());
   auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
   REQUIRE(result.value() == 1);

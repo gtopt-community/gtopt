@@ -8,6 +8,7 @@
  *            see LICENSING.md
  */
 
+#include <algorithm>
 #include <filesystem>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
+#include <gtopt/update_context.hpp>
 
 using namespace gtopt;
 
@@ -328,26 +330,40 @@ TEST_CASE("SystemLP with reservoir production factor element")
     CHECK(bmap.size() == 2);  // 2 blocks
   }
 
-  SUBCASE("update_lp modifies coefficients using vini")
+  SUBCASE("update_lp modifies coefficients using the average volume")
   {
     // First solve to establish baseline
     auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
 
-    // Update coefficients using the reservoir's initial volume (eini = 500).
-    // The new API derives the volume from the reservoir LP itself (iteration=0
-    // and phase=0 both trigger the eini fallback: rsv.reservoir().eini = 500).
+    // update_lp evaluates the factor at the stage's AVERAGE solved volume
+    // (eini + efin) / 2.  efin depends on which of the equally optimal
+    // vertices the solver returns (HiGHS 1.16 ends lower than 1.15 / CPLEX),
+    // so take the same average from the solution -- before update_lp, which
+    // edits a coefficient and so invalidates the cached solution.
+    auto& rsv_lp = system_lp.elements<ReservoirLP>().front();
+    const auto& sc0 = system_lp.scene().scenarios().front();
+    const auto& stages = system_lp.phase().stages();
+    const auto stg_it = std::ranges::find_if(
+        stages, [](const auto& st) { return st.uid() == make_uid<Stage>(1); });
+    REQUIRE(stg_it != stages.end());
+    const auto volume = average_volume_from_cache(
+        system_lp,
+        sc0,
+        *stg_it,
+        make_reservoir_ref_cache(rsv_lp, sc0, *stg_it));
+    CHECK(volume <= doctest::Approx(500.0));
+
     const auto updated = system_lp.update_lp();
     CHECK(updated > 0);
 
-    // Verify the coefficient was changed (original was -1.0)
+    // Verify the coefficient was changed (original was -1.0).
     auto& effs = system_lp.elements<ReservoirProductionFactorLP>();
     auto& eff = effs.front();
-    // evaluate_production_factor uses concave-envelope min (PLP FRendimientos):
-    // seg1: 1.0 + 0.001*(500-0)=1.5, seg2: 1.5+0.0001*(500-800)=1.47
-    // min = 1.47
-    const auto expected_rate = eff.compute_production_factor(500.0);
+    // Concave-envelope min (PLP FRendimientos) at volume v:
+    // seg1: 1.0 + 0.001*v, seg2: 1.5 + 0.0001*(v-800); 1.47 at v = 500.
+    const auto expected_rate = eff.compute_production_factor(volume);
     CHECK(expected_rate > 0.0);
 
     // Check that the LP coefficient matches

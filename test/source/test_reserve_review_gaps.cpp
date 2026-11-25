@@ -42,6 +42,8 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 
+#include "lp_names_helpers.hpp"
+
 using namespace gtopt;
 
 namespace
@@ -84,7 +86,7 @@ struct RvgSolved
 {
   PlanningLP plp;
   explicit RvgSolved(const std::string& json)
-      : plp(parse_planning_json(json))
+      : plp(parse_planning_json(json), test_support::names_on_flat_opts())
   {
     REQUIRE(plp.resolve().has_value());
   }

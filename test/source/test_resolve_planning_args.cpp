@@ -439,3 +439,40 @@ TEST_CASE("peek_planning_directories — later files override")  // NOLINT
   CHECK_FALSE(peek2.output_directory.has_value());
   CHECK_FALSE(peek2.log_directory.has_value());
 }
+
+TEST_CASE("resolve_planning_args — '.' and '..' directory arguments")  // NOLINT
+{
+  const TmpDir tmp("test_resolve_dot_dir");
+  const auto case_dir = tmp.path / "dot_case";
+  const auto sub_dir = case_dir / "sub";
+  std::filesystem::create_directories(sub_dir);
+  touch_json(case_dir / "dot_case.json");
+
+  const auto original_cwd = std::filesystem::current_path();
+
+  // `gtopt .` from inside the case dir names the JSON after the
+  // directory, not "..json".
+  std::filesystem::current_path(case_dir);
+  auto dot = resolve_planning_args(MainOptions {.planning_files = {"."}});
+  auto dot_slash =
+      resolve_planning_args(MainOptions {.planning_files = {"./"}});
+  // `gtopt ..` from a subdirectory of the case.
+  std::filesystem::current_path(sub_dir);
+  auto dotdot = resolve_planning_args(MainOptions {.planning_files = {".."}});
+  std::filesystem::current_path(original_cwd);
+
+  REQUIRE(dot.has_value());
+  REQUIRE(dot->planning_files.size() == 1);
+  CHECK(std::filesystem::path(dot->planning_files[0]).filename()
+        == "dot_case.json");
+  CHECK(dot->output_directory.value_or("").find("results")
+        != std::string::npos);
+
+  REQUIRE(dot_slash.has_value());
+  CHECK(std::filesystem::path(dot_slash->planning_files.front()).filename()
+        == "dot_case.json");
+
+  REQUIRE(dotdot.has_value());
+  CHECK(std::filesystem::path(dotdot->planning_files.front()).filename()
+        == "dot_case.json");
+}

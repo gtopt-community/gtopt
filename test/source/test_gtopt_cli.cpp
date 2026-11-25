@@ -11,7 +11,9 @@
  * success exit codes of a real run, and the logging side effects.
  */
 
+#include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -21,7 +23,9 @@
 #include <gtopt/build_info.hpp>
 #include <gtopt/gtopt_cli.hpp>
 #include <gtopt/json_schema.hpp>
+#include <gtopt/kappa_mode.hpp>
 #include <gtopt/names_registry.hpp>
+#include <gtopt/plugin_integrity.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <spdlog/spdlog.h>
 
@@ -125,11 +129,40 @@ TEST_CASE("gtopt_cli_main - informational commands")  // NOLINT
     CHECK(run_cli({"-h"}).out == run_cli({"--help"}).out);
   }
 
-  SUBCASE("--version prints exactly the build version")
+  SUBCASE("--help shows the compiled-in --plugin-check default")
   {
+    const auto r = run_cli({"--help"});
+    CHECK(contains(r.out, "--plugin-check"));
+    CHECK(contains(r.out, "GTOPT_PLUGIN_CHECK_DEFAULT"));
+  }
+
+  SUBCASE("--version: build version, then the plugin check mode")
+  {
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    ::unsetenv("GTOPT_PLUGIN_CHECK");
     const auto r = run_cli({"--version"});
     CHECK(r.code == 0);
-    CHECK(r.out == build_info().version_string() + "\n");
+    CHECK(r.out
+          == build_info().version_string() + "\n"
+              + std::format("plugin check: {} (compiled default)\n",
+                            k_plugin_check_default_name)
+              + describe_kappa_mode() + "\n");
+  }
+
+  SUBCASE("--plugin-check on the command line shows as its source")
+  {
+    const auto r = run_cli({"--plugin-check", "warning", "--version"});
+    SolverRegistry::set_plugin_check_mode(std::nullopt);
+    CHECK(r.code == 0);
+    CHECK(contains(r.out, "plugin check: warning (from --plugin-check"));
+  }
+
+  SUBCASE("--plugin-check rejects an unknown mode")
+  {
+    const auto r = run_cli({"--plugin-check", "strict", "--version"});
+    SolverRegistry::set_plugin_check_mode(std::nullopt);
+    CHECK(r.code == 1);
+    CHECK(contains(r.err, "--plugin-check must be 'warning' or 'error'"));
   }
 
   SUBCASE("--help wins over --version (checked first)")
@@ -152,7 +185,12 @@ TEST_CASE("gtopt_cli_main - informational commands")  // NOLINT
       for (const auto& s : solvers) {
         CHECK(contains(r.out, "  " + s + "\n"));
       }
+      // Identity block after a blank line (name block stays parseable).
+      CHECK(contains(r.out, "\n\nPlugin details:\n"));
+      CHECK(contains(r.out, "    build-id   "));
+      CHECK(contains(r.out, "    build tag  "));
     }
+    CHECK(contains(r.out, "\nplugin check: "));
   }
 
   SUBCASE("--check-solvers with an unknown solver fails with exit 1")

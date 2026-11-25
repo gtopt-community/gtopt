@@ -31,6 +31,7 @@
  */
 
 #include <span>
+#include <tuple>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -496,3 +497,101 @@ TEST_CASE("SolverBackend - T10 every backend produces the same LP optimum")
 // of the Phase-2 step-3 LinearInterface change (`05523154`), which
 // only calls `fill_col_sol/cost/dual` (the span-out overrides) and
 // never the pointer-getters that allocate the scratch members.
+
+// ── Getter scratch release (memory reductions, item 4) ─────────────────────
+
+TEST_CASE(  // NOLINT
+    "SolverBackend - release_backend_scratch frees getter scratch, values "
+    "unchanged")
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  for (const auto& solver : reg.available_solvers()) {
+    CAPTURE(solver);
+    try {
+      LinearInterface li(solver);
+      const auto lp = build_wolsey(li);
+      auto solve = li.initial_solve(SolverOptions {.log_level = 0});
+      REQUIRE(solve.has_value());
+      REQUIRE(li.is_optimal());
+
+      const auto copy = [](std::span<const double> s)
+      { return std::vector<double> {s.begin(), s.end()}; };
+
+      // Touch every pointer-getter so copy-out backends fill scratch.
+      const auto sol = copy(li.get_col_sol_raw());
+      const auto rc = copy(li.get_col_cost_raw());
+      const auto dual = copy(li.get_row_dual_raw());
+      const auto lo = copy(li.get_col_low_raw());
+      const auto up = copy(li.get_col_upp_raw());
+      const auto rlo = copy(li.get_row_low_raw());
+      const auto rup = copy(li.get_row_upp_raw());
+      const auto filled = li.backend_scratch_bytes();
+      // Pointer-into-solver backends (HiGHS, OSI) report 0; copy-out
+      // backends (CPLEX, Gurobi, MindOpt) hold at least the 7 vectors.
+      if (filled > 0) {
+        CHECK(filled >= std::size_t {7} * sizeof(double));
+      }
+
+      li.release_backend_scratch();
+      CHECK(li.backend_scratch_bytes() == 0);
+      // Idempotent.
+      li.release_backend_scratch();
+      CHECK(li.backend_scratch_bytes() == 0);
+
+      // Re-reads refill from the solver and are bit-identical.
+      CHECK(copy(li.get_col_sol_raw()) == sol);
+      CHECK(copy(li.get_col_cost_raw()) == rc);
+      CHECK(copy(li.get_row_dual_raw()) == dual);
+      CHECK(copy(li.get_col_low_raw()) == lo);
+      CHECK(copy(li.get_col_upp_raw()) == up);
+      CHECK(copy(li.get_row_low_raw()) == rlo);
+      CHECK(copy(li.get_row_upp_raw()) == rup);
+      // Refilled (capacity may differ from the first fill).
+      CHECK((li.backend_scratch_bytes() > 0) == (filled > 0));
+
+      // A mutation after the release is seen by the refilled caches
+      // (the problem-data caches were invalidated, not left stale).
+      li.release_backend_scratch();
+      li.set_col_upp_raw(lp.x1, 1.0);
+      CHECK(li.get_col_upp_raw()[static_cast<size_t>(lp.x1.value_of())]
+            == doctest::Approx(1.0));
+      auto resolve = li.resolve(SolverOptions {.log_level = 0});
+      REQUIRE(resolve.has_value());
+      li.release_backend_scratch();
+      CHECK(li.get_obj_value_raw() == doctest::Approx(-33.0).epsilon(kTol));
+      CHECK(li.get_col_sol_raw()[static_cast<size_t>(lp.x1.value_of())]
+            == doctest::Approx(1.0).epsilon(kTol));
+    } catch (const std::exception& e) {
+      MESSAGE("Solver '", solver, "' not available: ", e.what());
+    }
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SolverBackend - release_backend_scratch is a no-op on a released "
+    "compress backend")
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+
+  for (const auto& solver : reg.available_solvers()) {
+    CAPTURE(solver);
+    try {
+      LinearInterface li(solver);
+      std::ignore = build_wolsey_compress(li);
+      auto solve = li.initial_solve(SolverOptions {.log_level = 0});
+      REQUIRE(solve.has_value());
+      const auto sol = li.get_col_sol_raw();
+      const std::vector<double> before {sol.begin(), sol.end()};
+      li.release_backend();
+      CHECK(li.backend_scratch_bytes() == 0);
+      li.release_backend_scratch();  // must not touch a null backend
+      const auto after = li.get_col_sol_raw();
+      CHECK(std::vector<double> {after.begin(), after.end()} == before);
+    } catch (const std::exception& e) {
+      MESSAGE("Solver '", solver, "' not available: ", e.what());
+    }
+  }
+}

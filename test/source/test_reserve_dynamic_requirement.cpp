@@ -41,6 +41,7 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 
+#include "lp_names_helpers.hpp"
 #include "solver_test_helpers.hpp"
 
 using namespace gtopt;
@@ -173,7 +174,8 @@ struct RdrSolved
 
   explicit RdrSolved(const RdrCase& c)
       : plp(std::make_unique<PlanningLP>(
-            solver_test::with_mip_solver(parse_planning_json(c.str()))))
+            solver_test::with_mip_solver(parse_planning_json(c.str())),
+            test_support::names_on_flat_opts()))
   {
     auto status = plp->resolve();
     REQUIRE(status.has_value());

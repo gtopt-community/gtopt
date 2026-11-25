@@ -213,13 +213,17 @@ endfunction()
 # `gtopt --version` prints the version, then the git revision it was built
 # from unless the build is exactly the release tag: "1.1.0" or
 # "1.2.0-dev (v1.1.0-23-g0123456789ab)".  The formatting rules themselves
-# are unit-tested in test/source/test_build_info.cpp.
+# are unit-tested in test/source/test_build_info.cpp.  A second line gives
+# the effective solver-plugin check mode and its source, e.g.
+# "plugin check: error (compiled default)", and a third the default
+# kappa mode, e.g. "kappa mode: exact (from $GTOPT_KAPPA_MODE; compiled
+# default: auto=off)".
 add_test(NAME cli_version COMMAND ${GTOPT_EXECUTABLE_FILE} --version)
 set_tests_properties(
   cli_version
   PROPERTIES
     PASS_REGULAR_EXPRESSION
-    "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?( \\([^)]+\\))?\n$"
+    "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?( \\([^)]+\\))?\nplugin check: (error|warning) \\([^)]+\\)\nkappa mode: (off|estimate|exact) \\([^)]+\\)\n$"
     FAIL_REGULAR_EXPRESSION "unknown"
 )
 
@@ -848,7 +852,11 @@ if(GTOPT_NUMERICS_TESTS)
       CASE_JSON cen_long_term_1y.json
       PHASES 1
       LABELS "numerics;heavy")
-  set(_cen1y_set method=monolithic solver_options.threads=4)
+  # The thresholds below were measured with the kappa ESTIMATE; pin it
+  # (overrides the suite-wide GTOPT_KAPPA_MODE=exact — exact kappa on a
+  # 42k-row LP would cost far more than the solve).
+  set(_cen1y_set method=monolithic solver_options.threads=4
+                 solver_options.kappa_mode=estimate)
 
   add_conditioning_variant(numerics_cen_1y cplex_case ${_cen1y_common}
     SOLVER cplex SET ${_cen1y_set})
@@ -873,6 +881,85 @@ if(GTOPT_NUMERICS_TESTS)
       # (d) same optimum in every variant
       --objective-reference cplex_case
       --objective-reltol 1e-5)
+endif()
+
+# ---- Numerical-stability monitor (e2e) ----
+# `gtopt_check_output --numerics` solves a case, dumps its LPs (--lp-only
+# --lp-file) and checks, against the committed baselines in
+# numerics/numerical_stability_baselines.json (per case and solver, log10
+# tolerances): the largest per-cell kappa (GTOPT_KAPPA_MODE=exact), kappa
+# growth over SDDP iterations, the matrix / objective / RHS / bound ranges,
+# tiny/huge matrix entries, the cut-coefficient range, every cell optimal
+# and no numerical warnings in the log.  To refresh the baselines on
+# purpose see docs/numerical-stability.md (--update-baselines).
+# Small cases: ~5 s each, in the default set (label "numstab").  A solver
+# whose plugin is missing skips (exit 77).
+set(NUMSTAB_BASELINES
+    "${CMAKE_CURRENT_LIST_DIR}/numerics/numerical_stability_baselines.json")
+function(add_numstab_case name solver case_json)
+  cmake_parse_arguments(ARG "" "PHASES;TIMEOUT" "SET;LABELS" ${ARGN})
+  if(NOT DEFINED ARG_PHASES)
+    set(ARG_PHASES 0)
+  endif()
+  if(NOT DEFINED ARG_TIMEOUT)
+    set(ARG_TIMEOUT 300)
+  endif()
+  if(NOT DEFINED ARG_LABELS)
+    set(ARG_LABELS "numstab")
+  endif()
+  set(_set_args "")
+  foreach(_kv IN LISTS ARG_SET)
+    list(APPEND _set_args --set "${_kv}")
+  endforeach()
+  add_test(NAME numstab_${name}_${solver}
+    COMMAND ${Python3_EXECUTABLE} -m gtopt_check_output --numerics
+      --case ${name} --solver ${solver}
+      --baselines "${NUMSTAB_BASELINES}"
+      --work-dir "${CMAKE_CURRENT_BINARY_DIR}/test_output/numstab/${name}_${solver}"
+      --gtopt "${GTOPT_EXECUTABLE_FILE}"
+      --case-json "${case_json}"
+      --phases ${ARG_PHASES}
+      --top 5
+      ${_set_args}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/../scripts")
+  set_tests_properties(numstab_${name}_${solver} PROPERTIES
+    ENVIRONMENT "GTOPT_KAPPA_MODE=exact"
+    TIMEOUT ${ARG_TIMEOUT}
+    SKIP_RETURN_CODE 77
+    LABELS "${ARG_LABELS}")
+endfunction()
+
+foreach(_solver highs cplex)
+  # Monolithic DC OPF with Kirchhoff and binding line limits.
+  add_numstab_case(ieee_14b ${_solver} "${CASES_DIR}/ieee_14b/ieee_14b.json")
+  # SDDP, 8 iterations: kappa growth from the cuts, cut-coefficient range.
+  add_numstab_case(sddp_hydro_3phase ${_solver}
+    "${CASES_DIR}/sddp_hydro_3phase/sddp_hydro_3phase.json"
+    SET sddp_options.max_iterations=8)
+  # Piecewise line losses.
+  add_numstab_case(line_loss_envelope ${_solver}
+    "${CASES_DIR}/line_loss_envelope/line_loss_envelope.json")
+endforeach()
+
+# Large LP: the CEN 2-year case (PLP conversion; Kirchhoff, piecewise_direct
+# line losses, 245 buses), first phase only, monolithic.  Only with
+# GTOPT_NUMERICS_TESTS=ON and the case repository (GTOPT_CASES_DIR).
+if(GTOPT_NUMERICS_TESTS)
+  gtopt_find_external_case(_cen2y "chile/medium_long_term/gtopt_case_2y")
+  if(_cen2y)
+    foreach(_solver highs cplex)
+      add_numstab_case(cen_2y_phase1 ${_solver}
+        "${_cen2y}/gtopt_case_2y.json"
+        PHASES 1
+        SET method=monolithic
+        TIMEOUT 3600
+        LABELS "numerics;heavy;numstab")
+    endforeach()
+  else()
+    message(STATUS "numstab_cen_2y_phase1: chile/medium_long_term/"
+                   "gtopt_case_2y not found under GTOPT_CASES_DIR -- "
+                   "not registered")
+  endif()
 endif()
 
 # ---- Pandapower comparison tests ----
@@ -911,3 +998,16 @@ if(COMPARE_PANDAPOWER_PROGRAM OR (COMPARE_PANDAPOWER_PYTHON AND COMPARE_PANDAPOW
     VERBATIM
   )
 endif()
+
+# ---- Verification runs request the exact kappa ----
+# Release builds default to kappa_mode=off (GTOPT_KAPPA_MODE_DEFAULT=auto);
+# every test registered in this directory runs with GTOPT_KAPPA_MODE=exact
+# instead, so the e2e / integration outputs carry the exact condition
+# number whatever the build type.  A test that pins its own
+# solver_options.kappa_mode (the numerics variants above) still wins.
+# Golden comparisons ignore the kappa / max_kappa columns
+# (tools/gtopt_compare_csv.py), so they stay stable.
+get_property(_gtopt_it_tests DIRECTORY PROPERTY TESTS)
+foreach(_t IN LISTS _gtopt_it_tests)
+  set_property(TEST "${_t}" APPEND PROPERTY ENVIRONMENT "GTOPT_KAPPA_MODE=exact")
+endforeach()
