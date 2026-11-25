@@ -23,6 +23,24 @@ prices.
 | `GasCompressor` | `gas_compressor_array` | Ratio bound, bypass, fuel `none` / `fixed_fraction` / `saldarriaga`, gas or electric drive; booster or open valve |
 | `GasTurbine` | `gas_turbine_array` | Links a `Generator` to its delivery node: heat-rate fuel, minimum-pressure gate, derate |
 
+## User constraints (PAMPL)
+
+Every gas element is addressable from user constraints and PAMPL
+files — LP attributes (`gas_node.pi`, `gas_supply.flow`,
+`gas_demand.fail` / `served`, `gas_pipe.flow` / `flow_in` / `flow_out`
+/ `linepack`, `gas_compressor.flow` / `fuel` / `power`,
+`gas_turbine.generation` / `fuel`), input parameters (`gas_supply.fmax`,
+`gas_turbine.heat_rate`, …) and `sum(<class>(all : type = '…'))`
+filters on `type` and the node uids.  Full list:
+[user-constraints.md §3](user-constraints.md#3-element-types-and-attributes).
+
+```text
+# take-or-pay: at least 40 km³/h from the LNG regas terminals
+sum(gas_supply(all : type = 'lng_regas').flow) >= 40
+# fuel cap of one plant, in gas units
+gas_turbine('G_T_gas').fuel <= 100
+```
+
 ## Choosing the pipe model
 
 - **Radial network (tree)**: keep the default `weymouth_mode: radial`.
@@ -49,7 +67,9 @@ prices.
   chronological stage and `linepack_cyclic: false`.
 - An LNG tank is an `LngTerminal` (formulation §5.14); its send-out is
   not yet linked to a `GasNode`.  Model regasification as a `GasSupply`
-  with `type: lng_regas` and a stage `volume`.
+  with `type: lng_regas` and a stage `volume`.  The value of stored gas,
+  take-or-pay floors (`Fuel.min_offtake`) and what is not modelled
+  (spot-cargo decisions, send-out limits) are in formulation §5.14.
 
 ## Benchmark cases
 

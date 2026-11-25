@@ -21,6 +21,7 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
   - [nrel118_to_gtopt](#nrel118_to_gtopt) · [full docs](scripts/nrel118_to_gtopt.md)
   - [cucdata2gtopt](#cucdata2gtopt) · [full docs](scripts/cucdata2gtopt.md)
+  - [sienna2gtopt](#sienna2gtopt) — NREL-Sienna PowerSimulations.jl test cases
   - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
   - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel template](templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
   - [cvs2parquet](#cvs2parquet) · [full docs](scripts/cvs2parquet.md)
@@ -125,8 +126,9 @@ One line per console script installed by `pip install ./scripts`:
 | `pp2gtopt` | pandapower network → gtopt JSON | [pp2gtopt](scripts/pp2gtopt.md) |
 | `gtopt2pp` | gtopt JSON → pandapower network | [gtopt2pp](#gtopt2pp) |
 | `nrel118_to_gtopt` | NREL-118 test system → multi-stage gtopt case | [nrel118_to_gtopt](scripts/nrel118_to_gtopt.md) |
-| `sienna2gtopt` | Sienna (PowerSimulations.jl) reference systems → gtopt JSON | — |
+| `sienna2gtopt` | Sienna (PowerSimulations.jl) reference systems → gtopt JSON (`sienna_to_gtopt` is a deprecated alias) | [sienna2gtopt](#sienna2gtopt) |
 | `cucdata2gtopt` | Clustered-UC benchmark (Morales-España & Tejada-Arango 2019, IEEE 39/118-bus) → gtopt IUC case | [cucdata2gtopt](scripts/cucdata2gtopt.md) |
+| `dlr2gtopt` | Towers + weather → IEEE 738 span ratings → critical spans (Matus et al. 2012) → `Line.dlr` input | [README](../scripts/dlr2gtopt/README.md) |
 | `igtopt` | Excel workbook → gtopt JSON (and `--make-template`) | [igtopt](scripts/igtopt.md) |
 | `cvs2parquet` | CSV → Parquet converter for gtopt input tables | [cvs2parquet](scripts/cvs2parquet.md) |
 | `ts2gtopt` | Project time series onto a gtopt block horizon | [ts2gtopt](scripts/ts2gtopt.md) |
@@ -146,6 +148,7 @@ One line per console script installed by `pip install ./scripts`:
 | `gtopt_compare` | Compare gtopt results with pandapower / PLP references | [gtopt_compare](scripts/gtopt_compare.md) |
 | `gtopt_diagram` | Network topology and planning-structure diagrams | [gtopt_diagram](scripts/gtopt_diagram.md) |
 | `gtopt_results_summary` | Summarise a gtopt output directory | — |
+| `gtopt_pricing_uplift` | Make-whole and lost-opportunity uplift and price statistics of unit-commitment runs (compare `pricing_mode`s) | [Pricing modes](unit-commitment.md#111-pricing-modes) |
 | `gtopt_timeseries_export` | Export gtopt results as tidy time series | — |
 | `gtopt2pbi` | Reshape gtopt Parquet outputs for Power BI | — |
 | `gtopt-marginal-units` | Marginal-unit / marginal-emission identification from gtopt results | [plan](scripts/gtopt_marginal_units_plan.md) |
@@ -748,6 +751,30 @@ cucdata2gtopt --system 118 --reserve 2.5 --scale 10 -o cuc/
 gtopt cuc/cuc39_r10_s10.json --mip-gap 1e-4
 ```
 
+## sienna2gtopt
+
+Ports a test case of NREL-Sienna PowerSimulations.jl to a gtopt planning
+JSON.  The Sienna data bundle (`5bus` by default, or `14bus`) is
+downloaded from a pinned upstream commit on first use and cached; set
+`GTOPT_OFFLINE=1` to forbid downloads.  `sienna_to_gtopt` is kept as a
+deprecated alias of the command.
+
+```bash
+sienna2gtopt hvdc -o hvdc.json
+sienna2gtopt battery_degeneracy --subcase c -o bd_c.json
+sienna2gtopt reserves --golden reserves_uc.json --ordc auto -o res.json
+```
+
+| Argument | Description |
+|----------|-------------|
+| `VARIANT` | `battery_degeneracy`, `cascading_hydro`, `fuel_cost_ts`, `hvdc`, `interruptible_load`, `monitored_line`, `pumped_storage`, `reserves`, `wecc_240` |
+| `-o, --output FILE` | Output JSON (default `<variant>.json`) |
+| `--bundle {5bus,14bus}` | Sienna data bundle |
+| `--subcase {b,c,d,e,f}` | `battery_degeneracy` only |
+| `--golden FILE` | `reserves` only: a reserve golden written by `tools/sienna_solve_golden.jl`; its system data is the input (unit commitment, range reserves and ORDC) |
+| `--ordc {auto,stacked,omit}` | `reserves` only: ORDC as stacked priced reserve zones, omitted, or as in the golden |
+| `--source-version X` | Assume this PowerSystemsTestData version |
+
 ## nrel118_to_gtopt
 
 > **[→ Full documentation](scripts/nrel118_to_gtopt.md)**
@@ -1217,10 +1244,20 @@ filtrations, flows.  A summary of skipped elements is logged.
 
 ## run_gtopt
 
-Smart **solver wrapper** that detects case types (PLP, GTOpt directory, or
-JSON file), runs conversions when needed, and invokes the `gtopt` binary with
-appropriate runtime options.  Integrates pre-flight and post-flight checks
-automatically.
+Smart **solver wrapper** that detects case types (PLP, PLEXOS, GTOpt
+directory, or JSON file), runs conversions when needed, and invokes the
+`gtopt` binary with appropriate runtime options.  Integrates pre-flight and
+post-flight checks and, on a terminal, shows a live Rich dashboard.
+
+<p>
+  <img src="images/screenshots/run_gtopt_tui.png" width="49%"
+       alt="run_gtopt dashboard view during an SDDP run solved with HiGHS: header with lower and upper bound and gap, plan steps, gap progress towards the tolerance, solver statistics, iteration history table, CPU and memory bars and the solver log">
+  <img src="images/screenshots/run_gtopt_tui_convergence.png" width="49%"
+       alt="run_gtopt convergence view: sparklines of the lower bound, upper bound and gap, a per-scene cost heatmap by iteration and per-scene cost trends">
+</p>
+
+*An 8-scenario SDDP hydro-cascade run solved with HiGHS; keys and views
+are described in [interfaces.md](interfaces.md#terminal-dashboard-run_gtopt).*
 
 In an interactive terminal it shows a live dashboard: run status, bounds
 and gap, iteration history, CPU and memory use and the solver log.  Keys
@@ -1253,51 +1290,149 @@ run_gtopt cases/ieee_9b
 # Explicit JSON file
 run_gtopt cases/ieee_9b/ieee_9b.json
 
+# Choose the LP solver plugin
+run_gtopt cases/ieee_9b --solver highs
+
 # Pass extra arguments to the gtopt binary after --
 run_gtopt cases/ieee_9b -- --set use_single_bus=true --stats
+run_gtopt case -- --set sddp_options.max_iterations=20
+
+# CI / scripts: plain output, fail when SDDP did not converge
+run_gtopt case --ui plain --fail-on-not-converged
+
+# Re-attach the dashboard to a running gtopt
+run_gtopt --attach            # the only live run, or list them
+run_gtopt --attach 12345      # PID from `run_gtopt --list`
 ```
+
+Everything after a bare `--` goes to `gtopt` unchanged.  The output
+directory is resolved the way gtopt resolves it: `-- -d DIR` (relative to
+the CWD) > `-- --set output_directory=DIR` > `options.output_directory` in
+the planning JSON > `output`; relative values from the last three are
+anchored at the planning JSON's directory.  The dashboard, the stop
+request, the post-run report and the post-flight checks all use this
+directory.
 
 ### Pre-flight checks (enabled by default)
 
 Before invoking the solver, `run_gtopt` validates:
 
-- JSON syntax and file readability
-- Input file existence (Parquet/CSV references)
-- Output directory writability
-- Compression codec availability (auto-fallback if unavailable)
-- System/simulation statistics (`gtopt_check_json --info`)
-- Full JSON validation (`gtopt_check_json`)
+- JSON syntax and file readability (`json_syntax`)
+- Input file existence (Parquet/CSV references, `input_files`)
+- Output directory writability (`output_dir`)
+- Full JSON validation with `gtopt_check_json` (`check_json`, **opt-in**:
+  slow; enable with `--enable-check check_json`)
 
-Disable with `--no-check` or abort on any warning with `--strict`.
+`run_gtopt --list-checks` prints every check with its stage and default.
+Disable all with `--no-check`, abort on any warning with `--strict`.
 
 ### Post-flight checks
 
-After the solver completes, `run_gtopt` automatically:
+After the solver completes, `run_gtopt`:
 
-- Analyzes any error LP files via `gtopt_check_lp`
-- Validates solver output via `gtopt_check_output`
-- Prints a solution summary
+- Analyzes any error LP files via `gtopt_check_lp` (`check_lp`)
+- Validates solver output via `gtopt_check_output` (`check_output`)
+- Prints a results summary: solution status, objective, output
+  directory, gtopt log file and status file.  A `solution.csv` older than
+  the run is reported as "NO NEW SOLUTION" rather than as this run's
+  result.
+
+### Display: dashboard and plain mode
+
+On a terminal (`--ui auto`, the default) `run_gtopt` shows a live
+dashboard; with `--ui plain` / `--no-tui`, under `TERM=dumb`, or when
+stdout is not a terminal it streams gtopt's log instead.
+
+- **Dashboard**: progress (for SDDP the bar tracks the gap against
+  `sddp_options.convergence_tol`, with the phase being solved and an ETA
+  to the iteration limit), bounds history, colour-coded log (warnings
+  yellow, errors red, repeats folded as `(×N)`), resource usage.  Below
+  100 columns or 40 rows a compact layout is used.  Keys: `1`/`2`/`3`
+  views, `s` graceful stop, `o` paths (output dir, log, status, error
+  LPs), `i` system stats, `h` help, `q` quit (asks y/N after the first
+  minute).  When gtopt ends, the last frame stays on screen followed by a
+  summary (last 10 iterations, step timings, warning/error counts and the
+  first warnings) and a banner with the outcome — Converged / Optimal
+  (green), NOT converged / stopped (yellow), unknown (cyan), failed /
+  NOT optimal / killed (red) — and the paths of the output directory,
+  gtopt log, status file and captured solver output.
+- **Plain mode**: gtopt's log on stdout; on stderr one fixed-width line
+  per SDDP iteration, a heartbeat every 30 s
+  (`run_gtopt: [00:05:00] running — iter 3/100, gap 1.25%, forward
+  pass`), lines cut to `$COLUMNS`, and an ASCII outcome block
+  (`[OK]`, `[!!]`, `[XX]`, ...) at the end.
+- `--no-color` (or `NO_COLOR`) disables colour; `--ascii` (or
+  `GTOPT_TUI_ASCII=1`, automatic when the locale is not UTF-8) draws the
+  dashboard with ASCII only; `GTOPT_TUI_WIDTH` / `GTOPT_TUI_HEIGHT`
+  override the detected terminal size.
+
+**Solver output capture.**  Whatever gtopt prints on its own
+stdout/stderr (early failures that never reach its log file) is saved to
+`<output>/logs/run_gtopt_stderr_<timestamp>.log`.  On failure the banner
+shows what the exit code means, gtopt's critical/error lines, the last
+lines it printed, and — when gtopt dumped error LPs for infeasible
+solves — the first error LP files with the command
+`gtopt_check_lp <file> --solver all`.
+
+**Stale files.**  Before a run, `run_gtopt` removes only
+`solver_status.json` and `sddp_stop_request.json` from the output
+directory (each removal is logged; a leftover stop request would stop the
+new SDDP run after one iteration).  Results, cuts (needed by
+`--recover`) and logs are never deleted.
+
+### Interrupting a run
+
+| Action | Effect |
+|--------|--------|
+| 1st Ctrl-C, or `s` | Graceful stop: writes `sddp_stop_request.json`; SDDP / cascade finish the current iteration, save cuts and exit 0 (a monolithic solve cannot stop early) |
+| 2nd Ctrl-C, or `q` | Terminate gtopt (SIGTERM); the dashboard shows "stopping…" |
+| 3rd Ctrl-C | Kill gtopt (SIGKILL); also sent automatically 10 s after an unanswered SIGTERM |
+| SIGTERM to run_gtopt | Forwarded to gtopt, same SIGKILL fallback |
+
+With `--attach`, `q` detaches and leaves gtopt running.
+
+### Exit status
+
+| Code | Meaning |
+|------|---------|
+| 0 | gtopt succeeded (also after a graceful stop or at the SDDP iteration limit; the banner says whether the run converged) |
+| 1 | gtopt: non-optimal solution or CLI error |
+| 2 | gtopt: input error; run_gtopt: usage error, missing binary, failed pre-flight checks or JSON sanitizing; `--attach` with no unique target |
+| 3 | gtopt: internal error |
+| 4 | only with `--fail-on-not-converged`: gtopt exited 0 but SDDP did not converge |
+| N | a converter's (`plp2gtopt` / `plexos2gtopt`) non-zero exit code |
+| 127 | the gtopt binary could not be started |
+| 128+N | gtopt was killed by signal N (134 SIGABRT, 137 SIGKILL / out of memory, 139 SIGSEGV, 143 SIGTERM); Ctrl-C before gtopt starts exits 130 |
 
 ### All options
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `CASE` (positional) | CWD | PLP directory, GTOpt directory, or JSON file |
-| `-t, --threads N` | auto | Number of LP solver threads |
-| `-C, --compression CODEC` | `zstd` | Output compression codec |
-| `-o, --output-dir DIR` | — | Override output directory |
-| `--plp-args ARGS` | — | Extra arguments for `plp2gtopt` (quote whole string) |
-| `--check / --no-check` | enabled | Run pre-flight checks |
-| `--strict` | off | Abort on any warning |
-| `--enable-check NAME` | — | Enable specific check (repeatable) |
-| `--disable-check NAME` | — | Disable specific check (repeatable) |
-| `--list-checks` | — | List available checks and exit |
-| `--convert-only` | off | Convert PLP case but do not run solver |
-| `--export-json FILE` | — | Write sanitized planning JSON to file |
-| `--dry-run` | off | Print commands without executing |
-| `-l, --log-level LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `CASE` (positional) | CWD | PLP / PLEXOS directory, GTOpt directory, or JSON file |
+| `-t, --threads N` | CPU count | Solver threads, written to `solver_options.threads` in the sanitized JSON |
+| `--solver NAME` | gtopt's choice | LP solver plugin, forwarded as `gtopt --solver NAME` (a `--solver` after `--` wins) |
+| `-C, --compression CODEC` | gtopt's default | Output compression; only set when given (an unsupported codec for CSV output is dropped with a warning) |
+| `--convert-dir DIR` (`-o`, `--output-dir`) | — | Output directory of the PLP / PLEXOS **conversion** (the solve output is gtopt's `-d`, pass it after `--`) |
+| `--plp-args ARGS` | — | Extra arguments for `plp2gtopt` (quote the whole string) |
+| `--plexos-args ARGS` | — | Extra arguments for `plexos2gtopt` (quote the whole string) |
+| `--check / --no-check` | enabled | Run the pre-/post-flight checks |
+| `--strict` | off | Abort on any pre-flight warning |
+| `--enable-check NAME` | — | Run only the named check(s) (repeatable; replaces the default set) |
+| `--disable-check NAME` | — | Skip a check (repeatable) |
+| `--list-checks` | — | Table of checks with stage and default, then exit |
+| `--list` | — | List live gtopt runs and exit |
+| `--attach [PID\|PATH]` | — | Attach the dashboard to a running gtopt; without an argument, the only live run |
+| `--convert-only` | off | Convert the case but do not run gtopt |
+| `--export-json FILE` | — | Write the sanitized planning JSON to FILE and keep it |
+| `--dry-run` | off | Print the sanitize changes and the exact gtopt command line |
+| `--log-level LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` (`-l` is a deprecated alias) |
+| `--ui {auto,tui,plain}` | `auto` | Dashboard or line-oriented output |
+| `--no-tui`, `--plain` | — | Same as `--ui plain` |
+| `--no-color` | off | Disable colour (also `NO_COLOR`) |
+| `--ascii` | auto | ASCII-only dashboard (also `GTOPT_TUI_ASCII=1`) |
+| `--fail-on-not-converged` | off | Exit 4 when SDDP did not converge |
 | `-V, --version` | — | Print version and exit |
-| `-- [ARGS]` | — | Pass remaining arguments to GTOpt binary |
+| `-- [ARGS]` | — | Pass the remaining arguments to the gtopt binary |
 
 ---
 
@@ -1434,6 +1569,10 @@ gtopt_check_lp --init-config
 When called with `--quiet` (used automatically by the `gtopt` binary and
 `run_gtopt`), the tool never fails (always exits 0), never prompts for
 input, and handles all errors gracefully with warnings.
+
+The automatic runs by `gtopt` and `run_gtopt` also pass `--no-neos` and
+`--no-ai`: an LP of your case is never sent to the public NEOS server or
+to an AI provider unless you run `gtopt_check_lp` yourself and ask for it.
 
 ### All options
 
@@ -1843,8 +1982,15 @@ ZIP that is ready to upload without any extra packaging step.
 3. Edit the case if needed, then click **Solve** to submit it to the
    webservice.
 
+The GUI answers only requests addressed to a loopback name or to its
+bind address (`GTOPT_GUI_HOST`).  To reach it under another name (a
+reverse proxy or a LAN host name), list that name in
+`GTOPT_GUI_ALLOWED_HOSTS` (`host` or `host:port`, comma-separated).
+Scripted write requests must send the header `X-GTOpt-GUI: 1` (the
+bundled web pages do).
+
 For installation and service setup, see
-[guiservice/INSTALL.md](guiservice/INSTALL.md).
+[guiservice/INSTALL.md](../guiservice/INSTALL.md).
 
 ### gtopt\_websrv (REST API)
 
@@ -1859,7 +2005,7 @@ The server runs the `gtopt` solver and returns a results ZIP containing the
 solution files.
 
 For full API reference and deployment instructions, see
-[webservice/INSTALL.md](webservice/INSTALL.md).
+[webservice/INSTALL.md](../webservice/INSTALL.md).
 
 ## gtopt_check_pampl
 

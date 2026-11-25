@@ -76,7 +76,8 @@ tectonic main.tex
 # Install TeX Live (Ubuntu/Debian)
 sudo apt-get install -y texlive-latex-base texlive-latex-recommended \
   texlive-latex-extra texlive-publishers texlive-bibtex-extra \
-  texlive-science latexmk
+  texlive-science texlive-pictures texlive-plain-generic \
+  texlive-fonts-recommended cm-super latexmk
 
 cd docs/white_paper
 latexmk -pdf main.tex

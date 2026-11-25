@@ -375,7 +375,8 @@ for phase = T-1 down to 1:
 
 ### 4.4 Backward Pass with Apertures
 
-When `num_apertures ≠ 0`, the backward pass uses **apertures** (also called
+Unless apertures are switched off (`num_apertures = 0` or
+`apertures = []`), the backward pass uses **apertures** (also called
 hydrological openings in PLP) to compute the expected future-cost cut.
 Instead of using the cached forward-pass solution to build a single Benders
 cut, the solver solves the phase LP once per aperture, each time with
@@ -433,10 +434,15 @@ The directory structure is `aperture_dir/ClassName/ElementName.parquet`,
 with each parquet file containing `stage`, `block`, and `uid:N` columns
 (one per scenario UID).  Loading is O(n log n) via vectorized bulk insert.
 
-**Configuration**:
-- `num_apertures = 0` — disabled (default, uses standard backward pass)
-- `num_apertures = -1` — use all available scenarios as apertures
-- `num_apertures = N > 0` — use the first N scenarios (capped at total)
+**Configuration** (`sddp_options.num_apertures`, CLI
+`--sddp-num-apertures`):
+- unset (default) — every aperture in the phase's `Phase.apertures` list
+  (when a phase has no list, every active entry of `aperture_array`)
+- `num_apertures = 0` — no apertures: the deterministic Benders backward
+  pass (same as `apertures: []`)
+- `num_apertures = N > 0` — the first `N` entries of each phase's list
+  (`aperture_selection_mode` picks `head`, `stride` or `tail`); with the
+  wettest-first order written by `plp2gtopt` that is the `N` wettest
 
 <a id="aperture-task-grouping"></a>
 **Aperture task grouping** (`aperture_chunk_mode`): how the apertures
@@ -1188,7 +1194,7 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `api_status_file` | string | "" | Path for the JSON status file |
 | `api_stop_request_file` | string | "" | Path for monitoring API stop-request file |
 | `api_update_interval` | ms | 500 | Interval between monitoring samples |
-| `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all scenarios) |
+| `num_apertures` | int | unset | Apertures per backward-pass phase: unset = the phase's full list, 0 = none (Benders), N = first N |
 | `boundary_cuts_mode` | string | — | Deprecated alias → `future_cost_array[].mode` |
 | `boundary_max_iterations` | int | — | Deprecated alias → `future_cost_array[].iteration_limit` |
 | `max_cuts_per_phase` | int | 0 | Max retained cuts per (scene, phase) LP (0 = unlimited) |
@@ -1263,7 +1269,7 @@ prefix, since the section name already provides the namespace).
 | `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
 | `forward_solver_options` | object | — | Solver options for forward-pass solves; `time_limit` replaces the removed `solve_timeout` |
 | `aperture_timeout` | double | 30.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
-| `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all) |
+| `num_apertures` | int | unset | Apertures per backward-pass phase: unset = the phase's full list, 0 = none (Benders), N = first N |
 | `aperture_chunk_mode` | string | `"per_scene"` | How backward apertures are grouped into pool tasks (each task clones the phase LP once and solves its apertures in series): `"per_scene"` (all apertures of a (scene, phase) in one task — warm-start chain, one clone per cell; parallelism capped at the scene count), `"per_aperture"` (one task per aperture, fresh clone, cold solve), `"chunked"` (`aperture_chunk_size` = K per task). See [Aperture task grouping](#aperture-task-grouping). CLI: `--aperture-chunk-mode` |
 | `aperture_chunk_size` | int | unset | K apertures per task for `aperture_chunk_mode = "chunked"` (unset = auto formula). Deprecated as a mode selector when `aperture_chunk_mode` is unset: `-1` → `per_scene`, `1` → `per_aperture`, `K > 1` → `chunked`, `0` → default (warning logged). CLI: `--aperture-chunk-size` |
 | `aperture_solve_mode` | string | `"warm"` | Per-aperture solve / cut recovery: `"cold"` (barrier + crossover, exact vertex duals), `"warm"` (chunk-resident basis re-optimize; engages under `per_scene` / `chunked` K > 1), `"reduced_cost"` (barrier without crossover, ~35% faster per aperture on big LPs), `"dual_shared"` (representative solve + Lemma AP2 synthesis; see §4.4), `"screened"` (`dual_shared` + top-\|corr\| exact re-solves) |
@@ -1893,8 +1899,20 @@ mitigate this:
 4. **Low-memory mode** (`low_memory_mode`): controls how aggressively the
    per-(scene, phase) LP backend is released between solves.
 
-   - `off` (default): backend stays loaded; no FlatLinearProblem held.
-     Maximum throughput, maximum memory.
+   - `off`: backend stays loaded, and an uncompressed FlatLinearProblem
+     is kept per cell (aperture clones are built from it).  Maximum
+     throughput, maximum memory.  Under SDDP / cascade the element LP
+     wrappers that `update_lp` does not need are dropped after the build
+     and rebuilt only for write-out, exactly as under `compress`
+     (`lp_matrix_options.drop_element_collections`, default `true`;
+     `false` keeps them resident).  With
+     `sddp_options.release_backends = true` the backends are released
+     after every solve as under `compress`, but the snapshot stays
+     uncompressed (equivalent to `compress` + `memory_codec =
+     uncompressed`).  Only the simplex basis (~30 KB per cell) carries
+     the warm start across the release: the next solve rebuilds the LP
+     from the snapshot, installs the saved basis (`basis_cross_mode`)
+     and resumes with dual simplex.
    - `compress` (default for SDDP/cascade): backend released after
      every solve; the FlatLinearProblem is kept in memory — compressed
      (zstd level 1 by default, ~7× ratio) when the backend is released and
@@ -1918,6 +1936,22 @@ mitigate this:
      snapshot and rebuilt each `(scene, phase)` LP lazily; it was
      removed.  The JSON value `"rebuild"` is now a back-compat alias
      that parses to `compress`.
+
+   Label metadata (the structural column / row labels that LP names are
+   synthesised from) is kept only when names are requested
+   (`--lp-file`, `lp_debug`, `lp_error`): with names off no cell keeps
+   any, in either mode, and diagnostics fall back to `c{i}` / `r{i}` or
+   "unlabeled" (`lp_matrix_options.label_meta_without_names = true`
+   keeps it, as before).  With names on, the `LinearInterface` and the
+   retained flat LP share one copy instead of two
+   (`lp_matrix_options.share_label_meta = false` restores the copy).
+
+   Two more switches keep the previous behaviour reachable:
+   `sddp_options.release_after_alpha` (default `true`: each low-memory
+   backend is released right after α registration instead of after the
+   whole initialisation) and `sddp_options.free_solver_scratch` (default
+   `true`: under `off`, the CPLEX / Gurobi / MindOpt copy-out getter
+   buffers are freed after each forward solve and each iteration).
 
 5. **Warm-start pre-padding**: forward-pass solution vectors are padded
    with zeros at save time so that `set_warm_start_solution()` can use a
@@ -2124,10 +2158,11 @@ DOI: [10.1287/educ.1053.0020](https://doi.org/10.1287/educ.1053.0020)
 
 <a id="ref14"></a>
 **[14]** M. P. Buitrago Villada, C. E. García Bujanda, E. Sierra Baeza, and
-A. M. Matus, "Optimal expansion and reliable renewable energy integration
-in long-term planning using FESOP," *2022 IEEE Kansas Power and Energy
-Conference (KPEC)*, pp. 1–5, 2022.
-DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781)
+M. Matus, "Optimal Expansion and Reliable Renewable Energy Integration
+in Long-Term Planning Using FESOP," *2022 IEEE Kansas Power and Energy
+Conference (KPEC)*, pp. 1–6, 2022.
+DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781).
+Open access: [ResearchGate](https://www.researchgate.net/publication/358423681_Optimal_Expansion_and_Reliable_Renewable_Energy_Integration_in_Long-Term_Planning_Using_FESOP).
 
 <a id="ref15"></a>
 **[15]** O. Dowson and L. Kapelevich, "SDDP.jl: a Julia package for

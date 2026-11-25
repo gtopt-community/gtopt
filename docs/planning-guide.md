@@ -1265,7 +1265,10 @@ output/
 │   └── capacity_dual.csv           # Shadow price of capacity constraint [$/MW]
 ├── Line/
 │   ├── flowp_sol.csv               # Active power flow [MW]
-│   └── theta_dual.csv              # Dual of Kirchhoff constraint
+│   ├── theta_dual.csv              # Dual of Kirchhoff constraint
+│   ├── thermalp_dual.csv           # Limit-row dual, A→B, sending/full [$/MWh]
+│   ├── thermaln_dual.csv           # Limit-row dual, B→A, sending/full [$/MWh]
+│   └── capacityp_dual.csv          # Capacity-row dual, expandable lines [$/MWh]
 ├── Battery/
 │   └── storage_sol.csv             # State of charge [MWh]
 └── Reservoir/

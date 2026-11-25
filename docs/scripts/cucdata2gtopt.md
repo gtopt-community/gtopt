@@ -115,28 +115,61 @@ Objective breakdown of the 10 % case: variable 866 184, no-load
 104 343, startup 6 450, shutdown 3 616, reserve 229, ENS 0 EUR.
 
 **Residual difference to the paper.**  The paper's IUC values are
-higher, by an amount that grows with the reserve requirement:
+higher, by an amount proportional to the reserve requirement:
 
 | System | Reserve | Paper IUC [M] | gtopt IUC [M] | Δ |
 |--------|---------|---------------|---------------|---|
 | 39-bus | 10 % | 1.0070 | 0.980823 | −2.60 % |
 | 39-bus | 5 % | 0.9901 | 0.977186 | −1.30 % |
-| 39-bus | 0 % | (0.9732, extrapolated) | 0.974478 | +0.13 % |
 | 118-bus | 5 % | 14.4787 | 14.253323 | −1.56 % |
 | 118-bus | 2.5 % | 13.9725 | 13.861865 | −0.79 % |
 
-Extrapolated linearly to zero reserve the paper's two points give
-0.9732 M, within 0.13 % of gtopt's zero-reserve optimum, while the
-paper's cost grows 5.4× faster with the requirement (≈ 3.4 kEUR vs
-0.63 kEUR per reserve-%).  So the energy/commitment part of the model and
-data agree, and the code behind Table I priced or constrained the
-reserve differently from the GAMS file that was published in 2022 (three
-years after the paper).  Rescaling the GAMS reserve cost does not
-explain it with a clean factor (×10 → 0.98265 M, ×100 → 0.99365 M,
-×1000 → 1.08888 M for the 10 % case), so the difference is documented,
-not fitted: gtopt matches the model that is actually published.  The
-118-bus cases (solved to a 1e-4 MIP gap) show the same
-pattern: −1.56 % at 5 % reserve, −0.79 % at 2.5 %.
+The gap is **not** a constraint missing in gtopt, a solver tolerance or
+a data mismatch:
+
+- *Tolerance.*  The paper solved to a relative gap of 10⁻⁴ % (39-bus)
+  and 0.01 % (118-bus), so its values are optima, not loose incumbents.
+- *gtopt vs the published GAMS.*  39-bus: the independent PTDF
+  transcription reaches gtopt's optimum to the cent.  118-bus, 2.5 %:
+  gtopt's solution satisfies every row of the transcription (largest
+  residual 4·10⁻⁴ MW, rounding) and the transcription's objective
+  evaluated at it is 13 861 865.72 EUR = gtopt's 13 861 864.94 EUR.
+  (A relative MIP gap is meaningless on that LP: its objective carries
+  the −211.19 MEUR wind-curtailment constant, so 10⁻⁴ allows ≈ 20 kEUR.
+  Solve it with `absmipgap`.)
+- *Data.*  The only upstream data change (2018-10-24) rescaled the
+  reserve column and, for 118-bus, removed a ±1 % noise on
+  `SlopeVarCost` (the paper's "random noise" run); re-solving with the
+  noisy 118-bus costs does not move the result towards the paper.
+- *A relaxation already costs more.*  The paper's classic CUC (CCUC) is
+  a relaxation of its IUC, yet 0.9998 / 0.9826 M exceeds the exact
+  published-model IUC (0.980823 / 0.977186 M).  The difference therefore
+  sits in a term common to every model of Table I, not in the
+  individual-unit constraints.
+
+The gap is a reserve price.  Divided by the total up-reserve
+requirement it is the same in both systems:
+
+| System | Reserve | Σ requirement [MWh] | paper − gtopt [EUR] | EUR per MWh |
+|--------|---------|---------------------|---------------------|-------------|
+| 39-bus | 10 % | 5 571 | 26 177 | 4.70 |
+| 39-bus | 5 % | 2 785 | 12 914 | 4.64 |
+| 118-bus | 5 % | 47 896 | 225 449 | 4.71 |
+| 118-bus | 2.5 % | 23 948 | 110 808 | 4.63 |
+
+So the code behind Table I charged about 4.6–4.7 EUR per MW of reserve
+requirement, while the published GAMS charges `0.4·pFixCost·10⁻³`
+(below 0.1 EUR/MW, 229 EUR in total for 39-bus at 10 %).  The exact formula
+cannot be recovered from the published material.  Pricing up reserve at
+`0.4·pVariableCost` (down reserve as published) reproduces the 39-bus
+values: 1 006 979.75 EUR at 10 % (paper 1.0070 M) and 990 358.20 EUR at
+5 % (paper 0.9901 M, +0.03 %).  It overshoots the 118-bus values,
+though: ≥ 14.003 M at 2.5 % and ≥ 14.527 M at 5 %.  Pricing down
+reserve at `0.2·pVariableCost` as well overshoots both systems
+(≈ 1.019 M for 39-bus at 10 %).  Rescaling the published
+`0.4/0.2·pFixCost` terms gives no clean factor either (×10 → 0.98265 M,
+×100 → 0.99365 M, ×1000 → 1.08888 M for 39-bus at 10 %).  The converter
+keeps the published model, which is the one gtopt matches.
 
 ## Block mode
 

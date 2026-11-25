@@ -74,14 +74,20 @@ pipe without line pack, $\chi_c = 1$ for a gas-driven station (its fuel
 is drawn at the suction node) and $0$ for an electric drive,
 $\gamma^{\mathrm{ff}}_c$ is a fixed fuel fraction (zero unless that fuel
 model is selected), $h_g$ is the heat rate of generator~$g$, and $L_d$
-the gas load.  Supplies cost $c_k$ and shed gas $c^{\mathrm{fail}}_d$,
-both weighted by $\omega_{s,t,b}$ as in~\eqref{eq:opcost}; a supply may
-also carry a stage volume
+the gas load.  A supply is bounded,
+$\underline{X}_{k,t,b} \leq x_k \leq \overline{X}_{k,t,b}$, and costs
+$c_k$; shed gas costs $c^{\mathrm{fail}}_d$, both weighted by
+$\omega_{s,t,b}$ as in~\eqref{eq:opcost}.  A demand without a shedding
+cost has no $y_d$ column, so its load is hard.  A supply may also carry
+a volume per stage,
 \begin{equation}
 \label{eq:gas_volume}
-\sum_{b \in \setB_t} \Delta_b\, x_{k,s,t,b} \le V_{k,t},
+\sum_{b \in \setB_t} \Delta_b\, x_{k,s,t,b} \le V_k,
 \end{equation}
-which represents an LNG cargo or a pipeline allotment.
+which represents an LNG allotment or a pipeline nomination.  An
+optional cost $\omega_{s,t,b}\, c^{\varpi}_i \varpi_i$ on the squared
+pressure serves as a tie-break: a tiny negative $c^{\varpi}_i$ selects,
+among equal-cost dispatches, the highest pressure profile.
 
 The dual $\mu_i$ of~\eqref{eq:gas_balance} is the nodal gas price
 [\$/km\textsuperscript{3}], the gas analogue of the LMP.  Because the
@@ -181,32 +187,53 @@ friction is accounted for.
 In a loop the flow direction is not known in advance and the equality
 is non-convex.  A pipe in \emph{linearized} mode therefore has a signed
 flow $f^{\mathrm{g}}_a \in [-\overline{F}_a, \overline{F}_a]$ and one
-equality per block, linearised at a reference flow $f^0_a$, either as
-the secant
-$\varpi_{i_a} - e^{\zeta_a}\varpi_{j_a} = K^e_a |f^0_a|\,\tilde f_a$
-or as the tangent
-$\varpi_{i_a} - e^{\zeta_a}\varpi_{j_a} = 2K^e_a|f^0_a|\,\tilde f_a
-- K^e_a f^0_a|f^0_a|$.
-Both are exact at $\tilde f_a = f^0_a$.  A sequential LP (SLP) repeats
+equality per block, linearised at a reference flow $f^0_a$ either as
+the secant or as the tangent of $f|f|$:
+\begin{equation}
+\label{eq:gas_linearized}
+\varpi_{i_a} - e^{\zeta_a}\varpi_{j_a} =
+\begin{cases}
+K^e_a |f^0_a|\,\tilde f_a & \text{(secant)},\\
+2K^e_a|f^0_a|\,\tilde f_a - K^e_a f^0_a|f^0_a| & \text{(tangent)}.
+\end{cases}
+\end{equation}
+Both are exact at $\tilde f_a = f^0_a$, and $|f^0_a|$ is kept at or
+above a small fraction of $\overline{F}_a$, so the secant never
+vanishes.  A sequential LP (SLP) repeats
 three steps after the first solve: it updates
 $f^0_a \leftarrow f^0_a + \omega (\tilde f_a - f^0_a)$ with damping
 $\omega$, re-issues the row coefficients through the same
 re-linearisation interface used by the volume-dependent hydro elements
 of Section~\ref{sec:hydro} (seepage and discharge limits), and
 re-solves.  It stops when the largest
-relative flow change falls below a tolerance.  When gas costs tie, the
-LP has several optimal vertices between which the iterates can
-alternate; a proximal row
-$\tilde f_a - d^+_a + d^-_a = f^0_a$, with a small cost on
-$d^+_a + d^-_a$, selects among them the vertex nearest $f^0_a$.  At the
+relative flow change $|\tilde f_a - f^0_a| / \max(|f^0_a|, f^{\min}_a)$
+falls below a tolerance.  When gas costs tie, the LP has several
+optimal vertices between which the iterates can alternate.  With the
+SLP enabled, every linearised pipe therefore gets the proximal row
+\begin{equation}
+\label{eq:gas_proximal}
+\tilde f_a - d^+_a + d^-_a = f^0_a ,
+\qquad 0 \leq d^\pm_a \leq 2\overline{F}_a ,
+\end{equation}
+with a small cost $\omega_{s,t,b}\,\rho^{\mathrm{px}}(d^+_a + d^-_a)$
+(default $\rho^{\mathrm{px}} = 10^{-6}$) and its right-hand side
+re-issued with $f^0_a$; among equal-cost vertices it selects the one
+nearest $f^0_a$.  At the
 fixed point the rows satisfy the exact Weymouth equation; the point is
 stationary, but its global optimality is not certified.  The SLP runs
 with the monolithic method; under SDDP the rows are re-issued at the
 stored reference flows in every forward pass, but the reference flows
-are not updated.  A valve is an
-open connection with signed flow and $\varpi_{j_c} = \varpi_{i_c}$, and
-an arc without pressure coupling, $0 \leq f \leq \overline{F}$, models a
-delivery through a parallel system.
+are not updated.
+
+Two pressure-free connections complete the network.  A
+\emph{bidirectional valve} is a compressor element with
+$\overline{\beta}_c = 1$, no fuel and signed flow
+$\psi_c \in [-\overline{F}_c, \overline{F}_c]$; both rows
+of~\eqref{eq:gas_ratio} are kept, so $\varpi_{j_c} = \varpi_{i_c}$.  A
+\emph{capacity arc} is a pipe without pressure rows,
+$0 \leq f^{\mathrm{g}}_a \leq \overline{F}_a$, entering only the two
+node balances; it models a delivery through a parallel system that would
+otherwise close a loop.
 
 \subsection{Line Pack}
 \label{sec:gas_linepack}
@@ -252,39 +279,74 @@ $\overline{\beta}_c$:
 \qquad
 0 \leq \psi_c \leq \overline{F}_c .
 \end{equation}
-The second row is omitted for a station that may be bypassed, which
-then acts as a pressure regulator.  Three fuel models are available: no
-fuel; a fixed fraction $\phi_c = \gamma^{\mathrm{ff}}_c \psi_c$; and the
-model of Saldarriaga~\cite[eqs.~(2.70)--(2.72)]{saldarriaga2018phd},
-$\phi_c = \gamma_c(\beta_c^{\alpha} - 1)\psi_c$ with
-$\beta_c = \varrho_{j_c}/\varrho_{i_c}$ and
+The second row is omitted for a \emph{bypassable} station, which then
+also acts as a pressure regulator ($\varpi_{j_c} < \varpi_{i_c}$).
+Bypass is the default for the fuel-free and fixed-fraction models and
+must be requested explicitly for the Saldarriaga model below.  Three
+fuel models are available: no fuel; a fixed fraction
+$\phi_c = \gamma^{\mathrm{ff}}_c \psi_c$; and the model of
+Saldarriaga~\cite[eqs.~(2.70)--(2.72)]{saldarriaga2018phd},
+\begin{equation}
+\label{eq:gas_saldarriaga}
+\phi_c = \gamma_c\bigl(\beta_c^{\alpha} - 1\bigr)\psi_c
+       = \gamma_c\Bigl(\bigl(\varpi_{j_c}/\varpi_{i_c}\bigr)^{\alpha/2}
+         - 1\Bigr)\psi_c ,
+\end{equation}
+with $\beta_c = \varrho_{j_c}/\varrho_{i_c}$ and
 $\alpha = (k-1)/k = 0.2308$ for an isentropic exponent $k = 1.3$.
 Written in squared pressure, this fuel is homogeneous of degree one in
-$\psi_c$ and zero in $\varpi$, so its first-order Taylor plane at an
-operating point $(\psi^0_c, \varpi^0_{i_c}, r^0_c\varpi^0_{i_c})$, with
-$r^0_c = (\beta^0_c)^2$, has no constant term:
+$\psi_c$ and zero in $\varpi$, so by Euler's theorem its first-order
+Taylor plane at an operating point
+$(\psi^0_c, \varpi^0_{i_c}, r^0_c\varpi^0_{i_c})$, with
+$r^0_c = (\beta^0_c)^2$ and $\varpi^0_{i_c} = (\varrho^0_{i_c})^2$, has
+no constant term.  \gtopt{} adds a fuel column
+$0 \leq \phi_c \leq \overline{F}_c$ and, for each operating ratio
+$\beta^0_{c,m}$, $m = 1,\dots,M_c$, the row
 \begin{multline}
 \label{eq:gas_fuel_plane}
-\phi_c \geq \gamma_c\bigl((\beta^0_c)^{\alpha} - 1\bigr)\psi_c \\
-+ \gamma_c \frac{\alpha}{2}\,\psi^0_c\,(r^0_c)^{\alpha/2 - 1}
-  \frac{\varpi_{j_c} - r^0_c\,\varpi_{i_c}}{(\varrho^0_{i_c})^2},
-\qquad \phi_c \geq 0 .
+\phi_c \geq \gamma_c\bigl((\beta^0_{c,m})^{\alpha} - 1\bigr)\psi_c \\
++ \gamma_c \frac{\alpha}{2}\,\psi^0_c\,(r^0_{c,m})^{\alpha/2 - 1}
+  \frac{\varpi_{j_c} - r^0_{c,m}\,\varpi_{i_c}}{(\varrho^0_{i_c})^2} .
 \end{multline}
-One plane is added per operating ratio $\beta^0_c$, so that several
-planes form a piecewise-linear lower envelope.  The inequality is tight
-whenever the plane is positive, because fuel costs gas.  When not given,
+Each plane is exact on the whole slice $\beta_c = \beta^0_{c,m}$, for
+any throughput and suction pressure, because its pressure term vanishes
+there.  Away from that slice it is a first-order approximation, not a
+bound: \eqref{eq:gas_saldarriaga} is concave in the ratio (at the
+operating throughput and suction pressure each plane over-estimates
+the fuel) and bilinear
+in $(\psi_c, r_c)$, so the LP, which keeps the largest plane, is
+conservative along the ratio at the operating point and exact only on
+the listed slices.  The
+inequality is tight whenever the largest plane is positive and the
+fuel has a positive price (gas at the suction node, or power for an
+electric drive); where the planes would create gas, $\phi_c = 0$.  The
+operating point defaults to $\psi^0_c = 0.6\,\overline{F}_c$,
+$\beta^0_c = (1 + \overline{\beta}_c)/2$ and $\varrho^0_{i_c}$ the
+middle of the suction pressure band.  When not given,
 $\gamma_c$ is derived from the adiabatic compression head
 $H = \frac{Z R T_b}{M}\frac{k}{k-1}(\beta^{\alpha}-1)/\eta_c$ and the
 fuel $H/(\eta_{\mathrm{drv}}\,\mathrm{LHV})$, with compressor and driver
-efficiencies $\eta_c = 0.80$ and $\eta_{\mathrm{drv}} = 0.33$, which
-gives $\gamma_c \approx 0.043$.  The fixed fraction defaults to the same
+efficiencies $\eta_c = 0.80$ and $\eta_{\mathrm{drv}} = 0.33$,
+$\mathrm{LHV} = 47$~MJ/kg, $Z = 0.9$ and $G = 0.6$, which gives
+$\gamma_c = Z R T_b/(M \alpha\, \eta_c \eta_{\mathrm{drv}}\mathrm{LHV})
+\approx 0.043$.  The fixed fraction defaults to the same
 fuel at the maximum ratio, $\gamma_c(\overline{\beta}_c^{\,\alpha}-1)$.
-An electric drive does not burn gas; it adds a load
-$p^{\mathrm{el}}_c = \kappa^{\mathrm{el}}_c \phi_c \leq
-\overline{P}^{\mathrm{el}}_c$ to its bus balance~\eqref{eq:balance},
-with $\kappa^{\mathrm{el}}_c =
-\mathrm{LHV}\,\eta_{\mathrm{drv}}/\eta_{\mathrm{mot}} \approx 3.3$
-MW per km\textsuperscript{3}/h.  Compressor on/off decisions are not
+
+A gas drive burns $\phi_c$ (or $\gamma^{\mathrm{ff}}_c\psi_c$) at the
+suction node, as in~\eqref{eq:gas_balance}.  An electric drive burns no
+gas: its suction node supplies only $\psi_c$, and a motor column
+\begin{equation}
+\label{eq:gas_motor}
+p^{\mathrm{el}}_c = \kappa^{\mathrm{el}}_c \phi_c
+\;\bigl(\text{or } \kappa^{\mathrm{el}}_c \gamma^{\mathrm{ff}}_c \psi_c\bigr),
+\qquad 0 \leq p^{\mathrm{el}}_c \leq \overline{P}^{\mathrm{el}}_c ,
+\end{equation}
+enters its bus balance~\eqref{eq:balance} as a load.  The factor
+$\kappa^{\mathrm{el}}_c =
+\mathrm{LHV}\,\eta_{\mathrm{drv}}/\eta_{\mathrm{mot}}$, with motor
+efficiency $\eta_{\mathrm{mot}} = 0.95$, is about 3.3~MW per
+km\textsuperscript{3}/h.  If the bus is out of service,
+$\overline{P}^{\mathrm{el}}_c = 0$ and the station cannot compress.  Compressor on/off decisions are not
 modelled.
 
 \subsection{Gas-Fired Units: Fuel, Pressure Gate and Boosters}
@@ -323,22 +385,159 @@ the LP.
 
 A fuel-gas booster is a compressor station between the end of the plant
 lateral and the turbine header, typically electrically driven and
-bypassable.  It lifts the delivery pressure above the gate at the cost
-of motor power, which enters the bus balance, and of compressor fuel,
-which enters the gas balance, so the LP decides when boosting is worth
-its cost.
+bypassable (so that the plant can also run on line pressure).  It lifts
+the delivery pressure above the gate at the cost of motor
+power~\eqref{eq:gas_motor}, which enters the bus balance, or, for a gas
+drive, of compressor fuel, which enters the gas balance, so the LP
+decides when boosting is worth its cost.
 
-\subsection{LNG Supply}
+\subsection{LNG, Take-or-Pay and the Value of Stored Gas}
+\label{sec:lng_value}
 
-LNG enters the gas network as a supply tagged as regasification, whose
-rate is bounded by the send-out capacity and whose stage volume is
-bounded by~\eqref{eq:gas_volume}.  The tank inventory itself is the LNG
-terminal of Section~\ref{sec:lng}, which is coupled to the gas-fired
-units through their heat rates; linking its send-out to a gas node is
-not yet supported.  Gas supply described without a network, as priced
-fuel bands with offtake budgets, is also common in operation models.
-The \texttt{plexos2gtopt} converter keeps such bands either as fuels
-with budget constraints or as fuel tanks drained by their generators,
-with the leftover valued by a terminal future-cost variable; the tank
-is a state variable, so the gas opportunity cost is carried between
-SDDP phases like a water value.
+LNG reaches the model in two ways.  In the network it is a supply
+tagged as regasification, whose rate bounds are the send-out capacity
+and whose stage volume~\eqref{eq:gas_volume} is the cargo or allotment
+that can be regasified.  As inventory it is the tank of
+Section~\ref{sec:lng}, coupled directly to the gas-fired units through
+their heat rates.  The two are not linked: the tank's send-out is not
+an injection into a gas node.
+
+\paragraph{Value of stored gas.}
+Let $\theta_{\tau,b}$ be minus the dual of the tank
+balance~\eqref{eq:lng_balance} of block~$b$, i.e.\ the decrease of the
+objective per extra m\textsuperscript{3} in the tank (indices $s$ and
+$t$ dropped; consecutive blocks may belong to consecutive stages).  The
+reported value is $\vartheta_{\tau,b} = \theta_{\tau,b}/(\pi_s\delta_t)$
+[\$/m\textsuperscript{3}], the analogue of the water value.  The
+stationarity of $v^{\mathrm{lng}}_{\tau,b}$, of the vent column and of
+a linked generator $g$ dispatched strictly between its bounds give
+\begin{gather}
+\theta_{\tau,b} = (1-\lambda^h_\tau\Delta_{b+1})\,\theta_{\tau,b+1}
+  - \pi_s\delta_t\, c^{e}_{\tau,t,b} + \nu^{\mathrm{lo}}_{\tau,b}
+  - \nu^{\mathrm{up}}_{\tau,b},
+  \label{eq:lng_value} \\
+\vartheta_{\tau,b} \geq -c^{\mathrm{vent}}_\tau/\rho_\tau ,
+  \qquad
+\lambda_{n_g,b} = c_g + \rho_\tau\,\kappa^{hr}_g\,\vartheta_{\tau,b},
+  \label{eq:lng_gen_price}
+\end{gather}
+where $\nu^{\mathrm{lo}}, \nu^{\mathrm{up}} \geq 0$ are the duals of the
+volume bounds and $\lambda_{n_g,b}$ the electricity price at the
+generator's bus (losses and other coupling rows ignored).  Gas held now
+is worth its value one block later, net of boil-off and holding cost;
+it gains a premium while the floor binds and loses value while the tank
+is full, down to minus the vent penalty when gas must be vented.  By
+\eqref{eq:lng_gen_price} the fuel cost that dispatches an LNG unit is
+this opportunity cost, $\rho_\tau\kappa^{hr}_g\vartheta_{\tau,b}$, not
+the cargo price.
+
+The recursion~\eqref{eq:lng_value} needs a value at the end of the LP.
+Under SDDP the end-of-phase volume is a state variable $x_\tau$ of the
+cuts~\eqref{eq:benders_cut}, and the stationarity of that column gives
+\begin{equation}
+\label{eq:lng_cut_value}
+\theta_{\tau,\mathrm{end}} = -\sum_{k} \upsilon_k\, \hat\mu_{k,\tau}
+  - \pi_s\delta_t\, c^{e}_{\tau}
+  + \nu^{\mathrm{lo}}_{\tau,\mathrm{end}} - \nu^{\mathrm{up}}_{\tau,\mathrm{end}},
+\end{equation}
+with $\upsilon_k \geq 0$ the duals of the active cuts, which add up to
+the objective weight of $\alpha_t$, and $\hat\mu_{k,\tau} \leq 0$ the
+cut slopes on the tank volume (in the last phase the dual of the final
+target~\eqref{eq:lng_efin} is added).  The value of stored gas is thus a
+convex combination of the cut slopes, exactly as the water value of a
+reservoir, and it propagates backwards through each phase
+by~\eqref{eq:lng_value}.  In a single LP without cuts or a final
+target, $\theta_{\tau,\mathrm{end}} = \nu^{\mathrm{lo}} - \nu^{\mathrm{up}}
+- \pi_s\delta_t c^{e}_\tau$:
+gas left at the horizon is worth nothing, and the LP burns or vents it
+before the end.  The final target~\eqref{eq:lng_efin}, boundary cuts,
+or the tank future cost below remove this end effect.
+
+\paragraph{Take-or-pay and spot purchases.}
+A scheduled cargo enters through~\eqref{eq:lng_delivery} and carries no
+cost in the LP, which is the take-or-pay situation: the cargo is paid
+whether or not it is burnt, so only $\vartheta$ prices the gas.  It is
+zero, or negative down to $-c^{\mathrm{vent}}_\tau/\rho_\tau$, while
+the tank must be emptied before a deadline, and
+rises to the cost of the generation that the gas displaces when gas is
+short.  Gas that can be bought at a price $c^{\mathrm{sp}}$ through a
+priced inflow column $x \geq 0$ of the tank instead satisfies
+$\rho\,\vartheta \leq c^{\mathrm{sp}}$, with equality whenever
+$x > 0$: the replacement price caps the value of stored gas.  The
+\texttt{LngTerminal} element has no such column; the band tanks below
+do.  For gas bought as a priced \texttt{Fuel}, the duals
+$\nu^{\max}_f, \nu^{\min}_f \geq 0$ of the offtake
+rows~\eqref{eq:fuel_max}--\eqref{eq:fuel_min} shift the gas price seen
+by the dispatch,
+\begin{equation}
+\label{eq:fuel_price}
+\lambda_{n_g,b} = c^0_g + h_g\bigl(P_{f,t,b}
+  - \hat\nu^{\min}_f + \hat\nu^{\max}_f\bigr),
+\qquad \hat\nu = \nu/(\pi_s\delta_t),
+\end{equation}
+for a unit strictly between its bounds.  A binding ToP floor lowers the
+effective price below $P_f$, and below zero if the floor is hard and
+the gas has no other use, which can produce negative electricity
+prices; a shortfall penalty bounds the reduction,
+$\hat\nu^{\min}_f \leq c^{\min}_f$.  A binding allotment raises the
+price by the scarcity rent $\hat\nu^{\max}_f$, bounded by $c^{\max}_f$
+when the cap is soft.
+
+\paragraph{Fuel tanks in converted cases.}
+The \texttt{plexos2gtopt} converter represents committed LNG cargoes and
+weekly gas allotments of operation models as tanks built from the hydro
+elements: a reservoir per tank, drained by one turbine per unit with
+production factor $1/h_g$ and a conversion factor of $1/24$, so that a
+unit burning $h_g p_g$ fuel units per hour lowers the volume by
+$h_g p_g \Delta_b/24$.  The tank volume is a state variable.  Two modes
+follow two readings of an inflexible cargo: in \emph{storage} mode the
+units keep their fuel price and unburnt gas can only be spilled at the
+source model's penalty; in \emph{offtake} mode the cargo is take-or-pay,
+the fuel price is set to zero (the units keep only their variable and
+transport costs), the spill is free, and $\vartheta$ alone prices the
+gas.  A gas allotment becomes a tank whose allotment arrives as an
+inflow, for the whole horizon at once or per contract week, in a single
+hour or ramped over several; the per-block maximum volume drops to zero
+at each deadline inside the horizon, so the remainder is lost.  A soft
+allotment becomes a purchase inflow priced $P_f + c^{\max}_f$.  With
+one allotment $V$ and no saturation, the tank model reproduces the
+\texttt{Fuel} model: with $u$ the gas burnt, $x$ the purchase and
+$T = V + x - u$ the leftover valued at $P_f$, the cost
+$(P_f + c^{\max}_f)x + P_f(V - T) = P_f u + c^{\max}_f x$.
+
+Each tank whose gas outlives the horizon receives its own future-cost
+variable, written as a user constraint on the last block,
+\begin{equation}
+\label{eq:gas_tank_fcf}
+\alpha^{\mathrm{gas}}_\tau + g_\tau\, v_{\tau,\mathrm{end}}
+  \geq g_\tau V^{\mathrm{use}}_\tau ,
+\qquad \alpha^{\mathrm{gas}}_\tau \geq 0 ,
+\end{equation}
+with unit cost and no probability, discount or duration weighting, so
+the future cost is $g_\tau\max(0, V^{\mathrm{use}}_\tau - v_{\tau,\mathrm{end}})$
+and, by~\eqref{eq:lng_cut_value}, $\vartheta_{\tau,\mathrm{end}} \in
+[0, g_\tau]$.  The value $g_\tau$, per volume unit (24 times a price
+per fuel unit), is the band price, or, for an
+inflexible cargo, the source model's own price for it, a boundary-cut
+slope, or the cost of the diesel it displaces.  $V^{\mathrm{use}}_\tau$
+is either the maximum volume at the horizon end or the smaller volume
+that the tank's units can still burn before the deadline, beyond which
+leftover gas is worth nothing.  One variable per tank is needed:
+several rows on a single future-cost variable give the maximum of the
+tank values, not their sum.  These future costs serve the single-LP
+(monolithic) solve of a short-term case; under SDDP the tank volumes are
+state variables and their value comes from the cuts.
+
+\paragraph{Not modelled.}
+Cargo arrivals are data in every representation above.  Choosing when a
+cargo arrives, whether to buy an additional spot cargo, or how to
+reschedule a delayed one is not an LP or MIP decision in \gtopt{}.  As
+a modelling extension, a candidate cargo $k$ of size $Q_k$ and price
+$c^{\mathrm{sp}}_k$ arriving in stage~$t$ could be represented by a
+binary $z_{k,t}$, with $D_{\tau,t} = \sum_k Q_k z_{k,t}$
+in~\eqref{eq:lng_delivery}, a cost $c^{\mathrm{sp}}_k Q_k z_{k,t}$, and
+contract rows such as $\sum_{t \in \mathcal{Y}} \sum_k z_{k,t} \geq
+N^{\min}$ for a yearly ToP volume; under SDDP the integer stage
+problems would need convexified cuts.  The regasification limits of the
+terminal, the link of its send-out to a gas node, and make-up or
+carry-forward banks between contract periods are not modelled either.

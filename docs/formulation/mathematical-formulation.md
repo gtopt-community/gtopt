@@ -792,13 +792,24 @@ percent), **not** a per-MWh toll on flow.  Set $\varepsilon_l$ on
 flagged corridors and re-run: the sink migrates to the next unguarded
 lossy line, so iterate until no new flags.
 
-> **Internal $v$-pin.**  When $\varepsilon_l > 0$ the abs-flow proxy
-> columns $v_l$ additionally carry an *internal* degeneracy pin of
-> $\varepsilon^{\text{pin}} = 10^{-6}$ \$/MWh (constant
-> `kFlowAbsPinEps`, well below LP optimality tolerance).  It forces
+> **$v$-pin (`loss_flow_abs_cost`).**  When $\varepsilon_l > 0$ the
+> abs-flow proxy columns $v_l$ additionally carry a degeneracy pin
+> $\varepsilon^{\text{pin}}_l$ [\$/MWh, real cost units before
+> `scale_objective`; JSON `loss_flow_abs_cost`, per line or via
+> `model_options`, default $10^{-3}$].  It forces
 > $\sum_\ell v_{l,\ell} = |f_l|$ at the optimum so the chord stays
-> anchored to the piecewise secant; it never moves a dispatch
-> decision.  The user $\varepsilon_l$ is **not** charged on $v_l$ —
+> anchored to the piecewise secant.  **LMP effect:** with
+> $\sum_\ell v_{l,\ell} = |f_l|$ the pin is a toll of
+> $\varepsilon^{\text{pin}}_l$ per MWh of flow in the flow direction,
+> so the nodal-price difference across each lossy line shifts by at
+> most $\approx \varepsilon^{\text{pin}}_l$ (0.001 \$/MWh by default;
+> a path through $n$ lossy lines by at most $\approx n\,
+> \varepsilon^{\text{pin}}$).  The value must survive
+> `scale_objective`: the former internal constant $10^{-6}$ \$/MWh
+> landed at $10^{-9}$ in the LP, below every solver's dual tolerance
+> (pin ineffective) and stretching the objective range to 9 decades;
+> $10^{-3}$ lands at $10^{-6}$.  `loss_flow_abs_cost = 1e-6`
+> reproduces the former LP exactly; `0` disables the pin.  The user $\varepsilon_l$ is **not** charged on $v_l$ —
 > doing so would turn $\varepsilon_l$ into a transport toll on all
 > legitimate flow.  The pin is gated on $\varepsilon_l > 0$, so an
 > explicit $\varepsilon_l = 0$ reproduces the legacy pure-LP
@@ -972,6 +983,242 @@ sink of $c_l \max(\overline{F}_l, E_l)^2$ per direction at any flow).
 `linear` has no loss column and remains exposed to circulation
 $f^+ = f^-$ up to $\overline{F}_l$; gtopt warns when a `linear` line
 has $\overline{F}_l > E_l$.
+
+#### Thermal Limit with Losses (`line_thermal_limit_mode`)
+
+With losses the power that enters a line at its sending bus and the
+power that leaves it at the receiving bus differ by the loss
+$\ell_l^{dir}$.  The thermal rating $\overline{F}_l^{dir}$ (`tmax_ab` /
+`tmax_ba`; on expandable lines also the installed capacity) is a
+current limit, so physically it binds at the larger, sending end.  Which
+quantity the LP limits is selected per line by
+`line_thermal_limit_mode` (else `model_options.line_thermal_limit_mode`,
+else `flow`):
+
+| Mode | Constraint per direction | Notes |
+|------|--------------------------|-------|
+| `flow` (default) | $f_l^{dir} \le \overline{F}_l^{dir}$ | Column bound only; no extra row |
+| `sending` | $f_l^{dir} + a_l\,\ell_l^{dir} \le \overline{F}_l^{dir}$ | $a_l$ = sending-bus loss share |
+| `full` | $f_l^{dir} + \ell_l^{dir} \le \overline{F}_l^{dir}$ | Allocation independent |
+
+$a_l$ is the share of the loss that `loss_allocation_mode` books at the
+sending bus: $0$ for `receiver`, $\tfrac12$ for `split` (and always for
+`tangent_signed_flow`), $1$ for `sender`.  Under `receiver` allocation
+the flow variable already is the sending-end power, so `sending` adds
+nothing and `flow` is the sending-end limit.  Under `split` the flow
+variable is the midpoint flow, so `sending` limits both ends, which is
+the two-end limit of MATPOWER / PowerModels [[34]](#ref34).  `full`
+matches the PyPSA convention $|p| + \psi \le \overline{F}$
+[[35]](#ref35).  It is conservative by $(1-a_l)\,\ell$ against the
+sending end.
+
+Per loss mode:
+
+* **Per-direction loss columns** (`bidirectional`, `piecewise`): one
+  row $f^{\pm} + a\,\ell^{\pm} \le \overline{F}^{\pm}$ per direction.
+* **Shared-loss `piecewise` + `tangent` layout**: the single loss
+  column $\ell$ serves both rows.
+* **`tangent_signed_flow`**: two rows,
+  $+f + a\,\ell \le \overline{F}^{ab}$ and
+  $-f + a\,\ell \le \overline{F}^{ba}$, on the signed flow.
+* **`piecewise_direct`**: one row per direction,
+  $\sum_k (1 + a\,\lambda_k)\,\text{seg}_k \le \overline{F}^{dir}$.
+* **`linear`**: the loss is $\lambda f$, so no row is needed.  The
+  column bound becomes $f \le \overline{F}/(1 + a\lambda)$ and the
+  capacity coefficient becomes $-(1 + a\lambda)$.
+* **`none`**: unaffected.
+
+On expandable lines the capacity rows carry the same loss term,
+$\bar{x}_l - f_l^{dir} - a\,\ell_l^{dir} \ge 0$.  The rows are named
+`thermalp` / `thermaln`.
+
+The normal-rating band (`tmax_normal_*` with `overload_penalty`
+$p^{ov}_l$) uses the same loaded quantity.  With an overload slack
+$o_l^{dir} \in [0,\, \overline{o}_l^{dir}]$ costing
+$p^{ov}_l\,\omega_{s,t,b}$:
+
+$$ f_l^{dir} + a_l\,\ell_l^{dir} - o_l^{dir} \;\le\; F^{n,dir}_l $$
+
+The slack bound $\overline{o}$ follows `overload_slack_bound` (per line,
+else `model_options`) with ratio $\rho$ = `max_overload_ratio`
+(default 1.5):
+
+- `thermal` (default): $\overline{o} = \min(\overline{F} - F^{n},\;
+  \rho\,F^{n})$ — the conductor's thermal headroom (on DLR lines the
+  IEEE 738 emergency rating at `tmax_conductor_emergency` minus the
+  normal rating at `tmax_conductor`, so the band is exactly
+  $[F^n, \overline{F}]$), never above $\rho\,F^n$; $\rho\,F^n$ alone when
+  there is no finite hard cap;
+- `ratio`: $\overline{o} = \rho\,F^{n}$;
+- `unbounded`: no bound (the hard cap still applies through the flow
+  bound / thermal rows).
+
+The default $\rho = 1.5$ (flow $\le 2.5\,F^n$) is a guard rail above
+the reported DLR gains: about 10–25 % over static ratings in the U.S.
+DOE Smart Grid Demonstration projects [[39]](#ref39) (Oncor
+[[40]](#ref40)), averages up to ~40 % at windy sites and outliers of
+50–72 % [[41]](#ref41), while DLR can also fall below the static rating
+30–40 % of the time [[42]](#ref42).  Emergency tiers in practice are
+owner-defined (long-term emergency over 4–12 h, short-term emergency
+over ~15 min) [[43]](#ref43), [[44]](#ref44).
+
+When the slack sits at a finite bound that depends on the ratings
+($\overline{o} = \overline{F} - F^n$ or $\rho F^n$), the reported span
+duals add the slack's reduced cost $r$ times $\partial\overline{o}/
+\partial T$ ($+r$ to the emergency span, $-r$ or $\rho r$ to the normal
+span), so $\partial z/\partial T$ is well defined even at the degenerate
+vertex where the flow equals the emergency rating.
+
+The term $a_l\,\ell_l^{dir}$ is written per loss mode exactly as in the
+thermal-limit rows ($\pm f$ for `tangent_signed_flow`,
+$\sum_k (1 + a\lambda_k)\,\text{seg}_k$ for `piecewise_direct`,
+$(1 + a\lambda) f$ for `linear`).  Under `flow` ($a_l = 0$) the band is
+the historical $f^{\pm} - o \le F^n$, emitted only for modes with a
+$f^{+}/f^{-}$ column.
+
+**Duals.**  The output reports the shadow prices of the limit rows in
+\$/MWh (back-scaled like every row dual): `Line/thermalp_dual`,
+`Line/thermaln_dual` for the rows above and `Line/capacityp_dual`,
+`Line/capacityn_dual` for the capacity rows of expandable lines.  Both
+are $\le 0$ when binding, the same sign as the reduced cost of a flow
+column at its upper bound.  For receiver allocation and `full`, a
+congested line whose marginal loss slope at the operating point is
+$\ell'$ has
+
+$$ y^{th} \;=\; -\,\frac{\pi_b\,(1 - \ell') - \pi_a - \varepsilon_l\,\ell'}
+   {1 + \ell'} $$
+
+because relaxing $\overline{F}$ by 1 MW admits only $1/(1 + \ell')$ MW
+more flow.  Under
+`flow` the same rent appears as the reduced cost of $f^{dir}$ (`flow_cost`).
+
+**Analytic loss cap at the rated flow.**  Independently of the mode,
+every loss column is bounded by the loss the line can carry at its
+rated flow in that direction:
+
+$$ \ell_l^{dir} \;\le\; \max\!\bigl(c_l (\overline{F}_l^{dir})^2,\;
+   \mathrm{PWL}_l(\overline{F}_l^{dir})\bigr) $$
+
+Here $\mathrm{PWL}_l$ is the model's own secant ladder with ordered
+fill.  It is exact at the breakpoints.  When the flow cap is itself a
+breakpoint it reduces to $c_l (\overline{F}_l^{dir})^2$.  Tangent
+families use the quadratic, since all tangents lie below it.  Every loss
+model is convex and non-decreasing in $|f|$, so the cap never cuts a
+physically filled point with $|f| \le \overline{F}$.  What it does cut
+is fictitious loss, meaning out-of-order segment fill or an inflated
+loss variable under non-positive prices [[33]](#ref33).  Neumann et al.
+use the same cap [[35]](#ref35).
+
+The cap is tighter than before when a decoupled `loss_envelope` lies
+**above** the flow cap.  It was $c_l E_l^2$ and is now the secant value
+at $\overline{F}$.  For `tangent_signed_flow` and the shared tangent
+layout it is now $c_l \overline{F}^2$ instead of
+$c_l \max(\overline{F}, E_l)^2$.  The cap alone does not remove
+fictitious loss: below the rated flow only $\varepsilon_l$, the overflow
+price or SOS2 do that.  With split allocation the relaxation is exact
+only while $\tfrac12(\pi_a + \pi_b) > 0$ [[36]](#ref36).  `full` / `sending` add a second bound that
+binds once the line is loaded, $\ell \le (\overline{F} - f)/a$.
+
+#### Dynamic Line Rating through Critical Spans (`Line.dlr`)
+
+A line with a `dlr` object carries a set $\mathcal{K}_l$ of **critical
+spans** — the spans whose conductor temperature limits the line
+[[9]](#ref9).  One representative span ($|\mathcal{K}_l| = 1$) is
+valid and common.  The span set is an input; how it is chosen is a
+pre-processing step outside the LP.
+
+**Heat balance.**  For span $k$ and block $b$, with the exogenous
+weather of that block (ambient temperature $T_a$, wind speed $V_w$ and
+direction, irradiance on the conductor $S$) and the maximum conductor
+temperature $T_s$, IEEE Std 738 [[38]](#ref38) gives the steady-state
+ampacity from
+
+$$ q_c + q_r \;=\; q_s + I^2\,R(T_s) $$
+
+with, in SI units (conductor diameter $D$, emissivity $\varepsilon$,
+absorptivity $\alpha$, air properties $\mu_f, \rho_f, k_f$ at the film
+temperature $T_f = (T_s + T_a)/2$ and the span elevation):
+
+$$ q_{c1} = K_\varphi\,(1.01 + 1.35\,Re^{0.52})\,k_f\,(T_s - T_a),\qquad
+   q_{c2} = K_\varphi\,0.754\,Re^{0.6}\,k_f\,(T_s - T_a) $$
+
+$$ q_{cn} = 3.645\,\rho_f^{0.5}\,D^{0.75}\,(T_s - T_a)^{1.25},\qquad
+   q_c = \max(q_{c1},\, q_{c2},\, q_{cn}) $$
+
+$$ q_r = 17.8\,D\,\varepsilon\,\Bigl[\bigl(\tfrac{T_s + 273}{100}\bigr)^4
+   - \bigl(\tfrac{T_a + 273}{100}\bigr)^4\Bigr],\qquad
+   q_s = \alpha\,S\,D $$
+
+where $Re = D\,\rho_f\,V_w / \mu_f$ and
+$K_\varphi = 1.194 - \cos\varphi + 0.194\cos 2\varphi + 0.368\sin 2\varphi$.
+The attack angle between wind and span axis is
+$\varphi = \bigl|((\text{dir} - \text{azimuth} + 90) \bmod 180) - 90\bigr|$,
+and $\varphi = \varphi_{lw}$ (`low_wind_angle`, default 45°) when
+$V_w <$ `low_wind_speed` (default 0.5 m/s; the direction is unreliable).
+$R(T)$ is linear: between the 25 °C and 75 °C values (extrapolated
+beyond), or $R(T) = k_{ac}\,R_{20}\,(1 + \alpha_R (T - 20))$ from the
+DC data-sheet form.  $S$ is the global horizontal irradiance used
+directly as absorbed flux (`solar_mode = ghi`, conservative; no
+sun-geometry model), or $S = 0$ under `solar_mode = none`.  Then
+
+$$ I_{k,b} = \sqrt{\max\!\bigl(0,\; (q_c + q_r - q_s)/R(T_s)\bigr)},
+   \qquad
+   T_{k,b} = \eta\,\sqrt{3}\,V\,v_{pu}\,\mathrm{pf}\,I_{k,b}\,n_{sub}/1000 $$
+
+in MW, with safety factor $\eta$, voltage $V$ [kV] and $n_{sub}$
+sub-conductors.  A precomputed per-span MW schedule (`rating`) replaces
+$T_{k,b}$ directly and is used verbatim ($\eta$, $v_{pu}$, pf, $n_{sub}$
+and $V$ apply only to the IEEE 738 path).  The ratings are per scenario:
+SDDP backward apertures (hydrology) reuse their scene's $T_{k,b}$.  When an emergency temperature is set, the same
+computation at $T_s^{e}$ gives $T^{e}_{k,b}$.
+
+Weather is data, so $T_{k,b}$ is a per-block right-hand side: the model
+stays an LP.  `model_options.use_line_dlr = false` switches every `dlr`
+block off (static `tmax`), and `dlr.use_emergency = false` drops the
+emergency tier.
+
+**`span_mode = min` (default).**  The effective rating is
+
+$$ \overline{T}_{l,b} \;=\; \min\Bigl(\min_{k\in\mathcal{K}_l} T_{k,b},\;
+   \overline{F}^{dir}_{l,b}\Bigr) $$
+
+applied exactly where $\overline{F}^{dir}$ is applied: the flow column
+bound under `flow` (and `linear`'s $\overline{T}/(1+a\lambda)$), the
+`thermalp` / `thermaln` rows under `sending` / `full`.  The static
+`tmax` stays an independent equipment cap.  The argmin span
+$k^*_b$ is recorded.  With an emergency tier and a positive
+`overload_penalty` in the block, the hard cap is
+$\min_k T^e_{k,b}$ and $\min_k T_{k,b}$ becomes the normal threshold
+$F^n$ of the overload band above (slack bound per
+`overload_slack_bound`, default $\min(T^e - T,\; 1.5\,T)$).
+
+**`span_mode = rows`.**  One row pair per span and block,
+
+$$ f_l^{dir} + a_l\,\ell_l^{dir} \;\le\; T_{k,b}
+   \qquad k \in \mathcal{K}_l,\; dir \in \{ab, ba\} $$
+
+with the same per-loss-mode left-hand side as the thermal rows (signed
+flow, segments, $(1+a\lambda) f$, …).  At build time a span with
+$T_{k,b} > \overline{T}_{l,b}$ is **dominated** in that block and its
+row is dropped (ties are kept), so the LP is the `min` LP plus at most
+the tied rows, and both modes have the same optimum.  Spans that are
+never critical are logged.
+
+**Loss envelope.**  The per-block DLR rating never drives the loss PWL:
+the segments keep the static `tmax` (or `capacity`, or `loss_envelope`)
+envelope.  Without any of them the stage envelope
+$1.05\,\max_b \min_k T^{(e)}_{k,b}$ stands in as the static cap and
+loss range, so the loss geometry is block-independent and identical in
+both span modes.
+
+**Duals.**  `Line/span_thermal_dual` reports $\partial z/\partial T_{k,b}$
+per span (keyed by span uid).  In `min` mode it is the dual of the
+effective cap attributed to $k^*_b$: the thermal row dual, or the flow
+reduced cost divided by its limit coefficient while the column sits at
+the DLR bound.  In `rows` mode it is the span row duals.  The
+overload-band row dual (emergency tier) is added to the normal-tier
+argmin span in both modes.  The sum over spans is the same in both
+modes; with ties, `rows` may split it between the tied spans.
 
 ### 5.6 Kirchhoff Voltage Law (DC OPF)
 
@@ -2955,8 +3202,176 @@ d_{\tau,s,t,b}^{\text{lng}} \;=\; \frac{D_{\tau,t}}{T_t}
 $$
 <!-- source: source/lng_terminal_lp.cpp:71-88 -->
 
-Volume bounds $\underline{V}_\tau \leq e_{\tau,s,t,b}^{\text{lng}} \leq \overline{V}_\tau$
-and initial/final conditions follow the generic storage template (§5.7).
+#### Bounds, Vent and Costs
+
+The deliveries are data: the column is fixed at the constant rate above
+(none when $D_{\tau,t} = 0$) and carries no cost, so the purchase cost
+of a scheduled cargo is a constant outside the objective.  The vent
+column exists only when `spillway_cost` $c^{\text{vent}}_\tau$ is set,
+with $0 \le \text{vent} \le \overline{\text{vent}}_\tau$
+(`spillway_capacity`, default 1000 m³/h).  The volume stays within the
+per-block bounds
+$\underline{V}_{\tau,t,b} \le e^{\text{lng}}_{\tau,s,t,b} \le \overline{V}_{\tau,t,b}$
+(`emin` / `emax`; the per-block floor is enforced while
+`model_options.strict_storage_emin` is true, the default).  The
+objective adds
+
+$$
+\pi_s\delta_t \sum_{b} \bigl( c^{e}_{\tau,t,b}\, e^{\text{lng}}_{\tau,s,t,b} +
+  \Delta_b\, c^{\text{vent}}_\tau\, \text{vent}_{\tau,s,t,b} \bigr) +
+  \pi_s\delta_t \bigl( c^{\text{sm}}_{\tau,t}\, s^{\text{sm}}_{\tau,s,t} +
+  c^{\text{fin}}_\tau\, s^{\text{fin}}_{\tau,s} \bigr)
+$$
+
+($c^e$ = `ecost`, charged once per block, not per hour) with the soft
+floor at the end of each stage and the final target at the end of the
+horizon:
+
+$$
+e^{\text{lng}}_{\tau,s,t,|\mathcal{B}_t|} + s^{\text{sm}}_{\tau,s,t} \ge V^{\text{sm}}_{\tau,t},
+\qquad
+e^{\text{lng}}_{\tau,s,T,|\mathcal{B}_T|} + s^{\text{fin}}_{\tau,s} \ge V^{\text{fin}}_\tau
+$$
+
+The soft-floor row exists only when `soft_emin` and `soft_emin_cost`
+are both positive; the final-target slack only when `efin_cost` > 0
+(otherwise the `efin` row is hard).  `sendout_min` / `sendout_max` are
+part of the JSON schema but are **not** written into the LP: the
+send-out $\sum_g \eta^{hr}_g p_g$ is bounded only by the generator limits.
+<!-- source: source/lng_terminal_lp.cpp:66-136, include/gtopt/storage_lp.hpp:835-1060 -->
+
+#### State Variable
+
+With `use_state_variable` (default true) the end-of-stage volume is
+shared with the next stage inside a phase and, at a phase boundary, is
+an SDDP state variable (the next phase's `sini` column is fixed to its
+trial value; the cuts carry its value).  The elastic filter prices a
+violation of that copy at `scost` (default
+`model_options.state_violation_cost`) × `mean_production_factor`
+(default 5 MWh/m³).  Without the state variable each stage is closed
+with $e_{\text{end}} = e_{\text{ini}}$.
+<!-- source: source/lng_terminal_lp.cpp:101-115, include/gtopt/storage_lp.hpp:1052-1084 -->
+
+#### Fuel Offtake Limits (Take-or-Pay)
+
+A `Fuel` $f$ with price $P_{f,t,b}$ gives each generator burning it
+$c_g = P_{f,t,b}\, h_g + c^0_g$ (`heat_rate` × `price` + `gcost`).
+`max_offtake` $\overline{O}_{f,t}$ and `min_offtake`
+$\underline{O}_{f,t}$ bound the fuel burnt by the generators
+$\mathcal{G}_f$ of the fuel over each stage:
+
+$$
+\sum_{b}\sum_{g\in\mathcal{G}_f} h_g \Delta_b\, p_{g,s,t,b} - s^{\max}_{f,s,t} \le \overline{O}_{f,t},
+\qquad
+\sum_{b}\sum_{g\in\mathcal{G}_f} h_g \Delta_b\, p_{g,s,t,b} + s^{\min}_{f,s,t} \ge \underline{O}_{f,t}
+$$
+
+The burn also includes the heat-rate segment legs and the no-load fuel
+of a committed unit.  The slacks exist only when `max_offtake_cost` /
+`min_offtake_cost` are set, at cost $\pi_s\delta_t c^{\max}_f$ /
+$\pi_s\delta_t c^{\min}_f$ per fuel unit; otherwise the rows are hard.
+With `max_offtake_per_block` / `min_offtake_per_block` the row is
+written per block with right-hand side $\overline{O}_{f,t}\Delta_b/T_t$
+(resp. $\underline{O}_{f,t}\Delta_b/T_t$) and one slack per block.  The
+floor is a take-or-pay minimum purchase, the cap an allotment; neither
+carries a shortfall or surplus to later periods (no make-up or
+carry-forward bank).
+<!-- source: source/fuel_lp.cpp:280-470, include/gtopt/fuel.hpp:206-305 -->
+
+#### Value of Stored Gas
+
+Let $\theta_{\tau,b}$ be minus the dual of the tank balance of block
+$b$ (objective decrease per extra m³); the reported
+`LngTerminal` energy-balance dual is $\vartheta_{\tau,b} = \theta_{\tau,b}/(\pi_s\delta_t)$ [\$/m³] (sign already flipped).
+Stationarity of $e^{\text{lng}}_b$, of the vent column and of a linked
+generator strictly between its bounds give
+
+$$
+\theta_{\tau,b} = (1-\lambda^h_\tau\Delta_{b+1})\,\theta_{\tau,b+1} -
+  \pi_s\delta_t\, c^e_{\tau,t,b} + \nu^{\text{lo}}_{\tau,b} - \nu^{\text{up}}_{\tau,b},
+\qquad
+\vartheta_{\tau,b} \ge -c^{\text{vent}}_\tau/\rho_\tau,
+\qquad
+\lambda^{\text{bus}}_{n(g),b} = c_g + \rho_\tau\,\eta^{hr}_g\,\vartheta_{\tau,b}
+$$
+
+so the dispatch cost of an LNG unit is the opportunity cost
+$\rho_\tau\eta^{hr}_g\vartheta$, not the cargo price.  At the end of an
+SDDP phase the volume is a cut state, and
+
+$$
+\theta_{\tau,\text{end}} = -\sum_k \upsilon_k\,\hat\mu_{k,\tau} -
+  \pi_s\delta_t c^e_\tau + \nu^{\text{lo}} - \nu^{\text{up}}
+$$
+
+with $\upsilon_k \ge 0$ the duals of the active cuts (summing to the
+objective weight of $\alpha$) and $\hat\mu_{k,\tau} \le 0$ their slopes
+on the tank volume (plus the `efin` dual in the last phase): the LNG
+water value.  In a single LP without cuts or a final target the
+leftover is worth nothing, and the LP burns or vents it before the end.
+
+- **Take-or-pay cargo** (fixed delivery, no LP cost): only
+  $\vartheta$ prices the gas: zero, or negative down to
+  $-c^{\text{vent}}/\rho$, while the tank must be emptied before a
+  deadline; up to the cost of the displaced generation when gas is
+  short.
+- **Purchasable gas** at price $c^{\text{sp}}$ through a priced inflow
+  $x \ge 0$ of the tank: $\rho\vartheta \le c^{\text{sp}}$, with
+  equality while $x > 0$.  `LngTerminal` has no such column; the
+  converter band tanks below do.
+- **Priced `Fuel` with offtake rows**: for a unit strictly between its
+  bounds, $\lambda^{\text{bus}} = c^0_g + h_g(P_f - \hat\nu^{\min}_f + \hat\nu^{\max}_f)$ with $\hat\nu = \nu/(\pi_s\delta_t)$.  A binding
+  ToP floor lowers the effective gas price (below zero if hard and the
+  gas has no other use); a soft floor bounds the reduction by
+  $c^{\min}_f$.  A binding cap adds the scarcity rent
+  $\hat\nu^{\max}_f \le c^{\max}_f$ (soft cap).
+
+#### Converter Gas Tanks (`plexos2gtopt`)
+
+`plexos2gtopt` models inflexible LNG cargoes and weekly gas allotments
+as **Reservoir** tanks (state variables) drained by one Turbine per unit
+with `production_factor` $=1/h_g$ and `flow_conversion_rate` $=1/24$
+(volume unit = fuel/24).  `--lng-inflexible-mode storage` keeps the
+fuel price and the source model's spill penalty; `offtake` (take-or-pay)
+zeroes the tank fuel's price, frees the spill, and lets $\vartheta$
+price the gas.  `--gas-bands-as-tanks {horizon,period}` turns each
+capped gas band into a tank fed by its allotment (`--gas-refill
+instant|ramp:<h>`), with `emax` = 0 at each deadline inside the horizon
+and a soft cap as a purchase Flow priced $P_f + c^{\max}_f$; with one
+allotment the objective equals the `Fuel` model,
+$(P_f+c^{\max}_f)x + P_f(V-T) = P_f u + c^{\max}_f x$ for
+$T = V + x - u$.  Each tank whose gas outlives the horizon gets its own
+future-cost variable (a `DecisionVariable` with raw cost 1 and a user
+constraint on the last block):
+
+$$
+\alpha^{\text{gas}}_\tau + g_\tau\, e_{\tau,\text{end}} \ge g_\tau V^{\text{use}}_\tau,
+\qquad \alpha^{\text{gas}}_\tau \ge 0
+$$
+
+i.e. future cost $g_\tau\max(0, V^{\text{use}}_\tau - e_{\tau,\text{end}})$
+and terminal value $\vartheta_{\text{end}} \in [0, g_\tau]$; $g_\tau$ is
+the band price × 24 or `--lng-inflexible-value {bundle,cuts,diesel}`,
+and $V^{\text{use}}$ is `--gas-usable capacity` (what the units can
+still burn before the deadline) or `full` (the end `emax`).  One
+$\alpha$ per tank is required: rows on one shared $\alpha$ give the
+max of the tank values, not their sum.  These future costs serve the
+single monolithic LP; under SDDP the tank values come from the cuts.
+Details: [plexos2gtopt](../scripts/plexos2gtopt.md).
+<!-- source: scripts/plexos2gtopt/_lng_inflexible.py, scripts/plexos2gtopt/_gas_tanks.py:114-153 -->
+
+#### Not Modelled
+
+Cargo arrivals are data everywhere above: choosing a cargo's arrival,
+buying an extra spot cargo or rescheduling a delayed one is **not** an
+LP/MIP decision in gtopt.  A possible extension (not implemented) is a
+binary $z_{k,t}$ per candidate cargo $k$ of size $Q_k$ and price
+$c^{\text{sp}}_k$, with $D_{\tau,t} = \sum_k Q_k z_{k,t}$, cost
+$c^{\text{sp}}_k Q_k z_{k,t}$ and contract rows such as
+$\sum_{t\in\mathcal{Y}}\sum_k z_{k,t} \ge N^{\min}$; under SDDP its
+integer stage problems would need convexified cuts.  Also not modelled:
+the terminal's regasification limits, linking its send-out to a
+`GasNode`, and make-up / carry-forward banks between contract periods.
 
 ### 5.14 bis Emission Zone, Cap, and Allowance-Pool Banking
 
@@ -3593,15 +4008,16 @@ $$
 $$
 \sum_{g\in n} x_g +
  \sum_{\ell:\,\to n} f^{out}_\ell - \sum_{\ell:\,n\to} f^{in}_\ell +
- \sum_{c:\,\to n} \Psi_c - \sum_{c:\,n\to} (1+\gamma^{ff}_c)\Psi_c -
+ \sum_{c:\,\to n} \Psi_c - \sum_{c:\,n\to} (1+\chi_c\gamma^{ff}_c)\Psi_c -
  \sum_{c:\,n\to}^{\text{gas drive}} LC_c -
  \sum_{k\in n} h_k P_k +
  \sum_{d\in n} u_d
 \;=\; \sum_{d\in n} D_d
 $$
 
-The dual of the balance row is the nodal gas price $\lambda_n$
-[\$/km³].  $c^{\varpi}_n$ (`pressure_cost`) is a tiny *negative*
+Here $\chi_c = 1$ for `drive: gas` and 0 for an electric drive (whose
+suction node supplies only $\Psi_c$).  The dual of the balance row is
+the nodal gas price $\lambda_n$ [\$/km³].  $c^{\varpi}_n$ (`pressure_cost`) is a tiny *negative*
 tie-break (e.g. $-10^{-4}$ \$/(bar² h)): among the LP-optimal
 dispatches it selects the highest pressure profile, i.e. the pressures
 of the exact Weymouth equation from the sources down.  Supplies
@@ -3791,6 +4207,9 @@ $$
 \qquad 0 \le \Psi \le \bar F
 $$
 
+`allow_bypass` defaults to true for `none` / `fixed_fraction` and false
+for `saldarriaga`; a `bidirectional` valve keeps both rows.
+
 Fuel (`fuel_model`):
 
 - `none`: no fuel (with $\bar\beta = 1$ and `allow_bypass` the station
@@ -3810,7 +4229,13 @@ LC \ge c_\Psi \Psi + c_\varpi(\varpi_{out} - r_0\varpi_{in}),
 \quad LC \ge 0
 $$
 
-  one row per `op_ratio` value $\beta_0$ (max of planes).  The `≥`
+  one row per `op_ratio` value $\beta_0$ (max of planes), with
+  $0 \le LC \le \bar F$.  Each plane is exact on the slice
+  $\beta = \beta_0$ (its pressure term vanishes there); elsewhere it
+  is a first-order approximation, not a bound: the fuel is concave in
+  the ratio (at the operating point each plane over-estimates it) and
+  bilinear in $(\Psi, r)$, so the max of planes is conservative along
+  the ratio and exact only on the listed slices.  The `≥`
   (instead of the thesis' equality) is tight whenever the plane is
   positive because fuel costs gas, and floors it at 0 where the plane
   would create gas.  Defaults: $\alpha = (\kappa-1)/\kappa = 0.2308$;
@@ -3820,7 +4245,8 @@ $$
 
 `drive: gas` draws $LC$ at the suction node; `drive: electric` adds
 $P^{el} \in [0, \bar P^{el}]$ (`power_max`) with coefficient $-1$ in
-the bus balance (§5.1) and $P^{el} = \kappa\, LC$,
+the bus balance (§5.1) and $P^{el} = \kappa\, LC$ (or
+$\kappa\gamma^{ff}\Psi$ for `fixed_fraction`),
 $\kappa = \text{LHV}\cdot\eta_{driver}/\eta_{motor}$ [MW per km³/h] (≈ 3.3).
 Fail-closed (§5.8): with the motor bus inactive, $\bar P^{el} = 0$, so
 the motor row forbids any compression work (no free power).
@@ -4845,8 +5271,8 @@ mathematical symbols used in this formulation.
 | `commitment_array[].hot_start_cost` | — | Startup cost when recently offline (\$/start) |
 | `commitment_array[].warm_start_cost` | — | Startup cost at medium offline (\$/start) |
 | `commitment_array[].cold_start_cost` | — | Startup cost when long offline (\$/start) |
-| `commitment_array[].hot_start_time` | — | Max offline hours for hot start (h) |
-| `commitment_array[].cold_start_time` | — | Min offline hours for cold start (h) |
+| `commitment_array[].hot_start_time` | — | Hot start when offline $<$ this (h) |
+| `commitment_array[].cold_start_time` | — | Cold start when offline $\geq$ this (h) |
 | `simple_commitment_array[].uid` | — | Unique identifier (deprecated alias of `commitment_array`, §5.16) |
 | `simple_commitment_array[].name` | — | Human-readable name |
 | `simple_commitment_array[].active` | — | Activation schedule (bool\|array\|string) |
@@ -4967,6 +5393,7 @@ and Matus, M. (2022). "Optimal Expansion and Reliable Renewable Energy
 Integration in Long-Term Planning Using FESOP." *2022 IEEE Kansas Power
 and Energy Conference (KPEC)*, pp. 1–5.
 DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781).
+Open access: [ResearchGate](https://www.researchgate.net/publication/358423681_Optimal_Expansion_and_Reliable_Renewable_Energy_Integration_in_Long-Term_Planning_Using_FESOP).
 
 > The foundational paper for the FESOP framework on which GTOpt is based.
 > Presents results of applying FESOP to analyze optimal expansion of the
@@ -5026,6 +5453,7 @@ Jiménez-Estévez, G., Palma-Behnke, R., Olguín, G., and Jorquera, P.
 Dynamic Thermal Rating." *IEEE Transactions on Power Delivery*, 27(2),
 pp. 1002–1009.
 DOI: [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254).
+Open access: [ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating), [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf).
 
 > Addresses dynamic thermal rating of transmission lines — the real-time
 > capacity assessment problem complementary to the long-term transmission
@@ -5287,6 +5715,80 @@ pp. 521–558.
 DOI: [10.1007/978-3-540-68783-2_16](https://doi.org/10.1007/978-3-540-68783-2_16).
 
 > Tangent-plane outer approximation of the Weymouth equation in an LP.
+
+<a id="ref33"></a>
+**[33]** Akinbode, O.W., and Hedman, K.W. (2013). "Fictitious losses in
+the DCOPF with a piecewise linear approximation of losses." *IEEE PES
+General Meeting*.
+DOI: [10.1109/PESMG.2013.6672235](https://doi.org/10.1109/PESMG.2013.6672235).
+
+> Out-of-order segment fill creates fictitious losses at non-positive
+> LMPs.
+
+<a id="ref34"></a>
+**[34]** Coffrin, C., Van Hentenryck, P., and Bent, R. (2012).
+"Approximating line losses and apparent power in AC power flow
+linearizations." *IEEE PES General Meeting*.
+DOI: [10.1109/PESGM.2012.6345342](https://doi.org/10.1109/PESGM.2012.6345342).
+
+> Directed end flows $p_{ij}, p_{ji}$ with the thermal limit at both
+> ends (PowerModels lossy DC models).
+
+<a id="ref35"></a>
+**[35]** Neumann, F., Hagenmeyer, V., and Brown, T. (2022). "Assessments
+of linear power flow and transmission loss approximations in coordinated
+capacity expansion problems." *Applied Energy*, 314, 118859.
+DOI: [10.1016/j.apenergy.2022.118859](https://doi.org/10.1016/j.apenergy.2022.118859).
+
+> Loss cap $\psi \le r\,\overline{P}^2$ and the capacity constraint
+> $|p| + \psi \le \overline{P}$ (implemented in PyPSA).
+
+<a id="ref36"></a>
+**[36]** Tosatto, A., Weckesser, T., and Chatzivasileiadis, S. (2020).
+"Market Integration of HVDC Lines: Internalizing HVDC Losses in Market
+Clearing." *IEEE Trans. Power Systems*, 35(1), pp. 451–461.
+DOI: [10.1109/TPWRS.2019.2932184](https://doi.org/10.1109/TPWRS.2019.2932184).
+
+> With split loss allocation the relaxation is exact iff
+> $\tfrac12(\pi_a + \pi_b) > 0$.
+
+<a id="ref38"></a>
+**[38]** IEEE Std 738-2012. "IEEE Standard for Calculating the
+Current-Temperature Relationship of Bare Overhead Conductors." IEEE,
+2013.
+
+> Steady-state heat balance used for the per-span DLR rating.
+
+<a id="ref39"></a>
+**[39]** U.S. Department of Energy (2014). Smart Grid Demonstration
+Program topical report on dynamic line rating.
+[PDF](https://www.energy.gov/sites/prod/files/2016/10/f34/SGDP_Transmission_DLR_Topical_Report_04-25-14.pdf).
+
+<a id="ref40"></a>
+**[40]** Oncor Electric Delivery (2014). Dynamic line rating case study,
+SmartGrid.gov.
+[PDF](https://smartgrid.gov:443/files/documents/Oncor_DLR_Case_Study_05-20-14_FINAL.pdf).
+
+<a id="ref41"></a>
+**[41]** Idaho National Laboratory. Dynamic line rating field
+experience (incl. AltaLink), OSTI 1375207.
+[Link](https://www.osti.gov/servlets/purl/1375207).
+
+<a id="ref42"></a>
+**[42]** EPRI (2025). Product 3002031444 on dynamic line rating.
+[Link](https://restservice.epri.com/publicdownload/000000003002031444/0/Product).
+
+<a id="ref43"></a>
+**[43]** ISO New England. Planning Procedure 7, capacity rating
+procedures.
+[PDF](https://www.iso-ne.com/static-assets/documents/rules_proceds/isone_plan/pp07/capacity_rating_procedures.pdf).
+
+<a id="ref44"></a>
+**[44]** NYISO (2020). NYTO 2019 tie-line ratings report.
+[PDF](https://www.nyiso.com/documents/20142/1402024/NYTO-2019-Tie-Line-Report-V01-2020-January-9.pdf/7029e9e9-3f76-5355-5646-8b1f18699750).
+
+> [39]–[44]: DLR gains reported in practice and emergency-rating
+> practice, behind the `max_overload_ratio` default.
 
 ### Classification and Surveys
 

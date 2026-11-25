@@ -139,14 +139,20 @@ solver configurations.
 | `use_single_bus` | bool | `false` | Collapse network to single bus (copper-plate) |
 | `use_kirchhoff` | bool | `true` | Apply DC Kirchhoff voltage-law constraints |
 | `use_line_losses` | bool | `true` | **Deprecated** — use `line_losses_mode` instead. Model resistive line losses (on/off) |
-| `line_losses_mode` | string | `"adaptive"` | Line loss formulation: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
+| `line_losses_mode` | string | `"adaptive"` | Line loss formulation: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"` (piecewise for fixed lines, bidirectional for expandable ones), `"dynamic"` (falls back to piecewise), `"piecewise_direct"`, `"tangent_signed_flow"`. Per-line `Line.line_losses_mode` overrides. See [formulation §5.5](formulation/mathematical-formulation.md) |
 | `kirchhoff_threshold` | float | `0.0` | Min bus voltage [kV] for Kirchhoff activation |
 | `kirchhoff_mode` | string | `"cycle_basis"` | KVL formulation: `"cycle_basis"` (loop flow) or `"node_angle"` (B–θ) |
 | `dc_line_reactance_threshold` | float | `1e-6` | Per-unit floor `\|X/V²\|` below which a line's KVL flow term is dropped (see `tiny_reactance_mode`); `0` disables |
 | `tiny_reactance_mode` | string | `"tie"` | Lines with `reactance` 0 or below `dc_line_reactance_threshold`: `"tie"` = zero-impedance tie, KVL forces the two bus angles equal (`θ_a − θ_b = φ`), flow free within `tmax`; `"dc"` = legacy free-flow DC link. Lines without `reactance` are always DC links |
 | `loss_segments` | int | `1` | Piecewise-linear segments for quadratic losses |
 | `loss_cost_eps` | float | `0.1` | $/MWh on line-loss columns (degeneracy breaker / negative-LMP arbitrage guard). Per-line `Line.loss_cost_eps` overrides; `0` disables. Inert for `none`/`linear`/`piecewise_direct` |
+| `loss_flow_abs_cost` | float | `0.001` | $/MWh (real units, before `scale_objective`) on the `tangent_signed_flow` abs-flow proxy columns `v` (Σv ≥ \|f\|). Degeneracy pin forcing Σv = \|f\| at the optimum, which keeps the secant chord on the losses anchored. Shifts LMP differences by at most ≈ its value per lossy line (flow direction). Applied only when `loss_cost_eps > 0`. Per-line `Line.loss_flow_abs_cost` overrides; `0` disables; `1e-6` reproduces the pre-option internal pin |
 | `loss_overflow_cost` | float | `demand_fail_cost` | $/MWh on the loss carried by the overflow tier past a decoupled `Line.loss_envelope` (flow between the envelope and `tmax`); stops the tier from being a free energy sink under negative bus prices. Genuine overloads pay it on their loss above `R·env²/V²`. Per-line `Line.loss_overflow_cost` overrides; `0` disables. Unset default: the case's `demand_fail_cost` (global `model_options` value; per-demand `fcost` is not consulted), itself 1000 when unset; 1000 with a warning when it is an explicit 0. Inert without headroom past the envelope |
+| `prev_stage_link` | string | `stage` | What a user-constraint `<attr>_prev` term reads at the first block of a stage whose previous stage is in the same phase: `stage` = that stage's last block; `none` = the constant 0 (legacy). The horizon start always reads `initial_<attr>` (e.g. `Generator.initial_generation`); a later-phase start reads 0 (see user-constraints.md). Also `--set model_options.prev_stage_link=none` |
+| `line_thermal_limit_mode` | string | `flow` | How the line thermal limit treats losses: `flow` (flow variable only, no extra row), `sending` (sending-end power `f + a·ℓ ≤ tmax`, `a` = sending-bus loss share), `full` (`f + ℓ ≤ tmax` per direction; PyPSA convention). Per-line `Line.line_thermal_limit_mode` overrides. Also `--set model_options.line_thermal_limit_mode=full` |
+| `overload_slack_bound` | string | `thermal` | Upper bound of the line overload slack (`overload_penalty` band): `thermal` = `min(hard − normal, max_overload_ratio × normal)` (DLR: IEEE 738 emergency − normal rating), `ratio` = `max_overload_ratio × normal`, `unbounded` = no bound. Per-line `Line.overload_slack_bound` overrides |
+| `max_overload_ratio` | number | `1.5` | Overload headroom as a fraction of the normal threshold (slack ≤ +150 %, flow ≤ 2.5 × normal). Per-line `Line.max_overload_ratio` overrides |
+| `use_line_dlr` | bool | `true` | Global switch for the dynamic line rating: `false` ignores every `Line.dlr` block and the lines keep their static `tmax` (static-vs-DLR comparisons). DLR via critical spans (Matus et al. 2012, DOI [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254); Open access: [ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating), [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)) and IEEE Std 738-2012 ampacity. Also `--set model_options.use_line_dlr=false` |
 | `scale_objective` | float | `1000` | Objective coefficient divisor |
 | `scale_theta` | float | auto | Voltage-angle enlargement: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians. `auto_scale = false` and unset ⇒ 1. Values < 1 shrink θ and log a warning (the meaning was inverted before 2026-11). A manual value always wins over auto (`theta_max` is still auto-computed); set it with `--set model_options.scale_theta=1000` or the converters' opt-in `--scale-theta FACTOR` (`plp2gtopt`, `plexos2gtopt`), which emit nothing by default |
 | `demand_fail_cost` | float | `1000` | Penalty $/MWh for unserved demand (value of lost load) for every demand without its own `fcost`. `0` = unpenalized (freely sheddable) load; for non-sheddable load set `Demand.forced = true`. See [Unserved-demand cost](input-data.md#unserved-demand-cost-and-hard-demand) |
@@ -182,7 +188,12 @@ configures the LP backend.
 | `time_limit` | float | -- | Wall-clock budget in seconds for the whole solve of one LP/MIP (0 = no limit): MIP-start stages and algorithm-fallback retries share it — each retry gets the remaining time and retries stop once < 1 s is left.  For a MIP with `mip_polish` on, min(5 % of the budget, 300 s) is reserved for the integer-fixed LP re-solve (the polish gets the remaining time, at least 10 s) |
 | `mip_polish` | bool | `true` | MIP only.  After the MIP stops — optimal, or non-optimal at a time / node / solution / memory limit or abort while holding a feasible incumbent — fix every integer column at its incumbent value and re-solve the remaining LP (CPLEX: `CPXPROB_FIXEDMILP`).  The reported objective, primal and duals are those of the fixed LP, which is never worse than the incumbent (on CEN PCP 2026-04-22 an incumbent of 3.06e9 polishes to 1.58e9).  Runs whether or not duals are written.  A limit stop stays non-optimal: the run still exits 1 and `solution.csv` reports status `5` / `limit_polished`; the log prints the incumbent and polished objectives.  If the fixed LP fails, the incumbent is kept and a warning is logged.  `false` reports the raw incumbent (and, on a limit stop, no duals) |
 | `scaling` | string | -- | Internal solver scaling strategy (nullopt = solver default): `"none"`, `"automatic"`, `"aggressive"` (or the codes `0` / `1` / `2`). See `SolverScaling` enum |
-| `crossover` | bool | `true` | Convert interior-point solution to a simplex basis for duals (only meaningful with `algorithm=barrier`) |
+| `crossover` | string | `"auto"` | Barrier only. `"auto"`, `"primal"`, `"dual"`: cross over to a vertex (basis, vertex duals); `"none"`: keep the interior point (interior duals, no basis, the next solve starts cold). HiGHS has one crossover, so `primal` / `dual` act like `auto` there. The SDDP forward pass picks `none` itself when nothing needs its basis (see `docs/solvers.md`); an explicit value always wins. Applied per solve: a `none` solve does not leave later solves of the same LP without crossover; set `none` in every pass's options to keep it off everywhere |
+| `barrier_solver` | string | `"auto"` | Which interior-point code runs `algorithm=barrier` (HiGHS only; other solvers ignore it). `"auto"`: HiPO (parallel) when HiGHS was built with HiPO, else IPX; `"hipo"`: HiPO (falls back to IPX like `auto`); `"ipx"`: IPX (serial), the barrier before HiPO builds. Also selects the IPM a HiGHS MIP falls back to (`mip_ipm_solver`) |
+| `mip_lp_algorithm` | string | -- | MIP only: algorithm of the root LP relaxation, `"default"`, `"primal"`, `"dual"` or `"barrier"` (the `barrier_solver` IPM on HiGHS). Unset: the solver default (HiGHS `mip_lp_solver=choose`; CPLEX `StartAlgorithm` untouched). HiGHS `mip_lp_solver`, CPLEX `CPX_PARAM_STARTALG`; other solvers ignore it |
+| `kappa_mode` | string | compiled default | Basis condition number read after each solve: `"estimate"` (HiGHS Hager estimate, CPLEX `CPX_KAPPA`), `"exact"` (HiGHS exact, one FTRAN per row, very slow on large LPs; CPLEX `CPX_EXACT_KAPPA`; for verification and studies), `"off"` (kappa is neither queried nor printed: no solver call, no `kappa` / `max_kappa` columns in `solution.csv`, no kappa in logs, stats or high-kappa warnings). Gurobi: `Kappa` / `KappaExact`; CLP: its dual-error proxy for both; MindOpt, SCIP, cuOpt have no kappa. Read once per solve. When unset: `$GTOPT_KAPPA_MODE`, else the compiled default (CMake `GTOPT_KAPPA_MODE_DEFAULT`; `auto` = `off` in release builds, `estimate` in Debug / CIFast; shown by `gtopt --version`). `run_gtopt --kappa-mode MODE` forwards it |
+| `cold_solve_without_basis` | bool | `true` | HiGHS: when `advanced_basis` is requested but the LP holds no basis yet (first SDDP forward solve of a cell), solve cold with the normal settings (`algorithm`, `presolve`). `false` applies the warm settings anyway (simplex, presolve off), the behaviour before 2026-11, 2-3x slower on CEN cells |
+| `mip_heuristic_effort` | float | -- | MIP only, HiGHS only: share of the MIP effort spent in primal heuristics, 0–1 (HiGHS default 0.05; 0.5 under `mip_start_effort: repair` unless this is set). Other solvers ignore it (use `param_file`) |
 | `max_fallbacks` | int | `2` | On non-optimal exit, cycle through barrier → dual → primal up to this many times. `0` disables fallback |
 | `param_file` | string | -- | Backend-native parameter file (CPLEX `.prm`, …), read before the typed fields above. A relative path is resolved against `input_directory` first (the case directory wins, so `"solvers/cplex.prm"` works when gtopt runs from an output directory); the working directory is only a fallback when the case has no such file.  The resolved path and which location supplied it are logged; a missing file is reported at WARN.  Unset: `<input_directory>/solvers/<solver>.prm` is used when it exists (auto-discovery) |
 
@@ -226,6 +237,9 @@ or JSON).
 | `kvl_row_clamp` | float | `100` | Clamp `c in [1/k, k]` of the KVL row factor |
 | `kvl_x_ref` | float | median(X/V²) | Reference `x_tau` of the KVL factor `c = x_ref / x_tau` (setting it also enables the factor) |
 | `compute_stats` | bool | `false` | Compute and log coefficient min/max/ratio during `flatten()` |
+| `label_meta_without_names` | bool | `false` | Keep each cell's label metadata even when LP names are off. Default drops it (diagnostics fall back to row / column indices); `true` restores the previous behaviour |
+| `share_label_meta` | bool | `true` | Share the label metadata between a cell's LP and its flat-LP snapshot; `false` restores the previous per-LP copy |
+| `drop_element_collections` | bool | `true` | SDDP / cascade under `low_memory_mode = off`: drop the disposable element wrappers after the build and rebuild them for output, as `compress` does; `false` keeps them resident (previous behaviour). Monolithic always keeps them |
 | `lp_coeff_ratio_threshold` | float | `1e7` | When global max/min coefficient ratio exceeds this, print a per-scene/phase breakdown |
 | `solver_name` | string | -- | Solver backend pin (`--solver` wins; beats `.gtopt.conf` `solver`, `$GTOPT_SOLVER` and plugin priority).  gtopt writes the solver it resolved here in `gtopt_state.json`, so replaying the snapshot uses the same backend |
 
@@ -372,6 +386,9 @@ penalty, so the target is silently unmet).  Details:
 | `state_variable_lookup_mode` | string | `"warm_start"` | Volume lookup for LP updates: `"warm_start"` or `"cross_phase"` |
 | `low_memory_mode` | string | `"compress"` (SDDP/cascade) / `"off"` (monolithic) | One of `off` or `compress` (`snapshot` and `rebuild` are back-compat aliases for `compress`; see SDDP docs §7.6) |
 | `memory_codec` | string | `"auto"` | Compression codec for `compress` mode (`auto` = zstd level 1, `lz4`, `snappy`, `zstd`, `gzip`, `none`) |
+| `release_backends` | bool | `false` | Under `low_memory_mode = off`, release each solver backend after its solve and rebuild it from an uncompressed flat-LP snapshot on the next visit, warm-starting from the saved basis (same as `compress` with `memory_codec = uncompressed`). `false` keeps every LP live |
+| `release_after_alpha` | bool | `true` | Release each low-memory backend right after α registration; `false` keeps them live until the post-initialisation sweep (previous behaviour) |
+| `free_solver_scratch` | bool | `true` | Under `off`, free the CPLEX / Gurobi / MindOpt copy-out getter buffers after each forward solve and each iteration; `false` keeps them (previous behaviour) |
 
 ### Work Pool Swap Gate
 
@@ -537,10 +554,14 @@ files.
 |-------|----------|-------------|
 | `planning_files` | positional / `-s` | System JSON file paths |
 | `solver` | `--solver` | LP solver backend |
-| `method` | `--method` | Planning method |
-| `demand_fail_cost` | `--demand-fail-cost` | Unserved demand penalty |
-| `scale_objective` | `--scale-objective` | Objective scaling factor |
+| *(start-up only)* | `--plugin-check` | What a failed solver-plugin integrity check does (`error` / `warning`) |
+| *(start-up only)* | `--config FILE` | Option-defaults file (instead of `$GTOPT_CONFIG` / `~/.gtopt.conf`) |
 | *(any option)* | `--set key=value` | Set any planning option (see below) |
+
+The full flag list is in the [Usage Guide](usage.md#command-line-reference).
+There are no `--method`, `--demand-fail-cost` or `--scale-objective`
+flags: use `--set method=sddp`, `--set model_options.demand_fail_cost=500`
+or `--set model_options.scale_objective=1000`.
 
 > **`--set` key=value**: all other options are now set via `--set`.
 > Examples: `--set use_single_bus=true`, `--set output_directory=results/`,
@@ -548,9 +569,10 @@ files.
 > `--set sddp_options.max_iterations=300`.
 >
 > **Deprecated aliases** (still work, emit a warning): `-b`, `-k`,
-> `-D`, `-F`, `-d`, `-f`, `-C`, `--algorithm`, `--threads`,
+> `-D`, `-F`, `-d`, `-f`, `-C`, `-a` / `--algorithm`, `-t` / `--threads`,
 > `--sddp-max-iterations`, `--sddp-min-iterations`,
-> `--sddp-convergence-tol`, `--lp-debug`, `--log-directory`,
+> `--sddp-convergence-tol`, `--sddp-elastic-penalty`,
+> `--sddp-elastic-mode`, `--lp-debug`, `--lp-error`, `--log-directory`,
 > `--cut-directory`, `--lp-compression`, `--lp-coeff-ratio`.
 
 ## Full JSON Example

@@ -352,17 +352,23 @@ Each startup is exactly one tier.
 
 #### C9: Hot Start Window
 
-$$y^{\text{hot}}_{g,t} \leq \sum_{q \in [\,t - T^{\text{hot}},\, t-1\,]} w_{g,q}$$
+$$y^{\text{hot}}_{g,t} \leq \sum_{q :\, D_{q,t} < T^{\text{hot}}} w_{g,q}$$
 
-A hot start is only possible if there was a recent shutdown within the hot
-time window.
+where $D_{q,t} = \sum_{k=q}^{t-1} \Delta_k$ is the offline time of a
+start at $t$ after a shutdown in period $q$ ($w_{g,q} = 1$: off from the
+start of $q$).  With hourly blocks the window is
+$q \in [\,t - T^{\text{hot}} + 1,\, t - 1\,]$.  A hot start is only
+possible after a shutdown less than `hot_start_time` hours earlier.
 
 #### C10: Warm Start Window
 
-$$y^{\text{warm}}_{g,t} \leq \sum_{q \in [\,t - T^{\text{cold}},\, t - T^{\text{hot}} - 1\,]} w_{g,q}$$
+$$y^{\text{warm}}_{g,t} \leq \sum_{q :\, T^{\text{hot}} \leq D_{q,t} < T^{\text{cold}}} w_{g,q}$$
 
+(hourly: $q \in [\,t - T^{\text{cold}} + 1,\, t - T^{\text{hot}}\,]$).
 A warm start requires a shutdown in the warm window (between hot and cold
-thresholds).
+thresholds).  A shutdown exactly `hot_start_time` (`cold_start_time`)
+hours before the start is warm (cold), the same thresholds as the
+initial-condition rule below.
 
 Cold start is the residual: when neither hot nor warm is feasible, the
 optimizer is forced to use $y^{\text{cold}}$ (the most expensive tier).
@@ -761,7 +767,9 @@ to exactly one generator via a foreign key.
 | `generator` | integer/string | **yes** | — | — | Foreign key to Generator (uid or name) |
 | `startup_cost` | real / array | no | 0 | $/start | Cost per startup event (stage-schedulable) |
 | `shutdown_cost` | real / array | no | 0 | $/stop | Cost per shutdown event (stage-schedulable) |
-| `noload_cost` | real | no | 0 | $/hr | Fixed hourly cost when committed |
+| `noload_cost` | real | no | 0 | $/hr | Fixed hourly cost when committed; charged per block (`noload_cost · u · duration`) on chronological and non-chronological stages |
+| `noload_fuel` | real | no | — | fuel unit/h | No-load fuel burn while committed; counted in fuel offtake limits and fuel-based emissions, not re-priced |
+| `pmin` | real / array | no | generator lower bound | MW | Minimum stable level while committed ($p \ge P_{\min} u$), per stage and block |
 | `min_up_time` | real | no | — | hours | Minimum time online after startup |
 | `min_down_time` | real | no | — | hours | Minimum time offline after shutdown |
 | `ramp_up` | real | no | — | MW/hr | Maximum ramp-up rate while online |
@@ -779,6 +787,10 @@ to exactly one generator via a foreign key.
 | `cold_start_cost` | real | no | — | $/start | Startup cost for cold start |
 | `hot_start_time` | real | no | — | hours | Maximum offline hours for hot start |
 | `cold_start_time` | real | no | — | hours | Minimum offline hours for cold start |
+| `initial_power` | real | no | `Generator.initial_generation`, else 0 | MW | Output before the first block, used by the first-block ramp rows |
+| `fixed_status` | real / array | no | — | — | Pin $u$ per stage and block (1 on, 0 off); unset blocks stay free; wins over `must_run` |
+| `max_starts` / `min_starts` | integer | no | — | starts | Hard bounds on the number of starts per `starts_scope` window |
+| `starts_scope` | string / integer | no | `horizon` | — | `hour`, `day`, `week`, `horizon`, or a window length in hours |
 
 **Notes**:
 - All fields except `generator` are optional.  Omitting a field disables the
@@ -937,7 +949,7 @@ Compare modes with the uplift tool (make-whole + lost-opportunity):
 
 ```bash
 for m in fixed relaxed fast_start; do
-  gtopt case.json --pricing-mode $m --output-directory out_$m
+  gtopt case.json --pricing-mode $m --set output_directory=out_$m
 done
 gtopt_pricing_uplift out_fixed out_relaxed out_fast_start --json-out uplift.json
 ```

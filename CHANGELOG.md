@@ -7,6 +7,372 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Numerical-stability monitor.** Tests that fail when a change worsens
+  the scaling or conditioning of the LP (docs/numerical-stability.md):
+  - `test_numerical_stability.cpp`: six canonical cases (Kirchhoff
+    network, battery, hydro, piecewise losses, UC with ramps, capacity
+    expansion). Matrix / objective / RHS / bound ranges per case, no
+    tiny or huge matrix entries, default scaling never wider than
+    `--no-scale`, and per-solver kappa baselines (HiGHS, CPLEX).
+  - `gtopt_check_output --numerics`: runs a case, dumps its LPs and
+    checks kappa, SDDP kappa growth and cut-coefficient range, the LP
+    ranges, cell status and solver numerical warnings against
+    `integration_test/numerics/numerical_stability_baselines.json`;
+    `--update-baselines` rewrites it, `--top N` lists the entries that
+    drive the matrix range.  CTest label `numstab` (three small cases,
+    default set); the CEN 2-year case (first phase) runs with
+    `GTOPT_NUMERICS_TESTS=ON` and `GTOPT_CASES_DIR`.
+- **Dynamic line rating (DLR) through critical spans.** A line can now
+  carry a `dlr` object with one or more critical spans (one
+  representative span is enough). Each span has a per-block weather
+  forecast: ambient temperature, wind speed and direction, and global
+  horizontal solar irradiance. For every block gtopt computes the span's
+  ampacity with the IEEE Std 738 steady-state heat balance, converts it
+  to MW and limits the line flow by it. The weather is input data, so
+  the model stays linear.
+  - `span_mode = "min"` (default) applies the minimum over the spans
+    wherever `tmax` applies today. `"rows"` adds one limit row per span
+    and block instead, and drops the rows of spans that cannot bind.
+    Both give the same optimum.
+  - `tmax_conductor_emergency` adds an emergency rating: above the
+    normal rating the flow pays `overload_penalty`, up to the emergency
+    rating.
+  - A precomputed per-span MW schedule (`rating`) can replace the
+    weather.
+  - Every behaviour is an option: `model_options.use_line_dlr` (default
+    `true`; `false` ignores every `dlr` block for static-vs-DLR runs),
+    `dlr.use_emergency`, `dlr.safety_factor`, `dlr.v_pu`,
+    `dlr.power_factor`, the low-wind rule (`low_wind_speed`, default
+    0.5 m/s, and `low_wind_angle`, default 45°) and `dlr.solar_mode`
+    (`ghi`, the default, uses the irradiance as absorbed flux `α·S·D`;
+    `none` ignores the sun). The conductor resistance can be given as
+    `r25`/`r75` or as `r20` + `alpha_r` + `ac_factor`.
+  - The overload slack of every line (`overload_penalty` band) is now
+    bounded: `overload_slack_bound = "thermal"` (default) caps it at
+    `min(hard − normal, max_overload_ratio × normal)` — on DLR lines the
+    IEEE 738 emergency minus normal rating, the conductor's thermal
+    headroom. `"ratio"` uses `max_overload_ratio × normal`, and
+    `"unbounded"` keeps the old open slack. `max_overload_ratio`
+    defaults to 1.5 (flow ≤ 2.5 × normal), well above reported DLR gains
+    (DOE SGDP 2014: +10–25 %; up to ~40 % at windy sites, 50–72 %
+    outliers; EPRI 2025: DLR below static 30–40 % of the time). Both
+    options can be set per line and in `model_options`. The span duals
+    stay well defined when the flow sits exactly at the emergency
+    rating.
+  - New outputs: `Line/dlr_rating_sol`, `Line/critical_span_sol` and
+    `Line/span_thermal_dual` (the value of one more MW of rating on each
+    span).
+  - The span selection method is Matus, Saez, Favley, Suazo-Martinez,
+    Moya, Jimenez-Estevez, Palma-Behnke, Olguin and Jorquera,
+    "Identification of Critical Spans for Monitoring Systems in Dynamic
+    Thermal Rating", IEEE Trans. Power Delivery 27(2):1002–1009, 2012,
+    DOI 10.1109/TPWRD.2012.2185254 (open access: [ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating),
+    [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)). Selecting the spans is done outside
+    gtopt. The ampacity follows IEEE Std 738-2012.
+  - The input reference now also documents the existing Line fields
+    `tmax_normal_ab` / `tmax_normal_ba`, `overload_penalty`,
+    `in_service` and `enforce_level`.
+- **`dlr2gtopt`: dynamic line rating inputs.** A new script builds the
+  `dlr` object of a gtopt Line. It goes from tower coordinates to spans,
+  per-span hourly weather, the IEEE 738 ampacity and the critical spans
+  of Matus et al. (IEEE TPWRD 2012), then writes the per-block weather
+  or rating schedules.
+  - Tower sources: the CEN Infotécnica structure lists, OpenStreetMap,
+    or a CSV/KML file.
+  - Weather sources: the Explorador Eólico 1 km WRF hindcast,
+    interpolated to each span (bilinear in space, log or power law in
+    height, direction through u/v), Open-Meteo forecasts, or ECMWF
+    open data.
+  - `critical-spans` always writes the full ρ(n) curve, with the
+    equidistant benchmark.
+  - Every choice is an option, and downloads are cached and polite. See
+    `scripts/dlr2gtopt/README.md` for the data licences.
+- **Line thermal limit with losses.** The new option
+  `line_thermal_limit_mode` sets how a line's limit (`tmax_ab` /
+  `tmax_ba`, and the installed capacity of expandable lines) treats its
+  losses. It can be set per line or in `model_options`; a per-line value
+  wins.
+  - `flow` (default): only the flow is limited. Results do not change.
+  - `full`: adds `flow + loss ≤ tmax` in each direction.
+  - `sending`: limits the power leaving the sending bus, which is the
+    flow plus the part of the loss charged there (see
+    `loss_allocation_mode`).
+  - With `sending` or `full`, the normal-rating band (`tmax_normal_ab` /
+    `tmax_normal_ba` with `overload_penalty`) also counts the loss: the
+    penalty is paid on `flow + loss` (or the sending-end share) above the
+    normal rating, for every loss model. Under `flow` the band is
+    unchanged.
+- **Line limit shadow prices in the output.** `Line/thermalp_dual` and
+  `Line/thermaln_dual` hold the duals of the `sending` / `full` limit
+  rows, and `Line/capacityp_dual` / `Line/capacityn_dual` the duals of
+  the installed-capacity rows of expandable lines, in $/MWh. Under
+  `sending` / `full` the congestion rent of a full line moves from
+  `flow_cost` to `thermalp_dual` / `thermaln_dual`.
+- gtopt now checks that each solver plugin it loads is the one built
+  with it and that it runs with the solver library it was compiled
+  against.  It compares the plugin's build-id with the
+  `<plugin>.so.build-id` manifest written next to it, the plugin's
+  gtopt build with its own, and the solver version the plugin was
+  compiled against with the version of the library loaded at run time
+  (for example an old `libhighs.so.1` found through `LD_LIBRARY_PATH`).
+  The new option `--plugin-check warning|error` (environment variable
+  `GTOPT_PLUGIN_CHECK`) decides what a failed check does: `warning`
+  logs it and loads the plugin; `error` refuses it.  See
+  `docs/solvers.md`, "Plugin integrity".
+- `gtopt --solvers` shows, for each plugin, its path, build-id and
+  build tag, and for each solver the compiled and run time library
+  versions and the path of the solver library actually loaded.
+- **`run_gtopt` dashboard and plain mode.**
+  - `--ui {auto,tui,plain}` (`--no-tui` / `--plain` = `plain`): the
+    live dashboard on a terminal, line-oriented output for CI, pipes
+    and editors.  `--no-color` (or `NO_COLOR`) now works, and `--ascii`
+    (or `GTOPT_TUI_ASCII=1`, automatic on non-UTF-8 locales) draws the
+    dashboard with ASCII characters only.
+  - SDDP progress shows the gap against `convergence_tol`, the phase
+    being solved and an ETA; objective values use SI suffixes; the log
+    panel colours lines by level and folds repeats; a compact layout is
+    used below 100 columns or 40 rows; `o` shows where the run's files
+    are.
+  - When gtopt ends, the last frame stays on screen with a summary and
+    a banner that reflects the real outcome (converged, not converged,
+    stopped, failed or killed), the output, log and status paths, and,
+    after an infeasibility, the error LP files with the
+    `gtopt_check_lp` command to analyse them.
+  - Plain mode prints one line per SDDP iteration and a heartbeat every
+    30 s.
+  - `--fail-on-not-converged` exits with 4 when gtopt succeeded but SDDP
+    did not converge.
+  - `--attach` without an argument attaches to the only live run.
+  - `--list-checks` prints each check with its stage and default.
+  - `--solver NAME` is forwarded to gtopt; the conversion output flag
+    is now `--convert-dir` (`-o` / `--output-dir` still work).
+  - What gtopt prints on its own stdout / stderr is saved under
+    `<output>/logs/` and shown when a run fails.
+  - Ctrl-C asks for a graceful stop first, then terminates, then kills.
+
+  See `docs/scripts-guide.md`, "run_gtopt".
+- **gtopt refuses a HiGHS other than the pinned release at run time.**
+  The HiGHS plugin carries `GTOPT_HIGHS_PIN_VERSION` (1.16.0, the version
+  the goldens are generated with); when the `libhighs` loaded at run time
+  is another release (e.g. the distro 1.12), the plugin is refused with
+  the found and expected versions, the library path and how to fix it,
+  and `--solver highs` fails instead of using another solver.  It only
+  warns when the plugin was built with `-DGTOPT_HIGHS_ALLOW_UNPINNED=ON`
+  (as `install.sh` does), with `GTOPT_HIGHS_ALLOW_UNPINNED=1`, or under
+  `--plugin-check=warning`.  `gtopt --solvers` shows the pin.  An
+  unavailable solver requested by name now also lists why its plugin was
+  refused.  See `docs/solvers.md`, "Solver version pin (HiGHS)".
+- **gtopt refuses a foreign solver library even when it reports the right
+  version.** Each plugin records, at build time, the GNU build-id (else
+  the SHA-256) of every shared library it links; at load gtopt compares
+  it with the solver library actually mapped in the process.  A fake
+  `libhighs.so.1` found through `LD_LIBRARY_PATH`, an `LD_PRELOAD` that
+  interposes the solver's functions, or a library replaced in place is
+  refused with the loaded and expected path and build-id (overrides:
+  `GTOPT_<SOLVER>_ALLOW_UNPINNED=1` or `--plugin-check=warning`; a
+  plugin built with `-DGTOPT_HIGHS_ALLOW_UNPINNED=ON` still refuses a
+  foreign library).  Applies to every plugin with a shared solver
+  library; statically linked solvers (CPLEX) report `static`.  See
+  `docs/solvers.md`, "Solver library identity".
+- **New CMake option `GTOPT_SOLVER_LIB_FULL_HASH` (default `OFF`).** When
+  `ON`, each plugin also records the SHA-256 of every linked solver
+  library and gtopt hashes the loaded library file at start: a modified
+  copy that kept the original build-id is refused (`SHA256 MISMATCH`).
+  `gtopt --solvers` shows whether it is active and `sha256 verified`.
+- **Fixed: the LP fingerprint SHA-256 was not standard SHA-256** (the
+  message schedule's sigma1 shifted by 2 instead of 10).  `sha256_hex()`
+  is now FIPS 180-4 (checked against the NIST vectors) and shared with
+  the solver-library identity check; LP fingerprint hashes (`col_hash`,
+  `row_hash`, `structural_hash`) change value and now agree with
+  `gtopt_check_fingerprint` (Python `hashlib`).  No fingerprint goldens
+  are stored in the repository.
+- **`GTOPT_SOLVER` naming a refused plugin is now an error.** When the
+  solver named by `GTOPT_SOLVER` belongs to a plugin refused by an
+  integrity check (build-id, build tag, version, shadowing, HiGHS pin),
+  gtopt fails like an explicit `--solver` (same error, exit code 3)
+  instead of silently falling back to another solver.  A solver with no
+  plugin still warns and falls back.  `GTOPT_SOLVER_FALLBACK_ON_REFUSED=1`
+  restores the fallback for refused plugins.
+
+- **New solver options `barrier_solver`, `mip_lp_algorithm` and
+  `mip_heuristic_effort`**, settable in `solver_options`,
+  `sddp_options.forward_solver_options` / `backward_solver_options`,
+  `monolithic_options.solver_options` and with `--set`.
+  `barrier_solver` (`auto`, `ipx`, `hipo`; HiGHS) picks the
+  interior-point code of `algorithm: barrier` and of a HiGHS MIP's IPM
+  fallback; `auto` is the previous behaviour, and `ipx` restores the
+  serial IPX on a HiGHS built with HiPO. `mip_lp_algorithm`
+  (`default`, `primal`, `dual`, `barrier`) sets the MIP root LP
+  algorithm (HiGHS `mip_lp_solver`, CPLEX `StartAlgorithm`);
+  `mip_heuristic_effort` (0-1, HiGHS) the share of MIP effort spent in
+  heuristics. All three are unset by default, which keeps each
+  solver's own default.
+- **Cascade levels take their own solver options**:
+  `cascade_options.level_array.N.sddp_options.forward_solver_options`
+  and `backward_solver_options` override the optional solver fields
+  (tolerances, `mip_gap`, `time_limit`, `barrier_solver`, …) for that
+  level.
+
+### Changed
+
+- `run_gtopt` no longer forces `snappy` output compression: the case's
+  `output_compression` (or gtopt's default, `zstd`) is used unless `-C`
+  is given.  `-l` for `--log-level` is deprecated (in gtopt `-l` means
+  `--lp-file`).
+- `gtopt --help`: `--sddp-num-apertures` now describes the actual
+  behaviour (unset = every aperture of the phase, `0` = none,
+  `N` = the first `N`).
+
+- **New option `loss_flow_abs_cost` (default 0.001 $/MWh).** In
+  `tangent_signed_flow` the abs-flow proxy columns (Σv ≥ |f|) carry a
+  small cost that makes Σv = |f| at the optimum and keeps the secant
+  chord on the losses anchored.  It was an internal constant of
+  1e-6 $/MWh, which became 1e-9 in the LP after `scale_objective =
+  1000`: below the solvers' tolerances, so it could fail to pin, and it
+  stretched the objective range (9 decades on `line_loss_envelope`).
+  It is now a user option in real $/MWh, in `model_options` and per
+  line, default 0.001 (1e-6 in the LP).  It applies only when
+  `loss_cost_eps > 0`, as before.  Effect on results: the price
+  difference across a lossy line moves by at most about 0.001 $/MWh
+  in the flow direction, and the objective rises by about
+  0.001 · Σ|f| on those lines.  `loss_flow_abs_cost: 1e-6` reproduces
+  the old LP exactly; `0` disables the pin.
+- **Solver plugins that fail the integrity check are now refused by
+  default.** The default of `--plugin-check` is `error` (it was
+  `warning`): a plugin from another build tree, a stale install, a
+  plugin without its `.so.build-id` manifest, or a solver library
+  shadowed through `LD_LIBRARY_PATH` is not loaded.  The default is
+  set at build time with the new CMake option
+  `GTOPT_PLUGIN_CHECK_DEFAULT` (`error` or `warning`, checked at
+  configure time); `$GTOPT_PLUGIN_CHECK` overrides it and
+  `--plugin-check` overrides both.  `gtopt --help`, `gtopt --version`
+  and `gtopt --solvers` show the effective mode and where it comes
+  from.  Plugins built and installed with the same gtopt load as
+  before.  To load a mismatched plugin anyway, pass
+  `--plugin-check=warning` or set `GTOPT_PLUGIN_CHECK=warning`.  The CI
+  artifact now ships each plugin's `.so.build-id` manifest.
+- **Lower SDDP memory.** On the CEN 2y case (CPLEX, 18 scenes x 52
+  phases, 3 iterations) peak RSS drops from 26.2 to 23.2 GiB under
+  `low_memory_mode: off` and from 4.5 to 2.5 GiB under `compress`, with
+  identical bounds. Each low-memory backend is released right after
+  alpha registration; the copy-out scratch of the CPLEX, Gurobi and
+  MindOpt plugins is freed after each forward solve; compressed buffers
+  are exact-size; with LP names off no label metadata is kept at all
+  (with names on it is shared with the snapshot instead of copied);
+  and SDDP / cascade under `off` drop the disposable element
+  collections, rebuilding them for `write_out`. LP files and names are
+  unchanged when names or LP-file output are on. Every reduction has an
+  option that restores the previous behaviour:
+  `lp_matrix_options.label_meta_without_names` (default `false`),
+  `lp_matrix_options.share_label_meta` (default `true`),
+  `lp_matrix_options.drop_element_collections` (default `true`),
+  `sddp_options.release_after_alpha` (default `true`) and
+  `sddp_options.free_solver_scratch` (default `true`).
+- New option `sddp_options.release_backends` (default `false`): under
+  `low_memory_mode: off`, release each solver backend after its solve and
+  rebuild it from an uncompressed snapshot, warm-starting from the saved
+  basis, as `compress` does. `false` keeps every LP live.
+- `plp2gtopt` no longer writes `low_memory_mode: off`, so gtopt's
+  `compress` default applies unless the PLP source sets a mode.
+
+- **Tighter cap on line losses.** A line's loss can no longer exceed
+  what the loss model gives at the line's maximum flow. Before, the cap
+  could be up to `(loss_envelope / tmax)²` times larger when
+  `loss_envelope` was above `tmax`. The extra room only served fictitious
+  losses under negative prices. Results change only for lines with
+  `loss_envelope` above `tmax`.
+
+- The run log's `solver=highs/<version>` and `solver=clp/<version>` now
+  give the version of the solver library loaded at run time, not the
+  version of the headers the plugin was compiled with.
+- HiGHS: without an explicit `threads`, a MIP now uses every physical
+  core (HiGHS 1.16 runs one tree-search worker per thread); an LP keeps
+  4 threads.  Before, every solve was capped at 4.
+- HiGHS 1.16.0 is the reference version, for its parallel MIP solver
+  (on by default) and its MIP and presolve fixes: CI builds it, and
+  `install.sh` builds it from source when the distribution package is
+  older (Ubuntu 26.04 and Debian 13 ship 1.12.0).  The optional
+  `highspy` dependency of `gtopt_check_lp` requires 1.16 or later.
+- **HiGHS is built with HiPO, its parallel interior-point solver.**
+  `install.sh` and CI build HiGHS 1.16 with `-DHIPO=ON
+  -DBUILD_OPENBLAS=ON`, so `algorithm: barrier` runs HiPO (multithreaded
+  ordering, normal equations and factorisation) instead of the serial
+  IPX. A HiGHS without HiPO still works and runs IPX. See `BUILDING.md`
+  and the HiGHS section of `docs/solvers.md`.
+
+### Fixed
+
+- **HiGHS SDDP runs are several times faster.** The HiGHS plugin asked
+  HiGHS for the exact basis condition number after every solve, one
+  FTRAN per basis row: on the CEN 2y case that was about 75 % of the
+  HiGHS CPU time, and a backward pass took 6-8x longer than with CPLEX.
+  It now reads the Hager estimate (as CPLEX's `CPX_KAPPA`). New option
+  `kappa_mode` for every solver: `estimate` (default), `exact` (the old
+  HiGHS computation, for diagnostics; CPLEX `CPX_EXACT_KAPPA`, Gurobi
+  `KappaExact`) or `off` (kappa is neither queried nor printed: no
+  solver call, no `kappa` / `max_kappa` columns in `solution.csv`, no
+  kappa in logs or high-kappa warnings). Kappa is now read once per
+  solve instead of up to three times. When `kappa_mode` is unset,
+  `$GTOPT_KAPPA_MODE` applies, else the compiled default: new CMake
+  option `GTOPT_KAPPA_MODE_DEFAULT` (`auto`: `off` in release builds,
+  `estimate` in Debug and CIFast), printed by `gtopt --version`. The
+  integration tests set `GTOPT_KAPPA_MODE=exact`; `run_gtopt
+  --kappa-mode MODE` passes the mode to gtopt. `solution.csv` readers
+  (`gtopt_check_cases`, `gtopt_shared`) accept files without the kappa
+  columns. With the
+  presolve fix below, a HiGHS SDDP backward pass on a large hydrothermal
+  case is about twice as fast as before, with the same bounds.
+- A HiGHS warm-start request (`advanced_basis`) with no basis to start
+  from, such as the first forward solve of each SDDP cell, now solves
+  cold with presolve. It used to turn presolve off, which made the cold
+  dual simplex 2-3x slower. `cold_solve_without_basis: false` restores
+  the old behaviour.
+- HiGHS: `crossover` is applied on every solve. Once a solve had used
+  `crossover: none`, every later barrier solve of the same LP (an SDDP
+  backward re-solve, for example) also ran without crossover, and
+  returned interior duals and no basis where a vertex was requested.
+  To keep crossover off on every solve, set `crossover: none` in every
+  pass's solver options.
+
+- `gtopt .` and `gtopt ..` now find the case JSON named after the
+  directory (e.g. `gtopt .` inside `ieee_9b/` uses `ieee_9b.json`);
+  they used to look for `..json` and fail.
+- Expandable lines using `piecewise` losses with the `tangent` layout
+  now respect their installed capacity. Before, their flow was limited
+  only by `tmax`.
+
+- An LP already proven infeasible is no longer reported as an abandoned
+  solve because a later algorithm in the fallback cycle gave up on it.
+  With HiGHS 1.15, whose interior point solver fails without presolve
+  on some infeasible LPs, SDDP counted infeasible apertures as solver
+  failures.
+- HiGHS solver errors no longer abort the solve with an exception: they
+  are reported as an abandoned solve, so the algorithm fallbacks still
+  run.
+- SDDP apertures whose solve is abandoned or ends non-optimal (not
+  proven infeasible, not timed out) are retried once from scratch
+  before being dropped.  The per-phase aperture log reports how many
+  were retried and recovered.
+- A turbine whose generator has zero capacity no longer turns its
+  waterway into a free spillway: dropping the generator also dropped the
+  conversion row that kept the turbine flow at zero, so water could pass
+  through an offline turbine at no cost.  The flow is now fixed at zero
+  (turbines with `drain` may still pass water).
+- Destroying the LP-name spill store could deadlock: the stop request
+  was not made under the worker's mutex, so the worker could miss the
+  wake-up and wait forever.
+- Commitment startup tiers now use the same offline-time thresholds
+  for a unit that shut down inside the horizon as for one that was
+  already off before it: hot when offline `< hot_start_time`, warm
+  when `hot_start_time ≤` offline `< cold_start_time`, cold otherwise.
+  Before, a start exactly `hot_start_time` (`cold_start_time`) hours
+  after an in-horizon shutdown was priced hot (warm), one tier cheaper
+  than documented.  Results can change for units restarting exactly at
+  a tier boundary.
+
+
 ## [1.2.0] - 2026-11-24
 
 GTOpt 1.2.0 adds natural-gas networks, a much richer reserve and

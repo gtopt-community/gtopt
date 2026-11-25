@@ -290,9 +290,11 @@ sudo apt-get install -y libhighs-dev highs   # `highs` is needed by the package'
 On Ubuntu 24.04, build from source:
 
 ```bash
-git clone --depth 1 --branch v1.12.0 https://github.com/ERGO-Code/HiGHS.git /tmp/HiGHS
+git clone --depth 1 --branch v1.16.0 https://github.com/ERGO-Code/HiGHS.git /tmp/HiGHS
 cmake -S /tmp/HiGHS -B /tmp/HiGHS/build \
   -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_SHARED_LIBS=ON -DFAST_BUILD=ON -DBUILD_TESTING=OFF \
+  -DHIPO=ON -DBUILD_OPENBLAS=ON -DCMAKE_INSTALL_LIBDIR=lib \
   -DCMAKE_INSTALL_PREFIX=/usr/local
 cmake --build /tmp/HiGHS/build -j$(nproc)
 sudo cmake --install /tmp/HiGHS/build
@@ -304,17 +306,35 @@ Verify:
 
 ```bash
 ls /usr/local/include/highs/Highs.h
+grep '#define HIPO' /usr/local/include/highs/HConfig.h   # HiPO compiled in
 ```
 
-**Reference version: HiGHS 1.12.0.**  CI (`ubuntu.yml`, via
-`.github/actions/install-highs`) builds exactly this tag, `install.sh`
-builds it on releases without a package, and it is the `libhighs-dev`
-of Ubuntu 26.04 / Debian 13.  Tests that compare HiGHS primal values
-(goldens) are only guaranteed against 1.12.0: other releases may return
-a different vertex of the same optimal face, and the duals differ too
-(1.15.0 changes `efin_cost`, `eini_cost` and bus/converter duals of
-`cases/bat_4b_24` and `cases/exp_bat_4b_24`).  The `cases/*/output_highs/`
-goldens are generated with 1.12.0, and CI re-runs the e2e cases with
+**HiPO (parallel interior point).**  `-DHIPO=ON` builds HiGHS's
+factorisation-based interior-point solver, the one gtopt runs for
+`algorithm: barrier` (HiGHS option `solver=ipm` picks HiPO when it is
+available, otherwise the older, serial IPX).  HiPO needs BLAS:
+`-DBUILD_OPENBLAS=ON` fetches OpenBLAS 0.3.30 from GitHub and builds it
+(DYNAMIC_ARCH, so the result runs on any x86-64; it adds a few minutes to
+the build).  To use an installed OpenBLAS instead, drop
+`-DBUILD_OPENBLAS=ON` and pass `-DBLAS_LIBRARIES=/path/libopenblas.so`.
+HiPO's dependencies go into `libhighs_extras.so`, loaded at run time from
+the directory of `libhighs.so` (with `libopenblas.so`), so keep the three
+together.  Without HiPO everything still works; `barrier` then runs IPX.
+Licensing: a HiGHS built with HiPO is Apache-2.0 (it embeds METIS and AMD)
+instead of MIT; both are compatible with gtopt's licences.  The apt
+`libhighs-dev` package has no usable HiPO (the HiGHS docs advise against
+it: its METIS is not thread safe); CI and `install.sh`'s source build use
+the flags above (`install.sh` still takes a distribution package that is
+at least the pinned release, which then runs `barrier` with IPX).
+
+**Reference version: HiGHS 1.16.0.**  CI (`ubuntu.yml`, via
+`.github/actions/install-highs`) builds exactly this tag, and `install.sh`
+builds it whenever the distribution package is older (Ubuntu 26.04 /
+Debian 13 ship `libhighs-dev` 1.12.0).  Tests that compare HiGHS primal
+values (goldens) are only guaranteed against 1.16.0: other releases may
+return a different vertex of the same optimal face or different duals.
+The `cases/*/output_highs/` goldens are checked against 1.16.0, and CI
+re-runs the e2e cases with
 `GTOPT_SOLVER=highs` against them.  Bump all three places together and
 regenerate the `output_highs/` goldens with the new version.
 
@@ -449,6 +469,13 @@ network connection).  Disable individual components by passing `-D<OPTION>=OFF`:
 | `GTOPT_BUILD_GUISERVICE` | `ON` | Python ≥ 3.10 (auto-skipped with warning if absent) |
 | `GTOPT_BUILD_DOCS` | `OFF` | Doxygen + internet (m.css theme) |
 
+Build-behaviour options:
+
+| CMake option | Default | Effect |
+|---|---|---|
+| `GTOPT_PLUGIN_CHECK_DEFAULT` | `error` | What a failed solver-plugin integrity check does when neither `--plugin-check` nor `$GTOPT_PLUGIN_CHECK` is set: `error` refuses a plugin from another build, a stale install or a shadowed solver library; `warning` logs it and loads the plugin.  Any other value fails the configure step.  See [docs/solvers.md](docs/solvers.md), "Plugin integrity". |
+| `GTOPT_KAPPA_MODE_DEFAULT` | `auto` | The basis condition number (`kappa_mode`) used when neither the options (`solver_options.kappa_mode`, `--set`) nor `$GTOPT_KAPPA_MODE` set it: `auto` = `off` when `NDEBUG` is defined (Release, RelWithDebInfo, MinSizeRel), `estimate` otherwise (Debug, CIFast); or `off`, `estimate`, `exact`.  `off` means kappa is neither queried nor printed.  Any other value fails the configure step.  `gtopt --version` prints the effective mode and its source.  The integration tests run with `GTOPT_KAPPA_MODE=exact`.  See [docs/planning-options.md](docs/planning-options.md). |
+
 Example – build only the solver binary and Python scripts:
 
 ```bash
@@ -517,9 +544,49 @@ cmake -S standalone -B build -DCMAKE_INSTALL_PREFIX=/opt/gtopt
 cmake -S standalone -B build -DHIGHS_ROOT_DIR=$HOME/.local
 ```
 
+gtopt pins HiGHS to `GTOPT_HIGHS_PIN_VERSION` (1.16.0, the version CI
+builds in `.github/actions/install-highs` and the goldens are generated
+with).  `HIGHS_ROOT_DIR` defaults to `$HIGHS_ROOT_DIR`, else
+`~/opt/highs-1.16.0` when it exists, else `/opt/highs`.  Configuring
+against any other HiGHS version is an error, because another HiGHS can
+end on another optimal vertex of a degenerate LP and fail the dual/cost
+goldens; pass `-DGTOPT_HIGHS_ALLOW_UNPINNED=ON` to build against it
+anyway (`install.sh` does, for user installs that take a newer distro
+HiGHS).
+
+The pin is also baked into the HiGHS plugin and checked when it loads:
+if the `libhighs` loaded at run time is not exactly the pinned release
+(for example the distro `/usr/lib/x86_64-linux-gnu/libhighs.so` 1.12
+picked up instead of the one the plugin was built with), gtopt refuses
+the plugin and HiGHS is unavailable; `--solver highs` then fails with the
+found and expected versions and the library path.  It only warns when
+the plugin was built with `-DGTOPT_HIGHS_ALLOW_UNPINNED=ON`, when
+`GTOPT_HIGHS_ALLOW_UNPINNED=1` is set in the environment, or under
+`--plugin-check=warning`.  See [docs/solvers.md](docs/solvers.md),
+"Solver version pin (HiGHS)".  Every plugin also records the build-id
+of the solver libraries it links (needs `readelf`, from binutils; without
+it the SHA-256 of the file is recorded) and refuses a different library
+at run time ("Solver library identity" in the same document): after
+upgrading a solver library in place, rebuild gtopt.  The identity check
+is not relaxed by `-DGTOPT_HIGHS_ALLOW_UNPINNED=ON` (only by
+`GTOPT_HIGHS_ALLOW_UNPINNED=1` or `--plugin-check=warning`).  Configure
+with `-DGTOPT_SOLVER_LIB_FULL_HASH=ON` (default `OFF`) to also record the
+SHA-256 of every linked solver library and verify the content of the
+loaded file at each start (refuses a modified copy that kept the
+build-id; costs one hash of each solver library per process start).  Configure with an empty
+`-DGTOPT_HIGHS_PIN_VERSION=` to build an unpinned plugin.
+
 LP solver backends are selected at runtime via `--lp-solver`, not at build
 time. All detected solver plugins (`libgtopt_solver_*.so`) are built
 automatically when their dependencies are found.
+
+Each plugin is linked with `--build-id`, and after every link CMake writes
+its build-id to `libgtopt_solver_<name>.so.build-id` next to it (with
+`readelf`); the file is installed with the plugin.  gtopt refuses a plugin
+that does not match this manifest, and one whose solver library version
+differs from the headers it was compiled with.  See "Plugin integrity" in
+[docs/solvers.md](docs/solvers.md).  When copying plugins by hand, copy
+the `.build-id` file too.
 
 ### Hardening flags
 

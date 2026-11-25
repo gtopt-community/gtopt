@@ -244,6 +244,12 @@ Line flow is bounded by transfer capacities:
 -\overline{F}^{ba}_\ell \leq f_{\ell,s,t,b}
   \leq \overline{F}^{ab}_\ell
 \end{equation}
+With dynamic line rating the limit varies per block: the line lists its
+critical spans~\cite{matus2012criticalspans}, each with a weather
+forecast, and the per-block limit is the minimum over the spans of the
+IEEE~738 steady-state ampacity~\cite{ieee738_2012} converted to MW.
+Weather is data, so the limit stays a right-hand side and the model
+remains linear.
 
 \paragraph{Loop-flow formulation and switching.}
 Besides the angle-based form~\eqref{eq:kirchhoff}, Kirchhoff's voltage
@@ -675,14 +681,14 @@ pumping waterway.  Economic optimality (round-trip efficiency
 $< 1.0$) prevents simultaneous generation and pumping without
 explicit binary exclusivity constraints.
 
-\subsection{LNG Terminal}
+\subsection{LNG Terminal and Fuel Contracts}
 \label{sec:lng}
 
-An \texttt{LngTerminal} element $\tau \in \setLNG$ models an
-LNG storage tank whose inventory is coupled to gas-fired generators
-through their heat rates.  The tank volume balance mirrors the battery
-SoC equation (Section~\ref{sec:battery}) with delivery inflow and
-boil-off:
+An \texttt{LngTerminal} element $\tau \in \setLNG$ models an LNG tank
+whose inventory is drawn by the gas-fired generators
+$\mathcal{G}_\tau$ linked to it through their heat rates.  It reuses
+the storage template of Section~\ref{sec:battery}, with the deliveries
+as inflow, venting as drain and boil-off as standing loss:
 \begin{multline}
 \label{eq:lng_balance}
 v_{\tau,s,t,b}^{\text{lng}}
@@ -690,29 +696,89 @@ v_{\tau,s,t,b}^{\text{lng}}
   + \rho_\tau \Delta_b \, d_{\tau,s,t,b}^{\text{lng}} \\
   - \rho_\tau \Delta_b \, \text{vent}_{\tau,s,t,b}
   - \rho_\tau \Delta_b
-      \sum_{g \in \mathcal{G}_\tau} \kappa_g^{hr} \, p_{g,s,t,b}
+      \sum_{g \in \mathcal{G}_\tau} \kappa_g^{hr} \, p_{g,s,t,b},
 \end{multline}
 where $v_{\tau,s,t,b}^{\text{lng}}$ [m\textsuperscript{3}] is the tank
-volume, $\lambda_\tau^h = \lambda_\tau / 8760$ is the per-hour
-boil-off rate, $\rho_\tau$ is a dimensionless unit-conversion factor
-(default~1.0, used when delivery is in m\textsuperscript{3}/h and volume
-in m\textsuperscript{3} so that $\rho_\tau \cdot \Delta_b \cdot d$ has
-units m\textsuperscript{3}),
-$d_{\tau,s,t,b}^{\text{lng}}$ is the delivery inflow, $\text{vent}$
-is a vented-gas variable penalized at `spillway\_cost', and
-$\kappa_g^{hr}$ [m\textsuperscript{3}/MWh] is the heat rate of each
-linked generator $g \in \mathcal{G}_\tau$.
+volume at the end of block~$b$ (for $b = 1$, the last block of the
+previous stage, or the initial volume $V^{\text{ini}}_\tau$ in the
+first stage), $\lambda_\tau^h = \lambda_\tau / 8760$ is the hourly
+boil-off rate, $\rho_\tau$ a unit-conversion factor (default~1, flows
+in m\textsuperscript{3}/h), and $\kappa_g^{hr}$
+[m\textsuperscript{3}/MWh] the heat rate of the linked generator~$g$.
+The last term is a coefficient $\rho_\tau \kappa_g^{hr} \Delta_b$ on
+the generation column in the tank row; there is no separate send-out
+column.  The deliveries are data, a column fixed at a constant rate
+over the stage,
+\begin{equation}
+\label{eq:lng_delivery}
+d^{\text{lng}}_{\tau,s,t,b} = D_{\tau,t} / T_t ,
+\end{equation}
+with $D_{\tau,t}$ the volume delivered in stage~$t$; the column carries
+no cost, so the purchase cost of a scheduled cargo is a constant outside
+the objective.  The vent column exists only when a vent penalty
+$c^{\text{vent}}_\tau$ is given, and then
+$0 \leq \text{vent}_{\tau,s,t,b} \leq \overline{\text{vent}}_\tau$
+(default 1000~m\textsuperscript{3}/h).  The volume stays within the
+per-block bounds
+$\underline{V}_{\tau,t,b} \leq v^{\text{lng}}_{\tau,s,t,b} \leq
+\overline{V}_{\tau,t,b}$.  The terminal adds to the objective
+\begin{multline}
+\label{eq:lng_cost}
+\pi_s \delta_t \sum_{b \in \setB_t} \bigl(
+  c^{e}_{\tau,t,b}\, v^{\text{lng}}_{\tau,s,t,b}
+  + \Delta_b\, c^{\text{vent}}_\tau\, \text{vent}_{\tau,s,t,b} \bigr) \\
++ \pi_s \delta_t \bigl( c^{\text{sm}}_{\tau,t}\, s^{\text{sm}}_{\tau,s,t}
+  + c^{\text{fin}}_\tau\, s^{\text{fin}}_{\tau,s} \bigr),
+\end{multline}
+divided by $\sigma$ as every cost, where $c^{e}$ [\$/m\textsuperscript{3}]
+is a holding cost charged once per block, and the slacks belong to a
+soft floor at the end of each stage and to the final target at the end
+of the horizon:
+\begin{align}
+v^{\text{lng}}_{\tau,s,t,|\setB_t|} + s^{\text{sm}}_{\tau,s,t}
+  &\geq V^{\text{sm}}_{\tau,t}, \label{eq:lng_soft_emin} \\
+v^{\text{lng}}_{\tau,s,|\setT|,|\setB_{|\setT|}|} + s^{\text{fin}}_{\tau,s}
+  &\geq V^{\text{fin}}_\tau . \label{eq:lng_efin}
+\end{align}
+Each slack exists only when its cost is positive; otherwise the row is
+hard (or, for~\eqref{eq:lng_soft_emin}, absent).  The regasification
+limits of the input schema (\texttt{sendout\_min},
+\texttt{sendout\_max}) are not written into the LP: the send-out
+$\sum_g \kappa_g^{hr} p_g$ is bounded only by the generator limits.
 
-The last term is implemented by injecting a coefficient
-$-\rho_\tau \kappa_g^{hr} \Delta_b$ onto each generator's generation
-variable in the existing tank balance row.  Volume bounds and
-initial/final conditions follow the generic storage template.  The
-delivery schedule is fixed to a constant hourly rate
-$d_{\tau,s,t,b} = D_{\tau,t} / T_t$ across each stage.
+The end-of-stage volume is a state variable by default.  Within a phase
+the next stage reuses the same column; at a phase boundary it is an
+SDDP state variable whose trial value is copied into the initial
+column of the next phase and whose cut coefficients carry the value of
+stored gas between phases (Section~\ref{sec:lng_value}).  The elastic
+filter of Section~\ref{sec:sddp} prices a violation of that copy at the
+state cost times an energy content (\texttt{mean\_production\_factor},
+default 5~MWh/m\textsuperscript{3}).  Without the state variable each
+stage is closed with its final volume equal to its initial volume.
 
-This formulation enables the optimizer to manage fuel inventory (buy
-decisions and storage costs) jointly with economic dispatch, capturing
-supply security constraints and seasonal LNG price dynamics.
+\paragraph{Fuel contracts.}
+A \texttt{Fuel}~$f$ with price $P_{f,t,b}$ gives every generator that
+burns it the cost $c_g = P_{f,t,b}\, h_g + c^0_g$, with $h_g$ its heat
+rate and $c^0_g$ its own variable cost.  Offtake limits bound the fuel
+burnt by the set $\setG_f$ of those generators over each stage:
+\begin{align}
+\sum_{b \in \setB_t} \sum_{g \in \setG_f} h_g \Delta_b\, p_{g,s,t,b}
+  - s^{\max}_{f,s,t} &\leq \overline{O}_{f,t},
+  \label{eq:fuel_max} \\
+\sum_{b \in \setB_t} \sum_{g \in \setG_f} h_g \Delta_b\, p_{g,s,t,b}
+  + s^{\min}_{f,s,t} &\geq \underline{O}_{f,t},
+  \label{eq:fuel_min}
+\end{align}
+where the burn $h_g p_g$ also includes the heat-rate segment and no-load
+fuel terms of a committed unit.  The cap is a delivery allotment, the
+floor the minimum purchase of a take-or-pay (ToP) contract.  The slacks
+cost $\pi_s\delta_t c^{\max}_f$ and $\pi_s\delta_t c^{\min}_f$ per
+fuel unit and exist only when those penalties are given; otherwise the
+rows are hard.  An option enforces either row per block instead, with
+the right-hand side pro-rated by $\Delta_b/T_t$ and one slack per
+block.  Shortfalls and surpluses are not carried to later periods: the
+make-up and carry-forward banks of multi-year ToP contracts are not
+modelled.
 
 \subsection{Unit Commitment}
 \label{sec:uc}
@@ -1143,6 +1209,11 @@ C33 & Line pack                     & \eqref{eq:gas_linepack_bal} & $a,s,t,b$ \\
 C34 & Compressor ratio              & \eqref{eq:gas_ratio}        & $c,s,t,b$ \\
 C35 & Compressor fuel plane         & \eqref{eq:gas_fuel_plane}   & $c,s,t,b$ \\
 C36 & Plant pressure gate / derate  & \eqref{eq:gas_gate}         & $g,s,t,b$ \\
+C37 & Linearised Weymouth (meshed) & \eqref{eq:gas_linearized}   & $a,s,t,b$ \\
+C38 & SLP proximal row              & \eqref{eq:gas_proximal}     & $a,s,t,b$ \\
+C39 & Compressor electric motor     & \eqref{eq:gas_motor}        & $c,s,t,b$ \\
+C40 & LNG soft floor / final target & \eqref{eq:lng_efin}         & $\tau,s,t$ \\
+C41 & Fuel offtake cap / ToP floor  & \eqref{eq:fuel_max}         & $f,s,t$ \\
 \bottomrule
 \end{tabular}
 \end{table}

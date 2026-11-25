@@ -502,8 +502,9 @@ The GTOpt core is **dual-licensed**: AGPL-3.0-or-later with the
 [commercial license](LICENSE-COMMERCIAL.md). The Extension SDK (the
 solver-plugin interface headers) is Apache-2.0, so plugins and apps may use
 any licence. See [`LICENSING.md`](LICENSING.md) and
-[`TRADEMARKS.md`](TRADEMARKS.md). Third-party components keep their own
-licences; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+[`TRADEMARKS.md`](TRADEMARKS.md). Third-party components, data and
+documents keep their own licences; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 Copyright (c) 2024-2026 Marcelo Matus and [contributors](AUTHORS).
 

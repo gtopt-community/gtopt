@@ -1081,6 +1081,7 @@ components), no integrated DC OPF or expansion planning.
 - Buitrago Villada, M. P. et al. (2022). "Optimal Expansion and Reliable
   Renewable Energy Integration Using FESOP." *IEEE KPEC*.
   DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781)
+  Open access: [ResearchGate](https://www.researchgate.net/publication/358423681_Optimal_Expansion_and_Reliable_Renewable_Energy_Integration_in_Long-Term_Planning_Using_FESOP).
 
 ---
 

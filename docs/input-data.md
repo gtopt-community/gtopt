@@ -69,7 +69,13 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `line_losses_mode`     | string  | `"adaptive"` | --         | Line-loss model: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
 | `loss_segments`        | integer | `1`       | --            | Number of piecewise-linear segments for quadratic line losses (1 = linear) |
 | `loss_cost_eps`        | number  | `0.1`     | $/MWh         | Cost on the line-loss columns: breaks bidirectional-flow degeneracy and blocks loss arbitrage under negative LMPs. Per-line `Line.loss_cost_eps` overrides; `0` disables. Inert for `none`/`linear`/`piecewise_direct` |
+| `loss_flow_abs_cost`   | number  | `0.001`   | $/MWh         | Pin on the `tangent_signed_flow` abs-flow proxy columns (Σv ≥ \|f\|): forces Σv = \|f\| at the optimum. Shifts LMP differences by at most ≈ its value per lossy line. Only when `loss_cost_eps > 0`. Per-line `Line.loss_flow_abs_cost` overrides; `0` disables; `1e-6` = legacy internal pin |
 | `loss_overflow_cost`   | number  | `demand_fail_cost` | $/MWh         | Price on the loss carried by the overflow tier past a decoupled `Line.loss_envelope` (flow between the envelope and `tmax`): closes the overflow energy sink under negative bus prices; genuine overloads pay it on their loss above `R·env²/V²`. Per-line `Line.loss_overflow_cost` overrides; `0` disables. Unset default: the case's `demand_fail_cost` (global `model_options` value; per-demand `fcost` is not consulted), itself 1000 when unset; 1000 with a warning when it is an explicit 0. |
+| `prev_stage_link` | string | `stage` | —        | `<attr>_prev` at the first block of a stage whose previous stage is in the same phase: `stage` = that stage's last block, `none` = 0 (legacy) |
+| `overload_slack_bound` | string | `thermal` | — | Default `Line.overload_slack_bound`: `thermal` = `min(hard − normal, max_overload_ratio × normal)`, `ratio`, `unbounded` |
+| `max_overload_ratio` | number | 1.5 | — | Default `Line.max_overload_ratio` (slack ≤ ratio × normal). A guard rail above reported DLR gains (+10–25 % typical, ~40 % at windy sites, 50–72 % outliers; see the formulation refs [39]–[44]) |
+| `use_line_dlr` | boolean | `true` | — | Global DLR switch: `false` ignores every `Line.dlr` block (static `tmax` applies), for static-vs-DLR comparisons. Also `--set model_options.use_line_dlr=false` |
+| `line_thermal_limit_mode` | string | `flow` | —        | Default for `Line.line_thermal_limit_mode`: `flow` limits the flow variable only (no extra row); `sending` limits the sending-end power `f + a·ℓ`; `full` adds `f + ℓ ≤ tmax` per direction. Per-line value overrides |
 | `use_kirchhoff`        | boolean | `true`    | --            | Enable DC Kirchhoff voltage-law constraints |
 | `use_single_bus`       | boolean | `false`   | --            | Collapse network to a single bus (copper-plate model) |
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
@@ -301,6 +307,8 @@ time with a warning.
 | Field                 | Type      | Default   | Description |
 |-----------------------|-----------|-----------|-------------|
 | `apertures`           | int array | *(absent)*| Aperture UIDs for backward pass. Absent = use per-phase `apertures`. Empty `[]` = pure Benders. Non-empty = use exactly these UIDs |
+| `num_apertures`       | integer   | *(absent)*| Apertures per phase taken from `Phase.apertures`: absent = all, `0` = none (pure Benders), `N` = first `N`. CLI `--sddp-num-apertures` |
+| `aperture_selection_mode` | string | `"head"` | Which `num_apertures` entries are taken: `head` (first N, the wettest with `plp2gtopt` ordering), `stride` (evenly spaced), `tail` (last N) |
 | `aperture_directory`  | string    | `""`      | Directory for aperture-specific scenario data (empty = use `input_directory`) |
 | `aperture_timeout`    | number    | `30.0`    | Timeout in seconds for individual aperture LP solves (0 = no timeout) |
 | `save_aperture_lp`    | boolean   | `false`   | Save LP files for infeasible apertures to `log_directory` |
@@ -350,13 +358,14 @@ See [Cascade Method](methods/cascade.md) for full documentation, and
 [SDDP Solver -- S10](methods/sddp.md#10-cascade-solver--multi-level-hybrid-solver)
 for a summary.
 
-The `cascade_options` object contains three top-level fields:
+The `cascade_options` object contains these top-level fields:
 
 | Field           | Type   | Description |
 |-----------------|--------|-------------|
 | `model_options` | object | Global `ModelOptions` defaults for all levels |
 | `sddp_options`  | object | Global `SddpOptions` defaults for all levels. `max_iterations` here is the global budget across all levels |
-| `level_array`   | array  | Array of `CascadeLevel` objects. When empty or omitted, a built-in 4-level default is used |
+| `level_array`   | array  | Array of `CascadeLevel` objects. When empty or omitted, a single level with the global options is run (plain SDDP) |
+| `write_level_outputs` | boolean | `false` (default): only the last active level writes results. `true`: every intermediate level also writes a full output set (results, `solution.csv`, cuts, `solver_status.json`, `level_summary.json`) to `<output_directory>/<level name>/`. See [Cascade Method](methods/cascade.md) |
 
 Each element in the `level_array` is an object with the following optional
 fields:
@@ -683,9 +692,12 @@ scenario** whose affluent data (flow bounds) are applied to the cloned
 phase LP before solving. Apertures allow the backward pass to sample
 a different set of scenarios than the forward pass.
 
-When no `aperture_array` is provided, the SDDP solver falls back to
-the legacy behaviour controlled by `sddp_num_apertures` (first N
-scenarios or all scenarios).
+When no `aperture_array` is provided, the backward pass builds a plain
+Benders cut from the forward solution (no apertures), unless
+`sddp_options.apertures` lists UIDs: then one aperture is synthesised
+per listed UID from the first scenarios.  `sddp_options.num_apertures`
+selects how many entries of each phase's `Phase.apertures` list are
+used: unset = all, `0` = none, `N` = the first `N`.
 
 | Field                | Type    | Units | Required | Description |
 |----------------------|---------|-------|----------|-------------|
@@ -846,13 +858,31 @@ A transmission line connecting two buses.
 | `resistance`       | number\|array\|string| Ω (p.u.)    | No       | Series resistance. Use Ω when voltage is in kV; p.u. when voltage is omitted |
 | `reactance`        | number\|array\|string| Ω (p.u.)    | No       | Series reactance (DC power flow). Use Ω when voltage is in kV; p.u. when voltage is omitted. Susceptance: $B = V^2 / X$. Omit for a DC/HVDC link (no KVL). `0` or `\|X/V²\|` below `dc_line_reactance_threshold` is a zero-impedance tie forcing equal bus angles (unless `tiny_reactance_mode = "dc"`) |
 | `lossfactor`       | number\|array\|string| p.u.        | No       | Lumped loss factor |
+| `line_losses_mode` | string              | —            | No       | Loss model of this line (`none`, `linear`, `piecewise`, `bidirectional`, `adaptive`, `dynamic`, `piecewise_direct`, `tangent_signed_flow`); unset inherits `model_options.line_losses_mode` |
+| `loss_segments`    | integer             | —            | No       | Piecewise-linear segments of the quadratic loss curve; unset inherits `model_options.loss_segments` (1) |
+| `loss_pwl_layout`  | string              | —            | No       | Segment layout of the loss approximation: `uniform` (default), `equal_error`, `tangent`, `midpoint` |
+| `loss_allocation_mode` | string          | —            | No       | Bus that carries the loss: `receiver` (default), `sender`, or `split` (half at each end) |
+| `loss_envelope`    | number\|array\|string| MW          | No       | Flow range over which the loss segments are spread (e.g. the original rating when `tmax` is lifted). Unset = `max(tmax_ab, tmax_ba)`. It never caps the flow: between `loss_envelope` and `tmax` losses stay quadratic and are priced by `loss_overflow_cost` |
+| `loss_secant_segments` | integer         | —            | No       | `tangent_signed_flow` only: secant segments of the loss chord (default 1); unset inherits `model_options.loss_secant_segments` |
+| `loss_use_sos2`    | boolean             | —            | No       | `tangent_signed_flow` only: SOS2 fill order on the secant segments (needs a MIP solver; default `false`) |
+| `use_line_losses`  | boolean             | —            | No       | **Deprecated** — use `line_losses_mode` (`false` = `none`) |
 | `loss_cost_eps`    | number              | $/MWh        | No       | Per-line price on the line-loss columns; overrides `model_options.loss_cost_eps` (default 0.1). Set ≥ ½·\|π_a + π_b\| on corridors where the end-bus prices can sum negative to block loss arbitrage; `0` disables. Inert for `none`/`linear`/`piecewise_direct` |
+| `loss_flow_abs_cost` | number            | $/MWh        | No       | Per-line `tangent_signed_flow` abs-flow pin; overrides `model_options.loss_flow_abs_cost` (default 0.001). Only when the line's `loss_cost_eps > 0`; `0` disables |
 | `loss_overflow_cost` | number            | $/MWh        | No       | Per-line overflow-tier price; overrides `model_options.loss_overflow_cost` (default: the case's `demand_fail_cost`). Charged per MWh of loss carried between `loss_envelope` and `tmax`; `0` disables. Inert when `tmax ≤ loss_envelope` |
+| `line_thermal_limit_mode` | string       | —            | No       | How the thermal limit treats losses: `flow` (flow variable only), `sending` (sending-end power `f + a·ℓ`, `a` = sending-bus loss share of `loss_allocation_mode`) or `full` (`f + ℓ ≤ tmax`). Also folded into the capacity rows of expandable lines. Unset inherits `model_options.line_thermal_limit_mode` |
 | `type`             | string              | —            | No       | Element type tag; use `"transformer"` for transformers |
 | `tap_ratio`        | number\|array\|string| p.u.        | No       | Off-nominal tap ratio τ (default 1.0). A tap-changing transformer with τ ≠ 1 has effective susceptance $B/\tau$. Supports per-stage schedule. |
 | `phase_shift_deg`  | number\|array\|string| degrees     | No       | Phase-shift angle φ in degrees (default 0). Models a Phase-Shifting Transformer (PST); shifts the Kirchhoff constraint RHS by $-\sigma_\theta \cdot \phi_{\text{rad}}$. |
 | `tmax_ab`          | number\|array\|string| MW          | No       | Max flow in A→B direction |
 | `tmax_ba`          | number\|array\|string| MW          | No       | Max flow in B→A direction |
+| `tmax_normal_ab`   | number\|array\|string| MW          | No       | Soft (normal) A→B threshold. With `overload_penalty > 0`, flow above it (up to `tmax_ab`) pays the penalty; ignored when unset or `≥ tmax_ab` |
+| `tmax_normal_ba`   | number\|array\|string| MW          | No       | Soft (normal) B→A threshold (same semantics as `tmax_normal_ab`) |
+| `overload_penalty` | number\|array\|string| $/MWh       | No       | Price per MWh of flow above `tmax_normal_*` (per-(stage, block), weighted by block duration like any energy cost). `0` / unset: no overload columns |
+| `overload_slack_bound` | string          | —            | No       | Upper bound of the overload slack: `thermal` (default: `min(hard − normal, max_overload_ratio × normal)` — on DLR lines the IEEE 738 emergency minus normal rating; ratio alone without a finite hard cap), `ratio` (`max_overload_ratio × normal`) or `unbounded`. Unset inherits `model_options.overload_slack_bound` |
+| `max_overload_ratio` | number            | —            | No       | Overload headroom as a fraction of the normal threshold (default 1.5: slack ≤ +150 %, flow ≤ 2.5 × normal). Unset inherits `model_options.max_overload_ratio` |
+| `in_service`       | integer\|array\|string| —          | No       | Per-(stage, block) in-service flag (PLEXOS `Units`): `0` opens the line for that block — no flow column, loss, balance or KVL contribution. Default: in service |
+| `enforce_level`    | integer             | —            | No       | Legacy PLEXOS `Enforce Limits` (0/1/2). Kept for backward compatibility; a no-op — the flow cap is always enforced (express soft limits with `tmax_normal_*` + `overload_penalty`) |
+| `dlr`              | object              | —            | No       | Dynamic line rating through critical spans — see [Dynamic line rating](#dynamic-line-rating-dlr) |
 | `tcost`            | number\|array\|string| $/MWh       | No       | Variable transmission cost |
 | `capacity`         | number\|array\|string| MW          | No       | Installed capacity |
 | `expcap`           | number\|array\|string| MW          | No       | Capacity added per expansion module |
@@ -860,6 +890,117 @@ A transmission line connecting two buses.
 | `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
+| `integer_expmod`   | boolean             | —            | No       | Build whole expansion modules only (integer `expmod`, MIP) |
+
+#### Dynamic line rating (DLR)
+
+`dlr` limits the line flow, per block, by the thermal rating of its
+**critical spans**: the spans whose conductor temperature binds first
+(Matus et al. 2012, DOI [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254); Open access: [ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating), [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)). One representative
+span is valid and common. Choosing the spans is a pre-processing step
+(Python tooling); gtopt only consumes the list.
+
+For each span and block gtopt evaluates the IEEE Std 738 steady-state heat
+balance at the maximum conductor temperature from that block's weather,
+converts the ampacity to MW and limits the flow by the minimum over the
+spans (and the static `tmax`). Weather is exogenous data, so the rating is a
+per-block right-hand side: the LP stays linear. See formulation §5.5
+*Dynamic Line Rating*.
+
+```json
+"dlr": {
+  "conductor": {"diameter": 0.02814, "r25": 7.283e-5, "r75": 8.688e-5,
+                "emissivity": 0.8, "absorptivity": 0.8, "subconductors": 1},
+  "tmax_conductor": 75,
+  "tmax_conductor_emergency": 100,
+  "voltage": 220,
+  "span_mode": "min",
+  "critical_spans": [
+    {"uid": 101, "name": "s1", "azimuth": 35, "elevation": 420,
+     "ambient_temperature": "dlr_ambient_temperature",
+     "wind_speed": "dlr_wind_speed", "wind_direction": "dlr_wind_direction",
+     "solar_irradiance": "dlr_solar_irradiance"},
+    {"uid": 102, "name": "s2", "rating": "dlr_rating"}
+  ]
+}
+```
+
+| Field (`dlr.*`)             | Type    | Units | Default | Description |
+|-----------------------------|---------|-------|---------|-------------|
+| `conductor.diameter`        | number  | m     | —       | Conductor outside diameter (required for IEEE 738) |
+| `conductor.r25`, `conductor.r75` | number | Ω/m | —     | AC resistance at 25 °C and 75 °C; `R(T)` is linear between them and extrapolated beyond |
+| `conductor.r20`, `conductor.alpha_r`, `conductor.ac_factor` | number | Ω/m, 1/K, — | —, —, 1 | Alternative to `r25`/`r75` (give one form, not both): `R(T) = ac_factor · r20 · (1 + alpha_r·(T − 20))` |
+| `conductor.emissivity`      | number  | —     | 0.8     | Emissivity ε ∈ [0, 1] |
+| `conductor.absorptivity`    | number  | —     | 0.8     | Solar absorptivity α ∈ [0, 1] |
+| `conductor.subconductors`   | integer | —     | 1       | Conductors per phase bundle (multiplies the rating) |
+| `tmax_conductor`            | number  | °C    | 75      | Normal maximum conductor temperature |
+| `tmax_conductor_emergency`  | number  | °C    | —       | Emergency temperature. When set (and `overload_penalty > 0` in the block) the emergency rating is the hard cap and the normal rating the soft `overload_penalty` threshold; the overload slack is bounded by `min(emergency − normal, max_overload_ratio × normal)` under the default `overload_slack_bound = thermal`. Emergency tiers are owner-defined in practice (long-term emergency 4–12 h, short-term ~15 min; ISO-NE PP7, NYISO) |
+| `voltage`                   | number  | kV    | `Line.voltage` | Voltage of the A→MW conversion (must be in kV) |
+| `v_pu`                      | number  | p.u.  | 1       | Operating voltage |
+| `power_factor`              | number  | —     | 1       | Power factor (0, 1] |
+| `safety_factor`             | number  | —     | 1       | η, multiplies the IEEE 738 rating (1 = off) |
+| `span_mode`                 | string  | —     | `min`   | `min`: effective rating = min over spans; `rows`: one row pair per non-dominated span |
+| `use_emergency`             | boolean | —     | `true`  | `false` drops the emergency tier (`tmax_conductor_emergency`, `rating_emergency`): the normal rating is the hard cap |
+| `low_wind_speed`            | number  | m/s   | 0.5     | Below this speed the wind direction is ignored and `low_wind_angle` is used (`0` disables the rule) |
+| `low_wind_angle`            | number  | deg   | 45      | Attack angle of the low-wind rule, in [0, 90] |
+| `solar_mode`                | string  | —     | `ghi`   | `ghi`: `solar_irradiance` is the global horizontal irradiance used directly as absorbed flux, `q_s = α·S·D` (conservative; same convention as the Python critical-span tooling); `none`: `q_s = 0` and `solar_irradiance` becomes optional |
+| `critical_spans`            | array   | —     | —       | One or more spans (non-empty) |
+
+| Field (`critical_spans[k].*`) | Type | Units | Default | Description |
+|-------------------------------|------|-------|---------|-------------|
+| `uid`                         | integer | — | `1000·line.uid + k` (k 1-based) | Span uid; keys the weather files and the per-span outputs, so it must be unique across the case |
+| `name`                        | string | — | `<line>_s<k>` | Span name |
+| `azimuth`                     | number | deg | 0 | Bearing of the span axis |
+| `elevation`                   | number | m | 0 | Altitude above sea level (air density) |
+| `ambient_temperature`         | number\|array\|string | °C | — | Per-(scenario, stage, block) ambient temperature |
+| `wind_speed`                  | number\|array\|string | m/s | — | Wind speed (below `low_wind_speed`, default 0.5 m/s, the attack angle is `low_wind_angle`, default 45°) |
+| `wind_direction`              | number\|array\|string | deg | — | Wind bearing; attack angle `φ = \|((dir − azimuth + 90) mod 180) − 90\|` |
+| `solar_irradiance`            | number\|array\|string | W/m² | — | Global horizontal irradiance (GHI), used as absorbed flux `q_s = α·S·D` (conservative; no sun-geometry model). Not needed under `solar_mode = "none"` |
+| `tmax_conductor`, `tmax_conductor_emergency` | number | °C | `dlr.*` | Per-span overrides |
+| `rating`                      | number\|array\|string | MW | — | Precomputed normal rating; bypasses IEEE 738 and the weather fields (used verbatim — no η, `v_pu` or power factor) |
+| `rating_emergency`            | number\|array\|string | MW | — | Precomputed emergency rating (requires `rating`) |
+
+The weather fields and `rating` are STB schedules: a scalar, a 3-D inline
+array `[scenario][stage][block]`, or a file name resolved as
+`input/Line/<name>.parquet` (or `.csv`) in **long** layout with columns
+`scenario, stage, block, uid, value`, where `uid` is the **span** uid. One
+file per field can hold every span of the case.
+
+**References.** The critical-span approach follows Matus et al.,
+"Identification of Critical Spans for Monitoring Systems in Dynamic
+Thermal Rating", *IEEE Trans. Power Delivery* 27(2):1002–1009, 2012,
+DOI [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254);
+Open access: [ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating), [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)
+(gtopt consumes the span list; selecting the spans is done outside
+gtopt).  The ampacity follows the steady-state heat balance of IEEE Std
+738-2012.  See the formulation refs [9], [38].
+
+**Precomputed ratings are verbatim.** A span `rating` / `rating_emergency`
+is used exactly as given (MW): `safety_factor` (η), `v_pu`,
+`power_factor`, `subconductors` and `voltage` apply only to ratings
+computed from weather with IEEE 738.  Fold any margin into the schedule
+itself.
+
+**SDDP apertures.** The DLR rating belongs to the scene (scenario): every
+backward-pass aperture of a phase reuses its scene's per-block ratings.
+Apertures represent hydrology; DLR weather does not vary per aperture.
+
+**Loss envelope.** The loss PWL is never driven by the per-block DLR rating:
+it keeps the static `tmax` (or `capacity`), or `loss_envelope` when set.
+With neither `tmax` nor `capacity` the stage envelope `1.05 · max_b T̄_b`
+stands in as the static cap and loss range.
+
+**Outputs** (`Line/…`): `dlr_rating_sol` (effective normal rating, A→B, static
+`tmax_ab` included), `dlr_rating_emergency_sol` (emergency tier),
+`critical_span_sol` (uid of the binding span; `-1` when the static `tmax` is
+lower) and `span_thermal_dual` (per-span rating dual `∂obj/∂T_k`, keyed by the
+**span** uid; same unfolding as the other `*_dual` outputs).
+
+**Validation** rejects negative or out-of-range parameters, an empty
+`critical_spans`, a span with neither the four weather fields nor `rating`,
+weather without `conductor` or a kV voltage, inline arrays whose shape is not
+`[scenario][stage][block]`, duplicate span uids, and an unknown `span_mode`; it
+warns when the line is out of service (`in_service = 0`) in every block.
 
 ### 3.5 Battery
 
@@ -950,6 +1091,15 @@ be defined manually (see §3.6 Converter).
 | `capmax`            | number\|array\|string| MWh         | No       | Absolute maximum energy capacity |
 | `annual_capcost`    | number\|array\|string| $/MWh-year  | No       | Annualized investment cost |
 | `annual_derating`   | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
+| `power_capacity`    | number\|array\|string| MW          | No       | Installed power (charge + discharge per block ≤ installed power) |
+| `power_expcap`      | number\|array\|string| MW          | No       | Power per expansion module |
+| `power_expmod`      | number\|array\|string| —           | No       | Maximum number of power modules |
+| `power_capmax`      | number\|array\|string| MW          | No       | Absolute maximum power. Set `pmax_charge` / `pmax_discharge` at least this high on a candidate battery |
+| `power_annual_capcost` | number\|array\|string| $/MW-year | No     | Annualized investment cost of power |
+| `power_annual_derating` | number\|array\|string| p.u./year | No    | Annual power derating factor |
+| `energy_power_ratio` | number             | h            | No       | Fixed storage duration: installed energy = ratio × installed power, so both axes are built together. Unset = energy and power expand independently |
+| `integer_expmod`    | boolean             | —            | No       | Build whole expansion modules only (MIP) |
+| `max_cycles_day`    | number              | cycles/day   | No       | Hard daily throughput limit `Σ discharge·Δt ≤ N · capacity` per day (PLEXOS *Max Cycles Day*); a constraint, not a cost |
 | `type`              | string              | —            | No       | Optional battery type tag (metadata, e.g. `"lithium"`, `"flow"`) |
 | `soft_emin`         | number\|array\|string| MWh         | No       | Soft minimum energy per stage (penalized slack below `emin`) |
 | `soft_emin_cost`    | number\|array\|string| $/MWh       | No       | Penalty cost per unit of `soft_emin` slack violation |
@@ -1529,6 +1679,16 @@ reference and examples.
 | `name`        | string          | —     | Yes      | Human-readable constraint name |
 | `active`      | boolean         | —     | No       | Activation flag (default: true) |
 | `expression`  | string          | —     | Yes      | Constraint expression in AMPL-inspired syntax |
+| `description` | string          | —     | No       | Free text |
+| `constraint_type` | string      | —     | No       | Scaling hint: `power` (default), `energy`, `raw`, `unitless` |
+| `penalty`     | number          | $/unit | No      | When > 0 the constraint is soft: violations are paid at this price (weighted by probability, discount and block duration like every cost) |
+| `penalty_class` | string        | —     | No       | Penalty unit: `raw` (default) or `hydro_flow` |
+| `rhs`         | number\|array\|string | — | No    | Right-hand side per stage and block; replaces the number at the end of `expression` where set |
+| `scope`       | string          | —     | No       | Row granularity: `block` (default), `stage`, `phase`, `global` |
+| `active_stages` | array\|string | 0/1  | No       | Per-stage on/off (`[0, 1, 1]` or a file field); a stage with 0 gets no row. Combined with `active` |
+| `daily_sum`   | boolean         | —     | No       | One row per 24 h day instead of one per block (with `constraint_type: energy` the terms are weighted by block duration) |
+| `directive`   | object          | —     | No       | Typed constraint-family directive (`kind`, …); see [User Constraints](user-constraints.md) |
+| `slack_name`  | string          | —     | No       | Name of the slack column of a soft constraint (LP labels only) |
 
 **System-level fields:**
 
@@ -1625,6 +1785,7 @@ Commitments.
 | `startup_cost` | number\|array\|string | $/start | No | Cost per startup event |
 | `shutdown_cost` | number\|array\|string | $/stop | No | Cost per shutdown event |
 | `noload_cost` | number | $/hr | No | Fixed hourly cost when committed |
+| `pmin` | number\|array\|string | MW | No | Minimum stable level while committed (`p ≥ pmin·u`), per stage and block. Unset: the generator's own lower bound. `Generator.pmin` stays an unconditional floor |
 | `noload_fuel` | number | fuel unit/h | No | No-load fuel burn while committed (PLEXOS `Heat Rate Base`); counted in `Fuel` offtake and fuel-basis emissions (`noload_fuel · u · Δt`), not re-priced (cost stays in `noload_cost`) |
 | `min_up_time` | number | hours | No | Minimum online duration after startup |
 | `min_down_time` | number | hours | No | Minimum offline duration after shutdown |
@@ -1641,8 +1802,13 @@ Commitments.
 | `hot_start_cost` | number | $/start | No | Startup cost for hot start |
 | `warm_start_cost` | number | $/start | No | Startup cost for warm start |
 | `cold_start_cost` | number | $/start | No | Startup cost for cold start |
-| `hot_start_time` | number | hours | No | Max offline hours for hot start |
-| `cold_start_time` | number | hours | No | Min offline hours for cold start |
+| `hot_start_time` | number | hours | No | A start is hot when the unit has been offline less than this |
+| `cold_start_time` | number | hours | No | A start is cold when the unit has been offline at least this (warm in between) |
+| `initial_power` | number | MW | No | Output at `t = 0⁻` used by the first-block ramp rows; unset: `Generator.initial_generation` at the horizon start, else 0 |
+| `fixed_status` | number\|array\|string | 0/1 | No | Pin the status `u` per stage and block (`1` on, `0` off); blocks without a value stay free. Wins over `must_run` where set |
+| `max_starts` / `min_starts` | integer | starts | No | Hard bounds on the number of starts within each `starts_scope` window |
+| `starts_scope` | string\|integer | — | No | Window of `max_starts` / `min_starts`: `hour`, `day`, `week`, `horizon` (default; `month` / `year` are treated as `horizon`), or a window length in hours |
+| `ini_hours_up` / `ini_hours_down` | number | hours | No | Informational copy of the source's initial up / down hours (the LP uses `initial_status` and `initial_hours`) |
 
 > **Removed fields**: `pmax_segments`, `heat_rate_segments`, `fuel_cost`
 > and `fuel_emission_factor` are no longer `Commitment` fields.  The
@@ -1659,7 +1825,11 @@ Commitments.
 > tier cost (a start is never free).  The tier of a start is chosen from
 > the unit's offline time: for a unit off since before the horizon that is
 > the in-horizon time before the start plus `initial_hours`, so a
-> first-block start after a short initial outage is a hot start.
+> first-block start after a short initial outage is a hot start.  A unit
+> that shut down inside the horizon is offline for the blocks from its
+> shutdown to the start.  In both cases the start is hot when offline
+> `< hot_start_time`, warm when `hot_start_time ≤` offline
+> `< cold_start_time`, and cold otherwise.
 
 ### 3.24 Model Options
 

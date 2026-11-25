@@ -31,6 +31,21 @@ the simulation parameters (stages, blocks, scenarios), and solver options. By
 default, input data is read from the directory specified inside the JSON and
 output is written to the current directory.
 
+The case argument may take several forms:
+
+| Argument | Planning file used |
+|----------|--------------------|
+| `case.json` | That file |
+| `case` (no such file) | `case.json` |
+| `case_dir/` | `case_dir/case_dir.json`; when that file is missing, a sibling `case_dir.json` |
+| `.` or `..` | The JSON named after that directory: `gtopt .` inside `ieee_9b/` uses `./ieee_9b.json` |
+| *(none)* | `<name of the current directory>.json` in the current directory |
+
+With a directory argument, the input directory is the case directory,
+results go to `<case_dir>/results` and SDDP cuts to `<case_dir>/cuts`,
+unless `input_directory`, `output_directory` or
+`sddp_options.cut_directory` is given with `--set`.
+
 ### Common patterns
 
 ```bash
@@ -71,17 +86,39 @@ Multiple system files can be provided and will be merged.
 | `-c` | `--lp-only` | `[=arg]` | Build the LP model and exit without solving |
 | `-T` | `--trace-log` | `arg` | Write trace-level log messages to this file |
 | | `--solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs`, `gurobi`, `mindopt`, `scip`, `cuopt`. Auto-detected by default (priority `cplex > highs > mindopt > cbc > clp`; override with `GTOPT_SOLVER` or this flag). See [Supported Solvers](solvers.md) for limitations |
-| | `--solvers` | | List available LP solver backends and exit |
+| | `--solvers` | | List available LP solver backends and exit; shows each plugin's path, build-id and the solver library version it was compiled against and loaded at run time |
 | | `--check-solvers` | `[=solver]` | Run the solver test suite against all (or a named) solver, then exit |
-| | `--sddp-num-apertures` | `arg` | SDDP backward-pass aperture count: `0`=disabled, `-1`=all, `N`=first N scenarios |
+| | `--plugin-check` | `warning\|error` | What a failed solver-plugin integrity check does: `error` refuses the plugin, `warning` logs and loads it. Overrides `$GTOPT_PLUGIN_CHECK`; the built-in default is `error` (CMake `GTOPT_PLUGIN_CHECK_DEFAULT`). See [Plugin integrity](solvers.md#plugin-integrity) |
+| | `--config` | `FILE` | Read option defaults from this `.gtopt.conf`-style file instead of `$GTOPT_CONFIG` / `~/.gtopt.conf`. A `./.gtopt.conf` is used only when named here (see [Configuration File](#configuration-file-gtoptconf)) |
+| | `--list-dialects` | `[=name]` | List the naming-dialect aliases (and units) and exit; with a name, only that dialect (e.g. `plexos`) |
+| | `--json-schema` | `[=type]` | Print the JSON Schema of the input options model and exit (default `PlanningOptions`; e.g. `--json-schema options`) |
+| | `--sddp-num-apertures` | `arg` | SDDP backward-pass apertures per phase: unset (default) = every aperture in the phase's list, `0` = none (deterministic Benders backward pass), `N > 0` = the first `N` of each phase's list. Same as `--set sddp_options.num_apertures=<n>` |
+| | `--aperture-chunk-mode` | `arg` | How backward apertures are grouped into tasks: `per_scene` (default), `per_aperture`, `chunked`. Same as `--set sddp_options.aperture_chunk_mode=<name>`; see [Aperture task grouping](methods/sddp.md#aperture-task-grouping) |
+| | `--aperture-chunk-size` | `arg` | Apertures per task for `--aperture-chunk-mode chunked` (`auto` or `0` = automatic). Without `--aperture-chunk-mode`, still accepted as the deprecated mode selector (`-1` = `per_scene`, `1` = `per_aperture`, `K > 1` = `chunked`) |
 | | `--recover` | `[=arg]` | Enable recovery from a previous SDDP run (loads cuts and state variables) |
-| | `--low-memory` | `[=mode]` | SDDP low-memory mode: `off`, `snapshot` (release solver, keep flat LP), `compress` (release solver, compress flat LP). Implicit value: `snapshot`. |
+| | `--fcut-log` | `[=bool]` | Write the SDDP feasibility-cut debug log `gtopt_fcut.log` to the log directory. Same as `--set sddp_options.fcut_log=true` |
+| | `--memory-saving` | `off\|compress` | Memory saving for SDDP / cascade (default `compress`): releases the solver between solves, keeps a compressed copy of the LP, and asks the solver to economise memory. `rebuild` is accepted as an alias of `compress`. The former `--low-memory` flag is a deprecated alias |
 | | `--memory-limit` | `arg` | Process memory limit for work-pool throttling (e.g. `4096`, `300M`, `5G`) |
+| | `--memory-quota` | `arg` | Memory budget as a percentage of the host RAM (e.g. `30`), applied as `--memory-limit`; wins over `--memory-limit` |
 | | `--swap-limit` | `arg` | Work-pool swap gate: throttle task dispatch while the process `VmSwap` is at/above this size **and still growing** (e.g. `2048`, `300M`, `5G`; `0` = off; default `2048` MB). A large but static `VmSwap` never throttles. Same as `--set sddp_options.pool_max_process_swap_mb=<MB>` |
 | | `--swap-growth` | `arg` | `VmSwap` growth per 5 s window that counts as active swapping for `--swap-limit` (e.g. `64`, `256M`; default `64` MB). Same as `--set sddp_options.pool_swap_growth_mb=<MB>` |
 | | `--cpu-factor` | `arg` | Work-pool thread over-commit factor (default: `4.0`) |
+| | `--cpu-quota` | `arg` | CPU budget as a percentage of the physical cores (e.g. `30`); scales every work pool down. Does not change the LP solver's own thread count |
 | | `--pricing-mode` | `arg` | Nodal prices of a UC (MIP) run: `fixed` (default; integers fixed at the incumbent), `relaxed` (LP relaxation) or `fast_start` (fast-start units relaxed). Dispatch is unchanged; see `pricing.csv` and [Unit Commitment §11.1](unit-commitment.md#111-pricing-modes) |
+| | `--mip-gap` | `arg` | Target relative MIP gap (e.g. `0.01` = 1 %); ignored on LPs. Same as `--set solver_options.mip_gap=<value>` |
+| | `--time-limit` | `arg` | Time limit in seconds per LP / MIP solve (`0` = none); algorithm-fallback retries and the MIP-start stages share the budget. Same as `--set solver_options.time_limit=<value>` |
+| | `--no-mip` | `[=bool]` | Relax every integer variable (commitment, integer expansion, integer decision variables) to continuous: a quick LP lower bound of a MIP case. Same as `--set model_options.continuous_phases=all` |
+| | `--mip-start` | `[=bool]` | Build a feasible starting solution for the MIP (LP relaxation, propagation dive, fixed-integer LP check, repair) and hand it to the solver. Same as `--set monolithic_options.mip_start.enabled=true`; see [Monolithic method](methods/monolithic.md) |
+| | `--root-basis-cache` | `FILE` | CPLEX only: save the root LP basis of the MIP to `FILE` on the first run and reuse it on later runs |
+| | `--write-out` | `arg` | Which results to write, comma-separated: `solution` (`sol`), `dual`, `reduced_cost` (`rc`), `all` (default), `none`. E.g. `--write-out sol,dual` |
 | | `--build-mode` | `arg` | LP build parallelism: `serial`, `scene-parallel` (default), `full-parallel`, `direct-parallel` |
+| | `--no-scale` | `[=bool]` | Disable every automatic LP scaling (objective, angles, equilibration), to inspect coefficients in physical units |
+| | `--lp-reduction` / `--no-lp-reduction` | `[=bool]` | Drop LP columns and rows that are provably zero (e.g. units with `pmax = pmin = 0`). Off by default; helps solvers with weak presolve. Same as `--set model_options.lp_reduction=<bool>` |
+| | `--allow-oversupply` | `[=bool]` | Turn the bus balance into generation ≥ demand, so surplus energy is discarded for free (buses in surplus price at 0). Same as `--set model_options.allow_oversupply=true` |
+| | `--naming-dialect` | `arg` | Warn on input keys that are aliases of another naming dialect, and write `planning.json` with this dialect's names (`gtopt`, `plp`, `sddp`, `plexos`, `pypsa`, `pandapower`) |
+| | `--constraint-mode` | `arg` | How strictly user-constraint element references are resolved: `strict` (default; error), `normal` (drop a constraint whose terms are all unresolved, with a warning), `debug` (drop unresolved terms) |
+| | `--lp-dump-backward` | `DIR` | Write the SDDP backward-pass LP of every (iteration, scene, phase) to `DIR` (debugging) |
+| | `--async-logger` / `--no-async-logger` | `[=bool]` | Asynchronous logging (default on; forced off with `--trace-log`) |
 | | `--set` | `key=value` | Set any planning option (see below) |
 
 > **LP variable/constraint names** are generated automatically whenever
@@ -91,11 +128,14 @@ Multiple system files can be provided and will be merged.
 > `row_with_name_map`) in `LpMatrixOptions`. See
 > [LP variable and row names](#lp-variable-and-row-names) below.
 >
-> **Flags not in the table above** — `--method`, `--demand-fail-cost`,
-> `--scale-objective`, `--use-single-bus`, `--use-kirchhoff`,
+> **Flags not in the table above** — `--use-single-bus`, `--use-kirchhoff`,
 > `--input-directory`, `--output-directory`, `--input-format`,
 > `--output-format`, `--output-compression`, etc. — are still accepted as
-> deprecated aliases but emit a warning. Prefer `--set <path>=<value>`.
+> deprecated aliases but emit a warning (full list below). Prefer
+> `--set <path>=<value>`.  There are no `--method`, `--demand-fail-cost`
+> or `--scale-objective` flags: use `--set method=sddp`,
+> `--set model_options.demand_fail_cost=500` and
+> `--set model_options.scale_objective=1000`.
 
 > **`--set` key=value**: The recommended way to pass planning options
 > from the CLI. Any option that can appear in the JSON `"options"`
@@ -125,12 +165,14 @@ Multiple system files can be provided and will be merged.
 > (`--use-single-bus`), `-k` (`--use-kirchhoff`), `-D`
 > (`--input-directory`), `-F` (`--input-format`), `-d`
 > (`--output-directory`), `-f` (`--output-format`), `-C`
-> (`--output-compression`), `--algorithm`, `--threads`,
+> (`--output-compression`), `-a` (`--algorithm`), `-t` (`--threads`),
 > `--sddp-max-iterations`, `--sddp-min-iterations`,
 > `--sddp-convergence-tol`, `--sddp-elastic-penalty`,
 > `--sddp-elastic-mode`,
-> `--log-directory`, `--cut-directory`, `--lp-debug`,
-> `--lp-compression`, `--lp-coeff-ratio`.
+> `--log-directory`, `--cut-directory`, `--lp-debug`, `--lp-error`,
+> `--lp-compression`, `--lp-coeff-ratio`.  `--low-memory` (now
+> `--memory-saving`) and `--sddp-cpu-factor` (now `--cpu-factor`) are
+> accepted as aliases.
 
 ## Configuration File (`.gtopt.conf`)
 

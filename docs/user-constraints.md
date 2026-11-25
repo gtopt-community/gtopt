@@ -223,7 +223,9 @@ of an ordinary LP attribute:
 
 - inside a chronological stage: the same attribute at block `b − 1`;
 - at the first block of a stage whose previous stage is in the **same phase**
-  (same LP): the previous stage's **last** block;
+  (same LP) and chronological: the previous stage's **last** block. This is
+  `model_options.prev_stage_link = "stage"` (default); `"none"` restores the
+  legacy constant 0 at every stage start after the first;
 - at the first block of the **horizon** (no previous stage): the constant
   `initial_<attr>` when the element defines it — `Generator.initial_generation`
   for `generation_prev` (PLEXOS *Initial Generation*) — folded into the row,
@@ -231,7 +233,47 @@ of an ordinary LP attribute:
   otherwise 0;
 - at the first block of a **later phase** (SDDP / cascade): 0 — the plain
   attribute carries no cross-phase state, and the horizon initial value is
-  never reused there.
+  never reused there. See the known limitation below.
+
+**Known limitation — `_prev` across a phase boundary.** Each phase is its own
+LP, and an ordinary attribute such as `generation` is not an SDDP state
+variable, so at the first block of phase 2, 3, … `x_prev` is the constant 0.
+A ramp row `gen − gen_prev ≤ R` then reads `gen ≤ R` there. That is tighter
+than the physics when the unit was running at the end of the previous phase
+(possibly infeasible with `pmin > R`), and a ramp-down row
+`gen_prev − gen ≤ R` is vacuous there. The LP build logs one WARN per
+affected constraint:
+
+```text
+user_constraint 'PANGUEramp': 3 `_prev` term(s) at the first block of a later
+phase read 0 — the previous phase's value is not carried across phases …
+```
+
+Single-phase runs (`monolithic` with one phase, the usual PCP / unit-commitment
+setup) are not affected. Workarounds today: put the ramp-coupled horizon in
+one phase, or model the coupled quantity as a `block_state`
+`decision_variable`, whose `prev(...)` *is* carried across phases.
+
+*Proposed fix (not implemented).* Register the last-block value of every
+column that a `_prev` term references at a phase start as an SDDP state
+variable, exactly as `block_state` decision variables and reservoir volumes
+already are:
+
+1. While lowering user constraints, collect the `(class, uid, attribute)`
+   triples whose `_prev` term falls on a later-phase start (the same test
+   that triggers the WARN).
+2. In the producing phase, register the attribute's column at the last block
+   of the last stage as a state *source* (`StateVariable` with the
+   element/attribute key).
+3. In the consuming phase, create an incoming column `x_in` (bounded by the
+   attribute's own bounds, e.g. `[0, pmax]`). The `_prev` term resolves to it,
+   and it is linked to the source as a state *target*. The forward pass fixes
+   it to the trial value, and the backward pass returns its reduced cost as
+   the cut coefficient, like any other state.
+4. The monolithic solver with several phases, and cascade, chain the same
+   pair through their existing state-propagation paths.
+5. Keep it behind an option (e.g. `prev_stage_link = "phase"` extending
+   `stage`), because every such state adds a cut dimension.
 
 **`block.duration`** — a singleton scalar giving the **current block's
 duration Δt (hours)**. Unlike `stage.duration` (the whole-stage total), it
@@ -539,6 +581,42 @@ generator('uid:23').generation  -- by UID
 | `reserve_provision` | `dn` | Down-reserve provision variable (MW reserved down); also accepts `dprovision`, `dn_provision`, `down` |
 | `reserve_zone` | `up` | Up-reserve requirement variable (MW of up-reserve); also accepts `urequirement`, `up_requirement` |
 | `reserve_zone` | `dn` | Down-reserve requirement variable (MW of down-reserve); also accepts `drequirement`, `dn_requirement`, `down` |
+| `gas_node` | `pi` | Squared pressure π = p² at the node (bar²) |
+| `gas_supply` | `flow` | Gas injection rate (km³/h) |
+| `gas_demand` | `fail` | Shed gas (km³/h); only when the demand has a `fail_cost` |
+| `gas_demand` | `served` | Served gas `load − fail` (km³/h); no LP column, the scheduled load rides on the RHS |
+| `gas_pipe` | `flow` | Pipe flow (km³/h); with `linepack: true` the mean `(flow_in + flow_out)/2` |
+| `gas_pipe` | `flow_in` / `flow_out` | Inlet / outlet flow of a line-pack pipe (km³/h) |
+| `gas_pipe` | `linepack` | Gas stored in a line-pack pipe (km³) |
+| `gas_compressor` | `flow` | Throughput (km³/h) |
+| `gas_compressor` | `fuel` | Fuel gas burnt (km³/h); `fuel_model: saldarriaga` only |
+| `gas_compressor` | `power` | Electric drive power (MW); `drive: electric` only |
+| `gas_turbine` | `generation` | Output of the linked generator (MW) — same column as `generator(...).generation` |
+| `gas_turbine` | `fuel` | Gas burnt `heat_rate · generation` (km³/h); no LP column |
+| `lng_terminal` | `volume` | Tank level (m³); also accepts `energy` |
+| `lng_terminal` | `delivery` | Scheduled LNG inflow rate (m³/h) |
+| `lng_terminal` | `drain` | Venting (m³/h); also `eini`, `efin` (stage tank levels) |
+| `lng_terminal` | `fuel` | LNG drawn by the linked generators `Σ heat_rate · generation` (m³/h); no LP column |
+| `hydrogen_demand` | `load` | Hydrogen offtake per block |
+
+### Element parameters
+
+Besides LP variables, an expression may reference an element's **input
+parameters**; they resolve to constants at the (stage, block) of the
+row, e.g. `gas_pipe('S_A').flow <= 0.8 * gas_pipe('S_A').fmax`.  An
+unset optional parameter is an error, not a silent zero.  Parameters of
+the gas network, the LNG terminal and the hydrogen demand:
+
+| Element type | Parameters |
+|--------------|------------|
+| `gas_node` | `pmin`, `pmax` (bar), `pressure_cost` |
+| `gas_supply` | `fmin`, `fmax` (km³/h), `cost` ($/km³), `volume` (km³ per stage) |
+| `gas_demand` | `load` (scheduled, km³/h), `fail_cost` |
+| `gas_pipe` | `fmax` |
+| `gas_compressor` | `fmax`, `max_ratio`, `power_max` |
+| `gas_turbine` | `heat_rate` (km³/MWh) |
+| `lng_terminal` | `emin`, `emax` (m³), `ecost`, `delivery` (m³ per stage) |
+| `hydrogen_demand` | `lmax`, `lmin`, `price`, `min_energy`, `max_energy` |
 
 ### Variable Scaling
 
@@ -657,7 +735,9 @@ sum(generator(all : type in {'hydro', 'solar'}).generation) <= 500
 
 Supported operators: `=`, `==`, `!=` / `<>`, `<`, `<=`, `>`, `>=`, and
 `in { … }`.  String values are double- or single-quoted; bare numbers
-compare numerically.  Predicates consult per-element metadata that
+compare numerically (node / bus / generator keys hold the element
+**uid**, e.g. `gas_supply(all : gas_node = 3)`).  Predicates consult
+per-element metadata that
 each element registers during LP assembly; currently available keys:
 
 | element    | metadata keys            |
@@ -667,6 +747,11 @@ each element registers during LP assembly; currently available keys:
 | line       | `type`, `bus_a`, `bus_b` |
 | battery    | `type`                   |
 | bus        | `type`                   |
+| gas_node   | `type`                   |
+| gas_supply, gas_demand | `type`, `gas_node` |
+| gas_pipe   | `type`, `gas_node_a`, `gas_node_b` |
+| gas_compressor | `type`, `gas_node_in`, `gas_node_out` |
+| gas_turbine | `type`, `gas_node`, `generator` |
 
 Elements without a registered metadata key for the predicate's
 attribute (or without any metadata at all) are silently excluded from

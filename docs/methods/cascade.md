@@ -325,6 +325,8 @@ plain SDDP solver.
 | `aperture_selection_mode` | string | from global | `head` (first N, i.e. the N wettest under the plp2gtopt order), `stride`, `tail` |
 | `aperture_chunk_size` | int | from global | Apertures per task; `-1` = serial per scene on one clone |
 | `convergence_tol` | real | from global | Relative gap tolerance |
+| `forward_solver_options` | SolverOptions | from global | Forward-pass solver options for this level, layered on `sddp_options.forward_solver_options`: the optional fields the level sets win (tolerances, `mip_gap`, `time_limit`, `scaling`, `barrier_solver`, `mip_lp_algorithm`, `mip_heuristic_effort`, `param_file`, …); `algorithm`, `threads` and `crossover` are not per-level. CLI: `--set cascade_options.level_array.N.sddp_options.forward_solver_options.barrier_solver=ipx` |
+| `backward_solver_options` | SolverOptions | from global | Backward-pass counterpart of `forward_solver_options` |
 
 ### 4.5 CascadeTransition Fields
 
@@ -739,10 +741,11 @@ DOI: [10.1016/j.epsr.2015.10.013](https://doi.org/10.1016/j.epsr.2015.10.013)
 
 <a id="cref10"></a>
 **[10]** M. P. Buitrago Villada, C. E. García Bujanda, E. Sierra Baeza, and
-A. M. Matus, "Optimal expansion and reliable renewable energy integration
-in long-term planning using FESOP," *2022 IEEE Kansas Power and Energy
-Conference (KPEC)*, pp. 1–5, 2022.
-DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781)
+M. Matus, "Optimal Expansion and Reliable Renewable Energy Integration
+in Long-Term Planning Using FESOP," *2022 IEEE Kansas Power and Energy
+Conference (KPEC)*, pp. 1–6, 2022.
+DOI: [10.1109/KPEC54747.2022.9814781](https://doi.org/10.1109/KPEC54747.2022.9814781).
+Open access: [ResearchGate](https://www.researchgate.net/publication/358423681_Optimal_Expansion_and_Reliable_Renewable_Energy_Integration_in_Long-Term_Planning_Using_FESOP).
 
 ---
 

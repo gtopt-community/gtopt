@@ -25,7 +25,7 @@ For a system with $N$ buses, $G$ generators, $D$ demands, $L$ lines,
 $E$ batteries, $B$ blocks per stage, $T$ stages, and $S$ scenarios, the
 approximate problem size is:
 
-\begin{table}[h]
+\begin{table}[ht]
   \centering
   \caption{LP Problem Size Estimates}
   \label{tab:lp_size}
@@ -59,7 +59,7 @@ storage levels, allowance banks, irrigation-right balances) and by
 Benders cuts that approximate the expected future cost
 (Algorithm~\ref{alg:sddp}, Fig.~\ref{fig:sddp_flow}).
 
-\begin{algorithm}[h]
+\begin{algorithm}[ht]
   \caption{SDDP Algorithm in \gtopt{}}
   \label{alg:sddp}
   \begin{algorithmic}[1]
