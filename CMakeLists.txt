@@ -563,7 +563,8 @@ set_source_files_properties(
 if(NOT MSVC)
   set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/source/sha256.cpp"
-    PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON COMPILE_OPTIONS "-O2"
+    PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON SKIP_PRECOMPILE_HEADERS ON
+               COMPILE_OPTIONS "-O2"
   )
 endif()
 include(UnityBuild)

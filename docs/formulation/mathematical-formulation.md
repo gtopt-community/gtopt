@@ -803,8 +803,8 @@ lossy line, so iterate until no new flags.
 > $\varepsilon^{\text{pin}}_l$ per MWh of flow in the flow direction,
 > so the nodal-price difference across each lossy line shifts by at
 > most $\approx \varepsilon^{\text{pin}}_l$ (0.001 \$/MWh by default;
-> a path through $n$ lossy lines by at most $\approx n\,
-> \varepsilon^{\text{pin}}$).  The value must survive
+> a path through $n$ lossy lines by at most
+> $\approx n\,\varepsilon^{\text{pin}}$).  The value must survive
 > `scale_objective`: the former internal constant $10^{-6}$ \$/MWh
 > landed at $10^{-9}$ in the LP, below every solver's dual tolerance
 > (pin ineffective) and stretching the objective range to 9 decades;
@@ -1043,8 +1043,8 @@ The slack bound $\overline{o}$ follows `overload_slack_bound` (per line,
 else `model_options`) with ratio $\rho$ = `max_overload_ratio`
 (default 1.5):
 
-- `thermal` (default): $\overline{o} = \min(\overline{F} - F^{n},\;
-  \rho\,F^{n})$ — the conductor's thermal headroom (on DLR lines the
+- `thermal` (default):
+  $\overline{o} = \min(\overline{F} - F^{n},\;\rho\,F^{n})$ — the conductor's thermal headroom (on DLR lines the
   IEEE 738 emergency rating at `tmax_conductor_emergency` minus the
   normal rating at `tmax_conductor`, so the band is exactly
   $[F^n, \overline{F}]$), never above $\rho\,F^n$; $\rho\,F^n$ alone when
@@ -1064,8 +1064,8 @@ over ~15 min) [[43]](#ref43), [[44]](#ref44).
 
 When the slack sits at a finite bound that depends on the ratings
 ($\overline{o} = \overline{F} - F^n$ or $\rho F^n$), the reported span
-duals add the slack's reduced cost $r$ times $\partial\overline{o}/
-\partial T$ ($+r$ to the emergency span, $-r$ or $\rho r$ to the normal
+duals add the slack's reduced cost $r$ times
+$\partial\overline{o}/\partial T$ ($+r$ to the emergency span, $-r$ or $\rho r$ to the normal
 span), so $\partial z/\partial T$ is well defined even at the degenerate
 vertex where the flow equals the emergency rating.
 
@@ -1146,7 +1146,7 @@ $$ q_{cn} = 3.645\,\rho_f^{0.5}\,D^{0.75}\,(T_s - T_a)^{1.25},\qquad
    q_c = \max(q_{c1},\, q_{c2},\, q_{cn}) $$
 
 $$ q_r = 17.8\,D\,\varepsilon\,\Bigl[\bigl(\tfrac{T_s + 273}{100}\bigr)^4
-   - \bigl(\tfrac{T_a + 273}{100}\bigr)^4\Bigr],\qquad
+   {} - \bigl(\tfrac{T_a + 273}{100}\bigr)^4\Bigr],\qquad
    q_s = \alpha\,S\,D $$
 
 where $Re = D\,\rho_f\,V_w / \mu_f$ and
@@ -3763,8 +3763,9 @@ p_{g,s,t,b} - \underline{P}^{c}_{g,t,b}\,u_{g,s,t,b} &\ge 0
 \end{aligned}
 $$
 
-with the no-load cost $\sum_{b} \pi_{s}\,\delta_{t}\,
-c^{\text{nl}}_{g}\,\Delta_b\,u_{g,s,t,b}$ in the objective (same
+with the no-load cost
+$\sum_{b} \pi_{s}\,\delta_{t}\,c^{\text{nl}}_{g}\,\Delta_b\,u_{g,s,t,b}$
+in the objective (same
 probability / discount factors as §5.15; `noload_fuel` adds
 $\texttt{noload\_fuel}\cdot u$ to the fuel and emission balances as there).
 <!-- source: source/commitment_lp.cpp (add_to_lp, `chronological`) -->

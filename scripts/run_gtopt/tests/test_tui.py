@@ -1400,7 +1400,9 @@ def test_print_final_failure_shows_solver_errors(tmp_path: Path, capsys):
     assert "exit code 3 (internal error)" in out
     assert "Directory 'ieee9' given" in out
     assert "loading" in out
-    assert "run_gtopt_stderr_1.log" in out
+    # The path may wrap inside the panel on a narrow terminal.
+    flat = "".join(out.replace("│", "").split())
+    assert "run_gtopt_stderr_1.log" in flat
 
 
 def test_print_final_prefers_result_status(tmp_path: Path, capsys):
