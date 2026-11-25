@@ -214,13 +214,7 @@ jobs:
             COVERAGE_FLAG="-DENABLE_TEST_COVERAGE=1"
             BUILD_TYPE="Debug"
           fi
-          # GTOPT_TEST_UNITY_BATCH_SIZE=4: the default (11 test files per
-          # unity batch) is sized for a cold build on a 20-core host.  CI
-          # compiles on 4 cores from a warm ccache, where one touched test
-          # file or header recompiles every batch that contains it; with 4
-          # files per batch that is ~2.75x less code per invalidated batch.
-          # See test/CMakeLists.txt.
-          cmake -S all -B build -G Ninja ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DGTOPT_REGISTER_PYTHON_TESTS=ON -DGTOPT_TEST_UNITY_BATCH_SIZE=4 -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          cmake -S all -B build -G Ninja ${COVERAGE_FLAG} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DGTOPT_REGISTER_PYTHON_TESTS=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DHIGHS_ROOT_DIR="${HIGHS_PREFIX}" 2>&1 | tee configure.log
           # Fail fast if the HiGHS plugin did not pick up the pinned build
           # (e.g. a stray system libhighs shadowing it).
