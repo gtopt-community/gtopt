@@ -100,13 +100,15 @@ Open access: [ResearchGate](https://www.researchgate.net/publication/358423681_O
   Thermal Rating," *IEEE Transactions on Power Delivery*, vol. 27, no. 2,
   pp. 1002–1009, April 2012.
   DOI: [10.1109/TPWRD.2012.2185254](https://doi.org/10.1109/TPWRD.2012.2185254) ·
-  Open access: [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)
+  Open access: [ResearchGate](https://www.researchgate.net/publication/254057820_Identification_of_Critical_Spans_for_Monitoring_Systems_in_Dynamic_Thermal_Rating),
+  [PDF (Universidad de Chile)](https://www.cec.uchile.cl/~dsaez/wp-content/uploads/2011/09/06163401.pdf)
   The critical-span method is the basis of GTOpt's dynamic line rating
   model (in development).
 - M. Matus, N. Cáceres, S. Puschel-Lovengreen and R. Moreno, "Chebyshev
   based continuous time power system operation approach," *2015 IEEE
   Power & Energy Society General Meeting*, pp. 1–5, 2015.
-  DOI: [10.1109/PESGM.2015.7286570](https://doi.org/10.1109/PESGM.2015.7286570)
+  DOI: [10.1109/PESGM.2015.7286570](https://doi.org/10.1109/PESGM.2015.7286570) ·
+  Open access: [ResearchGate](https://www.researchgate.net/publication/273758902_Chebyshev_Based_Continuous_Time_Power_System_Operation_Approach)
 
 The full reference list of the formulation, including the methods GTOpt
 builds on, is in
