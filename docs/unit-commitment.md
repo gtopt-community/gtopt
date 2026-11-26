@@ -514,16 +514,16 @@ $$
 Here $T_k$ is the start instant of period $k$.  $f^{SU}(\delta)$, for
 $\delta > 0$ hours before the start, is the piecewise-linear start-up
 trajectory through $(0, \underline P)$ and
-$(j\,h, P^{SU}_{S^U+1-j})$, $j = 1..S^U$, and $0$ beyond $S^U h$.
+$(j\,h, P^{SU}\_{S^U+1-j})$, $j = 1..S^U$, and $0$ beyond $S^U h$.
 $f^{SD}(\delta)$, for $\delta > 0$ hours after the shut-down, passes through
-$(0, \underline P)$ and $(j\,h, P^{SD}_{j+1})$, $j = 1..S^D$, and is $0$
+$(0, \underline P)$ and $(j\,h, P^{SD}\_{j+1})$, $j = 1..S^D$, and is $0$
 beyond $S^D h$.  The trajectories are `startup_trajectory`
-$= [P^{SU}_1, \dots, P^{SU}_{S^U}]$ and `shutdown_trajectory`
-$= [P^{SD}_2, \dots, P^{SD}_{S^D+1}]$, sampled every $h$ =
+$= [P^{SU}\_1, \dots, P^{SU}\_{S^U}]$ and `shutdown_trajectory`
+$= [P^{SD}\_2, \dots, P^{SD}\_{S^D+1}]$, sampled every $h$ =
 `trajectory_step` hours (default 1).  Only the terms with
 $0 < \delta \le S h$ are written.  On an hourly grid with hourly periods
-this is exactly eq. (12) of [5]: the entry $P^{SU}_i$ multiplies
-$v_{b-i+S^U+2}$ and $P^{SD}_i$ multiplies $w_{b-i+2}$.  Without
+this is exactly eq. (12) of [5]: the entry $P^{SU}\_i$ multiplies
+$v\_{b-i+S^U+2}$ and $P^{SD}\_i$ multiplies $w\_{b-i+2}$.  Without
 trajectories (a quick-start unit) PB1 is eq. (14) of [5].  Events outside
 the stage (index $< 1$ or $> $ the last period) are zero, as in [5];
 cyclic stages wrap.
@@ -655,12 +655,12 @@ status $u$ tightens the segment breakpoints.
 
 ### Segment Definition
 
-`pmax_segments` $= [\bar{P}_1, \ldots, \bar{P}_K]$ are the cumulative MW
-breakpoints ($\bar{P}_K = P_\max$) and `heat_rate_segments`
+`pmax_segments` $= [\bar{P}\_1, \ldots, \bar{P}\_K]$ are the cumulative MW
+breakpoints ($\bar{P}\_K = P\_\max$) and `heat_rate_segments`
 $= [h_1, \ldots, h_K]$ the heat rate of each segment (fuel units per MWh,
 strictly increasing).  Segment 1 rides on the generation variable
-$p_{g,t}$ itself; each higher segment $k = 2, \ldots, K$ adds a slack
-$s_{g,k,t} \geq 0$ (`Generator/heat_rate_slack`) and a kink row
+$p\_{g,t}$ itself; each higher segment $k = 2, \ldots, K$ adds a slack
+$s\_{g,k,t} \geq 0$ (`Generator/heat_rate_slack`) and a kink row
 (`Generator/heat_rate_kink`):
 
 $$p_{g,t} - s_{g,k,t} \leq \bar{P}_{k-1}$$
@@ -759,8 +759,8 @@ fraction, $f$ the combustion `rate` and $f^{\text{up}}$ the
 
 ### 6.1 Emission Price (Carbon Tax)
 
-Set `price` $c^{\text{em}}_{z,t}$ (\$/t) on a zone.  Every source in the
-zone adds $c^{\text{em}}_{z,t} \, \alpha^{\text{em}}_{\nu,t,b} / \Delta_b$
+Set `price` $c^{\text{em}}\_{z,t}$ (\$/t) on a zone.  Every source in the
+zone adds $c^{\text{em}}\_{z,t} \, \alpha^{\text{em}}\_{\nu,t,b} / \Delta_b$
 (\$/MWh) to the cost of its generator's dispatch, weighted by duration,
 probability and discount like any other energy cost.  For a
 single-pollutant CO₂ zone this is
@@ -779,10 +779,10 @@ $$\sum_{b} \sum_{\nu \in z} \alpha^{\text{em}}_{\nu,t,b} \, p_{g(\nu),b}
   \;-\; s^{\text{cap}}_{z,t} \leq \overline{E}_{z,t}$$
 
 - **Hard cap**: `cap` only; the slack $s^{\text{cap}}$ does not exist.
-- **Soft cap**: `cap` + `cap_cost` $c^{\text{cap}}_{z,t}$ (\$/t); the
-  slack $s^{\text{cap}} \geq 0$ is penalised at $c^{\text{cap}}_{z,t}$
+- **Soft cap**: `cap` + `cap_cost` $c^{\text{cap}}\_{z,t}$ (\$/t); the
+  slack $s^{\text{cap}} \geq 0$ is penalised at $c^{\text{cap}}\_{z,t}$
   per tonne (no duration factor), and the cap's price can never exceed
-  $c^{\text{cap}}_{z,t}$.
+  $c^{\text{cap}}\_{z,t}$.
 
 The cap dual (`EmissionZone/cap_dual`) is the **endogenous price** of
 the pollutant (\$/t) at optimality: zero when the cap is slack, non-zero
@@ -1139,7 +1139,7 @@ to exactly one generator via a foreign key.
 | `ramp_allowance` | string | no | boundary / period | boundary | SU/SD ramp allowance only at commitment-period boundaries (default), or on every block of the commitment period (`period`, older, looser form) |
 | `uc_formulation` | string | no | global | — | `"energy_block"` or `"power_based"` (§4.6); overrides `model_options.uc_formulation` |
 | `startup_trajectory` | real[] | no | — | MW | Power-based: start-up powers $[P^{SU}_1..P^{SU}_S]$ every `trajectory_step` h before reaching pmin |
-| `shutdown_trajectory` | real[] | no | — | MW | Power-based: shut-down powers $[P^{SD}_2..P^{SD}_{S+1}]$ every `trajectory_step` h after leaving pmin |
+| `shutdown_trajectory` | real[] | no | — | MW | Power-based: shut-down powers $[P^{SD}\_2..P^{SD}\_{S+1}]$ every `trajectory_step` h after leaving pmin |
 | `trajectory_step` | real | no | 1 | hours | Trajectory sample spacing |
 | `cycle` | string | no | `"none"` | — | `"stage"`: cyclic commitment over the stage (typical day / week) |
 | `long_transition` | string | cond. | — | — | `"on"` / `"off"` / `"no_uc"` for cyclic units whose MUT/MDT/start window exceeds the typical period (required for them) |

@@ -112,6 +112,10 @@ dev = [
     "ty==0.0.107",
     "xlsxwriter>=3.1",
     "hypothesis>=6.0",
+    # tools/check_latex_math.py (Markdown math lint; the MathJax half
+    # is the npm package in tools/latex_lint/).
+    "markdown-it-py>=3.0",
+    "mdit-py-plugins>=0.4",
 ]
 # Repo-wide linters that are not Python packages themselves but ship as
 # self-contained PyPI wheels, so `pip install -e "./scripts[lint]"`

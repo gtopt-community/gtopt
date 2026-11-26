@@ -142,17 +142,17 @@ $$
 $$
 
 **Reduced-cost units.**  `StateVariable::reduced_cost_physical(σ)`
-returns $rc_{LP} \cdot \sigma / \text{col\_scale}_{dep}$, where
-$rc_{LP}$ is the reduced cost of the *dependent* column (phase $t{+}1$
-`sini`) and $\text{col\_scale}_{dep}$ is **that column's own**
+returns $rc\_{LP} \cdot \sigma / \text{col\_scale}\_{dep}$, where
+$rc\_{LP}$ is the reduced cost of the *dependent* column (phase $t{+}1$
+`sini`) and $\text{col\_scale}\_{dep}$ is **that column's own**
 post-equilibration scale, recorded with the rc by
 `set_reduced_cost(rc, col_scale_dep)`.  It equals
 `get_col_cost()[dep]` on the target LP, so the state-variable and
 `LinearInterface` cut-builder overloads agree.  The source column's
-`var_scale` ($\text{col\_scale}_{src}$, phase-$t$ `efin`) must not be
+`var_scale` ($\text{col\_scale}\_{src}$, phase-$t$ `efin`) must not be
 used here: Ruiz equilibration gives the two columns independent factors,
-and dividing by $\text{col\_scale}_{src}$ skews every slope by
-$\text{col\_scale}_{dep}/\text{col\_scale}_{src}$ (the pre-2026-11
+and dividing by $\text{col\_scale}\_{src}$ skews every slope by
+$\text{col\_scale}\_{dep}/\text{col\_scale}\_{src}$ (the pre-2026-11
 bug: LB above the single-LP optimum).  The source-side scale enters
 only through `add_row`'s column scaling (step 1).  Despite the name this is the folded
 physical reduced cost: the `cost_factor` ($p_s \cdot$ discount $\cdot$

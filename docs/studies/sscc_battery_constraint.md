@@ -55,9 +55,9 @@ $a^{RS}_z(t) = u^{RS}_z(t)$ and $a^{LW}_z(t) = 1 - u^{LW}_z(t)$ (e.g.
 `CPF_RS`: $u = 50\,\%$, $a = 0.5$).  From 2026-05-25 a third file,
 `Activation_Factors.csv`, appears (hourly factors per service).
 
-In math, per block $t$ (1 h), with $r^{\uparrow}_{z}$, $r^{\downarrow}_{z}$
+In math, per block $t$ (1 h), with $r^{\uparrow}\_{z}$, $r^{\downarrow}\_{z}$
 the provisions of $B$ to the BESS reserve zones, $E_t$ its end-of-period
-energy and $g^{x}_t$, $\ell^{x}_t$, $E^{x}_t$ the AUX generation, load and
+energy and $g^{x}\_t$, $\ell^{x}\_t$, $E^{x}\_t$ the AUX generation, load and
 energy:
 
 $$
@@ -307,8 +307,8 @@ Findings:
 
 1. **The old `uc` mapping freezes the SSCC batteries.**  The redirected
    rows `-(p^d + p^c) + 0.3 r^{dn}_{CSF} = 0` and `-(p^c + p^d) + 0.3
-   r^{up}_{CSF} = 0` force $r^{dn}_{CSF} = r^{up}_{CSF}$ and tie throughput
-   to reserve; the LP's cheapest point is $p^c = p^d = 0$, $r_{CSF} = 0$.
+   r^{up}_{CSF} = 0` force $r^{dn}\_{CSF} = r^{up}\_{CSF}$ and tie throughput
+   to reserve; the LP's cheapest point is $p^c = p^d = 0$, $r\_{CSF} = 0$.
    Every SSCC BESS sits idle for the whole week on both dates and offers
    only primary (CPF) up reserve.  This is neither PLEXOS's model (where
    the AUX tank makes the BESS *move* and creates energy) nor a physical

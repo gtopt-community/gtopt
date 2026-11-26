@@ -1,0 +1,10 @@
+{
+  "name": "gtopt-latex-lint",
+  "private": true,
+  "description": "MathJax 3 TeX validator for tools/check_latex_math.py",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "dependencies": {
+    "mathjax-full": "3.2.2"
+  }
+}

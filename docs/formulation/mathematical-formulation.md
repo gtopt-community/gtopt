@@ -248,7 +248,7 @@ scenarios, stages, and blocks.
 | $\xi_{o,s,t,b}^{\text{sav}}$ | VolumeRight saving (deposit) rate | $\geq 0$ |
 | $\nu_{o,s,t,b}$ | VolumeRight remaining rights volume (state) | $[0,\; \overline{V}_o]$ |
 | $q_{o,s,t}^{\text{fail}}$ | VolumeRight demand deficit | $\geq 0$ |
-| $e_{\tau,s,t,b}^{\text{lng}}$ | LNG tank volume | $[\underline{V}_\tau,\; \overline{V}_\tau]$ |
+| $e\_{\tau,s,t,b}^{\text{lng}}$ | LNG tank volume | $[\underline{V}\_\tau,\; \overline{V}\_\tau]$ |
 | $d_{\tau,s,t,b}^{\text{lng}}$ | LNG delivery (inflow to tank) | $\geq 0$ |
 | $u_{g,s,t,p}$ | UC binary status of generator $g$ over period $p$ | $\{0,1\}$ |
 | $v_{g,s,t,p}$ | UC binary startup of generator $g$ | $\{0,1\}$ |
@@ -363,7 +363,7 @@ Additional OPEX terms may include:
 - **Reserve provision cost**: $\sum_{p} \bigl( c_{p,t}^{\text{ur}} \; r_{p,s,t,b}^{\text{up}} + c_{p,t}^{\text{dr}} \; r_{p,s,t,b}^{\text{dn}} \bigr)$
 - **Spillway cost**: $\sum_{r} c_{r,t}^{\text{spill}} \; \text{spill}_{r,s,t,b}$
 - **Junction drain cost**: $\sum_{j} c_{j}^{\text{drain}} \; \delta_{j,s,t,b}$ (§5.10)
-- **Emission price and CCS cost**: $\sum_{\nu} c^{\text{em}}_{z(\nu),t} \, (\alpha^{\text{em}}_{\nu,t,b} / \Delta_b) \, p_{g(\nu),s,t,b}$ plus capture cost (§5.14 bis); soft emission-cap slack $c^{\text{cap}}_{z,t} \, s^{\text{cap}}_{z,s,t}$ is weighted by $\pi_s \delta_t / \sigma$ only
+- **Emission price and CCS cost**: $\sum\_{\nu} c^{\text{em}}\_{z(\nu),t} \, (\alpha^{\text{em}}\_{\nu,t,b} / \Delta_b) \, p\_{g(\nu),s,t,b}$ plus capture cost (§5.14 bis); soft emission-cap slack $c^{\text{cap}}\_{z,t} \, s^{\text{cap}}\_{z,s,t}$ is weighted by $\pi_s \delta_t / \sigma$ only
 - **Generator profile spillover cost**: $\sum_{g} c_{g,t}^{\text{spill}} \; \text{spill}_{g,s,t,b}$
 
 ### 4.3 Investment Costs (CAPEX)
@@ -440,9 +440,9 @@ $$
 \underline{P}_{g,t,b} = \max\bigl(\underline{P}_{g,t}(b),\; 0\bigr)
 $$
 
-where $\overline{P}_{g,t}(b)$ and $\underline{P}_{g,t}(b)$ are the
+where $\overline{P}\_{g,t}(b)$ and $\underline{P}\_{g,t}(b)$ are the
 block-level schedule values of `pmax` and `pmin` respectively, and
-$\bar{C}_{g,t}$ is the installed capacity at stage $t$.
+$\bar{C}\_{g,t}$ is the installed capacity at stage $t$.
 
 #### Cost Coefficient
 
@@ -492,8 +492,8 @@ $p_{g,s,t,b} - \min(\phi_g, 1)\,C_{g,t} \le 0$: a profile above 1 is clipped
 (with a warning) so the unit never produces more than its built capacity.
 
 Curtailment is reconstructed after the solve,
-$\text{spill}_{g,s,t,b} = \max(0,\, A_{g,s,t,b} - p_{g,s,t,b})$ (with a
-capacity column $A = \min(\min(\phi_g,1)\,C^\star_{g,t}, \bar{P}_{g,t,b})$),
+$\text{spill}\_{g,s,t,b} = \max(0,\, A\_{g,s,t,b} - p\_{g,s,t,b})$ (with a
+capacity column $A = \min(\min(\phi_g,1)\,C^\star\_{g,t}, \bar{P}\_{g,t,b})$),
 and written to `GeneratorProfile/spillover_sol`.  `spillover_dual` is the
 dual of the $\le$ row (same sign convention as the equality row it
 replaces: $\partial z / \partial A \le 0$), and `spillover_cost` is the
@@ -508,9 +508,9 @@ p_{g,s,t,b} + \text{spill}_{g,s,t,b} = A_{g,s,t,b},
 $$
 
 (with a capacity column:
-$p + \text{spill} - \min(\phi_g,1)\,C_{g,t} = 0$,
-$\text{spill} \le \min(\phi_g,1)\,\bar{C}^{\max}_{g,t}$), costed at
-$c_g^{\text{spill}} \cdot \omega_{s,t,b}$.
+$p + \text{spill} - \min(\phi_g,1)\,C\_{g,t} = 0$,
+$\text{spill} \le \min(\phi_g,1)\,\bar{C}^{\max}\_{g,t}$), costed at
+$c_g^{\text{spill}} \cdot \omega\_{s,t,b}$.
 
 > **Why slack-free.** The spillover column is a column singleton in an
 > equality row; every presolve turns `p + s = A, s ≥ 0` into `p ≤ A`.  The
@@ -564,15 +564,15 @@ where $\lambda_d$ is the demand-side loss factor.
 #### Stepwise Curtailment Cost (`fail_segments`)
 
 A demand may carry a stepwise value-of-lost-load curve with $K$ segments
-$\{(f_{d,k},\, c_{d,k,t})\}_{k=1}^{K}$ — `Demand.fail_segments`, or the
+$\{(f\_{d,k},\, c\_{d,k,t})\}\_{k=1}^{K}$ — `Demand.fail_segments`, or the
 global default `model_options.demand_fail_segments` for demands without
 `fcost` / `fail_segments` (typical sources: PLP `FALLA_<bus>_1..4`, SDDP
 `deficit_segments`, CNE CFLD 0–5/5–10/10–20/>20 %, PLEXOS `VoLL` +
-`Internal VoLL`/`Level`).  Segment $k$ covers $f_{d,k}\,\overline{L}_{d,t,b}$
-MW of curtailment priced at $c_{d,k,t}$ (per-stage schedule).  An open last
-segment takes the residual $f_{d,K} = 1 - \sum_{k<K} f_{d,k}$; when all
+`Internal VoLL`/`Level`).  Segment $k$ covers $f\_{d,k}\,\overline{L}\_{d,t,b}$
+MW of curtailment priced at $c\_{d,k,t}$ (per-stage schedule).  An open last
+segment takes the residual $f\_{d,K} = 1 - \sum\_{k<K} f\_{d,k}$; when all
 fractions are explicit and sum to less than one, the remainder
-$\phi_d = 1 - \sum_k f_{d,k}$ is **firm** (non-curtailable) load.
+$\phi_d = 1 - \sum_k f\_{d,k}$ is **firm** (non-curtailable) load.
 
 The served load is split into $K$ tranche variables with plain column
 bounds — no extra rows:
@@ -585,10 +585,10 @@ $$
 $$
 
 where $k^\star$ is the most expensive segment, so
-$\sum_k u_{d,k,t,b} = \overline{L}_{d,t,b}$.  The per-segment curtailment
-is $q_{d,k,s,t,b} = u_{d,k,t,b} - \ell_{d,k,s,t,b}$ and
-$q_{d,s,t,b} = \sum_k q_{d,k,s,t,b}$.  Each tranche enters the bus balance
-(§5.1) and the capacity row with the same coefficient as $\ell_{d,s,t,b}$,
+$\sum_k u\_{d,k,t,b} = \overline{L}\_{d,t,b}$.  The per-segment curtailment
+is $q\_{d,k,s,t,b} = u\_{d,k,t,b} - \ell\_{d,k,s,t,b}$ and
+$q\_{d,s,t,b} = \sum_k q\_{d,k,s,t,b}$.  Each tranche enters the bus balance
+(§5.1) and the capacity row with the same coefficient as $\ell\_{d,s,t,b}$,
 and its objective contribution is the per-tranche substitution of the
 curtailment cost:
 
@@ -600,10 +600,10 @@ $$
 $$
 
 The served-load floor
-$F_{d,t,b} = \max\bigl(L^{\min}_{d,t,b},\ \phi_d\,\overline{L}_{d,t,b}\bigr)$
+$F\_{d,t,b} = \max\bigl(L^{\min}\_{d,t,b},\ \phi_d\,\overline{L}\_{d,t,b}\bigr)$
 is distributed greedily over the tranche lower bounds
-$\underline{\ell}_{d,k,t,b}$ in decreasing cost order.  With
-non-decreasing costs $c_{d,1,t} \le \dots \le c_{d,K,t}$ (convex curve)
+$\underline{\ell}\_{d,k,t,b}$ in decreasing cost order.  With
+non-decreasing costs $c\_{d,1,t} \le \dots \le c\_{d,K,t}$ (convex curve)
 this is exact: the tranches are perfect substitutes in every row, so the
 LP curtails the cheapest segment first and realises the stepwise curve
 without ordering constraints or binaries.  Decreasing costs are accepted
@@ -794,15 +794,15 @@ lossy line, so iterate until no new flags.
 
 > **$v$-pin (`loss_flow_abs_cost`).**  When $\varepsilon_l > 0$ the
 > abs-flow proxy columns $v_l$ additionally carry a degeneracy pin
-> $\varepsilon^{\text{pin}}_l$ [\$/MWh, real cost units before
+> $\varepsilon^{\text{pin}}\_l$ [\$/MWh, real cost units before
 > `scale_objective`; JSON `loss_flow_abs_cost`, per line or via
 > `model_options`, default $10^{-3}$].  It forces
-> $\sum_\ell v_{l,\ell} = |f_l|$ at the optimum so the chord stays
+> $\sum\_\ell v\_{l,\ell} = |f_l|$ at the optimum so the chord stays
 > anchored to the piecewise secant.  **LMP effect:** with
-> $\sum_\ell v_{l,\ell} = |f_l|$ the pin is a toll of
-> $\varepsilon^{\text{pin}}_l$ per MWh of flow in the flow direction,
+> $\sum\_\ell v\_{l,\ell} = |f_l|$ the pin is a toll of
+> $\varepsilon^{\text{pin}}\_l$ per MWh of flow in the flow direction,
 > so the nodal-price difference across each lossy line shifts by at
-> most $\approx \varepsilon^{\text{pin}}_l$ (0.001 \$/MWh by default;
+> most $\approx \varepsilon^{\text{pin}}\_l$ (0.001 \$/MWh by default;
 > a path through $n$ lossy lines by at most
 > $\approx n\,\varepsilon^{\text{pin}}$).  The value must survive
 > `scale_objective`: the former internal constant $10^{-6}$ \$/MWh
@@ -820,9 +820,9 @@ lossy line, so iterate until no new flags.
 #### L-Secant Chord with SOS2 Fill-Order (issue #504)
 
 When `loss_secant_segments = L > 1` AND `loss_use_sos2 = true` the
-single $v_l \in [0, \overline{F}_l]$ auxiliary is replaced by **$L$
-segment columns** $v_{l,\ell} \in [0, w_l]$ with
-$w_l = \overline{F}_l / L$, tied to $|f_l|$ by sum-of-segments rows
+single $v_l \in [0, \overline{F}\_l]$ auxiliary is replaced by **$L$
+segment columns** $v\_{l,\ell} \in [0, w_l]$ with
+$w_l = \overline{F}\_l / L$, tied to $|f_l|$ by sum-of-segments rows
 
 $$ \sum_{\ell = 1}^{L} v_{l,\ell,s,t,b} \;\geq\; +f_{l,s,t,b},
    \qquad
@@ -1033,9 +1033,9 @@ $\bar{x}_l - f_l^{dir} - a\,\ell_l^{dir} \ge 0$.  The rows are named
 `thermalp` / `thermaln`.
 
 The normal-rating band (`tmax_normal_*` with `overload_penalty`
-$p^{ov}_l$) uses the same loaded quantity.  With an overload slack
-$o_l^{dir} \in [0,\, \overline{o}_l^{dir}]$ costing
-$p^{ov}_l\,\omega_{s,t,b}$:
+$p^{ov}\_l$) uses the same loaded quantity.  With an overload slack
+$o_l^{dir} \in [0,\, \overline{o}\_l^{dir}]$ costing
+$p^{ov}\_l\,\omega\_{s,t,b}$:
 
 $$ f_l^{dir} + a_l\,\ell_l^{dir} - o_l^{dir} \;\le\; F^{n,dir}_l $$
 
@@ -1261,9 +1261,9 @@ $\overline{T}$ is applied exactly where $\overline{F}^{dir}$ is applied:
 as the flow column bound under `flow` (and as `linear`'s
 $\overline{T}/(1+a\lambda)$), and in the `thermalp` / `thermaln` rows
 under `sending` / `full`.  The argmin span
-$k^*_b$ is recorded.  With an emergency tier and a positive
+$k^\*\_b$ is recorded.  With an emergency tier and a positive
 `overload_penalty` in the block, the hard cap is
-$\min_k T^e_{k,b}$ and $\min_k T_{k,b}$ becomes the normal threshold
+$\min_k T^e\_{k,b}$ and $\min_k T\_{k,b}$ becomes the normal threshold
 $F^n$ of the overload band above (slack bound per
 `overload_slack_bound`, default $\min(T^e - T,\; 1.5\,T)$).
 
@@ -1535,10 +1535,10 @@ $$
 $$
 
 named `loss_gate_p` / `loss_gate_n` for the per-direction (or
-shared/tangent) loss columns, where $\overline{\ell}_l$ is the loss
-column's own finite physical upper bound.  At $u_{l,s,t,b} = 1$ the
-row duplicates the column bound (non-binding); at $u_{l,s,t,b} = 0$
-it pins $\ell_{l,s,t,b} = 0$.  With $\ell$ pinned the
+shared/tangent) loss columns, where $\overline{\ell}\_l$ is the loss
+column's own finite physical upper bound.  At $u\_{l,s,t,b} = 1$ the
+row duplicates the column bound (non-binding); at $u\_{l,s,t,b} = 0$
+it pins $\ell\_{l,s,t,b} = 0$.  With $\ell$ pinned the
 `tangent_signed_flow` abs-flow proxy $v_l$ needs no gate of its own:
 it feeds only the (now slack) chord row, never a bus balance, so any
 residual value is cost-free degenerate freedom.  Modes whose loss
@@ -1680,11 +1680,11 @@ $$
 \;\geq\; \mathrm{UT}_t \cdot v_{l,t},
 $$
 
-where $\mathrm{UT}_t$ is the smallest block-count whose cumulative
+where $\mathrm{UT}\_t$ is the smallest block-count whose cumulative
 duration covers `min_up_time` hours starting at block $t$.  When
-$v_{l,t} = 1$ (line closes at $t$) the right-hand side forces every
-$u_{l,q}$ in the window to 1.  Rows are skipped at the end of the
-stage where $\mathrm{UT}_t \le 1$ (trivially satisfied).  The
+$v\_{l,t} = 1$ (line closes at $t$) the right-hand side forces every
+$u\_{l,q}$ in the window to 1.  Rows are skipped at the end of the
+stage where $\mathrm{UT}\_t \le 1$ (trivially satisfied).  The
 symmetric `min_down_time` row family uses the dual form
 
 $$
@@ -2038,10 +2038,10 @@ e_k = e_{k-1}(1 - \ell\,w_k) + w_k\,\phi_k ,
 $$
 
 with $\phi_k$ the net storage flow
-($\rho\,\eta_{in}\,p^{in}_k - \rho\,p^{out}_k/\eta_{out} - \rho\,s_k$).  Its
+($\rho\,\eta\_{in}\,p^{in}\_k - \rho\,p^{out}\_k/\eta\_{out} - \rho\,s_k$).  Its
 period total is the block-weight (CC) quadrature, exact for polynomial
 flows of the node degree.  The level $e_k$ is the state at the block end
-$\tau_k = \sum_{j \le k} w_j$, to first order — inconsistent with point
+$\tau_k = \sum\_{j \le k} w_j$, to first order — inconsistent with point
 samples.
 
 `trapezoid`, `lg4` and `lg6` define $e_k$ as the state AT the node $t_k$
@@ -2082,13 +2082,13 @@ alternative, the exact cumulative integral $S = V J V^{-1}$ of the
 global node interpolant, is not implemented in the LP.
 
 **Envelope rows.**  The levels are bounded only at the nodes.  A charge
-at $t_{k-1}$ and a discharge at $t_k$ would therefore cancel inside the
-row of $[t_{k-1}, t_k]$, letting the storage shift up to
+at $t\_{k-1}$ and a discharge at $t_k$ would therefore cancel inside the
+row of $[t\_{k-1}, t_k]$, letting the storage shift up to
 $\tfrac12 \Delta_k\, p^{max}$ beyond $e^{max}$ per charge→discharge
 switch.  Every banded rule adds two sparse rows per interval, bounding
 the level of the interpolated flows by their charge-only and
 discharge-only integrals, taken with the nonnegative part
-$D^+_{kj} = \max(D_{kj}, 0)$ of the balance weights (a negative weight
+$D^+\_{kj} = \max(D\_{kj}, 0)$ of the balance weights (a negative weight
 must not loosen the bound):
 
 $$
@@ -2138,8 +2138,8 @@ $$
 
 (a negative, i.e. consuming / reverse, lower bound is kept).  For the
 converter: if the converter is inactive or the battery is not in
-service, $p_{g,s,t,b}$, $p^{\text{in}}_{e,s,t,b}$ and
-$p^{\text{out}}_{e,s,t,b}$ are closed (the charge demand is a consumer and
+service, $p\_{g,s,t,b}$, $p^{\text{in}}\_{e,s,t,b}$ and
+$p^{\text{out}}\_{e,s,t,b}$ are closed (the charge demand is a consumer and
 is untouched).  Without this rule each of those stages produced energy
 from nothing.
 
@@ -2162,19 +2162,19 @@ p_{g,s,t,b} + \ell_{d,s,t,b} \;\leq\; \bar{C}_{v,t}
 \qquad \forall \; s, t, b
 $$
 
-$\bar{C}_{v,t}$ is the converter's installed power.  For the converter
+$\bar{C}\_{v,t}$ is the converter's installed power.  For the converter
 synthesised from a battery, `Battery.power_capacity` / `power_expcap` /
 `power_expmod` / `power_capmax` / `power_annual_capcost` /
 `power_annual_derating` make it an expandable power axis (§5.11, with its
 own `capainst` / `capacost` SDDP state columns), while the battery's own
-`capacity` / `expcap` / … expand the energy axis $\bar{E}_{e,t}$.
+`capacity` / `expcap` / … expand the energy axis $\bar{E}\_{e,t}$.
 
 #### Charge / Discharge Rate Floors (`pmin_charge`, `pmin_discharge`)
 
-For a battery with floors $\underline{P}^{\text{in}}_{e,t,b}$
-(`pmin_charge`) and $\underline{P}^{\text{out}}_{e,t,b}$
-(`pmin_discharge`) and ratings $\overline{P}^{\text{in}}_{e,t,b}$ /
-$\overline{P}^{\text{out}}_{e,t,b}$ (`pmax_charge` / `pmax_discharge`),
+For a battery with floors $\underline{P}^{\text{in}}\_{e,t,b}$
+(`pmin_charge`) and $\underline{P}^{\text{out}}\_{e,t,b}$
+(`pmin_discharge`) and ratings $\overline{P}^{\text{in}}\_{e,t,b}$ /
+$\overline{P}^{\text{out}}\_{e,t,b}$ (`pmax_charge` / `pmax_discharge`),
 `Battery.commitment` selects between two regimes.
 
 **Hard floors** (`commitment` unset, default) — the synthetic charge
@@ -2188,8 +2188,8 @@ $$
 $$
 
 **Per-mode floors** (`commitment = true`) — one binary per mode and
-block, $u^{\text{in}}_{e,s,t,b}$ (converter `u_charge`) and
-$u^{\text{out}}_{e,s,t,b}$ (the status $u$ of the synthesised commitment
+block, $u^{\text{in}}\_{e,s,t,b}$ (converter `u_charge`) and
+$u^{\text{out}}\_{e,s,t,b}$ (the status $u$ of the synthesised commitment
 `uc_<bat>_gen`, §5.15/§5.16, whose `pmin` is
 $\underline{P}^{\text{out}}$):
 
@@ -2265,13 +2265,13 @@ where:
 - $\overline{R}_{z,t,b}^{\text{up/dn}}$ is the reserve requirement (MW)
 
 **Soft requirement and the objective constant.**  With a shortage cost
-$c^{R}_{z,t,b}$ (`urcost` / `drcost`, fallback
+$c^{R}\_{z,t,b}$ (`urcost` / `drcost`, fallback
 `model_options.reserve_shortage_cost`) the static requirement is built in
 the equivalent *served-requirement* form: a column
-$\rho_{z,s,t,b} = \overline{R}_{z,t,b} - q_{z,s,t,b} \in [0, \overline{R}_{z,t,b}]$
-with objective coefficient $-c^{R}\,\epsilon_{s,t,b}$ ($\epsilon$ = the block
+$\rho\_{z,s,t,b} = \overline{R}\_{z,t,b} - q\_{z,s,t,b} \in [0, \overline{R}\_{z,t,b}]$
+with objective coefficient $-c^{R}\,\epsilon\_{s,t,b}$ ($\epsilon$ = the block
 cost factor: probability × discount × duration) and the row
-$\sum_p \gamma_{p,t}\,r_{p,s,t,b} - \rho_{z,s,t,b} \geq 0$.  Substituting
+$\sum_p \gamma\_{p,t}\,r\_{p,s,t,b} - \rho\_{z,s,t,b} \geq 0$.  Substituting
 $\rho = \overline{R} - q$ gives the shortage form above plus the constant
 $+c^{R}\epsilon\,\overline{R}$, which gtopt adds to the LP-external
 objective constant (`LinearProblem::add_obj_constant`, the same mechanism as
@@ -2334,9 +2334,9 @@ becomes $r^{\text{up}} \le \overline{R}^{\text{up}}(1-u)$ and the
 When a battery $e$ sets `reserve_sustain_hours` $= T_e \ge 0$, the two
 generic rows above are **not** emitted for the provisions of its
 synthetic discharge generator.  Instead the linking converter adds, per
-block, with $\mathcal{P}_e$ the provisions of that generator,
+block, with $\mathcal{P}\_e$ the provisions of that generator,
 $p^{\text{out}}$/$p^{\text{in}}$ the discharge/charge columns,
-$e_{e,s,t,b}$ the end-of-block SoC and $\overline{P}$, $\underline{E}$,
+$e\_{e,s,t,b}$ the end-of-block SoC and $\overline{P}$, $\underline{E}$,
 $\overline{E}$ the hard column bounds:
 
 $$
@@ -2559,21 +2559,21 @@ is always a commitment constraint) has three forms, chosen per zone by
 | `inertia_term` | $I_{z,b}$ | couples to |
 |----------------|-----------|------------|
 | `"commitment"` (default) | $\sum_{c} I_c\, u_{c,b} + \sum_{c \in \mathcal{F}} I_c$ | commitment status $u$ |
-| `"exogenous"` | `system_inertia`$_{b}$, else $\sum_{c \in \mathcal{M}} I_c$ | nothing (data) |
-| `"endogenous"` | $\sum_p \mathrm{pf}_p\, r^H_{p,b}$, $r^H_{p,b} \le p_{g(p),b}$ | dispatch $p$ |
+| `"exogenous"` | `system_inertia`$\_{b}$, else $\sum\_{c \in \mathcal{M}} I_c$ | nothing (data) |
+| `"endogenous"` | $\sum_p \mathrm{pf}\_p\, r^H\_{p,b}$, $r^H\_{p,b} \le p\_{g(p),b}$ | dispatch $p$ |
 
-$I_c = \mathrm{pf}_c \cdot \min($`provision_max`$, p_{\max})$
-($= H_c S_c$ when pf defaults to $H S / P_{\min}$) is the unit's inertia
+$I_c = \mathrm{pf}\_c \cdot \min($`provision_max`$, p\_{\max})$
+($= H_c S_c$ when pf defaults to $H S / P\_{\min}$) is the unit's inertia
 when on, summed over
 the InertiaProvisions of `inertia_zone`.  `"commitment"` is the CEN
 definition (minuta Anexo B, (B.1): Inercia $= \sum_c I_c\,u_c$): $u_c$
 is the unit's Commitment status; a unit with no
 status column counts only when it is forced on ($\mathcal{F}$:
-$p_{\min} > 0$), never through its dispatch.  `"exogenous"` puts a
+$p\_{\min} > 0$), never through its dispatch.  `"exogenous"` puts a
 given schedule on the plane RHS; without `system_inertia` it uses the
 conservative must-run sum ($\mathcal{M}$: units whose status is pinned
 to 1 by `must_run` / `fixed_status`, or uncommitted units with
-$p_{\min} > 0$) and logs a warning.  Less inertia means a larger
+$p\_{\min} > 0$) and logs a warning.  Less inertia means a larger
 requirement ($\delta^I \le 0$), so the fallback over-sizes the reserve.
 `"commitment"` is the default.  On the CEN PCP 2026-11-07 day it
 gives a realistic requirement — the must-run-only `"exogenous"`
@@ -2582,10 +2582,10 @@ negative-price exposure as `"exogenous"` (515 vs 509 negative
 bus-hours, none below $-0.1$ \$/MWh; a decomposition run puts the whole
 negative credit on the load term).  **Known risk**: with a RELAXED
 Commitment ($0 \le u \le 1$, the PCP setting), $u$ is itself an LP
-variable bounded only by $p_{\min} u \le p \le p_{\max} u$: a cheap unit
-behind a congested line can raise $u$ to $p / p_{\min}$ and collect
-$I_c |\delta^I| \mu / p_{\min}$ per MWh — larger than the endogenous
-credit, since $I_c / p_{\min} > \mathrm{pf}$.  In the 3-bus case of
+variable bounded only by $p\_{\min} u \le p \le p\_{\max} u$: a cheap unit
+behind a congested line can raise $u$ to $p / p\_{\min}$ and collect
+$I_c |\delta^I| \mu / p\_{\min}$ per MWh — larger than the endogenous
+credit, since $I_c / p\_{\min} > \mathrm{pf}$.  In the 3-bus case of
 `test_reserve_inertia_term_default.cpp` relaxed `"commitment"` gives
 6 negative bus-hours (min $-7.05$ \$/MWh) against 0 for `"exogenous"`;
 with integer commitment both give 0 (the duals come from the fixed-$u$
@@ -2848,10 +2848,10 @@ where:
   m³/s) owned by turbine $u$ in built-in waterway mode, when the turbine's
   `junction_a` debits junction $j$ ($\mathcal{U}_j^{\text{intake}}$) and its
   optional `junction_b` credits junction $j$ ($\mathcal{U}_j^{\text{tail}}$).
-- $\delta_{j,s,t,b}$ is the **drain** column [m³/s], present only when
-  `Junction.drain = true`: $0 \le \delta_{j,s,t,b} \le \overline{\delta}_j$
+- $\delta\_{j,s,t,b}$ is the **drain** column [m³/s], present only when
+  `Junction.drain = true`: $0 \le \delta\_{j,s,t,b} \le \overline{\delta}\_j$
   (`drain_capacity`, default $+\infty$), with objective coefficient
-  $c_j^{\text{drain}} \cdot \omega_{s,t,b}$ (`drain_cost`, \$/(m³/s)·h,
+  $c_j^{\text{drain}} \cdot \omega\_{s,t,b}$ (`drain_cost`, \$/(m³/s)·h,
   default 0).  The cost goes through the same block weight as
   `Waterway.fcost` and `Reservoir.spillway_cost` (probability × discount ×
   duration / `scale_objective`), so a costed junction drain and the
@@ -2926,10 +2926,10 @@ where:
   resolves to $0.0036$ (before 2026-11 the JSON path fell back to $3.6$)
 - $d_{r,s,t,b}$ is the net extraction from the reservoir [m³/s]
   (positive = water leaving for turbines)
-- $\text{spill}_{r,s,t,b}$ is the spillway discharge [m³/s]; the column
+- $\text{spill}\_{r,s,t,b}$ is the spillway discharge [m³/s]; the column
   exists only when `spillway_cost` is set (0 = free spill), bounded by
   `spillway_capacity` and costed at
-  $c_{r,t}^{\text{spill}} \cdot \omega_{s,t,b}$ (\$/(m³/s)·h)
+  $c\_{r,t}^{\text{spill}} \cdot \omega\_{s,t,b}$ (\$/(m³/s)·h)
 
 **Sign of the water value.**  The water value (dual of this row, in
 \$/hm³) is zero while a full reservoir spills through a free exit.  When
@@ -3043,7 +3043,7 @@ reservoir volume $V^{\text{ini}}$ (from the previous phase or the initial
 condition).  The LP constraint is then updated directly in the LP matrix:
 
 - Coefficient on storage variables: $-b_{k^*} / 2$ on both $v_{b-1}$ and $v_b$
-- Right-hand side: $a_{k^*} = c_{k^*} - b_{k^*} \cdot V_{k^*}$
+- Right-hand side: $a\_{k^\*} = c\_{k^\*} - b\_{k^\*} \cdot V\_{k^\*}$
 
 To minimise overhead, `set_coeff` / `set_rhs` calls are dispatched only when
 the new values differ from the previously applied ones.  This mechanism is
@@ -3134,10 +3134,10 @@ where $T_t = \sum_{b \in \mathcal{B}_t} \Delta_b$ is the stage duration.
 
 #### Volume-Dependent Cap
 
-Given piecewise segments $\{(V_k^\ell, m_k^\ell, c_k^\ell)\}_{k=1}^{K}$
+Given piecewise segments $\{(V_k^\ell, m_k^\ell, c_k^\ell)\}\_{k=1}^{K}$
 selected by the current reservoir volume $V$ (average of initial and
-final stage volumes), the active segment $k^*$ yields slope
-$m_{k^*}^\ell$ and intercept $c_{k^*}^\ell$. The discharge cap then
+final stage volumes), the active segment $k^\*$ yields slope
+$m\_{k^\*}^\ell$ and intercept $c\_{k^\*}^\ell$. The discharge cap then
 reads:
 
 $$
@@ -3151,9 +3151,9 @@ $$
 where $v_{r,s,t,b_0}$ / $v_{r,s,t,b_{\text{last}}}$ are the initial/final
 reservoir volume columns (`eini`, `efin`) of the associated reservoir $r$.
 
-Between SDDP iterations the solver re-selects $k^*$ from the updated
+Between SDDP iterations the solver re-selects $k^\*$ from the updated
 forward-pass volume and patches both storage coefficients
-(`-m_{k^*}/2` on `eini` and `efin`) and the RHS ($c_{k^*}^\ell$)
+(`-m_{k^*}/2` on `eini` and `efin`) and the RHS ($c\_{k^\*}^\ell$)
 in place.
 <!-- source: source/reservoir_discharge_limit_lp.cpp:133-188 -->
 
@@ -3177,11 +3177,11 @@ where:
 - $\xi_{g,t}$ is the stage derating factor (capacity degradation)
 - $M_g$ (`expcap`) is the capacity per expansion module
 - $m_{g,t}$ is the number of modules installed at stage $t$
-- $\Delta C_{g,t} = C_{g,t} - C_{g,t-1}$ is the exogenous change of the
+- $\Delta C\_{g,t} = C\_{g,t} - C\_{g,t-1}$ is the exogenous change of the
   `capacity` schedule $C$ between stages (also across SDDP phase
   boundaries).  At the first expandable stage there is no
-  $\bar{C}_{g,t-1}$ and the existing capacity enters whole,
-  $\bar{C}_{g,t} = C_{g,t} + M_g \cdot m_{g,t}$: existing capacity is never
+  $\bar{C}\_{g,t-1}$ and the existing capacity enters whole,
+  $\bar{C}\_{g,t} = C\_{g,t} + M_g \cdot m\_{g,t}$: existing capacity is never
   charged as a build.
 
 #### Expansion Bounds
@@ -3259,8 +3259,8 @@ User constraints are added to the LP after all built-in constraints and
 can reference any LP variable (generator output, line flow, battery SoC,
 etc.).
 
-**Soft constraints.** A constraint with a `penalty` $c^{\text{uc}}_k$
-gets a non-negative slack $z_{k,s,t,b}$ (two, $z^{+}$ and $z^{-}$, for an
+**Soft constraints.** A constraint with a `penalty` $c^{\text{uc}}\_k$
+gets a non-negative slack $z\_{k,s,t,b}$ (two, $z^{+}$ and $z^{-}$, for an
 equality) that relaxes the row; the penalty is \$ per row unit per hour
 of violation and is weighted **exactly like every other cost**
 (`CostHelper`):
@@ -3529,9 +3529,9 @@ e_{\tau,s,t,b}^{\text{lng}} \;=\;& e_{\tau,s,t,b-1}^{\text{lng}} \cdot (1 - \lam
 $$
 <!-- source: source/lng_terminal_lp.cpp:134-164 -->
 
-where $\mathcal{G}_\tau$ is the set of generators linked to terminal
+where $\mathcal{G}\_\tau$ is the set of generators linked to terminal
 $\tau$, $\eta_g^{hr}$ is the generator's heat rate in m³/MWh, and
-$\lambda_\tau^h = \lambda_\tau / 8760$.
+$\lambda\_\tau^h = \lambda\_\tau / 8760$.
 
 The last term is added directly to the existing energy balance row by
 setting
@@ -3555,13 +3555,13 @@ $$
 #### Bounds, Vent and Costs
 
 The deliveries are data: the column is fixed at the constant rate above
-(none when $D_{\tau,t} = 0$) and carries no cost, so the purchase cost
+(none when $D\_{\tau,t} = 0$) and carries no cost, so the purchase cost
 of a scheduled cargo is a constant outside the objective.  The vent
-column exists only when `spillway_cost` $c^{\text{vent}}_\tau$ is set,
-with $0 \le \text{vent} \le \overline{\text{vent}}_\tau$
+column exists only when `spillway_cost` $c^{\text{vent}}\_\tau$ is set,
+with $0 \le \text{vent} \le \overline{\text{vent}}\_\tau$
 (`spillway_capacity`, default 1000 m³/h).  The volume stays within the
 per-block bounds
-$\underline{V}_{\tau,t,b} \le e^{\text{lng}}_{\tau,s,t,b} \le \overline{V}_{\tau,t,b}$
+$\underline{V}\_{\tau,t,b} \le e^{\text{lng}}\_{\tau,s,t,b} \le \overline{V}\_{\tau,t,b}$
 (`emin` / `emax`; the per-block floor is enforced while
 `model_options.strict_storage_emin` is true, the default).  The
 objective adds
@@ -3604,11 +3604,11 @@ with $e_{\text{end}} = e_{\text{ini}}$.
 
 #### Fuel Offtake Limits (Take-or-Pay)
 
-A `Fuel` $f$ with price $P_{f,t,b}$ gives each generator burning it
-$c_g = P_{f,t,b}\, h_g + c^0_g$ (`heat_rate` × `price` + `gcost`).
-`max_offtake` $\overline{O}_{f,t}$ and `min_offtake`
-$\underline{O}_{f,t}$ bound the fuel burnt by the generators
-$\mathcal{G}_f$ of the fuel over each stage:
+A `Fuel` $f$ with price $P\_{f,t,b}$ gives each generator burning it
+$c_g = P\_{f,t,b}\, h_g + c^0_g$ (`heat_rate` × `price` + `gcost`).
+`max_offtake` $\overline{O}\_{f,t}$ and `min_offtake`
+$\underline{O}\_{f,t}$ bound the fuel burnt by the generators
+$\mathcal{G}\_f$ of the fuel over each stage:
 
 $$
 \sum_{b}\sum_{g\in\mathcal{G}_f} h_g \Delta_b\, p_{g,s,t,b} - s^{\max}_{f,s,t} \le \overline{O}_{f,t},
@@ -3618,11 +3618,11 @@ $$
 
 The burn also includes the heat-rate segment legs and the no-load fuel
 of a committed unit.  The slacks exist only when `max_offtake_cost` /
-`min_offtake_cost` are set, at cost $\pi_s\delta_t c^{\max}_f$ /
-$\pi_s\delta_t c^{\min}_f$ per fuel unit; otherwise the rows are hard.
+`min_offtake_cost` are set, at cost $\pi_s\delta_t c^{\max}\_f$ /
+$\pi_s\delta_t c^{\min}\_f$ per fuel unit; otherwise the rows are hard.
 With `max_offtake_per_block` / `min_offtake_per_block` the row is
-written per block with right-hand side $\overline{O}_{f,t}\Delta_b/T_t$
-(resp. $\underline{O}_{f,t}\Delta_b/T_t$) and one slack per block.  The
+written per block with right-hand side $\overline{O}\_{f,t}\Delta_b/T_t$
+(resp. $\underline{O}\_{f,t}\Delta_b/T_t$) and one slack per block.  The
 floor is a take-or-pay minimum purchase, the cap an allotment; neither
 carries a shortfall or surplus to later periods (no make-up or
 carry-forward bank).
@@ -3699,8 +3699,8 @@ $$
 \qquad \alpha^{\text{gas}}_\tau \ge 0
 $$
 
-i.e. future cost $g_\tau\max(0, V^{\text{use}}_\tau - e_{\tau,\text{end}})$
-and terminal value $\vartheta_{\text{end}} \in [0, g_\tau]$; $g_\tau$ is
+i.e. future cost $g\_\tau\max(0, V^{\text{use}}\_\tau - e\_{\tau,\text{end}})$
+and terminal value $\vartheta\_{\text{end}} \in [0, g\_\tau]$; $g\_\tau$ is
 the band price × 24 or `--lng-inflexible-value {bundle,cuts,diesel}`,
 and $V^{\text{use}}$ is `--gas-usable capacity` (what the units can
 still burn before the deadline) or `full` (the end `emax`).  One
@@ -3715,10 +3715,10 @@ Details: [plexos2gtopt](../scripts/plexos2gtopt.md).
 Cargo arrivals are data everywhere above: choosing a cargo's arrival,
 buying an extra spot cargo or rescheduling a delayed one is **not** an
 LP/MIP decision in gtopt.  A possible extension (not implemented) is a
-binary $z_{k,t}$ per candidate cargo $k$ of size $Q_k$ and price
-$c^{\text{sp}}_k$, with $D_{\tau,t} = \sum_k Q_k z_{k,t}$, cost
-$c^{\text{sp}}_k Q_k z_{k,t}$ and contract rows such as
-$\sum_{t\in\mathcal{Y}}\sum_k z_{k,t} \ge N^{\min}$; under SDDP its
+binary $z\_{k,t}$ per candidate cargo $k$ of size $Q_k$ and price
+$c^{\text{sp}}\_k$, with $D\_{\tau,t} = \sum_k Q_k z\_{k,t}$, cost
+$c^{\text{sp}}\_k Q_k z\_{k,t}$ and contract rows such as
+$\sum\_{t\in\mathcal{Y}}\sum_k z\_{k,t} \ge N^{\min}$; under SDDP its
 integer stage problems would need convexified cuts.  Also not modelled:
 the terminal's regasification limits, linking its send-out to a
 `GasNode`, and make-up / carry-forward banks between contract periods.
@@ -3736,13 +3736,13 @@ Emissions are modelled with three element types (user guide:
   optional cap, cap cost and price;
 - `EmissionSource` $\nu \in \mathcal{ES}$ — links generator $g(\nu)$ to
   zone $z(\nu)$ and pollutant $\epsilon(\nu)$ with a combustion rate
-  $f_{\nu,t}$ and an upstream rate $f^{\text{up}}_{\nu,t}$ [t/MWh],
-  and/or fuel-basis factors $\phi_{\nu,t}$, $\phi^{\text{up}}_{\nu,t}$
+  $f\_{\nu,t}$ and an upstream rate $f^{\text{up}}\_{\nu,t}$ [t/MWh],
+  and/or fuel-basis factors $\phi\_{\nu,t}$, $\phi^{\text{up}}\_{\nu,t}$
   [t per fuel unit] (`fuel_rate`, `upstream_fuel_rate`).
   Sources are also synthesised from `Generator.emissions[]`, from
   `Fuel.emission_factors[]` (one per covering zone: a t/MWh rate
-  $h_g \cdot \kappa_f \cdot e_{f,\epsilon}$ for a scalar `heat_rate`,
-  else the fuel-basis factor $\kappa_f \cdot e_{f,\epsilon}$, with
+  $h_g \cdot \kappa_f \cdot e\_{f,\epsilon}$ for a scalar `heat_rate`,
+  else the fuel-basis factor $\kappa_f \cdot e\_{f,\epsilon}$, with
   $\kappa_f$ = `heat_content`, 1 when unset), and from the legacy
   `Generator.emission_rate` (pollutant `co2`).
 
@@ -3771,26 +3771,26 @@ h_{g,1}\, p_{g,s,t,b} + \sum_{k=1}^{K-1} (h_{g,k+1} - h_{g,k})\,
 \;+\; h^{0}_{g}\, u_{g,s,t,b}
 $$
 
-where $s_{g,k}$ are the piecewise heat-rate slack columns and
-$h^{0}_{g}\,u_{g,s,t,b}$ is the no-load burn of a committed unit
+where $s\_{g,k}$ are the piecewise heat-rate slack columns and
+$h^{0}\_{g}\,u\_{g,s,t,b}$ is the no-load burn of a committed unit
 (`Commitment.noload_fuel`, PLEXOS `Heat Rate Base`, times the status
 $u$; zero without a commitment).  A generator whose commitment carries
 `noload_fuel` always uses the fuel basis.  The same
-$F_{g,s,t,b}\,\Delta_b$ is the generator's contribution to its fuel's
+$F\_{g,s,t,b}\,\Delta_b$ is the generator's contribution to its fuel's
 offtake rows (`Fuel.max_offtake` / `min_offtake`, `fuel("X").offtake`);
 the no-load fuel *cost* remains in `noload_cost`.  The
 coefficient on each leg is
-$\mu\,(1-\eta^{\text{cap}})\,(\phi_{\nu,t} + \phi^{\text{up}}_{\nu,t})\,\Delta_b$
+$\mu\,(1-\eta^{\text{cap}})\,(\phi\_{\nu,t} + \phi^{\text{up}}\_{\nu,t})\,\Delta_b$
 times the leg's fuel coefficient, so the cap, price,
 allowance-pool and CCS terms below apply to the exact piecewise or
 per-block fuel burn.
 <!-- source: source/emission_source_lp.cpp, GeneratorLP::fuel_burn_legs -->
 
-where $\eta^{\text{cap}}_{g,\epsilon,t}$ is the CCS capture fraction
+where $\eta^{\text{cap}}\_{g,\epsilon,t}$ is the CCS capture fraction
 (`Generator.emission_captures[].rate`, 0 when absent). A source whose
 pollutant is not listed in its zone's `emissions[]` contributes nothing.
 The emissions of a source in block $b$ are
-$\alpha^{\text{em}}_{\nu,t,b}\,p_{g(\nu),s,t,b}$; they are reported
+$\alpha^{\text{em}}\_{\nu,t,b}\,p\_{g(\nu),s,t,b}$; they are reported
 post-solve (`EmissionSource/emissions_sol`, net of capture and
 unweighted).
 
@@ -3834,19 +3834,19 @@ $$
 $$
 <!-- source: source/emission_zone_lp.cpp:80-122 ; source/emission_source_lp.cpp:238-242 -->
 
-The slack $s^{\text{cap}}_{z,s,t} \geq 0$ (`EmissionZone/cap_slack`)
-exists only when `cap_cost` $c^{\text{cap}}_{z,t}$ is set (soft cap);
-its objective coefficient is $\pi_s\,\delta_t\,c^{\text{cap}}_{z,t}/\sigma$,
+The slack $s^{\text{cap}}\_{z,s,t} \geq 0$ (`EmissionZone/cap_slack`)
+exists only when `cap_cost` $c^{\text{cap}}\_{z,t}$ is set (soft cap);
+its objective coefficient is $\pi_s\,\delta_t\,c^{\text{cap}}\_{z,t}/\sigma$,
 with no duration factor because the slack is an absolute tonnage.
 Without `cap_cost` the cap is hard.
 
-**Endogenous price.** The dual $\lambda^{\text{cap}}_{z,s,t} \leq 0$
+**Endogenous price.** The dual $\lambda^{\text{cap}}\_{z,s,t} \leq 0$
 of the cap row (`EmissionZone/cap_dual`, reported in \$/t after
 removing $\pi_s\,\delta_t/\sigma$) is the scarcity price of the
 pollutant: zero when the cap is slack, and with a soft cap
-$|\lambda^{\text{cap}}_{z,s,t}| \leq c^{\text{cap}}_{z,t}$. When `price`
+$|\lambda^{\text{cap}}\_{z,s,t}| \leq c^{\text{cap}}\_{z,t}$. When `price`
 and `cap` are both set, the marginal tonne costs
-$c^{\text{em}}_{z,t} + |\lambda^{\text{cap}}_{z,s,t}|$.
+$c^{\text{em}}\_{z,t} + |\lambda^{\text{cap}}\_{z,s,t}|$.
 
 **Allowance-pool coupling (cap-and-trade with banking).** An
 `AllowancePool` $a \in \mathcal{A}$ reuses the `StorageLP` balance
@@ -3856,7 +3856,7 @@ $F_{a,t}/T_t$, the grandfathering entitlement) and its state
 $e_{a,s,t,b}$ [tCO₂] carries forward with annual decay $\lambda_a$.
 
 When `EmissionZone.allowance_pool` references pool $a$, each source's
-block tonnage $\alpha^{\text{em}}_{\nu,t,b}\,p_{g(\nu),s,t,b}$ is
+block tonnage $\alpha^{\text{em}}\_{\nu,t,b}\,p\_{g(\nu),s,t,b}$ is
 injected as a **drawdown** into that pool's energy-balance row, and the
 zone's own standalone cap row is **skipped**:
 
@@ -3883,17 +3883,17 @@ $$
 $$
 <!-- source: source/allowance_pool_lp.cpp -->
 
-where $\overline{B}_{a,t,b}$ is `auction_cap`, $\pi_s$ the scenario
+where $\overline{B}\_{a,t,b}$ is `auction_cap`, $\pi_s$ the scenario
 probability, and $\delta_t$ the stage discount. The price carries
 **no** duration factor because $\beta$ is an absolute tonnage (contrast
 the free-allocation rate $\phi$, whose energy-row coefficient is
 $\Delta_b$). The marginal allowance value — the dual of the bank
-balance — is thus capped at $\rho_{a,t,b}$: the LP abates only while
+balance — is thus capped at $\rho\_{a,t,b}$: the LP abates only while
 abatement is cheaper than buying.
 
-Because the bank obeys $e_{a,s,t,b} \geq \underline{E}_a$ (default
+Because the bank obeys $e\_{a,s,t,b} \geq \underline{E}\_a$ (default
 $0$) at every block and an optional terminal target
-$e_{a,\cdot,\text{end}} \geq E_a^{\text{fin}}$ (soft if
+$e\_{a,\cdot,\text{end}} \geq E_a^{\text{fin}}$ (soft if
 $E_a^{\text{fin,cost}}$ set), the cumulative emission cap becomes a
 multi-stage budget with banking: unused allowances roll forward and
 the marginal value of an allowance is the dual of the bank balance,
@@ -3906,10 +3906,10 @@ the sources inject their drawdown.
 A `Commitment` element attaches to a generator $g \in \mathcal{UC}$ and
 introduces the classical three-binary (status / startup / shutdown)
 unit-commitment formulation. Status, startup and shutdown variables
-live on the **commitment period** grid $p \in \mathcal{P}_t^g$ (a
+live on the **commitment period** grid $p \in \mathcal{P}\_t^g$ (a
 coarsening of the block grid so that startup decisions align with
 enforcement periods); each block within the period references the same
-status column $u_{g,s,t,p(b)}$.
+status column $u\_{g,s,t,p(b)}$.
 
 #### Variables
 
@@ -4044,7 +4044,7 @@ bound the derivative at the node times $t_k$ (`Block.time`, default the
 block midpoints in real time), $h_- = t_k - t_{k-1}$,
 $h_+ = t_{k+1} - t_k$:
 
-$$
+```math
 P'(t_k) \approx
 \begin{cases}
 \dfrac{h_-^2 P_{k+1} - h_+^2 P_{k-1} + (h_+^2 - h_-^2) P_k}
@@ -4052,7 +4052,7 @@ P'(t_k) \approx
 (P_1 - P_0)/(t_1 - t_0) & k = 0 \text{ (forward, first order)} \\[1ex]
 (P_N - P_{N-1})/(t_N - t_{N-1}) & k = N \text{ (backward, first order)}
 \end{cases}
-$$
+```
 
 $$
 {}-R_g^{\text{dn}} h_k\,u_{g,k} - \text{SD}_g^{\text{ramp}} w_{g,k}
@@ -4157,14 +4157,14 @@ same step around its integer fix.
 
 **Uplift.** With price $\lambda$ at the unit's bus, the unit's profit
 over the horizon is
-$\pi_g = \sum_t \bigl[(\lambda_t - c_{g,t}) p_{g,t} - \text{NL}_g u_{g,t}\bigr] T_t - \text{SU}_g v_{g,t} - \text{SD}_g w_{g,t}$.
-The make-whole payment is $\text{MWP}_g = \max(0, -\pi_g)$ and the
+$\pi_g = \sum_t \bigl[(\lambda_t - c\_{g,t}) p\_{g,t} - \text{NL}\_g u\_{g,t}\bigr] T_t - \text{SU}\_g v\_{g,t} - \text{SD}\_g w\_{g,t}$.
+The make-whole payment is $\text{MWP}\_g = \max(0, -\pi_g)$ and the
 lost-opportunity cost is
-$\text{LOC}_g = \max(0, \pi^*_g - (\pi_g + \text{MWP}_g))$, where
-$\pi^*_g$ is the profit of the unit's price-taking self-schedule at
+$\text{LOC}\_g = \max(0, \pi^\*\_g - (\pi_g + \text{MWP}\_g))$, where
+$\pi^\*\_g$ is the profit of the unit's price-taking self-schedule at
 $\lambda$ (single-unit DP with its min up / down, pmin / pmax and
 commitment costs; ramps ignored).  Total uplift
-$\sum_g \text{MWP}_g + \text{LOC}_g$ is the criterion for comparing
+$\sum_g \text{MWP}\_g + \text{LOC}\_g$ is the criterion for comparing
 pricing modes: the lower it is, the better the prices support the
 dispatch (`scripts/gtopt_pricing_uplift`).
 
@@ -4260,7 +4260,7 @@ p_{g,s,t,b} - \underline{P}^{c}_{g,t,b}\,u_{g,s,t,b} &\ge 0
 $$
 
 with the no-load cost
-$\sum_{b} \pi_{s}\,\delta_{t}\,c^{\text{nl}}_{g}\,\Delta_b\,u_{g,s,t,b}$
+$\sum\_{b} \pi\_{s}\,\delta\_{t}\,c^{\text{nl}}\_{g}\,\Delta_b\,u\_{g,s,t,b}$
 in the objective (same
 probability / discount factors as §5.15; `noload_fuel` adds
 $\texttt{noload\_fuel}\cdot u$ to the fuel and emission balances as there).
@@ -4292,10 +4292,10 @@ of this MWs requirement.
 
 #### Zone Requirement (InertiaZone)
 
-With a shortage cost $c^{H}_{z,t,b}$ (`InertiaZone.cost`, fallback
+With a shortage cost $c^{H}\_{z,t,b}$ (`InertiaZone.cost`, fallback
 `model_options.reserve_shortage_cost`) a served-requirement column
-$\rho^{H}_{z,s,t,b} \in [0, \overline{R}^{H}_{z,t,b}]$ with objective
-coefficient $-c^{H}\epsilon_{s,t,b}$ enters the requirement row with
+$\rho^{H}\_{z,s,t,b} \in [0, \overline{R}^{H}\_{z,t,b}]$ with objective
+coefficient $-c^{H}\epsilon\_{s,t,b}$ enters the requirement row with
 coefficient $-1$; InertiaProvisions (and commitment-dependent
 `requirement_credits`) add their contributions to the same row:
 
@@ -4352,14 +4352,14 @@ $$
 $r_{p,s,t,b}^{H}$ is in MW; the zone requirement in MWs. The
 conversion factor
 
-$$
+```math
 \Phi_{p,t} \;=\; \begin{cases}
-\text{provision\_factor}_{p,t} & \text{(explicit schedule)} \\[2pt]
+\text{provision_factor}_{p,t} & \text{(explicit schedule)} \\[2pt]
 H_p \cdot S_p / \underline{P}^{c}_{g,t,b} & \text{if } H_p,\,S_p \text{ set and } \underline{P}^{c}_{g,t,b} > 0 \\[2pt]
 H_p \cdot S_p / \overline{P}_{g,t,b} & \text{if } H_p,\,S_p \text{ set and } \underline{P}^{c}_{g,t,b} = 0 \\[2pt]
 1 & \text{otherwise}
 \end{cases}
-$$
+```
 
 is injected as the coefficient on $r_{p,s,t,b}^{H}$ in every linked
 zone's requirement row.  $\underline{P}^{c}_{g,t,b}$ is the unit's
@@ -4411,12 +4411,12 @@ Test (`test_reserve_dynamic_requirement.cpp`, 3 must-run units, credits
 ### 5.18 Hydrogen Carrier (Electrolyser, Node, Offtake)
 
 The hydrogen economy is a separate energy carrier measured in
-MWh$_{\text{LHV}}$.  A `HydrogenNode` $n$ has one equality balance row
+MWh$\_{\text{LHV}}$.  A `HydrogenNode` $n$ has one equality balance row
 per block; a `CarrierConverter` $c$ (electrolyser) withdraws electric
-power $x_{c,s,t,b}$ [MW$_e$] from its bus and injects
-$\eta_{c,t,b}\, x_{c,s,t,b}$ into the node; a `HydrogenStorage`
+power $x\_{c,s,t,b}$ [MW$\_e$] from its bus and injects
+$\eta\_{c,t,b}\, x\_{c,s,t,b}$ into the node; a `HydrogenStorage`
 behaves like a battery on the node; a `HydrogenDemand` $h$ withdraws
-$q_{h,s,t,b}$ [MW$_{\text{LHV}}$].
+$q\_{h,s,t,b}$ [MW$\_{\text{LHV}}$].
 
 Unlike a `Battery` (daily cycle, closed $e_{\text{fin}} = e_{\text{ini}}$
 per stage by default), `HydrogenStorage` and `ThermalStorage` default to
@@ -4435,13 +4435,13 @@ $$
 \qquad \forall n, s, t, b
 $$
 
-The electrolyser input $x_{c,s,t,b} \in [0, \bar{X}_c]$ enters the bus
+The electrolyser input $x\_{c,s,t,b} \in [0, \bar{X}\_c]$ enters the bus
 balance (§5.1) with coefficient $-1$ and carries the operating cost
-$\pi_s \delta_t \Delta_b\, o_{c,t,b}$ (a negative `ocost` represents a
+$\pi_s \delta_t \Delta_b\, o\_{c,t,b}$ (a negative `ocost` represents a
 bid that values the load).  An expandable converter (`expcap` /
 `expmod`) adds, per block, the capacity row
-$x_{c,s,t,b} \le \bar{X}^{\text{inst}}_{c,t}$ on its installed-capacity
-column, as generators do; $\bar{X}_c$ alone is only the `capmax` bound.
+$x\_{c,s,t,b} \le \bar{X}^{\text{inst}}\_{c,t}$ on its installed-capacity
+column, as generators do; $\bar{X}\_c$ alone is only the `capmax` bound.
 The converter builds nothing in a stage where it, or either endpoint
 node, is out of service.
 <!-- source: source/carrier_converter_lp.cpp, source/carrier_node_lp.cpp -->
@@ -4463,14 +4463,14 @@ $$
 \sum_{b \in t} \Delta_b\, q_{h,s,t,b} \;\le\; E^{max}_{h,t}
 $$
 
-where $\sigma_{h,s,t} \ge 0$ exists only when `min_energy_cost`
-$\kappa_{h,t} > 0$ and is priced at $\pi_s \delta_t \kappa_{h,t}$
-[\$/MWh$_{\text{LHV}}$]; otherwise the minimum is hard.  Because the
+where $\sigma\_{h,s,t} \ge 0$ exists only when `min_energy_cost`
+$\kappa\_{h,t} > 0$ and is priced at $\pi_s \delta_t \kappa\_{h,t}$
+[\$/MWh$\_{\text{LHV}}$]; otherwise the minimum is hard.  Because the
 offtake may fall in any block of the stage, the stage target implicitly
 assumes free intra-stage hydrogen storage; use a `HydrogenStorage` plus
 a per-block `lmin`/`lmax` profile to model storage explicitly.  The
 dual of the $E^{min}$ row is the stage marginal cost of hydrogen
-[\$/MWh$_{\text{LHV}}$].
+[\$/MWh$\_{\text{LHV}}$].
 <!-- source: source/hydrogen_demand_lp.cpp -->
 
 ### 5.19 Gas Network (Nodes, Pipes, Compressors, Gas Turbines)
@@ -4491,7 +4491,7 @@ De Wolf & Smeers [[23]](#ref23); compressor fuel after Saldarriaga
 | `GasNode` $n$ | `gas_node_array` | $\varpi_n$ | `balance` |
 | `GasSupply` $g$ | `gas_supply_array` | $x_g$ | `volume` |
 | `GasDemand` $d$ | `gas_demand_array` | $u_d$ (shedding) | — (balance RHS) |
-| `GasPipe` $\ell$ | `gas_pipe_array` | $f_\ell$ or $f^{in}_\ell, f^{out}_\ell, L_\ell$; $d^\pm_\ell$ (SLP) | `weymouth` ×N, `linepack_def`, `linepack_balance`, `linepack_end`, `slp_proximal` |
+| `GasPipe` $\ell$ | `gas_pipe_array` | $f\_\ell$ or $f^{in}\_\ell, f^{out}\_\ell, L\_\ell$; $d^\pm\_\ell$ (SLP) | `weymouth` ×N, `linepack_def`, `linepack_balance`, `linepack_end`, `slp_proximal` |
 | `GasCompressor` $c$ | `gas_compressor_array` | $\Psi_c$, $LC_c$, $P^{el}_c$ | `ratio`, `noexpand`, `fuel_plane`, `motor` |
 | `GasTurbine` $k$ | `gas_turbine_array` | — (uses the generator's $P_k$) | `pressure_gate`, `derate` |
 
@@ -4514,15 +4514,15 @@ $$
 
 Here $\chi_c = 1$ for `drive: gas` and 0 for an electric drive (whose
 suction node supplies only $\Psi_c$).  The dual of the balance row is
-the nodal gas price $\lambda_n$ [\$/km³].  $c^{\varpi}_n$ (`pressure_cost`) is a tiny *negative*
+the nodal gas price $\lambda_n$ [\$/km³].  $c^{\varpi}\_n$ (`pressure_cost`) is a tiny *negative*
 tie-break (e.g. $-10^{-4}$ \$/(bar² h)): among the LP-optimal
 dispatches it selects the highest pressure profile, i.e. the pressures
 of the exact Weymouth equation from the sources down.  Supplies
-$x_g \in [\underline{x}_g, \bar{x}_g]$ cost
+$x_g \in [\underline{x}\_g, \bar{x}\_g]$ cost
 $\pi_s\delta_t\Delta_b\, c_g x_g$; shedding $u_d \in [0, D_d]$ costs
-$\pi_s\delta_t\Delta_b\, c^{fail}_d u_d$ (no column when `fail_cost` is
+$\pi_s\delta_t\Delta_b\, c^{fail}\_d u_d$ (no column when `fail_cost` is
 unset: hard load).  A supply with `volume` $V_g$ adds the stage row
-$\sum_b \Delta_b x_{g,b} \le V_g$ (an LNG or pipeline allotment).  A
+$\sum_b \Delta_b x\_{g,b} \le V_g$ (an LNG or pipeline allotment).  A
 pipe with `weymouth_mode: none` is a capacity-only arc $0 \le f \le \bar F$
 that enters the two balances without any pressure row, such as a
 delivery through a parallel system.
@@ -4806,14 +4806,14 @@ $$
 \lambda^{\text{bus}}_{n(k)} = c_k + h_k\,\lambda_{n} + |\nu^{\text{gate}}_k|
 $$
 
-where $\nu^{\text{gate}}_k$ is the dual of its `pressure_gate` (or
+where $\nu^{\text{gate}}\_k$ is the dual of its `pressure_gate` (or
 `derate`) row.  The gas price is set by the marginal supply when the
 network is uncongested, and by the electricity price,
 $(\lambda^{\text{bus}} - c_k)/h_k$, when the delivery is limited
 (`test_gas_network.cpp`, "heat-rate link and price dual units": 220
 \$/MWh diesel / 0.2 km³/MWh = 1100 \$/km³).  For a flowing radial pipe
-without line pack, the reduced cost of $f_\ell$ gives
-$\lambda_b - \lambda_a = \sum_k 2K_e t_k\,\nu^{W}_{\ell,k}$ (plus the
+without line pack, the reduced cost of $f\_\ell$ gives
+$\lambda_b - \lambda_a = \sum_k 2K_e t_k\,\nu^{W}\_{\ell,k}$ (plus the
 capacity dual), with $\nu^{W} \ge 0$ the duals of the tangent rows: the
 gas price rises along the flow only when a pressure bound binds
 somewhere.  A white-paper version of this section is in
@@ -5029,8 +5029,8 @@ $$
 $$
 
    where $z_t^{(k)}$ is the optimal value of the stage-$t$ LP in iteration
-   $k$, $\bar{\pi}_i^{(k)}$ are the dual prices (reduced costs) of the
-   linking constraints, and $\hat{x}_{t-1,i}^{(k)}$ is the trial solution
+   $k$, $\bar{\pi}\_i^{(k)}$ are the dual prices (reduced costs) of the
+   linking constraints, and $\hat{x}\_{t-1,i}^{(k)}$ is the trial solution
    from the forward pass.
 
 #### Convergence
@@ -5241,10 +5241,10 @@ where:
   its own $\alpha_t$ term)
 - $\mathcal{S}_t$ is the set of state-variable links between phases
   $t{-}1$ and $t$
-- $\text{rc}_i^{(k)}$ is the reduced cost of the dependent column for
+- $\text{rc}\_i^{(k)}$ is the reduced cost of the dependent column for
   state variable $i$ in phase $t$, unscaled with that column's own
   scale:
-  $\text{rc}_i = \text{rc}^{\text{LP}}_i \cdot \sigma / \text{col\_scale}_{\text{dep}}$ (`StateVariable::reduced_cost_physical`,
+  $\text{rc}\_i = \text{rc}^{\text{LP}}\_i \cdot \sigma / \text{col\_scale}\_{\text{dep}}$ (`StateVariable::reduced_cost_physical`,
   `include/gtopt/state_variable.hpp`).  The source column's scale must
   not be used: Ruiz equilibration scales the two columns independently
 - $x_{t-1,i}$ is the source column (decision variable) in phase $t{-}1$
@@ -5416,8 +5416,8 @@ z^*_{\text{mono}} = \min \sum_{t=1}^{T} c_t^\top x_t
 x_t \ge 0 \;\; \forall \; t
 $$
 
-and let $z^{(k)}_{\text{SDDP}}$ be the SDDP lower bound at iteration
-$k$. Then $z^{(k)}_{\text{SDDP}} \to z^*_{\text{mono}}$ in a finite
+and let $z^{(k)}\_{\text{SDDP}}$ be the SDDP lower bound at iteration
+$k$. Then $z^{(k)}\_{\text{SDDP}} \to z^\*\_{\text{mono}}$ in a finite
 number of iterations, provided:
 
 1. **Single scenario** (or all scenarios evaluated) -- the backward
@@ -5556,7 +5556,7 @@ level is active.
 
 #### Convergence Behavior
 
-- If level $\ell$ converges ($\text{gap}_\ell < \varepsilon_\ell$) at an
+- If level $\ell$ converges ($\text{gap}\_\ell < \varepsilon\_\ell$) at an
   intermediate position ($\ell < L-1$), the cascade **continues** to the
   next level for further refinement.
 - If the **final** level ($\ell = L-1$) converges, the solver returns

@@ -166,7 +166,7 @@ ground when apertures span a wide hydrology range.
 
 All three tests share one parametric fixture
 (`dual_shared_lit::FixtureSpec`): 3 phases × 1 stage × 4 blocks of
-1 h; one bus; hydro 50 MW @ 5 $/MWh; thermal 200 MW @ 50 $/MWh;
+1 h; one bus; hydro 50 MW @ 5 \$/MWh; thermal 200 MW @ 50 \$/MWh;
 demand 45 MW; one reservoir, box [0, 200] dam³, `eini = 100`,
 `flow_conversion_rate = 1`; one inflow `Flow` with a per-scenario
 constant discharge schedule; one aperture per scenario, every phase
