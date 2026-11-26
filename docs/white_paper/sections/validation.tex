@@ -5,10 +5,11 @@
 \section{Validation and Benchmark Results}
 \label{sec:validation}
 
-\gtopt{} is validated on a comprehensive suite of IEEE benchmark networks
-and derived cases.  All test cases converge to optimal solutions (status~0)
-with zero optimality gap.  Table~\ref{tab:benchmarks} summarizes the
-benchmark suite.
+\gtopt{} is validated on IEEE benchmark networks and derived cases,
+on published SDDP, unit-commitment, reserve and gas-network benchmarks,
+and against independent models of the same problems.  All IEEE test
+cases converge to optimal solutions (status~0) with zero optimality
+gap; Table~\ref{tab:benchmarks} summarizes them.
 
 \begin{table*}[t]
   \centering
@@ -49,35 +50,50 @@ benchmark suite.
 Table~\ref{tab:test_systems} lists the public test systems included in
 the repository (directory \texttt{cases/}) or read by its converters,
 with their sources.  Each case in the repository carries reference
-results that are checked in continuous integration.
+results that are checked in continuous integration.  The standard test
+systems, the example systems of other tools and the published case
+studies are also distributed, converted with the converters of
+\gtopt{}, in the companion case repository~\cite{gtoptcases}, whose
+benchmark collection keeps the upstream files of openly licensed data
+and, for data without a licence, a recipe that downloads a pinned,
+checksum-verified copy and converts it locally.
 
 \begin{table*}[t]
   \centering
   \caption{Public test systems used for validation and their sources}
   \label{tab:test_systems}
   \small
+  \setlength{\tabcolsep}{4pt}
   \begin{tabular}{@{}llll@{}}
     \toprule
     \textbf{System} & \textbf{Size} & \textbf{Used for} & \textbf{Source} \\
     \midrule
     IEEE 4-bus and battery variants & 4 buses & DC OPF, storage, expansion & illustrative \\
     Anderson--Fouad 9-bus & 9 buses & DC OPF, solar profile & \cite{anderson2002power} \\
-    IEEE 14-, 30-, 57-bus & 14--57 buses & DC OPF, pandapower cross-check & \cite{pstca, ieee30bus, ieee57bus} \\
+    IEEE 14-, 30-, 57-bus & 14--57 buses & DC OPF, pandapower cross-check & \cite{pstca, ieee30bus, ieee57bus, thurner2018pandapower} \\
     IEEE 118-bus & 118 buses & DC OPF & \cite{pstca, pglibopf2019} \\
+    PGLib-OPF v23.07 (5 to 300 buses) & 5--300 buses & DC OPF & \cite{pglibopf2019} \\
     IEEE RTS-96 (24-bus) & 24 buses & unit commitment with OPF & \cite{grigg1999rts96, pglibopf2019} \\
     RTS-GMLC & 73 buses & UC and dispatch with renewables & \cite{barrows2020rtsgmlc} \\
-    NREL-118 & 118 buses & high-renewable dispatch & \cite{pena2018nrel118} \\
-    NREL Sienna test data & various & cases of \texttt{PowerSystems.jl} & \cite{lara2021powersystems} \\
-    Polish \texttt{case3375wp} & 3\,375 buses & large-network DC OPF & \cite{zimmerman2011matpower} \\
+    NREL-118 & 118 buses & one-week hourly dispatch & \cite{pena2018nrel118, powersimulations} \\
+    NREL Sienna test systems & 1--5 buses & UC, hydro, storage, reserves & \cite{lara2021powersystems, powersimulations} \\
+    UnitCommitment.jl fixtures & 14--118 buses & UC MIP vs.\ UnitCommitment.jl & \cite{xavier2024ucjl} \\
+    Clustered-UC case studies & 39, 118 buses & UC MIP vs.\ published model & \cite{morales2019cuc, cucdata} \\
+    Power-based UC example & 1 bus & published schedule and cost & \cite{philipsen2019trading} \\
+    Chebyshev scheduling systems & 1--9 buses & block vs.\ point-sampled stages & \cite{matus2015chebyshev} \\
+    Non-convex pricing examples & 1--3 buses & UC prices, uplift & \cite{oneill2005pricing, gribik2007convexhull, hua2017convexhull} \\
+    MATPOWER \texttt{case30} reserves & 30 buses & zonal reserves, interfaces & \cite{matpower_case30} \\
+    Badesa et al.\ frequency services & 1 bus & reserve and inertia prices & \cite{badesa2020pricing} \\
+    Polish \texttt{case3375wp} (R.~Korab) & 3\,375 buses & large-network DC OPF & \cite{zimmerman2011matpower} \\
     SDDP.jl examples (first steps, hydro valleys, FAST) & 1--2 reservoirs & SDDP vs.\ published bounds & \cite{dowson2020sddp_jl, cambier_fast} \\
     PSR SDDP sample cases & multi-system & \texttt{sddp2gtopt} hydrothermal & \cite{psrclasses} \\
     Saldarriaga pipe chain & 4 gas nodes & Weymouth pressures & \cite{saldarriaga2018phd} \\
     GasLib-11 & 11 gas nodes & radial gas network & \cite{schmidt2017gaslib, pfetsch2015nominations} \\
     Belgian network (GasModels \texttt{A1}) & 24 gas nodes & radial gas network & \cite{dewolf2000gas, gasmodels} \\
     GasModels \texttt{case-6} & 6 gas nodes & exact Weymouth, meshed SLP & \cite{gasmodels} \\
-    Hu--Ryan 6-bus/7-node, IEEE-24/Belgian-20 & 6--24 buses, 7--20 gas nodes & coupled gas--power & \cite{hu2019data} \\
-    Ratha et al.\ 24-bus/12-node & 24 buses, 12 gas nodes & meshed coupled gas--power & \cite{ratha2020data} \\
-    CEN daily schedules (PLEXOS) & $\sim$250 buses & vs.\ official schedule & Section~\ref{sec:cases} \\
+    Hu--Ryan 6-bus/7-node, IEEE-24/Belgian-20 & 6--24 buses, 7--20 gas nodes & coupled gas--power & \cite{hu2019data, hu2019stochastic} \\
+    Ratha et al.\ 24-bus/12-node & 24 buses, 12 gas nodes & meshed coupled gas--power & \cite{ratha2020data, ratha2020affine, ordoudis2019gas} \\
+    CEN daily schedules (PLEXOS) & $\sim$250 buses & vs.\ official schedule & \cite{cen_pcp}, Section~\ref{sec:cases} \\
     Real systems of six countries & 3--3\,374 buses & UC, SDDP, OPF & Section~\ref{sec:gtopt_cases} \\
     \bottomrule
   \end{tabular}
@@ -153,12 +169,12 @@ and 5 transmission lines (Fig.~\ref{fig:ieee4b}).  Two generators
     \node[bus] (b4) at (3,0)   {$b_4$};
 
     % Generators
-    \node[genbox] (g1) at (-1.3,2) {\raisebox{-0.5pt}{\scalebox{0.6}{$\sim$}}};
+    \node[genbox] (g1) at (-1.3,2) {$\sim$};
     \node[font=\tiny, above=1pt of g1] {g1: 300\,MW};
     \node[font=\tiny, below=1pt of g1] {\$20/MWh};
     \draw[->, thick] (g1) -- (b1);
 
-    \node[genbox] (g2) at (4.3,2) {\raisebox{-0.5pt}{\scalebox{0.6}{$\sim$}}};
+    \node[genbox] (g2) at (4.3,2) {$\sim$};
     \node[font=\tiny, above=1pt of g2] {g2: 200\,MW};
     \node[font=\tiny, below=1pt of g2] {\$35/MWh};
     \draw[->, thick] (g2) -- (b2);
@@ -172,8 +188,8 @@ and 5 transmission lines (Fig.~\ref{fig:ieee4b}).  Two generators
     % Transmission lines
     \draw[line] (b1) -- (b2) node[linelab, midway, above] {$\ell_{12}$};
     \draw[line] (b1) -- (b3) node[linelab, midway, left]  {$\ell_{13}$};
-    \draw[line] (b2) -- (b3) node[linelab, midway, above,
-      sloped] {$\ell_{23}$};
+    \draw[line] (b2) -- (b3) node[linelab, pos=0.5, below right=2pt and 0pt]
+      {$\ell_{23}$};
     \draw[line] (b2) -- (b4) node[linelab, midway, right] {$\ell_{24}$};
     \draw[line] (b3) -- (b4) node[linelab, midway, below] {$\ell_{34}$};
   \end{tikzpicture}
@@ -202,61 +218,34 @@ buses 5, 7, and~9 (total 315~MW).
   \begin{tikzpicture}[
     >=Stealth,
     bus/.style={circle, draw, thick, fill=white, minimum size=0.55cm,
-      font=\tiny\bfseries},
-    genbus/.style={circle, draw, thick, fill=yellow!15,
-      minimum size=0.55cm, font=\tiny\bfseries},
+      font=\tiny\bfseries, inner sep=1pt},
+    genbus/.style={bus, fill=yellow!15},
     demlab/.style={font=\tiny, red!70},
     genlab/.style={font=\tiny, green!40!black},
     line/.style={thick, blue!50},
-    scale=0.85, transform shape,
+    dem/.style={-{Triangle[length=3pt,width=3pt]}, thick, red!60},
   ]
-    % Generator buses (top triangle)
-    \node[genbus] (b1) at (0,3.6)    {1};
-    \node[genbus] (b2) at (-2.8,0)   {2};
-    \node[genbus] (b3) at (2.8,0)    {3};
+    % network ring 4-5-7-8-9-6-4, generator buses 1, 2, 3 outside
+    \node[bus] (b4) at (0,1.9)     {4};
+    \node[bus] (b5) at (-1.5,1.0)  {5};
+    \node[bus] (b6) at (1.5,1.0)   {6};
+    \node[bus] (b7) at (-1.5,-0.5) {7};
+    \node[bus] (b9) at (1.5,-0.5)  {9};
+    \node[bus] (b8) at (0,-1.4)    {8};
+    \node[genbus] (b1) at (0,3.1)    {1};
+    \node[genbus] (b2) at (-2.9,-0.5) {2};
+    \node[genbus] (b3) at (2.9,-0.5)  {3};
 
-    % Intermediate buses
-    \node[bus] (b4) at (-1.4,2.4) {4};
-    \node[bus] (b6) at (1.4,2.4)  {6};
-    \node[bus] (b9) at (0,1.2)    {9};
-    \node[bus] (b8) at (-2.1,0.8) {8};
-    \node[bus] (b5) at (-1.4,1.6) {5};
-    \node[bus] (b7) at (2.1,0.8)  {7};
+    \foreach \a/\b in {1/4, 4/5, 4/6, 5/7, 6/9, 7/8, 8/9, 2/7, 3/9}
+      \draw[line] (b\a) -- (b\b);
 
-    % Generator labels
-    \node[genlab, above=2pt of b1]
-      {g1: 250\,MW, \$20};
-    \node[genlab, left=2pt of b2]
-      {g2: 300\,MW, \$35};
-    \node[genlab, right=2pt of b3]
-      {g3: 270\,MW, \$30};
+    \node[genlab, right=3pt of b1] {g1: 250\,MW, \$20};
+    \node[genlab, above=2pt of b2] {g2: 300\,MW, \$35};
+    \node[genlab, above=2pt of b3] {g3: 270\,MW, \$30};
 
-    % Demand labels
-    \node[demlab, left=2pt of b5]
-      {d5: 125\,MW};
-    \node[demlab, right=2pt of b7]
-      {d7: 90\,MW};
-    \node[demlab, below=2pt of b9]
-      {d9: 100\,MW};
-
-    % Demand arrows
-    \draw[-{Triangle[length=3pt,width=3pt]}, thick, red!60]
-      (b5) -- ++(-0.5,-0.3);
-    \draw[-{Triangle[length=3pt,width=3pt]}, thick, red!60]
-      (b7) -- ++(0.5,-0.3);
-    \draw[-{Triangle[length=3pt,width=3pt]}, thick, red!60]
-      (b9) -- ++(0,-0.5);
-
-    % Transmission lines (9 lines)
-    \draw[line] (b1) -- (b4);
-    \draw[line] (b4) -- (b5);
-    \draw[line] (b5) -- (b6);
-    \draw[line] (b6) -- (b1);
-    \draw[line] (b9) -- (b4);
-    \draw[line] (b9) -- (b8);
-    \draw[line] (b8) -- (b2);
-    \draw[line] (b7) -- (b3);
-    \draw[line] (b7) -- (b9) -- (b6);
+    \draw[dem] (b5.west) -- ++(-0.5,0) node[demlab, left] {125\,MW};
+    \draw[dem] (b7.south) -- ++(0,-0.45) node[demlab, below] {100\,MW};
+    \draw[dem] (b9.south) -- ++(0,-0.45) node[demlab, below] {90\,MW};
   \end{tikzpicture}
   \caption{IEEE 9-bus network: three generation areas (buses 1--3)
     serve three demands (buses 5, 7, 9) through a meshed
@@ -354,7 +343,8 @@ published reference values:
   \item \textbf{SDDP.jl \emph{Markov uncertainty}} and
     \emph{generation expansion}: checked against extensive-form and
     MIP oracles.
-  \item \textbf{Infanger--Morton dual sharing}: cut-for-cut agreement
+  \item \textbf{Infanger--Morton dual sharing}~\cite{infanger1996cutsharing}:
+    cut-for-cut agreement
     of the shared-dual backward pass with the standard one where the
     theory guarantees it.
 \end{itemize}
@@ -362,6 +352,81 @@ published reference values:
 In addition, the equivalence between the monolithic LP and SDDP is
 tested on multi-stage cases: with the same data, the converged SDDP
 bounds match the monolithic optimum within the convergence tolerance.
+The water value of a spilling reservoir is also checked against
+hand-derived values, with free and priced exits, in monolithic and
+SDDP runs.
+
+\subsection{Unit-Commitment and Reserve Benchmarks}
+\label{sec:uc_bench}
+
+The commitment, reserve and pricing models of
+Section~\ref{sec:formulation} are cross-checked against other
+implementations and against published values:
+\begin{itemize}
+  \item \textbf{UnitCommitment.jl}~\cite{xavier2024ucjl}: its IEEE
+    14-bus and 118-bus test fixtures (tiered startup costs, minimum
+    up/down times, ramps, initial conditions, profiled renewables) are
+    converted to \gtopt{} and solved as MIPs; the hourly commitment
+    and dispatch are compared with the solution of UnitCommitment.jl
+    on the same instance, with the full network and with a copper
+    plate.
+  \item \textbf{NREL Sienna}~\cite{lara2021powersystems,
+    powersimulations}: the PowerSimulations.jl test systems of the
+    5-bus PJM network (cascaded hydro, pumped storage, an HVDC link, an
+    interruptible load, a single monitored line, time-varying fuel
+    prices, a battery) are compared on hourly and aggregate dispatch,
+    and its reserve systems (range reserves and operating-reserve
+    demand curves, represented as stacked priced reserve zones) on the
+    objective to a relative $10^{-6}$ and on the hourly reserve totals.
+  \item \textbf{Clustered unit commitment}~\cite{morales2019cuc}: the
+    modified IEEE 39-bus and 118-bus systems of Morales-Espa\~na and
+    Tejada-Arango, built from the published data~\cite{cucdata} as
+    individual-unit commitment problems.  An independent transcription
+    of the published model reaches the same incumbents as \gtopt{} to
+    the cent.  The objectives reported in the paper are higher by
+    $0.8\%$ to $2.6\%$ over its four cases, by an amount that grows
+    with the reserve requirement and, for the 39-bus system, vanishes
+    when extrapolated to zero reserve; this points to a different
+    reserve representation in the code behind the published table.  The
+    block formulation of Section~\ref{sec:sc}, applied to the same hours
+    as one non-chronological stage, is checked to remain a relaxation of
+    the chronological commitment.
+  \item \textbf{Power-based commitment}: the day-ahead example of
+    Philipsen et al.~\cite{philipsen2019trading} (two ramp-limited
+    units, seven hours) is solved with the formulation of
+    Section~\ref{sec:pbuc}; the published power-based cost and the
+    boundary powers of both units are reproduced exactly, and the
+    energy-block formulation reproduces the lower energy-based cost of
+    the same paper, which the ramp limits cannot actually deliver.
+  \item \textbf{Point-sampled stages}: small hydrothermal, battery,
+    network, commitment and periodic cases, each in an hourly-block and
+    a Chebyshev--Lobatto point version, are converted from the
+    validation systems of the Chebyshev scheduling
+    code~\cite{matus2015chebyshev}; their objectives are checked
+    against hand-derived or closed-form values and as regressions, and
+    the storage of every rule is checked to be conserved over a closed
+    period.
+  \item \textbf{Non-convex pricing}: the fixed, relaxed and fast-start
+    pricing modes reproduce the prices and uplifts of the published
+    examples of O'Neill et al.~\cite{oneill2005pricing}, Gribik, Hogan
+    and Pope~\cite{gribik2007convexhull} and Hua and
+    Baldick~\cite{hua2017convexhull}; the remaining differences are
+    explained by dual degeneracy or by ramp-coupled relaxations that are
+    not the convex hull.
+  \item \textbf{Reserves}: the MATPOWER zonal-reserve
+    case~\cite{matpower_case30} (two overlapping zones and interface
+    limits) is reproduced exactly, including the zone prices and the
+    reserve cost, and so are the economic-dispatch tables of Badesa et
+    al.~\cite{badesa2020pricing} for energy and frequency-response
+    prices.
+  \item \textbf{Emissions}: the coal--gas dispatch of the
+    myopic-pathway example of PyPSA~\cite{brown2018pypsa}, reduced to
+    one period with a CO$_2$ cap, and a three-zone combined-cycle
+    system with the technology parameters of the three-zone example of
+    GenX~\cite{jenkins2017genx} are solved with a binding cap; the
+    dispatch and the carbon price (the dual of the cap) are checked
+    against hand-derived solutions.
+\end{itemize}
 
 \subsection{Natural-Gas Network Benchmarks}
 \label{sec:gas_bench}
@@ -412,7 +477,8 @@ stochastic results.
       & coupled system, radial and SLP variants
       & radial tangent LP within 0.0099\% of the exact optimum; the SLP
         variant reaches the exact optimum \\
-    Ratha et al.\ 24-bus/12-node~\cite{ratha2020data}
+    Ratha et al.\ 24-bus/12-node~\cite{ratha2020data}, system
+      of~\cite{ordoudis2019gas, ordoudis2018data}
       & meshed coupled system, gas SLP, compressors as ratio-bounded
         stations
       & independent SLP, unchanged by a polish on the exact NLP, i.e.\
@@ -450,3 +516,23 @@ the parameters of the actual pipelines or plants.  Pipelines that cross
 the Andes, as in the north of the country, motivated the elevation
 term, which changes the attainable delivery pressure substantially on
 such routes.
+
+\subsection{Real Systems}
+\label{sec:real_systems}
+
+The companion case repository~\cite{gtoptcases} also publishes the
+inputs of real systems converted from the public data of their system
+operators and regulators, together with the instructions to run them:
+daily schedules, medium- and long-term SDDP cases and a transmission
+planning case of the Chilean system~\cite{cen_pcp}; daily, weekly and
+long-term cases of Guatemala~\cite{amm_eor}; SDDP cases of
+Peru~\cite{coes_mrfo}; production-cost and monthly expansion cases of
+the Australian National Electricity Market from the 2026 Integrated
+System Plan~\cite{aemo2026isp}; unit-commitment weeks of the Irish
+Single Electricity Market~\cite{sem2025plexos}; and the Polish
+3\,375-bus network~\cite{zimmerman2011matpower}.  The data remain the
+property of their publishers; source files are redistributed only where
+their terms allow, and otherwise fetched from the publisher.  These
+cases exercise the converters from PLEXOS, PLP, PSR SDDP and PSS/E at
+national scale; the comparison of Section~\ref{sec:cases} uses the
+Chilean daily schedules.

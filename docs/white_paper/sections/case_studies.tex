@@ -8,7 +8,8 @@
 The Chilean system operator, the Coordinador El\'ectrico Nacional (CEN),
 computes the daily operation schedule of the national system (SEN) with
 PLEXOS.  For each schedule, the input data and the solution (dispatch,
-line flows, losses and marginal costs per bus and hour) are available.
+line flows, losses and marginal costs per bus and hour) are
+published~\cite{cen_pcp}.
 This makes it possible to compare an independent model against the
 official one on the full national network.
 
@@ -23,7 +24,9 @@ inputs are converted with \texttt{plexos2gtopt} in a mode that follows
 the PLEXOS conventions as closely as possible, and solved by \gtopt{}
 with the monolithic method (MIP gap 0.5\%).  The first day
 of each horizon, which is the day actually scheduled, is compared bus
-by bus and hour by hour.  The comparison covers results only, not computing times.
+by bus and hour by hour.  The comparison covers results only, not
+computing times.  The input bundles of these days and their converted
+\gtopt{} cases are available in the case repository~\cite{gtoptcases}.
 
 The CEN has used two loss models: a piecewise-linear model (in 2021) and
 a generalized, single-pass loss model in the recent schedules.  \gtopt{}

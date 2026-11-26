@@ -16,12 +16,17 @@ preparing, converting, visualizing, and post-processing data for use with GTOpt.
   - [gtopt_diagram](#gtopt_diagram) · [full docs](scripts/gtopt_diagram.md)
   - [plp2gtopt](#plp2gtopt) · [full docs](scripts/plp2gtopt.md)
   - [gtopt-fetch](#gtopt-fetch)
-- [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
+  - [plexos2gtopt](scripts/plexos2gtopt.md) — PLEXOS XML / CEN PCP bundles, typical weeks / days
+  - [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
   - [psse2gtopt](#psse2gtopt) · [full docs](scripts/psse2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
   - [nrel118_to_gtopt](#nrel118_to_gtopt) · [full docs](scripts/nrel118_to_gtopt.md)
   - [cucdata2gtopt](#cucdata2gtopt) · [full docs](scripts/cucdata2gtopt.md)
-  - [sienna2gtopt](#sienna2gtopt) — NREL-Sienna PowerSimulations.jl test cases
+  - [sienna2gtopt](#sienna2gtopt) · [full docs](scripts/sienna2gtopt.md)
+  - [gasnet2gtopt](scripts/gasnet2gtopt.md) — gas networks with native gas elements
+  - [dlr2gtopt](scripts/dlr2gtopt.md) — dynamic line rating inputs (critical spans)
+  - [tcheby2gtopt](scripts/tcheby2gtopt.md) — Chebyshev point-stage test cases (`python -m`)
+  - [rts_gmlc_to_gtopt](scripts/rts_gmlc_to_gtopt.md) — RTS-GMLC emission / reserve benchmark (`python -m`)
   - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
   - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel template](templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
   - [cvs2parquet](#cvs2parquet) · [full docs](scripts/cvs2parquet.md)
@@ -126,9 +131,9 @@ One line per console script installed by `pip install ./scripts`:
 | `pp2gtopt` | pandapower network → gtopt JSON | [pp2gtopt](scripts/pp2gtopt.md) |
 | `gtopt2pp` | gtopt JSON → pandapower network | [gtopt2pp](#gtopt2pp) |
 | `nrel118_to_gtopt` | NREL-118 test system → multi-stage gtopt case | [nrel118_to_gtopt](scripts/nrel118_to_gtopt.md) |
-| `sienna2gtopt` | Sienna (PowerSimulations.jl) reference systems → gtopt JSON (`sienna_to_gtopt` is a deprecated alias) | [sienna2gtopt](#sienna2gtopt) |
+| `sienna2gtopt` | Sienna (PowerSimulations.jl) reference systems → gtopt JSON (`sienna_to_gtopt` is a deprecated alias) | [sienna2gtopt](scripts/sienna2gtopt.md) |
 | `cucdata2gtopt` | Clustered-UC benchmark (Morales-España & Tejada-Arango 2019, IEEE 39/118-bus) → gtopt IUC case | [cucdata2gtopt](scripts/cucdata2gtopt.md) |
-| `dlr2gtopt` | Towers + weather → IEEE 738 span ratings → critical spans (Matus et al. 2012) → `Line.dlr` input | [README](../scripts/dlr2gtopt/README.md) |
+| `dlr2gtopt` | Towers + weather → IEEE 738 span ratings → critical spans (Matus et al. 2012) → `Line.dlr` input | [dlr2gtopt](scripts/dlr2gtopt.md) |
 | `igtopt` | Excel workbook → gtopt JSON (and `--make-template`) | [igtopt](scripts/igtopt.md) |
 | `cvs2parquet` | CSV → Parquet converter for gtopt input tables | [cvs2parquet](scripts/cvs2parquet.md) |
 | `ts2gtopt` | Project time series onto a gtopt block horizon | [ts2gtopt](scripts/ts2gtopt.md) |
@@ -163,6 +168,14 @@ One line per console script installed by `pip install ./scripts`:
 | `cen2gtopt-pcp-archive` | Download CEN PCP base / solution bundles (deprecated: use `gtopt-fetch cen`) | [review](scripts/cen_marginal_emissions_review.md) |
 | `cen2gtopt-pcp-inputs` | Read CEN PCP LP-input CSV bundles | [review](scripts/cen_marginal_emissions_review.md) |
 | `cen2gtopt-pcp-solution` | Read CEN PCP `.accdb` solution files (needs `mdbtools`) | [review](scripts/cen_marginal_emissions_review.md) |
+
+Two converters have no console script; they are installed with the
+package and run as modules:
+
+| Module | Purpose | Docs |
+|--------|---------|------|
+| `python -m tcheby2gtopt` | Chebyshev scheduling SQLite test systems → hourly-block and Chebyshev point-stage cases; rebuilds `cases/cheby_small` | [tcheby2gtopt](scripts/tcheby2gtopt.md) |
+| `python -m rts_gmlc_to_gtopt` | RTS-GMLC → single-bus 24 h case with per-generator multi-pollutant emissions, optional reserves and inertia | [rts_gmlc_to_gtopt](scripts/rts_gmlc_to_gtopt.md) |
 
 ### Supported source versions
 
@@ -418,7 +431,7 @@ slope  constant    ← seepage model [m³/s/dam³] and [m³/s]
 ### Basic usage
 
 ```bash
-# Default: reads ./input, writes ./output.json + ./output/
+# Default: reads ./input, writes ./output/output.json + data in ./output/
 plp2gtopt
 
 # Explicit input/output directories
@@ -427,7 +440,7 @@ plp2gtopt -i plp_case_dir -o gtopt_case_dir
 # Limit conversion to the first 5 stages
 plp2gtopt -i input/ -s 5
 
-# Single hydrology (1-based, default)
+# Single hydrology (1-based; the default is all hydrologies)
 plp2gtopt -i input/ -y 1
 
 # Two hydrology scenarios (1-based) with 60/40 probability split
@@ -454,7 +467,9 @@ comma-separated values and ranges:
 
 | Syntax | Meaning |
 |--------|---------|
-| `1` | First hydrology only (default) |
+| `all` | Every hydrology (default) |
+| `first` | The first available hydrology (same as `--first-scenario`) |
+| `1` | Hydrology 1 only |
 | `1,2` | Hydrologies 1 and 2 |
 | `1,2,5-10` | Hydrologies 1, 2, and 5 through 10 |
 | `1,2,5-10,11` | Hydrologies 1, 2, 5-10, and 11 |
@@ -464,11 +479,13 @@ The internal 0-based index stored in the output JSON (`"hydrology"` field in
 
 ### Phase layout (`--stages-phase`)
 
-By default, phase assignment is controlled by `--solver`:
-- `sddp` (default): one phase per PLP stage
-- `mono` / `monolithic`: one phase covering all stages
+By default, phase assignment is controlled by `-M` / `--method`
+(default `cascade`):
+- `sddp`, `cascade`, `cascade-reduced`: one phase per PLP stage
+- `monolithic` (`mono` is a deprecated alias): one phase covering all
+  stages
 
-The `--stages-phase` option overrides this with an explicit mapping.  Tokens
+The `-g` / `--stages-phase` option overrides this with an explicit mapping.  Tokens
 are comma-separated and use 1-based PLP stage indices:
 
 | Token | Meaning |
@@ -486,16 +503,17 @@ plp2gtopt -i input/ --stages-phase '1:4,5,6,7,8,9,10,...'
 plp2gtopt -i input/ --stages-phase '1:12,13:24'
 ```
 
-### Pasada (run-of-river) hydro modeling (`--pasada-hydro`)
+### Pasada (run-of-river) modeling (`--pasada-mode`)
 
-By default (`--pasada-hydro`, enabled), PLP *pasada* (run-of-river) centrals
-are converted into the full GTOpt hydro topology: a junction, waterway,
-turbine, and flow element for each central.  This preserves hydrological
-connectivity and allows the solver to model water balance constraints.
+`--pasada-mode` selects how PLP *pasada* (run-of-river) centrals are
+modelled:
 
-Use `--no-pasada-hydro` to revert to the legacy behavior, where pasada
-centrals are modeled as generators with time-series profiles containing
-normalized capacity factors derived from the PLP afluent data.
+| Mode | Effect |
+|------|--------|
+| `auto` (default) | per central: solar / wind → generator profile, hydro → flow + turbine |
+| `hydro` | full hydro topology (junctions, waterways, turbines, flows) |
+| `flow-turbine` | every pasada central as a simplified flow + turbine |
+| `profile` | every pasada central as a generator profile (normalised capacity factors) |
 
 ### Block-to-hour map (`indhor.csv`)
 
@@ -525,20 +543,19 @@ The ZIP layout is:
 
 ```text
 my_case.zip
-├── my_case.json          ← main system/simulation/options config
-└── my_case/              ← input_directory (data files)
+├── my_case.json
+└── my_case/              ← every file of the output directory
+    ├── my_case.json      ← main system/simulation/options config
     ├── Demand/
     │   └── lmax.parquet
     ├── Generator/
-    │   ├── pmin.parquet
     │   └── pmax.parquet
-    └── Afluent/
-        └── afluent.parquet
+    └── Flow/
+        └── discharge.parquet
 ```
 
-> **Note**: the `input_directory` field in the JSON options matches the name
-> of the subdirectory inside the ZIP, so gtopt\_guisrv and gtopt\_websrv can
-> locate the data files without any extra configuration.
+The JSON inside `my_case/` uses `input_directory: "."`, so the
+data files resolve relative to it.
 
 ### Conversion statistics
 
@@ -576,26 +593,32 @@ similar to the pre-solve statistics printed by the `gtopt` solver:
 
 Use `-l DEBUG` to also see which individual `.dat` files are being parsed.
 
-### All options
+### Common options
+
+`plp2gtopt` has well over 100 options (`plp2gtopt --help`); the most
+used ones are below.  The [full documentation](scripts/plp2gtopt.md)
+lists the rest (SDDP / cascade tuning, maintenance and works plans,
+failure tiers, solver files, …).
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-i, --input-dir DIR` | `input` | PLP input directory |
-| `-o, --output-dir DIR` | `output` | Output directory for Parquet/CSV files |
-| `-f, --output-file FILE` | `<output-dir>.json` | JSON output file path |
+| `-o, --output-dir DIR` | `output` (`gtopt_NAME` for input `plp_NAME`) | Output directory for the JSON and data files |
+| `-f, --output-file FILE` | `<output-dir>/<output-dir-name>.json` | JSON output file path |
+| `-F, --output-format {parquet,csv}` | `parquet` | Data file format |
 | `-z, --zip` | off | Create a ZIP archive of the JSON + data files |
 | `-s, --last-stage N` | all | Stop after stage N |
+| `-t, --last-time T` | all | Include stages up to an accumulated time (hours, or `1y`, `6m`, …) |
 | `-d, --discount-rate RATE` | `0.0` | Annual discount rate (e.g. `0.10` for 10%) |
-| `-m, --management-factor F` | `0.0` | Demand management factor |
-| `-t, --last-time T` | all | Stop at time T |
-| `-c, --compression ALG` | `gzip` | Parquet compression (`gzip`, `snappy`, `brotli`, `none`) |
-| `-y, --hydrologies H1[,H2,…]` | `1` | Hydrology scenario indices (1-based Fortran convention; accepts ranges e.g. `1,2,5-10`) |
+| `-m, --management-factor F` | `0.0` | Demand reduction fraction in [0, 1) |
+| `-c, --compression ALG` | `zstd` | Output file compression |
+| `-y, --hydrologies SPEC` | `all` | Hydrology selector (1-based; `all`, `first`, `1,2,5-10`) |
 | `-p, --probability-factors P1[,P2,…]` | equal | Probability weights per scenario |
-| `--stages-phase SPEC` | (solver default) | Explicit phase layout; comma-separated stage indices/ranges with optional `...` wildcard |
-| `--solver TYPE` | `sddp` | Simulation structure: `sddp` (one phase/scene per stage/scenario) or `mono`/`monolithic` (single phase and scene) |
-| `--pasada-hydro / --no-pasada-hydro` | enabled | Model *pasada* (run-of-river) centrals as full hydro topology (junction, waterway, turbine, flow) instead of generator profiles. Use `--no-pasada-hydro` for legacy behavior with generator profiles using normalized capacity factors |
-| `--stationary-tol TOL` | (auto) | Secondary convergence tolerance for stationary-gap detection. When the relative change in the SDDP gap over the last `--stationary-window` iterations falls below this value, the solver declares convergence even if gap > `convergence_tol`. Default: `convergence_tol / 10`. Set to `0` to disable |
-| `--stationary-window N` | `4` | Number of iterations to look back when checking gap stationarity. Only used when `--stationary-tol` is set |
+| `-M, --method METHOD` | `cascade` | `sddp`, `cascade`, `cascade-reduced`, `monolithic` |
+| `-g, --stages-phase SPEC` | per `--method` | Explicit phase layout; comma-separated stage indices/ranges with optional `...` wildcard |
+| `--pasada-mode MODE` | `auto` | Run-of-river modelling (see above) |
+| `--stationary-tol TOL` | `--convergence-tol` | Secondary convergence tolerance for stationary-gap detection |
+| `--stationary-window N` | not set (gtopt uses 4) | Iterations to look back when checking gap stationarity |
 | `-l, --log-level LEVEL` | `INFO` | Verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `-V, --version` | — | Print version and exit |
 
@@ -759,6 +782,8 @@ gtopt cuc/cuc39_r10_s10.json --mip-gap 1e-4
 
 ## sienna2gtopt
 
+> **[→ Full documentation](scripts/sienna2gtopt.md)**
+
 Ports a test case of NREL-Sienna PowerSimulations.jl to a gtopt planning
 JSON.  The Sienna data bundle (`5bus` by default, or `14bus`) is
 downloaded from a pinned upstream commit on first use and cached; set
@@ -864,11 +889,24 @@ The output JSON system `name` is derived from the file stem (e.g. `case39.m`
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-f, --file FILE` | — | pandapower network file (`.json`, `.xlsx`/`.xls`, `.m`) |
+| `-f, --file FILE` | — | pandapower network file (`.json`, `.xlsx`/`.xls`, MATPOWER `.m`/`.mat`) |
+| `--matpower FILE` | — | MATPOWER case (alias of `-f`); `--mpc-var NAME` (default `mpc`) names the struct in a `.mat` file |
 | `-n, --network NAME` | `ieee30b` | built-in test network (mutually exclusive with `-f`) |
 | `-o, --output FILE` | `<stem>.json` | Output JSON file path |
+| `--method {monolithic,sddp,cascade}` | `cascade` (snapshot), `monolithic` (with `--profiles`) | `options.method` to embed (`--solver` is an alias) |
+| `--scale-objective F` | `1000` | Objective scaling factor |
+| `--demand-fail-cost C` | `1000` | Unserved-demand penalty [$/MWh] |
+| `-k, --use-kirchhoff / --no-use-kirchhoff` | on | DC Kirchhoff constraints |
+| `-b, --use-single-bus / --no-use-single-bus` | off | Single-bus (copper-plate) mode |
+| `--check / --no-check` | on | Post-conversion validation via `gtopt_check_json` |
 | `--list-networks` | — | Print all available built-in network names and exit |
+| `-l, --log-level LEVEL` | `INFO` | Logging verbosity |
 | `-V, --version` | — | Print version and exit |
+
+Time-series mode (`--profiles`, `--hours`, `--block-hours`,
+`--stage-hours`, `--stage-period`, …) builds multi-block, multi-stage
+cases from hourly profiles; see the
+[full documentation](scripts/pp2gtopt.md).
 
 ---
 
@@ -1065,7 +1103,7 @@ array sheet (e.g. `lmax` in `demand_array`) should contain the string
 | `-d, --input-directory DIR` | `<first stem>/` | Directory for time-series data files |
 | `-f, --input-format {parquet,csv}` | `parquet` | Format for time-series output files |
 | `-n, --name NAME` | `<first stem>` | System name written to JSON `name` field |
-| `-c, --compression ALG` | `gzip` | Parquet compression (`gzip`, `snappy`, `brotli`, `''` for none) |
+| `-c, --compression ALG` | `zstd` | Parquet compression (`zstd`, `gzip`, `snappy`, …; `''` for none); `--compression-level N` (default 1) sets the level |
 | `-p, --pretty` | off | Write indented (4-space) JSON instead of compact |
 | `-N, --skip-nulls` | off | Omit keys with null/NaN values from JSON output |
 | `-U, --parse-unexpected-sheets` | off | Also process sheets not in the expected list |
@@ -1165,26 +1203,32 @@ reconstruct_output_hours("output/", hour_map, output_hour_dir="output_hour/")
 ### CLI reference
 
 ```text
-ts2gtopt [options] INPUT [INPUT ...]
+ts2gtopt [options] FILE [FILE ...]
 
 Positional arguments:
-  INPUT                  Input time-series file(s) (CSV or Parquet)
+  FILE                   Input time-series file(s) (CSV or Parquet)
 
 Options:
-  -y, --year YEAR        Calendar year for the projection (required unless -H/-P is given with explicit dates)
-  -o, --output DIR       Output directory for block schedule files (default: current directory)
+  -o, --output DIR       Output directory for schedule files (default: current directory)
+  -H, --horizon FILE     JSON file defining the planning horizon
+  -P, --planning FILE    gtopt case JSON; reads stage_array / block_array (needs --year)
+  -y, --year YEAR        Calendar year of the series (filters the input, builds the auto-horizon)
+  -s, --stages N         Stages of the auto-horizon (default: 12)
+  -b, --blocks M         Blocks per stage of the auto-horizon (default: 24)
+  --preset NAME          Built-in horizon: annual-3block, monthly-3block,
+                         seasonal-3block, seasonal-hourly (overrides -s/-b)
+  --list-presets         List the presets and exit
+  -i, --interval-hours H Sampling interval of the input (default: auto-detected)
+  -t, --time-column COL  Datetime column (default: datetime)
+  -a, --agg FUNC         mean (default), median, min, max, sum
   -f, --format {parquet,csv}
                          Output file format (default: parquet)
-  -s, --stages N         Number of planning stages (default: 12, one per calendar month)
-  -b, --blocks N         Number of representative blocks per stage (default: 24, one per hour of day)
-  -H, --horizon FILE     Load planning horizon from a JSON file
-  -P, --planning FILE    Load horizon from an existing gtopt planning JSON
-  --output-horizon FILE  Write the duration-updated horizon to FILE after projecting
-  --agg {mean,median,min,max,sum}
-                         Aggregation function (default: mean)
-  --interval-hours H     Duration of each input observation in hours (auto-detected by default)
+  -c, --compression ALG  Parquet compression (default: zstd; '' for none)
+  --output-horizon FILE  Write the duration-updated horizon JSON
   --verify               Print energy-conservation ratios after projection
-  -v, --verbose          Enable verbose logging
+  -l, --log-level LEVEL  Logging verbosity (default: INFO)
+  -V, --version          Print version and exit
+  --no-color             Disable coloured output
 ```
 
 ---

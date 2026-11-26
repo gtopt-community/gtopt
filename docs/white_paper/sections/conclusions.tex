@@ -18,9 +18,10 @@ and operating energy systems.  The main conclusions are:
     consistent by construction.
 
   \item \textbf{A broad formulation.}  The model covers the network
-    with Kirchhoff constraints, switching and line losses, storage and
-    hydro cascades with water rights, unit commitment, reserves and
-    inertia, multi-carrier chains, a natural-gas network with pressures,
+    with Kirchhoff constraints, switching, line losses and dynamic line
+    rating, storage and hydro cascades with water rights, energy-block
+    and power-based unit commitment, reserves and inertia, typical
+    periods sampled at Chebyshev nodes, multi-carrier chains, a natural-gas network with pressures,
     compressors, line pack and nodal gas prices, emissions with caps and
     banking, and expansion of generation, transmission, storage and
     demand.  Operating
@@ -33,8 +34,10 @@ and operating energy systems.  The main conclusions are:
     make national-scale studies tractable on a single server.
 
   \item \textbf{Validated and auditable.}  GTOpt reproduces IEEE
-    benchmarks and pandapower DC OPF to solver tolerance and produces
-    valid bounds on published SDDP benchmarks.  Its gas network matches
+    benchmarks and pandapower DC OPF to solver tolerance, produces
+    valid bounds on published SDDP benchmarks, and agrees with
+    UnitCommitment.jl, PowerSimulations.jl and the published model of a
+    clustered unit-commitment study on their test systems.  Its gas network matches
     the exact Weymouth optimum of the open gas and gas--electric test
     systems within the tangent error, or reaches it with the sequential
     LP on meshed networks.  On the Chilean daily
@@ -73,7 +76,8 @@ user community under the GTOpt Community organization:
     effects, and recommendations on loss modeling under surplus.
   \item \textbf{Exact-expectation SDDP}: a backward pass that evaluates
     the exact expectation over the uncertainty tree, alongside the
-    aperture approximation, and stronger cuts for integer decisions.
+    aperture approximation, feasibility cuts for infeasible backward
+    apertures, and stronger cuts for integer decisions.
   \item \textbf{AC power flow}: second-order cone and linear
     approximations of reactive power and voltage for operation studies.
   \item \textbf{GPU and machine learning}: wider use of GPU solvers,

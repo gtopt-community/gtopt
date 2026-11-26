@@ -301,7 +301,7 @@ inform earlier phases within the same iteration.
 1. **Bootstrap solve**: the monolithic solver runs once to establish a
    baseline solution and warm-start the LP basis
 2. **Add α variables**: a future-cost variable $\alpha$ is added to every
-   phase except the last, with bounds `[alpha_min, alpha_max]` and
+   phase except the last, bounded below by the cut-derived floor (or `alpha_min` when set) and with
    objective coefficient 1.0
 3. **Discover state links**: for each phase, the solver enumerates all
    state variables and their dependent columns in the next phase
@@ -736,9 +736,9 @@ set of Benders cuts without modifying the LP.
 **Feasibility cuts during simulation**: if the simulation pass
 encounters an infeasible trial point, the elastic filter is activated
 and may produce a feasibility cut.  By default these cuts are
-**discarded** (`save_simulation_cuts: false`) to ensure that hot-start
-reproducibility is not affected by the evaluation pass.  Set
-`save_simulation_cuts: true` to persist them.
+**discarded** to ensure that hot-start reproducibility is not affected
+by the evaluation pass (the C++ `SDDPOptions::save_simulation_cuts`
+flag keeps them; it is not exposed in the JSON options).
 
 **`simulation_mode`**: set `"simulation_mode": true` in `sddp_options`
 to skip all training iterations (`max_iterations` is forced to 0) and
@@ -1184,16 +1184,19 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 
 ### 5.1 SDDPOptions
 
+Defaults below are the values gtopt uses when the JSON leaves a field
+unset; the complete list is in
+[Planning Options → SddpOptions](../planning-options.md#sddpoptions-fields).
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
-| `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
+| `min_iterations` | int | 1 | Minimum iterations before declaring convergence |
 | `convergence_tol` | double | 0.01 | Relative gap tolerance; stops the run only when ΔUB stationarity is disabled (§4.5) |
-| `elastic_penalty` | double | 1e6 | Penalty cost for elastic slack variables |
-| `elastic_filter_mode` | ElasticFilterMode | single_cut | Elastic filter strategy (see S5.4) |
-| `multi_cut_threshold` | int | 10 | Infeasibility count before auto-switching to multi_cut (0 = always multi_cut, <0 = disabled) |
+| `elastic_penalty` | double | 1.0 | Penalty cost for elastic slack variables |
+| `elastic_mode` | ElasticFilterMode | farkas_recursive | Elastic filter strategy (see S5.4) |
+| `multi_cut_threshold` | int | 100 | Infeasibility count before auto-switching to multi_cut (0 = always multi_cut, <0 = disabled) |
 | `alpha_min` | double | unset | Universal lower bound for α.  Unset: α is floored only by the cut-derived box floor (from the first installed cut on).  Set `0` when every stage cost is non-negative (the SDDP.jl `lower_bound = 0` analogue); not valid with negative-cost elements or `boundary_cuts_mean_shift` |
-| `alpha_max` | double | 1e12 | Upper bound for α variables |
 | `cut_sharing_mode` | CutSharingMode | none | Cut sharing strategy between scenes |
 | `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
 | `cut_recovery_mode` | string | `"none"` | Hot-start from saved cuts: `none`, `keep`, `append`, `replace` (replaces the removed `hot_start` flag; CLI `--hot-start`) |
@@ -1221,7 +1224,6 @@ hs_2_1_4,2,1,4,-4800.0,0.30,0.60,...
 | `stationary_tol` | double | 0.005 | ΔUB stationarity tolerance — the sole stop criterion while > 0; `0` disables it and makes `convergence_tol` the stop criterion (§4.5) |
 | `stationary_window` | int | 4 | Look-back window (iterations) for ΔUB stationarity; also the minimum number of the solve's own iterations with cuts before a stationary stop; `<= 0` disables stationarity |
 | `stationary_gap_ceiling` | double | 0.02 | A stationary stop is refused while the signed gap is at or above this value (negative gaps pass); `1.0` disables (§4.5) |
-| `save_simulation_cuts` | bool | false | Persist feasibility cuts from the simulation pass (see S4.5.1) |
 
 ### 5.2 Options (JSON)
 
@@ -1272,14 +1274,14 @@ prefix, since the section name already provides the namespace).
 | `markov_transition` | array of double | unset | `markov` only: row-major M×M row-stochastic transition matrix (rows sum to 1) |
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
-| `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
+| `min_iterations` | int | 1 | Minimum iterations before declaring convergence |
 | `convergence_tol` | double | 0.01 | Relative gap tolerance; stops the run only when ΔUB stationarity is disabled (§4.5) |
-| `elastic_penalty` | double | 1e6 | Penalty for elastic slack variables |
-| `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), `"multi_cut"`, `"state_repair"` (alias `"plp"`), or `"farkas_recursive"` |
+| `elastic_penalty` | double | 1.0 | Penalty for elastic slack variables |
+| `elastic_mode` | string | `"farkas_recursive"` | Elastic filter mode: `"farkas_recursive"`, `"state_repair"` (alias `"plp"`), `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`) or `"multi_cut"` |
 | `fact_eps` | double | 1e-8 | PLP FactEPS tolerance (`state_repair` / `farkas_recursive` only) |
 | `fact_max_cycles` | int | 500 | PLP FactMXC per-phase solve-cycle cap (`state_repair` / `farkas_recursive` only) |
 | `fcut_log` | bool | false | Write the PLP-style feasibility-cut debug log `gtopt_fcut.log` to `log_directory` (`plpfact.log` analogue; every elastic mode). CLI: `--fcut-log` |
-| `multi_cut_threshold` | int | 3 | Auto-switch to multi_cut after N cumulative infeasibilities at a (scene, phase) (counter is persistent) |
+| `multi_cut_threshold` | int | 100 | Auto-switch to multi_cut after N cumulative infeasibilities at a (scene, phase) (counter is persistent) |
 | `cut_recovery_mode` | string | `"none"` | Hot-start from saved cuts (`none`, `keep`, `append`, `replace`); replaces the removed `hot_start` flag |
 | `save_per_iteration` | bool | true | Save cuts to CSV after each iteration |
 | `forward_solver_options` | object | — | Solver options for forward-pass solves; `time_limit` replaces the removed `solve_timeout` |
@@ -1291,7 +1293,7 @@ prefix, since the section name already provides the namespace).
 | `aperture_screen_count` | int | 2 | Synthesized cuts re-solved exactly under `aperture_solve_mode = "screened"` (picked by largest \|intercept correction\|); ignored by every other mode |
 | `aperture_cut_resolve` | bool | false | Re-solve the source phase LP after installing each aperture-built cut, as an optimality check (non-optimal → revert and install the forward-data cut). Off by default: nothing reads the post-cut solution and the check costs one extra LP solve per backward step (PLP has no such step) |
 | `aperture_seed_basis` | bool | false | Seed each iteration's first backward aperture from the previous iteration's basis (dual warm start; acts only under `cold`/`warm` modes) |
-| `basis_cross_mode` | string | `"off"` | Cross-pass basis reuse between forward and backward solves of the same (scene, phase); correctness-neutral, CPLEX/HiGHS only |
+| `basis_cross_mode` | string | `"full_cross"` | Cross-pass basis reuse between forward and backward solves of the same (scene, phase); correctness-neutral, CPLEX/HiGHS only |
 | `aperture_directory` | string | `""` | Directory for aperture-specific scenario data |
 | `api_enabled` | bool | true | Enable SDDP monitoring API (JSON status file) |
 | `update_lp_skip` | int | 0 | Iterations to skip between LP coefficient updates (0 = every iteration) |
@@ -1302,7 +1304,6 @@ prefix, since the section name already provides the namespace).
 | `boundary_max_iterations` | int | — | Deprecated alias → `future_cost_array[].iteration_limit` |
 | `missing_cut_var_mode` | string | — | Deprecated alias → `future_cost_array[].missing_cut_var_mode` |
 | `simulation_mode` | bool | `false` | Skip training, run simulation pass only (S4.5.1) |
-| `save_simulation_cuts` | bool | `false` | Save feasibility cuts from simulation pass |
 | `stationary_tol` | double | 0.005 | ΔUB stationarity tolerance — the sole stop criterion while > 0; `0` disables it and makes `convergence_tol` the stop criterion (§4.5) |
 | `stationary_window` | int | 4 | Look-back window (iterations) for ΔUB stationarity; also the minimum number of the solve's own iterations with cuts before a stationary stop; `<= 0` disables stationarity |
 | `stationary_gap_ceiling` | double | 0.02 | A stationary stop is refused while the signed gap is at or above this value (negative gaps pass); `1.0` disables (§4.5) |

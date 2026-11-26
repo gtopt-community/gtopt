@@ -416,6 +416,8 @@ that use these cases.
 All documentation is indexed in **[docs/README.md](docs/README.md)**. The
 main entry points:
 
+- [What's New](docs/whats-new.md): the recent capabilities, with links to
+  their documentation.
 - [Understanding GTOpt](docs/overview.md): architecture, data flow and
   repository layout.
 - [Planning Guide](docs/planning-guide.md): time structure, system elements,

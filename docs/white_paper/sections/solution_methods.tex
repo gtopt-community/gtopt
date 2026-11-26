@@ -49,6 +49,23 @@ deterministic expansion problems that fit in memory.  It is also used,
 with the SDDP cuts of a longer study as end-of-horizon valuation, to
 solve the short-term scale of Section~\ref{sec:multiscale}.
 
+\paragraph{Unit-commitment MIPs.}
+For commitment problems, a feasible MIP start is built by a
+relaxation-guided fix-and-propagate dive that satisfies the
+exclusivity, minimum up/down and logic rows by construction; the start
+is verified by the LP with all integers fixed, and, when it is
+infeasible, an elastic LP identifies the integer variables to move
+before a bounded sub-MIP is tried as a last resort.  Every MIP that
+holds a feasible incumbent is then \emph{polished}: its integers are
+fixed and the LP is re-solved, so that the reported objective, primal
+solution and duals come from that LP, on every backend.  The time limit
+is a single wall-clock budget per solve, shared by the start, the MIP
+and the polish, and the prices are computed by the pricing modes of
+Section~\ref{sec:sc}.  As an option, the pure commitment-logic rows
+(transition, exclusion, startup tiers, charge/discharge exclusivity),
+whose coefficients are all $\pm 1$, can be kept out of the row
+equilibration, so that only the column scales apply to them.
+
 \subsection{Stochastic Dual Dynamic Programming (SDDP)}
 \label{sec:sddp}
 
@@ -102,15 +119,13 @@ forward pass.  As iterations proceed, the accumulated cuts progressively
 tighten the piecewise-linear outer approximation of the true expected
 cost-to-go, driving the lower bound upward toward the optimum.
 
-\paragraph{Cut Coefficient Modes.}
-\gtopt{} supports two modes for computing the cut coefficients
-$\hat{\mu}_i$ in~\eqref{eq:benders_cut}.  The \texttt{reduced\_cost}
-mode (default) extracts dual information from the reduced costs of the
-LP solution, which is numerically robust when state variables are at
-their bounds.  The \texttt{row\_dual} mode instead reads the row dual
-values of the state-linking constraints directly.  Both modes produce
-valid cuts; the choice can affect convergence speed depending on problem
-structure and solver backend.  The coefficients are returned to physical
+\paragraph{Cut coefficients.}
+The coefficients $\hat{\mu}_i$ in~\eqref{eq:benders_cut} are the
+reduced costs of the dependent columns that receive the trial state in
+stage~$t{+}1$, fixed at $\hat{x}_i$.  At an optimum these equal the duals
+of explicit state-fixing rows, which therefore need not be added; the
+LP is not modified between solves and its basis remains valid for warm
+starts.  The coefficients are returned to physical
 units with the scale factor of the column they are read from: under Ruiz
 equilibration the state variable of stage~$t$ and its copy in
 stage~$t{+}1$ are scaled independently, and mixing the two factors would
@@ -123,8 +138,24 @@ scenarios.  In the backward pass, each phase is re-solved for a set of
 and the resulting cuts are averaged (single cut) or kept per aperture
 (multi-cut).  Apertures can be sorted from wettest to driest and
 truncated to the first $N$, which gives cheap early iterations and full
-accuracy later.  Inflows can follow an AR(1) model, and an experimental
-Markov-chain variant shares cuts by hydrological state.
+accuracy later; $N = 0$ gives the deterministic Benders backward pass
+on the forward-pass solution.  Inflows can follow an AR(1) model, and
+an experimental Markov-chain variant shares cuts by hydrological state.
+
+The apertures of one (scene, phase) are grouped into parallel tasks in
+one of three ways: \emph{per scene} (the default), where all apertures
+are solved in series on one copy of the phase LP, each warm-started from
+the optimal basis of the previous one; \emph{per aperture}, where each
+aperture is a separate task with a fresh copy and a cold solve; and
+\emph{chunked}, with $K$ apertures per task.  Since the apertures differ
+only in column bounds, the per-scene grouping re-optimizes each of them
+with a few dual-simplex pivots.  The grouping changes the scheduling and
+the simplex path but not the cuts; it caps the backward-pass
+parallelism at the number of scenes.  For backends without a warm start
+(e.g.\ GPU first-order solvers), the cut of an aperture can instead be
+synthesized from the duals of a representative aperture with an
+intercept correction for the changed bounds, following Infanger and
+Morton~\cite{infanger1996cutsharing}.
 
 \paragraph{Feasibility.}
 Hard limits such as minimum reservoir levels or irrigation deliveries
@@ -134,14 +165,35 @@ identifies the violated limits, and adds a feasibility cut to the
 previous phase, so that the policy learns to respect the limit instead
 of paying a penalty.
 
+In the backward pass, an aperture LP that is infeasible at the trial
+state (or that fails to solve) is dropped, and the cut is averaged over
+the remaining apertures with their probabilities renormalized.  This is
+exact only under relatively complete recourse; otherwise, e.g.\ with a
+hard end-of-horizon storage target that a dry aperture cannot reach,
+the same aperture is dropped at every iteration and the lower bound
+describes a rescaled, typically wetter, distribution.  Such iterations
+are therefore never declared converged.  The drops are reported per
+iteration, a persistent drop of the same (scene, phase, aperture) is
+signalled once, and each run ends with aperture statistics (LPs solved,
+dropped as infeasible or failed, persistent cases and the most affected
+phases).  A soft terminal target restores relatively complete recourse.
+
 \paragraph{Convergence.}
 The upper bound is the mean cost of the forward-pass scenarios and the
 lower bound is the root-phase objective with all cuts.  The algorithm
 stops when the relative gap falls below a tolerance (default
 $10^{-4}$), or, optionally, when the gap has been stationary over a
 window of iterations, which accepts the irreducible gap of sampled
-problems.  Statistical stopping rules based on the variance of the upper
-bound are also available.
+problems.  The stationary rule counts only the iterations of the
+current solve (not bounds inherited from a previous cascade level) and
+requires the gap to be below a ceiling (default 2\%).  Statistical
+stopping rules based on the variance of the upper bound are also
+available.  The lower bound of the future-cost variable $\alpha_t$ is
+derived from the cuts actually installed, never imposed as
+$\alpha_t \geq 0$, so models with negative future costs keep a valid
+bound.  When the horizon is closed by external boundary cuts, the
+expected boundary value is reported with the bounds and the gap is
+corrected for it.
 
 \paragraph{Engineering for large systems.}
 Several features make SDDP practical on national-scale systems:
@@ -151,10 +203,25 @@ Several features make SDDP practical on national-scale systems:
     memory.
   \item \textbf{Low-memory mode}: each subproblem is kept as a
     compressed snapshot (zstd by default, lz4 optional) between solves
-    and rebuilt on demand.
+    and rebuilt on demand; the snapshots of the scenes of a phase are
+    stored as compressed differences against one base and restored bit
+    for bit.  Without compression, the solver backend of each
+    subproblem is still released after its solve by default and rebuilt
+    from an uncompressed snapshot with its saved basis, so that only the
+    backends in flight are held in memory; keeping every LP live
+    remains an option.
   \item \textbf{Warm starts}: simplex bases are stored in a
     solver-neutral form and reused across iterations, runs and
-    backends.
+    backends; the forward solve of a phase can be seeded from the last
+    basis of the backward aperture chain, which already prices the cuts
+    just added.
+  \item \textbf{Crossover policy}: with an interior-point forward
+    solve, crossover is run only where a vertex is consumed, i.e.\ when
+    the forward duals build the cuts (no apertures) or the forward
+    basis is reused; otherwise the forward pass stops at the interior
+    solution.  Cuts built from interior duals have their intercept
+    lowered by the relative barrier gap, so that the primal--dual gap
+    cannot raise the lower bound above the upper bound.
   \item \textbf{Cut management}: cuts are written as plain CSV after
     every iteration, so runs can be stopped, resumed (hot start) or
     extended; inactive cuts can be pruned and capped.
@@ -165,9 +232,10 @@ Several features make SDDP practical on national-scale systems:
 
 \begin{figure}[t]
   \centering
+  \resizebox{\columnwidth}{!}{%
   \begin{tikzpicture}[
     >=Stealth,
-    stage/.style={draw, rounded corners=2pt, minimum width=0.9cm,
+    stage/.style={draw, rounded corners=2pt, minimum width=0.95cm,
       minimum height=0.65cm, font=\scriptsize, thick},
     fwd/.style={stage, fill=blue!15},
     bwd/.style={stage, fill=orange!15},
@@ -175,63 +243,44 @@ Several features make SDDP practical on national-scale systems:
     stvar/.style={font=\tiny, blue!70},
     cutlbl/.style={font=\tiny, red!60},
   ]
-    % Forward pass label
-    \node[font=\scriptsize\bfseries, blue!70] at (-1.2,1.8)
+    \node[font=\scriptsize\bfseries, blue!70, anchor=east] at (-0.7,1.8)
       {Forward};
+    \node[font=\scriptsize\bfseries, orange!80!black, anchor=east]
+      at (-0.7,0) {Backward};
 
-    % Forward pass stages
-    \node[fwd] (f1) at (0,1.8) {$t{=}1$};
-    \node[fwd] (f2) at (1.6,1.8) {$t{=}2$};
-    \node[font=\scriptsize] at (2.8,1.8) {$\cdots$};
-    \node[fwd] (fT1) at (3.8,1.8) {$T{-}1$};
-    \node[fwd] (fT) at (5.4,1.8) {$t{=}T$};
+    \foreach \n/\x/\l in {1/0/{t{=}1}, 2/1.9/{t{=}2}, T1/4.5/{T{-}1},
+                          T/6.4/{t{=}T}} {
+      \node[fwd] (f\n) at (\x,1.8) {$\l$};
+      \node[bwd] (b\n) at (\x,0) {$\l$};
+    }
+    \node[font=\scriptsize] at (3.2,1.8) {$\cdots$};
+    \node[font=\scriptsize] at (3.2,0) {$\cdots$};
 
-    % Forward arrows
-    \draw[arr, blue!60] (f1) -- (f2)
-      node[stvar, above, midway] {$x_1$};
-    \draw[arr, blue!60] (f2) -- (2.4,1.8);
-    \draw[arr, blue!60] (3.2,1.8) -- (fT1);
+    % forward: state passed to the next stage
+    \draw[arr, blue!60] (f1) -- (f2) node[stvar, above, midway] {$x_1$};
+    \draw[arr, blue!60] (f2) -- (2.85,1.8);
+    \draw[arr, blue!60] (3.55,1.8) -- (fT1);
     \draw[arr, blue!60] (fT1) -- (fT)
       node[stvar, above, midway] {$x_{T-1}$};
 
-    % State variable annotation
-    \node[stvar, above=3pt of f1.north east, anchor=south]
-      {SoC, $v_r$};
+    % backward: cuts passed to the previous stage
+    \draw[arr, red!50] (bT) -- (bT1) node[cutlbl, below, midway] {cut};
+    \draw[arr, red!50] (bT1) -- (3.55,0);
+    \draw[arr, red!50] (2.85,0) -- (b2);
+    \draw[arr, red!50] (b2) -- (b1) node[cutlbl, below, midway] {cut};
 
-    % Backward pass label
-    \node[font=\scriptsize\bfseries, orange!70] at (-1.2,0)
-      {Backward};
+    % trial states handed from forward to backward pass
+    \draw[->, dashed, gray, thin] (fT.south) -- (bT.north)
+      node[font=\tiny, midway, left] {trial $\hat{x}$};
 
-    % Backward pass stages
-    \node[bwd] (b1) at (0,0) {$t{=}1$};
-    \node[bwd] (b2) at (1.6,0) {$t{=}2$};
-    \node[font=\scriptsize] at (2.8,0) {$\cdots$};
-    \node[bwd] (bT1) at (3.8,0) {$T{-}1$};
-    \node[bwd] (bT) at (5.4,0) {$t{=}T$};
-
-    % Backward arrows (right to left)
-    \draw[arr, red!50] (bT) -- (bT1)
-      node[cutlbl, below, midway] {cut};
-    \draw[arr, red!50] (bT1) -- (3.2,0);
-    \draw[arr, red!50] (2.4,0) -- (b2);
-    \draw[arr, red!50] (b2) -- (b1)
-      node[cutlbl, below, midway] {cut};
-
-    % Connecting arrows (forward to backward)
-    \draw[->, dashed, gray, thin] (fT.south) -- (bT.north);
-    \draw[->, dashed, gray, thin] (f1.south) -- (b1.north);
-
-    % Convergence check
-    \node[draw, rounded corners=3pt, fill=gray!10,
-      font=\scriptsize, minimum width=2.5cm] (conv) at (2.7,-1.3)
+    % convergence check and loop
+    \node[draw, rounded corners=3pt, fill=gray!10, font=\scriptsize]
+      (conv) at (3.2,-1.3)
       {$|z^\text{UB} - z^\text{LB}|/z^\text{UB} \leq \varepsilon$?};
     \draw[->, thick, gray] (b1.south) |- (conv.west);
-
-    % Loop back
-    \draw[->, thick, gray, dashed]
-      (conv.east) -| (5.8,-1.3) -- (5.8,2.2) -- (f1.north)
-      node[font=\tiny, pos=0.25, right] {iterate};
-  \end{tikzpicture}
+    \draw[->, thick, gray, dashed] (conv.east) -| (7.4,2.7) -| (f1.north);
+    \node[font=\tiny, gray, anchor=west] at (7.45,0.9) {iterate};
+  \end{tikzpicture}}%
   \caption{SDDP forward-backward iteration: the forward pass solves
     stages sequentially passing state variables (battery SoC, reservoir
     volume); the backward pass generates Benders cuts. Convergence is
@@ -250,6 +299,22 @@ tolerances).  A level starts from the cuts of the previous level, kept
 when their duals remain valid and otherwise re-generated, so the
 expensive detailed model needs few iterations.  A typical configuration
 uses 4 apertures in level~0, 8 in level~1 and the full set in level~2.
+Each level may also override the solver options of its forward and
+backward passes (tolerances, MIP gap, time limit, algorithm).
+
+A level may also use its own, reduced network, produced by a network
+reduction tool that merges buses and aggregates lines while keeping
+every storage element.  Cuts are transferred between levels with a key
+per coefficient (element class, variable and identifier) instead of a
+column index, so they remain applicable when the LP is rebuilt with a
+different formulation or network.  A reduced level whose network is a
+relaxation of the next one (merged buses, summed inter-zonal capacities,
+no Kirchhoff rows and no losses) has a cost-to-go no greater than that
+of the detailed network, so its cuts are valid lower bounds and can be
+kept indefinitely; cuts of a reduced level with equivalent reactances
+or resistances are not guaranteed to be valid and are inherited for a
+limited number of iterations.  Each level reports its bounds, gap,
+iterations and aperture statistics.
 
 \subsection{Investment Master}
 \label{sec:investment_master}
@@ -299,14 +364,52 @@ is the same marginal value that the medium-term study computed for that
 reservoir, and the investment plan is evaluated with the same operating
 model that will later schedule it.
 
+\paragraph{Typical periods in expansion studies.}
+For expansion studies the year is usually reduced to one chronological
+typical week (or a few representative days) per month, on which
+storage cycles, ramps and commitment run in real time while energy,
+costs and annuities are scaled to the month (Section~\ref{sec:point_stages}).
+The converters provide several experimental week samplers: uniform
+blocks of $H$ hours, finer blocks at the daily net-load peak and the
+steepest ramps, and point samples at $N$ Chebyshev nodes with
+quadrature weights.  The default window runs from Wednesday noon to
+Wednesday noon, which places the weekend, where low load and high solar
+drive storage cycling and curtailment, away from the cyclic closure, and
+the week holding the monthly net-load peak (or the largest net energy) is
+selected.  An optional refinement adds 30- or 15-minute resolution
+around the sunrise and sunset ramps detected in the data: block samplers
+split the base blocks there with energy-conserving, shape-preserving
+cell means, and Chebyshev weeks add the nodes of the order-$2N$
+Lobatto set nearest to each event, which contains the order-$N$ set,
+with the weight of each dropped node split between its kept
+neighbours so that all weights stay positive.  Commitment is not
+refined, so the refinement adds continuous variables only.  A separate
+converter, \texttt{tcheby2gtopt}, translates the validation systems of
+the original Chebyshev scheduling code~\cite{matus2015chebyshev} into
+both representations.
+
+In a preliminary comparison on one expansion year of the Australian
+National Electricity Market (twelve typical weeks with 138 batteries,
+solved with HiGHS), the objective of the Chebyshev weeks approached the
+reference with one-hour blocks from below as $N$ grew: 0.9 to 1.3\% below
+it with 48 to 64 nodes and within 0.5\% with 84 nodes, against 0.24\%
+for uniform two-hour blocks of the same LP size.  With 24 nodes the
+week was under-resolved and lost about a third of the battery cycling.  The \texttt{cc} rule~\eqref{eq:point_cc} was closest to the
+reference among the storage rules and gave the smallest LP, with the
+same size as a block LP with the same number of blocks; the banded
+rules add the envelope rows.  The converters therefore write
+\texttt{cc} for every storage on point stages.
+
 \subsection{Solver Backends}
 
 All methods delegate LP/MIP solution to a plugin
 (\texttt{libgtopt\_solver\_*.so}) loaded at run time.  The supported
 backends are CLP/CBC~\cite{forrest2005cbc},
 HiGHS~\cite{huangfu2018highs}, SCIP, NVIDIA cuOpt (GPU), CPLEX, Gurobi
-and MindOpt.  Without an explicit choice, the first available of CPLEX,
-HiGHS, MindOpt, CBC and CLP is used.  Each solve reports its status and
+and MindOpt, each declaring its capabilities (MIP, basis input and
+output) to the core (Section~\ref{sec:architecture}).  Without an
+explicit choice, the first available of CPLEX, HiGHS, MindOpt, CBC and
+CLP is used.  Each solve reports its status and
 an estimate of the condition number, and per-element variable scaling,
 objective scaling and row/column equilibration (Ruiz by default for
 multi-bus Kirchhoff networks, row-max otherwise) keep models with

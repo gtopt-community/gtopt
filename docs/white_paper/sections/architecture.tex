@@ -34,44 +34,34 @@ Fig.~\ref{fig:arch_layers} illustrates the layered architecture.
   \centering
   \begin{tikzpicture}[
     >=Stealth,
-    layer/.style={draw, thick, rounded corners=3pt, minimum width=7cm,
-      minimum height=1.1cm, font=\small, align=center},
-    sublbl/.style={font=\tiny, text=black!60},
+    layer/.style={draw, thick, rounded corners=3pt, text width=6.4cm,
+      minimum height=1.05cm, align=center, inner sep=3pt},
     arr/.style={->, thick, gray!70},
   ]
-    % Layer 4 (bottom): Data Layer
     \node[layer, fill=green!12] (data) at (0,0)
-      {\textbf{Data Layer}};
-    \node[sublbl, below=-0.15cm of data]
-      {JSON \quad Parquet/CSV \quad Schedule Resolution};
+      {\small\textbf{Data Layer}\\[1pt]
+       \scriptsize\color{black!65}JSON \quad Parquet/CSV \quad
+       schedule resolution};
+    \node[layer, fill=blue!10, above=0.45cm of data] (model)
+      {\small\textbf{Model Layer}\\[1pt]
+       \scriptsize\color{black!65}Planning $\to$ System $\to$
+       components};
+    \node[layer, fill=orange!12, above=0.45cm of model] (lp)
+      {\small\textbf{LP Assembly Layer}\\[1pt]
+       \scriptsize\color{black!65}PlanningLP $\to$ SimulationLP $\to$
+       component LPs};
+    \node[layer, fill=red!10, above=0.45cm of lp] (solver)
+      {\small\textbf{Solver Layer} (plugins)\\[1pt]
+       \scriptsize\color{black!65}HiGHS \ CBC/CLP \ SCIP \ cuOpt \
+       CPLEX \ Gurobi \ MindOpt};
 
-    % Layer 3: Model Layer
-    \node[layer, fill=blue!10, above=0.5cm of data] (model)
-      {\textbf{Model Layer}};
-    \node[sublbl, below=-0.15cm of model]
-      {Planning $\to$ System $\to$ Components};
-
-    % Layer 2: LP Assembly Layer
-    \node[layer, fill=orange!12, above=0.5cm of model] (lp)
-      {\textbf{LP Assembly Layer}};
-    \node[sublbl, below=-0.15cm of lp]
-      {PlanningLP $\to$ SimulationLP $\to$ Component LPs};
-
-    % Layer 1 (top): Solver Layer
-    \node[layer, fill=red!10, above=0.5cm of lp] (solver)
-      {\textbf{Solver Layer}};
-    \node[sublbl, below=-0.15cm of solver]
-      {HiGHS \quad CBC/CLP \quad SCIP \quad cuOpt \quad CPLEX \quad Gurobi \quad MindOpt};
-
-    % Arrows between layers
     \draw[arr] (data.north) -- (model.south);
     \draw[arr] (model.north) -- (lp.south);
     \draw[arr] (lp.north) -- (solver.south);
 
-    % Side labels
-    \node[font=\tiny, rotate=90, anchor=south, gray]
-      at (-3.9,1.2) {Data flow};
-    \draw[->, thin, gray] (-3.9,0) -- (-3.9,3.6);
+    \draw[->, thin, gray] ([xshift=-0.35cm]data.south west)
+      -- ([xshift=-0.35cm]solver.north west)
+      node[midway, sloped, above, font=\tiny] {data flow};
   \end{tikzpicture}
   \caption{\gtopt{} layered architecture: data ingestion, model
     construction, LP assembly, and pluggable solver backends.}
@@ -138,8 +128,10 @@ or CSV, readable by pandas, DuckDB, Spark or Power BI.
 Operating rules that are not part of the element library are written in
 PAMPL, an AMPL-like language read from a text file.  PAMPL constraints
 reference element variables by name, use parameters, sums over element
-sets and scenario/stage/block domains, and can include state terms that
-cross phases in SDDP.  The Chilean irrigation agreements of the Maule
+sets filtered by element attributes (e.g.\ the generators of a type or
+at a bus, the pipes of a gas node), scenario/stage/block domains, and
+state terms that cross phases in SDDP (\texttt{state(\dots)} asserts
+that a term is such a state variable).  The Chilean irrigation agreements of the Maule
 and Laja basins, for example, are built from water-right elements
 (Section~\ref{sec:formulation}) plus PAMPL constraints, without changes
 to the C++ code.
@@ -156,52 +148,79 @@ auditors and continuous integration can verify that a run uses the
 intended formulation.  The complete formulation, including the SDDP
 cut-validity conditions, is published with the source code.
 
-\subsection{Python Toolchain}
+\subsection{Solver Plugins and Reproducibility}
+\label{sec:plugins}
 
-A Python toolchain is provided for data preparation, conversion and
-validation:
+Each solver backend is a shared library that exports a versioned plugin
+interface and declares its capabilities (MIP, basis input and output),
+so that the core never relies on a feature a backend lacks; a backend
+without a basis, for instance, is never asked to warm-start.  Solver
+tuning is read from per-solver parameter files.  A file named in the
+options, in the user configuration or found next to the case is matched
+to the backend with which the LP is actually built, parsed once per run
+and applied from memory; a separate warm-start file overrides only the
+keys it lists, on top of the main file and the typed options of the
+run.  The resolved backend and parameter file are recorded in a
+pre-solve snapshot of the run, so that a replay uses the same solver
+and tuning.  Each plugin records at build time the identity (GNU
+build-id, or SHA-256) of every solver library it links, and the core
+refuses a plugin whose solver library loaded at run time differs, for
+instance a library found first on the search path or replaced in
+place; the HiGHS plugin is in addition pinned to the release with which
+the reference results are generated.  A solver requested by name whose
+plugin is refused is an error, not a silent fallback to another
+solver.
 
-\begin{itemize}
-  \item \textbf{igtopt}: Excel workbook ($\rightarrow$ JSON + Parquet)
-    converter for spreadsheet-based case preparation.
-  \item \textbf{Converters} from the models used in the region and in
-    the literature: \texttt{plp2gtopt} (PLP, including its cuts),
-    \texttt{plexos2gtopt} (PLEXOS inputs), \texttt{sddp2gtopt}
-    (PSR SDDP), PSS/E, NREL Sienna, RTS-GMLC and NREL-118.
-  \item \textbf{pp2gtopt / gtopt2pp}: pandapower
-    ($\leftrightarrow$ gtopt) bidirectional converters for power flow
-    model exchange.
-  \item \textbf{gtopt\_compare}: Automated cross-validation against
-    pandapower DC OPF on IEEE test networks.
-  \item \textbf{gtopt\_diagram}: network and hydro-topology diagrams.
-  \item \textbf{gtopt-net}: network reduction for long-term studies,
-    with decisions mapped back onto the full network.
-  \item \textbf{run\_gtopt / gtopt\_monitor}: execution management with
-    a terminal dashboard and live SDDP convergence monitoring.
-  \item \textbf{Validation tools}: \texttt{gtopt\_check\_json},
-    \texttt{gtopt\_check\_lp}, \texttt{gtopt\_check\_output},
-    \texttt{gtopt\_check\_solvers} for input validation and diagnostics.
-\end{itemize}
+The binary reports its version together with the source revision from
+which it was built, and both are written to the solution summary and
+to the solver-status file of every run.  Options follow one precedence
+rule (command line, then explicit overrides, then the case file, then
+the user configuration, then the defaults), and unknown option or mode
+names are rejected by the input validation instead of falling back
+silently.  The validation also reports data-quality warnings, such as
+implausible line impedances, profiles outside $[0,1]$ or water-right
+rewards above the value of lost load.
 
-\subsection{Web and GUI Services}
+\subsection{User Interfaces}
+\label{sec:interfaces}
 
-Two companion services provide graphical interfaces:
+\gtopt{} is a command-line program, and converters from PLP, PLEXOS, PSR
+SDDP, PSS/E, pandapower and the open test-system formats of
+Section~\ref{sec:validation} produce its input, together with
+specialised tools for gas networks (\texttt{gasnet2gtopt}), dynamic
+line rating (\texttt{dlr2gtopt}) and the Chebyshev validation systems
+(\texttt{tcheby2gtopt}); they are described in the repository
+documentation.  A terminal dashboard follows a run live
+(Fig.~\ref{fig:tui}): stage progress, SDDP bounds and gap per iteration,
+per-scene costs, solver statistics and resource use.  A browser
+application creates and edits cases, draws the electrical and hydro
+topology, submits runs and plots the results (Fig.~\ref{fig:gui}), and
+a web service exposes the same functions as a REST API for batch use.
 
-\begin{itemize}
-  \item \textbf{webservice}: a Next.js REST API and browser UI for
-    submitting optimization jobs, monitoring progress and browsing
-    results.
-  \item \textbf{guiservice}: a Python/Flask application for creating
-    and editing cases, viewing the network topology and plotting
-    results in the browser.
-\end{itemize}
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{tui_convergence.jpg}
+  \caption{Terminal dashboard of an SDDP run (convergence view): bounds
+    and gap, cost of each scene per iteration, and per-scene trends.}
+  \label{fig:tui}
+\end{figure}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.56\textwidth]{gui_topology.jpg}\hfill
+  \includegraphics[width=0.42\textwidth]{gui_results.jpg}
+  \caption{Browser application: network topology of the IEEE 9-bus case
+    in the case editor (left), and hourly generation of a solved case
+    (right).}
+  \label{fig:gui}
+\end{figure*}
 
 \subsection{Engineering Practice}
 
 The C++ library, the Python tools and the web services are covered by
 unit and integration test suites (more than 5\,000 C++ test cases),
-static analysis (clang-tidy and CodeQL) and coverage measurement, all
-run in continuous integration on every change.  The test suite includes
+static analysis (clang-tidy and CodeQL), a thread sanitizer and coverage
+measurement, run in continuous integration.  The test suite includes
 the benchmark cases of Section~\ref{sec:validation}, reference results
 for each case, and solver-specific tolerances where backends may return
 different optimal dual vertices.

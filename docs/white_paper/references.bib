@@ -16,8 +16,10 @@
   title     = {Optimal Expansion and Reliable Renewable Energy
                Integration in Long-Term Planning Using {FESOP}},
   booktitle = {Proc. IEEE Kansas Power and Energy Conf. (KPEC)},
+  address   = {Manhattan, KS, USA},
+  month     = apr,
   year      = {2022},
-  pages     = {1--6},
+  pages     = {1--5},
   doi       = {10.1109/KPEC54747.2022.9814781},
   url       = {https://www.researchgate.net/publication/358423681_Optimal_Expansion_and_Reliable_Renewable_Energy_Integration_in_Long-Term_Planning_Using_FESOP},
 }
@@ -823,4 +825,303 @@
   institution = {IEEE},
   number      = {IEEE Std 738-2012},
   year        = {2013},
+}
+
+% =========================================================================
+% Unit commitment, pricing and reserve benchmarks
+% =========================================================================
+
+@article{oneill2005pricing,
+  author  = {O'Neill, Richard~P. and Sotkiewicz, Paul~M. and
+             Hobbs, Benjamin~F. and Rothkopf, Michael~H. and
+             Stewart, William~R.},
+  title   = {Efficient Market-Clearing Prices in Markets with
+             Nonconvexities},
+  journal = {European J. Oper. Res.},
+  volume  = {164},
+  number  = {1},
+  pages   = {269--285},
+  year    = {2005},
+  doi     = {10.1016/j.ejor.2003.12.011},
+}
+
+@techreport{gribik2007convexhull,
+  author      = {Gribik, Paul~R. and Hogan, William~W. and
+                 Pope, Susan~L.},
+  title       = {Market-Clearing Electricity Prices and Energy Uplift},
+  institution = {Harvard University, John F. Kennedy School of
+                 Government},
+  address     = {Cambridge, MA, USA},
+  year        = {2007},
+}
+
+@article{hua2017convexhull,
+  author  = {Hua, Bowen and Baldick, Ross},
+  title   = {A Convex Primal Formulation for Convex Hull Pricing},
+  journal = {IEEE Trans. Power Syst.},
+  volume  = {32},
+  number  = {5},
+  pages   = {3814--3823},
+  year    = {2017},
+  doi     = {10.1109/TPWRS.2016.2637718},
+}
+
+@article{morales2019cuc,
+  author  = {Morales-Espa{\~n}a, Germ{\'a}n and Tejada-Arango, Diego~A.},
+  title   = {Modeling the Hidden Flexibility of Clustered Unit
+             Commitment},
+  journal = {IEEE Trans. Power Syst.},
+  volume  = {34},
+  number  = {4},
+  pages   = {3294--3296},
+  year    = {2019},
+  doi     = {10.1109/TPWRS.2019.2908051},
+}
+
+@misc{cucdata,
+  author       = {Tejada-Arango, Diego~A. and
+                  Morales-Espa{\~n}a, Germ{\'a}n},
+  title        = {{CUC-data}: Data of the Clustered Unit Commitment
+                  Case Studies},
+  howpublished = {GitHub repository, commit 624abbb},
+  url          = {https://github.com/datejada/CUC-data},
+}
+
+@misc{xavier2024ucjl,
+  author       = {Xavier, Alinson~S. and Kazachkov, Aleksandr~M. and
+                  Yurdakul, Og{\"u}n and He, Jun and Qiu, Feng},
+  title        = {{UnitCommitment.jl}: A {Julia/JuMP} Optimization Package
+                  for Security-Constrained Unit Commitment (Version 0.4)},
+  howpublished = {Zenodo},
+  year         = {2024},
+  doi          = {10.5281/zenodo.4269874},
+  url          = {https://doi.org/10.5281/zenodo.4269874},
+}
+
+@misc{powersimulations,
+  author       = {{National Renewable Energy Laboratory}},
+  title        = {{Sienna}: {PowerSimulations.jl},
+                  {PowerSystemCaseBuilder.jl} and {PowerSystemsTestData}},
+  howpublished = {GitHub repositories},
+  url          = {https://github.com/NREL-Sienna},
+}
+
+@article{badesa2020pricing,
+  author  = {Badesa, Luis and Teng, Fei and Strbac, Goran},
+  title   = {Pricing Inertia and Frequency Response with Diverse Dynamics
+             in a Mixed-Integer Second-Order Cone Programming Formulation},
+  journal = {Applied Energy},
+  volume  = {260},
+  pages   = {114334},
+  year    = {2020},
+  doi     = {10.1016/j.apenergy.2019.114334},
+}
+
+@article{infanger1996cutsharing,
+  author  = {Infanger, Gerd and Morton, David~P.},
+  title   = {Cut Sharing for Multistage Stochastic Linear Programs with
+             Interstage Dependency},
+  journal = {Math. Program.},
+  volume  = {75},
+  number  = {2},
+  pages   = {241--256},
+  year    = {1996},
+  doi     = {10.1007/BF02592154},
+}
+
+% =========================================================================
+% Public data sources of the real-system cases (gtopt-cases)
+% =========================================================================
+
+@misc{gtoptcases,
+  author       = {{GTOpt Community}},
+  title        = {{gtopt-cases}: Reference Cases and Benchmarks for
+                  {GTOpt}},
+  howpublished = {GitHub repository},
+  url          = {https://github.com/gtopt-community/gtopt-cases},
+}
+
+@misc{cen_pcp,
+  author       = {{Coordinador El\'ectrico Nacional}},
+  title        = {Programa de Coordinaci\'on de la Operaci\'on
+                  ({PCP}): Bases del Modelo, and {PLP} Programaci\'on de
+                  Mediano y Largo Plazo},
+  address      = {Santiago, Chile},
+  url          = {https://www.coordinador.cl},
+}
+
+@misc{amm_eor,
+  author       = {{Administrador del Mercado Mayorista} and
+                  {Ente Operador Regional}},
+  title        = {Programaci\'on de Largo Plazo and Programas de Despacho
+                  of the Guatemalan System},
+  url          = {https://www.amm.org.gt},
+}
+
+@misc{coes_mrfo,
+  author       = {{Comit\'e de Operaci\'on Econ\'omica del Sistema
+                  Interconectado Nacional}},
+  title        = {Estudio de Verificaci\'on del Margen de Reserva Firme
+                  Objetivo 2026--2029: {SDDP} Data},
+  address      = {Lima, Peru},
+  url          = {https://www.coes.org.pe},
+}
+
+@misc{aemo2026isp,
+  author       = {{Australian Energy Market Operator}},
+  title        = {2026 Integrated System Plan ({ISP}): Model Inputs},
+  year         = {2026},
+  url          = {https://www.aemo.com.au/energy-systems/major-publications/integrated-system-plan-isp/2026-integrated-system-plan-isp},
+}
+
+@misc{sem2025plexos,
+  author       = {{SEM Committee}},
+  title        = {{SEM}-25-010: {SEM} {PLEXOS} Model Validation 2024--2032
+                  and Backcast Report},
+  year         = {2025},
+  url          = {https://www.semcommittee.com/publications/sem-25-010-sem-plexos-model-validation-2024-2032-and-backcast-report},
+}
+
+@misc{matpower_case30,
+  author       = {Zimmerman, Ray~D. and Murillo-S{\'a}nchez, Carlos~E.},
+  title        = {{MATPOWER} test case \texttt{t\_case30\_userfcns}: {DC}
+                  {OPF} with Zonal Reserves and Interface Limits},
+  url          = {https://github.com/MATPOWER/matpower},
+}
+
+% =========================================================================
+% Time representation and power-based unit commitment
+% =========================================================================
+
+@article{moralesespana2013tight,
+  author  = {Morales-Espa{\~n}a, Germ{\'a}n and Latorre, Jes{\'u}s~M. and
+             Ramos, Andres},
+  title   = {Tight and Compact {MILP} Formulation for the Thermal Unit
+             Commitment Problem},
+  journal = {IEEE Trans. Power Syst.},
+  volume  = {28},
+  number  = {4},
+  pages   = {4897--4908},
+  year    = {2013},
+  doi     = {10.1109/TPWRS.2013.2251373},
+}
+
+@article{moralesespana2013susd,
+  author  = {Morales-Espa{\~n}a, Germ{\'a}n and Latorre, Jes{\'u}s~M. and
+             Ramos, Andres},
+  title   = {Tight and Compact {MILP} Formulation of Start-Up and
+             Shut-Down Ramping in Unit Commitment},
+  journal = {IEEE Trans. Power Syst.},
+  volume  = {28},
+  number  = {2},
+  pages   = {1288--1296},
+  year    = {2013},
+  doi     = {10.1109/TPWRS.2012.2222938},
+}
+
+@article{moralesespana2015powerbased,
+  author  = {Morales-Espa{\~n}a, Germ{\'a}n and Gentile, Claudio and
+             Ramos, Andres},
+  title   = {Tight {MIP} Formulations of the Power-Based Unit Commitment
+             Problem},
+  journal = {OR Spectrum},
+  volume  = {37},
+  number  = {4},
+  pages   = {929--950},
+  year    = {2015},
+  doi     = {10.1007/s00291-015-0400-4},
+}
+
+@article{moralesespana2016reserves,
+  author  = {Morales-Espa{\~n}a, Germ{\'a}n and Baldick, Ross and
+             Garc{\'i}a-Gonz{\'a}lez, Javier and Ramos, Andres},
+  title   = {Power-Capacity and Ramp-Capability Reserves for Wind
+             Integration in Power-Based {UC}},
+  journal = {IEEE Trans. Sustain. Energy},
+  volume  = {7},
+  number  = {2},
+  pages   = {614--624},
+  year    = {2016},
+  doi     = {10.1109/TSTE.2015.2498399},
+}
+
+@article{moralesespana2017hidden,
+  author  = {Morales-Espa{\~n}a, Germ{\'a}n and Ram{\'i}rez-Elizondo, Laura
+             and Hobbs, Benjamin~F.},
+  title   = {Hidden Power System Inflexibilities Imposed by Traditional
+             Unit Commitment Formulations},
+  journal = {Applied Energy},
+  volume  = {191},
+  pages   = {223--238},
+  year    = {2017},
+  doi     = {10.1016/j.apenergy.2017.01.089},
+}
+
+@article{philipsen2019trading,
+  author  = {Philipsen, Rens and Morales-Espa{\~n}a, Germ{\'a}n and
+             de~Weerdt, Mathijs and de~Vries, Laurens},
+  title   = {Trading Power Instead of Energy in Day-Ahead Electricity
+             Markets},
+  journal = {Applied Energy},
+  volume  = {233--234},
+  pages   = {802--815},
+  year    = {2019},
+  doi     = {10.1016/j.apenergy.2018.09.205},
+}
+
+@article{parvania2016continuous,
+  author  = {Parvania, Masood and Scaglione, Anna},
+  title   = {Unit Commitment With Continuous-Time Generation and Ramping
+             Trajectory Models},
+  journal = {IEEE Trans. Power Syst.},
+  volume  = {31},
+  number  = {4},
+  pages   = {3169--3178},
+  year    = {2016},
+  doi     = {10.1109/TPWRS.2015.2479644},
+}
+
+@inproceedings{matus2015chebyshev,
+  author    = {Matus, Marcelo and C{\'a}ceres, Nicol{\'a}s and
+               Puschel-Lovengreen, Sebasti{\'a}n and Moreno, Rodrigo},
+  title     = {Chebyshev Based Continuous Time Power System Operation
+               Approach},
+  booktitle = {Proc. IEEE Power \& Energy Society General Meeting},
+  year      = {2015},
+  pages     = {1--5},
+  doi       = {10.1109/PESGM.2015.7286570},
+}
+
+@article{clenshaw1960,
+  author  = {Clenshaw, C.~W. and Curtis, A.~R.},
+  title   = {A Method for Numerical Integration on an Automatic Computer},
+  journal = {Numerische Mathematik},
+  volume  = {2},
+  number  = {1},
+  pages   = {197--205},
+  year    = {1960},
+  doi     = {10.1007/BF01386223},
+}
+
+@article{trefethen2008gauss,
+  author  = {Trefethen, Lloyd~N.},
+  title   = {Is {Gauss} Quadrature Better than {Clenshaw--Curtis}?},
+  journal = {SIAM Review},
+  volume  = {50},
+  number  = {1},
+  pages   = {67--87},
+  year    = {2008},
+  doi     = {10.1137/060659831},
+}
+
+@article{waldvogel2006fejer,
+  author  = {Waldvogel, J{\"o}rg},
+  title   = {Fast Construction of the {Fej\'er} and {Clenshaw--Curtis}
+             Quadrature Rules},
+  journal = {BIT Numerical Mathematics},
+  volume  = {46},
+  number  = {1},
+  pages   = {195--202},
+  year    = {2006},
+  doi     = {10.1007/s10543-006-0045-4},
 }

@@ -39,8 +39,8 @@ The mini cases are new; their objectives are derived by hand.
 ## Cases
 
 Objectives in $ (`scale_objective = 1`), solved with HiGHS (`--solver
-highs`) by the gtopt build in `cl-pe-interconnect/bin_iseexp` (before the
-storage envelope rows on point stages; see the flags below).
+highs`), before the storage envelope rows on point stages (see the flags
+below).
 
 | Case | Source | Block obj. | Point obj. | Reference |
 |------|--------|-----------:|-----------:|-----------|

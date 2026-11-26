@@ -55,13 +55,22 @@ The main contributions of this work are:
     (Section~\ref{sec:formulation}).  It includes:
     \begin{itemize}
       \item DC optimal power flow with Kirchhoff constraints,
-        transmission switching, and several line-loss models with a
-        guard against loss arbitrage under negative prices;
-      \item batteries, and hydro cascades with reservoirs, turbines,
-        pumps, seepage and head-dependent efficiency;
+        transmission switching, zero-impedance ties, dynamic line
+        rating through critical spans, and several line-loss models
+        with a guard against loss arbitrage under negative prices;
+      \item batteries with charge and discharge modes, and hydro
+        cascades with reservoirs, turbines, pumps, seepage and
+        head-dependent efficiency;
       \item a generic water-rights layer for irrigation agreements;
-      \item unit commitment (three-binary formulation) with piecewise
-        heat rates, reserves and synchronous inertia;
+      \item typical periods and point-sampled stages on Chebyshev
+        nodes, with storage balances consistent with the quadrature of
+        energy and cost;
+      \item unit commitment (three-binary energy-block and power-based
+        formulations on chronological stages, a per-block formulation
+        on load-duration stages) with
+        piecewise heat rates and pricing modes, dynamic reserve
+        requirements, battery reserve deliverability and synchronous
+        inertia;
       \item LNG terminals and hydrogen, ammonia and heat chains;
       \item a natural-gas network with Weymouth pipes in squared
         pressure, elevation, compressor fuel, line pack, and
@@ -88,14 +97,16 @@ The main contributions of this work are:
       \item JSON and Apache Parquet data, and PAMPL user constraints;
       \item run-time solver plugins and solver-neutral warm starts;
       \item exportable LP files with structural fingerprints;
-      \item converters from PLP, PLEXOS, PSR SDDP, PSS/E and
-        pandapower;
-      \item command-line, browser and web-service interfaces.
+      \item converters from PLP, PLEXOS, PSR SDDP, PSS/E, pandapower
+        and open test-system formats;
+      \item command-line, terminal-dashboard, browser and web-service
+        interfaces.
     \end{itemize}
 
   \item Validation on IEEE benchmark networks, pandapower, published
-    SDDP benchmarks and open gas and gas--electric test systems
-    (Section~\ref{sec:validation}), and a comparison of
+    SDDP, unit-commitment, pricing and reserve benchmarks, and open gas
+    and gas--electric test systems (Section~\ref{sec:validation}), and
+    a comparison of
     GTOpt with the official daily schedule of the Chilean national
     system on 14 days, computed by the system operator with PLEXOS
     (Section~\ref{sec:cases}).

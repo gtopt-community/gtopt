@@ -59,7 +59,7 @@ Top level: `name`, `profiles` (named per-block lists), optional
 | `gas_pipeline_array` | `gas_pipe_array` | `node_a`/`node_b`; geometry, `weymouth_k`, `segments`, `linepack`, `linepack_p_ref` → `linepack_pressure_ref` |
 | `gas_transfer_array` | `gas_pipe_array` with `weymouth_mode: none` | Capacity-only arc (no transfer cost natively) |
 | `compressor_station_array` | `gas_compressor_array` | `node_in`/`node_out`, `role` → `type`, `rating_mw` → `power_max`, `bidirectional` valves |
-| `gas_source_array` | `gas_supply_array` | `node`, `fmax` (number, season dict or profile name), `cost`, `type`, `volume` |
+| `gas_source_array` | `gas_supply_array` | `node`, `fmax` (number, season dict or profile name), `cost`, `type`, `volume` (`type` and `volume` copied when set) |
 | `gas_demand_array` | `gas_demand_array` | `node`, `load` (profile), `fail_cost` |
 | `generator_gas_link_array` | `gas_turbine_array` | `generator`, `gas_node`, `heat_rate`, `min_pressure`, `pressure_band`, `derate_nominal_factor`, `derate_min_output` |
 
@@ -69,6 +69,15 @@ and stations form a forest) or `meshed` (every pipe gets
 settings (`gas_specific_gravity`, `gas_temperature`, `compressibility`,
 `slp_*`, `linepack_cyclic`) are copied to `options.gas_options`.
 Extra PAMPL rows can be given in a top-level `user_constraints` list.
+
+**LNG.**  The converter has no separate LNG element: an LNG
+regasification terminal is a `gas_source_array` entry with
+`type: "lng_regas"` and a stage `volume` (the cargo available in the
+stage), which become `GasSupply.type` / `GasSupply.volume`.  Take-or-pay
+floors can then be written as PAMPL rows on
+`gas_supply(all : type = 'lng_regas')` in `user_constraints`.  The
+storage-tank model (`LngTerminal`) is not linked to a gas node; see
+[Practical notes in the Gas Network guide](../gas-network.md#practical-notes).
 
 Units: flow km³/h (thousand standard m³ per hour; 1 MMm³/d = 41.667
 km³/h), pressure bar abs, cost $/km³, heat rate km³/MWh.
@@ -85,10 +94,9 @@ km³/h), pressure bar abs, cost $/km³, heat rate km³/MWh.
 
 The generated cases under `cases/gas_*` are listed with their sources
 and licences in the [Gas Network guide](../gas-network.md#benchmark-cases).
-The stylised central-Chile networks (`central_chile*.gasnet.json`) and the
-Peru / Camisea study scenarios live in the external case repository
-(`$GTOPT_CASES_DIR/chile/gas_network/central_chile_renca/gasnet/`,
-`$GTOPT_CASES_DIR/peru/gas_network/camisea/gasnet/`).
+The stylised central-Chile networks and the Peru / Camisea study
+scenarios are not distributed with the repository; they are read from an
+external case collection (`$GTOPT_CASES_DIR`).
 
 ## Tests
 
@@ -97,7 +105,5 @@ guard, both emitters, the CLI and the schema version.
 `test_gtopt_integration.py` (marker `integration`, needs a gtopt binary)
 solves the tiny, literature and benchmark cases and compares the
 objective with the independent reference to 1e-5 relative; CTest runs
-it as `gas_integration_*`.  The central-Chile (`central_chile_renca`,
-`multi_day_linepack`) and Peru / Camisea (`peru_camisea`, slow
-`peru_kp43`) groups read the external case repository and skip without
-`GTOPT_CASES_DIR`.
+it as `gas_integration_*`.  The central-Chile and Peru / Camisea groups read the
+external case collection and skip without `GTOPT_CASES_DIR`.

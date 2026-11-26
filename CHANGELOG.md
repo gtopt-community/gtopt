@@ -7,8 +7,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+An overview of the new capabilities with links to their documentation is
+in [docs/whats-new.md](docs/whats-new.md).
+
 ### Added
 
+- **Point-sampled stages** (`Stage.sampling = "point"`, `Block.time`,
+  `Stage.period_hours`, `Stage.periodic`): block values are samples at
+  node times and block durations are quadrature weights; a stage can
+  sample one typical day or week that repeats, with every intra-period
+  coupling wrapped around the period.  A generic cell partition counts
+  min up / down times, commitment periods and daily-cycle windows on the
+  quadrature cells.  See
+  [Typical-week sampling](docs/methods/typical-week-sampling.md).
+- **Storage integration rules on point stages**
+  (`model_options.storage_integration`,
+  `reservoir_storage_integration`, `battery_storage_integration`,
+  per-element `storage_integration`): `block` (alias `cc` /
+  `clenshaw_curtis`: the Clenshaw–Curtis weights on a Chebyshev grid),
+  `trapezoid`, `lg4` / `lg6`, `lg4_pos` / `lg6_pos`.  Built-in defaults:
+  `lg4_pos` for reservoirs, `block` for other storages; `plexos2gtopt`
+  and `tcheby2gtopt` write `cc` (`--point-storage-integration`).
+- **Typical-week sampling in `plexos2gtopt`**: Chebyshev weeks and days,
+  uniform and point weeks, a Wednesday-noon window and the
+  `--ramp-refine` sunrise / sunset refinement.
+- **`tcheby2gtopt`** (`python -m tcheby2gtopt`): Chebyshev case
+  converter and the `cheby_small` case library, with per-unit
+  commitment-period classes on point stages.
+- **Power-based unit commitment** (`model_options.uc_formulation =
+  "power_based"`, per unit `Commitment.uc_formulation`; Morales-España,
+  Gentile & Ramos 2015): power at block boundaries, trapezoid block
+  energy, exact ramps, start-up / shut-down trajectories
+  (`startup_trajectory`, `shutdown_trajectory`, `trajectory_step`) and
+  ramp-capability reserves.  `cucdata2gtopt` can write it.
+- **Commitment grids**: `Commitment.commitment_grid`,
+  `Block.commitment_cell` and `Commitment.ramp_allowance` (`boundary`
+  by default: only ramp rows that cross a commitment-period boundary get
+  the start-up / shut-down allowance; `period` restores the looser form)
+  on block and point stages; backward interval-slope ramps on point
+  stages.
+- **`model_options.prev_stage_link`** (`stage` default, `none`): what a
+  user-constraint `<attr>_prev` term reads at the first block of a stage.
+- **Gas network and LNG terminals in PAMPL**: user constraints can
+  reference gas nodes, pipes, compressors, supplies, demands and LNG
+  terminals.
+- **GUI service security**: access-token authentication on non-loopback
+  binds, security headers and bounded uploads (see
+  `guiservice/INSTALL.md`).
 - **`lp_matrix_options.pin_logic_rows`** (bool, default `false`) and
   `SparseRow::pin_scale`, the row-side counterpart of
   `SparseCol::pin_scale`.  With the option on, pure commitment-logic

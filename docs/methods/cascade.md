@@ -323,8 +323,17 @@ plain SDDP solver.
 | `apertures` | array of UIDs | from global | Aperture UIDs; `[]` = pure Benders, absent = inherit |
 | `num_apertures` | int | from global | First-N per-phase aperture selector |
 | `aperture_selection_mode` | string | from global | `head` (first N, i.e. the N wettest under the plp2gtopt order), `stride`, `tail` |
-| `aperture_chunk_size` | int | from global | Apertures per task; `-1` = serial per scene on one clone |
+| `aperture_chunk_mode` | string | from global | `per_scene`, `per_aperture` or `chunked` (see [SDDP, Aperture task grouping](sddp.md#aperture-task-grouping)) |
+| `aperture_chunk_size` | int | from global | K apertures per task under `chunked` (legacy `-1` = `per_scene`) |
+| `aperture_solve_mode` | string | from global | `cold`, `warm`, `reduced_cost`, `dual_shared`, `screened` |
+| `aperture_screen_count` | int | from global | `screened` only: synthesised cuts re-solved exactly |
+| `aperture_seed_basis` | bool | from global | Seed each iteration's first aperture from the previous basis |
 | `convergence_tol` | real | from global | Relative gap tolerance |
+| `stationary_tol` | real | from global | ΔUB stationarity tolerance |
+| `stationary_window` | int | from global | Stationarity look-back window |
+| `stationary_gap_ceiling` | real | from global | Gap ceiling for a stationary stop |
+| `elastic_mode` | string | from global | Elastic-filter mode of this level |
+| `elastic_penalty` | real | from global | Elastic slack penalty of this level |
 | `forward_solver_options` | SolverOptions | from global | Forward-pass solver options for this level, layered on `sddp_options.forward_solver_options`: the optional fields the level sets win (tolerances, `mip_gap`, `time_limit`, `scaling`, `barrier_solver`, `mip_lp_algorithm`, `mip_heuristic_effort`, `param_file`, …); `algorithm`, `threads` and `crossover` are not per-level. CLI: `--set cascade_options.level_array.N.sddp_options.forward_solver_options.barrier_solver=ipx` |
 | `backward_solver_options` | SolverOptions | from global | Backward-pass counterpart of `forward_solver_options` |
 

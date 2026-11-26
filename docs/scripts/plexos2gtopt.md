@@ -170,7 +170,7 @@ Indicators") makes this auditable in every run:
 | `Hydro_InitialVolume.csv` | reservoir initial volume | `Reservoir.eini` / `efin` |
 | `Hydro_WaterFlows.csv` | natural inflow + forced flow profile | `Flow.discharge` + `Waterway.forced_flow_profile` |
 | `Hydro_EfficiencyIncr.csv` | turbine productibility | `Turbine.production_factor` (`fp_med`) |
-| `Hydro_StoWaterValues.csv` | water values + FCF intercept | `BoundaryCutSpec` + `alpha_fcf` / `boundary_cuts.csv` |
+| `Hydro_StoWaterValues.csv` | water values + FCF intercept | `BoundaryCutSpec` → `boundary_cuts.csv` |
 | `Hydro_AntucoBounds.csv` | hourly RHS of `ANTUCOmin` / `ANTUCOmax` / `ELTOROmax` (MW) | per-block RHS of those UCs (rows aligned by date to the horizon start; `PERIOD` rows step within the day) |
 | `Hydro_MaxRampDay.csv` | hydro daily-ramp limits | per-day RHS overlay on `*ramp*` UCs (aligned by date to the horizon start) |
 | `Res_Requirement.csv` | reserve requirement (MW) | `ReserveZone.urreq` / `drreq` |
@@ -363,7 +363,7 @@ every PLEXOS object lands on a gtopt-native LP class. The full set
 | `ReserveProvision` | 393 | Reserve → Generator/Battery memberships | Per-generator eligibility + per-block `ur`/`dn` provision column; SSCC BESS rows are emitted per (battery, `*_BESS` zone) |
 | `InertiaZone` / `InertiaProvision` | 3 / 259 | `Inertia_Calculation_e1`, `InertiaNRMin_D` / `_N` (`--reserve-model native`) | `Inertia_SEN` zone (CPF plane inertia; not emitted with `--reserve-inertia-term exogenous`) and the northern inertia minima; one provision per committed unit (`pf = H·S / P_ref`) |
 | `Commitment` | 1 578 | `Generator` thermal subset + auto-promoted hydro min/max UCs | Unit-commitment binaries (`status`/`startup`/`shutdown`) with `pmin`/`pmax`/`ramp`/`min_up_time`/`max_starts` |
-| `DecisionVariable` | 44 | `t_class[Decision Variable]` (class_id 72) + synthesized `alpha_fcf` | Free continuous LP column with optional bounds + cost; referenced via `decision_variable("X").value` |
+| `DecisionVariable` | 44 | `t_class[Decision Variable]` (class_id 72) | Free continuous LP column with optional bounds + cost; referenced via `decision_variable("X").value` |
 | `Plant` | (when present) | synthesised from multi-fuel-band generator families | Native plant-cap row `Σ generation ≤ pmax` per (stage, block) — replaces the legacy `PlantCap_*` UCs |
 | `FlowRight` | (when present) | pinned forced-flow waterways | Soft irrigation / environmental flow envelope on a Junction |
 | `UserConstraint` | 3 595 (across 8 families, see §7) | `t_class[Constraint]` + synthesised hydro / plant / FCF rows | Generic AMPL-style LP row binding any combination of LP variables |
@@ -537,8 +537,9 @@ family (see §10), and is shown here for the canonical PCP weekly:
 | `terminal_value` | 9 | n/a (converter-synthesised) | — |
 | `operational` | 1 025 | 1 025 | 0 |
 
-The `terminal_value` family carries the FCF cut + `alpha_fcf`
-encoding (see §8). The `--pampl-uc-mode` CLI flag toggles between
+The `terminal_value` family routes constraints named `FCF*` /
+`alpha*`; the converter's own future-cost cut is written to
+`boundary_cuts.csv`, not as a UserConstraint (see §8). The `--pampl-uc-mode` CLI flag toggles between
 `hard` (PLEXOS-stamped penalty per row, default), `soft` (force a
 slack penalty on EVERY row at `--default-uc-penalty`), and `off`
 (drop UCs entirely — diagnostic). `--pampl-uc-only` /
@@ -737,28 +738,24 @@ transformations:
 * `FCF` row → the cut intercept ($);
 * every other row → a reservoir water value ($/GWh).
 
-The converter materialises **two parallel encodings** of the same
-cut so both SDDP and the monolithic LP value terminal storage:
+The cut is written once, as `boundary_cuts.csv` — GTOpt's native cut
+file (`scene,rhs,<reservoirs>` rows, coefficients = `-water_value`),
+wired via the FutureCost element
+(`system.future_cost_array[].cuts_file`), which every method reads.
+The monolithic method registers the future-cost column α itself and
+binds the cut as `α + Σ_r water_value_r · efin_r >= FCF`, α-rebased at
+the reservoirs' terminal targets so the cost-to-go centres on ~0 at the
+optimum.
 
-1. `boundary_cuts.csv` — GTOpt's native SDDP cut file
-   (`scene,rhs,<reservoirs>` rows, coefficients = `-water_value`),
-   wired via the FutureCost element
-   (`system.future_cost_array[].cuts_file`), which every method reads.
-2. `alpha_fcf` — a single `DecisionVariable` at the last block
-   (`block` scope, `cost_type = energy`, cost = 1) + a
-   `FCF_future_cost` UserConstraint
-   `alpha_fcf + Σ_r water_value_r · reservoir(r).efin >= FCF` in
-   the `terminal_value` family. The monolithic LP only binds this
-   `alpha_fcf` row; the boundary-cuts CSV path is inert under
-   monolithic.
+Earlier converter versions also wrote the same hyperplane as an
+`alpha_fcf` DecisionVariable plus an `FCF_future_cost` UserConstraint
+(`terminal_value` family).  That second encoding double-counted the
+cost-to-go and is no longer emitted; any `alpha_fcf` decision variable
+carried by a stale case object is filtered out by the writer.
 
-The `alpha_fcf` column is α-rebased by subtracting the cut value
-evaluated at each reservoir's terminal target (`efin` when set,
-midpoint(emin, emax), or `eini`) so the cost-to-go centres on ~0
-at the optimum and the LP objective stays well-conditioned. The
-column scale `--fcf-scale-alpha` (default 1000, matched to
-`scale_objective`) keeps the alpha LP cost in the same magnitude
-range as every other objective term.
+`--water-value-factor RES:F[,RES:F...]` multiplies the cut coefficient
+of the named reservoirs (unlisted ones keep 1.0): an economic change of
+the terminal water value, not a numerical scale.
 
 ---
 
@@ -961,9 +958,9 @@ plexos2gtopt \
   -i $GTOPT_CASES_DIR/chile/daily_scheduling/pcp_2026-04-22/source/PLEXOS20260422.zip \
   -o gtopt_PLEXOS20260422
 
-# 2. Solve with CPLEX MIP, write full Parquet output stream:
+# 2. Solve the MIP, write full Parquet output stream:
 gtopt gtopt_PLEXOS20260422/PLEXOS20260422.json \
-  --solver cplex --output-dir gtopt_PLEXOS20260422/output
+  --solver highs --output-dir gtopt_PLEXOS20260422/output
 
 # 3. Compare against the PLEXOS reference solution
 #    (auto-discovers RES{date}.zip[.xz] sibling):
@@ -992,7 +989,7 @@ conversion comparison and the resulting JSON):
 | `reserve_zone_array` | 12 |
 | `reserve_provision_array` | 393 |
 | `commitment_array` | 1 578 (thermal + auto-promoted hydro min/max) |
-| `decision_variable_array` | 44 (including `alpha_fcf`) |
+| `decision_variable_array` | 44 (observed before `alpha_fcf` was dropped; see §8) |
 | `user_constraint_array` | 6 (per-block-RHS only) |
 | `user_constraint_files` | 8 (`uc_<family>.pampl`) |
 | `future_cost_array` | 1 (`cuts_file = boundary_cuts.csv`: 1 cut, 8 reservoir slopes) |
@@ -1008,10 +1005,19 @@ scenario_array : 1
 
 ### MIP vs LP-relax
 
-Both modes carry the same soft slacks, so the LP-relax is already
-feasible; what the MIP recovers is the cycling / startup cost that
-the LP-relaxed commitment misses. MIP is the default; pass
-`--lp-relax` for the relaxed run.
+| Mode | Variables | Rows | Status | Obj (unscaled) |
+|---|---:|---:|---|---:|
+| Default LP (Ruiz scaling, default loss layout) | 695 711 | 497 230 | optimal | 23.618 M (scaled obj × `scale_objective` 1000) |
+| LP-relax (`--lp-relax`, equilibration=ruiz, K=8 loss, full UC set) | 790 616 | 497 230 | optimal | 22.754 M |
+| MIP (default since 2026-05-23, no `--lp-relax`) | ~790 k | ~497 k | optimal | within ~1% MIPGap |
+
+The MIP-vs-LP-relax gap is intentionally small because the same
+soft slacks make the LP-relax already feasible; what MIP recovers
+is the cycling / startup cost that the LP-relaxed commitment
+misses. Empirically (see feedback memory): dropping the LP-relax
+closed ~7 pp of the PLEXOS-vs-gtopt dispatch-cost gap on CEN PCP,
+moving `NUEVA_RENCA-TG+TV_GN_A` from 19 GWh/week (LP) to 33
+GWh/week (MIP, vs PLEXOS 40 GWh/week).
 
 ### Step-3 (`compare_with_plexos`) comparison surface
 
@@ -1158,11 +1164,14 @@ fuel unit.
 | Flag | Default | Effect |
 |---|---|---|
 | `--vert-routing {ocean,cascade}` | `ocean` | Vert_* spillway destinations. |
-| `--reservoir-spillway {basic,strict}` | unset | `basic`: set `Reservoir.spillway_cost = 0`. `strict`: also disable every duplicate spillway path. |
-| `--soft-efin-reservoirs A,B,…` | `L_Maule` | Emit efin as a soft slack at the reservoir's water value for the listed reservoirs; HARD `vol_end >= efin` for all others. |
-| `--emin-eod-day1` / `--no-emin-eod-day1` | OFF | Hard hour-24 emin clamp (operational floor from `Hydro_MinVolume.csv`). Default OFF. |
+| `--reservoir-spillway [{basic,strict}]` | unset (bare flag = `basic`) | `basic`: set `Reservoir.spillway_cost = 0`. `strict`: also disable every duplicate spillway path. |
+| `--soft-storage-bounds` / `--no-soft-storage-bounds` | OFF (hard) | Make reservoir `efin` / `emin` soft (slack priced at `efin_cost`) instead of hard `vol_end >= efin`. |
+| `--emin-eod-day1` / `--no-emin-eod-day1` | OFF | Hard hour-24 emin clamp (operational floor from `Hydro_MinVolume.csv`). Default OFF — disabling brings PLEXOS-vs-GTOpt water-value duals in line. |
 | `--battery-efin-pin` / `--no-battery-efin-pin` | ON | Pin every battery's end-of-horizon SoC to its initial SoC. |
-| `--fcf-scale-alpha F` | 1000 (= `scale_objective`) | Column scale for `alpha_fcf` LP variable. |
+| `--water-value-factor RES:F[,RES:F…]` | unset (1.0) | Multiply the boundary-cut water value of the named reservoirs (see §8). |
+| `--hydro-min-mode {soft,hard}` | `soft` | Single-plant hydro min / max / ramp UserConstraints (`ANTUCOmin`, `COLBUNmax`, …): soft at the $10/MWh tier, or hard (debug only: without commit-gated rows most weekly cases become infeasible). |
+| `--no-reservoir-flow-estimate` | estimate ON | Disable the topology-driven reservoir extraction-flow estimate (`fmin` / `fmax`). |
+| `--plp-embalses PATH` / `--no-plp-embalses` | auto-detect `embalses.csv[.xz]` next to the bundle | Synthesise reservoirs a water-value slope references but the XML omits, from the PLP reservoir table, so the boundary cut keeps their term.  Off under `--plexos-legacy`. |
 
 ### Inflexible LNG tanks and 2024 hydro-emulated BESS
 
@@ -1369,18 +1378,23 @@ strict unresolved-reference check still reports it.
 |---|---|---|
 | `--loss-pwl-layout {dynamic,uniform,midpoint,tangent,equal_error}` | `dynamic` | Per-line PWL layout (see §9). |
 | `--loss-error-pct F` | 0.01 (1 %) | Target absolute system-loss-error budget as a fraction of Σ Lmax,i. |
-| `--nseg-losses N` | adaptive ceil 6 / uniform 4 | Segment-count ceiling (adaptive) or count (uniform). |
+| `--nseg-losses N` | 10 | Segment-count ceiling of the adaptive rule (rounded up to an even K), or the count for every line with `--loss-error-pct 0`. |
 | `--loss-extend-overload` | OFF | Extend each soft-cap line's PWL envelope across the soft-headroom band. |
 | `--loss-tangent-lines NAME,…` | unset | Per-line escape hatch to force `tangent` layout. |
 | `--nseg-tangent` / `--nseg-uniform` | 6 / 4 | Per-layout segment counts. |
-| `--loss-cost-eps EPS` | not set (gtopt: `0.1`) | $/MWh on line-loss columns (`model_options.loss_cost_eps`); emitted only when passed, `0` disables. |
+| `--loss-cost-eps EPS` | not set (GTOpt: `0.1`) | $/MWh on line-loss columns (`model_options.loss_cost_eps`); emitted only when passed, `0` disables. |
+| `--line-losses-mode MODE` | `tangent_signed_flow` | Written to `model_options.line_losses_mode` (`adaptive`, `piecewise`, `bidirectional`, `piecewise_direct`, `tangent_signed_flow`, …).  The `--help` text of this shared flag says "not set", but `plexos2gtopt` passes `tangent_signed_flow`. |
+| `--loss-secant-segments S` | unset | L-secant chord segments of the `tangent_signed_flow` upper bracket (`model_options.loss_secant_segments`); also the SOS2 λ-form resolution. |
+| `--loss-sos2-lines NAME,…` | unset | Lines that get the L-secant chord plus SOS2 fill-order enforcement (`loss_use_sos2 = true`); only effective under `tangent_signed_flow`. |
+| `--loss-sos2-auto {off,heavy,all-lossy}` | `off` | Auto-pick SOS2 lines: top quartile by peak loss `R·envelope²` (`heavy`) or every lossy line (`all-lossy`, MIP-heavy).  Union with `--loss-sos2-lines`. |
 
 ### Line cap policy
 
 | Flag | Default | Effect |
 |---|---|---|
 | `--el0-lines {unenforced,enforced,strict,extended}` | `unenforced` | Lines PLEXOS does not enforce (EL=0, EL=1 below the voltage threshold): not enforced, mirroring PLEXOS (10× rating cap, no penalty); `enforced`/`strict` hard cap at rating; `extended` soft headroom band. |
-| `--lift-line-caps NAMES` | `Capricornio110->LaNegra110` | Demote to EL=0 with wider free band (4×) + 10× hard cap. Empty string activates a global soft-EL=1 mode. |
+| `--lift-line-caps NAMES` | built-in list of ~35 CEN PCP lines (`DEFAULT_LIFT_LINE_CAPS_PLEXOS`, `gtopt_shared/cli_flags.py`) | Demote to EL=0 with wider free band (4×) + 10× hard cap. Empty string activates a global soft-EL=1 mode. |
+| `--no-lift-lines NAMES` | `PMontt220->Chiloe110` | Lines never lifted, even when they are EL=0 or auto-detected. |
 | `--auto-lift-lines [THR]` | unset | After write, run DC OPF and patch `enforce_level = 0` on lines whose unlifted flow exceeds THR × rating. |
 | `--auto-lift-engine {pandapower,gtopt}` | `pandapower` | OPF engine for the auto-lift detector. |
 
@@ -1389,6 +1403,7 @@ strict unresolved-reference check still reports it.
 | Flag | Default | Effect |
 |---|---|---|
 | `--scale-theta FACTOR` | unset | Voltage-angle scale factor: the LP angle is FACTOR × θ (1 = radians, 1000 = milliradians). Unset ⇒ nothing is emitted and gtopt's C++ auto-scaling picks 1/(3·median(X/V²)); an explicit value is written to `model_options.scale_theta`. |
+| `--use-single-bus` | OFF | Collapse the network to one bus (copperplate). |
 
 ### Commitment mode
 
@@ -1396,6 +1411,9 @@ strict unresolved-reference check still reports it.
 |---|---|---|
 | `--lp-relax` | OFF (since 2026-05-23) | Emit `Commitment.relax = true` on every commitment, LP-relaxing the binaries. Default is MIP. |
 | `--uc-relax {auto,plexos,none}` | `auto` | Per-commitment LP relaxation: PLEXOS Linear-Relaxation units (`plexos`) plus cost-free units (`auto`); `none` keeps every commitment integer. See §6 *Which commitments keep an integer status*. |
+| `--uc-cycle {none,stage}` | `none` | `stage`: cyclic unit commitment over each stage (typical day / week): commitments get `cycle = "stage"` and no initial state. |
+| `--long-transition {on,off,no_uc}` | unset | With `--uc-cycle stage`: declare `long_transition` on every unit whose minimum up / down time exceeds the typical period (the list is printed); without it GTOpt rejects the case and lists those units. |
+| `--cogen-must-run NAME,…` | unset | Tag these generators `cogen_mode = must_run` (the tag only; `pmin` / `pmax` are not changed).  Detected CEN cogen units default to `dispatched`. |
 
 ### Curve-fit / debug
 
@@ -1406,6 +1424,60 @@ strict unresolved-reference check still reports it.
 | `--use-plexos-efin` | Reservoir.efin = PLEXOS End Volume. |
 | `--no-check` | Skip the post-conversion comparison + JSON validation. |
 | `--sanity-report PATH` | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` (skipped by `--no-check`). |
+
+
+### Storage and generation data
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--drop-batteries` | OFF | Exclude every PLEXOS `Battery`-class object: empty `battery_array`, no battery reserve provisions, battery UC terms dropped as zero contributions. |
+| `--default-storage-loss` | OFF | Write a synthetic standing loss where PLEXOS leaves it unset (batteries 21.5 %/yr, reservoirs 4 %/yr).  Off: such batteries and reservoirs are lossless, the PLEXOS default. |
+| `--apply-generation-aux-use` | OFF | Apply `Gen_AuxUse.csv` as `Generator.lossfactor`.  Off by default because PLEXOS ships the file but does not apply it. |
+| `--plexos-legacy` | OFF | Emit PLEXOS-faithful formulations used only for PLEXOS comparison (today: `BAT_*_CF_GEN_COMP` / `CF_LOAD_COMP` as `=` instead of `<=`); also disables the `--plp-embalses` patch. |
+
+### Emissions
+
+Per-fuel CO₂ / CH₄ / N₂O factors, the `EmissionZone` and the emission
+sources are always written (the default factor file is the bundled
+`gtopt_shared/data/emissions/cen_chile.json`).
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--emissions` | — | Deprecated no-op (emission data are always written). |
+| `--no-emissions` | OFF | Strip emission-only fields (`Fuel.emission_factors`, `EmissionZone`, `EmissionSource`, `Generator.emission_rate`); keeps `Fuel.heat_content`. |
+| `--only-emissions` | OFF | Emissions objective: `model_options.objective_mode = "emissions"` and the zone `price` set to `--carbon-price`. |
+| `--carbon-price USD_PER_TCO2EQ` | 35.0 | Zone price under `--only-emissions`; ignored otherwise. |
+| `--emissions-file PATH` | bundled file (above) | Custom emission-factor JSON. |
+| `--emissions-report FILE` | `<output-dir>/plexos_emissions_report.json` | JSON report of the factor fill-in. |
+| `--emissions-discount-rate RATE` / `--emissions-horizon-years Y` | 0.05 / perpetuity | Parameters of the synthetic emissions ray that replaces the cost FCF under `--only-emissions`. |
+| `--emission-import-buses BUS,…` | unset | Generators on these buses are import proxies: their emissions go to a separate `<zone>_imports` zone (tracking only). |
+
+### Run control and provenance
+
+| Flag | Default | Effect |
+|---|---|---|
+| `-i, --input-bundle PATH` | — | Alias of the positional bundle path. |
+| `--from-state PATH` | unset | Reload every option from a previous run's `plexos2gtopt_state.json` (written to every output directory); explicit flags on the command line override it. |
+| `--write-out SPEC` | `all` | Passed to `options.write_out` (`sol`, `dual`, `rc`, `extras`, `all`, optionally `rc:Generator,Line`). |
+| `--source-version X` (alias `--plexos-version`) | detected from the XML (`10.000` when absent) | PLEXOS version to assume: `8.100`, `9.000`, `10.000`.  `--help` lists the per-version differences. |
+| `--operator {auto,none,aemo,amm,cen,coes,eor,xm}` | `auto` | Operator whose conventions apply; logged, does not yet change the output. |
+| `-l, --log-level LEVEL` / `--no-color` / `-V, --version` | `INFO` | Logging and version. |
+
+### `plexos2gtopt-line-lifts`
+
+After a solve, `plexos2gtopt-line-lifts CASE_JSON OUTPUT_DIR` ranks the
+binding lines of the case by the reduced cost of their flow column, to
+choose `--lift-line-caps`:
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--lifted LIST` | unset | Lift list in use: comma list, text file or JSON file. |
+| `--lifted-key KEY` | unset | Dotted key into a JSON `--lifted` file. |
+| `--at F` | 0.999 | A block is "at cap" when abs(flow) ≥ F × rating. |
+| `--top N` | 25 | Rows printed. |
+| `--suggest` | OFF | Print a `--lift-line-caps` value: the current list plus new candidates above `--min-dual`. |
+| `--min-dual D` | 1.0 | $/MWh threshold for `--suggest`. |
+| `--json FILE` | unset | Write the full table. |
 
 ---
 
@@ -1649,7 +1721,16 @@ electrolysers as curtailable demands with window-sum constraints.
 
 Not converted: capacity expansion (`Max Units Built`, `Build Cost`,
 `WACC`), retirements beyond the start-day `Units`, line losses and
-marginal loss factors, outages, pumping and reserves.
+marginal loss factors, outages and reserves (`--legacy` also drops
+pumping).
+
+Other options: `-t, --trace-root DIR` (repeatable; the XML's folder is
+searched first), `-s, --start YYYY-MM-DD`, `-d, --days N`,
+`-o, --output-dir`, `-n, --name` (JSON stem), `--no-hydro` (hydro
+generators without water balance), `--no-batteries`,
+`--demand-fail-cost`, `--electrolyser-kwh-per-kg` (required when the
+case has hydrogen targets; take it from the AEMO IASR workbook, which is
+not redistributed) and `-l, --log-level`.
 
 ### 15.1 AEMO ISP expansion case (monthly stages, prototype)
 
@@ -1666,6 +1747,38 @@ python -m plexos2gtopt.aemo_isp_expansion "2026 ISP Step Change Model.xml" \
     -t <traces> --first-fy 2028 --years 3 --rep-days 2 \
     --capacity-penalty 1e7 -o cases/fy28 -n fy28
 ```
+
+| Flag | Default | Effect |
+|---|---|---|
+| `xml` | — | ISP PLEXOS XML (positional) |
+| `-t, --trace-root DIR` | XML folder | Trace search root (repeatable) |
+| `-o, --output-dir DIR` / `-n, --name NAME` | required / `isp_exp_fy<FY>_<N>y` | Output directory and case name |
+| `--first-fy Y` | 2028 | First FY (ending year: 2028 = 2027-28) |
+| `--years N` | 3 | Reported FYs |
+| `--fill-years N` | 1 | Unreported FYs appended to damp end effects |
+| `--phases {none,month,year}` | `none` | SDDP phase layout |
+| `--rep-days {1,2}` | 1 | Representative days per month |
+| `--rep-kind {netload,weekday}` | `netload` | Split of `--rep-days 2` |
+| `--cycle-group` | OFF | Representative days of a month form one weighted storage cycle |
+| `--week-sampler SPEC` | unset (representative days) | One typical week per month: `uniform:H[:point]`, `peak_ramp:K`, `chebyshev:N[:gauss\|lobatto][:key=value]`, `chrono:D` |
+| `--day-sampler SPEC` | unset (24 hourly blocks) | Chebyshev nodes on each representative day: `chebyshev:N[:key=value]` or `chebyshev:auto[:tol=T][:metric=rms\|ramp]` (provisional) |
+| `--week-start DAY:HOUR` | `wed:12` | Start of the typical-week window (not used by `chrono:D`) |
+| `--week-rule {peak,energy}` | `peak` | Which real week is the typical week |
+| `--ramp-refine {off,on,30m,15m}` | `off` | Sunrise / sunset refinement (below) |
+| `--ramp-refine-width H` | 1 | Half width [h] of each refinement window |
+| `--point-storage-integration RULE` | `cc` | Storage rule on point stages: `cc` (`clenshaw_curtis`), `lg4_pos`, `lg4`, `lg6_pos`, `lg6`, `trapezoid`, `block`, or `none` (GTOpt's per-type defaults) |
+| `--discount-rate R` | the model's LT Plan Discount Rate | Annual discount rate |
+| `--capacity-year-fleet {mean,end,tightest}` | `mean` | Yearly value of the existing fleet in the capacity constraints |
+| `--capacity-penalty F` | unset (hard) | Slack cost of the yearly capacity constraints (recommended with `--phases month\|year`) |
+| `--candidate-prefix P` | all candidates | Keep candidates whose category starts with P (repeatable) |
+| `--no-hydro` / `--no-batteries` / `--no-isp-constraints` | OFF | Drop hydro balance / batteries / PLEXOS Constraint objects |
+| `--demand-fail-cost F` | dispatch converter default | Unserved-energy cost |
+
+`chrono:D` is the chronological reference: hourly blocks over the first
+D days of every month.  `--day-sampler` replaces the 24 hourly blocks of
+each representative day by Chebyshev nodes on a periodic 24 h window
+(the day closes its storage cycle); `chebyshev:auto` picks the order
+from the wind and solar traces among 4, 6, 8, 12, 16, 24, 32 and 48.
 
 **Time representation** (`stats.json` → `period`, `blocks_per_stage`):
 
@@ -1702,8 +1815,11 @@ weight (one node per row, positive weights, the weekly cycle closes
 exactly on the quadrature that also integrates energy and cost).
 `--point-storage-integration lg4_pos` (or `trapezoid`) selects a banded
 rule with levels AT the nodes and envelope rows bounding the level
-between them; on the FY28 year it solved 3.8–4.5× slower than `cc`
-([Typical-Week Sampling §7a](../methods/typical-week-sampling.md)).
+between them (slower to solve than `cc`; see
+[Typical-Week Sampling §7a](../methods/typical-week-sampling.md)).
+`none` writes nothing and leaves GTOpt's per-type defaults.  The rule
+lives in `gtopt_shared.point_sampling` and is shared with
+`tcheby2gtopt`.
 Block-sampled weeks keep the block recursion; override with
 `--set model_options.battery_storage_integration=...`.
 
@@ -1862,7 +1978,8 @@ is worse.  Other options (`chebyshev:N:key=value`):
   `report` leaves the values unchanged.
 
 **Relation to the reference implementation.**  The method follows the
-user's paper code (tcheby, `ChebyLib` and `ChebyInOutLP`).  Its points
+reference Chebyshev scheduling code of the method's paper (`ChebyLib`
+and `ChebyInOutLP`).  Its points
 are the Chebyshev–Lobatto extremes $x_i = \cos(\pi i/(n-1))$ mapped to
 the stage window.  Lobatto is the default here too; Gauss nodes are
 kept only for comparison.

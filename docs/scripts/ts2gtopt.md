@@ -99,7 +99,7 @@ ts2gtopt demand.csv -y 2023 --verify -o input/
 | `INPUT` (positional) | — | One or more input time-series files (CSV or Parquet) |
 | `-o, --output DIR` | `.` | Output directory for block-schedule files |
 | `-f, --format {parquet,csv}` | `parquet` | Output file format |
-| `-c, --compression ALG` | `gzip` | Parquet compression codec (pass `''` to disable) |
+| `-c, --compression ALG` | `zstd` | Parquet compression codec (pass `''` to disable) |
 
 ### Horizon source (mutually exclusive)
 
@@ -137,6 +137,7 @@ If neither is given, an auto-generated horizon is created from `-y`, `-s`, and
 | `--verify` | off | Print energy-conservation ratios after projection |
 | `-l, --log-level LEVEL` | `INFO` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
 | `-V, --version` | — | Print version and exit |
+| `--no-color` | off | Disable coloured output |
 
 ---
 
@@ -147,11 +148,13 @@ override the `-s` / `-b` parameters.
 
 | Preset name | Stages | Blocks/stage | Description |
 |-------------|--------|-------------|-------------|
-| `seasonal-3block` | 4 (seasons × 3 months) | 3 | Night (0–6 h), Solar (7–18 h), Evening (19–23 h) |
+| `seasonal-3block` | 12 (months), grouped in 4 season phases of 3 months | 3 | Night (0–6 h), Solar (7–18 h), Evening (19–23 h) |
 | `monthly-3block` | 12 (months) | 3 | Same 3-block structure, one stage per month |
-| `seasonal-hourly` | 4 (seasons × 3 months) | 24 | Full 24-hour resolution within each season |
+| `seasonal-hourly` | 12 (months), grouped in 4 season phases of 3 months | 24 | Full 24-hour resolution |
 | `annual-3block` | 1 (full year) | 3 | Night / Solar / Evening for the entire year |
-| `annual-24h` | 1 (full year) | 24 | Full 24-hour resolution for the entire year |
+
+The season phases are named for the southern hemisphere: `summer`
+(Jan–Mar), `autumn` (Apr–Jun), `winter` (Jul–Sep), `spring` (Oct–Dec).
 
 ```bash
 # List all presets with their descriptions
@@ -285,13 +288,14 @@ for stage in h["stages"]:
 
 ---
 
-## Example: Projecting a Year of Solar Data onto 4 Seasonal Stages
+## Example: Projecting a Year of Solar Data onto 4 Seasonal Phases
 
 ```bash
 # Input: solar_2023.csv with columns [datetime, uid:1, uid:2]
 # 8760 rows (hourly data for year 2023)
 
-# Project onto 4 seasonal stages × 3 blocks (night/solar/evening)
+# Project onto 12 monthly stages (4 season phases) × 3 blocks
+# (night/solar/evening)
 ts2gtopt solar_2023.csv \
   -y 2023 \
   --preset seasonal-3block \
@@ -300,7 +304,7 @@ ts2gtopt solar_2023.csv \
   --verify
 
 # Output:
-#   input/solar_2023.parquet          (12 rows: 4 stages × 3 blocks)
+#   input/solar_2023.parquet          (36 rows: 12 stages × 3 blocks)
 #   horizon_2023.json                 (updated with computed durations + hour_block_map)
 #
 # Verification output:
@@ -309,10 +313,10 @@ ts2gtopt solar_2023.csv \
 
 # The resulting schedule file has columns:
 #   scenario | stage | block | uid:1 | uid:2
-#   1        | 1     | 1     | 0.000 | 0.000    ← winter night (no solar)
-#   1        | 1     | 2     | 0.412 | 0.385    ← winter solar hours (mean capacity factor)
-#   1        | 1     | 3     | 0.000 | 0.000    ← winter evening
-#   1        | 2     | 1     | 0.000 | 0.000    ← spring night
+#   1        | 1     | 1     | 0.000 | 0.000    ← January night (no solar)
+#   1        | 1     | 2     | 0.412 | 0.385    ← January solar hours (mean)
+#   1        | 1     | 3     | 0.000 | 0.000    ← January evening
+#   1        | 2     | 1     | 0.000 | 0.000    ← February night
 #   ...
 
 # Use the projected schedule in a gtopt case

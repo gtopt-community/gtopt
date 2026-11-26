@@ -75,7 +75,8 @@ psse2gtopt --info ./PSS\(R\)Ev33 --raw PAESEPMED
 # Schema sanity check (exit 0 if OK)
 psse2gtopt --validate case.raw
 
-# Convert (default: writes ./gtopt_<stem>/<stem>.json)
+# Convert (default: writes gtopt_<stem>/gtopt_<stem>.json next to the
+# .raw, or inside the input directory)
 psse2gtopt case.raw
 
 # Explicit output dir + uniform generation cost
@@ -95,7 +96,7 @@ gtopt --lp-only -s gtopt_case/gtopt_case.json
 | `INPUT` (positional)          | —        | `.raw` file or a directory of snapshots (alternative to `-i`) |
 | `-i, --input PATH`            | —        | Same as positional, takes precedence                          |
 | `--raw SUBSTR`                | —        | When the input is a directory, substring selecting one `.raw` |
-| `-o, --output-dir DIR`        | inferred | Output dir (`gtopt_<raw-stem>` next to the input)             |
+| `-o, --output-dir DIR`        | inferred | Output dir (`gtopt_<raw-stem>` next to the input file, or inside the input directory); the JSON is `<dir>/<dir-name>.json` |
 | `--name NAME`                 | raw stem | Planning / system name                                        |
 | `--gcost $/MWh`               | `10`     | Base generation cost (uniform, or rank-0 cost with `--ldm`)   |
 | `--gcost-step $/MWh`          | `1`      | Per-merit-rank cost increment when `--ldm` is given           |
@@ -111,6 +112,8 @@ gtopt --lp-only -s gtopt_case/gtopt_case.json
 | `--validate`                  | off      | Run schema sanity checks and exit (0 = ok)                    |
 | `--sanity-report PATH` | not set | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` |
 | `-l, --log-level LEVEL`       | `INFO`   | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`           |
+| `--no-color`                  | off      | Disable coloured output                                       |
+| `--operator ID`               | `auto`   | System operator whose conventions apply: `auto` (detect from the input), `none` (generic), or `aemo` / `amm` / `cen` / `coes` / `eor` / `xm`.  The choice is logged; it does not change the output today (operator rules are being moved out of the converters) |
 | `--source-version X`          | detected | RAW revision to assume (`32`, `33`); see [Supported source versions](#supported-source-versions) |
 | `-V, --version`               | —        | Print version and exit                                        |
 

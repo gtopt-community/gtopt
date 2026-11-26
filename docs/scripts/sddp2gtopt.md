@@ -73,7 +73,8 @@ sddp2gtopt --info  /path/to/sddp_case
 # Schema sanity check (exit 0 if OK)
 sddp2gtopt --validate /path/to/sddp_case
 
-# Convert (default: writes ./gtopt_<case>/<case>.json)
+# Convert (default: writes gtopt_<case>/gtopt_<case>.json next to the case;
+# an input named sddp_X writes gtopt_X/gtopt_X.json)
 sddp2gtopt /path/to/sddp_case
 
 # Explicit output dir
@@ -92,9 +93,9 @@ gtopt --lp-only -s gtopt_demo/gtopt_demo.json
 |-------------------------------|---------|---------------------------------------------------|
 | `INPUT_DIR` (positional)      | —       | SDDP case dir (alternative to `-i`)               |
 | `-i, --input-dir DIR`         | —       | Same as positional, takes precedence              |
-| `-o, --output-dir DIR`        | inferred| Output dir (`sddp_X` → `gtopt_X`; else `gtopt_<X>`)|
+| `-o, --output-dir DIR`        | inferred| Output dir, next to the input (`sddp_X` → `gtopt_X`, else `gtopt_<X>`); the JSON is `<dir>/<dir-name>.json` |
 | `--hydro-cost $/MWh`          | `0`     | Uniform hydro water-value stand-in (no-storage .dat)|
-| `--import-limit MW`           | —       | Cap aggregate interconnection import (GUA↔MEX ≈ 200)|
+| `--import-limit MW`           | —       | `.dat` path: cap aggregate interconnection import (GUA↔MEX ≈ 200); see [Interconnection imports](#interconnection-imports) |
 | `--blocks-per-stage K`        | `0`     | `0` = single-stage monolithic; divisor of horizon → daily stages → sddp/cascade |
 | `--num-scenarios N`           | all     | Block studies: keep the first N historical series |
 | `--method {sddp,monolithic,cascade}` | `sddp` | Block studies: planning method written to the JSON |
@@ -103,6 +104,8 @@ gtopt --lp-only -s gtopt_demo/gtopt_demo.json
 | `--validate`                  | off     | Run schema sanity checks and exit                 |
 | `--sanity-report PATH` | not set | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` |
 | `-l, --log-level LEVEL`       | `INFO`  | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`|
+| `--no-color`                  | off     | Plain console output                              |
+| `--operator {auto,none,aemo,amm,cen,coes,eor,xm}` | `auto` | Operator whose conventions apply (detected from the input); logged, does not change the output yet |
 | `--source-version X`          | detected| SDDP layout generation (`16`, `17`); see [Supported source versions](#supported-source-versions) |
 | `-V, --version`               | —       | Print version and exit                            |
 
@@ -409,9 +412,14 @@ reference cases under [`cases/c0`](../../cases/c0/system_c0.json) and
 }
 ```
 
-No Parquet sidecar files in v0 (every series is short enough to live
-inline).  Parquet output and a `<output_dir>/` subtree (matching the
-plp2gtopt layout) are part of the v2 hydro deliverable.
+The `psrclasses.json` and NCP `.dat` front-ends write every series inline (no data
+files).  The multi-file block-case front-end
+([below](#multi-file-psr-sddp-block-cases-demedbf-studies)) writes long
+Parquet tables under the output directory, as plp2gtopt does:
+`Generator/{pmax,pmin,pmin_fcost,gcost}`, `GeneratorProfile/profile`,
+`Demand/lmax`, `Flow/discharge`, `Line/{active,tmax_ab,tmax_ba}`,
+`Reservoir/{emax,soft_emin}`, `Waterway/{fmin,fmax}` and
+`Turbine/{production_factor,capacity}`.
 
 ---
 
@@ -514,15 +522,19 @@ When `chidroGU.dat` carries real storage (any plant with `VMax > 0`) the
 converter builds the **entire hydraulic network** rather than flattening
 hydros to generators:
 
-- a **Junction** per plant (its headwater node), `drain`-enabled so
-  surplus water spills to sea (PSR `SerVer = 0`);
+- a **Junction** per plant (its headwater node).  PSR gives two
+  downstream codes: `TAA` receives the turbined water, `VAA` the spilled
+  water (blank = out of the system).  The junction is `drain`-enabled
+  (spill to sea, PSR `SerVer = 0`) only when `VAA` is blank; otherwise
+  an uncapped spill **Waterway** carries the surplus to the `VAA`
+  plant's junction, so spilled water stays in the cascade;
 - a **Reservoir** on that junction for every storage plant — `emin`/`emax`
   = `VMin`/`VMax` [hm³], and the **initial volume** interpolated from the
   initial *elevation* `VInic` (metres) over the reservoir's embedded
   cota–vol curve; `use_state_variable` so the end-volume couples to the cut;
 - a **Turbine** per plant debiting its junction and crediting the
-  downstream plant's junction (cascade routing from `VAA`); terminal
-  plants drain to sea.  `production_factor = FPMed`, `capacity = QMax`;
+  junction of the `TAA` plant (a blank `TAA` sends the turbined water to
+  sea).  `production_factor = FPMed`, `capacity = QMax`;
 - a **Flow** injecting each plant's natural inflow (`inflow.csv`, m³/s).
 
 The hydro generators carry **no fuel cost** — dispatch is governed
@@ -554,7 +566,7 @@ N hourly blocks, the boundary cut wired into `monolithic_options`.
 splits the horizon into ≥ 2 stages and emits the SDDP decomposition layer
 (`phase_array` / `scene_array` / `aperture_array`), so the case runs under
 the **sddp** method (the cut moves to `sddp_options`) — and `cascade` by
-setting `options.method = cascade`.  Reservoir volumes then couple across
+setting `options.method = cascade` (`gtopt --set method=cascade`).  Reservoir volumes then couple across
 stages.  This is intended for genuine **multi-week** horizons; for a
 single week it adds the seasonal water value only as a near-constant
 terminal term (the high-value reservoirs are small daily-regulation ponds,
@@ -571,6 +583,23 @@ floor**: a multi-week model keeps hydro priced even off-peak (water saved
 now serves later weeks), which a single-week horizon cannot impose unless
 the water value prices *every* hydro release.
 
+### Interconnection imports
+
+Import generators (the external market's offer) are shaped by the
+market data shipped with the case:
+
+- `PRECIOSMEX.csv`: an hour priced blank or 0 for an import unit (its own
+  series or the regional one it inherits) caps the unit at 0 in that
+  hour; a unit never offered is left out.  Without `PRECIOSMEX.csv`, an
+  import unit whose fuel cost is 0 has no offer and is left out.
+- `RESTMEX` schedules (`=` / `>`) fix or floor an import and keep it
+  available in their hours.
+- `--import-limit MW` is applied after those schedules: the peak MW of
+  the fixed-schedule imports is subtracted from the limit and only the
+  flexible imports are scaled into the remaining room.  When the fixed
+  imports alone exceed the limit, a warning is logged and the flexible
+  imports are closed.
+
 ### Example
 
 ```bash
@@ -581,7 +610,7 @@ gtopt -s gtopt_ncp/gtopt_ncp.json --set output_directory=out   # monolithic, opt
 
 # multi-week horizon: daily stages → SDDP (and cascade)
 sddp2gtopt -i ./ncp_month -o gtopt_ncp --import-limit 200 --blocks-per-stage 24
-gtopt -s gtopt_ncp/gtopt_ncp.json --set output_directory=out --set options.method=cascade
+gtopt -s gtopt_ncp/gtopt_ncp.json --set output_directory=out --set method=cascade
 ```
 
 ---
@@ -620,7 +649,7 @@ sddp2gtopt -i coes_2026/ -o coes_small/ --num-scenarios 8 --method monolithic
 | `pmtrme`/`pmhime<sfx>.dat` | maintenance: file- or table-level units/info flags (reduction or absolute, units/%/MW) |
 | `rrme<nb><sfx>.dat` | reserve derating of `pmax` (%) |
 | `gmme`/`rgme<nb><sfx>.dat` | `<` caps `pmax`; `>`/`=` become a soft `pmin` (`pmin_fcost` = deficit cost) |
-| `chidro<sfx>.dat` / `mhidro<sfx>.dat` | hydro `Generator` + `Turbine` (FPMed, QMax), `Reservoir` when VMax > VMin (state variable, `eini` from `VInic`: p.u., or elevation via the Cota/Vol table when `tini` = 1), downstream turbined (VAA) and spilled (TAA) `Waterway`s |
+| `chidro<sfx>.dat` / `mhidro<sfx>.dat` | hydro `Generator` + `Turbine` (FPMed, QMax), `Reservoir` when VMax > VMin (state variable, `eini` from `VInic`: p.u., or elevation via the Cota/Vol table when `tini` = 1), downstream turbined (`TAA`) and spilled (`VAA`) `Waterway`s |
 | `vminme`/`vmxome<sfx>.dat` | soft `Reservoir` minimum (`soft_emin` + penalty) / `emax` |
 | `mntome`, `riegme<sfx>.dat` | soft minimum outflow / irrigation withdrawal `Waterway`s (`fmin_fcost`) |
 | `mxtbme<sfx>.dat` | turbine flow cap |
@@ -713,7 +742,7 @@ full phased plan.
 | Phase | Deliverable                                                                       |
 |------:|-----------------------------------------------------------------------------------|
 | ~~v1~~ ✅ | `.dat` fallback for cases without `psrclasses.json` (done)                    |
-| ~~v2~~ ✅ | Hydro reservoir + turbine + junction cascade from `chidroGU.dat` (`VAA`) + per-reservoir water-value boundary cut (done) |
+| ~~v2~~ ✅ | Hydro reservoir + turbine + junction cascade from `chidroGU.dat` (`TAA` / `VAA`) + per-reservoir water-value boundary cut (done) |
 | ~~v2~~ ✅ | Inflow from `inflow.csv` injected as `Flow` per plant (done)                  |
 | v2    | Multi-segment thermal bid curves (already collected, only the writer changes)    |
 | v2    | Per-block demand shape from `Duracao(i)` weights                                 |

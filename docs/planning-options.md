@@ -55,27 +55,26 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `output_format` | string | `"parquet"` | Output format: `"parquet"` or `"csv"` |
 | `output_compression` | string | `"zstd"` | Compression codec for output files |
 | `use_uid_fname` | bool | `true` | Use UIDs instead of names in filenames |
+| `output_round_decimals` | int | `7` | Round the written value columns to N decimals (better zstd ratio); `0` or a negative value writes full precision. CLI: `--set output_round_decimals=N` |
+| `write_out` | string | all | Which result kinds to write: comma list of `solution` (`sol`), `dual`, `rc` (reduced cost), optionally restricted to element classes, e.g. `"sol,dual,rc:Generator,Line"`. CLI: `--write-out` |
 
-### Model Parameters (deprecated flat fields)
+### Model parameters (moved to `model_options`)
 
-> **Deprecated**: The flat model fields below are kept for backward
-> compatibility but emit a deprecation warning when parsed from JSON.
-> Use the `model_options` sub-object instead (see [ModelOptions
-> Fields](#modeloptions-fields)).
+The flat model keys that used to live directly under `options`
+(`demand_fail_cost`, `reserve_fail_cost`, `hydro_fail_cost`,
+`hydro_use_value`, `use_line_losses`, `loss_segments`, `use_kirchhoff`,
+`use_single_bus`, `kirchhoff_threshold`, `scale_objective`,
+`scale_theta`) were **removed** from the JSON contract: a planning file
+that still places them at the top level of `options` is rejected.  Put
+them inside `options.model_options` (see
+[ModelOptions Fields](#modeloptions-fields)).  Two of them were also
+renamed: `reserve_fail_cost` → `reserve_shortage_cost` and
+`hydro_fail_cost` → `hydro_spill_cost`.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `demand_fail_cost` | float | -- | **Deprecated** — use `model_options.demand_fail_cost` |
-| `reserve_fail_cost` | float | -- | **Deprecated** — use `model_options.reserve_fail_cost` |
-| `hydro_fail_cost` | float | -- | **Deprecated** — use `model_options.hydro_fail_cost` |
-| `hydro_use_value` | float | -- | **Deprecated** — use `model_options.hydro_use_value` |
-| `use_line_losses` | bool | `true` | **Deprecated** — use `model_options.use_line_losses` |
-| `loss_segments` | int | `1` | **Deprecated** — use `model_options.loss_segments` |
-| `use_kirchhoff` | bool | `true` | **Deprecated** — use `model_options.use_kirchhoff` |
-| `use_single_bus` | bool | `false` | **Deprecated** — use `model_options.use_single_bus` |
-| `kirchhoff_threshold` | float | `0.0` | **Deprecated** — use `model_options.kirchhoff_threshold` |
-| `scale_objective` | float | `1000` | **Deprecated** — use `model_options.scale_objective` |
-| `scale_theta` | float | auto | **Deprecated** — use `model_options.scale_theta` |
+On the command line the short keys keep working: `--set
+demand_fail_cost=5000` is rewritten to
+`--set model_options.demand_fail_cost=5000` (and `reserve_fail_cost` /
+`hydro_fail_cost` to the new names).
 
 > **Note**: `annual_discount_rate` belongs in the `simulation` section.
 > For backward compatibility it is still accepted as a flat field in
@@ -120,13 +119,13 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `solver_options` | `SolverOptions` | Global LP solver configuration |
 | `lp_matrix_options` | `LpMatrixOptions` | LP assembly / equilibration / stats configuration |
 | `sanity_options` | `SanityOptions` | Thresholds of the data-quality warnings emitted at load time |
+| `gas_options` | `GasOptions` | Gas-network physical constants and the Weymouth SLP loop (see [Input Data — Gas Network](input-data.md#327-gas-network)) |
 | `variable_scales` | `VariableScale[]` | Per-class/variable LP scale overrides |
 
-> **Migration**: Model parameter fields (`use_kirchhoff`, `use_single_bus`,
-> etc.) can appear either at the top level of `options` (deprecated, backward-
-> compatible) or inside the `model_options` sub-object (preferred).  When
-> both are present, the top-level flat value takes precedence.  Flat fields
-> emit a deprecation warning when parsed from JSON.
+> **Migration**: model parameter fields (`use_kirchhoff`, `use_single_bus`,
+> etc.) belong in the `model_options` sub-object; the former flat copies at
+> the top level of `options` are rejected (see
+> [Model parameters](#model-parameters-moved-to-model_options)).
 
 ## ModelOptions Fields
 
@@ -164,16 +163,35 @@ solver configurations.
 | `battery_annual_standing_loss` | float | `0.48` | Self-discharge [p.u./year] for every Battery whose `annual_standing_loss` is unset (4 %/month, Li-ion cell + BMS; linear hourly drain = value/8760). `0` restores the legacy lossless default. Explicit per-battery values win; Reservoir/other storage unaffected |
 | `reserve_coupling` | string | `"warn"` | How `validate_planning` treats a ReserveZone requirement coupled to dispatch (endogenous load term, `flow_coef`, endogenous inertia, commitment inertia with a relaxed Commitment, line contingencies, `contingency_includes_reserve`): `"warn"`, `"error"` (reject the case) or `"off"`.  Such a coupling puts a $\beta\mu$ credit into the LMPs and can price buses negative (formulation §5.9) |
 | `battery_power_envelope` | bool | `true` | Emit `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` per block on every battery converter (`Converter/power_envelope`), cutting simultaneous full-power charge + discharge |
-| `reserve_fail_cost` | float | -- | Penalty $/MWh for unserved reserve |
-| `hydro_fail_cost` | float | -- | Default penalty $/m³ for unmet hydro rights (falls back to `0.0` when unset). Overridden by per-element `fail_cost` |
+| `reserve_shortage_cost` | float | -- | Penalty $/MWh for unserved reserve (formerly `reserve_fail_cost`) |
+| `hydro_spill_cost` | float | -- | Default penalty $/m³ for unmet hydro rights (falls back to `0.0` when unset; formerly `hydro_fail_cost`). Overridden by per-element `fail_cost` |
 | `hydro_use_value` | float | -- | Default benefit $/m³ for exercising hydro rights (falls back to `0.0` when unset). Overridden by per-element `use_value` |
-| `state_fail_cost` | float | -- | Penalty $/MWh for state-variable violations in SDDP elastic filter. Fallback when an element (reservoir, etc.) does not define its own `scost`. Converted to physical units via the element's `mean_production_factor` |
+| `state_violation_cost` | float | -- | Penalty $/MWh for state-variable violations in the SDDP elastic filter (formerly `state_fail_cost`). Fallback when an element (reservoir, etc.) does not define its own `scost`. Converted to physical units via the element's `mean_production_factor` |
+| `demand_fail_rhs_shift` | bool | `false` | Write unserved demand as `load − lmax ∈ [−lmax, 0]` and move the `fail_cost·lmax` baseline into the bus-balance / capacity right-hand sides instead of the objective constant (same optimum, no large constant). Legacy alias `demand_option_c` |
+| `allow_oversupply` | bool | `false` | Relax the bus balance to `≥` (free disposal of surplus energy): over-supplied buses price at 0 instead of negative. Changes the reported LMPs |
+| `strict_storage_emin` | bool | `true` | Enforce the per-stage reservoir `emin` as a hard bound on the stage-start and stage-end volumes; `false` = PLP style (only the energy balance, SDDP keeps the trajectory above `emin`) |
+| `lp_reduction` | bool | `false` | Skip provably-zero columns / rows at assembly (e.g. a generator with `pmax = pmin = 0` and its commitment). Helps solvers with a weak presolve; can shift the optimum slightly because such units also lose their commitment. CLI: `--lp-reduction` |
+| `auto_scale` | bool | `true` | Automatic per-element scaling (reservoir energy / flow, LNG energy, bus angle). `false` (CLI `--no-scale`) keeps raw physical units (debugging; much higher kappa) |
+| `theta_max` | float | auto | Bound of the voltage-angle columns, `θ ∈ [−theta_max, theta_max]`. Auto: `Σ tmax·x_τ` over the lines (never caps a flow below `tmax`); `2π` when `auto_scale = false` |
+| `dc_line_resistance_threshold` | float | `1e-7` | Per-unit floor `\|R/V²\|` below which a line is lossless (its loss model is dropped). `0` disables |
+| `scale_loss_link` | float | auto | Row factor of the loss link row `loss − Σ loss_k·seg_k = 0`; auto = a power of 10 from `median(R/V²)`; `1` disables. Not used by `linear`, `piecewise_direct`, `none` |
+| `loss_secant_segments` | int | `1` | `tangent_signed_flow` only: secant segments per line and block (with `loss_use_sos2`). Per-line `Line.loss_secant_segments` overrides |
+| `loss_use_sos2` | bool | `false` | `tangent_signed_flow` only: SOS2 ordering of the secant segments (needs a solver with native SOS2). Per-line `Line.loss_use_sos2` overrides |
+| `naming_dialect` | string | -- | Naming dialect to enforce (`gtopt`, `plp`, `sddp`, `plexos`, `pypsa`, `pandapower`; see `share/gtopt/naming_dialects.json`): warns on keys from another dialect and writes `planning.json` keys in that dialect. CLI: `--naming-dialect` |
 | `objective_mode` | string | `"cost"` | `"emissions"` minimises total emissions: generator dispatch cost coefficients (`gcost`, fuel) are zeroed and each emission source is charged at its zone `price` (1 $/t when unset). Emission prices and caps are not model options; set `price`, `cap` and `cap_cost` on an `EmissionZone` (see [Emissions](emissions.md)). The former `emission_cost` / `emission_cap` options were removed |
 | `continuous_phases` | string | `"none"` | Phase-range expression controlling which phases run LP-relaxed (integers become continuous). Syntax: `"all"`, `"none"`, `"0"`, `"1,3:5,8:"`, `":3"`. Settable per cascade level |
 | `pricing_mode` | string | `"fixed"` | MIP only: which LP supplies the duals (nodal prices) after the MIP; the dispatch is the same in every mode. `"fixed"` = all integers fixed at the incumbent (the polish LP); `"relaxed"` = LP relaxation of the full MIP; `"fast_start"` (alias `"fast-start"`) = integers fixed except fast-start commitments, whose status is relaxed to [0, 1]. A non-optimal pricing LP falls back to `fixed` with a warning; every (scene, phase) is recorded in `pricing.csv`. CLI: `--pricing-mode`. See formulation §5.15 "Pricing" |
 | `transition_integrality` | string | `"auto"` | Integrality of the commitment startup / shutdown columns (v / w) on a MIP build: `"auto"` = binary (exact); `"continuous"` = always continuous in [0, 1] (not exact with start / stop ramps); `"binary"` = always binary. The status u is always integer; `relax`, `continuous_phases` and `--no-mip` relax u, v, w together. `Commitment.transition_integrality` overrides it per unit |
 | `startup_tier_integrality` | string | `"continuous"` | Integrality of the commitment hot / warm / cold start selectors: `"continuous"` (the tier rows are totally unimodular once v / w are integral) or `"integer"`. Integer selectors are relaxed with u in `pricing_mode = "fast_start"`. `Commitment.startup_tier_integrality` overrides it per unit |
 | `fast_start_max_hours` | float | `1` | Auto rule for `pricing_mode = "fast_start"`: a commitment without an explicit `fast_start` is fast-start when `min_up_time` and `min_down_time` are both ≤ this value [h] (unset = 0). Must be ≥ 0 |
+| `uc_formulation` | string | `"energy_block"` | Unit-commitment formulation: `"energy_block"` (block-average power) or `"power_based"` (power at block boundaries, trapezoid energy, start-up / shut-down trajectories; Morales-España et al.). `Commitment.uc_formulation` overrides it per unit. See [Unit Commitment §4.6](unit-commitment.md#46-power-based-formulation-uc_formulation--power_based) |
+| `ramp_formula` | string | `"backward"` | Ramp discretisation: `"backward"` (interval slope; on point stages the step is the node spacing `t_k − t_{k−1}`) or `"central2"` (second-order node derivative; opt-in, not recommended, warns) |
+| `ramp_wrap` | bool | `false` | `central2` only: wrap the first / last node around the period |
+| `long_transition` | string | -- | Planning default of `Commitment.long_transition` (`"on"`, `"off"`, `"no_uc"`) for cyclic units whose min up / down time or start window exceeds the typical period. Unset: such undeclared units are a validation error |
+| `transition_status_rows` | bool | -- | **Removed**: the rows `v ≤ u` / `w ≤ 1 − u` no longer exist (binary v / w make them redundant). Still parsed so old files load; a warning is logged and the value ignored |
+| `storage_integration` | string | per type | Point-sampled stages only (`Stage.sampling = "point"`; block stages always use `block`): storage-balance time integration. `block` (alias `cc` / `clenshaw_curtis`: block weights, which are the Clenshaw–Curtis weights on a Chebyshev grid), `trapezoid`, `lg4` / `lg6` (banded Lagrange rules), `lg4_pos` / `lg6_pos` (same with non-negative weights). Resolution: element `storage_integration` → `reservoir_storage_integration` / `battery_storage_integration` → this value → `lg4_pos` (reservoirs) / `block` (other storages). See [Typical-week sampling](methods/typical-week-sampling.md) |
+| `reservoir_storage_integration` | string | `"lg4_pos"` | Point-stage rule of reservoirs (see `storage_integration`) |
+| `battery_storage_integration` | string | `"block"` | Point-stage rule of batteries and the hydrogen / thermal / ammonia storages (see `storage_integration`) |
 
 ## SolverOptions Fields
 
@@ -191,8 +209,11 @@ configures the LP backend.
 | `optimal_eps` | float | -- | Optimality (reduced-cost) tolerance, passed to the solver as given.  Unset: the solver parameter file's value if it sets one (e.g. `CPXPARAM_Simplex_Tolerances_Optimality` in `solvers/cplex.prm`), else `1e-6 / scale_objective` (clamped to [1e-9, 1e-1]) when `scale_objective != 1`, else the solver default.  The value used and why is logged once |
 | `feasible_eps` | float | -- | Feasibility tolerance (nullopt = solver default) |
 | `barrier_eps` | float | -- | Barrier convergence tolerance (nullopt = solver default) |
+| `mip_gap` | float | -- | MIP only: target relative optimality gap (unset = solver default; HiGHS `mip_rel_gap`, CPLEX `EPGAP`, CBC `ratioGap`, …) |
+| `mip_gap_abs` | float | -- | MIP only: target absolute gap in objective units (unset = solver default). Unlike `mip_gap`, insensitive to a large constant in the objective (e.g. a future-cost term) |
+| `memory_emphasis` | bool | -- | Ask the backend for its memory-saving mode (CPLEX `MEMORYEMPHASIS`; other solvers ignore it). Unset leaves the solver default. Independent of `sddp_options.low_memory_mode` |
 | `time_limit` | float | -- | Wall-clock budget in seconds for the whole solve of one LP/MIP (0 = no limit): MIP-start stages and algorithm-fallback retries share it — each retry gets the remaining time and retries stop once < 1 s is left.  For a MIP with `mip_polish` on, min(5 % of the budget, 300 s) is reserved for the integer-fixed LP re-solve (the polish gets the remaining time, at least 10 s) |
-| `mip_polish` | bool | `true` | MIP only.  After the MIP stops — optimal, or non-optimal at a time / node / solution / memory limit or abort while holding a feasible incumbent — fix every integer column at its incumbent value and re-solve the remaining LP (CPLEX: `CPXPROB_FIXEDMILP`).  The reported objective, primal and duals are those of the fixed LP, which is never worse than the incumbent (on CEN PCP 2026-04-22 an incumbent of 3.06e9 polishes to 1.58e9).  Runs whether or not duals are written.  A limit stop stays non-optimal: the run still exits 1 and `solution.csv` reports status `5` / `limit_polished`; the log prints the incumbent and polished objectives.  If the fixed LP fails, the incumbent is kept and a warning is logged.  `false` reports the raw incumbent (and, on a limit stop, no duals) |
+| `mip_polish` | bool | `true` | MIP only.  After the MIP stops — optimal, or non-optimal at a time / node / solution / memory limit or abort while holding a feasible incumbent — fix every integer column at its incumbent value and re-solve the remaining LP (CPLEX: `CPXPROB_FIXEDMILP`).  The reported objective, primal and duals are those of the fixed LP, which is never worse than the incumbent.  Runs whether or not duals are written.  A limit stop stays non-optimal: the run still exits 1 and `solution.csv` reports status `5` / `limit_polished`; the log prints the incumbent and polished objectives.  If the fixed LP fails, the incumbent is kept and a warning is logged.  `false` reports the raw incumbent (and, on a limit stop, no duals) |
 | `scaling` | string | -- | Internal solver scaling strategy (nullopt = solver default): `"none"`, `"automatic"`, `"aggressive"` (or the codes `0` / `1` / `2`). See `SolverScaling` enum |
 | `crossover` | string | `"auto"` | Barrier only. `"auto"`, `"primal"`, `"dual"`: cross over to a vertex (basis, vertex duals); `"none"`: keep the interior point (interior duals, no basis, the next solve starts cold). HiGHS has one crossover, so `primal` / `dual` act like `auto` there. The SDDP forward pass picks `none` itself when nothing needs its basis (see `docs/solvers.md`); an explicit value always wins. Applied per solve: a `none` solve does not leave later solves of the same LP without crossover; set `none` in every pass's options to keep it off everywhere |
 | `barrier_solver` | string | `"auto"` | Which interior-point code runs `algorithm=barrier` (HiGHS only; other solvers ignore it). `"auto"`: HiPO (parallel) when HiGHS was built with HiPO, else IPX; `"hipo"`: HiPO (falls back to IPX like `auto`); `"ipx"`: IPX (serial), the barrier before HiPO builds. Also selects the IPM a HiGHS MIP falls back to (`mip_ipm_solver`) |
@@ -222,6 +243,18 @@ configures the LP backend.
 | `boundary_cuts_mode` | string | -- | Deprecated alias → `future_cost_array[].mode` |
 | `boundary_cut_sharing_mode` | string | -- | Deprecated alias → `future_cost_array[].sharing` |
 | `boundary_max_iterations` | int | -- | Deprecated alias → `future_cost_array[].iteration_limit` |
+| `mip_start` | `MipStartOptions` | off | Feasible MIP starting point for unit-commitment MIPs (LP relaxation, rounding, propagation dive, repair, injection; `enabled`, `relax`, `round`, `domain_rules`, `dive`, `scip_repair`, `inject`, `from_file`, `dump_file`, `seed_solution_file`, `skip_relaxation`, `root_basis_cache_file`). CLI: `--mip-start`. See [Monolithic §4.5](methods/monolithic.md#45-mip-warm-start-pipeline-mip_start) |
+
+## CascadeOptions Fields
+
+`cascade_options` holds `model_options`, `sddp_options` (global defaults
+of every level; `max_iterations` is the global budget), `level_array`
+(one `CascadeLevel` per level: `uid`, `name`, `active`, `model_options`,
+`system_file`, `aperture_system_file`, `sddp_options`, `transition`) and
+`write_level_outputs` (default `false`).  Each level's `sddp_options`
+accepts the iteration, aperture, convergence and elastic fields plus its
+own `forward_solver_options` / `backward_solver_options`.  Full
+reference: [Cascade Method §4](methods/cascade.md#42-cascadeoptions-fields).
 
 ## LpMatrixOptions Fields
 
@@ -239,7 +272,7 @@ or JSON).
 | `fast_sqrt_method` | string | `"ieee_halve"` | Approximate sqrt used by Ruiz scaling; see `FastSqrtMethod` enum |
 | `ruiz_max_iterations` | int | `5` | Ruiz iteration cap |
 | `ruiz_tolerance` | float | `1e-3` | Ruiz convergence tolerance |
-| `pin_logic_rows` | bool | `false` | Keep pure commitment-logic rows (u / v / w transition, exclusion, start-up tiers, start limits, converter charge / discharge exclusivity, plant unit counts with unit coefficients: ±1 rows on binary columns; not min up / down, whose window-length coefficient still needs balancing) out of row equilibration: their row factor stays 1 under `row_max`, `ruiz` and incremental `add_row`. Column scales still apply. Off by default: it left kappa unchanged on every benchmark case and made a cuc39 MIP much slower |
+| `pin_logic_rows` | bool | `false` | Keep pure commitment-logic rows (u / v / w transition, exclusion, start-up tiers, start limits, converter charge / discharge exclusivity, plant unit counts with unit coefficients: ±1 rows on binary columns; not min up / down, whose window-length coefficient still needs balancing) out of row equilibration: their row factor stays 1 under `row_max`, `ruiz` and incremental `add_row`. Column scales still apply. Off by default: it left kappa unchanged on the benchmark cases and slowed some MIPs down considerably |
 | `water_dual_target` | float | unset (off) | Target `\|y_LP\|` for reservoir energy-balance rows; see below |
 | `water_dual_clamp` | float | `1e3` | Symmetric clamp `c in [1/k, k]` for the water-row factor |
 | `kvl_row_scale` | bool | off | EXPERIMENTAL: post-equilibration factor on node-angle KVL rows; see below |
@@ -251,6 +284,7 @@ or JSON).
 | `drop_element_collections` | bool | `true` | SDDP / cascade under `low_memory_mode = off`: drop the disposable element wrappers after the build and rebuild them for output, as `compress` does; `false` keeps them resident (previous behaviour). Monolithic always keeps them |
 | `lp_coeff_ratio_threshold` | float | `1e7` | When global max/min coefficient ratio exceeds this, print a per-scene/phase breakdown |
 | `solver_name` | string | -- | Solver backend pin (`--solver` wins; beats `.gtopt.conf` `solver`, `$GTOPT_SOLVER` and plugin priority).  gtopt writes the solver it resolved here in `gtopt_state.json`, so replaying the snapshot uses the same backend |
+| `validation` | `LpValidationOptions` | on | Incremental checks while the LP is assembled; one warning per offending entry, at most `max_warnings_per_kind` per kind. Fields: `enable` (`true`), `coeff_warn_max` (`1e10`), `coeff_warn_min` (`1e-10`, non-zero coefficients below it), `bound_warn_max` (`1e12`, finite bounds), `rhs_warn_max` (`1e12`), `obj_warn_max` (`1e10`), `max_warnings_per_kind` (`50`) |
 
 These fields are resolved for every LP build
 (`PlanningOptionsLP::resolve_lp_matrix_options`): the `gtopt` binary,
@@ -312,25 +346,33 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `max_iterations` | int | `100` | Maximum forward/backward iterations |
-| `min_iterations` | int | `2` | Minimum iterations before convergence is checked |
-| `convergence_tol` | float | `1e-4` | Relative gap tolerance for convergence |
+| `min_iterations` | int | `1` | Minimum iterations before convergence is checked |
+| `convergence_tol` | float | `0.01` | Relative gap tolerance; the stop criterion only when ΔUB stationarity is disabled (`stationary_tol = 0`) |
 
 ### Convergence Criteria
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `convergence_mode` | string | `"statistical"` | Criterion mode: `"gap_only"`, `"gap_stationary"`, `"statistical"` |
-| `stationary_tol` | float | `0.01` | Tolerance for stationary-gap convergence (0 = disabled) |
-| `stationary_window` | int | `10` | Look-back window for stationary-gap check |
+| `convergence_mode` | string | `"gap_stationary"` | Criterion mode: `"gap_only"`, `"gap_stationary"`, `"statistical"` (opt-in; needs `convergence_confidence > 0`) |
+| `stationary_tol` | float | `0.005` | ΔUB stationarity tolerance (0 = disabled) |
+| `stationary_window` | int | `4` | Look-back window (iterations) for the stationarity check |
 | `stationary_gap_ceiling` | float | `0.02` | A stationary stop needs signed gap below this (negative passes) and `stationary_window` own iterations with cuts; `1.0` disables |
-| `convergence_confidence` | float | `0.95` | Confidence level for PLP-style statistical convergence (0 = disabled) |
+| `convergence_confidence` | float | `0.0` | Confidence level for the PLP-style statistical criterion (0 = disabled) |
 
 ### Cuts and Recovery
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
-| `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"expected"`, `"accumulate"`, `"max"` |
+| `cut_sharing_mode` | string | `"none"` | Cut sharing between scenes: `"none"`, `"multicut"` (one α per source scene) or `"markov"` (experimental; see `markov_states` / `markov_transition` and [SDDP Markov](formulation/sddp-markov.md)). The removed `"expected"`, `"broadcast_mean"`, `"accumulate"`, `"max"` names are rejected |
+| `markov_states` | int array | -- | `markov` only: Markov state of each scene, in `[0, M)` |
+| `markov_transition` | float array | -- | `markov` only: row-major M×M row-stochastic transition matrix |
+| `forward_sampling_mode` | string | `"persistent"` | `"persistent"` (each scene follows its own path) or `"resampled"` (probability-weighted re-draw at each phase boundary, matching the `multicut` bound) |
+| `integer_cuts_mode` | string | `"none"` | Cuts on cells with integer columns: `"none"` or `"strengthened"` (LP-relaxation cut with a Lagrangian intercept from one MIP; needs a MIP-capable solver) |
+| `cut_drain_mode` | string | `"iteration"` | Asynchronous runs: which in-flight cuts are kept after the stop signal: `"iteration"` (cuts of certified iterations; deterministic), `"count"`, `"all"` |
+| `cut_coeff_eps` | float | `1e-8` | Drop cut coefficients below this absolute value (and their RHS term) |
+| `scale_alpha` | float | `0` (auto) | Divisor of the future-cost column α (auto = the largest state-variable scale) |
+| `alpha_min` | float | -- | Lower bound on α [$]; set `0` when every stage cost is non-negative. Not valid with negative-cost elements or `boundary_cuts_mean_shift` |
 | `max_cuts_per_phase` | int | `0` | Maximum stored cuts per (scene, phase) (0 = unlimited) |
 | `cut_prune_interval` | int | `10` | Iterations between cut pruning passes |
 | `prune_dual_threshold` | float | `1e-8` | Dual threshold for inactive cut detection |
@@ -338,7 +380,7 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 | `max_stored_cuts` | int | `0` | Maximum total stored cuts per scene (0 = unlimited) |
 | `save_per_iteration` | bool | `true` | Save cuts after every iteration (not just at end) |
 | `cut_recovery_mode` | string | `"none"` | Cut persistence: `"none"`, `"keep"`, `"append"`, `"replace"` |
-| `recovery_mode` | string | `"none"` | Recovery from previous run: `"none"`, `"cuts"`, `"full"` |
+| `recovery_mode` | string | `"full"` | Recovery from a previous run (with `cut_recovery_mode`): `"none"`, `"cuts"`, `"full"` |
 | `cuts_input_file` | string | -- | CSV file for hot-start cuts |
 | `boundary_cuts_file` | string | -- | Deprecated alias → `future_cost_array[].cuts_file` (sddp/cascade only) |
 | `boundary_cuts_mode` | string | -- | Deprecated alias → `future_cost_array[].mode` (sddp/cascade only) |
@@ -355,12 +397,19 @@ The FCF boundary cuts are configured on the FutureCost element
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `elastic_penalty` | float | `1e2` | Penalty for elastic slack variables in feasibility |
-| `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), `"multi_cut"`, `"state_repair"` (alias `"plp"`), `"farkas_recursive"` (see `docs/methods/sddp.md` §5.4) |
+| `elastic_penalty` | float | `1.0` | Penalty for elastic slack variables in feasibility |
+| `elastic_mode` | string | `"farkas_recursive"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), `"multi_cut"`, `"state_repair"` (alias `"plp"`), `"farkas_recursive"` (see `docs/methods/sddp.md` §5.4) |
 | `fact_eps` | float | `1e-8` | PLP FactEPS tolerance for `state_repair` / `farkas_recursive` |
 | `fact_max_cycles` | int | `500` | PLP FactMXC per-(scene, phase) solve-cycle cap for `state_repair` / `farkas_recursive` |
 | `fcut_log` | bool | `false` | Write the PLP-style feasibility-cut debug log `gtopt_fcut.log` (`plpfact.log` analogue) to `log_directory`; CLI shorthand `--fcut-log` (see `docs/methods/sddp.md` §5.4) |
-| `multi_cut_threshold` | int | `3` | Persistent cumulative infeasibility count at a (scene, phase) before switching to multi_cut (0 = always; <0 = disabled) |
+| `multi_cut_threshold` | int | `100` | Persistent cumulative infeasibility count at a (scene, phase) before switching to multi_cut (0 = always; <0 = disabled) |
+| `terminal_failure_threshold` | int | `2` | Consecutive iterations in which the elastic filter produced no feasibility cut for a scene before that scene's forward pass is skipped until new cuts arrive (0 = off) |
+| `forward_fail_stop` | bool | `false` | `true`: an infeasible phase installs its feasibility cut and ends the scene's forward pass for this iteration; `false`: PLP-style backtracking (re-solve the previous phase under the new cut) |
+| `forward_infeas_rollback` | bool | `true` | Delete the cuts of a scene declared infeasible in the forward pass; the run aborts if every failed scene stalls without new cuts |
+| `forward_max_fallbacks` | int | `solver_options.max_fallbacks` | Algorithm-fallback attempts for forward-pass solves |
+| `backward_max_fallbacks` | int | `0` | Algorithm-fallback attempts for backward-pass and aperture solves (0 = fail at once) |
+| `backward_resolve_target` | bool | `true` | Re-solve phase t at the trial state before building the cut for phase t−1, so cuts added earlier in the same backward pass are reflected |
+| `max_async_spread` | int | `0` | Asynchronous scenes (with `cut_sharing_mode = none`): maximum iteration spread between the fastest and slowest scene; `0` = synchronous |
 
 ### Apertures (Backward-Pass Sampling)
 
@@ -368,6 +417,14 @@ The FCF boundary cuts are configured on the FutureCost element
 |-------|------|---------|-------------|
 | `apertures` | array of UIDs | -- | Aperture UIDs (absent = from Phase, `[]` = pure Benders) |
 | `aperture_directory` | string | -- | Alternate data directory for aperture scenarios |
+| `num_apertures` | int | -- | First-N selector on each phase's `Phase.apertures` (unset = all, `0` = pure Benders). With the wettest-first order written by `plp2gtopt`, picks the N wettest |
+| `aperture_selection_mode` | string | `"head"` | How `num_apertures` picks: `"head"` (first N), `"stride"` (alias `interleave` / `spread`: evenly spaced), `"tail"` (alias `last`: last N) |
+| `aperture_system_file` | string | -- | Planning JSON whose `system` replaces the forward system in the backward aperture solves (a cheaper model with the same state elements). Overridden by `CascadeLevel` / `Phase.aperture_system_file` |
+| `aperture_solve_mode` | string | `"warm"` | Per-aperture solve and cut recovery: `"cold"`, `"warm"` (re-optimise the chunk-resident basis), `"reduced_cost"` (barrier without crossover), `"dual_shared"` (one representative solve, the other cuts synthesised), `"screened"` (`dual_shared` plus exact re-solves of the loosest cuts). See [SDDP §4.4](methods/sddp.md) |
+| `aperture_screen_count` | int | `2` | `screened` only: synthesised cuts re-solved exactly |
+| `aperture_seed_basis` | bool | `false` | Seed each iteration's first aperture from the previous iteration's basis (vertex modes only) |
+| `aperture_use_manual_clone` | bool | `true` | Build aperture clones from the flat-LP snapshot (`load_flat`) instead of the backend's native clone, so clones are built in parallel; falls back to the native clone when no snapshot is held |
+| `aperture_drop_fcuts` | bool | -- | Deprecated and ignored (a warning is logged) |
 | `aperture_timeout` | float | `30.0` | Per-aperture LP solve timeout in seconds (0 = no limit) |
 | `save_aperture_lp` | bool | `false` | Save LP files for infeasible apertures to log directory |
 | `aperture_chunk_mode` | string | `"per_scene"` | Backward aperture grouping into pool tasks: `"per_scene"` (all apertures of a (scene, phase) in series on one LP clone, warm-start reuse; parallelism capped at the scene count), `"per_aperture"` (one task per aperture, fresh clone, cold solve), `"chunked"` (`aperture_chunk_size` = K per task). CLI: `--aperture-chunk-mode` (see `docs/methods/sddp.md`, "Aperture task grouping") |
@@ -398,6 +455,8 @@ penalty, so the target is silently unmet).  Details:
 | `release_backends` | bool | `true` | Under `low_memory_mode = off`, release each solver backend after its solve and rebuild it from an uncompressed flat-LP snapshot on the next visit, warm-starting from the saved basis (same as `compress` with `memory_codec = uncompressed`). `false` keeps every LP live (the behaviour before this became the default) |
 | `release_after_alpha` | bool | `true` | Release each low-memory backend right after α registration; `false` keeps them live until the post-initialisation sweep (previous behaviour) |
 | `free_solver_scratch` | bool | `true` | Under `off`, free the CPLEX / Gurobi / MindOpt copy-out getter buffers after each forward solve and each iteration; `false` keeps them (previous behaviour) |
+| `basis_cross_mode` | string | `"full_cross"` | Simplex-basis reuse between the forward and backward solves of a (scene, phase): `off`, `warm`, `forward_to_backward`, `backward_to_forward`, `full_cross`. Correctness-neutral |
+| `lp_debug_passes` | string | `"forward,aperture"` | With `lp_debug = true`: SDDP passes whose LPs are dumped (`forward`, `backward`, `aperture`, `all`) |
 
 ### Work Pool Swap Gate
 
@@ -651,10 +710,11 @@ or `--set model_options.scale_objective=1000`.
 
 ### Water-row dual conditioning (`water_dual_target`) — EXPERIMENTAL
 
-**Experimental, off by default.**  Measured on CEN cl5y (3 SDDP iterations,
-CPLEX): exact (same LB at iteration 1, unit tests over none/row_max/ruiz) but
-no gain in kappa or solver effort with one factor per reservoir, and a
-clamp of 1e3 raises the coefficient ratio from ~5e5 to ~5e8.  Keep `k` small.
+**Experimental, off by default.**  Measured on a 5-year hydrothermal case
+(3 SDDP iterations): exact (same LB at iteration 1, unit tests over
+none/row_max/ruiz) but no gain in kappa or solver effort with one factor
+per reservoir, and a clamp of 1e3 raises the coefficient ratio from ~5e5
+to ~5e8.  Keep `k` small.
 
 Reservoir energy-balance rows carry the water value, typically 1e3-1e5
 `$/hm3` once boundary / Benders cuts are present, i.e. LP duals 2-3 decades
@@ -685,7 +745,7 @@ is multiplied after equilibration by `c = clamp(x_ref / x_tau, 1/k, k)`
 `c`, physical duals / cuts / outputs unchanged).  Because `y * x_tau` is
 invariant per flow column, shrinking the dual by `1/x_tau` inflates the
 row's coefficients by the same factor, so only a mild `x_ref` is useful.
-**Measured on cl5y the first-order lever is not this option but
+**Measured on the same case, the first-order lever is not this option but
 `scale_theta`: leave it UNSET (auto = 1 / (3 median(X/V²))).**  A case that
 pins `scale_theta: 1` (older plp2gtopt conversions) runs with ~10x higher
 kappa.

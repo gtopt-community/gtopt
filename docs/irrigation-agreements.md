@@ -174,14 +174,15 @@ modes:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `discharge` | STBRealFieldSched | Required flow [m³/s] per (scenario, stage, block) |
-| `fmax` | OptTBRealFieldSched | Maximum flow for variable mode [m³/s].  Default: `target` when set, else `fmin`; for a per-unit usage cost (`target = 0`, `use_value < 0`, no `fail_cost`) the default is unbounded |
-| `junction` | OptSingleId | Physical junction coupling (consumptive withdrawal) |
+| `target` | OptTBRealFieldSched | Soft kink [m³/s]: below it `fcost` applies, above it `uvalue` (legacy alias `discharge`) |
+| `fmin` | OptTBRealFieldSched | Hard lower bound on the served flow [m³/s] (default 0) |
+| `fmax` | OptTBRealFieldSched | Hard upper bound [m³/s].  Default: `target` when set, else `fmin` |
+| `junction_a` | OptSingleId | Source junction: consumptive withdrawal point |
 | `direction` | OptInt (+1/-1) | Sign in UserConstraint flow balance |
-| `use_average` | OptBool | Creates stage-average hourly flow variable (qeh) |
-| `fail_cost` | OptTBRealFieldSched | Penalty for unmet demand [$/m³/s·h].  When unset, the global `hydro_spill_cost` (alias `hydro_fail_cost`) applies only to blocks with `target > 0` |
-| `use_value` | OptTBRealFieldSched | Benefit value for flow usage [$/m³/s·h].  When unset, the global `hydro_use_value` applies only to a right that withdraws water (`junction_a` set) or to blocks with `target > 0` |
-| `bound_rule` | Optional | Volume-dependent dynamic bound on flow |
+| `flow_mode` | OptName | `per_block` (default), `stage_average` (kink and costs on the stage-average flow `qeh`, PLP "H" variables), `stage_uniform` (one flow per stage).  The legacy `use_average: true` maps to `stage_average` |
+| `fcost` | OptTBRealFieldSched | Penalty for flow below `target` [$/m³/s·h].  When unset, the global `hydro_spill_cost` (alias `hydro_fail_cost`) applies only to blocks with `target > 0` |
+| `uvalue` | OptTBRealFieldSched | Value of flow above `target` [$/m³/s·h] (formerly `use_value`; JSON no longer accepts that key, PAMPL still resolves it).  When unset, the global `hydro_use_value` applies only to a right that withdraws water (`junction_a` set) or to blocks with `target > 0` |
+| `bound_rule` | Optional | Volume- or month-dependent dynamic bound on flow (`axis`: `reservoir_volume` or `stage_month`) |
 | `junction_b` | OptSingleId | Return point: carry mode (`consumptive: false`) and/or the opt-in bypass |
 | `consumptive` | OptBool | `false` returns the served flow to `junction_b` |
 | `use_bypass` | OptBool | Opt-in pass-through arc `junction_a → junction_b` (`bypass_sol`) |
@@ -193,20 +194,20 @@ modes:
 
 | Variable | Bounds | Objective | Condition |
 |----------|--------|-----------|-----------|
-| `frt_flow` | [lowb, uppb] | `-use_value / scale_obj` | Always |
-| `frt_fail` | [0, ∞) | `+fail_cost / scale_obj` | If `fail_cost > 0` |
+| `frt_flow` | [lowb, uppb] | `-uvalue / scale_obj` | Always |
+| `frt_fail` | [0, ∞) | `+fcost / scale_obj` | If `fcost > 0` |
 
-**Deficit coupling** (when `fail_cost > 0` and `discharge > 0`):
+**Deficit coupling** (when `fcost > 0` and `target > 0`):
 
 ```
-flow + fail >= discharge
+flow + fail >= target
 ```
 
 This ensures the fail variable absorbs under-delivery when the flow is
 constrained by junction balance or bound rules.  Without this constraint,
 the fail variable would remain zero (dead variable).
 
-**Stage-average variable** (when `use_average = true`):
+**Stage-average variable** (when `flow_mode = stage_average`):
 
 ```
 qeh = Σ_b [ flow(b) × dur(b) / dur_stage ]
@@ -217,7 +218,7 @@ compute duration-weighted stage averages.
 
 ### 3.4 Junction Coupling
 
-When `junction` is set, the flow is subtracted from the junction
+When `junction_a` is set, the flow is subtracted from the junction
 balance row (consumptive withdrawal):
 
 ```
@@ -280,6 +281,9 @@ SDDP state-variable coupling.
 | `fmax` | OptTBRealFieldSched | Maximum extraction rate [m³/s] |
 | `fail_cost` | OptReal | Penalty for unmet volume demand [$/hm³] |
 | `reset_month` | Optional | Month when rights are re-provisioned |
+| `reset_monthly` | OptBool | Re-provision at every new calendar month |
+| `reset_value` | OptReal | Explicit provision at reset [hm³] (e.g. 0 for an up-counter) |
+| `reset_debit_right` / `reset_credit_right` | OptSingleId | Right debited from / credited to the provision at reset |
 | `bound_rule` | Optional | Volume-dependent dynamic bound |
 | `saving_rate` | OptTBRealFieldSched | Economy deposit rate [m³/s] |
 | `forfeit` | OptBool | Free disposal of unused rights (default false) |

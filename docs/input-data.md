@@ -54,17 +54,23 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `input_directory`  | string | `"input"`    | Root directory for external data files (resolved relative to JSON file) |
 | `input_format`     | string | `"parquet"`  | Preferred input format: `"parquet"` or `"csv"` |
 
-#### Model parameters
+#### Model parameters (`options.model_options`)
+
+These keys live in the `model_options` sub-object; the former flat copies
+at the top level of `options` are rejected (see
+[Planning Options](planning-options.md#model-parameters-moved-to-model_options)).
+The table lists the commonly used ones; the full list is in
+[Planning Options → ModelOptions](planning-options.md#modeloptions-fields).
 
 | Field                  | Type    | Default   | Units         | Description |
 |------------------------|---------|-----------|---------------|-------------|
 | `demand_fail_cost`     | number  | `1000`    | $/MWh         | Penalty cost for unserved demand (value of lost load); see [Unserved-demand cost and hard demand](#unserved-demand-cost-and-hard-demand) |
 | `battery_annual_standing_loss`  | number  | `0.48`    | p.u./year     | Self-discharge for batteries without `annual_standing_loss` (4 %/month; `0` = legacy lossless). See [Battery self-discharge default](#battery-self-discharge-default) |
 | `battery_power_envelope` | boolean | `true`  | --            | Per-block valid inequality `p_charge/Pc_max + p_discharge/Pd_max ≤ 1` on every battery; `false` restores the pre-envelope LP |
-| `reserve_fail_cost`    | number  | *(none)*  | $/MWh         | Penalty cost for unserved spinning reserve |
-| `hydro_fail_cost`      | number  | *(none)*  | $/m³          | Default penalty cost for unmet hydro (irrigation) rights. Per-element `fail_cost` overrides this |
+| `reserve_shortage_cost` | number | *(none)*  | $/MWh         | Penalty cost for unserved spinning reserve (formerly `reserve_fail_cost`) |
+| `hydro_spill_cost`     | number  | *(none)*  | $/m³          | Default penalty cost for unmet hydro (irrigation) rights (formerly `hydro_fail_cost`). Per-element `fail_cost` overrides this |
 | `hydro_use_value`      | number  | *(none)*  | $/m³          | Default value (benefit) of exercising hydro rights. Per-element `use_value` overrides this |
-| `state_fail_cost`      | number  | *(none)*  | $/MWh         | Penalty cost for SDDP state-variable violations. Fallback when a reservoir/storage element lacks its own `scost`; converted via element's `mean_production_factor` |
+| `state_violation_cost` | number  | *(none)*  | $/MWh         | Penalty cost for SDDP state-variable violations (formerly `state_fail_cost`). Fallback when a reservoir/storage element lacks its own `scost`; converted via element's `mean_production_factor` |
 | `use_line_losses`      | boolean | `true`    | --            | **Deprecated** — use `line_losses_mode` instead. Enable resistive line-loss modeling |
 | `line_losses_mode`     | string  | `"adaptive"` | --         | Line-loss model: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
 | `loss_segments`        | integer | `1`       | --            | Number of piecewise-linear segments for quadratic line losses (1 = linear) |
@@ -142,16 +148,11 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 |-------------------|--------|------------|-------------|
 | `constraint_mode` | string | `"strict"` | User-constraint runtime error policy: `"normal"` (warn + drop offending constraint), `"strict"` (default; abort with diagnostic), `"debug"` (strict + verbose per-row lowering trace). See [User Constraints → constraint_mode](user-constraints.md#constraint_mode--runtime-error-policy) |
 
-#### Deprecated LP solver fields
+#### Removed LP solver fields
 
-These fields are still accepted for backward compatibility but are superseded
-by the `solver_options` sub-object (see Section 1.1).
-
-| Field          | Type    | Default | Description |
-|----------------|---------|---------|-------------|
-| `lp_algorithm` | integer | --      | LP algorithm: 0=auto, 1=primal, 2=dual, 3=barrier |
-| `lp_threads`   | integer | --      | Solver threads (0=auto) |
-| `lp_presolve`  | boolean | --      | Enable LP presolve |
+The former top-level `lp_algorithm`, `lp_threads` and `lp_presolve` keys
+are no longer part of the JSON contract; use the `solver_options`
+sub-object (`algorithm`, `threads`, `presolve`; see Section 1.1).
 
 ### Example
 
@@ -179,9 +180,8 @@ by the `solver_options` sub-object (see Section 1.1).
 ### 1.1 SolverOptions
 
 LP solver configuration exposed as a sub-object under `options`.
-Individual top-level fields (`lp_algorithm`, `lp_threads`, `lp_presolve`)
-are still respected for backward compatibility and take precedence
-over the corresponding `solver_options` sub-fields.
+(The former top-level `lp_algorithm`, `lp_threads` and `lp_presolve`
+fields were removed.)
 
 | Field          | Type    | Default     | Description |
 |----------------|---------|-------------|-------------|
@@ -262,24 +262,27 @@ section name already provides the namespace.  All fields are optional.
 
 For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 
+The tables below cover the common fields; the complete list with
+defaults is in [Planning Options → SddpOptions](planning-options.md#sddpoptions-fields).
+
 #### Iteration control
 
 | Field              | Type    | Default  | Description |
 |--------------------|---------|----------|-------------|
 | `max_iterations`   | integer | `100`    | Maximum number of forward/backward iterations |
-| `min_iterations`   | integer | `2`      | Minimum iterations before declaring convergence |
-| `convergence_tol`  | number  | `1e-4`   | Relative gap tolerance for convergence (primary criterion) |
-| `stationary_tol`   | number  | `0.0`    | Secondary convergence: relative gap-change tolerance. When the gap stops improving over the look-back window, convergence is declared even if gap > `convergence_tol`. Set to e.g. `0.01` to enable. `0.0` = disabled |
-| `stationary_window`| integer | `10`     | Number of iterations to look back when checking gap stationarity (only used when `stationary_tol > 0`) |
+| `min_iterations`   | integer | `1`      | Minimum iterations before declaring convergence |
+| `convergence_tol`  | number  | `0.01`   | Relative gap tolerance; the stop criterion only when stationarity is disabled (`stationary_tol = 0`) |
+| `stationary_tol`   | number  | `0.005`  | ΔUB stationarity tolerance (default stop criterion under `convergence_mode = gap_stationary`); `0.0` disables it |
+| `stationary_window`| integer | `4`      | Look-back window (iterations) for the stationarity check |
 
 #### Advanced tuning
 
 | Field                | Type    | Default        | Description |
 |----------------------|---------|----------------|-------------|
-| `elastic_penalty`    | number  | `1e2`          | Penalty for elastic slack variables in feasibility |
-| `elastic_mode`       | string  | `"chinneck"`   | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), or `"multi_cut"` |
-| `multi_cut_threshold`| integer | `3`            | Cumulative forward-pass infeasibility count at a (scene, phase) before auto-switching to multi_cut (counter is persistent; 0 = always; <0 = disabled) |
-| `cut_sharing_mode`   | string  | `"none"`       | Cut sharing across scenes: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
+| `elastic_penalty`    | number  | `1.0`          | Penalty for elastic slack variables in feasibility |
+| `elastic_mode`       | string  | `"farkas_recursive"` | Elastic filter mode: `"farkas_recursive"`, `"state_repair"` (alias `"plp"`), `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), or `"multi_cut"` |
+| `multi_cut_threshold`| integer | `100`          | Cumulative forward-pass infeasibility count at a (scene, phase) before auto-switching to multi_cut (counter is persistent; 0 = always; <0 = disabled) |
+| `cut_sharing_mode`   | string  | `"none"`       | Cut sharing across scenes: `"none"`, `"multicut"` or `"markov"` (experimental); the removed `"expected"` / `"accumulate"` / `"max"` names are rejected |
 | `update_lp_skip` | integer | `0`        | Iterations to skip between LP coefficient updates, e.g. volume-dependent production factors (0 = every iteration) |
 
 #### Cut file management
@@ -393,13 +396,13 @@ fields:
 |------------------------|---------|---------|-------------|
 | `use_single_bus`       | boolean | `false` | Aggregate all buses into one |
 | `use_kirchhoff`        | boolean | `true`  | Enable DC power flow (voltage angles) |
-| `use_line_losses`      | boolean | `false` | Model line losses |
+| `line_losses_mode`     | string  | `"adaptive"` | Line-loss model (`use_line_losses` is the deprecated on/off form) |
 | `kirchhoff_threshold`  | number  | `0.0`   | Threshold for Kirchhoff constraint activation |
 | `loss_segments`        | integer | `1`     | Number of piecewise-linear loss segments |
 | `scale_objective`      | number  | `1000`  | Divisor for objective coefficients |
 | `scale_theta`          | number  | auto    | Voltage-angle enlargement: θ_LP = scale_theta · θ (rad); auto = 1/(3·median(X/V²)); 1 = radians; 1000 = milliradians |
 | `demand_fail_cost`     | number  | `1000`  | Penalty cost for unserved demand [$/MWh] |
-| `reserve_fail_cost`    | number  | *(none)*| Penalty cost for unserved reserve [$/MWh] |
+| `reserve_shortage_cost` | number | *(none)*| Penalty cost for unserved reserve [$/MWh] |
 
 > **Note**: `annual_discount_rate` has moved to the `simulation`
 > section.  For backward compatibility, it is still accepted in
@@ -591,6 +594,11 @@ scalar fields:
 | `annual_discount_rate`     | number | `0.0`              | Annual discount rate for multi-stage CAPEX discounting [p.u./year] |
 | `boundary_cuts_file`       | string | —                  | Deprecated alias → `future_cost_array[].cuts_file` (any method) |
 | `boundary_cuts_valuation`  | string | —                  | Deprecated alias → `future_cost_array[].valuation` (any method) |
+| `probability_rescale`      | string | `"runtime"`        | Rescale scenario / scene probabilities that do not sum to 1: `none` (warn only), `build` (at validation), `runtime` (at build and run time) |
+| `kappa_warning`            | string | `"warn"`           | High basis condition number after a solve: `none`, `warn` (log a warning), `save_lp` (warn and write the LP). Needs a solver that reports kappa (`solver_options.kappa_mode`) |
+| `kappa_threshold`          | number | `1e9`              | Kappa above which `kappa_warning` fires |
+| `block_hour_map`           | string | —                  | Block → calendar-hour map file (written by `plp2gtopt`); metadata for post-processing, not read by the solver |
+| `iteration_array`          | array  | —                  | Per-iteration SDDP control entries (`Iteration`) |
 
 > **Backward compatibility**: `annual_discount_rate` is also accepted
 > in `options` or `options.model_options`.  The boundary cuts are
@@ -785,6 +793,7 @@ A generation unit connected to a bus.
 | `bus`              | integer\|string     | —            | Yes      | Connected bus UID or name |
 | `active`           | boolean             | —            | No       | Whether the generator is active |
 | `pmin`             | number\|array\|string| MW          | No       | Minimum active power output |
+| `pmin_fcost`       | number\|array\|string| $/MWh       | No       | Makes `pmin` soft: `generation + unserved ≥ pmin`, the slack priced at this cost (unset = hard `pmin`) |
 | `pmax`             | number\|array\|string| MW          | No       | Maximum active power output |
 | `gcost`            | number\|array\|string| $/MWh       | No       | Variable generation cost |
 | `lossfactor`       | number\|array\|string| p.u.        | No       | Network loss factor |
@@ -798,6 +807,8 @@ A generation unit connected to a bus.
 | `emissions`      | array                | —            | No       | Inline `EmissionSource` rows (`zone`, `emission`, `rate`, `upstream_rate`) for this generator |
 | `emission_captures` | array             | —            | No       | CCS per pollutant: `emission`, capture fraction `rate` [p.u.], `cost` [$/t captured] |
 | `initial_generation` | number           | MW           | No       | Dispatch at `t = 0⁻` (PLEXOS *Initial Generation*). Value of `generation_prev` at the first block of the horizon, so ramp user constraints `gen − gen_prev ≤ R` see the real starting point. Also the native `Commitment` ramp `p_prev` there when `initial_power` is unset. Never applied past the horizon start. Unset → 0 (cold start) |
+| `cogen_mode`       | string              | —            | No       | Cogeneration tag: `"dispatched"` or `"must_run"` (unset = not a cogeneration unit) |
+| `uini`             | number              | —            | No       | Units online at t = 0 (informational, written by `plexos2gtopt`; commitment state comes from `Commitment.initial_status`) |
 
 > **Note:** Fields that accept `number|array|string` can be a numeric constant,
 > an inline array (indexed by `[stage][block]`), or a filename referencing an
@@ -814,6 +825,7 @@ An electrical demand (load) connected to a bus.
 | `bus`              | integer\|string     | —            | Yes      | Connected bus UID or name |
 | `active`           | boolean             | —            | No       | Whether the demand is active |
 | `lmax`             | number\|array\|string| MW          | No       | Maximum served load |
+| `lmin`             | number\|array\|string| MW          | No       | Minimum served load per (stage, block) |
 | `lossfactor`       | number\|array\|string| p.u.        | No       | Network loss factor |
 | `fcost`            | number\|array\|string| $/MWh       | No       | Demand curtailment cost; falls back to `model_options.demand_fail_cost` (default 1000). `0` = freely dispatchable load |
 | `fail_segments`    | array of objects    | —            | No       | Stepwise curtailment (VoLL) curve `[{fraction, cost}, …]`; overrides `fcost` (see below) |
@@ -1395,6 +1407,7 @@ A water channel connecting two junctions.
 | `capacity`   | number\|array\|string| m³/s  | No       | Maximum flow capacity |
 | `lossfactor` | number\|array\|string| p.u.  | No       | Transit loss coefficient |
 | `fmin`       | number\|array\|string| m³/s  | No       | Minimum required water flow |
+| `fmin_fcost` | number\|array\|string| $/(m³/s·h) | No | Makes `fmin` soft (`flow + unserved ≥ fmin`, e.g. an ecological flow under drought); unset = hard |
 | `fmax`       | number\|array\|string| m³/s  | No       | Maximum allowed water flow |
 
 ### 3.9 Reservoir
@@ -1409,6 +1422,7 @@ A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10�
 | `junction`             | integer\|string     | —           | Yes      | Associated junction UID or name |
 | `spillway_capacity`    | number              | m³/s        | No       | Maximum uncontrolled spill capacity |
 | `spillway_cost`        | number              | $/(m³/s·h) | No       | Cost per unit of spilled flow; setting it (0 = free) creates the spill column |
+| `spill_junction`       | integer\|string     | —           | No       | Junction that receives the spilled water (unset = spill leaves the system) |
 | `capacity`             | number\|array\|string| hm³       | No       | Total usable storage capacity |
 | `annual_standing_loss`          | number\|array\|string| p.u./year  | No       | Annual evaporation/seepage loss rate |
 | `emin`                 | number\|array\|string| hm³       | No       | Minimum allowed stored volume |
@@ -1695,7 +1709,7 @@ A spinning-reserve requirement zone.
 | `system_inertia` | number\|array\|string | MWs | No | Given plane inertia $I$ for `inertia_term: "exogenous"` (missing blocks read 0, the most conservative value) |
 | `contingency_generators` | array | — | No | Up contingency: $C \ge p_g$ for each listed generator |
 | `contingency_demands` | array | — | No | Down contingency: $C \ge$ load of each listed demand (e.g. `bess_dem`) |
-| `urcontingencies` / `drcontingencies` | array of objects | — | No | Contingency candidates (PLEXOS `*_Comparison`): `{name, generators, generator_coefs, demands, demand_coefs, lines, line_coefs, offset}`, $C \ge \sum a\,x + $ offset (coefs default 1) |
+| `urcontingencies` / `drcontingencies` | array of objects | — | No | Contingency candidates (PLEXOS `*_Comparison`): `{name, generators, generator_coefs, demands, demand_coefs, lines, line_coefs, offset}`, $`C \ge \sum a\,x + \mathrm{offset}`$ (coefs default 1) |
 | `requirement_sense` | string | — | No | `"ge"` (default) or `"eq"`: equality provision balance (PLEXOS `*MinProvision` Sense 0) |
 | `ursurplus_cost` / `drsurplus_cost` | number\|array\|string | $/MW | No | Surplus penalty of an `"eq"` balance (no column when unset: provision pinned).  Ignored with planes: $R$ absorbs the excess (`validate_planning` warns) |
 | `contingency_includes_reserve` | boolean | — | No | $C \ge a(p + r)$: the lost unit's provision into this zone counts (default false, as PLEXOS) |
@@ -1846,10 +1860,17 @@ Water-right constraints on waterway flow (m³/s).  See
 | `uid`        | integer         | —     | Yes      | Unique identifier |
 | `name`       | string          | —     | Yes      | Flow right name |
 | `active`     | boolean         | —     | No       | Activation flag (default: true) |
+| `purpose`    | string          | —     | No       | Metadata tag (`irrigation`, `generation`, `environmental`, …) |
 | `junction_a` | integer\|string | —     | No       | Source junction (the served flow is withdrawn there) |
-| `fmin`       | number\|array\|string | m³/s | No | Minimum required flow (floor right) |
-| `fmax`       | number\|array\|string | m³/s | No | Maximum allowed flow (ceiling right) |
-| `fcost`      | number\|array\|string | $/m³/s | No | Penalty cost per unit of right violation |
+| `direction`  | integer         | —     | No       | Sign in user-constraint flow balances: `+1` supply, `-1` withdrawal |
+| `fmin`       | number\|array\|string | m³/s | No | Hard lower bound on the served flow (default 0) |
+| `fmax`       | number\|array\|string | m³/s | No | Hard upper bound; unset = `target` when set, else `fmin` |
+| `target`     | number\|array\|string | m³/s | No | Soft kink: below it `fcost` applies, above it `uvalue` (legacy alias `discharge`) |
+| `fcost`      | number\|array\|string | $/m³/s·h | No | Penalty on the shortfall below `target`; unset = `model_options.hydro_spill_cost` on blocks with `target > 0` |
+| `uvalue`     | number\|array\|string | $/m³/s·h | No | Value of flow above `target` (positive = benefit, negative = cost); formerly `use_value` |
+| `flow_mode`  | string          | —     | No       | `per_block` (default), `stage_average` (kink and costs on the stage-average flow), `stage_uniform` (one flow for the whole stage). Legacy `use_average: true` = `stage_average` |
+| `priority`   | number          | —     | No       | Allocation priority (metadata for ordering) |
+| `bound_rule` | object          | —     | No       | Volume- or month-dependent bound, see [RightBoundRule](#right-bound-rule) |
 | `junction_b` | integer\|string | —     | No       | Return junction (carry mode and/or the opt-in bypass) |
 | `consumptive`| boolean         | —     | No       | `false` returns the served flow to `junction_b` (default: true) |
 | `use_bypass` | boolean         | —     | No       | Opt-in pass-through arc `junction_a → junction_b` (default: off; implied by `bypass_cost`/`bypass_fmax`) |
@@ -1865,8 +1886,10 @@ See [irrigation-agreements.md](irrigation-agreements.md) for details and example
 
 ### 3.21 Volume Right
 
-Water-right constraints on reservoir volume (hm³).  See
-**[Irrigation Agreements](irrigation-agreements.md)** for the full reference.
+Water-right ledgers in volume (hm³): a "dummy reservoir" that tracks the
+accumulated entitlement, optionally carried between phases as an SDDP
+state.  See **[Irrigation Agreements](irrigation-agreements.md)** for the
+full reference.
 
 **JSON array name:** `volume_right_array`
 
@@ -1875,11 +1898,49 @@ Water-right constraints on reservoir volume (hm³).  See
 | `uid`        | integer         | —     | Yes      | Unique identifier |
 | `name`       | string          | —     | Yes      | Volume right name |
 | `active`     | boolean         | —     | No       | Activation flag (default: true) |
-| `reservoir`  | integer\|string | —     | Yes      | Target reservoir UID or name |
-| `emin`       | number\|array\|string | hm³ | No | Minimum required volume (floor right) |
-| `emax`       | number\|array\|string | hm³ | No | Maximum allowed volume (ceiling right) |
-| `ecost`      | number\|array\|string | $/hm³ | No | Penalty cost per unit of right violation |
-| `saving_rate`| number\|array\|string | — | No | Water-saving attribution rate |
+| `purpose`    | string          | —     | No       | Metadata tag (`irrigation`, `economy`, …) |
+| `reservoir`  | integer\|string | —     | No       | Physical source reservoir: the right's extraction leaves its balance |
+| `right_reservoir` | integer\|string | — | No     | Parent VolumeRight whose balance receives this right's flow (with `direction`); must appear earlier in the array |
+| `direction`  | integer         | —     | No       | `+1` supply / `-1` withdrawal in the parent balance |
+| `emin` / `emax` | number\|array\|string | hm³ | No | Bounds on the accumulated volume |
+| `ecost`      | number\|array\|string | $/hm³ | No | Holding cost of the accumulated volume |
+| `eini` / `efin` | number       | hm³   | No       | Initial volume / end-of-horizon minimum (`efin_cost` makes it soft) |
+| `soft_emin` / `soft_emin_cost` | number\|array\|string | hm³, $/hm³ | No | Soft floor and its penalty |
+| `demand`     | number\|array\|string | hm³/stage | No | Required delivery per stage; shortfall pays `fail_cost` |
+| `fmax`       | number\|array\|string | m³/s | No | Maximum extraction rate |
+| `fail_cost`  | number          | $/hm³ | No       | Penalty on unmet `demand` |
+| `saving_rate`| number\|array\|string | m³/s | No | Economy rights: maximum rate at which unused rights become savings |
+| `forfeit`    | boolean         | —     | No       | Free disposal of unused rights (keeps the state value ≥ 0); default `false` |
+| `flow_conversion_rate` | number | hm³/(m³/s·h) | No | Default `0.0036` |
+| `use_state_variable` | boolean | —   | No       | Carry the ledger between phases (SDDP state) |
+| `annual_standing_loss` | number\|array\|string | p.u./year | No | Ledger decay |
+| `reset_month` | string         | —     | No       | Calendar month at which the right is re-provisioned (to `reset_value`, else the `bound_rule` value, else `emax`) |
+| `reset_monthly` | boolean      | —     | No       | Re-provision at every new calendar month (not with a `bound_rule` provision) |
+| `reset_value` | number         | hm³   | No       | Explicit provision at reset (e.g. `0` for an up-counter) |
+| `reset_debit_right` | integer\|string | — | No    | Right whose incoming volume is subtracted from this right's provision at reset |
+| `reset_credit_right` | integer\|string | — | No   | Right whose remaining volume is credited at reset: provision = min(`emax`, own + credit) |
+| `priority`   | number          | —     | No       | Allocation priority (metadata) |
+| `bound_rule` | object          | —     | No       | See [RightBoundRule](#right-bound-rule) |
+
+#### Right bound rule
+
+`bound_rule` (on FlowRight and VolumeRight) is a piecewise-linear
+function `bound = min(cap, max(floor, constant_k + slope_k · x))` over
+segments `{volume, slope, constant}` sorted by their breakpoint
+`volume`.  The input `x` depends on `axis`:
+
+| Field      | Default            | Description |
+|------------|--------------------|-------------|
+| `axis`     | `reservoir_volume` | `reservoir_volume` (stage-start volume of `reservoir`) or `stage_month` (calendar month of the stage; needs stage months) |
+| `reservoir`| —                  | Reservoir whose volume drives the rule (required for `reservoir_volume`) |
+| `segments` | `[]`               | Breakpoints `{volume, slope, constant}`; empty = no effect |
+| `cap`      | unset              | Upper cap of the computed bound |
+| `floor`    | `0`                | Lower floor of the computed bound |
+
+Rules are re-evaluated in `update_lp` each SDDP iteration from the
+stage-start volume.  The agreements' coupling rows are user constraints,
+usually loaded from PAMPL files that use named sets and `state(var)`
+(see [User Constraints](user-constraints.md)).
 
 See [irrigation-agreements.md](irrigation-agreements.md) for details and examples.
 
@@ -1938,7 +1999,10 @@ Commitments.
 | `fast_start` | boolean | — | No | Fast-start unit for `pricing_mode = "fast_start"` (unset = auto: min up and min down ≤ `fast_start_max_hours`) |
 | `commitment_period` | number \| `"auto"` | hours | No | Coarser binary variable resolution. Periods are unions of whole cells (blocks; quadrature cells on `Stage.sampling = "point"` stages): cell k joins period ⌊mid_k/P⌋, so a boundary snaps to the nearer cell end. `"auto"`: P = max(block resolution, ½·min(min_up_time, min_down_time)) |
 | `commitment_grid` | string | — | No | `"block"` (one status per block/cell) or `"overlay"` (per `commitment_period`). Default: overlay iff `commitment_period` is set. Point stages: default = uniform grid of max(`commitment_period`, 1 h) by node time; `"block"` / `"cells"` keep the previous per-node / quadrature-cell grids |
-| `ramp_allowance` | string | `"boundary"` | No | `"boundary"` (default: only ramp rows crossing a commitment-period boundary get the SU/SD ramp allowance) or `"period"` (every block of a commitment period gets the allowance of its period; older, looser form) |
+| `ramp_allowance` | string | — | No | `"boundary"` (default: only ramp rows crossing a commitment-period boundary get the SU/SD ramp allowance) or `"period"` (every block of a commitment period gets the allowance of its period; older, looser form) |
+| `startup_trajectory` | number array | MW | No | `power_based` only: power at successive `trajectory_step` instants of the start-up, before the unit reaches `pmin` (empty = quick start) |
+| `shutdown_trajectory` | number array | MW | No | `power_based` only: power at successive instants after leaving `pmin` (last entry normally 0) |
+| `trajectory_step` | number | h | No | Spacing of the trajectory samples (default 1) |
 | `cycle` | string | — | No | `"none"` (default) or `"stage"`: cyclic UC over the stage (typical day/week): transitions, windows and ramps wrap, no initial state, start costs × `duration / period_hours`. See [unit-commitment](unit-commitment.md) |
 | `long_transition` | string | — | Cond. | `"on"`, `"off"` or `"no_uc"`; required for cyclic units whose min up/down time or start window exceeds the typical period (validation error otherwise) |
 | `long_transition_schedule` | string[] | — | No | Per-stage `long_transition` (by stage position) |
@@ -2323,6 +2387,163 @@ exactness report `GasPipe/{weymouth_gap_sol, pressure_error_sol}`,
 `GasTurbine/{fuel_sol, pressure_gate_dual, derate_dual}`.
 
 ---
+
+### 3.28 Multi-carrier nodes and storage (hydrogen, ammonia, thermal)
+
+Besides the electric `Bus`, gtopt has carrier-tagged balance nodes.
+Carriers never mix: an element on a node of one carrier cannot serve
+another carrier except through a `CarrierConverter`.  Energy units are
+MWh (MWh_LHV for hydrogen and ammonia, MWh_th for heat).  The LP is
+given in [formulation](formulation/mathematical-formulation.md).
+
+| Array | Element | Fields |
+|-------|---------|--------|
+| `hydrogen_node_array` / `ammonia_node_array` / `thermal_node_array` | Node | `uid`, `name`, `active` |
+| `hydrogen_storage_array` | HydrogenStorage | see below, node key `hydrogen_node` |
+| `ammonia_storage_array` | AmmoniaStorage | see below, node key `ammonia_node` |
+| `thermal_storage_array` | ThermalStorage | see below, node key `thermal_node` |
+| `hydrogen_demand_array` | HydrogenDemand | see below |
+| `carrier_converter_array` | CarrierConverter | see below |
+
+**Storage fields** (all three storage types; same semantics as
+`Battery` / `Reservoir`): `type` (tag, e.g. `salt_cavern`, `lh2`),
+the node key, `input_efficiency`, `output_efficiency`,
+`annual_standing_loss` [p.u./year], `emin`, `emax`, `ecost`, `eini`,
+`efin`, `efin_cost`, `soft_emin`, `soft_emin_cost`, the expansion
+fields `capacity`, `expcap`, `expmod`, `capmax`, `annual_capcost`,
+`annual_derating`, `integer_expmod`, and `use_state_variable` /
+`daily_cycle`.  The storage level is carried between stages like a
+battery's.  On point-sampled stages these storages follow
+`model_options.battery_storage_integration`.
+
+**HydrogenDemand** (offtake from a `hydrogen_node`):
+
+| Field | Units | Description |
+|-------|-------|-------------|
+| `hydrogen_node` | — | Node the offtake withdraws from |
+| `lmax` / `lmin` | MW_LHV | Offtake rate bounds per (stage, block); `lmax` unset = unbounded, `lmin` default 0 |
+| `min_energy` / `max_energy` | MWh_LHV/stage | Energy delivered per stage, `Σ dur·load` |
+| `min_energy_cost` | $/MWh_LHV | Penalty below `min_energy` (set = soft, unset = hard) |
+| `price` | $/MWh_LHV | Value of the offtake (price-responsive buyer); default 0 |
+
+**CarrierConverter** (electrolyser, fuel cell, Haber–Bosch, cracker,
+power block, …) moves energy from one carrier's node to another's:
+
+| Field | Units | Description |
+|-------|-------|-------------|
+| `from_carrier` / `to_carrier` | — | `electric`, `hydrogen`, `thermal`, `ammonia` (required) |
+| `from_node` / `to_node` | — | Node (Bus, HydrogenNode, …) of the matching carrier |
+| `efficiency` | p.u. | Output per unit input, per (stage, block); default 1 |
+| `ocost` | $/MWh input | Operating cost per unit of input flow; default 0 |
+| `capacity`, `expcap`, `expmod`, `capmax`, `annual_capcost`, `annual_derating`, `integer_expmod` | MW input | Installed input capacity and capacity expansion |
+
+### 3.29 Fuel
+
+**JSON array name:** `fuel_array`.  Generators reference a fuel
+(`Generator.fuel`, with `heat_rate`); see
+[Unit Commitment](unit-commitment.md) and [Emissions](emissions.md).
+
+| Field | Units | Description |
+|-------|-------|-------------|
+| `type` / `subtype` / `description` | — | Tags (e.g. `gas` / `lng`); metadata only |
+| `price` | $/fuel unit | Per-(stage, block) schedule; the fuel unit is the user's choice and must match `heat_rate` |
+| `heat_content` | GJ/fuel unit | Optional, for energy reporting |
+| `emission_factors` | — | Array of `{emission, combustion, upstream}` [t/fuel unit] per pollutant |
+| `combustion_emission_factor` / `upstream_emission_factor` | tCO₂/fuel unit | Legacy single-pollutant form, folded into `emission_factors` |
+| `max_offtake` / `min_offtake` | fuel unit/stage | Cap / floor on the fuel burnt by all generators on this fuel per stage |
+| `max_offtake_cost` / `min_offtake_cost` | $/fuel unit | Penalty that makes the cap / floor soft (unset = hard) |
+| `max_offtake_per_block` / `min_offtake_per_block` | bool | Enforce the stage limit per block, pro-rated by block duration |
+
+### 3.30 Plant
+
+**JSON array name:** `plant_array`.  Groups generators that are
+configuration variants of one physical plant (e.g. combined-cycle
+modes).
+
+| Field | Description |
+|-------|-------------|
+| `generator_names` | Member generators (at least two for any row to be emitted) |
+| `pmax` | Plant capacity: `Σ generation ≤ pmax` per block |
+| `n_units` | Units that can be committed: `Σ commit_coeffs·status ≤ n_units`, one row per stage on the members' first-block status |
+| `commit_coeffs` | Per-member coefficients for `n_units` (default 1 each) |
+| `uniq_mutex` | `true`: at most one configuration committed, `Σ status ≤ 1` per stage (first-block status; default off) |
+
+### 3.31 Line Commitment
+
+**JSON array name:** `line_commitment_array`.  Optimal transmission
+switching: a binary in-service status `u` for a `line`, with the KVL row
+relaxed by a big-M when the line is open.
+
+| Field | Description |
+|-------|-------------|
+| `line` | Line being switched |
+| `initial_status` | Status at t = 0 (1 closed, 0 open); unset = free |
+| `must_run` | Pin the line closed |
+| `fixed_status` | Per-(stage, block) pin (1 closed, 0 open; other values free). A line outage always pins it open |
+| `relax` | Relax `u` to [0, 1] (LP lower bound) |
+| `kvl_big_m` | Per-line big-M of the KVL disjunction (> 0); default `\|b\|·(θmax − θmin)` |
+| `startup_cost`, `shutdown_cost`, `hot_start_cost`, `warm_start_cost`, `cold_start_cost`, `hot_start_time`, `cold_start_time`, `min_up_time`, `min_down_time`, `max_starts`, `min_starts`, `starts_scope`, `initial_hours` | Switching costs and limits with the same meaning as on `Commitment` (switching events become v / w columns) |
+
+### 3.32 Inertia Provision
+
+**JSON array name:** `inertia_provision_array`.  Inertia offered by a
+`generator` to one or more inertia zones (see Section 3.18 bis).
+
+| Field | Units | Description |
+|-------|-------|-------------|
+| `generator` | — | Providing generator |
+| `inertia_zones` | — | Zones credited |
+| `inertia_constant` | s | Machine inertia constant H |
+| `rated_power` | MVA | Rated apparent power S |
+| `provision_max` | MW | Maximum provision per (stage, block) |
+| `provision_factor` | MWs/MW | Effectiveness factor per (stage, block) |
+| `cost` | $/MW | Provision cost per (stage, block) |
+
+### 3.33 Pump
+
+**JSON array name:** `pump_array`.  A pump moves water through a
+`waterway` using the electricity of a linked `demand`:
+`pump_power = pump_factor · flow`.
+
+| Field | Units | Description |
+|-------|-------|-------------|
+| `waterway` | — | Pumping waterway |
+| `demand` | — | Electrical demand that carries the pump load (usually with `fcost = 0`) |
+| `pump_factor` | MW/(m³/s) | Power per unit flow |
+| `efficiency` | p.u. | Pump efficiency (default 1) |
+| `capacity` | m³/s | Maximum pump flow |
+| `main_reservoir` | — | Reservoir whose volume may drive the conversion rate |
+
+### 3.34 Decision variables and user models
+
+`decision_variable_array` declares free LP columns (bounds, cost,
+scope, state carried between stages, non-anticipativity) that user
+constraints can reference; `user_model_array` bundles variables and
+constraints under one name and tag; `user_constraint_file(s)` load
+PAMPL files.  All three are described in
+[User Constraints](user-constraints.md).
+
+### 3.35 LNG Terminal
+
+**JSON array name:** `lng_terminal_array`.  An LNG tank with deliveries,
+regasification and boil-off that fuels linked generators (formulation
+§5.14; with a gas network, see [Gas Network](gas-network.md)).
+
+| Field | Units | Description |
+|-------|-------|-------------|
+| `emin` / `emax` | m³ | Tank level bounds per (stage, block) |
+| `ecost` | $/m³ | Holding cost per (stage, block) |
+| `eini` / `efin` / `efin_cost` | m³, $/m³ | Initial level, end-of-horizon minimum and its shortfall penalty |
+| `soft_emin` / `soft_emin_cost` | m³, $/m³ | Soft floor and its penalty |
+| `annual_standing_loss` | p.u./year | Boil-off |
+| `delivery` | m³/stage | Scheduled cargo arrivals |
+| `sendout_max` / `sendout_min` | m³/h | Regasification rate bounds |
+| `spillway_capacity` / `spillway_cost` | m³/h, $/m³ | Venting limit and penalty |
+| `use_state_variable` | — | Carry the tank level between phases |
+| `mean_production_factor` | MWh/m³ | Used to convert the state penalty `scost` |
+| `scost` | $/m³ | State-violation penalty |
+| `flow_conversion_rate` | — | m³/h × h → m³ (default 1) |
+| `generators` | — | Linked generators: `[{generator, heat_rate}]`, `heat_rate` in m³ LNG/MWh (default 1) |
 
 ## 4. External Data Files
 

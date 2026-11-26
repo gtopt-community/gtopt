@@ -97,6 +97,13 @@ pp2gtopt -f network.xlsx -o network.json
 | `-o, --output FILE` | `<stem>.json` | Output JSON file path |
 | `--list-networks` | — | Print all available built-in network names and exit |
 | `-V, --version` | — | Print version and exit |
+| `--check` / `--no-check` | on | Post-conversion validation through `gtopt_check_json` (element counts, basic consistency) |
+| `--scale-objective FACTOR` | `1000` | `model_options.scale_objective` |
+| `--demand-fail-cost COST` | `1000` | Unserved-demand penalty [$/MWh] (`model_options.demand_fail_cost`) |
+| `-k, --use-kirchhoff` / `--no-use-kirchhoff` | on | DC Kirchhoff (voltage-angle) constraints |
+| `-b, --use-single-bus` / `--no-use-single-bus` | off | Copper-plate single-bus case (no lines); pp2gtopt never switches it on by itself |
+| `-l, --log-level LEVEL` | `INFO` | Logging verbosity |
+| `--no-color` | off | Disable coloured output |
 | `--source-version X` | `net.version` | pandapower series to assume; see [Supported source versions](#supported-source-versions) |
 | `--profiles FILE` | — | Hourly profile table (`.csv`/`.parquet`, wide or long); enables time-series mode |
 | `--profiles-spec FILE` | — | JSON/YAML column → element mapping spec |

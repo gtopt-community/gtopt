@@ -16,11 +16,14 @@ parameters, demand curves, hydrology, and maintenance schedules.
 `plp2gtopt` reads all standard PLP data files from a case directory and
 produces:
 
-- A **GTOpt JSON file** (`<output-dir>.json`) containing the complete system
-  definition, simulation parameters, and solver options.
+- A **gtopt JSON file** (`<output-dir>/<output-dir-name>.json`) containing
+  the complete system definition, simulation parameters, and solver
+  options (`input_directory: "."`, results go to `<output-dir>/results`).
 - **Parquet (or CSV) time-series files** organised in subdirectories under
-  `<output-dir>/` (e.g. `Demand/lmax.parquet`, `Generator/pmin.parquet`,
-  `Afluent/afluent.parquet`).
+  `<output-dir>/` (e.g. `Demand/lmax.parquet`, `Flow/discharge.parquet`).
+- Run metadata in the same directory: `plp2gtopt_state.json` (every
+  argument, replayable with `--from-state`), a `README.md`,
+  `logs/conversion.log`, and solver parameter files under `solvers/`.
 
 The output is ready to be solved directly with the `gtopt` binary, uploaded to
 **gtopt\_guisrv** (browser GUI), or submitted to **gtopt\_websrv** (REST API).
@@ -67,8 +70,14 @@ plp2gtopt --help
 ## Quick Start
 
 ```bash
-# Default: reads ./input/, writes ./output.json + ./output/
+# Default: reads ./input/, writes ./output/output.json + data files
 plp2gtopt
+
+# plp_NAME input -> gtopt_NAME output directory
+plp2gtopt plp_case_2y
+
+# Inspect the case (hydrologies, apertures) before converting
+plp2gtopt --info plp_case_2y
 
 # Explicit input and output directories
 plp2gtopt -i plp_case_dir -o gtopt_case_dir
@@ -93,38 +102,177 @@ plp2gtopt -i input/ -l DEBUG
 
 ## CLI Options
 
+`plp2gtopt --help` is the authoritative list.  The tables below group
+every flag; defaults marked "gtopt" mean the key is not written and the
+GTOpt solver applies its own default.  Most defaults can also be set in
+the `[plp2gtopt]` section of `~/.gtopt.conf` (`--init-config` writes it).
+
+### Input / output
+
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-i, --input-dir DIR` | `input` | PLP input directory containing `.dat` files |
-| `-o, --output-dir DIR` | `output` | Output directory for Parquet/CSV data files |
-| `-f, --output-file FILE` | `<output-dir>.json` | JSON output file path |
-| `-n, --name NAME` | basename of output JSON | System name in the output JSON |
-| `--sys-version STR` | `""` | Version string for the system in the output JSON |
-| `-s, --last-stage N` | all | Stop conversion after stage N |
-| `-d, --discount-rate RATE` | `0.0` | Annual discount rate (e.g. `0.10` for 10%) |
-| `-m, --management-factor F` | `0.0` | Demand management factor |
-| `-t, --last-time T` | all | Stop at time T |
-| `-F, --output-format {parquet,csv}` | `parquet` | Output file format for time-series data |
-| `--input-format {parquet,csv}` | same as `-F` | Input format hint written to GTOpt options |
-| `-c, --compression ALG` | `gzip` | Parquet compression codec (`gzip`, `snappy`, `brotli`, `none`) |
-| `-y, --hydrologies H1[,H2,…]` | `0` | Comma-separated hydrology scenario indices |
-| `-p, --probability-factors P1[,P2,…]` | equal | Probability weights per hydrology scenario |
-| `-k, --use-kirchhoff` | off | Enable Kirchhoff voltage-law (DC OPF) constraints |
-| `-b, --use-single-bus` | off | Use single-bus (copper-plate) mode |
-| `--use-line-losses` | gtopt default | Model transmission line losses |
-| `--loss-cost-eps EPS` | not set (gtopt: `0.1`) | $/MWh on line-loss columns (`model_options.loss_cost_eps`); `0` disables |
-| `--line-losses-mode MODE` | `tangent_signed_flow` | Line-loss formulation (`model_options.line_losses_mode`); see [Line losses](#line-losses-plpcnflidat).  `piecewise_direct` replicates PLP's LP but is **not arbitrage-safe** |
-| `--loss-tangents SPEC` | `double` | Tangent count K per lossy line under `tangent_signed_flow`: `double` (K = 2·Num.Tramos, one tangent per PLP tramo per flow direction), `tramos` (K = Num.Tramos), or an integer K ≥ 2; see [Line losses](#line-losses-plpcnflidat) |
-| `--demand-fail-cost COST` | `1000.0` | Cost penalty for demand curtailment ($/MWh) |
-| `--reserve-fail-cost COST` | not set | Cost penalty for reserve shortfall ($/MWh) |
-| `--falla-segments {first,all,split}` | `first` | PLP failure tiers: `first` = cheapest tier as the demand `fcost`; `all` = native `Demand.fail_segments` curve; `split` = one `<demand>_falla<k>` demand per tier (see [Demand](#demand-plpdemdat-plpcoscedat)) |
-| `--scale-objective FACTOR` | `1000.0` | Objective function scaling factor |
-| `--scale-theta FACTOR` | not set | Voltage-angle scale: the LP angle is FACTOR × θ (1 = radians, 1000 = milliradians). Unset ⇒ nothing is emitted and gtopt picks 1/(3·median(X/V²)); an explicit value is written to `model_options.scale_theta` |
-| `--sanity-report PATH` | not set | Write the post-conversion data-quality report as JSON (the summary is always logged): per-kV `|X|/V²` / `R/V²` distribution and lines below the tie threshold, kV-class impedance outliers, X/R, non-standard / mistyped bus kV, zero-rated units (and those still committed), profiles outside [0, 1], reservoirs without `emin` under an agreement reserve level, water-right rewards above the demand fail cost.  Same report on an existing case: `python -m gtopt_shared.sanity_report case.json` (runs with the post-conversion check; skipped by `--no-check`) |
-| `-z, --zip` | off | Bundle JSON + data files into a ZIP archive |
-| `-l, --log-level LEVEL` | `INFO` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
+| `INPUT_DIR` (positional), `-i, --input-dir DIR` | `input` | PLP case directory with the `.dat` files |
+| `-o, --output-dir DIR` | `output`, or `gtopt_NAME` for an input `plp_NAME` | Output directory (JSON, data files, logs, state snapshot) |
+| `-f, --output-file FILE` | `<output-dir>/<output-dir-name>.json` | Planning JSON path |
+| `-F, --output-format FORMAT` | `parquet` | Data-file format: `parquet` or `csv` |
+| `-I, --input-format FORMAT` | same as `-F` | `input_format` written to the planning options |
+| `-c, --compression ALG` | `zstd` | Codec for the data files |
+| `--compression-level N` | codec default | Codec level (e.g. 1–22 for zstd); 0 = codec default |
+| `--layout {wide,long}` | `long` | Per-element Parquet layout: tidy `[<index cols>, uid, value]` (`long`) or one column per uid (`wide`, legacy) |
+| `-z, --zip` | off | Also write `<output-dir>.zip` (see [ZIP Output](#zip-output--z----zip)) |
+| `-E, --excel-output` | off | Write an igtopt Excel workbook instead of JSON + data files |
+| `-x, --excel-file FILE` | `<output-file>.xlsx` | Workbook path for `-E` |
+| `-n, --name NAME` | output JSON stem | System name in the JSON |
+| `--case-version VERSION` | empty | Case version string (`--sys-version` is a deprecated alias) |
+| `--write-out SPEC` | `sol,dual,rc:Generator,Line` | `options.write_out`: `sol`, `dual`, `rc`, `extras`, `all`, optionally `rc:Class,...` |
+| `--from-state PATH` | — | Replay every argument of a previous run's `plp2gtopt_state.json`; flags given on the command line still win |
+
+### Horizon, scenarios and apertures
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-s, --last-stage N` | all | Last stage to include |
+| `-t, --last-time TIME` | all | Include stages up to this accumulated time: hours, or `1y`, `6m`, `1.5y` |
+| `-g, --stages-phase SPEC` | from `--method` | Stage → phase map, 1-based: `1:4,5,6,...` (see [scripts guide](../scripts-guide.md#phase-layout---stages-phase)) |
+| `-y, --hydrologies SPEC` | `all` | Hydrology selector, 1-based: `all`, `first`, `51`, `51,52,55-60`; indices of `plpidsim.dat` when present, else `plpaflce.dat` columns |
+| `--first-scenario` | off | Same as `-y first` |
+| `-p, --probability-factors P1[,P2,…]` | equal `1/N` | Scenario probabilities |
+| `-a, --apertures SPEC` | `all` | Backward-pass apertures: `all` (from `plpidap2.dat`), `0` (none), `N` (first N), `1-5`, `1,2,3`; `--num-apertures` is a deprecated alias |
+| `-A, --aperture-directory DIR` | `<output-dir>/apertures` when needed | Directory for aperture-only hydrology data |
+| `--aperture-chunk-mode MODE` | gtopt (`per_scene`) | `per_scene`, `per_aperture` or `chunked` (`sddp_options.aperture_chunk_mode`) |
+| `--aperture-chunk-size K` | auto | Apertures per task for `chunked`; as a bare mode selector it is deprecated (`-1` per scene, `1` per aperture) |
+| `--inflow-model {ar1}` | off | Fit a per-central AR(1) inflow model on the `plpaflce.dat` ensemble and emit it as `Flow.inflow_model` |
+| `--show-simulation` | off | Print the scenario / stage / phase / aperture structure after the conversion |
+| `-d, --discount-rate RATE` | `0.0` | Annual discount rate (`0.10` = 10 %) |
+| `-m, --management-factor F` | `0.0` | Demand reduction fraction in [0, 1): demand × (1 − F) |
+
+### Planning method and SDDP options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-M, --method METHOD` | `cascade` | `cascade` (4 levels, full topology at each), `cascade-reduced` (L1/L2 on reduced grids from `gtopt-net`), `sddp` (one phase per stage), `monolithic` (`mono` is a deprecated alias) |
+| `--cut-sharing-mode MODE` | `multicut` (SDDP / cascade) | `multicut` (PLP-faithful, one future-cost column per scene), `none`, or `markov` (experimental; needs Markov data this tool does not write) |
+| `--forward-sampling-mode MODE` | gtopt (`persistent`) | `persistent` or `resampled` |
+| `--integer-cuts-mode MODE` | gtopt (`none`) | `none` or `strengthened` (one extra MIP solve per cut; MIP solver needed) |
+| `--boundary-cuts-mode MODE` | `phi_expectation` when cut files exist | How the `plpplaem` / `plpplem` boundary cuts load: `noload`, `separated`, `combined`, `phi_expectation` |
+| `--boundary-max-iterations N` | gtopt (0 = all) | Keep only cuts of the last N PLP iterations |
+| `--cuts-govern-terminal` / `--no-...` | on | With `combined` cuts, drop the soft `efin` slack of cut-covered reservoirs so the cuts alone value the end volume |
+| `--no-boundary-cuts` | off | Write no `boundary_cuts.csv` and no `FutureCost` |
+| `--alias-file JSON` | — | `{old_name: new_name}` renames applied to the cut-file header |
+| `--min-iterations N` | `3` | Minimum SDDP iterations before any stop test |
+| `--convergence-confidence P` | `0.99` | Confidence level of the statistical stop test; `0` disables it |
+| `--stationary-tol TOL` | gtopt | Relative gap change that counts as stationary |
+| `--stationary-window N` | gtopt (`4`) | Look-back window of the stationary test |
+| `--stationary-gap-ceiling G` | gtopt (`0.02`) | A stationary stop is refused while the relative gap is ≥ G; `1.0` disables |
+| `--solver-invariant` | off | SDDP / cascade: barrier without crossover in forward and backward solves (reproducible across memory modes, slower) |
+| `--cascade-l1-reduce-ratio R` / `--cascade-l2-reduce-ratio R` | `6` / `3` | `cascade-reduced`: K = max(buses // R, min buses) |
+| `--cascade-l1-min-buses N` / `--cascade-l2-min-buses N` | `4` / `8` | Floor on K |
+| `--cascade-l1-uplift-pct PCT` / `--cascade-l2-uplift-pct PCT` | `3.0` / `3.0` | Per-demand loss uplift on the reduced levels |
+| `--cascade-l1-uplift-collision` / `--cascade-l2-uplift-collision` | `replace` | `replace`, `add` or `compound` an existing `lossfactor` |
+| `--cascade-l1-aperture-ratio R` / `--cascade-l2-aperture-ratio R` | `4` / `2` | `num_apertures = max(apertures // R, 1)` |
+| `--cascade-l1-distance` / `--cascade-l2-distance` | `reactance-shortest-path` / `ptdf` | Clustering metric: `reactance-shortest-path`, `zbus`, `ptdf` |
+| `--cascade-disable-l1`, `--cascade-disable-l2` | off | Skip a reduced level |
+
+### Network and line losses
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-b, --use-single-bus` / `--no-use-single-bus` | auto | Single bus when the case has no lines, multi-bus otherwise |
+| `-k, --use-kirchhoff` / `--no-use-kirchhoff` | on | DC power-flow (KVL) constraints |
+| `--kirchhoff-mode MODE` | `node_angle` | `node_angle` (B–θ, mirrors PLP) or `cycle_basis` (loop flows, no θ) |
+| `--scale-theta FACTOR` | gtopt (auto) | Voltage-angle scale written to `model_options.scale_theta` |
+| `-L, --use-line-losses` / `--no-use-line-losses` | gtopt (on) | Model line losses |
+| `--line-losses-mode MODE` | `tangent_signed_flow` | Loss formulation; `piecewise_direct` replicates PLP but is **not arbitrage-safe** (see [Line losses](#line-losses-plpcnflidat)) |
+| `--loss-tangents SPEC` | `double` | Tangents per lossy line under `tangent_signed_flow`: `double`, `tramos` or an integer K ≥ 2 |
+| `--loss-secant-segments S` | gtopt | Chord segments of the loss upper bracket (`model_options.loss_secant_segments`) |
+| `--loss-cost-eps EPS` | gtopt (`0.1`) | $/MWh on the loss columns; `0` disables |
+| `--lift-line-caps NAMES` | — | Widen `Line.loss_envelope` of the named lines: `L1:FACTOR,L2` (default factor 2.0) |
+| `--plp-legacy` | off | PLP-parity bundle: `method=sddp`, `line_losses_mode=piecewise_direct`, explicit `use_line_losses=true`, `pasada_mode=flow-turbine`; explicit flags still win |
+
+### Costs, demand and reserves
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--demand-fail-cost COST` | see [Demand](#demand-plpdemdat-plpcoscedat) | Global `model_options.demand_fail_cost`; when unset it is written as `0` and every real demand carries its own `fcost` |
+| `--falla-segments {first,all,split}` | `first` | PLP failure tiers (see [Failure tiers](#failure-tiers---falla-segments)) |
+| `--reserve-fail-cost COST` | not set | Reserve shortfall penalty, $/MWh |
+| `--state-fail-cost COST` | `1000.0` | State-variable violation penalty (`model_options.state_violation_cost`) |
+| `--scale-objective FACTOR` | `1.0` | Objective scaling factor |
+
+### Hydro and storage
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--pasada-mode {auto,hydro,flow-turbine,profile}` | `auto` | Run-of-river centrals: per-central (`auto`: solar/wind look-alikes → profile, hydro → flow + turbine), full topology, flow + turbine, or profiles |
+| `--tech-detect` / `--no-tech-detect` | on | Detect technology from central names (`_FV` → solar, `_EO` → wind, …) |
+| `--tech-overrides SPEC` | — | `name:type` pairs, or a `.json` / `.csv` file |
+| `--tech-list` | — | List the known technology types and exit |
+| `--soft-storage-bounds` / `--no-...` | off | Reservoir `efin` / `emin` soft (slack at `efin_cost`) instead of hard |
+| `--spillway-cost-cap COST` | `500.0` | Cap ($/hm³) on the spill-derived `efin_cost` / `soft_emin_cost` (soft bounds only; `0` = no cap); `--vert-cost-cap` is an alias |
+| `--soft-emin-cost COST` | `0.0` | Fallback price ($/dam³) for zero-cost `plpminembh.dat` stages; negative ignores the file |
+| `--auto-water-fail-cost` / `--no-...` | on | Derive reservoir `efin_cost` / `soft_emin_cost` and `FlowRight.fail_cost` from max(falla cost) + 1 $/MWh |
+| `--water-fail-cost $/MWh` | — | Manual anchor for the above (wins over the auto value) |
+| `--flow-right-fail-cost COST` | from `plpmat.dat` `CCauFal` | `FlowRight` slack price in $/hm³ |
+| `--drop-spillway-waterway` / `--no-...` | off | No `_ver` spill waterway; a junction drain takes the surplus |
+| `--vrebemb-as-sink` / `--no-...` | off | `plpvrebemb.dat` centrals spill to a `<name>_ocean` drain without `fmax` / `fcost` |
+| `--plp-spill-costs` / `--no-...` | off | Price the spill at `plpvrebemb.dat` `Costo de Rebalse` (fallback `CVert`) for PLP parity |
+| `--reservoir-flow-estimate` / `--no-...` | on | Reservoir extraction bounds from the hydraulic topology instead of generic defaults |
+| `--disable-discharge-limit-for NAMES` | — | Skip the `plpralco.dat` discharge-limit row of these reservoirs |
+| `--soft-min-flows [PATH_OR_NAMES]` / `--no-soft-min-flows` | on (bundled whitelist) | Minimum-flow obligations (generator `pmin` of whitelisted centrals, waterway `fmin`) as soft `FlowRight`s; `--pmin-as-flowright` / `--no-pmin-as-flowright` are deprecated aliases |
+| `--embed-reservoir-constraints` / `--no-...` | off | Seepage, discharge-limit and production-factor arrays inside each reservoir |
+| `--reservoir-scale-mode {plp,auto}` | `auto` | Reservoir `energy_scale` from gtopt's auto scaling or from PLP `FEscala` |
+| `--reservoir-energy-scale SPEC` | — | Per-reservoir `name:value` scale overrides |
+| `--auto-reservoir-energy-scale` / `--no-...` | off | Emit reservoir scales from PLP `FEscala` / `Escala` |
+| `--battery-energy-scale SPEC` | — | Per-battery `name:value` scale overrides |
+| `--auto-battery-energy-scale` / `--no-...` | off | Emit `energy_scale = 0.01` for every battery |
+| `--clamp-battery-efficiency` / `--no-...` | on | Clamp battery efficiencies above 1.0 (always warned) |
+| `-X, --variable-scales-file FILE` | — | Extra `variable_scales` entries (lowest priority) |
+| `--variable-scales-template` | — | Print a `variable_scales` template for the case and exit |
+
+### Expansion transforms (`gtopt_expand`)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--expand-water-rights` / `--no-...` | off | Laja / Maule irrigation agreements from `plplajam.dat` / `plpmaulen.dat` (rights, user constraints, `laja.pampl` / `maule.pampl`) |
+| `--irrigation-couplings` / `--no-...` | on | Physical couplings of the agreements; `--no-...` restores the uncoupled shape |
+| `--pin-agreement-costs` / `--no-...` | on | Keep the agreement costs at their PLP values |
+| `--expand-lng` / `--no-...` | on | `LngTerminal`s from `plpcnfgnl.dat` |
+| `--ror-as-reservoirs SELECTION` | disabled | Promote run-of-river centrals to daily-cycle reservoirs: `all`, `none` or names |
+| `--ror-as-reservoirs-file FILE` | bundled template | CSV `name, vmax_hm3[, enabled, comment]` of eligible centrals |
+| `--expand-ror` / `--no-...` | on | Write the `ror_promoted.json` audit file |
+| `--pumped-storage FILE` | — | Add a pumped-storage unit from a config JSON (repeatable) |
+| `--pumped-storage-template` | — | Print a pumped-storage config template and exit |
+
+### Emissions and PLEXOS overlay
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-emissions` | off | Strip emission data (fuel factors, emission zones / sources, `emission_rate`) |
+| `--emissions` | — | Deprecated no-op: emission data is always written |
+| `--emissions-file PATH` | bundled IPCC 2006 table | Custom emission-factor JSON |
+| `--emissions-report FILE` | in the output directory | JSON report of the emission fill-in |
+| `--only-emissions` | off | Emissions objective (`model_options.objective_mode = "emissions"`) with a priced emission zone |
+| `--carbon-price USD_PER_TCO2EQ` | `35.0` | Zone price under `--only-emissions` |
+| `--emissions-discount-rate RATE` | `0.05` | Discount rate of the emissions boundary ray under `--only-emissions` |
+| `--emissions-horizon-years YEARS` | perpetuity | Horizon of that ray |
+| `--plexos-overlay PATH` | — | Adopt heat rates, fuels and emission factors from a plexos2gtopt planning (or `latest`) for generators matched by name |
+| `--plexos-overlay-report FILE` | `<output-dir>/plexos_overlay_report.json` | Overlay audit |
+
+### Diagnostics and misc
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--info` | — | Print the case summary (hydrologies, `plpidsim.dat` map, apertures) and exit |
+| `--validate` | — | Parse every file and report counts / errors without writing; exit 1 on errors |
+| `--check` / `--no-check` | on | Post-conversion `gtopt_check_json` statistics and PLP-vs-GTOpt comparison |
+| `--sanity-report PATH` | — | Write the post-conversion data-quality report as JSON (the summary is always logged): line impedance per kV, zero-rated units, profiles outside [0, 1], reservoir floors, rewards vs fail cost, mistyped kV; `python -m gtopt_shared.sanity_report case.json` runs it on an existing case |
 | `--source-version X` | detected | PLP variants to assume, `+`-separated (e.g. `CEN65+ESS`); see [Supported source variants](#supported-source-variants) |
-| `-V, --version` | — | Print version and exit |
+| `--operator {auto,none,aemo,amm,cen,coes,eor,xm}` | `auto` | Operator whose conventions apply; logged, does not change the output yet |
+| `-l, --log-level LEVEL` | `INFO` | Console verbosity |
+| `--log-file FILE` | `<output-dir>/logs/conversion.log` | DEBUG log (`--log` is a deprecated alias) |
+| `--no-color` | off | Plain console output |
+| `--init-config` | — | Write a `[plp2gtopt]` section with the defaults to `~/.gtopt.conf` |
+| `-V, --version` | — | Print the version and exit |
 
 ---
 
@@ -296,7 +444,7 @@ water) and discharging (releasing water through the turbine):
 
 ```
 river_inflow + reservoir_extraction = waterway_out + drain
-power = conversion_rate × waterway_flow
+power = production_factor × waterway_flow
 ```
 
 The turbine's capacity (`pmax`) enforces the joint capacity constraint
@@ -355,7 +503,7 @@ that assembles the GTOpt JSON + Parquet bundle.
 | `plpcenre.dat`                   | `generator_profile_array` (renewable shapes)                | ✅      |
 | `plpcenbat.dat` / `plpess.dat`   | `system.battery_array` (mutually exclusive)                 | ✅      |
 | `plpmanbat.dat` / `plpmaness.dat`| `Battery/emin.parquet` + `Battery/emax.parquet`             | ✅      |
-| `plpaflce.dat`                   | `Afluent/afluent.parquet`                                   | ✅      |
+| `plpaflce.dat`                   | `Flow/discharge.parquet` (profiles for `--pasada-mode profile`) | ✅      |
 | `plpfilemb.dat`                  | `Reservoir.filtration` curves                               | ✅      |
 | `plpmanem.dat`                   | per-stage `Reservoir.emin/emax`                             | ✅      |
 | `plpvrebemb.dat`                 | `Reservoir.efin_cost` (soft volume slack)                   | ✅      |
@@ -473,8 +621,8 @@ the same rule.
 | PLP source                 | GTOpt target                          | Conversion                          |
 |----------------------------|---------------------------------------|-------------------------------------|
 | `plpdem.dat` MW values     | `Demand.lmax[stage][block]`           | direct (no GWh→MW step needed)      |
-| `plpcosce.dat` `Falla`     | `options.demand_fail_cost`            | average of first-tier FALLA gcost   |
-| `plpcosce.dat` per-segment | piecewise gcost on virtual generators | one segment per cost tier           |
+| falla centrals (`plpcnfce.dat`, `plpcosce.dat`) | `Demand.fcost` per demand | cheapest tier of the demand's bus (`Demand/fcost` when `plpcosce.dat` has a schedule) |
+| further falla tiers        | see `--falla-segments` below          | dropped, native curve, or split      |
 
 #### Failure tiers (`--falla-segments`)
 
@@ -514,19 +662,25 @@ The naming, uid and fraction helpers live in
 `sddp2gtopt --deficit-segments`, which applies the same split to the PSR
 SDDP `Costo Deficit` curve (`<demand>_deficit<k>`).
 
-When `--demand-fail-cost` is **not** explicitly set, `plp2gtopt`
-auto-derives it from the first-tier FALLA gcost in `plpcnfce.dat`;
-writing `demand_fail_cost = 0` in `~/.gtopt.conf` silently disables
-that auto-detection (see `_parsers.py`).
+PLP has no global curtailment cost, so the curtailment price is set per
+demand.  A real demand on a bus with falla centrals gets that bus's
+tier cost(s); a real demand on a bus without one gets the average
+first-tier falla cost of the case (1000 $/MWh when the case has no falla
+centrals).  When `--demand-fail-cost` is **not** set, the global
+`model_options.demand_fail_cost` is written as `0`, so any demand without
+its own `fcost` (e.g. battery-charge and pump-load demands, which are
+also pinned to `fcost = 0`) stays freely dispatchable.  An explicit
+`--demand-fail-cost` (or `demand_fail_cost` in `~/.gtopt.conf`) only
+replaces that global fallback.
 
 ### Hydrology (`plpaflce.dat`, `plpfilemb.dat`, `plpvrebemb.dat`)
 
 | PLP source                 | GTOpt target                                     |
 |----------------------------|--------------------------------------------------|
-| `plpaflce.dat`             | `Afluent/afluent.parquet`, m³/s per stage/scen   |
-| Hydro `FP` (MW per m³/s)   | `Turbine.conversion_rate`                        |
-| Reservoir `Vmin/Vmax`      | `Reservoir.vmin/vmax` (hm³)                      |
-| Reservoir `Vinic`          | `Reservoir.vinic` (initial volume)               |
+| `plpaflce.dat`             | `Flow/discharge.parquet`, m³/s per scenario/stage/block |
+| Hydro `Rendi` (MW per m³/s) | `Turbine.production_factor`                     |
+| Reservoir `Vmin/Vmax`      | `Reservoir.emin/emax` (hm³)                      |
+| Reservoir `Vinic` / `Vfin` | `Reservoir.eini` / `efin`                        |
 | `plpfilemb.dat` segments   | `Reservoir.filtration` (volume → loss curve)     |
 | `plpvrebemb.dat`           | spillage cost feeding `Reservoir.efin_cost`      |
 | `plpminembh.dat`           | per-stage `Reservoir.emin` minimum               |
@@ -554,7 +708,7 @@ case (mapped to `Reservoir`, not `Battery`).
 
 | PLP feature                          | GTOpt expression                              |
 |--------------------------------------|-----------------------------------------------|
-| First-tier `falla` cost              | `options.demand_fail_cost`                    |
+| First-tier `falla` cost              | per-demand `Demand.fcost`                     |
 | `vrebemb` (spillage cost)            | `Reservoir.efin_cost` per stage               |
 | `plpmanem` `emin/emax` per stage     | `Reservoir.soft_emin_cost` slack              |
 | `plpminembh` `EmbCostoH` per stage   | `Reservoir.soft_emin` / `soft_emin_cost`      |
@@ -586,15 +740,20 @@ water value negative while it spills.
 A typical conversion produces:
 
 ```
-my_case.json              ← main system / simulation / options config
-my_case/                  ← input_directory (referenced in the JSON)
+my_case/                  ← output directory (-o)
+├── my_case.json          ← system / simulation / options config
+├── plp2gtopt_state.json        ← every argument (replay: --from-state)
+├── README.md                   ← how the case was produced
+├── logs/conversion.log         ← DEBUG log of the conversion
+├── solvers/                    ← solver parameter files
+├── boundary_cuts.csv           ← PLP boundary cuts (when present)
 ├── Demand/
 │   └── lmax.parquet            ← demand time-series
 ├── Generator/
 │   ├── pmin.parquet            ← generator minimum output
 │   └── pmax.parquet            ← generator maximum output
-├── Afluent/
-│   └── afluent.parquet         ← hydro inflow data
+├── Flow/
+│   └── discharge.parquet       ← hydro inflow data
 ├── Battery/
 │   ├── emin.parquet            ← battery energy lower bounds
 │   └── emax.parquet            ← battery energy upper bounds
@@ -603,15 +762,19 @@ my_case/                  ← input_directory (referenced in the JSON)
     └── tmax_ba.parquet         ← line capacity (direction B→A)
 ```
 
-The `input_directory` field in the JSON options object matches the subdirectory
-name, so GTOpt can locate the data files without any extra configuration.
+The JSON lives inside the data directory and sets `input_directory: "."`
+and `output_directory: "results"`, so `gtopt my_case/my_case.json`
+finds its data and writes its results under `my_case/results/`.
+With `-f` pointing elsewhere, `input_directory` is the output directory
+and results go to `<output-dir>/results`.
 
 ---
 
 ## ZIP Output (`-z` / `--zip`)
 
-The `-z` flag creates a single **ZIP archive** that bundles the JSON and all
-data files together, preserving the full directory structure:
+The `-z` flag additionally writes a **ZIP archive** next to the output
+directory, `<output-dir>.zip`, bundling the JSON and the whole output
+directory:
 
 ```bash
 plp2gtopt -z -i plp_case -o my_case
@@ -623,14 +786,12 @@ ZIP layout:
 ```
 my_case.zip
 ├── my_case.json
-└── my_case/
+└── my_case/              ← every file of the output directory
+    ├── my_case.json
     ├── Demand/
     │   └── lmax.parquet
-    ├── Generator/
-    │   ├── pmin.parquet
-    │   └── pmax.parquet
-    └── Afluent/
-        └── afluent.parquet
+    └── Flow/
+        └── discharge.parquet
 ```
 
 This archive is directly compatible with **gtopt\_guisrv** (upload via the GUI)
@@ -664,9 +825,9 @@ similar to the pre-solve statistics printed by the `gtopt` solver:
   Scenarios       : 2
 === Key options ===
   use_single_bus  : False
-  scale_objective : 1000
-  demand_fail_cost: 1000
-  input_directory : my_case
+  scale_objective : 1
+  demand_fail_cost: 0
+  input_directory : .
   annual_discount : 0.1
 === Conversion time ===
   Elapsed         : 1.234s
@@ -721,7 +882,8 @@ stages (2 years) with hydro plants, thermal generators, and two hydrology
 scenarios (dry and wet).
 
 ```bash
-# Convert with 2 hydrology scenarios, 10% discount rate, Kirchhoff mode
+# Convert with 2 hydrology scenarios, 10% discount rate (Kirchhoff is on by
+# default; -k only makes it explicit)
 plp2gtopt \
   -i plp_case \
   -o my_case \
@@ -734,12 +896,12 @@ plp2gtopt \
   -z
 
 # This produces:
-#   my_case.json   — main planning configuration
-#   my_case/       — Parquet time-series data
-#   my_case.zip    — bundled archive
+#   my_case/my_case.json — main planning configuration
+#   my_case/                   — Parquet time-series data
+#   my_case.zip                — bundled archive
 
 # Solve with gtopt
-gtopt my_case.json
+gtopt my_case/my_case.json
 
 # Or upload the ZIP to the GUI service
 gtopt_guisrv  # then upload my_case.zip in the browser
@@ -775,11 +937,11 @@ unit tests, the integration suite, and the smoke tests:
 
 Each fixture is a self-contained directory of `.dat` files; running
 `plp2gtopt -i scripts/cases/<fixture> -o /tmp/gtopt_<fixture>` then
-`gtopt --lp-only -s /tmp/gtopt_<fixture>/<fixture>.json` is the
+`gtopt --lp-only /tmp/gtopt_<fixture>/gtopt_<fixture>.json` is the
 canonical end-to-end smoke test.
 
 The realistic 2-year PLP case (`plp_case_2y`) and its converted GTOpt
-counterparts (`gtopt_case_2y`, `gtopt_case_2y_fs`) are not shipped with
+counterparts (`my_case`, `my_case_fs`) are not shipped with
 GTOpt; the tests that use them look them up under `$GTOPT_CASES_DIR`
 and skip when it is unset.
 

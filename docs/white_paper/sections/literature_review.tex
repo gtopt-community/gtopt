@@ -23,7 +23,10 @@ Lumbreras and Ramos~\cite{lumbreras2016progressive} surveyed modern
 challenges in TEP including renewable integration, energy storage, and
 the need for multi-stage stochastic models.  These challenges motivate
 the development of tools that can handle joint generation, transmission,
-and storage expansion under operational uncertainty.
+and storage expansion under operational uncertainty, and, beyond the
+power system, of multi-stage stochastic planning models that
+co-optimize the gas and electricity networks~\cite{saldarriaga2018phd,
+saldarriaga2019stochastic}.
 
 \subsection{DC Optimal Power Flow}
 
@@ -81,6 +84,16 @@ IDAES-GTEP~\cite{idaes_gtep2024} provides a modular Pyomo-based framework
 for GTEP.  \gtopt{} supports BESS with detailed charge/discharge efficiency
 modeling, state-of-charge tracking across stages, and co-located
 generation-storage coupling via its converter mechanism.
+
+Storage and ramping make the time representation of an expansion model
+critical: hourly energy blocks hide inflexibilities that a
+power-trajectory model reveals~\cite{moralesespana2017hidden,
+moralesespana2015powerbased}, and continuous-time models represent the
+schedule by its values at nodes or by polynomial
+trajectories~\cite{matus2015chebyshev, parvania2016continuous}.
+\gtopt{} offers both the power-based unit commitment and point-sampled
+typical periods on Chebyshev nodes, with storage balances consistent
+with the quadrature that integrates energy and cost.
 
 \subsection{Integrated Gas and Electricity Networks}
 \label{sec:lit_gas}

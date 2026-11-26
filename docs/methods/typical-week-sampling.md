@@ -194,7 +194,7 @@ The previous behaviours stay reachable:
 | | `block` | point stages: one status per node (previous default) |
 | | `cells` (needs `commitment_period`) | point stages: periods as unions of quadrature cells (previous overlay) |
 | `Commitment.ramp_allowance` | `boundary` (gtopt default) | only ramp rows crossing a period boundary get the SU / SD allowance |
-| | `boundary` (written by the converters on point stages) | SU / SD allowance only on ramp rows crossing a period boundary |
+| | `period` | every block of a commitment period gets its period's SU / SD allowance (older, looser form); the converters write `boundary` explicitly on point stages |
 | `tcheby2gtopt convert --commitment-period-rule` | `class` (default) / `none` | per-unit grids / no `commitment_period` (previous) |
 | `--point-storage-integration` (both converters) | `cc` (default), `lg4_pos`, `trapezoid`, any rule, `none` | storage rule written for point stages; `none` = gtopt's per-type defaults |
 | `plexos2gtopt --ramp-refine` | `off` (default) / `30m` / `15m` | sunrise / sunset refinement |

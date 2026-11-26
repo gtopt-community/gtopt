@@ -38,56 +38,162 @@ The GTEP problem is defined over the following sets:
 
 \begin{figure}[t]
   \centering
+  \resizebox{\columnwidth}{!}{%
   \begin{tikzpicture}[
-    level 1/.style={sibling distance=22mm, level distance=14mm},
-    level 2/.style={sibling distance=11mm, level distance=14mm},
+    >={Stealth[length=3pt]},
     scen/.style={draw, rounded corners=3pt, fill=blue!12,
-      font=\footnotesize, minimum width=14mm, minimum height=6mm},
+      font=\footnotesize, minimum width=15mm, minimum height=6mm},
     stg/.style={draw, rounded corners=2pt, fill=orange!15,
-      font=\footnotesize, minimum width=12mm, minimum height=6mm},
-    blk/.style={draw, fill=gray!15,
-      font=\scriptsize, minimum width=7mm, minimum height=5mm},
-    edge from parent/.style={draw, -{Stealth[length=3pt]}, thick},
+      font=\footnotesize, minimum width=13mm, minimum height=6mm},
+    blk/.style={draw, fill=gray!15, font=\scriptsize,
+      minimum width=6.5mm, minimum height=5mm, inner sep=1pt},
     root/.style={draw, rounded corners=4pt, fill=black!8,
       font=\footnotesize\bfseries, minimum width=18mm,
       minimum height=7mm},
+    edge/.style={->, thick},
+    lvl/.style={anchor=west, font=\scriptsize\itshape, text=black!55},
   ]
-    \node[root] {Problem}
-      child { node[scen] {$s_1\;(\pi_1)$}
-        child { node[stg] {$t_1\;(\delta_1)$}
-          child { node[blk] {$b_1$} }
-          child { node[blk] {$b_2$} }
-        }
-        child { node[stg] {$t_2\;(\delta_2)$}
-          child { node[blk] {$b_1$} }
-          child { node[blk] {$b_2$} }
-          child { node[blk] {$b_3$} }
-        }
+    % levels: y = 0 (root), -1.3 (scenarios), -2.6 (stages), -3.9 (blocks)
+    \node[root] (P) at (3.9,0) {Problem};
+    \node[scen] (s1) at (1.6,-1.3) {$s_1\;(\pi_1)$};
+    \node[scen] (s2) at (6.2,-1.3) {$s_2\;(\pi_2)$};
+    \node[stg] (s1t1) at (0.4,-2.6) {$t_1\;(\delta_1)$};
+    \node[stg] (s1t2) at (2.7,-2.6) {$t_2\;(\delta_2)$};
+    \node[stg] (s2t1) at (5.0,-2.6) {$t_1$};
+    \node[stg] (s2t2) at (7.3,-2.6) {$t_2$};
+    \foreach \st/\xs/\n in {s1t1/{0.0,0.8}/2, s1t2/{1.9,2.7,3.5}/3,
+                            s2t1/{4.6,5.4}/2, s2t2/{6.5,7.3,8.1}/3} {
+      \foreach \x [count=\i] in \xs {
+        \node[blk] (\st b\i) at (\x,-3.9) {$b_{\i}$};
+        \draw[edge] (\st.south) -- (\st b\i.north);
       }
-      child { node[scen] {$s_2\;(\pi_2)$}
-        child { node[stg] {$t_1$}
-          child { node[blk] {$b_1$} }
-          child { node[blk] {$b_2$} }
-        }
-        child { node[stg] {$t_2$}
-          child { node[blk] {$b_1$} }
-          child { node[blk] {$b_2$} }
-          child { node[blk] {$b_3$} }
-        }
-      };
-    % Level labels on the right
-    \node[anchor=west, font=\scriptsize\itshape, text=black!50]
-      at (2.9,0) {Scenarios $\setS$};
-    \node[anchor=west, font=\scriptsize\itshape, text=black!50]
-      at (2.9,-1.4) {Stages $\setT$};
-    \node[anchor=west, font=\scriptsize\itshape, text=black!50]
-      at (2.9,-2.8) {Blocks $\setB_t\;(\Delta_b)$};
-  \end{tikzpicture}
+    }
+    \draw[edge] (P.south) -- (s1.north);
+    \draw[edge] (P.south) -- (s2.north);
+    \foreach \sc in {s1,s2} {
+      \draw[edge] (\sc.south) -- (\sc t1.north);
+      \draw[edge] (\sc.south) -- (\sc t2.north);
+    }
+    \node[lvl] at (8.8,-1.3) {Scenarios $\setS$};
+    \node[lvl] at (8.8,-2.6) {Stages $\setT$};
+    \node[lvl] at (8.8,-3.9) {Blocks $\setB_t\;(\Delta_b)$};
+  \end{tikzpicture}}%
   \caption{Three-level time hierarchy.  The problem decomposes into
     scenarios~$s$ (probability~$\pi_s$), stages~$t$ (discount
     factor~$\delta_t$), and blocks~$b$ (duration~$\Delta_b$).}
   \label{fig:time_hierarchy}
 \end{figure}
+
+\subsection{Typical Periods and Point-Sampled Stages}
+\label{sec:point_stages}
+
+By default a block value holds constant over the block, and the block
+duration $\Delta_b$ is both its length and its weight in the objective
+and in the energy balances.  Two stage attributes generalize this
+representation for expansion studies, where a year cannot be carried
+hour by hour.
+
+\paragraph{Typical periods.}
+A stage may declare the real length $H_t$ of the chronological period
+sampled by its blocks (\texttt{period\_hours}, e.g.\ 168~h for a
+typical week).  The durations $\Delta_b$ are then weights that sum to
+the stage duration, i.e.\ the period times its $n_t$ repetitions, and
+the real time step of block~$b$ is
+$\Delta^\text{r}_b = \Delta_b H_t / \sum_{b'} \Delta_{b'}$ (without a
+period, $H_t$ is the stage duration and $\Delta^\text{r}_b =
+\Delta_b$).  Real time
+steps drive the storage cycles, ramps, minimum up and down times and
+the daily cycle limits of batteries, while costs and energy budgets see
+the weighted durations.  Such a stage is periodic by default: every
+intra-period coupling (commitment transitions and windows, ramps,
+user-constraint terms on the previous block, the start level of daily
+cycling storage) wraps from the last block to the first, and only the
+storage carried to the next stage changes across the stage, by $n_t$
+times its change over one period.
+
+\paragraph{Point sampling.}
+On a stage with \texttt{sampling = "point"} the block values are
+samples of a continuous trajectory at node times $\vartheta_b$
+(\texttt{Block.time}), and the durations $\Delta_b$ are quadrature
+weights, not intervals.  The intended grid is the
+Chebyshev--Gauss--Lobatto set of the continuous-time approach of Matus
+et al.~\cite{matus2015chebyshev},
+\begin{equation}
+\label{eq:cheb_nodes}
+\vartheta_k = \tfrac{H_t}{2}\bigl(1 - \cos\tfrac{\pi k}{N}\bigr),
+\quad k = 0, \dots, N,
+\end{equation}
+with the Clenshaw--Curtis weights~\cite{clenshaw1960,
+waldvogel2006fejer} (Fej\'er weights on the Chebyshev--Gauss
+variant).  The weights are positive, sum to $H_t$ and integrate exactly
+every polynomial of degree~$N$; for smooth integrands the rule is about
+as accurate as Gauss quadrature with the same number of
+nodes~\cite{trefethen2008gauss}.  On a periodic grid node~$N$ is the
+same instant as node~0, so only $N$ blocks are emitted and node~0
+carries $w_0 + w_N$.  Costs and energy budgets keep the sums
+$\sum_b \Delta_b x_b$ of a block stage, which are now the quadrature of
+the node trajectory.
+
+Every stage is partitioned into cells $[\varsigma_{b-1},
+\varsigma_b]$ with $\varsigma_b = \sum_{j \leq b} \Delta^\text{r}_j$:
+the blocks themselves on a block stage, and on a point stage the
+quadrature cell that contains the node, $\vartheta_b \in
+[\varsigma_{b-1}, \varsigma_b]$, which the input validation checks.
+All duration logic (commitment periods, minimum up and down windows,
+days of the cycle limits) groups whole cells: a cell joins group
+$\lfloor (\varsigma_{b-1} + \varsigma_b)/(2P) \rfloor$ for a nominal
+group length~$P$, so that a nominal boundary snaps to the nearer cell
+end and every group duration is a sum of cell lengths, consistent with
+the energy and cost quadrature.
+
+\paragraph{Storage integration on node grids.}
+On a point stage each storage integrates its net flow $\phi_b$ (charge
+times efficiency minus discharge over efficiency and spill, with the
+standing loss $\mu^h$ of Section~\ref{sec:battery}) with one of several
+rules.  The Clenshaw--Curtis rule (\texttt{cc}) is the block
+recursion with the node weights in real hours,
+\begin{equation}
+\label{eq:point_cc}
+e_b = e_{b-1}\,(1 - \mu^h \Delta^\text{r}_b) + \Delta^\text{r}_b\, \phi_b ,
+\end{equation}
+whose closed-period total $\sum_b (e_b - e_{b-1})$ is exactly the
+quadrature that integrates energy and cost.  Each row holds one
+previous level and the flows of one node, as in a block stage, and
+every weight is positive; the intermediate levels are first order.
+The banded rules (\texttt{trapezoid}, \texttt{lg4}, \texttt{lg6})
+instead define $e_b$ as the level at the node~$\vartheta_b$,
+\begin{equation}
+\label{eq:point_banded}
+e_b = e_{b-1}\bigl(1 - \mu^h(\vartheta_b - \vartheta_{b-1})\bigr)
+  + \sum_{j \in S_b} D_{bj}\, \phi_j ,
+\end{equation}
+where $D_{bj}$ integrates over $[\vartheta_{b-1}, \vartheta_b]$ the
+Lagrange basis function of node~$j$ on a stencil $S_b$ of 2, 4 or 6
+nodes.  The matrix is balanced on its sparsity pattern so that
+$\sum_b D_{bj} = \Delta^\text{r}_j$ and $\sum_j D_{bj} = \vartheta_b -
+\vartheta_{b-1}$: a constant flow integrates exactly over every
+interval and the period total is still the quadrature.  Lagrange
+weights on Chebyshev grids can be negative, which would let the LP shift
+energy inside an interval, so the \texttt{lg4\_pos} and
+\texttt{lg6\_pos} variants clip them and rebalance with an alternating
+row and column scaling that keeps $D_{bj} \geq 0$.  Since the levels are
+bounded only at the nodes, every banded rule adds two envelope rows per
+interval that bound the level reached with the charge-only and the
+discharge-only part of the flows.  The rule is chosen per element, per
+type (reservoirs, batteries and other storages) or globally; without a
+choice reservoirs use \texttt{lg4\_pos} and all other storages the
+\texttt{cc} recursion, and block stages always use the block recursion.
+
+\paragraph{Ramps and prices on node grids.}
+Ramp rows bound the interval slope,
+$p_{g,b} - p_{g,b-1} \leq R^\text{up}_g\,(\vartheta_b -
+\vartheta_{b-1})$, wrapping at the first node of a periodic stage; this
+is exact for a trajectory that is linear between the nodes.  A
+second-order central difference is available but not recommended, since
+it is a convex combination of two slopes and lets a zig-zag dispatch
+through.  The dual~$\lambda_b$ of a node balance gives the node price
+$\lambda_b / \Delta_b$, and hourly prices are rebuilt as
+overlap-weighted means of these cell-constant prices.
 
 \subsection{Decision Variables}
 
@@ -211,7 +317,9 @@ served load is split into $K$ tranches bounded by
 $f_{d,k}\,\overline{\ell}_{d,t,b}$, and the curtailment of tranche~$k$
 is priced at $c^f_{d,k}$.  With non-decreasing segment costs the LP
 curtails the cheapest segment first, so the curve needs no extra rows,
-ordering constraints or binaries.
+ordering constraints or binaries.  When the fractions sum to less than
+one, the remainder is firm load.  Demands without their own penalty use
+the case-wide value of lost load, 1000~\$/MWh unless set otherwise.
 
 \subsection{DC Power Flow (Kirchhoff Constraints)}
 
@@ -233,23 +341,64 @@ angle coefficient of the Kirchhoff row against the size of
 $\theta^\text{LP}$.  A value set by the user is kept as given.
 
 A line with zero reactance, or with $|X_\ell/V_\ell^2|$ below a
-threshold (default $10^{-6}$~p.u.), is a zero-impedance tie by default:
-the flow term of~\eqref{eq:transformer} vanishes, the two bus angles are
-forced equal (up to the phase shift), and the flow is free within the
-line limits.  A line without a reactance is a DC link and has no
-Kirchhoff row.
+threshold, is a zero-impedance tie by default: the flow term
+of~\eqref{eq:transformer} vanishes, the two bus angles are forced equal
+(up to the phase shift), and the flow is free within the line limits.
+The threshold is the larger of an absolute floor ($10^{-6}$~p.u.) and
+a relative one, 1\% of the median $|X_\ell/V_\ell^2|$ of the lines with
+a nonzero reactance.  The relative floor does not depend on the unit
+system and catches the placeholder reactances of ``ideal'' connections
+(e.g.\ generator step-up links) found in converted models; a tie then
+changes the flow split of any parallel path by at most about 1\%.  Ties
+are lossless by default: their resistance is dropped and no loss
+column or row is built for them.  A line without a reactance is a DC
+link and has no Kirchhoff row.
 
 Line flow is bounded by transfer capacities:
 \begin{equation}
 -\overline{F}^{ba}_\ell \leq f_{\ell,s,t,b}
   \leq \overline{F}^{ab}_\ell
 \end{equation}
-With dynamic line rating the limit varies per block: the line lists its
-critical spans~\cite{matus2012criticalspans}, each with a weather
-forecast, and the per-block limit is the minimum over the spans of the
-IEEE~738 steady-state ampacity~\cite{ieee738_2012} converted to MW.
-Weather is data, so the limit stays a right-hand side and the model
-remains linear.
+The limit in each direction is the minimum of the limits that are set:
+a flow limit, the conductor rating, the rating of other equipment in
+series (current transformers, wave traps, breakers), a security limit
+(stability, N-1) and a maintenance derate; each binding part has its
+own dual in the output.  Above an optional normal rating the flow pays
+an overload penalty up to the hard limit, and the overload slack is
+bounded by default by $\min(\overline{F}_\ell - F^\text{n}_\ell,\,
+\rho_\ell F^\text{n}_\ell)$, with $F^\text{n}_\ell$ the normal rating
+and $\rho_\ell = 1.5$.  With losses, the limit may apply to the flow
+alone (the default), to the sending-end power, i.e.\ the flow plus the
+share of the loss booked at the sending bus, or to the flow plus the
+whole loss,
+\begin{equation}
+\label{eq:thermal_full}
+f^{\pm}_{\ell,s,t,b} + \lambda^{\mathrm{L}}_{\ell,s,t,b}
+  \leq \overline{F}^{\pm}_\ell ,
+\end{equation}
+per direction, where $\lambda^{\mathrm{L}}_\ell$ is the loss of the
+line (Section~\ref{sec:losses}); the normal-rating band then also
+counts the loss.
+
+\paragraph{Dynamic line rating.}
+With dynamic line rating the conductor limit varies per block: the line
+lists one or more critical spans~\cite{matus2012criticalspans}, each
+with a per-block weather forecast (ambient temperature, wind speed and
+direction, global horizontal irradiance) or a precomputed rating, and
+the per-span limit is the IEEE~738 steady-state
+ampacity~\cite{ieee738_2012} converted to MW.  The minimum over the
+spans replaces the static conductor rating (or is combined with it as
+$\min(\text{static}, \text{DLR})$); alternatively, one row per span and
+block is written, with the same optimum and a dual per span that values
+one more MW of its rating.  An emergency rating above the normal one
+is priced with the overload penalty.  Weather is data, so the limits
+stay right-hand sides and the model remains linear; a global switch
+ignores every rating so that static and dynamic runs can be compared.
+The converter \texttt{dlr2gtopt} builds these inputs from tower
+coordinates (operator structure lists, OpenStreetMap or a file),
+hourly weather (a mesoscale hindcast or open forecasts) interpolated to
+each span, and the critical-span selection
+of~\cite{matus2012criticalspans}.
 
 \paragraph{Loop-flow formulation and switching.}
 Besides the angle-based form~\eqref{eq:kirchhoff}, Kirchhoff's voltage
@@ -286,7 +435,13 @@ The linear model splits the flow into forward and reverse components
 $f^+_\ell, f^-_\ell \geq 0$; the receiving bus sees
 $(1-\lambda_\ell)$ of the power sent.  The piecewise model approximates
 the quadratic loss $R_\ell f^2 / V_\ell^2$ with $K$ equal segments per
-direction, so the loss slope increases with the flow.
+direction, so the loss slope increases with the flow.  Each segment
+column whose breakpoint interval $[\beta_{k-1}, \beta_k]$ reaches past
+the flow limit is bounded by
+$\max\bigl(0, \min(\beta_k - \beta_{k-1}, \overline{F}_\ell -
+\beta_{k-1})\bigr)$, which never removes a physical operating point but
+limits the loss booked by segments that cover more than the flow limit
+(by default; the width-only bounds remain available).
 
 \paragraph{Loss arbitrage.}
 Both models are exact only when the LP has no incentive to lose
@@ -363,72 +518,93 @@ rate derived from the annual standing-loss rate~$\mu_e$
 month).
 Initial SoC $e_{e,\cdot,\cdot,0} = e^\text{ini}_e$ is an
 equality constraint in the first stage; the final SoC of stage~$t$
-links to the initial SoC of stage~$t{+}1$.
+links to the initial SoC of stage~$t{+}1$.  The same standing-loss
+parameter is available on every storage element (reservoirs, LNG
+tanks, hydrogen, ammonia and thermal storage, allowance pools and
+volume rights), where it defaults to zero.
+
+\paragraph{Commissioning and retirement.}
+A state-carrying storage may enter service after the first stage and
+may be retired, but it is active over a single contiguous run of
+stages.  When it is commissioned, its initial state is fixed at
+$e^\text{ini}_e$ and no state link to the previous stage (or SDDP
+phase) is created, so the new unit cannot start with free stored
+energy; a reactivation after an inactive gap is rejected by the input
+validation.
+
+\paragraph{Charge and discharge modes.}
+A valid inequality
+$p^\text{in}_{e}/\overline{P}^\text{in}_{e}
++ p^\text{out}_{e}/\overline{P}^\text{out}_{e} \leq 1$ per block,
+which holds for any inverter that shares one rating between both
+directions, cuts the vertex at which a lossy battery charges and
+discharges at full power simultaneously to dispose of surplus energy
+under negative prices.  Without commitment, the minimum charge and
+discharge rates $\underline{P}^\text{in}_e$ and
+$\underline{P}^\text{out}_e$ are hard floors on the two power columns.
+With commitment, each mode has its own binary,
+$u^\text{in}_{e,s,t,b}$ and $u^\text{out}_{e,s,t,b}$, and the floors
+apply only while the battery is in that mode:
+\begin{equation}
+\label{eq:bat_modes}
+\underline{P}^\text{m}_{e,t,b}\, u^\text{m}_{e,s,t,b}
+  \leq p^\text{m}_{e,s,t,b}
+  \leq \overline{P}^\text{m}_{e,t,b}\, u^\text{m}_{e,s,t,b},
+  \quad \text{m} \in \{\text{in}, \text{out}\}.
+\end{equation}
+The charge/discharge exclusivity constraint
+\begin{equation}
+\label{eq:bat_exclusive}
+u^\text{in}_{e,s,t,b} + u^\text{out}_{e,s,t,b} \leq 1
+\end{equation}
+is added by default, so that a committed battery is never in both modes
+in the same block; when it is disabled, simultaneous partial operation
+is limited only by the envelope above.  In LP-relaxed (continuous)
+phases the binaries take values in $[0,1]$ and the floors no longer
+bind.
 
 \begin{figure}[t]
   \centering
   \resizebox{\columnwidth}{!}{%
   \begin{tikzpicture}[
     >=Stealth,
+    x=0.28cm, y=0.03cm,
     axis/.style={->, thick},
     charge/.style={fill=green!15},
     discharge/.style={fill=red!10},
   ]
-    % Axes
-    \draw[axis] (0,0) -- (7.2,0)
+    % data: (hour, SoC %)
+    \coordinate (p0) at (0,30);  \coordinate (p1) at (3,20);
+    \coordinate (p2) at (6,20);  \coordinate (p3) at (10,50);
+    \coordinate (p4) at (13,90); \coordinate (p5) at (15,90);
+    \coordinate (p6) at (18,50); \coordinate (p7) at (21,30);
+    \coordinate (p8) at (24,30);
+
+    \fill[charge] (p2) -- (p3) -- (p4) -- (p5) -- (15,0) -- (6,0) -- cycle;
+    \fill[discharge] (p5) -- (p6) -- (p7) -- (21,0) -- (15,0) -- cycle;
+
+    % axes
+    \draw[axis] (0,0) -- (26.5,0)
       node[right, font=\scriptsize] {Block (hour)};
-    \draw[axis] (0,0) -- (0,3.2)
+    \draw[axis] (0,0) -- (0,112)
       node[above, font=\scriptsize] {SoC (\%)};
+    \foreach \y in {0,20,40,60,80,100}
+      \draw (-0.25,\y) -- (0.25,\y) node[left=4pt, font=\tiny] {\y};
+    \foreach \x in {0,6,12,18,24}
+      \draw (\x,2.5) -- (\x,-2.5) node[below=1pt, font=\tiny] {\x};
 
-    % Y-axis ticks
-    \foreach \y/\lbl in {0/0, 0.6/20, 1.2/40, 1.8/60, 2.4/80, 3.0/100} {
-      \draw (-0.08,\y) -- (0.08,\y)
-        node[left=2pt, font=\tiny] {\lbl};
-    }
-    % X-axis ticks
-    \foreach \x/\lbl in
-      {0.3/1, 1.5/6, 2.7/10, 3.6/13, 4.5/16, 5.7/20, 6.9/24} {
-      \draw (\x,-0.08) -- (\x,0.08)
-        node[below=2pt, font=\tiny] {\lbl};
-    }
-
-    % SoC data points
-    \coordinate (p0) at (0.0, 0.9);   % hour 0:  30%
-    \coordinate (p1) at (0.9, 0.6);   % hour 3:  20%
-    \coordinate (p2) at (1.8, 0.6);   % hour 6:  20%
-    \coordinate (p3) at (2.7, 1.5);   % hour 10: 50%
-    \coordinate (p4) at (3.6, 2.7);   % hour 13: 90%
-    \coordinate (p5) at (4.2, 2.7);   % hour 15: 90%
-    \coordinate (p6) at (5.1, 1.5);   % hour 18: 50%
-    \coordinate (p7) at (6.0, 0.9);   % hour 21: 30%
-    \coordinate (p8) at (6.9, 0.9);   % hour 24: 30%
-
-    % Charge shading (hours 6--15)
-    \fill[charge] (p2) -- (p3) -- (p4) -- (p5)
-      -- (p5 |- 0,0) -- (p2 |- 0,0) -- cycle;
-
-    % Discharge shading (hours 15--21)
-    \fill[discharge] (p5) -- (p6) -- (p7)
-      -- (p7 |- 0,0) -- (p5 |- 0,0) -- cycle;
-
-    % SoC line
+    % SoC trajectory
     \draw[thick, blue!80] (p0) -- (p1) -- (p2) -- (p3) -- (p4)
       -- (p5) -- (p6) -- (p7) -- (p8);
 
-    % Labels
-    \node[font=\tiny, green!50!black, above] at (3.15,2.1)
-      {charge};
-    \node[font=\tiny, red!60!black, above] at (4.95,1.8)
-      {discharge};
+    % labels inside the shaded areas, clear of the curve
+    \node[font=\tiny, green!40!black] at (11.3,18) {charge};
+    \node[font=\tiny, red!60!black] at (18.0,18) {discharge};
 
-    % Solar peak annotation
-    \draw[{Stealth[length=3pt]}-, thin, gray]
-      (3.6,2.7) -- (4.3,3.1)
-      node[right, font=\tiny] {solar peak};
-
-    % Evening peak annotation
-    \draw[{Stealth[length=3pt]}-, thin, gray]
-      (5.1,1.5) -- (5.8,2.2)
+    % annotations, leader lines from free space to the curve
+    \draw[{Stealth[length=3pt]}-, thin, gray] (p4) -- (10.5,104)
+      node[left, font=\tiny] {solar peak};
+    \draw[{Stealth[length=3pt]}-, thin, gray] (p6) -- (21,72)
       node[right, font=\tiny] {evening peak};
   \end{tikzpicture}}%
   \caption{Battery SoC over 24~blocks: charge during solar hours (green),
@@ -515,67 +691,46 @@ extension selected by the last known volume.
   \centering
   \begin{tikzpicture}[
     res/.style={trapezium, trapezium angle=75, draw, fill=cyan!15,
-      minimum width=1.4cm, minimum height=0.7cm, font=\scriptsize,
+      minimum width=1.4cm, minimum height=0.6cm, font=\scriptsize,
       trapezium stretches body},
-    junc/.style={circle, draw, fill=gray!20, minimum size=0.4cm,
-      font=\tiny, inner sep=1pt},
+    junc/.style={circle, draw, fill=gray!20, minimum size=0.5cm,
+      font=\scriptsize, inner sep=1pt},
     turb/.style={regular polygon, regular polygon sides=3, draw,
-      fill=yellow!25, minimum size=0.5cm, font=\tiny, inner sep=0pt},
-    gen/.style={circle, draw, fill=orange!20, minimum size=0.5cm,
-      font=\tiny},
+      fill=yellow!25, minimum size=0.6cm, inner sep=0pt},
+    gen/.style={circle, draw, fill=orange!20, minimum size=0.55cm,
+      font=\scriptsize, inner sep=0pt},
     flow/.style={-{Stealth[length=4pt]}, thick, blue!70},
-    spill/.style={-{Stealth[length=4pt]}, thick, red!50, dashed},
+    spill/.style={-{Stealth[length=4pt]}, thick, red!60, dashed},
+    lbl/.style={font=\tiny},
   ]
-    % Reservoir 1
-    \node[res] (r1) at (0,2.2) {$R_1$};
-    \node[font=\tiny\itshape, text=black!70, right=1pt of r1] {$v_1$};
+    % column x = 0: R1, j1, j2, R2; column x = 2.2: h1, j3
+    \node[res]  (r1) at (0,3.0) {$R_1$};
+    \node[junc] (j1) at (0,1.7) {$j_1$};
+    \node[junc] (j2) at (0,0.3) {$j_2$};
+    \node[res]  (r2) at (0,-1.0) {$R_2$};
+    \node[turb] (t1) at (2.2,1.7) {};
+    \node[gen]  (g1) at (3.8,1.7) {$\sim$};
+    \node[junc] (j3) at (2.2,-2.2) {$j_3$};
 
-    % Junction 1
-    \node[junc] (j1) at (0,1.1) {$j_1$};
+    \node[lbl, right=2pt of r1, text=black!70] {$v_1$};
+    \node[lbl, right=2pt of r2, text=black!70] {$v_2$};
+    \node[lbl, above=1pt of t1] {$h_1$};
+    \node[lbl, below=1pt of g1] {generator};
 
-    % Inflow
-    \draw[flow] (-1.2,2.8) -- (j1.north west)
-      node[midway, left, font=\tiny] {inflow $F_1$};
-
-    % R1 -> J1
-    \draw[flow] (r1) -- (j1);
-
-    % Turbine
-    \node[turb] (t1) at (1.2,0.6) {};
-    \node[font=\tiny, right=1pt of t1] {$h_1$};
-
-    % Junction 2
-    \node[junc] (j2) at (0,-0.2) {$j_2$};
-
-    % J1 -> T1
-    \draw[flow] (j1) -- (t1) node[midway, above, font=\tiny] {$q_w$};
-
-    % T1 -> Generator
-    \node[gen] (g1) at (2.5,0.6) {\raisebox{-0.5pt}{\scalebox{0.5}{$\sim$}}};
-    \node[font=\tiny, right=1pt of g1] {gen};
-    \draw[-{Stealth[length=4pt]}, thick, orange!70] (t1) -- (g1);
-
-    % J1 -> J2 spillway
-    \draw[spill] (j1) -- (j2) node[midway, left, font=\tiny] {spill};
-
-    % Reservoir 2
-    \node[res] (r2) at (2,-0.2) {$R_2$};
-    \node[font=\tiny\itshape, text=black!70, right=1pt of r2] {$v_2$};
-
-    % Junction 3
-    \node[junc] (j3) at (1,-1.2) {$j_3$};
-
-    % J2 -> R2 waterway
-    \draw[flow] (j2) -- (r2);
-
-    % T1 -> J3 (tailwater)
-    \draw[flow] (t1) |- (j3);
-
-    % R2 -> J3
-    \draw[flow] (r2) -- (j3);
-
-    % Outflow
-    \draw[flow] (j3) -- (1,-2.0) node[below, font=\tiny] {outflow};
+    \draw[flow] (-1.7,1.7) -- (j1.west)
+      node[lbl, pos=0.4, above] {inflow $F_1$};
+    \draw[flow] (r1.south) -- (j1.north);
+    \draw[flow] (j1.east) -- (t1.west)
+      node[lbl, midway, above] {$q_w$};
+    \draw[-{Stealth[length=4pt]}, thick, orange!80] (t1.east) -- (g1.west);
+    \draw[spill] (j1.south) -- (j2.north)
+      node[lbl, midway, left] {spill};
+    \draw[flow] (j2.south) -- (r2.north);
+    \draw[flow] (t1.south) -- (j3.north)
+      node[lbl, pos=0.5, right] {tailwater};
+    \draw[flow] (r2.south) |- (j3.west);
+    \draw[flow] (j3.south) -- ++(0,-0.7)
+      node[lbl, below] {outflow};
   \end{tikzpicture}
   \caption{Hydro cascade example: two reservoirs ($R_1$, $R_2$),
     three junctions ($j_1$--$j_3$), one turbine ($h_1$) driving a
@@ -589,16 +744,23 @@ Installed capacity evolves as:
 \begin{equation}
 \label{eq:capacity}
 \bar{C}_{g,t} = \bar{C}_{g,t-1}(1-\xi_{g,t}) + M_g \cdot m_{g,t}
+  + \Delta C_{g,t}
 \end{equation}
-where $\bar{C}_{g,0}$ is the initial installed capacity, $\xi_{g,t}$ is
-the stage derating factor, $M_g$ is the capacity per expansion module
-(\texttt{expcap}), and $m_{g,t}$ is the number of modules built.  The
+where $\xi_{g,t}$ is the stage derating factor, $M_g$ is the capacity
+per expansion module (\texttt{expcap}), $m_{g,t}$ is the number of
+modules built, and $\Delta C_{g,t} = C_{g,t} - C_{g,t-1}$ is the
+exogenous change of the existing capacity schedule~$C$, which is also
+carried across SDDP phase boundaries.  At the first expandable stage
+the existing capacity enters whole, $\bar{C}_{g,t} = C_{g,t} + M_g
+m_{g,t}$, so that it is never charged as a build.  The
 generator output is bounded by the installed capacity:
 \begin{equation}
 p_{g,s,t,b} \leq \bar{C}_{g,t}
 \end{equation}
 Analogous expansion constraints apply to demands, lines, batteries, and
-converters.
+converters.  The energy capacity of a battery and the power capacity of
+its converter are expanded independently, and can be tied by a fixed
+energy-to-power ratio~$H_e$ [h], $\bar{E}_{e,t} = H_e \bar{C}_{v,t}$.
 
 \subsection{Generator Profile Constraints}
 
@@ -650,6 +812,60 @@ $q^\text{up}_{z,s,t,b}$ is unserved reserve, and
 $R^\text{up}_{z,s,t,b}$ is the zone requirement.  A symmetric constraint
 exists for down-reserve.  Reserve provision is bounded by the generator's
 headroom: $p_{g,s,t,b} + r^\text{up}_{p,s,t,b} \leq \bar{C}_{g,t}$.
+For a committed unit both headroom rows are gated by its status~$u$,
+$p + r^\text{up} \leq \overline{P}_g u$ and
+$p - r^\text{dn} \geq \underline{P}^c_g u$, with $\underline{P}^c_g$ the
+committed minimum, so a unit that is off offers no spinning reserve;
+an offline (cold) provision is instead bounded by
+$r^\text{up} \leq \overline{R}^\text{up}_p (1-u)$.  A soft requirement
+with shortage price $c^R_z$ is written in served-requirement form, and
+the constant $c^R_z \omega_{s,t,b} R^\text{up}_{z,s,t,b}$ is added to
+the objective, so that a met requirement contributes nothing to the
+reported cost and a short one contributes $c^R_z \omega_{s,t,b}
+q^\text{up}_{z,s,t,b}$; dispatch and duals are unaffected.
+
+\paragraph{Dynamic requirements.}
+A requirement may instead be a variable $R_{z,b}$ bounded below by the
+maximum of $K$ affine planes,
+\begin{multline}
+\label{eq:reserve_planes}
+R_{z,b} \geq \alpha_{k,b} + \delta^D_{k,b} D_{z,b}
+  + \delta^I_{k,b} I_{z,b} \\
+  + \delta^C_{k,b} C_{z,b} + \delta^F_{k,b} F_{z,b},
+  \quad k = 1,\dots,K,
+\end{multline}
+which is exact in an LP because $R_{z,b}$ appears only in such rows and
+in~\eqref{eq:reserve_up}.  The terms are the system load $D$, the online
+inertia $I$ (from the commitment statuses, or exogenous), the largest
+contingency $C$ (bounded below by the output of each candidate unit,
+load or corridor flow) and a corridor flow $F$.  The load term is
+exogenous by default, i.e.\ computed from the forecast demand: a
+requirement that decreases with the served load would credit every
+MWh served with the reserve dual and drive the nodal prices negative
+when cheap energy is in surplus.  The input validation lists every
+channel through which a requirement depends on dispatch.
+
+\paragraph{Battery reserve deliverability.}
+For a battery $e$ with sustain time $T_e$ [h], the generic headroom
+rows are replaced by power and energy rows that refer to its net
+injection and state of charge,
+\begin{align}
+\label{eq:bess_res_power}
+p^\text{out}_{e} - p^\text{in}_{e} + \textstyle\sum_{p} r^\text{up}_p
+  &\leq \overline{P}^\text{out}_e, \\
+\label{eq:bess_res_energy}
+e_{e,s,t,b} - \tfrac{T_e}{\eta^\text{out}_e}
+  \textstyle\sum_{p} r^\text{up}_p &\geq \underline{E}_e,
+\end{align}
+with symmetric rows for down-reserve (charge headroom and the energy
+ceiling $\overline{E}_e$).  Discharge and charge response can be capped
+separately, and the expected deployment energy can be charged to the
+state of charge.  Because no reserve variable enters a bus balance, the
+reserve price reaches the nodal price only through the battery's own
+dispatch columns and can only raise it; this formulation therefore
+cannot create negative prices at a bus with a disposable resource,
+unlike formulations that represent the reserve as an auxiliary
+injection.
 
 \subsection{Hydro Pump}
 \label{sec:pump}
@@ -786,7 +1002,7 @@ modelled.
 The \texttt{Commitment} element provides thermal unit commitment with
 the classical three-bin (3-bin) formulation using status~$u$,
 startup~$v$, and shutdown~$w$ binary
-variables~\cite{morales2013,knueven2020}.  The fundamental status
+variables~\cite{moralesespana2013tight,knueven2020}.  The fundamental status
 transition logic is:
 \begin{align}
 u_{g,s,t,p} - u_{g,s,t,p-1} - v_{g,s,t,p} + w_{g,s,t,p}
@@ -803,60 +1019,152 @@ v_{g,s,t,p} + w_{g,s,t,p}
 where $p$ indexes commitment periods (typically hourly) and $b$ indexes
 dispatch blocks (sub-hourly allowed).  Binary variables live on the
 commitment-period grid, enabling sub-hourly dispatch with hourly on/off
-decisions.
+decisions.  The startup and shutdown variables are binary by default.
+The rows $v \leq u$ and $w \leq 1 - u$ are not generated: they are
+implied by~\eqref{eq:uc_logic}--\eqref{eq:uc_excl} with binary
+variables, and their sum is the exclusion row~\eqref{eq:uc_excl}, so
+adding them only makes the LP relaxation degenerate.  The hot, warm and
+cold startup selectors are continuous by default, since their rows are
+totally unimodular once $v$ and $w$ are integral.
 
 Minimum up/down time constraints, ramp limits (while online, during
-startup, and shutdown), hot/warm/cold startup cost tiers, shutdown
-costs, no-load costs, and piecewise heat-rate curves are all supported.
-Commitment constraints apply only to stages flagged
-\texttt{chronological}~$=$ true (consecutive hourly blocks).  On
-representative-period stages (duration-weighted blocks not in calendar
-order), binary variables are silently relaxed to continuous.
+startup, and shutdown~\cite{moralesespana2013susd}), hot/warm/cold
+startup cost tiers, shutdown
+costs, no-load costs and no-load fuel, and piecewise heat-rate curves
+are all supported.  A start in the first block is priced from the hours
+the unit has been offline before the horizon, and the first-block ramp
+rows use the initial output of the unit.  A commitment can be declared
+relaxed, in which case its status takes values in $[0,1]$; the same
+relaxation is applied in the continuous phases of SDDP.
 
-\subsection{Simple Commitment}
+\paragraph{Commitment grid.}
+A unit with a commitment period~$P_g$ (in hours, or derived from half
+its minimum up and down times) has its status on a grid of periods laid
+over the blocks: each block or cell joins its period by the grouping of
+Section~\ref{sec:point_stages}, shares the status of that period, and
+startups and shutdowns occur only at period boundaries.  By default a
+ramp row receives the startup or shutdown allowance only when it
+crosses a period boundary, so that a period of many short blocks cannot
+repeat the startup jump inside the period; the looser form, in which
+every block of the period receives the allowance, remains available.
+Blocks refined around a ramp may carry the label of the coarser cell
+they split, so that the refinement adds continuous variables only.  On
+point-sampled stages the binaries never live on the nodes: each unit
+has its own uniform grid of $\max(P_g, 1\,\text{h})$ cells aligned with
+the stage start, each node inherits the status of the cell that holds
+its time, and a cell without a node continues the status of the
+previous one.  The number of binaries then depends on the unit grids and
+not on the number of nodes.  On a periodic stage the transition row of
+the first period wraps to the last, $u_1 - u_P = v_1 - w_1$, the
+minimum up and down windows are taken modulo the period, and startup
+and shutdown costs are multiplied by the number of repetitions~$n_t$.
+
+\subsection{Power-Based Unit Commitment}
+\label{sec:pbuc}
+
+In the formulation of Section~\ref{sec:uc} the generation $p_{g,s,t,b}$
+is the average power of a block and the ramp rows bound the change
+between two averages.  Such a schedule can ask for energy that no
+feasible power trajectory delivers, and it ignores the energy produced
+during startup and shutdown~\cite{moralesespana2017hidden}.  The
+power-based formulation of Morales-Espa\~na, Gentile and
+Ramos~\cite{moralesespana2015powerbased} is selected globally or per
+unit (\texttt{uc\_formulation = "power\_based"}; the energy-block
+formulation is the default).  It schedules the instantaneous power at
+the block boundaries $\varsigma_0 < \dots < \varsigma_B$ and derives
+each block energy from it.  Omitting the indices $g, s, t$, let $k(b)$
+be the commitment period of block~$b$, $k^+(b)$ the next one,
+$E_b = 1$ when $\varsigma_b$ ends a period and $T_k$ the start of
+period~$k$.  The total power at boundary~$b$ is
+\begin{multline}
+\label{eq:pb_power}
+\hat p_b = \underline{P}\bigl(u_{k(b)} + E_b\, v_{k^+(b)}\bigr)
+  + p^\text{a}_b \\
+  + \sum_k f^\text{SU}(T_k - \varsigma_b)\, v_k
+  + \sum_k f^\text{SD}(\varsigma_b - T_k)\, w_k ,
+\end{multline}
+where $p^\text{a}_b \geq 0$ is the power above the minimum output and
+$f^\text{SU}$, $f^\text{SD}$ are the piecewise-linear startup and
+shutdown trajectories (zero for a quick-start unit).  The generation
+column read by the bus balance, the costs, the fuel and emission
+balances and any storage behind the unit is the trapezoid of the
+boundary powers,
+\begin{equation}
+\label{eq:pb_trap}
+p_b = \tfrac12 \bigl(\hat p_{b-1} + \hat p_b\bigr),
+\end{equation}
+so every other element sees the trajectory energy, including the
+startup and shutdown energy, and the storage balances remain exactly
+conservative.  The capacity and ramp rows are written on the boundary
+powers with the up and down reserve provisions $r^{\pm}_b$ of the unit,
+following the power-capacity and ramp-capability reserves
+of~\cite{moralesespana2016reserves}:
+\begin{align}
+p^\text{a}_b + \textstyle\sum r^{+}_b &\leq
+  (\overline{P} - \underline{P})\, u_{k(b)}
+  - E_b (\overline{P} - SD)\, w_{k^+(b)} \notag \\
+  &\quad + E_b (SU - \underline{P})\, v_{k^+(b)},
+  \label{eq:pb_cap} \\
+p^\text{a}_b - p^\text{a}_{b-1} + \textstyle\sum r^{+}_b &\leq
+  R^\text{up} \Delta^\text{r}_b\, u_{k(b)} \notag \\
+  &\quad + E_b (SU - \underline{P})\, v_{k^+(b)},
+  \label{eq:pb_ramp}
+\end{align}
+with $p^\text{a}_b \geq \sum r^{-}_b$, and symmetrically for the ramp
+down.  Since the power is linear between
+the boundaries, \eqref{eq:pb_ramp} bounds the instantaneous ramp
+exactly, and every scheduled reserve is deliverable from the previous
+boundary.  When a commitment period is a single block, a shutdown
+followed by a startup would let the trapezoid of the ``off'' block run
+from $SD$ to $SU$; two additional rows force both boundaries of such an
+outage to the minimum output, a deliberate tightening of the published
+model.  The binaries stay on the commitment grid of
+Section~\ref{sec:uc}, so a finer power grid adds continuous variables
+only.  The bus balance remains an energy balance per block, whose dual
+is the block energy price; the power balance at the boundaries is not
+modelled.  The formulation applies to chronological block stages;
+non-chronological stages keep the block formulation of
+Section~\ref{sec:sc}, point-sampled stages already sample the power at
+their nodes, and expandable units fall back to the energy-block rows
+with a warning.
+
+\subsection{Commitment on Non-Chronological Stages}
 \label{sec:sc}
 
-The \texttt{SimpleCommitment} element provides a lightweight commitment
-variant for generators that require minimum-output enforcement without
-the full startup/shutdown tracking overhead.  It introduces a single
-binary status variable per block:
-\begin{equation}
-u_{g,s,t,b}^{\text{sc}} \;\in\; \{0,1\}
-\qquad \forall \; g \in \setUC,\; s,t,b
-\label{eq:sc_var}
-\end{equation}
-with generation bounds:
+The formulation of Section~\ref{sec:uc} requires ordered blocks.  On a
+stage whose blocks are not chronological (load-duration or
+representative blocks), the same \texttt{Commitment} element builds a
+\emph{block formulation}: one status variable per block and no
+startup or shutdown variables,
 \begin{align}
-p_{g,s,t,b}
-  &\leq \overline{P}_{g,t,b}\,u_{g,s,t,b}^{\text{sc}}
+u_{g,s,t,b} &\in \{0,1\}
+\label{eq:sc_var} \\
+p_{g,s,t,b} &\leq \overline{P}_{g,t,b}\,u_{g,s,t,b}
   \label{eq:sc_upper} \\
-p_{g,s,t,b}
-  &\geq \underline{P}_{g,t,b}^{d}\,u_{g,s,t,b}^{\text{sc}}
+p_{g,s,t,b} &\geq \underline{P}^{c}_{g,t,b}\,u_{g,s,t,b}
   \label{eq:sc_lower}
 \end{align}
-where $\underline{P}_{g,t,b}^{d}$ (\texttt{dispatch\_pmin}) is the
-minimum output when dispatched, defaulting to the generator's
-$\underline{P}_g$ when unset.  When the generator is offline ($u = 0$),
-generation is forced to zero; when online ($u = 1$), generation must lie
-in $[\underline{P}_{g}^{d}, \overline{P}_{g}]$.
+with the no-load cost $\pi_s \delta_t c^\text{nl}_g \Delta_b
+u_{g,s,t,b}$ in the objective and the no-load fuel in the fuel and
+emission balances.  Startup and shutdown costs, ramps and minimum
+up/down times need chronology and are ignored on such a stage.  Reserve
+gating (Section~\ref{sec:reserve}) and inertia
+(Section~\ref{sec:inertia}) use the same rows in both formulations, and
+on a chronological stage without intertemporal data the two give the
+same optimum.  A model can therefore mix chronological operating days
+with load-duration stages in one horizon while keeping the commitment
+of the same units.
 
-Unlike the full \texttt{Commitment} element (Section~\ref{sec:uc}),
-\texttt{SimpleCommitment}:
-\begin{itemize}
-  \item Has no startup/shutdown variables $v$, $w$ or associated costs
-  \item Has no minimum up/down time constraints
-  \item Has no ramp limits
-  \item Has no no-load cost
-  \item Has no commitment-period abstraction (binary per dispatch block)
-  \item Does \emph{not} require chronological stages
-\end{itemize}
-This lighter formulation is sufficient for daily unit commitment in many
-hydrothermal systems and for PLP-style inertia modeling where only the
-online/offline status matters.  When \texttt{must\_run}~$=$ true, the
-column is clamped to $u_{g,s,t,b}^{\text{sc}} = 1$ via lower bound
-$\underline{u}^{\text{sc}} = 1$.  When \texttt{relax}~$=$ true or in
-SDDP continuous phases, the integrality is dropped and
-$u_{g,s,t,b}^{\text{sc}} \in [0,1]$.
+\paragraph{Prices of a unit-commitment MIP.}
+A MIP has no duals, so the nodal prices of a commitment run come from
+an LP derived from the incumbent.  In the default \emph{fixed} mode all
+integer variables are fixed at the incumbent; in the \emph{relaxed}
+mode the LP relaxation of the full MIP is used, which brings the
+startup and no-load costs into the prices; and in the \emph{fast-start}
+mode only the units that can start and stop within the pricing interval
+are relaxed~\cite{oneill2005pricing, hua2017convexhull}.  The dispatch
+is the MIP solution in every mode, and a companion tool computes the
+make-whole and lost-opportunity uplift of each mode.
 
 \subsection{Emissions}
 \label{sec:emission}
@@ -936,13 +1244,30 @@ p_{g,s,t,b} \geq r_{p,s,t,b}^{H}
 \end{equation}
 The conversion factor from MW dispatch to MWs of inertia is:
 \begin{equation}
-\Phi_{p,t} = \frac{H_p \cdot S_p}{\underline{P}_g}
+\Phi_{p,t} = \frac{H_p \cdot S_p}{\underline{P}^c_g}
 \end{equation}
-where $H_p$ [s] is the machine inertia constant and $S_p$ [MVA] is the
-rated apparent power.  A user-specified \texttt{provision\_factor} may
+where $H_p$ [s] is the machine inertia constant, $S_p$ [MVA] is the
+rated apparent power and $\underline{P}^c_g$ is the committed minimum
+output of the unit.  A user-specified \texttt{provision\_factor} may
 override this formula.  Shortage is penalized at the zone's
 \texttt{cost} [\$/MWs], enabling the optimizer to trade off committed
 generation against inertia value.
+
+A requirement can also be relieved when enough units of a set
+$\setG_j$ are online, as in operating rules that lower the minimum
+inertia once a given number of synchronous units is committed.  Each
+credit~$j$, with relief $c_j$ [MWs] and unit count $k_j$, adds a
+selector $y_j \in [0,1]$ to~\eqref{eq:inertia_req}:
+\begin{equation}
+\label{eq:inertia_credit}
+\sum_{p} \Phi_{p,t} r^H_{p,s,t,b} + \sum_j c_j y_j
+  \geq \overline{R}^H_{z,t,b},
+\qquad
+k_j y_j \leq \sum_{g \in \setG_j} u_{g,s,t,b}.
+\end{equation}
+With a continuous selector the relief is the convex, piecewise-linear
+function $c_j \min(1, n_j/k_j)$ of the number $n_j$ of committed units;
+a binary selector gives the exact step.
 
 \subsection{Water Rights and Irrigation Agreements}
 \label{sec:rights}
@@ -1098,6 +1423,16 @@ system JSON, keeping each agreement self-contained.
 The \texttt{plp2gtopt} converter generates these templates automatically
 from the parsed Fortran agreement parameters.
 
+User constraints can also reference user-declared \emph{decision
+variables} (continuous, integer or relaxable) with a block, stage, phase
+or global scope.  A global variable in a multi-phase run takes one value
+across all phases and is carried by SDDP as an implicit state variable.
+A \emph{nonanticipative} global variable takes one value across all
+scenes, i.e.\ a here-and-now decision such as an LNG cargo calendar
+fixed before the hydrology is known: the scenes are then merged into
+one extensive-form LP per phase, in which every scenario keeps its own
+data, probability and state while sharing that column.
+
 \subsubsection{Volume-Dependent Dynamic Bounds}
 
 A key feature of irrigation agreements is that the available rights
@@ -1111,10 +1446,13 @@ reservoir fills:
 \Bigr)
 \end{equation}
 where $(V_k, m_k, c_k)$ are breakpoints of a piecewise-linear function
-and $V$ is the current volume of the source reservoir.  At each SDDP
+and $V$ is the volume of the source reservoir at the start of the
+stage.  At each SDDP
 iteration, the bound is re-evaluated from the forward-pass reservoir
 volume and applied via \texttt{set\_col\_upp} on the corresponding flow
-or extraction column.
+or extraction column.  The input of a rule may also be the calendar
+month of the stage instead of a reservoir volume, so that a monthly
+modulation table is a single twelve-segment rule.
 
 Table~\ref{tab:laja_zones} illustrates the Laja volume zone
 allocation.
@@ -1195,9 +1533,9 @@ C19 & Pump power--flow coupling     & \eqref{eq:pump}             & $h,s,t,b$ \\
 C20 & LNG tank volume balance       & \eqref{eq:lng_balance}      & $\tau,s,t,b$ \\
 C21 & Unit commitment logic (3-bin) & \eqref{eq:uc_logic}         & $g,s,t,p$ \\
 C22 & UC generation bounds          & \eqref{eq:uc_bounds}        & $g,s,t,b$ \\
-C23 & Simple commitment variable    & \eqref{eq:sc_var}           & $g,s,t,b$ \\
-C24 & SC generation bounds (upper)  & \eqref{eq:sc_upper}         & $g,s,t,b$ \\
-C25 & SC generation bounds (lower)  & \eqref{eq:sc_lower}         & $g,s,t,b$ \\
+C23 & Block commitment status       & \eqref{eq:sc_var}           & $g,s,t,b$ \\
+C24 & Block commitment (upper)      & \eqref{eq:sc_upper}         & $g,s,t,b$ \\
+C25 & Block commitment (lower)      & \eqref{eq:sc_lower}         & $g,s,t,b$ \\
 C26 & Inertia zone requirement      & \eqref{eq:inertia_req}      & $z,s,t,b$ \\
 C27 & Inertia provision coupling    & \eqref{eq:inertia_coupling} & $p,s,t,b$ \\
 C28 & Loss tangents (signed flow)   & \eqref{eq:loss_tangent}     & $\ell,s,t,b,k$ \\
@@ -1214,6 +1552,16 @@ C38 & SLP proximal row              & \eqref{eq:gas_proximal}     & $a,s,t,b$ \\
 C39 & Compressor electric motor     & \eqref{eq:gas_motor}        & $c,s,t,b$ \\
 C40 & LNG soft floor / final target & \eqref{eq:lng_efin}         & $\tau,s,t$ \\
 C41 & Fuel offtake cap / ToP floor  & \eqref{eq:fuel_max}         & $f,s,t$ \\
+C42 & Battery mode floors           & \eqref{eq:bat_modes}        & $e,s,t,b$ \\
+C43 & Charge/discharge exclusivity  & \eqref{eq:bat_exclusive}    & $e,s,t,b$ \\
+C44 & Dynamic reserve planes        & \eqref{eq:reserve_planes}   & $z,b,k$ \\
+C45 & BESS reserve deliverability   & \eqref{eq:bess_res_power}--\eqref{eq:bess_res_energy} & $e,s,t,b$ \\
+C46 & Inertia commitment credits    & \eqref{eq:inertia_credit}   & $z,j,s,t,b$ \\
+C47 & Point-stage storage (CC)      & \eqref{eq:point_cc}         & $e,s,t,b$ \\
+C48 & Point-stage storage (banded)  & \eqref{eq:point_banded}     & $e,s,t,b$ \\
+C49 & Thermal limit with losses     & \eqref{eq:thermal_full}     & $\ell,s,t,b$ \\
+C50 & Power-based boundary power    & \eqref{eq:pb_power}--\eqref{eq:pb_trap} & $g,s,t,b$ \\
+C51 & Power-based capacity and ramp & \eqref{eq:pb_cap}--\eqref{eq:pb_ramp} & $g,s,t,b$ \\
 \bottomrule
 \end{tabular}
 \end{table}

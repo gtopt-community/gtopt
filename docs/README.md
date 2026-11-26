@@ -8,6 +8,7 @@ project, then the **[Planning Guide](planning-guide.md)**.
 | Document | Contents |
 |---|---|
 | [Understanding GTOpt](overview.md) | What GTOpt does, architecture, data flow, repository layout |
+| [What's New](whats-new.md) | Recent capabilities, with links to their documentation |
 | [Planning Guide](planning-guide.md) | Time structure, system elements, JSON format, worked examples and the first-solve walkthrough |
 | [Usage Guide](usage.md) | Command-line reference, outputs, advanced usage |
 | [Building Guide](../BUILDING.md) | Build from source on every platform, build options, troubleshooting |

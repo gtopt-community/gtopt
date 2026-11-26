@@ -31,7 +31,7 @@ cucdata2gtopt --system 39 --reserve 5  -o cuc/
 cucdata2gtopt --system 118 --reserve 5   -o cuc/
 cucdata2gtopt --system 118 --reserve 2.5 -o cuc/
 
-cd cuc && gtopt cuc39_r10_s10.json --solver cplex --mip-gap 1e-4
+cd cuc && gtopt cuc39_r10_s10.json --mip-gap 1e-4
 ```
 
 `python -m cucdata2gtopt …` works too (run from `scripts/`).  The
@@ -52,6 +52,7 @@ Table I reports the same quantity in millions.
 | `--input XLSX` | — | read this workbook instead of the cache |
 | `--cache-dir DIR` | `$GTOPT_CUCDATA_DIR` or `~/.cache/gtopt/cucdata` | download cache |
 | `--fetch-only` | — | download every file of the manifest and exit |
+| `-v, --verbose` | off | debug logging |
 
 `GTOPT_OFFLINE=1` forbids downloads (a missing file then exits with
 code 2).  The CLI is kept stable for the gtopt-cases prep script that
