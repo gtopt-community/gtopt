@@ -43,7 +43,7 @@ jobs:
 
       - name: Install lint dependencies
         run: |
-          pip install markdown-it-py mdit-py-plugins pytest
+          pip install markdown-it-py mdit-py-plugins pytest pytest-xdist
           npm ci --prefix tools/latex_lint --no-audit --no-fund
 
       - name: Test the lint
