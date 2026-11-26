@@ -10,6 +10,18 @@
 
 set -euo pipefail
 
+# LaTeX math in staged Markdown: same check as the Docs workflow
+# (tools/check_latex_math.py), so a broken formula fails here, not in CI.
+mapfile -t staged_md < <(
+  git diff --cached --name-only --diff-filter=ACM | grep -E '\.md$' || true
+)
+if [[ ${#staged_md[@]} -gt 0 && -f tools/check_latex_math.py ]]; then
+  if ! python3 tools/check_latex_math.py "${staged_md[@]}"; then
+    echo "pre-commit: LaTeX math lint failed (python3 tools/check_latex_math.py)" >&2
+    exit 1
+  fi
+fi
+
 # C/C++ extensions that clang-format handles
 CF_EXTENSIONS="h|c|hpp|cpp|hxx|cxx|hh|cc|ipp|inc|inl"
 
