@@ -144,6 +144,7 @@ endif()
 # by any sub-project.
 enable_testing()
 include(TestParallelism)
+include(TestPrivateTmpdir)
 
 # ---- Subprojects ----
 

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Keep the clangd / clang-tidy compile DB (build-tidy/, the target of the
+# untracked ./compile_commands.json symlink) in step with the sources.
+# A .cpp that arrives with a pull/merge has no DB entry, so clangd falls
+# back to guessed flags and reports bogus errors (unknown members, missing
+# includes).  Only runs when build-tidy/ already exists; reconfigures in
+# the background so the merge returns at once.  Optional solver plugins
+# and the opt-in benchmark tests have no DB entry by design and are skipped.
+set -u
+top=$(git rev-parse --show-toplevel) || exit 0
+db="$top/build-tidy/compile_commands.json"
+[ -f "$db" ] || exit 0
+missing=$(git -C "$top" ls-files 'source/*.cpp' 'test/source/*.cpp' \
+  | grep -v '/test_benchmark_' \
+  | while read -r f; do grep -qF "/$f\"" "$db" || { echo "$f"; break; }; done)
+[ -n "$missing" ] || exit 0
+echo "post-merge: $missing has no entry in build-tidy; refreshing the compile DB in the background"
+( cd "$top" && nice -n 19 cmake -S all -B build-tidy >build-tidy/refresh.log 2>&1 \
+    || echo "post-merge: compile DB refresh failed, see build-tidy/refresh.log" ) &
+exit 0

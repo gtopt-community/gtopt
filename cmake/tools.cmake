@@ -17,7 +17,8 @@ if(USE_SANITIZER OR USE_STATIC_ANALYZER)
   # variable (later commits switched to `add_sanitizer_support()`).  The
   # previous pin `24.08.1` does not exist upstream, so configuring with
   # -DUSE_SANITIZER=... failed at the git-clone step.
-  CPMAddPackage("gh:StableCoder/cmake-scripts#24.04.1")
+  # 24.04.1, pinned by commit
+  CPMAddPackage("gh:StableCoder/cmake-scripts#45f72fdc2d715030c6cb61e3d5977811ea45abda")
 
   if(USE_SANITIZER)
     include(${cmake-scripts_SOURCE_DIR}/sanitizers.cmake)
